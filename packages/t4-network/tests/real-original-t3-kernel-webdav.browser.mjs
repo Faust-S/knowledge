@@ -38,8 +38,10 @@ import {reconcileT4OriginalMutationIntent}
   from '../src/network/original-object-intent-recovery.mjs';
 import {createT4OriginalHostCaptureAdapter}
   from '../src/network/original-host-capture-adapter.mjs';
-import {publishT4OriginalHostOutbox}
+import {publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork}
   from '../src/network/original-host-outbox-delivery.mjs';
+import {createT4OriginalHostOutboxDispatcher}
+  from '../src/network/original-host-outbox-dispatcher.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
   from '../src/network/network-topology.mjs';
 import {prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
@@ -1700,6 +1702,91 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return kernel.t1.putRelation(input);
         },{SERVICE,input}),
       };
+      // Trusted original Host invokes bounded work on its own task tick.
+      // All delivery records live in the original source T3 technical Workspace.
+      const dispatchFrontierRef='t4:host:frontier:'+randomUUID();
+      assert.equal(await persistSourceTechnical('network-frontier',{
+        schema:'IWXA_T4_ORIGINAL_HOST_DISPATCH_FRONTIER_V1',
+        captureRef:dispatchFrontierRef,workspaceId,
+        originalWriteOwnerRef:'original:t2:exchange',
+        originalCursor:recoveredSource.nextCursor,
+      }),true);
+      const capturedDispatchRefs=[
+        ...capturedAssetMutations.map(item=>item.captureRef),
+        missingRelationAckCaptureRef,
+      ];
+      let scheduledNetworkPutCount=0;
+      const scheduledTransport={
+        ...deltaTransport,
+        putSnapshot:async input=>{
+          scheduledNetworkPutCount++;
+          return deltaTransport.putSnapshot(input);
+        },
+      };
+      const hostDispatchPorts={
+        ...originalOutboxNetworkArgs(
+          'ASSET_PUT',capturedAssetMutations[0].captureRef,capturedAssetId),
+        networkTargetRef:'node:qualified-apache',
+        authorizeOriginalWrite:async ctx=>actual.grants.includes(ctx.operation),
+        readOriginalDeliveryFrontier:async()=>{
+          const stored=await readSourceTechnical('network-frontier',
+            dispatchFrontierRef);
+          return stored?.originalCursor??null;
+        },
+        listOriginalOutbox:async()=>Promise.all(
+          capturedDispatchRefs.map(ref=>readSourceTechnical('outbox',ref))),
+        readOriginalDeliveryAttempt:ctx=>readSourceTechnical(
+          'network-attempt',ctx.captureRef),
+        persistOriginalDeliveryAttempt:payload=>persistSourceTechnical(
+          'network-attempt',payload),
+        readOriginalDeliveryCheckpoint:ctx=>readSourceTechnical(
+          'network-checkpoint',ctx.captureRef),
+        persistOriginalDeliveryCheckpoint:payload=>persistSourceTechnical(
+          'network-checkpoint',payload),
+        transport:scheduledTransport,
+      };
+      const runOriginalHostDispatchTask=maxEntries=>deltaRoute('delta.push',
+        ()=>actual.grants.includes('t1.getObject')&&
+          actual.grants.includes('t1.getAsset'),
+        ()=>createT4OriginalHostOutboxDispatcher(hostDispatchPorts).drain({
+          maxEntries,
+        }));
+      const dispatchFirst=await runOriginalHostDispatchTask(1);
+      assert.equal(dispatchFirst.newlyVerifiedCount,1);
+      assert.equal(dispatchFirst.hasMore,true);
+      assert.equal(scheduledNetworkPutCount,1);
+      assert.ok(await readSourceTechnical('network-attempt',
+        capturedAssetMutations[0].captureRef));
+      assert.ok(await readSourceTechnical('network-checkpoint',
+        capturedAssetMutations[0].captureRef));
+      // Cold restart AFTER first publication and BEFORE later operations.
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      assert.ok(await readSourceTechnical('network-frontier',dispatchFrontierRef));
+      const dispatchSecond=await runOriginalHostDispatchTask(1);
+      assert.equal(dispatchSecond.previouslyVerifiedCount,1);
+      assert.equal(dispatchSecond.newlyVerifiedCount,1);
+      assert.equal(dispatchSecond.hasMore,true);
+      const dispatchThird=await runOriginalHostDispatchTask(1);
+      assert.equal(dispatchThird.previouslyVerifiedCount,2);
+      assert.equal(dispatchThird.newlyVerifiedCount,1);
+      assert.equal(dispatchThird.hasMore,false);
+      const dispatchIdle=await runOriginalHostDispatchTask(1);
+      assert.equal(dispatchIdle.previouslyVerifiedCount,3);
+      assert.equal(dispatchIdle.newlyVerifiedCount,0);
+      assert.equal(dispatchIdle.hasMore,false);
+      assert.equal(scheduledNetworkPutCount,3);
+      for(const ref of capturedDispatchRefs){
+        const attempted=await readSourceTechnical('network-attempt',ref);
+        const checkpoint=await readSourceTechnical('network-checkpoint',ref);
+        const exact=await readSourceTechnical('outbox',ref);
+        assert.equal(attempted.sha256,exact.sha256);
+        assert.equal(checkpoint.sha256,exact.sha256);
+      }
+      assert.equal((await independentAssetRecipient.getAsset(
+        workspaceId,capturedAssetId)),null);
+
       for(const [index,item] of capturedAssetMutations.entries()){
         const {captureRef,text,created}=item;
         const stored=await readSourceTechnical('outbox',captureRef);
@@ -1707,7 +1794,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal(packageSha256(recoveredBytes),stored.sha256);
         const sent=await deltaRoute('delta.push',
           ()=>actual.grants.includes('t1.getAsset'),
-          ()=>publishT4OriginalHostOutbox(originalOutboxNetworkArgs(
+          ()=>inspectT4OriginalHostOutboxNetwork(originalOutboxNetworkArgs(
             'ASSET_PUT',captureRef,capturedAssetId)));
         const received=await deltaRoute('delta.pull',
           ()=>receiving.operations.includes('t1.getAsset'),
@@ -1754,7 +1841,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(packageSha256(savedRelationBytes),relationStaged.sha256);
       const hostRelationSent=await deltaRoute('delta.push',
         ()=>actual.grants.includes('t1.getObject'),
-        ()=>publishT4OriginalHostOutbox(originalOutboxNetworkArgs(
+        ()=>inspectT4OriginalHostOutboxNetwork(originalOutboxNetworkArgs(
           'RELATION_PUT',missingRelationAckCaptureRef,capturedRelationId)));
       const hostRelationReceived=await deltaRoute('delta.pull',
         ()=>receiving.operations.includes('t1.getObject'),
@@ -1797,6 +1884,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalSourceRelationNotRetried:true,
           originalT3TechnicalOutboxRestored:true,
           originalHostOutboxPublisherUsedForObjectAssetRelation:true,
+          originalHostOrderedDispatcherUsedForAssetAndRelation:true,
+          originalHostDispatchNetworkPutCount:scheduledNetworkPutCount,
+          originalHostDispatchColdRestartBetweenBatches:true,
+          originalHostDispatchCheckpointsDurableInRealT3:true,
+          originalHostDispatchIdleTickNoDuplicatePut:true,
           originalT3RecipientAssetRevision:2,
           originalT3RecipientRelationCreated:true,
           originalRecipientCursorsVerified:true,
