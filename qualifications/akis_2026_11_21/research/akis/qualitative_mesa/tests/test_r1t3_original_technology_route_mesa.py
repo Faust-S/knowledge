@@ -446,3 +446,19 @@ def test_r1t3_same_source_route_cannot_be_proposed_twice():
         "ORIGINAL_TECHNOLOGY_ROUTE_PROPOSAL_EXISTS"
     )
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1t3_strict_original_kpb_never_implicitly_grants_cross_owner_route_source_right():
+    from types import SimpleNamespace
+    from research.akis.qualitative_mesa.rules import QualitativeAKIS
+    from .test_rules import fixture
+
+    original = QualitativeAKIS(fixture())
+    # Keep the initial original event model, but explicitly turn on the
+    # preexisting strict context rights boundary for this event only.
+    original.context_basis = SimpleNamespace(strict=True)
+    outcome = original.apply({
+        "at": 2, "action": "technology_route_propose", "actor": "a",
+    }, 2)
+    assert outcome["reason"] == "TECHNOLOGY_ROUTE_SOURCE_RIGHTS_NOT_QUALIFIED"
+    assert original.works["w1"].result == "NOT_SUBMITTED"

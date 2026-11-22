@@ -412,10 +412,18 @@ class QualitativeAKIS:
             elif action == "model_code_function_response":
                 qualify_model_code_function_response(self, ev, at)
             elif action == "technology_route_propose":
+                if self.context_basis is not None and self.context_basis.strict:
+                    raise BlockedDecision(
+                        "TECHNOLOGY_ROUTE_SOURCE_RIGHTS_NOT_QUALIFIED"
+                    )
                 technology_route_evidence = qualify_original_technology_route_proposal(
                     self, ev, at
                 )
             elif action == "technology_route_response":
+                if self.context_basis is not None and self.context_basis.strict:
+                    raise BlockedDecision(
+                        "TECHNOLOGY_ROUTE_SOURCE_RIGHTS_NOT_QUALIFIED"
+                    )
                 qualify_original_technology_route_response(self, ev, at)
             elif action == "model_code_apply":
                 candidate = qualify_model_code_apply(
