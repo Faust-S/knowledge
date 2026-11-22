@@ -142,7 +142,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/Center
-          ref: a57240d08b4e3ae31734f085383b5a818035bcd5
+          ref: 867466a2ed6b6743bd798d59462cfc551fe01780
           persist-credentials: false
           path: .private/center
       - name: Stage original Atlas owner
@@ -156,7 +156,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/Br-test
-          ref: 07df66ab6bd3e1b87036c33b90e49d228d5ab820
+          ref: 7cfb17870042cac824644140b7f0a587e244a20e
           persist-credentials: false
           path: .private/center/vendor/brtest
       - uses: actions/setup-node@v4
@@ -173,7 +173,7 @@ jobs:
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
           if($t3 -cne '63d9f4b083477b134275ab000850bc2ce7d20399' -or
-             $center -cne 'a57240d08b4e3ae31734f085383b5a818035bcd5'){
+             $center -cne '867466a2ed6b6743bd798d59462cfc551fe01780'){
             throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
           }
           Add-Content -LiteralPath '.git/info/exclude' -Value '/.private/'
@@ -261,7 +261,7 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
-          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'a57240d08b4e3ae31734f085383b5a818035bcd5' -ExpectedT3Sha '63d9f4b083477b134275ab000850bc2ce7d20399'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha '867466a2ed6b6743bd798d59462cfc551fe01780' -ExpectedT3Sha '63d9f4b083477b134275ab000850bc2ce7d20399'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
       - name: Native Windows original signed D2 DATA and two independent cold UIA reads
