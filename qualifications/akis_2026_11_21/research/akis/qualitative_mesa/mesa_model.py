@@ -190,7 +190,7 @@ class OperatorAKISModel(mesa.Model):
         "initial_subject_evaluation", "goal_source_available", "goal_source_expired",
         "request", "offer", "authorize", "resource_status", "change_mode", "exclude", "commit",
         "complete", "reject", "resubmit", "accept", "source_update", "resource_calendar_update",
-        "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response",
+        "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response",
         "economic_outlook_available", "economic_outlook_expired",
         "joint_purchasing_quote_change",
         "owner_finance_source_available", "owner_finance_source_expired",
