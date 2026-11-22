@@ -53,7 +53,8 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
     history = {}
     for row in raw:
         required = {"work", "reuse_claim", "comparison_source", "equivalence", "owner_scope"}
-        if not isinstance(row, dict) or set(row) != required:
+        if (not isinstance(row, dict) or
+                set(row) not in (required, required | {"onboarding_zero_proofs"})):
             raise WorkCounterfactualInputError("COUNTERFACTUAL_FIELDS_INVALID")
         work_id = _id(row["work"], "COUNTERFACTUAL_WORK_INVALID")
         if work_id not in state.works or work_id in history:
@@ -94,7 +95,31 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                 )):
                     raise WorkCounterfactualInputError("COUNTERFACTUAL_OWNER_PROOF_BOOLEANS_REQUIRED")
                 owner_proofs[sc][owner] = proof
-        history[work_id] = (claim, eq, owner_proofs, proof_source)
+        # Explicit per-original-owner category attestations: absence of a
+        # classified resource cost is UNKNOWN, never an inferred zero.
+        zero = row.get("onboarding_zero_proofs")
+        zero_by_scenario = {sc: {} for sc in SCENARIOS}
+        if zero is not None:
+            if not isinstance(zero, dict) or set(zero) != set(SCENARIOS):
+                raise WorkCounterfactualInputError("COUNTERFACTUAL_NINE_ZERO_SCENARIOS_REQUIRED")
+            for sc in SCENARIOS:
+                mapped = zero[sc]
+                if not isinstance(mapped, dict) or not set(mapped) <= names:
+                    raise WorkCounterfactualInputError("COUNTERFACTUAL_NINE_ZERO_OWNER_INVALID")
+                for owner, proofs_for_categories in mapped.items():
+                    if owner not in owner_proofs[sc]:
+                        raise WorkCounterfactualInputError("COUNTERFACTUAL_NINE_ZERO_OWNER_SCOPE_MISSING")
+                    if not isinstance(proofs_for_categories, dict):
+                        raise WorkCounterfactualInputError("COUNTERFACTUAL_NINE_ZERO_CATEGORY_MAP_INVALID")
+                    verified = {}
+                    for category, source in proofs_for_categories.items():
+                        if category not in ONBOARDING_CATEGORIES:
+                            raise WorkCounterfactualInputError("COUNTERFACTUAL_NINE_ZERO_CATEGORY_INVALID")
+                        if not isinstance(source, str) or sources.get(source, {}).get("owner") != owner:
+                            raise WorkCounterfactualInputError("COUNTERFACTUAL_NINE_ZERO_OWNER_SOURCE_INVALID")
+                        verified[category] = source
+                    zero_by_scenario[sc][owner] = verified
+        history[work_id] = (claim, eq, owner_proofs, proof_source, zero_by_scenario)
     results = []
     raw_transfers = econ["transfers"]
     raw_resource_uses = econ["resource_uses"]
@@ -109,7 +134,7 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
         # Full assignment to any other original Work is NOT an additional
         # unattributed expense for this Work; partial assignment is UNKNOWN.
         return Decimal(remainders.get(original["id"], original["amount"])) > 0
-    for work_id, (claim, eq, proofs, comparison_source) in history.items():
+    for work_id, (claim, eq, proofs, comparison_source, zero_by_scenario) in history.items():
         work = state.works[work_id]
         actor_status = {}
         per_scenario = {}
@@ -201,9 +226,68 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                                        if use["id"] in noncash_slices
                                        else Decimal(use["amount"]))
                         stage_costs[category] = stage_costs.get(category, Decimal(0)) + cost_amount
-                onboarding_9 = sorted({modern[use["id"]]["category"] for use in resource + allocated_resource
-                                       if use["id"] in modern and
-                                       modern[use["id"]]["category"] in ONBOARDING_CATEGORIES})
+                scoped_costs = {}
+                unclassified_onboarding_ids = []
+                legacy_unqualified_ids = []
+                for use in resource + allocated_resource:
+                    original_id = use["id"]
+                    classification = modern.get(original_id, {}).get("category")
+                    if classification in ONBOARDING_CATEGORIES:
+                        amount = (Decimal(noncash_slices[original_id])
+                                  if original_id in noncash_slices
+                                  else Decimal(use["amount"]))
+                        scoped_costs[classification] = (
+                            scoped_costs.get(classification, Decimal(0)) + amount
+                        )
+                    elif classification in {
+                        "context_process_basis", "rights_and_permissions",
+                        "access_configuration", "training"
+                    }:
+                        legacy_unqualified_ids.append(original_id)
+                    elif (lifecycle_by_resource.get(original_id, {}).get("stage")
+                          == "ONBOARDING_AND_INTEGRATION"):
+                        # An original onboarding use with no exact author
+                        # category cannot disappear behind an explicit zero.
+                        unclassified_onboarding_ids.append(original_id)
+                zero_sources = zero_by_scenario[sc].get(owner, {})
+                collisions = sorted(set(scoped_costs) & set(zero_sources))
+                if collisions:
+                    raise WorkCounterfactualInputError(
+                        "COUNTERFACTUAL_NINE_ZERO_CONTRADICTS_ORIGINAL_USE"
+                    )
+                by_author_category = {}
+                missing = []
+                for category in ONBOARDING_CATEGORIES:
+                    if category in scoped_costs:
+                        amount = _money(scoped_costs[category])
+                        kind = "ORIGINAL_SOURCE_DECLARED_NONCASH_RESOURCE_COST"
+                    elif category in zero_sources:
+                        amount = "0.00"
+                        kind = "OWNER_SOURCE_ASSERTED_CATEGORY_ZERO_MODEL_ONLY"
+                    else:
+                        amount = None
+                        kind = "CATEGORY_COST_OR_DECLARED_ZERO_UNKNOWN"
+                        missing.append(category)
+                    by_author_category[category] = {
+                        "status": kind,
+                        "noncash_original_resource_cost": amount,
+                    }
+                if unclassified_onboarding_ids:
+                    reasons.append("ORIGINAL_ONBOARDING_USES_WITHOUT_EXACT_NINE_CATEGORY")
+                if legacy_unqualified_ids:
+                    reasons.append("HISTORICAL_LEGACY_TAG_IS_NOT_EXACT_AUTHOR_COST")
+                onboarding_9 = sorted(scoped_costs)
+                nine_complete = not missing and not reasons
+                private_liquidity = economic_view.get("cash_timing", {}).get(
+                    "per_original_owner_private_research_projection", {}
+                )
+                payment_rows = economic_view.get("work_payment_causality", {}).get(
+                    "bindings", []
+                )
+                scoped_payment = [
+                    payment for payment in payment_rows
+                    if payment.get("original_work") == work_id
+                ]
                 party_data[owner] = {
                     "kind": state.subjects[owner].kind,
                     "original_work_cash_from_existing_transfers": _money(cash),
@@ -216,6 +300,21 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                     "unallocated_common_cash_count": len(unallocated_cash),
                     "declared_lifecycle_stage_costs": {k:_money(v) for k,v in sorted(stage_costs.items())},
                     "historical_nine_onboarding_categories_with_bound_rows": onboarding_9,
+                    "onboarding_nine_author_category_costs": by_author_category,
+                    "onboarding_nine_missing_category_proofs": missing,
+                    "onboarding_nine_unknown_category_count": len(missing),
+                    "onboarding_nine_exact_source_scope_complete": nine_complete,
+                    "onboarding_nine_original_noncash_total_separate_from_cash": (
+                        _money(sum(scoped_costs.values(), Decimal(0)))
+                        if nine_complete else None
+                    ),
+                    "onboarding_nine_legacy_unqualified_original_use_count": len(legacy_unqualified_ids),
+                    "onboarding_nine_unclassified_original_use_count": len(unclassified_onboarding_ids),
+                    "owner_private_declared_liquidity_status": private_liquidity.get(
+                        owner, {}
+                    ).get("status", "NOT_QUALIFIED"),
+                    "work_payment_model_source_claim_count": len(scoped_payment),
+                    "work_payment_claims_do_not_prove_bank_settlement": True,
                     "status": ("MODEL_WORK_SCOPE_ARITHMETIC_ELIGIBLE" if not reasons
                                else "WORK_ECONOMIC_SOURCE_SCOPE_INCOMPLETE"),
                     "reasons": reasons,
@@ -231,6 +330,21 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
             c = per_scenario["COOPERATION"]["owners"][owner]
             alt = per_scenario["INDEPENDENT_ALTERNATIVE"]["owners"][owner]
             okay = not global_reasons and c["status"] == alt["status"] == "MODEL_WORK_SCOPE_ARITHMETIC_ELIGIBLE"
+            nine_comparable = (
+                okay and c["onboarding_nine_exact_source_scope_complete"]
+                and alt["onboarding_nine_exact_source_scope_complete"]
+            )
+            nine_by_category = (
+                {
+                    category: _money(
+                        Decimal(alt["onboarding_nine_author_category_costs"][
+                            category]["noncash_original_resource_cost"]) -
+                        Decimal(c["onboarding_nine_author_category_costs"][
+                            category]["noncash_original_resource_cost"])
+                    )
+                    for category in ONBOARDING_CATEGORIES
+                } if nine_comparable else None
+            )
             owner_comparison[owner] = {
                 "kind": state.subjects[owner].kind,
                 "declared_work_cash_difference_cooperation_minus_alternative": (
@@ -248,12 +362,31 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                     "DECLARED_COMPARABLE_ONLY" if okay else "NOT_IDENTIFIABLE"
                 ),
                 "liquidity_proven_by_cash_difference": False,
+                "nine_onboarding_declared_scope_comparable": nine_comparable,
+                "nine_onboarding_independent_minus_cooperation_noncash_by_category": nine_by_category,
+                "nine_onboarding_independent_minus_cooperation_noncash_total": (
+                    _money(sum(
+                        (Decimal(value) for value in nine_by_category.values()),
+                        Decimal(0)
+                    )) if nine_by_category is not None else None
+                ),
+                "nine_onboarding_not_cash_or_real_profit": True,
             }
         complete = not global_reasons and all(
             row["work_scope_research_status"] == "DECLARED_COMPARABLE_ONLY"
             for row in owner_comparison.values()
         )
         totals = {sc: Decimal(per_scenario[sc]["original_work_external_net_cash"]) for sc in SCENARIOS}
+        nine_all_owners = complete and all(
+            comparison["nine_onboarding_declared_scope_comparable"]
+            for comparison in owner_comparison.values()
+        )
+        nine_net = (
+            sum(
+                (Decimal(comparison["nine_onboarding_independent_minus_cooperation_noncash_total"])
+                 for comparison in owner_comparison.values()), Decimal(0)
+            ) if nine_all_owners else None
+        )
         results.append({
             "work": work_id, "reuse_claim": claim,
             "work_comparison_source": comparison_source,
@@ -266,6 +399,25 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
             "network_declared_external_cash_difference": (
                 _money(totals["COOPERATION"] - totals["INDEPENDENT_ALTERNATIVE"]) if complete else None),
             "network_sums_only_original_external_cash": True,
+            "network_nine_onboarding_noncash_difference_outside_minus_cooperation": (
+                _money(nine_net) if nine_net is not None else None
+            ),
+            "operator_nine_onboarding_noncash_difference_outside_minus_cooperation": (
+                _money(sum(
+                    (Decimal(v["nine_onboarding_independent_minus_cooperation_noncash_total"])
+                     for owner, v in owner_comparison.items()
+                     if state.subjects[owner].kind == "OPERATOR"), Decimal(0)
+                )) if nine_all_owners else None
+            ),
+            "nine_onboarding_complete_original_owner_count": sum(
+                row["nine_onboarding_declared_scope_comparable"]
+                for row in owner_comparison.values()
+            ),
+            "nine_onboarding_model_comparability": (
+                "SOURCE_DECLARED_NINE_AUTHOR_COST_ARITHMETIC_ONLY"
+                if nine_all_owners else "NOT_IDENTIFIABLE_FROM_COMPLETE_ORIGINAL_OWNER_SOURCES"
+            ),
+            "nine_cost_categories_not_a_second_ledger": True,
             "status": ("DECLARED_WORK_SCOPE_CASH_AND_RESOURCE_ARITHMETIC_ONLY" if complete
                        else "COUNTERFACTUAL_WORK_SCOPE_NOT_QUALIFIED"),
             "global_reasons": global_reasons,
@@ -278,6 +430,12 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
         "evidence": "MODEL_ONLY_OWNER_SOURCE_SCOPED_CASH_AND_NONCASH",
         "works": results,
         "declared_comparable_work_count": sum(r["status"] == "DECLARED_WORK_SCOPE_CASH_AND_RESOURCE_ARITHMETIC_ONLY" for r in results),
+        "model_declared_nine_onboarding_comparable_work_count": sum(
+            r["nine_onboarding_model_comparability"]
+            == "SOURCE_DECLARED_NINE_AUTHOR_COST_ARITHMETIC_ONLY" for r in results
+        ),
+        "independent_scenario_original_nine_categories_supported": True,
+        "operator_and_original_participant_costs_not_combined_with_cash": True,
         "nine_historical_onboarding_categories": list(ONBOARDING_CATEGORIES),
         "contemporary_cost_exposures": list(MODERN_EXPOSURES),
         "cost_lifecycle_stages": list(STAGES),
