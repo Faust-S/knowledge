@@ -97,6 +97,26 @@ jobs:
           console.log("D08_GENERATED_UNKNOWN_COUNT="+lines.filter(x=>
             !Object.values(allowed).includes(x.slice(3))).length);
           NODE
+      - name: Reconcile only checked build-generated derivatives
+        working-directory: site
+        run: |
+          node - <<'NODE'
+          const cp=require("node:child_process");
+          const changed=cp.execFileSync("git",["status","--porcelain","-z"],
+            {encoding:"utf8"}).split(String.fromCharCode(0)).filter(Boolean);
+          const allowed=new Set(["src/routeTree.gen.ts","public/sitemap.xml",
+            "src/data/partners-index.generated.ts"]);
+          if(changed.some(x=>x.slice(0,3)!==" M "||!allowed.has(x.slice(3)))){
+            console.log("D08_GENERATED_RECONCILE=FAIL");
+            process.exit(1);
+          }
+          NODE
+          git restore --source=HEAD --worktree -- src/routeTree.gen.ts public/sitemap.xml src/data/partners-index.generated.ts
+          if test -n "$(git status --porcelain)"; then
+            echo D08_GENERATED_RECONCILE=FAIL
+            exit 1
+          fi
+          echo D08_GENERATED_RECONCILE=PASS
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
