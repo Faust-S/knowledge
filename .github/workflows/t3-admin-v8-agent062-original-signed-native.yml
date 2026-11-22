@@ -1,0 +1,198 @@
+name: Admin Center V8 original signed Task Result with released Agent 0.6.2
+on:
+  push:
+    branches:
+      - work/2026-11-22-admin03-v8-agent062-signed-native
+    paths:
+      - .github/workflows/t3-admin-v8-agent062-original-signed-native.yml
+      # A changed installed Agent/One Core pin must requalify the identical
+      # original signed source, never borrow historical 26/26 evidence.
+      - packages/t3-core/tests/g4-native-original-owner-pin-parity.test.mjs
+      - packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
+      - packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
+      - packages/t3-core/tests/g4-native-original-owner-pin-parity.test.mjs
+      - packages/t3-core/tests/g4-original-agent-native-windows.mjs
+      - packages/t3-core/tests/g4-original-agent-native-driver.py
+      - packages/t3-core/tests/g4-native-two-windows-sids.ps1
+      - packages/t3-core/tests/g4-original-agent-second-windows-sid.ps1
+      - packages/t3-core/scripts/qualify-original-agent-second-sid.mjs
+      - packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
+      - packages/t3-core/tests/g4-original-employee-real-task-driver.py
+      - packages/t3-core/tests/g4-production-original-kernel.browser.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: admin-v8-original-agent062-signed-native-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  signed-native-source-process:
+    # One G4 qualification. Source Owner SHA MUST match the exact installed
+    # Admin Owner; bounded parity preflight runs before any private GET.
+    # Native Node/Python PASS is never installed Tauri Agent qualification.
+    # Released Agent 0.6.2 original worker + imports use current canonical
+    # signed Task taskId/executorId (never compare to raw id/assignedTo).
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-native-d3]') }}
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify public runner and driver source
+        shell: pwsh
+        run: |
+          node --check packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
+          node --check packages/t3-core/tests/g4-original-agent-native-windows.mjs
+          node --test packages/t3-core/tests/g4-native-original-owner-pin-parity.test.mjs
+          node --check packages/t3-core/tests/g4-production-original-kernel.browser.mjs
+          $script = 'packages/t3-core/tests/g4-original-agent-second-windows-sid.ps1'
+          $tokens = [System.Management.Automation.Language.Token[]]@()
+          $errors = [System.Management.Automation.Language.ParseError[]]@()
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $script).Path,[ref]$tokens,[ref]$errors)
+          if ($errors.Count -ne 0) { throw 'G4_ORIGINAL_AGENT_TWO_SID_POWERSHELL_PARSER_FAILED' }
+          python -m py_compile packages/t3-core/tests/g4-original-agent-native-driver.py
+          python -m py_compile packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
+          python -m py_compile packages/t3-core/tests/g4-original-employee-real-task-driver.py
+      - name: Stage the original qualified T2 Kernel and installed Edge adapter
+        shell: pwsh
+        run: |
+          npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+          $archive = Join-Path $PWD 'packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip'
+          $qualified = Join-Path $env:RUNNER_TEMP 'iwxa-g4-original-t2'
+          New-Item -ItemType Directory -Force -Path $qualified | Out-Null
+          Expand-Archive -LiteralPath $archive -DestinationPath $qualified -Force
+          if (!(Test-Path (Join-Path $qualified '_iwxa/runtime/0.3.6/runtime.js'))) {
+            throw 'G4_QUALIFIED_T2_EXTRACT_INCOMPLETE'
+          }
+          if (!(Get-Command openssl -ErrorAction SilentlyContinue)) {
+            $gitOpenSSL = 'C:\Program Files\Git\usr\bin'
+            if (!(Test-Path (Join-Path $gitOpenSSL 'openssl.exe'))) {
+              throw 'G4_EPHEMERAL_LOOPBACK_TLS_PROVIDER_MISSING'
+            }
+            $gitOpenSSL | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+          "G4_ORIGINAL_QUALIFIED_T2_DIST=$qualified" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Stage real local Ollama model and existing Agent Python dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --disable-pip-version-check --no-input -q attrs==26.1.0 jsonschema==4.26.0 jsonschema-specifications==2025.9.1 pypdf==6.21.4 referencing==0.37.0 rpds-py==2026.5.1 cryptography==50.0.2
+          if ($LASTEXITCODE -ne 0) { throw 'G4_AGENT_EXISTING_CORE_DEPENDENCIES_FAILED' }
+          $archive = Join-Path $env:RUNNER_TEMP 'g4-ollama-v0.40.16.zip'
+          Invoke-WebRequest -Uri 'https://github.com/ollama/ollama/releases/download/v0.40.16/ollama-windows-amd64.zip' -OutFile $archive
+          $observed = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($observed -ne '50fcf5ad54277f2fa5d173ebfc93bcb017adbc0c9ef2314daabc96ca9e6aa64e') {
+            throw 'G4_OLLAMA_OFFICIAL_RELEASE_SHA256_CHANGED'
+          }
+          $binaryRoot = Join-Path $env:RUNNER_TEMP 'g4-agent-ollama'
+          Expand-Archive -LiteralPath $archive -DestinationPath $binaryRoot -Force
+          Remove-Item -LiteralPath $archive -Force
+          $exe = @(Get-ChildItem -LiteralPath $binaryRoot -Filter 'ollama.exe' -File -Recurse)
+          if ($exe.Count -ne 1) { throw 'G4_OLLAMA_ORIGINAL_EXECUTABLE_INVALID' }
+          $models = Join-Path $env:RUNNER_TEMP 'g4-original-agent-models'
+          New-Item -ItemType Directory -Force -Path $models | Out-Null
+          $env:OLLAMA_MODELS = $models
+          $env:OLLAMA_HOST = '127.0.0.1:11434'
+          $env:OLLAMA_NO_CLOUD = '1'
+          $server = Start-Process -FilePath $exe[0].FullName -ArgumentList 'serve' -WindowStyle Hidden -PassThru
+          if (-not $server -or $server.HasExited) { throw 'G4_OLLAMA_LOCAL_SERVER_START_FAILED' }
+          $ready = $false
+          for ($i = 0; $i -lt 90; $i++) {
+            try {
+              $version = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/version' -TimeoutSec 2
+              if ($version.version) { $ready = $true; break }
+            } catch {}
+            Start-Sleep -Seconds 1
+          }
+          if (-not $ready) { throw 'G4_OLLAMA_LOCAL_SERVER_NOT_READY' }
+          & $exe[0].FullName pull 'qwen3:0.6b' *> $null
+          if ($LASTEXITCODE -ne 0) { throw 'G4_AGENT_ORIGINAL_LOCAL_MODEL_PULL_FAILED' }
+          $inventory = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 10
+          $matches = @($inventory.models | Where-Object {
+            $_.name -eq 'qwen3:0.6b' -and $_.digest -match '^[0-9a-f]{64}$'
+          })
+          if ($matches.Count -ne 1) { throw 'G4_AGENT_LOCAL_MODEL_WEIGHTS_UNVERIFIED' }
+          "OLLAMA_HOST=127.0.0.1:11434" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "OLLAMA_MODELS=$models" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "OLLAMA_NO_CLOUD=1" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "G4_AGENT_OLLAMA_BASE_URL=http://127.0.0.1:11434" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "G4_AGENT_OLLAMA_MODEL=qwen3:0.6b" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output 'G4_AGENT_ORIGINAL_LOCAL_OLLAMA_WEIGHTS_READY'
+      - name: Separate original owner / Agent Node-Python Windows process
+        env:
+          T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
+          AGENT_READ_TOKEN: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
+        shell: pwsh
+        run: node packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
+
+  independent-windows-sid-precondition:
+    # Separate OS-user/DPAPI infrastructure check. Does NOT change the
+    # existing signed source D3 receipt or qualify installed Agent/Center.
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-native-sid]') }}
+    runs-on: windows-2022
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify Windows SID script syntax and run isolated DPAPI cold proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'packages/t3-core/tests/g4-native-two-windows-sids.ps1'
+          $tokens = [System.Management.Automation.Language.Token[]]@()
+          $parseErrors = [System.Management.Automation.Language.ParseError[]]@()
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $path).Path,[ref]$tokens,[ref]$parseErrors)
+          if ($parseErrors.Count -ne 0) {
+            throw 'G4_TWO_SID_PUBLIC_POWERSHELL_PARSER_FAILED'
+          }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $path
+          if ($LASTEXITCODE -ne 0) {
+            throw 'G4_SECOND_WINDOWS_ACCOUNT_DPAPI_NOT_ACCEPTED'
+          }
+
+  original-second-windows-sid-agent-source:
+    # The real original T3 employee source-only two-SID proof can be
+    # iterated without re-downloading Ollama/model or rerunning full D3.
+    # Private source and DPAPI vaults are transient and never uploaded.
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-original-second-sid]') }}
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify public second-SID fixture syntax
+        shell: pwsh
+        run: |
+          node --check packages/t3-core/scripts/qualify-original-agent-second-sid.mjs
+          node --check packages/t3-core/scripts/qualify-native-corporate-agent-process.mjs
+          python -m py_compile packages/t3-core/tests/g4-original-employee-bootstrap-driver.py
+          $script = 'packages/t3-core/tests/g4-original-agent-second-windows-sid.ps1'
+          $tokens = [System.Management.Automation.Language.Token[]]@()
+          $parseErrors = [System.Management.Automation.Language.ParseError[]]@()
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $script).Path,[ref]$tokens,[ref]$parseErrors)
+          if ($parseErrors.Count -ne 0) { throw 'G4_ORIGINAL_SECOND_SID_SOURCE_PARSER_FAILED' }
+      - name: Run original T3/Agent employee first use under different Windows SID
+        env:
+          T3_READ_TOKEN: ${{ secrets.T3 || secrets.DOMEN }}
+          AGENT_READ_TOKEN: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
+        shell: pwsh
+        run: node packages/t3-core/scripts/qualify-original-agent-second-sid.mjs
