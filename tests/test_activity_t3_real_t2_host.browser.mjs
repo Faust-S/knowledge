@@ -389,20 +389,37 @@ try {
       ['d05:case001:quality','quality-check-result','cehovod.result.saved'],
     ];
     for(const [id,type,eventType] of entries){
-      const saved=await client.t1.putObject({
-        workspace_id:args.workspace,object_id:id,
-        schema_id:schema+type,schema_version:'1.0.0',base_revision:0,
-        data:{
-          object_id:id,object_type:type,source_schema_version:'1.0.0',
-          display_label:'INTERNAL_MODEL_ORDER',source_service_id:args.service,
-          status:'reported',summary_markdown:'MODEL_ONLY',
-          algorithm_version:null,
-          value:{quantity:120,evidence:'NOT_INDEPENDENTLY_CONFIRMED'},
-        },extensions:{},
-        event:{event_type:eventType,
-          payload:{object_id:id,actor_role:'test_operator',
-            action:'recorded_not_observed'}},
-      });
+      const data={
+        object_id:id,object_type:type,source_schema_version:'1.0.0',
+        display_label:'INTERNAL_MODEL_ORDER',source_service_id:args.service,
+        status:'reported',summary_markdown:'MODEL_ONLY',
+        algorithm_version:null,
+        value:{quantity:120,evidence:'NOT_INDEPENDENTLY_CONFIRMED'},
+      };
+      const event={event_type:eventType,payload:{
+        object_id:id,actor_role:'test_operator',
+        action:'recorded_not_observed',
+      }};
+      // The ORIGINAL T2 graph commit records a qualified, same-Workspace
+      // based_on relation. No client-side inferred edge or second graph.
+      const saved=type==='production-execution'
+        ? await client.t1.commitObjectGraph({
+            workspace_id:args.workspace,
+            idempotency_key:'d05-witness-exec-'+args.workspace,
+            object:{object_id:id,schema_id:schema+type,
+              schema_version:'1.0.0',data},
+            relation_puts:[{
+              relation_id:'ceh.link.d05-case001-execution-order',
+              from_object_id:id,to_object_id:'d05:case001:order',
+              kind:'based_on',
+            }],
+            relation_deletes:[],event,
+          })
+        : await client.t1.putObject({
+            workspace_id:args.workspace,object_id:id,
+            schema_id:schema+type,schema_version:'1.0.0',
+            base_revision:0,data,extensions:{},event,
+          });
       if(saved?.object?.revision!==1||
         saved?.event?.correlation_id!==saved?.transaction_id)
         throw Error('D05_WITNESS_ORIGINAL_T2_WRITE_RECEIPT_INVALID');
@@ -425,6 +442,11 @@ try {
       'cehovod.result.saved','cehovod.operation.transitioned',
       'cehovod.order.transitioned',
     ].includes(x.event_type));
+    const linked=await client.t1.getObject(args.workspace,'d05:case001:execution');
+    const links=linked?.relations?.outgoing??[];
+    if(links.length!==1||links[0].kind!=='based_on'||
+      links[0].to_object_id!=='d05:case001:order')
+      throw Error('D05_WITNESS_ORIGINAL_T2_BASED_ON_RELATION_MISSING');
     if(updated?.object?.revision!==2||records.length!==3||observed.length!==4)
       throw Error('D05_WITNESS_ORIGINAL_T2_READBACK_INVALID');
     return {object_count:records.length,event_count:observed.length,
@@ -640,6 +662,10 @@ try {
     });
     const history=await session.t1.listEventsSince(args.workspace);
     const savedOrder=await session.t1.getObject(args.workspace,'d05:case001:order');
+    const execution=await session.t1.getObject(args.workspace,'d05:case001:execution');
+    if(execution?.relations?.outgoing?.length!==1||
+      execution.relations.outgoing[0].kind!=='based_on')
+      throw Error('D05_WITNESS_ORIGINAL_T2_COLD_RELATION_MISSING');
     const reported=history.filter(row=>[
       'cehovod.result.saved','cehovod.order.transitioned',
       'cehovod.operation.transitioned',
@@ -691,6 +717,7 @@ try {
       if(outcome.status!=='REVIEW'||review?.status!=='HOLD'||
         !review.reason_codes.includes('T3_D2_UNVERIFIED_EVENT_STEP')||
         !review.reason_codes.includes('T3_D2_RARE_OBJECT_ROUTE')||
+        !review.reason_codes.includes('T3_D2_RELATION_PRIVACY_REVIEW_REQUIRED')||
         review.structural_candidate!==null||review.export_allowed!==false||
         review.anonymity!=='NOT_ESTABLISHED'||review.iwxa_package!==null)
         throw Error('D05_WITNESS_SYSTEM_REPORT_FALSELY_OBSERVED');
@@ -718,7 +745,8 @@ try {
   console.log('ACTIVITY_D05_ORIGINAL_T2_SIGNED_REPORTED_COLD_HOLD_PASS',
     JSON.stringify({realOriginalT2Kernel:true,testOnlyD05Service:true,
       signedOriginalT3Read:true,coldReadback:true,
-      savedResultTypes:3,savedEvents:4,provenBusinessExecution:false,
+      savedResultTypes:3,savedEvents:4,
+      originalKernelBasedOnRelation:true,provenBusinessExecution:false,
       review:'HOLD',externalTransfer:false}));
 
   console.log('ACTIVITY_ORIGINAL_T2_SIGNED_COLD_RECOVERY_NO_RETRY_PASS');
