@@ -372,6 +372,53 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
   Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_NO_KERNEL_READBACK'
   return $false
 }
+function WaitForNativeCenterReviewToolbar(){
+  # The accessibility tree contains both the ordinary Admin Center UI and
+  # the live original T3 child. A string fragment is not evidence that the
+  # main React toolbar has actually acknowledged native parking of the
+  # child. Require the exact main-window button to become enabled.
+  for($i=0;$i -lt 80;$i++){
+    $button=$null
+    try{$button=FindName 'Workspace T3' 'Button' 1}catch{}
+    if($button){
+      try{
+        if($button.Current.IsEnabled -and -not $button.Current.IsOffscreen){
+          Write-Host 'D2_INSTALLED_NATIVE_MAIN_REVIEW_TOOLBAR_PASS'
+          return $true
+        }
+      }catch{}
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  Write-Host 'D2_INSTALLED_NATIVE_MAIN_REVIEW_TOOLBAR_NOT_READY'
+  return $false
+}
+function DiagnoseManagerNavigation(){
+  # Bounded binary UIA signals only. Never expose arbitrary signed owner
+  # state, user text, native stderr or original corporate Workspace IDs.
+  $signals=@(
+    'Обзор · Admin Center',
+    'Что нужно найти или решить?',
+    'Поиск по доступному контексту',
+    'Подписанный T3 D3 получатель доступен',
+    'Workspace T3',
+    'К приёмке',
+    'Открываем сохранённую работу...',
+    'Не удалось вернуться к приёмке.',
+    'Не удалось показать подписанную Workspace T3.'
+  )
+  for($i=0;$i -lt $signals.Count;$i++){
+    Write-Host "D2_INSTALLED_NAVIGATION_UI_SIGNAL_$i $(HasText $signals[$i])"
+  }
+  $nav=$null
+  try{$nav=FindName 'Обзор · Admin Center' 'Button' 1}catch{}
+  if($nav){
+    try{
+      Write-Host "D2_INSTALLED_MAIN_OVERVIEW_NAV_ENABLED $($nav.Current.IsEnabled)"
+      Write-Host "D2_INSTALLED_MAIN_OVERVIEW_NAV_OFFSCREEN $($nav.Current.IsOffscreen)"
+    }catch{Write-Host 'D2_INSTALLED_MAIN_OVERVIEW_NAV_INACCESSIBLE'}
+  }else{Write-Host 'D2_INSTALLED_MAIN_OVERVIEW_NAV_NOT_FOUND'}
+}
 function WaitForOrdinaryWorkspace([string]$name){
   # A physical Windows click returns before WebView2 has committed the React
   # update to the accessibility tree. The workspace is NOT accepted on click:
@@ -639,10 +686,14 @@ try{
     Check (EnsureOriginalSignedWorkspaceProvisioned) 'D2_INSTALLED_NATIVE_ORIGINAL_WORKSPACE_PROVISION_NOT_CONFIRMED'
     $script:phase='D2_NATIVE_HIDE_SAME_KERNEL'
     ClickButton 'К приёмке'
-    Check (WaitForText 'Workspace T3' 60) 'D2_INSTALLED_NATIVE_SIGNED_WORKSPACE_NOT_HIDDEN'
+    Check (WaitForNativeCenterReviewToolbar) 'D2_INSTALLED_NATIVE_SIGNED_WORKSPACE_NOT_HIDDEN'
     $script:phase='D2_NATIVE_REVIEW_TO_OVERVIEW'
-    ClickButton 'Обзор'
-    Check (WaitForText 'Что нужно найти или решить?' 80) 'D2_INSTALLED_NATIVE_OVERVIEW_NOT_OPEN'
+    ClickButton 'Обзор · Admin Center'
+    if(-not (WaitForText 'Что нужно найти или решить?' 100)){
+      DiagnoseManagerNavigation
+      throw 'D2_INSTALLED_NATIVE_OVERVIEW_NOT_OPEN'
+    }
+    Write-Host 'D2_INSTALLED_NATIVE_MAIN_OVERVIEW_OPENED_PASS'
     $script:phase='D2_NATIVE_MANAGER_OWNER_REREAD'
     ClickButton 'Обновить подписанные сведения T3'
     Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_NATIVE_SIGNED_CONTEXT_NOT_READ'
@@ -681,7 +732,9 @@ try{
     Check (WaitForOriginalKernelReady) 'D2_INSTALLED_COLD_ORIGINAL_KERNEL_NOT_READY'
     Check (EnsureOriginalSignedWorkspaceProvisioned) 'D2_INSTALLED_COLD_ORIGINAL_WORKSPACE_PROVISION_NOT_CONFIRMED'
     ClickButton 'К приёмке'
-    ClickButton 'Обзор'
+    Check (WaitForNativeCenterReviewToolbar) 'D2_INSTALLED_COLD_NATIVE_REVIEW_TOOLBAR_NOT_READY'
+    ClickButton 'Обзор · Admin Center'
+    Check (WaitForText 'Что нужно найти или решить?' 100) 'D2_INSTALLED_COLD_NATIVE_OVERVIEW_NOT_OPEN'
     ClickButton 'Обновить подписанные сведения T3'
     Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_COLD_CONTEXT_NOT_READ'
     Check (WaitForOriginalNativeDataReader) 'D2_INSTALLED_COLD_NATIVE_READER_NOT_ATTACHED'
