@@ -210,3 +210,114 @@ def test_native_mesa_work_quality_changes_result_acceptance_and_same_original_tr
     assert out["works"]["w1"]["assurance"]["independent_real_quality_certification"]=="NOT_ESTABLISHED"
     assert out["profit"]["system_increment"]=="UNKNOWN"
     assert simulate(deepcopy(d))==out
+
+
+def test_qualified_quality_source_after_original_source_update_but_never_auto_consent():
+    d=scenario()
+    d["context_evidence"]={
+        "strict":False,
+        "sources":[{
+            "id":"qa-c", "owner":"c", "revision":"r0",
+            "status":"UNKNOWN", "usable_by":["c"],
+            "core":"corporate","purposes":["acceptance-review"],
+            "operations":["ACCEPT"],"valid_from":0,
+        }],
+        "requirements":[{
+            "work":"w1","action":"assess_result_quality",
+            "sources":["qa-c"],"expected_revisions":["r1"],
+            "core":"corporate","purpose":"acceptance-review","operation":"ACCEPT",
+        }],
+    }
+    state,_=apply_sequence(d,execution_events())
+    denied=state.apply(quality_event(12),12)
+    assert denied["reason"]=="CONTEXT_REVISION_STALE"
+    assert state.works["w1"].assurance_reviews=={}
+    update={"at":13,"action":"source_update","actor":"c",
+            "source":"qa-c","new_revision":"r1",
+            "status":"CONFIRMED","usable_by":["c"]}
+    assert state.apply(update,13)["outcome"]=="APPLIED"
+    assert state.apply(quality_event(14),14)["outcome"]=="APPLIED"
+    assert state.apply(quality_event(15,criterion_id="documents"),15)["outcome"]=="APPLIED"
+    assert state.works["w1"].result=="SUBMITTED"
+    assert act(state,16,"accept","c")["outcome"]=="APPLIED"
+    assert state.snapshot()["works"]["w1"]["assurance"]["model_reported_met_count"]==2
+    assert state.snapshot()["institution"]["revision"]=="oc-1"
+    assert state.trace[-4]["action"]=="source_update"
+
+
+def test_native_mesa_quality_and_original_owner_cost_records_share_one_economic_ledger():
+    pytest.importorskip("mesa")
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    from .test_economic_flow import fixture as economy_fixture, source
+    d=scenario()
+    d["events"]=execution_events()+[
+        quality_event(12), quality_event(13,criterion_id="documents"),
+        {"at":14,"action":"accept","actor":"c","work":"w1"},
+    ]
+    d["model_horizon"]=16
+    d["general_akis"]=design()
+    d["cooperation_links"]=[{
+        "id":"quality-net","purpose":"cross-owner execution with accepted quality",
+        "coordinator":"op","participants":["a","b","c","op"],
+        "works":["w1"],"mechanisms":["TRANSACTION_COST"],
+        "source_ref":"model://quality-relation", "source_revision":"net-r1",
+    }]
+    econ=economy_fixture()
+    econ["sources"].append(source("c1","c"))
+    econ["coverage"]["COOPERATION"]["c"]="c1"
+    econ["coverage"]["INDEPENDENT_ALTERNATIVE"]["c"]="c1"
+    econ["outside_feasibility"]["c"]={"state":"UNKNOWN","source":"c1"}
+    # This amount is an arbitrary synthetic source claim, NOT actual
+    # inspection spending or additional cost created by quality attestation.
+    econ["resource_uses"].append({
+        "id":"quality-review-cost", "scenario":"COOPERATION",
+        "owner":"c", "amount":"8.00", "bucket":"COORDINATION",
+        "source":"c1", "work":"w1",
+    })
+    d["economic_claims"]=econ
+    out=simulate(d)
+    work=out["economics"]["original_work_record_evidence"]["w1"]
+    assert work["original_result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert work["existing_noncash_resource_use_rows"]["COOPERATION"]==1
+    assert work["existing_transfer_rows"]["COOPERATION"]==4
+    assert work["original_model_quality_criteria_count"]==2
+    assert work["original_model_quality_gate"]=="NONE"
+    assert work["work_specific_alternative_scope"]=="NOT_QUALIFIED"
+    assert work["quality_check_and_rework_cost_completeness"]=="NOT_QUALIFIED"
+    assert work["economic_benefit_due_to_accepted_result"]=="NOT_IDENTIFIABLE"
+    assert out["economics"]["resource_costs_additive_to_cash"] is False
+    assert out["economics"]["profit"]=="UNKNOWN"
+    assert out["economics"]["economic_value_added"]=="NOT_IDENTIFIABLE"
+    relation=out["cooperation"]["system_projection"]["relations"][0]
+    assert relation["components"]["П"]["quality_scoped_original_work_count"]==1
+    assert relation["components"]["П"]["quality_criteria_declared"]==2
+    assert relation["components"]["КЖ"]["work_quality_acceptance_evidence"]["w1"][
+        "accepted_with_all_declared_model_quality"
+    ] is True
+    assert relation["components"]["Э"][
+        "quality_acceptance_not_proof_of_transaction_savings"
+    ] is True
+    assert relation["components"]["ЖЦ"][
+        "accepted_model_quality_is_not_verified_learning_or_reusable_capability"
+    ] is True
+    assert out["general_akis_model"]["work_quality_feedback"][
+        "model_recipient_attested_met_count"
+    ]==2
+    assert out["general_akis_model"]["work_quality_feedback"][
+        "causal_transaction_cost_reduction"
+    ]=="NOT_IDENTIFIABLE"
+    assert out["counts"]=={"applied":14,"blocked":0}
+    assert simulate(deepcopy(d))==out
+
+
+def test_unscoped_economic_cost_rows_not_redistributed_to_a_work_by_result_acceptance():
+    from research.akis.qualitative_mesa.economic_flow import evaluate_economic_claims
+    from .test_economic_flow import fixture as economy_fixture, work_state, subject_state
+    d=economy_fixture()
+    result=evaluate_economic_claims(d,subject_state(),work_state())
+    work=result["original_work_record_evidence"]["w1"]
+    assert work["existing_noncash_resource_use_rows"]["COOPERATION"]==0
+    assert work["existing_transfer_rows"]["COOPERATION"]==4
+    assert result["resource_uses_count"]==2
+    assert work["economic_benefit_due_to_accepted_result"]=="NOT_IDENTIFIABLE"
+    assert result["profit"]=="UNKNOWN"
