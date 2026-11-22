@@ -66,7 +66,7 @@ function validateIntent(intent,{captureRef,workspaceId,objectId,originalWriteOwn
   return Object.freeze({intent,operation:exact});
 }
 
-function validateOutbox(observed,expected,prepared,nextCursor){
+function validateOutbox(observed,expected,prepared,nextCursor,sourceWindow){
   if(observed?.schema!==outboxSchema||
     observed.captureRef!==expected.captureRef||
     observed.workspaceId!==expected.workspaceId||
@@ -81,6 +81,8 @@ function validateOutbox(observed,expected,prepared,nextCursor){
     observed.recipientApplied!==false||
     !equals(observed.sourceCursorBefore,expected.sourceCursor)||
     !equals(observed.sourceCursorAfter,nextCursor)||
+    (observed.sourceWindow!==undefined&&
+      !equals(observed.sourceWindow,sourceWindow))||
     typeof observed.bytesBase64!=='string'||
     Buffer.from(observed.bytesBase64,'base64').toString('base64')!==
       observed.bytesBase64||
@@ -175,7 +177,7 @@ export async function reconcileT4OriginalMutationIntent({
     schema:outboxSchema,captureRef,workspaceId,objectId,originalWriteOwnerRef,
     sourceEventId:window.lastEventId,sha256:prepared.sha256,
     key:prepared.key,sourceCursorBefore:intent.sourceCursor,
-    sourceCursorAfter:nextCursor,
+    sourceCursorAfter:nextCursor,sourceWindow:window,
     bytesBase64:prepared.bytes.toString('base64'),
     originalT3MutationConfirmed:true,inputDigest:intent.inputDigest,
     networkPublished:false,recipientApplied:false,
@@ -183,14 +185,14 @@ export async function reconcileT4OriginalMutationIntent({
   const existing=await readOriginalOutbox(scope);
   let alreadyCaptured=false;
   if(existing!==null&&existing!==undefined){
-    validateOutbox(existing,intent,prepared,nextCursor);
+    validateOutbox(existing,intent,prepared,nextCursor,window);
     alreadyCaptured=true;
   }else{
     if(await persistOriginalOutbox(nextOutbox)!==true)
       fail('OBJECT_RECOVERY_OUTBOX_COMMIT_UNCERTAIN',
         {originalWriteRetried:false,originalEventVerified:true});
     const verified=await readOriginalOutbox(scope);
-    validateOutbox(verified,intent,prepared,nextCursor);
+    validateOutbox(verified,intent,prepared,nextCursor,window);
   }
   mode(getMode);
   if(await authorizeOriginalRead(readScope)!==true||
