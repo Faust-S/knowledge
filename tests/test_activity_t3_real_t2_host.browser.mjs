@@ -231,12 +231,21 @@ try {
     purpose:'activity.derivation',operations:deriveOps,
     operationActions:Object.fromEntries(deriveOps.map(op=>[op,'activity.derive'])),
   });
+  const d05ReadAuthority=createTemporaryOriginalPersonalAuthority({
+    workspaceId:d05Workspace,now:Date.now(),clock:Date.now,
+    purpose:'activity.analysis',operations:readOps,
+    operationActions:Object.fromEntries(readOps.map(op=>[op,'activity.read'])),
+  });
+  // One existing signed Control. After its first signed cold readback we
+  // invalidate the epoch and switch the selected read scope, never mint a
+  // grant in React or invent a second transport.
+  let selectedReadAuthority=sourceAuthority.access;
   handler=createOriginalControlHttpHandler({
     origin:server.origin,token,
     currentEpoch:()=>contextEpoch,
     subscribeInvalidation:fn=>{listen.add(fn);return()=>listen.delete(fn);},
     ownerFor:({scope,operation})=>scope!=='activity'?null:
-      operation==='activity.read'?sourceAuthority.access:
+      operation==='activity.read'?selectedReadAuthority:
         operation==='activity.derive'?targetAuthority.access:null,
   });
   const profile=join(tmp,'original-kernel-profile');
