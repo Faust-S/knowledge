@@ -15,6 +15,8 @@ const installed=readFileSync(
 test('source Agent D3 witness uses the exact installed original private T3 Owner SHA',()=>{
   const owner=installed.match(/repository: Faust-S\/T3\s*\r?\n\s*ref: ([a-f0-9]{40})\b/);
   assert.ok(owner,'installed original T3 private checkout pin required');
+  assert.match(installed,/-RequireD2Read -RequireOriginalEmployeeRegistry/,
+    'installed Owner must carry both signed Activity and the employee registry');
   assert.match(T3_ORIGINAL_NATIVE_EMPLOYEE_PIN,/^[a-f0-9]{40}$/);
   assert.equal(ORIGINAL_PRIVATE_SOURCE_PIN,owner[1],
     'original source qualification must use installed private Owner');
