@@ -97,6 +97,9 @@ function T3ViewCard({view, number}: {view: T3StructuralCandidate; number: number
 // Source gaps are interpreted from the original trusted A2 reason codes.
 // Never infer operations, performers or execution quality from a Kernel event.
 const T3_EVIDENCE_GAPS = [
+  {code:'T3_D2_EVENT_STATUS_NOT_DECLARED',
+    issue:'Для событий не указан уровень доказанности',
+    action:'В предметной модели T3 нужно указать, является событие наблюдённым фактом, сообщением или предположением. Неуказанное значение нельзя считать исполнением.'},
   {code:'T3_D2_UNVERIFIED_EVENT_STEP',
     issue:'Исполнение операций не подтверждено',
     action:'Записи имеют статус сообщения, декларации или предположения. Нужны наблюдённые события выполнения из предметной системы.'},
