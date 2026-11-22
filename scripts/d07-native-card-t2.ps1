@@ -152,7 +152,7 @@ try{
  if(!$created){throw "D07_NATIVE_CARD_CREATE_WORKSPACE_FAILED"}
  Write-Output "D07_NATIVE_CARD_WORKSPACE_CREATED=PASS"
  ClickUi "Мои услуги" ([System.Windows.Automation.ControlType]::Hyperlink)
- $null=WaitUi "Рабочая область для сохранения" $null 70
+ $null=WaitUi "Сохранённые заказы" $null 70
  $combo=$null
  foreach($p in @(Roots)){
   $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$p.MainWindowHandle)
@@ -161,7 +161,7 @@ try{
    [System.Windows.Automation.PropertyCondition]::new(
     [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
     [System.Windows.Automation.ControlType]::ComboBox))
-  if($all.Count -ge 2){$combo=$all.Item(0);break}
+  if($all.Count -ge 1){$combo=$all.Item(0);break}
  }
  if(!$combo){throw "D07_NATIVE_CARD_WORKSPACE_SELECTOR_MISSING"}
  $combo.SetFocus()
