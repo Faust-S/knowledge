@@ -246,3 +246,65 @@ def test_r1q_duplicate_application_and_multiple_successor_from_same_parent_block
         "COOPERATION_MEMBERSHIP_PARENT_ALREADY_SUCCEEDED"
     )
     assert sorted(l["id"] for l in out["cooperation"]["links"]) == ["net", "net-2"]
+
+
+def test_r1q_nine_component_model_only_counts_successor_after_later_accepted_result():
+    from .test_general_system_mesa_integration import design
+    d = membership_case()
+    d["general_akis"] = design()
+    out = simulate(d)
+    summary = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert summary["source_scoped_original_coalition_successions_with_accepted_work"] == 1
+    assert summary["source_scoped_original_coalition_successions_without_accepted_work"] == 0
+    assert summary["source_scoped_membership_successors_are_not_legal_membership"] is True
+    witness = out["general_akis_private_cycle_evidence"][
+        "original_coalition_membership_successions"
+    ]
+    assert len(witness) == 1
+    assert witness[0]["original_accepted_pilot_work"] == "w1"
+    assert witness[0]["new_original_accepted_work_ids"] == ["w2"]
+    assert witness[0]["successor_membership_frozen_in_original_event"] is True
+    assert witness[0]["new_legal_membership_or_original_asset_rights_verified"] is False
+    assert summary["all_nine_component_original_causal_closure_proven"] is False
+    assert out["profit"]["system_increment"] == "UNKNOWN"
+
+
+def test_r1q_consultation_or_successor_without_new_work_does_not_prove_reproduction():
+    from .test_general_system_mesa_integration import design
+    d = membership_case(second_work=False)
+    d["general_akis"] = design()
+    out = simulate(d)
+    summary = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert summary["source_scoped_original_coalition_successions_with_accepted_work"] == 0
+    assert summary["source_scoped_original_coalition_successions_without_accepted_work"] == 1
+    assert out["general_akis_private_cycle_evidence"][
+        "original_coalition_membership_successions"
+    ][0]["source_scoped_model_membership_reproduction"] == (
+        "NO_QUALIFIED_SUCCESSOR_WORK"
+    )
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert "w2" not in out["works"]
+    assert out["profit"]["system_increment"] == "UNKNOWN"
+
+
+def test_r1q_exit_new_relation_and_prior_relation_are_two_distinct_original_model_epochs():
+    d = membership_case(change="REVIEW_FUTURE_PARTICIPATION")
+    model = QualitativeAKIS({k: deepcopy(v) for k, v in d.items()
+                            if k not in {"model_horizon"}})
+    # Consecutive ORIGINAL events create the successor; at no time does
+    # leaving the NEW relation remove the former owner from old Work.
+    before = model.works["w1"]
+    initial_parties = next(x.participants for x in model.cooperation_links
+                           if x.key == "net")
+    for event in d["events"]:
+        result = model.apply(event, event["at"])
+        assert result["outcome"] == "APPLIED"
+        assert before is model.works["w1"]
+        assert next(x.participants for x in model.cooperation_links
+                    if x.key == "net") == initial_parties
+        if event["action"] == "cooperation_membership_apply":
+            assert before.obligation == "FULFILLED"
+            assert before.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+            assert next(x.participants for x in model.cooperation_links
+                        if x.key == "net-2") == ("b", "op")
+    assert model.works["w2"].result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"

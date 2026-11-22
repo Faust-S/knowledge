@@ -2203,6 +2203,85 @@ def original_nine_component_cycle_evidence(
                 "owner_control_and_consent_preserved": True,
             })
 
+    # R1-Q: a prospective membership change is an APPLIED original event
+    # creating a distinct successor in the EXISTING cooperation_links tuple.
+    # Only a later independently requested and accepted Work on that successor
+    # demonstrates model reproduction, not the membership revision alone.
+    original_coalition_successions = []
+    relation_index = {link.key: link for link in original.cooperation_links}
+    for revision in events:
+        if revision.get("action") != "cooperation_membership_apply":
+            continue
+        parent = relation_index.get(revision.get("cooperation_link"))
+        successor = relation_index.get(revision.get("successor_link"))
+        pilot_id = revision.get("pilot_work")
+        pilot = original.works.get(pilot_id)
+        t_change = revision.get("at")
+        prior_pilot = (
+            parent is not None and successor is not None and
+            pilot is not None and pilot_id in parent.works and
+            pilot_id in accepted_at and accepted_at[pilot_id] < t_change and
+            pilot.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT" and
+            pilot.result_ref == revision.get("pilot_result_ref") and
+            revision.get("pilot_decision_at") == accepted_at[pilot_id]
+        )
+        frozen = bool(
+            parent is not None and successor is not None
+            and set(revision.get("previous_participants") or ()) ==
+                set(parent.participants)
+            and set(revision.get("successor_participants") or ()) ==
+                set(successor.participants)
+            and successor.source_revision == revision.get("successor_revision")
+            and not any(work in parent.works for work in successor.works)
+        )
+        new_accepted = []
+        if prior_pilot and frozen:
+            for work_id in successor.works:
+                work = original.works[work_id]
+                request = [
+                    row for row in events
+                    if row.get("action") == "request"
+                    and row.get("work") == work_id
+                    and row.get("actor") == work.customer
+                    and row.get("requested_cooperation_link") == successor.key
+                    and row.get("requested_cooperation_source_revision") ==
+                        successor.source_revision
+                    and t_change < row["at"]
+                ]
+                t_request = request[0]["at"] if len(request) == 1 else None
+                t_commit = original_committed_at.get(work_id)
+                t_accept = accepted_at.get(work_id)
+                owners = original.capacity_ledger.original_owners(
+                    work.resource_requirements
+                ) | {work.customer}
+                if (t_request is not None and t_commit is not None
+                        and t_accept is not None
+                        and t_change < t_request < t_commit < t_accept
+                        and pilot_id in work.requires_accepted
+                        and work.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                        and set(work.consents) == owners
+                        and owners.issubset(successor.participants)):
+                    new_accepted.append(work_id)
+        qualified = bool(prior_pilot and frozen and new_accepted)
+        original_coalition_successions.append({
+            "original_cooperation_link": revision.get("cooperation_link"),
+            "prospective_successor_link": revision.get("successor_link"),
+            "original_accepted_pilot_work": pilot_id,
+            "change_kind": revision.get("change_kind"),
+            "successor_membership_frozen_in_original_event": frozen,
+            "accepted_pilot_precedes_original_membership_revision": bool(
+                prior_pilot
+            ),
+            "new_original_accepted_work_ids": sorted(new_accepted),
+            "source_scoped_model_membership_reproduction": (
+                "ORIGINAL_RESULT_CONSULTATION_NEW_MEMBER_REVISION_FRESH_WORK_ACCEPTED"
+                if qualified else "NO_QUALIFIED_SUCCESSOR_WORK"
+            ),
+            "original_prior_Work_Result_consent_preserved": True,
+            "new_legal_membership_or_original_asset_rights_verified": False,
+            "real_coalition_transaction_savings_verified": False,
+        })
+
     accepted_results = len(accepted_at)
     requested_count = len(requested_at)
     committed_count = len(original_committed_at)
@@ -2224,6 +2303,11 @@ def original_nine_component_cycle_evidence(
         != "NOT_CAUSALLY_QUALIFIED"
         for row in institutional_witnesses
     )
+    original_membership_successions = sum(
+        row["source_scoped_model_membership_reproduction"]
+        != "NO_QUALIFIED_SUCCESSOR_WORK"
+        for row in original_coalition_successions
+    )
     components = general["components"]
     # All nine remain distinct. This is a *component coverage diagnosis*, not
     # a substitute for the author's full A=F(P,OC,KPB) or eight executable
@@ -2240,7 +2324,7 @@ def original_nine_component_cycle_evidence(
         "Э": bool(final_output.get("economics")),
         "ЖЦ": bool(
             linked_needs or current_capacity_sequences
-            or original_institutional_sequences
+            or original_institutional_sequences or original_membership_successions
         ),
     }
     assert tuple(current_partial_observation) == COMPONENTS
@@ -2253,6 +2337,9 @@ def original_nine_component_cycle_evidence(
             ),
             "owner_capability_and_institutional_reproduction_links": (
                 joined_capability_institutional
+            ),
+            "original_coalition_membership_successions": (
+                original_coalition_successions
             ),
             "contains_owner_work_and_model_source_identifiers": True,
             "safe_for_cross_enterprise_publication": False,
@@ -2275,6 +2362,13 @@ def original_nine_component_cycle_evidence(
             "original_post_result_institutional_reproduction_link_count": (
                 original_institutional_sequences
             ),
+            "source_scoped_original_coalition_successions_with_accepted_work": (
+                original_membership_successions
+            ),
+            "source_scoped_original_coalition_successions_without_accepted_work": (
+                len(original_coalition_successions) - original_membership_successions
+            ),
+            "source_scoped_membership_successors_are_not_legal_membership": True,
             "all_nine_components_partially_observed_in_one_institutional_cycle": (
                 original_institutional_sequences > 0
                 and all(current_partial_observation.values())
