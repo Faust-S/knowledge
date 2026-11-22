@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 87b70cac3bf1e2060184e5939421a23f2817534a
+          ref: e44c6f4613a9318420fb61534afb7ff5ce781004
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -26,15 +26,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 29dcf7b3894d2b746b858b65c244235093507e15
+          ref: c851bbb2d143546c128d5d3881e2773304e3cf15
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify pinned revision and domain/site parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "87b70cac3bf1e2060184e5939421a23f2817534a"
-          test "$(git -C site rev-parse HEAD)" = "29dcf7b3894d2b746b858b65c244235093507e15"
-          for file in service-subject-protocols.ts service-subject-it-router.ts service-subject-it-printer.ts service-subject-it-wifi.ts service-subject-it-software.ts service-subject-code-audit.ts service-subject-it-batch-b.ts service-subject-it-batch-a.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-professional-facet-coverage.ts service-original-corroboration.ts; do
+          test "$(git -C subject rev-parse HEAD)" = "e44c6f4613a9318420fb61534afb7ff5ce781004"
+          test "$(git -C site rev-parse HEAD)" = "c851bbb2d143546c128d5d3881e2773304e3cf15"
+          for file in service-subject-protocols.ts service-subject-it-router.ts service-subject-it-printer.ts service-subject-it-wifi.ts service-subject-it-software.ts service-subject-code-audit.ts service-subject-it-batch-b.ts service-subject-antivirus-inspection.ts service-subject-it-batch-a.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-professional-facet-coverage.ts service-original-corroboration.ts; do
             cmp "subject/src/domain/$file" "site/src/domain/$file"
           done
           cmp subject/src/data/services/kompyutery-it-sayty/nastroyka-routera.ts site/src/data/services/kompyutery-it-sayty/nastroyka-routera.ts
@@ -42,6 +42,7 @@ jobs:
           cmp subject/src/data/services/kompyutery-it-sayty/nastroyka-wifi.ts site/src/data/services/kompyutery-it-sayty/nastroyka-wifi.ts
           cmp subject/src/data/services/kompyutery-it-sayty/ustanovka-po.ts site/src/data/services/kompyutery-it-sayty/ustanovka-po.ts
           cmp subject/src/data/services/kompyutery-it-sayty/audit-koda-sayta.ts site/src/data/services/kompyutery-it-sayty/audit-koda-sayta.ts
+          cmp subject/src/data/services/kompyutery-it-sayty/antivirusnaya-proverka.ts site/src/data/services/kompyutery-it-sayty/antivirusnaya-proverka.ts
           echo D07_V13_DOMAIN_SITE_PARITY=PASS
       - uses: actions/setup-node@v4
         with:
@@ -57,7 +58,7 @@ jobs:
       - name: Run professional methods, independent evidence and manual branching tests
         working-directory: site
         run: |
-          node --import tsx --test scripts/tests/d07-subject-protocols.test.mjs scripts/tests/d07-it-network-peripheral-methods.test.mjs scripts/tests/d07-it-software-method.test.mjs scripts/tests/d07-it-code-audit.test.mjs scripts/tests/d07-it-tls-variation.test.mjs scripts/tests/d07-plumbing-b-professional-methods.test.mjs scripts/tests/d07-plumbing-c-professional-methods.test.mjs scripts/tests/d07-manual-variant-closure.test.mjs scripts/tests/d07-professional-facet-coverage.test.mjs scripts/tests/d07-original-corroboration.test.mjs scripts/tests/d07-professional-finalization-gate.test.mjs scripts/tests/d07-professional-source-intake.test.mjs scripts/tests/d07-professional-fragment-assembly.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-v13-tests.log" 2>&1 || {
+          node --import tsx --test scripts/tests/d07-subject-protocols.test.mjs scripts/tests/d07-it-network-peripheral-methods.test.mjs scripts/tests/d07-it-software-method.test.mjs scripts/tests/d07-it-code-audit.test.mjs scripts/tests/d07-it-tls-variation.test.mjs scripts/tests/d07-it-antivirus-method.test.mjs scripts/tests/d07-plumbing-b-professional-methods.test.mjs scripts/tests/d07-plumbing-c-professional-methods.test.mjs scripts/tests/d07-manual-variant-closure.test.mjs scripts/tests/d07-professional-facet-coverage.test.mjs scripts/tests/d07-original-corroboration.test.mjs scripts/tests/d07-professional-finalization-gate.test.mjs scripts/tests/d07-professional-source-intake.test.mjs scripts/tests/d07-professional-fragment-assembly.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-v13-tests.log" 2>&1 || {
             echo D07_V13_TESTS=FAIL
             grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(actual|expected|error):|D07_TOP500_CHILD_FAILURE:' "$RUNNER_TEMP/d07-v13-tests.log" | tail -30 || true
             exit 1
