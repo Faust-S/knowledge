@@ -373,26 +373,55 @@ try{
  if(!$taskRecovered){throw 'D07_IMPORT_SECOND_COLD_TASK_NOT_PERSISTED'}
  Write-Output 'D07_IWXA_NATIVE_POST_IMPORT_SECOND_COLD_REOPEN=PASS'
  $details=Await 'Технические сведения о записи' $null 'D07_IMPORT_SECOND_COLD_DETAILS_MISSING'
- try{
-  $pattern=[System.Windows.Automation.InvokePattern]$details.GetCurrentPattern(
-   [System.Windows.Automation.InvokePattern]::Pattern)
-  $pattern.Invoke()
- }catch{$details.SetFocus();[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')}
- $sameId=$false;$sameWorks=$false;$sameRevision=$false
- for($i=0;$i -lt 85;$i++){
-  $names=[System.Collections.Generic.List[string]]::new()
+ # A cold Edge session can restore <details> in either state. Blind Invoke
+ # may collapse already-open technical data and create a false Object ID loss.
+ # First search the exact order witness; expand only when it is not exposed.
+ function VisibleColdWitness {
+  $values=[System.Collections.Generic.List[string]]::new()
   foreach($root in @(Roots)){
    foreach($node in $root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)){
     $name=$node.Current.Name
-    if($name -and $name.Length -lt 500){$names.Add($name)}
+    if($name -and $name.Length -lt 500){$values.Add($name)}
    }
   }
-  $visible=[string]::Join([Environment]::NewLine,$names)
-  $sameId=$visible.Contains('Object ID: '+$expectedId)
+  return [string]::Join([Environment]::NewLine,$values)
+ }
+ function EnsureColdTechnicalVisible {
+  $current=VisibleColdWitness
+  if($current.Contains('Object ID:') -and $current.Contains($expectedId)){return}
+  try{
+   $expander=[System.Windows.Automation.ExpandCollapsePattern]$details.GetCurrentPattern(
+    [System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+   if($expander.Current.ExpandCollapseState -eq [System.Windows.Automation.ExpandCollapseState]::Collapsed){
+    $expander.Expand()
+   }
+  }catch{
+   $details.SetFocus()
+   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  }
+ }
+ EnsureColdTechnicalVisible
+ $sameId=$false;$sameWorks=$false;$sameRevision=$false
+ $sawIdLabel=$false;$sawExactId=$false
+ for($i=0;$i -lt 85;$i++){
+  $visible=VisibleColdWitness
+  $sawIdLabel=$visible.Contains('Object ID:')
+  $sawExactId=$visible.Contains($expectedId)
+  # UIA sometimes represents the label and its React text node separately.
+  # The *exact* original ID and label must both be present in this order UI.
+  $sameId=$sawIdLabel -and $sawExactId
   $sameWorks=(@($titles|Where-Object{$visible.Contains($_)}).Count -eq 10)
   $sameRevision=$visible.Contains('редакция: '+$newRevision+';')
   if($sameId -and $sameWorks -and $sameRevision){break}
+  if($i -eq 25 -or $i -eq 55){EnsureColdTechnicalVisible}
   Start-Sleep -Milliseconds 320
+ }
+ if(!$sameId -or !$sameRevision -or !$sameWorks){
+  # Only booleans are logged; no private IDs, titles or order text.
+  Write-Output ('D07_IMPORT_SECOND_COLD_ID_LABEL_VISIBLE='+$sawIdLabel)
+  Write-Output ('D07_IMPORT_SECOND_COLD_EXACT_ID_VISIBLE='+$sawExactId)
+  Write-Output ('D07_IMPORT_SECOND_COLD_REVISION_2_VISIBLE='+$sameRevision)
+  Write-Output ('D07_IMPORT_SECOND_COLD_TEN_WORKS_VISIBLE='+$sameWorks)
  }
  if(!$sameId){throw 'D07_IMPORT_POST_IMPORT_OBJECT_ID_CHANGED'}
  if(!$sameRevision){throw 'D07_IMPORT_POST_IMPORT_REVISION_LOST'}
