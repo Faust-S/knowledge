@@ -1096,3 +1096,49 @@ test('recovery works with original signed target Workspace, no second selection'
   assert.equal(f.saved.has(receipt.object_id),true);
   assert.equal(f.state.writeCalls,1);
 });
+
+
+test('trusted Host survives UI remount after lost ACK; independent recovery never writes again',async()=>{
+  const f=fixture(),listeners=new Set(),states=[];
+  f.state.lostAck=true;
+  const control={
+    snapshot:()=>({context:'ORGANIZATION',contextId:'org:cehovod',contextEpoch:1}),
+    signedActivityAccess:()=>f.options.sourceSignedAccess,
+    subscribeInvalidation(fn){listeners.add(fn);return()=>listeners.delete(fn);},
+  };
+  const bridge=bindT3ControlActivityReview({
+    control,context:f.options.sourceContext,bindings:f.options.bindings,
+    createSignedAccessHostPort:core.createSignedAccessHostPort,
+    readActivityFromWorkspaceContext:core.readActivityFromWorkspaceContext,
+    derivation:{
+      targetWorkspaceId:R,targetKernel:f.options.sourceContext.kernel,
+      resolveTargetSignedAccess:()=>f.options.targetSignedAccess,
+      createSubjectKernelBinding:core.createSubjectKernelBinding,
+    },
+  });
+  try {
+    let ui=createT3ReviewController({host:bridge.port,onUpdate:v=>states.push(v)});
+    assert.equal((await ui.readSelected()).status,'REVIEW');
+    assert.equal((await ui.stageSelected()).status,'HOLD');
+    assert.equal(f.state.writeCalls,1);
+    assert.equal(f.saved.size,1);
+    ui.dispose();
+    // The original Host was not remounted: only the React controller changed.
+    ui=createT3ReviewController({host:bridge.port,onUpdate:v=>states.push(v)});
+    assert.equal((await ui.readSelected()).status,'REVIEW');
+    assert.equal((await ui.stageSelected()).status,'HOLD');
+    assert.equal(states.at(-1).code,'T3_CONTROL_ACTIVITY_STAGE_ALREADY_DISPATCHED');
+    assert.equal(f.state.writeCalls,1);
+    assert.equal((await ui.recoverSelected()).status,'STAGED');
+    assert.equal(states.at(-1).recovered,true);
+    assert.equal(f.state.writeCalls,1);
+    assert.equal(JSON.stringify(states).includes('activity-review:'),false);
+    assert.equal(JSON.stringify(states).includes('org:cehovod'),false);
+    ui.dispose();
+  } finally {
+    bridge.dispose();
+    assert.equal(listeners.size,0);
+    assert.equal(f.listeners[0].size,0);
+    assert.equal(f.listeners[1].size,0);
+  }
+});
