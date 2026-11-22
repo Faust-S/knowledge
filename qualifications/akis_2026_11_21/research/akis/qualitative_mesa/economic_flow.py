@@ -79,6 +79,168 @@ def _existing_work(work: Any, works: Mapping[str, Any]) -> str | None:
     return name
 
 
+
+def _review_work_payment_conditions(
+    declarations: Any, *, works: Mapping[str, Any],
+    trace: Sequence[Mapping[str, Any]],
+    sources: Mapping[str, Mapping[str, str]],
+    transfer_index: Mapping[str, Mapping[str, Any]],
+    resource_index: Mapping[str, Mapping[str, Any]],
+    cash_timing: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """R2.5: read the ORIGINAL Work trace and the SAME economic rows.
+
+    Terms are claims by the original counterparties, not an invoice, a bank
+    settlement, a contract amendment or a new independent money schedule.
+    """
+    if cash_timing is None:
+        raise EconomicInputError("WORK_PAYMENT_CONDITIONS_REQUIRE_CASH_TIMING")
+    if not isinstance(declarations, list) or len(declarations) > _MAX_RECORDS:
+        raise EconomicInputError("INVALID_WORK_PAYMENT_CONDITION_COUNT")
+    horizon = cash_timing["horizon_end"]
+    windows = {row["transfer_id"]: row
+               for row in cash_timing["transfer_windows"]}
+    applied: dict[str, dict[str, int]] = {}
+    for event in trace:
+        if (event.get("outcome") != "APPLIED"
+                or event.get("work") not in works):
+            continue
+        action = event.get("action")
+        if action in {"commit", "accept"}:
+            applied.setdefault(event["work"], {})[action] = event["at"]
+    bound: set[str] = set()
+    items: list[dict[str, Any]] = []
+    valid = 0
+    unobserved = 0
+    conflicts = 0
+    for declaration in declarations:
+        _record(declaration, {
+            "transfer_id", "condition", "due_at",
+            "work_source_revision", "org_revision", "owner_sources",
+        }, "WORK_PAYMENT_CONDITION")
+        transfer_id = _identifier(declaration["transfer_id"], "PAYMENT_TRANSFER_ID")
+        if transfer_id in bound:
+            raise EconomicInputError("DUPLICATE_WORK_PAYMENT_CONDITION")
+        transfer = transfer_index.get(transfer_id)
+        if transfer is None or transfer["scenario"] != "COOPERATION" or transfer["work"] is None:
+            raise EconomicInputError("PAYMENT_CONDITION_REQUIRES_ORIGINAL_COOPERATIVE_WORK_TRANSFER")
+        bound.add(transfer_id)
+        condition = declaration["condition"]
+        if condition not in {"ON_ORIGINAL_COMMIT", "ON_CUSTOMER_ACCEPTANCE"}:
+            raise EconomicInputError("UNSUPPORTED_WORK_PAYMENT_CONDITION")
+        due_at = declaration["due_at"]
+        if type(due_at) is not int or not 0 <= due_at <= horizon:
+            raise EconomicInputError("INVALID_ORIGINAL_PAYMENT_DUE_TIME")
+        work_id = transfer["work"]
+        work = works[work_id]
+        if (declaration["work_source_revision"] != getattr(work, "source_revision", None)
+                or not isinstance(declaration["work_source_revision"], str)):
+            raise EconomicInputError("PAYMENT_CONDITION_WORK_REVISION_MISMATCH")
+        org_revision = _identifier(declaration["org_revision"], "PAYMENT_ORG_REVISION")
+        original_org = getattr(work, "commitment_org_revision", None)
+        if original_org is not None and org_revision != original_org:
+            raise EconomicInputError("PAYMENT_CONDITION_COMMITMENT_REVISION_MISMATCH")
+        original_parties = {transfer["payer"], transfer["payee"]} - {"EXTERNAL"}
+        owners = declaration["owner_sources"]
+        if not isinstance(owners, dict) or set(owners) != original_parties:
+            raise EconomicInputError("PAYMENT_TERMS_BOTH_ORIGINAL_PARTIES_REQUIRED")
+        for owner, source_id in owners.items():
+            if (not isinstance(source_id, str)
+                    or sources.get(source_id, {}).get("owner") != owner):
+                raise EconomicInputError("PAYMENT_TERMS_ORIGINAL_OWNER_SOURCE_REQUIRED")
+        transfer_source = transfer["source"]
+        source_owner = sources[transfer_source]["owner"]
+        if owners[source_owner] != transfer_source:
+            raise EconomicInputError("PAYMENT_TERMS_CANNOT_REPLACE_TRANSFER_SOURCE")
+        history = getattr(work, "result_history", ())
+        final_acceptance = (
+            getattr(work, "result", None) == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+            and bool(history) and history[-1].get("transition") == "accept"
+            and history[-1].get("model_ref") == getattr(work, "result_ref", None)
+        )
+        original_events = applied.get(work_id, {})
+        trigger_at = (
+            original_events.get("commit")
+            if condition == "ON_ORIGINAL_COMMIT"
+            else original_events.get("accept") if final_acceptance else None
+        )
+        window = windows.get(transfer_id)
+        expected = window["at"] if window is not None else None
+        late = window.get("late_at", expected) if window is not None else None
+        if trigger_at is None:
+            status = "ORIGINAL_CONDITIONAL_TRIGGER_NOT_APPLIED"
+            unobserved += 1
+        elif window is None:
+            status = "ORIGINAL_CASH_POSTING_WINDOW_NOT_DECLARED"
+            conflicts += 1
+        elif due_at < trigger_at:
+            status = "DECLARED_DUE_PRECEDES_APPLIED_CONDITION"
+            conflicts += 1
+        elif expected < trigger_at:
+            status = "CASH_FORECAST_PRECEDES_APPLIED_CONDITION"
+            conflicts += 1
+        elif expected == trigger_at:
+            status = "SAME_TICK_CONDITION_AND_POSTING_ORDER_UNVERIFIED"
+            conflicts += 1
+        elif expected > due_at:
+            status = "CASH_FORECAST_AFTER_DECLARED_DUE_WITHOUT_AMENDMENT"
+            conflicts += 1
+        else:
+            status = "MODEL_ORIGINAL_TRIGGER_DUE_AND_POSTING_ORDER_CONSISTENT"
+            valid += 1
+        work_use_count = sum(
+            row["scenario"] == "COOPERATION" and row["work"] == work_id
+            for row in resource_index.values()
+        )
+        items.append({
+            "transfer_id": transfer_id,
+            "original_work": work_id,
+            "condition": condition,
+            "status": status,
+            "original_condition_at": trigger_at,
+            "original_due_at": due_at,
+            "same_original_transfer_expected_posting_at": expected,
+            "same_original_transfer_late_hypothesis_at": late,
+            "late_hypothesis_after_original_due": (
+                late > due_at if late is not None else None
+            ),
+            "current_original_result": getattr(work, "result", "UNKNOWN"),
+            "customer_accepted_current_result_version": final_acceptance,
+            "original_model_quality_criteria": len(getattr(work, "assurance_criteria", ())),
+            "same_original_work_noncash_resource_use_count": work_use_count,
+            "original_transfer_amount_posted_or_collected_in_bank": False,
+            "declared_terms_and_parties_are_not_authenticated": True,
+        })
+    original_work_transfers = {
+        key for key, row in transfer_index.items()
+        if row["scenario"] == "COOPERATION" and row["work"] is not None
+    }
+    missing = sorted(original_work_transfers - bound)
+    if missing:
+        status = "INCOMPLETE_ORIGINAL_WORK_PAYMENT_TERMS"
+    elif conflicts or unobserved:
+        status = "UNOBSERVED_OR_INCONSISTENT_PAYMENT_CAUSAL_SEQUENCE"
+    else:
+        status = "DECLARED_CAUSAL_PAYMENT_ORDER_ONLY_NOT_SETTLEMENT"
+    return {
+        "evidence": "MODEL_ONLY_ORIGINAL_WORK_EVENTS_AND_ORIGINAL_MONEY_ROWS",
+        "status": status,
+        "bindings": sorted(items, key=lambda row: row["transfer_id"]),
+        "bound_original_transfer_count": len(bound),
+        "original_work_transfer_without_terms_count": len(missing),
+        "missing_original_work_transfer_ids": missing,
+        "source_declared_consistent_count": valid,
+        "unobserved_trigger_count": unobserved,
+        "contradictory_or_missing_timing_count": conflicts,
+        "original_transfer_and_resource_cost_totals_unchanged": True,
+        "no_secondary_work_event_or_payment_ledger_created": True,
+        "original_due_is_not_replaced_by_late_cash_hypothesis": True,
+        "quality_or_acceptance_does_not_certify_bank_settlement": True,
+        "real_contract_legal_enforceability_and_payment_verified": False,
+        "independent_alternative_does_not_inherit_cooperative_acceptance": True,
+        "missing_terms_are_unknown_not_zero": True,
+    }
+
 def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mapping[str, Any],
                              cooperation_links: Sequence[CooperationLink] = (),
                              trace: Sequence[Mapping[str, Any]] = ()) -> dict[str, Any]:
@@ -93,7 +255,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
             set(raw) - required - {
                 "mechanism_allocations", "coordination_event_bindings",
                 "modern_cost_bindings", "cash_timing", "lifecycle_costs",
-                "common_allocations",
+                "common_allocations", "work_payment_conditions",
             }):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
@@ -358,4 +520,10 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
             )
         except LifecycleInputError as exc:
             raise EconomicInputError(str(exc)) from exc
+    if "work_payment_conditions" in doc:
+        output["work_payment_causality"] = _review_work_payment_conditions(
+            doc["work_payment_conditions"], works=works, trace=trace,
+            sources=sources, transfer_index=transfer_index,
+            resource_index=resource_index, cash_timing=doc.get("cash_timing"),
+        )
     return output

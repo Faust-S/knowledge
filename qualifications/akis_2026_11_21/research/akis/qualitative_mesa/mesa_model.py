@@ -1194,6 +1194,7 @@ class OperatorAKISModel(mesa.Model):
             # private cash amount, money, grant or original event is emitted.
             cash = output["economics"].get("cash_timing", {})
             lifecycle = output["economics"].get("lifecycle_resource_costs", {})
+            payment_causality = output["economics"].get("work_payment_causality", {})
             network_timing = cash.get("joint_network_settlement", {})
             network_scenarios = network_timing.get("scenarios", {})
             source_qualified_network_clock = bool(network_scenarios) and all(
@@ -1240,6 +1241,23 @@ class OperatorAKISModel(mesa.Model):
                     "all_original_work_results_and_org_code_preserved": True,
                     "financial_risk_does_not_infer_owner_consent_or_new_contract": True,
                 }
+                if payment_causality:
+                    shared = output["general_akis_model"]["economic_time_and_cost_feedback"]
+                    shared.update({
+                        "work_payment_condition_bound_count": payment_causality[
+                            "bound_original_transfer_count"],
+                        "work_payment_condition_consistent_count": payment_causality[
+                            "source_declared_consistent_count"],
+                        "work_payment_missing_terms_count": payment_causality[
+                            "original_work_transfer_without_terms_count"],
+                        "work_payment_unobserved_trigger_count": payment_causality[
+                            "unobserved_trigger_count"],
+                        "work_payment_time_conflict_count": payment_causality[
+                            "contradictory_or_missing_timing_count"],
+                        "work_payment_original_due_dates_redisclosed": False,
+                        "work_payment_reported_as_bank_settlement": False,
+                        "accepted_result_does_not_mean_paid": True,
+                    })
                 if self.owner_financial_claims:
                     output["general_akis_model"]["economic_time_and_cost_feedback"][
                         "private_owner_research_reevaluation"
