@@ -1216,6 +1216,13 @@ class OperatorAKISModel(mesa.Model):
                     "independent_owner_financial_decision": "NOT_AUTHENTICATED",
                     "empirically_realized_cooperative_saving": "NOT_ESTABLISHED",
                     "private_owner_cash_and_cost_values": "NOT_REDISCLOSED",
+                    "owner_cooperation_vs_outside_cash_risk_separately_modelled": bool(
+                        cash.get("per_original_owner_private_research_projection")
+                    ),
+                    "owner_private_scenario_comparison_amounts_and_identifiers_redisclosed": False,
+                    "liquidity_stress_uses_original_outflow_due_dates": bool(
+                        cash.get("adverse_receipts_late_obligations_due_in_owner_private_stress")
+                    ),
                     "all_original_work_results_and_org_code_preserved": True,
                     "financial_risk_does_not_infer_owner_consent_or_new_contract": True,
                 }
