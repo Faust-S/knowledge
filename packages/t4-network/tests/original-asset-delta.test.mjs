@@ -80,6 +80,7 @@ const transport=()=>{
       return{bytes,receipt:{state:'DOWNLOADED_VERIFIED_BYTES'}};
     },
   };
+};
 const apply=(received,r,override={})=>applyT4OriginalAssetDelta({
   received,originalKernel:r.kernel,authorizeOriginalWrite:async()=>true,
   verifyOriginalSourceEvent:async()=>true,
