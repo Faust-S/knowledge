@@ -175,3 +175,14 @@ def test_owner_scoped_increment_property_over_small_capacity_grid():
                     assert actual_allowed == expected_allowed, (
                         baseline_ceiling, increment, baseline_use, permitted_use,
                     )
+
+
+def test_unredacted_model_payload_is_not_misrepresented_as_member_shareable():
+    from .test_work_counterfactual_mesa import counterfactual_case
+    result = simulate(counterfactual_case())
+    boundary = result["research_export_boundary"]
+    assert boundary["entire_raw_result_safe_for_cross_enterprise_distribution"] is False
+    assert boundary["role_filtered_real_export_implemented_here"] is False
+    assert boundary["requires_existing_external_owner_authorization_and_redaction"] is True
+    assert "per_subject" in result["economics"]
+    assert result["work_counterfactual_dynamics"]["cash_and_resource_use_not_added_twice"]
