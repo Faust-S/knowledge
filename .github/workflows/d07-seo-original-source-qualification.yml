@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 6cb6bd14b9fa2adde4deaf4cc8a27c6142026bb0
+          ref: 6a864e904662651d21a99e7883d7a2652785b553
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify private source identity and strict published-document boundaries
         run: |
-          test "$(git -C site rev-parse HEAD)" = "6cb6bd14b9fa2adde4deaf4cc8a27c6142026bb0"
+          test "$(git -C site rev-parse HEAD)" = "6a864e904662651d21a99e7883d7a2652785b553"
           test -f site/scripts/d07-seo-original-discovery.mjs
           test -f site/scripts/research/d07-seo-official-originals.json
           test "$(grep -c 'expectedTextSha256' site/scripts/research/d07-seo-official-originals.json)" = '2'
