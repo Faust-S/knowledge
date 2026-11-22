@@ -141,7 +141,7 @@ export function ActivityWorkspace({brandSrc,data,actions,legacy}:ActivityWorkspa
  function dashboard():ReactNode{return <div className="activity-v7-main">
   <div className="activity-v7-heading"><div><small>IWXA ACTIVITY · МОЯ ПАНЕЛЬ</small><h1>Моя панель деятельности</h1>
    <p>Добавляйте необходимые карты и показатели, подключайте источники и располагайте блоки в удобном порядке.</p></div>
-   <div className="activity-v7-actions"><button className="activity-v7-primary" onClick={()=>setLibrary(true)}><Icon name="plus" size={16}/> Добавить блок</button>
+   <div className="activity-v7-actions"><button className="activity-v7-primary" aria-label="Добавить блок" onClick={()=>setLibrary(true)}><Icon name="plus" size={16}/> Добавить блок</button>
     <button onClick={()=>setEditing(x=>!x)}>{editing?'Готово':'Настроить'}</button></div></div>
   <div className="activity-v7-source-banner"><Icon name="database"/><div><strong>{current==='none'?'Источник не выбран':data.sourceName}</strong>
     <span>{data.problem||'Данные обновляются только после подтверждённого чтения выбранного источника'}</span></div>
