@@ -163,10 +163,10 @@ test('invalid location, hosted primary and cloud-only placement cannot silently 
     writeOwnerRefs:['original:t2:owner','operator:cloud']}}]}),
     error=>error.code==='MULTIPLE_WRITE_OWNERS');
 });
-test('advertised server does not execute unsupported future data sync or operator analytics',async()=>{
+test('advertised future cloud compute is not executable before its actual engine exists',async()=>{
   const t=build(),callbacks=[];
   await assert.rejects(executeT4NetworkRoute({topology:t,workspaceId:'workspace:owner',
-    objectFamily:'orders',targetNodeRef:'node:home',capability:'delta.push',
+    objectFamily:'orders',targetNodeRef:'node:cloud',capability:'remote.compute',
     getMode:()=>{callbacks.push('mode');return 'T4_NETWORK';},
     verifyOriginalEndpoint:async()=>{callbacks.push('endpoint');return true;},
     authorizeOriginalOperation:async()=>{callbacks.push('owner');return true;},
@@ -322,4 +322,29 @@ test('a remote node cannot replace its operator or endpoint behind the same netw
     authorizeOriginalTopologyChange:async()=>{granted++;return true;}
   }),code('NODE_IDENTITY_RETARGET_FORBIDDEN'));
   assert.equal(granted,0);
+});
+
+test('T4 delta route is now executable only where a specific server and connection advertise it',async()=>{
+ const topology=build();
+ const allowed=planT4NetworkRoute({topology,workspaceId:'workspace:owner',
+   objectFamily:'orders',targetNodeRef:'node:home',capability:'delta.push'});
+ assert.equal(allowed.executableByCurrentT4,true);
+ assert.equal(allowed.originalOwnerAuthorized,false);
+ assert.equal(allowed.isReplicaTarget,true);
+ assert.throws(()=>planT4NetworkRoute({topology,workspaceId:'workspace:owner',
+   objectFamily:'orders',targetNodeRef:'node:other',capability:'delta.push'}),
+   code('CAPABILITY_NOT_AVAILABLE'));
+});
+test('delta executable route rechecks original owner before the callback can use its transport',async()=>{
+ const topology=build(),steps=[];
+ const receipt=await executeT4NetworkRoute({topology,workspaceId:'workspace:owner',
+   objectFamily:'orders',targetNodeRef:'node:home',capability:'delta.push',
+   getMode:()=>{steps.push('mode');return 'T4_NETWORK';},
+   verifyOriginalEndpoint:async c=>{steps.push('endpoint');return c.endpointUrl==='https://home.example.net/dav/';},
+   authorizeOriginalOperation:async c=>{steps.push('owner');return c.operation==='delta.push'&&
+     c.originalWriteOwnerRef==='original:t2:owner';},
+   executeTransport:async({route})=>{steps.push('transport');return {to:route.toNodeRef};}
+ });
+ assert.deepEqual(receipt,{to:'node:home'});
+ assert.deepEqual(steps,['mode','endpoint','mode','owner','mode','transport']);
 });

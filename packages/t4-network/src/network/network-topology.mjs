@@ -15,7 +15,7 @@ const capabilities=new Set([
   'package.publish','package.read','delta.push','delta.pull',
   'replica.recover','remote.search','remote.compute','operator.anonymized-analytics'
 ]);
-const implemented=new Set(['package.publish','package.read']);
+const implemented=new Set(['package.publish','package.read','delta.push','delta.pull']);
 const immutableArray=(xs,allowed,code)=>{
   if(!Array.isArray(xs)||xs.length>64||xs.some(x=>!id(x)||(allowed&&!allowed.has(x)))||
     new Set(xs).size!==xs.length)fail(code);
