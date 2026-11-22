@@ -2602,6 +2602,29 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       },carrierWorkspaceId,carrierMode});
       assert.equal(originalCarrierImport.format,'iwxa.import.receipt');
       assert.equal(originalCarrierImport.applied.objects_inserted,1);
+      // Persist exactly the ORIGINAL Kernel importCommit receipt, not a
+      // receipt reconstructed from WebDAV. This T3 Object remains readable
+      // through the recipient's original Host after a true cold restart.
+      const recipientImportReceiptRef='t4:original:plan-import:'+randomUUID();
+      await recipientPage.evaluate(async({
+        SERVICE,carrierWorkspaceId,recipientImportReceiptRef,
+        originalCarrierImport,
+      })=>{
+        const kernel=await IWXA.connect({
+          service_id:SERVICE,required_levels:['T1','T2']});
+        return kernel.t1.putObject({
+          workspace_id:carrierWorkspaceId,
+          object_id:recipientImportReceiptRef,
+          schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+          data:{title:'Original T3 import receipt',
+            originalImportReceipt:originalCarrierImport},
+          extensions:{},base_revision:0,
+          event:{event_type:'t4.original.plan.import-receipt-stored',
+            payload:{importId:originalCarrierImport.import_id,
+              packageDigest:originalCarrierImport.package_digest}},
+        });
+      },{SERVICE,carrierWorkspaceId,recipientImportReceiptRef,
+        originalCarrierImport});
       await recipientContext.close();recipientContext=null;
       recipientContext=await launch(recipientProfile);
       recipientPage=await opened(recipientContext);
@@ -2624,6 +2647,15 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         sourceNodeRef:'node:original-source',
         originalKernel:originalCarrierRecipientKernel,
         originalImportReceipt:originalCarrierImport,
+        readOriginalImportReceipt:()=>recipientPage.evaluate(async({
+          SERVICE,carrierWorkspaceId,recipientImportReceiptRef,
+        })=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          const found=await kernel.t1.getObject(
+            carrierWorkspaceId,recipientImportReceiptRef);
+          return found?.object?.data?.originalImportReceipt??null;
+        },{SERVICE,carrierWorkspaceId,recipientImportReceiptRef}),
         expectedPackageDigest:carrierPackage.artifact.package_digest,
         expectedSourcePlanDigest:currentPlan.planDigest,
         getMode:()=> 'T4_NETWORK',
@@ -2642,6 +2674,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(importedCarrier.planDigest,undefined);
       assert.equal(importedCarrier.sourcePlanDigest,currentPlan.planDigest);
       assert.equal(importedCarrier.originalT3ObjectReadbackVerified,true);
+      assert.equal(importedCarrier.originalT3ImportReceiptDurableReadback,true);
       assert.equal(importedCarrier.mayInvokeRecipientDispatcher,false);
       assert.equal(importedCarrier.signedSourceProvenanceNotProven,true);
       assert.equal(importedCarrier.recipientBusinessApplicationAuthorized,false);
@@ -2662,6 +2695,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           independentOriginalT3ImportPreview:true,
           independentOriginalT3ImportCommit:true,
           originalT3ImportedPlanColdReadback:true,
+          originalT3ImportReceiptDurableInOriginalStore:true,
           originalT3SignedSourceProvenanceVerified:false,
           originalT3RecipientDataWriteGrantFromCarrier:false,
           planIsNotAutomaticRecipientApplyAuthority:true,
