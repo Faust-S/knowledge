@@ -117,9 +117,22 @@ jobs:
         run: |
           & pwsh -NoProfile -File './scripts/d07-native-card-t2.ps1' -SiteDir 'site'
           if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_EDGE_OR_T2_FAILED'}
+      - name: Verify exact Kernel source Object ID is retained for recipient comparison
+        id: source_identity
+        if: steps.native_order.outcome == 'success'
+        run: |
+          $path=Join-Path $env:RUNNER_TEMP 'd07-native-card-order-identity.private.json'
+          if(-not (Test-Path $path)){throw 'D07_NATIVE_CARD_ORDER_IDENTITY_NOT_RECORDED'}
+          $proof=Get-Content $path -Raw|ConvertFrom-Json
+          if($proof.works -ne 10 -or $proof.serviceSlug -ne 'zamena-unitaza' -or
+             $proof.objectId -notmatch '^d07:order:[a-f0-9]{64}$' -or
+             [string]::IsNullOrWhiteSpace($proof.eventId)){
+             throw 'D07_NATIVE_CARD_ORDER_IDENTITY_INVALID'
+          }
+          Write-Output 'D07_NATIVE_CARD_KERNEL_SOURCE_IDENTITY=PASS'
       - name: Original T2 Exchange exports a physical service order archive
         id: physical_export
-        if: steps.native_order.outcome == 'success'
+        if: steps.source_identity.outcome == 'success'
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
           IWXA_D07_PREVIEW_PORT: '55407'
