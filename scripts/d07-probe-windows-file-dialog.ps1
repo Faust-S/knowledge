@@ -62,10 +62,10 @@ function Snapshot([string]$stage){
  $handle=[D07PickerProbeNative]::GetForegroundWindow()
  $builder=[System.Text.StringBuilder]::new(200)
  $null=[D07PickerProbeNative]::GetClassName($handle,$builder,200)
- Write-Output ('D07_PROBE_'+$stage+'_OS_DIALOG_32770='+$class32770)
- Write-Output ('D07_PROBE_'+$stage+'_NAMED_DIALOG='+$namedDialog)
- Write-Output ('D07_PROBE_'+$stage+'_FOREGROUND_CLASS='+$builder.ToString())
- Write-Output ('D07_PROBE_'+$stage+'_WINDOW_CLASSES='+($otherWinClasses.Count))
+ Write-Host ('D07_PROBE_'+$stage+'_OS_DIALOG_32770='+$class32770)
+ Write-Host ('D07_PROBE_'+$stage+'_NAMED_DIALOG='+$namedDialog)
+ Write-Host ('D07_PROBE_'+$stage+'_FOREGROUND_CLASS='+$builder.ToString())
+ Write-Host ('D07_PROBE_'+$stage+'_WINDOW_CLASSES='+($otherWinClasses.Count))
  return ($class32770 -gt 0 -or $namedDialog -gt 0)
 }
 $trigger='InvokePattern'
