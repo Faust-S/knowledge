@@ -56,7 +56,7 @@ jobs:
             fi
             echo "D05_REVISION_${destination}=PASS"
           }
-          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "3f49f47e3820fc5d207aa2083ceed99118e2c184" "site"
+          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "92461ba2ee62e53397f9c3d651a6f0a6eb320c12" "site"
           fetch_private "cehovod" "main" "72184644426c23e6cf8890a14010b1ad5267821b" "domain"
           unset header DOMEN
       - name: Install Node 22
