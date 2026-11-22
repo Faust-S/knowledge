@@ -43,6 +43,19 @@ jobs:
           bunx vite build > /tmp/iwxa-editorial-build.log 2>&1 || { tail -n 120 /tmp/iwxa-editorial-build.log; exit 1; }
           bunx tsc --noEmit > /tmp/iwxa-editorial-tsc.log 2>&1 || { tail -n 100 /tmp/iwxa-editorial-tsc.log; exit 1; }
           echo EDITORIAL_BUILD_TYPECHECK_PASS
+      - name: Prepare actual Chromium browser
+        shell: bash
+        working-directory: .private/site
+        run: |
+          set -euo pipefail
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
+          if [ -n "$chrome" ]; then
+            echo "EDITORIAL_CHROME=$chrome" >> "$GITHUB_ENV"
+            echo EDITORIAL_SYSTEM_BROWSER_READY
+          else
+            bunx puppeteer browsers install chrome > /tmp/iwxa-editorial-chrome.log 2>&1 || { tail -n 100 /tmp/iwxa-editorial-chrome.log; exit 1; }
+            echo EDITORIAL_BROWSER_INSTALLED
+          fi
       - name: Launch site and inspect real responsive browser routes
         working-directory: .private/site
         shell: bash
@@ -60,7 +73,8 @@ jobs:
           const reg=fs.readFileSync('src/data/editorial-stories.ts','utf8');
           const slugs=[...reg.matchAll(/number:\s*\d+,\s*slug:\s*"([^"]+)"/g)].map(m=>m[1]);
           if(slugs.length!==20)throw Error('Expected 20 slugs, got '+slugs.length);
-          const browser=await puppeteer.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+          const binary=process.env.EDITORIAL_CHROME||undefined;
+          const browser=await puppeteer.launch({headless:true,...(binary?{executablePath:binary}:{}),args:['--no-sandbox','--disable-dev-shm-usage']});
           const page=await browser.newPage();
           let checks=0;
           try {
@@ -70,6 +84,7 @@ jobs:
                 const res=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'domcontentloaded',timeout:60000});
                 if(!res?.ok())throw Error('HTTP '+res?.status()+' '+route);
                 await page.waitForSelector('.ed-catalog__grid,.ed-story__experiment',{timeout:25000});
+                await page.waitForFunction(()=>document.querySelector('main')?.dataset.clientReady,{timeout:25000});
                 const d=await page.evaluate(()=>({
                   title:document.title,
                   h1:document.querySelector('h1')?.textContent?.trim(),
