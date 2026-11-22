@@ -29,7 +29,9 @@ function FindUi([string]$name,$kind){
   for($i=0;$i -lt $found.Count;$i++){
     $node=$found.Item($i)
     if(!$fallback){$fallback=$node}
-    if($node.Current.IsEnabled -and !$node.Current.IsOffscreen){return $node}
+    # UIA "offscreen" also marks controls below the viewport in Edge;
+    # it is NOT a disabled action. InvokePattern supports such controls.
+    if($node.Current.IsEnabled){return $node}
   }
  }
  return $fallback
@@ -48,11 +50,20 @@ function ClickUi([string]$name,$kind){
  $v=$null
  for($attempt=0;$attempt -lt 85;$attempt++){
   $candidate=FindUi $name $kind
-  if($candidate -and $candidate.Current.IsEnabled -and
-     !$candidate.Current.IsOffscreen){$v=$candidate;break}
+  if($candidate -and $candidate.Current.IsEnabled){$v=$candidate;break}
   Start-Sleep -Milliseconds 400
  }
  if(!$v){throw "D07_NATIVE_CARD_UI_ACTION_NOT_ENABLED"}
+ # An enabled button may simply be below the fold in the real browser.
+ if($v.Current.IsOffscreen){
+   try{
+     $scroll=[System.Windows.Automation.ScrollItemPattern]$v.GetCurrentPattern(
+       [System.Windows.Automation.ScrollItemPattern]::Pattern)
+     $scroll.ScrollIntoView()
+   }catch{
+     # Non-scrollable React buttons remain invokable through native UIA.
+   }
+ }
  $pattern=[System.Windows.Automation.InvokePattern]$v.GetCurrentPattern(
   [System.Windows.Automation.InvokePattern]::Pattern)
  $pattern.Invoke()
