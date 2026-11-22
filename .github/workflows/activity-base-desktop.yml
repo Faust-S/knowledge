@@ -81,17 +81,11 @@ jobs:
           git -C ../t3-public-core checkout --detach fd927a1efb083219442d9504285f75fa738dbdda
           test "$(git -C ../t3-public-core rev-parse HEAD)" = "fd927a1efb083219442d9504285f75fa738dbdda"
           test "$(git -C ../t3-public-core rev-parse HEAD^{tree})" = "b6bda6b2851e80338277682897471b38864ab778"
-      - name: Read exact public D05 source (no private checkout)
-        shell: bash
-        run: |
-          git clone --filter=blob:none --no-checkout https://github.com/Faust-S/cehovod.ru.git ../d05-site-source
-          git -C ../d05-site-source checkout --detach 0ada4f082a39ec9a7bf2be3f75b57ebc5ebc39b4
-          test "$(git -C ../d05-site-source rev-parse HEAD)" = "0ada4f082a39ec9a7bf2be3f75b57ebc5ebc39b4"
-          test "$(git -C ../d05-site-source rev-parse HEAD^{tree})" = "a0570f59cf74a4f6449d4cf874a288fc898fdc29"
-      - name: Exercise ORIGINAL signed T3 D1/D2 and source-pinned D05 evidence
+      - name: Exercise ORIGINAL signed T3 D1/D2 with inspected D05 source profile
+        # The source site may be private. No tokens, private checkout or
+        # parallel GitHub Actions in protected product repositories.
         env:
           IWXA_T3_PUBLIC_CORE_DIR: ../t3-public-core/packages/t3-core
-          IWXA_D05_SITE_SOURCE_DIR: ../d05-site-source
         run: node --test tests/test_activity_t3_original_reader.mjs tests/test_activity_t3_owner_local_stage.mjs tests/test_activity_d05_t3_evidence.mjs
   t2-original-review-passport-runtime:
     # Real original Kernel/Store and cold browser restart, NOT a fake adapter.

@@ -14,24 +14,18 @@ import {inspectSelectedT3Activity} from
 import {createT3ReviewController} from
  '../modules/activity-base-anonymizer/t3-review-controller.mjs';
 
-const core=process.env.IWXA_T3_PUBLIC_CORE_DIR,site=process.env.IWXA_D05_SITE_SOURCE_DIR;
-assert.ok(core&&site&&existsSync(join(resolve(core),'src/t3/index.mjs'))&&
- existsSync(join(resolve(site),'t2-site-module/cehovod/result-contract.ts')),
- 'ACTIVITY_D05_ORIGINAL_PINNED_T3_AND_SITE_REQUIRED');
+const core=process.env.IWXA_T3_PUBLIC_CORE_DIR;
+assert.ok(core&&existsSync(join(resolve(core),'src/t3/index.mjs')),
+ 'ACTIVITY_D05_ORIGINAL_PINNED_T3_REQUIRED');
 const original=await import(pathToFileURL(join(resolve(core),'src/t3/index.mjs')).href);
-const read=name=>readFileSync(join(resolve(site),'t2-site-module/cehovod',name),'utf8');
-test('all 26 domain Results and exactly 3 event types match original CehoVod source',()=>{
- const types=read('result-contract.ts').match(/export const RESULT_TYPES = \[([\s\S]*?)\] as const;/);
- assert.ok(types,'source Result types changed');
- assert.deepEqual([...types[1].matchAll(/"([a-z0-9-]+)"/g)].map(m=>m[1]),[...D05_RESULT_TYPES]);
- assert.match(read('module-id.ts'),/DOMAIN_ID = "ru\.5ibs\.productionops"/);
- const raw=['commands.ts','order-transition.ts','operation-command.ts'];
- const events=raw.flatMap(name=>[...read(name).matchAll(/event_type:\s*"([^"]+)"/g)]
-  .map(m=>m[1])).sort();
- assert.deepEqual(events,[...D05_EVENT_TYPES].sort());
- assert.match(read('commands.ts'),/kind: "based_on"/);
- assert.match(read('operation-command.ts'),/operation_id: a\.operation_id/);
+test('inspected D05 binding contract preserves 26 Result types and three reported events',()=>{
  assert.equal(D05_SOURCE_PIN.domain,'ru.5ibs.productionops');
+ assert.equal(D05_SOURCE_PIN.commit,'0ada4f082a39ec9a7bf2be3f75b57ebc5ebc39b4');
+ assert.equal(new Set(D05_RESULT_TYPES).size,26);
+ assert.deepEqual([...D05_EVENT_TYPES],[
+  'cehovod.result.saved','cehovod.order.transitioned',
+  'cehovod.operation.transitioned',
+ ]);
  const b=createCehovodD05T3Bindings();
  assert.equal(b.objects.length,26);assert.equal(b.events.length,3);
  assert.deepEqual(b.relations,[{kind:'based_on',relation:'based_on'}]);
@@ -41,6 +35,31 @@ test('all 26 domain Results and exactly 3 event types match original CehoVod sou
  b.objects.length=0;
  assert.equal(createCehovodD05T3Bindings().objects.length,26);
 });
+
+/** Source parity is allowed ONLY with an already-approved local D05 checkout.
+ * The public CI MUST NOT access or authenticate to the private website repo.
+ */
+if(process.env.IWXA_D05_SITE_SOURCE_DIR){
+ const site=resolve(process.env.IWXA_D05_SITE_SOURCE_DIR);
+ const root=join(site,'t2-site-module/cehovod');
+ if(!existsSync(join(root,'result-contract.ts')))
+  throw Error('ACTIVITY_D05_OPTIONAL_LOCAL_SOURCE_NOT_FOUND');
+ const read=name=>readFileSync(join(root,name),'utf8');
+ test('OPTIONAL local D05 exact source parity, never in public Actions',()=>{
+  const match=read('result-contract.ts').match(/export const RESULT_TYPES = \[([\s\S]*?)\] as const;/);
+  assert.ok(match);
+  assert.deepEqual([...match[1].matchAll(/"([a-z0-9-]+)"/g)]
+   .map(row=>row[1]),[...D05_RESULT_TYPES]);
+  assert.match(read('module-id.ts'),/DOMAIN_ID = "ru\.5ibs\.productionops"/);
+  const types=['commands.ts','order-transition.ts','operation-command.ts']
+   .flatMap(name=>[...read(name).matchAll(/event_type:\s*"([^"]+)"/g)]
+    .map(row=>row[1])).sort();
+  assert.deepEqual(types,[...D05_EVENT_TYPES].sort());
+  assert.match(read('commands.ts'),/kind: "based_on"/);
+  assert.match(read('operation-command.ts'),/operation_id: a\.operation_id/);
+ });
+}
+
 const W='ws:case001',DOMAIN='ru.5ibs.productionops',SECRET='PRIVATE_D05_CLIENT';
 function fixture(){
  let revoked=false,readCalls=0,writeCalls=0;const listeners=new Set();
