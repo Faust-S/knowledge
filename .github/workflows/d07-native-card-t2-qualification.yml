@@ -2,7 +2,9 @@ name: D07 native cards to original T2 Windows Edge UIA
 on:
   push:
     branches: [work/2026-11-22-d07-methodology-v13]
-    paths: [.github/workflows/d07-native-card-t2-qualification.yml]
+    paths:
+      - .github/workflows/d07-native-card-t2-qualification.yml
+      - scripts/d07-native-card-t2.ps1
   workflow_dispatch:
 permissions:
   contents: read
@@ -103,6 +105,12 @@ jobs:
             'remont-kompyutera'
           )){
             if(-not $nativeCard.Contains($extra)){throw 'D07_NATIVE_NEW_CARD_UIA_GUARD_MISSING'}
+          }
+          if($nativeCard.Contains('/workspace/\\\\?new=1')){
+            throw 'D07_NATIVE_CARD_QUERY_REGEX_DOUBLE_ESCAPED'
+          }
+          if(-not $nativeCard.Contains('/workspace/\\?new=1')){
+            throw 'D07_NATIVE_CARD_QUERY_REGEX_GUARD_MISSING'
           }
           Write-Output 'D07_NATIVE_DURABLE_CONTINUATION_SCRIPT_GATE=PASS'
       - uses: actions/setup-node@v4
