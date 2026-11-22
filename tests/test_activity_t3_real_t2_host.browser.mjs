@@ -442,18 +442,25 @@ try {
     const control=createControlLoopbackOwner({
       origin:location.origin,token:args.token,
     });
-    const selection=Object.freeze({workspace_id:args.source});
-    const recovered=await recoverSelectedT3ActivityReview({
-      sourceContext:{
-        kernel:useOriginalT2ActivityKernelFacade(sourceWriter),
-        currentWorkspace:{get:()=>selection,subscribe:()=>()=>{}},
-      },
-      sourceSignedAccess:await control.signedActivityAccess('activity.read'),
-      targetWorkspaceId:args.signedTarget,
-      targetKernel:useOriginalT2ActivityKernelFacade(targetReviewer),
-      targetSignedAccess:await control.signedActivityAccess('activity.derive'),
-      createSubjectKernelBinding,
-    });
+    // Fresh signed Control session requires the SAME original SSE ready
+    // handshake before any D1 request; a surviving POST endpoint alone is
+    // deliberately not authority after a cold browser profile restart.
+    const stopControl=control.subscribeSignedAccessInvalidation(()=>{});
+    let recovered;
+    try {
+      const selection=Object.freeze({workspace_id:args.source});
+      recovered=await recoverSelectedT3ActivityReview({
+        sourceContext:{
+          kernel:useOriginalT2ActivityKernelFacade(sourceWriter),
+          currentWorkspace:{get:()=>selection,subscribe:()=>()=>{}},
+        },
+        sourceSignedAccess:await control.signedActivityAccess('activity.read'),
+        targetWorkspaceId:args.signedTarget,
+        targetKernel:useOriginalT2ActivityKernelFacade(targetReviewer),
+        targetSignedAccess:await control.signedActivityAccess('activity.derive'),
+        createSubjectKernelBinding,
+      });
+    } finally {stopControl();}
     const afterRecovery=await targetReviewer.t1.listObjects({
       workspace_id:args.signedTarget,include_deleted:true,
     });
