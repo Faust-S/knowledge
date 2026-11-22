@@ -38,7 +38,7 @@ from .joint_purchasing import (
 )
 from .partner_discovery import DiscoveryInputError, parse_discovery, parse_formation_finance, discover
 from .general_system import (
-    GeneralSystemInputError, parse_general_system, general_system_view,
+    GeneralSystemInputError, ModelFormationPolicy, parse_general_system, general_system_view,
     original_nine_component_cycle_evidence,
 )
 from .org_code_policy import OrgCodeInputError, parse_org_code_policy
@@ -341,8 +341,10 @@ class OperatorAKISModel(mesa.Model):
             self.general_design = parse_general_system(
                 raw_general_akis, self.qualitative.subjects, known_works
             ) if self.general_akis_enabled else None
-            if (self.general_akis_enabled and self.general_design.enforce_model_org_code
-                    and self.general_design.configuration != "operator"):
+            if (self.general_akis_enabled and
+                    (self.general_design.enforce_model_org_code or
+                     self.general_design.enforce_model_formation_phases) and
+                    self.general_design.configuration != "operator"):
                 # All six author forms are research projections; only the
                 # original SME/operator event model supports this policy path.
                 raise OrgCodeInputError("OC_ENFORCEMENT_ONLY_ORIGINAL_OPERATOR_MODEL")
@@ -357,6 +359,12 @@ class OperatorAKISModel(mesa.Model):
             # The existing original event handler consults only this optional
             # restricting predicate; no second governance state or event log.
             self.qualitative.model_org_policy = self.model_org_policy
+            self.formation_policy = (
+                ModelFormationPolicy(self.general_design)
+                if self.general_akis_enabled and
+                self.general_design.enforce_model_formation_phases else None
+            )
+            self.qualitative.formation_policy = self.formation_policy
         except (OutlookInputError, PurchasingInputError, DiscoveryInputError,
                 GeneralSystemInputError, OrgCodeInputError, GoalInputError) as exc:
             raise InputError(str(exc)) from exc

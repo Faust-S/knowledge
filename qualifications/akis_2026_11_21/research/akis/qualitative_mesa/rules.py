@@ -44,7 +44,7 @@ SELECTED_MODES = frozenset({"SOLE", "COLLEGIAL", "MIXED"})
 # UNSELECTED explicitly describes missing qualification, not tacit SOLE.
 MODES = SELECTED_MODES | {"UNSELECTED"}
 AVAILABILITY = frozenset({"AVAILABLE", "UNAVAILABLE", "UNKNOWN"})
-ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "adopt_capability"})
+ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "adopt_capability", "formation_confirm"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -250,7 +250,7 @@ class QualitativeAKIS:
         last = -1
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
-             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision"}, "EVENT")
+             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -259,6 +259,7 @@ class QualitativeAKIS:
                 self._parse_work(ev.get("work_spec"))
         self.context_basis: ContextBasis | None = None
         self.model_org_policy = None  # Optional MODEL_ONLY constraint on original new-Work actions.
+        self.formation_policy = None  # Optional source/owner phase gates, original trace only.
         self.capability_policy = None  # Optional owner gate, never an autonomous upgrade.
         if "context_evidence" in scenario:
             raw_context = scenario["context_evidence"]
@@ -388,6 +389,12 @@ class QualitativeAKIS:
                 self.context_basis.owner_update(ev)
                 if self.capability_policy is not None:
                     self.capability_policy.refresh(self, at)
+            elif action == "formation_confirm":
+                if self.formation_policy is None:
+                    raise BlockedDecision("FORMATION_MODEL_POLICY_NOT_CONFIGURED")
+                issue = self.formation_policy.confirm(self, ev, at)
+                if issue != "NONE":
+                    raise BlockedDecision(issue)
             elif action == "adopt_capability":
                 if self.capability_policy is None:
                     raise BlockedDecision("CAPABILITY_POLICY_NOT_CONFIGURED")
@@ -511,6 +518,12 @@ class QualitativeAKIS:
                 report["source_update_compare_and_set"] = True
             else:
                 report["source_update_compare_and_set"] = False
+        if action == "formation_confirm":
+            report["phase"] = ev.get("phase")
+            if report["outcome"] == "APPLIED":
+                report["formation_source_ref"] = ev.get("formation_source_ref")
+                report["work_source_revision"] = self.works[work_ref].source_revision
+                report["formation_is_model_only_not_original_legal_authority"] = True
         if action == "adopt_capability":
             report["capability"] = ev.get("capability")
             report["expected_capacity_revision"] = ev.get("expected_capacity_revision")
@@ -775,6 +788,10 @@ class QualitativeAKIS:
             if set(w.consents) != required or any(w.consents[principal] != (w.source_revision, self.institution.revision) for principal in required):
                 raise BlockedDecision("INDEPENDENT_ACCEPTANCE_MISSING")
             self._assert_future_cooperation_available(w, required)
+            if self.formation_policy is not None:
+                issue = self.formation_policy.before_commit(self, w, at)
+                if issue != "NONE":
+                    raise BlockedDecision(issue)
             for need in w.resource_requirements:
                 self._require_resource_available(need.resource)
             try:

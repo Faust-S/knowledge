@@ -78,11 +78,132 @@ class GeneralSystemDesign:
     declarations: Mapping[str, tuple[Mapping[str, Any], ...]]
     catalog: Mapping[str, Any]
     enforce_model_org_code: bool = False
+    enforce_model_formation_phases: bool = False
 
     @property
     def source_times(self) -> tuple[int, ...]:
         return tuple(sorted({t for rows in self.declarations.values() for row in rows
                              for t in (row["available_at"], row["expires_at"])}))
+
+
+
+class ModelFormationPolicy:
+    """R1-I: opt-in phase 1-3 prerequisite gates, using ONLY original trace.
+
+    Original principals must source and confirm each step. No phase assertion
+    is a legal signature, new governance engine, or completion of all 8 phases.
+    """
+
+    def __init__(self, design: GeneralSystemDesign):
+        self.design = design
+
+    def _source_active(self, phase: int, owner: str, ref: str,
+                       revision: str, at: int) -> bool:
+        return any(
+            row["phase"] == phase and row["owner"] == owner and
+            row["source_ref"] == ref and row["revision"] == revision and
+            row["available_at"] <= at < row["expires_at"]
+            for row in self.design.declarations["formation_phases"]
+        )
+
+    @staticmethod
+    def _resource_owners(state: Any, work: Any) -> set[str]:
+        return set(state.capacity_ledger.original_owners(work.resource_requirements))
+
+    def _ack_status(self, state: Any, work: Any, phase: int, owner: str,
+                    at: int) -> str:
+        history = [
+            event for event in state.trace
+            if event.get("outcome") == "APPLIED" and
+            event.get("action") == "formation_confirm" and
+            event.get("work") == work.key and event.get("phase") == phase and
+            event.get("actor") == owner and
+            event.get("org_revision") == state.institution.revision and
+            event.get("work_source_revision") == work.source_revision and
+            type(event.get("at")) is int and event["at"] < at
+        ]
+        if not history:
+            return "FORMATION_PRIOR_OWNER_PHASE_CONFIRMATION_MISSING"
+        if not any(
+            self._source_active(phase, owner, row.get("formation_source_ref"),
+                                state.institution.revision, at)
+            for row in history
+        ):
+            return "FORMATION_ORIGINAL_PHASE_SOURCE_STALE_OR_EXPIRED"
+        return "NONE"
+
+    def _resources_ready(self, state: Any, work: Any) -> bool:
+        return bool(work.resource_requirements) and all(
+            getattr(state.capacity_ledger.specs.get(need.resource),
+                    "basis", None) == "MODEL_DECLARED" and
+            state.resource_availability_origin.get(need.resource) == "MODEL_INPUT" and
+            state.resource_availability.get(need.resource) == "AVAILABLE"
+            for need in work.resource_requirements
+        )
+
+    def confirm(self, state: Any, event: Mapping[str, Any], at: int) -> str:
+        phase, key, actor = event.get("phase"), event.get("work"), event.get("actor")
+        if type(phase) is not int or phase not in (1, 2, 3):
+            return "FORMATION_ONLY_FIRST_THREE_PHASES_EXECUTABLE"
+        work = state.works.get(key)
+        if work is None:
+            return "FORMATION_ORIGINAL_WORK_REQUIRED"
+        if work.obligation != "NOT_ACCEPTED":
+            return "FORMATION_CANNOT_REWRITE_ACCEPTED_OBLIGATION"
+        if event.get("org_revision") != state.institution.revision:
+            return "FORMATION_ORIGINAL_ORG_REVISION_MISMATCH"
+        if actor not in state.subjects or not state.subjects[actor].active:
+            return "FORMATION_ORIGINAL_ACTIVE_PRINCIPAL_REQUIRED"
+        expected = {work.customer} if phase in (1, 2) else self._resource_owners(state, work)
+        if actor not in expected:
+            return "FORMATION_WRONG_ORIGINAL_PHASE_OWNER"
+        if not self._source_active(phase, actor, event.get("formation_source_ref"),
+                                   state.institution.revision, at):
+            return "FORMATION_ORIGINAL_OWNER_PHASE_SOURCE_MISSING"
+        if self._ack_status(state, work, phase, actor, at) == "NONE":
+            return "FORMATION_DUPLICATE_LIVE_PHASE_CONFIRMATION"
+        if phase == 1:
+            requests = [
+                row for row in state.trace
+                if row.get("action") == "request" and
+                row.get("outcome") == "APPLIED" and
+                row.get("work") == key and
+                row.get("actor") == work.customer and
+                type(row.get("at")) is int and row["at"] < at
+            ]
+            if not any(
+                goal["owner"] == work.customer and goal["work"] == key and
+                goal["work_revision"] == work.source_revision and
+                goal["revision"] == request.get("org_revision") and
+                goal["available_at"] <= request["at"] < goal["expires_at"]
+                for request in requests
+                for goal in self.design.declarations["goals"]
+            ):
+                return "FORMATION_GOAL_AND_ORIGINAL_CUSTOMER_REQUEST_NOT_LINKED"
+        if phase == 2:
+            if self._ack_status(state, work, 1, work.customer, at) != "NONE":
+                return "FORMATION_FIRST_PHASE_NOT_QUALIFIED"
+            if not work.resource_requirements:
+                return "FORMATION_ORIGINAL_WORK_PROCESS_NOT_SELECTED"
+        if phase == 3:
+            if self._ack_status(state, work, 2, work.customer, at) != "NONE":
+                return "FORMATION_SECOND_PHASE_NOT_QUALIFIED"
+            if not self._resources_ready(state, work):
+                return "FORMATION_ORIGINAL_RESOURCE_CAPACITY_NOT_DECLARED_READY"
+        return "NONE"
+
+    def before_commit(self, state: Any, work: Any, at: int) -> str:
+        for phase, owners in (
+            (1, {work.customer}), (2, {work.customer}),
+            (3, self._resource_owners(state, work))
+        ):
+            for owner in sorted(owners):
+                reason = self._ack_status(state, work, phase, owner, at)
+                if reason != "NONE":
+                    return reason
+        if not self._resources_ready(state, work):
+            return "FORMATION_ORIGINAL_RESOURCE_CAPACITY_NOT_DECLARED_READY"
+        return "NONE"
 
 
 def parse_general_system(raw: Any, subjects: Mapping[str, Any],
@@ -93,11 +214,14 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
     required = {"configuration", "morphology", "goals", "organizational_code",
                 "formation_phases", "context_cores", "agent_functions"}
     if (not isinstance(raw, dict) or not required <= set(raw) or
-            set(raw) - required - {"enforce_model_org_code"}):
+            set(raw) - required - {"enforce_model_org_code", "enforce_model_formation_phases"}):
         raise GeneralSystemInputError("INVALID_GENERAL_DESIGN_FIELDS")
     enforce_model_code = raw.get("enforce_model_org_code", False)
     if type(enforce_model_code) is not bool:
         raise GeneralSystemInputError("GENERAL_MODEL_OC_ENFORCEMENT_MUST_BE_BOOLEAN")
+    enforce_formation = raw.get("enforce_model_formation_phases", False)
+    if type(enforce_formation) is not bool:
+        raise GeneralSystemInputError("GENERAL_MODEL_FORMATION_ENFORCEMENT_MUST_BE_BOOLEAN")
     configurations = {x["id"] for x in cat["taxonomy"]["subject_configurations"]}
     config = _s(raw["configuration"], "CONFIGURATION")
     if config not in configurations:
@@ -201,7 +325,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
             rows.append(row)
         parsed[group] = tuple(sorted(rows, key=lambda x: (x["available_at"],
                                                                 x["owner"], x["source_ref"])))
-    return GeneralSystemDesign(config, dict(morphology), parsed, cat, enforce_model_code)
+    return GeneralSystemDesign(config, dict(morphology), parsed, cat,
+                               enforce_model_code, enforce_formation)
 
 
 def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
@@ -224,6 +349,12 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
     ambiguous_code_fields = sorted(
         field for field, owners in code_field_owners.items() if len(owners) > 1)
     phases = {x["phase"] for x in valid["formation_phases"]}
+    formation_attempts = [
+        row for row in state.trace if row.get("action") == "formation_confirm"
+    ]
+    formation_applied = [
+        row for row in formation_attempts if row.get("outcome") == "APPLIED"
+    ]
     contexts = {x["core"] for x in valid["context_cores"]}
     author_codes = set(design.catalog["taxonomy"]["organizational_code_components"])
     source_counts = {key: len(value) for key, value in valid.items()}
@@ -327,7 +458,10 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
                            "source_declared": has_source,
                            "conditional_diagnostic": "MODEL_SOURCE_CHECK_ONLY" if diagnostic
                            else "NOT_YET_EVIDENCED",
-                           "actual_formation_phase_completed": False})
+                           "actual_formation_phase_completed": False,
+                           "original_model_formation_confirmations": sum(
+                               row.get("phase") == phase for row in formation_applied
+                           )})
         prior = diagnostic
     missing_code = sorted(author_codes - code_fields)
     missing_cores = sorted(set(CORES) - contexts)
@@ -476,6 +610,16 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
             "no_new_original_action_by_policy": True,
         },
         "formation_phases": phase_rows,
+        "first_three_formation_model_gate": {
+            "opted_in": design.enforce_model_formation_phases,
+            "original_model_event_confirmations": len(formation_applied),
+            "original_model_blocked_attempts": (
+                len(formation_attempts) - len(formation_applied)),
+            "only_first_three_phases_have_original_model_commit_guards": True,
+            "full_eight_author_formation_phases_completed": False,
+            "real_identity_or_legal_formation_approved": False,
+            "does_not_create_second_engine_or_original_work": True,
+        },
         "capability": {"capacity_sources_declared": explicit_capacity,
                        "qualified_required_resources": len(capacity_qualified),
                        "total_required_resources": len(required_resources),
