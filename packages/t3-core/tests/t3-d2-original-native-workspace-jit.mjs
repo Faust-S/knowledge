@@ -19,14 +19,16 @@ const code = error => {
 const check=(condition,reason)=>{
   if(!condition)throw Object.assign(new Error(reason),{code:reason});
 };
-let root=null,owner=null;
+let root=null,owner=null,nativeHost=null;
 try{
   check(process.argv.length===3,"D2_ORIGINAL_PRIVATE_ROOT_REQUIRED");
   const native=resolve(process.argv[2]);
-  const [{provision,I},{openInterop}]=await Promise.all([
-    import(pathToFileURL(join(native,"interop/provision.mjs")).href),
-    import(pathToFileURL(join(native,"interop/runtime.mjs")).href),
-  ]);
+  const [{provision,I},{openInterop},{createOriginalAdminD3HostPort}]=
+    await Promise.all([
+      import(pathToFileURL(join(native,"interop/provision.mjs")).href),
+      import(pathToFileURL(join(native,"interop/runtime.mjs")).href),
+      import(pathToFileURL(join(native,"interop/native-admin-d3.mjs")).href),
+    ]);
   root=mkdtempSync(join(tmpdir(),"iwxa-d2-original-jit-"));
   const NOW=Date.parse("2026-11-22T08:00:00.000Z");
   const passphrase="ephemeral-isolated-original-jit";
@@ -70,6 +72,24 @@ try{
   const observed=await binding.getWorkspace(I.workspace);
   check(observed===null&&calls.length===1&&calls[0]===I.workspace,
     "D2_ORIGINAL_WORKSPACE_READ_JIT_NOT_DISPATCHED");
+  // The installed native product resolves getWorkspace through precisely
+  // this ORIGINAL private Control owner, NOT directly from openInterop.
+  nativeHost=createOriginalAdminD3HostPort({
+    runtime:owner,isHostActive:()=>true,currentHostEpoch:async()=>1,
+    confirmHumanReview:async()=>false,
+  });
+  const nativePort=await nativeHost.controlKernelOwnerFor(
+    {scope:"kernel",operation:"getWorkspace"},createSignedAccessHostPort);
+  check(nativePort!==null&&
+    (await nativePort.currentContext()).grant_id==="grant:workspace-read"&&
+    (await nativePort.actionFor("t1.getWorkspace"))==="workspace.read",
+    "D2_ORIGINAL_CONTROL_GET_WORKSPACE_NOT_SELECTED");
+  const nativeRead=createSubjectKernelBinding({kernel,access:nativePort,
+    clock:()=>NOW});
+  check(await nativeRead.getWorkspace(I.workspace)===null&&
+    calls.length===2&&calls[1]===I.workspace,
+    "D2_ORIGINAL_CONTROL_GET_WORKSPACE_JIT_FAILED");
+  console.log("D2_ORIGINAL_PRIVATE_CONTROL_WORKSPACE_READ_JIT_PASS");
   // First-run creation remains a different signed ACTION. Merely reading
   // the missing original Workspace must never dispatch any create call.
   const onboarding=owner.signedAdminWorkspaceOnboardingAccess(
@@ -84,6 +104,7 @@ try{
   console.error("D2_ORIGINAL_PRIVATE_WORKSPACE_JIT_MACHINE_CODE "+code(error));
   process.exitCode=1;
 }finally{
+  try{nativeHost?.close()}catch{}
   try{owner?.close()}catch{}
   if(root)try{rmSync(root,{recursive:true,force:true})}catch{}
 }
