@@ -18,14 +18,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: 710a9b89ca11cc632b0f40eac12926939ec2e7b0
+          ref: 1ba402883390a3b34e20c828ecece36e1eaeff93
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Confirm exact source without printing private files
         shell: bash
         run: |
-          test "$(git -C site rev-parse HEAD)" = "710a9b89ca11cc632b0f40eac12926939ec2e7b0" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "1ba402883390a3b34e20c828ecece36e1eaeff93" || exit 1
           test -z "$(git -C site status --porcelain)" || exit 1
           echo D05_SOURCE_PIN=PASS
       - uses: actions/setup-node@v4
