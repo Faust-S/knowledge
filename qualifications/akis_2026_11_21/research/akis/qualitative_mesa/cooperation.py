@@ -677,6 +677,9 @@ def qualify_competing_coalition_selection(
     return {
         "original_competing_coalition_selection_qualified": True,
         "coalition_competition_id": comparison["coalition_competition_id"],
+        "coalition_comparison_fingerprint": comparison[
+            "coalition_comparison_fingerprint"
+        ],
         "coalition_unselected_change_id": next(
             x for x in comparison["coalition_change_ids"] if x != selected
         ),
