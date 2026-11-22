@@ -3,6 +3,8 @@ export type T3ReviewState = {
   status: 'READY_TO_READ' | 'READING' | 'REVIEW' | 'STAGING' | 'STAGED' | 'HOLD';
   review: T3ActivityReview | null;
   code?: string;
+  // Local at-most-once dispatch state only. No signed identifiers or grants.
+  stageBlocked?: boolean;
 };
 // Read and invalidation are mandatory; a third owner-local save capability is
 // optional, explicit, and never carries T3 Kernel/Access into the renderer.
