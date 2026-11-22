@@ -140,6 +140,29 @@ export async function publishT4OriginalObjectDelta({prepared,transport}={}) {
     originalRecipientApplied:false,cursorAdvanced:false});
 }
 
+export async function inspectT4OriginalObjectDeltaDelivery({prepared,transport}={}) {
+  if(typeof transport?.inspectOutcome!=='function'||!prepared)
+    fail('OBJECT_DELTA_INSPECTION_PORT_REQUIRED');
+  const exact=validateDelta(prepared.delta);
+  if(prepared.key!==exact.key||prepared.sha256!==exact.sha256)
+    fail('OBJECT_DELTA_PREPARED_MISMATCH');
+  const observation=await transport.inspectOutcome({
+    key:exact.key,expectedSha256:exact.sha256,
+  });
+  if(observation?.state!=='EXPECTED_BYTES_PRESENT'||
+    observation.key!==exact.key||observation.sha256!==exact.sha256)
+    fail('OBJECT_DELTA_REMOTE_OUTCOME_UNVERIFIED');
+  return Object.freeze({
+    schema:'IWXA_T4_ORIGINAL_OBJECT_DELTA_NETWORK_OBSERVATION_V1',
+    state:'EXPECTED_BYTES_PRESENT',
+    key:exact.key,sha256:exact.sha256,
+    historicalPutAcknowledged:false,
+    originalRecipientApplied:false,cursorAdvanced:false,
+    safeToTreatAsOriginalReceipt:false,
+    transportObservation:observation,
+  });
+}
+
 export async function fetchT4OriginalObjectDelta({
   transport,key,sha256,workspaceId,originalWriteOwnerRef,
 }={}) {

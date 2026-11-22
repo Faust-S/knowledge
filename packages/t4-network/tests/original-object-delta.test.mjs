@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {
   prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
-  fetchT4OriginalObjectDelta,applyT4OriginalObjectDelta,
+  fetchT4OriginalObjectDelta,inspectT4OriginalObjectDeltaDelivery,applyT4OriginalObjectDelta,
   advanceT4OriginalObjectDeltaCursor
 } from '../src/network/original-object-delta.mjs';
 import {createWebDavPackageTransport,packageSha256} from '../src/network/webdav-package-transfer.mjs';
@@ -261,4 +261,30 @@ test('an unknown or unsupported source schema cannot silently rewrite the recipi
  await assert.rejects(apply({delta:prepared.delta,sha256:prepared.sha256,
    key:prepared.key},r),code('ORIGINAL_T3_SCHEMA_MISMATCH'));
  assert.equal(r.calls.length,0);
+});
+
+test('lost HTTPS PUT acknowledgement can be inspected without retry or cursor advancement',async()=>{
+ const {prepared}=await generate(),f=fakeTransport();
+ const real=f.transport.putSnapshot;
+ f.transport.putSnapshot=async input=>{
+   await real(input);
+   throw Object.assign(new Error('lost http acknowledgement'),{
+     code:'OUTCOME_UNKNOWN',
+   });
+ };
+ f.transport.inspectOutcome=async({key,expectedSha256})=>{
+   assert.deepEqual(f.saved.get(key),prepared.bytes);
+   return {state:'EXPECTED_BYTES_PRESENT',key,sha256:expectedSha256};
+ };
+ await assert.rejects(publishT4OriginalObjectDelta({
+   prepared,transport:f.transport,
+ }),error=>error.code==='OUTCOME_UNKNOWN');
+ const observed=await inspectT4OriginalObjectDeltaDelivery({
+   prepared,transport:f.transport,
+ });
+ assert.equal(observed.state,'EXPECTED_BYTES_PRESENT');
+ assert.equal(observed.historicalPutAcknowledged,false);
+ assert.equal(observed.originalRecipientApplied,false);
+ assert.equal(observed.safeToTreatAsOriginalReceipt,false);
+ assert.equal(observed.cursorAdvanced,false);
 });
