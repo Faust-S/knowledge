@@ -59,6 +59,21 @@ jobs:
           & bun install --frozen-lockfile *> (Join-Path $env:RUNNER_TEMP 'd07-card-install.private.log')
           if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_INSTALL_FAILED'}
           Write-Output 'D07_NATIVE_CARD_INSTALL=PASS'
+          $stage=Join-Path $env:RUNNER_TEMP 'd07-card-module-sized'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item 't2-site-module/uslugovod/manifest.json' (Join-Path $stage 'manifest.json')
+          & node --import tsx 'scripts/generate-d07-workspace-criteria.mjs' $stage *> (Join-Path $env:RUNNER_TEMP 'd07-sized-criteria.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_SIZE_CRITERIA_FAILED'}
+          & node --import tsx 'scripts/generate-d07-methodology-top500.mjs' $stage *> (Join-Path $env:RUNNER_TEMP 'd07-sized-plans.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_SIZE_PLANS_FAILED'}
+          $criteriaBytes=(Get-Item (Join-Path $stage 'service-criteria.generated.json')).Length
+          $planBytes=(Get-Item (Join-Path $stage 'service-plan-suggestions.generated.json')).Length
+          $sourceBytes=(Get-ChildItem -Recurse -File 't2-site-module/uslugovod' | Measure-Object -Property Length -Sum).Sum
+          $sizeTotal=$sourceBytes+$criteriaBytes+$planBytes-92
+          Write-Output ('D07_NATIVE_CARD_CRITERIA_BYTES='+$criteriaBytes)
+          Write-Output ('D07_NATIVE_CARD_PLAN_BYTES='+$planBytes)
+          Write-Output ('D07_NATIVE_CARD_MODULE_SOURCE_BYTES='+$sizeTotal)
+          if($sizeTotal -gt 33554432){throw 'D07_NATIVE_CARD_T2_MODULE_CAP_EXCEEDED'}
           & bun run build:t2-integrated *> (Join-Path $env:RUNNER_TEMP 'd07-card-integrated-build.private.log')
           if($LASTEXITCODE -ne 0){
             $log=Get-Content (Join-Path $env:RUNNER_TEMP 'd07-card-integrated-build.private.log') -Raw
