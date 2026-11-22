@@ -185,9 +185,19 @@ try{
  }
  if(!$added){throw "D07_NATIVE_CARD_T2_PLAN_NOT_APPLIED"}
  Write-Output "D07_NATIVE_CARD_T2_PLAN_APPLIED=PASS"
- $check=WaitUi "Я проверил заказ и разрешаю сохранить его в выбранную рабочую область T2. Это не принятие работ исполнителя." ([System.Windows.Automation.ControlType]::CheckBox)
- $toggle=[System.Windows.Automation.TogglePattern]$check.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
- if($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::Off){$toggle.Toggle()}
+ # Current T2 Host checks the candidate against Kernel and the current
+ # Workspace directly; the obsolete consent checkbox must not be invented.
+ $preflight=FindUi "Проверить заказ через Kernel" ([System.Windows.Automation.ControlType]::Button)
+ if($preflight -and $preflight.Current.IsEnabled){
+   ClickUi "Проверить заказ через Kernel" ([System.Windows.Automation.ControlType]::Button)
+ }
+ $readyToSave=$false
+ for($k=0;$k -lt 70;$k++){
+   $saveButton=FindUi "Сохранить заказ" ([System.Windows.Automation.ControlType]::Button)
+   if($saveButton -and $saveButton.Current.IsEnabled){$readyToSave=$true;break}
+   Start-Sleep -Milliseconds 450
+ }
+ if(!$readyToSave){throw "D07_NATIVE_CARD_T2_SAVE_BLOCKED_BY_PREFLIGHT"}
  ClickUi "Сохранить заказ" ([System.Windows.Automation.ControlType]::Button)
  $saved=$false
  for($i=0;$i -lt 85;$i++){Start-Sleep -Milliseconds 400
