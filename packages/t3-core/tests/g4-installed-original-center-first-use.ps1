@@ -314,7 +314,30 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
       # button should be clicked under revoked/absent or mismatched authority.
       NativeD2BoundedRefusal
       NativeD2RefusalStage
-      Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_ACCESS_DENIED'
+      # A read timeout is neither a rejected signed DATA right nor proof of a
+      # missing Workspace. Distinguish it from a definitive denial using only
+      # the same bounded UIA code emitted by the existing signed gate.
+      $root=DesktopRoot
+      $nodes=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      $readTimedOut=$false
+      foreach($node in $nodes){
+        try{
+          $label=[string]$node.Current.Name
+          if($label -match 'Код:\s*T3_D1_(?:ISOLATED_KERNEL_TIMEOUT|READ_TIMEOUT_[A-Z0-9_]{4,80})(?![A-Z0-9_])'){
+            $readTimedOut=$true
+            break
+          }
+        }catch{}
+      }
+      if($readTimedOut){
+        Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_READ_TIMEOUT_NOT_ACCESS_DENIAL'
+        if($clicked){
+          Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_CREATE_OUTCOME_UNKNOWN_NO_REOPEN'
+        }
+      }else{
+        Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_ACCESS_DENIED'
+      }
       return $false
     }
     if($missing){$sawMissing=$true}
