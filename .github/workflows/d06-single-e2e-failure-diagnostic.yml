@@ -61,8 +61,10 @@ jobs:
           $known = @(git ls-files "tests/e2e/*.spec.ts" | Sort-Object)
           $failureIndices = [System.Collections.Generic.HashSet[int]]::new()
           $failingTestCount = 0
-          function Scan-Suite($suite) {
+          $failureLines = [System.Collections.Generic.List[int]]::new()
+          function Scan-Suite($suite, $inheritedFile) {
             if ($null -eq $suite) { return }
+            $suiteFile = if ($suite.file) { [string]$suite.file } elseif ([string]$suite.title -match '\.spec\.ts') { [string]$suite.title } else { [string]$inheritedFile }
             foreach ($spec in @($suite.specs)) {
               if ($null -eq $spec) { continue }
               foreach ($case in @($spec.tests)) {
@@ -70,21 +72,29 @@ jobs:
                 $bad = $case.status -eq "unexpected" -or @($case.results | Where-Object { $_.status -in @("failed", "timedOut", "interrupted") }).Count -gt 0
                 if (-not $bad) { continue }
                 $script:failingTestCount++
-                $fileName = if ($spec.file) { $spec.file } elseif ($suite.file) { $suite.file } else { "" }
-                $fileName = ([string]$fileName).Replace([char]92, [char]47)
+                $script:failureLines.Add([int]$(if ($spec.line) { $spec.line } elseif ($spec.location.line) { $spec.location.line } else { 0 }))
+                $fileName = if ($spec.file) { [string]$spec.file } elseif ($spec.location.file) { [string]$spec.location.file } else { $suiteFile }
+                $fileName = $fileName.Replace([char]92, [char]47)
                 $index = [array]::IndexOf($known, $fileName)
                 if ($index -lt 0 -and $fileName.Contains("tests/e2e/")) {
                   $fileName = "tests/e2e/" + ($fileName -split "tests/e2e/")[-1]
                   $index = [array]::IndexOf($known, $fileName)
                 }
+                if ($index -lt 0 -and $fileName) {
+                  $leaf = ($fileName -split "/")[-1]
+                  for ($i = 0; $i -lt $known.Count; $i++) {
+                    if (($known[$i] -split "/")[-1] -eq $leaf) { $index = $i; break }
+                  }
+                }
                 if ($index -ge 0) { [void]$script:failureIndices.Add($index + 1) }
               }
             }
             foreach ($child in @($suite.suites)) {
-              if ($null -ne $child) { Scan-Suite $child }
+              if ($null -ne $child) { Scan-Suite $child $suiteFile }
             }
           }
-          foreach ($top in @($report.suites)) { if ($null -ne $top) { Scan-Suite $top } }
+          foreach ($top in @($report.suites)) { if ($null -ne $top) { Scan-Suite $top "" } }
+          Write-Host ("D06_E2E_FAILURE_TEST_LINE_NUMBERS=" + (($failureLines | Sort-Object -Unique) -join ","))
           Write-Host "D06_E2E_JSON=PASS"
           Write-Host ("D06_E2E_FAILING_TESTS=" + $failingTestCount)
           Write-Host ("D06_E2E_FAILING_SPEC_ORDINALS=" + ((@($failureIndices) | Sort-Object) -join ","))
