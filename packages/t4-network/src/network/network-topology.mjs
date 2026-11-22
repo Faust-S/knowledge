@@ -45,7 +45,7 @@ function normalizeNode(raw,localNodeRef) {
   const local=nodeRef===localNodeRef;
   if(local!==(raw.kind==='LOCAL_DEVICE'))fail('LOCAL_T3_NODE_MISMATCH');
   if(local&&raw.availability!=='AVAILABLE')fail('LOCAL_T3_MUST_REMAIN_AVAILABLE');
-  if(local&&raw.profileRef!==undefined)fail('LOCAL_T3_HAS_REMOTE_PROFILE');
+  if(local&&raw.profileRef!==undefined&&raw.profileRef!==null)fail('LOCAL_T3_HAS_REMOTE_PROFILE');
   if(!local&&!id(raw.profileRef))fail('REMOTE_NODE_PROFILE_REQUIRED');
   return frozenObject({
     nodeRef,kind:raw.kind,subjectRef,operatorRef,locationRef,
@@ -132,6 +132,10 @@ export function createT4NetworkTopology(input={}) {
   const localNodeRef=required(input.localNodeRef);
   if(!Number.isSafeInteger(input.revision)||input.revision<1)
     fail('TOPOLOGY_REVISION_INVALID');
+  const previousTopologyDigest=input.previousTopologyDigest??null;
+  if((input.revision===1&&previousTopologyDigest!==null)||
+    (input.revision>1&&!/^sha256:[a-f0-9]{64}$/.test(previousTopologyDigest)))
+    fail('TOPOLOGY_PARENT_DIGEST_INVALID');
   const nodes=entries(input.nodes,128,'NODES_INVALID').map(x=>normalizeNode(x,localNodeRef));
   const nodeMap=indexBy(nodes,'nodeRef','NODE_DUPLICATE');
   if(!nodeMap.has(localNodeRef))fail('LOCAL_T3_NODE_MISSING');
@@ -156,7 +160,7 @@ export function createT4NetworkTopology(input={}) {
   }
   const stable={
     schema:'IWXA_T4_NETWORK_TOPOLOGY_V1',topologyRef,revision:input.revision,
-    localNodeRef,nodes:Object.freeze(nodes.sort((a,b)=>a.nodeRef.localeCompare(b.nodeRef))),
+    previousTopologyDigest,localNodeRef,nodes:Object.freeze(nodes.sort((a,b)=>a.nodeRef.localeCompare(b.nodeRef))),
     profiles:Object.freeze(profiles.sort((a,b)=>a.profileRef.localeCompare(b.profileRef))),
     connections:Object.freeze(connections.sort((a,b)=>a.connectionRef.localeCompare(b.connectionRef))),
     placements:Object.freeze(placements.sort((a,b)=>routeKey(a.policy.workspaceId,a.policy.objectFamily)
@@ -244,4 +248,62 @@ export async function executeT4NetworkRoute({
   // No new IAM token or persisted right is produced. The existing transport must
   // independently check its original Host authorization before each request.
   return executeTransport(frozenObject({route,context}));
+}
+
+
+export async function transitionT4NetworkTopology({
+  previous,candidate,authorizeOriginalTopologyChange,
+}={}) {
+  if(typeof authorizeOriginalTopologyChange!=='function')
+    fail('ORIGINAL_T3_TOPOLOGY_AUTHORITY_PORT_REQUIRED');
+  if(previous?.schema!=='IWXA_T4_NETWORK_TOPOLOGY_V1'||
+    candidate?.schema!=='IWXA_T4_NETWORK_TOPOLOGY_V1')fail('TOPOLOGY_REQUIRED');
+  const before=createT4NetworkTopology(previous),after=createT4NetworkTopology(candidate);
+  if(before.topologyDigest!==previous.topologyDigest||
+    after.topologyDigest!==candidate.topologyDigest)fail('TOPOLOGY_DIGEST_MISMATCH');
+  if(after.revision!==before.revision+1||after.previousTopologyDigest!==before.topologyDigest||
+    after.topologyRef!==before.topologyRef||after.localNodeRef!==before.localNodeRef)
+    fail('TOPOLOGY_REVISION_CHAIN_INVALID');
+  const prevLocal=before.nodes.find(n=>n.nodeRef===before.localNodeRef);
+  const nextLocal=after.nodes.find(n=>n.nodeRef===after.localNodeRef);
+  if(prevLocal.subjectRef!==nextLocal.subjectRef||prevLocal.operatorRef!==nextLocal.operatorRef||
+    prevLocal.locationRef!==nextLocal.locationRef)fail('ORIGINAL_T3_LOCAL_OWNER_CHANGED');
+  const oldNodes=new Map(before.nodes.map(n=>[n.nodeRef,n]));
+  for(const node of after.nodes){
+    const prior=oldNodes.get(node.nodeRef);
+    if(prior&&['kind','subjectRef','operatorRef','locationRef','profileRef'].some(k=>prior[k]!==node[k]))
+      fail('NODE_IDENTITY_RETARGET_FORBIDDEN');
+  }
+  const oldPlacements=new Map(before.placements.map(p=>
+    [routeKey(p.policy.workspaceId,p.policy.objectFamily),p]));
+  const newPlacements=new Map(after.placements.map(p=>
+    [routeKey(p.policy.workspaceId,p.policy.objectFamily),p]));
+  const familyKeys=[...new Set([...oldPlacements.keys(),...newPlacements.keys()])].sort();
+  for(const familyKey of familyKeys){
+    const original=oldPlacements.get(familyKey),next=newPlacements.get(familyKey);
+    if(original&&next&&(original.policy.writeOwnerRef!==next.policy.writeOwnerRef||
+      original.policy.authorityRoot!==next.policy.authorityRoot))
+      fail('ORIGINAL_T3_WRITE_AUTHORITY_IMMUTABLE');
+  }
+  for(const familyKey of familyKeys){
+    const original=oldPlacements.get(familyKey),next=newPlacements.get(familyKey);
+    const p=next??original;
+    const decision=Object.freeze({
+      operation:'t4.topology.revise',
+      topologyRef:before.topologyRef,
+      previousTopologyDigest:before.topologyDigest,
+      candidateTopologyDigest:after.topologyDigest,
+      workspaceId:p.policy.workspaceId,objectFamily:p.policy.objectFamily,
+      originalWriteOwnerRef:p.policy.writeOwnerRef,
+      previousPrimaryNodeRef:original?.primaryNodeRef??null,
+      candidatePrimaryNodeRef:next?.primaryNodeRef??null,
+      previousReplicaNodeRefs:original?.replicaNodeRefs??Object.freeze([]),
+      candidateReplicaNodeRefs:next?.replicaNodeRefs??Object.freeze([]),
+      changesExistingOriginalOwner:false,
+      networkTopologyIsNotOriginalGrant:true,
+    });
+    if(await authorizeOriginalTopologyChange(decision)!==true)
+      fail('ORIGINAL_T3_TOPOLOGY_REVISION_DENIED');
+  }
+  return after;
 }

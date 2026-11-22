@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createT4NetworkTopology,planT4NetworkRoute,listT4NetworkChoices,
-  executeT4NetworkRoute,T4NetworkTopologyError
+  executeT4NetworkRoute,transitionT4NetworkTopology,T4NetworkTopologyError
 } from '../src/network/network-topology.mjs';
 import {createT4NetworkConnectionProfile} from '../src/network/operator-connection.mjs';
 import {createWebDavPackageTransport,packageSha256} from '../src/network/webdav-package-transfer.mjs';
@@ -239,4 +239,87 @@ test('real existing WebDAV transport is selectable through topology without dupl
   assert.deepEqual(result.bytes,bytes);
   assert.equal(result.receipt.state,'DOWNLOADED_VERIFIED_BYTES');
   assert.deepEqual(calls,['GET']);network.close();
+});
+
+
+test('a new topology revision has an explicit content-addressed parent',()=>{
+  const before=build();
+  assert.throws(()=>createT4NetworkTopology({
+    ...before,revision:2,previousTopologyDigest:'invalid'
+  }),code('TOPOLOGY_PARENT_DIGEST_INVALID'));
+  const after=createT4NetworkTopology({
+    ...before,revision:2,previousTopologyDigest:before.topologyDigest
+  });
+  assert.equal(after.previousTopologyDigest,before.topologyDigest);
+  assert.notEqual(after.topologyDigest,before.topologyDigest);
+});
+
+test('user-authorized topology revision marks an offline home server but cannot promote replicas',async()=>{
+  const before=build();
+  const after=createT4NetworkTopology({
+    ...before,revision:2,previousTopologyDigest:before.topologyDigest,
+    nodes:before.nodes.map(x=>x.nodeRef==='node:home'?
+      {...x,availability:'UNREACHABLE'}:x),
+  });
+  const approvals=[];
+  const accepted=await transitionT4NetworkTopology({
+    previous:before,candidate:after,authorizeOriginalTopologyChange:async ctx=>{
+      approvals.push(ctx);return ctx.originalWriteOwnerRef==='original:t2:owner';
+    },
+  });
+  assert.equal(accepted.topologyDigest,after.topologyDigest);
+  assert.equal(approvals.length,1);
+  assert.equal(approvals[0].previousTopologyDigest,before.topologyDigest);
+  assert.equal(approvals[0].candidateTopologyDigest,after.topologyDigest);
+  assert.equal(approvals[0].changesExistingOriginalOwner,false);
+  assert.equal(accepted.placements[0].primaryNodeRef,'node:local');
+});
+
+test('server change is staged as an owner-authorized placement update, not an implicit provider transfer',async()=>{
+  const before=build();
+  const after=createT4NetworkTopology({
+    ...before,revision:2,previousTopologyDigest:before.topologyDigest,
+    placements:[{...placement,replicaNodeRefs:['node:other','node:cloud']}],
+  });
+  await assert.rejects(transitionT4NetworkTopology({
+    previous:before,candidate:after,authorizeOriginalTopologyChange:async()=>false
+  }),code('ORIGINAL_T3_TOPOLOGY_REVISION_DENIED'));
+  const allowed=await transitionT4NetworkTopology({
+    previous:before,candidate:after,authorizeOriginalTopologyChange:async()=>true
+  });
+  assert.throws(()=>planT4NetworkRoute({topology:allowed,workspaceId:'workspace:owner',
+    objectFamily:'orders',targetNodeRef:'node:home',capability:'package.read'}),
+    code('NETWORK_TARGET_NOT_PLACED'));
+  assert.equal(allowed.placements[0].sourceWriteOwnerRef,'original:t2:owner');
+});
+
+test('T4 route topology revision cannot take over original writer ownership',async()=>{
+  const before=build();
+  const altered=createT4NetworkTopology({
+    ...before,revision:2,previousTopologyDigest:before.topologyDigest,
+    placements:[{...placement,policy:{...policy,writeOwnerRef:'operator:cloud'}}],
+  });
+  let authorizations=0;
+  await assert.rejects(transitionT4NetworkTopology({
+    previous:before,candidate:altered,
+    authorizeOriginalTopologyChange:async()=>{authorizations++;return true;}
+  }),code('ORIGINAL_T3_WRITE_AUTHORITY_IMMUTABLE'));
+  assert.equal(authorizations,0);
+});
+
+test('a remote node cannot replace its operator or endpoint behind the same network identity',async()=>{
+  const before=build();
+  const switched=createT4NetworkTopology({
+    ...before,revision:2,previousTopologyDigest:before.topologyDigest,
+    nodes:before.nodes.map(n=>n.nodeRef==='node:home'?
+      {...n,operatorRef:'other:operator'}:n),
+    profiles:before.profiles.map(p=>p.profileRef==='profile:home'?
+      {...p,operatorRef:'other:operator'}:p),
+  });
+  let granted=0;
+  await assert.rejects(transitionT4NetworkTopology({
+    previous:before,candidate:switched,
+    authorizeOriginalTopologyChange:async()=>{granted++;return true;}
+  }),code('NODE_IDENTITY_RETARGET_FORBIDDEN'));
+  assert.equal(granted,0);
 });
