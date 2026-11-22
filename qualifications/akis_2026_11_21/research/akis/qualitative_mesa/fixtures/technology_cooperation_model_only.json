@@ -1,0 +1,265 @@
+{
+  "schema": "IWXA_AKIS_QUALITATIVE_INPUT/0.1",
+  "evidence": "MODEL_ONLY",
+  "institution": {
+    "operator": "op",
+    "founders": [
+      "op",
+      "a",
+      "b"
+    ],
+    "mode": "SOLE",
+    "revision": "oc-1",
+    "council_members": [
+      "a",
+      "b"
+    ],
+    "council_quorum": 2,
+    "council_rule": "UNANIMOUS",
+    "operator_mandate": [
+      "authorize",
+      "exclude"
+    ],
+    "mixed_reserved": []
+  },
+  "subjects": [
+    {
+      "id": "op",
+      "kind": "OPERATOR"
+    },
+    {
+      "id": "a",
+      "kind": "SME"
+    },
+    {
+      "id": "b",
+      "kind": "SME"
+    },
+    {
+      "id": "c",
+      "kind": "SME"
+    }
+  ],
+  "resources": [
+    {
+      "id": "ra",
+      "owner": "a",
+      "availability": "AVAILABLE",
+      "capacity_units": 1,
+      "capacity_unit": "machine",
+      "site": "site-a"
+    },
+    {
+      "id": "rb",
+      "owner": "b",
+      "availability": "AVAILABLE",
+      "capacity_units": 1,
+      "capacity_unit": "team",
+      "site": "site-b"
+    }
+  ],
+  "works": [
+    {
+      "id": "w1",
+      "customer": "c",
+      "resource": "ra",
+      "source_revision": "d1",
+      "slot_start": 0,
+      "slot_end": 8,
+      "operations": [
+        {
+          "id": "cut",
+          "primary_resource": "ra",
+          "requires_completed": [],
+          "resource_requirements": [
+            {
+              "resource": "ra",
+              "units": 1
+            }
+          ],
+          "slot_start": 0,
+          "slot_end": 4
+        },
+        {
+          "id": "pack",
+          "primary_resource": "rb",
+          "requires_completed": [
+            "cut"
+          ],
+          "resource_requirements": [
+            {
+              "resource": "rb",
+              "units": 1
+            }
+          ],
+          "slot_start": 4,
+          "slot_end": 8
+        }
+      ]
+    },
+    {
+      "id": "w2",
+      "customer": "c",
+      "resource": "ra",
+      "source_revision": "d2",
+      "slot_start": 4,
+      "slot_end": 8
+    }
+  ],
+  "events": [
+    {
+      "at": 1,
+      "action": "offer",
+      "actor": "op",
+      "work": "w1"
+    },
+    {
+      "at": 2,
+      "action": "authorize",
+      "actor": "op",
+      "work": "w1"
+    },
+    {
+      "at": 3,
+      "action": "consent",
+      "actor": "a",
+      "work": "w1",
+      "source_revision": "d1",
+      "org_revision": "oc-1"
+    },
+    {
+      "at": 4,
+      "action": "consent",
+      "actor": "b",
+      "work": "w1",
+      "source_revision": "d1",
+      "org_revision": "oc-1"
+    },
+    {
+      "at": 5,
+      "action": "consent",
+      "actor": "c",
+      "work": "w1",
+      "source_revision": "d1",
+      "org_revision": "oc-1"
+    },
+    {
+      "at": 6,
+      "action": "commit",
+      "actor": "op",
+      "work": "w1"
+    },
+    {
+      "at": 7,
+      "action": "offer",
+      "actor": "op",
+      "work": "w2"
+    },
+    {
+      "at": 8,
+      "action": "authorize",
+      "actor": "op",
+      "work": "w2"
+    },
+    {
+      "at": 9,
+      "action": "consent",
+      "actor": "a",
+      "work": "w2",
+      "source_revision": "d2",
+      "org_revision": "oc-1"
+    },
+    {
+      "at": 10,
+      "action": "consent",
+      "actor": "c",
+      "work": "w2",
+      "source_revision": "d2",
+      "org_revision": "oc-1"
+    },
+    {
+      "at": 11,
+      "action": "commit",
+      "actor": "op",
+      "work": "w2"
+    },
+    {
+      "at": 12,
+      "action": "start_operation",
+      "actor": "b",
+      "work": "w1",
+      "operation": "pack"
+    },
+    {
+      "at": 13,
+      "action": "start_operation",
+      "actor": "a",
+      "work": "w1",
+      "operation": "cut"
+    },
+    {
+      "at": 14,
+      "action": "complete_operation",
+      "actor": "a",
+      "work": "w1",
+      "operation": "cut",
+      "result_ref": "model://cut-declared"
+    },
+    {
+      "at": 15,
+      "action": "start_operation",
+      "actor": "b",
+      "work": "w1",
+      "operation": "pack"
+    },
+    {
+      "at": 16,
+      "action": "complete",
+      "actor": "a",
+      "work": "w1",
+      "result_ref": "model://whole-w1"
+    },
+    {
+      "at": 17,
+      "action": "complete_operation",
+      "actor": "b",
+      "work": "w1",
+      "operation": "pack",
+      "result_ref": "model://pack-declared"
+    },
+    {
+      "at": 18,
+      "action": "complete",
+      "actor": "a",
+      "work": "w1",
+      "result_ref": "model://whole-w1"
+    },
+    {
+      "at": 19,
+      "action": "accept",
+      "actor": "c",
+      "work": "w1"
+    },
+    {
+      "at": 20,
+      "action": "start",
+      "actor": "a",
+      "work": "w2"
+    },
+    {
+      "at": 21,
+      "action": "complete",
+      "actor": "a",
+      "work": "w2",
+      "result_ref": "model://whole-w2"
+    },
+    {
+      "at": 22,
+      "action": "accept",
+      "actor": "c",
+      "work": "w2"
+    }
+  ],
+  "capacity_strict": true,
+  "portfolio_review": true
+}
