@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 00008bcfd697c2f365a8a76a965db66b53e5adec
+          ref: 9ba2d4afb86174a3b8da0314757a419dec5d370f
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -41,7 +41,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((& git -C .private/t3 rev-parse HEAD).Trim() -cne '00008bcfd697c2f365a8a76a965db66b53e5adec'){
+          if((& git -C .private/t3 rev-parse HEAD).Trim() -cne '9ba2d4afb86174a3b8da0314757a419dec5d370f'){
             throw 'D2_ORIGINAL_OWNER_SOURCE_PIN_FAILED'
           }
           Write-Host 'D2_ORIGINAL_OWNER_SOURCE_PIN_PASS'
@@ -112,6 +112,35 @@ jobs:
             throw 'D2_ORIGINAL_SOURCE_FIRST_USE_HOLD'
           }
           Write-Host 'D2_ORIGINAL_SOURCE_FIRST_USE_PASS'
+      - name: Same original product-owner CLI under Node with all real imports
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $org='orgd2-'+[guid]::NewGuid().ToString('N')
+          $root=Join-Path $env:RUNNER_TEMP 'd2-node-cli-first-use'
+          $request=Join-Path $env:RUNNER_TEMP 'd2-node-cli-request.json'
+          @{organizationId=$org;workspaceId=('workspace:d2:'+([guid]::NewGuid().ToString('N')));
+            organizationName='Original T3 supplier operations team'} |
+            ConvertTo-Json -Compress | Set-Content -LiteralPath $request -Encoding utf8NoBOM
+          $log=Join-Path $env:RUNNER_TEMP 'd2-node-cli-private.log'
+          & node .private/t3/scripts/product-license-windows-owner-cli.mjs d3-enroll $root $org $request *> $log
+          if($LASTEXITCODE -ne 0){
+            $codes=@()
+            foreach($line in (Get-Content $log -ErrorAction SilentlyContinue)){
+              foreach($hit in [regex]::Matches([string]$line,
+                '(?<![A-Z0-9_])(?:T3_D3|WINDOWS|DPAPI|INTEROP)_[A-Z0-9_]{3,90}(?![A-Z0-9_])')){
+                $codes+=([string]$hit.Value)
+              }
+            }
+            $reason=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            Write-Host "D2_ORIGINAL_NODE_CLI_FIRST_USE_MACHINE_CODE $reason"
+            throw 'D2_ORIGINAL_NODE_CLI_FIRST_USE_HOLD'
+          }
+          $out=Get-Content -LiteralPath $log -Raw | ConvertFrom-Json
+          if($out.operation -ne 'D3_ENROLLED' -or $out.view.status -ne 'D3_OWNER_READY'){
+            throw 'D2_ORIGINAL_NODE_CLI_FIRST_USE_READBACK_INVALID'
+          }
+          Write-Host 'D2_ORIGINAL_NODE_CLI_FIRST_USE_PASS'
       - name: Compile exact original T3 owner without custom implementation
         shell: pwsh
         run: |
@@ -135,8 +164,37 @@ jobs:
             ConvertTo-Json -Compress | Set-Content -LiteralPath $request -Encoding utf8NoBOM
           $exe=Join-Path $env:RUNNER_TEMP 'iwxa-d2-compiled-original.exe'
           $log=Join-Path $env:RUNNER_TEMP 'd2-private-compiled.log'
+          $env:IWXA_T3_FIRST_USE_PROBE='1'
           & $exe d3-enroll $root $org $request *> $log
+          Remove-Item env:IWXA_T3_FIRST_USE_PROBE -ErrorAction SilentlyContinue
           if($LASTEXITCODE -ne 0){
+            # Only original fixed machine labels may leave this runner.
+            foreach($line in (Get-Content $log -ErrorAction SilentlyContinue)){
+              $clean=([string]$line).Trim()
+              if($clean -match '^T3_D3_PROBE_(?:CLI_EVALUATED|CLI_D3_VERB_(?:TRUE|FALSE)|CLI_CAUGHT|STAGE_[A-Z_]+)
+              foreach($hit in [regex]::Matches([string]$line,
+                '(?<![A-Z0-9_])(?:T3_D3|WINDOWS|DPAPI|INTEROP)_[A-Z0-9_]{3,90}(?![A-Z0-9_])')){
+                $codes+=([string]$hit.Value)
+              }
+            }
+            $reason=if($codes.Count){$codes[-1]}else{
+              $found=@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object {$_ -match '\bENOENT\b'}).Count
+              if($found){'ENOENT'}else{'UNCLASSIFIED'}
+            }
+            Write-Host "D2_ORIGINAL_COMPILED_FIRST_USE_MACHINE_CODE $reason"
+            throw 'D2_ORIGINAL_COMPILED_FIRST_USE_HOLD'
+          }
+          $json=@(Get-Content -LiteralPath $log | Where-Object { $_ -match '^\{' } | Select-Object -Last 1)
+          if($json.Count -ne 1){throw 'D2_ORIGINAL_COMPILED_FIRST_USE_JSON_MISSING'}
+          $out=$json[0] | ConvertFrom-Json
+          if($out.operation -ne 'D3_ENROLLED' -or $out.view.status -ne 'D3_OWNER_READY'){
+            throw 'D2_ORIGINAL_COMPILED_FIRST_USE_READBACK_INVALID'
+          }
+          Write-Host 'D2_ORIGINAL_COMPILED_FIRST_USE_PASS'
+){
+                Write-Host "D2_ORIGINAL_COMPILED_WITNESS $clean"
+              }
+            }
             $codes=@()
             foreach($line in (Get-Content $log -ErrorAction SilentlyContinue)){
               foreach($hit in [regex]::Matches([string]$line,
