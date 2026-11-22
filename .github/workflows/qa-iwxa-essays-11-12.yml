@@ -1,0 +1,225 @@
+name: IWXA essays 11-12 from published main
+on:
+  push:
+    branches:
+      - qa/2026-11-22-projects-essays-01-02
+    paths:
+      - .github/workflows/qa-iwxa-essays-11-12.yml
+permissions:
+  contents: read
+jobs:
+  logic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Verify all twelve essays and compile actual site main
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo SITE_SOURCE_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/iwxa-1112-install.log 2>&1 || { tail -n 95 /tmp/iwxa-1112-install.log; exit 1; }
+          node --import tsx --test scripts/check-editorial-series.test.ts scripts/check-projects-and-first-essays.test.ts scripts/check-deep-essays-03-04.test.ts scripts/check-essays-05-06.test.ts scripts/check-essays-07-08.test.ts scripts/check-essays-09-10.test.ts scripts/check-essays-11-12.test.ts
+          echo TWELVE_ESSAYS_LOGIC_PASS
+          bunx vite build > /tmp/iwxa-1112-build.log 2>&1 || { tail -n 125 /tmp/iwxa-1112-build.log; exit 1; }
+          bunx tsc --noEmit > /tmp/iwxa-1112-types.log 2>&1 || { tail -n 120 /tmp/iwxa-1112-types.log; exit 1; }
+          echo TWELVE_ESSAYS_VITE_TYPES_PASS
+      - name: Purge private checkout
+        if: always()
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/iwxa-1112-*.log
+          test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 19
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Real Chrome user actions, desktop and phone, without screenshot artifacts
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile > /tmp/iwxa-1112-browser-install.log 2>&1 || { tail -n 80 /tmp/iwxa-1112-browser-install.log; exit 1; }
+          bunx vite --host 127.0.0.1 --port 4173 > /tmp/iwxa-1112-browser-vite.log 2>&1 &
+          echo $! > /tmp/iwxa-1112-browser.pid
+          for i in $(seq 1 100); do
+            if curl -fsS http://127.0.0.1:4173/projects/iwxa/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node --input-type=module <<'JS'
+          import puppeteer from 'puppeteer';
+          const routes=[
+            '/projects/iwxa/',
+            '/articles/cehovod-cena-i-priemka-partii/',
+            '/articles/komplektovod-zamena-pozicii/',
+          ];
+          const browser=await puppeteer.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox','--disable-dev-shm-usage']});
+          let checks=0;
+          try{
+            const page=await browser.newPage();
+            let errors=[];
+            page.on('pageerror',e=>{errors.push(e.message);console.log('CLIENT_PAGE_ERROR',e.message.slice(0,300))});
+            for(const width of [1440,375]){
+              await page.setViewport({width,height:width===375?812:900,deviceScaleFactor:1});
+              for(const route of routes){
+                errors=[];
+                console.log('BROWSER_CHECKING',width,route);
+                const response=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'domcontentloaded',timeout:70000});
+                if(!response?.ok())throw Error('HTTP_FAILURE '+route+' '+response?.status());
+                await page.waitForFunction(()=>document.querySelector('main')?.dataset.clientReady===location.pathname,{timeout:120000});
+                const layout=await page.evaluate(()=>({
+                  h1:document.querySelector('h1')?.textContent?.trim(),
+                  overflow:document.documentElement.scrollWidth-innerWidth,
+                  font:getComputedStyle(document.querySelector('h1')).fontFamily,
+                }));
+                if(!layout.h1||layout.overflow>3||!layout.font.includes('Inter Tight'))
+                  throw Error('LAYOUT_OR_FONT '+width+' '+route+' '+JSON.stringify(layout));
+                if(route==='/projects/iwxa/'){
+                  const cards=await page.$$eval('.iwproj-publications>a',els=>els.length);
+                  if(cards!==12)throw Error('TWELVE_CARDS_REQUIRED '+cards);
+                }
+                if(route.includes('cehovod-')){
+                  const initial=await page.$eval('.shx-figures>div:nth-child(2)>strong',e=>e.textContent);
+                  if(initial?.trim()!=='228')throw Error('INITIAL_QC '+initial);
+                  const original=await page.$eval('.shx-verdict>strong',e=>e.textContent);
+                  if(!original?.includes('рано'))throw Error('PREMATURE_RELEASE '+original);
+                  await page.focus('input[aria-label="Количество доработанных изделий"]');
+                  await page.keyboard.press('End');
+                  const checks=await page.$$('.shx-field input[type=checkbox]');
+                  if(checks.length!==3)throw Error('EXPECTED_QUALITY_GATES '+checks.length);
+                  await checks[1].click();
+                  const all=await page.$eval('.shx-figures>div:nth-child(2)>strong',e=>e.textContent);
+                  if(all?.trim()!=='240')throw Error('REWORK_NOT_COUNTED '+all);
+                  const day=await page.$eval('.shx-verdict>p:nth-of-type(2)',e=>e.textContent);
+                  if(!day?.includes('день 13'))throw Error('REWORK_DELIVERY_WRONG '+day);
+                  await page.focus('input[aria-label="Смещение после повторной вышивки"]');
+                  for(let i=0;i<3;i++)await page.keyboard.press('ArrowRight');
+                  const invalid=await page.$eval('.shx-figures>div:nth-child(2)>strong',e=>e.textContent);
+                  if(invalid?.trim()!=='228')throw Error('INVALID_INSPECTION_COUNTED '+invalid);
+                  await checks[2].click();
+                  const eligible=await page.$eval('.shx-verdict>p:first-of-type',e=>e.textContent);
+                  if(!eligible?.includes('228 шт.'))throw Error('PARTIAL_PERMITTED_BUT_NOT_ALL '+eligible);
+                }
+                if(route.includes('komplektovod-')){
+                  const options=await page.$$('.ktx-controller-choices button');
+                  if(options.length!==3)throw Error('THREE_CONTROLLERS_EXPECTED '+options.length);
+                  await options[1].click();
+                  let verdict=await page.$eval('.ktx-verdict>strong',e=>e.textContent);
+                  if(!verdict?.includes('не выполняет'))throw Error('CHEAP_REPLACEMENT_FALSE_PASS '+verdict);
+                  const toggles=await page.$$('.ktx-field input[type=checkbox]');
+                  if(toggles.length!==8)throw Error('EXPECTED_EIGHT_CONSENT_CONTROLS '+toggles.length);
+                  await toggles[0].click();
+                  await toggles[1].click();
+                  await page.click('.ktx-pair button:nth-child(2)');
+                  const day=await page.$eval('.ktx-metrics>div:nth-child(4)>strong',e=>e.textContent);
+                  if(!day?.includes('14'))throw Error('ADAPTER_DELIVERY_IGNORED '+day);
+                  await options[2].click();
+                  await page.click('.ktx-pair button:nth-child(1)');
+                  const valid=await page.$eval('.ktx-metrics>div:nth-child(4)>strong',e=>e.textContent);
+                  if(!valid?.includes('7'))throw Error('COMPATIBLE_CONTROLLER_DEADLINE '+valid);
+                  await toggles[2].click();
+                  await toggles[3].click();
+                  await toggles[4].click();
+                  verdict=await page.$eval('.ktx-verdict>strong',e=>e.textContent);
+                  if(!verdict?.includes('Состав согласован'))throw Error('THREE_CONSENTS_NOT_APPLIED '+verdict);
+                  await toggles[5].click();
+                  const received=await page.$eval('.ktx-verdict>strong',e=>e.textContent);
+                  if(!received?.includes('Экземпляр принят'))throw Error('RECEIVING_NOT_RECORDED '+received);
+                  await page.focus('input[aria-label="Возраст коммерческого предложения"]');
+                  await page.keyboard.press('End');
+                  const remains=await page.$eval('.ktx-verdict>strong',e=>e.textContent);
+                  if(!remains?.includes('Экземпляр принят'))throw Error('QUOTE_AGE_ERASED_HISTORY '+remains);
+                  await toggles[6].click();
+                  await toggles[7].click();
+                  const transferred=await page.$eval('.ktx-verdict>strong',e=>e.textContent);
+                  if(!transferred?.includes('Новый владелец'))throw Error('TRANSFER_NOT_RECORDED '+transferred);
+                  await options[0].click();
+                  const stale=await page.$eval('.ktx-verdict>strong',e=>e.textContent);
+                  if(stale?.includes('Новый владелец'))throw Error('OLD_APPROVALS_LEAKED_TO_REVISION');
+                }
+                if(errors.length)throw Error('PAGE_ERRORS '+route+' '+errors.join(';'));
+                console.log('CHROME_CHECK_PASS',width,route);
+                checks++;
+              }
+            }
+            console.log('IWXA_ESSAYS_11_12_BROWSER_PASS',checks);
+          }finally{await browser.close();}
+          JS
+      - name: Purge private source and logs
+        if: always()
+        run: |
+          if [ -f /tmp/iwxa-1112-browser.pid ]; then kill "$(cat /tmp/iwxa-1112-browser.pid")" 2>/dev/null || true; fi
+          rm -rf .private/site
+          rm -f /tmp/iwxa-1112-browser*.log /tmp/iwxa-1112-browser.pid
+          test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Prerender IWXA project and essays 11-12 for shared Apache host
+        working-directory: .private/site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+          IWXA_PRERENDER_ROUTES: /projects/iwxa/,/articles/cehovod-cena-i-priemka-partii/,/articles/komplektovod-zamena-pozicii/
+        run: |
+          set -euo pipefail
+          echo STATIC_SOURCE_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/iwxa-1112-static-install.log 2>&1 || { tail -n 85 /tmp/iwxa-1112-static-install.log; exit 1; }
+          bunx tsx scripts/build-static.ts > /tmp/iwxa-1112-static-build.log 2>&1 || { tail -n 135 /tmp/iwxa-1112-static-build.log; exit 1; }
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const urls=['/projects/iwxa/','/articles/cehovod-cena-i-priemka-partii/','/articles/komplektovod-zamena-pozicii/'];
+          for(const url of urls){
+            const file='dist-static'+url+'index.html';
+            if(!fs.existsSync(file))throw Error('MISSING_STATIC '+url);
+            const html=fs.readFileSync(file,'utf8');
+            if(!html.includes('<h1')||!html.includes('https://iwxa.ru'+url)||html.includes('localhost:4319'))throw Error('SEO '+url);
+            if(url.includes('cehovod-')&&!html.includes('Произведено 240. Что можно передать заказчику?'))throw Error('SHOP_INTERACTIVE_NOT_RENDERED');
+            if(url.includes('komplektovod-')&&!html.includes('Одна замена затрагивает весь комплект'))throw Error('KIT_INTERACTIVE_NOT_RENDERED');
+            if(url==='/projects/iwxa/'&&!html.includes('Комплектовод: что происходит с решением после замены позиции?'))throw Error('PROJECT_CARDS_STALE');
+            console.log('STATIC_HTML_PASS',url,html.length);
+          }
+          JS
+      - name: Purge private source and logs
+        if: always()
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/iwxa-1112-static-*.log
+          test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
