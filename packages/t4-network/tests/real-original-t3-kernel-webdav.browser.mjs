@@ -2212,7 +2212,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const receiveBatch=maxEntries=>
         createT4OriginalHostRecipientDispatcher(recipientPorts).drain({
           entries:receivePlan,initialCursor:receiveStartCursor,maxEntries});
-      const receivedFirst=await receiveBatch(1);
+      const receivedFirst=await receiveBatch(1).catch(error=>{
+        console.log('T4_ORIGINAL_RECIPIENT_FIRST_BATCH_FAILURE',
+          JSON.stringify({code:error?.code,details:error?.details}));
+        throw error;
+      });
       assert.equal(receivedFirst.processedCount,1);
       assert.equal(recipientObjectPutCalls,1);
       assert.equal((await independentAssetRecipient.getObject(
