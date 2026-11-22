@@ -2,7 +2,8 @@
 // the Activity review UI. The original Kernel, signed grants, D1 and D2 remain
 // entirely within the owner Host; this module neither issues nor stores rights.
 import {inspectSelectedT3Activity, T3ActivityHold} from './t3-selected-host.mjs';
-import {createTrustedT3ActivityStagePort} from './t3-owner-review-stage.mjs';
+import {createTrustedT3ActivityStagePort,
+  recoverSelectedT3ActivityReview} from './t3-owner-review-stage.mjs';
 
 const need=(condition,code)=>{if(!condition)throw new T3ActivityHold(code);};
 const callable=(value,keys)=>value && keys.every(key=>typeof value[key]==='function');
@@ -63,7 +64,8 @@ export function bindT3ControlActivityReview({
         sourceId.length>0&&targetId.length>0&&sourceId!==targetId;
     }catch{/* Missing independent owner selection never permits a save. */}
   }
-  let generation=0,closed=false,stagePending=false;
+  let generation=0,closed=false,stagePending=false,stageAttempted=false;
+  let recoveryPending=false;
   const listeners=new Set();
   const invalidate=()=>{
     generation++;
@@ -139,7 +141,11 @@ export function bindT3ControlActivityReview({
       async stageSelected() {
         need(!closed,'T3_CONTROL_HOST_DETACHED');
         need(!stagePending,'T3_CONTROL_ACTIVITY_STAGE_IN_PROGRESS');
+        need(!stageAttempted,'T3_CONTROL_ACTIVITY_STAGE_ALREADY_DISPATCHED');
         stagePending=true;
+        // The trusted Host, not only a mounted React controller, owns the
+        // at-most-once boundary. Remount/invalidation cannot reissue a write.
+        stageAttempted=true;
         const epoch=generation;
         const selected=context.currentWorkspace.get();
         const targetSelected=signedTargetOnly
@@ -183,6 +189,49 @@ export function bindT3ControlActivityReview({
             throw new T3ActivityHold('T3_ACTIVITY_WRITE_MAY_HAVE_COMMITTED');
           throw safeStageError(error);
         }finally{stagePending=false;}
+      },
+      async recoverSelected() {
+        need(!closed,'T3_CONTROL_HOST_DETACHED');
+        need(!stagePending&&!recoveryPending,
+          'T3_CONTROL_ACTIVITY_RECOVERY_IN_PROGRESS');
+        recoveryPending=true;
+        const epoch=generation;
+        const selected=context.currentWorkspace.get();
+        const targetSelected=signedTargetOnly
+          ? derivation.targetWorkspaceId
+          : derivation.targetContext.currentWorkspace.get();
+        try {
+          const before=snapshot();
+          const sourceSignedAccess=await signedSource();
+          need(sourceSignedAccess&&!closed&&epoch===generation,
+            'T3_CONTROL_ACTIVITY_READ_NOT_GRANTED');
+          const targetSignedAccess=signedTargetOnly
+            ? await derivation.resolveTargetSignedAccess()
+            : derivation.targetSignedAccess;
+          need(targetSignedAccess&&!closed&&generation===epoch,
+            'T3_CONTROL_DERIVATION_OWNER_REQUIRED');
+          const result=await recoverSelectedT3ActivityReview({
+            sourceContext:context,sourceSignedAccess,
+            targetContext:signedTargetOnly?null:derivation.targetContext,
+            targetWorkspaceId:signedTargetOnly?targetSelected:null,
+            targetSignedAccess,
+            createSubjectKernelBinding:derivation.createSubjectKernelBinding,
+            targetKernel:signedTargetOnly?derivation.targetKernel??null:null,
+          });
+          const after=snapshot();
+          need(!closed&&generation===epoch&&
+            (loopback||
+              (after.contextId===before.contextId&&
+               after.contextEpoch===before.contextEpoch))&&
+            context.currentWorkspace.get()===selected&&
+            (signedTargetOnly||
+              derivation.targetContext.currentWorkspace.get()===targetSelected),
+            'T3_CONTROL_CONTEXT_CHANGED_DURING_READ');
+          // Recovery is read-only. Never infer another save or export grant.
+          return result;
+        }catch(error){
+          throw safeStageError(error);
+        }finally{recoveryPending=false;}
       },
     } : {}),
     subscribeInvalidation(listener){
