@@ -30,7 +30,7 @@ import {prepareT4OriginalRelationPutDelta,publishT4OriginalRelationPutDelta,
   from '../src/network/original-relation-delta.mjs';
 import {captureT4OriginalDeletionAtMutation,publishT4OriginalDeleteDelta,
   fetchT4OriginalDeleteDelta,applyT4OriginalDeleteDelta,
-  advanceT4OriginalDeleteCursor}
+  reconcileT4OriginalDeleteFromT3Event,advanceT4OriginalDeleteCursor}
   from '../src/network/original-deletion-delta.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
   from '../src/network/network-topology.mjs';
@@ -1125,6 +1125,10 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           },{SERVICE,w,id});
           return result?{asset:result.asset,bytes:Uint8Array.from(result.bytes)}:null;
         },
+        listEventsSince:workspaceId=>recipientPage.evaluate(async({SERVICE,workspaceId})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.listEventsSince(workspaceId);
+        },{SERVICE,workspaceId}),
         deleteRelation:input=>recipientPage.evaluate(async({SERVICE,input})=>{
           const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
           return kernel.t1.deleteRelation(input);
@@ -1177,36 +1181,20 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const missingRelation=await recipientDeleteKernel.getObject(workspaceId,linkedObjectId);
       assert.equal(missingRelation.relations.outgoing.some(r=>
         r.relation_id===additionalRelationId),false);
-      const deleteRelationHistory=await recipientPage.evaluate(async({SERVICE,workspaceId})=>{
-        const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
-        return kernel.t1.listEventsSince(workspaceId);
-      },{SERVICE,workspaceId});
-      console.log('T4_ORIGINAL_T3_RELATION_DELETE_EVENT_DIAGNOSTIC',JSON.stringify({
-        originalFirstReceipt:relationDeleteFirstReceipt,
-        candidateEvents:deleteRelationHistory.filter(e=>e.event_type===
-          'iwxa.t4.original.source.relation-deleted'),
-      }));
-      let relDeleteRecovered;
-      try{relDeleteRecovered=await applyT4OriginalDeleteDelta({
-        ...relDeleteApply,
-        verifyOriginalUncertainRetry:async ctx=>{
-          if(!relationDeleteFirstReceipt||
-            ctx.idempotencyKey!=='t4-delete-'+relDeleteReceived.sha256)
-            return false;
-          const events=await recipientPage.evaluate(async({SERVICE,workspaceId})=>{
-            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
-            return kernel.t1.listEventsSince(workspaceId);
-          },{SERVICE,workspaceId});
-          return events.some(e=>
-            e.event_id===relationDeleteFirstReceipt.event.event_id);
-        }
-      });}
-      catch(error){
-        console.log('T4_ORIGINAL_T3_RELATION_DELETE_RETRY_DIAGNOSTIC',
-          JSON.stringify({code:error.code,details:error.details}));
-        throw error;
-      }
-      assert.equal(relDeleteRecovered.originalReceipt.deduplicated,true);
+      await assert.rejects(applyT4OriginalDeleteDelta(relDeleteApply),
+        error=>error.code==='DELETE_ORIGINAL_RECIPIENT_ABSENT_REQUIRES_EVENT_RECONCILIATION');
+      const relDeleteRecovered=await reconcileT4OriginalDeleteFromT3Event({
+        received:relDeleteReceived,originalKernel:recipientDeleteKernel,
+        authorizeOriginalRead:async ctx=>receiving.operations.includes(ctx.operation),
+        authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+        verifyOriginalSourceEvent:proof=>verifySourceDelete(proof,deletedRelation),
+        getMode:()=> 'T4_NETWORK',
+      });
+      assert.equal(relDeleteRecovered.originalT3EventProofPassed,true);
+      assert.equal(relDeleteRecovered.originalOperationReceiptRecreated,false);
+      assert.equal(relDeleteRecovered.originalKernelDeleteRetried,false);
+      assert.equal(relDeleteRecovered.originalReceiptRef,
+        relationDeleteFirstReceipt.event.event_id);
       await advanceT4OriginalDeleteCursor({
         window:deletedRelation.window,nextCursor:deletedRelation.nextCursor,
         acknowledgement:relDeleteRecovered.acknowledgement,
@@ -1222,7 +1210,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalKernel:ORIGINAL_KERNEL,
           originalT3CapturedPreDeleteRelation:true,
           recipientOriginalRelationRemoved:true,
-          originalKernelDeduplicatedLostACK:true,
+          originalKernelEventReconciledWithoutReDelete:true,
           originalCursorAfterDeleteVerified:true,
           relationInventoryAfterDelete:afterRelationDelete.relations,
         }));
@@ -1267,20 +1255,20 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       await assert.rejects(applyT4OriginalDeleteDelta(assetDeleteApply),
         error=>error.code==='DELETE_ORIGINAL_RECIPIENT_OUTCOME_UNKNOWN');
       assert.equal(await recipientDeleteKernel.getAsset(workspaceId,assetId),null);
-      const assetDeleteRecovered=await applyT4OriginalDeleteDelta({
-        ...assetDeleteApply,
-        verifyOriginalUncertainRetry:async ctx=>{
-          if(!assetDeleteFirstReceipt||
-            ctx.idempotencyKey!=='t4-delete-'+assetDeleteReceived.sha256)
-            return false;
-          const events=await recipientPage.evaluate(async({SERVICE,workspaceId})=>{
-            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
-            return kernel.t1.listEventsSince(workspaceId);
-          },{SERVICE,workspaceId});
-          return events.some(e=>e.event_id===assetDeleteFirstReceipt.event.event_id);
-        }
+      await assert.rejects(applyT4OriginalDeleteDelta(assetDeleteApply),
+        error=>error.code==='DELETE_ORIGINAL_RECIPIENT_ABSENT_REQUIRES_EVENT_RECONCILIATION');
+      const assetDeleteRecovered=await reconcileT4OriginalDeleteFromT3Event({
+        received:assetDeleteReceived,originalKernel:recipientDeleteKernel,
+        authorizeOriginalRead:async ctx=>receiving.operations.includes(ctx.operation),
+        authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+        verifyOriginalSourceEvent:proof=>verifySourceDelete(proof,deletedAsset),
+        getMode:()=> 'T4_NETWORK',
       });
-      assert.equal(assetDeleteRecovered.originalReceipt.deduplicated,true);
+      assert.equal(assetDeleteRecovered.originalT3EventProofPassed,true);
+      assert.equal(assetDeleteRecovered.originalOperationReceiptRecreated,false);
+      assert.equal(assetDeleteRecovered.originalKernelDeleteRetried,false);
+      assert.equal(assetDeleteRecovered.originalReceiptRef,
+        assetDeleteFirstReceipt.event.event_id);
       await advanceT4OriginalDeleteCursor({
         window:deletedAsset.window,nextCursor:deletedAsset.nextCursor,
         acknowledgement:assetDeleteRecovered.acknowledgement,
@@ -1296,7 +1284,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalT3PreDeleteAssetRevision:2,
           originalT3PreDeleteByteDigestCaptured:true,
           recipientOriginalAssetDeleted:true,
-          originalKernelDeduplicatedLostACK:true,
+          originalKernelEventReconciledWithoutReDelete:true,
           originalCursorAfterDeleteVerified:true,
           recipientAssetInventory:afterAssetDelete.assets,
         }));
