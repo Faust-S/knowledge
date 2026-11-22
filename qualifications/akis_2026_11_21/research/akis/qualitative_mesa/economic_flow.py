@@ -241,6 +241,287 @@ def _review_work_payment_conditions(
         "missing_terms_are_unknown_not_zero": True,
     }
 
+
+
+def _payment_owner_evidence(
+    row: Mapping[str, Any], original: Mapping[str, Any],
+    terms: Mapping[str, Any], sources: Mapping[str, Mapping[str, str]],
+    used_refs: set[str],
+) -> None:
+    """Require new, owner-distinct MODEL_ONLY evidence for an original transfer."""
+    original_parties = {original["payer"], original["payee"]} - {"EXTERNAL"}
+    if len(original_parties) != 2:
+        raise EconomicInputError("PAYMENT_PROGRESS_REQUIRES_TWO_ORIGINAL_PARTIES")
+    owner_sources = row.get("owner_sources")
+    evidence_refs = row.get("evidence_refs")
+    if (not isinstance(owner_sources, dict) or
+            set(owner_sources) != original_parties or
+            not isinstance(evidence_refs, dict) or
+            set(evidence_refs) != original_parties):
+        raise EconomicInputError("PAYMENT_PROGRESS_BOTH_INDEPENDENT_OWNER_SOURCES_REQUIRED")
+    for owner in sorted(original_parties):
+        source = owner_sources[owner]
+        if (not isinstance(source, str) or
+                sources.get(source, {}).get("owner") != owner):
+            raise EconomicInputError("PAYMENT_PROGRESS_OWNER_SOURCE_INVALID")
+        if source == terms["owner_sources"][owner]:
+            raise EconomicInputError("PAYMENT_PROGRESS_MUST_HAVE_NEW_EVENT_SOURCE")
+        ref = evidence_refs[owner]
+        expected_prefix = f"model://{owner}/"
+        if (not isinstance(ref, str) or
+                not ref.startswith(expected_prefix) or
+                len(ref) <= len(expected_prefix) or len(ref) > 180):
+            raise EconomicInputError("PAYMENT_PROGRESS_INDEPENDENT_EVENT_REFERENCE_REQUIRED")
+        if ref in used_refs or ref == sources[source]["reference"]:
+            raise EconomicInputError("PAYMENT_PROGRESS_EVENT_REFERENCE_NOT_UNIQUE")
+        used_refs.add(ref)
+
+
+def _review_work_payment_progress(
+    original_view: dict[str, Any], *,
+    settlement_claims: Any, due_amendments: Any,
+    raw_terms: list[Mapping[str, Any]],
+    sources: Mapping[str, Mapping[str, str]],
+    transfer_index: Mapping[str, Mapping[str, Any]],
+    works: Mapping[str, Any], trace: Sequence[Mapping[str, Any]],
+    cash_timing: Mapping[str, Any],
+) -> dict[str, list[tuple[int, Decimal]]] | None:
+    """R2.6: source-bound statements about ORIGINAL transfers, not a money ledger.
+
+    Add annotations to the existing R2.5 causal view. A claimed settlement
+    cannot create an extra transfer, alter signed network sums, certify a bank
+    payment, or retroactively amend a legal due date.
+    """
+    if settlement_claims is None and due_amendments is None:
+        return None
+    if settlement_claims is not None and (
+            not isinstance(settlement_claims, list) or
+            len(settlement_claims) > _MAX_RECORDS):
+        raise EconomicInputError("INVALID_PAYMENT_SETTLEMENT_CLAIM_LIST")
+    if due_amendments is not None and (
+            not isinstance(due_amendments, list) or
+            len(due_amendments) > _MAX_RECORDS):
+        raise EconomicInputError("INVALID_PAYMENT_DUE_AMENDMENT_LIST")
+    settled = settlement_claims if settlement_claims is not None else []
+    amended = due_amendments if due_amendments is not None else []
+    horizon = cash_timing["horizon_end"]
+    windows = {row["transfer_id"]: row for row in cash_timing["transfer_windows"]}
+    indexed_terms = {row["transfer_id"]: row for row in raw_terms}
+    indexed_bindings = {row["transfer_id"]: row
+                        for row in original_view["bindings"]}
+    def t(value: Any) -> int:
+        if type(value) is not int or not 0 <= value <= horizon:
+            raise EconomicInputError("INVALID_PAYMENT_PROGRESS_MODEL_TIME")
+        return value
+
+    # Evidence must be independent of the original contract reference and
+    # unique within this set of claims; reused identifiers do not prove payment.
+    evidence_refs: set[str] = set()
+    event_ids: set[str] = set()
+    amendments_by_transfer: dict[str, str] = {}
+    model_due: dict[str, int] = {}
+    for row in amended:
+        _record(row, {
+            "id", "transfer_id", "agreed_at", "prior_due_at", "new_due_at",
+            "owner_sources", "evidence_refs", "work_source_revision", "org_revision",
+        }, "PAYMENT_DUE_AMENDMENT")
+        event_id = _identifier(row["id"], "PAYMENT_AMENDMENT_ID")
+        transfer_id = _identifier(row["transfer_id"], "PAYMENT_AMENDMENT_TRANSFER")
+        if event_id in event_ids:
+            raise EconomicInputError("DUPLICATE_PAYMENT_EVIDENCE_EVENT_ID")
+        event_ids.add(event_id)
+        if transfer_id not in indexed_terms:
+            raise EconomicInputError("PAYMENT_AMENDMENT_NOT_IN_ORIGINAL_WORK_TERMS")
+        if transfer_id in amendments_by_transfer:
+            raise EconomicInputError("DUPLICATE_PAYMENT_AMENDMENT_FOR_TRANSFER")
+        term = indexed_terms[transfer_id]
+        original = transfer_index[transfer_id]
+        work = works[original["work"]]
+        if (row["work_source_revision"] != work.source_revision or
+                row["org_revision"] != term["org_revision"]):
+            raise EconomicInputError("PAYMENT_AMENDMENT_WORK_OR_ORG_REVISION_MISMATCH")
+        _payment_owner_evidence(row, original, term, sources, evidence_refs)
+        agreed_at, prior_due, new_due = (
+            t(row["agreed_at"]), t(row["prior_due_at"]), t(row["new_due_at"])
+        )
+        if prior_due != term["due_at"]:
+            raise EconomicInputError("PAYMENT_AMENDMENT_PRIOR_DUE_MISMATCH")
+        commits = [event["at"] for event in trace
+                   if event.get("outcome") == "APPLIED"
+                   and event.get("work") == original["work"]
+                   and event.get("action") == "commit"]
+        committed_at = commits[-1] if commits else None
+        condition_at = indexed_bindings[transfer_id]["original_condition_at"]
+        if committed_at is None or agreed_at < committed_at:
+            status = "PAYMENT_AMENDMENT_WITHOUT_ORIGINAL_COMMIT"
+        elif agreed_at > prior_due:
+            status = "RETROACTIVE_DUE_AMENDMENT_NOT_QUALIFIED"
+        elif new_due < agreed_at or (condition_at is not None and new_due < condition_at):
+            status = "AMENDED_DUE_BEFORE_ECONOMIC_CONDITION"
+        else:
+            status = "BILATERAL_MODEL_DUE_CHANGE_UNVERIFIED_LEGALLY"
+            model_due[transfer_id] = new_due
+        amendments_by_transfer[transfer_id] = status
+        binding = indexed_bindings[transfer_id]
+        binding["model_amendment_status"] = status
+        binding["model_amendment_at"] = agreed_at
+        binding["source_declared_revised_due_at"] = (
+            new_due if transfer_id in model_due else None
+        )
+        binding["original_due_remains_independently_binding_until_legal_verification"] = True
+
+    for transfer_id, new_due in model_due.items():
+        binding = indexed_bindings[transfer_id]
+        trigger, expected = (binding["original_condition_at"],
+                             binding["same_original_transfer_expected_posting_at"])
+        if (trigger is not None and expected is not None and
+                trigger < expected <= new_due):
+            if binding["status"] == "CASH_FORECAST_AFTER_DECLARED_DUE_WITHOUT_AMENDMENT":
+                binding["status"] = "MODEL_REVISED_DUE_FORECAST_CONSISTENT_NOT_LEGAL"
+        elif (expected is not None and expected > new_due
+              and binding["status"] == "CASH_FORECAST_AFTER_DECLARED_DUE_WITHOUT_AMENDMENT"):
+            binding["status"] = "CASH_FORECAST_AFTER_MODEL_AMENDED_DUE"
+
+    # Keep the old causal counters accurate if an explicitly DECLARED revision
+    # alters the comparison. It never makes real legal validity true.
+    consistent = {
+        "MODEL_ORIGINAL_TRIGGER_DUE_AND_POSTING_ORDER_CONSISTENT",
+        "MODEL_REVISED_DUE_FORECAST_CONSISTENT_NOT_LEGAL",
+    }
+    original_view["source_declared_consistent_count"] = sum(
+        row["status"] in consistent for row in original_view["bindings"]
+    )
+    original_view["contradictory_or_missing_timing_count"] = sum(
+        row["status"] not in consistent
+        and row["status"] != "ORIGINAL_CONDITIONAL_TRIGGER_NOT_APPLIED"
+        for row in original_view["bindings"]
+    )
+    original_view["status"] = (
+        "INCOMPLETE_ORIGINAL_WORK_PAYMENT_TERMS"
+        if original_view["original_work_transfer_without_terms_count"] else
+        "UNOBSERVED_OR_INCONSISTENT_PAYMENT_CAUSAL_SEQUENCE"
+        if (original_view["contradictory_or_missing_timing_count"]
+            or original_view["unobserved_trigger_count"]
+            or any(v != "BILATERAL_MODEL_DUE_CHANGE_UNVERIFIED_LEGALLY"
+                   for v in amendments_by_transfer.values())) else
+        "DECLARED_CAUSAL_PAYMENT_ORDER_ONLY_NOT_SETTLEMENT"
+    )
+
+    events: dict[str, list[tuple[int, str, Decimal, str]]] = {}
+    gross_claimed: dict[str, Decimal] = {}
+    qualified: dict[str, list[tuple[int, Decimal]]] = {}
+    for row in settled:
+        _record(row, {
+            "id", "transfer_id", "at", "amount", "owner_sources", "evidence_refs",
+        }, "PAYMENT_SETTLEMENT_CLAIM")
+        event_id = _identifier(row["id"], "PAYMENT_SETTLEMENT_ID")
+        transfer_id = _identifier(row["transfer_id"], "PAYMENT_SETTLEMENT_TRANSFER")
+        if event_id in event_ids:
+            raise EconomicInputError("DUPLICATE_PAYMENT_EVIDENCE_EVENT_ID")
+        event_ids.add(event_id)
+        if transfer_id not in indexed_terms:
+            raise EconomicInputError("PAYMENT_SETTLEMENT_NOT_IN_ORIGINAL_WORK_TERMS")
+        original = transfer_index[transfer_id]
+        term = indexed_terms[transfer_id]
+        _payment_owner_evidence(row, original, term, sources, evidence_refs)
+        at, claimed_amount = t(row["at"]), _amount(row["amount"])
+        if claimed_amount <= 0:
+            raise EconomicInputError("PAYMENT_SETTLEMENT_AMOUNT_MUST_BE_POSITIVE")
+        aggregate = gross_claimed.get(transfer_id, Decimal(0)) + claimed_amount
+        if aggregate > original["decimal_amount"]:
+            raise EconomicInputError("PAYMENT_SETTLEMENT_EXCEEDS_ORIGINAL_TRANSFER")
+        gross_claimed[transfer_id] = aggregate
+        trigger = indexed_bindings[transfer_id]["original_condition_at"]
+        if trigger is None or at < trigger:
+            status = "PAYMENT_CLAIM_BEFORE_OR_WITHOUT_CONDITION"
+        elif at == trigger:
+            status = "PAYMENT_CLAIM_SAME_TICK_CAUSAL_ORDER_UNQUALIFIED"
+        else:
+            status = "BILATERAL_MODEL_SETTLEMENT_ASSERTED_UNVERIFIED"
+            qualified.setdefault(transfer_id, []).append((at, claimed_amount))
+        events.setdefault(transfer_id, []).append((at, event_id, claimed_amount, status))
+
+    splits: dict[str, list[tuple[int, Decimal]]] = {}
+    partial_count = full_count = claim_conflict_count = 0
+    late_count = 0
+    for transfer_id, binding in indexed_bindings.items():
+        original_amount = transfer_index[transfer_id]["decimal_amount"]
+        owner_events = sorted(events.get(transfer_id, []))
+        eligible_amount = sum(
+            (amount for _at, amount in qualified.get(transfer_id, [])), Decimal(0)
+        )
+        status_conflicts = any(
+            reason != "BILATERAL_MODEL_SETTLEMENT_ASSERTED_UNVERIFIED"
+            for _at, _id, _amt, reason in owner_events
+        )
+        remaining = original_amount - eligible_amount
+        if status_conflicts:
+            status = "PAYMENT_CLAIMS_CAUSALLY_INCONSISTENT"
+            claim_conflict_count += 1
+        elif not owner_events:
+            status = "NO_PAYMENT_SOURCE_CLAIM_DOES_NOT_PROVE_UNPAID"
+        elif remaining == 0:
+            status = "FULLY_SOURCE_MATCHED_MODEL_ONLY_NOT_BANK_PAYMENT"
+            full_count += 1
+        else:
+            status = "PARTIALLY_SOURCE_MATCHED_MODEL_ONLY_NOT_BANK_PAYMENT"
+            partial_count += 1
+        effective = model_due.get(transfer_id, binding["original_due_at"])
+        late_rows = [at for at, _id, _amount_row, _reason in owner_events
+                     if at > effective]
+        late_count += len(late_rows)
+        binding["settlement_progress"] = {
+            "status": status,
+            "event_count": len(owner_events),
+            "source_claimed_eligible_amount": f"{eligible_amount:.2f}",
+            "original_transfer_claim_amount": f"{original_amount:.2f}",
+            "unconfirmed_remainder_not_actual_bank_debt": f"{remaining:.2f}",
+            "late_against_model_declared_due_event_count": len(late_rows),
+            "private_model_evidence": [
+                {"id": event_id, "at": at, "amount": f"{amt:.2f}",
+                 "causal_status": reason}
+                for at, event_id, amt, reason in owner_events
+            ],
+            "bank_actual_settlement_authenticated": False,
+            "unreported_payment_is_not_zero_actual_payment": True,
+        }
+        if owner_events and not status_conflicts and eligible_amount > 0:
+            window = windows.get(transfer_id)
+            if window is None:
+                claim_conflict_count += 1
+                continue
+            original_expected = window["at"]
+            parts = list(qualified[transfer_id])
+            if remaining > 0:
+                parts.append((original_expected, remaining))
+            splits[transfer_id] = sorted(parts)
+    original_view["settlement_progress"] = {
+        "evidence": "MODEL_ONLY_BILATERAL_ORIGINAL_SOURCE_CLAIMS",
+        "source_claimed_partial_transfer_count": partial_count,
+        "source_claimed_full_transfer_count": full_count,
+        "source_claim_event_count": len(settled),
+        "causal_conflict_transfer_count": claim_conflict_count,
+        "late_payment_claim_event_count": late_count,
+        "source_declared_amendment_count": len(model_due),
+        "retroactive_or_inconsistent_amendment_count": sum(
+            status != "BILATERAL_MODEL_DUE_CHANGE_UNVERIFIED_LEGALLY"
+            for status in amendments_by_transfer.values()
+        ),
+        "missing_evidence_does_not_mean_paid_zero": True,
+        "original_transfer_amounts_not_rewritten": True,
+        "actual_bank_payment_verified": False,
+        "legal_revision_of_due_date_verified": False,
+        "partial_evidence_is_a_split_of_original_forecast_not_new_money": True,
+    }
+    if claim_conflict_count or any(
+            status != "BILATERAL_MODEL_DUE_CHANGE_UNVERIFIED_LEGALLY"
+            for status in amendments_by_transfer.values()):
+        original_view["status"] = "PAYMENT_PROGRESS_EVIDENCE_OR_AMENDMENT_CONFLICT"
+        return None
+    # Only use source-consistent claims as a CONDITIONAL CASH PATH. All other
+    # original transfers stay in the original forecast; no realized bank fact.
+    return splits if splits else None
+
 def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mapping[str, Any],
                              cooperation_links: Sequence[CooperationLink] = (),
                              trace: Sequence[Mapping[str, Any]] = ()) -> dict[str, Any]:
@@ -256,6 +537,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 "mechanism_allocations", "coordination_event_bindings",
                 "modern_cost_bindings", "cash_timing", "lifecycle_costs",
                 "common_allocations", "work_payment_conditions",
+                "work_payment_settlement_claims", "work_payment_due_amendments",
             }):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
@@ -501,14 +783,46 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
             )
         except ModernEconomicEvidenceError as exc:
             raise EconomicInputError(str(exc)) from exc
+    # Qualify ORIGINAL Work -> due cause before running the SAME cash model:
+    # the obligor's adverse stress cannot silently defer an earlier source-
+    # declared contractual due date merely because a forecast says "later".
+    payment_splits = None
+    if (("work_payment_settlement_claims" in doc or
+         "work_payment_due_amendments" in doc)
+        and "work_payment_conditions" not in doc):
+        raise EconomicInputError("PAYMENT_PROGRESS_REQUIRES_ORIGINAL_WORK_TERMS")
+    if "work_payment_conditions" in doc:
+        view = _review_work_payment_conditions(
+            doc["work_payment_conditions"], works=works, trace=trace,
+            sources=sources, transfer_index=transfer_index,
+            resource_index=resource_index, cash_timing=doc.get("cash_timing"),
+        )
+        if ("work_payment_settlement_claims" in doc or
+                "work_payment_due_amendments" in doc):
+            payment_splits = _review_work_payment_progress(
+                view, settlement_claims=doc.get("work_payment_settlement_claims"),
+                due_amendments=doc.get("work_payment_due_amendments"),
+                raw_terms=doc["work_payment_conditions"],
+                sources=sources, transfer_index=transfer_index,
+                works=works, trace=trace, cash_timing=doc["cash_timing"],
+            )
+        output["work_payment_causality"] = view
     if "cash_timing" in doc:
-        # Dates and balances refer to the SAME source-declared transfers;
-        # the model generates no loans, invoices, interest or new money.
+        # One original money ledger and one pair of owner/network cash clocks.
+        # The original declared due remains a conservative due-date obligation
+        # in owner stress, even if a new due is merely MODEL asserted.
+        due_dates = {
+            row["transfer_id"]: row["original_due_at"]
+            for row in output.get("work_payment_causality", {}).get("bindings", [])
+            if row["original_condition_at"] is not None
+            and row["original_due_at"] >= row["original_condition_at"]
+        }
         try:
             output["cash_timing"] = evaluate_cash_timing(
                 doc["cash_timing"], sources=sources,
                 transfer_index=transfer_index, coverage=covered, subjects=subjects,
-                outside=outside,
+                outside=outside, original_payment_due=due_dates,
+                settlement_splits=payment_splits,
             )
         except LiquidityInputError as exc:
             raise EconomicInputError(str(exc)) from exc
@@ -520,10 +834,4 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
             )
         except LifecycleInputError as exc:
             raise EconomicInputError(str(exc)) from exc
-    if "work_payment_conditions" in doc:
-        output["work_payment_causality"] = _review_work_payment_conditions(
-            doc["work_payment_conditions"], works=works, trace=trace,
-            sources=sources, transfer_index=transfer_index,
-            resource_index=resource_index, cash_timing=doc.get("cash_timing"),
-        )
     return output

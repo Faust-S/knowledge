@@ -1258,6 +1258,25 @@ class OperatorAKISModel(mesa.Model):
                         "work_payment_reported_as_bank_settlement": False,
                         "accepted_result_does_not_mean_paid": True,
                     })
+                    progress = payment_causality.get("settlement_progress")
+                    if progress:
+                        shared.update({
+                            "payment_model_partially_matched_transfer_count": progress[
+                                "source_claimed_partial_transfer_count"],
+                            "payment_model_fully_matched_transfer_count": progress[
+                                "source_claimed_full_transfer_count"],
+                            "payment_model_claim_event_count": progress[
+                                "source_claim_event_count"],
+                            "payment_causal_conflict_transfer_count": progress[
+                                "causal_conflict_transfer_count"],
+                            "payment_original_due_amendment_declared_count": progress[
+                                "source_declared_amendment_count"],
+                            "payment_retroactive_or_invalid_amendment_count": progress[
+                                "retroactive_or_inconsistent_amendment_count"],
+                            "payment_real_bank_execution_authenticated": False,
+                            "payment_due_revisions_legally_authenticated": False,
+                            "private_payment_dates_amounts_and_source_ids_redisclosed": False,
+                        })
                 if self.owner_financial_claims:
                     output["general_akis_model"]["economic_time_and_cost_feedback"][
                         "private_owner_research_reevaluation"

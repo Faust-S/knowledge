@@ -76,6 +76,7 @@ def _joint_network_settlement(
     transfer_index: Mapping[str, Mapping[str, Any]],
     coverage: Mapping[str, Mapping[str, str]],
     subjects: Mapping[str, Any], outside: Mapping[str, str],
+    settlement_splits: Mapping[str, list[tuple[int, Decimal]]] | None = None,
 ) -> dict[str, Any]:
     """Optional read-only coherent settlement *hypothesis* on the same ledger.
 
@@ -105,12 +106,16 @@ def _joint_network_settlement(
 
         # The same original internal transfer_id produces exactly two
         # opposite entries in this projected NETWORK timeline, at one tick.
+        variants = (
+            ("expected", "late", "claim_adjusted_expected")
+            if settlement_splits is not None else ("expected", "late")
+        )
         events = {
-            "expected": {owner: [] for owner in sorted(all_owners)},
-            "late": {owner: [] for owner in sorted(all_owners)},
+            variant: {owner: [] for owner in sorted(all_owners)}
+            for variant in variants
         }
         by_tick: dict[str, dict[int, dict[str, Decimal]]] = {
-            "expected": {}, "late": {},
+            variant: {} for variant in variants
         }
         internal_original_count = 0
         for key, row in original:
@@ -119,30 +124,41 @@ def _joint_network_settlement(
             payer, payee = row["payer"], row["payee"]
             if payer != "EXTERNAL" and payee != "EXTERNAL":
                 internal_original_count += 1
-            for variant, tick in (("expected", at), ("late", late)):
+            postings = [("expected", at, amount), ("late", late, amount)]
+            if settlement_splits is not None:
+                pieces = settlement_splits.get(key, [(at, amount)])
+                if (not pieces or
+                    sum((portion for _, portion in pieces), Decimal(0)) != amount or
+                    any(type(tick) is not int or portion <= 0
+                        for tick, portion in pieces)):
+                    raise LiquidityInputError("PAYMENT_PROGRESS_ORIGINAL_AMOUNT_CONSERVATION_FAILED")
+                postings.extend(
+                    ("claim_adjusted_expected", tick, portion)
+                    for tick, portion in pieces
+                )
+            for variant, tick, posted in postings:
                 owner_tick = by_tick[variant].setdefault(
                     tick, {"internal": Decimal(0), "external": Decimal(0),
                            "sum_owner": Decimal(0)}
                 )
                 if payer != "EXTERNAL":
-                    events[variant][payer].append((tick, -amount))
-                    owner_tick["sum_owner"] -= amount
+                    events[variant][payer].append((tick, -posted))
+                    owner_tick["sum_owner"] -= posted
                 if payee != "EXTERNAL":
-                    events[variant][payee].append((tick, amount))
-                    owner_tick["sum_owner"] += amount
+                    events[variant][payee].append((tick, posted))
+                    owner_tick["sum_owner"] += posted
                 if payer != "EXTERNAL" and payee != "EXTERNAL":
-                    # Keep both original party postings in the same tick.
-                    owner_tick["internal"] -= amount
-                    owner_tick["internal"] += amount
+                    owner_tick["internal"] -= posted
+                    owner_tick["internal"] += posted
                 elif payer == "EXTERNAL":
-                    owner_tick["external"] += amount
+                    owner_tick["external"] += posted
                 else:
-                    owner_tick["external"] -= amount
+                    owner_tick["external"] -= posted
 
         # A single global settlement timetable cannot create network money
         # by an internal transfer or break an external cash boundary at
         # any individual tick, not merely at the end of the period.
-        for variant in ("expected", "late"):
+        for variant in variants:
             for balances in by_tick[variant].values():
                 if (balances["internal"] != 0 or
                         balances["sum_owner"] != balances["external"]):
@@ -159,6 +175,10 @@ def _joint_network_settlement(
                 "this_is_not_permission_to_defer_the_owner_payables": True,
                 "real_bank_balance_not_verified": True,
             }
+            if settlement_splits is not None:
+                owner_details[owner]["claim_adjusted_expected"] = _bounds(
+                    opening, events["claim_adjusted_expected"][owner], reserve
+                )
         expected_external = sum(
             (row["external"] for row in by_tick["expected"].values()),
             Decimal(0),
@@ -179,6 +199,11 @@ def _joint_network_settlement(
             "all_original_internal_party_cash_posted_at_the_same_tick": True,
             "model_time_not_a_verified_bank_settlement_date": True,
         }
+        if settlement_splits is not None:
+            scenarios[scenario]["claim_adjusted_original_money_conserved_per_tick"] = True
+            scenarios[scenario]["claim_adjusted_splits_original_transfer_not_new_money"] = True
+            scenarios[scenario]["claim_adjusted_bank_payment_verified"] = False
+            scenarios[scenario]["independent_outside_option_not_credited_with_cooperation_payments"] = True
 
     if any(v["status"] != "SOURCE_DECLARED_JOINT_SETTLEMENT_ARITHMETIC_ONLY"
            for v in scenarios.values()):
@@ -208,6 +233,8 @@ def evaluate_cash_timing(
     transfer_index: Mapping[str, Mapping[str, Any]],
     coverage: Mapping[str, Mapping[str, str]], subjects: Mapping[str, Any],
     outside: Mapping[str, str],
+    original_payment_due: Mapping[str, int] | None = None,
+    settlement_splits: Mapping[str, list[tuple[int, Decimal]]] | None = None,
 ) -> dict[str, Any]:
     """Calculate only a SOURCE-DECLARED, owner-scoped liquidity conditional.
 
@@ -305,7 +332,13 @@ def evaluate_cash_timing(
                     # postpone a participant's payable obligations. Moving
                     # both sides to late_at could manufacture solvency for
                     # an operator even though suppliers are still due today.
-                    stress.append((late_at if signed > 0 else at, signed))
+                    # Original Work-specific due is a conservative constraint:
+                    # neither a forecast nor an unverified term change grants
+                    # permission to postpone this original payable.
+                    due_at = (original_payment_due or {}).get(key, at)
+                    stress.append((
+                        late_at if signed > 0 else min(at, due_at), signed
+                    ))
                 outcome[scenario] = {
                     "status": "SOURCE_DECLARED_TIMING_ARITHMETIC_ONLY",
                     "expected": _bounds(opening, expected, reserve),
@@ -401,5 +434,6 @@ def evaluate_cash_timing(
             owner_state=owner_state, windows=windows,
             transfer_index=transfer_index, coverage=coverage,
             subjects=subjects, outside=outside,
+            settlement_splits=settlement_splits,
         ),
     }
