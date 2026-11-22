@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 281d1bd1aa9bd599d54ad3990fe9ed0958d979bb
+      SITE_SHA: ca1666d4bd3a0fc400f534293f561a5264c28947
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -61,6 +61,14 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.2'
+      - name: Confirm original D07 Host Workspace selector is accessible
+        working-directory: site
+        run: |
+          $source=Get-Content 't2-site-module/uslugovod/UslugovodWorkspace.tsx' -Raw
+          if(-not $source.Contains('data-testid="d07-workspace-picker" aria-label="Рабочая область Услуговода"')){
+            throw 'D07_NATIVE_CARD_IMPORT_WORKSPACE_SELECT_UNLABELLED'
+          }
+          Write-Output 'D07_NATIVE_CARD_WORKSPACE_SELECTOR_ACCESSIBILITY=PASS'
       - name: Build exact original T2 and all D07 cards in one dist
         working-directory: site
         env:
