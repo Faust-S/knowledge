@@ -65,6 +65,8 @@ export interface AppShellProps {
   }|null>;
   /** Trusted entrypoint opts into signed D1 as a non-downgradeable requirement. */
   requireSignedOwner?: boolean;
+  /** Trusted product's explicit, signed first-use policy; not a URL setting. */
+  explicitSignedWorkspaceCreation?: boolean;
   /** Trusted, compile-time D1 owner. Never extracted from the page or archive. */
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
@@ -118,6 +120,7 @@ export function AppShell(props: AppShellProps) {
     isolatedKernelRequired = false,
     trustedSelectedContext,
     requireSignedOwner = false,
+    explicitSignedWorkspaceCreation = false,
     signedKernelAccess,
     signedActivityAccess,
     reconciliationOwner,
@@ -202,6 +205,7 @@ export function AppShell(props: AppShellProps) {
           profileDefinition={profileDefinition}
           profileFallback={profileFallback}
           signedOwnerRequired={signedOwnerRequired}
+          explicitSignedWorkspaceCreation={explicitSignedWorkspaceCreation}
           signedKernelAccess={selectedSignedKernelAccess}
           trustedSelectedContext={trustedSelectedContext}
         />
@@ -221,6 +225,7 @@ interface HostShellContentProps {
   profileDefinition: WorkspaceProfileDefinition;
   profileFallback: boolean;
   signedOwnerRequired: boolean;
+  explicitSignedWorkspaceCreation?: boolean;
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
   trustedSelectedContext?: (operation:string)=>Promise<{
     kind:"CORP";workspace_id:string;resource:string;
@@ -234,7 +239,7 @@ interface HostShellContentProps {
  * through `useWorkspaceHostRuntimeHandle` — no legacy routing state.
  */
 function HostShellContent(props: HostShellContentProps) {
-  const { host, hostDomain, hostWorkspace, devBootstrap, state, onRetry, profileId, profileDefinition, profileFallback, signedOwnerRequired, signedKernelAccess, trustedSelectedContext } = props;
+  const { host, hostDomain, hostWorkspace, devBootstrap, state, onRetry, profileId, profileDefinition, profileFallback, signedOwnerRequired, explicitSignedWorkspaceCreation=false, signedKernelAccess, trustedSelectedContext } = props;
   const runtimeState = useWorkspaceHostRuntime();
   const runtime = runtimeState.status === "ready" ? runtimeState.runtime : null;
   const { terminology, layout, accessibility } = useDomainShell();
@@ -408,6 +413,7 @@ function HostShellContent(props: HostShellContentProps) {
               <SignedSelectedWorkspaceGate required={signedOwnerRequired} kernel={kernel}
                 profile={profileId} signedKernelAccess={signedKernelAccess}
                 trustedSelectedContext={trustedSelectedContext}
+                autoCreateSignedCorporate={!explicitSignedWorkspaceCreation}
                 firstRunExchange={firstRunExchange}>
                 {productFirst && <HostPanelSurface slot="sidebar" />}
                 <HostDashboardSurface />
