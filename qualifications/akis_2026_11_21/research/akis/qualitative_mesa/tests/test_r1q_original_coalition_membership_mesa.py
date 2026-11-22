@@ -434,3 +434,22 @@ def test_r1q_exited_resource_owner_cannot_be_used_by_successor_without_new_revie
     assert "w3" not in out["works"]
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1q_coalition_reconstitution_is_original_coordination_exposure_not_inferred_money():
+    from research.akis.qualitative_mesa.cooperation import (
+        cooperative_coordination_observations,
+    )
+    d = membership_case(second_work=False)
+    state = QualitativeAKIS({k: deepcopy(v) for k, v in d.items()
+                            if k != "model_horizon"})
+    for event in d["events"]:
+        assert state.apply(event, event["at"])["outcome"] == "APPLIED"
+    old = next(link for link in state.cooperation_links if link.key == "net")
+    observation = cooperative_coordination_observations(old, state.trace)
+    renegotiations = observation["observed_coordination_events"][
+        "RENEGOTIATION_AND_ADAPTATION"
+    ]
+    assert renegotiations == {"applied": 6, "blocked": 0}
+    assert observation["real_transaction_cost_amount"] is None
+    assert state.works["w1"].result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"

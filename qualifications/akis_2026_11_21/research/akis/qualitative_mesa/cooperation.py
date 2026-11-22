@@ -1072,6 +1072,7 @@ _COORDINATION_ACTIONS = {
     "participation_status": "RENEGOTIATION_AND_ADAPTATION",
     "cooperation_change_propose": "RENEGOTIATION_AND_ADAPTATION",
     "cooperation_change_response": "RENEGOTIATION_AND_ADAPTATION",
+    "cooperation_membership_apply": "RENEGOTIATION_AND_ADAPTATION",
 }
 
 
