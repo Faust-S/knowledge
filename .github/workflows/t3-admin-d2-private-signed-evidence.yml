@@ -5,6 +5,7 @@ on:
       - work/2026-11-22-admin03-original-d2-read
     paths:
       - .github/workflows/t3-admin-d2-private-signed-evidence.yml
+      - packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs
   workflow_dispatch:
 permissions:
   contents: read
