@@ -174,7 +174,9 @@ try{
  # without changing the original ten-Work plumbing T2 roundtrip contract.
  $moreCards=@(
    @("kompyutery-it-sayty","seo-prodvizhenie"),
-   @("kompyutery-it-sayty","remont-kompyutera")
+   @("kompyutery-it-sayty","remont-kompyutera"),
+   @("kompyutery-it-sayty","vosstanovlenie-dannyh"),
+   @("marketing-reklama-prodazhi","kontekstnaya-reklama")
  )
  foreach($pair in $moreCards){
   $category=[string]$pair[0];$slug=[string]$pair[1]
@@ -193,7 +195,7 @@ try{
   Write-Output ("D07_NATIVE_ADDITIONAL_CARD_"+$slug+"=PASS")
   CloseEdge $native
  }
- Write-Output "D07_NATIVE_ADDITIONAL_TWO_CARDS_EDGE_UIA=PASS"
+ Write-Output "D07_NATIVE_ADDITIONAL_FOUR_CARDS_EDGE_UIA=PASS"
 
  $browser=OpenEdge ($Origin+"/uslugi/remont-dom-mastera/zamena-unitaza/")
  $null=WaitUi "Замена унитаза" $null 90
