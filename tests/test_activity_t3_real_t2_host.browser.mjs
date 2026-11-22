@@ -430,6 +430,33 @@ try {
     const signedDraft=await targetReviewer.t1.getObject(
       args.signedTarget,args.signedObjectId);
     const signedEvents=await targetReviewer.t1.listEventsSince(args.signedTarget);
+    // New browser profile and freshly acquired original signed D1 rights:
+    // independent Kernel readback, not a repeat of the old putObject.
+    const {recoverSelectedT3ActivityReview}=await import(
+      '/_activity/t3-owner-review-stage.mjs');
+    const {useOriginalT2ActivityKernelFacade}=await import(
+      '/_activity/t3-original-t2-owner-host.mjs');
+    const {createSubjectKernelBinding}=await import('/_t3/index.mjs');
+    const {createControlLoopbackOwner}=await import(
+      '/_t3/control-loopback-owner.mjs');
+    const control=createControlLoopbackOwner({
+      origin:location.origin,token:args.token,
+    });
+    const selection=Object.freeze({workspace_id:args.source});
+    const recovered=await recoverSelectedT3ActivityReview({
+      sourceContext:{
+        kernel:useOriginalT2ActivityKernelFacade(sourceWriter),
+        currentWorkspace:{get:()=>selection,subscribe:()=>()=>{}},
+      },
+      sourceSignedAccess:await control.signedActivityAccess('activity.read'),
+      targetWorkspaceId:args.signedTarget,
+      targetKernel:useOriginalT2ActivityKernelFacade(targetReviewer),
+      targetSignedAccess:await control.signedActivityAccess('activity.derive'),
+      createSubjectKernelBinding,
+    });
+    const afterRecovery=await targetReviewer.t1.listObjects({
+      workspace_id:args.signedTarget,include_deleted:true,
+    });
     return {
       source_title:sourceObject?.object?.data?.title,
       source_revision:sourceObject?.object?.revision,
@@ -440,8 +467,12 @@ try {
       signed_draft_revision:signedDraft?.object?.revision,
       signed_draft_data:signedDraft?.object?.data,
       signed_event_ids:signedEvents.map(x=>x.event_id),
+      recovered_status:recovered.status,
+      recovered_readback:recovered.readback,
+      recovered_export_allowed:recovered.export_allowed,
+      post_recovery_draft_count:afterRecovery.length,
     };
-  },{source,target,signedTarget,writer,reviewer,
+  },{source,target,signedTarget,writer,reviewer,token,
     signedObjectId:signed.draft_object_id,
     objectId:'activity-review:original-kernel'});
   assert.equal(reopened.source_title,'PRIVATE_CEHOVOD_CUSTOMER_BRACKET');
@@ -454,6 +485,12 @@ try {
   assert.equal(reopened.signed_draft_data?.export_allowed,false);
   assert.equal(reopened.signed_draft_data?.anonymity,'NOT_ESTABLISHED');
   assert.ok(reopened.signed_event_ids.includes(signed.event_id));
+  assert.equal(reopened.recovered_status,'OWNER_REVIEW_DRAFT');
+  assert.equal(reopened.recovered_readback,true);
+  assert.equal(reopened.recovered_export_allowed,false);
+  assert.equal(reopened.post_recovery_draft_count,1,
+    'read-only recovery cannot repeat the original Kernel write');
+  console.log('ACTIVITY_ORIGINAL_T2_SIGNED_COLD_RECOVERY_NO_RETRY_PASS');
   console.log('ACTIVITY_REAL_SIGNED_T3_READ_DERIVE_ORIGINAL_T2_COLD_PASS',
     JSON.stringify({signed:'ED25519_PERSONAL',
       signedReadProofs:sourceAuthority.proofCount,
