@@ -1,0 +1,71 @@
+name: t4-network-qualification
+on:
+  push:
+    branches:
+      - work/2026-11-22-t4-t3-0.3.0-integration
+    paths:
+      - packages/t4-network/**
+      - .github/workflows/t4-network.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: t4-network-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify network and placement contracts
+        working-directory: packages/t4-network
+        run: |
+          npm run check
+          npm test
+
+  webdav:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated WebDAV test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apache2 apache2-utils openssl
+      - name: Qualify real Apache HTTPS/WebDAV transport
+        working-directory: packages/t4-network
+        env:
+          T4_TEST_OUTPUT_DIR: ${{ runner.temp }}/iwxa-t4-network-qualification
+        run: npm run test:network
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t4-network-qualification
+          path: ${{ runner.temp }}/iwxa-t4-network-qualification/
+          if-no-files-found: ignore
+
+  windows-contract:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify T4 network contracts on Windows
+        working-directory: packages/t4-network
+        run: |
+          node --check src/network/webdav-package-transfer.mjs
+          node --check src/network/original-exchange-handoff.mjs
+          node --check src/network/operator-connection.mjs
+          npm test
