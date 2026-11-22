@@ -62,8 +62,9 @@ jobs:
           & bun run build:t2-integrated *> (Join-Path $env:RUNNER_TEMP 'd07-card-integrated-build.private.log')
           if($LASTEXITCODE -ne 0){
             $log=Get-Content (Join-Path $env:RUNNER_TEMP 'd07-card-integrated-build.private.log') -Raw
-            $patterns='D07_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|ERR_[A-Z0-9_]+|ENOENT|MODULE_NOT_FOUND|TS[0-9]{4}'
-            $codes=[regex]::Matches($log,$patterns)|ForEach-Object{$_.Value}|Select-Object -Unique -Last 16
+            $patterns='D07_(BUILD|NPM|MISSING|SITE|CRITERIA|QUALIFIED|PRODUCT|HOST|KERNEL)[A-Z0-9_]*|T2_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|ERR_[A-Z0-9_]+|ENOENT|MODULE_NOT_FOUND|TS[0-9]{4}|Error: [A-Za-z _-]{5,70}'
+            $logTail=($log -split '\r?\n'|Select-Object -Last 80) -join [Environment]::NewLine
+            $codes=[regex]::Matches($logTail,$patterns)|ForEach-Object{$_.Value}|Select-Object -Unique -Last 20
             Write-Output ('D07_NATIVE_CARD_BUILD_ERROR_CODES='+($codes -join ','))
             throw 'D07_NATIVE_CARD_ORIGINAL_T2_BUILD_FAILED'
           }
