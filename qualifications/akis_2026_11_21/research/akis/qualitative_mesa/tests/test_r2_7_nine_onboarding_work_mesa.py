@@ -223,7 +223,7 @@ def test_scenario_specific_category_coverage_does_not_mix_outside_and_cooperatio
     assert by_scenario["INDEPENDENT_ALTERNATIVE"]["nine_categories_not_bound_in_this_scenario"] == []
     assert len(by_scenario["COOPERATION"]["categories_with_original_use"]) == 9
     assert len(by_scenario["INDEPENDENT_ALTERNATIVE"]["categories_with_original_use"]) == 9
-    assert modern["no_new_cash_or_resource_use"] is True
+    assert simulate(d)["economics"]["modern_cost_attribution"]["no_new_cash_or_resource_use"] is True
     d = nine_case()
     d["economic_claims"]["modern_cost_bindings"] = [
         record for record in d["economic_claims"]["modern_cost_bindings"]
