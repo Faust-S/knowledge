@@ -200,3 +200,34 @@ def test_liquidity_comparison_does_not_invent_outside_option_feasibility():
     assert comparison["classification"]=="OUTSIDE_ALTERNATIVE_FEASIBILITY_NOT_QUALIFIED"
     assert comparison["independent_alternative_real_feasibility_verified"] is False
     assert op["real_bank_balance_verified"] is False
+
+
+def test_owner_receipt_delay_never_improves_minimum_liquidity_across_small_timing_grid():
+    """Property check, not one hand-picked example: all 56 original cash schedules."""
+    from decimal import Decimal
+    cases=0
+    for receipt_due in range(4):
+        for receipt_late in range(receipt_due, 6):
+            for supplier_due in range(4):
+                d=case()
+                d["cash_timing"]["transfer_windows"][1].update({
+                    "at": receipt_due, "late_at": receipt_late
+                })
+                d["cash_timing"]["transfer_windows"][2].update({
+                    "at": supplier_due, "late_at": 9
+                })
+                d["cash_timing"]["transfer_windows"][3]["late_at"]=10
+                original=evaluate(d)
+                op=original["cash_timing"]["per_original_owner_private_research_projection"]["op"]
+                expected=op["scenario_paths"]["COOPERATION"]["expected"]
+                stress=op["scenario_paths"]["COOPERATION"]["declared_late_case"]
+                assert Decimal(stress["minimum_before_unverified_same_tick_inflows"]) <= Decimal(
+                    expected["minimum_before_unverified_same_tick_inflows"]
+                ), (receipt_due, receipt_late, supplier_due)
+                assert Decimal(stress["maximum_possible_minimum_if_same_tick_receipts_first"]) <= Decimal(
+                    expected["maximum_possible_minimum_if_same_tick_receipts_first"]
+                ), (receipt_due, receipt_late, supplier_due)
+                assert original["consolidated_external_cash_from_claims"]["COOPERATION"]=="270.00"
+                assert original["profit"]=="UNKNOWN"
+                cases+=1
+    assert cases==56
