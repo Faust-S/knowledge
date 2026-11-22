@@ -247,3 +247,77 @@ def test_shared_nine_component_projection_contains_counts_not_owner_amounts_or_d
                           "model_amendment_at","unconfirmed_remainder_not_actual_bank_debt"):
         assert private_field not in raw
     assert not output["economics"]["work_payment_causality"]["settlement_progress"]["actual_bank_payment_verified"]
+
+
+def test_original_due_stress_is_stricter_than_unverified_same_tick_debt_delay():
+    d=case()
+    cash=d["economic_claims"]
+    cash["cash_timing"]["transfer_windows"][0]["late_at"]=11
+    cash["cash_timing"]["transfer_windows"][1].update({"at":11,"late_at":11})
+    cash["work_payment_due_amendments"]=[amendment()]
+    e=view(d)
+    b=e["cash_timing"]["per_original_owner_private_research_projection"]["b"]
+    assert b["scenario_paths"]["COOPERATION"]["declared_late_case"]["status"]==(
+        "SOURCE_DECLARED_LIQUIDITY_GAP_IN_ALL_SAME_TICK_ORDERINGS"
+    )
+    assert b["scenario_paths"]["COOPERATION"]["declared_late_case"][
+        "maximum_possible_minimum_if_same_tick_receipts_first"]=="-120.00"
+    assert e["work_payment_causality"]["bindings"][0]["original_due_at"]==10
+    baseline=deepcopy(d)
+    del baseline["economic_claims"]["work_payment_conditions"]
+    del baseline["economic_claims"]["work_payment_due_amendments"]
+    outsider=view(baseline)["cash_timing"]["per_original_owner_private_research_projection"]["b"]
+    assert outsider["scenario_paths"]["COOPERATION"]["declared_late_case"]["status"]==(
+        "SAME_TICK_SETTLEMENT_ORDER_NOT_QUALIFIED"
+    )
+
+
+@pytest.mark.parametrize("amount,at",[
+    ("0.01",9),("1.00",9),("12.50",9),("60.00",9),
+    ("90.00",9),("119.99",9),("120.00",9),("40.00",10),
+])
+def test_network_cash_conservation_over_partial_shares_and_times(amount,at):
+    d=case()
+    d["economic_claims"]["work_payment_settlement_claims"]=[payment(amount=amount,at=at)]
+    out=view(d)
+    coop=out["cash_timing"]["joint_network_settlement"]["scenarios"]["COOPERATION"]
+    assert coop["claim_adjusted_original_money_conserved_per_tick"]
+    assert coop["claim_adjusted_splits_original_transfer_not_new_money"]
+    assert coop["expected_original_external_cash_delta"]=="270.00"
+    assert coop["late_original_external_cash_delta"]=="270.00"
+    for entry in coop["per_original_owner_private_research_projection"].values():
+        assert (entry["claim_adjusted_expected"][
+            "end_of_horizon_cash_from_declared_transfers"] ==
+            entry["expected"]["end_of_horizon_cash_from_declared_transfers"])
+
+
+def test_missing_other_original_payment_term_holds_claim_adjusted_network_forecast():
+    d=case()
+    d["economic_claims"]["transfers"][2]["work"]="w1"
+    d["economic_claims"]["work_payment_settlement_claims"]=[payment()]
+    e=view(d)
+    assert e["work_payment_causality"]["status"]=="INCOMPLETE_ORIGINAL_WORK_PAYMENT_TERMS"
+    assert e["work_payment_causality"]["settlement_progress"][
+        "conditional_network_claim_projection_held_due_to_incomplete_work_terms"
+    ]
+    coop=e["cash_timing"]["joint_network_settlement"]["scenarios"]["COOPERATION"]
+    assert "claim_adjusted_expected" not in coop[
+        "per_original_owner_private_research_projection"]["b"]
+
+
+def test_settlement_claim_event_id_cannot_masquerade_as_original_transfer_id():
+    d=case()
+    d["economic_claims"]["work_payment_settlement_claims"]=[payment("t3")]
+    with pytest.raises(InputError,match="PAYMENT_PROGRESS_EVENT_ID_CLASH_WITH_ORIGINAL_TRANSFER"):
+        simulate(d)
+
+
+def test_external_payment_cannot_be_assumed_bilaterally_confirmed_by_single_owner():
+    d=case()
+    doc=d["economic_claims"]
+    doc["transfers"][1]["payee"]="EXTERNAL"
+    doc["work_payment_conditions"][0]["owner_sources"]={"b":"b1"}
+    doc["cash_timing"]["transfer_windows"][1]["owner_sources"]={"b":"b1"}
+    doc["work_payment_settlement_claims"]=[payment()]
+    with pytest.raises(InputError,match="PAYMENT_PROGRESS_REQUIRES_TWO_ORIGINAL_PARTIES"):
+        simulate(d)
