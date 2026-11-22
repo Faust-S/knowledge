@@ -106,6 +106,18 @@ jobs:
           const codes=[...new Set([...s.matchAll(/\b(?:ERR_[A-Z0-9_]+|TS[0-9]{4}|T2_[A-Z0-9_]+)\b/g)]
             .map(x=>x[0]))].slice(0,20);
           console.log("D08_ORIGINAL_T2_HOST_ERROR_CODES="+(codes.join(",")||"NONE"));
+          // Only compiler error headings. Strip path/quoted literals/long
+          // identifiers before printing to this public workflow.
+          const headings=s.split(/\r?\n/).filter(x=>
+            /error during build|^\s*(?:Error|TypeError|SyntaxError|RangeError):|^\s*\[vite.*\]|^\s*✘|^\s*×|build failed/i.test(x)).slice(-10);
+          const sanitize=x=>x.replace(/\x1b\[[0-9;]*m/g,"")
+            .replace(/["'`][^"'`]{0,600}["'`]/g,"<quoted>")
+            .replace(/[A-Za-z]:\\[^\s]+|\/(?:home|Users|tmp|runner|opt|mnt)\/[^\s]+/g,"<path>")
+            .replace(/\b[\w.+-]+(?:\/|\\)[\w./\\+-]+\b/g,"<path>")
+            .replace(/[A-Za-z0-9_=-]{40,}/g,"<opaque>")
+            .slice(0,190);
+          for(const [i,h] of headings.entries())
+            console.log("D08_ORIGINAL_T2_HOST_ERROR_HEADING_"+i+"="+sanitize(h));
           NODE
             echo D08_ORIGINAL_T2_HOST_BUILD=FAIL
             exit 1
