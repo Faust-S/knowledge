@@ -1177,7 +1177,17 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const missingRelation=await recipientDeleteKernel.getObject(workspaceId,linkedObjectId);
       assert.equal(missingRelation.relations.outgoing.some(r=>
         r.relation_id===additionalRelationId),false);
-      const relDeleteRecovered=await applyT4OriginalDeleteDelta({
+      const deleteRelationHistory=await recipientPage.evaluate(async({SERVICE,workspaceId})=>{
+        const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+        return kernel.t1.listEventsSince(workspaceId);
+      },{SERVICE,workspaceId});
+      console.log('T4_ORIGINAL_T3_RELATION_DELETE_EVENT_DIAGNOSTIC',JSON.stringify({
+        originalFirstReceipt:relationDeleteFirstReceipt,
+        candidateEvents:deleteRelationHistory.filter(e=>e.event_type===
+          'iwxa.t4.original.source.relation-deleted'),
+      }));
+      let relDeleteRecovered;
+      try{relDeleteRecovered=await applyT4OriginalDeleteDelta({
         ...relDeleteApply,
         verifyOriginalUncertainRetry:async ctx=>{
           if(!relationDeleteFirstReceipt||
@@ -1190,7 +1200,12 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return events.some(e=>
             e.event_id===relationDeleteFirstReceipt.event.event_id);
         }
-      });
+      });}
+      catch(error){
+        console.log('T4_ORIGINAL_T3_RELATION_DELETE_RETRY_DIAGNOSTIC',
+          JSON.stringify({code:error.code,details:error.details}));
+        throw error;
+      }
       assert.equal(relDeleteRecovered.originalReceipt.deduplicated,true);
       await advanceT4OriginalDeleteCursor({
         window:deletedRelation.window,nextCursor:deletedRelation.nextCursor,
