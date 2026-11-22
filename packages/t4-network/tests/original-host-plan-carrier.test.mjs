@@ -109,6 +109,7 @@ function fixture(){
     expectedSourcePlanDigest:sourceArgs.plan.planDigest,
     readOriginalHostContext,getMode,
     authorizeOriginalRead:async()=>authorized,
+    readOriginalImportReceipt:async()=>committed(),
   });
   return{sourceArgs,readArgs,objects,events,kernel,ops,
     setMode:v=>mode=v,setAllowed:v=>authorized=v,
@@ -203,4 +204,24 @@ test('recipient authorization revocation blocks original T3 plan reads',async()=
   await assert.rejects(inspectT4OriginalHostImportedPlanCarrier(f.readArgs()),
     err('PLAN_CARRIER_ORIGINAL_HOST_AUTHORITY_DENIED'));
   assert.equal(f.ops.reads,before);
+});
+
+test('trusted original T3 receipt readback is required, not a caller-supplied import success',async()=>{
+  const f=fixture();await persistT4OriginalHostPlanCarrier(f.sourceArgs);
+  const input=f.readArgs();
+  await assert.rejects(inspectT4OriginalHostImportedPlanCarrier({
+    ...input,readOriginalImportReceipt:async()=>null,
+  }),err('PLAN_CARRIER_ORIGINAL_IMPORT_RECEIPT_NOT_DURABLE'));
+  assert.equal(f.ops.importCommits,0);
+});
+test('changed original T3 import receipt after the first read blocks carrier admission',async()=>{
+  const f=fixture();await persistT4OriginalHostPlanCarrier(f.sourceArgs);
+  let n=0;const input=f.readArgs();
+  await assert.rejects(inspectT4OriginalHostImportedPlanCarrier({
+    ...input,readOriginalImportReceipt:async()=>{
+      n++;return n===1?input.originalImportReceipt:
+        {...input.originalImportReceipt,package_digest:'forged:package'};
+    },
+  }),err('PLAN_CARRIER_ORIGINAL_IMPORT_RECEIPT_NOT_DURABLE'));
+  assert.equal(n,2);
 });
