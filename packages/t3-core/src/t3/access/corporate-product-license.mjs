@@ -71,6 +71,9 @@ function common(x){
   identity(x.subject);product(x.product);terms(x.tariff);
   uniqueIds(x.featureIds,30,'CORP_FEATURE_IDS_INVALID');
   limits(x.limits);
+  insist(x.limits.personalAgentSeats===0||
+    x.featureIds.includes('PERSONAL_AGENT_CORPORATE'),
+    'CORP_AGENT_FEATURE_REQUIRED');
 }
 export function validateCorporateLicenseRequest(input){
   const r=copy(input);
