@@ -176,6 +176,24 @@ function WaitForText([string]$fragment,[int]$maxPolls=55){
   }
   return $false
 }
+function WaitForOriginalKernelReady(){
+  # The isolated T3 child is asynchronous. A visible Center toolbar button
+  # only means the child was created, NOT that original T2 Kernel/JIT attached.
+  # Observe the genuine Workspace Header's KernelStatus before hiding it.
+  for($i=0;$i -lt 160;$i++){
+    if((HasText 'Ядро готово') -or
+       (HasText 'Ядро: ограниченный режим') -or
+       (HasText 'Ядро: только чтение')){
+      return $true
+    }
+    if((HasText 'Ядро недоступно') -or
+       (HasText 'Требуется обновление')){
+      return $false
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  return $false
+}
 function WaitForOrdinaryWorkspace([string]$name){
   # A physical Windows click returns before WebView2 has committed the React
   # update to the accessibility tree. The workspace is NOT accepted on click:
@@ -439,6 +457,7 @@ try{
     $script:phase='D2_NATIVE_OPEN_ORIGINAL_KERNEL'
     ClickButton 'Открыть Workspace T3'
     Check (WaitForText 'К приёмке' 90) 'D2_INSTALLED_NATIVE_SIGNED_WORKSPACE_NOT_VISIBLE'
+    Check (WaitForOriginalKernelReady) 'D2_INSTALLED_NATIVE_ORIGINAL_KERNEL_NOT_READY'
     $script:phase='D2_NATIVE_HIDE_SAME_KERNEL'
     ClickButton 'К приёмке'
     Check (WaitForText 'Workspace T3' 60) 'D2_INSTALLED_NATIVE_SIGNED_WORKSPACE_NOT_HIDDEN'
@@ -472,6 +491,7 @@ try{
     Check (WaitForText 'Подписанный T3 D3 получатель доступен' 120) 'D2_INSTALLED_COLD_OWNER_NOT_RESTORED'
     ClickButton 'Открыть Workspace T3'
     Check (WaitForText 'К приёмке' 90) 'D2_INSTALLED_COLD_WORKSPACE_NOT_OPEN'
+    Check (WaitForOriginalKernelReady) 'D2_INSTALLED_COLD_ORIGINAL_KERNEL_NOT_READY'
     ClickButton 'К приёмке'
     ClickButton 'Обзор'
     ClickButton 'Обновить подписанные сведения T3'
