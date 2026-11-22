@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 7ee868e8b0bdf881e8863eeac9a87dca529081b6
+          ref: 9824cd03f0e7c5f7880b5898abd2c26d3a6e1459
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,7 +51,7 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = 7ee868e8b0bdf881e8863eeac9a87dca529081b6
+          test "$(git -C d04-private/site rev-parse HEAD)" = 9824cd03f0e7c5f7880b5898abd2c26d3a6e1459
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
@@ -165,6 +165,12 @@ jobs:
             const personal=await runLifeOsHomeDashboardBrowser({chromium,origin:server.origin});
             if(personal.status!=='PASS'||personal.viewports.length!==2)throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
             console.log('D04_HOME_CREATE_AND_COLD=PASS');
+            for(const item of personal.viewports){
+              if(![item.emptyOpenMs,item.createReadyMs,item.coldRestoreMs].every(n=>Number.isSafeInteger(n)&&n>=0&&n<120000))throw Error('D04_HOME_LATENCY_INVALID');
+              console.log('D04_HOME_PERF_W'+item.width+'_EMPTY_MS='+item.emptyOpenMs);
+              console.log('D04_HOME_PERF_W'+item.width+'_CREATE_MS='+item.createReadyMs);
+              console.log('D04_HOME_PERF_W'+item.width+'_COLD_MS='+item.coldRestoreMs);
+            }
             console.log('D04_HOME_BROWSER_STAGE=PUBLIC_ENTRY');
             const result=await runLifeOsEntryResponsiveBrowser({chromium,origin:server.origin});
             if(result.status!=='PASS'||result.viewports.length!==4)throw Error('D04_HOME_BROWSER_RESULT_INCOMPLETE');
