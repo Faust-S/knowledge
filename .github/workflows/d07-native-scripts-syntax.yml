@@ -58,7 +58,7 @@ jobs:
              !$import.Contains("'Рабочая область Услуговода'") -or
              !$import.Contains('D07_IMPORT_EXPECTED_SERVICE_ORDER_NOT_LISTED') -or
              $import.Contains("if(`$name -match 'Сохранённых заказов:") -or
-             !$source.Contains('D07_NATIVE_CARD_DRAFT_OPERATION_MATCHES='+ '`$matchedOperations')){
+             !$source.Contains('$matchedOperations=@($exactTitles')){
             throw 'D07_NATIVE_IMPORT_EXACT_ORDER_READBACK_GUARD_INVALID'
           }
           Write-Output 'D07_NATIVE_IMPORT_EXACT_ORDER_READBACK_GUARD=PASS'
