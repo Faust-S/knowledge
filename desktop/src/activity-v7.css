@@ -80,6 +80,7 @@ body{min-width:0}
 .activity-v7-board{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:13px;align-items:start}
 .activity-v7-widget{grid-column:span 6;min-width:0;border-radius:13px;overflow:hidden;background:#ffffffed;
  border:1px solid #d9e5f2;box-shadow:0 5px 17px #7595b31a}
+.activity-v7-widget.is-drop-target{outline:2px dashed #8b5cf6;outline-offset:3px;background:#f5f0fc}
 .activity-v7-widget[data-size=wide]{grid-column:span 12}
 .activity-v7-widget[data-size=compact]{grid-column:span 4}
 .activity-v7-widget>header{min-height:48px;display:flex;align-items:center;padding:10px 12px;gap:6px;border-bottom:1px solid #ebf0f8}
