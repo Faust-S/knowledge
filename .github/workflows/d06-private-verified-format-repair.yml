@@ -73,13 +73,42 @@ jobs:
         working-directory: private/site
         run: |
           $failed = $false
-          foreach ($name in @("check:lint", "check", "test")) {
+          foreach ($name in @("check:lint", "check", "test:unit", "test:native", "test")) {
             $safe = $name.Replace(":", "-")
             $log = Join-Path $env:RUNNER_TEMP ("d06-format-" + $safe + "-private.txt")
             & cmd.exe /d /c ('npm run ' + $name + ' > "' + $log + '" 2>&1')
             $pass = $LASTEXITCODE -eq 0
             Write-Host ("D06_FORMAT_" + $safe + "=" + $(if ($pass) {"PASS"} else {"FAIL"}))
-            if (-not $pass) { $failed = $true }
+            if (-not $pass) {
+              $failed = $true
+              if ($name -eq "check:lint") {
+                $out = Join-Path $env:RUNNER_TEMP "d06-eslint-after-private.json"
+                $stderrFile = Join-Path $env:RUNNER_TEMP "d06-eslint-after-private.stderr"
+                & node node_modules/eslint/bin/eslint.js . --format json 1> $out 2> $stderrFile
+                try {
+                  $report = @(Get-Content -LiteralPath $out -Raw | ConvertFrom-Json)
+                  $messages = @($report | ForEach-Object { $_.messages } | Where-Object { $_ })
+                  foreach ($group in ($messages | Group-Object ruleId | Sort-Object Name)) {
+                    $rule = [string]$group.Name
+                    if ($rule -match '^[A-Za-z0-9@/_-]{1,80}$') {
+                      Write-Host ("D06_FORMAT_REMAINING_RULE=" + $rule + ":" + $group.Count)
+                    }
+                  }
+                  Write-Host ("D06_FORMAT_REMAINING_TOTAL=" + $messages.Count)
+                } catch {
+                  Write-Host "D06_FORMAT_REMAINING_DIAGNOSTIC=UNAVAILABLE"
+                }
+              }
+              if ($name -like "test*") {
+                $raw = Get-Content -LiteralPath $log -Raw
+                $hits = [regex]::Matches($raw, '(?m)^\s*not ok\s+(\d+)\s+-')
+                Write-Host ("D06_FORMAT_TEST_FAILED_ORDINALS=" + ((@($hits | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique -First 12)) -join ","))
+                $runStages = [regex]::Matches($raw, '(?m)^> [^\r\n]+\s+(test(?::[a-z0-9:.-]+)?)\s*$')
+                $lastStage = @($runStages | ForEach-Object { $_.Groups[1].Value } | Select-Object -Last 1)
+                if ($lastStage.Count) { Write-Host ("D06_FORMAT_TEST_LAST_STAGE=" + $lastStage[0]) }
+                Write-Host ("D06_FORMAT_TEST_ASSERTION_CLASS=" + [int]($raw -match 'AssertionError|ERR_ASSERTION'))
+              }
+            }
           }
           if ($failed) { exit 1 }
       - name: Commit only verified formatting to the private working branch
