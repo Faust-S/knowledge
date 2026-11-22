@@ -230,6 +230,8 @@ export function signCorporateLicenseStatus({license,ownerState,signer,
   const cfg=issuerConfig(ownerState,p.issuerAuthorityId);
   insist(signer?.keyId===cfg.statusKeyId&&typeof signer.sign==='function',
     'CORP_ORIGINAL_STATUS_SIGNER_REQUIRED');
+  const limit=ownerState.policy.offlineMaxAgeSeconds??86400;
+  positive(limit,1,31536000,'CORP_STATUS_OFFLINE_LIMIT_INVALID');
   const payload=statusPayload({
     schema:CORPORATE_STATUS_SCHEMA,kind:'LICENSE_STATUS',environment:'PRODUCTION',
     issuerAuthorityId:p.issuerAuthorityId,licenseId:p.id,
@@ -239,6 +241,8 @@ export function signCorporateLicenseStatus({license,ownerState,signer,
   });
   insist(timestamp(payload.validUntil)<=timestamp(p.expiresAt),
     'CORP_STATUS_AFTER_LICENSE_EXPIRY');
+  insist(timestamp(payload.validUntil)-timestamp(payload.issuedAt)<=limit*1000,
+    'CORP_STATUS_OFFLINE_LIMIT_EXCEEDED');
   const envelope=signRecord(payload,signer);
   inspectSignedCorporateLicenseStatus({license,statusEnvelope:envelope,
     installedTrust:ownerState,organizationId:p.subject.id,now});
@@ -261,15 +265,22 @@ export function inspectSignedCorporateLicenseStatus({license,statusEnvelope,
     timestamp(p.issuedAt)<=now&&now<timestamp(p.validUntil)&&
     timestamp(p.validUntil)<=timestamp(l.expiresAt),
     'CORP_STATUS_NOT_CURRENT');
+  const limit=installedTrust.policy.offlineMaxAgeSeconds??86400;
+  positive(limit,1,31536000,'CORP_STATUS_OFFLINE_LIMIT_INVALID');
+  insist(timestamp(p.validUntil)-timestamp(p.issuedAt)<=limit*1000,
+    'CORP_STATUS_OFFLINE_LIMIT_EXCEEDED');
   const statusDigest=digest(statusEnvelope);
   if(priorFloor!==null){
-    exact(priorFloor,['licenseId','sequence','statusDigest','state'],
+    exact(priorFloor,['licenseId','sequence','statusDigest','state','issuedAt'],
       'CORP_STATUS_FLOOR_INVALID');
     insist(priorFloor.licenseId===l.id&&
       Number.isSafeInteger(priorFloor.sequence)&&priorFloor.sequence>=1&&
       typeof priorFloor.statusDigest==='string'&&
       /^[a-f0-9]{64}$/.test(priorFloor.statusDigest)&&STATES.has(priorFloor.state),
       'CORP_STATUS_FLOOR_INVALID');
+    const observedAt=timestamp(priorFloor.issuedAt);
+    insist(timestamp(p.issuedAt)>=observedAt,
+      'CORP_STATUS_TIME_ROLLBACK_DENIED');
     insist(p.sequence>=priorFloor.sequence,'CORP_STATUS_ROLLBACK_DENIED');
     insist(p.sequence!==priorFloor.sequence||
       priorFloor.statusDigest===statusDigest,
@@ -278,7 +289,7 @@ export function inspectSignedCorporateLicenseStatus({license,statusEnvelope,
       'CORP_STATUS_REVOKE_RESURRECTION_DENIED');
   }
   const floor=Object.freeze({licenseId:l.id,sequence:p.sequence,
-    statusDigest,state:p.state});
+    statusDigest,state:p.state,issuedAt:p.issuedAt});
   return Object.freeze({...inspected,statusSignatureVerified:true,
     status:p.state,sequence:p.sequence,statusValidUntil:p.validUntil,
     floor,verifiedSignedActive:p.state==='ACTIVE',
