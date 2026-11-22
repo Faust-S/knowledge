@@ -365,10 +365,21 @@ class QualitativeAKIS:
                     missing = {x for x in mentioned if x not in self.resources}
                     unknown_customer = spec.get("customer") not in self.subjects
                     if missing or unknown_customer:
+                        # A future original applicant is bound to the
+                        # earlier accepted-purpose registration PROPOSAL by
+                        # its id. The APPLY event cannot invent a different
+                        # subject, and the real request is still checked
+                        # against self.subjects after the actual apply.
                         subject_applies = {
-                            row.get("new_subject") for row in events
-                            if row.get("action") == "subject_registration_apply"
-                            and row["at"] < ev["at"]
+                            proposal.get("new_subject") for proposal in events
+                            if proposal.get("action") == "subject_registration_propose"
+                            and any(
+                                app.get("action") == "subject_registration_apply"
+                                and app.get("subject_registration_id") ==
+                                    proposal.get("subject_registration_id")
+                                and proposal["at"] < app["at"] < ev["at"]
+                                for app in events
+                            )
                         }
                         resource_plans = {
                             row.get("resource_spec", {}).get("id")
@@ -688,7 +699,7 @@ class QualitativeAKIS:
                 "cooperation_lifecycle_apply",
             }:
                 if self.context_basis is not None and self.context_basis.strict:
-                    if not self.context_basis.decision_requirements:
+                    if not getattr(self.context_basis, "decision_requirements", None):
                         raise BlockedDecision(
                             "COOPERATION_LIFECYCLE_SOURCE_RIGHTS_NOT_QUALIFIED"
                         )
