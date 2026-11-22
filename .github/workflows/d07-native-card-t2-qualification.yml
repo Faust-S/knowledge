@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 968ff82f0b8f1d1230fde502e8f42e1978b4c799
+      SITE_SHA: 87a5f4c20013365a61c84527c6377f8be4e0bf48
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -64,6 +64,8 @@ jobs:
             'D07_IMPORT_POST_IMPORT_REVISION_LOST',
             'D07_IMPORT_POST_IMPORT_OBJECT_ID_CHANGED',
             'D07_IMPORT_POST_IMPORT_TEN_WORKS_LOST',
+            'D07_IMPORT_INITIAL_ID_LABEL_VISIBLE',
+            'EnsureInitialTechnical',
             'D07_IMPORT_SECOND_COLD_ID_LABEL_VISIBLE',
             'EnsureColdTechnicalVisible',
             'D07_IWXA_NATIVE_POST_IMPORT_DURABLE_CONTINUATION=PASS'
