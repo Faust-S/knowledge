@@ -90,7 +90,8 @@ def _source_status(state: Any, claim: Mapping[str, Any]) -> str:
 
 
 def evaluate_competence_reuse(raw: Any, state: Any, *,
-                              economics: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                              economics: Mapping[str, Any] | None = None,
+                              permission_reviews: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
     """Conservative end-of-run projection over ONE original trace and economics.
 
     A claimed use must precede the later original start and follow acceptance of
@@ -105,7 +106,7 @@ def evaluate_competence_reuse(raw: Any, state: Any, *,
     seen: set[str] = set()
     rows: list[dict[str, Any]] = []
     for claim in raw:
-        if not isinstance(claim, dict) or set(claim) != fields:
+        if not isinstance(claim, dict) or set(claim) - {"recipient"} != fields:
             raise ReuseInputError("REUSE_CLAIM_FIELDS_INVALID")
         key = _text(claim["id"], "REUSE_CLAIM_ID_INVALID")
         if key in seen:
@@ -118,6 +119,9 @@ def evaluate_competence_reuse(raw: Any, state: Any, *,
             raise ReuseInputError("REUSE_REQUIRES_TWO_ORIGINAL_WORKS")
         if owner not in state.subjects:
             raise ReuseInputError("REUSE_UNKNOWN_ORIGINAL_OWNER")
+        recipient = _text(claim.get("recipient", owner), "REUSE_RECIPIENT_INVALID")
+        if recipient not in state.subjects:
+            raise ReuseInputError("REUSE_RECIPIENT_UNKNOWN")
         if claim["kind"] not in KINDS or claim["metric"] not in METRICS or claim["direction"] not in DIRECTIONS:
             raise ReuseInputError("REUSE_KIND_OR_METRIC_INVALID")
         at = claim["applied_at"]
@@ -129,8 +133,8 @@ def evaluate_competence_reuse(raw: Any, state: Any, *,
         competence_ref = _text(claim["competence_ref"], "REUSE_COMPETENCE_REF_INVALID")
         if not competence_ref.startswith(f"model://{owner}/"):
             raise ReuseInputError("REUSE_COMPETENCE_ORIGINAL_OWNER_SOURCE_REQUIRED")
-        baseline = _measurement(claim["independent_baseline"], owner)
-        observed = _measurement(claim["subsequent_observation"], owner)
+        baseline = _measurement(claim["independent_baseline"], recipient)
+        observed = _measurement(claim["subsequent_observation"], recipient)
         old, new = state.works[prior_id], state.works[later_id]
         old_accept = _original_event_at(state.trace, prior_id, "accept")
         new_start = min((row["at"] for row in state.trace
@@ -141,10 +145,20 @@ def evaluate_competence_reuse(raw: Any, state: Any, *,
         same_scope = all(baseline[x] == observed[x] for x in
                          ("unit", "quantity", "scope", "quality_basis"))
         original_owner = (owner in _original_owners(state, old) and
-                          owner in _original_owners(state, new))
+                          recipient in _original_owners(state, new))
+        permission = (permission_reviews or {}).get(key)
         reasons: list[str] = []
         if not original_owner:
             reasons.append("NO_CONTINUOUS_ORIGINAL_COMPETENCE_OWNER")
+        if recipient != owner:
+            if permission is None:
+                reasons.append("REUSE_INTERFIRM_OWNER_PERMISSION_MISSING")
+            elif not permission["qualified"]:
+                reasons.extend(permission["reasons"])
+            original_source = (state.context_basis.sources.get(claim["source_id"])
+                               if state.context_basis is not None else None)
+            if original_source is None or recipient not in original_source.usable_by:
+                reasons.append("REUSE_ORIGINAL_COMPETENCE_NOT_SHARED_WITH_RECIPIENT")
         if prior_id not in new.requires_accepted:
             reasons.append("NO_PREDECLARED_RESULT_DEPENDENCY")
         if old.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT" or old.result_ref != prior_ref or old_accept is None or old_accept >= at:
@@ -169,7 +183,11 @@ def evaluate_competence_reuse(raw: Any, state: Any, *,
                              else (observed["_number"] - baseline["_number"]))
         rows.append({
             "id": key, "prior_work": prior_id, "later_work": later_id,
-            "original_competence_owner": owner, "kind": claim["kind"],
+            "original_competence_owner": owner,
+            **({"model_recipient_of_knowledge": recipient,
+                "modeled_transfer_permission": permission}
+               if "recipient" in claim else {}),
+            "kind": claim["kind"],
             "metric": claim["metric"], "unit": baseline["unit"],
             "application_at_declared": at, "source_at_end": source_status,
             "prior_accepted_at": old_accept, "later_started_at": new_start,
