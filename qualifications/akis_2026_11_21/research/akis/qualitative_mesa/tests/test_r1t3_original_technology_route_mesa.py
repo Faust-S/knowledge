@@ -235,7 +235,7 @@ def test_r1t3_full_original_cross_owner_work_operations_handoff_quality_accepted
     assert out["works"]["w1"]["consenting_principals"] == ["a", "b"]
     assert out["profit"]["system_increment"] == "UNKNOWN"
     relation = next(
-        row for row in out["cooperation"]["relations"]
+        row for row in out["cooperation"]["system_projection"]["relations"]
         if row["link"] == "l2"
     )
     observed = relation["components"]["Э"][
