@@ -130,7 +130,10 @@ function fixture(){
  const kernel={
   sessionInfo:{contract_version:'1.3.0',runtime_version:'0.3.6'},
   hasOperation:op=>['t1.getWorkspace','t1.listObjects','t1.getObject','t1.listEventsSince'].includes(op),
-  async getWorkspace(){readCalls++;return{workspace_id:W,created_at:'2026-11-16T00:00:00Z'};},
+  async getWorkspace(){readCalls++;return{
+   workspace_id:W,created_at:'2026-11-16T00:00:00Z',
+   profile:'cehovod-production',capabilities:[],read_only:false,
+  };},
   async listObjects(){readCalls++;return objects;},
   async getObject(ws,id){readCalls++;return{
    object:objects.find(o=>o.object_id===id),
@@ -152,15 +155,6 @@ function fixture(){
 }
 test('original signed D2 reads modelled D05 source and HOLDS reported transitions',async()=>{
  const h=fixture(),before=structuredClone({objects:h.objects,events:h.events});
- // A denied original read is authoritative. Report ONLY its known code
- // for this synthetic fixture to distinguish corporate Access from D2 mapping.
- try {
-  await original.readActivityFromWorkspaceContext(h.context,{
-   bindings:h.bindings,signedAccess:h.signedAccess,
-  });
- } catch(error){
-  assert.fail('D05_ORIGINAL_D2_DIAGNOSTIC:'+String(error?.code??'UNCLASSIFIED'));
- }
  const value=await inspectSelectedT3Activity(h);
  assert.equal(value.status,'HOLD');assert.equal(value.structural_candidate,null);
  assert.ok(value.reason_codes.includes('T3_D2_UNVERIFIED_EVENT_STEP'));
@@ -194,6 +188,15 @@ test('unknown CehoVod event stays unmapped rather than invented business step',a
 });
 test('foreign object fails original D2 Workspace read boundary',async()=>{
  const h=fixture();h.objects[0].workspace_id='ws:foreign';
+ await assert.rejects(inspectSelectedT3Activity(h),
+  {code:'T3_AUTHORITATIVE_READ_REFUSED'});
+ assert.equal(h.writes(),0);
+});
+
+test('D05 cannot suppress original Workspace lifecycle without full Kernel Workspace record',async()=>{
+ const h=fixture();h.context.kernel.getWorkspace=async()=>({
+  workspace_id:W,created_at:'2026-11-16T00:00:00Z',
+ });
  await assert.rejects(inspectSelectedT3Activity(h),
   {code:'T3_AUTHORITATIVE_READ_REFUSED'});
  assert.equal(h.writes(),0);
