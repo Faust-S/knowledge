@@ -7,6 +7,8 @@ unrelated Results, or proves an economic effect. No new scheduler or store.
 from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Sequence
+import hashlib
+import json
 
 
 class CooperationInputError(ValueError):
@@ -351,6 +353,306 @@ def respond_to_cooperation_change(event: Mapping[str, Any],
         raise CooperationInputError("COOPERATION_CHANGE_RESPONSE_MUST_FOLLOW_PROPOSAL")
     # Consulted subjects are independent of operator mandate and quorum.
     # An inactive principal may still contest a proposed revision of its rights.
+
+
+# R1-U1. Two simultaneously proposed, different future membership
+# compositions compete in the ONE original cooperation trace. Nothing
+# below creates a second link or a substitute original Work/Result.
+
+def _competition_source(value: Any, actor: Any) -> None:
+    prefix = f"model://{actor}/"
+    if (not isinstance(actor, str) or not isinstance(value, str)
+            or not value.startswith(prefix)
+            or not len(prefix) < len(value) <= 180):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_INDEPENDENT_OWNER_SOURCE_REQUIRED"
+        )
+
+
+def _competition_document(state: Any, change_ids: Any,
+                          link: CooperationLink,
+                          pilot: Any) -> tuple[str, tuple[Mapping[str, Any], ...]]:
+    if (not isinstance(change_ids, list) or len(change_ids) != 2
+            or len(set(change_ids)) != 2
+            or not all(isinstance(i, str) and i for i in change_ids)):
+        raise CooperationInputError("COALITION_COMPETITION_TWO_DISTINCT_OPTIONS_REQUIRED")
+    proposals = []
+    for identifier in change_ids:
+        candidate = _applied_proposal(state.trace, identifier)
+        if (candidate is None or candidate.get("change_kind") not in {
+                "ADD_FUTURE_PARTICIPANT", "REVIEW_FUTURE_PARTICIPATION"
+            } or candidate.get("cooperation_link") != link.key
+                or candidate.get("cooperation_source_revision") != link.source_revision
+                or candidate.get("org_revision") != state.institution.revision
+                or candidate.get("pilot_work") != pilot.key
+                or candidate.get("pilot_result_ref") != pilot.result_ref):
+            raise CooperationInputError(
+                "COALITION_COMPETITION_ORIGINAL_PROPOSALS_AND_PILOT_REQUIRED"
+            )
+        proposals.append(candidate)
+    participants = set(link.participants)
+    alternatives = []
+    for candidate in proposals:
+        new_party = candidate.get("proposed_subject")
+        if candidate["change_kind"] == "ADD_FUTURE_PARTICIPANT":
+            future = participants | {new_party}
+        else:
+            future = participants - {new_party}
+        if (None in future or len(future) < 2 or
+                not future.issubset(state.subjects) or
+                link.coordinator not in future):
+            raise CooperationInputError(
+                "COALITION_COMPETITION_FUTURE_MEMBERSHIP_NOT_ELIGIBLE"
+            )
+        alternatives.append(tuple(sorted(future)))
+    if alternatives[0] == alternatives[1]:
+        raise CooperationInputError(
+            "COALITION_COMPETITION_SAME_MEMBERSHIP_NOT_AN_ALTERNATIVE"
+        )
+    package = {
+        "source_link": link.key,
+        "source_revision": link.source_revision,
+        "pilot_work": pilot.key,
+        "pilot_result_ref": pilot.result_ref,
+        "alternatives": [{
+            "change_id": row["change_id"],
+            "kind": row["change_kind"],
+            "proposed_subject": row.get("proposed_subject"),
+            "new_participants": list(parties),
+            "original_consultees": row.get("original_consultees"),
+            "source_ref": row.get("change_source_ref"),
+        } for row, parties in zip(proposals, alternatives)],
+    }
+    digest = hashlib.sha256(
+        json.dumps(package, sort_keys=True, ensure_ascii=False,
+                   separators=(",", ":"), allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    return digest, tuple(proposals)
+
+
+def _competition_record(state: Any, ident: Any) -> Mapping[str, Any]:
+    if not isinstance(ident, str) or not ident:
+        raise CooperationInputError("COALITION_COMPETITION_ID_REQUIRED")
+    rows = [
+        row for row in state.trace
+        if row.get("action") == "coalition_options_propose"
+        and row.get("outcome") == "APPLIED"
+        and row.get("coalition_competition_id") == ident
+    ]
+    if len(rows) != 1:
+        raise CooperationInputError(
+            "COALITION_COMPETITION_ORIGINAL_COMPARISON_REQUIRED"
+        )
+    return rows[0]
+
+
+def qualify_coalition_option_proposal(
+    state: Any, event: Mapping[str, Any], at: int
+) -> dict[str, Any]:
+    ident = _id(event.get("coalition_competition_id"), "COMPETITION_ID")
+    link = _declared_link(state.cooperation_links, event.get("cooperation_link"))
+    if (event.get("actor") not in link.participants
+            or not state.subjects[event["actor"]].active
+            or event.get("cooperation_source_revision") != link.source_revision
+            or event.get("org_revision") != state.institution.revision):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_ORIGINAL_MEMBER_SOURCE_REQUIRED"
+        )
+    if any(row.get("action") == "coalition_options_propose"
+           and row.get("outcome") == "APPLIED"
+           and (row.get("coalition_competition_id") == ident
+                or row.get("cooperation_link") == link.key)
+           for row in state.trace):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_PARENT_ALREADY_HAS_COMPARISON"
+        )
+    if any(row.get("action") == "cooperation_membership_apply"
+           and row.get("outcome") == "APPLIED"
+           and row.get("cooperation_link") == link.key for row in state.trace):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_PARENT_ALREADY_REVISED"
+        )
+    _competition_source(event.get("coalition_comparison_source_ref"),
+                        event["actor"])
+    expiry = event.get("coalition_comparison_valid_until")
+    if type(expiry) is not int or not at < expiry <= 10000:
+        raise CooperationInputError(
+            "COALITION_COMPETITION_COMPARISON_VALIDITY_REQUIRED"
+        )
+    pilot = state.works.get(event.get("pilot_work"))
+    if (pilot is None or pilot.key not in link.works
+            or pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+            or pilot.result_ref != event.get("pilot_result_ref")
+            or not any(row.get("action") == "accept"
+                       and row.get("outcome") == "APPLIED"
+                       and row.get("work") == pilot.key
+                       and type(row.get("at")) is int and row["at"] < at
+                       for row in state.trace)):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_PRIOR_ACCEPTED_PILOT_REQUIRED"
+        )
+    digest, rows = _competition_document(
+        state, event.get("coalition_change_ids"), link, pilot
+    )
+    if (event.get("coalition_comparison_fingerprint") != digest
+            or not all(type(row.get("at")) is int and row["at"] < at
+                       for row in rows)):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_EXACT_TWO_REVIEWED_OPTIONS_REQUIRED"
+        )
+    owners = {
+        actor for row in rows for actor in
+        _required_consultees(row, link)
+        if actor in state.subjects and state.subjects[actor].kind == "SME"
+    }
+    if (not owners or not all(state.subjects[x].active for x in owners)):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_INDEPENDENT_SME_REVIEWERS_REQUIRED"
+        )
+    return {
+        "coalition_competition_id": ident,
+        "cooperation_link": link.key,
+        "cooperation_source_revision": link.source_revision,
+        "coalition_change_ids": list(event["coalition_change_ids"]),
+        "coalition_comparison_fingerprint": digest,
+        "coalition_comparison_valid_until": expiry,
+        "coalition_comparison_source_ref": event["coalition_comparison_source_ref"],
+        "coalition_independent_smes": sorted(owners),
+        "pilot_work": pilot.key,
+        "pilot_result_ref": pilot.result_ref,
+        "coalition_new_membership_not_yet_created": True,
+    }
+
+
+def qualify_coalition_owner_comparison(
+    state: Any, event: Mapping[str, Any], at: int
+) -> dict[str, Any]:
+    comparison = _competition_record(
+        state, event.get("coalition_competition_id")
+    )
+    if (event.get("org_revision") != state.institution.revision
+            or event.get("coalition_comparison_fingerprint") !=
+                comparison["coalition_comparison_fingerprint"]
+            or not comparison["at"] < at <
+                comparison["coalition_comparison_valid_until"]):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_OWNER_SOURCE_OR_REVISION_STALE"
+        )
+    actor = event.get("actor")
+    if (actor not in comparison["coalition_independent_smes"]
+            or actor not in state.subjects or
+            not state.subjects[actor].active or
+            state.subjects[actor].kind != "SME"):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_ORIGINAL_AFFECTED_SME_REQUIRED"
+        )
+    if event.get("coalition_preferred_change_id") not in set(
+        comparison["coalition_change_ids"]
+    ) | {"OUTSIDE_ALL"}:
+        raise CooperationInputError(
+            "COALITION_COMPETITION_EXPLICIT_INDIVIDUAL_CHOICE_REQUIRED"
+        )
+    if event.get("coalition_willingness") not in {
+        "WILLING", "DECLINES", "UNKNOWN"
+    } or event.get("coalition_outside_option") not in {
+        "COOPERATION_PREFERRED", "OUTSIDE_PREFERRED", "UNKNOWN"
+    }:
+        raise CooperationInputError(
+            "COALITION_COMPETITION_EXPLICIT_INDIVIDUAL_INTEREST_REQUIRED"
+        )
+    if event.get("coalition_evaluation_dimension") not in {
+        "CAPACITY", "QUALITY", "RISK", "LIQUIDITY", "TRANSACTION_COST",
+        "UNKNOWN"
+    }:
+        raise CooperationInputError(
+            "COALITION_COMPETITION_REASON_DIMENSION_REQUIRED"
+        )
+    _competition_source(event.get("coalition_owner_source_ref"), actor)
+    return {
+        "coalition_competition_id": comparison["coalition_competition_id"],
+        "cooperation_link": comparison["cooperation_link"],
+        "cooperation_source_revision": comparison["cooperation_source_revision"],
+        "coalition_comparison_fingerprint":
+            comparison["coalition_comparison_fingerprint"],
+        "coalition_preferred_change_id": event["coalition_preferred_change_id"],
+        "coalition_willingness": event["coalition_willingness"],
+        "coalition_outside_option": event["coalition_outside_option"],
+        "coalition_evaluation_dimension": event["coalition_evaluation_dimension"],
+        "coalition_owner_source_ref": event["coalition_owner_source_ref"],
+        "alternative_real_economic_gain_not_imputed": True,
+        "new_participant_prior_result_experience_not_imputed": True,
+    }
+
+
+def qualify_competing_coalition_selection(
+    state: Any, ev: Mapping[str, Any], at: int
+) -> dict[str, Any] | None:
+    parent = ev.get("cooperation_link")
+    selected = ev.get("change_id")
+    comparisons = [
+        row for row in state.trace
+        if row.get("action") == "coalition_options_propose"
+        and row.get("outcome") == "APPLIED"
+        and row.get("cooperation_link") == parent
+        and selected in row.get("coalition_change_ids", ())
+    ]
+    if not comparisons:
+        if ev.get("coalition_competition_id") is not None:
+            raise CooperationInputError(
+                "COALITION_COMPETITION_UNDECLARED_SELECTION"
+            )
+        return None
+    if len(comparisons) != 1:
+        raise CooperationInputError(
+            "COALITION_COMPETITION_AMBIGUOUS_PARENT"
+        )
+    comparison = comparisons[0]
+    if ev.get("coalition_competition_id") != comparison["coalition_competition_id"]:
+        raise CooperationInputError(
+            "COALITION_COMPETITION_EXPLICIT_SELECTION_REQUIRED"
+        )
+    if (ev.get("org_revision") != state.institution.revision
+            or ev.get("coalition_comparison_fingerprint") !=
+                comparison["coalition_comparison_fingerprint"]
+            or not comparison["at"] < at <
+                comparison["coalition_comparison_valid_until"]):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_SELECTION_CONTENT_OR_TIME_STALE"
+        )
+    latest: dict[str, Mapping[str, Any]] = {}
+    for row in state.trace:
+        if (row.get("action") == "coalition_option_assess"
+                and row.get("outcome") == "APPLIED"
+                and row.get("coalition_competition_id") ==
+                    comparison["coalition_competition_id"]
+                and row.get("coalition_comparison_fingerprint") ==
+                    comparison["coalition_comparison_fingerprint"]
+                and row.get("actor") in comparison["coalition_independent_smes"]
+                and comparison["at"] < row["at"] < at):
+            latest[row["actor"]] = row
+    if set(latest) != set(comparison["coalition_independent_smes"]):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_ALL_INDEPENDENT_ALTERNATIVES_REQUIRED"
+        )
+    if any(
+        row["coalition_preferred_change_id"] != selected
+        or row["coalition_willingness"] != "WILLING"
+        or row["coalition_outside_option"] == "OUTSIDE_PREFERRED"
+        for row in latest.values()
+    ):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_OWNER_PREFERENCE_OR_OUTSIDE_VETO"
+        )
+    return {
+        "original_competing_coalition_selection_qualified": True,
+        "coalition_competition_id": comparison["coalition_competition_id"],
+        "coalition_unselected_change_id": next(
+            x for x in comparison["coalition_change_ids"] if x != selected
+        ),
+        "coalition_independent_choice_smes": sorted(latest),
+        "coalition_outside_option_not_real_profit": True,
+        "coalition_competing_proposal_not_an_actual_successor": True,
+    }
 
 
 def original_membership_predecessor(

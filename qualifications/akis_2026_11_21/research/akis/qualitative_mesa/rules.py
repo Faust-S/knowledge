@@ -49,6 +49,8 @@ from .cooperation import (
     respond_to_cooperation_change, original_cooperation_consultees,
     qualify_cooperation_change_reference, apply_cooperation_membership_revision,
     assess_cooperation_entry,
+    qualify_coalition_option_proposal, qualify_coalition_owner_comparison,
+    qualify_competing_coalition_selection,
 )
 
 SCHEMA = "IWXA_AKIS_QUALITATIVE_INPUT/0.1"
@@ -62,7 +64,8 @@ ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "star
     "subject_registration_propose", "subject_registration_attest",
     "subject_registration_review", "subject_registration_apply",
     "resource_registration_propose", "resource_registration_review",
-    "resource_registration_apply", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
+    "resource_registration_apply",
+    "coalition_options_propose", "coalition_option_assess", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -290,7 +293,13 @@ class QualitativeAKIS:
              "registration_willingness", "registration_valid_until",
              "registration_decision", "registration_decision_source_ref",
              "resource_spec", "resource_fingerprint",
-             "registration_resource_source_ref"}, "EVENT")
+             "registration_resource_source_ref",
+             "coalition_competition_id", "coalition_change_ids",
+             "coalition_comparison_fingerprint",
+             "coalition_comparison_source_ref", "coalition_comparison_valid_until",
+             "coalition_preferred_change_id", "coalition_willingness",
+             "coalition_outside_option", "coalition_evaluation_dimension",
+             "coalition_owner_source_ref"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -474,6 +483,7 @@ class QualitativeAKIS:
         membership_evidence = None
         technology_route_evidence = None
         registration_evidence = None
+        coalition_competition_evidence = None
         if self.capability_policy is not None:
             # Time- and owner-source eligibility is refreshed before future
             # commitments; historical reservations and Results are untouched.
@@ -605,6 +615,19 @@ class QualitativeAKIS:
                 self.capability_policy.apply(self, ev, at)
             elif action == "participation_status":
                 self._set_participation_status(ev)
+            elif action in {"coalition_options_propose", "coalition_option_assess"}:
+                if self.context_basis is not None and self.context_basis.strict:
+                    raise BlockedDecision(
+                        "COALITION_COMPETITION_SOURCE_RIGHTS_NOT_QUALIFIED"
+                    )
+                try:
+                    coalition_competition_evidence = (
+                        qualify_coalition_option_proposal(self, ev, at)
+                        if action == "coalition_options_propose"
+                        else qualify_coalition_owner_comparison(self, ev, at)
+                    )
+                except CooperationInputError as exc:
+                    raise BlockedDecision(str(exc)) from exc
             elif action in {"cooperation_change_propose", "cooperation_change_response"}:
                 # SOURCE-DECLARED consultation, not a legal amendment. In strict
                 # KPB mode a relation-wide permission has not yet been qualified.
@@ -646,6 +669,9 @@ class QualitativeAKIS:
                 if ev.get("org_revision") != self.institution.revision:
                     raise BlockedDecision("STALE_ORGANIZATIONAL_CODE")
                 try:
+                    competition_selection = qualify_competing_coalition_selection(
+                        self, ev, at
+                    )
                     revised, membership_evidence = apply_cooperation_membership_revision(
                         ev, self.cooperation_links, self.subjects, self.works,
                         self.trace, org_revision=self.institution.revision, at=at,
@@ -654,6 +680,8 @@ class QualitativeAKIS:
                             and self.formation_policy.design.enforce_model_result_conditioned_interests
                         ),
                     )
+                    if competition_selection is not None:
+                        membership_evidence.update(competition_selection)
                 except CooperationInputError as exc:
                     raise BlockedDecision(str(exc)) from exc
                 self.cooperation_links = revised
@@ -807,6 +835,14 @@ class QualitativeAKIS:
             if "reported_actual_at" in ev:
                 report["reported_actual_at"] = ev["reported_actual_at"]
                 report["reported_actual_source"] = "EXTERNAL_CLAIM_UNVERIFIED"
+        if action in {"coalition_options_propose", "coalition_option_assess"}:
+            report["coalition_competition_id"] = ev.get("coalition_competition_id")
+            report["coalition_comparison_fingerprint"] = ev.get(
+                "coalition_comparison_fingerprint"
+            )
+            report["coalition_model_choice_not_a_contract_or_obligation"] = True
+            if report["outcome"] == "APPLIED":
+                report.update(coalition_competition_evidence)
         if action in {"cooperation_change_propose", "cooperation_change_response"} and report["outcome"] == "APPLIED":
             # The existing trace alone owns the proposal and the consultations.
             report["cooperation_link"] = ev.get("cooperation_link")

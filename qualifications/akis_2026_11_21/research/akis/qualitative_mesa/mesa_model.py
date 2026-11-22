@@ -208,7 +208,8 @@ class OperatorAKISModel(mesa.Model):
         "subject_registration_propose", "subject_registration_attest",
         "subject_registration_review", "subject_registration_apply",
         "resource_registration_propose", "resource_registration_review",
-        "resource_registration_apply", "adopt_capability",
+        "resource_registration_apply", "coalition_options_propose",
+        "coalition_option_assess", "adopt_capability",
         "economic_outlook_available", "economic_outlook_expired",
         "joint_purchasing_quote_change",
         "owner_finance_source_available", "owner_finance_source_expired",
@@ -848,8 +849,10 @@ class OperatorAKISModel(mesa.Model):
                          "subject_registration_apply",
                          "resource_registration_propose",
                          "resource_registration_review",
-                         "resource_registration_apply"}:
-            # Registrations are not new Work or autonomous resource bookings.
+                         "resource_registration_apply",
+                         "coalition_options_propose",
+                         "coalition_option_assess"}:
+            # Registrations and comparisons do not book resources or create Work.
             impacted = []
         elif action in {"participation_status", "cooperation_change_propose", "cooperation_change_response"}:
             link = next((link for link in state.cooperation_links

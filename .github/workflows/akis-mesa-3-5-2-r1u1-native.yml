@@ -1,0 +1,51 @@
+name: AKIS Mesa 3.5.2 R1-U1 independently competing coalitions
+
+on:
+  push:
+    branches:
+      - work/2026-11-22-akis-r1u1-competing-coalition-options-native
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-mesa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install verified pinned Mesa and test runner
+        run: |
+          python -m pip install --disable-pip-version-check "mesa==3.5.2" "pytest>=8,<10"
+          python -c "import mesa; assert mesa.__version__ == '3.5.2', mesa.__version__; print('PINNED_MESA_VERSION_PASS')"
+      - name: Compile original copied research code
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: |
+          python -m compileall -q qualifications/akis_2026_11_21/research
+      - name: Confirm prospective original OC edition stage
+        run: |
+          test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1u1_original_competing_coalition_options_mesa.py
+          echo R1T_ORIGINAL_OC_SOURCE_EDITION_STAGE_PRESENT
+      - name: Verify original R1-T2 affected-owner scenario exists
+        run: |
+          test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1t2_original_function_responsibility_mesa.py
+          echo R1T2_ORIGINAL_OWNER_FUNCTION_QUALIFICATION_INPUT_PRESENT
+      - name: Confirm original technology route and independent QA tests
+        run: |
+          test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1t3_original_technology_route_mesa.py
+          echo R1T3_ORIGINAL_WORK_TECHNOLOGY_AND_OWNER_QA_PRESENT
+      - name: Confirm R1-T4 true new actor and Resource testing files
+        run: |
+          test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/source_registration.py
+          test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1t4_dynamic_original_sme_resource_mesa.py
+          echo R1U1_ORIGINAL_COMPETING_COALITION_CHOICES_PRESENT
+      - name: Native general AKIS Mesa and original model regression
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: |
+          python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests
