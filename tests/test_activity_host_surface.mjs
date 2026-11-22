@@ -93,3 +93,18 @@ test('interactive T3 topology shows only bounded alias nodes with source-local e
   assert.match(module,/layoutObservedGraph/);
   assert.doesNotMatch(module,/fetch\(|WebSocket|XMLHttpRequest|putObject|createWorkspace|exportPackage/);
 });
+
+test('bounded multi-object D2 candidate navigation cannot mount thousands of React graph cards',()=>{
+  const app=file('../desktop/src/App.tsx');
+  const css=file('../desktop/src/styles.css');
+  const helper=file('../modules/activity-base-anonymizer/t3-transition-map.mjs');
+  assert.match(app,/T3_CANDIDATE_PAGE_SIZE=6/);
+  assert.match(app,/t3Candidates\.slice\(candidatePage\*T3_CANDIDATE_PAGE_SIZE/);
+  assert.match(app,/aria-label="Следующая группа типов объектов"/);
+  assert.match(app,/aria-label="Предыдущая группа типов объектов"/);
+  assert.match(app,/useLayoutEffect\(\(\)=>\{setT3CandidatePage\(0\);\},\[t3Review\?\.review\]\)/);
+  assert.match(app,/map\.too_complex/);
+  assert.match(css,/\.t3-candidate-nav/);
+  assert.match(helper,/const too_complex=distinct\.size>256\|\|edges\.length>512/);
+  assert.match(helper,/inferred_edges:0/);
+});
