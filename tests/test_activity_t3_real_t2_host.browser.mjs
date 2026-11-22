@@ -334,6 +334,7 @@ try {
           semantic_kind:'Process'}],
         events:['created','cut','bent','inspected'].map(phase=>({
           event_type:'d05.bracket.'+phase,semantic_kind:'Event',
+          epistemic_status:'observed',
         })),
         context_events:['workspace.created'],
         relations:[],
