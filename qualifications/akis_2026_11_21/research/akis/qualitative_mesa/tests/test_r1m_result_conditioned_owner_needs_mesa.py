@@ -79,7 +79,8 @@ def test_r1m_no_owner_origin_event_cannot_use_second_work_static_plan():
 
 
 @pytest.mark.parametrize("mutation,reason", [
-    (lambda e: e.update(actor="a"),
+    (lambda e: e.update(
+        actor="a", goal_source_ref="model://a/foreign-owner-goal"),
      "FORMATION_EMERGENT_CUSTOMER_ACCEPTED_PILOT_REQUIRED"),
     (lambda e: e.update(org_revision="oc-0"),
      "FORMATION_EMERGENT_ORG_REVISION_STALE"),

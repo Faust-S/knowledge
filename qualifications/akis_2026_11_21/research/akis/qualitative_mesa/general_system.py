@@ -663,11 +663,15 @@ class ModelFormationPolicy:
         goal = rows[0]
         if type(goal.get("goal_expires_at")) is not int or at >= goal["goal_expires_at"]:
             return "FORMATION_EMERGENT_ORIGINAL_GOAL_EXPIRED"
-        if goal.get("cooperation_link") != event.get("cooperation_link"):
+        # An incoming customer event names cooperation_link. The SAME
+        # APPLIED request in original trace owns requested_cooperation_link.
+        # Both refer to the source-declared relation, not different links.
+        link_id = (event.get("cooperation_link") or
+                   event.get("requested_cooperation_link"))
+        if goal.get("cooperation_link") != link_id:
             return "FORMATION_EMERGENT_ORIGINAL_RELATION_MISMATCH"
         # A changed owner assessment makes the old owner goal out-of-date:
         # a new Work/source must then be independently proposed.
-        link_id = event.get("cooperation_link")
         last = next((
             row for row in reversed(state.trace)
             if row.get("action") == "participation_status" and
