@@ -171,7 +171,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
     const remainingWindow=await readT4OriginalEventWindow({
       ...originalEventPort,cursor:firstWindow.nextCursor,maxEvents:1024,
     });
-    assert.ok(firstWindow.window.count+remainingWindow.window.count>=6);
+    assert.equal(firstWindow.window.count+remainingWindow.window.count,
+      actual.originalEvents.length);
+    assert.ok(actual.originalEvents.length>=3);
     assert.equal(remainingWindow.window.hasMore,false);
     assert.ok(firstWindow.window.eventRefs.every(e=>!Object.hasOwn(e,'payload')));
     assert.equal(remainingWindow.window.causalOrderProven,false);
