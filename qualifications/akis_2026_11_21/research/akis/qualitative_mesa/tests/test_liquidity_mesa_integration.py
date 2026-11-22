@@ -203,7 +203,7 @@ def test_liquidity_comparison_does_not_invent_outside_option_feasibility():
 
 
 def test_owner_receipt_delay_never_improves_minimum_liquidity_across_small_timing_grid():
-    """Property check, not one hand-picked example: all 56 original cash schedules."""
+    """Property check, not one hand-picked example: 72 original cash schedules."""
     from decimal import Decimal
     cases=0
     for receipt_due in range(4):
@@ -230,4 +230,4 @@ def test_owner_receipt_delay_never_improves_minimum_liquidity_across_small_timin
                 assert original["consolidated_external_cash_from_claims"]["COOPERATION"]=="270.00"
                 assert original["profit"]=="UNKNOWN"
                 cases+=1
-    assert cases==56
+    assert cases==72
