@@ -1717,12 +1717,18 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         ...capturedAssetMutations.map(item=>item.captureRef),
         missingRelationAckCaptureRef,
       ];
-      let scheduledNetworkPutCount=0;
+      let scheduledNetworkPutCount=0,loseScheduledRemoteAck=false;
       const scheduledTransport={
         ...deltaTransport,
         putSnapshot:async input=>{
           scheduledNetworkPutCount++;
-          return deltaTransport.putSnapshot(input);
+          const result=await deltaTransport.putSnapshot(input);
+          if(loseScheduledRemoteAck){
+            loseScheduledRemoteAck=false;
+            throw Object.assign(new Error('ORIGINAL_HOST_REMOTE_ACK_LOST'),
+              {code:'OUTCOME_UNKNOWN'});
+          }
+          return result;
         },
       };
       const hostDispatchPorts={
@@ -1793,7 +1799,25 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       sourceContext=await launch(sourceProfile);
       activeSourcePage=await opened(sourceContext);
       assert.ok(await readSourceTechnical('network-frontier',dispatchFrontierRef));
+      loseScheduledRemoteAck=true;
+      await assert.rejects(runOriginalHostDispatchTask(1),
+        error=>error.code==='HOST_TASK_DISPATCH_STOPPED'&&
+          error.details.originalCode==='DISPATCH_REMOTE_OUTCOME_UNKNOWN'&&
+          error.details.automaticRetryAllowed===false);
+      assert.equal(scheduledNetworkPutCount,2);
+      assert.ok(await readSourceTechnical('network-attempt',
+        capturedAssetMutations[1].captureRef));
+      assert.equal(await readSourceTechnical('network-checkpoint',
+        capturedAssetMutations[1].captureRef),null);
+      // The second remote PUT completed, but its Host-visible answer is gone.
+      // Restart before recovery: only exact WebDAV readback may resolve it.
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
       const dispatchSecond=await runOriginalHostDispatchTask(1);
+      assert.equal(dispatchSecond.results.at(-1).state,
+        'REMOTE_READBACK_RECOVERED');
+      assert.equal(scheduledNetworkPutCount,2);
       assert.equal(dispatchSecond.previouslyVerifiedCount,1);
       assert.equal(dispatchSecond.newlyVerifiedCount,1);
       assert.equal(dispatchSecond.hasMore,true);
@@ -1919,6 +1943,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalHostDispatchColdRestartBetweenBatches:true,
           originalHostDispatchCheckpointsDurableInRealT3:true,
           originalHostDispatchIdleTickNoDuplicatePut:true,
+          originalHostDispatchRemoteACKRecoveredAfterColdRestart:true,
           originalT3RecipientAssetRevision:2,
           originalT3RecipientRelationCreated:true,
           originalRecipientCursorsVerified:true,
