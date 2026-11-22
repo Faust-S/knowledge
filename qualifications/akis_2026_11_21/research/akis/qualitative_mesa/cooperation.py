@@ -9,6 +9,8 @@ from dataclasses import dataclass, replace
 from typing import Any, Mapping, Sequence
 import hashlib
 import json
+import re
+from decimal import Decimal
 
 
 class CooperationInputError(ValueError):
@@ -146,6 +148,7 @@ def cooperation_view(links: Sequence[CooperationLink], works: Mapping[str, Any],
             "historical_relation_and_accepted_results_immutable": True,
         })
     return {"evidence": "MODEL_ONLY", "links": out,
+            "parallel_active_coalitions": active_coalition_portfolio_view(trace, works),
             "organizational_form": "UNALTERED_OPERATOR_AKIS",
             "economic_additionality": "NOT_AUTOMATIC",
             "event_owner": "EXISTING_QUALITATIVE_AKIS_TRACE"}
@@ -690,6 +693,333 @@ def qualify_competing_coalition_selection(
         "coalition_nonselected_entrant_has_no_veto_over_existing_members": True,
         "coalition_outside_option_not_real_profit": True,
         "coalition_competing_proposal_not_an_actual_successor": True,
+    }
+
+
+# R1-U2. A sourced choice among TWO already operating original relations.
+# Original Work/Result and CapacityLedger are retained: this is not a new
+# coalition scheduler, economic balance sheet, permission or reservation book.
+
+def _active_coalition_document(
+    state: Any, link_ids: Any, work_ids: Any
+) -> tuple[str, list[dict[str, Any]], dict[str, list[str]], list[str]]:
+    """Fingerprint original competing work, link membership and resource demand."""
+    from .capacity import CapacityBlocked, CapacityInputError, Reservation
+    from .technology import operation_reservations
+
+    if (not isinstance(link_ids, list) or not isinstance(work_ids, list)
+            or len(link_ids) != 2 or len(work_ids) != 2
+            or len(set(link_ids)) != 2 or len(set(work_ids)) != 2):
+        raise CooperationInputError("ACTIVE_COALITION_TWO_DISTINCT_ORIGINAL_LINKS_AND_WORKS_REQUIRED")
+    links = [_declared_link(state.cooperation_links, name) for name in link_ids]
+    works = [state.works.get(name) for name in work_ids]
+    if any(w is None for w in works):
+        raise CooperationInputError("ACTIVE_COALITION_ORIGINAL_WORK_REQUIRED")
+    if any(w.key not in link.works for link, w in zip(links, works)):
+        raise CooperationInputError("ACTIVE_COALITION_WORK_LINK_MISMATCH")
+    principals: dict[str, list[str]] = {}
+    plans: dict[str, Any] = {}
+    package: list[dict[str, Any]] = []
+    for link, work in zip(links, works):
+        owners = state.capacity_ledger.original_owners(work.resource_requirements)
+        principals[link.key] = sorted(
+            person for person in owners | {work.customer}
+            if person in state.subjects and state.subjects[person].kind == "SME"
+        )
+        plans[work.key] = (
+            operation_reservations(work.key, work.operations)
+            if work.operations else [
+                Reservation(n.resource, work.key, work.slot_start, work.slot_end, n.units)
+                for n in work.resource_requirements
+            ]
+        )
+        package.append({
+            "link": link.key, "link_revision": link.source_revision,
+            "link_participants": sorted(link.participants),
+            "work": work.key, "work_revision": work.source_revision,
+            "customer": work.customer, "original_owners": sorted(owners),
+            "operation_windows": [
+                [r.resource, r.start, r.end, r.units] for r in plans[work.key]
+            ],
+        })
+    shared = sorted(set(principals[links[0].key]) & set(principals[links[1].key]))
+    if not shared:
+        raise CooperationInputError("ACTIVE_COALITION_SHARED_ORIGINAL_SME_REQUIRED")
+    try:
+        conflicts = state.capacity_ledger.preview_options(plans)
+    except (CapacityBlocked, CapacityInputError) as exc:
+        raise CooperationInputError(
+            "ACTIVE_COALITION_OPTION_INDIVIDUALLY_INFEASIBLE"
+        ) from exc
+    if not conflicts:
+        raise CooperationInputError("ACTIVE_COALITION_SCARCE_CAPACITY_CONTENTION_REQUIRED")
+    # The competition must actually involve a capacity asset owned by a
+    # participating SME, not merely a common customer or an operator label.
+    contested = {row["resource"] for row in conflicts}
+    if not any(state.resources.get(resource) in shared for resource in contested):
+        raise CooperationInputError("ACTIVE_COALITION_SHARED_OWNER_CAPACITY_REQUIRED")
+    digest = hashlib.sha256(
+        json.dumps({"options": package}, sort_keys=True, separators=(",", ":"),
+                   ensure_ascii=False, allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    return digest, conflicts, principals, shared
+
+
+def _active_coalition_comparison(state: Any, ident: Any) -> Mapping[str, Any]:
+    if not isinstance(ident, str) or not ident:
+        raise CooperationInputError("ACTIVE_COALITION_COMPARISON_ID_REQUIRED")
+    matches = [
+        row for row in state.trace
+        if row.get("action") == "active_coalition_portfolio_propose"
+        and row.get("outcome") == "APPLIED"
+        and row.get("coalition_portfolio_id") == ident
+    ]
+    if len(matches) != 1:
+        raise CooperationInputError("ACTIVE_COALITION_ORIGINAL_COMPARISON_REQUIRED")
+    return matches[0]
+
+
+def qualify_active_coalition_portfolio_proposal(
+    state: Any, ev: Mapping[str, Any], at: int
+) -> dict[str, Any]:
+    ident = _id(ev.get("coalition_portfolio_id"), "PORTFOLIO_ID")
+    digest, conflicts, principals, shared = _active_coalition_document(
+        state, ev.get("coalition_portfolio_links"),
+        ev.get("coalition_portfolio_works")
+    )
+    actor = ev.get("actor")
+    if (actor not in shared or not state.subjects[actor].active or
+            ev.get("org_revision") != state.institution.revision):
+        raise CooperationInputError("ACTIVE_COALITION_SHARED_INDEPENDENT_SME_REQUIRED")
+    _competition_source(ev.get("coalition_portfolio_source_ref"), actor)
+    expiry = ev.get("coalition_portfolio_valid_until")
+    if type(expiry) is not int or not at < expiry <= 10000:
+        raise CooperationInputError("ACTIVE_COALITION_VALIDITY_REQUIRED")
+    if ev.get("coalition_portfolio_fingerprint") != digest:
+        raise CooperationInputError("ACTIVE_COALITION_EXACT_ORIGINAL_OPTIONS_REQUIRED")
+    if any(
+        row.get("action") == "active_coalition_portfolio_propose"
+        and row.get("outcome") == "APPLIED"
+        and (row.get("coalition_portfolio_id") == ident or
+             set(row.get("coalition_portfolio_works", ())) &
+             set(ev["coalition_portfolio_works"]))
+        for row in state.trace
+    ):
+        raise CooperationInputError("ACTIVE_COALITION_OPTION_ALREADY_COMPARED")
+    for link_id, work_id in zip(
+        ev["coalition_portfolio_links"], ev["coalition_portfolio_works"]
+    ):
+        link = _declared_link(state.cooperation_links, link_id)
+        work = state.works[work_id]
+        if (work.obligation != "NOT_ACCEPTED" or work.proposal != "OFFERED"
+                or not work.admitted
+                or not all(state.subjects[p].active for p in principals[link_id])):
+            raise CooperationInputError("ACTIVE_COALITION_CURRENT_FUTURE_OFFER_REQUIRED")
+        # Each of the two relations has an earlier independently accepted Result.
+        if not any(
+            prior_id != work_id
+            and state.works[prior_id].result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+            and any(row.get("action") == "accept"
+                    and row.get("outcome") == "APPLIED"
+                    and row.get("work") == prior_id
+                    and row.get("at", at) < at for row in state.trace)
+            for prior_id in link.works
+        ):
+            raise CooperationInputError("ACTIVE_COALITION_TWO_OPERATING_RELATIONS_REQUIRED")
+    return {
+        "coalition_portfolio_id": ident,
+        "coalition_portfolio_links": list(ev["coalition_portfolio_links"]),
+        "coalition_portfolio_works": list(ev["coalition_portfolio_works"]),
+        "coalition_portfolio_link_revisions": [
+            _declared_link(state.cooperation_links, k).source_revision
+            for k in ev["coalition_portfolio_links"]
+        ],
+        "coalition_portfolio_work_revisions": [
+            state.works[k].source_revision for k in ev["coalition_portfolio_works"]
+        ],
+        "coalition_portfolio_fingerprint": digest,
+        "coalition_portfolio_valid_until": expiry,
+        "coalition_portfolio_source_ref": ev["coalition_portfolio_source_ref"],
+        "coalition_portfolio_principals_by_link": principals,
+        "coalition_portfolio_shared_smes": shared,
+        "coalition_portfolio_capacity_conflicts": conflicts,
+        "coalition_portfolio_original_result_evidence": True,
+        "coalition_portfolio_resources_reserved_by_comparison": False,
+    }
+
+
+def _owner_liquidity_amount(value: Any) -> Decimal:
+    # Fixed decimal text only. Neither a bank balance nor verified cash.
+    if (type(value) is not str or
+            re.fullmatch(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,2})?", value) is None):
+        raise CooperationInputError("ACTIVE_COALITION_OWNER_CASH_CLAIM_INVALID")
+    return Decimal(value)
+
+
+def qualify_active_coalition_owner_assessment(
+    state: Any, ev: Mapping[str, Any], at: int
+) -> dict[str, Any]:
+    comparison = _active_coalition_comparison(
+        state, ev.get("coalition_portfolio_id")
+    )
+    if (ev.get("org_revision") != state.institution.revision or
+            ev.get("coalition_portfolio_fingerprint") !=
+                comparison["coalition_portfolio_fingerprint"] or
+            not comparison["at"] < at < comparison["coalition_portfolio_valid_until"]):
+        raise CooperationInputError("ACTIVE_COALITION_OWNER_REVISION_OR_TIME_STALE")
+    actor = ev.get("actor")
+    if (actor not in state.subjects or not state.subjects[actor].active
+            or state.subjects[actor].kind != "SME"):
+        raise CooperationInputError("ACTIVE_COALITION_ORIGINAL_SME_REQUIRED")
+    eligible = [
+        name for name in comparison["coalition_portfolio_links"]
+        if actor in comparison["coalition_portfolio_principals_by_link"][name]
+    ]
+    if not eligible:
+        raise CooperationInputError("ACTIVE_COALITION_NONPARTICIPANT_HAS_NO_VOTE")
+    preferred = ev.get("coalition_portfolio_preferred_link")
+    if preferred not in set(eligible) | {"OUTSIDE_ALL"}:
+        raise CooperationInputError("ACTIVE_COALITION_OWNER_CANNOT_SELECT_FOREIGN_LINK")
+    if (ev.get("coalition_portfolio_willingness") not in
+            {"WILLING", "DECLINES", "UNKNOWN"}
+            or ev.get("coalition_portfolio_outside_position") not in
+            {"COOPERATION_PREFERRED", "OUTSIDE_PREFERRED", "UNKNOWN"}):
+        raise CooperationInputError("ACTIVE_COALITION_INDEPENDENT_INTEREST_REQUIRED")
+    _competition_source(ev.get("coalition_portfolio_owner_source_ref"), actor)
+    available = _owner_liquidity_amount(
+        ev.get("coalition_portfolio_cash_available")
+    )
+    floor = _owner_liquidity_amount(ev.get("coalition_portfolio_cash_floor"))
+    raw = ev.get("coalition_portfolio_peak_cash_needs")
+    if (not isinstance(raw, dict) or
+            set(raw) != set(eligible) | {"OUTSIDE_ALL"}):
+        raise CooperationInputError("ACTIVE_COALITION_OWNER_SCOPED_CASH_OPTIONS_REQUIRED")
+    headroom = {
+        name: available - floor - _owner_liquidity_amount(raw[name])
+        for name in sorted(raw)
+    }
+    return {
+        "coalition_portfolio_id": comparison["coalition_portfolio_id"],
+        "coalition_portfolio_fingerprint":
+            comparison["coalition_portfolio_fingerprint"],
+        "coalition_portfolio_preferred_link": preferred,
+        "coalition_portfolio_willingness": ev["coalition_portfolio_willingness"],
+        "coalition_portfolio_outside_position":
+            ev["coalition_portfolio_outside_position"],
+        "coalition_portfolio_owner_source_ref":
+            ev["coalition_portfolio_owner_source_ref"],
+        "coalition_portfolio_liquidity_by_option": {
+            name: "FEASIBLE" if value >= 0 else "SHORTFALL"
+            for name, value in headroom.items()
+        },
+        "coalition_portfolio_private_cash_values_redisclosed": False,
+        "coalition_portfolio_owner_alternative_is_independent": True,
+    }
+
+
+def qualify_active_coalition_original_commit(
+    state: Any, work: Any, at: int
+) -> dict[str, Any] | None:
+    comparisons = [
+        row for row in state.trace
+        if row.get("action") == "active_coalition_portfolio_propose"
+        and row.get("outcome") == "APPLIED"
+        and work.key in row.get("coalition_portfolio_works", ())
+    ]
+    if not comparisons:
+        return None
+    if len(comparisons) != 1:
+        raise CooperationInputError("ACTIVE_COALITION_AMBIGUOUS_ORIGINAL_COMPARISON")
+    comparison = comparisons[0]
+    ix = comparison["coalition_portfolio_works"].index(work.key)
+    link_id = comparison["coalition_portfolio_links"][ix]
+    link = _declared_link(state.cooperation_links, link_id)
+    if (link.source_revision != comparison["coalition_portfolio_link_revisions"][ix]
+            or work.source_revision !=
+               comparison["coalition_portfolio_work_revisions"][ix]
+            or at >= comparison["coalition_portfolio_valid_until"]
+            or state.institution.revision != comparison["org_revision"]):
+        raise CooperationInputError("ACTIVE_COALITION_CHOICE_STALE_FOR_ORIGINAL_WORK")
+    required = set(comparison["coalition_portfolio_principals_by_link"][link_id])
+    latest: dict[str, Mapping[str, Any]] = {}
+    for row in state.trace:
+        if (row.get("action") == "active_coalition_portfolio_assess"
+                and row.get("outcome") == "APPLIED"
+                and row.get("coalition_portfolio_id") ==
+                    comparison["coalition_portfolio_id"]
+                and row.get("coalition_portfolio_fingerprint") ==
+                    comparison["coalition_portfolio_fingerprint"]
+                and row.get("actor") in required
+                and comparison["at"] < row.get("at", 0) < at):
+            latest[row["actor"]] = row
+    if set(latest) != required:
+        raise CooperationInputError("ACTIVE_COALITION_ORIGINAL_OWNER_CHOICES_MISSING")
+    if any(
+        row["coalition_portfolio_preferred_link"] != link_id
+        or row["coalition_portfolio_willingness"] != "WILLING"
+        or row["coalition_portfolio_outside_position"] != "COOPERATION_PREFERRED"
+        for row in latest.values()
+    ):
+        raise CooperationInputError("ACTIVE_COALITION_OWNER_PREFERS_OTHER_OR_OUTSIDE")
+    if any(
+        row["coalition_portfolio_liquidity_by_option"][link_id] != "FEASIBLE"
+        for row in latest.values()
+    ):
+        raise CooperationInputError("ACTIVE_COALITION_OWNER_LIQUIDITY_SHORTFALL")
+    return {
+        "active_coalition_portfolio_id": comparison["coalition_portfolio_id"],
+        "active_coalition_selected_link": link_id,
+        "active_coalition_independent_original_smes": sorted(required),
+        "active_coalition_portfolio_fingerprint":
+            comparison["coalition_portfolio_fingerprint"],
+        "active_coalition_original_consents_still_required": True,
+        "active_coalition_physical_capacity_uses_original_ledger": True,
+    }
+
+
+def active_coalition_portfolio_view(
+    trace: Sequence[Mapping[str, Any]], works: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Read only actual original commitments and original accepted Results."""
+    cases = []
+    for proposal in trace:
+        if (proposal.get("action") != "active_coalition_portfolio_propose"
+                or proposal.get("outcome") != "APPLIED"):
+            continue
+        identifier = proposal["coalition_portfolio_id"]
+        commits = [
+            row for row in trace
+            if row.get("action") == "commit" and row.get("outcome") == "APPLIED"
+            and row.get("active_coalition_portfolio_id") == identifier
+        ]
+        accepted = sorted(
+            row["work"] for row in commits
+            if works[row["work"]].result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+        )
+        assessments = {
+            row["actor"] for row in trace
+            if row.get("action") == "active_coalition_portfolio_assess"
+            and row.get("outcome") == "APPLIED"
+            and row.get("coalition_portfolio_id") == identifier
+        }
+        cases.append({
+            "id": identifier,
+            "original_active_links": proposal["coalition_portfolio_links"],
+            "competing_new_work_ids": proposal["coalition_portfolio_works"],
+            "shared_original_smes": proposal["coalition_portfolio_shared_smes"],
+            "resource_contention": proposal["coalition_portfolio_capacity_conflicts"],
+            "independent_smes_assessed": len(assessments),
+            "original_work_committed": sorted(row["work"] for row in commits),
+            "original_work_accepted_results": accepted,
+            "completed_competition_with_original_result": bool(accepted),
+            "unselected_work_is_not_a_result": True,
+        })
+    return {
+        "comparisons": cases,
+        "accepted_competitive_work_count": sum(
+            len(x["original_work_accepted_results"]) for x in cases
+        ),
+        "nonbinding_comparison_does_not_create_work_or_result": True,
     }
 
 
