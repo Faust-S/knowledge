@@ -41,6 +41,20 @@ jobs:
           token: ${{ secrets.DOMEN }}
           path: t2
           persist-credentials: false
+      - name: Preflight native Edge and Exchange scripts syntax
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($file in @(
+            'scripts/d07-native-card-t2.ps1',
+            'scripts/d07-native-card-iwxa-export.ps1',
+            'scripts/d07-native-card-iwxa-import.ps1'
+          )){
+            $tokens=$null;$errors=$null
+            $null=[System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file).Path,[ref]$tokens,[ref]$errors)
+            if($errors.Count -ne 0){throw 'D07_NATIVE_CARD_POWERSHELL_SYNTAX_FAILED'}
+          }
+          Write-Output 'D07_NATIVE_CARD_SCRIPTS_SYNTAX=PASS'
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
