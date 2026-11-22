@@ -6,6 +6,8 @@ on:
     paths:
       - .github/workflows/t3-admin-d2-product-preflight.yml
       - packages/t3-core/tests/g4-installed-original-center-first-use.ps1
+      - packages/t3-core/src/workspace-host/bootstrap/SignedSelectedWorkspaceGate.tsx
+      - packages/t3-core/tests/t3-d1-signed-selected-workspace.dom.test.tsx
   workflow_dispatch:
 permissions:
   contents: read
