@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 98cde2b49baf9ae307b104f05525eac223d0cad3
+      SITE_SHA: 5b62e64793170547fb648ff2ef673b2242a7e7a3
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -171,7 +171,7 @@ jobs:
         run: |
           & pwsh -NoProfile -File './scripts/d07-native-card-iwxa-export.ps1' -SiteDir 'site'
           if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_PHYSICAL_IWXA_EXPORT_FAILED'}
-      - name: Independent Edge profile imports .iwxa and opens the saved order
+      - name: Independent Edge imports .iwxa, saves revision 2 and cold-reopens the same Result
         id: independent_import
         if: steps.physical_export.outcome == 'success'
         env:
@@ -180,6 +180,31 @@ jobs:
         run: |
           & pwsh -NoProfile -File './scripts/d07-native-card-iwxa-import.ps1' -SiteDir 'site'
           if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_INDEPENDENT_IWXA_IMPORT_FAILED'}
+      - name: Prove imported order has a second durable T2 revision
+        id: durable_continuation
+        if: steps.independent_import.outcome == 'success'
+        run: |
+          $proof=Join-Path $env:RUNNER_TEMP 'd07-native-card-order-identity.private.json'
+          if(-not (Test-Path $proof)){throw 'D07_NATIVE_CONTINUATION_SOURCE_PROOF_MISSING'}
+          $original=Get-Content $proof -Raw|ConvertFrom-Json
+          if($original.objectId -notmatch '^d07:order:[a-f0-9]{64}
+        if: always()
+        run: |
+          Write-Output ('D07_NATIVE_ORDER_STEP=${{ steps.native_order.outcome }}')
+          Write-Output ('D07_NATIVE_ARCHIVE_STEP=${{ steps.physical_export.outcome }}')
+          Write-Output ('D07_NATIVE_IMPORT_STEP=${{ steps.independent_import.outcome }}')
+          Write-Output ('D07_NATIVE_DURABLE_CONTINUATION_STEP=${{ steps.durable_continuation.outcome }}')
+          Write-Output 'D07_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN'
+          Write-Output 'D07_SERVICE_ACCEPTED=NO'
+      # Only high-level statuses are printed. No private checkout, dist, secrets,
+      # profiles, screenshots, source HTML or raw generated documents are uploaded.
+ -or $original.works -ne 10){
+            throw 'D07_NATIVE_CONTINUATION_ORIGINAL_PROOF_INVALID'
+          }
+          # The independent import script only returns success after it has
+          # committed revision 2 and cold-reopened the original object and works.
+          # No synthetic Result or browser-local JSON is accepted as witness.
+          Write-Output 'D07_NATIVE_IMPORTED_RESULT_REVISION2_COLD_REOPEN=PASS'
       - name: Report qualification boundary
         if: always()
         run: |
