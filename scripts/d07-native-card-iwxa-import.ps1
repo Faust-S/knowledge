@@ -130,6 +130,75 @@ try{
  }
  if(!$found){throw 'D07_IMPORT_COLD_READBACK_ORDER_MISSING'}
  Write-Output 'D07_IWXA_NATIVE_IMPORTED_ORDER_READBACK=PASS'
+ # A count of one is insufficient: the recipient must reopen the *same*
+ # Kernel Object ID as the source order, not merely any saved order.
+ $proofFile=Join-Path $env:RUNNER_TEMP 'd07-native-card-order-identity.private.json'
+ if(!(Test-Path $proofFile)){throw 'D07_IMPORT_SOURCE_IDENTITY_WITNESS_MISSING'}
+ $proof=Get-Content -Raw $proofFile|ConvertFrom-Json
+ if($proof.serviceSlug -ne 'zamena-unitaza' -or
+    $proof.protocolId -ne 'toilet-replacement' -or $proof.works -ne 10 -or
+    $proof.objectId -notmatch '^d07:order:[a-f0-9]{64}
+}finally{
+ if($browser){try{$browser.Kill($true)}catch{}}
+ if($reopened){try{$reopened.Kill($true)}catch{}}
+ if($server){Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue}
+}
+){
+   throw 'D07_IMPORT_SOURCE_IDENTITY_WITNESS_INVALID'
+ }
+ $orderButton=$null
+ $buttonType=[System.Windows.Automation.PropertyCondition]::new(
+   [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+   [System.Windows.Automation.ControlType]::Button)
+ for($i=0;$i -lt 60;$i++){
+   foreach($root in @(Roots)){
+     $buttons=$root.FindAll($scope,$buttonType)
+     foreach($button in $buttons){
+       if($button.Current.IsEnabled -and
+          $button.Current.Name.Contains('Заказ: Замена унитаза')){
+         $orderButton=$button;break
+       }
+     }
+     if($orderButton){break}
+   }
+   if($orderButton){break}
+   Start-Sleep -Milliseconds 400
+ }
+ if(!$orderButton){throw 'D07_IMPORT_EXPECTED_SERVICE_ORDER_NOT_LISTED'}
+ $open=[System.Windows.Automation.InvokePattern]$orderButton.GetCurrentPattern(
+   [System.Windows.Automation.InvokePattern]::Pattern)
+ $open.Invoke()
+ $technical=Await 'Технические сведения о записи' $null 'D07_IMPORT_KERNEL_OBJECT_DETAILS_NOT_FOUND'
+ try{
+   $p=[System.Windows.Automation.InvokePattern]$technical.GetCurrentPattern(
+     [System.Windows.Automation.InvokePattern]::Pattern)
+   $p.Invoke()
+ }catch{
+   $technical.SetFocus()
+   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+ }
+ $importedObjectId=$null
+ for($i=0;$i -lt 75;$i++){
+   $names=[System.Collections.Generic.List[string]]::new()
+   foreach($root in @(Roots)){
+     $nodes=$root.FindAll($scope,[System.Windows.Automation.PropertyCondition]::new(
+       [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+       [System.Windows.Automation.ControlType]::Text))
+     foreach($node in $nodes){
+       $value=$node.Current.Name
+       if($value -and $value.Length -lt 400){$names.Add($value)}
+     }
+   }
+   $display=[string]::Join([Environment]::NewLine,$names)
+   if($display -match 'Object ID:\s*(d07:order:[a-f0-9]{64})'){
+      $importedObjectId=$Matches[1];break
+   }
+   Start-Sleep -Milliseconds 350
+ }
+ if(!$importedObjectId -or $importedObjectId -ne $proof.objectId){
+   throw 'D07_IMPORT_OBJECT_IDENTITY_MISMATCH'
+ }
+ Write-Output 'D07_IWXA_NATIVE_ORIGINAL_OBJECT_ID_ROUNDTRIP=PASS'
  Write-Output 'D07_IWXA_NATIVE_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN'
 }finally{
  if($browser){try{$browser.Kill($true)}catch{}}
