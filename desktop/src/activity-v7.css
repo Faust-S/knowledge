@@ -93,6 +93,14 @@ body{min-width:0}
 .activity-v7-widget>header button[draggable=true]{cursor:grab}
 .activity-v7-widget-body{padding:14px 15px;min-height:118px;color:#49647f}
 .activity-v7-widget-body p{margin:4px 0 10px;font-size:11px}
+.activity-v7-empty-widget{display:grid;justify-items:start;gap:8px}
+.activity-v7-empty-widget>.activity-v7-note{margin:0}
+.activity-v7-empty-widget>button,.activity-v7-widget-body>button,.activity-v7-widget-body button:not([draggable]){
+ background:#f7f3ff;border:1px solid #d9cbed;border-radius:8px;color:#60439a;
+ padding:7px 10px;min-height:31px;font-size:11px;text-align:left
+}
+.activity-v7-source-banner[role=status]{min-width:0}
+.activity-v7-source-banner span{overflow-wrap:anywhere}
 .activity-v7-widget>footer{padding:8px 14px;border-top:1px solid #eef2f8;display:flex;justify-content:space-between;align-items:center;color:#8294ad;font-size:10px}
 .activity-v7-widget>footer button{border:0;background:transparent;color:#537bab;font-size:10px}
 .activity-v7-widget-order{padding:7px;border-top:1px solid #eef2f8;justify-content:flex-end}
