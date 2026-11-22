@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 06e2ff86164ff6a1555c3d7c5d18a0d5964d2a7e
-      SUBJECT_SHA: 6d5cff4c3a4a2b5f65d4e32d799fb716f04f6539
+      SITE_SHA: edb177d2364f1ef5cca03c0e11ac11dcb868aa6f
+      SUBJECT_SHA: 9cd456b4c73724e96a7a84bf73be4e4c153b58ee
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
       CI: "true"
@@ -31,14 +31,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 6d5cff4c3a4a2b5f65d4e32d799fb716f04f6539
+          ref: 9cd456b4c73724e96a7a84bf73be4e4c153b58ee
           path: subject
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 06e2ff86164ff6a1555c3d7c5d18a0d5964d2a7e
+          ref: edb177d2364f1ef5cca03c0e11ac11dcb868aa6f
           path: site
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
@@ -144,7 +144,7 @@ jobs:
             avto-tehnika-oborudovanie/remont-holodilnika \
             buhgalteriya-nalogi-biznes/zakrytie-ip \
             marketing-reklama-prodazhi/semanticheskoe-yadro \
-            foto-video-meropriyatiya/montazh-video \
+            foto-video-meropriyatiya/biznes-fotosessiya \
             yuristy-dokumenty/dogovor-okazaniya-uslug; do
             file="dist/uslugi/$path/index.html"
             test -s "$file"
