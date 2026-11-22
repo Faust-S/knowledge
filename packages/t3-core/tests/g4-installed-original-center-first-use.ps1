@@ -292,12 +292,17 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
   $clicked=$false
   $buttonObserved=$false
   $unconfirmedGateReported=$false
-  for($i=0;$i -lt 240;$i++){
+  $readOnlyRecoveryAttempted=$false
+  $recoveryAt=-1
+  for($i=0;$i -lt 360;$i++){
     # Only the original SignedSelectedWorkspaceGate can emit this signal
     # after an exact authorized T2 getWorkspace readback. KernelStatus
     # READY and absence of a gate are insufficient for installed D2.
     $ready=HasText 'Подписанная Workspace подтверждена в исходном Kernel'
     if($ready){
+      if($readOnlyRecoveryAttempted){
+        Write-Host 'D2_INSTALLED_ORIGINAL_SELECTED_WORKSPACE_READ_ONLY_RECOVERY_PASS'
+      }
       Write-Host 'D2_INSTALLED_ORIGINAL_SELECTED_WORKSPACE_KERNEL_READBACK_PASS'
       return $true
     }
@@ -333,9 +338,30 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
       Write-Host "D2_INSTALLED_SIGNED_GATE_CREATE_BUTTON_UIA_AVAILABLE $buttonObserved"
     }
     if($missing -and $clicked -and (HasText 'Не удалось подтвердить создание в исходном Kernel')){
-      NativeD2BoundedRefusal
-      Write-Host 'D2_INSTALLED_SIGNED_GATE_CREATE_ACTION_NOT_CONFIRMED'
-      return $false
+      # A timed-out original create may have committed despite a lost ACK.
+      # Exactly ONE visible original signed create has already been clicked.
+      # The existing "Проверить повторно" action only calls getWorkspace.
+      # Never issue a second write or construct a substitute Kernel.
+      if(-not $readOnlyRecoveryAttempted){
+        NativeD2BoundedRefusal
+        $readButton=$null
+        try{$readButton=FindName 'Проверить повторно' 'Button' 1}catch{}
+        if(-not $readButton -or -not $readButton.Current.IsEnabled){
+          Write-Host 'D2_INSTALLED_SIGNED_GATE_READ_ONLY_RECOVERY_UNAVAILABLE'
+          return $false
+        }
+        $script:phase='D2_NATIVE_SIGNED_WORKSPACE_READ_ONLY_RECOVERY'
+        ClickButton 'Проверить повторно'
+        $readOnlyRecoveryAttempted=$true
+        $recoveryAt=$i
+        Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_READ_ONLY_RECOVERY_CLICKED'
+        continue
+      }
+      if(($i-$recoveryAt) -ge 150){
+        NativeD2BoundedRefusal
+        Write-Host 'D2_INSTALLED_SIGNED_GATE_CREATE_ACTION_NOT_CONFIRMED_AFTER_READ_ONLY_RECOVERY'
+        return $false
+      }
     }
     if($missing -and $i -ge 38 -and -not $clicked){
       $button=$null
@@ -368,6 +394,9 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
     }
     Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_GATE_STILL_MISSING'
     return $false
+  }
+  if($readOnlyRecoveryAttempted){
+    Write-Host 'D2_INSTALLED_SIGNED_WORKSPACE_READ_ONLY_RECOVERY_NO_KERNEL_READBACK'
   }
   Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_NO_KERNEL_READBACK'
   return $false
