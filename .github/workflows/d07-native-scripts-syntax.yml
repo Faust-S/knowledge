@@ -54,6 +54,14 @@ jobs:
             throw 'D07_NATIVE_IMPORTED_PRIVATE_PROTOCOL_COVERAGE_INVALID'
           }
           Write-Output 'D07_NATIVE_IMPORT_SUBJECT_WORKS_GUARD=PASS'
+          if(!$import.Contains("D07_IMPORT_WORKSPACE_FOCUS_ROUTE=EXPLICIT") -or
+             !$import.Contains("'Рабочая область Услуговода'") -or
+             !$import.Contains('D07_IMPORT_EXPECTED_SERVICE_ORDER_NOT_LISTED') -or
+             $import.Contains("if(`$name -match 'Сохранённых заказов:") -or
+             !$source.Contains('D07_NATIVE_CARD_DRAFT_OPERATION_MATCHES='+ '`$matchedOperations')){
+            throw 'D07_NATIVE_IMPORT_EXACT_ORDER_READBACK_GUARD_INVALID'
+          }
+          Write-Output 'D07_NATIVE_IMPORT_EXACT_ORDER_READBACK_GUARD=PASS'
           & node --check 'scripts/d07-verify-integrated-all-service-cards.mjs'
           if($LASTEXITCODE -ne 0){throw 'D07_INTEGRATED_ALL_CARDS_CHECKER_SYNTAX_FAILED'}
           Write-Output 'D07_INTEGRATED_ALL_CARDS_CHECKER_SYNTAX=PASS'
