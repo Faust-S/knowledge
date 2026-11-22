@@ -103,7 +103,7 @@ export function createT3ReviewController({host, onUpdate} = {}) {
         const review = acceptedReview(await host.readSelected());
         if (detached || id !== generation) return {status: 'INVALIDATED'};
         currentReview = review;
-        onUpdate({status: 'REVIEW', review});
+        onUpdate({status: 'REVIEW', review, stageBlocked: stageAttempted});
         return {status: 'REVIEW'};
       } catch (error) {
         if (detached || id !== generation) return {status: 'INVALIDATED'};
@@ -134,7 +134,8 @@ export function createT3ReviewController({host, onUpdate} = {}) {
         return {status: 'STAGED'};
       } catch (error) {
         if (detached || id !== generation) return {status: 'INVALIDATED'};
-        onUpdate({status: 'HOLD', review: null, code: safeCode(error)});
+        onUpdate({status: 'HOLD', review: null, code: safeCode(error),
+          stageBlocked: true});
         return {status: 'HOLD'};
       } finally {
         stagePending = false;
