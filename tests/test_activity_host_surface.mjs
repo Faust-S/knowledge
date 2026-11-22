@@ -53,3 +53,12 @@ test('cold recovery cannot receive Kernel, target IDs or original signed rights'
   assert.doesNotMatch(owner.slice(owner.indexOf('export async function recoverSelectedT3ActivityReview')),
     /scoped\.putObject|scoped\.createWorkspace|scoped\.importCommit|scoped\.exportPackage/);
 });
+
+test('recovered target review is not misrepresented as an attested link to current source',()=>{
+  const app=file('../desktop/src/App.tsx');
+  const recovery=file('../modules/activity-base-anonymizer/t3-owner-review-stage.mjs');
+  assert.match(app,/Связь этого черновика с выбранным сейчас источником не аттестована/);
+  assert.match(app,/СОБЫТИЯ ПО ДАННЫМ ИСТОЧНИКА/);
+  assert.match(recovery,/sourceScoped\.getWorkspace\(sourceOwner\.workspace_id\)/);
+  assert.match(recovery,/T3_ACTIVITY_RECOVERY_SOURCE_WORKSPACE_UNAVAILABLE/);
+});

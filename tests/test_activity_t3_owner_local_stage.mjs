@@ -1142,3 +1142,35 @@ test('trusted Host survives UI remount after lost ACK; independent recovery neve
     assert.equal(f.listeners[1].size,0);
   }
 });
+
+test('cold recovery requires fresh signed source read, not only the derive grant',async()=>{
+  const f=fixture();
+  const receipt=await stageSelectedT3ActivityReview(f.options);
+  const readCount=f.state.readCalls;
+  assert.equal((await recoverSelectedT3ActivityReview(f.options)).readback,true);
+  assert.ok(f.state.readCalls>readCount,
+    'the original signed source Workspace is independently reopened');
+  assert.equal(f.state.writeCalls,1);
+  assert.equal(f.saved.has(receipt.object_id),true);
+
+  f.state.sourceRevoked=true;
+  await assert.rejects(recoverSelectedT3ActivityReview(f.options),
+    {code:'T3_ACCESS_NOT_PERMITTED'});
+  assert.equal(f.state.writeCalls,1);
+});
+test('cold recovery refuses a forged source operation or unavailable selected source',async()=>{
+  const wrong=fixture();
+  await stageSelectedT3ActivityReview(wrong.options);
+  wrong.options.sourceSignedAccess.actionFor=()=> 'activity.derive';
+  await assert.rejects(recoverSelectedT3ActivityReview(wrong.options),
+    {code:'T3_ACTIVITY_RECOVERY_SOURCE_READ_REQUIRED'});
+  assert.equal(wrong.state.writeCalls,1);
+  const missing=fixture();
+  await stageSelectedT3ActivityReview(missing.options);
+  const original=missing.options.sourceContext.kernel.getWorkspace;
+  missing.options.sourceContext.kernel.getWorkspace=async id=>
+    id===W?null:original(id);
+  await assert.rejects(recoverSelectedT3ActivityReview(missing.options),
+    {code:'T3_ACTIVITY_RECOVERY_SOURCE_WORKSPACE_UNAVAILABLE'});
+  assert.equal(missing.state.writeCalls,1);
+});

@@ -73,7 +73,7 @@ function ObjectViewCard({view, number}: {view: Ocel2ObjectView; number: number})
 function T3ViewCard({view, number}: {view: T3StructuralCandidate; number: number}) {
   return <section className="process-card" aria-label={`Траектория T3 ${number}`}>
     <header className="process-head">
-      <div><span className="eyebrow">T3 D1/D2 · НАБЛЮДЁННАЯ ДЕЯТЕЛЬНОСТЬ</span>
+      <div><span className="eyebrow">T3 D1/D2 · СОБЫТИЯ ПО ДАННЫМ ИСТОЧНИКА</span>
         <h3>Тип объекта {String(number).padStart(2, '0')}</h3></div>
       <span className="case-count">Повторяемость {view.cohort_band}</span>
     </header>
@@ -89,7 +89,7 @@ function T3ViewCard({view, number}: {view: T3StructuralCandidate; number: number
     </div>
     <footer className="process-footer">
       <span>Идентификаторы субъектов и исходные события не отображаются</span>
-      <span>Ни BPMN, ни DMN не подтверждены</span>
+      <span>Исполнение не подтверждено независимым свидетельством; BPMN и DMN не установлены</span>
     </footer>
   </section>;
 }
@@ -380,7 +380,7 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
               <h3>{t3Review.recovered
                 ? 'Сохранённый черновик найден и проверен' : 'Черновик сохранён для проверки владельцем'}</h3>
               <p>{t3Review.recovered
-                ? 'Независимое подписанное чтение оригинального Kernel подтвердило ранее сохранённый черновик. Повторная запись не выполнялась.'
+                ? 'Независимое подписанное чтение оригинального Kernel подтвердило один черновик в отдельной Workspace того же владельца. Повторной записи нет. Связь этого черновика с выбранным сейчас источником не аттестована; для неё требуется исходная квитанция владельца.'
                 : 'Оригинальный T3 Kernel подтвердил запись в отдельную Workspace того же субъекта.'}
                 Источник не перенесён. Права на публикацию и обезличивание не установлены.</p>
             </div>

@@ -310,7 +310,10 @@ export function createTrustedT3ActivityStagePort(config) {
 
 /**
  * Read-only independent recovery after a lost stage ACK or a cold restart.
- * Inspect the SAME originally selected, separately signed derive Workspace.
+ * Inspect the SAME separately signed derive Workspace.
+ * Verify current source read permission, but source-to-draft provenance is
+ * NOT established by the three-field receipt: the original draft stores
+ * no source identifier or signed derivation linkage. Do not claim it does.
  * Never use a caller-supplied object ID, never write, and never recreate
  * the target Workspace on absence. The original T2 Kernel/Store owns both
  * the prior write and this independently authorized readback.
@@ -327,6 +330,7 @@ export async function recoverSelectedT3ActivityReview({
   need(typeof createSubjectKernelBinding==='function'&&
     sourceSignedAccess!==targetSignedAccess&&
     typeof sourceSignedAccess?.currentContext==='function'&&
+    typeof sourceSignedAccess?.actionFor==='function'&&
     typeof targetSignedAccess?.currentContext==='function'&&
     typeof targetSignedAccess?.actionFor==='function',
     'T3_ACTIVITY_INDEPENDENT_SIGNED_ACCESS_REQUIRED');
@@ -339,6 +343,11 @@ export async function recoverSelectedT3ActivityReview({
   sameOwner(sourceOwner,targetOwner);
   const sourceIdentity=JSON.stringify(sourceOwner);
   const targetIdentity=JSON.stringify(targetOwner);
+  // Recovery verifies that the currently selected source is STILL readable
+  // under a fresh original signed activity.read authorization. This does
+  // not assert that the target draft came from this exact source.
+  need(await sourceSignedAccess.actionFor('t1.getWorkspace')==='activity.read',
+    'T3_ACTIVITY_RECOVERY_SOURCE_READ_REQUIRED');
   for(const operation of ['t1.getWorkspace','t1.listObjects','t1.getObject'])
     need(await targetSignedAccess.actionFor(operation)==='activity.derive',
       'T3_ACTIVITY_DERIVE_ACTION_REQUIRED');
@@ -362,6 +371,14 @@ export async function recoverSelectedT3ActivityReview({
         'T3_ACTIVITY_SIGNED_OWNER_CHANGED');
     };
     await check();
+    const sourceScoped=createSubjectKernelBinding({
+      kernel:sourceContext.kernel,access:sourceSignedAccess,
+    });
+    const currentSource=await sourceScoped.getWorkspace(sourceOwner.workspace_id);
+    await check();
+    need(currentSource?.workspace_id===sourceOwner.workspace_id&&
+      !currentSource.deleted_at,
+      'T3_ACTIVITY_RECOVERY_SOURCE_WORKSPACE_UNAVAILABLE');
     const scoped=createSubjectKernelBinding({
       kernel:targetKernel??sourceContext.kernel,access:targetSignedAccess,
     });
