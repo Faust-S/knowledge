@@ -1,0 +1,79 @@
+name: D07 native cards to original T2 Windows Edge UIA
+on:
+  push:
+    branches: [work/2026-11-22-d07-methodology-v13]
+    paths: [.github/workflows/d07-native-card-t2-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-native-card-t2-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  real-edge:
+    runs-on: windows-latest
+    timeout-minutes: 65
+    env:
+      SITE_SHA: 0953c788a32bc3cc43b296d34d592ffe5fb0b6cc
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout public qualification scripts only
+        uses: actions/checkout@v4
+      - name: Checkout pinned private site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: ${{ env.SITE_SHA }}
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Checkout original T2 source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.DOMEN }}
+          path: t2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Build exact original T2 and all D07 cards in one dist
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+        run: |
+          $ErrorActionPreference='Stop'
+          git config --global core.autocrlf false
+          if((git rev-parse HEAD).Trim() -ne $env:SITE_SHA){throw 'D07_NATIVE_CARD_WRONG_SITE'}
+          if((git -C ../t2 rev-parse HEAD).Trim() -ne $env:T2_SHA){throw 'D07_NATIVE_CARD_WRONG_T2'}
+          & bun install --frozen-lockfile *> (Join-Path $env:RUNNER_TEMP 'd07-card-install.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_INSTALL_FAILED'}
+          Write-Output 'D07_NATIVE_CARD_INSTALL=PASS'
+          & bun run build:t2-integrated *> (Join-Path $env:RUNNER_TEMP 'd07-card-integrated-build.private.log')
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_ORIGINAL_T2_BUILD_FAILED'}
+          if(-not (Test-Path 'dist/workspace/index.html')){throw 'D07_NATIVE_CARD_T2_HOST_NOT_BUILT'}
+          foreach($slug in @('zamena-unitaza','ustanovka-rakoviny','razvodka-trub','ustranenie-protechki','prochistka-kanalizacii')){
+            if(-not (Test-Path ("dist/uslugi/remont-dom-mastera/"+$slug+"/index.html"))){
+              throw 'D07_NATIVE_CARD_SITE_HTML_NOT_BUILT'
+            }
+          }
+          Write-Output 'D07_NATIVE_CARD_ONE_DIST_ORIGINAL_T2=PASS'
+      - name: Real Microsoft Edge UIAutomation for five cards and T2 order save
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_D07_PREVIEW_PORT: '55407'
+        run: |
+          & pwsh -NoProfile -File './scripts/d07-native-card-t2.ps1' -SiteDir 'site'
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_EDGE_OR_T2_FAILED'}
+      # Only high-level statuses are printed. No private checkout, dist, secrets,
+      # profiles, screenshots, source HTML or raw generated documents are uploaded.
