@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 5b62e64793170547fb648ff2ef673b2242a7e7a3
+      SITE_SHA: 968ff82f0b8f1d1230fde502e8f42e1978b4c799
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -47,7 +47,8 @@ jobs:
           foreach($file in @(
             'scripts/d07-native-card-t2.ps1',
             'scripts/d07-native-card-iwxa-export.ps1',
-            'scripts/d07-native-card-iwxa-import.ps1'
+            'scripts/d07-native-card-iwxa-import.ps1',
+            'scripts/d07-native-card-work-result.ps1'
           )){
             $tokens=$null;$errors=$null
             $null=[System.Management.Automation.Language.Parser]::ParseFile(
@@ -206,6 +207,15 @@ jobs:
           # This job only runs after the native import script has committed
           # revision 2 and independently cold-reopened the original object.
           Write-Output 'D07_NATIVE_IMPORTED_RESULT_REVISION2_COLD_REOPEN=PASS'
+      - name: Native Microsoft Edge Work Result rejection correction and customer-recorded review
+        id: native_result
+        if: steps.durable_continuation.outcome == 'success'
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_D07_PREVIEW_PORT: '55407'
+        run: |
+          & pwsh -NoProfile -File './scripts/d07-native-card-work-result.ps1' -SiteDir 'site'
+          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_WORK_RESULT_ROUTE_FAILED'}
       - name: Report qualification boundary
         if: always()
         run: |
@@ -213,7 +223,8 @@ jobs:
           Write-Output ('D07_NATIVE_ARCHIVE_STEP=${{ steps.physical_export.outcome }}')
           Write-Output ('D07_NATIVE_IMPORT_STEP=${{ steps.independent_import.outcome }}')
           Write-Output ('D07_NATIVE_DURABLE_CONTINUATION_STEP=${{ steps.durable_continuation.outcome }}')
-          Write-Output 'D07_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN'
+          Write-Output ('D07_NATIVE_WORK_RESULT_STEP=${{ steps.native_result.outcome }}')
+          Write-Output 'D07_FULL_ORDER_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN'
           Write-Output 'D07_SERVICE_ACCEPTED=NO'
       # Only high-level statuses are printed. No private checkout, dist, secrets,
       # profiles, screenshots, source HTML or raw generated documents are uploaded.
