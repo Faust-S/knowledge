@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 2abe1e294707614ebf99af61ea355ad46640040e
+      SITE_SHA: 63cd2d34afa18cd80f553905f784668e11ddee79
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -69,6 +69,10 @@ jobs:
             throw 'D07_NATIVE_CARD_IMPORT_WORKSPACE_SELECT_UNLABELLED'
           }
           Write-Output 'D07_NATIVE_CARD_WORKSPACE_SELECTOR_ACCESSIBILITY=PASS'
+          if(-not $source.Contains('data-testid="d07-task-editor" aria-label="Задача текущего заказа"')){
+            throw 'D07_NATIVE_CARD_SAVED_ORDER_TASK_EDITOR_UNLABELLED'
+          }
+          Write-Output 'D07_NATIVE_CARD_SAVED_ORDER_TASK_EDITOR_ACCESSIBILITY=PASS'
       - name: Build exact original T2 and all D07 cards in one dist
         working-directory: site
         env:
