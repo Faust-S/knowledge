@@ -15,7 +15,7 @@ def capability_case(*, with_adoption=True, with_commit=True, with_finish=True):
     d = measurement_case()
     d["works"].append({
         "id": "w3", "customer": "c", "resource": "rb",
-        "source_revision": "d3", "slot_start": 12, "slot_end": 16,
+        "source_revision": "d3", "slot_start": 40, "slot_end": 44,
         "requires_accepted": ["w2"],
         "resource_requirements": [{"resource": "rb", "units": 2}],
     })
@@ -34,7 +34,7 @@ def capability_case(*, with_adoption=True, with_commit=True, with_finish=True):
         "reuse_claim": "reuse-1", "source_id": "b-capacity",
         "source_revision": "bc1", "source_ref": "model://b/prospective-capacity",
         "declared_units": 2, "initial_units": 1, "resource_unit": "team",
-        "from_slot": 12, "to_slot": 16,
+        "from_slot": 40, "to_slot": 44,
         "authorized_future_works": ["w3"],
         "future_use_source_id": "a-follow-on",
         "future_use_source_revision": "af1",
@@ -106,7 +106,7 @@ def test_no_owner_event_no_increased_capacity_or_automatic_commit():
 
 
 @pytest.mark.parametrize("modifier,reason", [
-    (lambda d: d["events"][ -5 if False else -5 ].update(actor="a"),
+    (lambda d: d["events"][-5].update(actor="a"),
      "CAPABILITY_ORIGINAL_RESOURCE_OWNER_REQUIRED"),
     (lambda d: d["events"][-5].update(org_revision="oc-old"),
      "CAPABILITY_ORIGINAL_ORG_REVISION_REQUIRED"),
@@ -118,6 +118,9 @@ def test_no_owner_event_no_increased_capacity_or_automatic_commit():
      "CAPABILITY_FOLLOW_ON_OWNER_SOURCE_NOT_SHARED"),
     (lambda d: d["context_evidence"]["sources"][-1].update(operations=["READ"]),
      "CAPABILITY_FOLLOW_ON_SOURCE_SCOPE_UNQUALIFIED"),
+    (lambda d: [d["context_evidence"]["sources"][-1].pop(k) for k in
+                ("core", "purposes", "operations", "valid_from")],
+     "CAPABILITY_FOLLOW_ON_EXPLICIT_IP_SCOPE_REQUIRED"),
     (lambda d: d["competence_measurement_protocols"][0].update(uncertainty_after="2.5000"),
      "CAPABILITY_MEASUREMENT_NOT_SEPARATED_FROM_UNCERTAINTY"),
     (lambda d: d["competence_reuse_permissions"][0].update(work="w1"),
@@ -155,7 +158,7 @@ def test_future_work_not_in_owner_authorized_scope_cannot_piggyback_on_increased
     d=capability_case(with_commit=False,with_finish=False)
     d["works"].append({
         "id":"w4","customer":"c","resource":"rb",
-        "source_revision":"d4","slot_start":12,"slot_end":16,
+        "source_revision":"d4","slot_start":40,"slot_end":44,
         "requires_accepted":["w2"],
         "resource_requirements":[{"resource":"rb","units":2}],
     })
@@ -181,6 +184,7 @@ def test_future_work_not_in_owner_authorized_scope_cannot_piggyback_on_increased
     lambda d: d["capability_adoptions"][0].update(authorized_future_works=[]),
     lambda d: d["capability_adoptions"][0].update(from_slot=True),
     lambda d: d["capability_adoptions"][0].update(declared_units=1),
+    lambda d: d["capability_adoptions"][0].update(declared_units=0),
 ])
 def test_malformed_or_unsupported_owner_capability_declaration_is_refused(modifier):
     d=capability_case()
