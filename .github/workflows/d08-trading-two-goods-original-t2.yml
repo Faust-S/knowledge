@@ -201,6 +201,20 @@ jobs:
       - name: Validate temporary production hosting ZIP (never upload it)
         working-directory: site
         run: |
+          # The checked-in route tree and sitemap are regenerated during build.
+          # Reconcile only those two tracked derivatives, never code or dist.
+          node - <<'NODE'
+          const cp=require("node:child_process");
+          const raw=cp.execFileSync("git",["status","--porcelain","-z"],{encoding:"utf8"});
+          const changed=raw.split(String.fromCharCode(0)).filter(Boolean);
+          const permitted=new Set(["src/routeTree.gen.ts","public/sitemap.xml"]);
+          const unexpected=changed.some(entry=>entry.slice(0,3)!==" M " ||
+            !permitted.has(entry.slice(3)));
+          console.log("D08_RELEASE_DERIVATIVE_COUNT="+changed.length);
+          if(unexpected){console.log("D08_RELEASE_UNEXPECTED_SOURCE_CHANGE=FAIL");process.exit(1)}
+          console.log("D08_RELEASE_UNEXPECTED_SOURCE_CHANGE=NONE");
+          NODE
+          git restore --source=HEAD --worktree -- src/routeTree.gen.ts public/sitemap.xml || exit 1
           if test -n "$(git status --porcelain)"; then
             echo D08_RELEASE_SOURCE_CLEAN=FAIL
             exit 1
