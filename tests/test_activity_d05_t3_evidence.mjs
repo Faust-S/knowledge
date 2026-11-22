@@ -152,6 +152,15 @@ function fixture(){
 }
 test('original signed D2 reads modelled D05 source and HOLDS reported transitions',async()=>{
  const h=fixture(),before=structuredClone({objects:h.objects,events:h.events});
+ // A denied original read is authoritative. Report ONLY its known code
+ // for this synthetic fixture to distinguish corporate Access from D2 mapping.
+ try {
+  await original.readActivityFromWorkspaceContext(h.context,{
+   bindings:h.bindings,signedAccess:h.signedAccess,
+  });
+ } catch(error){
+  assert.fail('D05_ORIGINAL_D2_DIAGNOSTIC:'+String(error?.code??'UNCLASSIFIED'));
+ }
  const value=await inspectSelectedT3Activity(h);
  assert.equal(value.status,'HOLD');assert.equal(value.structural_candidate,null);
  assert.ok(value.reason_codes.includes('T3_D2_UNVERIFIED_EVENT_STEP'));
