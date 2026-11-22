@@ -59,6 +59,6 @@ jobs:
           root="$RUNNER_TEMP/d2-original-admin"
           node packages/t3-core/scripts/assemble-signed-control-dist.mjs \
             "$root/product" packages/t3-core/dist "$root/one-dist" \
-            --installed-admin-d3 > "$root/one-dist-result.json"
+            --installed-admin-d3-control-only > "$root/one-dist-result.json"
           node -e 'const s=require(process.argv[1]);if(s.schema!=="iwxa.t3.signed-control-one-dist/1"||s.original_admin_d3_schema_registered!==true||s.original_runtime_unchanged!==true)process.exit(1)' "$root/one-dist-result.json"
           echo "D2_PUBLIC_ORIGINAL_ONE_DIST_ASSEMBLED_PASS"
