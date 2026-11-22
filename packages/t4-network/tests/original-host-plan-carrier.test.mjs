@@ -76,7 +76,7 @@ function fixture(){
         event_type:input.event.event_type,
         idempotency_key:input.event.idempotency_key,
         workspace_id:input.workspace_id,object_id:input.object_id,
-        payload:structuredClone(input.event.payload),
+        revision:1,payload:structuredClone(input.event.payload),
       };
       events.push(event);
       if(loseAck)
