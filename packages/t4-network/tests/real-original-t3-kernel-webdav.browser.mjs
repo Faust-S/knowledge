@@ -44,6 +44,10 @@ import {createT4OriginalHostOutboxDispatcher}
   from '../src/network/original-host-outbox-dispatcher.mjs';
 import {createT4OriginalHostRecipientDispatcher}
   from '../src/network/original-host-recipient-dispatcher.mjs';
+import {prepareT4OriginalHostRecipientPlan}
+  from '../src/network/original-host-recipient-plan.mjs';
+import {createT4OriginalHostExchangeCycle}
+  from '../src/network/original-host-exchange-cycle.mjs';
 import {createT4OriginalHostDispatchTaskBinding}
   from '../src/network/original-host-dispatch-task-binding.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
@@ -2014,13 +2018,6 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           subjectId:receiveRelationId,before:receiveAsset.capture.nextCursor,
           receipt:receiveRelation.capture},
       ];
-      const receivePlan=receiveSourceEntries.map(item=>({
-        kind:item.kind,captureRef:item.captureRef,subjectId:item.subjectId,
-        sourceCursorBefore:item.before,
-        sourceCursorAfter:item.receipt.nextCursor,
-        window:item.receipt.window,key:item.receipt.prepared.key,
-        sha256:item.receipt.prepared.sha256,
-      }));
       const receiveSourceOutbox={
         ...hostDispatchPorts,
         readOriginalDeliveryFrontier:async()=>receiveStartCursor,
@@ -2034,6 +2031,16 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(receiveSent.newlyVerifiedCount,3);
       assert.equal(receiveSent.hasMore,false);
       assert.equal(scheduledNetworkPutCount-earlierPutCount,3);
+      // The Source original T3 technical Workspace is the ONLY producer
+      // of the subsequent recipient plan; all capture receipts can be lost.
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      for(const item of receiveSourceEntries){
+        const stored=await readSourceTechnical('outbox',item.captureRef);
+        assert.equal(stored.sourceWindow.windowDigest,
+          item.receipt.window.windowDigest);
+      }
 
       const recipientTechnicalWorkspace='t4:recipient:technical:'+randomUUID();
       const recipientCursorRef='t4:recipient:cursor:'+randomUUID();
@@ -2209,9 +2216,77 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         persistOriginalApplyCheckpoint:async value=>
           recipientTechnicalPersist('applied-checkpoint',value),
       };
-      const receiveBatch=maxEntries=>
-        createT4OriginalHostRecipientDispatcher(recipientPorts).drain({
-          entries:receivePlan,initialCursor:receiveStartCursor,maxEntries});
+      const receiveSourceTask=createT4OriginalHostDispatchTaskBinding({
+        expectedWorkspaceId:workspaceId,
+        expectedOriginalWriteOwnerRef:'original:t2:exchange',
+        expectedNetworkTargetRef:'node:qualified-apache',
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+          networkTargetRef:'node:qualified-apache',
+          hostSessionRef:sourceHostSession(),
+        }),
+        authorizeOriginalHostTask:async proof=>
+          proof.operation==='t4.network.publish'&&
+          proof.originalWriteOwnerRef==='original:t2:exchange'&&
+          actual.grants.includes('t1.getObject'),
+        dispatcher:createT4OriginalHostOutboxDispatcher(receiveSourceOutbox),
+      });
+      const recipientHostSessions=new WeakMap();
+      const recipientHostSession=()=>{
+        let ref=recipientHostSessions.get(recipientContext);
+        if(!ref){
+          ref='original:recipient:session:'+randomUUID();
+          recipientHostSessions.set(recipientContext,ref);
+        }
+        return ref;
+      };
+      const planFromSourceT3=()=>prepareT4OriginalHostRecipientPlan({
+        ...receiveSourceOutbox,
+        sourceNodeRef:'node:original-source',
+        readOriginalEvents:readSourceEvents,
+        authorizeOriginalPlanHandoff:async proof=>
+          proof.operation==='t4.original-host.plan-handoff'&&
+          proof.originalWriteOwnerRef==='original:t2:exchange'&&
+          actual.grants.includes('t1.listEventsSince'),
+      });
+      const originalExchangeCycle=createT4OriginalHostExchangeCycle({
+        workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        networkTargetRef:'node:qualified-apache',
+        sourceNodeRef:'node:original-source',
+        getMode:()=> 'T4_NETWORK',
+        readOriginalSourceHostContext:async()=>({
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+          networkTargetRef:'node:qualified-apache',
+          sourceNodeRef:'node:original-source',
+          hostSessionRef:sourceHostSession(),
+        }),
+        readOriginalRecipientHostContext:async()=>({
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+          networkTargetRef:'node:qualified-apache',
+          sourceNodeRef:'node:original-source',
+          hostSessionRef:recipientHostSession(),
+        }),
+        authorizeOriginalHostExchange:async proof=>
+          proof.operation==='t4.original-host.exchange'&&
+          proof.networkTargetRef==='node:qualified-apache'&&
+          (proof.role==='SOURCE'?
+            actual.grants.includes('t1.listEventsSince'):
+            receiving.operations.includes('t1.getObject')),
+        sourceTask:receiveSourceTask,
+        prepareRecipientPlan:planFromSourceT3,
+        recipientDispatcher:createT4OriginalHostRecipientDispatcher(
+          recipientPorts),
+      });
+      const receiveBatch=async maxEntries=>{
+        const cycle=await originalExchangeCycle.run({
+          maxSourceEntries:3,maxRecipientEntries:maxEntries});
+        assert.equal(cycle.publishedPrefixCount,3);
+        assert.equal(cycle.stillWaitingForNetworkCount,0);
+        assert.equal(scheduledNetworkPutCount-earlierPutCount,3,
+          'Host exchange must never duplicate a completed network PUT');
+        return cycle.recipient;
+      };
       const receivedFirst=await receiveBatch(1).catch(error=>{
         console.log('T4_ORIGINAL_RECIPIENT_FIRST_BATCH_FAILURE',
           JSON.stringify({code:error?.code,details:error?.details}));
@@ -2229,8 +2304,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       recipientContext=await launch(recipientProfile);
       recipientPage=await opened(recipientContext);
       await assert.rejects(receiveBatch(1),
-        error=>error.code==='RECIPIENT_BATCH_STOPPED'&&
-          error.details.originalCode==='ASSET_DELTA_OUTCOME_UNKNOWN'&&
+        error=>error.code==='EXCHANGE_CYCLE_ORIGINAL_HOST_STEP_STOPPED'&&
+          error.details.originalCode==='RECIPIENT_BATCH_STOPPED'&&
+          error.details.originalNestedCode==='ASSET_DELTA_OUTCOME_UNKNOWN'&&
           error.details.automaticRetryAllowed===false);
       assert.equal(recipientAssetPutCalls,1);
       assert.equal((await independentAssetRecipient.getAsset(
@@ -2282,6 +2358,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalRecipientAttemptAndCheckpointPersistedInT3:true,
           originalRecipientCursorCausalAndDurable:true,
           originalRecipientIdleTickNoDuplicateWrites:true,
+          originalHostCombinedExchangeCycleUsed:true,
+          originalSourceOutboxDerivedRecipientPlanAfterColdRestart:true,
+          originalHostExchangeCreatesScheduler:false,
           originalObjectPutCalls:recipientObjectPutCalls,
           originalAssetPutCalls:recipientAssetPutCalls,
           originalRelationPutCalls:recipientRelationPutCalls,
