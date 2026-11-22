@@ -125,8 +125,9 @@ test('if original T3 cannot persist the intent it never starts the original muta
 
 test('if original T3 cannot read back its intent no write is attempted',async()=>{
  const f=originalFixture();
+ let reads=0;
  await assert.rejects(capture(f,1,{
-   readOriginalIntent:async()=>({captureRef:'wrong'}),
+   readOriginalIntent:async()=>++reads===1?null:{captureRef:'wrong'},
  }),code('OBJECT_CAPTURE_INTENT_READBACK_MISMATCH'));
  assert.equal(f.writes.length,0);
 });
