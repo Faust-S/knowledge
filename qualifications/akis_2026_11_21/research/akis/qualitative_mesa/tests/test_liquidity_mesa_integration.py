@@ -145,3 +145,58 @@ def test_declared_outside_option_feasibility_gates_cash_comparison_for_operator(
     qualified = evaluate(d)["cash_timing"]["per_original_owner_private_research_projection"]["op"]
     assert qualified["status"] == "DECLARED_LIQUIDITY_RESERVE_MET_FOR_BOTH_ALTERNATIVES"
     assert qualified["real_bank_balance_verified"] is False
+
+
+def test_late_receipts_do_not_assume_operator_can_postpone_original_supplier_payments():
+    """Adverse owner stress must not move pre-existing outgoing obligations."""
+    d=case()
+    d["cash_timing"]["transfer_windows"][1]["late_at"]=6  # b -> op receipt 120
+    d["cash_timing"]["transfer_windows"][2]["late_at"]=9  # op -> a payment 50
+    d["cash_timing"]["transfer_windows"][3]["late_at"]=9  # op -> external payment 30
+    out=evaluate(d)
+    op=out["cash_timing"]["per_original_owner_private_research_projection"]["op"]
+    assert op["scenario_paths"]["COOPERATION"]["expected"]["status"] == (
+        "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+    )
+    stress=op["scenario_paths"]["COOPERATION"]["declared_late_case"]
+    assert stress["status"]=="SOURCE_DECLARED_LIQUIDITY_GAP_IN_ALL_SAME_TICK_ORDERINGS"
+    assert stress["minimum_before_unverified_same_tick_inflows"]=="-80.00"
+    assert op["status"]=="DECLARED_LIQUIDITY_GAP_IN_ONE_OR_MORE_CASES"
+    assert out["consolidated_external_cash_from_claims"]["COOPERATION"]=="270.00"
+
+
+def test_individual_liquidity_comparison_distinguishes_cooperation_from_independent_option():
+    d=case()
+    out=evaluate(d)
+    b=out["cash_timing"]["per_original_owner_private_research_projection"]["b"]
+    comparison=b["original_owner_liquidity_comparison"]
+    assert comparison["model_cooperation_stress"]=="SOURCE_DECLARED_LIQUIDITY_GAP_IN_ALL_SAME_TICK_ORDERINGS"
+    assert comparison["model_independent_stress"]=="SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+    assert comparison["classification"]=="COOPERATION_DECLARED_GAP_WHILE_OUTSIDE_RESERVE_MET"
+    assert comparison["independent_alternative_real_feasibility_verified"] is False
+    assert comparison["positive_net_cash_is_not_liquidity_proof"] is True
+    assert out["per_subject"]["b"]["cash_difference_cooperation_minus_outside"]=="15.00"
+    assert out["profit"]=="UNKNOWN"
+
+
+def test_late_inflow_stress_monotone_does_not_improve_cash_reserve_for_recipient():
+    """Delaying only receipts never improves reserve for the same owner."""
+    d=case()
+    d["cash_timing"]["transfer_windows"][1]["late_at"]=8
+    d["cash_timing"]["transfer_windows"][2]["late_at"]=9
+    d["cash_timing"]["transfer_windows"][3]["late_at"]=10
+    op=evaluate(d)["cash_timing"]["per_original_owner_private_research_projection"]["op"]
+    path=op["scenario_paths"]["COOPERATION"]
+    assert path["declared_late_case"]["status"]=="SOURCE_DECLARED_LIQUIDITY_GAP_IN_ALL_SAME_TICK_ORDERINGS"
+    assert float(path["declared_late_case"]["minimum_before_unverified_same_tick_inflows"]) <= float(
+        path["expected"]["minimum_before_unverified_same_tick_inflows"]
+    )
+
+
+def test_liquidity_comparison_does_not_invent_outside_option_feasibility():
+    d=case()
+    op=evaluate(d)["cash_timing"]["per_original_owner_private_research_projection"]["op"]
+    comparison=op["original_owner_liquidity_comparison"]
+    assert comparison["classification"]=="OUTSIDE_ALTERNATIVE_FEASIBILITY_NOT_QUALIFIED"
+    assert comparison["independent_alternative_real_feasibility_verified"] is False
+    assert op["real_bank_balance_verified"] is False
