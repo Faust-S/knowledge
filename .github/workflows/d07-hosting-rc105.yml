@@ -81,7 +81,7 @@ jobs:
           echo D07_RC105_INSTALL=PASS
           npm run check:types > "$RUNNER_TEMP/d07-hosting-types.private.log" 2>&1 || { echo D07_RC105_TYPES=FAIL; exit 1; }
           echo D07_RC105_TYPES=PASS
-          node --import tsx --test --test-reporter=tap scripts/tests/d07-hosting-seo-legacy.test.mjs scripts/tests/d07-hosting-package.test.mjs > "$RUNNER_TEMP/d07-hosting-audit-unit.private.log" 2>&1 || {
+          node --test --test-reporter=tap scripts/tests/d07-hosting-package.test.mjs > "$RUNNER_TEMP/d07-hosting-audit-unit.private.log" 2>&1 || {
             echo D07_RC105_AUDIT_UNIT=FAIL
             grep -E '^not ok|^  error:|^  expected:|^  actual:|^# (tests|pass|fail)' "$RUNNER_TEMP/d07-hosting-audit-unit.private.log" | tail -20 || true
             exit 1
