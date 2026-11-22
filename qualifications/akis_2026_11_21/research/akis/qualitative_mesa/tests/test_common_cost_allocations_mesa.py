@@ -133,3 +133,106 @@ def test_internal_transfer_cannot_be_allocated_without_both_original_parties():
     })
     with pytest.raises(ValueError,match="COMMON_ALLOCATION"):
         simulate(d)
+
+
+def bilateral_internal_case():
+    """Both ORIGINAL parties independently source the same pre-existing transfer."""
+    d = shared_cost_case()
+    transfer = next(t for t in d["economic_claims"]["transfers"] if t["id"] == "t2")
+    assert (transfer["payer"], transfer["payee"], transfer["amount"]) == (
+        "b", "op", "120.00"
+    )
+    transfer["work"] = None
+    for owner, proof in (("b", "b1"), ("op", "o1")):
+        d["economic_claims"]["common_allocations"].append({
+            "record_id": "t2", "record_type": "TRANSFER",
+            "scenario": "COOPERATION", "work": "w2",
+            "owner": owner, "amount": "120.00", "source": proof,
+            "source_revision": "doc-r1",
+            "driver_ref": f"model://{owner}/independent-original-allocation",
+        })
+    return d
+
+
+def test_two_original_parties_can_attribute_existing_internal_transfer_without_new_network_money():
+    d=bilateral_internal_case()
+    before=deepcopy(d)
+    result=simulate(d)
+    assert d == before
+    work=result["work_counterfactual_dynamics"]["works"][0]
+    assert work["status"]=="DECLARED_WORK_SCOPE_CASH_AND_RESOURCE_ARITHMETIC_ONLY"
+    assert work["network_declared_external_cash_difference"]=="113.00"
+    assert work["per_original_owner"]["b"]["declared_work_cash_difference_cooperation_minus_alternative"]=="15.00"
+    assert work["per_original_owner"]["op"]["declared_work_cash_difference_cooperation_minus_alternative"]=="28.00"
+    assert work["per_scenario"]["COOPERATION"]["original_work_internal_transfer_count"] == 2
+    assert work["per_scenario"]["COOPERATION"]["owners"]["op"]["allocated_original_common_cash_row_count"] == 1
+    assert work["per_scenario"]["COOPERATION"]["owners"]["b"]["allocated_original_common_cash_row_count"] == 1
+    info=result["economics"]["common_work_allocations"]
+    assert info["model_bilateral_internal_transfer_slices"] == 1
+    assert info["unallocated_remainders"]["t2"] == "0.00"
+    assert len(info["by_original_record"]["t2"][0]["original_party_source_claims"]) == 2
+    assert info["real_dual_signatures_verified"] is False
+    assert info["new_cash_or_cost_records_created"] == 0
+    assert result["economics"]["internal_transfers_count"]["COOPERATION"] == 2
+    assert result["economics"]["consolidated_external_cash_from_claims"]["COOPERATION"] == "258.00"
+    assert result["economics"]["profit"] == "UNKNOWN"
+    assert simulate(deepcopy(d)) == result
+
+
+@pytest.mark.parametrize("mutate,reason",[
+    (lambda d:d["economic_claims"]["common_allocations"].pop(),
+     "COMMON_ALLOCATION_INTERNAL_TRANSFER_REQUIRES_BOTH_PRINCIPALS"),
+    (lambda d:d["economic_claims"]["common_allocations"][-1].update(amount="119.00"),
+     "COMMON_ALLOCATION_INTERNAL_PARTY_AMOUNT_MISMATCH"),
+    (lambda d:d["economic_claims"]["common_allocations"][-1].update(owner="b"),
+     "COMMON_ALLOCATION_DUPLICATE_ORIGINAL_PARTY"),
+    (lambda d:d["economic_claims"]["common_allocations"][-1].update(source="b1"),
+     "COMMON_ALLOCATION_OWNER_SOURCE_REVISION_MISMATCH"),
+    (lambda d:d["economic_claims"]["common_allocations"][-1].update(source_revision="doc-old"),
+     "COMMON_ALLOCATION_OWNER_SOURCE_REVISION_MISMATCH"),
+    (lambda d:d["economic_claims"]["common_allocations"][-1].update(driver_ref="model://b/forged"),
+     "COMMON_ALLOCATION_OWNER_DRIVER_SOURCE_MISMATCH"),
+    (lambda d:d["economic_claims"]["common_allocations"][-1].update(work="w1"),
+     "COMMON_ALLOCATION_INTERNAL_TRANSFER_REQUIRES_BOTH_PRINCIPALS"),
+    (lambda d:d["economic_claims"]["common_allocations"][-1].update(amount="120.01"),
+     "COMMON_ALLOCATION_INTERNAL_PARTY_AMOUNT_MISMATCH"),
+    (lambda d:d["economic_claims"]["common_allocations"][-1].update(scenario="INDEPENDENT_ALTERNATIVE"),
+     "COMMON_ALLOCATION_ONLY_ORIGINAL_COMMON_ROW"),
+])
+def test_internal_original_payment_allocation_requires_matching_independent_sources(mutate, reason):
+    d=bilateral_internal_case()
+    mutate(d)
+    with pytest.raises(ValueError, match=reason):
+        simulate(d)
+
+
+def test_bilateral_internal_splits_across_two_work_ids_count_only_once_per_original_payment():
+    d=bilateral_internal_case()
+    for original in d["economic_claims"]["common_allocations"][-2:]:
+        original["amount"] = "90.00"
+    for original in deepcopy(d["economic_claims"]["common_allocations"][-2:]):
+        original["work"] = "w1"
+        original["amount"] = "30.00"
+        d["economic_claims"]["common_allocations"].append(original)
+    out=simulate(d)
+    assert out["economics"]["common_work_allocations"]["unallocated_remainders"]["t2"]=="0.00"
+    assert out["economics"]["common_work_allocations"]["model_bilateral_internal_transfer_slices"]==2
+    assert out["economics"]["consolidated_external_cash_from_claims"]["COOPERATION"]=="258.00"
+    w2=out["work_counterfactual_dynamics"]["works"][0]
+    assert w2["network_declared_external_cash_difference"]=="113.00"
+    # Each side sees only its share: 30 of the same 120 was assigned elsewhere.
+    assert w2["per_original_owner"]["b"]["declared_work_cash_difference_cooperation_minus_alternative"]=="45.00"
+    assert w2["per_original_owner"]["op"]["declared_work_cash_difference_cooperation_minus_alternative"]=="-2.00"
+    assert out["economics"]["profit"]=="UNKNOWN"
+
+
+def test_incomplete_matching_bilateral_slices_do_not_qualify_a_complete_work_economy():
+    d=bilateral_internal_case()
+    for claim in d["economic_claims"]["common_allocations"][-2:]:
+        claim["amount"]="119.00"
+    out=simulate(d)
+    row=out["work_counterfactual_dynamics"]["works"][0]
+    assert row["status"]=="COUNTERFACTUAL_WORK_SCOPE_NOT_QUALIFIED"
+    assert row["network_declared_external_cash_difference"] is None
+    assert "COMMON_CASH_FLOW_NOT_ATTRIBUTED_TO_WORK" in row["per_scenario"]["COOPERATION"]["owners"]["op"]["reasons"]
+    assert out["economics"]["common_work_allocations"]["unallocated_remainders"]["t2"]=="1.00"
