@@ -113,11 +113,33 @@ try {
     prepared.passport_sha256,'ORIGINAL_T2_PASSPORT_DIGEST_MISMATCH');
   // Stage ORIGINAL T3 D1/D2 browser modules and Activity Host composition
   // into the same temporary original T2 Host; no new runtime or server.
-  const t3Files=['index.mjs','subject-access-binding.mjs',
-    'signed-access-host-port.mjs','local-inference-draft.mjs',
-    'control-loopback-owner.mjs'];
+  // T3 0.3.0 intentionally exports native-only owner modules (including
+  // node:crypto) from its Node entry. The raw Node index is NOT a browser
+  // module. Build a browser test entry with the ORIGINAL D2 function body
+  // taken verbatim from this exact pinned source; do not implement D2 again
+  // or pull native signing/issuer code into the browser.
+  const originalIndex=readFileSync(join(core,'src/t3/index.mjs'),'utf8');
+  const functionStart='function contextError(code) {';
+  const functionEnd="export { createSubjectKernelBinding } from './subject-access-binding.mjs';";
+  const from=originalIndex.indexOf(functionStart);
+  const to=originalIndex.indexOf(functionEnd,from);
+  assert.ok(from>0&&to>from&&originalIndex.indexOf(functionStart,from+1)<0&&
+    originalIndex.indexOf(functionEnd,to+1)<0&&
+    originalIndex.slice(from,to).includes(
+      'export async function readActivityFromWorkspaceContext('),
+    'RELEASED_T3_ORIGINAL_D2_SOURCE_LAYOUT_CHANGED');
+  const originalD2=originalIndex.slice(from,to);
+  const browserD2=[
+    'import {readActivityFromT2Host} from "./activity/kernel-reader.mjs";',
+    'import {createSubjectKernelBinding} from "./subject-access-binding.mjs";',
+    originalD2,
+    'export {createSubjectKernelBinding} from "./subject-access-binding.mjs";',
+  ].join('\\n');
   mkdirSync(join(dist,'_t3','activity'),{recursive:true});
-  for(const name of t3Files)cpSync(join(core,'src/t3',name),join(dist,'_t3',name));
+  writeFileSync(join(dist,'_t3/index.mjs'),browserD2);
+  for(const name of ['subject-access-binding.mjs','control-loopback-owner.mjs']){
+    cpSync(join(core,'src/t3',name),join(dist,'_t3',name));
+  }
   for(const name of ['index.mjs','kernel-reader.mjs']){
     cpSync(join(core,'src/t3/activity',name),join(dist,'_t3/activity',name));
   }
