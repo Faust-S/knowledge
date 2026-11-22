@@ -435,6 +435,9 @@ async function execute(p,entries,initialCursor,maxEntries){
       fail('RECIPIENT_BATCH_STOPPED',{
         index,captureRef:item.captureRef,
         originalCode:error?.code??null,
+        originalName:error?.name??null,
+        originalMessage:typeof error?.message==='string'
+          ?error.message.slice(0,200):null,
         lastOriginalVerifiedCursor:cursor,processedCount:processed,
         originalT3MutationMayHaveCommitted:true,
         automaticRetryAllowed:false,
