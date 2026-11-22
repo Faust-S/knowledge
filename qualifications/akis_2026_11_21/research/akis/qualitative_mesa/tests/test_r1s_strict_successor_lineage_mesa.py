@@ -349,3 +349,27 @@ def test_r1s_entry_assessment_counts_as_coordination_not_invented_cash():
         "RENEGOTIATION_AND_ADAPTATION"
     ]["applied"] == 7
     assert observed["real_transaction_cost_amount"] is None
+
+
+def test_r1s_missing_model_code_identity_cannot_be_replaced_by_membership_vote():
+    d = strict_entrant_resource_case()
+    code = {r["field"]: r["control"]
+            for r in d["general_akis"]["organizational_code"]}
+    code["С"]["subjects"].remove("c")
+    code["ИД"]["model_identified"].remove("c")
+    code["Рол"]["role_bindings"] = [
+        row for row in code["Рол"]["role_bindings"] if row["subject"] != "c"
+    ]
+    out = simulate(d)
+    assert reports(out, "cooperation_membership_apply")[0]["outcome"] == "APPLIED"
+    own_interest = [row for row in reports(out, "interest_update")
+                    if row["actor"] == "c" and row["work"] == "w3"][0]
+    own_consent = [row for row in reports(out, "consent")
+                   if row["actor"] == "c" and row["work"] == "w3"][0]
+    assert own_interest["reason"] == "OC_ORIGINAL_SUBJECT_OR_IDENTITY_CLAIM_MISSING"
+    assert own_consent["reason"] == "OC_ORIGINAL_SUBJECT_OR_IDENTITY_CLAIM_MISSING"
+    assert out["works"]["w3"]["result"] == "NOT_SUBMITTED"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "strict_original_entry_to_accepted_resource_work_link_count"
+    ] == 0
