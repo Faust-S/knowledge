@@ -8,6 +8,7 @@ on:
       - packages/t3-core/tests/t3-corporate-product-license.test.mjs
       - packages/t3-core/src/t3/access/corporate-product-issuance.mjs
       - packages/t3-core/tests/t3-corporate-product-issuance.test.mjs
+      - packages/t3-core/tests/t3-corporate-product-owner-status.test.mjs
       - packages/t3-core/src/t3/publisher-license-handoff.mjs
       - packages/t3-core/tests/t3-d7-publisher-handoff.test.mjs
       - packages/t3-core/tests/t3-corporate-original-d7-interop.test.mjs
@@ -39,6 +40,8 @@ jobs:
         run: node --test packages/t3-core/tests/t3-corporate-product-license.test.mjs
       - name: Test corporate licence durable ISSUE using original ledger, signed bytes and CAS
         run: node --test packages/t3-core/tests/t3-corporate-product-issuance.test.mjs
+      - name: Qualify original corporate STATUS durable readback and terminal revoke
+        run: node --test packages/t3-core/tests/t3-corporate-product-owner-status.test.mjs
       - name: Verify D7 original holder accepts corporate STATUS/3 without activating rights
         run: node --test packages/t3-core/tests/t3-d7-publisher-handoff.test.mjs
       - name: Verify real original Ed25519 corporate LICENSE/STATUS crossing D7 source owner
