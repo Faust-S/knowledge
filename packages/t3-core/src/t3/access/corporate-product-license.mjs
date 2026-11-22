@@ -203,7 +203,7 @@ export function inspectSignedCorporateLicense({envelope,installedTrust,
     productionActivation:false,
     publisherCommercialIdentityConfirmed:false});
 }
-function statusPayload(input){
+export function validateCorporateStatusPayload(input){
   const p=copy(input);
   exact(p,['schema','kind','environment','issuerAuthorityId','licenseId',
     'organizationId','productId','licenseDigest','sequence','state',
@@ -232,7 +232,7 @@ export function signCorporateLicenseStatus({license,ownerState,signer,
     'CORP_ORIGINAL_STATUS_SIGNER_REQUIRED');
   const limit=ownerState.policy.offlineMaxAgeSeconds??86400;
   positive(limit,1,31536000,'CORP_STATUS_OFFLINE_LIMIT_INVALID');
-  const payload=statusPayload({
+  const payload=validateCorporateStatusPayload({
     schema:CORPORATE_STATUS_SCHEMA,kind:'LICENSE_STATUS',environment:'PRODUCTION',
     issuerAuthorityId:p.issuerAuthorityId,licenseId:p.id,
     organizationId:p.subject.id,productId:PRODUCT,
@@ -252,7 +252,7 @@ export function inspectSignedCorporateLicenseStatus({license,statusEnvelope,
   installedTrust,organizationId,priorFloor=null,now=Date.now()}={}){
   const inspected=inspectSignedCorporateLicense({envelope:license,
     installedTrust,organizationId,now});
-  const l=license.payload,p=statusPayload(statusEnvelope?.payload);
+  const l=license.payload,p=validateCorporateStatusPayload(statusEnvelope?.payload);
   const cfg=issuerConfig(installedTrust,l.issuerAuthorityId);
   insist(statusEnvelope.keyId===cfg.statusKeyId&&
     statusEnvelope.keyId!==license.keyId,'CORP_STATUS_WRONG_SIGNER');
