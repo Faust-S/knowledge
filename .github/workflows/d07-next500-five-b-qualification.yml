@@ -97,6 +97,7 @@ jobs:
               echo D07_NEXT500_TESTS=FAIL
               grep -E '^not ok|^# (tests|pass|fail)|^  error:' "$RUNNER_TEMP/d07-next500-tests.private.log" | tail -15 || true
               grep -oE 'D07_[A-Z0-9_]+|ERR_[A-Z_]+|AssertionError|TypeError|ReferenceError|SyntaxError' "$RUNNER_TEMP/d07-next500-tests.private.log" | sort -u | tail -14 || true
+              grep -E '^[[:space:]]*(error|actual|expected|failureType|code):|D07_MANUAL_VARIANT_' "$RUNNER_TEMP/d07-next500-tests.private.log" | sed -E 's#(/[[:alnum:]_.-]+)+/#<private-path>/#g' | tail -12 || true
               exit 1
             }
           grep '^# (tests|pass|fail)' -E "$RUNNER_TEMP/d07-next500-tests.private.log" || true
