@@ -54,7 +54,7 @@ async function attachOriginalNativeKernelRelay(
     granted_operations?:readonly string[]},
 ):Promise<void>{
   const originalMethods=new Set([
-    "commitObjectGraph","getWorkspace","getObject","listEventsSince",
+    "commitObjectGraph","getWorkspace","listObjects","getObject","listEventsSince",
   ]);
   const info={
     contract_version:session.contract_version,
