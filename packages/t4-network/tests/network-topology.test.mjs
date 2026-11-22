@@ -153,7 +153,8 @@ test('invalid or duplicated node location is not a second authority',()=>{
     {...x,locationRef:'iwxa:cloud'}:x)}),code('LOCATION_DUPLICATE'));
 });
 test('invalid location, hosted primary and cloud-only placement cannot silently change T3 origin',()=>{
-  assert.throws(()=>build({placements:[{...placement,primaryNodeRef:'node:cloud'}]}),
+  assert.throws(()=>build({placements:[{...placement,primaryNodeRef:'node:cloud',
+    replicaNodeRefs:['node:home','node:other']}]}),
     code('PLACEMENT_MODE_TOPOLOGY_MISMATCH'));
   assert.throws(()=>build({placements:[{...placement,policy:{...policy,
     allowedLocations:['local:device','absent:server']}}]}),

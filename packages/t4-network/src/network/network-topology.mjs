@@ -235,6 +235,7 @@ export async function executeT4NetworkRoute({
     operation:capability,originalWriteOwnerRef:route.originalWriteOwnerRef,
     workspaceId,objectFamily,locationRef:route.locationRef,operatorRef:route.operatorRef,
     profileRef:route.profileRef,targetNodeRef,topologyDigest:route.topologyDigest,
+    endpointUrl:route.endpointUrl,
   });
   if(await verifyOriginalEndpoint(context)!==true)fail('ORIGINAL_ENDPOINT_NOT_VERIFIED');
   online();
