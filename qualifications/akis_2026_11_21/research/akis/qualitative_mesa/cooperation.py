@@ -1054,6 +1054,15 @@ def active_coalition_portfolio_view(
 # The sole original event trace remains authoritative; no archived Work,
 # source, reservation, independent consent or Result is rewritten.
 
+def _lifecycle_owner_source(value: Any, actor: Any) -> None:
+    try:
+        _competition_source(value, actor)
+    except CooperationInputError as exc:
+        raise CooperationInputError(
+            "COOPERATION_LIFECYCLE_INDEPENDENT_OWNER_SOURCE_REQUIRED"
+        ) from exc
+
+
 def _lifecycle_document(
     link: CooperationLink, kind: str, pilot_work: str, pilot_result_ref: str,
     pilot_decision_at: int, proposed_participants: Sequence[str],
@@ -1129,7 +1138,7 @@ def qualify_cooperation_lifecycle_proposal(
            and row.get("outcome") == "APPLIED"
            and row.get("lifecycle_id") == ident for row in state.trace):
         raise CooperationInputError("COOPERATION_LIFECYCLE_ID_ALREADY_USED")
-    _competition_source(ev.get("lifecycle_source_ref"), actor)
+    _lifecycle_owner_source(ev.get("lifecycle_source_ref"), actor)
     expiry = ev.get("lifecycle_valid_until")
     if type(expiry) is not int or not at < expiry <= 10000:
         raise CooperationInputError("COOPERATION_LIFECYCLE_VALIDITY_REQUIRED")
@@ -1218,7 +1227,7 @@ def qualify_cooperation_lifecycle_response(
         "SUPPORT_MODEL_PROPOSAL", "OBJECT_MODEL_PROPOSAL", "DEFER_MODEL_DECISION"
     }:
         raise CooperationInputError("COOPERATION_LIFECYCLE_INDEPENDENT_DECISION_REQUIRED")
-    _competition_source(ev.get("lifecycle_response_source_ref"), actor)
+    _lifecycle_owner_source(ev.get("lifecycle_response_source_ref"), actor)
     return {
         "lifecycle_id": proposal["lifecycle_id"],
         "lifecycle_kind": proposal["lifecycle_kind"],
@@ -1320,7 +1329,7 @@ def apply_cooperation_lifecycle(
         raise CooperationInputError("COOPERATION_LIFECYCLE_NEW_LINK_ALREADY_EXISTS")
     if revision == link.source_revision:
         raise CooperationInputError("COOPERATION_LIFECYCLE_SUCCESSOR_REVISION_UNCHANGED")
-    _competition_source(ev.get("new_link_source_ref"), actor)
+    _lifecycle_owner_source(ev.get("new_link_source_ref"), actor)
     new_link = CooperationLink(
         successor_id, link.purpose, link.coordinator,
         members, (), link.mechanisms,
