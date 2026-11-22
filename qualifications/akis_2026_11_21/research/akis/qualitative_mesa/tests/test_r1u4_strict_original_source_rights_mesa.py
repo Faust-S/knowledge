@@ -468,3 +468,126 @@ def test_strict_owner_sources_not_authenticated_real_documents():
     assert len(basis["original_decision_source_rights"]) >= 9
     assert all(not x["real_identity_or_document_right_authenticated"]
                for x in basis["original_decision_source_rights"])
+
+
+
+@pytest.mark.parametrize("change", ["missing_expected", "same_revision"])
+def test_strict_rights_owner_update_requires_cas_and_new_revision(change):
+    d = registration_case()
+    for ev in d["events"]:
+        if ev["at"] >= 13:
+            ev["at"] += 1
+    owner = next(
+        x for x in d["events"]
+        if x["action"] == "subject_registration_review" and x["actor"] == "a"
+    )
+    patch = e(
+        13, "source_update", "a",
+        source=owner["registration_decision_source_ref"],
+        status="DISPROVED",
+        expected_revision="rev-1", new_revision="rev-2",
+    )
+    if change == "missing_expected":
+        del patch["expected_revision"]
+    else:
+        patch["new_revision"] = "rev-1"
+    d["events"].append(patch)
+    d["events"].sort(key=lambda x: x["at"])
+    d["model_horizon"] += 1
+    out = simulate(d)
+    assert rows(out, "source_update")[0]["reason"] == (
+        "CONTEXT_OWNER_RIGHTS_COMPARE_AND_SET_REQUIRED"
+        if change == "missing_expected" else
+        "CONTEXT_OWNER_RIGHTS_FRESH_REVISION_REQUIRED"
+    )
+    # Rejected update must not change the source used for independent
+    # original approval and may not undo prior accepted Result.
+    assert rows(out, "subject_registration_apply")[0]["outcome"] == "APPLIED"
+    assert rows(out, "resource_registration_apply")[0]["outcome"] == "APPLIED"
+    assert accepted_result(out, "w1")
+    assert accepted_result(out, "w2")
+
+
+def test_strict_independent_review_source_expires_before_registration_apply():
+    d = registration_case()
+    target = next(
+        x for x in d["events"]
+        if x["action"] == "subject_registration_review" and x["actor"] == "a"
+    )
+    source = next(
+        x for x in d["context_evidence"]["sources"]
+        if x["id"] == target["registration_decision_source_ref"]
+    )
+    source["valid_until"] = 12
+    out = simulate(d)
+    assert rows(out, "subject_registration_review")[0]["outcome"] == "APPLIED"
+    assert rows(out, "subject_registration_apply")[0]["reason"] == (
+        "CONTEXT_SOURCE_EXPIRED"
+    )
+    assert "c" not in out["subjects"]
+    assert accepted_result(out, "w1")
+
+
+def test_strict_unshared_principal_source_cannot_be_used_for_registration_review():
+    d = registration_case()
+    row = next(
+        x for x in d["events"]
+        if x["action"] == "resource_registration_review" and x["actor"] == "b"
+    )
+    source = next(
+        x for x in d["context_evidence"]["sources"]
+        if x["id"] == row["source_rights_ref"]
+    )
+    source["usable_by"] = ["op"]
+    out = simulate(d)
+    assert next(
+        x for x in rows(out, "resource_registration_review")
+        if x["actor"] == "b"
+    )["reason"] == "CONTEXT_USE_NOT_PERMITTED"
+    assert rows(out, "resource_registration_apply")[0]["outcome"] == "BLOCKED"
+    assert "rc" not in out["resources"]
+    assert accepted_result(out, "w1")
+
+
+def test_strict_owner_new_confirmed_revision_still_requires_new_decision():
+    d = registration_case()
+    for ev in d["events"]:
+        if ev["at"] >= 13:
+            ev["at"] += 1
+    owner = next(
+        x for x in d["events"]
+        if x["action"] == "subject_registration_review" and x["actor"] == "a"
+    )
+    d["events"].append(e(
+        13, "source_update", "a",
+        source=owner["registration_decision_source_ref"],
+        status="CONFIRMED", expected_revision="rev-1", new_revision="rev-2",
+    ))
+    d["events"].sort(key=lambda x: x["at"])
+    d["model_horizon"] += 1
+    out = simulate(d)
+    assert rows(out, "source_update")[0]["outcome"] == "APPLIED"
+    assert rows(out, "subject_registration_apply")[0]["reason"] == (
+        "CONTEXT_REVISION_STALE"
+    )
+    assert "c" not in out["subjects"]
+    assert accepted_result(out, "w1")
+
+
+def test_strict_original_registered_asset_source_owner_cannot_be_substituted():
+    d = registration_case()
+    original = next(
+        x for x in d["events"]
+        if x["action"] == "resource_registration_propose"
+    )
+    source = next(
+        x for x in d["context_evidence"]["sources"]
+        if x["id"] == original["registration_resource_source_ref"]
+    )
+    source["owner"] = "op"
+    out = simulate(d)
+    assert rows(out, "resource_registration_propose")[0]["reason"] == (
+        "CONTEXT_DECISION_ORIGINAL_OWNER_SOURCE_UNQUALIFIED"
+    )
+    assert "rc" not in out["resources"]
+    assert accepted_result(out, "w1")
