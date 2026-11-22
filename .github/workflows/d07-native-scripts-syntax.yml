@@ -33,5 +33,9 @@ jobs:
              !$import.Contains('d07-native-card-order-identity.private.json')){
             throw 'D07_NATIVE_IWXA_ORIGINAL_OBJECT_ID_CONTRACT_MISSING'
           }
+          if(!$import.Contains('D07_IMPORT_OBJECT_IDENTITY_MISMATCH') -or
+             !$import.Contains('D07_IMPORT_SOURCE_IDENTITY_WITNESS_INVALID')){
+            throw 'D07_NATIVE_IWXA_IDENTITY_PROOF_MISSING'
+          }
           Write-Output 'D07_NATIVE_IWXA_IDENTITY_CONTRACT=PASS'
           }
