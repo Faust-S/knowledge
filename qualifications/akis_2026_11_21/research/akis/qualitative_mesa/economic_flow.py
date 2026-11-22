@@ -18,6 +18,7 @@ from .cooperation import (
 from .modern_economic_evidence import ModernEconomicEvidenceError, review_cost_attribution
 from .economic_liquidity import LiquidityInputError, evaluate_cash_timing
 from .economic_lifecycle import LifecycleInputError, classify_lifecycle_costs
+from .common_work_allocations import CommonAllocationError, review_common_work_allocations
 
 
 class EconomicInputError(ValueError):
@@ -92,6 +93,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
             set(raw) - required - {
                 "mechanism_allocations", "coordination_event_bindings",
                 "modern_cost_bindings", "cash_timing", "lifecycle_costs",
+                "common_allocations",
             }):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
@@ -297,6 +299,15 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
         "economic_interest": "NOT_IDENTIFIABLE",
         "organizational_change": "NOT_AUTOMATIC",
     }
+    if "common_allocations" in doc:
+        try:
+            output["common_work_allocations"] = review_common_work_allocations(
+                doc["common_allocations"], sources=sources,
+                transfer_index=transfer_index, resource_index=resource_index,
+                works=works,
+            )
+        except CommonAllocationError as exc:
+            raise EconomicInputError(str(exc)) from exc
     if "mechanism_allocations" in doc:
         try:
             output["cooperation_cost_channels"] = evaluate_cooperation_cost_channels(
