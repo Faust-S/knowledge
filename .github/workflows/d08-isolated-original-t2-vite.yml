@@ -118,6 +118,25 @@ jobs:
             .slice(0,190);
           for(const [i,h] of headings.entries())
             console.log("D08_ORIGINAL_T2_HOST_ERROR_HEADING_"+i+"="+sanitize(h));
+          // Context around the exact compiler failure, but not the source:
+          // only a fixed vocabulary is emitted, all identifiers and paths
+          // collapse to <id> in the public qualification log.
+          const allowed=new Set(("error failed with no not yes found cannot could "+
+            "resolve matching export in for import expected unexpected missing "+
+            "module entry file plugin build defined has is was by loader "+
+            "invalid option output input stylesheet css postcss tailwind "+
+            "vite rollup node dependency package external commonjs esm "+
+            "unable to read directory access denied syntax unsupported "+
+            "source and requested from to the of unknown transforming "+
+            "value type range read only utf json html js ts").split(" "));
+          const allLines=s.split(/\r?\n/);
+          const anchor=allLines.findIndex(x=>/Build failed with [0-9]+ error/.test(x));
+          if(anchor>=0)for(const [i,line] of allLines.slice(anchor+1,anchor+8).entries()){
+            const words=(line.match(/[A-Za-z][A-Za-z0-9_-]*/g)||[])
+              .slice(0,30).map(w=>allowed.has(w.toLowerCase())?w:"<id>");
+            console.log("D08_ORIGINAL_T2_HOST_SAFE_CONTEXT_"+i+"="+
+              words.join(" ").slice(0,190));
+          }
           NODE
             echo D08_ORIGINAL_T2_HOST_BUILD=FAIL
             exit 1
