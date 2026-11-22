@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inspectSelectedT3Activity, T3ActivityHold} from
+import {inspectSelectedT3Activity, T3ActivityHold,
+  createTrustedOriginalT3NativeReadPort} from
   '../modules/activity-base-anonymizer/t3-selected-host.mjs';
+import {createT3ReviewController} from
+  '../modules/activity-base-anonymizer/t3-review-controller.mjs';
 
 const W = 'ws:chosen';
 const now = '2026-11-11T10:00:00Z';
@@ -295,4 +298,120 @@ test('fabricated lifecycle receipts, duplicate receipts and private extension ke
   await assert.rejects(inspect(host(additional)),{
     code:'T3_D2_UNMAPPED_SHAPE_INVALID',
   });
+});
+
+
+function originalSignedNativeFixture() {
+  const originalIdentity=Object.freeze({
+    product:'admin',organizationId:'org:north',
+    workspaceId:W,actorId:'person:owner',
+    contextId:'context:owner',contextEpoch:3,
+    d2ActivityReaderConnected:true,
+  });
+  let current=originalIdentity;
+  const listeners=new Set();
+  let reads=0;
+  let raw=sample();
+  let readImpl=()=>({schema:'IWXA_T3_ORIGINAL_ADMIN_ACTIVITY_READBACK/1',
+    organizationId:originalIdentity.organizationId,
+    workspaceId:originalIdentity.workspaceId,
+    actorId:originalIdentity.actorId,
+    source:'ORIGINAL_T2_KERNEL_D1_ACTIVITY_DATA',
+    evidenceScope:'METADATA_ONLY_NOT_BUSINESS_COMPLETION_PROOF',
+    view:raw,
+  });
+  const native={
+    currentSignedView:async()=>({status:'D3_OWNER_READY',snapshot:current}),
+    readActivityReadback:async()=>{reads++;return readImpl();},
+    subscribeInvalidation(fn){listeners.add(fn);return()=>listeners.delete(fn);},
+  };
+  return {
+    native,reads:()=>reads,listeners,
+    revoke(){current={...current,d2ActivityReaderConnected:false};
+      for(const fn of listeners)fn();},
+    updateEpoch(){current={...current,contextEpoch:current.contextEpoch+1};
+      for(const fn of listeners)fn();},
+    changeDuringRead(callback){readImpl=callback;},
+    changeOriginal(mutator){const next=readImpl();mutator(next);readImpl=()=>next;},
+    reportSteps(){raw=sample();for(const e of raw.events)e.epistemic_status='reported';},
+  };
+}
+
+test('original installed corporate D2 owner produces only A2-screened aliases in Activity UI',async()=>{
+  const h=originalSignedNativeFixture();
+  const port=createTrustedOriginalT3NativeReadPort(h.native);
+  assert.deepEqual(Object.keys(port).sort(),['readSelected','subscribeInvalidation']);
+  assert.equal('readActivityReadback' in port,false);
+  assert.equal('currentSignedView' in port,false);
+  const updates=[],ui=createT3ReviewController({host:port,onUpdate:v=>updates.push(v)});
+  assert.equal((await ui.readSelected()).status,'REVIEW');
+  assert.equal(h.reads(),1);
+  assert.equal(updates.at(-1).review.status,'STRUCTURE_PRESERVED_REVIEW_REQUIRED');
+  assert.equal(updates.at(-1).review.structural_candidate.length,1);
+  assert.equal(updates.at(-1).review.export_allowed,false);
+  assert.equal((await ui.stageSelected()).status,'UNAVAILABLE');
+  for(const privateWord of [S,W,'org:north','person:owner','context:owner',
+    'order:0','synthetic.started','2026-11-11'])
+    assert.equal(JSON.stringify(updates).includes(privateWord),false,privateWord);
+  ui.dispose();assert.equal(h.listeners.size,0);
+});
+
+test('original native owner requires signed live state and refuses foreign source metadata',async()=>{
+  const h=originalSignedNativeFixture(),port=createTrustedOriginalT3NativeReadPort(h.native);
+  await assert.rejects(port.readSelected(),{code:'T3_TRUSTED_HOST_INVALIDATION_REQUIRED'});
+  const stop=port.subscribeInvalidation(()=>{});
+  h.changeOriginal(x=>{x.actorId='person:foreign';});
+  await assert.rejects(port.readSelected(),{code:'T3_ORIGINAL_NATIVE_READBACK_SCOPE_INVALID'});
+  assert.equal(h.reads(),1);
+  stop();
+  const revoked=originalSignedNativeFixture();
+  const second=createTrustedOriginalT3NativeReadPort(revoked.native);
+  const done=second.subscribeInvalidation(()=>{});
+  revoked.revoke();
+  await assert.rejects(second.readSelected(),
+    {code:'T3_ORIGINAL_NATIVE_SIGNED_OWNER_REQUIRED'});
+  assert.equal(revoked.reads(),0);
+  done();
+});
+
+test('native D2 reader never treats reported original Kernel events as confirmed execution',async()=>{
+  const h=originalSignedNativeFixture();
+  h.reportSteps();
+  const port=createTrustedOriginalT3NativeReadPort(h.native);
+  const stop=port.subscribeInvalidation(()=>{});
+  const result=await port.readSelected();
+  assert.equal(result.status,'HOLD');
+  assert.equal(result.structural_candidate,null);
+  assert.ok(result.reason_codes.includes('T3_D2_UNVERIFIED_EVENT_STEP'));
+  assert.equal(result.export_allowed,false);
+  assert.equal(JSON.stringify(result).includes(S),false);
+  stop();
+});
+
+test('native owner invalidation during read prevents stale review and cannot leak original errors',async()=>{
+  const h=originalSignedNativeFixture();
+  let release;
+  h.changeDuringRead(()=>new Promise(resolve=>{release=resolve;}));
+  const port=createTrustedOriginalT3NativeReadPort(h.native);
+  const updates=[],ui=createT3ReviewController({host:port,onUpdate:v=>updates.push(v)});
+  const pending=ui.readSelected();
+  for(let i=0;i<12&&!release;i++)await Promise.resolve();
+  assert.equal(typeof release,'function');
+  h.updateEpoch();
+  release({schema:'IWXA_T3_ORIGINAL_ADMIN_ACTIVITY_READBACK/1',
+    organizationId:'org:north',workspaceId:W,actorId:'person:owner',
+    source:'ORIGINAL_T2_KERNEL_D1_ACTIVITY_DATA',
+    evidenceScope:'METADATA_ONLY_NOT_BUSINESS_COMPLETION_PROOF',view:sample()});
+  assert.equal((await pending).status,'INVALIDATED');
+  assert.deepEqual(updates.at(-1),{status:'READY_TO_READ',review:null});
+  ui.dispose();
+  const denied=originalSignedNativeFixture();
+  denied.changeDuringRead(()=>{throw Error(S);});
+  const states=[],untrusted=createT3ReviewController({
+    host:createTrustedOriginalT3NativeReadPort(denied.native),onUpdate:v=>states.push(v),
+  });
+  assert.equal((await untrusted.readSelected()).status,'HOLD');
+  assert.equal(states.at(-1).code,'T3_AUTHORITATIVE_READ_REFUSED');
+  assert.equal(JSON.stringify(states).includes(S),false);
+  untrusted.dispose();
 });
