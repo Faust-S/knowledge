@@ -188,9 +188,12 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
 
 // UI-origin transport. It is intentionally not a KernelSession: only the
 // original signed Host may construct the T2 KernelFacade behind the port.
-export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=15000}={}){
+export function createIsolatedKernelClient({
+  port,isActive=()=>true,timeoutMs=15000,readTimeoutMs=timeoutMs,
+}={}){
   if(!isPort(port)||typeof isActive!=='function'||
-     !Number.isInteger(timeoutMs)||timeoutMs<100||timeoutMs>120000)
+     !Number.isInteger(timeoutMs)||timeoutMs<100||timeoutMs>120000||
+     !Number.isInteger(readTimeoutMs)||readTimeoutMs<100||readTimeoutMs>120000)
     throw fail('T3_D1_ISOLATED_KERNEL_CLIENT_INVALID');
   let closed=false,nextId=0;
   const active=()=>{try{return isActive()===true;}catch{return false;}};
@@ -255,7 +258,8 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
       // The native age CLI may legitimately run longer than the ordinary
       // 15-second Kernel read. This only affects the signed native D7 port.
       const operationTimeout=uncertainCode?30*60*1000:
-        method==='nativeD7Request'||method==='nativeD6Request'?120000:timeoutMs;
+        method==='nativeD7Request'||method==='nativeD6Request'?120000:
+        method==='getWorkspace'?readTimeoutMs:timeoutMs;
       return new Promise((resolve,reject)=>{
         // The one read-only request owns a finite local stage. A timeout
         // does not imply a denied grant, missing Workspace or safe write.
@@ -285,7 +289,8 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
 // Control/Kernel port. The browser delivers the transferable MessagePort
 // only to the selected origin, not to the calling UI's arbitrary scripts.
 export async function openOriginalKernelRealm({frame,realmOrigin,channelFactory,
-  sessionToken=null,nonceFactory=()=>globalThis.crypto.randomUUID(),timeoutMs=5000}={}){
+  sessionToken=null,nonceFactory=()=>globalThis.crypto.randomUUID(),
+  timeoutMs=5000,readTimeoutMs=15000}={}){
   if(!LOCAL_ORIGIN.test(realmOrigin??'')||
      typeof frame?.postMessage!=='function'||
      typeof channelFactory!=='function'||typeof nonceFactory!=='function')
@@ -320,6 +325,6 @@ export async function openOriginalKernelRealm({frame,realmOrigin,channelFactory,
       frame.postMessage({schema:SCHEMA,kind:'attach',nonce,
         ...(sessionToken===null?{}:{bearer:sessionToken})},realmOrigin,[port2]);
     });
-    return createIsolatedKernelClient({port:port1});
+    return createIsolatedKernelClient({port:port1,readTimeoutMs});
   }catch(e){clearTimeout(timer);port1.close();port2.close();throw e;}
 }
