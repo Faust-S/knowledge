@@ -229,16 +229,16 @@ try{
    throw "D07_NATIVE_CARD_T2_WRONG_SELECTED_SERVICE"
  }
  ClickUi "Добавить работы в заказ" ([System.Windows.Automation.ControlType]::Button)
- $matches=0;$added=$false
+ $matchedOperations=0;$added=$false
  for($attempt=0;$attempt -lt 65;$attempt++){
    Start-Sleep -Milliseconds 350
    $text=AccessibleText
-   $matches=@($exactTitles|Where-Object{$text.Contains($_)}).Count
-   if($matches -eq 10 -and $text -match 'Работ:\s*10'){
+   $matchedOperations=@($exactTitles|Where-Object{$text.Contains($_)}).Count
+   if($matchedOperations -eq 10 -and $text -match 'Работ:\s*10'){
      $added=$true;break
    }
  }
- Write-Output ("D07_NATIVE_CARD_DRAFT_OPERATION_MATCHES="+$matches)
+ Write-Output ("D07_NATIVE_CARD_DRAFT_OPERATION_MATCHES="+$matchedOperations)
  if(!$added){throw "D07_NATIVE_CARD_T2_PLAN_NOT_APPLIED"}
  Write-Output "D07_NATIVE_CARD_T2_EXACT_PLAN=PASS"
  Write-Output "D07_NATIVE_CARD_T2_PLAN_APPLIED=PASS"
