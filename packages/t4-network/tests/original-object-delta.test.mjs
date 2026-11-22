@@ -82,7 +82,7 @@ function fakeTransport(){
 }
 const apply=(received,r,opts={})=>applyT4OriginalObjectDelta({
   received,originalKernel:r.kernel,authorizeOriginalWrite:async()=>true,
-  getMode:()=> 'T4_NETWORK',...opts,
+  getMode:()=> 'T4_NETWORK',verifyOriginalSourceEvent:async()=>true,...opts,
 });
 
 test('a single original event produces a bounded, deterministic object delta without copying a second event store',async()=>{
@@ -236,5 +236,29 @@ test('received data refuses invalid original object schemas, unsafe keys and hid
  const fake={...prepared.delta,extensions:{constructor:{x:1}}};
  await assert.rejects(apply({delta:fake,sha256:prepared.sha256,
    key:prepared.key},r),code('OBJECT_DELTA_UNSAFE_KEY'));
+ assert.equal(r.calls.length,0);
+});
+
+test('a network delta cannot cross recipient authority without proof of its original T3 source event',async()=>{
+ const {prepared}=await generate(),r=recipient();
+ await assert.rejects(apply({
+   delta:prepared.delta,sha256:prepared.sha256,key:prepared.key
+ },r,{verifyOriginalSourceEvent:async proof=>{
+   assert.equal(proof.sourceEventId,event.event_id);
+   assert.equal(proof.originalWriteOwnerRef,owner);
+   assert.equal(proof.networkEnvelopeIsNotSignedEvidence,true);
+   return false;
+ }}),code('ORIGINAL_T3_SOURCE_EVENT_NOT_VERIFIED'));
+ assert.equal(r.calls.length,0);
+});
+test('an unknown or unsupported source schema cannot silently rewrite the recipient object',async()=>{
+ const {prepared}=await generate(),r=recipient();
+ const read=r.kernel.getObject;
+ r.kernel.getObject=async(...args)=>{
+   const value=await read(...args);
+   return {object:{...value.object,schema_id:'another.schema'}};
+ };
+ await assert.rejects(apply({delta:prepared.delta,sha256:prepared.sha256,
+   key:prepared.key},r),code('ORIGINAL_T3_SCHEMA_MISMATCH'));
  assert.equal(r.calls.length,0);
 });

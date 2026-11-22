@@ -370,6 +370,13 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const application={
         received,originalKernel:receiverGraphKernel,
         authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+        verifyOriginalSourceEvent:async proof=>
+          proof.sourceEventId===evolved.saved.event.event_id&&
+          proof.sourceEventDigest===newWindow.window.eventRefs[0].eventDigest&&
+          proof.objectContentDigest===preparedDelta.delta.objectContentDigest&&
+          proof.originalWriteOwnerRef==='original:t2:exchange'&&
+          proof.sourceRevision===evolved.sourceObject.object.revision&&
+          proof.networkEnvelopeIsNotSignedEvidence===true,
         getMode:()=> 'T4_NETWORK',
       };
       await assert.rejects(applyT4OriginalObjectDelta(application),error=>{

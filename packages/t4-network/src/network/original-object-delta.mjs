@@ -176,7 +176,7 @@ function originalCommitInput(delta,sha256){
 }
 
 export async function applyT4OriginalObjectDelta({
-  received,originalKernel,authorizeOriginalWrite,getMode,
+  received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,getMode,
 }={}) {
   const exact=received?.delta&&validateDelta(received.delta);
   if(!exact||received.sha256!==exact.sha256||
@@ -185,7 +185,8 @@ export async function applyT4OriginalObjectDelta({
     originalKernel?.hasOperation?.('t1.getObject')!==true||
     typeof originalKernel.getObject!=='function'||
     typeof originalKernel.commitObjectGraph!=='function'||
-    typeof authorizeOriginalWrite!=='function')
+    typeof authorizeOriginalWrite!=='function'||
+    typeof verifyOriginalSourceEvent!=='function')
     fail('ORIGINAL_T3_GRAPH_WRITE_PORT_REQUIRED');
   readyPorts({getMode});
   const delta=exact.delta;
@@ -197,11 +198,32 @@ export async function applyT4OriginalObjectDelta({
     recipientOriginalAuthorityRequired:true,
   });
   if(await authorizeOriginalWrite(ctx)!==true)fail('ORIGINAL_T3_GRAPH_WRITE_DENIED');
+  const sourceProof=Object.freeze({
+    operation:'t4.original-source-event.verify',
+    workspaceId:delta.workspaceId,objectId:delta.objectId,
+    originalWriteOwnerRef:delta.originalWriteOwnerRef,
+    sourceEventId:delta.sourceEventId,sourceEventDigest:delta.sourceEventDigest,
+    originalEventType:delta.originalEventType,
+    sourceRevision:delta.sourceRevision,
+    objectContentDigest:delta.objectContentDigest,
+    windowDigest:delta.windowDigest,
+    wireSha256:exact.sha256,
+    networkEnvelopeIsNotSignedEvidence:true,
+  });
+  if(await verifyOriginalSourceEvent(sourceProof)!==true)
+    fail('ORIGINAL_T3_SOURCE_EVENT_NOT_VERIFIED');
+  readyPorts({getMode});
   const existing=await originalKernel.getObject(delta.workspaceId,delta.objectId);
   readyPorts({getMode});
   if(await authorizeOriginalWrite(ctx)!==true)fail('ORIGINAL_T3_GRAPH_WRITE_DENIED');
+  if(await verifyOriginalSourceEvent(sourceProof)!==true)
+    fail('ORIGINAL_T3_SOURCE_EVENT_NOT_VERIFIED');
+  readyPorts({getMode});
   const local=existing?.object??null;
   const localRevision=local?.revision??0;
+  if(local&&(local.schema_id!==delta.schemaId||
+    local.schema_version!==delta.schemaVersion))
+    fail('ORIGINAL_T3_SCHEMA_MISMATCH');
   if(localRevision!==delta.baseRevision&&localRevision!==delta.sourceRevision)
     fail('OBJECT_DELTA_REVISION_CONFLICT',{localRevision});
   if(localRevision===delta.sourceRevision){
@@ -231,7 +253,16 @@ export async function applyT4OriginalObjectDelta({
     receipt?.object?.revision!==delta.sourceRevision||
     !ID(receipt?.event?.event_id))
     fail('OBJECT_DELTA_ORIGINAL_RECEIPT_INVALID');
-  const check=await originalKernel.getObject(delta.workspaceId,delta.objectId);
+  let check;
+  try{check=await originalKernel.getObject(delta.workspaceId,delta.objectId);}
+  catch(error){
+    fail('OBJECT_DELTA_OUTCOME_UNKNOWN',{originalReceiptMayExist:true,
+      originalCode:error?.code??null,automaticRetryAllowed:false});
+  }
+  readyPorts({getMode});
+  if(await authorizeOriginalWrite(ctx)!==true)
+    fail('OBJECT_DELTA_OUTCOME_UNKNOWN',{originalReceiptMayExist:true,
+      automaticRetryAllowed:false});
   if(check?.object?.revision!==delta.sourceRevision)
     fail('OBJECT_DELTA_ORIGINAL_READBACK_MISMATCH');
   const observed='sha256:'+packageSha256(encode({
