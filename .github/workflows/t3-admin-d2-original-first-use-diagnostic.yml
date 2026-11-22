@@ -1,0 +1,127 @@
+name: T3 D2 original Windows first-use source and compiled qualification
+on:
+  push:
+    branches:
+      - work/2026-11-22-admin03-original-d2-read
+    paths:
+      - .github/workflows/t3-admin-d2-original-first-use-diagnostic.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-first-use:
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Stage original private T3 source without publishing it
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: c51d24e6b335576cb71102a2e619597ab00a177b
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            access-control
+            interop
+            reconciliation
+            scripts
+            package.json
+          path: .private/t3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.0'
+      - name: Pin exact original private signer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C .private/t3 rev-parse HEAD).Trim() -cne 'c51d24e6b335576cb71102a2e619597ab00a177b'){
+            throw 'D2_ORIGINAL_OWNER_SOURCE_PIN_FAILED'
+          }
+          Write-Host 'D2_ORIGINAL_OWNER_SOURCE_PIN_PASS'
+      - name: Original source Ed25519 and DPAPI first-use on real Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $org='orgd2-'+[guid]::NewGuid().ToString('N')
+          $root=Join-Path $env:RUNNER_TEMP 'd2-source-first-use'
+          $request=Join-Path $env:RUNNER_TEMP 'd2-source-request.json'
+          @{organizationId=$org;workspaceId=('workspace:d2:'+([guid]::NewGuid().ToString('N')));
+            organizationName='Original T3 supplier operations team'} |
+            ConvertTo-Json -Compress | Set-Content -LiteralPath $request -Encoding utf8NoBOM
+          $script=@'
+          import {runNativeAdminD3} from './.private/t3/interop/native-admin-d3.mjs';
+          try {
+            const [root,org,request]=process.argv.slice(1);
+            const out=runNativeAdminD3(['d3-enroll',root,org,request]);
+            if(out?.operation!=='D3_ENROLLED'||out?.view?.status!=='D3_OWNER_READY')
+              throw Error('T3_D3_NATIVE_FIRST_USE_READBACK_INVALID');
+            console.log('D2_ORIGINAL_SOURCE_FIRST_USE_PASS');
+          }catch(e){
+            const code=String(e?.code??e?.message??'');
+            console.error('D2_ORIGINAL_SOURCE_FIRST_USE_MACHINE_CODE '+(
+              /^[A-Z][A-Z0-9_]{4,99}$/.test(code)?code:
+              code==='ENOENT'?'ENOENT':'UNCLASSIFIED'));
+            process.exitCode=2;
+          }
+          '@
+          $log=Join-Path $env:RUNNER_TEMP 'd2-source-private.log'
+          & node --input-type=module -e $script $root $org $request *> $log
+          $pass=@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object {$_ -eq 'D2_ORIGINAL_SOURCE_FIRST_USE_PASS'}).Count -gt 0
+          if(!$pass -or $LASTEXITCODE -ne 0){
+            $reason=@(Get-Content $log -ErrorAction SilentlyContinue |
+              Where-Object {$_ -match '^D2_ORIGINAL_SOURCE_FIRST_USE_MACHINE_CODE [A-Z0-9_]+$'}) | Select-Object -Last 1
+            if($reason){Write-Host $reason}else{Write-Host 'D2_ORIGINAL_SOURCE_FIRST_USE_MACHINE_CODE UNCLASSIFIED'}
+            throw 'D2_ORIGINAL_SOURCE_FIRST_USE_HOLD'
+          }
+          Write-Host 'D2_ORIGINAL_SOURCE_FIRST_USE_PASS'
+      - name: Compile exact original T3 owner without custom implementation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=Join-Path $env:RUNNER_TEMP 'iwxa-d2-compiled-original.exe'
+          $log=Join-Path $env:RUNNER_TEMP 'd2-private-bun.log'
+          & bun build --compile --target=bun-windows-x64 --windows-hide-console .private/t3/scripts/product-license-windows-owner-cli.mjs --outfile $exe *> $log
+          if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe)){
+            throw 'D2_ORIGINAL_COMPILED_OWNER_BUILD_HOLD'
+          }
+          Write-Host 'D2_ORIGINAL_COMPILED_OWNER_BUILD_PASS'
+      - name: Exact compiled original first-use with genuine Windows DPAPI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $org='orgd2-'+[guid]::NewGuid().ToString('N')
+          $root=Join-Path $env:RUNNER_TEMP 'd2-compiled-first-use'
+          $request=Join-Path $env:RUNNER_TEMP 'd2-compiled-request.json'
+          @{organizationId=$org;workspaceId=('workspace:d2:'+([guid]::NewGuid().ToString('N')));
+            organizationName='Original T3 supplier operations team'} |
+            ConvertTo-Json -Compress | Set-Content -LiteralPath $request -Encoding utf8NoBOM
+          $exe=Join-Path $env:RUNNER_TEMP 'iwxa-d2-compiled-original.exe'
+          $log=Join-Path $env:RUNNER_TEMP 'd2-private-compiled.log'
+          & $exe d3-enroll $root $org $request *> $log
+          if($LASTEXITCODE -ne 0){
+            $codes=@()
+            foreach($line in (Get-Content $log -ErrorAction SilentlyContinue)){
+              foreach($hit in [regex]::Matches([string]$line,
+                '(?<![A-Z0-9_])(?:T3_D3|WINDOWS|DPAPI|INTEROP)_[A-Z0-9_]{3,90}(?![A-Z0-9_])')){
+                $codes+=([string]$hit.Value)
+              }
+            }
+            $reason=if($codes.Count){$codes[-1]}else{
+              $found=@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object {$_ -match '\bENOENT\b'}).Count
+              if($found){'ENOENT'}else{'UNCLASSIFIED'}
+            }
+            Write-Host "D2_ORIGINAL_COMPILED_FIRST_USE_MACHINE_CODE $reason"
+            throw 'D2_ORIGINAL_COMPILED_FIRST_USE_HOLD'
+          }
+          $out=Get-Content -LiteralPath $log -Raw | ConvertFrom-Json
+          if($out.operation -ne 'D3_ENROLLED' -or $out.view.status -ne 'D3_OWNER_READY'){
+            throw 'D2_ORIGINAL_COMPILED_FIRST_USE_READBACK_INVALID'
+          }
+          Write-Host 'D2_ORIGINAL_COMPILED_FIRST_USE_PASS'
