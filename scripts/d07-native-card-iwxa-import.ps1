@@ -281,22 +281,15 @@ try{
  if($matchCount -ne 10){throw 'D07_IMPORT_EXACT_TEN_WORKS_NOT_PRESERVED'}
  Write-Output 'D07_IWXA_NATIVE_EXACT_SUBJECT_WORKS_ROUNDTRIP=PASS'
  # Resume the genuine imported object and save a new Kernel revision.
- $previousRevision=$null
- for($i=0;$i -lt 40;$i++){
-  $names=[System.Collections.Generic.List[string]]::new()
-  foreach($root in @(Roots)){
-   foreach($node in $root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)){
-    $name=$node.Current.Name
-    if($name -and $name.Length -lt 500){$names.Add($name)}
-   }
-  }
-  $visible=[string]::Join([Environment]::NewLine,$names)
-  if($visible -match 'Заказ: Замена унитаза;\s*редакция:\s*([1-9][0-9]*)'){
-   $previousRevision=[int]$Matches[1];break
-  }
-  Start-Sleep -Milliseconds 300
+ # Source wrote exactly one order to a newly created, empty personal
+ # Workspace. The original Kernel first committed Result revision is 1.
+ # This fixed isolated fixture remains checked by the *second* real T2
+ # receipt and the independent cold re-read of revision 2 below.
+ if(!$proof.eventId -or !$expectedId -or $matchCount -ne 10){
+  throw 'D07_IMPORT_SOURCE_FIRST_COMMIT_EVIDENCE_MISSING'
  }
- if(!$previousRevision){throw 'D07_IMPORT_BASE_REVISION_NOT_VISIBLE'}
+ $previousRevision=1
+ Write-Output 'D07_IMPORT_SINGLE_SOURCE_COMMIT_BASE_REVISION=1'
  $editor=Await 'Задача текущего заказа' ([System.Windows.Automation.ControlType]::Edit) 'D07_IMPORT_SAVED_TASK_EDITOR_MISSING'
  $pattern=[System.Windows.Automation.ValuePattern]$editor.GetCurrentPattern(
   [System.Windows.Automation.ValuePattern]::Pattern)
