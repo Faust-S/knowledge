@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: d60e54eb194a366092f7afc5d564b538001bbcbc
+          ref: d198b5ff9307bd76e02923afbf00cb004011496b
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -78,7 +78,7 @@ jobs:
               Write-Host ("D06_SOURCE_" + $code.ToUpperInvariant() + "_PRETTIER_COUNT=" + $prettier)
               # Report only numeric coordinates and compiler codes, never private filenames.
               if ($ts -gt 0) {
-                $knownTs = @(& git ls-files -- "*.ts" "*.tsx" "*.mjs" | Sort-Object)
+                $knownTs = @(& git ls-files -- "*.ts" "*.tsx" "*.mjs")
                 $coord = @()
                 foreach ($match in [regex]::Matches($logText, '(?m)((?:src|scripts|tests)[/\\][^():\r\n]+)\((\d+),(\d+)\):\s*error\s+TS(\d+):')) {
                   $file = $match.Groups[1].Value.Replace([char]92, [char]47)
@@ -137,6 +137,8 @@ jobs:
                   $positions = [regex]::Matches($logText, 'test-d06-case040-procurement-continuity\.ts:(\d+):(\d+)')
                   Write-Host ("D06_SOURCE_PROCUREMENT_LINES=" + ((@($positions | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique -Last 5)) -join ","))
                   Write-Host ("D06_SOURCE_ASSERTION_CLASS=" + [int]($logText -match 'AssertionError|ERR_ASSERTION'))
+                  $caseOrdinal = [regex]::Match($logText, 'D06_CASE040_ASSERTION_ORDINAL=(\d+)')
+                  Write-Host ("D06_SOURCE_CASE040_ASSERTION_ORDINAL=" + $(if ($caseOrdinal.Success) { $caseOrdinal.Groups[1].Value } else { "0" }))
                 }
                 if ($task -eq "run test") {
                   $matches = [regex]::Matches($logText, '(?m)^> [^\r\n]+\s+(test(?::[a-z0-9:.-]+)?)\s*$')
