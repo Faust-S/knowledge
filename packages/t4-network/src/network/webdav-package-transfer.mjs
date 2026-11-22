@@ -8,8 +8,8 @@ const fail = (code, details) => { throw new T4TransferError(code, details); };
 export const packageSha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const digest = (v) => { if (typeof v !== 'string' || !/^[a-f0-9]{64}$/.test(v)) fail('EXPECTED_DIGEST_REQUIRED'); return v; };
 const strongETag = (v) => { if (typeof v !== 'string' || !/^"[\x21\x23-\x7e]+"$/.test(v)) fail('STRONG_ETAG_REQUIRED'); return v; };
-function checkedKey(v) {
-  if (typeof v !== 'string' || v.length > 240 || !v.endsWith('.iwxa')) fail('INVALID_PACKAGE_KEY');
+function checkedKey(v, keySuffix) {
+  if (typeof v !== 'string' || v.length > 240 || !v.endsWith(keySuffix)) fail('INVALID_PACKAGE_KEY');
   const parts = v.split('/');
   if (parts.some(p => !/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/.test(p) || p === '..')) fail('INVALID_PACKAGE_KEY');
   return parts.map(encodeURIComponent).join('/');
@@ -17,7 +17,8 @@ function checkedKey(v) {
 export function createWebDavPackageTransport(options = {}) {
   const { baseUrl, locationRef, placementPolicy, getMode, authorize, getAuthorizationHeader,
     fetchImpl = globalThis.fetch, maxBytes = 16 * 1024 * 1024, timeoutMs = 15000,
-    allowHttpLoopbackFixture = false } = options;
+    allowHttpLoopbackFixture = false, keySuffix = '.iwxa' } = options;
+  if (!['.iwxa','.t4d'].includes(keySuffix)) fail('WIRE_SUFFIX_UNSUPPORTED');
   if (![getMode, authorize, getAuthorizationHeader, fetchImpl].every(f => typeof f === 'function')) fail('HOST_PORTS_REQUIRED');
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 256 * 1024 * 1024) fail('INVALID_SIZE_LIMIT');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 120000) fail('INVALID_TIMEOUT');
@@ -37,8 +38,9 @@ export function createWebDavPackageTransport(options = {}) {
     state,key,sha256,etag,size,locationRef,workspaceId:policy.workspaceId,observedAt:new Date().toISOString(),
     workspaceApplied:false,signatureVerified:false,automaticRetryAllowed:false });
   async function request(method, key, headers, body, sha256) {
-    const path = checkedKey(key);
-    const ctx = Object.freeze({ operation:method === 'PUT' ? 't4.package.publish' : 't4.package.read',
+    const path = checkedKey(key,keySuffix);
+    const isDelta = keySuffix === '.t4d';
+    const ctx = Object.freeze({ operation:method === 'PUT' ? (isDelta ? 't4.delta.publish' : 't4.package.publish') : (isDelta ? 't4.delta.read' : 't4.package.read'),
       key,sha256,locationRef,workspaceId:policy.workspaceId,authorityRoot:policy.authorityRoot,
       writeOwnerRef:policy.writeOwnerRef,objectFamily:policy.objectFamily });
     await guard(ctx);
@@ -79,7 +81,7 @@ export function createWebDavPackageTransport(options = {}) {
     } finally { reader.releaseLock(); }
   }
   async function getSnapshot({key,expectedSha256,expectedETag} = {}) {
-    digest(expectedSha256); checkedKey(key);
+    digest(expectedSha256); checkedKey(key,keySuffix);
     const headers = expectedETag === undefined ? {} : {'If-Match':strongETag(expectedETag)};
     const call = await request('GET',key,headers,null,expectedSha256);
     try {
@@ -96,14 +98,14 @@ export function createWebDavPackageTransport(options = {}) {
     } finally { call.controller.abort(); call.release(); }
   }
   async function putSnapshot({key,bytes,expectedSha256,expectedETag,createOnly = false} = {}) {
-    digest(expectedSha256); checkedKey(key);
+    digest(expectedSha256); checkedKey(key,keySuffix);
     if (!(bytes instanceof Uint8Array) || !bytes.length) fail('PACKAGE_BYTES_REQUIRED');
     if (bytes.length > maxBytes) fail('PACKAGE_TOO_LARGE');
     const snapshot = Buffer.from(bytes); // Copy before any await.
     if (packageSha256(snapshot) !== expectedSha256) fail('DIGEST_MISMATCH');
     if (createOnly !== true || expectedETag !== undefined) fail('IMMUTABLE_WRITE_REQUIRED');
-    if (key !== `${expectedSha256}.iwxa`) fail('DIGEST_KEY_REQUIRED');
-    const call = await request('PUT',key,{'If-None-Match':'*','Content-Type':'application/octet-stream'},snapshot,expectedSha256);
+    if (key !== `${expectedSha256}${keySuffix}`) fail('DIGEST_KEY_REQUIRED');
+    const call = await request('PUT',key,{'If-None-Match':'*','Content-Type':keySuffix === '.t4d' ? 'application/vnd.iwxa.t4-delta+json' : 'application/octet-stream'},snapshot,expectedSha256);
     let alreadyPresent = false;
     try {
       const status = call.response.status;

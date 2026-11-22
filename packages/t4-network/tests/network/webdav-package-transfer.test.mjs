@@ -94,3 +94,31 @@ test('real HTTPS roundtrip joins confirmed original Exchange-shaped artifact to 
     assert.equal(commits,0);
   }finally{t.close();}
 });
+
+
+test('original T3 .iwxa remains default; T4 delta wire has a separate exact digest suffix', async()=>{
+  let requested;
+  const content=Buffer.from('{"schema":"IWXA_T4_DELTA_WIRE_V1"}'), digest=packageSha256(content);
+  const bridge=createWebDavPackageTransport({
+    ...cfg(),keySuffix:'.t4d',fetchImpl:async(url,options)=>{
+      requested={url:url.href,method:options.method,headers:options.headers};
+      return options.method==='PUT' ? new Response(null,{status:201}) :
+        new Response(content,{status:200,headers:{'content-length':String(content.length)}});
+    }
+  });
+  try{
+    const put=await bridge.putSnapshot({
+      key:digest+'.t4d',bytes:content,expectedSha256:digest,createOnly:true
+    });
+    assert.equal(put.state,'PUBLISHED_AND_READ_BACK');
+    assert.equal(requested.method,'GET');
+    const read=await bridge.getSnapshot({key:digest+'.t4d',expectedSha256:digest});
+    assert.deepEqual(read.bytes,content);
+    await assert.rejects(bridge.putSnapshot({key:digest+'.iwxa',bytes:content,
+      expectedSha256:digest,createOnly:true}),error=>error.code==='INVALID_PACKAGE_KEY');
+  }finally{bridge.close();}
+});
+test('unsupported wire suffix is refused without weakening original .iwxa transport',()=>{
+  assert.throws(()=>createWebDavPackageTransport({...cfg(),keySuffix:'.zip'}),
+    e=>e.code==='WIRE_SUFFIX_UNSUPPORTED');
+});
