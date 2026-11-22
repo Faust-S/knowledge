@@ -137,10 +137,13 @@ export async function qualifyNativeOriginalEmployee({
   if(process.platform!=='win32')throw Error('G4_NATIVE_WINDOWS_REQUIRED');
   if(!t3Token||!agentToken)throw Error('G4_NATIVE_PRIVATE_READ_GRANTS_REQUIRED');
   const root=mkdtempSync(join(tmpdir(),'iwxa-g4-native-'),{mode:0o700});
+  let phase='ORIGINAL_T3_SOURCE';
   try{
     const t3=join(root,'original-t3'),agent=join(root,'employee-agent');
     const t3Count=await stageOriginal(t3,t3Token,fetchT3);
+    phase='RELEASED_AGENT_SOURCE';
     const agentCount=await stageAgent(agent,agentToken);
+    phase='ORIGINAL_SOURCE_SYNTAX';
     // Fail early on a damaged original private source before credential
     // issuance. Only fixed machine codes leave this public Windows job.
     // The original code and syntax diagnostics never enter the CI output.
@@ -183,6 +186,7 @@ export async function qualifyNativeOriginalEmployee({
       'g4-original-agent-native-windows.mjs');
     const employee=join(process.cwd(),'packages','t3-core','tests',
       'g4-original-agent-native-driver.py');
+    phase='ORIGINAL_SIGNED_NATIVE_CHILD';
     const run=spawnSync(process.execPath,
       [driver,t3,agent,join(root,'fixture'),employee],
       {env,encoding:'utf8',timeout:900000,maxBuffer:1024*1024});
@@ -259,6 +263,15 @@ export async function qualifyNativeOriginalEmployee({
     }
     console.log('G4_NATIVE_PROCESS_SOURCE_PASS_NOT_INSTALLED_GUI');
     return {privateT3Files:t3Count,privateAgentFiles:agentCount};
+  }catch(error){
+    // Fixed enumerated phases and validated machine codes only. Do not
+    // publish a private source path, task, stderr, identity or stack.
+    const message=typeof error?.message==='string'?error.message:'';
+    const code=/^(?:G4_|T3_PRIVATE_SOURCE_)[A-Z0-9_]{3,100}$/.test(message)
+      ?message:'UNCLASSIFIED';
+    console.error('G4_NATIVE_SOURCE_FAILURE_PHASE',phase);
+    console.error('G4_NATIVE_SOURCE_FAILURE_CODE',code);
+    throw error;
   }finally{
     rmSync(root,{recursive:true,force:true,maxRetries:2});
     console.log('G4_NATIVE_PRIVATE_SOURCE_AND_EVIDENCE_REMOVED');
