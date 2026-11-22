@@ -256,6 +256,14 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
     await t3Controller.current.stageSelected();
   }
 
+  async function recoverSelectedT3() {
+    if (busy || !t3Controller.current || !t3Host?.recoverSelected) return;
+    beginSource();
+    setSourceName('Проверка черновика в оригинальном T3');
+    // Independent signed Kernel readback only: never redispatch stage.
+    await t3Controller.current.recoverSelected();
+  }
+
   async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -315,6 +323,9 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
           <div className="source-connection" role="status">{t3Host
             ? 'T3 Host предоставлен. Чтение требует отдельного подписанного Activity Read.'
             : 'T3 Host не подключён · чтение пользовательской базы недоступно.'}</div>
+          {t3Host?.recoverSelected ? <button className="button button-secondary" type="button"
+            disabled={busy || ['READING','STAGING','RECOVERING'].includes(t3Review?.status ?? '')}
+            onClick={recoverSelectedT3}>Проверить сохранённый черновик T3</button> : null}
           <button className="button button-primary" type="button" disabled={busy} onClick={loadExample}>
             {busy ? 'Анализ…' : 'Открыть встроенный пример'}
           </button>
@@ -347,7 +358,7 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
               ? 'Команда записи уже отправлялась. Повтор запрещён до независимой сверки с оригинальным Kernel и новой доверенной сессии.'
               : 'Изменившееся или неподтверждённое разрешение не используется повторно.'}</p></div> : null}
           {!preview && !objectEvidence && !t3Review?.review && !problem &&
-            !['HOLD','STAGING','STAGED'].includes(t3Review?.status ?? '') ? <div className="empty-state"><div className="empty-icon">IX</div>
+            !['HOLD','STAGING','RECOVERING','STAGED'].includes(t3Review?.status ?? '') ? <div className="empty-state"><div className="empty-icon">IX</div>
             <strong>Выберите базу для анализа</strong><p>Автоматически появятся обнаруженные процессы, этапы и роли. Для начала доступен встроенный синтетический пример.</p></div> : null}
           {t3Review?.status === 'READING' ? <div className="empty-state" role="status">
             <div className="empty-icon">T3</div><strong>Чтение выбранного Workspace</strong>
@@ -358,11 +369,19 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
             <p>Исходные данные повторно проверяются. Отдельное право Activity Derive
               и запись через оригинальный Kernel обязательны.</p>
           </div> : null}
+          {t3Review?.status === 'RECOVERING' ? <div className="empty-state" role="status">
+            <div className="empty-icon">T3</div><strong>Проверка сохранённого черновика</strong>
+            <p>Оригинальный T3 Kernel выполняет независимое подписанное чтение.
+              Новая запись не отправляется.</p>
+          </div> : null}
           {t3Review?.status === 'STAGED' ? <section className="verification-panel" role="status">
             <div className="verification-left">
               <span className="eyebrow">03 · T3 · ВНУТРЕННИЙ РЕЗУЛЬТАТ</span>
-              <h3>Черновик сохранён для проверки владельцем</h3>
-              <p>Оригинальный T3 Kernel подтвердил запись в отдельную Workspace того же субъекта.
+              <h3>{t3Review.recovered
+                ? 'Сохранённый черновик найден и проверен' : 'Черновик сохранён для проверки владельцем'}</h3>
+              <p>{t3Review.recovered
+                ? 'Независимое подписанное чтение оригинального Kernel подтвердило ранее сохранённый черновик. Повторная запись не выполнялась.'
+                : 'Оригинальный T3 Kernel подтвердил запись в отдельную Workspace того же субъекта.'}
                 Источник не перенесён. Права на публикацию и обезличивание не установлены.</p>
             </div>
             <div className="verification-right"><span className="hold-chip">HOLD · ЭКСПОРТ ЗАКРЫТ</span></div>
