@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {createT4OriginalHostCaptureAdapter} from '../src/network/original-host-capture-adapter.mjs';
 import {packageSha256} from '../src/network/webdav-package-transfer.mjs';
+import {publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork}
+  from '../src/network/original-host-outbox-delivery.mjs';
 
 const ws='original:workspace',owner='original:t3:owner';
 const objectFrom='original:object:from',objectTo='original:object:to';
@@ -369,4 +371,152 @@ test('local Host cannot reconcile network-only Asset or Relation operations',asy
     captureRef:'source:2',workspaceId:ws,relationId,
   }),err('ORIGINAL_HOST_RECOVERY_REQUIRES_T4'));
   assert.equal(f.intents.size,0);
+});
+
+function remote(){
+ const files=new Map(),counts={puts:0,checks:0};
+ let loseNext=false;
+ return{
+   files,counts,loseAck:()=>{loseNext=true;},
+   putSnapshot:async({key,bytes,expectedSha256,createOnly})=>{
+     assert.equal(createOnly,true);assert.equal(packageSha256(bytes),expectedSha256);
+     counts.puts++;
+     if(!files.has(key))files.set(key,Buffer.from(bytes));
+     if(loseNext){loseNext=false;
+       throw Object.assign(new Error('remote ACK uncertain'),{code:'OUTCOME_UNKNOWN'});}
+     return{key,sha256:expectedSha256,
+       state:counts.puts>1?'ALREADY_PRESENT_VERIFIED':'PUBLISHED_AND_READ_BACK'};
+   },
+   inspectOutcome:async({key,expectedSha256})=>{
+     counts.checks++;
+     const bytes=files.get(key);
+     if(!bytes)throw Object.assign(new Error('no remote object'),{code:'REMOTE_NOT_FOUND'});
+     assert.equal(packageSha256(bytes),expectedSha256);
+     return{key,sha256:expectedSha256,state:'EXPECTED_BYTES_PRESENT',
+       historicalWriteProven:false};
+   }
+ };
+}
+const outboxParams=(f,kind,captureRef,subjectId,transport=remote(),overrides={})=>({
+  ...f.ports,kind,captureRef,subjectId,workspaceId:ws,
+  originalWriteOwnerRef:owner,transport,
+  authorizeNetworkPublish:async()=>true,
+  ...overrides,
+});
+test('original Host sends exact staged Asset bytes after source event history has advanced',async()=>{
+ const f=fixture(),host=adapter(f),transport=remote();
+ const first=await host.putAsset({mutationInput:assetInput(),
+   sourceCursor:await cursor(f),captureRef:'t4:asset:delayed-send'});
+ await f.originalKernel.putRelation({
+   ...relationInput(),
+   event:{event_type:'business.unrelated-link',
+     idempotency_key:'independent:link:one',payload:{}},
+ });
+ const originalOutbox=structuredClone(f.outbox.get('t4:asset:delayed-send'));
+ const result=await publishT4OriginalHostOutbox(
+   outboxParams(f,'ASSET_PUT','t4:asset:delayed-send',assetId,transport));
+ assert.equal(result.networkPublishedAndReadBack,true);
+ assert.equal(result.originalSourceHistoryVerified,true);
+ assert.equal(result.originalRecipientApplied,false);
+ assert.equal(result.sourceCursorAdvanced,false);
+ assert.equal(result.recipientCursorAdvanced,false);
+ assert.equal(f.outbox.size,1);
+ assert.deepEqual(f.outbox.get('t4:asset:delayed-send'),originalOutbox);
+ assert.deepEqual(transport.files.get(result.key),first.capture.prepared.bytes);
+ assert.equal(transport.counts.puts,1);
+});
+test('original Host publishes staged Relation without touching original graph or sync cursors',async()=>{
+ const f=fixture(),host=adapter(f),transport=remote();
+ const first=await host.putRelation({
+   mutationInput:relationInput(),sourceCursor:await cursor(f),
+   captureRef:'t4:relation:network-send',
+ });
+ const result=await publishT4OriginalHostOutbox(
+   outboxParams(f,'RELATION_PUT','t4:relation:network-send',relationId,transport));
+ assert.equal(result.kind,'RELATION_PUT');
+ assert.equal(result.networkPublishedAndReadBack,true);
+ assert.deepEqual(transport.files.get(result.key),first.capture.prepared.bytes);
+ assert.equal(f.relation().relation_id,relationId);
+ assert.equal(f.writes.filter(x=>x.kind==='putRelation').length,1);
+});
+test('remote Asset acknowledgement loss does not consume original outbox; explicit inspection verifies remote bytes',async()=>{
+ const f=fixture(),host=adapter(f),transport=remote();
+ await host.putAsset({mutationInput:assetInput(),sourceCursor:await cursor(f),
+   captureRef:'t4:asset:remote-ack'});
+ transport.loseAck();
+ const params=outboxParams(f,'ASSET_PUT','t4:asset:remote-ack',assetId,transport);
+ await assert.rejects(publishT4OriginalHostOutbox(params),e=>
+   e?.code==='OUTBOX_REMOTE_OUTCOME_UNKNOWN'&&
+   e.details.remoteWriteMayExist===true&&
+   e.details.automaticRetryAllowed===false);
+ assert.equal(transport.files.size,1);
+ assert.equal(transport.counts.puts,1);
+ const inspected=await inspectT4OriginalHostOutboxNetwork(params);
+ assert.equal(inspected.expectedBytesOnRemoteVerified,true);
+ assert.equal(inspected.historicalNetworkPutAcknowledged,false);
+ assert.equal(inspected.originalRecipientApplied,false);
+ assert.equal(transport.counts.puts,1);
+ assert.equal(transport.counts.checks,1);
+ assert.equal(f.outbox.get('t4:asset:remote-ack').networkPublished,false);
+});
+test('publishing requires explicit Host-selected network authority even with T3 read rights',async()=>{
+ const f=fixture(),host=adapter(f),transport=remote();
+ await host.putRelation({mutationInput:relationInput(),
+   sourceCursor:await cursor(f),captureRef:'t4:relation:network-denied'});
+ await assert.rejects(publishT4OriginalHostOutbox(outboxParams(
+   f,'RELATION_PUT','t4:relation:network-denied',relationId,transport,
+   {authorizeNetworkPublish:async()=>false})),
+   err('OUTBOX_ORIGINAL_OR_NETWORK_AUTHORITY_DENIED'));
+ assert.equal(transport.counts.puts,0);
+});
+test('local T3 mode cannot upload a previously staged original outbox',async()=>{
+ const f=fixture(),host=adapter(f),transport=remote();
+ await host.putAsset({mutationInput:assetInput(),sourceCursor:await cursor(f),
+   captureRef:'t4:asset:turned-off'});
+ await assert.rejects(publishT4OriginalHostOutbox(outboxParams(
+   f,'ASSET_PUT','t4:asset:turned-off',assetId,transport,
+   {getMode:()=> 'LOCAL_T3'})),err('OUTBOX_NETWORK_MODE_OFF'));
+ assert.equal(transport.counts.puts,0);
+});
+test('tampered original outbox bytes never trigger remote write',async()=>{
+ const f=fixture(),host=adapter(f),transport=remote();
+ await host.putAsset({mutationInput:assetInput(),sourceCursor:await cursor(f),
+   captureRef:'t4:asset:tamper-wire'});
+ f.outbox.get('t4:asset:tamper-wire').bytesBase64=
+   Buffer.from('a wrong file').toString('base64');
+ await assert.rejects(publishT4OriginalHostOutbox(outboxParams(
+   f,'ASSET_PUT','t4:asset:tamper-wire',assetId,transport)),
+   err('OUTBOX_ORIGINAL_BYTES_CORRUPTED'));
+ assert.equal(transport.counts.puts,0);
+});
+test('original T3 source Event mutation is detected before publication',async()=>{
+ const f=fixture(),host=adapter(f),transport=remote();
+ await host.putRelation({mutationInput:relationInput(),sourceCursor:await cursor(f),
+   captureRef:'t4:relation:event-tampered'});
+ f.events.at(-1).payload.businessPurpose='forged';
+ await assert.rejects(publishT4OriginalHostOutbox(outboxParams(
+   f,'RELATION_PUT','t4:relation:event-tampered',relationId,transport)),
+   err('ORIGINAL_T3_EVENT_HISTORY_DIVERGED'));
+ assert.equal(transport.counts.puts,0);
+});
+test('intent cannot be changed independently of original outbox and still authorize publishing',async()=>{
+ const f=fixture(),host=adapter(f),transport=remote();
+ await host.putAsset({mutationInput:assetInput(),sourceCursor:await cursor(f),
+   captureRef:'t4:asset:intent-changed'});
+ f.intents.get('t4:asset:intent-changed').operation.bytesBase64=
+   Buffer.from('another binary file').toString('base64');
+ await assert.rejects(publishT4OriginalHostOutbox(outboxParams(
+   f,'ASSET_PUT','t4:asset:intent-changed',assetId,transport)),
+   err('OUTBOX_ORIGINAL_ASSET_INTENT_MISMATCH'));
+ assert.equal(transport.counts.puts,0);
+});
+test('original relation cannot publish under a different owner or Workspace',async()=>{
+ const f=fixture(),host=adapter(f),transport=remote();
+ await host.putRelation({mutationInput:relationInput(),sourceCursor:await cursor(f),
+   captureRef:'t4:relation:wrong-owner'});
+ await assert.rejects(publishT4OriginalHostOutbox(outboxParams(
+   f,'RELATION_PUT','t4:relation:wrong-owner',relationId,transport,
+   {originalWriteOwnerRef:'another:owner'})),
+   err('OUTBOX_ORIGINAL_INTENT_OR_ENTRY_INVALID'));
+ assert.equal(transport.counts.puts,0);
 });
