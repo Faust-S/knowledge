@@ -42,9 +42,9 @@ test('all nineteen user-facing routes and owner-only safety states are reachable
 
 test('pinned source dashboard uses existing Actions, not stale results of a previous source',()=>{
  const ui=load('../desktop/src/ActivityWorkspace.tsx');
- assert.match(ui,/w\.source==='a1'\?<button onClick=\{\(\)=>choose\('a1'\)\}/);
- assert.match(ui,/w\.source==='ocel'\?<button onClick=\{\(\)=>choose\('ocel'\)\}/);
- assert.match(ui,/w\.source==='t3'\?<button onClick=\{\(\)=>choose\('t3'\)\}/);
+ assert.match(ui,/w\.source==='a1'\?<button onClick=\{\(\)=>choose\('a1',true\)\}/);
+ assert.match(ui,/w\.source==='ocel'\?<button onClick=\{\(\)=>choose\('ocel',true\)\}/);
+ assert.match(ui,/w\.source==='t3'\?<button onClick=\{\(\)=>choose\('t3',true\)\}/);
  assert.match(ui,/w\.source==='current'\?current:w\.source===current\?w\.source:'none'/);
  assert.match(ui,/sourceHeading/);
  assert.match(ui,/sourceDetail/);
@@ -69,4 +69,13 @@ test('widget controls expose exact UI Automation names for installed Windows use
  assert.match(witness,/IWXA_ACTIVITY_V7_NATIVE_WIDGET_ADDED_PASS/);
  assert.match(witness,/IWXA_ACTIVITY_V7_NATIVE_REORDER_PASS/);
  assert.match(witness,/IWXA_ACTIVITY_V7_NATIVE_COLD_LAYOUT_PASS/);
+});
+
+test('the dashboard changes an explicitly pinned source in place and bounds large previews',()=>{
+ const ui=load('../desktop/src/ActivityWorkspace.tsx');
+ assert.match(ui,/if\(!keepDashboard\)go\('Источники'\)/);
+ assert.match(ui,/processes\.slice\(0,6\)/);
+ assert.match(ui,/states\.slice\(0,8\)/);
+ assert.match(ui,/Открыть всю карту/);
+ assert.match(ui,/Все процессы/);
 });
