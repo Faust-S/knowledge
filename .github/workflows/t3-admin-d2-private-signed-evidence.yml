@@ -7,6 +7,8 @@ on:
       - .github/workflows/t3-admin-d2-private-signed-evidence.yml
       - packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs
       - packages/t3-core/tests/g4-installed-original-center-first-use.ps1
+      - packages/t3-core/src/workspace-host/bootstrap/SignedSelectedWorkspaceGate.tsx
+      - packages/t3-core/tests/t3-d1-signed-selected-workspace.dom.test.tsx
   workflow_dispatch:
 permissions:
   contents: read
@@ -27,7 +29,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $src=(& git rev-parse 'HEAD:packages/t3-core/src').Trim()
           $t2=(& git rev-parse 'HEAD:packages/t3-core/qualified-runtime').Trim()
-          if($src -cne '1576dfa8e9ef6c2feec8f232352a195622651307' -or
+          if($src -cne 'e63ff6a8f0499170049f4311018ad1d7bef463bb' -or
              $t2 -cne '1594274dbf5e38214b8422ba11e8c7114bd5425c'){
             throw 'D2_PUBLIC_ORIGINAL_SOURCE_PIN_FAILED'
           }
@@ -116,7 +118,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $src=(& git rev-parse 'HEAD:packages/t3-core/src').Trim()
           $t2=(& git rev-parse 'HEAD:packages/t3-core/qualified-runtime').Trim()
-          if($src -cne '1576dfa8e9ef6c2feec8f232352a195622651307' -or
+          if($src -cne 'e63ff6a8f0499170049f4311018ad1d7bef463bb' -or
              $t2 -cne '1594274dbf5e38214b8422ba11e8c7114bd5425c'){
             throw 'D2_INSTALLED_EXACT_ORIGINAL_SOURCE_PIN_FAILED'
           }
