@@ -1,4 +1,4 @@
-name: D07 contextual ads official originals discovery
+name: D07 contextual ads two pinned official source facets
 on:
   push:
     branches: [work/2026-11-22-d07-methodology-v13]
@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: e5370525a1da9345cf08311c812dc6d561b300b3
+          ref: beb0e711f1aefa68f85919ffebbc151ee7f227fd
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify pinned private revision
         run: |
-          test "$(git -C site rev-parse HEAD)" = "e5370525a1da9345cf08311c812dc6d561b300b3"
+          test "$(git -C site rev-parse HEAD)" = "beb0e711f1aefa68f85919ffebbc151ee7f227fd"
           test -f site/scripts/d07-contextual-original-qualification.mjs
           test -f site/scripts/research/d07-contextual-originals.json
           echo D07_CONTEXTUAL_ORIGINAL_SOURCE_IDENTITY=PASS
@@ -51,8 +51,8 @@ jobs:
             exit 1
           }
           echo D07_CONTEXTUAL_SOURCE_VALIDATION=PASS
-      - name: Discover and print only public original section hashes, never approve
+      - name: Independently corroborate exactly two pinned primary-source operation facets
         working-directory: site
         run: |
-          node --import tsx scripts/d07-contextual-original-qualification.mjs
+          node --import tsx scripts/d07-contextual-original-qualification.mjs --require-pinned
       # No private source, raw page text or customer artifacts uploaded.
