@@ -42,12 +42,16 @@ class Adoption:
     resource_unit: str
     from_slot: int
     to_slot: int
+    authorized_future_works: tuple[str, ...]
+    future_use_source_id: str | None
+    future_use_source_revision: str | None
 
 
 FIELDS = frozenset({
     "id", "resource", "owner", "reuse_claim", "source_id",
     "source_revision", "source_ref", "declared_units",
     "initial_units", "resource_unit", "from_slot", "to_slot",
+    "authorized_future_works", "future_use_source_id", "future_use_source_revision",
 })
 
 
@@ -69,7 +73,9 @@ class CapabilityAdoptionPolicy:
         self.reuse_raw = reuse_raw
         self.permissions_raw = permissions_raw
         self.measurement_raw = measurement_raw
-        reuse_ids = {claim.get("id") for claim in reuse_raw if isinstance(claim, dict)}
+        self.reuse_by_id = {claim.get("id"): claim for claim in reuse_raw
+                            if isinstance(claim, dict)}
+        reuse_ids = set(self.reuse_by_id)
         measured_ids = {row.get("claim_id") for row in measurement_raw if isinstance(row, dict)}
         self.declared: dict[str, Adoption] = {}
         self.applied: dict[str, int] = {}
@@ -106,15 +112,34 @@ class CapabilityAdoptionPolicy:
                 raise CapabilityInputError("CAPABILITY_REQUIRES_EXISTING_MEASURED_REUSE")
             if not source_ref.startswith(f"model://{owner}/"):
                 raise CapabilityInputError("CAPABILITY_OWNER_SOURCE_REF_REQUIRED")
+            works = obj["authorized_future_works"]
+            known_work_ids = set(state.works) | {
+                ev["work_spec"]["id"] for ev in state.events
+                if ev["action"] == "request" and isinstance(ev.get("work_spec"), dict)
+            }
+            if (not isinstance(works, list) or not 1 <= len(works) <= 64 or
+                len(set(works)) != len(works) or
+                any(not isinstance(w, str) or w not in known_work_ids for w in works)):
+                raise CapabilityInputError("CAPABILITY_FUTURE_ORIGINAL_WORK_SCOPE_REQUIRED")
+            original_holder = self.reuse_by_id[claim].get("actor")
+            follow_id = obj["future_use_source_id"]
+            follow_revision = obj["future_use_source_revision"]
+            if original_holder != owner:
+                if not isinstance(original_holder, str) or not isinstance(follow_id, str) or not isinstance(follow_revision, str):
+                    raise CapabilityInputError("CAPABILITY_INTERFIRM_FOLLOW_ON_OWNER_GRANT_REQUIRED")
+                if not follow_id or not follow_revision:
+                    raise CapabilityInputError("CAPABILITY_INTERFIRM_FOLLOW_ON_OWNER_GRANT_REQUIRED")
+            elif follow_id is not None or follow_revision is not None:
+                raise CapabilityInputError("CAPABILITY_SELF_USE_MUST_NOT_CLAIM_FOREIGN_GRANT")
             if state.context_basis is None or source_id not in state.context_basis.sources:
                 raise CapabilityInputError("CAPABILITY_REQUIRES_EXPLICIT_CONTEXT_SOURCE")
             self.declared[key] = Adoption(
                 key, resource, owner, claim, source_id, revision, source_ref,
                 proposed, initial, unit, a, b,
+                tuple(works), follow_id, follow_revision,
             )
 
-    @staticmethod
-    def _original_source_status(state: Any, item: Adoption, at: int) -> str:
+    def _original_source_status(self, state: Any, item: Adoption, at: int) -> str:
         if state.context_basis is None:
             return "CAPABILITY_CONTEXT_BASIS_MISSING"
         source = state.context_basis.sources.get(item.source_id)
@@ -131,6 +156,25 @@ class CapabilityAdoptionPolicy:
             purpose="capability-adoption", operation="DERIVE", at=at
         ) != "MODEL_SOURCE_SCOPE_CONSISTENT":
             return "CAPABILITY_SOURCE_SCOPE_NOT_QUALIFIED"
+        # The earlier one-Work permission does not license future use by a
+        # different firm. This separate owner declaration is only research
+        # evidence and is still not a legal IP licence.
+        holder = self.reuse_by_id[item.reuse_claim]["actor"]
+        if holder != item.owner:
+            follow = state.context_basis.sources.get(item.future_use_source_id)
+            if follow is None or follow.owner != holder:
+                return "CAPABILITY_FOLLOW_ON_ORIGINAL_HOLDER_SOURCE_MISSING"
+            if follow.revision != item.future_use_source_revision:
+                return "CAPABILITY_FOLLOW_ON_HOLDER_REVISION_STALE"
+            if follow.status != "CONFIRMED" or not {holder, item.owner} <= set(follow.usable_by):
+                return "CAPABILITY_FOLLOW_ON_OWNER_SOURCE_NOT_SHARED"
+            if follow.valid_until is not None and at > follow.valid_until:
+                return "CAPABILITY_FOLLOW_ON_OWNER_SOURCE_EXPIRED"
+            if follow.scope is not None and check_scope(
+                follow.scope, core=follow.scope.core,
+                purpose="follow-on-capability", operation="SHARE", at=at
+            ) != "MODEL_SOURCE_SCOPE_CONSISTENT":
+                return "CAPABILITY_FOLLOW_ON_SOURCE_SCOPE_UNQUALIFIED"
         return "NONE"
 
     def refresh(self, state: Any, at: int) -> None:
@@ -194,7 +238,8 @@ class CapabilityAdoptionPolicy:
             state.capacity_ledger.declare_future_capacity(FutureCapacityClaim(
                 adoption=item.key, resource=item.resource, source_id=item.source_id,
                 source_revision=item.source_revision,
-                start=item.from_slot, end=item.to_slot, units=item.declared_units
+                start=item.from_slot, end=item.to_slot, units=item.declared_units,
+                allowed_works=item.authorized_future_works,
             ))
         except CapacityBlocked as exc:
             raise CapabilityBlocked(exc.reason, exc.resource) from exc
@@ -213,6 +258,8 @@ class CapabilityAdoptionPolicy:
                 "original_resource_unit": item.resource_unit,
                 "prospective_units_if_owner_adopted": item.declared_units,
                 "planned_slot_from": item.from_slot, "planned_slot_to": item.to_slot,
+                "authorized_follow_on_work_ids": list(item.authorized_future_works),
+                "follow_on_prior_holder_source": item.future_use_source_id,
                 "original_owner_event_applied_at": self.applied.get(item.key),
                 "future_capacity_source_status": source_status,
                 "available_for_new_original_work": (
