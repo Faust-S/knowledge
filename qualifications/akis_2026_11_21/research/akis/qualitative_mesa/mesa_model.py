@@ -1125,6 +1125,9 @@ class OperatorAKISModel(mesa.Model):
                         "declared_comparable_work_count"],
                     "source_declared_nine_onboarding_comparable_work_count": counterfactual[
                         "model_declared_nine_onboarding_comparable_work_count"],
+                    "original_work_timed_rework_cost_work_count": counterfactual[
+                        "original_event_timed_rework_cost_work_count"],
+                    "private_source_declared_stage_timestamps_redisclosed": False,
                     "nine_author_categories_derived_from_original_cost_rows": True,
                     "nine_category_evidence_not_realized_savings": True,
                     "owner_private_nine_costs_and_zero_sources_redisclosed": False,
@@ -1208,6 +1211,7 @@ class OperatorAKISModel(mesa.Model):
             )
             if cash or lifecycle:
                 counts = cash.get("cross_owner_nonfinancial_status_counts", {})
+                lifecycle_timing = lifecycle.get("original_work_event_timing", {})
                 output["general_akis_model"]["economic_time_and_cost_feedback"] = {
                     "research_status": "CURRENT_END_OF_RUN_DECLARED_ECONOMIC_PROJECTION",
                     "original_ledger": "ONE_ECONOMIC_CLAIMS_TRANSFER_AND_RESOURCE_USE_SET",
@@ -1219,6 +1223,17 @@ class OperatorAKISModel(mesa.Model):
                         "same_tick_order_unresolved", 0
                     ),
                     "full_lifecycle_stages_in_model": len(lifecycle.get("stages", [])),
+                    "original_work_source_declared_timed_cost_link_count": lifecycle_timing.get(
+                        "original_lifecycle_timed_record_count", 0
+                    ),
+                    "original_work_quality_rework_signal_count": lifecycle_timing.get(
+                        "original_applied_quality_rework_signal_count", 0
+                    ),
+                    "original_work_timed_rework_source_cost_link_count": lifecycle_timing.get(
+                        "source_declared_quality_rework_cost_record_count", 0
+                    ),
+                    "source_declared_lifecycle_timestamps_are_not_real_incurrence": True,
+                    "lifecycle_private_cost_sources_and_event_dates_redisclosed": False,
                     "original_cost_records_classified": lifecycle.get(
                         "classified_original_record_count", 0
                     ),

@@ -844,6 +844,10 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
             output["lifecycle_resource_costs"] = classify_lifecycle_costs(
                 doc["lifecycle_costs"], sources=sources,
                 resource_index=resource_index, subjects=subjects, outside=outside,
+                works=works, trace=trace,
+                allocated_by_work=output.get("common_work_allocations", {}).get(
+                    "by_work", {}
+                ),
             )
         except LifecycleInputError as exc:
             raise EconomicInputError(str(exc)) from exc

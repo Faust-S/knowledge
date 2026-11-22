@@ -125,6 +125,10 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
     raw_resource_uses = econ["resource_uses"]
     bindings = econ.get("lifecycle_costs", {}).get("bindings", [])
     lifecycle_by_resource = {record["resource_use_id"]: record for record in bindings}
+    time_evidence = economic_view.get("lifecycle_resource_costs", {}).get(
+        "original_work_event_timing"
+    )
+    timeline_by_work = time_evidence.get("by_original_work", {}) if time_evidence else {}
     modern = {b["resource_use_id"]: b for b in econ.get("modern_cost_bindings", [])}
     allocation = economic_view.get("common_work_allocations")
     by_work = allocation["by_work"] if allocation is not None else {}
@@ -277,6 +281,22 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                 if legacy_unqualified_ids:
                     reasons.append("HISTORICAL_LEGACY_TAG_IS_NOT_EXACT_AUTHOR_COST")
                 onboarding_9 = sorted(scoped_costs)
+                time_events = (
+                    timeline_by_work.get(work_id, {})
+                    .get("per_original_scenario_owner", {})
+                    .get(sc, {}).get(owner, [])
+                )
+                allocated_or_original = {
+                    item["id"] for item in resource + allocated_resource
+                }
+                timed_ids = {event["resource_use_id"] for event in time_events}
+                # Timing is an optional original-source gate. Even when
+                # supplied, source-declared event alignment is NOT a clocked
+                # bank payment or proof of cost incurrence.
+                untimed_ids = (
+                    sorted(allocated_or_original - timed_ids)
+                    if time_evidence is not None else None
+                )
                 nine_complete = not missing and not reasons
                 private_liquidity = economic_view.get("cash_timing", {}).get(
                     "per_original_owner_private_research_projection", {}
@@ -307,6 +327,27 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                     "onboarding_nine_original_noncash_total_separate_from_cash": (
                         _money(sum(scoped_costs.values(), Decimal(0)))
                         if nine_complete else None
+                    ),
+                    "original_work_model_timed_lifecycle_costs": [
+                        {
+                            "stage": event["stage"],
+                            "original_applied_work_event_at": event["original_event_at"],
+                            "original_resource_use_id": event["resource_use_id"],
+                            "original_cost_slice": event[
+                                "source_declared_noncash_original_work_cost"
+                            ],
+                            "is_not_verified_actual_incurrence": True,
+                            "outside_not_executed": event[
+                                "outside_option_action_was_not_executed"
+                            ],
+                        } for event in time_events
+                    ],
+                    "original_work_model_timed_cost_count": len(time_events),
+                    "original_work_costs_without_event_timing": untimed_ids,
+                    "original_work_timed_cost_coverage": (
+                        "ALL_ORIGINAL_WORK_RESOURCE_ROWS_SOURCE_EVENT_ALIGNED_MODEL_ONLY"
+                        if untimed_ids == [] else
+                        "PARTIAL_OR_UNKNOWN_ORIGINAL_WORK_EVENT_TIMING"
                     ),
                     "onboarding_nine_legacy_unqualified_original_use_count": len(legacy_unqualified_ids),
                     "onboarding_nine_unclassified_original_use_count": len(unclassified_onboarding_ids),
@@ -377,6 +418,15 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
             for row in owner_comparison.values()
         )
         totals = {sc: Decimal(per_scenario[sc]["original_work_external_net_cash"]) for sc in SCENARIOS}
+        original_rework_events = timeline_by_work.get(work_id, {}).get(
+            "original_applied_quality_rework_signal_count"
+        ) if time_evidence is not None else None
+        referenced_rework_cost_events = sum(
+            event["stage"] == "CLAIMS_AND_REWORK"
+            for scenario in per_scenario.values()
+            for row in scenario["owners"].values()
+            for event in row["original_work_model_timed_lifecycle_costs"]
+        )
         nine_all_owners = complete and all(
             comparison["nine_onboarding_declared_scope_comparable"]
             for comparison in owner_comparison.values()
@@ -418,6 +468,15 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                 if nine_all_owners else "NOT_IDENTIFIABLE_FROM_COMPLETE_ORIGINAL_OWNER_SOURCES"
             ),
             "nine_cost_categories_not_a_second_ledger": True,
+            "original_work_quality_rejection_or_rework_event_count": original_rework_events,
+            "source_declared_rework_noncash_cost_event_binding_count": referenced_rework_cost_events,
+            "rework_cost_evidence_status": (
+                "ORIGINAL_APPLIED_REWORK_SIGNAL_COST_SOURCE_MISSING_OR_PARTIAL"
+                if original_rework_events and not referenced_rework_cost_events else
+                "ORIGINAL_REWORK_EVENT_AND_SOURCE_COST_ANCHORED_MODEL_ONLY"
+                if referenced_rework_cost_events else "REWORK_COST_EVENT_EVIDENCE_UNKNOWN"
+            ),
+            "rework_not_real_damage_payment_or_causal_profit": True,
             "status": ("DECLARED_WORK_SCOPE_CASH_AND_RESOURCE_ARITHMETIC_ONLY" if complete
                        else "COUNTERFACTUAL_WORK_SCOPE_NOT_QUALIFIED"),
             "global_reasons": global_reasons,
@@ -435,6 +494,11 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
             == "SOURCE_DECLARED_NINE_AUTHOR_COST_ARITHMETIC_ONLY" for r in results
         ),
         "independent_scenario_original_nine_categories_supported": True,
+        "original_event_timed_rework_cost_work_count": sum(
+            w["source_declared_rework_noncash_cost_event_binding_count"] > 0
+            for w in results
+        ),
+        "event_time_alignment_not_real_cost_incurrence": True,
         "operator_and_original_participant_costs_not_combined_with_cash": True,
         "nine_historical_onboarding_categories": list(ONBOARDING_CATEGORIES),
         "contemporary_cost_exposures": list(MODERN_EXPOSURES),
