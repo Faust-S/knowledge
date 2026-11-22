@@ -335,7 +335,10 @@ def quality_lifecycle_case(*, deficient=False, missing_assessment=False):
 def test_r1l_two_cycles_require_separate_customer_quality_assessments():
     d = quality_lifecycle_case()
     out = simulate(d)
-    assert out["counts"]["blocked"] == 0, out["trace"]
+    assert out["counts"]["blocked"] == 0, [
+        (row["at"], row["action"], row["reason"])
+        for row in out["trace"] if row["outcome"] == "BLOCKED"
+    ]
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert [row["work"] for row in trace_for(out, "assess_result_quality")] == [
