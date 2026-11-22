@@ -125,7 +125,7 @@ test('source archive/status tampering after original signed commit cannot yield 
  const x=f();x.issue();x.change('ACTIVE',0);
  const saved=copy(x.current.state);
  x.current.state.productLicenseIssueLedger.records['request:factory'].signedLicense
-   .payload.limits.personalAgentSeats=11;
+   .payload.limits.personalAgentSeats=5;
  mustDeny(()=>x.read(),'SIGNATURE_INVALID');
  x.current.state=saved;
  x.current.state.productLicenseStatusFloors['license:factory:1'].statusDigest='a'.repeat(64);
