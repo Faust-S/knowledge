@@ -36,6 +36,7 @@ from .partner_discovery import DiscoveryInputError, parse_discovery, parse_forma
 from .general_system import GeneralSystemInputError, parse_general_system, general_system_view
 from .org_code_policy import OrgCodeInputError, parse_org_code_policy
 from .economic_flow import EconomicInputError, evaluate_economic_claims
+from .competence_reuse import ReuseInputError, evaluate_competence_reuse
 from .cooperation import (
     cooperation_system_view, cooperative_model_readiness,
     cooperative_readiness_evolution, latest_owner_interest_claim, latest_future_participation,
@@ -227,6 +228,7 @@ class OperatorAKISModel(mesa.Model):
                 (type(requested_horizon) is not int or
                  not 0 <= requested_horizon <= 10000)):
             raise InputError("MODEL_HORIZON_MUST_BE_NONNEGATIVE_INTEGER")
+        self.competence_reuse_raw = research_input.pop("competence_reuse_evidence", None)
         self.economic_claims = research_input.pop("economic_claims", None)
         self.adaptation_enabled = "adaptation_requests" in research_input
         raw_reviews = research_input.pop("adaptation_requests", [])
@@ -924,6 +926,14 @@ class OperatorAKISModel(mesa.Model):
                 )
             except EconomicInputError as exc:
                 raise InputError(str(exc)) from exc
+        if self.competence_reuse_raw is not None:
+            try:
+                output["competence_reuse_dynamics"] = evaluate_competence_reuse(
+                    self.competence_reuse_raw, self.qualitative,
+                    economics=output.get("economics"),
+                )
+            except ReuseInputError as exc:
+                raise InputError(str(exc)) from exc
         if self.general_akis_enabled:
             current = general_system_view(
                 self.general_design, self.qualitative, at=float(self.time),
@@ -940,6 +950,16 @@ class OperatorAKISModel(mesa.Model):
                 "single_original_scheduler": True,
                 "original_results_and_org_code_unmodified": True,
             }
+            if "competence_reuse_dynamics" in output:
+                reuse = output["competence_reuse_dynamics"]
+                output["general_akis_model"]["competence_reproduction_feedback"] = {
+                    "model_claim_count": reuse["claimed_count"],
+                    "model_comparable_sequences": reuse["comparable_sequence_count"],
+                    "original_results_and_owner_rights_preserved": True,
+                    "causal_economic_gain": reuse["causal_competence_effect"],
+                    "individual_liquidity_and_operator_costs_are_not_imputed": True,
+                    "original_cash_and_cost_records_added": 0,
+                }
             # Read the original recipient's Work/Result quality state only.
             # Shared view contains counts, never source documents or cash.
             quality_rows = [
