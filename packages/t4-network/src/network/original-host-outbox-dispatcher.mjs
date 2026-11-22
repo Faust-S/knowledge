@@ -192,19 +192,20 @@ async function execute(params,maxEntries){
   let verified=0,previouslyVerified=0,examined=0;
   const results=[];
   for(const item of entries){
-    if(examined>=maxEntries)break;
-    examined++;
     await allowed(params,'outbox-dispatch',item);
     const desiredCheckpoint=witness(item,params,CHECKPOINT);
     const checkpoint=await readChecked(params,
       'readOriginalDeliveryCheckpoint',item,'checkpoint-read');
     if(checkpoint!==null&&checkpoint!==undefined){
       assertWitness(checkpoint,desiredCheckpoint);
+      examined++;
       previouslyVerified++;
       results.push(Object.freeze({captureRef:item.captureRef,
         state:'PREVIOUSLY_VERIFIED',key:item.outbox.key}));
       continue;
     }
+    if(verified>=maxEntries)break;
+    examined++;
     const desiredAttempt=witness(item,params,ATTEMPT);
     const attempt=await readChecked(params,'readOriginalDeliveryAttempt',
       item,'attempt-read');
