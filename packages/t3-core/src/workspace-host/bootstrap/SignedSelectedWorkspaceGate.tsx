@@ -216,13 +216,15 @@ export function SignedSelectedWorkspaceGate({
         <p role="status">Проверяем выбранную подписанную Workspace через Control…</p>
       ):(
         <>
-          <h2 className="font-semibold">Подписанная Workspace недоступна</h2>
+          <h2 className="font-semibold">{phase==="missing"
+            ?"Подписанная Workspace недоступна"
+            :"Подписанный доступ Workspace не подтверждён"}</h2>
           <p role="alert" data-testid="t3-d1-selected-workspace-message">
             {phase==="missing"
               ? "Для выбранного профиля пока нет рабочей области в исходном Kernel. При наличии отдельного разрешения её можно создать здесь."
               : "Control не подтвердил чтение выбранной Workspace. Проверьте профиль и его полномочия в локальном Control."}
           </p>
-          {inspection.reason&&<p role="status" data-testid="t3-d1-selected-workspace-refusal-code"
+          {phase==="denied"&&inspection.reason&&<p role="status" data-testid="t3-d1-selected-workspace-refusal-code"
             className="text-xs text-amber-300">Код: {inspection.reason}</p>}
           {phase==="missing"&&!kernel?.hasOperation("t1.createWorkspace")&&(
             <p role="alert" data-testid="t3-d1-selected-workspace-create-unavailable"
