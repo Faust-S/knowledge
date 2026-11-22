@@ -42,24 +42,61 @@ def assess_author_causal_edges(
         raise CausalContractInputError("AKIS_AUTHOR_ORIGINAL_CAUSAL_LINKS_CHANGED")
     edges = [{"from": from_component, "to": to_component, "meaning": meaning}
              for from_component, to_component, meaning in AUTHOR_EDGES]
+    # Source time belongs to the ORIGINAL decision event, not to the final
+    # observation time. Late declarations and expired goal sources cannot be
+    # projected backwards onto a historic customer request.
     original_trace = original.trace
-    applied = [x for x in original_trace if x.get("outcome") == "APPLIED"]
-    accepted = {k for k,v in original.works.items()
-                if v.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"}
-    claimed_goals = {v["work"] for v in design.declarations["goals"]}
-    valid_goals = {v["work"] for v in design.declarations["goals"]
-                   if (v["revision"] == original.institution.revision and
-                       v["available_at"] <= at < v["expires_at"])}
-    requested = {r.get("work") for r in applied if r.get("action") == "request"}
-    goal_to_work = valid_goals & requested
-    approved_works = {
-        k for k,v in original.works.items()
-        if v.obligation == "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+    applied = [row for row in original_trace if row.get("outcome") == "APPLIED"]
+    requested = {
+        row["work"] for row in applied
+        if row.get("action") == "request"
+        and row.get("work") in original.works
+        and row.get("actor") == original.works[row["work"]].customer
     }
-    with_model_capacity = bool(original.capacity_ledger.specs) and any(
-        spec.basis == "MODEL_DECLARED"
-        for spec in original.capacity_ledger.specs.values()
-    )
+    claimed_goals = {row["work"] for row in design.declarations["goals"]}
+    goal_to_work: set[str] = set()
+    for goal in design.declarations["goals"]:
+        work = original.works.get(goal["work"])
+        if (work is None or work.customer != goal["owner"] or
+                work.source_revision != goal["work_revision"]):
+            continue
+        for event in applied:
+            event_at = event.get("at")
+            if (event.get("action") == "request" and
+                    event.get("work") == goal["work"] and
+                    event.get("actor") == goal["owner"] and
+                    type(event_at) is int and
+                    goal["available_at"] <= event_at < goal["expires_at"] and
+                    goal["revision"] == event.get("org_revision")):
+                goal_to_work.add(goal["work"])
+                break
+    accepted = {
+        row["work"] for row in applied
+        if row.get("action") == "accept"
+        and row.get("work") in original.works
+        and row.get("actor") == original.works[row["work"]].customer
+        and original.works[row["work"]].result
+            == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    }
+    committed = {
+        row["work"] for row in applied
+        if row.get("action") == "commit"
+        and row.get("work") in original.works
+        and original.works[row["work"]].obligation in {
+            "ACCEPTED_BY_ORIGINAL_PRINCIPALS", "FULFILLED"
+        }
+    }
+    # Capacity of an unrelated enterprise must not qualify a different Work.
+    model_capacity_commits = {
+        key for key in committed
+        if original.works[key].resource_requirements and all(
+            getattr(original.capacity_ledger.specs.get(need.resource), "basis", None)
+                == "MODEL_DECLARED"
+            for need in original.works[key].resource_requirements
+        )
+    }
+    approved_works = committed
+    with_model_capacity = bool(model_capacity_commits)
     prepared_agents = int(
         general_view["components"]["А"].get("bounded_process_computations", 0)
     )
@@ -69,15 +106,18 @@ def assess_author_causal_edges(
     scoped_bilateral_cash_slices = original_allocations.get(
         "model_bilateral_internal_transfer_slices", 0
     )
-    full_counterfactual = bool(work_counterfactual) and any(
-        v["status"] == "DECLARED_WORK_SCOPE_CASH_AND_RESOURCE_ARITHMETIC_ONLY"
-        for v in work_counterfactual.get("works", [])
-    )
+    comparable_accepted_work = {
+        row.get("work") for row in (work_counterfactual or {}).get("works", [])
+        if row.get("status")
+            == "DECLARED_WORK_SCOPE_CASH_AND_RESOURCE_ARITHMETIC_ONLY"
+        and row.get("work") in accepted
+    }
+    full_counterfactual = bool(comparable_accepted_work)
     links = [
         {
             "status": "MODEL_ORIGINAL_REQUEST_LINKED_TO_GOAL"
                       if goal_to_work else "MODEL_GOAL_TO_REQUEST_NOT_OBSERVED",
-            "source_work_ids": sorted(goal_to_work),
+            "same_original_work_model_request_count": len(goal_to_work),
             "independent_owner_goal_revision_created": False,
         },
         {
@@ -90,13 +130,14 @@ def assess_author_causal_edges(
             "status": "MODEL_ORIGINAL_CAPACITY_AND_CONSENT_PREDICATE"
                       if approved_works and with_model_capacity
                       else "ORIGINAL_OWNER_RESOURCE_OR_CONSENT_NOT_QUALIFIED",
-            "original_committed_work_ids": sorted(approved_works),
+            "original_committed_work_count": len(approved_works),
+            "committed_work_with_its_own_model_capacity_count": len(model_capacity_commits),
             "resource_capacity_independently_verified": False,
         },
         {
             "status": "MODEL_ACCEPTED_ORIGINAL_RESULT_WITH_SEPARATE_OWNER_ACTION"
                       if accepted else "NO_ACCEPTED_ORIGINAL_RESULT",
-            "accepted_original_result_work_ids": sorted(accepted),
+            "accepted_original_result_work_count": len(accepted),
             "real_program_agent_action_not_demonstrated": True,
             "real_customer_acceptance_authenticated": False,
         },
@@ -106,6 +147,8 @@ def assess_author_causal_edges(
                       else "WORK_SPECIFIC_REAL_COST_AND_RESULT_NOT_QUALIFIED",
             "original_economic_records_present": economics is not None,
             "model_comparable_work_arithmetic": full_counterfactual,
+            "same_accepted_original_work_counterfactual_count":
+                len(comparable_accepted_work),
             "original_model_payer_payee_common_cash_slices": scoped_bilateral_cash_slices,
             "paired_owner_sources_restrict_work_economic_attribution": True,
             "bilateral_claims_are_not_verified_real_signatures": True,
@@ -129,18 +172,77 @@ def assess_author_causal_edges(
     components = tuple(general_view["components"])
     if components != ("Ц","У","А","П","КПБ","ОК","КЖ","Э","ЖЦ"):
         raise CausalContractInputError("AKIS_AUTHOR_NINE_COMPONENTS_MISSING")
+    # R1-H: typed scientific transition contract over the SAME original state.
+    # Explicitly distinguish original Mesa's event guards from evidence-only
+    # author claims; this neither installs a second engine nor grants rights.
+    core = getattr(original, "context_basis", None)
+    model_code = getattr(original, "model_org_policy", None)
+    revision_events = sum(
+        r.get("action") in {"adopt_capability", "cooperation_change_propose"}
+        for r in applied
+    )
+    component_contract = [
+        ("Ц", "HISTORIC_OWNER_GOAL_SOURCE_AND_REQUEST" if goal_to_work else
+         "NO_TIME_QUALIFIED_ORIGINAL_GOAL_REQUEST", "CUSTOMER_REQUEST_GUARD_GOAL_DIAGNOSTIC"),
+        ("У", "ORIGINAL_PRINCIPAL_COMMIT" if committed else "NO_ORIGINAL_COMMIT",
+         "ORIGINAL_OWNER_CONSENT_AND_ACTIVE_SUBJECT_GUARDS"),
+        ("А", "BOUNDED_SOURCE_PREPARATION" if prepared_agents else "NOT_EXECUTABLE",
+         "NO_AUTONOMOUS_AUTHORITY"),
+        ("П", "ORIGINAL_WORK_REQUEST_AND_COMMIT" if requested and committed
+         else "PARTIAL_ORIGINAL_WORK", "ORIGINAL_WORK_ACTION_GUARDS"),
+        ("КПБ", "MODEL_CONTEXT_SOURCE_SCOPED" if core is not None
+         else "NO_ORIGINAL_CONTEXT_BASIS",
+         "OPTIONAL_ORIGINAL_SOURCE_SCOPE_GUARD" if core is not None
+         else "NO_SOURCE_SCOPE_GUARD"),
+        ("ОК", "MODEL_THIRTEEN_CONTROLS_CONFIGURED" if model_code is not None
+         else "ORIGINAL_GOVERNANCE_PARTIAL", "ORIGINAL_GOVERNANCE_AND_OPTIONAL_MODEL_OC"),
+        ("КЖ", "ORIGINAL_CUSTOMER_ACCEPTED_RESULT" if accepted
+         else "NO_ORIGINAL_ACCEPTED_RESULT", "ORIGINAL_RESULT_QUALITY_AND_RECIPIENT_GUARDS"),
+        ("Э", "SAME_ACCEPTED_WORK_COUNTERFACTUAL" if full_counterfactual
+         else "NO_SAME_WORK_ECONOMIC_CAUSAL_WITNESS", "NONBINDING_DIAGNOSTIC_ONLY"),
+        ("ЖЦ", "ORIGINAL_OWNER_REVISION_EVENT" if revision_events
+         else "NO_OWNER_REVISION_EVENT", "NO_FULL_FORMATION_LIFECYCLE_GATE"),
+    ]
+    component_contract_rows = [
+        {"component": name, "model_transition_witness": witness,
+         "original_model_guard_class": guard,
+         "author_full_component_transition_implemented": False}
+        for name, witness, guard in component_contract
+    ]
+    if tuple(row["component"] for row in component_contract_rows) != components:
+        raise CausalContractInputError("AKIS_R1H_COMPONENT_CONTRACT_ORDER_INVALID")
+    blocked = [r for r in original_trace if r.get("outcome") == "BLOCKED"]
     return {
         "evidence": "SOURCE_DECLARED_MODEL_ONLY_SIX_AUTHOR_RELATIONS",
         "full_private_author_map_crosschecked": original_edges is not None,
         "public_taxonomy_only_falls_back_to_preverified_original_edges": original_edges is None,
         "author_original_nine_components": list(components),
         "six_author_original_dependency_relations": items,
-        "declared_current_goals_without_original_request": sorted(claimed_goals - requested),
+        "declared_goals_without_time_qualified_original_request_count":
+            len(claimed_goals - goal_to_work),
+        "historical_goal_to_original_request_source_match_count": len(goal_to_work),
+        "original_blocked_event_count": len(blocked),
+        "nine_component_typed_transition_contract": {
+            "schema": "AKIS_R1H_ORIGINAL_MODEL_TRANSITION_CONTRACT/0.1",
+            "components": component_contract_rows,
+            "original_model_event_trace_is_only_business_transition_source": True,
+            "goal_source_must_be_valid_at_original_request_not_final_snapshot": True,
+            "source_revision_and_owner_must_match_same_original_work": True,
+            "economic_work_must_be_originally_accepted_and_same_scoped_work": True,
+            "model_original_event_guards_not_real_authenticated_rights": True,
+            "all_original_six_configurations_executable": False,
+            "all_author_13_OC_and_four_KPB_active_grants": False,
+            "all_eight_formational_transitions_executable": False,
+            "complete_author_agent_A_F_P_OC_KPB": False,
+            "full_original_nine_component_dynamics": False,
+            "private_work_source_or_actor_identifiers_redisclosed": False,
+        },
         "original_owner_decisions_not_synthesized": True,
         "technical_modelled_links_not_real_economic_or_institutional_causality": True,
         "software_delegation_A_still_absent": True,
         "outside_w_t_market_process_not_endogenously_modelled": True,
         "original_13_OC_and_eight_phases_not_automatically_qualified": True,
         "nine_component_causal_closure_scientifically_proved": False,
-        "next_required_work": "R1_ORIGINAL_ACTOR_GATES_AND_R2_OWNER_COST_ORIGINALS",
+        "next_required_work":
+            "R1_H_ORIGINAL_NINE_COMPONENT_ACTIVE_GATES_AND_R3_GLOBAL_DYNAMICS",
     }
