@@ -819,6 +819,33 @@ class ModelFormationPolicy:
         if (row is None or row["review_status"] !=
                 "MODEL_CONSULTATION_COMPLETE_NOT_LEGAL_AUTHORIZATION"):
             return "FORMATION_RECONFIGURATION_INDEPENDENT_REVIEW_NO_LONGER_CURRENT"
+        # A new original review response AFTER the customer's request changes
+        # the evidence against which old Work consents were given. Even if an
+        # objection is later withdrawn, fresh principal consents must follow
+        # the latest response; the old consent is never silently re-used.
+        post_request = [
+            event for event in state.trace
+            if event.get("action") == "cooperation_change_response"
+            and event.get("outcome") == "APPLIED"
+            and event.get("change_id") == proposal["change_id"]
+            and event.get("cooperation_link") == proposal["cooperation_link"]
+            and type(event.get("at")) is int
+            and request["at"] < event["at"] < at
+        ]
+        if post_request:
+            review_epoch = max(event["at"] for event in post_request)
+            for owner in sorted(self._resource_owners(state, work) | {work.customer}):
+                if not any(
+                    event.get("action") == "consent"
+                    and event.get("outcome") == "APPLIED"
+                    and event.get("actor") == owner
+                    and event.get("work") == work.key
+                    and event.get("org_revision") == state.institution.revision
+                    and type(event.get("at")) is int
+                    and review_epoch < event["at"] < at
+                    for event in state.trace
+                ):
+                    return "FORMATION_RECONFIGURATION_FRESH_CONSENT_AFTER_REVIEW_REQUIRED"
         return "NONE"
 
     def before_followup_request(self, state: Any, request: Mapping[str, Any],

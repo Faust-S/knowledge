@@ -202,3 +202,71 @@ def test_r1o_optin_requires_previous_independent_interest_step():
     d["general_akis"]["enforce_model_result_conditioned_interests"] = False
     with pytest.raises(ValueError, match="FORMATION_RECONFIGURATION_REQUIRES_INDIVIDUAL_INTERESTS"):
         simulate(d)
+
+
+def test_r1o_retracted_late_objection_without_new_consents_still_blocks_commit():
+    d = r1o_case()
+    commitment = next(ev for ev in d["events"]
+                      if ev["action"] == "commit" and ev["work"] == "w2")
+    time = commitment["at"]
+    commitment["at"] = time + 2
+    for at, decision, source in (
+        (time, "OBJECT_MODEL_PROPOSAL", "objection"),
+        (time + 1, "SUPPORT_MODEL_PROPOSAL", "reconsideration"),
+    ):
+        d["events"].append({
+            "at": at, "action": "cooperation_change_response", "actor": "b",
+            "org_revision": "oc-1", "change_id": "chg-w1",
+            "cooperation_link": "l1", "cooperation_source_revision": "rel-1",
+            "change_decision": decision,
+            "change_source_ref": "model://b/" + source,
+        })
+    d["events"].sort(key=lambda ev: ev["at"])
+    out = simulate(d)
+    assert find(out, "request", work="w2")[0]["outcome"] == "APPLIED"
+    assert [x["change_decision"] for x in
+            trace_for(out, "cooperation_change_response")][-2:] == [
+        "OBJECT_MODEL_PROPOSAL", "SUPPORT_MODEL_PROPOSAL"
+    ]
+    assert find(out, "commit", work="w2")[0]["reason"] == (
+        "FORMATION_RECONFIGURATION_FRESH_CONSENT_AFTER_REVIEW_REQUIRED"
+    )
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["obligation"] == "NOT_ACCEPTED"
+
+
+def test_r1o_after_reconsideration_both_original_owners_must_reconsent():
+    d = r1o_case()
+    commitment = next(ev for ev in d["events"]
+                      if ev["action"] == "commit" and ev["work"] == "w2")
+    time = commitment["at"]
+    commitment["at"] = time + 4
+    events = []
+    for at, decision in ((time, "OBJECT_MODEL_PROPOSAL"),
+                         (time + 1, "SUPPORT_MODEL_PROPOSAL")):
+        events.append({
+            "at": at, "action": "cooperation_change_response", "actor": "b",
+            "org_revision": "oc-1", "change_id": "chg-w1",
+            "cooperation_link": "l1", "cooperation_source_revision": "rel-1",
+            "change_decision": decision,
+            "change_source_ref": f"model://b/new-assessment-{at}",
+        })
+    for at, owner in ((time + 2, "a"), (time + 3, "b")):
+        events.append({
+            "at": at, "action": "consent", "actor": owner,
+            "work": "w2", "source_revision": "d-2", "org_revision": "oc-1",
+        })
+    d["events"].extend(events)
+    d["events"].sort(key=lambda e: e["at"])
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, [
+        (row["at"], row["action"], row["reason"]) for row in out["trace"]
+        if row["outcome"] == "BLOCKED"
+    ]
+    assert [x["actor"] for x in find(out, "consent", work="w2")] == [
+        "a", "b", "a", "b"
+    ]
+    assert find(out, "commit", work="w2")[0]["outcome"] == "APPLIED"
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out == simulate(deepcopy(d))
