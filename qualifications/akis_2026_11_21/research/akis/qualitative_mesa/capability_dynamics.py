@@ -103,8 +103,10 @@ class CapabilityAdoptionPolicy:
             proposed, initial = obj["declared_units"], obj["initial_units"]
             if (type(proposed) is not int or type(initial) is not int or
                     not 1 <= proposed <= MAX_UNITS or initial != spec.units or
-                    proposed == initial):
-                raise CapabilityInputError("CAPABILITY_EXPLICIT_UNIT_CHANGE_REQUIRED")
+                    proposed <= initial):
+                # An adverse physical change belongs to the original resource
+                # status/calendar path, not to an inferred learning increase.
+                raise CapabilityInputError("CAPABILITY_EXPLICIT_FUTURE_INCREASE_REQUIRED")
             a, b = obj["from_slot"], obj["to_slot"]
             if type(a) is not int or type(b) is not int or not 0 <= a < b:
                 raise CapabilityInputError("CAPABILITY_PLANNED_INTERVAL_INVALID")
@@ -121,6 +123,12 @@ class CapabilityAdoptionPolicy:
                 len(set(works)) != len(works) or
                 any(not isinstance(w, str) or w not in known_work_ids for w in works)):
                 raise CapabilityInputError("CAPABILITY_FUTURE_ORIGINAL_WORK_SCOPE_REQUIRED")
+            if any(
+                w in state.works and not any(need.resource == resource
+                                             for need in state.works[w].resource_requirements)
+                for w in works
+            ):
+                raise CapabilityInputError("CAPABILITY_FUTURE_WORK_RESOURCE_NOT_USED")
             original_holder = self.reuse_by_id[claim].get("actor")
             follow_id = obj["future_use_source_id"]
             follow_revision = obj["future_use_source_revision"]
@@ -170,7 +178,9 @@ class CapabilityAdoptionPolicy:
                 return "CAPABILITY_FOLLOW_ON_OWNER_SOURCE_NOT_SHARED"
             if follow.valid_until is not None and at > follow.valid_until:
                 return "CAPABILITY_FOLLOW_ON_OWNER_SOURCE_EXPIRED"
-            if follow.scope is not None and check_scope(
+            if follow.scope is None:
+                return "CAPABILITY_FOLLOW_ON_EXPLICIT_IP_SCOPE_REQUIRED"
+            if check_scope(
                 follow.scope, core=follow.scope.core,
                 purpose="follow-on-capability", operation="SHARE", at=at
             ) != "MODEL_SOURCE_SCOPE_CONSISTENT":
