@@ -222,6 +222,9 @@ async function attach(event:MessageEvent){
     // in this realm. The UI cannot access window.IWXA, IndexedDB or signer.
     receiver=acceptOriginalKernelRealmChannel({
       event,uiOrigin:cfg.ui_origin,parentWindow:window.parent,
+      // The diagnostic facade is per-read, using the SAME inherited T2
+      // session and original Control owner. It cannot cache an authorization,
+      // change the selected Workspace or construct a second Store/Kernel.
       createSignedFacade:(method:string,report:(stage:string)=>void)=>
         method==="getWorkspace"
           ? createKernelFacade({
