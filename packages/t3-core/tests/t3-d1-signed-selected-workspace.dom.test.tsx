@@ -425,6 +425,45 @@ it("foreign Workspace ID from signed port never reaches Kernel.createWorkspace",
   expect(createWorkspace).not.toHaveBeenCalled();
 });
 
+it("a delayed original create ACK is reconciled by one explicit READ-only retry, never a second create",async()=>{
+  let stored:{workspace_id:string;profile:string}|null=null;
+  let reads=0;
+  const getWorkspace=vi.fn(async()=>{
+    reads++;
+    return reads>=4?stored:null;
+  });
+  const createWorkspace=vi.fn(async(command:{workspace_id:string;profile:string})=>{
+    stored=command;
+    throw Object.assign(new Error("ephemeral private native stderr must not leak"),
+      {code:"T3_D1_ISOLATED_KERNEL_TIMEOUT"});
+  });
+  const candidate={
+    getWorkspace,createWorkspace,
+    hasOperation:(name:string)=>name==="t1.createWorkspace",
+  } as unknown as KernelFacade;
+  render(<SignedSelectedWorkspaceGate required kernel={candidate}
+    profile="generic" autoCreateSignedCorporate={false}
+    trustedSelectedContext={async()=>({
+      kind:"CORP",organization_id:"org:delayed-ack",
+      workspace_id:"ws:delayed-ack",resource:"ws:delayed-ack",
+    })}>
+    <p data-testid="delayed-create-confirmed">Confirmed from original T2</p>
+  </SignedSelectedWorkspaceGate>);
+  await screen.findByTestId("t3-d1-create-selected-workspace");
+  fireEvent.click(screen.getByTestId("t3-d1-create-selected-workspace"));
+  const refusal=await screen.findByTestId("t3-d1-create-workspace-error");
+  expect(refusal.getAttribute("aria-label")).toContain("Код: T3_D1_ISOLATED_KERNEL_TIMEOUT");
+  expect(document.body.textContent).not.toContain("ephemeral private native stderr");
+  expect(screen.queryByTestId("delayed-create-confirmed")).toBeNull();
+  expect(createWorkspace).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button",{name:"Проверить повторно"}));
+  await screen.findByTestId("delayed-create-confirmed");
+  expect(getWorkspace).toHaveBeenCalledTimes(4);
+  expect(createWorkspace).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId("t3-d1-selected-workspace-ready").textContent)
+    .toContain("подтверждена в исходном Kernel");
+});
+
 it("uncertain Kernel acknowledgement is recovered by exact original ID readback",async()=>{
   let saved:{workspace_id:string;profile:string}|null=null;
   const createWorkspace=vi.fn(async(command:{workspace_id:string;profile:string})=>{
