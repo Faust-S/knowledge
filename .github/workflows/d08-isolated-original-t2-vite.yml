@@ -131,6 +131,22 @@ jobs:
             "value type range read only utf json html js ts").split(" "));
           const allLines=s.split(/\r?\n/);
           const anchor=allLines.findIndex(x=>/Build failed with [0-9]+ error/.test(x));
+          const redactCompilerLine=input=>{
+            const line=input.replace(/\x1b\[[0-9;]*m/g,"").trim();
+            if(/^(?:[0-9]+\s*[|:]|[>|^]|import\s|export\s|const\s|let\s|function\s)/.test(line))
+              return "<source_line_redacted>";
+            return line.replace(/["'][^"']{0,500}["']/g,"<quoted>")
+              .replace(/\x60[^\x60]{0,500}\x60/g,"<quoted>")
+              .replace(/[A-Za-z]:\\[^\s]+|\/(?:home|Users|tmp|runner|opt|mnt)\/[^\s]+/g,"<path>")
+              .replace(/(?:\.\.?\/|src\/|node_modules\/)[^\s:()]+/g,"<path>")
+              .replace(/[\w.+-]+\.(?:tsx?|mjs|js|css|json|html)(?::[0-9]+)?/g,"<file>")
+              .replace(/@[a-zA-Z0-9_./-]+/g,"<package>")
+              .replace(/[A-Za-z0-9_=-]{36,}/g,"<opaque>")
+              .slice(0,170);
+          };
+          if(anchor>=0)for(const [i,line] of allLines.slice(anchor+1,anchor+5).entries())
+            console.log("D08_ORIGINAL_T2_HOST_REDACTED_COMPILER_LINE_"+i+"="+
+              redactCompilerLine(line));
           if(anchor>=0)for(const [i,line] of allLines.slice(anchor+1,anchor+8).entries()){
             const words=(line.match(/[A-Za-z][A-Za-z0-9_-]*/g)||[])
               .slice(0,30).map(w=>allowed.has(w.toLowerCase())?w:"<id>");
