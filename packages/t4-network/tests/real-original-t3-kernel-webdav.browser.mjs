@@ -42,6 +42,8 @@ import {publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork}
   from '../src/network/original-host-outbox-delivery.mjs';
 import {createT4OriginalHostOutboxDispatcher}
   from '../src/network/original-host-outbox-dispatcher.mjs';
+import {createT4OriginalHostDispatchTaskBinding}
+  from '../src/network/original-host-dispatch-task-binding.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
   from '../src/network/network-topology.mjs';
 import {prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
@@ -1745,12 +1747,39 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           'network-checkpoint',payload),
         transport:scheduledTransport,
       };
+      const dispatchHostSessions=new WeakMap();
+      const sourceHostSession=()=>{
+        let ref=dispatchHostSessions.get(sourceContext);
+        if(!ref){
+          ref='original:host:session:'+randomUUID();
+          dispatchHostSessions.set(sourceContext,ref);
+        }
+        return ref;
+      };
       const runOriginalHostDispatchTask=maxEntries=>deltaRoute('delta.push',
         ()=>actual.grants.includes('t1.getObject')&&
           actual.grants.includes('t1.getAsset'),
-        ()=>createT4OriginalHostOutboxDispatcher(hostDispatchPorts).drain({
-          maxEntries,
-        }));
+        async()=>{
+          const binding=createT4OriginalHostDispatchTaskBinding({
+            expectedWorkspaceId:workspaceId,
+            expectedOriginalWriteOwnerRef:'original:t2:exchange',
+            expectedNetworkTargetRef:'node:qualified-apache',
+            getMode:()=> 'T4_NETWORK',
+            readOriginalHostContext:async()=>({
+              workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+              networkTargetRef:'node:qualified-apache',
+              hostSessionRef:sourceHostSession(),
+            }),
+            authorizeOriginalHostTask:async proof=>
+              proof.operation==='t4.network.publish'&&
+              proof.originalWriteOwnerRef==='original:t2:exchange'&&
+              actual.grants.includes('t1.getObject'),
+            dispatcher:createT4OriginalHostOutboxDispatcher(hostDispatchPorts),
+          });
+          const tick=await binding.run({maxEntries});
+          assert.equal(tick.originalHostTaskOwnerVerified,true);
+          return tick.result;
+        });
       const dispatchFirst=await runOriginalHostDispatchTask(1);
       assert.equal(dispatchFirst.newlyVerifiedCount,1);
       assert.equal(dispatchFirst.hasMore,true);
@@ -1885,6 +1914,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalT3TechnicalOutboxRestored:true,
           originalHostOutboxPublisherUsedForObjectAssetRelation:true,
           originalHostOrderedDispatcherUsedForAssetAndRelation:true,
+          originalHostTrustedTaskBindingUsed:true,
           originalHostDispatchNetworkPutCount:scheduledNetworkPutCount,
           originalHostDispatchColdRestartBetweenBatches:true,
           originalHostDispatchCheckpointsDurableInRealT3:true,
