@@ -176,6 +176,25 @@ function WaitForText([string]$fragment,[int]$maxPolls=55){
   }
   return $false
 }
+function NativeD2BoundedRefusal(){
+  # UI Automation reads only the installed public UI. Never print source
+  # rows, object metadata, private Native Owner stderr, or user content.
+  $root=DesktopRoot
+  $found=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.Condition]::TrueCondition)
+  foreach($element in $found){
+    try{
+      $name=[string]$element.Current.Name
+      $match=[regex]::Match($name,
+        'Код:\s*((?:CEN_D2|CEN_D3|T3_D1|T3_D2|T3_D3|T3_OWNER|T3_SUBJECT|WORKSPACE|SOURCE|OPERATION)_[A-Z0-9_]{4,90})')
+      if($match.Success){
+        Write-Host ('D2_INSTALLED_NATIVE_SOURCE_REFUSAL '+$match.Groups[1].Value)
+        return
+      }
+    }catch{}
+  }
+  Write-Host 'D2_INSTALLED_NATIVE_SOURCE_REFUSAL UNCLASSIFIED'
+}
 function WaitForOriginalKernelReady(){
   # The isolated T3 child is asynchronous. A visible Center toolbar button
   # only means the child was created, NOT that original T2 Kernel/JIT attached.
@@ -469,7 +488,10 @@ try{
     Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_NATIVE_SIGNED_CONTEXT_NOT_READ'
     $script:phase='D2_NATIVE_READ_ORIGINAL_KERNEL'
     ClickButton 'Перечитать Object/Event через T3 DATA'
-    Check (WaitForText 'Оригинальный T2 Kernel' 130) 'D2_INSTALLED_NATIVE_SIGNED_DATA_READ_FAILED'
+    if(-not(WaitForText 'Оригинальный T2 Kernel' 130)){
+      NativeD2BoundedRefusal
+      throw 'D2_INSTALLED_NATIVE_SIGNED_DATA_READ_FAILED'
+    }
     Check (HasText 'Это метаданные исходных записей, не доказательство выполнения хозяйственных действий.') 'D2_INSTALLED_NATIVE_EVIDENCE_SCOPE_MISSING'
     Write-Host 'D2_INSTALLED_ORIGINAL_KERNEL_DATA_READ_UI_PASS'
     $script:phase='D2_NATIVE_SAME_ORGANIZATION_CONTEXT'
@@ -478,7 +500,10 @@ try{
     ClickButton 'Обновить подписанные сведения T3'
     Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_NATIVE_CONTEXT_SIGNED_OWNER_MISSING'
     ClickButton 'Перечитать Object/Event через T3 DATA'
-    Check (WaitForText 'Оригинальный T2 Kernel' 130) 'D2_INSTALLED_NATIVE_CONTEXT_DATA_READ_FAILED'
+    if(-not(WaitForText 'Оригинальный T2 Kernel' 130)){
+      NativeD2BoundedRefusal
+      throw 'D2_INSTALLED_NATIVE_CONTEXT_DATA_READ_FAILED'
+    }
     Write-Host 'D2_INSTALLED_ORIGINAL_KERNEL_TWO_MANAGER_PAGES_UI_PASS'
     # One more true Windows cold close/restart and separate source read.
     # No persisted React summary can count as a reopened Kernel authority.
@@ -497,7 +522,10 @@ try{
     ClickButton 'Обновить подписанные сведения T3'
     Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_COLD_CONTEXT_NOT_READ'
     ClickButton 'Перечитать Object/Event через T3 DATA'
-    Check (WaitForText 'Оригинальный T2 Kernel' 130) 'D2_INSTALLED_COLD_ORIGINAL_KERNEL_DATA_READ_FAILED'
+    if(-not(WaitForText 'Оригинальный T2 Kernel' 130)){
+      NativeD2BoundedRefusal
+      throw 'D2_INSTALLED_COLD_ORIGINAL_KERNEL_DATA_READ_FAILED'
+    }
     Write-Host 'D2_INSTALLED_ORIGINAL_KERNEL_TWO_COLD_READS_PASS'
   }
 }finally{
