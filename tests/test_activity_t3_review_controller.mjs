@@ -277,3 +277,56 @@ test('owner invalidation during stage forbids a second dispatch even after re-re
   assert.equal(states.at(-1).status,'REVIEW');
   c.dispose();
 });
+
+test('cold original T3 draft recovery is read-only and does not repeat uncertain stage',async()=>{
+  const h=makeHost(),states=[];let writes=0,reads=0;
+  h.host.stageSelected=async()=>{writes++;throw Error('PRIVATE_LOST_ACK');};
+  h.host.recoverSelected=async()=>{reads++;return{
+    status:'OWNER_REVIEW_DRAFT',readback:true,export_allowed:false,
+  };};
+  const c=createT3ReviewController({host:h.host,onUpdate:v=>states.push(v)});
+  await c.readSelected();
+  assert.equal((await c.stageSelected()).status,'HOLD');
+  assert.equal(writes,1);
+  assert.equal((await c.recoverSelected()).status,'STAGED');
+  assert.equal(states.at(-1).status,'STAGED');
+  assert.equal(states.at(-1).recovered,true);
+  assert.equal(states.at(-1).stageBlocked,true);
+  assert.equal(reads,1);
+  assert.equal((await c.stageSelected()).status,'UNAVAILABLE');
+  assert.equal(writes,1);
+  assert.equal(JSON.stringify(states).includes('PRIVATE_LOST_ACK'),false);
+  c.dispose();
+});
+test('stale signed recovery result disappears after original owner invalidation',async()=>{
+  const h=makeHost(),states=[];let release;
+  h.host.recoverSelected=()=>new Promise(resolve=>{release=()=>resolve({
+    status:'OWNER_REVIEW_DRAFT',readback:true,export_allowed:false,
+  });});
+  const c=createT3ReviewController({host:h.host,onUpdate:v=>states.push(v)});
+  const pending=c.recoverSelected();
+  assert.equal(states.at(-1).status,'RECOVERING');
+  h.grantChanged();release();
+  assert.equal((await pending).status,'INVALIDATED');
+  assert.deepEqual(states.at(-1),{status:'READY_TO_READ',review:null});
+  c.dispose();
+});
+test('recovery response never transports private IDs or an export grant to React',async()=>{
+  const h=makeHost(),states=[];
+  h.host.recoverSelected=async()=>({
+    status:'OWNER_REVIEW_DRAFT',readback:true,export_allowed:false,
+    source_workspace_id:workspace,
+  });
+  const c=createT3ReviewController({host:h.host,onUpdate:v=>states.push(v)});
+  assert.equal((await c.recoverSelected()).status,'HOLD');
+  assert.equal(states.at(-1).code,'T3_HOST_RECOVERY_RESULT_UNVERIFIED');
+  assert.equal(JSON.stringify(states).includes(workspace),false);
+  c.dispose();
+});
+test('recovery is absent from read-only T3 Host, and read remains available',async()=>{
+  const h=makeHost(),states=[];
+  const c=createT3ReviewController({host:h.host,onUpdate:v=>states.push(v)});
+  assert.deepEqual(await c.recoverSelected(),{status:'UNAVAILABLE'});
+  assert.equal((await c.readSelected()).status,'REVIEW');
+  c.dispose();
+});
