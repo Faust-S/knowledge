@@ -1,0 +1,94 @@
+name: d06-single-e2e-failure-diagnostic
+
+# Public control plane. Private checkout and JSON report stay on ephemeral Windows runner.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-single-e2e-failure-diagnostic.yml
+permissions:
+  contents: read
+jobs:
+  e2e-diagnosis:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact private D06 candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: dd6f5b83c01b5fa6ae6c82c09194fec292839822
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install and build unchanged private static candidate
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          foreach ($task in @("ci", "run format:lint:apply", "run setup:browser", "run build:static")) {
+            $slug = $task.Replace(" ", "_").Replace(":", "_")
+            $log = Join-Path $env:RUNNER_TEMP ("d06-isolate-" + $slug + ".private.log")
+            & cmd.exe /d /c ("npm " + $task + " > """ + $log + """ 2>&1")
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host ("D06_E2E_PREP_" + $slug + "=FAIL")
+              exit 1
+            }
+            Write-Host ("D06_E2E_PREP_" + $slug + "=PASS")
+          }
+      - name: Run original E2E suite with local-only machine-readable report
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 28
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:PLAYWRIGHT_JSON_OUTPUT_FILE = Join-Path $env:RUNNER_TEMP "d06-e2e-structured.private.json"
+          $log = Join-Path $env:RUNNER_TEMP "d06-e2e-structured.private.log"
+          & cmd.exe /d /c ("npm run test:e2e -- --reporter=json > """ + $log + """ 2>&1")
+          $exitCode = $LASTEXITCODE
+          Write-Host ("D06_E2E_FULL=" + $(if ($exitCode -eq 0) { "PASS" } else { "FAIL" }))
+          $reportPath = $env:PLAYWRIGHT_JSON_OUTPUT_FILE
+          if (-not (Test-Path -LiteralPath $reportPath)) {
+            Write-Host "D06_E2E_JSON=UNAVAILABLE"
+            exit 1
+          }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          $known = @(git ls-files "tests/e2e/*.spec.ts" | Sort-Object)
+          $failureIndices = [System.Collections.Generic.HashSet[int]]::new()
+          $failingTestCount = 0
+          function Scan-Suite($suite) {
+            foreach ($spec in @($suite.specs)) {
+              foreach ($case in @($spec.tests)) {
+                $bad = $case.status -eq "unexpected" -or @($case.results | Where-Object { $_.status -in @("failed", "timedOut", "interrupted") }).Count -gt 0
+                if (-not $bad) { continue }
+                $script:failingTestCount++
+                $fileName = if ($spec.file) { $spec.file } elseif ($suite.file) { $suite.file } else { "" }
+                $fileName = ([string]$fileName).Replace([char]92, [char]47)
+                $index = [array]::IndexOf($known, $fileName)
+                if ($index -lt 0 -and $fileName.Contains("tests/e2e/")) {
+                  $fileName = "tests/e2e/" + ($fileName -split "tests/e2e/")[-1]
+                  $index = [array]::IndexOf($known, $fileName)
+                }
+                if ($index -ge 0) { [void]$script:failureIndices.Add($index + 1) }
+              }
+            }
+            foreach ($child in @($suite.suites)) { Scan-Suite $child }
+          }
+          foreach ($top in @($report.suites)) { Scan-Suite $top }
+          Write-Host "D06_E2E_JSON=PASS"
+          Write-Host ("D06_E2E_FAILING_TESTS=" + $failingTestCount)
+          Write-Host ("D06_E2E_FAILING_SPEC_ORDINALS=" + ((@($failureIndices) | Sort-Object) -join ","))
+          Write-Host ("D06_E2E_EXPECTED_TESTS=" + [int]$report.stats.expected)
+          Write-Host ("D06_E2E_UNEXPECTED_TESTS=" + [int]$report.stats.unexpected)
+          Write-Host ("D06_E2E_FLAKY_TESTS=" + [int]$report.stats.flaky)
+          if ($exitCode -ne 0) { exit 1 }
+      - name: Confirm private data boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_E2E_PRIVATE_LOGS=RUNNER_ONLY"
+          Write-Host "D06_E2E_PRIVATE_SOURCES=RUNNER_ONLY"
+          Write-Host "D06_E2E_PRIVATE_ARTIFACT_UPLOADS=0"
