@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {MessageChannel} from 'node:worker_threads';
+import {bindSignedOriginalKernelPort,createIsolatedKernelClient}
+  from '../src/t3/origin-isolated-kernel-transport.mjs';
 import {createOriginalKernelNativeRelay} from '../src/t3/original-kernel-native-relay.mjs';
 
 const GRANTS=['t1.commitObjectGraph','t1.getWorkspace','t1.getObject','t1.listEventsSince'];
@@ -71,4 +74,25 @@ test('foreign original Kernel scopes and missing grants cannot be listed',async 
  await assert.rejects(ctx.relay.exchange({verb:'attach',payload:{
   sessionInfo:session(['t1.getWorkspace','t1.getObject','t1.listEventsSince','t1.listObjects'])
  }},9),/T3_D3_ORIGINAL_KERNEL_OPERATIONS_REQUIRED/);
+});
+
+// The native D2 reader shares the same original Kernel realm. A stalled
+// UI-origin getWorkspace must identify its last TRUSTED read stage without
+// inventing a missing Workspace, a revoked right, or retrying a write.
+test('original D1 read diagnostic preserves native D2 source attribution',async t=>{
+  const channel=new MessageChannel();
+  const receiver=bindSignedOriginalKernelPort({
+    port:channel.port1,isActive:()=>true,
+    createSignedFacade:async(method,report)=>{
+      assert.equal(method,'getWorkspace');
+      report('ORIGINAL_T2_KERNEL_CALL');
+      return Object.freeze({getWorkspace:()=>new Promise(()=>{})});
+    },
+  });
+  const client=createIsolatedKernelClient({
+    port:channel.port2,timeoutMs:200,readTimeoutMs:260,
+  });
+  t.after(()=>{client.close();receiver.close()});
+  await assert.rejects(client.invoke('getWorkspace','workspace:org'),
+    {code:'T3_D1_READ_TIMEOUT_ORIGINAL_T2_KERNEL_CALL'});
 });
