@@ -91,7 +91,7 @@ jobs:
             @{kind='service';id='05';route='/roles/';heading='Найдите сочетание ролей'}
             @{kind='service';id='06';route='/projects/';heading='Оформите замысел в рабочий черновик'}
             @{kind='service';id='07';route='/tools/action-route/';heading='Переведите цель в четыре недели действий'}
-            @{kind='service';id='08';route='/workspace/#/domain';heading='Моя работа'}
+            @{kind='service';id='08';route='/workspace/#/domain';heading='Моё в Клубе'}
             @{kind='service';id='09';route='/projects/#club-goal-map';heading='Мои цели и следующие действия'}
             @{kind='service';id='10';route='/projects/#club-competency-gap';heading='Чего мне не хватает для выбранной роли'}
             @{kind='service';id='11';route='/projects/#club-learning-route';heading='Мой маршрут освоения навыка'}
