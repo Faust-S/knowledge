@@ -32,6 +32,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git fetch origin main >/dev/null 2>&1
+          git merge --ff-only origin/main >/dev/null
           echo PRIVATE_MAIN_SOURCE_SHA=$(git rev-parse HEAD)
           bun install --frozen-lockfile > /tmp/iwxa-navigation-install.log 2>&1 || { tail -n 65 /tmp/iwxa-navigation-install.log; exit 1; }
           node --import tsx --test scripts/check-editorial-navigation.test.ts scripts/check-editorial-series.test.ts scripts/check-projects-and-first-essays.test.ts scripts/check-deep-essays-03-04.test.ts scripts/check-essays-05-06.test.ts scripts/check-essays-07-08.test.ts scripts/check-essays-09-10.test.ts scripts/check-essays-11-12.test.ts
@@ -44,6 +46,9 @@ jobs:
           IWXA_PRERENDER_ROUTES: /,/projects/,/ecosystem/,/projects/iwxa/,/projects/artbazy/,/projects/bazmed/,/projects/advice-logistics/,/articles/zachem-dvenadcat-napravleniy/,/articles/ot-logisticheskogo-operatora-k-akis/,/articles/chto-sohranyaetsya-pri-peredache-raboty/,/articles/ot-porucheniya-do-priznaniya/,/articles/shest-programm-vokrug-zakaza/,/articles/kogda-kooperaciya-okupaetsya/,/articles/learn-samostoyatelnyj-povtor/,/articles/club-komu-prinadlezhit-vklad/,/articles/artbazy-ot-obsledovaniya-k-akis/,/articles/bazmed-istoriya-nablyudeniya/,/articles/cehovod-cena-i-priemka-partii/,/articles/komplektovod-zamena-pozicii/,/tools/uslugovod/,/tools/market-ops/,/tools/
         run: |
           set -euo pipefail
+          git fetch origin main >/dev/null 2>&1
+          git merge --ff-only origin/main >/dev/null
+          echo LATEST_MAIN_FOR_BUILD=$(git rev-parse HEAD)
           cp -a dist-static /tmp/iwxa-static-original
           bunx tsx scripts/build-static.ts > /tmp/iwxa-navigation-build.log 2>&1 || { tail -n 140 /tmp/iwxa-navigation-build.log; exit 1; }
           echo RUSSIAN_PUBLIC_PAGES_PRERENDERED
@@ -195,7 +200,7 @@ jobs:
           git config user.email "140275131+Faust-S@users.noreply.github.com"
           git commit -m "build(site): publish linked research journeys and renewed Russian static pages" > /tmp/iwxa-publish-commit.log 2>&1 || { tail -n 70 /tmp/iwxa-publish-commit.log; exit 1; }
           echo FINAL_STATIC_RELEASE_COMMIT=$(git rev-parse HEAD)
-          git push origin HEAD:refs/heads/main > /tmp/iwxa-publish-push.log 2>&1 || { tail -n 30 /tmp/iwxa-publish-push.log; exit 1; }
+          git push origin HEAD:refs/heads/main > /tmp/iwxa-publish-push.log 2>&1 || { echo MAIN_ADVANCED_DURING_BUILD_OR_TOKEN_CANNOT_PUSH; tail -n 30 /tmp/iwxa-publish-push.log; exit 1; }
           echo PRIVATE_MAIN_STATIC_PUSH_SUCCESS
       - name: Purge private checkout, temporary build, and credentials
         if: always()
