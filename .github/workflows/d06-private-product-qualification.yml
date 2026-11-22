@@ -137,7 +137,55 @@ jobs:
         run: |
           $log = Join-Path $env:RUNNER_TEMP "d06-static-check-private.txt"
           & npm run build:static:check *> $log
-          if ($LASTEXITCODE -ne 0) { Write-Host "D06_STATIC_AGGREGATE=FAIL"; exit 1 }
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_STATIC_AGGREGATE=FAIL"
+            # The complete log remains private on this Windows runner.
+            # Output only public npm stage labels, numeric spec ordinals and error categories.
+            $body = Get-Content -LiteralPath $log -Raw
+            $stages = [regex]::Matches($body, '(?m)^>\s+[^\r\n]+\s+(check|test|build:static|check:static|test:e2e|check:seo|check:external-assets)\s*
+          Write-Host "D06_STATIC_AGGREGATE=PASS"
+      - name: Assert source gate after all available diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path -LiteralPath (Join-Path $env:RUNNER_TEMP "d06-source-failed.flag")) {
+            Write-Host "D06_SOURCE_GATE_FINAL=FAIL"
+            exit 1
+          }
+          Write-Host "D06_SOURCE_GATE_FINAL=PASS"
+      - name: State privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PUBLIC_ARTIFACT_UPLOADS=0"
+          Write-Host "D06_PRIVATE_SOURCE_LOGS=RUNNER_LOCAL_ONLY"
+)
+            $stageNames = @($stages | ForEach-Object { $_.Groups[1].Value })
+            if ($stageNames.Count) {
+              Write-Host ("D06_AGGREGATE_LAST_NPM_STAGE=" + ($stageNames | Select-Object -Last 1))
+              Write-Host ("D06_AGGREGATE_LAST_STAGES=" + (($stageNames | Select-Object -Last 6) -join ","))
+            } else {
+              Write-Host "D06_AGGREGATE_LAST_NPM_STAGE=UNKNOWN"
+            }
+            $registered = @(git ls-files "tests/e2e/*.spec.ts" | Sort-Object)
+            $failing = [System.Collections.Generic.HashSet[int]]::new()
+            foreach ($m in [regex]::Matches($body, '(?:tests[/\\]e2e[/\\])([a-zA-Z0-9.-]+\.spec\.ts)(?::\d+)?')) {
+              $path = "tests/e2e/" + $m.Groups[1].Value
+              $index = [array]::IndexOf($registered, $path)
+              if ($index -ge 0) { [void]$failing.Add($index + 1) }
+            }
+            Write-Host ("D06_AGGREGATE_MENTIONED_SPEC_ORDINALS=" + ((@($failing) | Sort-Object | Select-Object -First 25) -join ","))
+            foreach ($kind in @("TimeoutError","AssertionError","Test timeout","browserType.launch","ERR_CONNECTION","ECONNREFUSED","ERR_CERT","No tests found","not ok","EPIPE")) {
+              $safe = $kind.Replace(" ","_").Replace(".","_").ToUpperInvariant()
+              $count = ([regex]::Matches($body, [regex]::Escape($kind))).Count
+              if ($count -gt 0) { Write-Host ("D06_AGGREGATE_CLASS_" + $safe + "=" + $count) }
+            }
+            $summary = [regex]::Matches($body, '(\d+)\s+(failed|passed|skipped|timed out)')
+            foreach ($m in ($summary | Select-Object -Last 5)) {
+              Write-Host ("D06_AGGREGATE_TEST_COUNT_" + $m.Groups[2].Value.ToUpperInvariant().Replace(" ","_") + "=" + $m.Groups[1].Value)
+            }
+            exit 1
+          }
           Write-Host "D06_STATIC_AGGREGATE=PASS"
       - name: Assert source gate after all available diagnostics
         if: always()
