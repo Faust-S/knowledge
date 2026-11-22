@@ -27,8 +27,10 @@ def r1n_case(*, include_a=True, include_b=True,
                for row in g["organizational_code"]}
     records["Событ"]["new_work_events"].append("interest_update")
     for role in ("CUSTOMER", "RESOURCE_OWNER"):
-        next(r for r in records["Пр"]["permitted"]
-             if r["subject"] == role)["items"].append("interest_update")
+        rights = next(r for r in records["Пр"]["permitted"]
+                      if r["subject"] == role)["items"]
+        if "interest_update" not in rights:
+            rights.append("interest_update")
     # Retain the original Mesa ordering and the same initial customer/pilot.
     # Insert two decisions AFTER request w2 and BEFORE its separate phases
     # and consent. All original second Work events shift as one sequence.
