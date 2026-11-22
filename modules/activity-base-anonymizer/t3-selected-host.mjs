@@ -94,10 +94,16 @@ function inspectProjection(view) {
       'T3_D2_EVENT_INVALID');
     need(!events.has(event.event_id), 'T3_D2_DUPLICATE_EVENT');
     events.add(event.event_id);
-    const truth = Object.hasOwn(event,'epistemic_status')
-      ? event.epistemic_status : 'observed'; // legacy Kernel Event, not business truth
-    need(EPISTEMIC.has(truth),'T3_D2_EVENT_EPISTEMIC_INVALID');
-    if(truth!=='observed') reasons.push('T3_D2_UNVERIFIED_EVENT_STEP');
+    // The original T3 D2 reader intentionally omits this field when the
+    // DOMAIN binding did not declare it. A Kernel log entry alone is NOT
+    // evidence that a physical/business action took place. Fail closed
+    // rather than silently promoting a missing status to "observed".
+    const hasTruth=Object.hasOwn(event,'epistemic_status');
+    const truth=hasTruth?event.epistemic_status:null;
+    if(hasTruth)need(EPISTEMIC.has(truth),'T3_D2_EVENT_EPISTEMIC_INVALID');
+    else reasons.push('T3_D2_EVENT_STATUS_NOT_DECLARED');
+    if(truth!==null&&truth!=='observed')
+      reasons.push('T3_D2_UNVERIFIED_EVENT_STEP');
     const primary = event.object_ref;
     if (primary !== null) {
       need(only(primary, ['object_id','revision']) && TAG(primary.object_id) &&
