@@ -30,8 +30,8 @@ const digest = value => createHash('sha256').update(JSON.stringify(value)).diges
 const bindings = {
   objects: [{schema_id: 'd06.order', schema_version: '1.0.0', semantic_kind: 'Process'}],
   events: [
-    {event_type: 'd06.order.opened', semantic_kind: 'Event'},
-    {event_type: 'd06.order.finished', semantic_kind: 'Event'},
+    {event_type: 'd06.order.opened', semantic_kind: 'Event', epistemic_status:'observed'},
+    {event_type: 'd06.order.finished', semantic_kind: 'Event', epistemic_status:'observed'},
   ],
   relations: [],
 };
@@ -487,4 +487,15 @@ test('original T3 signed loopback owner mounts Activity Read without second Cont
     ui.dispose();bridge.dispose();
     try{eventController?.close();}catch{}
   }
+});
+
+
+test('released T3 D2 omits event truth without domain binding; Activity holds',async()=>{
+  const h=fixture();delete h.bindings.events[1].epistemic_status;
+  const review=await inspectSelectedT3Activity(h);
+  assert.equal(review.status,'HOLD');
+  assert.equal(review.structural_candidate,null);
+  assert.ok(review.reason_codes.includes('T3_D2_EVENT_STATUS_NOT_DECLARED'));
+  assert.equal(review.export_allowed,false);
+  assert.equal(h.counts.write,0);
 });
