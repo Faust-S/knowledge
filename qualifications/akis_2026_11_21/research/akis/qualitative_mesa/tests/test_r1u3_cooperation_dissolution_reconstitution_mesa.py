@@ -496,3 +496,47 @@ def test_missing_true_accepted_result_cannot_be_used_as_dissolution_basis():
     )
     assert out["works"]["w2"]["result"] == "SUBMITTED"
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+
+def test_nine_component_private_witness_requires_both_renewed_result_and_original_history():
+    from .test_general_system_mesa_integration import design
+    d = original_dissolution_case()
+    d["general_akis"] = design()
+    out = simulate(d)
+    summary = out["general_akis_model"]["system_causal_cycle_feedback"]
+    private = out["general_akis_private_cycle_evidence"][
+        "original_dissolution_reconstitution_followed_by_accepted_work"
+    ]
+    assert summary["dissolved_cooperation_restored_with_new_original_accepted_work"] == 1
+    assert summary["previously_outstanding_original_work_accepted_after_dissolution"] == 1
+    assert len(private) == 1
+    assert private[0]["outstanding_original_work_at_dissolution"] == ["w3"]
+    assert private[0]["original_work_completed_after_dissolution"] == ["w3"]
+    assert private[0]["fresh_original_accepted_work_ids"] == ["w6"]
+    assert private[0]["former_original_members_not_rejoined"] == ["a"]
+    assert not summary["all_nine_component_original_causal_closure_proven"]
+    assert not summary["full_real_lifecycle_or_causal_value_added_proven"]
+
+
+@pytest.mark.parametrize("variant", ["no_restoration", "forged_restoration", "no_final_accept"])
+def test_nine_component_witness_cannot_count_dissolution_without_fresh_accepted_result(variant):
+    from .test_general_system_mesa_integration import design
+    d = original_dissolution_case(
+        no_restoration=variant == "no_restoration",
+        forged_restoration=variant == "forged_restoration",
+    )
+    if variant == "no_final_accept":
+        d["events"] = [
+            row for row in d["events"]
+            if not (row["action"] == "accept" and row.get("work") == "w6")
+        ]
+    d["general_akis"] = design()
+    out = simulate(d)
+    summary = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert summary["dissolved_cooperation_restored_with_new_original_accepted_work"] == 0
+    assert summary["previously_outstanding_original_work_accepted_after_dissolution"] == 0
+    assert out["general_akis_private_cycle_evidence"][
+        "original_dissolution_reconstitution_followed_by_accepted_work"
+    ] == []
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
