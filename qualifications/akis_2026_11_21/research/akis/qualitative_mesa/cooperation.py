@@ -109,6 +109,8 @@ def cooperation_view(links: Sequence[CooperationLink], works: Mapping[str, Any],
             condition = "ORIGINAL_RESULT_CORRECTION_PENDING"
         elif any(s == "NOT_ACCEPTED" for s in obligations):
             condition = "FORMATION_NOT_FULLY_COMMITTED"
+        elif not link.works:
+            condition = "PROSPECTIVE_MODEL_RELATION_AWAITING_ORIGINAL_WORK"
         elif all(s == "ACCEPTED_BY_ORIGINAL_RECIPIENT" for s in states):
             condition = "LINKED_MODEL_RESULTS_ACCEPTED"
         else:
@@ -127,6 +129,19 @@ def cooperation_view(links: Sequence[CooperationLink], works: Mapping[str, Any],
                                      for name in link.mechanisms},
             "legal_rights": "RETAINED_BY_ORIGINAL_PRINCIPALS",
             "result_role": "LINKED_ORIGINAL_RESULTS_NO_CONSOLIDATED_SECOND_RESULT",
+            "prospective_successor_of": next((
+                row["cooperation_link"] for row in trace
+                if row.get("action") == "cooperation_membership_apply"
+                and row.get("outcome") == "APPLIED"
+                and row.get("successor_link") == link.key
+            ), None),
+            "succeeded_for_future_model_work_by": next((
+                row["successor_link"] for row in trace
+                if row.get("action") == "cooperation_membership_apply"
+                and row.get("outcome") == "APPLIED"
+                and row.get("cooperation_link") == link.key
+            ), None),
+            "historical_relation_and_accepted_results_immutable": True,
         })
     return {"evidence": "MODEL_ONLY", "links": out,
             "organizational_form": "UNALTERED_OPERATOR_AKIS",
@@ -362,6 +377,137 @@ _AUTHOR_CODE_OBSERVATION = (
     "ONE_MODEL_TRACE_NOT_AUTHENTICATED_EVIDENCE",
     "CONSULTATION_ONLY_NO_LAWFUL_AMENDMENT",
 )
+
+
+
+def apply_cooperation_membership_revision(
+    event: Mapping[str, Any], links: Sequence[CooperationLink],
+    subjects: Mapping[str, Any], works: Mapping[str, Any],
+    trace: Sequence[Mapping[str, Any]], *, org_revision: str, at: int,
+) -> tuple[tuple[CooperationLink, ...], dict[str, Any]]:
+    """Create a prospective SUCCESSOR of the original cooperation relation.
+
+    No old Work, old Result, independent consent, legal relationship, original
+    source or ownership is changed. All new membership is MODEL_ONLY.
+    """
+    parent = _declared_link(links, event.get("cooperation_link"))
+    if event.get("cooperation_source_revision") != parent.source_revision:
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_PARENT_REVISION_STALE")
+    if any(row.get("action") == "cooperation_membership_apply" and
+           row.get("outcome") == "APPLIED" and
+           row.get("cooperation_link") == parent.key for row in trace):
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_PARENT_ALREADY_SUCCEEDED")
+    change = _id(event.get("change_id"), "CHANGE_ID")
+    proposal = _applied_proposal(trace, change)
+    if proposal is None:
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_ORIGINAL_PROPOSAL_REQUIRED")
+    if (proposal.get("cooperation_link") != parent.key or
+            proposal.get("cooperation_source_revision") != parent.source_revision or
+            proposal.get("org_revision") != org_revision or
+            event.get("org_revision") != org_revision):
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_ORIGINAL_REVISIONS_STALE")
+    kind = proposal.get("change_kind")
+    if kind not in {"ADD_FUTURE_PARTICIPANT", "REVIEW_FUTURE_PARTICIPATION"}:
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_CHANGE_SCOPE_NOT_MEMBERSHIP")
+    actor = event.get("actor")
+    if (actor != proposal.get("actor") or actor not in parent.participants
+            or actor not in subjects or not subjects[actor].active):
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_ORIGINAL_PROPOSER_REQUIRED")
+    origin = proposal.get("at")
+    if type(origin) is not int or not origin < at:
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_PROPOSAL_MUST_PRECEDE_APPLICATION")
+    # Previously accepted Work and the original customer's decision are
+    # mandatory, even when the R1-O optional strict gate is disabled.
+    pilot_id = event.get("pilot_work")
+    pilot = works.get(pilot_id) if isinstance(pilot_id, str) else None
+    if (pilot is None or pilot.key not in parent.works or
+            pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT" or
+            event.get("pilot_result_ref") != pilot.result_ref):
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_ACCEPTED_ORIGINAL_PILOT_REQUIRED")
+    accepted = [
+        row for row in trace
+        if row.get("action") == "accept" and row.get("outcome") == "APPLIED"
+        and row.get("work") == pilot.key and type(row.get("at")) is int
+        and row["at"] < origin
+    ]
+    if (len(accepted) != 1 or
+            event.get("pilot_decision_at") != accepted[0]["at"] or
+            (proposal.get("pilot_work") is not None and
+             (proposal.get("pilot_work") != pilot.key or
+              proposal.get("pilot_result_ref") != pilot.result_ref or
+              proposal.get("pilot_decision_at") != accepted[0]["at"]))):
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_PILOT_DECISION_MISMATCH")
+    if (set(proposal.get("original_relation_participants") or ()) !=
+            set(parent.participants) or
+            not proposal.get("original_consultees")):
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_CONSULTATION_SNAPSHOT_REQUIRED")
+    consultees = _required_consultees(proposal, parent)
+    latest: dict[str, Mapping[str, Any]] = {}
+    for row in trace:
+        if (row.get("action") == "cooperation_change_response"
+                and row.get("outcome") == "APPLIED"
+                and row.get("change_id") == change
+                and row.get("cooperation_link") == parent.key
+                and row.get("cooperation_source_revision") == parent.source_revision
+                and row.get("org_revision") == org_revision
+                and row.get("actor") in consultees
+                and type(row.get("at")) is int and origin < row["at"] < at):
+            latest[row["actor"]] = row
+    if (set(latest) != consultees or any(
+            row.get("change_decision") != "SUPPORT_MODEL_PROPOSAL"
+            for row in latest.values())):
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_INDEPENDENT_SUPPORT_INCOMPLETE")
+    if any(name not in subjects or not subjects[name].active for name in consultees):
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_PARTICIPANT_UNAVAILABLE")
+    successor = _id(event.get("new_link_id"), "NEW_LINK_ID")
+    if any(link.key == successor for link in links):
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_SUCCESSOR_ALREADY_EXISTS")
+    revision = _id(event.get("new_link_revision"), "NEW_LINK_REVISION")
+    if revision == parent.source_revision:
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_SUCCESSOR_REVISION_UNCHANGED")
+    new_source = _model_reference(
+        event.get("new_link_source_ref"),
+        "COOPERATION_MEMBERSHIP_SOURCE_MODEL_REF_REQUIRED"
+    )
+    if not new_source.startswith(f"model://{actor}/"):
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_SOURCE_MUST_BELONG_TO_PROPOSER")
+    candidate = proposal.get("proposed_subject")
+    if kind == "ADD_FUTURE_PARTICIPANT":
+        if candidate in parent.participants or candidate not in consultees:
+            raise CooperationInputError("COOPERATION_MEMBERSHIP_NEW_ENTRANT_CONSENT_MISSING")
+        new_parties = tuple(parent.participants) + (candidate,)
+    else:
+        if candidate not in parent.participants or candidate == parent.coordinator:
+            raise CooperationInputError("COOPERATION_MEMBERSHIP_EXIT_INVALID")
+        new_parties = tuple(name for name in parent.participants if name != candidate)
+    if len(new_parties) < 2 or parent.coordinator not in new_parties:
+        raise CooperationInputError("COOPERATION_MEMBERSHIP_ORIGINAL_COORDINATOR_REQUIRED")
+    # Only a prospective relationship with no Work gets new membership.
+    # The original link and all its Works remain forever unmodified.
+    new_link = CooperationLink(
+        successor, parent.purpose, parent.coordinator, new_parties, (),
+        parent.mechanisms, new_source, revision
+    )
+    metadata = {
+        "cooperation_link": parent.key,
+        "cooperation_source_revision": parent.source_revision,
+        "change_id": change,
+        "change_kind": kind,
+        "pilot_work": pilot.key,
+        "pilot_result_ref": pilot.result_ref,
+        "pilot_decision_at": accepted[0]["at"],
+        "successor_link": successor,
+        "successor_revision": revision,
+        "successor_source_ref": new_source,
+        "previous_participants": list(parent.participants),
+        "successor_participants": list(new_parties),
+        "newly_admitted_model_party": candidate if kind == "ADD_FUTURE_PARTICIPANT" else None,
+        "former_model_party": candidate if kind == "REVIEW_FUTURE_PARTICIPATION" else None,
+        "old_original_results_and_consent_unchanged": True,
+        "legal_membership_or_IP_rights_authenticated": False,
+        "prospective_model_relation_only": True,
+    }
+    return tuple(sorted((*links, new_link), key=lambda link: link.key)), metadata
 
 
 def organizational_code_readiness(review: Mapping[str, Any]) -> dict[str, Any]:
@@ -650,6 +796,13 @@ def attach_requested_work(links: Sequence[CooperationLink], work: Any,
         raise CooperationInputError("COOPERATION_LINK_UNKNOWN")
     if match.source_revision != expected_revision:
         raise CooperationInputError("COOPERATION_SOURCE_REVISION_STALE")
+    if any(
+        row.get("action") == "cooperation_membership_apply"
+        and row.get("outcome") == "APPLIED"
+        and row.get("cooperation_link") == match.key
+        for row in trace
+    ):
+        raise CooperationInputError("COOPERATION_OLD_RELATION_RETIRED_FOR_NEW_WORK")
     originals = {work.customer} | {
         resource_owners[need.resource] for need in work.resource_requirements
     }
@@ -724,8 +877,8 @@ def cooperation_system_view(links: Sequence[CooperationLink], works: Mapping[str
             ) for name in link.participants
         }
         last_at = applied[-1]["at"] if applied else None
-        signed = all(w.obligation != "NOT_ACCEPTED" for w in own_works)
-        accepted = all(w.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT" for w in own_works)
+        signed = bool(own_works) and all(w.obligation != "NOT_ACCEPTED" for w in own_works)
+        accepted = bool(own_works) and all(w.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT" for w in own_works)
         source_rules = set() if context_basis is None else {
             (wid, action) for wid in link.works
             for (work, action) in context_basis.requirements if work == wid

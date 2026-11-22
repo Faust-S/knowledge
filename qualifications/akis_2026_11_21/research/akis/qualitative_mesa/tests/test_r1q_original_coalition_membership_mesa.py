@@ -1,0 +1,248 @@
+"""AKIS R1-Q: immutable original relationship + prospective revised membership.
+
+No legal admission or rights created. One original QualitativeAKIS, one trace,
+original Work/Result, independent proposed entrant/exit review and fresh consent.
+"""
+from copy import deepcopy
+
+import pytest
+
+from research.akis.qualitative_mesa.mesa_model import simulate
+from research.akis.qualitative_mesa.rules import QualitativeAKIS
+from .test_cooperation_change_to_work_mesa import prepare, accept_first_work
+
+
+def membership_case(*, change="ADD_FUTURE_PARTICIPANT",
+                    responses=None, applied=True, second_work=True):
+    d = prepare()
+    d["subjects"].append({"id": "c", "kind": "SME"})
+    d["resources"].append({"id": "rc", "owner": "c"})
+    d["resources"].append({"id": "rb", "owner": "b"})
+    entrant = change == "ADD_FUTURE_PARTICIPANT"
+    candidate = "c" if entrant else "a"
+    next_parties = ("a", "b", "op", "c") if entrant else ("b", "op")
+    work_resource = "rc" if entrant else "rb"
+    first = accept_first_work()
+    consultation = [{
+        "at": 9, "action": "cooperation_change_propose", "actor": "b",
+        "cooperation_link": "net", "cooperation_source_revision": "n-1",
+        "org_revision": "oc-1", "change_id": "member-1",
+        "change_kind": change, "proposed_subject": candidate,
+        "economic_channel": "TRANSACTION_COST",
+        "change_source_ref": "model://b/membership-proposal-after-result",
+    }]
+    subjects = ("a", "b", "op", "c") if entrant else ("a", "b", "op")
+    decisions = responses or {}
+    for i, actor in enumerate(subjects):
+        consultation.append({
+            "at": 10 + i, "action": "cooperation_change_response",
+            "actor": actor, "cooperation_link": "net",
+            "cooperation_source_revision": "n-1",
+            "org_revision": "oc-1", "change_id": "member-1",
+            "change_decision": decisions.get(actor, "SUPPORT_MODEL_PROPOSAL"),
+            "change_source_ref": f"model://{actor}/membership-review-{i}",
+        })
+    t = 14
+    adoption = {
+        "at": t, "action": "cooperation_membership_apply", "actor": "b",
+        "cooperation_link": "net", "cooperation_source_revision": "n-1",
+        "org_revision": "oc-1", "change_id": "member-1",
+        "pilot_work": "w1", "pilot_result_ref": "model://a/first-execution",
+        "pilot_decision_at": 8,
+        "new_link_id": "net-2", "new_link_revision": "n-2",
+        "new_link_source_ref": "model://b/net-2-source",
+    }
+    if applied:
+        consultation.append(adoption)
+    fresh = []
+    if second_work:
+        fresh = [
+            {"at": 15, "action": "request", "actor": "b",
+             "cooperation_link": "net-2", "cooperation_source_revision": "n-2",
+             "work_spec": {
+                 "id": "w2", "customer": "b", "resource": work_resource,
+                 "source_revision": "d-2", "slot_start": 20, "slot_end": 30,
+                 "requires_accepted": ["w1"],
+             }},
+            {"at": 16, "action": "offer", "actor": "op", "work": "w2"},
+            {"at": 17, "action": "authorize", "actor": "op", "work": "w2"},
+            {"at": 18, "action": "consent", "actor": "b", "work": "w2",
+             "source_revision": "d-2", "org_revision": "oc-1"},
+            {"at": 19, "action": "consent", "actor": candidate if entrant else "b",
+             "work": "w2", "source_revision": "d-2", "org_revision": "oc-1"},
+            {"at": 20, "action": "commit", "actor": "op", "work": "w2"},
+            {"at": 21, "action": "start", "actor": work_resource == "rc" and "c" or "b",
+             "work": "w2"},
+            {"at": 22, "action": "complete", "actor": work_resource == "rc" and "c" or "b",
+             "work": "w2", "result_ref": "model://w2-result"},
+            {"at": 23, "action": "accept", "actor": "b", "work": "w2"},
+        ]
+    # Do not create duplicate second consent if customer also owns resource.
+    if not entrant:
+        fresh = [row for row in fresh if row["at"] != 19]
+    d["events"] = first + consultation + fresh
+    d["model_horizon"] = 28
+    return d
+
+
+def reports(output, action):
+    return [r for r in output["trace"] if r["action"] == action]
+
+
+def test_r1q_new_entrant_and_separate_new_original_work_in_revised_relation():
+    d = membership_case()
+    untouched = deepcopy(d)
+    out = simulate(d)
+    assert untouched == d
+    assert out["counts"]["blocked"] == 0, [
+        (r["at"], r["action"], r["reason"]) for r in out["trace"]
+        if r["outcome"] == "BLOCKED"
+    ]
+    event = reports(out, "cooperation_membership_apply")[0]
+    assert event["outcome"] == "APPLIED"
+    assert event["previous_participants"] == ["a", "b", "op"]
+    assert event["successor_participants"] == ["a", "b", "op", "c"]
+    assert event["newly_admitted_model_party"] == "c"
+    assert event["pilot_work"] == "w1"
+    links = {r["id"]: r for r in out["cooperation"]["links"]}
+    assert links["net"]["original_participants"] == ["a", "b", "op"]
+    assert links["net"]["works"] == ["w1"]
+    assert links["net"]["succeeded_for_future_model_work_by"] == "net-2"
+    assert links["net-2"]["prospective_successor_of"] == "net"
+    assert links["net-2"]["original_participants"] == ["a", "b", "op", "c"]
+    assert links["net-2"]["works"] == ["w2"]
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w1"]["consenting_principals"] == ["a", "b"]
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["consenting_principals"] == ["b", "c"]
+    assert out["profit"]["system_increment"] == "UNKNOWN"
+    assert event["legal_membership_or_IP_rights_authenticated"] is False
+    assert simulate(deepcopy(d)) == out
+
+
+def test_r1q_exit_creates_successor_without_removing_old_resource_owner():
+    d = membership_case(change="REVIEW_FUTURE_PARTICIPATION")
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0
+    event = reports(out, "cooperation_membership_apply")[0]
+    assert event["former_model_party"] == "a"
+    assert event["previous_participants"] == ["a", "b", "op"]
+    assert event["successor_participants"] == ["b", "op"]
+    old = next(l for l in out["cooperation"]["links"] if l["id"] == "net")
+    new = next(l for l in out["cooperation"]["links"] if l["id"] == "net-2")
+    assert old["original_participants"] == ["a", "b", "op"]
+    assert old["work_results"]["w1"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert new["original_participants"] == ["b", "op"]
+    assert out["works"]["w1"]["consenting_principals"] == ["a", "b"]
+    assert out["works"]["w2"]["consenting_principals"] == ["b"]
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["subjects"]["a"]["active_for_new_work"] is True  # not expelled
+
+
+@pytest.mark.parametrize("response,reason", [
+    ({"c": "OBJECT_MODEL_PROPOSAL"},
+     "COOPERATION_MEMBERSHIP_INDEPENDENT_SUPPORT_INCOMPLETE"),
+    ({"a": "OBJECT_MODEL_PROPOSAL"},
+     "COOPERATION_MEMBERSHIP_INDEPENDENT_SUPPORT_INCOMPLETE"),
+])
+def test_r1q_original_or_new_entrant_independent_objection_blocks_revision(response, reason):
+    d = membership_case(responses=response, second_work=False)
+    out = simulate(d)
+    assert reports(out, "cooperation_membership_apply")[0]["reason"] == reason
+    assert [l["id"] for l in out["cooperation"]["links"]] == ["net"]
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1q_source_wrong_pilot_revision_and_consent_cannot_be_laundered():
+    for mutate, expected in [
+        (lambda ev: ev.update(pilot_decision_at=7),
+         "COOPERATION_MEMBERSHIP_PILOT_DECISION_MISMATCH"),
+        (lambda ev: ev.update(new_link_source_ref="model://op/foreign"),
+         "COOPERATION_MEMBERSHIP_SOURCE_MUST_BELONG_TO_PROPOSER"),
+        (lambda ev: ev.update(cooperation_source_revision="n-old"),
+         "COOPERATION_MEMBERSHIP_PARENT_REVISION_STALE"),
+        (lambda ev: ev.update(new_link_revision="n-1"),
+         "COOPERATION_MEMBERSHIP_SUCCESSOR_REVISION_UNCHANGED"),
+    ]:
+        d = membership_case(second_work=False)
+        ev = next(r for r in d["events"] if r["action"] == "cooperation_membership_apply")
+        mutate(ev)
+        out = simulate(d)
+        assert reports(out, "cooperation_membership_apply")[0]["reason"] == expected
+        assert [l["id"] for l in out["cooperation"]["links"]] == ["net"]
+
+
+def test_r1q_proposal_before_accepted_original_result_cannot_create_successor():
+    d = membership_case(second_work=False)
+    next(e for e in d["events"] if e["action"] == "accept" and
+         e["work"] == "w1")["at"] = 9
+    next(e for e in d["events"] if e["action"] ==
+         "cooperation_change_propose")["at"] = 8
+    next(e for e in d["events"] if e["action"] ==
+         "cooperation_membership_apply")["pilot_decision_at"] = 9
+    d["events"].sort(key=lambda e: e["at"])
+    out = simulate(d)
+    assert reports(out, "cooperation_change_propose")[0]["outcome"] == "APPLIED"
+    assert reports(out, "cooperation_membership_apply")[0]["reason"] == (
+        "COOPERATION_MEMBERSHIP_PILOT_DECISION_MISMATCH"
+    )
+    assert [l["id"] for l in out["cooperation"]["links"]] == ["net"]
+
+
+def test_r1q_prior_relation_cannot_accept_new_work_after_successor_revision():
+    d = membership_case(second_work=False)
+    d["events"].append({
+        "at": 15, "action": "request", "actor": "b",
+        "cooperation_link": "net", "cooperation_source_revision": "n-1",
+        "work_spec": {
+            "id": "w2", "customer": "b", "resource": "ra",
+            "source_revision": "d-2", "slot_start": 20, "slot_end": 30,
+            "requires_accepted": ["w1"],
+        },
+    })
+    out = simulate(d)
+    assert reports(out, "request")[0]["reason"] == (
+        "COOPERATION_OLD_RELATION_RETIRED_FOR_NEW_WORK"
+    )
+    assert "w2" not in out["works"]
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1q_neither_new_membership_nor_old_consent_allocates_foreign_resources():
+    d = membership_case(second_work=False)
+    d["events"].extend([
+        {"at": 15, "action": "request", "actor": "b",
+         "cooperation_link": "net-2", "cooperation_source_revision": "n-2",
+         "work_spec": {
+             "id": "w2", "customer": "b", "resource": "ra",
+             "source_revision": "d-2", "slot_start": 20, "slot_end": 30,
+             "requires_accepted": ["w1"],
+         }},
+        {"at": 16, "action": "offer", "actor": "op", "work": "w2"},
+        {"at": 17, "action": "authorize", "actor": "op", "work": "w2"},
+        {"at": 18, "action": "consent", "actor": "c", "work": "w2",
+         "source_revision": "d-2", "org_revision": "oc-1"},
+    ])
+    out = simulate(d)
+    assert reports(out, "cooperation_membership_apply")[0]["outcome"] == "APPLIED"
+    assert reports(out, "consent")[-1]["reason"] == "NOT_AN_ORIGINAL_OBLIGATION_OWNER"
+    assert out["works"]["w2"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1q_duplicate_application_and_multiple_successor_from_same_parent_blocked():
+    d = membership_case(second_work=False)
+    original = next(ev for ev in d["events"]
+                    if ev["action"] == "cooperation_membership_apply")
+    double = deepcopy(original)
+    double.update(at=15, new_link_id="net-3", new_link_revision="n-3",
+                  new_link_source_ref="model://b/net-3")
+    d["events"].append(double)
+    out = simulate(d)
+    assert [r["outcome"] for r in reports(out, "cooperation_membership_apply")] == [
+        "APPLIED", "BLOCKED"
+    ]
+    assert reports(out, "cooperation_membership_apply")[-1]["reason"] == (
+        "COOPERATION_MEMBERSHIP_PARENT_ALREADY_SUCCEEDED"
+    )
+    assert sorted(l["id"] for l in out["cooperation"]["links"]) == ["net", "net-2"]
