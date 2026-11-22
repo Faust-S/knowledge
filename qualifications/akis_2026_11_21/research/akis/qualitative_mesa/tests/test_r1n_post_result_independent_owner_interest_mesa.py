@@ -21,6 +21,14 @@ def r1n_case(*, include_a=True, include_b=True,
     d = result_goal_case()
     g = d["general_akis"]
     g["enforce_model_result_conditioned_interests"] = True
+    # The original thirteen OC fields must EXPLICITLY include the existing
+    # interest_update event and both responsible roles. No implicit grants.
+    records = {row["field"]: row["control"]
+               for row in g["organizational_code"]}
+    records["Событ"]["new_work_events"].append("interest_update")
+    for role in ("CUSTOMER", "RESOURCE_OWNER"):
+        next(r for r in records["Пр"]["permitted"]
+             if r["subject"] == role)["items"].append("interest_update")
     # Retain the original Mesa ordering and the same initial customer/pilot.
     # Insert two decisions AFTER request w2 and BEFORE its separate phases
     # and consent. All original second Work events shift as one sequence.
@@ -71,7 +79,7 @@ def test_r1n_two_original_owners_reconsider_after_result_and_second_work_complet
     assert [x["actor"] for x in interests] == ["a", "b"]
     assert all(x["outcome"] == "APPLIED" for x in interests)
     assert interests[0]["interest_outside_option"] == "OUTSIDE_PREFERRED"
-    assert [x["at"] for x in find(out, "consent", work="w2")] == [49, 50]
+    assert [x["at"] for x in find(out, "consent", work="w2")] == [51, 52]
     assert find(out, "commit", work="w2")[0]["outcome"] == "APPLIED"
     check = out["general_akis_model"]["result_conditioned_owner_interests"]
     assert check["opted_in"] is True
@@ -154,13 +162,13 @@ def test_r1n_foreign_stale_or_misbound_interest_cannot_enable_commit(change, rea
 
 def test_r1n_later_individual_interest_requires_new_original_consent():
     d = r1n_case()
-    # Prior consent a at 49 is real but a later economic preference at 52
+    # Prior consent a at 51 is real but a later economic preference at 54
     # must never use it as if consent occurred AFTER the changed position.
     later = deepcopy(next(e for e in d["events"]
                           if e["action"] == "interest_update" and e["actor"] == "a"))
-    later.update(at=52, interest_evidence_ref="model://a/changed-w2-interest")
+    later.update(at=54, interest_evidence_ref="model://a/changed-w2-interest")
     next(e for e in d["events"] if e["action"] == "commit"
-         and e["work"] == "w2")["at"] = 53
+         and e["work"] == "w2")["at"] = 55
     d["events"].append(later)
     d["events"].sort(key=lambda e: e["at"])
     out = simulate(d)
@@ -178,13 +186,13 @@ def test_r1n_owner_may_renew_consent_after_latest_interest_with_original_work():
     d = r1n_case()
     later = deepcopy(next(e for e in d["events"]
                           if e["action"] == "interest_update" and e["actor"] == "a"))
-    later.update(at=52, interest_evidence_ref="model://a/new-interest-w2")
+    later.update(at=54, interest_evidence_ref="model://a/new-interest-w2")
     consent = deepcopy(next(e for e in d["events"]
                             if e["action"] == "consent" and e["actor"] == "a"
                             and e["work"] == "w2"))
-    consent["at"] = 53
+    consent["at"] = 55
     next(e for e in d["events"] if e["action"] == "commit"
-         and e["work"] == "w2")["at"] = 54
+         and e["work"] == "w2")["at"] = 56
     d["events"].extend([later, consent])
     d["events"].sort(key=lambda e: e["at"])
     out = simulate(d)
@@ -201,10 +209,10 @@ def test_r1n_independent_participation_reconsideration_invalidates_old_interest(
     ev = deepcopy(next(e for e in d["events"]
                        if e["action"] == "participation_status"
                        and e["actor"] == "a"))
-    ev.update(at=52, new_participation="OPEN_TO_NEW_WORK",
+    ev.update(at=54, new_participation="OPEN_TO_NEW_WORK",
               participation_evidence_ref="model://a/new-owner-review-w1")
     next(e for e in d["events"] if e["action"] == "commit"
-         and e["work"] == "w2")["at"] = 53
+         and e["work"] == "w2")["at"] = 55
     d["events"].append(ev)
     d["events"].sort(key=lambda e: e["at"])
     out = simulate(d)
