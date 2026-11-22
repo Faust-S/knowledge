@@ -233,7 +233,7 @@ export async function inspectT4OriginalHostImportedPlanCarrier({
   sourceWorkspaceId,originalWriteOwnerRef,networkTargetRef,sourceNodeRef,
   originalKernel,originalImportReceipt,expectedPackageDigest,
   expectedSourcePlanDigest,readOriginalHostContext,getMode,
-  authorizeOriginalRead,
+  authorizeOriginalRead,readOriginalImportReceipt,
 }={}){
   const scope={carrierWorkspaceId,sourceCarrierWorkspaceId,
     carrierObjectId,sourceWorkspaceId,
@@ -241,8 +241,8 @@ export async function inspectT4OriginalHostImportedPlanCarrier({
   if(![carrierWorkspaceId,sourceCarrierWorkspaceId,
     carrierObjectId,sourceWorkspaceId,originalWriteOwnerRef,
     networkTargetRef,sourceNodeRef].every(ID)||
-    ![readOriginalHostContext,getMode,authorizeOriginalRead]
-      .every(f=>typeof f==='function')||
+    ![readOriginalHostContext,getMode,authorizeOriginalRead,
+      readOriginalImportReceipt].every(f=>typeof f==='function')||
     !SHA(expectedSourcePlanDigest)||
     typeof expectedPackageDigest!=='string'||!expectedPackageDigest.length)
     fail('PLAN_CARRIER_ORIGINAL_RECIPIENT_PORTS_REQUIRED');
@@ -271,6 +271,21 @@ export async function inspectT4OriginalHostImportedPlanCarrier({
   }else if(receipt.mode==='merge') {
     fail('PLAN_CARRIER_ORIGINAL_IMPORT_WORKSPACE_MAP_INVALID');
   }
+  // An imported Object is not evidence that the original Kernel's
+  // importCommit receipt survived. The Host must persist that ORIGINAL
+  // receipt in the ORIGINAL recipient T3 technical Workspace and expose
+  // a fresh read of it. A caller-supplied receipt alone is insufficient.
+  const readReceipt=async()=>{
+    await guard(getMode,authorizeOriginalRead,scope,'read');
+    const stored=await readOriginalImportReceipt(stable({
+      carrierWorkspaceId,carrierObjectId,importId:receipt.import_id,
+      packageDigest:expectedPackageDigest,
+      originalT3ReceiptReadRequired:true,
+    }));
+    if(!same(stored,receipt))
+      fail('PLAN_CARRIER_ORIGINAL_IMPORT_RECEIPT_NOT_DURABLE');
+  };
+  await readReceipt();
   await guard(getMode,authorizeOriginalRead,scope,'read');
   const first=await originalKernel.getObject(carrierWorkspaceId,
     carrierObjectId);
@@ -283,6 +298,7 @@ export async function inspectT4OriginalHostImportedPlanCarrier({
   const verified=verifyCarrierRecord(second,scope,plan);
   if(verified.record.revision!==record.revision)
     fail('PLAN_CARRIER_ORIGINAL_IMPORTED_OBJECT_CHANGED');
+  await readReceipt();
   await recheck(readOriginalHostContext,scope,carrierWorkspaceId,ctx);
   return stable({
     schema:'IWXA_T4_ORIGINAL_HOST_IMPORTED_PLAN_INSPECTION_V1',
@@ -292,6 +308,7 @@ export async function inspectT4OriginalHostImportedPlanCarrier({
     originalT3ImportId:receipt.import_id,
     originalT3ImportPackageDigest:receipt.package_digest,
     originalT3ImportCommitVerified:true,
+    originalT3ImportReceiptDurableReadback:true,
     originalT3ObjectReadbackVerified:true,
     originalT3SelectedContextUnchanged:true,
     originalT3OnlyStore:true,
