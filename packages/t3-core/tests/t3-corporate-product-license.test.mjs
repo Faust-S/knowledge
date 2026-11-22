@@ -151,7 +151,7 @@ test('candidate rejects inferred agent seats, missing tariff edition and over-ce
  fail(()=>validateCorporateLicenseRequest({...f.request,
    tariff:{id:'TEAM'}}),'MISSING_FIELD');
  fail(()=>validateCorporateLicenseRequest({...f.request,
-   limits:{...f.request.limits,personalAgentSeats:undefined}}),'INVALID_UNDEFINED');
+   limits:{...f.request.limits,personalAgentSeats:undefined}}),'PLAIN_DATA_REQUIRED');
  // Original signer has an independently configured ceiling even if the draft
  // requests more seats than the number of people in the organization.
  const request={...f.request,limits:{...f.request.limits,personalAgentSeats:26}};
