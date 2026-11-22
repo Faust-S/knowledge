@@ -1,0 +1,107 @@
+name: IWXA editorial 42 actual browser checks
+on:
+  push:
+    branches:
+      - qa/2026-11-22-iwxa-editorial-20
+    paths:
+      - .github/workflows/qa-iwxa-editorial-browser.yml
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: work/2026-11-22-interactive-editorial-20
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Verify 20 interactive stories in actual Chrome and responsive layouts
+        shell: bash
+        working-directory: .private/site
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile > /tmp/editorial-browser-install.log 2>&1 || { tail -n 80 /tmp/editorial-browser-install.log; exit 1; }
+          bunx vite --host 127.0.0.1 --port 4173 > /tmp/editorial-browser-vite.log 2>&1 &
+          echo $! > /tmp/editorial-browser-vite.pid
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:4173/articles/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node --import tsx --input-type=module <<'JS'
+          import puppeteer from 'puppeteer';
+          import {EDITORIAL_STORIES,editorialHref} from './src/data/editorial-stories.ts';
+          const paths=['/articles/',...EDITORIAL_STORIES.map(item=>editorialHref(item.slug))];
+          if(paths.length!==21)throw Error('Expected 21 real pages');
+          const binary=process.env.PUPPETEER_EXECUTABLE_PATH||'/usr/bin/google-chrome';
+          const browser=await puppeteer.launch({headless:true,executablePath:binary,args:['--no-sandbox','--disable-dev-shm-usage']});
+          let checks=0,interactive=0;
+          try{
+            const page=await browser.newPage();
+            page.on('pageerror',e=>console.log('CLIENT_ERROR',e.message.slice(0,180)));
+            for(const width of [1440,375]){
+              await page.setViewport({width,height:width===375?812:900,deviceScaleFactor:1});
+              for(const route of paths){
+                console.log('CHECKING',width,route);
+                const res=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'domcontentloaded',timeout:60000});
+                if(!res?.ok())throw Error('BAD_HTTP '+route+' '+res?.status());
+                await page.waitForSelector('.ed-catalog__grid,.ed-story__experiment',{timeout:90000});
+                await page.waitForFunction(()=>document.querySelector('main')?.dataset.clientReady===window.location.pathname,{timeout:90000});
+                const d=await page.evaluate(()=>({
+                  h1:document.querySelector('h1')?.textContent?.trim(),
+                  bodyWidth:document.documentElement.scrollWidth,
+                  viewport:window.innerWidth,
+                  choices:document.querySelectorAll('.ed-experiment__choices button').length,
+                  stages:document.querySelectorAll('.ed-chapters__track button').length,
+                  words:document.querySelector('.ed-story')?.textContent?.trim()?.length??0,
+                }));
+                if(!d.h1||d.bodyWidth>d.viewport+3)throw Error('RESPONSIVE '+route+' '+JSON.stringify(d));
+                if(route!='/articles/'){
+                  if(d.choices!==3||d.stages!==4||d.words<1800)throw Error('MISSING_ARTICLE_CONTENT '+route+' '+JSON.stringify(d));
+                  const before=await page.$eval('.ed-experiment__result',el=>el.textContent);
+                  await page.click('.ed-experiment__choices button:nth-child(2)');
+                  const after=await page.$eval('.ed-experiment__result',el=>el.textContent);
+                  if(before===after)throw Error('CHOICE_NOT_REACTIVE '+route);
+                  const initial=await page.$eval('.ed-chapters__selected',el=>el.textContent);
+                  await page.click('.ed-chapters__track button:nth-child(3)');
+                  const changed=await page.$eval('.ed-chapters__selected',el=>el.textContent);
+                  if(initial===changed)throw Error('STAGE_NOT_REACTIVE '+route);
+                  if([6,11,14,17].some(n=>EDITORIAL_STORIES[n-1].slug===route.split('/')[2])){
+                    const initialCalc=await page.$eval('.ed-lab__results',el=>el.textContent);
+                    await page.$eval('.ed-lab__range input',input=>{
+                      const max=Number(input.max),min=Number(input.min);
+                      const value=String(Math.abs(Number(input.value)-max)<1?min:max);
+                      const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;
+                      setter?.call(input,value);
+                      input.dispatchEvent(new Event('input',{bubbles:true}));
+                      input.dispatchEvent(new Event('change',{bubbles:true}));
+                    });
+                    await new Promise(r=>setTimeout(r,200));
+                    const changedCalc=await page.$eval('.ed-lab__results',el=>el.textContent);
+                    if(initialCalc===changedCalc)throw Error('SLIDER_NOT_REACTIVE '+route);
+                  }
+                  interactive++;
+                }
+                checks++;
+                console.log('CHECKED',width,route,d.bodyWidth);
+              }
+            }
+            console.log('EDITORIAL_BROWSER_ALL_PASS',JSON.stringify({pages:21,viewports:2,checks,interactive}));
+          }finally{await browser.close();}
+          JS
+      - name: Remove private source
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/editorial-browser-vite.pid ]; then kill "$(cat /tmp/editorial-browser-vite.pid)" 2>/dev/null || true; fi
+          rm -rf .private/site
+          rm -f /tmp/editorial-browser-*.log /tmp/editorial-browser-vite.pid
+          test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
