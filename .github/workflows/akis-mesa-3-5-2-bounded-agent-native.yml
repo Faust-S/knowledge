@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/2026-11-21-akis-bounded-agent-native
+      - work/2026-11-22-akis-r1r-independent-entry-native
   workflow_dispatch:
 
 permissions:
