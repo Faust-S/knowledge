@@ -200,6 +200,8 @@ jobs:
           python-version: '3.12'
       - name: Validate temporary production hosting ZIP (never upload it)
         working-directory: site
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
         run: |
           # The checked-in route tree and sitemap are regenerated during build.
           # Reconcile only those two tracked derivatives, never code or dist.
@@ -226,6 +228,14 @@ jobs:
             exit 1
           }
           echo D08_RELEASE_PACKAGER_TESTS=PASS
+          # The unittest import of package-hosting.py otherwise creates an
+          # untracked __pycache__ inside this source checkout. Packaging must
+          # see the identical source tree, not a relaxed dirty-tree policy.
+          if test -n "$(git status --porcelain)"; then
+            echo D08_RELEASE_SOURCE_AFTER_PYTHON=DIRTY
+            exit 1
+          fi
+          echo D08_RELEASE_SOURCE_AFTER_PYTHON=CLEAN
           python scripts/package-hosting.py --expected-head af3ce2fe299a54b6b6798d931308a39818be5076 --output "$RUNNER_TEMP/d08-ephemeral-hosting.zip" > "$RUNNER_TEMP/d08-hosting.log" 2>&1 || {
             if grep -q 'Private/engineering file' "$RUNNER_TEMP/d08-hosting.log"; then
               echo D08_RELEASE_PACKAGE_CAUSE=ENGINEERING_FILE_IN_DIST
