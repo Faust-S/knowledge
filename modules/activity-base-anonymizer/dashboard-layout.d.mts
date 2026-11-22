@@ -1,0 +1,11 @@
+export type ActivityWidgetKind='overview'|'processes'|'processMap'|'ocel'|'evidence'|'questions'|'t3Map'|'sources'|'sourceStatus'|'risks'|'standards'|'d05'|'recovery'|'release'|'qualification'|'localFile';
+export type ActivityWidgetSource='current'|'a1'|'ocel'|'t3';
+export type ActivityWidgetSize='wide'|'half'|'compact';
+export type ActivityWidget=Readonly<{id:string;kind:ActivityWidgetKind;size:ActivityWidgetSize;source:ActivityWidgetSource;label?:string}>;
+export const ACTIVITY_WIDGETS:Readonly<Record<ActivityWidgetKind,{title:string;page:string;sources:readonly ActivityWidgetSource[]}>>;
+export const ACTIVITY_DEFAULT_BOARD:ReadonlyArray<ActivityWidget>;
+export const ACTIVITY_BOARD_STORAGE:string;
+export function normalizeActivityBoard(input:unknown):ActivityWidget[]|null;
+export function defaultActivityBoard():ActivityWidget[];
+export function moveActivityWidget(board:readonly ActivityWidget[],from:string,to:string,after?:boolean):ActivityWidget[]|null;
+export function updateActivityWidget(board:readonly ActivityWidget[],id:string,update:Partial<ActivityWidget>):ActivityWidget[]|null;
