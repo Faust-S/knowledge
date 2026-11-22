@@ -432,7 +432,7 @@ test('original Object outbox is not published if its original event was rewritte
    ...f.ports,kind:'OBJECT_PUT',captureRef:'capture:1',workspaceId:ws,
    subjectId:objectId,originalWriteOwnerRef:owner,
    transport:t,authorizeNetworkPublish:async()=>true,
- }),err('OUTBOX_ORIGINAL_EVENT_HISTORY_DIVERGED'));
+ }),code(OUTBOX_ORIGINAL_EVENT_HISTORY_DIVERGED'));
  assert.equal(first.prepared.delta.data.title,'v2');
 });
 test('original Object remote outcome inspection preserves source and recipient cursors',async()=>{
@@ -454,7 +454,7 @@ test('original Object remote outcome inspection preserves source and recipient c
    workspaceId:ws,subjectId:objectId,originalWriteOwnerRef:owner,
    authorizeNetworkPublish:async()=>true,transport:t};
  await assert.rejects(publishT4OriginalHostOutbox(params),
-   err('OUTBOX_REMOTE_OUTCOME_UNKNOWN'));
+   code(OUTBOX_REMOTE_OUTCOME_UNKNOWN'));
  const confirmation=await inspectT4OriginalHostOutboxNetwork(params);
  assert.equal(confirmation.expectedBytesOnRemoteVerified,true);
  assert.equal(confirmation.historicalNetworkPutAcknowledged,false);
