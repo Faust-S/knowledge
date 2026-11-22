@@ -106,10 +106,10 @@ jobs:
           )){
             if(-not $nativeCard.Contains($extra)){throw 'D07_NATIVE_NEW_CARD_UIA_GUARD_MISSING'}
           }
-          if($nativeCard.Contains('/workspace/\\\\?new=1')){
+          if($nativeCard.Contains('/workspace/\\?new=1')){
             throw 'D07_NATIVE_CARD_QUERY_REGEX_DOUBLE_ESCAPED'
           }
-          if(-not $nativeCard.Contains('/workspace/\\?new=1')){
+          if(-not $nativeCard.Contains('/workspace/\?new=1')){
             throw 'D07_NATIVE_CARD_QUERY_REGEX_GUARD_MISSING'
           }
           Write-Output 'D07_NATIVE_DURABLE_CONTINUATION_SCRIPT_GATE=PASS'
