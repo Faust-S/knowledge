@@ -73,6 +73,7 @@ function ObjectViewCard({view, number}: {view: Ocel2ObjectView; number: number})
 
 
 const T3_MAP_PAGE_SIZE=8;
+const T3_CANDIDATE_PAGE_SIZE=6;
 
 function T3ViewCard({view, number}: {view:T3StructuralCandidate;number:number}) {
   const map=useMemo(()=>buildT3TransitionMap(view),[view]);
@@ -86,7 +87,9 @@ function T3ViewCard({view, number}: {view:T3StructuralCandidate;number:number}) 
   // source's selected step. The reference to the old view is discarded.
   const choice=selected?.source===view
     ? map.nodes.find(node=>node.id===selected.id)??null:null;
-  const route=map.cyclic
+  const route=map.too_complex
+    ? 'Сложная схема: общий порядок не вычислен. Доступны отдельные исходные переходы.'
+    : map.cyclic
     ? 'Наблюдается циклический порядок. Переделка не доказана.'
     : map.branched
       ? 'Есть варианты локального порядка. Правила решений не установлены.'
@@ -218,6 +221,7 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
   const [risk, setRisk] = useState<SyntheticRisk | null>(null);
   const [objectEvidence, setObjectEvidence] = useState<Ocel2EvidenceView | null>(null);
   const [t3Review, setT3Review] = useState<T3ReviewState | null>(null);
+  const [t3CandidatePage,setT3CandidatePage]=useState(0);
   const t3Controller = useRef<ReturnType<typeof createT3ReviewController> | null>(null);
   const sourceEpoch = useRef(0);
   const [sourceName, setSourceName] = useState('Источник не выбран');
@@ -239,9 +243,14 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
     }
   }, [t3Host]);
 
+  // Every fresh original signed D2 review starts at the first bounded page;
+  // a previous source's page is never carried to the next subject.
+  useLayoutEffect(()=>{setT3CandidatePage(0);},[t3Review?.review]);
+
   function beginSource(): number {
     const token = ++sourceEpoch.current;
     t3Controller.current?.reset();
+    setT3CandidatePage(0);
     setPreview(null); setRisk(null); setObjectEvidence(null); setProblem('');
     return token;
   }
@@ -356,6 +365,11 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
       if (token === sourceEpoch.current) setBusy(false);
     }
   }
+
+  const t3Candidates=t3Review?.status==='REVIEW'
+    ? t3Review.review?.structural_candidate??[] : [];
+  const candidatePages=Math.max(1,Math.ceil(t3Candidates.length/T3_CANDIDATE_PAGE_SIZE));
+  const candidatePage=Math.min(t3CandidatePage,candidatePages-1);
 
   return <div className="app-shell" onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
     <header className="topbar">
@@ -485,9 +499,32 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
                     ? 'Сохранение требует сверки' : 'Сохранить черновик'}</button>
               </div>
             </div> : null}
-            {t3Review.review.structural_candidate?.length
-              ? <div className="graph-list">{t3Review.review.structural_candidate.map((view, index) =>
-                  <T3ViewCard key={view.object_type} view={view} number={index + 1} />)}</div>
+            {t3Candidates.length
+              ? <section className="t3-candidates" aria-label="Структурные кандидаты T3">
+                <div className="t3-candidate-nav">
+                  <strong>Типы объектов и локальные переходы</strong>
+                  <span>Показано {candidatePage*T3_CANDIDATE_PAGE_SIZE+1}
+                    -{Math.min((candidatePage+1)*T3_CANDIDATE_PAGE_SIZE,t3Candidates.length)}
+                    из {t3Candidates.length}</span>
+                  {candidatePages>1 ? <div className="t3-map-pages">
+                    <button type="button" aria-label="Предыдущая группа типов объектов"
+                      disabled={candidatePage===0}
+                      onClick={()=>setT3CandidatePage(Math.max(0,candidatePage-1))}>Назад</button>
+                    <span>Страница {candidatePage+1} из {candidatePages}</span>
+                    <button type="button" aria-label="Следующая группа типов объектов"
+                      disabled={candidatePage===candidatePages-1}
+                      onClick={()=>setT3CandidatePage(Math.min(candidatePages-1,candidatePage+1))}>
+                      Далее
+                    </button>
+                  </div> : null}
+                </div>
+                <div className="graph-list">
+                  {t3Candidates.slice(candidatePage*T3_CANDIDATE_PAGE_SIZE,
+                    (candidatePage+1)*T3_CANDIDATE_PAGE_SIZE).map((view,index)=>
+                    <T3ViewCard key={view.object_type} view={view}
+                      number={candidatePage*T3_CANDIDATE_PAGE_SIZE+index+1} />)}
+                </div>
+              </section>
               : <p className="panel-copy" role="status">Доказательств недостаточно. Структура не восстанавливается автоматически.</p>}
           </> : null}
           {preview ? <>
