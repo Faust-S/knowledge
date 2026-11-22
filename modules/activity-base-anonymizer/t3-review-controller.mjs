@@ -45,6 +45,10 @@ function acceptedReview(r) {
   } else {
     if (!Array.isArray(r.structural_candidate) || !r.structural_candidate.length ||
         r.structural_candidate.length > 2000) throw new T3ActivityHold('T3_HOST_RESULT_UNVERIFIED');
+    // The UI renders event-local topology and keys cards by object alias.
+    // Reject inconsistent or duplicate aliases at the SAME Host boundary,
+    // rather than letting an invalid map crash the React tree.
+    const objectKinds=new Set();
     for (const v of r.structural_candidate) {
       if (!exact(v,['object_type','cohort_band','observed_event_kinds','object_local_successions']) ||
           !ALIAS.test(v.object_type) || !v.object_type.startsWith('object_type_') ||
@@ -58,6 +62,19 @@ function acceptedReview(r) {
             BANDS.has(e.cohort_band) &&
             e.relation === 'OBSERVED_OBJECT_LOCAL_ORDER_NOT_CAUSAL_DEPENDENCY')) {
         throw new T3ActivityHold('T3_HOST_RESULT_UNVERIFIED');
+      }
+      if (objectKinds.has(v.object_type))
+        throw new T3ActivityHold('T3_HOST_RESULT_UNVERIFIED');
+      objectKinds.add(v.object_type);
+      const kinds=new Set(v.observed_event_kinds);
+      if (kinds.size!==v.observed_event_kinds.length)
+        throw new T3ActivityHold('T3_HOST_RESULT_UNVERIFIED');
+      const edges=new Set();
+      for (const e of v.object_local_successions) {
+        const edge=JSON.stringify([e.from,e.to]);
+        if (!kinds.has(e.from)||!kinds.has(e.to)||edges.has(edge))
+          throw new T3ActivityHold('T3_HOST_RESULT_UNVERIFIED');
+        edges.add(edge);
       }
     }
   }
