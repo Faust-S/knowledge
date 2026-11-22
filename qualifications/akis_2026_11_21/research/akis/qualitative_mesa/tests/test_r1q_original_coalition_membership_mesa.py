@@ -159,6 +159,8 @@ def test_r1q_source_wrong_pilot_revision_and_consent_cannot_be_laundered():
          "COOPERATION_MEMBERSHIP_PILOT_DECISION_MISMATCH"),
         (lambda ev: ev.update(new_link_source_ref="model://op/foreign"),
          "COOPERATION_MEMBERSHIP_SOURCE_MUST_BELONG_TO_PROPOSER"),
+        (lambda ev: ev.update(new_link_source_ref="model://b/"),
+         "COOPERATION_MEMBERSHIP_SOURCE_MUST_BELONG_TO_PROPOSER"),
         (lambda ev: ev.update(cooperation_source_revision="n-old"),
          "COOPERATION_MEMBERSHIP_PARENT_REVISION_STALE"),
         (lambda ev: ev.update(new_link_revision="n-1"),
@@ -411,6 +413,24 @@ def test_r1q_new_entrant_refuses_later_exit_and_old_two_results_stay_accepted():
         "net", "net-2"
     ]
     assert reports(out, "request")[-1]["reason"] == "COOPERATION_LINK_UNKNOWN"
+    assert "w3" not in out["works"]
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1q_exited_resource_owner_cannot_be_used_by_successor_without_new_review():
+    d = two_membership_revisions_case()
+    request = next(ev for ev in d["events"]
+                   if ev["action"] == "request"
+                   and ev["work_spec"]["id"] == "w3")
+    request["work_spec"]["resource"] = "rc"  # owned by exited c
+    out = simulate(d)
+    assert [row["outcome"] for row in reports(
+        out, "cooperation_membership_apply"
+    )] == ["APPLIED", "APPLIED"]
+    assert reports(out, "request")[-1]["reason"] == (
+        "COOPERATION_NEW_ORIGINAL_PARTY_REQUIRES_REVIEW"
+    )
     assert "w3" not in out["works"]
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"

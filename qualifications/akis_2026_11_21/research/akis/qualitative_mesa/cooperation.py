@@ -469,7 +469,8 @@ def apply_cooperation_membership_revision(
         event.get("new_link_source_ref"),
         "COOPERATION_MEMBERSHIP_SOURCE_MODEL_REF_REQUIRED"
     )
-    if not new_source.startswith(f"model://{actor}/"):
+    if (not new_source.startswith(f"model://{actor}/") or
+            len(new_source) <= len(f"model://{actor}/")):
         raise CooperationInputError("COOPERATION_MEMBERSHIP_SOURCE_MUST_BELONG_TO_PROPOSER")
     candidate = proposal.get("proposed_subject")
     if kind == "ADD_FUTURE_PARTICIPANT":
