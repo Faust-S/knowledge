@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: c52110930efa9b2047f1a64c44fd9e5305de4094
+          ref: 3bf3f86b566c53dfe9711f04f03a4e0099d877cd
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -44,7 +44,7 @@ jobs:
           path: t2
       - name: Verify clean pinned private identities without outputting source
         run: |
-          test "$(git -C site rev-parse HEAD)" = "c52110930efa9b2047f1a64c44fd9e5305de4094" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "3bf3f86b566c53dfe9711f04f03a4e0099d877cd" || exit 1
           test "$(git -C t2 rev-parse HEAD)" = "49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7" || exit 1
           test -z "$(git -C t2 status --porcelain)" || exit 1
           test -f site/tests/d08-trading-two-goods-native-t2.mjs || exit 1
@@ -123,6 +123,17 @@ jobs:
           }
           grep -q '^D08_PUBLIC_BUSINESS_HANDOFF_PREFLIGHT=PASS$' "$RUNNER_TEMP/d08-business-preflight.log" || exit 1
           echo D08_PUBLIC_BUSINESS_HANDOFF_PREFLIGHT=PASS
+      - name: Real public trading business handoff before full T2 build
+        working-directory: site
+        run: |
+          node --check tests/d08-trading-business-handoff-preflight.mjs || exit 1
+          node tests/d08-trading-business-handoff-preflight.mjs > "$RUNNER_TEMP/d08-trade-business.log" 2>&1 || {
+            grep -E "^D08_PUBLIC_TRADING_BUSINESS_HANDOFF_(PHASE|FAILURE)=" "$RUNNER_TEMP/d08-trade-business.log" | head -3 || true
+            echo D08_PUBLIC_TRADING_BUSINESS_HANDOFF_PREFLIGHT=FAIL
+            exit 1
+          }
+          grep -q "^D08_PUBLIC_TRADING_BUSINESS_HANDOFF_PREFLIGHT=PASS$" "$RUNNER_TEMP/d08-trade-business.log" || exit 1
+          echo D08_PUBLIC_TRADING_BUSINESS_HANDOFF_PREFLIGHT=PASS
       - name: Fast two-goods public UI handoff before full T2 build
         working-directory: site
         run: |
