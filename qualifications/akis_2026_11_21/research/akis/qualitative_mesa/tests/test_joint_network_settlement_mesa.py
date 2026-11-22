@@ -91,6 +91,8 @@ def test_work_result_and_general_nine_component_view_not_granted_new_rights():
     d=akis_fixture()
     d["events"]=[]
     d["economic_claims"]=case()
+    from .test_general_system_mesa_integration import design
+    d["general_akis"]=design()
     # Original contractual and Result states cannot be rewritten by an
     # economic network posting hypothesis.
     out=simulate(d)
@@ -98,4 +100,41 @@ def test_work_result_and_general_nine_component_view_not_granted_new_rights():
     assert out["works"]["w1"]["result"]=="NOT_SUBMITTED"
     assert out["trace"]==[]
     assert out["economics"]["cash_timing"]["joint_network_settlement"]["legal_payment_or_owner_consent_created"] is False
+    # This is not an authorization to disclose other companies' accounts.
+    import json
+    projection=out["general_akis_model"]
+    assert projection["legal_consent_created"] is False
+    shared=json.dumps(projection,ensure_ascii=False)
+    assert "per_original_owner_private_research_projection" not in shared
+    assert "joint_posted_late_case" not in shared
     assert simulate(deepcopy(d))==out
+
+
+def test_joint_network_conserves_original_external_cash_over_varied_internal_due_dates():
+    from decimal import Decimal
+    checked=0
+    for internal_first in range(1, 7):
+        for internal_second in range(2, 8):
+            d=case()
+            # Keep the source's expected times unchanged, only move its
+            # model-declared hypothetical late settlement dates.
+            d["cash_timing"]["transfer_windows"][1]["late_at"]=internal_first
+            d["cash_timing"]["transfer_windows"][2]["late_at"]=internal_second
+            o=calc(d)["cash_timing"]
+            for sc in ("COOPERATION","INDEPENDENT_ALTERNATIVE"):
+                view=o["joint_network_settlement"]["scenarios"][sc]
+                assert view["internal_cash_nets_to_zero_at_every_tick"]
+                assert view["sum_owner_cash_changes_equals_original_external_cash_at_every_tick"]
+                original_net=Decimal(view["late_original_external_cash_delta"])
+                original_owners=view["per_original_owner_private_research_projection"]
+                opening={r["owner"]:Decimal(r["opening_cash"])
+                         for r in d["cash_timing"]["owner_positions"]}
+                total=sum(
+                    (Decimal(owner_data["joint_posted_late_case"][
+                        "end_of_horizon_cash_from_declared_transfers"])
+                     -opening[owner])
+                    for owner, owner_data in original_owners.items()
+                )
+                assert total==original_net, (sc,internal_first,internal_second)
+            checked+=1
+    assert checked==36
