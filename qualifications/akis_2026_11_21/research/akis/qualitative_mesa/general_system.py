@@ -80,6 +80,7 @@ class GeneralSystemDesign:
     enforce_model_org_code: bool = False
     enforce_model_formation_phases: bool = False
     enforce_model_formation_context_code: bool = False
+    enforce_model_formation_agent_review: bool = False
 
     @property
     def source_times(self) -> tuple[int, ...]:
@@ -297,7 +298,162 @@ class ModelFormationPolicy:
                 return "FORMATION_OC_THIRTEEN_ORIGINAL_CODE_CONTROLS_NOT_ACTIVE"
         return "NONE"
 
-    def before_commit(self, state: Any, work: Any, at: int) -> str:
+
+    def _agent_packet(self, state: Any, work: Any,
+                      fn_id: str, at: int) -> tuple[str, Any]:
+        options = [
+            fn for fn in self.design.declarations["agent_functions"]
+            if fn["id"] == fn_id and fn["work"] == work.key
+            and fn["work_revision"] == work.source_revision
+            and fn["revision"] == state.institution.revision
+            and fn["available_at"] <= at < fn["expires_at"]
+        ]
+        if len(options) != 1:
+            return "FORMATION_AGENT_ORIGINAL_FUNCTION_NOT_CURRENT", None
+        fn = options[0]
+        if fn["action"] != "REQUEST_APPROVAL":
+            return "FORMATION_AGENT_REVIEW_PACKET_FUNCTION_REQUIRED", None
+        policy = state.model_org_policy
+        if (policy is None or not policy.active(state, at) or
+                policy.agent_decision("REQUEST_APPROVAL")
+                    != "OC_MODEL_PREPARATION_CANDIDATE_NOT_AUTHORIZED"):
+            return "FORMATION_AGENT_ORIGINAL_OC_FUNCTION_NOT_PERMITTED", None
+        # Reuse the ONE model's source-qualified process computation.
+        view = general_system_view(self.design, state, at=float(at))
+        packets = [
+            row for row in view["bounded_process_function_outputs"]
+            if row["function"] == fn_id and row["work"] == work.key
+        ]
+        if len(packets) != 1 or packets[0]["status"] != "HUMAN_REVIEW_PACKET_COMPUTED":
+            return "FORMATION_AGENT_ORIGINAL_PROCESS_KPB_PACKET_NOT_CURRENT", None
+        return "NONE", fn
+
+    def _latest_agent_preparation(self, state: Any, work: Any,
+                                  fn_id: str, at: int) -> dict[str, Any] | None:
+        candidates = [
+            row for row in state.trace
+            if row.get("action") == "function_prepare"
+            and row.get("outcome") == "APPLIED"
+            and row.get("work") == work.key and row.get("function_id") == fn_id
+            and row.get("work_source_revision") == work.source_revision
+            and row.get("org_revision") == state.institution.revision
+            and type(row.get("at")) is int and row["at"] < at
+        ]
+        return candidates[-1] if candidates else None
+
+    def _phase_six_ready(self, state: Any, work: Any, at: int) -> str:
+        functions = [
+            fn for fn in self.design.declarations["agent_functions"]
+            if fn["work"] == work.key and fn["work_revision"] == work.source_revision
+            and fn["action"] == "REQUEST_APPROVAL"
+            and fn["revision"] == state.institution.revision
+            and fn["available_at"] <= at < fn["expires_at"]
+        ]
+        if len(functions) != 1:
+            return "FORMATION_AGENT_ONE_ORIGINAL_REVIEW_FUNCTION_REQUIRED"
+        fn = functions[0]
+        prep = self._latest_agent_preparation(state, work, fn["id"], at)
+        if prep is None:
+            return "FORMATION_AGENT_PREPARATION_NOT_IN_ORIGINAL_TRACE"
+        if (prep.get("actor") != fn["owner"] or
+                prep.get("function_source_ref") != fn["source_ref"] or
+                not self._source_active(
+                    6, fn["owner"], prep.get("function_phase_source_ref"),
+                    state.institution.revision, at)):
+            return "FORMATION_AGENT_ORIGINAL_PREPARATION_SOURCE_STALE"
+        reason, _ = self._agent_packet(state, work, fn["id"], at)
+        if reason != "NONE":
+            return reason
+        reviews = [
+            row for row in state.trace
+            if row.get("action") == "function_review"
+            and row.get("outcome") == "APPLIED"
+            and row.get("work") == work.key and row.get("function_id") == fn["id"]
+            and row.get("prepared_at") == prep["at"]
+            and row.get("actor") == work.customer
+            and row.get("org_revision") == state.institution.revision
+            and row.get("work_source_revision") == work.source_revision
+            and type(row.get("at")) is int and row["at"] < at
+        ]
+        if not reviews:
+            return "FORMATION_AGENT_ORIGINAL_CUSTOMER_APPROVAL_REQUIRED"
+        if reviews[-1].get("human_decision") != "APPROVE":
+            return "FORMATION_AGENT_ORIGINAL_CUSTOMER_REJECTED"
+        return "NONE"
+
+    def process_function_action(self, state: Any, ev: Mapping[str, Any],
+                                at: int) -> str:
+        if not self.design.enforce_model_formation_agent_review:
+            return "FORMATION_AGENT_GATE_NOT_CONFIGURED"
+        work = state.works.get(ev.get("work"))
+        if work is None:
+            return "FORMATION_AGENT_ORIGINAL_WORK_REQUIRED"
+        if work.obligation != "NOT_ACCEPTED":
+            return "FORMATION_AGENT_CANNOT_REWRITE_ACCEPTED_WORK"
+        if ev.get("org_revision") != state.institution.revision:
+            return "FORMATION_AGENT_ORIGINAL_OC_REVISION_MISMATCH"
+        fn_id, actor = ev.get("function_id"), ev.get("actor")
+        if not isinstance(fn_id, str) or not fn_id:
+            return "FORMATION_AGENT_FUNCTION_REFERENCE_REQUIRED"
+        if actor not in state.subjects or not state.subjects[actor].active:
+            return "FORMATION_AGENT_ORIGINAL_ACTIVE_SUBJECT_REQUIRED"
+        if ev["action"] == "function_prepare":
+            reason = self.before_commit(state, work, at, include_agent=False)
+            if reason != "NONE":
+                return reason
+            reason, fn = self._agent_packet(state, work, fn_id, at)
+            if reason != "NONE":
+                return reason
+            if actor != fn["owner"]:
+                return "FORMATION_AGENT_ORIGINAL_FUNCTION_OWNER_REQUIRED"
+            if ev.get("function_source_ref") != fn["source_ref"]:
+                return "FORMATION_AGENT_FUNCTION_SOURCE_MISMATCH"
+            if not self._source_active(
+                6, actor, ev.get("function_phase_source_ref"),
+                state.institution.revision, at
+            ):
+                return "FORMATION_AGENT_PHASE_SIX_SOURCE_REQUIRED"
+            return "NONE"
+        if ev["action"] != "function_review":
+            return "FORMATION_AGENT_UNSUPPORTED_ACTION"
+        if actor != work.customer:
+            return "FORMATION_AGENT_INDEPENDENT_CUSTOMER_REQUIRED"
+        decision = ev.get("human_decision")
+        if decision not in {"APPROVE", "REJECT"}:
+            return "FORMATION_AGENT_HUMAN_DECISION_REQUIRED"
+        proof = ev.get("review_source_ref")
+        if (not isinstance(proof, str) or
+                not proof.startswith("model://" + actor + "/") or
+                len(proof) > 160):
+            return "FORMATION_AGENT_ORIGINAL_CUSTOMER_SOURCE_REQUIRED"
+        prep = self._latest_agent_preparation(state, work, fn_id, at)
+        if prep is None or ev.get("prepared_at") != prep["at"]:
+            return "FORMATION_AGENT_CURRENT_PREPARATION_REQUIRED"
+        if any(
+            row.get("action") == "function_review"
+            and row.get("outcome") == "APPLIED"
+            and row.get("work") == work.key
+            and row.get("function_id") == fn_id
+            and row.get("prepared_at") == prep["at"]
+            for row in state.trace
+        ):
+            return "FORMATION_AGENT_PREPARATION_ALREADY_REVIEWED"
+        if decision == "APPROVE":
+            reason, fn = self._agent_packet(state, work, fn_id, at)
+            if reason != "NONE":
+                return reason
+            if (prep.get("actor") != fn["owner"] or
+                    prep.get("function_source_ref") != fn["source_ref"] or
+                    not self._source_active(
+                        6, fn["owner"], prep.get("function_phase_source_ref"),
+                        state.institution.revision, at)):
+                return "FORMATION_AGENT_PREPARATION_SOURCE_STALE"
+        # A rejection is an original independent negative decision, not
+        # execution, acceptance of Work, or a grant to a program agent.
+        return "NONE"
+
+    def before_commit(self, state: Any, work: Any, at: int,
+                      *, include_agent: bool = True) -> str:
         for phase, owners in (
             (1, {work.customer}), (2, {work.customer}),
             (3, self._resource_owners(state, work))
@@ -320,6 +476,8 @@ class ModelFormationPolicy:
                 reason = self._ack_status(state, work, 5, founder, at)
                 if reason != "NONE":
                     return reason
+        if include_agent and self.design.enforce_model_formation_agent_review:
+            return self._phase_six_ready(state, work, at)
         return "NONE"
 
 
@@ -333,7 +491,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                 "formation_phases", "context_cores", "agent_functions"}
     if (not isinstance(raw, dict) or not required <= set(raw) or
             set(raw) - required - {"enforce_model_org_code", "enforce_model_formation_phases",
-                                   "enforce_model_formation_context_code"}):
+                                   "enforce_model_formation_context_code",
+                                   "enforce_model_formation_agent_review"}):
         raise GeneralSystemInputError("INVALID_GENERAL_DESIGN_FIELDS")
     enforce_model_code = raw.get("enforce_model_org_code", False)
     if type(enforce_model_code) is not bool:
@@ -346,6 +505,11 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
         raise GeneralSystemInputError("GENERAL_MODEL_CONTEXT_CODE_ENFORCEMENT_MUST_BE_BOOLEAN")
     if enforce_institutional and not (enforce_formation and enforce_model_code):
         raise GeneralSystemInputError("FORMATION_CONTEXT_CODE_REQUIRES_PHASE_AND_OC_GATES")
+    enforce_agent = raw.get("enforce_model_formation_agent_review", False)
+    if type(enforce_agent) is not bool:
+        raise GeneralSystemInputError("GENERAL_MODEL_AGENT_REVIEW_GATE_MUST_BE_BOOLEAN")
+    if enforce_agent and not enforce_institutional:
+        raise GeneralSystemInputError("FORMATION_AGENT_REVIEW_REQUIRES_KPB_OC_GATES")
     configurations = {x["id"] for x in cat["taxonomy"]["subject_configurations"]}
     config = _s(raw["configuration"], "CONFIGURATION")
     if config not in configurations:
@@ -451,7 +615,7 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                                                                 x["owner"], x["source_ref"])))
     return GeneralSystemDesign(config, dict(morphology), parsed, cat,
                                enforce_model_code, enforce_formation,
-                               enforce_institutional)
+                               enforce_institutional, enforce_agent)
 
 
 def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
@@ -735,6 +899,27 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
             "no_new_original_action_by_policy": True,
         },
         "formation_phases": phase_rows,
+        "agent_function_formation_model_gate": {
+            "opted_in": design.enforce_model_formation_agent_review,
+            "original_bounded_preparations": sum(
+                row.get("action") == "function_prepare"
+                and row.get("outcome") == "APPLIED" for row in state.trace
+            ),
+            "independent_original_customer_approvals": sum(
+                row.get("action") == "function_review"
+                and row.get("outcome") == "APPLIED"
+                and row.get("human_decision") == "APPROVE" for row in state.trace
+            ),
+            "independent_original_customer_rejections": sum(
+                row.get("action") == "function_review"
+                and row.get("outcome") == "APPLIED"
+                and row.get("human_decision") == "REJECT" for row in state.trace
+            ),
+            "full_author_A_F_P_OC_KPB_implemented": False,
+            "automatic_original_business_action": False,
+            "authenticated_human_decision": False,
+            "all_eight_author_phases_executable": False,
+        },
         "context_and_code_formation_model_gate": {
             "opted_in": design.enforce_model_formation_context_code,
             "four_original_context_core_confirmations": sum(

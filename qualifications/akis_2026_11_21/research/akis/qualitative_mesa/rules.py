@@ -44,7 +44,7 @@ SELECTED_MODES = frozenset({"SOLE", "COLLEGIAL", "MIXED"})
 # UNSELECTED explicitly describes missing qualification, not tacit SOLE.
 MODES = SELECTED_MODES | {"UNSELECTED"}
 AVAILABILITY = frozenset({"AVAILABLE", "UNAVAILABLE", "UNKNOWN"})
-ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "adopt_capability", "formation_confirm"})
+ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "adopt_capability", "formation_confirm", "function_prepare", "function_review"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -250,7 +250,7 @@ class QualitativeAKIS:
         last = -1
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
-             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source"}, "EVENT")
+             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -395,6 +395,12 @@ class QualitativeAKIS:
                 issue = self.formation_policy.confirm(self, ev, at)
                 if issue != "NONE":
                     raise BlockedDecision(issue)
+            elif action in {"function_prepare", "function_review"}:
+                if self.formation_policy is None:
+                    raise BlockedDecision("FORMATION_AGENT_GATE_NOT_CONFIGURED")
+                issue = self.formation_policy.process_function_action(self, ev, at)
+                if issue != "NONE":
+                    raise BlockedDecision(issue)
             elif action == "adopt_capability":
                 if self.capability_policy is None:
                     raise BlockedDecision("CAPABILITY_POLICY_NOT_CONFIGURED")
@@ -527,6 +533,21 @@ class QualitativeAKIS:
                     report["formation_core"] = ev.get("formation_core")
                     report["formation_basis_source"] = ev.get("formation_basis_source")
                 report["formation_is_model_only_not_original_legal_authority"] = True
+        if action in {"function_prepare", "function_review"}:
+            report["function_id"] = ev.get("function_id")
+            if report["outcome"] == "APPLIED":
+                report["work_source_revision"] = self.works[work_ref].source_revision
+                report["original_human_or_program_source_authentication"] = "MODEL_ONLY"
+                report["program_cannot_create_original_work_or_result"] = True
+                if action == "function_prepare":
+                    report["function_source_ref"] = ev.get("function_source_ref")
+                    report["function_phase_source_ref"] = ev.get("function_phase_source_ref")
+                    report["program_packet"] = "HUMAN_REVIEW_PACKET_COMPUTED"
+                else:
+                    report["prepared_at"] = ev.get("prepared_at")
+                    report["human_decision"] = ev.get("human_decision")
+                    report["review_source_ref"] = ev.get("review_source_ref")
+                    report["human_review_is_not_original_work_consent"] = True
         if action == "adopt_capability":
             report["capability"] = ev.get("capability")
             report["expected_capacity_revision"] = ev.get("expected_capacity_revision")
