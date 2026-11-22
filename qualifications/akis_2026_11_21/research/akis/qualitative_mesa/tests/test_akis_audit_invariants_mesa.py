@@ -112,3 +112,24 @@ def test_measurement_quality_source_requires_explicit_purpose():
     assert "MEASUREMENT_EXPLICIT_SOURCE_SCOPE_REQUIRED" in result["model_scope_reasons"]
     assert result["declared_favourable_metric_difference"] is None
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_source_update_with_expected_revision_cannot_overwrite_newer_owner_evidence():
+    """Concurrent/replayed owner messages require compare-and-set when supplied."""
+    d = capability_case()
+    d["events"] += [
+        {"at": 34, "action": "source_update", "actor": "b",
+         "source": "b-capacity", "status": "CONFIRMED",
+         "expected_revision": "bc1", "new_revision": "bc2"},
+        {"at": 35, "action": "source_update", "actor": "b",
+         "source": "b-capacity", "status": "UNKNOWN",
+         "expected_revision": "bc1", "new_revision": "bc3"},
+    ]
+    out = simulate(d)
+    first, stale = [e for e in out["trace"]
+                    if e["action"] == "source_update" and e["at"] in (34, 35)]
+    assert first["outcome"] == "APPLIED"
+    assert stale["outcome"] == "BLOCKED"
+    assert stale["reason"] == "CONTEXT_STALE_SOURCE_UPDATE_REVISION"
+    assert out["context_evidence"]["sources"]["b-capacity"]["revision"] == "bc2"
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
