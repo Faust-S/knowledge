@@ -186,7 +186,7 @@ function NativeD2BoundedRefusal(){
     try{
       $name=[string]$element.Current.Name
       $match=[regex]::Match($name,
-        'Код:\s*((?:CEN_D2|CEN_D3|T3_D1|T3_D2|T3_D3|T3_OWNER|T3_SUBJECT|T3_ACCESS|T3_KERNEL|T3_HOST|WORKSPACE|SOURCE|OPERATION)_[A-Z0-9_]{4,90})')
+        'Код:\s*((?:CEN_D2|CEN_D3|T3_D1|T3_D2|T3_D3|T3_OWNER|T3_SUBJECT|T3_ACCESS|T3_KERNEL|T3_HOST|INTEROP|WORKSPACE|SOURCE|OPERATION)_[A-Z0-9_]{4,90})')
       if($match.Success){
         Write-Host ('D2_INSTALLED_NATIVE_SOURCE_REFUSAL '+$match.Groups[1].Value)
         return
@@ -194,6 +194,17 @@ function NativeD2BoundedRefusal(){
     }catch{}
   }
   Write-Host 'D2_INSTALLED_NATIVE_SOURCE_REFUSAL UNCLASSIFIED'
+}
+function NativeD2RefusalStage(){
+  # Observe only one of three fixed public UI states. No private strings,
+  # original signed grant contents, user data, or native stderr are read.
+  foreach($stage in @('SIGNED_CONTEXT','ORIGINAL_KERNEL_READ','SIGNED_ENUMERATION')){
+    if(HasText ('Этап: '+$stage)){
+      Write-Host ('D2_INSTALLED_NATIVE_REFUSAL_STAGE '+$stage)
+      return
+    }
+  }
+  Write-Host 'D2_INSTALLED_NATIVE_REFUSAL_STAGE UNCLASSIFIED'
 }
 function WaitForOriginalKernelReady(){
   # The isolated T3 child is asynchronous. A visible Center toolbar button
@@ -230,6 +241,7 @@ function EnsureOriginalSignedWorkspaceProvisioned(){
       # A denied signed getWorkspace is NOT a missing Workspace. No create
       # button should be clicked under revoked/absent or mismatched authority.
       NativeD2BoundedRefusal
+      NativeD2RefusalStage
       Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_ACCESS_DENIED'
       return $false
     }
