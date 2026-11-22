@@ -16,14 +16,14 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      D06_SOURCE_SHA: e2ff327e997c426aa068fe57788e468d0a0d536c
-      D06_SOURCE_BRANCH: work/2026-11-11-case-driven-entry-and-drill
+      D06_SOURCE_SHA: d8f4e37ee7f19dae8d54c3f57671d3168038e4e1
+      D06_SOURCE_BRANCH: test/2026-11-22-d06-product-life-workspace
     steps:
       - name: Read exact private D06 source
         uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: e2ff327e997c426aa068fe57788e468d0a0d536c
+          ref: d8f4e37ee7f19dae8d54c3f57671d3168038e4e1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
