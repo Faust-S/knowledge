@@ -187,23 +187,11 @@ jobs:
           $proof=Join-Path $env:RUNNER_TEMP 'd07-native-card-order-identity.private.json'
           if(-not (Test-Path $proof)){throw 'D07_NATIVE_CONTINUATION_SOURCE_PROOF_MISSING'}
           $original=Get-Content $proof -Raw|ConvertFrom-Json
-          if($original.objectId -notmatch '^d07:order:[a-f0-9]{64}
-        if: always()
-        run: |
-          Write-Output ('D07_NATIVE_ORDER_STEP=${{ steps.native_order.outcome }}')
-          Write-Output ('D07_NATIVE_ARCHIVE_STEP=${{ steps.physical_export.outcome }}')
-          Write-Output ('D07_NATIVE_IMPORT_STEP=${{ steps.independent_import.outcome }}')
-          Write-Output ('D07_NATIVE_DURABLE_CONTINUATION_STEP=${{ steps.durable_continuation.outcome }}')
-          Write-Output 'D07_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN'
-          Write-Output 'D07_SERVICE_ACCEPTED=NO'
-      # Only high-level statuses are printed. No private checkout, dist, secrets,
-      # profiles, screenshots, source HTML or raw generated documents are uploaded.
- -or $original.works -ne 10){
+          if($original.objectId -notmatch '^d07:order:[a-f0-9]{64}$' -or $original.works -ne 10){
             throw 'D07_NATIVE_CONTINUATION_ORIGINAL_PROOF_INVALID'
           }
-          # The independent import script only returns success after it has
-          # committed revision 2 and cold-reopened the original object and works.
-          # No synthetic Result or browser-local JSON is accepted as witness.
+          # This job only runs after the native import script has committed
+          # revision 2 and independently cold-reopened the original object.
           Write-Output 'D07_NATIVE_IMPORTED_RESULT_REVISION2_COLD_REOPEN=PASS'
       - name: Report qualification boundary
         if: always()
@@ -211,6 +199,7 @@ jobs:
           Write-Output ('D07_NATIVE_ORDER_STEP=${{ steps.native_order.outcome }}')
           Write-Output ('D07_NATIVE_ARCHIVE_STEP=${{ steps.physical_export.outcome }}')
           Write-Output ('D07_NATIVE_IMPORT_STEP=${{ steps.independent_import.outcome }}')
+          Write-Output ('D07_NATIVE_DURABLE_CONTINUATION_STEP=${{ steps.durable_continuation.outcome }}')
           Write-Output 'D07_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN'
           Write-Output 'D07_SERVICE_ACCEPTED=NO'
       # Only high-level statuses are printed. No private checkout, dist, secrets,
