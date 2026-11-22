@@ -71,7 +71,7 @@ jobs:
             Set-Content -LiteralPath $source -Value $script -Encoding utf8NoBOM
             $exe=Join-Path $env:RUNNER_TEMP ("d2-original-import-"+$spec.Name+'.exe')
             $buildLog=Join-Path $env:RUNNER_TEMP ('d2-original-import-build-'+$spec.Name+'.log')
-            & bun build --compile --target=bun-windows-x64 --windows-hide-console $source --outfile $exe *> $buildLog
+            & bun build --compile --target=bun-windows-x64 --windows-hide-console --asset .private/t3/access-control/domain-registry.json $source --outfile $exe *> $buildLog
             if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe)){
               Write-Host ('D2_BUN_ORIGINAL_IMPORT_'+$spec.Name+'_BUILD_FAILED')
               $count++;continue
