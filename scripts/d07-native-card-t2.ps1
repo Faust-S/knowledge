@@ -21,13 +21,18 @@ function FindUi([string]$name,$kind){
  $cond=if($kind){[System.Windows.Automation.AndCondition]::new($match,
   [System.Windows.Automation.PropertyCondition]::new(
    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,$kind))}else{$match}
+ $fallback=$null
  foreach($p in @(Roots)){
   $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$p.MainWindowHandle)
   if(!$root){continue}
-  $found=$root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$cond)
-  if($found){return $found}
+  $found=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,$cond)
+  for($i=0;$i -lt $found.Count;$i++){
+    $node=$found.Item($i)
+    if(!$fallback){$fallback=$node}
+    if($node.Current.IsEnabled -and !$node.Current.IsOffscreen){return $node}
+  }
  }
- return $null
+ return $fallback
 }
 function WaitUi([string]$name,$kind,[int]$retries=80){
  for($i=0;$i -lt $retries;$i++){
