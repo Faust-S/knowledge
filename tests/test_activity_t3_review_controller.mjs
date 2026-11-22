@@ -249,8 +249,10 @@ test('lost stage ACK never causes an automatic second original Kernel write',asy
   assert.equal(states.at(-1).code,'T3_REVIEW_UNAVAILABLE');
   // A new read is permitted, but never licenses a second effect on this port.
   await c.readSelected();
+  assert.equal(states.at(-1).stageBlocked,true);
   assert.deepEqual(await c.stageSelected(),{status:'UNAVAILABLE'});
   c.reset();await c.readSelected();
+  assert.equal(states.at(-1).stageBlocked,true);
   assert.deepEqual(await c.stageSelected(),{status:'UNAVAILABLE'});
   assert.equal(writes,1);
   assert.equal(JSON.stringify(states).includes('original signed Host lost ACK'),false);
@@ -269,6 +271,7 @@ test('owner invalidation during stage forbids a second dispatch even after re-re
   release();
   assert.deepEqual(await pending,{status:'INVALIDATED'});
   await c.readSelected();
+  assert.equal(states.at(-1).stageBlocked,true);
   assert.deepEqual(await c.stageSelected(),{status:'UNAVAILABLE'});
   assert.equal(writes,1);
   assert.equal(states.at(-1).status,'REVIEW');
