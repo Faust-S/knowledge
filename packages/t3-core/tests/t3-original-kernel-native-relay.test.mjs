@@ -85,8 +85,10 @@ test('original D1 read diagnostic preserves native D2 source attribution',async 
     port:channel.port1,isActive:()=>true,
     createSignedFacade:async(method,report)=>{
       assert.equal(method,'getWorkspace');
-      report('ORIGINAL_T2_KERNEL_CALL');
-      return Object.freeze({getWorkspace:()=>new Promise(()=>{})});
+      return Object.freeze({getWorkspace:()=>{
+        report('ORIGINAL_T2_KERNEL_CALL');
+        return new Promise(()=>{});
+      }});
     },
   });
   const client=createIsolatedKernelClient({
