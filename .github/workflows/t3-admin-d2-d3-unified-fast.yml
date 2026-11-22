@@ -52,6 +52,8 @@ jobs:
             fi
             echo "ADMIN03_UNIFIED_${name}_PASS"
           }
+          run_original ORIGINAL_D3_NATIVE_HOST node --test .private/t3/tests/admin-original-host-port.test.mjs
+          run_original ORIGINAL_D3_APPLICATION node --test .private/t3/tests/admin-application-content.test.mjs
           run_original EMPLOYEE_MULTI_OWNER node --test .private/t3/tests/multi-employee-admin.test.mjs
           run_original EMPLOYEE_PROVISIONING node --test .private/t3/tests/multi-employee-provisioning.test.mjs
           run_original ORIGINAL_D2_DATA_GRANT node --test .private/t3/tests/t3-admin-activity-original-data-grant.test.mjs
