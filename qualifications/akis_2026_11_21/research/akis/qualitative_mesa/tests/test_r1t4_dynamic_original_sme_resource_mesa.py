@@ -340,13 +340,12 @@ def test_r1t4_duplicate_accepted_subject_registration_is_not_second_agent():
     d = new_original_enterprise_case()
     row = next(x for x in d["events"] if x["action"] == "subject_registration_apply")
     clone = deepcopy(row)
-    clone["at"] = 74  # existing original resources will shift; choose alternate date
-    # Use the resource application instant itself: replace the original
-    # resource application event with duplicate subject application.
-    d["events"] = [x for x in d["events"]
-                   if x["action"] != "resource_registration_apply"]
+    clone["at"] = max(r["at"] for r in d["events"]) + 1
+    # The duplicate is tested AFTER all original Results, without deleting
+    # the first resource application or changing the future Work preflight.
     d["events"].append(clone)
     d["events"].sort(key=lambda x: x["at"])
+    d["model_horizon"] = max(d["model_horizon"], clone["at"] + 1)
     model = OperatorAKISModel(d)
     out = model.execute()
     assert reports(out, "subject_registration_apply")[-1]["reason"] == (
