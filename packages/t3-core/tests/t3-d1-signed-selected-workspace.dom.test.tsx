@@ -147,6 +147,70 @@ it("a signed company key without a distinct create grant never creates automatic
   expect(screen.queryByTestId("no-unsigned-company")).toBeNull();
 });
 
+it("installed corporate preflight exposes only bounded refusal code and never leaks exception paths",async()=>{
+  const createWorkspace=vi.fn();
+  const candidate={
+    getWorkspace:vi.fn(async()=>{throw Object.assign(
+      new Error("private C:\\Users\\Owner\\secrets\\vault.json"),
+      {code:"T3_ACCESS_NOT_PERMITTED"});}),
+    listWorkspaces:vi.fn(),createWorkspace,
+    hasOperation:()=>true,
+  } as unknown as KernelFacade;
+  render(<SignedSelectedWorkspaceGate required kernel={candidate}
+    profile="generic" autoCreateSignedCorporate={false}
+    trustedSelectedContext={async()=>({
+      kind:"CORP",organization_id:"org:denied",workspace_id:"ws:denied",
+      resource:"ws:denied",
+    })}>
+    <p data-testid="forbidden-corporate-content">Forbidden</p>
+  </SignedSelectedWorkspaceGate>);
+  const refusal=await screen.findByTestId("t3-d1-selected-workspace-refusal-code");
+  expect(refusal.textContent).toContain("T3_ACCESS_NOT_PERMITTED");
+  expect(screen.getByRole("heading").textContent)
+    .toBe("Подписанный доступ Workspace не подтверждён");
+  expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
+  expect(screen.queryByTestId("forbidden-corporate-content")).toBeNull();
+  expect(document.body.textContent).not.toContain("vault.json");
+  expect(createWorkspace).not.toHaveBeenCalled();
+});
+
+it("untrusted exception strings never reach the signed Workspace UI",async()=>{
+  const candidate={
+    getWorkspace:vi.fn(async()=>{throw Error("private path /vault/issuer.json");}),
+    createWorkspace:vi.fn(),hasOperation:()=>true,
+  } as unknown as KernelFacade;
+  render(<SignedSelectedWorkspaceGate required kernel={candidate}
+    profile="generic" autoCreateSignedCorporate={false}
+    trustedSelectedContext={async()=>({
+      kind:"CORP",organization_id:"org:denied",workspace_id:"ws:denied",
+      resource:"ws:denied",
+    })}>
+    <p>Forbidden</p>
+  </SignedSelectedWorkspaceGate>);
+  expect((await screen.findByTestId("t3-d1-selected-workspace-refusal-code"))
+    .textContent).toContain("T3_D1_SELECTED_WORKSPACE_CHECK_DENIED");
+  expect(document.body.textContent).not.toContain("/vault/");
+  expect(candidate.createWorkspace).not.toHaveBeenCalled();
+});
+
+it("missing Workspace without an inherited create operation is diagnosed without writing",async()=>{
+  const createWorkspace=vi.fn();
+  const candidate={getWorkspace:vi.fn(async()=>null),
+    createWorkspace,hasOperation:()=>false} as unknown as KernelFacade;
+  render(<SignedSelectedWorkspaceGate required kernel={candidate}
+    profile="generic" autoCreateSignedCorporate={false}
+    trustedSelectedContext={async()=>({
+      kind:"CORP",organization_id:"org:no-create",workspace_id:"ws:no-create",
+      resource:"ws:no-create",
+    })}>
+    <p>Forbidden</p>
+  </SignedSelectedWorkspaceGate>);
+  const refusal=await screen.findByTestId("t3-d1-selected-workspace-create-unavailable");
+  expect(refusal.textContent).toContain("T3_D1_KERNEL_CREATE_UNAVAILABLE");
+  expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
+  expect(createWorkspace).not.toHaveBeenCalled();
+});
+
 it("typed original permission denial is NEVER converted to missing or signed create",async()=>{
   const getWorkspace=vi.fn(async()=>{
     throw Object.assign(new Error("PERMISSION_DENIED"),{code:"PERMISSION_DENIED"});
