@@ -2281,9 +2281,10 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const receiveBatch=async maxEntries=>{
         const cycle=await originalExchangeCycle.run({
           maxSourceEntries:3,maxRecipientEntries:maxEntries});
-        assert.equal(cycle.publishedPrefixCount,3);
+        assert.equal(cycle.publishedPrefixCount,receiveSourceEntries.length);
         assert.equal(cycle.stillWaitingForNetworkCount,0);
-        assert.equal(scheduledNetworkPutCount-earlierPutCount,3,
+        assert.equal(scheduledNetworkPutCount-earlierPutCount,
+          receiveSourceEntries.length,
           'Host exchange must never duplicate a completed network PUT');
         return cycle.recipient;
       };
@@ -2364,6 +2365,81 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalObjectPutCalls:recipientObjectPutCalls,
           originalAssetPutCalls:recipientAssetPutCalls,
           originalRelationPutCalls:recipientRelationPutCalls,
+          independentPhysicalDevices:false,
+        }));
+
+      // A NEW source event after a fully drained queue must be picked up
+      // by the NEXT original Host exchange task. No hand-written recipient
+      // plan, manually advanced cursor or second T4 task engine is allowed.
+      const nextSource=await sourceKernel.getObject(
+        workspaceId,linkedObjectId);
+      assert.equal(nextSource.object.revision,8);
+      const followupCaptureRef='t4:receiver:incremental:'+randomUUID();
+      const followupTitle='Original T3 next exchange wave '+randomUUID();
+      const followup=await subjectHost.putObject({
+        captureRef:followupCaptureRef,
+        sourceCursor:receiveRelation.capture.nextCursor,
+        mutationInput:{
+          workspace_id:workspaceId,object_id:linkedObjectId,
+          schema_id:nextSource.object.schema_id,
+          schema_version:nextSource.object.schema_version,
+          data:{...nextSource.object.data,title:followupTitle},
+          extensions:nextSource.object.extensions??{},
+          base_revision:8,
+          event:{event_type:'t4.original.recipient.incremental.object',
+            payload:{purpose:'next-host-tick'}},
+        },
+      });
+      assert.equal(followup.capture.sourceRevision,9);
+      receiveSourceEntries.push({
+        kind:'OBJECT_PUT',captureRef:followupCaptureRef,
+        subjectId:linkedObjectId,
+        before:receiveRelation.capture.nextCursor,
+        receipt:followup.capture,
+      });
+      assert.equal(await readSourceTechnical('network-checkpoint',
+        followupCaptureRef),null);
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      await recipientContext.close();recipientContext=null;
+      recipientContext=await launch(recipientProfile);
+      recipientPage=await opened(recipientContext);
+      const additionalWave=await receiveBatch(1);
+      assert.equal(additionalWave.processedCount,1);
+      assert.equal(additionalWave.hasMore,false);
+      assert.equal(recipientObjectPutCalls,2);
+      assert.equal(recipientAssetPutCalls,1);
+      assert.equal(recipientRelationPutCalls,1);
+      assert.equal((await independentAssetRecipient.getObject(
+        workspaceId,linkedObjectId)).object.revision,9);
+      assert.equal((await independentAssetRecipient.getObject(
+        workspaceId,linkedObjectId)).object.data.title,followupTitle);
+      assert.equal((await readRecipientCursor()).lastEventId,
+        followup.capture.window.lastEventId);
+      assert.ok(await readSourceTechnical('network-checkpoint',
+        followupCaptureRef));
+      assert.ok(await recipientTechnicalRead('applied-checkpoint',
+        followupCaptureRef));
+      const followupIdle=await receiveBatch(1);
+      assert.equal(followupIdle.processedCount,0);
+      assert.equal(followupIdle.skippedVerifiedCount,4);
+      assert.equal(recipientObjectPutCalls,2);
+      console.log('T4_REAL_ORIGINAL_T3_HOST_EXCHANGE_INCREMENTAL_WAVE_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,originalHostExchangeCycle:true,
+          sourceEventAfterPriorRecipientSync:true,
+          sourceAndRecipientColdRestartBeforeNextHostTick:true,
+          originalSourceOutboxPlanRebuiltFromStore:true,
+          originalSourceRecipientFourthEventConfirmed:true,
+          secondObjectRevisionApplied:9,
+          originalObjectCommitCalls:recipientObjectPutCalls,
+          originalAssetPutCalls:recipientAssetPutCalls,
+          originalRelationPutCalls:recipientRelationPutCalls,
+          originalHostTaskAdditionalNetworkPuts:1,
+          originalHostTaskFinalIdleNoDuplicateWrites:true,
+          originalHostUsesExistingT3Store:true,
+          separateSchedulerIntroduced:false,
           independentPhysicalDevices:false,
         }));
 
