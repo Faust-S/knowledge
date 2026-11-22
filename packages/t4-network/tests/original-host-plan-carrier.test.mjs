@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {persistT4OriginalHostPlanCarrier,
+  reconcileT4OriginalHostPlanCarrier,
   inspectT4OriginalHostImportedPlanCarrier}
   from '../src/network/original-host-plan-carrier.mjs';
 const ws='original:business',mailbox='original:exchange:mailbox',
@@ -148,6 +149,11 @@ test('lost source T3 putObject ACK is never retried by carrier',async()=>{
     e=>e.code==='PLAN_CARRIER_ORIGINAL_T3_WRITE_OUTCOME_UNKNOWN'&&
       e.details.automaticRetryAllowed===false);
   assert.equal(f.objects.size,1);assert.equal(f.ops.writes,1);
+  const recovered=await reconcileT4OriginalHostPlanCarrier(f.sourceArgs);
+  assert.equal(recovered.originalT3ObjectAndEventReadback,true);
+  assert.equal(recovered.originalT3WriteRetried,false);
+  assert.equal(recovered.originalReceiptRecreated,false);
+  assert.equal(recovered.originalT3EventId,f.events[0].event_id);
   await assert.rejects(persistT4OriginalHostPlanCarrier(f.sourceArgs),
     err('PLAN_CARRIER_ALREADY_EXISTS_NO_OVERWRITE'));
   assert.equal(f.ops.writes,1);
@@ -224,4 +230,24 @@ test('changed original T3 import receipt after the first read blocks carrier adm
     },
   }),err('PLAN_CARRIER_ORIGINAL_IMPORT_RECEIPT_NOT_DURABLE'));
   assert.equal(n,2);
+});
+
+test('original carrier recovery does not accept tampered Event after lost source ACK',async()=>{
+  const f=fixture();f.loseACK();
+  await assert.rejects(persistT4OriginalHostPlanCarrier(f.sourceArgs),
+    err('PLAN_CARRIER_ORIGINAL_T3_WRITE_OUTCOME_UNKNOWN'));
+  f.events[0].payload.carrierWorkspaceId='untrusted:workspace';
+  await assert.rejects(reconcileT4OriginalHostPlanCarrier(f.sourceArgs),
+    err('PLAN_CARRIER_ORIGINAL_T3_EVENT_NOT_PROVEN'));
+  assert.equal(f.ops.writes,1);
+});
+test('original carrier recovery refuses changed stored Object without replaying source write',async()=>{
+  const f=fixture();f.loseACK();
+  await assert.rejects(persistT4OriginalHostPlanCarrier(f.sourceArgs),
+    err('PLAN_CARRIER_ORIGINAL_T3_WRITE_OUTCOME_UNKNOWN'));
+  const stored=f.objects.get(mailbox+':'+objectId);
+  stored.object.data.plan.entries[0].subjectId='other:object';
+  await assert.rejects(reconcileT4OriginalHostPlanCarrier(f.sourceArgs),
+    err('PLAN_CARRIER_SOURCE_PLAN_INVALID'));
+  assert.equal(f.ops.writes,1);
 });
