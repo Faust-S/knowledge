@@ -123,6 +123,25 @@ export function createT4OriginalHostCaptureAdapter({
         originalT3OperationUsed:true,originalHostUnchanged:true,
         networkPublished:false});
     },
+    async deleteObject({mutationInput}={}){
+      if(originalKernel.hasOperation('t1.deleteObject')!==true||
+        typeof originalKernel.deleteObject!=='function')
+        fail('ORIGINAL_HOST_T3_DELETE_OBJECT_PORT_REQUIRED');
+      if(mode()==='LOCAL_T3'){
+        if(!mutationInput||typeof mutationInput!=='object')
+          fail('ORIGINAL_HOST_MUTATION_REQUIRED');
+        const originalReceipt=await originalKernel.deleteObject(mutationInput);
+        return Object.freeze({
+          schema:'IWXA_T4_ORIGINAL_HOST_OBJECT_DELETE_RESULT_V1',
+          t4Mode:'LOCAL_T3',originalReceipt,originalT3OperationUsed:true,
+          originalHostUnchanged:true,capture:null,networkPublished:false,
+        });
+      }
+      // The released T3 original delete may retain live Relation edges
+      // while its attached Asset vanishes from getAsset. No T4 Object
+      // Delete delta or replay can be authorized by an advisory preflight.
+      fail('ORIGINAL_HOST_T4_OBJECT_DELETE_NOT_QUALIFIED');
+    },
     async reconcileAssetMutation({captureRef,workspaceId,assetId}={}){
       if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_RECOVERY_REQUIRES_T4');
       requiredOriginalHostCapturePorts();
