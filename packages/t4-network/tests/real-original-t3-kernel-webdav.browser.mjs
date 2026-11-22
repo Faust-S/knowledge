@@ -17,6 +17,9 @@ import {createWebDavPackageTransport}
   from '../src/network/webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow}
   from '../src/network/original-event-window.mjs';
+import {createT4OriginalObjectBacklog,publishT4OriginalObjectBacklog,
+  replayT4OriginalObjectBacklog}
+  from '../src/network/original-object-backlog.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
   from '../src/network/network-topology.mjs';
 import {prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
@@ -217,7 +220,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
     await sourceContext.close();sourceContext=null;
 
     recipientContext=await launch(recipientProfile);
-    const recipientPage=await opened(recipientContext);
+    let recipientPage=await opened(recipientContext);
     const receiving=await recipientPage.evaluate(async SERVICE=>{
       const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
       return {operations:kernel.granted_operations,contract:kernel.contract_version,
@@ -544,6 +547,215 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           recipientLocalValuePreserved:true,networkDeltaDelivered:true,
           noSilentLastWriteWins:true,cursorNotAdvancedOnConflict:true,
           originalT3WriteAuthorityUsed:true}));
+
+      // The original T3 recipient disconnects. Its linked object stays at revision 1.
+      // The original source captures EVERY revision at the moment it is written;
+      // missing source snapshots cannot be reconstructed from Event payloads alone.
+      await recipientContext.close();recipientContext=null;
+      const captured=[],originalEventRows=new Map();
+      let sourceCursor=conflictWindow.nextCursor;
+      for(let number=2;number<=4;number++){
+        const stagedTitle='Offline linked work revision '+number+' '+randomUUID();
+        const sourceChange=await activeSourcePage.evaluate(async({
+          SERVICE,workspaceId,linkedObjectId,stagedTitle
+        })=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          const before=await kernel.t1.getObject(workspaceId,linkedObjectId);
+          const saved=await kernel.t1.putObject({
+            workspace_id:workspaceId,object_id:linkedObjectId,
+            schema_id:before.object.schema_id,
+            schema_version:before.object.schema_version,
+            data:{...before.object.data,title:stagedTitle},
+            extensions:before.object.extensions??{},
+            base_revision:before.object.revision,
+            event:{event_type:'t4.original.offline.linked-change',
+              payload:{title:stagedTitle}},
+          });
+          return {saved,sourceObject:await kernel.t1.getObject(workspaceId,linkedObjectId),
+            events:await kernel.t1.listEventsSince(workspaceId)};
+        },{SERVICE,workspaceId,linkedObjectId,stagedTitle});
+        assert.equal(sourceChange.saved.object.revision,number);
+        const item=await readT4OriginalEventWindow({
+          ...originalEventPort,cursor:sourceCursor,maxEvents:1,
+          readOriginalEvents:async()=>sourceChange.events,
+        });
+        assert.equal(item.window.count,1);
+        assert.equal(item.window.eventRefs[0].eventId,
+          sourceChange.saved.event.event_id);
+        const prepared=await prepareT4OriginalObjectDelta({
+          window:item.window,workspaceId,objectId:linkedObjectId,
+          originalWriteOwnerRef:'original:t2:exchange',
+          originalKernel:{hasOperation:op=>actual.grants.includes(op),
+            getObject:async()=>sourceChange.sourceObject},
+          authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
+          getMode:()=> 'T4_NETWORK',
+        });
+        captured.push({window:item.window,nextCursor:item.nextCursor,prepared});
+        originalEventRows.set(sourceChange.saved.event.event_id,{
+          sourceRevision:number,digest:item.window.eventRefs[0].eventDigest,
+          objectContentDigest:prepared.delta.objectContentDigest,
+          title:stagedTitle,
+        });
+        sourceCursor=item.nextCursor;
+      }
+      const backlog=createT4OriginalObjectBacklog({
+        initialCursor:conflictWindow.nextCursor,expectedRecipientRevision:1,
+        entries:captured,
+      });
+      assert.deepEqual(backlog.entries.map(e=>e.sourceRevision),[2,3,4]);
+      const publishedBacklog=await publishT4OriginalObjectBacklog({
+        plan:backlog,publishPrepared:prepared=>deltaRoute('delta.push',
+          ()=>actual.grants.includes('t1.getObject'),
+          ()=>publishT4OriginalObjectDelta({prepared,transport:deltaTransport})),
+      });
+      assert.equal(publishedBacklog.publishedCount,3);
+      assert.equal(publishedBacklog.originalRecipientApplied,false);
+
+      // Recipient is restarted only AFTER the three immutable envelopes exist.
+      recipientContext=await launch(recipientProfile);
+      recipientPage=await opened(recipientContext);
+      const recipientLinked=async()=>recipientPage.evaluate(
+        async({SERVICE,workspaceId,linkedObjectId})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return (await kernel.t1.getObject(workspaceId,linkedObjectId))?.object??null;
+        },{SERVICE,workspaceId,linkedObjectId});
+      assert.equal((await recipientLinked()).revision,1);
+
+      // Store the verified sync cursor using ORIGINAL T3 object writes. No second Store.
+      const checkpointWorkspace='t4:original:checkpoint:'+randomUUID();
+      const checkpointObject='t4:sync:cursor:'+randomUUID();
+      await recipientPage.evaluate(async({SERVICE,checkpointWorkspace})=>{
+        const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+        await kernel.t1.createWorkspace({
+          workspace_id:checkpointWorkspace,profile:'generic',
+        });
+      },{SERVICE,checkpointWorkspace});
+      const persistCursor=async ctx=>recipientPage.evaluate(async({
+        SERVICE,checkpointWorkspace,checkpointObject,ctx
+      })=>{
+        const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+        const old=await kernel.t1.getObject(checkpointWorkspace,checkpointObject);
+        const existing=old?.object??null;
+        if(existing&&
+          (existing.data.cursor.lastEventId!==ctx.previousCursor.lastEventId||
+           existing.data.cursor.sourcePrefixDigest!==ctx.previousCursor.sourcePrefixDigest))
+          return false;
+        const record=await kernel.t1.putObject({
+          workspace_id:checkpointWorkspace,object_id:checkpointObject,
+          schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+          data:{cursor:ctx.verifiedCursor,planDigest:ctx.planDigest,
+            sourceEventId:ctx.sourceEventId,originalReceiptRef:ctx.originalReceiptRef},
+          extensions:{},base_revision:existing?.revision??0,
+          event:{event_type:'t4.original.sync.cursor.verified',
+            payload:{sourceEventId:ctx.sourceEventId}},
+        });
+        const checked=await kernel.t1.getObject(checkpointWorkspace,checkpointObject);
+        return Boolean(record?.object?.revision===checked?.object?.revision&&
+          checked.object.data.cursor.lastEventId===ctx.verifiedCursor.lastEventId);
+      },{SERVICE,checkpointWorkspace,checkpointObject,ctx});
+      const loadCursor=async()=>recipientPage.evaluate(async({
+        SERVICE,checkpointWorkspace,checkpointObject
+      })=>{
+        const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+        const result=await kernel.t1.getObject(checkpointWorkspace,checkpointObject);
+        return result?.object?.data?.cursor??null;
+      },{SERVICE,checkpointWorkspace,checkpointObject});
+
+      // The original Kernel applies revision 2, then applies revision 3,
+      // but its acknowledgement is deliberately lost AFTER the original write.
+      let dropThirdRevisionAck=true;
+      const kernelWithAckLoss={
+        ...receiverGraphKernel,
+        commitObjectGraph:async input=>{
+          const receipt=await receiverGraphKernel.commitObjectGraph(input);
+          if(input.object.object_id===linkedObjectId&&
+            input.object.base_revision===2&&dropThirdRevisionAck){
+            dropThirdRevisionAck=false;
+            throw Object.assign(new Error('SIMULATED_OFFLINE_BACKLOG_ACK_LOST'),{
+              code:'NETWORK_TIMEOUT',
+            });
+          }
+          return receipt;
+        },
+      };
+      const ports=resumeCursor=>({
+        plan:backlog,resumeCursor,
+        fetchReceived:({key,sha256})=>deltaRoute('delta.pull',
+          ()=>receiving.operations.includes('t1.getObject'),
+          ()=>fetchT4OriginalObjectDelta({
+            transport:deltaTransport,key,sha256,workspaceId,
+            originalWriteOwnerRef:'original:t2:exchange',
+          })),
+        originalKernel:kernelWithAckLoss,
+        authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+        verifyOriginalSourceEvent:async proof=>{
+          const expected=originalEventRows.get(proof.sourceEventId);
+          if(!expected||expected.sourceRevision!==proof.sourceRevision||
+            expected.digest!==proof.sourceEventDigest||
+            expected.objectContentDigest!==proof.objectContentDigest)return false;
+          const currentSource=await activeSourcePage.evaluate(async({SERVICE,workspaceId})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.listEventsSince(workspaceId);
+          },{SERVICE,workspaceId});
+          const found=currentSource.find(e=>e.event_id===proof.sourceEventId);
+          if(!found||found.revision!==proof.sourceRevision)return false;
+          const checked=await readT4OriginalEventWindow({
+            ...originalEventPort,readOriginalEvents:async()=>[found],maxEvents:1,
+          });
+          return checked.window.eventRefs[0].eventDigest===proof.sourceEventDigest;
+        },
+        verifyOriginalRecipient:async ctx=>
+          ctx.originalReceiptRef.startsWith('original:')&&
+          (await recipientLinked()).revision===
+            originalEventRows.get(ctx.lastEventId)?.sourceRevision,
+        verifyOriginalResumeCursor:async ctx=>
+          ctx.planDigest===backlog.planDigest&&
+          ctx.originalWriteOwnerRef==='original:t2:exchange'&&
+          (await loadCursor())?.sourcePrefixDigest===ctx.resumeCursor.sourcePrefixDigest||
+          (ctx.resumeCursor.lastEventId===backlog.initialCursor.lastEventId&&
+            (await loadCursor())===null),
+        persistVerifiedCursor:persistCursor,
+        getMode:()=> 'T4_NETWORK',
+      });
+      let lastVerified;
+      await assert.rejects(replayT4OriginalObjectBacklog(
+        ports(backlog.initialCursor)),error=>{
+          assert.equal(error.code,'BACKLOG_REPLAY_STOPPED');
+          assert.equal(error.details.index,1);
+          assert.equal(error.details.originalCode,'OBJECT_DELTA_OUTCOME_UNKNOWN');
+          assert.equal(error.details.processedCount,1);
+          lastVerified=error.details.lastVerifiedCursor;
+          assert.equal(lastVerified.seenEventCount,backlog.initialCursor.seenEventCount+1);
+          return true;
+        });
+      assert.equal((await recipientLinked()).revision,3);
+      assert.deepEqual(await loadCursor(),lastVerified);
+
+      // Reopen a fresh browser process and recover the cursor from ORIGINAL T3.
+      await recipientContext.close();recipientContext=null;
+      recipientContext=await launch(recipientProfile);
+      recipientPage=await opened(recipientContext);
+      const restoredCursor=await loadCursor();
+      assert.deepEqual(restoredCursor,lastVerified);
+      const resumed=await replayT4OriginalObjectBacklog(ports(restoredCursor));
+      assert.equal(resumed.originallyVerifiedSkipped,1);
+      assert.equal(resumed.originalT3AppliedAndVerified,2);
+      assert.equal(resumed.receipts[0].deduplicated,true);
+      assert.equal((await recipientLinked()).revision,4);
+      assert.equal((await recipientLinked()).data.title,
+        originalEventRows.get(backlog.entries[2].eventId).title);
+      assert.deepEqual(await loadCursor(),backlog.finalCursor);
+      console.log('T4_REAL_ORIGINAL_T3_OFFLINE_THREE_REVISION_BACKLOG_RECOVERY_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,queuedRevisions:[2,3,4],
+          recipientOfflineDuringPublication:true,
+          originalT3CheckpointWorkspace:true,
+          lostAckAfterOriginalRevision:3,
+          resumedFromOriginalKernelAfterColdBrowserRestart:true,
+          replayDeduplicated:true,
+          recipientFinalRevision:4,sourcePrefixContinuous:true,
+          originalWriterStillT3:true,
+        }));
     }finally{deltaTransport.close();}
     await sourceContext.close();sourceContext=null;
     const updatedAfterDelta=await verify(recipientPage);
