@@ -76,3 +76,20 @@ test('T3 evidence passport explains source gaps without displaying source rows o
   assert.doesNotMatch(evidence,/fetch\(|XMLHttpRequest|WebSocket|putObject|exportPackage|createWorkspace/);
   assert.doesNotMatch(evidence,/source_id|source_object|credential|grantId|sourceWorkspaceId/);
 });
+
+test('interactive T3 topology shows only bounded alias nodes with source-local evidence',()=>{
+  const app=file('../desktop/src/App.tsx');
+  const module=file('../modules/activity-base-anonymizer/t3-transition-map.mjs');
+  const css=file('../desktop/src/styles.css');
+  assert.match(app,/buildT3TransitionMap\(view\)/);
+  assert.match(app,/Карта локальных переходов/);
+  assert.match(app,/aria-pressed=\{choice\?\.id===node\.id\}/);
+  assert.match(app,/T3_MAP_PAGE_SIZE=8/);
+  assert.match(app,/choice\.incoming\.slice\(0,8\)/);
+  assert.match(app,/choice\.outgoing\.slice\(0,8\)/);
+  assert.match(app,/Нормативный маршрут не подтверждён/);
+  assert.match(css,/\.t3-map-choices/);
+  assert.match(css,/\.t3-map-node:focus-visible/);
+  assert.match(module,/layoutObservedGraph/);
+  assert.doesNotMatch(module,/fetch\(|WebSocket|XMLHttpRequest|putObject|createWorkspace|exportPackage/);
+});

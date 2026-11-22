@@ -1,5 +1,6 @@
-import {useLayoutEffect, useRef, useState} from 'react';
+import {useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {createT3ReviewController} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
+import {buildT3TransitionMap} from '../../modules/activity-base-anonymizer/t3-transition-map.mjs';
 import {buildT3EvidencePassport} from '../../modules/activity-base-anonymizer/t3-evidence-passport.mjs';
 import type {T3ReviewHost, T3ReviewState} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import type {T3ActivityReview, T3StructuralCandidate} from '../../modules/activity-base-anonymizer/t3-selected-host.mjs';
@@ -71,26 +72,94 @@ function ObjectViewCard({view, number}: {view: Ocel2ObjectView; number: number})
 }
 
 
-function T3ViewCard({view, number}: {view: T3StructuralCandidate; number: number}) {
-  return <section className="process-card" aria-label={`Траектория T3 ${number}`}>
+const T3_MAP_PAGE_SIZE=8;
+
+function T3ViewCard({view, number}: {view:T3StructuralCandidate;number:number}) {
+  const map=useMemo(()=>buildT3TransitionMap(view),[view]);
+  const [page,setPage]=useState(0);
+  const [selected,setSelected]=useState<{source:T3StructuralCandidate;id:string}|null>(null);
+  useLayoutEffect(()=>{setPage(0);setSelected(null);},[view]);
+  const pages=Math.max(1,Math.ceil(map.nodes.length/T3_MAP_PAGE_SIZE));
+  const current=Math.min(page,pages-1);
+  const visible=map.nodes.slice(current*T3_MAP_PAGE_SIZE,(current+1)*T3_MAP_PAGE_SIZE);
+  // A renewed signed read with the same aliases never inherits a previous
+  // source's selected step. The reference to the old view is discarded.
+  const choice=selected?.source===view
+    ? map.nodes.find(node=>node.id===selected.id)??null:null;
+  const route=map.cyclic
+    ? 'Наблюдается циклический порядок. Переделка не доказана.'
+    : map.branched
+      ? 'Есть варианты локального порядка. Правила решений не установлены.'
+      : map.linear
+        ? 'Одна цепочка локальных переходов. Нормативный маршрут не подтверждён.'
+        : 'Единой последовательности нет. Недостающие связи не достраиваются.';
+  return <section className="process-card" aria-label={'Траектория T3 '+number}>
     <header className="process-head">
       <div><span className="eyebrow">T3 D1/D2 · СОБЫТИЯ ПО ДАННЫМ ИСТОЧНИКА</span>
-        <h3>Тип объекта {String(number).padStart(2, '0')}</h3></div>
+        <h3>Тип объекта {String(number).padStart(2,'0')}</h3></div>
       <span className="case-count">Повторяемость {view.cohort_band}</span>
     </header>
-    <div className="observed-order">
-      <span>Классы событий · это не порядок выполнения</span>
-      <strong>{view.observed_event_kinds.join(' · ') || 'Действия не подтверждены'}</strong>
-    </div>
-    <div className="observed-order">
-      <span>Наблюдаемые локальные переходы · не причинные зависимости</span>
-      <strong>{view.object_local_successions.length
-        ? view.object_local_successions.map(e => `${e.from} → ${e.to} (${e.cohort_band})`).join(' · ')
-        : 'Подтверждённых переходов нет'}</strong>
-    </div>
+    <section className="t3-map" aria-label="Карта локальных переходов T3">
+      <div className="t3-map-head">
+        <strong>Карта локальных переходов</strong>
+        <span>{map.nodes.length} классов · {map.transitions.length} типов переходов</span>
+      </div>
+      <p className="t3-map-route">{route}</p>
+      {map.branch_points||map.convergence_points||map.isolated_event_kinds
+        ? <p className="t3-map-counts">Расхождений: {map.branch_points}.
+          Схождений: {map.convergence_points}.
+          Без связей: {map.isolated_event_kinds}.</p> : null}
+      <div className="t3-map-choices" role="group" aria-label="Выбор события для просмотра связей">
+        {visible.map(node=><button type="button" key={node.id}
+          className={'t3-map-node'+(choice?.id===node.id?' is-selected':'')}
+          aria-pressed={choice?.id===node.id}
+          onClick={()=>setSelected({source:view,id:node.id})}>
+          <strong>{node.label}</strong>
+          <span>Входящих: {node.incoming.length} · исходящих: {node.outgoing.length}</span>
+        </button>)}
+      </div>
+      <div className="t3-map-controls">
+        <span>Показано {map.nodes.length?current*T3_MAP_PAGE_SIZE+1:0}
+          -{Math.min((current+1)*T3_MAP_PAGE_SIZE,map.nodes.length)}
+          из {map.nodes.length}</span>
+        {pages>1 ? <div className="t3-map-pages">
+          <button type="button" disabled={current===0}
+            onClick={()=>{setPage(current-1);setSelected(null);}}>Назад</button>
+          <span>Страница {current+1} из {pages}</span>
+          <button type="button" disabled={current===pages-1}
+            onClick={()=>{setPage(current+1);setSelected(null);}}>Далее</button>
+        </div> : null}
+      </div>
+      <div className="t3-map-inspector" role="status">
+        {choice ? <>
+          <strong>{choice.label}: локальные переходы из T3</strong>
+          <div className="t3-map-relations">
+            <div><span>Предшествующие классы</span>
+              {choice.incoming.length
+                ? <ul>{choice.incoming.slice(0,8).map(e=>
+                  <li key={e.from}>Событие {e.from.slice('event_type_'.length)}
+                    {' → '+choice.label} · группа {e.cohort_band}</li>)}</ul>
+                : <p>Предшествующий класс не установлен.</p>}
+              {choice.incoming.length>8
+                ? <p>Первые 8 из {choice.incoming.length} связей.</p>:null}
+            </div>
+            <div><span>Следующие классы</span>
+              {choice.outgoing.length
+                ? <ul>{choice.outgoing.slice(0,8).map(e=>
+                  <li key={e.to}>{choice.label+' → Событие '}
+                    {e.to.slice('event_type_'.length)} · группа {e.cohort_band}</li>)}</ul>
+                : <p>Следующий класс не установлен.</p>}
+              {choice.outgoing.length>8
+                ? <p>Первые 8 из {choice.outgoing.length} связей.</p>:null}
+            </div>
+          </div>
+        </> : <span>Выберите событие, чтобы увидеть только зафиксированные
+          входящие и исходящие связи.</span>}
+      </div>
+    </section>
     <footer className="process-footer">
-      <span>Идентификаторы субъектов и исходные события не отображаются</span>
-      <span>Исполнение не подтверждено независимым свидетельством; BPMN и DMN не установлены</span>
+      <span>Порядок событий не доказывает причинность, качество или экономические потери.</span>
+      <span>Полное OCEL 2.0 и право на раскрытие вне Workspace не подтверждены.</span>
     </footer>
   </section>;
 }

@@ -203,7 +203,7 @@ try {
   for(const name of ['index.mjs','kernel-reader.mjs']){
     cpSync(join(core,'src/t3/activity',name),join(dist,'_t3/activity',name));
   }
-  const actFiles=['d05-t3-evidence-binding.mjs','t3-evidence-passport.mjs','t3-selected-host.mjs',
+  const actFiles=['d05-t3-evidence-binding.mjs','t3-evidence-passport.mjs','t3-transition-map.mjs','graph-order.mjs','t3-selected-host.mjs',
     't3-control-host-link.mjs',
     't3-owner-review-stage.mjs','t3-review-controller.mjs',
     't3-original-t2-owner-host.mjs'];
@@ -469,6 +469,8 @@ try {
       await import('/_activity/t3-original-t2-owner-host.mjs');
     const {createT3ReviewController}=
       await import('/_activity/t3-review-controller.mjs');
+    const {buildT3TransitionMap}=
+      await import('/_activity/t3-transition-map.mjs');
     const session=await globalThis.IWXA.connect({service_id:args.writer});
     const reviewerSession=await globalThis.IWXA.connect({service_id:args.reviewer});
     if(reviewerSession.service?.service_id!=='iwxa.activity.reviewer'||
@@ -521,6 +523,15 @@ try {
             step.relation==='OBSERVED_OBJECT_LOCAL_ORDER_NOT_CAUSAL_DEPENDENCY')||
         JSON.stringify(snapshot).includes('PRIVATE_CEHOVOD_CUSTOMER'))
         throw Error('ORIGINAL_T3_D2_OBSERVED_FOUR_STEP_PROCESS_UNVERIFIED');
+      // The ORIGINAL signed D2 returns qualified aliases. The user's
+      // object-local map must not infer extra transitions or business
+      // causality; it remains internal and cannot be exported.
+      const map=buildT3TransitionMap(snapshot.structural_candidate[0]);
+      if(map.nodes.length!==4||map.transitions.length!==3||
+        map.inferred_edges!==0||!map.linear||map.cyclic||
+        map.export_allowed!==false||
+        JSON.stringify(map).includes('PRIVATE_CEHOVOD_CUSTOMER'))
+        throw Error('ORIGINAL_T3_D2_INTERACTIVE_MAP_INFERRED_OR_LEAKED');
       const staged=await ui.stageSelected();
       if(staged.status!=='STAGED')
         throw Error('ORIGINAL_T3_SIGNED_DERIVE_'+staged.status+
@@ -548,6 +559,8 @@ try {
         draft_object_id:targetObjects[0].object_id,
         event_id:stagedEvent.event_id,
         renderer_no_private_content:true,
+        safe_map_nodes:map.nodes.length,safe_map_edges:map.transitions.length,
+        no_inferred_map_edges:map.inferred_edges===0,
         narrow_host_keys:Object.keys(bound.port),
         original_service:session.service.service_id,
       };
@@ -561,6 +574,9 @@ try {
   assert.equal(signed.source_review,'STRUCTURE_PRESERVED_REVIEW_REQUIRED');
   assert.equal(signed.observed_step_types,4);
   assert.equal(signed.observed_successions,3);
+  assert.equal(signed.safe_map_nodes,4);
+  assert.equal(signed.safe_map_edges,3);
+  assert.equal(signed.no_inferred_map_edges,true);
   assert.deepEqual(signed.source_reason_codes.sort(),[
     'EXTERNAL_LINKAGE_RISK_UNMEASURED',
     'T3_SIGNED_OWNER_RESULT_NOT_INDEPENDENTLY_ATTESTED',
@@ -779,6 +795,7 @@ try {
       sourceReview:signed.source_review,
       observedStepTypes:signed.observed_step_types,
       observedSuccessions:signed.observed_successions,
+      originalD2SafeProcessMap:true,
       safeReasonCodes:signed.source_reason_codes,
       rendererNoPrivateContent:true,externalTransferAccepted:false}));
   console.log('ACTIVITY_ORIGINAL_T2_REVIEW_PASSPORT_COLD_KERNEL_PASS',
