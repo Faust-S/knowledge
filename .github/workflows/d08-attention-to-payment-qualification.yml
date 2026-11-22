@@ -1,4 +1,4 @@
-name: D08 attention inbox to exact payment Windows Linux qualification
+name: D08 daily reorder owner attention Windows Linux qualification
 on:
   push:
     branches: [work/2026-11-22-d08-attention-to-payment-qualification]
@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops
-          ref: c06c3c39461a9ae36994d29b33d2676e14afbeed
+          ref: fedea2c74a458374825a911bfe744f58311ff953
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: logic
@@ -33,14 +33,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: f644c0ea3c4b0f52e15f03aa299245bb02101666
+          ref: d6cded40b8c26b4b577c5a742217738d145f79a7
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Verify private revisions, never emit private source
         run: |
-          test "$(git -C logic rev-parse HEAD)" = "c06c3c39461a9ae36994d29b33d2676e14afbeed" || exit 1
-          test "$(git -C site rev-parse HEAD)" = "f644c0ea3c4b0f52e15f03aa299245bb02101666" || exit 1
+          test "$(git -C logic rev-parse HEAD)" = "fedea2c74a458374825a911bfe744f58311ff953" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "d6cded40b8c26b4b577c5a742217738d145f79a7" || exit 1
           cmp logic/model/new-purchase-cash-review.mjs site/t2-site-module/marketops/decision/new-purchase-cash-review.mjs
           cmp logic/model/new-purchase-cash-review.d.mts site/t2-site-module/marketops/decision/new-purchase-cash-review.d.mts
           cmp logic/model/business-attention-queue.mjs site/t2-site-module/marketops/decision/business-attention-queue.mjs
