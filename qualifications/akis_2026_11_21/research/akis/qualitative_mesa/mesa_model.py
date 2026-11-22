@@ -37,6 +37,7 @@ from .general_system import GeneralSystemInputError, parse_general_system, gener
 from .org_code_policy import OrgCodeInputError, parse_org_code_policy
 from .economic_flow import EconomicInputError, evaluate_economic_claims
 from .competence_reuse import ReuseInputError, evaluate_competence_reuse
+from .competence_transfer import CompetencePermissionInputError, review_permissions
 from .cooperation import (
     cooperation_system_view, cooperative_model_readiness,
     cooperative_readiness_evolution, latest_owner_interest_claim, latest_future_participation,
@@ -229,6 +230,9 @@ class OperatorAKISModel(mesa.Model):
                  not 0 <= requested_horizon <= 10000)):
             raise InputError("MODEL_HORIZON_MUST_BE_NONNEGATIVE_INTEGER")
         self.competence_reuse_raw = research_input.pop("competence_reuse_evidence", None)
+        self.competence_permissions_raw = research_input.pop("competence_reuse_permissions", None)
+        if self.competence_permissions_raw is not None and self.competence_reuse_raw is None:
+            raise InputError("REUSE_PERMISSION_REQUIRES_ORIGINAL_EVIDENCE")
         self.economic_claims = research_input.pop("economic_claims", None)
         self.adaptation_enabled = "adaptation_requests" in research_input
         raw_reviews = research_input.pop("adaptation_requests", [])
@@ -928,11 +932,24 @@ class OperatorAKISModel(mesa.Model):
                 raise InputError(str(exc)) from exc
         if self.competence_reuse_raw is not None:
             try:
+                permissions = (review_permissions(
+                    self.competence_permissions_raw, self.qualitative,
+                    self.competence_reuse_raw,
+                ) if self.competence_permissions_raw is not None else None)
                 output["competence_reuse_dynamics"] = evaluate_competence_reuse(
                     self.competence_reuse_raw, self.qualitative,
                     economics=output.get("economics"),
+                    permission_reviews=permissions,
                 )
-            except ReuseInputError as exc:
+                if permissions is not None:
+                    output["competence_reuse_dynamics"]["permission_evidence"] = {
+                        "cross_enterprise_model_permission_count": sum(
+                            row["status"] == "MODEL_SOURCE_SCOPED_OWNER_TRANSFER"
+                            for row in permissions.values()),
+                        "verified_legal_licence": False,
+                        "original_contracts_and_consents_unchanged": True,
+                    }
+            except (ReuseInputError, CompetencePermissionInputError) as exc:
                 raise InputError(str(exc)) from exc
         if self.general_akis_enabled:
             current = general_system_view(
