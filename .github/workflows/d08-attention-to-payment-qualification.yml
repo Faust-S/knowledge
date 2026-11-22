@@ -84,7 +84,7 @@ jobs:
           node - <<'NODE'
           const cp=require("node:child_process");
           const lines=cp.execFileSync("git",["status","--porcelain"],{encoding:"utf8"})
-            .split(/\\r?\\n/).filter(Boolean);
+            .split(String.fromCharCode(10)).map(x=>x.trimEnd()).filter(Boolean);
           const allowed={
             ROUTES:"src/routeTree.gen.ts",
             PARTNERS:"src/data/partners-index.generated.ts",
