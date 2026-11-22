@@ -203,6 +203,33 @@ it("installed signed-context denial is distinguished from a genuine T2 Kernel re
   expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
 });
 
+it("original T2 Kernel read timeout is not falsely classified as a missing Workspace or denied grant",async()=>{
+  const createWorkspace=vi.fn();
+  const owner={
+    getWorkspace:vi.fn(async()=>{throw Object.assign(
+      new Error("T3_D1_ISOLATED_KERNEL_TIMEOUT"),
+      {code:"T3_D1_ISOLATED_KERNEL_TIMEOUT"});}),
+    createWorkspace,hasOperation:()=>true,
+  } as unknown as KernelFacade;
+  render(<SignedSelectedWorkspaceGate required kernel={owner}
+    profile="generic" autoCreateSignedCorporate={false}
+    trustedSelectedContext={async()=>({
+      kind:"CORP",workspace_id:"ws:delayed-original",resource:"ws:delayed-original",
+      organization_id:"org:original",
+    })}>
+    <p data-testid="timeout-forbidden-child">Never shown</p>
+  </SignedSelectedWorkspaceGate>);
+  const code=await screen.findByTestId("t3-d1-selected-workspace-refusal-code");
+  expect(code.textContent).toContain("T3_D1_ISOLATED_KERNEL_TIMEOUT");
+  expect(code.textContent).toContain("ORIGINAL_KERNEL_READ");
+  const explanation=screen.getByTestId("t3-d1-selected-workspace-message");
+  expect(explanation.textContent).toMatch(/Kernel не ответил на чтение/);
+  expect(explanation.textContent).toMatch(/создание недоступно/);
+  expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
+  expect(screen.queryByTestId("timeout-forbidden-child")).toBeNull();
+  expect(createWorkspace).not.toHaveBeenCalled();
+});
+
 it("untrusted exception strings never reach the signed Workspace UI",async()=>{
   const candidate={
     getWorkspace:vi.fn(async()=>{throw Error("private path /vault/issuer.json");}),
