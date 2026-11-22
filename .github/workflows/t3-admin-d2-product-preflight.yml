@@ -62,3 +62,30 @@ jobs:
             --installed-admin-d3-control-only > "$root/one-dist-result.json"
           node -e 'const s=require(process.argv[1]);if(s.schema!=="iwxa.t3.signed-control-one-dist/1"||s.original_admin_d3_schema_registered!==true||s.original_runtime_unchanged!==true)process.exit(1)' "$root/one-dist-result.json"
           echo "D2_PUBLIC_ORIGINAL_ONE_DIST_ASSEMBLED_PASS"
+  native-uia-parser:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse independent native D2 UIA Windows witness without private owner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $path='packages/t3-core/tests/g4-installed-original-center-first-use.ps1'
+          $tokens=[System.Management.Automation.Language.Token[]]@()
+          $errors=[System.Management.Automation.Language.ParseError[]]@()
+          $null=[System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $path).Path,[ref]$tokens,[ref]$errors)
+          if($errors.Length -ne 0){
+            throw 'D2_PUBLIC_NATIVE_UIA_SCRIPT_PARSE_FAILED'
+          }
+          $script=Get-Content -LiteralPath $path -Raw
+          foreach($mark in @('RequireD2Read',
+              'D2_INSTALLED_ORIGINAL_KERNEL_DATA_READ_UI_PASS',
+              'D2_INSTALLED_ORIGINAL_KERNEL_TWO_MANAGER_PAGES_UI_PASS',
+              'D2_INSTALLED_ORIGINAL_KERNEL_TWO_COLD_READS_PASS')){
+            if(!$script.Contains($mark)){throw 'D2_PUBLIC_NATIVE_UIA_WITNESS_INCOMPLETE'}
+          }
+          Write-Host 'D2_PUBLIC_NATIVE_UIA_SCRIPT_PARSE_AND_WITNESS_PASS'
