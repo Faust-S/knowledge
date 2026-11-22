@@ -39,6 +39,7 @@ from .economic_flow import EconomicInputError, evaluate_economic_claims
 from .competence_reuse import ReuseInputError, evaluate_competence_reuse
 from .competence_transfer import CompetencePermissionInputError, review_permissions
 from .work_counterfactual import WorkCounterfactualInputError, review_work_counterfactuals
+from .causal_contract import CausalContractInputError, assess_author_causal_edges
 from .competence_measurement import MeasurementProtocolInputError, review_measurement_protocols
 from .capability_dynamics import CapabilityAdoptionPolicy, CapabilityInputError
 from .cooperation import (
@@ -1170,6 +1171,21 @@ class OperatorAKISModel(mesa.Model):
                     "latest_independent_choice_by_work": output["endogenous_subjects"]["last_jointly_observed"],
                     "not_an_original_authorized_transition": True,
                 }
+        if self.general_akis_enabled:
+            # R1: validate the author's ORIGINAL six cross-component causal
+            # edges against the SAME source event stream and ledger. This is
+            # diagnostic, not an active grant or economic causal claim.
+            try:
+                output["general_akis_model"]["author_causal_dependency_diagnostics"] = (
+                    assess_author_causal_edges(
+                        self.general_design, self.qualitative,
+                        output["general_akis_model"],
+                        economics=output.get("economics"),
+                        work_counterfactual=output.get("work_counterfactual_dynamics"),
+                    )
+                )
+            except CausalContractInputError as exc:
+                raise InputError(str(exc)) from exc
         if self.general_akis_enabled and "economics" in output:
             # One read-only connection from the existing economic ledger to
             # the NINE-component general AKIS view, after original Result and
