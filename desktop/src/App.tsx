@@ -290,8 +290,11 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
           </div>
           {problem ? <div className="error-state" role="alert"><strong>Анализ приостановлен</strong><span>{problem}</span><p>Непроверенные данные не будут превращены в процесс или пакет.</p></div> : null}
           {t3Review?.status === 'HOLD' ? <div className="error-state" role="alert">
-            <strong>Чтение T3 остановлено</strong><span>HOLD: {t3Review.code}</span>
-            <p>Изменившееся или неподтверждённое разрешение не используется повторно.</p></div> : null}
+            <strong>{t3Review.stageBlocked ? 'Сохранение T3 требует сверки' : 'Чтение T3 остановлено'}</strong>
+            <span>HOLD: {t3Review.code}</span>
+            <p>{t3Review.stageBlocked
+              ? 'Команда записи уже отправлялась. Повтор запрещён до независимой сверки с оригинальным Kernel и новой доверенной сессии.'
+              : 'Изменившееся или неподтверждённое разрешение не используется повторно.'}</p></div> : null}
           {!preview && !objectEvidence && !t3Review?.review && !problem &&
             !['HOLD','STAGING','STAGED'].includes(t3Review?.status ?? '') ? <div className="empty-state"><div className="empty-icon">IX</div>
             <strong>Выберите базу для анализа</strong><p>Автоматически появятся обнаруженные процессы, этапы и роли. Для начала доступен встроенный синтетический пример.</p></div> : null}
@@ -332,10 +335,15 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
                 <p>Доверенный T3 Host определяет отдельную пустую Workspace по подписанному
                   праву Activity Derive. Второй выбор базы не требуется.
                   Это не публикация и не экспорт.</p>
+                {t3Review.stageBlocked ? <p role="status">Сохранение уже запрашивалось в этой сессии.
+                  Для следующей записи необходима независимая сверка результата
+                  в оригинальном Kernel и новая подтверждённая сессия владельца.</p> : null}
               </div>
               <div className="verification-right">
-                <button type="button" className="button button-secondary" disabled={busy}
-                  onClick={stageSelectedT3}>Сохранить черновик</button>
+                <button type="button" className="button button-secondary"
+                  disabled={busy || t3Review.stageBlocked === true}
+                  onClick={stageSelectedT3}>{t3Review.stageBlocked
+                    ? 'Сохранение требует сверки' : 'Сохранить черновик'}</button>
               </div>
             </div> : null}
             {t3Review.review.structural_candidate?.length
