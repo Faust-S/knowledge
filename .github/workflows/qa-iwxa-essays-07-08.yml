@@ -1,0 +1,200 @@
+name: IWXA published essays 07-08 main qualification
+on:
+  push:
+    branches:
+      - qa/2026-11-22-projects-essays-01-02
+    paths:
+      - .github/workflows/qa-iwxa-essays-07-08.yml
+permissions:
+  contents: read
+jobs:
+  unit-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Run all eight essays' model tests and compile the actual site
+        shell: bash
+        working-directory: .private/site
+        run: |
+          set -euo pipefail
+          echo IWXA_MAIN_SOURCE_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/iwxa-78-install.log 2>&1 || { tail -n 80 /tmp/iwxa-78-install.log; exit 1; }
+          node --import tsx --test scripts/check-editorial-series.test.ts scripts/check-projects-and-first-essays.test.ts scripts/check-deep-essays-03-04.test.ts scripts/check-essays-05-06.test.ts scripts/check-essays-07-08.test.ts
+          echo IWXA_EIGHT_ESSAYS_ALL_UNIT_PASS
+          bunx vite build > /tmp/iwxa-78-build.log 2>&1 || { tail -n 120 /tmp/iwxa-78-build.log; exit 1; }
+          bunx tsc --noEmit > /tmp/iwxa-78-types.log 2>&1 || { tail -n 120 /tmp/iwxa-78-types.log; exit 1; }
+          echo IWXA_EIGHT_ESSAYS_VITE_TYPES_PASS
+      - name: Purge private source and intermediate files
+        if: always()
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/iwxa-78-*.log
+          test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Check live React interactions and responsive typography in real Chrome
+        shell: bash
+        working-directory: .private/site
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile > /tmp/iwxa-78-browser-install.log 2>&1 || { tail -n 80 /tmp/iwxa-78-browser-install.log; exit 1; }
+          bunx vite --host 127.0.0.1 --port 4173 > /tmp/iwxa-78-browser-vite.log 2>&1 &
+          echo $! > /tmp/iwxa-78-browser.pid
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:4173/projects/iwxa/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node --input-type=module <<'JS'
+          import puppeteer from 'puppeteer';
+          const urls=[
+            '/projects/iwxa/',
+            '/articles/learn-samostoyatelnyj-povtor/',
+            '/articles/club-komu-prinadlezhit-vklad/',
+          ];
+          const browser=await puppeteer.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox','--disable-dev-shm-usage']});
+          let checks=0;
+          try{
+            const page=await browser.newPage();
+            page.on('pageerror',e=>console.log('CLIENT_ERROR',e.message.slice(0,340)));
+            for(const width of [1440,375]){
+              await page.setViewport({width,height:width===375?812:900,deviceScaleFactor:1});
+              for(const url of urls){
+                console.log('BROWSER_CHECKING',width,url);
+                const response=await page.goto('http://127.0.0.1:4173'+url,{waitUntil:'domcontentloaded',timeout:65000});
+                if(!response?.ok())throw Error('HTTP_BAD '+url+' '+response?.status());
+                await page.waitForFunction(()=>document.querySelector('main')?.dataset.clientReady===location.pathname,{timeout:120000});
+                const info=await page.evaluate(()=>({
+                  h1:document.querySelector('h1')?.textContent?.trim(),
+                  overflow:document.documentElement.scrollWidth-innerWidth,
+                  font:getComputedStyle(document.querySelector('h1')).fontFamily,
+                }));
+                if(!info.h1||info.overflow>3)throw Error('LAYOUT '+width+' '+url+' '+JSON.stringify(info));
+                if(!info.font.includes('Inter Tight'))throw Error('WRONG_FONT '+info.font);
+                if(url==='/projects/iwxa/'){
+                  const count=await page.$$eval('.iwproj-publications>a',els=>els.length);
+                  if(count!==8)throw Error('PROJECT_CARDS_NOT_EIGHT '+count);
+                }
+                if(url.includes('learn-samostoyatelnyj-povtor')){
+                  if(await page.$$eval('.lce-progress button',els=>els.length)!==3)throw Error('MISSING_TASK_STAGES');
+                  await page.click('.lce-hint-button');
+                  await page.click('.lce-options button:nth-child(2)');
+                  const first=await page.$eval('.lce-report__item:first-child strong',el=>el.textContent);
+                  if(!first?.includes('с подсказкой'))throw Error('HINT_LOST '+first);
+                  await page.click('.lce-navigation button:nth-child(2)');
+                  await page.click('.lce-options button:first-child');
+                  await page.click('.lce-navigation button:nth-child(2)');
+                  await page.click('.lce-options button:first-child');
+                  const status=await page.$eval('.lce-conclusion>strong',el=>el.textContent);
+                  if(!status?.includes('Два самостоятельных решения'))throw Error('INDEPENDENCE_FALSE '+status);
+                  const warning=await page.$eval('.lce-context p',el=>el.textContent);
+                  if(!warning?.includes('не доказывают'))throw Error('RETENTION_OVERCLAIM');
+                }
+                if(url.includes('club-komu-prinadlezhit-vklad')){
+                  const controls=await page.$$('.cce-fieldset input[type=checkbox]');
+                  if(controls.length!==5)throw Error('CLUB_CONTROLS '+controls.length);
+                  const before=await page.$eval('.cce-hours__head strong',el=>el.textContent);
+                  if(!before?.includes('12 ч'))throw Error('CLUB_BASELINE '+before);
+                  await controls[2].click();
+                  await controls[3].click();
+                  const accepted=await page.$eval('.cce-verdict>strong',el=>el.textContent);
+                  if(!accepted?.includes('Оба проекта'))throw Error('CLUB_ACCEPTANCE '+accepted);
+                  const unique=await page.$eval('.cce-hours__head strong',el=>el.textContent);
+                  if(!unique?.includes('15 ч'))throw Error('CLUB_DOUBLE_COUNT '+unique);
+                  const selects=await page.$$('.cce-select select');
+                  if(selects.length!==2)throw Error('CLUB_DROPDOWNS '+selects.length);
+                  await selects[1].select('exclusive-to-a');
+                  const revoked=await page.$eval('.cce-verdict>strong',el=>el.textContent);
+                  if(revoked?.includes('Оба проекта'))throw Error('EXCLUSIVE_RIGHTS_BYPASSED');
+                  await selects[0].select('full');
+                  if(await page.$$eval('.cce-warning',els=>els.length)!==1)throw Error('EXCESS_DISCLOSURE_NOT_FLAGGED');
+                  await controls[4].click();
+                  const exited=await page.$eval('.cce-project:first-child .cce-project__foot>span',el=>el.textContent);
+                  if(!exited?.includes('Участие завершено'))throw Error('EXIT_NOT_APPLIED '+exited);
+                }
+                console.log('BROWSER_PASS',width,url);
+                checks++;
+              }
+            }
+            console.log('IWXA_LEARN_CLUB_ACTUAL_BROWSER_PASS',checks);
+          }finally{await browser.close();}
+          JS
+      - name: Clean runtime without storing screenshots
+        if: always()
+        run: |
+          if [ -f /tmp/iwxa-78-browser.pid ]; then kill "$(cat /tmp/iwxa-78-browser.pid)" 2>/dev/null || true; fi
+          rm -rf .private/site
+          rm -f /tmp/iwxa-78-browser*.log /tmp/iwxa-78-browser.pid
+          test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Validate static HTML and canonical article metadata
+        working-directory: .private/site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+          IWXA_PRERENDER_ROUTES: /projects/iwxa/,/articles/learn-samostoyatelnyj-povtor/,/articles/club-komu-prinadlezhit-vklad/
+        run: |
+          set -euo pipefail
+          echo STATIC_SITE_SOURCE_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/iwxa-78-static-install.log 2>&1 || { tail -n 75 /tmp/iwxa-78-static-install.log; exit 1; }
+          bunx tsx scripts/build-static.ts > /tmp/iwxa-78-static-build.log 2>&1 || { tail -n 130 /tmp/iwxa-78-static-build.log; exit 1; }
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const routes=['/projects/iwxa/','/articles/learn-samostoyatelnyj-povtor/','/articles/club-komu-prinadlezhit-vklad/'];
+          for(const route of routes){
+            const path='dist-static'+route+'index.html';
+            if(!fs.existsSync(path))throw Error('MISSING_STATIC '+route);
+            const html=fs.readFileSync(path,'utf8');
+            if(!html.includes('<h1')||!html.includes('https://iwxa.ru'+route)||html.includes('localhost:4319'))throw Error('SEO '+route);
+            if(route.includes('learn-')&&!html.includes('Проверьте своё решение на другом условии'))throw Error('LEARN_MODEL_MISSING');
+            if(route.includes('club-')&&!html.includes('Разделите вклад, разрешение и принятую работу'))throw Error('CLUB_MODEL_MISSING');
+            if(route==='/projects/iwxa/'&&!html.includes('Клуб: кому принадлежит вклад в общий проект?'))throw Error('PROJECT_08_MISSING');
+            console.log('STATIC_HTML_PASS',route,html.length);
+          }
+          JS
+      - name: Purge private source
+        if: always()
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/iwxa-78-static-*.log
+          test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
