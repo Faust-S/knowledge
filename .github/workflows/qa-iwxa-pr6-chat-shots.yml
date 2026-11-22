@@ -1,4 +1,4 @@
-name: IWXA PR6 browser screenshots for chat review
+name: IWXA PR6 screenshot log cleanup
 on:
   push:
     branches:
@@ -7,132 +7,16 @@ on:
       - .github/workflows/qa-iwxa-pr6-chat-shots.yml
 permissions:
   contents: read
+  actions: write
 jobs:
-  screenshot:
+  purge-image-log:
     runs-on: ubuntu-latest
-    timeout-minutes: 23
     steps:
-      - uses: actions/checkout@v4
-      - name: Checkout exact private site PR head
-        uses: actions/checkout@v4
-        with:
-          repository: Faust-S/iwxa-ru-1
-          ref: dcf4a2d8e5c8a0cbc5b225316d4e349c4b97a90b
-          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
-          persist-credentials: false
-          path: .private/site
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - uses: oven-sh/setup-bun@v2
-      - name: Verify target SHA and install locked dependencies
-        shell: bash
-        working-directory: .private/site
-        run: |
-          test "$(git rev-parse HEAD)" = "dcf4a2d8e5c8a0cbc5b225316d4e349c4b97a90b" || exit 41
-          echo "IWXA_PR6_EXACT_HEAD_PASS dcf4a2d8e5c8a0cbc5b225316d4e349c4b97a90b"
-          bun install --frozen-lockfile > "$RUNNER_TEMP/pr6-install.log" 2>&1 || { echo IWXA_PR6_INSTALL_FAIL; exit 1; }
-          echo IWXA_PR6_INSTALL_PASS
-      - name: Start actual Vite application
-        shell: bash
-        working-directory: .private/site
-        run: |
-          bunx vite --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/pr6-vite.log" 2>&1 &
-          echo $! > "$RUNNER_TEMP/pr6-vite.pid"
-          for n in $(seq 1 90); do
-            if curl -fsS http://127.0.0.1:4173/ > /dev/null; then
-              echo IWXA_PR6_VITE_READY
-              exit 0
-            fi
-            sleep 1
-          done
-          echo IWXA_PR6_VITE_START_FAIL
-          exit 1
-      - name: Find real browser
+      - name: Delete screenshot-bearing run after chat transfer
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
-          if [ -n "$chrome" ]; then
-            echo "IWXA_PR6_CHROME=$chrome" >> "$GITHUB_ENV"
-            echo IWXA_PR6_SYSTEM_CHROME_READY
-          else
-            cd .private/site
-            bunx puppeteer browsers install chrome > "$RUNNER_TEMP/pr6-chrome.log" 2>&1
-            echo IWXA_PR6_PUPPETEER_CHROME_READY
-          fi
-      - name: Capture actual pages and transmit JPEG buffers to chat reviewer
-        shell: bash
-        working-directory: .private/site
-        run: |
-          node --input-type=module <<'JS'
-          import puppeteer from 'puppeteer';
-          const binary=process.env.IWXA_PR6_CHROME || undefined;
-          const browser=await puppeteer.launch({
-            headless:true,
-            ...(binary ? {executablePath:binary}:{}),
-            args:['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']
-          });
-          const sleep=(ms)=>new Promise(resolve=>setTimeout(resolve,ms));
-          const url='http://127.0.0.1:4173';
-          async function grab(page,tag){
-            await page.evaluate(async()=>{await document.fonts.ready});
-            await sleep(450);
-            const info=await page.evaluate(()=>({
-              title:document.title,
-              h1:document.querySelector('h1')?.innerText||'',
-              scrollWidth:document.documentElement.scrollWidth,
-              viewport:window.innerWidth,
-              position:window.scrollY,
-              theme:document.documentElement.dataset.theme
-            }));
-            const jpeg=await page.screenshot({type:'jpeg',quality:53,fullPage:false,captureBeyondViewport:false});
-            if(jpeg.length<4000)throw Error('SHOT_TOO_SMALL '+tag+' '+jpeg.length);
-            const b64=jpeg.toString('base64');
-            const chunks=b64.match(/.{1,4000}/g)||[];
-            console.log('IWXA_CHAT_IMG_META '+tag+' '+JSON.stringify({...info,bytes:jpeg.length,chunks:chunks.length}));
-            for(let i=0;i<chunks.length;i++)console.log('IWXA_CHAT_IMG_CHUNK '+tag+' '+(i+1)+'/'+chunks.length+' '+chunks[i]);
-            console.log('IWXA_CHAT_IMG_COMPLETE '+tag);
-          }
-          async function open(page,route,check){
-            const res=await page.goto(url+route,{waitUntil:'domcontentloaded',timeout:85000});
-            if(!res?.ok())throw Error('BAD_RESPONSE '+route+' '+res?.status());
-            await page.waitForSelector('main',{timeout:35000});
-            if(check)await page.waitForFunction(v=>document.body.innerText.includes(v),{timeout:30000},check);
-            await sleep(800);
-            console.log('IWXA_PR6_ROUTE_PASS',route,await page.title());
-          }
-          try {
-            const page=await browser.newPage();
-            await page.setViewport({width:1440,height:900,deviceScaleFactor:1});
-            await open(page,'/','Что связывает разработки Ивиксы');
-            await grab(page,'home-desktop-dark');
-            await page.evaluate(()=>{document.documentElement.dataset.theme='light';localStorage.setItem('iwxa-theme','light')});
-            await grab(page,'home-desktop-light');
-            await page.evaluate(()=>{document.documentElement.dataset.theme='dark';localStorage.setItem('iwxa-theme','dark');document.getElementById('iwxa-intro')?.scrollIntoView({block:'start',behavior:'instant'})});
-            await sleep(350);
-            await grab(page,'home-intro-desktop');
-            await page.setViewport({width:375,height:812,deviceScaleFactor:1});
-            await open(page,'/','Что связывает разработки Ивиксы');
-            await grab(page,'home-mobile-dark');
-            await page.evaluate(()=>document.getElementById('iwxa-intro')?.scrollIntoView({block:'start',behavior:'instant'}));
-            await sleep(350);
-            await grab(page,'home-intro-mobile');
-            await page.setViewport({width:1440,height:900,deviceScaleFactor:1});
-            await open(page,'/projects/','Проекты Ивиксы');
-            await grab(page,'projects-desktop');
-            await open(page,'/ecosystem/','12 доменов');
-            await grab(page,'ecosystem-desktop');
-            await open(page,'/software/','');
-            await grab(page,'software-desktop');
-            await page.close();
-            console.log('IWXA_PR6_EIGHT_REAL_BROWSER_SHOTS_PASS');
-          }finally{await browser.close()}
-          JS
-      - name: Remove private source and runtime data
-        if: always()
-        shell: bash
-        run: |
-          if [ -f "$RUNNER_TEMP/pr6-vite.pid" ]; then kill "$(cat "$RUNNER_TEMP/pr6-vite.pid")" 2>/dev/null || true; fi
-          rm -rf .private/site
-          rm -f "$RUNNER_TEMP"/pr6-*.log "$RUNNER_TEMP"/pr6-vite.pid
-          test ! -e .private/site && echo IWXA_PR6_PRIVATE_SOURCE_PURGED
+          set -euo pipefail
+          gh api -X DELETE repos/Faust-S/knowledge/actions/runs/45038233750
+          echo IWXA_PR6_SCREENSHOT_LOG_DELETED
