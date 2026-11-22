@@ -44,6 +44,8 @@ export interface AppProps {
   /** The trusted T3 entrypoint must explicitly require signed authority.
    * A missing owner then denies, never silently falls back to unsigned T2. */
   requireSignedOwner?: boolean;
+  /** Compiled signed product decides whether first-run needs one explicit click. */
+  explicitSignedWorkspaceCreation?: boolean;
   signedKernelAccess?: CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
   signedActivityAccess?: CreateWorkspaceHostRuntimeInput["signedActivityAccess"];
   reconciliationPort?: CreateWorkspaceHostRuntimeInput["reconciliationPort"];
@@ -73,7 +75,8 @@ export interface AppProps {
  * projection is not consumed anywhere in the presentation layer.
  */
 export default function App({
-  requireSignedOwner = false, signedKernelAccess, signedActivityAccess,
+  requireSignedOwner = false, explicitSignedWorkspaceCreation = false,
+  signedKernelAccess, signedActivityAccess,
   reconciliationPort,
   nativeContinuationOwner,nativeContinuationPort,confirmNativeContinuation,
   ageOwner,confirmAgeRecipients,
@@ -134,6 +137,7 @@ export default function App({
       isolatedKernelRequired={isolatedKernelRequired}
       trustedSelectedContext={trustedSelectedContext}
       requireSignedOwner={requireSignedOwner}
+      explicitSignedWorkspaceCreation={explicitSignedWorkspaceCreation}
       signedKernelAccess={signedKernelAccess}
       signedActivityAccess={signedActivityAccess}
       reconciliationPort={reconciliationPort}
