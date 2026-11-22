@@ -1,4 +1,4 @@
-name: D07 SEO official original source discovery
+name: D07 SEO official original source pinned qualification
 on:
   push:
     branches: [work/2026-11-22-d07-methodology-v13]
@@ -18,16 +18,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 2520f8bf40df6f1e329a79df5511d76b3160a88b
+          ref: 6cb6bd14b9fa2adde4deaf4cc8a27c6142026bb0
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify private source identity and strict published-document boundaries
         run: |
-          test "$(git -C site rev-parse HEAD)" = "2520f8bf40df6f1e329a79df5511d76b3160a88b"
+          test "$(git -C site rev-parse HEAD)" = "6cb6bd14b9fa2adde4deaf4cc8a27c6142026bb0"
           test -f site/scripts/d07-seo-original-discovery.mjs
           test -f site/scripts/research/d07-seo-official-originals.json
-          ! grep -q 'expectedTextSha256' site/scripts/research/d07-seo-official-originals.json
+          test "$(grep -c 'expectedTextSha256' site/scripts/research/d07-seo-official-originals.json)" = '2'
           echo D07_SEO_ORIGINAL_SOURCE_IDENTITY=PASS
       - uses: actions/setup-node@v4
         with:
@@ -52,9 +52,9 @@ jobs:
             exit 1
           }
           echo D07_SEO_ORIGINAL_VALIDATION=PASS
-      - name: Retrieve exactly two official Google documents and verify literal passages
+      - name: Retrieve two pinned official Google originals and verify literal passages
         working-directory: site
         run: |
           node --import tsx scripts/d07-seo-original-discovery.mjs
-          echo D07_SEO_RETRIEVAL_IS_DISCOVERY_NOT_APPROVAL=PASS
+          echo D07_SEO_PINNED_ORIGINALS_NOT_METHODOLOGY_APPROVAL=PASS
       # No raw document, private source, Build dist, secrets, profiles or user files are uploaded.
