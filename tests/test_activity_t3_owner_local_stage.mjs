@@ -51,8 +51,8 @@ const bindings={
     {schema_id:'d05.material',schema_version:'1.0.0',semantic_kind:'Entity'},
   ],
   events:[
-    {event_type:'d05.bracket.opened',semantic_kind:'Event'},
-    {event_type:'d05.bracket.reworked',semantic_kind:'Event',
+    {event_type:'d05.bracket.opened',semantic_kind:'Event',epistemic_status:'observed'},
+    {event_type:'d05.bracket.reworked',semantic_kind:'Event',epistemic_status:'observed',
       object_links:[{field:'affected',qualifier:'uses',many:true}]},
   ],
 };
