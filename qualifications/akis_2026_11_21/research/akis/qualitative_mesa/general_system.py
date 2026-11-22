@@ -1855,6 +1855,20 @@ def original_nine_component_cycle_evidence(
         t_req = req["at"]
         t_pilot = accepted_at.get(pilot_key)
         t_commit = original_committed_at.get(new_key)
+        if t_commit is None:
+            # Keep the failed original attempt as an INCOMPLETE witness. A
+            # denied Work is evidence of system rejection, not a completed
+            # reproduction cycle and not an accepted original obligation.
+            blocked_attempts = [
+                row for row in original.trace
+                if row.get("action") == "commit"
+                and row.get("work") == new_key
+                and row.get("outcome") == "BLOCKED"
+                and type(row.get("at")) is int
+                and row["at"] > t_req
+            ]
+            if blocked_attempts:
+                t_commit = blocked_attempts[-1]["at"]
         if (pilot is None or new_work is None or
                 t_pilot is None or t_commit is None):
             continue
