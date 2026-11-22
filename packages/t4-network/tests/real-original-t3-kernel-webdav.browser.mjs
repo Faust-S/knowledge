@@ -38,6 +38,8 @@ import {reconcileT4OriginalMutationIntent}
   from '../src/network/original-object-intent-recovery.mjs';
 import {createT4OriginalHostCaptureAdapter}
   from '../src/network/original-host-capture-adapter.mjs';
+import {publishT4OriginalHostOutbox}
+  from '../src/network/original-host-outbox-delivery.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
   from '../src/network/network-topology.mjs';
 import {prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
@@ -1093,6 +1095,18 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
         return kernel.t1.listEventsSince(workspaceId);
       },{SERVICE,workspaceId});
+      const originalOutboxNetworkArgs=(kind,captureRef,subjectId)=>({
+        kind,captureRef,subjectId,workspaceId,
+        originalWriteOwnerRef:'original:t2:exchange',
+        readOriginalIntent:ctx=>readSourceTechnical('intent',ctx.captureRef),
+        readOriginalOutbox:ctx=>readSourceTechnical('outbox',ctx.captureRef),
+        readOriginalEvents:readSourceEvents,
+        authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
+        authorizeNetworkPublish:async ctx=>
+          ctx.operation==='t4.network.publish'&&
+          ctx.originalWriteOwnerRef==='original:t2:exchange',
+        transport:deltaTransport,getMode:()=> 'T4_NETWORK',
+      });
       const sourceDeleteCapture=async({kind,subjectId,objectId,sourceCursor})=>
         captureT4OriginalDeletionAtMutation({
           kind,subjectId,objectId,sourceCursor,
@@ -1396,9 +1410,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal(staged.sha256,packageSha256(exactBytes));
         const sent=await deltaRoute('delta.push',
           ()=>actual.grants.includes('t1.getObject'),
-          ()=>publishT4OriginalObjectDelta({
-            prepared:captured.prepared,transport:deltaTransport,
-          }));
+          ()=>publishT4OriginalHostOutbox(originalOutboxNetworkArgs(
+            'OBJECT_PUT',captured.captureRef,linkedObjectId)));
         const received=await deltaRoute('delta.pull',
           ()=>receiving.operations.includes('t1.getObject'),
           ()=>fetchT4OriginalObjectDelta({
@@ -1521,9 +1534,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
 
       const recoveredPublished=await deltaRoute('delta.push',
         ()=>actual.grants.includes('t1.getObject'),
-        ()=>publishT4OriginalObjectDelta({
-          prepared:recoveredSource.prepared,transport:deltaTransport,
-        }));
+        ()=>publishT4OriginalHostOutbox(originalOutboxNetworkArgs(
+          'OBJECT_PUT',uncertainCaptureRef,linkedObjectId)));
       const recoveredReceived=await deltaRoute('delta.pull',
         ()=>receiving.operations.includes('t1.getObject'),
         ()=>fetchT4OriginalObjectDelta({
@@ -1693,13 +1705,10 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         const stored=await readSourceTechnical('outbox',captureRef);
         const recoveredBytes=Buffer.from(stored.bytesBase64,'base64');
         assert.equal(packageSha256(recoveredBytes),stored.sha256);
-        const staged={delta:JSON.parse(recoveredBytes.toString('utf8')),
-          sha256:stored.sha256,key:stored.key};
         const sent=await deltaRoute('delta.push',
           ()=>actual.grants.includes('t1.getAsset'),
-          ()=>publishT4OriginalAssetDelta({
-            prepared:staged,transport:deltaTransport,
-          }));
+          ()=>publishT4OriginalHostOutbox(originalOutboxNetworkArgs(
+            'ASSET_PUT',captureRef,capturedAssetId)));
         const received=await deltaRoute('delta.pull',
           ()=>receiving.operations.includes('t1.getAsset'),
           ()=>fetchT4OriginalAssetDelta({
@@ -1745,11 +1754,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(packageSha256(savedRelationBytes),relationStaged.sha256);
       const hostRelationSent=await deltaRoute('delta.push',
         ()=>actual.grants.includes('t1.getObject'),
-        ()=>publishT4OriginalRelationPutDelta({
-          prepared:{delta:JSON.parse(savedRelationBytes.toString('utf8')),
-            sha256:relationStaged.sha256,key:relationStaged.key},
-          transport:deltaTransport,
-        }));
+        ()=>publishT4OriginalHostOutbox(originalOutboxNetworkArgs(
+          'RELATION_PUT',missingRelationAckCaptureRef,capturedRelationId)));
       const hostRelationReceived=await deltaRoute('delta.pull',
         ()=>receiving.operations.includes('t1.getObject'),
         ()=>fetchT4OriginalRelationPutDelta({
@@ -1790,6 +1796,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalRelationSourceACKLostAndReconciled:true,
           originalSourceRelationNotRetried:true,
           originalT3TechnicalOutboxRestored:true,
+          originalHostOutboxPublisherUsedForObjectAssetRelation:true,
           originalT3RecipientAssetRevision:2,
           originalT3RecipientRelationCreated:true,
           originalRecipientCursorsVerified:true,
