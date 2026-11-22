@@ -46,6 +46,8 @@ export function createSubjectKernelBinding(input: {
   isHostActive?: () => boolean;
   /** Notification immediately before the ORIGINAL Graph call (no retry). */
   onCommitObjectGraphDispatch?: () => void;
+  /** A finite stage signal from one trusted read; never a grant or result. */
+  onReadStage?: (stage:string)=>void;
 }): Pick<KernelFacade,
   "createWorkspace" | "getWorkspace" | "getObject" | "listObjects" |
   "putObject" | "deleteObject" | "putRelation" | "deleteRelation" |
