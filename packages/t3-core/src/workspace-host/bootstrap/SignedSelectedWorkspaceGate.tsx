@@ -13,7 +13,7 @@ import {PublisherLicensePanel} from "@/modules/exchange/features/packages/Publis
 
 type SignedResolver=CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
 type Phase="checking"|"ready"|"missing"|"denied";
-interface Inspection {kernel:KernelFacade|null;phase:Phase}
+interface Inspection {kernel:KernelFacade|null;phase:Phase;reason:string|null}
 type FirstRunExchange=Readonly<{
   kernel:KernelFacade;
   commands:CommandsFacade;
@@ -22,6 +22,16 @@ type FirstRunExchange=Readonly<{
 }>;
 const denied=(code:string)=>Object.assign(new Error(code),{code});
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
+// The original Owner's exact denial is allowed to cross only as a bounded
+// machine code. Never display exception messages, signed claims or local
+// filesystem paths in an installed manager's Workspace gate.
+const SAFE_CODE=/^(?:T3|CEN|CONTROL|WORKSPACE|OPERATION)_[A-Z0-9_]{4,90}$/;
+function refusalCode(error:unknown):string {
+  const code=error&&typeof error==="object"&&"code" in error
+    ?(error as {code?:unknown}).code:null;
+  return typeof code==="string"&&SAFE_CODE.test(code)
+    ?code:"T3_D1_SELECTED_WORKSPACE_CHECK_DENIED";
+}
 // Original T2 Runtime 1.3.0 may report a genuinely missing Workspace as
 // null or with its typed WORKSPACE_NOT_FOUND code. ONLY that exact pre-write
 // absence allows the existing signed first-run UI to offer an independent
@@ -51,18 +61,19 @@ export function SignedSelectedWorkspaceGate({
   firstRunExchange?:FirstRunExchange|null;
   children:ReactNode;
 }){
-  const [inspection,setInspection]=useState<Inspection>({kernel:null,phase:"checking"});
+  const [inspection,setInspection]=useState<Inspection>({kernel:null,phase:"checking",reason:null});
   const [retry,setRetry]=useState(0);
   const [busy,setBusy]=useState(false);
   const [createError,setCreateError]=useState<string|null>(null);
+  const [createErrorCode,setCreateErrorCode]=useState<string|null>(null);
   const generation=useRef(0),running=useRef(false);
   const attemptedSignedCreate=useRef(new WeakMap<KernelFacade,Set<string>>());
 
   useEffect(()=>{
     const ticket=++generation.current;
     if(!required||!kernel)return;
-    setInspection({kernel,phase:"checking"});
-    setCreateError(null);
+    setInspection({kernel,phase:"checking",reason:null});
+    setCreateError(null);setCreateErrorCode(null);
     // The installed original Control has no generic listWorkspaces grant.
     // Its signed getWorkspace context selects ONE exact Workspace ID.
     // Do not enumerate other organizations as a first-run prerequisite.
@@ -79,9 +90,10 @@ export function SignedSelectedWorkspaceGate({
         if(ticket!==generation.current)return;
         if(original&&(original.workspace_id!==selected||
             original.deleted_at||Boolean(profile&&original.profile!==profile))){
-          setInspection({kernel,phase:"denied"});return;
+          setInspection({kernel,phase:"denied",
+            reason:"T3_D1_SELECTED_WORKSPACE_SCOPE_MISMATCH"});return;
         }
-        setInspection({kernel,phase:original?"ready":"missing"});
+        setInspection({kernel,phase:original?"ready":"missing",reason:null});
         return;
       }
       // Other existing signed Hosts keep their original bounded discovery.
@@ -89,12 +101,14 @@ export function SignedSelectedWorkspaceGate({
       if(ticket!==generation.current)return;
       if(!Array.isArray(rows)||rows.length>1||
          rows.some(row=>!row||typeof row.workspace_id!=="string")){
-        setInspection({kernel,phase:"denied"});return;
+        setInspection({kernel,phase:"denied",
+          reason:"T3_D1_SELECTED_WORKSPACE_ENUMERATION_DENIED"});return;
       }
       setInspection({kernel,phase:rows.length===1&&!rows[0].deleted_at
-        ? "ready":"missing"});
-    })().catch(()=>{
-      if(ticket===generation.current)setInspection({kernel,phase:"denied"});
+        ? "ready":"missing",reason:null});
+    })().catch(error=>{
+      if(ticket===generation.current)
+        setInspection({kernel,phase:"denied",reason:refusalCode(error)});
     });
     return ()=>{generation.current++;};
   },[required,kernel,retry,trustedSelectedContext,profile]);
@@ -105,7 +119,7 @@ export function SignedSelectedWorkspaceGate({
     if(!required||!kernel||(!signedKernelAccess&&!trustedSelectedContext)||
        running.current||phase!=="missing")return;
     const ticket=generation.current;
-    running.current=true;setBusy(true);setCreateError(null);
+    running.current=true;setBusy(true);setCreateError(null);setCreateErrorCode(null);
     try{
       // Authority lives only in the original Control AccessRegistry.
       // Resolving a port does not grant a right; the actual createWorkspace
@@ -152,10 +166,11 @@ export function SignedSelectedWorkspaceGate({
           throw denied("T3_D1_WORKSPACE_READBACK_MISMATCH");
       }
       if(ticket!==generation.current)return;
-      setInspection({kernel,phase:"ready"});
+      setInspection({kernel,phase:"ready",reason:null});
     }catch(e){
       if(ticket!==generation.current)return;
-      const code=e&&typeof e==="object"&&"code" in e?String(e.code):"";
+      const code=refusalCode(e);
+      setCreateErrorCode(code);
       setCreateError(code==="T3_D1_WORKSPACE_CREATE_GRANT_REQUIRED"
         ? "Администратор не выдал отдельное подписанное право создания Workspace. Запросите его в Control и откройте Workspace заново."
         : "Не удалось подтвердить создание в исходном Kernel. Проверьте полномочия и нажмите «Проверить повторно». Новая область автоматически не создаётся.");
@@ -207,8 +222,20 @@ export function SignedSelectedWorkspaceGate({
               ? "Для выбранного профиля пока нет рабочей области в исходном Kernel. При наличии отдельного разрешения её можно создать здесь."
               : "Control не подтвердил чтение выбранной Workspace. Проверьте профиль и его полномочия в локальном Control."}
           </p>
+          {inspection.reason&&<p role="status" data-testid="t3-d1-selected-workspace-refusal-code"
+            className="text-xs text-amber-300">Код: {inspection.reason}</p>}
+          {phase==="missing"&&!kernel?.hasOperation("t1.createWorkspace")&&(
+            <p role="alert" data-testid="t3-d1-selected-workspace-create-unavailable"
+              className="text-sm text-amber-300">
+              Исходный Kernel не разрешает создание Workspace для этого профиля.
+              Проверьте установленный T2 профиль; чтение D2 не создаёт данные.
+              Код: T3_D1_KERNEL_CREATE_UNAVAILABLE.
+            </p>
+          )}
           {createError&&<p role="alert" data-testid="t3-d1-create-workspace-error"
-            className="text-sm text-amber-300">{createError}</p>}
+            className="text-sm text-amber-300">{createError}
+            {createErrorCode&&<> Код: {createErrorCode}.</>}
+          </p>}
           {phase==="missing"&&(signedKernelAccess||trustedSelectedContext)&&
             kernel?.hasOperation("t1.createWorkspace")&&(
             <button type="button" data-testid="t3-d1-create-selected-workspace"
