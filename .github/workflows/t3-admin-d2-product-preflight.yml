@@ -90,3 +90,20 @@ jobs:
             if(!$script.Contains($mark)){throw 'D2_PUBLIC_NATIVE_UIA_WITNESS_INCOMPLETE'}
           }
           Write-Host 'D2_PUBLIC_NATIVE_UIA_SCRIPT_PARSE_AND_WITNESS_PASS'
+  signed-selected-workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Restore exact original One Core test dependencies
+        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Qualify existing original signed Workspace first-run JIT and cold readback
+        working-directory: packages/t3-core
+        run: |
+          npx vitest run --config vitest.config.ts tests/t3-d1-signed-selected-workspace.dom.test.tsx
+          echo D2_ORIGINAL_SIGNED_WORKSPACE_CREATE_GRANT_AND_READBACK_PASS
