@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: c51d24e6b335576cb71102a2e619597ab00a177b
+          ref: d43ac5d972048b7ec100e3a27143ccf9e9e66d2c
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -53,7 +53,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $owner=(& git -C .private/t3 rev-parse HEAD).Trim()
-          if($owner -cne 'c51d24e6b335576cb71102a2e619597ab00a177b'){
+          if($owner -cne 'd43ac5d972048b7ec100e3a27143ccf9e9e66d2c'){
             throw 'D2_ORIGINAL_PRIVATE_SOURCE_PIN_FAILED'
           }
           Write-Host 'D2_ORIGINAL_PRIVATE_SOURCE_PIN_PASS'
@@ -105,7 +105,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: c51d24e6b335576cb71102a2e619597ab00a177b
+          ref: d43ac5d972048b7ec100e3a27143ccf9e9e66d2c
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -150,7 +150,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
-          if($t3 -cne 'c51d24e6b335576cb71102a2e619597ab00a177b' -or
+          if($t3 -cne 'd43ac5d972048b7ec100e3a27143ccf9e9e66d2c' -or
              $center -cne 'df6365aa6f83f60b7fa73224316d81bcbebbd59f'){
             throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
           }
@@ -233,7 +233,7 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
-          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'df6365aa6f83f60b7fa73224316d81bcbebbd59f' -ExpectedT3Sha 'c51d24e6b335576cb71102a2e619597ab00a177b'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'df6365aa6f83f60b7fa73224316d81bcbebbd59f' -ExpectedT3Sha 'd43ac5d972048b7ec100e3a27143ccf9e9e66d2c'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
       - name: Native Windows original signed D2 DATA and two independent cold UIA reads
