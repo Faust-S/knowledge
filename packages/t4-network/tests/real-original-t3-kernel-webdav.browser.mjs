@@ -42,6 +42,8 @@ import {publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork}
   from '../src/network/original-host-outbox-delivery.mjs';
 import {createT4OriginalHostOutboxDispatcher}
   from '../src/network/original-host-outbox-dispatcher.mjs';
+import {createT4OriginalHostRecipientDispatcher}
+  from '../src/network/original-host-recipient-dispatcher.mjs';
 import {createT4OriginalHostDispatchTaskBinding}
   from '../src/network/original-host-dispatch-task-binding.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
@@ -1949,6 +1951,339 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalRecipientCursorsVerified:true,
           originalT3StoreSovereign:true,
         }));
+      // Receiver-side, original T3-owned causal application. Three different
+      // writes are captured at the original source and delivered through the
+      // existing Host Outbox before any recipient writes. The recipient has
+      // its own original T3 technical Workspace (not a second T4 Store).
+      const receiverSourceBefore=await sourceKernel.getObject(
+        workspaceId,linkedObjectId);
+      assert.equal(receiverSourceBefore.object.revision,7);
+      const receiveStartCursor=restoredRelation.nextCursor;
+      const receiveSourceObjectRef='t4:receiver:object:'+randomUUID();
+      const receiveObjectTitle='Original T3 ordered receiver '+randomUUID();
+      const receiveObject=await subjectHost.putObject({
+        captureRef:receiveSourceObjectRef,sourceCursor:receiveStartCursor,
+        mutationInput:{
+          workspace_id:workspaceId,object_id:linkedObjectId,
+          schema_id:receiverSourceBefore.object.schema_id,
+          schema_version:receiverSourceBefore.object.schema_version,
+          data:{...receiverSourceBefore.object.data,title:receiveObjectTitle},
+          extensions:receiverSourceBefore.object.extensions??{},
+          base_revision:7,
+          event:{event_type:'t4.original.recipient.batch.object',
+            payload:{phase:'object-before-asset'}},
+        },
+      });
+      assert.equal(receiveObject.capture.sourceRevision,8);
+      const receiveAssetRef='t4:receiver:asset:'+randomUUID();
+      const receiveAssetText='Original T3 recipient Asset revision 3 '+randomUUID();
+      const receiveAsset=await subjectHost.putAsset({
+        captureRef:receiveAssetRef,
+        sourceCursor:receiveObject.capture.nextCursor,
+        mutationInput:{
+          workspace_id:workspaceId,asset_id:capturedAssetId,
+          object_id:linkedObjectId,mime:'text/plain',base_revision:2,
+          bytes:Buffer.from(receiveAssetText,'utf8'),
+          event:{event_type:'t4.original.recipient.batch.asset',
+            payload:{phase:'asset-after-object'}},
+        },
+      });
+      assert.equal(receiveAsset.originalReceipt.asset.revision,3);
+      const receiveRelationRef='t4:receiver:relation:'+randomUUID();
+      const receiveRelationId='t4:receiver:linked:'+randomUUID();
+      const receiveRelation=await subjectHost.putRelation({
+        captureRef:receiveRelationRef,
+        sourceCursor:receiveAsset.capture.nextCursor,
+        mutationInput:{
+          workspace_id:workspaceId,relation_id:receiveRelationId,
+          from_object_id:linkedObjectId,to_object_id:objectId,kind:'related',
+          event:{event_type:'t4.original.recipient.batch.relation',
+            payload:{phase:'relation-after-asset'}},
+        },
+      });
+      assert.equal(receiveRelation.originalReceipt.relation.relation_id,
+        receiveRelationId);
+      const receiveSourceEntries=[
+        {kind:'OBJECT_PUT',captureRef:receiveSourceObjectRef,
+          subjectId:linkedObjectId,before:receiveStartCursor,
+          receipt:receiveObject.capture},
+        {kind:'ASSET_PUT',captureRef:receiveAssetRef,
+          subjectId:capturedAssetId,before:receiveObject.capture.nextCursor,
+          receipt:receiveAsset.capture},
+        {kind:'RELATION_PUT',captureRef:receiveRelationRef,
+          subjectId:receiveRelationId,before:receiveAsset.capture.nextCursor,
+          receipt:receiveRelation.capture},
+      ];
+      const receivePlan=receiveSourceEntries.map(item=>({
+        kind:item.kind,captureRef:item.captureRef,subjectId:item.subjectId,
+        sourceCursorBefore:item.before,
+        sourceCursorAfter:item.receipt.nextCursor,
+        window:item.receipt.window,key:item.receipt.prepared.key,
+        sha256:item.receipt.prepared.sha256,
+      }));
+      const receiveSourceOutbox={
+        ...hostDispatchPorts,
+        readOriginalDeliveryFrontier:async()=>receiveStartCursor,
+        listOriginalOutbox:async()=>Promise.all(
+          receiveSourceEntries.map(item=>readSourceTechnical(
+            'outbox',item.captureRef))),
+      };
+      const earlierPutCount=scheduledNetworkPutCount;
+      const receiveSent=await createT4OriginalHostOutboxDispatcher(
+        receiveSourceOutbox).drain({maxEntries:3});
+      assert.equal(receiveSent.newlyVerifiedCount,3);
+      assert.equal(receiveSent.hasMore,false);
+      assert.equal(scheduledNetworkPutCount-earlierPutCount,3);
+
+      const recipientTechnicalWorkspace='t4:recipient:technical:'+randomUUID();
+      const recipientCursorRef='t4:recipient:cursor:'+randomUUID();
+      await recipientPage.evaluate(async({SERVICE,recipientTechnicalWorkspace})=>{
+        const kernel=await IWXA.connect({
+          service_id:SERVICE,required_levels:['T1','T2']});
+        return kernel.t1.createWorkspace({
+          workspace_id:recipientTechnicalWorkspace,profile:'generic'});
+      },{SERVICE,recipientTechnicalWorkspace});
+      const recipientTechnicalId=(kind,ref)=>'t4:recipient:'+kind+':'+ref;
+      const recipientTechnicalRead=(kind,ref)=>recipientPage.evaluate(
+        async({SERVICE,recipientTechnicalWorkspace,objectId})=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          const row=await kernel.t1.getObject(
+            recipientTechnicalWorkspace,objectId);
+          return row?.object?.data??null;
+        },{SERVICE,recipientTechnicalWorkspace,
+          objectId:recipientTechnicalId(kind,ref)});
+      const recipientTechnicalPersist=(kind,value)=>recipientPage.evaluate(
+        async({SERVICE,recipientTechnicalWorkspace,objectId,value})=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          const saved=await kernel.t1.putObject({
+            workspace_id:recipientTechnicalWorkspace,
+            object_id:objectId,schema_id:'iwxa.demo.note',
+            schema_version:'1.0.0',data:value,extensions:{},base_revision:0,
+            event:{event_type:'t4.original.recipient.technical.'+kind,
+              payload:{captureRef:value.captureRef}},
+          });
+          return saved.object.revision===1;
+        },{SERVICE,recipientTechnicalWorkspace,
+          objectId:recipientTechnicalId(kind,value.captureRef),value});
+      await recipientPage.evaluate(async({
+        SERVICE,recipientTechnicalWorkspace,recipientCursorRef,receiveStartCursor,
+      })=>{
+        const kernel=await IWXA.connect({
+          service_id:SERVICE,required_levels:['T1','T2']});
+        return kernel.t1.putObject({
+          workspace_id:recipientTechnicalWorkspace,
+          object_id:recipientCursorRef,schema_id:'iwxa.demo.note',
+          schema_version:'1.0.0',
+          data:{cursor:receiveStartCursor},extensions:{},base_revision:0,
+          event:{event_type:'t4.original.recipient.cursor.created',
+            payload:{sourceEventId:receiveStartCursor.lastEventId}},
+        });
+      },{SERVICE,recipientTechnicalWorkspace,recipientCursorRef,
+        receiveStartCursor});
+      const readRecipientCursor=()=>recipientPage.evaluate(async({
+        SERVICE,recipientTechnicalWorkspace,recipientCursorRef,
+      })=>{
+        const kernel=await IWXA.connect({
+          service_id:SERVICE,required_levels:['T1','T2']});
+        const saved=await kernel.t1.getObject(
+          recipientTechnicalWorkspace,recipientCursorRef);
+        return saved?.object?.data?.cursor??null;
+      },{SERVICE,recipientTechnicalWorkspace,recipientCursorRef});
+      const persistRecipientCursor=value=>recipientPage.evaluate(async({
+        SERVICE,recipientTechnicalWorkspace,recipientCursorRef,value,
+      })=>{
+        const kernel=await IWXA.connect({
+          service_id:SERVICE,required_levels:['T1','T2']});
+        const current=await kernel.t1.getObject(
+          recipientTechnicalWorkspace,recipientCursorRef);
+        if(JSON.stringify(current?.object?.data?.cursor)!==
+           JSON.stringify(value.previousCursor))return false;
+        const saved=await kernel.t1.putObject({
+          workspace_id:recipientTechnicalWorkspace,
+          object_id:recipientCursorRef,schema_id:'iwxa.demo.note',
+          schema_version:'1.0.0',
+          data:{cursor:value.verifiedCursor},
+          extensions:{},base_revision:current.object.revision,
+          event:{event_type:'t4.original.recipient.cursor.verified',
+            payload:{sourceEventId:value.sourceEventId}},
+        });
+        return saved.object.revision===current.object.revision+1;
+      },{SERVICE,recipientTechnicalWorkspace,recipientCursorRef,value});
+      let lostRecipientAssetAck=true,recipientObjectPutCalls=0,
+        recipientAssetPutCalls=0,recipientRelationPutCalls=0;
+      const originalReceiverKernel={
+        ...independentAssetRecipient,
+        commitObjectGraph:async input=>{
+          recipientObjectPutCalls++;
+          return recipientPage.evaluate(async({SERVICE,input})=>{
+            const kernel=await IWXA.connect({
+              service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.commitObjectGraph(input);
+          },{SERVICE,input});
+        },
+        putAsset:async input=>{
+          recipientAssetPutCalls++;
+          const receipt=await independentAssetRecipient.putAsset(input);
+          if(lostRecipientAssetAck){
+            lostRecipientAssetAck=false;
+            throw Object.assign(new Error('ORIGINAL_RECIPIENT_ACK_LOST'),
+              {code:'NETWORK_TIMEOUT'});
+          }
+          return receipt;
+        },
+        putRelation:async input=>{
+          recipientRelationPutCalls++;
+          return independentAssetRecipient.putRelation(input);
+        },
+      };
+      const lookupReceiveEntry=sourceEventId=>receiveSourceEntries.find(
+        entry=>entry.receipt.window.lastEventId===sourceEventId)??null;
+      const recipientPorts={
+        workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        sourceNodeRef:'node:original-source',
+        originalKernel:originalReceiverKernel,transport:deltaTransport,
+        getMode:()=> 'T4_NETWORK',
+        authorizeOriginalRead:async ctx=>receiving.operations.includes(
+          ctx.operation),
+        authorizeOriginalWrite:async ctx=>receiving.operations.includes(
+          ctx.operation),
+        authorizeNetworkReceive:async ctx=>
+          ctx.operation==='t4.network.receive',
+        verifyOriginalSourceEntry:async proof=>{
+          const entry=receiveSourceEntries.find(
+            row=>row.captureRef===proof.captureRef);
+          if(!entry||entry.receipt.prepared.sha256!==proof.sha256||
+            entry.receipt.window.lastEventId!==proof.sourceEventId)return false;
+          const source=await readSourceTechnical('outbox',proof.captureRef);
+          if(source?.key!==proof.key||source?.sha256!==proof.sha256)
+            return false;
+          const current=await readT4OriginalEventWindow({
+            workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+            cursor:entry.before,maxEvents:1,
+            authorizeOriginalRead:async ctx=>
+              actual.grants.includes(ctx.operation),
+            readOriginalEvents:readSourceEvents,
+          });
+          return current.window.eventRefs[0]?.eventDigest===
+              proof.sourceEventDigest&&
+            current.window.lastEventId===proof.sourceEventId&&
+            current.nextCursor.sourcePrefixDigest===
+              proof.sourceCursorAfter.sourcePrefixDigest;
+        },
+        verifyOriginalSourceEvent:async proof=>{
+          const entry=lookupReceiveEntry(proof.sourceEventId);
+          if(!entry||proof.sourceEventDigest!==
+            entry.receipt.window.eventRefs[0].eventDigest||
+            proof.originalWriteOwnerRef!=='original:t2:exchange')
+            return false;
+          const d=entry.receipt.prepared.delta;
+          return (!proof.objectContentDigest||
+              proof.objectContentDigest===d.objectContentDigest)&&
+            (!proof.assetBytesSha256||
+              proof.assetBytesSha256===d.assetBytesSha256)&&
+            (!proof.relationContentDigest||
+              proof.relationContentDigest===d.relationContentDigest);
+        },
+        verifyOriginalRecipient:async proof=>{
+          const entry=lookupReceiveEntry(proof.lastEventId);
+          if(!entry||proof.windowDigest!==
+            entry.receipt.window.windowDigest||
+            !receiving.operations.includes('t1.getObject'))return false;
+          const ev=await originalReceiverKernel.listEventsSince(workspaceId);
+          const prefix=entry.kind==='OBJECT_PUT'?'t4-object-':
+            entry.kind==='ASSET_PUT'?'t4-asset-':'t4-relation-';
+          return ev.some(row=>
+            row.idempotency_key===prefix+entry.receipt.prepared.sha256&&
+            row.payload?.originalEventId===proof.lastEventId);
+        },
+        readOriginalVerifiedCursor:readRecipientCursor,
+        persistOriginalVerifiedCursor:persistRecipientCursor,
+        readOriginalApplyAttempt:async ctx=>recipientTechnicalRead(
+          'apply-attempt',ctx.captureRef),
+        persistOriginalApplyAttempt:async value=>
+          recipientTechnicalPersist('apply-attempt',value),
+        readOriginalApplyCheckpoint:async ctx=>recipientTechnicalRead(
+          'applied-checkpoint',ctx.captureRef),
+        persistOriginalApplyCheckpoint:async value=>
+          recipientTechnicalPersist('applied-checkpoint',value),
+      };
+      const receiveBatch=maxEntries=>
+        createT4OriginalHostRecipientDispatcher(recipientPorts).drain({
+          entries:receivePlan,initialCursor:receiveStartCursor,maxEntries});
+      const receivedFirst=await receiveBatch(1);
+      assert.equal(receivedFirst.processedCount,1);
+      assert.equal(recipientObjectPutCalls,1);
+      assert.equal((await independentAssetRecipient.getObject(
+        workspaceId,linkedObjectId)).object.revision,8);
+      assert.ok(await recipientTechnicalRead(
+        'applied-checkpoint',receiveSourceObjectRef));
+      // Original recipient Host and Kernel are now restarted: its Event
+      // and checkpoint, not memory in T4, are the sole recovery evidence.
+      await recipientContext.close();recipientContext=null;
+      recipientContext=await launch(recipientProfile);
+      recipientPage=await opened(recipientContext);
+      await assert.rejects(receiveBatch(1),
+        error=>error.code==='RECIPIENT_BATCH_STOPPED'&&
+          error.details.originalCode==='ASSET_DELTA_OUTCOME_UNKNOWN'&&
+          error.details.automaticRetryAllowed===false);
+      assert.equal(recipientAssetPutCalls,1);
+      assert.equal((await independentAssetRecipient.getAsset(
+        workspaceId,capturedAssetId)).asset.revision,3);
+      assert.equal(await recipientTechnicalRead(
+        'applied-checkpoint',receiveAssetRef),null);
+      await recipientContext.close();recipientContext=null;
+      recipientContext=await launch(recipientProfile);
+      recipientPage=await opened(recipientContext);
+      const receivedRecovered=await receiveBatch(1);
+      assert.equal(receivedRecovered.results.at(-1).state,
+        'RECOVERED_FROM_ORIGINAL_T3_EVENT');
+      assert.equal(recipientAssetPutCalls,1);
+      assert.ok(await recipientTechnicalRead(
+        'applied-checkpoint',receiveAssetRef));
+      const receivedRelation=await receiveBatch(1);
+      assert.equal(receivedRelation.processedCount,1);
+      assert.equal(recipientRelationPutCalls,1);
+      const receivedIdle=await receiveBatch(1);
+      assert.equal(receivedIdle.processedCount,0);
+      assert.equal(receivedIdle.skippedVerifiedCount,3);
+      assert.equal(recipientObjectPutCalls,1);
+      assert.equal(recipientAssetPutCalls,1);
+      assert.equal(recipientRelationPutCalls,1);
+      const finalRecipientAsset=await independentAssetRecipient.getAsset(
+        workspaceId,capturedAssetId);
+      assert.equal(finalRecipientAsset.asset.revision,3);
+      assert.equal(Buffer.from(finalRecipientAsset.bytes).toString('utf8'),
+        receiveAssetText);
+      const finalRecipientObject=await independentAssetRecipient.getObject(
+        workspaceId,linkedObjectId);
+      assert.equal(finalRecipientObject.object.revision,8);
+      assert.equal(finalRecipientObject.object.data.title,receiveObjectTitle);
+      assert.equal(finalRecipientObject.relations.outgoing.some(
+        item=>item.relation_id===receiveRelationId),true);
+      assert.equal((await readRecipientCursor()).lastEventId,
+        receiveRelation.capture.window.lastEventId);
+      console.log('T4_REAL_ORIGINAL_T3_RECIPIENT_ORDERED_BATCH_RECOVERY_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,originalHostRecipientDispatcher:true,
+          objectAssetRelationOriginalKernelApplied:true,
+          originalRecipientColdRestartBeforeAsset:true,
+          originalRecipientACKLostAfterAssetCommit:true,
+          originalRecipientColdRestartBeforeEventRecovery:true,
+          originalRecipientAssetPutNotRetried:true,
+          originalRecipientObjectRevision:8,
+          originalRecipientAssetRevision:3,
+          originalRecipientNewRelationPresent:true,
+          originalRecipientAttemptAndCheckpointPersistedInT3:true,
+          originalRecipientCursorCausalAndDurable:true,
+          originalRecipientIdleTickNoDuplicateWrites:true,
+          originalObjectPutCalls:recipientObjectPutCalls,
+          originalAssetPutCalls:recipientAssetPutCalls,
+          originalRelationPutCalls:recipientRelationPutCalls,
+          independentPhysicalDevices:false,
+        }));
+
       // Isolated semantics audit of RELEASED original T3 deleteObject.
       // Never publish a delete delta here; a lost original delete ACK is not
       // permission to invoke the destructive operation a second time.
