@@ -71,7 +71,7 @@ jobs:
         run: |
           node --import tsx --test scripts/tests/d07-external-gap-research.test.mjs scripts/tests/d07-professional-gap-inventory.test.mjs scripts/tests/d07-original-source-fetch.test.mjs scripts/tests/d07-original-corroboration.test.mjs scripts/tests/d07-professional-facet-coverage.test.mjs scripts/tests/d07-original-pdf-fetch.test.mjs scripts/tests/d07-mixed-original-sources.test.mjs scripts/tests/d07-wallpaper-professional-method.test.mjs scripts/tests/d07-plumbing-professional-method.test.mjs scripts/tests/d07-flooring-professional-method.test.mjs scripts/tests/d07-professional-preview.test.mjs scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-item-tests.log" 2>&1 || {
             echo D07_ITEM_RESEARCH_TESTS=FAIL
-            grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(actual|expected|error):' "$RUNNER_TEMP/d07-item-tests.log" | tail -24 || true
+            grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(actual|expected|error):|D07_TOP500_CHILD_FAILURE:' "$RUNNER_TEMP/d07-item-tests.log" | tail -24 || true
             exit 1
           }
           echo D07_ITEM_RESEARCH_TESTS=PASS
