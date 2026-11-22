@@ -237,3 +237,35 @@ def test_incomplete_matching_bilateral_slices_do_not_qualify_a_complete_work_eco
     assert row["network_declared_external_cash_difference"] is None
     assert "COMMON_CASH_FLOW_NOT_ATTRIBUTED_TO_WORK" in row["per_scenario"]["COOPERATION"]["owners"]["op"]["reasons"]
     assert out["economics"]["common_work_allocations"]["unallocated_remainders"]["t2"]=="1.00"
+
+
+def test_internal_allocation_requires_original_linked_evidence_for_one_principal():
+    from .test_economic_flow import source
+    d=bilateral_internal_case()
+    d["economic_claims"]["sources"].append(source("b-allocation-copy","b"))
+    original=d["economic_claims"]["common_allocations"][-2]
+    assert original["source"]=="b1"
+    original["source"]="b-allocation-copy"
+    with pytest.raises(ValueError,match="COMMON_ALLOCATION_INTERNAL_ORIGINAL_SOURCE_NOT_ATTESTED"):
+        simulate(d)
+
+
+def test_bilateral_payment_cannot_be_allocated_above_original_cash_amount():
+    d=bilateral_internal_case()
+    for row in d["economic_claims"]["common_allocations"][-2:]:
+        row["amount"]="90.00"
+    for row in deepcopy(d["economic_claims"]["common_allocations"][-2:]):
+        row["work"]="w1"
+        row["amount"]="40.00"
+        d["economic_claims"]["common_allocations"].append(row)
+    with pytest.raises(ValueError,match="COMMON_ALLOCATION_EXCEEDS_ORIGINAL_AMOUNT"):
+        simulate(d)
+
+
+def test_payer_and_payee_original_declaration_order_does_not_change_model_result():
+    d=bilateral_internal_case()
+    expected=simulate(deepcopy(d))
+    d["economic_claims"]["common_allocations"][-2:] = list(
+        reversed(d["economic_claims"]["common_allocations"][-2:])
+    )
+    assert simulate(d)==expected
