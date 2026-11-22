@@ -2569,6 +2569,98 @@ def original_nine_component_cycle_evidence(
                     "real_legal_rights_or_measured_economic_gain_verified": False,
                 })
 
+    # R1-T2: independent, source-bound prospective model function AND
+    # accountability change has a qualified causal continuation ONLY if a
+    # further accepted ORIGINAL Work uses its own unchanged owner consents.
+    # Never confuse model "Отв" with transfer of physical or legal liability.
+    model_function_successions: list[dict[str, Any]] = []
+    for revision in events:
+        if (revision.get("action") != "model_code_apply"
+                or not revision.get("model_code_function_change_applied")):
+            continue
+        t_revise = revision.get("at")
+        matching = [
+            row for row in events
+            if row.get("action") == "model_code_propose"
+            and row.get("model_code_change_kind") ==
+                "REASSIGN_EXISTING_MODEL_FUNCTIONS"
+            and row.get("model_code_change_id") ==
+                revision.get("model_code_change_id")
+            and row.get("model_code_fingerprint") ==
+                revision.get("model_code_fingerprint")
+            and type(row.get("at")) is int and row["at"] < t_revise
+        ]
+        if len(matching) != 1:
+            continue
+        proposal = matching[0]
+        old_responsible = proposal.get("expected_model_commit_responsible") or []
+        new_responsible = proposal.get("proposed_model_commit_responsible") or []
+        affected = set(old_responsible) | set(new_responsible) | {
+            proposal.get("proposed_subject")
+        }
+        votes = [
+            row for row in events
+            if row.get("action") == "model_code_function_response"
+            and row.get("model_code_change_id") ==
+                proposal["model_code_change_id"]
+            and row.get("model_code_fingerprint") ==
+                proposal["model_code_fingerprint"]
+            and row.get("model_code_decision") == "SUPPORT_FUNCTION_CHANGE"
+            and row.get("actor") in affected
+            and proposal["at"] < row["at"] < t_revise
+        ]
+        if {row["actor"] for row in votes} != affected:
+            continue
+        link = relation_index.get(proposal.get("cooperation_link"))
+        if link is None:
+            continue
+        pilot = proposal.get("pilot_work")
+        if pilot not in accepted_at or accepted_at[pilot] >= proposal["at"]:
+            continue
+        for work_id in link.works:
+            work = original.works[work_id]
+            t_commit = original_committed_at.get(work_id)
+            t_accept = accepted_at.get(work_id)
+            if (t_commit is None or t_accept is None
+                    or not t_revise < t_commit < t_accept
+                    or pilot not in work.requires_accepted):
+                continue
+            principals = original.capacity_ledger.original_owners(
+                work.resource_requirements
+            ) | {work.customer}
+            if (not set(new_responsible) <= principals
+                    or not set(work.consents) == principals
+                    or proposal["proposed_subject"] not in principals):
+                continue
+            future_requests = [
+                row for row in events
+                if row.get("action") == "request"
+                and row.get("work") == work_id
+                and row.get("actor") == work.customer
+                and row.get("requested_cooperation_link") == link.key
+                and row.get("requested_cooperation_source_revision") ==
+                    link.source_revision
+                and t_revise < row["at"] < t_commit
+            ]
+            if len(future_requests) != 1:
+                continue
+            model_function_successions.append({
+                "original_accepted_pilot_work": pilot,
+                "original_cooperation_link": link.key,
+                "prospective_model_edition": revision["new_model_edition"],
+                "later_accepted_original_work": work_id,
+                "affected_principals_independent_source_responses": sorted(
+                    affected
+                ),
+                "new_model_commit_accountable_principals": list(
+                    new_responsible
+                ),
+                "original_actual_consent_owners": sorted(principals),
+                "model_function_reassignment_not_legal_resource_transfer": True,
+                "all_original_result_consents_retained": True,
+                "real_resource_liability_rights_or_money_verified": False,
+            })
+
     accepted_results = len(accepted_at)
     requested_count = len(requested_at)
     committed_count = len(original_committed_at)
@@ -2631,6 +2723,9 @@ def original_nine_component_cycle_evidence(
             "strict_original_entrant_resource_successor_links": (
                 strict_successor_links
             ),
+            "original_model_function_and_responsibility_successions": (
+                model_function_successions
+            ),
             "contains_owner_work_and_model_source_identifiers": True,
             "safe_for_cross_enterprise_publication": False,
         },
@@ -2664,6 +2759,10 @@ def original_nine_component_cycle_evidence(
             "strict_original_entry_individual_interests_and_consent_checked": (
                 len(strict_successor_links) > 0
             ),
+            "original_model_function_reassignments_followed_by_accepted_work": (
+                len(model_function_successions)
+            ),
+            "original_function_changes_do_not_transfer_real_resource_rights": True,
             "source_scoped_membership_successors_are_not_legal_membership": True,
             "all_nine_components_partially_observed_in_one_institutional_cycle": (
                 original_institutional_sequences > 0

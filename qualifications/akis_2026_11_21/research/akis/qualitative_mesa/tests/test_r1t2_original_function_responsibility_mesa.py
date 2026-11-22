@@ -151,6 +151,21 @@ def test_r1t2_full_strict_successor_original_accepted_result_role_and_liability_
         "strict_original_entry_to_accepted_resource_work_link_count"
     ] == 1
     assert out["profit"]["system_increment"] == "UNKNOWN"
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "original_model_function_reassignments_followed_by_accepted_work"
+    ] == 1
+    private = out["general_akis_private_cycle_evidence"][
+        "original_model_function_and_responsibility_successions"
+    ]
+    assert len(private) == 1
+    assert private[0]["original_accepted_pilot_work"] == "w2"
+    assert private[0]["later_accepted_original_work"] == "w3"
+    assert private[0]["new_model_commit_accountable_principals"] == ["b", "c"]
+    assert private[0]["original_actual_consent_owners"] == ["a", "b", "c"]
+    assert private[0]["real_resource_liability_rights_or_money_verified"] is False
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "all_nine_component_original_causal_closure_proven"
+    ] is False
     assert simulate(deepcopy(scenario)) == out
 
 
@@ -242,3 +257,57 @@ def test_r1t2_operator_cannot_rename_an_unrelated_source_field_as_owner_approval
     out = simulate(d)
     assert _applied_code(out)["reason"] == "OC_MODEL_EDITION_CONTENT_CHANGED_AFTER_REVIEW"
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1t2_model_role_assent_never_substitutes_resource_owner_c_work_consent():
+    d = r1t2_case()
+    d["events"] = [row for row in d["events"]
+                   if not (row["action"] == "consent"
+                           and row["work"] == "w3"
+                           and row["actor"] == "c")]
+    out = simulate(d)
+    assert _applied_code(out)["outcome"] == "APPLIED"
+    assert [row for row in reports(out, "commit")
+            if row["work"] == "w3"][0]["reason"] == (
+        "INDEPENDENT_ACCEPTANCE_MISSING"
+    )
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w3"]["result"] == "NOT_SUBMITTED"
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "original_model_function_reassignments_followed_by_accepted_work"
+    ] == 0
+
+
+def test_r1t2_affected_owners_cannot_approve_from_foreign_sources():
+    d = r1t2_case()
+    row = next(x for x in d["events"]
+               if x["action"] == "model_code_function_response"
+               and x["actor"] == "c")
+    row["model_code_decision_source_ref"] = "model://op/foreign-signature"
+    out = simulate(d)
+    response = next(x for x in reports(out, "model_code_function_response")
+                    if x["actor"] == "c")
+    assert response["reason"] == "OC_MODEL_EDITION_OWNER_SOURCE_REQUIRED"
+    assert _applied_code(out)["reason"] == (
+        "OC_MODEL_FUNCTION_ALL_AFFECTED_RESPONSES_REQUIRED"
+    )
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1t2_historical_baseline_and_two_successive_model_editions_are_observable():
+    out = simulate(r1t2_case())
+    evolution = [
+        (row["at"], row["projection"]["model_organizational_code_review"][
+            "original_model_source_edition"
+        ])
+        for row in out["general_akis_model"]["read_only_evolution"]
+    ]
+    assert any(t < 84 and edition == "BASE" for t, edition in evolution)
+    assert any(84 <= t < 92 and edition == "model-oc-2"
+               for t, edition in evolution)
+    assert any(t >= 92 and edition == "model-oc-3"
+               for t, edition in evolution)
+    assert out["general_akis_model"]["model_organizational_code_review"][
+        "original_model_source_edition"
+    ] == "model-oc-3"
+    assert out["institution"]["revision"] == "oc-1"
