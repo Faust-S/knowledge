@@ -10,7 +10,8 @@ import {bindT3ControlActivityReview,openOriginalT3ActivityReviewHost} from
   '../modules/activity-base-anonymizer/t3-control-host-link.mjs';
 import {createT3ReviewController} from
   '../modules/activity-base-anonymizer/t3-review-controller.mjs';
-import {stageSelectedT3ActivityReview,createTrustedT3ActivityStagePort,
+import {stageSelectedT3ActivityReview,recoverSelectedT3ActivityReview,
+  createTrustedT3ActivityStagePort,
   T3_ACTIVITY_OWNER_REVIEW_SCHEMA,
   T3_ACTIVITY_OWNER_REVIEW_DECLARATION,
   T3_ACTIVITY_OWNER_REVIEW_PASSPORT} from
@@ -1029,4 +1030,69 @@ test('malicious reviewer impersonation cannot convert an Activity read grant int
       currentWorkspace:f.options.sourceContext.currentWorkspace,
     }),{code:'T3_ACTIVITY_REVIEWER_SERVICE_REQUIRED'});
   }
+});
+
+
+test('cold recovery after lost ACK reads original typed review without another write',async()=>{
+  const f=fixture();f.state.lostAck=true;
+  await assert.rejects(stageSelectedT3ActivityReview(f.options),
+    {code:'T3_ACTIVITY_WRITE_MAY_HAVE_COMMITTED'});
+  assert.equal(f.saved.size,1);assert.equal(f.state.writeCalls,1);
+  // Simulated fresh trusted Host call, not the old stage promise/receipt.
+  f.state.lostAck=false;
+  const result=await recoverSelectedT3ActivityReview(f.options);
+  assert.deepEqual(result,{status:'OWNER_REVIEW_DRAFT',
+    readback:true,export_allowed:false});
+  assert.deepEqual(Object.keys(result).sort(),
+    ['export_allowed','readback','status']);
+  assert.equal(f.state.writeCalls,1);
+  assert.equal(JSON.stringify(result).includes(W),false);
+  assert.equal(JSON.stringify(result).includes(R),false);
+  assert.equal(f.listeners[0].size,0);assert.equal(f.listeners[1].size,0);
+});
+
+test('recovery of empty or foreign target never silently creates a new draft',async()=>{
+  const missing=fixture();
+  await assert.rejects(recoverSelectedT3ActivityReview(missing.options),
+    {code:'T3_ACTIVITY_RECOVERY_NOT_CONFIRMED'});
+  assert.equal(missing.state.writeCalls,0);
+  const foreign=fixture();foreign.moveTargetToForeignOrg();
+  await assert.rejects(recoverSelectedT3ActivityReview(foreign.options),
+    {code:'T3_ACTIVITY_CROSS_PRINCIPAL_TRANSFER_FORBIDDEN'});
+  assert.equal(foreign.state.writeCalls,0);
+  const occupied=fixture();occupied.addExistingTarget();
+  await assert.rejects(recoverSelectedT3ActivityReview(occupied.options),
+    {code:'T3_ACTIVITY_RECOVERY_OBJECT_INVALID'});
+  assert.equal(occupied.state.writeCalls,0);
+});
+
+test('recovery rejects altered internal draft and revoked original derive right',async()=>{
+  const f=fixture();
+  const receipt=await stageSelectedT3ActivityReview(f.options);
+  const stored=f.saved.get(receipt.object_id);
+  stored.data.export_allowed=true;
+  await assert.rejects(recoverSelectedT3ActivityReview(f.options),
+    {code:'T3_ACTIVITY_RECOVERY_DATA_INVALID'});
+  assert.equal(f.state.writeCalls,1);
+  stored.data.export_allowed=false;
+  f.state.deriveRevoked=true;
+  await assert.rejects(recoverSelectedT3ActivityReview(f.options),
+    {code:'T3_ACCESS_NOT_PERMITTED'});
+  assert.equal(f.state.writeCalls,1);
+  assert.equal(f.listeners[0].size,0);assert.equal(f.listeners[1].size,0);
+});
+
+test('recovery works with original signed target Workspace, no second selection',async()=>{
+  const f=fixture();
+  const receipt=await stageSelectedT3ActivityReview(f.options);
+  const result=await recoverSelectedT3ActivityReview({
+    sourceContext:f.options.sourceContext,
+    sourceSignedAccess:f.options.sourceSignedAccess,
+    targetWorkspaceId:R,targetKernel:f.options.sourceContext.kernel,
+    targetSignedAccess:f.options.targetSignedAccess,
+    createSubjectKernelBinding:core.createSubjectKernelBinding,
+  });
+  assert.equal(result.readback,true);
+  assert.equal(f.saved.has(receipt.object_id),true);
+  assert.equal(f.state.writeCalls,1);
 });
