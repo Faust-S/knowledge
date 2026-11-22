@@ -1,7 +1,7 @@
 # Public knowledge: NEW independent native Windows UIA witness for installed
 # private Admin Center first-use. Only UI labels and PASS codes leave runner.
 # No browser automation, no private source/logs, no imitation signed owner.
-param([Parameter(Mandatory=$true)][string]$InstallRoot)
+param([Parameter(Mandatory=$true)][string]$InstallRoot,[switch]$RequireD2Read)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName UIAutomationClient
@@ -430,7 +430,56 @@ try{
     DiagnoseSignedOwner
   }
   Check $durable 'G4_INSTALLED_FIRST_USE_COLD_OWNER_NOT_RESTORED'
+
   Write-Host 'G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS'
+  if($RequireD2Read){
+    # Only the installed original DPAPI/Ed25519 owner and original T2 Host
+    # may satisfy these UIA observations. No direct native command dispatch,
+    # mock browser state, or shadow read-only Store can supply the receipt.
+    $script:phase='D2_NATIVE_OPEN_ORIGINAL_KERNEL'
+    ClickButton 'Открыть Workspace T3'
+    Check (WaitForText 'К приёмке' 90) 'D2_INSTALLED_NATIVE_SIGNED_WORKSPACE_NOT_VISIBLE'
+    $script:phase='D2_NATIVE_HIDE_SAME_KERNEL'
+    ClickButton 'К приёмке'
+    Check (WaitForText 'Workspace T3' 60) 'D2_INSTALLED_NATIVE_SIGNED_WORKSPACE_NOT_HIDDEN'
+    $script:phase='D2_NATIVE_REVIEW_TO_OVERVIEW'
+    ClickButton 'Обзор'
+    Check (WaitForText 'Что нужно найти или решить?' 80) 'D2_INSTALLED_NATIVE_OVERVIEW_NOT_OPEN'
+    $script:phase='D2_NATIVE_MANAGER_OWNER_REREAD'
+    ClickButton 'Обновить подписанные сведения T3'
+    Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_NATIVE_SIGNED_CONTEXT_NOT_READ'
+    $script:phase='D2_NATIVE_READ_ORIGINAL_KERNEL'
+    ClickButton 'Перечитать Object/Event через T3 DATA'
+    Check (WaitForText 'Оригинальный T2 Kernel' 130) 'D2_INSTALLED_NATIVE_SIGNED_DATA_READ_FAILED'
+    Check (HasText 'Это метаданные исходных записей, не доказательство выполнения хозяйственных действий.') 'D2_INSTALLED_NATIVE_EVIDENCE_SCOPE_MISSING'
+    Write-Host 'D2_INSTALLED_ORIGINAL_KERNEL_DATA_READ_UI_PASS'
+    $script:phase='D2_NATIVE_SAME_ORGANIZATION_CONTEXT'
+    ClickButton 'Контекст организации'
+    Check (WaitForText 'Поиск по доступному контексту' 75) 'D2_INSTALLED_NATIVE_CORPORATE_CONTEXT_NOT_OPEN'
+    ClickButton 'Обновить подписанные сведения T3'
+    Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_NATIVE_CONTEXT_SIGNED_OWNER_MISSING'
+    ClickButton 'Перечитать Object/Event через T3 DATA'
+    Check (WaitForText 'Оригинальный T2 Kernel' 130) 'D2_INSTALLED_NATIVE_CONTEXT_DATA_READ_FAILED'
+    Write-Host 'D2_INSTALLED_ORIGINAL_KERNEL_TWO_MANAGER_PAGES_UI_PASS'
+    # One more true Windows cold close/restart and separate source read.
+    # No persisted React summary can count as a reopened Kernel authority.
+    $script:phase='D2_NATIVE_INDEPENDENT_COLD_RESTART'
+    CloseCenter
+    & (Join-Path $PSScriptRoot 'g4-installed-original-owner-cold-state.ps1') -InstallRoot $installed
+    StartCenter
+    Check (WaitForText 'G4WindowsOrganization' 100) 'D2_INSTALLED_COLD_ORGANIZATION_LOST'
+    ClickButton 'Результаты'
+    Check (WaitForText 'Подписанный T3 D3 получатель доступен' 120) 'D2_INSTALLED_COLD_OWNER_NOT_RESTORED'
+    ClickButton 'Открыть Workspace T3'
+    Check (WaitForText 'К приёмке' 90) 'D2_INSTALLED_COLD_WORKSPACE_NOT_OPEN'
+    ClickButton 'К приёмке'
+    ClickButton 'Обзор'
+    ClickButton 'Обновить подписанные сведения T3'
+    Check (WaitForText 'Task в оригинальном T3:' 120) 'D2_INSTALLED_COLD_CONTEXT_NOT_READ'
+    ClickButton 'Перечитать Object/Event через T3 DATA'
+    Check (WaitForText 'Оригинальный T2 Kernel' 130) 'D2_INSTALLED_COLD_ORIGINAL_KERNEL_DATA_READ_FAILED'
+    Write-Host 'D2_INSTALLED_ORIGINAL_KERNEL_TWO_COLD_READS_PASS'
+  }
 }finally{
   if($global:appProcess){
     try{CloseCenter -strict $false}catch{
