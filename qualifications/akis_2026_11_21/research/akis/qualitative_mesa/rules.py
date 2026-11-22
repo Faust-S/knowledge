@@ -252,7 +252,7 @@ class QualitativeAKIS:
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
              "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
-             "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until"}, "EVENT")
+             "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until", "entry_change_id", "entry_assessment_source_ref"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -589,6 +589,8 @@ class QualitativeAKIS:
                 report["interest_pilot_work"] = ev.get("pilot_work")
                 report["interest_pilot_result_ref"] = ev.get("pilot_result_ref")
                 report["interest_pilot_decision_at"] = ev.get("pilot_decision_at")
+                report["interest_entry_change_id"] = ev.get("entry_change_id")
+                report["interest_entry_assessment_source_ref"] = ev.get("entry_assessment_source_ref")
                 report["interest_valid_until"] = ev.get("interest_valid_until")
                 report["interest_remains_individual_unverified_claim"] = True
             report["interest_source_revision"] = ev.get("source_revision")
