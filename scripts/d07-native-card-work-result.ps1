@@ -51,6 +51,29 @@ function Await([string]$name,$type,[string]$code){
  }
  throw $code
 }
+# A submitted/accepted Work has intentionally non-editable evidence fields.
+# Read them without requiring IsEnabled; actions and mutations continue to
+# use Locate/Await so disabled buttons can never be clicked.
+function LocateForRead([string]$name,$type){
+ $cond=[System.Windows.Automation.PropertyCondition]::new(
+  [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+ if($type){$cond=[System.Windows.Automation.AndCondition]::new($cond,
+  [System.Windows.Automation.PropertyCondition]::new(
+   [System.Windows.Automation.AutomationElement]::ControlTypeProperty,$type))}
+ foreach($root in @(Roots)){
+  $x=$root.FindFirst($scope,$cond)
+  if($x){return $x}
+ }
+ return $null
+}
+function AwaitForRead([string]$name,$type,[string]$code){
+ for($i=0;$i -lt 110;$i++){
+  $x=LocateForRead $name $type
+  if($x){return $x}
+  Start-Sleep -Milliseconds 350
+ }
+ throw $code
+}
 function Click([string]$label){
  $x=Await $label ([System.Windows.Automation.ControlType]::Button) "D07_WORK_RESULT_ACTION_NOT_FOUND"
  try{
@@ -68,7 +91,7 @@ function OpenWork([string]$title,[string]$status){
  $x=Await $name $null "D07_WORK_RESULT_NAMED_SUMMARY_NOT_FOUND"
  # A previously expanded <details> can be restored by Edge after reload.
  # Never toggle it closed while trying to reveal the Result editor.
- if(Locate "Результат работы 1" ([System.Windows.Automation.ControlType]::Edit)){return}
+ if(LocateForRead "Результат работы 1" ([System.Windows.Automation.ControlType]::Edit)){return}
  try{
   $p=[System.Windows.Automation.ExpandCollapsePattern]$x.GetCurrentPattern(
    [System.Windows.Automation.ExpandCollapsePattern]::Pattern)
@@ -85,7 +108,7 @@ function OpenWork([string]$title,[string]$status){
    [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
   }
  }
- $null=Await "Результат работы 1" ([System.Windows.Automation.ControlType]::Edit) "D07_WORK_RESULT_EDITOR_NOT_EXPANDED"
+ $null=AwaitForRead "Результат работы 1" ([System.Windows.Automation.ControlType]::Edit) "D07_WORK_RESULT_EDITOR_NOT_EXPANDED"
 }
 function Edit([string]$label,[string]$text){
  $field=Await $label ([System.Windows.Automation.ControlType]::Edit) "D07_WORK_RESULT_INPUT_NOT_FOUND"
@@ -234,7 +257,7 @@ try{
  SaveRevision 4
  ColdReopen 4 $titles[0] "Отмечена принятой"
  OpenWork $titles[0] "Отмечена принятой"
- $note=Await "Проверка результата работы 1" ([System.Windows.Automation.ControlType]::Edit) "D07_WORK_RESULT_ACCEPTANCE_EVIDENCE_LOST"
+ $note=AwaitForRead "Проверка результата работы 1" ([System.Windows.Automation.ControlType]::Edit) "D07_WORK_RESULT_ACCEPTANCE_EVIDENCE_LOST"
  $value=[System.Windows.Automation.ValuePattern]$note.GetCurrentPattern(
   [System.Windows.Automation.ValuePattern]::Pattern)
  if(!([string]$value.Current.Value).StartsWith("ТЕСТ: повторно проверен")){
