@@ -28,6 +28,8 @@ export interface KernelFacadeInput {
     ((operation: string) => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
   /** The original Host lifecycle, not a second authorization registry. */
   isHostActive?: () => boolean;
+  /** Trusted-only, finite read stages for installed original D2 diagnostics. */
+  onReadStage?: (stage: string) => void;
 }
 
 export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
@@ -126,6 +128,7 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     if (!bound) {
       bound = createSubjectKernelBinding({
         kernel: inherited as unknown as KernelFacade, access,
+        onReadStage: input.onReadStage ?? null,
       });
       instances.set(access, bound);
     }
