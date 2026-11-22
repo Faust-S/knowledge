@@ -236,3 +236,41 @@ test('Activity never advertises a stage command without the trusted owner',async
   assert.deepEqual(await c.stageSelected(),{status:'UNAVAILABLE'});
   c.dispose();
 });
+
+test('lost stage ACK never causes an automatic second original Kernel write',async()=>{
+  const h=makeHost(),states=[];let writes=0;
+  h.host.stageSelected=async()=>{
+    writes++;
+    throw Error('original signed Host lost ACK after attempted Kernel commit');
+  };
+  const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
+  await c.readSelected();
+  assert.deepEqual(await c.stageSelected(),{status:'HOLD'});
+  assert.equal(states.at(-1).code,'T3_REVIEW_UNAVAILABLE');
+  // A new read is permitted, but never licenses a second effect on this port.
+  await c.readSelected();
+  assert.deepEqual(await c.stageSelected(),{status:'UNAVAILABLE'});
+  c.reset();await c.readSelected();
+  assert.deepEqual(await c.stageSelected(),{status:'UNAVAILABLE'});
+  assert.equal(writes,1);
+  assert.equal(JSON.stringify(states).includes('original signed Host lost ACK'),false);
+  c.dispose();
+});
+test('owner invalidation during stage forbids a second dispatch even after re-read',async()=>{
+  const h=makeHost(),states=[];let writes=0,release;
+  h.host.stageSelected=()=>{writes++;return new Promise(resolve=>{
+    release=()=>resolve({status:'OWNER_REVIEW_DRAFT',readback:true,export_allowed:false});
+  });};
+  const c=createT3ReviewController({host:h.host,onUpdate:s=>states.push(s)});
+  await c.readSelected();
+  const pending=c.stageSelected();
+  h.grantChanged();
+  assert.deepEqual(await c.stageSelected(),{status:'UNAVAILABLE'});
+  release();
+  assert.deepEqual(await pending,{status:'INVALIDATED'});
+  await c.readSelected();
+  assert.deepEqual(await c.stageSelected(),{status:'UNAVAILABLE'});
+  assert.equal(writes,1);
+  assert.equal(states.at(-1).status,'REVIEW');
+  c.dispose();
+});
