@@ -25,6 +25,8 @@ it("a ready signed Workspace is visible only after exact authorized Kernel read"
     <p data-testid="selected-owner-content">Организация A</p>
   </SignedSelectedWorkspaceGate>);
   await screen.findByTestId("selected-owner-content");
+  expect(screen.getByTestId("t3-d1-selected-workspace-ready").textContent)
+    .toContain("подтверждена в исходном Kernel");
   expect(owner.listWorkspaces).toHaveBeenCalledTimes(1);
   expect(owner.listWorkspaces).toHaveBeenCalledWith({ include_deleted:false });
   expect(owner.createWorkspace).not.toHaveBeenCalled();
@@ -55,10 +57,12 @@ it("installed Admin inspects only the original Control-selected Workspace, not l
   </SignedSelectedWorkspaceGate>);
   await screen.findByTestId("t3-d1-selected-workspace-message");
   expect(screen.queryByTestId("signed-admin-original-ready")).toBeNull();
+  expect(screen.queryByTestId("t3-d1-selected-workspace-ready")).toBeNull();
   expect(listWorkspaces).not.toHaveBeenCalled();
   expect(getWorkspace).toHaveBeenCalledWith("ws:admin-original");
   fireEvent.click(screen.getByTestId("t3-d1-create-selected-workspace"));
   await screen.findByTestId("signed-admin-original-ready");
+  expect(screen.getByTestId("t3-d1-selected-workspace-ready")).toBeTruthy();
   expect(createWorkspace).toHaveBeenCalledTimes(1);
   expect(createWorkspace).toHaveBeenCalledWith({
     workspace_id:"ws:admin-original",profile:"generic",
