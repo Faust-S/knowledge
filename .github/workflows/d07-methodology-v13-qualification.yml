@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 40f82dc8b5f69e93802341604db1b1a4c493ca68
+          ref: 791e8aec186923808deccdd1e96447cd75742527
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -26,14 +26,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 262b8254dde9879ecf649fa0327c0b12d381931f
+          ref: 63b72eee1f679d1a5da22988897a7667afbd2c18
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify pinned revision and domain/site parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "40f82dc8b5f69e93802341604db1b1a4c493ca68"
-          test "$(git -C site rev-parse HEAD)" = "262b8254dde9879ecf649fa0327c0b12d381931f"
+          test "$(git -C subject rev-parse HEAD)" = "791e8aec186923808deccdd1e96447cd75742527"
+          test "$(git -C site rev-parse HEAD)" = "63b72eee1f679d1a5da22988897a7667afbd2c18"
           for file in service-subject-protocols.ts service-subject-it-router.ts service-subject-it-printer.ts service-subject-it-batch-a.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-professional-facet-coverage.ts service-original-corroboration.ts; do
             cmp "subject/src/domain/$file" "site/src/domain/$file"
           done
