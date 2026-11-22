@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/d07-native-card-t2-qualification.yml
       - scripts/d07-native-card-t2.ps1
+      - scripts/d07-native-card-iwxa-import.ps1
   workflow_dispatch:
 permissions:
   contents: read
@@ -83,6 +84,12 @@ jobs:
           if(-not $result.Contains('D07_WORK_RESULT_COLD_ID_MATCH=') -or
              -not $result.Contains('D07_WORK_RESULT_COLD_READBACK_ID_REVISION_OR_WORKS_CHANGED')){
             throw 'D07_NATIVE_WORK_RESULT_COLD_WITNESS_MISSING'
+          }
+          $importChooser=Get-Content 'scripts/d07-native-card-iwxa-import.ps1' -Raw
+          if(!$importChooser.Contains('D07_IMPORT_NATIVE_OS_FILE_DIALOG=PASS') -or
+             !$importChooser.Contains('AwaitNativeOpenFileDialog 36') -or
+             !$importChooser.Contains('D07_IMPORT_NATIVE_OPEN_FILE_DIALOG_MISSING')){
+            throw 'D07_IMPORT_NATIVE_DIALOG_CONFIRMATION_GUARD_MISSING'
           }
           if(-not $script.Contains('Текущая редакция открытого заказа: ') -or
              -not $result.Contains('Текущая редакция открытого заказа: ')){
