@@ -137,7 +137,9 @@ try{
  }
  if(!$startHref){throw "D07_NATIVE_CARD_SEED_NOT_EXTRACTED"}
  Write-Output "D07_NATIVE_CARD_FIVE_EDGE_PAGES=PASS"
- $browser=OpenEdge ($Origin+$startHref)
+ $browser=OpenEdge ($Origin+"/uslugi/remont-dom-mastera/zamena-unitaza/")
+ $null=WaitUi "Замена унитаза" $null 90
+ ClickUi "Начать заказ в Workspace" ([System.Windows.Automation.ControlType]::Hyperlink)
  $null=WaitUi "Создать рабочую область" ([System.Windows.Automation.ControlType]::Button) 110
  Write-Output "D07_NATIVE_CARD_TO_T2_HOST=PASS"
  ClickUi "Создать рабочую область" ([System.Windows.Automation.ControlType]::Button)
