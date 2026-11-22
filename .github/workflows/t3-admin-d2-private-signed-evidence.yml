@@ -120,7 +120,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/Center
-          ref: df6365aa6f83f60b7fa73224316d81bcbebbd59f
+          ref: cb19dae3b13190a2a97faab2751c661a038b3ec0
           persist-credentials: false
           path: .private/center
       - name: Stage original Atlas owner
@@ -151,7 +151,7 @@ jobs:
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
           if($t3 -cne 'b57907c2b0563118d45e95e7125201b283cd2baa' -or
-             $center -cne 'df6365aa6f83f60b7fa73224316d81bcbebbd59f'){
+             $center -cne 'cb19dae3b13190a2a97faab2751c661a038b3ec0'){
             throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
           }
           Add-Content -LiteralPath '.git/info/exclude' -Value '/.private/'
@@ -239,7 +239,7 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
-          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'df6365aa6f83f60b7fa73224316d81bcbebbd59f' -ExpectedT3Sha 'b57907c2b0563118d45e95e7125201b283cd2baa'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'cb19dae3b13190a2a97faab2751c661a038b3ec0' -ExpectedT3Sha 'b57907c2b0563118d45e95e7125201b283cd2baa'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
       - name: Native Windows original signed D2 DATA and two independent cold UIA reads
