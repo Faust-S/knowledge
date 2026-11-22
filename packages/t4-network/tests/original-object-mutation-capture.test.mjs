@@ -8,6 +8,8 @@ import {reconcileT4OriginalMutationIntent}
 import {createT4OriginalHostCaptureAdapter}
   from '../src/network/original-host-capture-adapter.mjs';
 import {packageSha256} from '../src/network/webdav-package-transfer.mjs';
+import {publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork}
+  from '../src/network/original-host-outbox-delivery.mjs';
 
 const ws='workspace:original',objectId='object:one',owner='original:t3:writer';
 function originalFixture(){
@@ -397,4 +399,69 @@ test('original T3 capture reference is single-use and cannot silently overwrite 
  assert.equal(f.writes.length,1);
  assert.equal(f.outbox.size,1);
  assert.equal(f.read().revision,2);
+});
+
+test('original Host publishes older immutable Object revision after new source events, preserving prefix continuity',async()=>{
+ const f=originalFixture(),first=await capture(f,1);
+ await capture(f,2,{sourceCursor:first.nextCursor});
+ const files=new Map(),t={
+   putSnapshot:async({key,bytes,expectedSha256,createOnly})=>{
+     assert.equal(createOnly,true);
+     assert.equal(packageSha256(bytes),expectedSha256);
+     files.set(key,Buffer.from(bytes));
+     return{state:'PUBLISHED_AND_READ_BACK',key,sha256:expectedSha256};
+   },
+ };
+ const args={...f.ports,kind:'OBJECT_PUT',captureRef:'capture:1',
+   workspaceId:ws,subjectId:objectId,originalWriteOwnerRef:owner,
+   transport:t,authorizeNetworkPublish:async()=>true};
+ const delivered=await publishT4OriginalHostOutbox(args);
+ assert.equal(delivered.kind,'OBJECT_PUT');
+ assert.equal(delivered.sourceCursorAdvanced,false);
+ assert.equal(delivered.originalRecipientApplied,false);
+ assert.deepEqual(files.get(delivered.key),first.prepared.bytes);
+ assert.equal(JSON.parse(files.get(delivered.key).toString('utf8')).data.title,'v2');
+ assert.equal(f.read().data.title,'v3');
+ assert.equal(f.outbox.get('capture:1').networkPublished,false);
+});
+test('original Object outbox is not published if its original event was rewritten',async()=>{
+ const f=originalFixture(),first=await capture(f,1);
+ f.events[1].payload.next=999;
+ const t={putSnapshot:async()=>{throw Error('must not publish');}};
+ await assert.rejects(publishT4OriginalHostOutbox({
+   ...f.ports,kind:'OBJECT_PUT',captureRef:'capture:1',workspaceId:ws,
+   subjectId:objectId,originalWriteOwnerRef:owner,
+   transport:t,authorizeNetworkPublish:async()=>true,
+ }),err('OUTBOX_ORIGINAL_EVENT_HISTORY_DIVERGED'));
+ assert.equal(first.prepared.delta.data.title,'v2');
+});
+test('original Object remote outcome inspection preserves source and recipient cursors',async()=>{
+ const f=originalFixture(),first=await capture(f,1);
+ let put=0,inspect=0;
+ const t={
+   putSnapshot:async({key,bytes,expectedSha256})=>{
+     put++;
+     assert.equal(packageSha256(bytes),expectedSha256);
+     assert.equal(key,expectedSha256+'.t4d');
+     throw Object.assign(new Error('unknown response'),{code:'OUTCOME_UNKNOWN'});
+   },
+   inspectOutcome:async({key,expectedSha256})=>{
+     inspect++;
+     return{state:'EXPECTED_BYTES_PRESENT',key,sha256:expectedSha256};
+   }
+ };
+ const params={...f.ports,kind:'OBJECT_PUT',captureRef:'capture:1',
+   workspaceId:ws,subjectId:objectId,originalWriteOwnerRef:owner,
+   authorizeNetworkPublish:async()=>true,transport:t};
+ await assert.rejects(publishT4OriginalHostOutbox(params),
+   err('OUTBOX_REMOTE_OUTCOME_UNKNOWN'));
+ const confirmation=await inspectT4OriginalHostOutboxNetwork(params);
+ assert.equal(confirmation.expectedBytesOnRemoteVerified,true);
+ assert.equal(confirmation.historicalNetworkPutAcknowledged,false);
+ assert.equal(confirmation.originalRecipientApplied,false);
+ assert.equal(confirmation.sourceCursorAdvanced,false);
+ assert.equal(confirmation.recipientCursorAdvanced,false);
+ assert.equal(f.outbox.get('capture:1').sha256,first.prepared.sha256);
+ assert.equal(put,1);
+ assert.equal(inspect,1);
 });
