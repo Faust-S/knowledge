@@ -627,6 +627,90 @@ try {
   assert.equal(reopened.recovered_export_allowed,false);
   assert.equal(reopened.post_recovery_draft_count,1,
     'read-only recovery cannot repeat the original Kernel write');
+  // The original review has now been independently cold-recovered.
+  // Switch the original signed read owner to this test-only D05 Workspace;
+  // signal its original Control epoch. A stale signed owner is not reused.
+  selectedReadAuthority=d05ReadAuthority.access;
+  contextEpoch+=1;
+  for(const notify of [...listen])notify();
+  const d05Cold=await browser.page.evaluate(async args=>{
+    const session=await globalThis.IWXA.connect({service_id:args.service});
+    const before=await session.t1.listObjects({
+      workspace_id:args.workspace,include_deleted:true,
+    });
+    const history=await session.t1.listEventsSince(args.workspace);
+    const savedOrder=await session.t1.getObject(args.workspace,'d05:case001:order');
+    const reported=history.filter(row=>[
+      'cehovod.result.saved','cehovod.order.transitioned',
+      'cehovod.operation.transitioned',
+    ].includes(row.event_type));
+    if(before.length!==3||reported.length!==4||
+      savedOrder?.object?.revision!==2||
+      savedOrder?.object?.data?.value?.quantity!==120)
+      throw Error('D05_WITNESS_ORIGINAL_T2_COLD_READBACK_MISMATCH');
+    const {readActivityFromWorkspaceContext}=
+      await import('/_t3/index.mjs');
+    const {useOriginalT2ActivityKernelFacade}=
+      await import('/_activity/t3-original-t2-owner-host.mjs');
+    const {createTrustedCehovodD05ReviewPort}=
+      await import('/_activity/d05-t3-evidence-binding.mjs');
+    const {createT3ReviewController}=
+      await import('/_activity/t3-review-controller.mjs');
+    const {createControlLoopbackOwner}=
+      await import('/_t3/control-loopback-owner.mjs');
+    const control=createControlLoopbackOwner({
+      origin:location.origin,token:args.token,
+    });
+    const stop=control.subscribeSignedAccessInvalidation(()=>{});
+    let ui=null;
+    try{
+      const signed=await control.signedActivityAccess('activity.read');
+      const selected=Object.freeze({workspace_id:args.workspace});
+      const port=createTrustedCehovodD05ReviewPort({
+        context:{
+          kernel:useOriginalT2ActivityKernelFacade(session),
+          currentWorkspace:{
+            get:()=>selected,subscribe:()=>()=>{},
+          },
+        },
+        signedAccess:signed,readActivityFromWorkspaceContext,
+        subscribeOwnerInvalidation:fn=>
+          control.subscribeSignedAccessInvalidation(fn),
+      });
+      const states=[];
+      ui=createT3ReviewController({host:port,onUpdate:s=>states.push(s)});
+      const outcome=await ui.readSelected();
+      const review=states.at(-1)?.review;
+      if(outcome.status!=='REVIEW'||review?.status!=='HOLD'||
+        !review.reason_codes.includes('T3_D2_UNVERIFIED_EVENT_STEP')||
+        !review.reason_codes.includes('T3_D2_RARE_OBJECT_ROUTE')||
+        review.structural_candidate!==null||review.export_allowed!==false||
+        review.anonymity!=='NOT_ESTABLISHED'||review.iwxa_package!==null)
+        throw Error('D05_WITNESS_SYSTEM_REPORT_FALSELY_OBSERVED');
+      const visible=JSON.stringify(states);
+      for(const forbidden of ['d05:case001','120','cehovod.operation.transitioned',
+        args.workspace,'MODEL_ONLY','INTERNAL_MODEL_ORDER'])
+        if(visible.includes(forbidden))
+          throw Error('D05_WITNESS_RENDERER_SOURCE_LEAK');
+      return {read:outcome.status,status:review.status,
+        reason_codes:review.reason_codes,objects:before.length,
+        reported_events:reported.length,order_revision:savedOrder.object.revision,
+        export_allowed:review.export_allowed};
+    }finally{ui?.dispose();stop();}
+  },{service:d05Service,workspace:d05Workspace,token});
+  assert.equal(d05Cold.read,'REVIEW');
+  assert.equal(d05Cold.status,'HOLD');
+  assert.equal(d05Cold.objects,3);
+  assert.equal(d05Cold.reported_events,4);
+  assert.equal(d05Cold.order_revision,2);
+  assert.equal(d05Cold.export_allowed,false);
+  assert.ok(d05ReadAuthority.proofCount>0);
+  console.log('ACTIVITY_D05_ORIGINAL_T2_SIGNED_REPORTED_COLD_HOLD_PASS',
+    JSON.stringify({realOriginalT2Kernel:true,testOnlyD05Service:true,
+      signedOriginalT3Read:true,coldReadback:true,
+      savedResultTypes:3,savedEvents:4,provenBusinessExecution:false,
+      review:'HOLD',externalTransfer:false}));
+
   console.log('ACTIVITY_ORIGINAL_T2_SIGNED_COLD_RECOVERY_NO_RETRY_PASS');
   console.log('ACTIVITY_REAL_SIGNED_T3_READ_DERIVE_ORIGINAL_T2_COLD_PASS',
     JSON.stringify({signed:'ED25519_PERSONAL',
