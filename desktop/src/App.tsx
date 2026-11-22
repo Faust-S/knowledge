@@ -1,4 +1,4 @@
-import {useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {ActivityWorkspace} from './ActivityWorkspace';
 import {createT3ReviewController} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import {buildT3TransitionMap} from '../../modules/activity-base-anonymizer/t3-transition-map.mjs';
@@ -322,6 +322,16 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
       if (token === sourceEpoch.current) setBusy(false);
     }
   }
+
+  // First-run content is produced by the ACTUAL local A1 + A2 modules.
+  // It is clearly labelled synthetic and never reads the user's Workspace.
+  // A signed original Host always keeps explicit source selection instead.
+  const initialSyntheticLoaded = useRef(false);
+  useEffect(() => {
+    if (initialSyntheticLoaded.current || t3Host) return;
+    initialSyntheticLoaded.current = true;
+    void loadExample();
+  }, [t3Host]);
 
   async function loadOcelExample() {
     const token = beginSource();
