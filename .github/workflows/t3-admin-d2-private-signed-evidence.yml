@@ -10,7 +10,7 @@ permissions:
   contents: read
 concurrency:
   group: t3-admin-d2-proof-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   signed-data-proof:
     runs-on: windows-2022
@@ -236,3 +236,15 @@ jobs:
           & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'df6365aa6f83f60b7fa73224316d81bcbebbd59f' -ExpectedT3Sha 'c51d24e6b335576cb71102a2e619597ab00a177b'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
+      - name: Native Windows original signed D2 DATA and two independent cold UIA reads
+        shell: pwsh
+        timeout-minutes: 17
+        run: |
+          $ErrorActionPreference='Stop'
+          if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
+            throw 'D2_INSTALLED_ORIGINAL_SETUP_ROOT_NOT_FOUND'
+          }
+          & ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 -InstallRoot $env:G4_INSTALLED_CENTER_ROOT -RequireD2Read
+          if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_UIA_E2E_FAILED'}
+          Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_DATA_TWO_COLD_UIA_PASS'
+
