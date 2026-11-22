@@ -140,6 +140,7 @@ WORK_ACTION_OPERATIONS = {
     'handoff_dispatch': frozenset({'SHARE'}),
     'handoff_receive': frozenset({'ACCEPT'}),
     'handoff_quality': frozenset({'ACCEPT'}),
+    'assess_result_quality': frozenset({'ACCEPT'}),
     'interest_update': frozenset({'ACCEPT'}),
 }
 
