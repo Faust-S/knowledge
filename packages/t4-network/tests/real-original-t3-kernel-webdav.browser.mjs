@@ -28,6 +28,10 @@ import {prepareT4OriginalRelationPutDelta,publishT4OriginalRelationPutDelta,
   fetchT4OriginalRelationPutDelta,applyT4OriginalRelationPutDelta,
   advanceT4OriginalRelationCursor}
   from '../src/network/original-relation-delta.mjs';
+import {captureT4OriginalDeletionAtMutation,publishT4OriginalDeleteDelta,
+  fetchT4OriginalDeleteDelta,applyT4OriginalDeleteDelta,
+  advanceT4OriginalDeleteCursor}
+  from '../src/network/original-deletion-delta.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
   from '../src/network/network-topology.mjs';
 import {prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
@@ -1022,6 +1026,265 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalT3RelationReadback:true,originalEventWitnessVerified:true,
           networkDeltaKey:relationSent.key,
           originalHostCursorVerifiedAfterReceipt:true}));
+
+      // Original T3 must preserve the deletion pre-image BEFORE mutating its own
+      // relation/asset. The source capture is stored in a separate original T3
+      // technical Workspace, not a parallel T4 Store.
+      const sourceCaptureWorkspace='t4:original:predelete:'+randomUUID();
+      await activeSourcePage.evaluate(async({SERVICE,sourceCaptureWorkspace})=>{
+        const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+        await kernel.t1.createWorkspace({workspace_id:sourceCaptureWorkspace,
+          profile:'generic'});
+      },{SERVICE,sourceCaptureWorkspace});
+      const sourceKernel={
+        hasOperation:op=>actual.grants.includes(op),
+        getObject:(w,id)=>activeSourcePage.evaluate(async({SERVICE,w,id})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.getObject(w,id);
+        },{SERVICE,w,id}),
+        getAsset:async(w,id)=>{
+          const value=await activeSourcePage.evaluate(async({SERVICE,w,id})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            const result=await kernel.t1.getAsset(w,id);
+            return result?{asset:result.asset,bytes:Array.from(result.bytes)}:null;
+          },{SERVICE,w,id});
+          return value?{asset:value.asset,bytes:Uint8Array.from(value.bytes)}:null;
+        },
+        deleteRelation:input=>activeSourcePage.evaluate(async({SERVICE,input})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.deleteRelation(input);
+        },{SERVICE,input}),
+        deleteAsset:input=>activeSourcePage.evaluate(async({SERVICE,input})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.deleteAsset(input);
+        },{SERVICE,input}),
+      };
+      const persistOriginalPreDeleteWitness=async capture=>
+        activeSourcePage.evaluate(async({SERVICE,sourceCaptureWorkspace,capture})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          const saved=await kernel.t1.putObject({
+            workspace_id:sourceCaptureWorkspace,object_id:capture.captureRef,
+            schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+            data:{title:'Original pre-delete capture',
+              preImageDigest:capture.preImageDigest,preImage:capture.preImage,
+              captureRef:capture.captureRef},extensions:{},base_revision:0,
+            event:{event_type:'t4.original.predel.capture',
+              payload:{captureRef:capture.captureRef}},
+          });
+          const checked=await kernel.t1.getObject(
+            sourceCaptureWorkspace,capture.captureRef);
+          return saved.object.revision===checked.object.revision&&
+            checked.object.data.preImageDigest===capture.preImageDigest;
+        },{SERVICE,sourceCaptureWorkspace,capture});
+      const readOriginalPreDeleteWitness=async capture=>
+        activeSourcePage.evaluate(async({SERVICE,sourceCaptureWorkspace,capture})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          const value=await kernel.t1.getObject(
+            sourceCaptureWorkspace,capture.captureRef);
+          return value?.object?.data??null;
+        },{SERVICE,sourceCaptureWorkspace,capture});
+      const readSourceEvents=()=>activeSourcePage.evaluate(async({SERVICE,workspaceId})=>{
+        const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+        return kernel.t1.listEventsSince(workspaceId);
+      },{SERVICE,workspaceId});
+      const sourceDeleteCapture=async({kind,subjectId,objectId,sourceCursor})=>
+        captureT4OriginalDeletionAtMutation({
+          kind,subjectId,objectId,sourceCursor,
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+          sourceIdempotencyKey:'original:source:delete:'+randomUUID(),
+          originalKernel:sourceKernel,getMode:()=> 'T4_NETWORK',
+          authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
+          authorizeOriginalDelete:async ctx=>actual.grants.includes(ctx.operation),
+          persistOriginalPreDeleteWitness,readOriginalPreDeleteWitness,
+          readOriginalEvents:readSourceEvents,
+        });
+      const verifySourceDelete=async(proof,expected)=>{
+        if(proof.sourceEventId!==expected.prepared.delta.sourceEventId||
+          proof.sourceEventDigest!==expected.prepared.delta.sourceEventDigest||
+          proof.preImageDigest!==expected.prepared.delta.preImageDigest||
+          proof.captureRef!==expected.prepared.delta.captureRef)return false;
+        const events=await readSourceEvents();
+        const row=events.find(e=>e.event_id===proof.sourceEventId);
+        if(!row)return false;
+        const confirmed=await readT4OriginalEventWindow({
+          ...originalEventPort,maxEvents:1,readOriginalEvents:async()=>[row],
+        });
+        return confirmed.window.eventRefs[0].eventDigest===proof.sourceEventDigest;
+      };
+      const recipientDeleteKernel={
+        hasOperation:op=>receiving.operations.includes(op),
+        getObject:(w,id)=>recipientPage.evaluate(async({SERVICE,w,id})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.getObject(w,id);
+        },{SERVICE,w,id}),
+        getAsset:async(w,id)=>{
+          const result=await recipientPage.evaluate(async({SERVICE,w,id})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            const asset=await kernel.t1.getAsset(w,id);
+            return asset?{asset:asset.asset,bytes:Array.from(asset.bytes)}:null;
+          },{SERVICE,w,id});
+          return result?{asset:result.asset,bytes:Uint8Array.from(result.bytes)}:null;
+        },
+        deleteRelation:input=>recipientPage.evaluate(async({SERVICE,input})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.deleteRelation(input);
+        },{SERVICE,input}),
+        deleteAsset:input=>recipientPage.evaluate(async({SERVICE,input})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.deleteAsset(input);
+        },{SERVICE,input}),
+      };
+
+      // Original RelationDelete, including the source snapshot in original T3.
+      const deletedRelation=await sourceDeleteCapture({
+        kind:'RELATION_DELETE',subjectId:additionalRelationId,
+        objectId:linkedObjectId,sourceCursor:relationWindow.nextCursor,
+      });
+      assert.equal(deletedRelation.originalPreDeleteCapture.preImage.relationId,
+        additionalRelationId);
+      const relDeleteSent=await deltaRoute('delta.push',
+        ()=>actual.grants.includes('t1.deleteRelation'),
+        ()=>publishT4OriginalDeleteDelta({
+          prepared:deletedRelation.prepared,transport:deltaTransport,
+        }));
+      const relDeleteReceived=await deltaRoute('delta.pull',
+        ()=>receiving.operations.includes('t1.deleteRelation'),
+        ()=>fetchT4OriginalDeleteDelta({
+          transport:deltaTransport,key:relDeleteSent.key,sha256:relDeleteSent.sha256,
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        }));
+      let relationDeleteAckLost=true,relationDeleteFirstReceipt=null;
+      const recipientDeletion={
+        ...recipientDeleteKernel,
+        deleteRelation:async input=>{
+          const saved=await recipientDeleteKernel.deleteRelation(input);
+          if(relationDeleteAckLost){
+            relationDeleteAckLost=false;relationDeleteFirstReceipt=saved;
+            throw Object.assign(new Error('SIMULATED_RELATION_DELETE_ACK_LOST'),
+              {code:'NETWORK_TIMEOUT'});
+          }
+          return saved;
+        },
+      };
+      const relDeleteApply={
+        received:relDeleteReceived,originalKernel:recipientDeletion,
+        authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+        verifyOriginalSourceEvent:proof=>verifySourceDelete(proof,deletedRelation),
+        getMode:()=> 'T4_NETWORK',
+      };
+      await assert.rejects(applyT4OriginalDeleteDelta(relDeleteApply),
+        error=>error.code==='DELETE_ORIGINAL_RECIPIENT_OUTCOME_UNKNOWN');
+      const missingRelation=await recipientDeleteKernel.getObject(workspaceId,linkedObjectId);
+      assert.equal(missingRelation.relations.outgoing.some(r=>
+        r.relation_id===additionalRelationId),false);
+      const relDeleteRecovered=await applyT4OriginalDeleteDelta({
+        ...relDeleteApply,
+        verifyOriginalUncertainRetry:async ctx=>{
+          if(!relationDeleteFirstReceipt||
+            ctx.idempotencyKey!=='t4-delete-'+relDeleteReceived.sha256)
+            return false;
+          const events=await recipientPage.evaluate(async({SERVICE,workspaceId})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.listEventsSince(workspaceId);
+          },{SERVICE,workspaceId});
+          return events.some(e=>
+            e.event_id===relationDeleteFirstReceipt.event.event_id);
+        }
+      });
+      assert.equal(relDeleteRecovered.originalReceipt.deduplicated,true);
+      await advanceT4OriginalDeleteCursor({
+        window:deletedRelation.window,nextCursor:deletedRelation.nextCursor,
+        acknowledgement:relDeleteRecovered.acknowledgement,
+        verifyOriginalRecipient:async ctx=>
+          ctx.originalReceiptRef===relDeleteRecovered.originalReceiptRef&&
+          (await recipientDeleteKernel.getObject(workspaceId,linkedObjectId))
+            .relations.outgoing.every(r=>r.relation_id!==additionalRelationId),
+      });
+      const afterRelationDelete=await verify(recipientPage);
+      assert.equal(afterRelationDelete.relations,initial.relations);
+      console.log('T4_REAL_ORIGINAL_T3_RELATION_DELETE_DELTA_ACK_RECOVERY_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          originalT3CapturedPreDeleteRelation:true,
+          recipientOriginalRelationRemoved:true,
+          originalKernelDeduplicatedLostACK:true,
+          originalCursorAfterDeleteVerified:true,
+          relationInventoryAfterDelete:afterRelationDelete.relations,
+        }));
+
+      // Original AssetDelete, preserving source byte digest and revision before
+      // deletion, then requiring original T3 deleteAsset and exact readback.
+      const deletedAsset=await sourceDeleteCapture({
+        kind:'ASSET_DELETE',subjectId:assetId,
+        sourceCursor:deletedRelation.nextCursor,
+      });
+      assert.equal(deletedAsset.originalPreDeleteCapture.preImage.revision,2);
+      const assetDeleteSent=await deltaRoute('delta.push',
+        ()=>actual.grants.includes('t1.deleteAsset'),
+        ()=>publishT4OriginalDeleteDelta({
+          prepared:deletedAsset.prepared,transport:deltaTransport,
+        }));
+      const assetDeleteReceived=await deltaRoute('delta.pull',
+        ()=>receiving.operations.includes('t1.deleteAsset'),
+        ()=>fetchT4OriginalDeleteDelta({
+          transport:deltaTransport,key:assetDeleteSent.key,sha256:assetDeleteSent.sha256,
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        }));
+      let assetDeleteAckLost=true,assetDeleteFirstReceipt=null;
+      const recipientAssetDeletion={
+        ...recipientDeleteKernel,
+        deleteAsset:async input=>{
+          const saved=await recipientDeleteKernel.deleteAsset(input);
+          if(assetDeleteAckLost){
+            assetDeleteAckLost=false;assetDeleteFirstReceipt=saved;
+            throw Object.assign(new Error('SIMULATED_ASSET_DELETE_ACK_LOST'),
+              {code:'NETWORK_TIMEOUT'});
+          }
+          return saved;
+        },
+      };
+      const assetDeleteApply={
+        received:assetDeleteReceived,originalKernel:recipientAssetDeletion,
+        authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+        verifyOriginalSourceEvent:proof=>verifySourceDelete(proof,deletedAsset),
+        getMode:()=> 'T4_NETWORK',
+      };
+      await assert.rejects(applyT4OriginalDeleteDelta(assetDeleteApply),
+        error=>error.code==='DELETE_ORIGINAL_RECIPIENT_OUTCOME_UNKNOWN');
+      assert.equal(await recipientDeleteKernel.getAsset(workspaceId,assetId),null);
+      const assetDeleteRecovered=await applyT4OriginalDeleteDelta({
+        ...assetDeleteApply,
+        verifyOriginalUncertainRetry:async ctx=>{
+          if(!assetDeleteFirstReceipt||
+            ctx.idempotencyKey!=='t4-delete-'+assetDeleteReceived.sha256)
+            return false;
+          const events=await recipientPage.evaluate(async({SERVICE,workspaceId})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.listEventsSince(workspaceId);
+          },{SERVICE,workspaceId});
+          return events.some(e=>e.event_id===assetDeleteFirstReceipt.event.event_id);
+        }
+      });
+      assert.equal(assetDeleteRecovered.originalReceipt.deduplicated,true);
+      await advanceT4OriginalDeleteCursor({
+        window:deletedAsset.window,nextCursor:deletedAsset.nextCursor,
+        acknowledgement:assetDeleteRecovered.acknowledgement,
+        verifyOriginalRecipient:async ctx=>
+          ctx.originalReceiptRef===assetDeleteRecovered.originalReceiptRef&&
+          (await recipientDeleteKernel.getAsset(workspaceId,assetId))===null,
+      });
+      const afterAssetDelete=await verify(recipientPage);
+      assert.equal(afterAssetDelete.assets,0);
+      assert.equal(afterAssetDelete.assetText,null);
+      console.log('T4_REAL_ORIGINAL_T3_ASSET_DELETE_DELTA_ACK_RECOVERY_PASS',
+        JSON.stringify({originalKernel:ORIGINAL_KERNEL,
+          originalT3PreDeleteAssetRevision:2,
+          originalT3PreDeleteByteDigestCaptured:true,
+          recipientOriginalAssetDeleted:true,
+          originalKernelDeduplicatedLostACK:true,
+          originalCursorAfterDeleteVerified:true,
+          recipientAssetInventory:afterAssetDelete.assets,
+        }));
     }finally{deltaTransport.close();}
     await sourceContext.close();sourceContext=null;
     const updatedAfterDelta=await verify(recipientPage);
