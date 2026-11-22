@@ -39,6 +39,7 @@ from .economic_flow import EconomicInputError, evaluate_economic_claims
 from .competence_reuse import ReuseInputError, evaluate_competence_reuse
 from .competence_transfer import CompetencePermissionInputError, review_permissions
 from .work_counterfactual import WorkCounterfactualInputError, review_work_counterfactuals
+from .competence_measurement import MeasurementProtocolInputError, review_measurement_protocols
 from .cooperation import (
     cooperation_system_view, cooperative_model_readiness,
     cooperative_readiness_evolution, latest_owner_interest_claim, latest_future_participation,
@@ -232,6 +233,9 @@ class OperatorAKISModel(mesa.Model):
             raise InputError("MODEL_HORIZON_MUST_BE_NONNEGATIVE_INTEGER")
         self.competence_reuse_raw = research_input.pop("competence_reuse_evidence", None)
         self.competence_permissions_raw = research_input.pop("competence_reuse_permissions", None)
+        self.competence_measurement_raw = research_input.pop("competence_measurement_protocols", None)
+        if self.competence_measurement_raw is not None and self.competence_reuse_raw is None:
+            raise InputError("MEASUREMENT_PROTOCOL_REQUIRES_ORIGINAL_REUSE_EVIDENCE")
         if self.competence_permissions_raw is not None and self.competence_reuse_raw is None:
             raise InputError("REUSE_PERMISSION_REQUIRES_ORIGINAL_EVIDENCE")
         self.economic_claims = research_input.pop("economic_claims", None)
@@ -955,6 +959,16 @@ class OperatorAKISModel(mesa.Model):
                     }
             except (ReuseInputError, CompetencePermissionInputError) as exc:
                 raise InputError(str(exc)) from exc
+        if self.competence_measurement_raw is not None:
+            try:
+                output["competence_reuse_dynamics"]["declared_measurement_protocols"] = (
+                    review_measurement_protocols(
+                        self.competence_measurement_raw, self.qualitative,
+                        self.competence_reuse_raw, output["competence_reuse_dynamics"],
+                    )
+                )
+            except MeasurementProtocolInputError as exc:
+                raise InputError(str(exc)) from exc
         if self.work_counterfactual_raw is not None:
             try:
                 output["work_counterfactual_dynamics"] = review_work_counterfactuals(
@@ -991,6 +1005,13 @@ class OperatorAKISModel(mesa.Model):
                     "individual_liquidity_and_operator_costs_are_not_imputed": True,
                     "original_cash_and_cost_records_added": 0,
                 }
+                if "declared_measurement_protocols" in reuse:
+                    output["general_akis_model"]["competence_reproduction_feedback"][
+                        "model_protocol_count"
+                    ] = len(reuse["declared_measurement_protocols"]["protocols"])
+                    output["general_akis_model"]["competence_reproduction_feedback"][
+                        "field_verified_measurement"
+                    ] = False
             if "work_counterfactual_dynamics" in output:
                 counterfactual = output["work_counterfactual_dynamics"]
                 output["general_akis_model"]["work_counterfactual_feedback"] = {
