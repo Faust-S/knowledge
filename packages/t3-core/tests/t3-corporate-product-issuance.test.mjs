@@ -142,7 +142,7 @@ test('existing TEST/PERSON entries remain byte-identical; original legacy inspec
  };
  mustDeny(()=>f.issue(),'CORP_ORIGINAL_LEGACY_LEDGER_INSPECTOR_REQUIRED');
  const reviewed=[];
- const originalLegacy=JSON.stringify(legacy);
+ const originalLegacy=digest(legacy);
  const inspector=x=>{
    assert.equal(x.schema,ORIGINAL_PRODUCT_ISSUE_LEDGER_SCHEMA);
    assert.equal(x.revision,7);
@@ -152,7 +152,7 @@ test('existing TEST/PERSON entries remain byte-identical; original legacy inspec
  const issued=f.issue(f.request,{inspectLegacyLedger:inspector});
  assert.equal(issued.outcome,'ISSUED_NEW');
  assert.equal(f.current.value.productLicenseIssueLedger.revision,8);
- assert.equal(JSON.stringify(f.current.value.productLicenseIssueLedger.records['request:person:old']),
+ assert.equal(digest(f.current.value.productLicenseIssueLedger.records['request:person:old']),
    originalLegacy);
  assert.equal(reviewed.length,1);
 });
