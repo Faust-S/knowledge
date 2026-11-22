@@ -1574,6 +1574,227 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           recipientOriginalGraphCommitRevision:7,
           recipientOriginalReceiptVerifiedBeforeCursor:true,
         }));
+
+      // The original T3 Host now captures AssetPut/RelationPut, not only
+      // ObjectPut. Two distinct Asset revisions are stored before networking.
+      const capturedAssetId='t4:source:captured-asset:'+randomUUID();
+      const capturedRelationId='t4:source:captured-relation:'+randomUUID();
+      let subjectSourceRelationAckLost=true,subjectSourcePutRelationCalls=0;
+      const subjectSourceKernel={
+        ...mutationKernel,
+        putAsset:async input=>activeSourcePage.evaluate(async({SERVICE,input})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.putAsset({...input,bytes:Uint8Array.from(input.bytes)});
+        },{SERVICE,input:{...input,bytes:Array.from(input.bytes)}}),
+        putRelation:async input=>{
+          subjectSourcePutRelationCalls++;
+          const receipt=await activeSourcePage.evaluate(async({SERVICE,input})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.putRelation(input);
+          },{SERVICE,input});
+          if(subjectSourceRelationAckLost){
+            subjectSourceRelationAckLost=false;
+            throw Object.assign(new Error('ORIGINAL_T3_RELATION_SOURCE_ACK_LOST'),
+              {code:'NETWORK_TIMEOUT'});
+          }
+          return receipt;
+        },
+      };
+      const subjectHost=createT4OriginalHostCaptureAdapter({
+        originalKernel:subjectSourceKernel,
+        originalWriteOwnerRef:'original:t2:exchange',
+        getMode:()=> 'T4_NETWORK',
+        authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
+        authorizeOriginalWrite:async ctx=>actual.grants.includes(ctx.operation),
+        readOriginalEvents:readSourceEvents,
+        persistOriginalIntent:payload=>persistSourceTechnical('intent',payload),
+        readOriginalIntent:payload=>readSourceTechnical('intent',payload.captureRef),
+        persistOriginalOutbox:payload=>persistSourceTechnical('outbox',payload),
+        readOriginalOutbox:payload=>readSourceTechnical('outbox',payload.captureRef),
+      });
+      const capturedAssetMutations=[];
+      let capturedSourceCursor=recoveredSource.nextCursor;
+      for(const index of [0,1]){
+        const text='Original Host Asset staged before T4 network '+index+' '+randomUUID();
+        const captureRef='t4:host:asset:'+randomUUID();
+        const mutationInput={
+          workspace_id:workspaceId,asset_id:capturedAssetId,
+          object_id:linkedObjectId,mime:'text/plain',base_revision:index,
+          bytes:Buffer.from(text,'utf8'),
+          event:{event_type:'t4.original.host.asset.mutation',
+            payload:{sourceIndex:index}},
+        };
+        const created=await subjectHost.putAsset({
+          mutationInput,sourceCursor:capturedSourceCursor,captureRef,
+        });
+        assert.equal(created.capture.originalT3OutboxVerified,true);
+        assert.equal(created.originalReceipt.asset.revision,index+1);
+        assert.equal(created.capture.prepared.delta.sourceRevision,index+1);
+        assert.equal(created.capture.prepared.delta.assetBytesSha256,
+          packageSha256(mutationInput.bytes));
+        const persisted=await readSourceTechnical('outbox',captureRef);
+        assert.equal(persisted.sha256,created.capture.prepared.sha256);
+        capturedAssetMutations.push({captureRef,text,created});
+        capturedSourceCursor=created.capture.nextCursor;
+      }
+      assert.equal((await subjectSourceKernel.getAsset(workspaceId,capturedAssetId))
+        .asset.revision,2);
+      assert.equal(await recipientDeleteKernel.getAsset(workspaceId,capturedAssetId),null);
+      let missingRelationAckCaptureRef='t4:host:relation:'+randomUUID();
+      await assert.rejects(subjectHost.putRelation({
+        mutationInput:{
+          workspace_id:workspaceId,relation_id:capturedRelationId,
+          from_object_id:linkedObjectId,to_object_id:objectId,
+          kind:'related',event:{
+            event_type:'t4.original.host.relation.mutation',
+            payload:{businessPurpose:'linked dependency'},
+          },
+        },
+        sourceCursor:capturedSourceCursor,captureRef:missingRelationAckCaptureRef,
+      }),err=>err.code==='SUBJECT_CAPTURE_SOURCE_WRITE_OUTCOME_UNKNOWN'&&
+        err.details.automaticRetryAllowed===false);
+      assert.equal(subjectSourcePutRelationCalls,1);
+      assert.equal(await readSourceTechnical('outbox',missingRelationAckCaptureRef),null);
+      assert.equal((await subjectSourceKernel.getObject(workspaceId,linkedObjectId))
+        .relations.outgoing.some(r=>r.relation_id===capturedRelationId),true);
+
+      // The source's network connection is not needed for its original T3
+      // writes, and a process restart cannot destroy the original outbox.
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      for(const item of capturedAssetMutations){
+        const stored=await readSourceTechnical('outbox',item.captureRef);
+        assert.deepEqual(Buffer.from(stored.bytesBase64,'base64'),
+          item.created.capture.prepared.bytes);
+      }
+      const restoredRelation=await subjectHost.reconcileRelationMutation({
+        captureRef:missingRelationAckCaptureRef,
+        workspaceId,relationId:capturedRelationId,
+      });
+      assert.equal(restoredRelation.originalMutationRetried,false);
+      assert.equal(restoredRelation.originalReceipt,null);
+      assert.equal(restoredRelation.originalT3OutboxVerified,true);
+      assert.equal(subjectSourcePutRelationCalls,1);
+      assert.equal(restoredRelation.prepared.delta.relationId,capturedRelationId);
+      const independentAssetRecipient={
+        ...recipientDeleteKernel,
+        putAsset:async input=>recipientPage.evaluate(async({SERVICE,input})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.putAsset({...input,bytes:Uint8Array.from(input.bytes)});
+        },{SERVICE,input:{...input,bytes:Array.from(input.bytes)}}),
+        putRelation:input=>recipientPage.evaluate(async({SERVICE,input})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.putRelation(input);
+        },{SERVICE,input}),
+      };
+      for(const [index,item] of capturedAssetMutations.entries()){
+        const {captureRef,text,created}=item;
+        const stored=await readSourceTechnical('outbox',captureRef);
+        const recoveredBytes=Buffer.from(stored.bytesBase64,'base64');
+        assert.equal(packageSha256(recoveredBytes),stored.sha256);
+        const staged={delta:JSON.parse(recoveredBytes.toString('utf8')),
+          sha256:stored.sha256,key:stored.key};
+        const sent=await deltaRoute('delta.push',
+          ()=>actual.grants.includes('t1.getAsset'),
+          ()=>publishT4OriginalAssetDelta({
+            prepared:staged,transport:deltaTransport,
+          }));
+        const received=await deltaRoute('delta.pull',
+          ()=>receiving.operations.includes('t1.getAsset'),
+          ()=>fetchT4OriginalAssetDelta({
+            transport:deltaTransport,key:sent.key,sha256:sent.sha256,
+            workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+          }));
+        const committed=await applyT4OriginalAssetDelta({
+          received,originalKernel:independentAssetRecipient,
+          authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+          verifyOriginalSourceEvent:async proof=>{
+            const intent=await readSourceTechnical('intent',captureRef);
+            const events=await readSourceEvents();
+            const event=events.find(e=>e.event_id===proof.sourceEventId);
+            return event?.idempotency_key===intent.idempotencyKey&&
+              event.event_type===intent.operation.event.event_type&&
+              proof.sourceEventDigest===created.capture.window.eventRefs[0].eventDigest&&
+              proof.assetBytesSha256===packageSha256(Buffer.from(text,'utf8'))&&
+              proof.sourceRevision===index+1;
+          },
+          getMode:()=> 'T4_NETWORK',
+        });
+        const verified=await advanceT4OriginalAssetCursor({
+          window:created.capture.window,nextCursor:created.capture.nextCursor,
+          acknowledgement:committed.acknowledgement,
+          verifyOriginalRecipient:async ctx=>{
+            const read=await independentAssetRecipient.getAsset(
+              workspaceId,capturedAssetId);
+            return ctx.originalReceiptRef===committed.originalReceiptRef&&
+              read.asset.revision===index+1&&
+              Buffer.from(read.bytes).toString('utf8')===text;
+          },
+        });
+        assert.equal(verified.verified,true);
+      }
+      const finalAsset=await independentAssetRecipient.getAsset(
+        workspaceId,capturedAssetId);
+      assert.equal(finalAsset.asset.revision,2);
+      assert.equal(Buffer.from(finalAsset.bytes).toString('utf8'),
+        capturedAssetMutations[1].text);
+      const relationStaged=await readSourceTechnical(
+        'outbox',missingRelationAckCaptureRef);
+      const savedRelationBytes=Buffer.from(relationStaged.bytesBase64,'base64');
+      assert.equal(packageSha256(savedRelationBytes),relationStaged.sha256);
+      const relationSent=await deltaRoute('delta.push',
+        ()=>actual.grants.includes('t1.getObject'),
+        ()=>publishT4OriginalRelationPutDelta({
+          prepared:{delta:JSON.parse(savedRelationBytes.toString('utf8')),
+            sha256:relationStaged.sha256,key:relationStaged.key},
+          transport:deltaTransport,
+        }));
+      const relationReceived=await deltaRoute('delta.pull',
+        ()=>receiving.operations.includes('t1.getObject'),
+        ()=>fetchT4OriginalRelationPutDelta({
+          transport:deltaTransport,key:relationSent.key,sha256:relationSent.sha256,
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        }));
+      const relationCommitted=await applyT4OriginalRelationPutDelta({
+        received:relationReceived,originalKernel:independentAssetRecipient,
+        authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+        verifyOriginalSourceEvent:async proof=>{
+          const intent=await readSourceTechnical('intent',missingRelationAckCaptureRef);
+          const events=await readSourceEvents();
+          const source=events.find(e=>e.event_id===proof.sourceEventId);
+          return source?.idempotency_key===intent.idempotencyKey&&
+            proof.sourceEventDigest===restoredRelation.window.eventRefs[0].eventDigest&&
+            proof.relationContentDigest===restoredRelation.prepared.delta.relationContentDigest;
+        },
+        getMode:()=> 'T4_NETWORK',
+      });
+      await advanceT4OriginalRelationCursor({
+        window:restoredRelation.window,nextCursor:restoredRelation.nextCursor,
+        acknowledgement:relationCommitted.acknowledgement,
+        verifyOriginalRecipient:async ctx=>{
+          const result=await independentAssetRecipient.getObject(
+            workspaceId,linkedObjectId);
+          return ctx.originalReceiptRef===relationCommitted.originalReceiptRef&&
+            result.relations.outgoing.some(r=>r.relation_id===capturedRelationId);
+        },
+      });
+      assert.equal((await independentAssetRecipient.getObject(
+        workspaceId,linkedObjectId)).relations.outgoing.some(r=>
+          r.relation_id===capturedRelationId),true);
+      console.log('T4_REAL_ORIGINAL_T3_HOST_ASSET_RELATION_CAPTURE_RECOVERY_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          originalAssetRevisionsStagedBeforeNetwork:[1,2],
+          originalSourceColdRestart:true,
+          originalRelationSourceACKLostAndReconciled:true,
+          originalSourceRelationNotRetried:true,
+          originalT3TechnicalOutboxRestored:true,
+          originalT3RecipientAssetRevision:2,
+          originalT3RecipientRelationCreated:true,
+          originalRecipientCursorsVerified:true,
+          originalT3StoreSovereign:true,
+        }));
     }finally{deltaTransport.close();}
     await sourceContext.close();sourceContext=null;
     const updatedAfterDelta=await verify(recipientPage);
