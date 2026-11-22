@@ -26,14 +26,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: b78e8049bcfacfa1355b82390a149677fec95300
+          ref: 12fbc69bb19296c4fd1abfdc724fa73ff67a41d2
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify private revisions, directory and technology parity
         run: |
           test "$(git -C subject rev-parse HEAD)" = "3987ad6f43d81b74f07d93f8951fe8ff03786dda"
-          test "$(git -C site rev-parse HEAD)" = "b78e8049bcfacfa1355b82390a149677fec95300"
+          test "$(git -C site rev-parse HEAD)" = "12fbc69bb19296c4fd1abfdc724fa73ff67a41d2"
           for f in service-subject-protocols.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
             cmp "subject/src/domain/$f" "site/src/domain/$f"
           done
@@ -57,6 +57,7 @@ jobs:
         run: |
           node --import tsx --test --test-reporter=tap \
             scripts/tests/d07-professional-card-release.test.mjs \
+            scripts/tests/d07-professional-form-release.test.mjs \
             scripts/tests/d07-service-site-release-gate.test.mjs \
             scripts/tests/d07-startable-catalog.test.mjs \
             scripts/tests/d07-public-navigation-integrity.test.mjs \
