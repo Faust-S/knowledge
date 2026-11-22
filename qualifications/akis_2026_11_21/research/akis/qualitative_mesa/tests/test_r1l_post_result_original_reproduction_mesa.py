@@ -380,3 +380,30 @@ def test_r1l_unverified_quality_blocks_acceptance_and_cannot_qualify_next_cycle(
         "FORMATION_FOLLOWUP_ACCEPTED_PILOT_RESULT_REQUIRED"
     )
     assert "w2" not in out["works"]
+
+
+def test_r1l_owner_can_independently_resume_after_adverse_pilot_evaluation():
+    d = two_cycle_lifecycle_case(adverse=True)
+    original = next(e for e in d["events"] if e["action"] == "participation_status"
+                    and e["actor"] == "a")
+    resumed = deepcopy(original)
+    resumed.update({
+        "at": 32, "new_participation": "OPEN_TO_NEW_WORK",
+        "evaluation_verdict": "UNKNOWN_DECLARED",
+        "participation_evidence_ref": "model://a/independent-reconsideration-w1",
+    })
+    d["events"].append(resumed)
+    d["events"].sort(key=lambda e: e["at"])
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, out["trace"]
+    assert [row["participation_value"] for row in
+            find(out, "participation_status", actor="a")] == [
+        "PAUSED_NEW_WORK", "OPEN_TO_NEW_WORK"
+    ]
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["general_akis_model"]["post_result_lifecycle_model_gate"][
+        "adverse_owner_economic_judgments"] == 1
+    assert out["general_akis_model"]["post_result_lifecycle_model_gate"][
+        "real_economic_effect_established"] is False
+    assert out == simulate(deepcopy(d))
