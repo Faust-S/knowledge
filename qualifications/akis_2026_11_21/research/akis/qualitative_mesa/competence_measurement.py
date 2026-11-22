@@ -76,10 +76,12 @@ def review_measurement_protocols(raw: Any, state: Any,
                 reasons.append("MEASUREMENT_SOURCE_NOT_CURRENTLY_USABLE")
             if source.valid_until is not None and source.valid_until < at:
                 reasons.append("MEASUREMENT_SOURCE_EXPIRED_AT_REVIEW")
-            if source.scope is not None and check_scope(
+            if source.scope is None:
+                reasons.append("MEASUREMENT_EXPLICIT_SOURCE_SCOPE_REQUIRED")
+            elif check_scope(
                 source.scope, core=source.scope.core,
-                purpose="quality-verification",operation="ACCEPT",at=at
-            )!="MODEL_SOURCE_SCOPE_CONSISTENT":
+                purpose="quality-verification", operation="ACCEPT", at=at
+            ) != "MODEL_SOURCE_SCOPE_CONSISTENT":
                 reasons.append("MEASUREMENT_SOURCE_SCOPE_NOT_QUALIFIED")
         old=claim["independent_baseline"]
         new=claim["subsequent_observation"]
