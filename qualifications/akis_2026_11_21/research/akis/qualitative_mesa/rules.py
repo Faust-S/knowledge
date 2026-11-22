@@ -306,6 +306,19 @@ class QualitativeAKIS:
                 if not isinstance(spec, dict):
                     self._parse_work(spec)
                 else:
+                    _keys_exact(spec, {
+                        "id", "customer", "resource", "source_revision",
+                        "slot_start", "slot_end",
+                    }, {
+                        "requires_accepted", "resource_requirements",
+                        "operations", "material_batches",
+                        "assurance_criteria",
+                    }, "WORK")
+                    if (not isinstance(spec.get("resource_requirements", []), list)
+                            or not isinstance(spec.get("operations", []), list)):
+                        raise InputError(
+                            "FUTURE_ORIGINAL_WORK_MINIMUM_SOURCE_INVALID"
+                        )
                     mentioned = {spec.get("resource")}
                     for need in spec.get("resource_requirements", []):
                         if isinstance(need, dict):
@@ -975,7 +988,16 @@ class QualitativeAKIS:
                 raise BlockedDecision(
                     "ORIGINAL_NEW_SUBJECT_REGISTRATION_MUST_PRECEDE_WORK"
                 )
-        work = self._parse_work(spec)
+        try:
+            work = self._parse_work(spec)
+        except InputError as exc:
+            # Initial validation of a future registered resource was
+            # intentionally deferred, never waived. A malformed future
+            # original request must be a BLOCKED decision, not a crash
+            # after the earlier enterprise/resource registrations.
+            raise BlockedDecision(
+                "ORIGINAL_FUTURE_WORK_DECLARATION_INVALID:" + str(exc)
+            ) from exc
         if work.key in self.works:
             raise BlockedDecision("WORK_ALREADY_EXISTS")
         if len(self.works) >= 256:

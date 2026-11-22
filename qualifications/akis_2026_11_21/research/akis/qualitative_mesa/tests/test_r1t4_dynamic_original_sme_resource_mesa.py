@@ -387,3 +387,31 @@ def test_r1t4_original_resource_in_the_new_mesa_cannot_bypass_customer_result_qu
         "independently_registered_new_original_sme_resource_with_accepted_work"
     ] == 0
     assert out["profit"]["system_increment"] == "UNKNOWN"
+
+
+def test_r1t4_deferred_new_original_resource_work_invalid_operations_block_not_crash():
+    d = new_original_enterprise_case()
+    request = next(e for e in d["events"]
+                   if e["action"] == "request"
+                   and e["work_spec"]["id"] == "w3")
+    request["work_spec"]["operations"][1]["requires_completed"] = [
+        "missing-original-stage"
+    ]
+    out = simulate(d)
+    assert reports(out, "resource_registration_apply")[0]["outcome"] == "APPLIED"
+    assert [r for r in reports(out, "request")
+            if r["work"] == "w3"][0]["reason"] == (
+        "ORIGINAL_FUTURE_WORK_DECLARATION_INVALID:UNKNOWN_OPERATION_PREDECESSOR"
+    )
+    assert "w3" not in out["works"]
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1t4_future_unknown_resource_does_not_waive_original_work_schema():
+    d = new_original_enterprise_case()
+    request = next(e for e in d["events"]
+                   if e["action"] == "request"
+                   and e["work_spec"]["id"] == "w3")
+    request["work_spec"]["new_unqualified_permission"] = True
+    with pytest.raises(InputError, match="WORK_UNKNOWN_new_unqualified_permission"):
+        OperatorAKISModel(d)
