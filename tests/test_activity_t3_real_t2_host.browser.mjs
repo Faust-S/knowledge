@@ -118,7 +118,7 @@ try {
   const d05Path='/workspace/activity-d05-witness/';
   const d05Passport={
     service_id:d05Service,service_version:'1.0.0',
-    base_path:d05Path,supported_levels:['T1','T2'],
+    base_path:d05Path,supported_levels:['T0','T1','T2'],
     input_object_types:[],output_object_types:d05Schemas,
     schemas:Object.fromEntries(d05Schemas.map(schema=>[schema,{
       schema_version:'1.0.0',preserve_unknown:true,
@@ -131,12 +131,16 @@ try {
       events:{read_scope:'service'},
       packages:{export:false,import:false,
         export_scope:'readable_objects',import_scope:'writable_objects'},
+      // This graph operation is granted only when explicitly listed in
+      // the NORMAL original CehoVod T2 service passport. Object write alone
+      // does not confer t1.commitObjectGraph.
+      operations:['t1.commitObjectGraph'],
     },
   };
   const d05File='_iwxa/services/'+d05Service+'.json';
   const d05Bytes=JSON.stringify(d05Passport);
   const d05Entry={service_id:d05Service,service_version:'1.0.0',
-    base_path:d05Path,supported_levels:['T1','T2'],
+    base_path:d05Path,supported_levels:['T0','T1','T2'],
     file:d05File,sha256:sha(d05Bytes)};
   const withD05Domain={...prepared.domain,
     modules:[...prepared.domain.modules,
