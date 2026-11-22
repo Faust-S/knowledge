@@ -598,8 +598,14 @@ def qualify_competing_coalition_selection(
         if row.get("action") == "coalition_options_propose"
         and row.get("outcome") == "APPLIED"
         and row.get("cooperation_link") == parent
-        and selected in row.get("coalition_change_ids", ())
     ]
+    if comparisons and not any(
+        selected in row.get("coalition_change_ids", ())
+        for row in comparisons
+    ):
+        raise CooperationInputError(
+            "COALITION_COMPETITION_SELECTED_OPTION_OUTSIDE_REVIEW"
+        )
     if not comparisons:
         if ev.get("coalition_competition_id") is not None:
             raise CooperationInputError(
@@ -1598,6 +1604,8 @@ _COORDINATION_ACTIONS = {
     "cooperation_entry_assess": "RENEGOTIATION_AND_ADAPTATION",
     "technology_route_propose": "RENEGOTIATION_AND_ADAPTATION",
     "technology_route_response": "RENEGOTIATION_AND_ADAPTATION",
+    "coalition_options_propose": "RENEGOTIATION_AND_ADAPTATION",
+    "coalition_option_assess": "RENEGOTIATION_AND_ADAPTATION",
 }
 
 

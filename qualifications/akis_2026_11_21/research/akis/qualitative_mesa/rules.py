@@ -853,8 +853,13 @@ class QualitativeAKIS:
                 report["change_kind"] = ev.get("change_kind")
                 report["proposed_subject"] = ev.get("proposed_subject")
                 report["economic_channel"] = ev.get("economic_channel")
-                if (self.formation_policy is not None and
-                        self.formation_policy.design.enforce_model_result_conditioned_reconfiguration):
+                if any(field in ev for field in (
+                    "pilot_work", "pilot_result_ref", "pilot_decision_at"
+                )):
+                    # An old-format optional original pilot witness must
+                    # survive in the same trace. Its truth is independently
+                    # checked at competition / later membership application;
+                    # an operator claim alone never proves the Result.
                     report["pilot_work"] = ev.get("pilot_work")
                     report["pilot_result_ref"] = ev.get("pilot_result_ref")
                     report["pilot_decision_at"] = ev.get("pilot_decision_at")

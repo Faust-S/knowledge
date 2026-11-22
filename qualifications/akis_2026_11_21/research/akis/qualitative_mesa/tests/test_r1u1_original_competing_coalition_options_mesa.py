@@ -342,7 +342,7 @@ def selection_of_rival_exit_case(*, incumbent_dissent=False,
                 ),
                 "coalition_willingness": "WILLING",
                 "coalition_outside_option": (
-                    "OUTSIDE_PREFERRED" if owner == "a"
+                    "OUTSIDE_PREFERRED" if owner in {"a", "c"}
                     else "COOPERATION_PREFERRED"
                 ),
                 "coalition_evaluation_dimension": "CAPACITY",
@@ -402,3 +402,18 @@ def test_r1u1_rival_selection_still_requires_departing_original_owner_assent():
     )
     assert "net-2" not in [x["id"] for x in out["cooperation"]["links"]]
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+
+def test_r1u1_operator_cannot_select_uncompared_third_coalition_to_skip_member_choice():
+    d = competing_original_coalitions_case()
+    apply = next(r for r in d["events"]
+                 if r["action"] == "cooperation_membership_apply"
+                 and r["change_id"] == "chg-w2")
+    apply["change_id"] = "unreviewed-third-option"
+    out = simulate(d)
+    assert _selected(out)["reason"] == (
+        "COALITION_COMPETITION_SELECTED_OPTION_OUTSIDE_REVIEW"
+    )
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert "l2" not in [x["id"] for x in out["cooperation"]["links"]]
