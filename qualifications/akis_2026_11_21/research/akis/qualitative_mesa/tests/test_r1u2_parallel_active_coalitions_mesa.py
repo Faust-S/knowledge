@@ -210,15 +210,33 @@ def test_comparison_does_not_reserve_capacity_or_produce_result():
 
 def test_original_capacity_still_rejects_second_work_even_if_owner_reassesses():
     d = original_parallel_case()
-    # After first commitment the second is not independently feasible
-    # against the same existing original capacity. No second reservation.
-    for row in d["events"]:
-        if row["action"] == "active_coalition_portfolio_assess" and row["actor"] == "a":
-            row["coalition_portfolio_preferred_link"] = "l2"
+    first_choice = next(
+        row for row in d["events"]
+        if row["action"] == "active_coalition_portfolio_assess"
+        and row["actor"] == "a"
+    )
+    later_choice = deepcopy(first_choice)
+    later_choice["at"] = 31
+    later_choice["coalition_portfolio_preferred_link"] = "l2"
+    later_choice["coalition_portfolio_owner_source_ref"] = (
+        "model://a/changed-selection-after-first-commit"
+    )
+    d["events"] = [row for row in d["events"] if row["at"] <= 30]
+    d["events"].extend([
+        later_choice,
+        _event(32, "commit", "op", "next-c"),
+    ])
     out = simulate(d)
-    assert _rows(out, "commit")[-2]["outcome"] == "BLOCKED"
-    assert _rows(out, "commit")[-1]["outcome"] == "APPLIED"
-    assert len(out["capacity"]["reservations"]) >= 3
+    assert _rows(out, "commit")[-2]["outcome"] == "APPLIED"
+    assert _rows(out, "active_coalition_portfolio_assess")[-1]["outcome"] == "APPLIED"
+    assert _rows(out, "commit")[-1]["reason"] == "RESOURCE_CAPACITY_EXCEEDED"
+    assert out["works"]["next-b"]["obligation"] == "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+    assert out["works"]["next-c"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"]["old-b"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["old-c"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert sorted(r["work"] for r in out["capacity"]["reservations"]) == [
+        "next-b", "old-b", "old-c"
+    ]
 
 
 def test_strict_kpb_requires_individually_qualified_source_rights():
