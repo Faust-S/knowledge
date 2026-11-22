@@ -203,7 +203,7 @@ try {
   for(const name of ['index.mjs','kernel-reader.mjs']){
     cpSync(join(core,'src/t3/activity',name),join(dist,'_t3/activity',name));
   }
-  const actFiles=['d05-t3-evidence-binding.mjs','t3-selected-host.mjs',
+  const actFiles=['d05-t3-evidence-binding.mjs','t3-evidence-passport.mjs','t3-selected-host.mjs',
     't3-control-host-link.mjs',
     't3-owner-review-stage.mjs','t3-review-controller.mjs',
     't3-original-t2-owner-host.mjs'];
@@ -684,6 +684,8 @@ try {
       await import('/_activity/t3-original-t2-owner-host.mjs');
     const {createTrustedCehovodD05ReviewPort}=
       await import('/_activity/d05-t3-evidence-binding.mjs');
+    const {buildT3EvidencePassport}=
+      await import('/_activity/t3-evidence-passport.mjs');
     const {createT3ReviewController}=
       await import('/_activity/t3-review-controller.mjs');
     const {createControlLoopbackOwner}=
@@ -725,7 +727,18 @@ try {
         review.structural_candidate!==null||review.export_allowed!==false||
         review.anonymity!=='NOT_ESTABLISHED'||review.iwxa_package!==null)
         throw Error('D05_WITNESS_SYSTEM_REPORT_FALSELY_OBSERVED');
-      const visible=JSON.stringify(states);
+      // Product UI sees the ORIGINAL D2 reason-code passport, not source
+      // rows or an invented confidence score.
+      const passport=buildT3EvidencePassport(review);
+      if(passport.result!=='INSUFFICIENT_FOR_RECONSTRUCTION'||
+        passport.businessExecution!=='NOT_INDEPENDENTLY_PROVEN'||
+        passport.disclosure!=='FORBIDDEN'||
+        !passport.groups.some(g=>g.area==='facts'&&
+          g.items.some(i=>i.code==='T3_D2_UNVERIFIED_EVENT_STEP'))||
+        !passport.groups.some(g=>g.area==='privacy'&&
+          g.items.some(i=>i.code==='T3_D2_RELATION_PRIVACY_REVIEW_REQUIRED')))
+        throw Error('D05_WITNESS_EVIDENCE_PASSPORT_FALSE_PROOF');
+      const visible=JSON.stringify(states)+JSON.stringify(passport);
       for(const forbidden of ['d05:case001','120','cehovod.operation.transitioned',
         args.workspace,'MODEL_ONLY','INTERNAL_MODEL_ORDER'])
         if(visible.includes(forbidden))
@@ -733,7 +746,8 @@ try {
       return {read:outcome.status,status:review.status,
         reason_codes:review.reason_codes,objects:before.length,
         reported_events:reported.length,order_revision:savedOrder.object.revision,
-        export_allowed:review.export_allowed};
+        export_allowed:review.export_allowed,
+        evidence_passport_actions:passport.actionCount};
     }finally{
       ui?.dispose();stop();
       if(owners.size)throw Error('D05_WITNESS_CONTROL_LISTENER_LEAK');
@@ -745,12 +759,14 @@ try {
   assert.equal(d05Cold.reported_events,4);
   assert.equal(d05Cold.order_revision,2);
   assert.equal(d05Cold.export_allowed,false);
+  assert.ok(d05Cold.evidence_passport_actions>=2);
   assert.ok(d05ReadAuthority.proofCount>0);
   console.log('ACTIVITY_D05_ORIGINAL_T2_SIGNED_REPORTED_COLD_HOLD_PASS',
     JSON.stringify({realOriginalT2Kernel:true,testOnlyD05Service:true,
       signedOriginalT3Read:true,coldReadback:true,
       savedResultTypes:3,savedEvents:4,
-      originalKernelBasedOnRelation:true,provenBusinessExecution:false,
+      originalKernelBasedOnRelation:true,evidencePassport:true,
+      provenBusinessExecution:false,
       review:'HOLD',externalTransfer:false}));
 
   console.log('ACTIVITY_ORIGINAL_T2_SIGNED_COLD_RECOVERY_NO_RETRY_PASS');
