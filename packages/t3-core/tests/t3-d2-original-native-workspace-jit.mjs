@@ -33,7 +33,8 @@ try{
   const NOW=Date.parse("2026-11-22T08:00:00.000Z");
   const passphrase="ephemeral-isolated-original-jit";
   const identity={...I,person:I.reviewer};
-  provision({adminRoot:join(root,"admin"),controlRoot:join(root,"control"),
+  provision({adminRoot:join(root,"admin"),
+    controlRoot:join(root,"admin/personal-control"),
     identity,environment:"PRODUCTION",passphrase,now:NOW});
   // Match the installed private Owner's two explicitly selected operator
   // records, instead of using openInterop's legacy synthetic fallback.
@@ -51,6 +52,14 @@ try{
     {flag:"wx"});
   owner=openInterop({root:join(root,"admin"),product:"admin",passphrase,
     clock:()=>NOW});
+  // The installed first-run ceremony issues a real signed initial
+  // invitation BEFORE the reviewer opens the private Control Host. Testing
+  // pre-invitation permissions alone would miss changes to registry status.
+  owner.selectOperator("issuer");
+  const invited=owner.invite({activityRead:false,workspaceRead:false,
+    workspaceWrite:false,workspaceCreate:false});
+  check(invited instanceof Uint8Array&&invited.byteLength>0,
+    "D2_ORIGINAL_SIGNED_FIRST_INVITATION_NOT_CONFIRMED");
   owner.selectOperator("reviewer");
   // Use the original signed DATA grant and the existing One Core port.
   // No native credential or exception payload crosses the public CI log.
