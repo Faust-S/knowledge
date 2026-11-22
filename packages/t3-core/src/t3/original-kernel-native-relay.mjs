@@ -6,7 +6,6 @@
 import {randomBytes} from "node:crypto";
 const METHODS=Object.freeze({
   getWorkspace:"t1.getWorkspace",
-  listObjects:"t1.listObjects",
   commitObjectGraph:"t1.commitObjectGraph",
   getObject:"t1.getObject",
   listEventsSince:"t1.listEventsSince",
@@ -83,10 +82,6 @@ export function createOriginalKernelNativeRelay({
       grants.granted_operations.includes(id),
     commitObjectGraph:input=>dispatch("commitObjectGraph",[input],epoch,sessionId),
     getWorkspace:ws=>dispatch("getWorkspace",[ws],epoch,sessionId),
-    // Original D2 enumeration. This is transport only; independent signed
-    // DATA authorization must happen inside the trusted native T3 owner.
-    // An installed D3 Apply-only session does not gain the T2 list grant.
-    listObjects:query=>dispatch("listObjects",[query],epoch,sessionId),
     getObject:(ws,obj)=>dispatch("getObject",[ws,obj],epoch,sessionId),
     listEventsSince:(ws,since)=>dispatch("listEventsSince",[ws,since],epoch,sessionId),
   });
