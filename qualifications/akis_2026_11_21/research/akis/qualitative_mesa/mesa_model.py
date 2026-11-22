@@ -38,6 +38,7 @@ from .org_code_policy import OrgCodeInputError, parse_org_code_policy
 from .economic_flow import EconomicInputError, evaluate_economic_claims
 from .competence_reuse import ReuseInputError, evaluate_competence_reuse
 from .competence_transfer import CompetencePermissionInputError, review_permissions
+from .work_counterfactual import WorkCounterfactualInputError, review_work_counterfactuals
 from .cooperation import (
     cooperation_system_view, cooperative_model_readiness,
     cooperative_readiness_evolution, latest_owner_interest_claim, latest_future_participation,
@@ -234,6 +235,9 @@ class OperatorAKISModel(mesa.Model):
         if self.competence_permissions_raw is not None and self.competence_reuse_raw is None:
             raise InputError("REUSE_PERMISSION_REQUIRES_ORIGINAL_EVIDENCE")
         self.economic_claims = research_input.pop("economic_claims", None)
+        self.work_counterfactual_raw = research_input.pop("work_counterfactuals", None)
+        if self.work_counterfactual_raw is not None and self.economic_claims is None:
+            raise InputError("COUNTERFACTUAL_REQUIRES_ORIGINAL_ECONOMIC_CLAIMS")
         self.adaptation_enabled = "adaptation_requests" in research_input
         raw_reviews = research_input.pop("adaptation_requests", [])
         self.qualitative = QualitativeAKIS(research_input)
@@ -951,6 +955,16 @@ class OperatorAKISModel(mesa.Model):
                     }
             except (ReuseInputError, CompetencePermissionInputError) as exc:
                 raise InputError(str(exc)) from exc
+        if self.work_counterfactual_raw is not None:
+            try:
+                output["work_counterfactual_dynamics"] = review_work_counterfactuals(
+                    self.work_counterfactual_raw, state=self.qualitative,
+                    economic_claims=self.economic_claims,
+                    economic_view=output.get("economics"),
+                    reuse_view=output.get("competence_reuse_dynamics"),
+                )
+            except WorkCounterfactualInputError as exc:
+                raise InputError(str(exc)) from exc
         if self.general_akis_enabled:
             current = general_system_view(
                 self.general_design, self.qualitative, at=float(self.time),
@@ -976,6 +990,17 @@ class OperatorAKISModel(mesa.Model):
                     "causal_economic_gain": reuse["causal_competence_effect"],
                     "individual_liquidity_and_operator_costs_are_not_imputed": True,
                     "original_cash_and_cost_records_added": 0,
+                }
+            if "work_counterfactual_dynamics" in output:
+                counterfactual = output["work_counterfactual_dynamics"]
+                output["general_akis_model"]["work_counterfactual_feedback"] = {
+                    "source_scoped_work_count": len(counterfactual["works"]),
+                    "declared_arithmetic_eligible_work_count": counterfactual[
+                        "declared_comparable_work_count"],
+                    "owner_operator_and_network_views_distinct": True,
+                    "original_cash_and_cost_records_added": 0,
+                    "realized_gain": "NOT_IDENTIFIABLE",
+                    "owner_private_liquidity_amounts_redisclosed": False,
                 }
             # Read the original recipient's Work/Result quality state only.
             # Shared view contains counts, never source documents or cash.
