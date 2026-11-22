@@ -94,14 +94,14 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
                 )):
                     raise WorkCounterfactualInputError("COUNTERFACTUAL_OWNER_PROOF_BOOLEANS_REQUIRED")
                 owner_proofs[sc][owner] = proof
-        history[work_id] = (claim, eq, owner_proofs)
+        history[work_id] = (claim, eq, owner_proofs, proof_source)
     results = []
     raw_transfers = econ["transfers"]
     raw_resource_uses = econ["resource_uses"]
     bindings = econ.get("lifecycle_costs", {}).get("bindings", [])
     lifecycle_by_resource = {record["resource_use_id"]: record for record in bindings}
     modern = {b["resource_use_id"]: b for b in econ.get("modern_cost_bindings", [])}
-    for work_id, (claim, eq, proofs) in history.items():
+    for work_id, (claim, eq, proofs, comparison_source) in history.items():
         work = state.works[work_id]
         actor_status = {}
         per_scenario = {}
@@ -211,8 +211,7 @@ def review_work_counterfactuals(raw: Any, *, state: Any,
         totals = {sc: Decimal(per_scenario[sc]["original_work_external_net_cash"]) for sc in SCENARIOS}
         results.append({
             "work": work_id, "reuse_claim": claim,
-            "work_comparison_source": row["comparison_source"] if False else next(
-                raw_row["comparison_source"] for raw_row in raw if raw_row["work"] == work_id),
+            "work_comparison_source": comparison_source,
             "period": econ["period"], "currency": econ["currency"],
             "source_equivalence_research_claim": eq,
             "per_scenario": per_scenario,
