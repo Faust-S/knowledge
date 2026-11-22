@@ -48,6 +48,9 @@ import {prepareT4OriginalHostRecipientPlan}
   from '../src/network/original-host-recipient-plan.mjs';
 import {createT4OriginalHostExchangeCycle}
   from '../src/network/original-host-exchange-cycle.mjs';
+import {persistT4OriginalHostPlanCarrier,
+  inspectT4OriginalHostImportedPlanCarrier}
+  from '../src/network/original-host-plan-carrier.mjs';
 import {createT4OriginalHostDispatchTaskBinding}
   from '../src/network/original-host-dispatch-task-binding.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
@@ -2440,6 +2443,218 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalHostTaskFinalIdleNoDuplicateWrites:true,
           originalHostUsesExistingT3Store:true,
           separateSchedulerIntroduced:false,
+          independentPhysicalDevices:false,
+        }));
+
+      // Independent original T3 Exchange, NOT a new manifest transport:
+      // the source saves the prepared plan as an ordinary T3 Object into
+      // its own dedicated technical Workspace; the original T2 Kernel
+      // exports and confirms an .iwxa; a separate recipient T3 Kernel
+      // previews, commits and cold-reads that exact imported Object.
+      const carrierWorkspaceId='t4:original:plan-carrier:'+randomUUID();
+      const carrierObjectId='t4:original:plan:'+randomUUID();
+      await activeSourcePage.evaluate(async({
+        SERVICE,carrierWorkspaceId,
+      })=>{
+        const kernel=await IWXA.connect({
+          service_id:SERVICE,required_levels:['T1','T2']});
+        return kernel.t1.createWorkspace({
+          workspace_id:carrierWorkspaceId,profile:'generic'});
+      },{SERVICE,carrierWorkspaceId});
+      const originalCarrierKernel={
+        hasOperation:op=>actual.grants.includes(op),
+        getObject:(w,id)=>activeSourcePage.evaluate(async({
+          SERVICE,w,id,
+        })=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.getObject(w,id);
+        },{SERVICE,w,id}),
+        putObject:input=>activeSourcePage.evaluate(async({
+          SERVICE,input,
+        })=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.putObject(input);
+        },{SERVICE,input}),
+        listEventsSince:w=>activeSourcePage.evaluate(async({
+          SERVICE,w,
+        })=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.listEventsSince(w);
+        },{SERVICE,w}),
+      };
+      const carrierContext=()=>({
+        workspaceId:carrierWorkspaceId,
+        originalWriteOwnerRef:'original:t2:exchange',
+        sourceNodeRef:'node:original-source',
+        networkTargetRef:'node:qualified-apache',
+        hostSessionRef:sourceHostSession(),
+      });
+      const currentPlan=await planFromSourceT3();
+      assert.equal(currentPlan.entries.length,4);
+      const carrierStored=await persistT4OriginalHostPlanCarrier({
+        plan:currentPlan,carrierWorkspaceId,carrierObjectId,
+        originalKernel:originalCarrierKernel,
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>carrierContext(),
+        authorizeOriginalRead:async proof=>
+          actual.grants.includes(proof.operation),
+        authorizeOriginalWrite:async proof=>
+          actual.grants.includes(proof.operation),
+      });
+      assert.equal(carrierStored.originalT3ObjectAndEventReadback,true);
+      assert.equal(carrierStored.recipientBusinessApplicationAuthorized,false);
+      const carrierPackage=await activeSourcePage.evaluate(async({
+        SERVICE,carrierWorkspaceId,
+      })=>{
+        const kernel=await IWXA.connect({
+          service_id:SERVICE,required_levels:['T1','T2']});
+        const options={workspaces:[carrierWorkspaceId],
+          include_history:true,include_assets:true,
+          include_relations:true,include_schemas:true};
+        const preview=await kernel.t2.exportPreview(options);
+        const artifact=await kernel.t2.exportPackage(options);
+        const receipt=await kernel.t2.confirmExport({
+          package_digest:artifact.package_digest,
+          workspace_ids:[carrierWorkspaceId],
+        });
+        return{preview,artifact:{...artifact,bytes:Array.from(artifact.bytes)},
+          receipt};
+      },{SERVICE,carrierWorkspaceId});
+      assert.equal(carrierPackage.preview.counts.objects,1);
+      assert.equal(carrierPackage.preview.counts.assets,0);
+      assert.equal(carrierPackage.preview.counts.relations,0);
+      carrierPackage.artifact.bytes=Uint8Array.from(
+        carrierPackage.artifact.bytes);
+      const originalCarrierExportState=originalT3ConfirmedState({
+        workspaceId:carrierWorkspaceId,...carrierPackage});
+      const signedCarrierSender=createT4OriginalExchangeHandoff({
+        transport,
+        originalKernel:{hasOperation:op=>actual.grants.includes(op)},
+        workspaceId:carrierWorkspaceId,
+        currentWorkspace:{
+          get:()=>({workspace_id:carrierWorkspaceId}),
+          subscribe:()=>()=>{},
+        },
+        readOriginalExportState:()=>originalCarrierExportState,
+      });
+      const transferredCarrier=await signedCarrierSender.publishConfirmedExport();
+      assert.equal(transferredCarrier.originalExportConfirmed,true);
+      assert.equal(transferredCarrier.originalImportCommitted,false);
+      const importedCarrierKernel={
+        hasOperation:op=>receiving.operations.includes(op),
+        importPreview:bytes=>recipientPage.evaluate(async({
+          SERVICE,bytes,
+        })=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t2.importPreview(Uint8Array.from(bytes));
+        },{SERVICE,bytes:Array.from(bytes)}),
+        importCancel:token=>recipientPage.evaluate(async({
+          SERVICE,token,
+        })=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t2.importCancel(token);
+        },{SERVICE,token}),
+      };
+      const importedCarrierPreview=await createT4OriginalExchangeHandoff({
+        transport,originalKernel:importedCarrierKernel,
+        workspaceId:carrierWorkspaceId,
+        currentWorkspace:{get:()=>null,subscribe:()=>()=>{}},
+        readOriginalExportState:()=>null,
+      }).previewRemoteImport({
+        key:transferredCarrier.sha256+'.iwxa',
+        expectedSha256:transferredCarrier.sha256,
+      });
+      assert.equal(importedCarrierPreview.originalImportPreviewed,true);
+      const importedToken=importedCarrierPreview.originalPreview;
+      const carrierMode=importedToken.allowed_modes.includes('full')
+        ?'full':'selective';
+      const originalCarrierImport=await recipientPage.evaluate(async({
+        SERVICE,importedToken,carrierWorkspaceId,carrierMode,
+      })=>{
+        const kernel=await IWXA.connect({
+          service_id:SERVICE,required_levels:['T1','T2']});
+        return kernel.t2.importCommit({
+          preview_token:importedToken.preview_token,
+          package_digest:importedToken.package_digest,
+          plan:{mode:carrierMode,
+            include_workspaces:[carrierWorkspaceId],
+            include_history:true,include_assets:true,
+            include_relations:true,conflict:'fail'},
+        });
+      },{SERVICE,importedToken:{
+        preview_token:importedToken.preview_token,
+        package_digest:importedToken.package_digest,
+      },carrierWorkspaceId,carrierMode});
+      assert.equal(originalCarrierImport.format,'iwxa.import.receipt');
+      assert.equal(originalCarrierImport.applied.objects_inserted,1);
+      await recipientContext.close();recipientContext=null;
+      recipientContext=await launch(recipientProfile);
+      recipientPage=await opened(recipientContext);
+      const originalCarrierRecipientKernel={
+        hasOperation:op=>receiving.operations.includes(op),
+        getObject:(w,id)=>recipientPage.evaluate(async({
+          SERVICE,w,id,
+        })=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.getObject(w,id);
+        },{SERVICE,w,id}),
+      };
+      const inspectCarrier=()=>inspectT4OriginalHostImportedPlanCarrier({
+        carrierWorkspaceId,
+        sourceCarrierWorkspaceId:carrierWorkspaceId,
+        carrierObjectId,sourceWorkspaceId:workspaceId,
+        originalWriteOwnerRef:'original:t2:exchange',
+        networkTargetRef:'node:qualified-apache',
+        sourceNodeRef:'node:original-source',
+        originalKernel:originalCarrierRecipientKernel,
+        originalImportReceipt:originalCarrierImport,
+        expectedPackageDigest:carrierPackage.artifact.package_digest,
+        expectedSourcePlanDigest:currentPlan.planDigest,
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId:carrierWorkspaceId,
+          originalWriteOwnerRef:'original:t2:exchange',
+          sourceNodeRef:'node:original-source',
+          networkTargetRef:'node:qualified-apache',
+          hostSessionRef:recipientHostSession(),
+        }),
+        authorizeOriginalRead:async proof=>
+          receiving.operations.includes(proof.operation),
+      });
+      const importedCarrier=await inspectCarrier();
+      assert.equal(importedCarrier.plan.entries.length,4);
+      assert.equal(importedCarrier.planDigest,undefined);
+      assert.equal(importedCarrier.sourcePlanDigest,currentPlan.planDigest);
+      assert.equal(importedCarrier.originalT3ObjectReadbackVerified,true);
+      assert.equal(importedCarrier.mayInvokeRecipientDispatcher,false);
+      assert.equal(importedCarrier.signedSourceProvenanceNotProven,true);
+      assert.equal(importedCarrier.recipientBusinessApplicationAuthorized,false);
+      await recipientContext.close();recipientContext=null;
+      recipientContext=await launch(recipientProfile);
+      recipientPage=await opened(recipientContext);
+      const carrierAfterCold=await inspectCarrier();
+      assert.equal(carrierAfterCold.sourcePlanDigest,currentPlan.planDigest);
+      console.log('T4_REAL_ORIGINAL_T3_IWXA_PLAN_CARRIER_HANDOFF_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          originalT3ExchangeFormat:'iwxa.package',
+          originalT3CarrierObject:carrierObjectId,
+          originalT3SourcePlanEntries:currentPlan.entries.length,
+          originalT3CarrierWorkspaceExported:true,
+          originalT3ExportConfirmed:true,
+          apacheWebDavPackageTransferred:true,
+          independentOriginalT3ImportPreview:true,
+          independentOriginalT3ImportCommit:true,
+          originalT3ImportedPlanColdReadback:true,
+          originalT3SignedSourceProvenanceVerified:false,
+          originalT3RecipientDataWriteGrantFromCarrier:false,
+          planIsNotAutomaticRecipientApplyAuthority:true,
           independentPhysicalDevices:false,
         }));
 
