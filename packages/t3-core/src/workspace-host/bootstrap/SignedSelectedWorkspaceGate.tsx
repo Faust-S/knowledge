@@ -68,6 +68,10 @@ export function SignedSelectedWorkspaceGate({
   const [inspection,setInspection]=useState<Inspection>({kernel:null,phase:"checking",reason:null});
   const [retry,setRetry]=useState(0);
   const [busy,setBusy]=useState(false);
+  // This is a single-use signed write within the current first-run view.
+  // A lost ACK is never a reason to dispatch createWorkspace again. The
+  // separate "Проверить повторно" button ONLY reads the original Kernel.
+  const [createAttempted,setCreateAttempted]=useState(false);
   const [createError,setCreateError]=useState<string|null>(null);
   const [createErrorCode,setCreateErrorCode]=useState<string|null>(null);
   const generation=useRef(0),running=useRef(false);
@@ -127,7 +131,7 @@ export function SignedSelectedWorkspaceGate({
   const refresh=useCallback(()=>setRetry(n=>n+1),[]);
   const create=useCallback(async()=>{
     if(!required||!kernel||(!signedKernelAccess&&!trustedSelectedContext)||
-       running.current||phase!=="missing")return;
+       running.current||createAttempted||phase!=="missing")return;
     const ticket=generation.current;
     running.current=true;setBusy(true);setCreateError(null);setCreateErrorCode(null);
     try{
@@ -162,6 +166,7 @@ export function SignedSelectedWorkspaceGate({
       }else{
         let uncertain:unknown=null;
         try{
+          setCreateAttempted(true);
           const receipt=await kernel.createWorkspace({workspace_id:selected,profile});
           if(!receipt||receipt.workspace_id!==selected||receipt.profile!==profile)
             throw denied("T3_D1_WORKSPACE_RECEIPT_MISMATCH");
@@ -188,7 +193,7 @@ export function SignedSelectedWorkspaceGate({
       running.current=false;
       if(ticket===generation.current)setBusy(false);
     }
-  },[required,kernel,signedKernelAccess,trustedSelectedContext,profile,phase]);
+  },[required,kernel,signedKernelAccess,trustedSelectedContext,profile,phase,createAttempted]);
 
   // The employee's original signed company key opens/creates its one T2
   // Workspace. No second manual create action is required when the ORIGINAL
@@ -264,10 +269,18 @@ export function SignedSelectedWorkspaceGate({
             className="text-sm text-amber-300">{createError}
             {createErrorCode&&<> Код: {createErrorCode}.</>}
           </p>}
+          {phase==="missing"&&createAttempted&&(
+            <p role="status" data-testid="t3-d1-create-once-readback-only"
+              className="text-sm text-amber-300">
+              Создание Workspace уже запрашивалось. Повторная запись
+              заблокирована до подтверждения результата исходным Kernel.
+              Используйте «Проверить повторно», это только чтение.
+            </p>
+          )}
           {phase==="missing"&&(signedKernelAccess||trustedSelectedContext)&&
             kernel?.hasOperation("t1.createWorkspace")&&(
             <button type="button" data-testid="t3-d1-create-selected-workspace"
-              onClick={()=>void create()} disabled={busy}
+              onClick={()=>void create()} disabled={busy||createAttempted}
               className="rounded border px-3 py-2 text-sm disabled:opacity-50">
               {busy?"Создаём и проверяем…":"Создать выбранную Workspace"}
             </button>
