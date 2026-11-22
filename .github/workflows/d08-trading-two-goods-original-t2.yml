@@ -125,12 +125,12 @@ jobs:
         working-directory: site
         run: |
           node tests/d08-trading-public-goods-preflight.mjs > "$RUNNER_TEMP/d08-public-trade.log" 2>&1 || {
-            grep -E '^D08_TRADING_PUBLIC_(FAILURE_PHASE|FAILURE_CLASS)=' \
-              "$RUNNER_TEMP/d08-public-trade.log" | head -3 || true
             echo D08_TRADING_PUBLIC_PREFLIGHT=FAIL
             exit 1
           }
-          grep -q '^D08_TRADING_PUBLIC_TWO_GOODS_HANDOFF=PASS
+          grep -q "D08_TRADING_PUBLIC_TWO_GOODS_HANDOFF=PASS" "$RUNNER_TEMP/d08-public-trade.log" || exit 1
+          echo D08_TRADING_PUBLIC_PREFLIGHT=PASS
+      - name: Build only disposable integrated site on exact original T2
         working-directory: site
         run: |
           npm run build > "$RUNNER_TEMP/d08-original-build.log" 2>&1 || {
