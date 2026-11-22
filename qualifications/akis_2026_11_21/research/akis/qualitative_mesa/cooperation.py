@@ -353,6 +353,61 @@ def respond_to_cooperation_change(event: Mapping[str, Any],
     # An inactive principal may still contest a proposed revision of its rights.
 
 
+def original_membership_predecessor(
+    links: Sequence[CooperationLink], trace: Sequence[Mapping[str, Any]],
+    *, successor_id: str, successor_revision: str, pilot: Any,
+    at: int, org_revision: str,
+) -> Mapping[str, Any] | None:
+    """Verify a DIRECT parent -> successor edge in the one original trace.
+
+    The accepted pilot remains attached to the historical parent. No
+    membership, Work, Result, ownership or original consent is copied to
+    the successor. A mere proposal cannot establish the edge.
+    """
+    successor = next((
+        link for link in links
+        if link.key == successor_id and link.source_revision == successor_revision
+    ), None)
+    if successor is None or pilot is None or (
+        pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    ):
+        return None
+    candidates = [
+        row for row in trace
+        if row.get("action") == "cooperation_membership_apply"
+        and row.get("outcome") == "APPLIED"
+        and row.get("successor_link") == successor.key
+        and row.get("successor_revision") == successor.source_revision
+        and row.get("successor_participants") == list(successor.participants)
+        and row.get("successor_source_ref") == successor.source_ref
+        and row.get("pilot_work") == pilot.key
+        and row.get("pilot_result_ref") == pilot.result_ref
+        and row.get("org_revision") == org_revision
+        and type(row.get("at")) is int and row["at"] < at
+    ]
+    if len(candidates) != 1:
+        return None
+    revision = candidates[0]
+    parent = next((
+        link for link in links
+        if link.key == revision.get("cooperation_link")
+        and link.source_revision == revision.get("cooperation_source_revision")
+        and pilot.key in link.works
+    ), None)
+    if parent is None or pilot.key in successor.works:
+        return None
+    if not any(
+        event.get("action") == "accept"
+        and event.get("outcome") == "APPLIED"
+        and event.get("work") == pilot.key
+        and event.get("at") == revision.get("pilot_decision_at")
+        and type(event.get("at")) is int and event["at"] < revision["at"]
+        for event in trace
+    ):
+        return None
+    return revision
+
+
 def assess_cooperation_entry(
     event: Mapping[str, Any], links: Sequence[CooperationLink],
     subjects: Mapping[str, Any], trace: Sequence[Mapping[str, Any]],
@@ -764,6 +819,55 @@ def qualify_cooperation_change_reference(
     proposal = _applied_proposal(trace, ident)
     if proposal is None:
         raise CooperationInputError("COOPERATION_CHANGE_ORIGINAL_PROPOSAL_REQUIRED")
+    # A prospective membership revision has a different ORIGINAL parent link.
+    # A subsequent Work may cite the applied transition, never a proposal
+    # by itself, while still requiring fresh Work-specific original consents.
+    if (proposal.get("change_kind") in {
+            "ADD_FUTURE_PARTICIPANT", "REVIEW_FUTURE_PARTICIPATION"
+        } and proposal.get("cooperation_link") != link.key):
+        previous = state_pilot = next(
+            (item for item in (work.requires_accepted or ())
+             if any(row.get("action") == "cooperation_membership_apply"
+                    and row.get("outcome") == "APPLIED"
+                    and row.get("successor_link") == link.key
+                    and row.get("change_id") == ident
+                    and row.get("pilot_work") == item for row in trace)),
+            None
+        )
+        if previous is None:
+            raise CooperationInputError("COOPERATION_MEMBERSHIP_REQUEST_APPLIED_LINEAGE_REQUIRED")
+        applications = [
+            row for row in trace
+            if row.get("action") == "cooperation_membership_apply"
+            and row.get("outcome") == "APPLIED"
+            and row.get("successor_link") == link.key
+            and row.get("successor_revision") == link.source_revision
+            and row.get("change_id") == ident
+            and row.get("pilot_work") == previous
+            and row.get("cooperation_link") == proposal.get("cooperation_link")
+            and row.get("cooperation_source_revision") == proposal.get("cooperation_source_revision")
+            and row.get("org_revision") == institution.revision
+            and type(row.get("at")) is int and row["at"] < at
+        ]
+        if len(applications) != 1 or proposal.get("org_revision") != institution.revision:
+            raise CooperationInputError("COOPERATION_MEMBERSHIP_REQUEST_APPLIED_LINEAGE_REQUIRED")
+        owners = original_parties_for_work(work, resource_owners)
+        if not owners.issubset(link.participants):
+            raise CooperationInputError("COOPERATION_CHANGE_REQUEST_REQUIRES_EXISTING_PRINCIPALS")
+        return {
+            "request_linked_change_id": ident,
+            "request_linked_change_scope": proposal["change_kind"],
+            "request_linked_economic_channel": proposal["economic_channel"],
+            "request_model_consultation_prior_support_count": len(
+                applications[0].get("previous_participants", ())
+            ) + (1 if proposal["change_kind"] == "ADD_FUTURE_PARTICIPANT" else 0),
+            "request_consultation_source": "APPLIED_ORIGINAL_MEMBERSHIP_SUCCESSION",
+            "request_original_predecessor_link": proposal["cooperation_link"],
+            "request_successor_relation_version": link.source_revision,
+            "request_fresh_consent_and_org_code_required": True,
+            "request_original_work_specific_economics": "NOT_VERIFIED",
+            "request_original_work_quality_and_responsibility": "NOT_VERIFIED",
+        }
     if (proposal.get("cooperation_link") != link.key or
             proposal.get("cooperation_source_revision") != link.source_revision or
             proposal.get("org_revision") != institution.revision):
