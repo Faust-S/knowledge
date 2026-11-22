@@ -69,6 +69,27 @@ function checkedStatus(row,subject){
       statusFamily:"PERSON_PRODUCT_STATUS/2",
       productId:row.productId,statusState:row.statusState});
   }
+  if(row.statusSchema==="IWXA_T3_PRODUCT_LICENSE_STATUS/3"){
+    // Corporate product STATUS is the ORIGINAL T3 /3 family and is separate
+    // from the legacy TEST /1, PERSON /2 and generic holder STATUS /2.
+    // Native holder inspection must have already verified exact signed bytes,
+    // pinned publisher trust, organization recipient, sequence and floor.
+    requireValue(subject?.subjectType==="ORGANIZATION"&&
+      row.organizationId===subject.recipientId&&
+      validId(row.organizationId)&&validId(row.licenseId)&&
+      row.productId==="IWXA_ADMIN_CENTER"&&
+      ["ACTIVE","SUSPENDED","REVOKED"].includes(row.statusState)&&
+      Number.isSafeInteger(row.sequence)&&row.sequence>=1&&
+      HEX.test(row.statusPayloadDigest??"")&&
+      typeof row.statusValidUntil==="string"&&
+      Number.isFinite(Date.parse(row.statusValidUntil))&&
+      row.scope===undefined&&row.entries===undefined,
+      "T3_D7_CORPORATE_ORIGINAL_SIGNED_STATUS_REQUIRED");
+    return Object.freeze({statusPayloadDigest:row.statusPayloadDigest,
+      statusScope:null,statusEntries:null,
+      statusFamily:"CORPORATE_PRODUCT_STATUS/3",
+      productId:row.productId,statusState:row.statusState});
+  }
   const scope=row.scope,entries=row.entries;
   requireValue(row.statusSchema==="IWXA_T3_LICENSE_STATUS/2"&&
     HEX.test(row.statusPayloadDigest??"")&&
