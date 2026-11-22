@@ -133,3 +133,45 @@ def test_source_update_with_expected_revision_cannot_overwrite_newer_owner_evide
     assert stale["reason"] == "CONTEXT_STALE_SOURCE_UPDATE_REVISION"
     assert out["context_evidence"]["sources"]["b-capacity"]["revision"] == "bc2"
     assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_unassigned_common_operator_cash_blocks_work_counterfactual():
+    """Model must not declare a complete Work economy while common cash is omitted."""
+    from .test_work_counterfactual_mesa import counterfactual_case
+    d = counterfactual_case()
+    d["economic_claims"]["transfers"].append({
+        "id": "unallocated-operator-platform-fee", "scenario": "COOPERATION",
+        "payer": "op", "payee": "EXTERNAL", "amount": "12.00",
+        "source": "o1", "work": None,
+    })
+    out = simulate(d)
+    work = out["work_counterfactual_dynamics"]["works"][0]
+    assert work["status"] == "COUNTERFACTUAL_WORK_SCOPE_NOT_QUALIFIED"
+    assert work["network_declared_external_cash_difference"] is None
+    op = work["per_scenario"]["COOPERATION"]["owners"]["op"]
+    assert "COMMON_CASH_FLOW_NOT_ATTRIBUTED_TO_WORK" in op["reasons"]
+    assert op["unallocated_common_cash_count"] == 1
+    assert out["economics"]["consolidated_cash_difference_claimed_scope"] is not None
+    assert out["economics"]["profit"] == "UNKNOWN"
+
+
+def test_owner_scoped_increment_property_over_small_capacity_grid():
+    """Exhaustive small-state property: baseline uses ordinary units, not grant."""
+    for baseline_ceiling in range(1, 5):
+        for increment in range(1, 4):
+            claimed_total = baseline_ceiling + increment
+            for baseline_use in range(baseline_ceiling + 1):
+                for permitted_use in range(1, claimed_total + 2):
+                    ledger = _ledger(capacity=baseline_ceiling, future=claimed_total)
+                    if baseline_use:
+                        ledger.reserve("baseline", (ResourceNeed("rb", baseline_use),), 40, 44)
+                    expected_allowed = baseline_use + permitted_use <= claimed_total
+                    try:
+                        ledger.reserve("licensed", (ResourceNeed("rb", permitted_use),), 40, 44)
+                        actual_allowed = True
+                    except CapacityBlocked as exc:
+                        actual_allowed = False
+                        assert exc.reason == "RESOURCE_CAPACITY_EXCEEDED"
+                    assert actual_allowed == expected_allowed, (
+                        baseline_ceiling, increment, baseline_use, permitted_use,
+                    )
