@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 7bc88a8446bee22cbf12a5ae6d64b69caf348f5e
+          ref: b29f57121803d1949fd96ffdd38770e8edf3698a
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -26,15 +26,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: da9205b5ca5e5e918c8e10445595a90f82140c99
+          ref: 16110ff1aa3d8be63e878ee00a29fcc83de0f56f
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify private revisions, directory and technology parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "7bc88a8446bee22cbf12a5ae6d64b69caf348f5e"
-          test "$(git -C site rev-parse HEAD)" = "da9205b5ca5e5e918c8e10445595a90f82140c99"
-          for f in service-subject-protocols.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts; do
+          test "$(git -C subject rev-parse HEAD)" = "b29f57121803d1949fd96ffdd38770e8edf3698a"
+          test "$(git -C site rev-parse HEAD)" = "16110ff1aa3d8be63e878ee00a29fcc83de0f56f"
+          for f in service-subject-protocols.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
             cmp "subject/src/domain/$f" "site/src/domain/$f"
           done
           cmp subject/src/data/serviceDirectory.ts site/src/data/serviceDirectory.ts
@@ -55,7 +55,7 @@ jobs:
       - name: Regression for 92 cards, exact T2 methods, navigation and real-order seeds
         working-directory: site
         run: |
-          node --import tsx --test \
+          node --import tsx --test --test-reporter=tap \
             scripts/tests/d07-professional-card-release.test.mjs \
             scripts/tests/d07-startable-catalog.test.mjs \
             scripts/tests/d07-public-navigation-integrity.test.mjs \
@@ -68,7 +68,7 @@ jobs:
             scripts/tests/d07-workspace-direct-entry.test.mjs \
             > "$RUNNER_TEMP/d07-card-tests.log" 2>&1 || {
               echo D07_CARD_REGRESSION=FAIL
-              grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(error|expected|actual):|D07_CARD_' "$RUNNER_TEMP/d07-card-tests.log" | tail -35 || true
+              grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(error|expected|actual|code|name):|^  ---|D07_CARD_' "$RUNNER_TEMP/d07-card-tests.log" | tail -35 || true
               exit 1
             }
           echo D07_CARD_REGRESSION=PASS
