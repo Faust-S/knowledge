@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 922ec15bb4859fcdec3e57374f7e292c87024d66
+          ref: f95baaf5136ebaecce0fc456ee3e6089ba758822
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -26,20 +26,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: d93f5802c0787e298d1e6df1e9a7d4ac1fced74b
+          ref: 411ed3700f8a0b5f8af55e00bda7a0c73fc963d1
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify private revisions, directory and technology parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "922ec15bb4859fcdec3e57374f7e292c87024d66"
-          test "$(git -C site rev-parse HEAD)" = "d93f5802c0787e298d1e6df1e9a7d4ac1fced74b"
-          for f in service-subject-protocols.ts service-subject-it-router.ts service-subject-it-printer.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
+          test "$(git -C subject rev-parse HEAD)" = "f95baaf5136ebaecce0fc456ee3e6089ba758822"
+          test "$(git -C site rev-parse HEAD)" = "411ed3700f8a0b5f8af55e00bda7a0c73fc963d1"
+          for f in service-subject-protocols.ts service-subject-it-router.ts service-subject-it-printer.ts service-subject-it-wifi.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
             cmp "subject/src/domain/$f" "site/src/domain/$f"
           done
           cmp subject/src/data/serviceDirectory.ts site/src/data/serviceDirectory.ts
           cmp subject/src/data/services/kompyutery-it-sayty/nastroyka-routera.ts site/src/data/services/kompyutery-it-sayty/nastroyka-routera.ts
           cmp subject/src/data/services/kompyutery-it-sayty/nastroyka-printera.ts site/src/data/services/kompyutery-it-sayty/nastroyka-printera.ts
+          cmp subject/src/data/services/kompyutery-it-sayty/nastroyka-wifi.ts site/src/data/services/kompyutery-it-sayty/nastroyka-wifi.ts
           echo D07_SITE_CARD_PARITY=PASS
       - uses: actions/setup-node@v4
         with:
@@ -54,7 +55,7 @@ jobs:
             echo D07_CARD_INSTALL=FAIL; exit 1;
           }
           echo D07_CARD_INSTALL=PASS
-      - name: Regression for 94 professional cards, exact router/printer methods and T2 order seeds
+      - name: Regression for 95 professional cards, router/printer/Wi-Fi methods and T2 order seeds
         working-directory: site
         run: |
           node --import tsx --test --test-reporter=tap \
