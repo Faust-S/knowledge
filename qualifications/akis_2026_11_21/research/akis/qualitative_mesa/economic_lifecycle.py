@@ -192,6 +192,10 @@ def review_timed_original_lifecycle_costs(
         if (not isinstance(proof, str) or not proof.startswith(prefix)
                 or len(proof) <= len(prefix) or len(proof) > 180):
             raise LifecycleInputError("LIFECYCLE_TIMED_INDEPENDENT_OWNER_COST_SOURCE_REQUIRED")
+        if contextual_pause and proof == anchor.get("participation_source_ref"):
+            raise LifecycleInputError(
+                "LIFECYCLE_EXIT_COST_PROOF_MUST_DIFFER_FROM_PARTICIPATION_NOTICE"
+            )
         if (proof in used_sources
                 or proof == sources[source]["reference"]):
             raise LifecycleInputError("LIFECYCLE_TIMED_COST_EVIDENCE_NOT_UNIQUE")

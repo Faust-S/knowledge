@@ -219,3 +219,29 @@ def test_original_work_consent_not_rewritten_after_later_independent_resume():
         "original_work_event_timing"][
         "model_future_pause_exit_switching_cost_context_count"] == 1
     assert out["cooperation"]["links"][0]["relation_state"] == "ORIGINAL_COMMITMENTS_ACTIVE"
+
+
+def test_participation_notice_cannot_itself_be_passed_off_as_separate_exit_expense():
+    d=case()
+    d["events"][-1]["participation_evidence_ref"] = "model://b/same-proof"
+    d["economic_claims"]["lifecycle_costs"]["event_bindings"][0][
+        "cost_evidence_ref"] = "model://b/same-proof"
+    with pytest.raises(
+        InputError,
+        match="LIFECYCLE_EXIT_COST_PROOF_MUST_DIFFER_FROM_PARTICIPATION_NOTICE",
+    ):
+        view(d)
+
+
+def test_original_exit_cost_does_not_create_second_operator_fee_or_result():
+    d=case()
+    before=deepcopy(d)
+    before["economic_claims"]["lifecycle_costs"]["event_bindings"]=[]
+    a=view(d)
+    b=view(before)
+    assert a["economics"]["per_subject"]==b["economics"]["per_subject"]
+    assert a["economics"]["consolidated_external_cash_from_claims"]==b["economics"][
+        "consolidated_external_cash_from_claims"]
+    assert a["works"]==b["works"]
+    assert a["trace"]==b["trace"]
+    assert a["profit"]==b["profit"]
