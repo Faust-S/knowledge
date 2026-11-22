@@ -1,0 +1,212 @@
+"""M3: original Work quality requirements -> independent model recipient decision.
+
+No legally validated standards, real measurement, source identity, payment,
+operator consent or future capability gain is inferred from synthetic events.
+"""
+from copy import deepcopy
+
+import pytest
+
+from research.akis.qualitative_mesa.rules import InputError, QualitativeAKIS
+from .test_technology import world, signed, act
+from .test_general_system_mesa_integration import design
+
+
+def criterion(ident, operation, owner, *, dimension="DELIVERABLE_CONFORMITY"):
+    return {
+        "id": ident, "dimension": dimension, "operation": operation,
+        "responsible_owner": owner, "assessor": "c",
+        "method": "FUNCTIONAL_TEST" if operation == "cut" else "DOCUMENT_REVIEW",
+        "source_ref": f"model://c/criterion-{ident}",
+        "source_revision": "d1",
+    }
+
+
+def scenario():
+    d = world()
+    d["works"][0]["assurance_criteria"] = [
+        criterion("fit", "cut", "a"),
+        criterion("documents", "pack", "b", dimension="DOCUMENTATION"),
+    ]
+    return d
+
+
+def quality_event(at, criterion_id="fit", verdict="MEETS_DECLARED_REQUIREMENT",
+                  result_ref="model://final-v1", **changes):
+    return {
+        "at": at, "action": "assess_result_quality", "actor": "c", "work": "w1",
+        "criterion": criterion_id, "quality_verdict": verdict,
+        "quality_evidence_ref": f"model://c/inspected-{criterion_id}-{at}",
+        "result_ref": result_ref, "source_revision": "d1", "org_revision": "oc-1",
+        **changes,
+    }
+
+
+def execution_events():
+    return [
+        {"at":1, "action":"offer", "actor":"op", "work":"w1"},
+        {"at":2, "action":"authorize", "actor":"op", "work":"w1"},
+        *[
+            {"at":at, "action":"consent", "actor":owner, "work":"w1",
+             "source_revision":"d1", "org_revision":"oc-1"}
+            for at, owner in ((3,"a"),(4,"b"),(5,"c"))
+        ],
+        {"at":6, "action":"commit", "actor":"op", "work":"w1"},
+        {"at":7, "action":"start_operation", "actor":"a", "work":"w1", "operation":"cut"},
+        {"at":8, "action":"complete_operation", "actor":"a", "work":"w1",
+         "operation":"cut", "result_ref":"model://cut-exec"},
+        {"at":9, "action":"start_operation", "actor":"b", "work":"w1", "operation":"pack"},
+        {"at":10, "action":"complete_operation", "actor":"b", "work":"w1",
+         "operation":"pack", "result_ref":"model://pack-exec"},
+        {"at":11, "action":"complete", "actor":"a", "work":"w1",
+         "result_ref":"model://final-v1"},
+    ]
+
+
+def apply_sequence(d, events):
+    state=QualitativeAKIS(d)
+    outcomes=[state.apply(e,e["at"]) for e in events]
+    return state,outcomes
+
+
+@pytest.mark.parametrize("edit,error", [
+    ({"responsible_owner":"b"}, "QUALITY_RESPONSIBLE_ORIGINAL_OWNER_REQUIRED"),
+    ({"assessor":"a"}, "QUALITY_RECIPIENT_ASSESSOR_REQUIRED"),
+    ({"source_ref":"model://a/foreign-spec"}, "QUALITY_RECIPIENT_SOURCE_REQUIRED"),
+    ({"source_revision":"d0"}, "QUALITY_WORK_SOURCE_REVISION_MISMATCH"),
+    ({"operation":"unknown"}, "QUALITY_ORIGINAL_OPERATION_REQUIRED"),
+    ({"dimension":"UNIVERSAL_LEGAL_CERTIFICATE"}, "QUALITY_DIMENSION_INVALID"),
+    ({"method":"AUTO_PROVEN"}, "QUALITY_VERIFICATION_METHOD_INVALID"),
+])
+def test_input_must_be_original_work_scoped_and_not_imply_corporate_source_grants(edit,error):
+    d=scenario()
+    d["works"][0]["assurance_criteria"][0].update(edit)
+    with pytest.raises(InputError, match=error):
+        QualitativeAKIS(d)
+
+
+def test_undeclared_or_duplicate_criterion_rejected_before_work_creation():
+    d=scenario()
+    d["works"][0]["assurance_criteria"].append(
+        deepcopy(d["works"][0]["assurance_criteria"][0]))
+    with pytest.raises(InputError,match="QUALITY_CRITERION_DUPLICATE"):
+        QualitativeAKIS(d)
+    d=scenario()
+    d["works"][0]["assurance_criteria"]=[]
+    with pytest.raises(InputError,match="QUALITY_CRITERIA_REQUIRED_NONEMPTY_LIST"):
+        QualitativeAKIS(d)
+
+
+def test_explicit_quality_evidence_required_after_executed_operations_before_accept():
+    s,outcomes=apply_sequence(scenario(),execution_events())
+    assert all(x["outcome"]=="APPLIED" for x in outcomes)
+    assert act(s,12,"accept","c")["reason"]=="QUALITY_ORIGINAL_ASSESSMENT_MISSING"
+    assert s.works["w1"].result=="SUBMITTED"
+    assert s.works["w1"].obligation=="ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+    assert s.apply(quality_event(13),13)["outcome"]=="APPLIED"
+    assert act(s,14,"accept","c")["reason"]=="QUALITY_ORIGINAL_ASSESSMENT_MISSING"
+    assert s.apply(quality_event(15,criterion_id="documents"),15)["outcome"]=="APPLIED"
+    assert act(s,16,"accept","c")["outcome"]=="APPLIED"
+    result=s.snapshot()["works"]["w1"]
+    assert result["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert result["obligation"]=="FULFILLED"
+    assert result["assurance"]["required_count"]==2
+    assert result["assurance"]["model_reported_met_count"]==2
+    assert result["assurance"]["current_result_quality_gate"]=="NONE"
+    assert not result["assurance"]["criteria"][0]["legal_liability_created"]
+    assert result["assurance"]["additional_transaction_cost_or_competence_effect"]=="NOT_IDENTIFIABLE"
+    assert len([r for r in s.trace if r["action"]=="assess_result_quality"
+                and r["outcome"]=="APPLIED"])==2
+    assert s.snapshot()["profit"]["system_increment"]=="UNKNOWN"
+
+
+@pytest.mark.parametrize("change,reason", [
+    ({"actor":"b"}, "QUALITY_ORIGINAL_RECIPIENT_REQUIRED"),
+    ({"source_revision":"d-old"}, "QUALITY_WORK_SOURCE_REVISION_STALE"),
+    ({"org_revision":"oc-0"}, "QUALITY_ORIGINAL_COMMITMENT_CODE_REQUIRED"),
+    ({"result_ref":"model://other-result"}, "QUALITY_SUBMITTED_RESULT_REVISION_MISMATCH"),
+    ({"quality_verdict":"AUTO_CONSENT"}, "QUALITY_ASSESSMENT_VERDICT_INVALID"),
+    ({"quality_evidence_ref":"model://a/foreign-review"}, "QUALITY_INDEPENDENT_MODEL_EVIDENCE_REQUIRED"),
+    ({"quality_evidence_ref":"model://final-v1"}, "QUALITY_INDEPENDENT_MODEL_EVIDENCE_REQUIRED"),
+])
+def test_assessment_cannot_claim_foreign_rights_or_other_result(change,reason):
+    s,_=apply_sequence(scenario(),execution_events())
+    res=s.apply(quality_event(12,**change),12)
+    assert res["outcome"]=="BLOCKED" and res["reason"]==reason
+    assert s.works["w1"].assurance_reviews=={}
+    assert s.works["w1"].result=="SUBMITTED"
+
+
+def test_failed_quality_and_rejected_result_require_fresh_assessment_after_resubmit():
+    s,_=apply_sequence(scenario(),execution_events())
+    assert s.apply(quality_event(12,verdict="DOES_NOT_MEET"),12)["outcome"]=="APPLIED"
+    assert s.apply(quality_event(13,criterion_id="documents"),13)["outcome"]=="APPLIED"
+    assert act(s,14,"accept","c")["reason"]=="QUALITY_DECLARED_CRITERION_FAILED"
+    assert act(s,15,"reject","c")["outcome"]=="APPLIED"
+    assert s.works["w1"].result=="REJECTED"
+    assert act(s,16,"resubmit","a",result_ref="model://final-v2")["outcome"]=="APPLIED"
+    assert act(s,17,"accept","c")["reason"]=="QUALITY_ORIGINAL_ASSESSMENT_MISSING"
+    assert s.apply(quality_event(18,result_ref="model://final-v2"),18)["outcome"]=="APPLIED"
+    assert act(s,19,"accept","c")["reason"]=="QUALITY_ORIGINAL_ASSESSMENT_MISSING"
+    assert s.apply(quality_event(20,criterion_id="documents",
+                                result_ref="model://final-v2"),20)["outcome"]=="APPLIED"
+    assert act(s,21,"accept","c")["outcome"]=="APPLIED"
+    assert s.works["w1"].result_history[-1]["transition"]=="accept"
+    assert len(s.works["w1"].assurance_refs)==4
+
+
+def test_quality_evidence_reference_cannot_be_reused_or_precede_result():
+    s=QualitativeAKIS(scenario())
+    assert s.apply(quality_event(1),1)["reason"]=="QUALITY_SUBMITTED_RESULT_REQUIRED"
+    for e in execution_events():
+        s.apply(e,e["at"])
+    first=quality_event(12)
+    assert s.apply(first,12)["outcome"]=="APPLIED"
+    conflict=quality_event(13,criterion_id="documents",
+                           quality_evidence_ref=first["quality_evidence_ref"])
+    assert s.apply(conflict,13)["reason"]=="QUALITY_UNIQUE_EVIDENCE_REQUIRED"
+    assert set(s.works["w1"].assurance_reviews)=={"fit"}
+
+
+def test_original_quality_commitment_code_keeps_priority_after_later_org_mode_change():
+    s,_=apply_sequence(scenario(),execution_events())
+    # A historical obligation is not silently rewritten by later mode change.
+    old_code=s.works["w1"].commitment_org_revision
+    assert old_code=="oc-1"
+    shift={"at":12, "action":"change_mode", "actor":"FOUNDERS",
+           "expected_revision":"oc-1", "new_revision":"oc-2",
+           "new_mode":"COLLEGIAL", "authorized_by":["op","a","b"]}
+    assert s.apply(shift,12)["outcome"]=="APPLIED"
+    assert s.apply(quality_event(13),13)["outcome"]=="APPLIED"
+    assert s.apply(quality_event(14,criterion_id="documents"),14)["outcome"]=="APPLIED"
+    assert act(s,15,"accept","c")["outcome"]=="APPLIED"
+    assert s.works["w1"].commitment_org_revision=="oc-1"
+    assert s.institution.revision=="oc-2"
+
+
+def test_legacy_work_without_criteria_keeps_separate_customer_acceptance():
+    d=world()
+    s,_=apply_sequence(d,execution_events())
+    assert act(s,12,"accept","c")["outcome"]=="APPLIED"
+    assert "assurance" not in s.snapshot()["works"]["w1"]
+    assert s.snapshot()["profit"]["system_increment"]=="UNKNOWN"
+
+
+def test_native_mesa_work_quality_changes_result_acceptance_and_same_original_trace():
+    pytest.importorskip("mesa")
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    d=scenario()
+    d["events"]=execution_events()+[
+        quality_event(12),quality_event(13,criterion_id="documents"),
+        {"at":14,"action":"accept","actor":"c","work":"w1"},
+    ]
+    d["model_horizon"]=16
+    d["general_akis"]=design()
+    out=simulate(d)
+    assert out["counts"]=={"applied":14,"blocked":0}
+    assert out["works"]["w1"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w1"]["assurance"]["model_reported_met_count"]==2
+    assert out["general_akis_model"]["legal_consent_created"] is False
+    assert out["works"]["w1"]["assurance"]["independent_real_quality_certification"]=="NOT_ESTABLISHED"
+    assert out["profit"]["system_increment"]=="UNKNOWN"
+    assert simulate(deepcopy(d))==out
