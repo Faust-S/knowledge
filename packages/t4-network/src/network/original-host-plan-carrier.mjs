@@ -174,8 +174,8 @@ export async function persistT4OriginalHostPlanCarrier({
     data,extensions:{},base_revision:0,
     event:{event_type:'t4.original.host.plan.carried',
       payload:{sourcePlanDigest:p.planDigest,
-        sourceWorkspaceId:p.workspaceId,networkTargetRef:p.networkTargetRef},
-      idempotency_key:'t4-original-plan-'+p.planDigest.slice(7)},
+        sourceWorkspaceId:p.workspaceId,networkTargetRef:p.networkTargetRef,
+        carrierWorkspaceId,carrierObjectId}},
   };
   let receipt;
   try{receipt=await originalKernel.putObject(input);}
@@ -198,11 +198,19 @@ export async function persistT4OriginalHostPlanCarrier({
     !ID(receipt.event.event_id))
     fail('PLAN_CARRIER_ORIGINAL_T3_WRITE_RECEIPT_INVALID');
   const events=await originalKernel.listEventsSince(carrierWorkspaceId);
+  // Released T3 0.3.6 does NOT persist putObject's optional
+  // idempotency_key on this route. Correlate its REAL Event by the exact
+  // receipt Event ID, object scope, revision and uniquely bound payload,
+  // never synthesize a missing idempotency key or replay putObject.
   const matches=events?.filter(e=>e.event_id===receipt.event.event_id&&
-    e.idempotency_key===input.event.idempotency_key&&
     e.event_type===input.event.event_type&&
-    e.object_id===carrierObjectId&&
-    e.payload?.sourcePlanDigest===p.planDigest);
+    e.workspace_id===carrierWorkspaceId&&
+    e.object_id===carrierObjectId&&e.revision===1&&
+    e.payload?.sourcePlanDigest===p.planDigest&&
+    e.payload?.sourceWorkspaceId===p.workspaceId&&
+    e.payload?.networkTargetRef===p.networkTargetRef&&
+    e.payload?.carrierWorkspaceId===carrierWorkspaceId&&
+    e.payload?.carrierObjectId===carrierObjectId);
   if(matches?.length!==1)
     fail('PLAN_CARRIER_ORIGINAL_T3_EVENT_NOT_PROVEN');
   await recheck(readOriginalHostContext,p,carrierWorkspaceId,ctx);
