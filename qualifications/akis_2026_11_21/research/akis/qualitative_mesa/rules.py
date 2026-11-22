@@ -9,7 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .context_basis import ContextBasis, ContextBlocked, ContextInputError
+from .context_basis import (ContextBasis, ContextBlocked, ContextInputError,
+                            DECISION_SOURCE_FIELDS)
 from .org_code_policy import (
     OrgCodeBlocked, NEW_WORK_ACTIONS, qualify_model_code_proposal,
     qualify_model_code_response, qualify_model_code_function_response,
@@ -322,7 +323,7 @@ class QualitativeAKIS:
              "lifecycle_id", "lifecycle_kind", "lifecycle_fingerprint",
              "lifecycle_source_ref", "lifecycle_response_source_ref",
              "lifecycle_valid_until", "lifecycle_new_participants",
-             "lifecycle_decision"}, "EVENT")
+             "lifecycle_decision", "source_rights_ref"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -405,7 +406,18 @@ class QualitativeAKIS:
             known_works = set(self.works)
             known_works.update(ev["work_spec"]["id"] for ev in events if ev["action"] == "request")
             try:
-                self.context_basis = ContextBasis(raw_context, self.subjects, known_works)
+                prospective_subjects = {
+                    ev.get("new_subject") for ev in events
+                    if ev["action"] == "subject_registration_propose"
+                    and ev.get("new_subject_kind") == "SME"
+                    and isinstance(ev.get("new_subject"), str)
+                    and ev.get("new_subject") not in self.subjects
+                }
+                self.context_basis = ContextBasis(
+                    raw_context, self.subjects, known_works,
+                    prospective_subjects=prospective_subjects,
+                    operator=self.institution.operator,
+                )
             except ContextInputError as exc:
                 raise InputError(str(exc)) from exc
         self.events = [dict(ev) for ev in events]
@@ -676,9 +688,15 @@ class QualitativeAKIS:
                 "cooperation_lifecycle_apply",
             }:
                 if self.context_basis is not None and self.context_basis.strict:
-                    raise BlockedDecision(
-                        "COOPERATION_LIFECYCLE_SOURCE_RIGHTS_NOT_QUALIFIED"
-                    )
+                    if not self.context_basis.decision_requirements:
+                        raise BlockedDecision(
+                            "COOPERATION_LIFECYCLE_SOURCE_RIGHTS_NOT_QUALIFIED"
+                        )
+                    self.context_basis.assert_original_decision_rights(ev, at)
+                    if action == "cooperation_lifecycle_apply":
+                        self.context_basis.assert_original_decision_lineage(
+                            self.trace, action, ev.get("lifecycle_id"), at
+                        )
                 try:
                     if action == "cooperation_lifecycle_propose":
                         lifecycle_evidence = qualify_cooperation_lifecycle_proposal(
@@ -841,6 +859,10 @@ class QualitativeAKIS:
                 report["historical_accepted_results_and_consents_preserved"] = True
                 report["new_entrant_independent_work_consent_still_required"] = True
         if action.startswith(("subject_registration_", "resource_registration_")):
+            report["source_rights_ref"] = ev.get("source_rights_ref")
+            for name in DECISION_SOURCE_FIELDS.get(action, ()):
+                if name in ev:
+                    report[name] = ev[name]
             report["subject_registration_id"] = ev.get("subject_registration_id")
             report["resource_registration_id"] = ev.get("resource_registration_id")
             report["registration_fingerprint"] = ev.get("registration_fingerprint")
@@ -930,6 +952,12 @@ class QualitativeAKIS:
             "cooperation_lifecycle_propose", "cooperation_lifecycle_response",
             "cooperation_lifecycle_apply",
         }:
+            report["source_rights_ref"] = ev.get("source_rights_ref")
+            for name in DECISION_SOURCE_FIELDS.get(action, ()):
+                if name in ev:
+                    report[name] = ev[name]
+            if action == "cooperation_lifecycle_apply" and "new_link_source_ref" in ev:
+                report["new_link_source_ref"] = ev["new_link_source_ref"]
             report["lifecycle_id"] = ev.get("lifecycle_id")
             report["lifecycle_kind"] = ev.get("lifecycle_kind")
             report["cooperation_link"] = ev.get("cooperation_link")

@@ -11,6 +11,7 @@ import json
 from typing import Any, Mapping
 
 from .capacity import CapacityInputError, parse_resource_capacity
+from .context_basis import ContextBlocked
 
 
 class RegistrationBlocked(Exception):
@@ -94,7 +95,21 @@ def qualify_subject_registration(state: Any, ev: Mapping[str, Any],
     action = ev["action"]
     operator = state.institution.operator
     if state.context_basis is not None and state.context_basis.strict:
-        raise RegistrationBlocked("REGISTRATION_STRICT_CONTEXT_SOURCE_RIGHTS_NOT_QUALIFIED")
+        basis = state.context_basis
+        if not basis.decision_requirements:
+            raise RegistrationBlocked(
+                "REGISTRATION_STRICT_CONTEXT_SOURCE_RIGHTS_NOT_QUALIFIED"
+            )
+        try:
+            basis.assert_original_decision_rights(ev, at)
+            if action.endswith("_apply"):
+                basis.assert_original_decision_lineage(
+                    state.trace, action,
+                    ev.get("subject_registration_id" if action.startswith("subject_")
+                           else "resource_registration_id"), at
+                )
+        except ContextBlocked as exc:
+            raise RegistrationBlocked(exc.reason) from exc
     if ev.get("org_revision") != state.institution.revision:
         raise RegistrationBlocked("REGISTRATION_ORIGINAL_ORGANIZATIONAL_REVISION_REQUIRED")
     reg = ev.get("subject_registration_id")
@@ -215,7 +230,21 @@ def qualify_resource_registration(state: Any, ev: Mapping[str, Any],
     action = ev["action"]
     operator = state.institution.operator
     if state.context_basis is not None and state.context_basis.strict:
-        raise RegistrationBlocked("REGISTRATION_STRICT_CONTEXT_SOURCE_RIGHTS_NOT_QUALIFIED")
+        basis = state.context_basis
+        if not basis.decision_requirements:
+            raise RegistrationBlocked(
+                "REGISTRATION_STRICT_CONTEXT_SOURCE_RIGHTS_NOT_QUALIFIED"
+            )
+        try:
+            basis.assert_original_decision_rights(ev, at)
+            if action.endswith("_apply"):
+                basis.assert_original_decision_lineage(
+                    state.trace, action,
+                    ev.get("subject_registration_id" if action.startswith("subject_")
+                           else "resource_registration_id"), at
+                )
+        except ContextBlocked as exc:
+            raise RegistrationBlocked(exc.reason) from exc
     if ev.get("org_revision") != state.institution.revision:
         raise RegistrationBlocked("REGISTRATION_ORIGINAL_ORGANIZATIONAL_REVISION_REQUIRED")
     reg = ev.get("resource_registration_id")
