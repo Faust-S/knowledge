@@ -173,8 +173,39 @@ try{
  CloseEdge $browser
  $browser=OpenEdge ($Origin+$startHref)
  $null=WaitUi "Работы для выбранной услуги" $null 110
- $text=AccessibleText
- if($text -notmatch "Замена унитаза" -or $text -notmatch "10 основных работ"){
+ # Edge UIA can split the count in "10 основных работ" across separate
+ # accessibility text nodes. Verify the exact *ten source operations* instead
+ # of accepting a generic template or relying on a fragile text-node join.
+ $exactTitles=@(
+   "Осмотр оборудования и доступа",
+   "Проверка комплектности нового изделия",
+   "Согласование схемы монтажа и границ цены",
+   "Отключение и демонтаж прежнего прибора",
+   "Подготовка выпуска и крепления",
+   "Фиксация чаши и подключение канализации",
+   "Арматура бачка и водоснабжение",
+   "Контроль герметичности и смыва",
+   "Сверка объёма и дополнительных работ",
+   "Передача и рекомендации эксплуатации"
+ )
+ $summary=WaitUi "Посмотреть все работы" $null 35
+ try {
+   $invoke=[System.Windows.Automation.InvokePattern]$summary.GetCurrentPattern(
+     [System.Windows.Automation.InvokePattern]::Pattern)
+   $invoke.Invoke()
+ }catch{
+   $summary.SetFocus()
+   [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+ }
+ $matches=0
+ for($attempt=0;$attempt -lt 22;$attempt++){
+   Start-Sleep -Milliseconds 300
+   $text=AccessibleText
+   $matches=@($exactTitles|Where-Object{$text.Contains($_)}).Count
+   if($matches -eq $exactTitles.Count){break}
+ }
+ Write-Output ("D07_NATIVE_CARD_EXACT_OPERATION_MATCHES="+$matches)
+ if($text -notmatch "Замена унитаза" -or $matches -ne 10){
   throw "D07_NATIVE_CARD_WRONG_T2_TECHNOLOGY"
  }
  Write-Output "D07_NATIVE_CARD_T2_EXACT_PLAN=PASS"
