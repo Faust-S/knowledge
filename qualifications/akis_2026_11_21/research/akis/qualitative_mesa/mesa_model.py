@@ -210,7 +210,9 @@ class OperatorAKISModel(mesa.Model):
         "resource_registration_propose", "resource_registration_review",
         "resource_registration_apply", "coalition_options_propose",
         "coalition_option_assess", "active_coalition_portfolio_propose",
-        "active_coalition_portfolio_assess", "adopt_capability",
+        "active_coalition_portfolio_assess",
+        "cooperation_lifecycle_propose", "cooperation_lifecycle_response",
+        "cooperation_lifecycle_apply", "adopt_capability",
         "economic_outlook_available", "economic_outlook_expired",
         "joint_purchasing_quote_change",
         "owner_finance_source_available", "owner_finance_source_expired",
@@ -806,7 +808,9 @@ class OperatorAKISModel(mesa.Model):
         if (self.decision_profiles or self.endogenous_subjects_enabled or
                 self.economic_outlooks or self.joint_purchasing_plans or
                 event["action"] in {"interest_update", "participation_status",
-                                    "cooperation_change_propose", "cooperation_change_response"}
+                                    "cooperation_change_propose", "cooperation_change_response",
+                                    "cooperation_lifecycle_propose", "cooperation_lifecycle_response",
+                                    "cooperation_lifecycle_apply"}
                 ) and outcome["outcome"] == "APPLIED":
             self._schedule_responses(event)
         if outcome["outcome"] == "APPLIED":
@@ -857,7 +861,9 @@ class OperatorAKISModel(mesa.Model):
                          "active_coalition_portfolio_assess"}:
             # Registrations and comparisons do not book resources or create Work.
             impacted = []
-        elif action in {"participation_status", "cooperation_change_propose", "cooperation_change_response"}:
+        elif action in {"participation_status", "cooperation_change_propose", "cooperation_change_response",
+                         "cooperation_lifecycle_propose", "cooperation_lifecycle_response",
+                         "cooperation_lifecycle_apply"}:
             link = next((link for link in state.cooperation_links
                          if link.key == event["cooperation_link"]), None)
             impacted = list(link.works) if link is not None else []

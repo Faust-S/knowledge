@@ -146,6 +146,25 @@ def cooperation_view(links: Sequence[CooperationLink], works: Mapping[str, Any],
                 and row.get("cooperation_link") == link.key
             ), None),
             "historical_relation_and_accepted_results_immutable": True,
+            "future_cooperation_status": (
+                "DISSOLVED_FOR_FUTURE_WORK"
+                if original_cooperation_dissolved_for_future(trace, link)
+                else "OPEN_FOR_NEW_ORIGINAL_WORK"
+            ),
+            "reconstituted_as": next((
+                e.get("lifecycle_successor_link") for e in trace
+                if e.get("action") == "cooperation_lifecycle_apply"
+                and e.get("outcome") == "APPLIED"
+                and e.get("lifecycle_kind") == "RECONSTITUTE"
+                and e.get("cooperation_link") == link.key
+            ), None),
+            "reconstituted_from": next((
+                e.get("cooperation_link") for e in trace
+                if e.get("action") == "cooperation_lifecycle_apply"
+                and e.get("outcome") == "APPLIED"
+                and e.get("lifecycle_kind") == "RECONSTITUTE"
+                and e.get("lifecycle_successor_link") == link.key
+            ), None),
         })
     return {"evidence": "MODEL_ONLY", "links": out,
             "parallel_active_coalitions": active_coalition_portfolio_view(trace, works),
@@ -1023,6 +1042,298 @@ def active_coalition_portfolio_view(
     }
 
 
+
+# R1-U3. Dissolution of FUTURE cooperation and owner-chosen reconstitution.
+# The sole original event trace remains authoritative; no archived Work,
+# source, reservation, independent consent or Result is rewritten.
+
+def _lifecycle_document(
+    link: CooperationLink, kind: str, pilot_work: str, pilot_result_ref: str,
+    pilot_decision_at: int, proposed_participants: Sequence[str],
+) -> str:
+    """Fixed original source/accepted-Result scope, not proof of lawful rights."""
+    packet = {
+        "parent_link": link.key,
+        "parent_revision": link.source_revision,
+        "parent_source": link.source_ref,
+        "original_participants": list(link.participants),
+        "kind": kind,
+        "pilot_work": pilot_work,
+        "pilot_result_ref": pilot_result_ref,
+        "pilot_decision_at": pilot_decision_at,
+        "future_participants": list(proposed_participants),
+    }
+    return hashlib.sha256(
+        json.dumps(packet, sort_keys=True, ensure_ascii=False,
+                   separators=(",", ":"), allow_nan=False).encode("utf-8")
+    ).hexdigest()
+
+
+def _applied_lifecycle_proposal(trace: Sequence[Mapping[str, Any]], ident: Any
+                                ) -> Mapping[str, Any]:
+    if not isinstance(ident, str) or not ident:
+        raise CooperationInputError("COOPERATION_LIFECYCLE_ID_REQUIRED")
+    matched = [
+        row for row in trace
+        if row.get("action") == "cooperation_lifecycle_propose"
+        and row.get("outcome") == "APPLIED" and row.get("lifecycle_id") == ident
+    ]
+    if len(matched) != 1:
+        raise CooperationInputError("COOPERATION_LIFECYCLE_ORIGINAL_PROPOSAL_REQUIRED")
+    return matched[0]
+
+
+def _applied_lifecycle_transition(
+    trace: Sequence[Mapping[str, Any]], link: CooperationLink, kind: str,
+) -> Mapping[str, Any] | None:
+    rows = [
+        row for row in trace
+        if row.get("action") == "cooperation_lifecycle_apply"
+        and row.get("outcome") == "APPLIED"
+        and row.get("lifecycle_kind") == kind
+        and row.get("cooperation_link") == link.key
+        and row.get("cooperation_source_revision") == link.source_revision
+    ]
+    return rows[-1] if rows else None
+
+
+def original_cooperation_dissolved_for_future(
+    trace: Sequence[Mapping[str, Any]], link: CooperationLink
+) -> bool:
+    return _applied_lifecycle_transition(trace, link, "DISSOLVE") is not None
+
+
+def qualify_cooperation_lifecycle_proposal(
+    state: Any, ev: Mapping[str, Any], at: int
+) -> dict[str, Any]:
+    link = _declared_link(state.cooperation_links, ev.get("cooperation_link"))
+    kind = ev.get("lifecycle_kind")
+    if kind not in {"DISSOLVE", "RECONSTITUTE"}:
+        raise CooperationInputError("COOPERATION_LIFECYCLE_KIND_REQUIRED")
+    actor = ev.get("actor")
+    if (actor not in link.participants or actor not in state.subjects
+            or state.subjects[actor].kind != "SME"
+            or not state.subjects[actor].active
+            or ev.get("cooperation_source_revision") != link.source_revision
+            or ev.get("org_revision") != state.institution.revision):
+        raise CooperationInputError("COOPERATION_LIFECYCLE_ORIGINAL_SME_AND_REVISION_REQUIRED")
+    ident = _id(ev.get("lifecycle_id"), "LIFECYCLE_ID")
+    if any(row.get("action") == "cooperation_lifecycle_propose"
+           and row.get("outcome") == "APPLIED"
+           and row.get("lifecycle_id") == ident for row in state.trace):
+        raise CooperationInputError("COOPERATION_LIFECYCLE_ID_ALREADY_USED")
+    _competition_source(ev.get("lifecycle_source_ref"), actor)
+    expiry = ev.get("lifecycle_valid_until")
+    if type(expiry) is not int or not at < expiry <= 10000:
+        raise CooperationInputError("COOPERATION_LIFECYCLE_VALIDITY_REQUIRED")
+    pilot = state.works.get(ev.get("pilot_work"))
+    accepted = [
+        row for row in state.trace
+        if row.get("action") == "accept"
+        and row.get("outcome") == "APPLIED"
+        and row.get("work") == ev.get("pilot_work")
+        and type(row.get("at")) is int and row["at"] < at
+    ]
+    if (pilot is None or pilot.key not in link.works
+            or pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+            or pilot.result_ref != ev.get("pilot_result_ref")
+            or len(accepted) != 1
+            or accepted[0]["at"] != ev.get("pilot_decision_at")):
+        raise CooperationInputError("COOPERATION_LIFECYCLE_ACCEPTED_ORIGINAL_RESULT_REQUIRED")
+    members = ev.get("lifecycle_new_participants")
+    if not isinstance(members, list) or len(members) > 128:
+        raise CooperationInputError("COOPERATION_LIFECYCLE_FUTURE_PARTICIPANTS_REQUIRED")
+    if kind == "DISSOLVE":
+        if members:
+            raise CooperationInputError("COOPERATION_LIFECYCLE_DISSOLUTION_CANNOT_ASSIGN_MEMBERS")
+        if original_cooperation_dissolved_for_future(state.trace, link):
+            raise CooperationInputError("COOPERATION_LIFECYCLE_ALREADY_DISSOLVED")
+        if any(row.get("action") == "cooperation_membership_apply"
+               and row.get("outcome") == "APPLIED"
+               and row.get("cooperation_link") == link.key for row in state.trace):
+            raise CooperationInputError("COOPERATION_LIFECYCLE_RELATION_ALREADY_SUCCEEDED")
+        required = list(link.participants)
+    else:
+        closed = _applied_lifecycle_transition(state.trace, link, "DISSOLVE")
+        if closed is None or closed["at"] >= at:
+            raise CooperationInputError("COOPERATION_LIFECYCLE_PRIOR_DISSOLUTION_REQUIRED")
+        if _applied_lifecycle_transition(state.trace, link, "RECONSTITUTE"):
+            raise CooperationInputError("COOPERATION_LIFECYCLE_ALREADY_RECONSTITUTED")
+        if (len(members) < 2 or len(set(members)) != len(members)
+                or not set(members).issubset(link.participants)
+                or link.coordinator not in members
+                or actor not in members
+                or not any(state.subjects[name].kind == "SME" for name in members)
+                or any(not state.subjects[name].active for name in members)):
+            raise CooperationInputError("COOPERATION_LIFECYCLE_RECONSTITUTED_MEMBERSHIP_INVALID")
+        required = list(members)
+    if any(not state.subjects[name].active for name in required):
+        raise CooperationInputError("COOPERATION_LIFECYCLE_INACTIVE_PARTICIPANT")
+    digest = _lifecycle_document(
+        link, kind, pilot.key, pilot.result_ref,
+        accepted[0]["at"], members
+    )
+    if ev.get("lifecycle_fingerprint") != digest:
+        raise CooperationInputError("COOPERATION_LIFECYCLE_EXACT_SOURCE_FINGERPRINT_REQUIRED")
+    return {
+        "lifecycle_id": ident,
+        "lifecycle_kind": kind,
+        "cooperation_link": link.key,
+        "cooperation_source_revision": link.source_revision,
+        "lifecycle_fingerprint": digest,
+        "lifecycle_source_ref": ev["lifecycle_source_ref"],
+        "lifecycle_valid_until": expiry,
+        "lifecycle_new_participants": members.copy(),
+        "lifecycle_original_required_respondents": required,
+        "pilot_work": pilot.key,
+        "pilot_result_ref": pilot.result_ref,
+        "pilot_decision_at": accepted[0]["at"],
+        "lifecycle_proposal_does_not_change_original_rights_or_obligations": True,
+    }
+
+
+def qualify_cooperation_lifecycle_response(
+    state: Any, ev: Mapping[str, Any], at: int
+) -> dict[str, Any]:
+    proposal = _applied_lifecycle_proposal(
+        state.trace, ev.get("lifecycle_id")
+    )
+    actor = ev.get("actor")
+    if (actor not in proposal["lifecycle_original_required_respondents"]
+            or actor not in state.subjects or not state.subjects[actor].active
+            or ev.get("cooperation_link") != proposal["cooperation_link"]
+            or ev.get("cooperation_source_revision") != proposal["cooperation_source_revision"]
+            or ev.get("org_revision") != proposal["org_revision"]
+            or ev.get("lifecycle_fingerprint") != proposal["lifecycle_fingerprint"]
+            or not proposal["at"] < at < proposal["lifecycle_valid_until"]):
+        raise CooperationInputError("COOPERATION_LIFECYCLE_RESPONSE_OWNER_SOURCE_STALE")
+    if ev.get("lifecycle_decision") not in {
+        "SUPPORT_MODEL_PROPOSAL", "OBJECT_MODEL_PROPOSAL", "DEFER_MODEL_DECISION"
+    }:
+        raise CooperationInputError("COOPERATION_LIFECYCLE_INDEPENDENT_DECISION_REQUIRED")
+    _competition_source(ev.get("lifecycle_response_source_ref"), actor)
+    return {
+        "lifecycle_id": proposal["lifecycle_id"],
+        "lifecycle_kind": proposal["lifecycle_kind"],
+        "cooperation_link": proposal["cooperation_link"],
+        "cooperation_source_revision": proposal["cooperation_source_revision"],
+        "lifecycle_fingerprint": proposal["lifecycle_fingerprint"],
+        "lifecycle_decision": ev["lifecycle_decision"],
+        "lifecycle_response_source_ref": ev["lifecycle_response_source_ref"],
+        "lifecycle_independent_original_response": True,
+    }
+
+
+def apply_cooperation_lifecycle(
+    state: Any, ev: Mapping[str, Any], at: int
+) -> tuple[tuple[CooperationLink, ...], dict[str, Any]]:
+    proposal = _applied_lifecycle_proposal(
+        state.trace, ev.get("lifecycle_id")
+    )
+    link = _declared_link(state.cooperation_links, proposal["cooperation_link"])
+    actor = ev.get("actor")
+    if (actor != proposal["actor"] or actor not in state.subjects
+            or not state.subjects[actor].active
+            or ev.get("cooperation_link") != link.key
+            or ev.get("cooperation_source_revision") != link.source_revision
+            or ev.get("org_revision") != state.institution.revision
+            or proposal["org_revision"] != state.institution.revision
+            or ev.get("lifecycle_fingerprint") != proposal["lifecycle_fingerprint"]
+            or not proposal["at"] < at < proposal["lifecycle_valid_until"]):
+        raise CooperationInputError("COOPERATION_LIFECYCLE_APPLICATION_ORIGINAL_SCOPE_STALE")
+    # Recheck source identity and historical acceptance; model-input assertions
+    # cannot qualify their own source rights.
+    pilot = state.works.get(proposal["pilot_work"])
+    if (pilot is None or pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+            or pilot.result_ref != proposal["pilot_result_ref"]
+            or _lifecycle_document(
+                link, proposal["lifecycle_kind"], pilot.key, pilot.result_ref,
+                proposal["pilot_decision_at"], proposal["lifecycle_new_participants"]
+            ) != proposal["lifecycle_fingerprint"]):
+        raise CooperationInputError("COOPERATION_LIFECYCLE_ORIGINAL_RESULT_CHANGED")
+    expected = set(proposal["lifecycle_original_required_respondents"])
+    latest: dict[str, Mapping[str, Any]] = {}
+    for row in state.trace:
+        if (row.get("action") == "cooperation_lifecycle_response"
+                and row.get("outcome") == "APPLIED"
+                and row.get("lifecycle_id") == proposal["lifecycle_id"]
+                and row.get("lifecycle_fingerprint") == proposal["lifecycle_fingerprint"]
+                and row.get("actor") in expected
+                and proposal["at"] < row.get("at", 0) < at):
+            latest[row["actor"]] = row
+    if set(latest) != expected:
+        raise CooperationInputError("COOPERATION_LIFECYCLE_INDEPENDENT_RESPONSES_MISSING")
+    if any(row["lifecycle_decision"] != "SUPPORT_MODEL_PROPOSAL"
+           for row in latest.values()):
+        raise CooperationInputError("COOPERATION_LIFECYCLE_INDEPENDENT_OBJECTION_OR_REFUSAL")
+    if any(not state.subjects[name].active for name in expected):
+        raise CooperationInputError("COOPERATION_LIFECYCLE_PARTICIPANT_UNAVAILABLE")
+    outstanding = sorted(
+        name for name in link.works
+        if state.works[name].obligation == "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+        and state.works[name].result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    )
+    evidence = {
+        "lifecycle_id": proposal["lifecycle_id"],
+        "lifecycle_kind": proposal["lifecycle_kind"],
+        "cooperation_link": link.key,
+        "cooperation_source_revision": link.source_revision,
+        "lifecycle_fingerprint": proposal["lifecycle_fingerprint"],
+        "lifecycle_independent_original_respondents": sorted(expected),
+        "lifecycle_old_original_outstanding_work": outstanding,
+        "lifecycle_old_original_work_count": len(link.works),
+        "lifecycle_old_consents_results_and_resource_titles_unchanged": True,
+        "lifecycle_no_automatic_debt_discharge_or_legal_effect": True,
+    }
+    if proposal["lifecycle_kind"] == "DISSOLVE":
+        if original_cooperation_dissolved_for_future(state.trace, link):
+            raise CooperationInputError("COOPERATION_LIFECYCLE_ALREADY_DISSOLVED")
+        if any(row.get("action") == "cooperation_membership_apply"
+               and row.get("outcome") == "APPLIED"
+               and row.get("cooperation_link") == link.key for row in state.trace):
+            raise CooperationInputError("COOPERATION_LIFECYCLE_RELATION_ALREADY_SUCCEEDED")
+        if any((ev.get(x) is not None) for x in (
+            "new_link_id", "new_link_revision", "new_link_source_ref"
+        )):
+            raise CooperationInputError("COOPERATION_LIFECYCLE_DISSOLUTION_HAS_NO_SUCCESSOR")
+        evidence["lifecycle_future_work_closed"] = True
+        return tuple(state.cooperation_links), evidence
+    closed = _applied_lifecycle_transition(state.trace, link, "DISSOLVE")
+    if closed is None or closed["at"] >= at:
+        raise CooperationInputError("COOPERATION_LIFECYCLE_PRIOR_DISSOLUTION_REQUIRED")
+    if _applied_lifecycle_transition(state.trace, link, "RECONSTITUTE"):
+        raise CooperationInputError("COOPERATION_LIFECYCLE_ALREADY_RECONSTITUTED")
+    members = tuple(proposal["lifecycle_new_participants"])
+    if any(name not in state.subjects or not state.subjects[name].active
+           for name in members):
+        raise CooperationInputError("COOPERATION_LIFECYCLE_RECONSTITUTED_PARTICIPANT_UNAVAILABLE")
+    successor_id = _id(ev.get("new_link_id"), "NEW_LINK_ID")
+    revision = _id(ev.get("new_link_revision"), "NEW_LINK_REVISION")
+    if successor_id in {l.key for l in state.cooperation_links}:
+        raise CooperationInputError("COOPERATION_LIFECYCLE_NEW_LINK_ALREADY_EXISTS")
+    if revision == link.source_revision:
+        raise CooperationInputError("COOPERATION_LIFECYCLE_SUCCESSOR_REVISION_UNCHANGED")
+    _competition_source(ev.get("new_link_source_ref"), actor)
+    new_link = CooperationLink(
+        successor_id, link.purpose, link.coordinator,
+        members, (), link.mechanisms,
+        ev["new_link_source_ref"], revision
+    )
+    evidence.update({
+        "lifecycle_successor_link": successor_id,
+        "lifecycle_successor_revision": revision,
+        "lifecycle_successor_source_ref": new_link.source_ref,
+        "lifecycle_successor_participants": list(members),
+        "lifecycle_not_rejoined_original_members": sorted(
+            set(link.participants) - set(members)
+        ),
+        "lifecycle_restoration_requires_new_original_work_and_consents": True,
+        "lifecycle_future_work_closed": True,
+    })
+    return tuple(sorted((*state.cooperation_links, new_link),
+                        key=lambda row: row.key)), evidence
+
+
 def original_membership_predecessor(
     links: Sequence[CooperationLink], trace: Sequence[Mapping[str, Any]],
     *, successor_id: str, successor_revision: str, pilot: Any,
@@ -1658,6 +1969,8 @@ def attach_requested_work(links: Sequence[CooperationLink], work: Any,
         raise CooperationInputError("COOPERATION_LINK_UNKNOWN")
     if match.source_revision != expected_revision:
         raise CooperationInputError("COOPERATION_SOURCE_REVISION_STALE")
+    if original_cooperation_dissolved_for_future(trace, match):
+        raise CooperationInputError("COOPERATION_RELATION_DISSOLVED_FOR_FUTURE_WORK")
     if any(
         row.get("action") == "cooperation_membership_apply"
         and row.get("outcome") == "APPLIED"

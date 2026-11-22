@@ -54,6 +54,9 @@ from .cooperation import (
     qualify_active_coalition_portfolio_proposal,
     qualify_active_coalition_owner_assessment,
     qualify_active_coalition_original_commit,
+    qualify_cooperation_lifecycle_proposal,
+    qualify_cooperation_lifecycle_response, apply_cooperation_lifecycle,
+    original_cooperation_dissolved_for_future,
 )
 
 SCHEMA = "IWXA_AKIS_QUALITATIVE_INPUT/0.1"
@@ -70,6 +73,8 @@ ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "star
     "resource_registration_apply",
     "coalition_options_propose", "coalition_option_assess",
     "active_coalition_portfolio_propose", "active_coalition_portfolio_assess",
+    "cooperation_lifecycle_propose", "cooperation_lifecycle_response",
+    "cooperation_lifecycle_apply",
     "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
@@ -313,7 +318,11 @@ class QualitativeAKIS:
              "coalition_portfolio_owner_source_ref",
              "coalition_portfolio_cash_available",
              "coalition_portfolio_cash_floor",
-             "coalition_portfolio_peak_cash_needs"}, "EVENT")
+             "coalition_portfolio_peak_cash_needs",
+             "lifecycle_id", "lifecycle_kind", "lifecycle_fingerprint",
+             "lifecycle_source_ref", "lifecycle_response_source_ref",
+             "lifecycle_valid_until", "lifecycle_new_participants",
+             "lifecycle_decision"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -499,6 +508,7 @@ class QualitativeAKIS:
         registration_evidence = None
         coalition_competition_evidence = None
         active_coalition_evidence = None
+        lifecycle_evidence = None
         active_coalition_commit_evidence = None
         if self.capability_policy is not None:
             # Time- and owner-source eligibility is refreshed before future
@@ -658,6 +668,31 @@ class QualitativeAKIS:
                         if action == "active_coalition_portfolio_propose"
                         else qualify_active_coalition_owner_assessment(self, ev, at)
                     )
+                except CooperationInputError as exc:
+                    raise BlockedDecision(str(exc)) from exc
+            elif action in {
+                "cooperation_lifecycle_propose",
+                "cooperation_lifecycle_response",
+                "cooperation_lifecycle_apply",
+            }:
+                if self.context_basis is not None and self.context_basis.strict:
+                    raise BlockedDecision(
+                        "COOPERATION_LIFECYCLE_SOURCE_RIGHTS_NOT_QUALIFIED"
+                    )
+                try:
+                    if action == "cooperation_lifecycle_propose":
+                        lifecycle_evidence = qualify_cooperation_lifecycle_proposal(
+                            self, ev, at
+                        )
+                    elif action == "cooperation_lifecycle_response":
+                        lifecycle_evidence = qualify_cooperation_lifecycle_response(
+                            self, ev, at
+                        )
+                    else:
+                        revised, lifecycle_evidence = apply_cooperation_lifecycle(
+                            self, ev, at
+                        )
+                        self.cooperation_links = revised
                 except CooperationInputError as exc:
                     raise BlockedDecision(str(exc)) from exc
             elif action in {"cooperation_change_propose", "cooperation_change_response"}:
@@ -891,6 +926,22 @@ class QualitativeAKIS:
         if (action == "commit" and report["outcome"] == "APPLIED"
                 and active_coalition_commit_evidence is not None):
             report.update(active_coalition_commit_evidence)
+        if action in {
+            "cooperation_lifecycle_propose", "cooperation_lifecycle_response",
+            "cooperation_lifecycle_apply",
+        }:
+            report["lifecycle_id"] = ev.get("lifecycle_id")
+            report["lifecycle_kind"] = ev.get("lifecycle_kind")
+            report["cooperation_link"] = ev.get("cooperation_link")
+            report["cooperation_source_revision"] = ev.get(
+                "cooperation_source_revision"
+            )
+            report["lifecycle_fingerprint"] = ev.get(
+                "lifecycle_fingerprint"
+            )
+            if report["outcome"] == "APPLIED":
+                report.update(lifecycle_evidence)
+                report["lifecycle_model_only_not_legal_dissolution"] = True
         if action in {"cooperation_change_propose", "cooperation_change_response"} and report["outcome"] == "APPLIED":
             # The existing trace alone owns the proposal and the consultations.
             report["cooperation_link"] = ev.get("cooperation_link")
@@ -1176,6 +1227,8 @@ class QualitativeAKIS:
         for link in self.cooperation_links:
             if w.key not in link.works:
                 continue
+            if original_cooperation_dissolved_for_future(self.trace, link):
+                raise BlockedDecision("COOPERATION_RELATION_DISSOLVED_FOR_FUTURE_WORK")
             if any(latest_future_participation(
                 self.trace, link.key, principal, link.source_revision,
                 self.institution.revision
