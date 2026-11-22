@@ -19,6 +19,13 @@ const METHODS=new Set([
   'reconciliationRequest','nativeD6Request','nativeD7Request',
 ]);
 const LOCAL_ORIGIN=/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/;
+const READ_STAGES=new Set([
+  "SIGNED_FACADE","SIGNED_KERNEL_READ","SUBJECT_CONTEXT",
+  "SIGNED_CONTEXT_SELECTED","SIGNED_ACTION","SIGNED_ACTION_SELECTED",
+  "SIGNED_DIGEST","SIGNED_DIGEST_DONE","SIGNED_JIT","SIGNED_JIT_RETURNED",
+  "SIGNED_CONTEXT_RECHECK","SIGNED_CONTEXT_RECHECKED",
+  "ORIGINAL_T2_KERNEL_CALL","ORIGINAL_T2_KERNEL_RETURNED",
+]);
 const fail=code=>Object.assign(new Error(code),{code});
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const isPort=p=>p&&typeof p.postMessage==='function'&&
@@ -68,15 +75,9 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
     // A strictly finite progress vocabulary for one READ-ONLY operation.
     // No grant, resource ID, exception, native path or object metadata
     // ever crosses the UI-origin MessagePort in this diagnostic.
-    const readStages=new Set([
-      "SIGNED_FACADE","SIGNED_KERNEL_READ","SUBJECT_CONTEXT",
-      "SIGNED_CONTEXT_SELECTED","SIGNED_ACTION","SIGNED_ACTION_SELECTED",
-      "SIGNED_DIGEST","SIGNED_DIGEST_DONE","SIGNED_JIT","SIGNED_JIT_RETURNED",
-      "SIGNED_CONTEXT_RECHECK","SIGNED_CONTEXT_RECHECKED",
-      "ORIGINAL_T2_KERNEL_CALL","ORIGINAL_T2_KERNEL_RETURNED",
-    ]);
+
     const report=stage=>{
-      if(method!=="getWorkspace"||!readStages.has(stage)||!valid())return;
+      if(method!=="getWorkspace"||!READ_STAGES.has(stage)||!valid())return;
       try{port.postMessage({schema:SCHEMA,kind:"progress",id,stage});}
       catch{/* Observability never changes signed JIT */}
     };
@@ -208,8 +209,7 @@ export function createIsolatedKernelClient({
     if(!pending)return;
     if(response.kind==="progress"){
       if(pending.method==="getWorkspace"&&
-         typeof response.stage==="string"&&
-         /^[A-Z][A-Z0-9_]{4,39}$/.test(response.stage))
+         READ_STAGES.has(response.stage))
         pending.stage=response.stage;
       return;
     }
