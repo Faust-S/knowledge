@@ -238,6 +238,36 @@ try{
  }
  if(!$saved){throw "D07_NATIVE_CARD_KERNEL_SAVE_UNCONFIRMED"}
  Write-Output "D07_NATIVE_CARD_T2_KERNEL_SAVE=PASS"
+ # Preserve the exact original Kernel object identity for an independent
+ # recipient readback. The profile is not evidence by itself, and a count of
+ # one order after import is insufficient without the same Object ID.
+ $details=WaitUi "Технические сведения о записи" $null 45
+ try {
+   $p=[System.Windows.Automation.InvokePattern]$details.GetCurrentPattern(
+     [System.Windows.Automation.InvokePattern]::Pattern)
+   $p.Invoke()
+ }catch{
+   $details.SetFocus()
+   [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+ }
+ $objectId=$null
+ $receiptEvent=$null
+ for($i=0;$i -lt 40;$i++){
+   Start-Sleep -Milliseconds 300
+   $body=AccessibleText
+   if($body -match 'Object ID:\s*(d07:order:[a-f0-9]{64})'){$objectId=$Matches[1]}
+   if($body -match 'Событие:\s*([^\s\.]{8,200})'){$receiptEvent=$Matches[1]}
+   if($objectId -and $receiptEvent){break}
+ }
+ if(!$objectId -or !$receiptEvent){throw "D07_NATIVE_CARD_KERNEL_IDENTITY_NOT_VISIBLE"}
+ $witness=@{
+   protocolId="toilet-replacement";serviceSlug="zamena-unitaza"
+   objectId=$objectId;eventId=$receiptEvent;works=10
+   sourceProfile="d07-native-card-profile"
+ }
+ $witness|ConvertTo-Json -Compress|Set-Content -Path (
+   Join-Path $env:RUNNER_TEMP "d07-native-card-order-identity.private.json") -Encoding UTF8
+ Write-Output "D07_NATIVE_CARD_KERNEL_OBJECT_ID_WITNESSED=PASS"
  Write-Output "D07_NATIVE_CARD_T2_RESULT_ACCEPTANCE=NOT_RUN"
  Write-Output "D07_NATIVE_CARD_IWXA_INDEPENDENT_IMPORT=NOT_RUN"
 }finally{
