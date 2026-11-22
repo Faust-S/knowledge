@@ -344,3 +344,46 @@ test('changed original Asset bytes after lost recipient ACK block reconciliation
   assert.equal(f.read().writes.assets,1);
   assert.equal(f.checkpoints.size,1);
 });
+
+test('concurrent original Host requests cannot substitute a different recipient source plan',async()=>{
+  const f=await fixture();
+  let release=null,block=true;
+  const previous=f.ports.authorizeOriginalRead;
+  f.ports.authorizeOriginalRead=async proof=>{
+    if(block){
+      block=false;
+      await new Promise(resolve=>{release=resolve;});
+    }
+    return previous(proof);
+  };
+  const dispatcher=f.dispatcher();
+  const args={entries:f.plan,initialCursor:f.initialCursor,maxEntries:1};
+  const first=dispatcher.drain(args);
+  await assert.rejects(dispatcher.drain({...args,maxEntries:2}),
+    e=>e.code==='RECIPIENT_CONCURRENT_PLAN_MISMATCH'&&
+      e.details.automaticRetryAllowed===false);
+  assert.equal(typeof release,'function');
+  release();
+  const result=await first;
+  assert.equal(result.processedCount,1);
+  assert.equal(f.read().writes.objects,1);
+});
+test('identical concurrent recipient Host ticks share the one in-flight plan',async()=>{
+  const f=await fixture();
+  let release=null,block=true;
+  const previous=f.ports.authorizeOriginalRead;
+  f.ports.authorizeOriginalRead=async proof=>{
+    if(block){
+      block=false;
+      await new Promise(resolve=>{release=resolve;});
+    }
+    return previous(proof);
+  };
+  const dispatcher=f.dispatcher();
+  const args={entries:f.plan,initialCursor:f.initialCursor,maxEntries:1};
+  const first=dispatcher.drain(args);
+  const second=dispatcher.drain(args);
+  release();
+  assert.deepEqual(await first,await second);
+  assert.equal(f.read().writes.objects,1);
+});
