@@ -17,10 +17,10 @@ function sample() {
   }));
   const events = nodes.flatMap((node, index) => [
     {event_id: `event:${index}:1`, event_type: 'synthetic.started', semantic_kind: 'Event',
-      occurred_at: '2026-11-11T10:00:00Z', object_ref: {object_id: node.object_id, revision: 1},
+      epistemic_status:'observed', occurred_at: '2026-11-11T10:00:00Z', object_ref: {object_id: node.object_id, revision: 1},
       correlation_id: S},
     {event_id: `event:${index}:2`, event_type: 'synthetic.finished', semantic_kind: 'Event',
-      occurred_at: '2026-11-11T10:01:00Z', object_ref: {object_id: node.object_id, revision: 2},
+      epistemic_status:'observed', occurred_at: '2026-11-11T10:01:00Z', object_ref: {object_id: node.object_id, revision: 2},
       causation_id: `secret:${S}`},
   ]);
   return {workspace_id: W, nodes, events, relations: [], unresolved: [],
@@ -237,7 +237,7 @@ test('reported, declared, inferred or proposed events never become observed proc
     assert.equal(response.export_allowed,false);
     assert.ok(response.reason_codes.includes('T3_D2_UNVERIFIED_EVENT_STEP'));
     assert.equal(JSON.stringify(response).includes('SECRET_PROPOSAL_PERSON'),false);
-    assert.equal(v.events[0].epistemic_status,undefined);
+    assert.equal(v.events[0].epistemic_status,'observed');
     assert.deepEqual(v.events[0],original.events[0]);
   }
   const observed=sample();
@@ -414,4 +414,15 @@ test('native owner invalidation during read prevents stale review and cannot lea
   assert.equal(states.at(-1).code,'T3_AUTHORITATIVE_READ_REFUSED');
   assert.equal(JSON.stringify(states).includes(S),false);
   untrusted.dispose();
+});
+
+
+test('D2 event without declared truth never becomes observed work',async()=>{
+  const v=sample();delete v.events[0].epistemic_status;
+  const review=await inspect(host(v));
+  assert.equal(review.status,'HOLD');
+  assert.equal(review.structural_candidate,null);
+  assert.ok(review.reason_codes.includes('T3_D2_EVENT_STATUS_NOT_DECLARED'));
+  assert.equal(review.export_allowed,false);
+  assert.equal(JSON.stringify(review).includes(S),false);
 });
