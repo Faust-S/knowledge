@@ -1020,26 +1020,6 @@ class OperatorAKISModel(mesa.Model):
                     output["economics"]["joint_purchasing_original_cash_linkage"] = (
                         original_purchasing
                     )
-                    if self.general_akis_enabled:
-                        output["general_akis_model"][
-                            "joint_purchasing_original_price_feedback"
-                        ] = {
-                            "model_only_source_matched_original_plan_count": original_purchasing[
-                                "original_matched_plan_count"
-                            ],
-                            "incomplete_original_plan_count": original_purchasing[
-                                "original_incomplete_plan_count"
-                            ],
-                            "original_existing_transfer_reference_count": original_purchasing[
-                                "source_declared_existing_original_transfer_count"
-                            ],
-                            "original_existing_resource_reference_count": original_purchasing[
-                                "source_declared_existing_original_resource_use_count"
-                            ],
-                            "private_owner_quantities_prices_sources_and_supplier_quotes_redisclosed": False,
-                            "actual_purchasing_savings_or_cash_settlement_proven": False,
-                            "original_work_rights_results_and_money_unchanged": True,
-                        }
                 except PurchasingInputError as exc:
                     raise InputError(str(exc)) from exc
         if self.competence_reuse_raw is not None:
@@ -1394,6 +1374,26 @@ class OperatorAKISModel(mesa.Model):
                     "additional_2026_cost_and_governance_exposures": 9,
                     "economic_change_is_originally_authorized": False,
                 }
+        if (self.general_akis_enabled and
+                "joint_purchasing_original_cash_linkage" in output.get("economics", {})):
+            original_purchasing = output["economics"]["joint_purchasing_original_cash_linkage"]
+            output["general_akis_model"]["joint_purchasing_original_price_feedback"] = {
+                "model_only_source_matched_original_plan_count": original_purchasing[
+                    "original_matched_plan_count"
+                ],
+                "incomplete_original_plan_count": original_purchasing[
+                    "original_incomplete_plan_count"
+                ],
+                "original_existing_transfer_reference_count": original_purchasing[
+                    "source_declared_existing_original_transfer_count"
+                ],
+                "original_existing_resource_reference_count": original_purchasing[
+                    "source_declared_existing_original_resource_use_count"
+                ],
+                "private_owner_quantities_prices_sources_and_supplier_quotes_redisclosed": False,
+                "actual_purchasing_savings_or_cash_settlement_proven": False,
+                "original_work_rights_results_and_money_unchanged": True,
+            }
         return output
 
 
