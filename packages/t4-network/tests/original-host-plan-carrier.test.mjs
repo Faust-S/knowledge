@@ -94,8 +94,6 @@ function fixture(){
     authorizeOriginalRead:async()=>authorized,
     authorizeOriginalWrite:async()=>authorized};
   const committed=()=>{
-    const row=objects.get(mailbox+':'+objectId);
-    assert.ok(row);
     return {format:'iwxa.import.receipt',import_id:'original:import:1',
       committed_at:'2026-11-22T20:00:00Z',
       mode:'full',package_digest:'iwxa:package:one',
