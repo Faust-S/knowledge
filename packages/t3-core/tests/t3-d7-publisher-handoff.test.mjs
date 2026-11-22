@@ -487,7 +487,8 @@ test("D7 corporate STATUS/3 never accepts PERSON holder or TEST/1 status as prod
  });
  const original=f.nativeHolder.inspect;
  f.nativeHolder.inspect=async input=>({
-   ...(await original(input)),organizationId:"org:factory",
+   ...(await original(input)),recipientId:"org:factory",
+   organizationId:"org:factory",
    statusSchema:"IWXA_T3_PRODUCT_LICENSE_STATUS/3",
    productId:"IWXA_ADMIN_CENTER",statusState:"ACTIVE",sequence:7,
    statusValidUntil:"2026-12-01T00:00:00.000Z",
