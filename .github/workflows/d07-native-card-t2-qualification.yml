@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 1996c24a74db8b930b691b180319c93365e5abe2
+      SITE_SHA: 3e9c8ea4a4dc8a8d000271133ad7c97c140f8c5e
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
@@ -85,6 +85,15 @@ jobs:
           if(-not $script.Contains('Текущая редакция открытого заказа: ') -or
              -not $result.Contains('Текущая редакция открытого заказа: ')){
             throw 'D07_NATIVE_CURRENT_RESULT_REVISION_WITNESS_MISSING'
+          }
+          foreach($marker in @(
+            'D07_WORK_RESULT_ALL_TEN_REVIEWED_BEFORE_SAVE=PASS',
+            'D07_WORK_RESULT_ALL_TEN_REVIEWED_COLD_PERSISTED=PASS',
+            'D07_WORK_RESULT_ALL_TEN_ACCEPTED_EVIDENCE_READ_ONLY=PASS',
+            'D07_WORK_RESULT_ACCEPTED_EVIDENCE_STILL_EDITABLE',
+            'D07_WORK_RESULT_FULL_ORDER_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN'
+          )){
+            if(!$result.Contains($marker)){throw 'D07_NATIVE_TEN_WORK_REVIEW_WITNESS_MISSING'}
           }
           Write-Output 'D07_NATIVE_DURABLE_CONTINUATION_SCRIPT_GATE=PASS'
       - uses: actions/setup-node@v4
@@ -229,7 +238,7 @@ jobs:
           # This job only runs after the native import script has committed
           # revision 2 and independently cold-reopened the original object.
           Write-Output 'D07_NATIVE_IMPORTED_RESULT_REVISION2_COLD_REOPEN=PASS'
-      - name: Native Microsoft Edge Work Result rejection correction and customer-recorded review
+      - name: Native Microsoft Edge ten-work Result, rejection correction and durable customer-recorded review
         id: native_result
         if: steps.durable_continuation.outcome == 'success'
         env:
@@ -246,6 +255,7 @@ jobs:
           Write-Output ('D07_NATIVE_IMPORT_STEP=${{ steps.independent_import.outcome }}')
           Write-Output ('D07_NATIVE_DURABLE_CONTINUATION_STEP=${{ steps.durable_continuation.outcome }}')
           Write-Output ('D07_NATIVE_WORK_RESULT_STEP=${{ steps.native_result.outcome }}')
+          Write-Output ('D07_ALL_TEN_CUSTOMER_REVIEW_STEP=${{ steps.native_result.outcome }}')
           Write-Output 'D07_FULL_ORDER_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN'
           Write-Output 'D07_SERVICE_ACCEPTED=NO'
       # Only high-level statuses are printed. No private checkout, dist, secrets,
