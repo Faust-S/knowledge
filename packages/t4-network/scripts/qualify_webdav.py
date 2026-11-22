@@ -44,7 +44,8 @@ with tempfile.TemporaryDirectory(prefix='iwxa-t4-dav-') as temp:
  process=None
  try:
   process=start()
-  suite=subprocess.run(['node','--test','tests/network/webdav-package-transfer.test.mjs'],cwd=ROOT,env=env,capture_output=True,text=True)
+  suite_files=[str(p.relative_to(ROOT)) for p in sorted((ROOT/'tests/network').glob('*.test.mjs'))]
+  suite=subprocess.run(['node','--test']+suite_files,cwd=ROOT,env=env,capture_output=True,text=True)
   (OUT/'node-network-tests.log').write_text(suite.stdout+suite.stderr);print(suite.stdout,end='')
   if suite.returncode:raise RuntimeError('Network test failure; see log')
   totals={}
