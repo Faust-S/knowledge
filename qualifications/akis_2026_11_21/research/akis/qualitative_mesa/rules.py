@@ -44,7 +44,7 @@ SELECTED_MODES = frozenset({"SOLE", "COLLEGIAL", "MIXED"})
 # UNSELECTED explicitly describes missing qualification, not tacit SOLE.
 MODES = SELECTED_MODES | {"UNSELECTED"}
 AVAILABILITY = frozenset({"AVAILABLE", "UNAVAILABLE", "UNKNOWN"})
-ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "adopt_capability", "formation_confirm", "function_prepare", "function_review"})
+ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -250,7 +250,7 @@ class QualitativeAKIS:
         last = -1
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
-             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "formation_phase_source_ref"}, "EVENT")
+             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -393,6 +393,12 @@ class QualitativeAKIS:
                 if self.formation_policy is None:
                     raise BlockedDecision("FORMATION_MODEL_POLICY_NOT_CONFIGURED")
                 issue = self.formation_policy.confirm(self, ev, at)
+                if issue != "NONE":
+                    raise BlockedDecision(issue)
+            elif action == "need_emerge":
+                if self.formation_policy is None:
+                    raise BlockedDecision("FORMATION_EMERGENT_NEED_POLICY_NOT_CONFIGURED")
+                issue = self.formation_policy.owner_emerge_need(self, ev, at)
                 if issue != "NONE":
                     raise BlockedDecision(issue)
             elif action in {"function_prepare", "function_review"}:
@@ -579,6 +585,27 @@ class QualitativeAKIS:
         if action == "request" and ev.get("pilot_work") is not None:
             report["pilot_work"] = ev.get("pilot_work")
             report["pilot_source"] = "ORIGINAL_ACCEPTED_RESULT_AND_OWNER_EVALUATIONS_ONLY"
+        if action == "need_emerge" and report["outcome"] == "APPLIED":
+            report.update({
+                "work_source_revision": ev["work_source_revision"],
+                "goal_source_ref": ev["goal_source_ref"],
+                "goal_expires_at": ev["goal_expires_at"],
+                "goal_objective": ev["goal_objective"],
+                "goal_priority": ev["goal_priority"],
+                "pilot_work": ev["pilot_work"],
+                "pilot_result_ref": ev["pilot_result_ref"],
+                "pilot_decision_at": ev["pilot_decision_at"],
+                "cooperation_link": ev["cooperation_link"],
+                "cooperation_source_revision": ev["cooperation_source_revision"],
+                "model_only_owner_need_not_original_work": True,
+                "no_autonomous_demand_or_price_created": True,
+            })
+        if action == "request" and report["outcome"] == "APPLIED" and (
+                self.formation_policy is not None and
+                self.formation_policy.design.enforce_model_result_conditioned_goals
+                and ev.get("emergent_goal_source_ref") is not None):
+            report["emergent_goal_source_ref"] = ev["emergent_goal_source_ref"]
+            report["need_source_belongs_to_prior_original_result"] = True
         if action == "request" and report["outcome"] == "APPLIED" and linked_change_evidence:
             report.update(linked_change_evidence)
         self.trace.append(report)

@@ -82,6 +82,7 @@ class GeneralSystemDesign:
     enforce_model_formation_context_code: bool = False
     enforce_model_formation_agent_review: bool = False
     enforce_model_formation_lifecycle: bool = False
+    enforce_model_result_conditioned_goals: bool = False
 
     @property
     def source_times(self) -> tuple[int, ...]:
@@ -262,14 +263,25 @@ class ModelFormationPolicy:
                 row.get("actor") == work.customer and
                 type(row.get("at")) is int and row["at"] < at
             ]
-            if not any(
+            has_static_goal = any(
                 goal["owner"] == work.customer and goal["work"] == key and
                 goal["work_revision"] == work.source_revision and
                 goal["revision"] == request.get("org_revision") and
                 goal["available_at"] <= request["at"] < goal["expires_at"]
                 for request in requests
                 for goal in self.design.declarations["goals"]
-            ):
+            )
+            if (self.design.enforce_model_result_conditioned_goals and
+                    work.requires_accepted):
+                dynamic_goal = any(
+                    self._result_conditioned_goal(
+                        state, request, work, request["at"]
+                    ) == "NONE"
+                    for request in requests
+                )
+                if not dynamic_goal:
+                    return "FORMATION_EMERGENT_GOAL_NOT_FROM_ORIGINAL_RESULT"
+            elif not has_static_goal:
                 return "FORMATION_GOAL_AND_ORIGINAL_CUSTOMER_REQUEST_NOT_LINKED"
         elif phase == 2:
             if self._ack_status(state, work, 1, work.customer, at) != "NONE":
@@ -546,6 +558,129 @@ class ModelFormationPolicy:
         # Participation_status itself already controls future engagement.
         return "NONE"
 
+    def owner_emerge_need(self, state: Any, event: Mapping[str, Any],
+                        at: int) -> str:
+        """Original principal explicitly originates a goal *after* a Result.
+
+        This is a source-bound observation, NOT an automatically created Work,
+        consent, resource, capability, price or contract.
+        """
+        if not self.design.enforce_model_result_conditioned_goals:
+            return "FORMATION_EMERGENT_NEED_POLICY_NOT_CONFIGURED"
+        actor = event.get("actor")
+        if (actor not in state.subjects or not state.subjects[actor].active
+                or state.subjects[actor].kind != "SME"):
+            return "FORMATION_EMERGENT_ORIGINAL_ACTIVE_CUSTOMER_REQUIRED"
+        if event.get("org_revision") != state.institution.revision:
+            return "FORMATION_EMERGENT_ORG_REVISION_STALE"
+        target, revision = event.get("work"), event.get("work_source_revision")
+        if (not isinstance(target, str) or not target or len(target) > 128
+                or not isinstance(revision, str) or not revision or len(revision) > 128
+                or target in state.works):
+            return "FORMATION_EMERGENT_NEW_WORK_SOURCE_REQUIRED"
+        ref = event.get("goal_source_ref")
+        if (not isinstance(ref, str) or len(ref) > 180 or
+                not ref.startswith("model://" + actor + "/") or
+                len(ref) <= len("model://" + actor + "/")):
+            return "FORMATION_EMERGENT_OWNER_GOAL_SOURCE_REQUIRED"
+        expiry = event.get("goal_expires_at")
+        if type(expiry) is not int or not at < expiry <= 10000:
+            return "FORMATION_EMERGENT_OWNER_GOAL_TIME_REQUIRED"
+        if event.get("goal_objective") not in OBJECTIVES:
+            return "FORMATION_EMERGENT_GOAL_OBJECTIVE_UNKNOWN"
+        prio = event.get("goal_priority")
+        if type(prio) is not int or not 1 <= prio <= 10:
+            return "FORMATION_EMERGENT_GOAL_PRIORITY_INVALID"
+        if any(
+            row.get("action") == "need_emerge" and
+            row.get("outcome") == "APPLIED" and row.get("work") == target
+            for row in state.trace
+        ):
+            return "FORMATION_EMERGENT_TARGET_ALREADY_CLAIMED"
+        link = next((
+            l for l in state.cooperation_links
+            if l.key == event.get("cooperation_link") and
+               l.source_revision == event.get("cooperation_source_revision")
+        ), None)
+        if link is None or actor not in link.participants:
+            return "FORMATION_EMERGENT_ORIGINAL_RELATION_REQUIRED"
+        pilot = state.works.get(event.get("pilot_work"))
+        if (pilot is None or pilot.key not in link.works or
+                pilot.customer != actor or
+                pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"):
+            return "FORMATION_EMERGENT_CUSTOMER_ACCEPTED_PILOT_REQUIRED"
+        if event.get("pilot_result_ref") != pilot.result_ref:
+            return "FORMATION_EMERGENT_PILOT_RESULT_REVISION_MISMATCH"
+        reason, decision = self._original_result_decision(state, pilot, at)
+        if reason != "NONE":
+            return reason
+        if (decision.get("action") != "accept" or
+                decision["at"] != event.get("pilot_decision_at")):
+            return "FORMATION_EMERGENT_PILOT_ACCEPTANCE_TIME_MISMATCH"
+        # The goal may originate only after this actor's ORIGINAL phase-8
+        # participation/economic assessment, not from an ex-ante declaration.
+        assessment = next((
+            row for row in reversed(state.trace)
+            if row.get("action") == "participation_status" and
+               row.get("outcome") == "APPLIED" and row.get("actor") == actor
+               and row.get("participation_link") == link.key and
+               row.get("participation_relation_revision") == link.source_revision
+        ), None)
+        if (assessment is None or assessment.get("evaluated_work") != pilot.key
+                or assessment.get("evaluated_result_ref") != pilot.result_ref
+                or assessment.get("evaluated_decision_at") != decision["at"]
+                or assessment.get("org_revision") != state.institution.revision
+                or assessment.get("participation_value") != "OPEN_TO_NEW_WORK"
+                or type(assessment.get("at")) is not int or
+                assessment["at"] >= at):
+            return "FORMATION_EMERGENT_OWN_POST_RESULT_DECISION_REQUIRED"
+        if not self._source_active(
+            8, actor, assessment.get("formation_phase_source_ref"),
+            state.institution.revision, at
+        ):
+            return "FORMATION_EMERGENT_OWN_EVALUATION_SOURCE_EXPIRED"
+        return "NONE"
+
+    def _result_conditioned_goal(self, state: Any,
+                                 event: Mapping[str, Any],
+                                 work: Any, at: int) -> str:
+        """Requalify owner goal from ONE historical accepted need_emerge."""
+        source = event.get("emergent_goal_source_ref")
+        rows = [
+            row for row in state.trace
+            if row.get("action") == "need_emerge" and
+               row.get("outcome") == "APPLIED" and
+               row.get("work") == work.key and
+               row.get("work_source_revision") == work.source_revision and
+               row.get("actor") == work.customer and
+               row.get("goal_source_ref") == source and
+               row.get("org_revision") == state.institution.revision and
+               row.get("pilot_work") == event.get("pilot_work") and
+               type(row.get("at")) is int and row["at"] < at
+        ]
+        if len(rows) != 1:
+            return "FORMATION_EMERGENT_ORIGINAL_OWNER_GOAL_EVENT_REQUIRED"
+        goal = rows[0]
+        if type(goal.get("goal_expires_at")) is not int or at >= goal["goal_expires_at"]:
+            return "FORMATION_EMERGENT_ORIGINAL_GOAL_EXPIRED"
+        if goal.get("cooperation_link") != event.get("cooperation_link"):
+            return "FORMATION_EMERGENT_ORIGINAL_RELATION_MISMATCH"
+        # A changed owner assessment makes the old owner goal out-of-date:
+        # a new Work/source must then be independently proposed.
+        link_id = event.get("cooperation_link")
+        last = next((
+            row for row in reversed(state.trace)
+            if row.get("action") == "participation_status" and
+               row.get("outcome") == "APPLIED" and
+               row.get("actor") == work.customer and
+               row.get("participation_link") == link_id
+        ), None)
+        if (last is None or last.get("evaluated_work") != goal["pilot_work"]
+                or type(last.get("at")) is not int or last["at"] >= goal["at"]
+                or last.get("participation_value") != "OPEN_TO_NEW_WORK"):
+            return "FORMATION_EMERGENT_OWNER_POSITION_CHANGED_AFTER_GOAL"
+        return "NONE"
+
     def before_followup_request(self, state: Any, request: Mapping[str, Any],
                                 new_work: Any, at: int) -> str:
         """Require original separate evaluations before another linked Work.
@@ -580,6 +715,10 @@ class ModelFormationPolicy:
             return "FORMATION_FOLLOWUP_LATEST_ACCEPTED_PILOT_REFERENCE_REQUIRED"
         if pilot.key not in new_work.requires_accepted:
             return "FORMATION_FOLLOWUP_ACCEPTED_RESULT_DEPENDENCY_REQUIRED"
+        if self.design.enforce_model_result_conditioned_goals:
+            reason = self._result_conditioned_goal(state, request, new_work, at)
+            if reason != "NONE":
+                return reason
         reason, current_decision = self._original_result_decision(state, pilot, at)
         if reason != "NONE":
             return reason
@@ -653,7 +792,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
             set(raw) - required - {"enforce_model_org_code", "enforce_model_formation_phases",
                                    "enforce_model_formation_context_code",
                                    "enforce_model_formation_agent_review",
-                                   "enforce_model_formation_lifecycle"}):
+                                   "enforce_model_formation_lifecycle",
+                                   "enforce_model_result_conditioned_goals"}):
         raise GeneralSystemInputError("INVALID_GENERAL_DESIGN_FIELDS")
     enforce_model_code = raw.get("enforce_model_org_code", False)
     if type(enforce_model_code) is not bool:
@@ -676,6 +816,11 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
         raise GeneralSystemInputError("GENERAL_MODEL_LIFECYCLE_GATE_MUST_BE_BOOLEAN")
     if enforce_lifecycle and not enforce_agent:
         raise GeneralSystemInputError("FORMATION_LIFECYCLE_REQUIRES_ORIGINAL_AGENT_REVIEW")
+    enforce_emergent = raw.get("enforce_model_result_conditioned_goals", False)
+    if type(enforce_emergent) is not bool:
+        raise GeneralSystemInputError("GENERAL_MODEL_RESULT_GOAL_GATE_MUST_BE_BOOLEAN")
+    if enforce_emergent and not enforce_lifecycle:
+        raise GeneralSystemInputError("FORMATION_EMERGENT_NEED_REQUIRES_RESULT_LIFECYCLE")
     configurations = {x["id"] for x in cat["taxonomy"]["subject_configurations"]}
     config = _s(raw["configuration"], "CONFIGURATION")
     if config not in configurations:
@@ -782,7 +927,7 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
     return GeneralSystemDesign(config, dict(morphology), parsed, cat,
                                enforce_model_code, enforce_formation,
                                enforce_institutional, enforce_agent,
-                               enforce_lifecycle)
+                               enforce_lifecycle, enforce_emergent)
 
 
 def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
@@ -1066,6 +1211,17 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
             "no_new_original_action_by_policy": True,
         },
         "formation_phases": phase_rows,
+        "result_conditioned_owner_goals": {
+            "opted_in": design.enforce_model_result_conditioned_goals,
+            "owner_origination_events": sum(
+                row.get("action") == "need_emerge" and
+                row.get("outcome") == "APPLIED" for row in state.trace
+            ),
+            "new_original_works_created_by_goal_event": False,
+            "owner_source_authenticated_externally": False,
+            "automatic_actor_need_or_demand_generation": False,
+            "whole_system_endogenous_need_dynamics_complete": False,
+        },
         "post_result_lifecycle_model_gate": {
             "opted_in": design.enforce_model_formation_lifecycle,
             "original_customer_result_acceptances": sum(
