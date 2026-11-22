@@ -33,14 +33,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: d3a6ae1c32b74467efd4aa9b6f5524d2fcd79b10
+          ref: f924dfbf06c3f4db13c4940dbd2b4a0b8e0ef262
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Verify private revisions, never emit private source
         run: |
           test "$(git -C logic rev-parse HEAD)" = "c06c3c39461a9ae36994d29b33d2676e14afbeed" || exit 1
-          test "$(git -C site rev-parse HEAD)" = "d3a6ae1c32b74467efd4aa9b6f5524d2fcd79b10" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "f924dfbf06c3f4db13c4940dbd2b4a0b8e0ef262" || exit 1
           cmp logic/model/new-purchase-cash-review.mjs site/t2-site-module/marketops/decision/new-purchase-cash-review.mjs
           cmp logic/model/new-purchase-cash-review.d.mts site/t2-site-module/marketops/decision/new-purchase-cash-review.d.mts
           cmp logic/model/business-attention-queue.mjs site/t2-site-module/marketops/decision/business-attention-queue.mjs
@@ -98,7 +98,7 @@ jobs:
       - name: T2 obligations and UI contracts
         working-directory: site
         run: |
-          node --import tsx --test tests/marketops-business-obligation.test.mjs tests/marketops-business-goods-cycle.test.mjs tests/marketops-business-attention.test.mjs tests/marketops-new-purchase-review.test.mjs tests/marketops-obligation-return-flow.test.mjs tests/marketops-attention-navigation.test.mjs tests/marketops-obligation-allocation-passport.test.mjs tests/marketops-trading-native-witness.test.mjs > "$RUNNER_TEMP/d08-obligations.log" 2>&1 || {
+          node --import tsx --test tests/marketops-business-obligation.test.mjs tests/marketops-business-goods-cycle.test.mjs tests/marketops-business-attention.test.mjs tests/marketops-new-purchase-review.test.mjs tests/marketops-obligation-return-flow.test.mjs tests/marketops-attention-navigation.test.mjs tests/marketops-obligation-allocation-passport.test.mjs tests/marketops-trading-native-witness.test.mjs tests/marketops-workspace-create-readback.test.mjs > "$RUNNER_TEMP/d08-obligations.log" 2>&1 || {
             echo D08_T2_OBLIGATIONS=FAIL
             grep -E '^not ok [0-9]+|^# (tests|pass|fail) ' "$RUNNER_TEMP/d08-obligations.log" | head -25 || true
             exit 1;
