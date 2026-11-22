@@ -1,0 +1,154 @@
+name: IWXA projects and two deep essays
+on:
+  push:
+    branches:
+      - qa/2026-11-22-projects-essays-01-02
+    paths:
+      - .github/workflows/qa-projects-essays-01-02.yml
+permissions:
+  contents: read
+jobs:
+  build-and-logic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: work/2026-11-22-projects-and-editorial-01-02
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Check project scope, texts, calculations and remove obsolete entry
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo SITE_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/projects-essays-install.log 2>&1 || { tail -n 60 /tmp/projects-essays-install.log; exit 1; }
+          node --import tsx --test scripts/check-projects-and-first-essays.test.ts scripts/check-editorial-series.test.ts
+          echo PROJECTS_AND_ARTICLES_UNIT_PASS
+      - name: Build and strict type check
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          bunx vite build > /tmp/projects-essays-build.log 2>&1 || { tail -n 100 /tmp/projects-essays-build.log; exit 1; }
+          bunx tsc --noEmit > /tmp/projects-essays-types.log 2>&1 || { tail -n 100 /tmp/projects-essays-types.log; exit 1; }
+          echo PROJECTS_AND_ARTICLES_BUILD_TYPECHECK_PASS
+      - name: Remove private source
+        if: always()
+        shell: bash
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/projects-essays-*.log
+          test ! -e .private/site && echo PRIVATE_SITE_PURGED
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: work/2026-11-22-projects-and-editorial-01-02
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Qualify actual responsive articles and project directory in Chrome
+        shell: bash
+        working-directory: .private/site
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile > /tmp/projects-essays-browser-install.log 2>&1 || { tail -n 60 /tmp/projects-essays-browser-install.log; exit 1; }
+          bunx vite --host 127.0.0.1 --port 4173 > /tmp/projects-essays-browser-vite.log 2>&1 &
+          echo $! > /tmp/projects-essays-browser.pid
+          for i in $(seq 1 100); do
+            if curl -fsS http://127.0.0.1:4173/projects/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node --import tsx --input-type=module <<'JS'
+          import puppeteer from 'puppeteer';
+          const paths=[
+            '/projects/','/projects/iwxa/',
+            '/articles/zachem-dvenadcat-napravleniy/',
+            '/articles/ot-logisticheskogo-operatora-k-akis/',
+          ];
+          const browser=await puppeteer.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox','--disable-dev-shm-usage']});
+          let checks=0;
+          try {
+            const page=await browser.newPage();
+            page.on('pageerror',e=>console.log('PAGE_ERROR',e.message.slice(0,280)));
+            for(const width of [1440,375]){
+              await page.setViewport({width,height:width===375?812:900,deviceScaleFactor:1});
+              for(const route of paths){
+                console.log('CHECK_ROUTE',width,route);
+                const response=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'domcontentloaded',timeout:60000});
+                if(!response?.ok())throw Error('HTTP_FAILURE '+route+' '+response?.status());
+                await page.waitForFunction(()=>document.querySelector('main')?.dataset.clientReady===location.pathname,{timeout:105000});
+                const outcome=await page.evaluate(()=>({
+                  h1:document.querySelector('h1')?.textContent?.trim(),
+                  overflow:document.documentElement.scrollWidth-window.innerWidth,
+                  font:getComputedStyle(document.querySelector('h1')).fontFamily,
+                }));
+                if(!outcome.h1||outcome.overflow>3)throw Error('BROKEN_VIEW '+route+' '+JSON.stringify(outcome));
+                if(!outcome.font.includes('Inter Tight'))throw Error('FONT_MISMATCH '+route+' '+outcome.font);
+                if(route==='/projects/'){
+                  if(await page.$$eval('.pdir-card',els=>els.length)!==19)throw Error('PROJECTS_COUNT');
+                  await page.click('.pdir-filters button:nth-child(3)');
+                  const count=await page.$eval('.pdir-count',el=>el.textContent);
+                  if(!count||count.includes('20'))throw Error('FILTER_NO_EFFECT');
+                  await page.click('.pdir-filters button:first-child');
+                  await page.type('.pdir-search input','Bazmed');
+                  const names=await page.$$eval('.pdir-card h3',els=>els.map(el=>el.textContent));
+                  if(names.length!==1||names[0]!=='Bazmed')throw Error('SEARCH_NO_EFFECT '+names.join(','));
+                  await page.$eval('.pdir-search input',input=>{input.value='';input.dispatchEvent(new Event('input',{bubbles:true}))});
+                }
+                if(route.endsWith('/zachem-dvenadcat-napravleniy/')){
+                  const before=await page.$eval('.essay-model__decision',el=>el.textContent);
+                  await page.$eval('#supply-delay',input=>{
+                    const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;
+                    setter?.call(input,'0');
+                    input.dispatchEvent(new Event('input',{bubbles:true}));
+                    input.dispatchEvent(new Event('change',{bubbles:true}));
+                  });
+                  const after=await page.$eval('.essay-model__decision',el=>el.textContent);
+                  if(before===after)throw Error('ORDER_NOT_REACTIVE');
+                  await page.click('.essay-radio button:nth-of-type(2)');
+                  const blocked=await page.$eval('.essay-model__decision',el=>el.textContent);
+                  if(!blocked.includes('не согласовали'))throw Error('MISSING_APPROVAL_GATE');
+                  await page.click('.essay-check input');
+                  const approved=await page.$eval('.essay-model__decision',el=>el.textContent);
+                  if(approved===blocked)throw Error('APPROVAL_NOT_REACTIVE');
+                }
+                if(route.endsWith('/ot-logisticheskogo-operatora-k-akis/')){
+                  const before=await page.$eval('.essay-money-conclusion__verdict',el=>el.textContent);
+                  await page.click('.essay-consents .essay-check:nth-of-type(2) input');
+                  const after=await page.$eval('.essay-money-conclusion__verdict',el=>el.textContent);
+                  if(before===after)throw Error('CONSENT_NOT_REACTIVE');
+                  if(await page.$$eval('.essay-money-row',els=>els.length)!==3)throw Error('MISSING_ECONOMIC_PARTICIPANTS');
+                }
+                console.log('CHECK_PASS',width,route);
+                checks++;
+              }
+            }
+            console.log('PROJECTS_FIRST_TWO_BROWSER_PASS',JSON.stringify({routes:4,widths:2,checks}));
+          } finally {await browser.close();}
+          JS
+      - name: Remove private checkout
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/projects-essays-browser.pid ]; then kill "$(cat /tmp/projects-essays-browser.pid)" 2>/dev/null || true; fi
+          rm -rf .private/site
+          rm -f /tmp/projects-essays-browser*.log /tmp/projects-essays-browser.pid
+          test ! -e .private/site && echo PRIVATE_SITE_PURGED
