@@ -35,7 +35,7 @@ test('all nineteen user-facing routes and owner-only safety states are reachable
   'Проверка','Черновик и восстановление','Выпуск и обмен','Квалификация','Настройки','Справка'];
  for(const name of names)assert.ok(component.includes(name)||inner.includes(name),name);
  assert.match(inner,/disabled=\{!data.canStage\|\|!t3/);
- assert.match(inner,/disabled=\{!data.canRecover\}/);
+ assert.match(inner,/disabled=\{!data.canRecover\|\|data.t3Review\?\.status==='RECOVERING'/);
  assert.match(inner,/HOLD · выпуск закрыт/);
  assert.doesNotMatch(inner,/new Kernel|createWorkspace\(|putObject\(|exportPackage\(/);
 });
