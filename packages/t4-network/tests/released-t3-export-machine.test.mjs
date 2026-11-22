@@ -33,7 +33,7 @@ function originalConfirmedState(){
   step({type:'ack-file-saved',value:true});
   step({type:'confirm-started'});
   step({type:'confirm-succeeded',receipt});
-  return {workspaceId,bytes,artifact,receipt,state:s,step};
+  return {workspaceId,bytes,artifact,receipt,get state(){return s;},step};
 }
 function adapter(o,events){
   const current={workspace_id:o.workspaceId};
