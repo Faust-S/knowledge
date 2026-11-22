@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: cd488c3944623c314b6f1e21b77992fe53ab2289
+          ref: b4d50ddb9c94c386789a34db7de371790f3d40fa
           token: ${{ secrets.DOMEN }}
           path: subject
           persist-credentials: false
@@ -26,18 +26,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 95c6ca18778e4b05b3c94ff853f405be49543038
+          ref: b176b3c20e06cae3fc6e9b66c68757e0d644c4b3
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify private revisions, directory and technology parity
         run: |
-          test "$(git -C subject rev-parse HEAD)" = "cd488c3944623c314b6f1e21b77992fe53ab2289"
-          test "$(git -C site rev-parse HEAD)" = "95c6ca18778e4b05b3c94ff853f405be49543038"
-          for f in service-subject-protocols.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
+          test "$(git -C subject rev-parse HEAD)" = "b4d50ddb9c94c386789a34db7de371790f3d40fa"
+          test "$(git -C site rev-parse HEAD)" = "b176b3c20e06cae3fc6e9b66c68757e0d644c4b3"
+          for f in service-subject-protocols.ts service-subject-it-router.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts service-site-release-gate.ts; do
             cmp "subject/src/domain/$f" "site/src/domain/$f"
           done
           cmp subject/src/data/serviceDirectory.ts site/src/data/serviceDirectory.ts
+          cmp subject/src/data/services/kompyutery-it-sayty/nastroyka-routera.ts site/src/data/services/kompyutery-it-sayty/nastroyka-routera.ts
           echo D07_SITE_CARD_PARITY=PASS
       - uses: actions/setup-node@v4
         with:
@@ -52,7 +53,7 @@ jobs:
             echo D07_CARD_INSTALL=FAIL; exit 1;
           }
           echo D07_CARD_INSTALL=PASS
-      - name: Regression for 92 cards, exact T2 methods, navigation and real-order seeds
+      - name: Regression for all professional cards including new router method and real-order seeds
         working-directory: site
         run: |
           node --import tsx --test --test-reporter=tap \
