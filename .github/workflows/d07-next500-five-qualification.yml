@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 19f98f1c714ba849030bcdf59afbd5b506eaeaf7
-      SUBJECT_SHA: 43b54803c4f92b68fb9ce84e0f72b3b3c277cb66
+      SITE_SHA: 0116531a15d6ab17bb49acfc509470c4eebc0728
+      SUBJECT_SHA: 144b42a4b45a10ca1d522e12955ac4374bd25422
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
       CI: "true"
@@ -31,14 +31,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 43b54803c4f92b68fb9ce84e0f72b3b3c277cb66
+          ref: 144b42a4b45a10ca1d522e12955ac4374bd25422
           path: subject
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 19f98f1c714ba849030bcdf59afbd5b506eaeaf7
+          ref: 0116531a15d6ab17bb49acfc509470c4eebc0728
           path: site
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
