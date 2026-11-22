@@ -39,3 +39,17 @@ test('optional signed Activity Derive command is not a raw Kernel or export port
   assert.match(app,/HOLD · ЭКСПОРТ ЗАКРЫТ/);
   assert.doesNotMatch(surface,/createSubjectKernelBinding|signedDeriveAccess|putObject|exportPackage/);
 });
+
+test('cold recovery cannot receive Kernel, target IDs or original signed rights',()=>{
+  const surface=file('../desktop/src/host-surface.tsx');
+  const app=file('../desktop/src/App.tsx');
+  const owner=file('../modules/activity-base-anonymizer/t3-owner-review-stage.mjs');
+  assert.match(surface,/const recoveryKeys = \['readSelected', 'recoverSelected', 'stageSelected', 'subscribeInvalidation'\]/);
+  assert.match(surface,/typeof \(port as Record<string, unknown>\)\.recoverSelected === 'function'/);
+  assert.match(app,/t3Controller\.current\.recoverSelected\(\)/);
+  assert.match(app,/Проверить сохранённый черновик T3/);
+  assert.match(app,/Новая запись не отправляется/);
+  assert.match(owner,/export async function recoverSelectedT3ActivityReview\(/);
+  assert.doesNotMatch(owner.slice(owner.indexOf('export async function recoverSelectedT3ActivityReview')),
+    /scoped\.putObject|scoped\.createWorkspace|scoped\.importCommit|scoped\.exportPackage/);
+});
