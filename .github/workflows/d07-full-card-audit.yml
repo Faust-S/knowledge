@@ -1,0 +1,49 @@
+name: D07 audit full customer content across all 115 technologies
+on:
+  push:
+    branches: [work/2026-11-22-d07-methodology-v13]
+    paths:
+      - .github/workflows/d07-full-card-audit.yml
+      - scripts/d07-audit-service-card-fullness.mjs
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  full-card-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: checks
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 73ce01db58a1217260ec6d7bb9bf3926d03d8e45
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Verify private exact source and original audit script
+        shell: bash
+        run: |
+          test "$(git -C site rev-parse HEAD)" = 73ce01db58a1217260ec6d7bb9bf3926d03d8e45
+          test -f checks/scripts/d07-audit-service-card-fullness.mjs
+          echo D07_FULL_CARD_AUDIT_SOURCE_PIN=PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - name: Install exact private site dependencies
+        working-directory: site
+        shell: bash
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-full-card-install.private.log" 2>&1 || { echo D07_FULL_CARD_INSTALL=FAIL; exit 1; }
+          echo D07_FULL_CARD_INSTALL=PASS
+      - name: Evaluate full customer objects and evidence readiness without exposing source content
+        working-directory: site
+        shell: bash
+        run: |
+          node --import tsx ../checks/scripts/d07-audit-service-card-fullness.mjs "$PWD"
