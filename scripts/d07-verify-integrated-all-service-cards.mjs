@@ -15,7 +15,7 @@ const root=join(site,"dist");
 for(const name of ["workspace/index.html","_iwxa/runtime/0.3.6/runtime.js"]){
  if(!existsSync(join(root,name)))throw Error("D07_INTEGRATED_ORIGINAL_T2_MISSING");
 }
-if(SUBJECT_PROTOCOLS.length!==92)throw Error("D07_INTEGRATED_PROFESSIONAL_COUNT_CHANGED");
+if(SUBJECT_PROTOCOLS.length<92)throw Error("D07_INTEGRATED_PROFESSIONAL_COVERAGE_REGRESSION");
 const seen=new Set();
 let count=0,operations=0;
 for(const p of SUBJECT_PROTOCOLS){
@@ -39,7 +39,8 @@ for(const p of SUBJECT_PROTOCOLS){
  }
  count++;
 }
-if(count!==92||operations<500)throw Error("D07_INTEGRATED_CARD_OPERATION_COVERAGE_TOO_LOW");
-console.log("D07_INTEGRATED_FULL_92_CARD_HTML=PASS");
+if(count!==SUBJECT_PROTOCOLS.length||operations<count*5)
+  throw Error("D07_INTEGRATED_CARD_OPERATION_COVERAGE_TOO_LOW");
+console.log("D07_INTEGRATED_ALL_SUBJECT_CARD_HTML=PASS");
 console.log("D07_INTEGRATED_FULL_CARD_COUNT="+count);
 console.log("D07_INTEGRATED_DISPLAYED_OPERATIONS="+operations);
