@@ -65,6 +65,10 @@ def assess_author_causal_edges(
     )
     # Financial statements may have a customer-declared period-wide balance,
     # but cannot supply the missing Work-level economic causal effect.
+    original_allocations = ((economics or {}).get("common_work_allocations") or {})
+    scoped_bilateral_cash_slices = original_allocations.get(
+        "model_bilateral_internal_transfer_slices", 0
+    )
     full_counterfactual = bool(work_counterfactual) and any(
         v["status"] == "DECLARED_WORK_SCOPE_CASH_AND_RESOURCE_ARITHMETIC_ONLY"
         for v in work_counterfactual.get("works", [])
@@ -102,6 +106,10 @@ def assess_author_causal_edges(
                       else "WORK_SPECIFIC_REAL_COST_AND_RESULT_NOT_QUALIFIED",
             "original_economic_records_present": economics is not None,
             "model_comparable_work_arithmetic": full_counterfactual,
+            "original_model_payer_payee_common_cash_slices": scoped_bilateral_cash_slices,
+            "paired_owner_sources_restrict_work_economic_attribution": True,
+            "bilateral_claims_are_not_verified_real_signatures": True,
+            "original_internal_transfers_are_not_network_value_added": True,
             "real_economic_effect_identified": False,
         },
         {
