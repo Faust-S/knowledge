@@ -2503,6 +2503,15 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           actual.grants.includes(proof.operation),
         authorizeOriginalWrite:async proof=>
           actual.grants.includes(proof.operation),
+      }).catch(async error=>{
+        console.log('T4_CARRIER_SOURCE_EVENT_DIAG',JSON.stringify({
+          code:error?.code,
+          savedEvents:(await originalCarrierKernel.listEventsSince(
+            carrierWorkspaceId)).map(ev=>({eventId:ev.event_id,
+              eventType:ev.event_type,idempotencyKey:ev.idempotency_key??null,
+              objectId:ev.object_id,payloadKeys:Object.keys(ev.payload??{})})),
+        }));
+        throw error;
       });
       assert.equal(carrierStored.originalT3ObjectAndEventReadback,true);
       assert.equal(carrierStored.recipientBusinessApplicationAuthorized,false);
