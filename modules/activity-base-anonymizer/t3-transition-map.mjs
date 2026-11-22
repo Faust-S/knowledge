@@ -73,6 +73,27 @@ export function buildT3TransitionMap(view){
   const branches=nodes.filter(n=>n.outgoing.length>1).length;
   const convergences=nodes.filter(n=>n.incoming.length>1).length;
   const disconnected=nodes.filter(n=>!n.incoming.length&&!n.outgoing.length).length;
+  // A business-facing checklist of questions, NOT findings. Source aliases
+  // alone cannot establish causes, misconduct, losses, rework or a norm.
+  // Use only observed edge counts and conservative topology flags.
+  const questions=[];
+  const ask=(code,title,prompt)=>questions.push(Object.freeze({code,title,prompt}));
+  if(too_complex) ask('SCOPE_EXCEEDS_LAYOUT','Как проверить сложную схему?',
+    'Просмотреть локальные связи выбранных классов по отдельности. Полный порядок не рассчитывался, поэтому нельзя утверждать, что маршрут линейный или циклический.');
+  if(!edges.length) ask('NO_ORDER_EDGES','Где подтверждение порядка?',
+    'Уточнить у владельца источника, существуют ли исходные связи последовательных событий внутри объекта. Совпадения названий или времени недостаточно.');
+  if(isolated>0&&edges.length) ask('ISOLATED_EVENT_KIND','Почему есть классы без переходов?',
+    'Проверить в предметной системе, являются ли эти события самостоятельными или для них отсутствуют подтверждённые связи. Пропуски нельзя достраивать.');
+  if(!too_complex&&cyclic) ask('REPEATED_ORDER','Что означает возвращение к классу события?',
+    'Сверить первичные события и регламент: плановый повтор, исправление или особенность регистрации. Сам цикл не доказывает переделку.');
+  if(branches>0) ask('MULTIPLE_SUCCESSORS','Почему за событием разные продолжения?',
+    'Сверить исходные Work и Result и проверить условия каждого варианта. Наблюдаемые ветви не являются доказанными правилами решений.');
+  if(convergences>0) ask('MULTIPLE_PREDECESSORS','Почему к событию ведут разные пути?',
+    'Проверить, соответствуют ли входящие переходы одному предметному процессу. Их наличие само по себе не означает ошибку.');
+  if(linear) ask('NORMATIVE_SEQUENCE','Совпадает ли порядок с регламентом?',
+    'Сверить последовательность с согласованными этапами Work и критериями приёмки Result. Локальный порядок не подтверждает выполнение и качество.');
+  if(!questions.length) ask('SOURCE_VERIFICATION','Какие свидетельства нужны для вывода?',
+    'Подтвердить в предметной системе характер событий и связи с Work и Result. Карта не оценивает производственные потери.');
   return Object.freeze({
     nodes:Object.freeze(nodes),
     transitions:Object.freeze(edges),
@@ -81,6 +102,7 @@ export function buildT3TransitionMap(view){
     linear:!too_complex&&!cyclic&&linear&&edges.length>0,
     branch_points:branches,convergence_points:convergences,
     isolated_event_kinds:disconnected,
+    review_questions:Object.freeze(questions.slice(0,3)),
     source_role:'OBSERVED_OBJECT_LOCAL_ORDER_NOT_CAUSAL_DEPENDENCY',
     inferred_edges:0,
     export_allowed:false,

@@ -7,6 +7,9 @@ export type T3TransitionMapNode=Readonly<{
   id:string;label:string;incoming:readonly T3TransitionMapEdge[];
   outgoing:readonly T3TransitionMapEdge[];
 }>;
+export type T3TransitionReviewQuestion=Readonly<{
+  code:string;title:string;prompt:string;
+}>;
 export type T3TransitionMap=Readonly<{
   nodes:readonly T3TransitionMapNode[];
   transitions:readonly T3TransitionMapEdge[];
@@ -14,6 +17,7 @@ export type T3TransitionMap=Readonly<{
   cyclic:boolean;branched:boolean;linear:boolean;
   branch_points:number;convergence_points:number;
   isolated_event_kinds:number;
+  review_questions:readonly T3TransitionReviewQuestion[];
   source_role:'OBSERVED_OBJECT_LOCAL_ORDER_NOT_CAUSAL_DEPENDENCY';
   inferred_edges:0;export_allowed:false;
 }>;

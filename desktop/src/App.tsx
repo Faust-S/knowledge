@@ -96,6 +96,13 @@ function T3ViewCard({view, number}: {view:T3StructuralCandidate;number:number}) 
       : map.linear
         ? 'Одна цепочка локальных переходов. Нормативный маршрут не подтверждён.'
         : 'Единой последовательности нет. Недостающие связи не достраиваются.';
+  const nodeQuestion=!choice?null:choice.outgoing.length>1
+    ? 'Уточнить в Work и Result, что объясняет несколько исходящих вариантов. Правило решения не установлено.'
+    : choice.incoming.length>1
+      ? 'Уточнить, относятся ли входящие варианты к одному маршруту и почему они встретились.'
+      : !choice.incoming.length&&!choice.outgoing.length
+        ? 'Проверить отсутствие связей у владельца источника. Недостающие переходы не предполагаются.'
+        : 'Сверить эту локальную связь с первичным событием и критерием приёмки Result.';
   return <section className="process-card" aria-label={'Траектория T3 '+number}>
     <header className="process-head">
       <div><span className="eyebrow">T3 D1/D2 · СОБЫТИЯ ПО ДАННЫМ ИСТОЧНИКА</span>
@@ -112,6 +119,20 @@ function T3ViewCard({view, number}: {view:T3StructuralCandidate;number:number}) 
         ? <p className="t3-map-counts">Расхождений: {map.branch_points}.
           Схождений: {map.convergence_points}.
           Без связей: {map.isolated_event_kinds}.</p> : null}
+      <aside className="t3-map-questions" aria-label="Вопросы для проверки хозяйственного процесса">
+        <strong>Что проверить в процессе</strong>
+        <p>Вопросы по структуре, а не установленные нарушения или экономические потери.</p>
+        <div className="t3-map-question">
+          <strong>{map.review_questions[0].title}</strong>
+          <span>{map.review_questions[0].prompt}</span>
+        </div>
+        {map.review_questions.length>1 ? <details>
+          <summary>Другие вопросы ({map.review_questions.length-1})</summary>
+          {map.review_questions.slice(1).map(q=><div className="t3-map-question" key={q.code}>
+            <strong>{q.title}</strong><span>{q.prompt}</span>
+          </div>)}
+        </details> : null}
+      </aside>
       <div className="t3-map-choices" role="group" aria-label="Выбор события для просмотра связей">
         {visible.map(node=><button type="button" key={node.id}
           className={'t3-map-node'+(choice?.id===node.id?' is-selected':'')}
@@ -156,6 +177,9 @@ function T3ViewCard({view, number}: {view:T3StructuralCandidate;number:number}) 
                 ? <p>Первые 8 из {choice.outgoing.length} связей.</p>:null}
             </div>
           </div>
+          {nodeQuestion ? <p className="t3-map-node-question">
+            <strong>Вопрос для проверки:</strong> {nodeQuestion}
+          </p> : null}
         </> : <span>Выберите событие, чтобы увидеть только зафиксированные
           входящие и исходящие связи.</span>}
       </div>

@@ -139,3 +139,16 @@ h2 {margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.025em;}
 .t3-candidate-nav>strong {font-size:12px;color:#ebdcfc;}
 .t3-candidate-nav>span {font-variant-numeric:tabular-nums;}
 @media (max-width:1100px) {.t3-candidate-nav {align-items:flex-start;flex-direction:column;gap:8px;}}
+
+/* Read-only, bounded structural verification prompts. Never process claims. */
+.t3-map-questions {background:#262239;border:1px solid #504266;border-radius:8px;padding:10px;margin:9px 0;min-width:0;}
+.t3-map-questions>strong {display:block;font-size:11px;color:#ead9ff;}
+.t3-map-questions>p {font-size:10px;line-height:1.5;color:#bdb1cf;margin:5px 0 8px;}
+.t3-map-question {display:flex;flex-direction:column;gap:4px;padding:7px 0;min-width:0;}
+.t3-map-question strong {font-size:11px;line-height:1.4;color:#eee3ff;}
+.t3-map-question span {font-size:10px;line-height:1.6;color:#c4b7d8;overflow-wrap:anywhere;}
+.t3-map-questions details {border-top:1px solid #4c3e62;margin-top:5px;padding-top:7px;}
+.t3-map-questions summary {color:#d6c3f6;cursor:pointer;font-size:10px;line-height:1.5;}
+.t3-map-questions summary:focus-visible {outline:2px solid #dfc7ff;outline-offset:3px;}
+.t3-map-node-question {border-top:1px solid #504362;padding-top:9px;margin-top:9px;font-size:10px;line-height:1.5;}
+.t3-map-node-question strong {display:inline;color:#e7d6fa;}

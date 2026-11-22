@@ -135,3 +135,41 @@ test('too many alias classes do not establish a global chronology on React threa
   assert.equal(map.export_allowed,false);
   assert.equal(map.nodes[0].id,'event_type_001');
 });
+
+test('linear map asks for normative verification without declaring losses or quality',()=>{
+  const map=buildT3TransitionMap(sample());
+  assert.deepEqual(map.review_questions.map(q=>q.code),['NORMATIVE_SEQUENCE']);
+  assert.equal(map.review_questions[0].title,'Совпадает ли порядок с регламентом?');
+  assert.equal(Object.isFrozen(map.review_questions),true);
+  assert.equal(Object.isFrozen(map.review_questions[0]),true);
+  assert.equal(JSON.stringify(map.review_questions).includes('PRIVATE_'),false);
+});
+test('cycles, branches and missing links generate distinct bounded verification questions',()=>{
+  const x=sample();
+  x.observed_event_kinds.push('event_type_004');
+  x.object_local_successions.push(edge('event_type_003','event_type_001'));
+  x.object_local_successions.push(edge('event_type_001','event_type_003'));
+  const map=buildT3TransitionMap(x);
+  assert.equal(map.cyclic,true);
+  assert.equal(map.branch_points,1);
+  assert.equal(map.isolated_event_kinds,1);
+  assert.deepEqual(map.review_questions.map(q=>q.code),[
+    'ISOLATED_EVENT_KIND','REPEATED_ORDER','MULTIPLE_SUCCESSORS']);
+  assert.ok(map.review_questions.every(q=>!q.prompt.includes('выявленное нарушение')));
+  assert.ok(map.review_questions.length<=3);
+});
+test('very large graphs never imply a global order and point to bounded checks',()=>{
+  const n=300;
+  const ids=Array.from({length:n},(_,i)=>'event_type_'+String(i+1).padStart(3,'0'));
+  const map=buildT3TransitionMap({
+    object_type:'object_type_005',cohort_band:'50+',
+    observed_event_kinds:ids,
+    object_local_successions:ids.slice(1).map((to,i)=>edge(ids[i],to,'50+')),
+  });
+  assert.equal(map.too_complex,true);
+  assert.equal(map.cyclic,false);
+  assert.equal(map.linear,false);
+  assert.equal(map.review_questions[0].code,'SCOPE_EXCEEDS_LAYOUT');
+  assert.ok(map.review_questions.every(q=>!q.prompt.includes('Сырьё')));
+  assert.ok(map.review_questions.length<=3);
+});

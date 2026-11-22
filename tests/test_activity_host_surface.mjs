@@ -108,3 +108,17 @@ test('bounded multi-object D2 candidate navigation cannot mount thousands of Rea
   assert.match(helper,/const too_complex=distinct\.size>256\|\|edges\.length>512/);
   assert.match(helper,/inferred_edges:0/);
 });
+
+test('business verification cards remain read-only, bounded and keyboard-accessible',()=>{
+  const app=file('../desktop/src/App.tsx');
+  const map=file('../modules/activity-base-anonymizer/t3-transition-map.mjs');
+  const css=file('../desktop/src/styles.css');
+  assert.match(app,/map\.review_questions\[0\]\.prompt/);
+  assert.match(app,/map\.review_questions\.slice\(1\)/);
+  assert.match(app,/Вопросы для проверки хозяйственного процесса/);
+  assert.match(app,/Вопрос для проверки:/);
+  assert.match(css,/\.t3-map-questions summary:focus-visible/);
+  assert.match(map,/questions\.slice\(0,3\)/);
+  assert.match(map,/не доказывает переделку/);
+  assert.doesNotMatch(map,/fetch\(|XMLHttpRequest|WebSocket|putObject|exportPackage/);
+});
