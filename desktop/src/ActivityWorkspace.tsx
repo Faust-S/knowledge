@@ -109,17 +109,48 @@ export function ActivityWorkspace({brandSrc,data,actions,legacy}:ActivityWorkspa
  const map=useMemo(()=>{try{return selectedCandidate?buildT3TransitionMap(selectedCandidate):null;}catch{return null;}},[selectedCandidate]);
  const passport=useMemo(()=>{try{return t3?buildT3EvidencePassport(t3):null;}catch{return null;}},[t3]);
  const current=data.preview?'a1':data.objectEvidence?'ocel':t3?'t3':'none';
+ const reviewStatus=data.t3Review?.status;
+ const sourceHeading=current!=='none'?data.sourceName
+   :reviewStatus==='STAGED'?'Внутренний черновик T3'
+   :reviewStatus==='HOLD'?'Чтение T3 остановлено'
+   :data.busy?data.sourceName:data.problem?'Источник отклонён':'Источник не выбран';
+ const sourceDetail=data.problem||(
+   reviewStatus==='HOLD'?'HOLD: '+(data.t3Review?.code??'T3_READ_NOT_CONFIRMED')
+   :reviewStatus==='STAGED'?(data.t3Review?.recovered
+      ?'Черновик проверен независимым подписанным чтением Kernel.'
+      :'Черновик сохранён для внутренней проверки.')
+   :reviewStatus==='READING'?'Выполняется подписанное чтение T3'
+   :reviewStatus==='STAGING'?'Сохраняется внутренний черновик'
+   :reviewStatus==='RECOVERING'?'Выполняется повторное чтение из Kernel'
+   :'Данные обновляются только после подтверждённого чтения источника');
  const process=data.preview?.processes[Math.min(processIndex,Math.max(0,(data.preview?.processes.length??1)-1))];
  const object=data.objectEvidence?.object_views[Math.min(objectIndex,Math.max(0,(data.objectEvidence?.object_views.length??1)-1))];
 
  function contentOfWidget(w:ActivityWidget):ReactNode{
   const source=w.source==='current'?current:w.source===current?w.source:'none';
-  const empty=<Note>{DEFAULT_NOTE}</Note>;
+  const empty=<div className="activity-v7-empty-widget"><Note>{w.source==='current'
+    ?DEFAULT_NOTE
+    :'Источник «'+SOURCE[w.source]+'» сейчас не выбран. Результат другой базы не подставляется.'}</Note>
+    {w.source==='a1'?<button onClick={()=>choose('a1')}>Открыть A1</button>
+    :w.source==='ocel'?<button onClick={()=>choose('ocel')}>Открыть OCEL 2.0</button>
+    :w.source==='t3'?<button onClick={()=>choose('t3')}>Подключить T3</button>
+    :<button onClick={()=>go('Источники')}>Выбрать источник</button>}</div>;
   if(w.kind==='sources')return <div className="activity-v7-actions"><button onClick={()=>choose('a1')}>Пример A1</button><button onClick={()=>choose('ocel')}>Пример OCEL</button><button onClick={()=>choose('file')}>JSON</button><button onClick={()=>choose('t3')}>T3</button></div>;
-  if(w.kind==='sourceStatus')return <><b>{data.hasT3Host?'Host предоставлен':'T3 Host не подключён'}</b><p>Подписанное чтение зависит от оригинального D1/D2 и разрешённой Workspace.</p></>;
+  if(w.kind==='sourceStatus')return <><b>{reviewStatus==='HOLD'
+     ?'HOLD: '+(data.t3Review?.code??'T3_READ_NOT_CONFIRMED')
+     :reviewStatus==='STAGED'?'Черновик T3 сохранён'
+     :reviewStatus==='REVIEW'?'Структура T3 получена'
+     :data.hasT3Host?'Host предоставлен':'T3 Host не подключён'}</b>
+   <p>{data.hasT3Host?'Чтение требует отдельного подписанного права Activity Read.':'Корпоративная Workspace не подключена.'}</p>
+   <button onClick={()=>go('T3 D1/D2')}>Открыть подключение</button></>;
   if(w.kind==='standards')return <p>OCEL 2.0: ограниченный JSON. BPMN: без XML. DMN/CMMN: правила не установлены. W3C PROV: подтверждения нет.</p>;
   if(w.kind==='d05')return <><Stats rows={[[D05_RESULT_TYPES.length,'Result'],[D05_EVENT_TYPES.length,'Event']]}/><p>Предметный контракт CehoVod. Физическое производство не подтверждено.</p></>;
-  if(w.kind==='recovery')return <p>{data.canRecover?'Доступна подписанная проверка черновика.':'Для восстановления нужен оригинальный доверенный Host.'} Повторная запись не выполняется.</p>;
+  if(w.kind==='recovery')return <><b>{reviewStatus==='STAGED'
+    ?data.t3Review?.recovered?'Черновик повторно проверен':'Черновик записан для проверки'
+    :data.t3Review?.stageBlocked?'Запись требует независимой сверки'
+    :data.canRecover?'Проверка через Kernel доступна':'Ожидается доверенный Host'}</b>
+   <p>Неизвестный исход записи не разрешает повторять её.</p>
+   <button onClick={()=>go('Черновик и восстановление')}>Открыть черновик</button></>;
   if(w.kind==='release')return <><b>HOLD · выпуск закрыт</b><p>Не установлены анонимность и право на внешний обмен.</p></>;
   if(w.kind==='qualification')return <><b>Корпоративный P1: NOT_ACCEPTED</b><p>Сборка и тестовый T3 не равны установленному корпоративному доступу.</p></>;
   if(w.kind==='localFile')return <button onClick={()=>choose('file')}>Открыть локальный JSON</button>;
@@ -143,8 +174,8 @@ export function ActivityWorkspace({brandSrc,data,actions,legacy}:ActivityWorkspa
    <p>Добавляйте необходимые карты и показатели, подключайте источники и располагайте блоки в удобном порядке.</p></div>
    <div className="activity-v7-actions"><button className="activity-v7-primary" aria-label="Добавить блок" onClick={()=>setLibrary(true)}><Icon name="plus" size={16}/> Добавить блок</button>
     <button onClick={()=>setEditing(x=>!x)}>{editing?'Готово':'Настроить'}</button></div></div>
-  <div className="activity-v7-source-banner"><Icon name="database"/><div><strong>{current==='none'?'Источник не выбран':data.sourceName}</strong>
-    <span>{data.problem||'Данные обновляются только после подтверждённого чтения выбранного источника'}</span></div>
+  <div className="activity-v7-source-banner" role="status"><Icon name="database"/><div><strong>{sourceHeading}</strong>
+    <span>{sourceDetail}</span></div>
     <button onClick={()=>go('Источники')}>Источники</button></div>
   {editing?<p className="activity-v7-muted">Перемещайте блоки за маркер. Alt+стрелки меняют порядок с клавиатуры. Состав панели сохраняется на этом компьютере.</p>:null}
   <section className="activity-v7-board" aria-label="Настраиваемая панель Activity">{board.map((w,i)=><article className="activity-v7-widget" data-size={w.size} key={w.id}
@@ -154,11 +185,11 @@ export function ActivityWorkspace({brandSrc,data,actions,legacy}:ActivityWorkspa
     e.preventDefault();const id=dragId.current;dragId.current='';setBoard(rows=>moveActivityWidget(rows,id,w.id)??rows);}}>
    <header><span className="activity-v7-widget-glyph"><Icon name={w.kind==='ocel'?'network':w.kind==='risks'?'shield':'layers'} size={16}/></span>
     <div><strong>{w.label||ACTIVITY_WIDGETS[w.kind].title}</strong><small>{SOURCE[w.source]}</small></div>
-    <button draggable title="Перетащить блок" aria-label="Перетащить блок"
+    <button draggable title="Перетащить блок" aria-label={'Перетащить блок: '+(w.label||ACTIVITY_WIDGETS[w.kind].title)}
       onDragStart={(e:DragEvent<HTMLButtonElement>)=>{dragId.current=w.id;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',w.id);}}
       onDragEnd={()=>{dragId.current='';document.querySelectorAll('.activity-v7-widget.is-drop-target').forEach(x=>x.classList.remove('is-drop-target'));}}
       onKeyDown={e=>{if(!(e.altKey||e.ctrlKey))return;if(['ArrowLeft','ArrowUp','ArrowRight','ArrowDown'].includes(e.key)){e.preventDefault();moveWidget(w.id,['ArrowLeft','ArrowUp'].includes(e.key)?-1:1);}}}><Icon name="drag" size={16}/></button>
-    <button aria-label="Настроить блок" onClick={()=>setWidgetConfig(w.id)}><Icon name="settings" size={16}/></button>
+    <button aria-label={'Настроить блок: '+(w.label||ACTIVITY_WIDGETS[w.kind].title)} onClick={()=>setWidgetConfig(w.id)}><Icon name="settings" size={16}/></button>
     {editing?<button aria-label="Удалить блок" onClick={()=>setBoard(rows=>rows.filter(x=>x.id!==w.id))}>×</button>:null}
    </header><div className="activity-v7-widget-body">{contentOfWidget(w)}</div>
    <footer><span>{i+1} из {board.length}</span><button onClick={()=>go(ACTIVITY_WIDGETS[w.kind].page)}>Подробнее</button></footer>
@@ -248,7 +279,7 @@ export function ActivityWorkspace({brandSrc,data,actions,legacy}:ActivityWorkspa
     <p>Добавляйте карты, показатели, источники и проверки. Максимум 24 блока.</p>
     <input type="search" autoFocus value={librarySearch} onChange={e=>setLibrarySearch(e.target.value)} placeholder="Найти блок"/>
     <div className="activity-v7-library">{Object.entries(ACTIVITY_WIDGETS).filter(([,meta])=>meta.title.toLocaleLowerCase('ru').includes(librarySearch.toLocaleLowerCase('ru'))).map(([kind,meta])=>
-     <div key={kind}><strong>{meta.title}</strong><span>{meta.page}</span><button disabled={board.length>=24} onClick={()=>addWidget(kind as ActivityWidgetKind)}>Добавить</button></div>)}</div>
+     <div key={kind}><strong>{meta.title}</strong><span>{meta.page}</span><button aria-label={'Добавить: '+meta.title} disabled={board.length>=24} onClick={()=>addWidget(kind as ActivityWidgetKind)}>Добавить</button></div>)}</div>
    </div></div>:null}
   {widgetConfig&&board.some(w=>w.id===widgetConfig)?<div className="activity-v7-modal-mask" onMouseDown={e=>{if(e.target===e.currentTarget)setWidgetConfig('');}}>
    <div className="activity-v7-modal compact" role="dialog" aria-modal="true" aria-label="Настройка блока">
