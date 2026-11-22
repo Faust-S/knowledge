@@ -56,6 +56,16 @@ function Close-Window($info) {
 $window = $null
 try {
     $window = Open-Window $exe
+    # V7 starts on the real user-configurable dashboard, not the old source form.
+    if (!(Find-Accessible $window.Root 'Моя панель деятельности')) {
+        throw 'INSTALLED_ACTIVITY_V7_DASHBOARD_NOT_VISIBLE'
+    }
+    if (!(Find-Accessible $window.Root 'Добавить блок')) {
+        throw 'INSTALLED_ACTIVITY_V7_WIDGET_LIBRARY_MISSING'
+    }
+    $sourcePage = Find-Accessible $window.Root 'Источники'
+    if (!$sourcePage) { throw 'INSTALLED_ACTIVITY_V7_SOURCE_NAV_MISSING' }
+    $sourcePage.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
     $t3 = Find-Accessible $window.Root 'Подключить выбранную базу T3'
     if (!$t3) { throw 'INSTALLED_T3_SOURCE_ACTION_MISSING' }
     $t3Pattern = $t3.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
@@ -104,6 +114,12 @@ try {
 $second = $null
 try {
     $second = Open-Window $exe
+    if (!(Find-Accessible $second.Root 'Моя панель деятельности')) {
+        throw 'INSTALLED_ACTIVITY_V7_COLD_DASHBOARD_NOT_READY'
+    }
+    $sourcePage = Find-Accessible $second.Root 'Источники'
+    if (!$sourcePage) { throw 'INSTALLED_ACTIVITY_V7_COLD_SOURCE_NAV_MISSING' }
+    $sourcePage.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
     if (!(Find-Accessible $second.Root 'Открыть встроенный пример')) {
         throw 'INSTALLED_GUI_COLD_START_NOT_READY'
     }

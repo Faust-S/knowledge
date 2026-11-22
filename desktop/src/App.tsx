@@ -1,4 +1,5 @@
 import {useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {ActivityWorkspace} from './ActivityWorkspace';
 import {createT3ReviewController} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import {buildT3TransitionMap} from '../../modules/activity-base-anonymizer/t3-transition-map.mjs';
 import {buildT3EvidencePassport} from '../../modules/activity-base-anonymizer/t3-evidence-passport.mjs';
@@ -395,7 +396,7 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
   const candidatePages=Math.max(1,Math.ceil(t3Candidates.length/T3_CANDIDATE_PAGE_SIZE));
   const candidatePage=Math.min(t3CandidatePage,candidatePages-1);
 
-  return <div className="app-shell" onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
+  const legacy = <div className="app-shell" onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
     <header className="topbar">
       <div className="brand">
         <img className="brand-icon" src={brandSrc} alt="IWXA" />
@@ -595,4 +596,17 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
     </main>
     <footer className="footer"><span>IWXA · Локальная реконструкция деятельности</span><span>Исходные данные остаются у владельца · Автоматическая публикация отсутствует</span></footer>
   </div>;
+  // Single original Activity controller remains mounted across V7 navigation.
+  // The shell receives already screened read-only views, never raw source data,
+  // Kernel, signed Access, Workspace IDs or mutable authorization.
+  return <ActivityWorkspace brandSrc={brandSrc} data={{
+    sourceName,busy,problem,preview,risk,objectEvidence,t3Review,
+    hasT3Host: Boolean(t3Host),
+    canStage: typeof t3Host?.stageSelected === 'function',
+    canRecover: typeof t3Host?.recoverSelected === 'function',
+  }} actions={{
+    loadExample,loadOcelExample,readT3:loadSelectedT3,
+    pickFile:()=>fileInput.current?.click(),
+    stageT3:stageSelectedT3,recoverT3:recoverSelectedT3,
+  }} legacy={legacy}/>;
 }

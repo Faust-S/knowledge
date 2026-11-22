@@ -3,6 +3,7 @@ import {createRoot, type Root} from 'react-dom/client';
 import {App} from './App';
 import type {T3ReviewHost} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import './styles.css';
+import './activity-v7.css';
 
 export const IWXA_ACTIVITY_HOST_SURFACE_SCHEMA = 'IWXA_ACTIVITY_HOST_SURFACE/0.1';
 const mounted = new WeakMap<HTMLElement, Root>();

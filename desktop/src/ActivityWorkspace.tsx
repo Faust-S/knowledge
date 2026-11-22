@@ -1,4 +1,5 @@
 import {useEffect,useMemo,useRef,useState,type DragEvent,type ReactNode} from 'react';
+import {ActivityInnerPage} from './ActivityInnerPage';
 import type {Preview} from '../../modules/activity-base-anonymizer/engine.mjs';
 import type {SyntheticRisk} from '../../modules/activity-base-anonymizer/risk.mjs';
 import type {Ocel2EvidenceView} from '../../modules/activity-base-anonymizer/ocel2-evidence.mjs';
