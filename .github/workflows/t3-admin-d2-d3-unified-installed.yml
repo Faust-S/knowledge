@@ -272,7 +272,8 @@ jobs:
           if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
             throw 'D2_INSTALLED_ORIGINAL_SETUP_ROOT_NOT_FOUND'
           }
-          & ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 -InstallRoot $env:G4_INSTALLED_CENTER_ROOT -RequireD2Read
+          & ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 -InstallRoot $env:G4_INSTALLED_CENTER_ROOT -RequireD2Read -RequireOriginalEmployeeRegistry
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_UIA_E2E_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_DATA_TWO_COLD_UIA_PASS'
+          Write-Host 'D3_INSTALLED_ORIGINAL_REGISTRY_COLD_KERNEL_UIA_PASS'
 

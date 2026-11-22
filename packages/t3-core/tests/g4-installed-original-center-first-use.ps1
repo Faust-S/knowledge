@@ -1,7 +1,8 @@
 # Public knowledge: NEW independent native Windows UIA witness for installed
 # private Admin Center first-use. Only UI labels and PASS codes leave runner.
 # No browser automation, no private source/logs, no imitation signed owner.
-param([Parameter(Mandatory=$true)][string]$InstallRoot,[switch]$RequireD2Read)
+param([Parameter(Mandatory=$true)][string]$InstallRoot,[switch]$RequireD2Read,
+  [switch]$RequireOriginalEmployeeRegistry)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName UIAutomationClient
@@ -531,12 +532,12 @@ function RequireDialogDismissed([IntPtr]$dialog){
   }
   throw 'G4_INSTALLED_FIRST_USE_NATIVE_DIALOG_CLICK_NOT_ACKNOWLEDGED'
 }
-function ClickNativeChoice([bool]$confirm){
+function ClickNativeChoice([bool]$confirm,[string]$title='IWXA T3: подключить организацию'){
   # This is a genuine on-screen native rfd 0.15 TaskDialog, never a
   # direct admin-d3 CLI, stubbed human decision, or an arbitrary HWND.
   for($i=0;$i -lt 100;$i++){
     $dialog=[G4InstalledModal]::FindExact(
-      $global:appProcess.Id,'IWXA T3: подключить организацию')
+      $global:appProcess.Id,$title)
     if($dialog -ne [IntPtr]::Zero){
       Write-Host 'G4_INSTALLED_FIRST_USE_WIN32_DIALOG_VISIBLE_PASS'
       $activated=[G4InstalledModal]::SetForegroundWindow($dialog)
@@ -751,6 +752,7 @@ try{
   Check $durable 'G4_INSTALLED_FIRST_USE_COLD_OWNER_NOT_RESTORED'
 
   Write-Host 'G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS'
+  if($RequireOriginalEmployeeRegistry -and -not $RequireD2Read){throw 'D3_INSTALLED_D2_PREREQUISITE_REQUIRED'}
   if($RequireD2Read){
     # Only the installed original DPAPI/Ed25519 owner and original T2 Host
     # may satisfy these UIA observations. No direct native command dispatch,
@@ -801,6 +803,26 @@ try{
     $script:phase='D2_NATIVE_HIDE_SAME_KERNEL'
     ClickButton 'К приёмке'
     Check (WaitForNativeCenterReviewToolbar) 'D2_INSTALLED_NATIVE_SIGNED_WORKSPACE_NOT_HIDDEN'
+    if($RequireOriginalEmployeeRegistry){
+      # One physical Human-approved original Kernel write, only after the
+      # selected signed Workspace has been independently read back.
+      # Unknown outcome is recovery-only. This branch NEVER clicks twice.
+      $script:phase='D3_NATIVE_ORIGINAL_REGISTRY_INITIALIZE'
+      $ready=$false
+      for($poll=0;$poll -lt 120;$poll++){
+        $b=$null
+        try{$b=FindName 'Подключить исходный реестр T3' 'Button' 1}catch{}
+        if($b){
+          try{if($b.Current.IsEnabled -and -not $b.Current.IsOffscreen){$ready=$true;break}}catch{}
+        }
+        Start-Sleep -Milliseconds 280
+      }
+      Check $ready 'D3_INSTALLED_ORIGINAL_REGISTRY_BOOTSTRAP_NOT_AVAILABLE'
+      ClickButton 'Подключить исходный реестр T3'
+      ClickNativeChoice $true 'IWXA T3: исходный корпоративный реестр'
+      Check (WaitForText 'Контакт в черновике' 240) 'D3_INSTALLED_ORIGINAL_REGISTRY_KERNEL_READBACK_NOT_CONFIRMED'
+      Write-Host 'D3_INSTALLED_ORIGINAL_REGISTRY_ONE_EXPLICIT_HUMAN_CREATE_PASS'
+    }
     $script:phase='D2_NATIVE_REVIEW_TO_OVERVIEW'
     ClickButton 'Обзор · Admin Center'
     if(-not (WaitForText 'Что нужно найти или решить?' 100)){
@@ -849,6 +871,24 @@ try{
     Check (EnsureOriginalSignedWorkspaceProvisioned $false) 'D2_INSTALLED_COLD_ORIGINAL_WORKSPACE_PROVISION_NOT_CONFIRMED'
     ClickButton 'К приёмке'
     Check (WaitForNativeCenterReviewToolbar) 'D2_INSTALLED_COLD_NATIVE_REVIEW_TOOLBAR_NOT_READY'
+    if($RequireOriginalEmployeeRegistry){
+      # Cold Windows process, same private Owner and original signed T2
+      # Object/Event. Never reinitialize or create a different registry.
+      $script:phase='D3_NATIVE_REGISTRY_COLD_READ_ONLY'
+      $readable=$false
+      for($poll=0;$poll -lt 120;$poll++){
+        $b=$null
+        try{$b=FindName 'Проверить реестр без записи' 'Button' 1}catch{}
+        if($b){
+          try{if($b.Current.IsEnabled -and -not $b.Current.IsOffscreen){$readable=$true;break}}catch{}
+        }
+        Start-Sleep -Milliseconds 280
+      }
+      Check $readable 'D3_INSTALLED_ORIGINAL_REGISTRY_COLD_READ_ONLY_ACTION_MISSING'
+      ClickButton 'Проверить реестр без записи'
+      Check (WaitForText 'Контакт в черновике' 240) 'D3_INSTALLED_ORIGINAL_REGISTRY_COLD_KERNEL_READBACK_NOT_CONFIRMED'
+      Write-Host 'D3_INSTALLED_ORIGINAL_REGISTRY_COLD_READ_ONLY_PASS'
+    }
     ClickButton 'Обзор · Admin Center'
     Check (WaitForText 'Что нужно найти или решить?' 100) 'D2_INSTALLED_COLD_NATIVE_OVERVIEW_NOT_OPEN'
     ClickButton 'Обновить подписанные сведения T3'
