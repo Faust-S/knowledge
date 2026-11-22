@@ -1,0 +1,58 @@
+name: D07 contextual ads official originals discovery
+on:
+  push:
+    branches: [work/2026-11-22-d07-methodology-v13]
+    paths: [.github/workflows/d07-contextual-original-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-contextual-originals-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  inspect-official-originals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact private D07 site source only
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: fade7fbf2f4d9cf51d196421c9e1e890da2338d0
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Verify pinned private revision
+        run: |
+          test "$(git -C site rev-parse HEAD)" = "fade7fbf2f4d9cf51d196421c9e1e890da2338d0"
+          test -f site/scripts/d07-contextual-original-qualification.mjs
+          test -f site/scripts/research/d07-contextual-originals.json
+          echo D07_CONTEXTUAL_ORIGINAL_SOURCE_IDENTITY=PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Frozen site dependency installation
+        working-directory: site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-contextual-install.log" 2>&1 || {
+            echo D07_CONTEXTUAL_SOURCE_INSTALL=FAIL
+            exit 1
+          }
+          echo D07_CONTEXTUAL_SOURCE_INSTALL=PASS
+      - name: Verify existing original source fetcher boundaries
+        working-directory: site
+        run: |
+          node --test scripts/tests/d07-original-source-fetch.test.mjs > "$RUNNER_TEMP/d07-contextual-source-tests.log" 2>&1 || {
+            echo D07_CONTEXTUAL_SOURCE_VALIDATION=FAIL
+            grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+error:' "$RUNNER_TEMP/d07-contextual-source-tests.log" | head -30 || true
+            exit 1
+          }
+          echo D07_CONTEXTUAL_SOURCE_VALIDATION=PASS
+      - name: Discover and print only public original section hashes, never approve
+        working-directory: site
+        run: |
+          node --import tsx scripts/d07-contextual-original-qualification.mjs
+      # No private source, raw page text or customer artifacts uploaded.
