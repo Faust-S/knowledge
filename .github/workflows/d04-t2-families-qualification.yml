@@ -108,22 +108,43 @@ jobs:
             'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
           const conf='workspace/workspace.config.json';
           const hash=createHash('sha256').update(readFileSync(join(site,'dist',conf))).digest('hex');
-          const inventory={serviceIds:[BAZMED_SERVICE],routes:BAZMED_ROUTES,persistentFamilies:BAZMED_FAMILIES};
-          const contract={
-            runtime:{kernel:'0.3.6',contract:'1.3.0',
-              artifactId:'iwxa-kernel-k036-same-store-history-20261019-qualified.1',
-              hostConfiguration:{path:conf,sha256:hash}},
-            witness:bazmedWitnessContract(),inventory,buildDirectory:'dist'
-          };
-          const result=await runIndependentSiteWitness({siteRoot:site,contract,inventory,buildDirectory:'dist'});
-          if(result.status!=='PASS'||result.runner!=='T2_OWNED_PLAYWRIGHT'||
-             result.observations.length!==3)throw Error('D04_NATIVE_FAMILY_COUNT_INVALID');
-          for(const family of BAZMED_FAMILIES){
-            const o=result.observations.find(x=>x.family===family);
-            if(!o||!o.afterKernelRestart||!o.afterPageReload||!o.historyPreserved||
-               !o.deniedWriteRejected||!o.independentReader||!o.freshUiChallenge||
+          const witness=bazmedWitnessContract();
+          if(witness.journeys.length!==BAZMED_FAMILIES.length)
+            throw Error('D04_NATIVE_FAMILY_CONTRACT_COUNT_INVALID');
+          // The product deliberately creates exactly one personal Life OS per
+          // browser profile. Each independent family witness must therefore
+          // start in a fresh T2 profile. Reusing the profile would ask the UI
+          // for an impossible second "Create my Life OS" button.
+          for(const [index,family] of BAZMED_FAMILIES.entries()){
+            const journey=witness.journeys[index];
+            if(journey.family!==family||journey.route!==BAZMED_ROUTES[index])
+              throw Error('D04_NATIVE_FAMILY_ROUTE_IDENTITY_INVALID');
+            const inventory={
+              serviceIds:[BAZMED_SERVICE],
+              routes:[journey.route],
+              persistentFamilies:[family]
+            };
+            const contract={
+              runtime:{kernel:'0.3.6',contract:'1.3.0',
+                artifactId:'iwxa-kernel-k036-same-store-history-20261019-qualified.1',
+                hostConfiguration:{path:conf,sha256:hash}},
+              witness:{...witness,journeys:[journey]},
+              inventory,buildDirectory:'dist'
+            };
+            console.log('D04_NATIVE_FAMILY_START='+family);
+            const result=await runIndependentSiteWitness({
+              siteRoot:site,contract,inventory,buildDirectory:'dist'
+            });
+            if(result.status!=='PASS'||result.runner!=='T2_OWNED_PLAYWRIGHT'||
+               result.observations.length!==1)
+              throw Error('D04_NATIVE_SINGLE_FAMILY_COUNT_INVALID');
+            const o=result.observations[0];
+            if(o.family!==family||!o.afterKernelRestart||!o.afterPageReload||
+               !o.historyPreserved||!o.deniedWriteRejected||
+               !o.independentReader||!o.freshUiChallenge||
                !o.unrelatedObjectsPreserved||!o.noUndeclaredObjects||
-               o.nativeOperation!=='putObject')throw Error('D04_NATIVE_FAMILY_WITNESS_INCOMPLETE');
+               o.nativeOperation!=='putObject')
+              throw Error('D04_NATIVE_FAMILY_WITNESS_INCOMPLETE');
             console.log('D04_NATIVE_FAMILY_PASS='+family);
           }
           console.log('D04_NATIVE_T2_THREE_RESULT_FAMILIES=PASS');
