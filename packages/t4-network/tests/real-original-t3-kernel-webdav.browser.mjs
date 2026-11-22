@@ -2054,7 +2054,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         },{SERVICE,recipientTechnicalWorkspace,
           objectId:recipientTechnicalId(kind,ref)});
       const recipientTechnicalPersist=(kind,value)=>recipientPage.evaluate(
-        async({SERVICE,recipientTechnicalWorkspace,objectId,value})=>{
+        async({SERVICE,recipientTechnicalWorkspace,objectId,value,kind})=>{
           const kernel=await IWXA.connect({
             service_id:SERVICE,required_levels:['T1','T2']});
           const saved=await kernel.t1.putObject({
@@ -2066,7 +2066,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           });
           return saved.object.revision===1;
         },{SERVICE,recipientTechnicalWorkspace,
-          objectId:recipientTechnicalId(kind,value.captureRef),value});
+          objectId:recipientTechnicalId(kind,value.captureRef),value,kind});
       await recipientPage.evaluate(async({
         SERVICE,recipientTechnicalWorkspace,recipientCursorRef,receiveStartCursor,
       })=>{
