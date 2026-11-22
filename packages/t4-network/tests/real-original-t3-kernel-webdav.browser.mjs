@@ -2530,12 +2530,13 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         carrierPackage.artifact.bytes);
       const originalCarrierExportState=originalT3ConfirmedState({
         workspaceId:carrierWorkspaceId,...carrierPackage});
+      const stableCarrierSelection={workspace_id:carrierWorkspaceId};
       const signedCarrierSender=createT4OriginalExchangeHandoff({
         transport,
         originalKernel:{hasOperation:op=>actual.grants.includes(op)},
         workspaceId:carrierWorkspaceId,
         currentWorkspace:{
-          get:()=>({workspace_id:carrierWorkspaceId}),
+          get:()=>stableCarrierSelection,
           subscribe:()=>()=>{},
         },
         readOriginalExportState:()=>originalCarrierExportState,
