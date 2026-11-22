@@ -318,3 +318,69 @@ export async function inspectT4OriginalHostImportedPlanCarrier({
     mayInvokeRecipientDispatcher:false,
   });
 }
+
+/**
+ * Lost source putObject ACK recovery. Original T3 putObject on this route
+ * does not persist the optional idempotency_key; the recovery MUST match
+ * the one exact original Event and the original stored preimage instead.
+ * This method never calls putObject or fabricates its transaction receipt.
+ */
+export async function reconcileT4OriginalHostPlanCarrier({
+  plan,carrierWorkspaceId,carrierObjectId,originalKernel,
+  getMode,readOriginalHostContext,authorizeOriginalRead,
+}={}){
+  if(![carrierWorkspaceId,carrierObjectId].every(ID)||
+    ![getMode,readOriginalHostContext,authorizeOriginalRead]
+      .every(f=>typeof f==='function'))
+    fail('PLAN_CARRIER_ORIGINAL_SOURCE_PORTS_REQUIRED');
+  requireOriginalKernel(originalKernel,['t1.getObject','t1.listEventsSince']);
+  const p=checkPlan(plan);
+  const scope={...p,carrierWorkspaceId,carrierObjectId,
+    sourceWorkspaceId:p.workspaceId};
+  const context=await snapshotContext(readOriginalHostContext,p,
+    carrierWorkspaceId);
+  await guard(getMode,authorizeOriginalRead,scope,'read');
+  const first=await originalKernel.getObject(carrierWorkspaceId,
+    carrierObjectId);
+  const {record}=verifyCarrierRecord(first,scope,p);
+  if(record.revision!==1)
+    fail('PLAN_CARRIER_ORIGINAL_SOURCE_REVISION_CHANGED');
+  await guard(getMode,authorizeOriginalRead,scope,'read');
+  const rows=await originalKernel.listEventsSince(carrierWorkspaceId);
+  if(!Array.isArray(rows)||rows.length>100000)
+    fail('PLAN_CARRIER_ORIGINAL_T3_EVENT_LIST_INVALID');
+  const matching=rows.filter(e=>
+    ID(e?.event_id)&&e.event_type==='t4.original.host.plan.carried'&&
+    e.workspace_id===carrierWorkspaceId&&
+    e.object_id===carrierObjectId&&e.revision===1&&
+    e.payload?.sourcePlanDigest===p.planDigest&&
+    e.payload?.sourceWorkspaceId===p.workspaceId&&
+    e.payload?.carrierWorkspaceId===carrierWorkspaceId&&
+    e.payload?.carrierObjectId===carrierObjectId&&
+    e.payload?.networkTargetRef===p.networkTargetRef);
+  if(matching.length!==1)
+    fail('PLAN_CARRIER_ORIGINAL_T3_EVENT_NOT_PROVEN');
+  await guard(getMode,authorizeOriginalRead,scope,'read');
+  const second=await originalKernel.getObject(carrierWorkspaceId,
+    carrierObjectId);
+  const checked=verifyCarrierRecord(second,scope,p);
+  if(checked.record.revision!==record.revision)
+    fail('PLAN_CARRIER_ORIGINAL_SOURCE_REVISION_CHANGED');
+  await recheck(readOriginalHostContext,p,carrierWorkspaceId,context);
+  return stable({
+    schema:'IWXA_T4_ORIGINAL_HOST_PLAN_CARRIER_RECONCILED_V1',
+    carrierWorkspaceId,carrierObjectId,
+    sourceWorkspaceId:p.workspaceId,
+    originalWriteOwnerRef:p.originalWriteOwnerRef,
+    sourcePlanDigest:p.planDigest,
+    originalT3EventId:matching[0].event_id,
+    originalT3ObjectAndEventReadback:true,
+    originalT3WriteAlreadyCommitted:true,
+    originalT3WriteRetried:false,
+    originalReceiptRecreated:false,
+    originalT3OnlyStore:true,
+    signedSourceProvenanceNotProven:true,
+    recipientBusinessApplicationAuthorized:false,
+    requiresOriginalT3ExchangeExport:true,
+  });
+}
