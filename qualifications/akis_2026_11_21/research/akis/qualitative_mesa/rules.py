@@ -863,6 +863,14 @@ class QualitativeAKIS:
             if actor != w.customer or w.result != "SUBMITTED":
                 raise BlockedDecision("ORIGINAL_CUSTOMER_RESULT_DECISION_REQUIRED")
             if a == "accept":
+                # A formerly allowed inspection does not remain valid after
+                # the ORIGINAL data owner revokes/changes source permissions.
+                # Recheck the same existing ContextBasis at acceptance time,
+                # without inventing a quality IAM or invalidating old Results.
+                if w.assurance_criteria and self.context_basis is not None:
+                    self.context_basis.assert_allowed(
+                        w.key, "assess_result_quality", actor, at
+                    )
                 quality_gate = acceptance_gate(w)
                 if quality_gate != "NONE":
                     raise BlockedDecision(quality_gate)
