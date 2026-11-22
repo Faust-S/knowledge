@@ -1,0 +1,190 @@
+name: IWXA main essays 03-04 real qualification
+on:
+  push:
+    branches:
+      - qa/2026-11-22-projects-essays-01-02
+    paths:
+      - .github/workflows/qa-iwxa-essays-03-04.yml
+permissions:
+  contents: read
+jobs:
+  logic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 19
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Check four public essays, state transitions, original typography and full compilation
+        shell: bash
+        working-directory: .private/site
+        run: |
+          set -euo pipefail
+          echo IWXA_MAIN_SOURCE_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/iwxa-essay-new-install.log 2>&1 || { tail -n 65 /tmp/iwxa-essay-new-install.log; exit 1; }
+          node --import tsx --test scripts/check-editorial-series.test.ts scripts/check-projects-and-first-essays.test.ts scripts/check-deep-essays-03-04.test.ts
+          echo IWXA_FOUR_STUDIES_TESTS_PASS
+          bunx vite build > /tmp/iwxa-essay-new-build.log 2>&1 || { tail -n 110 /tmp/iwxa-essay-new-build.log; exit 1; }
+          bunx tsc --noEmit > /tmp/iwxa-essay-new-types.log 2>&1 || { tail -n 110 /tmp/iwxa-essay-new-types.log; exit 1; }
+          echo IWXA_FOUR_STUDIES_VITE_TYPES_PASS
+      - name: Purge private sources and logs
+        if: always()
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/iwxa-essay-new-*.log
+          test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Real Chrome responsive user actions without screenshot artifacts
+        shell: bash
+        working-directory: .private/site
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile > /tmp/iwxa-essay-browser-install.log 2>&1 || { tail -n 65 /tmp/iwxa-essay-browser-install.log; exit 1; }
+          bunx vite --host 127.0.0.1 --port 4173 > /tmp/iwxa-essay-browser-vite.log 2>&1 &
+          echo $! > /tmp/iwxa-essay-browser.pid
+          for n in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:4173/projects/iwxa/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node --input-type=module <<'JS'
+          import puppeteer from 'puppeteer';
+          const routes=[
+            '/projects/iwxa/',
+            '/articles/chto-sohranyaetsya-pri-peredache-raboty/',
+            '/articles/ot-porucheniya-do-priznaniya/',
+          ];
+          const browser=await puppeteer.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox','--disable-dev-shm-usage']});
+          let checks=0;
+          try{
+            const page=await browser.newPage();
+            page.on('pageerror',err=>console.log('CLIENT_PAGE_ERROR',err.message.slice(0,360)));
+            for(const width of [1440,375]){
+              await page.setViewport({width,height:width===375?812:900,deviceScaleFactor:1});
+              for(const route of routes){
+                const res=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'domcontentloaded',timeout:60000});
+                if(!res?.ok())throw Error('HTTP_FAIL '+route+' '+res?.status());
+                await page.waitForFunction(()=>document.querySelector('main')?.dataset.clientReady===window.location.pathname,{timeout:115000});
+                const info=await page.evaluate(()=>({
+                  h1:document.querySelector('h1')?.textContent?.trim(),
+                  overflow:document.documentElement.scrollWidth-window.innerWidth,
+                  font:getComputedStyle(document.querySelector('h1')).fontFamily,
+                }));
+                if(!info.h1||info.overflow>3)throw Error('VIEWPORT_FAIL '+width+' '+route+' '+JSON.stringify(info));
+                if(!info.font.includes('Inter Tight'))throw Error('TYPEFACE_FAIL '+route+' '+info.font);
+                if(route==='/projects/iwxa/'){
+                  const cardCount=await page.$$eval('.iwproj-publications>a',nodes=>nodes.length);
+                  if(cardCount!==4)throw Error('PROJECT_ARTICLE_CARDS '+cardCount);
+                }
+                if(route.includes('chto-sohranyaetsya')){
+                  const initial=await page.$eval('.edx-verdict>strong',x=>x.textContent);
+                  if(!initial?.includes('Не хватает'))throw Error('TRANSFER_DEFAULT_UNEXPECTED '+initial);
+                  await page.click('.edx-modes button:nth-of-type(3)');
+                  await page.select('.edx-revisions label:nth-child(2) select','2');
+                  const checkboxes=await page.$$('.edx .essay-model__controls .essay-check input');
+                  if(checkboxes.length!==3)throw Error('TRANSFER_CONTROLS '+checkboxes.length);
+                  await checkboxes[2].click();
+                  const after=await page.$eval('.edx-verdict>strong',x=>x.textContent);
+                  if(!after?.includes('принял результат'))throw Error('TRANSFER_NOT_REACTIVE '+after);
+                  await checkboxes[1].click();
+                  const revoked=await page.$eval('.edx-verdict>strong',x=>x.textContent);
+                  if(!revoked?.includes('Нет разрешения'))throw Error('TRANSFER_REVOKE_INEFFECTIVE '+revoked);
+                }
+                if(route.includes('ot-porucheniya')){
+                  const buttons=await page.$$('.edx-actions .edx-action');
+                  if(buttons.length!==6)throw Error('WRONG_PARTIES '+buttons.length);
+                  const initiallyDisabled=await page.$eval('.edx-actions .edx-action:nth-child(3)',x=>x.disabled);
+                  if(!initiallyDisabled)throw Error('BUYER_PREMATURELY_AUTHORIZED');
+                  for(let i=0;i<6;i++){
+                    await page.click('.edx-actions .edx-action:nth-child('+(i+1)+')');
+                  }
+                  const recognized=await page.$eval('.edx-state>strong',x=>x.textContent);
+                  if(!recognized?.includes('признан'))throw Error('RECOGNITION_NOT_REACHED '+recognized);
+                  await page.click('.edx-alternatives button:nth-child(2)');
+                  const revised=await page.$eval('.edx-current-revision>strong',x=>x.textContent);
+                  if(revised?.trim()!=='Редакция 2')throw Error('REVISION_NOT_REACTIVE '+revised);
+                  const status=await page.$eval('.edx-state>strong',x=>x.textContent);
+                  if(status?.includes('признан'))throw Error('STALE_RECOGNITION');
+                }
+                console.log('CHROME_CHECK_PASS',width,route);
+                checks++;
+              }
+            }
+            console.log('IWXA_FOUR_STUDIES_CHROME_PASS',checks);
+          }finally{await browser.close();}
+          JS
+      - name: Purge private site
+        if: always()
+        run: |
+          if [ -f /tmp/iwxa-essay-browser.pid ]; then kill "$(cat /tmp/iwxa-essay-browser.pid)" 2>/dev/null || true; fi
+          rm -rf .private/site
+          rm -f /tmp/iwxa-essay-browser*.log /tmp/iwxa-essay-browser.pid
+          test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Verify Apache-ready HTML for four research essays and project
+        working-directory: .private/site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+          IWXA_PRERENDER_ROUTES: /projects/iwxa/,/articles/chto-sohranyaetsya-pri-peredache-raboty/,/articles/ot-porucheniya-do-priznaniya/
+        run: |
+          set -euo pipefail
+          echo IWXA_STATIC_MAIN_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/iwxa-essay-static-install.log 2>&1 || { tail -n 60 /tmp/iwxa-essay-static-install.log; exit 1; }
+          bunx tsx scripts/build-static.ts > /tmp/iwxa-essay-static-build.log 2>&1 || { tail -n 135 /tmp/iwxa-essay-static-build.log; exit 1; }
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          for(const path of ['/projects/iwxa/','/articles/chto-sohranyaetsya-pri-peredache-raboty/','/articles/ot-porucheniya-do-priznaniya/']){
+            const file='dist-static'+path+'index.html';
+            if(!fs.existsSync(file))throw Error('MISSING_STATIC '+path);
+            const html=fs.readFileSync(file,'utf8');
+            if(!html.includes('<h1')||!html.includes('https://iwxa.ru'+path)||html.includes('localhost:4319'))throw Error('INVALID_STATIC '+path);
+            if(path.includes('chto-sohranyaetsya')&&!html.includes('Что получил новый исполнитель?'))throw Error('FIRST_INTERACTIVE_MISSING');
+            if(path.includes('ot-porucheniya')&&!html.includes('Кто имеет право перевести работу дальше?'))throw Error('SECOND_INTERACTIVE_MISSING');
+            console.log('IWXA_STATIC_PASS',path,html.length);
+          }
+          JS
+      - name: Purge private source
+        if: always()
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/iwxa-essay-static-*.log
+          test ! -e .private/site && echo PRIVATE_SOURCE_PURGED
