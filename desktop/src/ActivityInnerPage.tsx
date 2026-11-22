@@ -67,8 +67,11 @@ export function ActivityInnerPage({page,data,actions,process,object,candidate,ma
    <div className="activity-v7-actions"><button onClick={actions.readT3} disabled={data.busy}>Подключить выбранную базу T3</button>
    {data.canRecover?<button onClick={actions.recoverT3}>Проверить сохранённый черновик T3</button>:null}</div></Card>
   <Card title="Последний D2 Result"><strong>{data.t3Review?.status??'Не читался'}</strong>
-   <p>{data.t3Review?.code||'Подписанное чтение ещё не запускалось в текущей сессии.'}</p>
-   {t3?<TextRows lines={t3.reason_codes}/>:null}</Card></div>;
+   <p>{data.t3Review?.status==='STAGED'
+     ?data.t3Review.recovered?'Черновик подтверждён независимым чтением Kernel.':'Черновик записан для внутренней проверки.'
+     :data.t3Review?.code||'Подписанное чтение ещё не запускалось в текущей сессии.'}</p>
+   {t3?<TextRows lines={t3.reason_codes}/>:null}
+   {data.t3Review?.stageBlocked?<Note hold>Исход предыдущей записи необходимо сверить. Повтор запрещён.</Note>:null}</Card></div>;
  case 'Карта T3':return map?<><Stats rows={[[map.nodes.length,'Классов событий'],[map.transitions.length,'Переходов'],[map.branch_points,'Ветвлений'],[map.isolated_event_kinds,'Без связей']]}/>
   <Card title="Объектно-локальные переходы"><div className="activity-v7-actions">{candidates.slice(0,60).map((c,i)=><button key={c.object_type} className={candidateIndex===i?'selected':''} onClick={()=>{setCandidateIndex(i);setEventPage(0);setEventId('');}}>Объект {i+1}</button>)}</div>
   <Note>{map.too_complex?'Большой граф: общий порядок не вычислен.':map.cyclic?'Есть цикл. Переделка не доказана.':'Карта состоит только из проверенных исходных связей.'}</Note>
@@ -100,11 +103,24 @@ export function ActivityInnerPage({page,data,actions,process,object,candidate,ma
   <Card title="Что разрешено">{data.preview?<p>Синтетическая структура рассчитана и остаётся только внутри владельца.</p>:<p>Действующий анализ ещё не выбран.</p>}
    <Note hold>Анонимность и выпуск .iwxa не установлены.</Note></Card></div>;
  case 'Черновик и восстановление':return <div className="activity-v7-grid">
+  {data.t3Review?.status==='STAGED'?<Card title="Результат внутренней проверки">
+    <strong>{data.t3Review.recovered?'Восстановление подтверждено':'Черновик сохранён'}</strong>
+    <p>{data.t3Review.recovered
+      ?'Независимое подписанное чтение оригинального Kernel подтвердило сохранённый черновик. Его связь с текущей базой требует квитанции владельца.'
+      :'Оригинальный Kernel подтвердил сохранение в отдельной Workspace того же владельца.'}</p>
+    <Note hold>Выпуск .iwxa и передача результата остаются закрыты.</Note>
+   </Card>:null}
+  {data.t3Review?.status==='HOLD'?<Card title="Сохранение не подтверждено">
+    <Note hold>{data.t3Review.code||'T3_DRAFT_NOT_CONFIRMED'}</Note>
+    <p>Повторять запись нельзя до независимой проверки исхода.</p>
+   </Card>:null}
   <Card title="Внутренний структурный черновик"><p>Только отдельное подписанное право activity.derive и отдельная пустая Workspace того же владельца.</p>
-   <button disabled={!data.canStage||!t3||!!data.t3Review?.stageBlocked} onClick={actions.stageT3}>Сохранить черновик для проверки</button>
+   <button disabled={!data.canStage||!t3||!!data.t3Review?.stageBlocked||data.t3Review?.status==='STAGED'}
+      onClick={actions.stageT3}>Сохранить черновик для проверки</button>
    {data.t3Review?.stageBlocked?<Note hold>Повторная запись запрещена до независимой сверки.</Note>:null}</Card>
   <Card title="Холодное восстановление"><p>Повторная подписанная проверка оригинального Kernel. Новая команда записи не отправляется.</p>
-   <button disabled={!data.canRecover} onClick={actions.recoverT3}>Проверить сохранённый черновик T3</button>
+   <button disabled={!data.canRecover||data.t3Review?.status==='RECOVERING'||data.t3Review?.status==='STAGING'}
+      onClick={actions.recoverT3}>Проверить сохранённый черновик T3</button>
    <Note>Подтверждение черновика не аттестует его связь с выбранным сейчас источником.</Note></Card></div>;
  case 'Стандарты':return <div className="activity-v7-grid">{[
  ['OCEL 2.0','Ограниченный JSON-профиль, не полное соответствие стандарту.'],
