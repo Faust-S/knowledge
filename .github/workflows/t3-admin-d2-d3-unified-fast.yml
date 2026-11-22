@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 1490ff259a3fd1393d25cde729cfbb81fd669f79
+          ref: 3f2ca23e4821e0c0d473f09bf8bc947dee6db751
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           path: .private/t3
@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C .private/t3 rev-parse HEAD)" = '1490ff259a3fd1393d25cde729cfbb81fd669f79'
+          test "$(git -C .private/t3 rev-parse HEAD)" = '3f2ca23e4821e0c0d473f09bf8bc947dee6db751'
           node --check .private/t3/interop/native-admin-d3.mjs
           node --check .private/t3/interop/runtime.mjs
           node --check .private/t3/interop/provision.mjs
@@ -75,7 +75,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 1490ff259a3fd1393d25cde729cfbb81fd669f79
+          ref: 3f2ca23e4821e0c0d473f09bf8bc947dee6db751
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           path: .private/t3
@@ -83,7 +83,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          if((git -C .private/t3 rev-parse HEAD).Trim() -ne '1490ff259a3fd1393d25cde729cfbb81fd669f79') {throw 'ADMIN03_UNIFIED_PRIVATE_OWNER_PIN_CHANGED'}
+          if((git -C .private/t3 rev-parse HEAD).Trim() -ne '3f2ca23e4821e0c0d473f09bf8bc947dee6db751') {throw 'ADMIN03_UNIFIED_PRIVATE_OWNER_PIN_CHANGED'}
           $tokens=$null
           $errors=$null
           [System.Management.Automation.Language.Parser]::ParseFile(
