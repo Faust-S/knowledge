@@ -47,6 +47,13 @@ jobs:
           run_original() {
             local name="$1"; shift
             if ! "$@" > "$RUNNER_TEMP/${name}.log" 2>&1; then
+              # Only bounded failure indexes / error classes. Never publish
+              # private source, vault paths, traces or signed Task contents.
+              awk '/^not ok [0-9]+/ {print "ADMIN03_ORIGINAL_NATIVE_CASE_INDEX " $3}' "$RUNNER_TEMP/${name}.log" | head -12 || true
+              grep -oE '(T3|INTEROP|APPLICATION)_[A-Z0-9_]{4,99}' "$RUNNER_TEMP/${name}.log" | tail -7 | sed 's/^/ADMIN03_ORIGINAL_NATIVE_MACHINE_CODE /' || true
+              if grep -q 'ERR_ASSERTION' "$RUNNER_TEMP/${name}.log"; then echo 'ADMIN03_ORIGINAL_NATIVE_ASSERTION_FAILED'; fi
+              if grep -q 'TypeError' "$RUNNER_TEMP/${name}.log"; then echo 'ADMIN03_ORIGINAL_NATIVE_TYPE_ERROR'; fi
+              if grep -q 'ReferenceError' "$RUNNER_TEMP/${name}.log"; then echo 'ADMIN03_ORIGINAL_NATIVE_REFERENCE_ERROR'; fi
               echo "ADMIN03_UNIFIED_${name}_HOLD"
               exit 1
             fi
