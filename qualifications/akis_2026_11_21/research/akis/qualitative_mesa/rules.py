@@ -424,6 +424,12 @@ class QualitativeAKIS:
                     if action == "cooperation_change_propose":
                         propose_cooperation_change(ev, self.cooperation_links,
                                                    self.subjects, self.trace)
+                        if self.formation_policy is not None:
+                            issue = self.formation_policy.review_reconfiguration_proposal(
+                                self, ev, at
+                            )
+                            if issue != "NONE":
+                                raise BlockedDecision(issue)
                     else:
                         respond_to_cooperation_change(ev, self.cooperation_links,
                                                       self.subjects, self.trace)
@@ -495,6 +501,12 @@ class QualitativeAKIS:
                 report["change_kind"] = ev.get("change_kind")
                 report["proposed_subject"] = ev.get("proposed_subject")
                 report["economic_channel"] = ev.get("economic_channel")
+                if (self.formation_policy is not None and
+                        self.formation_policy.design.enforce_model_result_conditioned_reconfiguration):
+                    report["pilot_work"] = ev.get("pilot_work")
+                    report["pilot_result_ref"] = ev.get("pilot_result_ref")
+                    report["pilot_decision_at"] = ev.get("pilot_decision_at")
+                    report["model_proposal_not_automatic_change"] = True
                 # Capture who had to be consulted AT PROPOSAL TIME in the
                 # SAME original trace. Future coalition changes cannot
                 # rewrite the historical electorate or remove objections.

@@ -84,6 +84,7 @@ class GeneralSystemDesign:
     enforce_model_formation_lifecycle: bool = False
     enforce_model_result_conditioned_goals: bool = False
     enforce_model_result_conditioned_interests: bool = False
+    enforce_model_result_conditioned_reconfiguration: bool = False
 
     @property
     def source_times(self) -> tuple[int, ...]:
@@ -691,6 +692,135 @@ class ModelFormationPolicy:
             return "FORMATION_EMERGENT_OWNER_POSITION_CHANGED_AFTER_GOAL"
         return "NONE"
 
+    def review_reconfiguration_proposal(self, state: Any,
+                                        event: Mapping[str, Any],
+                                        at: int) -> str:
+        """An original consultation may respond to, but not edit, a Result.
+
+        Proposal and all independent responses remain original cooperation
+        events. No new relation, capacity, consent or economic result is made.
+        """
+        if not self.design.enforce_model_result_conditioned_reconfiguration:
+            return "NONE"
+        link = next((l for l in state.cooperation_links
+                     if l.key == event.get("cooperation_link") and
+                     l.source_revision == event.get("cooperation_source_revision")), None)
+        if link is None:
+            return "FORMATION_RECONFIGURATION_ORIGINAL_RELATION_REQUIRED"
+        pilot = state.works.get(event.get("pilot_work"))
+        if (pilot is None or pilot.key not in link.works or
+                pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"):
+            return "FORMATION_RECONFIGURATION_ACCEPTED_PILOT_REQUIRED"
+        if event.get("pilot_result_ref") != pilot.result_ref:
+            return "FORMATION_RECONFIGURATION_PILOT_RESULT_REFERENCE_MISMATCH"
+        reason, decision = self._original_result_decision(state, pilot, at)
+        if reason != "NONE":
+            return reason
+        if (decision["action"] != "accept" or
+                decision["at"] != event.get("pilot_decision_at")):
+            return "FORMATION_RECONFIGURATION_PILOT_DECISION_TIME_MISMATCH"
+        actor = event.get("actor")
+        principals = self._resource_owners(state, pilot) | {pilot.customer}
+        if actor not in principals:
+            return "FORMATION_RECONFIGURATION_ORIGINAL_PILOT_PRINCIPAL_REQUIRED"
+        source = event.get("change_source_ref")
+        if (not isinstance(source, str) or
+                not source.startswith("model://" + actor + "/")):
+            return "FORMATION_RECONFIGURATION_ORIGINAL_PROPOSER_SOURCE_REQUIRED"
+        for owner in sorted(principals):
+            assessment = next((
+                row for row in reversed(state.trace)
+                if row.get("action") == "participation_status"
+                and row.get("outcome") == "APPLIED"
+                and row.get("actor") == owner
+                and row.get("participation_link") == link.key
+                and row.get("participation_relation_revision") == link.source_revision
+            ), None)
+            if (assessment is None or
+                    assessment.get("evaluated_work") != pilot.key or
+                    assessment.get("evaluated_result_ref") != pilot.result_ref or
+                    assessment.get("evaluated_decision_at") != decision["at"] or
+                    assessment.get("org_revision") != state.institution.revision or
+                    type(assessment.get("at")) is not int or
+                    not decision["at"] < assessment["at"] < at):
+                return "FORMATION_RECONFIGURATION_EACH_ORIGINAL_OWNER_EVALUATION_REQUIRED"
+            if not self._source_active(
+                8, owner, assessment.get("formation_phase_source_ref"),
+                state.institution.revision, at
+            ):
+                return "FORMATION_RECONFIGURATION_ORIGINAL_EVALUATION_SOURCE_EXPIRED"
+        return "NONE"
+
+    def _reconfiguration_proposal(self, state: Any, request: Mapping[str, Any],
+                                   pilot: Any, at: int) -> tuple[str, Any]:
+        """Read the one existing original proposal, not another governance ledger."""
+        change_id = request.get("change_id")
+        if not isinstance(change_id, str) or not change_id:
+            return "FORMATION_RECONFIGURATION_ORIGINAL_CONSULTATION_REQUIRED", None
+        matches = [
+            row for row in state.trace
+            if row.get("action") == "cooperation_change_propose"
+            and row.get("outcome") == "APPLIED"
+            and row.get("change_id") == change_id
+            and type(row.get("at")) is int and row["at"] < at
+        ]
+        if len(matches) != 1:
+            return "FORMATION_RECONFIGURATION_POST_RESULT_PROPOSAL_REQUIRED", None
+        proposal = matches[0]
+        if (proposal.get("pilot_work") != pilot.key or
+                proposal.get("pilot_result_ref") != pilot.result_ref or
+                proposal.get("cooperation_link") !=
+                    (request.get("cooperation_link") or
+                     request.get("requested_cooperation_link")) or
+                proposal.get("cooperation_source_revision") !=
+                    (request.get("cooperation_source_revision") or
+                     request.get("requested_cooperation_source_revision")) or
+                proposal.get("org_revision") != state.institution.revision):
+            return "FORMATION_RECONFIGURATION_ORIGINAL_PROPOSAL_SCOPE_MISMATCH", None
+        return "NONE", proposal
+
+    def recheck_reconfiguration_for_commit(self, state: Any, work: Any,
+                                            at: int) -> str:
+        if (not self.design.enforce_model_result_conditioned_reconfiguration
+                or not work.requires_accepted):
+            return "NONE"
+        from .cooperation import cooperation_change_reviews
+        requests = [
+            row for row in state.trace
+            if row.get("action") == "request"
+            and row.get("outcome") == "APPLIED"
+            and row.get("work") == work.key
+            and type(row.get("at")) is int and row["at"] < at
+        ]
+        if len(requests) != 1:
+            return "FORMATION_RECONFIGURATION_ORIGINAL_REQUEST_REQUIRED"
+        request = requests[0]
+        if not request.get("request_linked_change_id"):
+            return "FORMATION_RECONFIGURATION_REVIEW_NOT_LINKED_TO_WORK"
+        pilot = state.works.get(request.get("pilot_work"))
+        if pilot is None:
+            return "FORMATION_RECONFIGURATION_ACCEPTED_PILOT_REQUIRED"
+        reason, proposal = self._reconfiguration_proposal(
+            state, request | {"change_id": request["request_linked_change_id"]},
+            pilot, at
+        )
+        if reason != "NONE":
+            return reason
+        reviews = cooperation_change_reviews(
+            state.cooperation_links, state.trace,
+            current_org_revision=state.institution.revision,
+            subjects=state.subjects,
+        )
+        row = next((
+            item for item in reviews
+            if item["change_id"] == proposal["change_id"]
+            and item["link"] == proposal["cooperation_link"]
+        ), None)
+        if (row is None or row["review_status"] !=
+                "MODEL_CONSULTATION_COMPLETE_NOT_LEGAL_AUTHORIZATION"):
+            return "FORMATION_RECONFIGURATION_INDEPENDENT_REVIEW_NO_LONGER_CURRENT"
+        return "NONE"
+
     def before_followup_request(self, state: Any, request: Mapping[str, Any],
                                 new_work: Any, at: int) -> str:
         """Require original separate evaluations before another linked Work.
@@ -757,6 +887,10 @@ class ModelFormationPolicy:
                     8, actor, current.get("formation_phase_source_ref"),
                     state.institution.revision, at):
                 return "FORMATION_FOLLOWUP_OWNER_EVALUATION_SOURCE_EXPIRED"
+        if self.design.enforce_model_result_conditioned_reconfiguration:
+            reason, _ = self._reconfiguration_proposal(state, request, pilot, at)
+            if reason != "NONE":
+                return reason
         # Existing attach_requested_work / original consent guards still
         # enforce any owner's own PAUSED_NEW_WORK decision.
         return "NONE"
@@ -935,7 +1069,10 @@ class ModelFormationPolicy:
             if reason != "NONE":
                 return reason
         if include_agent:
-            return self._all_original_interests_ready(state, work, at)
+            reason = self._all_original_interests_ready(state, work, at)
+            if reason != "NONE":
+                return reason
+            return self.recheck_reconfiguration_for_commit(state, work, at)
         return "NONE"
 
 
@@ -953,7 +1090,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                                    "enforce_model_formation_agent_review",
                                    "enforce_model_formation_lifecycle",
                                    "enforce_model_result_conditioned_goals",
-                                   "enforce_model_result_conditioned_interests"}):
+                                   "enforce_model_result_conditioned_interests",
+                                   "enforce_model_result_conditioned_reconfiguration"}):
         raise GeneralSystemInputError("INVALID_GENERAL_DESIGN_FIELDS")
     enforce_model_code = raw.get("enforce_model_org_code", False)
     if type(enforce_model_code) is not bool:
@@ -986,6 +1124,13 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
         raise GeneralSystemInputError("GENERAL_MODEL_RESULT_INTEREST_GATE_MUST_BE_BOOLEAN")
     if enforce_interests and not enforce_emergent:
         raise GeneralSystemInputError("FORMATION_INTEREST_REQUIRES_RESULT_CONDITIONED_GOALS")
+    enforce_reconfiguration = raw.get(
+        "enforce_model_result_conditioned_reconfiguration", False
+    )
+    if type(enforce_reconfiguration) is not bool:
+        raise GeneralSystemInputError("GENERAL_MODEL_RECONFIGURATION_GATE_MUST_BE_BOOLEAN")
+    if enforce_reconfiguration and not enforce_interests:
+        raise GeneralSystemInputError("FORMATION_RECONFIGURATION_REQUIRES_INDIVIDUAL_INTERESTS")
     configurations = {x["id"] for x in cat["taxonomy"]["subject_configurations"]}
     config = _s(raw["configuration"], "CONFIGURATION")
     if config not in configurations:
@@ -1093,7 +1238,7 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                                enforce_model_code, enforce_formation,
                                enforce_institutional, enforce_agent,
                                enforce_lifecycle, enforce_emergent,
-                               enforce_interests)
+                               enforce_interests, enforce_reconfiguration)
 
 
 def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
@@ -1377,6 +1522,26 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
             "no_new_original_action_by_policy": True,
         },
         "formation_phases": phase_rows,
+        "post_result_cooperation_reconfiguration": {
+            "opted_in": design.enforce_model_result_conditioned_reconfiguration,
+            "original_result_conditioned_proposals": sum(
+                row.get("action") == "cooperation_change_propose" and
+                row.get("outcome") == "APPLIED" and
+                row.get("pilot_work") is not None
+                for row in state.trace
+            ),
+            "work_requests_citing_prior_original_review": sum(
+                row.get("action") == "request" and
+                row.get("outcome") == "APPLIED" and
+                row.get("request_linked_change_id") is not None
+                for row in state.trace
+            ),
+            "new_membership_or_legal_rights_created_by_consultation": False,
+            "original_prior_results_modified": False,
+            "real_transaction_savings_established": False,
+            "six_organizational_forms_implemented": False,
+            "full_coalition_transformation_complete": False,
+        },
         "result_conditioned_owner_interests": {
             "opted_in": design.enforce_model_result_conditioned_interests,
             "original_individual_interest_claims": sum(
