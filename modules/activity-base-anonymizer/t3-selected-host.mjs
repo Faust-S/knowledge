@@ -330,3 +330,96 @@ export function createTrustedT3ReviewPort({
     },
   });
 }
+
+/**
+ * Trusted native-owner integration for an already installed ORIGINAL Admin
+ * T3 D1/D2 owner. The owner's existing signed "state" and
+ * "d2ActivityReadback" commands are the ONLY sources; no second Kernel,
+ * signer, HTTP transport, Store or independently supplied Workspace ID.
+ *
+ * Install this adapter INSIDE the trusted native Host, never in React:
+ * readActivityReadback returns private original D2 rows, which must NOT
+ * cross the Activity renderer. Only inspectProjection's aliases/cohort bands
+ * are returned. This is read-only: it cannot derive, export or grant access.
+ */
+export function createTrustedOriginalT3NativeReadPort({
+  currentSignedView,readActivityReadback,subscribeInvalidation,
+}={}) {
+  need([currentSignedView,readActivityReadback,subscribeInvalidation]
+    .every(fn=>typeof fn==='function'),
+    'T3_ORIGINAL_NATIVE_OWNER_REQUIRED');
+  const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
+  let generation=0;
+  let subscribers=0;
+  const signedIdentity=(view)=>{
+    const s=view?.snapshot;
+    need(view?.status==='D3_OWNER_READY'&&s?.product==='admin'&&
+      s?.d2ActivityReaderConnected===true&&
+      [s.organizationId,s.workspaceId,s.actorId,s.contextId]
+        .every(value=>typeof value==='string'&&ID.test(value))&&
+      Number.isSafeInteger(s.contextEpoch)&&s.contextEpoch>=0,
+      'T3_ORIGINAL_NATIVE_SIGNED_OWNER_REQUIRED');
+    return JSON.stringify([
+      s.organizationId,s.workspaceId,s.actorId,s.contextId,s.contextEpoch,
+    ]);
+  };
+  const readOwner=async()=>{
+    try {return await currentSignedView();}
+    catch {throw new T3ActivityHold('T3_ORIGINAL_NATIVE_OWNER_UNAVAILABLE');}
+  };
+  return Object.freeze({
+    async readSelected(){
+      need(subscribers>0,'T3_TRUSTED_HOST_INVALIDATION_REQUIRED');
+      const start=generation;
+      const before=await readOwner();
+      const identity=signedIdentity(before);
+      need(generation===start&&subscribers>0,
+        'T3_ORIGINAL_NATIVE_CONTEXT_CHANGED');
+      let original;
+      try {original=await readActivityReadback();}
+      catch {throw new T3ActivityHold('T3_AUTHORITATIVE_READ_REFUSED');}
+      need(generation===start&&subscribers>0,
+        'T3_ORIGINAL_NATIVE_CONTEXT_CHANGED');
+      const after=await readOwner();
+      need(signedIdentity(after)===identity&&generation===start&&subscribers>0,
+        'T3_ORIGINAL_NATIVE_CONTEXT_CHANGED');
+      const s=after.snapshot;
+      need(only(original,['schema','organizationId','workspaceId',
+        'actorId','source','evidenceScope','view'])&&
+        original.schema==='IWXA_T3_ORIGINAL_ADMIN_ACTIVITY_READBACK/1'&&
+        original.source==='ORIGINAL_T2_KERNEL_D1_ACTIVITY_DATA'&&
+        original.evidenceScope==='METADATA_ONLY_NOT_BUSINESS_COMPLETION_PROOF'&&
+        original.organizationId===s.organizationId&&
+        original.workspaceId===s.workspaceId&&
+        original.actorId===s.actorId&&
+        original.view?.workspace_id===s.workspaceId,
+        'T3_ORIGINAL_NATIVE_READBACK_SCOPE_INVALID');
+      // No private source metadata, signed identities, raw IDs or timing
+      // records are returned. Reuse the EXACT existing Activity A2 screen.
+      return inspectProjection(original.view);
+    },
+    subscribeInvalidation(listener){
+      need(typeof listener==='function',
+        'T3_TRUSTED_HOST_INVALIDATION_REQUIRED');
+      let stop;
+      try {
+        stop=subscribeInvalidation(()=>{
+          generation++;
+          listener();
+        });
+        need(typeof stop==='function','T3_TRUSTED_HOST_INVALIDATION_REQUIRED');
+      }catch{
+        throw new T3ActivityHold('T3_TRUSTED_HOST_INVALIDATION_REQUIRED');
+      }
+      subscribers++;
+      let disposed=false;
+      return ()=>{
+        if(disposed)return;
+        disposed=true;
+        subscribers--;
+        generation++;
+        stop();
+      };
+    },
+  });
+}
