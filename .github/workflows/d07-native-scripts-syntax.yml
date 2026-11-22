@@ -48,4 +48,7 @@ jobs:
             throw 'D07_NATIVE_T2_ASYNC_BUTTON_GUARD_MISSING'
           }
           Write-Output 'D07_NATIVE_T2_ASYNC_BUTTON_GUARD=PASS'
+          & node --check 'scripts/d07-verify-integrated-all-service-cards.mjs'
+          if($LASTEXITCODE -ne 0){throw 'D07_INTEGRATED_ALL_CARDS_CHECKER_SYNTAX_FAILED'}
+          Write-Output 'D07_INTEGRATED_ALL_CARDS_CHECKER_SYNTAX=PASS'
           }
