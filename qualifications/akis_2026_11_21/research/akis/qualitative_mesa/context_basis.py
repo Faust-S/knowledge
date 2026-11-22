@@ -334,9 +334,23 @@ class ContextBasis:
         item = self.sources[sid]
         if event.get("actor") != item.owner:
             raise ContextBlocked("CONTEXT_SOURCE_OWNER_REQUIRED")
+        # R1-U4: protected owner-right sources must change by explicit
+        # compare-and-set and acquire a NEW revision. Otherwise a legacy
+        # same-revision revoke/re-grant could silently reactivate already
+        # accepted independent decisions. Non-rights legacy research inputs
+        # retain their original optional CAS behavior.
+        protected_rights = self.strict and any(
+            sid in rule.sources
+            for rule in self.decision_requirements.values()
+        )
+        if protected_rights and "expected_revision" not in event:
+            raise ContextBlocked("CONTEXT_OWNER_RIGHTS_COMPARE_AND_SET_REQUIRED")
+        if protected_rights and (
+                not isinstance(event.get("new_revision"), str)
+                or event["new_revision"] == item.revision):
+            raise ContextBlocked("CONTEXT_OWNER_RIGHTS_FRESH_REVISION_REQUIRED")
         # Optional compare-and-set for independently arriving original-owner
-        # events. Legacy research inputs without this key keep their prior
-        # semantics, but cannot claim lost-update protection.
+        # events that do not control R1-U4 decision sources.
         if "expected_revision" in event:
             expected = event["expected_revision"]
             if not isinstance(expected, str) or not expected.strip():
