@@ -188,7 +188,9 @@ export function SignedSelectedWorkspaceGate({
       setCreateErrorCode(code);
       setCreateError(code==="T3_D1_WORKSPACE_CREATE_GRANT_REQUIRED"
         ? "Администратор не выдал отдельное подписанное право создания Workspace. Запросите его в Control и откройте Workspace заново."
-        : "Не удалось подтвердить создание в исходном Kernel. Проверьте полномочия и нажмите «Проверить повторно». Новая область автоматически не создаётся.");
+        : code==="T3_D1_WORKSPACE_CREATE_REPLAY_BLOCKED"
+          ? "Оригинальный T3 уже зарегистрировал запрос создания этой Workspace. Повторная запись заблокирована даже после перезапуска. Нажмите «Проверить повторно» для чтения исходного Kernel."
+          : "Не удалось подтвердить создание в исходном Kernel. Проверьте полномочия и нажмите «Проверить повторно». Новая область автоматически не создаётся.");
     }finally{
       running.current=false;
       if(ticket===generation.current)setBusy(false);
