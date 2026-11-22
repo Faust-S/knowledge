@@ -302,6 +302,9 @@ def quality_lifecycle_case(*, deficient=False, missing_assessment=False):
             row["at"] += 1
         if row["action"] == "participation_status":
             row["evaluated_decision_at"] = 30
+        if row["action"] == "function_review" and row.get("work") == "w2":
+            # A shifted original preparation must carry its matching epoch.
+            row["prepared_at"] += 1
     d["events"].append({
         "at": 29, "action": "assess_result_quality", "actor": "b",
         "work": "w1", "criterion": "quality-criterion",
