@@ -591,3 +591,90 @@ def test_strict_original_registered_asset_source_owner_cannot_be_substituted():
     )
     assert "rc" not in out["resources"]
     assert accepted_result(out, "w1")
+
+
+
+def test_strict_kpb_new_enterprise_original_nine_component_witness_needs_result():
+    from .test_general_system_mesa_integration import design
+    d = registration_case()
+    d["general_akis"] = design()
+    out = simulate(d)
+    private = out["general_akis_private_cycle_evidence"][
+        "strict_kpb_original_new_enterprise_resource_accepted_result"
+    ]
+    shared = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert len(private) == 1
+    assert private[0]["new_original_enterprise"] == "c"
+    assert private[0]["registered_original_owned_resource"] == "rc"
+    assert private[0]["new_original_accepted_work"] == "w2"
+    assert shared[
+        "strict_kpb_source_qualified_new_enterprise_accepted_result_count"
+    ] == 1
+    assert shared[
+        "strict_kpb_source_qualified_reconstitution_accepted_result_count"
+    ] == 0
+    assert not shared["all_nine_component_original_causal_closure_proven"]
+    assert not shared["full_real_lifecycle_or_causal_value_added_proven"]
+
+
+def test_strict_kpb_registered_enterprise_without_result_is_not_reproduction():
+    from .test_general_system_mesa_integration import design
+    d = registration_case()
+    d["events"] = [
+        x for x in d["events"]
+        if not (x["action"] == "accept" and x.get("work") == "w2")
+    ]
+    d["general_akis"] = design()
+    out = simulate(d)
+    shared = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert out["works"]["w2"]["result"] == "SUBMITTED"
+    assert shared[
+        "strict_kpb_source_qualified_new_enterprise_accepted_result_count"
+    ] == 0
+    assert out["general_akis_private_cycle_evidence"][
+        "strict_kpb_original_new_enterprise_resource_accepted_result"
+    ] == []
+    assert accepted_result(out, "w1")
+
+
+def test_strict_kpb_restored_relation_nine_component_witness_needs_new_result():
+    from .test_general_system_mesa_integration import design
+    d = lifecycle_case()
+    d["general_akis"] = design()
+    out = simulate(d)
+    shared = out["general_akis_model"]["system_causal_cycle_feedback"]
+    private = out["general_akis_private_cycle_evidence"][
+        "strict_kpb_original_reconstitution_accepted_result"
+    ]
+    assert shared[
+        "strict_kpb_source_qualified_reconstitution_accepted_result_count"
+    ] == 1
+    assert len(private) == 1
+    assert private[0]["restored_original_relation"] == "net-2"
+    assert private[0]["outstanding_original_work_at_dissolution"] == ["w2"]
+    assert private[0]["new_original_accepted_work_ids"] == ["w3"]
+    assert shared[
+        "previously_outstanding_original_work_accepted_after_dissolution"
+    ] == 1
+    assert not shared["all_nine_component_original_causal_closure_proven"]
+
+
+def test_strict_kpb_lifecycle_without_new_result_cannot_count_reconstitution():
+    from .test_general_system_mesa_integration import design
+    d = lifecycle_case()
+    d["events"] = [
+        x for x in d["events"]
+        if not (x["action"] == "accept" and x.get("work") == "w3")
+    ]
+    d["general_akis"] = design()
+    out = simulate(d)
+    shared = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert accepted_result(out, "w2")
+    assert out["works"]["w3"]["result"] == "SUBMITTED"
+    assert shared[
+        "strict_kpb_source_qualified_reconstitution_accepted_result_count"
+    ] == 0
+    assert out["general_akis_private_cycle_evidence"][
+        "strict_kpb_original_reconstitution_accepted_result"
+    ] == []
+    assert not shared["all_nine_component_original_causal_closure_proven"]
