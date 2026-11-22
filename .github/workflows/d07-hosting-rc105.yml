@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 92e221461bf25157d04608c721fc84f17be23b4e
+      SITE_SHA: db979dfd64491c091acbce8971c7ee861a939a6c
       SUBJECT_SHA: 001c81cd590c59b0383d6062f8bfa70ca78eba1c
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 92e221461bf25157d04608c721fc84f17be23b4e
+          ref: db979dfd64491c091acbce8971c7ee861a939a6c
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -81,7 +81,7 @@ jobs:
           echo D07_RC105_INSTALL=PASS
           npm run check:types > "$RUNNER_TEMP/d07-hosting-types.private.log" 2>&1 || { echo D07_RC105_TYPES=FAIL; exit 1; }
           echo D07_RC105_TYPES=PASS
-          node --test scripts/tests/d07-hosting-package.test.mjs > "$RUNNER_TEMP/d07-hosting-audit-unit.private.log" 2>&1 || { echo D07_RC105_AUDIT_UNIT=FAIL; exit 1; }
+          node --import tsx --test scripts/tests/d07-hosting-seo-legacy.test.mjs scripts/tests/d07-hosting-package.test.mjs > "$RUNNER_TEMP/d07-hosting-audit-unit.private.log" 2>&1 || { echo D07_RC105_AUDIT_UNIT=FAIL; exit 1; }
           echo D07_RC105_AUDIT_UNIT=PASS
       - name: Build one final site and original T2 dist using the standard build
         shell: bash
@@ -123,6 +123,10 @@ jobs:
               echo "D07_RC105_CHECK_$(echo "$check"|tr 'a-z-' 'A-Z_')=PASS"
             else
               echo "D07_RC105_CHECK_$(echo "$check"|tr 'a-z-' 'A-Z_')=FAIL"
+              if [ "$check" = seo ]; then
+                grep -oE 'public canonical mismatch|public og:url mismatch|technical HTML missing noindex|technical HTML has indexable URL metadata|unclassified HTML in hosting package|legacy page missing noindex|legacy canonical mismatch|legacy og:url mismatch' "$RUNNER_TEMP/d07-hosting-seo.private.log" | sort | uniq -c | sed 's/^/D07_RC105_SEO_ERROR_CATEGORY=/' || true
+                grep -oE '\\[check-seo\\] проблем: [0-9]+' "$RUNNER_TEMP/d07-hosting-seo.private.log" || true
+              fi
               exit 1
             fi
           done
@@ -139,7 +143,7 @@ jobs:
           cmp dist/.htaccess "$RUNNER_TEMP/d07-rc105-extracted/.htaccess"
           node scripts/audit-d07-hosting-package.mjs --dist "$RUNNER_TEMP/d07-rc105-extracted" > "$RUNNER_TEMP/d07-hosting-extract-audit.private.log" 2>&1 || { echo D07_RC105_EXTRACTED_AUDIT=FAIL; exit 1; }
           echo D07_RC105_EXTRACTED_AUDIT=PASS
-          sha256sum "$archive" > "$RUNNER_TEMP/uslugovod-rc105-2026-11-22-static.zip.sha256"
+          (cd "$RUNNER_TEMP" && sha256sum "uslugovod-rc105-2026-11-22-static.zip") > "$RUNNER_TEMP/uslugovod-rc105-2026-11-22-static.zip.sha256"
           echo "D07_RC105_ZIP_SHA256=$(cut -d ' ' -f1 "$RUNNER_TEMP/uslugovod-rc105-2026-11-22-static.zip.sha256")"
           echo "D07_RC105_ZIP_BYTES=$(stat -c '%s' "$archive")"
           echo D07_RC105_ZIP_COMPLETE=PASS
