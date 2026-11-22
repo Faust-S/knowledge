@@ -56,12 +56,17 @@ jobs:
             exit 1
           }
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          Write-Host ("D06_E2E_JSON_PARSED=YES")
+          Write-Host ("D06_E2E_UNEXPECTED_TESTS=" + [int]$report.stats.unexpected)
           $known = @(git ls-files "tests/e2e/*.spec.ts" | Sort-Object)
           $failureIndices = [System.Collections.Generic.HashSet[int]]::new()
           $failingTestCount = 0
           function Scan-Suite($suite) {
+            if ($null -eq $suite) { return }
             foreach ($spec in @($suite.specs)) {
+              if ($null -eq $spec) { continue }
               foreach ($case in @($spec.tests)) {
+                if ($null -eq $case) { continue }
                 $bad = $case.status -eq "unexpected" -or @($case.results | Where-Object { $_.status -in @("failed", "timedOut", "interrupted") }).Count -gt 0
                 if (-not $bad) { continue }
                 $script:failingTestCount++
@@ -75,9 +80,11 @@ jobs:
                 if ($index -ge 0) { [void]$script:failureIndices.Add($index + 1) }
               }
             }
-            foreach ($child in @($suite.suites)) { Scan-Suite $child }
+            foreach ($child in @($suite.suites)) {
+              if ($null -ne $child) { Scan-Suite $child }
+            }
           }
-          foreach ($top in @($report.suites)) { Scan-Suite $top }
+          foreach ($top in @($report.suites)) { if ($null -ne $top) { Scan-Suite $top } }
           Write-Host "D06_E2E_JSON=PASS"
           Write-Host ("D06_E2E_FAILING_TESTS=" + $failingTestCount)
           Write-Host ("D06_E2E_FAILING_SPEC_ORDINALS=" + ((@($failureIndices) | Sort-Object) -join ","))
