@@ -27,6 +27,10 @@ jobs:
           PYTHONPATH: qualifications/akis_2026_11_21
         run: |
           python -m compileall -q qualifications/akis_2026_11_21/research
+      - name: Confirm prospective original OC edition stage
+        run: |
+          test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1t_prospective_original_oc_code_edition_mesa.py
+          echo R1T_ORIGINAL_OC_SOURCE_EDITION_STAGE_PRESENT
       - name: Native general AKIS Mesa and original model regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
