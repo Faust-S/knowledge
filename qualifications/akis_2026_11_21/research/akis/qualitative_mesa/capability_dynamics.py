@@ -159,7 +159,12 @@ class CapabilityAdoptionPolicy:
             return "CAPABILITY_SOURCE_NOT_USABLE"
         if source.valid_until is not None and at > source.valid_until:
             return "CAPABILITY_SOURCE_EXPIRED"
-        if source.scope is not None and check_scope(
+        # M4 increases the eligibility of future original commitments. An
+        # unscoped research assertion is NOT a licence to revise productive
+        # capability, even when the source owner and revision are current.
+        if source.scope is None:
+            return "CAPABILITY_OWNER_EXPLICIT_PURPOSE_SCOPE_REQUIRED"
+        if check_scope(
             source.scope, core=source.scope.core,
             purpose="capability-adoption", operation="DERIVE", at=at
         ) != "MODEL_SOURCE_SCOPE_CONSISTENT":
