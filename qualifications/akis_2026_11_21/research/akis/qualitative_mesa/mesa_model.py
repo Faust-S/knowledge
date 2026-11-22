@@ -1182,6 +1182,7 @@ class OperatorAKISModel(mesa.Model):
                         output["general_akis_model"],
                         economics=output.get("economics"),
                         work_counterfactual=output.get("work_counterfactual_dynamics"),
+                        at=float(self.time),
                     )
                 )
             except CausalContractInputError as exc:
