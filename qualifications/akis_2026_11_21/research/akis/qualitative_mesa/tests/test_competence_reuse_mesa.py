@@ -87,7 +87,12 @@ def test_invalid_or_unqualified_reuse_cannot_claim_measured_gain(change, reason)
     d = complete_case()
     d["competence_reuse_evidence"][0].update(change)
     if change.get("actor") == "op":
-        d["competence_reuse_evidence"][0]["competence_ref"] = "model://op/my-claim"
+        link = d["competence_reuse_evidence"][0]
+        link["competence_ref"] = "model://op/my-claim"
+        for measurement in ("independent_baseline", "subsequent_observation"):
+            link[measurement]["source_ref"] = link[measurement]["source_ref"].replace(
+                "model://a/", "model://op/"
+            )
     link = simulate(d)["competence_reuse_dynamics"]["links"][0]
     assert reason in link["unqualified_reasons"]
     assert link["declared_metric_change_favourable_positive"] is None
