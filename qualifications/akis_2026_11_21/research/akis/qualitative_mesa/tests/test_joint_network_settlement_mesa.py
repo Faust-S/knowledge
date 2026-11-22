@@ -91,14 +91,8 @@ def test_work_result_and_general_nine_component_view_not_granted_new_rights():
     d=akis_fixture()
     d["events"]=[]
     d["economic_claims"]=case()
-    d["general_akis"]={
-        "configuration":"operator","morphology":[],"goals":[],
-        "processes":[],"agents":[],"context_kpb":[],"organizational_code":[],
-        "knowledge_journal":[],"economics":[],"lifecycle":[],
-    }
-    # Generic AKIS fixture may not accept a manually authored blank design.
-    # Instead prove original Work/Result states using the economics-only path.
-    d.pop("general_akis")
+    # Original contractual and Result states cannot be rewritten by an
+    # economic network posting hypothesis.
     out=simulate(d)
     assert out["works"]["w1"]["obligation"]=="NOT_ACCEPTED"
     assert out["works"]["w1"]["result"]=="NOT_SUBMITTED"
