@@ -60,7 +60,13 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_INSTALL_FAILED'}
           Write-Output 'D07_NATIVE_CARD_INSTALL=PASS'
           & bun run build:t2-integrated *> (Join-Path $env:RUNNER_TEMP 'd07-card-integrated-build.private.log')
-          if($LASTEXITCODE -ne 0){throw 'D07_NATIVE_CARD_ORIGINAL_T2_BUILD_FAILED'}
+          if($LASTEXITCODE -ne 0){
+            $log=Get-Content (Join-Path $env:RUNNER_TEMP 'd07-card-integrated-build.private.log') -Raw
+            $patterns='D07_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|ERR_[A-Z0-9_]+|ENOENT|MODULE_NOT_FOUND|TS[0-9]{4}'
+            $codes=[regex]::Matches($log,$patterns)|ForEach-Object{$_.Value}|Select-Object -Unique -Last 16
+            Write-Output ('D07_NATIVE_CARD_BUILD_ERROR_CODES='+($codes -join ','))
+            throw 'D07_NATIVE_CARD_ORIGINAL_T2_BUILD_FAILED'
+          }
           if(-not (Test-Path 'dist/workspace/index.html')){throw 'D07_NATIVE_CARD_T2_HOST_NOT_BUILT'}
           foreach($slug in @('zamena-unitaza','ustanovka-rakoviny','razvodka-trub','ustranenie-protechki','prochistka-kanalizacii')){
             if(-not (Test-Path ("dist/uslugi/remont-dom-mastera/"+$slug+"/index.html"))){
