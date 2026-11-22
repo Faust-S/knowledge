@@ -1,0 +1,200 @@
+name: IWXA articles 09-10 from main
+on:
+  push:
+    branches:
+      - qa/2026-11-22-projects-essays-01-02
+    paths:
+      - .github/workflows/qa-iwxa-essays-09-10.yml
+permissions:
+  contents: read
+jobs:
+  logic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Test all articles and compile actual main site
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo SITE_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/iwxa-0910-install.log 2>&1 || { tail -n 80 /tmp/iwxa-0910-install.log; exit 1; }
+          node --import tsx --test scripts/check-editorial-series.test.ts scripts/check-projects-and-first-essays.test.ts scripts/check-deep-essays-03-04.test.ts scripts/check-essays-05-06.test.ts scripts/check-essays-07-08.test.ts scripts/check-essays-09-10.test.ts
+          echo TEN_ESSAYS_LOGIC_PASS
+          bunx vite build > /tmp/iwxa-0910-build.log 2>&1 || { tail -n 120 /tmp/iwxa-0910-build.log; exit 1; }
+          bunx tsc --noEmit > /tmp/iwxa-0910-types.log 2>&1 || { tail -n 120 /tmp/iwxa-0910-types.log; exit 1; }
+          echo TEN_ESSAYS_BUILD_TYPES_PASS
+      - name: Purge source
+        if: always()
+        shell: bash
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/iwxa-0910-*.log
+          test ! -e .private/site && echo SOURCE_PURGED
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 19
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Check ArtBazy and Bazmed in actual Chrome mobile and desktop
+        working-directory: .private/site
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile > /tmp/iwxa-0910-browser-install.log 2>&1 || { tail -n 80 /tmp/iwxa-0910-browser-install.log; exit 1; }
+          bunx vite --host 127.0.0.1 --port 4173 > /tmp/iwxa-0910-browser-vite.log 2>&1 &
+          echo $! > /tmp/iwxa-0910-browser.pid
+          for i in $(seq 1 95); do
+            if curl -fsS http://127.0.0.1:4173/projects/iwxa/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node --input-type=module <<'JS'
+          import puppeteer from 'puppeteer';
+          const urls=['/projects/iwxa/','/articles/artbazy-ot-obsledovaniya-k-akis/','/articles/bazmed-istoriya-nablyudeniya/'];
+          const browser=await puppeteer.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox','--disable-dev-shm-usage']});
+          let checks=0;
+          try {
+            const page=await browser.newPage();
+            let pageErrors=[];
+            page.on('pageerror',e=>{pageErrors.push(e.message);console.log('PAGE_ERROR',e.message.slice(0,300))});
+            for(const width of [1440,375]){
+              await page.setViewport({width,height:width===375?812:900,deviceScaleFactor:1});
+              for(const route of urls){
+                pageErrors=[];
+                console.log('CHECK',width,route);
+                const response=await page.goto('http://127.0.0.1:4173'+route,{waitUntil:'domcontentloaded',timeout:60000});
+                if(!response?.ok())throw Error('HTTP_'+response?.status()+' '+route);
+                await page.waitForFunction(()=>document.querySelector('main')?.dataset.clientReady===location.pathname,{timeout:120000});
+                const layout=await page.evaluate(()=>({
+                  title:document.querySelector('h1')?.textContent?.trim(),
+                  overflow:document.documentElement.scrollWidth-window.innerWidth,
+                  font:getComputedStyle(document.querySelector('h1')).fontFamily,
+                }));
+                if(!layout.title||layout.overflow>3||!layout.font.includes('Inter Tight'))throw Error('LAYOUT '+width+' '+route+' '+JSON.stringify(layout));
+                if(route==='/projects/iwxa/'){
+                  const cards=await page.$$eval('.iwproj-publications>a',els=>els.length);
+                  if(cards!==10)throw Error('TEN_CARDS '+cards);
+                }
+                if(route.includes('artbazy-')){
+                  const initial=await page.$eval('.abx-head>div:nth-child(2)>strong',el=>el.textContent);
+                  if(!initial?.includes('16'))throw Error('BASELINE_ORDER '+initial);
+                  await page.click('.abx-actions button:nth-child(3)');
+                  const projected=await page.$eval('.abx-head>div:nth-child(3)>strong',el=>el.textContent);
+                  if(!projected?.includes('14'))throw Error('QUALITY_COUNTERFACTUAL '+projected);
+                  const verdict=await page.$eval('.abx-verdict>strong',el=>el.textContent);
+                  if(!verdict?.includes('испытать изменение'))throw Error('VERDICT_NOT_REACTIVE '+verdict);
+                  const evidences=await page.$$('.abx-field:last-of-type input[type=checkbox]');
+                  if(evidences.length!==3)throw Error('DIAGNOSTIC_EVIDENCE_FIELDS '+evidences.length);
+                  await evidences[1].click();
+                  const unsupported=await page.$eval('.abx-verdict>strong',el=>el.textContent);
+                  if(!unsupported?.includes('Не хватает'))throw Error('MISSING_EVIDENCE_NOT_BLOCKING '+unsupported);
+                  await page.click('.abx-actions button:nth-child(2)');
+                  const noApproval=await page.$eval('.abx-verdict>strong',el=>el.textContent);
+                  if(!noApproval?.includes('нельзя выполнять'))throw Error('SUBSTITUTE_APPROVAL_GATE '+noApproval);
+                }
+                if(route.includes('bazmed-')){
+                  const before=await page.$eval('.bmx-head>div:nth-child(2)>strong',el=>el.textContent);
+                  if(before?.trim()!=='1')throw Error('MISSING_DAY_NOT_COUNTED '+before);
+                  const normal=await page.$eval('.bmx-averages>div:nth-child(3)>strong',el=>el.textContent);
+                  if(!normal?.includes('0 мин'))throw Error('NORMAL_BASELINE '+normal);
+                  await page.click('.bmx-mode button:nth-child(2)');
+                  const changed=await page.$eval('.bmx-averages>div:nth-child(2)>strong',el=>el.textContent);
+                  if(!changed?.includes('17'))throw Error('ZERO_NOT_COUNTED '+changed);
+                  await page.click('.bmx-mode button:first-child');
+                  const checks=await page.$$('.bmx-field input[type=checkbox]');
+                  if(checks.length!==3)throw Error('DIARY_SETTINGS '+checks.length);
+                  await checks[0].click(); await checks[1].click();
+                  const all=await page.$eval('.bmx-averages>div:nth-child(2)>strong',el=>el.textContent);
+                  if(!all?.includes('20'))throw Error('CONTEXT_NOT_REACTIVE '+all);
+                  await checks[2].click();
+                  const consent=await page.$eval('.bmx-share>p',el=>el.textContent);
+                  if(!consent?.includes('Разрешение отметить'))throw Error('SELECTIVE_CONSENT '+consent);
+                }
+                if(pageErrors.length)throw Error('JS_ERRORS '+route+' '+pageErrors.join(';'));
+                console.log('BROWSER_PASS',width,route);
+                checks++;
+              }
+            }
+            console.log('IWXA_ARTBAZY_BAZMED_BROWSER_PASS',checks);
+          } finally {await browser.close();}
+          JS
+      - name: Delete private source without storing screenshots
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/iwxa-0910-browser.pid ]; then kill "$(cat /tmp/iwxa-0910-browser.pid)" 2>/dev/null || true; fi
+          rm -rf .private/site
+          rm -f /tmp/iwxa-0910-browser*.log /tmp/iwxa-0910-browser.pid
+          test ! -e .private/site && echo SOURCE_PURGED
+
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-ru-1
+          ref: main
+          token: ${{ secrets.DOMEN || secrets.IWXA_SITE || secrets.T3 }}
+          persist-credentials: false
+          path: .private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: Prerender project and both new articles for Apache
+        working-directory: .private/site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+          IWXA_PRERENDER_ROUTES: /projects/iwxa/,/articles/artbazy-ot-obsledovaniya-k-akis/,/articles/bazmed-istoriya-nablyudeniya/
+        run: |
+          set -euo pipefail
+          echo STATIC_SHA=$(git rev-parse HEAD)
+          bun install --frozen-lockfile > /tmp/iwxa-0910-static-install.log 2>&1 || { tail -n 80 /tmp/iwxa-0910-static-install.log; exit 1; }
+          bunx tsx scripts/build-static.ts > /tmp/iwxa-0910-static-build.log 2>&1 || { tail -n 140 /tmp/iwxa-0910-static-build.log; exit 1; }
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const routes=['/projects/iwxa/','/articles/artbazy-ot-obsledovaniya-k-akis/','/articles/bazmed-istoriya-nablyudeniya/'];
+          for(const route of routes){
+            const path='dist-static'+route+'index.html';
+            if(!fs.existsSync(path))throw Error('MISSING_STATIC '+path);
+            const html=fs.readFileSync(path,'utf8');
+            if(!html.includes('<h1')||!html.includes('https://iwxa.ru'+route)||html.includes('localhost:4319'))throw Error('STATIC_SEO '+route);
+            if(route.includes('artbazy-')&&!html.includes('Восстановите причину задержки'))throw Error('DIAGNOSTIC_MODEL_MISSING');
+            if(route.includes('bazmed-')&&!html.includes('Сравните неделю, не потеряв её обстоятельства'))throw Error('DIARY_MODEL_MISSING');
+            if(route==='/projects/iwxa/'&&!html.includes('Bazmed: как сохранить историю повседневного наблюдения?'))throw Error('ARTICLE_CARD_MISSING');
+            console.log('STATIC_PASS',route,html.length);
+          }
+          JS
+      - name: Purge sources and logs
+        if: always()
+        run: |
+          rm -rf .private/site
+          rm -f /tmp/iwxa-0910-static-*.log
+          test ! -e .private/site && echo SOURCE_PURGED
