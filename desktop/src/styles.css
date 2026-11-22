@@ -131,3 +131,11 @@ h2 {margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.025em;}
 .t3-map-relations li {margin:4px 0;padding:5px 7px;border-radius:6px;background:#332944;border:1px solid #493a62;font-size:10px;}
 .t3-map-relations p {font-size:10px;color:#afa5c0;margin:5px 0;}
 @media (max-width:1100px) {.t3-map-choices {grid-template-columns:repeat(auto-fit,minmax(120px,1fr));}.t3-map {padding-top:8px;}}
+
+/* Large original D2 responses: at most six independent object cards are
+   mounted simultaneously. Per-card event nodes remain paged by eight. */
+.t3-candidates {min-width:0;}
+.t3-candidate-nav {display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:6px 0 14px;border-top:1px solid #4c3b60;padding-top:13px;color:#b9aecb;font-size:10px;}
+.t3-candidate-nav>strong {font-size:12px;color:#ebdcfc;}
+.t3-candidate-nav>span {font-variant-numeric:tabular-nums;}
+@media (max-width:1100px) {.t3-candidate-nav {align-items:flex-start;flex-direction:column;gap:8px;}}
