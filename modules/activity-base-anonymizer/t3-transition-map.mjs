@@ -46,10 +46,18 @@ export function buildT3TransitionMap(view){
   }
   edges.sort((a,b)=>a.from.localeCompare(b.from,'en')||
     a.to.localeCompare(b.to,'en'));
-  const {ordered,linear,cyclic}=layoutObservedGraph({
-    states:[...distinct].sort().map(id=>({id})),
-    observed_successions:edges,
-  });
+  // 10k approved aliases are legal, but a complete layout on the React
+  // thread is not. For unusually large views keep every ORIGINAL edge and
+  // a stable alphabetical browsing order, explicitly DO NOT certify global
+  // topology. The existing graph-order layout handles ordinary-sized views.
+  const too_complex=distinct.size>256||edges.length>512;
+  const {ordered,linear,cyclic}=too_complex
+    ? {ordered:[...distinct].sort().map(id=>({id})),
+      linear:false,cyclic:false}
+    : layoutObservedGraph({
+      states:[...distinct].sort().map(id=>({id})),
+      observed_successions:edges,
+    });
   const outgoing=new Map(ids.map(id=>[id,[]]));
   const incoming=new Map(ids.map(id=>[id,[]]));
   for(const edge of edges){
@@ -68,8 +76,9 @@ export function buildT3TransitionMap(view){
   return Object.freeze({
     nodes:Object.freeze(nodes),
     transitions:Object.freeze(edges),
+    too_complex,
     cyclic,branched:branches>0||convergences>0,
-    linear:!cyclic&&linear&&edges.length>0,
+    linear:!too_complex&&!cyclic&&linear&&edges.length>0,
     branch_points:branches,convergence_points:convergences,
     isolated_event_kinds:disconnected,
     source_role:'OBSERVED_OBJECT_LOCAL_ORDER_NOT_CAUSAL_DEPENDENCY',
