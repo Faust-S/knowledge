@@ -10,7 +10,7 @@ const ws='original:workspace',owner='original:owner',from='original:object:a',
 const err=code=>e=>e?.code===code;
 const initialEvent={
   event_id:'event:1',event_type:'business.object.created',
-  workspace_id:ws,object_id:from,revision:1,
+  workspace_id:ws,object_id:from,service_id:'service:original',revision:1,
   occurred_at:'2026-11-22T10:00:00Z',payload:{},
 };
 function fixture() {
@@ -32,7 +32,7 @@ function fixture() {
       relation={workspace_id:ws,relation_id:relationId,
         from_object_id:from,to_object_id:to,kind:'related'};
       const event={event_id:'event:2',event_type:input.event.event_type,
-        workspace_id:ws,object_id:from,revision:null,
+        workspace_id:ws,object_id:from,service_id:'service:original',revision:null,
         occurred_at:'2026-11-22T10:00:01Z',
         idempotency_key:input.event.idempotency_key,
         payload:structuredClone(input.event.payload??{})};
