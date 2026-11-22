@@ -1,0 +1,63 @@
+name: T3 D2 public Bun Windows compiled stdio contract by version
+on:
+  push:
+    branches:
+      - work/2026-11-22-admin03-original-d2-read
+    paths:
+      - .github/workflows/t3-admin-d2-bun-stdio-public.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bun-stdio:
+    strategy:
+      fail-fast: false
+      matrix:
+        bun-version: ['1.3.0', '1.4.5']
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ matrix.bun-version }}
+      - name: Verify original IPC compatible stdio from compiled Bun
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 't3-public-bun-stdio'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $script=Join-Path $root 'stdio-probe.mjs'
+          Set-Content -LiteralPath $script -Encoding utf8NoBOM -Value @'
+          console.log('IWXA_PUBLIC_STDOUT_MARKER');
+          console.error('IWXA_PUBLIC_STDERR_MARKER');
+          '@
+          foreach($hidden in @($false,$true)){
+            $flag=if($hidden){'HIDDEN'}else{'CONSOLE'}
+            $exe=Join-Path $root ('stdio-'+$flag+'.exe')
+            $log=Join-Path $root ('build-'+$flag+'.log')
+            if($hidden){
+              & bun build --compile --target=bun-windows-x64 --windows-hide-console $script --outfile $exe *> $log
+            }else{
+              & bun build --compile --target=bun-windows-x64 $script --outfile $exe *> $log
+            }
+            if($LASTEXITCODE -ne 0){throw 'D2_PUBLIC_BUN_STDIO_BUILD_FAILED'}
+            $stdout=Join-Path $root ('stdout-'+$flag+'.log')
+            $stderr=Join-Path $root ('stderr-'+$flag+'.log')
+            & $exe 1> $stdout 2> $stderr
+            $code=$LASTEXITCODE
+            $out=@(Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue)
+            $err=@(Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue)
+            $goodOut=@($out|Where-Object {$_ -eq 'IWXA_PUBLIC_STDOUT_MARKER'}).Count
+            $goodErr=@($err|Where-Object {$_ -eq 'IWXA_PUBLIC_STDERR_MARKER'}).Count
+            Write-Host ('D2_PUBLIC_BUN_STDIO_'+$flag+'_EXIT '+$code)
+            Write-Host ('D2_PUBLIC_BUN_STDIO_'+$flag+'_STDOUT '+($goodOut -eq 1))
+            Write-Host ('D2_PUBLIC_BUN_STDIO_'+$flag+'_STDERR '+($goodErr -eq 1))
+            if($code -ne 0 -or !$goodOut -or !$goodErr){
+              Write-Host ('D2_PUBLIC_BUN_STDIO_'+$flag+'_PROTOCOL_NOT_AVAILABLE')
+            }else{
+              Write-Host ('D2_PUBLIC_BUN_STDIO_'+$flag+'_PROTOCOL_PASS')
+            }
+          }
