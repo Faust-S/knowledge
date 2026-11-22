@@ -44,6 +44,10 @@ jobs:
           test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/source_registration.py
           test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1t4_dynamic_original_sme_resource_mesa.py
           echo R1U1_ORIGINAL_COMPETING_COALITION_CHOICES_PRESENT
+      - name: Verify qualified competing member choices in original Mesa
+        run: |
+          test -f qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1u1_original_competing_coalition_options_mesa.py
+          echo R1U1_ORIGINAL_ALTERNATIVES_INPUT_PRESENT
       - name: Native general AKIS Mesa and original model regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
