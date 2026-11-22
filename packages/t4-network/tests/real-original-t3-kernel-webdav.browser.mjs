@@ -305,7 +305,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
     // Only a single object revision, not the whole Workspace, crosses the delta wire.
     const nextTitle='Updated original T3 object over T4 delta '+randomUUID();
     sourceContext=await launch(sourceProfile);
-    const activeSourcePage=await opened(sourceContext);
+    let activeSourcePage=await opened(sourceContext);
     const evolved=await activeSourcePage.evaluate(async({SERVICE,workspaceId,objectId,nextTitle})=>{
       const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
       const previous=await kernel.t1.getObject(workspaceId,objectId);
@@ -1372,6 +1372,20 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal((await receiverGraphKernel.getObject(workspaceId,linkedObjectId))
         .object.revision,4);
 
+      // Reopen the ORIGINAL source Kernel before publishing any captured data.
+      // Both historical revisions must survive the writer's process shutdown.
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      const restoredSource=await sourceKernel.getObject(workspaceId,linkedObjectId);
+      assert.equal(restoredSource.object.revision,6);
+      for(const {captured} of stagedObjectMutations){
+        const stored=await readSourceTechnical('outbox',captured.captureRef);
+        assert.equal(stored.sha256,captured.prepared.sha256);
+        assert.deepEqual(Buffer.from(stored.bytesBase64,'base64'),
+          captured.prepared.bytes);
+      }
+
       for(const [index,{captured,title}] of stagedObjectMutations.entries()){
         const staged=await readSourceTechnical('outbox',captured.captureRef);
         const exactBytes=Buffer.from(staged.bytesBase64,'base64');
@@ -1422,6 +1436,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           stagedBeforeAnyNetworkPublish:[5,6],
           originalSourceTechnicalWorkspace:true,
           bothHistoricalStatesDurablyPreserved:true,
+          sourceKernelColdRestartBeforeAnyNetworkPublish:true,
           originalOutboxReadbackVerified:true,
           originalRecipientFinalRevision:6,
           bothOriginalRecipientReceiptsConfirmed:true,
