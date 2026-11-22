@@ -384,3 +384,16 @@ test('T4 enabled without original Host write authority fails closed before origi
  }),code('ORIGINAL_HOST_T4_CAPTURE_PORTS_REQUIRED'));
  assert.equal(f.writes.length,0);
 });
+
+test('original T3 capture reference is single-use and cannot silently overwrite an earlier intent',async()=>{
+ const f=originalFixture();
+ const previous=await capture(f,1);
+ assert.equal(previous.originalT3OutboxVerified,true);
+ await assert.rejects(capture(f,2,{
+   sourceCursor:previous.nextCursor,
+   captureRef:'capture:1',
+ }),code('OBJECT_CAPTURE_REF_ALREADY_USED'));
+ assert.equal(f.writes.length,1);
+ assert.equal(f.outbox.size,1);
+ assert.equal(f.read().revision,2);
+});
