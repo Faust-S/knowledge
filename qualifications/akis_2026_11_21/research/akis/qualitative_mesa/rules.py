@@ -250,7 +250,7 @@ class QualitativeAKIS:
         last = -1
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
-             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref"}, "EVENT")
+             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -523,6 +523,9 @@ class QualitativeAKIS:
             if report["outcome"] == "APPLIED":
                 report["formation_source_ref"] = ev.get("formation_source_ref")
                 report["work_source_revision"] = self.works[work_ref].source_revision
+                if ev.get("phase") == 4:
+                    report["formation_core"] = ev.get("formation_core")
+                    report["formation_basis_source"] = ev.get("formation_basis_source")
                 report["formation_is_model_only_not_original_legal_authority"] = True
         if action == "adopt_capability":
             report["capability"] = ev.get("capability")

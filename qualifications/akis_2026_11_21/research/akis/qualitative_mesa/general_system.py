@@ -79,6 +79,7 @@ class GeneralSystemDesign:
     catalog: Mapping[str, Any]
     enforce_model_org_code: bool = False
     enforce_model_formation_phases: bool = False
+    enforce_model_formation_context_code: bool = False
 
     @property
     def source_times(self) -> tuple[int, ...]:
@@ -88,10 +89,12 @@ class GeneralSystemDesign:
 
 
 class ModelFormationPolicy:
-    """R1-I: opt-in phase 1-3 prerequisite gates, using ONLY original trace.
+    """One original Work/trace: opt-in formation constraints, NOT a new engine.
 
-    Original principals must source and confirm each step. No phase assertion
-    is a legal signature, new governance engine, or completion of all 8 phases.
+    R1-I: stages 1-3 (need, process, own resource readiness).
+    R1-J: optional stages 4-5 (four ORIGINAL context scopes and original
+    code/founder acknowledgements). These model-only checks can ONLY REFUSE
+    original commits. They never authorize business decisions or legal acts.
     """
 
     def __init__(self, design: GeneralSystemDesign):
@@ -141,10 +144,80 @@ class ModelFormationPolicy:
             for need in work.resource_requirements
         )
 
+    def _original_core_scope(self, state: Any, event: Mapping[str, Any],
+                             at: int) -> str:
+        """Recheck existing ContextBasis, not a copied or inferred permission."""
+        core, basis_source = (
+            event.get("formation_core"), event.get("formation_basis_source")
+        )
+        if core not in CORES:
+            return "FORMATION_KPB_AUTHOR_CORE_UNKNOWN"
+        if not isinstance(basis_source, str) or not basis_source:
+            return "FORMATION_KPB_ORIGINAL_BASIS_REFERENCE_REQUIRED"
+        actor = event.get("actor")
+        rows = [
+            row for row in self.design.declarations["context_cores"]
+            if row["core"] == core and row["owner"] == actor and
+            row.get("basis_source") == basis_source and
+            row["revision"] == state.institution.revision and
+            row["available_at"] <= at < row["expires_at"]
+        ]
+        if len(rows) != 1:
+            return "FORMATION_KPB_EXACT_ORIGINAL_CORE_CLAIM_REQUIRED"
+        row = rows[0]
+        reason = source_link_status(
+            state.context_basis, source_id=basis_source,
+            expected_revision=row.get("basis_revision"),
+            original_owner=actor, recipient=row["recipient"],
+            core=core, purpose=row["purpose"], operation=row["operation"],
+            at=at,
+        )
+        return ("NONE" if reason == "MODEL_SOURCE_SCOPE_CONSISTENT"
+                else "FORMATION_KPB_" + reason)
+
+    def _core_status(self, state: Any, work: Any, core: str, at: int) -> str:
+        history = [
+            event for event in state.trace
+            if event.get("outcome") == "APPLIED" and
+            event.get("action") == "formation_confirm" and
+            event.get("phase") == 4 and
+            event.get("formation_core") == core and
+            event.get("work") == work.key and
+            event.get("org_revision") == state.institution.revision and
+            event.get("work_source_revision") == work.source_revision and
+            type(event.get("at")) is int and event["at"] < at
+        ]
+        if not history:
+            return "FORMATION_KPB_ORIGINAL_CORE_CONFIRMATION_MISSING"
+        for event in history:
+            party = state.subjects.get(event["actor"])
+            if (party is not None and party.active and self._source_active(
+                    4, event["actor"], event.get("formation_source_ref"),
+                    state.institution.revision, at)
+                    and self._original_core_scope(state, event, at) == "NONE"):
+                return "NONE"
+        return "FORMATION_KPB_CORE_SOURCE_STALE_OR_REVOKED"
+
+    def _all_cores_ready(self, state: Any, work: Any, at: int) -> str:
+        for core in sorted(CORES):
+            reason = self._core_status(state, work, core, at)
+            if reason != "NONE":
+                return reason
+        return "NONE"
+
+    def _org_code_active(self, state: Any, at: int) -> bool:
+        policy = getattr(state, "model_org_policy", None)
+        names = set(self.design.catalog["taxonomy"]["organizational_code_components"])
+        return (policy is not None and set(policy.records) == names and
+                policy.active(state, at))
+
     def confirm(self, state: Any, event: Mapping[str, Any], at: int) -> str:
         phase, key, actor = event.get("phase"), event.get("work"), event.get("actor")
-        if type(phase) is not int or phase not in (1, 2, 3):
-            return "FORMATION_ONLY_FIRST_THREE_PHASES_EXECUTABLE"
+        institutional = self.design.enforce_model_formation_context_code
+        if type(phase) is not int or phase not in (
+                (1, 2, 3, 4, 5) if institutional else (1, 2, 3)):
+            return ("FORMATION_ONLY_FIRST_FIVE_PHASES_EXECUTABLE" if institutional
+                    else "FORMATION_ONLY_FIRST_THREE_PHASES_EXECUTABLE")
         work = state.works.get(key)
         if work is None:
             return "FORMATION_ORIGINAL_WORK_REQUIRED"
@@ -154,13 +227,29 @@ class ModelFormationPolicy:
             return "FORMATION_ORIGINAL_ORG_REVISION_MISMATCH"
         if actor not in state.subjects or not state.subjects[actor].active:
             return "FORMATION_ORIGINAL_ACTIVE_PRINCIPAL_REQUIRED"
-        expected = {work.customer} if phase in (1, 2) else self._resource_owners(state, work)
+        if phase in (1, 2):
+            expected = {work.customer}
+        elif phase == 3:
+            expected = self._resource_owners(state, work)
+        elif phase == 4:
+            core = event.get("formation_core")
+            if core not in CORES:
+                return "FORMATION_KPB_AUTHOR_CORE_UNKNOWN"
+            expected = {row["owner"] for row in
+                        self.design.declarations["context_cores"]
+                        if row["core"] == core}
+        else:
+            expected = set(state.institution.founders)
         if actor not in expected:
-            return "FORMATION_WRONG_ORIGINAL_PHASE_OWNER"
-        if not self._source_active(phase, actor, event.get("formation_source_ref"),
-                                   state.institution.revision, at):
+            return ("FORMATION_KPB_ORIGINAL_SOURCE_OWNER_REQUIRED"
+                    if phase == 4 else
+                    "FORMATION_OC_ORIGINAL_FOUNDER_REQUIRED"
+                    if phase == 5 else "FORMATION_WRONG_ORIGINAL_PHASE_OWNER")
+        if not self._source_active(
+                phase, actor, event.get("formation_source_ref"),
+                state.institution.revision, at):
             return "FORMATION_ORIGINAL_OWNER_PHASE_SOURCE_MISSING"
-        if self._ack_status(state, work, phase, actor, at) == "NONE":
+        if phase != 4 and self._ack_status(state, work, phase, actor, at) == "NONE":
             return "FORMATION_DUPLICATE_LIVE_PHASE_CONFIRMATION"
         if phase == 1:
             requests = [
@@ -180,16 +269,32 @@ class ModelFormationPolicy:
                 for goal in self.design.declarations["goals"]
             ):
                 return "FORMATION_GOAL_AND_ORIGINAL_CUSTOMER_REQUEST_NOT_LINKED"
-        if phase == 2:
+        elif phase == 2:
             if self._ack_status(state, work, 1, work.customer, at) != "NONE":
                 return "FORMATION_FIRST_PHASE_NOT_QUALIFIED"
             if not work.resource_requirements:
                 return "FORMATION_ORIGINAL_WORK_PROCESS_NOT_SELECTED"
-        if phase == 3:
+        elif phase == 3:
             if self._ack_status(state, work, 2, work.customer, at) != "NONE":
                 return "FORMATION_SECOND_PHASE_NOT_QUALIFIED"
             if not self._resources_ready(state, work):
                 return "FORMATION_ORIGINAL_RESOURCE_CAPACITY_NOT_DECLARED_READY"
+        elif phase == 4:
+            for owner in sorted(self._resource_owners(state, work)):
+                if self._ack_status(state, work, 3, owner, at) != "NONE":
+                    return "FORMATION_THIRD_PHASE_OWNERS_NOT_QUALIFIED"
+            if not self._resources_ready(state, work):
+                return "FORMATION_ORIGINAL_RESOURCE_CAPACITY_NOT_DECLARED_READY"
+            if self._core_status(
+                    state, work, event.get("formation_core"), at) == "NONE":
+                return "FORMATION_KPB_DUPLICATE_LIVE_CORE_CONFIRMATION"
+            return self._original_core_scope(state, event, at)
+        else:
+            reason = self._all_cores_ready(state, work, at)
+            if reason != "NONE":
+                return reason
+            if not self._org_code_active(state, at):
+                return "FORMATION_OC_THIRTEEN_ORIGINAL_CODE_CONTROLS_NOT_ACTIVE"
         return "NONE"
 
     def before_commit(self, state: Any, work: Any, at: int) -> str:
@@ -203,7 +308,20 @@ class ModelFormationPolicy:
                     return reason
         if not self._resources_ready(state, work):
             return "FORMATION_ORIGINAL_RESOURCE_CAPACITY_NOT_DECLARED_READY"
+        if self.design.enforce_model_formation_context_code:
+            reason = self._all_cores_ready(state, work, at)
+            if reason != "NONE":
+                return reason
+            if not self._org_code_active(state, at):
+                return "FORMATION_OC_THIRTEEN_ORIGINAL_CODE_CONTROLS_NOT_ACTIVE"
+            for founder in sorted(state.institution.founders):
+                if not state.subjects[founder].active:
+                    return "FORMATION_OC_ORIGINAL_FOUNDER_NOT_ACTIVE"
+                reason = self._ack_status(state, work, 5, founder, at)
+                if reason != "NONE":
+                    return reason
         return "NONE"
+
 
 
 def parse_general_system(raw: Any, subjects: Mapping[str, Any],
@@ -214,7 +332,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
     required = {"configuration", "morphology", "goals", "organizational_code",
                 "formation_phases", "context_cores", "agent_functions"}
     if (not isinstance(raw, dict) or not required <= set(raw) or
-            set(raw) - required - {"enforce_model_org_code", "enforce_model_formation_phases"}):
+            set(raw) - required - {"enforce_model_org_code", "enforce_model_formation_phases",
+                                   "enforce_model_formation_context_code"}):
         raise GeneralSystemInputError("INVALID_GENERAL_DESIGN_FIELDS")
     enforce_model_code = raw.get("enforce_model_org_code", False)
     if type(enforce_model_code) is not bool:
@@ -222,6 +341,11 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
     enforce_formation = raw.get("enforce_model_formation_phases", False)
     if type(enforce_formation) is not bool:
         raise GeneralSystemInputError("GENERAL_MODEL_FORMATION_ENFORCEMENT_MUST_BE_BOOLEAN")
+    enforce_institutional = raw.get("enforce_model_formation_context_code", False)
+    if type(enforce_institutional) is not bool:
+        raise GeneralSystemInputError("GENERAL_MODEL_CONTEXT_CODE_ENFORCEMENT_MUST_BE_BOOLEAN")
+    if enforce_institutional and not (enforce_formation and enforce_model_code):
+        raise GeneralSystemInputError("FORMATION_CONTEXT_CODE_REQUIRES_PHASE_AND_OC_GATES")
     configurations = {x["id"] for x in cat["taxonomy"]["subject_configurations"]}
     config = _s(raw["configuration"], "CONFIGURATION")
     if config not in configurations:
@@ -326,7 +450,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
         parsed[group] = tuple(sorted(rows, key=lambda x: (x["available_at"],
                                                                 x["owner"], x["source_ref"])))
     return GeneralSystemDesign(config, dict(morphology), parsed, cat,
-                               enforce_model_code, enforce_formation)
+                               enforce_model_code, enforce_formation,
+                               enforce_institutional)
 
 
 def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
@@ -610,6 +735,19 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
             "no_new_original_action_by_policy": True,
         },
         "formation_phases": phase_rows,
+        "context_and_code_formation_model_gate": {
+            "opted_in": design.enforce_model_formation_context_code,
+            "four_original_context_core_confirmations": sum(
+                row.get("phase") == 4 for row in formation_applied
+            ),
+            "original_founder_code_confirmations": sum(
+                row.get("phase") == 5 for row in formation_applied
+            ),
+            "all_four_context_cores_and_thirteen_code_fields_legal": False,
+            "real_original_scope_authentication": False,
+            "all_eight_author_phases_executable": False,
+            "new_principal_or_legal_power_created": False,
+        },
         "first_three_formation_model_gate": {
             "opted_in": design.enforce_model_formation_phases,
             "original_model_event_confirmations": len(formation_applied),
