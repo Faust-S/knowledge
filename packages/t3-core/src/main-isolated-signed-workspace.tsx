@@ -89,6 +89,10 @@ async function launch(){
       realmOrigin:owner.kernel_origin,
       sessionToken:bearer,
       channelFactory:()=>new MessageChannel(),
+      // Only installed Admin's first corporate Workspace read may involve
+      // repeated original JIT/Control roundtrips on cold Windows WebView2.
+      // This is a READ-only diagnostic ceiling, not an extended write lease.
+      readTimeoutMs:owner.service_id==="iwxa.admin-center.workspace"?45000:15000,
     });
     closeTrustedPort=()=>client.close();
     stage="port-connected";
