@@ -8,14 +8,18 @@ export const IWXA_ACTIVITY_HOST_SURFACE_SCHEMA = 'IWXA_ACTIVITY_HOST_SURFACE/0.1
 const mounted = new WeakMap<HTMLElement, Root>();
 const keys = ['readSelected', 'subscribeInvalidation'];
 const stageKeys = ['readSelected', 'stageSelected', 'subscribeInvalidation'];
+const recoveryKeys = ['readSelected', 'recoverSelected', 'stageSelected', 'subscribeInvalidation'];
 
 function narrowHost(port: unknown): port is T3ReviewHost {
   if (!port || typeof port !== 'object' || Array.isArray(port)) return false;
   const present = Object.keys(port).sort().join(',');
-  return (present === keys.join(',') || present === stageKeys.join(',')) &&
+  return (present === keys.join(',') || present === stageKeys.join(',') ||
+    present === recoveryKeys.join(',')) &&
     keys.every(key => typeof (port as Record<string, unknown>)[key] === 'function') &&
     (!Object.hasOwn(port,'stageSelected') ||
-      typeof (port as Record<string, unknown>).stageSelected === 'function');
+      typeof (port as Record<string, unknown>).stageSelected === 'function') &&
+    (!Object.hasOwn(port,'recoverSelected') ||
+      typeof (port as Record<string, unknown>).recoverSelected === 'function');
 }
 
 // Existing trusted T3 owner provides an already-authorized narrow port.
