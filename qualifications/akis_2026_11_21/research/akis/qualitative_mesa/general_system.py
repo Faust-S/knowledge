@@ -2124,6 +2124,77 @@ def original_nine_component_cycle_evidence(
             "actual_membership_change_or_profit_verified": False,
         })
 
+    # Join two PREEXISTING source-bound witnesses in the SAME ORIGINAL trace.
+    # A separate success in capacity or consultation is never enough: the
+    # adopted capacity must make that exact next original Work feasible AFTER
+    # its preceding Result and BEFORE independent change deliberation.
+    joined_capability_institutional = []
+    capability_by_id = {
+        row["id"]: row
+        for row in final_output.get("capability_dynamics", {}).get(
+            "declarations", []
+        )
+    }
+    for institutional in institutional_witnesses:
+        if (institutional["model_institutional_reproduction_witness"] ==
+                "NOT_CAUSALLY_QUALIFIED"):
+            continue
+        preceding = institutional["original_pilot_work"]
+        following = institutional["following_original_work"]
+        work = original.works[following]
+        proposal_times = [
+            row["at"] for row in events
+            if row.get("action") == "cooperation_change_propose"
+            and row.get("change_id") ==
+                institutional["original_cooperation_change_id"]
+            and row.get("pilot_work") == preceding
+            and row.get("pilot_result_ref") ==
+                original.works[preceding].result_ref
+        ]
+        if len(proposal_times) != 1:
+            continue
+        t_proposal = proposal_times[0]
+        for cap in capability_witnesses:
+            declaration = capability_by_id.get(
+                cap["model_capability_declaration"]
+            )
+            if (not declaration or
+                    cap["model_reproduction_sequence"] !=
+                    "ORIGINAL_ACCEPTED_RESULT_REUSE_OWNER_ADOPTION_AND_LATER_ACCEPTED_WORK"
+                    or following not in cap["later_original_accepted_work_ids"]):
+                continue
+            t_adoption = cap["original_owner_adopted_at"]
+            source_resource = declaration["resource"]
+            requested_increase = any(
+                need.resource == source_resource
+                and need.units > original.capacity_ledger.specs[
+                    source_resource
+                ].units
+                and need.units <= declaration[
+                    "prospective_units_if_owner_adopted"
+                ]
+                for need in work.resource_requirements
+            )
+            if (not requested_increase or
+                    not declaration["available_for_new_original_work"] or
+                    t_adoption is None or
+                    not accepted_at[preceding] < t_adoption < t_proposal):
+                continue
+            joined_capability_institutional.append({
+                "preceding_original_result": preceding,
+                "following_original_accepted_work": following,
+                "original_owner": cap["original_resource_owner"],
+                "original_owner_capability_declaration": cap[
+                    "model_capability_declaration"
+                ],
+                "original_cooperation_change_id": institutional[
+                    "original_cooperation_change_id"
+                ],
+                "actual_capacity_or_economic_effect_verified": False,
+                "original_shared_capacity_ledger_reused": True,
+                "owner_control_and_consent_preserved": True,
+            })
+
     accepted_results = len(accepted_at)
     requested_count = len(requested_at)
     committed_count = len(original_committed_at)
@@ -2172,6 +2243,9 @@ def original_nine_component_cycle_evidence(
             "original_post_result_institutional_reproduction_links": (
                 institutional_witnesses
             ),
+            "owner_capability_and_institutional_reproduction_links": (
+                joined_capability_institutional
+            ),
             "contains_owner_work_and_model_source_identifiers": True,
             "safe_for_cross_enterprise_publication": False,
         },
@@ -2197,7 +2271,12 @@ def original_nine_component_cycle_evidence(
                 original_institutional_sequences > 0
                 and all(current_partial_observation.values())
             ),
-            "same_original_causal_chain_includes_capability_and_institutional_change": False,
+            "same_original_causal_chain_includes_capability_and_institutional_change": (
+                len(joined_capability_institutional) > 0
+            ),
+            "owner_capability_and_institutional_reproduction_link_count": (
+                len(joined_capability_institutional)
+            ),
             "six_author_organizational_forms_executable": False,
             "seven_constitutive_signs_fully_qualified": False,
             "all_eight_formation_phases_executable": False,

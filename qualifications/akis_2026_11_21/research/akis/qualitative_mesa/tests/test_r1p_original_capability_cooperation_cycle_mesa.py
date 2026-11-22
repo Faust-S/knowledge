@@ -242,6 +242,17 @@ def test_r1p_original_three_work_cycle_unites_competence_owner_adoption_and_revi
     assert find(out, "request", work="w3")[0]["outcome"] == "APPLIED"
     assert find(out, "commit", work="w3")[0]["outcome"] == "APPLIED"
     assert out["capability_dynamics"]["original_owner_adopted_count"] == 1
+    cycle = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert cycle["same_original_causal_chain_includes_capability_and_institutional_change"]
+    assert cycle["owner_capability_and_institutional_reproduction_link_count"] == 1
+    witness = out["general_akis_private_cycle_evidence"][
+        "owner_capability_and_institutional_reproduction_links"
+    ]
+    assert len(witness) == 1
+    assert witness[0]["preceding_original_result"] == "w2"
+    assert witness[0]["following_original_accepted_work"] == "w3"
+    assert witness[0]["original_owner"] == "a"
+    assert witness[0]["actual_capacity_or_economic_effect_verified"] is False
     assert out["general_akis_model"]["result_capability_cooperation_gate"][
         "opted_in"
     ] is True
@@ -260,6 +271,9 @@ def test_r1p_owner_declared_learning_without_adoption_never_creates_capacity():
         "FORMATION_CAPABILITY_ORIGINAL_OWNER_ADOPTION_REQUIRED"
     )
     assert "w3" not in out["works"]
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "owner_capability_and_institutional_reproduction_link_count"
+    ] == 0
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
 
 
@@ -310,3 +324,46 @@ def test_r1p_capability_owner_cannot_claim_foreign_original_resource():
     import pytest
     with pytest.raises(ValueError, match="CAPABILITY_ORIGINAL_RESOURCE_OWNER_MISMATCH"):
         simulate(d)
+
+
+def test_r1p_late_owner_source_revocation_blocks_original_commit_and_joint_witness():
+    d = r1p_case()
+    commit = next(e for e in d["events"]
+                  if e["action"] == "commit" and e["work"] == "w3")
+    at = commit["at"]
+    for event in d["events"]:
+        if event["at"] >= at:
+            event["at"] += 1
+    d["events"].append({
+        "at": at, "action": "source_update", "actor": "a",
+        "source": "capability-r1p-a", "new_revision": "capacity-v2",
+        "status": "UNKNOWN", "usable_by": ["a"],
+    })
+    d["events"].sort(key=lambda e: e["at"])
+    out = simulate(d)
+    assert find(out, "request", work="w3")[0]["outcome"] == "APPLIED"
+    assert find(out, "source_update")[0]["outcome"] == "APPLIED"
+    assert find(out, "commit", work="w3")[0]["reason"] == (
+        "FORMATION_CAPABILITY_OWNER_SOURCE_NO_LONGER_CURRENT"
+    )
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+    cycle = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert cycle["owner_capability_and_institutional_reproduction_link_count"] == 0
+    assert cycle["same_original_causal_chain_includes_capability_and_institutional_change"] is False
+    assert simulate(deepcopy(d)) == out
+
+
+def test_r1p_positive_consent_and_reconfiguration_are_not_real_measured_network_savings():
+    out = simulate(r1p_case())
+    assert out["general_akis_model"]["post_result_cooperation_reconfiguration"][
+        "real_transaction_savings_established"
+    ] is False
+    assert out["general_akis_model"]["result_capability_cooperation_gate"][
+        "measured_real_productivity_gain_established"
+    ] is False
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "all_nine_component_original_causal_closure_proven"
+    ] is False
+    assert out["profit"]["system_increment"] == "UNKNOWN"
