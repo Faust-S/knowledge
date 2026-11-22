@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createOriginalKernelNativeRelay} from '../../src/t3/original-kernel-native-relay.mjs';
+import {createOriginalKernelNativeRelay} from '../src/t3/original-kernel-native-relay.mjs';
 
 const GRANTS=['t1.commitObjectGraph','t1.getWorkspace','t1.getObject','t1.listEventsSince'];
 const session=(ops=GRANTS)=>({
