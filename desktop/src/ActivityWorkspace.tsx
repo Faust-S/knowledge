@@ -66,14 +66,15 @@ export function ActivityWorkspace({brandSrc,data,actions,legacy}:ActivityWorkspa
  const [dockWidth,setDockWidth]=useState(415),[processIndex,setProcessIndex]=useState(0);
  const [objectIndex,setObjectIndex]=useState(0),[candidateIndex,setCandidateIndex]=useState(0);
  const [eventPage,setEventPage]=useState(0),[eventId,setEventId]=useState('');
- const searchInput=useRef<HTMLInputElement>(null),dragId=useRef(''),idCounter=useRef(1);
+ const searchInput=useRef<HTMLInputElement>(null),dragId=useRef(''),idCounter=useRef(1),focusAfterExpand=useRef(false);
  useEffect(()=>{try{localStorage.setItem(ACTIVITY_BOARD_STORAGE,JSON.stringify(board));}catch{}},[board]);
  useEffect(()=>{const listener=(e:KeyboardEvent)=>{
-   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();setNavOpen(true);searchInput.current?.focus();}
+   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();focusAfterExpand.current=true;setNavOpen(true);searchInput.current?.focus();}
    if(e.key==='Escape'){setMenu('');setLibrary(false);setWidgetConfig('');}
  };document.addEventListener('keydown',listener);return ()=>document.removeEventListener('keydown',listener);},[]);
  useEffect(()=>{setCandidateIndex(0);setEventPage(0);setEventId('');},[data.t3Review?.review]);
  useEffect(()=>{setProcessIndex(0);},[data.preview]);
+ useEffect(()=>{if(navOpen&&focusAfterExpand.current){searchInput.current?.focus();focusAfterExpand.current=false;}},[navOpen]);
  useEffect(()=>{setObjectIndex(0);},[data.objectEvidence]);
  // Do not retain previous signed or synthetic source aliases in the dock.
  // Invalidation, replacement, failed reads and recovered revisions all clear it.
@@ -147,12 +148,15 @@ export function ActivityWorkspace({brandSrc,data,actions,legacy}:ActivityWorkspa
     <button onClick={()=>go('Источники')}>Источники</button></div>
   {editing?<p className="activity-v7-muted">Перемещайте блоки за маркер. Alt+стрелки меняют порядок с клавиатуры. Состав панели сохраняется на этом компьютере.</p>:null}
   <section className="activity-v7-board" aria-label="Настраиваемая панель Activity">{board.map((w,i)=><article className="activity-v7-widget" data-size={w.size} key={w.id}
-   onDragOver={e=>{if(dragId.current)e.preventDefault();}}
-   onDrop={e=>{if(!dragId.current)return;e.preventDefault();const id=dragId.current;dragId.current='';setBoard(rows=>moveActivityWidget(rows,id,w.id)??rows);}}>
+   onDragOver={e=>{if(dragId.current){e.preventDefault();e.currentTarget.classList.add('is-drop-target');}}}
+   onDragLeave={e=>e.currentTarget.classList.remove('is-drop-target')}
+   onDrop={e=>{e.currentTarget.classList.remove('is-drop-target');if(!dragId.current)return;
+    e.preventDefault();const id=dragId.current;dragId.current='';setBoard(rows=>moveActivityWidget(rows,id,w.id)??rows);}}>
    <header><span className="activity-v7-widget-glyph"><Icon name={w.kind==='ocel'?'network':w.kind==='risks'?'shield':'layers'} size={16}/></span>
     <div><strong>{w.label||ACTIVITY_WIDGETS[w.kind].title}</strong><small>{SOURCE[w.source]}</small></div>
     <button draggable title="Перетащить блок" aria-label="Перетащить блок"
       onDragStart={(e:DragEvent<HTMLButtonElement>)=>{dragId.current=w.id;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',w.id);}}
+      onDragEnd={()=>{dragId.current='';document.querySelectorAll('.activity-v7-widget.is-drop-target').forEach(x=>x.classList.remove('is-drop-target'));}}
       onKeyDown={e=>{if(!(e.altKey||e.ctrlKey))return;if(['ArrowLeft','ArrowUp','ArrowRight','ArrowDown'].includes(e.key)){e.preventDefault();moveWidget(w.id,['ArrowLeft','ArrowUp'].includes(e.key)?-1:1);}}}><Icon name="drag" size={16}/></button>
     <button aria-label="Настроить блок" onClick={()=>setWidgetConfig(w.id)}><Icon name="settings" size={16}/></button>
     {editing?<button aria-label="Удалить блок" onClick={()=>setBoard(rows=>rows.filter(x=>x.id!==w.id))}>×</button>:null}
