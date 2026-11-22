@@ -891,7 +891,8 @@ class OperatorAKISModel(mesa.Model):
             self.run_until(float(self._model_end_at) + 0.5)
         output = self.qualitative.snapshot()
         if (self.economic_claims is not None or self.owner_financial_claims or
-                self.qualitative.context_basis is not None):
+                self.qualitative.context_basis is not None
+                or self.general_akis_enabled):
             # This executable research payload includes original owner-scoped
             # sources and may include other principals' cash values. A safe
             # nine-component projection is not a permission to disclose the
@@ -901,6 +902,9 @@ class OperatorAKISModel(mesa.Model):
                 "entire_raw_result_safe_for_cross_enterprise_distribution": False,
                 "role_filtered_real_export_implemented_here": False,
                 "original_owner_financial_and_source_values_may_be_present": True,
+                "private_original_work_future_need_and_capability_evidence_may_be_present": (
+                    self.general_akis_enabled
+                ),
                 "requires_existing_external_owner_authorization_and_redaction": True,
                 "model_only_not_a_corporate_IAM_decision": True,
             }

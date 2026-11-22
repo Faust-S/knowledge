@@ -92,6 +92,12 @@ def test_one_original_accepted_result_unlocks_declared_next_need_and_independent
     assert out["works"]["w2"]["obligation"] == "NOT_ACCEPTED"
     assert out["counts"] == {"applied": 9,"blocked": 0}
     assert out["general_akis_model"]["legal_consent_created"] is False
+    assert out["research_export_boundary"][
+        "private_original_work_future_need_and_capability_evidence_may_be_present"
+    ] is True
+    assert out["research_export_boundary"][
+        "entire_raw_result_safe_for_cross_enterprise_distribution"
+    ] is False
     assert "original_customer_request_at" not in json.dumps(
         out["general_akis_model"], ensure_ascii=False
     )
@@ -213,7 +219,7 @@ def test_original_two_accepted_work_cycles_have_two_distinct_original_recipient_
     assert shared["original_accepted_work_commit_event_count"]==2
     assert result["works"]["w1"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert result["works"]["w2"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
-    assert result["works"]["w2"]["obligation"]=="ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+    assert result["works"]["w2"]["obligation"]=="FULFILLED"
     assert result["works"]["w2"]["commitment_org_revision"]=="oc-1"
     assert result["counts"]=={"applied":17,"blocked":0}
     # Two accepted Work/Result objects do NOT establish legal original
