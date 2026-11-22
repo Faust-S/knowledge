@@ -140,7 +140,7 @@ function validateIntent(intent,params){
     fail('SUBJECT_CAPTURE_ORIGINAL_INTENT_INVALID');
   return Object.freeze({intent,normalized});
 }
-function checkOutbox(outbox,expected,prepared,nextCursor){
+function checkOutbox(outbox,expected,prepared,nextCursor,sourceWindow){
   if(outbox?.schema!==OUTBOX||outbox.captureRef!==expected.captureRef||
     outbox.kind!==expected.kind||outbox.workspaceId!==expected.workspaceId||
     outbox.originalWriteOwnerRef!==expected.originalWriteOwnerRef||
@@ -150,6 +150,7 @@ function checkOutbox(outbox,expected,prepared,nextCursor){
     outbox.key!==prepared.key||outbox.sha256!==prepared.sha256||
     !equal(outbox.sourceCursorBefore,expected.sourceCursor)||
     !equal(outbox.sourceCursorAfter,nextCursor)||
+    !equal(outbox.sourceWindow,sourceWindow)||
     outbox.originalT3MutationConfirmed!==true||
     outbox.networkPublished!==false||outbox.recipientApplied!==false||
     !SHA(outbox.sha256)||typeof outbox.bytesBase64!=='string'||
@@ -165,7 +166,7 @@ function makeOutbox(intent,{window,nextCursor,prepared}){
     subjectId:intent.subjectId,captureRef:intent.captureRef,
     inputDigest:intent.inputDigest,sourceEventId:window.lastEventId,
     sourceCursorBefore:intent.sourceCursor,sourceCursorAfter:nextCursor,
-    key:prepared.key,sha256:prepared.sha256,
+    sourceWindow:window,key:prepared.key,sha256:prepared.sha256,
     bytesBase64:prepared.bytes.toString('base64'),
     originalT3MutationConfirmed:true,networkPublished:false,
     recipientApplied:false,
@@ -289,7 +290,7 @@ async function finishCapture(params,intent,{originalReceipt=null}={}){
   const existing=await readOriginalOutbox(intent);
   let reused=false;
   if(existing!==null&&existing!==undefined){
-    checkOutbox(existing,intent,payload.prepared,payload.nextCursor);
+    checkOutbox(existing,intent,payload.prepared,payload.nextCursor,payload.window);
     reused=true;
   }else{
     if(await persistOriginalOutbox(staged)!==true)
@@ -297,7 +298,7 @@ async function finishCapture(params,intent,{originalReceipt=null}={}){
         captureRef:intent.captureRef,originalWriteAlreadyCommitted:true,
         automaticRetryAllowed:false});
     const observed=await readOriginalOutbox(intent);
-    checkOutbox(observed,intent,payload.prepared,payload.nextCursor);
+    checkOutbox(observed,intent,payload.prepared,payload.nextCursor,payload.window);
   }
   mode(getMode);
   if(await authorizeOriginalRead(proofContext(intent,'t1.listEventsSince'))!==true||
