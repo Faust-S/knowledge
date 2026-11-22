@@ -81,3 +81,140 @@ jobs:
           }
           Write-Host 'D2_ORIGINAL_SIGNED_DATA_TEST_PASS'
           Write-Host 'D2_NO_PRIVATE_SOURCE_OR_BINARY_ARTIFACTS'
+
+  installed-original-d2:
+    needs: signed-data-proof
+    runs-on: windows-2022
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Pin original One Core D2 source and original T2 archive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=(& git rev-parse 'HEAD:packages/t3-core/src').Trim()
+          $t2=(& git rev-parse 'HEAD:packages/t3-core/qualified-runtime').Trim()
+          if($src -cne '93ccb7cb2359fcad6c4cbfbdf1ba52b81ec4b48a' -or
+             $t2 -cne '1594274dbf5e38214b8422ba11e8c7114bd5425c'){
+            throw 'D2_INSTALLED_EXACT_ORIGINAL_SOURCE_PIN_FAILED'
+          }
+          Write-Host 'D2_INSTALLED_ORIGINAL_T2_AND_D2_PIN_PASS'
+      - name: Stage exact original private T3 signer transiently
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 77b3843af40f5723d08b9b905dc50c4efcb67f1b
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            access-control
+            interop
+            reconciliation
+            scripts
+            package.json
+          path: .private/t3
+      - name: Stage public Admin Center D2 candidate at exact commit
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: 65cab2a85408d8899e8be00219f7b8afce6d894f
+          persist-credentials: false
+          path: .private/center
+      - name: Stage original Atlas owner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Atlas
+          ref: c225e1b8d35e87e5de55dbb9c0c8dbe564d8fb08
+          persist-credentials: false
+          path: .private/center/vendor/atlas
+      - name: Stage original U04 bridge
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Br-test
+          ref: 07df66ab6bd3e1b87036c33b90e49d228d5ab820
+          persist-credentials: false
+          path: .private/center/vendor/brtest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate original public Center and private signer pins
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
+          $center=(& git -C .private/center rev-parse HEAD).Trim()
+          if($t3 -cne '77b3843af40f5723d08b9b905dc50c4efcb67f1b' -or
+             $center -cne '65cab2a85408d8899e8be00219f7b8afce6d894f'){
+            throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
+          }
+          Add-Content -LiteralPath '.git/info/exclude' -Value '/.private/'
+          $q=Join-Path $env:RUNNER_TEMP 'd2-original-qualified-t2'
+          New-Item -ItemType Directory -Path $q -Force | Out-Null
+          $zip='packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip'
+          Expand-Archive -LiteralPath $zip -DestinationPath $q -Force
+          if(!(Test-Path -LiteralPath (Join-Path $q '_iwxa/runtime/0.3.6/runtime.js'))){
+            throw 'D2_INSTALLED_ORIGINAL_T2_DIST_MISSING'
+          }
+          "D2_QUALIFIED_T2_DIST=$q" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'D2_INSTALLED_EXACT_THREE_INPUTS_CONFIRMED'
+      - name: Assemble original One Core and Center dependencies
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference='Stop'
+          & npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund *> $null
+          if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_ONE_CORE_DEPS_FAILED'}
+          & npm run build --prefix packages/t3-core *> $null
+          if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_ONE_CORE_BUILD_FAILED'}
+          Push-Location '.private/center'
+          try{
+            $log=Join-Path $env:RUNNER_TEMP 'd2-original-center-deps.log'
+            & npm install --no-audit --no-fund *> $log
+            if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_DEPS_FAILED'}
+          }finally{Pop-Location}
+          Write-Host 'D2_INSTALLED_ORIGINAL_DEPS_AND_BUILD_PASS'
+      - name: Build same original private signed Owner with new D2 and installed Center
+        shell: pwsh
+        timeout-minutes: 40
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'd2-private-owner-build.log'
+          try{
+            & ./.private/t3/scripts/build-admin-center-d3-owner.ps1 -CenterRoot '.private/center' -OneCoreRoot '.' -QualifiedT2Dist $env:D2_QUALIFIED_T2_DIST -BunCommand bun -BuildCenter *> $log
+            if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_PRIVATE_BUILD_FAILED'}
+            $setup='.private/center/artifacts/iwxa-setup-core-center-private-d3.exe'
+            $owner='.private/center/src-tauri/private-distribution/iwxa-t3-product-owner.exe'
+            if(!(Test-Path -LiteralPath $setup -PathType Leaf) -or
+               !(Test-Path -LiteralPath $owner -PathType Leaf)){
+              throw 'D2_INSTALLED_ORIGINAL_OWNER_PACKAGE_NOT_PRESENT'
+            }
+            Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_OWNER_CENTER_BUILT_PASS'
+          }catch{
+            # Private source, build stdout, binary and temp paths remain
+            # ephemeral and never enter the PUBLIC CI log or artifacts.
+            $codes=@()
+            foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+              foreach($hit in [regex]::Matches([string]$line,
+                '(?<![A-Z0-9_])(?:T3_D3|CEN_D3|INTEROP|D2_INSTALLED|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{3,90}(?![A-Z0-9_])')){
+                $codes+=([string]$hit.Value)
+              }
+            }
+            $reason=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            Write-Host "D2_INSTALLED_ORIGINAL_BUILD_MACHINE_CODE $reason"
+            throw 'D2_INSTALLED_ORIGINAL_BUILD_HOLD'
+          }
+      - name: Install original owner and verify native Windows Admin GUI
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha '65cab2a85408d8899e8be00219f7b8afce6d894f' -ExpectedT3Sha '77b3843af40f5723d08b9b905dc50c4efcb67f1b'
+          if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
+          Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
