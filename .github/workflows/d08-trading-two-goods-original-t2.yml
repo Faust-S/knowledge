@@ -177,11 +177,11 @@ jobs:
         run: |
           node tests/d08-trading-two-goods-native-t2.mjs > "$RUNNER_TEMP/d08-trading-gui.log" 2>&1 || {
             grep -E '^D08_TRADE_NATIVE_(FAILURE_PHASE|FAILURE_TYPE|FAILURE_CODE)=' \
-              "$RUNNER_TEMP/d08-original-gui.log" | head -5 || true
+              "$RUNNER_TEMP/d08-trading-gui.log" | head -5 || true
             echo D08_NATIVE_TRADE_EXCHANGE=FAIL
             exit 1
           }
-          grep -E '^D08_TRADE_NATIVE_[A-Z_]+=PASS$' "$RUNNER_TEMP/d08-original-gui.log"
-          grep -q '^D08_TRADE_NATIVE_FULL_TRADING_ROUNDTRIP=PASS$' "$RUNNER_TEMP/d08-original-gui.log" || exit 1
+          grep -E '^D08_TRADE_NATIVE_[A-Z_]+=PASS$' "$RUNNER_TEMP/d08-trading-gui.log"
+          grep -q '^D08_TRADE_NATIVE_FULL_TRADING_ROUNDTRIP=PASS$' "$RUNNER_TEMP/d08-trading-gui.log" || exit 1
           echo D08_NATIVE_TRADE_EXCHANGE=PASS
       # No artifacts, private files, screenshots, logs, credentials or dist are uploaded.
