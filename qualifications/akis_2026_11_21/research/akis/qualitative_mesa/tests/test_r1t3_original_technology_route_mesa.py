@@ -357,7 +357,7 @@ def test_r1t3_route_proposal_cannot_create_a_work_or_rewrite_past_result():
     request["actor"] = "a"
     out = simulate(d)
     assert reports(out, "technology_route_propose")[0]["outcome"] == "APPLIED"
-    assert last_request(out)["reason"] == "ORIGINAL_CUSTOMER_REQUEST_REQUIRED"
+    assert last_request(out)["reason"] == "OC_POSITIVE_RIGHT_NOT_DECLARED"
     assert "w3" not in out["works"]
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
 
