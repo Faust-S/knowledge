@@ -260,3 +260,42 @@ def test_work_onboarding_cost_arithmetic_cannot_cure_owners_cash_shortfall():
     summary = output["general_akis_model"]["work_counterfactual_feedback"]
     assert summary["source_declared_nine_onboarding_comparable_work_count"] == 1
     assert "owner_private_declared_liquidity_status" not in json.dumps(summary)
+
+
+def allocated_nine_case(amount="1.00"):
+    d = nine_case()
+    money = d["economic_claims"]
+    rid = "r-coop-interview"
+    next(item for item in money["resource_uses"] if item["id"] == rid)["work"] = None
+    money["common_allocations"] = [{
+        "record_id":rid, "record_type":"RESOURCE_USE",
+        "scenario":"COOPERATION", "work":"w2", "owner":"op",
+        "amount":amount, "source":"o1", "source_revision":"doc-r1",
+        "driver_ref":"model://op/original-interview-attribution"
+    }]
+    return d
+
+
+def test_full_original_shared_cost_allocation_is_same_nine_category_not_extra_cost():
+    d = allocated_nine_case()
+    out = simulate(d)
+    w = out["work_counterfactual_dynamics"]["works"][0]
+    assert w["operator_nine_onboarding_noncash_difference_outside_minus_cooperation"] == "13.00"
+    assert w["per_scenario"]["COOPERATION"]["owners"]["op"][
+        "onboarding_nine_original_noncash_total_separate_from_cash"] == "23.00"
+    assert out["economics"]["resource_uses_count"] == 19
+    assert out["economics"]["common_work_allocations"]["unallocated_remainders"][
+        "r-coop-interview"] == "0.00"
+
+
+def test_partially_unallocated_original_operator_cost_blocks_full_nine_work_claim():
+    d = allocated_nine_case("0.50")
+    out = simulate(d)
+    w = out["work_counterfactual_dynamics"]["works"][0]
+    assert w["status"] == "COUNTERFACTUAL_WORK_SCOPE_NOT_QUALIFIED"
+    assert w["operator_nine_onboarding_noncash_difference_outside_minus_cooperation"] is None
+    assert w["per_original_owner"]["op"][
+        "nine_onboarding_independent_minus_cooperation_noncash_total"] is None
+    assert out["economics"]["common_work_allocations"]["unallocated_remainders"][
+        "r-coop-interview"] == "0.50"
+    assert out["economics"]["resource_uses_count"] == 19
