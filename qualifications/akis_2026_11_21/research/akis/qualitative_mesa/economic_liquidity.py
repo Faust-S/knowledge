@@ -69,6 +69,140 @@ def _bounds(
         "reserve_cash": _as_str(reserve),
     }
 
+
+def _joint_network_settlement(
+    *, owner_state: Mapping[str, tuple[Decimal, Decimal]],
+    windows: Mapping[str, tuple[int, int]],
+    transfer_index: Mapping[str, Mapping[str, Any]],
+    coverage: Mapping[str, Mapping[str, str]],
+    subjects: Mapping[str, Any], outside: Mapping[str, str],
+) -> dict[str, Any]:
+    """Optional read-only coherent settlement *hypothesis* on the same ledger.
+
+    For each original internal transfer, sender and recipient post at the
+    SAME declared date. This reconciles the network's cash conservation at
+    every model tick, but never asserts that a delayed debtor is legally
+    allowed to postpone an original due obligation. Its posted schedule
+    must be compared with the existing owner-private due-date adverse stress.
+    """
+    scenarios: dict[str, Any] = {}
+    all_owners = set(subjects)
+    for scenario in _SCENARIOS:
+        original = [(key, row) for key, row in sorted(transfer_index.items())
+                    if row["scenario"] == scenario]
+        missing_positions = all_owners - set(owner_state)
+        missing_coverage = all_owners - set(coverage[scenario])
+        missing_windows = {key for key, _row in original if key not in windows}
+        if missing_positions or missing_coverage or missing_windows:
+            scenarios[scenario] = {
+                "status": "NETWORK_JOINT_SETTLEMENT_SCOPE_INCOMPLETE",
+                "missing_original_owner_positions_count": len(missing_positions),
+                "missing_owner_coverage_count": len(missing_coverage),
+                "missing_original_transfer_windows_count": len(missing_windows),
+                "unverified_values_not_imputed_as_zero": True,
+            }
+            continue
+
+        # The same original internal transfer_id produces exactly two
+        # opposite entries in this projected NETWORK timeline, at one tick.
+        events = {
+            "expected": {owner: [] for owner in sorted(all_owners)},
+            "late": {owner: [] for owner in sorted(all_owners)},
+        }
+        by_tick: dict[str, dict[int, dict[str, Decimal]]] = {
+            "expected": {}, "late": {},
+        }
+        internal_original_count = 0
+        for key, row in original:
+            amount = row["decimal_amount"]
+            at, late = windows[key]
+            payer, payee = row["payer"], row["payee"]
+            if payer != "EXTERNAL" and payee != "EXTERNAL":
+                internal_original_count += 1
+            for variant, tick in (("expected", at), ("late", late)):
+                owner_tick = by_tick[variant].setdefault(
+                    tick, {"internal": Decimal(0), "external": Decimal(0),
+                           "sum_owner": Decimal(0)}
+                )
+                if payer != "EXTERNAL":
+                    events[variant][payer].append((tick, -amount))
+                    owner_tick["sum_owner"] -= amount
+                if payee != "EXTERNAL":
+                    events[variant][payee].append((tick, amount))
+                    owner_tick["sum_owner"] += amount
+                if payer != "EXTERNAL" and payee != "EXTERNAL":
+                    # Keep both original party postings in the same tick.
+                    owner_tick["internal"] -= amount
+                    owner_tick["internal"] += amount
+                elif payer == "EXTERNAL":
+                    owner_tick["external"] += amount
+                else:
+                    owner_tick["external"] -= amount
+
+        # A single global settlement timetable cannot create network money
+        # by an internal transfer or break an external cash boundary at
+        # any individual tick, not merely at the end of the period.
+        for variant in ("expected", "late"):
+            for balances in by_tick[variant].values():
+                if (balances["internal"] != 0 or
+                        balances["sum_owner"] != balances["external"]):
+                    raise LiquidityInputError("JOINT_NETWORK_CASH_CONSERVATION_FAILED")
+
+        owner_details: dict[str, Any] = {}
+        for owner in sorted(all_owners):
+            opening, reserve = owner_state[owner]
+            owner_details[owner] = {
+                "expected": _bounds(opening, events["expected"][owner], reserve),
+                "joint_posted_late_case": _bounds(
+                    opening, events["late"][owner], reserve
+                ),
+                "this_is_not_permission_to_defer_the_owner_payables": True,
+                "real_bank_balance_not_verified": True,
+            }
+        expected_external = sum(
+            (row["external"] for row in by_tick["expected"].values()),
+            Decimal(0),
+        )
+        late_external = sum(
+            (row["external"] for row in by_tick["late"].values()),
+            Decimal(0),
+        )
+        scenarios[scenario] = {
+            "status": "SOURCE_DECLARED_JOINT_SETTLEMENT_ARITHMETIC_ONLY",
+            "per_original_owner_private_research_projection": owner_details,
+            "original_transfer_count": len(original),
+            "internal_original_transfer_count": internal_original_count,
+            "internal_cash_nets_to_zero_at_every_tick": True,
+            "sum_owner_cash_changes_equals_original_external_cash_at_every_tick": True,
+            "expected_original_external_cash_delta": _as_str(expected_external),
+            "late_original_external_cash_delta": _as_str(late_external),
+            "all_original_internal_party_cash_posted_at_the_same_tick": True,
+            "model_time_not_a_verified_bank_settlement_date": True,
+        }
+
+    if any(v["status"] != "SOURCE_DECLARED_JOINT_SETTLEMENT_ARITHMETIC_ONLY"
+           for v in scenarios.values()):
+        comparability = "INCOMPLETE_NETWORK_SETTLEMENT_SCOPE"
+    elif any(outside.get(owner) != "FEASIBLE_DECLARED" for owner in all_owners):
+        comparability = "OUTSIDE_OPTION_NOT_SOURCE_QUALIFIED_FOR_EVERY_OWNER"
+    else:
+        comparability = "TWO_DECLARED_NETWORK_SETTLEMENT_SCOPES_NOT_CAUSAL_VALUE"
+
+    return {
+        "evidence": "MODEL_ONLY_ONE_ORIGINAL_TRANSFER_ONE_JOINT_POSTING_DATE",
+        "scenarios": scenarios,
+        "network_comparability": comparability,
+        "same_original_internal_transfer_only_one_joint_date": True,
+        "joint_posting_does_not_reschedule_original_legal_due_dates": True,
+        "individual_due_date_stress_remains_independently_required": True,
+        "bank_settlement_or_legal_extension_verified": False,
+        "no_extra_cash_or_financing_created": True,
+        "legal_payment_or_owner_consent_created": False,
+        "private_owner_opening_cash_reserve_and_paths_not_member_shareable": True,
+        "network_value_added_and_actual_profit": "NOT_IDENTIFIABLE",
+    }
+
+
 def evaluate_cash_timing(
     raw: Any, *, sources: Mapping[str, Mapping[str, Any]],
     transfer_index: Mapping[str, Mapping[str, Any]],
@@ -263,4 +397,9 @@ def evaluate_cash_timing(
         "adverse_receipts_late_obligations_due_in_owner_private_stress": True,
         "per_owner_stress_is_not_one_simultaneously_consistent_network_schedule": True,
         "outside_comparison_is_not_actual_profit_or_legal_consent": True,
+        "joint_network_settlement": _joint_network_settlement(
+            owner_state=owner_state, windows=windows,
+            transfer_index=transfer_index, coverage=coverage,
+            subjects=subjects, outside=outside,
+        ),
     }
