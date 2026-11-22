@@ -135,23 +135,7 @@ jobs:
             python3 "$GITHUB_WORKSPACE/tools/ci/d04_recovery_safe_diagnostics.py" "$RUNNER_TEMP/d04-native-families.log" || true
             # Disclose only a bounded stage code for a known, public test selector.
             # Never echo raw playwright logs, challenge, health inputs, IDs or URLs.
-            python3 - "$RUNNER_TEMP/d04-native-families.log" <<'PY'
-            from pathlib import Path
-            import sys
-            content=Path(sys.argv[1]).read_text(encoding="utf-8",errors="replace")
-            markers={
-             "NATIVE_SAVE_PROMPT":'Подтвердите сохранение:',
-             "PERSONAL_CREATE":'life-os-create-personal',
-             "PERSONAL_OVERVIEW":'life-os-personal-dashboard',
-             "PENDING_CONFIRM":'life-os-pending-continue',
-             "NATIVE_WORKSPACE":'bazmed-life-os-workspace-selector',
-             "KERNEL_RESULT":'data-t2-result-kind',
-             "PUBLIC_SAVE":'bazmed-save-life-os',
-            }
-            relevant="\n".join(row for row in content.splitlines() if "waiting for locator(" in row or "locator.waitFor:" in row)
-            matching=[code for code,needle in markers.items() if needle in relevant]
-            print("D04_NATIVE_WAIT_STAGE="+("_".join(matching[:2]) if matching else "UNCLASSIFIED"))
-            PY
+            python3 "$GITHUB_WORKSPACE/tools/ci/d04_native_wait_stage.py" "$RUNNER_TEMP/d04-native-families.log" || true
             exit "$code"
           fi
           grep '^D04_NATIVE_' "$RUNNER_TEMP/d04-native-families.log" | tail -6
