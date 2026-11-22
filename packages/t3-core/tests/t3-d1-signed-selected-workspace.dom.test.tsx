@@ -166,12 +166,35 @@ it("installed corporate preflight exposes only bounded refusal code and never le
   </SignedSelectedWorkspaceGate>);
   const refusal=await screen.findByTestId("t3-d1-selected-workspace-refusal-code");
   expect(refusal.textContent).toContain("T3_ACCESS_NOT_PERMITTED");
+  expect(refusal.textContent).toContain("Этап: ORIGINAL_KERNEL_READ");
   expect(screen.getByRole("heading").textContent)
     .toBe("Подписанный доступ Workspace не подтверждён");
   expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
   expect(screen.queryByTestId("forbidden-corporate-content")).toBeNull();
   expect(document.body.textContent).not.toContain("vault.json");
   expect(createWorkspace).not.toHaveBeenCalled();
+});
+
+it("installed signed-context denial is distinguished from a genuine T2 Kernel read refusal",async()=>{
+  const read=vi.fn();
+  const write=vi.fn();
+  const candidate={getWorkspace:read,createWorkspace:write,
+    hasOperation:()=>true} as unknown as KernelFacade;
+  render(<SignedSelectedWorkspaceGate required kernel={candidate}
+    profile="generic" autoCreateSignedCorporate={false}
+    trustedSelectedContext={async()=>{
+      throw Object.assign(new Error("C:\\\\Users\\\\issuer\\\\secret.json"),
+        {code:"T3_D1_CONTROL_INVALIDATION_UNAVAILABLE"});
+    }}>
+    <p>Forbidden</p>
+  </SignedSelectedWorkspaceGate>);
+  const refusal=await screen.findByTestId("t3-d1-selected-workspace-refusal-code");
+  expect(refusal.textContent).toContain("T3_D1_CONTROL_INVALIDATION_UNAVAILABLE");
+  expect(refusal.textContent).toContain("Этап: SIGNED_CONTEXT");
+  expect(document.body.textContent).not.toContain("secret.json");
+  expect(read).not.toHaveBeenCalled();
+  expect(write).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
 });
 
 it("untrusted exception strings never reach the signed Workspace UI",async()=>{
