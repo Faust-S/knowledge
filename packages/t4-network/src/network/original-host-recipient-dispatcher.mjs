@@ -302,10 +302,12 @@ async function ensureCursor(p,item,previousCursor,receiptRef){
     fail('RECIPIENT_ORIGINAL_CURSOR_NOT_PERSISTED',{
       captureRef:item.captureRef,automaticRetryAllowed:false,
     });
+  await allowed(p,'t1.getObject','recipient-cursor-readback',item);
   const observed=await p.readOriginalVerifiedCursor(frozen({
     workspaceId:p.workspaceId,originalWriteOwnerRef:p.originalWriteOwnerRef,
     sourceNodeRef:p.sourceNodeRef,
   }));
+  mode(p);
   if(!same(observed,item.after))
     fail('RECIPIENT_ORIGINAL_CURSOR_READBACK_MISMATCH');
 }
@@ -459,16 +461,35 @@ async function execute(p,entries,initialCursor,maxEntries){
   });
 }
 export function createT4OriginalHostRecipientDispatcher(params={}){
-  let active=null;
+  let active=null,activePlanDigest=null;
   return frozen({
     schema:'IWXA_T4_ORIGINAL_HOST_RECIPIENT_DISPATCHER_V1',
     usesOriginalT3HostAndKernel:true,
     async drain({entries,initialCursor,maxEntries=32}={}){
-      if(active)return active;
-      const work=execute(params,entries,initialCursor,maxEntries);
-      active=work;
+      // Snapshot Host-supplied source metadata before the first async boundary.
+      // Concurrent calls may share only the EXACT same original plan and limit.
+      let rows,first;
+      try{
+        rows=structuredClone(entries);
+        first=structuredClone(initialCursor);
+      }catch{fail('RECIPIENT_ORIGINAL_PLAN_REQUIRED');}
+      const currentDigest=digest({rows,first,maxEntries,
+        workspaceId:params.workspaceId,
+        originalWriteOwnerRef:params.originalWriteOwnerRef,
+        sourceNodeRef:params.sourceNodeRef});
+      if(active){
+        if(currentDigest!==activePlanDigest)
+          fail('RECIPIENT_CONCURRENT_PLAN_MISMATCH',{
+            automaticRetryAllowed:false,originalWriteMayBeInFlight:true,
+          });
+        return active;
+      }
+      const work=execute(params,rows,first,maxEntries);
+      active=work;activePlanDigest=currentDigest;
       try{return await work;}
-      finally{if(active===work)active=null;}
+      finally{
+        if(active===work){active=null;activePlanDigest=null;}
+      }
     },
   });
 }
