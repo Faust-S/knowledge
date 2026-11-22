@@ -14,7 +14,8 @@ const networkMode=getMode=>{
   if(typeof getMode!=='function'||getMode()!=='T4_NETWORK')
     fail('OBJECT_CAPTURE_NETWORK_MODE_OFF');
 };
-const hash=value=>packageSha256(Buffer.from(JSON.stringify(value),'utf8'));
+const TRACE_REF='iwxa_t4_capture_ref';
+const TRACE_INPUT_DIGEST='iwxa_t4_original_input_digest';
 function validateMutation(input,workspaceId,objectId){
   if(!input||input.workspace_id!==workspaceId||input.object_id!==objectId||
     !ID(input.schema_id)||!ID(input.schema_version)||
@@ -50,7 +51,23 @@ export async function captureT4OriginalObjectMutation({
       readOriginalOutbox].some(f=>typeof f!=='function'))
     fail('OBJECT_CAPTURE_ORIGINAL_HOST_PORTS_REQUIRED');
   const mutationBytes=validateMutation(mutationInput,workspaceId,objectId);
-  const inputDigest='sha256:'+packageSha256(mutationBytes);
+  const originalInputDigest='sha256:'+packageSha256(mutationBytes);
+  if(mutationInput.event.payload!==undefined&&
+    (mutationInput.event.payload===null||
+     typeof mutationInput.event.payload!=='object'||
+     Array.isArray(mutationInput.event.payload)))
+    fail('OBJECT_CAPTURE_EVENT_PAYLOAD_MUST_BE_OBJECT');
+  if(Object.hasOwn(mutationInput.event.payload??{},TRACE_REF)||
+    Object.hasOwn(mutationInput.event.payload??{},TRACE_INPUT_DIGEST))
+    fail('OBJECT_CAPTURE_EVENT_TRACE_COLLISION');
+  const originalMutation=JSON.parse(mutationBytes.toString('utf8'));
+  const tracedMutation={
+    ...originalMutation,event:{...originalMutation.event,
+      payload:{...originalMutation.event.payload,
+        [TRACE_REF]:captureRef,[TRACE_INPUT_DIGEST]:originalInputDigest}},
+  };
+  const tracedMutationBytes=validateMutation(tracedMutation,workspaceId,objectId);
+  const inputDigest='sha256:'+packageSha256(tracedMutationBytes);
   networkMode(getMode);
   const ctx=Object.freeze({operation:'t1.putObject',workspaceId,objectId,
     originalWriteOwnerRef,captureRef,inputDigest,
@@ -67,7 +84,10 @@ export async function captureT4OriginalObjectMutation({
   const intent=Object.freeze({
     schema:'IWXA_T4_ORIGINAL_OBJECT_MUTATION_INTENT_V1',
     workspaceId,objectId,originalWriteOwnerRef,captureRef,
-    inputDigest,expectedBaseRevision:mutationInput.base_revision,
+    inputDigest,originalInputDigest,
+    originalMutation:tracedMutation,
+    expectedBaseRevision:mutationInput.base_revision,
+    sourceCursor,
     expectedSourceEventAfter:sourceCursor.lastEventId,
     originalT3WriteRequired:true,networkAcknowledged:false,
   });
@@ -79,7 +99,7 @@ export async function captureT4OriginalObjectMutation({
   if(await authorizeOriginalWrite(ctx)!==true)
     fail('OBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
   let receipt;
-  try{receipt=await originalKernel.putObject(mutationInput);}
+  try{receipt=await originalKernel.putObject(tracedMutation);}
   catch(error){
     fail('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{
       captureRef,inputDigest,originalCode:error?.code??null,
@@ -102,6 +122,14 @@ export async function captureT4OriginalObjectMutation({
     if(window.count!==1||window.hasMore||
       window.lastEventId!==receipt.event.event_id)
       fail('OBJECT_CAPTURE_ORIGINAL_EVENT_ORDER_CHANGED');
+    const matchedEvent=(await readOriginalEvents()).find(e=>
+      e.event_id===receipt.event.event_id);
+    if(!matchedEvent||
+      matchedEvent.payload?.[TRACE_REF]!==captureRef||
+      matchedEvent.payload?.[TRACE_INPUT_DIGEST]!==originalInputDigest||
+      matchedEvent.object_id!==objectId||
+      matchedEvent.revision!==mutationInput.base_revision+1)
+      fail('OBJECT_CAPTURE_ORIGINAL_EVENT_CORRELATION_MISSING');
     const prepared=await prepareT4OriginalObjectDelta({
       window,workspaceId,objectId,originalWriteOwnerRef,
       originalKernel,authorizeOriginalRead,getMode,
@@ -121,7 +149,8 @@ export async function captureT4OriginalObjectMutation({
     sha256:captured.prepared.sha256,key:captured.prepared.key,
     sourceCursorBefore:sourceCursor,sourceCursorAfter:captured.nextCursor,
     bytesBase64:captured.prepared.bytes.toString('base64'),
-    originalT3MutationConfirmed:true,networkPublished:false,
+    originalT3MutationConfirmed:true,inputDigest,
+    networkPublished:false,
     recipientApplied:false,
   });
   if(await persistOriginalOutbox(outbox)!==true)
