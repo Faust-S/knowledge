@@ -75,6 +75,11 @@ export function ActivityWorkspace({brandSrc,data,actions,legacy}:ActivityWorkspa
  useEffect(()=>{setCandidateIndex(0);setEventPage(0);setEventId('');},[data.t3Review?.review]);
  useEffect(()=>{setProcessIndex(0);},[data.preview]);
  useEffect(()=>{setObjectIndex(0);},[data.objectEvidence]);
+ // Do not retain previous signed or synthetic source aliases in the dock.
+ // Invalidation, replacement, failed reads and recovered revisions all clear it.
+ useEffect(()=>{
+   setInspector([]);setInspectId('');
+ },[data.preview,data.objectEvidence,data.t3Review,data.sourceName,data.problem,data.hasT3Host]);
  const go=(next:string)=>{if(!(PAGES as readonly string[]).includes(next))return;
    setMenu('');setLibrary(false);setWidgetConfig('');setSearch('');
    if(next===page)return;
