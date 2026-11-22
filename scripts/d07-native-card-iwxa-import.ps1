@@ -104,47 +104,34 @@ try{
  $browser=$null
  $reopened=StartEdge ($Origin+'/workspace/')
  $null=Await 'Мои услуги' $null 'D07_IMPORT_USLUGOVOD_HOST_NOT_REOPENED'
- $selector=$null
- foreach($root in @(Roots)){
-  $items=$root.FindAll($scope,[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::ComboBox))
-  if($items.Count -ge 1){$selector=$items.Item(0);break}
+ # The original Host can auto-focus the only imported personal Workspace.
+ # Never drive an arbitrary first ComboBox: it may be a service/template
+ # selector. The actual Workspace selector has an explicit accessible name.
+ $focused=$false
+ for($k=0;$k -lt 24;$k++){
+   if(Locate 'Рабочая область выбрана' $null){$focused=$true;break}
+   Start-Sleep -Milliseconds 350
  }
- if(!$selector){throw 'D07_IMPORT_SELECTED_WORKSPACE_CONTROL_MISSING'}
- $selector.SetFocus()
- [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
- [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
- [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
- $null=Await 'Рабочая область выбрана' $null 'D07_IMPORT_IMPORTED_WORKSPACE_NOT_SELECTED'
- $found=$false
- for($k=0;$k -lt 110;$k++){
-  foreach($root in @(Roots)){
-   $items=$root.FindAll($scope,[System.Windows.Automation.Condition]::TrueCondition)
-   foreach($node in $items){
-    $name=$node.Current.Name
-    if($name -match 'Сохранённых заказов:\s*1'){$found=$true;break}
-   }
-   if($found){break}
-  }
-  if($found){break}
-  Start-Sleep -Milliseconds 400
+ if($focused){
+   Write-Output 'D07_IMPORT_WORKSPACE_FOCUS_ROUTE=AUTO'
+ }else{
+   $selector=Await 'Рабочая область Услуговода' (
+     [System.Windows.Automation.ControlType]::ComboBox) 'D07_IMPORT_WORKSPACE_SELECTOR_NAMED_CONTROL_MISSING'
+   $selector.SetFocus()
+   [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+   [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+   $null=Await 'Рабочая область выбрана' $null 'D07_IMPORT_IMPORTED_WORKSPACE_NOT_SELECTED'
+   Write-Output 'D07_IMPORT_WORKSPACE_FOCUS_ROUTE=EXPLICIT'
  }
- if(!$found){throw 'D07_IMPORT_COLD_READBACK_ORDER_MISSING'}
- Write-Output 'D07_IWXA_NATIVE_IMPORTED_ORDER_READBACK=PASS'
- # Verify that the independent recipient reopened the exact original T2 Object ID.
- $proofFile=Join-Path $env:RUNNER_TEMP 'd07-native-card-order-identity.private.json'
- if(!(Test-Path $proofFile)){throw 'D07_IMPORT_SOURCE_IDENTITY_WITNESS_MISSING'}
- $proof=Get-Content -Raw $proofFile|ConvertFrom-Json
- $expectedId=[string]$proof.objectId
- if($proof.serviceSlug -ne 'zamena-unitaza' -or
-    $proof.protocolId -ne 'toilet-replacement' -or $proof.works -ne 10 -or
-    $expectedId -notmatch '^d07:order:[a-f0-9]{64}$'){
-   throw 'D07_IMPORT_SOURCE_IDENTITY_WITNESS_INVALID'
- }
+ # A split React accessibility label "Сохранённых заказов:" and "1"
+ # cannot be matched as a single UIA node. Read the *actual* saved order
+ # control; its object identity and all ten works are checked below.
  $orderButton=$null
  $buttonsCondition=[System.Windows.Automation.PropertyCondition]::new(
    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
    [System.Windows.Automation.ControlType]::Button)
- for($i=0;$i -lt 55;$i++){
+ for($i=0;$i -lt 105;$i++){
    foreach($root in @(Roots)){
      $buttons=$root.FindAll($scope,$buttonsCondition)
      foreach($item in $buttons){
@@ -156,9 +143,25 @@ try{
      if($orderButton){break}
    }
    if($orderButton){break}
-   Start-Sleep -Milliseconds 400
+   Start-Sleep -Milliseconds 450
  }
- if(!$orderButton){throw 'D07_IMPORT_EXPECTED_SERVICE_ORDER_NOT_LISTED'}
+ if(!$orderButton){
+   $orderSummary=Locate 'Все заказы (1)' $null
+   Write-Output ('D07_IMPORT_ORDER_PANEL_SUMMARY_ONE='+[bool]$orderSummary)
+   Write-Output ('D07_IMPORT_WORKSPACE_FOCUSED='+[bool](Locate 'Рабочая область выбрана' $null))
+   throw 'D07_IMPORT_EXPECTED_SERVICE_ORDER_NOT_LISTED'
+ }
+ Write-Output 'D07_IWXA_NATIVE_IMPORTED_ORDER_READBACK=PASS'
+ # Verify that the independent recipient reopened the exact original T2 Object ID.
+ $proofFile=Join-Path $env:RUNNER_TEMP 'd07-native-card-order-identity.private.json'
+ if(!(Test-Path $proofFile)){throw 'D07_IMPORT_SOURCE_IDENTITY_WITNESS_MISSING'}
+ $proof=Get-Content -Raw $proofFile|ConvertFrom-Json
+ $expectedId=[string]$proof.objectId
+ if($proof.serviceSlug -ne 'zamena-unitaza' -or
+    $proof.protocolId -ne 'toilet-replacement' -or $proof.works -ne 10 -or
+    $expectedId -notmatch '^d07:order:[a-f0-9]{64}$'){
+   throw 'D07_IMPORT_SOURCE_IDENTITY_WITNESS_INVALID'
+ }
  $open=[System.Windows.Automation.InvokePattern]$orderButton.GetCurrentPattern(
    [System.Windows.Automation.InvokePattern]::Pattern)
  $open.Invoke()
