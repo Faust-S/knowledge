@@ -26,6 +26,10 @@ from .technology import (
     qualify_original_technology_route_response,
     qualify_original_technology_route_request,
 )
+from .source_registration import (
+    RegistrationBlocked, qualify_subject_registration,
+    qualify_resource_registration,
+)
 from .handoff import Handoff, HandoffInputError, declare_handoffs, handoffs_view
 from .material import (MaterialBatch, MaterialState, MaterialInputError, MaterialBlocked,
     parse_batches, quantities, amount, event_report, assert_reported_order,
@@ -54,7 +58,11 @@ MODES = SELECTED_MODES | {"UNSELECTED"}
 AVAILABILITY = frozenset({"AVAILABLE", "UNAVAILABLE", "UNKNOWN"})
 ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "cooperation_entry_assess", "cooperation_membership_apply", "model_code_propose", "model_code_response",
     "model_code_function_response", "model_code_apply",
-    "technology_route_propose", "technology_route_response", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
+    "technology_route_propose", "technology_route_response",
+    "subject_registration_propose", "subject_registration_attest",
+    "subject_registration_review", "subject_registration_apply",
+    "resource_registration_propose", "resource_registration_review",
+    "resource_registration_apply", "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -274,13 +282,73 @@ class QualitativeAKIS:
              "technology_route_work_spec", "technology_route_fingerprint",
              "technology_route_source_ref", "technology_route_valid_until",
              "technology_route_decision", "technology_route_decision_source_ref",
-             "technology_route_model_code_change_id"}, "EVENT")
+             "technology_route_model_code_change_id",
+             "subject_registration_id", "resource_registration_id",
+             "new_subject", "new_subject_kind", "registration_fingerprint",
+             "registration_source_ref", "registration_self_ref",
+             "registration_goal_source_ref", "registration_alternative_source_ref",
+             "registration_willingness", "registration_valid_until",
+             "registration_decision", "registration_decision_source_ref",
+             "resource_spec", "resource_fingerprint",
+             "registration_resource_source_ref"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
             _id(ev["actor"], "actor")
             if ev["action"] == "request":
-                self._parse_work(ev.get("work_spec"))
+                # The ORIGINAL request remains source-validated at its own
+                # event time. A future enterprise/resource absent at t=0
+                # cannot be forced into the original live registries just
+                # to parse a prospective Work. Skipping initial resolution is
+                # allowed ONLY with a prior declared original registration
+                # and prospective APPLY event, not a merely proposed name.
+                spec = ev.get("work_spec")
+                if not isinstance(spec, dict):
+                    self._parse_work(spec)
+                else:
+                    mentioned = {spec.get("resource")}
+                    for need in spec.get("resource_requirements", []):
+                        if isinstance(need, dict):
+                            mentioned.add(need.get("resource"))
+                    for op_row in spec.get("operations", []):
+                        if isinstance(op_row, dict):
+                            mentioned.add(op_row.get("primary_resource"))
+                            for need in op_row.get("resource_requirements", []):
+                                if isinstance(need, dict):
+                                    mentioned.add(need.get("resource"))
+                    missing = {x for x in mentioned if x not in self.resources}
+                    unknown_customer = spec.get("customer") not in self.subjects
+                    if missing or unknown_customer:
+                        subject_applies = {
+                            row.get("new_subject") for row in events
+                            if row.get("action") == "subject_registration_apply"
+                            and row["at"] < ev["at"]
+                        }
+                        resource_plans = {
+                            row.get("resource_spec", {}).get("id")
+                            for row in events
+                            if row.get("action") == "resource_registration_propose"
+                            and isinstance(row.get("resource_spec"), dict)
+                            and any(app.get("action") == "resource_registration_apply"
+                                    and app.get("resource_registration_id") ==
+                                        row.get("resource_registration_id")
+                                    and app["at"] < ev["at"]
+                                    for app in events)
+                        }
+                        if (not missing <= resource_plans or
+                                (unknown_customer and spec.get("customer")
+                                 not in subject_applies)):
+                            self._parse_work(spec)
+                        elif (not isinstance(spec.get("id"), str)
+                              or not isinstance(spec.get("source_revision"), str)
+                              or type(spec.get("slot_start")) is not int
+                              or type(spec.get("slot_end")) is not int
+                              or spec["slot_start"] >= spec["slot_end"]):
+                            raise InputError(
+                                "FUTURE_ORIGINAL_WORK_MINIMUM_SOURCE_INVALID"
+                            )
+                    else:
+                        self._parse_work(spec)
         self.context_basis: ContextBasis | None = None
         self.model_org_policy = None  # Optional MODEL_ONLY constraint on original new-Work actions.
         self.model_org_code_edition = "BASE"  # Source-edition only, NOT institutional OC revision.
@@ -392,6 +460,7 @@ class QualitativeAKIS:
         linked_change_evidence = None
         membership_evidence = None
         technology_route_evidence = None
+        registration_evidence = None
         if self.capability_policy is not None:
             # Time- and owner-source eligibility is refreshed before future
             # commitments; historical reservations and Results are untouched.
@@ -405,6 +474,37 @@ class QualitativeAKIS:
                 model_org_review = self.model_org_policy.inspect(self, ev, at)
             if action == "change_mode":
                 self._change_mode(ev)
+            elif action in {
+                "subject_registration_propose", "subject_registration_attest",
+                "subject_registration_review", "subject_registration_apply",
+            }:
+                registration_evidence = qualify_subject_registration(
+                    self, ev, at
+                )
+                if action == "subject_registration_apply":
+                    key = registration_evidence["registered_original_subject"]
+                    self.subjects[key] = Party(key, "SME")
+            elif action in {
+                "resource_registration_propose", "resource_registration_review",
+                "resource_registration_apply",
+            }:
+                registration_evidence = qualify_resource_registration(
+                    self, ev, at
+                )
+                if action == "resource_registration_apply":
+                    spec = registration_evidence["resource_spec"]
+                    capacity = parse_resource_capacity(spec)
+                    key, owner = capacity.key, capacity.owner
+                    # One original Resource map, same CapacityLedger: no
+                    # second inventory, reservation book or ownership graph.
+                    self.resource_specs[key] = capacity
+                    self.capacity_ledger.specs[key] = capacity
+                    self.resources[key] = owner
+                    self.resource_availability[key] = spec["availability"]
+                    self.resource_availability_origin[key] = (
+                        "OWNER_REGISTERED_MODEL_SOURCE"
+                    )
+                    self._calendar_revisions_seen[key] = set()
             elif action == "model_code_propose":
                 qualify_model_code_proposal(self, ev, at)
             elif action == "model_code_response":
@@ -557,7 +657,9 @@ class QualitativeAKIS:
                 work = self.works[key]
                 self._work_action(work, ev, at)
             report = {"at": at, "action": action, "outcome": "APPLIED", "reason": "NONE", "org_revision": self.institution.revision}
-        except (BlockedDecision, ContextBlocked, MaterialBlocked, AssuranceBlocked, OrgCodeBlocked, CapabilityBlocked, TechnologyRouteBlocked) as exc:
+        except (BlockedDecision, ContextBlocked, MaterialBlocked, AssuranceBlocked,
+                OrgCodeBlocked, CapabilityBlocked, TechnologyRouteBlocked,
+                RegistrationBlocked) as exc:
             blocked_resource = getattr(exc, "resource", None)
             if isinstance(exc, OrgCodeBlocked):
                 org_code_model_escalation_target = exc.reviewer
@@ -623,6 +725,15 @@ class QualitativeAKIS:
                 report["original_resources_and_work_principals_preserved"] = True
                 report["historical_accepted_results_and_consents_preserved"] = True
                 report["new_entrant_independent_work_consent_still_required"] = True
+        if action.startswith(("subject_registration_", "resource_registration_")):
+            report["subject_registration_id"] = ev.get("subject_registration_id")
+            report["resource_registration_id"] = ev.get("resource_registration_id")
+            report["registration_fingerprint"] = ev.get("registration_fingerprint")
+            report["resource_fingerprint"] = ev.get("resource_fingerprint")
+            report["registration_decision"] = ev.get("registration_decision")
+            report["registration_model_source_not_authenticated_rights"] = True
+            if registration_evidence is not None and report["outcome"] == "APPLIED":
+                report.update(registration_evidence)
         if action in {"technology_route_propose", "technology_route_response"}:
             report["technology_route_id"] = ev.get("technology_route_id")
             report["technology_route_fingerprint"] = ev.get(
@@ -842,7 +953,29 @@ class QualitativeAKIS:
         return report
 
     def _request_work(self, ev: dict[str, Any], at: int) -> dict[str, Any] | None:
-        work = self._parse_work(ev.get("work_spec"))
+        spec = ev.get("work_spec")
+        if isinstance(spec, dict):
+            # A source-declared future asset is not an original asset until
+            # its independently approved registration actually APPLIES.
+            resources = {spec.get("resource")}
+            for need in spec.get("resource_requirements", []):
+                if isinstance(need, dict):
+                    resources.add(need.get("resource"))
+            for op in spec.get("operations", []):
+                if isinstance(op, dict):
+                    resources.add(op.get("primary_resource"))
+                    for need in op.get("resource_requirements", []):
+                        if isinstance(need, dict):
+                            resources.add(need.get("resource"))
+            if any(x not in self.resources for x in resources):
+                raise BlockedDecision(
+                    "ORIGINAL_NEW_RESOURCE_REGISTRATION_MUST_PRECEDE_WORK"
+                )
+            if spec.get("customer") not in self.subjects:
+                raise BlockedDecision(
+                    "ORIGINAL_NEW_SUBJECT_REGISTRATION_MUST_PRECEDE_WORK"
+                )
+        work = self._parse_work(spec)
         if work.key in self.works:
             raise BlockedDecision("WORK_ALREADY_EXISTS")
         if len(self.works) >= 256:

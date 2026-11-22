@@ -204,7 +204,11 @@ class OperatorAKISModel(mesa.Model):
         "request", "offer", "authorize", "resource_status", "change_mode", "exclude", "commit",
         "complete", "reject", "resubmit", "accept", "source_update", "resource_calendar_update",
         "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "model_code_propose", "model_code_response", "model_code_function_response", "model_code_apply",
-        "technology_route_propose", "technology_route_response", "adopt_capability",
+        "technology_route_propose", "technology_route_response",
+        "subject_registration_propose", "subject_registration_attest",
+        "subject_registration_review", "subject_registration_apply",
+        "resource_registration_propose", "resource_registration_review",
+        "resource_registration_apply", "adopt_capability",
         "economic_outlook_available", "economic_outlook_expired",
         "joint_purchasing_quote_change",
         "owner_finance_source_available", "owner_finance_source_expired",
@@ -339,8 +343,47 @@ class OperatorAKISModel(mesa.Model):
                 self.discovery_finance_enabled = False
                 self.discovery_finance = ()
             self.general_akis_enabled = raw_general_akis is not None
+            # Research source declarations can describe a future owner
+            # without prematurely adding that owner to the LIVE Mesa
+            # subjects. The original event handler alone can register an
+            # actual SME after its own assent and all founder reviews.
+            prospective: dict[str, int] = {}
+            for reg in self.qualitative.events:
+                if reg["action"] != "subject_registration_apply":
+                    continue
+                proposal = next((
+                    row for row in self.qualitative.events
+                    if row["action"] == "subject_registration_propose"
+                    and row.get("subject_registration_id") ==
+                        reg.get("subject_registration_id")
+                    and row["at"] < reg["at"]
+                ), None)
+                if proposal is not None:
+                    prospective[proposal["new_subject"]] = reg["at"]
+            preflight_subjects = dict(self.qualitative.subjects)
+            preflight_subjects.update({
+                key: SimpleNamespace(kind="SME", active=False)
+                for key in prospective if key not in preflight_subjects
+            })
+            if self.general_akis_enabled:
+                for rows in (
+                    raw_general_akis["goals"],
+                    raw_general_akis["formation_phases"],
+                    raw_general_akis["context_cores"],
+                    raw_general_akis["agent_functions"],
+                    raw_general_akis["organizational_code"],
+                ):
+                    for row in rows:
+                        if (isinstance(row, dict)
+                                and row.get("owner") in prospective
+                                and type(row.get("available_at")) is int
+                                and row["available_at"] <
+                                    prospective[row["owner"]]):
+                            raise InputError(
+                                "FUTURE_ORIGINAL_SME_CANNOT_CLAIM_PAST_SOURCE"
+                            )
             self.general_design = parse_general_system(
-                raw_general_akis, self.qualitative.subjects, known_works
+                raw_general_akis, preflight_subjects, known_works
             ) if self.general_akis_enabled else None
             if (self.general_akis_enabled and
                     (self.general_design.enforce_model_org_code or
@@ -744,6 +787,14 @@ class OperatorAKISModel(mesa.Model):
 
     def _apply_event(self, event: dict[str, Any]) -> None:
         outcome = self.qualitative.apply(event, int(self.time))
+        if (event["action"] == "subject_registration_apply"
+                and outcome["outcome"] == "APPLIED"):
+            key = outcome["registered_original_subject"]
+            # Native EconomicSubject is created in the SAME Mesa model only
+            # after its original independent registration has succeeded.
+            agent = EconomicSubject(self, key, self.qualitative.subjects[key].kind)
+            self.parties.append(agent)
+            self._by_id[key] = agent
         if (self.decision_profiles or self.endogenous_subjects_enabled or
                 self.economic_outlooks or self.joint_purchasing_plans or
                 event["action"] in {"interest_update", "participation_status",
@@ -784,8 +835,15 @@ class OperatorAKISModel(mesa.Model):
             impacted = [work.key for work in state.works.values() if work.obligation == "NOT_ACCEPTED"]
         elif action in {"model_code_propose", "model_code_response",
                          "model_code_function_response",
-                         "technology_route_propose", "technology_route_response"}:
-            # Route consultations can never autonomously create Work.
+                         "technology_route_propose", "technology_route_response",
+                         "subject_registration_propose",
+                         "subject_registration_attest",
+                         "subject_registration_review",
+                         "subject_registration_apply",
+                         "resource_registration_propose",
+                         "resource_registration_review",
+                         "resource_registration_apply"}:
+            # Registrations are not new Work or autonomous resource bookings.
             impacted = []
         elif action in {"participation_status", "cooperation_change_propose", "cooperation_change_response"}:
             link = next((link for link in state.cooperation_links
