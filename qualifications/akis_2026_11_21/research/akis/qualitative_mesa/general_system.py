@@ -3176,6 +3176,140 @@ def original_nine_component_cycle_evidence(
             "contractual_release_or_bank_settlement_not_verified": True,
         })
 
+    # R1-U4: original MODEL_ONLY KPB source rights are no reproduction by
+    # themselves. Count only new enterprise + owner resource + accepted
+    # original Work/Result, or the separately qualified R1-U3 restoration
+    # with its fresh accepted Result. These are read-only ORIGINAL events.
+    strict_source_registered_enterprise_results: list[dict[str, Any]] = []
+    strict_source_reconstituted_results: list[dict[str, Any]] = []
+    if (original.context_basis is not None and
+            original.context_basis.strict and
+            original.context_basis.decision_requirements):
+        for subject_apply in events:
+            if (subject_apply.get("action") != "subject_registration_apply"
+                    or not subject_apply.get("source_rights_ref")):
+                continue
+            entrant = subject_apply.get("registered_original_subject")
+            proposal = [
+                row for row in events
+                if row.get("action") == "subject_registration_propose"
+                and row.get("subject_registration_id") ==
+                    subject_apply.get("subject_registration_id")
+                and row.get("new_subject") == entrant
+                and row.get("source_rights_ref")
+                and row["at"] < subject_apply["at"]
+            ]
+            attest = [
+                row for row in events
+                if row.get("action") == "subject_registration_attest"
+                and row.get("subject_registration_id") ==
+                    subject_apply.get("subject_registration_id")
+                and row.get("actor") == entrant
+                and row.get("source_rights_ref")
+                and row["at"] < subject_apply["at"]
+                and row.get("registration_willingness") == "WILLING"
+            ]
+            if len(proposal) != 1 or len(attest) != 1:
+                continue
+            pilot_id = proposal[0].get("pilot_work")
+            if (pilot_id not in accepted_at
+                    or accepted_at[pilot_id] >= proposal[0]["at"]
+                    or original.works[pilot_id].result_ref !=
+                        proposal[0].get("pilot_result_ref")):
+                continue
+            for resource_apply in events:
+                if (resource_apply.get("action") != "resource_registration_apply"
+                        or resource_apply.get("new_subject") != entrant
+                        or not resource_apply.get("source_rights_ref")
+                        or resource_apply["at"] <= subject_apply["at"]):
+                    continue
+                resource = resource_apply.get("registered_resource")
+                if (original.resources.get(resource) != entrant
+                        or original.resource_availability_origin.get(resource)
+                            != "OWNER_REGISTERED_MODEL_SOURCE"):
+                    continue
+                resource_proposals = [
+                    row for row in events
+                    if row.get("action") == "resource_registration_propose"
+                    and row.get("resource_registration_id") ==
+                        resource_apply.get("resource_registration_id")
+                    and row.get("actor") == entrant
+                    and row.get("registered_resource") == resource
+                    and row.get("source_rights_ref")
+                    and subject_apply["at"] < row["at"] < resource_apply["at"]
+                ]
+                if len(resource_proposals) != 1:
+                    continue
+                for work_id, work in original.works.items():
+                    t_request = requested_at.get(work_id)
+                    t_commit = original_committed_at.get(work_id)
+                    t_accept = accepted_at.get(work_id)
+                    if (t_request is None or t_commit is None
+                            or t_accept is None or
+                            not resource_apply["at"] < t_request <
+                                t_commit < t_accept or
+                            work.customer != entrant or
+                            pilot_id not in work.requires_accepted or
+                            not any(n.resource == resource
+                                    for n in work.resource_requirements) or
+                            set(work.consents) !=
+                                original.capacity_ledger.original_owners(
+                                    work.resource_requirements
+                                ) | {work.customer}):
+                        continue
+                    strict_source_registered_enterprise_results.append({
+                        "original_accepted_pilot_work": pilot_id,
+                        "new_original_enterprise": entrant,
+                        "registered_original_owned_resource": resource,
+                        "subject_registration_original_at": subject_apply["at"],
+                        "resource_registration_original_at": resource_apply["at"],
+                        "new_original_accepted_work": work_id,
+                        "independent_original_owner_rights_checked_at_apply": True,
+                        "existing_original_subject_resource_capacity_and_result": True,
+                        "real_identity_and_external_document_right_authenticated": False,
+                    })
+        for cycle in original_reconstituted_cooperation_cycles:
+            parent = cycle["dissolved_original_relation"]
+            t_close = cycle["dissolution_original_at"]
+            t_restore = cycle["restoration_original_at"]
+            source_actions = [
+                row for row in events
+                if row.get("action") in {
+                    "cooperation_lifecycle_propose",
+                    "cooperation_lifecycle_response",
+                    "cooperation_lifecycle_apply",
+                }
+                and row.get("cooperation_link") == parent
+                and row["at"] <= t_restore
+            ]
+            closed = any(
+                row.get("action") == "cooperation_lifecycle_apply"
+                and row.get("lifecycle_kind") == "DISSOLVE"
+                and row["at"] == t_close
+                for row in source_actions
+            )
+            restored = any(
+                row.get("action") == "cooperation_lifecycle_apply"
+                and row.get("lifecycle_kind") == "RECONSTITUTE"
+                and row["at"] == t_restore
+                for row in source_actions
+            )
+            if (not closed or not restored or not source_actions
+                    or any(not row.get("source_rights_ref")
+                           for row in source_actions)):
+                continue
+            strict_source_reconstituted_results.append({
+                "dissolved_original_relation": parent,
+                "restored_original_relation":
+                    cycle["restored_original_relation"],
+                "new_original_accepted_work_ids":
+                    list(cycle["fresh_original_accepted_work_ids"]),
+                "outstanding_original_work_at_dissolution":
+                    list(cycle["outstanding_original_work_at_dissolution"]),
+                "owner_scoped_strict_original_context_applied": True,
+                "real_dissolution_or_external_contractual_right_verified": False,
+            })
+
     accepted_results = len(accepted_at)
     requested_count = len(requested_at)
     committed_count = len(original_committed_at)
@@ -3220,6 +3354,7 @@ def original_nine_component_cycle_evidence(
             linked_needs or current_capacity_sequences
             or original_institutional_sequences or original_membership_successions
             or original_reconstituted_cooperation_cycles
+            or strict_source_registered_enterprise_results
         ),
     }
     assert tuple(current_partial_observation) == COMPONENTS
@@ -3253,6 +3388,12 @@ def original_nine_component_cycle_evidence(
             ),
             "original_dissolution_reconstitution_followed_by_accepted_work": (
                 original_reconstituted_cooperation_cycles
+            ),
+            "strict_kpb_original_new_enterprise_resource_accepted_result": (
+                strict_source_registered_enterprise_results
+            ),
+            "strict_kpb_original_reconstitution_accepted_result": (
+                strict_source_reconstituted_results
             ),
             "contains_owner_work_and_model_source_identifiers": True,
             "safe_for_cross_enterprise_publication": False,
@@ -3313,6 +3454,14 @@ def original_nine_component_cycle_evidence(
             ),
             "dissolution_without_new_accepted_Result_not_system_reproduction": True,
             "original_unfinished_obligations_not_discarded_by_dissolution": True,
+            "strict_kpb_source_qualified_new_enterprise_accepted_result_count": (
+                len(strict_source_registered_enterprise_results)
+            ),
+            "strict_kpb_source_qualified_reconstitution_accepted_result_count": (
+                len(strict_source_reconstituted_results)
+            ),
+            "strict_kpb_decisions_without_accepted_original_result_not_reproduction": True,
+            "strict_kpb_model_source_rights_not_real_document_authentication": True,
             "subject_and_resource_model_sources_not_external_identity_proof": True,
             "verified_actual_productivity_or_transaction_savings": False,
             "source_scoped_membership_successors_are_not_legal_membership": True,
