@@ -110,6 +110,33 @@ function OpenWork([string]$title,[string]$status){
  }
  $null=AwaitForRead "Результат работы 1" ([System.Windows.Automation.ControlType]::Edit) "D07_WORK_RESULT_EDITOR_NOT_EXPANDED"
 }
+function OpenIndexedWork([int]$n,[string]$title,[string]$status){
+ $name="Работа "+$n+": "+$title+"; состояние: "+$status
+ $x=Await $name $null "D07_WORK_RESULT_INDEXED_SUMMARY_NOT_FOUND"
+ $field="Результат работы "+$n
+ if(LocateForRead $field ([System.Windows.Automation.ControlType]::Edit)){return}
+ try{
+  $expand=[System.Windows.Automation.ExpandCollapsePattern]$x.GetCurrentPattern(
+   [System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+  if($expand.Current.ExpandCollapseState -eq [System.Windows.Automation.ExpandCollapseState]::Collapsed){
+   $expand.Expand()
+  }
+ }catch{
+  try{
+   $invoke=[System.Windows.Automation.InvokePattern]$x.GetCurrentPattern(
+    [System.Windows.Automation.InvokePattern]::Pattern)
+   $invoke.Invoke()
+  }catch{
+   $x.SetFocus()
+   [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+  }
+ }
+ $null=AwaitForRead $field ([System.Windows.Automation.ControlType]::Edit) "D07_WORK_RESULT_INDEXED_EDITOR_NOT_VISIBLE"
+}
+function AwaitIndexedStatus([int]$n,[string]$title,[string]$status){
+ $name="Работа "+$n+": "+$title+"; состояние: "+$status
+ $null=Await $name $null "D07_WORK_RESULT_INDEXED_STATUS_NOT_CONFIRMED"
+}
 function Edit([string]$label,[string]$text){
  $field=Await $label ([System.Windows.Automation.ControlType]::Edit) "D07_WORK_RESULT_INPUT_NOT_FOUND"
  $field.SetFocus()
@@ -265,7 +292,47 @@ try{
  }
  Write-Output "D07_WORK_RESULT_NATIVE_REJECTION_CORRECTION_REVIEW_PERSISTED=PASS"
  Write-Output "D07_WORK_RESULT_CUSTOMER_REVIEW_RECORD=PASS"
- Write-Output "D07_WORK_RESULT_FULL_ORDER_ACCEPTANCE=NOT_RUN"
+ # Complete the nine remaining REAL subject Work records in the same
+ # imported T2 Result. These are synthetic UI test annotations, never a
+ # declaration that customer services were provided or legally accepted.
+ for($n=2;$n -le 10;$n++){
+  $title=[string]$titles[$n-1]
+  OpenIndexedWork $n $title "Планируется"
+  Click ("Работа "+$n+": Записать согласованные условия")
+  AwaitIndexedStatus $n $title "Согласована"
+  Click ("Работа "+$n+": Отметить начало")
+  AwaitIndexedStatus $n $title "В работе"
+  Edit ("Результат работы "+$n) ("ТЕСТ: предъявлена работа "+$n+" в контрольном маршруте реального T2.")
+  Click ("Работа "+$n+": Отметить сдачу результата")
+  AwaitIndexedStatus $n $title "Передана на проверку"
+  Edit ("Проверка результата работы "+$n) ("ТЕСТ: проверена работа "+$n+" по исходному критерию, только UIA/T2.")
+  Click ("Работа "+$n+": Отметить результат проверенным")
+  AwaitIndexedStatus $n $title "Отмечена принятой"
+ }
+ Write-Output "D07_WORK_RESULT_ALL_TEN_REVIEWED_BEFORE_SAVE=PASS"
+ SaveRevision 5
+ ColdReopen 5 $titles[0] "Отмечена принятой"
+ # Every one of ten accepted records must retain its own test evidence.
+ # The completed fields are intentionally disabled and never edited here.
+ for($n=1;$n -le 10;$n++){
+  $title=[string]$titles[$n-1]
+  AwaitIndexedStatus $n $title "Отмечена принятой"
+  OpenIndexedWork $n $title "Отмечена принятой"
+  $evidence=AwaitForRead ("Проверка результата работы "+$n) (
+   [System.Windows.Automation.ControlType]::Edit) "D07_WORK_RESULT_INDEXED_ACCEPTANCE_EVIDENCE_LOST"
+  $pattern=[System.Windows.Automation.ValuePattern]$evidence.GetCurrentPattern(
+   [System.Windows.Automation.ValuePattern]::Pattern)
+  $expected=if($n -eq 1){"ТЕСТ: повторно проверен"}else{"ТЕСТ: проверена работа "+$n+" "}
+  if(!([string]$pattern.Current.Value).StartsWith($expected)){
+   throw "D07_WORK_RESULT_INDEXED_ACCEPTANCE_EVIDENCE_CHANGED"
+  }
+  if($evidence.Current.IsEnabled){
+   throw "D07_WORK_RESULT_ACCEPTED_EVIDENCE_STILL_EDITABLE"
+  }
+ }
+ Write-Output "D07_WORK_RESULT_ALL_TEN_REVIEWED_COLD_PERSISTED=PASS"
+ Write-Output "D07_WORK_RESULT_ALL_TEN_ACCEPTED_EVIDENCE_READ_ONLY=PASS"
+ Write-Output "D07_WORK_RESULT_FULL_ORDER_CUSTOMER_RESULT_ACCEPTANCE=NOT_RUN"
 }finally{
  if($browser){try{$browser.Kill($true)}catch{}}
  if($server){Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue}
