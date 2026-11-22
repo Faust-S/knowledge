@@ -243,7 +243,9 @@ export function SignedSelectedWorkspaceGate({
           <p role="alert" data-testid="t3-d1-selected-workspace-message">
             {phase==="missing"
               ? "Для выбранного профиля пока нет рабочей области в исходном Kernel. При наличии отдельного разрешения её можно создать здесь."
-              : "Control не подтвердил чтение выбранной Workspace. Проверьте профиль и его полномочия в локальном Control."}
+              : inspection.reason==="T3_D1_ISOLATED_KERNEL_TIMEOUT"
+                ? "Исходный T2 Kernel не ответил на чтение Workspace. Наличие и состояние области не подтверждены. Перезапустите подписанную Workspace из Admin Center; до успешного чтения создание недоступно."
+                : "Control не подтвердил чтение выбранной Workspace. Проверьте профиль и его полномочия в локальном Control."}
           </p>
           {phase==="denied"&&inspection.reason&&<p role="alert" data-testid="t3-d1-selected-workspace-refusal-code"
             className="text-xs text-amber-300">Код: {inspection.reason}.
