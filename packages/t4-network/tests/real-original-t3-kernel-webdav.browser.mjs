@@ -32,6 +32,8 @@ import {captureT4OriginalDeletionAtMutation,publishT4OriginalDeleteDelta,
   fetchT4OriginalDeleteDelta,applyT4OriginalDeleteDelta,
   reconcileT4OriginalDeleteFromT3Event,advanceT4OriginalDeleteCursor}
   from '../src/network/original-deletion-delta.mjs';
+import {captureT4OriginalObjectMutation}
+  from '../src/network/original-object-mutation-capture.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
   from '../src/network/network-topology.mjs';
 import {prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
@@ -1287,6 +1289,143 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalKernelEventReconciledWithoutReDelete:true,
           originalCursorAfterDeleteVerified:true,
           recipientAssetInventory:afterAssetDelete.assets,
+        }));
+
+      // Two original T3 writes happen before any T4 network delivery.
+      // Each exact intermediate revision must be durably captured in the
+      // existing original source T3 technical Workspace before returning.
+      const mutationKernel={
+        ...sourceKernel,
+        putObject:input=>activeSourcePage.evaluate(async({SERVICE,input})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.putObject(input);
+        },{SERVICE,input}),
+      };
+      const technicalId=(kind,captureRef)=>'t4:'+kind+':'+captureRef;
+      const persistSourceTechnical=(kind,payload)=>activeSourcePage.evaluate(
+        async({SERVICE,sourceCaptureWorkspace,objectId,payload})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          const saved=await kernel.t1.putObject({
+            workspace_id:sourceCaptureWorkspace,object_id:objectId,
+            schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+            data:payload,extensions:{},base_revision:0,
+            event:{event_type:'t4.original.mutation.capture.'+payload.schema,
+              payload:{captureRef:payload.captureRef}},
+          });
+          return saved.object.revision===1;
+        },{SERVICE,sourceCaptureWorkspace,
+          objectId:technicalId(kind,payload.captureRef),payload});
+      const readSourceTechnical=(kind,captureRef)=>activeSourcePage.evaluate(
+        async({SERVICE,sourceCaptureWorkspace,objectId})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return (await kernel.t1.getObject(sourceCaptureWorkspace,objectId))
+            ?.object?.data??null;
+        },{SERVICE,sourceCaptureWorkspace,objectId:technicalId(kind,captureRef)});
+      let currentSourceCursor=deletedAsset.nextCursor;
+      const stagedObjectMutations=[];
+      for(const targetRevision of [5,6]){
+        const prior=await sourceKernel.getObject(workspaceId,linkedObjectId);
+        assert.equal(prior.object.revision,targetRevision-1);
+        const targetTitle='Continuous captured original T3 revision '+targetRevision+
+          ' '+randomUUID();
+        const captured=await captureT4OriginalObjectMutation({
+          workspaceId,objectId:linkedObjectId,
+          originalWriteOwnerRef:'original:t2:exchange',
+          captureRef:'t4:original:mutation:'+randomUUID(),
+          sourceCursor:currentSourceCursor,
+          mutationInput:{
+            workspace_id:workspaceId,object_id:linkedObjectId,
+            schema_id:prior.object.schema_id,
+            schema_version:prior.object.schema_version,
+            data:{...prior.object.data,title:targetTitle},
+            extensions:prior.object.extensions??{},
+            base_revision:prior.object.revision,
+            event:{event_type:'t4.original.mutation.capture.write',
+              payload:{revision:targetRevision}},
+          },
+          originalKernel:mutationKernel,
+          authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
+          authorizeOriginalWrite:async ctx=>actual.grants.includes(ctx.operation),
+          readOriginalEvents:readSourceEvents,
+          getMode:()=> 'T4_NETWORK',
+          persistOriginalIntent:payload=>persistSourceTechnical('intent',payload),
+          readOriginalIntent:payload=>readSourceTechnical('intent',payload.captureRef),
+          persistOriginalOutbox:payload=>persistSourceTechnical('outbox',payload),
+          readOriginalOutbox:payload=>readSourceTechnical('outbox',payload.captureRef),
+        });
+        assert.equal(captured.originalT3OutboxVerified,true);
+        assert.equal(captured.sourceRevision,targetRevision);
+        assert.equal(captured.prepared.delta.data.title,targetTitle);
+        stagedObjectMutations.push({captured,title:targetTitle});
+        currentSourceCursor=captured.nextCursor;
+      }
+      const latestOriginal=await sourceKernel.getObject(workspaceId,linkedObjectId);
+      assert.equal(latestOriginal.object.revision,6);
+      const historicOutbox=await readSourceTechnical('outbox',
+        stagedObjectMutations[0].captured.captureRef);
+      assert.equal(historicOutbox.sha256,
+        stagedObjectMutations[0].captured.prepared.sha256);
+      assert.deepEqual(Buffer.from(historicOutbox.bytesBase64,'base64'),
+        stagedObjectMutations[0].captured.prepared.bytes);
+      assert.equal(stagedObjectMutations[0].captured.prepared.delta.sourceRevision,5);
+      assert.equal(stagedObjectMutations[1].captured.prepared.delta.sourceRevision,6);
+      assert.equal((await receiverGraphKernel.getObject(workspaceId,linkedObjectId))
+        .object.revision,4);
+
+      for(const [index,{captured,title}] of stagedObjectMutations.entries()){
+        const staged=await readSourceTechnical('outbox',captured.captureRef);
+        const exactBytes=Buffer.from(staged.bytesBase64,'base64');
+        assert.equal(staged.sha256,packageSha256(exactBytes));
+        const sent=await deltaRoute('delta.push',
+          ()=>actual.grants.includes('t1.getObject'),
+          ()=>publishT4OriginalObjectDelta({
+            prepared:captured.prepared,transport:deltaTransport,
+          }));
+        const received=await deltaRoute('delta.pull',
+          ()=>receiving.operations.includes('t1.getObject'),
+          ()=>fetchT4OriginalObjectDelta({
+            transport:deltaTransport,key:sent.key,sha256:sent.sha256,
+            workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+          }));
+        const applied=await applyT4OriginalObjectDelta({
+          received,originalKernel:receiverGraphKernel,
+          authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+          verifyOriginalSourceEvent:async proof=>{
+            if(proof.sourceEventId!==captured.window.lastEventId||
+              proof.sourceEventDigest!==captured.window.eventRefs[0].eventDigest||
+              proof.objectContentDigest!==captured.prepared.delta.objectContentDigest)
+              return false;
+            const readBack=await readSourceTechnical('outbox',captured.captureRef);
+            const events=await readSourceEvents();
+            return readBack.sha256===captured.prepared.sha256&&
+              events.some(e=>e.event_id===proof.sourceEventId);
+          },
+          getMode:()=> 'T4_NETWORK',
+        });
+        assert.equal(applied.originalT3CommitApplied,true);
+        const cursor=await advanceT4OriginalObjectDeltaCursor({
+          window:captured.window,nextCursor:captured.nextCursor,
+          acknowledgement:applied.acknowledgement,
+          verifyOriginalRecipient:async ctx=>{
+            const item=await receiverGraphKernel.getObject(workspaceId,linkedObjectId);
+            return ctx.originalReceiptRef===applied.originalReceiptRef&&
+              item.object.revision===index+5&&item.object.data.title===title;
+          },
+        });
+        assert.equal(cursor.verified,true);
+      }
+      const afterBothCaptured=await receiverGraphKernel.getObject(workspaceId,linkedObjectId);
+      assert.equal(afterBothCaptured.object.revision,6);
+      assert.equal(afterBothCaptured.object.data.title,stagedObjectMutations[1].title);
+      console.log('T4_REAL_ORIGINAL_T3_TWO_MUTATION_TIME_OUTBOX_REVISIONS_PASS',
+        JSON.stringify({originalKernel:ORIGINAL_KERNEL,
+          stagedBeforeAnyNetworkPublish:[5,6],
+          originalSourceTechnicalWorkspace:true,
+          bothHistoricalStatesDurablyPreserved:true,
+          originalOutboxReadbackVerified:true,
+          originalRecipientFinalRevision:6,
+          bothOriginalRecipientReceiptsConfirmed:true,
+          noNewStoreOrKernel:true,
         }));
     }finally{deltaTransport.close();}
     await sourceContext.close();sourceContext=null;
