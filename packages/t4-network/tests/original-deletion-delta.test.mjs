@@ -5,7 +5,7 @@ import {packageSha256} from '../src/network/webdav-package-transfer.mjs';
 import {
   captureT4OriginalDeletionAtMutation,publishT4OriginalDeleteDelta,
   fetchT4OriginalDeleteDelta,applyT4OriginalDeleteDelta,
-  advanceT4OriginalDeleteCursor,
+  reconcileT4OriginalDeleteFromT3Event,advanceT4OriginalDeleteCursor,
 } from '../src/network/original-deletion-delta.mjs';
 
 const ws='workspace:owner',owner='original:t3:owner';
@@ -48,6 +48,8 @@ function fakeOriginal(kind){
     }
     const event=originalEvent('event:original:deleted',source.event.event_type,
       source.event.payload);
+    event.idempotency_key=key;
+    event.object_id=from;
     const result={[typed]:identifier,event,deduplicated:false};
     journal.push(event);cache.set(key,result);
     if(lost){lost=false;throw Object.assign(new Error('ACK missing'),{
@@ -57,9 +59,10 @@ function fakeOriginal(kind){
   }
   const kernel={
     hasOperation:n=>[
-      't1.getObject','t1.getAsset','t1.deleteAsset','t1.deleteRelation'
+      't1.getObject','t1.getAsset','t1.deleteAsset','t1.deleteRelation',
+      't1.listEventsSince'
     ].includes(n),
-    getObject,getAsset,
+    getObject,getAsset,listEventsSince:async()=>journal,
     deleteRelation:async input=>deleteResult(input,'relation_id',relationId),
     deleteAsset:async input=>deleteResult(input,'asset_id',assetId),
   };
@@ -231,7 +234,7 @@ test('a deleted recipient record does not imply valid original receipt',async()=
    event:{event_type:'unrelated.delete',idempotency_key:'different',
      payload:{}}});
  await assert.rejects(r.apply(received),
-   code('DELETE_ORIGINAL_RECIPIENT_ABSENT_NO_PROOF'));
+   code('DELETE_ORIGINAL_RECIPIENT_ABSENT_REQUIRES_EVENT_RECONCILIATION'));
  assert.equal(r.writes.length,1);
 });
 test('unknown original deletion ACK requires explicit verified recovery and original idempotent receipt',async()=>{
@@ -241,23 +244,31 @@ test('unknown original deletion ACK requires explicit verified recovery and orig
    e.details.automaticRetryAllowed===false);
  assert.equal(r.relation(),null);
  await assert.rejects(r.apply(received),code('DELETE_ORIGINAL_RECIPIENT_ABSENT_NO_PROOF'));
- const applied=await r.apply(received,{
-   verifyOriginalUncertainRetry:async()=>true,
+ const applied=await reconcileT4OriginalDeleteFromT3Event({
+   received,originalKernel:r.kernel,
+   authorizeOriginalRead:async()=>true,authorizeOriginalWrite:async()=>true,
+   verifyOriginalSourceEvent:async()=>true,getMode:()=> 'T4_NETWORK',
  });
- assert.equal(applied.originalReceipt.deduplicated,true);
+ assert.equal(applied.originalT3EventProofPassed,true);
  assert.equal(applied.originalDeletionReadbackPassed,true);
- assert.equal(r.writes.length,2);
+ assert.equal(applied.originalOperationReceiptRecreated,false);
+ assert.equal(applied.originalKernelDeleteRetried,false);
+ assert.equal(applied.originalReceiptRef,'event:original:deleted');
+ assert.equal(r.writes.length,1);
 });
 test('unknown original Asset deletion ACK requires prior proof and exact idempotent retry',async()=>{
  const c=await capture('ASSET_DELETE'),{received}=await delivery(c),r=recipient('ASSET_DELETE');
  r.loseAck();
  await assert.rejects(r.apply(received),code('DELETE_ORIGINAL_RECIPIENT_OUTCOME_UNKNOWN'));
  assert.equal(r.asset(),null);
- const applied=await r.apply(received,{
-   verifyOriginalUncertainRetry:async()=>true,
+ const recovered=await reconcileT4OriginalDeleteFromT3Event({
+   received,originalKernel:r.kernel,authorizeOriginalRead:async()=>true,
+   authorizeOriginalWrite:async()=>true,
+   verifyOriginalSourceEvent:async()=>true,getMode:()=> 'T4_NETWORK',
  });
- assert.equal(applied.originalReceipt.deduplicated,true);
- assert.equal(r.writes[0].event.idempotency_key,r.writes[1].event.idempotency_key);
+ assert.equal(recovered.originalT3EventProofPassed,true);
+ assert.equal(recovered.originalKernelDeleteRetried,false);
+ assert.equal(r.writes.length,1);
 });
 test('t4 delete cannot be granted without live original T3 source event proof',async()=>{
  const c=await capture('RELATION_DELETE'),{received}=await delivery(c),r=recipient('RELATION_DELETE');
@@ -297,4 +308,28 @@ test('a WebDAV PUT receipt alone never advances original deletion cursor',async(
    acknowledgement:transferred.receipt,
    verifyOriginalRecipient:async()=>true,
  }),code('ORIGINAL_RECIPIENT_ACK_MISMATCH'));
+});
+
+test('a different original T3 event key cannot make an unrelated delete look acknowledged',async()=>{
+ const c=await capture('RELATION_DELETE'),{received}=await delivery(c),r=recipient('RELATION_DELETE');
+ await r.original.deleteRelation({workspace_id:ws,relation_id:relationId,
+   event:{event_type:'unrelated.delete',idempotency_key:'not-the-delta',
+     payload:{relationId}}});
+ await assert.rejects(reconcileT4OriginalDeleteFromT3Event({
+   received,originalKernel:r.kernel,
+   authorizeOriginalRead:async()=>true,authorizeOriginalWrite:async()=>true,
+   verifyOriginalSourceEvent:async()=>true,getMode:()=> 'T4_NETWORK',
+ }),code('DELETE_ORIGINAL_EVENT_NOT_PROVEN'));
+});
+test('original T3 Event history is checked live before recovery, and rights can be withdrawn',async()=>{
+ const c=await capture('ASSET_DELETE'),{received}=await delivery(c),r=recipient('ASSET_DELETE');
+ r.loseAck();
+ await assert.rejects(r.apply(received),code('DELETE_ORIGINAL_RECIPIENT_OUTCOME_UNKNOWN'));
+ let checks=0;
+ await assert.rejects(reconcileT4OriginalDeleteFromT3Event({
+   received,originalKernel:r.kernel,authorizeOriginalRead:async()=>++checks===1,
+   authorizeOriginalWrite:async()=>true,
+   verifyOriginalSourceEvent:async()=>true,getMode:()=> 'T4_NETWORK',
+ }),code('DELETE_ORIGINAL_EVENT_RECOVERY_AUTHORITY_DENIED'));
+ assert.equal(r.writes.length,1);
 });
