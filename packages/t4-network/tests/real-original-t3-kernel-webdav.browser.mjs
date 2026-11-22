@@ -17,6 +17,8 @@ import {createWebDavPackageTransport}
   from '../src/network/webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow}
   from '../src/network/original-event-window.mjs';
+import {createT4NetworkTopology,executeT4NetworkRoute}
+  from '../src/network/network-topology.mjs';
 import {prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
   fetchT4OriginalObjectDelta,applyT4OriginalObjectDelta,
   advanceT4OriginalObjectDeltaCursor}
@@ -323,6 +325,47 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       getMode:()=> 'T4_NETWORK',
     });
     assert.equal(preparedDelta.delta.sourceRevision,2);
+    const deltaTopology=createT4NetworkTopology({
+      topologyRef:'t4:source:route:'+workspaceId,revision:1,
+      localNodeRef:'node:original-source',
+      nodes:[
+        {nodeRef:'node:original-source',kind:'LOCAL_DEVICE',
+          subjectRef:'original:t2:source',operatorRef:'original:t2:source',
+          locationRef:'local:original',availability:'AVAILABLE',
+          advertisedCapabilities:[]},
+        {nodeRef:'node:qualified-apache',kind:'THIRD_PARTY_SERVER',
+          subjectRef:'original:t2:source',operatorRef:'operator:apache',
+          locationRef:'test-webdav',profileRef:'profile:apache',
+          availability:'AVAILABLE',
+          advertisedCapabilities:['delta.push','delta.pull']},
+      ],
+      profiles:[{profileRef:'profile:apache',mode:'THIRD_PARTY',
+        operatorRef:'operator:apache',locationRef:'test-webdav',
+        endpointUrl:process.env.T4_TEST_URL}],
+      connections:[{
+        connectionRef:'connection:apache',sourceNodeRef:'node:original-source',
+        targetNodeRef:'node:qualified-apache',profileRef:'profile:apache',
+        state:'READY',capabilities:['delta.push','delta.pull'],
+        objectFamilies:['owner-exported-package'],
+      }],
+      placements:[{policy:{...policy,
+        allowedLocations:['local:original','test-webdav']},
+        primaryNodeRef:'node:original-source',
+        replicaNodeRefs:['node:qualified-apache']}],
+    });
+    const deltaRoute=(capability,authorization,executeTransport)=>
+      executeT4NetworkRoute({
+        topology:deltaTopology,workspaceId,objectFamily:'owner-exported-package',
+        targetNodeRef:'node:qualified-apache',capability,
+        getMode:()=> 'T4_NETWORK',
+        verifyOriginalEndpoint:async ctx=>
+          ctx.endpointUrl===process.env.T4_TEST_URL&&
+          ctx.operatorRef==='operator:apache'&&
+          ctx.originalWriteOwnerRef==='original:t2:exchange',
+        authorizeOriginalOperation:async ctx=>
+          ctx.capability===undefined&&authorization(),
+        executeTransport,
+      });
     const deltaTransport=createWebDavPackageTransport({
       baseUrl:process.env.T4_TEST_URL,locationRef:'test-webdav',
       placementPolicy:policy,keySuffix:'.t4d',
@@ -330,15 +373,19 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       getAuthorizationHeader:async()=>process.env.T4_TEST_AUTH,
     });
     try {
-      const sent=await publishT4OriginalObjectDelta({
-        prepared:preparedDelta,transport:deltaTransport,
-      });
+      const sent=await deltaRoute('delta.push',
+        ()=>actual.grants.includes('t1.getObject'),
+        ()=>publishT4OriginalObjectDelta({
+          prepared:preparedDelta,transport:deltaTransport,
+        }));
       assert.equal(sent.originalRecipientApplied,false);
       assert.equal(sent.cursorAdvanced,false);
-      const received=await fetchT4OriginalObjectDelta({
-        transport:deltaTransport,key:sent.key,sha256:sent.sha256,
-        workspaceId,originalWriteOwnerRef:'original:t2:exchange',
-      });
+      const received=await deltaRoute('delta.pull',
+        ()=>receiving.operations.includes('t1.getObject'),
+        ()=>fetchT4OriginalObjectDelta({
+          transport:deltaTransport,key:sent.key,sha256:sent.sha256,
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        }));
       assert.ok(preparedDelta.bytes.length<actual.artifact.bytes.length,
         'original T4 single-object delta must be smaller than initial .iwxa');
       assert.equal(received.delta.sourceEventId,evolved.saved.event.event_id);
@@ -413,6 +460,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalKernel:ORIGINAL_KERNEL,deltaBytes:preparedDelta.bytes.length,
           originalArchiveBytes:actual.artifact.bytes.length,
           sourceRevision:2,recipientRevision:updated.revision,
+        originalT4RouteSelected:true,
           originalReceiptRef:reconciled.originalReceiptRef,
           idempotentReplay:reconciled.originalReceipt.deduplicated===true,
           cursorCommittedOnlyAfterOriginalReceipt:savedCursor.verified,
