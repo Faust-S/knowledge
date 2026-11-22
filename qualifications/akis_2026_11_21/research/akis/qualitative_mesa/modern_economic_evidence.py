@@ -66,6 +66,8 @@ MODERN_EXPOSURES = (
 )
 CATEGORY_SET = set(ONBOARDING_CATEGORIES) | set(MODERN_EXPOSURES) | set(LEGACY_UNQUALIFIED_TAGS)
 BINDING_FIELDS = frozenset({"owner", "category", "resource_use_id", "source"})
+BINDING_SCOPED_FIELDS = BINDING_FIELDS | {"scenario"}
+SCENARIOS = ("COOPERATION", "INDEPENDENT_ALTERNATIVE")
 MAX_BINDINGS = 512  # parser bound, not an organizational/financial threshold
 
 # These policy gates are deliberately narrower than the older blanket claims.
@@ -94,7 +96,7 @@ def review_cost_attribution(
     raw: Any, *, sources: Mapping[str, Any], resource_index: Mapping[str, Any],
     subjects: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Refer ONLY to original COOPERATION resource_uses, never new money.
+    """Refer ONLY to original resource_uses for each independent scenario, never new money.
 
     Absence of a category proves neither zero cost nor high profitability.
     All source records in this original ledger are MODEL_ONLY; reference binding
@@ -105,8 +107,11 @@ def review_cost_attribution(
     used: set[str] = set()
     by_owner: dict[str, dict[str, list[str]]] = {}
     for row in raw:
-        if not isinstance(row, dict) or set(row) != BINDING_FIELDS:
+        if not isinstance(row, dict) or set(row) not in (BINDING_FIELDS, BINDING_SCOPED_FIELDS):
             raise ModernEconomicEvidenceError("INVALID_MODERN_ECONOMIC_BINDING")
+        scenario = row.get("scenario", "COOPERATION")
+        if scenario not in SCENARIOS:
+            raise ModernEconomicEvidenceError("MODERN_ECONOMIC_SCENARIO_INVALID")
         owner = _name(row["owner"], "INVALID_MODERN_ECONOMIC_OWNER")
         cat = _name(row["category"], "INVALID_MODERN_ECONOMIC_CATEGORY")
         record_id = _name(row["resource_use_id"], "INVALID_MODERN_RESOURCE_ID")
@@ -120,7 +125,7 @@ def review_cost_attribution(
         resource = resource_index.get(record_id)
         if resource is None:
             raise ModernEconomicEvidenceError("MODERN_ECONOMIC_RESOURCE_NOT_IN_ORIGINAL_LEDGER")
-        if (resource["scenario"] != "COOPERATION" or
+        if (resource["scenario"] != scenario or
                 resource["owner"] != owner or resource["source"] != source or
                 sources.get(source, {}).get("owner") != owner):
             raise ModernEconomicEvidenceError("MODERN_ECONOMIC_OWNER_SOURCE_SCOPE_MISMATCH")
@@ -153,6 +158,7 @@ def review_cost_attribution(
         },
         "distinct_original_resource_use_references": len(used),
         "no_new_cash_or_resource_use": True,
+        "both_scenarios_only_existing_original_resource_uses": True,
         "no_established_total_onboarding_cost_or_saving": True,
         "no_company_data_sharing_right_derived": True,
     }
