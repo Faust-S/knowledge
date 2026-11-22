@@ -315,6 +315,10 @@ def propose_cooperation_change(event: Mapping[str, Any],
     future access, property, a contract, organizational code or any Result.
     """
     link = _declared_link(links, event.get("cooperation_link"))
+    if original_cooperation_dissolved_for_future(trace, link):
+        raise CooperationInputError(
+            "COOPERATION_DISSOLVED_RELATION_CANNOT_PROPOSE_FUTURE_CHANGE"
+        )
     actor = event.get("actor")
     if actor not in link.participants or not subjects[actor].active:
         raise CooperationInputError("COOPERATION_CHANGE_ORIGINAL_PROPOSER_REQUIRED")
@@ -1494,6 +1498,10 @@ def apply_cooperation_membership_revision(
     source or ownership is changed. All new membership is MODEL_ONLY.
     """
     parent = _declared_link(links, event.get("cooperation_link"))
+    if original_cooperation_dissolved_for_future(trace, parent):
+        raise CooperationInputError(
+            "COOPERATION_DISSOLVED_RELATION_CANNOT_GAIN_SECOND_SUCCESSOR"
+        )
     if event.get("cooperation_source_revision") != parent.source_revision:
         raise CooperationInputError("COOPERATION_MEMBERSHIP_PARENT_REVISION_STALE")
     if any(row.get("action") == "cooperation_membership_apply" and
