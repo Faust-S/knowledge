@@ -76,6 +76,7 @@ export function createT3ReviewController({host, onUpdate} = {}) {
   let detached = false;
   let currentReview = null;
   let stagePending = false;
+  let recoveryPending = false;
   // An interrupted write may already be committed in the original Kernel.
   // Do not dispatch a second stage within this mounted signed Host session.
   let stageAttempted = false;
@@ -96,7 +97,7 @@ export function createT3ReviewController({host, onUpdate} = {}) {
   return Object.freeze({
     async readSelected() {
       if (detached) return {status: 'DETACHED'};
-      if (stagePending) return {status: 'INVALIDATED'};
+      if (stagePending || recoveryPending) return {status: 'INVALIDATED'};
       currentReview = null;
       const id = ++generation;
       onUpdate({status: 'READING', review: null});
@@ -114,7 +115,7 @@ export function createT3ReviewController({host, onUpdate} = {}) {
     },
     async stageSelected() {
       if (detached) return {status: 'DETACHED'};
-      if (stagePending || stageAttempted || !currentReview ||
+      if (stagePending || recoveryPending || stageAttempted || !currentReview ||
           typeof host.stageSelected !== 'function') return {status: 'UNAVAILABLE'};
       const id = ++generation;
       stagePending = true;
@@ -142,6 +143,35 @@ export function createT3ReviewController({host, onUpdate} = {}) {
         stagePending = false;
       }
     },
+    async recoverSelected() {
+      if (detached) return {status: 'DETACHED'};
+      if (stagePending || recoveryPending ||
+          typeof host.recoverSelected !== 'function') return {status: 'UNAVAILABLE'};
+      const id = ++generation;
+      recoveryPending = true;
+      currentReview = null;
+      onUpdate({status: 'RECOVERING', review: null, stageBlocked: stageAttempted});
+      try {
+        // Only a fresh signed Kernel readback; this port has no write method.
+        const receipt = await host.recoverSelected();
+        if (detached || id !== generation) return {status: 'INVALIDATED'};
+        if (!exact(receipt, ['status','readback','export_allowed']) ||
+            receipt.status !== 'OWNER_REVIEW_DRAFT' ||
+            receipt.readback !== true || receipt.export_allowed !== false) {
+          throw new T3ActivityHold('T3_HOST_RECOVERY_RESULT_UNVERIFIED');
+        }
+        onUpdate({status: 'STAGED', review: null, recovered: true,
+          stageBlocked: stageAttempted});
+        return {status: 'STAGED'};
+      } catch (error) {
+        if (detached || id !== generation) return {status: 'INVALIDATED'};
+        onUpdate({status: 'HOLD', review: null, code: safeCode(error),
+          stageBlocked: stageAttempted});
+        return {status: 'HOLD'};
+      } finally {
+        recoveryPending = false;
+      }
+    },
     reset() { if (!detached) invalidate(); },
     dispose() {
       if (detached) return;
@@ -149,6 +179,7 @@ export function createT3ReviewController({host, onUpdate} = {}) {
       generation += 1;
       currentReview = null;
       stagePending = false;
+      recoveryPending = false;
       unowner();
     },
   });
