@@ -1,0 +1,28 @@
+name: D07 native original T2 GUI script syntax preflight
+on:
+  push:
+    branches: [work/2026-11-22-d07-methodology-v13]
+    paths: [.github/workflows/d07-native-scripts-syntax.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  parse:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse exact native PowerShell tests without browsers or private code
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($file in @('scripts/d07-native-card-t2.ps1','scripts/d07-native-card-iwxa-export.ps1','scripts/d07-native-card-iwxa-import.ps1')){
+            $tokens=$null;$issues=$null
+            $null=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$issues)
+            if($issues.Count -gt 0){
+              Write-Output ('D07_NATIVE_PARSER_FAILED_FILE='+[IO.Path]::GetFileName($file))
+              Write-Output ('D07_NATIVE_PARSER_ERROR_COUNT='+$issues.Count)
+              exit 1
+            }
+            Write-Output ('D07_NATIVE_PARSER_PASS='+[IO.Path]::GetFileName($file))
+          }
