@@ -8,3 +8,4 @@ export * from './network/original-object-delta.mjs';
 export * from './network/original-object-backlog.mjs';
 export * from './network/original-asset-delta.mjs';
 export * from './network/original-relation-delta.mjs';
+export * from './network/original-deletion-delta.mjs';
