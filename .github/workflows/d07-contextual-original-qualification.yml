@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: f1e27753eb558e8a93d702034e3021babdbf5242
+          ref: e5370525a1da9345cf08311c812dc6d561b300b3
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - name: Verify pinned private revision
         run: |
-          test "$(git -C site rev-parse HEAD)" = "f1e27753eb558e8a93d702034e3021babdbf5242"
+          test "$(git -C site rev-parse HEAD)" = "e5370525a1da9345cf08311c812dc6d561b300b3"
           test -f site/scripts/d07-contextual-original-qualification.mjs
           test -f site/scripts/research/d07-contextual-originals.json
           echo D07_CONTEXTUAL_ORIGINAL_SOURCE_IDENTITY=PASS
