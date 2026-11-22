@@ -50,7 +50,26 @@ async function launch(){
     const owner=await config();
     stage="config-loaded";
     frame=document.createElement("iframe");
-    frame.hidden=true;
+    // The trusted original T2 Kernel must remain *executing* while the
+    // installed Admin Center shows its separate UI-origin management view.
+    // HTML hidden=true means display:none and can defer WebView2's iframe
+    // task queue/IndexedDB operations. The native D2 Windows witness reached
+    // the signed getWorkspace stage but timed out after that cold launch.
+    // Give ONLY this installed Admin profile a non-interactive 1px rendered
+    // realm. No additional iframe, window, Kernel, Store or authority.
+    if(owner.service_id==="iwxa.admin-center.workspace"){
+      frame.style.position="fixed";
+      frame.style.left="0";
+      frame.style.top="0";
+      frame.style.width="1px";
+      frame.style.height="1px";
+      frame.style.opacity="0.01";
+      frame.style.pointerEvents="none";
+      frame.style.border="0";
+      frame.tabIndex=-1;
+    }else{
+      frame.hidden=true;
+    }
     frame.setAttribute("aria-hidden","true");
     frame.sandbox.add("allow-scripts","allow-same-origin");
     frame.src=owner.kernel_origin+"/workspace/trusted-kernel-realm.html";
