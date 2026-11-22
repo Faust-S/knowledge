@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 9ba2d4afb86174a3b8da0314757a419dec5d370f
+          ref: d43ac5d972048b7ec100e3a27143ccf9e9e66d2c
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -38,7 +38,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((& git -C .private/t3 rev-parse HEAD).Trim() -cne '9ba2d4afb86174a3b8da0314757a419dec5d370f'){
+          if((& git -C .private/t3 rev-parse HEAD).Trim() -cne 'd43ac5d972048b7ec100e3a27143ccf9e9e66d2c'){
             throw 'D2_BUN_IMPORT_ORIGINAL_SOURCE_PIN_FAILED'
           }
           Write-Host 'D2_BUN_IMPORT_ORIGINAL_SOURCE_PIN_PASS'
@@ -71,7 +71,7 @@ jobs:
             Set-Content -LiteralPath $source -Value $script -Encoding utf8NoBOM
             $exe=Join-Path $env:RUNNER_TEMP ("d2-original-import-"+$spec.Name+'.exe')
             $buildLog=Join-Path $env:RUNNER_TEMP ('d2-original-import-build-'+$spec.Name+'.log')
-            & bun build --compile --target=bun-windows-x64 --windows-hide-console --asset .private/t3/access-control/domain-registry.json $source --outfile $exe *> $buildLog
+            & bun build --compile --target=bun-windows-x64 --windows-hide-console $source --outfile $exe *> $buildLog
             if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe)){
               Write-Host ('D2_BUN_ORIGINAL_IMPORT_'+$spec.Name+'_BUILD_FAILED')
               $count++;continue
