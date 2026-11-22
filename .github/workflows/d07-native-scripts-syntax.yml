@@ -25,4 +25,13 @@ jobs:
               exit 1
             }
             Write-Output ('D07_NATIVE_PARSER_PASS='+[IO.Path]::GetFileName($file))
+          $source=Get-Content 'scripts/d07-native-card-t2.ps1' -Raw
+          $import=Get-Content 'scripts/d07-native-card-iwxa-import.ps1' -Raw
+          if(!$source.Contains('D07_NATIVE_CARD_KERNEL_OBJECT_ID_WITNESSED=PASS') -or
+             !$import.Contains('D07_IWXA_NATIVE_ORIGINAL_OBJECT_ID_ROUNDTRIP=PASS') -or
+             !$source.Contains('d07-native-card-order-identity.private.json') -or
+             !$import.Contains('d07-native-card-order-identity.private.json')){
+            throw 'D07_NATIVE_IWXA_ORIGINAL_OBJECT_ID_CONTRACT_MISSING'
+          }
+          Write-Output 'D07_NATIVE_IWXA_IDENTITY_CONTRACT=PASS'
           }
