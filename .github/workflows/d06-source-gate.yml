@@ -76,20 +76,16 @@ jobs:
               $ts = ([regex]::Matches($logText, "error TS[0-9]+:")).Count
               Write-Host ("D06_SOURCE_" + $code.ToUpperInvariant() + "_TS_COUNT=" + $ts)
               Write-Host ("D06_SOURCE_" + $code.ToUpperInvariant() + "_PRETTIER_COUNT=" + $prettier)
-              # Bounded numeric coordinates only. Never publish private paths or diagnostics text.
+              # Report only numeric coordinates and compiler codes, never private filenames.
               if ($ts -gt 0) {
                 $knownTs = @(& git ls-files -- "*.ts" "*.tsx" "*.mjs" | Sort-Object)
-                $tsOrdinals = @()
-                $matches = [regex]::Matches(
-                  $logText,
-                  '(?m)((?:src|scripts|tests)[/\\][^():\r\n]+)\((\d+),(\d+)\):\s*error\s+TS(\d+):'
-                )
-                foreach ($m in $matches) {
-                  $path = $m.Groups[1].Value.Replace([char]92, [char]47)
-                  $ordinal = [array]::IndexOf($knownTs, $path) + 1
-                  $tsOrdinals += ($ordinal.ToString() + ":" + $m.Groups[2].Value + ":" + $m.Groups[3].Value + ":TS" + $m.Groups[4].Value)
+                $coord = @()
+                foreach ($match in [regex]::Matches($logText, '(?m)((?:src|scripts|tests)[/\\][^():\r\n]+)\((\d+),(\d+)\):\s*error\s+TS(\d+):')) {
+                  $file = $match.Groups[1].Value.Replace([char]92, [char]47)
+                  $ordinal = [array]::IndexOf($knownTs, $file) + 1
+                  $coord += ($ordinal.ToString() + ":" + $match.Groups[2].Value + ":TS" + $match.Groups[4].Value)
                 }
-                Write-Host ("D06_SOURCE_TS_ORDINAL_LINES=" + (($tsOrdinals | Select-Object -Unique -First 12) -join ","))
+                Write-Host ("D06_SOURCE_TS_ORDINAL_LINES=" + (($coord | Select-Object -Unique -First 12) -join ","))
               }
               # Public output is ordinal-only, not private paths or code.
               if ($task -eq "run check") {
@@ -138,25 +134,12 @@ jobs:
                 }
                 if ($stage) { Write-Host ("D06_SOURCE_TEST_LAST_SCRIPT=" + $stage) }
                 if ($task -eq "run test") {
-                  $locations = [regex]::Matches($logText, 'test-d06-case040-procurement-continuity\.ts:(\d+):(\d+)')
-                  Write-Host ("D06_SOURCE_PROCUREMENT_LINES=" + ((@($locations | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique -Last 4)) -join ","))
+                  $positions = [regex]::Matches($logText, 'test-d06-case040-procurement-continuity\.ts:(\d+):(\d+)')
+                  Write-Host ("D06_SOURCE_PROCUREMENT_LINES=" + ((@($positions | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique -Last 5)) -join ","))
                   Write-Host ("D06_SOURCE_ASSERTION_CLASS=" + [int]($logText -match 'AssertionError|ERR_ASSERTION'))
                 }
                 if ($task -eq "run test") {
-                  $matches = [regex]::Matches($logText, '(?m)^> [^\r\n]+\s+(test(?::[a-z0-9:.-]+)?)\s*                  $nested = @($matches | ForEach-Object { $_.Groups[1].Value })
-                  Write-Host ("D06_SOURCE_TEST_NESTED_TRAIL=" + (($nested | Select-Object -Last 8) -join ","))
-                }
-              }
-            }
-          }
-          if ($failed) { exit 1 }
-      - name: Privacy boundary
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host "D06_PRIVATE_SOURCE_ARTIFACTS=0"
-          Write-Host "D06_PRIVATE_LOGS_UPLOADED=0"
-)
+                  $matches = [regex]::Matches($logText, '(?m)^> [^\r\n]+\s+(test(?::[a-z0-9:.-]+)?)\s*$')
                   $nested = @($matches | ForEach-Object { $_.Groups[1].Value })
                   Write-Host ("D06_SOURCE_TEST_NESTED_TRAIL=" + (($nested | Select-Object -Last 8) -join ","))
                 }
