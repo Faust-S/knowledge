@@ -2,7 +2,7 @@
 // the ORIGINAL public D1 JIT, with a minimal read-only T2 facade. This file
 // contains no signer, private fixture, user key, second IAM or Kernel.
 // Run only from the public isolated Windows workflow after private checkout.
-import {mkdtempSync,rmSync} from "node:fs";
+import {mkdtempSync,rmSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {resolve,join} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -33,8 +33,23 @@ try{
   const identity={...I,person:I.reviewer};
   provision({adminRoot:join(root,"admin"),controlRoot:join(root,"control"),
     identity,environment:"PRODUCTION",passphrase,now:NOW});
+  // Match the installed private Owner's two explicitly selected operator
+  // records, instead of using openInterop's legacy synthetic fallback.
+  const operators={
+    schema:"IWXA_T3_LOCAL_ORGANIZATIONAL_OPERATORS/1",
+    custody:"WINDOWS_DPAPI_CURRENT_USER",productionActivation:true,
+    operators:[
+      {id:"issuer",name:"Issuer",personId:I.reviewer,keyId:I.issuer,
+        vault:"vault.json",adminGrantId:"grant:admin"},
+      {id:"reviewer",name:"Manager",personId:I.reviewer,keyId:I.reviewKey,
+        vault:"vault.json",acceptanceGrantId:"grant:review"},
+    ],
+  };
+  writeFileSync(join(root,"admin/operators.json"),JSON.stringify(operators),
+    {flag:"wx"});
   owner=openInterop({root:join(root,"admin"),product:"admin",passphrase,
     clock:()=>NOW});
+  owner.selectOperator("reviewer");
   // Use the original signed DATA grant and the existing One Core port.
   // No native credential or exception payload crosses the public CI log.
   const readAccess=owner.signedAdminWorkspaceReadAccess(createSignedAccessHostPort);
