@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/market-ops.ru
-          ref: 4fb9e0e0e4688bc0916aa230095562412de1562e
+          ref: 37f3ec05b9b310ee50a70e0b343656bc13b531b8
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -44,7 +44,7 @@ jobs:
           path: t2
       - name: Verify clean pinned private identities without outputting source
         run: |
-          test "$(git -C site rev-parse HEAD)" = "4fb9e0e0e4688bc0916aa230095562412de1562e" || exit 1
+          test "$(git -C site rev-parse HEAD)" = "37f3ec05b9b310ee50a70e0b343656bc13b531b8" || exit 1
           test "$(git -C t2 rev-parse HEAD)" = "49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7" || exit 1
           test -z "$(git -C t2 status --porcelain)" || exit 1
           test -f site/tests/d08-trading-two-goods-native-t2.mjs || exit 1
@@ -236,7 +236,7 @@ jobs:
             exit 1
           fi
           echo D08_RELEASE_SOURCE_AFTER_PYTHON=CLEAN
-          python scripts/package-hosting.py --expected-head 4fb9e0e0e4688bc0916aa230095562412de1562e --output "$RUNNER_TEMP/d08-ephemeral-hosting.zip" > "$RUNNER_TEMP/d08-hosting.log" 2>&1 || {
+          python scripts/package-hosting.py --expected-head 37f3ec05b9b310ee50a70e0b343656bc13b531b8 --output "$RUNNER_TEMP/d08-ephemeral-hosting.zip" > "$RUNNER_TEMP/d08-hosting.log" 2>&1 || {
             if grep -q 'Private/engineering file' "$RUNNER_TEMP/d08-hosting.log"; then
               echo D08_RELEASE_PACKAGE_CAUSE=ENGINEERING_FILE_IN_DIST
             elif grep -q 'Incomplete T2 product' "$RUNNER_TEMP/d08-hosting.log"; then
