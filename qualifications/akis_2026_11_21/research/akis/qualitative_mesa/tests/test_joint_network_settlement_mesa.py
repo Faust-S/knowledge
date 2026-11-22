@@ -104,6 +104,11 @@ def test_work_result_and_general_nine_component_view_not_granted_new_rights():
     import json
     projection=out["general_akis_model"]
     assert projection["legal_consent_created"] is False
+    summary=projection["economic_time_and_cost_feedback"]
+    assert summary["network_original_interparty_cash_time_reconciled"] is True
+    assert summary["network_internal_transfers_create_no_money"] is True
+    assert summary["joint_posting_is_not_contractual_payment_deferral"] is True
+    assert summary["no_private_network_member_cash_paths_redisclosed"] is True
     shared=json.dumps(projection,ensure_ascii=False)
     assert "per_original_owner_private_research_projection" not in shared
     assert "joint_posted_late_case" not in shared
