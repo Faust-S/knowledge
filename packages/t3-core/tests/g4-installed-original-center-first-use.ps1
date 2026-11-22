@@ -213,6 +213,48 @@ function WaitForOriginalKernelReady(){
   }
   return $false
 }
+function EnsureOriginalSignedWorkspaceProvisioned(){
+  # Kernel connected != selected corporate Workspace present in T2.
+  # The signed owner already grants a SEPARATE workspace.create ACTION.
+  # The original SignedSelectedWorkspaceGate owns create and readback.
+  # This UIA witness may make ONE explicit physical click, never create
+  # by calling T2/native methods directly, and never retry an unknown write.
+  $sawMissing=$false
+  $clicked=$false
+  for($i=0;$i -lt 240;$i++){
+    $missing=HasText 'Подписанная Workspace недоступна'
+    $checking=HasText 'Проверяем выбранную подписанную Workspace'
+    if($missing){$sawMissing=$true}
+    if($missing -and $i -ge 38 -and -not $clicked){
+      $button=$null
+      try{$button=FindName 'Создать выбранную Workspace' 'Button' 1}catch{}
+      if($button -and $button.Current.IsEnabled){
+        $script:phase='D2_NATIVE_SIGNED_WORKSPACE_EXPLICIT_PROVISION'
+        Write-Host 'D2_INSTALLED_ORIGINAL_SELECTED_WORKSPACE_EXPLICIT_ACTION'
+        ClickButton 'Создать выбранную Workspace'
+        $clicked=$true
+      }
+    }
+    if($sawMissing -and -not $missing -and -not $checking){
+      Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_GATE_RESOLVED'
+      return $true
+    }
+    if(-not $sawMissing -and -not $checking -and $i -ge 36){
+      # Could already exist, or the signed auto-provisioner could have
+      # completed before observation. Only the later D2 Kernel readback
+      # proves source readiness; no success claim is made here.
+      Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_NO_GATE_OBSERVED'
+      return $true
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  if(HasText 'Подписанная Workspace недоступна'){
+    Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_GATE_STILL_MISSING'
+    return $false
+  }
+  Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_WORKSPACE_GATE_NOT_SETTLED'
+  return $false
+}
 function WaitForOrdinaryWorkspace([string]$name){
   # A physical Windows click returns before WebView2 has committed the React
   # update to the accessibility tree. The workspace is NOT accepted on click:
@@ -477,6 +519,7 @@ try{
     ClickButton 'Открыть Workspace T3'
     Check (WaitForText 'К приёмке' 90) 'D2_INSTALLED_NATIVE_SIGNED_WORKSPACE_NOT_VISIBLE'
     Check (WaitForOriginalKernelReady) 'D2_INSTALLED_NATIVE_ORIGINAL_KERNEL_NOT_READY'
+    Check (EnsureOriginalSignedWorkspaceProvisioned) 'D2_INSTALLED_NATIVE_ORIGINAL_WORKSPACE_PROVISION_NOT_CONFIRMED'
     $script:phase='D2_NATIVE_HIDE_SAME_KERNEL'
     ClickButton 'К приёмке'
     Check (WaitForText 'Workspace T3' 60) 'D2_INSTALLED_NATIVE_SIGNED_WORKSPACE_NOT_HIDDEN'
@@ -517,6 +560,7 @@ try{
     ClickButton 'Открыть Workspace T3'
     Check (WaitForText 'К приёмке' 90) 'D2_INSTALLED_COLD_WORKSPACE_NOT_OPEN'
     Check (WaitForOriginalKernelReady) 'D2_INSTALLED_COLD_ORIGINAL_KERNEL_NOT_READY'
+    Check (EnsureOriginalSignedWorkspaceProvisioned) 'D2_INSTALLED_COLD_ORIGINAL_WORKSPACE_PROVISION_NOT_CONFIRMED'
     ClickButton 'К приёмке'
     ClickButton 'Обзор'
     ClickButton 'Обновить подписанные сведения T3'
