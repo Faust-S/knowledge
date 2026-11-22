@@ -258,3 +258,147 @@ def test_r1u1_comparison_alone_does_not_create_a_second_coalition_or_result():
     assert "l2" not in [l["id"] for l in out["cooperation"]["links"]]
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["profit"]["system_increment"] == "UNKNOWN"
+
+
+
+def selection_of_rival_exit_case(*, incumbent_dissent=False,
+                                 newcomer_assesses=False):
+    """The R1-Q original Work really executes in the alternative coalition.
+
+    The LOSING entrant does not get to block an unrelated incumbent choice.
+    The exiting owner remains owner of ra, and W2 uses customer b's own rb.
+    """
+    from .test_r1q_original_coalition_membership_mesa import membership_case
+    d = membership_case(change="REVIEW_FUTURE_PARTICIPATION")
+    original = next(x for x in d["events"]
+                    if x["action"] == "cooperation_change_propose"
+                    and x["change_id"] == "member-1")
+    original.update(
+        pilot_work="w1", pilot_result_ref="model://a/first-execution",
+        pilot_decision_at=8,
+    )
+    t = original["at"]
+    for row in d["events"]:
+        if row["at"] > t:
+            row["at"] += 5
+    alt = deepcopy(original)
+    alt.update(
+        at=t + 1,
+        change_id="member-1-add-c",
+        change_kind="ADD_FUTURE_PARTICIPANT",
+        proposed_subject="c",
+        change_source_ref="model://b/r1u1-independent-new-entrant-alternative",
+    )
+    link = next(x for x in d["cooperation_links"] if x["id"] == "net")
+    parent = CooperationLink(
+        link["id"], link["purpose"], link["coordinator"],
+        tuple(link["participants"]), tuple(link["works"]),
+        tuple(link["mechanisms"]), link["source_ref"], link["source_revision"],
+    )
+    scope = SimpleNamespace(
+        trace=[
+            {**original, "outcome": "APPLIED",
+             "original_consultees": ["a", "b", "op"]},
+            {**alt, "outcome": "APPLIED",
+             "original_consultees": ["a", "b", "c", "op"]},
+        ],
+        subjects={
+            "a": SimpleNamespace(kind="SME", active=True),
+            "b": SimpleNamespace(kind="SME", active=True),
+            "c": SimpleNamespace(kind="SME", active=True),
+            "op": SimpleNamespace(kind="OPERATOR", active=True),
+        },
+        institution=SimpleNamespace(revision="oc-1"),
+    )
+    digest, _ = _competition_document(
+        scope, ["member-1", "member-1-add-c"], parent,
+        SimpleNamespace(key="w1", result_ref="model://a/first-execution"),
+    )
+    d["events"].extend([
+        alt,
+        {
+            "at": t + 2, "action": "coalition_options_propose",
+            "actor": "b", "org_revision": "oc-1",
+            "cooperation_link": "net", "cooperation_source_revision": "n-1",
+            "coalition_competition_id": "r1u1-exit-or-invite",
+            "coalition_change_ids": ["member-1", "member-1-add-c"],
+            "coalition_comparison_fingerprint": digest,
+            "coalition_comparison_source_ref":
+                "model://b/r1u1-two-real-potential-compositions",
+            "coalition_comparison_valid_until": 85,
+            "pilot_work": "w1", "pilot_result_ref":
+                "model://a/first-execution",
+        },
+        *[
+            {
+                "at": t + 3 + i, "action": "coalition_option_assess",
+                "actor": owner, "org_revision": "oc-1",
+                "coalition_competition_id": "r1u1-exit-or-invite",
+                "coalition_comparison_fingerprint": digest,
+                "coalition_preferred_change_id": (
+                    "member-1-add-c" if (
+                        owner == "c" or owner == "a" and incumbent_dissent
+                    ) else "member-1"
+                ),
+                "coalition_willingness": "WILLING",
+                "coalition_outside_option": (
+                    "OUTSIDE_PREFERRED" if owner == "a"
+                    else "COOPERATION_PREFERRED"
+                ),
+                "coalition_evaluation_dimension": "CAPACITY",
+                "coalition_owner_source_ref":
+                    f"model://{owner}/r1u1-own-alternative-choice",
+            }
+            for i, owner in enumerate(
+                ("a", "b", "c") if newcomer_assesses else ("a", "b")
+            )
+        ],
+    ])
+    selected = next(x for x in d["events"]
+                    if x["action"] == "cooperation_membership_apply")
+    selected["coalition_competition_id"] = "r1u1-exit-or-invite"
+    selected["coalition_comparison_fingerprint"] = digest
+    d["model_horizon"] += 5
+    d["events"].sort(key=lambda x: x["at"])
+    return d
+
+
+def test_r1u1_other_competing_option_can_be_selected_and_produce_its_own_result():
+    out = simulate(selection_of_rival_exit_case())
+    assert out["counts"]["blocked"] == 0, [
+        (x["at"], x["action"], x["reason"]) for x in out["trace"]
+        if x["outcome"] == "BLOCKED"
+    ]
+    chosen = _selected(out)
+    assert chosen["change_id"] == "member-1"
+    assert chosen["former_model_party"] == "a"
+    assert chosen["coalition_independent_choice_smes"] == ["a", "b"]
+    assert chosen["coalition_unselected_change_id"] == "member-1-add-c"
+    assert out["resources"]["ra"]["owner"] == "a"
+    assert out["resources"]["rb"]["owner"] == "b"
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["consenting_principals"] == ["b"]
+    assert next(x for x in out["cooperation"]["links"]
+                if x["id"] == "net-2")["original_participants"] == [
+        "b", "op"
+    ]
+
+
+def test_r1u1_unselected_entrant_has_no_veto_on_incumbent_other_coalition():
+    out = simulate(selection_of_rival_exit_case(newcomer_assesses=True))
+    assert out["counts"]["blocked"] == 0
+    chosen = _selected(out)
+    assert chosen["coalition_independent_choice_smes"] == ["a", "b"]
+    assert chosen["coalition_consulted_other_option_smes"] == ["c"]
+    assert chosen["coalition_nonselected_entrant_has_no_veto_over_existing_members"]
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1u1_rival_selection_still_requires_departing_original_owner_assent():
+    out = simulate(selection_of_rival_exit_case(incumbent_dissent=True))
+    assert _selected(out)["reason"] == (
+        "COALITION_COMPETITION_OWNER_PREFERENCE_OR_OUTSIDE_VETO"
+    )
+    assert "net-2" not in [x["id"] for x in out["cooperation"]["links"]]
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"

@@ -518,6 +518,10 @@ def qualify_coalition_option_proposal(
         "coalition_comparison_valid_until": expiry,
         "coalition_comparison_source_ref": event["coalition_comparison_source_ref"],
         "coalition_independent_smes": sorted(owners),
+        "coalition_original_member_smes": sorted(
+            name for name in link.participants
+            if state.subjects[name].kind == "SME"
+        ),
         "pilot_work": pilot.key,
         "pilot_result_ref": pilot.result_ref,
         "coalition_new_membership_not_yet_created": True,
@@ -630,15 +634,36 @@ def qualify_competing_coalition_selection(
                 and row.get("actor") in comparison["coalition_independent_smes"]
                 and comparison["at"] < row["at"] < at):
             latest[row["actor"]] = row
-    if set(latest) != set(comparison["coalition_independent_smes"]):
+    required = set(comparison["coalition_original_member_smes"])
+    chosen = _applied_proposal(state.trace, selected)
+    if chosen is None:
+        raise CooperationInputError(
+            "COALITION_COMPETITION_SELECTED_ORIGINAL_PROPOSAL_REQUIRED"
+        )
+    future_members = set(required)
+    if chosen["change_kind"] == "ADD_FUTURE_PARTICIPANT":
+        entrant = chosen["proposed_subject"]
+        required.add(entrant)
+        future_members.add(entrant)
+    elif chosen["change_kind"] == "REVIEW_FUTURE_PARTICIPATION":
+        future_members.discard(chosen["proposed_subject"])
+    else:
+        raise CooperationInputError(
+            "COALITION_COMPETITION_SELECTED_MEMBERSHIP_CHANGE_REQUIRED"
+        )
+    # A participant proposed only in the LOSING option cannot veto an
+    # unrelated reconfiguration of the ORIGINAL incumbent coalition.
+    # Actual original incumbents and the CHOSEN entrant decide independently.
+    if not required.issubset(latest):
         raise CooperationInputError(
             "COALITION_COMPETITION_ALL_INDEPENDENT_ALTERNATIVES_REQUIRED"
         )
     if any(
-        row["coalition_preferred_change_id"] != selected
-        or row["coalition_willingness"] != "WILLING"
-        or row["coalition_outside_option"] == "OUTSIDE_PREFERRED"
-        for row in latest.values()
+        latest[actor]["coalition_preferred_change_id"] != selected
+        or latest[actor]["coalition_willingness"] != "WILLING"
+        or (actor in future_members and
+            latest[actor]["coalition_outside_option"] == "OUTSIDE_PREFERRED")
+        for actor in required
     ):
         raise CooperationInputError(
             "COALITION_COMPETITION_OWNER_PREFERENCE_OR_OUTSIDE_VETO"
@@ -649,7 +674,11 @@ def qualify_competing_coalition_selection(
         "coalition_unselected_change_id": next(
             x for x in comparison["coalition_change_ids"] if x != selected
         ),
-        "coalition_independent_choice_smes": sorted(latest),
+        "coalition_independent_choice_smes": sorted(required),
+        "coalition_consulted_other_option_smes": sorted(
+            set(latest) - required
+        ),
+        "coalition_nonselected_entrant_has_no_veto_over_existing_members": True,
         "coalition_outside_option_not_real_profit": True,
         "coalition_competing_proposal_not_an_actual_successor": True,
     }
