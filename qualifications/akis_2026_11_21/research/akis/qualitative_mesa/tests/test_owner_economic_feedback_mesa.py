@@ -311,3 +311,28 @@ def test_existing_original_commitment_has_priority_over_model_financial_source()
                  if row["subject"] == "b" and row["at"] == 5.0]
     assert decisions and decisions[-1]["endogenous_choice"]["action"] == "HONOR_PRIOR_OBLIGATION"
     assert out["works"]["w1"]["obligation"] == "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+
+
+def test_general_AKIS_reports_owner_liquidity_comparison_without_private_values():
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    import json
+    o=simulate(fixture())
+    summary=o["general_akis_model"]["economic_time_and_cost_feedback"]
+    assert summary["owner_cooperation_vs_outside_cash_risk_separately_modelled"] is True
+    assert summary["liquidity_stress_uses_original_outflow_due_dates"] is True
+    assert summary["owner_private_scenario_comparison_amounts_and_identifiers_redisclosed"] is False
+    comparison=o["economics"]["cash_timing"][
+        "per_original_owner_private_research_projection"]["b"][
+        "original_owner_liquidity_comparison"]
+    assert comparison["classification"]=="COOPERATION_DECLARED_GAP_WHILE_OUTSIDE_RESERVE_MET"
+    shared=json.dumps({
+        "general_akis_model":o["general_akis_model"],
+        "decision_observations":o["decision_observations"],
+        "endogenous_subjects":o["endogenous_subjects"],
+    },ensure_ascii=False)
+    for sensitive in ("original_owner_liquidity_comparison","opening_cash",
+                      "reserve_cash","120.00","model://b/research-financial-review"):
+        assert sensitive not in shared
+    assert o["works"]["w1"]["obligation"]=="NOT_ACCEPTED"
+    assert all(row["effect"]=="NO_AUTOMATIC_CONSENT"
+               for row in o["decision_observations"])
