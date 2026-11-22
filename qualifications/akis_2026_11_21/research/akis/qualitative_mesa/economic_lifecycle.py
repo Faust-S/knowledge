@@ -168,12 +168,15 @@ def review_timed_original_lifecycle_costs(
         else:
             if "cooperation_link" in row:
                 raise LifecycleInputError("LIFECYCLE_EXIT_RELATION_ONLY_FOR_FUTURE_PAUSE_STAGE")
-            if (anchor.get("outcome") != "APPLIED"
-                    or anchor.get("work") != work_id):
-                raise LifecycleInputError("LIFECYCLE_TIMED_APPLIED_ORIGINAL_WORK_EVENT_REQUIRED")
             allowed_actions = STAGE_WORK_EVENT_ACTIONS[stage]
             if not allowed_actions:
                 raise LifecycleInputError("LIFECYCLE_STAGE_HAS_NO_ORIGINAL_WORK_TIME_EVENT")
+            if (anchor.get("outcome") != "APPLIED"
+                    or anchor.get("work") != work_id):
+                raise LifecycleInputError("LIFECYCLE_TIMED_APPLIED_ORIGINAL_WORK_EVENT_REQUIRED")
+            if (anchor.get("action") != action
+                    or type(row["at"]) is not int or row["at"] != anchor.get("at")):
+                raise LifecycleInputError("LIFECYCLE_TIMED_ORIGINAL_EVENT_ACTION_OR_TIME_MISMATCH")
             if action not in allowed_actions:
                 raise LifecycleInputError("LIFECYCLE_TIMED_STAGE_ACTION_CONTRADICTION")
             if (stage == "CLAIMS_AND_REWORK" and action == "assess_result_quality"
