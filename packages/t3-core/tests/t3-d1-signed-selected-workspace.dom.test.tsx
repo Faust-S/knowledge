@@ -502,6 +502,39 @@ it("after an uncertain signed write and failed readback, repeated read-only chec
   expect(document.body.textContent).not.toContain("private write result");
 });
 
+it("original Owner durable create fence shows read-only recovery instead of repeating a write",async()=>{
+  const getWorkspace=vi.fn(async()=>null);
+  const createWorkspace=vi.fn(async()=>{
+    throw Object.assign(new Error("private owner path must not reach UI"),{
+      code:"T3_D1_WORKSPACE_CREATE_REPLAY_BLOCKED",
+    });
+  });
+  const candidate={getWorkspace,createWorkspace,
+    hasOperation:(name:string)=>name==="t1.createWorkspace"} as unknown as KernelFacade;
+  render(<SignedSelectedWorkspaceGate required kernel={candidate}
+    profile="generic" autoCreateSignedCorporate={false}
+    trustedSelectedContext={async()=>({
+      kind:"CORP",organization_id:"org:durable-fence",
+      workspace_id:"ws:durable-fence",resource:"ws:durable-fence",
+    })}>
+    <p data-testid="durable-fence-not-confirmed">No source readback</p>
+  </SignedSelectedWorkspaceGate>);
+  const button=await screen.findByTestId("t3-d1-create-selected-workspace");
+  fireEvent.click(button);
+  const error=await screen.findByTestId("t3-d1-create-workspace-error");
+  expect(error.textContent).toContain("даже после перезапуска");
+  expect(error.textContent).toContain("Проверить повторно");
+  expect(error.textContent).toContain("T3_D1_WORKSPACE_CREATE_REPLAY_BLOCKED");
+  expect(document.body.textContent).not.toContain("private owner path");
+  expect(button.hasAttribute("disabled")).toBe(true);
+  fireEvent.click(button);
+  expect(createWorkspace).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button",{name:"Проверить повторно"}));
+  await waitFor(()=>expect(getWorkspace).toHaveBeenCalledTimes(4));
+  expect(createWorkspace).toHaveBeenCalledTimes(1);
+  expect(screen.queryByTestId("durable-fence-not-confirmed")).toBeNull();
+});
+
 it("uncertain Kernel acknowledgement is recovered by exact original ID readback",async()=>{
   let saved:{workspace_id:string;profile:string}|null=null;
   const createWorkspace=vi.fn(async(command:{workspace_id:string;profile:string})=>{
