@@ -17,6 +17,10 @@ import {createWebDavPackageTransport}
   from '../src/network/webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow}
   from '../src/network/original-event-window.mjs';
+import {prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
+  fetchT4OriginalObjectDelta,applyT4OriginalObjectDelta,
+  advanceT4OriginalObjectDeltaCursor}
+  from '../src/network/original-object-delta.mjs';
 
 const require=createRequire(new URL('../../t3-core/package.json',import.meta.url));
 const {chromium}=require('playwright');
@@ -77,6 +81,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
     const pinnedKernelSha=sha(kernelRuntimePath);
     live=await serveRealKernelHost(dist);
     const host=materializeIntegrationHost(dist,live.origin);
+    host.passport.permissions.operations=['t1.commitObjectGraph'];
     host.domain.runtime.kernel_release=ORIGINAL_KERNEL;
     host.domain.runtime.runtime_version=ORIGINAL_KERNEL;
     host.workspaceConfig.host.required_runtime_version=ORIGINAL_KERNEL;
@@ -261,7 +266,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         include_assets:true,include_relations:true,include_schemas:true,
       });
       return {workspace:workspace?.workspace_id,object:object?.object?.object_id,
-        title:object?.object?.data?.title,linkedTitle:linked?.object?.data?.title,
+        title:object?.object?.data?.title,revision:object?.object?.revision,
+        linkedTitle:linked?.object?.data?.title,
         linkedExtension:linked?.object?.extensions?.future?.preserve,
         assetText:asset?new TextDecoder().decode(asset.bytes):null,
         assetMime:asset?.asset?.mime??null,objects:inventory.counts.objects,
@@ -270,17 +276,150 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
     },{SERVICE,workspaceId,objectId,linkedObjectId,assetId});
     const initial=await verify(recipientPage);
     assert.deepEqual(initial,{
-      workspace:workspaceId,object:objectId,title,linkedTitle,
+      workspace:workspaceId,object:objectId,title,revision:1,linkedTitle,
       linkedExtension:'yes',assetText,assetMime:'text/plain',objects:2,
       relations:1,assets:1,schemas:initial.schemas,events:initial.events,
     });
     assert.ok(initial.schemas>=1 && initial.events>=4);
+
+    // The real original source T3 Kernel evolves AFTER the first Workspace import.
+    // Only a single object revision, not the whole Workspace, crosses the delta wire.
+    const nextTitle='Updated original T3 object over T4 delta '+randomUUID();
+    sourceContext=await launch(sourceProfile);
+    const activeSourcePage=await opened(sourceContext);
+    const evolved=await activeSourcePage.evaluate(async({SERVICE,workspaceId,objectId,nextTitle})=>{
+      const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+      const previous=await kernel.t1.getObject(workspaceId,objectId);
+      const previousRevision=previous.object.revision;
+      const saved=await kernel.t1.putObject({
+        workspace_id:workspaceId,object_id:objectId,
+        schema_id:previous.object.schema_id,schema_version:previous.object.schema_version,
+        data:{...previous.object.data,title:nextTitle},
+        extensions:previous.object.extensions??{},base_revision:previousRevision,
+        event:{event_type:'t4.original.work.updated',payload:{title:nextTitle}},
+      });
+      const events=await kernel.t1.listEventsSince(workspaceId);
+      const sourceObject=await kernel.t1.getObject(workspaceId,objectId);
+      return {previousRevision,saved,events,sourceObject};
+    },{SERVICE,workspaceId,objectId,nextTitle});
+    assert.equal(evolved.previousRevision,1);
+    assert.equal(evolved.sourceObject?.object?.revision,2);
+    const newWindow=await readT4OriginalEventWindow({
+      ...originalEventPort,cursor:remainingWindow.nextCursor,maxEvents:1,
+      readOriginalEvents:async()=>evolved.events,
+    });
+    assert.equal(newWindow.window.count,1);
+    assert.equal(newWindow.window.eventRefs[0].eventId,evolved.saved.event.event_id);
+    assert.equal(newWindow.window.eventRefs[0].revision,2);
+    assert.equal(newWindow.window.hasMore,false);
+    const preparedDelta=await prepareT4OriginalObjectDelta({
+      window:newWindow.window,workspaceId,objectId,
+      originalWriteOwnerRef:'original:t2:exchange',
+      originalKernel:{
+        hasOperation:op=>actual.grants.includes(op),
+        getObject:async()=>evolved.sourceObject,
+      },
+      authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
+      getMode:()=> 'T4_NETWORK',
+    });
+    assert.equal(preparedDelta.delta.sourceRevision,2);
+    const deltaTransport=createWebDavPackageTransport({
+      baseUrl:process.env.T4_TEST_URL,locationRef:'test-webdav',
+      placementPolicy:policy,keySuffix:'.t4d',
+      getMode:()=> 'T4_NETWORK',authorize:async()=>true,
+      getAuthorizationHeader:async()=>process.env.T4_TEST_AUTH,
+    });
+    try {
+      const sent=await publishT4OriginalObjectDelta({
+        prepared:preparedDelta,transport:deltaTransport,
+      });
+      assert.equal(sent.originalRecipientApplied,false);
+      assert.equal(sent.cursorAdvanced,false);
+      const received=await fetchT4OriginalObjectDelta({
+        transport:deltaTransport,key:sent.key,sha256:sent.sha256,
+        workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+      });
+      assert.ok(preparedDelta.bytes.length<actual.artifact.bytes.length,
+        'original T4 single-object delta must be smaller than initial .iwxa');
+      assert.equal(received.delta.sourceEventId,evolved.saved.event.event_id);
+
+      let suppressFirstAcknowledgement=true;
+      const receiverGraphKernel={
+        hasOperation:op=>receiving.operations.includes(op),
+        getObject:(workspaceId,objectId)=>recipientPage.evaluate(
+          async({SERVICE,workspaceId,objectId})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.getObject(workspaceId,objectId);
+          },{SERVICE,workspaceId,objectId}),
+        commitObjectGraph:async input=>{
+          const receipt=await recipientPage.evaluate(async({SERVICE,input})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.commitObjectGraph(input);
+          },{SERVICE,input});
+          if(suppressFirstAcknowledgement){
+            suppressFirstAcknowledgement=false;
+            throw Object.assign(new Error('SIMULATED_DELTA_ACK_LOST'),{
+              code:'NETWORK_TIMEOUT',
+            });
+          }
+          return receipt;
+        },
+      };
+      assert.ok(receiving.operations.includes('t1.commitObjectGraph'),
+        'original T3 graph commit operation must be granted by the existing passport');
+      const application={
+        received,originalKernel:receiverGraphKernel,
+        authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+        getMode:()=> 'T4_NETWORK',
+      };
+      await assert.rejects(applyT4OriginalObjectDelta(application),error=>{
+        assert.equal(error.code,'OBJECT_DELTA_OUTCOME_UNKNOWN');
+        assert.equal(error.details.automaticRetryAllowed,false);return true;
+      });
+      // No delivery cursor is advanced on an unknown outcome.
+      const changedWhileAckLost=await verify(recipientPage);
+      assert.equal(changedWhileAckLost.title,nextTitle);
+      assert.equal(changedWhileAckLost.revision,2);
+      const reconciled=await applyT4OriginalObjectDelta(application);
+      assert.equal(reconciled.originalReceipt.deduplicated,true);
+      assert.equal(reconciled.originalObjectReadbackPassed,true);
+      const savedCursor=await advanceT4OriginalObjectDeltaCursor({
+        window:newWindow.window,nextCursor:newWindow.nextCursor,
+        acknowledgement:reconciled.acknowledgement,
+        verifyOriginalRecipient:async ctx=>{
+          const target=await verify(recipientPage);
+          return ctx.originalReceiptRef===reconciled.originalReceiptRef&&
+            target.revision===2&&target.title===nextTitle;
+        }
+      });
+      assert.equal(savedCursor.verified,true);
+      assert.equal(savedCursor.originalT3Cursor.lastEventId,evolved.saved.event.event_id);
+      const updated=await verify(recipientPage);
+      assert.equal(updated.title,nextTitle);
+      assert.equal(updated.revision,2);
+      assert.equal(updated.objects,initial.objects);
+      assert.equal(updated.relations,initial.relations);
+      assert.equal(updated.assets,initial.assets);
+      assert.ok(updated.events>=initial.events);
+      console.log('T4_REAL_ORIGINAL_T3_OBJECT_DELTA_IDEMPOTENT_ACK_RECOVERY_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,deltaBytes:preparedDelta.bytes.length,
+          originalArchiveBytes:actual.artifact.bytes.length,
+          sourceRevision:2,recipientRevision:updated.revision,
+          originalReceiptRef:reconciled.originalReceiptRef,
+          idempotentReplay:reconciled.originalReceipt.deduplicated===true,
+          cursorCommittedOnlyAfterOriginalReceipt:savedCursor.verified,
+          originalKernelUsed:true,
+        }));
+    }finally{deltaTransport.close();}
+    await sourceContext.close();sourceContext=null;
+    const updatedAfterDelta=await verify(recipientPage);
     await recipientContext.close();recipientContext=null;
 
     for(let attempt=1;attempt<=2;attempt++){
       recipientContext=await launch(recipientProfile);
       const coldPage=await opened(recipientContext);
-      assert.deepEqual(await verify(coldPage),initial);
+      assert.deepEqual(await verify(coldPage),updatedAfterDelta);
       await recipientContext.close();recipientContext=null;
     }
     assert.equal(sha(kernelRuntimePath),pinnedKernelSha);
@@ -293,6 +432,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         verifiedAssets:initial.assets,verifiedSchemas:initial.schemas,
         verifiedEvents:initial.events,verifiedAssetBytes:true,
         originalT3EventWindowPrepared:true,originalT3EventWindowSent:false,
+        singleObjectDeltaOriginalKernelApplied:true,
+        singleObjectDeltaAckLossIdempotencyVerified:true,
         signedCorporateNativeOwnerTested:false,installedProductTested:false,
         physicalSecondDeviceTested:false}));
   }finally{
