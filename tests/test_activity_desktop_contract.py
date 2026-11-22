@@ -26,6 +26,7 @@ class DesktopContract(unittest.TestCase):
     def test_native_one_window_and_no_external_navigation(self):
         t = json.loads((DESKTOP / "src-tauri/tauri.conf.json").read_text("utf-8"))
         self.assertEqual(len(t["app"]["windows"]), 1)
+        self.assertEqual(t["app"]["windows"][0]["minWidth"], 820)
         self.assertEqual(t["app"]["windows"][0]["label"], "main")
         self.assertEqual(t["app"]["security"]["capabilities"], ["main"])
         csp = t["app"]["security"]["csp"]

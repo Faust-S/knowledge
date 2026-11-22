@@ -63,6 +63,25 @@ try {
     if (!(Find-Accessible $window.Root 'Добавить блок')) {
         throw 'INSTALLED_ACTIVITY_V7_WIDGET_LIBRARY_MISSING'
     }
+    # Native 820x650 single-window check. No browser, screenshot or second app.
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class IwxaActivityWin32 {
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool MoveWindow(IntPtr handle, int x, int y, int w, int h, bool repaint);
+}
+'@
+    if (![IwxaActivityWin32]::MoveWindow($window.Process.MainWindowHandle, 15, 15, 820, 650, $true)) {
+        throw 'INSTALLED_ACTIVITY_V7_COMPACT_RESIZE_FAILED'
+    }
+    Start-Sleep -Milliseconds 500
+    if (!(Find-Accessible $window.Root 'Моя панель деятельности' 5)) {
+        throw 'INSTALLED_ACTIVITY_V7_COMPACT_DASHBOARD_NOT_VISIBLE'
+    }
+    if (![IwxaActivityWin32]::MoveWindow($window.Process.MainWindowHandle, 15, 15, 1280, 860, $true)) {
+        throw 'INSTALLED_ACTIVITY_V7_RESTORE_RESIZE_FAILED'
+    }
     $sourcePage = Find-Accessible $window.Root 'Источники'
     if (!$sourcePage) { throw 'INSTALLED_ACTIVITY_V7_SOURCE_NAV_MISSING' }
     $sourcePage.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
