@@ -188,6 +188,10 @@ async function launch(){
     stage="react-mounting";
     const root=mountT3App(target!,{
       requireSignedOwner:true,
+      // Admin 0.3 first-use is a visible manager action, never an
+      // automatic corporate T2 write just because the signed page opened.
+      // Other signed corporate products retain their existing first-use flow.
+      explicitSignedWorkspaceCreation:owner.service_id==="iwxa.admin-center.workspace",
       isolatedKernelRequired:true,
       trustedKernelBootstrap:bootstrap,
       reconciliationPort,
