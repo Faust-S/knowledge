@@ -34,6 +34,8 @@ import {captureT4OriginalDeletionAtMutation,publishT4OriginalDeleteDelta,
   from '../src/network/original-deletion-delta.mjs';
 import {captureT4OriginalObjectMutation}
   from '../src/network/original-object-mutation-capture.mjs';
+import {reconcileT4OriginalMutationIntent}
+  from '../src/network/original-object-intent-recovery.mjs';
 import {createT4NetworkTopology,executeT4NetworkRoute}
   from '../src/network/network-topology.mjs';
 import {prepareT4OriginalObjectDelta,publishT4OriginalObjectDelta,
@@ -1441,6 +1443,142 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalRecipientFinalRevision:6,
           bothOriginalRecipientReceiptsConfirmed:true,
           noNewStoreOrKernel:true,
+        }));
+
+      // Original T3 writes revision 7, but its answer is lost before the
+      // technical outbox is committed. The original event and intent survive.
+      const uncertainCaptureRef='t4:original:lost-source-ack:'+randomUUID();
+      const sourceBeforeUnknown=await sourceKernel.getObject(workspaceId,linkedObjectId);
+      assert.equal(sourceBeforeUnknown.object.revision,6);
+      const unknownInput={
+        workspace_id:workspaceId,object_id:linkedObjectId,
+        schema_id:sourceBeforeUnknown.object.schema_id,
+        schema_version:sourceBeforeUnknown.object.schema_version,
+        data:{...sourceBeforeUnknown.object.data,
+          title:'Original T3 intent recovered after source ACK loss '+randomUUID()},
+        extensions:sourceBeforeUnknown.object.extensions??{},
+        base_revision:6,event:{
+          event_type:'t4.original.source-ack-lost',
+          payload:{businessPurpose:'original-version-recovery',revision:7},
+        },
+      };
+      let dropOriginalSourceAck=true;
+      const sourceWithAckLoss={
+        ...mutationKernel,
+        putObject:async input=>{
+          const saved=await mutationKernel.putObject(input);
+          if(dropOriginalSourceAck){
+            dropOriginalSourceAck=false;
+            throw Object.assign(new Error('SIMULATED_ORIGINAL_T3_SOURCE_ACK_LOST'),{
+              code:'NETWORK_TIMEOUT',
+            });
+          }
+          return saved;
+        },
+      };
+      await assert.rejects(captureT4OriginalObjectMutation({
+        workspaceId,objectId:linkedObjectId,
+        originalWriteOwnerRef:'original:t2:exchange',
+        captureRef:uncertainCaptureRef,
+        sourceCursor:currentSourceCursor,
+        mutationInput:unknownInput,
+        originalKernel:sourceWithAckLoss,
+        authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
+        authorizeOriginalWrite:async ctx=>actual.grants.includes(ctx.operation),
+        readOriginalEvents:readSourceEvents,
+        getMode:()=> 'T4_NETWORK',
+        persistOriginalIntent:payload=>persistSourceTechnical('intent',payload),
+        readOriginalIntent:payload=>readSourceTechnical('intent',payload.captureRef),
+        persistOriginalOutbox:payload=>persistSourceTechnical('outbox',payload),
+        readOriginalOutbox:payload=>readSourceTechnical('outbox',payload.captureRef),
+      }),error=>error.code==='OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'&&
+        error.details.automaticRetryAllowed===false);
+      assert.equal((await sourceKernel.getObject(workspaceId,linkedObjectId))
+        .object.revision,7);
+      assert.equal(await readSourceTechnical('outbox',uncertainCaptureRef),null);
+
+      // A cold source process restart occurs while the original T3 write has
+      // committed but the T4 outbox has not been recorded.
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      assert.equal((await sourceKernel.getObject(workspaceId,linkedObjectId))
+        .object.revision,7);
+      const recoveredSource=await reconcileT4OriginalMutationIntent({
+        captureRef:uncertainCaptureRef,workspaceId,objectId:linkedObjectId,
+        originalWriteOwnerRef:'original:t2:exchange',
+        originalKernel:mutationKernel,
+        authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
+        authorizeOriginalWrite:async ctx=>actual.grants.includes(ctx.operation),
+        readOriginalEvents:readSourceEvents,
+        readOriginalIntent:payload=>readSourceTechnical('intent',payload.captureRef),
+        persistOriginalOutbox:payload=>persistSourceTechnical('outbox',payload),
+        readOriginalOutbox:payload=>readSourceTechnical('outbox',payload.captureRef),
+        getMode:()=> 'T4_NETWORK',
+      });
+      assert.equal(recoveredSource.originalSourceEventVerified,true);
+      assert.equal(recoveredSource.originalMutationRetried,false);
+      assert.equal(recoveredSource.originalOperationReceiptRecreated,false);
+      assert.equal(recoveredSource.originalT3OutboxVerified,true);
+      assert.equal(recoveredSource.prepared.delta.sourceRevision,7);
+      const recoveredOutbox=await readSourceTechnical('outbox',uncertainCaptureRef);
+      assert.equal(recoveredOutbox.sha256,recoveredSource.prepared.sha256);
+      assert.deepEqual(Buffer.from(recoveredOutbox.bytesBase64,'base64'),
+        recoveredSource.prepared.bytes);
+
+      const recoveredPublished=await deltaRoute('delta.push',
+        ()=>actual.grants.includes('t1.getObject'),
+        ()=>publishT4OriginalObjectDelta({
+          prepared:recoveredSource.prepared,transport:deltaTransport,
+        }));
+      const recoveredReceived=await deltaRoute('delta.pull',
+        ()=>receiving.operations.includes('t1.getObject'),
+        ()=>fetchT4OriginalObjectDelta({
+          transport:deltaTransport,key:recoveredPublished.key,
+          sha256:recoveredPublished.sha256,
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        }));
+      const originalRecipientApplied=await applyT4OriginalObjectDelta({
+        received:recoveredReceived,
+        originalKernel:receiverGraphKernel,
+        authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
+        verifyOriginalSourceEvent:async proof=>{
+          const events=await readSourceEvents();
+          const row=events.find(e=>e.event_id===proof.sourceEventId);
+          const intent=await readSourceTechnical('intent',uncertainCaptureRef);
+          return proof.sourceEventId===recoveredSource.window.lastEventId&&
+            proof.sourceEventDigest===recoveredSource.window.eventRefs[0].eventDigest&&
+            row?.payload?.iwxa_t4_capture_ref===uncertainCaptureRef&&
+            row?.payload?.iwxa_t4_original_input_digest===intent.originalInputDigest&&
+            proof.objectContentDigest===recoveredSource.prepared.delta.objectContentDigest;
+        },
+        getMode:()=> 'T4_NETWORK',
+      });
+      assert.equal(originalRecipientApplied.originalT3CommitApplied,true);
+      const verifiedUnknownCursor=await advanceT4OriginalObjectDeltaCursor({
+        window:recoveredSource.window,nextCursor:recoveredSource.nextCursor,
+        acknowledgement:originalRecipientApplied.acknowledgement,
+        verifyOriginalRecipient:async ctx=>{
+          const item=await receiverGraphKernel.getObject(workspaceId,linkedObjectId);
+          return ctx.originalReceiptRef===originalRecipientApplied.originalReceiptRef&&
+            item?.object?.revision===7&&
+            item.object.data.title===unknownInput.data.title;
+        },
+      });
+      assert.equal(verifiedUnknownCursor.verified,true);
+      assert.equal((await receiverGraphKernel.getObject(workspaceId,linkedObjectId))
+        .object.revision,7);
+      console.log('T4_REAL_ORIGINAL_T3_SOURCE_LOST_ACK_INTENT_RECOVERY_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          sourceRevisionAfterUnknownWrite:7,
+          coldRestartBetweenOriginalCommitAndOutbox:true,
+          originalIntentAndSourceEventReconciled:true,
+          originalPutObjectNotRetried:true,
+          originalOperationReceiptNotInvented:true,
+          originalT3OutboxCreatedAfterRecovery:true,
+          recipientOriginalGraphCommitRevision:7,
+          recipientOriginalReceiptVerifiedBeforeCursor:true,
         }));
     }finally{deltaTransport.close();}
     await sourceContext.close();sourceContext=null;
