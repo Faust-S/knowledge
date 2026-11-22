@@ -8,6 +8,7 @@ on:
       - packages/t3-core/tests/t3-corporate-product-license.test.mjs
       - packages/t3-core/src/t3/publisher-license-handoff.mjs
       - packages/t3-core/tests/t3-d7-publisher-handoff.test.mjs
+      - packages/t3-core/tests/t3-corporate-original-d7-interop.test.mjs
       - .github/workflows/t3-publisher-corporate-license.yml
   workflow_dispatch:
 permissions:
@@ -36,5 +37,7 @@ jobs:
         run: node --test packages/t3-core/tests/t3-corporate-product-license.test.mjs
       - name: Verify D7 original holder accepts corporate STATUS/3 without activating rights
         run: node --test packages/t3-core/tests/t3-d7-publisher-handoff.test.mjs
+      - name: Verify real original Ed25519 corporate LICENSE/STATUS crossing D7 source owner
+        run: node --test packages/t3-core/tests/t3-corporate-original-d7-interop.test.mjs
       - name: Recheck original two-company signed Access without new IAM
         run: node --test packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs
