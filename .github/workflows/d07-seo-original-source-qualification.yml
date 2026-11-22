@@ -1,0 +1,60 @@
+name: D07 SEO official original source discovery
+on:
+  push:
+    branches: [work/2026-11-22-d07-methodology-v13]
+    paths: [.github/workflows/d07-seo-original-source-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-seo-official-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  primary-documents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - name: Checkout exact private D07 SEO technology, without credentials persistence
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 2520f8bf40df6f1e329a79df5511d76b3160a88b
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Verify private source identity and strict published-document boundaries
+        run: |
+          test "$(git -C site rev-parse HEAD)" = "2520f8bf40df6f1e329a79df5511d76b3160a88b"
+          test -f site/scripts/d07-seo-original-discovery.mjs
+          test -f site/scripts/research/d07-seo-official-originals.json
+          ! grep -q 'expectedTextSha256' site/scripts/research/d07-seo-official-originals.json
+          echo D07_SEO_ORIGINAL_SOURCE_IDENTITY=PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Frozen dependency install
+        working-directory: site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-seo-install.log" 2>&1 || {
+            echo D07_SEO_SOURCE_INSTALL=FAIL
+            exit 1
+          }
+          echo D07_SEO_SOURCE_INSTALL=PASS
+      - name: Reject publisher spoofing, unsafe redirects and false original section evidence
+        working-directory: site
+        run: |
+          node --test scripts/tests/d07-original-source-fetch.test.mjs > "$RUNNER_TEMP/d07-seo-source-tests.log" 2>&1 || {
+            echo D07_SEO_ORIGINAL_VALIDATION=FAIL
+            grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+error:' "$RUNNER_TEMP/d07-seo-source-tests.log" | head -30 || true
+            exit 1
+          }
+          echo D07_SEO_ORIGINAL_VALIDATION=PASS
+      - name: Retrieve exactly two official Google documents and verify literal passages
+        working-directory: site
+        run: |
+          node --import tsx scripts/d07-seo-original-discovery.mjs
+          echo D07_SEO_RETRIEVAL_IS_DISCOVERY_NOT_APPROVAL=PASS
+      # No raw document, private source, Build dist, secrets, profiles or user files are uploaded.
