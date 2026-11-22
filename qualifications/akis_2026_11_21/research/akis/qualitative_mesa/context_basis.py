@@ -178,6 +178,15 @@ class ContextBasis:
         item = self.sources[sid]
         if event.get("actor") != item.owner:
             raise ContextBlocked("CONTEXT_SOURCE_OWNER_REQUIRED")
+        # Optional compare-and-set for independently arriving original-owner
+        # events. Legacy research inputs without this key keep their prior
+        # semantics, but cannot claim lost-update protection.
+        if "expected_revision" in event:
+            expected = event["expected_revision"]
+            if not isinstance(expected, str) or not expected.strip():
+                raise ContextBlocked("INVALID_CONTEXT_EXPECTED_REVISION")
+            if expected != item.revision:
+                raise ContextBlocked("CONTEXT_STALE_SOURCE_UPDATE_REVISION")
         status = event.get("status")
         if not isinstance(status, str) or status not in STATUS:
             raise ContextBlocked("INVALID_CONTEXT_STATUS")
