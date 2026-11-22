@@ -116,3 +116,22 @@ test('larger screened map remains deterministic and uses original bounded aliase
   assert.equal(map.nodes[71].id,'event_type_072');
   assert.equal(map.inferred_edges,0);
 });
+
+test('too many alias classes do not establish a global chronology on React thread',()=>{
+  const names=Array.from({length:900},(_,i)=>
+    'event_type_'+String(i+1).padStart(3,'0'));
+  const x={
+    object_type:'object_type_001',cohort_band:'50+',
+    observed_event_kinds:names,
+    object_local_successions:names.slice(1).map((to,i)=>
+      edge(names[i],to,'50+')),
+  };
+  const map=buildT3TransitionMap(x);
+  assert.equal(map.too_complex,true);
+  assert.equal(map.linear,false,'the UI must not certify an uncomputed global order');
+  assert.equal(map.nodes.length,900);
+  assert.equal(map.transitions.length,899,'every original observed edge survives');
+  assert.equal(map.inferred_edges,0);
+  assert.equal(map.export_allowed,false);
+  assert.equal(map.nodes[0].id,'event_type_001');
+});
