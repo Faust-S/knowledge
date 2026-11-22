@@ -1743,21 +1743,21 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         'outbox',missingRelationAckCaptureRef);
       const savedRelationBytes=Buffer.from(relationStaged.bytesBase64,'base64');
       assert.equal(packageSha256(savedRelationBytes),relationStaged.sha256);
-      const relationSent=await deltaRoute('delta.push',
+      const hostRelationSent=await deltaRoute('delta.push',
         ()=>actual.grants.includes('t1.getObject'),
         ()=>publishT4OriginalRelationPutDelta({
           prepared:{delta:JSON.parse(savedRelationBytes.toString('utf8')),
             sha256:relationStaged.sha256,key:relationStaged.key},
           transport:deltaTransport,
         }));
-      const relationReceived=await deltaRoute('delta.pull',
+      const hostRelationReceived=await deltaRoute('delta.pull',
         ()=>receiving.operations.includes('t1.getObject'),
         ()=>fetchT4OriginalRelationPutDelta({
-          transport:deltaTransport,key:relationSent.key,sha256:relationSent.sha256,
+          transport:deltaTransport,key:hostRelationSent.key,sha256:hostRelationSent.sha256,
           workspaceId,originalWriteOwnerRef:'original:t2:exchange',
         }));
       const relationCommitted=await applyT4OriginalRelationPutDelta({
-        received:relationReceived,originalKernel:independentAssetRecipient,
+        received:hostRelationReceived,originalKernel:independentAssetRecipient,
         authorizeOriginalWrite:async ctx=>receiving.operations.includes(ctx.operation),
         verifyOriginalSourceEvent:async proof=>{
           const intent=await readSourceTechnical('intent',missingRelationAckCaptureRef);
