@@ -149,6 +149,13 @@ def cooperation_view(links: Sequence[CooperationLink], works: Mapping[str, Any],
             "future_cooperation_status": (
                 "DISSOLVED_FOR_FUTURE_WORK"
                 if original_cooperation_dissolved_for_future(trace, link)
+                else "SUPERSEDED_FOR_FUTURE_WORK"
+                if any(
+                    row.get("action") == "cooperation_membership_apply"
+                    and row.get("outcome") == "APPLIED"
+                    and row.get("cooperation_link") == link.key
+                    for row in trace
+                )
                 else "OPEN_FOR_NEW_ORIGINAL_WORK"
             ),
             "reconstituted_as": next((
