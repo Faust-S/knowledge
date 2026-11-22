@@ -38,8 +38,16 @@ function WaitUi([string]$name,$kind,[int]$retries=80){
  throw ("D07_NATIVE_CARD_UI_NOT_FOUND_"+$name)
 }
 function ClickUi([string]$name,$kind){
- $v=WaitUi $name $kind
- if(!$v.Current.IsEnabled){throw "D07_NATIVE_CARD_UI_DISABLED"}
+ # An element can appear in Edge UIA before React has finished initializing
+ # the original T2 Host. Only a genuinely enabled action is clickable.
+ $v=$null
+ for($attempt=0;$attempt -lt 85;$attempt++){
+  $candidate=FindUi $name $kind
+  if($candidate -and $candidate.Current.IsEnabled -and
+     !$candidate.Current.IsOffscreen){$v=$candidate;break}
+  Start-Sleep -Milliseconds 400
+ }
+ if(!$v){throw "D07_NATIVE_CARD_UI_ACTION_NOT_ENABLED"}
  $pattern=[System.Windows.Automation.InvokePattern]$v.GetCurrentPattern(
   [System.Windows.Automation.InvokePattern]::Pattern)
  $pattern.Invoke()
