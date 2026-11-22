@@ -1,0 +1,57 @@
+name: T3 Admin D2 original read engineering qualification
+on:
+  push:
+    branches:
+      - work/2026-11-22-admin03-original-d2-read
+    paths:
+      - packages/t3-core/src/main-trusted-kernel-realm.ts
+      - packages/t3-core/src/t3/original-kernel-native-relay.mjs
+      - packages/t3-core/src/t3/activity/**
+      - packages/t3-core/tests/t3-original-kernel-native-relay.test.mjs
+      - packages/t3-core/tests/t3-activity/**
+      - .github/workflows/t3-admin-d2-original-read.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: t3-admin-d2-original-read-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  d2-original-read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check original T2 and BLI inputs are byte-identical to release
+        shell: bash
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD:packages/t3-core/qualified-runtime)" = "1594274dbf5e38214b8422ba11e8c7114bd5425c"
+          test "$(git rev-parse HEAD:packages/t3-core/integration-sources)" = "e17b628392fb4e2dbeba2df67fdb0a5506fc5243"
+          echo ORIGINAL_T2_AND_BLI_UNCHANGED_PASS
+      - name: Node syntax for original D2 transport and reader
+        run: |
+          node --check packages/t3-core/src/t3/original-kernel-native-relay.mjs
+          node --check packages/t3-core/src/t3/activity/kernel-reader.mjs
+      - name: Verify exact original relay and D2 Activity reader
+        run: |
+          node --test packages/t3-core/tests/t3-original-kernel-native-relay.test.mjs
+          node --test packages/t3-core/tests/t3-activity/kernel-reader.test.mjs
+      - name: Install T3 inherited build dependencies
+        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Typecheck existing original trusted realm
+        working-directory: packages/t3-core
+        run: npm run typecheck
+      - name: Build one original T3 Host with inherited T2 code
+        working-directory: packages/t3-core
+        run: npm run build
+      - name: Only an engineering candidate, not a replacement T3 release
+        run: |
+          echo D2_ORIGINAL_READ_SOURCE_CANDIDATE_ONLY
+          echo "RELEASED_PLATFORM_0_3_0_NOT_MODIFIED"
+          echo "PRIVATE_SIGNER_NOT_INCLUDED"
