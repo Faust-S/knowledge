@@ -25,7 +25,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $src=(& git rev-parse 'HEAD:packages/t3-core/src').Trim()
           $t2=(& git rev-parse 'HEAD:packages/t3-core/qualified-runtime').Trim()
-          if($src -cne '6f820a489aa4053d8dac863d332744c41dd086a3' -or
+          if($src -cne '0408f10d76cb4fd55eb84c91087862b8bfa98890' -or
              $t2 -cne '1594274dbf5e38214b8422ba11e8c7114bd5425c'){
             throw 'D2_PUBLIC_ORIGINAL_SOURCE_PIN_FAILED'
           }
@@ -114,7 +114,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $src=(& git rev-parse 'HEAD:packages/t3-core/src').Trim()
           $t2=(& git rev-parse 'HEAD:packages/t3-core/qualified-runtime').Trim()
-          if($src -cne '6f820a489aa4053d8dac863d332744c41dd086a3' -or
+          if($src -cne '0408f10d76cb4fd55eb84c91087862b8bfa98890' -or
              $t2 -cne '1594274dbf5e38214b8422ba11e8c7114bd5425c'){
             throw 'D2_INSTALLED_EXACT_ORIGINAL_SOURCE_PIN_FAILED'
           }
@@ -138,7 +138,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/Center
-          ref: eb9b31677adf5001c5ead2671531402b1877dc13
+          ref: 4fe7ea003fa2e48f22ea4b0df0a88ffff1da399d
           persist-credentials: false
           path: .private/center
       - name: Stage original Atlas owner
@@ -169,7 +169,7 @@ jobs:
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
           if($t3 -cne 'b57907c2b0563118d45e95e7125201b283cd2baa' -or
-             $center -cne 'eb9b31677adf5001c5ead2671531402b1877dc13'){
+             $center -cne '4fe7ea003fa2e48f22ea4b0df0a88ffff1da399d'){
             throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
           }
           Add-Content -LiteralPath '.git/info/exclude' -Value '/.private/'
@@ -257,7 +257,7 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
-          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'eb9b31677adf5001c5ead2671531402b1877dc13' -ExpectedT3Sha 'b57907c2b0563118d45e95e7125201b283cd2baa'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha '4fe7ea003fa2e48f22ea4b0df0a88ffff1da399d' -ExpectedT3Sha 'b57907c2b0563118d45e95e7125201b283cd2baa'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
       - name: Native Windows original signed D2 DATA and two independent cold UIA reads
