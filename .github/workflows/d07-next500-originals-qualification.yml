@@ -37,7 +37,7 @@ jobs:
       - name: Frozen site dependency installation
         working-directory: site
         run: |
-          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-contextual-install.log" 2>&1 || {
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-next500-originals-install.log" 2>&1 || {
             echo D07_NEXT500_SOURCE_INSTALL=FAIL
             exit 1
           }
@@ -45,14 +45,14 @@ jobs:
       - name: Verify existing original source fetcher boundaries
         working-directory: site
         run: |
-          node --test scripts/tests/d07-original-source-fetch.test.mjs > "$RUNNER_TEMP/d07-contextual-source-tests.log" 2>&1 || {
+          node --test scripts/tests/d07-original-source-fetch.test.mjs > "$RUNNER_TEMP/d07-next500-originals-source-tests.log" 2>&1 || {
             echo D07_NEXT500_SOURCE_VALIDATION=FAIL
-            grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+error:' "$RUNNER_TEMP/d07-contextual-source-tests.log" | head -30 || true
+            grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+error:' "$RUNNER_TEMP/d07-next500-originals-source-tests.log" | head -30 || true
             exit 1
           }
           echo D07_NEXT500_SOURCE_VALIDATION=PASS
       - name: Discover and print official section hashes, no approval
         working-directory: site
         run: |
-          node --import tsx scripts/d07-contextual-original-qualification.mjs 
+          node --import tsx scripts/d07-next500-original-qualification.mjs 
       # No private source, raw page text or customer artifacts uploaded.
