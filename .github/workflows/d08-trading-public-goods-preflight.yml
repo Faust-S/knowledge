@@ -1,0 +1,65 @@
+name: D08 fast two goods public UI handoff preflight
+on:
+  push:
+    branches: [work/2026-11-22-d08-attention-to-payment-qualification]
+    paths: [.github/workflows/d08-trading-public-goods-preflight.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d08-trading-public-ui-preflight-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  real-public-ui:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    defaults:
+      run:
+        shell: bash
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+      CI: 'true'
+    steps:
+      - name: Checkout exact MarketOps site, no credential persistence
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: f701b32fd2f62b4e002427319f7da9fe5f5bcf94
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Install npm dependencies without exposing logs
+        working-directory: site
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d08-public-npm.log" 2>&1 || {
+            echo D08_PUBLIC_UI_INSTALL=FAIL
+            exit 1
+          }
+          echo D08_PUBLIC_UI_INSTALL=PASS
+      - name: Use native Windows Chrome
+        working-directory: site
+        run: |
+          CHROME="C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if test -f "$CHROME"; then
+            echo "PUPPETEER_EXECUTABLE_PATH=$CHROME" >> "$GITHUB_ENV"
+          else
+            unset PUPPETEER_SKIP_DOWNLOAD
+            node_modules/.bin/puppeteer browsers install chrome > "$RUNNER_TEMP/d08-chrome.log" 2>&1 || exit 1
+          fi
+      - name: Real public two goods and repeat-purchase handoff
+        working-directory: site
+        run: |
+          node --check tests/d08-trading-public-goods-preflight.mjs || exit 1
+          node tests/d08-trading-public-goods-preflight.mjs > "$RUNNER_TEMP/d08-goods.log" 2>&1 || {
+            grep -E '^D08_TRADING_PUBLIC_(FAILURE_PHASE|FAILURE_CLASS)=' "$RUNNER_TEMP/d08-goods.log" | head -3 || true
+            echo D08_TRADING_PUBLIC_TWO_GOODS_HANDOFF=FAIL
+            exit 1
+          }
+          grep -E '^D08_TRADING_PUBLIC_(GOODS_[12]|TWO_GOODS_HANDOFF)=PASS$' "$RUNNER_TEMP/d08-goods.log"
+          grep -q '^D08_TRADING_PUBLIC_TWO_GOODS_HANDOFF=PASS$' "$RUNNER_TEMP/d08-goods.log" || exit 1
+      # No source, screenshots, private logs, browser profiles, dist or archive uploaded.
