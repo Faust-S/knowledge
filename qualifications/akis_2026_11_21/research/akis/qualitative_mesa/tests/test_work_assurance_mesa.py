@@ -321,3 +321,84 @@ def test_unscoped_economic_cost_rows_not_redistributed_to_a_work_by_result_accep
     assert result["resource_uses_count"]==2
     assert work["economic_benefit_due_to_accepted_result"]=="NOT_IDENTIFIABLE"
     assert result["profit"]=="UNKNOWN"
+
+
+def test_original_quality_source_revocation_before_acceptance_invalidates_prior_model_assessments():
+    d=scenario()
+    d["context_evidence"]={
+        "strict":False,
+        "sources":[{
+            "id":"qa-c", "owner":"c", "revision":"r1",
+            "status":"CONFIRMED", "usable_by":["c"],
+            "core":"corporate", "purposes":["acceptance-review"],
+            "operations":["ACCEPT"], "valid_from":0,
+        }],
+        "requirements":[{
+            "work":"w1","action":"assess_result_quality",
+            "sources":["qa-c"], "expected_revisions":["r1"],
+            "core":"corporate", "purpose":"acceptance-review", "operation":"ACCEPT",
+        }],
+    }
+    state,_=apply_sequence(d,execution_events())
+    assert state.apply(quality_event(12),12)["outcome"]=="APPLIED"
+    assert state.apply(quality_event(13,criterion_id="documents"),13)["outcome"]=="APPLIED"
+    revoked={
+        "at":14,"action":"source_update","actor":"c",
+        "source":"qa-c", "new_revision":"r2",
+        "status":"CONFIRMED", "usable_by":["c"],
+    }
+    assert state.apply(revoked,14)["outcome"]=="APPLIED"
+    blocked=act(state,15,"accept","c")
+    assert blocked["outcome"]=="BLOCKED"
+    assert blocked["reason"]=="CONTEXT_REVISION_STALE"
+    assert state.works["w1"].result=="SUBMITTED"
+    assert state.works["w1"].obligation=="ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+    assert len(state.works["w1"].assurance_reviews)==2
+    # A later source revision cannot retroactively make previously accepted
+    # original Result invalid: historical acceptance survives when earlier.
+    earlier=QualitativeAKIS(d)
+    for event in execution_events():
+        earlier.apply(event,event["at"])
+    earlier.apply(quality_event(12),12)
+    earlier.apply(quality_event(13,criterion_id="documents"),13)
+    assert act(earlier,14,"accept","c")["outcome"]=="APPLIED"
+    assert earlier.apply({**revoked,"at":15},15)["outcome"]=="APPLIED"
+    assert earlier.works["w1"].result=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_native_quality_gate_defers_predeclared_future_need_until_original_quality_result_accepted():
+    pytest.importorskip("mesa")
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    from .test_future_need_mesa_integration import future
+    d=scenario()
+    d["events"]=execution_events()+[
+        quality_event(12),
+        quality_event(13,criterion_id="documents"),
+        {"at":14,"action":"accept","actor":"c","work":"w1"},
+    ]
+    d["future_need_signals"]=[
+        future(owner="c",ident="follow-on",work_id="w2",
+               start=0,end=20,slot_start=10,slot_end=16,
+               resource="ra",prereq=[{"work":"w1","source_revision":"d1"}])
+    ]
+    d["model_horizon"]=18
+    out=simulate(d)
+    timeline={row["at"]:row["projection"]["needs"][0]["status"]
+              for row in out["future_need_dynamics"]["read_only_evolution"]}
+    assert timeline[0.0]=="FUTURE_NEED_AWAIT_ORIGINAL_ACCEPTED_RESULT"
+    assert timeline[14.0]=="SOURCE_ACTIVE_FOR_RESEARCH"
+    assert out["future_need_dynamics"]["current"]["needs"][0]["status"]=="SOURCE_ACTIVE_FOR_RESEARCH"
+    assert "w2" not in out["works"]
+    assert out["future_need_dynamics"]["no_automatic_original_request_or_contract"]
+    assert out["works"]["w1"]["assurance"]["model_reported_met_count"]==2
+    assert out["works"]["w1"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["counts"]=={"applied":14,"blocked":0}
+    reject=deepcopy(d)
+    reject["events"][-1]["action"]="reject"
+    bad=simulate(reject)
+    assert bad["works"]["w1"]["result"]=="REJECTED"
+    assert bad["future_need_dynamics"]["current"]["needs"][0][
+        "status"
+    ]=="FUTURE_NEED_AWAIT_ORIGINAL_ACCEPTED_RESULT"
+    assert "w2" not in bad["works"]
+    assert bad["counts"]=={"applied":14,"blocked":0}
