@@ -466,6 +466,84 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           cursorCommittedOnlyAfterOriginalReceipt:savedCursor.verified,
           originalKernelUsed:true,
         }));
+
+      // Two independent ORIGINAL T3 Stores now mutate the same base revision.
+      // T4 must NOT use last-write-wins to hide the conflict.
+      const localConflictTitle='Recipient independent change '+randomUUID();
+      const sourceConflictTitle='Source independent change '+randomUUID();
+      const locallyEdited=await recipientPage.evaluate(async({SERVICE,workspaceId,objectId,title})=>{
+        const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+        const before=await kernel.t1.getObject(workspaceId,objectId);
+        const saved=await kernel.t1.putObject({
+          workspace_id:workspaceId,object_id:objectId,
+          schema_id:before.object.schema_id,schema_version:before.object.schema_version,
+          data:{...before.object.data,title},extensions:before.object.extensions??{},
+          base_revision:before.object.revision,
+          event:{event_type:'t4.original.recipient.concurrent-change',payload:{title}},
+        });
+        return{eventId:saved.event.event_id,revision:saved.object.revision};
+      },{SERVICE,workspaceId,objectId,title:localConflictTitle});
+      const sourceEdit=await activeSourcePage.evaluate(async({SERVICE,workspaceId,objectId,title})=>{
+        const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+        const before=await kernel.t1.getObject(workspaceId,objectId);
+        const saved=await kernel.t1.putObject({
+          workspace_id:workspaceId,object_id:objectId,
+          schema_id:before.object.schema_id,schema_version:before.object.schema_version,
+          data:{...before.object.data,title},extensions:before.object.extensions??{},
+          base_revision:before.object.revision,
+          event:{event_type:'t4.original.source.concurrent-change',payload:{title}},
+        });
+        return{eventId:saved.event.event_id,
+          sourceObject:await kernel.t1.getObject(workspaceId,objectId),
+          events:await kernel.t1.listEventsSince(workspaceId)};
+      },{SERVICE,workspaceId,objectId,title:sourceConflictTitle});
+      assert.equal(locallyEdited.revision,3);
+      assert.equal(sourceEdit.sourceObject.object.revision,3);
+      const conflictWindow=await readT4OriginalEventWindow({
+        ...originalEventPort,cursor:savedCursor.originalT3Cursor,maxEvents:1,
+        readOriginalEvents:async()=>sourceEdit.events,
+      });
+      assert.equal(conflictWindow.window.count,1);
+      assert.equal(conflictWindow.window.eventRefs[0].eventId,sourceEdit.eventId);
+      const conflictPrepared=await prepareT4OriginalObjectDelta({
+        window:conflictWindow.window,workspaceId,objectId,
+        originalWriteOwnerRef:'original:t2:exchange',
+        originalKernel:{hasOperation:op=>actual.grants.includes(op),
+          getObject:async()=>sourceEdit.sourceObject},
+        authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
+        getMode:()=> 'T4_NETWORK',
+      });
+      const conflictSent=await deltaRoute('delta.push',
+        ()=>actual.grants.includes('t1.getObject'),
+        ()=>publishT4OriginalObjectDelta({
+          prepared:conflictPrepared,transport:deltaTransport,
+        }));
+      const conflictReceived=await deltaRoute('delta.pull',
+        ()=>receiving.operations.includes('t1.getObject'),
+        ()=>fetchT4OriginalObjectDelta({
+          transport:deltaTransport,key:conflictSent.key,sha256:conflictSent.sha256,
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        }));
+      const beforeConflict=await verify(recipientPage);
+      await assert.rejects(applyT4OriginalObjectDelta({
+        ...application,received:conflictReceived,
+        verifyOriginalSourceEvent:async proof=>
+          proof.sourceEventId===sourceEdit.eventId&&
+          proof.sourceRevision===sourceEdit.sourceObject.object.revision&&
+          proof.sourceEventDigest===conflictWindow.window.eventRefs[0].eventDigest&&
+          proof.objectContentDigest===conflictPrepared.delta.objectContentDigest,
+      }),error=>error.code==='OBJECT_DELTA_REVISION_CONFLICT');
+      const preserved=await verify(recipientPage);
+      assert.deepEqual(preserved,beforeConflict);
+      assert.equal(preserved.revision,3);
+      assert.equal(preserved.title,localConflictTitle);
+      assert.notEqual(preserved.title,sourceConflictTitle);
+      assert.equal(savedCursor.originalT3Cursor.lastEventId,evolved.saved.event.event_id);
+      console.log('T4_REAL_ORIGINAL_T3_CONCURRENT_REVISION_CONFLICT_PRESERVED_PASS',
+        JSON.stringify({recipientRevision:3,sourceRevision:3,
+          recipientLocalValuePreserved:true,networkDeltaDelivered:true,
+          noSilentLastWriteWins:true,cursorNotAdvancedOnConflict:true,
+          originalT3WriteAuthorityUsed:true}));
     }finally{deltaTransport.close();}
     await sourceContext.close();sourceContext=null;
     const updatedAfterDelta=await verify(recipientPage);
