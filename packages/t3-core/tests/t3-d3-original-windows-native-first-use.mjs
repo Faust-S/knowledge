@@ -38,14 +38,14 @@ try {
      cold?.view?.snapshot?.organizationId!==organizationId||
      cold?.view?.snapshot?.workspaceId!==workspaceId)
     deny("ADMIN03_NATIVE_ORIGINAL_COLD_READBACK_INVALID");
-  process.stdout.write("ADMIN03_ORIGINAL_NATIVE_WINDOWS_DPAPI_COLD_FIRST_USE_PASS\\n");
+  process.stdout.write("ADMIN03_ORIGINAL_NATIVE_WINDOWS_DPAPI_COLD_FIRST_USE_PASS\n");
 }catch(error){
   const source=error&&typeof error==="object"?
     (typeof error.code==="string"?error.code:
       typeof error.message==="string"?error.message:""):"";
   const code=/^[A-Z][A-Z0-9_]{4,99}$/.test(source)?
     source:"ADMIN03_NATIVE_FIRST_USE_UNCLASSIFIED";
-  process.stdout.write("ADMIN03_ORIGINAL_NATIVE_WINDOWS_FIRST_USE_HOLD "+code+"\\n");
+  process.stdout.write("ADMIN03_ORIGINAL_NATIVE_WINDOWS_FIRST_USE_HOLD "+code+"\n");
   process.exitCode=1;
 }finally{
   if(base)rmSync(base,{recursive:true,force:true});
