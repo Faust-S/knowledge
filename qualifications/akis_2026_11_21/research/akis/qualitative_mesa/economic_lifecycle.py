@@ -31,7 +31,9 @@ _SCENARIOS = ("COOPERATION", "INDEPENDENT_ALTERNATIVE")
 
 # Only actual ORIGINAL Work actions can anchor an expense in the research
 # timeline. Some economic stages have no Work-scoped action in this Mesa.
-# Such source-declared costs remain classified but their dates stay UNKNOWN.
+# Source-declared costs without qualified trace anchors remain time-UNKNOWN.
+# A future-participation pause may CONTEXTUALIZE exit/switching costs only;
+# it can never be interpreted as actual contractual withdrawal.
 STAGE_WORK_EVENT_ACTIONS = {
     "PARTNER_SEARCH": frozenset({"request", "offer"}),
     "SOURCE_AND_IDENTITY_VERIFICATION": frozenset({"request", "authorize", "consent"}),
@@ -59,6 +61,7 @@ EVENT_COST_FIELDS = frozenset({
     "resource_use_id", "work", "owner", "source", "work_source_revision",
     "trace_position", "at", "action", "org_revision", "cost_evidence_ref",
 })
+FUTURE_PARTICIPATION_EVENT_COST_FIELDS = EVENT_COST_FIELDS | {"cooperation_link"}
 
 
 def review_timed_original_lifecycle_costs(
@@ -66,6 +69,7 @@ def review_timed_original_lifecycle_costs(
     sources: Mapping[str, Any], resource_index: Mapping[str, Any],
     works: Mapping[str, Any], trace: tuple[Mapping[str, Any], ...] | list[Mapping[str, Any]],
     allocated_by_work: Mapping[str, Any] | None,
+    cooperation_links: tuple[Any, ...] | list[Any] = (),
 ) -> dict[str, Any]:
     """Qualify source assertions against ONE original trace, never post new cash.
 
@@ -82,8 +86,11 @@ def review_timed_original_lifecycle_costs(
     by_work: dict[str, dict[str, dict[str, list[dict[str, Any]]]]] = {}
     indexed: list[dict[str, Any]] = []
     rework_qualified = 0
+    future_pause_costs = 0
+    link_index = {link.key: link for link in cooperation_links}
     for row in raw:
-        if not isinstance(row, dict) or set(row) != EVENT_COST_FIELDS:
+        if (not isinstance(row, dict) or
+                set(row) not in (EVENT_COST_FIELDS, FUTURE_PARTICIPATION_EVENT_COST_FIELDS)):
             raise LifecycleInputError("INVALID_LIFECYCLE_TIMED_BINDING_FIELDS")
         rid = _identifier(row["resource_use_id"], "INVALID_LIFECYCLE_TIMED_RESOURCE")
         work_id = _identifier(row["work"], "INVALID_LIFECYCLE_TIMED_WORK")
@@ -123,23 +130,60 @@ def review_timed_original_lifecycle_costs(
         if type(position) is not int or position < 0 or position >= len(trace):
             raise LifecycleInputError("LIFECYCLE_TIMED_TRACE_POSITION_INVALID")
         anchor = trace[position]
-        if (anchor.get("outcome") != "APPLIED"
-                or anchor.get("work") != work_id):
-            raise LifecycleInputError("LIFECYCLE_TIMED_APPLIED_ORIGINAL_WORK_EVENT_REQUIRED")
+        stage = binding["stage"]
+        contextual_pause = (stage == "RENEWAL_EXIT_AND_SWITCHING" and
+                            "cooperation_link" in row)
+        if contextual_pause:
+            # Existing relation-wide participation event, NOT a new Work
+            # event, legal exit or release of any accepted obligation.
+            link_id = row.get("cooperation_link")
+            if (not isinstance(link_id, str) or link_id not in link_index):
+                raise LifecycleInputError("LIFECYCLE_EXIT_ORIGINAL_RELATION_REQUIRED")
+            link = link_index[link_id]
+            if (work_id not in link.works or owner not in link.participants):
+                raise LifecycleInputError("LIFECYCLE_EXIT_WORK_OR_MEMBER_NOT_IN_ORIGINAL_RELATION")
+            if (original["scenario"] != "COOPERATION" or
+                    original["bucket"] != "EXIT" or original["work"] != work_id):
+                raise LifecycleInputError("LIFECYCLE_EXIT_ORIGINAL_COOPERATIVE_OWNER_COST_REQUIRED")
+            if action != "participation_status":
+                raise LifecycleInputError("LIFECYCLE_EXIT_ONLY_ORIGINAL_FUTURE_PARTICIPATION_PAUSE")
+            if anchor.get("action") != "participation_status":
+                raise LifecycleInputError("LIFECYCLE_EXIT_ORIGINAL_PARTICIPATION_ACTION_REQUIRED")
+            if anchor.get("outcome") != "APPLIED":
+                raise LifecycleInputError("LIFECYCLE_EXIT_APPLIED_PARTICIPATION_PAUSE_REQUIRED")
+            if (anchor.get("actor") != owner or
+                    anchor.get("participation_link") != link_id or
+                    anchor.get("participation_relation_revision") != link.source_revision or
+                    anchor.get("participation_value") != "PAUSED_NEW_WORK"):
+                raise LifecycleInputError("LIFECYCLE_EXIT_ORIGINAL_OWNER_PAUSE_AND_REVISION_REQUIRED")
+            earlier_commit = any(
+                event.get("outcome") == "APPLIED" and
+                event.get("work") == work_id and
+                event.get("action") == "commit" and
+                event.get("at", -1) < anchor.get("at", -1)
+                for event in trace[:position]
+            )
+            if not earlier_commit or getattr(work, "commitment_org_revision", None) is None:
+                raise LifecycleInputError("LIFECYCLE_EXIT_CANNOT_PRECEDE_ORIGINAL_WORK_COMMITMENT")
+        else:
+            if "cooperation_link" in row:
+                raise LifecycleInputError("LIFECYCLE_EXIT_RELATION_ONLY_FOR_FUTURE_PAUSE_STAGE")
+            if (anchor.get("outcome") != "APPLIED"
+                    or anchor.get("work") != work_id):
+                raise LifecycleInputError("LIFECYCLE_TIMED_APPLIED_ORIGINAL_WORK_EVENT_REQUIRED")
+            allowed_actions = STAGE_WORK_EVENT_ACTIONS[stage]
+            if not allowed_actions:
+                raise LifecycleInputError("LIFECYCLE_STAGE_HAS_NO_ORIGINAL_WORK_TIME_EVENT")
+            if action not in allowed_actions:
+                raise LifecycleInputError("LIFECYCLE_TIMED_STAGE_ACTION_CONTRADICTION")
+            if (stage == "CLAIMS_AND_REWORK" and action == "assess_result_quality"
+                    and anchor.get("quality_verdict") != "DOES_NOT_MEET"):
+                raise LifecycleInputError("LIFECYCLE_REWORK_REQUIRES_ORIGINAL_FAILURE_OR_CORRECTION")
         if (anchor.get("action") != action
                 or type(row["at"]) is not int or row["at"] != anchor.get("at")):
             raise LifecycleInputError("LIFECYCLE_TIMED_ORIGINAL_EVENT_ACTION_OR_TIME_MISMATCH")
         if row["org_revision"] != anchor.get("org_revision"):
             raise LifecycleInputError("LIFECYCLE_TIMED_ORG_REVISION_MISMATCH")
-        stage = binding["stage"]
-        allowed_actions = STAGE_WORK_EVENT_ACTIONS[stage]
-        if not allowed_actions:
-            raise LifecycleInputError("LIFECYCLE_STAGE_HAS_NO_ORIGINAL_WORK_TIME_EVENT")
-        if action not in allowed_actions:
-            raise LifecycleInputError("LIFECYCLE_TIMED_STAGE_ACTION_CONTRADICTION")
-        if (stage == "CLAIMS_AND_REWORK" and action == "assess_result_quality"
-                and anchor.get("quality_verdict") != "DOES_NOT_MEET"):
-            raise LifecycleInputError("LIFECYCLE_REWORK_REQUIRES_ORIGINAL_FAILURE_OR_CORRECTION")
         proof = row["cost_evidence_ref"]
         prefix = f"model://{owner}/"
         if (not isinstance(proof, str) or not proof.startswith(prefix)
@@ -159,6 +203,9 @@ def review_timed_original_lifecycle_costs(
             "cost_model_evidence_ref": proof,
             "anchor_is_not_cost_incurrence_or_cash_settlement_proof": True,
             "outside_option_action_was_not_executed": scenario == "INDEPENDENT_ALTERNATIVE",
+            "relation_future_pause_context_only": contextual_pause,
+            "future_pause_does_not_prove_legal_exit_switching_or_contract_discharge": True,
+            "original_accepted_work_obligations_unchanged": True,
         }
         indexed.append(item)
         by_work.setdefault(work_id, {}).setdefault(scenario, {}).setdefault(
@@ -166,6 +213,8 @@ def review_timed_original_lifecycle_costs(
         ).append(item)
         if stage == "CLAIMS_AND_REWORK":
             rework_qualified += 1
+        if contextual_pause:
+            future_pause_costs += 1
     rework_by_work = {
         work_id: sum(
             event.get("work") == work_id
@@ -182,6 +231,8 @@ def review_timed_original_lifecycle_costs(
         "original_lifecycle_timed_record_count": len(indexed),
         "timed_distinct_original_work_count": len(by_work),
         "source_declared_quality_rework_cost_record_count": rework_qualified,
+        "model_future_pause_exit_switching_cost_context_count": future_pause_costs,
+        "future_pause_never_certifies_actual_exit_or_old_contract_release": True,
         "original_applied_quality_rework_signal_count": sum(rework_by_work.values()),
         "source_declared_event_time_is_not_verified_cost_incurrence": True,
         "outside_alternative_has_no_original_executed_process_trace": True,
@@ -218,6 +269,7 @@ def classify_lifecycle_costs(
     works: Mapping[str, Any] | None = None,
     trace: tuple[Mapping[str, Any], ...] | list[Mapping[str, Any]] = (),
     allocated_by_work: Mapping[str, Any] | None = None,
+    cooperation_links: tuple[Any, ...] | list[Any] = (),
 ) -> dict[str, Any]:
     """Provide independent scoped owner comparisons but NO new money.
 
@@ -359,5 +411,6 @@ def classify_lifecycle_costs(
             sources=sources, resource_index=resource_index,
             works=works or {}, trace=trace,
             allocated_by_work=allocated_by_work,
+            cooperation_links=cooperation_links,
         )
     return response

@@ -1232,6 +1232,10 @@ class OperatorAKISModel(mesa.Model):
                     "original_work_timed_rework_source_cost_link_count": lifecycle_timing.get(
                         "source_declared_quality_rework_cost_record_count", 0
                     ),
+                    "original_work_future_pause_exit_cost_context_count": lifecycle_timing.get(
+                        "model_future_pause_exit_switching_cost_context_count", 0
+                    ),
+                    "future_pause_cannot_certify_legal_withdrawal_or_old_work_discharge": True,
                     "source_declared_lifecycle_timestamps_are_not_real_incurrence": True,
                     "lifecycle_private_cost_sources_and_event_dates_redisclosed": False,
                     "original_cost_records_classified": lifecycle.get(
