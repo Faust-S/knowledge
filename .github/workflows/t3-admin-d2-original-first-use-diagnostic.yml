@@ -166,32 +166,13 @@ jobs:
           $log=Join-Path $env:RUNNER_TEMP 'd2-private-compiled.log'
           $env:IWXA_T3_FIRST_USE_PROBE='1'
           & $exe d3-enroll $root $org $request *> $log
+          $exitCode=$LASTEXITCODE
           Remove-Item env:IWXA_T3_FIRST_USE_PROBE -ErrorAction SilentlyContinue
-          if($LASTEXITCODE -ne 0){
-            # Only original fixed machine labels may leave this runner.
+          if($exitCode -ne 0){
+            # Only fixed diagnostic stage markers may leave this runner.
             foreach($line in (Get-Content $log -ErrorAction SilentlyContinue)){
               $clean=([string]$line).Trim()
-              if($clean -match '^T3_D3_PROBE_(?:CLI_EVALUATED|CLI_D3_VERB_(?:TRUE|FALSE)|CLI_CAUGHT|STAGE_[A-Z_]+)
-              foreach($hit in [regex]::Matches([string]$line,
-                '(?<![A-Z0-9_])(?:T3_D3|WINDOWS|DPAPI|INTEROP)_[A-Z0-9_]{3,90}(?![A-Z0-9_])')){
-                $codes+=([string]$hit.Value)
-              }
-            }
-            $reason=if($codes.Count){$codes[-1]}else{
-              $found=@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object {$_ -match '\bENOENT\b'}).Count
-              if($found){'ENOENT'}else{'UNCLASSIFIED'}
-            }
-            Write-Host "D2_ORIGINAL_COMPILED_FIRST_USE_MACHINE_CODE $reason"
-            throw 'D2_ORIGINAL_COMPILED_FIRST_USE_HOLD'
-          }
-          $json=@(Get-Content -LiteralPath $log | Where-Object { $_ -match '^\{' } | Select-Object -Last 1)
-          if($json.Count -ne 1){throw 'D2_ORIGINAL_COMPILED_FIRST_USE_JSON_MISSING'}
-          $out=$json[0] | ConvertFrom-Json
-          if($out.operation -ne 'D3_ENROLLED' -or $out.view.status -ne 'D3_OWNER_READY'){
-            throw 'D2_ORIGINAL_COMPILED_FIRST_USE_READBACK_INVALID'
-          }
-          Write-Host 'D2_ORIGINAL_COMPILED_FIRST_USE_PASS'
-){
+              if($clean -match '^T3_D3_PROBE_(?:CLI_EVALUATED|CLI_D3_VERB_(?:TRUE|FALSE)|CLI_CAUGHT|STAGE_[A-Z_]+)$'){
                 Write-Host "D2_ORIGINAL_COMPILED_WITNESS $clean"
               }
             }
@@ -203,13 +184,17 @@ jobs:
               }
             }
             $reason=if($codes.Count){$codes[-1]}else{
-              $found=@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object {$_ -match '\bENOENT\b'}).Count
+              $found=@(Get-Content $log -ErrorAction SilentlyContinue |
+                Where-Object {$_ -match '\bENOENT\b'}).Count
               if($found){'ENOENT'}else{'UNCLASSIFIED'}
             }
             Write-Host "D2_ORIGINAL_COMPILED_FIRST_USE_MACHINE_CODE $reason"
             throw 'D2_ORIGINAL_COMPILED_FIRST_USE_HOLD'
           }
-          $out=Get-Content -LiteralPath $log -Raw | ConvertFrom-Json
+          $json=@(Get-Content -LiteralPath $log |
+            Where-Object {$_ -match '^\{'} | Select-Object -Last 1)
+          if($json.Count -ne 1){throw 'D2_ORIGINAL_COMPILED_FIRST_USE_JSON_MISSING'}
+          $out=$json[0] | ConvertFrom-Json
           if($out.operation -ne 'D3_ENROLLED' -or $out.view.status -ne 'D3_OWNER_READY'){
             throw 'D2_ORIGINAL_COMPILED_FIRST_USE_READBACK_INVALID'
           }
