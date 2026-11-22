@@ -146,7 +146,7 @@ jobs:
       - name: Test actual desktop/mobile T2 Host site entry
         working-directory: d04-private/site
         run: |
-          set -euo pipefail
+          set -uo pipefail
           node --input-type=module >"$RUNNER_TEMP/d04-home-browser.log" 2>&1 <<'NODE'
           import {createRequire} from 'node:module';
           import {resolve,join} from 'node:path';
@@ -174,6 +174,7 @@ jobs:
           }
           NODE
           code=$?
+          set -e
           if [ "$code" -ne 0 ]; then
             echo "D04_HOME_REAL_BROWSER=FAIL"
             grep -E '^D04_HOME_BROWSER_STAGE=' "$RUNNER_TEMP/d04-home-browser.log" | tail -3 || true
