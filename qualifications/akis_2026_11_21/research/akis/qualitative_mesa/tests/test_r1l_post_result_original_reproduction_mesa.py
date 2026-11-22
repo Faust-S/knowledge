@@ -277,3 +277,100 @@ def test_r1l_cannot_enable_lifecycle_without_formational_human_review():
     d["general_akis"]["enforce_model_formation_agent_review"] = False
     with pytest.raises(ValueError, match="FORMATION_LIFECYCLE_REQUIRES_ORIGINAL_AGENT_REVIEW"):
         simulate(d)
+
+
+def quality_lifecycle_case(*, deficient=False, missing_assessment=False):
+    """Evidence-grounded quality gate, not automatically accepted Result."""
+    d = two_cycle_lifecycle_case(adverse=deficient)
+    work_specs = {
+        "w1": next(x for x in d["events"]
+                   if x["action"] == "request" and x["at"] == 1)["work_spec"],
+        "w2": next(x for x in d["events"]
+                   if x["action"] == "request" and x["at"] == 34)["work_spec"],
+    }
+    for key, spec in work_specs.items():
+        spec["assurance_criteria"] = [{
+            "id": "quality-criterion", "dimension": "DELIVERABLE_CONFORMITY",
+            "operation": "WORK", "responsible_owner": "a", "assessor": "b",
+            "method": "FUNCTIONAL_TEST",
+            "source_ref": f"model://b/criterion-{key}",
+            "source_revision": spec["source_revision"],
+        }]
+    # A result assessment must precede each independent customer decision.
+    for row in d["events"]:
+        if row["at"] >= 29:
+            row["at"] += 1
+        if row["action"] == "participation_status":
+            row["evaluated_decision_at"] = 30
+    d["events"].append({
+        "at": 29, "action": "assess_result_quality", "actor": "b",
+        "work": "w1", "criterion": "quality-criterion",
+        "quality_verdict": (
+            "DOES_NOT_MEET" if deficient else "MEETS_DECLARED_REQUIREMENT"
+        ),
+        "quality_evidence_ref": "model://b/quality-w1-inspection",
+        "result_ref": "model://w1-result",
+        "source_revision": "d-1", "org_revision": "oc-1",
+    }) if not missing_assessment else None
+    # Existing second result now arrives at 59 and would be accepted at 60.
+    next(row for row in d["events"]
+         if row["action"] == "accept" and row["work"] == "w2")["at"] = 61
+    d["events"].append({
+        "at": 60, "action": "assess_result_quality", "actor": "b",
+        "work": "w2", "criterion": "quality-criterion",
+        "quality_verdict": "MEETS_DECLARED_REQUIREMENT",
+        "quality_evidence_ref": "model://b/quality-w2-inspection",
+        "result_ref": "model://w2-result",
+        "source_revision": "d-2", "org_revision": "oc-1",
+    })
+    if deficient:
+        next(row for row in d["events"]
+             if row["action"] == "accept" and row["work"] == "w1")[
+                 "action"] = "reject"
+    d["events"].sort(key=lambda event: event["at"])
+    d["model_horizon"] = 72
+    return d
+
+
+def test_r1l_two_cycles_require_separate_customer_quality_assessments():
+    d = quality_lifecycle_case()
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, out["trace"]
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert [row["work"] for row in trace_for(out, "assess_result_quality")] == [
+        "w1", "w2"
+    ]
+    assert out["works"]["w1"]["assurance"]["model_reported_met_count"] == 1
+    assert out["works"]["w2"]["assurance"]["model_reported_met_count"] == 1
+    assert out["works"]["w1"]["assurance"][
+        "independent_real_quality_certification"] == "NOT_ESTABLISHED"
+    assert out["profit"]["system_increment"] == "UNKNOWN"
+    assert out == simulate(deepcopy(d))
+
+
+def test_r1l_failed_original_quality_can_trigger_rejection_and_independent_pause():
+    d = quality_lifecycle_case(deficient=True)
+    out = simulate(d)
+    assert out["counts"]["blocked"] >= 1, out["trace"]
+    assert find(out, "assess_result_quality", work="w1")[0]["outcome"] == "APPLIED"
+    assert out["works"]["w1"]["result"] == "REJECTED"
+    assert find(out, "participation_status", actor="a")[0][
+        "participation_value"] == "PAUSED_NEW_WORK"
+    assert find(out, "request", work="w2")[0]["outcome"] == "BLOCKED"
+    assert "w2" not in out["works"]
+    assert out["works"]["w1"]["obligation"] == "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+    assert out["profit"]["system_increment"] == "UNKNOWN"
+
+
+def test_r1l_unverified_quality_blocks_acceptance_and_cannot_qualify_next_cycle():
+    d = quality_lifecycle_case(missing_assessment=True)
+    out = simulate(d)
+    assert find(out, "accept", work="w1")[0]["reason"] == (
+        "QUALITY_ORIGINAL_ASSESSMENT_MISSING"
+    )
+    assert out["works"]["w1"]["result"] == "SUBMITTED"
+    assert find(out, "request", work="w2")[0]["reason"] == (
+        "FORMATION_FOLLOWUP_ACCEPTED_PILOT_RESULT_REQUIRED"
+    )
+    assert "w2" not in out["works"]
