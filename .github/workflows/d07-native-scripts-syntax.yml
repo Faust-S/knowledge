@@ -62,6 +62,13 @@ jobs:
             throw 'D07_NATIVE_IMPORT_EXACT_ORDER_READBACK_GUARD_INVALID'
           }
           Write-Output 'D07_NATIVE_IMPORT_EXACT_ORDER_READBACK_GUARD=PASS'
+          if(!$import.Contains('D07_IMPORT_NATIVE_FIRST_TAB_FOCUS_TYPE=') -or
+             !$import.Contains('D07_IMPORT_NATIVE_FILE_CHOOSER_USED=TRUE') -or
+             !$import.Contains('D07_IMPORT_NATIVE_FILE_CONTROL_NOT_ACTIVATED') -or
+             !$import.Contains('D07_IMPORT_NATIVE_FILE_FOCUS_WRONG_CONTROL')){
+            throw 'D07_NATIVE_IWXA_REAL_FILE_CHOOSER_GUARD_MISSING'
+          }
+          Write-Output 'D07_NATIVE_IWXA_REAL_FILE_CHOOSER_GUARD=PASS'
           & node --check 'scripts/d07-verify-integrated-all-service-cards.mjs'
           if($LASTEXITCODE -ne 0){throw 'D07_INTEGRATED_ALL_CARDS_CHECKER_SYNTAX_FAILED'}
           Write-Output 'D07_INTEGRATED_ALL_CARDS_CHECKER_SYNTAX=PASS'
