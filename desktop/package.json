@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "desktop": "tauri",
     "desktop:dev": "npm run brand:icon && tauri dev",
-    "desktop:build": "npm run brand:icon && tauri build --no-bundle",
+    "desktop:build": "npm run brand:icon && npm run build:host-surface && tauri build --no-bundle",
     "brand:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File installer/build-brand-icon.ps1",
     "build:host-surface": "tsc --noEmit && vite build --config vite.host.config.ts"
   },

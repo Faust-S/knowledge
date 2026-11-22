@@ -6,6 +6,15 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $exe = [IO.Path]::GetFullPath($Executable)
 if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'INSTALLED_EXE_MISSING' }
+$hostAssets = @('iwxa-activity-host-surface.js','iwxa-activity-host-surface.css','brand.svg')
+foreach ($name in $hostAssets) {
+    $asset=Join-Path (Join-Path (Split-Path -Parent $exe) 'host-surface') $name
+    if (!(Test-Path -LiteralPath $asset -PathType Leaf) -or
+        (Get-Item -LiteralPath $asset).Length -eq 0) {
+        throw 'INSTALLED_ACTIVITY_TRUSTED_SURFACE_ASSET_MISSING'
+    }
+}
+Write-Host 'IWXA_ACTIVITY_INSTALLED_HOST_ASSETS_PASS trusted_owner_connection=NOT_ESTABLISHED'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 

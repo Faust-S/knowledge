@@ -147,5 +147,26 @@ class DesktopContract(unittest.TestCase):
         self.assertIn("external: ['react', 'react-dom/client', 'react/jsx-runtime']", config)
         self.assertNotRegex(source, r"\bfetch\s*\(|WebSocket|window\.open|signedAccess|grant_id")
 
+    def test_host_surface_is_part_of_native_setup_core_payload(self):
+        package = json.loads((DESKTOP / "package.json").read_text("utf-8"))
+        self.assertIn("npm run build:host-surface", package["scripts"]["desktop:build"])
+        build = (DESKTOP / "installer/build-setup-core.ps1").read_text("utf-8")
+        self.assertIn("desktop/dist-host-surface", build)
+        for filename in ("iwxa-activity-host-surface.js", "iwxa-activity-host-surface.css", "brand.svg"):
+            self.assertIn(filename, build)
+        self.assertIn("IWXA_ACTIVITY_HOST_SURFACE_BUILD_MISSING", build)
+        self.assertIn("IWXA_ACTIVITY_HOST_SURFACE_OUTPUT_UNEXPECTED", build)
+        self.assertIn("$payload 'host-surface'", build)
+        self.assertIn("IWXA_ACTIVITY_INSTALLED_HOST_SURFACE_INTEGRITY_FAILED", build)
+        self.assertIn("Get-FileHash", build)
+        self.assertNotIn("Invoke-WebRequest", build)
+        ui = (DESKTOP / "tests/installed-windows-ui.ps1").read_text("utf-8-sig")
+        self.assertIn("IWXA_ACTIVITY_INSTALLED_HOST_ASSETS_PASS", ui)
+        self.assertIn("INSTALLED_ACTIVITY_TRUSTED_SURFACE_ASSET_MISSING", ui)
+        # A local ES module does not grant native rights or bind a T3 signer.
+        main = (DESKTOP / "src-tauri/src/main.rs").read_text("utf-8")
+        self.assertNotIn("invoke_handler", main)
+        self.assertIn("<App />", (DESKTOP / "src/main.tsx").read_text("utf-8"))
+
 if __name__ == "__main__":
     unittest.main()

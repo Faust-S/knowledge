@@ -24,6 +24,25 @@ $stubBuilder = Join-Path $core 'installer/windows/build-stub.ps1'
 $icon = Join-Path $root 'desktop/src-tauri/icons/icon.ico'
 $exe = Join-Path $root 'desktop/src-tauri/target/release/iwxa-activity-base-desktop.exe'
 $conf = Join-Path $root 'desktop/src-tauri/tauri.conf.json'
+# Build the already existing React Host surface as inert distributable files.
+# No Control keys, D2 records or signed native provider enter this payload.
+$hostDir = Join-Path $root 'desktop/dist-host-surface'
+$hostFiles = @('iwxa-activity-host-surface.js','iwxa-activity-host-surface.css','brand.svg')
+if (!(Test-Path -LiteralPath $hostDir -PathType Container)) { throw 'IWXA_ACTIVITY_HOST_SURFACE_BUILD_MISSING' }
+$found = @(Get-ChildItem -LiteralPath $hostDir -File -Recurse | ForEach-Object {
+    $_.FullName.Substring($hostDir.Length + 1).Replace([IO.Path]::DirectorySeparatorChar, '/')
+})
+if ($found.Count -ne $hostFiles.Count -or
+    @($found | Where-Object { $hostFiles -cnotcontains $_ }).Count -gt 0) {
+    throw 'IWXA_ACTIVITY_HOST_SURFACE_OUTPUT_UNEXPECTED'
+}
+foreach ($asset in $hostFiles) {
+    $file = Join-Path $hostDir $asset
+    if (!(Test-Path -LiteralPath $file -PathType Leaf) -or
+        (Get-Item -LiteralPath $file).Length -eq 0) {
+        throw 'IWXA_ACTIVITY_HOST_SURFACE_ASSET_MISSING'
+    }
+}
 foreach ($file in @($profile,$build,$stubBuilder,$icon,$exe,$conf)) {
     if (!(Test-Path -LiteralPath $file -PathType Leaf)) { throw "IWXA_ACTIVITY_SETUP_INPUT_MISSING $file" }
 }
@@ -43,6 +62,14 @@ $payload = Join-Path $temporary 'payload'
 New-Item -ItemType Directory -Path $payload -Force | Out-Null
 try {
     Copy-Item -LiteralPath $exe -Destination (Join-Path $payload $product.entrypoint)
+    # The EXISTING Setup Core package manifest hashes and owns all three
+    # files. Install them alongside the standalone executable, not as a
+    # separate T3 app/Host or a writable credential directory.
+    $hostPayload = Join-Path $payload 'host-surface'
+    New-Item -ItemType Directory -Path $hostPayload -Force | Out-Null
+    foreach ($asset in $hostFiles) {
+        Copy-Item -LiteralPath (Join-Path $hostDir $asset) -Destination (Join-Path $hostPayload $asset)
+    }
     $stub = Join-Path $temporary 'setup-core.exe'
     & $stubBuilder -Output $stub -Icon $icon
     if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $stub -PathType Leaf)) { throw 'SETUP_CORE_STUB_BUILD_FAILED' }
@@ -90,6 +117,16 @@ try {
         if ($locations.status -ne 'LOCATIONS_VERIFIED' -or !(Test-Path -LiteralPath $installedExe -PathType Leaf)) {
             throw 'INSTALLED_EXECUTABLE_UNAVAILABLE'
         }
+        foreach ($asset in $hostFiles) {
+            $original = Join-Path $hostDir $asset
+            $installedAsset = Join-Path (Join-Path $locations.programRoot 'host-surface') $asset
+            if (!(Test-Path -LiteralPath $installedAsset -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash -ne
+                (Get-FileHash -LiteralPath $installedAsset -Algorithm SHA256).Hash) {
+                throw 'IWXA_ACTIVITY_INSTALLED_HOST_SURFACE_INTEGRITY_FAILED'
+            }
+        }
+        Write-Host "IWXA_ACTIVITY_INSTALLED_HOST_SURFACE_PASS files=$($hostFiles.Count) signedOwner=NOT_CONNECTED"
         Write-Host "IWXA_ACTIVITY_NATIVE_INSTALL_PASS exe=$installedExe"
     }
 } finally {
