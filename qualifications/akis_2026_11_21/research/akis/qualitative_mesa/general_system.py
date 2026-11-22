@@ -142,7 +142,12 @@ class ModelFormationPolicy:
         return bool(work.resource_requirements) and all(
             getattr(state.capacity_ledger.specs.get(need.resource),
                     "basis", None) == "MODEL_DECLARED" and
-            state.resource_availability_origin.get(need.resource) == "MODEL_INPUT" and
+            # Initial declared evidence and later APPLIED original owner's
+            # resource_status are both model-scoped. A blocked/foreign event
+            # cannot set MODEL_EVENT in the original rule handler.
+            state.resource_availability_origin.get(need.resource) in {
+                "MODEL_INPUT", "MODEL_EVENT"
+            } and
             state.resource_availability.get(need.resource) == "AVAILABLE"
             for need in work.resource_requirements
         )
