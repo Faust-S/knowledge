@@ -1,0 +1,170 @@
+name: D07 RC105 private hosting ZIP qualification
+on:
+  push:
+    branches: [work/2026-11-22-d07-methodology-v13]
+    paths: [.github/workflows/d07-hosting-rc105.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-hosting-rc105-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build-and-prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      SITE_SHA: 92e221461bf25157d04608c721fc84f17be23b4e
+      SUBJECT_SHA: 001c81cd590c59b0383d6062f8bfa70ca78eba1c
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+      CI: "true"
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      PUPPETEER_SKIP_DOWNLOAD: "1"
+      GIT_TERMINAL_PROMPT: "0"
+    steps:
+      - name: Check out public qualification runner
+        uses: actions/checkout@v4
+        with:
+          path: public-checks
+          persist-credentials: false
+      - name: Check out exact private release candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 92e221461bf25157d04608c721fc84f17be23b4e
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Check out exact private subject source for parity
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: 001c81cd590c59b0383d6062f8bfa70ca78eba1c
+          token: ${{ secrets.DOMEN }}
+          path: subject
+          persist-credentials: false
+      - name: Check out unmodified original T2
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          path: t2
+          persist-credentials: false
+      - name: Confirm frozen revisions and subject/site parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C site rev-parse HEAD)" = "$SITE_SHA"
+          test "$(git -C subject rev-parse HEAD)" = "$SUBJECT_SHA"
+          test "$(git -C t2 rev-parse HEAD)" = "$T2_SHA"
+          for file in service-subject-protocols.ts service-subject-data-recovery.ts service-subject-contextual-ads.ts; do
+            cmp "subject/src/domain/$file" "site/src/domain/$file"
+          done
+          cmp subject/src/data/services/kompyutery-it-sayty/vosstanovlenie-dannyh.ts site/src/data/services/kompyutery-it-sayty/vosstanovlenie-dannyh.ts
+          cmp subject/src/data/services/marketing-reklama-prodazhi/kontekstnaya-reklama.ts site/src/data/services/marketing-reklama-prodazhi/kontekstnaya-reklama.ts
+          test -f site/release/D07_INTERIM_HOSTING_RC105_2026_11_22_RU.md
+          echo D07_RC105_PINNED_SOURCE=PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - name: Prepare exact dependencies and basic tests
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-hosting-install.private.log" 2>&1 || { echo D07_RC105_INSTALL=FAIL; exit 1; }
+          echo D07_RC105_INSTALL=PASS
+          npm run check:types > "$RUNNER_TEMP/d07-hosting-types.private.log" 2>&1 || { echo D07_RC105_TYPES=FAIL; exit 1; }
+          echo D07_RC105_TYPES=PASS
+          node --test scripts/tests/d07-hosting-package.test.mjs > "$RUNNER_TEMP/d07-hosting-audit-unit.private.log" 2>&1 || { echo D07_RC105_AUDIT_UNIT=FAIL; exit 1; }
+          echo D07_RC105_AUDIT_UNIT=PASS
+      - name: Build one final site and original T2 dist using the standard build
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          npm run build > "$RUNNER_TEMP/d07-hosting-build.private.log" 2>&1 || {
+            echo D07_RC105_BUILD=FAIL
+            grep -oE 'D07_[A-Z0-9_]+' "$RUNNER_TEMP/d07-hosting-build.private.log" | sort -u | tail -12 || true
+            exit 1
+          }
+          echo D07_RC105_BUILD=PASS
+          test -f dist/.htaccess
+          test -f dist/_iwxa/runtime/0.3.6/runtime.js
+          test -f dist/workspace/exchange/index.html
+          test -f dist/uslugi/marketing-reklama-prodazhi/kontekstnaya-reklama/index.html
+          test -f dist/uslugi/kompyutery-it-sayty/vosstanovlenie-dannyh/index.html
+          echo D07_RC105_ONE_DIST_T2=PASS
+      - name: Audit entire physical package, all individual cards and T2 source identity
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          node scripts/audit-d07-hosting-package.mjs > "$RUNNER_TEMP/d07-hosting-audit.private.log" 2>&1 || {
+            echo D07_RC105_HOSTING_AUDIT=FAIL
+            grep -oE 'D07_HOSTING_[A-Z0-9_]+' "$RUNNER_TEMP/d07-hosting-audit.private.log" | head -5 || true
+            exit 1
+          }
+          echo D07_RC105_HOSTING_AUDIT=PASS
+          node --import tsx ../public-checks/scripts/d07-verify-integrated-all-service-cards.mjs "$PWD" | grep -E '^D07_INTEGRATED_(ALL_SUBJECT_CARD_HTML|FULL_CARD_COUNT|DISPLAYED_OPERATIONS)='
+          echo D07_RC105_105_CARDS_IN_ORIGINAL_T2=PASS
+      - name: Check upload-relevant static links and SEO
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          for check in assets htaccess no-localhost links seo; do
+            if npm run "check:$check" > "$RUNNER_TEMP/d07-hosting-$check.private.log" 2>&1; then
+              echo "D07_RC105_CHECK_$(echo "$check"|tr 'a-z-' 'A-Z_')=PASS"
+            else
+              echo "D07_RC105_CHECK_$(echo "$check"|tr 'a-z-' 'A-Z_')=FAIL"
+              exit 1
+            fi
+          done
+      - name: Create candidate ZIP with hidden files and verify extracted bytes
+        shell: bash
+        working-directory: site
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/uslugovod-rc105-2026-11-22-static.zip"
+          (cd dist && zip -q -r -X "$archive" .)
+          unzip -Z -1 "$archive" | grep -Eq '^(./)?\.htaccess$' || { echo D07_RC105_ZIP_HTACCESS_MISSING; exit 1; }
+          mkdir -p "$RUNNER_TEMP/d07-rc105-extracted"
+          unzip -qq "$archive" -d "$RUNNER_TEMP/d07-rc105-extracted"
+          cmp dist/.htaccess "$RUNNER_TEMP/d07-rc105-extracted/.htaccess"
+          node scripts/audit-d07-hosting-package.mjs --dist "$RUNNER_TEMP/d07-rc105-extracted" > "$RUNNER_TEMP/d07-hosting-extract-audit.private.log" 2>&1 || { echo D07_RC105_EXTRACTED_AUDIT=FAIL; exit 1; }
+          echo D07_RC105_EXTRACTED_AUDIT=PASS
+          sha256sum "$archive" > "$RUNNER_TEMP/uslugovod-rc105-2026-11-22-static.zip.sha256"
+          echo "D07_RC105_ZIP_SHA256=$(cut -d ' ' -f1 "$RUNNER_TEMP/uslugovod-rc105-2026-11-22-static.zip.sha256")"
+          echo "D07_RC105_ZIP_BYTES=$(stat -c '%s' "$archive")"
+          echo D07_RC105_ZIP_COMPLETE=PASS
+      - name: Deposit candidate ZIP only in a draft release of the private site repository
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then echo D07_RC105_PRIVATE_HANDOFF=BLOCKED_NO_TOKEN; exit 1; fi
+          private=$(gh api repos/Faust-S/uslugovod.ru --jq '.private')
+          if [ "$private" != "true" ]; then echo D07_RC105_PRIVATE_HANDOFF=BLOCKED_TARGET_NOT_PRIVATE; exit 1; fi
+          tag="d07-rc105-hosting-2026-11-22"
+          zip="$RUNNER_TEMP/uslugovod-rc105-2026-11-22-static.zip"
+          checksum="$zip.sha256"
+          printf 'D07 RC105 interim hosting candidate\nSITE=%s\nSUBJECT=%s\nT2=%s\nORIGIN=https://uslugovod.ru\nMODE=static, non-production, original T2\nINDEPENDENT_IMPORT=qualification follow-up required\n' "$SITE_SHA" "$SUBJECT_SHA" "$T2_SHA" > "$RUNNER_TEMP/d07-rc105-provenance.txt"
+          if gh release view "$tag" --repo Faust-S/uslugovod.ru >/dev/null 2>&1; then
+            gh release upload "$tag" "$zip" "$checksum" "$RUNNER_TEMP/d07-rc105-provenance.txt" --clobber --repo Faust-S/uslugovod.ru >/dev/null
+          else
+            gh release create "$tag" "$zip" "$checksum" "$RUNNER_TEMP/d07-rc105-provenance.txt" \
+              --draft --target "$SITE_SHA" \
+              --title 'D07 Uslugovod RC105 interim hosting candidate' \
+              --notes 'One integrated original T2 static hosting package. Draft only: independent updated native import and customer acceptance remain separate. Do not deploy before owner decision.' \
+              --repo Faust-S/uslugovod.ru >/dev/null
+          fi
+          echo D07_RC105_PRIVATE_DRAFT_RELEASE=PASS
+      # Closed code, dist, ZIP and runner output are never uploaded as artifacts
+      # or committed into public knowledge. A private draft release is the only handoff.
