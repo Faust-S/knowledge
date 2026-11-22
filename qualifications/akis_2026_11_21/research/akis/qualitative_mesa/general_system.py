@@ -486,3 +486,225 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
         "common_cash_ledger_created": False,
         "new_agent_runtime_created": False,
     }
+
+def original_nine_component_cycle_evidence(
+    design: GeneralSystemDesign, original: Any,
+    final_output: Mapping[str, Any], *, future_needs: tuple[Any, ...],
+) -> dict[str, Any]:
+    """Evaluate ONE original Work->Result->next-need/capability sequence.
+
+    A scientific witness only: all sources, ownership, time, actions, and
+    subsequent Work must already exist in the original Mesa. This projection
+    cannot create an agent, permission, contract, Work, future demand or cash.
+    Report individual Work identifiers only in the private research section.
+    """
+    general = final_output["general_akis_model"]
+    if tuple(general["components"]) != COMPONENTS:
+        raise GeneralSystemInputError("AKIS_NINE_AUTHOR_COMPONENTS_CHANGED")
+    events = [event for event in original.trace if event.get("outcome") == "APPLIED"]
+    accepted_at: dict[str, int] = {}
+    requested_at: dict[str, int] = {}
+    original_committed_at: dict[str, int] = {}
+    for event in events:
+        work_id = event.get("work")
+        if work_id not in original.works:
+            continue
+        work = original.works[work_id]
+        action = event.get("action")
+        at = event.get("at")
+        if type(at) is not int:
+            continue
+        if action == "request" and event.get("actor") == work.customer:
+            requested_at.setdefault(work_id, at)
+        if action == "commit":
+            original_committed_at.setdefault(work_id, at)
+        if (action == "accept" and event.get("actor") == work.customer
+                and work.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"):
+            accepted_at[work_id] = at
+
+    # The source record alone is not a later need: it must have an explicit,
+    # unchanged original Work, a later original CUSTOMER request and a
+    # time-qualified SOURCE_ACTIVE projection from the same Mesa scheduler.
+    # Source expiry after the request cannot rewrite the historical trace.
+    need_history = final_output.get("future_need_dynamics", {}).get(
+        "read_only_evolution", []
+    )
+    need_current = {
+        row["need"]: row for row in final_output.get(
+            "future_need_dynamics", {}
+        ).get("current", {}).get("needs", [])
+    }
+    need_witnesses = []
+    for need in future_needs:
+        if not need.prerequisite_results:
+            continue
+        later = original.works.get(need.work.key)
+        req_at = requested_at.get(need.work.key)
+        source_in_window = (
+            req_at is not None and need.available_at <= req_at < need.expires_at
+        )
+        same_original_work = (
+            later is not None and later.customer == need.owner
+            and later.source_revision == need.work.source_revision
+            and later.resource_requirements == need.work.resource_requirements
+            and later.slot_start == need.work.slot_start
+            and later.slot_end == need.work.slot_end
+            and later.operations == need.work.operations
+        )
+        prerequisites_valid = all(
+            predecessor in accepted_at and
+            original.works[predecessor].source_revision == revision and
+            (req_at is not None and accepted_at[predecessor] < req_at)
+            for predecessor, revision in need.prerequisite_results
+        )
+        source_active_at_original_request = any(
+            point["at"] == float(req_at) and
+            any(
+                row["need"] == need.key
+                and row["status"] == "SOURCE_ACTIVE_FOR_RESEARCH"
+                and row["original_work_request_confirmed"]
+                for row in point["projection"]["needs"]
+            )
+            for point in need_history
+        ) if req_at is not None else False
+        qualified = bool(
+            source_in_window and same_original_work and prerequisites_valid
+            and source_active_at_original_request
+        )
+        need_witnesses.append({
+            "declared_future_need": need.key,
+            "original_customer": need.owner,
+            "later_original_work": need.work.key,
+            "original_customer_request_at": req_at,
+            "original_prerequisite_work_ids": [
+                pred for pred, _ in need.prerequisite_results
+            ],
+            "source_active_at_request": source_active_at_original_request,
+            "source_revision_and_scope_preserved": bool(same_original_work),
+            "all_prior_results_accepted_before_request": prerequisites_valid,
+            "research_causal_sequence": (
+                "MODEL_SOURCE_DECLARED_RESULT_TO_LATER_ORIGINAL_CUSTOMER_REQUEST"
+                if qualified else
+                "NO_QUALIFIED_RESULT_TO_REQUEST_LINK"
+            ),
+            "later_original_work_accepted": (
+                qualified and need.work.key in accepted_at
+            ),
+            "need_is_independent_owner_declaration_not_endogenously_created": True,
+            "original_request_is_not_automatically_generated_by_need": True,
+            "currently_reviewable_after_history": (
+                need_current.get(need.key, {}).get("status")
+                == "SOURCE_ACTIVE_FOR_RESEARCH"
+            ),
+        })
+
+    # Learning/reproduction requires both an original comparable reuse
+    # sequence and a later ORIGINAL owner adoption event; a measured-looking
+    # claim or declaration alone cannot change the ability of an enterprise.
+    reusable = {
+        row["id"]: row
+        for row in final_output.get("competence_reuse_dynamics", {}).get("links", [])
+        if row["model_claim_status"] == "MODEL_REPORTED_COMPARABLE_REUSE_SEQUENCE"
+    }
+    capability_witnesses = []
+    for cap in final_output.get("capability_dynamics", {}).get("declarations", []):
+        reuse = reusable.get(cap["reuse_claim"])
+        at = cap["original_owner_event_applied_at"]
+        adopted_with_prior_result = bool(
+            reuse is not None and at is not None
+            and reuse["prior_work"] in accepted_at
+            and accepted_at[reuse["prior_work"]] < at
+            and reuse["later_work"] in accepted_at
+            and accepted_at[reuse["later_work"]] < at
+        )
+        follow_on = sorted(
+            work_id for work_id in cap["authorized_follow_on_work_ids"]
+            if work_id in original_committed_at
+            and original_committed_at[work_id] > at
+            and work_id in accepted_at
+            and accepted_at[work_id] > original_committed_at[work_id]
+        ) if adopted_with_prior_result else []
+        capability_witnesses.append({
+            "original_resource_owner": cap["original_owner"],
+            "model_capability_declaration": cap["id"],
+            "original_owner_adopted_at": at,
+            "matched_source_declared_comparable_reuse": bool(reuse),
+            "adoption_after_prior_accepted_results": adopted_with_prior_result,
+            "later_original_accepted_work_ids": follow_on,
+            "model_reproduction_sequence": (
+                "ORIGINAL_ACCEPTED_RESULT_REUSE_OWNER_ADOPTION_AND_LATER_ACCEPTED_WORK"
+                if follow_on and cap["available_for_new_original_work"]
+                else "NO_QUALIFIED_CURRENT_CAPABILITY_TO_ACCEPTED_WORK_SEQUENCE"
+            ),
+            "owner_declared_capacity_not_field_verified": True,
+            "no_new_original_work_or_permission_created": True,
+        })
+
+    accepted_results = len(accepted_at)
+    requested_count = len(requested_at)
+    committed_count = len(original_committed_at)
+    linked_needs = sum(
+        row["research_causal_sequence"]
+        == "MODEL_SOURCE_DECLARED_RESULT_TO_LATER_ORIGINAL_CUSTOMER_REQUEST"
+        for row in need_witnesses
+    )
+    accepted_follow_on = sum(
+        row["later_original_work_accepted"] for row in need_witnesses
+    )
+    current_capacity_sequences = sum(
+        row["model_reproduction_sequence"]
+        == "ORIGINAL_ACCEPTED_RESULT_REUSE_OWNER_ADOPTION_AND_LATER_ACCEPTED_WORK"
+        for row in capability_witnesses
+    )
+    components = general["components"]
+    # All nine remain distinct. This is a *component coverage diagnosis*, not
+    # a substitute for the author's full A=F(P,OC,KPB) or eight executable
+    # formation phases. Any positive fragment still fails scientific closure.
+    current_partial_observation = {
+        "Ц": bool(components["Ц"]["current_independent_goal_claims"]
+                  or future_needs),
+        "У": bool(components["У"]["current_original_subjects"]),
+        "А": bool(components["А"]["bounded_process_computations"]),
+        "П": bool(requested_count or committed_count),
+        "КПБ": bool(components["КПБ"]["model_source_scoped_cores"]),
+        "ОК": bool(components["ОК"]["model_13_control_predicates_active"]),
+        "КЖ": bool(accepted_results),
+        "Э": bool(final_output.get("economics")),
+        "ЖЦ": bool(linked_needs or current_capacity_sequences),
+    }
+    assert tuple(current_partial_observation) == COMPONENTS
+    return {
+        "private_research_witnesses": {
+            "source_declared_follow_on_need_links": need_witnesses,
+            "owner_adopted_capability_reuse_links": capability_witnesses,
+            "contains_owner_work_and_model_source_identifiers": True,
+            "safe_for_cross_enterprise_publication": False,
+        },
+        "shared_summary": {
+            "schema": "AKIS_NINE_COMPONENT_ORIGINAL_CYCLE_EVIDENCE/0.1",
+            "component_order": list(COMPONENTS),
+            "nine_component_model_partially_observed": {
+                key: bool(value) for key, value in current_partial_observation.items()
+            },
+            "original_customer_request_event_count": requested_count,
+            "original_accepted_work_commit_event_count": committed_count,
+            "original_recipient_accepted_result_event_count": accepted_results,
+            "owner_declared_result_dependent_future_need_count": len(need_witnesses),
+            "historical_result_to_owner_new_request_model_link_count": linked_needs,
+            "accepted_follow_on_original_work_link_count": accepted_follow_on,
+            "owner_adopted_result_to_future_accepted_work_model_link_count": (
+                current_capacity_sequences
+            ),
+            "seven_constitutive_signs_fully_qualified": False,
+            "all_eight_formation_phases_executable": False,
+            "author_agent_A_F_P_OC_KPB_executable": False,
+            "all_nine_component_original_causal_closure_proven": False,
+            "full_real_lifecycle_or_causal_value_added_proven": False,
+            "source_declared_need_is_not_generated_demand": True,
+            "accepted_result_is_not_automatic_payment": True,
+            "independent_original_principal_decisions_preserved": True,
+            "original_cost_and_cash_ledgers_unchanged": True,
+            "owner_work_source_capability_and_timestamps_redisclosed": False,
+            "readiness": "PARTIAL_ORIGINAL_SYSTEM_CAUSAL_FRAGMENTS_NOT_WHOLE_AKIS",
+        },
+    }

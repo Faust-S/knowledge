@@ -37,7 +37,10 @@ from .joint_purchasing import (
     review_original_joint_purchase_ancillary,
 )
 from .partner_discovery import DiscoveryInputError, parse_discovery, parse_formation_finance, discover
-from .general_system import GeneralSystemInputError, parse_general_system, general_system_view
+from .general_system import (
+    GeneralSystemInputError, parse_general_system, general_system_view,
+    original_nine_component_cycle_evidence,
+)
 from .org_code_policy import OrgCodeInputError, parse_org_code_policy
 from .economic_flow import EconomicInputError, evaluate_economic_claims
 from .competence_reuse import ReuseInputError, evaluate_competence_reuse
@@ -1434,6 +1437,23 @@ class OperatorAKISModel(mesa.Model):
                 "internal_operator_reimbursements_cannot_create_network_value": True,
                 "real_profit_or_liquidity_authenticated": False,
             }
+        if self.general_akis_enabled:
+            # Joint diagnosis of ALL NINE original author components from the
+            # already-completed ONE Mesa trace, quality Result, owner-owned
+            # future needs, and original accepted competence/capability routes.
+            # It never writes a Work, original consent, event, cash or source.
+            cycle = original_nine_component_cycle_evidence(
+                self.general_design, self.qualitative, output,
+                future_needs=self.future_needs,
+            )
+            output["general_akis_model"]["system_causal_cycle_feedback"] = cycle[
+                "shared_summary"
+            ]
+            # Work/owner-source details remain on the PRIVATE research output
+            # and must not be copied into the nine-component shared projection.
+            output["general_akis_private_cycle_evidence"] = cycle[
+                "private_research_witnesses"
+            ]
         return output
 
 
