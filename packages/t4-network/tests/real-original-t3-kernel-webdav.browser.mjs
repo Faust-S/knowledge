@@ -15,6 +15,8 @@ import {createT4OriginalExchangeHandoff}
   from '../src/network/original-exchange-handoff.mjs';
 import {createWebDavPackageTransport}
   from '../src/network/webdav-package-transfer.mjs';
+import {readT4OriginalEventWindow}
+  from '../src/network/original-event-window.mjs';
 
 const require=createRequire(new URL('../../t3-core/package.json',import.meta.url));
 const {chromium}=require('playwright');
@@ -146,7 +148,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const receipt=await kernel.t2.confirmExport({
         package_digest:artifact.package_digest,workspace_ids:[workspaceId],
       });
-      return {preview,artifact:{...artifact,bytes:Array.from(artifact.bytes)},
+      const originalEvents=await kernel.t1.listEventsSince(workspaceId);
+      return {preview,originalEvents,artifact:{...artifact,bytes:Array.from(artifact.bytes)},
         receipt,grants:kernel.granted_operations,contract:kernel.contract_version,
         runtime:kernel.runtime_version};
     },{SERVICE,workspaceId,objectId,title,linkedObjectId,linkedTitle,relationId,assetId,assetText});
@@ -155,6 +158,30 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
     assert.ok(actual.artifact.bytes.length>0);
     actual.artifact.bytes=Uint8Array.from(actual.artifact.bytes);
     const state=originalT3ConfirmedState({...actual,workspaceId});
+    const originalEventPort={
+      workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+      authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
+      readOriginalEvents:async()=>actual.originalEvents,
+    };
+    const firstWindow=await readT4OriginalEventWindow({
+      ...originalEventPort,maxEvents:3,
+    });
+    assert.equal(firstWindow.window.count,3);
+    assert.equal(firstWindow.window.recipientApplied,false);
+    const remainingWindow=await readT4OriginalEventWindow({
+      ...originalEventPort,cursor:firstWindow.nextCursor,maxEvents:1024,
+    });
+    assert.ok(firstWindow.window.count+remainingWindow.window.count>=6);
+    assert.equal(remainingWindow.window.hasMore,false);
+    assert.ok(firstWindow.window.eventRefs.every(e=>!Object.hasOwn(e,'payload')));
+    assert.equal(remainingWindow.window.causalOrderProven,false);
+    console.log('T4_ORIGINAL_T3_EVENT_WINDOW_PREFIX_PASS',JSON.stringify({
+      originalKernel:ORIGINAL_KERNEL,
+      originalEventCount:actual.originalEvents.length,
+      firstWindowCount:firstWindow.window.count,
+      nextWindowCount:remainingWindow.window.count,
+      cursorDoesNotReplaceOriginalStore:true,
+    }));
     const policy={
       objectFamily:'owner-exported-package',workspaceId,authorityRoot:'original:t2:source',
       writeOwnerRef:'original:t2:exchange',primaryPlacement:'LOCAL_PRIMARY_HOSTED_REPLICA',
@@ -263,6 +290,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         verifiedObjects:initial.objects,verifiedRelations:initial.relations,
         verifiedAssets:initial.assets,verifiedSchemas:initial.schemas,
         verifiedEvents:initial.events,verifiedAssetBytes:true,
+        originalT3EventWindowPrepared:true,originalT3EventWindowSent:false,
         signedCorporateNativeOwnerTested:false,installedProductTested:false,
         physicalSecondDeviceTested:false}));
   }finally{
