@@ -1,0 +1,187 @@
+name: D08 trading two product maps shared invoice native T2 iwxa
+on:
+  push:
+    branches: [work/2026-11-22-d08-attention-to-payment-qualification]
+    paths: [.github/workflows/d08-trading-two-goods-original-t2.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d08-trading-two-goods-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  real-host-exchange:
+    name: D08 two goods shared invoice and two payments in original T2
+    runs-on: windows-latest
+    timeout-minutes: 70
+    defaults:
+      run:
+        shell: bash
+    env:
+      IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+      PUPPETEER_SKIP_DOWNLOAD: "1"
+      CI: "true"
+    steps:
+      - name: Set long-path checkout compatibility
+        run: |
+          git config --global core.longpaths true
+          git config --global core.autocrlf false
+      - name: Checkout exact private MarketOps site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: e6032569ae0b7d5ad594ff8e52448f91904705af
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Checkout original accepted T2 source, exact MarketOps pin
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - name: Verify clean pinned private identities without outputting source
+        run: |
+          test "$(git -C site rev-parse HEAD)" = "e6032569ae0b7d5ad594ff8e52448f91904705af" || exit 1
+          test "$(git -C t2 rev-parse HEAD)" = "49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7" || exit 1
+          test -z "$(git -C t2 status --porcelain)" || exit 1
+          test -f site/tests/d08-trading-two-goods-native-t2.mjs || exit 1
+          test -f t2/t2/current/final-successor/canonical-source/scripts/stage-t2-external-module.mjs || exit 1
+          echo D08_REAL_ORIGINAL_T2_PIN=PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Native test syntax
+        working-directory: site
+        run: |
+          node --check tests/d08-trading-two-goods-native-t2.mjs || exit 1
+          echo D08_NATIVE_TRADE_WITNESS_SYNTAX=PASS
+      - name: Install site dependencies
+        working-directory: site
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d08-original-install.log" 2>&1 || {
+            echo D08_NATIVE_INSTALL=FAIL; exit 1;
+          }
+          echo D08_NATIVE_INSTALL=PASS
+      - name: Parse every T2 domain TSX before costly original Host compilation
+        working-directory: site
+        run: |
+          node --test tests/marketops-t2-module-tsx-syntax.test.mjs tests/marketops-trading-native-witness.test.mjs > "$RUNNER_TEMP/d08-module-parse.log" 2>&1 || {
+            echo D08_ORIGINAL_T2_MODULE_PARSE=FAIL
+            exit 1
+          }
+          echo D08_ORIGINAL_T2_MODULE_PARSE=PASS
+      - name: Verify T2 obligation passport coherence before full build
+        working-directory: site
+        run: |
+          node --test tests/marketops-t2-obligation-passport.test.mjs > "$RUNNER_TEMP/d08-passport.log" 2>&1 || {
+            echo D08_ORIGINAL_T2_PASSPORT=FAIL; exit 1;
+          }
+          echo D08_ORIGINAL_T2_PASSPORT=PASS
+      - name: Verify real qualified Kernel ZIP before expensive site build
+        working-directory: site
+        run: |
+          node --check scripts/extract-qualified-kernel-zip.mjs
+          node --check tests/d08-trading-two-goods-native-t2.mjs
+          node --test tests/t2-qualified-kernel-extract.test.mjs > "$RUNNER_TEMP/d08-extract-unit.log" 2>&1 || {
+            echo D08_ORIGINAL_T2_ZIP_HELPER=FAIL; exit 1;
+          }
+          node tests/t2-qualified-kernel-source-zip.mjs > "$RUNNER_TEMP/d08-real-zip.log" 2>&1 || {
+            echo D08_ORIGINAL_T2_ZIP_PREFLIGHT=FAIL
+            grep -E '^D08_ORIGINAL_T2|^MARKETOPS_T2_ZIP_EXTRACT' "$RUNNER_TEMP/d08-real-zip.log" | head -5 || true
+            exit 1
+          }
+          grep -q '^D08_ORIGINAL_T2_ZIP_FULL_SHA_READBACK=PASS$' "$RUNNER_TEMP/d08-real-zip.log" || exit 1
+          echo D08_ORIGINAL_T2_ZIP_PREFLIGHT=PASS
+      - name: Use installed Windows Chrome or acquire test browser
+        working-directory: site
+        run: |
+          CHROME="C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if test -f "$CHROME"; then
+            echo "PUPPETEER_EXECUTABLE_PATH=$CHROME" >> "$GITHUB_ENV"
+          else
+            unset PUPPETEER_SKIP_DOWNLOAD
+            node_modules/.bin/puppeteer browsers install chrome > "$RUNNER_TEMP/d08-browser.log" 2>&1 || {
+              echo D08_NATIVE_BROWSER=FAIL; exit 1;
+            }
+          fi
+          echo D08_NATIVE_BROWSER=PASS
+      - name: Preflight real public business handoff before expensive original T2 build
+        working-directory: site
+        run: |
+          node --check tests/d08-business-handoff-preflight.mjs
+          node tests/d08-business-handoff-preflight.mjs > "$RUNNER_TEMP/d08-business-preflight.log" 2>&1 || {
+            grep -E '^D08_PUBLIC_BUSINESS_HANDOFF_(PHASE|FAILURE)=' "$RUNNER_TEMP/d08-business-preflight.log" | head -3 || true
+            echo D08_PUBLIC_BUSINESS_HANDOFF_PREFLIGHT=FAIL
+            exit 1
+          }
+          grep -q '^D08_PUBLIC_BUSINESS_HANDOFF_PREFLIGHT=PASS$' "$RUNNER_TEMP/d08-business-preflight.log" || exit 1
+          echo D08_PUBLIC_BUSINESS_HANDOFF_PREFLIGHT=PASS
+      - name: Build only disposable integrated site on exact original T2
+        working-directory: site
+        run: |
+          npm run build > "$RUNNER_TEMP/d08-original-build.log" 2>&1 || {
+            echo D08_NATIVE_T2_BUILD=FAIL
+            node - <<'NODE'
+          const fs=require("node:fs");
+          const lines=fs.readFileSync(process.env.RUNNER_TEMP+"/d08-original-build.log","utf8").split(/\r?\n/);
+          const log=lines.join("\n");
+          const signatures=[
+            ["OUT_OF_MEMORY",/heap out of memory|allocation failed|\bENOMEM\b|memory allocation failed/i],
+            ["SOURCE_OR_PATH",/MARKETOPS_T2_(PIN_MISMATCH|SOURCE_DIRTY|MISSING)|ENAMETOOLONG|long path/i],
+            ["KERNEL",/MARKETOPS_T2_.*(KERNEL|RUNTIME|QUALIFIED)|kernel.*readback/i],
+            ["NETWORK",/ECONNRESET|ETIMEDOUT|CERT_HAS_EXPIRED|registry\.npmjs|EAI_AGAIN|ENOTFOUND/i],
+            ["TYPESCRIPT",/\bTS\d{4}\b/],
+            ["VITE_OR_ROLLUP",/RollupError|vite.*error|Build failed with/i],
+            ["PRERENDER",/\[prerender:(?:fail|retry-queued)\]|\[prerender\] fatal/i],
+            ["BROWSER_LAUNCH",/Failed to launch the browser process|Chrome executable|Could not find Chrome|PUPPETEER/i],
+            ["MODULE_STAGE",/stage-t2-external-module|MARKETOPS_T2_.*(STAGE|HOST|MODULE)/i],
+            ["MISSING_FILE",/ENOENT|Cannot find module|ERR_MODULE_NOT_FOUND/i],
+            ["EXTERNAL_COMMAND",/Command failed:|child process exited|exit code [1-9]/i],
+          ];
+          for(const [name,pattern] of signatures)
+            if(pattern.test(log))console.log("D08_NATIVE_T2_BUILD_CAUSE="+name);
+          const markers=lines.filter(x=>/^> |^npm error (?:code|errno|command)|^Error:|^TypeError:|^FATAL ERROR:|\bMARKETOPS_[A-Z0-9_]+\b|\bTS[0-9]{4}\b|\bERR_[A-Z_]+\b|\[prerender:(?:fail|retry-queued)\]|\[prerender\] fatal/.test(x)).slice(-14);
+          for(const item of markers){
+            const safe=item.replace(/\x1b\[[0-9;]*m/g,"")
+              .replace(/[A-Za-z]:\\[^\s]+|\/(?:home|tmp|private|Users)\/[^\s]+/g,"<path>")
+              .replace(/https?:\/\/[^\s]+/g,"<url>")
+              .replace(/[A-Za-z0-9_-]{45,}/g,"<redacted>");
+            console.log("D08_NATIVE_T2_BUILD_DIAGNOSTIC="+safe.slice(0,180));
+          }
+          console.log("D08_NATIVE_T2_BUILD_LOG_LINES="+lines.length);
+          const reportPath=".marketops-qa/readability-report.json";
+          if(fs.existsSync(reportPath)){
+            const rows=JSON.parse(fs.readFileSync(reportPath,"utf8"));
+            const errors=rows.filter(row=>Array.isArray(row.issues)&&row.issues.length);
+            console.log("D08_READABILITY_FAILED_PAGES="+errors.length);
+            for(const row of errors.slice(0,25)){
+              const path=String(row.file).replace(/[^A-Za-z0-9_./-]/g,"").slice(0,90);
+              const causes=row.issues.map(x=>String(x).replace(/[^A-Za-z0-9_ :<>(),./-]/g,"").slice(0,120)).join(" | ");
+              console.log("D08_READABILITY_FAILURE="+path+" :: "+causes);
+            }
+          }
+          NODE
+            exit 1
+          }
+          test -f dist/workspace/index.html || exit 1
+          test -f dist/workspace/exchange/index.html || exit 1
+          test -f dist/_iwxa/runtime/0.3.6/runtime.js || exit 1
+          echo D08_NATIVE_T2_BUILD=PASS
+      - name: Real GUI business obligation to independent iwxa import
+        working-directory: site
+        run: |
+          node tests/d08-trading-two-goods-native-t2.mjs > "$RUNNER_TEMP/d08-trading-gui.log" 2>&1 || {
+            grep -E '^D08_TRADE_NATIVE_(FAILURE_PHASE|FAILURE_TYPE|FAILURE_CODE)=' \
+              "$RUNNER_TEMP/d08-original-gui.log" | head -5 || true
+            echo D08_NATIVE_TRADE_EXCHANGE=FAIL
+            exit 1
+          }
+          grep -E '^D08_TRADE_NATIVE_[A-Z_]+=PASS$' "$RUNNER_TEMP/d08-original-gui.log"
+          grep -q '^D08_TRADE_NATIVE_FULL_TRADING_ROUNDTRIP=PASS$' "$RUNNER_TEMP/d08-original-gui.log" || exit 1
+          echo D08_NATIVE_TRADE_EXCHANGE=PASS
+      # No artifacts, private files, screenshots, logs, credentials or dist are uploaded.
