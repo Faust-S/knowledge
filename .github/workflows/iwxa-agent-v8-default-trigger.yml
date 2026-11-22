@@ -5,7 +5,7 @@ on:
     branches:
       - work/2026-11-02-pipeline-foundation
     paths:
-      - .github/workflows/iwxa-agent-v8-real-capture.yml
+      - .github/workflows/iwxa-agent-v8-default-trigger.yml
       - tests/agent-v8/**
   workflow_dispatch:
 
