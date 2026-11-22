@@ -506,6 +506,11 @@ class QualitativeAKIS:
             report["source_authentication"] = "MODEL_ONLY_DECLARED_UNVERIFIED"
         if action == "source_update":
             report["source"] = ev.get("source")
+            if "expected_revision" in ev:
+                report["expected_source_revision"] = ev["expected_revision"]
+                report["source_update_compare_and_set"] = True
+            else:
+                report["source_update_compare_and_set"] = False
         if action == "adopt_capability":
             report["capability"] = ev.get("capability")
             report["expected_capacity_revision"] = ev.get("expected_capacity_revision")
