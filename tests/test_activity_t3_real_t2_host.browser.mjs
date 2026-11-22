@@ -661,7 +661,13 @@ try {
     const control=createControlLoopbackOwner({
       origin:location.origin,token:args.token,
     });
-    const stop=control.subscribeSignedAccessInvalidation(()=>{});
+    // Original Control admits exactly ONE owner SSE. The trusted Host
+    // multiplexes that one invalidation to the Activity UI; subscribing
+    // again would be refused, not a reason to weaken Control.
+    const owners=new Set();
+    const stop=control.subscribeSignedAccessInvalidation(()=>{
+      for(const notify of owners)notify();
+    });
     let ui=null;
     try{
       const signed=await control.signedActivityAccess('activity.read');
@@ -674,8 +680,9 @@ try {
           },
         },
         signedAccess:signed,readActivityFromWorkspaceContext,
-        subscribeOwnerInvalidation:fn=>
-          control.subscribeSignedAccessInvalidation(fn),
+        subscribeOwnerInvalidation:fn=>{
+          owners.add(fn);return()=>owners.delete(fn);
+        },
       });
       const states=[];
       ui=createT3ReviewController({host:port,onUpdate:s=>states.push(s)});
@@ -696,7 +703,10 @@ try {
         reason_codes:review.reason_codes,objects:before.length,
         reported_events:reported.length,order_revision:savedOrder.object.revision,
         export_allowed:review.export_allowed};
-    }finally{ui?.dispose();stop();}
+    }finally{
+      ui?.dispose();stop();
+      if(owners.size)throw Error('D05_WITNESS_CONTROL_LISTENER_LEAK');
+    }
   },{service:d05Service,workspace:d05Workspace,token});
   assert.equal(d05Cold.read,'REVIEW');
   assert.equal(d05Cold.status,'HOLD');
