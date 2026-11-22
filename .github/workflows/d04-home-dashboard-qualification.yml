@@ -147,6 +147,7 @@ jobs:
         working-directory: d04-private/site
         run: |
           set -uo pipefail
+          set +e
           node --input-type=module >"$RUNNER_TEMP/d04-home-browser.log" 2>&1 <<'NODE'
           import {createRequire} from 'node:module';
           import {resolve,join} from 'node:path';
@@ -160,15 +161,15 @@ jobs:
           console.log('D04_HOME_BROWSER_STAGE=SERVER_BOOT');
           const server=await serveRealKernelHost(join(site,'dist'),{independentWitness:true,previewOrigin:true});
           try{
+            console.log('D04_HOME_BROWSER_STAGE=PUBLIC_TO_NATIVE_CREATION');
+            const personal=await runLifeOsHomeDashboardBrowser({chromium,origin:server.origin});
+            if(personal.status!=='PASS'||personal.viewports.length!==2)throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
+            console.log('D04_HOME_CREATE_AND_COLD=PASS');
             console.log('D04_HOME_BROWSER_STAGE=PUBLIC_ENTRY');
             const result=await runLifeOsEntryResponsiveBrowser({chromium,origin:server.origin});
             if(result.status!=='PASS'||result.viewports.length!==4)throw Error('D04_HOME_BROWSER_RESULT_INCOMPLETE');
             console.log('D04_HOME_VIEWPORTS='+result.viewports.length);
             console.log('D04_HOME_INTERACTIVE_ENTRY=PASS');
-            console.log('D04_HOME_BROWSER_STAGE=PUBLIC_TO_NATIVE_CREATION');
-            const personal=await runLifeOsHomeDashboardBrowser({chromium,origin:server.origin});
-            if(personal.status!=='PASS'||personal.viewports.length!==2)throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
-            console.log('D04_HOME_CREATE_AND_COLD=PASS');
           }finally{
             await new Promise(done=>server.server.close(done));
           }
