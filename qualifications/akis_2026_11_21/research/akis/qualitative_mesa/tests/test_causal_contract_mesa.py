@@ -83,3 +83,20 @@ def test_original_author_relation_catalog_unchanged_and_no_new_agent():
     assert v["original_13_OC_and_eight_phases_not_automatically_qualified"] is True
     assert v["technical_modelled_links_not_real_economic_or_institutional_causality"] is True
     assert out["general_akis_model"]["new_agent_runtime_created"] is False
+
+
+def test_r1_owner_context_economy_link_counts_only_bilateral_model_source_closure():
+    from .test_common_cost_allocations_mesa import bilateral_internal_case
+    d=bilateral_internal_case()
+    out=simulate(d)
+    link=out["general_akis_model"]["author_causal_dependency_diagnostics"][
+        "six_author_original_dependency_relations"][4]
+    assert link["meaning"]=="REAL_EVENTS_SUPPORT_SPECIFIC_ECONOMIC_OBSERVATIONS"
+    assert link["status"]=="MODEL_WORK_ARITHMETIC_NOT_REAL_ECONOMIC_CAUSALITY"
+    assert link["original_model_payer_payee_common_cash_slices"]==1
+    assert link["paired_owner_sources_restrict_work_economic_attribution"] is True
+    assert link["bilateral_claims_are_not_verified_real_signatures"] is True
+    assert link["original_internal_transfers_are_not_network_value_added"] is True
+    assert out["general_akis_model"]["author_causal_dependency_diagnostics"][
+        "nine_component_causal_closure_scientifically_proved"] is False
+    assert out["economics"]["profit"]=="UNKNOWN"
