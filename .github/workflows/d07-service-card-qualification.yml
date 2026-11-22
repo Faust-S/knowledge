@@ -1,0 +1,129 @@
+name: D07 professional service cards and T2 order launch
+on:
+  push:
+    branches: [work/2026-11-22-d07-methodology-v13]
+    paths: [.github/workflows/d07-service-card-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-card-release-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualify-card:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact domain revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: 7bc88a8446bee22cbf12a5ae6d64b69caf348f5e
+          token: ${{ secrets.DOMEN }}
+          path: subject
+          persist-credentials: false
+      - name: Checkout exact website revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: da9205b5ca5e5e918c8e10445595a90f82140c99
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - name: Verify private revisions, directory and technology parity
+        run: |
+          test "$(git -C subject rev-parse HEAD)" = "7bc88a8446bee22cbf12a5ae6d64b69caf348f5e"
+          test "$(git -C site rev-parse HEAD)" = "da9205b5ca5e5e918c8e10445595a90f82140c99"
+          for f in service-subject-protocols.ts service-subject-plumbing-b.ts service-subject-plumbing-c.ts service-manual-variant-closure.ts; do
+            cmp "subject/src/domain/$f" "site/src/domain/$f"
+          done
+          cmp subject/src/data/serviceDirectory.ts site/src/data/serviceDirectory.ts
+          echo D07_SITE_CARD_PARITY=PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.2"
+      - name: Frozen dependencies
+        working-directory: site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-card-install.log" 2>&1 || {
+            echo D07_CARD_INSTALL=FAIL; exit 1;
+          }
+          echo D07_CARD_INSTALL=PASS
+      - name: Regression for 92 cards, exact T2 methods, navigation and real-order seeds
+        working-directory: site
+        run: |
+          node --import tsx --test \
+            scripts/tests/d07-professional-card-release.test.mjs \
+            scripts/tests/d07-startable-catalog.test.mjs \
+            scripts/tests/d07-public-navigation-integrity.test.mjs \
+            scripts/tests/d07-subject-protocols.test.mjs \
+            scripts/tests/d07-methodology-top500.test.mjs \
+            scripts/tests/d07-manual-variant-closure.test.mjs \
+            scripts/tests/d07-plumbing-b-professional-methods.test.mjs \
+            scripts/tests/d07-plumbing-c-professional-methods.test.mjs \
+            scripts/tests/d07-generated-service-plans.test.mjs \
+            scripts/tests/d07-workspace-direct-entry.test.mjs \
+            > "$RUNNER_TEMP/d07-card-tests.log" 2>&1 || {
+              echo D07_CARD_REGRESSION=FAIL
+              grep -E '^not ok|^# (tests|pass|fail)|^[[:space:]]+(error|expected|actual):|D07_CARD_' "$RUNNER_TEMP/d07-card-tests.log" | tail -35 || true
+              exit 1
+            }
+          echo D07_CARD_REGRESSION=PASS
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d07-card-tests.log" | tail -3
+      - name: Static TypeScript
+        working-directory: site
+        run: |
+          bun x tsc --noEmit > "$RUNNER_TEMP/d07-card-types.log" 2>&1 || {
+            echo D07_CARD_TYPES=FAIL
+            grep -E 'error TS[0-9]+' "$RUNNER_TEMP/d07-card-types.log" | head -15 || true
+            exit 1
+          }
+          echo D07_CARD_TYPES=PASS
+      - name: Build actual deep-link HTML for all professional cards
+        working-directory: site
+        run: |
+          node scripts/build-d07-clean.mjs > "$RUNNER_TEMP/d07-card-build.log" 2>&1 || {
+            echo D07_CARD_PRERENDER=FAIL
+            grep -E 'D07_PUBLIC_BUILD_STEP_FAIL|quality:gate:.*FAILED|Error:|error TS[0-9]+|\[check-|\[prerender\]' "$RUNNER_TEMP/d07-card-build.log" | tail -20 || true
+            exit 1
+          }
+          echo D07_CARD_PRERENDER=PASS
+          grep 'D07_PUBLIC_BUILD_STEP_PASS=' "$RUNNER_TEMP/d07-card-build.log" | tail -7
+      - name: Inspect every physical HTML page and launch link
+        working-directory: site
+        run: |
+          node --import tsx --input-type=module - <<'NODE'
+          import {readFileSync,existsSync} from 'node:fs';
+          import {SUBJECT_PROTOCOLS} from './src/domain/service-subject-protocols.ts';
+          import {siteRoutes} from './src/site-routes.ts';
+          let direct=0,seo=0;
+          for(const p of SUBJECT_PROTOCOLS){
+            const route='/uslugi/'+p.categorySlug+'/'+p.serviceSlug+'/';
+            const file='dist'+route+'index.html';
+            if(!existsSync(file))throw Error('D07_CARD_MISSING_PHYSICAL_HTML:'+route);
+            const html=readFileSync(file,'utf8');
+            if(!/<h1[ >]/i.test(html))throw Error('D07_CARD_H1_MISSING:'+route);
+            if(!siteRoutes.includes(route)){
+              if(!html.includes('d07-professional-service-card')||
+                 !html.includes('d07-professional-start-order')||
+                 !html.includes('/workspace/?new=1')||
+                 !html.includes('noindex'))
+                 throw Error('D07_CARD_NO_T2_LINK_OR_CONTENT:'+route);
+              for(const op of p.operations)
+                if(!html.includes('data-operation-id="'+op.id+'"'))
+                  throw Error('D07_CARD_OPERATION_LOST:'+p.id+'/'+op.id);
+              direct++;
+            }else seo++;
+          }
+          if(direct+seo!==SUBJECT_PROTOCOLS.length||direct<70)
+            throw Error('D07_CARD_PHYSICAL_COUNT_MISMATCH');
+          console.log('D07_CARD_PHYSICAL_HTML=PASS');
+          console.log('D07_CARD_NEW_DIRECT_ROUTES='+direct);
+          console.log('D07_CARD_EXISTING_EDITORIAL_ROUTES='+seo);
+          console.log('D07_CARD_UNIQUE_SUBJECT_TECHNOLOGIES='+SUBJECT_PROTOCOLS.length);
+          NODE
+      # Private source and rendered pages never leave the ephemeral runner;
+      # no artifact upload, secrets exposure or Actions inside private repos.
