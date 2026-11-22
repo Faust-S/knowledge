@@ -213,3 +213,50 @@ def test_lifecycle_stage_and_author_nine_cost_do_not_create_two_resource_charges
     assert out["economics"]["resource_costs_additive_to_cash"] is False
     assert out["economics"]["lifecycle_resource_costs"]["same_resource_may_be_tagged_elsewhere_but_not_added_again"]
     assert out["economics"]["resource_uses_count"] == 19
+
+
+def test_scenario_specific_category_coverage_does_not_mix_outside_and_cooperation():
+    d = nine_case()
+    modern = simulate(d)["economics"]["modern_cost_attribution"]["owners"]["op"]
+    by_scenario = modern["by_original_scenario"]
+    assert by_scenario["COOPERATION"]["nine_categories_not_bound_in_this_scenario"] == []
+    assert by_scenario["INDEPENDENT_ALTERNATIVE"]["nine_categories_not_bound_in_this_scenario"] == []
+    assert len(by_scenario["COOPERATION"]["categories_with_original_use"]) == 9
+    assert len(by_scenario["INDEPENDENT_ALTERNATIVE"]["categories_with_original_use"]) == 9
+    assert modern["no_new_cash_or_resource_use"] is True
+    d = nine_case()
+    d["economic_claims"]["modern_cost_bindings"] = [
+        record for record in d["economic_claims"]["modern_cost_bindings"]
+        if record["resource_use_id"] != "r-outside-interview"
+    ]
+    modern = simulate(d)["economics"]["modern_cost_attribution"]["owners"]["op"]
+    assert modern["by_original_scenario"]["INDEPENDENT_ALTERNATIVE"][
+        "nine_categories_not_bound_in_this_scenario"] == ["interview"]
+    assert modern["by_original_scenario"]["COOPERATION"][
+        "nine_categories_not_bound_in_this_scenario"] == []
+
+
+def test_work_onboarding_cost_arithmetic_cannot_cure_owners_cash_shortfall():
+    from .test_liquidity_mesa_integration import schedule
+    d = nine_case()
+    timing = schedule()
+    timing["owner_positions"].append({
+        "owner": "c", "source": "customer-proof",
+        "opening_cash": "0.00", "reserve_cash": "0.00"
+    })
+    d["economic_claims"]["cash_timing"] = timing
+    output = simulate(d)
+    w = output["work_counterfactual_dynamics"]["works"][0]
+    assert w["operator_nine_onboarding_noncash_difference_outside_minus_cooperation"] == "13.00"
+    b = w["per_scenario"]["COOPERATION"]["owners"]["b"]
+    assert b["owner_private_declared_liquidity_status"] == (
+        "DECLARED_LIQUIDITY_GAP_IN_ONE_OR_MORE_CASES"
+    )
+    assert w["per_original_owner"]["b"]["liquidity_proven_by_cash_difference"] is False
+    assert output["economics"]["profit"] == "UNKNOWN"
+    assert output["economics"]["cash_timing"][
+        "real_liquidity_and_payments_not_authenticated"
+    ]
+    summary = output["general_akis_model"]["work_counterfactual_feedback"]
+    assert summary["source_declared_nine_onboarding_comparable_work_count"] == 1
+    assert "owner_private_declared_liquidity_status" not in json.dumps(summary)
