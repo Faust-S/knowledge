@@ -99,7 +99,7 @@ function fixture(){
  ]);
  const digest=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
  const owner=Object.freeze({kind:'CORP',context_id:'ctx:d05',
-  actor_id:'person:owner',principal_id:'person:owner',role_id:'role:reader',
+  actor_id:'person:owner',principal_id:'org:d05',role_id:'role:reader',
   grant_id:'grant:activity-read',realm_id:'realm:corporate',audience:'host:t3',
   resource:W,purpose:'activity.analysis',workspace_id:W,
   organization_id:'org:d05',scope_revision:1});
@@ -110,13 +110,21 @@ function fixture(){
     .includes(operation));return 'activity.read';
   },
   operationDigest:({operation,input,context})=>digest({operation,input,context}),
-  authorize:request=>({schema:'IWXA_T3_AUTHORIZATION_DECISION/1',
+  authorize:request=>({
+   // The ORIGINAL T3 corporate owner requires an organization principal
+   // and independently bound organization operation decision. A PERSONAL
+   // Access decision here must be refused before Kernel reads.
+   schema:'IWXA_T3_ORGANIZATION_OPERATION_DECISION/1',
    allowed:!revoked,outcome:revoked?'DENIED':'PERMITTED',evidenceOnly:true,
+   organizationId:owner.organization_id,workspaceId:owner.workspace_id,
+   grantId:owner.grant_id,operationDigest:request.operationDigest,
+   evidenceDigest:digest({request,domain:'d05-corporate-read'}),
+   productionActivation:false,doesNotTransferData:true,
+   doesNotAcceptCorporateCopy:true,
    requestDigest:digest(request),policyDigest:digest('pinned-domain-policy'),
    validUntil:new Date(Date.now()+60_000).toISOString(),
-   statusObservedAt:new Date(Date.now()-1000).toISOString(),
-   evaluatedAt:new Date().toISOString(),statusSequence:1,
-   authorityPath:[{grantId:request.grantId}]}),
+   statusSequence:1,
+  }),
   verifyDecisionBinding:(request,decision)=>decision.requestDigest===digest(request),
  };
  const kernel={
