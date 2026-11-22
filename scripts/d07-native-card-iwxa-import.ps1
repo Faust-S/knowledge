@@ -5,10 +5,13 @@ Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -TypeDefinition @"
 using System;
+using System.Text;
 using System.Runtime.InteropServices;
 public static class D07NativeImportMouse {
  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
+ [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+ [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr hwnd, StringBuilder name, int max);
 }
 "@
 $site=(Resolve-Path $SiteDir).Path
@@ -57,6 +60,20 @@ function StartEdge([string]$url){
  Start-Process -FilePath $edge -ArgumentList @('--force-renderer-accessibility','--ignore-certificate-errors','--no-first-run','--no-default-browser-check',"--user-data-dir=$profile","--app=$url") -PassThru
 }
 function NativeOpenFileDialog {
+ # Windows common dialogs can be active but absent from UIA RootElement.Children.
+ # Determine the actual foreground Win32 class independently of the UIA tree.
+ $handle=[D07NativeImportMouse]::GetForegroundWindow()
+ if($handle -ne [IntPtr]::Zero){
+  $name=[System.Text.StringBuilder]::new(200)
+  [void][D07NativeImportMouse]::GetClassName($handle,$name,200)
+  if($name.ToString() -eq '#32770'){
+   try{
+    $win=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
+    if($win){return $win}
+   }catch{}
+   return $true
+  }
+ }
  $desktop=[System.Windows.Automation.AutomationElement]::RootElement
  $windows=$desktop.FindAll([System.Windows.Automation.TreeScope]::Children,
    [System.Windows.Automation.Condition]::TrueCondition)
