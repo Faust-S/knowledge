@@ -2674,6 +2674,164 @@ def original_nine_component_cycle_evidence(
                 "real_resource_liability_rights_or_money_verified": False,
             })
 
+    # R1-T3: an applied route proposal is only a new process plan.
+    # Count reproduction ONLY with independent prior Result, later original
+    # Work commitment, physically owned operation roles, owner-to-owner
+    # handoff RECEIVED, independent quality and accepted Work Result.
+    original_technology_route_successions: list[dict[str, Any]] = []
+    for proposal in events:
+        if proposal.get("action") != "technology_route_propose":
+            continue
+        new_work_id = proposal.get("technology_route_work")
+        old_work_id = proposal.get("pilot_work")
+        work = original.works.get(new_work_id)
+        pilot = original.works.get(old_work_id)
+        if (work is None or pilot is None or not work.operations
+                or work.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                or old_work_id not in accepted_at
+                or pilot.result_ref != proposal.get("pilot_result_ref")
+                or new_work_id not in accepted_at):
+            continue
+        t_proposal, t_pilot = proposal["at"], accepted_at[old_work_id]
+        t_request = requested_at.get(new_work_id)
+        t_commit = original_committed_at.get(new_work_id)
+        t_accept = accepted_at[new_work_id]
+        if (t_request is None or t_commit is None or
+                not t_pilot < t_proposal < t_request < t_commit < t_accept):
+            continue
+        source = [
+            row for row in events
+            if row.get("action") == "request"
+            and row.get("work") == new_work_id
+            and row.get("technology_route_original_source_qualified") is True
+            and row.get("technology_route_id") ==
+                proposal.get("technology_route_id")
+            and row.get("technology_route_fingerprint") ==
+                proposal.get("technology_route_fingerprint")
+            and row.get("at") == t_request
+        ]
+        if len(source) != 1:
+            continue
+        principals = original.capacity_ledger.original_owners(
+            work.resource_requirements
+        ) | {work.customer}
+        performers = {
+            original.resources[op.primary_resource] for op in work.operations
+        }
+        if (len(performers) < 2
+                or set(proposal.get("route_original_principals", ())) !=
+                    principals
+                or not set(work.consents) == principals
+                or not set(proposal.get("route_independent_stage_owners", ()))
+                    == performers):
+            continue
+        accepted_route = [
+            row for row in events
+            if row.get("action") == "technology_route_response"
+            and row.get("technology_route_id") ==
+                proposal.get("technology_route_id")
+            and row.get("technology_route_fingerprint") ==
+                proposal.get("technology_route_fingerprint")
+            and row.get("technology_route_decision") ==
+                "SUPPORT_ORIGINAL_TECHNOLOGY"
+            and row.get("actor") in principals
+            and t_proposal < row["at"] < t_request
+        ]
+        if {row["actor"] for row in accepted_route} != principals:
+            continue
+        # Same ORIGINAL operation IDs, resources and log. No inferred
+        # performer handover from a label in model organizational code.
+        if any(
+            work.operation_states[op.key] != "COMPLETED"
+            or op.key not in work.operation_evidence
+            or not any(
+                row.get("action") == "start_operation"
+                and row.get("work") == new_work_id
+                and row.get("operation") == op.key
+                and row.get("actor") == original.resources[op.primary_resource]
+                and t_commit < row["at"] < t_accept
+                for row in events
+            )
+            or not any(
+                row.get("action") == "complete_operation"
+                and row.get("work") == new_work_id
+                and row.get("operation") == op.key
+                and row.get("actor") == original.resources[op.primary_resource]
+                and t_commit < row["at"] < t_accept
+                for row in events
+            )
+            for op in work.operations
+        ):
+            continue
+        if (not work.handoffs or any(
+                work.handoff_states[h.edge] != "RECEIVED"
+                or not any(
+                    row.get("action") == "handoff_dispatch"
+                    and row.get("work") == new_work_id
+                    and row.get("actor") == h.sender
+                    and row.get("from_operation") == h.upstream
+                    and row.get("to_operation") == h.downstream
+                    and t_commit < row["at"] < t_accept
+                    for row in events
+                )
+                or not any(
+                    row.get("action") == "handoff_receive"
+                    and row.get("work") == new_work_id
+                    and row.get("actor") == h.receiver
+                    and row.get("from_operation") == h.upstream
+                    and row.get("to_operation") == h.downstream
+                    and t_commit < row["at"] < t_accept
+                    for row in events
+                )
+                for h in work.handoffs
+            )):
+            continue
+        if not work.assurance_criteria or any(
+            work.assurance_reviews.get(c.key, {}).get("verdict")
+                != "MEETS_DECLARED_REQUIREMENT"
+            or work.assurance_reviews.get(c.key, {}).get("result_ref")
+                != work.result_ref
+            or c.assessor != work.customer
+            or not any(
+                row.get("action") == "assess_result_quality"
+                and row.get("work") == new_work_id
+                and row.get("actor") == work.customer
+                and row.get("criterion") == c.key
+                and t_commit < row["at"] < t_accept
+                for row in events
+            )
+            for c in work.assurance_criteria
+        ):
+            continue
+        code = [
+            row for row in events
+            if row.get("action") == "model_code_apply"
+            and row.get("outcome") == "APPLIED"
+            and row.get("model_code_function_change_applied") is True
+            and row.get("model_code_change_id") ==
+                proposal.get("technology_route_model_code_change_id")
+            and t_pilot < row["at"] < t_proposal
+        ]
+        if len(code) != 1:
+            continue
+        original_technology_route_successions.append({
+            "previous_original_accepted_result": old_work_id,
+            "accepted_future_original_work": new_work_id,
+            "original_operation_route_id": proposal["technology_route_id"],
+            "original_cooperation_link": proposal["cooperation_link"],
+            "independent_original_route_owner_decisions": sorted(principals),
+            "original_operation_performer_owners": sorted(performers),
+            "original_production_operation_count": len(work.operations),
+            "original_cross_owner_handoffs_received": len(work.handoffs),
+            "independent_original_recipient_quality_checks": len(
+                work.assurance_criteria
+            ),
+            "fresh_original_work_principal_consents": sorted(work.consents),
+            "model_functions_change_preceded_technology": True,
+            "actual_resource_ownership_unchanged": True,
+            "real_production_quality_or_economic_gain_verified": False,
+        })
+
     accepted_results = len(accepted_at)
     requested_count = len(requested_at)
     committed_count = len(original_committed_at)
@@ -2739,6 +2897,9 @@ def original_nine_component_cycle_evidence(
             "original_model_function_and_responsibility_successions": (
                 model_function_successions
             ),
+            "original_cross_owner_technology_route_successions": (
+                original_technology_route_successions
+            ),
             "contains_owner_work_and_model_source_identifiers": True,
             "safe_for_cross_enterprise_publication": False,
         },
@@ -2776,6 +2937,11 @@ def original_nine_component_cycle_evidence(
                 len(model_function_successions)
             ),
             "original_function_changes_do_not_transfer_real_resource_rights": True,
+            "accepted_original_cross_owner_technology_routes_with_handoff_and_quality": (
+                len(original_technology_route_successions)
+            ),
+            "route_consultation_not_equivalent_to_original_Work_obligation": True,
+            "verified_actual_productivity_or_transaction_savings": False,
             "source_scoped_membership_successors_are_not_legal_membership": True,
             "all_nine_components_partially_observed_in_one_institutional_cycle": (
                 original_institutional_sequences > 0

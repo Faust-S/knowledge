@@ -216,6 +216,22 @@ def test_r1t3_full_original_cross_owner_work_operations_handoff_quality_accepted
     assert out["works"]["w3"]["assurance"]["current_result_quality_gate"] == "NONE"
     assert out["resources"]["ra"]["owner"] == "a"
     assert out["resources"]["rc"]["owner"] == "c"
+    general = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert general[
+        "accepted_original_cross_owner_technology_routes_with_handoff_and_quality"
+    ] == 1
+    assert general["route_consultation_not_equivalent_to_original_Work_obligation"]
+    assert general["all_nine_component_original_causal_closure_proven"] is False
+    private = out["general_akis_private_cycle_evidence"][
+        "original_cross_owner_technology_route_successions"
+    ]
+    assert len(private) == 1
+    assert private[0]["previous_original_accepted_result"] == "w2"
+    assert private[0]["accepted_future_original_work"] == "w3"
+    assert private[0]["original_operation_performer_owners"] == ["a", "c"]
+    assert private[0]["independent_original_recipient_quality_checks"] == 2
+    assert private[0]["original_cross_owner_handoffs_received"] == 1
+    assert private[0]["real_production_quality_or_economic_gain_verified"] is False
     assert out["works"]["w1"]["consenting_principals"] == ["a", "b"]
     assert out["profit"]["system_increment"] == "UNKNOWN"
     assert simulate(deepcopy(d)) == out
@@ -335,14 +351,86 @@ def test_r1t3_route_proposal_cannot_create_a_work_or_rewrite_past_result():
     d = original_technology_route_case()
     request = next(r for r in d["events"] if r["action"] == "request"
                    and r["work_spec"]["id"] == "w3")
-    d["events"] = [
-        r for r in d["events"] if not (
-            r["at"] >= request["at"] and r["action"] not in {
-                "technology_route_response",
-            }
-        )
-    ]
+    # Retain the original Work reference for scoped KPB preflight. Make
+    # the later request invalid rather than deleting the only declared
+    # source of the still-referenced future Work from the whole input.
+    request["actor"] = "a"
     out = simulate(d)
     assert reports(out, "technology_route_propose")[0]["outcome"] == "APPLIED"
+    assert last_request(out)["reason"] == "ORIGINAL_CUSTOMER_REQUEST_REQUIRED"
     assert "w3" not in out["works"]
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_r1t3_foreign_enterprise_cannot_substitute_for_independent_owner_route_review():
+    d = original_technology_route_case()
+    vote = next(r for r in d["events"]
+                if r["action"] == "technology_route_response"
+                and r["actor"] == "c")
+    vote["technology_route_decision_source_ref"] = "model://op/foreign-c-approval"
+    out = simulate(d)
+    assert next(r for r in reports(out, "technology_route_response")
+                if r["actor"] == "c")["reason"] == (
+        "ORIGINAL_TECHNOLOGY_ROUTE_OWN_SOURCE_REQUIRED"
+    )
+    assert last_request(out)["reason"] == (
+        "ORIGINAL_TECHNOLOGY_ROUTE_ALL_PRINCIPALS_RESPONSE_REQUIRED"
+    )
+    assert "w3" not in out["works"]
+
+
+def test_r1t3_model_route_does_not_require_or_authorize_new_cash_profit():
+    out = simulate(original_technology_route_case())
+    assert out["profit"] == {
+        "operator": "UNKNOWN", "participants": "UNKNOWN",
+        "system_increment": "UNKNOWN"
+    }
+    shared = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert shared["verified_actual_productivity_or_transaction_savings"] is False
+
+
+def test_r1t3_quality_failure_cannot_be_accepted_despite_completed_operations():
+    d = original_technology_route_case()
+    review = next(r for r in d["events"]
+                  if r["action"] == "assess_result_quality"
+                  and r["criterion"] == "q-stage-c")
+    review["quality_verdict"] = "DOES_NOT_MEET"
+    out = simulate(d)
+    assert [r for r in reports(out, "accept")
+            if r["work"] == "w3"][0]["reason"] == (
+        "QUALITY_DECLARED_CRITERION_FAILED"
+    )
+    assert out["works"]["w3"]["result"] == "SUBMITTED"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "accepted_original_cross_owner_technology_routes_with_handoff_and_quality"
+    ] == 0
+
+
+def test_r1t3_no_accepted_work_is_counted_when_final_recipient_inspection_missing():
+    d = original_technology_route_case()
+    d["events"] = [r for r in d["events"]
+                   if not (r["action"] == "assess_result_quality"
+                           and r["criterion"] == "q-stage-c")]
+    out = simulate(d)
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "accepted_original_cross_owner_technology_routes_with_handoff_and_quality"
+    ] == 0
+
+
+def test_r1t3_same_source_route_cannot_be_proposed_twice():
+    d = original_technology_route_case()
+    proposal = next(r for r in d["events"]
+                    if r["action"] == "technology_route_propose")
+    duplicate = deepcopy(proposal)
+    duplicate["at"] = proposal["at"] + 4
+    d["events"].append(duplicate)
+    d["events"].sort(key=lambda r: r["at"])
+    out = simulate(d)
+    assert [r["outcome"] for r in reports(out, "technology_route_propose")] == [
+        "APPLIED", "BLOCKED"
+    ]
+    assert reports(out, "technology_route_propose")[-1]["reason"] == (
+        "ORIGINAL_TECHNOLOGY_ROUTE_PROPOSAL_EXISTS"
+    )
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
