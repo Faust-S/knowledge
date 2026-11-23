@@ -131,6 +131,16 @@ def transfer_case(roles=("worker", "dept")):
                 event["actor"], event["affiliation_transfer_id"], event,
                 event["at"], role["kind"],
             )
+        # The receiving enterprise must separately grant the newly
+        # affiliated role a purpose-limited share for future Work. Its
+        # transfer review alone is insufficient.
+        parent_source = next(
+            row for row in d["context_evidence"]["sources"]
+            if row["id"] == new_ref
+        )
+        parent_source["purposes"].append("AKIS_INTRA_WORK")
+        parent_source["operations"].append("SHARE")
+        parent_source["usable_by"].append(who)
         d["events"].extend(events)
     d["events"].sort(key=lambda e: e["at"])
     assert len({e["at"] for e in d["events"]}) == len(d["events"])
