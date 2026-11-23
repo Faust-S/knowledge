@@ -66,6 +66,7 @@ def review_original_strict_economic_sources(
         )
     seen: set[str] = set()
     covered: set[str] = set()
+    sources_by_id: dict[str, dict[str, Any]] = {}
     for record in rows:
         if (not isinstance(record, dict)
                 or set(record) != {"id", "owner", "reference", "revision"}):
@@ -81,6 +82,7 @@ def review_original_strict_economic_sources(
                 "ORIGINAL_ECONOMIC_SOURCE_DUPLICATE"
             )
         seen.add(key)
+        sources_by_id[key] = record
         subject = state.subjects.get(owner) if isinstance(owner, str) else None
         if subject is None or not subject.active:
             raise StrictEconomicSourceBlocked(
@@ -113,11 +115,129 @@ def review_original_strict_economic_sources(
         raise StrictEconomicSourceBlocked(
             "ORIGINAL_ECONOMIC_INDEPENDENT_PRINCIPAL_SOURCE_MISSING"
         )
+    # Original R2.6 payment claims are annotations on EXISTING transfers.
+    # Each new two-party claim must have two independent, revision-pinned
+    # owner-held source assertions valid at the claim's own declared time.
+    # These are not bank-authenticated receipts, new payments or a ledger.
+    transfers = {
+        row.get("id"): row for row in original_claims.get("transfers", [])
+        if isinstance(row, dict) and isinstance(row.get("id"), str)
+    }
+    qualified_payment_events = 0
+    qualified_owner_witnesses = 0
+    for field, time_field in (
+        ("work_payment_settlement_claims", "at"),
+        ("work_payment_due_amendments", "agreed_at"),
+    ):
+        claims = original_claims.get(field, [])
+        if not isinstance(claims, list) or len(claims) > 2048:
+            raise StrictEconomicSourceBlocked(
+                "ORIGINAL_PAYMENT_EVIDENCE_LIST_INVALID"
+            )
+        for record in claims:
+            if not isinstance(record, dict):
+                raise StrictEconomicSourceBlocked(
+                    "ORIGINAL_PAYMENT_EVIDENCE_FIELDS_INVALID"
+                )
+            payment_time = record.get(time_field)
+            if type(payment_time) is not int or not 0 <= payment_time <= 10000:
+                raise StrictEconomicSourceBlocked(
+                    "ORIGINAL_PAYMENT_EVIDENCE_TIME_INVALID"
+                )
+            original_transfer = transfers.get(record.get("transfer_id"))
+            if (not isinstance(original_transfer, dict)
+                    or original_transfer.get("work") != work_id
+                    or original_transfer.get("scenario") != "COOPERATION"):
+                raise StrictEconomicSourceBlocked(
+                    "ORIGINAL_PAYMENT_WRONG_WORK_OR_TRANSFER_SCOPE"
+                )
+            parties = {
+                original_transfer.get("payer"), original_transfer.get("payee")
+            } - {"EXTERNAL"}
+            # R2.6's bilateral payment-progress contract requires exactly
+            # two original parties; unilateral external cash forecasts stay
+            # source-declared, not authenticated payment progress.
+            if len(parties) != 2 or not all(
+                isinstance(owner, str) for owner in parties
+            ):
+                raise StrictEconomicSourceBlocked(
+                    "ORIGINAL_PAYMENT_TWO_INDEPENDENT_PARTIES_REQUIRED"
+                )
+            owner_sources = record.get("owner_sources")
+            evidence_refs = record.get("evidence_refs")
+            pinned_revisions = record.get("evidence_revisions")
+            if any(
+                not isinstance(mapping, dict) or set(mapping) != parties
+                for mapping in (
+                    owner_sources, evidence_refs, pinned_revisions
+                )
+            ):
+                raise StrictEconomicSourceBlocked(
+                    "ORIGINAL_PAYMENT_PINNED_INDEPENDENT_EVIDENCE_REQUIRED"
+                )
+            for owner in sorted(parties):
+                source_id = owner_sources[owner]
+                economic_source = sources_by_id.get(source_id)
+                if (economic_source is None
+                        or economic_source["owner"] != owner):
+                    raise StrictEconomicSourceBlocked(
+                        "ORIGINAL_PAYMENT_INDEPENDENT_SOURCE_OWNER_REQUIRED"
+                    )
+                original_actor = state.subjects.get(owner)
+                if original_actor is None or not original_actor.active:
+                    raise StrictEconomicSourceBlocked(
+                        "ORIGINAL_PAYMENT_OWNER_NOT_ACTIVE"
+                    )
+                core = _OWNER_CORES.get(original_actor.kind)
+                if core is None:
+                    raise StrictEconomicSourceBlocked(
+                        "ORIGINAL_PAYMENT_OWNER_CORE_UNKNOWN"
+                    )
+                # Source-declared availability prior to registration is not
+                # the registration itself. Check the original APPLIED event.
+                if owner in getattr(context, "prospective_subjects", set()):
+                    if not any(
+                        row.get("action") == "subject_registration_apply"
+                        and row.get("outcome") == "APPLIED"
+                        and row.get("registered_original_subject") == owner
+                        and type(row.get("at")) is int
+                        and row["at"] < payment_time
+                        for row in state.trace
+                    ):
+                        raise StrictEconomicSourceBlocked(
+                            "ORIGINAL_PAYMENT_PRIOR_TO_OWNER_REGISTRATION"
+                        )
+                try:
+                    context.assert_original_form_role_source(
+                        owner, economic_source["reference"],
+                        economic_source["revision"], core=core,
+                        purpose=_PURPOSE, operation=_OPERATION,
+                        recipients={owner}, at=payment_time,
+                    )
+                    context.assert_original_form_role_source(
+                        owner, evidence_refs[owner],
+                        pinned_revisions[owner], core=core,
+                        purpose=_PURPOSE, operation=_OPERATION,
+                        recipients={owner}, at=payment_time,
+                    )
+                except ContextBlocked as exc:
+                    raise StrictEconomicSourceBlocked(
+                        "ORIGINAL_PAYMENT_EVIDENCE_NOT_USABLE_IN_STRICT_KPB"
+                    ) from exc
+                qualified_owner_witnesses += 1
+            qualified_payment_events += 1
+
     return {
         "status": "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED",
         "original_source_count": len(seen),
         "covered_original_subject_count": len(covered),
         "all_original_work_principals_have_own_sources": True,
+        "source_scoped_original_payment_event_count": qualified_payment_events,
+        "source_scoped_independent_payment_owner_witness_count": (
+            qualified_owner_witnesses
+        ),
+        "payment_witnesses_checked_at_declared_time": True,
+        "payment_witnesses_are_not_bank_settlement": True,
         "original_work_and_source_scope_preserved": True,
         "economic_input_not_new_ledger_or_consent": True,
         "source_review_does_not_verify_actual_cost_or_bank_settlement": True,
