@@ -57,8 +57,7 @@ try{
     foreach($node in $nodes){
       try{
         $name=[string]$node.Current.Name
-        if($name -ceq 'IWXA Admin Center' -or
-           $name -match 'Главная|Административн|Организация'){
+        if($name -match 'IWXA Admin Center'){
           $foundTitle=$true;break
         }
       }catch{}
