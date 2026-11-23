@@ -50,6 +50,14 @@ async function fixture(){
     checkpointRef:'checkpoint:one',chainHash:hash,changeId:ID,
     sessionRef:'session:one',scopeRef:'scope:original',ownerEpoch:2,
     sourceNodeRef:'node:source',recipientNodeRef:'node:recipient',
+    sourceIntentEvidence:{
+      evidenceRef:event.event_id,
+      evidenceDigest:source.window.windowDigest,
+    },
+    sourcePublishedEvidence:{
+      evidenceRef:'e'.repeat(64)+'.t4n',
+      evidenceDigest:'sha256:'+'e'.repeat(64),
+    },
     currentEvidence:{
       evidenceRef:ackRef,evidenceDigest:'sha256:'+sha,
       originalRecipientEventId:'event:recipient:1',
@@ -75,12 +83,23 @@ async function fixture(){
       recipientStateDigest:other,
     },
   };
+  const change={
+    ...signed,signedMessageType:'CHANGE_REF',
+    verifiedSourceNodeRef:'node:source',
+    verifiedRecipientNodeRef:'node:recipient',
+    sha256:'e'.repeat(64),key:'e'.repeat(64)+'.t4n',
+    verifiedBody:{
+      changeId:ID,eventRef:event.event_id,sourceRevision:1,
+      ownerRef:'owner:original:source',contentDigest:hash,
+    },
+  };
   let reads=0,phaseReads=0,network=true,allow=true;
   const props={
     sourcePhasePort:{inspectOriginalSession:async()=>{
       phaseReads++;return structuredClone(phase);
     }},
-    verifiedAppliedAck:signed,originalSourceHeadProof:proof,
+    verifiedAppliedAck:signed,verifiedChangeRef:change,
+    originalSourceHeadProof:proof,
     getMode:()=>network?'T4_NETWORK':'LOCAL_T3',
     authorizeOriginalRead:async()=>allow,
     readOriginalEvents:async()=>{reads++;return [structuredClone(event)];},
@@ -149,4 +168,21 @@ test('source Event mutation during read is rejected without committing cursor',a
   };
   await assert.rejects(recoverT4OriginalNetworkSourceCursor(f.props),
     isCode('CURSOR_ORIGINAL_T3_PROOF_CHANGED_DURING_READ'));
+});
+
+test('signed CHANGE_REF must match original SOURCE publication and the APPLIED_ACK content digest',async()=>{
+  const f=await fixture();
+  f.props.verifiedChangeRef.verifiedBody.eventRef='event:forged';
+  await assert.rejects(recoverT4OriginalNetworkSourceCursor(f.props),
+    isCode('CURSOR_SIGNED_CHANGE_NOT_BOUND_TO_SOURCE_AND_ACK'));
+  f.props.verifiedChangeRef.verifiedBody.eventRef=event.event_id;
+  f.props.verifiedChangeRef.verifiedBody.contentDigest=other;
+  await assert.rejects(recoverT4OriginalNetworkSourceCursor(f.props),
+    isCode('CURSOR_SIGNED_CHANGE_NOT_BOUND_TO_SOURCE_AND_ACK'));
+});
+test('source INTENT must contain the SAME original Event ID and Window digest',async()=>{
+  const f=await fixture();
+  f.phase.sourceIntentEvidence.evidenceRef='event:unrelated';
+  await assert.rejects(recoverT4OriginalNetworkSourceCursor(f.props),
+    isCode('CURSOR_ORIGINAL_SOURCE_INTENT_NOT_BOUND'));
 });
