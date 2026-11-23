@@ -90,6 +90,7 @@ def test_parallel_branch_does_not_block_original_transfer_after_completion():
     applied(state, 16, "complete_operation", "a",
             operation="side", result_ref="model://a/side-completed")
     offer = proposal(at=17, window=(26, 33), valid_until=40)
+    offer["work_interruption_at"] = 15
     applied(state, 17, "wip_propose", "c",
             **{k: v for k, v in offer.items()
                if k not in {"at", "action", "actor", "work"}})
