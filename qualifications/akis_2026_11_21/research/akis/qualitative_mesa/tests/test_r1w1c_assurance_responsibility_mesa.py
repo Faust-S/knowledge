@@ -347,3 +347,48 @@ def test_native_mesa_scheduler_uses_same_approval_and_assurance_snapshot():
     assert criteria["finish-product"]["effective_future_execution_owner"] == "a"
     assert len(work["unfinished_production"]["applied_amendments"]) == 1
     assert simulate(deepcopy(d)) == result
+
+
+def test_strict_revoked_assurance_source_blocks_operation_finish_before_result():
+    state = approved(strict=True)
+    custody(state)
+    applied(state, 24, "wip_resume", "d", source_revision="d1",
+            org_revision="oc-1", wip_operation="form",
+            wip_source_ref="model://d/form-resume")
+    applied(state, 25, "source_update", "c",
+            source="model://c/criterion-form-surface",
+            expected_revision="source-r1", new_revision="source-r2",
+            status="DISPROVED")
+    work = state.works["w1"]
+    before = tuple(state.capacity_ledger.reservations)
+    result = send(state, 26, "complete_operation", "d",
+                  operation="form", result_ref="model://d/invalid-finish")
+    assert result["reason"] == "WIP_ORIGINAL_EVIDENCE_SOURCE_UNAVAILABLE"
+    assert work.operation_states["form"] == "IN_PROGRESS"
+    assert "form" not in work.operation_evidence
+    assert work.result == "NOT_SUBMITTED"
+    assert tuple(state.capacity_ledger.reservations) == before
+
+
+def test_strict_revocation_before_outgoing_handoff_keeps_original_material():
+    state = approved(strict=True)
+    custody(state)
+    applied(state, 24, "wip_resume", "d", source_revision="d1",
+            org_revision="oc-1", wip_operation="form",
+            wip_source_ref="model://d/form-resume")
+    applied(state, 25, "complete_operation", "d",
+            operation="form", result_ref="model://d/valid-form")
+    applied(state, 26, "source_update", "c",
+            source="model://c/w1c-assurance-terms",
+            expected_revision="source-r1", new_revision="source-r2",
+            status="DISPROVED")
+    work = state.works["w1"]
+    attempted = send(state, 27, "handoff_dispatch", "d",
+                     from_operation="form", to_operation="finish",
+                     source_revision="d1", org_revision="oc-1",
+                     material_quantities=[{"batch": "mat-out", "quantity": "5"}],
+                     result_ref="model://d/invalid-dispatch")
+    assert attempted["reason"] == "WIP_ORIGINAL_EVIDENCE_SOURCE_UNAVAILABLE"
+    assert work.handoff_states[("form", "finish")] == "NOT_DISPATCHED"
+    assert work.material_states["mat-out"].dispatched is None
+    assert work.result == "NOT_SUBMITTED"
