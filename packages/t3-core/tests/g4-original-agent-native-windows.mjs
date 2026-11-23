@@ -98,6 +98,7 @@ try{
     G4_INVITE_PATH:invitePath,G4_TASK_PATH:taskPath,
     G4_RESULT_PATH:resultPath,
     G4_AGENT_CORE_ROOT:join(workRoot,'ephemeral-agent-core'),
+    G4_SOURCE_EXPECT_NO_KERNEL:'1',
     G4_AGENT_OLLAMA_BASE_URL:process.env.G4_AGENT_OLLAMA_BASE_URL??'',
     G4_AGENT_OLLAMA_MODEL:process.env.G4_AGENT_OLLAMA_MODEL??'',
     OLLAMA_HOST:process.env.OLLAMA_HOST??'',
@@ -121,45 +122,18 @@ try{
       cls?.[1]??'UNCLASSIFIED');
     throw Error('G4_NATIVE_EMPLOYEE_IPC_ORIGINAL_FAIL');
   }
-  assert.ok(employeeOutput.includes('G4_ORIGINAL_AGENT_CORE_REAL_LOCAL_MODEL_SOURCE_PASS'));
-  console.log('G4_ORIGINAL_AGENT_CORE_REAL_LOCAL_MODEL_SOURCE_PASS');
-  assert.ok(employeeOutput.includes('G4_ORIGINAL_AGENT_CORE_ACCEPTED_RESULT_PROOF_SOURCE_PASS'));
-  console.log('G4_ORIGINAL_AGENT_CORE_ACCEPTED_RESULT_PROOF_SOURCE_PASS');
-  assert.ok(employeeOutput.includes('G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_TASK_PASS'));
-  assert.ok(employeeOutput.includes('G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_RESULT_PASS'));
-  assert.ok(employeeOutput.includes('G4_ORIGINAL_NATIVE_EMPLOYEE_COLD_NO_REEXPORT_PASS'));
-  console.log('G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_TASK_PASS');
-  console.log('G4_ORIGINAL_NATIVE_EMPLOYEE_SIGNED_RESULT_PASS');
-  console.log('G4_ORIGINAL_NATIVE_EMPLOYEE_COLD_NO_REEXPORT_PASS');
-
-  phase='ORIGINAL_ADMIN_RESULT_RECEIVE_ACCEPT';
-  const bytes=readFileSync(resultPath);
-  assert.ok(bytes.length>64);
-  const received=admin.receive(bytes);
-  const digest=received.transportReceipt.packageSha256;
-  assert.equal(digest,createHash('sha256').update(bytes).digest('hex'));
-  const preview=admin.review(digest);
-  assert.equal(preview.changes.length,1);
-  assert.equal(preview.preview.classification,'NEW');
-  assert.ok(!JSON.stringify(preview).includes('PRIVATE_PERSONAL'));
-  const decision=admin.decide(digest,{decision:'ACCEPT',
-    previewDigest:preview.preview.previewDigest});
-  assert.ok(decision);
-  assert.equal(admin.snapshot().receipts.length,1);
+  // This TEST invitation intentionally has no original T2 Kernel and
+  // cannot count as successful Agent execution in released 0.6.2. A real
+  // signed original corporate Task/Result follows below against PRODUCTION
+  // and must prove the original T2 attachment independently.
+  assert.ok(employeeOutput.includes(
+    'G4_AGENT_ORIGINAL_KERNEL_MISSING_REFUSAL_PASS'),
+    'G4_SOURCE_MISSING_T2_HOST_MUST_NOT_ACCEPT_TASK');
+  console.log('G4_AGENT_ORIGINAL_KERNEL_MISSING_REFUSAL_PASS');
   admin.close();admin=null;
-  phase='ORIGINAL_ADMIN_COLD_READBACK';
-  const reopened=openInterop({root:adminRoot,product:'admin',passphrase:password});
-  try{
-    assert.equal(reopened.snapshot().receipts.length,1);
-    const checked=reopened.review(digest);
-    assert.ok(checked);
-    console.log('G4_ORIGINAL_NATIVE_ADMIN_ACCEPTED_READBACK_PASS');
-  }finally{reopened.close();}
 
-  // The previous signed employee exchange used an explicit TEST issuer.
-  // Qualify the separately existing ORIGINAL production Admin enrollment
-  // under genuine Windows DPAPI CurrentUser, with a NEW cold Node process.
-  // This does not create a new signer, Kernel, Store or employee credential.
+  // The real original production owner and One Core continue below. This
+  // negative source preflight does not establish signed Task/Result success.
   phase='ORIGINAL_PRODUCTION_OWNER_ENROLL';
   const {runNativeAdminD3}=await import(pathToFileURL(
     join(t3Root,'interop','native-admin-d3.mjs')).href);
