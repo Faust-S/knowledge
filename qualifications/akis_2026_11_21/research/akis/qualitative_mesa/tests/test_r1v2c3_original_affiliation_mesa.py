@@ -287,3 +287,24 @@ def test_pre_transfer_accepted_work_retains_original_morphological_scope_after_o
     assert w1["original_affiliation_at_commit"] == {
         "dept": "a", "worker": "a",
     }
+
+
+def test_cannot_transfer_principal_while_old_accepted_work_is_unfinished():
+    d = transfer_case(("worker",))
+    # First commit w2 under enterprise a. After that commitment and before
+    # execution/acceptance, the same worker proposes a move to enterprise b.
+    # The proposal and both independent reviews can be valid, but APPLY must
+    # not abandon the still outstanding original w2 obligation.
+    for event in d["events"]:
+        if event["action"].startswith("affiliation_transfer_"):
+            event["at"] += 30
+    d["events"].sort(key=lambda event: event["at"])
+    out = simulate(d)
+    apply = find(out, "affiliation_transfer_apply")[0]
+    assert apply["reason"] == "AFFILIATION_UNFINISHED_ORIGINAL_OBLIGATION"
+    assert out["subjects"]["worker"]["original_enterprise"] == "a"
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["original_affiliation_at_commit"] == {
+        "dept": "a", "worker": "a",
+    }
