@@ -220,6 +220,59 @@ function NativeD2RefusalStage(){
   }
   Write-Host 'D2_INSTALLED_NATIVE_REFUSAL_STAGE UNCLASSIFIED'
 }
+function DiagnoseOriginalEmployeeRegistryReadOnlyFailure(){
+  # Inspect only bounded public error codes, never original signed content.
+  $codes=[System.Collections.Generic.HashSet[string]]::new()
+  $nodes=(DesktopRoot).FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.Condition]::TrueCondition)
+  foreach($node in $nodes){
+    try{
+      $label=[string]$node.Current.Name
+      foreach($m in [regex]::Matches($label,
+        '(?<![A-Z0-9_])(?:T3_D1|T3_D3|T3_ACCESS|CEN_D3)_[A-Z0-9_]{4,90}(?![A-Z0-9_])')){
+        if($codes.Count -lt 5){[void]$codes.Add($m.Value)}
+      }
+    }catch{}
+  }
+  foreach($code in $codes){
+    Write-Host "D3_INSTALLED_ORIGINAL_REGISTRY_PUBLIC_REFUSAL_CODE $code"
+  }
+  Write-Host "D3_INSTALLED_ORIGINAL_REGISTRY_READ_ONLY_AVAILABLE $(HasText 'Проверить реестр без записи')"
+  Write-Host "D3_INSTALLED_ORIGINAL_REGISTRY_CONFIRMED_VISIBLE $(HasText 'Контакт в черновике')"
+}
+function RecoverOriginalEmployeeRegistryAfterUnknownAck(){
+  # May read an original Kernel write whose native ACK was lost. Never
+  # re-dispatch registry initialization or mint another signed grant.
+  $script:phase='D3_NATIVE_ORIGINAL_REGISTRY_READ_ONLY_AFTER_UNKNOWN_ACK'
+  $readable=$false
+  for($poll=0;$poll -lt 170;$poll++){
+    if(HasText 'Контакт в черновике'){return $true}
+    $button=$null
+    try{$button=FindName 'Проверить реестр без записи' 'Button' 1}catch{}
+    if($button){
+      try{
+        if($button.Current.IsEnabled -and -not $button.Current.IsOffscreen){
+          $readable=$true;break
+        }
+      }catch{}
+    }
+    Start-Sleep -Milliseconds 300
+  }
+  if(-not $readable){
+    DiagnoseOriginalEmployeeRegistryReadOnlyFailure
+    return $false
+  }
+  Write-Host 'D3_INSTALLED_ORIGINAL_REGISTRY_READ_ONLY_RECOVERY_CLICKED'
+  ClickButton 'Проверить реестр без записи'
+  $found=WaitForText 'Контакт в черновике' 425
+  if($found){
+    Write-Host 'D3_INSTALLED_ORIGINAL_REGISTRY_READ_ONLY_RECOVERY_PASS'
+    return $true
+  }
+  DiagnoseOriginalEmployeeRegistryReadOnlyFailure
+  return $false
+}
 function WaitForOriginalKernelReady(){
   # The isolated T3 child is asynchronous. A visible Center toolbar button
   # only means the child was created, NOT that original T2 Kernel/JIT attached.
@@ -826,7 +879,12 @@ try{
       Check $ready 'D3_INSTALLED_ORIGINAL_REGISTRY_BOOTSTRAP_NOT_AVAILABLE'
       ClickButton 'Подключить исходный реестр T3'
       ClickNativeChoice $true 'IWXA T3: исходный корпоративный реестр'
-      Check (WaitForText 'Контакт в черновике' 240) 'D3_INSTALLED_ORIGINAL_REGISTRY_KERNEL_READBACK_NOT_CONFIRMED'
+      $registryConfirmed=WaitForText 'Контакт в черновике' 380
+      if(-not $registryConfirmed){
+        Write-Host 'D3_INSTALLED_ORIGINAL_REGISTRY_INITIAL_ACK_NOT_CONFIRMED'
+        $registryConfirmed=RecoverOriginalEmployeeRegistryAfterUnknownAck
+      }
+      Check $registryConfirmed 'D3_INSTALLED_ORIGINAL_REGISTRY_KERNEL_READBACK_NOT_CONFIRMED'
       Write-Host 'D3_INSTALLED_ORIGINAL_REGISTRY_ONE_EXPLICIT_HUMAN_CREATE_PASS'
     }
     $script:phase='D2_NATIVE_REVIEW_TO_OVERVIEW'
