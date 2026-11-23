@@ -14,7 +14,7 @@ permissions:
   contents: read
 concurrency:
   group: admin-center-04-release-windows-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   signed-data-proof:
     runs-on: windows-2022
@@ -338,8 +338,7 @@ jobs:
           $result=& python -m installer.build_bundle inspect $setup | ConvertFrom-Json
           if($LASTEXITCODE -ne 0 -or $result.status -ne 'VERIFIED' -or
             $result.product -ne 'iwxa.admin-center' -or
-            $result.version -ne '0.4.0' -or
-            $result.files -lt 9){
+            $result.version -ne '0.4.0'){
             throw 'ADMIN_04_COMPLETE_SETUP_CORE_MANIFEST_UNVERIFIED'
           }
           $payload=Join-Path $center 'artifacts/private-t3-d3-payload/t3'
@@ -347,6 +346,9 @@ jobs:
             'iwxa-t3-age-desktop.exe','age.exe','age-keygen.exe',
             'age-toolchain.json','one-dist/_iwxa/loader.js',
             'one-dist/_iwxa/runtime/0.3.6/runtime.js')
+          if(@(Get-ChildItem -LiteralPath $payload -File -Recurse).Count -lt 9){
+            throw 'ADMIN_04_COMPLETE_T3_COMPONENTS_INSUFFICIENT'
+          }
           foreach($rel in $required){
             if(!(Test-Path -LiteralPath (Join-Path $payload $rel) -PathType Leaf)){
               throw 'ADMIN_04_ORIGINAL_T3_DELIVERY_COMPONENT_MISSING'
