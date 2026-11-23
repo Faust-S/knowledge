@@ -319,3 +319,57 @@ def test_operator_cannot_replace_two_independent_payment_statements():
         InputError, match="ORIGINAL_PAYMENT_INDEPENDENT_OWNER_REPORTS_REQUIRED"
     ):
         simulate(d)
+
+
+
+def test_original_work_cost_needs_separately_scoped_owner_evidence():
+    d = scoped_bilateral_payment_case()
+    proof = d["economic_claims"]["lifecycle_costs"]["event_bindings"][0][
+        "cost_evidence_ref"
+    ]
+    d["context_evidence"]["sources"] = [
+        row for row in d["context_evidence"]["sources"]
+        if row["id"] != proof
+    ]
+    model = OperatorAKISModel(d)
+    with pytest.raises(
+        InputError,
+        match="ORIGINAL_ECONOMIC_COST_SOURCE_NOT_USABLE_IN_STRICT_KPB",
+    ):
+        model.execute()
+    assert model.qualitative.works["w1"].result == (
+        "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    )
+    assert model.qualitative.works["w2"].result == (
+        "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    )
+
+
+def test_cost_source_expired_before_original_work_event_fails_strict_kpb():
+    d = scoped_bilateral_payment_case()
+    proof = d["economic_claims"]["lifecycle_costs"]["event_bindings"][0][
+        "cost_evidence_ref"
+    ]
+    original = next(
+        row for row in d["context_evidence"]["sources"]
+        if row["id"] == proof
+    )
+    assert original["valid_from"] < 45
+    original["valid_until"] = 45
+    with pytest.raises(
+        InputError,
+        match="ORIGINAL_ECONOMIC_COST_SOURCE_NOT_USABLE_IN_STRICT_KPB",
+    ):
+        simulate(d)
+
+
+def test_original_work_cost_cannot_omit_pinned_source_revision():
+    d = scoped_bilateral_payment_case()
+    d["economic_claims"]["lifecycle_costs"]["event_bindings"][0].pop(
+        "cost_evidence_revision"
+    )
+    with pytest.raises(
+        InputError,
+        match="ORIGINAL_ECONOMIC_COST_REVISION_PIN_REQUIRED",
+    ):
+        simulate(d)
