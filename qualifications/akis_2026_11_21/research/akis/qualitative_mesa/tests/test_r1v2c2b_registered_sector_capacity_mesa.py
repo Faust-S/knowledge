@@ -61,7 +61,8 @@ def test_new_sector_role_can_register_own_original_capacity():
     assert accepted_result(out, "w1")
     assert out["subjects"]["c"]["kind"] == "SECTOR_BODY"
     assert out["resources"]["rc"]["owner"] == "c"
-    assert out["resources"]["rc"]["capacity_units"] == 1
+    assert out["resources"]["rc"]["basis"] == "OWNER_REGISTERED_MODEL_SOURCE"
+    assert out["capacity"]["resources"]["rc"]["capacity_units"] == 1
     assert rows(out, "subject_registration_apply")[0]["outcome"] == "APPLIED"
     assert rows(out, "resource_registration_apply")[0]["outcome"] == "APPLIED"
     assert "w2" not in out["works"]
