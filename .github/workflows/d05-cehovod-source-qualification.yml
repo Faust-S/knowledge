@@ -56,7 +56,7 @@ jobs:
             fi
             echo "D05_REVISION_${destination}=PASS"
           }
-          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "6885674195d6aa0ac2b0bdd4820035ff79ea524f" "site"
+          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "68dbedbf1f26b742fc5838adf11e435676f0f691" "site"
           fetch_private "cehovod" "main" "72184644426c23e6cf8890a14010b1ad5267821b" "domain"
           unset header DOMEN
       - name: Install Node 22
@@ -103,7 +103,7 @@ jobs:
           set -euo pipefail
           cd site
           format_failure=0
-          for file in src/host/CehovodHostApp.tsx src/host/CehovodHostApp.ui-regression.test.ts src/host/production-progress.ts src/host/production-progress.test.ts src/host/order-close-overview.ts src/host/order-close-overview.test.ts scripts/d05-first-use-real-kernel-witness.mjs; do
+          for file in src/host/CehovodHostApp.tsx src/host/CehovodHostApp.ui-regression.test.ts src/host/production-progress.ts src/host/production-progress.test.ts src/host/order-close-overview.ts src/host/order-close-overview.test.ts src/host/CehovodDispatchQueue.tsx src/host/CehovodDispatchQueue.ui-regression.test.ts src/host/dispatch-queue.ts src/host/dispatch-queue.test.ts scripts/d05-first-use-real-kernel-witness.mjs; do
             if npx --no-install prettier --check "$file" > "$RUNNER_TEMP/d05-prettier.log" 2>&1; then
               echo "D05_FORMAT_$(basename "$file")=PASS"
             else
@@ -121,7 +121,7 @@ jobs:
           else
             echo "D05_CHECK_SOURCE=FAIL"
             # Emit only ESLint rule IDs and line numbers, never private code.
-            npx --no-install eslint src/host/dispatch-queue.ts src/host/CehovodDispatchQueue.tsx src/host/dispatch-queue.test.ts scripts/d05-first-use-real-kernel-witness.mjs scripts/check-htaccess.ts scripts/check-htaccess.test.ts scripts/verify-cehovod-product.mjs scripts/prepare-cehovod-host-build.mjs scripts/prepare-cehovod-host-build.test.mjs src/lib/temporary-workspace.ts src/host/draft-source-handoff.ts src/host/CehovodHostApp.tsx src/host/CehovodHostApp.ui-regression.test.ts src/host/production-progress.ts src/host/production-progress.test.ts src/host/order-close-overview.ts src/host/order-close-overview.test.ts src/host/case-001-source-handoff.test.ts src/host/CehovodWorkspaceLabels.test.ts src/routes/instrumenty.karta-kachestva.tsx scripts/check-navigation-a11y.ts --format json > "$RUNNER_TEMP/d05-dispatch-eslint.json" 2>/dev/null || true
+            npx --no-install eslint src/host/dispatch-queue.ts src/host/CehovodDispatchQueue.tsx src/host/dispatch-queue.test.ts scripts/d05-first-use-real-kernel-witness.mjs scripts/check-htaccess.ts scripts/check-htaccess.test.ts scripts/verify-cehovod-product.mjs scripts/prepare-cehovod-host-build.mjs scripts/prepare-cehovod-host-build.test.mjs src/lib/temporary-workspace.ts src/host/draft-source-handoff.ts src/host/CehovodHostApp.tsx src/host/CehovodHostApp.ui-regression.test.ts src/host/production-progress.ts src/host/production-progress.test.ts src/host/order-close-overview.ts src/host/order-close-overview.test.ts src/host/CehovodDispatchQueue.tsx src/host/CehovodDispatchQueue.ui-regression.test.ts src/host/dispatch-queue.ts src/host/dispatch-queue.test.ts src/host/case-001-source-handoff.test.ts src/host/CehovodWorkspaceLabels.test.ts src/routes/instrumenty.karta-kachestva.tsx scripts/check-navigation-a11y.ts --format json > "$RUNNER_TEMP/d05-dispatch-eslint.json" 2>/dev/null || true
             node -e 'const fs=require("node:fs");try{const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/d05-dispatch-eslint.json","utf8"));for(const f of data){const name=f.filePath.replace(/\\/g,"/").split("/").at(-1);for(const m of f.messages)console.log("D05_DISPATCH_LINT="+name+":"+(m.ruleId||"parse")+":"+m.line+":"+m.column)}}catch{console.log("D05_DISPATCH_LINT_REPORT=UNAVAILABLE")}'
             # Print only the failing gate and error-category counts.
             # No private source text, test stack, npm log or artifact is published.
