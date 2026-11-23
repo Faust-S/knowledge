@@ -827,7 +827,7 @@ class QualitativeAKIS:
             elif action == "source_update":
                 if self.context_basis is None:
                     raise BlockedDecision("CONTEXT_BASIS_NOT_CONFIGURED")
-                self.context_basis.owner_update(ev)
+                self.context_basis.owner_update(ev, at=at)
                 if self.capability_policy is not None:
                     self.capability_policy.refresh(self, at)
             elif action == "role_state_update":
