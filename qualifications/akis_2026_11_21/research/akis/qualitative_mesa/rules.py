@@ -148,6 +148,9 @@ class Work:
     assurance_criteria: tuple[QualityCriterion, ...] = ()
     assurance_reviews: dict[str, dict[str, str]] = field(default_factory=dict)
     assurance_refs: set[str] = field(default_factory=set)
+    # Effective FUTURE-operation responsibility; original criteria stay fixed.
+    # Decision and evidence history live on the original WIP amendments.
+    assurance_responsibilities: dict[str, dict[str, Any]] = field(default_factory=dict)
     # R1-W1: source-declared unfinished production stays on ORIGINAL Work.
     wip_active_resource: str | None = None
     wip_operation_active_resources: dict[str, str] = field(default_factory=dict)
