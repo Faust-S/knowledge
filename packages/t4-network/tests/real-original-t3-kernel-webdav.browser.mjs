@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash,randomUUID,generateKeyPairSync,sign,verify} from 'node:crypto';
+import {createHash,randomUUID,generateKeyPairSync,sign,verify as verifySignature} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {cpSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -2786,7 +2786,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         scopeRef:'scope:original:replay',
         requiredCryptoSuite:'X25519_AES256GCM_ED25519',
         verifyOriginalNodeSignature:async({bytes,signature})=>
-          verify(null,Buffer.from(bytes),
+          verifySignature(null,Buffer.from(bytes),
             nativeKeys.publicKey,Buffer.from(signature)),
         authorizeOriginalNetwork:async proof=>
           proof.permissionRef==='original:permission:replay'&&
