@@ -59,6 +59,47 @@ def _source(raw: Any, owner: str, reason: str) -> str:
     return raw
 
 
+def _original_source_revision(state: Any, ref: str, owner: str,
+                              at: int) -> str | None:
+    """Recheck current original-owner source, never mint an authorization.
+
+    Exact revision fingerprints are captured at proposal and checked before
+    application. ContextBasis itself remains the only authority for rights.
+    """
+    basis = state.context_basis
+    if basis is None or not basis.strict:
+        return None
+    source = basis.sources.get(ref)
+    if (source is None or source.owner != owner or
+            source.status != "CONFIRMED" or owner not in source.usable_by or
+            source.valid_until is not None and source.valid_until < at):
+        _fail("WIP_ORIGINAL_EVIDENCE_SOURCE_UNAVAILABLE")
+    return source.revision
+
+
+def _check_source_snapshots(state: Any, revisions: Mapping[str, Any],
+                            at: int) -> None:
+    for ref, row in revisions.items():
+        current = _original_source_revision(state, ref, row["owner"], at)
+        if current != row["revision"]:
+            _fail("WIP_ORIGINAL_EVIDENCE_SOURCE_REVISION_STALE")
+
+
+def _original_transfer_link(state: Any, work: Any, owner: str,
+                            target_owner: str, link_id: Any,
+                            revision: Any) -> dict[str, str]:
+    if not isinstance(link_id, str) or not isinstance(revision, str):
+        _fail("WIP_ORIGINAL_COOPERATION_REVISION_REQUIRED")
+    link = next((row for row in state.cooperation_links
+                 if row.key == link_id), None)
+    if (link is None or link.source_revision != revision or
+            work.key not in link.works or
+            not {owner, target_owner, work.customer}.issubset(link.participants)):
+        _fail("WIP_ORIGINAL_COOPERATION_SOURCE_OR_PARTICIPANTS_CHANGED")
+    return {"id": link.key, "revision": link.source_revision,
+            "source_ref": link.source_ref}
+
+
 def _reference(raw: Any, reason: str) -> str:
     if not isinstance(raw, str) or not raw.strip() or len(raw) > 128:
         _fail(reason)
@@ -158,13 +199,9 @@ def _recheck_voters(state: Any, proposal: Mapping[str, Any], at: int) -> None:
                 not state.subjects[subject].active):
             _fail("WIP_INDEPENDENT_SUPPORT_MISSING")
         _source(vote["source_ref"], subject, "WIP_VOTE_OWNER_SOURCE_INVALID")
-        if basis is not None and basis.strict:
-            src = basis.sources.get(vote["source_ref"])
-            if (src is None or src.owner != subject or src.status != "CONFIRMED" or
-                    subject not in src.usable_by or
-                    (src.valid_until is not None and src.valid_until < at) or
-                    src.revision != vote["source_revision"]):
-                _fail("WIP_ORIGINAL_VOTE_SOURCE_STALE")
+        if (_original_source_revision(state, vote["source_ref"], subject, at)
+                != vote["source_revision"]):
+            _fail("WIP_ORIGINAL_VOTE_SOURCE_STALE")
 
 
 def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, Any]:
@@ -192,6 +229,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                             "WIP_PRIOR_COST_SOURCE_AMOUNT_REQUIRED", positive=True)
         source = _source(ev.get("cost_source_ref"), actor,
                          "WIP_ORIGINAL_COST_SOURCE_REQUIRED")
+        source_revision = _original_source_revision(state, source, actor, at)
         if any(p["cost_source_ref"] == source for p in work.wip_interruptions):
             _fail("WIP_PRIOR_COST_SOURCE_ALREADY_USED")
         # A repeated interruption must refer to the exact most recent redo
@@ -204,8 +242,8 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         pause = {
             "number": len(work.wip_interruptions) + 1,
             "at": at, "resource": resource, "owner": actor,
-            "cost_source_ref": source, "prior_cost_claim": _fmt(prior_cost),
-            "state": "PAUSED",
+            "cost_source_ref": source, "cost_source_revision": source_revision,
+            "prior_cost_claim": _fmt(prior_cost), "state": "PAUSED",
         }
         work.wip_interruptions.append(pause)
         work.execution = "PAUSED"
@@ -224,6 +262,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             _fail("WIP_DECISION_INVALID")
         source = _source(ev.get("wip_source_ref"), actor,
                          "WIP_CUSTOMER_PROPOSAL_SOURCE_REQUIRED")
+        source_revision = _original_source_revision(state, source, actor, at)
         proposal_id = _reference(ev.get("wip_id"), "WIP_AMENDMENT_ID_REQUIRED")
         if (any(row["id"] == proposal_id for row in work.wip_amendments) or
                 any(row.get("wip_id") == proposal_id and
@@ -234,6 +273,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         if type(expiry) is not int or not at < expiry <= 10000:
             _fail("WIP_VALID_REVIEW_WINDOW_REQUIRED")
         new_resource = ev.get("wip_target_resource")
+        collaboration = None
         if decision == "TERMINATE":
             if new_resource is not None:
                 _fail("WIP_TERMINATION_CANNOT_ASSIGN_EXECUTOR")
@@ -250,12 +290,12 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                 _fail("WIP_NEW_EXECUTOR_UNAVAILABLE")
             if state.resource_specs[new_resource].basis != "MODEL_DECLARED":
                 _fail("WIP_EXPLICIT_ORIGINAL_CAPACITY_REQUIRED")
-            if decision == "TRANSFER" and state.cooperation_links and not any(
-                work.key in link.works and target_owner in link.participants
-                and owner in link.participants and work.customer in link.participants
-                for link in state.cooperation_links
-            ):
-                _fail("WIP_NEW_EXECUTOR_MUST_BELONG_TO_ORIGINAL_COOPERATION")
+            if decision == "TRANSFER":
+                collaboration = _original_transfer_link(
+                    state, work, owner, target_owner,
+                    ev.get("wip_cooperation_link"),
+                    ev.get("wip_cooperation_revision"),
+                )
             start, end = ev.get("wip_slot_start"), ev.get("wip_slot_end")
             if (type(start) is not int or type(end) is not int or
                     not max(at, work.slot_end) <= start < end):
@@ -267,6 +307,20 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         if decision == "TERMINATE" and lot["future_resource_cost"] is not None:
             _fail("WIP_TERMINATION_HAS_NO_NEXT_EXECUTION")
         required = sorted({owner, work.customer} | ({target_owner} if target_owner else set()))
+        evidence = [(pause["cost_source_ref"], owner),
+                    (source, work.customer)]
+        for key in ("inspection_ref", "claim_ref"):
+            if lot[key]:
+                evidence.append((lot[key], owner))
+        if len({ref for ref, _ in evidence}) != len(evidence):
+            _fail("WIP_ORIGINAL_EVIDENCE_REFERENCES_MUST_BE_DISTINCT")
+        snapshots = {
+            ref: {"owner": subject,
+                  "revision": _original_source_revision(state, ref, subject, at)}
+            for ref, subject in evidence
+        }
+        if snapshots[pause["cost_source_ref"]]["revision"] != pause["cost_source_revision"]:
+            _fail("WIP_ORIGINAL_INTERRUPTION_COST_SOURCE_CHANGED")
         doc = {
             "id": proposal_id, "work": work.key, "decision": decision,
             "original_resource": resource, "target_resource": new_resource,
@@ -275,6 +329,8 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             "interruption_at": pause["at"], "cost_source_ref": pause["cost_source_ref"],
             "owner": owner, "lot": lot, "capacity_units": capacity_units,
             "next_window": next_window, "proposal_source": source,
+            "proposal_source_revision": source_revision,
+            "source_revisions": snapshots, "cooperation": collaboration,
         }
         proposal = {
             **doc, "fingerprint": fingerprint(doc), "created_at": at,
@@ -301,6 +357,9 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             _fail("WIP_APPROVED_NEW_EXECUTOR_REQUIRED")
         _source(ev.get("wip_source_ref"), actor,
                 "WIP_EXECUTOR_RESUME_SOURCE_REQUIRED")
+        _original_source_revision(
+            state, ev["wip_source_ref"], actor, at
+        )
         start, end = latest["next_window"]
         if not start <= at < end:
             _fail("WIP_RESUME_OUTSIDE_APPROVED_WINDOW")
@@ -337,19 +396,33 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                          "WIP_INDEPENDENT_REVIEW_SOURCE_REQUIRED")
         item = {"decision": decision, "source_ref": source, "at": at,
                 "source_revision": None}
-        if state.context_basis is not None and state.context_basis.strict:
-            basis = state.context_basis.sources.get(source)
-            if basis is None or basis.owner != actor or basis.status != "CONFIRMED":
-                _fail("WIP_REVIEW_SOURCE_NOT_CONFIRMED")
-            item["source_revision"] = basis.revision
+        item["source_revision"] = _original_source_revision(
+            state, source, actor, at
+        )
         proposal["votes"][actor] = item
         return {"wip_phase": "REVIEWED", "wip_id": proposal["id"],
                 "wip_position": decision, "independent_subject": actor}
     if action != "wip_apply" or actor != work.customer:
         _fail("WIP_ONLY_ORIGINAL_CUSTOMER_CAN_APPLY")
-    _source(ev.get("wip_source_ref"), actor, "WIP_APPLY_SOURCE_REQUIRED")
+    applied_source = _source(
+        ev.get("wip_source_ref"), actor, "WIP_APPLY_SOURCE_REQUIRED"
+    )
+    _original_source_revision(state, applied_source, actor, at)
+    _check_source_snapshots(state, proposal["source_revisions"], at)
+    if (proposal["org_revision"] != state.institution.revision or
+            proposal["work_source_revision"] != work.source_revision):
+        _fail("WIP_PROPOSAL_ORIGINAL_REVISION_CHANGED")
     _recheck_voters(state, proposal, at)
     target = proposal["target_resource"]
+    if proposal["decision"] == "TRANSFER":
+        collaboration = proposal["cooperation"]
+        actual = _original_transfer_link(
+            state, work, proposal["owner"],
+            state.resources[target], collaboration["id"],
+            collaboration["revision"],
+        )
+        if actual != collaboration:
+            _fail("WIP_COOPERATION_ORIGINAL_SOURCE_CHANGED")
     if target is not None:
         if (state.resource_availability[target] != "AVAILABLE" or
                 not state.subjects[state.resources[target]].active):
