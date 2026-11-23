@@ -72,7 +72,9 @@ class OwnerOutlook:
 
 
 def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
-                   known_works: set[str] | None = None) -> tuple[OwnerOutlook, ...]:
+                   known_works: set[str] | None = None,
+                   future_membership_events: Sequence[Mapping[str, Any]] = (),
+                   ) -> tuple[OwnerOutlook, ...]:
     """Require individually sourced alternatives; no operator-owned proxy consent."""
     if not isinstance(raw, list) or len(raw) > 512:
         raise OutlookInputError("INVALID_OUTLOOK_COUNT")
@@ -88,7 +90,22 @@ def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
         work = _id(record["work"], "WORK")
         if owner not in subjects:
             raise OutlookInputError("OUTLOOK_OWNER_UNKNOWN")
-        if relation not in link_map or owner not in link_map[relation].participants:
+        if relation not in link_map:
+            # A hypothesis may reference a prospective successor coalition.
+            # This permits parsing ONLY; the original cooperation_membership_apply
+            # must still succeed before choose_outlook may use that relationship.
+            possible = any(
+                event.get("action") == "cooperation_membership_apply"
+                and event.get("new_link_id") == relation
+                and event.get("new_link_revision") == record["relation_source_revision"]
+                and event.get("cooperation_link") in link_map
+                and owner in link_map[event["cooperation_link"]].participants
+                for event in future_membership_events
+                if isinstance(event, Mapping)
+            )
+            if not possible:
+                raise OutlookInputError("OUTLOOK_RELATION_OWNER_REQUIRED")
+        elif owner not in link_map[relation].participants:
             raise OutlookInputError("OUTLOOK_RELATION_OWNER_REQUIRED")
         source = _id(record["source_ref"], "SOURCE")
         if not source.startswith(f"model://{owner}/") or len(source) <= len(f"model://{owner}/"):
