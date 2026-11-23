@@ -10,6 +10,7 @@ No private data, model text, Task contents or private source is printed.
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 from runtime.t3_original_employee_port import OriginalEmployeePort, CorporateT3Error
@@ -114,6 +115,25 @@ try:
                 "TASK_REVISION_REQUIRED")
         require(original.get("taskId", "").startswith("task:"),
                 "SIGNED_TASK_REQUIRED")
+
+        if os.environ.get("G4_SOURCE_EXPECT_NO_KERNEL") == "1":
+            # Legacy signed TEST carrier has no original T2 Host. The
+            # released 0.6.2 must refuse actual Task execution here rather
+            # than accepting a synthetic company Workspace.
+            phase = "ORIGINAL_SIGNED_NO_KERNEL_MUST_REFUSE"
+            require(port.status().get("originalCompanyWorkspaceAuthority")
+                    != "ORIGINAL_T2_KERNEL_ATTACHED",
+                    "G4_SOURCE_LEGACY_TEST_UNEXPECTED_KERNEL_AUTHORITY")
+            try:
+                port.submit(object())
+            except CorporateT3Error as error:
+                require(str(error) ==
+                        "T3_COMPANY_ORIGINAL_T2_KERNEL_NOT_ATTACHED",
+                        "G4_SOURCE_MISSING_KERNEL_DENIAL_CHANGED")
+            else:
+                raise AssertionError("G4_SOURCE_MISSING_KERNEL_ADMITTED_TASK")
+            print("G4_AGENT_ORIGINAL_KERNEL_MISSING_REFUSAL_PASS")
+            sys.exit(0)
 
         phase = "AGENT_CORE_REAL_LOCAL_MODEL_READY"
         engine = open_verified_core()
