@@ -156,7 +156,8 @@ def test_wip_uses_existing_work_independent_original_votes_and_reservations():
     assert finish(state, digest)["reason"] == "WIP_INDEPENDENT_SUPPORT_MISSING"
     assert not work.wip_lots
     votes(state, digest)
-    assert finish(state, digest)["outcome"] == "APPLIED"
+    actual = finish(state, digest)
+    assert actual["outcome"] == "APPLIED", actual
     assert work.resource == "ra"
     assert work.wip_active_resource == "rc"
     assert work.wip_lots[-1]["status"] == "RESERVED"
@@ -197,7 +198,8 @@ def test_objected_amendment_cannot_be_forced_through():
 def test_terminated_work_retains_lot_without_a_new_result():
     state, digest = prepare(decision="TERMINATE")
     votes(state, digest)
-    assert finish(state, digest)["outcome"] == "APPLIED"
+    actual = finish(state, digest)
+    assert actual["outcome"] == "APPLIED", actual
     w = state.works["w1"]
     assert w.execution == "STOPPED"
     assert w.wip_lots[-1]["status"] == "HELD"
@@ -245,7 +247,8 @@ def test_original_capacity_is_not_double_booked_during_transfer():
 def test_repeated_interruption_references_only_last_attempt_cost_and_quantity():
     state, digest = prepare()
     votes(state, digest)
-    assert finish(state, digest)["outcome"] == "APPLIED"
+    actual = finish(state, digest)
+    assert actual["outcome"] == "APPLIED", actual
     assert submit(state, "wip_resume", 22, "c", work="w1",
                   source_revision="d-1", org_revision="oc-1",
                   wip_source_ref="model://c/resume-1")["outcome"] == "APPLIED"
@@ -316,7 +319,7 @@ def test_real_mesa_scheduler_keeps_one_original_event_trace():
     ])
     d["events"] = events
     result = simulate(deepcopy(d))
-    assert all(row["outcome"] == "APPLIED" for row in result["trace"])
+    assert all(row["outcome"] == "APPLIED" for row in result["trace"]), [row for row in result["trace"] if row["outcome"] != "APPLIED"]
     assert result["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert result["works"]["w1"]["unfinished_production"]["material_lots"][0]["status"] == "CONSUMED"
     assert result["works"]["w1"]["resource_owner"] == "a"
