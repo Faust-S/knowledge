@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 49d08acfbe08c4fd85f74d919a4b2a79151d9a77
+          ref: 85184db197a6b208f3336758ab58092f3ebd0578
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -28,4 +28,7 @@ jobs:
         working-directory: site
         run: |
           bun install --frozen-lockfile > "$RUNNER_TEMP/d07-185-preflight.log" 2>&1
-          node --import tsx --input-type=module -e 'import {findSubjectProtocol} from "./src/domain/service-subject-protocols.ts";import {getPlannedService} from "./src/data/plannedServices.ts";const c=[["buhgalteriya-nalogi-biznes","otchet-dlya-sobstvennika"],["buhgalteriya-nalogi-biznes","analiz-pribyli"],["buhgalteriya-nalogi-biznes","analiz-denezhnogo-potoka"],["uborka-hozyaystvo-pomosch","uhod-za-rasteniyami"],["uborka-hozyaystvo-pomosch","prigotovlenie-edy"],["obuchenie-repetitory","podgotovka-k-vuzu"],["foto-video-meropriyatiya","predmetnyy-fotograf"],["remont-dom-mastera","uteplenie-balkona"],["avto-tehnika-oborudovanie","remont-tormozov"],["remont-dom-mastera","gidroizolyaciya"],["foto-video-meropriyatiya","videograf"]];for(const [category,slug] of c){const p=getPlannedService(category,slug);const s=findSubjectProtocol(category,slug);console.log("D07_CANDIDATE "+category+"/"+slug+" PLANNED="+Boolean(p)+" EXISTING="+Boolean(s));}'
+          node --import tsx scripts/d07-next500-candidate-preflight.mjs 15 | tee "$RUNNER_TEMP/d07-185-candidate-results.log"
+          grep -qx 'D07_TOP500_SELECTED=500' "$RUNNER_TEMP/d07-185-candidate-results.log"
+          grep -qx 'D07_INDIVIDUAL_TECHNOLOGIES=185' "$RUNNER_TEMP/d07-185-candidate-results.log"
+          grep -qx 'D07_UNCOVERED_TECHNOLOGIES=315' "$RUNNER_TEMP/d07-185-candidate-results.log"
