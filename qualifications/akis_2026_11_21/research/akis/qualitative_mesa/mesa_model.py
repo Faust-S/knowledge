@@ -45,6 +45,7 @@ from .org_code_policy import OrgCodeInputError, parse_org_code_policy
 from .economic_flow import EconomicInputError, evaluate_economic_claims
 from .strict_economic_source_review import (
     StrictEconomicSourceBlocked, review_original_strict_economic_sources,
+    original_owner_economic_core,
 )
 from .competence_reuse import ReuseInputError, evaluate_competence_reuse
 from .competence_transfer import CompetencePermissionInputError, review_permissions
@@ -124,6 +125,8 @@ class EconomicSubject(mesa.Agent):
                 org_revision=state.institution.revision,
                 links=state.cooperation_links, at=float(self.model.time),
                 works=state.works,
+                context_basis=state.context_basis,
+                owner_core=original_owner_economic_core(self.kind),
             )
         if work is not None and self.model.joint_purchasing_plans:
             joint = self.model._joint_purchasing_position(self.party_id, work_id)
