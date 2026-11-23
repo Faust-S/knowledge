@@ -22,7 +22,7 @@ from .test_work_counterfactual_mesa import counterfactual_case
 def original_four_trajectory_inputs():
     baseline = counterfactual_case()
     baseline["endogenous_subjects"] = True
-    baseline["model_horizon"] = max(baseline["model_horizon"], 29)
+    baseline["model_horizon"] = max(baseline.get("model_horizon", 0), 29)
     baseline["decision_profiles"] = [
         {
             "subject": owner, "work": "w2",
@@ -190,7 +190,7 @@ def test_comparator_refuses_to_compare_different_money_or_initial_owners():
         lambda d: d["economic_claims"]["transfers"][0].update(
             amount="999.00"
         ),
-        lambda d: d["subjects"][0].update(kind="SME"),
+        lambda d: d["subjects"][0].update(id="forged-principal"),
         lambda d: d["work_counterfactuals"][0]["equivalence"].update(
             quality=False
         ),
