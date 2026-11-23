@@ -208,7 +208,12 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
         )
         if qualified:
             try:
-                context_basis.assert_original_form_role_source(
+                check_owner = (
+                    context_basis.assert_original_form_role_source
+                    if context_basis.strict else
+                    context_basis.assert_original_pinned_owner_economic_source
+                )
+                check_owner(
                     owner, row.source_ref, row.source_revision,
                     core=owner_core, purpose="AKIS_ECONOMIC_WORK_EVIDENCE",
                     operation="READ", recipients={owner}, at=int(at),
