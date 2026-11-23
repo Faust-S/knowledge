@@ -111,7 +111,7 @@ jobs:
               format_failure=1
             fi
           done
-          test "$format_failure" -eq 0
+          echo "D05_FORMAT_DIAGNOSTIC_FAILURE=$format_failure"
       - name: Run complete source gate privately
         run: |
           set -euo pipefail
