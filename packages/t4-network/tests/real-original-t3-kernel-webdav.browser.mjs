@@ -2810,7 +2810,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const nativeNetworkSent=await nativeSender.publishSignedFrame({
         wireBytes:nativeWire,
       });
-      assert.match(nativeNetworkSent.key,/^[a-f0-9]{64}\\.t4n$/);
+      assert.match(nativeNetworkSent.key,/^[a-f0-9]{64}\.t4n$/);
       const nativeReceiver=()=>createT4CandidateFrameTransport({
         wireTransport:nativeNetworkTransport,
         originalHostNodeRef:'node:original:recipient',
