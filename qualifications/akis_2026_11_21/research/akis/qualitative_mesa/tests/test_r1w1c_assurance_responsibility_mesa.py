@@ -211,8 +211,9 @@ def test_consent_fingerprint_binds_every_assurance_criterion_and_all_principals(
 def test_valid_original_assurance_revision_is_scoped_to_future_form_execution():
     state = approved()
     work = state.works["w1"]
-    assert work.assurance_criteria[0].responsible_owner == "b"
-    assert work.assurance_criteria[1].responsible_owner == "b"
+    originals = {row.key: row.responsible_owner for row in work.assurance_criteria}
+    assert originals == {"form-surface": "b", "form-record": "b",
+                         "finish-product": "a"}
     assert {key: row["effective_owner"] for key, row in
             work.assurance_responsibilities.items()} == {
         "form-surface": "d", "form-record": "d",
@@ -220,7 +221,8 @@ def test_valid_original_assurance_revision_is_scoped_to_future_form_execution():
     assert set(work.assurance_responsibilities) == {"form-surface", "form-record"}
     assert work.operation_states["form"] == "PAUSED"
     assert work.wip_operation_active_resources == {"form": "rd"}
-    assert work.material_batches[1].declared_title_holder == "b"
+    assert next(batch for batch in work.material_batches
+                if batch.key == "mat-out").declared_title_holder == "b"
     assert len(state.works) == 2
     w = state.snapshot()["works"]["w1"]
     assert w["assurance"]["current_result_quality_gate"] == "QUALITY_ORIGINAL_ASSESSMENT_MISSING"
