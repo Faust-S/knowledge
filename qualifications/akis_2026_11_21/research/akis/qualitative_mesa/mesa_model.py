@@ -397,11 +397,23 @@ class OperatorAKISModel(mesa.Model):
             ) if self.general_akis_enabled else None
             if (self.general_akis_enabled and
                     (self.general_design.enforce_model_org_code or
-                     self.general_design.enforce_model_formation_phases) and
-                    self.general_design.configuration != "operator"):
-                # All six author forms are research projections; only the
-                # original SME/operator event model supports this policy path.
-                raise OrgCodeInputError("OC_ENFORCEMENT_ONLY_ORIGINAL_OPERATOR_MODEL")
+                     self.general_design.enforce_model_formation_phases)):
+                # R1-V1 allows scoped INTER-firm Work with independent SMEs,
+                # but ONLY under the opt-in original form gate. The existing
+                # operator remains a procedural coordinator and cannot replace
+                # original owners' consent. Other author forms require subject
+                # classes not present in this original model and fail closed.
+                allowed = (
+                    {"operator", "inter"}
+                    if self.general_design.enforce_model_author_configuration_work_scope
+                    else {"operator"}
+                )
+                if self.general_design.configuration not in allowed:
+                    raise OrgCodeInputError(
+                        "OC_ENFORCEMENT_ONLY_ORIGINAL_OPERATOR_MODEL"
+                        if not self.general_design.enforce_model_author_configuration_work_scope
+                        else "AUTHOR_FORM_ORIGINAL_SUBJECT_CLASSES_NOT_IMPLEMENTED"
+                    )
             self.model_org_policy = (
                 parse_org_code_policy(
                     self.general_design.declarations["organizational_code"],

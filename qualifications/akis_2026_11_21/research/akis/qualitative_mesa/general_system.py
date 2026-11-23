@@ -12,7 +12,9 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from .configuration_behavior import configuration_dynamics
+from .configuration_behavior import (
+    configuration_dynamics, original_configuration_commit_gate,
+)
 from .scope_policy import source_link_status, OPERATIONS as CONTEXT_OPERATIONS
 from .process_preparation import perform_bounded_process_step
 from .cooperation import original_membership_predecessor
@@ -87,6 +89,7 @@ class GeneralSystemDesign:
     enforce_model_result_conditioned_interests: bool = False
     enforce_model_result_conditioned_reconfiguration: bool = False
     enforce_model_result_conditioned_capability_cooperation: bool = False
+    enforce_model_author_configuration_work_scope: bool = False
 
     @property
     def source_times(self) -> tuple[int, ...]:
@@ -1251,6 +1254,12 @@ class ModelFormationPolicy:
 
     def before_commit(self, state: Any, work: Any, at: int,
                       *, include_agent: bool = True) -> str:
+        if self.design.enforce_model_author_configuration_work_scope:
+            reason = original_configuration_commit_gate(
+                self.design, state, work
+            )
+            if reason != "NONE":
+                return reason
         for phase, owners in (
             (1, {work.customer}), (2, {work.customer}),
             (3, self._resource_owners(state, work))
@@ -1301,7 +1310,8 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                                    "enforce_model_result_conditioned_goals",
                                    "enforce_model_result_conditioned_interests",
                                    "enforce_model_result_conditioned_reconfiguration",
-                                   "enforce_model_result_conditioned_capability_cooperation"}):
+                                   "enforce_model_result_conditioned_capability_cooperation",
+                                   "enforce_model_author_configuration_work_scope"}):
         raise GeneralSystemInputError("INVALID_GENERAL_DESIGN_FIELDS")
     enforce_model_code = raw.get("enforce_model_org_code", False)
     if type(enforce_model_code) is not bool:
@@ -1348,6 +1358,16 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
         raise GeneralSystemInputError("GENERAL_MODEL_CAPABILITY_COOPERATION_GATE_MUST_BE_BOOLEAN")
     if enforce_capability_cooperation and not enforce_reconfiguration:
         raise GeneralSystemInputError("FORMATION_CAPABILITY_COOPERATION_REQUIRES_RESULT_RECONFIGURATION")
+    form_scope = raw.get("enforce_model_author_configuration_work_scope", False)
+    if type(form_scope) is not bool:
+        raise GeneralSystemInputError("GENERAL_AUTHOR_FORM_SCOPE_GATE_MUST_BE_BOOLEAN")
+    if form_scope and not (
+        enforce_formation and enforce_institutional
+        and enforce_agent and enforce_lifecycle
+    ):
+        raise GeneralSystemInputError(
+            "GENERAL_AUTHOR_FORM_SCOPE_REQUIRES_ORIGINAL_SIX_PHASE_AND_RESULT_GATES"
+        )
     configurations = {x["id"] for x in cat["taxonomy"]["subject_configurations"]}
     config = _s(raw["configuration"], "CONFIGURATION")
     if config not in configurations:
@@ -1456,7 +1476,7 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                                enforce_institutional, enforce_agent,
                                enforce_lifecycle, enforce_emergent,
                                enforce_interests, enforce_reconfiguration,
-                               enforce_capability_cooperation)
+                               enforce_capability_cooperation, form_scope)
 
 
 def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
@@ -1680,6 +1700,22 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
     operating = configuration_dynamics(
         design, state, at=at, current=valid, economic_status=economic_status
     )
+    operating["original_commit_form_gate"] = {
+        "enabled": design.enforce_model_author_configuration_work_scope,
+        "original_work_checks": [
+            {
+                "work": work.key,
+                "model_scope_result": original_configuration_commit_gate(
+                    design, state, work
+                ),
+                "historical_accepted_result_unmodified": True,
+                "legal_form_or_new_authority_established": False,
+            }
+            for work in (state.works[key] for key in sorted(state.works))
+        ],
+        "only_existing_original_SMEs_operator_and_Work_scoped": True,
+        "all_six_author_organizational_forms_implemented": False,
+    }
     # The program actually performs source-qualified, bounded computations on
     # the existing original Work state. It does NOT emit original business
     # events, call external tools, or turn a simulated scope into an authority.
@@ -1907,6 +1943,13 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
             "real_original_scope_authentication": False,
             "all_eight_author_phases_executable": False,
             "new_principal_or_legal_power_created": False,
+        },
+        "r1v1_original_author_form_work_gate": {
+            "enabled": design.enforce_model_author_configuration_work_scope,
+            "selected_author_form": design.configuration,
+            "only_existing_original_subject_types_can_pass": True,
+            "real_intrafirm_sector_public_person_roles_installed": False,
+            "not_a_new_IAM_governance_or_work_engine": True,
         },
         "first_three_formation_model_gate": {
             "opted_in": design.enforce_model_formation_phases,

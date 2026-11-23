@@ -118,6 +118,59 @@ def _original_work_projection(state: Any, configuration: str) -> list[dict[str, 
     return result
 
 
+
+# R1-V1: a negative-only original Work commit gate. The author's form is
+# not an operator-created subject type or a permission to sign for owners.
+# The same original Work, principals, OC/KPB and independent consents govern.
+# Forms needing employees, institutions, sector rules or persons fail closed
+# until those actual subject classes are implemented in the original model.
+ORIGINAL_FORM_MISSING_ACTOR_REASON = {
+    "intra": "FORMATION_AUTHOR_INTRA_EMPLOYEES_DIVISIONS_NOT_MODELLED",
+    "sector": "FORMATION_AUTHOR_SECTOR_STANDARDS_ACTORS_NOT_MODELLED",
+    "macro": "FORMATION_AUTHOR_PUBLIC_INSTITUTION_NOT_MODELLED",
+    "trace": "FORMATION_AUTHOR_NATURAL_PERSON_RIGHTS_NOT_MODELLED",
+}
+
+
+def original_configuration_commit_gate(design: Any, state: Any,
+                                       work: Any) -> str:
+    """Can this actual original Work be committed under its selected form?
+
+    Only inter-enterprise and operator-scoped original SME processes can be
+    partially checked with the EXISTING actor types. This intentionally
+    confers no new form, governance, institutional status or grant.
+    """
+    config = design.configuration
+    if config in ORIGINAL_FORM_MISSING_ACTOR_REASON:
+        return ORIGINAL_FORM_MISSING_ACTOR_REASON[config]
+    if config not in {"inter", "operator"}:
+        return "FORMATION_AUTHOR_CONFIGURATION_NOT_QUALIFIED"
+    parties = _original_principals(state, work)
+    if (len(parties) < 2 or any(
+            name not in state.subjects
+            or state.subjects[name].kind != "SME"
+            or not state.subjects[name].active
+            for name in parties)):
+        return "FORMATION_AUTHOR_INTERFIRM_INDEPENDENT_SMES_REQUIRED"
+    if design.morphology["scale"] != "межфирменные":
+        return "FORMATION_AUTHOR_INTERFIRM_SCALE_SOURCE_MISMATCH"
+    if config == "inter":
+        if design.morphology["governance"] == "операторские":
+            return "FORMATION_AUTHOR_INTERFIRM_OPERATOR_MORPHOLOGY_CONFLICT"
+    else:
+        if design.morphology["governance"] != "операторские":
+            return "FORMATION_AUTHOR_OPERATOR_GOVERNANCE_SOURCE_REQUIRED"
+        operator = state.institution.operator
+        if (operator not in state.subjects
+                or state.subjects[operator].kind != "OPERATOR"
+                or not state.subjects[operator].active
+                or state.institution.mode not in {"SOLE", "MIXED", "COLLEGIAL"}):
+            return "FORMATION_AUTHOR_ORIGINAL_OPERATOR_AUTHORITY_NOT_PRESENT"
+    # The existing authorize, consent and commit steps remain mandatory.
+    # A declared form is never equivalent to the original owners' agreement.
+    return "NONE"
+
+
 def _axis_consequences(design: Any, state: Any, current: Mapping[str, list[Mapping[str, Any]]],
                        works: list[dict[str, Any]], economic_status: str) -> dict[str, dict[str, Any]]:
     x = design.morphology
