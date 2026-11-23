@@ -6,7 +6,7 @@ corporate documents, real IAM, or a new kernel. Unknown is not permission.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from .scope_policy import (
@@ -165,6 +165,12 @@ class ContextBasis:
         if not isinstance(requirements, list) or len(requirements) > MAX_REQUIREMENTS:
             raise ContextInputError("INVALID_CONTEXT_REQUIREMENT_COUNT")
         self.sources: dict[str, SourceAssertion] = {}
+        # Retain immutable revisions of the SAME original sources; this
+        # historical projection is not a new grants registry, permission or
+        # independent economic event store. An un-timed legacy update makes
+        # the corresponding historical proof unknowable, never positive.
+        self._source_versions: dict[str, list[tuple[int, SourceAssertion]]] = {}
+        self._historical_time_unknown: set[str] = set()
         self.requirements: dict[tuple[str, str], RequiredContext] = {}
         for item in sources:
             _fields(item, {"id", "owner", "revision", "status", "usable_by"}, {"valid_until"} | set(SCOPE_FIELDS), "INVALID_CONTEXT_SOURCE")
@@ -189,6 +195,7 @@ class ContextBasis:
             except ScopeInputError as exc:
                 raise ContextInputError(str(exc)) from exc
             self.sources[key] = SourceAssertion(key, owner, revision, status, usable_by, until, scope)
+            self._source_versions[key] = [(-1, replace(self.sources[key]))]
         for item in requirements:
             _fields(item, {"work", "action", "sources", "expected_revisions"}, {"core", "purpose", "operation"}, "INVALID_CONTEXT_REQUIREMENT")
             work = _identifier(item["work"], "INVALID_CONTEXT_WORK")
@@ -339,22 +346,17 @@ class ContextBasis:
                     and type(row.get("at")) is int and row["at"] < at):
                 self.assert_original_decision_rights(row, at)
 
-    def assert_original_form_role_source(
-            self, actor: str, reference: str | None,
+    def _assert_owner_source_state(
+            self, source: SourceAssertion | None,
+            actor: str, reference: str | None,
             expected_revision: str | None, *, core: str, purpose: str,
             operation: str, recipients: set[str], at: int) -> None:
-        """Evaluate original owner-controlled role/mandate/context source.
-
-        This calls the SAME ContextBasis evaluator and scope predicate.
-        Neither role claims nor the author form constitute a new IAM
-        grant, externally authenticated identity or separate permission DB.
-        """
+        """One original source-scope predicate for both current and as-of views."""
         if not self.strict:
             raise ContextBlocked("AUTHOR_ROLE_STRICT_CONTEXT_REQUIRED")
         if (not isinstance(reference, str)
                 or not reference.startswith(f"model://{actor}/")):
             raise ContextBlocked("AUTHOR_ROLE_ORIGINAL_SOURCE_OWNER_REQUIRED")
-        source = self.sources.get(reference)
         if source is None or source.owner != actor:
             raise ContextBlocked("AUTHOR_ROLE_ORIGINAL_SOURCE_OWNER_REQUIRED")
         if (not isinstance(expected_revision, str)
@@ -374,6 +376,55 @@ class ContextBasis:
         )
         if reason != "MODEL_SOURCE_SCOPE_CONSISTENT":
             raise ContextBlocked(reason)
+
+    def assert_original_form_role_source(
+            self, actor: str, reference: str | None,
+            expected_revision: str | None, *, core: str, purpose: str,
+            operation: str, recipients: set[str], at: int) -> None:
+        """Evaluate the CURRENT original ContextBasis source and revision."""
+        self._assert_owner_source_state(
+            self.sources.get(reference) if isinstance(reference, str) else None,
+            actor, reference, expected_revision,
+            core=core, purpose=purpose, operation=operation,
+            recipients=recipients, at=at,
+        )
+
+    def assert_original_historical_form_role_source(
+            self, actor: str, reference: str | None,
+            expected_revision: str | None, *, core: str, purpose: str,
+            operation: str, recipients: set[str], at: int) -> None:
+        """Verify an ORIGINAL source at an earlier event, not present-day READ.
+
+        Replay only already APPLIED owner updates of the SAME source, starting
+        from its original declaration. Never infer permission from future
+        restoration, revert an already accepted Work, or grant current use.
+        An update on the same tick is an unordered case and fails closed.
+        """
+        if type(at) is not int or at < 0 or at > 10000:
+            raise ContextBlocked("CONTEXT_HISTORICAL_EVENT_TIME_INVALID")
+        if not isinstance(reference, str):
+            raise ContextBlocked("AUTHOR_ROLE_ORIGINAL_SOURCE_OWNER_REQUIRED")
+        history = self._source_versions.get(reference)
+        if history is None:
+            raise ContextBlocked("AUTHOR_ROLE_ORIGINAL_SOURCE_OWNER_REQUIRED")
+        if reference in self._historical_time_unknown:
+            raise ContextBlocked("CONTEXT_HISTORICAL_SOURCE_ORDER_UNKNOWN")
+        for changed_at, _source in history[1:]:
+            if changed_at == at:
+                raise ContextBlocked(
+                    "CONTEXT_HISTORICAL_SAME_TICK_SOURCE_UPDATE_UNQUALIFIED"
+                )
+        version = history[0][1]
+        for changed_at, updated in history[1:]:
+            if changed_at < at:
+                version = updated
+            else:
+                break
+        self._assert_owner_source_state(
+            version, actor, reference, expected_revision,
+            core=core, purpose=purpose, operation=operation,
+            recipients=recipients, at=at,
+        )
 
     def assert_allowed(self, work: str, action: str, actor: str, at: int) -> None:
         if action not in QUALIFIED_ACTIONS:
@@ -413,7 +464,7 @@ class ContextBasis:
                 if reason != "MODEL_SOURCE_SCOPE_CONSISTENT":
                     raise ContextBlocked(reason)
 
-    def owner_update(self, event: dict[str, Any]) -> None:
+    def owner_update(self, event: dict[str, Any], *, at: int | None = None) -> None:
         sid = event.get("source")
         if not isinstance(sid, str) or sid not in self.sources:
             raise ContextBlocked("CONTEXT_SOURCE_UNKNOWN")
@@ -468,10 +519,23 @@ class ContextBasis:
                 raise ContextBlocked("UNKNOWN_CONTEXT_RECIPIENT")
         else:
             validated = item.usable_by
+        # An original event has an explicit Mesa time. A direct legacy
+        # untimed update is still supported, but it disqualifies historical
+        # replay for this source. Never guess its position in time.
+        if at is not None:
+            if type(at) is not int or not 0 <= at <= 10000:
+                raise ContextBlocked("CONTEXT_HISTORICAL_UPDATE_TIME_INVALID")
+            last_at = self._source_versions[sid][-1][0]
+            if at <= last_at:
+                raise ContextBlocked("CONTEXT_HISTORICAL_UPDATE_ORDER_INVALID")
         # Apply simultaneously, after all checks. No retroactive change to obligations.
         item.status = status
         item.revision = revision
         item.usable_by = validated
+        if at is None:
+            self._historical_time_unknown.add(sid)
+        else:
+            self._source_versions[sid].append((at, replace(item)))
 
     def affected_works(self, source: str) -> list[str]:
         return sorted({r.work for r in self.requirements.values() if source in r.sources})
