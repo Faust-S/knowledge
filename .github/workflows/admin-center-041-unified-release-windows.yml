@@ -1,8 +1,8 @@
-name: Admin Center 0.4.1 Unified IWXA Setup Core Windows native release acceptance
+name: Admin Center 0.4.1 RC3 Unified Setup Core Windows acceptance
 on:
   push:
     branches:
-      - work/2026-11-23-admin-center-041-unified-release
+      - work/2026-11-23-admin-center-041-compact-rc3-unified
     paths:
       - .github/workflows/admin-center-041-unified-release-windows.yml
       - packages/t3-core/tests/admin-center-04-upgrade-03.ps1
@@ -182,7 +182,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/Center
-          ref: f6ba2d367a284a8601eee0b6d62b53cdd898bc76
+          ref: e1e6d45cfc2b5fc39df0d127bc328440cd057027
           persist-credentials: false
           path: .private/center
       - name: Stage original Atlas owner
@@ -213,7 +213,7 @@ jobs:
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
           if($t3 -cne '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -or
-             $center -cne 'f6ba2d367a284a8601eee0b6d62b53cdd898bc76'){
+             $center -cne 'e1e6d45cfc2b5fc39df0d127bc328440cd057027'){
             throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
           }
           Add-Content -LiteralPath '.git/info/exclude' -Value '/.private/'
@@ -315,7 +315,7 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
-          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'f6ba2d367a284a8601eee0b6d62b53cdd898bc76' -ExpectedT3Sha '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -ExpectedVersion '0.4.1'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'e1e6d45cfc2b5fc39df0d127bc328440cd057027' -ExpectedT3Sha '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -ExpectedVersion '0.4.1'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
       - name: Verify complete 0.4 distributable and produce immutable public candidate
