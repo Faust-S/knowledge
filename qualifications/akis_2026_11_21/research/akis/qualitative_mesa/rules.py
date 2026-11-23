@@ -1513,9 +1513,12 @@ class QualitativeAKIS:
                     party.affiliation_source_ref,
                     party.affiliation_source_revision,
                     core="corporate",
-                    purpose="AKIS_INTRA_AFFILIATION_TRANSFER",
-                    operation="ACCEPT",
-                    recipients={party.organization},
+                    # Transfer approval is not Work permission. The
+                    # enterprise must separately permit this role to use the
+                    # parent-owned source for a later original Work.
+                    purpose="AKIS_INTRA_WORK",
+                    operation="SHARE",
+                    recipients={name},
                     at=at,
                 )
         expected = {
