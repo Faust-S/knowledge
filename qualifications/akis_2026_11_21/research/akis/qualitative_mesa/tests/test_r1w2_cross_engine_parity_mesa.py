@@ -160,3 +160,70 @@ def test_mesa_repeat_uses_only_last_attempt_quantity_cost_and_sources():
     assert work.execution == "STOPPED"
     assert work.result == "NOT_SUBMITTED"
     assert len(state.works) == 2
+
+
+def test_mesa_second_transfer_uses_own_original_future_window_and_consent():
+    expected = CONTRACT["second_transfer"]
+    state = original()
+    first = proposal()
+    assert state.apply(first, first["at"])["outcome"] == "APPLIED"
+    first_digest = state.works["w1"].wip_proposal["fingerprint"]
+    votes(state, first_digest)
+    assert finish(state, first_digest)["outcome"] == "APPLIED"
+    assert submit(state, "wip_resume", 22, "c", work="w1",
+                  source_revision="d-1", org_revision="oc-1",
+                  wip_source_ref="model://c/resume-1")["outcome"] == "APPLIED"
+    assert submit(state, "resource_status", 23, "c",
+                  resource="rc", availability="UNAVAILABLE")["outcome"] == "APPLIED"
+    assert submit(state, "wip_interrupt", 24, "c", work="w1",
+                  source_revision="d-1", org_revision="oc-1",
+                  cost_source_ref="model://c/attempt-2",
+                  prior_cost_claim=f'{SECOND["current_attempt_cost_rub"]}.00')["outcome"] == "APPLIED"
+    source = original_terms(
+        total=expected["current_attempt_units"],
+        produced=expected["produced_units"],
+        usable=expected["usable_units"],
+        materials="0.00", handling="0.00", claim="0.00",
+        full=f'{expected["full_redo_cost_rub"]}.00',
+        owner="c", ref="ACT-SECOND",
+    )
+    next_proposal = proposal(at=26, decision="TRANSFER", target="ra",
+                             terms=source, plan=(32, 37))
+    next_proposal.update(
+        work_interruption_at=24, wip_id="wip-2",
+        wip_source_ref="model://b/wip-proposal-2",
+    )
+    assert state.apply(next_proposal, 26)["outcome"] == "APPLIED"
+    p = state.works["w1"].wip_proposal
+    assert rubles(p["lot"]["unit_credit"]) == expected["reused_unit_credit_rub"]
+    assert rubles(p["lot"]["future_resource_cost"]) == expected["new_attempt_cost_rub"]
+    assert p["lot"]["remaining_units"] == expected["next_attempt_units"]
+    assert p["required"] == ["a", "b", "c"]
+    for at, who in ((27, "c"), (28, "b"), (29, "a")):
+        v = submit(state, "wip_review", at, who, work="w1",
+                   source_revision="d-1", org_revision="oc-1",
+                   wip_id="wip-2", wip_fingerprint=p["fingerprint"],
+                   wip_position="SUPPORT",
+                   wip_source_ref=f"model://{who}/second-transfer-vote")
+        assert v["outcome"] == "APPLIED", v
+    assert submit(state, "resource_status", 30, "a",
+                  resource="ra", availability="AVAILABLE")["outcome"] == "APPLIED"
+    result = submit(state, "wip_apply", 31, "b", work="w1",
+                    source_revision="d-1", org_revision="oc-1",
+                    wip_id="wip-2", wip_fingerprint=p["fingerprint"],
+                    wip_source_ref="model://b/second-apply")
+    assert result["outcome"] == "APPLIED", result
+    work = state.works["w1"]
+    assert len(work.wip_lots) == 2
+    assert [row["status"] for row in work.wip_lots] == ["CONSUMED", expected["lot_after_agreement"]]
+    assert work.wip_lots[-1]["holder"] == "c"
+    assert work.wip_active_resource == "ra"
+    assert [(r.resource, r.start, r.end) for r in state.capacity_ledger.reservations
+            if r.work == "w1"] == [("ra", 7, 11), ("rc", 22, 27), ("ra", 32, 37)]
+    assert submit(state, "wip_resume", 32, "a", work="w1",
+                  source_revision="d-1", org_revision="oc-1",
+                  wip_source_ref="model://a/second-resume")["outcome"] == "APPLIED"
+    assert work.wip_lots[-1]["status"] == expected["lot_after_execution"]
+    assert work.wip_lots[-1]["holder"] == "a"
+    assert work.resource == "ra"
+    assert work.result == "NOT_SUBMITTED"
