@@ -76,6 +76,34 @@ jobs:
             Write-Host 'D06_ACQUISITION_FULL_STATIC=FAIL'
             Write-Host ('D06_ACQUISITION_PRETTIER_COUNT=' + $prettier)
             Write-Host ('D06_ACQUISITION_TS_COUNT=' + $ts)
+            $knownFiles = @(& git ls-files -- "*.ts" "*.tsx" "*.mjs" | Sort-Object)
+            $activeFile = ""
+            $coordinates = [System.Collections.Generic.List[string]]::new()
+            foreach ($line in ($body -split '[\r\n]+')) {
+              if ($line -match '(?i)[\\/]((?:src|scripts|tests)[\\/][^:\r\n]+?\.(?:ts|tsx|mjs))\s*            foreach ($m in ([regex]::Matches($body, '(\d+)\s+(failed|passed|skipped)') | Select-Object -Last 5)) {
+              Write-Host ('D06_ACQUISITION_TEST_' + $m.Groups[2].Value.ToUpperInvariant() + '=' + $m.Groups[1].Value)
+            }
+            exit 1
+          }
+          Write-Host 'D06_ACQUISITION_FULL_STATIC=PASS'
+      - name: Privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host 'D06_PRIVATE_SOURCE_UPLOADS=0'
+          Write-Host 'D06_PRIVATE_LOG_UPLOADS=0'
+          Write-Host 'D06_PRIVATE_DIST_UPLOADS=0'
+) {
+                $activeFile = $Matches[1].Replace([char]92,[char]47)
+              } elseif ($line -match 'prettier/prettier' -and $activeFile) {
+                $position = [regex]::Match($line, '^\s*(\d+):(\d+)\s+(?:error|warning)\s+')
+                $ordinal = [array]::IndexOf($knownFiles, $activeFile) + 1
+                if ($ordinal -gt 0 -and $position.Success) {
+                  $coordinates.Add($ordinal.ToString() + ':' + $position.Groups[1].Value)
+                }
+              }
+            }
+            Write-Host ('D06_ACQUISITION_PRETTIER_ORDINAL_LINES=' + (($coordinates | Sort-Object -Unique) -join ','))
             foreach ($m in ([regex]::Matches($body, '(\d+)\s+(failed|passed|skipped)') | Select-Object -Last 5)) {
               Write-Host ('D06_ACQUISITION_TEST_' + $m.Groups[2].Value.ToUpperInvariant() + '=' + $m.Groups[1].Value)
             }
