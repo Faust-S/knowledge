@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 6cfb485c79a99b6c44ab4aa902df6123f5826b8a
+          ref: 3cecb42dd45ead4031efa6a6dd26e6ce1cdcf5af
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -57,7 +57,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $owner=(& git -C .private/t3 rev-parse HEAD).Trim()
-          if($owner -cne '6cfb485c79a99b6c44ab4aa902df6123f5826b8a'){
+          if($owner -cne '3cecb42dd45ead4031efa6a6dd26e6ce1cdcf5af'){
             throw 'D2_ORIGINAL_PRIVATE_SOURCE_PIN_FAILED'
           }
           Write-Host 'D2_ORIGINAL_PRIVATE_SOURCE_PIN_PASS'
@@ -157,7 +157,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 6cfb485c79a99b6c44ab4aa902df6123f5826b8a
+          ref: 3cecb42dd45ead4031efa6a6dd26e6ce1cdcf5af
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -202,7 +202,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
-          if($t3 -cne '6cfb485c79a99b6c44ab4aa902df6123f5826b8a' -or
+          if($t3 -cne '3cecb42dd45ead4031efa6a6dd26e6ce1cdcf5af' -or
              $center -cne '7b3994174b766fb66040f034b77b1d0f7a02472d'){
             throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
           }
@@ -216,6 +216,20 @@ jobs:
           }
           "D2_QUALIFIED_T2_DIST=$q" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host 'D2_INSTALLED_EXACT_THREE_INPUTS_CONFIRMED'
+      - name: Parse exact private D2 + employee Owner builder before expensive compilation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $target=(Resolve-Path '.private/t3/scripts/build-admin-center-d3-owner.ps1').Path
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $target,[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -ne 0){
+            Write-Host "D3_FULL_OWNER_BUILDER_PARSE_ERROR_COUNT $(@($errors).Count)"
+            throw 'D3_FULL_OWNER_BUILDER_PARSE_FAILED'
+          }
+          Write-Host 'D3_FULL_OWNER_BUILDER_PARSE_PASS'
       - name: Assemble original One Core and Center dependencies
         shell: pwsh
         timeout-minutes: 15
@@ -291,7 +305,7 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
-          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha '7b3994174b766fb66040f034b77b1d0f7a02472d' -ExpectedT3Sha '6cfb485c79a99b6c44ab4aa902df6123f5826b8a'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha '7b3994174b766fb66040f034b77b1d0f7a02472d' -ExpectedT3Sha '3cecb42dd45ead4031efa6a6dd26e6ce1cdcf5af'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
       - name: Native Windows original signed D2 DATA and two independent cold UIA reads
