@@ -31,7 +31,7 @@ jobs:
       - name: Qualify R1-W1C Assurance, parallel execution, material and quality revision
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
-        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_assurance_responsibility_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_parallel_operation_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_multibatch_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_quality_revision_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_work_assurance_mesa.py
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_assurance_responsibility_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_assurance_multibatch_quality_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_parallel_operation_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_multibatch_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_quality_revision_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_work_assurance_mesa.py
       - name: Full original native AKIS regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
