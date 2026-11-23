@@ -3482,9 +3482,9 @@ def original_nine_component_cycle_evidence(
                         or any(
                             row.get("participation_value") != "OPEN_TO_NEW_WORK"
                             or not isinstance(
-                                row.get("participation_evidence_ref"), str
+                                row.get("participation_source_ref"), str
                             )
-                            or not row["participation_evidence_ref"].startswith(
+                            or not row["participation_source_ref"].startswith(
                                 f"model://{owner}/"
                             )
                             or not any(
