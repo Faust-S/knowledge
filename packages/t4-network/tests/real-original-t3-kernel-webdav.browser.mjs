@@ -3454,6 +3454,135 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           proof.sourceRevision===1&&
           proof.objectContentDigest===p2cOpened.originalStateDigest,
       });
+      // P2.2-C durable session for THIS encrypted subject transfer.
+      // Both phase chains live in existing original T3 technical Workspaces.
+      let p2cSourceHostSession='host:p22c:source:initial';
+      let p2cRecipientHostSession='host:p22c:recipient:initial';
+      let p2cSignedAppliedAck=null;
+      const p2cSourcePhase=()=>createT4OriginalNetworkSessionPhasePort({
+        originalKernel:originalCarrierKernel,
+        technicalWorkspaceId:sourceCaptureWorkspace,
+        originalWriteOwnerRef:'original:t2:exchange',
+        sourceNodeRef:'node:original:source',
+        recipientNodeRef:'node:original:recipient',
+        localNodeRef:'node:original:source',
+        scopeRef:'scope:original:replay',
+        sessionRef:p2cSession,changeId:p2cChangeId,
+        ownerEpoch:2,getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId:sourceCaptureWorkspace,
+          originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:source',
+          scopeRef:'scope:original:replay',
+          hostSessionRef:p2cSourceHostSession,
+        }),
+        authorizeOriginalTechnicalRead:async p=>
+          actual.grants.includes(p.operation),
+        authorizeOriginalTechnicalWrite:async p=>
+          actual.grants.includes(p.operation),
+        verifyOriginalPhaseEvidence:async p=>{
+          if(p.phase==='INTENT'){
+            const original=await originalCarrierKernel.getObject(
+              workspaceId,p2cObjectId);
+            const events=await originalCarrierKernel.listEventsSince(
+              workspaceId);
+            return p.evidence.evidenceRef===
+                p2cSourceWrite.event.event_id&&
+              p.evidence.evidenceDigest===p2cWindow.window.windowDigest&&
+              original?.object?.revision===1&&
+              events.some(e=>e.event_id===p2cSourceWrite.event.event_id);
+          }
+          return p.phase==='PUBLISHED'&&
+            p.evidence.evidenceRef===p2cChange.publication.key&&
+            p.evidence.evidenceDigest===
+              'sha256:'+p2cChange.publication.sha256&&
+            p2cChange.publication.immutableTransportReadback===true;
+        },
+        verifyOriginalRecipientApplied:async()=>false,
+      });
+      const p2cRecipientPhase=()=>createT4OriginalNetworkSessionPhasePort({
+        originalKernel:replayKernel,
+        technicalWorkspaceId:nativeReplayWorkspace,
+        originalWriteOwnerRef:'original:t2:exchange',
+        sourceNodeRef:'node:original:source',
+        recipientNodeRef:'node:original:recipient',
+        localNodeRef:'node:original:recipient',
+        scopeRef:'scope:original:replay',
+        sessionRef:p2cSession,changeId:p2cChangeId,
+        ownerEpoch:2,getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId:nativeReplayWorkspace,
+          originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:recipient',
+          scopeRef:'scope:original:replay',
+          hostSessionRef:p2cRecipientHostSession,
+        }),
+        authorizeOriginalTechnicalRead:async p=>
+          receiving.operations.includes(p.operation),
+        authorizeOriginalTechnicalWrite:async p=>
+          receiving.operations.includes(p.operation),
+        verifyOriginalPhaseEvidence:async p=>{
+          if(p.phase==='RECEIVED')return p.evidence.evidenceRef===
+            p2cChunks[0].publication.key&&
+            p.evidence.evidenceDigest===
+              'sha256:'+p2cChunks[0].publication.sha256&&
+            p2cChunks[0].verified.networkBytesVerified===true;
+          if(p.phase==='VERIFIED')return p.evidence.evidenceRef===
+            p2cChange.publication.key&&
+            p.evidence.evidenceDigest===
+              p2cOpened.originalStateDigest&&
+            p2cOpened.originalSourceEventAndObjectVerified===true;
+          if(p.phase==='APPLIED')return
+            p2cSignedAppliedAck?.signedMessageType==='APPLIED_ACK'&&
+            p2cSignedAppliedAck.originalSignatureVerified===true&&
+            p2cSignedAppliedAck.verifiedBody?.recipientEventRef===
+              p.evidence.originalRecipientEventId&&
+            p2cSignedAppliedAck.verifiedBody?.recipientStateDigest===
+              p.evidence.originalRecipientStateDigest;
+          return false;
+        },
+        verifyOriginalRecipientApplied:async p=>{
+          const actualResult=await inspectT4OriginalNetworkRecipientResult(
+            p2cApplyArgs());
+          return actualResult.state==='APPLIED_VERIFIED'&&
+            p.originalRecipientEventId===
+              actualResult.originalRecipientEventId&&
+            p.originalRecipientRevision===
+              actualResult.originalRecipientRevision&&
+            p.originalRecipientStateDigest===
+              actualResult.originalRecipientStateDigest;
+        },
+      });
+      const p2cSourceIntentEvidence={
+        evidenceRef:p2cSourceWrite.event.event_id,
+        evidenceDigest:p2cWindow.window.windowDigest,
+      };
+      const p2cSourcePublishedEvidence={
+        evidenceRef:p2cChange.publication.key,
+        evidenceDigest:'sha256:'+p2cChange.publication.sha256,
+      };
+      const p2cReceivedEvidence={
+        evidenceRef:p2cChunks[0].publication.key,
+        evidenceDigest:'sha256:'+p2cChunks[0].publication.sha256,
+      };
+      const p2cVerifiedEvidence={
+        evidenceRef:p2cChange.publication.key,
+        evidenceDigest:p2cOpened.originalStateDigest,
+      };
+      await p2cSourcePhase().advanceOriginalSessionPhase({
+        phase:'INTENT',evidence:p2cSourceIntentEvidence,
+      });
+      await p2cSourcePhase().advanceOriginalSessionPhase({
+        phase:'PUBLISHED',evidence:p2cSourcePublishedEvidence,
+      });
+      await p2cRecipientPhase().advanceOriginalSessionPhase({
+        phase:'RECEIVED',evidence:p2cReceivedEvidence,
+      });
+      await p2cRecipientPhase().advanceOriginalSessionPhase({
+        phase:'VERIFIED',evidence:p2cVerifiedEvidence,
+      });
+      assert.equal((await p2cRecipientPhase().inspectOriginalSession())
+        .currentPhase,'VERIFIED');
       const p2cBefore=await inspectT4OriginalNetworkRecipientResult(
         p2cApplyArgs());
       assert.equal(p2cBefore.state,'NOT_APPLIED');
@@ -3469,6 +3598,12 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       activeSourcePage=await opened(sourceContext);
       recipientContext=await launch(recipientProfile);
       recipientPage=await opened(recipientContext);
+      p2cSourceHostSession='host:p22c:source:cold';
+      p2cRecipientHostSession='host:p22c:recipient:cold';
+      assert.equal((await p2cSourcePhase().inspectOriginalSession())
+        .currentPhase,'PUBLISHED');
+      assert.equal((await p2cRecipientPhase().inspectOriginalSession())
+        .currentPhase,'VERIFIED');
       const p2cRealResult=await inspectT4OriginalNetworkRecipientResult(
         p2cApplyArgs());
       assert.equal(p2cRealResult.state,'APPLIED_VERIFIED');
@@ -3488,6 +3623,57 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(p2cAck.verified.verifiedBody.recipientStateDigest,
         p2cOpened.originalStateDigest);
       assert.equal(p2cAck.verified.originalBusinessApplied,false);
+      p2cSignedAppliedAck=p2cAck.verified;
+      const p2cAppliedPhaseEvidence={
+        evidenceRef:p2cAck.publication.key,
+        evidenceDigest:'sha256:'+p2cAck.publication.sha256,
+        originalRecipientEventId:p2cRealResult.originalRecipientEventId,
+        originalRecipientRevision:p2cRealResult.originalRecipientRevision,
+        originalRecipientStateDigest:p2cRealResult.originalRecipientStateDigest,
+      };
+      const p2cPhaseApplied=await p2cRecipientPhase()
+        .advanceOriginalSessionPhase({
+          phase:'APPLIED',evidence:p2cAppliedPhaseEvidence,
+        });
+      assert.equal(p2cPhaseApplied.originalBusinessApplied,true);
+      // Second cold restart proves that the durable APPLIED phase AND
+      // independent original T3 business Result remain the same.
+      await sourceContext.close();sourceContext=null;
+      await recipientContext.close();recipientContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      recipientContext=await launch(recipientProfile);
+      recipientPage=await opened(recipientContext);
+      p2cSourceHostSession='host:p22c:source:after-second-cold';
+      p2cRecipientHostSession='host:p22c:recipient:after-second-cold';
+      const p2cSourceCold=await p2cSourcePhase()
+        .inspectOriginalSession();
+      const p2cRecipientCold=await p2cRecipientPhase()
+        .inspectOriginalSession();
+      assert.equal(p2cSourceCold.currentPhase,'PUBLISHED');
+      assert.equal(p2cRecipientCold.currentPhase,'APPLIED');
+      assert.equal(p2cRecipientCold.originalBusinessApplied,true);
+      assert.equal((await p2cRecipientPhase()
+        .advanceOriginalSessionPhase({
+          phase:'APPLIED',evidence:p2cAppliedPhaseEvidence,
+        })).status,'ALREADY_CONFIRMED');
+      const p2cConfirmedAck=await sourceHeadVerifier
+        .readAndVerifySignedFrame({
+          key:p2cAck.publication.key,
+          expectedSha256:p2cAck.publication.sha256,
+          requiredCryptoSuite:'X25519_AES256GCM_ED25519',
+        });
+      assert.equal(p2cConfirmedAck.signedMessageType,'APPLIED_ACK');
+      assert.equal(p2cConfirmedAck.exactPreviouslyVerifiedReplay,true);
+      assert.equal((await inspectT4OriginalNetworkRecipientResult(
+        p2cApplyArgs())).originalRecipientEventId,
+        p2cRealResult.originalRecipientEventId);
+      const p2cRecipientPhases=(await replayKernel.listEventsSince(
+        nativeReplayWorkspace)).filter(e=>
+          e.object_id===p2cRecipientCold.checkpointRef&&
+          e.event_type==='t4.network.original.session.phase');
+      assert.equal(p2cRecipientPhases.length,3);
+      assert.equal(p2cCommitCalls,1);
       console.log('T4_REAL_ORIGINAL_T3_NATIVE_SUBJECT_APPLY_COLD_PASS',
         JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,
@@ -3501,6 +3687,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalT3CommitCalls:1,
           originalT3CommitAckIntentionallyLost:true,
           bothOriginalHostsColdRestartedAfterCommit:true,
+          originalRecipientNetworkSessionPhase:'APPLIED',
+          originalRecipientTechnicalEvents:3,
+          originalSourceNetworkSessionPhase:'PUBLISHED',
+          originalNetworkAppliedPhaseRecoveredAfterSecondCold:true,
+          originalSignedAckReplayRecoveredAfterCold:true,
           replayedSubjectMutation:false,
           originalT3ExchangeUsedForNativeNetwork:false,
           independentPhysicalDevices:false,
