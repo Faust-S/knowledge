@@ -214,6 +214,10 @@ export function createT4OriginalNetworkSessionPhasePort({
       checkpointRef,role,revision:current.revision,
       currentPhase:current.stages.at(-1)?.phase??null,
       currentEvidence:clone(current.stages.at(-1)?.evidence??null),
+      sourceIntentEvidence:role==='SOURCE'?
+        clone(current.stages[0]?.evidence??null):null,
+      sourcePublishedEvidence:role==='SOURCE'?
+        clone(current.stages[1]?.evidence??null):null,
       sourceNodeRef,recipientNodeRef,scopeRef,sessionRef,changeId,ownerEpoch,
       chainHash:current.chainHash,
       originalT3EventChainVerified:current.revision>0,
