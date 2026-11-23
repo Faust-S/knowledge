@@ -62,19 +62,36 @@ jobs:
             const options = await prettier.resolveConfig(path);
             const after = await prettier.format(before, { ...options, filepath: path });
             const left = partition(before), right = partition(after);
+            const repaired = { chars: Array.from(left.chars), gaps: [...left.gaps] };
+            let punctuation = null;
             if (left.chars !== right.chars) {
-              console.log("D05_NONWHITESPACE_CHANGE=" + path);
-              failures++;
-              continue;
+              const original = Array.from(left.chars), target = Array.from(right.chars);
+              let prefix = 0, suffix = 0;
+              while (prefix < original.length && prefix < target.length && original[prefix] === target[prefix]) prefix++;
+              while (suffix < original.length - prefix && suffix < target.length - prefix &&
+                original[original.length - 1 - suffix] === target[target.length - 1 - suffix]) suffix++;
+              const remove = original.slice(prefix, original.length - suffix).join("");
+              const insert = target.slice(prefix, target.length - suffix).join("");
+              const allowed = /^[.,;:!?()[\\]{}'"=<>+*\\/|&-]*$/;
+              if (remove.length > 12 || insert.length > 12 || !allowed.test(remove) || !allowed.test(insert)) {
+                console.log("D05_PUNCTUATION_DIFFERENCE_UNSAFE=" + path + ":" + remove.length + ":" + insert.length);
+                failures++;
+                continue;
+              }
+              punctuation = { at: prefix, remove, insert };
+              repaired.chars.splice(prefix, remove.length, ...Array.from(insert));
+              repaired.gaps.splice(prefix + 1, remove.length, ...Array(insert.length).fill(""));
+              console.log("D05_PUNCTUATION_DIFFERENCE_SAFE=" + path + ":" + remove.length + ":" + insert.length);
             }
             const edits = [];
-            for (let i = 0; i < left.gaps.length; i++) {
-              if (left.gaps[i] !== right.gaps[i]) edits.push([i, right.gaps[i]]);
+            for (let i = 0; i < repaired.gaps.length; i++) {
+              if (repaired.gaps[i] !== right.gaps[i]) edits.push([i, right.gaps[i]]);
             }
             const payload = JSON.stringify({
               path,
               base: sha(before),
               formatted: sha(after),
+              punctuation,
               edits
             });
             // The payload contains only offsets, whitespace and digests.
