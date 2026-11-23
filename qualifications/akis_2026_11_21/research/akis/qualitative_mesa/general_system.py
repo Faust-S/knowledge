@@ -3518,6 +3518,70 @@ def original_nine_component_cycle_evidence(
                     "complete_six_forms_eight_phase_legal_AKIS": False,
                 })
 
+    # R1-V2C1: the original role's owner suspends and restores its own
+    # edition between a prior accepted Result and an independently accepted
+    # second Work. No role event is counted as reproduction without Result.
+    original_recovered_owner_role_result_cycles: list[dict[str, Any]] = []
+    extended_kinds = {
+        "SECTOR_BODY", "PUBLIC_INSTITUTION", "NATURAL_PERSON",
+    }
+    for cycle in source_bound_author_form_lifecycle_cycles:
+        old_at = cycle["original_pilot_result_accepted_at"]
+        later_id = cycle["followup_original_work"]
+        later_at = requested_at.get(later_id)
+        if later_at is None:
+            continue
+        later = original.works[later_id]
+        principals = (
+            original.capacity_ledger.original_owners(
+                later.resource_requirements
+            ) | {later.customer}
+        )
+        for actor in sorted(principals):
+            party = original.subjects[actor]
+            if party.kind not in extended_kinds:
+                continue
+            own_events = [
+                row for row in events
+                if row.get("action") == "role_state_update"
+                and row.get("outcome") == "APPLIED"
+                and row.get("actor") == actor
+                and row.get("role_target") == actor
+                and old_at < row["at"] < later_at
+            ]
+            for withdrawn in own_events:
+                if withdrawn.get("role_new_state") != "SUSPENDED":
+                    continue
+                for recovered in own_events:
+                    if (recovered.get("role_new_state") != "ACTIVE"
+                            or recovered["at"] <= withdrawn["at"]
+                            or recovered.get("role_previous_revision") !=
+                                withdrawn.get("role_new_revision")):
+                        continue
+                    original_recovered_owner_role_result_cycles.append({
+                        "original_actor": actor,
+                        "original_actor_kind": party.kind,
+                        "original_prior_accepted_work":
+                            cycle["original_pilot_work"],
+                        "original_owner_suspended_at": withdrawn["at"],
+                        "original_owner_restored_at": recovered["at"],
+                        "old_original_role_edition":
+                            withdrawn.get("role_previous_revision"),
+                        "suspended_original_role_edition":
+                            withdrawn.get("role_new_revision"),
+                        "restored_original_role_edition":
+                            recovered.get("role_new_revision"),
+                        "original_followup_accepted_work": later_id,
+                        "original_followup_result_accepted_at":
+                            cycle["followup_original_accepted_at"],
+                        "source_and_consent_verified_by_original_Mesa": True,
+                        "real_institutional_or_person_right_authenticated": False,
+                    })
+                    break
+                else:
+                    continue
+                break
+
     accepted_results = len(accepted_at)
     requested_count = len(requested_at)
     committed_count = len(original_committed_at)
@@ -3607,6 +3671,9 @@ def original_nine_component_cycle_evidence(
             "original_author_form_eight_phase_reproduction": (
                 source_bound_author_form_lifecycle_cycles
             ),
+            "original_owner_role_revoked_restored_then_accepted_result": (
+                original_recovered_owner_role_result_cycles
+            ),
             "contains_owner_work_and_model_source_identifiers": True,
             "safe_for_cross_enterprise_publication": False,
         },
@@ -3677,6 +3744,10 @@ def original_nine_component_cycle_evidence(
             "r1v1_original_author_form_eight_phase_accepted_result_count": (
                 len(source_bound_author_form_lifecycle_cycles)
             ),
+            "r1v2c_original_owner_role_restoration_accepted_result_count": (
+                len(original_recovered_owner_role_result_cycles)
+            ),
+            "r1v2c_role_update_alone_does_not_prove_work_reproduction": True,
             "r1v1_original_author_form_scope_all_six_executable": False,
             "r1v1_eight_phase_model_witness_not_legal_completion": True,
             "subject_and_resource_model_sources_not_external_identity_proof": True,
