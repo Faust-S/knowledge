@@ -12,12 +12,12 @@ def wip_case():
     d = fixture()
     d["subjects"].append({"id": "c", "kind": "SME"})
     d["resources"][0].update({
-        "availability": "AVAILABLE", "capacity_units": 5,
+        "availability": "AVAILABLE", "capacity_units": 1,
         "capacity_unit": "unit", "site": "A",
     })
     d["resources"].append({
         "id": "rc", "owner": "c", "availability": "AVAILABLE",
-        "capacity_units": 5, "capacity_unit": "unit", "site": "C",
+        "capacity_units": 1, "capacity_unit": "unit", "site": "C",
     })
     d["works"].append({
         "id": "w2", "customer": "b", "resource": "rc",
