@@ -327,3 +327,20 @@ def test_r4_independent_demand_never_creates_work_bank_transfer_or_consent():
     ])
     assert BUYER_SOURCE not in summaries
     assert "1000.00" not in summaries
+
+
+@pytest.mark.parametrize("forged_kind", ["OPERATOR", "DIVISION", "EMPLOYEE"])
+def test_intrafirm_or_operator_roles_cannot_act_as_independent_external_buyers(
+        forged_kind):
+    # Isolated defensive unit route: original Mesa recognizes these internal
+    # kinds but must not treat their source declarations as an unrelated
+    # external enterprise. No secondary identity/authorization model.
+    from research.akis.qualitative_mesa.mesa_model import OperatorAKISModel
+    d = independent_buyer_case()
+    state = OperatorAKISModel(d).qualitative
+    state.subjects[BUYER].kind = forged_kind
+    report = state.apply(demand_event(d), at=78)
+    assert report["outcome"] == "BLOCKED"
+    assert report["reason"] == "OUTSIDE_DEMAND_INDEPENDENT_ACTIVE_BUYER_REQUIRED"
+    assert not any(row["action"] == "outside_demand_signal"
+                   and row["outcome"] == "APPLIED" for row in state.trace)
