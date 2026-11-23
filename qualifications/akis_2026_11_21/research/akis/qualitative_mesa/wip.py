@@ -662,6 +662,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                 _fail("WIP_QUALITY_REVISION_MUST_KEEP_RESERVED_CAPACITY")
         lot = _lot(state, work, ev.get("wip_terms"), pause, decision,
                    quality_revision=quality_prior is not None)
+        assurance_change = None
         material = None
         batch_inspections = None
         if op is not None:
@@ -691,11 +692,30 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                 if (new_spec.unit != old_spec.unit or
                         new_spec.site is None):
                     _fail("WIP_OPERATION_RESOURCE_UNIT_OR_SITE_MISMATCH")
-            if (work.assurance_criteria and
-                    any(criterion.operation == op.key
-                        for criterion in work.assurance_criteria) and
-                    decision == "TRANSFER"):
-                _fail("WIP_OPERATION_ASSURANCE_RESPONSIBILITY_REQUIRES_NEW_REVIEW")
+            # Transfer of execution responsibility is proposed in the same
+            # independently reviewed WIP document. The original criterion,
+            # method and recipient's quality decision remain immutable.
+            scoped = [criterion for criterion in work.assurance_criteria
+                      if criterion.operation == op.key]
+            raw_assurance = ev.get("wip_assurance_responsibility")
+            if decision == "TRANSFER" and scoped:
+                if quality_prior is None:
+                    assurance_change = _assurance_change(
+                        state, work, op, raw_assurance, owner, target_owner
+                    )
+                else:
+                    if raw_assurance is not None:
+                        _fail("WIP_QUALITY_REVISION_CANNOT_REASSIGN_ASSURANCE")
+                    if (quality_prior.get("assurance_responsibility") is None or
+                            any(work.assurance_responsibilities.get(c.key, {}).get(
+                                "effective_owner") != target_owner
+                                for c in scoped)):
+                        _fail("WIP_QUALITY_REVISION_ASSURANCE_SOURCE_CHANGED")
+                    assert_assurance_responsibility_current(state, work, at)
+            elif raw_assurance is not None:
+                _fail("WIP_ASSURANCE_NOT_ELIGIBLE_FOR_TRANSFER")
+        elif ev.get("wip_assurance_responsibility") is not None:
+            _fail("WIP_ASSURANCE_NOT_ELIGIBLE_FOR_TRANSFER")
         if decision == "TERMINATE" and lot["future_resource_cost"] is not None:
             _fail("WIP_TERMINATION_HAS_NO_NEXT_EXECUTION")
         required_owners = {owner, pause["owner"], work.customer} | ({target_owner} if target_owner else set())
@@ -718,6 +738,12 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         for key in ("inspection_ref", "claim_ref"):
             if lot[key]:
                 evidence.append((lot[key], pause["owner"]))
+        if assurance_change:
+            evidence.append((assurance_change["terms_ref"], work.customer))
+            evidence.extend(
+                (criterion["original_criterion_ref"], criterion["assessor"])
+                for criterion in assurance_change["criteria"]
+            )
         if material is not None:
             if batch_inspections is not None:
                 evidence.extend((row["inspection_ref"], pause["owner"])
@@ -769,6 +795,8 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         if revision_id is not None:
             doc["quality_revision_of"] = revision_id
             doc["quality_custody_proofs"] = custody_proofs
+        if assurance_change:
+            doc["assurance_responsibility"] = assurance_change
         proposal = {
             **doc, "fingerprint": fingerprint(doc), "created_at": at,
             "valid_until": expiry, "required": required, "votes": {},
@@ -882,6 +910,8 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         if op is not None:
             _check_source_snapshots(state, latest["source_revisions"], at)
             _recheck_voters(state, latest, at)
+            if work.assurance_responsibilities:
+                assert_assurance_responsibility_current(state, work, at)
         start, end = latest["next_window"]
         if not start <= at < end:
             _fail("WIP_RESUME_OUTSIDE_APPROVED_WINDOW")
@@ -967,6 +997,19 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             proposal["work_source_revision"] != work.source_revision):
         _fail("WIP_PROPOSAL_ORIGINAL_REVISION_CHANGED")
     _recheck_voters(state, proposal, at)
+    assurance_change = proposal.get("assurance_responsibility")
+    if assurance_change is not None:
+        if op is None or proposal["decision"] != "TRANSFER":
+            _fail("WIP_ASSURANCE_NOT_ELIGIBLE_FOR_TRANSFER")
+        expected = {criterion.key for criterion in work.assurance_criteria
+                    if criterion.operation == op.key}
+        if {row["criterion"] for row in assurance_change["criteria"]} != expected:
+            _fail("WIP_ASSURANCE_ALL_OPERATION_CRITERIA_REQUIRED")
+        for row in assurance_change["criteria"]:
+            existing = work.assurance_responsibilities.get(row["criterion"])
+            previous = existing["effective_owner"] if existing else row["original_owner"]
+            if previous != row["previous_effective_owner"]:
+                _fail("WIP_ASSURANCE_RESPONSIBILITY_CHANGED_AFTER_CONSENT")
     revision_id = proposal.get("quality_revision_of")
     quality_prior = None
     prior_lots_by_batch = {}
@@ -1109,6 +1152,24 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         quality_prior["superseded_by"] = proposal["id"]
     work.wip_lots.extend(lots)
     work.wip_amendments.append(amendment)
+    if assurance_change is not None:
+        for entry in assurance_change["criteria"]:
+            refs = [assurance_change["terms_ref"],
+                    entry["original_criterion_ref"]]
+            work.assurance_responsibilities[entry["criterion"]] = {
+                "criterion": entry["criterion"],
+                "operation": op.key,
+                "original_owner": entry["original_owner"],
+                "effective_owner": entry["new_effective_owner"],
+                "assessor": entry["assessor"],
+                "method": entry["method"],
+                "scope": assurance_change["scope"],
+                "wip_id": amendment["id"],
+                "terms_ref": assurance_change["terms_ref"],
+                "source_revisions": {
+                    ref: proposal["source_revisions"][ref] for ref in refs
+                },
+            }
     work.wip_proposal = None
     pause["state"] = "AMENDED"
     if target is None:
