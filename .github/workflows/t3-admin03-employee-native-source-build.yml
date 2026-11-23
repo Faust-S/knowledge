@@ -73,6 +73,18 @@ jobs:
               $_ -match '^Error:' } | Select-Object -First 12)){
               Write-Host ('CENTER_BUILD_DIAGNOSTIC '+$line)
             }
+            for($i=0;$i -lt $lines.Count;$i++){
+              if($lines[$i] -match '^error during build:'){
+                $end=[Math]::Min($lines.Count-1,$i+6)
+                for($k=$i+1;$k -le $end;$k++){
+                  $candidate=$lines[$k]
+                  if($candidate -match '^(\s*\[vite\]|\s*\[rollup\]|\s*Could not|\s*Failed|\s*Error|\s*\[plugin|\s*at\s)' -or
+                     $candidate -match 'No such file|Cannot find|Could not resolve'){
+                    Write-Host ('CENTER_VITE_FAILURE '+$candidate)
+                  }
+                }
+              }
+            }
             throw 'CENTER_V8_NATIVE_RIGHTS_TYPESCRIPT_OR_VITE_FAILED'
           }
           Write-Host 'CENTER_V8_ORIGINAL_EMPLOYEE_WORKSPACE_UI_TYPESCRIPT_VITE_PASS'
