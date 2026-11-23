@@ -15,7 +15,7 @@ import mesa
 from research.akis.qualitative_mesa.mesa_model import simulate
 from research.akis.qualitative_mesa.tests.test_r4_independent_external_buyer_demand_mesa import (
     independent_buyer_case, demand_event, owner_outlook, owner_assessments,
-    BUYER, BUYER_SOURCE, REVISION,
+    BUYER, BUYER_SOURCE, REVISION, independent_update_time,
 )
 
 
@@ -36,7 +36,7 @@ def original_r4_demand_trials():
     demand_event(forged)["actor"] = "a"
     revoked = deepcopy(accepted)
     revoked["events"].append({
-        "at": 96, "action": "source_update", "actor": BUYER,
+        "at": independent_update_time(revoked), "action": "source_update", "actor": BUYER,
         "source": BUYER_SOURCE, "status": "DISPROVED",
         "expected_revision": REVISION, "new_revision": "buyer-demand-r4-2",
     })
@@ -76,7 +76,8 @@ def export_r4_independent_demand() -> tuple[Path, str]:
             for w in ("w1", "w2")
         ):
             raise RuntimeError("ORIGINAL_HISTORICAL_RESULT_NOT_PRESERVED")
-        if len(output["works"]) != 3:
+        # The original R1-P has w0 (draft) plus three executed Works.
+        if set(output["works"]) != {"w0", "w1", "w2", "w3"}:
             raise RuntimeError("R4_OUTSIDE_BUYER_SIGNAL_CREATED_WORK")
         if output["profit"]["system_increment"] != "UNKNOWN":
             raise RuntimeError("R4_MODEL_DEMAND_NOT_REALIZED_ECONOMIC_ADDITIONALITY")
