@@ -91,12 +91,19 @@ jobs:
               if ($task -eq "run check") {
                 $known = @(& git ls-files -- "*.ts" "*.tsx" "*.mjs" | Sort-Object)
                 $perFile = @{}
+                $prettierCoords = [System.Collections.Generic.List[string]]::new()
                 $activeFile = ""
                 foreach ($entry in ($logText -split '[\r\n]+')) {
                   if ($entry -match '(?i)[\\/]((?:src|scripts|tests)[\\/][^:\r\n]+?\.(?:ts|tsx|mjs))\s*$') {
                     $activeFile = $Matches[1].Replace([char]92, [char]47)
                   } elseif ($entry -match 'prettier/prettier' -and $activeFile) {
                     $perFile[$activeFile] = 1 + [int]($perFile[$activeFile])
+                    # Only a file ordinal and the ESLint diagnostic line leave the runner.
+                    $lineMatch = [regex]::Match($entry, '^\s*(\d+):(\d+)\s+(?:error|warning)\s+')
+                    $ordinal = [array]::IndexOf($known, $activeFile) + 1
+                    if ($lineMatch.Success -and $ordinal -gt 0) {
+                      $prettierCoords.Add($ordinal.ToString() + ":" + $lineMatch.Groups[1].Value)
+                    }
                   }
                 }
                 $summary = @($perFile.Keys | ForEach-Object {
@@ -105,6 +112,7 @@ jobs:
                 } | Sort-Object) -join ","
                 Write-Host ("D06_SOURCE_PRETTIER_FILE_ORDINAL_COUNTS=" + $summary)
                 Write-Host ("D06_SOURCE_PRETTIER_FILES=" + $perFile.Count)
+                Write-Host ("D06_SOURCE_PRETTIER_ORDINAL_LINES=" + (($prettierCoords | Sort-Object -Unique | Select-Object -First 30) -join ","))
               }
 
               if ($task -eq "run test" -or $task -eq "run test:unit" -or $task -eq "run test:native" -or $task -eq "run test:case040:procurement") {
