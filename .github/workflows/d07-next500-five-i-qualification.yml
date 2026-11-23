@@ -1,0 +1,183 @@
+name: D07 145 professional methods and original T2 client cards
+on:
+  push:
+    branches: [work/2026-11-22-d07-methodology-v13]
+    paths:
+      - .github/workflows/d07-next500-five-i-qualification.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-next500-145-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualify-next-five:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      SITE_SHA: b50506120210a38b5d1edd605c07fa4bbf7667c7
+      SUBJECT_SHA: 458afec8f592101a51ed88d1ef600e744cc97e93
+      T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
+      IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+      CI: "true"
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      PUPPETEER_SKIP_DOWNLOAD: "1"
+      GIT_TERMINAL_PROMPT: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: public-checks
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: 458afec8f592101a51ed88d1ef600e744cc97e93
+          path: subject
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: b50506120210a38b5d1edd605c07fa4bbf7667c7
+          path: site
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          path: t2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - name: Verify pinned revisions and exact subject/site models
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C subject rev-parse HEAD)" = "$SUBJECT_SHA"
+          test "$(git -C site rev-parse HEAD)" = "$SITE_SHA"
+          test "$(git -C t2 rev-parse HEAD)" = "$T2_SHA"
+          for file in service-subject-protocols.ts service-subject-next500-batch-a.ts service-subject-apartment-acceptance.ts service-subject-fns-reconciliation.ts service-subject-ozon-product-card.ts service-subject-next500-batch-b1.ts service-subject-next500-batch-b2.ts service-subject-next500-batch-c1.ts service-subject-next500-batch-c2.ts service-subject-next500-batch-d1.ts service-subject-next500-batch-d2.ts service-subject-next500-batch-e1.ts service-subject-next500-batch-f1.ts service-subject-next500-batch-f2.ts service-subject-next500-batch-f3.ts service-subject-next500-batch-f4.ts service-subject-next500-batch-f5.ts service-subject-next500-batch-g1.ts service-subject-next500-batch-g2.ts service-subject-next500-batch-g3.ts service-subject-next500-batch-g4.ts service-subject-next500-batch-g5.ts service-subject-next500-batch-h1.ts service-subject-next500-batch-h2.ts service-subject-next500-batch-h3.ts service-subject-next500-batch-h4.ts service-subject-next500-batch-h5.ts service-subject-next500-batch-i1.ts service-subject-next500-batch-i2.ts service-subject-next500-batch-i3.ts service-subject-next500-batch-i4.ts service-subject-next500-batch-i5.ts service-subject-source-audit.ts service-subject-legacy-manual-first.ts; do
+            cmp "subject/src/domain/$file" "site/src/domain/$file"
+          done
+          for file in service-subject-evidence-projection.ts; do
+            cmp "subject/src/data/$file" "site/src/data/$file"
+          done
+          echo D07_NEXT500_DOMAIN_PARITY=PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - name: Install exact dependencies
+        working-directory: site
+        shell: bash
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-next500-install.private.log" 2>&1 || { echo D07_NEXT500_INSTALL=FAIL; exit 1; }
+          echo D07_NEXT500_INSTALL=PASS
+      - name: Check types and 145 unique technologies and 36 physical T2 order routes
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run check:types > "$RUNNER_TEMP/d07-next500-types.private.log" 2>&1 || {
+            echo D07_NEXT500_TYPES=FAIL
+            grep -oE 'error TS[0-9]+' "$RUNNER_TEMP/d07-next500-types.private.log" | sort | uniq -c | head -8 || true
+            exit 1
+          }
+          echo D07_NEXT500_TYPES=PASS
+          node --import tsx --test --test-reporter=tap \
+            scripts/tests/d07-next500-five-professional.test.mjs \
+            scripts/tests/d07-next500-five-b-professional.test.mjs \
+            scripts/tests/d07-next500-five-d-professional.test.mjs \
+            scripts/tests/d07-next500-five-f-professional.test.mjs \
+            scripts/tests/d07-next500-five-g-professional.test.mjs \
+            scripts/tests/d07-next500-five-h-professional.test.mjs \
+            scripts/tests/d07-next500-five-i-professional.test.mjs \
+            scripts/tests/d07-source-evidence-precision.test.mjs \
+            scripts/tests/d07-methodology-top500.test.mjs \
+            scripts/tests/d07-subject-evidence-projection.test.mjs \
+            scripts/tests/d07-existing-socket-rug-upgrade.test.mjs \
+            scripts/tests/d07-it-data-recovery-professional.test.mjs \
+            scripts/tests/d07-marketing-contextual-advertising-professional.test.mjs \
+            > "$RUNNER_TEMP/d07-next500-tests.private.log" 2>&1 || {
+              echo D07_NEXT500_TESTS=FAIL
+              grep -E '^not ok|^# (tests|pass|fail)|^  error:' "$RUNNER_TEMP/d07-next500-tests.private.log" | tail -15 || true
+              grep -oE 'D07_[A-Z0-9_]+|ERR_[A-Z_]+|AssertionError|TypeError|ReferenceError|SyntaxError' "$RUNNER_TEMP/d07-next500-tests.private.log" | sort -u | tail -14 || true
+              grep -E '^[[:space:]]*(error|actual|expected|failureType|code):|D07_MANUAL_VARIANT_' "$RUNNER_TEMP/d07-next500-tests.private.log" | sed -E 's#(/[[:alnum:]_.-]+)+/#<private-path>/#g' | tail -12 || true
+              exit 1
+            }
+          grep '^# (tests|pass|fail)' -E "$RUNNER_TEMP/d07-next500-tests.private.log" || true
+          echo D07_NEXT500_145_TESTS=PASS
+      - name: Generate the existing editorial TOP500 without invented prices or approvals
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/d07-next500-methods"
+          node --import tsx scripts/generate-d07-methodology-top500.mjs "$output" > "$RUNNER_TEMP/d07-next500-generation.private.log" 2>&1 || {
+            echo D07_NEXT500_GENERATION=FAIL
+            grep -oE 'D07_[A-Z_]+_INVALID|D07_[A-Z_]+_FAIL' "$RUNNER_TEMP/d07-next500-generation.private.log" | sort -u | head -10 || true
+            exit 1
+          }
+          grep -E '^D07_(METHOD_SELECTED|INDIVIDUAL_PROTOCOLS_SELECTED|INDIVIDUAL_OPERATIONS|SOURCE_PRECISION_REVIEW|INDEPENDENTLY_APPROVED_METHODS|METHOD_CONVERSION_BATCH|MANUAL_VARIANT_ROUTED|MANUAL_VARIANT_UNROUTED)=' "$RUNNER_TEMP/d07-next500-generation.private.log" || true
+          echo D07_NEXT500_GENERATION=PASS
+      - name: Build integrated original T2 Site Host Kernel and all professional HTML cards
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build > "$RUNNER_TEMP/d07-next500-build.private.log" 2>&1 || {
+            echo D07_NEXT500_ONE_DIST_BUILD=FAIL
+            grep -oE 'D07_[A-Z0-9_]+(=FAIL|_FAILED|_MISSING|_INVALID)' "$RUNNER_TEMP/d07-next500-build.private.log" | sort -u | tail -15 || true
+            exit 1
+          }
+          echo D07_NEXT500_ONE_DIST_ORIGINAL_T2=PASS
+          node --import tsx ../public-checks/scripts/d07-verify-integrated-all-service-cards.mjs "$PWD" \
+            | grep -E '^D07_INTEGRATED_(ALL_SUBJECT_CARD_HTML|FULL_CARD_COUNT|DISPLAYED_OPERATIONS)='
+          for path in \
+            avto-tehnika-oborudovanie/remont-posudomoechnoy-mashiny \
+            obuchenie-repetitory/kursy-excel \
+            remont-dom-mastera/priemka-kvartiry \
+            buhgalteriya-nalogi-biznes/sverka-s-nalogovoy \
+            marketing-reklama-prodazhi/kartochka-ozon \
+            remont-dom-mastera/priemka-remonta \
+            obuchenie-repetitory/kursy-1c \
+            marketing-reklama-prodazhi/reklama-v-vk \
+            uborka-hozyaystvo-pomosch/uborka-sklada \
+            foto-video-meropriyatiya/organizaciya-svadby \
+            avto-tehnika-oborudovanie/remont-holodilnika \
+            buhgalteriya-nalogi-biznes/zakrytie-ip \
+            marketing-reklama-prodazhi/semanticheskoe-yadro \
+            foto-video-meropriyatiya/biznes-fotosessiya \
+            yuristy-dokumenty/dogovor-okazaniya-uslug \
+            buhgalteriya-nalogi-biznes/registraciya-samozanyatogo \
+            buhgalteriya-nalogi-biznes/kadrovye-dokumenty \
+            marketing-reklama-prodazhi/klientskaya-analitika \
+            obuchenie-repetitory/podgotovka-k-vuzu \
+            uborka-hozyaystvo-pomosch/uhod-za-rasteniyami \
+            foto-video-meropriyatiya/dizayn-prezentacii \
+            yuristy-dokumenty/dogovor-podryada \
+            buhgalteriya-nalogi-biznes/analiz-denezhnogo-potoka \
+            marketing-reklama-prodazhi/audit-voronki \
+            foto-video-meropriyatiya/3d-vizualizaciya \
+            obuchenie-repetitory/razgovornyy-angliyskiy \
+            buhgalteriya-nalogi-biznes/perehod-na-usn \
+            marketing-reklama-prodazhi/kartochka-wb \
+            yuristy-dokumenty/dogovor-oferta \
+            kompyutery-it-sayty/podderzhka-wordpress \
+            uborka-hozyaystvo-pomosch/prigotovlenie-edy \
+            buhgalteriya-nalogi-biznes/dogovor-gph \
+            buhgalteriya-nalogi-biznes/byudzhetirovanie \
+            marketing-reklama-prodazhi/mystery-shopper \
+            uborka-hozyaystvo-pomosch/zakupka-produktov \
+            obuchenie-repetitory/podgotovka-k-shkole; do
+            file="dist/uslugi/$path/index.html"
+            test -s "$file"
+            grep -q 'd07-professional-start-order' "$file"
+            grep -q 'data-operation-id=' "$file"
+          done
+          echo D07_NEXT500_THIRTYSIX_REAL_HTML_T2_ROUTES=PASS
+          npm run hosting:verify > "$RUNNER_TEMP/d07-next500-hosting-audit.private.log" 2>&1 || { echo D07_NEXT500_HOSTING_AUDIT=FAIL; exit 1; }
+          echo D07_NEXT500_HOSTING_AUDIT=PASS
+      # No private build artifact, source, private archive, or user files published.
