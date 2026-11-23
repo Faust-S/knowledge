@@ -64,6 +64,17 @@ def test_original_source_qualified_SME_form_leads_from_phases_to_accepted_follow
     assert not conf["original_commit_form_gate"][
         "all_six_author_organizational_forms_implemented"
     ]
+    original_cycle = out["general_akis_private_cycle_evidence"][
+        "original_author_form_eight_phase_reproduction"
+    ]
+    shared = out["general_akis_model"]["system_causal_cycle_feedback"]
+    assert len(original_cycle) == 1
+    assert original_cycle[0]["author_selected_form"] == form
+    assert original_cycle[0]["original_pilot_work"] == "w1"
+    assert original_cycle[0]["followup_original_work"] == "w2"
+    assert original_cycle[0]["original_phase_8_independent_principals"] == ["a", "b"]
+    assert shared["r1v1_original_author_form_eight_phase_accepted_result_count"] == 1
+    assert not shared["r1v1_original_author_form_scope_all_six_executable"]
     assert not out["general_akis_model"]["agent_function_formation_model_gate"]["full_author_A_F_P_OC_KPB_implemented"]
     assert simulate(deepcopy(data)) == out
 
@@ -145,3 +156,61 @@ def test_opt_out_keeps_original_legacy_author_forms_unchanged():
     assert not out["general_akis_model"]["configuration_dynamics"][
         "original_commit_form_gate"
     ]["enabled"]
+
+
+
+def test_r1v1_original_author_catalog_has_all_nine_full_morphological_axes():
+    # Public qualification vocabulary must retain all author-defined options,
+    # not a two-value miniature that silently rejects valid original sources.
+    from research.akis.qualitative_mesa.general_system import author_catalog
+    taxonomy = author_catalog()["taxonomy"]
+    assert len(taxonomy["morphological_axes"]) == 9
+    axes = {a["key"]: a["values"] for a in taxonomy["morphological_axes"]}
+    assert tuple(len(axes[k]) for k in [
+        "scale", "governance", "autonomy", "process", "knowledge",
+        "data", "platform", "economics", "human",
+    ]) == (5, 5, 5, 5, 4, 6, 3, 5, 4)
+    assert {"межфирменные", "региональные"} <= set(axes["scale"])
+    assert {"операторские", "децентрализованные"} <= set(axes["governance"])
+    assert [f["id"] for f in taxonomy["subject_configurations"]] == [
+        "intra", "inter", "operator", "sector", "macro", "trace",
+    ]
+    assert [p["phase"] for p in taxonomy["formation_phases"]] == list(range(1, 9))
+
+
+@pytest.mark.parametrize("form", ["inter", "operator"])
+def test_r1v1_formation_without_second_original_accepted_result_is_not_reproduction(form):
+    d = formed_case(form)
+    d["events"] = [
+        e for e in d["events"]
+        if not (e["action"] == "accept" and e.get("work") == "w2")
+    ]
+    out = simulate(d)
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "SUBMITTED"
+    assert out["general_akis_private_cycle_evidence"][
+        "original_author_form_eight_phase_reproduction"
+    ] == []
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "r1v1_original_author_form_eight_phase_accepted_result_count"
+    ] == 0
+    assert not out["general_akis_model"]["system_causal_cycle_feedback"][
+        "all_nine_component_original_causal_closure_proven"
+    ]
+
+
+def test_r1v1_owner_evaluation_missing_prevents_next_original_result_and_witness():
+    d = formed_case("operator")
+    d["events"] = [
+        e for e in d["events"]
+        if not (e["action"] == "participation_status" and e["actor"] == "a")
+    ]
+    out = simulate(d)
+    assert find(out, "request", work="w2")[0]["reason"] == (
+        "FORMATION_FOLLOWUP_EACH_ORIGINAL_OWNER_EVALUATION_REQUIRED"
+    )
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert "w2" not in out["works"]
+    assert out["general_akis_private_cycle_evidence"][
+        "original_author_form_eight_phase_reproduction"
+    ] == []

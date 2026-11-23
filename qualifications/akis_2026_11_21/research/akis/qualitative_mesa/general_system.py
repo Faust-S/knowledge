@@ -3353,6 +3353,171 @@ def original_nine_component_cycle_evidence(
                 "real_dissolution_or_external_contractual_right_verified": False,
             })
 
+    # R1-V1. One partial eight-phase author-form witness is made entirely
+    # from APPLIED ORIGINAL events. No standalone phase engine, reified actor,
+    # invented legal consent, derived Work, monetary effect or second clock.
+    # Only original SME interfirm / operator Work can qualify at this stage.
+    source_bound_author_form_lifecycle_cycles: list[dict[str, Any]] = []
+    if design.enforce_model_author_configuration_work_scope:
+        formation_by_work: dict[str, list[Mapping[str, Any]]] = {}
+        for row in events:
+            if row.get("action") == "formation_confirm":
+                formation_by_work.setdefault(row.get("work"), []).append(row)
+
+        def original_phases_1_to_6(work: Any, commit_at: int) -> bool:
+            phase_rows = [
+                row for row in formation_by_work.get(work.key, [])
+                if row.get("org_revision") == original.institution.revision
+                and row.get("work_source_revision") == work.source_revision
+                and type(row.get("at")) is int and row["at"] < commit_at
+            ]
+            owners = original.capacity_ledger.original_owners(
+                work.resource_requirements
+            )
+            for phase, expected in (
+                (1, {work.customer}), (2, {work.customer}),
+                (3, owners), (5, set(original.institution.founders))
+            ):
+                if not expected or not expected.issubset({
+                    row.get("actor") for row in phase_rows
+                    if row.get("phase") == phase
+                }):
+                    return False
+            if set(CORES) != {
+                row.get("formation_core") for row in phase_rows
+                if row.get("phase") == 4
+            }:
+                return False
+            preparations = [
+                row for row in events
+                if row.get("action") == "function_prepare"
+                and row.get("work") == work.key
+                and row.get("work_source_revision") == work.source_revision
+                and row.get("org_revision") == original.institution.revision
+                and type(row.get("at")) is int and row["at"] < commit_at
+            ]
+            return any(
+                review.get("action") == "function_review"
+                and review.get("work") == work.key
+                and review.get("work_source_revision") == work.source_revision
+                and review.get("org_revision") == original.institution.revision
+                and review.get("actor") == work.customer
+                and review.get("human_decision") == "APPROVE"
+                and review.get("function_id") == preparation.get("function_id")
+                and review.get("prepared_at") == preparation["at"]
+                and preparation["at"] < review.get("at", -1) < commit_at
+                for preparation in preparations for review in events
+            )
+
+        for later_id, later in sorted(original.works.items()):
+            t_req = requested_at.get(later_id)
+            t_commit = original_committed_at.get(later_id)
+            t_result = accepted_at.get(later_id)
+            if (t_req is None or t_commit is None or t_result is None
+                    or not t_req < t_commit < t_result
+                    or original_configuration_commit_gate(
+                        design, original, later
+                    ) != "NONE"
+                    or not original_phases_1_to_6(later, t_commit)):
+                continue
+            for pilot_id in later.requires_accepted:
+                pilot = original.works.get(pilot_id)
+                t_prev_commit = original_committed_at.get(pilot_id)
+                t_prev_accept = accepted_at.get(pilot_id)
+                if (pilot is None or pilot.customer != later.customer
+                        or t_prev_commit is None or t_prev_accept is None
+                        or not t_prev_commit < t_prev_accept < t_req
+                        or original_configuration_commit_gate(
+                            design, original, pilot
+                        ) != "NONE"
+                        or not original_phases_1_to_6(pilot, t_prev_commit)):
+                    continue
+                same_relation = [
+                    link.key for link in original.cooperation_links
+                    if pilot.key in link.works and later.key in link.works
+                ]
+                if len(same_relation) != 1:
+                    continue
+                started = any(
+                    row.get("action") == "start"
+                    and row.get("work") == pilot_id
+                    and t_prev_commit < row["at"] < t_prev_accept
+                    for row in events
+                )
+                completed = any(
+                    row.get("action") == "complete"
+                    and row.get("work") == pilot_id
+                    and row.get("actor") in original.capacity_ledger.original_owners(
+                        pilot.resource_requirements
+                    )
+                    and t_prev_commit < row["at"] < t_prev_accept
+                    for row in events
+                )
+                phase_7_source = any(
+                    row["phase"] == 7 and row["owner"] == pilot.customer
+                    and row["revision"] == original.institution.revision
+                    and row["available_at"] <= t_prev_accept < row["expires_at"]
+                    for row in design.declarations["formation_phases"]
+                )
+                if not (started and completed and phase_7_source):
+                    continue
+                original_pilot_owners = (
+                    original.capacity_ledger.original_owners(
+                        pilot.resource_requirements
+                    ) | {pilot.customer}
+                )
+                latest_assessments = {
+                    row.get("actor"): row
+                    for row in events
+                    if row.get("action") == "participation_status"
+                    and row.get("evaluated_work") == pilot_id
+                    and row.get("evaluated_work_revision") == pilot.source_revision
+                    and row.get("evaluated_result_ref") == pilot.result_ref
+                    and row.get("evaluated_decision_at") == t_prev_accept
+                    and row.get("actor") in original_pilot_owners
+                    and row.get("participation_link") == same_relation[0]
+                    and t_prev_accept < row["at"] < t_req
+                }
+                if (set(latest_assessments) != original_pilot_owners
+                        or any(
+                            row.get("participation_value") != "OPEN_TO_NEW_WORK"
+                            or not isinstance(
+                                row.get("participation_evidence_ref"), str
+                            )
+                            or not row["participation_evidence_ref"].startswith(
+                                f"model://{owner}/"
+                            )
+                            or not any(
+                                source["phase"] == 8
+                                and source["owner"] == owner
+                                and source["source_ref"] ==
+                                    row.get("formation_phase_source_ref")
+                                and source["revision"] ==
+                                    original.institution.revision
+                                and source["available_at"] <= row["at"] <
+                                    source["expires_at"]
+                                for source in design.declarations["formation_phases"]
+                            )
+                            for owner, row in latest_assessments.items()
+                        )):
+                    continue
+                source_bound_author_form_lifecycle_cycles.append({
+                    "author_selected_form": design.configuration,
+                    "original_relation": same_relation[0],
+                    "original_pilot_work": pilot_id,
+                    "original_pilot_result_accepted_at": t_prev_accept,
+                    "original_phase_1_to_6_model_gates_passed": True,
+                    "original_phase_7_accepted_Work_Result": True,
+                    "original_phase_8_independent_principals": sorted(
+                        original_pilot_owners
+                    ),
+                    "followup_original_work": later_id,
+                    "followup_original_accepted_at": t_result,
+                    "followup_still_required_fresh_phase_1_to_6_model_gates": True,
+                    "original_subject_ownership_and_consents_unchanged": True,
+                    "complete_six_forms_eight_phase_legal_AKIS": False,
+                })
+
     accepted_results = len(accepted_at)
     requested_count = len(requested_at)
     committed_count = len(original_committed_at)
@@ -3398,6 +3563,7 @@ def original_nine_component_cycle_evidence(
             or original_institutional_sequences or original_membership_successions
             or original_reconstituted_cooperation_cycles
             or strict_source_registered_enterprise_results
+            or source_bound_author_form_lifecycle_cycles
         ),
     }
     assert tuple(current_partial_observation) == COMPONENTS
@@ -3437,6 +3603,9 @@ def original_nine_component_cycle_evidence(
             ),
             "strict_kpb_original_reconstitution_accepted_result": (
                 strict_source_reconstituted_results
+            ),
+            "original_author_form_eight_phase_reproduction": (
+                source_bound_author_form_lifecycle_cycles
             ),
             "contains_owner_work_and_model_source_identifiers": True,
             "safe_for_cross_enterprise_publication": False,
@@ -3505,6 +3674,11 @@ def original_nine_component_cycle_evidence(
             ),
             "strict_kpb_decisions_without_accepted_original_result_not_reproduction": True,
             "strict_kpb_model_source_rights_not_real_document_authentication": True,
+            "r1v1_original_author_form_eight_phase_accepted_result_count": (
+                len(source_bound_author_form_lifecycle_cycles)
+            ),
+            "r1v1_original_author_form_scope_all_six_executable": False,
+            "r1v1_eight_phase_model_witness_not_legal_completion": True,
             "subject_and_resource_model_sources_not_external_identity_proof": True,
             "verified_actual_productivity_or_transaction_savings": False,
             "source_scoped_membership_successors_are_not_legal_membership": True,
