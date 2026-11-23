@@ -348,14 +348,21 @@ jobs:
           $ErrorActionPreference='Stop'
           $center='.private/center'
           $setup=(Resolve-Path -LiteralPath (Join-Path $center 'artifacts/iwxa-setup-core-center-private-d3.exe')).Path
-          Push-Location $center
+          $receipt=Join-Path $env:RUNNER_TEMP 'admin-041-original-setup-core-v2-inspection.json'
+          if(Test-Path -LiteralPath $receipt){Remove-Item -LiteralPath $receipt -Force}
+          $proc=Start-Process -FilePath $setup -ArgumentList ('--inspect-file "'+$receipt+'"') -Wait -PassThru
           try {
-            $result=& python -m installer.build_bundle inspect $setup | ConvertFrom-Json
-          } finally { Pop-Location }
-          if($LASTEXITCODE -ne 0 -or $result.status -ne 'VERIFIED' -or
+            if($proc.ExitCode -ne 0 -or !(Test-Path -LiteralPath $receipt -PathType Leaf)){
+              throw 'ADMIN_041_UNIFIED_SETUP_CORE_1_0_NATIVE_V2_INSPECTION_FAILED'
+            }
+          } finally {$proc.Dispose()}
+          $result=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if($result.status -ne 'VERIFIED' -or
             $result.product -ne 'iwxa.admin-center' -or
-            $result.version -ne '0.4.1'){
-            throw 'ADMIN_04_COMPLETE_SETUP_CORE_MANIFEST_UNVERIFIED'
+            $result.version -ne '0.4.1' -or
+            $result.packageFormat -ne 'PE_RESOURCE_V2' -or
+            $result.sourceCommit -ne '57f6e215b017041a9395693dacc6a3a9e9b44929'){
+            throw 'ADMIN_041_APPROVED_UNIFIED_SETUP_CORE_1_0_MANIFEST_UNVERIFIED'
           }
           $payload=Join-Path $center 'artifacts/private-t3-d3-payload/t3'
           $required=@('iwxa-t3-product-owner.exe','iwxa-t3-product-consumer.exe',
@@ -382,6 +389,7 @@ jobs:
           }
           Write-Host "ADMIN_04_COMPLETE_ORIGINAL_SETUP_CORE_QUALIFIED_BYTES size=$size sha256=$hash"
           Write-Host 'ADMIN_04_SOURCE_OWNER_AND_INSTALLED_GUI_PASS'
+          Write-Host 'ADMIN_041_RESOURCE_V2_MATCHES_UNIVERSAL_IWXA_SETUP_CORE_PASS'
       - uses: actions/upload-artifact@v4
         with:
           name: admin-center-0.4.1-full-setup-core-candidate
