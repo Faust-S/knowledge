@@ -469,6 +469,42 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         decision = ev.get("wip_decision")
         if decision not in {"TRANSFER", "REWORK", "TERMINATE"}:
             _fail("WIP_DECISION_INVALID")
+        revision_id = ev.get("wip_quality_revision_of")
+        quality_prior = None
+        custody_proofs = None
+        if revision_id is not None:
+            quality_prior = work.wip_amendments[-1] if work.wip_amendments else None
+            if (op is None or quality_prior is None or
+                    revision_id != quality_prior["id"] or
+                    quality_prior["decision"] != "TRANSFER" or
+                    quality_prior["interruption_at"] != pause["at"] or
+                    quality_prior.get("batch_inspections") is None or
+                    quality_prior["status"] != "APPLIED"):
+                _fail("WIP_QUALITY_REVISION_REQUIRES_LAST_ORIGINAL_TRANSFER")
+            prior_lots = [row for row in work.wip_lots
+                          if row["amendment"] == revision_id]
+            if (len(prior_lots) != len(quality_prior["material"]) or
+                    {row["material_batch"] for row in prior_lots} !=
+                    {row["batch"] for row in quality_prior["material"]} or
+                    not any(row["custody_state"] == "QUALITY_REVIEW_REQUIRED"
+                            for row in prior_lots) or
+                    any(row["status"] != "RESERVED" or
+                        row["holder"] != state.resources[quality_prior["target_resource"]] or
+                        row["custody_state"] not in {
+                            "QUALITY_ACCEPTED", "QUALITY_REVIEW_REQUIRED"
+                        } or row.get("observed_accepted_units") is None or
+                        not row.get("custody_quality_ref") for row in prior_lots)):
+                _fail("WIP_QUALITY_REVISION_NEEDS_ALL_ORIGINAL_RECEIPT_REPORTS")
+            if decision != "TRANSFER":
+                _fail("WIP_QUALITY_REVISION_CANNOT_CHANGE_APPROVED_EXECUTOR")
+            custody_proofs = [
+                {"batch": row["material_batch"],
+                 "observed_accepted_units": row["observed_accepted_units"],
+                 "quality_ref": row["custody_quality_ref"],
+                 "dispatch_ref": row["custody_dispatch_ref"],
+                 "receipt_ref": row["custody_receipt_ref"]}
+                for row in sorted(prior_lots, key=lambda x: x["material_batch"])
+            ]
         if (decision == "TERMINATE" and op is not None and any(
                 status == "IN_PROGRESS" for other, status in work.operation_states.items()
                 if other != op.key)):
@@ -497,26 +533,40 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             if not isinstance(new_resource, str) or new_resource not in state.resources:
                 _fail("WIP_ORIGINAL_TARGET_RESOURCE_REQUIRED")
             target_owner = state.resources[new_resource]
-            if ((decision == "TRANSFER") != (target_owner != owner)):
+            if (quality_prior is None and
+                    ((decision == "TRANSFER") != (target_owner != owner))):
                 _fail("WIP_TRANSFER_MUST_CHANGE_ORIGINAL_ENTERPRISE")
+            if quality_prior is not None and (
+                    new_resource != quality_prior["target_resource"] or
+                    target_owner != state.resources[quality_prior["target_resource"]]):
+                _fail("WIP_QUALITY_REVISION_MUST_KEEP_APPROVED_RESOURCE")
             if not state.subjects[target_owner].active:
                 _fail("WIP_NEW_EXECUTOR_UNAVAILABLE")
             if state.resource_specs[new_resource].basis != "MODEL_DECLARED":
                 _fail("WIP_EXPLICIT_ORIGINAL_CAPACITY_REQUIRED")
             if decision == "TRANSFER":
                 collaboration = _original_transfer_link(
-                    state, work, owner, target_owner,
+                    state, work, pause["owner"], target_owner,
                     ev.get("wip_cooperation_link"),
                     ev.get("wip_cooperation_revision"),
                 )
             start, end = ev.get("wip_slot_start"), ev.get("wip_slot_end")
             if (type(start) is not int or type(end) is not int or
-                    not max(at, work.slot_end) <= start < end):
+                    not start < end or
+                    (quality_prior is None and
+                     not max(at, work.slot_end) <= start) or
+                    (quality_prior is not None and
+                     (start, end) != tuple(quality_prior["next_window"])) or
+                    (quality_prior is not None and at >= end)):
                 _fail("WIP_NEW_PLANNED_WINDOW_REQUIRED")
             capacity_units = _qty(ev.get("wip_capacity_units"),
                                   "WIP_CAPACITY_UNITS_REQUIRED", minimum=1)
             next_window = [start, end]
-        lot = _lot(state, work, ev.get("wip_terms"), pause, decision)
+            if (quality_prior is not None and
+                    capacity_units != quality_prior["capacity_units"]):
+                _fail("WIP_QUALITY_REVISION_MUST_KEEP_RESERVED_CAPACITY")
+        lot = _lot(state, work, ev.get("wip_terms"), pause, decision,
+                   quality_revision=quality_prior is not None)
         material = None
         batch_inspections = None
         if op is not None:
@@ -529,7 +579,8 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             if isinstance(material, list):
                 batch_inspections = _batch_inspections(
                     state, work, ev.get("wip_batch_inspections"),
-                    material, lot, owner,
+                    material, lot, pause["owner"],
+                    quality_revision=quality_prior is not None,
                 )
             else:
                 if ev.get("wip_batch_inspections") is not None:
@@ -552,7 +603,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                 _fail("WIP_OPERATION_ASSURANCE_RESPONSIBILITY_REQUIRES_NEW_REVIEW")
         if decision == "TERMINATE" and lot["future_resource_cost"] is not None:
             _fail("WIP_TERMINATION_HAS_NO_NEXT_EXECUTION")
-        required_owners = {owner, work.customer} | ({target_owner} if target_owner else set())
+        required_owners = {owner, pause["owner"], work.customer} | ({target_owner} if target_owner else set())
         if material is not None:
             for item in _material_rows(material):
                 required_owners |= {
@@ -567,14 +618,14 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                 h.receiver for h in work.handoffs if h.upstream == op.key
             }
         required = sorted(required_owners)
-        evidence = [(pause["cost_source_ref"], owner),
+        evidence = [(pause["cost_source_ref"], pause["owner"]),
                     (source, work.customer)]
         for key in ("inspection_ref", "claim_ref"):
             if lot[key]:
-                evidence.append((lot[key], owner))
+                evidence.append((lot[key], pause["owner"]))
         if material is not None:
             if batch_inspections is not None:
-                evidence.extend((row["inspection_ref"], owner)
+                evidence.extend((row["inspection_ref"], pause["owner"])
                                 for row in batch_inspections)
             original_refs = []
             for item in _material_rows(material):
@@ -586,6 +637,9 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                     (item["inbound_receipt_ref"], item["inbound_receiver_owner"]),
                     (item["inbound_quality_ref"], item["inbound_receiver_owner"]),
                 ))
+            if custody_proofs is not None:
+                evidence.extend((row["quality_ref"], target_owner)
+                                for row in custody_proofs)
             # A common original specification may legitimately govern two
             # independent physical batches. Do not double-count its source.
             for ref, ref_owner in original_refs:
@@ -602,16 +656,19 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             _fail("WIP_ORIGINAL_INTERRUPTION_COST_SOURCE_CHANGED")
         doc = {
             "id": proposal_id, "work": work.key, "decision": decision,
-            "original_resource": resource, "target_resource": new_resource,
+            "original_resource": (pause["resource"] if quality_prior is not None else resource),
+            "target_resource": new_resource,
             "work_source_revision": work.source_revision,
             "org_revision": state.institution.revision,
             "interruption_at": pause["at"], "cost_source_ref": pause["cost_source_ref"],
-            "owner": owner, "lot": lot, "capacity_units": capacity_units,
+            "owner": pause["owner"], "lot": lot, "capacity_units": capacity_units,
             "next_window": next_window, "proposal_source": source,
             "proposal_source_revision": source_revision,
             "source_revisions": snapshots, "cooperation": collaboration,
             "operation": op.key if op else None, "material": material,
             "batch_inspections": batch_inspections,
+            "quality_revision_of": revision_id,
+            "quality_custody_proofs": custody_proofs,
         }
         proposal = {
             **doc, "fingerprint": fingerprint(doc), "created_at": at,
