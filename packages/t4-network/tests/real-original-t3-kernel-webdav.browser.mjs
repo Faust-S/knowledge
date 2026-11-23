@@ -3492,13 +3492,35 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
               original?.object?.revision===1&&
               events.some(e=>e.event_id===p2cSourceWrite.event.event_id);
           }
+          if(p.phase==='APPLIED_CONFIRMED')return (
+            p2cSignedAppliedAck?.signedMessageType==='APPLIED_ACK'&&
+            p2cSignedAppliedAck.originalSignatureVerified===true&&
+            p2cSignedAppliedAck.originalAccessVerified===true&&
+            p.evidence.evidenceRef===p2cAck.publication.key&&
+            p.evidence.evidenceDigest===
+              'sha256:'+p2cAck.publication.sha256&&
+            p2cSignedAppliedAck.verifiedBody?.recipientEventRef===
+              p.evidence.originalRecipientEventId&&
+            p2cSignedAppliedAck.verifiedBody?.recipientRevision===
+              p.evidence.originalRecipientRevision&&
+            p2cSignedAppliedAck.verifiedBody?.recipientStateDigest===
+              p.evidence.originalRecipientStateDigest
+          );
           return p.phase==='PUBLISHED'&&
             p.evidence.evidenceRef===p2cChange.publication.key&&
             p.evidence.evidenceDigest===
               'sha256:'+p2cChange.publication.sha256&&
             p2cChange.publication.immutableTransportReadback===true;
         },
-        verifyOriginalRecipientApplied:async()=>false,
+        verifyOriginalRecipientApplied:async p=>{
+          const result=await inspectT4OriginalNetworkRecipientResult(
+            p2cApplyArgs());
+          return result.state==='APPLIED_VERIFIED'&&
+            p.originalRecipientEventId===result.originalRecipientEventId&&
+            p.originalRecipientRevision===result.originalRecipientRevision&&
+            p.originalRecipientStateDigest===
+              result.originalRecipientStateDigest;
+        },
       });
       const p2cRecipientPhase=()=>createT4OriginalNetworkSessionPhasePort({
         originalKernel:replayKernel,
@@ -3637,6 +3659,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           phase:'APPLIED',evidence:p2cAppliedPhaseEvidence,
         });
       assert.equal(p2cPhaseApplied.originalBusinessApplied,true);
+      const p2cSourceAckConfirmed=await p2cSourcePhase()
+        .advanceOriginalSessionPhase({
+          phase:'APPLIED_CONFIRMED',evidence:p2cAppliedPhaseEvidence,
+        });
+      assert.equal(p2cSourceAckConfirmed.originalBusinessApplied,true);
       // Second cold restart proves that the durable APPLIED phase AND
       // independent original T3 business Result remain the same.
       await sourceContext.close();sourceContext=null;
@@ -3651,7 +3678,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         .inspectOriginalSession();
       const p2cRecipientCold=await p2cRecipientPhase()
         .inspectOriginalSession();
-      assert.equal(p2cSourceCold.currentPhase,'PUBLISHED');
+      assert.equal(p2cSourceCold.currentPhase,'APPLIED_CONFIRMED');
+      assert.equal(p2cSourceCold.originalBusinessApplied,true);
       assert.equal(p2cRecipientCold.currentPhase,'APPLIED');
       assert.equal(p2cRecipientCold.originalBusinessApplied,true);
       assert.equal((await p2cRecipientPhase()
@@ -3674,6 +3702,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           e.object_id===p2cRecipientCold.checkpointRef&&
           e.event_type==='t4.network.original.session.phase');
       assert.equal(p2cRecipientPhases.length,3);
+      const p2cSourcePhases=(await originalCarrierKernel.listEventsSince(
+        sourceCaptureWorkspace)).filter(e=>
+          e.object_id===p2cSourceCold.checkpointRef&&
+          e.event_type==='t4.network.original.session.phase');
+      assert.equal(p2cSourcePhases.length,3);
       assert.equal(p2cCommitCalls,1);
       console.log('T4_REAL_ORIGINAL_T3_NATIVE_SUBJECT_APPLY_COLD_PASS',
         JSON.stringify({
@@ -3690,7 +3723,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           bothOriginalHostsColdRestartedAfterCommit:true,
           originalRecipientNetworkSessionPhase:'APPLIED',
           originalRecipientTechnicalEvents:3,
-          originalSourceNetworkSessionPhase:'PUBLISHED',
+          originalSourceNetworkSessionPhase:'APPLIED_CONFIRMED',
+          originalSourceTechnicalEvents:3,
+          sourceAckConfirmedWithOriginalRecipientResult:true,
           originalNetworkAppliedPhaseRecoveredAfterSecondCold:true,
           originalSignedAckReplayRecoveredAfterCold:true,
           replayedSubjectMutation:false,
