@@ -108,6 +108,33 @@ jobs:
             exit 1
           }
           Write-Host 'D06_ACQUISITION_SESSION_DOCS=PASS'
+      - name: Diagnose independent source check stages without private logs
+        working-directory: private/site
+        shell: pwsh
+        timeout-minutes: 12
+        run: |
+          $failed = @()
+          $checks = @(
+            'check:package', 'check:playwright-cli', 'check:type', 'check:lint',
+            'check:registry', 'check:schemas', 'check:session-docs', 'check:contracts',
+            'check:adapter-boundary', 'check:service-save-api',
+            'check:e2e-antipatterns', 'check:design-system', 'check:visual-contract'
+          )
+          foreach ($check in $checks) {
+            $log = Join-Path $env:RUNNER_TEMP ('d06-' + $check.Replace(':', '-') + '.private.txt')
+            & cmd.exe /d /c ('npm run ' + $check + ' > "' + $log + '" 2>&1')
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host ('D06_INDIVIDUAL_' + $check.Replace(':', '_').ToUpperInvariant() + '=PASS')
+            } else {
+              $failed += $check
+              Write-Host ('D06_INDIVIDUAL_' + $check.Replace(':', '_').ToUpperInvariant() + '=FAIL')
+            }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Host ('D06_INDIVIDUAL_FAILED_CHECKS=' + ($failed -join ','))
+            exit 1
+          }
+          Write-Host 'D06_INDIVIDUAL_SOURCE_CHECKS=PASS'
       - name: Install browser for mandatory static product gate
         working-directory: private/site
         shell: pwsh
