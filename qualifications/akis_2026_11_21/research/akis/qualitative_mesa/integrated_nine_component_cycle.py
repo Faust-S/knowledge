@@ -102,7 +102,7 @@ def original_nine_component_work_view(
         resource_interruption_applied = any(
             row.get("action") == "resource_status"
             and row.get("outcome") == "APPLIED"
-            and row.get("availability") == "UNAVAILABLE"
+            and isinstance(row.get("resource"), str)
             and type(row.get("at")) is int
             and row["at"] < commit_blocks[-1].get("at", -1)
             for row in trace
