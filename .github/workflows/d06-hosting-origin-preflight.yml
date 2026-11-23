@@ -78,6 +78,18 @@ jobs:
           }
           Write-Host 'D06_PROD_QUALIFIED_ARCHIVE=PASS'
           Write-Host 'D06_PROD_QUALIFIED_RUNTIME=PASS'
+      - name: Install browser required by original D06 static prerender
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 10
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'd06-origin-browser-setup.private.txt'
+          & npm run setup:browser *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'D06_PROD_BROWSER_SETUP=FAIL'
+            exit 1
+          }
+          Write-Host 'D06_PROD_BROWSER_SETUP=PASS'
       - name: Build one integrated site for exact canonical HTTPS production origin
         shell: pwsh
         working-directory: private/site
