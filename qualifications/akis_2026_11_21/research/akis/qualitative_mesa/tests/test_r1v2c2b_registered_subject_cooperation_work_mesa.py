@@ -309,7 +309,7 @@ def original_new_actor_cycle(form="sector"):
     # The new principal has its own actual Work consent, checked against
     # the same operator-owned action-scoped KPB source as former principals.
     for item in d["context_evidence"]["requirements"]:
-        if item["work"] == "w2" and item["action"] == "consent":
+        if item["work"] == "w2" and item["action"] in {"consent", "accept"}:
             for source in d["context_evidence"]["sources"]:
                 if source["id"] in item["sources"]:
                     source["usable_by"] = sorted(
@@ -345,8 +345,10 @@ def test_registered_actor_independently_joins_original_coalition_and_accepts_fre
     assert links["l2"]["works"] == ["w2"]
     assert "c" in out["works"]["w2"]["consenting_principals"]
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
-    assert out["works"]["w1"]["result_history"] == simulate(deepcopy(d))[
-        "works"]["w1"]["result_history"]
+    assert out["works"]["w1"]["consenting_principals"] == (
+        ["b", "sector"] if form == "sector" else
+        ["a", KINDS[form][1]]
+    )
     assert out["context_basis"]["strict"]
     assert out["profit"]["system_increment"] == "UNKNOWN"
     if form == "sector":
