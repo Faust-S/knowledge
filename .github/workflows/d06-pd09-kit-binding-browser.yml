@@ -1,0 +1,81 @@
+name: d06-pd09-kit-binding-browser
+
+# Independent targeted original UI route, private files remain runner-local.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-pd09-kit-binding-browser.yml
+
+permissions:
+  contents: read
+
+jobs:
+  kit-binding:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate privately
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: 111dd18f155e7099b40671462f0037f3c5dcaa2d
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Build private static candidate and set up original browser
+        working-directory: private/site
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          foreach ($task in @("ci", "run setup:browser", "run build:static")) {
+            $slug = $task.Replace(" ", "_").Replace(":", "_")
+            $log = Join-Path $env:RUNNER_TEMP ("d06-kit-" + $slug + ".private.txt")
+            & cmd.exe /d /c ("npm " + $task + " > """ + $log + """ 2>&1")
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host ("D06_PD09_BROWSER_PREP_" + $slug + "=FAIL")
+              exit 1
+            }
+            Write-Host ("D06_PD09_BROWSER_PREP_" + $slug + "=PASS")
+          }
+      - name: Verify exact real saved kit selection and PD09 Result roundtrip
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 12
+        run: |
+          $env:PLAYWRIGHT_JSON_OUTPUT_FILE = Join-Path $env:RUNNER_TEMP "d06-pd09-exact-journey.private.json"
+          $log = Join-Path $env:RUNNER_TEMP 'd06-pd09-exact-journey.private.txt'
+          & cmd.exe /d /c ('npm run test:e2e -- tests/e2e/task-entry.spec.ts -g "PD09 binds saved alternatives" --reporter=json > "' + $log + '" 2>&1')
+          $exitCode = $LASTEXITCODE
+          $reportPath = $env:PLAYWRIGHT_JSON_OUTPUT_FILE
+          if (Test-Path -LiteralPath $reportPath) {
+            $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+            Write-Host ("D06_PD09_JOURNEY_UNEXPECTED=" + [int]$report.stats.unexpected)
+            Write-Host ("D06_PD09_JOURNEY_EXPECTED=" + [int]$report.stats.expected)
+            if ($exitCode -ne 0) {
+              $body = Get-Content -LiteralPath $log -Raw
+              $lines = [regex]::Matches($body, 'task-entry\.spec\.ts:(\d+):\d+') |
+                ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique -Last 4
+              Write-Host ("D06_PD09_JOURNEY_TEST_LINES=" + ($lines -join ','))
+              Write-Host ("D06_PD09_JOURNEY_TIMEOUT=" + [int]($body -match 'TimeoutError|Timeout \d+ms'))
+            }
+          } else {
+            Write-Host 'D06_PD09_JOURNEY_REPORT=ABSENT'
+          }
+          if ($exitCode -ne 0) {
+            Write-Host 'D06_PD09_JOURNEY=FAIL'
+            exit 1
+          }
+          Write-Host 'D06_PD09_JOURNEY=PASS'
+      - name: Ensure private boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host 'D06_PD09_PRIVATE_SOURCE_UPLOADS=0'
+          Write-Host 'D06_PD09_PRIVATE_DIST_UPLOADS=0'
+          Write-Host 'D06_PD09_PRIVATE_LOG_UPLOADS=0'
