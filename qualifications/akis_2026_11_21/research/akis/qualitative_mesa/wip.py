@@ -357,13 +357,15 @@ def _lot(state: Any, work: Any, raw: Any, prior: Mapping[str, Any],
     claim_source = terms["claim_ref"]
     if usable or material:
         _source(inspection, original_owner, "WIP_ORIGINAL_INSPECTION_SOURCE_REQUIRED")
-        if any(row.get("inspection_ref") == inspection for row in work.wip_lots):
+        if any(row.get("inspection_ref") == inspection for row in (
+                work.wip_lots + [a["lot"] for a in work.wip_amendments])):
             _fail("WIP_INSPECTION_SOURCE_ALREADY_CONSUMED")
     elif inspection not in ("", None):
         _source(inspection, original_owner, "WIP_ORIGINAL_INSPECTION_SOURCE_REQUIRED")
     if claim:
         _source(claim_source, original_owner, "WIP_ORIGINAL_CLAIM_SOURCE_REQUIRED")
-        if any(row.get("claim_ref") == claim_source for row in work.wip_lots):
+        if any(row.get("claim_ref") == claim_source for row in (
+                work.wip_lots + [a["lot"] for a in work.wip_amendments])):
             _fail("WIP_RECOVERY_SOURCE_ALREADY_USED")
     elif claim_source not in ("", None):
         _source(claim_source, original_owner, "WIP_ORIGINAL_CLAIM_SOURCE_REQUIRED")
