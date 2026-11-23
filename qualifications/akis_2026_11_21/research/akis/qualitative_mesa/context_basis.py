@@ -37,23 +37,34 @@ DECISION_SOURCE_FIELDS = {
     "cooperation_lifecycle_propose": ("lifecycle_source_ref",),
     "cooperation_lifecycle_response": ("lifecycle_response_source_ref",),
     "cooperation_lifecycle_apply": (),
+    # A successor coalition must keep all original independent source rights.
+    # These are existing cooperation decisions, not a second membership IAM.
+    "cooperation_change_propose": ("change_source_ref",),
+    "cooperation_change_response": ("change_source_ref",),
+    "cooperation_entry_assess": (
+        "entry_goal_source_ref", "entry_alternative_source_ref",
+        "entry_assessment_source_ref",
+    ),
+    "cooperation_membership_apply": ("new_link_source_ref",),
 }
 DECISION_OPERATIONS = {
     action: ("EXECUTE" if action.endswith("_apply") else
-             "ACCEPT" if action.endswith(("_review", "_response")) else
+             "ACCEPT" if action.endswith(("_review", "_response", "_assess")) else
              "SHARE")
     for action in DECISION_SOURCE_FIELDS
 }
 DECISION_PURPOSES = {
     action: ("AKIS_SUBJECT_REGISTRATION" if action.startswith("subject_") else
              "AKIS_RESOURCE_REGISTRATION" if action.startswith("resource_") else
-             "AKIS_COOPERATION_LIFECYCLE")
+             "AKIS_COOPERATION_LIFECYCLE" if action.startswith("cooperation_lifecycle_")
+             else "AKIS_COOPERATION_MEMBERSHIP")
     for action in DECISION_SOURCE_FIELDS
 }
 DECISION_TARGET_FIELDS = {
     action: ("subject_registration_id" if action.startswith("subject_") else
              "resource_registration_id" if action.startswith("resource_") else
-             "lifecycle_id")
+             "lifecycle_id" if action.startswith("cooperation_lifecycle_")
+             else "change_id")
     for action in DECISION_SOURCE_FIELDS
 }
 
@@ -289,15 +300,28 @@ class ContextBasis:
     def assert_original_decision_lineage(self, trace: list[dict[str, Any]],
                                          action: str, target: str, at: int) -> None:
         """Recheck only APPROVED earlier decisions from the one original trace."""
-        prefix = ("subject_registration_" if action.startswith("subject_")
-                  else "resource_registration_" if action.startswith("resource_")
-                  else "cooperation_lifecycle_")
+        if action == "cooperation_membership_apply":
+            # One immutable original consultation: revalidate proposer, every
+            # independent respondent and entrant's OWN assessment at apply.
+            previous = {
+                "cooperation_change_propose", "cooperation_change_response",
+                "cooperation_entry_assess",
+            }
+        elif action.startswith("cooperation_change_"):
+            previous = {"cooperation_change_propose", "cooperation_change_response"}
+        else:
+            prefix = ("subject_registration_" if action.startswith("subject_")
+                      else "resource_registration_" if action.startswith("resource_")
+                      else "cooperation_lifecycle_")
+            previous = {row.get("action") for row in trace
+                        if isinstance(row.get("action"), str)
+                        and row["action"].startswith(prefix)}
         target_field = DECISION_TARGET_FIELDS[action]
         for row in trace:
             if (row.get("outcome") == "APPLIED"
-                    and row.get("action", "").startswith(prefix)
+                    and row.get("action") in previous
                     and row.get(target_field) == target
-                    and row.get("at", at) < at):
+                    and type(row.get("at")) is int and row["at"] < at):
                 self.assert_original_decision_rights(row, at)
 
     def assert_original_form_role_source(
