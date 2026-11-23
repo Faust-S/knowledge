@@ -1188,6 +1188,21 @@ class QualitativeAKIS:
             report["change_id"] = ev.get("change_id")
             for field in DECISION_SOURCE_FIELDS.get(action, ()):
                 report[field] = ev.get(field)
+        if action in {
+            "affiliation_transfer_propose", "affiliation_transfer_review",
+            "affiliation_transfer_apply",
+        }:
+            report["source_rights_ref"] = ev.get("source_rights_ref")
+            report["affiliation_transfer_id"] = ev.get(
+                "affiliation_transfer_id"
+            )
+            report["transfer_fingerprint"] = ev.get(
+                "transfer_fingerprint"
+            )
+            for field in DECISION_SOURCE_FIELDS.get(action, ()):
+                report[field] = ev.get(field)
+            if affiliation_evidence is not None and report["outcome"] == "APPLIED":
+                report.update(affiliation_evidence)
         if action in {"cooperation_change_propose", "cooperation_change_response"} and report["outcome"] == "APPLIED":
             # The existing trace alone owns the proposal and the consultations.
             report["cooperation_link"] = ev.get("cooperation_link")
@@ -2099,6 +2114,11 @@ class QualitativeAKIS:
                     "active_for_new_work": v.active,
                     **({
                         "original_enterprise": v.organization,
+                        "affiliation_transition_history": [
+                            {"from_enterprise": old, "to_enterprise": new,
+                             "applied_at": at}
+                            for old, new, at in v.affiliation_history
+                        ],
                         "model_source_scoped_role_declarations": bool(
                             v.affiliation_source_ref and v.self_role_source_ref
                         ),
@@ -2130,6 +2150,10 @@ class QualitativeAKIS:
             "counts": {"applied": sum(e["outcome"] == "APPLIED" for e in self.trace), "blocked": sum(e["outcome"] == "BLOCKED" for e in self.trace)},
         }
         for key, work in self.works.items():
+            if work.affiliation_at_commit:
+                output["works"][key]["original_affiliation_at_commit"] = dict(
+                    sorted(work.affiliation_at_commit.items())
+                )
             if work.assurance_criteria:
                 output["works"][key]["assurance"] = assurance_view(work)
             if work.operations:
