@@ -59,7 +59,17 @@ jobs:
           fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "f1eb8783fce3ba71a7e99eb63887dbc49aeebcc8" "site"
           fetch_private "cehovod" "work/2026-11-23-d05-capacity-scenarios" "4f3d127fff8edc6aba46b8ccd72c89632afba66b" "domain"
           unset header DOMEN
-          if cmp -s site/src/lib/shop-capacity.ts domain/src/lib/shop-capacity.ts && cmp -s site/src/lib/shop-capacity.test.ts domain/src/lib/shop-capacity.test.ts; then
+          # Use committed Git blobs, not CRLF-converted Windows checkout bytes.
+          # The workflow reports only PASS/FAIL; no private source leaves CI.
+          capacity_match=true
+          for relative in src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts; do
+            site_blob="$(git -C site rev-parse "HEAD:$relative")"
+            domain_blob="$(git -C domain rev-parse "HEAD:$relative")"
+            if [ "$site_blob" != "$domain_blob" ]; then
+              capacity_match=false
+            fi
+          done
+          if [ "$capacity_match" = true ]; then
             echo "D05_CAPACITY_CANONICAL_BLOB_MATCH=PASS"
           else
             echo "D05_CAPACITY_CANONICAL_BLOB_MATCH=FAIL"
