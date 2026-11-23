@@ -32,6 +32,7 @@ from .source_registration import (
     qualify_resource_registration,
 )
 from .affiliation import AffiliationBlocked, qualify_affiliation_transfer
+from .wip import WipBlocked, ACTIONS as WIP_ACTIONS, apply as apply_wip_action
 from .handoff import Handoff, HandoffInputError, declare_handoffs, handoffs_view
 from .material import (MaterialBatch, MaterialState, MaterialInputError, MaterialBlocked,
     parse_batches, quantities, amount, event_report, assert_reported_order,
@@ -82,6 +83,7 @@ ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "star
     "affiliation_transfer_propose", "affiliation_transfer_review",
     "affiliation_transfer_apply"})
 GOVERNED = frozenset({"authorize", "exclude"})
+ACTIONS = ACTIONS | WIP_ACTIONS
 
 
 class InputError(ValueError):
@@ -146,6 +148,12 @@ class Work:
     assurance_criteria: tuple[QualityCriterion, ...] = ()
     assurance_reviews: dict[str, dict[str, str]] = field(default_factory=dict)
     assurance_refs: set[str] = field(default_factory=set)
+    # R1-W1: source-declared unfinished production stays on ORIGINAL Work.
+    wip_active_resource: str | None = None
+    wip_interruptions: list[dict[str, Any]] = field(default_factory=list)
+    wip_proposal: dict[str, Any] | None = None
+    wip_amendments: list[dict[str, Any]] = field(default_factory=list)
+    wip_lots: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -427,7 +435,12 @@ class QualitativeAKIS:
              "self_role_source_ref", "transfer_fingerprint",
              "transfer_valid_until", "transfer_source_ref",
              "transfer_decision", "transfer_decision_source_ref",
-             "transfer_parent_source_ref"}, "EVENT")
+             "transfer_parent_source_ref",
+             "wip_id", "wip_fingerprint", "wip_decision", "wip_position",
+             "wip_target_resource", "wip_source_ref", "wip_valid_until",
+             "work_interruption_at", "cost_source_ref", "prior_cost_claim",
+             "wip_terms", "wip_slot_start", "wip_slot_end",
+             "wip_capacity_units"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -647,6 +660,7 @@ class QualitativeAKIS:
         technology_route_evidence = None
         registration_evidence = None
         affiliation_evidence = None
+        wip_evidence = None
         coalition_competition_evidence = None
         active_coalition_evidence = None
         lifecycle_evidence = None
@@ -1002,11 +1016,11 @@ class QualitativeAKIS:
                         )
                     except CooperationInputError as exc:
                         raise BlockedDecision(str(exc)) from exc
-                self._work_action(work, ev, at)
+                wip_evidence = self._work_action(work, ev, at)
             report = {"at": at, "action": action, "outcome": "APPLIED", "reason": "NONE", "org_revision": self.institution.revision}
         except (BlockedDecision, ContextBlocked, MaterialBlocked, AssuranceBlocked,
                 OrgCodeBlocked, CapabilityBlocked, TechnologyRouteBlocked,
-                RegistrationBlocked, AffiliationBlocked) as exc:
+                RegistrationBlocked, AffiliationBlocked, WipBlocked) as exc:
             blocked_resource = getattr(exc, "resource", None)
             if isinstance(exc, OrgCodeBlocked):
                 org_code_model_escalation_target = exc.reviewer
@@ -1125,6 +1139,12 @@ class QualitativeAKIS:
                 report["cooperation_source_revision"] = route_proposal[
                     "cooperation_source_revision"
                 ]
+        if action in WIP_ACTIONS:
+            report["wip_id"] = ev.get("wip_id")
+            report["original_work_not_replaced"] = True
+            report["financial_evidence"] = "SOURCE_DECLARED_NOT_CASH_RECEIPT"
+            if report["outcome"] == "APPLIED":
+                report.update(wip_evidence or {})
         if action in {"start_operation", "complete_operation"}:
             report["operation"] = ev.get("operation")
         if action == "assess_result_quality" and report["outcome"] == "APPLIED":
@@ -1807,13 +1827,15 @@ class QualitativeAKIS:
                 work.admitted = False
                 work.authorization_org_revision = None  # old OK cannot authorize a future commitment
 
-    def _work_action(self, w: Work, ev: dict[str, Any], at: int) -> None:
+    def _work_action(self, w: Work, ev: dict[str, Any], at: int) -> dict[str, Any] | None:
         a = ev["action"]
         actor = ev["actor"]
         if a in {"offer", "authorize", "consent", "commit"}:
             self._guard_original_form_role_work(w, at)
         if self.context_basis is not None:
             self.context_basis.assert_allowed(w.key, a, actor, at)
+        if a in WIP_ACTIONS:
+            return apply_wip_action(self, w, ev, at)
         if a == "offer":
             if actor != self.institution.operator or w.proposal not in {"DRAFT", "REQUESTED"}:
                 raise BlockedDecision("PROPOSAL_NOT_AVAILABLE")
@@ -1983,7 +2005,8 @@ class QualitativeAKIS:
             # nor an external factual certification or legal liability.
             assess_result_quality(w, ev)
         elif a == "complete":
-            if actor != self.resources[w.resource] or w.execution != "IN_PROGRESS":
+            active_resource = w.wip_active_resource or w.resource
+            if actor != self.resources[active_resource] or w.execution != "IN_PROGRESS":
                 raise BlockedDecision("EXECUTION_OWNER_OR_ACTIVE_WORK_MISSING")
             if w.operations and any(status != "COMPLETED" for status in w.operation_states.values()):
                 raise BlockedDecision("TECHNOLOGY_OPERATIONS_INCOMPLETE")
@@ -2199,6 +2222,20 @@ class QualitativeAKIS:
                 if self.material_strict:
                     output["works"][key]["technology"]["materials"] = material_view(
                         work.material_batches, work.material_states)
+        for key, work in self.works.items():
+            if work.wip_interruptions:
+                output["works"][key]["unfinished_production"] = {
+                    "original_work_id": key,
+                    "original_resource": work.resource,
+                    "current_resource": work.wip_active_resource or work.resource,
+                    "interruptions": work.wip_interruptions,
+                    "open_proposal": work.wip_proposal,
+                    "applied_amendments": work.wip_amendments,
+                    "material_lots": work.wip_lots,
+                    "physical_and_payment_sources_authenticated": False,
+                    "uses_original_capacity_ledger": True,
+                    "no_second_work_or_result": True,
+                }
         if (self.portfolio_review_enabled or self.handoff_strict or any(w.requires_accepted for w in self.works.values())
                 or any(spec.calendar is not None for spec in self.resource_specs.values())):
             output["portfolio"] = portfolio_view(self.works, self.trace)
