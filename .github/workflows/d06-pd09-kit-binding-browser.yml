@@ -72,6 +72,31 @@ jobs:
             exit 1
           }
           Write-Host 'D06_PD09_JOURNEY=PASS'
+      - name: Verify PD01-PD03-PD09 real user route with fixed comparison basis
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 12
+        run: |
+          $env:PLAYWRIGHT_JSON_OUTPUT_FILE = Join-Path $env:RUNNER_TEMP "d06-pd09-workflow.private.json"
+          $log = Join-Path $env:RUNNER_TEMP 'd06-pd09-workflow.private.txt'
+          & cmd.exe /d /c ('npm run test:e2e -- tests/e2e/first-workflow.spec.ts -g "WF.PD.01:" --reporter=json > "' + $log + '" 2>&1')
+          $exitCode = $LASTEXITCODE
+          $reportPath = $env:PLAYWRIGHT_JSON_OUTPUT_FILE
+          if (Test-Path -LiteralPath $reportPath) {
+            $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+            Write-Host ("D06_PD09_FULL_JOURNEY_UNEXPECTED=" + [int]$report.stats.unexpected)
+            Write-Host ("D06_PD09_FULL_JOURNEY_EXPECTED=" + [int]$report.stats.expected)
+          }
+          if ($exitCode -ne 0) {
+            $body = Get-Content -LiteralPath $log -Raw
+            $lines = [regex]::Matches($body, 'first-workflow\.spec\.ts:(\d+):\d+') |
+              ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique -Last 5
+            Write-Host ("D06_PD09_FULL_JOURNEY_TEST_LINES=" + ($lines -join ','))
+            Write-Host ("D06_PD09_FULL_JOURNEY_TIMEOUT=" + [int]($body -match 'TimeoutError|Timeout \d+ms'))
+            Write-Host 'D06_PD09_FULL_JOURNEY=FAIL'
+            exit 1
+          }
+          Write-Host 'D06_PD09_FULL_JOURNEY=PASS'
       - name: Ensure private boundary
         if: always()
         shell: pwsh
