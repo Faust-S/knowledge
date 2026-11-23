@@ -3873,6 +3873,45 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         p2cApplyArgs())).originalRecipientEventId,
         p2cRealResult.originalRecipientEventId);
 
+      const p2cRecipientPhases=(await replayKernel.listEventsSince(
+        nativeReplayWorkspace)).filter(e=>
+          e.object_id===p2cRecipientCold.checkpointRef&&
+          e.event_type==='t4.network.original.session.phase');
+      assert.equal(p2cRecipientPhases.length,3);
+      const p2cSourcePhases=(await originalCarrierKernel.listEventsSince(
+        sourceCaptureWorkspace)).filter(e=>
+          e.object_id===p2cSourceCold.checkpointRef&&
+          e.event_type==='t4.network.original.session.phase');
+      assert.equal(p2cSourcePhases.length,3);
+      assert.equal(p2cCommitCalls,1);
+      console.log('T4_REAL_ORIGINAL_T3_NATIVE_SUBJECT_APPLY_COLD_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          signedOriginalHeadsDiffChangeChunkAckViaApache:true,
+          authenticatedEncryptedOriginalDelta:true,
+          originalT3SourceEventId:p2cSourceWrite.event.event_id,
+          originalT3RecipientEventId:
+            p2cRealResult.originalRecipientEventId,
+          originalT3RecipientRevision:1,
+          originalT3SubjectContentBound:true,
+          originalT3CommitCalls:1,
+          originalT3CommitAckIntentionallyLost:true,
+          bothOriginalHostsColdRestartedAfterCommit:true,
+          originalRecipientNetworkSessionPhase:'APPLIED',
+          originalRecipientTechnicalEvents:3,
+          originalSourceNetworkSessionPhase:'APPLIED_CONFIRMED',
+          originalSourceTechnicalEvents:3,
+          sourceAckConfirmedWithOriginalRecipientResult:true,
+          sourceCausalCursorRecoveredFromOriginalT3:true,
+          sourceCausalCursorPersistedSeparatelyByT4:false,
+          originalHostCursorCASCommittedInOriginalT3:true,
+          originalNetworkAppliedPhaseRecoveredAfterSecondCold:true,
+          originalSignedAckReplayRecoveredAfterCold:true,
+          replayedSubjectMutation:false,
+          originalT3ExchangeUsedForNativeNetwork:false,
+          independentPhysicalDevices:false,
+        }));
+
       // P2.2-E2: original Host-approved task processes the NEXT event from
       // its persisted ACK cursor. This is a SECOND signed native session,
       // the same original Object revision 1 -> 2, and no .iwxa transport.
@@ -4241,44 +4280,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           nativeHostTaskDrivenNotYetContinuous:true,
           independentPhysicalDevices:false,
         }));
-      const p2cRecipientPhases=(await replayKernel.listEventsSince(
-        nativeReplayWorkspace)).filter(e=>
-          e.object_id===p2cRecipientCold.checkpointRef&&
-          e.event_type==='t4.network.original.session.phase');
-      assert.equal(p2cRecipientPhases.length,3);
-      const p2cSourcePhases=(await originalCarrierKernel.listEventsSince(
-        sourceCaptureWorkspace)).filter(e=>
-          e.object_id===p2cSourceCold.checkpointRef&&
-          e.event_type==='t4.network.original.session.phase');
-      assert.equal(p2cSourcePhases.length,3);
-      assert.equal(p2cCommitCalls,1);
-      console.log('T4_REAL_ORIGINAL_T3_NATIVE_SUBJECT_APPLY_COLD_PASS',
-        JSON.stringify({
-          originalKernel:ORIGINAL_KERNEL,
-          signedOriginalHeadsDiffChangeChunkAckViaApache:true,
-          authenticatedEncryptedOriginalDelta:true,
-          originalT3SourceEventId:p2cSourceWrite.event.event_id,
-          originalT3RecipientEventId:
-            p2cRealResult.originalRecipientEventId,
-          originalT3RecipientRevision:1,
-          originalT3SubjectContentBound:true,
-          originalT3CommitCalls:1,
-          originalT3CommitAckIntentionallyLost:true,
-          bothOriginalHostsColdRestartedAfterCommit:true,
-          originalRecipientNetworkSessionPhase:'APPLIED',
-          originalRecipientTechnicalEvents:3,
-          originalSourceNetworkSessionPhase:'APPLIED_CONFIRMED',
-          originalSourceTechnicalEvents:3,
-          sourceAckConfirmedWithOriginalRecipientResult:true,
-          sourceCausalCursorRecoveredFromOriginalT3:true,
-          sourceCausalCursorPersistedSeparatelyByT4:false,
-          originalHostCursorCommitStillRequired:true,
-          originalNetworkAppliedPhaseRecoveredAfterSecondCold:true,
-          originalSignedAckReplayRecoveredAfterCold:true,
-          replayedSubjectMutation:false,
-          originalT3ExchangeUsedForNativeNetwork:false,
-          independentPhysicalDevices:false,
-        }));
+
 
       nativeNetworkTransport.close();
       console.log('T4_REAL_ORIGINAL_T3_NETWORK_REPLAY_COLD_CAS_PASS',
