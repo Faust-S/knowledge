@@ -9,7 +9,8 @@ import json
 
 import pytest
 
-from research.akis.qualitative_mesa.mesa_model import simulate
+from research.akis.qualitative_mesa.economic_outlook import choose_outlook
+from research.akis.qualitative_mesa.mesa_model import OperatorAKISModel, simulate
 from research.akis.qualitative_mesa.outside_demand import (
     OutsideDemandBlocked,
 )
@@ -212,13 +213,29 @@ def test_independent_buyer_source_later_revocation_blocks_new_model_read_not_old
         "expected_revision": REVISION, "new_revision": "buyer-demand-r4-2",
     })
     d["events"].sort(key=lambda row: row["at"])
-    out = simulate(d)
+    model = OperatorAKISModel(d)
+    out = model.execute()
     assert find(out, "source_update")[0]["outcome"] == "APPLIED"
     series = owner_assessments(out)
     assert any(t < changed_at and p == "COOPERATION_PREFERRED"
                for t,p,_ in series)
-    assert any(t >= changed_at and reason == "OUTSIDE_DEMAND_CURRENT_BUYER_SOURCE_NO_LONGER_READABLE"
-               for t,_,reason in series)
+    # An already completed original Work is not re-advised on every later
+    # tick. Independently recheck the CURRENT right to read the buyer source
+    # after the owner has revoked it, through the same original ContextBasis.
+    state = model.qualitative
+    after = choose_outlook(
+        model.economic_outlooks, owner="a", work=state.works["w3"],
+        org_revision=state.institution.revision,
+        links=state.cooperation_links, at=float(changed_at + 1),
+        works=state.works, context_basis=state.context_basis,
+        owner_core="corporate",
+        capacity_ledger=state.capacity_ledger,
+        resource_owners=state.resources,
+        resource_availability=state.resource_availability,
+        original_trace=state.trace, subjects=state.subjects,
+    )
+    assert after["position"] == "UNKNOWN"
+    assert after["reason"] == "OUTSIDE_DEMAND_CURRENT_BUYER_SOURCE_NO_LONGER_READABLE"
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
 
