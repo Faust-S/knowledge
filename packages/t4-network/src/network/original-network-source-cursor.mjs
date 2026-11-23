@@ -37,6 +37,13 @@ function checkPhase(status,proof){
     status.scopeRef!==proof.scopeRef||
     status.sessionRef!==proof.sessionRef)
     fail('CURSOR_ORIGINAL_SOURCE_APPLIED_NOT_CONFIRMED');
+  const intent=status.sourceIntentEvidence;
+  const publication=status.sourcePublishedEvidence;
+  if(intent?.evidenceRef!==proof.originalSourceEventId||
+    intent?.evidenceDigest!==proof.sourceEventWindowDigest||
+    !ID(publication?.evidenceRef)||
+    !DIG(publication?.evidenceDigest))
+    fail('CURSOR_ORIGINAL_SOURCE_INTENT_NOT_BOUND');
   const evidence=status.currentEvidence;
   if(!evidence||!ID(evidence.evidenceRef)||!DIG(evidence.evidenceDigest)||
     !ID(evidence.originalRecipientEventId)||
@@ -71,8 +78,35 @@ function checkAck(ack,status,evidence){
     body.recipientStateDigest!==evidence.originalRecipientStateDigest)
     fail('CURSOR_SIGNED_APPLIED_ACK_NOT_BOUND_TO_ORIGINAL_RESULT');
 }
+function checkChange(change,status,proof,ack){
+  const body=change?.verifiedBody;
+  if(change?.schema!=='IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1'||
+    change.signedMessageType!=='CHANGE_REF'||
+    change.verifiedSourceNodeRef!==status.sourceNodeRef||
+    change.verifiedRecipientNodeRef!==status.recipientNodeRef||
+    change.verifiedScopeRef!==status.scopeRef||
+    change.verifiedSessionRef!==status.sessionRef||
+    change.verifiedOwnerEpoch!==status.ownerEpoch||
+    change.originalSignatureVerified!==true||
+    change.originalAccessVerified!==true||
+    change.originalReplayCheckpointRecorded!==true||
+    change.networkBytesVerified!==true||
+    change.originalBusinessApplied!==false||
+    change.originalT3ExchangeCalled!==false||
+    !SHA(change.sha256)||change.key!==change.sha256+'.t4n'||
+    status.sourcePublishedEvidence.evidenceRef!==change.key||
+    status.sourcePublishedEvidence.evidenceDigest!==
+      'sha256:'+change.sha256||
+    body?.changeId!==status.changeId||
+    body?.eventRef!==proof.originalSourceEventId||
+    body?.sourceRevision!==proof.originalEventRevision||
+    body?.ownerRef!==proof.originalWriteOwnerRef||
+    body?.contentDigest!==ack?.verifiedBody?.contentDigest)
+    fail('CURSOR_SIGNED_CHANGE_NOT_BOUND_TO_SOURCE_AND_ACK');
+}
 export async function recoverT4OriginalNetworkSourceCursor({
-  sourcePhasePort,verifiedAppliedAck,originalSourceHeadProof,
+  sourcePhasePort,verifiedAppliedAck,verifiedChangeRef,
+  originalSourceHeadProof,
   sourceCursorBefore=null,getMode,authorizeOriginalRead,
   readOriginalEvents,
 }={}){
@@ -98,6 +132,7 @@ export async function recoverT4OriginalNetworkSourceCursor({
   const first=await sourcePhasePort.inspectOriginalSession();
   const evidence=checkPhase(first,proof);
   checkAck(verifiedAppliedAck,first,evidence);
+  checkChange(verifiedChangeRef,first,proof,verifiedAppliedAck);
   const read=()=>readT4OriginalEventWindow({
     workspaceId:proof.workspaceId,
     originalWriteOwnerRef:proof.originalWriteOwnerRef,
@@ -128,7 +163,9 @@ export async function recoverT4OriginalNetworkSourceCursor({
   // Re-verify original checkpoint and original Event prefix across all async
   // reads; an appended later event is allowed but a rewritten prefix is not.
   const second=await sourcePhasePort.inspectOriginalSession();
-  checkPhase(second,proof);checkAck(verifiedAppliedAck,second,second.currentEvidence);
+  checkPhase(second,proof);
+  checkAck(verifiedAppliedAck,second,second.currentEvidence);
+  checkChange(verifiedChangeRef,second,proof,verifiedAppliedAck);
   const secondWindow=await read();
   if(getMode()!=='T4_NETWORK'||stable(first)!==stable(second)||
     stable(firstWindow.window)!==stable(secondWindow.window)||
