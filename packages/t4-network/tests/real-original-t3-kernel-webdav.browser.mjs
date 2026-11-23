@@ -3865,13 +3865,378 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           nextEventCausallyAfterOriginalApplied:true,
           secondOriginalSourceColdRestartReadback:true,
           noNewT4Store:true,
-          nativeNextEventNetworkAutoDispatchNotYetImplemented:true,
+          nativeNextEventRequiresExistingHostTask:true,
           originalT3ExchangeUsedForFrontier:false,
           independentPhysicalDevices:false,
         }));
       assert.equal((await inspectT4OriginalNetworkRecipientResult(
         p2cApplyArgs())).originalRecipientEventId,
         p2cRealResult.originalRecipientEventId);
+
+      // P2.2-E2: original Host-approved task processes the NEXT event from
+      // its persisted ACK cursor. This is a SECOND signed native session,
+      // the same original Object revision 1 -> 2, and no .iwxa transport.
+      assert.equal(p2eNextAfterCold.originalHostTaskMustAuthorizeAndSchedule,
+        true);
+      assert.equal(actual.grants.includes('t1.getObject'),true);
+      assert.equal(actual.grants.includes('t1.putObject'),true);
+      const p2eSession='session:original:p22e:next:'+randomUUID();
+      const p2eChangeId='change:original:p22e:next:'+randomUUID();
+      const p2eFamily='family:original:p22e:second';
+      const p2ePrepared=await prepareT4OriginalObjectDelta({
+        window:p2eNextAfterCold.window,workspaceId,
+        objectId:p2cObjectId,originalWriteOwnerRef:'original:t2:exchange',
+        originalKernel:originalCarrierKernel,
+        authorizeOriginalRead:async p=>actual.grants.includes(p.operation),
+        getMode:()=> 'T4_NETWORK',
+      });
+      assert.equal(p2ePrepared.delta.baseRevision,1);
+      assert.equal(p2ePrepared.delta.sourceRevision,2);
+      const p2eKey=randomBytes(32),p2eIv=randomBytes(12),
+        p2eAad=Buffer.from(p2eSession+':'+p2eChangeId);
+      const p2eSeal=createCipheriv('aes-256-gcm',p2eKey,p2eIv);
+      p2eSeal.setAAD(p2eAad);
+      const p2eCiphertext=Buffer.concat([p2eIv,
+        p2eSeal.update(p2ePrepared.bytes),p2eSeal.final(),
+        p2eSeal.getAuthTag()]);
+      const p2eChunksPlan=await prepareT4CandidateOpaqueChunks({
+        changeId:p2eChangeId,ownerRef:'original:t2:exchange',
+        sourceContentRef:'original:sealed:p22e:'+randomUUID(),
+        getMode:()=> 'T4_NETWORK',
+        authorizeOriginalSealedContent:async()=>actual.grants.includes(
+          't1.getObject'),
+        readOriginalSealedContent:async()=>({
+          ciphertext:new Uint8Array(p2eCiphertext),
+          encryptionContextRef:'original:test:sealed:epoch:2',
+        }),
+      });
+      let p2eChange=null,p2eSignedAck=null,p2eOpened=null;
+      let p2eSourcePhaseHostSession='host:p22e:phase:source:initial';
+      let p2eRecipientPhaseHostSession='host:p22e:phase:recipient:initial';
+      const p2ePhaseResult=async()=>inspectT4OriginalNetworkRecipientResult({
+        received:p2eOpened,originalKernel:p2cRecipientKernel,
+        getMode:()=> 'T4_NETWORK',
+        authorizeOriginalRead:async p=>
+          receiving.operations.includes(p.operation),
+      });
+      const p2eOriginalApplied=async p=>{
+        if(!p2eOpened)return false;
+        const result=await p2ePhaseResult();
+        return result.state==='APPLIED_VERIFIED'&&
+          result.originalRecipientEventId===p.originalRecipientEventId&&
+          result.originalRecipientRevision===p.originalRecipientRevision&&
+          result.originalRecipientStateDigest===p.originalRecipientStateDigest;
+      };
+      const p2eSourcePhase=()=>createT4OriginalNetworkSessionPhasePort({
+        originalKernel:originalCarrierKernel,
+        technicalWorkspaceId:sourceCaptureWorkspace,
+        originalWriteOwnerRef:'original:t2:exchange',
+        sourceNodeRef:'node:original:source',
+        recipientNodeRef:'node:original:recipient',
+        localNodeRef:'node:original:source',
+        scopeRef:'scope:original:replay',
+        sessionRef:p2eSession,changeId:p2eChangeId,ownerEpoch:2,
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId:sourceCaptureWorkspace,
+          originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:source',scopeRef:'scope:original:replay',
+          hostSessionRef:p2eSourcePhaseHostSession,
+        }),
+        authorizeOriginalTechnicalRead:async p=>
+          actual.grants.includes(p.operation),
+        authorizeOriginalTechnicalWrite:async p=>
+          actual.grants.includes(p.operation),
+        verifyOriginalPhaseEvidence:async p=>{
+          if(p.phase==='INTENT'){
+            const current=await originalCarrierKernel.getObject(
+              workspaceId,p2cObjectId);
+            const eventRows=await originalCarrierKernel.listEventsSince(
+              workspaceId);
+            return p.evidence.evidenceRef===
+                p2eSourceWrite.event.event_id&&
+              p.evidence.evidenceDigest===
+                p2eNextAfterCold.window.windowDigest&&
+              current?.object?.revision===2&&
+              eventRows.some(e=>e.event_id===p2eSourceWrite.event.event_id);
+          }
+          if(p.phase==='PUBLISHED')return
+            p2eChange?.verified.originalSignatureVerified===true&&
+            p2eChange.publication.immutableTransportReadback===true&&
+            p.evidence.evidenceRef===p2eChange.publication.key&&
+            p.evidence.evidenceDigest===
+              'sha256:'+p2eChange.publication.sha256;
+          if(p.phase==='APPLIED_CONFIRMED')return (
+            p2eSignedAck?.verified.originalSignatureVerified===true&&
+            p2eSignedAck.verified.originalAccessVerified===true&&
+            p.evidence.evidenceRef===p2eSignedAck.publication.key&&
+            p.evidence.evidenceDigest===
+              'sha256:'+p2eSignedAck.publication.sha256&&
+            p2eSignedAck.verified.verifiedBody.recipientEventRef===
+              p.evidence.originalRecipientEventId&&
+            p2eSignedAck.verified.verifiedBody.recipientStateDigest===
+              p.evidence.originalRecipientStateDigest
+          );
+          return false;
+        },
+        verifyOriginalRecipientApplied:p2eOriginalApplied,
+      });
+      const p2eRecipientPhase=()=>createT4OriginalNetworkSessionPhasePort({
+        originalKernel:replayKernel,
+        technicalWorkspaceId:nativeReplayWorkspace,
+        originalWriteOwnerRef:'original:t2:exchange',
+        sourceNodeRef:'node:original:source',
+        recipientNodeRef:'node:original:recipient',
+        localNodeRef:'node:original:recipient',
+        scopeRef:'scope:original:replay',
+        sessionRef:p2eSession,changeId:p2eChangeId,ownerEpoch:2,
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId:nativeReplayWorkspace,
+          originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:recipient',
+          scopeRef:'scope:original:replay',
+          hostSessionRef:p2eRecipientPhaseHostSession,
+        }),
+        authorizeOriginalTechnicalRead:async p=>
+          receiving.operations.includes(p.operation),
+        authorizeOriginalTechnicalWrite:async p=>
+          receiving.operations.includes(p.operation),
+        verifyOriginalPhaseEvidence:async p=>{
+          if(p.phase==='RECEIVED')return
+            p.evidence.evidenceRef===p2eChunks[0].publication.key&&
+            p.evidence.evidenceDigest===
+              'sha256:'+p2eChunks[0].publication.sha256&&
+            p2eChunks[0].verified.networkBytesVerified===true;
+          if(p.phase==='VERIFIED')return
+            p.evidence.evidenceRef===p2eChange.publication.key&&
+            p.evidence.evidenceDigest===p2eOpened.originalStateDigest&&
+            p2eOpened.originalSourceEventAndObjectVerified===true;
+          if(p.phase==='APPLIED')return (
+            p2eSignedAck?.verified.originalSignatureVerified===true&&
+            p.evidence.evidenceRef===p2eSignedAck.publication.key&&
+            p.evidence.evidenceDigest===
+              'sha256:'+p2eSignedAck.publication.sha256&&
+            p2eSignedAck.verified.verifiedBody.recipientEventRef===
+              p.evidence.originalRecipientEventId
+          );
+          return false;
+        },
+        verifyOriginalRecipientApplied:p2eOriginalApplied,
+      });
+      const p2eIntentEvidence={
+        evidenceRef:p2eSourceWrite.event.event_id,
+        evidenceDigest:p2eNextAfterCold.window.windowDigest,
+      };
+      await p2eSourcePhase().advanceOriginalSessionPhase({
+        phase:'INTENT',evidence:p2eIntentEvidence,
+      });
+      const p2eHeads=await p2cExchange('HEADS','SOURCE',{
+        familyRef:p2eFamily,ownerEpoch:2,
+        heads:[p2eNextAfterCold.window.sourcePrefixDigestAfter],
+      },1,p2eSession);
+      const p2eDiff=await p2cExchange('DIFF_REQUEST','RECIPIENT',{
+        familyRef:p2eFamily,
+        fromHeads:[p2eNextAfterCold.window.sourcePrefixDigestBefore],
+      },1,p2eSession);
+      p2eChange=await p2cExchange('CHANGE_REF','SOURCE',{
+        changeId:p2eChangeId,changeKind:'OBJECT_PUT',
+        eventRef:p2eSourceWrite.event.event_id,
+        ownerRef:'original:t2:exchange',sourceRevision:2,
+        contentDigest:p2eChunksPlan.contentDigest,
+        parents:[p2eNextAfterCold.window.sourcePrefixDigestBefore],
+      },2,p2eSession);
+      const p2eChunks=[];
+      for(const [index,body] of p2eChunksPlan.bodies.entries())
+        p2eChunks.push(await p2cExchange('CHUNK','SOURCE',
+          body,index+3,p2eSession));
+      await p2eSourcePhase().advanceOriginalSessionPhase({
+        phase:'PUBLISHED',evidence:{
+          evidenceRef:p2eChange.publication.key,
+          evidenceDigest:'sha256:'+p2eChange.publication.sha256,
+        },
+      });
+      const p2eProof=await verifyT4OriginalSourceHeadCausality({
+        verifiedHeads:p2eHeads.verified,
+        verifiedDiffRequest:p2eDiff.verified,
+        verifiedChangeRef:p2eChange.verified,
+        workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        sourceNodeRef:'node:original:source',
+        recipientNodeRef:'node:original:recipient',
+        scopeRef:'scope:original:replay',
+        sessionRef:p2eSession,ownerEpoch:2,
+        sourceCursorBefore:p2eRecovered.originalT3NextCursor,
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:source',
+          scopeRef:'scope:original:replay',
+          hostSessionRef:'host:p22e:source:head',
+        }),
+        authorizeOriginalRead:async p=>actual.grants.includes(p.operation),
+        readOriginalEvents:()=>originalCarrierKernel.listEventsSince(
+          workspaceId),
+        verifyOriginalSourceSubject:async p=>{
+          const current=await originalCarrierKernel.getObject(
+            workspaceId,p2cObjectId);
+          return current?.object?.revision===2&&
+            p.originalSourceEventId===p2eSourceWrite.event.event_id&&
+            p.originalObjectId===p2cObjectId&&
+            p.originalSourceRevision===2;
+        },
+      });
+      p2eOpened=await openT4OriginalNetworkObjectChange({
+        verifiedChangeRef:p2eChange.verified,
+        verifiedChunks:p2eChunks.map(c=>c.verified),
+        originalSourceHeadProof:p2eProof,
+        encryptionContextRef:p2eChunksPlan.encryptionContextRef,
+        recipientNodeRef:'node:original:recipient',
+        scopeRef:'scope:original:replay',
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          nodeRef:'node:original:recipient',
+          scopeRef:'scope:original:replay',
+          hostSessionRef:'host:p22e:recipient:open',
+          originalWriteOwnerRef:'original:t2:exchange',
+        }),
+        authorizeOriginalSealedOpen:async p=>
+          receiving.operations.includes('t1.getObject')&&
+          p.sourceEventId===p2eSourceWrite.event.event_id,
+        verifyOriginalSourceBinding:async p=>{
+          const source=await originalCarrierKernel.getObject(
+            workspaceId,p2cObjectId);
+          if(source?.object?.revision!==2||
+            p.sourceEventId!==p2eSourceWrite.event.event_id)return false;
+          if(p.originalT3SourceObjectEventAndContentReadbackRequired)
+            return p.originalObjectId===p2cObjectId&&
+              p.originalObjectContentDigest===
+                digestT4OriginalObjectContent({
+                  schemaId:source.object.schema_id,
+                  schemaVersion:source.object.schema_version,
+                  data:source.object.data,
+                  extensions:source.object.extensions??{},
+                });
+          return true;
+        },
+        openOriginalSealedContent:async p=>{
+          const input=Buffer.from(p.ciphertext);
+          const cipher=createDecipheriv('aes-256-gcm',p2eKey,
+            input.subarray(0,12));
+          cipher.setAAD(p2eAad);
+          cipher.setAuthTag(input.subarray(-16));
+          return {authenticated:true,plaintext:new Uint8Array(Buffer.concat([
+            cipher.update(input.subarray(12,-16)),cipher.final(),
+          ]))};
+        },
+      });
+      await p2eRecipientPhase().advanceOriginalSessionPhase({
+        phase:'RECEIVED',evidence:{
+          evidenceRef:p2eChunks[0].publication.key,
+          evidenceDigest:'sha256:'+p2eChunks[0].publication.sha256,
+        },
+      });
+      await p2eRecipientPhase().advanceOriginalSessionPhase({
+        phase:'VERIFIED',evidence:{
+          evidenceRef:p2eChange.publication.key,
+          evidenceDigest:p2eOpened.originalStateDigest,
+        },
+      });
+      assert.equal((await p2ePhaseResult()).state,'NOT_APPLIED');
+      const p2eApplied=await applyT4OriginalNetworkObjectChange({
+        received:p2eOpened,originalKernel:p2cRecipientKernel,
+        authorizeOriginalRead:async p=>
+          receiving.operations.includes(p.operation),
+        authorizeOriginalWrite:async p=>
+          receiving.operations.includes(p.operation),
+        verifyOriginalSourceEvent:async p=>
+          p.sourceEventId===p2eSourceWrite.event.event_id&&
+          p.sourceRevision===2&&
+          p.objectContentDigest===p2eOpened.originalStateDigest,
+        getMode:()=> 'T4_NETWORK',
+      });
+      assert.equal(p2eApplied.state,'APPLIED_BY_ORIGINAL_T3');
+      assert.equal(p2eApplied.originalRecipientRevision,2);
+      assert.equal(p2cCommitCalls,2);
+      const p2eResult=await p2ePhaseResult();
+      const p2eAckBody=createT4OriginalNetworkAppliedAckBody({
+        received:p2eOpened,verifiedResult:p2eResult,
+        ackRef:'ack:p22e:next:'+randomUUID(),
+      });
+      p2eSignedAck=await p2cExchange('APPLIED_ACK','RECIPIENT',
+        p2eAckBody,2,p2eSession);
+      const p2eAppliedEvidence={
+        evidenceRef:p2eSignedAck.publication.key,
+        evidenceDigest:'sha256:'+p2eSignedAck.publication.sha256,
+        originalRecipientEventId:p2eResult.originalRecipientEventId,
+        originalRecipientRevision:2,
+        originalRecipientStateDigest:p2eResult.originalRecipientStateDigest,
+      };
+      await p2eRecipientPhase().advanceOriginalSessionPhase({
+        phase:'APPLIED',evidence:p2eAppliedEvidence,
+      });
+      await p2eSourcePhase().advanceOriginalSessionPhase({
+        phase:'APPLIED_CONFIRMED',evidence:p2eAppliedEvidence,
+      });
+      const p2eAckRecovery={
+        sourcePhasePort:p2eSourcePhase(),
+        verifiedAppliedAck:p2eSignedAck.verified,
+        verifiedChangeRef:p2eChange.verified,
+        originalSourceHeadProof:p2eProof,
+        sourceCursorBefore:p2eRecovered.originalT3NextCursor,
+        authorizeOriginalRead:async p=>actual.grants.includes(p.operation),
+        readOriginalEvents:()=>originalCarrierKernel.listEventsSince(
+          workspaceId),
+      };
+      p2eLoseOriginalCursorAck=true;
+      await assert.rejects(p2eCursorPort().commitAcknowledgedCursor({
+        recovery:p2eAckRecovery,
+      }),e=>e?.code==='HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'&&
+        e.details.automaticRetryAllowed===false);
+      assert.equal(p2eFrontierPutCalls,2);
+      await sourceContext.close();sourceContext=null;
+      await recipientContext.close();recipientContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      recipientContext=await launch(recipientProfile);
+      recipientPage=await opened(recipientContext);
+      p2eHostSession='host:original:p22e:after-second-ack-cold';
+      p2eSourcePhaseHostSession='host:p22e:phase:source:cold';
+      p2eRecipientPhaseHostSession='host:p22e:phase:recipient:cold';
+      assert.equal((await p2eSourcePhase().inspectOriginalSession())
+        .currentPhase,'APPLIED_CONFIRMED');
+      assert.equal((await p2eRecipientPhase().inspectOriginalSession())
+        .currentPhase,'APPLIED');
+      const p2eFinalFrontier=await p2eCursorPort()
+        .commitAcknowledgedCursor({recovery:p2eAckRecovery});
+      assert.equal(p2eFinalFrontier.state,'ALREADY_COMMITTED');
+      assert.equal(p2eFrontierPutCalls,2);
+      assert.deepEqual(p2eFinalFrontier.originalT3NextCursor,
+        p2eNextAfterCold.nextCursor);
+      assert.equal((await p2eCursorPort().readNextOriginalSourceEvent())
+        .state,'NO_NEXT_ORIGINAL_EVENT');
+      assert.equal((await p2ePhaseResult()).state,'APPLIED_VERIFIED');
+      const p2eFinalEvents=(await originalCarrierKernel.listEventsSince(
+        sourceCaptureWorkspace)).filter(e=>
+          e.object_id===p2eReadback.checkpointRef&&
+          e.event_type==='t4.network.original.host.ack.frontier');
+      assert.equal(p2eFinalEvents.length,2);
+      console.log('T4_REAL_ORIGINAL_T3_NATIVE_NEXT_REVISION_APPLIED_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          sourceOriginalRevisions:[1,2],
+          recipientOriginalRevisions:[1,2],
+          originalSubjectCommitCalls:2,
+          independentOriginalNetworkSessions:2,
+          sourceT3NativeHostFrontierCASRevisions:[1,2],
+          sourceT3HostFrontierLostAckRecoveries:2,
+          signedNativeSecondHeadsDiffChangeChunkAck:true,
+          originalRecipientResultEvent:
+            p2eResult.originalRecipientEventId,
+          sourceAndRecipientColdRestartAfterSecondApply:true,
+          originalT3ExchangeRequiredForNativeNetwork:false,
+          nativeHostTaskDrivenNotYetContinuous:true,
+          independentPhysicalDevices:false,
+        }));
       const p2cRecipientPhases=(await replayKernel.listEventsSince(
         nativeReplayWorkspace)).filter(e=>
           e.object_id===p2cRecipientCold.checkpointRef&&
