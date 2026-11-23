@@ -127,6 +127,9 @@ class EconomicSubject(mesa.Agent):
                 works=state.works,
                 context_basis=state.context_basis,
                 owner_core=original_owner_economic_core(self.kind),
+                capacity_ledger=state.capacity_ledger,
+                resource_owners=state.resources,
+                resource_availability=state.resource_availability,
             )
         if work is not None and self.model.joint_purchasing_plans:
             joint = self.model._joint_purchasing_position(self.party_id, work_id)
