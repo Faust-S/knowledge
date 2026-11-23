@@ -2951,6 +2951,10 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           if(proof.phase==='RECEIVED')return valid&&
             proof.evidence.evidenceRef===nativeNetworkSent.key&&
             proof.evidence.evidenceDigest===networkPhaseDigest;
+          if(proof.phase==='APPLIED')return valid&&
+            proof.evidence.evidenceRef===
+              'network:ack:is:not:subject:result'&&
+            proof.evidence.evidenceDigest===networkPhaseDigest;
           return proof.phase==='VERIFIED'&&valid&&
             proof.evidence.evidenceRef===
               'original:network:signature:verified'&&
