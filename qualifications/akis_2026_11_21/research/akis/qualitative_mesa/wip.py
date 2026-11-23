@@ -253,6 +253,99 @@ def _material_rows(material: Any) -> list[dict[str, Any]]:
     return material if isinstance(material, list) else ([material] if material else [])
 
 
+
+def _assurance_change(state: Any, work: Any, op: Any, raw: Any,
+                      owner: str, target_owner: str) -> dict[str, Any]:
+    """Prospective responsibility on the original independent Assurance.
+
+    This is not a second criterion registry, retrospective liability, or a
+    transfer of the original recipient's right to assess the final Result.
+    The full, immutable criterion set for the operation must be covered.
+    """
+    criteria = sorted(
+        (item for item in work.assurance_criteria if item.operation == op.key),
+        key=lambda item: item.key,
+    )
+    if not criteria:
+        if raw is not None:
+            _fail("WIP_ASSURANCE_NOT_DECLARED_FOR_OPERATION")
+        return {}
+    if not isinstance(raw, dict) or set(raw) != {
+            "scope", "terms_ref", "criteria"}:
+        _fail("WIP_ASSURANCE_RESPONSIBILITY_TERMS_REQUIRED")
+    if raw["scope"] != "FUTURE_OPERATION_EXECUTION_ONLY":
+        _fail("WIP_ASSURANCE_SCOPE_MUST_BE_PROSPECTIVE")
+    terms_ref = _source(
+        raw["terms_ref"], work.customer, "WIP_ASSURANCE_CUSTOMER_SOURCE_REQUIRED",
+    )
+    declarations = raw["criteria"]
+    if (not isinstance(declarations, list) or len(declarations) != len(criteria)
+            or len(declarations) > 32):
+        _fail("WIP_ASSURANCE_ALL_OPERATION_CRITERIA_REQUIRED")
+    by_id = {item.key: item for item in criteria}
+    selected: dict[str, dict[str, str]] = {}
+    for row in declarations:
+        if not isinstance(row, dict) or set(row) != {
+                "criterion", "original_owner", "previous_effective_owner",
+                "new_effective_owner", "assessor", "method"}:
+            _fail("WIP_ASSURANCE_CRITERION_REVISION_FIELDS_INVALID")
+        key = row["criterion"]
+        if not isinstance(key, str) or key not in by_id or key in selected:
+            _fail("WIP_ASSURANCE_CRITERION_ID_OR_DUPLICATE_INVALID")
+        criterion = by_id[key]
+        current = work.assurance_responsibilities.get(key)
+        previous = current["effective_owner"] if current else criterion.responsible_owner
+        if previous != owner:
+            _fail("WIP_ASSURANCE_CURRENT_EXECUTOR_MISMATCH")
+        if (row["original_owner"] != criterion.responsible_owner or
+                row["previous_effective_owner"] != previous or
+                row["new_effective_owner"] != target_owner):
+            _fail("WIP_ASSURANCE_RESPONSIBLE_OWNERS_MISMATCH")
+        if (row["assessor"] != criterion.assessor or
+                row["method"] != criterion.method):
+            _fail("WIP_ASSURANCE_ORIGINAL_ASSESSOR_OR_METHOD_CHANGED")
+        selected[key] = {
+            "criterion": criterion.key,
+            "operation": criterion.operation,
+            "original_owner": criterion.responsible_owner,
+            "previous_effective_owner": previous,
+            "new_effective_owner": target_owner,
+            "assessor": criterion.assessor,
+            "method": criterion.method,
+            "original_criterion_ref": criterion.source_ref,
+        }
+    if set(selected) != set(by_id):
+        _fail("WIP_ASSURANCE_ALL_OPERATION_CRITERIA_REQUIRED")
+    return {
+        "scope": "FUTURE_OPERATION_EXECUTION_ONLY",
+        "terms_ref": terms_ref,
+        "criteria": [selected[key] for key in sorted(selected)],
+    }
+
+
+def assert_assurance_responsibility_current(state: Any, work: Any,
+                                            at: int) -> None:
+    """Check agreed responsibility source and votes before future assurance.
+
+    The original Assurance is unchanged. Source revocation blocks only a
+    future assessment/acceptance, never reverses an already accepted Result.
+    """
+    for key, revision in work.assurance_responsibilities.items():
+        amendment = next(
+            (row for row in work.wip_amendments
+             if row["id"] == revision["wip_id"]), None,
+        )
+        if amendment is None or amendment["status"] not in {
+                "APPLIED", "SUPERSEDED_BY_QUALITY_REVISION"}:
+            _fail("WIP_ASSURANCE_APPROVED_REVISION_NOT_FOUND")
+        operation = revision["operation"]
+        resource = work.wip_operation_active_resources.get(operation)
+        if (resource is None or state.resources[resource] != revision["effective_owner"]
+                or revision["criterion"] != key):
+            _fail("WIP_ASSURANCE_CURRENT_RESPONSIBILITY_CHANGED")
+        _check_source_snapshots(state, revision["source_revisions"], at)
+        _recheck_voters(state, amendment, at)
+
 def _batch_inspections(state: Any, work: Any, raw: Any,
                        material: list[dict[str, Any]],
                        summary: Mapping[str, Any], owner: str,
