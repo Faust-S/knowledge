@@ -218,3 +218,62 @@ test('P2.2-C divergent original recipient revision blocks duplicate business wri
     f.applyArgs(received)),error('SUBJECT_RECIPIENT_DIVERGED_WITHOUT_RESULT'));
   assert.equal(f.writes,0);
 });
+
+test('past original Result persists as Event-only evidence after a newer valid T3 revision',async()=>{
+  const f=fixture(),old=await openT4OriginalNetworkObjectChange(f.openArgs);
+  await applyT4OriginalNetworkObjectChange(f.applyArgs(old));
+  await f.originalKernel.commitObjectGraph({
+    workspace_id:'workspace:object:one',idempotency_key:'next:one',
+    object:{object_id:'object:one',schema_id:'iwxa.demo.note',
+      schema_version:'1.0.0',data:{title:'second valid revision'},
+      extensions:{},base_revision:1},
+    event:{event_type:'iwxa.t4.original-object.synced',
+      payload:{originalEventId:'event:source:two',
+        originalEventDigest:H('next event'),originalWriteOwnerRef:
+          'owner:source:one',originalContentDigest:H('next content')}},
+  });
+  await assert.rejects(inspectT4OriginalNetworkRecipientResult(
+    f.applyArgs(old)),error('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH'));
+  const historic=await inspectT4OriginalNetworkRecipientResult({
+    ...f.applyArgs(old),allowHistoricalEventProof:true,
+  });
+  assert.equal(historic.state,'APPLIED_HISTORICAL_EVENT_VERIFIED');
+  assert.equal(historic.originalRecipientRevision,1);
+  assert.equal(historic.currentRecipientRevision,2);
+  assert.equal(historic.originalRecipientEventId,'event:recipient:1');
+  assert.equal(historic.originalRecipientStateDigest,
+    f.delta.objectContentDigest);
+  assert.equal(historic.historicalStateFromOriginalEvent,true);
+  assert.equal(historic.historicalSubjectBytesReconstructed,false);
+  assert.equal(historic.currentObjectEqualsHistoricalState,false);
+  assert.equal(historic.originalBusinessApplied,true);
+  assert.throws(()=>createT4OriginalNetworkAppliedAckBody({
+    received:old,verifiedResult:historic,ackRef:'ack:delayed',
+  }),error('SUBJECT_APPLIED_ACK_REQUIRES_ORIGINAL_RESULT'));
+  const afterRestart=await inspectT4OriginalNetworkRecipientResult({
+    ...f.applyArgs(old),allowHistoricalEventProof:true,
+  });
+  assert.deepEqual(afterRestart,historic);
+  assert.equal(f.writes,2);
+});
+test('historical Event proof rejects missing intermediate revision and modified old digest',async()=>{
+  const f=fixture(),old=await openT4OriginalNetworkObjectChange(f.openArgs);
+  await applyT4OriginalNetworkObjectChange(f.applyArgs(old));
+  await f.originalKernel.commitObjectGraph({
+    workspace_id:'workspace:object:one',
+    object:{object_id:'object:one',schema_id:'iwxa.demo.note',
+      schema_version:'1.0.0',data:{title:'revision 2'},extensions:{},
+      base_revision:1},
+    event:{event_type:'iwxa.t4.original-object.synced',
+      payload:{originalEventId:'event:source:two'}},
+  });
+  f.events[1].revision=5;
+  await assert.rejects(inspectT4OriginalNetworkRecipientResult({
+    ...f.applyArgs(old),allowHistoricalEventProof:true,
+  }),error('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP'));
+  f.events[1].revision=2;
+  f.events[0].payload.originalContentDigest=H('forged old receipt');
+  await assert.rejects(inspectT4OriginalNetworkRecipientResult({
+    ...f.applyArgs(old),allowHistoricalEventProof:true,
+  }),error('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH'));
+});
