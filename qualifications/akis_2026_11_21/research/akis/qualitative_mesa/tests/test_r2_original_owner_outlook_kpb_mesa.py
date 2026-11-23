@@ -13,8 +13,7 @@ import pytest
 from research.akis.qualitative_mesa.economic_outlook import (
     OutlookInputError, choose_outlook, parse_outlooks,
 )
-from research.akis.qualitative_mesa.mesa_model import simulate
-from research.akis.qualitative_mesa.rules import QualitativeAKIS
+from research.akis.qualitative_mesa.mesa_model import OperatorAKISModel, simulate
 
 from .test_r1v2c2b_registered_subject_cooperation_work_mesa import _insert_before
 from .test_r1u4_strict_original_source_rights_mesa import e
@@ -112,7 +111,7 @@ def test_original_owner_outlook_for_future_coalition_works_only_after_applied_ed
 
 def test_future_coalition_declaration_not_live_before_original_apply():
     d = original_owner_outlook_case()
-    initial = QualitativeAKIS(d)
+    initial = OperatorAKISModel(d).qualitative
     parsed = parse_outlooks(
         d["economic_outlooks"], initial.subjects,
         initial.cooperation_links,
@@ -157,7 +156,7 @@ def test_unpinned_stale_missing_revoked_or_wrong_scope_forecast_is_unknown(mutat
 def test_future_membership_cannot_be_forged_by_forecast_revision():
     d = original_owner_outlook_case()
     d["economic_outlooks"][0]["relation_source_revision"] = "unapplied-r3"
-    initial = QualitativeAKIS(d)
+    initial = OperatorAKISModel(original_owner_outlook_case()).qualitative
     with pytest.raises(
         OutlookInputError, match="OUTLOOK_RELATION_OWNER_REQUIRED",
     ):
