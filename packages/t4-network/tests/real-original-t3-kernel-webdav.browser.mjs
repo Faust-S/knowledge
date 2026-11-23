@@ -3960,12 +3960,13 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
               current?.object?.revision===2&&
               eventRows.some(e=>e.event_id===p2eSourceWrite.event.event_id);
           }
-          if(p.phase==='PUBLISHED')return
+          if(p.phase==='PUBLISHED')return (
             p2eChange?.verified.originalSignatureVerified===true&&
             p2eChange.publication.immutableTransportReadback===true&&
             p.evidence.evidenceRef===p2eChange.publication.key&&
             p.evidence.evidenceDigest===
-              'sha256:'+p2eChange.publication.sha256;
+              'sha256:'+p2eChange.publication.sha256
+          );
           if(p.phase==='APPLIED_CONFIRMED')return (
             p2eSignedAck?.verified.originalSignatureVerified===true&&
             p2eSignedAck.verified.originalAccessVerified===true&&
@@ -4003,15 +4004,17 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         authorizeOriginalTechnicalWrite:async p=>
           receiving.operations.includes(p.operation),
         verifyOriginalPhaseEvidence:async p=>{
-          if(p.phase==='RECEIVED')return
+          if(p.phase==='RECEIVED')return (
             p.evidence.evidenceRef===p2eChunks[0].publication.key&&
             p.evidence.evidenceDigest===
               'sha256:'+p2eChunks[0].publication.sha256&&
-            p2eChunks[0].verified.networkBytesVerified===true;
-          if(p.phase==='VERIFIED')return
+            p2eChunks[0].verified.networkBytesVerified===true
+          );
+          if(p.phase==='VERIFIED')return (
             p.evidence.evidenceRef===p2eChange.publication.key&&
             p.evidence.evidenceDigest===p2eOpened.originalStateDigest&&
-            p2eOpened.originalSourceEventAndObjectVerified===true;
+            p2eOpened.originalSourceEventAndObjectVerified===true
+          );
           if(p.phase==='APPLIED')return (
             p2eSignedAck?.verified.originalSignatureVerified===true&&
             p.evidence.evidenceRef===p2eSignedAck.publication.key&&
