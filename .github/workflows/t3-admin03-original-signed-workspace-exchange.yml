@@ -51,9 +51,12 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $out=Join-Path $env:RUNNER_TEMP 't3-exchange-test.log'
-          & node --test --test-concurrency=1 --test-reporter=tap '.private/original/tests/t3-signed-workspace-exchange-owner.test.mjs' '.private/original/tests/t3-company-atomic-graph-owner.test.mjs' *> $out
+          & node --test --test-reporter=tap '.private/original/tests/t3-signed-workspace-exchange-owner.test.mjs' *> $out
           if($LASTEXITCODE -ne 0) {
             Get-Content -LiteralPath $out | Where-Object { $_ -match '^(not ok|\s*(error|code|failureType):|# (tests|pass|fail))' } | Select-Object -First 20 | ForEach-Object { Write-Host $_ }
             throw 'ORIGINAL_EXCHANGE_SIGNED_GRANT_REGRESSION_FAILED'
           }
           Write-Host 'ORIGINAL_EXCHANGE_SIGNED_GRANT_TEST_PASS'
+          & node --test --test-reporter=tap '.private/original/tests/t3-company-atomic-graph-owner.test.mjs' *> $out
+          if($LASTEXITCODE -ne 0) { throw 'ORIGINAL_COMPANY_GRAPH_REGRESSION_FAILED' }
+          Write-Host 'ORIGINAL_COMPANY_ATOMIC_GRAPH_TEST_PASS'
