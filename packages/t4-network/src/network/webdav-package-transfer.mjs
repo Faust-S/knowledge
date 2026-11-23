@@ -17,8 +17,9 @@ function checkedKey(v, keySuffix) {
 export function createWebDavPackageTransport(options = {}) {
   const { baseUrl, locationRef, placementPolicy, getMode, authorize, getAuthorizationHeader,
     fetchImpl = globalThis.fetch, maxBytes = 16 * 1024 * 1024, timeoutMs = 15000,
-    allowHttpLoopbackFixture = false, keySuffix = '.iwxa' } = options;
-  if (!['.iwxa','.t4d'].includes(keySuffix)) fail('WIRE_SUFFIX_UNSUPPORTED');
+    allowHttpLoopbackFixture = false, keySuffix = '.iwxa', candidateNetworkWire = false } = options;
+  if (!['.iwxa','.t4d','.t4n'].includes(keySuffix)) fail('WIRE_SUFFIX_UNSUPPORTED');
+  if (keySuffix === '.t4n' && candidateNetworkWire !== true) fail('NETWORK_WIRE_CANDIDATE_OPT_IN_REQUIRED');
   if (![getMode, authorize, getAuthorizationHeader, fetchImpl].every(f => typeof f === 'function')) fail('HOST_PORTS_REQUIRED');
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 256 * 1024 * 1024) fail('INVALID_SIZE_LIMIT');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 50 || timeoutMs > 120000) fail('INVALID_TIMEOUT');
@@ -39,8 +40,9 @@ export function createWebDavPackageTransport(options = {}) {
     workspaceApplied:false,signatureVerified:false,automaticRetryAllowed:false });
   async function request(method, key, headers, body, sha256) {
     const path = checkedKey(key,keySuffix);
-    const isDelta = keySuffix === '.t4d';
-    const ctx = Object.freeze({ operation:method === 'PUT' ? (isDelta ? 't4.delta.publish' : 't4.package.publish') : (isDelta ? 't4.delta.read' : 't4.package.read'),
+    const isDelta = keySuffix === '.t4d', isNetwork = keySuffix === '.t4n';
+    const op = isNetwork ? 't4.network.frame' : isDelta ? 't4.delta' : 't4.package';
+    const ctx = Object.freeze({ operation:op+(method==='PUT' ? '.publish' : '.read'),
       key,sha256,locationRef,workspaceId:policy.workspaceId,authorityRoot:policy.authorityRoot,
       writeOwnerRef:policy.writeOwnerRef,objectFamily:policy.objectFamily });
     await guard(ctx);
@@ -105,7 +107,7 @@ export function createWebDavPackageTransport(options = {}) {
     if (packageSha256(snapshot) !== expectedSha256) fail('DIGEST_MISMATCH');
     if (createOnly !== true || expectedETag !== undefined) fail('IMMUTABLE_WRITE_REQUIRED');
     if (key !== `${expectedSha256}${keySuffix}`) fail('DIGEST_KEY_REQUIRED');
-    const call = await request('PUT',key,{'If-None-Match':'*','Content-Type':keySuffix === '.t4d' ? 'application/vnd.iwxa.t4-delta+json' : 'application/octet-stream'},snapshot,expectedSha256);
+    const call = await request('PUT',key,{'If-None-Match':'*','Content-Type':keySuffix === '.t4n' ? 'application/vnd.iwxa.t4-network-candidate+json' : keySuffix === '.t4d' ? 'application/vnd.iwxa.t4-delta+json' : 'application/octet-stream'},snapshot,expectedSha256);
     let alreadyPresent = false;
     try {
       const status = call.response.status;
@@ -124,5 +126,6 @@ export function createWebDavPackageTransport(options = {}) {
     return Object.freeze({...result.receipt,state:'EXPECTED_BYTES_PRESENT',historicalWriteProven:false,automaticRetryAllowed:false});
   }
   function close() { closed = true; for (const c of active) c.abort(); active.clear(); }
-  return Object.freeze({putSnapshot,getSnapshot,inspectOutcome,close});
+  return Object.freeze({putSnapshot,getSnapshot,inspectOutcome,close,
+    wireKind:keySuffix === '.t4n' ? 'T4_NETWORK_CANDIDATE' : null});
 }
