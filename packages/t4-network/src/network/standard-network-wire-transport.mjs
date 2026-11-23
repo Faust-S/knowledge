@@ -21,6 +21,13 @@ const fail=(code,details)=>{throw new T4CandidateFrameTransportError(code,detail
 const ID=s=>typeof s==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(s);
 const SHA=s=>typeof s==='string'&&/^[a-f0-9]{64}$/.test(s);
 const frozen=o=>Object.freeze(o);
+const deepFreeze=o=>{
+  if(o&&typeof o==='object'){
+    for(const val of Object.values(o))deepFreeze(val);
+    Object.freeze(o);
+  }
+  return o;
+};
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
 export function createT4CandidateFrameTransport({
@@ -181,7 +188,15 @@ export function createT4CandidateFrameTransport({
       schema:'IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1',
       key,sha256:expectedSha256,
       signedMessageType:verdict.messageType,
-      verifiedBody:Object.freeze(structuredClone(frame.body)),
+      verifiedMessageId:frame.messageId,
+      verifiedSourceNodeRef:frame.sourceNodeRef,
+      verifiedRecipientNodeRef:frame.recipientNodeRef,
+      verifiedScopeRef:frame.scopeRef,
+      verifiedSessionRef:frame.sessionRef,
+      verifiedSequence:frame.sequence,verifiedOwnerEpoch:frame.ownerEpoch,
+      verifiedCryptoSuite:frame.cryptoSuite,
+      verifiedSignerRef:frame.signerRef,
+      verifiedBody:deepFreeze(structuredClone(frame.body)),
       originalSignatureVerified:verdict.originalSignatureVerified,
       originalAccessVerified:verdict.originalAccessVerified,
       originalReplayCheckpointRecorded:
