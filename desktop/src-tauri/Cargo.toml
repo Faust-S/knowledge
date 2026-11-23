@@ -1,6 +1,6 @@
 [package]
 name = "iwxa-activity-base-desktop"
-version = "0.1.0-dev.1"
+version = "0.3.0"
 description = "IWXA local activity reconstruction desktop"
 edition = "2021"
 rust-version = "1.90"
