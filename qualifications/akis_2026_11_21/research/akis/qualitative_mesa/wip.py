@@ -93,6 +93,8 @@ def _lot(state: Any, work: Any, raw: Any, prior: Mapping[str, Any],
          decision: str) -> dict[str, Any]:
     terms = _exact(raw, TERMS, "WIP_ORIGINAL_INSPECTION_FIELDS_REQUIRED")
     total = _qty(terms["total_units"], "WIP_TOTAL_UNITS_REQUIRED", minimum=1)
+    if work.wip_amendments and total != work.wip_amendments[-1]["lot"]["remaining_units"]:
+        _fail("WIP_LATEST_ATTEMPT_QUANTITY_MISMATCH")
     produced = _qty(terms["produced_units"], "WIP_PRODUCED_UNITS_INVALID")
     usable = _qty(terms["usable_units"], "WIP_USABLE_UNITS_INVALID")
     if not 0 <= usable <= produced <= total or usable == total:
@@ -223,7 +225,10 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         source = _source(ev.get("wip_source_ref"), actor,
                          "WIP_CUSTOMER_PROPOSAL_SOURCE_REQUIRED")
         proposal_id = _reference(ev.get("wip_id"), "WIP_AMENDMENT_ID_REQUIRED")
-        if any(row["id"] == proposal_id for row in work.wip_amendments):
+        if (any(row["id"] == proposal_id for row in work.wip_amendments) or
+                any(row.get("wip_id") == proposal_id and
+                    row.get("action") == "wip_propose" and
+                    row.get("outcome") == "APPLIED" for row in state.trace)):
             _fail("WIP_AMENDMENT_ALREADY_APPLIED")
         expiry = ev.get("wip_valid_until")
         if type(expiry) is not int or not at < expiry <= 10000:
@@ -350,6 +355,8 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                 not state.subjects[state.resources[target]].active):
             _fail("WIP_TARGET_RESOURCE_NO_LONGER_AVAILABLE")
         start, end = proposal["next_window"]
+        if start < at:
+            _fail("WIP_APPLY_CANNOT_RESERVE_EXPIRED_WINDOW")
         needs = (ResourceNeed(target, proposal["capacity_units"]),)
         try:
             state.capacity_ledger.preview(work.key, needs, start, end)
