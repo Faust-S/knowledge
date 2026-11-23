@@ -668,10 +668,14 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             "proposal_source_revision": source_revision,
             "source_revisions": snapshots, "cooperation": collaboration,
             "operation": op.key if op else None, "material": material,
-            "batch_inspections": batch_inspections,
-            "quality_revision_of": revision_id,
-            "quality_custody_proofs": custody_proofs,
         }
+        # R1-W1B fingerprint fields must remain byte-for-byte compatible.
+        # The multi-batch / supersession fields exist only when used.
+        if batch_inspections is not None:
+            doc["batch_inspections"] = batch_inspections
+        if revision_id is not None:
+            doc["quality_revision_of"] = revision_id
+            doc["quality_custody_proofs"] = custody_proofs
         proposal = {
             **doc, "fingerprint": fingerprint(doc), "created_at": at,
             "valid_until": expiry, "required": required, "votes": {},
@@ -956,7 +960,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             "consumed_by": None, "used_at": None, "applied_at": at,
             "cash_recovery_claim": (
                 "RECORDED_ON_AMENDMENT_ONLY" if
-                proposal["batch_inspections"] is not None else
+                proposal.get("batch_inspections") is not None else
                 ("PENDING_NOT_CASH" if Decimal(proposal["lot"]["claim_amount"])
                  else "NONE")
             ),
@@ -971,7 +975,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             "custody_quality_ref": None,
         }
 
-    if proposal["batch_inspections"] is None:
+    if proposal.get("batch_inspections") is None:
         lots = [_physical_lot(proposal["lot"], proposal["material"])]
     else:
         matched = {row["batch"]: row for row in proposal["material"]}
