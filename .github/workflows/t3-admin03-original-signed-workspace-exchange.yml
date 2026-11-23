@@ -50,6 +50,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          & node --test --test-reporter=dot '.private/original/tests/t3-signed-workspace-exchange-owner.test.mjs' *> $env:RUNNER_TEMP\t3-exchange-test.log
-          if($LASTEXITCODE -ne 0) { throw 'ORIGINAL_EXCHANGE_SIGNED_GRANT_REGRESSION_FAILED' }
+          $out=Join-Path $env:RUNNER_TEMP 't3-exchange-test.log'
+          & node --test --test-reporter=tap '.private/original/tests/t3-signed-workspace-exchange-owner.test.mjs' *> $out
+          if($LASTEXITCODE -ne 0) {
+            Get-Content -LiteralPath $out | Where-Object { $_ -match '^(not ok|\s*(error|code|failureType):|# (tests|pass|fail))' } | Select-Object -First 20 | ForEach-Object { Write-Host $_ }
+            throw 'ORIGINAL_EXCHANGE_SIGNED_GRANT_REGRESSION_FAILED'
+          }
           Write-Host 'ORIGINAL_EXCHANGE_SIGNED_GRANT_TEST_PASS'
