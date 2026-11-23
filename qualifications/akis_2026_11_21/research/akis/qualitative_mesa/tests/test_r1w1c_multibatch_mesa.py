@@ -86,7 +86,7 @@ def multibatch_baseline():
 
 
 def multibatch_proposal(*, inspections=None):
-    p = proposal()
+    p = proposal(window=(20, 40), valid_until=50)
     del p["wip_material_batch"]
     p["wip_material_batches"] = list(BATCHES)
     p["wip_batch_inspections"] = (
@@ -214,7 +214,7 @@ def test_negative_batch_quality_does_not_release_any_reserved_material():
 @pytest.mark.parametrize("mutate,reason", [
     (lambda p: p["wip_material_batches"].append("mat-out-1"),
      "WIP_MULTI_BATCH_ORIGINAL_SELECTION_REQUIRED"),
-    (lambda p: p["wip_batch_inspections"][1].update({"usable_units": 2}),
+    (lambda p: p["wip_batch_inspections"][1].update({"produced_units": 2, "usable_units": 2}),
      "WIP_MULTI_BATCH_TOTALS_DO_NOT_RECONCILE"),
     (lambda p: p["wip_batch_inspections"][1].update(
         {"inspection_ref": "model://b/w1c-inspection-1"}),
