@@ -349,6 +349,7 @@ class OperatorAKISModel(mesa.Model):
             self.economic_outlooks = parse_outlooks(
                 raw_outlooks, self.qualitative.subjects, self.qualitative.cooperation_links,
                 known_works=set(known_works),
+                future_membership_events=self.qualitative.events,
             )
             self.joint_purchasing_plans = parse_plans(
                 raw_joint_purchasing, self.qualitative.subjects,
