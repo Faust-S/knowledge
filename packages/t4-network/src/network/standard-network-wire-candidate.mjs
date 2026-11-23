@@ -49,7 +49,7 @@ function canonical(value,depth=0){
   if(depth>MAX_DEPTH)fail('WIRE_NESTING_LIMIT');
   if(value===null||typeof value==='boolean')return value;
   if(typeof value==='string'){
-    if(value.length>8192||!unicodeOK(value))fail('WIRE_STRING_INVALID');
+    if(value.length>10924||!unicodeOK(value))fail('WIRE_STRING_INVALID');
     return value;
   }
   if(typeof value==='number'){
