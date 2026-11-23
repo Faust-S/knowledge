@@ -393,3 +393,100 @@ def test_new_result_absence_never_counts_as_reproduction():
     assert accepted_result(out, "w1")
     assert not accepted_result(out, "w2")
     assert out["works"]["w2"]["result"] == "SUBMITTED"
+
+
+@pytest.mark.parametrize("form", ["sector", "macro", "trace"])
+def test_registered_entrant_independent_objection_prevents_successor_and_new_result(form):
+    d = original_new_actor_cycle(form)
+    next(row for row in d["events"]
+         if row["action"] == "cooperation_change_response"
+         and row["actor"] == "c")["change_decision"] = "OBJECT_MODEL_PROPOSAL"
+    out = simulate(d)
+    assert accepted_result(out, "w1")
+    assert rows(out, "cooperation_membership_apply")[0]["reason"] == (
+        "COOPERATION_MEMBERSHIP_INDEPENDENT_SUPPORT_INCOMPLETE"
+    )
+    assert not any(link["id"] == "l2" for link in out["cooperation"]["links"])
+    assert "w2" not in out["works"]
+
+
+@pytest.mark.parametrize("form", ["sector", "macro", "trace"])
+def test_fresh_result_requires_new_entrant_own_original_work_consent(form):
+    d = original_new_actor_cycle(form)
+    d["events"] = [
+        row for row in d["events"]
+        if not (row["action"] == "consent" and row.get("work") == "w2"
+                and row["actor"] == "c")
+    ]
+    out = simulate(d)
+    assert accepted_result(out, "w1")
+    assert rows(out, "cooperation_membership_apply")[0]["outcome"] == "APPLIED"
+    assert next(row for row in rows(out, "commit")
+                if row.get("work") == "w2")["reason"] == (
+        "INDEPENDENT_ACCEPTANCE_MISSING"
+    )
+    assert out["works"]["w2"]["result"] == "NOT_SUBMITTED"
+
+
+def test_registered_person_owns_context_and_can_revoke_before_new_work():
+    d = original_new_actor_cycle("trace")
+    d["events"].append(e(
+        48, "source_update", "c", source="model://c/new-scope",
+        status="DISPROVED", expected_revision="role-r1",
+        new_revision="role-r2",
+    ))
+    d["events"].sort(key=lambda row: row["at"])
+    out = simulate(d)
+    assert accepted_result(out, "w1")
+    assert rows(out, "cooperation_membership_apply")[0]["outcome"] == "APPLIED"
+    assert next(row for row in rows(out, "request")
+                if row.get("work") == "w2")["outcome"] == "BLOCKED"
+    assert "w2" not in out["works"]
+
+
+def test_unregistered_sector_resource_cannot_be_used_in_successor_work():
+    d = original_new_actor_cycle("sector")
+    apply = next(row for row in d["events"]
+                 if row["action"] == "resource_registration_apply")
+    apply["resource_spec"]["owner"] = "b"
+    out = simulate(d)
+    assert accepted_result(out, "w1")
+    assert rows(out, "resource_registration_apply")[0]["outcome"] == "BLOCKED"
+    assert "rc" not in out["resources"]
+    assert next(row for row in rows(out, "request")
+                if row.get("work") == "w2")["reason"] == (
+        "ORIGINAL_NEW_RESOURCE_REGISTRATION_MUST_PRECEDE_WORK"
+    )
+    assert "w2" not in out["works"]
+
+
+def test_entrant_cannot_borrow_foreign_original_coalition_decision_right():
+    d = original_new_actor_cycle("sector")
+    response = next(row for row in d["events"]
+                    if row["action"] == "cooperation_change_response"
+                    and row["actor"] == "c")
+    response["source_rights_ref"] = "model://b/borrowed-approval"
+    out = simulate(d)
+    assert accepted_result(out, "w1")
+    assert next(row for row in rows(out, "cooperation_change_response")
+                if row["actor"] == "c")["reason"] == (
+        "CONTEXT_DECISION_INDEPENDENT_OWNER_RIGHT_MISSING"
+    )
+    assert rows(out, "cooperation_membership_apply")[0]["outcome"] == "BLOCKED"
+    assert "w2" not in out["works"]
+
+
+@pytest.mark.parametrize("form", ["sector", "macro", "trace"])
+def test_failed_second_result_never_rewrites_accepted_initial_result(form):
+    d = original_new_actor_cycle(form)
+    next(row for row in d["events"]
+         if row["action"] == "accept" and row.get("work") == "w2")[
+             "action"
+         ] = "reject"
+    out = simulate(d)
+    assert accepted_result(out, "w1")
+    assert not accepted_result(out, "w2")
+    assert out["works"]["w1"]["consenting_principals"] == (
+        ["b", "sector"] if form == "sector" else
+        ["a", KINDS[form][1]]
+    )
