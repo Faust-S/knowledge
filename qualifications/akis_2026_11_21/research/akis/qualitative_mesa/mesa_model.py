@@ -272,6 +272,13 @@ class OperatorAKISModel(mesa.Model):
                     or not self.strict_economic_source_work.strip()
                     or self.economic_claims is None):
                 raise InputError("ORIGINAL_STRICT_ECONOMIC_WORK_AND_LEDGER_REQUIRED")
+            # Fail before the first Mesa event: without the original strict
+            # ContextBasis a future subject cannot be source-qualified. A
+            # later UNKNOWN_SOURCE_OWNER is not an adequate diagnosis.
+            original_basis = research_input.get("context_evidence")
+            if (not isinstance(original_basis, dict)
+                    or original_basis.get("strict") is not True):
+                raise InputError("ORIGINAL_ECONOMIC_STRICT_CONTEXT_REQUIRED")
         self.work_counterfactual_raw = research_input.pop("work_counterfactuals", None)
         if self.work_counterfactual_raw is not None and self.economic_claims is None:
             raise InputError("COUNTERFACTUAL_REQUIRES_ORIGINAL_ECONOMIC_CLAIMS")
