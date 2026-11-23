@@ -317,18 +317,6 @@ jobs:
           & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha '86983f7098790c8cc96b653caf7a0dfb29ad137f' -ExpectedT3Sha '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -ExpectedVersion '0.4.0'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
-      - name: Native Windows original signed D2 DATA and two independent cold UIA reads
-        shell: pwsh
-        timeout-minutes: 17
-        run: |
-          $ErrorActionPreference='Stop'
-          if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
-            throw 'D2_INSTALLED_ORIGINAL_SETUP_ROOT_NOT_FOUND'
-          }
-          & ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 -InstallRoot $env:G4_INSTALLED_CENTER_ROOT -RequireD2Read -RequireOriginalEmployeeRegistry
-          if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_UIA_E2E_FAILED'}
-          Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_DATA_TWO_COLD_UIA_PASS'
-          Write-Host 'D3_INSTALLED_ORIGINAL_EMPLOYEE_REGISTRY_COLD_UIA_PASS'
       - name: Verify complete 0.4 distributable and produce immutable public candidate
         shell: pwsh
         run: |
@@ -378,8 +366,21 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Native Windows original signed D2 DATA and two independent cold UIA reads
+        shell: pwsh
+        timeout-minutes: 17
+        run: |
+          $ErrorActionPreference='Stop'
+          if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
+            throw 'D2_INSTALLED_ORIGINAL_SETUP_ROOT_NOT_FOUND'
+          }
+          & ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 -InstallRoot $env:G4_INSTALLED_CENTER_ROOT -RequireD2Read -RequireOriginalEmployeeRegistry
+          if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_UIA_E2E_FAILED'}
+          Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_DATA_TWO_COLD_UIA_PASS'
+          Write-Host 'D3_INSTALLED_ORIGINAL_EMPLOYEE_REGISTRY_COLD_UIA_PASS'
   upgrade-from-accepted-03:
     needs: installed-original-d2
+    if: ${{ always() && needs.installed-original-d2.result != 'cancelled' }}
     runs-on: windows-2022
     timeout-minutes: 22
     permissions:
