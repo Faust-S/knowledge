@@ -177,7 +177,7 @@ test('unknown envelope fields and invented subject authority are rejected',()=>{
   assert.throws(()=>create({body:{...base.body,grant:true}}),
     code('WIRE_FIELDS_INVALID'));
   assert.throws(()=>create({messageType:'OBJECT_DELETE'}),
-    code('WIRE_HEADER_INVALID'));
+    code('WIRE_TYPE_UNSUPPORTED'));
 });
 test('client does not accept unsafe number, invalid Unicode or normalization ambiguity',()=>{
   assert.throws(()=>create({sequence:1.5}),code('WIRE_HEADER_INVALID'));
