@@ -448,6 +448,61 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                 "wip_fingerprint": proposal["fingerprint"],
                 "wip_reviewers": required, "wip_lot": lot}
     proposal = work.wip_proposal
+    if action in {"wip_handoff_dispatch", "wip_handoff_receive",
+                  "wip_handoff_quality"}:
+        if op is None:
+            _fail("WIP_HANDOFF_REQUIRES_ORIGINAL_OPERATION")
+        latest = work.wip_amendments[-1] if work.wip_amendments else None
+        if (latest is None or latest["interruption_at"] != pause["at"] or
+                latest["decision"] != "TRANSFER" or
+                latest["operation"] != op.key or proposal is not None or
+                ev.get("wip_id") != latest["id"]):
+            _fail("WIP_APPROVED_OPERATION_TRANSFER_REQUIRED")
+        lot = work.wip_lots[-1]
+        if ev.get("wip_material_batch") != latest["material"]["batch"]:
+            _fail("WIP_MATERIAL_HANDOFF_BATCH_MISMATCH")
+        source = _source(ev.get("wip_source_ref"), actor,
+                         "WIP_CUSTODY_OWN_SOURCE_REQUIRED")
+        _original_source_revision(state, source, actor, at)
+        refs = {lot.get("custody_dispatch_ref"), lot.get("custody_receipt_ref"),
+                lot.get("custody_quality_ref")}
+        if source in refs or source in {
+            lot.get("inspection_ref"), lot.get("claim_ref"),
+        }:
+            _fail("WIP_CUSTODY_SOURCE_ALREADY_USED")
+        if lot["status"] != "RESERVED":
+            _fail("WIP_CUSTODY_ONLY_RESERVED_MATERIAL")
+        phase = lot.get("custody_state")
+        if action == "wip_handoff_dispatch":
+            if actor != pause["owner"] or phase != "AWAITING_DISPATCH":
+                _fail("WIP_ORIGINAL_MATERIAL_SENDER_REQUIRED")
+            lot["custody_state"] = "DISPATCHED"
+            lot["custody_dispatch_ref"] = source
+        elif action == "wip_handoff_receive":
+            if (actor != state.resources[latest["target_resource"]] or
+                    phase != "DISPATCHED" or
+                    ev.get("wip_dispatch_ref") != lot.get("custody_dispatch_ref")):
+                _fail("WIP_ORIGINAL_MATERIAL_RECEIVER_OR_DISPATCH_REQUIRED")
+            lot["custody_state"] = "RECEIVED"
+            lot["custody_receipt_ref"] = source
+            lot["holder"] = actor
+        else:
+            if (actor != state.resources[latest["target_resource"]] or
+                    phase != "RECEIVED" or
+                    ev.get("wip_receipt_ref") != lot.get("custody_receipt_ref")):
+                _fail("WIP_MATERIAL_RECEIPT_AND_RECEIVER_QUALITY_REQUIRED")
+            accepted = _qty(ev.get("wip_accepted_units"),
+                            "WIP_QUALITY_ACCEPTED_UNITS_REQUIRED")
+            if accepted != lot["usable_units"]:
+                _fail("WIP_REVISED_MATERIAL_QUALITY_REQUIRES_NEW_CONSENT")
+            lot["custody_state"] = "QUALITY_ACCEPTED"
+            lot["custody_quality_ref"] = source
+        return {
+            "wip_phase": lot["custody_state"], "wip_id": latest["id"],
+            "wip_operation": op.key, "wip_material_batch": lot["material_batch"],
+            "title_not_transferred": True,
+            "external_delivery_not_authenticated": True,
+        }
     if action == "wip_cancel":
         if proposal is None or actor != work.customer:
             _fail("WIP_ONLY_ORIGINAL_CUSTOMER_CAN_CANCEL")
@@ -477,12 +532,22 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         ) is not None:
             _fail("WIP_SOURCE_DECLARED_RESOURCE_OVERBOOKED")
         lot = work.wip_lots[-1]
+        expected_holder = pause["owner"]
+        if op is not None and latest["decision"] == "TRANSFER":
+            expected_holder = actor
+            if (lot.get("custody_state") != "QUALITY_ACCEPTED" or
+                    not lot.get("custody_quality_ref")):
+                _fail("WIP_ORIGINAL_PHYSICAL_CUSTODY_QUALITY_REQUIRED")
         if (lot["amendment"] != latest["id"] or lot["status"] != "RESERVED" or
-                lot["holder"] != pause["owner"]):
+                lot["holder"] != expected_holder):
             _fail("WIP_RESERVED_LOT_MUST_REMAIN_WITH_ORIGINAL_HOLDER")
+        if op is not None and work.operation_states[op.key] != "PAUSED":
+            _fail("WIP_ORIGINAL_OPERATION_NO_LONGER_PAUSED")
         lot["status"] = "CONSUMED"
         lot["holder"] = actor
         lot["used_at"] = at
+        if op is not None:
+            work.operation_states[op.key] = "IN_PROGRESS"
         work.execution = "IN_PROGRESS"
         return {"wip_phase": "RESUMED", "wip_id": latest["id"],
                 "wip_lot_status": "CONSUMED", "original_work_preserved": True}
