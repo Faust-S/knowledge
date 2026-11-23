@@ -74,7 +74,7 @@ try{
         $aid=[string]$node.Current.AutomationId
         $name=[string]$node.Current.Name
         if($aid -match '^iwxaSetup[A-Za-z0-9]+$' -or
-           $name -match 'IWXA|IWXA Admin|Setup|установк|Программ|Install'){
+           $name -match 'IWXA|IWXA Admin|Setup|Install'){
           $typeName=[string]$node.Current.ControlType.ProgrammaticName
           [void]$ids.Add($aid+'|'+$typeName+'|'+$name.Substring(0,[Math]::Min(100,$name.Length)))
         }
