@@ -107,6 +107,18 @@ def test_owner_suspends_and_recovers_own_original_role_new_edition_second_result
     assert out["general_akis_model"]["system_causal_cycle_feedback"][
         "r1v1_original_author_form_eight_phase_accepted_result_count"
     ] == 1
+    witnesses = out["general_akis_private_cycle_evidence"][
+        "original_owner_role_revoked_restored_then_accepted_result"
+    ]
+    assert len(witnesses) == 1
+    assert witnesses[0]["original_actor"] == name
+    assert witnesses[0]["original_prior_accepted_work"] == "w1"
+    assert witnesses[0]["original_followup_accepted_work"] == "w2"
+    assert witnesses[0]["old_original_role_edition"] == "role-r1"
+    assert witnesses[0]["restored_original_role_edition"] == "role-r3"
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "r1v2c_original_owner_role_restoration_accepted_result_count"
+    ] == 1
     assert out == simulate(deepcopy(d))
 
 
@@ -120,6 +132,9 @@ def test_owner_suspend_prevents_future_work_but_preserves_prior_result(form):
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert find(out, "request", work="w2")[0]["outcome"] == "BLOCKED"
     assert "w2" not in out["works"]
+    assert out["general_akis_private_cycle_evidence"][
+        "original_owner_role_revoked_restored_then_accepted_result"
+    ] == []
 
 
 def test_external_operator_cannot_restore_person_own_role():
@@ -239,6 +254,10 @@ def test_active_role_requalifies_current_edition_and_accepts_new_work(form):
         "ACCEPTED_BY_ORIGINAL_RECIPIENT",
         "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     ]
+    # An uninterrupted requalification is not a claimed restoration.
+    assert out["general_akis_model"]["system_causal_cycle_feedback"][
+        "r1v2c_original_owner_role_restoration_accepted_result_count"
+    ] == 0
 
 
 def test_stale_edition_cannot_resurrect_replayed_model_source():
