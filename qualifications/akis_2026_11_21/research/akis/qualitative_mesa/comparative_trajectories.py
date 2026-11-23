@@ -26,6 +26,8 @@ BASELINE_FIELDS = (
     "cooperation_links", "context_evidence", "economic_claims",
     "work_counterfactuals", "general_akis",
 )
+# An original operator Work is valid without a declared cooperative link.
+OPTIONAL_ORIGINAL_FIELDS = {"cooperation_links"}
 MAX_ARMS = 8
 
 
@@ -80,11 +82,19 @@ def compare_original_trajectories(
             raise TrajectoryComparisonError(
                 "COMPARATIVE_ORIGINAL_SCENARIO_OUTPUT_REQUIRED"
             )
-        if any(key not in scenario for key in BASELINE_FIELDS):
+        if any(
+            key not in scenario
+            for key in BASELINE_FIELDS
+            if key not in OPTIONAL_ORIGINAL_FIELDS
+        ):
             raise TrajectoryComparisonError(
                 "COMPARATIVE_COMPLETE_BASELINE_DECLARATIONS_REQUIRED"
             )
-        initial = {key: scenario[key] for key in BASELINE_FIELDS}
+        initial = {
+            key: scenario.get(key, []) if key in OPTIONAL_ORIGINAL_FIELDS
+            else scenario[key]
+            for key in BASELINE_FIELDS
+        }
         fingerprint = _fingerprint(initial)
         if reference_sha is not None and reference_sha != fingerprint:
             raise TrajectoryComparisonError(
