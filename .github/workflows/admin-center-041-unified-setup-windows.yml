@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 790c9dd270a2e7a11aead6a9ee7666c6d7b677fc
+          ref: df5334703826b062c6ea52a811767f5be6e162fd
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -58,7 +58,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $owner=(& git -C .private/t3 rev-parse HEAD).Trim()
-          if($owner -cne '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc'){
+          if($owner -cne 'df5334703826b062c6ea52a811767f5be6e162fd'){
             throw 'D2_ORIGINAL_PRIVATE_SOURCE_PIN_FAILED'
           }
           Write-Host 'D2_ORIGINAL_PRIVATE_SOURCE_PIN_PASS'
@@ -167,7 +167,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 790c9dd270a2e7a11aead6a9ee7666c6d7b677fc
+          ref: df5334703826b062c6ea52a811767f5be6e162fd
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           filter: blob:none
@@ -212,7 +212,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
-          if($t3 -cne '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -or
+          if($t3 -cne 'df5334703826b062c6ea52a811767f5be6e162fd' -or
              $center -cne '57f6e215b017041a9395693dacc6a3a9e9b44929'){
             throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
           }
@@ -315,7 +315,7 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
-          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha '57f6e215b017041a9395693dacc6a3a9e9b44929' -ExpectedT3Sha '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -ExpectedVersion '0.4.1'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha '57f6e215b017041a9395693dacc6a3a9e9b44929' -ExpectedT3Sha 'df5334703826b062c6ea52a811767f5be6e162fd' -ExpectedVersion '0.4.1'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
       - name: Qualify actual installed universal IWXA Setup Core 1.0 window, brand and 100-250 percent DPI
