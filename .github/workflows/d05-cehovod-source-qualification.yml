@@ -56,8 +56,8 @@ jobs:
             fi
             echo "D05_REVISION_${destination}=PASS"
           }
-          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "7170030d8f641c560d99067286877ca6fc703a2b" "site"
-          fetch_private "cehovod" "work/2026-11-23-d05-capacity-scenarios" "5f32d9b4b9cfd59da217cbb87a7516220a47ec51" "domain"
+          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "d420d8b9708ec7e8438e416951db38ef0239b401" "site"
+          fetch_private "cehovod" "work/2026-11-23-d05-capacity-scenarios" "17c16978297c48a39e0691b964d46b6f08e891a2" "domain"
           unset header DOMEN
           # Use committed Git blobs, not CRLF-converted Windows checkout bytes.
           # The workflow reports only PASS/FAIL; no private source leaves CI.
@@ -128,6 +128,7 @@ jobs:
             fi
           done
           echo "D05_FORMAT_DIAGNOSTIC_FAILURE=$format_failure"
+          test "$format_failure" -eq 0 || exit 1
       - name: Run complete source gate privately
         run: |
           set -euo pipefail
