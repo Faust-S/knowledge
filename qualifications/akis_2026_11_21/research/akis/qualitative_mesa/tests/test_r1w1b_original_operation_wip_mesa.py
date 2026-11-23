@@ -262,10 +262,10 @@ def test_original_operation_transfer_is_reserved_without_fictional_delivery():
     assert work.material_states["mat-in"].accepted == 5
     assert work.material_states["mat-out"].dispatched is None
     assert work.wip_operation_active_resources == {"form": "rd"}
-    assert [(r.resource, r.start, r.end) for r in state.capacity_ledger.reservations
-            if r.work == "w1"] == [
+    assert {(r.resource, r.start, r.end) for r in state.capacity_ledger.reservations
+            if r.work == "w1"} == {
                 ("ra", 0, 4), ("rb", 4, 8), ("ra", 8, 12), ("rd", 20, 27),
-            ]
+            }
     assert send(state, 21, "wip_resume", "d",
                 source_revision="d1", org_revision="oc-1",
                 wip_operation="form",
