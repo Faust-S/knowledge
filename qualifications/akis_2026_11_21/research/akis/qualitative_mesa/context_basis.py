@@ -441,6 +441,28 @@ class ContextBasis:
             require_global_strict=False,
         )
 
+    def assert_original_independent_supplier_offer_source(
+            self, supplier: str, reference: str | None,
+            expected_revision: str | None, *, core: str,
+            buyer: str, at: int) -> None:
+        """Qualify one SUPPLIER-owned pre-contract offer source for the buyer.
+
+        Same original ContextBasis, source scopes and owner-revision checks as
+        the buyer statement. This is an evidence READ, not a commercial
+        acceptance, legal authority, Work, Resource, or money transfer.
+        """
+        if (not isinstance(supplier, str) or not isinstance(buyer, str)
+                or not supplier or not buyer or supplier == buyer
+                or type(at) is not int or not 0 <= at <= 10000):
+            raise ContextBlocked("OUTSIDE_OFFER_INDEPENDENT_READER_REQUIRED")
+        self._assert_owner_source_state(
+            self.sources.get(reference) if isinstance(reference, str) else None,
+            supplier, reference, expected_revision,
+            core=core, purpose="AKIS_EXTERNAL_DEMAND_EVIDENCE",
+            operation="READ", recipients={buyer}, at=at,
+            require_global_strict=False,
+        )
+
     def assert_original_historical_form_role_source(
             self, actor: str, reference: str | None,
             expected_revision: str | None, *, core: str, purpose: str,
