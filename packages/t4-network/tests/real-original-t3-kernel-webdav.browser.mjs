@@ -3699,6 +3699,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const p2cRecoveredCursor=await recoverT4OriginalNetworkSourceCursor({
         sourcePhasePort:p2cSourcePhase(),
         verifiedAppliedAck:p2cConfirmedAck,
+        verifiedChangeRef:p2cChange.verified,
         originalSourceHeadProof:p2cHeadProof,
         sourceCursorBefore:trueLast.nextCursor,
         getMode:()=> 'T4_NETWORK',
@@ -3715,6 +3716,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const p2cRecoveredAgain=await recoverT4OriginalNetworkSourceCursor({
         sourcePhasePort:p2cSourcePhase(),
         verifiedAppliedAck:p2cConfirmedAck,
+        verifiedChangeRef:p2cChange.verified,
         originalSourceHeadProof:p2cHeadProof,
         sourceCursorBefore:trueLast.nextCursor,
         getMode:()=> 'T4_NETWORK',
