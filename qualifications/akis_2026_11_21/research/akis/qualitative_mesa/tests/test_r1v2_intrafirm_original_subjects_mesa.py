@@ -45,6 +45,22 @@ def intrafirm_case():
     g["morphology"]["scale"] = "Внутрифирменные"
     g["morphology"]["governance"] = "Централизованные"
     g["enforce_model_author_configuration_work_scope"] = True
+    # Extend the ORIGINAL thirteen-part organizational code. New kinds
+    # acquire no general SME rights: dept is only CUSTOMER and worker only
+    # RESOURCE_OWNER on their individually consented original Work.
+    code = {row["field"]: row["control"]
+            for row in g["organizational_code"]}
+    code["С"]["subjects"].extend(["dept", "worker"])
+    code["ИД"]["model_identified"].extend(["dept", "worker"])
+    code["Рол"]["role_bindings"].extend([
+        {"subject": "dept", "items": ["CUSTOMER"]},
+        {"subject": "worker", "items": ["RESOURCE_OWNER"]},
+    ])
+    responsibility = next(
+        row for row in code["Отв"]["responsibilities"]
+        if row["action"] == "commit"
+    )
+    responsibility["original_principals"] = ["dept", "worker"]
     for goal in g["goals"]:
         if goal["owner"] == "b":
             goal["owner"] = "dept"
@@ -159,6 +175,10 @@ def test_role_identity_cannot_be_forged_or_unbound(role, field, value):
     d = intrafirm_case()
     row = next(x for x in d["subjects"] if x["id"] == role)
     row[field] = value
+    if field == "organization":
+        # First make the affiliation internally consistent; only then
+        # qualify whether the purported parent is an ORIGINAL SME.
+        row["affiliation_source_ref"] = "model://missing/affiliation"
     with pytest.raises(InputError, match=(
         "INTRAFIRM_ROLE_OWNER_SOURCE_INVALID"
         if field.endswith("_ref") else
@@ -200,8 +220,17 @@ def test_original_employee_under_wrong_enterprise_cannot_be_work_owner_for_divis
 
 def test_intrafirm_original_role_work_denied_without_form_gate():
     d = intrafirm_case()
-    d["general_akis"]["enforce_model_author_configuration_work_scope"] = False
-    # No new role Work can enter an unqualified legacy form.
+    g = d["general_akis"]
+    g["enforce_model_author_configuration_work_scope"] = False
+    # Legacy original SME/operator path remains separate. With all optional
+    # formative guards disabled, the CORE itself still denies unqualified
+    # division/employee Work, rather than inventing role authorization.
+    g["configuration"] = "operator"
+    g["enforce_model_org_code"] = False
+    g["enforce_model_formation_phases"] = False
+    g["enforce_model_formation_context_code"] = False
+    g["enforce_model_formation_agent_review"] = False
+    g["enforce_model_formation_lifecycle"] = False
     out = simulate(d)
     assert find(out, "request", work="w1")[0]["reason"] == (
         "INTRAFIRM_ORIGINAL_ROLE_REQUIRES_SELECTED_FORM_GATE"

@@ -21,7 +21,7 @@ FORM_CONFIG = {
     "inter": ("межфирменные", "децентрализованные"),
     "operator": ("межфирменные", "операторские"),
 }
-UNSUPPORTED = ("intra", "sector", "macro", "trace")
+UNSUPPORTED = ("sector", "macro", "trace")
 
 
 def formed_case(form="operator"):
@@ -88,6 +88,18 @@ def test_unsupported_author_subject_form_cannot_commit_original_SME_work(form):
         "AUTHOR_FORM_ORIGINAL_SUBJECT_CLASSES_NOT_IMPLEMENTED"
     )):
         simulate(data)
+
+
+def test_intra_selected_but_unrelated_original_enterprises_cannot_replace_division_and_employee():
+    # R1-V2 adds real model role subjects. Selecting intra alone never
+    # collapses earlier SMEs into a division or employee.
+    data = formed_case("intra")
+    out = simulate(data)
+    assert find(out, "commit", work="w1")[0]["reason"] == (
+        "FORMATION_AUTHOR_INTRA_ORIGINAL_DIVISION_REQUIRED"
+    )
+    assert out["works"]["w1"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"]["w1"]["result"] == "NOT_SUBMITTED"
 
 
 @pytest.mark.parametrize("form,morphology,reason", [
