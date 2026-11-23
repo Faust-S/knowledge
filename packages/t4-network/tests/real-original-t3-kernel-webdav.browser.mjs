@@ -3517,9 +3517,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             p2cChange.publication.immutableTransportReadback===true;
         },
         verifyOriginalRecipientApplied:async p=>{
-          const result=await inspectT4OriginalNetworkRecipientResult(
-            p2cApplyArgs());
-          return result.state==='APPLIED_VERIFIED'&&
+          const result=await inspectT4OriginalNetworkRecipientResult({
+            ...p2cApplyArgs(),allowHistoricalEventProof:true,
+          });
+          return ['APPLIED_VERIFIED',
+            'APPLIED_HISTORICAL_EVENT_VERIFIED'].includes(result.state)&&
             p.originalRecipientEventId===result.originalRecipientEventId&&
             p.originalRecipientRevision===result.originalRecipientRevision&&
             p.originalRecipientStateDigest===
@@ -3569,9 +3571,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return false;
         },
         verifyOriginalRecipientApplied:async p=>{
-          const actualResult=await inspectT4OriginalNetworkRecipientResult(
-            p2cApplyArgs());
-          return actualResult.state==='APPLIED_VERIFIED'&&
+          const actualResult=await inspectT4OriginalNetworkRecipientResult({
+            ...p2cApplyArgs(),allowHistoricalEventProof:true,
+          });
+          return ['APPLIED_VERIFIED',
+            'APPLIED_HISTORICAL_EVENT_VERIFIED'].includes(actualResult.state)&&
             p.originalRecipientEventId===
               actualResult.originalRecipientEventId&&
             p.originalRecipientRevision===
@@ -4263,6 +4267,42 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           e.object_id===p2eReadback.checkpointRef&&
           e.event_type==='t4.network.original.host.ack.frontier');
       assert.equal(p2eFinalEvents.length,2);
+      // Later original revision MUST preserve the earlier original T3
+      // Result as an Event, without pretending the current Object still
+      // has historical revision-1 bytes.
+      const p2cHistorical=await inspectT4OriginalNetworkRecipientResult({
+        ...p2cApplyArgs(),allowHistoricalEventProof:true,
+      });
+      assert.equal(p2cHistorical.state,
+        'APPLIED_HISTORICAL_EVENT_VERIFIED');
+      assert.equal(p2cHistorical.originalRecipientRevision,1);
+      assert.equal(p2cHistorical.currentRecipientRevision,2);
+      assert.equal(p2cHistorical.historicalSubjectBytesReconstructed,false);
+      assert.equal(p2cHistorical.currentObjectEqualsHistoricalState,false);
+      assert.equal(p2cHistorical.originalRecipientEventId,
+        p2cRealResult.originalRecipientEventId);
+      p2cSourceHostSession='host:p22c:source:historical-after-cold';
+      p2cRecipientHostSession='host:p22c:recipient:historical-after-cold';
+      assert.equal((await p2cSourcePhase().inspectOriginalSession())
+        .currentPhase,'APPLIED_CONFIRMED');
+      assert.equal((await p2cRecipientPhase().inspectOriginalSession())
+        .currentPhase,'APPLIED');
+      assert.throws(()=>createT4OriginalNetworkAppliedAckBody({
+        received:p2cOpened,verifiedResult:p2cHistorical,
+        ackRef:'ack:historical:new:forbidden',
+      }),e=>e?.code==='SUBJECT_APPLIED_ACK_REQUIRES_ORIGINAL_RESULT');
+      console.log('T4_REAL_ORIGINAL_T3_HISTORICAL_RESULT_SURVIVES_NEXT_REV_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          originalEvent1PreservedAfterRecipientRevision2:true,
+          originalRecipientEventRevision:1,
+          originalRecipientCurrentRevision:2,
+          originalSourceOldSessionStillAppliedConfirmed:true,
+          originalRecipientOldSessionStillApplied:true,
+          historicalBytesClaimedReconstructed:false,
+          historicalResultCannotMintNewAppliedAck:true,
+          independentHistoricalAntiForkWitness:false,
+        }));
       console.log('T4_REAL_ORIGINAL_T3_NATIVE_NEXT_REVISION_APPLIED_PASS',
         JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,
