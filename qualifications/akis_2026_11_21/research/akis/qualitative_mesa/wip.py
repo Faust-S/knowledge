@@ -1011,6 +1011,10 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             if previous != row["previous_effective_owner"]:
                 _fail("WIP_ASSURANCE_RESPONSIBILITY_CHANGED_AFTER_CONSENT")
     revision_id = proposal.get("quality_revision_of")
+    if revision_id is not None and work.assurance_responsibilities:
+        # A material-quality redecision must not silently retain a
+        # now-revoked execution-responsibility source after voting.
+        assert_assurance_responsibility_current(state, work, at)
     quality_prior = None
     prior_lots_by_batch = {}
     if revision_id is not None:
