@@ -1434,7 +1434,10 @@ def assess_cooperation_entry(
         raise CooperationInputError("COOPERATION_ENTRY_ORIGINAL_REVISION_STALE")
     if (actor != proposal.get("proposed_subject") or
             actor not in subjects or not subjects[actor].active or
-            subjects[actor].kind != "SME" or actor in parent.participants):
+            subjects[actor].kind not in {
+                "SME", "SECTOR_BODY", "PUBLIC_INSTITUTION",
+                "NATURAL_PERSON",
+            } or actor in parent.participants):
         raise CooperationInputError("COOPERATION_ENTRY_ORIGINAL_ENTRANT_REQUIRED")
     if (type(event.get("at")) is not int or
             type(proposal.get("at")) is not int or
