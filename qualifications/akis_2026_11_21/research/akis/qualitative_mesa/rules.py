@@ -444,7 +444,7 @@ class QualitativeAKIS:
              "wip_capacity_units", "wip_cooperation_link",
              "wip_cooperation_revision", "wip_operation",
              "wip_material_batch", "wip_material_batches",
-             "wip_batch_inspections", "wip_dispatch_ref",
+             "wip_batch_inspections", "wip_quality_revision_of", "wip_dispatch_ref",
              "wip_receipt_ref", "wip_accepted_units"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
