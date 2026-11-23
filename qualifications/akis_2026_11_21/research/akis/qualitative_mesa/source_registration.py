@@ -335,6 +335,60 @@ def qualify_subject_registration(state: Any, ev: Mapping[str, Any],
     }
 
 
+
+def _require_registered_original_resource_owner(
+    state: Any, subject: Any, at: int
+) -> None:
+    """Use the original registered owner, including a qualified sector body.
+
+    A sector body can declare its own source-bounded service capacity, not
+    another enterprise's equipment. Personal and public roles do not acquire
+    resource ownership merely by becoming original subjects.
+    """
+    party = state.subjects.get(subject) if isinstance(subject, str) else None
+    if party is None or not party.active or party.kind not in {
+        "SME", "SECTOR_BODY",
+    }:
+        raise RegistrationBlocked(
+            "REGISTRATION_EXISTING_NEW_RESOURCE_OWNER_REQUIRED"
+        )
+    if not any(
+        row.get("action") == "subject_registration_apply"
+        and row.get("outcome") == "APPLIED"
+        and row.get("registered_original_subject") == subject
+        for row in state.trace
+    ):
+        raise RegistrationBlocked("REGISTRATION_ORIGINAL_NEW_SUBJECT_REQUIRED")
+    if party.kind == "SECTOR_BODY":
+        basis = state.context_basis
+        if basis is None or not basis.strict:
+            raise RegistrationBlocked(
+                "REGISTRATION_SECTOR_CAPACITY_STRICT_KPB_REQUIRED"
+            )
+        try:
+            basis.assert_original_form_role_source(
+                subject, party.self_role_source_ref,
+                party.role_source_revision, core="institutional",
+                purpose="AKIS_SECTOR_ROLE", operation="ACCEPT",
+                recipients={subject}, at=at,
+            )
+            basis.assert_original_form_role_source(
+                subject, party.mandate_source_ref,
+                party.role_source_revision, core="institutional",
+                purpose="AKIS_SECTOR_STANDARD", operation="SHARE",
+                recipients={subject}, at=at,
+            )
+            if party.role_management_source_ref is not None:
+                basis.assert_original_form_role_source(
+                    subject, party.role_management_source_ref,
+                    party.role_source_revision, core="institutional",
+                    purpose="AKIS_ROLE_MANAGEMENT", operation="EXECUTE",
+                    recipients={subject}, at=at,
+                )
+        except ContextBlocked as exc:
+            raise RegistrationBlocked(exc.reason) from exc
+
+
 def qualify_resource_registration(state: Any, ev: Mapping[str, Any],
                                   at: int) -> dict[str, Any]:
     action = ev["action"]
@@ -362,15 +416,7 @@ def qualify_resource_registration(state: Any, ev: Mapping[str, Any],
         raise RegistrationBlocked("REGISTRATION_ID_REQUIRED")
     if action == "resource_registration_propose":
         subject = ev.get("actor")
-        if (subject not in state.subjects
-                or state.subjects[subject].kind != "SME"
-                or not state.subjects[subject].active):
-            raise RegistrationBlocked("REGISTRATION_EXISTING_NEW_RESOURCE_OWNER_REQUIRED")
-        if not any(r.get("action") == "subject_registration_apply"
-                   and r.get("outcome") == "APPLIED"
-                   and r.get("new_subject") == subject
-                   for r in state.trace):
-            raise RegistrationBlocked("REGISTRATION_ORIGINAL_NEW_SUBJECT_REQUIRED")
+        _require_registered_original_resource_owner(state, subject, at)
         document = ev.get("resource_spec")
         if not isinstance(document, dict) or set(document) != {
             "id", "owner", "availability", "capacity_units",
@@ -414,6 +460,7 @@ def qualify_resource_registration(state: Any, ev: Mapping[str, Any],
     if (entrant not in state.subjects or not state.subjects[entrant].active
             or proposal["registered_resource"] in state.resources):
         raise RegistrationBlocked("REGISTRATION_RESOURCE_ALREADY_EXISTS_OR_OWNER_MISSING")
+    _require_registered_original_resource_owner(state, entrant, at)
     if action == "resource_registration_review":
         actor = ev["actor"]
         if actor not in _original_reviewers(state, entrant):
