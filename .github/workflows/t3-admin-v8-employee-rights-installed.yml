@@ -1,0 +1,332 @@
+name: Admin Center V8 original independent employee Workspace rights installed Windows
+on:
+  push:
+    branches:
+      - work/2026-11-23-admin03-employee-workspace-rights
+    paths:
+      - .github/workflows/t3-admin-v8-employee-rights-installed.yml
+      - packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs
+      - packages/t3-core/tests/g4-installed-original-center-first-use.ps1
+      - packages/t3-core/src/workspace-host/bootstrap/SignedSelectedWorkspaceGate.tsx
+      - packages/t3-core/tests/t3-d1-signed-selected-workspace.dom.test.tsx
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: admin03-v8-employee-workspace-rights-installed-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  signed-data-proof:
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Pin original T2 and successor source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=(& git rev-parse 'HEAD:packages/t3-core/src').Trim()
+          $t2=(& git rev-parse 'HEAD:packages/t3-core/qualified-runtime').Trim()
+          if($src -cne '7cc22a3540fc26e5a2d29ee0f654e2bf9f2cff0c' -or
+             $t2 -cne '1594274dbf5e38214b8422ba11e8c7114bd5425c'){
+            throw 'D2_PUBLIC_ORIGINAL_SOURCE_PIN_FAILED'
+          }
+          Write-Host 'D2_PUBLIC_ORIGINAL_T2_SOURCE_PIN_PASS'
+      - name: Stage original signed owner privately in transient public runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 790c9dd270a2e7a11aead6a9ee7666c6d7b677fc
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            access-control
+            interop
+            reconciliation
+            tests
+            package.json
+          path: .private/t3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin private source without logging source or paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $owner=(& git -C .private/t3 rev-parse HEAD).Trim()
+          if($owner -cne '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc'){
+            throw 'D2_ORIGINAL_PRIVATE_SOURCE_PIN_FAILED'
+          }
+          Write-Host 'D2_ORIGINAL_PRIVATE_SOURCE_PIN_PASS'
+      - name: Parse installed D2+D3 employee registry UIA source before native builds
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $tokens=$null
+          $errors=$null
+          $file=(Resolve-Path 'packages/t3-core/tests/g4-installed-original-center-first-use.ps1').Path
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $file,[ref]$tokens,[ref]$errors) | Out-Null
+          if($errors.Count -ne 0){throw 'D3_INSTALLED_ORIGINAL_WINDOWS_UIA_PARSE_FAILED'}
+          Write-Host 'D3_INSTALLED_ORIGINAL_WINDOWS_UIA_PARSE_PASS'
+      - name: Prove original employee source survives the unified D2 Owner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($source in @(
+            '.private/t3/interop/native-employee-d3.mjs',
+            '.private/t3/interop/native-admin-d3.mjs',
+            '.private/t3/interop/runtime.mjs',
+            '.private/t3/tests/t3-admin-activity-original-data-grant.test.mjs'
+          )){
+            if(!(Test-Path -LiteralPath $source -PathType Leaf)){
+              throw 'D3_FULL_OWNER_EMPLOYEE_OR_D2_SOURCE_MISSING'
+            }
+            & node --check $source *> $null
+            if($LASTEXITCODE -ne 0){
+              throw 'D3_FULL_OWNER_EMPLOYEE_OR_D2_SYNTAX_INVALID'
+            }
+          }
+          Write-Host 'D3_FULL_OWNER_INDEPENDENT_EMPLOYEE_AND_D2_MODULES_PASS'
+      - name: Check original signer and prove independent DATA right
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'd2-signed-data-private.log'
+          & node --check .private/t3/interop/runtime.mjs *> $log
+          if($LASTEXITCODE -ne 0){throw 'D2_PRIVATE_RUNTIME_SYNTAX_FAILED'}
+          & node --check .private/t3/interop/native-admin-d3.mjs *> $log
+          if($LASTEXITCODE -ne 0){throw 'D2_PRIVATE_NATIVE_SYNTAX_FAILED'}
+          & node --test .private/t3/tests/t3-admin-activity-original-data-grant.test.mjs *> $log
+          if($LASTEXITCODE -ne 0){
+            $codes=@()
+            foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+              foreach($hit in [regex]::Matches([string]$line,
+                '(?<![A-Z0-9_])(?:T3_D3|INTEROP|APPLICATION|D2_PRIVATE|ERR_ASSERTION)_[A-Z0-9_]{3,80}(?![A-Z0-9_])')){
+                $codes+=([string]$hit.Value)
+              }
+            }
+            $reason=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            Write-Host "D2_PRIVATE_TEST_MACHINE_CODE $reason"
+            throw 'D2_PRIVATE_SIGNED_DATA_TEST_HOLD'
+          }
+          Write-Host 'D2_ORIGINAL_SIGNED_DATA_TEST_PASS'
+      - name: Native D2 readiness and detach source regression in full employee Owner
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'd2-original-native-readiness-source.log'
+          & node --test --test-name-pattern="original signed Host rejects foreign or missing Apply target before dispatch" '.private/t3/tests/admin-original-host-port.test.mjs' *> $log
+          if($LASTEXITCODE -ne 0){throw 'D2_FULL_OWNER_NATIVE_READER_SOURCE_TEST_FAILED'}
+          Write-Host 'D2_FULL_OWNER_NATIVE_READER_SOURCE_PASS'
+      - name: Qualify real original signed Workspace DATA through One Core JIT
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'd2-private-workspace-jit.log'
+          & node packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs '.private/t3' *> $log
+          if($LASTEXITCODE -ne 0){
+            $matches=@()
+            foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+              $match=[regex]::Match([string]$line,
+                'D2_ORIGINAL_PRIVATE_WORKSPACE_JIT_MACHINE_CODE ([A-Z][A-Z0-9_]{4,99})')
+              if($match.Success){$matches+=$match.Groups[1].Value}
+            }
+            $machine=if($matches.Count){$matches[-1]}else{'D2_ORIGINAL_JIT_UNCLASSIFIED'}
+            Write-Host "D2_ORIGINAL_PRIVATE_WORKSPACE_JIT_FAILURE $machine"
+            throw 'D2_ORIGINAL_PRIVATE_WORKSPACE_JIT_HOLD'
+          }
+          Write-Host 'D2_ORIGINAL_PRIVATE_WORKSPACE_READ_JIT_PASS'
+          Write-Host 'D2_NO_PRIVATE_SOURCE_OR_BINARY_ARTIFACTS'
+
+  installed-original-d2:
+    needs: signed-data-proof
+    runs-on: windows-2022
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Pin original One Core D2 source and original T2 archive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=(& git rev-parse 'HEAD:packages/t3-core/src').Trim()
+          $t2=(& git rev-parse 'HEAD:packages/t3-core/qualified-runtime').Trim()
+          if($src -cne '7cc22a3540fc26e5a2d29ee0f654e2bf9f2cff0c' -or
+             $t2 -cne '1594274dbf5e38214b8422ba11e8c7114bd5425c'){
+            throw 'D2_INSTALLED_EXACT_ORIGINAL_SOURCE_PIN_FAILED'
+          }
+          Write-Host 'D2_INSTALLED_ORIGINAL_T2_AND_D2_PIN_PASS'
+      - name: Stage exact original private T3 signer transiently
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 790c9dd270a2e7a11aead6a9ee7666c6d7b677fc
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            access-control
+            interop
+            reconciliation
+            scripts
+            package.json
+          path: .private/t3
+      - name: Stage public Admin Center D2 candidate at exact commit
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: dcea0ec58e7c4c494ccc1958c74cdfd5b425d45c
+          persist-credentials: false
+          path: .private/center
+      - name: Stage original Atlas owner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Atlas
+          ref: c225e1b8d35e87e5de55dbb9c0c8dbe564d8fb08
+          persist-credentials: false
+          path: .private/center/vendor/atlas
+      - name: Stage original U04 bridge
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Br-test
+          ref: 7cfb17870042cac824644140b7f0a587e244a20e
+          persist-credentials: false
+          path: .private/center/vendor/brtest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate original public Center and private signer pins
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
+          $center=(& git -C .private/center rev-parse HEAD).Trim()
+          if($t3 -cne '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -or
+             $center -cne 'dcea0ec58e7c4c494ccc1958c74cdfd5b425d45c'){
+            throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
+          }
+          Add-Content -LiteralPath '.git/info/exclude' -Value '/.private/'
+          $q=Join-Path $env:RUNNER_TEMP 'd2-original-qualified-t2'
+          New-Item -ItemType Directory -Path $q -Force | Out-Null
+          $zip='packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip'
+          Expand-Archive -LiteralPath $zip -DestinationPath $q -Force
+          if(!(Test-Path -LiteralPath (Join-Path $q '_iwxa/runtime/0.3.6/runtime.js'))){
+            throw 'D2_INSTALLED_ORIGINAL_T2_DIST_MISSING'
+          }
+          "D2_QUALIFIED_T2_DIST=$q" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'D2_INSTALLED_EXACT_THREE_INPUTS_CONFIRMED'
+      - name: Parse exact private D2 + employee Owner builder before expensive compilation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $target=(Resolve-Path '.private/t3/scripts/build-admin-center-d3-owner.ps1').Path
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $target,[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -ne 0){
+            Write-Host "D3_FULL_OWNER_BUILDER_PARSE_ERROR_COUNT $(@($errors).Count)"
+            throw 'D3_FULL_OWNER_BUILDER_PARSE_FAILED'
+          }
+          Write-Host 'D3_FULL_OWNER_BUILDER_PARSE_PASS'
+      - name: Assemble original One Core and Center dependencies
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference='Stop'
+          & npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund *> $null
+          if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_ONE_CORE_DEPS_FAILED'}
+          & npm run build --prefix packages/t3-core *> $null
+          if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_ONE_CORE_BUILD_FAILED'}
+          Push-Location '.private/center'
+          try{
+            $log=Join-Path $env:RUNNER_TEMP 'd2-original-center-deps.log'
+            & npm install --no-audit --no-fund *> $log
+            if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_DEPS_FAILED'}
+          }finally{Pop-Location}
+          Write-Host 'D2_INSTALLED_ORIGINAL_DEPS_AND_BUILD_PASS'
+      - name: Build same original private signed Owner with new D2 and installed Center
+        shell: pwsh
+        timeout-minutes: 40
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'd2-private-owner-build.log'
+          try{
+            & ./.private/t3/scripts/build-admin-center-d3-owner.ps1 -CenterRoot '.private/center' -OneCoreRoot '.' -QualifiedT2Dist $env:D2_QUALIFIED_T2_DIST -BunCommand bun -BuildCenter -QualifyOriginalCompiledFirstUse *> $log
+            if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_PRIVATE_BUILD_FAILED'}
+            $setup='.private/center/artifacts/iwxa-setup-core-center-private-d3.exe'
+            $owner='.private/center/src-tauri/private-distribution/iwxa-t3-product-owner.exe'
+            if(!(Test-Path -LiteralPath $setup -PathType Leaf) -or
+               !(Test-Path -LiteralPath $owner -PathType Leaf)){
+              throw 'D2_INSTALLED_ORIGINAL_OWNER_PACKAGE_NOT_PRESENT'
+            }
+            Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_OWNER_CENTER_BUILT_PASS'
+          }catch{
+            # Exactly the same safe classifier used by the accepted original
+            # installed owner pipeline. NEVER print private source or raw logs.
+            node packages/t3-core/tests/g4-compiled-owner-diagnostics.mjs $log
+            # PRIVATE source and build logs remain on this temporary runner.
+            $class=$_.Exception.GetType().Name
+            if($class -notin @('RuntimeException','CommandNotFoundException',
+                'ParseException','ParameterBindingException',
+                'ParentContainsErrorRecordException','ItemNotFoundException')){
+              $class='UNCLASSIFIED'
+            }
+            Write-Host "D2_INSTALLED_ORIGINAL_BUILD_FAILURE_CLASS $class"
+            $codes=@()
+            foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+              foreach($hit in [regex]::Matches([string]$line,
+                '(?<![A-Z0-9_])(?:T3_D3|CEN_D3|INTEROP|D2_INSTALLED|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{3,90}(?![A-Z0-9_])')){
+                $codes+=([string]$hit.Value)
+              }
+            }
+            $caught=[string]$_.Exception.Message
+            foreach($hit in [regex]::Matches($caught,
+              '(?<![A-Z0-9_])(?:T3_D3|T3_D1|G4|CEN_D3|INTEROP|D2_INSTALLED|ORIGINAL_T3|CENTER_PRIVATE)_[A-Z0-9_]{3,90}(?![A-Z0-9_])')){
+              $codes+=([string]$hit.Value)
+            }
+            $reason=if($codes.Count){$codes[-1]}else{'UNCLASSIFIED'}
+            $logs=if(Test-Path -LiteralPath $log){
+              @((Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)).Count
+            }else{0}
+            Write-Host "D2_INSTALLED_ORIGINAL_BUILD_LOG_LINE_COUNT $logs"
+            foreach($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)){
+              $clean=([string]$line).Trim()
+              if($clean -match '^T3_D3_ORIGINAL_COMPILED_SHIM_(?:STAGE T3_D3_PROBE_[A-Z_]+|MACHINE_CODE [A-Z0-9_]+)$'){
+                Write-Host "D2_INSTALLED_ORIGINAL_BUILD_WITNESS $clean"
+              }
+            }
+            Write-Host "D2_INSTALLED_ORIGINAL_BUILD_MACHINE_CODE $reason"
+            throw 'D2_INSTALLED_ORIGINAL_BUILD_HOLD'
+          }
+      - name: Install original owner and verify native Windows Admin GUI
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'dcea0ec58e7c4c494ccc1958c74cdfd5b425d45c' -ExpectedT3Sha '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc'
+          if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
+          Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
+      - name: Native Windows original signed D2 DATA and two independent cold UIA reads
+        shell: pwsh
+        timeout-minutes: 17
+        run: |
+          $ErrorActionPreference='Stop'
+          if([string]::IsNullOrWhiteSpace($env:G4_INSTALLED_CENTER_ROOT)){
+            throw 'D2_INSTALLED_ORIGINAL_SETUP_ROOT_NOT_FOUND'
+          }
+          & ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 -InstallRoot $env:G4_INSTALLED_CENTER_ROOT -RequireD2Read -RequireOriginalEmployeeRegistry
+          if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_UIA_E2E_FAILED'}
+          Write-Host 'D2_INSTALLED_ORIGINAL_SIGNED_DATA_TWO_COLD_UIA_PASS'
+          Write-Host 'D3_INSTALLED_ORIGINAL_EMPLOYEE_REGISTRY_COLD_UIA_PASS'
+
