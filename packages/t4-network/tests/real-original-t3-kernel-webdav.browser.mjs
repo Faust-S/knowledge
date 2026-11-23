@@ -3275,7 +3275,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         }),
       });
       assert.ok(p2cPlan.chunkCount>0);
-      const p2cFrame=async(type,from,body,sequence)=>{
+      const p2cFrame=async(type,from,body,sequence,sessionRef=p2cSession)=>{
         const source=from==='SOURCE';
         const frame=createT4CandidateUnsignedFrame({
           messageType:type,
@@ -3284,7 +3284,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             'node:original:recipient',
           recipientNodeRef:source?'node:original:recipient':
             'node:original:source',
-          sessionRef:p2cSession,scopeRef:'scope:original:replay',
+          sessionRef,scopeRef:'scope:original:replay',
           permissionRef:'original:permission:replay',
           signerRef:source?'key:original:source:p22c':
             'key:original:recipient:p22c',sequence,ownerEpoch:2,
@@ -3296,9 +3296,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
               nativeKeys.privateKey:peerSignedKeys.privateKey),
         });
       };
-      const p2cExchange=async(type,from,body,sequence)=>{
+      const p2cExchange=async(type,from,body,sequence,sessionRef=p2cSession)=>{
         const source=from==='SOURCE';
-        const wireBytes=await p2cFrame(type,from,body,sequence);
+        const wireBytes=await p2cFrame(type,from,body,sequence,sessionRef);
         const sender=source?nativeSender:nativeReceiver();
         const publication=await sender.publishSignedFrame({wireBytes});
         const receiver=source?nativeReceiver():sourceHeadVerifier;
