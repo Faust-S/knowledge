@@ -17,7 +17,8 @@ from .capacity import CapacityBlocked, ResourceNeed
 MONEY = re.compile(r"(?:0|[1-9][0-9]{0,10})(?:\.[0-9]{1,2})?\Z")
 ACTIONS = frozenset({
     "wip_interrupt", "wip_propose", "wip_review", "wip_apply",
-    "wip_cancel", "wip_resume",
+    "wip_cancel", "wip_resume", "wip_handoff_dispatch",
+    "wip_handoff_receive", "wip_handoff_quality",
 })
 TERMS = {
     "total_units", "produced_units", "usable_units", "material_value",
@@ -118,8 +119,77 @@ def _qty(value: Any, reason: str, *, minimum: int = 0) -> int:
     return value
 
 
-def _current_executor(state: Any, work: Any) -> tuple[str, str]:
-    resource = work.wip_active_resource or work.resource
+def _operation_context(state: Any, work: Any, ev: Mapping[str, Any],
+                       action: str) -> Any | None:
+    """Identify the original operation without rewriting its DAG."""
+    if not work.operations:
+        if ev.get("wip_operation") is not None or ev.get("wip_material_batch") is not None:
+            _fail("WIP_DIRECT_WORK_HAS_NO_ORIGINAL_OPERATION")
+        return None
+    if not state.handoff_strict or not state.material_strict:
+        _fail("WIP_OPERATION_REQUIRES_ORIGINAL_HANDOFF_AND_MATERIAL")
+    key = ev.get("wip_operation")
+    if not isinstance(key, str):
+        _fail("WIP_ORIGINAL_OPERATION_ID_REQUIRED")
+    op = next((row for row in work.operations if row.key == key), None)
+    if op is None:
+        _fail("WIP_UNKNOWN_ORIGINAL_OPERATION")
+    if action == "wip_interrupt":
+        if (work.operation_states[key] != "IN_PROGRESS" or
+                sum(x == "IN_PROGRESS" for x in work.operation_states.values()) != 1):
+            _fail("WIP_ORIGINAL_OPERATION_NOT_EXCLUSIVELY_STARTED")
+    else:
+        latest = work.wip_interruptions[-1] if work.wip_interruptions else None
+        if latest is None or latest.get("operation") != key:
+            _fail("WIP_ORIGINAL_OPERATION_CHANGED")
+    return op
+
+
+def _operation_material(state: Any, work: Any, op: Any,
+                        raw_batch: Any) -> dict[str, Any]:
+    """Use one existing inbound QA and undispatched outbound MaterialBatch."""
+    inbound = [row for row in work.material_batches if row.edge[1] == op.key]
+    outgoing = [row for row in work.material_batches if row.edge[0] == op.key]
+    if len(inbound) != 1 or len(outgoing) != 1:
+        _fail("WIP_OPERATION_ONE_ORIGINAL_MATERIAL_STREAM_REQUIRED")
+    in_batch, batch = inbound[0], outgoing[0]
+    if (raw_batch != batch.key or in_batch.unit != batch.unit or
+            in_batch.material != batch.material):
+        _fail("WIP_ORIGINAL_MATERIAL_BATCH_OR_UNIT_MISMATCH")
+    incoming = work.material_states[in_batch.key]
+    outgoing_state = work.material_states[batch.key]
+    if (incoming.accepted is None or
+            incoming.accepted < in_batch.planned_quantity or
+            incoming.received is None or
+            incoming.received < in_batch.planned_quantity or
+            incoming.quality_ref is None or incoming.receipt_ref is None):
+        _fail("WIP_ORIGINAL_INBOUND_MATERIAL_NOT_QUALIFIED")
+    if (outgoing_state.dispatched is not None or
+            outgoing_state.received is not None or
+            outgoing_state.accepted is not None):
+        _fail("WIP_ORIGINAL_OUTBOUND_MATERIAL_ALREADY_DISPATCHED")
+    if (batch.planned_quantity != in_batch.planned_quantity or
+            batch.planned_quantity != batch.planned_quantity.to_integral_value()):
+        _fail("WIP_OPERATION_MATERIAL_QUANTITIES_NOT_COMPARABLE")
+    return {
+        "batch": batch.key, "inbound_batch": in_batch.key,
+        "material_id": batch.material, "unit": batch.unit,
+        "planned_quantity": str(batch.planned_quantity),
+        "outbound_edge": list(batch.edge), "inbound_edge": list(in_batch.edge),
+        "declared_title_holder": batch.declared_title_holder,
+        "origin_source_owner": batch.origin_source_owner,
+        "origin_ref": batch.origin_ref,
+        "quality_spec_owner": batch.quality_spec_owner,
+        "quality_spec_ref": batch.quality_spec_ref,
+        "inbound_receipt_ref": incoming.receipt_ref,
+        "inbound_quality_ref": incoming.quality_ref,
+    }
+
+
+def _current_executor(state: Any, work: Any, op: Any | None = None) -> tuple[str, str]:
+    resource = (work.wip_active_resource or work.resource) if op is None else (
+        work.wip_operation_active_resources.get(op.key, op.primary_resource)
+    )
     return resource, state.resources[resource]
 
 
@@ -208,10 +278,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
     action, actor = ev["action"], ev["actor"]
     if action not in ACTIONS:
         _fail("WIP_UNKNOWN_ACTION")
-    if work.operations:
-        # Operation-specific stage amendment requires an independent route
-        # qualification; an abstract WIP declaration cannot rewrite it.
-        _fail("WIP_ORIGINAL_OPERATION_ROUTE_NOT_YET_QUALIFIED")
+    op = _operation_context(state, work, ev, action)
     if (work.obligation != "ACCEPTED_BY_ORIGINAL_PRINCIPALS" or
             work.result != "NOT_SUBMITTED"):
         _fail("WIP_REQUIRES_ORIGINAL_OPEN_OBLIGATION")
@@ -219,7 +286,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         _fail("WIP_ORIGINAL_WORK_SOURCE_STALE")
     if ev.get("org_revision") != state.institution.revision:
         _fail("WIP_ORIGINAL_ORG_REVISION_STALE")
-    resource, owner = _current_executor(state, work)
+    resource, owner = _current_executor(state, work, op)
     if action == "wip_interrupt":
         if actor != owner or work.execution != "IN_PROGRESS":
             _fail("WIP_STARTED_ORIGINAL_EXECUTOR_REQUIRED")
@@ -239,13 +306,19 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             if (latest["decision"] == "TERMINATE" or
                     _fmt(prior_cost) != latest["lot"]["future_resource_cost"]):
                 _fail("WIP_LATEST_ATTEMPT_COST_MISMATCH")
+        material = (_operation_material(
+            state, work, op, ev.get("wip_material_batch")
+        ) if op is not None else None)
         pause = {
             "number": len(work.wip_interruptions) + 1,
             "at": at, "resource": resource, "owner": actor,
             "cost_source_ref": source, "cost_source_revision": source_revision,
             "prior_cost_claim": _fmt(prior_cost), "state": "PAUSED",
+            "operation": op.key if op else None, "material": material,
         }
         work.wip_interruptions.append(pause)
+        if op is not None:
+            work.operation_states[op.key] = "PAUSED"
         work.execution = "PAUSED"
         return {"wip_phase": "INTERRUPTED", "wip_attempt": pause["number"],
                 "original_resource_cost_claim": pause["prior_cost_claim"]}
