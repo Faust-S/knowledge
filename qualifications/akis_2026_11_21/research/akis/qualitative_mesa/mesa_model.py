@@ -1149,6 +1149,23 @@ class OperatorAKISModel(mesa.Model):
                 "same_mesa_scheduler": True,
             }
         if self.economic_claims is not None:
+            # When strict source-use is requested, assert the original KPB
+            # BEFORE evaluating any owner's economic records. A revoked
+            # source must not leak through intermediate financial projections.
+            # This gate never mutates a completed original Work/Result.
+            original_economic_rights = None
+            if self.strict_economic_source_work is not None:
+                try:
+                    original_economic_rights = (
+                        review_original_strict_economic_sources(
+                            state=self.qualitative,
+                            original_claims=self.economic_claims,
+                            work_id=self.strict_economic_source_work,
+                            at=int(self.time),
+                        )
+                    )
+                except StrictEconomicSourceBlocked as exc:
+                    raise InputError(str(exc)) from exc
             # Work IDs may be created during the run, so check references against
             # the *final* portfolio without interpreting cash movements as Result.
             try:
@@ -1158,18 +1175,10 @@ class OperatorAKISModel(mesa.Model):
                 )
             except EconomicInputError as exc:
                 raise InputError(str(exc)) from exc
-            if self.strict_economic_source_work is not None:
-                try:
-                    output["economics"][
-                        "original_strict_context_source_qualification"
-                    ] = review_original_strict_economic_sources(
-                        state=self.qualitative,
-                        original_claims=self.economic_claims,
-                        work_id=self.strict_economic_source_work,
-                        at=int(self.time),
-                    )
-                except StrictEconomicSourceBlocked as exc:
-                    raise InputError(str(exc)) from exc
+            if original_economic_rights is not None:
+                output["economics"][
+                    "original_strict_context_source_qualification"
+                ] = original_economic_rights
             if ("joint_purchasing_ancillary_original_bindings" in self.economic_claims
                     and "joint_purchasing_original_cash_bindings" not in self.economic_claims):
                 raise InputError("PURCHASE_ANCILLARY_REQUIRES_ORIGINAL_PURCHASE_PRICE_REFERENCES")
