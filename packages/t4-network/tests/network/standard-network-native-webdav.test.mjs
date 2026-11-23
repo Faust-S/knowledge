@@ -445,7 +445,7 @@ test('real Apache carries complete bidirectional signed HEADS/DIFF/CHANGE/CHUNK/
     assert.equal(checked.originalT3ExchangeRequired,false);
     assert.equal(checked.durableOriginalSessionPhaseCheckpointProven,false);
     const swapped=[...transcript];
-    [swapped[7],swapped[8]]=[swapped[8],swapped[7]];
+    [swapped[0],swapped[1]]=[swapped[1],swapped[0]];
     assert.throws(()=>validateT4CandidatePeerTranscript({
       receipts:swapped,sourceNodeRef:node.SOURCE,
       recipientNodeRef:node.RECIPIENT,scopeRef,sessionRef,
