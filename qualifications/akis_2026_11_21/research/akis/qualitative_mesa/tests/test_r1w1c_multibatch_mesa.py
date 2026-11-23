@@ -337,3 +337,27 @@ def test_native_mesa_scheduler_uses_same_original_multi_batch_state():
     assert len(lots) == 2
     assert {x["material_batch"] for x in lots} == set(BATCHES)
     assert simulate(deepcopy(d)) == result
+
+
+@pytest.mark.parametrize("changed,expected", [
+    ("both-materials", "WIP_MULTI_BATCH_MIXED_MATERIAL_ECONOMICS_NOT_COMPARABLE"),
+    ("unmatched-inbound-unit", "WIP_MULTI_BATCH_TRANSFORMATION_REQUIRES_SEPARATE_QUALIFICATION"),
+])
+def test_independent_batch_group_cannot_invent_material_conversion(changed, expected):
+    d = multibatch_scenario()
+    for batch in d["works"][0]["material_batches"]:
+        if changed == "both-materials" and batch["id"].endswith("-2"):
+            batch["material_id"] = "aluminium"
+        elif changed == "unmatched-inbound-unit" and batch["id"] == "mat-in-2":
+            batch["unit"] = "kg"
+    state = QualitativeAKIS(d)
+    events = multibatch_baseline()
+    for event in events[:-1]:
+        result = state.apply(event, event["at"])
+        assert result["outcome"] == "APPLIED", (event, result)
+    before = list(state.capacity_ledger.reservations)
+    attempted = state.apply(events[-1], events[-1]["at"])
+    assert attempted["reason"] == expected
+    assert state.works["w1"].wip_interruptions == []
+    assert state.works["w1"].operation_states["form"] == "IN_PROGRESS"
+    assert state.capacity_ledger.reservations == before
