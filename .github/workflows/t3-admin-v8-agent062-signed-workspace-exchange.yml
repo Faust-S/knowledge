@@ -1,0 +1,70 @@
+name: Admin V8 Agent 0.6.2 signed Workspace Exchange user journey
+on:
+  push:
+    branches:
+      - work/2026-11-23-admin03-signed-workspace-exchange-qualify
+    paths:
+      - .github/workflows/t3-admin-v8-agent062-signed-workspace-exchange.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: admin03-agent062-original-exchange-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  private-agent-source:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Checkout exact private Agent 0.6.2 corporate readiness candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: f260720efbd29f3c22701f552d80b7cc68f55527
+          token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
+          persist-credentials: false
+          sparse-checkout: |
+            desktop
+            config
+            runtime
+          path: .private/agent
+      - name: Verify immutable source and version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $head=(& git -C .private/agent rev-parse HEAD).Trim()
+          if($head -cne 'f260720efbd29f3c22701f552d80b7cc68f55527') { throw 'ADMIN_AGENT062_EXACT_SOURCE_CHANGED' }
+          $package=Get-Content -LiteralPath '.private/agent/desktop/package.json' -Raw | ConvertFrom-Json
+          if($package.version -cne '0.6.2'){
+            throw 'ADMIN_AGENT062_PRODUCT_VERSION_CHANGED'
+          }
+          if(!(Test-Path -LiteralPath '.private/agent/desktop/tests/corporate-kernel-readiness.test.mjs')){
+            throw 'ADMIN_AGENT062_ORIGINAL_KERNEL_READINESS_TEST_MISSING'
+          }
+          Write-Host 'ADMIN_AGENT062_CORPORATE_KERNEL_EXACT_SOURCE_PASS'
+      - name: Install actual released desktop dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          npm ci --prefix '.private/agent/desktop' --no-audit --no-fund
+          if($LASTEXITCODE -ne 0){throw 'ADMIN_AGENT062_DESKTOP_DEPENDENCIES_FAILED'}
+      - name: Execute original corporate Kernel identity tests and full desktop build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          # The sparse product checkout intentionally lacks unrelated private
+          # source/test fixtures. Do not turn their absent files into product
+          # failures: prove the exact changed component, then compile all JSX.
+          node --test '.private/agent/desktop/tests/corporate-kernel-readiness.test.mjs'
+          if($LASTEXITCODE -ne 0){throw 'ADMIN_AGENT062_KERNEL_IDENTITY_REGRESSION_FAILED'}
+          npm run build --prefix '.private/agent/desktop'
+          if($LASTEXITCODE -ne 0){throw 'ADMIN_AGENT062_CORPORATE_KERNEL_DESKTOP_BUILD_FAILED'}
+          Write-Host 'ADMIN_AGENT062_CORPORATE_KERNEL_NODE_TESTS_AND_TSC_VITE_PASS'
+          Write-Host 'ADMIN_AGENT062_NATIVE_WORKSPACE_EXCHANGE_USER_JOURNEY_SOURCE_PASS'
+          Write-Host 'ADMIN_AGENT062_NOT_YET_SIGNED_CROSS_APP_TASK_RESULT'
