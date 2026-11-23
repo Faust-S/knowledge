@@ -201,3 +201,80 @@ test('network candidate suffix requires explicit opt-in, never reuses .iwxa',()=
     getAuthorizationHeader:async()=>process.env.T4_TEST_AUTH,
   }),code('NETWORK_WIRE_CANDIDATE_OPT_IN_REQUIRED'));
 });
+
+
+test('real HTTPS/WebDAV carries ordered signed opaque AES-GCM chunks, recipient verifies and assembles without T3 Exchange',async()=>{
+  const {createCipheriv,createDecipheriv,randomBytes}=await import('node:crypto');
+  const {prepareT4CandidateOpaqueChunks,assembleT4CandidateOpaqueChunks}=
+    await import('../../src/network/standard-network-opaque-chunks.mjs');
+  const key=randomBytes(32),iv=randomBytes(12),
+    plaintext=randomBytes(9500),
+    cipher=createCipheriv('aes-256-gcm',key,iv);
+  cipher.setAAD(Buffer.from('original:change:sealed:1'));
+  const encrypted=Buffer.concat([
+    cipher.update(plaintext),cipher.final(),
+  ]);
+  const sealed=Buffer.concat([encrypted,cipher.getAuthTag()]);
+  const chunks=await prepareT4CandidateOpaqueChunks({
+    changeId:'change:sealed:1',ownerRef:'original:owner:one',
+    sourceContentRef:'original:asset:sealed:1',getMode:()=> 'T4_NETWORK',
+    authorizeOriginalSealedContent:async p=>
+      p.operation.startsWith('t4.network.sealed.')&&
+      p.ownerRef==='original:owner:one',
+    readOriginalSealedContent:async()=>({
+      ciphertext:new Uint8Array(sealed),
+      encryptionContextRef:'original:crypto:epoch:one',
+    }),
+    chunkBytes:4096,
+  });
+  assert.equal(chunks.chunkCount,3);
+  const outgoing=makeTransport(),incoming=makeTransport();
+  const source=host('source',outgoing),recipient=host('recipient',incoming);
+  const verified=[];
+  try{
+    for(const body of chunks.bodies){
+      sequence++;
+      const frame=createT4CandidateUnsignedFrame({
+        messageType:'CHUNK',
+        messageId:'wire:sealed:'+process.pid+':'+sequence,
+        sourceNodeRef:'node:one',recipientNodeRef:'node:two',
+        sessionRef:'session:sealed:one',scopeRef:'scope:opaque',
+        permissionRef:'access:original:grant',
+        signerRef:'original:key:source',sequence,ownerEpoch:2,
+        cryptoSuite:suite,criticalExtensions:[],body,
+      });
+      const wireBytes=await signT4CandidateFrame({
+        unsignedFrame:frame,
+        signOriginalNodeBytes:async({bytes})=>
+          sign(null,Buffer.from(bytes),privateKey),
+      });
+      const published=await source.wire.publishSignedFrame({
+        wireBytes,
+      });
+      const received=await recipient.wire.readAndVerifySignedFrame({
+        key:published.key,expectedSha256:published.sha256,
+        requiredCryptoSuite:suite,
+      });
+      assert.equal(received.signedMessageType,'CHUNK');
+      assert.equal(received.originalBusinessApplied,false);
+      verified.push(received.verifiedBody);
+    }
+    const assembled=assembleT4CandidateOpaqueChunks({
+      bodies:verified.reverse(),expectedChangeId:chunks.changeId,
+      expectedContentDigest:chunks.contentDigest,
+      expectedEncryptionContextRef:chunks.encryptionContextRef,
+    });
+    assert.equal(assembled.transportContentIntegrityVerified,true);
+    assert.equal(assembled.originalBusinessApplied,false);
+    const combined=Buffer.from(assembled.ciphertext),
+      tag=combined.subarray(-16),
+      dec=createDecipheriv('aes-256-gcm',key,iv);
+    dec.setAAD(Buffer.from('original:change:sealed:1'));
+    dec.setAuthTag(tag);
+    const decoded=Buffer.concat([
+      dec.update(combined.subarray(0,-16)),dec.final(),
+    ]);
+    assert.deepEqual(decoded,plaintext);
+    assert.equal(recipient.replay.size,3);
+  }finally{outgoing.close();incoming.close();}
+});
