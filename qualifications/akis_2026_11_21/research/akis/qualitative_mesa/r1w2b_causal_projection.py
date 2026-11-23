@@ -111,7 +111,11 @@ def project_original_work(state: Any, work_id: str = "w1") -> dict[str, Any]:
         "original_work_resource": work.resource,
         "customer": work.customer,
         "original_planned_slot": [work.slot_start, work.slot_end],
-        "operation_ids": [op.key for op in work.operations],
+        "operation_ids": [
+            op.key for op in sorted(
+                work.operations, key=lambda op: (op.slot_start, op.key)
+            )
+        ],
         "operation_states": dict(sorted(work.operation_states.items())),
         "effective_operation_resources": dict(sorted(
             work.wip_operation_active_resources.items()
