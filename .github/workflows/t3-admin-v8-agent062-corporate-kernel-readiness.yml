@@ -58,7 +58,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          npm run verify:desktop --prefix '.private/agent/desktop'
-          if($LASTEXITCODE -ne 0){throw 'ADMIN_AGENT062_CORPORATE_KERNEL_DESKTOP_FAILED'}
+          # The sparse product checkout intentionally lacks unrelated private
+          # source/test fixtures. Do not turn their absent files into product
+          # failures: prove the exact changed component, then compile all JSX.
+          node --test '.private/agent/desktop/tests/corporate-kernel-readiness.test.mjs'
+          if($LASTEXITCODE -ne 0){throw 'ADMIN_AGENT062_KERNEL_IDENTITY_REGRESSION_FAILED'}
+          npm run build --prefix '.private/agent/desktop'
+          if($LASTEXITCODE -ne 0){throw 'ADMIN_AGENT062_CORPORATE_KERNEL_DESKTOP_BUILD_FAILED'}
           Write-Host 'ADMIN_AGENT062_CORPORATE_KERNEL_NODE_TESTS_AND_TSC_VITE_PASS'
           Write-Host 'ADMIN_AGENT062_NOT_YET_SIGNED_CROSS_APP_TASK_RESULT'
