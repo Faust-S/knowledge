@@ -308,3 +308,213 @@ def assess_original_independent_outside_demand(
             or Decimal(source["outside_price_ceiling"]) < outside_external_sales):
         return "OUTSIDE_DEMAND_PRICE_CEILING_OR_CURRENCY_NOT_COMPARABLE"
     return None
+
+
+_OFFER_FIELDS = frozenset({
+    "at", "action", "actor", "outside_demand_id", "outside_offer_id",
+    "outside_offer_source_ref", "outside_offer_source_revision",
+    "outside_offer_price", "outside_offer_currency",
+    "outside_offer_resource", "outside_offer_units",
+    "outside_offer_slot_start", "outside_offer_slot_end",
+    "outside_offer_deliverable", "outside_offer_quality_basis",
+    "outside_offer_valid_until",
+})
+
+
+def qualify_original_outside_supplier_offer(
+    state: Any, event: Mapping[str, Any], at: int,
+) -> dict[str, Any]:
+    """One independent supplier-declared PRE-CONTRACT response in original trace.
+
+    Neither a signed order nor an independent physical delivery/settlement.
+    Do not add Work, capacity reservation, consent, or economic claim.
+    """
+    if (not isinstance(event, Mapping) or set(event) != _OFFER_FIELDS
+            or event.get("action") != "outside_supplier_offer"):
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_ORIGINAL_EVENT_FIELDS_REQUIRED")
+    seller = event["actor"]
+    demand_id = event["outside_demand_id"]
+    offer_id = event["outside_offer_id"]
+    ref = event["outside_offer_source_ref"]
+    rev = event["outside_offer_source_revision"]
+    for key in (
+        "actor", "outside_demand_id", "outside_offer_id",
+        "outside_offer_source_ref", "outside_offer_source_revision",
+        "outside_offer_resource", "outside_offer_deliverable",
+        "outside_offer_quality_basis",
+    ):
+        if not _identifier(event[key]):
+            raise OutsideDemandBlocked("OUTSIDE_OFFER_IDENTIFIERS_REQUIRED")
+    if (type(at) is not int
+            or type(event["outside_offer_valid_until"]) is not int
+            or not 0 <= at < event["outside_offer_valid_until"] <= 10000):
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_TIME_INVALID")
+    if any(
+        row.get("action") == "outside_supplier_offer"
+        and row.get("outcome") == "APPLIED"
+        and row.get("outside_offer_id") == offer_id
+        for row in state.trace
+    ):
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_DUPLICATE_ORIGINAL_ID")
+    originals = [
+        row for row in state.trace
+        if row.get("action") == "outside_demand_signal"
+        and row.get("outcome") == "APPLIED"
+        and row.get("outside_demand_id") == demand_id
+    ]
+    if len(originals) != 1:
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_APPLIED_BUYER_DEMAND_REQUIRED")
+    source = originals[0]
+    buyer = source.get("actor")
+    buyer_party = state.subjects.get(buyer)
+    seller_party = state.subjects.get(seller)
+    if (
+        buyer == seller or buyer_party is None or seller_party is None
+        or not buyer_party.active or not seller_party.active
+        or buyer_party.kind not in _INDEPENDENT_BUYER_KINDS
+        or source.get("outside_supplier") != seller
+    ):
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_ORIGINAL_INDEPENDENT_PARTIES_REQUIRED")
+    if (type(source.get("at")) is not int
+            or type(source.get("outside_demand_valid_until")) is not int
+            or not source["at"] < at < source["outside_demand_valid_until"]):
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_ACTIVE_BUYER_DEMAND_REQUIRED")
+    if any(
+        row.get("action") == "outside_demand_withdraw"
+        and row.get("outcome") == "APPLIED"
+        and row.get("outside_demand_id") == demand_id
+        and source["at"] < row.get("at", -1) <= at
+        for row in state.trace
+    ):
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_BUYER_DEMAND_WITHDRAWN")
+    if state.resources.get(event["outside_offer_resource"]) != seller:
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_ORIGINAL_SELLER_RESOURCE_REQUIRED")
+    link = _original_relation(
+        state, source["outside_relation"],
+        source["outside_relation_revision"],
+    )
+    if (link is None or seller not in link.participants
+            or buyer in link.participants):
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_EXTERNAL_TO_COOPERATION_REQUIRED")
+    unit = event["outside_offer_units"]
+    start, end = event["outside_offer_slot_start"], event["outside_offer_slot_end"]
+    if (type(unit) is not int or not 1 <= unit <= 1000000
+            or type(start) is not int or type(end) is not int
+            or not 0 <= start < end <= 10000):
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_UNITS_OR_HORIZON_INVALID")
+    price = event["outside_offer_price"]
+    currency = event["outside_offer_currency"]
+    if (not isinstance(price, str) or not _MONEY.fullmatch(price)
+            or Decimal(price) <= 0
+            or not isinstance(currency, str) or not _CURRENCY.fullmatch(currency)):
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_PRICE_OR_CURRENCY_INVALID")
+    if any((
+        event["outside_offer_resource"] != source["outside_resource"],
+        unit != source["outside_units"],
+        start != source["outside_slot_start"],
+        end != source["outside_slot_end"],
+        event["outside_offer_deliverable"] != source["outside_deliverable"],
+        event["outside_offer_quality_basis"] != source["outside_quality_basis"],
+        currency != source["outside_currency"],
+        Decimal(price) > Decimal(source["outside_price_ceiling"]),
+    )):
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_BUYER_TERMS_NOT_COMPARABLE")
+    source_scope = state.context_basis
+    buyer_core = original_owner_economic_core(buyer_party.kind)
+    seller_core = original_owner_economic_core(seller_party.kind)
+    if source_scope is None or buyer_core is None or seller_core is None:
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_ORIGINAL_KPB_REQUIRED")
+    try:
+        # Independent source rights checked BEFORE recording seller evidence.
+        source_scope.assert_original_independent_outside_demand_source(
+            buyer, source["outside_demand_source_ref"],
+            source["outside_demand_source_revision"],
+            core=buyer_core, recipient=seller, at=at,
+        )
+    except ContextBlocked as exc:
+        raise OutsideDemandBlocked(
+            "OUTSIDE_OFFER_BUYER_SOURCE_NOT_CURRENT"
+        ) from exc
+    try:
+        source_scope.assert_original_independent_supplier_offer_source(
+            seller, ref, rev, core=seller_core, buyer=buyer, at=at,
+        )
+    except ContextBlocked as exc:
+        raise OutsideDemandBlocked(
+            "OUTSIDE_OFFER_SELLER_SOURCE_NOT_QUALIFIED"
+        ) from exc
+    return {
+        "outside_demand_id": demand_id,
+        "outside_offer_id": offer_id,
+        "outside_offer_source_ref": ref,
+        "outside_offer_source_revision": rev,
+        "outside_offer_buyer": buyer,
+        "outside_supplier": seller,
+        "outside_offer_price": f"{Decimal(price):.2f}",
+        "outside_offer_currency": currency,
+        "outside_offer_resource": event["outside_offer_resource"],
+        "outside_offer_units": unit,
+        "outside_offer_slot_start": start,
+        "outside_offer_slot_end": end,
+        "outside_offer_deliverable": event["outside_offer_deliverable"],
+        "outside_offer_quality_basis": event["outside_offer_quality_basis"],
+        "outside_offer_valid_until": event["outside_offer_valid_until"],
+        "outside_offer_independent_model_response_not_accepted_contract": True,
+    }
+
+
+def assess_original_outside_supplier_offer(
+    *, offer_id: str | None, demand_id: str, owner: str,
+    buyer: str | None, trace: Sequence[Mapping[str, Any]] | None,
+    subjects: Mapping[str, Any] | None, context_basis: Any,
+    price: Decimal, currency: str, probe: tuple[str, int, int, int],
+    deliverable: str, quality_basis: str, at: int,
+) -> str | None:
+    """Read current supplier evidence AFTER buyer demand rights and BEFORE capacity."""
+    if offer_id is None:
+        return None
+    if trace is None or subjects is None or context_basis is None:
+        return "OUTSIDE_OFFER_ORIGINAL_TRACE_KPB_REQUIRED"
+    rows = [
+        row for row in trace
+        if row.get("action") == "outside_supplier_offer"
+        and row.get("outcome") == "APPLIED"
+        and row.get("outside_offer_id") == offer_id
+    ]
+    if len(rows) != 1:
+        return "OUTSIDE_OFFER_APPLIED_INDEPENDENT_RESPONSE_REQUIRED"
+    offer = rows[0]
+    seller = subjects.get(owner)
+    if (seller is None or not seller.active or buyer is None
+            or offer.get("actor") != owner
+            or offer.get("outside_offer_buyer") != buyer
+            or offer.get("outside_demand_id") != demand_id):
+        return "OUTSIDE_OFFER_ORIGINAL_OWNER_AND_DEMAND_REQUIRED"
+    if (type(offer.get("at")) is not int
+            or type(offer.get("outside_offer_valid_until")) is not int
+            or not offer["at"] < at < offer["outside_offer_valid_until"]):
+        return "OUTSIDE_OFFER_NOT_PRIOR_OR_CURRENT"
+    scope = original_owner_economic_core(seller.kind)
+    if scope is None:
+        return "OUTSIDE_OFFER_ORIGINAL_OWNER_SCOPE_REQUIRED"
+    try:
+        context_basis.assert_original_independent_supplier_offer_source(
+            owner, offer["outside_offer_source_ref"],
+            offer["outside_offer_source_revision"],
+            core=scope, buyer=buyer, at=at,
+        )
+    except ContextBlocked:
+        return "OUTSIDE_OFFER_CURRENT_SELLER_SOURCE_NO_LONGER_READABLE"
+    resource, units, start, end = probe
+    if any((
+        offer.get("outside_offer_resource") != resource,
+        offer.get("outside_offer_units") != units,
+        offer.get("outside_offer_slot_start") != start,
+        offer.get("outside_offer_slot_end") != end,
+        offer.get("outside_offer_deliverable") != deliverable,
+        offer.get("outside_offer_quality_basis") != quality_basis,
+        offer.get("outside_offer_currency") != currency,
+        offer.get("outside_offer_price") != f"{price:.2f}",
+    )):
+        return "OUTSIDE_OFFER_SELLER_DOCUMENT_NOT_COMPARABLE"
+    return None
