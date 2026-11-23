@@ -46,9 +46,15 @@ def scenario():
              "quality_spec_ref": "model://a/mat-out-quality"},
         ],
     }]
+    # The receiving enterprise has its own prospective Work, as in R1-W1.
+    # Its resource is not inserted into the original technological DAG.
+    d["works"].append({
+        "id": "w2", "customer": "c", "resource": "rd",
+        "source_revision": "d2", "slot_start": 40, "slot_end": 46,
+    })
     d["cooperation_links"] = [{
         "id": "net", "coordinator": "op", "purpose": "one original production chain",
-        "participants": ["op", "a", "b", "c", "d"], "works": ["w1"],
+        "participants": ["op", "a", "b", "c", "d"], "works": ["w1", "w2"],
         "mechanisms": ["SHARED_LOGISTICS"],
         "source_ref": "model://op/network-r1w1b",
         "source_revision": "net-r1",
@@ -354,7 +360,9 @@ def test_full_operation_handoff_material_and_original_work_result_are_preserved(
     assert work.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert work.resource == "ra"
     assert work.obligation == "FULFILLED"
-    assert len(state.works) == 1
+    assert len(state.works) == 2
+    assert state.works["w2"].result == "NOT_SUBMITTED"
+    assert state.works["w2"].obligation == "NOT_ACCEPTED"
     view = state.snapshot()["works"]["w1"]
     technology = view["technology"]
     form = next(row for row in technology["operations"] if row["id"] == "form")
