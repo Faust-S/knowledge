@@ -16,6 +16,7 @@ jobs:
   installed-released-agent062:
     # The installed browser attaches the ORIGINAL signed company Kernel.
     # A Node-only source harness without that attachment must fail closed;
+    # Explicit G4 opt-in below applies to this isolated candidate only.
     # do not rerun that unrelated source case when qualifying native K03.
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-installed-agent-g4]') }}
     runs-on: windows-2022
