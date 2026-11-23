@@ -1,0 +1,38 @@
+name: AKIS Mesa 3.5.2 R1-W1C original Assurance responsibility
+
+on:
+  push:
+    branches:
+      - work/2026-11-23-akis-r1w1c-assurance-responsibility
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  original-assurance-responsibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install original Mesa 3.5.2
+        run: |
+          python -m pip install --disable-pip-version-check "mesa==3.5.2" "pytest>=8,<10"
+          python -c "import mesa; assert mesa.__version__ == '3.5.2'"
+      - name: Compile original native model
+        run: python -m compileall -q qualifications/akis_2026_11_21/research
+      - name: Qualify R1-W1C Assurance, parallel execution, material and quality revision
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_assurance_responsibility_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_parallel_operation_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_multibatch_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_quality_revision_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_work_assurance_mesa.py
+      - name: Full original native AKIS regression
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests
