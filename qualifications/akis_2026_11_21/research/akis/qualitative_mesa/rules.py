@@ -76,7 +76,8 @@ ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "star
     "active_coalition_portfolio_propose", "active_coalition_portfolio_assess",
     "cooperation_lifecycle_propose", "cooperation_lifecycle_response",
     "cooperation_lifecycle_apply",
-    "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge"})
+    "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge",
+    "role_state_update"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -158,6 +159,9 @@ class Party:
     mandate_source_ref: str | None = None
     context_source_ref: str | None = None
     role_source_revision: str | None = None
+    # Owner-controlled R1-V2C1 lifecycle remains in ONE original subjects map.
+    role_management_source_ref: str | None = None
+    role_revision_history: tuple[str, ...] = ()
 
 
 @dataclass
@@ -224,6 +228,7 @@ class QualitativeAKIS:
             _keys_exact(obj, {"id", "kind"}, {
                 "organization", "affiliation_source_ref", "self_role_source_ref",
                 "mandate_source_ref", "context_source_ref", "role_source_revision",
+                "role_management_source_ref",
             }, "SUBJECT")
             key = _id(obj["id"], "subject")
             kind = obj["kind"]
@@ -255,18 +260,28 @@ class QualitativeAKIS:
             elif kind in {"SECTOR_BODY", "PUBLIC_INSTITUTION", "NATURAL_PERSON"}:
                 special = ("context_source_ref" if kind == "NATURAL_PERSON"
                            else "mandate_source_ref")
-                if set(obj) != {
-                    "id", "kind", "self_role_source_ref",
-                    special, "role_source_revision",
-                }:
+                if set(obj) not in (
+                    {"id", "kind", "self_role_source_ref", special,
+                     "role_source_revision"},
+                    {"id", "kind", "self_role_source_ref", special,
+                     "role_source_revision", "role_management_source_ref"},
+                ):
                     raise InputError("AUTHOR_ROLE_SOURCE_FIELDS_REQUIRED")
                 self_ref, scope_ref = obj["self_role_source_ref"], obj[special]
+                management = obj.get("role_management_source_ref")
+                refs = (self_ref, scope_ref, management)
                 if (not isinstance(self_ref, str)
                         or not isinstance(scope_ref, str)
                         or self_ref == scope_ref
-                        or any(len(ref) > 128 or not ref.startswith(
-                            f"model://{key}/"
-                        ) for ref in (self_ref, scope_ref))):
+                        or (management is not None and (
+                            not isinstance(management, str)
+                            or management in {self_ref, scope_ref}
+                        ))
+                        or any(
+                            not isinstance(ref, str) or len(ref) > 128
+                            or not ref.startswith(f"model://{key}/")
+                            for ref in refs if ref is not None
+                        )):
                     raise InputError("AUTHOR_ROLE_INDEPENDENT_SOURCE_OWNER_REQUIRED")
                 revision = _id(
                     obj["role_source_revision"], "role_source_revision"
@@ -276,6 +291,8 @@ class QualitativeAKIS:
                     mandate_source_ref=scope_ref if special == "mandate_source_ref" else None,
                     context_source_ref=scope_ref if special == "context_source_ref" else None,
                     role_source_revision=revision,
+                    role_management_source_ref=management,
+                    role_revision_history=(revision,),
                 )
             else:
                 if set(obj) != {"id", "kind"}:
@@ -396,7 +413,9 @@ class QualitativeAKIS:
              "lifecycle_id", "lifecycle_kind", "lifecycle_fingerprint",
              "lifecycle_source_ref", "lifecycle_response_source_ref",
              "lifecycle_valid_until", "lifecycle_new_participants",
-             "lifecycle_decision", "source_rights_ref"}, "EVENT")
+             "lifecycle_decision", "source_rights_ref",
+             "role_target", "role_expected_revision", "role_new_revision",
+             "role_new_state", "role_management_source_ref"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -713,6 +732,8 @@ class QualitativeAKIS:
                 self.context_basis.owner_update(ev)
                 if self.capability_policy is not None:
                     self.capability_policy.refresh(self, at)
+            elif action == "role_state_update":
+                self._update_original_extended_role(ev, at)
             elif action == "formation_confirm":
                 if self.formation_policy is None:
                     raise BlockedDecision("FORMATION_MODEL_POLICY_NOT_CONFIGURED")
@@ -1135,6 +1156,16 @@ class QualitativeAKIS:
             report["economic_channel"] = ev.get("economic_channel")
             report["interest_relation"] = ev.get("cooperation_link")
             report["source_authentication"] = "MODEL_ONLY_DECLARED_UNVERIFIED"
+        if action == "role_state_update":
+            report["role_target"] = ev.get("role_target")
+            report["role_previous_revision"] = ev.get("role_expected_revision")
+            report["role_new_revision"] = ev.get("role_new_revision")
+            report["role_new_state"] = ev.get("role_new_state")
+            report["role_management_source_ref"] = ev.get(
+                "role_management_source_ref"
+            )
+            report["historical_Work_Result_not_rewritten"] = True
+            report["role_owner_control_not_operator_delegation"] = True
         if action == "source_update":
             report["source"] = ev.get("source")
             if "expected_revision" in ev:
@@ -1217,6 +1248,89 @@ class QualitativeAKIS:
         self.trace.append(report)
         return report
 
+    def _update_original_extended_role(self, ev: dict[str, Any],
+                                       at: int) -> None:
+        """Owner-initiated fresh role edition, not second IAM or delegation.
+
+        A suspended actor withdraws its own FUTURE availability. Restoration
+        and active requalification require the current self-role and mandate
+        or context source at the freshly applied edition. The original owner
+        alone changes its original role, with compare-and-set source updates.
+        """
+        name = ev.get("role_target")
+        actor = ev.get("actor")
+        if not isinstance(name, str) or actor != name or name not in self.subjects:
+            raise BlockedDecision("ROLE_UPDATE_INDEPENDENT_ACTOR_REQUIRED")
+        subject = self.subjects[name]
+        kind = subject.kind
+        types = {"SECTOR_BODY", "PUBLIC_INSTITUTION", "NATURAL_PERSON"}
+        if kind not in types:
+            raise BlockedDecision("ROLE_UPDATE_ORIGINAL_EXTENDED_ACTOR_REQUIRED")
+        basis = self.context_basis
+        if basis is None or not basis.strict:
+            raise BlockedDecision("ROLE_UPDATE_ORIGINAL_STRICT_KPB_REQUIRED")
+        old = ev.get("role_expected_revision")
+        new = ev.get("role_new_revision")
+        if (not isinstance(old, str)
+                or old != subject.role_source_revision):
+            raise BlockedDecision("ROLE_UPDATE_STALE_ORIGINAL_EDITION")
+        if (not isinstance(new, str) or not new.strip() or len(new) > 128
+                or new in subject.role_revision_history):
+            raise BlockedDecision("ROLE_UPDATE_FRESH_EDITION_REQUIRED")
+        state = ev.get("role_new_state")
+        if state not in {"ACTIVE", "SUSPENDED"}:
+            raise BlockedDecision("ROLE_UPDATE_STATE_INVALID")
+        if state == "SUSPENDED" and not subject.active:
+            raise BlockedDecision("ROLE_UPDATE_ALREADY_SUSPENDED")
+        if (ev.get("role_management_source_ref") is None
+                or ev["role_management_source_ref"] !=
+                    subject.role_management_source_ref):
+            raise BlockedDecision("ROLE_UPDATE_OWN_MANAGEMENT_SOURCE_REQUIRED")
+        core = ("personal" if kind == "NATURAL_PERSON"
+                else "institutional")
+        basis.assert_original_form_role_source(
+            name, subject.role_management_source_ref, new,
+            core=core, purpose="AKIS_ROLE_MANAGEMENT",
+            operation="EXECUTE", recipients={name}, at=at,
+        )
+        if state == "ACTIVE":
+            purposes = {
+                "SECTOR_BODY": ("AKIS_SECTOR_ROLE", "AKIS_SECTOR_STANDARD"),
+                "PUBLIC_INSTITUTION": ("AKIS_PUBLIC_ROLE", "AKIS_PUBLIC_MANDATE"),
+                "NATURAL_PERSON": ("AKIS_PERSON_ROLE",
+                                   "AKIS_PERSON_CONTEXT_ACCESS"),
+            }
+            self_purpose, scope_purpose = purposes[kind]
+            basis.assert_original_form_role_source(
+                name, subject.self_role_source_ref, new,
+                core=core, purpose=self_purpose,
+                operation="ACCEPT", recipients={name}, at=at,
+            )
+            scope_ref = (subject.context_source_ref
+                         if kind == "NATURAL_PERSON"
+                         else subject.mandate_source_ref)
+            basis.assert_original_form_role_source(
+                name, scope_ref, new, core=core, purpose=scope_purpose,
+                operation="SHARE", recipients={name}, at=at,
+            )
+        # All source and state checks above are complete before mutations.
+        subject.active = state == "ACTIVE"
+        subject.role_source_revision = new
+        subject.role_revision_history += (new,)
+        # A role edition change cannot silently carry pending authorization
+        # and old consents into a newly requalified future obligation.
+        for work in self.works.values():
+            if work.obligation != "NOT_ACCEPTED":
+                continue
+            principals = (
+                self.capacity_ledger.original_owners(work.resource_requirements)
+                | {work.customer}
+            )
+            if name in principals:
+                work.consents.clear()
+                work.admitted = False
+                work.authorization_org_revision = None
+
     def _guard_original_form_role_work(self, work: Work, at: int) -> None:
         """Constrain original new Work, without granting new actor authority.
 
@@ -1284,6 +1398,13 @@ class QualitativeAKIS:
                     core=root, purpose=role_purpose, operation="ACCEPT",
                     recipients={name}, at=at,
                 )
+                if actor.role_management_source_ref is not None:
+                    basis.assert_original_form_role_source(
+                        name, actor.role_management_source_ref,
+                        actor.role_source_revision, core=root,
+                        purpose="AKIS_ROLE_MANAGEMENT", operation="EXECUTE",
+                        recipients={name}, at=at,
+                    )
                 scope_ref = (actor.context_source_ref
                              if actor.kind == "NATURAL_PERSON"
                              else actor.mandate_source_ref)
@@ -1870,6 +1991,13 @@ class QualitativeAKIS:
                             )
                         ),
                         "real_person_or_institutional_mandate_authenticated": False,
+                        "original_role_source_revision": v.role_source_revision,
+                        "original_role_edition_history": list(
+                            v.role_revision_history
+                        ),
+                        "self_controllable_role_management_source": bool(
+                            v.role_management_source_ref
+                        ),
                     } if v.kind in {
                         "SECTOR_BODY", "PUBLIC_INSTITUTION", "NATURAL_PERSON",
                     } else {}),

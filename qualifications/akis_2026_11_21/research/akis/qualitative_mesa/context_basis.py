@@ -382,6 +382,7 @@ class ContextBasis:
                     getattr(p, "self_role_source_ref", None),
                     getattr(p, "mandate_source_ref", None),
                     getattr(p, "context_source_ref", None),
+                    getattr(p, "role_management_source_ref", None),
                 }
                 for p in self.subjects.values()
             )
