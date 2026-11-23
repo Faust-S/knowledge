@@ -229,3 +229,47 @@ def test_operator_cannot_initiate_own_employee_transfer():
     out = simulate(d)
     assert find(out,"affiliation_transfer_propose")[0]["outcome"] == "BLOCKED"
     assert out["subjects"]["worker"]["original_enterprise"] == "a"
+
+
+def test_transfer_approval_does_not_imply_future_original_work_permission():
+    d = transfer_case(("worker", "dept"))
+    source = next(row for row in d["context_evidence"]["sources"]
+                  if row["id"] == "model://b/worker-new-affiliation")
+    source["purposes"].remove("AKIS_INTRA_WORK")
+    out = simulate(d)
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert all(r["outcome"] == "APPLIED"
+               for r in find(out, "affiliation_transfer_apply"))
+    assert find(out, "request", work="w2")[0]["outcome"] == "BLOCKED"
+    assert "w2" not in out["works"]
+
+
+def test_new_parent_revocation_after_transfer_blocks_future_work_not_prior_result():
+    d = transfer_case(("worker", "dept"))
+    d["events"].append({
+        "at": 40, "action": "source_update", "actor": "b",
+        "source": "model://b/worker-new-affiliation",
+        "status": "DISPROVED",
+        "expected_revision": "aff-r1", "new_revision": "aff-r2",
+    })
+    d["events"].sort(key=lambda row: row["at"])
+    out = simulate(d)
+    assert all(r["outcome"] == "APPLIED"
+               for r in find(out, "affiliation_transfer_apply"))
+    assert find(out, "source_update")[0]["outcome"] == "APPLIED"
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w1"]["original_affiliation_at_commit"] == {
+        "dept": "a", "worker": "a",
+    }
+    assert find(out, "request", work="w2")[0]["outcome"] == "BLOCKED"
+    assert "w2" not in out["works"]
+
+
+def test_affiliation_suspension_cannot_retroactively_change_original_pilot():
+    d = transfer_case(("worker",))
+    out = simulate(d)
+    assert out["works"]["w1"]["original_affiliation_at_commit"] == {
+        "dept": "a", "worker": "a",
+    }
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["subjects"]["worker"]["original_enterprise"] == "b"
