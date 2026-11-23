@@ -418,6 +418,29 @@ class ContextBasis:
             recipients=recipients, at=at, require_global_strict=False,
         )
 
+    def assert_original_independent_outside_demand_source(
+            self, buyer: str, reference: str | None,
+            expected_revision: str | None, *, core: str,
+            recipient: str, at: int) -> None:
+        """Check the ORIGINAL buyer-owned source readable by ONE supplier.
+
+        This grants no rights. It checks an independently scoped MODEL_ONLY
+        request used for prospective economic advice, even in legacy cases
+        where all Work actions were not globally strict. No source owner may
+        authorize its own outside demand as an independent buyer.
+        """
+        if (not isinstance(buyer, str) or not isinstance(recipient, str)
+                or not buyer or not recipient or buyer == recipient
+                or type(at) is not int or not 0 <= at <= 10000):
+            raise ContextBlocked("OUTSIDE_DEMAND_INDEPENDENT_READER_REQUIRED")
+        self._assert_owner_source_state(
+            self.sources.get(reference) if isinstance(reference, str) else None,
+            buyer, reference, expected_revision,
+            core=core, purpose="AKIS_EXTERNAL_DEMAND_EVIDENCE",
+            operation="READ", recipients={recipient}, at=at,
+            require_global_strict=False,
+        )
+
     def assert_original_historical_form_role_source(
             self, actor: str, reference: str | None,
             expected_revision: str | None, *, core: str, purpose: str,
