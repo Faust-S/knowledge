@@ -32,3 +32,12 @@ jobs:
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
         run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests
+      - name: Export strict economic Work evidence from original Mesa
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_r1r2_strict_economic_evidence.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: akis-r1r2-strict-economics-${{ matrix.os }}
+          if-no-files-found: error
+          path: qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r1r2_strict_registered_economic_evidence.json
