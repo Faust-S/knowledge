@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 06f6d96db6a7f61d8859ba59c6d16157bd49ecbf
+          ref: 29dd5d0161657c5965c581ef8d7b06c4de0af047
           token: ${{ secrets.T3 || secrets.DOMEN }}
           persist-credentials: false
           sparse-checkout: |
@@ -38,7 +38,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $head=(& git -C .private/original rev-parse HEAD).Trim()
-          if($head -cne '06f6d96db6a7f61d8859ba59c6d16157bd49ecbf') { throw 'ORIGINAL_SIGNED_EXCHANGE_SOURCE_MOVED' }
+          if($head -cne '29dd5d0161657c5965c581ef8d7b06c4de0af047') { throw 'ORIGINAL_SIGNED_EXCHANGE_SOURCE_MOVED' }
           $paths=@('interop/provision.mjs','interop/runtime.mjs',
             'tests/t3-signed-workspace-exchange-owner.test.mjs')
           foreach($path in $paths) {
