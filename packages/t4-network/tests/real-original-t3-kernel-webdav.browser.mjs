@@ -64,6 +64,8 @@ import {openT4OriginalNetworkObjectChange,
   from '../src/network/original-network-subject-apply.mjs';
 import {digestT4OriginalObjectContent}
   from '../src/network/original-object-delta.mjs';
+import {recoverT4OriginalNetworkSourceCursor}
+  from '../src/network/original-network-source-cursor.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame}
   from '../src/network/standard-network-wire-candidate.mjs';
 import {createT4CandidateFrameTransport}
@@ -3694,6 +3696,34 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         });
       assert.equal(p2cConfirmedAck.signedMessageType,'APPLIED_ACK');
       assert.equal(p2cConfirmedAck.exactPreviouslyVerifiedReplay,true);
+      const p2cRecoveredCursor=await recoverT4OriginalNetworkSourceCursor({
+        sourcePhasePort:p2cSourcePhase(),
+        verifiedAppliedAck:p2cConfirmedAck,
+        originalSourceHeadProof:p2cHeadProof,
+        sourceCursorBefore:trueLast.nextCursor,
+        getMode:()=> 'T4_NETWORK',
+        authorizeOriginalRead:async p=>actual.grants.includes(p.operation),
+        readOriginalEvents:()=>originalCarrierKernel.listEventsSince(
+          workspaceId),
+      });
+      assert.deepEqual(p2cRecoveredCursor.originalT3NextCursor,
+        p2cWindow.nextCursor);
+      assert.equal(p2cRecoveredCursor.originalT3HostCursorWriteInvoked,
+        false);
+      assert.equal(p2cRecoveredCursor.originalT3HostCursorCommitStillRequired,
+        true);
+      const p2cRecoveredAgain=await recoverT4OriginalNetworkSourceCursor({
+        sourcePhasePort:p2cSourcePhase(),
+        verifiedAppliedAck:p2cConfirmedAck,
+        originalSourceHeadProof:p2cHeadProof,
+        sourceCursorBefore:trueLast.nextCursor,
+        getMode:()=> 'T4_NETWORK',
+        authorizeOriginalRead:async p=>actual.grants.includes(p.operation),
+        readOriginalEvents:()=>originalCarrierKernel.listEventsSince(
+          workspaceId),
+      });
+      assert.deepEqual(p2cRecoveredAgain.originalT3NextCursor,
+        p2cRecoveredCursor.originalT3NextCursor);
       assert.equal((await inspectT4OriginalNetworkRecipientResult(
         p2cApplyArgs())).originalRecipientEventId,
         p2cRealResult.originalRecipientEventId);
@@ -3726,6 +3756,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalSourceNetworkSessionPhase:'APPLIED_CONFIRMED',
           originalSourceTechnicalEvents:3,
           sourceAckConfirmedWithOriginalRecipientResult:true,
+          sourceCausalCursorRecoveredFromOriginalT3:true,
+          sourceCausalCursorPersistedSeparatelyByT4:false,
+          originalHostCursorCommitStillRequired:true,
           originalNetworkAppliedPhaseRecoveredAfterSecondCold:true,
           originalSignedAckReplayRecoveredAfterCold:true,
           replayedSubjectMutation:false,
