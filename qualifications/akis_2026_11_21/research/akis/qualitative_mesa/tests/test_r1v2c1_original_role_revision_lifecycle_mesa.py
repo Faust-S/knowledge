@@ -206,4 +206,7 @@ def test_person_role_source_with_prohibited_operation_cannot_suspend():
         "CONTEXT_OPERATION_NOT_PERMITTED"
     )
     assert out["subjects"]["person"]["active_for_new_work"] is True
-    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert find(out, "request", work="w1")[0]["reason"] == (
+        "CONTEXT_OPERATION_NOT_PERMITTED"
+    )
+    assert "w1" not in out["works"]
