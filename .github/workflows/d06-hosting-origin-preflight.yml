@@ -95,6 +95,35 @@ jobs:
               ForEach-Object { $_.Value } | Select-Object -Unique -First 6
             Write-Host 'D06_PROD_BUILD=FAIL'
             Write-Host ('D06_PROD_ERROR_CLASSES=' + (($codes | Select-Object -Unique) -join ','))
+            # Read local-only build diagnostics and emit only a bounded
+            # allowlisted failure category. No private trace or path leaves runner.
+            $classes = [ordered]@{
+              'DIRTY_GIT' = 'DIRTY_CHECKOUT|BUILD_REQUIRES_CLEAN_SOURCE_CHECKOUT'
+              'SOURCE_CONTRACT' = 'CHECKOUT_REQUIRED|INVALID_GIT_REF|SOURCE_MISMATCH'
+              'NPM_ENTRY' = 'npm_execpath|QUALIFICATION_REQUIRES_T2_KERNEL_ORIGIN_AND_NPM|npm ERR'
+              'MODULE_RESOLUTION' = 'ERR_MODULE_NOT_FOUND|Cannot find module|Cannot find package'
+              'HOST_CONFIG_COLLISION' = 'HOST_BINDING_COLLISION|T2_REGISTERED_MODULE_SOURCE_MISMATCH'
+              'ORIGIN_REJECTED' = 'ORIGIN_MUST|SITE_OR_TEST_LOOPBACK_REQUIRED|PROVISIONING_ORIGIN_INVALID'
+              'T2_HOST_BUILD' = 'host build failed|stage-t2-external-module|VITE_BUILD'
+              'PROCESS_ERROR' = 'Command failed:|exited with code|Process exited'
+              'NODE_RUNTIME' = 'TypeError|ReferenceError|SyntaxError|RangeError'
+              'RUNTIME_OR_BUNDLE_MISSING' = 'ENOENT|MODULE_NOT_FOUND|HOST_MODULE_NOT_STAGED'
+              'DOMAIN_MANIFEST' = 'PRODUCTION_CATALOG_NOT_SITE_ONLY|PRODUCTION_PROFILE_INVALID'
+              'VITE_REACT' = 'error during build|Failed to resolve|vite.*error'
+              'TS_DIAGNOSTIC' = 'error TS[0-9]+'
+            }
+            $detected = @($classes.Keys | Where-Object { $raw -match $classes[$_] })
+            if ($detected.Count -eq 0) { $detected = @('UNCLASSIFIED') }
+            Write-Host ('D06_PROD_FAILURE_CATEGORIES=' + ($detected -join ','))
+            $stages = [ordered]@{
+              'PUBLIC_SITE_BUILD' = 'PUBLIC_SITE_BUILT|prerender.*complete|D06_STATIC_BUILD'
+              'NATIVE_MODULE' = 'HOST_MODULE_BUILD|komplektovod-host\.js'
+              'DOMAIN_STAGED' = 'D06_SITE_ONLY_HOST_MODULE_STAGED'
+              'T2_BUNDLE' = 'T2_BUILD_PASS|T2_HOST_BUILD|dist/index\.html'
+              'FINAL_DIST' = 'D06_FINAL_DIST_READY'
+            }
+            Write-Host ('D06_PROD_BUILD_STAGE_MASK=' + ((@($stages.Keys | ForEach-Object { if ($raw -match $stages[$_]) { '1' } else { '0' } })) -join ''))
+            Write-Host ('D06_PROD_LOG_LINES=' + @($raw -split '[\r\n]+').Count)
             exit 1
           }
           Write-Host 'D06_PROD_BUILD=PASS'
