@@ -71,6 +71,15 @@ function validateDelta(delta){
     sha256:packageSha256(bytes),key:packageSha256(bytes)+'.t4d'};
 }
 // Reuse the existing canonical T3 delta codec for native T4 Network payloads.
+export function digestT4OriginalObjectContent({
+  schemaId,schemaVersion,data,extensions={},
+}={}){
+  if(!ID(schemaId)||!ID(schemaVersion))
+    fail('OBJECT_DELTA_CONTENT_SCHEMA_INVALID');
+  return 'sha256:'+packageSha256(encode({
+    schemaId,schemaVersion,data,extensions,
+  }));
+}
 export function verifyT4OriginalObjectDelta(delta){
   return Object.freeze(validateDelta(delta));
 }
