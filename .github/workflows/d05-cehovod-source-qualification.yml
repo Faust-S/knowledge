@@ -56,7 +56,7 @@ jobs:
             fi
             echo "D05_REVISION_${destination}=PASS"
           }
-          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "483421469b73c0900bade11be9e47643a8e42b2b" "site"
+          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "71298b088ba88c119c0b7a64ed5daa31e864eb44" "site"
           fetch_private "cehovod" "main" "72184644426c23e6cf8890a14010b1ad5267821b" "domain"
           unset header DOMEN
       - name: Install Node 22
@@ -131,6 +131,7 @@ jobs:
             const stages=[...t.matchAll(/^> (?:cehovod[^\n]* )?(verify:[^\n]*|check:[^\n]*|typecheck|lint|test(?::coverage)?|build:[^\n]*)$/gm)].map(m=>m[1]);
             console.log("D05_LAST_COMMAND="+(stages.at(-1)||"unclassified").replace(/[^-a-zA-Z0-9: ]/g,"").slice(0,80));
             console.log("D05_TYPESCRIPT_ERRORS="+(t.match(/error TS\d+/g)||[]).length);
+            console.log("D05_TYPESCRIPT_LOCATIONS="+[...t.matchAll(/([A-Za-z0-9_./-]+\.tsx?)\((\d+),(\d+)\): error (TS\d+)/g)].map(x=>x[1].split("/").at(-1)+":"+x[2]+":"+x[3]+":"+x[4]).slice(0,12).join(","));
             console.log("D05_TEST_FAILURE_LINES="+(t.match(/(?:FAIL|not ok) /g)||[]).length);
             console.log("D05_VENDOR_MISSING="+(/ERR_MODULE_NOT_FOUND[^\n]*cehovod-lifecycle|Cannot find module[^\n]*cehovod-lifecycle/.test(t)));
             console.log("D05_TAP_SESSIONS="+(t.match(/TAP version 13/g)||[]).length);
