@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: d332d412c112cecc7433c6b8d0e89f0b4ccba067
+          ref: 4b094ff381bc9d905b1f4f54b461520557f64ace
           token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
           persist-credentials: false
           filter: blob:none
@@ -123,7 +123,7 @@ jobs:
           $originalOwner = (& git -C .private/original-t3 rev-parse HEAD).Trim()
           $setup = (& git -C .private/setup-core rev-parse HEAD).Trim()
           $core = (& git -C .g4-pinned-one-core rev-parse HEAD).Trim()
-          if ($agent -ne 'd332d412c112cecc7433c6b8d0e89f0b4ccba067' -or
+          if ($agent -ne '4b094ff381bc9d905b1f4f54b461520557f64ace' -or
               $originalOwner -ne '162f699d69f63e1d54bc002465c28c9781bf62ae' -or
               $setup -ne 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -or
               $core -ne '2f65931cd70e0c64e29b31e1824b7af0c0baf6d1') {
@@ -773,7 +773,7 @@ jobs:
           # product ID/source SHA. Passing here NEVER fixes a K03 failure
           # and NEVER emits full G4/D3 acceptance.
           $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
-          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'packages/t3-core/tests/g4-installed-agent-second-sid.ps1' -Setup $setup -AgentSourceSha 'd332d412c112cecc7433c6b8d0e89f0b4ccba067'
+          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'packages/t3-core/tests/g4-installed-agent-second-sid.ps1' -Setup $setup -AgentSourceSha '4b094ff381bc9d905b1f4f54b461520557f64ace'
           if($LASTEXITCODE -ne 0){throw 'G4_AGENT_GUEST_SECOND_SID_NATIVE_INSTALL_NOT_ACCEPTED'}
       - name: Erase private source model caches logs and native binaries
         if: always()
