@@ -1011,11 +1011,17 @@ class ModelFormationPolicy:
         for actor in sorted(original_owners):
             # Former members may still evaluate their OWN accepted history,
             # but do not acquire membership or consent in the successor.
-            review_link_id = (link.key if actor in link.participants or lineage is None
-                              else lineage["cooperation_link"])
-            review_revision = (link.source_revision
-                               if review_link_id == link.key
-                               else lineage["cooperation_source_revision"])
+            # The old Result belongs to its ORIGINAL link, even when this
+            # owner participates in the successor. A new edition cannot
+            # retroactively move the owner's evaluation to that edition.
+            review_link_id = (
+                lineage["cooperation_link"] if lineage is not None
+                else link.key
+            )
+            review_revision = (
+                lineage["cooperation_source_revision"] if lineage is not None
+                else link.source_revision
+            )
             current = next((
                 row for row in reversed(state.trace)
                 if row.get("action") == "participation_status"
