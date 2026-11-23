@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash,randomUUID} from 'node:crypto';
+import {createHash,randomUUID,generateKeyPairSync,sign,verify} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {cpSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -48,6 +48,11 @@ import {prepareT4OriginalHostRecipientPlan}
   from '../src/network/original-host-recipient-plan.mjs';
 import {createT4OriginalHostExchangeCycle}
   from '../src/network/original-host-exchange-cycle.mjs';
+import {createT4OriginalNetworkReplayPort}
+  from '../src/network/original-network-replay-checkpoint.mjs';
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,
+  verifyT4CandidateWireFrame}
+  from '../src/network/standard-network-wire-candidate.mjs';
 import {persistT4OriginalHostPlanCarrier,
   inspectT4OriginalHostImportedPlanCarrier}
   from '../src/network/original-host-plan-carrier.mjs';
@@ -2699,6 +2704,123 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalT3SignedSourceProvenanceVerified:false,
           originalT3RecipientDataWriteGrantFromCarrier:false,
           planIsNotAutomaticRecipientApplyAuthority:true,
+          independentPhysicalDevices:false,
+        }));
+
+      // P2.2 original T3 replay CAS for a genuine signed native T4 frame.
+      // Unlike the old .iwxa carrier, this packet is never exported or
+      // imported: its checkpoint is written in the existing recipient
+      // technical Workspace through the unmodified original Kernel.
+      const nativeReplayWorkspace='t4:network:replay:'+randomUUID();
+      await recipientPage.evaluate(async({SERVICE,nativeReplayWorkspace})=>{
+        const kernel=await IWXA.connect({
+          service_id:SERVICE,required_levels:['T1','T2']});
+        return kernel.t1.createWorkspace({
+          workspace_id:nativeReplayWorkspace,profile:'generic'});
+      },{SERVICE,nativeReplayWorkspace});
+      const replayKernel={
+        hasOperation:op=>receiving.operations.includes(op),
+        getObject:(w,id)=>recipientPage.evaluate(async({
+          SERVICE,w,id,
+        })=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.getObject(w,id);
+        },{SERVICE,w,id}),
+        putObject:input=>recipientPage.evaluate(async({
+          SERVICE,input,
+        })=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.putObject(input);
+        },{SERVICE,input}),
+        listEventsSince:w=>recipientPage.evaluate(async({
+          SERVICE,w,
+        })=>{
+          const kernel=await IWXA.connect({
+            service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.listEventsSince(w);
+        },{SERVICE,w}),
+      };
+      const nativeKeys=generateKeyPairSync('ed25519');
+      const nativeUnsigned=createT4CandidateUnsignedFrame({
+        messageType:'HEADS',messageId:'message:original:replay:one',
+        sourceNodeRef:'node:original:source',
+        recipientNodeRef:'node:original:recipient',
+        sessionRef:'session:original:replay:one',
+        scopeRef:'scope:original:replay',
+        permissionRef:'original:permission:replay',
+        signerRef:'key:original:network:fixture',
+        sequence:1,ownerEpoch:2,
+        cryptoSuite:'X25519_AES256GCM_ED25519',
+        body:{familyRef:'family:original:network:one',
+          ownerEpoch:2,heads:['sha256:'+'a'.repeat(64)]},
+      });
+      const nativeWire=await signT4CandidateFrame({
+        unsignedFrame:nativeUnsigned,
+        signOriginalNodeBytes:async({bytes})=>sign(null,
+          Buffer.from(bytes),nativeKeys.privateKey),
+      });
+      let replayOriginalHostSession='original:replay:host:'+randomUUID();
+      const nativeReplayBinding=()=>createT4OriginalNetworkReplayPort({
+        originalKernel:replayKernel,
+        technicalWorkspaceId:nativeReplayWorkspace,
+        originalWriteOwnerRef:'original:t2:exchange',
+        localNodeRef:'node:original:recipient',
+        scopeRef:'scope:original:replay',getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId:nativeReplayWorkspace,
+          originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:recipient',
+          scopeRef:'scope:original:replay',
+          hostSessionRef:replayOriginalHostSession,
+        }),
+        authorizeOriginalTechnicalRead:async proof=>
+          receiving.operations.includes(proof.operation),
+        authorizeOriginalTechnicalWrite:async proof=>
+          receiving.operations.includes(proof.operation),
+      });
+      const nativeVerify=()=>verifyT4CandidateWireFrame({
+        wireBytes:nativeWire,
+        recipientNodeRef:'node:original:recipient',
+        scopeRef:'scope:original:replay',
+        requiredCryptoSuite:'X25519_AES256GCM_ED25519',
+        verifyOriginalNodeSignature:async({bytes,signature})=>
+          verify(null,Buffer.from(bytes),
+            nativeKeys.publicKey,Buffer.from(signature)),
+        authorizeOriginalNetwork:async proof=>
+          proof.permissionRef==='original:permission:replay'&&
+          proof.sourceNodeRef==='node:original:source'&&
+          receiving.operations.includes('t1.getObject'),
+        persistOriginalReplayDecision:
+          nativeReplayBinding().persistOriginalReplayDecision,
+      });
+      const nativeFirst=await nativeVerify();
+      assert.equal(nativeFirst.originalReplayCheckpointRecorded,true);
+      assert.equal(nativeFirst.exactPreviouslyVerifiedReplay,false);
+      assert.equal(nativeFirst.originalBusinessApplied,false);
+      await recipientContext.close();recipientContext=null;
+      recipientContext=await launch(recipientProfile);
+      recipientPage=await opened(recipientContext);
+      replayOriginalHostSession='original:replay:host:'+randomUUID();
+      const nativeAfterCold=await nativeVerify();
+      assert.equal(nativeAfterCold.exactPreviouslyVerifiedReplay,true);
+      const nativeReplayEvents=await replayKernel.listEventsSince(
+        nativeReplayWorkspace);
+      assert.equal(nativeReplayEvents.filter(e=>
+        e.event_type==='t4.network.original.frame.replay.checkpoint')
+        .length,1);
+      console.log('T4_REAL_ORIGINAL_T3_NETWORK_REPLAY_COLD_CAS_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          signedNativeWireEd25519Verified:true,
+          originalT3TechnicalStoreUsed:true,
+          originalT3NetworkReplayEventCount:1,
+          originalT3ColdRestartReplayRecovered:true,
+          originalT3RepeatedNetworkCheckpointWrite:false,
+          originalT3OriginalBusinessMutation:false,
+          newStoreCreated:false,
+          originalT3IwxExchangeCalledForNetworkReplay:false,
           independentPhysicalDevices:false,
         }));
 
