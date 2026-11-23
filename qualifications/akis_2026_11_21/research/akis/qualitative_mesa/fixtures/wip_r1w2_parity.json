@@ -1,0 +1,34 @@
+{
+  "schema": "IWXA_AKIS_WIP_PARITY/0.1",
+  "case_id": "R1-W2-ONE-WORK-SALVAGE-001",
+  "action": "TRANSFER",
+  "lot": {
+    "total_units": 5,
+    "produced_units": 3,
+    "usable_units": 2,
+    "initial_cost_rub": "60000.00",
+    "next_full_cost_rub": "60000.00",
+    "material_value_rub": "7000.00",
+    "handling_cost_rub": "1500.00",
+    "potential_claim_rub": "5000.00",
+    "internal_settlement_rub": "7000.00"
+  },
+  "expected": {
+    "unit_credit_rub": "24000.00",
+    "reusable_resources_rub": "31000.00",
+    "remaining_units": 3,
+    "next_resource_cost_rub": "29000.00",
+    "network_difference_vs_full_restart_rub": "29500.00",
+    "after_agreement": "RESERVED",
+    "after_execution_resumes": "CONSUMED",
+    "after_termination": "HELD",
+    "old_work_and_result_preserved": true,
+    "pending_claim_excluded_from_current_income": true
+  },
+  "model_boundaries": {
+    "native_cost": "SOURCE_DECLARED_RESOURCE_COST",
+    "browser_cost": "MODEL_CASH_LEDGER",
+    "no_actual_bank_transaction_assumed": true,
+    "no_independent_property_title_authenticated": true
+  }
+}
