@@ -463,3 +463,155 @@ def test_real_mesa_352_scheduler_qualifies_technological_interruption():
     assert result["works"]["w1"]["technology"]["operations"][1]["execution"] == "IN_PROGRESS"
     assert result["works"]["w1"]["resource_owner"] == "a"
     assert simulate(deepcopy(d)) == result
+
+
+def strict_scenario():
+    d = scenario()
+    actions = [
+        "authorize", "consent", "commit", "start_operation",
+        "complete_operation", "handoff_dispatch", "handoff_receive",
+        "handoff_quality", "wip_interrupt", "wip_propose", "wip_review",
+        "wip_apply", "wip_handoff_dispatch", "wip_handoff_receive",
+        "wip_handoff_quality", "wip_resume", "complete", "accept",
+    ]
+    sources = []
+    requirements = []
+    for action in actions:
+        ref = "model://op/rights-" + action
+        sources.append({
+            "id": ref, "owner": "op", "revision": "right-r1",
+            "status": "CONFIRMED",
+            "usable_by": ["op", "a", "b", "c", "d"], "valid_until": 100,
+        })
+        requirements.append({
+            "work": "w1", "action": action,
+            "sources": [ref], "expected_revisions": ["right-r1"],
+        })
+    named = {
+        "a": [
+            "mat-in-origin", "mat-out-quality",
+            "source-completed", "material-out-1", "wip-review-16",
+        ],
+        "b": [
+            "mat-out-origin", "material-in-1", "material-accepted-1",
+            "form-attempt-1-cost", "ACT-01", "claim-ACT-01",
+            "wip-review-17", "form-custody-dispatch",
+        ],
+        "c": [
+            "mat-in-quality", "form-proposal-wip-form-1",
+            "wip-review-18", "form-apply",
+        ],
+        "d": [
+            "wip-review-19", "form-custody-receipt",
+            "form-custody-quality", "form-resume",
+        ],
+    }
+    for owner, names in named.items():
+        for name in names:
+            sources.append({
+                "id": f"model://{owner}/{name}",
+                "owner": owner, "revision": "source-r1",
+                "status": "CONFIRMED", "usable_by": [owner],
+                "valid_until": 100,
+            })
+    d["context_evidence"] = {
+        "strict": True, "sources": sources, "requirements": requirements,
+    }
+    return d
+
+
+def test_strict_original_kpb_rechecks_material_sources_before_handoff():
+    state = QualitativeAKIS(strict_scenario())
+    for original in baseline():
+        result = state.apply(original, original["at"])
+        assert result["outcome"] == "APPLIED", result
+    p = proposal()
+    assert state.apply(p, 15)["outcome"] == "APPLIED"
+    digest = state.works["w1"].wip_proposal["fingerprint"]
+    independent_votes(state, digest)
+    applied(state, 20, "wip_apply", "c", source_revision="d1",
+            org_revision="oc-1", wip_operation="form",
+            wip_id="wip-form-1", wip_fingerprint=digest,
+            wip_source_ref="model://c/form-apply")
+    # Quality document was valid during the decision. It is disproved after
+    # the agreement but before the original sender can release the goods.
+    changed = send(
+        state, 21, "source_update", "a",
+        source="model://a/mat-out-quality",
+        status="DISPROVED", expected_revision="source-r1",
+        new_revision="source-r2",
+    )
+    assert changed["outcome"] == "APPLIED", changed
+    attempt = send(
+        state, 22, "wip_handoff_dispatch", "b", source_revision="d1",
+        org_revision="oc-1", wip_operation="form",
+        wip_material_batch="mat-out", wip_id="wip-form-1",
+        wip_source_ref="model://b/form-custody-dispatch",
+    )
+    assert attempt["reason"] == "WIP_ORIGINAL_EVIDENCE_SOURCE_UNAVAILABLE"
+    lot = state.works["w1"].wip_lots[-1]
+    assert lot["status"] == "RESERVED"
+    assert lot["holder"] == "b"
+    assert lot["custody_state"] == "AWAITING_DISPATCH"
+    assert len([r for r in state.capacity_ledger.reservations
+                if r.work == "w1" and r.resource == "rd"]) == 1
+
+
+def test_changed_original_inspection_after_votes_blocks_amendment_with_no_rebooking():
+    state = QualitativeAKIS(strict_scenario())
+    for event in baseline():
+        assert state.apply(event, event["at"])["outcome"] == "APPLIED"
+    p = proposal(window=(22, 29))
+    assert state.apply(p, 15)["outcome"] == "APPLIED"
+    digest = state.works["w1"].wip_proposal["fingerprint"]
+    independent_votes(state, digest)
+    before = list(state.capacity_ledger.reservations)
+    changed = send(
+        state, 20, "source_update", "b",
+        source="model://b/ACT-01", status="CONFIRMED",
+        expected_revision="source-r1", new_revision="source-r2",
+    )
+    assert changed["outcome"] == "APPLIED", changed
+    attempted = send(
+        state, 21, "wip_apply", "c", source_revision="d1",
+        org_revision="oc-1", wip_operation="form", wip_id="wip-form-1",
+        wip_fingerprint=digest, wip_source_ref="model://c/form-apply",
+    )
+    assert attempted["reason"] == "WIP_ORIGINAL_EVIDENCE_SOURCE_REVISION_STALE"
+    assert state.capacity_ledger.reservations == before
+    assert state.works["w1"].wip_lots == []
+    assert state.works["w1"].operation_states["form"] == "PAUSED"
+
+
+def test_original_resource_competitor_cannot_be_displaced_by_wip_amendment():
+    d = scenario()
+    w2 = next(work for work in d["works"] if work["id"] == "w2")
+    w2["slot_start"], w2["slot_end"] = 30, 37
+    state = QualitativeAKIS(d)
+    for original in baseline():
+        assert state.apply(original, original["at"])["outcome"] == "APPLIED"
+    for at, action, actor, extra in [
+        (15, "offer", "op", {}),
+        (16, "authorize", "op", {}),
+        (17, "consent", "c", {"source_revision": "d2", "org_revision": "oc-1"}),
+        (18, "consent", "d", {"source_revision": "d2", "org_revision": "oc-1"}),
+        (19, "commit", "op", {}),
+    ]:
+        result = state.apply(
+            {"at": at, "action": action, "actor": actor, "work": "w2", **extra}, at
+        )
+        assert result["outcome"] == "APPLIED", result
+    offered = proposal(at=20, window=(30, 37))
+    assert state.apply(offered, 20)["outcome"] == "APPLIED"
+    fingerprint = state.works["w1"].wip_proposal["fingerprint"]
+    independent_votes(state, fingerprint, start=21)
+    original = list(state.capacity_ledger.reservations)
+    attempted = send(
+        state, 25, "wip_apply", "c", source_revision="d1",
+        org_revision="oc-1", wip_operation="form",
+        wip_id="wip-form-1", wip_fingerprint=fingerprint,
+        wip_source_ref="model://c/conflicting-amendment",
+    )
+    assert attempted["reason"].startswith("WIP_ORIGINAL_CAPACITY_CONFLICT:")
+    assert state.capacity_ledger.reservations == original
+    assert state.works["w1"].wip_lots == []
