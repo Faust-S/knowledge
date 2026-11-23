@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 5b82705019d70f72928270a6cd183b67dd1d1145
+          ref: 8830438226387024be9148ffcc01a99363111a13
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -38,7 +38,7 @@ jobs:
         shell: bash
         run: |
           test "$(git -C domain rev-parse HEAD)" = "6cee435c7769078383c00ee7f4b1c097f768eb90"
-          test "$(git -C site rev-parse HEAD)" = "5b82705019d70f72928270a6cd183b67dd1d1145"
+          test "$(git -C site rev-parse HEAD)" = "8830438226387024be9148ffcc01a99363111a13"
           for f in service-subject-protocols.ts service-subject-next500-batch-j1.ts service-subject-next500-batch-j2.ts service-subject-next500-batch-j3.ts service-subject-next500-batch-j4.ts service-subject-next500-batch-j5.ts service-subject-next500-batch-k1.ts service-subject-next500-batch-k2.ts service-subject-next500-batch-k3.ts service-subject-next500-batch-k4.ts service-subject-next500-batch-k5.ts service-subject-next500-batch-l1.ts service-subject-next500-batch-l2.ts service-subject-next500-batch-l4.ts service-subject-next500-batch-l6.ts service-subject-next500-batch-l7.ts service-subject-next500-batch-m1.ts service-subject-next500-batch-m2.ts service-subject-next500-batch-m3.ts service-subject-next500-batch-m5.ts service-subject-next500-batch-m6.ts service-subject-next500-batch-n1.ts service-subject-next500-batch-n2.ts service-subject-next500-batch-n3.ts service-subject-next500-batch-n4.ts service-subject-next500-batch-n5.ts service-subject-next500-batch-o.ts service-subject-next500-batch-p1.ts service-subject-next500-batch-p2.ts service-subject-next500-batch-p3.ts service-subject-next500-batch-p4.ts service-subject-next500-batch-p5.ts service-subject-next500-batch-q1.ts service-subject-next500-batch-q2.ts service-subject-next500-batch-q3.ts service-subject-next500-batch-q4.ts service-subject-next500-batch-q5.ts service-subject-next500-batch-r1.ts service-subject-next500-batch-r2.ts service-subject-next500-batch-r3.ts service-subject-next500-batch-r4.ts service-subject-next500-batch-r5.ts; do
             cmp "domain/src/domain/$f" "site/src/domain/$f" || exit 2
           done
@@ -102,7 +102,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 5b82705019d70f72928270a6cd183b67dd1d1145
+          ref: 8830438226387024be9148ffcc01a99363111a13
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
