@@ -1,0 +1,97 @@
+name: d05-cehovod-recovery-format
+on:
+  push:
+    branches:
+      - test/2026-11-18-d05-source-qualification
+    paths:
+      - .github/workflows/d05-cehovod-recovery-format-20261123.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Read exact private site source into ephemeral runner
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          test -n "${DOMEN:-}" || { echo "D05_READ_TOKEN=FAIL"; exit 1; }
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch work/2026-10-23-t2-site-only https://github.com/Faust-S/cehovod.ru.git site >/dev/null 2>&1 || { echo "D05_PRIVATE_READ=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "c700b509f6aa7d271cc30a7537c5acd9732728e4" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          unset header DOMEN
+          echo "D05_SITE_PIN=PASS"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Produce punctuation-and-whitespace-only formatter coordinates
+        run: |
+          set -euo pipefail
+          cd site
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d05-npm-install.log" 2>&1 || { echo "D05_NPM_CI=FAIL"; exit 1; }
+          ./node_modules/.bin/prettier --write src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts > "$RUNNER_TEMP/d05-prettier.log" 2>&1 || { echo "D05_PRETTIER=FAIL"; exit 1; }
+          python3 - <<'PY'
+          import base64, difflib, hashlib, json, pathlib, subprocess
+          files = [
+            'src/lib/shop-capacity.ts',
+            'src/lib/shop-capacity.test.ts',
+            'src/host/CehovodCapacityPanel.tsx',
+            'src/host/CehovodCapacityPanel.regression.test.ts',
+          ]
+          punctuation = set('.,;:!?()[]{}\'"=<>+*/|&-')
+          def split_code(source):
+              chars = []
+              gaps = ['']
+              for char in source:
+                  if char.isspace():
+                      gaps[-1] += char
+                  else:
+                      chars.append(char)
+                      gaps.append('')
+              return chars, gaps
+          for path in files:
+              old = subprocess.check_output(['git','show','HEAD:' + path]).decode('utf-8')
+              new = pathlib.Path(path).read_text(encoding='utf-8')
+              oldchars, oldgaps = split_code(old)
+              newchars, newgaps = split_code(new)
+              changes = []
+              for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
+                  None, oldchars, newchars, autojunk=True
+              ).get_opcodes():
+                  if tag == 'equal':
+                      continue
+                  removed = ''.join(oldchars[i1:i2])
+                  inserted = ''.join(newchars[j1:j2])
+                  if len(removed) > 24 or len(inserted) > 24 or not set(removed + inserted) <= punctuation:
+                      print('D05_FORMAT_NONPUNCTUATION_DIFF=' + path)
+                      raise SystemExit(2)
+                  changes.append([i1, removed, inserted])
+              draftchars = list(oldchars)
+              draftgaps = list(oldgaps)
+              for pos, removed, inserted in reversed(changes):
+                  if ''.join(draftchars[pos:pos + len(removed)]) != removed:
+                      raise SystemExit('D05_PATCH_CONTEXT_FAIL')
+                  draftchars[pos:pos + len(removed)] = list(inserted)
+                  draftgaps[pos + 1:pos + len(removed) + 1] = [''] * len(inserted)
+              if draftchars != newchars or len(draftgaps) != len(newgaps):
+                  raise SystemExit('D05_PATCH_RECONSTRUCTION_FAIL')
+              edits = [[i, value] for i, value in enumerate(newgaps) if draftgaps[i] != value]
+              final = newgaps[0] + ''.join(char + newgaps[i + 1] for i, char in enumerate(draftchars))
+              if final != new:
+                  raise SystemExit('D05_PATCH_FINAL_INVALID')
+              payload = json.dumps({
+                  'path': path,
+                  'before': hashlib.sha256(old.encode()).hexdigest(),
+                  'after': hashlib.sha256(new.encode()).hexdigest(),
+                  'punct': changes,
+                  'gaps': edits,
+              }, ensure_ascii=True, separators=(',',':'))
+              print('D05_SAFE_FORMAT_PATCH=' + base64.b64encode(payload.encode('ascii')).decode('ascii'))
+              print('D05_FORMAT_DELTA=' + path + ':' + str(len(changes)) + ':' + str(len(edits)))
+          print('D05_PRIVATE_SOURCE_PUBLICATION=NONE')
+          PY
