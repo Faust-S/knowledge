@@ -46,6 +46,13 @@ DECISION_SOURCE_FIELDS = {
         "entry_assessment_source_ref",
     ),
     "cooperation_membership_apply": ("new_link_source_ref",),
+    "affiliation_transfer_propose": (
+        "transfer_source_ref", "self_role_source_ref",
+    ),
+    "affiliation_transfer_review": (
+        "transfer_decision_source_ref", "transfer_parent_source_ref",
+    ),
+    "affiliation_transfer_apply": (),
 }
 DECISION_OPERATIONS = {
     action: ("EXECUTE" if action.endswith("_apply") else
@@ -57,6 +64,8 @@ DECISION_PURPOSES = {
     action: ("AKIS_SUBJECT_REGISTRATION" if action.startswith("subject_") else
              "AKIS_RESOURCE_REGISTRATION" if action.startswith("resource_") else
              "AKIS_COOPERATION_LIFECYCLE" if action.startswith("cooperation_lifecycle_")
+             else "AKIS_INTRA_AFFILIATION_TRANSFER"
+             if action.startswith("affiliation_transfer_")
              else "AKIS_COOPERATION_MEMBERSHIP")
     for action in DECISION_SOURCE_FIELDS
 }
@@ -64,6 +73,8 @@ DECISION_TARGET_FIELDS = {
     action: ("subject_registration_id" if action.startswith("subject_") else
              "resource_registration_id" if action.startswith("resource_") else
              "lifecycle_id" if action.startswith("cooperation_lifecycle_")
+             else "affiliation_transfer_id"
+             if action.startswith("affiliation_transfer_")
              else "change_id")
     for action in DECISION_SOURCE_FIELDS
 }
@@ -300,7 +311,11 @@ class ContextBasis:
     def assert_original_decision_lineage(self, trace: list[dict[str, Any]],
                                          action: str, target: str, at: int) -> None:
         """Recheck only APPROVED earlier decisions from the one original trace."""
-        if action == "cooperation_membership_apply":
+        if action == "affiliation_transfer_apply":
+            previous = {
+                "affiliation_transfer_propose", "affiliation_transfer_review",
+            }
+        elif action == "cooperation_membership_apply":
             # One immutable original consultation: revalidate proposer, every
             # independent respondent and entrant's OWN assessment at apply.
             previous = {
