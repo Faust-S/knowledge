@@ -72,8 +72,8 @@ jobs:
                 original[original.length - 1 - suffix] === target[target.length - 1 - suffix]) suffix++;
               const remove = original.slice(prefix, original.length - suffix).join("");
               const insert = target.slice(prefix, target.length - suffix).join("");
-              const allowed = /^[.,;:!?()[\\]{}'"=<>+*\\/|&-]*$/;
-              if (remove.length > 12 || insert.length > 12 || !allowed.test(remove) || !allowed.test(insert)) {
+              const allowed = new Set(Array.from(".,;:!?()[]{}'\"=<>+*/|&-"));
+              if (remove.length > 12 || insert.length > 12 || !Array.from(remove).every(c => allowed.has(c)) || !Array.from(insert).every(c => allowed.has(c))) {
                 console.log("D05_PUNCTUATION_DIFFERENCE_UNSAFE=" + path + ":" + remove.length + ":" + insert.length);
                 failures++;
                 continue;
