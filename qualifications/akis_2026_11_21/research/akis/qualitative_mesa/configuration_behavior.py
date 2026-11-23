@@ -178,7 +178,7 @@ def original_configuration_commit_gate(design: Any, state: Any,
     config = design.configuration
     if config == "sector":
         customer = state.subjects.get(work.customer)
-        owners = state.capacity_ledger.original_owners(work.resource_requirements)
+        owners = set(_original_principals(state, work)) - {work.customer}
         if (customer is None or customer.kind != "SME" or not customer.active
                 or not owners or any(
                     state.subjects[who].kind != "SECTOR_BODY"
@@ -191,7 +191,7 @@ def original_configuration_commit_gate(design: Any, state: Any,
         return "NONE"
     if config == "macro":
         customer = state.subjects.get(work.customer)
-        owners = state.capacity_ledger.original_owners(work.resource_requirements)
+        owners = set(_original_principals(state, work)) - {work.customer}
         if (customer is None or customer.kind != "PUBLIC_INSTITUTION"
                 or not customer.active or not owners or any(
                     state.subjects[who].kind != "SME"
@@ -205,7 +205,7 @@ def original_configuration_commit_gate(design: Any, state: Any,
         return "NONE"
     if config == "trace":
         customer = state.subjects.get(work.customer)
-        owners = state.capacity_ledger.original_owners(work.resource_requirements)
+        owners = set(_original_principals(state, work)) - {work.customer}
         if (customer is None or customer.kind != "NATURAL_PERSON"
                 or not customer.active or not owners or any(
                     state.subjects[who].kind != "SME"

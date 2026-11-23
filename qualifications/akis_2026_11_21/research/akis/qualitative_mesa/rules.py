@@ -1398,8 +1398,11 @@ class QualitativeAKIS:
             and self.formation_policy.design.enforce_model_author_configuration_work_scope
             else None
         )
-        if self.subjects[actor].kind != "SME" and (
-                role_form.get(self.subjects[actor].kind) != current_form):
+        role_kind = self.subjects[actor].kind
+        if role_kind != "SME" and (
+                role_kind not in role_form
+                or current_form is None
+                or role_form[role_kind] != current_form):
             raise BlockedDecision("PARTICIPATION_ORIGINAL_ENTERPRISE_REQUIRED")
         if ev.get("cooperation_source_revision") != link.source_revision:
             raise BlockedDecision("COOPERATION_SOURCE_REVISION_STALE")
