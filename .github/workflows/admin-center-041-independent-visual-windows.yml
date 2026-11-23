@@ -5,6 +5,8 @@ on:
       - work/2026-11-23-admin-center-041-unified-setup-qualification
     paths:
       - .github/workflows/admin-center-041-independent-visual-windows.yml
+      - packages/t3-core/tests/admin-center-041-setup-visual.ps1
+      - packages/t3-core/tests/admin-center-041-native-gui-visual.ps1
   workflow_dispatch:
 permissions:
   contents: read
