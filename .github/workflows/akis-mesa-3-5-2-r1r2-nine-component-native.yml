@@ -1,0 +1,43 @@
+name: AKIS Mesa 3.5.2 R1-R2 integrated nine-component cycle
+
+on:
+  push:
+    branches:
+      - work/2026-11-23-akis-r1r2-integrated-cycle-native
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  original-mesa-integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install official Mesa 3.5.2
+        run: |
+          python -m pip install --disable-pip-version-check "mesa==3.5.2" "pytest>=8,<10"
+          python -c "import mesa; assert mesa.__version__ == '3.5.2'"
+      - name: Compile original AKIS
+        run: python -m compileall -q qualifications/akis_2026_11_21/research
+      - name: Full native original AKIS regression
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests
+      - name: Export integrated nine-component evidence
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_r1r2_integrated_nine_component_evidence.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: akis-r1r2-nine-components-${{ matrix.os }}
+          if-no-files-found: error
+          path: qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r1r2_integrated_nine_component_evidence.json
