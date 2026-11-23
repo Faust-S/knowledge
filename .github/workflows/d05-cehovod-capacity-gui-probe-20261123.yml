@@ -1,0 +1,61 @@
+name: d05-cehovod-capacity-real-browser-probe
+on:
+  push:
+    branches:
+      - test/2026-11-18-d05-source-qualification
+    paths:
+      - .github/workflows/d05-cehovod-capacity-gui-probe-20261123.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact private site and verify revision
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          test -n "$DOMEN" || { echo "D05_GUI_PROBE_READ=FAIL"; exit 1; }
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch work/2026-10-23-t2-site-only https://github.com/Faust-S/cehovod.ru.git site >/dev/null 2>&1 || { echo "D05_GUI_PROBE_READ=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "b0c63a038713cb261e27044a0ddb8d9eabbc75fb" || { echo "D05_GUI_PROBE_PIN=FAIL"; exit 1; }
+          unset header DOMEN
+          echo "D05_GUI_PROBE_PIN=PASS"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Compile browser witness and check source style
+        run: |
+          set -euo pipefail
+          cd site
+          if node --check scripts/d05-first-use-real-kernel-witness.mjs > "$RUNNER_TEMP/d05-gui-syntax.log" 2>&1; then
+            echo "D05_GUI_WITNESS_SYNTAX=PASS"
+          else
+            echo "D05_GUI_WITNESS_SYNTAX=FAIL"
+            exit 1
+          fi
+          if npm ci --no-audit --no-fund > "$RUNNER_TEMP/d05-gui-npm.log" 2>&1; then
+            echo "D05_GUI_NPM_CI=PASS"
+          else
+            echo "D05_GUI_NPM_CI=FAIL"
+            exit 1
+          fi
+          if ./node_modules/.bin/prettier --check scripts/d05-first-use-real-kernel-witness.mjs src/host/CehovodCapacityPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts > "$RUNNER_TEMP/d05-gui-format.log" 2>&1; then
+            echo "D05_GUI_PRETTIER=PASS"
+          else
+            echo "D05_GUI_PRETTIER=FAIL"
+            ./node_modules/.bin/prettier --list-different scripts/d05-first-use-real-kernel-witness.mjs src/host/CehovodCapacityPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts
+            exit 1
+          fi
+          if ./node_modules/.bin/vitest run src/host/CehovodCapacityPanel.regression.test.ts > "$RUNNER_TEMP/d05-gui-regression.log" 2>&1; then
+            echo "D05_GUI_CONTROL_GUARDS=PASS"
+          else
+            echo "D05_GUI_CONTROL_GUARDS=FAIL"
+            exit 1
+          fi
+          echo "D05_GUI_PRIVATE_CODE_LOGGED=NO"
