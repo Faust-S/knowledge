@@ -1,0 +1,55 @@
+name: Admin V8 original signed Workspace Exchange permission qualification
+on:
+  push:
+    branches:
+      - work/2026-11-23-admin03-signed-workspace-exchange-qualify
+    paths:
+      - .github/workflows/t3-admin03-original-signed-workspace-exchange.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bounded-signed-source:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Acquire exact original signed owner, scoped source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: e64b5d448c7f1fe656d0104b81fe28bd64824b0c
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          sparse-checkout: |
+            interop
+            access-control
+            reconciliation
+            tests/t3-signed-workspace-exchange-owner.test.mjs
+            tests/t3-company-atomic-graph-owner.test.mjs
+          path: .private/original
+      - name: Verify immutable source and JS syntax, no private logs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $head=(& git -C .private/original rev-parse HEAD).Trim()
+          if($head -cne 'e64b5d448c7f1fe656d0104b81fe28bd64824b0c') { throw 'ORIGINAL_SIGNED_EXCHANGE_SOURCE_MOVED' }
+          $paths=@('interop/provision.mjs','interop/runtime.mjs',
+            'tests/t3-signed-workspace-exchange-owner.test.mjs')
+          foreach($path in $paths) {
+            & node --check (Join-Path '.private/original' $path) *> $null
+            if($LASTEXITCODE -ne 0) { throw 'ORIGINAL_EXCHANGE_JS_SYNTAX_FAILED' }
+          }
+          Write-Host 'ORIGINAL_EXCHANGE_PRIVATE_SOURCE_PIN_AND_SYNTAX_PASS'
+      - name: Run bounded signed original AccessRegistry and Exchange tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & node --test --test-reporter=dot '.private/original/tests/t3-signed-workspace-exchange-owner.test.mjs' *> $env:RUNNER_TEMP\t3-exchange-test.log
+          if($LASTEXITCODE -ne 0) { throw 'ORIGINAL_EXCHANGE_SIGNED_GRANT_REGRESSION_FAILED' }
+          Write-Host 'ORIGINAL_EXCHANGE_SIGNED_GRANT_TEST_PASS'
