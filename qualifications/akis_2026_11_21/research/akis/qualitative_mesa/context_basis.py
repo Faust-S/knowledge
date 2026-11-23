@@ -350,9 +350,15 @@ class ContextBasis:
             self, source: SourceAssertion | None,
             actor: str, reference: str | None,
             expected_revision: str | None, *, core: str, purpose: str,
-            operation: str, recipients: set[str], at: int) -> None:
-        """One original source-scope predicate for both current and as-of views."""
-        if not self.strict:
+            operation: str, recipients: set[str], at: int,
+            require_global_strict: bool = True) -> None:
+        """One original source-scope predicate for current/as-of owner evidence.
+
+        Global strict mode remains mandatory for original role authorities.
+        A revision-pinned nonbinding research forecast can request the SAME
+        predicate without implying all historical Work transitions were strict.
+        """
+        if require_global_strict and not self.strict:
             raise ContextBlocked("AUTHOR_ROLE_STRICT_CONTEXT_REQUIRED")
         if (not isinstance(reference, str)
                 or not reference.startswith(f"model://{actor}/")):
@@ -387,6 +393,29 @@ class ContextBasis:
             actor, reference, expected_revision,
             core=core, purpose=purpose, operation=operation,
             recipients=recipients, at=at,
+        )
+
+    def assert_original_pinned_owner_economic_source(
+            self, actor: str, reference: str | None,
+            expected_revision: str | None, *, core: str, purpose: str,
+            operation: str, recipients: set[str], at: int) -> None:
+        """Qualify one pinned private owner forecast, not a global Work grant.
+
+        Uses the ORIGINAL ContextBasis assertions and identical scope checks
+        even where the source scenario predates globally strict Work gates.
+        Only an economic research READ may call this public owner-only check.
+        It does not create permission, legal action or resource ownership.
+        """
+        if (purpose != "AKIS_ECONOMIC_WORK_EVIDENCE"
+                or operation != "READ" or recipients != {actor}):
+            raise ContextBlocked(
+                "ORIGINAL_PINNED_OWNER_ECONOMIC_READ_ONLY"
+            )
+        self._assert_owner_source_state(
+            self.sources.get(reference) if isinstance(reference, str) else None,
+            actor, reference, expected_revision,
+            core=core, purpose=purpose, operation=operation,
+            recipients=recipients, at=at, require_global_strict=False,
         )
 
     def assert_original_historical_form_role_source(
