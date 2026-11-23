@@ -359,14 +359,14 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             _fail("WIP_APPLY_CANNOT_RESERVE_EXPIRED_WINDOW")
         needs = (ResourceNeed(target, proposal["capacity_units"]),)
         try:
-            state.capacity_ledger.preview(work.key, needs, start, end)
+            state.capacity_ledger.preview_amendment(work.key, needs, start, end)
         except CapacityBlocked as exc:
             _fail("WIP_ORIGINAL_CAPACITY_CONFLICT:" + exc.reason)
     else:
         needs = ()
     if target is not None:
         # Reserve on the SAME original ledger, after all source/vote checks.
-        state.capacity_ledger.reserve(work.key, needs, start, end)
+        state.capacity_ledger.reserve_amendment(work.key, needs, start, end)
         state.allocations.append((target, work.key, start, end))
         work.wip_active_resource = target
     lot = {
