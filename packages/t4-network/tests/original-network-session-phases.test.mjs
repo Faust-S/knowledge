@@ -8,7 +8,7 @@ const workspace='t4:network:technical:session',
   recipientNodeRef='node:recipient',scopeRef='scope:opaque',
   changeId='change:seven',sessionRef='session:one',
   H='sha256:'+'a'.repeat(64),B='sha256:'+'b'.repeat(64);
-const evidence=(label,phase)=>phase==='APPLIED'?{
+const evidence=(label,phase)=>['APPLIED','APPLIED_CONFIRMED'].includes(phase)?{
   evidenceRef:label,evidenceDigest:H,
   originalRecipientEventId:'event:original:applied:7',
   originalRecipientRevision:7,originalRecipientStateDigest:B,
@@ -248,4 +248,39 @@ test('missing original Event makes phase non-verifiable, despite stored technica
   f.kernel.events.pop();
   await assert.rejects(f.create().inspectOriginalSession(),
     isCode('PHASE_ORIGINAL_EVENT_CHAIN_INCOMPLETE'));
+});
+
+test('source APPLIED_CONFIRMED requires an independent original recipient Result, not a signed ACK',async()=>{
+  const f=fixture(),port=f.create();
+  await port.advanceOriginalSessionPhase({
+    phase:'INTENT',evidence:evidence('event:source:intent'),
+  });
+  await port.advanceOriginalSessionPhase({
+    phase:'PUBLISHED',evidence:evidence('network:published'),
+  });
+  const ack=evidence('signed:network:ack','APPLIED_CONFIRMED');
+  await assert.rejects(port.advanceOriginalSessionPhase({
+    phase:'APPLIED_CONFIRMED',evidence:ack,
+  }),isCode('PHASE_ORIGINAL_APPLIED_NOT_PROVEN'));
+  assert.equal(f.kernel.events.length,2);
+  f.allowApplied();
+  const confirmed=await port.advanceOriginalSessionPhase({
+    phase:'APPLIED_CONFIRMED',evidence:ack,
+  });
+  assert.equal(confirmed.originalBusinessApplied,true);
+  assert.equal(confirmed.revision,3);
+  assert.equal(f.kernel.events.length,3);
+  f.restart();
+  const recovered=f.create();
+  const status=await recovered.inspectOriginalSession();
+  assert.equal(status.currentPhase,'APPLIED_CONFIRMED');
+  assert.equal(status.originalBusinessApplied,true);
+  const again=await recovered.advanceOriginalSessionPhase({
+    phase:'APPLIED_CONFIRMED',evidence:ack,
+  });
+  assert.equal(again.status,'ALREADY_CONFIRMED');
+  assert.equal(f.kernel.calls,3);
+  f.kernel.events[2].payload.evidenceDigest=B;
+  await assert.rejects(recovered.inspectOriginalSession(),
+    isCode('PHASE_ORIGINAL_EVENT_CHAIN_MISMATCH'));
 });
