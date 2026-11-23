@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 65
     env:
-      SITE_SHA: 5ddacdab4ab90eeab817e6cb2fb3998b31483b3a
+      SITE_SHA: 64a4e0de91cf5b80ce7b77cb04538c1bfa27a4b1
       SUBJECT_SHA: c5a471c0d6e93be265c51c89dd43369a10779231
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 5ddacdab4ab90eeab817e6cb2fb3998b31483b3a
+          ref: 64a4e0de91cf5b80ce7b77cb04538c1bfa27a4b1
           path: site
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
@@ -121,6 +121,7 @@ jobs:
             exit 1
           }
           grep -E '^D07_(METHOD_SELECTED|INDIVIDUAL_PROTOCOLS_SELECTED|INDIVIDUAL_OPERATIONS|SOURCE_PRECISION_REVIEW|INDEPENDENTLY_APPROVED_METHODS|METHOD_CONVERSION_BATCH|MANUAL_VARIANT_ROUTED|MANUAL_VARIANT_UNROUTED)=' "$RUNNER_TEMP/d07-next500-generation.private.log" || true
+          grep -E '^D07_METHOD_OUTPUT_BYTES=' "$RUNNER_TEMP/d07-next500-generation.private.log" || true
           echo D07_NEXT500_GENERATION=PASS
       - name: Build integrated original T2 Site Host Kernel and all professional HTML cards
         working-directory: site
