@@ -24,10 +24,16 @@ jobs:
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
           GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch work/2026-10-23-t2-site-only https://github.com/Faust-S/cehovod.ru.git site >/dev/null 2>&1 || { echo "D05_CLONE=FAIL"; exit 1; }
           echo "D05_CLONE=PASS"
-          test "$(git -C site rev-parse HEAD)" = "afde2b21a8694ddbe597a7e5889ce2b52a0d035e" || { echo "D05_BASE_SHA_MISMATCH"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "2bfe9a359dc279ddee51fa30a89e50facf74c6ff" || { echo "D05_BASE_SHA_MISMATCH"; exit 1; }
           cd site
           npm ci --no-audit --no-fund > "$RUNNER_TEMP/d05-format-install.log" 2>&1 || { echo "D05_INSTALL=FAIL"; exit 1; }
-          ./node_modules/.bin/prettier --write src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx > /dev/null
+          if ! ./node_modules/.bin/prettier --check src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx > /dev/null 2>&1; then
+            echo "D05_FORMAT_CHECK=FAIL"
+            ./node_modules/.bin/prettier --list-different src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx
+            exit 1
+          fi
+          echo "D05_FORMAT_CHECK=PASS"
+          exit 0
           ./node_modules/.bin/prettier --check src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx > /dev/null
           echo "D05_PRETTIER=PASS"
           git add -- src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx
