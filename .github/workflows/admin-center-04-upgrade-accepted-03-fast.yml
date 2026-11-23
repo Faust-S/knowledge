@@ -1,0 +1,103 @@
+name: Admin Center 0.4 real accepted 0.3 to complete Setup Core upgrade
+on:
+  push:
+    branches:
+      - work/2026-11-23-admin-center-0.4-release-qualification
+    paths:
+      - .github/workflows/admin-center-04-upgrade-accepted-03-fast.yml
+      - packages/t3-core/tests/admin-center-04-upgrade-03.ps1
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: admin-center-04-accepted-03-to-04-windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  upgrade-accepted-03:
+    runs-on: windows-2022
+    timeout-minutes: 27
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout exact accepted native Center 0.3 test source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: 776843c7cbf74dbe437a70dc7efed95513125df8
+          persist-credentials: false
+          path: .accepted-03-src
+      - name: Fetch exact accepted 0.3 Setup Core artifact
+        uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/Center
+          run-id: 42486593582
+          name: center-windows-preparation-shell
+          github-token: ${{ secrets.CENTER || secrets.DOMEN || github.token }}
+          path: .accepted-03-artifact
+      - name: Fetch verified full 0.4 Setup Core artifact from exact Windows run
+        uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/knowledge
+          run-id: 45226733475
+          name: admin-center-0.4.0-full-setup-core-candidate
+          github-token: ${{ secrets.DOMEN || secrets.CENTER || github.token }}
+          path: .candidate-04
+      - name: Preflight both original binaries and native test before any installation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C .accepted-03-src rev-parse HEAD).Trim() -cne '776843c7cbf74dbe437a70dc7efed95513125df8'){
+            throw 'ADMIN04_ORIGINAL_03_SOURCE_PIN_CHANGED'
+          }
+          $old='.accepted-03-artifact/artifacts/iwxa-setup-core-center-0.3-preview.exe'
+          $new='.candidate-04/IWXA-Admin-Center-0.4.0-Setup.exe'
+          if(!(Test-Path -LiteralPath $old -PathType Leaf) -or
+             !(Test-Path -LiteralPath $new -PathType Leaf)){
+            throw 'ADMIN04_EXACT_03_OR_04_SETUP_CORE_BYTES_MISSING'
+          }
+          $oldHash=(Get-FileHash -LiteralPath $old -Algorithm SHA256).Hash.ToLowerInvariant()
+          $newHash=(Get-FileHash -LiteralPath $new -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($oldHash -cne 'fe6a35378edd4e00664e0de4e3fc6055e8454f93d96d82e1b30217e8d6ea634d'){
+            throw 'ADMIN04_ACCEPTED_03_INSTALLER_SHA_CHANGED'
+          }
+          if($newHash -cne 'affcf8dffd54a9407bd23e3debff76b64db0e697fe82857af328160e03fe21d2'){
+            throw 'ADMIN04_COMPLETE_04_INSTALLER_SHA_CHANGED'
+          }
+          $manifest=(Get-Content -LiteralPath '.candidate-04/SHA256SUMS.txt' -Raw).Trim()
+          if($manifest -cne ($newHash+' *IWXA-Admin-Center-0.4.0-Setup.exe')){
+            throw 'ADMIN04_SETUP_ARTIFACT_SHA256_MANIFEST_INVALID'
+          }
+          $test='packages/t3-core/tests/admin-center-04-upgrade-03.ps1'
+          $tokens=$null;$parseErrors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $test).Path,
+            [ref]$tokens,[ref]$parseErrors) | Out-Null
+          if(@($parseErrors).Count -gt 0){throw 'ADMIN04_ACCEPTED_UPGRADE_PS_SYNTAX_FAILED'}
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          Copy-Item -LiteralPath $old -Destination 'artifacts/iwxa-setup-core-center-0.3-preview.exe' -Force
+          Write-Host 'ADMIN04_ACCEPTED_03_AND_COMPLETE_04_SETUP_SHA256_PASS'
+      - name: Install accepted original 0.3 and create two organizations in real Windows GUI
+        shell: pwsh
+        timeout-minutes: 12
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./.accepted-03-src/tests/installed-windows-center.ps1
+          if($LASTEXITCODE -ne 0){throw 'ADMIN04_ORIGINAL_03_NATIVE_UIA_BASELINE_FAILED'}
+          $r=Get-Content -LiteralPath 'artifacts/installed-gui-result.json' -Raw | ConvertFrom-Json
+          if($r.status -ne 'INSTALLED_GUI_TWO_ORG_ATLAS_RESTART_PASS' -or
+             $r.managerStaffCount -ne 2 -or
+             $r.managerPlannedAgentSeats -ne 1 -or
+             $r.organizationIsolation -ne 'TWO_NATIVE_ATLAS_ROOTS_AND_GUI_SWITCH_RESTART_PASS'){
+            throw 'ADMIN04_ORIGINAL_03_TWO_ORGANIZATIONS_ATLAS_MANAGER_NOT_ACCEPTED'
+          }
+          Write-Host 'ADMIN04_ORIGINAL_03_TWO_ORG_MANAGER_NATIVE_GUI_PASS'
+      - name: Run original Setup Core 0.3 to 0.4 upgrade, cold GUI and byte-perfect native Store readback
+        shell: pwsh
+        timeout-minutes: 12
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./packages/t3-core/tests/admin-center-04-upgrade-03.ps1 -CandidateSetup '.candidate-04/IWXA-Admin-Center-0.4.0-Setup.exe'
+          if($LASTEXITCODE -ne 0){throw 'ADMIN04_COMPLETE_ORIGINAL_T3_UPGRADE_NOT_ACCEPTED'}
+          Write-Host 'ADMIN04_ACCEPTED_03_TO_FULL_04_UPGRADE_NATIVE_WINDOWS_PASS'
