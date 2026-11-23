@@ -21,6 +21,9 @@ class OutsideDemandBlocked(ValueError):
 
 _MONEY = re.compile(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,2})?\Z")
 _CURRENCY = re.compile(r"[A-Z]{3}\Z")
+_INDEPENDENT_BUYER_KINDS = frozenset({
+    "SME", "NATURAL_PERSON", "PUBLIC_INSTITUTION", "SECTOR_BODY",
+})
 _SOURCE_FIELDS = frozenset({
     "at", "action", "actor", "outside_demand_id", "outside_supplier",
     "outside_relation", "outside_relation_revision",
@@ -65,6 +68,7 @@ def qualify_original_outside_demand_signal(
         buyer == seller or buyer == state.institution.operator
         or buyer not in participants or seller not in participants
         or not participants[buyer].active or not participants[seller].active
+        or participants[buyer].kind not in _INDEPENDENT_BUYER_KINDS
     ):
         raise OutsideDemandBlocked("OUTSIDE_DEMAND_INDEPENDENT_ACTIVE_BUYER_REQUIRED")
     link = _original_relation(
@@ -169,7 +173,7 @@ def assess_original_independent_outside_demand(
     )
     if (
         buyer_subject is None or not buyer_subject.active
-        or buyer == owner or buyer_subject.kind == "OPERATOR"
+        or buyer == owner or buyer_subject.kind not in _INDEPENDENT_BUYER_KINDS
         or link is None or owner not in link.participants
         or buyer in link.participants
         or source.get("outside_supplier") != owner
