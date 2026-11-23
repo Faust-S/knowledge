@@ -1,0 +1,63 @@
+name: d05-cehovod-private-format
+on:
+  push:
+    branches:
+      - test/2026-11-18-d05-source-qualification
+    paths:
+      - .github/workflows/d05-cehovod-private-format.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Format exactly three D05 source files in private clone
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          test -n "${DOMEN:-}" || { echo "D05_TOKEN=MISSING"; exit 1; }
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch work/2026-10-23-t2-site-only https://github.com/Faust-S/cehovod.ru.git site >/dev/null 2>&1 || { echo "D05_CLONE=FAIL"; exit 1; }
+          echo "D05_CLONE=PASS"
+          test "$(git -C site rev-parse HEAD)" = "afde2b21a8694ddbe597a7e5889ce2b52a0d035e" || { echo "D05_BASE_SHA_MISMATCH"; exit 1; }
+          cd site
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d05-format-install.log" 2>&1 || { echo "D05_INSTALL=FAIL"; exit 1; }
+          ./node_modules/.bin/prettier --write src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx > /dev/null
+          ./node_modules/.bin/prettier --check src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx > /dev/null
+          echo "D05_PRETTIER=PASS"
+          git add -- src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx
+          if git diff --cached --quiet; then
+            echo "D05_SOURCE_UNCHANGED"
+            exit 0
+          fi
+          git config user.email "140275131+Faust-S@users.noreply.github.com"
+          git config user.name "Faust-S"
+          if ! git commit -m "style(D05): format qualified calendar and downtime sources" > "$RUNNER_TEMP/d05-commit.log" 2>&1; then
+            echo "D05_FORMAT_COMMIT=FAIL"
+            exit 1
+          fi
+          echo "D05_FORMAT_COMMIT=PASS"
+          if ! GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" push origin HEAD:refs/heads/work/2026-10-23-t2-site-only > "$RUNNER_TEMP/d05-push.log" 2>&1; then
+            echo "D05_PRIVATE_PUSH=FAIL"
+            node - <<'NODE'
+          const fs = require("node:fs");
+          const log = fs.readFileSync(process.env.RUNNER_TEMP + "/d05-push.log", "utf8").toLowerCase();
+          const reasons = [
+            ["TOKEN_PERMISSION", /permission.*denied|403|write access|not granted/],
+            ["AUTHENTICATION", /authentication failed|401|could not read username/],
+            ["CONFLICT", /non-fast-forward|fetch first|rejected/],
+            ["REMOTE", /repository not found|remote:|404/],
+          ];
+          console.log("D05_PRIVATE_PUSH_CLASS=" + (reasons.find((row) => row[1].test(log))?.[0] ?? "OTHER"));
+          NODE
+            exit 1
+          fi
+          unset DOMEN header
+          echo "D05_PRIVATE_PUSH=PASS"
+          echo "D05_FORMATTED_SITE_HEAD=$(git rev-parse HEAD)"
+          echo "D05_PUBLIC_SOURCE_DISCLOSURE=NONE"
