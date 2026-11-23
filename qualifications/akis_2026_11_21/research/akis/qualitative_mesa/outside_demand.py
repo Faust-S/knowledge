@@ -556,7 +556,8 @@ def qualify_original_outside_buyer_offer_response(
                   response_revision, event["outside_offer_source_revision"]):
         if not _identifier(value):
             raise OutsideDemandBlocked("OUTSIDE_BUYER_RESPONSE_IDENTIFIERS_REQUIRED")
-    if event["outside_buyer_response_decision"] not in _BUYER_OFFER_RESPONSES:
+    if (not isinstance(event["outside_buyer_response_decision"], str)
+            or event["outside_buyer_response_decision"] not in _BUYER_OFFER_RESPONSES):
         raise OutsideDemandBlocked("OUTSIDE_BUYER_RESPONSE_DECISION_INVALID")
     valid_until = event["outside_buyer_response_valid_until"]
     if (type(at) is not int or type(valid_until) is not int
