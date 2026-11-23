@@ -122,7 +122,8 @@
       "absolute_native_event_time_vs_browser_day",
       "native_capacity_slots_vs_browser_execution_days",
       "bank_payment_or_legal_obligation",
-      "aggregate_economic_gain_from_the_two_engines"
+      "aggregate_economic_gain_from_the_two_engines",
+      "browser_default_auto_recipient_review_enabled"
     ]
   },
   "cross_engine_status": {
@@ -132,7 +133,8 @@
     "material_custody": "NOT_IMPLEMENTED_IN_BROWSER_0_15",
     "assurance_responsibility": "NOT_IMPLEMENTED_IN_BROWSER_0_15",
     "cash_and_settlement": "DIFFERENT_MODEL_BOUNDARY_NO_FULL_PARITY",
-    "calendar": "DIFFERENT_AXES_NO_ABSOLUTE_PARITY"
+    "calendar": "DIFFERENT_AXES_NO_ABSOLUTE_PARITY",
+    "recipient_review_policy": "BROWSER_MANUAL_REVIEW_EXPLICITLY_SELECTED"
   },
   "disallowed_claims": [
     "REAL_BANK_PAYMENT_AUTHENTICATED",
