@@ -440,7 +440,8 @@ class QualitativeAKIS:
              "wip_target_resource", "wip_source_ref", "wip_valid_until",
              "work_interruption_at", "cost_source_ref", "prior_cost_claim",
              "wip_terms", "wip_slot_start", "wip_slot_end",
-             "wip_capacity_units"}, "EVENT")
+             "wip_capacity_units", "wip_cooperation_link",
+             "wip_cooperation_revision"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
