@@ -56,8 +56,8 @@ jobs:
             fi
             echo "D05_REVISION_${destination}=PASS"
           }
-          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "d420d8b9708ec7e8438e416951db38ef0239b401" "site"
-          fetch_private "cehovod" "work/2026-11-23-d05-capacity-scenarios" "17c16978297c48a39e0691b964d46b6f08e891a2" "domain"
+          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "0258f3a99da7d8f1c4a0933f41db0861c7d4118c" "site"
+          fetch_private "cehovod" "work/2026-11-23-d05-capacity-scenarios" "e606c08e97f3a03d3d97bb11324be2ce9ecf8847" "domain"
           unset header DOMEN
           # Use committed Git blobs, not CRLF-converted Windows checkout bytes.
           # The workflow reports only PASS/FAIL; no private source leaves CI.
