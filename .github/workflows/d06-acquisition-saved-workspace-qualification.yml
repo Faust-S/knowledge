@@ -128,6 +128,28 @@ jobs:
             } else {
               $failed += $check
               Write-Host ('D06_INDIVIDUAL_' + $check.Replace(':', '_').ToUpperInvariant() + '=FAIL')
+              if ($check -eq 'check:lint') {
+                $body = Get-Content -LiteralPath $log -Raw
+                $files = @(& git ls-files -- "*.ts" "*.tsx" "*.mjs" | Sort-Object)
+                $activeFile = ""
+                $coordinates = [System.Collections.Generic.List[string]]::new()
+                $rules = [System.Collections.Generic.List[string]]::new()
+                foreach ($line in ($body -split '[\r\n]+')) {
+                  if ($line -match '(?i)[\\/]((?:src|scripts|tests)[\\/][^:\r\n]+?\.(?:ts|tsx|mjs))\s*$') {
+                    $activeFile = $Matches[1].Replace([char]92, [char]47)
+                  } elseif ($line -match '^\s*(\d+):(\d+)\s+(?:error|warning)\s+.*?\s{2,}([@a-zA-Z0-9/_-]+)\s*$') {
+                    $rule = $Matches[3]
+                    $ordinal = [array]::IndexOf($files, $activeFile) + 1
+                    $rules.Add($rule)
+                    if ($ordinal -gt 0) {
+                      $coordinates.Add($ordinal.ToString() + ':' + $Matches[1] + ':' + $rule)
+                    }
+                  }
+                }
+                Write-Host ('D06_LINT_RULE_NAMES=' + (($rules | Sort-Object -Unique) -join ','))
+                Write-Host ('D06_LINT_ORDINAL_LINES=' + (($coordinates | Select-Object -Unique -First 35) -join ','))
+                Write-Host ('D06_LINT_TOTAL_DIAGNOSTICS=' + $rules.Count)
+              }
             }
           }
           if ($failed.Count -gt 0) {
