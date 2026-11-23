@@ -167,6 +167,7 @@ class Party:
     role_management_source_ref: str | None = None
     role_revision_history: tuple[str, ...] = ()
     affiliation_history: tuple[tuple[str, str, int], ...] = ()
+    affiliation_source_revision: str | None = None
 
 
 @dataclass
@@ -744,6 +745,11 @@ class QualitativeAKIS:
                     party.affiliation_source_ref = affiliation_evidence[
                         "new_affiliation_source_ref"
                     ]
+                    party.affiliation_source_revision = (
+                        self.context_basis.sources[
+                            party.affiliation_source_ref
+                        ].revision
+                    )
                     party.affiliation_history += (
                         (previous, party.organization, at),
                     )
@@ -1490,6 +1496,28 @@ class QualitativeAKIS:
             raise BlockedDecision(
                 "INTRAFIRM_ORIGINAL_ROLE_REQUIRES_SELECTED_FORM_GATE"
             )
+        if intra:
+            for name in sorted(principals):
+                party = self.subjects[name]
+                if (party.kind not in {"DIVISION", "EMPLOYEE"}
+                        or not party.affiliation_history):
+                    continue
+                # Work after a transfer must recheck the newly accountable
+                # enterprise's ORIGINAL source and revision in the same KPB.
+                if self.context_basis is None or not self.context_basis.strict:
+                    raise BlockedDecision(
+                        "AFFILIATION_FUTURE_WORK_STRICT_KPB_REQUIRED"
+                    )
+                self.context_basis.assert_original_form_role_source(
+                    party.organization,
+                    party.affiliation_source_ref,
+                    party.affiliation_source_revision,
+                    core="corporate",
+                    purpose="AKIS_INTRA_AFFILIATION_TRANSFER",
+                    operation="ACCEPT",
+                    recipients={party.organization},
+                    at=at,
+                )
         expected = {
             "SECTOR_BODY": "sector", "PUBLIC_INSTITUTION": "macro",
             "NATURAL_PERSON": "trace",
@@ -2119,6 +2147,9 @@ class QualitativeAKIS:
                              "applied_at": at}
                             for old, new, at in v.affiliation_history
                         ],
+                        **({"current_affiliation_source_revision":
+                            v.affiliation_source_revision}
+                           if v.affiliation_history else {}),
                         "model_source_scoped_role_declarations": bool(
                             v.affiliation_source_ref and v.self_role_source_ref
                         ),
