@@ -340,7 +340,10 @@ def propose_cooperation_change(event: Mapping[str, Any],
     if kind == "ADD_FUTURE_PARTICIPANT":
         if (not isinstance(candidate, str) or candidate not in subjects or
                 candidate in link.participants or not subjects[candidate].active or
-                subjects[candidate].kind != "SME"):
+                subjects[candidate].kind not in {
+                    "SME", "SECTOR_BODY", "PUBLIC_INSTITUTION",
+                    "NATURAL_PERSON",
+                }):
             raise CooperationInputError("COOPERATION_CHANGE_NEW_PARTY_NOT_QUALIFIED")
     elif kind == "REVIEW_FUTURE_PARTICIPATION":
         if (not isinstance(candidate, str) or candidate not in link.participants or
