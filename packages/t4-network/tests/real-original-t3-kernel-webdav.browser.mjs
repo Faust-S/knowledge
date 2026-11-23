@@ -4157,7 +4157,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           p.objectContentDigest===p2eOpened.originalStateDigest,
         getMode:()=> 'T4_NETWORK',
       });
-      assert.equal(p2eApplied.state,'APPLIED_BY_ORIGINAL_T3');
+      assert.equal(p2eApplied.status,'APPLIED_BY_ORIGINAL_T3');
+      assert.equal(p2eApplied.state,'APPLIED_VERIFIED');
       assert.equal(p2eApplied.originalRecipientRevision,2);
       assert.equal(p2cCommitCalls,2);
       const p2eResult=await p2ePhaseResult();
