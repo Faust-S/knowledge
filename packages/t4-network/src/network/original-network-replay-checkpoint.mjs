@@ -13,35 +13,10 @@ export class T4OriginalNetworkReplayError extends Error {
 }
 const fail=(code,details)=>{throw new T4OriginalNetworkReplayError(code,details);};
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
-const SHA=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
 const DIGEST=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
 const SCHEMA='IWXA_T4_ORIGINAL_NETWORK_REPLAY_CHECKPOINT_V1';
 const EVENT='t4.network.original.frame.replay.checkpoint';
-const canonical=x=>JSON.stringify(x);
-function replayScope(proof){
-  if(!proof||![
-    proof.sourceNodeRef,proof.recipientNodeRef,
-    proof.scopeRef,proof.sessionRef,proof.frameDigest
-  ].every(IDORHASH)||!ID(proof.permissionRef)||
-    !ID(proof.signerRef)||!Number.isSafeInteger(proof.ownerEpoch)||
-    proof.ownerEpoch<1||!Number.isSafeInteger(proof.sequence)||
-    proof.sequence<1||proof.originalDurableCompareAndSetRequired!==true||
-    !/^t4\.network\.receive\.[A-Z_]+$/.test(proof.operation||''))
-    fail('REPLAY_ORIGINAL_FRAME_PROOF_REQUIRED');
-  const identity={
-    sourceNodeRef:proof.sourceNodeRef,
-    recipientNodeRef:proof.recipientNodeRef,
-    scopeRef:proof.scopeRef,sessionRef:proof.sessionRef,
-    ownerEpoch:proof.ownerEpoch,sequence:proof.sequence,
-  };
-  const key=createHash('sha256').update(
-    'IWXA-T4-ORIGINAL-NETWORK-REPLAY-KEY-V1\0')
-    .update(canonical(identity)).digest('hex');
-  return {identity,frameDigest:proof.frameDigest,
-    signerRef:proof.signerRef,permissionRef:proof.permissionRef,
-    operation:proof.operation,checkpointRef:'t4:net:replay:'+key};
-}
-const IDORHASH=x=>ID(x)||DIGEST(x);
+const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 function validProof(p){
   return ID(p.sourceNodeRef)&&ID(p.recipientNodeRef)&&
     ID(p.scopeRef)&&ID(p.sessionRef)&&DIGEST(p.frameDigest);
@@ -70,7 +45,6 @@ function replayRef(proof){
     operation:proof.operation,
   };
 }
-const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 export function createT4OriginalNetworkReplayPort({
   originalKernel,technicalWorkspaceId,originalWriteOwnerRef,
   localNodeRef,scopeRef,getMode,readOriginalHostContext,
