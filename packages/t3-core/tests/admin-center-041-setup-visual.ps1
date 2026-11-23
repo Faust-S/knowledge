@@ -54,11 +54,11 @@ try{
       try{
         $name=[string]$node.Current.Name
         $aid=[string]$node.Current.AutomationId
-        if($name -match '^IWXA Admin Center' -and $node.Current.ControlType -eq
+        if($name -match 'IWXA Admin Center' -and $node.Current.ControlType -eq
             [Windows.Automation.ControlType]::Image){$hasBrand=$true}
         if($aid -ceq 'iwxaSetupProductTitle' -and
            $name -match 'IWXA Admin Center'){$hasProgram=$true}
-        if($aid -ceq 'iwxaSetupPrimaryAction' -and $node.Current.IsEnabled){
+        if($aid -ceq 'iwxaSetupPrimaryAction'){
           $hasAction=$true
         }
       }catch{}
