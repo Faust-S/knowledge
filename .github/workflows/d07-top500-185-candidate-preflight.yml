@@ -1,0 +1,31 @@
+name: D07 N185 candidate identity preflight
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d07-top500-185-candidate-preflight.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  identity-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 49d08acfbe08c4fd85f74d919a4b2a79151d9a77
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Confirm existing subject identities before selecting next five
+        working-directory: site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-185-preflight.log" 2>&1
+          node --import tsx --input-type=module -e 'import {findSubjectProtocol} from "./src/domain/service-subject-protocols.ts";import {getPlannedService} from "./src/data/plannedServices.ts";const c=[["remont-dom-mastera","gidroizolyaciya"],["yuristy-dokumenty","dogovor-oferta"],["avto-tehnika-oborudovanie","remont-tormozov"],["foto-video-meropriyatiya","videograf"],["buhgalteriya-finansy","otchet-dlya-sobstvennika"],["buhgalteriya-finansy","analiz-pribyli"],["marketing-reklama-prodazhi","audit-voronki"],["kompyutery-it-sayty","podderzhka-wordpress"],["foto-video-meropriyatiya","3d-vizualizaciya"],["remont-dom-mastera","uteplenie-balkona"]];for(const [category,slug] of c){const p=getPlannedService(category,slug);const s=findSubjectProtocol(category,slug);console.log("D07_CANDIDATE "+category+"/"+slug+" PLANNED="+Boolean(p)+" EXISTING="+Boolean(s));}'
