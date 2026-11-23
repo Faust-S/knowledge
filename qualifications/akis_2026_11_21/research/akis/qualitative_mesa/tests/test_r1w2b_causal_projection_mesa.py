@@ -213,3 +213,44 @@ def test_native_source_declared_claim_is_not_automatically_cash_or_legal_release
                 if r.work == "w1" and r.resource == "rd"]) == 1
     assert original.assurance_criteria[0].responsible_owner in {"a", "b"}
     assert p["money_evidence"]["internal_transfer_is_not_network_profit"]
+
+
+def test_native_projection_matches_cross_engine_case_contract():
+    import json
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / "fixtures" / "r1w2b_causal_contract.json"
+    contract = json.loads(path.read_text(encoding="utf-8"))
+    assert contract["schema"] == "IWXA_AKIS_R1W2B_CAUSAL_PARITY/0.1"
+    p = project_original_work(accepted_native_case())
+    source = contract["shared_material_arithmetic"]
+    first, revised = p["wip_economic_revisions"]
+    for expected, actual in ((source["initial"], first), (source["revised"], revised)):
+        assert actual["total_units"] == source["total_units"]
+        assert actual["produced_units"] == source["produced_units"]
+        assert actual["usable_units"] == expected["usable_units"]
+        assert actual["remaining_units"] == expected["remaining_units"]
+        assert Decimal(actual["original_cost_claim_rub"]) == source["original_cost_rub"]
+        assert Decimal(actual["saved_resources_rub"]) == expected["reusable_resources_rub"]
+        assert Decimal(actual["future_cost_rub"]) == expected["future_resource_cost_rub"]
+        assert Decimal(actual["material_value_rub"]) == source["materials_value_rub"]
+        assert Decimal(actual["handling_claim_rub"]) == source["handling_rub"]
+        assert Decimal(actual["recovery_claim_rub"]) == source["recovery_claim_rub"]
+    outcome = contract["native_case_outcome"]
+    assert p["result"] == outcome["work_result"]
+    assert len(p["original_material_batches"]) == outcome["original_material_batch_count"]
+    assert len(p["wip_economic_revisions"]) == outcome["wip_economic_revision_count"]
+    assert len([x for x in p["same_original_capacity_reservations"]
+                if x["resource"] == "rd"]) == outcome["replacement_resource_reservation_count"]
+    assert first["status"] == outcome["first_revision_status"]
+    assert revised["status"] == outcome["revised_status"]
+    assert first["future_planned_window"] == outcome["first_plan_window"]
+    assert revised["future_planned_window"] == outcome["first_plan_window"]
+    assert [(x["batch"], x["observed_quality_units"])
+            for x in p["physical_wip_lots"] if x["revision"] == "wip-form-2"] == [
+        (row["batch"], row["usable_units"])
+        for row in outcome["quality_observations"]
+    ]
+    assert not p["money_evidence"]["bank_payment_authenticated"]
+    assert contract["cross_engine_status"]["material_arithmetic"] == "MATCH_ON_COMMON_INPUT"
+    assert contract["cross_engine_status"]["cash_and_settlement"] == "DIFFERENT_MODEL_BOUNDARY_NO_FULL_PARITY"
+    assert contract["cross_engine_status"]["calendar"] == "DIFFERENT_AXES_NO_ABSOLUTE_PARITY"
