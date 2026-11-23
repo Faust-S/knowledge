@@ -24,6 +24,10 @@ _CURRENCY = re.compile(r"[A-Z]{3}\Z")
 _INDEPENDENT_BUYER_KINDS = frozenset({
     "SME", "NATURAL_PERSON", "PUBLIC_INSTITUTION", "SECTOR_BODY",
 })
+_WITHDRAW_FIELDS = frozenset({
+    "at", "action", "actor", "outside_demand_id",
+    "outside_withdrawal_source_ref", "outside_withdrawal_source_revision",
+})
 _SOURCE_FIELDS = frozenset({
     "at", "action", "actor", "outside_demand_id", "outside_supplier",
     "outside_relation", "outside_relation_revision",
@@ -136,6 +140,79 @@ def qualify_original_outside_demand_signal(
     }
 
 
+def qualify_original_outside_demand_withdrawal(
+    state: Any, event: Mapping[str, Any], at: int,
+) -> dict[str, Any]:
+    """A buyer withdraws ONE earlier source-declared need in original trace.
+
+    No new registry, cash movement, signature or resource reservation. The
+    original event and all accepted Work/Result remain in their original
+    historical states; withdrawal only blocks FUTURE model comparisons.
+    """
+    if (not isinstance(event, Mapping) or set(event) != _WITHDRAW_FIELDS
+            or event.get("action") != "outside_demand_withdraw"):
+        raise OutsideDemandBlocked("OUTSIDE_DEMAND_WITHDRAW_FIELDS_REQUIRED")
+    buyer = event["actor"]
+    demand_id = event["outside_demand_id"]
+    withdrawal_source = event["outside_withdrawal_source_ref"]
+    withdrawal_revision = event["outside_withdrawal_source_revision"]
+    if any(not _identifier(value) for value in (
+        buyer, demand_id, withdrawal_source, withdrawal_revision,
+    )):
+        raise OutsideDemandBlocked("OUTSIDE_DEMAND_WITHDRAW_IDENTIFIERS_REQUIRED")
+    originals = [
+        item for item in state.trace
+        if item.get("action") == "outside_demand_signal"
+        and item.get("outcome") == "APPLIED"
+        and item.get("outside_demand_id") == demand_id
+    ]
+    if len(originals) != 1:
+        raise OutsideDemandBlocked("OUTSIDE_DEMAND_WITHDRAW_ORIGINAL_SIGNAL_REQUIRED")
+    original = originals[0]
+    if original.get("actor") != buyer:
+        raise OutsideDemandBlocked("OUTSIDE_DEMAND_WITHDRAW_ORIGINAL_BUYER_ONLY")
+    if any(
+        item.get("action") == "outside_demand_withdraw"
+        and item.get("outcome") == "APPLIED"
+        and item.get("outside_demand_id") == demand_id
+        for item in state.trace
+    ):
+        raise OutsideDemandBlocked("OUTSIDE_DEMAND_ALREADY_WITHDRAWN")
+    if (
+        type(at) is not int
+        or type(original.get("at")) is not int
+        or type(original.get("outside_demand_valid_until")) is not int
+        or not original["at"] < at < original["outside_demand_valid_until"]
+    ):
+        raise OutsideDemandBlocked("OUTSIDE_DEMAND_WITHDRAW_EVENT_TIME_INVALID")
+    if withdrawal_source == original.get("outside_demand_source_ref"):
+        raise OutsideDemandBlocked(
+            "OUTSIDE_DEMAND_WITHDRAW_INDEPENDENT_OWNER_EDITION_REQUIRED"
+        )
+    seller = original.get("outside_supplier")
+    party = state.subjects.get(buyer)
+    core = original_owner_economic_core(party.kind) if party else None
+    if not isinstance(seller, str) or core is None or state.context_basis is None:
+        raise OutsideDemandBlocked("OUTSIDE_DEMAND_WITHDRAW_ORIGINAL_KPB_REQUIRED")
+    try:
+        state.context_basis.assert_original_independent_outside_demand_source(
+            buyer, withdrawal_source, withdrawal_revision,
+            core=core, recipient=seller, at=at,
+        )
+    except ContextBlocked as exc:
+        raise OutsideDemandBlocked(
+            "OUTSIDE_DEMAND_WITHDRAW_SOURCE_NOT_QUALIFIED"
+        ) from exc
+    return {
+        "outside_demand_id": demand_id,
+        "outside_supplier": seller,
+        "outside_withdrawal_source_ref": withdrawal_source,
+        "outside_withdrawal_source_revision": withdrawal_revision,
+        "original_buyer_withdrawal_not_contract_cancellation": True,
+        "historical_original_Work_Result_not_rewritten": True,
+    }
+
+
 def assess_original_independent_outside_demand(
     *, demand: tuple[str, str, str] | None, owner: str,
     work: Any, relation: str, relation_revision: str,
@@ -199,6 +276,20 @@ def assess_original_independent_outside_demand(
         )
     except ContextBlocked:
         return "OUTSIDE_DEMAND_CURRENT_BUYER_SOURCE_NO_LONGER_READABLE"
+    # A buyer's own later APPLIED withdrawal supersedes that one demand
+    # for economic use. It cannot erase past trace, or be undone by revoking
+    # the withdrawal document or submitting a new independent request.
+    closed = [
+        item for item in trace
+        if item.get("action") == "outside_demand_withdraw"
+        and item.get("outcome") == "APPLIED"
+        and item.get("outside_demand_id") == demand_id
+        and item.get("actor") == buyer
+        and type(item.get("at")) is int
+        and source["at"] < item["at"] <= at
+    ]
+    if closed:
+        return "OUTSIDE_DEMAND_WITHDRAWN_BY_ORIGINAL_BUYER"
     resource, units, start, end = probe
     if (
         source.get("outside_candidate_work") != work.key
