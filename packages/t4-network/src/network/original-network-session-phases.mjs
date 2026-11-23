@@ -24,21 +24,22 @@ const digest=value=>'sha256:'+createHash('sha256')
 const SCHEMA='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASES_V1';
 const EVENT='t4.network.original.session.phase';
 const ALLOWED={
-  SOURCE:Object.freeze(['INTENT','PUBLISHED']),
+  SOURCE:Object.freeze(['INTENT','PUBLISHED','APPLIED_CONFIRMED']),
   RECIPIENT:Object.freeze(['RECEIVED','VERIFIED','APPLIED']),
 };
 const clone=x=>structuredClone(x);
+const appliedPhase=phase=>phase==='APPLIED'||phase==='APPLIED_CONFIRMED';
 const eq=(a,b)=>canonical(a)===canonical(b);
 const frozen=x=>Object.freeze(x);
 function proofEvidence(phase,e){
   if(!e||typeof e!=='object'||Array.isArray(e)||
     Object.keys(e).sort().join(',')!==
-      (phase==='APPLIED'?
+      (appliedPhase(phase)?
         'evidenceDigest,evidenceRef,originalRecipientEventId,originalRecipientRevision,originalRecipientStateDigest':
         'evidenceDigest,evidenceRef')||
     !ID(e.evidenceRef)||!HASH(e.evidenceDigest))
     fail('PHASE_EVIDENCE_INVALID');
-  if(phase==='APPLIED'&&(!ID(e.originalRecipientEventId)||
+  if(appliedPhase(phase)&&(!ID(e.originalRecipientEventId)||
     !Number.isSafeInteger(e.originalRecipientRevision)||
     e.originalRecipientRevision<1||
     !HASH(e.originalRecipientStateDigest)))
@@ -206,7 +207,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     const current=await verifiedRead(initial);
     if(!eq(await context(),initial))
       fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED');
-    if(current.stages.at(-1)?.phase==='APPLIED')
+    if(appliedPhase(current.stages.at(-1)?.phase))
       await appliedGate(current.stages.at(-1).evidence,'cold-readback');
     return frozen({
       schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1',
@@ -215,9 +216,9 @@ export function createT4OriginalNetworkSessionPhasePort({
       chainHash:current.chainHash,
       originalT3EventChainVerified:current.revision>0,
       originalT3OnlyStore:true,
-      originalBusinessApplied:current.stages.at(-1)?.phase==='APPLIED',
+      originalBusinessApplied:appliedPhase(current.stages.at(-1)?.phase),
       verifiedOriginalRecipientApplication:
-        current.stages.at(-1)?.phase==='APPLIED',
+        appliedPhase(current.stages.at(-1)?.phase),
       signedNetworkReceiptIsNotResult:true,
       sessionWriteRetried:false,
     });
@@ -233,14 +234,14 @@ export function createT4OriginalNetworkSessionPhasePort({
       if(pos!==current.stages.length-1||
         !eq(expectedEvidence,current.stages.at(-1).evidence))
         fail('PHASE_ALREADY_ADVANCED_OR_CONFLICT');
-      if(phase==='APPLIED')await appliedGate(expectedEvidence,'recovery');
+      if(appliedPhase(phase))await appliedGate(expectedEvidence,'recovery');
       return frozen({
         schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1',
         phase,checkpointRef,status:'ALREADY_CONFIRMED',
         revision:current.revision,chainHash:current.chainHash,
         originalSubjectWriteRetried:false,
         historicalReceiptFabricated:false,
-        originalBusinessApplied:phase==='APPLIED',
+        originalBusinessApplied:appliedPhase(phase),
       });
     }
     if(pos!==current.stages.length)
@@ -256,7 +257,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     await guard(initial,'t1.getObject',phase);
     if(await verifyOriginalPhaseEvidence(proof)!==true)
       fail('PHASE_ORIGINAL_EVIDENCE_NOT_VERIFIED');
-    if(phase==='APPLIED')await appliedGate(expectedEvidence,'before-write');
+    if(appliedPhase(phase))await appliedGate(expectedEvidence,'before-write');
     const next=entry(phase,expectedEvidence,current.chainHash,pos+1);
     const stages=[...current.stages,next];
     const data={
@@ -294,7 +295,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     if(confirmed.revision!==pos+1||
       confirmed.chainHash!==next.chainHash)
       fail('PHASE_ORIGINAL_POST_WRITE_DIVERGED');
-    if(phase==='APPLIED')await appliedGate(expectedEvidence,'after-readback');
+    if(appliedPhase(phase))await appliedGate(expectedEvidence,'after-readback');
     if(!eq(await context(),initial))
       fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED',{
         automaticRetryAllowed:false,
