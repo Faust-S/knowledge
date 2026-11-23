@@ -278,3 +278,98 @@ def test_registered_actor_uses_same_original_role_lifecycle_without_new_registry
     ]
     # Registration plus restored status cannot manufacture a second Result.
     assert "w2" not in out["works"]
+
+
+
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_extended_role_cannot_enter_before_first_accepted_original_result(role):
+    d = prospective_case(role)
+    d["events"] = [
+        row for row in d["events"]
+        if not (row["action"] == "accept" and row.get("work") == "w1")
+    ]
+    out = simulate(d)
+    assert rows(out, "subject_registration_propose")[0]["reason"] == (
+        "REGISTRATION_ACCEPTED_ORIGINAL_PILOT_REQUIRED"
+    )
+    assert "c" not in out["subjects"]
+    assert out["works"]["w1"]["result"] != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_extended_role_requires_each_founder_independent_support(role):
+    d = prospective_case(role)
+    review = next(x for x in d["events"]
+                  if x["action"] == "subject_registration_review"
+                  and x["actor"] == "a")
+    review["registration_decision"] = "OBJECT_MODEL_SOURCE"
+    out = simulate(d)
+    assert rows(out, "subject_registration_apply")[0]["reason"] == (
+        "REGISTRATION_INDEPENDENT_REVIEW_OBJECTION"
+    )
+    assert "c" not in out["subjects"]
+    assert accepted_result(out, "w1")
+
+
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_extended_applicant_may_decline_registration_without_becoming_subject(role):
+    d = prospective_case(role)
+    attestation = next(x for x in d["events"]
+                       if x["action"] == "subject_registration_attest")
+    attestation["registration_willingness"] = "DECLINES"
+    out = simulate(d)
+    assert rows(out, "subject_registration_apply")[0]["reason"] == (
+        "REGISTRATION_ENTRANT_UNWILLING"
+    )
+    assert "c" not in out["subjects"]
+
+
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_expired_extended_role_scope_source_blocks_original_apply(role):
+    d = prospective_case(role)
+    source = next(x for x in d["context_evidence"]["sources"]
+                  if x["id"] == "model://c/original-right")
+    source["valid_until"] = 12
+    out = simulate(d)
+    assert rows(out, "subject_registration_apply")[0]["reason"] == (
+        "CONTEXT_SOURCE_EXPIRED"
+    )
+    assert "c" not in out["subjects"]
+    assert accepted_result(out, "w1")
+
+
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_unknown_self_owned_role_source_is_not_permission_to_register(role):
+    d = prospective_case(role)
+    source = next(x for x in d["context_evidence"]["sources"]
+                  if x["id"] == "model://c/original-role")
+    source["status"] = "UNKNOWN"
+    out = simulate(d)
+    assert rows(out, "subject_registration_apply")[0]["reason"] == (
+        "CONTEXT_SOURCE_UNKNOWN"
+    )
+    assert "c" not in out["subjects"]
+
+
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_extended_role_cannot_be_registered_under_non_strict_context(role):
+    d = prospective_case(role)
+    d["context_evidence"]["strict"] = False
+    out = simulate(d)
+    assert rows(out, "subject_registration_propose")[0]["reason"] == (
+        "REGISTRATION_EXTENDED_ROLE_STRICT_KPB_REQUIRED"
+    )
+    assert "c" not in out["subjects"]
+
+
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_role_scope_identity_cannot_impersonate_other_original_owner(role):
+    d = prospective_case(role)
+    proposal = next(x for x in d["events"]
+                    if x["action"] == "subject_registration_propose")
+    proposal["new_subject_spec"]["self_role_source_ref"] = "model://op/forged"
+    out = simulate(d)
+    assert rows(out, "subject_registration_propose")[0]["reason"] == (
+        "REGISTRATION_INDEPENDENT_SOURCE_OWNER_REQUIRED"
+    )
+    assert "c" not in out["subjects"]
