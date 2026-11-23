@@ -50,13 +50,13 @@ $before=Fingerprint $data
 $plan=Receipt '--upgrade-plan-file' 'plan'
 Require ($plan.status -eq 'UPGRADE_CANDIDATE_NOT_ACTIVATED' -and
   $plan.installedVersion -eq '0.3.0-dev.1' -and
-  $plan.candidateVersion -eq '0.4.0') 'ADMIN04_UPGRADE_PLAN_INVALID'
+  $plan.candidateVersion -eq '0.4.1') 'ADMIN04_UPGRADE_PLAN_INVALID'
 Write-Host 'ADMIN04_ACCEPTED_03_TO_04_PLAN_PASS'
 $result=Receipt '--upgrade-file' 'upgrade'
 Require ($result.status -eq 'UPGRADED_BACKUP_RETAINED' -and
-  $result.version -eq '0.4.0') 'ADMIN04_UPGRADE_NOT_APPLIED'
+  $result.version -eq '0.4.1') 'ADMIN04_UPGRADE_NOT_APPLIED'
 $registered=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center' -ErrorAction Stop
-Require ($registered.Version -eq '0.4.0' -and
+Require ($registered.Version -eq '0.4.1' -and
   (Test-Path -LiteralPath ($root+'.iwxa-previous') -PathType Container)) 'ADMIN04_UPGRADE_NOT_REGISTERED'
 $required=@('iwxa-admin-center.exe','t3/iwxa-t3-product-owner.exe',
   't3/iwxa-t3-product-consumer.exe','t3/iwxa-t3-age-desktop.exe',
