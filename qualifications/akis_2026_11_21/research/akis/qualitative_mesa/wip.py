@@ -134,6 +134,9 @@ def _operation_context(state: Any, work: Any, ev: Mapping[str, Any],
     op = next((row for row in work.operations if row.key == key), None)
     if op is None:
         _fail("WIP_UNKNOWN_ORIGINAL_OPERATION")
+    if (len(op.resource_requirements) != 1 or
+            op.resource_requirements[0].resource != op.primary_resource):
+        _fail("WIP_OPERATION_MULTI_RESOURCE_ROUTE_REQUIRES_SEPARATE_QUALIFICATION")
     if action == "wip_interrupt":
         if (work.operation_states[key] != "IN_PROGRESS" or
                 sum(x == "IN_PROGRESS" for x in work.operation_states.values()) != 1):
