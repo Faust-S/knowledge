@@ -375,3 +375,97 @@ def test_extended_rights_source_update_without_CAS_is_refused():
     )
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+
+@pytest.mark.parametrize("form", sorted(KINDS))
+def test_unknown_owner_role_source_is_not_permission_to_begin_work(form):
+    d = case(form)
+    _, name, _, _, _, _, _ = KINDS[form]
+    subject = next(s for s in d["subjects"] if s["id"] == name)
+    source = next(s for s in d["context_evidence"]["sources"]
+                  if s["id"] == subject["self_role_source_ref"])
+    source["status"] = "UNKNOWN"
+    out = simulate(d)
+    assert find(out, "request", work="w1")[0]["reason"] == (
+        "CONTEXT_SOURCE_UNKNOWN"
+    )
+    assert "w1" not in out["works"]
+
+
+@pytest.mark.parametrize("form", sorted(KINDS))
+def test_time_limited_owner_mandate_expires_only_for_new_obligation(form):
+    d = case(form)
+    _, name, _, _, _, _, _ = KINDS[form]
+    subject = next(s for s in d["subjects"] if s["id"] == name)
+    ref = subject.get("mandate_source_ref", subject.get("context_source_ref"))
+    source = next(s for s in d["context_evidence"]["sources"]
+                  if s["id"] == ref)
+    source["valid_until"] = 20
+    out = simulate(d)
+    # Source still valid through Work commit at 18, expiry does not
+    # retroactively nullify that independently accepted obligation.
+    assert find(out, "commit", work="w1")[0]["outcome"] == "APPLIED"
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert find(out, "request", work="w2")[0]["reason"] == (
+        "CONTEXT_SOURCE_EXPIRED"
+    )
+    assert "w2" not in out["works"]
+
+
+@pytest.mark.parametrize("form", sorted(KINDS))
+def test_extended_subject_cannot_borrow_different_original_author_form(form):
+    d = case(form)
+    d["general_akis"]["configuration"] = "operator"
+    out = simulate(d)
+    assert find(out, "request", work="w1")[0]["reason"] == (
+        "AUTHOR_EXTENDED_ROLE_REQUIRES_OWN_SELECTED_FORM"
+    )
+    assert "w1" not in out["works"]
+
+
+def test_all_six_original_author_form_routes_have_separate_accepted_results():
+    # One audit over original model code, not six standalone engines. This
+    # inventory checks partial model-wide subject coverage, not authentic
+    # institutional/legal realization of all author forms.
+    from .test_r1v1_author_form_original_eight_phase_mesa import formed_case
+    from .test_r1v2_intrafirm_original_subjects_mesa import intrafirm_case
+
+    variants = {
+        "operator": formed_case("operator"),
+        "inter": formed_case("inter"),
+        "intra": intrafirm_case(),
+        "sector": case("sector"),
+        "macro": case("macro"),
+        "trace": case("trace"),
+    }
+    observed = {}
+    for form, scenario in variants.items():
+        out = simulate(scenario)
+        assert out["counts"]["blocked"] == 0, (form, [
+            (x["at"], x["action"], x["reason"])
+            for x in out["trace"] if x["outcome"] == "BLOCKED"
+        ])
+        assert all(out["works"][w]["result"] ==
+                   "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                   for w in ("w1", "w2")), form
+        assert out["profit"]["system_increment"] == "UNKNOWN"
+        cycle = out["general_akis_private_cycle_evidence"][
+            "original_author_form_eight_phase_reproduction"
+        ]
+        assert len(cycle) == 1, form
+        assert cycle[0]["author_selected_form"] == form
+        assert cycle[0]["original_pilot_work"] == "w1"
+        assert cycle[0]["followup_original_work"] == "w2"
+        assert out["general_akis_model"]["system_causal_cycle_feedback"][
+            "r1v1_original_author_form_eight_phase_accepted_result_count"
+        ] == 1
+        observed[form] = sorted(out["works"]["w2"]["consenting_principals"])
+    assert set(observed) == {
+        "operator", "inter", "intra", "sector", "macro", "trace",
+    }
+    assert observed["operator"] == observed["inter"] == ["a", "b"]
+    assert observed["intra"] == ["dept", "worker"]
+    assert observed["sector"] == ["b", "sector"]
+    assert observed["macro"] == ["a", "public"]
+    assert observed["trace"] == ["a", "person"]
