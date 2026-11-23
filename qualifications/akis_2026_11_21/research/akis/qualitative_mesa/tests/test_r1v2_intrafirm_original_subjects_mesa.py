@@ -220,17 +220,9 @@ def test_original_employee_under_wrong_enterprise_cannot_be_work_owner_for_divis
 
 def test_intrafirm_original_role_work_denied_without_form_gate():
     d = intrafirm_case()
-    g = d["general_akis"]
-    g["enforce_model_author_configuration_work_scope"] = False
-    # Legacy original SME/operator path remains separate. With all optional
-    # formative guards disabled, the CORE itself still denies unqualified
-    # division/employee Work, rather than inventing role authorization.
-    g["configuration"] = "operator"
-    g["enforce_model_org_code"] = False
-    g["enforce_model_formation_phases"] = False
-    g["enforce_model_formation_context_code"] = False
-    g["enforce_model_formation_agent_review"] = False
-    g["enforce_model_formation_lifecycle"] = False
+    # Original legacy Work without general_AKIS has no formation policy.
+    # The core must still reject role Work, even in this opt-out input.
+    d.pop("general_akis")
     out = simulate(d)
     assert find(out, "request", work="w1")[0]["reason"] == (
         "INTRAFIRM_ORIGINAL_ROLE_REQUIRES_SELECTED_FORM_GATE"
