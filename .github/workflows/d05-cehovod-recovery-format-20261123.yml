@@ -103,6 +103,19 @@ jobs:
             echo "D05_MAINTENANCE_AND_TRANSFER_TESTS=PASS"
           else
             echo "D05_MAINTENANCE_AND_TRANSFER_TESTS=FAIL"
+            ./node_modules/.bin/vitest run src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.regression.test.ts --reporter=json --outputFile="$RUNNER_TEMP/d05-target-tests.json" > "$RUNNER_TEMP/d05-target-json.log" 2>&1 || true
+            if test -f "$RUNNER_TEMP/d05-target-tests.json"; then
+              node - <<'NODE'
+            const fs=require("node:fs");
+            const path=require("node:path");
+            const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/d05-target-tests.json","utf8"));
+            for(const file of data.testResults||[]) {
+              const name=path.basename(file.name||"unknown");
+              const indexes=(file.assertionResults||[]).flatMap((entry,index)=>entry.status==="failed"?[index+1]:[]);
+              if(indexes.length||file.status==="failed")console.log("D05_FAILED_TEST_ORDINALS="+name+":"+indexes.join(","));
+            }
+            NODE
+            fi
             python3 - <<'PY'
           import pathlib,re,os
           text=pathlib.Path(os.environ["RUNNER_TEMP"]+"/d05-target-tests.log").read_text(errors="replace")
