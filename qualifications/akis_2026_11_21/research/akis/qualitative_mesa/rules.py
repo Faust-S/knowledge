@@ -1278,7 +1278,7 @@ class QualitativeAKIS:
                 or new in subject.role_revision_history):
             raise BlockedDecision("ROLE_UPDATE_FRESH_EDITION_REQUIRED")
         state = ev.get("role_new_state")
-        if state not in {"ACTIVE", "SUSPENDED"}:
+        if not isinstance(state, str) or state not in {"ACTIVE", "SUSPENDED"}:
             raise BlockedDecision("ROLE_UPDATE_STATE_INVALID")
         if state == "SUSPENDED" and not subject.active:
             raise BlockedDecision("ROLE_UPDATE_ALREADY_SUSPENDED")
