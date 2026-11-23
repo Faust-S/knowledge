@@ -270,6 +270,27 @@ def _payment_owner_evidence(
             raise EconomicInputError(
                 "PAYMENT_PROGRESS_INDEPENDENT_EVIDENCE_REVISIONS_INVALID"
             )
+    if "owner_attestations" in row:
+        statements = row["owner_attestations"]
+        if (not isinstance(statements, dict)
+                or set(statements) != original_parties
+                or any(not isinstance(claim, dict)
+                       or set(claim) != {"reported_at", "reported_amount"}
+                       for claim in statements.values())):
+            raise EconomicInputError(
+                "PAYMENT_PROGRESS_INDEPENDENT_OWNER_REPORTS_REQUIRED"
+            )
+        # Two independent references are insufficient to prove identical
+        # statements. Match each owner's declared amount and time to this
+        # original partial-transfer report, not to a second cash ledger.
+        for claim in statements.values():
+            if (type(claim["reported_at"]) is not int
+                    or claim["reported_at"] != row.get("at")
+                    or _amount(claim["reported_amount"]) !=
+                       _amount(row.get("amount"))):
+                raise EconomicInputError(
+                    "PAYMENT_PROGRESS_INDEPENDENT_OWNER_REPORTS_CONFLICT"
+                )
     for owner in sorted(original_parties):
         source = owner_sources[owner]
         if (not isinstance(source, str) or
@@ -432,6 +453,8 @@ def _review_work_payment_progress(
         }
         if isinstance(row, dict) and "evidence_revisions" in row:
             required_fields.add("evidence_revisions")
+        if isinstance(row, dict) and "owner_attestations" in row:
+            required_fields.add("owner_attestations")
         _record(row, required_fields, "PAYMENT_SETTLEMENT_CLAIM")
         event_id = _identifier(row["id"], "PAYMENT_SETTLEMENT_ID")
         transfer_id = _identifier(row["transfer_id"], "PAYMENT_SETTLEMENT_TRANSFER")
