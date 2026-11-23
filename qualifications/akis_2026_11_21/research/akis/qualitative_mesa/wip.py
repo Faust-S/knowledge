@@ -622,8 +622,13 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                 latest["operation"] != op.key or proposal is not None or
                 ev.get("wip_id") != latest["id"]):
             _fail("WIP_APPROVED_OPERATION_TRANSFER_REQUIRED")
-        lot = work.wip_lots[-1]
-        if ev.get("wip_material_batch") != latest["material"]["batch"]:
+        batch_key = ev.get("wip_material_batch")
+        if batch_key not in {row["batch"] for row in _material_rows(latest["material"])}:
+            _fail("WIP_MATERIAL_HANDOFF_BATCH_MISMATCH")
+        lot = next((row for row in work.wip_lots
+                    if row["amendment"] == latest["id"] and
+                    row["material_batch"] == batch_key), None)
+        if lot is None:
             _fail("WIP_MATERIAL_HANDOFF_BATCH_MISMATCH")
         _check_source_snapshots(state, latest["source_revisions"], at)
         _recheck_voters(state, latest, at)
@@ -709,21 +714,32 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                 work.key, outstanding=state._outstanding_work_ids()
         ) is not None:
             _fail("WIP_SOURCE_DECLARED_RESOURCE_OVERBOOKED")
-        lot = work.wip_lots[-1]
+        lots = [row for row in work.wip_lots if row["amendment"] == latest["id"]]
+        expected_batches = (
+            {row["batch"] for row in _material_rows(latest["material"])}
+            if op is not None else {None}
+        )
+        if (len(lots) != len(expected_batches) or
+                {row["material_batch"] for row in lots} != expected_batches):
+            _fail("WIP_ORIGINAL_MATERIAL_BATCHES_INCOMPLETE")
         expected_holder = pause["owner"]
         if op is not None and latest["decision"] == "TRANSFER":
             expected_holder = actor
-            if (lot.get("custody_state") != "QUALITY_ACCEPTED" or
-                    not lot.get("custody_quality_ref")):
-                _fail("WIP_ORIGINAL_PHYSICAL_CUSTODY_QUALITY_REQUIRED")
-        if (lot["amendment"] != latest["id"] or lot["status"] != "RESERVED" or
-                lot["holder"] != expected_holder):
-            _fail("WIP_RESERVED_LOT_MUST_REMAIN_WITH_ORIGINAL_HOLDER")
+        for row in lots:
+            if op is not None and latest["decision"] == "TRANSFER":
+                if (row.get("custody_state") != "QUALITY_ACCEPTED" or
+                        not row.get("custody_quality_ref")):
+                    _fail("WIP_ORIGINAL_PHYSICAL_CUSTODY_QUALITY_REQUIRED")
+            if (row["status"] != "RESERVED" or row["holder"] != expected_holder):
+                _fail("WIP_RESERVED_LOT_MUST_REMAIN_WITH_ORIGINAL_HOLDER")
         if op is not None and work.operation_states[op.key] != "PAUSED":
             _fail("WIP_ORIGINAL_OPERATION_NO_LONGER_PAUSED")
-        lot["status"] = "CONSUMED"
-        lot["holder"] = actor
-        lot["used_at"] = at
+        # Atomic consumption: validation of every original batch precedes all
+        # state changes, including the original Operation's resume.
+        for row in lots:
+            row["status"] = "CONSUMED"
+            row["holder"] = actor
+            row["used_at"] = at
         if op is not None:
             work.operation_states[op.key] = "IN_PROGRESS"
         work.execution = "IN_PROGRESS"
@@ -760,8 +776,11 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
     _original_source_revision(state, applied_source, actor, at)
     _check_source_snapshots(state, proposal["source_revisions"], at)
     if op is not None:
-        material = _operation_material(
-            state, work, op, proposal["material"]["batch"]
+        declared = proposal["material"]
+        material = _selected_material(
+            state, work, op,
+            declared["batch"] if isinstance(declared, dict) else None,
+            [row["batch"] for row in declared] if isinstance(declared, list) else None,
         )
         if material != proposal["material"]:
             _fail("WIP_ORIGINAL_MATERIAL_CHANGED_AFTER_CONSENT")
@@ -803,24 +822,44 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             work.wip_active_resource = target
         else:
             work.wip_operation_active_resources[op.key] = target
-    lot = {
-        **proposal["lot"], "amendment": proposal["id"],
-        "source_owner": pause["owner"], "holder": pause["owner"],
-        "target_holder": state.resources[target] if target is not None else None,
-        "status": "HELD" if target is None else "RESERVED",
-        "consumed_by": None, "used_at": None, "applied_at": at,
-        "cash_recovery_claim": "PENDING_NOT_CASH" if
-            Decimal(proposal["lot"]["claim_amount"]) else "NONE",
-        "operation": op.key if op else None,
-        "material_batch": proposal["material"]["batch"] if op is not None else None,
-        "original_material": proposal["material"],
-        "custody_state": (
-            "AWAITING_DISPATCH" if op is not None and
-            proposal["decision"] == "TRANSFER" else "NO_NEW_HANDOFF"
-        ),
-        "custody_dispatch_ref": None, "custody_receipt_ref": None,
-        "custody_quality_ref": None,
-    }
+    def _physical_lot(inspection: Mapping[str, Any],
+                      original_material: Any) -> dict[str, Any]:
+        return {
+            **inspection, "amendment": proposal["id"],
+            "source_owner": pause["owner"], "holder": pause["owner"],
+            "target_holder": state.resources[target] if target is not None else None,
+            "status": "HELD" if target is None else "RESERVED",
+            "consumed_by": None, "used_at": None, "applied_at": at,
+            "cash_recovery_claim": (
+                "RECORDED_ON_AMENDMENT_ONLY" if
+                proposal["batch_inspections"] is not None else
+                ("PENDING_NOT_CASH" if Decimal(proposal["lot"]["claim_amount"])
+                 else "NONE")
+            ),
+            "operation": op.key if op else None,
+            "material_batch": original_material["batch"] if original_material else None,
+            "original_material": original_material,
+            "custody_state": (
+                "AWAITING_DISPATCH" if op is not None and
+                proposal["decision"] == "TRANSFER" else "NO_NEW_HANDOFF"
+            ),
+            "custody_dispatch_ref": None, "custody_receipt_ref": None,
+            "custody_quality_ref": None,
+        }
+
+    if proposal["batch_inspections"] is None:
+        lots = [_physical_lot(proposal["lot"], proposal["material"])]
+    else:
+        matched = {row["batch"]: row for row in proposal["material"]}
+        lots = [
+            _physical_lot({
+                **row,
+                # Economic costs and gains live once on amendment["lot"].
+                # Physical batches must never duplicate their monetary claim.
+                "economic_source": "ONE_ORIGINAL_WORK_AMENDMENT",
+            }, matched[row["batch"]])
+            for row in proposal["batch_inspections"]
+        ]
     amendment = {
         **{k: v for k, v in proposal.items() if k != "votes"},
         "votes": {k: dict(v) for k, v in proposal["votes"].items()},
@@ -828,7 +867,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         "status": "APPLIED",
         "source_agreement_is_not_bank_payment": True,
     }
-    work.wip_lots.append(lot)
+    work.wip_lots.extend(lots)
     work.wip_amendments.append(amendment)
     work.wip_proposal = None
     pause["state"] = "AMENDED"
@@ -838,7 +877,8 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             work.operation_states[op.key] = "STOPPED"
     return {
         "wip_phase": "APPLIED", "wip_id": amendment["id"],
-        "wip_decision": amendment["decision"], "wip_lot_status": lot["status"],
+        "wip_decision": amendment["decision"], "wip_lot_status": lots[0]["status"],
+        "wip_batch_count": len(lots),
         "wip_reuse_credited": proposal["lot"]["reusable_resources"],
         "wip_new_cost_claim": proposal["lot"]["future_resource_cost"],
         "prior_original_obligation_preserved": True,
