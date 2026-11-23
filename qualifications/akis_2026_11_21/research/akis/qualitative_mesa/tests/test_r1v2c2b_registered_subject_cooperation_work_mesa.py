@@ -88,7 +88,8 @@ def _original_actor_rights(d, kind):
         decision_core = (
             "operator" if actor == "op" else
             core if actor == "c" else
-            "institutional" if actor in {"sector", "public", "person"} else
+            "personal" if actor == "person" else
+            "institutional" if actor in {"sector", "public"} else
             "corporate"
         )
         own = f"model://{actor}/r1v2c2b-{action}-{event['at']}"
@@ -195,16 +196,17 @@ def original_new_actor_cycle(form="sector"):
               resource_fingerprint=resource_sha, resource_spec=deepcopy(resource)),
         ])
     link = d["cooperation_links"][0]
+    proposer = "b" if form == "sector" else "a"
     member_change = {
         "cooperation_link": link["id"],
         "cooperation_source_revision": link["source_revision"],
         "org_revision": "oc-1", "change_id": "admit-cooperation-c",
     }
     d["events"].extend([
-        e(41, "cooperation_change_propose", "b", **member_change,
+        e(41, "cooperation_change_propose", proposer, **member_change,
           change_kind="ADD_FUTURE_PARTICIPANT", proposed_subject="c",
           economic_channel="TRANSACTION_COST",
-          change_source_ref="model://b/c-membership-proposal",
+          change_source_ref=f"model://{proposer}/c-membership-proposal",
           **pilot),
         e(42, "cooperation_entry_assess", "c", **member_change,
           entry_goal_source_ref="model://c/entry-goal",
@@ -220,9 +222,9 @@ def original_new_actor_cycle(form="sector"):
             change_source_ref=f"model://{actor}/c-membership-response",
         ))
     d["events"].append(e(
-        47, "cooperation_membership_apply", "b", **member_change,
+        47, "cooperation_membership_apply", proposer, **member_change,
         **pilot, new_link_id="l2", new_link_revision="rel-2",
-        new_link_source_ref="model://b/l2-membership-edition",
+        new_link_source_ref=f"model://{proposer}/l2-membership-edition",
     ))
     request = next(ev for ev in d["events"] if ev["action"] == "request"
                    and ev["work_spec"]["id"] == "w2")
@@ -326,10 +328,11 @@ def test_registered_actor_independently_joins_original_coalition_and_accepts_fre
     initial = deepcopy(d)
     out = simulate(d)
     assert initial == d
-    assert out["counts"]["blocked"] == 0, [
-        (r["at"], r["action"], r["reason"])
+    failures = [
+        f"{r['at']} {r['action']} {r['reason']}"
         for r in out["trace"] if r["outcome"] == "BLOCKED"
     ]
+    assert not failures, "\\n".join(failures)
     assert out["subjects"]["c"]["kind"] == KINDS[form][0]
     assert accepted_result(out, "w1")
     assert accepted_result(out, "w2")
