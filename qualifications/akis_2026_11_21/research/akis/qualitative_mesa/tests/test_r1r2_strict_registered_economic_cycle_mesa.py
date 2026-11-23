@@ -215,7 +215,7 @@ def strict_economic_alternatives():
         event for event in refuse["events"]
         if not (event["action"] == "consent"
                 and event.get("work") == "w2"
-                and event["actor"] == "c")
+                and event["actor"] == "b")
     ]
     capacity = variants["resource_unavailable"]
     _insert_before(
@@ -269,6 +269,16 @@ def test_registered_sector_actor_has_one_original_strict_economics_and_result():
     assert out["economics"]["consolidated_external_cash_from_claims"][
         "COOPERATION"
     ] == "148000.00"
+    assert out["economics"]["consolidated_cash_difference_claimed_scope"] == (
+        "112000.00"
+    )
+    # An aggregate candidate can look favourable while the actual customer
+    # sees a strictly worse private cash path and a liquidity constraint.
+    # Neither the operator nor a positive network comparison may waive b's
+    # independent decision.
+    assert out["economics"]["per_subject"]["b"][
+        "cash_difference_cooperation_minus_outside"
+    ] == "-12000.00"
     assert out["economics"]["lifecycle_resource_costs"][
         "original_work_event_timing"
     ]["original_lifecycle_timed_record_count"] == 1
@@ -297,6 +307,20 @@ def test_four_strict_original_work_trajectories_are_economically_comparable():
         for trial in comparison["trials"]
     } == expected
     assert all(out["context_basis"]["strict"] for out in outputs.values())
+    refusal = outputs["independent_work_refusal"]
+    assert refusal["works"]["w2"]["consenting_principals"] == [
+        "c", "sector",
+    ]
+    assert next(
+        row for row in refusal["trace"]
+        if row["action"] == "commit" and row.get("work") == "w2"
+    )["reason"] == "INDEPENDENT_ACCEPTANCE_MISSING"
+    assert all(
+        out["economics"]["per_subject"]["b"][
+            "cash_difference_cooperation_minus_outside"
+        ] == "-12000.00"
+        for out in outputs.values()
+    )
     assert all(
         out["economics"]["original_strict_context_source_qualification"][
             "status"
