@@ -51,7 +51,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          & npm ci --prefix '.private/center' --ignore-scripts --no-audit --no-fund *> $null
+          & npm install --prefix '.private/center' --ignore-scripts --no-audit --no-fund --package-lock=false *> $null
           if($LASTEXITCODE -ne 0){throw 'CENTER_V8_NATIVE_RIGHTS_DEPENDENCIES_FAILED'}
           & npm run build --prefix '.private/center' *> $null
           if($LASTEXITCODE -ne 0){throw 'CENTER_V8_NATIVE_RIGHTS_TYPESCRIPT_OR_VITE_FAILED'}
