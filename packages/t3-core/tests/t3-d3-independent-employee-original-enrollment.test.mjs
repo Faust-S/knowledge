@@ -40,7 +40,7 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
  auth.resources.push('authority:issuer:north','workspace:ws:north',
   'subject:org:north','recipient:org:north','field:result','field:task','operation:UPSERT');
  auth.actions.push('grant.issue','work.prepare','package.export');
- auth.actions.push('workspace.read','object.write','workspace.create','workspace.exchange.import');
+ auth.actions.push('workspace.read','workspace.create','workspace.exchange.import');
  auth.purposes.push('access-administration','work','handoff','assignment');
  auth.purposes.push('workspace.read','workspace.work','workspace.onboarding','workspace.exchange.import');
  Object.assign(fixture.policy.actionCatalog,{
