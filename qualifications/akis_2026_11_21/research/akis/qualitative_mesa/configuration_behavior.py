@@ -82,8 +82,21 @@ def _original_work_projection(state: Any, configuration: str) -> list[dict[str, 
         obligations_accepted = getattr(work, "obligation", "NOT_ACCEPTED") in {"ACCEPTED_BY_ORIGINAL_PRINCIPALS", "FULFILLED"}
         existing_consent = sorted(getattr(work, "consents", {}))
         if configuration == "intra":
-            applicability = ("INTERFIRM_ORIGINALS_OUTSIDE_INTRA_SCOPE" if multi_owner
-                             else "INTRA_STAFF_AND_DIVISIONS_NOT_MODELLED")
+            customer = state.subjects.get(work.customer)
+            owner_parties = [state.subjects.get(k) for k in principals
+                             if k != work.customer]
+            internal = bool(
+                customer is not None and customer.kind == "DIVISION"
+                and owner_parties
+                and all(p is not None and p.kind == "EMPLOYEE"
+                        and p.organization == customer.organization
+                        for p in owner_parties)
+            )
+            applicability = (
+                "ORIGINAL_INTRA_DIVISION_EMPLOYEE_WORK" if internal
+                else "INTERFIRM_ORIGINALS_OUTSIDE_INTRA_SCOPE" if multi_owner
+                else "INTRA_STAFF_AND_DIVISIONS_NOT_MODELLED"
+            )
         elif configuration in {"inter", "operator"}:
             applicability = ("ORIGINAL_MULTI_PRINCIPAL_REVIEW_ONLY" if multi_owner
                              else "NO_INTERFIRM_ORIGINAL_WORK")
@@ -125,7 +138,6 @@ def _original_work_projection(state: Any, configuration: str) -> list[dict[str, 
 # Forms needing employees, institutions, sector rules or persons fail closed
 # until those actual subject classes are implemented in the original model.
 ORIGINAL_FORM_MISSING_ACTOR_REASON = {
-    "intra": "FORMATION_AUTHOR_INTRA_EMPLOYEES_DIVISIONS_NOT_MODELLED",
     "sector": "FORMATION_AUTHOR_SECTOR_STANDARDS_ACTORS_NOT_MODELLED",
     "macro": "FORMATION_AUTHOR_PUBLIC_INSTITUTION_NOT_MODELLED",
     "trace": "FORMATION_AUTHOR_NATURAL_PERSON_RIGHTS_NOT_MODELLED",
@@ -143,6 +155,42 @@ def original_configuration_commit_gate(design: Any, state: Any,
     config = design.configuration
     if config in ORIGINAL_FORM_MISSING_ACTOR_REASON:
         return ORIGINAL_FORM_MISSING_ACTOR_REASON[config]
+    if config == "intra":
+        if (design.morphology["scale"] != "Внутрифирменные"
+                or design.morphology["governance"] not in {
+                    "Централизованные", "смешанные",
+                }):
+            return "FORMATION_AUTHOR_INTRA_MORPHOLOGY_CONFLICT"
+        customer = state.subjects.get(work.customer)
+        if customer is None or customer.kind != "DIVISION":
+            return "FORMATION_AUTHOR_INTRA_ORIGINAL_DIVISION_REQUIRED"
+        enterprise = state.subjects.get(customer.organization)
+        if enterprise is None or enterprise.kind != "SME" or not enterprise.active:
+            return "FORMATION_AUTHOR_INTRA_PARENT_ENTERPRISE_INACTIVE"
+        owners = state.capacity_ledger.original_owners(
+            work.resource_requirements
+        )
+        if not owners or customer.key in owners:
+            return "FORMATION_AUTHOR_INTRA_EMPLOYEE_RESOURCE_REQUIRED"
+        for owner in owners:
+            participant = state.subjects.get(owner)
+            if (participant is None or participant.kind != "EMPLOYEE"
+                    or participant.organization != customer.organization
+                    or not participant.active):
+                return "FORMATION_AUTHOR_INTRA_INDEPENDENT_EMPLOYEE_REQUIRED"
+        for member in (customer, *(state.subjects[p] for p in sorted(owners))):
+            if (not member.active or not member.affiliation_source_ref
+                    or not member.affiliation_source_ref.startswith(
+                        f"model://{customer.organization}/"
+                    )
+                    or not member.self_role_source_ref
+                    or not member.self_role_source_ref.startswith(
+                        f"model://{member.key}/"
+                    )):
+                return "FORMATION_AUTHOR_INTRA_ORIGINAL_ROLE_SOURCE_REQUIRED"
+        # SOURCE_ONLY affiliation does not give employer power to sign
+        # employee Work, or employee rights to own company assets.
+        return "NONE"
     if config not in {"inter", "operator"}:
         return "FORMATION_AUTHOR_CONFIGURATION_NOT_QUALIFIED"
     parties = _original_principals(state, work)
@@ -279,7 +327,14 @@ def configuration_dynamics(design: Any, state: Any, *, at: float,
                   has_operator and cross_owner_work else
                   "OPERATOR_AND_INTERFIRM_SCOPE_UNQUALIFIED")
     elif design.configuration == "intra":
-        status = "INTRA_DIVISION_AND_EMPLOYEE_ROLES_NOT_EXECUTABLE"
+        status = (
+            "ORIGINAL_INTRA_DIVISION_EMPLOYEE_WORK_PARTIAL"
+            if any(
+                w["configuration_applicability"] ==
+                "ORIGINAL_INTRA_DIVISION_EMPLOYEE_WORK" for w in work_rows
+            )
+            else "INTRA_DIVISION_AND_EMPLOYEE_ROLES_NOT_EXECUTABLE"
+        )
     else:
         status = "AUTHOR_EXTENDED_CONFIGURATION_ROLES_NOT_EXECUTABLE"
     return {

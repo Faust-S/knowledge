@@ -148,6 +148,11 @@ class Party:
     key: str
     kind: str
     active: bool = True
+    # R1-V2: original within-enterprise roles, not new company owners.
+    # These owner-scoped model references are NOT authenticated credentials.
+    organization: str | None = None
+    affiliation_source_ref: str | None = None
+    self_role_source_ref: str | None = None
 
 
 @dataclass
@@ -211,11 +216,43 @@ class QualitativeAKIS:
             raise InputError("INVALID_SUBJECTS")
         self.subjects: dict[str, Party] = {}
         for obj in scenario["subjects"]:
-            _keys_exact(obj, {"id", "kind"}, set(), "SUBJECT")
+            _keys_exact(obj, {"id", "kind"}, {
+                "organization", "affiliation_source_ref",
+                "self_role_source_ref",
+            }, "SUBJECT")
             key = _id(obj["id"], "subject")
-            if obj["kind"] not in {"SME", "OPERATOR"} or key in self.subjects:
+            kind = obj["kind"]
+            if kind not in {"SME", "OPERATOR", "DIVISION", "EMPLOYEE"} or key in self.subjects:
                 raise InputError("INVALID_OR_DUPLICATE_SUBJECT")
-            self.subjects[key] = Party(key, obj["kind"])
+            if kind in {"DIVISION", "EMPLOYEE"}:
+                if set(obj) != {
+                    "id", "kind", "organization", "affiliation_source_ref",
+                    "self_role_source_ref",
+                }:
+                    raise InputError("INTRAFIRM_ROLE_REQUIRES_ORIGINAL_SOURCES")
+                enterprise = _id(obj["organization"], "organization")
+                parent_ref = obj["affiliation_source_ref"]
+                own_ref = obj["self_role_source_ref"]
+                if (enterprise == key or not isinstance(parent_ref, str)
+                        or not parent_ref.startswith(f"model://{enterprise}/")
+                        or not isinstance(own_ref, str)
+                        or not own_ref.startswith(f"model://{key}/")
+                        or any(len(ref) > 180 for ref in (parent_ref, own_ref))):
+                    raise InputError("INTRAFIRM_ROLE_OWNER_SOURCE_INVALID")
+                self.subjects[key] = Party(
+                    key, kind, organization=enterprise,
+                    affiliation_source_ref=parent_ref,
+                    self_role_source_ref=own_ref,
+                )
+            else:
+                if set(obj) != {"id", "kind"}:
+                    raise InputError("INTRAFIRM_FIELDS_FOR_ENTERPRISE_FORBIDDEN")
+                self.subjects[key] = Party(key, kind)
+        for party in self.subjects.values():
+            if party.kind in {"DIVISION", "EMPLOYEE"} and (
+                    party.organization not in self.subjects
+                    or self.subjects[party.organization].kind != "SME"):
+                raise InputError("INTRAFIRM_ROLE_REQUIRES_REAL_ORIGINAL_SME")
         op = _id(ins["operator"], "operator")
         if op not in self.subjects or self.subjects[op].kind != "OPERATOR":
             raise InputError("MISSING_OR_INVALID_OPERATOR")
@@ -223,6 +260,9 @@ class QualitativeAKIS:
         council = tuple(ins["council_members"])
         if len(founders) != len(set(founders)) or len(council) != len(set(council)) or not set(founders + council).issubset(self.subjects):
             raise InputError("INVALID_GOVERNANCE_OWNERS")
+        if any(self.subjects[p].kind not in {"SME", "OPERATOR"}
+               for p in founders + council):
+            raise InputError("INTRAFIRM_ROLE_CANNOT_ACT_AS_ORIGINAL_FOUNDER")
         self.institution = Institution(
             operator=op, founders=founders, mode=ins["mode"], revision=_id(ins["revision"], "revision"),
             council_members=council, council_quorum=ins["council_quorum"], council_rule=ins["council_rule"],
@@ -1144,6 +1184,28 @@ class QualitativeAKIS:
         self.trace.append(report)
         return report
 
+    def _guard_original_intrafirm_role_work(self, work: Work) -> None:
+        """An original human/department role is not a fictitious SME.
+
+        No original Work obligation can be created for such a role unless
+        the selected author intra form and its existing source/phase policy
+        are enabled. All independent Work consents remain mandatory.
+        """
+        principals = (
+            self.capacity_ledger.original_owners(work.resource_requirements)
+            | {work.customer}
+        )
+        if not any(self.subjects[p].kind in {"DIVISION", "EMPLOYEE"}
+                   for p in principals):
+            return
+        gate = self.formation_policy
+        if (gate is None
+                or not gate.design.enforce_model_author_configuration_work_scope
+                or gate.design.configuration != "intra"):
+            raise BlockedDecision(
+                "INTRAFIRM_ORIGINAL_ROLE_REQUIRES_SELECTED_FORM_GATE"
+            )
+
     def _request_work(self, ev: dict[str, Any], at: int) -> dict[str, Any] | None:
         spec = ev.get("work_spec")
         if isinstance(spec, dict):
@@ -1177,6 +1239,7 @@ class QualitativeAKIS:
             raise BlockedDecision(
                 "ORIGINAL_FUTURE_WORK_DECLARATION_INVALID:" + str(exc)
             ) from exc
+        self._guard_original_intrafirm_role_work(work)
         if work.key in self.works:
             raise BlockedDecision("WORK_ALREADY_EXISTS")
         if len(self.works) >= 256:
@@ -1237,7 +1300,14 @@ class QualitativeAKIS:
                      if entry.key == ev.get("cooperation_link")), None)
         if link is None or actor not in link.participants:
             raise BlockedDecision("PARTICIPATION_ORIGINAL_MEMBER_REQUIRED")
-        if self.subjects[actor].kind != "SME":
+        original_role = self.subjects[actor].kind in {"DIVISION", "EMPLOYEE"}
+        intrafirm_enabled = bool(
+            self.formation_policy is not None
+            and self.formation_policy.design.enforce_model_author_configuration_work_scope
+            and self.formation_policy.design.configuration == "intra"
+        )
+        if self.subjects[actor].kind != "SME" and not (
+                original_role and intrafirm_enabled):
             raise BlockedDecision("PARTICIPATION_ORIGINAL_ENTERPRISE_REQUIRED")
         if ev.get("cooperation_source_revision") != link.source_revision:
             raise BlockedDecision("COOPERATION_SOURCE_REVISION_STALE")
@@ -1365,6 +1435,11 @@ class QualitativeAKIS:
     def _work_action(self, w: Work, ev: dict[str, Any], at: int) -> None:
         a = ev["action"]
         actor = ev["actor"]
+        if a in {
+                "offer", "authorize", "consent", "commit", "start", "complete",
+                "accept", "reject", "resubmit",
+        }:
+            self._guard_original_intrafirm_role_work(w)
         if self.context_basis is not None:
             self.context_basis.assert_allowed(w.key, a, actor, at)
         if a == "offer":
@@ -1685,7 +1760,20 @@ class QualitativeAKIS:
             "evidence": "MODEL_ONLY",
             "profit": {"operator": "UNKNOWN", "participants": "UNKNOWN", "system_increment": "UNKNOWN"},
             "institution": {"mode": self.institution.mode, "revision": self.institution.revision, "resource_distribution_is_distinct": True},
-            "subjects": {k: {"kind": v.kind, "active_for_new_work": v.active} for k, v in sorted(self.subjects.items())},
+            "subjects": {
+                k: {
+                    "kind": v.kind,
+                    "active_for_new_work": v.active,
+                    **({
+                        "original_enterprise": v.organization,
+                        "source_qualified_role_declarations": bool(
+                            v.affiliation_source_ref and v.self_role_source_ref
+                        ),
+                        "real_identity_or_employment_verified": False,
+                    } if v.kind in {"DIVISION", "EMPLOYEE"} else {}),
+                }
+                for k, v in sorted(self.subjects.items())
+            },
             "resources": {k: {"owner": owner, "availability": self.resource_availability[k], "basis": self.resource_availability_origin[k]} for k, owner in sorted(self.resources.items())},
             "works": {k: {"proposal": w.proposal, "requested_by": w.requester, "requested_at": w.request_at, "authorized": w.admitted, "authorization_org_revision": w.authorization_org_revision, "obligation": w.obligation, "execution": w.execution, "result": w.result, "original_customer": w.customer, "resource_owner": self.resources[w.resource], "source_revision": w.source_revision, "commitment_org_revision": w.commitment_org_revision, "result_ref": w.result_ref, "consenting_principals": sorted(w.consents)} for k, w in sorted(self.works.items())},
             "trace": list(self.trace),

@@ -404,7 +404,7 @@ class OperatorAKISModel(mesa.Model):
                 # original owners' consent. Other author forms require subject
                 # classes not present in this original model and fail closed.
                 allowed = (
-                    {"operator", "inter"}
+                    {"operator", "inter", "intra"}
                     if self.general_design.enforce_model_author_configuration_work_scope
                     else {"operator"}
                 )
