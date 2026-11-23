@@ -39,6 +39,19 @@ def scenario(*, strict=False):
     ]
     if strict:
         sources = d["context_evidence"]["sources"]
+        # Use the existing strict ContextBasis permission structure; quality
+        # evidence is never exempted from the original Work action rights.
+        sources.append({
+            "id": "model://op/rights-assess_result_quality",
+            "owner": "op", "revision": "right-r1",
+            "status": "CONFIRMED", "usable_by": ["op", "a", "b", "c", "d"],
+            "valid_until": 100,
+        })
+        d["context_evidence"]["requirements"].append({
+            "work": "w1", "action": "assess_result_quality",
+            "sources": ["model://op/rights-assess_result_quality"],
+            "expected_revisions": ["right-r1"],
+        })
         for name in (
                 "criterion-form-surface", "criterion-form-record",
                 "criterion-finish-product", "w1c-assurance-terms"):
