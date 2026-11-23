@@ -147,7 +147,7 @@ test('forged signed ACK, forged original source head, or rejected permissions fa
   f.signed.originalSignatureVerified=true;
   f.proof.originalSourceEventId='event:forged';
   await assert.rejects(recoverT4OriginalNetworkSourceCursor(f.props),
-    isCode('CURSOR_ORIGINAL_T3_SOURCE_EVENT_CHANGED'));
+    isCode('CURSOR_ORIGINAL_SOURCE_INTENT_NOT_BOUND'));
   f.proof.originalSourceEventId=event.event_id;
   f.deny();
   await assert.rejects(recoverT4OriginalNetworkSourceCursor(f.props),
