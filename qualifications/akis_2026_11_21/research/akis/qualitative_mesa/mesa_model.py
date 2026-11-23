@@ -43,6 +43,9 @@ from .general_system import (
 )
 from .org_code_policy import OrgCodeInputError, parse_org_code_policy
 from .economic_flow import EconomicInputError, evaluate_economic_claims
+from .strict_economic_source_review import (
+    StrictEconomicSourceBlocked, review_original_strict_economic_sources,
+)
 from .competence_reuse import ReuseInputError, evaluate_competence_reuse
 from .competence_transfer import CompetencePermissionInputError, review_permissions
 from .work_counterfactual import WorkCounterfactualInputError, review_work_counterfactuals
@@ -259,6 +262,16 @@ class OperatorAKISModel(mesa.Model):
         if self.competence_permissions_raw is not None and self.competence_reuse_raw is None:
             raise InputError("REUSE_PERMISSION_REQUIRES_ORIGINAL_EVIDENCE")
         self.economic_claims = research_input.pop("economic_claims", None)
+        # Optional stronger research qualification: original owner-held
+        # economic source rights checked by the SAME strict ContextBasis.
+        self.strict_economic_source_work = research_input.pop(
+            "strict_economic_source_work", None
+        )
+        if self.strict_economic_source_work is not None:
+            if (not isinstance(self.strict_economic_source_work, str)
+                    or not self.strict_economic_source_work.strip()
+                    or self.economic_claims is None):
+                raise InputError("ORIGINAL_STRICT_ECONOMIC_WORK_AND_LEDGER_REQUIRED")
         self.work_counterfactual_raw = research_input.pop("work_counterfactuals", None)
         if self.work_counterfactual_raw is not None and self.economic_claims is None:
             raise InputError("COUNTERFACTUAL_REQUIRES_ORIGINAL_ECONOMIC_CLAIMS")
@@ -1138,6 +1151,18 @@ class OperatorAKISModel(mesa.Model):
                 )
             except EconomicInputError as exc:
                 raise InputError(str(exc)) from exc
+            if self.strict_economic_source_work is not None:
+                try:
+                    output["economics"][
+                        "original_strict_context_source_qualification"
+                    ] = review_original_strict_economic_sources(
+                        state=self.qualitative,
+                        original_claims=self.economic_claims,
+                        work_id=self.strict_economic_source_work,
+                        at=int(self.time),
+                    )
+                except StrictEconomicSourceBlocked as exc:
+                    raise InputError(str(exc)) from exc
             if ("joint_purchasing_ancillary_original_bindings" in self.economic_claims
                     and "joint_purchasing_original_cash_bindings" not in self.economic_claims):
                 raise InputError("PURCHASE_ANCILLARY_REQUIRES_ORIGINAL_PURCHASE_PRICE_REFERENCES")
