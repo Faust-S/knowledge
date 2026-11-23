@@ -50,6 +50,8 @@ import {createT4OriginalHostExchangeCycle}
   from '../src/network/original-host-exchange-cycle.mjs';
 import {createT4OriginalNetworkReplayPort}
   from '../src/network/original-network-replay-checkpoint.mjs';
+import {createT4OriginalNetworkSessionPhasePort}
+  from '../src/network/original-network-session-phases.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame}
   from '../src/network/standard-network-wire-candidate.mjs';
 import {createT4CandidateFrameTransport}
@@ -2855,6 +2857,180 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(nativeReplayEvents.filter(e=>
         e.event_type==='t4.network.original.frame.replay.checkpoint')
         .length,1);
+      // P2.2-B: the original T3, not a T4 Store, persists a separate
+      // per-peer SOURCE and RECIPIENT chain. The receipt is technical;
+      // no business application may be inferred from VERIFIED_ACK.
+      const networkPhaseSession='session:original:phase:'+randomUUID();
+      const networkPhaseChange='change:original:phase:'+randomUUID();
+      const networkPhaseDigest='sha256:'+nativeNetworkSent.sha256;
+      const originalPhaseIntent={
+        evidenceRef:followup.capture.window.lastEventId,
+        evidenceDigest:followup.capture.window.windowDigest,
+      };
+      const networkPhaseSent={
+        evidenceRef:nativeNetworkSent.key,
+        evidenceDigest:networkPhaseDigest,
+      };
+      const networkPhaseReceived={
+        evidenceRef:nativeNetworkSent.key,
+        evidenceDigest:networkPhaseDigest,
+      };
+      const networkPhaseVerified={
+        evidenceRef:'original:network:signature:verified',
+        evidenceDigest:networkPhaseDigest,
+      };
+      let sourcePhaseHostSession='original:phase:source:initial';
+      let recipientPhaseHostSession='original:phase:recipient:initial';
+      const originalSourcePhase=()=>createT4OriginalNetworkSessionPhasePort({
+        originalKernel:mutationKernel,
+        technicalWorkspaceId:sourceCaptureWorkspace,
+        originalWriteOwnerRef:'original:t2:exchange',
+        sourceNodeRef:'node:original:source',
+        recipientNodeRef:'node:original:recipient',
+        localNodeRef:'node:original:source',
+        scopeRef:'scope:original:network:phases',
+        sessionRef:networkPhaseSession,changeId:networkPhaseChange,
+        ownerEpoch:2,getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId:sourceCaptureWorkspace,
+          originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:source',
+          scopeRef:'scope:original:network:phases',
+          hostSessionRef:sourcePhaseHostSession,
+        }),
+        authorizeOriginalTechnicalRead:async p=>
+          actual.grants.includes(p.operation),
+        authorizeOriginalTechnicalWrite:async p=>
+          actual.grants.includes(p.operation),
+        verifyOriginalPhaseEvidence:async proof=>{
+          if(proof.phase==='INTENT'){
+            const original=await sourceKernel.getObject(
+              workspaceId,linkedObjectId);
+            const events=await sourceKernel.listEventsSince(workspaceId);
+            return proof.evidence.evidenceRef===
+                followup.capture.window.lastEventId&&
+              proof.evidence.evidenceDigest===
+                followup.capture.window.windowDigest&&
+              original?.object?.revision===9&&
+              events.some(e=>e.event_id===
+                followup.capture.window.lastEventId);
+          }
+          return proof.phase==='PUBLISHED'&&
+            proof.evidence.evidenceRef===nativeNetworkSent.key&&
+            nativeNetworkSent.immutableTransportReadback===true&&
+            proof.evidence.evidenceDigest===networkPhaseDigest;
+        },
+        verifyOriginalRecipientApplied:async()=>false,
+      });
+      const originalRecipientPhase=()=>createT4OriginalNetworkSessionPhasePort({
+        originalKernel:replayKernel,
+        technicalWorkspaceId:nativeReplayWorkspace,
+        originalWriteOwnerRef:'original:t2:exchange',
+        sourceNodeRef:'node:original:source',
+        recipientNodeRef:'node:original:recipient',
+        localNodeRef:'node:original:recipient',
+        scopeRef:'scope:original:network:phases',
+        sessionRef:networkPhaseSession,changeId:networkPhaseChange,
+        ownerEpoch:2,getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId:nativeReplayWorkspace,
+          originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:recipient',
+          scopeRef:'scope:original:network:phases',
+          hostSessionRef:recipientPhaseHostSession,
+        }),
+        authorizeOriginalTechnicalRead:async p=>
+          receiving.operations.includes(p.operation),
+        authorizeOriginalTechnicalWrite:async p=>
+          receiving.operations.includes(p.operation),
+        verifyOriginalPhaseEvidence:async proof=>{
+          const valid=nativeAfterCold.originalReplayCheckpointRecorded===
+            true&&nativeAfterCold.originalSignatureVerified===true;
+          if(proof.phase==='RECEIVED')return valid&&
+            proof.evidence.evidenceRef===nativeNetworkSent.key&&
+            proof.evidence.evidenceDigest===networkPhaseDigest;
+          return proof.phase==='VERIFIED'&&valid&&
+            proof.evidence.evidenceRef===
+              'original:network:signature:verified'&&
+            proof.evidence.evidenceDigest===networkPhaseDigest;
+        },
+        verifyOriginalRecipientApplied:async()=>false,
+      });
+      const phaseFirst=await originalSourcePhase()
+        .advanceOriginalSessionPhase({
+          phase:'INTENT',evidence:originalPhaseIntent,
+        });
+      assert.equal(phaseFirst.revision,1);
+      await originalSourcePhase().advanceOriginalSessionPhase({
+        phase:'PUBLISHED',evidence:networkPhaseSent,
+      });
+      await originalRecipientPhase().advanceOriginalSessionPhase({
+        phase:'RECEIVED',evidence:networkPhaseReceived,
+      });
+      await originalRecipientPhase().advanceOriginalSessionPhase({
+        phase:'VERIFIED',evidence:networkPhaseVerified,
+      });
+      await assert.rejects(originalRecipientPhase()
+        .advanceOriginalSessionPhase({
+          phase:'APPLIED',evidence:{
+            evidenceRef:'network:ack:is:not:subject:result',
+            evidenceDigest:networkPhaseDigest,
+            originalRecipientEventId:'event:unverified:recipient',
+            originalRecipientRevision:1,
+            originalRecipientStateDigest:networkPhaseDigest,
+          },
+        }),e=>e?.code==='PHASE_ORIGINAL_APPLIED_NOT_PROVEN');
+      await sourceContext.close();sourceContext=null;
+      await recipientContext.close();recipientContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      recipientContext=await launch(recipientProfile);
+      recipientPage=await opened(recipientContext);
+      sourcePhaseHostSession='original:phase:source:after-cold';
+      recipientPhaseHostSession='original:phase:recipient:after-cold';
+      const sourcePhaseRestored=await originalSourcePhase()
+        .inspectOriginalSession();
+      const recipientPhaseRestored=await originalRecipientPhase()
+        .inspectOriginalSession();
+      assert.equal(sourcePhaseRestored.currentPhase,'PUBLISHED');
+      assert.equal(recipientPhaseRestored.currentPhase,'VERIFIED');
+      assert.equal(sourcePhaseRestored.revision,2);
+      assert.equal(recipientPhaseRestored.revision,2);
+      assert.equal(sourcePhaseRestored.originalBusinessApplied,false);
+      assert.equal(recipientPhaseRestored.originalBusinessApplied,false);
+      assert.equal((await originalSourcePhase()
+        .advanceOriginalSessionPhase({
+          phase:'PUBLISHED',evidence:networkPhaseSent,
+        })).status,'ALREADY_CONFIRMED');
+      assert.equal((await originalRecipientPhase()
+        .advanceOriginalSessionPhase({
+          phase:'VERIFIED',evidence:networkPhaseVerified,
+        })).status,'ALREADY_CONFIRMED');
+      const sourcePhaseEvents=(await mutationKernel.listEventsSince(
+        sourceCaptureWorkspace)).filter(e=>
+        e.object_id===sourcePhaseRestored.checkpointRef&&
+        e.event_type==='t4.network.original.session.phase');
+      const recipientPhaseEvents=(await replayKernel.listEventsSince(
+        nativeReplayWorkspace)).filter(e=>
+        e.object_id===recipientPhaseRestored.checkpointRef&&
+        e.event_type==='t4.network.original.session.phase');
+      assert.equal(sourcePhaseEvents.length,2);
+      assert.equal(recipientPhaseEvents.length,2);
+      console.log('T4_REAL_ORIGINAL_T3_NETWORK_SESSION_PHASE_COLD_CAS_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          originalT3SourcePhases:['INTENT','PUBLISHED'],
+          originalT3RecipientPhases:['RECEIVED','VERIFIED'],
+          originalT3SourcePhaseEvents:sourcePhaseEvents.length,
+          originalT3RecipientPhaseEvents:recipientPhaseEvents.length,
+          bothOriginalHostsColdRestarted:true,
+          originalT3PhaseCASReadback:true,
+          originalT3SignedAckNotBusinessApplied:true,
+          originalT3SessionStageWritesNotRepeated:true,
+          originalT3ExchangeUsedForNativePhase:false,
+          independentPhysicalDevices:false,
+        }));
+
       nativeNetworkTransport.close();
       console.log('T4_REAL_ORIGINAL_T3_NETWORK_REPLAY_COLD_CAS_PASS',
         JSON.stringify({
