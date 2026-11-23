@@ -421,8 +421,9 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             if (latest["decision"] == "TERMINATE" or
                     _fmt(prior_cost) != latest["lot"]["future_resource_cost"]):
                 _fail("WIP_LATEST_ATTEMPT_COST_MISMATCH")
-        material = (_operation_material(
-            state, work, op, ev.get("wip_material_batch")
+        material = (_selected_material(
+            state, work, op, ev.get("wip_material_batch"),
+            ev.get("wip_material_batches"),
         ) if op is not None else None)
         pause = {
             "number": len(work.wip_interruptions) + 1,
@@ -506,17 +507,27 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             next_window = [start, end]
         lot = _lot(state, work, ev.get("wip_terms"), pause, decision)
         material = None
+        batch_inspections = None
         if op is not None:
-            material = _operation_material(
-                state, work, op, ev.get("wip_material_batch")
+            material = _selected_material(
+                state, work, op, ev.get("wip_material_batch"),
+                ev.get("wip_material_batches"),
             )
             if material != pause["material"]:
                 _fail("WIP_ORIGINAL_MATERIAL_SOURCE_CHANGED")
-            if lot["total_units"] > int(material["planned_quantity"]):
-                _fail("WIP_OPERATION_EXCEEDS_ORIGINAL_BATCH_QUANTITY")
-            if (not work.wip_amendments and
-                    lot["total_units"] != int(material["planned_quantity"])):
-                _fail("WIP_FIRST_OPERATION_ATTEMPT_MUST_COVER_ORIGINAL_BATCH")
+            if isinstance(material, list):
+                batch_inspections = _batch_inspections(
+                    state, work, ev.get("wip_batch_inspections"),
+                    material, lot, owner,
+                )
+            else:
+                if ev.get("wip_batch_inspections") is not None:
+                    _fail("WIP_SINGLE_BATCH_CANNOT_DECLARE_GROUP_INSPECTIONS")
+                if lot["total_units"] > int(material["planned_quantity"]):
+                    _fail("WIP_OPERATION_EXCEEDS_ORIGINAL_BATCH_QUANTITY")
+                if (not work.wip_amendments and
+                        lot["total_units"] != int(material["planned_quantity"])):
+                    _fail("WIP_FIRST_OPERATION_ATTEMPT_MUST_COVER_ORIGINAL_BATCH")
             if decision != "TERMINATE":
                 old_spec = state.resource_specs[resource]
                 new_spec = state.resource_specs[new_resource]
@@ -532,14 +543,15 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             _fail("WIP_TERMINATION_HAS_NO_NEXT_EXECUTION")
         required_owners = {owner, work.customer} | ({target_owner} if target_owner else set())
         if material is not None:
-            required_owners |= {
-                material["declared_title_holder"],
-                material["origin_source_owner"],
-                material["quality_spec_owner"],
-                material["inbound_origin_source_owner"],
-                material["inbound_quality_spec_owner"],
-                material["inbound_receiver_owner"],
-            }
+            for item in _material_rows(material):
+                required_owners |= {
+                    item["declared_title_holder"],
+                    item["origin_source_owner"],
+                    item["quality_spec_owner"],
+                    item["inbound_origin_source_owner"],
+                    item["inbound_quality_spec_owner"],
+                    item["inbound_receiver_owner"],
+                }
             required_owners |= {
                 h.receiver for h in work.handoffs if h.upstream == op.key
             }
@@ -550,14 +562,24 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             if lot[key]:
                 evidence.append((lot[key], owner))
         if material is not None:
-            evidence.extend((
-                (material["origin_ref"], material["origin_source_owner"]),
-                (material["quality_spec_ref"], material["quality_spec_owner"]),
-                (material["inbound_origin_ref"], material["inbound_origin_source_owner"]),
-                (material["inbound_quality_spec_ref"], material["inbound_quality_spec_owner"]),
-                (material["inbound_receipt_ref"], material["inbound_receiver_owner"]),
-                (material["inbound_quality_ref"], material["inbound_receiver_owner"]),
-            ))
+            if batch_inspections is not None:
+                evidence.extend((row["inspection_ref"], owner)
+                                for row in batch_inspections)
+            original_refs = []
+            for item in _material_rows(material):
+                original_refs.extend((
+                    (item["origin_ref"], item["origin_source_owner"]),
+                    (item["quality_spec_ref"], item["quality_spec_owner"]),
+                    (item["inbound_origin_ref"], item["inbound_origin_source_owner"]),
+                    (item["inbound_quality_spec_ref"], item["inbound_quality_spec_owner"]),
+                    (item["inbound_receipt_ref"], item["inbound_receiver_owner"]),
+                    (item["inbound_quality_ref"], item["inbound_receiver_owner"]),
+                ))
+            # A common original specification may legitimately govern two
+            # independent physical batches. Do not double-count its source.
+            for ref, ref_owner in original_refs:
+                if (ref, ref_owner) not in evidence:
+                    evidence.append((ref, ref_owner))
         if len({ref for ref, _ in evidence}) != len(evidence):
             _fail("WIP_ORIGINAL_EVIDENCE_REFERENCES_MUST_BE_DISTINCT")
         snapshots = {
@@ -578,6 +600,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             "proposal_source_revision": source_revision,
             "source_revisions": snapshots, "cooperation": collaboration,
             "operation": op.key if op else None, "material": material,
+            "batch_inspections": batch_inspections,
         }
         proposal = {
             **doc, "fingerprint": fingerprint(doc), "created_at": at,
@@ -586,7 +609,8 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         work.wip_proposal = proposal
         return {"wip_phase": "PROPOSED", "wip_id": proposal_id,
                 "wip_fingerprint": proposal["fingerprint"],
-                "wip_reviewers": required, "wip_lot": lot}
+                "wip_reviewers": required, "wip_lot": lot,
+                "wip_batch_inspections": batch_inspections}
     proposal = work.wip_proposal
     if action in {"wip_handoff_dispatch", "wip_handoff_receive",
                   "wip_handoff_quality"}:
