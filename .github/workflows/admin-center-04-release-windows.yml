@@ -334,7 +334,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $center='.private/center'
-          $setup=Join-Path $center 'artifacts/iwxa-setup-core-center-private-d3.exe'
+          $setup=(Resolve-Path -LiteralPath (Join-Path $center 'artifacts/iwxa-setup-core-center-private-d3.exe')).Path
           Push-Location $center
           try {
             $result=& python -m installer.build_bundle inspect $setup | ConvertFrom-Json
