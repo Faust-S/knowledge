@@ -4312,6 +4312,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.deepEqual((await p2eCursorPort()
         .inspectOriginalHostCursor()).originalT3NextCursor,
         p2eNextAfterCold.nextCursor);
+      await assert.rejects(p2eCursorPort().commitAcknowledgedCursor({
+        recovery:p2eRecovery,
+      }),error=>error?.code==='HOST_CURSOR_CAUSAL_GAP_OR_CONCURRENT_ACK'&&
+        error.details.automaticRetryAllowed===false);
+      assert.equal(p2eFrontierPutCalls,2);
       console.log('T4_REAL_ORIGINAL_T3_HISTORICAL_RESULT_SURVIVES_NEXT_REV_PASS',
         JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,
@@ -4322,6 +4327,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalRecipientOldSessionStillApplied:true,
           oldSignedACKPrefixRecoveredAfterNewSourceEvent:true,
           currentOriginalHostFrontierNotRewound:true,
+          staleSignedACKCannotWriteOlderOriginalT3Cursor:true,
           historicalBytesClaimedReconstructed:false,
           historicalResultCannotMintNewAppliedAck:true,
           independentHistoricalAntiForkWitness:false,
