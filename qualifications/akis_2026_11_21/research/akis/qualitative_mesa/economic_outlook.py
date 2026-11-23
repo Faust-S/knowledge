@@ -13,6 +13,8 @@ from decimal import Decimal
 import re
 from typing import Any, Mapping, Sequence
 
+from .context_basis import ContextBlocked
+
 
 class OutlookInputError(ValueError):
     """Invalid declared hypothesis, not a real business finding."""
@@ -33,7 +35,7 @@ _FIELDS = frozenset({
     "org_revision", "available_at", "expires_at", "source_ref", "period",
     "currency", "coverage", "outside_feasibility", "minimum_extra_cash", "cash",
 })
-_OPTIONAL_FIELDS = frozenset({"requires_accepted_results"})
+_OPTIONAL_FIELDS = frozenset({"requires_accepted_results", "source_revision"})
 
 
 def _id(value: Any, key: str) -> str:
@@ -66,6 +68,7 @@ class OwnerOutlook:
     minimum_extra_cash: Decimal
     cash: Mapping[str, Mapping[str, Decimal]]
     requires_accepted_results: tuple[tuple[str, str], ...] = ()
+    source_revision: str | None = None
 
 
 def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
@@ -138,13 +141,17 @@ def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
             _id(record["org_revision"], "ORG_REVISION"), available, expires, source,
             _id(record["period"], "PERIOD"), currency, coverage, outside,
             _amount(record["minimum_extra_cash"]), cash, tuple(prereqs),
+            (_id(record["source_revision"], "SOURCE_REVISION")
+             if "source_revision" in record else None),
         ))
     return tuple(sorted(parsed, key=lambda x: (x.available_at, x.owner, x.work, x.relation)))
 
 
 def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                    org_revision: str, links: Sequence[Any], at: float,
-                   works: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                   works: Mapping[str, Any] | None = None,
+                   context_basis: Any | None = None,
+                   owner_core: str | None = None) -> dict[str, Any]:
     """Use only current owner's information at model time, never end-of-run claims."""
     matching = [row for row in outlooks if row.owner == owner and row.work == work.key and
                 row.available_at <= at < row.expires_at and
@@ -161,6 +168,34 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
     if len(candidates) != 1:
         return {"position": "UNKNOWN", "reason": "MULTIPLE_RELATIONS_REQUIRE_OWNER_CHOICE"}
     row = candidates[0]
+    # Original strict KPB controls whether THIS owner may use the current
+    # edition of its own economic forecast. A model:// prefix alone cannot
+    # qualify a version, status, purpose, operation, owner or expiry.
+    # In non-strict legacy experiments the original research-only semantics
+    # remain unchanged. No forecast ever becomes a signature or actual cash.
+    if context_basis is not None and context_basis.strict:
+        qualified = (
+            isinstance(row.source_revision, str)
+            and owner_core in {"operator", "institutional", "corporate", "personal"}
+            and type(at) in (int, float) and 0 <= at <= 10000
+            and int(at) == at
+        )
+        if qualified:
+            try:
+                context_basis.assert_original_form_role_source(
+                    owner, row.source_ref, row.source_revision,
+                    core=owner_core, purpose="AKIS_ECONOMIC_WORK_EVIDENCE",
+                    operation="READ", recipients={owner}, at=int(at),
+                )
+            except ContextBlocked:
+                qualified = False
+        if not qualified:
+            return {
+                "position": "UNKNOWN",
+                "reason": "ORIGINAL_OWNER_ECONOMIC_SOURCE_NOT_QUALIFIED",
+                "relation": row.relation,
+                "available_at": row.available_at,
+            }
     if row.requires_accepted_results:
         if works is None:
             return {"position": "UNKNOWN", "reason": "PRIOR_RESULT_CONTEXT_MISSING",
