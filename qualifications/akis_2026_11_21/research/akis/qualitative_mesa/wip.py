@@ -138,9 +138,13 @@ def _operation_context(state: Any, work: Any, ev: Mapping[str, Any],
             op.resource_requirements[0].resource != op.primary_resource):
         _fail("WIP_OPERATION_MULTI_RESOURCE_ROUTE_REQUIRES_SEPARATE_QUALIFICATION")
     if action == "wip_interrupt":
-        if (work.operation_states[key] != "IN_PROGRESS" or
-                sum(x == "IN_PROGRESS" for x in work.operation_states.values()) != 1):
+        if work.operation_states[key] != "IN_PROGRESS":
             _fail("WIP_ORIGINAL_OPERATION_NOT_EXCLUSIVELY_STARTED")
+        # A second interrupted branch needs a separate concurrent proposal
+        # lifecycle. Do not silently overwrite the latest amendment.
+        if any(status == "PAUSED" for other, status in work.operation_states.items()
+               if other != key):
+            _fail("WIP_ANOTHER_ORIGINAL_OPERATION_ALREADY_PAUSED")
     else:
         latest = work.wip_interruptions[-1] if work.wip_interruptions else None
         if latest is None or latest.get("operation") != key:
@@ -329,11 +333,20 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         work.wip_interruptions.append(pause)
         if op is not None:
             work.operation_states[op.key] = "PAUSED"
-        work.execution = "PAUSED"
+        # The original Work remains executable while an independent branch
+        # continues. PAUSED describes no active operation, not the whole DAG.
+        work.execution = ("IN_PROGRESS" if op is not None and any(
+            status == "IN_PROGRESS" for status in work.operation_states.values()
+        ) else "PAUSED")
         return {"wip_phase": "INTERRUPTED", "wip_attempt": pause["number"],
                 "original_resource_cost_claim": pause["prior_cost_claim"]}
     pause = work.wip_interruptions[-1] if work.wip_interruptions else None
-    if pause is None or work.execution != "PAUSED":
+    if (pause is None or
+            (op is None and work.execution != "PAUSED") or
+            (op is not None and (
+                work.operation_states[op.key] != "PAUSED" or
+                work.execution not in {"PAUSED", "IN_PROGRESS"}
+            ))):
         _fail("WIP_ORIGINAL_INTERRUPTION_REQUIRED")
     if action == "wip_propose":
         if actor != work.customer or work.wip_proposal is not None:
@@ -343,6 +356,10 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         decision = ev.get("wip_decision")
         if decision not in {"TRANSFER", "REWORK", "TERMINATE"}:
             _fail("WIP_DECISION_INVALID")
+        if (decision == "TERMINATE" and op is not None and any(
+                status == "IN_PROGRESS" for other, status in work.operation_states.items()
+                if other != op.key)):
+            _fail("WIP_PARALLEL_OPERATION_STILL_IN_PROGRESS")
         source = _source(ev.get("wip_source_ref"), actor,
                          "WIP_CUSTOMER_PROPOSAL_SOURCE_REQUIRED")
         source_revision = _original_source_revision(state, source, actor, at)
