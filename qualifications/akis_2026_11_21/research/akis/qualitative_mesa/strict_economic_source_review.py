@@ -175,6 +175,30 @@ def review_original_strict_economic_sources(
                 raise StrictEconomicSourceBlocked(
                     "ORIGINAL_PAYMENT_PINNED_INDEPENDENT_EVIDENCE_REQUIRED"
                 )
+            if field == "work_payment_settlement_claims":
+                # Two references must lead to *two independently stated*
+                # amounts/times. Otherwise the operator could write one
+                # amount and merely attach two unrelated source identifiers.
+                statements = record.get("owner_attestations")
+                if (not isinstance(statements, dict)
+                        or set(statements) != parties
+                        or any(not isinstance(claim, dict)
+                               or set(claim) != {
+                                   "reported_at", "reported_amount"
+                               } for claim in statements.values())):
+                    raise StrictEconomicSourceBlocked(
+                        "ORIGINAL_PAYMENT_INDEPENDENT_OWNER_REPORTS_REQUIRED"
+                    )
+                if any(
+                    type(claim["reported_at"]) is not int
+                    or claim["reported_at"] != payment_time
+                    or not isinstance(claim["reported_amount"], str)
+                    or claim["reported_amount"] != record.get("amount")
+                    for claim in statements.values()
+                ):
+                    raise StrictEconomicSourceBlocked(
+                        "ORIGINAL_PAYMENT_OWNER_REPORTS_CONFLICT"
+                    )
             for owner in sorted(parties):
                 source_id = owner_sources[owner]
                 economic_source = sources_by_id.get(source_id)
