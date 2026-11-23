@@ -64,7 +64,7 @@ jobs:
           Write-Host 'ORIGINAL_COMPANY_ATOMIC_GRAPH_TEST_PASS'
           & node --test --test-reporter=tap '.private/original/tests/t3-signed-exchange-http-invite.test.mjs' *> $out
           if($LASTEXITCODE -ne 0) {
-            Get-Content -LiteralPath $out | Where-Object { $_ -match '^(not ok|\\s*(error|code|failureType):|# (tests|pass|fail))' } | Select-Object -First 20 | ForEach-Object { Write-Host $_ }
+            Get-Content -LiteralPath $out | Where-Object { $_ -match '^(not ok|\s*(error|code|failureType):|# (tests|pass|fail))' } | Select-Object -First 20 | ForEach-Object { Write-Host $_ }
             throw 'ORIGINAL_EXCHANGE_HTTP_INVITE_TEST_FAILED'
           }
           Write-Host 'ORIGINAL_EXCHANGE_HTTP_INVITE_TEST_PASS'
