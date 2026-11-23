@@ -14,6 +14,7 @@ import re
 from typing import Any, Mapping, Sequence
 
 from .context_basis import ContextBlocked
+from .capacity import CapacityBlocked, CapacityInputError, ResourceNeed
 
 
 class OutlookInputError(ValueError):
@@ -35,7 +36,8 @@ _FIELDS = frozenset({
     "org_revision", "available_at", "expires_at", "source_ref", "period",
     "currency", "coverage", "outside_feasibility", "minimum_extra_cash", "cash",
 })
-_OPTIONAL_FIELDS = frozenset({"requires_accepted_results", "source_revision"})
+_OPTIONAL_FIELDS = frozenset({"requires_accepted_results", "source_revision",
+                              "outside_capacity_probe"})
 
 
 def _id(value: Any, key: str) -> str:
@@ -69,6 +71,8 @@ class OwnerOutlook:
     cash: Mapping[str, Mapping[str, Decimal]]
     requires_accepted_results: tuple[tuple[str, str], ...] = ()
     source_revision: str | None = None
+    # Optional current ORIGINAL CapacityLedger preview, never a reservation.
+    outside_capacity_probe: tuple[str, int, int, int] | None = None
 
 
 def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
@@ -151,6 +155,24 @@ def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
             if not isinstance(channels, dict) or set(channels) != _CHANNELS:
                 raise OutlookInputError("INVALID_OUTLOOK_CASH_CHANNELS")
             cash[scenario] = {item: _amount(amount) for item, amount in channels.items()}
+        probe_raw = record.get("outside_capacity_probe")
+        probe = None
+        if probe_raw is not None:
+            if (not isinstance(probe_raw, dict)
+                    or set(probe_raw) != {"resource", "units", "slot_start", "slot_end"}):
+                raise OutlookInputError("OUTLOOK_OUTSIDE_CAPACITY_PROBE_FIELDS_INVALID")
+            resource = _id(probe_raw["resource"], "OUTSIDE_RESOURCE")
+            units = probe_raw["units"]
+            start, end = probe_raw["slot_start"], probe_raw["slot_end"]
+            if (type(units) is not int or not 1 <= units <= 1000000
+                    or type(start) is not int or type(end) is not int
+                    or not 0 <= start < end <= 10000):
+                raise OutlookInputError("OUTLOOK_OUTSIDE_CAPACITY_PROBE_WINDOW_OR_UNITS_INVALID")
+            # A capacity hypothesis attached to an anonymous/unversioned
+            # forecast would bypass the owner's original KPB.
+            if "source_revision" not in record:
+                raise OutlookInputError("OUTLOOK_OUTSIDE_CAPACITY_REQUIRES_PINNED_OWNER_SOURCE")
+            probe = (resource, units, start, end)
         parsed.append(OwnerOutlook(
             owner, relation, work,
             _id(record["work_source_revision"], "WORK_REVISION"),
@@ -160,6 +182,7 @@ def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
             _amount(record["minimum_extra_cash"]), cash, tuple(prereqs),
             (_id(record["source_revision"], "SOURCE_REVISION")
              if "source_revision" in record else None),
+            probe,
         ))
     return tuple(sorted(parsed, key=lambda x: (x.available_at, x.owner, x.work, x.relation)))
 
@@ -168,7 +191,10 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                    org_revision: str, links: Sequence[Any], at: float,
                    works: Mapping[str, Any] | None = None,
                    context_basis: Any | None = None,
-                   owner_core: str | None = None) -> dict[str, Any]:
+                   owner_core: str | None = None,
+                   capacity_ledger: Any | None = None,
+                   resource_owners: Mapping[str, str] | None = None,
+                   resource_availability: Mapping[str, str] | None = None) -> dict[str, Any]:
     """Use only current owner's information at model time, never end-of-run claims."""
     matching = [row for row in outlooks if row.owner == owner and row.work == work.key and
                 row.available_at <= at < row.expires_at and
@@ -241,6 +267,53 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
         return {"position": "UNKNOWN", "reason": "INCOMPLETE_OR_UNFEASIBLE_COMPARISON",
                 "relation": row.relation, "available_at": row.available_at}
 
+    if row.outside_capacity_probe is not None:
+        # This is an owner-held outside candidate, not a second Work. It
+        # must fit the SAME original Work's planned horizon, be owned by the
+        # same independent principal and be technically feasible against
+        # already accepted reservations in the ORIGINAL CapacityLedger.
+        # A successful preview is NOT proof of an external customer, price,
+        # physical production, a contract or an actual outside payment.
+        resource, units, start, end = row.outside_capacity_probe
+        if (capacity_ledger is None or resource_owners is None
+                or resource_availability is None):
+            return {
+                "position": "UNKNOWN",
+                "reason": "OUTSIDE_CAPACITY_ORIGINAL_LEDGER_REQUIRED",
+                "relation": row.relation, "available_at": row.available_at,
+            }
+        if resource_owners.get(resource) != owner:
+            return {
+                "position": "UNKNOWN",
+                "reason": "OUTSIDE_CAPACITY_INDEPENDENT_RESOURCE_OWNER_REQUIRED",
+                "relation": row.relation, "available_at": row.available_at,
+            }
+        if start != work.slot_start or end != work.slot_end:
+            return {
+                "position": "UNKNOWN",
+                "reason": "OUTSIDE_CAPACITY_COMPARABLE_WORK_HORIZON_REQUIRED",
+                "relation": row.relation, "available_at": row.available_at,
+            }
+        if resource_availability.get(resource) != "AVAILABLE":
+            return {
+                "position": "UNKNOWN",
+                "reason": "OUTSIDE_CAPACITY_ORIGINAL_RESOURCE_NOT_READY",
+                "relation": row.relation, "available_at": row.available_at,
+            }
+        # Intentionally never call reserve/commit or append a Work. The
+        # generated key exists for this one ephemeral preview only.
+        try:
+            capacity_ledger.preview(
+                f"__akis_outside_candidate__{owner}__{work.key}",
+                (ResourceNeed(resource, units),), start, end,
+            )
+        except (CapacityInputError, CapacityBlocked):
+            return {
+                "position": "UNKNOWN",
+                "reason": "OUTSIDE_CAPACITY_ORIGINAL_RESERVATIONS_OR_SCOPE_BLOCK",
+                "relation": row.relation, "available_at": row.available_at,
+            }
+
     def net(scenario: str) -> Decimal:
         p = row.cash[scenario]
         return sum((p[name] for name in _RECEIPTS), Decimal(0)) - sum(
@@ -273,5 +346,12 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
             "resource_uses_not_added": True,
             "interfirm_transfers_not_consolidated": True,
             "causal_effect": "NOT_IDENTIFIABLE",
+            "outside_original_capacity_preview": (
+                "MODEL_CAPACITY_PREVIEW_ONLY_NOT_EXTERNAL_OFFER"
+                if row.outside_capacity_probe is not None else
+                "NOT_REQUESTED"
+            ),
+            "outside_external_customer_and_real_price_verified": False,
+            "outside_capacity_reserved_or_new_work_created": False,
         },
     }
