@@ -1,0 +1,790 @@
+name: Admin Center V8 Agent 0.6.2 native-close candidate installed Windows and independent SID
+on:
+  push:
+    branches:
+      - work/2026-11-23-admin03-agent062-native-close-windows
+    paths:
+      - .github/workflows/t3-admin-v8-agent062-native-close-candidate.yml
+      - packages/t3-core/tests/g4-installed-agent-second-sid.ps1
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: admin-v8-agent062-native-close-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  installed-released-agent062:
+    # The installed browser attaches the ORIGINAL signed company Kernel.
+    # A Node-only source harness without that attachment must fail closed;
+    # do not rerun that unrelated source case when qualifying native K03.
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[qualify-installed-agent-g4]') }}
+    runs-on: windows-2022
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Stage exact RELEASED Agent 0.6.2 source without historical binary evidence
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: d332d412c112cecc7433c6b8d0e89f0b4ccba067
+          token: ${{ secrets.AGENT || secrets.DOMEN || secrets.T3 }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /desktop/
+            /runtime/
+            /tools/
+            /config/
+            /adapters/
+            /cells/
+            /providers/
+            /schemas/
+            /profiles/
+            /surfaces/
+            /skills/
+            /operational-skills/
+            /automation/
+            /authority/
+            /Human/
+            /scripts/
+            /webui/
+            /windows/
+            /qualification/phase1/*.ps1
+            /qualification/phase1/*.py
+            /qualification/phase1/*.json
+            /qualification/phase1/*.mjs
+            /tests/test_agent05_basic_runtime_error_clarity.py
+            /tests/test_agent06_k03_finite_failure_sidecar.py
+            /tests/test_agent06_corporate_t3_employee.py
+            /tests/test_t3_result_projection.py
+            /requirements.txt
+            /requirements-ci.txt
+            /.gitignore
+            /AGENTS.md
+          path: .private/agent
+      # Reuse the exact ORIGINAL, already qualified private employee owner.
+      # Never commit its source to public knowledge, upload an EXE/artifact,
+      # copy credentials or generate an Agent-owned signer.
+      - name: Stage exact original private signed employee owner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 162f699d69f63e1d54bc002465c28c9781bf62ae
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /access-control/
+            /interop/
+            /reconciliation/
+            /package.json
+          path: .private/original-t3
+      - name: Stage exact original product-neutral Setup Core owner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: c10e193846a0ea4c73cabe3744aa7db82439d54e
+          token: ${{ secrets.CENTER || secrets.DOMEN || secrets.T3 }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            installer
+          path: .private/setup-core
+      - name: Stage exact source-qualified original One Core G4 candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 2f65931cd70e0c64e29b31e1824b7af0c0baf6d1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            packages/t3-core
+          path: .g4-pinned-one-core
+      - name: Verify all three exact pinned sources before native build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $agent = (& git -C .private/agent rev-parse HEAD).Trim()
+          $originalOwner = (& git -C .private/original-t3 rev-parse HEAD).Trim()
+          $setup = (& git -C .private/setup-core rev-parse HEAD).Trim()
+          $core = (& git -C .g4-pinned-one-core rev-parse HEAD).Trim()
+          if ($agent -ne 'd332d412c112cecc7433c6b8d0e89f0b4ccba067' -or
+              $originalOwner -ne '162f699d69f63e1d54bc002465c28c9781bf62ae' -or
+              $setup -ne 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -or
+              $core -ne '2f65931cd70e0c64e29b31e1824b7af0c0baf6d1') {
+            throw 'G4_AGENT_EXACT_INSTALLED_SOURCE_PIN_MISMATCH'
+          }
+          $ignoreFile = '.private/agent/.gitignore'
+          if (-not (Test-Path -LiteralPath $ignoreFile -PathType Leaf)) {
+            throw 'G4_INSTALLED_AGENT_TRACKED_GITIGNORE_MISSING'
+          }
+          $ignoreRules = @(Get-Content -LiteralPath $ignoreFile)
+          if (-not ($ignoreRules -ccontains 'build/') -or
+              -not ($ignoreRules -ccontains 'dist/') -or
+              -not ($ignoreRules -ccontains '*.log')) {
+            throw 'G4_INSTALLED_AGENT_RELEASE_IGNORE_RULES_MISMATCH'
+          }
+          foreach ($required in @(
+            'interop/native-employee-d3.mjs','interop/server.mjs',
+            'interop/runtime.mjs','access-control/windows-credential.mjs',
+            'access-control/local-vault.mjs','reconciliation/engine.mjs'
+          )) {
+            if (-not (Test-Path -LiteralPath (Join-Path '.private/original-t3' $required) -PathType Leaf)) {
+              throw 'G4_AGENT_ORIGINAL_SIGNED_EMPLOYEE_OWNER_SOURCE_MISSING'
+            }
+          }
+          Write-Host 'G4_AGENT_ORIGINAL_SIGNED_EMPLOYEE_OWNER_PIN_PASS'
+          Write-Host 'G4_INSTALLED_AGENT_SPARSE_RELEASE_IGNORE_GUARD_PASS'
+          $lock = Get-Content -LiteralPath '.private/agent/config/public-module-sources.json' -Raw | ConvertFrom-Json
+          $entries = @($lock.modules | Where-Object { $_.id -ceq 't3' })
+          if ($entries.Count -ne 1 -or $entries[0].revision -cne $core) {
+            throw 'G4_AGENT_INSTALLED_ONE_CORE_OWNER_PIN_MISMATCH'
+          }
+          $archive = '.g4-pinned-one-core/packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip'
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+            throw 'G4_AGENT_ORIGINAL_T2_PINNED_ARCHIVE_MISSING'
+          }
+          $profile = Get-Content -LiteralPath '.private/agent/config/original-t2-agent-product.json' -Raw | ConvertFrom-Json
+          if ($profile.schema -cne 'IWXA_AGENT_ORIGINAL_T2_PRODUCT_PROFILE/1' -or
+              $profile.productId -cne 'iwxa.personal-agent' -or
+              $null -ne $profile.authorizedResultRecipient -or
+              $profile.installedAgentT3Mode -cne 'EXPLICIT_OPT_IN') {
+            throw 'G4_INSTALLED_AGENT_DEFAULT_ATLAS_RECIPIENT_FORBIDDEN'
+          }
+          # Product owner paths come from the original installed
+          # runtime/windows_install_paths.py. A stale generic IWXA path in
+          # the witness must not invalidate a real model + Human Review.
+          $witnessSource = Get-Content -LiteralPath '.private/agent/tools/qualify_setup_core_runtime.ps1' -Raw
+          $currentMarker = [regex]::Escape("'IWXA\PersonalAgent\current-install.json'")
+          $storageMarker = [regex]::Escape("'IWXA\PersonalAgent\storage-authority.json'")
+          if ([regex]::Matches($witnessSource, $currentMarker).Count -lt 3 -or
+              [regex]::Matches($witnessSource, $storageMarker).Count -lt 2 -or
+              -not $witnessSource.Contains('agent_setup_runtime_touched_real_legacy_storage_authority')) {
+            throw 'G4_INSTALLED_AGENT_PRODUCT_SCOPED_AUTHORITY_WITNESS_MISMATCH'
+          }
+          Write-Host 'G4_INSTALLED_AGENT_ORIGINAL_PRODUCT_AUTHORITY_WITNESS_PASS'
+          Write-Host 'G4_INSTALLED_AGENT_PRODUCT_NEUTRAL_NO_DEFAULT_RECIPIENT_PASS'
+          Write-Host 'G4_INSTALLED_AGENT06_CURRENT_SOURCES_AND_T2_PREFLIGHT_PASS'
+      - name: Check original Agent and Setup Git integrity in WindowsPowerShell 5.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:GIT_NO_LAZY_FETCH = '1'
+          $source = @'
+          param([string]$AgentRoot,[string]$SetupRoot)
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $git = Get-Command git.exe -ErrorAction Stop
+          function ExactGitCheck([string]$root) {
+            $head = @(& $git.Source -C $root rev-parse HEAD 2>$null)
+            if ($LASTEXITCODE -ne 0 -or @($head).Count -ne 1 -or
+                [string]$head[0] -cnotmatch '^[0-9a-f]{40}$') {
+              throw 'G4_INSTALLED_SOURCE_GIT_IDENTITY_NOT_READABLE'
+            }
+            $dirty = @(& $git.Source -C $root status --porcelain --untracked-files=all 2>$null)
+            if ($LASTEXITCODE -ne 0) { throw 'G4_INSTALLED_SOURCE_GIT_STATUS_UNAVAILABLE' }
+            if (@($dirty | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+              throw 'G4_INSTALLED_SOURCE_GIT_DIRTY'
+            }
+          }
+          ExactGitCheck $AgentRoot
+          ExactGitCheck $SetupRoot
+          Write-Output 'G4_INSTALLED_WINDOWS_PS51_GIT_PREFLIGHT_PASS'
+          '@
+          $probe = Join-Path $env:RUNNER_TEMP 'g4-ps51-original-git-preflight.ps1'
+          [IO.File]::WriteAllText($probe,$source,[Text.UTF8Encoding]::new($false))
+          $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          try {
+            & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $probe -AgentRoot (Resolve-Path '.private/agent').Path -SetupRoot (Resolve-Path '.private/setup-core').Path
+            if ($LASTEXITCODE -ne 0) { throw 'G4_INSTALLED_WINDOWS_PS51_GIT_PREFLIGHT_FAILED' }
+          } finally {
+            Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+          }
+      - name: Parse original private Windows GUI and setup witness scripts before building
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The installed witness is executed under WindowsPowerShell 5.1.
+          # Preflight the PRIVATE original scripts with that exact parser
+          # before native Tauri/Setup Core builds; publish only finite status.
+          $ps = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $check = @'
+          param([string]$AgentRoot)
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $files = [ordered]@{
+            SETUP_RUNTIME = 'tools/qualify_setup_core_runtime.ps1'
+            NATIVE_GUI = 'tools/qualify_setup_core_native_gui.ps1'
+          }
+          foreach($kind in $files.Keys){
+            $source = Join-Path $AgentRoot $files[$kind]
+            if(!(Test-Path -LiteralPath $source -PathType Leaf)){
+              throw 'G4_AGENT06_PRIVATE_WITNESS_PARSE_SOURCE_MISSING'
+            }
+            $tokens = $null
+            $syntaxErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $source, [ref]$tokens, [ref]$syntaxErrors)
+            if(@($syntaxErrors).Count -ne 0){
+              Write-Output ('G4_AGENT06_PRIVATE_SCRIPT_PARSE_FAILURE ' + $kind)
+              throw 'G4_AGENT06_PRIVATE_WITNESS_SYNTAX_INVALID'
+            }
+            Write-Output ('G4_AGENT06_PRIVATE_SCRIPT_PARSE_PASS ' + $kind)
+          }
+          '@
+          $file = Join-Path $env:RUNNER_TEMP 'g4-agent06-private-script-parse-preflight.ps1'
+          [IO.File]::WriteAllText($file,$check,[Text.UTF8Encoding]::new($false))
+          try {
+            & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $file -AgentRoot (Resolve-Path '.private/agent').Path
+            if($LASTEXITCODE -ne 0) { throw 'G4_AGENT06_PRIVATE_WINDOWS_PARSE_PREFLIGHT_FAILED' }
+          } finally {
+            Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+          }
+      - name: Check original Agent Python model process contract before native build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location '.private/agent'
+          try {
+            # Syntax-only validation writes no .pyc and leaves the source checkout
+            # clean. Pure contract tests never start a model or expose prompts.
+            $source = @'
+          import ast
+          from pathlib import Path
+          required = ("adapters/iwxa_basic_model_provider.py",
+                      "cells/interaction_surface.py",
+                      "tools/qualify_setup_core_real_qwen.py",
+                      "tests/test_agent05_basic_runtime_error_clarity.py",
+                      "tests/test_agent06_k03_finite_failure_sidecar.py",
+                      "tools/qualify_setup_core_k03_task.py")
+          for name in required:
+              ast.parse(Path(name).read_text(encoding="utf-8"), filename=name)
+          from adapters.iwxa_basic_model_provider import classify_native_cli_exit
+          from tools.qualify_setup_core_real_qwen import NATIVE_HTTP_CLASS
+          cases = {
+              0xC0000017: "basic_runtime_native_memory_unavailable",
+              0xC000009A: "basic_runtime_native_memory_unavailable",
+              0xC0000135: "basic_runtime_native_dependency_unavailable",
+              0xC0000139: "basic_runtime_native_dependency_unavailable",
+              0xC000007B: "basic_runtime_native_dependency_unavailable",
+              0xC0000142: "basic_runtime_native_dependency_unavailable",
+              0xC000001D: "basic_runtime_native_instruction_unsupported",
+              0xC0000005: "basic_runtime_native_crash",
+              0xC0000409: "basic_runtime_native_crash",
+              0xC00000FD: "basic_runtime_native_crash",
+          }
+          surface = Path("cells/interaction_surface.py").read_text(encoding="utf-8")
+          witness = Path("tools/qualify_setup_core_runtime.ps1").read_text(encoding="utf-8")
+          for rc, code in cases.items():
+              assert classify_native_cli_exit(rc) == code
+              assert classify_native_cli_exit(rc - 2**32) == code
+              assert code in surface
+              assert NATIVE_HTTP_CLASS[code].startswith("MODEL_NATIVE_")
+              assert NATIVE_HTTP_CLASS[code] in witness
+          for value in (1, 2, -9, None, True):
+              assert classify_native_cli_exit(value) == "basic_runtime_generation_failed"
+          # Test the actual strict llama.cpp transcript frame and the
+          # no-content finite classifications before a new installed Task.
+          from adapters.iwxa_basic_model_provider import _cli_answer, _visible_assistant_answer
+          from runtime.iwxa_basic_gguf import BasicGGUFError
+          user = "К03: пример проверки"
+          nl = chr(10)
+          crlf = chr(13) + nl
+          exact = "User:" + nl + user + nl + nl + "Assistant:" + nl
+          assert _cli_answer(exact + "Готово.", user) == "Готово."
+          assert _cli_answer(exact.replace(nl,crlf) + "Готово.",user) == "Готово."
+          finite = (
+              (lambda: _cli_answer("Assistant:"+nl+user,user),"basic_runtime_output_frame_invalid"),
+              (lambda: _visible_assistant_answer("<think>только анализ"),"basic_runtime_output_reasoning_unfinished"),
+              (lambda: _visible_assistant_answer("<think>только анализ</think>"),"basic_runtime_output_empty"),
+          )
+          for operation,code in finite:
+              try:
+                  operation()
+                  raise AssertionError("real native output parser accepted invalid Result")
+              except BasicGGUFError as err:
+                  assert str(err) == code
+              assert code in NATIVE_HTTP_CLASS
+          print("G4_AGENT06_NATIVE_OUTPUT_FINITE_CLASSIFICATIONS_PASS")
+          print("G4_AGENT06_NATIVE_CLI_FINITE_CAUSE_PREFLIGHT_PASS")
+          '@
+            & python -B -c $source
+            if($LASTEXITCODE -ne 0) { throw 'G4_AGENT06_NATIVE_CLI_PREFLIGHT_FAILED' }
+            & python -B tests/test_agent06_k03_finite_failure_sidecar.py
+            if($LASTEXITCODE -ne 0) { throw 'G4_AGENT06_K03_FINITE_FAILURE_SIDECAR_TEST_FAILED' }
+            $installedWitness=Get-Content -LiteralPath 'tools/qualify_setup_core_runtime.ps1' -Raw -Encoding UTF8
+            $pythonWitness=Get-Content -LiteralPath 'tools/qualify_setup_core_k03_task.py' -Raw -Encoding UTF8
+            if(-not $installedWitness.Contains('--failure-code-path $k03FiniteCode') -or
+               -not $installedWitness.Contains('$failure.failure_code=$codeFromProbe.ToUpperInvariant()') -or
+               -not $pythonWitness.Contains('installed-k03-task.failure-code')){
+              throw 'G4_AGENT06_K03_PRIVATE_SIDECAR_WITNESS_CONTRACT_FAILED'
+            }
+            Write-Output 'G4_AGENT06_K03_PRIVATE_DIAG_ON_CURRENT_AGENT_PREFLIGHT_PASS'
+            # The private original employee port already has source tests.
+            # Public Windows CI may publish only a finite PASS/FAIL marker;
+            # keep test tracebacks and private code in the temporary runner.
+            $privateUnitLog=Join-Path $env:RUNNER_TEMP 'g4-agent-company-port-unit-private.log'
+            & python -B -m unittest discover -s tests -p test_agent06_corporate_t3_employee.py *> $privateUnitLog
+            if($LASTEXITCODE -ne 0){
+              throw 'G4_AGENT_COMPANY_ORIGINAL_PORT_SOURCE_UNIT_FAILED'
+            }
+            # The same existing source suite verifies the complete
+            # AgentResult 0.5 payload; no manual field selection is reused.
+            & python -B -m unittest discover -s tests -p test_t3_result_projection.py *> $privateUnitLog
+            if($LASTEXITCODE -ne 0){
+              throw 'G4_AGENT_COMPLETE_COMPANY_RESULT_SOURCE_UNIT_FAILED'
+            }
+            Write-Output 'G4_AGENT_COMPANY_ORIGINAL_PORT_SOURCE_UNIT_PASS'
+            Write-Output 'G4_AGENT_COMPLETE_COMPANY_RESULT_SOURCE_UNIT_PASS'
+          } finally {
+            Pop-Location
+          }
+      - name: Preflight public installed second-SID Agent witness and embedded worker under PS 5.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $file=(Resolve-Path 'packages/t3-core/tests/g4-installed-agent-second-sid.ps1').Path
+          $tokens=$null
+          $syntax=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            $file,[ref]$tokens,[ref]$syntax)
+          if(@($syntax).Count -ne 0){throw 'G4_AGENT_GUEST_PUBLIC_SCRIPT_PARSER_INVALID'}
+          $text=Get-Content -LiteralPath $file -Raw -Encoding UTF8
+          $opening='$script='+"@'"
+          $start=$text.IndexOf($opening,[StringComparison]::Ordinal)
+          if($start -lt 0){throw 'G4_AGENT_GUEST_EMBEDDED_WORKER_NOT_FOUND'}
+          $bodyStart=$text.IndexOf([char]10,$start)+1
+          $end=$text.IndexOf(([string][char]10+"'@"),$bodyStart,[StringComparison]::Ordinal)
+          if($bodyStart -le 0 -or $end -le $bodyStart){
+            throw 'G4_AGENT_GUEST_EMBEDDED_WORKER_NOT_CLOSED'
+          }
+          $inner=$text.Substring($bodyStart,$end-$bodyStart)
+          $innerTokens=$null
+          $innerSyntax=$null
+          [void][Management.Automation.Language.Parser]::ParseInput(
+            $inner,[ref]$innerTokens,[ref]$innerSyntax)
+          if(@($innerSyntax).Count -ne 0){throw 'G4_AGENT_GUEST_EMBEDDED_WORKER_PARSER_INVALID'}
+          Write-Output 'G4_AGENT_GUEST_ORIGINAL_POWERSHELL_AND_CHILD_PARSE_PASS'
+      - name: Build install and cold-qualify genuine current Agent Tauri with original T2/T3 One Dist
+        shell: pwsh
+        timeout-minutes: 72
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:GIT_NO_LAZY_FETCH = '1'
+          $agent = (Resolve-Path -LiteralPath '.private/agent').Path
+          $center = (Resolve-Path -LiteralPath '.private/setup-core').Path
+          $core = (Resolve-Path -LiteralPath '.g4-pinned-one-core/packages/t3-core').Path
+          $originalOwner = (Resolve-Path -LiteralPath '.private/original-t3').Path
+          $output = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'
+          $cache = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-cache'
+          $log = Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-private-build.log'
+          $script = Join-Path $agent 'tools/build_setup_core_windows_candidate.ps1'
+          $powershell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          if (-not (Test-Path -LiteralPath $script -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $powershell -PathType Leaf)) {
+            throw 'G4_AGENT_ORIGINAL_SETUP_BUILDER_MISSING'
+          }
+          & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -CenterRoot $center -CenterCommit 'c10e193846a0ea4c73cabe3744aa7db82439d54e' -OutputRoot $output -ReleaseCacheRoot $cache -PublicT3CoreRoot $core -OriginalT3OwnerRoot $originalOwner -RequireOriginalT3 *> $log
+          if ($LASTEXITCODE -ne 0) {
+            # Only exact lower-case machine codes leave the private build log.
+            # Do not print private source lines, stderr, paths, payloads or EXE.
+            $buildText = ''
+            $buildFile = Join-Path $output 'logs/original-t3-compiled-host.log'
+            if(Test-Path -LiteralPath $buildFile -PathType Leaf){
+              $buildText = Get-Content -LiteralPath $buildFile -Raw -ErrorAction SilentlyContinue
+            }
+            $stageFlags = [ordered]@{
+              OUTPUT_ROOT = (Test-Path -LiteralPath $output -PathType Container)
+              T2_EXTRACT = (Test-Path -LiteralPath (Join-Path $output 'build/qualified-original-t2') -PathType Container)
+              T3_DEPENDENCIES = (Test-Path -LiteralPath (Join-Path $output 'logs/original-t3-dependencies.log') -PathType Leaf)
+              T3_BUILD = (Test-Path -LiteralPath (Join-Path $output 'logs/original-t3-compiled-host.log') -PathType Leaf)
+              SIGNED_WORKSPACE_COMPILED = (Test-Path -LiteralPath (Join-Path $core 'dist/signed-workspace.html') -PathType Leaf)
+              ISOLATED_SIGNED_WORKSPACE_COMPILED = (Test-Path -LiteralPath (Join-Path $core 'dist/isolated-signed-workspace.html') -PathType Leaf)
+              TRUSTED_KERNEL_REALM_COMPILED = (Test-Path -LiteralPath (Join-Path $core 'dist/trusted-kernel-realm.html') -PathType Leaf)
+              T3_VITE_BUILT = ($buildText -match '(?i)built in [0-9.]+(?:ms|s)')
+              T3_STATIC_ROUTES_MATERIALIZED = ($buildText -match 'static directory routes materialized')
+              ORIGINAL_AGENT_PROFILE_PRESENT = (Test-Path -LiteralPath (Join-Path $agent 'config/original-t2-agent-product.json') -PathType Leaf)
+              ORIGINAL_DIST_BUILD_RECEIPT_TEXT = (Test-Path -LiteralPath (Join-Path $output 'logs/original-agent-one-dist-build.json') -PathType Leaf)
+              ORIGINAL_ONE_DIST = (Test-Path -LiteralPath (Join-Path $output 'build/original-agent-one-dist-receipt.json') -PathType Leaf)
+              AGENT_PACKAGE = (Test-Path -LiteralPath (Join-Path $output 'logs/private-build-result.json') -PathType Leaf)
+              SETUP_BUILT = (Test-Path -LiteralPath (Join-Path $output 'IWXA-Private-SetupCore-Candidate.exe') -PathType Leaf)
+            }
+            foreach ($name in $stageFlags.Keys) {
+              if ($stageFlags[$name]) { Write-Host ('G4_AGENT06_PRIVATE_BUILD_STAGE_REACHED ' + $name) }
+            }
+            # Fixed diagnostic classes only; never echo source build logs.
+            $buildFailureClass = 'NONE'
+            foreach ($cls in @('SyntaxError','TypeError','ReferenceError',
+                'ERR_MODULE_NOT_FOUND','ERR_PACKAGE_PATH_NOT_EXPORTED',
+                'ENOENT','EPERM','EACCES','RollupError')){
+              if($buildText.Contains($cls)){$buildFailureClass=$cls.ToUpperInvariant();break}
+            }
+            if($buildFailureClass -ne 'NONE'){
+              Write-Host ('G4_AGENT06_ORIGINAL_PUBLIC_BUILD_FAILURE_CLASS ' + $buildFailureClass)
+            }
+            # Report only compiler error IDs from the already-running native
+            # Tauri build. No private source line, path, stderr, or model text.
+            $nativeDesktopLog=Join-Path $output 'logs/native-desktop-build.log'
+            if(Test-Path -LiteralPath $nativeDesktopLog -PathType Leaf){
+              $nativeBuild=Get-Content -LiteralPath $nativeDesktopLog -Raw -ErrorAction SilentlyContinue
+              $tsIds=@([regex]::Matches([string]$nativeBuild,
+                '(?i)error\s+TS([0-9]{4}):') | ForEach-Object {
+                  $_.Groups[1].Value
+                } | Select-Object -Unique -First 6)
+              foreach($id in $tsIds){
+                Write-Host ('G4_AGENT06_NATIVE_TAURI_TYPESCRIPT_CODE TS' + $id)
+              }
+              $rustIds=@([regex]::Matches([string]$nativeBuild,
+                '(?i)error\[E([0-9]{4})\]') | ForEach-Object {
+                  $_.Groups[1].Value
+                } | Select-Object -Unique -First 6)
+              foreach($id in $rustIds){
+                Write-Host ('G4_AGENT06_NATIVE_TAURI_RUST_CODE E' + $id)
+              }
+              if($tsIds.Count -eq 0 -and $rustIds.Count -eq 0){
+                $phase='UNCLASSIFIED'
+                if($nativeBuild -match '(?i)typescript|tsc --noEmit'){$phase='TYPESCRIPT'}
+                elseif($nativeBuild -match '(?i)vite.*build|rollup'){$phase='VITE'}
+                elseif($nativeBuild -match '(?i)rustc|cargo.*build'){$phase='RUST'}
+                Write-Host ('G4_AGENT06_NATIVE_TAURI_BUILD_PHASE ' + $phase)
+              }
+            }
+            # Original Setup Core is already built. On local acceptance
+            # failure inspect ONLY the finite stage/code of the original
+            # installed witness; no private stdout, paths or GUI text.
+            $acceptFile = Join-Path $output 'logs/public-test-local-result.txt'
+            if (Test-Path -LiteralPath $acceptFile -PathType Leaf) {
+              $acceptText = Get-Content -LiteralPath $acceptFile -Raw -ErrorAction SilentlyContinue
+              if ($acceptText) {
+                foreach ($step in @(
+                  'IWXA_SETUP_LOCAL_RUNTIME_WITNESS_PASS',
+                  'IWXA_SETUP_LOCAL_REPAIR_AND_CONFIRM_PASS',
+                  'IWXA_SETUP_LOCAL_NATIVE_INSTALL_AND_PRESERVE_PASS'
+                )) {
+                  if ($acceptText.Contains($step)) {
+                    Write-Host ('G4_AGENT06_LOCAL_ACCEPT_STAGE_PASS ' + $step)
+                  }
+                }
+              }
+            }
+            # Only source-owned PUBLIC assembler machine codes may leave
+            # temporary Windows logs. No stderr, paths, source or secret bytes.
+            $originalOneDistLog = Join-Path $output 'logs/original-agent-one-dist-build.json'
+            if(Test-Path -LiteralPath $originalOneDistLog -PathType Leaf){
+              $originalOneDistRaw = Get-Content -LiteralPath $originalOneDistLog -Raw -ErrorAction SilentlyContinue
+              $codes = @([regex]::Matches([string]$originalOneDistRaw,
+                '(?i)(?<![A-Za-z0-9_])(?:T3_AGENT_ONE_DIST|T3_D1_DIST)_[A-Z0-9_]{4,100}(?![A-Za-z0-9_])') |
+                ForEach-Object {$_.Value.ToUpperInvariant()} | Select-Object -Unique)
+              foreach($code in ($codes | Select-Object -Last 5)){
+                Write-Host ('G4_AGENT06_ORIGINAL_PUBLIC_ASSEMBLER_CODE ' + $code)
+              }
+            }
+            # Distinguish a genuine failed Python Task/Review from failure
+            # AFTER a successful export when the product authority readback
+            # is required. Never print Qwen output or private receipt values.
+            $qwenRoot = Join-Path $output 'temporary-installed-fixture'
+            $qwenProof = Join-Path $qwenRoot 'installed-real-qwen-proof.json'
+            $qwenOutput = Join-Path $qwenRoot 'installed-real-qwen.status'
+            $authorityRoot = Join-Path $qwenRoot 'isolated-profile/AppData/Local/IWXA/PersonalAgent'
+            $safeProofFlags = [ordered]@{
+              TASK_REVIEW_PROOF_CREATED = (Test-Path -LiteralPath $qwenProof -PathType Leaf)
+              CURRENT_INSTALL_CREATED = (Test-Path -LiteralPath (Join-Path $authorityRoot 'current-install.json') -PathType Leaf)
+              STORAGE_AUTHORITY_CREATED = (Test-Path -LiteralPath (Join-Path $authorityRoot 'storage-authority.json') -PathType Leaf)
+            }
+            if (Test-Path -LiteralPath $qwenOutput -PathType Leaf) {
+              $qwenMarkers = @(Get-Content -LiteralPath $qwenOutput -ErrorAction SilentlyContinue)
+              $safeProofFlags['TASK_REVIEW_PYTHON_FINAL_MARKER'] = (
+                $qwenMarkers -ccontains 'AGENT_INSTALLED_REAL_QWEN_TASK_REVIEW_PASS'
+              )
+              $safeProofFlags['QWEN_EXPORT_INSPECT_MARKER'] = (
+                $qwenMarkers -ccontains 'AGENT_REAL_QWEN_IWXA_EXPORT_INSPECT_PASS'
+              )
+            }
+            foreach ($flagName in $safeProofFlags.Keys) {
+              $value = if ($safeProofFlags[$flagName]) { 'TRUE' } else { 'FALSE' }
+              Write-Host ('G4_AGENT06_LOCAL_QWEN_POSTPROOF_FLAG ' + $flagName + ' ' + $value)
+            }
+            # Original installed witness uses K03_TASK_* phase names. Digits
+            # in strict bounded phase names must remain visible in public CI.
+            $installedReceipt = Join-Path $output 'temporary-installed-fixture/installed-witness.json'
+            if (Test-Path -LiteralPath $installedReceipt -PathType Leaf) {
+              try {
+                $witnessRow = Get-Content -LiteralPath $installedReceipt -Raw -ErrorAction Stop |
+                  ConvertFrom-Json -ErrorAction Stop
+                $witnessStatus = [string]$witnessRow.status
+                $witnessPhase = [string]$witnessRow.phase
+                if ($witnessStatus -cmatch '^(PASS|FAIL)$') {
+                  Write-Host ('G4_AGENT06_INSTALLED_WITNESS_STATUS ' + $witnessStatus)
+                }
+                if ($witnessPhase -cmatch '^[A-Z][A-Z0-9_]{2,70}$') {
+                  Write-Host ('G4_AGENT06_INSTALLED_WITNESS_PHASE ' + $witnessPhase)
+                }
+                foreach ($prop in @('failure_code','last_operation','last_checkpoint','background_state','background_error_class')) {
+                  $observed = [string]$witnessRow.$prop
+                  if ($observed -cmatch '^[A-Z][A-Z0-9_]{2,86}$') {
+                    Write-Host ('G4_AGENT06_INSTALLED_WITNESS_' + $prop.ToUpperInvariant() + ' ' + $observed)
+                  }
+                }
+              } catch {
+                Write-Host 'G4_AGENT06_INSTALLED_WITNESS_JSON_NOT_READABLE'
+              }
+            } else {
+              Write-Host 'G4_AGENT06_INSTALLED_WITNESS_NOT_CREATED'
+            }
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              $privateError = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              if ($privateError) {
+                $safeCodes = [regex]::Matches($privateError,
+                  '(?i)(?<![A-Za-z0-9_])(?:setup_local|agent_setup_witness|agent_setup_runtime|private_setup_core|original_t3_g4|original_t3_qualified|original_t3_owning|t3_agent_one_dist|t3_d1_dist)_[a-z0-9_]{4,110}(?![A-Za-z0-9_])')
+                foreach ($safeCode in @($safeCodes | Select-Object -Unique | Select-Object -Last 5)) {
+                  Write-Host ('G4_AGENT06_LOCAL_ACCEPT_SAFE_CODE ' + $safeCode.Value.ToUpperInvariant())
+                }
+              }
+            }
+            # Fixed safe phase flags and machine codes only: the original
+            # build log, Tauri compiler output and private absolute paths
+            # remain inside the disposable Windows runner.
+            $nativeFlags = [ordered]@{
+              SETUP_STUB = (Test-Path -LiteralPath (Join-Path $output 'build/IWXA Personal Setup.stub.exe') -PathType Leaf)
+              MANAGED_PYTHON = (Test-Path -LiteralPath (Join-Path $output 'build/test-python/current-python.txt') -PathType Leaf)
+              NATIVE_ICON = (Test-Path -LiteralPath (Join-Path $output 'logs/native-desktop-icon.json') -PathType Leaf)
+              U04_PREPARED = (Test-Path -LiteralPath (Join-Path $output 'logs/u04-source-preparation.json') -PathType Leaf)
+              U04_STAGED = (Test-Path -LiteralPath (Join-Path $output 'logs/u04-stage.json') -PathType Leaf)
+              DESKTOP_NPM = (Test-Path -LiteralPath (Join-Path $output 'logs/native-desktop-dependencies.log') -PathType Leaf)
+              DESKTOP_TAURI = (Test-Path -LiteralPath (Join-Path $output 'logs/native-desktop-build.log') -PathType Leaf)
+              RUST_TEST = (Test-Path -LiteralPath (Join-Path $output 'logs/native-rust-test-compile.log') -PathType Leaf)
+              AGENT_PACKAGE_MANIFEST = (Test-Path -LiteralPath (Join-Path $output 'build/package/bootstrap/package-manifest.json') -PathType Leaf)
+              AGENT_SETUP_BUNDLE = (Test-Path -LiteralPath (Join-Path $output 'build/IWXA-Personal-Agent-Windows-Setup.exe') -PathType Leaf)
+            }
+            foreach ($key in $nativeFlags.Keys) {
+              if ($nativeFlags[$key]) {
+                Write-Host ('G4_AGENT06_NATIVE_PACKAGE_PHASE_REACHED ' + $key)
+              }
+            }
+            # Existing Agent release compiles native Rust tests AFTER
+            # Tauri EXE. Report only compiler diagnostic IDs and safe phase
+            # categories. Full Rust logs, paths, private symbols, and source
+            # code must not appear in the public job log.
+            foreach ($suffix in @('native-rust-test-compile.log.stderr',
+                                  'native-desktop-build.log.stderr',
+                                  'package/package-gate-failure.json')) {
+              $candidateFile = Join-Path (Join-Path $output 'logs') $suffix
+              if (-not (Test-Path -LiteralPath $candidateFile -PathType Leaf)) { continue }
+              $raw = Get-Content -LiteralPath $candidateFile -Raw -ErrorAction SilentlyContinue
+              if (-not $raw) { continue }
+              $kind = if ($suffix -like 'native-rust*') { 'RUST_TEST' } elseif ($suffix -like 'native-desktop*') { 'TAURI' } else { 'PACKAGE' }
+              $compilerCodes = @([regex]::Matches($raw, 'error\[(E[0-9]{4})\]') |
+                ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+              foreach ($code in $compilerCodes) {
+                Write-Host ('G4_AGENT06_COMPILER_ERROR_ID ' + $kind + ' ' + $code)
+              }
+              $classes = [ordered]@{
+                RUST_COMPILE_FAILED = '(?:error: could not compile|error: aborting due to|compilation failed)'
+                RUST_FEATURE_CONFLICT = 'failed to select a version|failed to resolve patches|conflicting versions'
+                RUST_DEPENDENCY_DOWNLOAD = 'failed to download|failed to fetch|timed out|network failure'
+                RUST_LINK_FAILED = '(?:linking with .* failed|fatal error LNK[0-9]{4}|link.exe.*failed)'
+                MISSING_PROJECT_FILE = 'file not found|could not find|No such file or directory'
+                WINDOWS_SHELL_FAILURE = 'NativeCommandError|CommandNotFoundException'
+              }
+              foreach ($name in $classes.Keys) {
+                if ($raw -match $classes[$name]) {
+                  Write-Host ('G4_AGENT06_COMPILER_ERROR_CLASS ' + $kind + ' ' + $name)
+                }
+              }
+              if ($kind -eq 'PACKAGE') {
+                try {
+                  $failure = $raw | ConvertFrom-Json -ErrorAction Stop
+                  $safeStage = [string]$failure.stage
+                  if ($safeStage -match '^[a-z_]{3,60}$') {
+                    Write-Host ('G4_AGENT06_PACKAGE_GATE_STAGE ' + $safeStage.ToUpperInvariant())
+                  }
+                  foreach ($field in @('error_code','error_detail')) {
+                    foreach ($match in [regex]::Matches([string]$failure.$field,
+                      '(?<![A-Za-z0-9_])(?:native_candidate|agent06_t3|phase1_package)_[a-z0-9_]{3,90}(?![A-Za-z0-9_])')) {
+                      Write-Host ('G4_AGENT06_PACKAGE_GATE_CODE ' + $match.Value.ToUpperInvariant())
+                    }
+                  }
+                } catch {
+                  Write-Host 'G4_AGENT06_PACKAGE_GATE_JSON_UNCLASSIFIED'
+                }
+              }
+            }
+            # The existing product package builder emits a private Python
+            # traceback/exception only inside this runner. Safely extract the
+            # first machine-token following its fixed error prefix, NEVER
+            # arbitrary stderr, paths, source names, or user content.
+            $packageDiagnosticInputs = @(
+              $log,
+              (Join-Path $output 'logs/package-build-only.json'),
+              (Join-Path $output 'logs/package/package-gate-failure.json')
+            )
+            foreach ($sourceLog in $packageDiagnosticInputs) {
+              if (-not (Test-Path -LiteralPath $sourceLog -PathType Leaf)) { continue }
+              $sourceText = Get-Content -LiteralPath $sourceLog -Raw -ErrorAction SilentlyContinue
+              if (-not $sourceText) { continue }
+              $messages = [regex]::Matches($sourceText,
+                '(?i)IWXA_EXPLORER_BUILD_FAIL:\s*([a-z][a-z0-9_]{3,95})(?![a-z0-9_])')
+              foreach ($message in @($messages | Select-Object -Last 3)) {
+                Write-Host ('G4_AGENT06_PYTHON_PACKAGE_FAILURE_TOKEN ' +
+                  $message.Groups[1].Value.ToUpperInvariant())
+              }
+              if ($sourceText -match '(?i)IWXA_EXPLORER_BUILD_FAIL' -and
+                  $messages.Count -eq 0) {
+                Write-Host 'G4_AGENT06_PYTHON_PACKAGE_FAILURE_UNCLASSIFIED'
+              }
+              $preciseCodes = [regex]::Matches($sourceText,
+                '(?<![a-zA-Z0-9_])(?:agent06_original_t3|agent06_original_t2|original_agent_d6|desktop_native|release_worktree|release_payload|git_command|u01_pinned|k03_pinned)_[a-z0-9_]{3,96}(?![a-zA-Z0-9_])')
+              foreach ($code in @($preciseCodes | Select-Object -Unique | Select-Object -Last 4)) {
+                Write-Host ('G4_AGENT06_PYTHON_PACKAGE_SAFE_CODE ' +
+                  $code.Value.ToUpperInvariant())
+              }
+            }
+            $originalPipelineLog = Join-Path $output 'logs/private-build-result.json'
+            if (Test-Path -LiteralPath $originalPipelineLog -PathType Leaf) {
+              $nativeRaw = Get-Content -LiteralPath $originalPipelineLog -Raw -ErrorAction SilentlyContinue
+              if ($nativeRaw) {
+                $foundNativeCodes = [regex]::Matches($nativeRaw,
+                  '(?<![A-Za-z0-9_])native_candidate_[a-z0-9_]{4,90}(?![A-Za-z0-9_])')
+                foreach ($match in @($foundNativeCodes | Select-Object -Last 5)) {
+                  Write-Host ('G4_AGENT06_NATIVE_PACKAGE_FAILURE_CODE ' + $match.Value.ToUpperInvariant())
+                }
+                $categories = [ordered]@{
+                  POWERSHELL_NATIVE_COMMAND = 'NativeCommandError|NativeCommandException'
+                  UNQUALIFIED_GIT_SOURCE = 'git\.exe.*(?:fatal:|error:)'
+                  MISSING_ORIGINAL_TOOL = 'CommandNotFoundException|The term .* is not recognized'
+                  RUST_BUILD_FAILURE = 'cargo.*(?:error|failed)|error\[E[0-9]{4}\]'
+                  NODE_BUILD_FAILURE = 'npm error|npm ERR!|vite.*error'
+                  WINDOWS_PRIVILEGE = 'access is denied|UnauthorizedAccessException'
+                }
+                foreach ($category in $categories.Keys) {
+                  if ($nativeRaw -match $categories[$category]) {
+                    Write-Host ('G4_AGENT06_NATIVE_PACKAGE_FAILURE_CLASS ' + $category)
+                  }
+                }
+              }
+            }
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              $rawInfo = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              if ($rawInfo) {
+                $classMatchers = [ordered]@{
+                  POWERSHELL_PARSER = 'ParserError|ParseException'
+                  COMMAND_MISSING = 'CommandNotFoundException|is not recognized as the name of a cmdlet'
+                  ARGUMENT_BINDING = 'ParameterBindingException|NamedParameterNotFound'
+                  GIT_COMMAND = 'git.exe|git identity failed'
+                  PATH_MISSING = 'ItemNotFoundException|Cannot find path|does not exist'
+                  ACCESS_DENIED = 'UnauthorizedAccessException|Access is denied'
+                  NODE_TOOL = 'npm ERR!|npm error|Node.js'
+                  PYTHON_TOOL = 'ModuleNotFoundError|ImportError'
+                }
+                foreach ($name in $classMatchers.Keys) {
+                  if ($rawInfo -match $classMatchers[$name]) {
+                    Write-Host ('G4_AGENT06_PRIVATE_BUILD_ERROR_CLASS ' + $name)
+                  }
+                }
+              }
+            }
+            $safeCodes = @()
+            if (Test-Path -LiteralPath $log -PathType Leaf) {
+              foreach ($line in (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)) {
+                foreach ($m in [regex]::Matches([string]$line,
+                  '(?<![A-Za-z0-9_])(?:private_setup|original_t3|original_t2|agent_native|setup_core|private_package|native_candidate)_[a-z0-9_]{4,115}(?![A-Za-z0-9_])')) {
+                  $safeCodes += [string]$m.Value
+                }
+              }
+            }
+            $uniqueCodes = @($safeCodes | Select-Object -Unique | Select-Object -Last 4)
+            if ($uniqueCodes.Count -eq 0) {
+              Write-Host 'G4_AGENT06_ORIGINAL_SETUP_FAILURE_CODE UNCLASSIFIED'
+            } else {
+              foreach ($item in $uniqueCodes) {
+                Write-Host ('G4_AGENT06_ORIGINAL_SETUP_FAILURE_CODE ' + $item.ToUpperInvariant())
+              }
+            }
+            throw 'G4_AGENT06_CURRENT_ORIGINAL_NATIVE_SETUP_BUILD_NOT_ACCEPTED'
+          }
+          $installed = Join-Path $output 'temporary-installed-fixture/installed-witness.json'
+          $rollback = Join-Path $output 'temporary-rollback-fixture/rollback-witness.json'
+          $package = Join-Path $output 'IWXA-Private-SetupCore-Candidate.exe'
+          if (-not (Test-Path -LiteralPath $package -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $installed -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $rollback -PathType Leaf)) {
+            throw 'G4_AGENT06_INSTALLED_NATIVE_PACKAGE_RECEIPT_MISSING'
+          }
+          # The original signer code, not a second Agent reimplementation,
+          # is now carried by the real Setup Core manifest.
+          $manifestPath = Join-Path $output 'build/package/bootstrap/package-manifest.json'
+          if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+            throw 'G4_AGENT_ORIGINAL_NATIVE_EMPLOYEE_OWNER_PACKAGE_MISSING'
+          }
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($manifest.t3_original_one_dist_included -ne $true -or
+              $manifest.t3_original_signer_included -ne $true -or
+              -not (@($manifest.files | Where-Object {
+                $_.path -ceq 't3-original-owner/interop/native-employee-d3.mjs'
+              }).Count -eq 1)) {
+            throw 'G4_AGENT_ORIGINAL_NATIVE_EMPLOYEE_OWNER_PACKAGE_UNVERIFIED'
+          }
+          Write-Host 'G4_AGENT_ORIGINAL_NATIVE_EMPLOYEE_OWNER_INSTALLED_PAYLOAD_PASS'
+          $gui = Get-Content -LiteralPath $installed -Raw | ConvertFrom-Json
+          $rb = Get-Content -LiteralPath $rollback -Raw | ConvertFrom-Json
+          if ($gui.status -ne 'PASS' -or
+              $gui.installed_native_cold_launch_verified -ne $true -or
+              $gui.installed_real_qwen_native_gui_result_verified -ne $true -or
+              $gui.installed_real_qwen_native_gui_submit_review_verified -ne $true -or
+              $gui.installed_core_readbacks_after_restart_verified -ne $true -or
+              $rb.status -ne 'PASS' -or
+              $rb.installed_file_identity_after_rollback -ne $true) {
+            throw 'G4_AGENT06_ORIGINAL_T2_NATIVE_GUI_RECEIPT_INVALID'
+          }
+          Write-Host 'G4_AGENT06_INSTALLED_GENUINE_SETUP_AND_ONE_CORE_PASS'
+          Write-Host 'G4_AGENT06_INSTALLED_NATIVE_GUI_QWEN_REVIEW_COLD_PASS'
+          Write-Host 'G4_AGENT06_INSTALLED_SETUP_CORE_REPAIR_ROLLBACK_PASS'
+          Write-Host 'G4_AGENT06_INSTALLED_NOT_CROSS_USER_ADMIN_ACCEPT_APPLY'
+      - name: Real installed original Agent native GUI under second independent Windows SID
+        # K03 is separately mandatory for the entire product, but an optional
+        # second-user native installation must not be hidden if the earlier
+        # model Task is inconclusive. Job failure remains a hard FAIL.
+        if: ${{ always() && !cancelled() }}
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          $ErrorActionPreference='Stop'
+          $setup=Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06/IWXA-Private-SetupCore-Candidate.exe'
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){
+            Write-Output 'G4_AGENT_GUEST_NOT_RUN_SETUP_NOT_BUILT'
+            exit 0
+          }
+          # The child test independently inspects the original Setup Core
+          # product ID/source SHA. Passing here NEVER fixes a K03 failure
+          # and NEVER emits full G4/D3 acceptance.
+          $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'packages/t3-core/tests/g4-installed-agent-second-sid.ps1' -Setup $setup -AgentSourceSha 'd332d412c112cecc7433c6b8d0e89f0b4ccba067'
+          if($LASTEXITCODE -ne 0){throw 'G4_AGENT_GUEST_SECOND_SID_NATIVE_INSTALL_NOT_ACCEPTED'}
+      - name: Erase private source model caches logs and native binaries
+        if: always()
+        shell: pwsh
+        run: |
+          $targets = @('.private','.g4-pinned-one-core',
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06'),
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-cache'),
+            (Join-Path $env:RUNNER_TEMP 'g4-installed-original-agent06-private-build.log'))
+          foreach ($path in $targets) {
+            if (Test-Path -LiteralPath $path) {
+              Remove-Item -LiteralPath $path -Force -Recurse -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'G4_AGENT06_PRIVATE_SOURCE_AND_NATIVE_ARTIFACTS_NOT_PUBLISHED'
