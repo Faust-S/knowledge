@@ -156,7 +156,10 @@ export async function recoverT4OriginalNetworkSourceCursor({
     w.eventRefs[0]?.revision!==proof.originalEventRevision||
     w.sourcePrefixDigestBefore!==proof.sourcePrefixDigestBefore||
     w.sourcePrefixDigestAfter!==proof.sourcePrefixDigestAfter||
-    w.windowDigest!==proof.sourceEventWindowDigest||
+    // Original Window.hasMore is a snapshot hint, NOT stable Event history.
+    // A newly appended Event can turn hasMore false -> true while the
+    // authenticated first Event and its prefix remain byte-identical.
+    (w.windowDigest!==proof.sourceEventWindowDigest&&w.hasMore!==true)||
     firstWindow.nextCursor.sourcePrefixDigest!==
       proof.sourcePrefixDigestAfter)
     fail('CURSOR_ORIGINAL_T3_SOURCE_EVENT_CHANGED');
