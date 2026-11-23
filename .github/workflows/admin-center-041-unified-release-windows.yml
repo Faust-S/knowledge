@@ -4,7 +4,8 @@ on:
     branches:
       - work/2026-11-23-admin-center-041-unified-release
     paths:
-      - .github/workflows/admin-center-04-release-windows.yml
+      - .github/workflows/admin-center-041-unified-release-windows.yml
+      - packages/t3-core/tests/admin-center-04-upgrade-03.ps1
       - packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs
       - packages/t3-core/tests/g4-installed-original-center-first-use.ps1
       - packages/t3-core/src/workspace-host/bootstrap/SignedSelectedWorkspaceGate.tsx
@@ -13,7 +14,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: admin-center-04-release-windows-${{ github.ref }}
+  group: admin-center-041-unified-release-windows-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   signed-data-proof:
