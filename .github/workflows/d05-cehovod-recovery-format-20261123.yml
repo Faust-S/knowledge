@@ -114,7 +114,7 @@ jobs:
               const indexes=(file.assertionResults||[]).flatMap((entry,index)=>entry.status==="failed"?[index+1]:[]);
               if(indexes.length||file.status==="failed")console.log("D05_FAILED_TEST_ORDINALS="+name+":"+indexes.join(","));
             }
-            NODE
+          NODE
             fi
             python3 - <<'PY'
           import pathlib,re,os
