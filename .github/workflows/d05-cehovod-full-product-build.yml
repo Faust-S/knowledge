@@ -110,6 +110,13 @@ jobs:
             const states=[...t.matchAll(/(?:check-hydration|check-runtime|check-functional-ui|check-workspace-responsive|check-navigation-a11y): (?:OK|FAIL)/g)].map(x=>x[0]);
             console.log("D05_BROWSER_GATE_STATES="+states.slice(-7).join(";"));
             console.log("D05_BROWSER_ERROR_COUNT="+(t.match(/(?:FAIL|Error:|Failed:)/g)||[]).length);
+            const lines=t.split(/\r?\n/);
+            const errors=lines.filter(x=>/(error TS\d+|prettier\/prettier|\bFAIL\b|\bError:|\bFailed:|\bproblems? \()/i.test(x));
+            console.log("D05_DIAGNOSTIC_MATCHES="+errors.length);
+            console.log("D05_TYPESCRIPT_CODES="+[...new Set((t.match(/TS\d{4,5}/g)||[]))].join(","));
+            console.log("D05_PRETTIER_COUNT="+(t.match(/prettier\/prettier/g)||[]).length);
+            console.log("D05_FAILURE_CLASSES="+errors.slice(0,14).map(x=>x.replace(/.*?(TS\d+:|prettier\/prettier|Error:|FAIL|Failed:)/i,"$1").slice(0,120)).join(" | "));
+
             const navCategories=[
               ["NAV_TRIGGER_MISSING",/trigger button not found/],
               ["NAV_DIALOG_TOO_FEW_FOCUSABLE",/too few focusable inside dialog/],
