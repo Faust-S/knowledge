@@ -183,7 +183,11 @@ def test_three_original_work_periods_reproduce_new_result_after_owner_capacity()
     assert find(out, "commit", work="w3")[0]["outcome"] == "APPLIED"
     for who in ("a", "b"):
         assert any(row["economic_position"] == "COOPERATION_PREFERRED"
-                   for row in _owner_obs(out, who))
+                   for row in _owner_obs(out, who)), [
+            (row.get("at"), row.get("economic_position"),
+             row.get("economic_reason"))
+            for row in _owner_obs(out, who)
+        ]
     witness = original_three_period_evidence(out)
     assert len(witness["work_periods"]) == 3
     assert all(item["recipient_acceptance_applied"]
@@ -198,7 +202,10 @@ def test_owner_cash_advice_reverses_but_does_not_rewrite_any_original_Work_or_Re
                           scenarios()["advice_reverses_without_new_consent"])
     start, shifted = simulate(positive), simulate(negative)
     assert any(row["economic_position"] == "COOPERATION_PREFERRED"
-               for row in _owner_obs(start, "a"))
+               for row in _owner_obs(start, "a")), [
+        (row.get("at"), row.get("economic_position"),
+         row.get("economic_reason")) for row in _owner_obs(start, "a")
+    ]
     assert any(row["economic_position"] == "OUTSIDE_PREFERRED"
                for row in _owner_obs(shifted, "a"))
     assert start["trace"] == shifted["trace"]
