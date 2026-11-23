@@ -443,7 +443,8 @@ class QualitativeAKIS:
              "wip_terms", "wip_slot_start", "wip_slot_end",
              "wip_capacity_units", "wip_cooperation_link",
              "wip_cooperation_revision", "wip_operation",
-             "wip_material_batch", "wip_dispatch_ref",
+             "wip_material_batch", "wip_material_batches",
+             "wip_batch_inspections", "wip_dispatch_ref",
              "wip_receipt_ref", "wip_accepted_units"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
@@ -1146,6 +1147,8 @@ class QualitativeAKIS:
         if action in WIP_ACTIONS:
             report["wip_operation"] = ev.get("wip_operation")
             report["wip_material_batch"] = ev.get("wip_material_batch")
+            if "wip_material_batches" in ev:
+                report["wip_material_batches"] = ev["wip_material_batches"]
             report["wip_id"] = ev.get("wip_id")
             report["original_work_not_replaced"] = True
             report["financial_evidence"] = "SOURCE_DECLARED_NOT_CASH_RECEIPT"
