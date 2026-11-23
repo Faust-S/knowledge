@@ -12,6 +12,7 @@ const DOMAIN=Buffer.from('IWXA-T4-WIRE-CANDIDATE-V1\0','utf8');
 const LIMIT=32768,MAX_BODY=16384,MAX_DEPTH=14;
 const MESSAGE_TYPES=new Set([
   'HELLO','CAPABILITIES','HEADS','DIFF_REQUEST','CHANGE_REF',
+  'CHUNK_REQUEST','CHUNK',
   'RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK','RESUME'
 ]);
 const SUBJECT_KINDS=new Set(['OBJECT_PUT','ASSET_PUT','RELATION_PUT']);
@@ -110,6 +111,35 @@ function validateBody(type,body){
       body.sourceRevision<1||!DIGEST(body.contentDigest)||
       !hashList(body.parents))
       fail('WIRE_CHANGE_REF_INVALID');
+  }else if(type==='CHUNK_REQUEST'){
+    sameKeys(body,['changeId','contentDigest','chunkIndex','chunkCount']);
+    if(!ID(body.changeId)||!DIGEST(body.contentDigest)||
+      !Number.isSafeInteger(body.chunkIndex)||
+      !Number.isSafeInteger(body.chunkCount)||
+      body.chunkCount<1||body.chunkCount>64||
+      body.chunkIndex<0||body.chunkIndex>=body.chunkCount)
+      fail('WIRE_CHUNK_REQUEST_INVALID');
+  }else if(type==='CHUNK'){
+    sameKeys(body,['changeId','contentDigest','chunkIndex','chunkCount',
+      'ciphertextBase64','ciphertextSha256','encryptionContextRef']);
+    if(!ID(body.changeId)||!DIGEST(body.contentDigest)||
+      !Number.isSafeInteger(body.chunkIndex)||
+      !Number.isSafeInteger(body.chunkCount)||
+      body.chunkCount<1||body.chunkCount>64||
+      body.chunkIndex<0||body.chunkIndex>=body.chunkCount||
+      !ID(body.encryptionContextRef)||!DIGEST(body.ciphertextSha256)||
+      typeof body.ciphertextBase64!=='string'||
+      body.ciphertextBase64.length<4||
+      body.ciphertextBase64.length>10924||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+        .test(body.ciphertextBase64))
+      fail('WIRE_CHUNK_INVALID');
+    const content=Buffer.from(body.ciphertextBase64,'base64');
+    if(!content.length||content.length>8192||
+      content.toString('base64')!==body.ciphertextBase64||
+      'sha256:'+createHash('sha256').update(content).digest('hex')!==
+        body.ciphertextSha256)
+      fail('WIRE_CHUNK_CIPHERTEXT_DIGEST_INVALID');
   }else if(['RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK'].includes(type)){
     const fields=type==='APPLIED_ACK'?
       ['changeId','contentDigest','ackRef','recipientEventRef',
