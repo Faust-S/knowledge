@@ -509,6 +509,14 @@ class QualitativeAKIS:
             known_works = set(self.works)
             known_works.update(ev["work_spec"]["id"] for ev in events if ev["action"] == "request")
             try:
+                for proposal_event in events:
+                    if (proposal_event["action"] == "subject_registration_propose"
+                            and not isinstance(
+                                proposal_event.get("new_subject_kind"), str
+                            )):
+                        raise InputError(
+                            "REGISTRATION_NEW_SUBJECT_KIND_MUST_BE_STRING"
+                        )
                 prospective_kinds = {
                     ev["new_subject"]: ev["new_subject_kind"]
                     for ev in events

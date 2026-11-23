@@ -81,12 +81,12 @@ def _original_extended_role_document(document: Any, subject: str,
     refs = [document["self_role_source_ref"], document[second]]
     if "role_management_source_ref" in document:
         refs.append(document["role_management_source_ref"])
-    if len(set(refs)) != len(refs):
-        raise RegistrationBlocked("REGISTRATION_EXTENDED_DISTINCT_OWNER_SOURCES_REQUIRED")
     for ref in refs:
         _src(ref, subject)
         if len(ref) > 128:
             raise RegistrationBlocked("REGISTRATION_EXTENDED_SOURCE_ID_TOO_LONG")
+    if len(set(refs)) != len(refs):
+        raise RegistrationBlocked("REGISTRATION_EXTENDED_DISTINCT_OWNER_SOURCES_REQUIRED")
     return dict(document)
 
 
@@ -160,6 +160,7 @@ def qualify_subject_registration(state: Any, ev: Mapping[str, Any],
         if (ev.get("actor") != operator or not _id(subject)
                 or subject in state.subjects or subject == "COUNCIL"
                 or len(state.subjects) >= 128
+                or not isinstance(kind, str)
                 or kind not in {"SME"} | EXTENDED_ORIGINAL_KINDS
                 or any(row.get("subject_registration_id") == reg
                        and row.get("action") == action

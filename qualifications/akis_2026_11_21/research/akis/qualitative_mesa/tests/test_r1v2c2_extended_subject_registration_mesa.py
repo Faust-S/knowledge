@@ -7,6 +7,7 @@ from copy import deepcopy
 
 import pytest
 
+from research.akis.qualitative_mesa.rules import InputError
 from research.akis.qualitative_mesa.mesa_model import simulate
 from research.akis.qualitative_mesa.source_registration import (
     registration_fingerprint,
@@ -368,6 +369,61 @@ def test_role_scope_identity_cannot_impersonate_other_original_owner(role):
     proposal = next(x for x in d["events"]
                     if x["action"] == "subject_registration_propose")
     proposal["new_subject_spec"]["self_role_source_ref"] = "model://op/forged"
+    out = simulate(d)
+    assert rows(out, "subject_registration_propose")[0]["reason"] == (
+        "REGISTRATION_INDEPENDENT_SOURCE_OWNER_REQUIRED"
+    )
+    assert "c" not in out["subjects"]
+
+
+
+def test_unhashable_future_actor_kind_is_invalid_input_not_python_crash():
+    d = prospective_case("public")
+    proposal = next(x for x in d["events"]
+                    if x["action"] == "subject_registration_propose")
+    proposal["new_subject_kind"] = ["PUBLIC_INSTITUTION"]
+    with pytest.raises(InputError, match=(
+        "REGISTRATION_NEW_SUBJECT_KIND_MUST_BE_STRING"
+    )):
+        simulate(d)
+
+
+@pytest.mark.parametrize("form", sorted(ROLES))
+def test_unhashable_extended_role_source_is_blocked_without_python_exception(form):
+    d = prospective_case(form)
+    proposal = next(x for x in d["events"]
+                    if x["action"] == "subject_registration_propose")
+    proposal["new_subject_spec"]["self_role_source_ref"] = []
+    out = simulate(d)
+    assert rows(out, "subject_registration_propose")[0]["reason"] == (
+        "REGISTRATION_INDEPENDENT_SOURCE_OWNER_REQUIRED"
+    )
+    assert "c" not in out["subjects"]
+
+
+@pytest.mark.parametrize("form", sorted(ROLES))
+def test_same_role_and_mandate_source_cannot_count_twice(form):
+    d = prospective_case(form)
+    proposal = next(x for x in d["events"]
+                    if x["action"] == "subject_registration_propose")
+    spec = proposal["new_subject_spec"]
+    field = ROLES[form][2]
+    spec[field] = spec["self_role_source_ref"]
+    out = simulate(d)
+    assert rows(out, "subject_registration_propose")[0]["reason"] == (
+        "REGISTRATION_EXTENDED_DISTINCT_OWNER_SOURCES_REQUIRED"
+    )
+    assert "c" not in out["subjects"]
+
+
+@pytest.mark.parametrize("form", sorted(ROLES))
+def test_extended_registration_cannot_use_foreign_management_source(form):
+    d = prospective_case(form)
+    proposal = next(x for x in d["events"]
+                    if x["action"] == "subject_registration_propose")
+    proposal["new_subject_spec"][
+        "role_management_source_ref"
+    ] = "model://op/foreign-role-manager"
     out = simulate(d)
     assert rows(out, "subject_registration_propose")[0]["reason"] == (
         "REGISTRATION_INDEPENDENT_SOURCE_OWNER_REQUIRED"
