@@ -395,7 +395,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             if decision != "TERMINATE":
                 old_spec = state.resource_specs[resource]
                 new_spec = state.resource_specs[new_resource]
-                if (new_spec.capacity_unit != old_spec.capacity_unit or
+                if (new_spec.unit != old_spec.unit or
                         new_spec.site is None):
                     _fail("WIP_OPERATION_RESOURCE_UNIT_OR_SITE_MISMATCH")
             if (work.assurance_criteria and
