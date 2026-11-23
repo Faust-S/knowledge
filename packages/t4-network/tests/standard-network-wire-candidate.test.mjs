@@ -264,3 +264,12 @@ test('unknown protocol version and invalid signed base64 fail closed',async()=>{
     JSON.stringify(raw))),e=>['WIRE_NONCANONICAL_OR_DUPLICATE_KEYS',
     'WIRE_SIGNATURE_INVALID'].includes(e.code));
 });
+
+test('cross-runtime canonical wire forbids Unicode object keys with divergent UTF-16 sorting',()=>{
+  assert.throws(()=>create({body:{
+    ...base.body,['status\u{1F600}']:'untrusted',
+  }}),code('WIRE_OBJECT_KEYS_INVALID'));
+  assert.throws(()=>create({body:{
+    ...base.body,['e\u0301']:'untrusted',
+  }}),code('WIRE_OBJECT_KEYS_INVALID'));
+});
