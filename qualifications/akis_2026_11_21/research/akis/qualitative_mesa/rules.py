@@ -32,7 +32,10 @@ from .source_registration import (
     qualify_resource_registration,
 )
 from .affiliation import AffiliationBlocked, qualify_affiliation_transfer
-from .wip import WipBlocked, ACTIONS as WIP_ACTIONS, apply as apply_wip_action
+from .wip import (
+    WipBlocked, ACTIONS as WIP_ACTIONS, apply as apply_wip_action,
+    assert_assurance_responsibility_current,
+)
 from .handoff import Handoff, HandoffInputError, declare_handoffs, handoffs_view
 from .material import (MaterialBatch, MaterialState, MaterialInputError, MaterialBlocked,
     parse_batches, quantities, amount, event_report, assert_reported_order,
@@ -390,7 +393,9 @@ class QualitativeAKIS:
         last = -1
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
-             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
+             "criterion", "quality_verdict", "quality_evidence_ref",
+             "quality_expected_responsible_owner", "quality_responsibility_revision",
+             "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
              "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until", "entry_change_id", "entry_assessment_source_ref",
              "model_code_change_id", "model_code_source_ref", "model_code_decision",
              "model_code_decision_source_ref", "new_model_edition",
@@ -447,7 +452,8 @@ class QualitativeAKIS:
              "wip_capacity_units", "wip_cooperation_link",
              "wip_cooperation_revision", "wip_operation",
              "wip_material_batch", "wip_material_batches",
-             "wip_batch_inspections", "wip_quality_revision_of", "wip_dispatch_ref",
+             "wip_batch_inspections", "wip_quality_revision_of",
+             "wip_assurance_responsibility", "wip_dispatch_ref",
              "wip_receipt_ref", "wip_accepted_units"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
@@ -1161,6 +1167,13 @@ class QualitativeAKIS:
             report["operation"] = ev.get("operation")
         if action == "assess_result_quality" and report["outcome"] == "APPLIED":
             report["criterion"] = ev.get("criterion")
+            if "quality_responsibility_revision" in ev:
+                report["quality_responsibility_revision"] = ev[
+                    "quality_responsibility_revision"
+                ]
+                report["quality_expected_responsible_owner"] = ev[
+                    "quality_expected_responsible_owner"
+                ]
             report["quality_verdict"] = ev.get("quality_verdict")
             report["assessed_result_ref"] = ev.get("result_ref")
             report["quality_evidence_ref"] = ev.get("quality_evidence_ref")
@@ -2021,9 +2034,11 @@ class QualitativeAKIS:
                         "IN_PROGRESS" not in w.operation_states.values()):
                     w.execution = "PAUSED"
         elif a == "assess_result_quality":
-            # The customer alone can record an independent modeled inspection
-            # of the current submitted Result. This is neither acceptance
-            # nor an external factual certification or legal liability.
+            # An independently evaluated Result must name the effective
+            # responsible performer if a reviewed WIP amendment transferred
+            # execution for this original criterion.
+            if w.assurance_responsibilities:
+                assert_assurance_responsibility_current(self, w, at)
             assess_result_quality(w, ev)
         elif a == "complete":
             active_resource = w.wip_active_resource or w.resource
@@ -2063,6 +2078,8 @@ class QualitativeAKIS:
                     self.context_basis.assert_allowed(
                         w.key, "assess_result_quality", actor, at
                     )
+                if w.assurance_responsibilities:
+                    assert_assurance_responsibility_current(self, w, at)
                 quality_gate = acceptance_gate(w)
                 if quality_gate != "NONE":
                     raise BlockedDecision(quality_gate)
