@@ -15,7 +15,10 @@ from typing import Any, Mapping, Sequence
 
 from .context_basis import ContextBlocked
 from .capacity import CapacityBlocked, CapacityInputError, ResourceNeed
-from .outside_demand import assess_original_independent_outside_demand
+from .outside_demand import (
+    assess_original_independent_outside_demand,
+    assess_original_outside_supplier_offer,
+)
 
 
 class OutlookInputError(ValueError):
@@ -38,7 +41,8 @@ _FIELDS = frozenset({
     "currency", "coverage", "outside_feasibility", "minimum_extra_cash", "cash",
 })
 _OPTIONAL_FIELDS = frozenset({"requires_accepted_results", "source_revision",
-                              "outside_capacity_probe", "outside_demand_claim"})
+                              "outside_capacity_probe", "outside_demand_claim",
+                              "outside_offer_claim"})
 
 
 def _id(value: Any, key: str) -> str:
@@ -76,6 +80,8 @@ class OwnerOutlook:
     outside_capacity_probe: tuple[str, int, int, int] | None = None
     # Buyer-originated model evidence is anchored in ORIGINAL Mesa trace.
     outside_demand_claim: tuple[str, str, str] | None = None
+    # Optional independently sourced seller response to ONE buyer request.
+    outside_offer_claim: str | None = None
 
 
 def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
@@ -192,6 +198,13 @@ def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
                 _id(demand_raw[key], "OUTSIDE_DEMAND")
                 for key in ("signal_id", "deliverable", "quality_basis")
             )
+        offer_id = None
+        if "outside_offer_claim" in record:
+            if demand is None:
+                raise OutlookInputError(
+                    "OUTLOOK_OUTSIDE_OFFER_REQUIRES_ORIGINAL_BUYER_DEMAND"
+                )
+            offer_id = _id(record["outside_offer_claim"], "OUTSIDE_OFFER")
         parsed.append(OwnerOutlook(
             owner, relation, work,
             _id(record["work_source_revision"], "WORK_REVISION"),
@@ -203,6 +216,7 @@ def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
              if "source_revision" in record else None),
             probe,
             demand,
+            offer_id,
         ))
     return tuple(sorted(parsed, key=lambda x: (x.available_at, x.owner, x.work, x.relation)))
 
@@ -307,6 +321,34 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                 "relation": row.relation, "available_at": row.available_at,
             }
 
+    if row.outside_offer_claim is not None:
+        # Buyer source first, supplier source second, original capacity third.
+        # Both model statements remain nonbinding and source-revocable.
+        buyer = next((
+            evidence.get("actor") for evidence in (original_trace or ())
+            if evidence.get("action") == "outside_demand_signal"
+            and evidence.get("outcome") == "APPLIED"
+            and evidence.get("outside_demand_id") == row.outside_demand_claim[0]
+        ), None)
+        offer_reason = assess_original_outside_supplier_offer(
+            offer_id=row.outside_offer_claim,
+            demand_id=row.outside_demand_claim[0],
+            owner=owner, buyer=buyer,
+            trace=original_trace, subjects=subjects,
+            context_basis=context_basis,
+            price=row.cash["INDEPENDENT_ALTERNATIVE"]["external_sales"],
+            currency=row.currency, probe=row.outside_capacity_probe,
+            deliverable=row.outside_demand_claim[1],
+            quality_basis=row.outside_demand_claim[2],
+            at=int(at),
+        )
+        if offer_reason is not None:
+            return {
+                "position": "UNKNOWN", "reason": offer_reason,
+                "relation": row.relation,
+                "available_at": row.available_at,
+            }
+
     if row.outside_capacity_probe is not None:
         # This is an owner-held outside candidate, not a second Work. It
         # must fit the SAME original Work's planned horizon, be owned by the
@@ -400,5 +442,10 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
             ),
             "outside_buyer_request_is_not_a_concluded_contract": True,
             "buyer_declared_price_is_not_bank_or_realized_income": True,
+            "supplier_model_offer_evidence": (
+                "ORIGINAL_SUPPLIER_SOURCE_SCOPED_NONBINDING_OFFER"
+                if row.outside_offer_claim is not None else "NOT_REQUESTED"
+            ),
+            "bilateral_source_comparison_not_acceptance_delivery_or_settlement": True,
         },
     }
