@@ -52,6 +52,8 @@ import {createT4OriginalNetworkReplayPort}
   from '../src/network/original-network-replay-checkpoint.mjs';
 import {createT4OriginalNetworkSessionPhasePort}
   from '../src/network/original-network-session-phases.mjs';
+import {verifyT4OriginalSourceHeadCausality}
+  from '../src/network/original-network-source-head-proof.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame}
   from '../src/network/standard-network-wire-candidate.mjs';
 import {createT4CandidateFrameTransport}
@@ -3028,6 +3030,180 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalT3SignedAckNotBusinessApplied:true,
           originalT3SessionStageWritesNotRepeated:true,
           originalT3ExchangeUsedForNativePhase:false,
+          independentPhysicalDevices:false,
+        }));
+
+      // P2.2-B independent SOURCE proof: signed peer messages traverse
+      // actual HTTPS and are matched with a real ORIGINAL T3 Event prefix.
+      // This demonstrates the source Head/Change causal boundary, NOT a
+      // new native subject-level apply or a cross-device corporate signer.
+      const sourceBusinessEvents=await sourceKernel.listEventsSince(
+        workspaceId);
+      const sourceLastIndex=sourceBusinessEvents.findIndex(ev=>
+        ev.event_id===followup.capture.window.lastEventId);
+      assert.equal(sourceLastIndex,sourceBusinessEvents.length-1);
+      const sourceProofWindow=async(cursor,maxEvents)=>
+        readT4OriginalEventWindow({
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+          cursor,maxEvents,
+          authorizeOriginalRead:async proof=>
+            actual.grants.includes(proof.operation),
+          readOriginalEvents:()=>sourceKernel.listEventsSince(workspaceId),
+        });
+      const previousSourceCursor=sourceLastIndex===0?null:
+        (await sourceProofWindow(null,sourceLastIndex)).nextCursor;
+      const trueLast=await sourceProofWindow(previousSourceCursor,1);
+      assert.equal(trueLast.window.count,1);
+      assert.equal(trueLast.window.hasMore,false);
+      const sourceHeadSession='session:original:network:head:'+randomUUID();
+      const sourceHeadChange='change:original:network:head:'+randomUUID();
+      const peerSignedKeys=generateKeyPairSync('ed25519');
+      const sourceSignedFrame=async(type,from,body,sequence)=>{
+        const isSource=from==='SOURCE',fromNode=isSource?
+          'node:original:source':'node:original:recipient';
+        const toNode=isSource?
+          'node:original:recipient':'node:original:source';
+        const frame=createT4CandidateUnsignedFrame({
+          messageType:type,
+          messageId:'message:original:head:'+randomUUID(),
+          sourceNodeRef:fromNode,recipientNodeRef:toNode,
+          sessionRef:sourceHeadSession,scopeRef:'scope:original:replay',
+          permissionRef:'original:permission:replay',
+          signerRef:isSource?'key:original:source:head':
+            'key:original:recipient:head',
+          sequence,ownerEpoch:2,
+          cryptoSuite:'X25519_AES256GCM_ED25519',body,
+        });
+        return signT4CandidateFrame({
+          unsignedFrame:frame,signOriginalNodeBytes:async({bytes})=>
+            sign(null,Buffer.from(bytes),isSource?
+              nativeKeys.privateKey:peerSignedKeys.privateKey),
+        });
+      };
+      const sourceReplayPhasePort=createT4OriginalNetworkReplayPort({
+        originalKernel:originalCarrierKernel,
+        technicalWorkspaceId:sourceCaptureWorkspace,
+        originalWriteOwnerRef:'original:t2:exchange',
+        localNodeRef:'node:original:source',
+        scopeRef:'scope:original:replay',getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId:sourceCaptureWorkspace,
+          originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:source',
+          scopeRef:'scope:original:replay',
+          hostSessionRef:'original:source:head:host',
+        }),
+        authorizeOriginalTechnicalRead:async p=>
+          actual.grants.includes(p.operation),
+        authorizeOriginalTechnicalWrite:async p=>
+          actual.grants.includes(p.operation),
+      });
+      const sourceHeadVerifier=createT4CandidateFrameTransport({
+        wireTransport:nativeNetworkTransport,
+        originalHostNodeRef:'node:original:source',
+        originalHostScopeRef:'scope:original:replay',
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          nodeRef:'node:original:source',
+          scopeRef:'scope:original:replay',
+          originalOwnerRef:'original:t2:exchange',
+          hostSessionRef:'original:source:head:wire',
+        }),
+        authorizeOriginalHostWire:async p=>
+          p.originalHostNodeRef==='node:original:source'&&
+          actual.grants.includes('t1.getObject'),
+        verifyOriginalNodeSignature:async({bytes,signature})=>
+          verifySignature(null,Buffer.from(bytes),
+            peerSignedKeys.publicKey,Buffer.from(signature)),
+        authorizeOriginalNetwork:async p=>
+          p.sourceNodeRef==='node:original:recipient'&&
+          p.recipientNodeRef==='node:original:source'&&
+          p.permissionRef==='original:permission:replay',
+        persistOriginalReplayDecision:
+          sourceReplayPhasePort.persistOriginalReplayDecision,
+      });
+      const signedHeadExchange=async(type,from,body,sequence)=>{
+        const encoded=await sourceSignedFrame(type,from,body,sequence);
+        const published=await (from==='SOURCE'?
+          nativeSender:nativeReceiver()).publishSignedFrame({
+          wireBytes:encoded,
+        });
+        return (from==='SOURCE'?
+          nativeReceiver():sourceHeadVerifier).readAndVerifySignedFrame({
+          key:published.key,expectedSha256:published.sha256,
+          requiredCryptoSuite:'X25519_AES256GCM_ED25519',
+        });
+      };
+      const verifiedOriginalHeads=await signedHeadExchange(
+        'HEADS','SOURCE',{
+          familyRef:'family:original:object',
+          ownerEpoch:2,
+          heads:[trueLast.window.sourcePrefixDigestAfter],
+        },1);
+      const verifiedOriginalDiff=await signedHeadExchange(
+        'DIFF_REQUEST','RECIPIENT',{
+          familyRef:'family:original:object',
+          fromHeads:previousSourceCursor?
+            [trueLast.window.sourcePrefixDigestBefore]:[],
+        },1);
+      const verifiedOriginalChange=await signedHeadExchange(
+        'CHANGE_REF','SOURCE',{
+          changeId:sourceHeadChange,changeKind:'OBJECT_PUT',
+          eventRef:followup.capture.window.lastEventId,
+          ownerRef:'original:t2:exchange',sourceRevision:9,
+          contentDigest:networkPhaseDigest,
+          parents:[trueLast.window.sourcePrefixDigestBefore],
+        },2);
+      const realOriginalHead=await verifyT4OriginalSourceHeadCausality({
+        verifiedHeads:verifiedOriginalHeads,
+        verifiedDiffRequest:verifiedOriginalDiff,
+        verifiedChangeRef:verifiedOriginalChange,
+        workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        sourceNodeRef:'node:original:source',
+        recipientNodeRef:'node:original:recipient',
+        scopeRef:'scope:original:replay',
+        sessionRef:sourceHeadSession,ownerEpoch:2,
+        sourceCursorBefore:previousSourceCursor,
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:source',
+          scopeRef:'scope:original:replay',
+          hostSessionRef:'original:source:head:original',
+        }),
+        authorizeOriginalRead:async ctx=>
+          actual.grants.includes(ctx.operation),
+        readOriginalEvents:()=>sourceKernel.listEventsSince(workspaceId),
+        verifyOriginalSourceSubject:async proof=>{
+          const object=await sourceKernel.getObject(
+            workspaceId,linkedObjectId);
+          return proof.originalSourceEventId===
+              followup.capture.window.lastEventId&&
+            proof.originalSourceRevision===9&&
+            proof.originalObjectId===linkedObjectId&&
+            object?.object?.revision===9&&
+            object.object.object_id===linkedObjectId;
+        },
+      });
+      assert.equal(realOriginalHead.signedHeadMatchesOriginalT3EventPrefix,
+        true);
+      assert.equal(realOriginalHead.signedDiffMatchesOriginalT3Frontier,
+        true);
+      assert.equal(realOriginalHead.originalSourceSubjectIndependentlyRead,
+        true);
+      assert.equal(realOriginalHead.originalBusinessApplied,false);
+      console.log('T4_REAL_ORIGINAL_T3_SIGNED_SOURCE_HEAD_CAUSAL_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          signedHeadsDiffAndChangeDeliveredViaApache:true,
+          differentOriginalNodeTestKeys:true,
+          sourceOriginalEvent:realOriginalHead.originalSourceEventId,
+          sourceOriginalEventRevision:realOriginalHead.originalEventRevision,
+          sourceOriginalEventPrefixReconstructed:true,
+          originalSourceSubjectRevisionVerified:true,
+          originalT3ExchangeUsedForNativeHeads:false,
+          ciphertextNotBoundToSubjectContentInThisTest:true,
+          historicalForkWitnessAvailable:false,
           independentPhysicalDevices:false,
         }));
 
