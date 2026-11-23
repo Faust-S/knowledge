@@ -19,14 +19,48 @@ from .test_r1w1c_assurance_responsibility_mesa import (
 )
 
 
-def joined_scenario():
-    d = multibatch_scenario()
+def joined_scenario(*, strict=False):
+    d = multibatch_scenario(strict=strict)
     d["works"][0]["assurance_criteria"] = [
         criterion("form-surface", "form", "b", "INSPECTION"),
         criterion("form-record", "form", "b", "DOCUMENT_REVIEW", "DOCUMENTATION"),
         criterion("finish-product", "finish", "a", "FUNCTIONAL_TEST",
                   "DELIVERABLE_CONFORMITY"),
     ]
+    if strict:
+        named = {
+            "a": [
+                "w1c-quality-revote-28", "mat-out-1-quality",
+                "mat-out-2-quality",
+            ],
+            "b": [
+                "w1c-dispatch-1", "w1c-dispatch-2", "REV-ACT-02",
+                "claim-REV-ACT-02", "w1c-inspection-1-v2",
+                "w1c-inspection-2-v2", "w1c-quality-revote-29",
+            ],
+            "c": [
+                "criterion-form-surface", "criterion-form-record",
+                "criterion-finish-product", "w1c-assurance-terms",
+                "form-proposal-wip-form-2", "w1c-quality-revote-30",
+                "w1c-quality-revision-apply",
+            ],
+            "d": [
+                "w1c-receipt-1", "w1c-receipt-2",
+                "w1c-quality-1", "w1c-quality-2", "w1c-quality-revote-31",
+            ],
+        }
+        current = {row["id"] for row in d["context_evidence"]["sources"]}
+        for owner, names in named.items():
+            for name in names:
+                ref = f"model://{owner}/{name}"
+                if ref in current:
+                    continue
+                current.add(ref)
+                d["context_evidence"]["sources"].append({
+                    "id": ref, "owner": owner, "revision": "source-r1",
+                    "status": "CONFIRMED", "usable_by": [owner],
+                    "valid_until": 100,
+                })
     return d
 
 
@@ -36,8 +70,8 @@ def initial_offer():
     return offer
 
 
-def origin_with_disputed_quality():
-    state = QualitativeAKIS(joined_scenario())
+def origin_with_disputed_quality(*, strict=False):
+    state = QualitativeAKIS(joined_scenario(strict=strict))
     for event in multibatch_baseline():
         assert state.apply(event, event["at"])["outcome"] == "APPLIED"
     first = initial_offer()
@@ -158,3 +192,30 @@ def test_quality_revised_operation_and_original_recipient_accept_one_result():
     assert {row["material_batch"] for row in work.wip_lots} == {
         "mat-out-1", "mat-out-2",
     }
+
+
+def test_strict_quality_revision_rechecks_inherited_assurance_before_any_mutation():
+    state = origin_with_disputed_quality(strict=True)
+    work = state.works["w1"]
+    revision = revision_proposal()
+    assert state.apply(revision, 27)["outcome"] == "APPLIED"
+    digest = work.wip_proposal["fingerprint"]
+    new_votes(state, digest)
+    previous = deepcopy(work.wip_amendments)
+    materials = deepcopy(work.wip_lots)
+    resources = tuple(state.capacity_ledger.reservations)
+    applied(state, 32, "source_update", "c",
+            source="model://c/w1c-assurance-terms",
+            expected_revision="source-r1", new_revision="source-r2",
+            status="DISPROVED")
+    denied = send(state, 33, "wip_apply", "c",
+                  source_revision="d1", org_revision="oc-1",
+                  wip_operation="form", wip_id="wip-form-2",
+                  wip_fingerprint=digest,
+                  wip_source_ref="model://c/w1c-quality-revision-apply")
+    assert denied["reason"] == "WIP_ORIGINAL_EVIDENCE_SOURCE_UNAVAILABLE"
+    assert work.wip_amendments == previous
+    assert work.wip_lots == materials
+    assert tuple(state.capacity_ledger.reservations) == resources
+    assert work.operation_states["form"] == "PAUSED"
+    assert work.result == "NOT_SUBMITTED"
