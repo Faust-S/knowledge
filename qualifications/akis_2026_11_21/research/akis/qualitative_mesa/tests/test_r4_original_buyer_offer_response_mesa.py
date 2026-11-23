@@ -7,7 +7,7 @@ from copy import deepcopy
 
 import pytest
 
-from research.akis.qualitative_mesa.economic_outlook import OutlookInputError
+from research.akis.qualitative_mesa.rules import InputError
 from research.akis.qualitative_mesa.mesa_model import OperatorAKISModel, simulate
 from .test_r4_independent_supplier_offer_mesa import (
     OFFER_ID, OFFER_SOURCE, OFFER_REVISION,
@@ -152,6 +152,12 @@ def test_buyer_can_independently_decline_supplier_model_terms_without_changing_o
                        valid_until=79),
      "OUTSIDE_BUYER_RESPONSE_OWN_SOURCE_NOT_QUALIFIED"),
     (lambda d: response_event(d).update(
+        outside_buyer_response_decision="SIGNED_ORDER"),
+     "OUTSIDE_BUYER_RESPONSE_DECISION_INVALID"),
+    (lambda d: response_event(d).update(
+        outside_buyer_response_decision=[]),
+     "OUTSIDE_BUYER_RESPONSE_DECISION_INVALID"),
+    (lambda d: response_event(d).update(
         outside_buyer_response_valid_until=151),
      "OUTSIDE_BUYER_RESPONSE_OFFER_OR_DEMAND_NOT_CURRENT"),
     (lambda d: response_event(d).update(
@@ -239,7 +245,7 @@ def test_response_claim_without_original_supplier_offer_is_not_a_valid_input():
     d = buyer_response_case()
     owner_outlook(d).pop("outside_offer_claim")
     with pytest.raises(
-        OutlookInputError,
+        InputError,
         match="OUTLOOK_BUYER_RESPONSE_REQUIRES_ORIGINAL_SUPPLIER_OFFER",
     ):
         OperatorAKISModel(d)
