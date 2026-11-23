@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 
 from .context_basis import ContextBlocked
 from .capacity import CapacityBlocked, CapacityInputError, ResourceNeed
+from .outside_demand import assess_original_independent_outside_demand
 
 
 class OutlookInputError(ValueError):
@@ -37,7 +38,7 @@ _FIELDS = frozenset({
     "currency", "coverage", "outside_feasibility", "minimum_extra_cash", "cash",
 })
 _OPTIONAL_FIELDS = frozenset({"requires_accepted_results", "source_revision",
-                              "outside_capacity_probe"})
+                              "outside_capacity_probe", "outside_demand_claim"})
 
 
 def _id(value: Any, key: str) -> str:
@@ -73,6 +74,8 @@ class OwnerOutlook:
     source_revision: str | None = None
     # Optional current ORIGINAL CapacityLedger preview, never a reservation.
     outside_capacity_probe: tuple[str, int, int, int] | None = None
+    # Buyer-originated model evidence is anchored in ORIGINAL Mesa trace.
+    outside_demand_claim: tuple[str, str, str] | None = None
 
 
 def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
@@ -173,6 +176,22 @@ def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
             if "source_revision" not in record:
                 raise OutlookInputError("OUTLOOK_OUTSIDE_CAPACITY_REQUIRES_PINNED_OWNER_SOURCE")
             probe = (resource, units, start, end)
+        demand_raw = record.get("outside_demand_claim")
+        demand = None
+        if demand_raw is not None:
+            if (not isinstance(demand_raw, dict)
+                    or set(demand_raw) != {
+                        "signal_id", "deliverable", "quality_basis"
+                    }):
+                raise OutlookInputError("OUTLOOK_OUTSIDE_DEMAND_CLAIM_FIELDS_INVALID")
+            if probe is None:
+                raise OutlookInputError(
+                    "OUTLOOK_OUTSIDE_DEMAND_REQUIRES_ORIGINAL_CAPACITY_PROBE"
+                )
+            demand = tuple(
+                _id(demand_raw[key], "OUTSIDE_DEMAND")
+                for key in ("signal_id", "deliverable", "quality_basis")
+            )
         parsed.append(OwnerOutlook(
             owner, relation, work,
             _id(record["work_source_revision"], "WORK_REVISION"),
@@ -183,6 +202,7 @@ def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
             (_id(record["source_revision"], "SOURCE_REVISION")
              if "source_revision" in record else None),
             probe,
+            demand,
         ))
     return tuple(sorted(parsed, key=lambda x: (x.available_at, x.owner, x.work, x.relation)))
 
@@ -194,7 +214,9 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                    owner_core: str | None = None,
                    capacity_ledger: Any | None = None,
                    resource_owners: Mapping[str, str] | None = None,
-                   resource_availability: Mapping[str, str] | None = None) -> dict[str, Any]:
+                   resource_availability: Mapping[str, str] | None = None,
+                   original_trace: Sequence[Mapping[str, Any]] | None = None,
+                   subjects: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Use only current owner's information at model time, never end-of-run claims."""
     matching = [row for row in outlooks if row.owner == owner and row.work == work.key and
                 row.available_at <= at < row.expires_at and
@@ -314,6 +336,22 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                 "relation": row.relation, "available_at": row.available_at,
             }
 
+    if row.outside_demand_claim is not None:
+        reason = assess_original_independent_outside_demand(
+            demand=row.outside_demand_claim, owner=owner,
+            work=work, relation=row.relation,
+            relation_revision=row.relation_source_revision,
+            probe=row.outside_capacity_probe,
+            outside_external_sales=row.cash["INDEPENDENT_ALTERNATIVE"]["external_sales"],
+            currency=row.currency, trace=original_trace, subjects=subjects,
+            links=links, context_basis=context_basis, at=int(at),
+        )
+        if reason is not None:
+            return {
+                "position": "UNKNOWN", "reason": reason,
+                "relation": row.relation, "available_at": row.available_at,
+            }
+
     def net(scenario: str) -> Decimal:
         p = row.cash[scenario]
         return sum((p[name] for name in _RECEIPTS), Decimal(0)) - sum(
@@ -353,5 +391,11 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
             ),
             "outside_external_customer_and_real_price_verified": False,
             "outside_capacity_reserved_or_new_work_created": False,
+            "outside_buyer_model_source_signal": (
+                "ORIGINAL_INDEPENDENT_BUYER_SOURCE_SCOPED_MODEL_DEMAND"
+                if row.outside_demand_claim is not None else "NOT_REQUESTED"
+            ),
+            "outside_buyer_request_is_not_a_concluded_contract": True,
+            "buyer_declared_price_is_not_bank_or_realized_income": True,
         },
     }
