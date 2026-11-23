@@ -16,6 +16,11 @@ class DesktopContract(unittest.TestCase):
         p = json.loads((DESKTOP / "installer/product.json").read_text("utf-8"))
         n = json.loads((DESKTOP / "package.json").read_text("utf-8"))
         self.assertEqual(t["version"], p["version"])
+        self.assertEqual(t["version"], "0.3.0")
+        cargo = (DESKTOP / "src-tauri/Cargo.toml").read_text("utf-8")
+        self.assertIn('version = "0.3.0"', cargo)
+        self.assertIn("IWXA-Activity-0.3.0-Setup.exe",
+                      (DESKTOP / "installer/build-setup-core.ps1").read_text("utf-8"))
         self.assertEqual(n["version"], p["version"])
         self.assertEqual(t["identifier"], p["data_namespace"])
         self.assertEqual(p["entrypoint"], "iwxa-activity-base-desktop.exe")
