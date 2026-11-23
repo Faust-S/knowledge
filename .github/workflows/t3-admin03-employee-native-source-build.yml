@@ -42,6 +42,7 @@ jobs:
           ref: c225e1b8d35e87e5de55dbb9c0c8dbe564d8fb08
           sparse-checkout: |
             src
+            desktop
           persist-credentials: false
           path: .private/atlas
       - name: Stage pinned original Atlas dependency for Center Vite
@@ -51,6 +52,7 @@ jobs:
           if((& git -C .private/atlas rev-parse HEAD).Trim() -cne 'c225e1b8d35e87e5de55dbb9c0c8dbe564d8fb08'){throw 'ORIGINAL_ATLAS_PIN_CHANGED'}
           New-Item -ItemType Directory -Force -Path '.private/center/vendor/atlas' | Out-Null
           Copy-Item '.private/atlas/src' '.private/center/vendor/atlas/src' -Recurse -Force
+          Copy-Item '.private/atlas/desktop' '.private/center/vendor/atlas/desktop' -Recurse -Force
           if(!(Test-Path '.private/center/vendor/atlas/src/core.mjs')){throw 'ORIGINAL_ATLAS_VENDOR_NOT_STAGED'}
       - name: Pin immutable native products and parse real original owner
         shell: pwsh
