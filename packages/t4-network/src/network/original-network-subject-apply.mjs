@@ -320,6 +320,12 @@ export function createT4OriginalNetworkAppliedAckBody({
   checkReceived(received);
   if(!ID(ackRef)||verifiedResult?.state!=='APPLIED_VERIFIED'||
     verifiedResult.originalBusinessApplied!==true||
+    verifiedResult.actualOriginalT3EventReadback!==true||
+    verifiedResult.actualOriginalT3ObjectReadback!==true||
+    verifiedResult.sourceEventId!==received.delta.sourceEventId||
+    verifiedResult.originalRecipientRevision!==received.delta.sourceRevision||
+    verifiedResult.originalRecipientStateDigest!==
+      received.delta.objectContentDigest||
     !ID(verifiedResult.originalRecipientEventId)||
     !Number.isSafeInteger(verifiedResult.originalRecipientRevision)||
     !DIG(verifiedResult.originalRecipientStateDigest))
