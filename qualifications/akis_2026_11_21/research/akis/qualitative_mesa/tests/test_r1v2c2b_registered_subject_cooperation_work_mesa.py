@@ -364,13 +364,13 @@ def test_membership_refuses_old_source_revoked_before_apply():
     d = original_new_actor_cycle("sector")
     request = next(ev for ev in d["events"]
                    if ev["action"] == "cooperation_change_response"
-                   and ev["actor"] == "a")
+                   and ev["actor"] == "sector")
     source = request["source_rights_ref"]
     for ev in d["events"]:
         if ev["at"] >= 47:
             ev["at"] += 1
     d["events"].append(e(
-        47, "source_update", "a", source=source,
+        47, "source_update", "sector", source=source,
         status="DISPROVED", expected_revision="rights-r1",
         new_revision="rights-r2",
     ))
