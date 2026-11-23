@@ -685,3 +685,56 @@ test('independent employee Workspace rights are separately approved, original si
  await assert.rejects(s.owner.readWorkspaceGrantSet({...args,organizationId:'org:south'}),
   {code:'T3_EMPLOYEE_WORKSPACE_SCOPE_CHANGED'});
 });
+
+
+test('separate signed Workspace import right is revoked without losing original employee membership',async()=>{
+ const s=setup({graphKernel:true});await s.init();
+ const started=await s.owner.begin(s.input(s.alice));
+ await s.owner.complete({enrollmentId:started.enrollmentId,
+  employeeProof:makeProof(started.request,started.challenge,NOW,s.alice.signer,'TEST')});
+ const args={organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:started.enrollmentId,managerPersonId:'person:operator',
+  managerGrantId:'grant:admin-north'};
+ const permitted=await s.owner.issueWorkspaceGrantSet({...args,confirmed:true});
+ assert.equal(permitted.state,'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE');
+ const importGrantId=permitted.attachments.importAccess.grantId;
+ const prior=await s.registry.readState(),authority='issuer:north';
+ const next=structuredClone(prior),status=prior.statuses[authority].payload;
+ next.tombstones[importGrantId]={
+  effectiveAt:iso(NOW),reason:'original-employee-exchange-revoke'};
+ next.statuses[authority]=signRecord({...status,
+  id:'status:employee-workspace-import-revoked',sequence:status.sequence+1,
+  issuedAt:iso(NOW),entries:status.entries.map(row=>
+   row.grantId===importGrantId?{...row,state:'REVOKED',effectiveAt:iso(NOW)}:row)
+ },s.north.issuerSigner);
+ next.statusFloor[authority]=status.sequence+1;
+ await s.registry.commitSignedState(next);
+ await assert.rejects(s.owner.readWorkspaceGrantSet(args),
+  {code:'T3_EMPLOYEE_WORKSPACE_RIGHT_REVOKED_OR_UNKNOWN'});
+ const enrolled=await s.owner.readEnrollment({
+  organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:started.enrollmentId});
+ assert.equal(enrolled.state,'ORIGINAL_GRANTS_ACTIVE');
+ await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,confirmed:true}),
+  {code:'T3_EMPLOYEE_WORKSPACE_RIGHTS_EXIST_USE_READBACK'});
+});
+test('lost ACK after original atomic employee Workspace rights commit cannot reissue grants',async()=>{
+ const s=setup({graphKernel:true});await s.init();
+ const started=await s.owner.begin(s.input(s.alice));
+ await s.owner.complete({enrollmentId:started.enrollmentId,
+  employeeProof:makeProof(started.request,started.challenge,NOW,s.alice.signer,'TEST')});
+ const args={organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:started.enrollmentId,managerPersonId:'person:operator',
+  managerGrantId:'grant:admin-north',confirmed:true};
+ const count=s.graphCalls.length;s.loseNext();
+ await assert.rejects(s.owner.issueWorkspaceGrantSet(args),
+  /SIMULATED_LOST_ACK_AFTER_KERNEL_COMMIT/);
+ assert.equal(s.graphCalls.length,count+1,
+  'One original atomic Kernel write happened before the ACK was lost');
+ const recovered=await s.owner.readWorkspaceGrantSet(args);
+ assert.equal(recovered.state,'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE');
+ assert.equal(recovered.grantIds.length,4);
+ await assert.rejects(s.owner.issueWorkspaceGrantSet(args),
+  {code:'T3_EMPLOYEE_WORKSPACE_OUTCOME_UNKNOWN_READBACK'});
+ assert.equal(s.graphCalls.length,count+1);
+});
