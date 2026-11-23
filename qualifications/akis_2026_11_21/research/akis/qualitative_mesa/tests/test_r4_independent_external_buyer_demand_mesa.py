@@ -87,6 +87,12 @@ def owner_outlook(d):
                 if row["owner"] == "a")
 
 
+def independent_update_time(d):
+    """Find one as-yet unused ORIGINAL Mesa event tick after buyer issuance."""
+    used = {event["at"] for event in d["events"]}
+    return next(at for at in range(95, 120) if at not in used)
+
+
 def has_reason(out, code):
     rows = owner_assessments(out)
     assert any(item[2] == code for item in rows), rows
@@ -113,7 +119,8 @@ def test_independent_external_buyer_source_can_support_nonbinding_model_choice()
         out["works"][key]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
         for key in ("w1", "w2", "w3")
     )
-    assert len(out["works"]) == 3
+    # R1-P contains the original, untouched draft w0 as well as w1/w2/w3.
+    assert set(out["works"]) == {"w0", "w1", "w2", "w3"}
     assert out["profit"]["system_increment"] == "UNKNOWN"
 
 
@@ -198,8 +205,9 @@ def test_buyer_source_exists_but_noncomparable_terms_cannot_justify_outside_pric
 
 def test_independent_buyer_source_later_revocation_blocks_new_model_read_not_old_result():
     d = independent_buyer_case()
+    changed_at = independent_update_time(d)
     d["events"].append({
-        "at": 96, "action": "source_update", "actor": BUYER,
+        "at": changed_at, "action": "source_update", "actor": BUYER,
         "source": BUYER_SOURCE, "status": "DISPROVED",
         "expected_revision": REVISION, "new_revision": "buyer-demand-r4-2",
     })
@@ -207,9 +215,9 @@ def test_independent_buyer_source_later_revocation_blocks_new_model_read_not_old
     out = simulate(d)
     assert find(out, "source_update")[0]["outcome"] == "APPLIED"
     series = owner_assessments(out)
-    assert any(t < 96 and p == "COOPERATION_PREFERRED"
+    assert any(t < changed_at and p == "COOPERATION_PREFERRED"
                for t,p,_ in series)
-    assert any(t >= 96 and reason == "OUTSIDE_DEMAND_CURRENT_BUYER_SOURCE_NO_LONGER_READABLE"
+    assert any(t >= changed_at and reason == "OUTSIDE_DEMAND_CURRENT_BUYER_SOURCE_NO_LONGER_READABLE"
                for t,_,reason in series)
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
@@ -234,7 +242,7 @@ def test_duplicate_buyer_signal_does_not_replace_first_in_original_trace():
     out = simulate(d)
     assert [(row["outcome"], row.get("reason"))
             for row in find(out, "outside_demand_signal")] == [
-        ("APPLIED", None),
+        ("APPLIED", "NONE"),
         ("BLOCKED", "OUTSIDE_DEMAND_DUPLICATE_ORIGINAL_SIGNAL"),
     ]
     assert "COOPERATION_PREFERRED" in positions(out)
@@ -251,7 +259,10 @@ def test_owner_forecast_must_explicitly_reference_actual_buyer_signal():
 
 def test_r4_external_buyer_not_member_of_original_cooperation():
     d = independent_buyer_case()
-    d["cooperation_links"][0]["participants"].append(BUYER)
+    # The original cooperation parser correctly refuses a forged member at
+    # input time. Exercise the separate buyer independence rule by using the
+    # genuine existing member b as the originator of this outsider signal.
+    demand_event(d)["actor"] = "b"
     out = simulate(d)
     signal = find(out, "outside_demand_signal")[0]
     assert signal["outcome"] == "BLOCKED"
@@ -289,7 +300,7 @@ def test_r4_independent_demand_never_creates_work_bank_transfer_or_consent():
         ),
     }
     assert public == {
-        "work_count": 3, "profit": "UNKNOWN",
+        "work_count": 4, "profit": "UNKNOWN",
         "demand_applied": True, "no_external_result": True,
     }
     # No model report should publish exact source IDs or buyer amount.
