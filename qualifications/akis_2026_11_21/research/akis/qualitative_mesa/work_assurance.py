@@ -116,6 +116,17 @@ def assess_result_quality(work: Any, event: Mapping[str, Any]) -> None:
         raise AssuranceBlocked("QUALITY_ORIGINAL_COMMITMENT_CODE_REQUIRED")
     if event.get("result_ref") != work.result_ref:
         raise AssuranceBlocked("QUALITY_SUBMITTED_RESULT_REVISION_MISMATCH")
+    responsibility = work.assurance_responsibilities.get(criterion.key)
+    if responsibility is not None:
+        if event.get("quality_expected_responsible_owner") != responsibility["effective_owner"]:
+            raise AssuranceBlocked("QUALITY_EFFECTIVE_RESPONSIBLE_OWNER_REQUIRED")
+        if event.get("quality_responsibility_revision") != responsibility["wip_id"]:
+            raise AssuranceBlocked("QUALITY_EFFECTIVE_RESPONSIBILITY_REVISION_REQUIRED")
+        if responsibility["assessor"] != criterion.assessor:
+            raise AssuranceBlocked("QUALITY_ORIGINAL_ASSESSOR_CHANGED")
+    elif ("quality_expected_responsible_owner" in event or
+          "quality_responsibility_revision" in event):
+        raise AssuranceBlocked("QUALITY_UNCHANGED_CRITERION_CANNOT_INFER_NEW_RESPONSIBILITY")
     verdict = event.get("quality_verdict")
     if verdict not in {"MEETS_DECLARED_REQUIREMENT", "DOES_NOT_MEET"}:
         raise AssuranceBlocked("QUALITY_ASSESSMENT_VERDICT_INVALID")
@@ -131,11 +142,15 @@ def assess_result_quality(work: Any, event: Mapping[str, Any]) -> None:
         raise AssuranceBlocked("QUALITY_UNIQUE_EVIDENCE_REQUIRED")
     # All checks before mutation: a blocked event never changes an assessment.
     work.assurance_refs.add(reference)
-    work.assurance_reviews[criterion.key] = {
+    review = {
         "result_ref": work.result_ref, "work_revision": work.source_revision,
         "commitment_org_revision": work.commitment_org_revision,
         "verdict": verdict, "model_ref": reference,
     }
+    if responsibility is not None:
+        review["effective_responsible_owner"] = responsibility["effective_owner"]
+        review["responsibility_revision"] = responsibility["wip_id"]
+    work.assurance_reviews[criterion.key] = review
 
 
 def acceptance_gate(work: Any) -> str:
@@ -147,6 +162,11 @@ def acceptance_gate(work: Any) -> str:
                 or evidence["work_revision"] != work.source_revision
                 or evidence["commitment_org_revision"] != work.commitment_org_revision):
             return "QUALITY_ORIGINAL_ASSESSMENT_MISSING"
+        responsibility = work.assurance_responsibilities.get(criterion.key)
+        if responsibility is not None and (
+                evidence.get("effective_responsible_owner") != responsibility["effective_owner"]
+                or evidence.get("responsibility_revision") != responsibility["wip_id"]):
+            return "QUALITY_EFFECTIVE_RESPONSIBILITY_ASSESSMENT_STALE"
         if evidence["verdict"] != "MEETS_DECLARED_REQUIREMENT":
             return "QUALITY_DECLARED_CRITERION_FAILED"
     return "NONE"
@@ -156,10 +176,15 @@ def assurance_view(work: Any) -> dict[str, Any]:
     entries = []
     for c in work.assurance_criteria:
         review = work.assurance_reviews.get(c.key)
+        responsibility = work.assurance_responsibilities.get(c.key)
         fresh = bool(
             review and work.result_ref and review["result_ref"] == work.result_ref
             and review["work_revision"] == work.source_revision
             and review["commitment_org_revision"] == work.commitment_org_revision
+            and (responsibility is None or (
+                review.get("effective_responsible_owner") == responsibility["effective_owner"]
+                and review.get("responsibility_revision") == responsibility["wip_id"]
+            ))
         )
         status = ("MODEL_ONLY_REPORTED_MEETS" if fresh and
                   review["verdict"] == "MEETS_DECLARED_REQUIREMENT" else
@@ -171,6 +196,17 @@ def assurance_view(work: Any) -> dict[str, Any]:
             "assessor_original_recipient": c.assessor,
             "verification_method_declared": c.method, "status": status,
             "original_source_revision": c.source_revision,
+            "effective_future_execution_owner": (
+                responsibility["effective_owner"] if responsibility else c.responsible_owner
+            ),
+            "effective_responsibility_revision": (
+                responsibility["wip_id"] if responsibility else None
+            ),
+            "responsibility_scope": (
+                responsibility["scope"] if responsibility else "ORIGINAL_CRITERION"
+            ),
+            "original_responsibility_history_preserved": True,
+            "recipient_assessor_unchanged": True,
             "legal_liability_created": False,
             "actual_measurement_independently_verified": False,
         })
