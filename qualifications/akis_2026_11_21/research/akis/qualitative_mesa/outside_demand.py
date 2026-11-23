@@ -387,6 +387,30 @@ def qualify_original_outside_supplier_offer(
         for row in state.trace
     ):
         raise OutsideDemandBlocked("OUTSIDE_OFFER_BUYER_DEMAND_WITHDRAWN")
+    source_scope = state.context_basis
+    buyer_core = original_owner_economic_core(buyer_party.kind)
+    seller_core = original_owner_economic_core(seller_party.kind)
+    if source_scope is None or buyer_core is None or seller_core is None:
+        raise OutsideDemandBlocked("OUTSIDE_OFFER_ORIGINAL_KPB_REQUIRED")
+    try:
+        # Read rights precede any offer-price, quality or resource comparison.
+        source_scope.assert_original_independent_outside_demand_source(
+            buyer, source["outside_demand_source_ref"],
+            source["outside_demand_source_revision"],
+            core=buyer_core, recipient=seller, at=at,
+        )
+    except ContextBlocked as exc:
+        raise OutsideDemandBlocked(
+            "OUTSIDE_OFFER_BUYER_SOURCE_NOT_CURRENT"
+        ) from exc
+    try:
+        source_scope.assert_original_independent_supplier_offer_source(
+            seller, ref, rev, core=seller_core, buyer=buyer, at=at,
+        )
+    except ContextBlocked as exc:
+        raise OutsideDemandBlocked(
+            "OUTSIDE_OFFER_SELLER_SOURCE_NOT_QUALIFIED"
+        ) from exc
     if state.resources.get(event["outside_offer_resource"]) != seller:
         raise OutsideDemandBlocked("OUTSIDE_OFFER_ORIGINAL_SELLER_RESOURCE_REQUIRED")
     link = _original_relation(
@@ -419,30 +443,6 @@ def qualify_original_outside_supplier_offer(
         Decimal(price) > Decimal(source["outside_price_ceiling"]),
     )):
         raise OutsideDemandBlocked("OUTSIDE_OFFER_BUYER_TERMS_NOT_COMPARABLE")
-    source_scope = state.context_basis
-    buyer_core = original_owner_economic_core(buyer_party.kind)
-    seller_core = original_owner_economic_core(seller_party.kind)
-    if source_scope is None or buyer_core is None or seller_core is None:
-        raise OutsideDemandBlocked("OUTSIDE_OFFER_ORIGINAL_KPB_REQUIRED")
-    try:
-        # Independent source rights checked BEFORE recording seller evidence.
-        source_scope.assert_original_independent_outside_demand_source(
-            buyer, source["outside_demand_source_ref"],
-            source["outside_demand_source_revision"],
-            core=buyer_core, recipient=seller, at=at,
-        )
-    except ContextBlocked as exc:
-        raise OutsideDemandBlocked(
-            "OUTSIDE_OFFER_BUYER_SOURCE_NOT_CURRENT"
-        ) from exc
-    try:
-        source_scope.assert_original_independent_supplier_offer_source(
-            seller, ref, rev, core=seller_core, buyer=buyer, at=at,
-        )
-    except ContextBlocked as exc:
-        raise OutsideDemandBlocked(
-            "OUTSIDE_OFFER_SELLER_SOURCE_NOT_QUALIFIED"
-        ) from exc
     return {
         "outside_demand_id": demand_id,
         "outside_offer_id": offer_id,
