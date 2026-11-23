@@ -66,6 +66,8 @@ import {digestT4OriginalObjectContent}
   from '../src/network/original-object-delta.mjs';
 import {recoverT4OriginalNetworkSourceCursor}
   from '../src/network/original-network-source-cursor.mjs';
+import {createT4OriginalNetworkHostCursorPort}
+  from '../src/network/original-network-host-cursor.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame}
   from '../src/network/standard-network-wire-candidate.mjs';
 import {createT4CandidateFrameTransport}
@@ -3726,6 +3728,147 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       });
       assert.deepEqual(p2cRecoveredAgain.originalT3NextCursor,
         p2cRecoveredCursor.originalT3NextCursor);
+      // P2.2-E: persist the ACK-backed global peer frontier using a REAL
+      // original T3 technical Object/Event CAS, not a second cursor store.
+      let p2eHostSession='host:original:p22e:initial';
+      let p2eLoseOriginalCursorAck=true,p2eFrontierPutCalls=0;
+      const p2eOriginalFrontierKernel={
+        ...originalCarrierKernel,
+        putObject:async input=>{
+          if(input.event?.event_type!==
+            't4.network.original.host.ack.frontier')
+            return originalCarrierKernel.putObject(input);
+          p2eFrontierPutCalls++;
+          const actualReceipt=await originalCarrierKernel.putObject(input);
+          if(p2eLoseOriginalCursorAck){
+            p2eLoseOriginalCursorAck=false;
+            throw Object.assign(
+              Error('ORIGINAL_T3_ACK_CURSOR_CAS_REPLY_LOST'),
+              {code:'ACK_LOST'});
+          }
+          return actualReceipt;
+        },
+      };
+      const p2eCursorPort=()=>createT4OriginalNetworkHostCursorPort({
+        originalKernel:p2eOriginalFrontierKernel,
+        technicalWorkspaceId:sourceCaptureWorkspace,
+        sourceWorkspaceId:workspaceId,
+        originalWriteOwnerRef:'original:t2:exchange',
+        sourceNodeRef:'node:original:source',
+        recipientNodeRef:'node:original:recipient',
+        scopeRef:'scope:original:replay',ownerEpoch:2,
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId:sourceCaptureWorkspace,
+          originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:source',
+          scopeRef:'scope:original:replay',
+          hostSessionRef:p2eHostSession,
+        }),
+        authorizeOriginalTechnicalRead:async proof=>
+          actual.grants.includes(proof.operation),
+        authorizeOriginalTechnicalWrite:async proof=>
+          actual.grants.includes(proof.operation),
+        authorizeOriginalSourceRead:async proof=>
+          actual.grants.includes(proof.operation),
+        readOriginalSourceEvents:()=>
+          originalCarrierKernel.listEventsSince(workspaceId),
+      });
+      const p2eRecovery={
+        sourcePhasePort:p2cSourcePhase(),
+        verifiedAppliedAck:p2cConfirmedAck,
+        verifiedChangeRef:p2cChange.verified,
+        originalSourceHeadProof:p2cHeadProof,
+        sourceCursorBefore:trueLast.nextCursor,
+        authorizeOriginalRead:async proof=>
+          actual.grants.includes(proof.operation),
+        readOriginalEvents:()=>
+          originalCarrierKernel.listEventsSince(workspaceId),
+      };
+      const p2eFirstFrontier=await p2eCursorPort()
+        .inspectOriginalHostCursor();
+      assert.equal(p2eFirstFrontier.revision,0);
+      await assert.rejects(p2eCursorPort().commitAcknowledgedCursor({
+        recovery:p2eRecovery,
+      }),e=>e?.code==='HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'&&
+        e.details.automaticRetryAllowed===false);
+      assert.equal(p2eFrontierPutCalls,1);
+      // Cold original source process. The CAS happened, response did not.
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      p2eHostSession='host:original:p22e:after-cold';
+      const p2eRecovered=await p2eCursorPort()
+        .commitAcknowledgedCursor({recovery:p2eRecovery});
+      assert.equal(p2eRecovered.state,'ALREADY_COMMITTED');
+      assert.equal(p2eFrontierPutCalls,1);
+      assert.deepEqual(p2eRecovered.originalT3NextCursor,
+        p2cWindow.nextCursor);
+      const p2eReadback=await p2eCursorPort()
+        .inspectOriginalHostCursor();
+      assert.equal(p2eReadback.revision,1);
+      assert.equal(p2eReadback.originalT3EventChainVerified,true);
+      assert.equal(p2eReadback.lastAcknowledgedChangeId,p2cChangeId);
+      const p2eIdle=await p2eCursorPort().readNextOriginalSourceEvent();
+      assert.equal(p2eIdle.state,'NO_NEXT_ORIGINAL_EVENT');
+      const p2eSourceCurrent=await originalCarrierKernel.getObject(
+        workspaceId,p2cObjectId);
+      assert.equal(p2eSourceCurrent.object.revision,1);
+      const p2eSourceWrite=await originalCarrierKernel.putObject({
+        workspace_id:workspaceId,object_id:p2cObjectId,
+        schema_id:p2eSourceCurrent.object.schema_id,
+        schema_version:p2eSourceCurrent.object.schema_version,
+        data:{...p2eSourceCurrent.object.data,
+          title:'Original T3 second causally dependent network revision',
+          quantity:8},
+        extensions:p2eSourceCurrent.object.extensions??{},
+        base_revision:1,
+        event:{event_type:'t4.network.p22e.original.next.change',
+          payload:{sourceEventBefore:p2cSourceWrite.event.event_id}},
+      });
+      assert.equal(p2eSourceWrite.object.revision,2);
+      const p2eNext=await p2eCursorPort().readNextOriginalSourceEvent();
+      assert.equal(p2eNext.state,
+        'NEXT_ORIGINAL_EVENT_READY_FOR_EXISTING_HOST_TASK');
+      assert.equal(p2eNext.window.lastEventId,
+        p2eSourceWrite.event.event_id);
+      assert.equal(p2eNext.window.sourcePrefixDigestBefore,
+        p2eRecovered.originalT3NextCursor.sourcePrefixDigest);
+      assert.equal(p2eNext.nextCursor.seenEventCount,
+        p2eRecovered.originalT3NextCursor.seenEventCount+1);
+      assert.equal(p2eNext.originalHostTaskMustAuthorizeAndSchedule,true);
+      assert.equal(p2eNext.networkPublished,false);
+      // Second original source cold restart: same exact dependent event,
+      // still zero repeated frontier CAS and zero implicit network writes.
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);
+      activeSourcePage=await opened(sourceContext);
+      p2eHostSession='host:original:p22e:second-cold';
+      const p2eNextAfterCold=await p2eCursorPort()
+        .readNextOriginalSourceEvent();
+      assert.deepEqual(p2eNextAfterCold.nextCursor,p2eNext.nextCursor);
+      assert.equal(p2eFrontierPutCalls,1);
+      const p2eOriginalEvents=(await originalCarrierKernel.listEventsSince(
+        sourceCaptureWorkspace)).filter(e=>
+          e.object_id===p2eReadback.checkpointRef&&
+          e.event_type==='t4.network.original.host.ack.frontier');
+      assert.equal(p2eOriginalEvents.length,1);
+      console.log('T4_REAL_ORIGINAL_T3_NATIVE_ACK_CURSOR_CAS_NEXT_EVENT_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          sourceAckConfirmedInOriginalT3:true,
+          originalSourceCursorCASWrites:1,
+          simulatedOriginalCursorCASHistoricalAckLost:true,
+          originalCursorColdRestartRecovered:true,
+          sourceNextOriginalEvent:p2eSourceWrite.event.event_id,
+          sourceNextOriginalRevision:2,
+          nextEventCausallyAfterOriginalApplied:true,
+          secondOriginalSourceColdRestartReadback:true,
+          noNewT4Store:true,
+          nativeNextEventNetworkAutoDispatchNotYetImplemented:true,
+          originalT3ExchangeUsedForFrontier:false,
+          independentPhysicalDevices:false,
+        }));
       assert.equal((await inspectT4OriginalNetworkRecipientResult(
         p2cApplyArgs())).originalRecipientEventId,
         p2cRealResult.originalRecipientEventId);
