@@ -81,6 +81,12 @@ def _original_work_projection(state: Any, configuration: str) -> list[dict[str, 
         unavailable = sorted(set(principals) - set(active))
         obligations_accepted = getattr(work, "obligation", "NOT_ACCEPTED") in {"ACCEPTED_BY_ORIGINAL_PRINCIPALS", "FULFILLED"}
         existing_consent = sorted(getattr(work, "consents", {}))
+        # The original affiliation at COMMIT is immutable. A later role
+        # transfer changes future eligibility, never the classification of
+        # an already accepted Work or the parent that originally consented.
+        historical_affiliation = dict(
+            getattr(work, "affiliation_at_commit", {})
+        )
         if configuration == "intra":
             customer = state.subjects.get(work.customer)
             owner_parties = [state.subjects.get(k) for k in principals
@@ -88,9 +94,16 @@ def _original_work_projection(state: Any, configuration: str) -> list[dict[str, 
             internal = bool(
                 customer is not None and customer.kind == "DIVISION"
                 and owner_parties
-                and all(p is not None and p.kind == "EMPLOYEE"
-                        and p.organization == customer.organization
-                        for p in owner_parties)
+                and all(
+                    p is not None and p.kind == "EMPLOYEE"
+                    and (
+                        historical_affiliation.get(p.key, p.organization)
+                        == historical_affiliation.get(
+                            customer.key, customer.organization
+                        )
+                    )
+                    for p in owner_parties
+                )
             )
             applicability = (
                 "ORIGINAL_INTRA_DIVISION_EMPLOYEE_WORK" if internal
@@ -144,6 +157,9 @@ def _original_work_projection(state: Any, configuration: str) -> list[dict[str, 
             "research_step_changes_original_work": False,
             "original_principals": list(principals),
             "original_customer": work.customer,
+            "original_affiliation_at_commit": dict(
+                sorted(historical_affiliation.items())
+            ),
             "active_original_principals": active,
             "missing_original_principals": outside_original,
             "original_consenters": existing_consent,
