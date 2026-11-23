@@ -32,6 +32,10 @@ jobs:
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
         run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1_original_wip_mesa.py
+      - name: R1-W2 shared Work and material contract
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w2_cross_engine_parity_mesa.py
       - name: Full original AKIS regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
