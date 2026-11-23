@@ -3532,13 +3532,14 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             p.evidence.evidenceDigest===
               p2cOpened.originalStateDigest&&
             p2cOpened.originalSourceEventAndObjectVerified===true;
-          if(p.phase==='APPLIED')return
+          if(p.phase==='APPLIED')return (
             p2cSignedAppliedAck?.signedMessageType==='APPLIED_ACK'&&
             p2cSignedAppliedAck.originalSignatureVerified===true&&
             p2cSignedAppliedAck.verifiedBody?.recipientEventRef===
               p.evidence.originalRecipientEventId&&
             p2cSignedAppliedAck.verifiedBody?.recipientStateDigest===
-              p.evidence.originalRecipientStateDigest;
+              p.evidence.originalRecipientStateDigest
+          );
           return false;
         },
         verifyOriginalRecipientApplied:async p=>{
