@@ -181,6 +181,20 @@ def assess_original_independent_outside_demand(
             or type(source.get("outside_demand_valid_until")) is not int
             or at >= source["outside_demand_valid_until"]):
         return "OUTSIDE_DEMAND_NOT_PRIOR_OR_CURRENT"
+    # Check CURRENT buyer-owned read rights BEFORE examining its private
+    # product, quantity, quality or quoted price. Historical trace persists
+    # after revocation but new derived economic use is forbidden.
+    core = original_owner_economic_core(buyer_subject.kind)
+    if core is None:
+        return "OUTSIDE_DEMAND_BUYER_CORE_UNKNOWN"
+    try:
+        context_basis.assert_original_independent_outside_demand_source(
+            buyer, source["outside_demand_source_ref"],
+            source["outside_demand_source_revision"],
+            core=core, recipient=owner, at=at,
+        )
+    except ContextBlocked:
+        return "OUTSIDE_DEMAND_CURRENT_BUYER_SOURCE_NO_LONGER_READABLE"
     resource, units, start, end = probe
     if (
         source.get("outside_candidate_work") != work.key
@@ -198,15 +212,4 @@ def assess_original_independent_outside_demand(
             or not _MONEY.fullmatch(source["outside_price_ceiling"])
             or Decimal(source["outside_price_ceiling"]) < outside_external_sales):
         return "OUTSIDE_DEMAND_PRICE_CEILING_OR_CURRENCY_NOT_COMPARABLE"
-    core = original_owner_economic_core(buyer_subject.kind)
-    if core is None:
-        return "OUTSIDE_DEMAND_BUYER_CORE_UNKNOWN"
-    try:
-        context_basis.assert_original_independent_outside_demand_source(
-            buyer, source["outside_demand_source_ref"],
-            source["outside_demand_source_revision"],
-            core=core, recipient=owner, at=at,
-        )
-    except ContextBlocked:
-        return "OUTSIDE_DEMAND_CURRENT_BUYER_SOURCE_NO_LONGER_READABLE"
     return None
