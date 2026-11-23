@@ -50,9 +50,10 @@ import {createT4OriginalHostExchangeCycle}
   from '../src/network/original-host-exchange-cycle.mjs';
 import {createT4OriginalNetworkReplayPort}
   from '../src/network/original-network-replay-checkpoint.mjs';
-import {createT4CandidateUnsignedFrame,signT4CandidateFrame,
-  verifyT4CandidateWireFrame}
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame}
   from '../src/network/standard-network-wire-candidate.mjs';
+import {createT4CandidateFrameTransport}
+  from '../src/network/standard-network-wire-transport.mjs';
 import {persistT4OriginalHostPlanCarrier,
   inspectT4OriginalHostImportedPlanCarrier}
   from '../src/network/original-host-plan-carrier.mjs';
@@ -2780,11 +2781,50 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         authorizeOriginalTechnicalWrite:async proof=>
           receiving.operations.includes(proof.operation),
       });
-      const nativeVerify=()=>verifyT4CandidateWireFrame({
+      const nativeNetworkTransport=createWebDavPackageTransport({
+        baseUrl:process.env.T4_TEST_URL,locationRef:'test-webdav',
+        placementPolicy:policy,getMode:()=> 'T4_NETWORK',
+        authorize:async()=>true,
+        getAuthorizationHeader:async()=>process.env.T4_TEST_AUTH,
+        keySuffix:'.t4n',candidateNetworkWire:true,
+      });
+      const nativeSender=createT4CandidateFrameTransport({
+        wireTransport:nativeNetworkTransport,
+        originalHostNodeRef:'node:original:source',
+        originalHostScopeRef:'scope:original:replay',
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          nodeRef:'node:original:source',
+          scopeRef:'scope:original:replay',
+          originalOwnerRef:'original:t2:exchange',
+          hostSessionRef:'original:network:source',
+        }),
+        authorizeOriginalHostWire:async proof=>
+          proof.originalHostNodeRef==='node:original:source'&&
+          actual.grants.includes('t1.getObject'),
+        // Receiver-only ports do not issue signatures or permissions.
+        verifyOriginalNodeSignature:async()=>false,
+        authorizeOriginalNetwork:async()=>false,
+        persistOriginalReplayDecision:async()=> 'DENIED',
+      });
+      const nativeNetworkSent=await nativeSender.publishSignedFrame({
         wireBytes:nativeWire,
-        recipientNodeRef:'node:original:recipient',
-        scopeRef:'scope:original:replay',
-        requiredCryptoSuite:'X25519_AES256GCM_ED25519',
+      });
+      assert.match(nativeNetworkSent.key,/^[a-f0-9]{64}\\.t4n$/);
+      const nativeReceiver=()=>createT4CandidateFrameTransport({
+        wireTransport:nativeNetworkTransport,
+        originalHostNodeRef:'node:original:recipient',
+        originalHostScopeRef:'scope:original:replay',
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          nodeRef:'node:original:recipient',
+          scopeRef:'scope:original:replay',
+          originalOwnerRef:'original:t2:exchange',
+          hostSessionRef:replayOriginalHostSession,
+        }),
+        authorizeOriginalHostWire:async proof=>
+          proof.originalHostNodeRef==='node:original:recipient'&&
+          receiving.operations.includes('t1.getObject'),
         verifyOriginalNodeSignature:async({bytes,signature})=>
           verifySignature(null,Buffer.from(bytes),
             nativeKeys.publicKey,Buffer.from(signature)),
@@ -2792,8 +2832,13 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           proof.permissionRef==='original:permission:replay'&&
           proof.sourceNodeRef==='node:original:source'&&
           receiving.operations.includes('t1.getObject'),
-        persistOriginalReplayDecision:
-          nativeReplayBinding().persistOriginalReplayDecision,
+        persistOriginalReplayDecision:async proof=>
+          nativeReplayBinding().persistOriginalReplayDecision(proof),
+      });
+      const nativeVerify=()=>nativeReceiver().readAndVerifySignedFrame({
+        key:nativeNetworkSent.key,
+        expectedSha256:nativeNetworkSent.sha256,
+        requiredCryptoSuite:'X25519_AES256GCM_ED25519',
       });
       const nativeFirst=await nativeVerify();
       assert.equal(nativeFirst.originalReplayCheckpointRecorded,true);
@@ -2810,10 +2855,13 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(nativeReplayEvents.filter(e=>
         e.event_type==='t4.network.original.frame.replay.checkpoint')
         .length,1);
+      nativeNetworkTransport.close();
       console.log('T4_REAL_ORIGINAL_T3_NETWORK_REPLAY_COLD_CAS_PASS',
         JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,
           signedNativeWireEd25519Verified:true,
+          realApacheNativeT4NetworkFrameTransferred:true,
+          realApacheNativeT4NetworkFrameColdReadback:true,
           originalT3TechnicalStoreUsed:true,
           originalT3NetworkReplayEventCount:1,
           originalT3ColdRestartReplayRecovered:true,
