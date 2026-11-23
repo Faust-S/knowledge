@@ -273,3 +273,17 @@ def test_affiliation_suspension_cannot_retroactively_change_original_pilot():
     }
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["subjects"]["worker"]["original_enterprise"] == "b"
+
+
+def test_pre_transfer_accepted_work_retains_original_morphological_scope_after_one_role_moves():
+    d = transfer_case(("worker",))
+    out = simulate(d)
+    rows = out["general_akis_model"]["configuration_dynamics"]["original_work_scope"]
+    w1 = next(row for row in rows if row["work"] == "w1")
+    assert w1["original_result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert w1["configuration_applicability"] == (
+        "ORIGINAL_INTRA_DIVISION_EMPLOYEE_WORK"
+    )
+    assert w1["original_affiliation_at_commit"] == {
+        "dept": "a", "worker": "a",
+    }
