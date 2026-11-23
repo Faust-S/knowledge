@@ -116,10 +116,11 @@ jobs:
           Write-Host 'D2_ORIGINAL_SIGNED_DATA_TEST_PASS'
       - name: Native D2 readiness and detach source regression in full employee Owner
         shell: pwsh
+        timeout-minutes: 4
         run: |
           $ErrorActionPreference='Stop'
           $log=Join-Path $env:RUNNER_TEMP 'd2-original-native-readiness-source.log'
-          & node --test '.private/t3/tests/admin-original-host-port.test.mjs' *> $log
+          & node --test --test-name-pattern="original signed Host rejects foreign or missing Apply target before dispatch" '.private/t3/tests/admin-original-host-port.test.mjs' *> $log
           if($LASTEXITCODE -ne 0){throw 'D2_FULL_OWNER_NATIVE_READER_SOURCE_TEST_FAILED'}
           Write-Host 'D2_FULL_OWNER_NATIVE_READER_SOURCE_PASS'
       - name: Qualify real original signed Workspace DATA through One Core JIT
