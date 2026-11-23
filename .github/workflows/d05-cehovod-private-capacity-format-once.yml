@@ -64,7 +64,7 @@ jobs:
           cp src/lib/shop-capacity.ts ../domain/src/lib/shop-capacity.ts
           cp src/lib/shop-capacity.test.ts ../domain/src/lib/shop-capacity.test.ts
           cd ..
-          git -C site diff --name-only | grep -Ev '^(src/lib/shop-capacity(\.test)?\.ts|src/host/(dispatch-capacity(\.test)?\.ts|CehovodCapacityPanel\.tsx|CehovodDispatchQueue(\.ui-regression\.test)?\.tsx)|scripts/d05-first-use-real-kernel-witness\.mjs)$' > "$RUNNER_TEMP/d05-unauthorized-site.txt" || true
+          git -C site diff --name-only | grep -Ev '^(src/lib/shop-capacity(\.test)?\.ts|src/host/(dispatch-capacity(\.test)?\.ts|CehovodCapacityPanel\.tsx|CehovodDispatchQueue(\.tsx|\.ui-regression\.test\.ts))|scripts/d05-first-use-real-kernel-witness\.mjs)$' > "$RUNNER_TEMP/d05-unauthorized-site.txt" || true
           git -C domain diff --name-only | grep -Ev '^src/lib/shop-capacity(\.test)?\.ts$' > "$RUNNER_TEMP/d05-unauthorized-domain.txt" || true
           test ! -s "$RUNNER_TEMP/d05-unauthorized-site.txt"
           test ! -s "$RUNNER_TEMP/d05-unauthorized-domain.txt"
