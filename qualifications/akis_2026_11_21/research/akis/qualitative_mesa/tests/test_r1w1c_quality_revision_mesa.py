@@ -9,6 +9,7 @@ from copy import deepcopy
 import pytest
 
 from research.akis.qualitative_mesa.mesa_model import simulate
+from research.akis.qualitative_mesa.rules import QualitativeAKIS
 from .test_r1w1b_original_operation_wip_mesa import (
     ev, send, applied, terms, state_to_interruption, proposal,
 )
@@ -296,3 +297,71 @@ def test_original_r1w1b_proposal_fingerprint_has_no_new_optional_fields():
     assert "quality_revision_of" not in current
     assert "quality_custody_proofs" not in current
     assert current["material"]["batch"] == "mat-out"
+
+
+def test_strict_original_kpb_revoked_quality_document_blocks_revision():
+    d = multibatch_scenario(strict=True)
+    sources = d["context_evidence"]["sources"]
+    additional = {
+        "b": [
+            "w1c-dispatch-1", "w1c-dispatch-2",
+            "REV-ACT-02", "claim-REV-ACT-02",
+            "w1c-inspection-1-v2", "w1c-inspection-2-v2",
+            "w1c-quality-revote-29",
+        ],
+        "a": ["w1c-quality-revote-28"],
+        "c": [
+            "form-proposal-wip-form-2", "w1c-quality-revote-30",
+            "w1c-quality-revision-apply",
+        ],
+        "d": [
+            "w1c-receipt-1", "w1c-receipt-2",
+            "w1c-quality-1", "w1c-quality-2",
+            "w1c-quality-revote-31",
+        ],
+    }
+    for owner, refs in additional.items():
+        for name in refs:
+            sources.append({
+                "id": f"model://{owner}/{name}", "owner": owner,
+                "revision": "source-r1", "status": "CONFIRMED",
+                "usable_by": [owner], "valid_until": 100,
+            })
+    state = QualitativeAKIS(d)
+    for event in multibatch_baseline():
+        assert state.apply(event, event["at"])["outcome"] == "APPLIED"
+    first = multibatch_proposal()
+    assert state.apply(first, 15)["outcome"] == "APPLIED"
+    digest = state.works["w1"].wip_proposal["fingerprint"]
+    for at, actor in enumerate(("a", "b", "c", "d"), start=16):
+        applied(state, at, "wip_review", actor, source_revision="d1",
+                org_revision="oc-1", wip_operation="form",
+                wip_id="wip-form-1", wip_fingerprint=digest,
+                wip_position="SUPPORT",
+                wip_source_ref=f"model://{actor}/wip-review-{at}")
+    applied(state, 20, "wip_apply", "c",
+            source_revision="d1", org_revision="oc-1",
+            wip_operation="form", wip_id="wip-form-1",
+            wip_fingerprint=digest,
+            wip_source_ref="model://c/form-apply")
+    assert custody(state, "mat-out-1", 21)["outcome"] == "APPLIED"
+    assert custody(state, "mat-out-2", 24, acceptable=0)["outcome"] == "APPLIED"
+    revised = revision_proposal()
+    assert state.apply(revised, 27)["outcome"] == "APPLIED"
+    new_digest = state.works["w1"].wip_proposal["fingerprint"]
+    new_votes(state, new_digest)
+    old_reservations = tuple(state.capacity_ledger.reservations)
+    old_lots = deepcopy(state.works["w1"].wip_lots)
+    applied(state, 32, "source_update", "d",
+            source="model://d/w1c-quality-2",
+            status="DISPROVED",
+            expected_revision="source-r1", new_revision="source-r2")
+    attempted = send(state, 33, "wip_apply", "c",
+                     source_revision="d1", org_revision="oc-1",
+                     wip_operation="form", wip_id="wip-form-2",
+                     wip_fingerprint=new_digest,
+                     wip_source_ref="model://c/w1c-quality-revision-apply")
+    assert attempted["reason"] == "WIP_ORIGINAL_EVIDENCE_SOURCE_UNAVAILABLE"
+    assert tuple(state.capacity_ledger.reservations) == old_reservations
+    assert state.works["w1"].wip_lots == old_lots
+    assert len(state.works["w1"].wip_amendments) == 1
