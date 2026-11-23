@@ -2908,7 +2908,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           if(proof.phase==='INTENT'){
             const original=await sourceKernel.getObject(
               workspaceId,linkedObjectId);
-            const events=await sourceKernel.listEventsSince(workspaceId);
+            const events=await originalCarrierKernel.listEventsSince(workspaceId);
             return proof.evidence.evidenceRef===
                 followup.capture.window.lastEventId&&
               proof.evidence.evidenceDigest===
@@ -3037,7 +3037,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       // actual HTTPS and are matched with a real ORIGINAL T3 Event prefix.
       // This demonstrates the source Head/Change causal boundary, NOT a
       // new native subject-level apply or a cross-device corporate signer.
-      const sourceBusinessEvents=await sourceKernel.listEventsSince(
+      const sourceBusinessEvents=await originalCarrierKernel.listEventsSince(
         workspaceId);
       const sourceLastIndex=sourceBusinessEvents.findIndex(ev=>
         ev.event_id===followup.capture.window.lastEventId);
@@ -3048,7 +3048,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           cursor,maxEvents,
           authorizeOriginalRead:async proof=>
             actual.grants.includes(proof.operation),
-          readOriginalEvents:()=>sourceKernel.listEventsSince(workspaceId),
+          readOriginalEvents:()=>originalCarrierKernel.listEventsSince(workspaceId),
         });
       const previousSourceCursor=sourceLastIndex===0?null:
         (await sourceProofWindow(null,sourceLastIndex)).nextCursor;
@@ -3173,7 +3173,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         }),
         authorizeOriginalRead:async ctx=>
           actual.grants.includes(ctx.operation),
-        readOriginalEvents:()=>sourceKernel.listEventsSince(workspaceId),
+        readOriginalEvents:()=>originalCarrierKernel.listEventsSince(workspaceId),
         verifyOriginalSourceSubject:async proof=>{
           const object=await sourceKernel.getObject(
             workspaceId,linkedObjectId);
