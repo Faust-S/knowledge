@@ -155,6 +155,20 @@ def compare_original_trajectories(
                 "start", "complete", "accept", "reject",
             }
         ]
+        accepted = successor.get("result") == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+        accepted_events = [
+            row for row in current
+            if row.get("action") == "accept"
+            and row.get("outcome") == "APPLIED"
+        ]
+        if bool(accepted_events) != accepted or len(accepted_events) > 1:
+            raise TrajectoryComparisonError(
+                "COMPARATIVE_ACCEPTED_RESULT_LACKS_ORIGINAL_EVENT_PROOF"
+            )
+        if output.get("profit", {}).get("system_increment") != "UNKNOWN":
+            raise TrajectoryComparisonError(
+                "COMPARATIVE_UNOBSERVED_NETWORK_PROFIT_MUST_REMAIN_UNKNOWN"
+            )
         rows.append({
             "trial": name,
             "original_next_work_result": successor.get("result"),
