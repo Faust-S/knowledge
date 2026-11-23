@@ -116,7 +116,20 @@ def original_strict_economic_case():
         "trace_position": position, "at": original_request["at"],
         "action": "request", "org_revision": "oc-1",
         "cost_evidence_ref": "model://c/w2-search-cost-proof",
+        "cost_evidence_revision": "cost-r1",
     }
+    # The original Work event has a separate owner-controlled, purpose-
+    # limited proof in the SAME ContextBasis. It cannot become a cost fact
+    # merely because it is referenced by economic_lifecycle.
+    context["sources"].append({
+        "id": event_cost["cost_evidence_ref"],
+        "owner": "c", "revision": "cost-r1",
+        "status": "CONFIRMED", "usable_by": ["c"],
+        "core": "institutional",
+        "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"],
+        "operations": ["READ"],
+        "valid_from": 37, "valid_until": 120,
+    })
     owner_by_scenario = {
         scenario: {owner: f"econ-{owner}" for owner in OWNERS}
         for scenario in SCENARIOS
@@ -397,7 +410,7 @@ def test_forged_cost_event_anchor_cannot_infer_original_expense():
     ] = 0
     with pytest.raises(
         InputError,
-        match="LIFECYCLE_TIMED_APPLIED_ORIGINAL_WORK_EVENT_REQUIRED",
+        match="ORIGINAL_ECONOMIC_COST_ORIGINAL_EVENT_MISMATCH",
     ):
         simulate(d)
 
