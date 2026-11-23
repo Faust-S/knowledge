@@ -175,6 +175,9 @@ export function createT4CandidateUnsignedFrame(input={}){
     sessionRef,scopeRef,permissionRef,signerRef,sequence,ownerEpoch,
     cryptoSuite,criticalExtensions=[],body,
   }=input;
+  // Reject malformed Unicode, oversized nesting and non-JSON values
+  // independently of message-specific semantic checks.
+  canonical(body);
   validateBody(messageType,body);
   const frame={
     schema:T4_CANDIDATE_WIRE_SCHEMA,
