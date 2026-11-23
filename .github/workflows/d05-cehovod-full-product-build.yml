@@ -30,7 +30,7 @@ jobs:
             echo "D05_SITE_ACCESS=FAIL"
             exit 1
           fi
-          test "$(git -C site rev-parse HEAD)" = "3f8f30a25f1b020760d2f9cc8301ad57b61af198" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "5eb0498d48018dcaf601583488e0d17f5cb5e7e6" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
           echo "D05_SITE_PIN=PASS"
           git init --quiet t2
           if ! GIT_TERMINAL_PROMPT=0 git -C t2 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/T2.git e70de29b72b83e2546f7ab74b17572685a728c17 >/dev/null 2>&1; then
@@ -171,6 +171,13 @@ jobs:
           fi
           cd "$GITHUB_WORKSPACE/site"
           node --check scripts/d05-first-use-real-kernel-witness.mjs
+          secondary="$RUNNER_TEMP/d05-independent-customer-active.iwxa"
+          test ! -e "$secondary" || { echo "D05_SECONDARY_ARCHIVE_PREEXISTS=FAIL"; exit 1; }
+          D05_T2_WITNESS_COPY="$witness" D05_FIRST_USE_CASE001=1 D05_FIRST_USE_EXPORT_INDEPENDENT_ACTIVE=1 D05_INDEPENDENT_ACTIVE_IWXA="$secondary" node scripts/d05-first-use-real-kernel-witness.mjs
+          test -s "$secondary" || { echo "D05_INDEPENDENT_CUSTOMER_EXPORT=FAIL"; exit 1; }
+          D05_T2_WITNESS_COPY="$witness" D05_FIRST_USE_CASE001=1 D05_FIRST_USE_MULTIPROJECT_CAPACITY=1 D05_FIRST_USE_IMPORT_INDEPENDENT_ACTIVE=1 D05_INDEPENDENT_ACTIVE_IWXA="$secondary" node scripts/d05-first-use-real-kernel-witness.mjs
+          rm -f "$secondary"
+          echo "D05_TWO_INDEPENDENT_CUSTOMER_T2_RESULT_JOURNEY=PASS"
           D05_T2_WITNESS_COPY="$witness" node scripts/d05-first-use-real-kernel-witness.mjs
           D05_T2_WITNESS_COPY="$witness" D05_FIRST_USE_CASE001=1 D05_FIRST_USE_CASE001_EXCHANGE=1 node scripts/d05-first-use-real-kernel-witness.mjs
           D05_T2_WITNESS_COPY="$witness" D05_FIRST_USE_CASE002=1 node scripts/d05-first-use-real-kernel-witness.mjs
