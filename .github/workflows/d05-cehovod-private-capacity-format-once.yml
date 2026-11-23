@@ -1,0 +1,80 @@
+name: d05-cehovod-private-capacity-format-once
+on:
+  push:
+    branches:
+      - test/2026-11-18-d05-source-qualification
+    paths:
+      - .github/workflows/d05-cehovod-private-capacity-format-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Format D05 capacity in private source branches
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fetch exact private branches
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          test -n "$DOMEN" || { echo "D05_FORMAT_TOKEN_MISSING"; exit 1; }
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch "work/2026-10-23-t2-site-only" "https://github.com/Faust-S/cehovod.ru.git" site
+          GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch "work/2026-11-23-d05-capacity-scenarios" "https://github.com/Faust-S/cehovod.git" domain
+          test "$(git -C site rev-parse HEAD)" = "5b3db1c3a232e3f95aa1ece65f5b18ca7b32c69d"
+          test "$(git -C domain rev-parse HEAD)" = "c6feb1d617e4bef20ed13e6af160f2ab90d34088"
+          echo "D05_FORMAT_SOURCE_PINS=PASS"
+      - name: Install source formatter
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Format changed source privately and verify scope
+        run: |
+          set -euo pipefail
+          cd site
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d05-formatter-install.log" 2>&1
+          npx --no-install prettier --write \
+            src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts \
+            src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts \
+            src/host/CehovodCapacityPanel.tsx \
+            src/host/CehovodDispatchQueue.tsx \
+            src/host/CehovodDispatchQueue.ui-regression.test.ts \
+            scripts/d05-first-use-real-kernel-witness.mjs \
+            > "$RUNNER_TEMP/d05-formatter.log" 2>&1
+          cp src/lib/shop-capacity.ts ../domain/src/lib/shop-capacity.ts
+          cp src/lib/shop-capacity.test.ts ../domain/src/lib/shop-capacity.test.ts
+          cd ..
+          git -C site diff --name-only | grep -Ev '^(src/lib/shop-capacity(\.test)?\.ts|src/host/(dispatch-capacity(\.test)?\.ts|CehovodCapacityPanel\.tsx|CehovodDispatchQueue(\.ui-regression\.test)?\.tsx)|scripts/d05-first-use-real-kernel-witness\.mjs)$' > "$RUNNER_TEMP/d05-unauthorized-site.txt" || true
+          git -C domain diff --name-only | grep -Ev '^src/lib/shop-capacity(\.test)?\.ts$' > "$RUNNER_TEMP/d05-unauthorized-domain.txt" || true
+          test ! -s "$RUNNER_TEMP/d05-unauthorized-site.txt"
+          test ! -s "$RUNNER_TEMP/d05-unauthorized-domain.txt"
+          echo "D05_FORMAT_SCOPE=PASS"
+      - name: Commit formatted files back to private branches
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          for dir in domain site; do
+            git -C "$dir" config user.name "CehoVod source formatter"
+            git -C "$dir" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git -C "$dir" add -u
+            if git -C "$dir" diff --cached --quiet; then
+              echo "D05_FORMAT_$dir=UNCHANGED"
+              continue
+            fi
+            git -C "$dir" commit --quiet -m "style(D05): format canonical capacity model and shop dispatch scenario"
+            if GIT_TERMINAL_PROMPT=0 git -C "$dir" -c "http.extraheader=$header" push --quiet origin HEAD; then
+              echo "D05_FORMAT_$dir=PUSHED"
+            else
+              echo "D05_FORMAT_$dir=PUSH_FAILED"
+              exit 1
+            fi
+          done
+          test "$(git -C site rev-parse HEAD:src/lib/shop-capacity.ts)" = "$(git -C domain rev-parse HEAD:src/lib/shop-capacity.ts)"
+          test "$(git -C site rev-parse HEAD:src/lib/shop-capacity.test.ts)" = "$(git -C domain rev-parse HEAD:src/lib/shop-capacity.test.ts)"
+          echo "D05_FORMAT_CANONICAL_MATCH=PASS"
+          echo "D05_FORMAT_PRIVATE_COMMITS=PASS"
