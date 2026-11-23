@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: c7538391645cdde63557cbc038ef05a504322449
+          ref: 46114dd2396fa2d8173996b0af572bb92ec45fb0
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
