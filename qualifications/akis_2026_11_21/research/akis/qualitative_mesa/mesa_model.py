@@ -202,7 +202,7 @@ class OperatorAKISModel(mesa.Model):
     REACTION_TRIGGERS = frozenset({
         "initial_subject_evaluation", "goal_source_available", "goal_source_expired",
         "request", "offer", "authorize", "resource_status", "change_mode", "exclude", "commit",
-        "complete", "reject", "resubmit", "accept", "source_update", "resource_calendar_update",
+        "complete", "reject", "resubmit", "accept", "source_update", "role_state_update", "resource_calendar_update",
         "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "model_code_propose", "model_code_response", "model_code_function_response", "model_code_apply",
         "technology_route_propose", "technology_route_response",
         "subject_registration_propose", "subject_registration_attest",
@@ -822,7 +822,8 @@ class OperatorAKISModel(mesa.Model):
                 event["action"] in {"interest_update", "participation_status",
                                     "cooperation_change_propose", "cooperation_change_response",
                                     "cooperation_lifecycle_propose", "cooperation_lifecycle_response",
-                                    "cooperation_lifecycle_apply"}
+                                    "cooperation_lifecycle_apply",
+                                    "role_state_update"}
                 ) and outcome["outcome"] == "APPLIED":
             self._schedule_responses(event)
         if outcome["outcome"] == "APPLIED":
@@ -855,6 +856,16 @@ class OperatorAKISModel(mesa.Model):
                 need.resource == event["resource"] for need in work.resource_requirements)]
         elif action == "source_update":
             impacted = state.context_basis.affected_works(event["source"]) if state.context_basis else []
+        elif action == "role_state_update":
+            # Re-evaluate only prospective original obligations involving
+            # this owner. No new clock, no re-opening accepted Result.
+            role = event["role_target"]
+            impacted = [
+                w.key for w in state.works.values()
+                if w.obligation == "NOT_ACCEPTED"
+                and (w.customer == role or role in
+                     state.capacity_ledger.original_owners(w.resource_requirements))
+            ]
         elif action in {"change_mode", "model_code_apply"}:
             impacted = [work.key for work in state.works.values() if work.obligation == "NOT_ACCEPTED"]
         elif action in {"model_code_propose", "model_code_response",
