@@ -306,7 +306,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       revision:confirmed.revision,chainHash:confirmed.chainHash,
       originalSubjectWriteRetried:false,
       historicalReceiptFabricated:false,
-      originalBusinessApplied:phase==='APPLIED',
+      originalBusinessApplied:appliedPhase(phase),
     });
   }
   return frozen({
