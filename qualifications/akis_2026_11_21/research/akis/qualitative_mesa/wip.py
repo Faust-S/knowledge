@@ -868,6 +868,36 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             proposal["work_source_revision"] != work.source_revision):
         _fail("WIP_PROPOSAL_ORIGINAL_REVISION_CHANGED")
     _recheck_voters(state, proposal, at)
+    revision_id = proposal.get("quality_revision_of")
+    quality_prior = None
+    prior_lots_by_batch = {}
+    if revision_id is not None:
+        quality_prior = work.wip_amendments[-1] if work.wip_amendments else None
+        if (quality_prior is None or quality_prior["id"] != revision_id or
+                quality_prior["status"] != "APPLIED" or
+                quality_prior["target_resource"] != proposal["target_resource"] or
+                quality_prior["next_window"] != proposal["next_window"] or
+                quality_prior["capacity_units"] != proposal["capacity_units"]):
+            _fail("WIP_QUALITY_REVISION_ORIGINAL_AMENDMENT_CHANGED")
+        prior_lots_by_batch = {
+            row["material_batch"]: row for row in work.wip_lots
+            if row["amendment"] == revision_id
+        }
+        proofs = proposal["quality_custody_proofs"]
+        if (len(prior_lots_by_batch) != len(proofs) or
+                {row["batch"] for row in proofs} != set(prior_lots_by_batch)):
+            _fail("WIP_QUALITY_REVISION_ORIGINAL_CUSTODY_CHANGED")
+        for proof in proofs:
+            previous = prior_lots_by_batch[proof["batch"]]
+            if (previous["status"] != "RESERVED" or
+                    previous.get("observed_accepted_units") != proof["observed_accepted_units"] or
+                    previous.get("custody_quality_ref") != proof["quality_ref"] or
+                    previous.get("custody_dispatch_ref") != proof["dispatch_ref"] or
+                    previous.get("custody_receipt_ref") != proof["receipt_ref"] or
+                    previous.get("custody_state") not in {
+                        "QUALITY_ACCEPTED", "QUALITY_REVIEW_REQUIRED"
+                    }):
+                _fail("WIP_QUALITY_REVISION_ORIGINAL_CUSTODY_CHANGED")
     target = proposal["target_resource"]
     if proposal["decision"] == "TRANSFER":
         collaboration = proposal["cooperation"]
@@ -883,16 +913,30 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                 not state.subjects[state.resources[target]].active):
             _fail("WIP_TARGET_RESOURCE_NO_LONGER_AVAILABLE")
         start, end = proposal["next_window"]
-        if start < at:
-            _fail("WIP_APPLY_CANNOT_RESERVE_EXPIRED_WINDOW")
         needs = (ResourceNeed(target, proposal["capacity_units"]),)
-        try:
-            state.capacity_ledger.preview_amendment(work.key, needs, start, end)
-        except CapacityBlocked as exc:
-            _fail("WIP_ORIGINAL_CAPACITY_CONFLICT:" + exc.reason)
+        if quality_prior is None:
+            if start < at:
+                _fail("WIP_APPLY_CANNOT_RESERVE_EXPIRED_WINDOW")
+            try:
+                state.capacity_ledger.preview_amendment(work.key, needs, start, end)
+            except CapacityBlocked as exc:
+                _fail("WIP_ORIGINAL_CAPACITY_CONFLICT:" + exc.reason)
+        else:
+            # An unchanged original reservation is reused. Adding an identical
+            # interval here would double-book the same physical resource.
+            if at >= end or not any(
+                    row.work == work.key and row.resource == target and
+                    row.start == start and row.end == end and
+                    row.units == proposal["capacity_units"]
+                    for row in state.capacity_ledger.reservations):
+                _fail("WIP_QUALITY_REVISION_RESERVED_CAPACITY_MISSING")
+            if state.capacity_ledger.is_work_at_risk(
+                    work.key, outstanding=state._outstanding_work_ids()
+            ) is not None:
+                _fail("WIP_SOURCE_DECLARED_RESOURCE_OVERBOOKED")
     else:
         needs = ()
-    if target is not None:
+    if target is not None and quality_prior is None:
         # Reserve on the SAME original ledger, after all source/vote checks.
         state.capacity_ledger.reserve_amendment(work.key, needs, start, end)
         state.allocations.append((target, work.key, start, end))
@@ -938,6 +982,19 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             }, matched[row["batch"]])
             for row in proposal["batch_inspections"]
         ]
+    if quality_prior is not None:
+        # The original physical handoff happened once. Preserve its actual
+        # dispatch/receipt/quality sources, then supersede the old projection
+        # without creating a second material delivery or ownership change.
+        for row in lots:
+            before = prior_lots_by_batch[row["material_batch"]]
+            row["holder"] = before["holder"]
+            row["custody_state"] = "QUALITY_ACCEPTED"
+            row["custody_dispatch_ref"] = before["custody_dispatch_ref"]
+            row["custody_receipt_ref"] = before["custody_receipt_ref"]
+            row["custody_quality_ref"] = before["custody_quality_ref"]
+            row["observed_accepted_units"] = before["observed_accepted_units"]
+            row["physical_custody_reused_from"] = quality_prior["id"]
     amendment = {
         **{k: v for k, v in proposal.items() if k != "votes"},
         "votes": {k: dict(v) for k, v in proposal["votes"].items()},
@@ -945,6 +1002,12 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         "status": "APPLIED",
         "source_agreement_is_not_bank_payment": True,
     }
+    if quality_prior is not None:
+        for previous in prior_lots_by_batch.values():
+            previous["status"] = "SUPERSEDED_BY_QUALITY_REVISION"
+            previous["superseded_by"] = proposal["id"]
+        quality_prior["status"] = "SUPERSEDED_BY_QUALITY_REVISION"
+        quality_prior["superseded_by"] = proposal["id"]
     work.wip_lots.extend(lots)
     work.wip_amendments.append(amendment)
     work.wip_proposal = None
@@ -957,6 +1020,8 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         "wip_phase": "APPLIED", "wip_id": amendment["id"],
         "wip_decision": amendment["decision"], "wip_lot_status": lots[0]["status"],
         "wip_batch_count": len(lots),
+        "wip_quality_revision_of": revision_id,
+        "wip_existing_capacity_reused": quality_prior is not None,
         "wip_reuse_credited": proposal["lot"]["reusable_resources"],
         "wip_new_cost_claim": proposal["lot"]["future_resource_cost"],
         "prior_original_obligation_preserved": True,
