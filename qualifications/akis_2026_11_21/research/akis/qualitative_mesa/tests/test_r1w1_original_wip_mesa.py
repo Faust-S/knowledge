@@ -456,3 +456,62 @@ def test_original_vote_source_revoked_after_support_blocks_without_rebooking():
     }
     assert not state.works["w1"].wip_lots
     assert len(state.capacity_ledger.reservations) == 1
+
+
+def test_r1w2_shared_original_production_case_recomputed_in_mesa():
+    """Recompute one common contract from original Work; never import a JS score."""
+    import json
+    from pathlib import Path
+    case_file = (Path(__file__).resolve().parents[1] /
+                 "fixtures" / "wip_r1w2_parity.json")
+    case = json.loads(case_file.read_text(encoding="utf-8"))
+    assert case["schema"] == "IWXA_AKIS_WIP_PARITY/0.1"
+    assert case["case_id"] == "R1-W2-ONE-WORK-SALVAGE-001"
+    src = case["lot"]
+    expected = case["expected"]
+    state = QualitativeAKIS(wip_case())
+    for ev in base_events():
+        assert state.apply(ev, ev["at"])["outcome"] == "APPLIED"
+    assert state.works["w1"].wip_interruptions[-1]["prior_cost_claim"] == (
+        src["initial_cost_rub"]
+    )
+    terms = original_terms(
+        total=src["total_units"], produced=src["produced_units"],
+        usable=src["usable_units"], materials=src["material_value_rub"],
+        handling=src["handling_cost_rub"],
+        claim=src["potential_claim_rub"], full=src["next_full_cost_rub"],
+    )
+    proposed = proposal(terms=terms)
+    assert state.apply(proposed, 9)["outcome"] == "APPLIED"
+    original = state.works["w1"]
+    lot = original.wip_proposal["lot"]
+    assert lot["unit_credit"] == expected["unit_credit_rub"]
+    assert lot["reusable_resources"] == expected["reusable_resources_rub"]
+    assert lot["remaining_units"] == expected["remaining_units"]
+    assert lot["future_resource_cost"] == expected["next_resource_cost_rub"]
+    assert lot["reference_gain_vs_complete_redo"] == (
+        expected["network_difference_vs_full_restart_rub"]
+    )
+    digest = original.wip_proposal["fingerprint"]
+    votes(state, digest)
+    applied = finish(state, digest)
+    assert applied["outcome"] == "APPLIED"
+    assert applied["real_payment_authorized"] is False
+    assert original.wip_lots[-1]["status"] == expected["after_agreement"]
+    assert original.wip_lots[-1]["holder"] == "a"
+    assert submit(state, "wip_resume", 22, "c", work="w1",
+                  source_revision="d-1", org_revision="oc-1",
+                  wip_source_ref="model://c/resume-1")["outcome"] == "APPLIED"
+    assert original.wip_lots[-1]["status"] == expected["after_execution_resumes"]
+    assert original.wip_lots[-1]["holder"] == "c"
+    assert original.resource == "ra"
+    assert original.result == "NOT_SUBMITTED"
+    # A deferred source-declared claim is not a Mesa bank payment.
+    assert original.wip_lots[-1]["cash_recovery_claim"] == "PENDING_NOT_CASH"
+    termination, digest = prepare(decision="TERMINATE")
+    votes(termination, digest)
+    assert finish(termination, digest)["outcome"] == "APPLIED"
+    assert termination.works["w1"].wip_lots[-1]["status"] == (
+        expected["after_termination"]
+    )
+    assert termination.works["w1"].result == "NOT_SUBMITTED"
