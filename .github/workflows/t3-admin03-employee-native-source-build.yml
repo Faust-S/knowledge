@@ -63,6 +63,16 @@ jobs:
             else{Write-Host 'CENTER_NPM_FAILURE_UNCLASSIFIED'}
             throw 'CENTER_V8_NATIVE_RIGHTS_DEPENDENCIES_FAILED'
           }
-          & npm run build --prefix '.private/center' *> $null
-          if($LASTEXITCODE -ne 0){throw 'CENTER_V8_NATIVE_RIGHTS_TYPESCRIPT_OR_VITE_FAILED'}
+          $buildLog=Join-Path $env:RUNNER_TEMP 'center-typescript-vite.log'
+          & npm run build --prefix '.private/center' *> $buildLog
+          if($LASTEXITCODE -ne 0){
+            $lines=Get-Content -LiteralPath $buildLog
+            foreach($line in ($lines | Where-Object {
+              $_ -match 'error TS[0-9]{4}:' -or
+              $_ -match '^error during build:' -or
+              $_ -match '^Error:' } | Select-Object -First 12)){
+              Write-Host ('CENTER_BUILD_DIAGNOSTIC '+$line)
+            }
+            throw 'CENTER_V8_NATIVE_RIGHTS_TYPESCRIPT_OR_VITE_FAILED'
+          }
           Write-Host 'CENTER_V8_ORIGINAL_EMPLOYEE_WORKSPACE_UI_TYPESCRIPT_VITE_PASS'
