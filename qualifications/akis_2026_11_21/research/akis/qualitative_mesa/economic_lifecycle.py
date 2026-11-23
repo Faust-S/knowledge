@@ -89,9 +89,23 @@ def review_timed_original_lifecycle_costs(
     future_pause_costs = 0
     link_index = {link.key: link for link in cooperation_links}
     for row in raw:
-        if (not isinstance(row, dict) or
-                set(row) not in (EVENT_COST_FIELDS, FUTURE_PARTICIPATION_EVENT_COST_FIELDS)):
+        # Optional revision pin for original owner evidence. This does not
+        # create a new expense: it strengthens strict ContextBasis inspection
+        # of the same source-declared resource use and original Work event.
+        allowed_sets = (
+            EVENT_COST_FIELDS,
+            FUTURE_PARTICIPATION_EVENT_COST_FIELDS,
+            EVENT_COST_FIELDS | {"cost_evidence_revision"},
+            FUTURE_PARTICIPATION_EVENT_COST_FIELDS | {"cost_evidence_revision"},
+        )
+        if not isinstance(row, dict) or set(row) not in allowed_sets:
             raise LifecycleInputError("INVALID_LIFECYCLE_TIMED_BINDING_FIELDS")
+        if "cost_evidence_revision" in row:
+            revision = row["cost_evidence_revision"]
+            if not isinstance(revision, str) or not revision.strip() or len(revision) > 128:
+                raise LifecycleInputError(
+                    "LIFECYCLE_TIMED_COST_EVIDENCE_REVISION_INVALID"
+                )
         rid = _identifier(row["resource_use_id"], "INVALID_LIFECYCLE_TIMED_RESOURCE")
         work_id = _identifier(row["work"], "INVALID_LIFECYCLE_TIMED_WORK")
         owner = _identifier(row["owner"], "INVALID_LIFECYCLE_TIMED_OWNER")
