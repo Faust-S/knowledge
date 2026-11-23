@@ -855,10 +855,12 @@ class QualitativeAKIS:
                 except CooperationInputError as exc:
                     raise BlockedDecision(str(exc)) from exc
             elif action in {"cooperation_change_propose", "cooperation_change_response"}:
-                # SOURCE-DECLARED consultation, not a legal amendment. In strict
-                # KPB mode a relation-wide permission has not yet been qualified.
+                # Use the SAME original ContextBasis. A collective revision
+                # requires each principal's own scoped decision sources.
                 if self.context_basis is not None and self.context_basis.strict:
-                    raise BlockedDecision("COOPERATION_CHANGE_SOURCE_RIGHTS_NOT_QUALIFIED")
+                    if not self.context_basis.decision_requirements:
+                        raise BlockedDecision("COOPERATION_CHANGE_SOURCE_RIGHTS_NOT_QUALIFIED")
+                    self.context_basis.assert_original_decision_rights(ev, at)
                 if ev.get("org_revision") != self.institution.revision:
                     raise BlockedDecision("STALE_ORGANIZATIONAL_CODE")
                 try:
@@ -878,7 +880,11 @@ class QualitativeAKIS:
                     raise BlockedDecision(str(exc)) from exc
             elif action == "cooperation_entry_assess":
                 # A NEW participant has no first-hand evaluation of a prior
-                # Result. The event is its own prospective, sourced judgment.
+                # Result. Its independent sourced judgment is checked in KPB.
+                if self.context_basis is not None and self.context_basis.strict:
+                    if not self.context_basis.decision_requirements:
+                        raise BlockedDecision("COOPERATION_ENTRY_SOURCE_RIGHTS_NOT_QUALIFIED")
+                    self.context_basis.assert_original_decision_rights(ev, at)
                 if ev.get("org_revision") != self.institution.revision:
                     raise BlockedDecision("STALE_ORGANIZATIONAL_CODE")
                 try:
@@ -891,7 +897,12 @@ class QualitativeAKIS:
                 # Source-ground original model relation revision only. It
                 # creates no legal membership, access right, Resource or Work.
                 if self.context_basis is not None and self.context_basis.strict:
-                    raise BlockedDecision("COOPERATION_MEMBERSHIP_SOURCE_RIGHTS_NOT_QUALIFIED")
+                    if not self.context_basis.decision_requirements:
+                        raise BlockedDecision("COOPERATION_MEMBERSHIP_SOURCE_RIGHTS_NOT_QUALIFIED")
+                    self.context_basis.assert_original_decision_rights(ev, at)
+                    self.context_basis.assert_original_decision_lineage(
+                        self.trace, action, ev.get("change_id"), at
+                    )
                 if ev.get("org_revision") != self.institution.revision:
                     raise BlockedDecision("STALE_ORGANIZATIONAL_CODE")
                 try:
@@ -1111,6 +1122,16 @@ class QualitativeAKIS:
             if report["outcome"] == "APPLIED":
                 report.update(lifecycle_evidence)
                 report["lifecycle_model_only_not_legal_dissolution"] = True
+        if action in {
+            "cooperation_change_propose", "cooperation_change_response",
+            "cooperation_entry_assess", "cooperation_membership_apply",
+        }:
+            # Preserve actual submitted source rights in the original trace,
+            # so APPLY can recheck the very same earlier owner decisions.
+            report["source_rights_ref"] = ev.get("source_rights_ref")
+            report["change_id"] = ev.get("change_id")
+            for field in DECISION_SOURCE_FIELDS.get(action, ()):
+                report[field] = ev.get(field)
         if action in {"cooperation_change_propose", "cooperation_change_response"} and report["outcome"] == "APPLIED":
             # The existing trace alone owns the proposal and the consultations.
             report["cooperation_link"] = ev.get("cooperation_link")
