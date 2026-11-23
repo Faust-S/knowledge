@@ -259,6 +259,17 @@ def _payment_owner_evidence(
             not isinstance(evidence_refs, dict) or
             set(evidence_refs) != original_parties):
         raise EconomicInputError("PAYMENT_PROGRESS_BOTH_INDEPENDENT_OWNER_SOURCES_REQUIRED")
+    # Optional pinned revisions strengthen same-KPB checks without changing
+    # existing R2.6 terms or generating new settlement/payment records.
+    if "evidence_revisions" in row:
+        revisions = row["evidence_revisions"]
+        if (not isinstance(revisions, dict)
+                or set(revisions) != original_parties
+                or any(not isinstance(rev, str) or not rev.strip()
+                       or len(rev) > 128 for rev in revisions.values())):
+            raise EconomicInputError(
+                "PAYMENT_PROGRESS_INDEPENDENT_EVIDENCE_REVISIONS_INVALID"
+            )
     for owner in sorted(original_parties):
         source = owner_sources[owner]
         if (not isinstance(source, str) or
@@ -321,10 +332,13 @@ def _review_work_payment_progress(
     amendments_by_transfer: dict[str, str] = {}
     model_due: dict[str, int] = {}
     for row in amended:
-        _record(row, {
+        required_fields = {
             "id", "transfer_id", "agreed_at", "prior_due_at", "new_due_at",
             "owner_sources", "evidence_refs", "work_source_revision", "org_revision",
-        }, "PAYMENT_DUE_AMENDMENT")
+        }
+        if isinstance(row, dict) and "evidence_revisions" in row:
+            required_fields.add("evidence_revisions")
+        _record(row, required_fields, "PAYMENT_DUE_AMENDMENT")
         event_id = _identifier(row["id"], "PAYMENT_AMENDMENT_ID")
         transfer_id = _identifier(row["transfer_id"], "PAYMENT_AMENDMENT_TRANSFER")
         if event_id in event_ids:
@@ -413,9 +427,12 @@ def _review_work_payment_progress(
     gross_claimed: dict[str, Decimal] = {}
     qualified: dict[str, list[tuple[int, Decimal]]] = {}
     for row in settled:
-        _record(row, {
+        required_fields = {
             "id", "transfer_id", "at", "amount", "owner_sources", "evidence_refs",
-        }, "PAYMENT_SETTLEMENT_CLAIM")
+        }
+        if isinstance(row, dict) and "evidence_revisions" in row:
+            required_fields.add("evidence_revisions")
+        _record(row, required_fields, "PAYMENT_SETTLEMENT_CLAIM")
         event_id = _identifier(row["id"], "PAYMENT_SETTLEMENT_ID")
         transfer_id = _identifier(row["transfer_id"], "PAYMENT_SETTLEMENT_TRANSFER")
         if event_id in event_ids:
