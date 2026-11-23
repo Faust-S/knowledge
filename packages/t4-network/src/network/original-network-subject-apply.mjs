@@ -2,7 +2,8 @@ import {createHash} from 'node:crypto';
 import {assembleT4CandidateOpaqueChunks}
   from './standard-network-opaque-chunks.mjs';
 import {applyT4OriginalObjectDelta,decodeT4OriginalObjectDeltaBytes,
-  verifyT4OriginalObjectDelta} from './original-object-delta.mjs';
+  verifyT4OriginalObjectDelta,digestT4OriginalObjectContent}
+  from './original-object-delta.mjs';
 
 /**
  * P2.2-C. Bind verified native network ciphertext to the ORIGINAL T3
@@ -179,9 +180,28 @@ export async function openT4OriginalNetworkObjectChange({
     delta.sourceEventId!==change.eventRef||
     delta.sourceRevision!==change.sourceRevision||
     delta.sourceEventDigest!==originalSourceHeadProof.originalEventDigest||
-    delta.windowDigest!==originalSourceHeadProof.sourceEventWindowDigest||
-    delta.objectContentDigest!==source.delta.objectContentDigest
+    delta.windowDigest!==originalSourceHeadProof.sourceEventWindowDigest)
     fail('SUBJECT_SOURCE_EVENT_CONTENT_NOT_BOUND');
+  // Independently bind authenticated plaintext to the SOURCE T3 Object
+  // as it exists in its authoritative Host, not only to the signed header.
+  await guard();
+  const sourceObjectProof=await verifyOriginalSourceBinding(frozen({
+    ...proof,
+    originalSourceHeadProof,
+    originalObjectId:delta.objectId,
+    originalWorkspaceId:delta.workspaceId,
+    originalSchemaId:delta.schemaId,
+    originalSchemaVersion:delta.schemaVersion,
+    originalObjectContentDigest:delta.objectContentDigest,
+    originalSourceRevision:delta.sourceRevision,
+    originalSourceEventDigest:delta.sourceEventDigest,
+    originalEventWindowDigest:delta.windowDigest,
+    originalT3SourceObjectEventAndContentReadbackRequired:true,
+    signedTransportContentIsNotSourceObjectEvidence:true,
+  }));
+  if(sourceObjectProof!==true)
+    fail('SUBJECT_ORIGINAL_SOURCE_CONTENT_NOT_PROVEN');
+  await guard();
   // The wire digest addresses ciphertext, not the T3 Object. Both are
   // now bound by the signed CHANGE_REF and the authenticated Host open.
   const result={
@@ -252,10 +272,10 @@ export async function inspectT4OriginalNetworkRecipientResult({
     object?.schema_id!==delta.schemaId||
     object?.schema_version!==delta.schemaVersion)
     fail('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH');
-  const state=HASH(Buffer.from(JSON.stringify({
+  const state=digestT4OriginalObjectContent({
     schemaId:object.schema_id,schemaVersion:object.schema_version,
     data:object.data,extensions:object.extensions??{},
-  })));
+  });
   if(state!==delta.objectContentDigest)
     fail('SUBJECT_ORIGINAL_RESULT_STATE_MISMATCH');
   await guard();
