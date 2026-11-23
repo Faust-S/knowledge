@@ -11,6 +11,7 @@ from typing import Any
 
 from .context_basis import (ContextBasis, ContextBlocked, ContextInputError,
                             DECISION_SOURCE_FIELDS)
+from .outside_demand import OutsideDemandBlocked, qualify_original_outside_demand_signal
 from .org_code_policy import (
     OrgCodeBlocked, NEW_WORK_ACTIONS, qualify_model_code_proposal,
     qualify_model_code_response, qualify_model_code_function_response,
@@ -66,7 +67,7 @@ SELECTED_MODES = frozenset({"SOLE", "COLLEGIAL", "MIXED"})
 # UNSELECTED explicitly describes missing qualification, not tacit SOLE.
 MODES = SELECTED_MODES | {"UNSELECTED"}
 AVAILABILITY = frozenset({"AVAILABLE", "UNAVAILABLE", "UNKNOWN"})
-ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "cooperation_entry_assess", "cooperation_membership_apply", "model_code_propose", "model_code_response",
+ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "outside_demand_signal", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "cooperation_entry_assess", "cooperation_membership_apply", "model_code_propose", "model_code_response",
     "model_code_function_response", "model_code_apply",
     "technology_route_propose", "technology_route_response",
     "subject_registration_propose", "subject_registration_attest",
@@ -427,7 +428,14 @@ class QualitativeAKIS:
              "self_role_source_ref", "transfer_fingerprint",
              "transfer_valid_until", "transfer_source_ref",
              "transfer_decision", "transfer_decision_source_ref",
-             "transfer_parent_source_ref"}, "EVENT")
+             "transfer_parent_source_ref",
+             "outside_demand_id", "outside_supplier", "outside_relation",
+             "outside_relation_revision", "outside_candidate_work",
+             "outside_work_revision", "outside_resource", "outside_units",
+             "outside_slot_start", "outside_slot_end", "outside_deliverable",
+             "outside_quality_basis", "outside_currency",
+             "outside_price_ceiling", "outside_demand_source_ref",
+             "outside_demand_source_revision", "outside_demand_valid_until"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -651,6 +659,7 @@ class QualitativeAKIS:
         active_coalition_evidence = None
         lifecycle_evidence = None
         active_coalition_commit_evidence = None
+        outside_demand_evidence = None
         if self.capability_policy is not None:
             # Time- and owner-source eligibility is refreshed before future
             # commitments; historical reservations and Results are untouched.
@@ -818,6 +827,13 @@ class QualitativeAKIS:
                 self.model_org_policy = candidate
                 self.model_org_code_edition = ev["new_model_edition"]
                 self.model_org_code_editions.add(ev["new_model_edition"])
+            elif action == "outside_demand_signal":
+                try:
+                    outside_demand_evidence = qualify_original_outside_demand_signal(
+                        self, ev, at
+                    )
+                except OutsideDemandBlocked as exc:
+                    raise BlockedDecision(str(exc)) from exc
             elif action == "request":
                 linked_change_evidence = self._request_work(ev, at)
             elif action == "resource_status":
@@ -1379,6 +1395,10 @@ class QualitativeAKIS:
             report["need_source_belongs_to_prior_original_result"] = True
         if action == "request" and report["outcome"] == "APPLIED" and linked_change_evidence:
             report.update(linked_change_evidence)
+        if action == "outside_demand_signal" and report["outcome"] == "APPLIED":
+            report.update(outside_demand_evidence)
+            report["original_trace_buyer_model_signal_only"] = True
+            report["outside_work_or_money_not_created"] = True
         self.trace.append(report)
         return report
 
