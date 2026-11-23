@@ -77,6 +77,13 @@ jobs:
             echo "D05_KERNEL_QUALIFIED_STAGING=FAIL"
             exit 1
           fi
+      - name: Format changed D05 sources with the site's locked Prettier
+        run: |
+          set -euo pipefail
+          cd site
+          ./node_modules/.bin/prettier --write src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx > /dev/null
+          ./node_modules/.bin/prettier --check src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx > /dev/null
+          echo "D05_FORMATTED_SOURCES=PASS"
       - name: Assemble full static T2 product with native Chrome browser gates
         env:
           IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/t2/t2/current/final-successor/canonical-source
@@ -172,3 +179,24 @@ jobs:
           echo "D05_CASE001_REQUEST_TWO_RESULTS=PASS"
           echo "D05_FULL_26_FAMILY_WITNESS=NOT_RUN"
           echo "D05_IWXA_EXCHANGE=PASS"
+
+      - name: Save verified formatting to private site branch
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          cd site
+          test "$(git rev-parse HEAD)" = "afde2b21a8694ddbe597a7e5889ce2b52a0d035e"
+          git add -- src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx
+          if git diff --cached --quiet; then
+            echo "D05_FORMAT_COMMIT=UNCHANGED"
+            exit 0
+          fi
+          git config user.email "140275131+Faust-S@users.noreply.github.com"
+          git config user.name "Faust-S"
+          git commit --quiet -m "style(D05): format qualified calendar and downtime sources"
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" push origin HEAD:refs/heads/work/2026-10-23-t2-site-only > /dev/null 2>&1
+          unset header DOMEN
+          echo "D05_FORMAT_COMMIT=$(git rev-parse HEAD)"
+          echo "D05_PRIVATE_CODE_PUBLISHED=NO"
