@@ -278,3 +278,183 @@ test('real HTTPS/WebDAV carries ordered signed opaque AES-GCM chunks, recipient 
     assert.equal(recipient.replay.size,3);
   }finally{outgoing.close();incoming.close();}
 });
+
+
+test('real Apache carries complete bidirectional signed HEADS/DIFF/CHANGE/CHUNK/ACK dialogue with two independent signer keys',async()=>{
+  const {randomBytes,createCipheriv}=await import('node:crypto');
+  const {prepareT4CandidateOpaqueChunks,assembleT4CandidateOpaqueChunks}=
+    await import('../../src/network/standard-network-opaque-chunks.mjs');
+  const {createT4CandidateFrameTransport}=
+    await import('../../src/network/standard-network-wire-transport.mjs');
+  const {validateT4CandidatePeerTranscript}=
+    await import('../../src/network/standard-network-peer-transcript.mjs');
+  const {T4_CANDIDATE_VERSION}=
+    await import('../../src/network/standard-network-wire-candidate.mjs');
+  const keys={
+    SOURCE:generateKeyPairSync('ed25519'),
+    RECIPIENT:generateKeyPairSync('ed25519'),
+  };
+  const node={SOURCE:'node:peer:source',RECIPIENT:'node:peer:recipient'};
+  const signer={SOURCE:'original:key:peer:source',
+    RECIPIENT:'original:key:peer:recipient'};
+  const sourceRef='original:owner:source',scopeRef='scope:peer:one',
+    sessionRef='session:peer:one',familyRef='family:original:notes',
+    changeId='change:peer:seven',epoch=4;
+  const k=randomBytes(32),iv=randomBytes(12),
+    plaintext=randomBytes(10500),
+    encrypt=createCipheriv('aes-256-gcm',k,iv);
+  encrypt.setAAD(Buffer.from(changeId));
+  const sealed=Buffer.concat([
+    encrypt.update(plaintext),encrypt.final(),encrypt.getAuthTag(),
+  ]);
+  const chunks=await prepareT4CandidateOpaqueChunks({
+    changeId,ownerRef:sourceRef,
+    sourceContentRef:'original:sealed:asset:one',
+    getMode:()=> 'T4_NETWORK',
+    authorizeOriginalSealedContent:async()=>true,
+    readOriginalSealedContent:async()=>({
+      ciphertext:new Uint8Array(sealed),
+      encryptionContextRef:'crypto:peer:epoch:one',
+    }),
+    chunkBytes:4096,
+  });
+  assert.equal(chunks.chunkCount,3);
+  const replay={SOURCE:new Map(),RECIPIENT:new Map()},counts={
+    SOURCE:0,RECIPIENT:0,
+  },transcript=[];
+  const transports={SOURCE:makeTransport(),RECIPIENT:makeTransport()};
+  function endpoint(role){
+    return createT4CandidateFrameTransport({
+      wireTransport:transports[role],getMode:()=> 'T4_NETWORK',
+      originalHostNodeRef:node[role],originalHostScopeRef:scopeRef,
+      readOriginalHostContext:async()=>({
+        nodeRef:node[role],scopeRef,
+        originalOwnerRef:sourceRef,
+        hostSessionRef:'original:session:'+role,
+      }),
+      authorizeOriginalHostWire:async proof=>
+        proof.originalOwnerRef===sourceRef&&
+        proof.originalHostNodeRef===node[role]&&
+        proof.originalNetworkHostAuthorityRequired===true,
+      verifyOriginalNodeSignature:async proof=>{
+        const from=Object.entries(signer)
+          .find(([,v])=>v===proof.signerRef)?.[0];
+        return from?verify(null,Buffer.from(proof.bytes),
+          keys[from].publicKey,Buffer.from(proof.signature)):false;
+      },
+      authorizeOriginalNetwork:async proof=>
+        proof.scopeRef===scopeRef&&
+        proof.permissionRef==='original:permission:peer'&&
+        proof.sourceNodeRef!==proof.recipientNodeRef&&
+        proof.ownerEpoch===epoch,
+      persistOriginalReplayDecision:async proof=>{
+        const id=proof.sourceNodeRef+'/'+proof.sessionRef+'/'+
+          proof.ownerEpoch+'/'+proof.sequence;
+        const prev=replay[role].get(id);
+        if(!prev){replay[role].set(id,proof.frameDigest);return 'RECORDED';}
+        return prev===proof.frameDigest?'SEEN_EXACT':'CONFLICT';
+      },
+    });
+  }
+  let source=endpoint('SOURCE'),recipient=endpoint('RECIPIENT');
+  async function exchange(role,type,body){
+    const other=role==='SOURCE'?'RECIPIENT':'SOURCE';
+    const seq=++counts[role];
+    const unsigned=createT4CandidateUnsignedFrame({
+      messageType:type,
+      messageId:'peer:message:'+role+':'+seq,
+      sourceNodeRef:node[role],recipientNodeRef:node[other],
+      signerRef:signer[role],sessionRef,scopeRef,
+      permissionRef:'original:permission:peer',
+      sequence:seq,ownerEpoch:epoch,cryptoSuite:suite,body,
+    });
+    const bytes=await signT4CandidateFrame({
+      unsignedFrame:unsigned,
+      signOriginalNodeBytes:async({bytes})=>sign(null,Buffer.from(bytes),
+        keys[role].privateKey),
+    });
+    const published=await (role==='SOURCE'?source:recipient)
+      .publishSignedFrame({wireBytes:bytes});
+    const result=await (other==='SOURCE'?source:recipient)
+      .readAndVerifySignedFrame({
+        key:published.key,expectedSha256:published.sha256,
+        requiredCryptoSuite:suite,
+      });
+    assert.equal(result.originalBusinessApplied,false);
+    transcript.push(result);
+    return result;
+  }
+  const capabilities={
+    supportedVersions:[T4_CANDIDATE_VERSION],
+    supportedCryptoSuites:[suite],
+  };
+  const head='sha256:'+'3'.repeat(64);
+  const change={
+    changeId,changeKind:'ASSET_PUT',
+    eventRef:'original:event:seven',ownerRef:sourceRef,sourceRevision:7,
+    contentDigest:chunks.contentDigest,parents:[],
+  };
+  try{
+    await exchange('SOURCE','HELLO',capabilities);
+    await exchange('RECIPIENT','HELLO',capabilities);
+    await exchange('SOURCE','CAPABILITIES',capabilities);
+    await exchange('RECIPIENT','CAPABILITIES',capabilities);
+    await exchange('SOURCE','HEADS',{
+      familyRef,ownerEpoch:epoch,heads:[head],
+    });
+    await exchange('RECIPIENT','DIFF_REQUEST',{
+      familyRef,fromHeads:[],
+    });
+    await exchange('SOURCE','CHANGE_REF',change);
+    const recovered=[];
+    for(const body of chunks.bodies){
+      await exchange('RECIPIENT','CHUNK_REQUEST',{
+        changeId,contentDigest:chunks.contentDigest,
+        chunkIndex:body.chunkIndex,chunkCount:chunks.chunkCount,
+      });
+      const received=await exchange('SOURCE','CHUNK',body);
+      recovered.push(received.verifiedBody);
+    }
+    const assembled=assembleT4CandidateOpaqueChunks({
+      bodies:recovered,expectedChangeId:changeId,
+      expectedContentDigest:chunks.contentDigest,
+      expectedEncryptionContextRef:chunks.encryptionContextRef,
+    });
+    assert.deepEqual(Buffer.from(assembled.ciphertext),sealed);
+    await exchange('RECIPIENT','RECEIVED_ACK',{
+      changeId,contentDigest:chunks.contentDigest,
+      ackRef:'ack:received:seven',
+    });
+    await exchange('RECIPIENT','VERIFIED_ACK',{
+      changeId,contentDigest:chunks.contentDigest,
+      ackRef:'ack:verified:seven',
+    });
+    const checked=validateT4CandidatePeerTranscript({
+      receipts:transcript,
+      sourceNodeRef:node.SOURCE,recipientNodeRef:node.RECIPIENT,
+      scopeRef,sessionRef,familyRef,
+      originalWriteOwnerRef:sourceRef,
+      expectedChangeId:changeId,
+      expectedEncryptionContextRef:chunks.encryptionContextRef,
+      ownerEpoch:epoch,requiredCryptoSuite:suite,
+    });
+    assert.equal(checked.signedNegotiationAndSequenceVerified,true);
+    assert.equal(checked.verifiedEncryptedChunkCount,3);
+    assert.equal(checked.signedReceivedAndVerifiedAckPresent,true);
+    assert.equal(checked.originalBusinessApplied,false);
+    assert.equal(checked.originalT3ExchangeRequired,false);
+    assert.equal(checked.durableOriginalSessionPhaseCheckpointProven,false);
+    const swapped=[...transcript];
+    [swapped[7],swapped[8]]=[swapped[8],swapped[7]];
+    assert.throws(()=>validateT4CandidatePeerTranscript({
+      receipts:swapped,sourceNodeRef:node.SOURCE,
+      recipientNodeRef:node.RECIPIENT,scopeRef,sessionRef,
+      familyRef,originalWriteOwnerRef:sourceRef,
+      expectedChangeId:changeId,
+      expectedEncryptionContextRef:chunks.encryptionContextRef,
+      ownerEpoch:epoch,requiredCryptoSuite:suite,
+    }),e=>e.code==='PEER_TRANSCRIPT_STAGE_OR_TRUST_INVALID');
+  }finally{
+    transports.SOURCE.close();transports.RECIPIENT.close();
+  }
+});
