@@ -518,3 +518,227 @@ def assess_original_outside_supplier_offer(
     )):
         return "OUTSIDE_OFFER_SELLER_DOCUMENT_NOT_COMPARABLE"
     return None
+
+
+_BUYER_OFFER_RESPONSE_FIELDS = frozenset({
+    "at", "action", "actor", "outside_demand_id", "outside_offer_id",
+    "outside_offer_source_revision", "outside_buyer_response_id",
+    "outside_buyer_response_decision",
+    "outside_buyer_response_source_ref",
+    "outside_buyer_response_source_revision",
+    "outside_buyer_response_valid_until",
+})
+_BUYER_OFFER_RESPONSES = frozenset({
+    "WILLING_TO_NEGOTIATE", "DECLINES_OFFER",
+})
+
+
+def qualify_original_outside_buyer_offer_response(
+    state: Any, event: Mapping[str, Any], at: int,
+) -> dict[str, Any]:
+    """Apply independent BUYER intent for exactly one original supplier offer.
+
+    This is NOT an accepted order, legal signature or original Work consent.
+    One applied response per original offer; changing the response requires
+    a fresh seller offer and independent buyer-owned model evidence.
+    """
+    if (not isinstance(event, Mapping)
+            or set(event) != _BUYER_OFFER_RESPONSE_FIELDS
+            or event.get("action") != "outside_buyer_offer_response"):
+        raise OutsideDemandBlocked("OUTSIDE_BUYER_RESPONSE_FIELDS_REQUIRED")
+    buyer = event["actor"]
+    demand_id = event["outside_demand_id"]
+    offer_id = event["outside_offer_id"]
+    response_id = event["outside_buyer_response_id"]
+    response_source = event["outside_buyer_response_source_ref"]
+    response_revision = event["outside_buyer_response_source_revision"]
+    for value in (buyer, demand_id, offer_id, response_id, response_source,
+                  response_revision, event["outside_offer_source_revision"]):
+        if not _identifier(value):
+            raise OutsideDemandBlocked("OUTSIDE_BUYER_RESPONSE_IDENTIFIERS_REQUIRED")
+    if event["outside_buyer_response_decision"] not in _BUYER_OFFER_RESPONSES:
+        raise OutsideDemandBlocked("OUTSIDE_BUYER_RESPONSE_DECISION_INVALID")
+    valid_until = event["outside_buyer_response_valid_until"]
+    if (type(at) is not int or type(valid_until) is not int
+            or not 0 <= at < valid_until <= 10000):
+        raise OutsideDemandBlocked("OUTSIDE_BUYER_RESPONSE_TIME_INVALID")
+    originals = [
+        row for row in state.trace
+        if row.get("action") == "outside_demand_signal"
+        and row.get("outcome") == "APPLIED"
+        and row.get("outside_demand_id") == demand_id
+    ]
+    offers = [
+        row for row in state.trace
+        if row.get("action") == "outside_supplier_offer"
+        and row.get("outcome") == "APPLIED"
+        and row.get("outside_offer_id") == offer_id
+    ]
+    if len(originals) != 1 or len(offers) != 1:
+        raise OutsideDemandBlocked(
+            "OUTSIDE_BUYER_RESPONSE_ORIGINAL_DEMAND_AND_OFFER_REQUIRED"
+        )
+    demand, offer = originals[0], offers[0]
+    seller = offer.get("actor")
+    buyer_party = state.subjects.get(buyer)
+    seller_party = state.subjects.get(seller)
+    if (
+        demand.get("actor") != buyer
+        or offer.get("outside_offer_buyer") != buyer
+        or offer.get("outside_demand_id") != demand_id
+        or buyer == seller
+        or buyer_party is None or seller_party is None
+        or not buyer_party.active or not seller_party.active
+        or buyer_party.kind not in _INDEPENDENT_BUYER_KINDS
+    ):
+        raise OutsideDemandBlocked(
+            "OUTSIDE_BUYER_RESPONSE_ORIGINAL_INDEPENDENT_BUYER_ONLY"
+        )
+    if any(
+        row.get("action") == "outside_buyer_offer_response"
+        and row.get("outcome") == "APPLIED"
+        and (row.get("outside_buyer_response_id") == response_id
+             or row.get("outside_offer_id") == offer_id)
+        for row in state.trace
+    ):
+        raise OutsideDemandBlocked(
+            "OUTSIDE_BUYER_RESPONSE_ALREADY_RECORDED_FOR_OFFER"
+        )
+    if (
+        type(demand.get("at")) is not int
+        or type(offer.get("at")) is not int
+        or type(demand.get("outside_demand_valid_until")) is not int
+        or type(offer.get("outside_offer_valid_until")) is not int
+        or not demand["at"] < offer["at"] < at
+        or valid_until > min(
+            demand["outside_demand_valid_until"],
+            offer["outside_offer_valid_until"],
+        )
+    ):
+        raise OutsideDemandBlocked(
+            "OUTSIDE_BUYER_RESPONSE_OFFER_OR_DEMAND_NOT_CURRENT"
+        )
+    if any(
+        row.get("action") == "outside_demand_withdraw"
+        and row.get("outcome") == "APPLIED"
+        and row.get("outside_demand_id") == demand_id
+        and type(row.get("at")) is int
+        and demand["at"] < row["at"] <= at
+        for row in state.trace
+    ):
+        raise OutsideDemandBlocked(
+            "OUTSIDE_BUYER_RESPONSE_DEMAND_ALREADY_WITHDRAWN"
+        )
+    if event["outside_offer_source_revision"] != offer.get(
+            "outside_offer_source_revision"):
+        raise OutsideDemandBlocked(
+            "OUTSIDE_BUYER_RESPONSE_OFFER_SOURCE_REVISION_MISMATCH"
+        )
+    if (response_source == demand.get("outside_demand_source_ref")
+            or response_source == offer.get("outside_offer_source_ref")):
+        raise OutsideDemandBlocked(
+            "OUTSIDE_BUYER_RESPONSE_SEPARATE_OWNER_EDITION_REQUIRED"
+        )
+    if state.context_basis is None:
+        raise OutsideDemandBlocked("OUTSIDE_BUYER_RESPONSE_ORIGINAL_KPB_REQUIRED")
+    buyer_core = original_owner_economic_core(buyer_party.kind)
+    seller_core = original_owner_economic_core(seller_party.kind)
+    if buyer_core is None or seller_core is None:
+        raise OutsideDemandBlocked("OUTSIDE_BUYER_RESPONSE_ORIGINAL_KPB_REQUIRED")
+    try:
+        state.context_basis.assert_original_independent_outside_demand_source(
+            buyer, demand["outside_demand_source_ref"],
+            demand["outside_demand_source_revision"],
+            core=buyer_core, recipient=seller, at=at,
+        )
+    except ContextBlocked as exc:
+        raise OutsideDemandBlocked(
+            "OUTSIDE_BUYER_RESPONSE_DEMAND_SOURCE_NOT_READABLE"
+        ) from exc
+    try:
+        state.context_basis.assert_original_independent_supplier_offer_source(
+            seller, offer["outside_offer_source_ref"],
+            offer["outside_offer_source_revision"],
+            core=seller_core, buyer=buyer, at=at,
+        )
+    except ContextBlocked as exc:
+        raise OutsideDemandBlocked(
+            "OUTSIDE_BUYER_RESPONSE_SUPPLIER_SOURCE_NOT_READABLE"
+        ) from exc
+    try:
+        state.context_basis.assert_original_independent_outside_demand_source(
+            buyer, response_source, response_revision,
+            core=buyer_core, recipient=seller, at=at,
+        )
+    except ContextBlocked as exc:
+        raise OutsideDemandBlocked(
+            "OUTSIDE_BUYER_RESPONSE_OWN_SOURCE_NOT_QUALIFIED"
+        ) from exc
+    return {
+        "outside_demand_id": demand_id,
+        "outside_offer_id": offer_id,
+        "outside_buyer_response_id": response_id,
+        "outside_offer_source_revision": offer["outside_offer_source_revision"],
+        "outside_buyer_response_decision": event["outside_buyer_response_decision"],
+        "outside_buyer_response_source_ref": response_source,
+        "outside_buyer_response_source_revision": response_revision,
+        "outside_buyer_response_valid_until": valid_until,
+        "outside_buyer_model_intent_not_legal_acceptance": True,
+        "original_work_and_bank_settlement_not_created": True,
+    }
+
+
+def assess_original_buyer_offer_response(
+    *, response_id: str | None, offer_id: str, demand_id: str,
+    buyer: str | None, seller: str, trace: Sequence[Mapping[str, Any]] | None,
+    subjects: Mapping[str, Any] | None, context_basis: Any, at: int,
+) -> str | None:
+    """Read current response source without treating model intent as a sale.
+
+    Buyer is resolved from ORIGINAL demand trace, never selected by seller.
+    Uses one ContextBasis: no second identity, contract or money ledger.
+    """
+    if response_id is None:
+        return None
+    if (trace is None or subjects is None or context_basis is None
+            or buyer is None):
+        return "OUTSIDE_BUYER_RESPONSE_ORIGINAL_TRACE_KPB_REQUIRED"
+    matches = [
+        row for row in trace
+        if row.get("action") == "outside_buyer_offer_response"
+        and row.get("outcome") == "APPLIED"
+        and row.get("outside_buyer_response_id") == response_id
+    ]
+    if len(matches) != 1:
+        return "OUTSIDE_BUYER_RESPONSE_INDEPENDENT_EVENT_REQUIRED"
+    response = matches[0]
+    buyer_party = subjects.get(buyer)
+    if (
+        buyer_party is None or not buyer_party.active
+        or buyer_party.kind not in _INDEPENDENT_BUYER_KINDS
+        or response.get("actor") != buyer
+        or response.get("outside_offer_id") != offer_id
+        or response.get("outside_demand_id") != demand_id
+        or buyer == seller
+    ):
+        return "OUTSIDE_BUYER_RESPONSE_INDEPENDENT_OWNER_AND_OFFER_REQUIRED"
+    if (type(response.get("at")) is not int
+            or type(response.get("outside_buyer_response_valid_until")) is not int
+            or not response["at"] < at < response["outside_buyer_response_valid_until"]):
+        return "OUTSIDE_BUYER_RESPONSE_NOT_PRIOR_OR_CURRENT"
+    core = original_owner_economic_core(buyer_party.kind)
+    if core is None:
+        return "OUTSIDE_BUYER_RESPONSE_SOURCE_SCOPE_REQUIRED"
+    try:
+        context_basis.assert_original_independent_outside_demand_source(
+            buyer, response["outside_buyer_response_source_ref"],
+            response["outside_buyer_response_source_revision"],
+            core=core, recipient=seller, at=at,
+        )
+    except ContextBlocked:
+        return "OUTSIDE_BUYER_RESPONSE_CURRENT_SOURCE_NO_LONGER_READABLE"
+    if response.get("outside_buyer_response_decision") == "DECLINES_OFFER":
+        return "OUTSIDE_BUYER_INDEPENDENTLY_DECLINED_OFFER"
+    if response.get("outside_buyer_response_decision") != "WILLING_TO_NEGOTIATE":
+        return "OUTSIDE_BUYER_RESPONSE_DECISION_INVALID"
+    return None
