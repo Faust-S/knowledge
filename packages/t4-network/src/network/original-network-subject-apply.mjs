@@ -226,7 +226,10 @@ export async function openT4OriginalNetworkObjectChange({
 }
 export async function inspectT4OriginalNetworkRecipientResult({
   received,originalKernel,authorizeOriginalRead,getMode,
+  allowHistoricalEventProof=false,
 }={}){
+  if(typeof allowHistoricalEventProof!=='boolean')
+    fail('SUBJECT_HISTORICAL_READ_MODE_INVALID');
   const delta=checkReceived(received);
   if(![getMode,authorizeOriginalRead].every(f=>typeof f==='function')||
     !['t1.getObject','t1.listEventsSince'].every(
@@ -268,10 +271,68 @@ export async function inspectT4OriginalNetworkRecipientResult({
     ev.payload?.originalEventDigest!==delta.sourceEventDigest||
     ev.payload?.originalWriteOwnerRef!==delta.originalWriteOwnerRef||
     ev.payload?.originalContentDigest!==delta.objectContentDigest||
-    !ID(ev.event_id)||object?.revision!==delta.sourceRevision||
+    !ID(ev.event_id)||
     object?.schema_id!==delta.schemaId||
-    object?.schema_version!==delta.schemaVersion)
+    object?.schema_version!==delta.schemaVersion||
+    !Number.isSafeInteger(object?.revision)||
+    object.revision<delta.sourceRevision)
     fail('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH');
+
+  // A later legitimate original T3 revision must NOT erase the evidence
+  // that the earlier signed change was applied. It also cannot retroactively
+  // prove that today's Subject bytes equal those older bytes. Only an
+  // explicit historical, Event-only result path may accept this case.
+  if(object.revision>delta.sourceRevision){
+    if(allowHistoricalEventProof!==true)
+      fail('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH');
+    const versions=new Set();
+    for(const event of events){
+      if(event?.workspace_id!==delta.workspaceId||
+        event.object_id!==delta.objectId)continue;
+      if(Number.isSafeInteger(event.revision)&&
+        event.revision>delta.sourceRevision&&
+        event.revision<=object.revision&&ID(event.event_id))
+        versions.add(event.revision);
+    }
+    for(let revision=delta.sourceRevision+1;
+      revision<=object.revision;revision++){
+      if(!versions.has(revision))
+        fail('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP',{
+          missingRevision:revision,
+        });
+    }
+    await guard();
+    const second=await originalKernel.getObject(
+      delta.workspaceId,delta.objectId);
+    if(!same(second?.object,object))
+      fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
+    await guard();
+    const verifyEvents=await originalKernel.listEventsSince(delta.workspaceId);
+    const exact=verifyEvents?.filter(e=>
+      e?.workspace_id===delta.workspaceId&&e.object_id===delta.objectId&&
+      e.event_type==='iwxa.t4.original-object.synced'&&
+      e.payload?.originalEventId===delta.sourceEventId);
+    if(exact?.length!==1||!same(exact[0],ev))
+      fail('SUBJECT_HISTORICAL_EVENT_CHANGED_DURING_READ');
+    await guard();
+    return frozen({
+      schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
+      state:'APPLIED_HISTORICAL_EVENT_VERIFIED',
+      originalRecipientEventId:ev.event_id,
+      originalRecipientRevision:ev.revision,
+      originalRecipientStateDigest:ev.payload.originalContentDigest,
+      currentRecipientRevision:object.revision,
+      sourceEventId:delta.sourceEventId,
+      originalBusinessApplied:true,
+      actualOriginalT3EventReadback:true,
+      actualOriginalT3ObjectReadback:true,
+      historicalStateFromOriginalEvent:true,
+      currentObjectEqualsHistoricalState:false,
+      historicalSubjectBytesReconstructed:false,
+      originalT3EventContinuityVerified:true,
+      historicalReceiptFabricated:false,
+    });
+  }
   const state=digestT4OriginalObjectContent({
     schemaId:object.schema_id,schemaVersion:object.schema_version,
     data:object.data,extensions:object.extensions??{},
