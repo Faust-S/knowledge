@@ -63,6 +63,8 @@ jobs:
           $failingTestCount = 0
           $failureLines = [System.Collections.Generic.List[int]]::new()
           $failureKinds = [System.Collections.Generic.HashSet[string]]::new()
+          $failureCountPairs = [System.Collections.Generic.HashSet[string]]::new()
+          $failedDeclarations = [System.Collections.Generic.HashSet[int]]::new()
           function Scan-Suite($suite, $inheritedFile) {
             if ($null -eq $suite) { return }
             $suiteFile = if ($suite.file) { [string]$suite.file } elseif ([string]$suite.title -match '\.spec\.ts') { [string]$suite.title } else { [string]$inheritedFile }
@@ -73,6 +75,7 @@ jobs:
                 $bad = $case.status -eq "unexpected" -or @($case.results | Where-Object { $_.status -in @("failed", "timedOut", "interrupted") }).Count -gt 0
                 if (-not $bad) { continue }
                 $script:failingTestCount++
+                if ($spec.line) { [void]$script:failedDeclarations.Add([int]$spec.line) }
                 # Extract only the failed assertion's test line from its stack.
                 # Do not publish the stack, paths, assertions, or private data.
                 $privateStacks = @($case.results | ForEach-Object { $_.errors } | Where-Object { $_ } | ForEach-Object { $_.stack }) -join "`n"
@@ -80,8 +83,14 @@ jobs:
                 $line = if ($at.Success) { [int]$at.Groups[1].Value } elseif ($spec.line) { [int]$spec.line } else { 0 }
                 $script:failureLines.Add($line)
                 $messages = @($case.results | ForEach-Object { $_.errors } | Where-Object { $_ } | ForEach-Object { $_.message }) -join "`n"
-                $kind = if ($messages -match 'toBeVisible') { 'VISIBLE' } elseif ($messages -match 'toBeChecked') { 'CHECKED' } elseif ($messages -match 'waitForURL') { 'NAVIGATION' } elseif ($messages -match 'locator\.click|\.click\(') { 'CLICK' } elseif ($messages -match 'TimeoutError') { 'TIMEOUT' } elseif ($messages -match 'AssertionError|expect\(') { 'ASSERTION' } else { 'OTHER' }
+                $kind = if ($messages -match 'toHaveCount') { 'COUNT' } elseif ($messages -match 'toHaveLength') { 'LENGTH' } elseif ($messages -match 'toBeVisible') { 'VISIBLE' } elseif ($messages -match 'toBeChecked') { 'CHECKED' } elseif ($messages -match 'waitForURL') { 'NAVIGATION' } elseif ($messages -match 'locator\.click|\.click\(') { 'CLICK' } elseif ($messages -match 'TimeoutError') { 'TIMEOUT' } elseif ($messages -match 'AssertionError|expect\(') { 'ASSERTION' } else { 'OTHER' }
                 [void]$script:failureKinds.Add($kind)
+                # Only numeric counts leave the runner.
+                $expectedMatch = [regex]::Match($messages, '(?m)^\s*Expected:\s*(\d+)\s*$')
+                $receivedMatch = [regex]::Match($messages, '(?m)^\s*Received:\s*(\d+)\s*$')
+                if ($expectedMatch.Success -and $receivedMatch.Success) {
+                  [void]$script:failureCountPairs.Add($expectedMatch.Groups[1].Value + ":" + $receivedMatch.Groups[1].Value)
+                }
                 $fileName = if ($spec.file) { [string]$spec.file } elseif ($spec.location.file) { [string]$spec.location.file } else { $suiteFile }
                 $fileName = $fileName.Replace([char]92, [char]47)
                 $index = [array]::IndexOf($known, $fileName)
@@ -105,6 +114,8 @@ jobs:
           foreach ($top in @($report.suites)) { if ($null -ne $top) { Scan-Suite $top "" } }
           Write-Host ("D06_E2E_FAILURE_TEST_LINE_NUMBERS=" + (($failureLines | Sort-Object -Unique) -join ","))
           Write-Host ("D06_E2E_FAILURE_ASSERTION_KINDS=" + ((@($failureKinds) | Sort-Object) -join ","))
+          Write-Host ("D06_E2E_FAILURE_DECLARATION_LINES=" + ((@($failedDeclarations) | Sort-Object) -join ","))
+          Write-Host ("D06_E2E_FAILURE_NUMERIC_EXPECTED_RECEIVED=" + ((@($failureCountPairs) | Sort-Object) -join ","))
           Write-Host "D06_E2E_JSON=PASS"
           Write-Host ("D06_E2E_FAILING_TESTS=" + $failingTestCount)
           Write-Host ("D06_E2E_FAILING_SPEC_ORDINALS=" + ((@($failureIndices) | Sort-Object) -join ","))
