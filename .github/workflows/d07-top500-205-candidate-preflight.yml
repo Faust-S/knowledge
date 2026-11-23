@@ -1,0 +1,34 @@
+name: D07 N205 candidate identity preflight
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d07-top500-205-candidate-preflight.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  identity-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: e7c2cf61d1cb8b7c3cd476ebb8d02e4229623d4c
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Confirm existing subject identities before selecting next five
+        working-directory: site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-205-preflight.log" 2>&1
+          node --import tsx scripts/d07-next500-candidate-preflight.mjs 15 | tee "$RUNNER_TEMP/d07-205-candidate-results.log"
+          grep -qx 'D07_TOP500_SELECTED=500' "$RUNNER_TEMP/d07-205-candidate-results.log"
+          grep -qx 'D07_INDIVIDUAL_TECHNOLOGIES=205' "$RUNNER_TEMP/d07-205-candidate-results.log"
+          grep -qx 'D07_UNCOVERED_TECHNOLOGIES=295' "$RUNNER_TEMP/d07-205-candidate-results.log"
