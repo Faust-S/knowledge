@@ -1,6 +1,6 @@
 # D06: согласование объёма и стоимости товарного решения
 
-Дата: 23 ноября 2026. Документ отражает предметное исправление после аудита Комплектовода. **Выпускной статус до окончания независимой квалификации: CI_IN_PROGRESS / MAIN_UNCHANGED.**
+Дата: 23 ноября 2026. Документ отражает предметное исправление после аудита Комплектовода. **Выпускной статус: SOURCE_PASS / T2_PASS / HOSTING_BUILD_PASS / TARGETED_PD09_PASS / FULL_BROWSER_PENDING / MAIN_UNCHANGED.**
 
 ## Входные идентичности
 
@@ -39,6 +39,14 @@
 - Реальный T2 Host/Kernel + импорт .iwxa + холодное восстановление: https://github.com/Faust-S/knowledge/actions/runs/45262784637
 - Производственная HTTPS-сборка единого dist/: https://github.com/Faust-S/knowledge/actions/runs/45262791864
 - Адресная браузерная проверка выбора комплекта и PD.09: https://github.com/Faust-S/knowledge/actions/runs/45262798408
+
+Установленные итоги на указанном точном сайте SHA c958796 и домене SHA 6fe3cf6:
+- Source gate [45262778160](https://github.com/Faust-S/knowledge/actions/runs/45262778160): **SUCCESS**.
+- Original T2 / PD.09 / Kernel receipt / Exchange / восстановление [45262784637](https://github.com/Faust-S/knowledge/actions/runs/45262784637): **SUCCESS**, D06_NATIVE_PD09_KERNEL=PASS.
+- Production HTTPS build [45262791864](https://github.com/Faust-S/knowledge/actions/runs/45262791864): **SUCCESS**.
+- Самостоятельная браузерная проверка выбора комплекта и PD.09 [45262798408](https://github.com/Faust-S/knowledge/actions/runs/45262798408): **SUCCESS**.
+- Полная статическая+браузерная регрессия [45262848363](https://github.com/Faust-S/knowledge/actions/runs/45262848363): **ещё выполняется** на момент этого дополнения.
+- Дополнительный адресный WF.PD.01 (PD.01→PD.03→PD.09) [45263893610](https://github.com/Faust-S/knowledge/actions/runs/45263893610): **ещё выполняется** на момент дополнения.
 
 **Ни один запуск не является PASS до фактического завершения с `conclusion=success`.** Не выполнять Actions в приватных репозиториях; публичный knowledge не получает приватные файлы, артефакты, снимки и журналы. Не менять T2, main и сервер.
 
