@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 957f17d609d239c3a4e5336c0f935251fe4c988e
+          ref: dcce25be165f64dd32b85bba6ddefd24ae84e312
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -38,7 +38,7 @@ jobs:
         shell: bash
         run: |
           test "$(git -C domain rev-parse HEAD)" = "6cee435c7769078383c00ee7f4b1c097f768eb90"
-          test "$(git -C site rev-parse HEAD)" = "957f17d609d239c3a4e5336c0f935251fe4c988e"
+          test "$(git -C site rev-parse HEAD)" = "dcce25be165f64dd32b85bba6ddefd24ae84e312"
           for f in service-subject-protocols.ts service-subject-next500-batch-j1.ts service-subject-next500-batch-j2.ts service-subject-next500-batch-j3.ts service-subject-next500-batch-j4.ts service-subject-next500-batch-j5.ts service-subject-next500-batch-k1.ts service-subject-next500-batch-k2.ts service-subject-next500-batch-k3.ts service-subject-next500-batch-k4.ts service-subject-next500-batch-k5.ts service-subject-next500-batch-l1.ts service-subject-next500-batch-l2.ts service-subject-next500-batch-l4.ts service-subject-next500-batch-l6.ts service-subject-next500-batch-l7.ts service-subject-next500-batch-m1.ts service-subject-next500-batch-m2.ts service-subject-next500-batch-m3.ts service-subject-next500-batch-m5.ts service-subject-next500-batch-m6.ts service-subject-next500-batch-n1.ts service-subject-next500-batch-n2.ts service-subject-next500-batch-n3.ts service-subject-next500-batch-n4.ts service-subject-next500-batch-n5.ts service-subject-next500-batch-o.ts service-subject-next500-batch-p1.ts service-subject-next500-batch-p2.ts service-subject-next500-batch-p3.ts service-subject-next500-batch-p4.ts service-subject-next500-batch-p5.ts service-subject-next500-batch-q1.ts service-subject-next500-batch-q2.ts service-subject-next500-batch-q3.ts service-subject-next500-batch-q4.ts service-subject-next500-batch-q5.ts service-subject-next500-batch-r1.ts service-subject-next500-batch-r2.ts service-subject-next500-batch-r3.ts service-subject-next500-batch-r4.ts service-subject-next500-batch-r5.ts; do
             cmp "domain/src/domain/$f" "site/src/domain/$f" || exit 2
           done
@@ -62,6 +62,7 @@ jobs:
           node --check scripts/tests/d07-next500-five-p-professional.test.mjs
           node --check scripts/tests/d07-next500-five-q-professional.test.mjs
           node --check scripts/tests/d07-next500-five-r-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-r-html.test.mjs
           npm run test:next500-latest > "$RUNNER_TEMP/d07-190-tests.log" 2>&1 || {
             echo D07_190_TESTS=FAIL
             echo "D07_TEST_LOG_OPENING"; head -55 "$RUNNER_TEMP/d07-190-tests.log" || true
@@ -101,7 +102,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 957f17d609d239c3a4e5336c0f935251fe4c988e
+          ref: dcce25be165f64dd32b85bba6ddefd24ae84e312
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -144,4 +145,5 @@ jobs:
           node --import tsx --input-type=module -e 'import fs from "node:fs";import {SUBJECT_PROTOCOLS} from "./src/domain/service-subject-protocols.ts";let missing=[];for(const p of SUBJECT_PROTOCOLS){const f="dist/uslugi/"+p.categorySlug+"/"+p.serviceSlug+"/index.html";if(!fs.existsSync(f)||fs.statSync(f).size<1500)missing.push(p.serviceSlug);}console.log("D07_PHYSICAL_HTML="+(SUBJECT_PROTOCOLS.length-missing.length)+"/"+SUBJECT_PROTOCOLS.length);if(SUBJECT_PROTOCOLS.length!==190||missing.length)process.exit(1);'
           node --import tsx --input-type=module -e 'import fs from "node:fs";import {SUBJECT_PROTOCOLS} from "./src/domain/service-subject-protocols.ts";const errors=[];for(const p of SUBJECT_PROTOCOLS){const path="dist/uslugi/"+p.categorySlug+"/"+p.serviceSlug+"/index.html";const h=fs.readFileSync(path,"utf8");if(!h.includes("d07-professional-service-card")||!h.includes("d07-professional-start-order")||!h.includes("/workspace/?new=1"))errors.push(p.serviceSlug+":no T2 card");for(const op of p.operations)if(!h.includes("data-operation-id="+String.fromCharCode(34)+op.id+String.fromCharCode(34)))errors.push(p.serviceSlug+":"+op.id);}console.log("D07_RENDERED_CARD_T2_AND_WORK="+(errors.length?"FAIL:"+errors.slice(0,8).join(","):"PASS"));if(errors.length)process.exit(1);'
           echo D07_NEW_CARDS_ORIGINAL_T2_HTML=PASS
+          node --import tsx scripts/tests/d07-next500-five-r-html.test.mjs
       # No private source/artifact upload to public CI logs.
