@@ -4,7 +4,8 @@ param(
   [Parameter(Mandatory=$true)][string]$CenterRoot,
   [Parameter(Mandatory=$true)][string]$OriginalT3Root,
   [Parameter(Mandatory=$true)][string]$ExpectedCenterSha,
-  [Parameter(Mandatory=$true)][string]$ExpectedT3Sha
+  [Parameter(Mandatory=$true)][string]$ExpectedT3Sha,
+  [string]$ExpectedVersion='0.3.0-dev.1'
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -35,7 +36,7 @@ try {
   $r=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
   Require ($r.status -eq 'INSTALLED_NOT_LAUNCHED' -and
     $r.product -eq 'iwxa.admin-center' -and
-    $r.version -eq '0.3.0-dev.1') 'G4_INSTALLED_CENTER_SETUP_READBACK_INVALID'
+    $r.version -eq $ExpectedVersion) 'G4_INSTALLED_CENTER_SETUP_READBACK_INVALID'
   $root=[IO.Path]::GetFullPath([string]$r.installRoot)
   $installedExe=Join-Path $root 'iwxa-admin-center.exe'
   $installedOwner=Join-Path $root 't3/iwxa-t3-product-owner.exe'
