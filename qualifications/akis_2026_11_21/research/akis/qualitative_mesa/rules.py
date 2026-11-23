@@ -15,6 +15,7 @@ from .outside_demand import (
     OutsideDemandBlocked, qualify_original_outside_demand_signal,
     qualify_original_outside_demand_withdrawal,
     qualify_original_outside_supplier_offer,
+    qualify_original_outside_buyer_offer_response,
 )
 from .org_code_policy import (
     OrgCodeBlocked, NEW_WORK_ACTIONS, qualify_model_code_proposal,
@@ -71,7 +72,8 @@ SELECTED_MODES = frozenset({"SOLE", "COLLEGIAL", "MIXED"})
 # UNSELECTED explicitly describes missing qualification, not tacit SOLE.
 MODES = SELECTED_MODES | {"UNSELECTED"}
 AVAILABILITY = frozenset({"AVAILABLE", "UNAVAILABLE", "UNKNOWN"})
-ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "outside_demand_signal", "outside_demand_withdraw", "outside_supplier_offer", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "cooperation_entry_assess", "cooperation_membership_apply", "model_code_propose", "model_code_response",
+ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "start", "complete", "accept", "reject", "resubmit", "exclude", "change_mode", "resource_status", "resource_calendar_update", "source_update", "outside_demand_signal", "outside_demand_withdraw", "outside_supplier_offer",
+    "outside_buyer_offer_response", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "cooperation_entry_assess", "cooperation_membership_apply", "model_code_propose", "model_code_response",
     "model_code_function_response", "model_code_apply",
     "technology_route_propose", "technology_route_response",
     "subject_registration_propose", "subject_registration_attest",
@@ -446,7 +448,11 @@ class QualitativeAKIS:
              "outside_offer_currency", "outside_offer_resource",
              "outside_offer_units", "outside_offer_slot_start",
              "outside_offer_slot_end", "outside_offer_deliverable",
-             "outside_offer_quality_basis", "outside_offer_valid_until"}, "EVENT")
+             "outside_offer_quality_basis", "outside_offer_valid_until",
+             "outside_buyer_response_id", "outside_buyer_response_decision",
+             "outside_buyer_response_source_ref",
+             "outside_buyer_response_source_revision",
+             "outside_buyer_response_valid_until"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -839,7 +845,7 @@ class QualitativeAKIS:
                 self.model_org_code_edition = ev["new_model_edition"]
                 self.model_org_code_editions.add(ev["new_model_edition"])
             elif action in {"outside_demand_signal", "outside_demand_withdraw",
-                            "outside_supplier_offer"}:
+                            "outside_supplier_offer", "outside_buyer_offer_response"}:
                 try:
                     if action == "outside_demand_signal":
                         outside_demand_evidence = (
@@ -848,6 +854,12 @@ class QualitativeAKIS:
                     elif action == "outside_supplier_offer":
                         outside_demand_evidence = (
                             qualify_original_outside_supplier_offer(self, ev, at)
+                        )
+                    elif action == "outside_buyer_offer_response":
+                        outside_demand_evidence = (
+                            qualify_original_outside_buyer_offer_response(
+                                self, ev, at
+                            )
                         )
                     else:
                         outside_demand_evidence = (
@@ -1417,11 +1429,12 @@ class QualitativeAKIS:
         if action == "request" and report["outcome"] == "APPLIED" and linked_change_evidence:
             report.update(linked_change_evidence)
         if action in {"outside_demand_signal", "outside_demand_withdraw",
-                       "outside_supplier_offer"} and (
+                       "outside_supplier_offer",
+                       "outside_buyer_offer_response"} and (
                 report["outcome"] == "APPLIED"):
             report.update(outside_demand_evidence)
             report["original_trace_buyer_or_supplier_model_evidence_only"] = True
-            if action != "outside_supplier_offer":
+            if action in {"outside_demand_signal", "outside_demand_withdraw"}:
                 report["original_trace_buyer_model_signal_only"] = True
             report["outside_work_or_money_not_created"] = True
         self.trace.append(report)
