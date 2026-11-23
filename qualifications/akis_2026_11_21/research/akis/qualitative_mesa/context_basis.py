@@ -289,6 +289,42 @@ class ContextBasis:
                     and row.get("at", at) < at):
                 self.assert_original_decision_rights(row, at)
 
+    def assert_original_form_role_source(
+            self, actor: str, reference: str | None,
+            expected_revision: str | None, *, core: str, purpose: str,
+            operation: str, recipients: set[str], at: int) -> None:
+        """Evaluate original owner-controlled role/mandate/context source.
+
+        This calls the SAME ContextBasis evaluator and scope predicate.
+        Neither role claims nor the author form constitute a new IAM
+        grant, externally authenticated identity or separate permission DB.
+        """
+        if not self.strict:
+            raise ContextBlocked("AUTHOR_ROLE_STRICT_CONTEXT_REQUIRED")
+        if (not isinstance(reference, str)
+                or not reference.startswith(f"model://{actor}/")):
+            raise ContextBlocked("AUTHOR_ROLE_ORIGINAL_SOURCE_OWNER_REQUIRED")
+        source = self.sources.get(reference)
+        if source is None or source.owner != actor:
+            raise ContextBlocked("AUTHOR_ROLE_ORIGINAL_SOURCE_OWNER_REQUIRED")
+        if (not isinstance(expected_revision, str)
+                or source.revision != expected_revision):
+            raise ContextBlocked("CONTEXT_REVISION_STALE")
+        if source.status == "DISPROVED":
+            raise ContextBlocked("CONTEXT_SOURCE_DISPROVED")
+        if source.status != "CONFIRMED":
+            raise ContextBlocked("CONTEXT_SOURCE_UNKNOWN")
+        if source.valid_until is not None and at > source.valid_until:
+            raise ContextBlocked("CONTEXT_SOURCE_EXPIRED")
+        if not recipients or not recipients.issubset(set(source.usable_by)):
+            raise ContextBlocked("CONTEXT_USE_NOT_PERMITTED")
+        reason = check_scope(
+            source.scope, core=core, purpose=purpose,
+            operation=operation, at=at,
+        )
+        if reason != "MODEL_SOURCE_SCOPE_CONSISTENT":
+            raise ContextBlocked(reason)
+
     def assert_allowed(self, work: str, action: str, actor: str, at: int) -> None:
         if action not in QUALIFIED_ACTIONS:
             return
@@ -339,9 +375,16 @@ class ContextBasis:
         # same-revision revoke/re-grant could silently reactivate already
         # accepted independent decisions. Non-rights legacy research inputs
         # retain their original optional CAS behavior.
-        protected_rights = self.strict and any(
-            sid in rule.sources
-            for rule in self.decision_requirements.values()
+        protected_rights = self.strict and (
+            any(sid in rule.sources for rule in self.decision_requirements.values())
+            or any(
+                sid in {
+                    getattr(p, "self_role_source_ref", None),
+                    getattr(p, "mandate_source_ref", None),
+                    getattr(p, "context_source_ref", None),
+                }
+                for p in self.subjects.values()
+            )
         )
         if protected_rights and "expected_revision" not in event:
             raise ContextBlocked("CONTEXT_OWNER_RIGHTS_COMPARE_AND_SET_REQUIRED")

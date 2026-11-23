@@ -101,11 +101,38 @@ def _original_work_projection(state: Any, configuration: str) -> list[dict[str, 
             applicability = ("ORIGINAL_MULTI_PRINCIPAL_REVIEW_ONLY" if multi_owner
                              else "NO_INTERFIRM_ORIGINAL_WORK")
         elif configuration == "sector":
-            applicability = "SECTOR_STANDARD_AND_ORIGINAL_ROLES_NOT_QUALIFIED"
+            owners = [state.subjects.get(p) for p in principals
+                      if p != work.customer]
+            customer = state.subjects.get(work.customer)
+            applicability = (
+                "ORIGINAL_SECTOR_BODY_SME_WORK"
+                if customer is not None and customer.kind == "SME"
+                and owners and all(p is not None and p.kind == "SECTOR_BODY"
+                                   for p in owners)
+                else "SECTOR_STANDARD_AND_ORIGINAL_ROLES_NOT_QUALIFIED"
+            )
         elif configuration == "macro":
-            applicability = "PUBLIC_INSTITUTION_ORIGINAL_ROLES_NOT_QUALIFIED"
+            customer = state.subjects.get(work.customer)
+            owners = [state.subjects.get(p) for p in principals
+                      if p != work.customer]
+            applicability = (
+                "ORIGINAL_PUBLIC_INSTITUTION_SME_WORK"
+                if customer is not None and customer.kind == "PUBLIC_INSTITUTION"
+                and owners and all(p is not None and p.kind == "SME"
+                                   for p in owners)
+                else "PUBLIC_INSTITUTION_ORIGINAL_ROLES_NOT_QUALIFIED"
+            )
         else:
-            applicability = "PERSON_CONTEXT_RIGHTS_NOT_QUALIFIED"
+            customer = state.subjects.get(work.customer)
+            owners = [state.subjects.get(p) for p in principals
+                      if p != work.customer]
+            applicability = (
+                "ORIGINAL_NATURAL_PERSON_CONTEXT_SME_WORK"
+                if customer is not None and customer.kind == "NATURAL_PERSON"
+                and owners and all(p is not None and p.kind == "SME"
+                                   for p in owners)
+                else "PERSON_CONTEXT_RIGHTS_NOT_QUALIFIED"
+            )
         pending_consents = (sorted(set(principals) - set(existing_consent))
                             if multi_owner and not obligations_accepted else [])
         next_step = _next_research_step(
@@ -137,11 +164,7 @@ def _original_work_projection(state: Any, configuration: str) -> list[dict[str, 
 # The same original Work, principals, OC/KPB and independent consents govern.
 # Forms needing employees, institutions, sector rules or persons fail closed
 # until those actual subject classes are implemented in the original model.
-ORIGINAL_FORM_MISSING_ACTOR_REASON = {
-    "sector": "FORMATION_AUTHOR_SECTOR_STANDARDS_ACTORS_NOT_MODELLED",
-    "macro": "FORMATION_AUTHOR_PUBLIC_INSTITUTION_NOT_MODELLED",
-    "trace": "FORMATION_AUTHOR_NATURAL_PERSON_RIGHTS_NOT_MODELLED",
-}
+ORIGINAL_FORM_MISSING_ACTOR_REASON: dict[str, str] = {}
 
 
 def original_configuration_commit_gate(design: Any, state: Any,
@@ -153,8 +176,45 @@ def original_configuration_commit_gate(design: Any, state: Any,
     confers no new form, governance, institutional status or grant.
     """
     config = design.configuration
-    if config in ORIGINAL_FORM_MISSING_ACTOR_REASON:
-        return ORIGINAL_FORM_MISSING_ACTOR_REASON[config]
+    if config == "sector":
+        customer = state.subjects.get(work.customer)
+        owners = state.capacity_ledger.original_owners(work.resource_requirements)
+        if (customer is None or customer.kind != "SME" or not customer.active
+                or not owners or any(
+                    state.subjects[who].kind != "SECTOR_BODY"
+                    or not state.subjects[who].active for who in owners
+                )):
+            return "FORMATION_AUTHOR_SECTOR_SME_STANDARD_BODY_REQUIRED"
+        if (design.morphology["scale"] != "отраслевые"
+                or design.morphology["knowledge"] != "отраслевой"):
+            return "FORMATION_AUTHOR_SECTOR_SCOPE_STANDARD_REQUIRED"
+        return "NONE"
+    if config == "macro":
+        customer = state.subjects.get(work.customer)
+        owners = state.capacity_ledger.original_owners(work.resource_requirements)
+        if (customer is None or customer.kind != "PUBLIC_INSTITUTION"
+                or not customer.active or not owners or any(
+                    state.subjects[who].kind != "SME"
+                    or not state.subjects[who].active for who in owners
+                )):
+            return "FORMATION_AUTHOR_PUBLIC_INSTITUTION_SME_REQUIRED"
+        if (design.morphology["scale"] not in {
+                "региональные", "международные"}
+                or design.morphology["data"] != "доверенные"):
+            return "FORMATION_AUTHOR_PUBLIC_SCOPE_TRUSTED_CONTEXT_REQUIRED"
+        return "NONE"
+    if config == "trace":
+        customer = state.subjects.get(work.customer)
+        owners = state.capacity_ledger.original_owners(work.resource_requirements)
+        if (customer is None or customer.kind != "NATURAL_PERSON"
+                or not customer.active or not owners or any(
+                    state.subjects[who].kind != "SME"
+                    or not state.subjects[who].active for who in owners
+                )):
+            return "FORMATION_AUTHOR_PERSON_ORIGINAL_SME_PROCESS_REQUIRED"
+        if design.morphology["data"] != "доверенные":
+            return "FORMATION_AUTHOR_PERSON_TRUSTED_CONTEXT_REQUIRED"
+        return "NONE"
     if config == "intra":
         if (design.morphology["scale"] != "Внутрифирменные"
                 or design.morphology["governance"] not in {
@@ -251,7 +311,18 @@ def _axis_consequences(design: Any, state: Any, current: Mapping[str, list[Mappi
     elif scale == "межфирменные":
         scale_check = "MULTI_OWNER_WORK_DECLARED" if multi_owner else "MULTI_OWNER_WORK_MISSING"
     else:
-        scale_check = "GEOGRAPHIC_OR_SECTOR_SCOPE_NOT_QUALIFIED"
+        matched_author_form = any(
+            row["configuration_applicability"] in {
+                "ORIGINAL_SECTOR_BODY_SME_WORK",
+                "ORIGINAL_PUBLIC_INSTITUTION_SME_WORK",
+                "ORIGINAL_NATURAL_PERSON_CONTEXT_SME_WORK",
+            }
+            for row in works
+        )
+        scale_check = (
+            "ORIGINAL_EXTENDED_FORM_SCOPE_MODELLED_PARTIAL"
+            if matched_author_form else "GEOGRAPHIC_OR_SECTOR_SCOPE_NOT_QUALIFIED"
+        )
     result["scale"] = {"selected": scale, "observed": scale_check,
                        "operational_consequence": "NO_AUTOMATIC_EXPANSION_OF_ORIGINAL_SUBJECTS"}
 
@@ -331,12 +402,20 @@ def configuration_dynamics(design: Any, state: Any, *, at: float,
         "ORIGINAL_INTRA_DIVISION_EMPLOYEE_WORK"
         for row in work_rows
     )
+    qualified_extended = any(
+        row["configuration_applicability"] == {
+            "sector": "ORIGINAL_SECTOR_BODY_SME_WORK",
+            "macro": "ORIGINAL_PUBLIC_INSTITUTION_SME_WORK",
+            "trace": "ORIGINAL_NATURAL_PERSON_CONTEXT_SME_WORK",
+        }.get(design.configuration)
+        for row in work_rows
+    )
     unsupported_roles = {
         "intra": (() if modeled_intra_roles else ("DIVISION", "EMPLOYEE")),
         "inter": (), "operator": (),
-        "sector": ("SECTOR_STANDARD", "CERTIFIED_SOURCE"),
-        "macro": ("PUBLIC_INSTITUTION", "PUBLIC_RULE"),
-        "trace": ("NATURAL_PERSON", "PERSONAL_CONTEXT_RIGHT"),
+        "sector": (() if qualified_extended else ("SECTOR_BODY", "SECTOR_STANDARD")),
+        "macro": (() if qualified_extended else ("PUBLIC_INSTITUTION", "PUBLIC_MANDATE")),
+        "trace": (() if qualified_extended else ("NATURAL_PERSON", "PERSONAL_CONTEXT_RIGHT")),
     }[design.configuration]
     if design.configuration == "inter":
         status = "MULTI_FIRM_PREPARATORY_SCOPE_ONLY" if cross_owner_work else "INTERFIRM_PROCESS_NOT_DECLARED"
@@ -357,6 +436,16 @@ def configuration_dynamics(design: Any, state: Any, *, at: float,
                 "ORIGINAL_INTRA_DIVISION_EMPLOYEE_WORK" for w in work_rows
             )
             else "INTRA_DIVISION_AND_EMPLOYEE_ROLES_NOT_EXECUTABLE"
+        )
+    elif design.configuration in {"sector", "macro", "trace"}:
+        status = (
+            {
+                "sector": "ORIGINAL_SECTOR_SME_STANDARDS_WORK_PARTIAL",
+                "macro": "ORIGINAL_PUBLIC_INSTITUTION_SME_WORK_PARTIAL",
+                "trace": "ORIGINAL_PERSON_CONTEXT_SME_WORK_PARTIAL",
+            }[design.configuration]
+            if qualified_extended
+            else "AUTHOR_EXTENDED_CONFIGURATION_ROLES_NOT_EXECUTABLE"
         )
     else:
         status = "AUTHOR_EXTENDED_CONFIGURATION_ROLES_NOT_EXECUTABLE"

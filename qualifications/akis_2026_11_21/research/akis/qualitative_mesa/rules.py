@@ -153,6 +153,11 @@ class Party:
     organization: str | None = None
     affiliation_source_ref: str | None = None
     self_role_source_ref: str | None = None
+    # R1-V2B: same original source assertions qualify sector/public/person
+    # role, individually authored mandate or personal context access.
+    mandate_source_ref: str | None = None
+    context_source_ref: str | None = None
+    role_source_revision: str | None = None
 
 
 @dataclass
@@ -217,12 +222,15 @@ class QualitativeAKIS:
         self.subjects: dict[str, Party] = {}
         for obj in scenario["subjects"]:
             _keys_exact(obj, {"id", "kind"}, {
-                "organization", "affiliation_source_ref",
-                "self_role_source_ref",
+                "organization", "affiliation_source_ref", "self_role_source_ref",
+                "mandate_source_ref", "context_source_ref", "role_source_revision",
             }, "SUBJECT")
             key = _id(obj["id"], "subject")
             kind = obj["kind"]
-            if kind not in {"SME", "OPERATOR", "DIVISION", "EMPLOYEE"} or key in self.subjects:
+            if kind not in {
+                "SME", "OPERATOR", "DIVISION", "EMPLOYEE",
+                "SECTOR_BODY", "PUBLIC_INSTITUTION", "NATURAL_PERSON",
+            } or key in self.subjects:
                 raise InputError("INVALID_OR_DUPLICATE_SUBJECT")
             if kind in {"DIVISION", "EMPLOYEE"}:
                 if set(obj) != {
@@ -243,6 +251,31 @@ class QualitativeAKIS:
                     key, kind, organization=enterprise,
                     affiliation_source_ref=parent_ref,
                     self_role_source_ref=own_ref,
+                )
+            elif kind in {"SECTOR_BODY", "PUBLIC_INSTITUTION", "NATURAL_PERSON"}:
+                special = ("context_source_ref" if kind == "NATURAL_PERSON"
+                           else "mandate_source_ref")
+                if set(obj) != {
+                    "id", "kind", "self_role_source_ref",
+                    special, "role_source_revision",
+                }:
+                    raise InputError("AUTHOR_ROLE_SOURCE_FIELDS_REQUIRED")
+                self_ref, scope_ref = obj["self_role_source_ref"], obj[special]
+                if (not isinstance(self_ref, str)
+                        or not isinstance(scope_ref, str)
+                        or self_ref == scope_ref
+                        or any(len(ref) > 128 or not ref.startswith(
+                            f"model://{key}/"
+                        ) for ref in (self_ref, scope_ref))):
+                    raise InputError("AUTHOR_ROLE_INDEPENDENT_SOURCE_OWNER_REQUIRED")
+                revision = _id(
+                    obj["role_source_revision"], "role_source_revision"
+                )
+                self.subjects[key] = Party(
+                    key, kind, self_role_source_ref=self_ref,
+                    mandate_source_ref=scope_ref if special == "mandate_source_ref" else None,
+                    context_source_ref=scope_ref if special == "context_source_ref" else None,
+                    role_source_revision=revision,
                 )
             else:
                 if set(obj) != {"id", "kind"}:
@@ -1184,27 +1217,81 @@ class QualitativeAKIS:
         self.trace.append(report)
         return report
 
-    def _guard_original_intrafirm_role_work(self, work: Work) -> None:
-        """An original human/department role is not a fictitious SME.
+    def _guard_original_form_role_work(self, work: Work, at: int) -> None:
+        """Constrain original new Work, without granting new actor authority.
 
-        No original Work obligation can be created for such a role unless
-        the selected author intra form and its existing source/phase policy
-        are enabled. All independent Work consents remain mandatory.
+        Existing intra Work and R1-V2B sector/public/person Work use this ONE
+        original gate. Rights of extended actors are checked in the ORIGINAL
+        ContextBasis with owner-managed revisions, purpose, recipients and
+        validity. Accepted obligations are never re-authorized here.
         """
         principals = (
             self.capacity_ledger.original_owners(work.resource_requirements)
             | {work.customer}
         )
-        if not any(self.subjects[p].kind in {"DIVISION", "EMPLOYEE"}
-                   for p in principals):
+        intra = any(self.subjects[p].kind in {"DIVISION", "EMPLOYEE"}
+                    for p in principals)
+        special = {
+            p for p in principals
+            if self.subjects[p].kind in {
+                "SECTOR_BODY", "PUBLIC_INSTITUTION", "NATURAL_PERSON",
+            }
+        }
+        if not intra and not special:
             return
-        gate = self.formation_policy
-        if (gate is None
-                or not gate.design.enforce_model_author_configuration_work_scope
-                or gate.design.configuration != "intra"):
+        policy = self.formation_policy
+        config = (policy.design.configuration
+                  if policy is not None and
+                  policy.design.enforce_model_author_configuration_work_scope
+                  else None)
+        if intra and config != "intra":
             raise BlockedDecision(
                 "INTRAFIRM_ORIGINAL_ROLE_REQUIRES_SELECTED_FORM_GATE"
             )
+        expected = {
+            "SECTOR_BODY": "sector", "PUBLIC_INSTITUTION": "macro",
+            "NATURAL_PERSON": "trace",
+        }
+        if special and (len({expected[self.subjects[p].kind] for p in special}) != 1
+                        or config not in {
+                            expected[self.subjects[p].kind] for p in special
+                        }):
+            raise BlockedDecision(
+                "AUTHOR_EXTENDED_ROLE_REQUIRES_OWN_SELECTED_FORM"
+            )
+        if special:
+            basis = self.context_basis
+            if basis is None or not basis.strict:
+                raise BlockedDecision(
+                    "AUTHOR_EXTENDED_ROLE_ORIGINAL_STRICT_KPB_REQUIRED"
+                )
+            for name in sorted(special):
+                actor = self.subjects[name]
+                root = ("personal" if actor.kind == "NATURAL_PERSON"
+                        else "institutional")
+                role_purpose = {
+                    "SECTOR_BODY": "AKIS_SECTOR_ROLE",
+                    "PUBLIC_INSTITUTION": "AKIS_PUBLIC_ROLE",
+                    "NATURAL_PERSON": "AKIS_PERSON_ROLE",
+                }[actor.kind]
+                scope_purpose = {
+                    "SECTOR_BODY": "AKIS_SECTOR_STANDARD",
+                    "PUBLIC_INSTITUTION": "AKIS_PUBLIC_MANDATE",
+                    "NATURAL_PERSON": "AKIS_PERSON_CONTEXT_ACCESS",
+                }[actor.kind]
+                basis.assert_original_form_role_source(
+                    name, actor.self_role_source_ref, actor.role_source_revision,
+                    core=root, purpose=role_purpose, operation="ACCEPT",
+                    recipients={name}, at=at,
+                )
+                scope_ref = (actor.context_source_ref
+                             if actor.kind == "NATURAL_PERSON"
+                             else actor.mandate_source_ref)
+                basis.assert_original_form_role_source(
+                    name, scope_ref, actor.role_source_revision,
+                    core=root, purpose=scope_purpose, operation="SHARE",
+                    recipients=principals, at=at,
+                )
 
     def _request_work(self, ev: dict[str, Any], at: int) -> dict[str, Any] | None:
         spec = ev.get("work_spec")
@@ -1239,7 +1326,7 @@ class QualitativeAKIS:
             raise BlockedDecision(
                 "ORIGINAL_FUTURE_WORK_DECLARATION_INVALID:" + str(exc)
             ) from exc
-        self._guard_original_intrafirm_role_work(work)
+        self._guard_original_form_role_work(work, at)
         if work.key in self.works:
             raise BlockedDecision("WORK_ALREADY_EXISTS")
         if len(self.works) >= 256:
@@ -1300,14 +1387,19 @@ class QualitativeAKIS:
                      if entry.key == ev.get("cooperation_link")), None)
         if link is None or actor not in link.participants:
             raise BlockedDecision("PARTICIPATION_ORIGINAL_MEMBER_REQUIRED")
-        original_role = self.subjects[actor].kind in {"DIVISION", "EMPLOYEE"}
-        intrafirm_enabled = bool(
-            self.formation_policy is not None
+        role_form = {
+            "DIVISION": "intra", "EMPLOYEE": "intra",
+            "SECTOR_BODY": "sector", "PUBLIC_INSTITUTION": "macro",
+            "NATURAL_PERSON": "trace",
+        }
+        current_form = (
+            self.formation_policy.design.configuration
+            if self.formation_policy is not None
             and self.formation_policy.design.enforce_model_author_configuration_work_scope
-            and self.formation_policy.design.configuration == "intra"
+            else None
         )
-        if self.subjects[actor].kind != "SME" and not (
-                original_role and intrafirm_enabled):
+        if self.subjects[actor].kind != "SME" and (
+                role_form.get(self.subjects[actor].kind) != current_form):
             raise BlockedDecision("PARTICIPATION_ORIGINAL_ENTERPRISE_REQUIRED")
         if ev.get("cooperation_source_revision") != link.source_revision:
             raise BlockedDecision("COOPERATION_SOURCE_REVISION_STALE")
@@ -1435,11 +1527,8 @@ class QualitativeAKIS:
     def _work_action(self, w: Work, ev: dict[str, Any], at: int) -> None:
         a = ev["action"]
         actor = ev["actor"]
-        if a in {
-                "offer", "authorize", "consent", "commit", "start", "complete",
-                "accept", "reject", "resubmit",
-        }:
-            self._guard_original_intrafirm_role_work(w)
+        if a in {"offer", "authorize", "consent", "commit"}:
+            self._guard_original_form_role_work(w, at)
         if self.context_basis is not None:
             self.context_basis.assert_allowed(w.key, a, actor, at)
         if a == "offer":
@@ -1771,6 +1860,16 @@ class QualitativeAKIS:
                         ),
                         "real_identity_or_employment_verified": False,
                     } if v.kind in {"DIVISION", "EMPLOYEE"} else {}),
+                    **({
+                        "separate_original_actor_source_declarations": bool(
+                            v.self_role_source_ref and (
+                                v.mandate_source_ref or v.context_source_ref
+                            )
+                        ),
+                        "real_person_or_institutional_mandate_authenticated": False,
+                    } if v.kind in {
+                        "SECTOR_BODY", "PUBLIC_INSTITUTION", "NATURAL_PERSON",
+                    } else {}),
                 }
                 for k, v in sorted(self.subjects.items())
             },

@@ -79,15 +79,18 @@ def test_original_source_qualified_SME_form_leads_from_phases_to_accepted_follow
     assert simulate(deepcopy(data)) == out
 
 
-@pytest.mark.parametrize("form", UNSUPPORTED)
-def test_unsupported_author_subject_form_cannot_commit_original_SME_work(form):
-    # Do not invent DIVISION, EMPLOYEE, PUBLIC_INSTITUTION, NATURAL_PERSON,
-    # sector certification or a second actor engine merely to pass a test.
+@pytest.mark.parametrize("form,reason", [
+    ("sector", "FORMATION_AUTHOR_SECTOR_SME_STANDARD_BODY_REQUIRED"),
+    ("macro", "FORMATION_AUTHOR_PUBLIC_INSTITUTION_SME_REQUIRED"),
+    ("trace", "FORMATION_AUTHOR_PERSON_ORIGINAL_SME_PROCESS_REQUIRED"),
+])
+def test_extended_author_form_name_does_not_relabel_two_original_SMEs(form, reason):
+    # R1-V2B adds independent actor types. Selecting their form without
+    # those types cannot turn ordinary SMEs into institutions or persons.
     data = formed_case(form)
-    with pytest.raises(InputError, match=(
-        "AUTHOR_FORM_ORIGINAL_SUBJECT_CLASSES_NOT_IMPLEMENTED"
-    )):
-        simulate(data)
+    out = simulate(data)
+    assert find(out, "commit", work="w1")[0]["reason"] == reason
+    assert out["works"]["w1"]["result"] == "NOT_SUBMITTED"
 
 
 def test_intra_selected_but_unrelated_original_enterprises_cannot_replace_division_and_employee():
