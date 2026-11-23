@@ -213,6 +213,8 @@ export function createT4OriginalNetworkSessionPhasePort({
       schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1',
       checkpointRef,role,revision:current.revision,
       currentPhase:current.stages.at(-1)?.phase??null,
+      currentEvidence:clone(current.stages.at(-1)?.evidence??null),
+      sourceNodeRef,recipientNodeRef,scopeRef,sessionRef,changeId,ownerEpoch,
       chainHash:current.chainHash,
       originalT3EventChainVerified:current.revision>0,
       originalT3OnlyStore:true,
