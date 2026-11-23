@@ -229,6 +229,18 @@ export async function qualifyNativeOriginalEmployee({
       console.log('G4_NATIVE_FAILURE_PHASE',step?.[1]??'UNCLASSIFIED');
       const code=output.match(/G4_NATIVE_FAILURE_CODE\s+([A-Z0-9_]{3,120})/);
       console.log('G4_NATIVE_FAILURE_CODE',code?.[1]??'REDACTED');
+      // Strictly finite original production Agent codes only. Do not
+      // publish private child stdout, identity, keys or Task contents.
+      const productionPhase=output.match(
+        /G4_PRODUCTION_AGENT_FAILURE_PHASE\s+([A-Z_]{3,80})/);
+      const productionCode=output.match(
+        /G4_PRODUCTION_AGENT_FAILURE_CODE\s+([A-Z0-9_]{3,119})/);
+      if(productionPhase||productionCode){
+        console.log('G4_NATIVE_PRODUCTION_AGENT_FAILURE_PHASE',
+          productionPhase?.[1]??'UNCLASSIFIED');
+        console.log('G4_NATIVE_PRODUCTION_AGENT_FAILURE_CODE',
+          productionCode?.[1]??'UNCLASSIFIED');
+      }
       const secondSidStage=output.match(
         /G4_ORIGINAL_AGENT_TWO_SID_FAILURE_PHASE\s+([A-Z0-9_]{3,119})/);
       const secondSidCode=output.match(
