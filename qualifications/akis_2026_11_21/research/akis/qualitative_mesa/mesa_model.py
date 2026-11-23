@@ -423,7 +423,10 @@ class OperatorAKISModel(mesa.Model):
             self.model_org_policy = (
                 parse_org_code_policy(
                     self.general_design.declarations["organizational_code"],
-                    self.qualitative.subjects, self.qualitative.institution,
+                    # A future role may be SOURCE-DECLARED in the thirteen
+                    # controls, but remains inactive until original APPLY.
+                    # Preflight never adds it to QualitativeAKIS.subjects.
+                    preflight_subjects, self.qualitative.institution,
                     actions=set(ACTIONS),
                 ) if self.general_akis_enabled and
                      self.general_design.enforce_model_org_code else None
