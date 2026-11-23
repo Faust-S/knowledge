@@ -1,0 +1,58 @@
+name: Admin V8 native employee Workspace rights, scoped source build
+on:
+  push:
+    branches:
+      - work/2026-11-23-admin03-employee-workspace-rights
+    paths:
+      - .github/workflows/t3-admin03-employee-native-source-build.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-source-check:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 790c9dd270a2e7a11aead6a9ee7666c6d7b677fc
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          sparse-checkout: |
+            interop
+            access-control
+            reconciliation
+          persist-credentials: false
+          path: .private/t3
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: 118a688b9a3034d7bdf752c050604f860deb66f0
+          persist-credentials: false
+          path: .private/center
+      - name: Pin immutable native products and parse real original owner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C .private/t3 rev-parse HEAD).Trim() -cne '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc'){throw 'ORIGINAL_T3_PIN_CHANGED'}
+          if((& git -C .private/center rev-parse HEAD).Trim() -cne '118a688b9a3034d7bdf752c050604f860deb66f0'){throw 'CENTER_V8_PIN_CHANGED'}
+          node --check '.private/t3/interop/native-admin-d3.mjs' *> $null
+          if($LASTEXITCODE -ne 0){throw 'ORIGINAL_T3_D3_NATIVE_SYNTAX_FAILED'}
+          rustfmt --edition 2021 --emit stdout '.private/center/src-tauri/src/cen03_native.rs' *> $null
+          if($LASTEXITCODE -ne 0){throw 'CENTER_D3_NATIVE_RUST_SYNTAX_FAILED'}
+          Write-Host 'EMPLOYEE_WORKSPACE_ORIGINAL_NATIVE_SOURCE_SYNTAX_PASS'
+      - name: Build exact Center React/Vite with real employee rights UI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & npm ci --prefix '.private/center' --ignore-scripts --no-audit --no-fund *> $null
+          if($LASTEXITCODE -ne 0){throw 'CENTER_V8_NATIVE_RIGHTS_DEPENDENCIES_FAILED'}
+          & npm run build --prefix '.private/center' *> $null
+          if($LASTEXITCODE -ne 0){throw 'CENTER_V8_NATIVE_RIGHTS_TYPESCRIPT_OR_VITE_FAILED'}
+          Write-Host 'CENTER_V8_ORIGINAL_EMPLOYEE_WORKSPACE_UI_TYPESCRIPT_VITE_PASS'
