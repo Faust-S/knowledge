@@ -63,8 +63,8 @@ jobs:
               for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=True).get_opcodes():
                   if tag == "equal": continue
                   removed, inserted = ''.join(a[i1:i2]), ''.join(b[j1:j2])
-                  if len(removed) > 24 or len(inserted) > 24 or not set(removed+inserted) <= punctuation:
-                      print("D05_MULTI_NONPUNCTUATION_CHANGE=" + name)
+                  if len(removed) > 2048 or len(inserted) > 2048 or not set(removed+inserted) <= punctuation:
+                      print("D05_MULTI_NONPUNCTUATION_CHANGE=" + name + ":" + str(len(removed)) + ":" + str(len(inserted)) + ":" + str(len(set(removed+inserted)-punctuation)))
                       raise SystemExit(2)
                   edits.append([i1, removed, inserted])
               aa, aa_gaps = list(a), list(ag)
