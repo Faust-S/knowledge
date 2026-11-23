@@ -1,0 +1,41 @@
+name: T3 original independent employee Workspace rights, source regression
+on:
+  push:
+    branches:
+      - work/2026-11-23-admin03-employee-workspace-rights
+    paths:
+      - .github/workflows/t3-admin03-original-employee-workspace-rights.yml
+      - packages/t3-core/src/t3/access/original-employee-enrollment.mjs
+      - packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: admin03-original-employee-rights-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  original-public-source:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check existing One Core owner (no private source)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          node --check packages/t3-core/src/t3/access/original-employee-enrollment.mjs
+          if($LASTEXITCODE -ne 0){throw 'T3_ORIGINAL_EMPLOYEE_WORKSPACE_SYNTAX_FAILED'}
+          node --check packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs
+          if($LASTEXITCODE -ne 0){throw 'T3_ORIGINAL_EMPLOYEE_WORKSPACE_TEST_SYNTAX_FAILED'}
+      - name: Run native original Kernel Registry independent employee regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          node --test --test-reporter=tap packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs
+          if($LASTEXITCODE -ne 0){throw 'T3_ORIGINAL_EMPLOYEE_SIGNED_WORKSPACE_RIGHTS_FAILED'}
+          Write-Host 'T3_ORIGINAL_EMPLOYEE_SIGNED_WORKSPACE_RIGHTS_PASS'
