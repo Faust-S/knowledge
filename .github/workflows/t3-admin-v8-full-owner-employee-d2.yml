@@ -114,15 +114,18 @@ jobs:
             throw 'D2_PRIVATE_SIGNED_DATA_TEST_HOLD'
           }
           Write-Host 'D2_ORIGINAL_SIGNED_DATA_TEST_PASS'
-      - name: Verify original native reader readiness and full employee signed Host regression
+      - name: Test signed owner native D2 reader capability and detach regression
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $log=Join-Path $env:RUNNER_TEMP 'd3-full-owner-private-node-tests.log'
+          $log=Join-Path $env:RUNNER_TEMP 'original-t3-native-reader-source.log'
           & node --test '.private/t3/tests/admin-original-host-port.test.mjs' *> $log
           if($LASTEXITCODE -ne 0){
-            $lines=@(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)
-            $failed=@($lines | Where-Object {$_ -match '^# fail [0-9]+
+            Write-Host 'D3_FULL_OWNER_NATIVE_READER_SOURCE_TEST_HOLD'
+            throw 'D3_FULL_OWNER_NATIVE_READER_SOURCE_TEST_FAILED'
+          }
+          Write-Host 'D3_FULL_OWNER_NATIVE_READER_SOURCE_TEST_PASS'
+      - name: Qualify real original signed Workspace DATA through One Core JIT
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
