@@ -204,7 +204,9 @@ def test_payment_claim_date_after_owner_permission_expiration_is_blocked():
         row for row in d["context_evidence"]["sources"]
         if row["id"] == proof
     )
+    source["valid_from"] = 95
     source["valid_until"] = 100
+    # Source interval itself is valid, but payment at 101 falls outside it.
     # Original Mesa Work has already been accepted, but an unqualified
     # later payment statement cannot reuse expired data rights.
     model = OperatorAKISModel(d)
