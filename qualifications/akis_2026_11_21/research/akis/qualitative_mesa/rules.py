@@ -150,6 +150,7 @@ class Work:
     assurance_refs: set[str] = field(default_factory=set)
     # R1-W1: source-declared unfinished production stays on ORIGINAL Work.
     wip_active_resource: str | None = None
+    wip_operation_active_resources: dict[str, str] = field(default_factory=dict)
     wip_interruptions: list[dict[str, Any]] = field(default_factory=list)
     wip_proposal: dict[str, Any] | None = None
     wip_amendments: list[dict[str, Any]] = field(default_factory=list)
@@ -441,7 +442,9 @@ class QualitativeAKIS:
              "work_interruption_at", "cost_source_ref", "prior_cost_claim",
              "wip_terms", "wip_slot_start", "wip_slot_end",
              "wip_capacity_units", "wip_cooperation_link",
-             "wip_cooperation_revision"}, "EVENT")
+             "wip_cooperation_revision", "wip_operation",
+             "wip_material_batch", "wip_dispatch_ref",
+             "wip_receipt_ref", "wip_accepted_units"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -1141,6 +1144,8 @@ class QualitativeAKIS:
                     "cooperation_source_revision"
                 ]
         if action in WIP_ACTIONS:
+            report["wip_operation"] = ev.get("wip_operation")
+            report["wip_material_batch"] = ev.get("wip_material_batch")
             report["wip_id"] = ev.get("wip_id")
             report["original_work_not_replaced"] = True
             report["financial_evidence"] = "SOURCE_DECLARED_NOT_CASH_RECEIPT"
@@ -1965,7 +1970,10 @@ class QualitativeAKIS:
             op = next((item for item in w.operations if item.key == identifier), None)
             if op is None:
                 raise BlockedDecision("UNKNOWN_OPERATION")
-            if actor != self.resources[op.primary_resource]:
+            active_resource = w.wip_operation_active_resources.get(
+                op.key, op.primary_resource
+            )
+            if actor != self.resources[active_resource]:
                 raise BlockedDecision("ORIGINAL_OPERATION_PERFORMER_REQUIRED")
             if a == "start_operation":
                 if (w.obligation != "ACCEPTED_BY_ORIGINAL_PRINCIPALS" or
@@ -2056,7 +2064,12 @@ class QualitativeAKIS:
     def _handoff_references(w: Work) -> set[str]:
         return ({ref for entry in w.handoff_evidence.values() for ref in entry.values()} |
                 {ref for st in w.material_states.values()
-                 for ref in (st.dispatch_ref, st.receipt_ref, st.quality_ref) if ref is not None})
+                 for ref in (st.dispatch_ref, st.receipt_ref, st.quality_ref) if ref is not None} |
+                {ref for lot in w.wip_lots
+                 for ref in (lot.get("inspection_ref"), lot.get("claim_ref"),
+                             lot.get("custody_dispatch_ref"),
+                             lot.get("custody_receipt_ref"),
+                             lot.get("custody_quality_ref")) if ref is not None})
 
     def _handoff_action(self, w: Work, ev: dict[str, Any]) -> None:
         if not self.handoff_strict or not w.operations:
@@ -2084,7 +2097,12 @@ class QualitativeAKIS:
             if ev.get("receipt_ref") != w.handoff_evidence[edge]["receipt"]:
                 raise BlockedDecision("MATERIAL_RECEIPT_REFERENCE_MISMATCH")
         elif action == "handoff_dispatch":
-            if actor != handoff.sender:
+            # The declared original Handoff remains immutable. Only an
+            # independently approved, consumed WIP operation can replace its
+            # prospective sender within the SAME original Work.
+            performer_resource = w.wip_operation_active_resources.get(handoff.upstream)
+            sender = self.resources[performer_resource] if performer_resource else handoff.sender
+            if actor != sender:
                 raise BlockedDecision("HANDOFF_ORIGINAL_SENDER_REQUIRED")
             if w.operation_states[handoff.upstream] != "COMPLETED":
                 raise BlockedDecision("HANDOFF_PREDECESSOR_INCOMPLETE")
@@ -2220,6 +2238,20 @@ class QualitativeAKIS:
                 if self.handoff_strict:
                     output["works"][key]["technology"]["handoffs"] = handoffs_view(
                         work.handoffs, work.handoff_states, work.handoff_evidence)
+                    for row in output["works"][key]["technology"]["handoffs"]["required_edges"]:
+                        resource = work.wip_operation_active_resources.get(
+                            row["from_operation"]
+                        )
+                        if resource is not None:
+                            row["effective_sender"] = self.resources[resource]
+                            row["effective_source_site"] = self.resource_specs[resource].site
+                            row["original_sender_unchanged"] = row["sender"]
+                for row in output["works"][key]["technology"]["operations"]:
+                    active = work.wip_operation_active_resources.get(row["id"])
+                    if active is not None:
+                        row["effective_resource"] = active
+                        row["effective_performer_owner"] = self.resources[active]
+                        row["original_performer_owner_unchanged"] = row["declared_performer_owner"]
                 if self.material_strict:
                     output["works"][key]["technology"]["materials"] = material_view(
                         work.material_batches, work.material_states)
@@ -2229,6 +2261,10 @@ class QualitativeAKIS:
                     "original_work_id": key,
                     "original_resource": work.resource,
                     "current_resource": work.wip_active_resource or work.resource,
+                    "effective_operation_resources": dict(
+                        sorted(work.wip_operation_active_resources.items())
+                    ),
+                    "material_original_batches_unchanged": True,
                     "interruptions": work.wip_interruptions,
                     "open_proposal": work.wip_proposal,
                     "applied_amendments": work.wip_amendments,
