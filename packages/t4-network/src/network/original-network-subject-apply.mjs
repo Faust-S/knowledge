@@ -180,11 +180,7 @@ export async function openT4OriginalNetworkObjectChange({
     delta.sourceRevision!==change.sourceRevision||
     delta.sourceEventDigest!==originalSourceHeadProof.originalEventDigest||
     delta.windowDigest!==originalSourceHeadProof.sourceEventWindowDigest||
-    delta.objectContentDigest!==
-      'sha256:'+createHash('sha256').update(Buffer.from(JSON.stringify({
-        schemaId:delta.schemaId,schemaVersion:delta.schemaVersion,
-        data:delta.data,extensions:delta.extensions,
-      }))).digest('hex'))
+    delta.objectContentDigest!==source.delta.objectContentDigest
     fail('SUBJECT_SOURCE_EVENT_CONTENT_NOT_BOUND');
   // The wire digest addresses ciphertext, not the T3 Object. Both are
   // now bound by the signed CHANGE_REF and the authenticated Host open.
