@@ -14,7 +14,10 @@ export class T4OriginalNetworkPhaseError extends Error {
 const fail=(code,details)=>{throw new T4OriginalNetworkPhaseError(code,details);};
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const HASH=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
-const canonical=value=>JSON.stringify(value);
+const sorted=x=>Array.isArray(x)?x.map(sorted):
+  x&&typeof x==='object'?Object.fromEntries(
+    Object.keys(x).sort().map(k=>[k,sorted(x[k])])):x;
+const canonical=value=>JSON.stringify(sorted(value));
 const digest=value=>'sha256:'+createHash('sha256')
   .update('IWXA-T4-ORIGINAL-NETWORK-PHASE-V1\0')
   .update(canonical(value)).digest('hex');
