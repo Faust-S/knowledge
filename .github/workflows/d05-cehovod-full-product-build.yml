@@ -30,7 +30,7 @@ jobs:
             echo "D05_SITE_ACCESS=FAIL"
             exit 1
           fi
-          test "$(git -C site rev-parse HEAD)" = "afde2b21a8694ddbe597a7e5889ce2b52a0d035e" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "d420d8b9708ec7e8438e416951db38ef0239b401" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
           echo "D05_SITE_PIN=PASS"
           git init --quiet t2
           if ! GIT_TERMINAL_PROMPT=0 git -C t2 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/T2.git e70de29b72b83e2546f7ab74b17572685a728c17 >/dev/null 2>&1; then
@@ -77,13 +77,12 @@ jobs:
             echo "D05_KERNEL_QUALIFIED_STAGING=FAIL"
             exit 1
           fi
-      - name: Format changed D05 sources with the site's locked Prettier
+      - name: Verify formatted D05 sources as committed
         run: |
           set -euo pipefail
           cd site
-          ./node_modules/.bin/prettier --write src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx > /dev/null
           ./node_modules/.bin/prettier --check src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx > /dev/null
-          echo "D05_FORMATTED_SOURCES=PASS"
+          echo "D05_FORMATTED_SOURCE_CHECK=PASS"
       - name: Assemble full static T2 product with native Chrome browser gates
         env:
           IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/t2/t2/current/final-successor/canonical-source
@@ -180,23 +179,3 @@ jobs:
           echo "D05_FULL_26_FAMILY_WITNESS=NOT_RUN"
           echo "D05_IWXA_EXCHANGE=PASS"
 
-      - name: Save verified formatting to private site branch
-        env:
-          DOMEN: ${{ secrets.DOMEN }}
-        run: |
-          set -euo pipefail
-          cd site
-          test "$(git rev-parse HEAD)" = "afde2b21a8694ddbe597a7e5889ce2b52a0d035e"
-          git add -- src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx
-          if git diff --cached --quiet; then
-            echo "D05_FORMAT_COMMIT=UNCHANGED"
-            exit 0
-          fi
-          git config user.email "140275131+Faust-S@users.noreply.github.com"
-          git config user.name "Faust-S"
-          git commit --quiet -m "style(D05): format qualified calendar and downtime sources"
-          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
-          GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" push origin HEAD:refs/heads/work/2026-10-23-t2-site-only > /dev/null 2>&1
-          unset header DOMEN
-          echo "D05_FORMAT_COMMIT=$(git rev-parse HEAD)"
-          echo "D05_PRIVATE_CODE_PUBLISHED=NO"
