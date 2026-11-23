@@ -71,7 +71,7 @@ def compare_original_trajectories(
         )
     reference_sha = None
     pilot_signature = None
-    comparator_signature = None
+    per_trial_comparison_statuses: set[str] = set()
     rows: list[dict[str, Any]] = []
     for name in sorted(scenarios):
         scenario = scenarios[name]
@@ -124,16 +124,16 @@ def compare_original_trajectories(
                 "COMPARATIVE_SINGLE_ORIGINAL_WORK_COUNTERFACTUAL_REQUIRED"
             )
         candidate = matches[0]
-        declared = (
-            candidate.get("status"),
-            candidate.get("network_declared_external_cash_difference"),
-            candidate.get("period"), candidate.get("currency"),
-        )
-        if comparator_signature is not None and comparator_signature != declared:
+        # Eligibility of the source-declared arithmetic MAY depend on the
+        # actual outcome (e.g. an unaccepted Result can invalidate reuse).
+        # Compare its original source inputs, not an outcome-derived status.
+        per_trial_comparison_statuses.add(str(candidate.get("status")))
+        if (candidate.get("period") != scenario["economic_claims"].get("period")
+                or candidate.get("currency") !=
+                    scenario["economic_claims"].get("currency")):
             raise TrajectoryComparisonError(
-                "COMPARATIVE_DECLARED_ARITHMETIC_CHANGED_BY_INTERVENTION"
+                "COMPARATIVE_ORIGINAL_CASH_PERIOD_OR_CURRENCY_CHANGED"
             )
-        comparator_signature = declared
         trace = output.get("trace")
         if not isinstance(trace, list):
             raise TrajectoryComparisonError("COMPARATIVE_ORIGINAL_TRACE_REQUIRED")
@@ -162,12 +162,17 @@ def compare_original_trajectories(
                 {"action": row.get("action"), "reason": row.get("reason")}
                 for row in current if row.get("outcome") == "BLOCKED"
             ],
+            "original_declared_counterfactual_status": candidate.get("status"),
+            "declared_work_cash_comparison_is_available": (
+                candidate.get("network_declared_external_cash_difference")
+                is not None
+            ),
             "claimed_cash_is_not_work_execution": True,
             "declared_counterfactual_is_not_realized_gain": True,
             "observed_realized_cash_gain": None,
             "observed_causal_network_value": None,
         })
-    assert comparator_signature is not None
+    reference_claims = next(iter(scenarios.values()))["economic_claims"]
     return {
         "schema": "AKIS_ORIGINAL_MULTI_TRAJECTORY_COMPARISON/1.0",
         "research_status": "ORIGINAL_WORK_MECHANISM_COMPARISON_ONLY",
@@ -176,10 +181,12 @@ def compare_original_trajectories(
         "pilot_work": pilot_work,
         "next_work": next_work,
         "historical_pilot_result_unchanged": True,
-        "comparison_currency": comparator_signature[3],
-        "comparison_period": comparator_signature[2],
-        "source_declared_work_cash_comparator_status": comparator_signature[0],
-        "source_declared_comparison_held_constant": True,
+        "comparison_currency": reference_claims["currency"],
+        "comparison_period": reference_claims["period"],
+        "source_declared_counterfactual_statuses": sorted(
+            per_trial_comparison_statuses
+        ),
+        "source_declared_economic_inputs_held_constant": True,
         "source_declared_comparison_value_not_exposed": True,
         "independent_choices_create_no_automatic_original_consents": True,
         "realized_caused_network_gain": "NOT_IDENTIFIABLE",
