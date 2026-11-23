@@ -17,14 +17,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 3f51882afe1886cdbd5c69f2a2573f2c68890e9f
+          ref: 256f5f4ff0b45c47ffdc1c5dec5b467fa43e47a4
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: domain
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: e2cd3d01aed1a02906ed6d6d1581621969d4c3ef
+          ref: 0ee1151669765cd21cfca1c42ff6cedb73028ed7
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -37,8 +37,8 @@ jobs:
       - name: Verify exact HEADs and domain parity
         shell: bash
         run: |
-          test "$(git -C domain rev-parse HEAD)" = "3f51882afe1886cdbd5c69f2a2573f2c68890e9f"
-          test "$(git -C site rev-parse HEAD)" = "e2cd3d01aed1a02906ed6d6d1581621969d4c3ef"
+          test "$(git -C domain rev-parse HEAD)" = "256f5f4ff0b45c47ffdc1c5dec5b467fa43e47a4"
+          test "$(git -C site rev-parse HEAD)" = "0ee1151669765cd21cfca1c42ff6cedb73028ed7"
           for f in service-subject-protocols.ts service-subject-next500-batch-j1.ts service-subject-next500-batch-j2.ts service-subject-next500-batch-j3.ts service-subject-next500-batch-j4.ts service-subject-next500-batch-j5.ts service-subject-next500-batch-k1.ts service-subject-next500-batch-k2.ts service-subject-next500-batch-k3.ts service-subject-next500-batch-k4.ts service-subject-next500-batch-k5.ts; do
             cmp "domain/src/domain/$f" "site/src/domain/$f" || exit 2
           done
@@ -58,7 +58,7 @@ jobs:
           npm run test:next500-latest > "$RUNNER_TEMP/d07-155-tests.log" 2>&1 || {
             echo D07_155_TESTS=FAIL
             echo "D07_TEST_LOG_OPENING"; head -55 "$RUNNER_TEMP/d07-155-tests.log" || true
-            echo "D07_TEST_LOG_SUMMARY"; grep -E 'ERR_|Cannot|SyntaxError|TypeError|ReferenceError|D07_|not ok|^# (tests|pass|fail)' "$RUNNER_TEMP/d07-155-tests.log" | tail -40 || true
+            echo "D07_TEST_FAILURE_DETAILS"; grep -A24 -B1 "^not ok" "$RUNNER_TEMP/d07-155-tests.log" | tail -190 || true
             exit 1
           }
           echo D07_155_TESTS=PASS
@@ -88,7 +88,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: e2cd3d01aed1a02906ed6d6d1581621969d4c3ef
+          ref: 0ee1151669765cd21cfca1c42ff6cedb73028ed7
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
