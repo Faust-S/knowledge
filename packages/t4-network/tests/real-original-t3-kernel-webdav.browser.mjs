@@ -4291,6 +4291,27 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         received:p2cOpened,verifiedResult:p2cHistorical,
         ackRef:'ack:historical:new:forbidden',
       }),e=>e?.code==='SUBJECT_APPLIED_ACK_REQUIRES_ORIGINAL_RESULT');
+      // An old signed ACK must remain verifiable after source Event 2
+      // appeared, although Window.hasMore changed. It must NOT rewind
+      // the already committed original Host frontier at Event 2.
+      const p2cOldAckCursorAfterNew=await
+        recoverT4OriginalNetworkSourceCursor({
+          sourcePhasePort:p2cSourcePhase(),
+          verifiedAppliedAck:p2cConfirmedAck,
+          verifiedChangeRef:p2cChange.verified,
+          originalSourceHeadProof:p2cHeadProof,
+          sourceCursorBefore:trueLast.nextCursor,
+          getMode:()=> 'T4_NETWORK',
+          authorizeOriginalRead:async p=>actual.grants.includes(
+            p.operation),
+          readOriginalEvents:()=>originalCarrierKernel.listEventsSince(
+            workspaceId),
+        });
+      assert.deepEqual(p2cOldAckCursorAfterNew.originalT3NextCursor,
+        p2cWindow.nextCursor);
+      assert.deepEqual((await p2eCursorPort()
+        .inspectOriginalHostCursor()).originalT3NextCursor,
+        p2eNextAfterCold.nextCursor);
       console.log('T4_REAL_ORIGINAL_T3_HISTORICAL_RESULT_SURVIVES_NEXT_REV_PASS',
         JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,
@@ -4299,6 +4320,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalRecipientCurrentRevision:2,
           originalSourceOldSessionStillAppliedConfirmed:true,
           originalRecipientOldSessionStillApplied:true,
+          oldSignedACKPrefixRecoveredAfterNewSourceEvent:true,
+          currentOriginalHostFrontierNotRewound:true,
           historicalBytesClaimedReconstructed:false,
           historicalResultCannotMintNewAppliedAck:true,
           independentHistoricalAntiForkWitness:false,
