@@ -186,6 +186,13 @@ def _operation_material(state: Any, work: Any, op: Any,
         "quality_spec_ref": batch.quality_spec_ref,
         "inbound_receipt_ref": incoming.receipt_ref,
         "inbound_quality_ref": incoming.quality_ref,
+        "inbound_receiver_owner": next(
+            h.receiver for h in work.handoffs if h.edge == in_batch.edge
+        ),
+        "inbound_origin_ref": in_batch.origin_ref,
+        "inbound_origin_source_owner": in_batch.origin_source_owner,
+        "inbound_quality_spec_ref": in_batch.quality_spec_ref,
+        "inbound_quality_spec_owner": in_batch.quality_spec_owner,
     }
 
 
@@ -411,6 +418,9 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                 material["declared_title_holder"],
                 material["origin_source_owner"],
                 material["quality_spec_owner"],
+                material["inbound_origin_source_owner"],
+                material["inbound_quality_spec_owner"],
+                material["inbound_receiver_owner"],
             }
             required_owners |= {
                 h.receiver for h in work.handoffs if h.upstream == op.key
@@ -421,6 +431,15 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         for key in ("inspection_ref", "claim_ref"):
             if lot[key]:
                 evidence.append((lot[key], owner))
+        if material is not None:
+            evidence.extend((
+                (material["origin_ref"], material["origin_source_owner"]),
+                (material["quality_spec_ref"], material["quality_spec_owner"]),
+                (material["inbound_origin_ref"], material["inbound_origin_source_owner"]),
+                (material["inbound_quality_spec_ref"], material["inbound_quality_spec_owner"]),
+                (material["inbound_receipt_ref"], material["inbound_receiver_owner"]),
+                (material["inbound_quality_ref"], material["inbound_receiver_owner"]),
+            ))
         if len({ref for ref, _ in evidence}) != len(evidence):
             _fail("WIP_ORIGINAL_EVIDENCE_REFERENCES_MUST_BE_DISTINCT")
         snapshots = {
@@ -464,14 +483,25 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         lot = work.wip_lots[-1]
         if ev.get("wip_material_batch") != latest["material"]["batch"]:
             _fail("WIP_MATERIAL_HANDOFF_BATCH_MISMATCH")
+        _check_source_snapshots(state, latest["source_revisions"], at)
+        _recheck_voters(state, latest, at)
         source = _source(ev.get("wip_source_ref"), actor,
                          "WIP_CUSTODY_OWN_SOURCE_REQUIRED")
         _original_source_revision(state, source, actor, at)
         refs = {lot.get("custody_dispatch_ref"), lot.get("custody_receipt_ref"),
                 lot.get("custody_quality_ref")}
-        if source in refs or source in {
-            lot.get("inspection_ref"), lot.get("claim_ref"),
-        }:
+        if (source in refs or
+                source in work.operation_evidence.values() or
+                source == work.result_ref or
+                any(source in entry.values() for entry in work.handoff_evidence.values()) or
+                any(source in (state.dispatch_ref, state.receipt_ref,
+                               state.quality_ref)
+                    for state in work.material_states.values()) or
+                any(source in (
+                    prior.get("inspection_ref"), prior.get("claim_ref"),
+                    prior.get("custody_dispatch_ref"), prior.get("custody_receipt_ref"),
+                    prior.get("custody_quality_ref")
+                ) for prior in work.wip_lots)):
             _fail("WIP_CUSTODY_SOURCE_ALREADY_USED")
         if lot["status"] != "RESERVED":
             _fail("WIP_CUSTODY_ONLY_RESERVED_MATERIAL")
@@ -525,6 +555,9 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         _original_source_revision(
             state, ev["wip_source_ref"], actor, at
         )
+        if op is not None:
+            _check_source_snapshots(state, latest["source_revisions"], at)
+            _recheck_voters(state, latest, at)
         start, end = latest["next_window"]
         if not start <= at < end:
             _fail("WIP_RESUME_OUTSIDE_APPROVED_WINDOW")
