@@ -28,6 +28,11 @@ _PURPOSE = "AKIS_ECONOMIC_WORK_EVIDENCE"
 _OPERATION = "READ"
 
 
+def original_owner_economic_core(kind: str) -> str | None:
+    """Use the existing original economic owner-kind mapping, not new IAM."""
+    return _OWNER_CORES.get(kind)
+
+
 def review_original_strict_economic_sources(
     *, state: Any, original_claims: Mapping[str, Any],
     work_id: str, at: int,
