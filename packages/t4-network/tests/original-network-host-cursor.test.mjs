@@ -147,7 +147,7 @@ async function fixture(){
   };
   return {
     sourceEvents,technicalEvents,objects,phase,ack,change,recovery,
-    before,latest,
+    originalKernel:kernel,before,latest,
     port:()=>createT4OriginalNetworkHostCursorPort(originalPorts),
     get puts(){return puts;},
     deny:()=>{allow=false;},local:()=>{network=false;},
@@ -253,4 +253,26 @@ test('LOCAL_T3 never accesses original network technical checkpoint or publishes
     recovery:f.recovery,
   }),error('HOST_CURSOR_NETWORK_MODE_OFF'));
   assert.equal(f.puts,0);
+});
+
+test('lost or malformed ORIGINAL T3 Host receipt does not permit second CAS write',async()=>{
+  const f=await fixture();
+  const actualOriginalPut=f.originalKernel.putObject;
+  f.originalKernel.putObject=async input=>{
+    const committed=await actualOriginalPut(input);
+    return {...committed,event:null};
+  };
+  await assert.rejects(f.port().commitAcknowledgedCursor({
+    recovery:f.recovery,
+  }),e=>e?.code==='HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'&&
+    e.details.originalCode==='ORIGINAL_RECEIPT_INVALID'&&
+    e.details.automaticRetryAllowed===false);
+  assert.equal(f.puts,1);
+  f.originalKernel.putObject=actualOriginalPut;
+  f.restart();
+  const verified=await f.port().commitAcknowledgedCursor({
+    recovery:f.recovery,
+  });
+  assert.equal(verified.state,'ALREADY_COMMITTED');
+  assert.equal(f.puts,1);
 });
