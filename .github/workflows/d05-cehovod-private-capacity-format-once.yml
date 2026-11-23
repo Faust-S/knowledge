@@ -35,15 +35,32 @@ jobs:
         run: |
           set -euo pipefail
           cd site
-          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d05-formatter-install.log" 2>&1
-          npx --no-install prettier --write \
+          if npm ci --no-audit --no-fund > "$RUNNER_TEMP/d05-formatter-install.log" 2>&1; then
+            echo "D05_FORMAT_INSTALL=PASS"
+          else
+            echo "D05_FORMAT_INSTALL=FAIL"
+            exit 1
+          fi
+          if npx --no-install prettier --write \
             src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts \
             src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts \
             src/host/CehovodCapacityPanel.tsx \
             src/host/CehovodDispatchQueue.tsx \
             src/host/CehovodDispatchQueue.ui-regression.test.ts \
             scripts/d05-first-use-real-kernel-witness.mjs \
-            > "$RUNNER_TEMP/d05-formatter.log" 2>&1
+            > "$RUNNER_TEMP/d05-formatter.log" 2>&1; then
+            echo "D05_FORMAT_PRETTIER=PASS"
+          else
+            echo "D05_FORMAT_PRETTIER=FAIL"
+            node - <<'NODE'
+          const fs = require('node:fs');
+          const log = fs.readFileSync(process.env.RUNNER_TEMP+'/d05-formatter.log','utf8');
+          const errors = log.split(/\r?\n/).filter(x => /^\[error\]/.test(x));
+          console.log('D05_FORMAT_ERROR_CLASSES='+errors.map(x => x.replace(/.*?(SyntaxError|Error|Unexpected token|No parser|Cannot resolve).*/,'$1')).slice(0,8).join(','));
+          console.log('D05_FORMAT_ERROR_COUNT='+errors.length);
+          NODE
+            exit 1
+          fi
           cp src/lib/shop-capacity.ts ../domain/src/lib/shop-capacity.ts
           cp src/lib/shop-capacity.test.ts ../domain/src/lib/shop-capacity.test.ts
           cd ..
