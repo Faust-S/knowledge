@@ -1,0 +1,91 @@
+name: d06-acquisition-saved-workspace-qualification
+
+# Temporary private checkout. Never upload private source, logs, screenshots or dist.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-acquisition-saved-workspace-qualification.yml
+
+permissions:
+  contents: read
+
+jobs:
+  acquisition:
+    runs-on: windows-latest
+    timeout-minutes: 65
+    steps:
+      - name: Checkout exact D06 candidate privately
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: 5a1699d4a31d4ef9fa8babd19dd17110f46c6139
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Clean private dependencies
+        working-directory: private/site
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'd06-acquisition-install.private.txt'
+          & npm ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'D06_ACQUISITION_NPM_CI=FAIL'
+            exit 1
+          }
+          Write-Host 'D06_ACQUISITION_NPM_CI=PASS'
+      - name: Check PD09 saved Result scenario isolation
+        working-directory: private/site
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'd06-acquisition-unit.private.txt'
+          & npm run test:acquisition-saved-comparison *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'D06_ACQUISITION_UNIT=FAIL'
+            Write-Host ('D06_ACQUISITION_ASSERTION_CLASS=' + [int]((Get-Content -LiteralPath $log -Raw) -match 'AssertionError|ERR_ASSERTION'))
+            exit 1
+          }
+          Write-Host 'D06_ACQUISITION_UNIT=PASS'
+      - name: Install browser for mandatory static product gate
+        working-directory: private/site
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'd06-acquisition-browser.private.txt'
+          & npm run setup:browser *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'D06_ACQUISITION_BROWSER_SETUP=FAIL'
+            exit 1
+          }
+          Write-Host 'D06_ACQUISITION_BROWSER_SETUP=PASS'
+      - name: Run full mandatory site and browser qualification
+        working-directory: private/site
+        shell: pwsh
+        timeout-minutes: 45
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'd06-acquisition-static.private.txt'
+          & npm run build:static:check *> $log
+          if ($LASTEXITCODE -ne 0) {
+            $body = Get-Content -LiteralPath $log -Raw
+            $prettier = ([regex]::Matches($body, 'prettier/prettier')).Count
+            $ts = ([regex]::Matches($body, 'error TS[0-9]+:')).Count
+            Write-Host 'D06_ACQUISITION_FULL_STATIC=FAIL'
+            Write-Host ('D06_ACQUISITION_PRETTIER_COUNT=' + $prettier)
+            Write-Host ('D06_ACQUISITION_TS_COUNT=' + $ts)
+            foreach ($m in ([regex]::Matches($body, '(\d+)\s+(failed|passed|skipped)') | Select-Object -Last 5)) {
+              Write-Host ('D06_ACQUISITION_TEST_' + $m.Groups[2].Value.ToUpperInvariant() + '=' + $m.Groups[1].Value)
+            }
+            exit 1
+          }
+          Write-Host 'D06_ACQUISITION_FULL_STATIC=PASS'
+      - name: Privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host 'D06_PRIVATE_SOURCE_UPLOADS=0'
+          Write-Host 'D06_PRIVATE_LOG_UPLOADS=0'
+          Write-Host 'D06_PRIVATE_DIST_UPLOADS=0'
