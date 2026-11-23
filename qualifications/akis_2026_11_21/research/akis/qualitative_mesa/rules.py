@@ -31,6 +31,7 @@ from .source_registration import (
     RegistrationBlocked, qualify_subject_registration,
     qualify_resource_registration,
 )
+from .affiliation import AffiliationBlocked, qualify_affiliation_transfer
 from .handoff import Handoff, HandoffInputError, declare_handoffs, handoffs_view
 from .material import (MaterialBatch, MaterialState, MaterialInputError, MaterialBlocked,
     parse_batches, quantities, amount, event_report, assert_reported_order,
@@ -77,7 +78,9 @@ ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "star
     "cooperation_lifecycle_propose", "cooperation_lifecycle_response",
     "cooperation_lifecycle_apply",
     "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge",
-    "role_state_update"})
+    "role_state_update",
+    "affiliation_transfer_propose", "affiliation_transfer_review",
+    "affiliation_transfer_apply"})
 GOVERNED = frozenset({"authorize", "exclude"})
 
 
@@ -125,6 +128,7 @@ class Work:
     commitment_org_revision: str | None = None
     result_ref: str | None = None
     consents: dict[str, tuple[str, str]] = field(default_factory=dict)
+    affiliation_at_commit: dict[str, str] = field(default_factory=dict)
     authorization_org_revision: str | None = None
     requester: str | None = None
     request_at: int | None = None
@@ -162,6 +166,7 @@ class Party:
     # Owner-controlled R1-V2C1 lifecycle remains in ONE original subjects map.
     role_management_source_ref: str | None = None
     role_revision_history: tuple[str, ...] = ()
+    affiliation_history: tuple[tuple[str, str, int], ...] = ()
 
 
 @dataclass
@@ -415,7 +420,13 @@ class QualitativeAKIS:
              "lifecycle_valid_until", "lifecycle_new_participants",
              "lifecycle_decision", "source_rights_ref",
              "role_target", "role_expected_revision", "role_new_revision",
-             "role_new_state", "role_management_source_ref"}, "EVENT")
+             "role_new_state", "role_management_source_ref",
+             "affiliation_transfer_id", "from_enterprise", "to_enterprise",
+             "old_affiliation_source_ref", "new_affiliation_source_ref",
+             "self_role_source_ref", "transfer_fingerprint",
+             "transfer_valid_until", "transfer_source_ref",
+             "transfer_decision", "transfer_decision_source_ref",
+             "transfer_parent_source_ref"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -634,6 +645,7 @@ class QualitativeAKIS:
         membership_evidence = None
         technology_route_evidence = None
         registration_evidence = None
+        affiliation_evidence = None
         coalition_competition_evidence = None
         active_coalition_evidence = None
         lifecycle_evidence = None
@@ -705,6 +717,50 @@ class QualitativeAKIS:
                         "OWNER_REGISTERED_MODEL_SOURCE"
                     )
                     self._calendar_revisions_seen[key] = set()
+            elif action in {
+                "affiliation_transfer_propose", "affiliation_transfer_review",
+                "affiliation_transfer_apply",
+            }:
+                if self.context_basis is None or not self.context_basis.strict:
+                    raise BlockedDecision(
+                        "AFFILIATION_ORIGINAL_STRICT_KPB_REQUIRED"
+                    )
+                self.context_basis.assert_original_decision_rights(ev, at)
+                if action == "affiliation_transfer_apply":
+                    self.context_basis.assert_original_decision_lineage(
+                        self.trace, action, ev.get("affiliation_transfer_id"),
+                        at,
+                    )
+                affiliation_evidence = qualify_affiliation_transfer(
+                    self, ev, at
+                )
+                if action == "affiliation_transfer_apply":
+                    key = affiliation_evidence["role_target"]
+                    party = self.subjects[key]
+                    previous = party.organization
+                    party.organization = affiliation_evidence[
+                        "original_to_enterprise"
+                    ]
+                    party.affiliation_source_ref = affiliation_evidence[
+                        "new_affiliation_source_ref"
+                    ]
+                    party.affiliation_history += (
+                        (previous, party.organization, at),
+                    )
+                    # A new parent does not inherit prospective old-parent
+                    # consent. Previously accepted obligations are untouched.
+                    for work in self.works.values():
+                        if work.obligation != "NOT_ACCEPTED":
+                            continue
+                        principals = (
+                            self.capacity_ledger.original_owners(
+                                work.resource_requirements
+                            ) | {work.customer}
+                        )
+                        if key in principals:
+                            work.consents.clear()
+                            work.admitted = False
+                            work.authorization_org_revision = None
             elif action == "model_code_propose":
                 qualify_model_code_proposal(self, ev, at)
             elif action == "model_code_response":
@@ -944,7 +1000,7 @@ class QualitativeAKIS:
             report = {"at": at, "action": action, "outcome": "APPLIED", "reason": "NONE", "org_revision": self.institution.revision}
         except (BlockedDecision, ContextBlocked, MaterialBlocked, AssuranceBlocked,
                 OrgCodeBlocked, CapabilityBlocked, TechnologyRouteBlocked,
-                RegistrationBlocked) as exc:
+                RegistrationBlocked, AffiliationBlocked) as exc:
             blocked_resource = getattr(exc, "resource", None)
             if isinstance(exc, OrgCodeBlocked):
                 org_code_model_escalation_target = exc.reviewer
@@ -1803,6 +1859,13 @@ class QualitativeAKIS:
                     reason = "RESOURCE_ALREADY_COMMITTED"
                 raise BlockedDecision(reason, exc.resource) from exc
             w.obligation = "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+            w.affiliation_at_commit = {
+                principal: self.subjects[principal].organization
+                for principal in sorted(required)
+                if self.subjects[principal].kind in {
+                    "DIVISION", "EMPLOYEE",
+                }
+            }
             w.commitment_org_revision = self.institution.revision
             if w.operations:
                 for res in operation_reservations(w.key, w.operations):
