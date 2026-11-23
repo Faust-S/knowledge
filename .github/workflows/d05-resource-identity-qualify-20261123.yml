@@ -35,7 +35,7 @@ jobs:
           echo "D05_MULTI_INSTALL=PASS"
           ./node_modules/.bin/prettier --write src/lib/shop-capacity.ts src/lib/capacity-resource-scope.ts src/lib/capacity-resource-scope.test.ts src/host/dispatch-capacity.ts src/host/CehovodCapacityPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts scripts/d05-first-use-real-kernel-witness.mjs > "$RUNNER_TEMP/d05-multi-prettier.log" 2>&1 || { echo "D05_MULTI_FORMAT=FAIL"; exit 1; }
           python3 - <<'PY'
-          import base64, difflib, hashlib, json, pathlib, subprocess
+          import base64, hashlib, json, pathlib, subprocess
           names = [
               "src/lib/shop-capacity.ts",
               "src/lib/capacity-resource-scope.ts",
@@ -47,44 +47,38 @@ jobs:
           ]
           punctuation = set('.,;:!?()[]{}\'"=<>+*/|&-')
           def partition(source):
-              chars, gaps = [], ['']
+              anchors, gaps = [], ['']
               for char in source:
-                  if char.isspace(): gaps[-1] += char
+                  if char.isspace() or char in punctuation:
+                      gaps[-1] += char
                   else:
-                      chars.append(char)
+                      anchors.append(char)
                       gaps.append('')
-              return chars, gaps
+              return anchors, gaps
           for name in names:
-              original = subprocess.check_output(["git", "show", "HEAD:" + name]).decode()
-              formatted = pathlib.Path(name).read_text()
+              original = subprocess.check_output(["git", "show", "HEAD:" + name]).decode("utf-8")
+              formatted = pathlib.Path(name).read_text(encoding="utf-8")
               a, ag = partition(original)
               b, bg = partition(formatted)
-              edits = []
-              for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=True).get_opcodes():
-                  if tag == "equal": continue
-                  removed, inserted = ''.join(a[i1:i2]), ''.join(b[j1:j2])
-                  if len(removed) > 2048 or len(inserted) > 2048 or not set(removed+inserted) <= punctuation:
-                      print("D05_MULTI_NONPUNCTUATION_CHANGE=" + name + ":" + str(len(removed)) + ":" + str(len(inserted)) + ":" + str(len(set(removed+inserted)-punctuation)))
-                      raise SystemExit(2)
-                  edits.append([i1, removed, inserted])
-              aa, aa_gaps = list(a), list(ag)
-              for pos, remove, insert in reversed(edits):
-                  if ''.join(aa[pos:pos+len(remove)]) != remove: raise SystemExit(3)
-                  aa[pos:pos+len(remove)] = list(insert)
-                  aa_gaps[pos+1:pos+len(remove)+1] = [""]*len(insert)
-              if aa != b: raise SystemExit(4)
-              gaps = [[i,v] for i,v in enumerate(bg) if aa_gaps[i] != v]
-              if bg[0] + ''.join(x + bg[i+1] for i,x in enumerate(aa)) != formatted: raise SystemExit(5)
-              patch = {
+              if a != b:
+                  print("D05_SEPARATOR_ANCHORS_CHANGED="+name)
+                  raise SystemExit(2)
+              deltas = [[i, old, new] for i, (old, new) in enumerate(zip(ag, bg)) if old != new]
+              if len(deltas) > 3000:
+                  print("D05_SEPARATOR_EXCESS_DELTA="+name)
+                  raise SystemExit(3)
+              rebuilt = bg[0] + ''.join(char + bg[i + 1] for i, char in enumerate(a))
+              if rebuilt != formatted:
+                  raise SystemExit("D05_SEPARATOR_RECONSTRUCTION_INVALID")
+              payload = json.dumps({
                   "path": name,
-                  "base": hashlib.sha256(original.encode()).hexdigest(),
-                  "formatted": hashlib.sha256(formatted.encode()).hexdigest(),
-                  "punct": edits,
-                  "gaps": gaps,
-              }
-              print("D05_MULTI_SAFE_PATCH=" + base64.b64encode(json.dumps(patch,ensure_ascii=True,separators=(',',':')).encode()).decode())
-              print("D05_MULTI_DELTA=" + name + ":" + str(len(edits)) + ":" + str(len(gaps)))
-          print("D05_MULTI_PRIVATE_CODE_DISCLOSED=NO")
+                  "before": hashlib.sha256(original.encode()).hexdigest(),
+                  "after": hashlib.sha256(formatted.encode()).hexdigest(),
+                  "separatorEdits": deltas,
+              }, ensure_ascii=True, separators=(',',':'))
+              print("D05_SEPARATOR_PATCH="+base64.b64encode(payload.encode()).decode())
+              print("D05_SEPARATOR_EDIT_COUNT="+name+":"+str(len(deltas)))
+          print("D05_PRIVATE_CODE_DISCLOSED=NO")
           PY
       - name: Execute subject tests, type check and lint
         run: |
