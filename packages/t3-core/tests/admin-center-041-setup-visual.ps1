@@ -81,7 +81,7 @@ try{
     $graphics.CopyFromScreen([Drawing.Point]::new($left,$top),
       [Drawing.Point]::Empty,[Drawing.Size]::new($width,$height))
     $bitmap.Save($pic,[Drawing.Imaging.ImageFormat]::Png)
-  }finally{$graphics.Dispose();$bitmap.Dispose()}
+  }finally{$graphics.Dispose()}
   Assert ((Get-Item -LiteralPath $pic).Length -ge 10000) 'ADMIN041_UNIFIED_SETUP_SCREENSHOT_EMPTY'
   $pixels=0
   for($y=0;$y -lt [Math]::Min($height,125);$y+=2){
