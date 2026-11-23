@@ -36,6 +36,22 @@ jobs:
           ref: dcea0ec58e7c4c494ccc1958c74cdfd5b425d45c
           persist-credentials: false
           path: .private/center
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Atlas
+          ref: c225e1b8d35e87e5de55dbb9c0c8dbe564d8fb08
+          sparse-checkout: |
+            src
+          persist-credentials: false
+          path: .private/atlas
+      - name: Stage pinned original Atlas dependency for Center Vite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C .private/atlas rev-parse HEAD).Trim() -cne 'c225e1b8d35e87e5de55dbb9c0c8dbe564d8fb08'){throw 'ORIGINAL_ATLAS_PIN_CHANGED'}
+          New-Item -ItemType Directory -Force -Path '.private/center/vendor/atlas' | Out-Null
+          Copy-Item '.private/atlas/src' '.private/center/vendor/atlas/src' -Recurse -Force
+          if(!(Test-Path '.private/center/vendor/atlas/src/core.mjs')){throw 'ORIGINAL_ATLAS_VENDOR_NOT_STAGED'}
       - name: Pin immutable native products and parse real original owner
         shell: pwsh
         run: |
