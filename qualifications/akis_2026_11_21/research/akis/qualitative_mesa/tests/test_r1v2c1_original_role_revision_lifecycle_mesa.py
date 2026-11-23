@@ -210,3 +210,60 @@ def test_person_role_source_with_prohibited_operation_cannot_suspend():
         "CONTEXT_OPERATION_NOT_PERMITTED"
     )
     assert "w1" not in out["works"]
+
+
+
+@pytest.mark.parametrize("form", sorted(KINDS))
+def test_active_role_requalifies_current_edition_and_accepts_new_work(form):
+    d = role_case(form)
+    _, name, _, _, _, _, _ = KINDS[form]
+    own = next(s for s in d["subjects"] if s["id"] == name)
+    scope = own.get("mandate_source_ref", own.get("context_source_ref"))
+    d["events"].extend([
+        update_source(32, name, own["role_management_source_ref"],
+                      "role-r1", "role-r2"),
+        update_source(33, name, own["self_role_source_ref"],
+                      "role-r1", "role-r2"),
+        update_source(34, name, scope, "role-r1", "role-r2"),
+        role_event(35, name, "role-r1", "role-r2", "ACTIVE"),
+    ])
+    d["events"].sort(key=lambda x: x["at"])
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, [
+        (x["at"], x["action"], x["reason"])
+        for x in out["trace"] if x["outcome"] == "BLOCKED"
+    ]
+    assert out["subjects"][name]["original_role_source_revision"] == "role-r2"
+    assert out["subjects"][name]["active_for_new_work"] is True
+    assert [out["works"][w]["result"] for w in ("w1", "w2")] == [
+        "ACCEPTED_BY_ORIGINAL_RECIPIENT",
+        "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    ]
+
+
+def test_stale_edition_cannot_resurrect_replayed_model_source():
+    d = suspend_and_restore("sector")
+    d["events"].append(role_event(
+        41, "sector", "role-r3", "role-r1", "SUSPENDED"
+    ))
+    d["events"].sort(key=lambda row: row["at"])
+    out = simulate(d)
+    assert next(x for x in out["trace"] if x["at"] == 41)["reason"] == (
+        "ROLE_UPDATE_FRESH_EDITION_REQUIRED"
+    )
+    assert out["subjects"]["sector"]["original_role_source_revision"] == "role-r3"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_invalid_role_state_container_rejected_as_original_blocked_event():
+    d = suspend_and_restore("macro")
+    invalid = role_event(40, "public", "role-r3", "role-r4", "ACTIVE")
+    invalid["role_new_state"] = []
+    d["events"].append(invalid)
+    d["events"].sort(key=lambda x: x["at"])
+    out = simulate(d)
+    assert next(x for x in out["trace"] if x["at"] == 40)["reason"] == (
+        "ROLE_UPDATE_STATE_INVALID"
+    )
+    assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
