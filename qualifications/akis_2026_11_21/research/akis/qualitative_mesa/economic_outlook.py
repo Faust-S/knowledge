@@ -289,6 +289,24 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
         return {"position": "UNKNOWN", "reason": "INCOMPLETE_OR_UNFEASIBLE_COMPARISON",
                 "relation": row.relation, "available_at": row.available_at}
 
+    # Do not inspect or compare even a model buyer's private terms before
+    # confirming its CURRENT independently owned source permissions.
+    if row.outside_demand_claim is not None:
+        reason = assess_original_independent_outside_demand(
+            demand=row.outside_demand_claim, owner=owner,
+            work=work, relation=row.relation,
+            relation_revision=row.relation_source_revision,
+            probe=row.outside_capacity_probe,
+            outside_external_sales=row.cash["INDEPENDENT_ALTERNATIVE"]["external_sales"],
+            currency=row.currency, trace=original_trace, subjects=subjects,
+            links=links, context_basis=context_basis, at=int(at),
+        )
+        if reason is not None:
+            return {
+                "position": "UNKNOWN", "reason": reason,
+                "relation": row.relation, "available_at": row.available_at,
+            }
+
     if row.outside_capacity_probe is not None:
         # This is an owner-held outside candidate, not a second Work. It
         # must fit the SAME original Work's planned horizon, be owned by the
@@ -336,21 +354,6 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                 "relation": row.relation, "available_at": row.available_at,
             }
 
-    if row.outside_demand_claim is not None:
-        reason = assess_original_independent_outside_demand(
-            demand=row.outside_demand_claim, owner=owner,
-            work=work, relation=row.relation,
-            relation_revision=row.relation_source_revision,
-            probe=row.outside_capacity_probe,
-            outside_external_sales=row.cash["INDEPENDENT_ALTERNATIVE"]["external_sales"],
-            currency=row.currency, trace=original_trace, subjects=subjects,
-            links=links, context_basis=context_basis, at=int(at),
-        )
-        if reason is not None:
-            return {
-                "position": "UNKNOWN", "reason": reason,
-                "relation": row.relation, "available_at": row.available_at,
-            }
 
     def net(scenario: str) -> Decimal:
         p = row.cash[scenario]
