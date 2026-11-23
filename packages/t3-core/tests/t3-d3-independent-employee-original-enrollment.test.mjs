@@ -48,6 +48,9 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
   'workspace.read':'DATA','object.write':'ACTION',
   'workspace.create':'ACTION','workspace.exchange.import':'ACTION'
  });
+ // The Kernel's immutable initial trust anchor must match the expanded
+ // fixture policy exactly. The test-only model keeps an independent copy.
+ fixture.state.policy=structuredClone(fixture.policy);
  const admin={...fixture.state.grants['grant:north'].payload,
   id:'grant:admin-north',lineageId:'grant:admin-north',
   roleId:'role:manager',rightClass:'ADMINISTRATION',
