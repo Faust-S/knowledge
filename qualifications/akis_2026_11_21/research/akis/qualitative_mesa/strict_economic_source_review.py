@@ -64,6 +64,44 @@ def review_original_strict_economic_sources(
         raise StrictEconomicSourceBlocked(
             "ORIGINAL_ECONOMIC_OWNER_SOURCES_REQUIRED"
         )
+    def _qualify_original_event_evidence(
+            owner: str, source_ref: str | None,
+            pinned_revision: str | None, core: str, event_at: int,
+    ) -> None:
+        # Historical legitimacy is evaluated using the ORIGINAL applied
+        # owner source updates, not today's rewritten status. Access to
+        # this same evidence is ALSO checked against the current source
+        # scope before it can enter any financial research projection.
+        if event_at > at:
+            raise StrictEconomicSourceBlocked(
+                "ORIGINAL_ECONOMIC_EVENT_AFTER_MODEL_HORIZON"
+            )
+        current_source = (
+            context.sources.get(source_ref)
+            if isinstance(source_ref, str) else None
+        )
+        try:
+            context.assert_original_historical_form_role_source(
+                owner, source_ref, pinned_revision, core=core,
+                purpose=_PURPOSE, operation=_OPERATION,
+                recipients={owner}, at=event_at,
+            )
+        except ContextBlocked as exc:
+            raise StrictEconomicSourceBlocked(
+                "ORIGINAL_ECONOMIC_HISTORICAL_SOURCE_NOT_QUALIFIED"
+            ) from exc
+        try:
+            context.assert_original_form_role_source(
+                owner, source_ref,
+                current_source.revision if current_source is not None else None,
+                core=core, purpose=_PURPOSE, operation=_OPERATION,
+                recipients={owner}, at=at,
+            )
+        except ContextBlocked as exc:
+            raise StrictEconomicSourceBlocked(
+                "ORIGINAL_ECONOMIC_CURRENT_READ_NOT_PERMITTED"
+            ) from exc
+
     seen: set[str] = set()
     covered: set[str] = set()
     sources_by_id: dict[str, dict[str, Any]] = {}
@@ -232,19 +270,15 @@ def review_original_strict_economic_sources(
                             "ORIGINAL_PAYMENT_PRIOR_TO_OWNER_REGISTRATION"
                         )
                 try:
-                    context.assert_original_form_role_source(
+                    _qualify_original_event_evidence(
                         owner, economic_source["reference"],
-                        economic_source["revision"], core=core,
-                        purpose=_PURPOSE, operation=_OPERATION,
-                        recipients={owner}, at=payment_time,
+                        economic_source["revision"], core, payment_time,
                     )
-                    context.assert_original_form_role_source(
+                    _qualify_original_event_evidence(
                         owner, evidence_refs[owner],
-                        pinned_revisions[owner], core=core,
-                        purpose=_PURPOSE, operation=_OPERATION,
-                        recipients={owner}, at=payment_time,
+                        pinned_revisions[owner], core, payment_time,
                     )
-                except ContextBlocked as exc:
+                except StrictEconomicSourceBlocked as exc:
                     raise StrictEconomicSourceBlocked(
                         "ORIGINAL_PAYMENT_EVIDENCE_NOT_USABLE_IN_STRICT_KPB"
                     ) from exc
@@ -316,18 +350,15 @@ def review_original_strict_economic_sources(
                     "ORIGINAL_ECONOMIC_COST_OWNER_NOT_YET_REGISTERED"
                 )
         try:
-            context.assert_original_form_role_source(
+            _qualify_original_event_evidence(
                 owner, economic_source["reference"],
-                economic_source["revision"], core=core,
-                purpose=_PURPOSE, operation=_OPERATION,
-                recipients={owner}, at=event_time,
+                economic_source["revision"], core, event_time,
             )
-            context.assert_original_form_role_source(
+            _qualify_original_event_evidence(
                 owner, binding.get("cost_evidence_ref"),
-                revision, core=core, purpose=_PURPOSE,
-                operation=_OPERATION, recipients={owner}, at=event_time,
+                revision, core, event_time,
             )
-        except ContextBlocked as exc:
+        except StrictEconomicSourceBlocked as exc:
             raise StrictEconomicSourceBlocked(
                 "ORIGINAL_ECONOMIC_COST_SOURCE_NOT_USABLE_IN_STRICT_KPB"
             ) from exc
@@ -344,6 +375,9 @@ def review_original_strict_economic_sources(
             qualified_owner_witnesses
         ),
         "payment_witnesses_checked_at_declared_time": True,
+        "historical_event_revision_replayed_in_original_KPB": True,
+        "current_original_read_right_checked_separately": True,
+        "future_source_claims_cannot_precede_model_horizon": True,
         "payment_witnesses_are_not_bank_settlement": True,
         "original_work_and_source_scope_preserved": True,
         "economic_input_not_new_ledger_or_consent": True,
