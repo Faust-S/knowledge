@@ -1,0 +1,73 @@
+{
+  "schema": "IWXA_T4_NETWORK_WIRE_INDEPENDENT_VECTORS_V1",
+  "testOnly": true,
+  "testOnlyEd25519SeedHex": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  "testOnlyEd25519PublicHex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+  "sharedFields": {
+    "sourceNodeRef": "node:alice",
+    "recipientNodeRef": "node:bob",
+    "sessionRef": "session:golden",
+    "scopeRef": "scope:workspace:opaque",
+    "permissionRef": "original:permission:one",
+    "signerRef": "key:alice:fixture",
+    "ownerEpoch": 2,
+    "cryptoSuite": "X25519_AES256GCM_ED25519",
+    "criticalExtensions": []
+  },
+  "vectors": [
+    {
+      "name": "HELLO-1",
+      "messageType": "HELLO",
+      "sequence": 1,
+      "body": {
+        "supportedVersions": [
+          "iwxa.t4.net/1-candidate"
+        ],
+        "supportedCryptoSuites": [
+          "X25519_AES256GCM_ED25519"
+        ]
+      },
+      "bodyDigest": "sha256:963567b2d0305d67fb4beae28a7a71eccdcbdbe0aab9657a2ae5d528c53a265a",
+      "signedBytesSha256": "ce6e164a2ac0fc51171691fd5de92ac172c4099918bf0a9673a44f2fbae61854",
+      "wireSha256": "fdd5b20b15f7f78b046ef978bf9709dbf1474b6cbaf2bd493bde2900d2a5d1cd",
+      "signatureBase64": "CLMHwWPMmD/ol6OcKhWq4I54oRhPxMawBagC40eLYuzVk6GvSPvQWIM4qZOx6dr0TewH63RHuJmWM/JhgJfLBw=="
+    },
+    {
+      "name": "CHANGE_REF-2",
+      "messageType": "CHANGE_REF",
+      "sequence": 2,
+      "body": {
+        "changeId": "change:0007",
+        "changeKind": "OBJECT_PUT",
+        "eventRef": "event:0007",
+        "ownerRef": "owner:alice",
+        "sourceRevision": 7,
+        "contentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "parents": [
+          "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        ]
+      },
+      "bodyDigest": "sha256:c3b388c6dea3bc8ecbb27105002646b90264c1ff7a0c081ff235517ac77fbbdb",
+      "signedBytesSha256": "365d92c9b8341912ffe66b15cb14870bc04e1438135ad9c5d3d62ffda1d675c4",
+      "wireSha256": "f0b625bb16715735d7d4de5308e5c74c76cddb2c1154e8bce0f53eabebcc6a57",
+      "signatureBase64": "/3M7+BSBGb2uaOe8NtVZdOSnzEAHsdNCRTorhGzXkLUJgeyzMpSSdVt3qGY9JD5N3xBGrNZ1BAoqQ2xF+E5+AA=="
+    },
+    {
+      "name": "APPLIED_ACK-3",
+      "messageType": "APPLIED_ACK",
+      "sequence": 3,
+      "body": {
+        "changeId": "change:0007",
+        "contentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "ackRef": "ack:0007",
+        "recipientEventRef": "event:received:0007",
+        "recipientRevision": 7,
+        "recipientStateDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "bodyDigest": "sha256:eda905274765177cca2f733f557ef18ed340b228661200d814560b90da6d7842",
+      "signedBytesSha256": "7305608cf9a83dddd409dbf728cc87d3046a095ae1a86139b6c4afdd3bc0e441",
+      "wireSha256": "6ca5ec704ee1d4e1495fc2925b58eea0e5c351bac5378d48e3b264534a00724b",
+      "signatureBase64": "Wn+Ma2iL3/8em0f73UWI+RtbGCe8MiVrk1o2CoUlOqFOSPEt7YmFF6GDlgZ32sWyTrDPXauKC6I93m83TBzTBg=="
+    }
+  ]
+}
