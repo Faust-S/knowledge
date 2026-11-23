@@ -215,6 +215,7 @@ class OperatorAKISModel(mesa.Model):
         "request", "offer", "authorize", "resource_status", "change_mode", "exclude", "commit",
         "complete", "reject", "resubmit", "accept", "source_update", "role_state_update", "resource_calendar_update",
         "outside_demand_signal", "outside_demand_withdraw",
+        "outside_supplier_offer",
         "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "assess_result_quality", "interest_update", "participation_status", "cooperation_change_propose", "cooperation_change_response", "model_code_propose", "model_code_response", "model_code_function_response", "model_code_apply",
         "technology_route_propose", "technology_route_response",
         "subject_registration_propose", "subject_registration_attest",
@@ -895,7 +896,8 @@ class OperatorAKISModel(mesa.Model):
                 need.resource == event["resource"] for need in work.resource_requirements)]
         elif action == "source_update":
             impacted = state.context_basis.affected_works(event["source"]) if state.context_basis else []
-        elif action in {"outside_demand_signal", "outside_demand_withdraw"}:
+        elif action in {"outside_demand_signal", "outside_demand_withdraw",
+                       "outside_supplier_offer"}:
             # Only the affected owner's existing model outlook is revisited.
             # This does not create a Work, book capacity or provide consent.
             demand_id = event["outside_demand_id"]
