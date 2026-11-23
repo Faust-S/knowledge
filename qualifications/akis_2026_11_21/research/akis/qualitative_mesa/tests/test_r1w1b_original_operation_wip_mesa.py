@@ -258,7 +258,7 @@ def test_original_operation_transfer_is_reserved_without_fictional_delivery():
     assert lot["holder"] == "b"
     assert lot["custody_state"] == "AWAITING_DISPATCH"
     assert lot["material_batch"] == "mat-out"
-    assert work.material_batches[1].declared_title_holder == "b"
+    assert next(batch for batch in work.material_batches if batch.key == "mat-out").declared_title_holder == "b"
     assert work.material_states["mat-in"].accepted == 5
     assert work.material_states["mat-out"].dispatched is None
     assert work.wip_operation_active_resources == {"form": "rd"}
@@ -375,7 +375,7 @@ def test_full_operation_handoff_material_and_original_work_result_are_preserved(
     assert handoff["sender"] == "b"
     assert handoff["effective_sender"] == "d"
     assert handoff["effective_source_site"] == "plant-d"
-    assert technology["materials"]["batches"][1]["declared_title_holder"] == "b"
+    assert next(row for row in technology["materials"]["batches"] if row["batch"] == "mat-out")["declared_title_holder"] == "b"
     assert view["unfinished_production"]["material_original_batches_unchanged"]
     assert view["unfinished_production"]["no_second_work_or_result"]
 
