@@ -161,11 +161,21 @@ function strictSignature(encoded){
     fail('WIRE_SIGNATURE_INVALID');
   return bytes;
 }
-export function createT4CandidateUnsignedFrame({
-  messageType,messageId,sourceNodeRef,recipientNodeRef,
-  sessionRef,scopeRef,permissionRef,signerRef,sequence,ownerEpoch,
-  cryptoSuite,criticalExtensions=[],body,
-}={}){
+export function createT4CandidateUnsignedFrame(input={}){
+  const INPUT_FIELDS=[
+    'messageType','messageId','sourceNodeRef','recipientNodeRef',
+    'sessionRef','scopeRef','permissionRef','signerRef','sequence',
+    'ownerEpoch','cryptoSuite','criticalExtensions','body'
+  ];
+  if(!input||typeof input!=='object'||Array.isArray(input)||
+    Object.keys(input).some(key=>!INPUT_FIELDS.includes(key)))
+    fail('WIRE_FIELDS_INVALID');
+  const {
+    messageType,messageId,sourceNodeRef,recipientNodeRef,
+    sessionRef,scopeRef,permissionRef,signerRef,sequence,ownerEpoch,
+    cryptoSuite,criticalExtensions=[],body,
+  }=input;
+  validateBody(messageType,body);
   const frame={
     schema:T4_CANDIDATE_WIRE_SCHEMA,
     protocolVersion:T4_CANDIDATE_VERSION,
