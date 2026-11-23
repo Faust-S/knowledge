@@ -1,0 +1,69 @@
+{
+  "schema": "IWXA_AKIS_R1W2_WIP_CROSS_ENGINE/0.1",
+  "scope": "Original Work-scoped unfinished-unit arithmetic and material lifecycle; not model-wide economic equivalence",
+  "currency": "RUB",
+  "rounding": "RUBLES_HALF_UP",
+  "first_attempt": {
+    "total_units": 5,
+    "original_cost_rub": 60000,
+    "produced_units": 3,
+    "usable_units": 2,
+    "materials_value_rub": 7000,
+    "handling_cost_rub": 1500,
+    "claim_amount_rub": 5000,
+    "full_redo_cost_rub": 60000,
+    "unit_credit_rub": 24000,
+    "reusable_resources_rub": 31000,
+    "remaining_units": 3,
+    "net_resource_gain_rub": 29500,
+    "new_attempt_cost_rub": 29000,
+    "pending_recovery_is_cash": false
+  },
+  "decisions": [
+    {
+      "kind": "TRANSFER",
+      "lot_after_agreement": "RESERVED",
+      "lot_after_execution": "CONSUMED",
+      "new_attempt_cost_rub": 29000
+    },
+    {
+      "kind": "REWORK",
+      "lot_after_agreement": "RESERVED",
+      "lot_after_execution": "CONSUMED",
+      "new_attempt_cost_rub": 29000
+    },
+    {
+      "kind": "TERMINATE",
+      "lot_after_agreement": "HELD",
+      "lot_after_execution": "HELD",
+      "new_attempt_cost_rub": null
+    }
+  ],
+  "second_interruption": {
+    "previous_lot_status": "CONSUMED",
+    "current_attempt_units": 3,
+    "current_attempt_cost_rub": 29000,
+    "produced_units": 2,
+    "usable_units": 1,
+    "materials_value_rub": 0,
+    "handling_cost_rub": 0,
+    "claim_amount_rub": 0,
+    "expected_remaining_units": 2,
+    "expected_unit_credit_rub": 9667,
+    "expected_new_attempt_cost_rub": 19333,
+    "precise_native_credit_rub": "9666.67",
+    "precise_native_new_cost_rub": "19333.33",
+    "decision": "TERMINATE",
+    "lot_status": "HELD",
+    "cannot_reuse_old_inspection": true
+  },
+  "boundaries": {
+    "original_work_id_unchanged": true,
+    "original_result_remains_not_submitted_until_independent_acceptance": true,
+    "original_allocations_are_immutable": true,
+    "no_reused_inspection_source": true,
+    "material_reserved_only_at_agreement": true,
+    "material_consumed_only_at_actual_execution": true,
+    "counterfactual_cash_is_not_a_native_payment": true
+  }
+}
