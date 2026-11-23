@@ -335,7 +335,10 @@ jobs:
           $ErrorActionPreference='Stop'
           $center='.private/center'
           $setup=Join-Path $center 'artifacts/iwxa-setup-core-center-private-d3.exe'
-          $result=& python -m installer.build_bundle inspect $setup | ConvertFrom-Json
+          Push-Location $center
+          try {
+            $result=& python -m installer.build_bundle inspect $setup | ConvertFrom-Json
+          } finally { Pop-Location }
           if($LASTEXITCODE -ne 0 -or $result.status -ne 'VERIFIED' -or
             $result.product -ne 'iwxa.admin-center' -or
             $result.version -ne '0.4.0'){
