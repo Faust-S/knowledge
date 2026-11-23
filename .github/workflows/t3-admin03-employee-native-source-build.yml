@@ -51,8 +51,15 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          & npm install --prefix '.private/center' --ignore-scripts --no-audit --no-fund --package-lock=false *> $null
-          if($LASTEXITCODE -ne 0){throw 'CENTER_V8_NATIVE_RIGHTS_DEPENDENCIES_FAILED'}
+          $log=Join-Path $env:RUNNER_TEMP 'center-npm-install.log'
+          & npm install --prefix '.private/center' --ignore-scripts --no-audit --no-fund --package-lock=false *> $log
+          if($LASTEXITCODE -ne 0){
+            $err=Get-Content -LiteralPath $log -Raw
+            $codes=[regex]::Matches($err,'(?i)(?:npm error code |npm ERR! code )(E[A-Z0-9_]+)')
+            if($codes.Count){Write-Host ('CENTER_NPM_ERROR_CODE='+$codes[$codes.Count-1].Groups[1].Value)}
+            else{Write-Host 'CENTER_NPM_FAILURE_UNCLASSIFIED'}
+            throw 'CENTER_V8_NATIVE_RIGHTS_DEPENDENCIES_FAILED'
+          }
           & npm run build --prefix '.private/center' *> $null
           if($LASTEXITCODE -ne 0){throw 'CENTER_V8_NATIVE_RIGHTS_TYPESCRIPT_OR_VITE_FAILED'}
           Write-Host 'CENTER_V8_ORIGINAL_EMPLOYEE_WORKSPACE_UI_TYPESCRIPT_VITE_PASS'
