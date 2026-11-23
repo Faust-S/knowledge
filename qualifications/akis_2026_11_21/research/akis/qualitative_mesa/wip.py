@@ -377,9 +377,42 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                                   "WIP_CAPACITY_UNITS_REQUIRED", minimum=1)
             next_window = [start, end]
         lot = _lot(state, work, ev.get("wip_terms"), pause, decision)
+        material = None
+        if op is not None:
+            material = _operation_material(
+                state, work, op, ev.get("wip_material_batch")
+            )
+            if material != pause["material"]:
+                _fail("WIP_ORIGINAL_MATERIAL_SOURCE_CHANGED")
+            if lot["total_units"] > int(material["planned_quantity"]):
+                _fail("WIP_OPERATION_EXCEEDS_ORIGINAL_BATCH_QUANTITY")
+            if (not work.wip_amendments and
+                    lot["total_units"] != int(material["planned_quantity"])):
+                _fail("WIP_FIRST_OPERATION_ATTEMPT_MUST_COVER_ORIGINAL_BATCH")
+            if decision != "TERMINATE":
+                old_spec = state.resource_specs[resource]
+                new_spec = state.resource_specs[new_resource]
+                if (new_spec.capacity_unit != old_spec.capacity_unit or
+                        new_spec.site is None):
+                    _fail("WIP_OPERATION_RESOURCE_UNIT_OR_SITE_MISMATCH")
+            if (work.assurance_criteria and
+                    any(criterion.operation == op.key
+                        for criterion in work.assurance_criteria) and
+                    decision == "TRANSFER"):
+                _fail("WIP_OPERATION_ASSURANCE_RESPONSIBILITY_REQUIRES_NEW_REVIEW")
         if decision == "TERMINATE" and lot["future_resource_cost"] is not None:
             _fail("WIP_TERMINATION_HAS_NO_NEXT_EXECUTION")
-        required = sorted({owner, work.customer} | ({target_owner} if target_owner else set()))
+        required_owners = {owner, work.customer} | ({target_owner} if target_owner else set())
+        if material is not None:
+            required_owners |= {
+                material["declared_title_holder"],
+                material["origin_source_owner"],
+                material["quality_spec_owner"],
+            }
+            required_owners |= {
+                h.receiver for h in work.handoffs if h.upstream == op.key
+            }
+        required = sorted(required_owners)
         evidence = [(pause["cost_source_ref"], owner),
                     (source, work.customer)]
         for key in ("inspection_ref", "claim_ref"):
@@ -404,6 +437,7 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
             "next_window": next_window, "proposal_source": source,
             "proposal_source_revision": source_revision,
             "source_revisions": snapshots, "cooperation": collaboration,
+            "operation": op.key if op else None, "material": material,
         }
         proposal = {
             **doc, "fingerprint": fingerprint(doc), "created_at": at,
@@ -482,6 +516,14 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
     )
     _original_source_revision(state, applied_source, actor, at)
     _check_source_snapshots(state, proposal["source_revisions"], at)
+    if op is not None:
+        material = _operation_material(
+            state, work, op, proposal["material"]["batch"]
+        )
+        if material != proposal["material"]:
+            _fail("WIP_ORIGINAL_MATERIAL_CHANGED_AFTER_CONSENT")
+        if work.operation_states[op.key] != "PAUSED":
+            _fail("WIP_ORIGINAL_OPERATION_CHANGED_AFTER_CONSENT")
     if (proposal["org_revision"] != state.institution.revision or
             proposal["work_source_revision"] != work.source_revision):
         _fail("WIP_PROPOSAL_ORIGINAL_REVISION_CHANGED")
@@ -514,7 +556,10 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         # Reserve on the SAME original ledger, after all source/vote checks.
         state.capacity_ledger.reserve_amendment(work.key, needs, start, end)
         state.allocations.append((target, work.key, start, end))
-        work.wip_active_resource = target
+        if op is None:
+            work.wip_active_resource = target
+        else:
+            work.wip_operation_active_resources[op.key] = target
     lot = {
         **proposal["lot"], "amendment": proposal["id"],
         "source_owner": pause["owner"], "holder": pause["owner"],
@@ -523,6 +568,15 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
         "consumed_by": None, "used_at": None, "applied_at": at,
         "cash_recovery_claim": "PENDING_NOT_CASH" if
             Decimal(proposal["lot"]["claim_amount"]) else "NONE",
+        "operation": op.key if op else None,
+        "material_batch": proposal["material"]["batch"] if op is not None else None,
+        "original_material": proposal["material"],
+        "custody_state": (
+            "AWAITING_DISPATCH" if op is not None and
+            proposal["decision"] == "TRANSFER" else "NO_NEW_HANDOFF"
+        ),
+        "custody_dispatch_ref": None, "custody_receipt_ref": None,
+        "custody_quality_ref": None,
     }
     amendment = {
         **{k: v for k, v in proposal.items() if k != "votes"},
@@ -537,6 +591,8 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
     pause["state"] = "AMENDED"
     if target is None:
         work.execution = "STOPPED"
+        if op is not None:
+            work.operation_states[op.key] = "STOPPED"
     return {
         "wip_phase": "APPLIED", "wip_id": amendment["id"],
         "wip_decision": amendment["decision"], "wip_lot_status": lot["status"],
