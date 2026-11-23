@@ -251,12 +251,95 @@ def review_original_strict_economic_sources(
                 qualified_owner_witnesses += 1
             qualified_payment_events += 1
 
+    # The original lifecycle model already anchors declared resource costs
+    # to APPLIED Work events. Strict mode now independently qualifies the
+    # owner-held evidence for that *same* row at its original event time.
+    # Anchor + scope does not prove actual cost incurrence or cash payment.
+    lifecycle = original_claims.get("lifecycle_costs", {})
+    if not isinstance(lifecycle, dict):
+        raise StrictEconomicSourceBlocked(
+            "ORIGINAL_ECONOMIC_LIFECYCLE_DOCUMENT_INVALID"
+        )
+    event_bindings = lifecycle.get("event_bindings", [])
+    if not isinstance(event_bindings, list) or len(event_bindings) > 2048:
+        raise StrictEconomicSourceBlocked(
+            "ORIGINAL_ECONOMIC_COST_EVENT_COUNT_INVALID"
+        )
+    qualified_original_cost_events = 0
+    for binding in event_bindings:
+        if not isinstance(binding, dict):
+            raise StrictEconomicSourceBlocked(
+                "ORIGINAL_ECONOMIC_COST_EVENT_INVALID"
+            )
+        owner = binding.get("owner")
+        event_time = binding.get("at")
+        position = binding.get("trace_position")
+        if (binding.get("work") != work_id
+                or type(event_time) is not int
+                or type(position) is not int
+                or not 0 <= position < len(state.trace)
+                or state.trace[position].get("outcome") != "APPLIED"
+                or state.trace[position].get("work") != work_id
+                or state.trace[position].get("action") != binding.get("action")
+                or state.trace[position].get("at") != event_time):
+            raise StrictEconomicSourceBlocked(
+                "ORIGINAL_ECONOMIC_COST_ORIGINAL_EVENT_MISMATCH"
+            )
+        economic_source = sources_by_id.get(binding.get("source"))
+        subject = state.subjects.get(owner) if isinstance(owner, str) else None
+        if (economic_source is None
+                or economic_source.get("owner") != owner
+                or subject is None or not subject.active):
+            raise StrictEconomicSourceBlocked(
+                "ORIGINAL_ECONOMIC_COST_OWNER_SOURCE_REQUIRED"
+            )
+        core = _OWNER_CORES.get(subject.kind)
+        if core is None:
+            raise StrictEconomicSourceBlocked(
+                "ORIGINAL_ECONOMIC_COST_OWNER_CORE_UNKNOWN"
+            )
+        revision = binding.get("cost_evidence_revision")
+        if not isinstance(revision, str) or not revision.strip():
+            raise StrictEconomicSourceBlocked(
+                "ORIGINAL_ECONOMIC_COST_REVISION_PIN_REQUIRED"
+            )
+        if owner in getattr(context, "prospective_subjects", set()):
+            if not any(
+                row.get("action") == "subject_registration_apply"
+                and row.get("outcome") == "APPLIED"
+                and row.get("registered_original_subject") == owner
+                and type(row.get("at")) is int
+                and row["at"] < event_time
+                for row in state.trace
+            ):
+                raise StrictEconomicSourceBlocked(
+                    "ORIGINAL_ECONOMIC_COST_OWNER_NOT_YET_REGISTERED"
+                )
+        try:
+            context.assert_original_form_role_source(
+                owner, economic_source["reference"],
+                economic_source["revision"], core=core,
+                purpose=_PURPOSE, operation=_OPERATION,
+                recipients={owner}, at=event_time,
+            )
+            context.assert_original_form_role_source(
+                owner, binding.get("cost_evidence_ref"),
+                revision, core=core, purpose=_PURPOSE,
+                operation=_OPERATION, recipients={owner}, at=event_time,
+            )
+        except ContextBlocked as exc:
+            raise StrictEconomicSourceBlocked(
+                "ORIGINAL_ECONOMIC_COST_SOURCE_NOT_USABLE_IN_STRICT_KPB"
+            ) from exc
+        qualified_original_cost_events += 1
+
     return {
         "status": "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED",
         "original_source_count": len(seen),
         "covered_original_subject_count": len(covered),
         "all_original_work_principals_have_own_sources": True,
         "source_scoped_original_payment_event_count": qualified_payment_events,
+        "source_scoped_original_cost_event_count": qualified_original_cost_events,
         "source_scoped_independent_payment_owner_witness_count": (
             qualified_owner_witnesses
         ),
