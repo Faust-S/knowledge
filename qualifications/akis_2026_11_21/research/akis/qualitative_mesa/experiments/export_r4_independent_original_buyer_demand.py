@@ -12,7 +12,8 @@ from pathlib import Path
 
 import mesa
 
-from research.akis.qualitative_mesa.mesa_model import simulate
+from research.akis.qualitative_mesa.economic_outlook import choose_outlook
+from research.akis.qualitative_mesa.mesa_model import OperatorAKISModel
 from research.akis.qualitative_mesa.tests.test_r4_independent_external_buyer_demand_mesa import (
     independent_buyer_case, demand_event, owner_outlook, owner_assessments,
     BUYER, BUYER_SOURCE, REVISION, independent_update_time,
@@ -66,9 +67,32 @@ def export_r4_independent_demand() -> tuple[Path, str]:
         raise RuntimeError("ORIGINAL_MESA_3_5_2_REQUIRED")
     trials = original_r4_demand_trials()
     frozen = deepcopy(trials)
-    outputs = {name: simulate(doc) for name, doc in sorted(trials.items())}
+    models = {
+        name: OperatorAKISModel(doc)
+        for name, doc in sorted(trials.items())
+    }
+    outputs = {name: model.execute() for name, model in models.items()}
     if trials != frozen:
         raise RuntimeError("ORIGINAL_R4_SCENARIOS_MUTATED")
+    # Re-read the buyer-owned document after owner revocation, even when
+    # the third original Work no longer needs another agent consultation.
+    model = models["buyer_source_revoked_after_event"]
+    state = model.qualitative
+    current = choose_outlook(
+        model.economic_outlooks, owner="a", work=state.works["w3"],
+        org_revision=state.institution.revision,
+        links=state.cooperation_links,
+        at=float(next(e["at"] for e in state.trace
+                      if e["action"] == "source_update"
+                      and e["actor"] == BUYER) + 1),
+        works=state.works, context_basis=state.context_basis,
+        owner_core="corporate", capacity_ledger=state.capacity_ledger,
+        resource_owners=state.resources,
+        resource_availability=state.resource_availability,
+        original_trace=state.trace, subjects=state.subjects,
+    )
+    if current.get("reason") != "OUTSIDE_DEMAND_CURRENT_BUYER_SOURCE_NO_LONGER_READABLE":
+        raise RuntimeError("CURRENT_BUYER_SOURCE_REVOCATION_NOT_ENFORCED")
     rows = []
     for name, output in sorted(outputs.items()):
         if any(
@@ -124,6 +148,8 @@ def export_r4_independent_demand() -> tuple[Path, str]:
         "original_ContextBasis_exact_owner_revision_read_scope_required": True,
         "original_Work_Result_and_CapacityLedger_unchanged_by_signal": True,
         "buyer_is_outside_cooperation_not_its_operator_or_supplier": True,
+        "revoked_buyer_source_cannot_be_read_again_now": True,
+        "old_original_Result_survives_buyer_revocation": True,
         "buyer_price_and_equivalence_source_declared_model_only": True,
         "real_market_demand_authentication": False,
         "actual_bank_payment_or_concluded_contract_verified": False,
