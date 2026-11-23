@@ -21,7 +21,7 @@ jobs:
           test -n "${DOMEN:-}" || { echo "D05_MULTI_READ=FAIL"; exit 1; }
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
           GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch work/2026-10-23-t2-site-only https://github.com/Faust-S/cehovod.ru.git site >/dev/null 2>&1 || { echo "D05_MULTI_READ=FAIL"; exit 1; }
-          test "$(git -C site rev-parse HEAD)" = "f2440eaba0824b3b7b8460bb76ce9d07afe8a093" || { echo "D05_MULTI_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "2b8113a2de2d718b86a122cc5363e8f438ff8e5b" || { echo "D05_MULTI_SITE_PIN=FAIL"; exit 1; }
           unset header DOMEN
           echo "D05_MULTI_SITE_PIN=PASS"
       - uses: actions/setup-node@v4
@@ -33,7 +33,7 @@ jobs:
           cd site
           npm ci --no-audit --no-fund > "$RUNNER_TEMP/d05-multi-install.log" 2>&1 || { echo "D05_MULTI_INSTALL=FAIL"; exit 1; }
           echo "D05_MULTI_INSTALL=PASS"
-          ./node_modules/.bin/prettier --write src/lib/shop-capacity.ts src/lib/capacity-resource-scope.ts src/lib/capacity-resource-scope.test.ts src/host/dispatch-capacity.ts src/host/CehovodCapacityPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts scripts/d05-first-use-real-kernel-witness.mjs > "$RUNNER_TEMP/d05-multi-prettier.log" 2>&1 || { echo "D05_MULTI_FORMAT=FAIL"; exit 1; }
+          ./node_modules/.bin/prettier --write src/lib/shop-capacity.ts src/lib/capacity-resource-scope.ts src/lib/capacity-resource-scope.test.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts src/host/CehovodCapacityPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts scripts/d05-first-use-real-kernel-witness.mjs > "$RUNNER_TEMP/d05-multi-prettier.log" 2>&1 || { echo "D05_MULTI_FORMAT=FAIL"; exit 1; }
           python3 - <<'PY'
           import base64, hashlib, json, pathlib, subprocess
           names = [
@@ -41,6 +41,7 @@ jobs:
               "src/lib/capacity-resource-scope.ts",
               "src/lib/capacity-resource-scope.test.ts",
               "src/host/dispatch-capacity.ts",
+              "src/host/dispatch-capacity.test.ts",
               "src/host/CehovodCapacityPanel.tsx",
               "src/host/CehovodCapacityPanel.regression.test.ts",
               "scripts/d05-first-use-real-kernel-witness.mjs",
@@ -112,7 +113,7 @@ jobs:
           PY
             exit 1
           fi
-          if ./node_modules/.bin/eslint src/lib/capacity-resource-scope.ts src/lib/capacity-resource-scope.test.ts src/lib/shop-capacity.ts src/host/dispatch-capacity.ts src/host/CehovodCapacityPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts scripts/d05-first-use-real-kernel-witness.mjs > "$RUNNER_TEMP/d05-multi-eslint.log" 2>&1; then
+          if ./node_modules/.bin/eslint src/lib/capacity-resource-scope.ts src/lib/capacity-resource-scope.test.ts src/lib/shop-capacity.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts src/host/CehovodCapacityPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts scripts/d05-first-use-real-kernel-witness.mjs > "$RUNNER_TEMP/d05-multi-eslint.log" 2>&1; then
             echo "D05_MULTI_ESLINT=PASS"
           else
             echo "D05_MULTI_ESLINT=FAIL"
