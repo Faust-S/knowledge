@@ -2882,7 +2882,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       let sourcePhaseHostSession='original:phase:source:initial';
       let recipientPhaseHostSession='original:phase:recipient:initial';
       const originalSourcePhase=()=>createT4OriginalNetworkSessionPhasePort({
-        originalKernel:mutationKernel,
+        originalKernel:originalCarrierKernel,
         technicalWorkspaceId:sourceCaptureWorkspace,
         originalWriteOwnerRef:'original:t2:exchange',
         sourceNodeRef:'node:original:source',
@@ -3006,7 +3006,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         .advanceOriginalSessionPhase({
           phase:'VERIFIED',evidence:networkPhaseVerified,
         })).status,'ALREADY_CONFIRMED');
-      const sourcePhaseEvents=(await mutationKernel.listEventsSince(
+      const sourcePhaseEvents=(await originalCarrierKernel.listEventsSince(
         sourceCaptureWorkspace)).filter(e=>
         e.object_id===sourcePhaseRestored.checkpointRef&&
         e.event_type==='t4.network.original.session.phase');
