@@ -352,6 +352,7 @@ class OperatorAKISModel(mesa.Model):
             # subjects. The original event handler alone can register an
             # actual SME after its own assent and all founder reviews.
             prospective: dict[str, int] = {}
+            prospective_kinds: dict[str, str] = {}
             for reg in self.qualitative.events:
                 if reg["action"] != "subject_registration_apply":
                     continue
@@ -370,9 +371,14 @@ class OperatorAKISModel(mesa.Model):
                     prospective[key] = min(
                         reg["at"], prospective.get(key, reg["at"])
                     )
+                    prospective_kinds[key] = proposal.get(
+                        "new_subject_kind", "SME"
+                    )
             preflight_subjects = dict(self.qualitative.subjects)
             preflight_subjects.update({
-                key: SimpleNamespace(kind="SME", active=False)
+                key: SimpleNamespace(
+                    kind=prospective_kinds.get(key, "SME"), active=False
+                )
                 for key in prospective if key not in preflight_subjects
             })
             if self.general_akis_enabled:

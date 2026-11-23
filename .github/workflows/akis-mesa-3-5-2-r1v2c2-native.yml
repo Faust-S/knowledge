@@ -1,0 +1,32 @@
+name: AKIS Mesa 3.5.2 R1-V2C2 extended actor registration
+
+on:
+  push:
+    branches:
+      - work/2026-11-23-akis-r1v2c2-extended-registration-native
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-original-mesa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install Mesa 3.5.2
+        run: |
+          python -m pip install --disable-pip-version-check "mesa==3.5.2" "pytest>=8,<10"
+          python -c "import mesa; assert mesa.__version__ == '3.5.2'; print('ORIGINAL_MESA_3_5_2_PASS')"
+      - name: Compile original AKIS Python
+        run: |
+          python -m compileall -q qualifications/akis_2026_11_21/research
+      - name: Full native AKIS and new original subject registration qualification
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: |
+          python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests

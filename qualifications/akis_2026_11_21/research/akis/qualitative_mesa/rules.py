@@ -388,7 +388,7 @@ class QualitativeAKIS:
              "technology_route_decision", "technology_route_decision_source_ref",
              "technology_route_model_code_change_id",
              "subject_registration_id", "resource_registration_id",
-             "new_subject", "new_subject_kind", "registration_fingerprint",
+             "new_subject", "new_subject_kind", "new_subject_spec", "registration_fingerprint",
              "registration_source_ref", "registration_self_ref",
              "registration_goal_source_ref", "registration_alternative_source_ref",
              "registration_willingness", "registration_valid_until",
@@ -509,16 +509,21 @@ class QualitativeAKIS:
             known_works = set(self.works)
             known_works.update(ev["work_spec"]["id"] for ev in events if ev["action"] == "request")
             try:
-                prospective_subjects = {
-                    ev.get("new_subject") for ev in events
+                prospective_kinds = {
+                    ev["new_subject"]: ev["new_subject_kind"]
+                    for ev in events
                     if ev["action"] == "subject_registration_propose"
-                    and ev.get("new_subject_kind") == "SME"
+                    and ev.get("new_subject_kind") in {
+                        "SME", "SECTOR_BODY", "PUBLIC_INSTITUTION",
+                        "NATURAL_PERSON",
+                    }
                     and isinstance(ev.get("new_subject"), str)
-                    and ev.get("new_subject") not in self.subjects
+                    and ev["new_subject"] not in self.subjects
                 }
                 self.context_basis = ContextBasis(
                     raw_context, self.subjects, known_works,
-                    prospective_subjects=prospective_subjects,
+                    prospective_subjects=set(prospective_kinds),
+                    prospective_subject_kinds=prospective_kinds,
                     operator=self.institution.operator,
                 )
             except ContextInputError as exc:
@@ -647,7 +652,30 @@ class QualitativeAKIS:
                 )
                 if action == "subject_registration_apply":
                     key = registration_evidence["registered_original_subject"]
-                    self.subjects[key] = Party(key, "SME")
+                    kind = registration_evidence[
+                        "registered_original_subject_kind"
+                    ]
+                    if kind == "SME":
+                        self.subjects[key] = Party(key, "SME")
+                    else:
+                        # The prospective document was fingerprinted at
+                        # proposal, independently attested and source-checked
+                        # again on APPLY. The original subjects map alone
+                        # now receives the actually qualified participant.
+                        spec = registration_evidence["new_subject_spec"]
+                        self.subjects[key] = Party(
+                            key, kind,
+                            self_role_source_ref=spec["self_role_source_ref"],
+                            mandate_source_ref=spec.get("mandate_source_ref"),
+                            context_source_ref=spec.get("context_source_ref"),
+                            role_source_revision=spec["role_source_revision"],
+                            role_management_source_ref=spec.get(
+                                "role_management_source_ref"
+                            ),
+                            role_revision_history=(
+                                spec["role_source_revision"],
+                            ),
+                        )
             elif action in {
                 "resource_registration_propose", "resource_registration_review",
                 "resource_registration_apply",

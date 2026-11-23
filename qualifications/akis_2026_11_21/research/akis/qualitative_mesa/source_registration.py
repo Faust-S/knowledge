@@ -51,6 +51,45 @@ def _proposal(trace: Any, action: str, key: Any, field: str):
     return rows[0]
 
 
+EXTENDED_ORIGINAL_KINDS = frozenset({
+    "SECTOR_BODY", "PUBLIC_INSTITUTION", "NATURAL_PERSON",
+})
+
+
+def _original_extended_role_document(document: Any, subject: str,
+                                     kind: str) -> dict[str, str]:
+    """Validate a fingerprinted future original subject, never an IAM grant.
+
+    The SAME immutable proposal and independent entrant/founder decisions
+    are verified at original apply. No precreated Party or separate registry.
+    """
+    if kind not in EXTENDED_ORIGINAL_KINDS or not isinstance(document, dict):
+        raise RegistrationBlocked("REGISTRATION_EXTENDED_ROLE_DOCUMENT_REQUIRED")
+    second = ("context_source_ref" if kind == "NATURAL_PERSON"
+              else "mandate_source_ref")
+    required = {
+        "id", "kind", "self_role_source_ref",
+        second, "role_source_revision",
+    }
+    optional = {"role_management_source_ref"}
+    if (not required.issubset(document)
+            or set(document) - required - optional
+            or document.get("id") != subject
+            or document.get("kind") != kind
+            or not _id(document.get("role_source_revision"))):
+        raise RegistrationBlocked("REGISTRATION_EXTENDED_ROLE_DOCUMENT_INVALID")
+    refs = [document["self_role_source_ref"], document[second]]
+    if "role_management_source_ref" in document:
+        refs.append(document["role_management_source_ref"])
+    if len(set(refs)) != len(refs):
+        raise RegistrationBlocked("REGISTRATION_EXTENDED_DISTINCT_OWNER_SOURCES_REQUIRED")
+    for ref in refs:
+        _src(ref, subject)
+        if len(ref) > 128:
+            raise RegistrationBlocked("REGISTRATION_EXTENDED_SOURCE_ID_TOO_LONG")
+    return dict(document)
+
+
 def _original_reviewers(state: Any, entrant: str) -> set[str]:
     result = {p for p in state.institution.founders
               if p != state.institution.operator and p != entrant
@@ -117,15 +156,29 @@ def qualify_subject_registration(state: Any, ev: Mapping[str, Any],
         raise RegistrationBlocked("REGISTRATION_ID_REQUIRED")
     if action == "subject_registration_propose":
         subject = ev.get("new_subject")
+        kind = ev.get("new_subject_kind")
         if (ev.get("actor") != operator or not _id(subject)
                 or subject in state.subjects or subject == "COUNCIL"
                 or len(state.subjects) >= 128
-                or ev.get("new_subject_kind") != "SME"
+                or kind not in {"SME"} | EXTENDED_ORIGINAL_KINDS
                 or any(row.get("subject_registration_id") == reg
                        and row.get("action") == action
                        and row.get("outcome") == "APPLIED"
                        for row in state.trace)):
-            raise RegistrationBlocked("REGISTRATION_NEW_ORIGINAL_SME_REQUIRED")
+            raise RegistrationBlocked("REGISTRATION_NEW_ORIGINAL_SUBJECT_REQUIRED")
+        document = None
+        if kind in EXTENDED_ORIGINAL_KINDS:
+            if state.context_basis is None or not state.context_basis.strict:
+                raise RegistrationBlocked(
+                    "REGISTRATION_EXTENDED_ROLE_STRICT_KPB_REQUIRED"
+                )
+            document = _original_extended_role_document(
+                ev.get("new_subject_spec"), subject, kind
+            )
+        elif "new_subject_spec" in ev:
+            raise RegistrationBlocked(
+                "REGISTRATION_LEGACY_SME_SPEC_NOT_PERMITTED"
+            )
         _src(ev.get("registration_source_ref"), operator)
         pilot = state.works.get(ev.get("pilot_work"))
         if (pilot is None or pilot.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
@@ -142,15 +195,19 @@ def qualify_subject_registration(state: Any, ev: Mapping[str, Any],
             raise RegistrationBlocked("REGISTRATION_FUTURE_VALIDITY_REQUIRED")
         record = {
             "subject_registration_id": reg,
-            "new_subject": subject, "new_subject_kind": "SME",
+            "new_subject": subject, "new_subject_kind": kind,
             "pilot_work": pilot.key, "pilot_result_ref": pilot.result_ref,
             "pilot_decision_at": ev["pilot_decision_at"],
         }
+        if document is not None:
+            record["new_subject_spec"] = document
         digest = registration_fingerprint(record)
         if ev.get("registration_fingerprint") != digest:
             raise RegistrationBlocked("REGISTRATION_SUBJECT_DOCUMENT_FINGERPRINT_MISMATCH")
         return {
             "new_subject": subject,
+            "new_subject_kind": kind,
+            **({"new_subject_spec": document} if document is not None else {}),
             "registration_valid_until": expiry,
             "registration_source_ref": ev["registration_source_ref"],
             "registration_fingerprint": digest,
@@ -217,10 +274,62 @@ def qualify_subject_registration(state: Any, ev: Mapping[str, Any],
                        "subject_registration_id", "registration_fingerprint", at)
     if len(state.subjects) >= 128:
         raise RegistrationBlocked("REGISTRATION_ORIGINAL_SUBJECT_LIMIT_REACHED")
+    kind = proposal.get("new_subject_kind", "SME")
+    document = None
+    if kind in EXTENDED_ORIGINAL_KINDS:
+        document = _original_extended_role_document(
+            proposal.get("new_subject_spec"), entrant, kind
+        )
+        basis = state.context_basis
+        if basis is None or not basis.strict:
+            raise RegistrationBlocked(
+                "REGISTRATION_EXTENDED_ROLE_STRICT_KPB_REQUIRED"
+            )
+        core = ("personal" if kind == "NATURAL_PERSON"
+                else "institutional")
+        own_purpose = {
+            "SECTOR_BODY": "AKIS_SECTOR_ROLE",
+            "PUBLIC_INSTITUTION": "AKIS_PUBLIC_ROLE",
+            "NATURAL_PERSON": "AKIS_PERSON_ROLE",
+        }[kind]
+        scope_purpose = {
+            "SECTOR_BODY": "AKIS_SECTOR_STANDARD",
+            "PUBLIC_INSTITUTION": "AKIS_PUBLIC_MANDATE",
+            "NATURAL_PERSON": "AKIS_PERSON_CONTEXT_ACCESS",
+        }[kind]
+        other_field = ("context_source_ref" if kind == "NATURAL_PERSON"
+                       else "mandate_source_ref")
+        try:
+            basis.assert_original_form_role_source(
+                entrant, document["self_role_source_ref"],
+                document["role_source_revision"], core=core,
+                purpose=own_purpose, operation="ACCEPT",
+                recipients={entrant}, at=at,
+            )
+            basis.assert_original_form_role_source(
+                entrant, document[other_field],
+                document["role_source_revision"], core=core,
+                purpose=scope_purpose, operation="SHARE",
+                recipients={entrant}, at=at,
+            )
+            if "role_management_source_ref" in document:
+                basis.assert_original_form_role_source(
+                    entrant, document["role_management_source_ref"],
+                    document["role_source_revision"], core=core,
+                    purpose="AKIS_ROLE_MANAGEMENT", operation="EXECUTE",
+                    recipients={entrant}, at=at,
+                )
+        except ContextBlocked as exc:
+            raise RegistrationBlocked(exc.reason) from exc
     return {
         "new_subject": entrant,
         "registered_original_subject": entrant,
-        "new_model_sme_with_own_sources": True,
+        "registered_original_subject_kind": kind,
+        **({"new_subject_spec": document} if document is not None else {}),
+        "new_model_sme_with_own_sources": kind == "SME",
+        "new_model_extended_role_with_self_owned_sources":
+            kind in EXTENDED_ORIGINAL_KINDS,
+        "new_role_requires_new_independent_original_Work_and_Result": True,
         "real_legal_identity_authenticated": False,
     }
 

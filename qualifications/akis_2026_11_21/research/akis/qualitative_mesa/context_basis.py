@@ -126,6 +126,7 @@ class ContextBasis:
 
     def __init__(self, data: Any, subjects: dict[str, Any], known_works: set[str],
                  *, prospective_subjects: set[str] | None = None,
+                 prospective_subject_kinds: dict[str, str] | None = None,
                  operator: str | None = None):
         _fields(data, {"strict", "sources", "requirements"},
                 {"decision_requirements"}, "INVALID_CONTEXT_BASIS")
@@ -134,6 +135,7 @@ class ContextBasis:
         self.strict = data["strict"]
         self.subjects = subjects
         self.prospective_subjects = prospective_subjects or set()
+        self.prospective_subject_kinds = prospective_subject_kinds or {}
         self.operator = operator
         sources, requirements = data["sources"], data["requirements"]
         if not isinstance(sources, list) or len(sources) > MAX_SOURCES:
@@ -215,7 +217,16 @@ class ContextBasis:
                 scope = validate_requirement_scope(row)
             except ScopeInputError as exc:
                 raise ContextInputError(str(exc)) from exc
-            expected_core = "operator" if actor == self.operator else "corporate"
+            current = subjects.get(actor)
+            kind = (current.kind if current is not None
+                    else self.prospective_subject_kinds.get(actor, "SME"))
+            expected_core = (
+                "operator" if actor == self.operator else
+                "personal" if kind == "NATURAL_PERSON" else
+                "institutional" if kind in {
+                    "SECTOR_BODY", "PUBLIC_INSTITUTION"
+                } else "corporate"
+            )
             if scope != (expected_core, DECISION_PURPOSES[action],
                          DECISION_OPERATIONS[action]):
                 raise ContextInputError("CONTEXT_DECISION_ACTION_SCOPE_MISMATCH")
