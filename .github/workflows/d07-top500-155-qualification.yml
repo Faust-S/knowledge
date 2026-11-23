@@ -57,7 +57,8 @@ jobs:
           node --check scripts/tests/d07-next500-five-k-professional.test.mjs
           npm run test:next500-latest > "$RUNNER_TEMP/d07-155-tests.log" 2>&1 || {
             echo D07_155_TESTS=FAIL
-            grep -E '^not ok|^# (tests|pass|fail)|^(\s+)(error|actual|expected):' "$RUNNER_TEMP/d07-155-tests.log" | tail -40 || true
+            echo "D07_TEST_LOG_OPENING"; head -55 "$RUNNER_TEMP/d07-155-tests.log" || true
+            echo "D07_TEST_LOG_SUMMARY"; grep -E 'ERR_|Cannot|SyntaxError|TypeError|ReferenceError|D07_|not ok|^# (tests|pass|fail)' "$RUNNER_TEMP/d07-155-tests.log" | tail -40 || true
             exit 1
           }
           echo D07_155_TESTS=PASS
