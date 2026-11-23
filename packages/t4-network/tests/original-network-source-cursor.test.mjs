@@ -186,3 +186,17 @@ test('source INTENT must contain the SAME original Event ID and Window digest',a
   await assert.rejects(recoverT4OriginalNetworkSourceCursor(f.props),
     isCode('CURSOR_ORIGINAL_SOURCE_INTENT_NOT_BOUND'));
 });
+
+test('later original T3 Event appends without invalidating already acknowledged Event prefix',async()=>{
+  const f=await fixture();
+  const next={...event,event_id:'event:source:two',
+    revision:2,payload:{purpose:'later source update'}};
+  f.props.readOriginalEvents=async()=>[
+    structuredClone(event),structuredClone(next),
+  ];
+  const recovered=await recoverT4OriginalNetworkSourceCursor(f.props);
+  assert.equal(recovered.state,'SOURCE_ACK_CONFIRMED_NEXT_CURSOR_RECOVERED');
+  assert.equal(recovered.originalT3NextCursor.lastEventId,event.event_id);
+  assert.equal(recovered.originalT3NextCursor.seenEventCount,1);
+  assert.equal(recovered.originalT3HostCursorCommitStillRequired,true);
+});
