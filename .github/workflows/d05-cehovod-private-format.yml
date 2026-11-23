@@ -1,4 +1,4 @@
-name: d05-cehovod-private-format
+name: d05-cehovod-whitespace-patch
 on:
   push:
     branches:
@@ -13,57 +13,75 @@ permissions:
 jobs:
   format:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - name: Format exactly three D05 source files in private clone
+      - name: Fetch exact private working branch, never upload source
         env:
           DOMEN: ${{ secrets.DOMEN }}
         run: |
           set -euo pipefail
-          test -n "${DOMEN:-}" || { echo "D05_TOKEN=MISSING"; exit 1; }
+          test -n "${DOMEN:-}" || { echo "D05_READ_TOKEN_MISSING"; exit 1; }
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
-          GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch work/2026-10-23-t2-site-only https://github.com/Faust-S/cehovod.ru.git site >/dev/null 2>&1 || { echo "D05_CLONE=FAIL"; exit 1; }
-          echo "D05_CLONE=PASS"
-          test "$(git -C site rev-parse HEAD)" = "2bfe9a359dc279ddee51fa30a89e50facf74c6ff" || { echo "D05_BASE_SHA_MISMATCH"; exit 1; }
+          GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch work/2026-10-23-t2-site-only https://github.com/Faust-S/cehovod.ru.git site >/dev/null 2>&1 || { echo "D05_READ=FAIL"; exit 1; }
+          echo "D05_SITE_SHA=$(git -C site rev-parse HEAD)"
+          unset header DOMEN
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Install locked formatter without exposing private output
+        run: |
+          set -euo pipefail
+          (cd site && npm ci --no-audit --no-fund) > "$RUNNER_TEMP/d05-format-install.log" 2>&1 || { echo "D05_FORMAT_INSTALL=FAIL"; exit 1; }
+          echo "D05_FORMAT_INSTALL=PASS"
+      - name: Compute whitespace positions only
+        run: |
+          set -euo pipefail
           cd site
-          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d05-format-install.log" 2>&1 || { echo "D05_INSTALL=FAIL"; exit 1; }
-          if ! ./node_modules/.bin/prettier --check src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx > /dev/null 2>&1; then
-            echo "D05_FORMAT_CHECK=FAIL"
-            ./node_modules/.bin/prettier --list-different src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx
-            exit 1
-          fi
-          echo "D05_FORMAT_CHECK=PASS"
-          exit 0
-          ./node_modules/.bin/prettier --check src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx > /dev/null
-          echo "D05_PRETTIER=PASS"
-          git add -- src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx
-          if git diff --cached --quiet; then
-            echo "D05_SOURCE_UNCHANGED"
-            exit 0
-          fi
-          git config user.email "140275131+Faust-S@users.noreply.github.com"
-          git config user.name "Faust-S"
-          if ! git commit -m "style(D05): format qualified calendar and downtime sources" > "$RUNNER_TEMP/d05-commit.log" 2>&1; then
-            echo "D05_FORMAT_COMMIT=FAIL"
-            exit 1
-          fi
-          echo "D05_FORMAT_COMMIT=PASS"
-          if ! GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" push origin HEAD:refs/heads/work/2026-10-23-t2-site-only > "$RUNNER_TEMP/d05-push.log" 2>&1; then
-            echo "D05_PRIVATE_PUSH=FAIL"
-            node - <<'NODE'
-          const fs = require("node:fs");
-          const log = fs.readFileSync(process.env.RUNNER_TEMP + "/d05-push.log", "utf8").toLowerCase();
-          const reasons = [
-            ["TOKEN_PERMISSION", /permission.*denied|403|write access|not granted/],
-            ["AUTHENTICATION", /authentication failed|401|could not read username/],
-            ["CONFLICT", /non-fast-forward|fetch first|rejected/],
-            ["REMOTE", /repository not found|remote:|404/],
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import crypto from "node:crypto";
+          import prettier from "prettier";
+          const paths = [
+            "src/lib/shop-capacity.ts",
+            "src/lib/shop-capacity.test.ts",
+            "src/host/CehovodCapacityPanel.tsx"
           ];
-          console.log("D05_PRIVATE_PUSH_CLASS=" + (reasons.find((row) => row[1].test(log))?.[0] ?? "OTHER"));
+          const sha = value => crypto.createHash("sha256").update(value, "utf8").digest("hex");
+          const partition = value => {
+            let chars = "";
+            const gaps = [""];
+            for (const character of value) {
+              if (/\s/u.test(character)) gaps[gaps.length - 1] += character;
+              else { chars += character; gaps.push(""); }
+            }
+            return { chars, gaps };
+          };
+          let failures = 0;
+          for (const path of paths) {
+            const before = fs.readFileSync(path, "utf8");
+            const options = await prettier.resolveConfig(path);
+            const after = await prettier.format(before, { ...options, filepath: path });
+            const left = partition(before), right = partition(after);
+            if (left.chars !== right.chars) {
+              console.log("D05_NONWHITESPACE_CHANGE=" + path);
+              failures++;
+              continue;
+            }
+            const edits = [];
+            for (let i = 0; i < left.gaps.length; i++) {
+              if (left.gaps[i] !== right.gaps[i]) edits.push([i, right.gaps[i]]);
+            }
+            const payload = JSON.stringify({
+              path,
+              base: sha(before),
+              formatted: sha(after),
+              edits
+            });
+            // The payload contains only offsets, whitespace and digests.
+            if (/[^\x20-\x7e]/.test(payload)) throw Error("D05_NON_ASCII_PATCH");
+            console.log("D05_WHITESPACE_PATCH=" + Buffer.from(payload).toString("base64"));
+            console.log("D05_FORMAT_EDIT_COUNT=" + path + ":" + edits.length);
+          }
+          if (failures) process.exit(2);
+          console.log("D05_PRIVATE_SOURCE_EXPOSURE=NONE");
           NODE
-            exit 1
-          fi
-          unset DOMEN header
-          echo "D05_PRIVATE_PUSH=PASS"
-          echo "D05_FORMATTED_SITE_HEAD=$(git rev-parse HEAD)"
-          echo "D05_PUBLIC_SOURCE_DISCLOSURE=NONE"
