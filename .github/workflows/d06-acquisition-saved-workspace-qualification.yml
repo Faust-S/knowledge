@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 726cb8ab4346f326f991f848b71cedb8bc32c27f
+          ref: f82b95f86fde07580f35d2fe96cfd639c45bd208
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod
-          ref: 69e1cd831a650439884203579c03617167168d90
+          ref: a77e13f0e508f5a131d8df427c574d7c12503b36
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -97,6 +97,17 @@ jobs:
             exit 1
           }
           Write-Host 'D06_ACQUISITION_UNIT=PASS'
+      - name: Verify current public session documentation contract
+        working-directory: private/site
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'd06-session-docs.private.txt'
+          & npm run check:session-docs *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'D06_ACQUISITION_SESSION_DOCS=FAIL'
+            exit 1
+          }
+          Write-Host 'D06_ACQUISITION_SESSION_DOCS=PASS'
       - name: Install browser for mandatory static product gate
         working-directory: private/site
         shell: pwsh
@@ -122,6 +133,35 @@ jobs:
             Write-Host 'D06_ACQUISITION_FULL_STATIC=FAIL'
             Write-Host ('D06_ACQUISITION_PRETTIER_COUNT=' + $prettier)
             Write-Host ('D06_ACQUISITION_TS_COUNT=' + $ts)
+            $subtasks = [regex]::Matches($body, '(?m)^> [^\r\n]+ (check(?::[a-z0-9:-]+)?)\s*
+            $files = @(& git ls-files -- "*.ts" "*.tsx" "*.mjs" | Sort-Object)
+            $diagnostics = [System.Collections.Generic.List[string]]::new()
+            $current = ""
+            foreach ($entry in ($body -split '[\r\n]+')) {
+              if ($entry -match '(?i)[\\/]((?:src|scripts|tests)[\\/][^:\r\n]+?\.(?:ts|tsx|mjs))\s*$') {
+                $current = $Matches[1].Replace([char]92, [char]47)
+              } elseif ($entry -match 'prettier/prettier' -and $current) {
+                $line = [regex]::Match($entry, '^\s*(\d+):(\d+)\s+(?:error|warning)\s+')
+                $fileNumber = [array]::IndexOf($files, $current) + 1
+                if ($line.Success -and $fileNumber -gt 0) {
+                  $diagnostics.Add($fileNumber.ToString() + ':' + $line.Groups[1].Value)
+                }
+              }
+            }
+            Write-Host ('D06_ACQUISITION_FORMAT_COORDINATES=' + (($diagnostics | Sort-Object -Unique) -join ','))
+            exit 1
+          }
+          Write-Host 'D06_ACQUISITION_FULL_STATIC=PASS'
+      - name: Privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host 'D06_PRIVATE_SOURCE_UPLOADS=0'
+          Write-Host 'D06_PRIVATE_LOG_UPLOADS=0'
+          Write-Host 'D06_PRIVATE_DIST_UPLOADS=0'
+) |
+              ForEach-Object { $_.Groups[1].Value }
+            Write-Host ('D06_ACQUISITION_LAST_CHECK=' + ($subtasks | Select-Object -Last 1))
             $files = @(& git ls-files -- "*.ts" "*.tsx" "*.mjs" | Sort-Object)
             $diagnostics = [System.Collections.Generic.List[string]]::new()
             $current = ""
