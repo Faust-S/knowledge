@@ -9,7 +9,9 @@ from copy import deepcopy
 import pytest
 
 from research.akis.qualitative_mesa.mesa_model import simulate
-from .test_r1w1b_original_operation_wip_mesa import ev, send, applied, terms
+from .test_r1w1b_original_operation_wip_mesa import (
+    ev, send, applied, terms, state_to_interruption, proposal,
+)
 from .test_r1w1c_multibatch_mesa import (
     approved, custody, resume, multibatch_scenario,
     multibatch_baseline, multibatch_proposal,
@@ -283,3 +285,14 @@ def test_native_mesa_scheduler_runs_revised_quality_without_extra_work():
     assert len(result["works"]["w1"]["unfinished_production"]["applied_amendments"]) == 2
     assert result["works"]["w1"]["technology"]["operations"][1]["execution"] == "IN_PROGRESS"
     assert simulate(deepcopy(d)) == result
+
+
+def test_original_r1w1b_proposal_fingerprint_has_no_new_optional_fields():
+    state = state_to_interruption()
+    p = proposal()
+    assert state.apply(p, p["at"])["outcome"] == "APPLIED"
+    current = state.works["w1"].wip_proposal
+    assert "batch_inspections" not in current
+    assert "quality_revision_of" not in current
+    assert "quality_custody_proofs" not in current
+    assert current["material"]["batch"] == "mat-out"
