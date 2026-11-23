@@ -65,5 +65,17 @@
     "material_reserved_only_at_agreement": true,
     "material_consumed_only_at_actual_execution": true,
     "counterfactual_cash_is_not_a_native_payment": true
+  },
+  "second_transfer": {
+    "original_work_id_unchanged": true,
+    "current_attempt_units": 3,
+    "full_redo_cost_rub": 36000,
+    "produced_units": 2,
+    "usable_units": 1,
+    "reused_unit_credit_rub": 12000,
+    "next_attempt_units": 2,
+    "new_attempt_cost_rub": 24000,
+    "lot_after_agreement": "RESERVED",
+    "lot_after_execution": "CONSUMED"
   }
 }
