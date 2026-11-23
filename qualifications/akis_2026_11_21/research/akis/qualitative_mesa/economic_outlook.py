@@ -18,6 +18,7 @@ from .capacity import CapacityBlocked, CapacityInputError, ResourceNeed
 from .outside_demand import (
     assess_original_independent_outside_demand,
     assess_original_outside_supplier_offer,
+    assess_original_buyer_offer_response,
 )
 
 
@@ -42,7 +43,8 @@ _FIELDS = frozenset({
 })
 _OPTIONAL_FIELDS = frozenset({"requires_accepted_results", "source_revision",
                               "outside_capacity_probe", "outside_demand_claim",
-                              "outside_offer_claim"})
+                              "outside_offer_claim",
+                              "outside_buyer_response_claim"})
 
 
 def _id(value: Any, key: str) -> str:
@@ -82,6 +84,8 @@ class OwnerOutlook:
     outside_demand_claim: tuple[str, str, str] | None = None
     # Optional independently sourced seller response to ONE buyer request.
     outside_offer_claim: str | None = None
+    # Independent buyer intent explicitly pins an ORIGINAL supplier offer.
+    outside_buyer_response_claim: str | None = None
 
 
 def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
@@ -205,6 +209,15 @@ def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
                     "OUTLOOK_OUTSIDE_OFFER_REQUIRES_ORIGINAL_BUYER_DEMAND"
                 )
             offer_id = _id(record["outside_offer_claim"], "OUTSIDE_OFFER")
+        buyer_response_id = None
+        if "outside_buyer_response_claim" in record:
+            if offer_id is None:
+                raise OutlookInputError(
+                    "OUTLOOK_BUYER_RESPONSE_REQUIRES_ORIGINAL_SUPPLIER_OFFER"
+                )
+            buyer_response_id = _id(
+                record["outside_buyer_response_claim"], "BUYER_RESPONSE"
+            )
         parsed.append(OwnerOutlook(
             owner, relation, work,
             _id(record["work_source_revision"], "WORK_REVISION"),
@@ -217,6 +230,7 @@ def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
             probe,
             demand,
             offer_id,
+            buyer_response_id,
         ))
     return tuple(sorted(parsed, key=lambda x: (x.available_at, x.owner, x.work, x.relation)))
 
@@ -349,6 +363,32 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                 "available_at": row.available_at,
             }
 
+    if row.outside_buyer_response_claim is not None:
+        # The buyer alone can express nonbinding conditional intent. The
+        # original buyer demand and original supplier offer rights have
+        # already been qualified above; response is an additional source,
+        # NOT legal consent or a verified external contract.
+        buyer = next((
+            evidence.get("actor") for evidence in (original_trace or ())
+            if evidence.get("action") == "outside_demand_signal"
+            and evidence.get("outcome") == "APPLIED"
+            and evidence.get("outside_demand_id") == row.outside_demand_claim[0]
+        ), None)
+        response_reason = assess_original_buyer_offer_response(
+            response_id=row.outside_buyer_response_claim,
+            offer_id=row.outside_offer_claim,
+            demand_id=row.outside_demand_claim[0],
+            buyer=buyer, seller=owner,
+            trace=original_trace, subjects=subjects,
+            context_basis=context_basis, at=int(at),
+        )
+        if response_reason is not None:
+            return {
+                "position": "UNKNOWN", "reason": response_reason,
+                "relation": row.relation,
+                "available_at": row.available_at,
+            }
+
     if row.outside_capacity_probe is not None:
         # This is an owner-held outside candidate, not a second Work. It
         # must fit the SAME original Work's planned horizon, be owned by the
@@ -447,5 +487,11 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                 if row.outside_offer_claim is not None else "NOT_REQUESTED"
             ),
             "bilateral_source_comparison_not_acceptance_delivery_or_settlement": True,
+            "independent_buyer_model_response": (
+                "BUYER_WILLING_TO_NEGOTIATE_UNDER_SEPARATE_SOURCE"
+                if row.outside_buyer_response_claim is not None else
+                "NOT_REQUESTED"
+            ),
+            "buyer_model_intent_not_contract_or_Work_consent": True,
         },
     }
