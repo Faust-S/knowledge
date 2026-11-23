@@ -201,12 +201,25 @@ def test_negative_batch_quality_does_not_release_any_reserved_material():
     state = approved()
     assert custody(state, "mat-out-1", 21)["outcome"] == "APPLIED"
     rejected = custody(state, "mat-out-2", 25, acceptable=0)
-    assert rejected["reason"] == "WIP_REVISED_MATERIAL_QUALITY_REQUIRES_NEW_CONSENT"
+    assert rejected["outcome"] == "APPLIED"
+    assert rejected["quality_revision_required"] is True
     second = next(x for x in state.works["w1"].wip_lots
                   if x["material_batch"] == "mat-out-2")
-    assert second["custody_state"] == "RECEIVED"
+    assert second["custody_state"] == "QUALITY_REVIEW_REQUIRED"
+    assert second["observed_accepted_units"] == 0
+    assert second["custody_quality_ref"] == "model://d/w1c-quality-2"
     assert second["holder"] == "d"
     assert resume(state, 28)["reason"] == "WIP_ORIGINAL_PHYSICAL_CUSTODY_QUALITY_REQUIRED"
+    # A second optimistic quality report cannot erase the contrary source.
+    attempt = send(state, 29, "wip_handoff_quality", "d",
+                   source_revision="d1", org_revision="oc-1",
+                   wip_operation="form", wip_material_batch="mat-out-2",
+                   wip_id="wip-form-1",
+                   wip_receipt_ref="model://d/w1c-receipt-2",
+                   wip_accepted_units=1,
+                   wip_source_ref="model://d/forged-positive-after-negative")
+    assert attempt["reason"] == "WIP_CUSTODY_ONLY_RESERVED_MATERIAL" or (
+        attempt["reason"] == "WIP_MATERIAL_RECEIPT_AND_RECEIVER_QUALITY_REQUIRED")
     assert state.works["w1"].result == "NOT_SUBMITTED"
     assert all(row["status"] == "RESERVED" for row in state.works["w1"].wip_lots)
 
