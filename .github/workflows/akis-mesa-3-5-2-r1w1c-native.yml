@@ -28,10 +28,10 @@ jobs:
           python -c "import mesa; assert mesa.__version__ == '3.5.2'"
       - name: Compile original model
         run: python -m compileall -q qualifications/akis_2026_11_21/research
-      - name: Qualify R1-W1C parallel operation
+      - name: Qualify R1-W1C parallel operations and independent material batches
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
-        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_parallel_operation_mesa.py
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_parallel_operation_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1w1c_multibatch_mesa.py
       - name: Full native AKIS regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
