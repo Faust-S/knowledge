@@ -94,6 +94,10 @@ def scoped_bilateral_payment_case():
                 owner: EVIDENCE_REVISION
                 for owner in ("b", "c")
             },
+            "owner_attestations": {
+                owner: {"reported_at": at, "reported_amount": amount}
+                for owner in ("b", "c")
+            },
         })
         for owner, ref in evidence_refs.items():
             context["sources"].append({
@@ -280,3 +284,38 @@ def test_no_claim_not_zero_paid_and_original_result_is_unchanged():
     assert out["economics"]["original_strict_context_source_qualification"][
         "source_scoped_original_payment_event_count"
     ] == 0
+
+
+
+@pytest.mark.parametrize("owner", ["b", "c"])
+def test_one_owner_cannot_attest_different_payment_amount(owner):
+    d = scoped_bilateral_payment_case()
+    d["economic_claims"]["work_payment_settlement_claims"][0][
+        "owner_attestations"
+    ][owner]["reported_amount"] = "5999.00"
+    with pytest.raises(
+        InputError, match="ORIGINAL_PAYMENT_OWNER_REPORTS_CONFLICT"
+    ):
+        simulate(d)
+
+
+def test_one_owner_cannot_attest_unrelated_payment_time():
+    d = scoped_bilateral_payment_case()
+    d["economic_claims"]["work_payment_settlement_claims"][0][
+        "owner_attestations"
+    ]["c"]["reported_at"] = 100
+    with pytest.raises(
+        InputError, match="ORIGINAL_PAYMENT_OWNER_REPORTS_CONFLICT"
+    ):
+        simulate(d)
+
+
+def test_operator_cannot_replace_two_independent_payment_statements():
+    d = scoped_bilateral_payment_case()
+    d["economic_claims"]["work_payment_settlement_claims"][0].pop(
+        "owner_attestations"
+    )
+    with pytest.raises(
+        InputError, match="ORIGINAL_PAYMENT_INDEPENDENT_OWNER_REPORTS_REQUIRED"
+    ):
+        simulate(d)
