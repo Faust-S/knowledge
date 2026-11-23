@@ -99,10 +99,20 @@ def original_nine_component_work_view(
         reason = "ACCEPTED_ORIGINAL_WORK_AND_RESULT"
     elif commit_blocks:
         blocked_reason = commit_blocks[-1].get("reason")
-        reason = {
-            "INDEPENDENT_ACCEPTANCE_MISSING": "INDEPENDENT_PRINCIPAL_DID_NOT_CONSENT",
-            "RESOURCE_NOT_AVAILABLE": "ORIGINAL_RESOURCE_NOT_AVAILABLE",
-        }.get(blocked_reason, "ORIGINAL_COMMIT_BLOCKED")
+        resource_interruption_applied = any(
+            row.get("action") == "resource_status"
+            and row.get("outcome") == "APPLIED"
+            and row.get("availability") == "UNAVAILABLE"
+            and type(row.get("at")) is int
+            and row["at"] < commit_blocks[-1].get("at", -1)
+            for row in trace
+        )
+        if blocked_reason == "INDEPENDENT_ACCEPTANCE_MISSING":
+            reason = "INDEPENDENT_PRINCIPAL_DID_NOT_CONSENT"
+        elif resource_interruption_applied:
+            reason = "ORIGINAL_RESOURCE_NOT_AVAILABLE"
+        else:
+            reason = "ORIGINAL_COMMIT_BLOCKED"
     elif next_item.get("result") == "SUBMITTED":
         reason = "RECIPIENT_ACCEPTANCE_NOT_RECORDED"
     else:
