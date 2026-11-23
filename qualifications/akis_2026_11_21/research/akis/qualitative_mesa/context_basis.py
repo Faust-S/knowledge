@@ -15,7 +15,7 @@ from .scope_policy import (
 )
 
 STATUS = frozenset({"CONFIRMED", "DISPROVED", "UNKNOWN"})
-QUALIFIED_ACTIONS = frozenset({"authorize", "consent", "commit", "start", "complete", "accept", "resubmit", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "interest_update", "assess_result_quality"})
+QUALIFIED_ACTIONS = frozenset({"authorize", "consent", "commit", "start", "complete", "accept", "resubmit", "start_operation", "complete_operation", "handoff_dispatch", "handoff_receive", "handoff_quality", "interest_update", "assess_result_quality", "wip_interrupt", "wip_propose", "wip_review", "wip_apply", "wip_cancel", "wip_resume"})
 MAX_SOURCES = 256
 MAX_REQUIREMENTS = 512
 
