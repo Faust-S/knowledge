@@ -25,6 +25,10 @@ EVIDENCE_REVISION = "receipt-r1"
 
 def scoped_bilateral_payment_case():
     d = original_strict_economic_case()
+    # Both payment assertions occur at model time 101/102, after original
+    # work acceptance. Their source validation must be evaluated on an
+    # actual reached model horizon, not as undocumented future evidence.
+    d["model_horizon"] = max(d["model_horizon"], 104)
     money = d["economic_claims"]
     context = d["context_evidence"]
     # The current w2 due dates and the same original transfer records are
