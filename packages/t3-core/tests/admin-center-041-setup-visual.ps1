@@ -73,64 +73,7 @@ try{
         if($ids.Count -ge 35){break}
         $aid=[string]$node.Current.AutomationId
         $name=[string]$node.Current.Name
-        if($aid -match '^iwxaSetup[A-Za-z0-9]+
-  $bounds=$window.Current.BoundingRectangle
-  $screen=[Windows.Forms.Screen]::PrimaryScreen.Bounds
-  $left=[int][Math]::Max($screen.Left,[Math]::Floor($bounds.Left))
-  $top=[int][Math]::Max($screen.Top,[Math]::Floor($bounds.Top))
-  $right=[int][Math]::Min($screen.Right,[Math]::Ceiling($bounds.Right))
-  $bottom=[int][Math]::Min($screen.Bottom,[Math]::Ceiling($bounds.Bottom))
-  $width=$right-$left;$height=$bottom-$top
-  Assert ($width -ge 700 -and $height -ge 440) 'ADMIN041_UNIFIED_SETUP_WINDOW_NOT_FULL_SIZE'
-  $pic=Join-Path $base 'admin-041-unified-setup-core-1.0.png'
-  $bitmap=[Drawing.Bitmap]::new($width,$height)
-  $graphics=[Drawing.Graphics]::FromImage($bitmap)
-  try{
-    $graphics.CopyFromScreen([Drawing.Point]::new($left,$top),
-      [Drawing.Point]::Empty,[Drawing.Size]::new($width,$height))
-    $bitmap.Save($pic,[Drawing.Imaging.ImageFormat]::Png)
-  }finally{$graphics.Dispose()}
-  Assert ((Get-Item -LiteralPath $pic).Length -ge 10000) 'ADMIN041_UNIFIED_SETUP_SCREENSHOT_EMPTY'
-  $pixels=0
-  for($y=0;$y -lt [Math]::Min($height,125);$y+=2){
-    for($x=0;$x -lt [Math]::Min($width,165);$x+=2){
-      $p=$bitmap.GetPixel($x,$y)
-      if($p.R -ge 200 -and $p.G -ge 45 -and $p.G -le 140 -and
-         $p.B -ge 40 -and $p.B -le 150){$pixels++}
-    }
-  }
-  $bitmap.Dispose()
-  Assert ($pixels -ge 25) 'ADMIN041_UNIFIED_SETUP_CANONICAL_RED_MARK_NOT_VISIBLE'
-  Assert $ready 'ADMIN041_UNIFIED_SETUP_BRAND_PRIMARY_ACTION_NOT_OBSERVED'
-  $proof=[ordered]@{
-    status='NATIVE_SHARED_SETUP_1_0_VISUAL_PASS'
-    product='iwxa.admin-center'
-    version='0.4.1'
-    packageFormat='PE_RESOURCE_V2'
-    centerSource=$ExpectedCenterSha
-    installerSha256=$actual
-    screenshot='admin-041-unified-setup-core-1.0.png'
-    screenshotSha256=(Get-FileHash -LiteralPath $pic -Algorithm SHA256).Hash.ToLowerInvariant()
-    redMarkPixelWitness=$pixels
-    windowWidth=$width
-    windowHeight=$height
-    sideEffects='NONE'
-  }
-  $proof|ConvertTo-Json -Depth 5|Set-Content -LiteralPath (Join-Path $base 'visual-qualification.json') -Encoding utf8
-  Write-Host ('ADMIN041_UNIFIED_SETUP_CORE_NATIVE_RED_BRAND_GUI_PASS '+$proof.screenshotSha256)
-}finally{
-  if($process){
-    try{
-      $process.Refresh()
-      if(!$process.HasExited){
-        $process.CloseMainWindow()|Out-Null
-        if(!$process.WaitForExit(5000)){$process.Kill()}
-      }
-    }catch{}
-    $process.Dispose()
-  }
-}
- -or
+        if($aid -match '^iwxaSetup[A-Za-z0-9]+$' -or
            $name -match 'IWXA|IWXA Admin|Setup|установк|Программ|Install'){
           $typeName=[string]$node.Current.ControlType.ProgrammaticName
           [void]$ids.Add($aid+'|'+$typeName+'|'+$name.Substring(0,[Math]::Min(100,$name.Length)))
