@@ -1,0 +1,143 @@
+{
+  "schema": "IWXA_AKIS_R1W2B_CAUSAL_PARITY/0.1",
+  "case_id": "AKIS-R1W2B-TECH-001",
+  "origin": {
+    "native_repository": "Faust-S/knowledge",
+    "native_baseline_commit": "06a01797cc174361fad2a4c9235a672e8a5b69f1",
+    "browser_repository": "Faust-S/iwxa-ru-1",
+    "browser_baseline_commit": "bb4625278ef75eb39bdf61817e98d914064a30da"
+  },
+  "identity": {
+    "native_original_work": "w1",
+    "native_operation": "form",
+    "native_initial_owner": "b",
+    "native_new_owner": "d",
+    "native_customer": "c",
+    "native_operation_route": [
+      "source",
+      "form",
+      "finish"
+    ],
+    "native_output_batches": [
+      {
+        "id": "mat-out-1",
+        "qty": 3
+      },
+      {
+        "id": "mat-out-2",
+        "qty": 2
+      }
+    ],
+    "browser_scenario": "industrial",
+    "browser_stage": "supply",
+    "browser_original_supplier": "supplier",
+    "browser_new_supplier": "supplier-b",
+    "browser_customer": "lead"
+  },
+  "shared_material_arithmetic": {
+    "currency": "RUB",
+    "rounding": "HALF_UP_FOR_RUB",
+    "total_units": 5,
+    "produced_units": 3,
+    "original_cost_rub": 60000,
+    "materials_value_rub": 7000,
+    "handling_rub": 1500,
+    "recovery_claim_rub": 5000,
+    "initial": {
+      "usable_units": 2,
+      "remaining_units": 3,
+      "reusable_resources_rub": 31000,
+      "future_resource_cost_rub": 29000
+    },
+    "revised": {
+      "usable_units": 1,
+      "remaining_units": 4,
+      "reusable_resources_rub": 19000,
+      "future_resource_cost_rub": 41000
+    },
+    "delta_cost_after_quality_rub": 12000
+  },
+  "native_case_outcome": {
+    "work_result": "ACCEPTED_BY_ORIGINAL_RECIPIENT",
+    "accepted_result_count": 1,
+    "original_material_batch_count": 4,
+    "original_output_batch_count": 2,
+    "wip_economic_revision_count": 2,
+    "replacement_resource_reservation_count": 1,
+    "quality_original_responsible": "b",
+    "quality_effective_responsible": "d",
+    "quality_assessor": "c",
+    "first_revision_status": "SUPERSEDED_BY_QUALITY_REVISION",
+    "revised_status": "APPLIED",
+    "first_plan_window": [
+      20,
+      40
+    ],
+    "quality_observations": [
+      {
+        "batch": "mat-out-1",
+        "usable_units": 1
+      },
+      {
+        "batch": "mat-out-2",
+        "usable_units": 0
+      }
+    ]
+  },
+  "cross_engine_checks": {
+    "numeric": [
+      "original_cost",
+      "produced_units",
+      "usable_units",
+      "reusable_resources",
+      "future_resource_cost",
+      "remaining_units",
+      "material_value",
+      "handling_cost",
+      "recovery_claim"
+    ],
+    "causal_common": [
+      "initial_work_identity_survives_recovery",
+      "independent_consent_precedes_apply",
+      "reserved_before_execution",
+      "consumed_at_execution",
+      "pending_claim_not_cash",
+      "internal_transfer_not_network_profit"
+    ],
+    "native_only": [
+      "original_operation_dag",
+      "two_separate_material_batches",
+      "independent_dispatch_receive_quality_per_batch",
+      "second_quality_revision_on_same_work",
+      "independently_agreed_assurance_by_criterion",
+      "original_capacity_ledger_reservations",
+      "independent_quality_acceptance_after_work_result"
+    ],
+    "browser_only": [
+      "automatic_stage_queue_and_day_progression",
+      "modeled_internal_settlement_on_apply",
+      "modeled_external_recovery_entry"
+    ],
+    "not_comparable": [
+      "absolute_native_event_time_vs_browser_day",
+      "native_capacity_slots_vs_browser_execution_days",
+      "bank_payment_or_legal_obligation",
+      "aggregate_economic_gain_from_the_two_engines"
+    ]
+  },
+  "cross_engine_status": {
+    "material_arithmetic": "MATCH_ON_COMMON_INPUT",
+    "initial_recovery_lifecycle": "SEMANTIC_MATCH_WITH_DIFFERENT_EVENT_PATH",
+    "quality_revision_lifecycle": "NOT_IMPLEMENTED_IN_BROWSER_0_15",
+    "material_custody": "NOT_IMPLEMENTED_IN_BROWSER_0_15",
+    "assurance_responsibility": "NOT_IMPLEMENTED_IN_BROWSER_0_15",
+    "cash_and_settlement": "DIFFERENT_MODEL_BOUNDARY_NO_FULL_PARITY",
+    "calendar": "DIFFERENT_AXES_NO_ABSOLUTE_PARITY"
+  },
+  "disallowed_claims": [
+    "REAL_BANK_PAYMENT_AUTHENTICATED",
+    "LEGAL_OBLIGATION_TRANSFERRED",
+    "NATIVE_AND_BROWSER_FULL_OPERATIONAL_PARITY",
+    "SAVINGS_OBSERVED_OUTSIDE_RESEARCH_MODEL"
+  ]
+}
