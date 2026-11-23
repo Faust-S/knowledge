@@ -5,6 +5,7 @@ on:
       - work/2026-11-23-admin-center-041-unified-setup-qualification
     paths:
       - .github/workflows/admin-center-041-unified-setup-windows.yml
+      - packages/t3-core/tests/admin-center-04-upgrade-03.ps1
       - packages/t3-core/tests/t3-d2-original-native-workspace-jit.mjs
       - packages/t3-core/tests/g4-installed-original-center-first-use.ps1
       - packages/t3-core/src/workspace-host/bootstrap/SignedSelectedWorkspaceGate.tsx
@@ -181,7 +182,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/Center
-          ref: 028120e0dff879af0b66aa7f6cefe24837b88243
+          ref: 329185d4e3383d65f38f013a4440ca9c477af6c7
           persist-credentials: false
           path: .private/center
       - name: Stage original Atlas owner
@@ -212,7 +213,7 @@ jobs:
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
           if($t3 -cne '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -or
-             $center -cne '028120e0dff879af0b66aa7f6cefe24837b88243'){
+             $center -cne '329185d4e3383d65f38f013a4440ca9c477af6c7'){
             throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
           }
           Add-Content -LiteralPath '.git/info/exclude' -Value '/.private/'
@@ -314,9 +315,33 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
-          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha '028120e0dff879af0b66aa7f6cefe24837b88243' -ExpectedT3Sha '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -ExpectedVersion '0.4.1'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha '329185d4e3383d65f38f013a4440ca9c477af6c7' -ExpectedT3Sha '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -ExpectedVersion '0.4.1'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
+      - name: Qualify actual installed universal IWXA Setup Core 1.0 window, brand and 100-250 percent DPI
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference='Stop'
+          $center='.private/center'
+          $setup=(Resolve-Path -LiteralPath (Join-Path $center 'artifacts/iwxa-setup-core-center-private-d3.exe')).Path
+          $meta=[Diagnostics.FileVersionInfo]::GetVersionInfo($setup)
+          if($meta.ProductName -cne 'IWXA Setup Core' -or
+             $meta.FileVersion -cne '1.0.0.0' -or
+             $meta.ProductVersion -cne '1.0.0'){
+            throw 'ADMIN_041_APPROVED_SETUP_CORE_1_0_IDENTITY_REQUIRED'
+          }
+          foreach($path in @('src-tauri/icons/icon.ico','src-tauri/icons/icon.png')){
+            if((Get-Item -LiteralPath (Join-Path $center $path)).Length -lt 4096){
+              throw 'ADMIN_041_NATIVE_CANONICAL_IWXA_RED_ICON_REQUIRED'
+            }
+          }
+          $script=(Resolve-Path -LiteralPath (Join-Path $center 'installer/windows/qualify-gui-layout-fast.ps1')).Path
+          & powershell.exe -NoProfile -STA -File $script -Stub $setup
+          if($LASTEXITCODE -ne 0){
+            throw 'ADMIN_041_APPROVED_NATIVE_SETUP_1_0_GUI_LAYOUT_NOT_QUALIFIED'
+          }
+          Write-Host 'ADMIN_041_ONE_UNIVERSAL_IWXA_SETUP_CORE_1_0_AND_CANONICAL_RED_BRAND_WINDOWS_PASS'
       - name: Verify complete 0.4 distributable and produce immutable public candidate
         shell: pwsh
         run: |
