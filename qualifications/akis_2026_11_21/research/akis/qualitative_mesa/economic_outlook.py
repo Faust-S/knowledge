@@ -190,9 +190,18 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
     # qualify a version, status, purpose, operation, owner or expiry.
     # In non-strict legacy experiments the original research-only semantics
     # remain unchanged. No forecast ever becomes a signature or actual cash.
-    if context_basis is not None and context_basis.strict:
+    # Pinned owner forecasts opt into exact ORIGINAL ContextBasis checking
+    # even in a legacy non-strict Work scenario. A present pin must never be
+    # silently ignored merely because that scenario has other optional
+    # context requirements. Global strict mode still requires every pin.
+    source_qualification_required = (
+        row.source_revision is not None
+        or (context_basis is not None and context_basis.strict)
+    )
+    if source_qualification_required:
         qualified = (
-            isinstance(row.source_revision, str)
+            context_basis is not None
+            and isinstance(row.source_revision, str)
             and owner_core in {"operator", "institutional", "corporate", "personal"}
             and type(at) in (int, float) and 0 <= at <= 10000
             and int(at) == at
