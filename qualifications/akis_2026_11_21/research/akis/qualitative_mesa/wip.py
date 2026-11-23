@@ -123,7 +123,8 @@ def _operation_context(state: Any, work: Any, ev: Mapping[str, Any],
                        action: str) -> Any | None:
     """Identify the original operation without rewriting its DAG."""
     if not work.operations:
-        if ev.get("wip_operation") is not None or ev.get("wip_material_batch") is not None:
+        if (ev.get("wip_operation") is not None or ev.get("wip_material_batch") is not None or
+                ev.get("wip_material_batches") is not None):
             _fail("WIP_DIRECT_WORK_HAS_NO_ORIGINAL_OPERATION")
         return None
     if not state.handoff_strict or not state.material_strict:
@@ -152,16 +153,10 @@ def _operation_context(state: Any, work: Any, ev: Mapping[str, Any],
     return op
 
 
-def _operation_material(state: Any, work: Any, op: Any,
-                        raw_batch: Any) -> dict[str, Any]:
-    """Use one existing inbound QA and undispatched outbound MaterialBatch."""
-    inbound = [row for row in work.material_batches if row.edge[1] == op.key]
-    outgoing = [row for row in work.material_batches if row.edge[0] == op.key]
-    if len(inbound) != 1 or len(outgoing) != 1:
-        _fail("WIP_OPERATION_ONE_ORIGINAL_MATERIAL_STREAM_REQUIRED")
-    in_batch, batch = inbound[0], outgoing[0]
-    if (raw_batch != batch.key or in_batch.unit != batch.unit or
-            in_batch.material != batch.material):
+
+def _material_entry(work: Any, in_batch: Any, batch: Any) -> dict[str, Any]:
+    """Snapshot one pair of existing original input/output MaterialBatch."""
+    if in_batch.unit != batch.unit or in_batch.material != batch.material:
         _fail("WIP_ORIGINAL_MATERIAL_BATCH_OR_UNIT_MISMATCH")
     incoming = work.material_states[in_batch.key]
     outgoing_state = work.material_states[batch.key]
@@ -199,6 +194,112 @@ def _operation_material(state: Any, work: Any, op: Any,
         "inbound_quality_spec_owner": in_batch.quality_spec_owner,
     }
 
+
+def _operation_material(state: Any, work: Any, op: Any,
+                        raw_batch: Any) -> dict[str, Any]:
+    """Legacy R1-W1B: exactly one original inbound/outbound material stream."""
+    inbound = [row for row in work.material_batches if row.edge[1] == op.key]
+    outgoing = [row for row in work.material_batches if row.edge[0] == op.key]
+    if len(inbound) != 1 or len(outgoing) != 1:
+        _fail("WIP_OPERATION_ONE_ORIGINAL_MATERIAL_STREAM_REQUIRED")
+    if raw_batch != outgoing[0].key:
+        _fail("WIP_ORIGINAL_MATERIAL_BATCH_OR_UNIT_MISMATCH")
+    return _material_entry(work, inbound[0], outgoing[0])
+
+
+def _operation_materials(state: Any, work: Any, op: Any,
+                         raw_batches: Any) -> list[dict[str, Any]]:
+    """R1-W1C: paired streams of the same original material and unit.
+
+    No inferred conversion or transformation ratio. Each original batch
+    keeps its own source/quality/custody; the economic claim stays on the
+    single Work amendment, never replicated across physical batches.
+    """
+    inbound = [row for row in work.material_batches if row.edge[1] == op.key]
+    outgoing = [row for row in work.material_batches if row.edge[0] == op.key]
+    if not 2 <= len(inbound) == len(outgoing) <= 128:
+        _fail("WIP_MULTI_BATCH_REQUIRES_PAIRED_ORIGINAL_STREAMS")
+    keys = {batch.key for batch in outgoing}
+    if (not isinstance(raw_batches, list) or len(raw_batches) != len(keys) or
+            any(not isinstance(key, str) for key in raw_batches) or
+            len(set(raw_batches)) != len(raw_batches) or set(raw_batches) != keys):
+        _fail("WIP_MULTI_BATCH_ORIGINAL_SELECTION_REQUIRED")
+    pairing = lambda b: (b.material, b.unit, b.planned_quantity, b.key)
+    in_rows = sorted(inbound, key=pairing)
+    out_rows = sorted(outgoing, key=pairing)
+    entries = []
+    for prior, future in zip(in_rows, out_rows):
+        if (prior.material, prior.unit, prior.planned_quantity) != (
+                future.material, future.unit, future.planned_quantity):
+            _fail("WIP_MULTI_BATCH_TRANSFORMATION_REQUIRES_SEPARATE_QUALIFICATION")
+        entries.append(_material_entry(work, prior, future))
+    # Only homogeneous output can be priced as one total-unit economic
+    # claim. Otherwise quantities of unrelated materials cannot be added.
+    if len({(row["material_id"], row["unit"]) for row in entries}) != 1:
+        _fail("WIP_MULTI_BATCH_MIXED_MATERIAL_ECONOMICS_NOT_COMPARABLE")
+    return sorted(entries, key=lambda row: row["batch"])
+
+
+def _selected_material(state: Any, work: Any, op: Any,
+                       raw_batch: Any, raw_batches: Any) -> Any:
+    if raw_batches is None:
+        return _operation_material(state, work, op, raw_batch)
+    if raw_batch is not None:
+        _fail("WIP_MULTI_BATCH_SINGLE_BATCH_CONFLICT")
+    return _operation_materials(state, work, op, raw_batches)
+
+
+def _material_rows(material: Any) -> list[dict[str, Any]]:
+    return material if isinstance(material, list) else ([material] if material else [])
+
+
+def _batch_inspections(state: Any, work: Any, raw: Any,
+                       material: list[dict[str, Any]],
+                       summary: Mapping[str, Any], owner: str) -> list[dict[str, Any]]:
+    """Bind separately inspected quantities to one economic amendment."""
+    if not isinstance(raw, list) or len(raw) != len(material):
+        _fail("WIP_MULTI_BATCH_INSPECTIONS_REQUIRED")
+    selected = {item["batch"]: item for item in material}
+    records = {}
+    for row in raw:
+        if (not isinstance(row, dict) or
+                set(row) != {"batch", "total_units", "produced_units",
+                             "usable_units", "inspection_ref"} or
+                not isinstance(row.get("batch"), str) or
+                row["batch"] not in selected or row["batch"] in records):
+            _fail("WIP_MULTI_BATCH_INSPECTION_FIELDS_INVALID")
+        quantity = _qty(row["total_units"], "WIP_MULTI_BATCH_TOTAL_INVALID", minimum=1)
+        produced = _qty(row["produced_units"], "WIP_MULTI_BATCH_PRODUCED_INVALID")
+        usable = _qty(row["usable_units"], "WIP_MULTI_BATCH_USABLE_INVALID")
+        if not 0 <= usable <= produced <= quantity:
+            _fail("WIP_MULTI_BATCH_QUANTITY_CONFLICT")
+        expected = int(selected[row["batch"]]["planned_quantity"])
+        if work.wip_amendments:
+            previous = next((x for x in work.wip_lots
+                             if x.get("amendment") == work.wip_amendments[-1]["id"]
+                             and x.get("material_batch") == row["batch"]), None)
+            if previous is None:
+                _fail("WIP_MULTI_BATCH_PREVIOUS_ATTEMPT_REQUIRED")
+            expected = previous["remaining_units"]
+        if quantity != expected:
+            _fail("WIP_MULTI_BATCH_ORIGINAL_QUANTITY_CHANGED")
+        ref = _source(row["inspection_ref"], owner,
+                      "WIP_MULTI_BATCH_OWN_INSPECTION_REQUIRED")
+        if any(old.get("inspection_ref") == ref for old in work.wip_lots):
+            _fail("WIP_INSPECTION_SOURCE_ALREADY_CONSUMED")
+        records[row["batch"]] = {
+            "batch": row["batch"], "total_units": quantity,
+            "produced_units": produced, "usable_units": usable,
+            "remaining_units": quantity - usable, "inspection_ref": ref,
+        }
+    if (set(records) != set(selected) or
+            len({x["inspection_ref"] for x in records.values()}) != len(records)):
+        _fail("WIP_MULTI_BATCH_INSPECTIONS_NOT_INDEPENDENT")
+    if (sum(x["total_units"] for x in records.values()) != summary["total_units"] or
+            sum(x["produced_units"] for x in records.values()) != summary["produced_units"] or
+            sum(x["usable_units"] for x in records.values()) != summary["usable_units"]):
+        _fail("WIP_MULTI_BATCH_TOTALS_DO_NOT_RECONCILE")
+    return [records[key] for key in sorted(records)]
 
 def _current_executor(state: Any, work: Any, op: Any | None = None) -> tuple[str, str]:
     resource = (work.wip_active_resource or work.resource) if op is None else (
