@@ -1,0 +1,58 @@
+name: Admin Center V8 complete signed T3 Owner original host source regressions
+on:
+  push:
+    branches:
+      - work/2026-11-23-admin03-full-signed-owner-source-regression
+    paths:
+      - .github/workflows/t3-admin-v8-private-full-host-source.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-full-host-source:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 9136e470e340195a608845be0b26ff7b08eee8b2
+          token: ${{ secrets.T3 || secrets.DOMEN }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            access-control
+            interop
+            reconciliation
+            tests
+            package.json
+          path: .private/t3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate exact original owner and execute original host contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $head=(& git -C '.private/t3' rev-parse HEAD).Trim()
+          if($head -cne '9136e470e340195a608845be0b26ff7b08eee8b2'){
+            throw 'D3_ORIGINAL_FULL_PRIVATE_SOURCE_CHANGED'
+          }
+          $log=Join-Path $env:RUNNER_TEMP 'private-original-host-all-tests.log'
+          & node --test '.private/t3/tests/admin-original-host-port.test.mjs' *> $log
+          $status=$LASTEXITCODE
+          $records=@(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)
+          $failures=@()
+          foreach($line in $records){
+            $matched=[regex]::Match([string]$line,'^not ok ([0-9]{1,2}) -')
+            if($matched.Success){$failures+=[int]$matched.Groups[1].Value}
+          }
+          Write-Host ('D3_ORIGINAL_FULL_HOST_SOURCE_FAILED_COUNT ' + $failures.Count)
+          foreach($item in @($failures|Sort-Object -Unique)){
+            Write-Host ('D3_ORIGINAL_FULL_HOST_SOURCE_FAILED_CASE_ORDINAL ' + $item)
+          }
+          if($status -ne 0){throw 'D3_ORIGINAL_FULL_HOST_SOURCE_REGRESSION'}
+          Write-Host 'D3_ORIGINAL_FULL_HOST_SOURCE_PASS'
