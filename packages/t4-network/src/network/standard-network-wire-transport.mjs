@@ -181,6 +181,7 @@ export function createT4CandidateFrameTransport({
       schema:'IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1',
       key,sha256:expectedSha256,
       signedMessageType:verdict.messageType,
+      verifiedBody:Object.freeze(structuredClone(frame.body)),
       originalSignatureVerified:verdict.originalSignatureVerified,
       originalAccessVerified:verdict.originalAccessVerified,
       originalReplayCheckpointRecorded:
