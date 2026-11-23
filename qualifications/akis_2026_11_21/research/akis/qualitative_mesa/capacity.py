@@ -280,12 +280,26 @@ class CapacityLedger:
                 })
         return found
 
-    def preview_plan(self, work: str, plan: Sequence[Reservation]) -> None:
-        """Validate ALL proposed operation intervals without changing any booking."""
+    def preview_plan(self, work: str, plan: Sequence[Reservation],
+                     *, append_to_original: bool = False) -> None:
+        """Check one original reservation or a future amendment on the SAME ledger.
+
+        An amendment never removes or re-signs existing bookings, and cannot
+        consume another Work's capacity. Ordinary reserve calls remain strict.
+        """
         if not plan or len(plan) > 1024:
             raise CapacityInputError("INVALID_OPERATION_RESERVATIONS")
-        if any(r.work == work for r in self.reservations):
+        previous = [r for r in self.reservations if r.work == work]
+        if not append_to_original and previous:
             raise CapacityBlocked("WORK_ALREADY_RESERVED")
+        if append_to_original:
+            if not previous:
+                raise CapacityBlocked("WORK_AMENDMENT_ORIGINAL_RESERVATION_MISSING")
+            # All amendments are prospective, strictly after prior allocations
+            # for this same original Work, including earlier amendments.
+            latest_end = max(r.end for r in previous)
+            if any(r.start < latest_end for r in plan):
+                raise CapacityBlocked("WORK_AMENDMENT_CANNOT_REWRITE_OLD_RESERVATIONS")
         if any(r.work != work or r.resource not in self.specs or
                type(r.units) is not int or not 1 <= r.units <= MAX_UNITS or
                type(r.start) is not int or type(r.end) is not int or
@@ -371,6 +385,27 @@ class CapacityLedger:
         self.preview(work, needs, start, end)
         self.reservations.extend(Reservation(n.resource, work, start, end, n.units)
                                  for n in needs)
+
+    def preview_amendment(self, work: str, needs: Sequence[ResourceNeed],
+                          start: int, end: int) -> None:
+        """Compare prospective WIP continuation using the ORIGINAL capacity rules."""
+        if (type(start) is not int or type(end) is not int or
+                start < 0 or end <= start or
+                not needs or len({n.resource for n in needs}) != len(needs) or
+                any(n.resource not in self.specs or type(n.units) is not int
+                    or not 1 <= n.units <= MAX_UNITS for n in needs)):
+            raise CapacityInputError("INVALID_WIP_AMENDMENT_RESERVATIONS")
+        self.preview_plan(work, [
+            Reservation(n.resource, work, start, end, n.units) for n in needs
+        ], append_to_original=True)
+
+    def reserve_amendment(self, work: str, needs: Sequence[ResourceNeed],
+                          start: int, end: int) -> None:
+        """Extend exactly the same Work without editing its committed intervals."""
+        self.preview_amendment(work, needs, start, end)
+        self.reservations.extend(
+            Reservation(n.resource, work, start, end, n.units) for n in needs
+        )
 
     def planned_window_risk(self, needs: Sequence[ResourceNeed], start: int,
                             end: int, *, outstanding: set[str] | None = None) -> str | None:
