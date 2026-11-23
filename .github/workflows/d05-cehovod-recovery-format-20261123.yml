@@ -23,7 +23,7 @@ jobs:
           test -n "${DOMEN:-}" || { echo "D05_READ_TOKEN=FAIL"; exit 1; }
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
           GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch work/2026-10-23-t2-site-only https://github.com/Faust-S/cehovod.ru.git site >/dev/null 2>&1 || { echo "D05_PRIVATE_READ=FAIL"; exit 1; }
-          test "$(git -C site rev-parse HEAD)" = "820f0f9c747e1835bf4544068bd0a5fa92818f71" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "0258f3a99da7d8f1c4a0933f41db0861c7d4118c" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
           unset header DOMEN
           echo "D05_SITE_PIN=PASS"
       - uses: actions/setup-node@v4
