@@ -1766,7 +1766,7 @@ class QualitativeAKIS:
                     "active_for_new_work": v.active,
                     **({
                         "original_enterprise": v.organization,
-                        "source_qualified_role_declarations": bool(
+                        "model_source_scoped_role_declarations": bool(
                             v.affiliation_source_ref and v.self_role_source_ref
                         ),
                         "real_identity_or_employment_verified": False,

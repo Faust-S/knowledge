@@ -230,7 +230,24 @@ def _axis_consequences(design: Any, state: Any, current: Mapping[str, list[Mappi
 
     scale = x["scale"]
     if scale == "Внутрифирменные":
-        scale_check = "INTERFIRM_OWNER_SCOPE_CONFLICT" if multi_owner else "INTERNAL_ROLES_UNMODELLED"
+        def enterprise_root(name: str) -> str:
+            party = state.subjects.get(name)
+            return getattr(party, "organization", None) or name
+
+        conflicting_enterprises = any(
+            len({enterprise_root(name)
+                 for name in row["original_principals"]}) > 1
+            for row in works
+        )
+        is_role_scoped_intra = any(
+            row["configuration_applicability"] ==
+            "ORIGINAL_INTRA_DIVISION_EMPLOYEE_WORK" for row in works
+        )
+        scale_check = (
+            "INTERFIRM_OWNER_SCOPE_CONFLICT" if conflicting_enterprises
+            else "ORIGINAL_INTRA_ROLES_IN_ONE_ENTERPRISE"
+            if is_role_scoped_intra else "INTERNAL_ROLES_UNMODELLED"
+        )
     elif scale == "межфирменные":
         scale_check = "MULTI_OWNER_WORK_DECLARED" if multi_owner else "MULTI_OWNER_WORK_MISSING"
     else:
@@ -309,8 +326,14 @@ def configuration_dynamics(design: Any, state: Any, *, at: float,
     all_principals = sorted({p for row in work_rows for p in row["original_principals"]})
     kinds = {key: state.subjects[key].kind for key in all_principals if key in state.subjects}
     cross_owner_work = sum(len(row["original_principals"]) >= 2 for row in work_rows)
+    modeled_intra_roles = any(
+        row["configuration_applicability"] ==
+        "ORIGINAL_INTRA_DIVISION_EMPLOYEE_WORK"
+        for row in work_rows
+    )
     unsupported_roles = {
-        "intra": ("DIVISION", "EMPLOYEE"), "inter": (), "operator": (),
+        "intra": (() if modeled_intra_roles else ("DIVISION", "EMPLOYEE")),
+        "inter": (), "operator": (),
         "sector": ("SECTOR_STANDARD", "CERTIFIED_SOURCE"),
         "macro": ("PUBLIC_INSTITUTION", "PUBLIC_RULE"),
         "trace": ("NATURAL_PERSON", "PERSONAL_CONTEXT_RIGHT"),

@@ -142,6 +142,10 @@ def test_intrafirm_division_employee_own_original_two_work_results_and_phases():
     ]
     conf = out["general_akis_model"]["configuration_dynamics"]
     assert conf["status"] == "ORIGINAL_INTRA_DIVISION_EMPLOYEE_WORK_PARTIAL"
+    assert conf["required_but_unmodelled_roles"] == []
+    assert conf["morphological_consequences"]["scale"]["observed"] == (
+        "ORIGINAL_INTRA_ROLES_IN_ONE_ENTERPRISE"
+    )
     assert all(
         row["model_scope_result"] == "NONE"
         for row in conf["original_commit_form_gate"]["original_work_checks"]
@@ -216,6 +220,9 @@ def test_original_employee_under_wrong_enterprise_cannot_be_work_owner_for_divis
     )
     assert out["works"]["w1"]["result"] == "NOT_SUBMITTED"
     assert out["resources"]["ra"]["owner"] == "worker"
+    assert out["general_akis_model"]["configuration_dynamics"][
+        "morphological_consequences"
+    ]["scale"]["observed"] == "INTERFIRM_OWNER_SCOPE_CONFLICT"
 
 
 def test_intrafirm_original_role_work_denied_without_form_gate():
