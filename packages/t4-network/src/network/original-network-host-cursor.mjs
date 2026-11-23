@@ -331,13 +331,21 @@ export function createT4OriginalNetworkHostCursorPort({
       receipt.object.revision!==revision||
       receipt?.event?.event_type!==EVENT||
       !ID(receipt?.event?.event_id))
-      fail('HOST_CURSOR_ORIGINAL_RECEIPT_INVALID');
+      fail('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{
+        originalCode:'ORIGINAL_RECEIPT_INVALID',
+        originalWriteMayHaveCommitted:true,automaticRetryAllowed:false,
+        readOriginalObjectAndEventBeforeFurtherAction:true,
+      });
     // Re-verify P2.2-D and the original T3 persisted Event chain.
     await guard(initial,'t1.getObject','postwrite-recovery');
     await recoverT4OriginalNetworkSourceCursor({...recovery,getMode});
     const readback=await readVerified(initial);
     if(readback.revision!==revision||!same(readback.last,desired))
-      fail('HOST_CURSOR_ORIGINAL_POSTWRITE_DIVERGED');
+      fail('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{
+        originalCode:'ORIGINAL_POSTWRITE_DIVERGED',
+        originalWriteMayHaveCommitted:true,automaticRetryAllowed:false,
+        readOriginalObjectAndEventBeforeFurtherAction:true,
+      });
     return frozen({
       schema:'IWXA_T4_ORIGINAL_HOST_ACK_CURSOR_COMMIT_V1',
       state:'ORIGINAL_T3_CAS_COMMITTED',checkpointRef,revision,
