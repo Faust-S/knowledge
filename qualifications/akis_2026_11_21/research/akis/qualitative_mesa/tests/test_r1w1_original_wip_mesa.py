@@ -362,3 +362,97 @@ def test_applied_cooperation_change_since_voting_blocks_wip_transfer():
         "WIP_ORIGINAL_COOPERATION_SOURCE_OR_PARTICIPANTS_CHANGED")
     assert not state.works["w1"].wip_lots
     assert len(state.capacity_ledger.reservations) == 1
+
+
+def strict_wip_case():
+    """Original KPB rights and each independently owned source are declared."""
+    d = wip_case()
+    requirements = [
+        "authorize", "consent", "commit", "start", "wip_interrupt",
+        "wip_propose", "wip_review", "wip_apply", "wip_resume",
+        "complete", "accept",
+    ]
+    sources = []
+    rules = []
+    for action in requirements:
+        name = f"model://op/rights-{action}"
+        sources.append({
+            "id": name, "owner": "op", "revision": "right-r1",
+            "status": "CONFIRMED", "usable_by": ["op", "a", "b", "c"],
+            "valid_until": 60,
+        })
+        rules.append({
+            "work": "w1", "action": action,
+            "sources": [name], "expected_revisions": ["right-r1"],
+        })
+    for owner, names in {
+        "a": ["w1-attempt-1-expense", "ACT-1", "claim-ACT-1", "wip-vote-10"],
+        "b": ["wip-proposal-1", "wip-vote-11", "apply-1"],
+        "c": ["wip-vote-12", "resume-1"],
+    }.items():
+        for name in names:
+            sources.append({
+                "id": f"model://{owner}/{name}", "owner": owner,
+                "revision": "source-r1", "status": "CONFIRMED",
+                "usable_by": [owner], "valid_until": 60,
+            })
+    d["context_evidence"] = {
+        "strict": True, "sources": sources, "requirements": rules,
+    }
+    return d
+
+
+def test_original_kpb_sources_qualify_consent_and_wip_receipt():
+    state = QualitativeAKIS(strict_wip_case())
+    for ev in base_events():
+        result = state.apply(ev, ev["at"])
+        assert result["outcome"] == "APPLIED", result
+    proposed = proposal()
+    result = state.apply(proposed, proposed["at"])
+    assert result["outcome"] == "APPLIED", result
+    digest = state.works["w1"].wip_proposal["fingerprint"]
+    votes(state, digest)
+    assert finish(state, digest)["outcome"] == "APPLIED"
+    assert state.works["w1"].wip_lots[-1]["status"] == "RESERVED"
+    assert submit(state, "wip_resume", 22, "c", work="w1",
+                  source_revision="d-1", org_revision="oc-1",
+                  wip_source_ref="model://c/resume-1")["outcome"] == "APPLIED"
+
+
+def test_original_source_revision_changed_after_votes_blocks_wip_apply():
+    state = QualitativeAKIS(strict_wip_case())
+    for ev in base_events():
+        assert state.apply(ev, ev["at"])["outcome"] == "APPLIED"
+    assert state.apply(proposal(), 9)["outcome"] == "APPLIED"
+    digest = state.works["w1"].wip_proposal["fingerprint"]
+    votes(state, digest)
+    prior = len(state.capacity_ledger.reservations)
+    # The inspection owner revises the source AFTER everyone voted.
+    update = submit(state, "source_update", 13, "a",
+                    source="model://a/ACT-1", status="CONFIRMED",
+                    expected_revision="source-r1", new_revision="source-r2")
+    assert update["outcome"] == "APPLIED", update
+    attempted = finish(state, digest, at=14)
+    assert attempted["reason"] == "WIP_ORIGINAL_EVIDENCE_SOURCE_REVISION_STALE"
+    assert not state.works["w1"].wip_lots
+    assert len(state.capacity_ledger.reservations) == prior
+
+
+def test_original_vote_source_revoked_after_support_blocks_without_rebooking():
+    state = QualitativeAKIS(strict_wip_case())
+    for ev in base_events():
+        assert state.apply(ev, ev["at"])["outcome"] == "APPLIED"
+    assert state.apply(proposal(), 9)["outcome"] == "APPLIED"
+    digest = state.works["w1"].wip_proposal["fingerprint"]
+    votes(state, digest)
+    update = submit(state, "source_update", 13, "c",
+                    source="model://c/wip-vote-12", status="DISPROVED",
+                    expected_revision="source-r1", new_revision="source-r2")
+    assert update["outcome"] == "APPLIED", update
+    result = finish(state, digest, at=14)
+    assert result["reason"] in {
+        "WIP_ORIGINAL_EVIDENCE_SOURCE_UNAVAILABLE",
+        "WIP_ORIGINAL_VOTE_SOURCE_STALE",
+    }
+    assert not state.works["w1"].wip_lots
+    assert len(state.capacity_ledger.reservations) == 1
