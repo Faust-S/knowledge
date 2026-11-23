@@ -88,6 +88,8 @@ def proposal(at=9, decision="TRANSFER", target="rc", terms=None, valid=49,
         wip_slot_start=plan[0] if decision != "TERMINATE" else None,
         wip_slot_end=plan[1] if decision != "TERMINATE" else None,
         wip_capacity_units=1 if decision != "TERMINATE" else None,
+        wip_cooperation_link="net" if decision == "TRANSFER" else None,
+        wip_cooperation_revision="net-r1" if decision == "TRANSFER" else None,
         wip_valid_until=valid, wip_terms=terms or original_terms(),
         **changes,
     )
@@ -327,3 +329,36 @@ def test_real_mesa_scheduler_keeps_one_original_event_trace():
     assert len([r for r in result["trace"] if r["action"] == "wip_apply"]) == 1
     assert len(result["works"]) == 2
     assert simulate(deepcopy(d)) == result
+
+
+def test_transfer_must_name_exact_original_cooperation_and_revision():
+    state, digest = prepare()
+    # A transfer's original link is part of the fingerprinted package.
+    assert state.works["w1"].wip_proposal["cooperation"] == {
+        "id": "net", "revision": "net-r1", "source_ref": "model://net/source",
+    }
+    wrong = QualitativeAKIS(wip_case())
+    for ev in base_events():
+        assert wrong.apply(ev, ev["at"])["outcome"] == "APPLIED"
+    missing = proposal()
+    missing.pop("wip_cooperation_link")
+    assert wrong.apply(missing, 9)["reason"] == (
+        "WIP_ORIGINAL_COOPERATION_REVISION_REQUIRED")
+    stale = proposal()
+    stale["wip_cooperation_revision"] = "net-r0"
+    assert wrong.apply(stale, 9)["reason"] == (
+        "WIP_ORIGINAL_COOPERATION_SOURCE_OR_PARTICIPANTS_CHANGED")
+
+
+def test_applied_cooperation_change_since_voting_blocks_wip_transfer():
+    from dataclasses import replace
+    state, digest = prepare()
+    votes(state, digest)
+    relation = state.cooperation_links[0]
+    # Represent a new original relation source edition observed after votes.
+    state.cooperation_links = (replace(relation, source_revision="net-r2"),)
+    result = finish(state, digest)
+    assert result["reason"] == (
+        "WIP_ORIGINAL_COOPERATION_SOURCE_OR_PARTICIPANTS_CHANGED")
+    assert not state.works["w1"].wip_lots
+    assert len(state.capacity_ledger.reservations) == 1
