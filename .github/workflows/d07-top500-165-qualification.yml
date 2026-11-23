@@ -17,14 +17,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 1ffc650cc83398618daf484a645e2591b81300b3
+          ref: bcd1599c8816fa562de95fba1070f6b64cc6ce1e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: domain
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: b4be19b38c0e760a8b331b2ee66ff8e1f5f40b95
+          ref: 3f932dc0afe25173ffe7880a381dc1f8ad2ebc51
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -37,8 +37,8 @@ jobs:
       - name: Verify exact HEADs and domain parity
         shell: bash
         run: |
-          test "$(git -C domain rev-parse HEAD)" = "1ffc650cc83398618daf484a645e2591b81300b3"
-          test "$(git -C site rev-parse HEAD)" = "b4be19b38c0e760a8b331b2ee66ff8e1f5f40b95"
+          test "$(git -C domain rev-parse HEAD)" = "bcd1599c8816fa562de95fba1070f6b64cc6ce1e"
+          test "$(git -C site rev-parse HEAD)" = "3f932dc0afe25173ffe7880a381dc1f8ad2ebc51"
           for f in service-subject-protocols.ts service-subject-next500-batch-j1.ts service-subject-next500-batch-j2.ts service-subject-next500-batch-j3.ts service-subject-next500-batch-j4.ts service-subject-next500-batch-j5.ts service-subject-next500-batch-k1.ts service-subject-next500-batch-k2.ts service-subject-next500-batch-k3.ts service-subject-next500-batch-k4.ts service-subject-next500-batch-k5.ts service-subject-next500-batch-l1.ts service-subject-next500-batch-l2.ts service-subject-next500-batch-l4.ts service-subject-next500-batch-l6.ts service-subject-next500-batch-l7.ts service-subject-next500-batch-m1.ts service-subject-next500-batch-m2.ts service-subject-next500-batch-m3.ts service-subject-next500-batch-m5.ts service-subject-next500-batch-m6.ts; do
             cmp "domain/src/domain/$f" "site/src/domain/$f" || exit 2
           done
@@ -96,7 +96,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: b4be19b38c0e760a8b331b2ee66ff8e1f5f40b95
+          ref: 3f932dc0afe25173ffe7880a381dc1f8ad2ebc51
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
