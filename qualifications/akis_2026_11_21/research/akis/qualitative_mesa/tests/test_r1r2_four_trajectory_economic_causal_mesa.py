@@ -219,3 +219,39 @@ def test_comparator_rejects_retroactive_fabricated_prior_result():
         compare_original_trajectories(
             scenarios, altered, pilot_work="w1", next_work="w2",
         )
+
+
+def test_independent_model_preference_alone_never_signs_legal_consent():
+    base = original_four_trajectory_inputs()["accepted_cooperation"]
+    changed = deepcopy(base)
+    next(
+        row for row in changed["decision_profiles"]
+        if row["subject"] == "b"
+    )["outside_option"] = "OUTSIDE_PREFERRED"
+    normal, outside = simulate(base), simulate(changed)
+    # The operator cannot silently alter the original event stream after a
+    # research-only principal's outside preference changes.
+    assert normal["trace"] == outside["trace"]
+    assert normal["works"]["w2"] == outside["works"]["w2"]
+    assert normal["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert len(normal["trace"]) == len(base["events"])
+    assert len(outside["trace"]) == len(changed["events"])
+    assert all(
+        row.get("original_event_created") is not True
+        for row in outside["endogenous_subjects"]["read_only_evolution"]
+    )
+
+
+def test_unwitnessed_fabricated_acceptance_is_rejected_by_scientific_comparator():
+    scenarios, outputs, _ = original_four_trajectory_run()
+    forged = deepcopy(outputs)
+    forged["independent_refusal"]["works"]["w2"][
+        "result"
+    ] = "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    with pytest.raises(
+        TrajectoryComparisonError,
+        match="COMPARATIVE_ACCEPTED_RESULT_LACKS_ORIGINAL_EVENT_PROOF",
+    ):
+        compare_original_trajectories(
+            scenarios, forged, pilot_work="w1", next_work="w2",
+        )
