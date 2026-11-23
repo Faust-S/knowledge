@@ -255,7 +255,8 @@ def _material_rows(material: Any) -> list[dict[str, Any]]:
 
 def _batch_inspections(state: Any, work: Any, raw: Any,
                        material: list[dict[str, Any]],
-                       summary: Mapping[str, Any], owner: str) -> list[dict[str, Any]]:
+                       summary: Mapping[str, Any], owner: str,
+                       *, quality_revision: bool = False) -> list[dict[str, Any]]:
     """Bind separately inspected quantities to one economic amendment."""
     if not isinstance(raw, list) or len(raw) != len(material):
         _fail("WIP_MULTI_BATCH_INSPECTIONS_REQUIRED")
@@ -280,7 +281,13 @@ def _batch_inspections(state: Any, work: Any, raw: Any,
                              and x.get("material_batch") == row["batch"]), None)
             if previous is None:
                 _fail("WIP_MULTI_BATCH_PREVIOUS_ATTEMPT_REQUIRED")
-            expected = previous["remaining_units"]
+            expected = (previous["total_units"] if quality_revision
+                        else previous["remaining_units"])
+            if quality_revision and (
+                    previous.get("observed_accepted_units") is None or
+                    usable != previous["observed_accepted_units"] or
+                    produced != previous["produced_units"]):
+                _fail("WIP_QUALITY_REVISION_MUST_MATCH_RECORDED_RECEIPT")
         if quantity != expected:
             _fail("WIP_MULTI_BATCH_ORIGINAL_QUANTITY_CHANGED")
         ref = _source(row["inspection_ref"], owner,
@@ -316,11 +323,15 @@ def fingerprint(document: Mapping[str, Any]) -> str:
 
 
 def _lot(state: Any, work: Any, raw: Any, prior: Mapping[str, Any],
-         decision: str) -> dict[str, Any]:
+         decision: str, *, quality_revision: bool = False) -> dict[str, Any]:
     terms = _exact(raw, TERMS, "WIP_ORIGINAL_INSPECTION_FIELDS_REQUIRED")
     total = _qty(terms["total_units"], "WIP_TOTAL_UNITS_REQUIRED", minimum=1)
-    if work.wip_amendments and total != work.wip_amendments[-1]["lot"]["remaining_units"]:
+    if (work.wip_amendments and not quality_revision and
+            total != work.wip_amendments[-1]["lot"]["remaining_units"]):
         _fail("WIP_LATEST_ATTEMPT_QUANTITY_MISMATCH")
+    if (quality_revision and work.wip_amendments and
+            total != work.wip_amendments[-1]["lot"]["total_units"]):
+        _fail("WIP_QUALITY_REVISION_MUST_PRESERVE_INSPECTED_TOTAL")
     produced = _qty(terms["produced_units"], "WIP_PRODUCED_UNITS_INVALID")
     usable = _qty(terms["usable_units"], "WIP_USABLE_UNITS_INVALID")
     if not 0 <= usable <= produced <= total or usable == total:
@@ -673,15 +684,25 @@ def apply(state: Any, work: Any, ev: Mapping[str, Any], at: int) -> dict[str, An
                 _fail("WIP_MATERIAL_RECEIPT_AND_RECEIVER_QUALITY_REQUIRED")
             accepted = _qty(ev.get("wip_accepted_units"),
                             "WIP_QUALITY_ACCEPTED_UNITS_REQUIRED")
+            if accepted > lot["total_units"]:
+                _fail("WIP_QUALITY_EXCEEDS_INSPECTED_BATCH")
             if accepted != lot["usable_units"]:
-                _fail("WIP_REVISED_MATERIAL_QUALITY_REQUIRES_NEW_CONSENT")
-            lot["custody_state"] = "QUALITY_ACCEPTED"
+                if latest.get("batch_inspections") is None:
+                    _fail("WIP_REVISED_MATERIAL_QUALITY_REQUIRES_NEW_CONSENT")
+                # Preserve the independently observed contradiction instead
+                # of discarding it as BLOCKED. The original amendment cannot
+                # be resumed or overwritten with a later optimistic report.
+                lot["custody_state"] = "QUALITY_REVIEW_REQUIRED"
+            else:
+                lot["custody_state"] = "QUALITY_ACCEPTED"
             lot["custody_quality_ref"] = source
+            lot["observed_accepted_units"] = accepted
         return {
             "wip_phase": lot["custody_state"], "wip_id": latest["id"],
             "wip_operation": op.key, "wip_material_batch": lot["material_batch"],
             "title_not_transferred": True,
             "external_delivery_not_authenticated": True,
+            "quality_revision_required": lot["custody_state"] == "QUALITY_REVIEW_REQUIRED",
         }
     if action == "wip_cancel":
         if proposal is None or actor != work.customer:
