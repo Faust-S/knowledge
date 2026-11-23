@@ -65,9 +65,12 @@ function canonical(value,depth=0){
     const proto=Object.getPrototypeOf(value);
     if(proto!==Object.prototype&&proto!==null)fail('WIRE_OBJECT_INVALID');
     const keys=Object.keys(value);
-    if(keys.length>48||keys.some(k=>[
-      '__proto__','prototype','constructor'
-    ].includes(k)||!unicodeOK(k)))fail('WIRE_OBJECT_KEYS_INVALID');
+    // ASCII-only property names avoid Unicode key ordering differences
+    // between independent JavaScript (UTF-16) and Python runtimes.
+    if(keys.length>48||keys.some(k=>
+      !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(k)||
+      ['__proto__','prototype','constructor'].includes(k)
+    ))fail('WIRE_OBJECT_KEYS_INVALID');
     const out={};
     for(const k of keys.sort())out[k]=canonical(value[k],depth+1);
     return out;
