@@ -1981,6 +1981,10 @@ class QualitativeAKIS:
                 raise BlockedDecision("RESOURCE_CALENDAR_CHANGED_AFTER_COMMIT", at_risk_resource)
             w.execution = "IN_PROGRESS"
         elif a in {"handoff_dispatch", "handoff_receive", "handoff_quality"}:
+            if a == "handoff_dispatch" and any(
+                    row["operation"] == ev.get("from_operation")
+                    for row in w.assurance_responsibilities.values()):
+                assert_assurance_responsibility_current(self, w, at)
             self._handoff_action(w, ev)
         elif a in {"start_operation", "complete_operation"}:
             if not w.operations:
@@ -2020,6 +2024,9 @@ class QualitativeAKIS:
             else:
                 if w.execution != "IN_PROGRESS" or w.operation_states[op.key] != "IN_PROGRESS":
                     raise BlockedDecision("OPERATION_NOT_IN_PROGRESS")
+                if any(row["operation"] == op.key
+                       for row in w.assurance_responsibilities.values()):
+                    assert_assurance_responsibility_current(self, w, at)
                 ref = ev.get("result_ref")
                 if (not isinstance(ref, str) or not ref.startswith("model://") or
                         len(ref) > 180 or ref in w.operation_evidence.values() or
