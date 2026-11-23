@@ -1977,7 +1977,7 @@ class QualitativeAKIS:
                 raise BlockedDecision("ORIGINAL_OPERATION_PERFORMER_REQUIRED")
             if a == "start_operation":
                 if (w.obligation != "ACCEPTED_BY_ORIGINAL_PRINCIPALS" or
-                        w.execution not in {"NOT_STARTED", "IN_PROGRESS"} or
+                        w.execution not in {"NOT_STARTED", "IN_PROGRESS", "PAUSED"} or
                         w.operation_states[op.key] != "NOT_STARTED"):
                     raise BlockedDecision("OPERATION_START_STATE_INVALID")
                 prerequisite = readiness(self.works, w.key)
@@ -2008,6 +2008,12 @@ class QualitativeAKIS:
                     raise BlockedDecision("NEW_MODEL_ONLY_OPERATION_EVIDENCE_REQUIRED")
                 w.operation_states[op.key] = "COMPLETED"
                 w.operation_evidence[op.key] = ref
+                # When the last active parallel branch finishes, preserve
+                # the unfinished operation's pause instead of reporting an
+                # actively executing Work.
+                if ("PAUSED" in w.operation_states.values() and
+                        "IN_PROGRESS" not in w.operation_states.values()):
+                    w.execution = "PAUSED"
         elif a == "assess_result_quality":
             # The customer alone can record an independent modeled inspection
             # of the current submitted Result. This is neither acceptance
