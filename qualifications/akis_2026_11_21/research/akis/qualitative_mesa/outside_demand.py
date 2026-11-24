@@ -743,3 +743,164 @@ def assess_original_buyer_offer_response(
     if response.get("outside_buyer_response_decision") != "WILLING_TO_NEGOTIATE":
         return "OUTSIDE_BUYER_RESPONSE_DECISION_INVALID"
     return None
+
+
+_OUTSIDE_WORK_ORIGIN_FIELDS = frozenset({
+    "outside_demand_id", "outside_offer_id", "outside_buyer_response_id",
+})
+
+
+def qualify_original_outside_work_origin(
+    state: Any, work: Any, binding: Any, at: int,
+) -> dict[str, str]:
+    """Validate provenance for one ordinary Work requested by its buyer.
+
+    No Work, resource reservation, legal consent, payment or second store is
+    created here. The ORIGINAL request and commitment paths remain responsible
+    for those model transitions. For this single-resource comparison the
+    quality-basis identifier must be represented in original Work assurance.
+    """
+    if (not isinstance(binding, Mapping)
+            or set(binding) != _OUTSIDE_WORK_ORIGIN_FIELDS
+            or any(not _identifier(value) for value in binding.values())):
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGIN_FIELDS_REQUIRED")
+    if type(at) is not int or not 0 <= at <= 10000:
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGIN_TIME_INVALID")
+    demand_id = binding["outside_demand_id"]
+    offer_id = binding["outside_offer_id"]
+    response_id = binding["outside_buyer_response_id"]
+    origins = [
+        row for row in state.trace
+        if row.get("action") == "request"
+        and row.get("outcome") == "APPLIED"
+        and isinstance(row.get("outside_work_origin"), Mapping)
+        and row.get("work") != work.key
+        and row["outside_work_origin"].get("outside_demand_id") == demand_id
+    ]
+    if origins:
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_DEMAND_ALREADY_USED")
+
+    def original(action: str, field: str, value: str) -> Mapping[str, Any]:
+        rows = [
+            row for row in state.trace
+            if row.get("action") == action and row.get("outcome") == "APPLIED"
+            and row.get(field) == value
+        ]
+        if len(rows) != 1:
+            raise OutsideDemandBlocked("OUTSIDE_WORK_THREE_ORIGINAL_EVENTS_REQUIRED")
+        return rows[0]
+
+    demand = original("outside_demand_signal", "outside_demand_id", demand_id)
+    offer = original("outside_supplier_offer", "outside_offer_id", offer_id)
+    response = original(
+        "outside_buyer_offer_response", "outside_buyer_response_id", response_id
+    )
+    buyer = work.customer
+    seller = state.resources.get(work.resource)
+    buyer_party = state.subjects.get(buyer)
+    seller_party = state.subjects.get(seller)
+    if (
+        buyer_party is None or seller_party is None
+        or not buyer_party.active or not seller_party.active or buyer == seller
+        or buyer_party.kind not in _INDEPENDENT_BUYER_KINDS
+        or demand.get("actor") != buyer
+        or demand.get("outside_supplier") != seller
+        or offer.get("actor") != seller
+        or offer.get("outside_offer_buyer") != buyer
+        or offer.get("outside_demand_id") != demand_id
+        or response.get("actor") != buyer
+        or response.get("outside_offer_id") != offer_id
+        or response.get("outside_demand_id") != demand_id
+        or response.get("outside_offer_source_revision")
+            != offer.get("outside_offer_source_revision")
+    ):
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_INDEPENDENT_PARTIES_REQUIRED")
+    buyer_core = original_owner_economic_core(buyer_party.kind)
+    seller_core = original_owner_economic_core(seller_party.kind)
+    context = state.context_basis
+    if buyer_core is None or seller_core is None or context is None:
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_KPB_REQUIRED")
+    # All three current read scopes precede any use of their private terms.
+    try:
+        context.assert_original_independent_outside_demand_source(
+            buyer, demand["outside_demand_source_ref"],
+            demand["outside_demand_source_revision"],
+            core=buyer_core, recipient=seller, at=at,
+        )
+        context.assert_original_independent_supplier_offer_source(
+            seller, offer["outside_offer_source_ref"],
+            offer["outside_offer_source_revision"],
+            core=seller_core, buyer=buyer, at=at,
+        )
+        context.assert_original_independent_outside_demand_source(
+            buyer, response["outside_buyer_response_source_ref"],
+            response["outside_buyer_response_source_revision"],
+            core=buyer_core, recipient=seller, at=at,
+        )
+    except ContextBlocked as exc:
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_SOURCE_NOT_CURRENT") from exc
+    if not (
+        demand["at"] < offer["at"] < response["at"] < at
+        < min(
+            demand["outside_demand_valid_until"],
+            offer["outside_offer_valid_until"],
+            response["outside_buyer_response_valid_until"],
+        )
+    ):
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_INTENT_NOT_CURRENT")
+    candidate = state.works.get(demand["outside_candidate_work"])
+    relation = next((
+        link for link in state.cooperation_links
+        if link.key == demand["outside_relation"]
+        and link.source_revision == demand["outside_relation_revision"]
+    ), None)
+    if (
+        candidate is None or candidate.key == work.key or relation is None
+        or candidate.key not in relation.works
+        or candidate.source_revision != demand["outside_work_revision"]
+        or (candidate.slot_start, candidate.slot_end)
+            != (work.slot_start, work.slot_end)
+    ):
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_COMPARISON_BASIS_REQUIRED")
+    needs = tuple((need.resource, need.units) for need in work.resource_requirements)
+    if needs != ((work.resource, offer["outside_offer_units"]),):
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_RESOURCE_QUANTITY_MISMATCH")
+    probe = (work.resource, needs[0][1], work.slot_start, work.slot_end)
+    price = Decimal(offer["outside_offer_price"])
+    currency = offer["outside_offer_currency"]
+    deliverable = offer["outside_offer_deliverable"]
+    quality_basis = offer["outside_offer_quality_basis"]
+    for reason in (
+        assess_original_independent_outside_demand(
+            demand=(demand_id, deliverable, quality_basis), owner=seller,
+            work=candidate, relation=relation.key,
+            relation_revision=relation.source_revision, probe=probe,
+            outside_external_sales=price, currency=currency,
+            trace=state.trace, subjects=state.subjects,
+            links=state.cooperation_links, context_basis=context, at=at,
+        ),
+        assess_original_outside_supplier_offer(
+            offer_id=offer_id, demand_id=demand_id, owner=seller, buyer=buyer,
+            trace=state.trace, subjects=state.subjects, context_basis=context,
+            price=price, currency=currency, probe=probe,
+            deliverable=deliverable, quality_basis=quality_basis, at=at,
+        ),
+        assess_original_buyer_offer_response(
+            response_id=response_id, offer_id=offer_id, demand_id=demand_id,
+            buyer=buyer, seller=seller, trace=state.trace,
+            subjects=state.subjects, context_basis=context, at=at,
+        ),
+    ):
+        if reason is not None:
+            raise OutsideDemandBlocked(reason)
+    if not any(
+        criterion.key == quality_basis
+        and criterion.assessor == buyer
+        and criterion.responsible_owner == seller
+        and criterion.source_ref == demand["outside_demand_source_ref"]
+        for criterion in work.assurance_criteria
+    ):
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_BUYER_QUALITY_BASIS_REQUIRED")
+    # IDs identify existing original events; no financial values or new
+    # executable authority are added to the request.
+    return {key: binding[key] for key in sorted(_OUTSIDE_WORK_ORIGIN_FIELDS)}
