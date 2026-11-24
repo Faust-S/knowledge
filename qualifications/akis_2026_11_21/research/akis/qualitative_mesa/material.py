@@ -6,7 +6,7 @@ No material store, title registry, scheduler, or second Result is created.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 import re
@@ -16,6 +16,7 @@ from .handoff import Handoff
 
 _AMOUNT = re.compile(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,6})?\Z")
 MAX_BATCHES = 128  # input bound, not a physical model assumption
+MAX_MATERIAL_ROUNDS = 16  # bounded research input, not a physical constraint
 
 
 class MaterialInputError(ValueError):
@@ -71,6 +72,34 @@ class MaterialState:
     dispatch_report: dict[str, Any] | None = None
     receipt_report: dict[str, Any] | None = None
     quality_report: dict[str, Any] | None = None
+    replenishment_source_ref: str | None = None
+    previous_rounds: list[dict[str, Any]] = field(default_factory=list)
+
+    def current_round(self) -> dict[str, Any]:
+        return {key: getattr(self, key) for key in (
+            "dispatched", "received", "accepted", "rejected",
+            "dispatch_ref", "receipt_ref", "quality_ref",
+            "dispatch_report", "receipt_report", "quality_report",
+            "replenishment_source_ref")}
+
+    def all_rounds(self) -> list[dict[str, Any]]:
+        return [*self.previous_rounds, self.current_round()]
+
+    def observed_total(self, field_name: str) -> Decimal | None:
+        known = [row[field_name] for row in self.all_rounds()
+                 if row[field_name] is not None]
+        return sum(known, Decimal(0)) if known else None
+
+    def archive_for_replenishment(self) -> None:
+        # Called only after the entire original edge has been validated.
+        self.previous_rounds.append(self.current_round())
+        for key in self.current_round():
+            setattr(self, key, None)
+
+    def evidence_references(self) -> set[str]:
+        return {row[key] for row in self.all_rounds()
+                for key in ("dispatch_ref", "receipt_ref", "quality_ref",
+                            "replenishment_source_ref") if row[key] is not None}
 
 
 def parse_batches(raw: Any, handoffs: Sequence[Handoff],
@@ -130,7 +159,8 @@ def parse_batches(raw: Any, handoffs: Sequence[Handoff],
 
 
 def quantities(raw: Any, batches: Sequence[MaterialBatch], edge: tuple[str, str],
-               states: Mapping[str, MaterialState], *, dispatch: bool) -> dict[str, Decimal]:
+               states: Mapping[str, MaterialState], *, dispatch: bool,
+               replenishment: bool = False) -> dict[str, Decimal]:
     """Check all lots on one edge atomically, without changing their state."""
     eligible = {b.key: b for b in batches if b.edge == edge}
     if not isinstance(raw, list) or len(raw) != len(eligible):
@@ -142,13 +172,18 @@ def quantities(raw: Any, batches: Sequence[MaterialBatch], edge: tuple[str, str]
         key = item["batch"]
         if not isinstance(key, str) or key not in eligible or key in got:
             raise MaterialBlocked("MATERIAL_BATCH_MISMATCH")
-        q = amount(item["quantity"], reason="INVALID_MATERIAL_QUANTITY", allow_zero=not dispatch)
+        q = amount(item["quantity"], reason="INVALID_MATERIAL_QUANTITY",
+                   allow_zero=not dispatch or replenishment)
         maximum = eligible[key].planned_quantity if dispatch else states[key].dispatched
+        if dispatch and replenishment:
+            maximum -= states[key].observed_total("accepted") or Decimal(0)
         if maximum is None or q > maximum:
             raise MaterialBlocked("MATERIAL_QUANTITY_EXCEEDS_DECLARATION")
         got[key] = q
     if got.keys() != eligible.keys():
         raise MaterialBlocked("MATERIAL_BATCH_MISMATCH")
+    if replenishment and dispatch and not any(got.values()):
+        raise MaterialBlocked("MATERIAL_REPLENISHMENT_POSITIVE_SHORTFALL_REQUIRED")
     return got
 
 
@@ -190,11 +225,11 @@ def assert_inbound_ready(batches: Sequence[MaterialBatch], states: Mapping[str, 
         if batch.edge[1] != operation:
             continue
         state = states[batch.key]
-        if state.received is None or state.received < batch.planned_quantity:
+        if state.received is None or (state.observed_total("received") or Decimal(0)) < batch.planned_quantity:
             raise MaterialBlocked("MATERIAL_QUANTITY_SHORT")
         if state.accepted is None:
             raise MaterialBlocked("MATERIAL_QUALITY_NOT_ASSESSED")
-        if state.accepted < batch.planned_quantity:
+        if (state.observed_total("accepted") or Decimal(0)) < batch.planned_quantity:
             raise MaterialBlocked("MATERIAL_QUALITY_INSUFFICIENT")
 
 
@@ -203,18 +238,35 @@ def material_view(batches: Sequence[MaterialBatch], states: Mapping[str, Materia
     rows: list[dict[str, Any]] = []
     for batch in batches:
         state = states[batch.key]
-        delta_transit = (state.dispatched - state.received
+        dispatched = state.observed_total("dispatched")
+        received = state.observed_total("received")
+        accepted = state.observed_total("accepted")
+        rejected = state.observed_total("rejected")
+        delta_transit = (dispatched - received
                          if state.dispatched is not None and state.received is not None else None)
-        unqualified = (state.received - state.accepted - state.rejected
+        unqualified = (received - accepted - rejected
                        if state.received is not None and state.accepted is not None and state.rejected is not None
                        else None)
+        round_view = {}
+        if state.previous_rounds:
+            def serialize_round(row):
+                return {key: str(value) if isinstance(value, Decimal) else value
+                        for key, value in row.items()}
+            round_view = {
+                "material_round_count": len(state.previous_rounds)+1,
+                "original_material_rounds": [dict(round=index+1, **serialize_round(row))
+                                             for index, row in enumerate(state.all_rounds())],
+                "current_round_quality_complete": state.quality_ref is not None,
+                "totals_are_cumulative_observed_claims_not_physical_inventory": True,
+                "rejected_and_unreceived_quantities_not_converted_into_accepted": True,
+            }
         rows.append({
             "batch": batch.key, "edge": list(batch.edge), "material_id": batch.material,
             "unit": batch.unit, "planned_quantity": str(batch.planned_quantity),
-            "dispatched_quantity": str(state.dispatched) if state.dispatched is not None else None,
-            "received_quantity": str(state.received) if state.received is not None else None,
-            "accepted_quantity": str(state.accepted) if state.accepted is not None else None,
-            "rejected_quantity": str(state.rejected) if state.rejected is not None else None,
+            "dispatched_quantity": str(dispatched) if dispatched is not None else None,
+            "received_quantity": str(received) if received is not None else None,
+            "accepted_quantity": str(accepted) if accepted is not None else None,
+            "rejected_quantity": str(rejected) if rejected is not None else None,
             "unreceived_quantity": str(delta_transit) if delta_transit is not None else None,
             "unassessed_quantity": str(unqualified) if unqualified is not None else None,
             "declared_title_holder": batch.declared_title_holder,
@@ -225,7 +277,8 @@ def material_view(batches: Sequence[MaterialBatch], states: Mapping[str, Materia
             "dispatch_report": state.dispatch_report, "receipt_report": state.receipt_report,
             "quality_report": state.quality_report,
             "readiness": ("ACCEPTED_MODEL_CLAIM" if state.accepted is not None and
-                          state.accepted == batch.planned_quantity else "NOT_QUALIFIED"),
+                          accepted == batch.planned_quantity else "NOT_QUALIFIED"),
+            **round_view,
         })
     return {"evidence": "MODEL_ONLY", "physical_proof": "NOT_AUTHENTICATED",
             "reported_actual_time": "EXTERNAL_CLAIM_UNVERIFIED_WHEN_SUPPLIED",

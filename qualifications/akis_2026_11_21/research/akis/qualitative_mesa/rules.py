@@ -44,7 +44,7 @@ from .affiliation import AffiliationBlocked, qualify_affiliation_transfer
 from .handoff import Handoff, HandoffInputError, declare_handoffs, handoffs_view
 from .material import (MaterialBatch, MaterialState, MaterialInputError, MaterialBlocked,
     parse_batches, quantities, amount, event_report, assert_reported_order,
-    assert_inbound_ready, material_view)
+    assert_inbound_ready, material_view, MAX_MATERIAL_ROUNDS)
 from .portfolio import (
     PortfolioInputError, parse_dependencies, validate_dependency_graph,
     readiness, portfolio_view,
@@ -387,7 +387,7 @@ class QualitativeAKIS:
             raise InputError("INVALID_EVENT_COUNT")
         last = -1
         for ev in events:
-            _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
+            _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "material_replenishment_round", "material_replenishment_source_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
              "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "preparation_mode", "preparation_diagnostic", "preparation_pattern", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "evaluation_economic_source_revision", "evaluation_economic_outside_basis", "evaluation_economic_portfolio", "evaluation_economic_recipient_value", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
              "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until", "entry_change_id", "entry_assessment_source_ref",
              "model_code_change_id", "model_code_source_ref", "model_code_decision",
@@ -467,6 +467,11 @@ class QualitativeAKIS:
                     or ("outside_buyer_response_installments" in ev
                         and ev["action"] != "outside_buyer_offer_response")):
                 raise InputError("OUTSIDE_INSTALLMENT_FIELDS_REQUIRE_ORIGINAL_PARTY_ACTION")
+            if (("material_replenishment_round" in ev and ev["action"] not in
+                 {"handoff_dispatch", "handoff_receive", "handoff_quality"})
+                    or ("material_replenishment_source_ref" in ev and
+                        (ev["action"] != "handoff_dispatch" or "material_replenishment_round" not in ev))):
+                raise InputError("MATERIAL_REPLENISHMENT_REQUIRES_ORIGINAL_HANDOFF_ACTION")
             if "preparation_mode" in ev and (
                     ev["action"] != "function_prepare"
                     or ev["preparation_mode"] not in ("S0", "S1", "S2")):
@@ -1255,6 +1260,10 @@ class QualitativeAKIS:
                 report["material_quantities"] = ev["material_quantities"]
             if "quality_quantities" in ev:
                 report["quality_quantities"] = ev["quality_quantities"]
+            if report["outcome"] == "APPLIED" and "material_replenishment_round" in ev:
+                report["material_replenishment_round"] = ev["material_replenishment_round"]
+                if action == "handoff_dispatch":
+                    report["material_replenishment_source_ref"] = ev["material_replenishment_source_ref"]
             if "reported_actual_at" in ev:
                 report["reported_actual_at"] = ev["reported_actual_at"]
                 report["reported_actual_source"] = "EXTERNAL_CLAIM_UNVERIFIED"
@@ -2262,8 +2271,7 @@ class QualitativeAKIS:
     @staticmethod
     def _handoff_references(w: Work) -> set[str]:
         return ({ref for entry in w.handoff_evidence.values() for ref in entry.values()} |
-                {ref for st in w.material_states.values()
-                 for ref in (st.dispatch_ref, st.receipt_ref, st.quality_ref) if ref is not None})
+                {ref for st in w.material_states.values() for ref in st.evidence_references()})
 
     def _handoff_action(self, w: Work, ev: dict[str, Any]) -> None:
         if not self.handoff_strict or not w.operations:
@@ -2281,6 +2289,23 @@ class QualitativeAKIS:
         action = ev["action"]
         status = w.handoff_states[edge]
         actor = ev["actor"]
+        edge_batches = [batch for batch in w.material_batches if batch.edge == edge]
+        current_round = (len(w.material_states[edge_batches[0].key].previous_rounds)+1
+                         if edge_batches else 1)
+        requested_round = ev.get("material_replenishment_round")
+        source_ref = ev.get("material_replenishment_source_ref")
+        has_round = "material_replenishment_round" in ev
+        has_source = "material_replenishment_source_ref" in ev
+        replenishment = action == "handoff_dispatch" and has_round
+        if has_round or has_source:
+            if (not self.material_strict or not edge_batches
+                    or type(requested_round) is not int
+                    or not 2 <= requested_round <= MAX_MATERIAL_ROUNDS):
+                raise MaterialBlocked("MATERIAL_REPLENISHMENT_ROUND_INVALID")
+        if not replenishment:
+            expected_round = current_round if current_round > 1 else None
+            if requested_round != expected_round or has_source:
+                raise MaterialBlocked("MATERIAL_REPLENISHMENT_CURRENT_ROUND_REQUIRED")
         if action == "handoff_quality":
             if not self.material_strict or not w.material_batches:
                 raise BlockedDecision("MATERIAL_NOT_CONFIGURED")
@@ -2295,7 +2320,21 @@ class QualitativeAKIS:
                 raise BlockedDecision("HANDOFF_ORIGINAL_SENDER_REQUIRED")
             if w.operation_states[handoff.upstream] != "COMPLETED":
                 raise BlockedDecision("HANDOFF_PREDECESSOR_INCOMPLETE")
-            if status != "NOT_DISPATCHED":
+            if replenishment:
+                if (status != "RECEIVED" or requested_round != current_round+1
+                        or w.operation_states[handoff.downstream] != "NOT_STARTED"
+                        or any(w.material_states[b.key].quality_ref is None for b in edge_batches)
+                        or not any((w.material_states[b.key].observed_total("accepted") or 0)
+                                   < b.planned_quantity for b in edge_batches)):
+                    raise MaterialBlocked("MATERIAL_REPLENISHMENT_QUALIFIED_SHORTFALL_REQUIRED")
+                if (not isinstance(source_ref, str) or not source_ref.startswith(f"model://{actor}/")
+                        or len(source_ref) <= len(f"model://{actor}/") or len(source_ref) > 180
+                        or source_ref in self._handoff_references(w)
+                        or source_ref in {b.origin_ref for b in w.material_batches}
+                        or source_ref in w.operation_evidence.values()
+                        or source_ref == ev.get("result_ref") or source_ref == w.result_ref):
+                    raise MaterialBlocked("MATERIAL_REPLENISHMENT_NEW_ORIGINAL_SENDER_SOURCE_REQUIRED")
+            elif status != "NOT_DISPATCHED":
                 raise BlockedDecision("HANDOFF_DISPATCH_ALREADY_DECLARED")
         else:
             if actor != handoff.receiver:
@@ -2310,7 +2349,6 @@ class QualitativeAKIS:
                 ref in self._handoff_references(w) or ref == w.result_ref):
             raise BlockedDecision("NEW_MODEL_ONLY_HANDOFF_EVIDENCE_REQUIRED")
         if self.material_strict:
-            edge_batches = [batch for batch in w.material_batches if batch.edge == edge]
             if action == "handoff_quality":
                 raw = ev.get("quality_quantities")
                 if not isinstance(raw, list) or len(raw) != len(edge_batches):
@@ -2320,6 +2358,8 @@ class QualitativeAKIS:
                     if not isinstance(entry, dict) or set(entry) != {"batch", "accepted", "rejected"}:
                         raise MaterialBlocked("INVALID_MATERIAL_QUALITY_CLAIM")
                     key = entry["batch"]
+                    if not isinstance(key, str):
+                        raise MaterialBlocked("MATERIAL_BATCH_MISMATCH")
                     batch = next((b for b in edge_batches if b.key == key), None)
                     if batch is None or key in pending:
                         raise MaterialBlocked("MATERIAL_BATCH_MISMATCH")
@@ -2343,8 +2383,17 @@ class QualitativeAKIS:
                 return
             pending_quantities = quantities(ev.get("material_quantities"),
                                              w.material_batches, edge, w.material_states,
-                                             dispatch=action == "handoff_dispatch")
+                                             dispatch=action == "handoff_dispatch",
+                                             replenishment=replenishment)
             report = event_report(ev)
+            if replenishment:
+                # The old round is retained and cannot be reclassified.
+                # Validate every lot before archiving any of them.
+                for key in pending_quantities:
+                    assert_reported_order(w.material_states[key].quality_report, report)
+                for key in pending_quantities:
+                    w.material_states[key].archive_for_replenishment()
+                    w.material_states[key].replenishment_source_ref = source_ref
             if action == "handoff_receive":
                 for key in pending_quantities:
                     assert_reported_order(w.material_states[key].dispatch_report, report)

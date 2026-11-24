@@ -1277,6 +1277,7 @@ def _qualified_activity_efficiency(
         "precommit_resource_cost": zero, "rework_resource_cost": zero,
         "rework_cost_record_count": 0,
         "resource_restoration_cost": zero, "resource_restoration_cost_count": 0,
+        "supplementary_handoff_resource_cost": zero, "supplementary_handoff_cost_count": 0,
     } for key in work_values}
     internal_turnover = zero
     for key, value in work_values.items():
@@ -1325,6 +1326,11 @@ def _qualified_activity_efficiency(
         if anchors[rid]["action"] == "resource_status":
             per_work[key]["resource_restoration_cost"] += value
             per_work[key]["resource_restoration_cost_count"] += 1
+        anchor = state.trace[anchors[rid]["trace_position"]]
+        if (anchor.get("action") in {"handoff_dispatch", "handoff_receive", "handoff_quality"}
+                and anchor.get("material_replenishment_round", 1) > 1):
+            per_work[key]["supplementary_handoff_resource_cost"] += value
+            per_work[key]["supplementary_handoff_cost_count"] += 1
 
     def summarize(external_in, external_out, resource_cost, value):
         cost = external_out + resource_cost
@@ -1370,7 +1376,54 @@ def _qualified_activity_efficiency(
             if rejects or resubmits or negative else
             "NO_ORIGINAL_FAILURE_SIGNAL_OR_REWORK_COST_ROW")
         disturbance = original_execution_readiness_view(state.trace, key, horizon)
+        original_work = state.works[key]
+        replenished = {}
+        for batch in original_work.material_batches:
+            st = original_work.material_states[batch.key]
+            if not st.previous_rounds:
+                continue
+            dispatched = st.observed_total("dispatched")
+            received = st.observed_total("received")
+            accepted = st.observed_total("accepted")
+            rejected = st.observed_total("rejected")
+            replenished[batch.key] = {
+                "unit": batch.unit,
+                "planned_quantity": str(batch.planned_quantity),
+                "cumulative_dispatched_quantity": str(dispatched),
+                "cumulative_received_quantity": str(received) if received is not None else None,
+                "cumulative_accepted_quantity": str(accepted) if accepted is not None else None,
+                "cumulative_rejected_quantity": str(rejected) if rejected is not None else None,
+                "cumulative_unreceived_quantity": (
+                    str(dispatched-received) if st.received is not None else None),
+                "cumulative_unassessed_quantity": (
+                    str(received-accepted-rejected) if st.quality_ref is not None else None),
+                "original_round_count": len(st.previous_rounds)+1,
+                "qualified_quantity_to_dispatched_ratio": (
+                    ratio(accepted, dispatched) if st.quality_ref is not None else None),
+            }
+        material_effect = {}
+        if replenished:
+            material_effect = {
+                "original_material_replenishment": {
+                    "per_original_batch": replenished,
+                    "original_applied_supplementary_dispatch_count": sum(
+                        r["action"] == "handoff_dispatch" and
+                        r.get("material_replenishment_round", 1) > 1 for r in applied),
+                    "original_applied_supplementary_inspection_count": sum(
+                        r["action"] == "handoff_quality" and
+                        r.get("material_replenishment_round", 1) > 1 for r in applied),
+                    "separately_declared_supplementary_handoff_resource_cost": (
+                        amount(c["supplementary_handoff_resource_cost"])
+                        if c["supplementary_handoff_cost_count"] else None),
+                    "supplementary_handoff_original_cost_row_count": (
+                        c["supplementary_handoff_cost_count"]),
+                    "quantities_and_ratios_not_physical_inventory_audit": True,
+                    "costs_are_existing_exclusive_rows_not_new_expenses": True,
+                    "rejected_or_unreceived_material_not_reclassified_as_usable": True,
+                }
+            }
         work_details[key] = {
+            **material_effect,
             **({"original_execution_readiness": disturbance,
                 "separately_declared_resource_restoration_cost": (
                     amount(c["resource_restoration_cost"]) if c["resource_restoration_cost_count"] else None),
