@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 51824e5442dae85ab2c10d707712b847c80a8ed3
+          ref: d991649fcddfbb0ff53888079924ba59ef157672
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -45,7 +45,7 @@ jobs:
       - name: Preserve exact T2 subject and Workspace module
         run: |
           test "$(git -C domain rev-parse HEAD)" = "79068637e424c8348ca5ca846d8b6d84bcddd274"
-          test "$(git -C site rev-parse HEAD)" = "51824e5442dae85ab2c10d707712b847c80a8ed3"
+          test "$(git -C site rev-parse HEAD)" = "d991649fcddfbb0ff53888079924ba59ef157672"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -112,7 +112,7 @@ jobs:
           node --check scripts/build-d07-integrated-site.mjs
           node --check scripts/build-d07-clean.mjs
           node --check scripts/audit-d07-t3-context.mjs
-          node --import tsx --test scripts/tests/d07-t3-local-build.test.mjs scripts/tests/d07-t3-boot.test.mjs scripts/tests/d07-tool-order-scope.test.mjs scripts/tests/d07-tool-drafts.test.mjs scripts/tests/d07-tool-draft-commit.test.mjs scripts/tests/d07-tool-directory-ref.test.mjs > "$RUNNER_TEMP/local-tests.log" 2>&1 || { echo D07_T3_LOCAL_TESTS=FAIL; grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"; exit 1; }
+          npm run t3:test-local > "$RUNNER_TEMP/local-tests.log" 2>&1 || { echo D07_T3_LOCAL_TESTS=FAIL; grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"; exit 1; }
           echo D07_T3_LOCAL_TESTS=PASS
           grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"
           echo D07_T3_ASSEMBLY_SYNTAX=PASS
@@ -125,7 +125,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 51824e5442dae85ab2c10d707712b847c80a8ed3
+          ref: d991649fcddfbb0ff53888079924ba59ef157672
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -175,6 +175,7 @@ jobs:
           bun install --frozen-lockfile > "$RUNNER_TEMP/install.log" 2>&1 || { echo D07_T3_INSTALL=FAIL; exit 1; }
           node scripts/build-d07-integrated-site.mjs > "$RUNNER_TEMP/baseline.log" 2>&1 || { echo D07_T3_BASELINE=FAIL; grep -E '^D07_PUBLIC_BUILD_STEP_(START|PASS|FAIL)=(generate:sitemap|generate:prerender-routes|quality:gate:pre|build:app|flatten:dist|prerender|quality:gate:post)(:[A-Z_0-9]+(:SIGNAL_[A-Z_0-9]+)?|:[0-9]+s)?$|^D07_BUILD_(SITE|HOST|KERNEL)_WORKER_FAILED$|^D07_PUBLIC_BUILD_GATE_CRITICAL=[a-z0-9-]+:[0-9]+$|^D07_PUBLIC_BUILD_GATE_REPORT=(CRITICAL|NO_CRITICAL_CODES|UNAVAILABLE)$|^D07_[A-Z0-9_]+=(FAIL|PASS)$' "$RUNNER_TEMP/baseline.log" | tail -60 || true; grep -oE '^Error: D07_[A-Z0-9_]+' "$RUNNER_TEMP/baseline.log" | tail -10 || true; exit 1; }
           npm run hosting:verify > "$RUNNER_TEMP/base-audit.log" 2>&1 || { echo D07_T3_BASELINE_AUDIT=FAIL; grep -E '^D07_HOSTING_' "$RUNNER_TEMP/base-audit.log" | cut -c1-200 | tail -5; exit 1; }
+          grep -E '^D07_STATIC_ROUTER_NORMALIZED=\{"pages":[0-9]+,"slots":[0-9]+,"changed":[0-9]+,"changedPages":[0-9]+,"staticFreshnessTime":[0-9]+\}$' "$RUNNER_TEMP/baseline.log"
           echo D07_T3_BASELINE_AUDIT=PASS
           grep '^D07_HOSTING_PACKAGE_AUDIT=PASS ' "$RUNNER_TEMP/base-audit.log"
           # Generated routeTree is ignored, not tracked. Never reset source to mask drift.
@@ -262,10 +263,18 @@ jobs:
               grep -oE '^Error: D07_[A-Z0-9_]+' "$RUNNER_TEMP/d07-local-$pass.log" | tail -10 || true
               exit 1
             }
+            grep -E '^D07_STATIC_ROUTER_NORMALIZED=\{"pages":[0-9]+,"slots":[0-9]+,"changed":[0-9]+,"changedPages":[0-9]+,"staticFreshnessTime":[0-9]+\}$' "$RUNNER_TEMP/d07-local-$pass.log"
             manifest > "$RUNNER_TEMP/d07-local-$pass.sha"
+            if test "$pass" = 1; then cp -a dist "$RUNNER_TEMP/d07-repro-first-dist"; fi
             echo "D07_T3_LOCAL_REBUILD_$pass=PASS"
           done
-          cmp -s "$RUNNER_TEMP/d07-local-1.sha" "$RUNNER_TEMP/d07-local-2.sha" || { echo D07_T3_LOCAL_BYTE_REPRODUCIBILITY=FAIL; exit 1; }
+          if ! cmp -s "$RUNNER_TEMP/d07-local-1.sha" "$RUNNER_TEMP/d07-local-2.sha"; then
+            echo D07_T3_LOCAL_BYTE_REPRODUCIBILITY=FAIL
+            node scripts/diagnose-d07-reproducibility.mjs "$RUNNER_TEMP/d07-repro-first-dist" "$PWD/dist" > "$RUNNER_TEMP/d07-repro-shape.log" 2>&1 || true
+            grep '^D07_REPRO_DIAGNOSIS=' "$RUNNER_TEMP/d07-repro-shape.log" || true
+            exit 1
+          fi
+          rm -rf "$RUNNER_TEMP/d07-repro-first-dist"
           echo D07_T3_LOCAL_BYTE_REPRODUCIBILITY=PASS
           # Final rendered forms are audited against the exact validator, after the isolated build.
           node --import tsx scripts/audit-d07-t3-context.mjs "$PWD/dist" "$RUNNER_TEMP/validator" > "$RUNNER_TEMP/context-local.log" 2>&1 || {
@@ -292,7 +301,7 @@ jobs:
           D07_PRIVATE_TOKEN: ${{ secrets.DOMEN }}
         run: |
           set -euo pipefail
-          expected="51824e5442dae85ab2c10d707712b847c80a8ed3"
+          expected="d991649fcddfbb0ff53888079924ba59ef157672"
           target="refs/heads/work/2026-11-24-d07-t3"
           test "$(git rev-parse HEAD)" = "$expected"
           test -z "$(git status --porcelain --untracked-files=no)"
