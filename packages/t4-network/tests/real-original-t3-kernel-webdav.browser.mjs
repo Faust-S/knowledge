@@ -71,7 +71,7 @@ import {digestT4OriginalObjectContent}
   from '../src/network/original-object-delta.mjs';
 import {recoverT4OriginalNetworkSourceCursor,confirmT4OriginalNetworkSourceAcknowledgement}
   from '../src/network/original-network-source-cursor.mjs';
-import {createT4OriginalNetworkHostCursorPort}
+import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort}
   from '../src/network/original-network-host-cursor.mjs';
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
   from '../src/network/original-network-publication.mjs';
@@ -4108,6 +4108,38 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return result;
         },
       };
+      // K6: the original result of the already-qualified initial session
+      // admits the recipient baseline. In production this admission is
+      // supplied by the original product owner; the test records the exact
+      // independently observed original recipient Event in its technical Workspace.
+      const recipientBaselineIdentity={
+        technicalWorkspaceId:nativeReplayWorkspace,sourceWorkspaceId:workspaceId,
+        originalWriteOwnerRef:'original:t2:exchange',sourceNodeRef:'node:original:source',
+        recipientNodeRef:'node:original:recipient',scopeRef:'scope:original:replay',ownerEpoch:2,
+      };
+      const baselineEventDigest=e=>'sha256:'+createHash('sha256').update(JSON.stringify(e)).digest('hex');
+      const baselineRecipientEvent=(await replayKernel.listEventsSince(workspaceId))
+        .find(e=>e.event_id===p2cRealResult.originalRecipientEventId);
+      assert.ok(baselineRecipientEvent);
+      assert.equal(baselineRecipientEvent.payload.originalEventId,p2eReadback.originalT3NextCursor.lastEventId);
+      const admittedRecipientBaseline={
+        schema:'IWXA_T4_ORIGINAL_RECIPIENT_BASELINE_V1',
+        identity:recipientBaselineIdentity,originalBaselineRef:baselineRecipientEvent.event_id,
+        originalBaselineDigest:baselineEventDigest(baselineRecipientEvent),
+        sourceCursor:p2eReadback.originalT3NextCursor,
+      };
+      const baselineRef='t4:original:recipient:admission:'+randomUUID();
+      const baselineWrite=await replayKernel.putObject({
+        workspace_id:nativeReplayWorkspace,object_id:baselineRef,
+        schema_id:'iwxa.demo.note',schema_version:'1.0.0',base_revision:0,
+        data:{title:'Admitted original recipient baseline',baseline:admittedRecipientBaseline},extensions:{},
+        event:{event_type:'t4.original.recipient.baseline.admitted',
+          payload:{originalRecipientEventId:baselineRecipientEvent.event_id}},
+      });
+      assert.equal(baselineWrite.object.revision,1);
+      let nativeRecipientCursorWrites=0,loseNativeRecipientCursorReply=false;
+      const recipientFrontierKinds=[];
+      let lastNativeRecipientFrontierPort=null;
       const p2fRunCapturedSession=async(revision,{
         kind='OBJECT_PUT',subjectId=p2cObjectId,
         frontierRevision=revision,currentObjectRevision=4,
@@ -4348,6 +4380,45 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalWorkspaceGraphMutationsExcluded:recipientDeletionBoundaryActive,
           originalMutationBoundaryRef:'boundary:recipient:fixture:'+recipientDeletionBoundaryEntries};
       };
+      const nativeRecipientFrontier=()=>createT4OriginalNetworkRecipientCursorPort({
+        ...recipientBaselineIdentity,originalKernel:{
+          ...recipientKernel,putObject:async input=>{
+            assert.equal(input.event.event_type,'t4.network.original.host.recipient.frontier');
+            const saved=await replayKernel.putObject(input);
+            nativeRecipientCursorWrites++;
+            if(loseNativeRecipientCursorReply){
+              loseNativeRecipientCursorReply=false;
+              throw Object.assign(Error('original incoming frontier CAS reply lost'),{code:'ACK_LOST'});
+            }
+            return saved;
+          },
+        },
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({
+          workspaceId:nativeReplayWorkspace,originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:recipient',scopeRef:'scope:original:replay',
+          hostSessionRef:p2eRecipientPhaseHostSession,
+        }),
+        authorizeOriginalTechnicalRead:async p=>receiving.operations.includes(p.operation),
+        authorizeOriginalTechnicalWrite:async p=>receiving.operations.includes(p.operation),
+        authorizeOriginalRecipientRead:async p=>receiving.operations.includes(p.operation),
+        authorizeOriginalSourceRead:async p=>actual.grants.includes(p.operation),
+        readOriginalSourceEvents:()=>originalCarrierKernel.listEventsSince(workspaceId),
+        readOriginalAdmittedBaseline:async()=>(
+          await replayKernel.getObject(nativeReplayWorkspace,baselineRef)
+        )?.object?.data?.baseline,
+        verifyOriginalRecipientBaseline:async p=>{
+          const b=p.baseline;
+          const baseline=(await replayKernel.getObject(nativeReplayWorkspace,baselineRef))?.object?.data?.baseline;
+          const matches=(await replayKernel.listEventsSince(workspaceId))
+            .filter(e=>e.event_id===b.originalBaselineRef);
+          return JSON.stringify(b)===JSON.stringify(baseline)&&matches.length===1&&
+            baselineEventDigest(matches[0])===b.originalBaselineDigest&&
+            matches[0].payload.originalEventId===b.sourceCursor.lastEventId&&
+            b.originalBaselineRef===p2cRealResult.originalRecipientEventId;
+        },
+        readOriginalDependencyCoverage:recipientCoverage,
+      });
       const p2ePhaseResult=async()=>inspectT4OriginalNetworkRecipientResult({
         received:p2eOpened,originalKernel:recipientKernel,
         readOriginalDependencyCoverage:recipientCoverage,
@@ -5097,51 +5168,21 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           e.event_type==='t4.network.original.host.ack.frontier');
       assert.equal(p2eFinalEvents.length,frontierRevision);
 
+      // K6: no fixture implementation of the recipient CAS. Advance the
+      // same original recipient frontier for every subsequent subject kind.
+      const priorIncoming=await nativeRecipientFrontier().inspectOriginalRecipientCursor();
+      assert.equal(priorIncoming.revision,frontierRevision-2);
+      assert.deepEqual(priorIncoming.originalT3VerifiedCursor,p2fTask.sourceCursorBefore);
+      const signed=f2SignCalls,puts=f2NetworkWrites,technicalWrites=f2RecipientPutCalls;
       if(autoRecipient){
-        // K5: qualify the owner continuation against original Kernel
-        // objects/events after the independent source has already confirmed
-        // the ACK. The admitted baseline is provisioned once by this test
-        // fixture; it is not inferred from untrusted network metadata.
-        // Use the SAME original recipient cursor CAS contract as the
-        // dispatcher, in its original technical Workspace.
-        const nativeRecipientCursorRef='t4:recipient:cursor:'+durableSession.familyRef.slice(-64)+':epoch:2';
-        const initialCursorWrite=await replayKernel.putObject({
-          workspace_id:nativeReplayWorkspace,object_id:nativeRecipientCursorRef,
-          schema_id:'iwxa.demo.note',schema_version:'1.0.0',
-          data:{cursor:p2fTask.sourceCursorBefore},extensions:{},base_revision:0,
-          event:{event_type:'t4.original.recipient.cursor.created',
-            payload:{sourceEventId:p2fTask.sourceCursorBefore.lastEventId}},
-        });
-        assert.equal(initialCursorWrite.object.revision,1);
-        let nativeRecipientCursorWrites=0,loseNativeRecipientCursorReply=true,ownerSelections=0;
-        const readNativeRecipientCursor=async()=>(
-          await replayKernel.getObject(nativeReplayWorkspace,nativeRecipientCursorRef)
-        )?.object?.data?.cursor??null;
-        const persistNativeRecipientCursor=async value=>{
-          assert.equal(value.schema,'IWXA_T4_ORIGINAL_RECIPIENT_CURSOR_CAS_V1');
-          assert.equal(value.originalReceiptRef,p2eResult.originalRecipientEventId);
-          const current=await replayKernel.getObject(nativeReplayWorkspace,nativeRecipientCursorRef);
-          if(JSON.stringify(current?.object?.data?.cursor)!==JSON.stringify(value.previousCursor))return false;
-          const saved=await replayKernel.putObject({
-            workspace_id:nativeReplayWorkspace,object_id:nativeRecipientCursorRef,
-            schema_id:'iwxa.demo.note',schema_version:'1.0.0',
-            data:{cursor:value.verifiedCursor},extensions:{},base_revision:current.object.revision,
-            event:{event_type:'t4.original.recipient.cursor.verified',
-              payload:{sourceEventId:value.sourceEventId,originalReceiptRef:value.originalReceiptRef}},
-          });
-          assert.equal(saved.object.revision,current.object.revision+1);
-          nativeRecipientCursorWrites++;
-          if(loseNativeRecipientCursorReply){
-            loseNativeRecipientCursorReply=false;
-            throw Object.assign(Error('original recipient cursor response lost'),{code:'ACK_LOST'});
-          }
-          return true;
-        };
+        // The source has already moved. The final owner wake chooses its
+        // historical session from the incoming cursor, with no supplied
+        // session or frame addresses, and loses its original cursor reply.
+        let ownerSelections=0;
         const ownerWake=async()=>{
           const {session,sourceCursorBefore,recipientPublicationPort,...options}=
             autoRecipientOptions(async()=>{throw Error('owner continuation must not re-sign');});
-          return recipientTask({readOriginalVerifiedCursor:readNativeRecipientCursor,
-            persistOriginalVerifiedCursor:persistNativeRecipientCursor}).runNativeOwnerStep({
+          return recipientTask({originalRecipientCursorPort:nativeRecipientFrontier()}).runNativeOwnerStep({
               ...options,
               readOriginalNativeSessionAtCursor:async proof=>{
                 ownerSelections++;
@@ -5166,39 +5207,51 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
               createOriginalRecipientPublicationPort:async proof=>publicationPort(false,proof.session),
             });
         };
-        const signed=f2SignCalls,puts=f2NetworkWrites,technicalWrites=f2RecipientPutCalls;
-        assert.deepEqual(await readNativeRecipientCursor(),p2fTask.sourceCursorBefore);
         assert.deepEqual((await p2eCursorPort().inspectOriginalHostCursor()).originalT3NextCursor,p2fTask.sourceCursorAfter);
-        await assert.rejects(ownerWake(),e=>e?.code==='RECIPIENT_NATIVE_OWNER_CURSOR_OUTCOME_UNKNOWN');
-        assert.equal(nativeRecipientCursorWrites,1);
+        loseNativeRecipientCursorReply=true;
+        await assert.rejects(ownerWake(),e=>e?.code==='RECIPIENT_NATIVE_OWNER_CURSOR_OUTCOME_UNKNOWN'&&
+          e.details.originalErrorCode==='RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN');
+        assert.equal(nativeRecipientCursorWrites,frontierRevision-1);
         await restartRecipient();
         const idle=await ownerWake();
         assert.equal(idle.state,'NO_NEXT_ORIGINAL_EVENT');
         assert.equal(idle.originalRecipientCursorAdvanced,false);
-        assert.deepEqual(await readNativeRecipientCursor(),p2fTask.sourceCursorAfter);
-        assert.equal(nativeRecipientCursorWrites,1);assert.equal(ownerSelections,2);
-        assert.equal(f2SignCalls,signed);assert.equal(f2NetworkWrites,puts);
-        assert.equal(f2RecipientPutCalls,technicalWrites);
-        assert.equal(totalNativeSubjectWrites(),writesBefore+1);
-        const ownerEvents=(await replayKernel.listEventsSince(nativeReplayWorkspace)).filter(e=>
-          e.object_id===nativeRecipientCursorRef&&e.event_type==='t4.original.recipient.cursor.verified');
-        assert.equal(ownerEvents.length,1);
-        assert.equal(ownerEvents[0].payload.originalReceiptRef,p2eResult.originalRecipientEventId);
+        assert.equal(ownerSelections,2);
         const rehydrated=await recipientTask().runNativeStep(autoRecipientOptions(
           async()=>{throw Error('historical verification must not re-sign');}));
         assert.equal(rehydrated.result.acknowledgement.state,'ALREADY_FINALIZED');
         assert.equal(rehydrated.originalSubjectMutationInvoked,false);
-        assert.equal(f2SignCalls,signed);assert.equal(f2NetworkWrites,puts);
         console.log('T4_REAL_ORIGINAL_T3_NATIVE_RECIPIENT_OWNER_CONTINUATION_PASS',JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,sourceFrontierAlreadyAhead:true,
           callerSuppliedSessionOrFrameAddresses:0,originalSourceOwnerSelections:ownerSelections,
-          recipientCursorCASWrites:nativeRecipientCursorWrites,recipientCursorReplyLost:true,
-          coldOwnerState:idle.state,originalRecipientEventRef:p2eResult.originalRecipientEventId,
+          recipientCursorCASWrites:1,totalRecipientFrontierWrites:nativeRecipientCursorWrites,
+          recipientCursorReplyLost:true,coldOwnerState:idle.state,
+          originalRecipientEventRef:p2eResult.originalRecipientEventId,
           repeatedSubjectWrites:0,repeatedSignatures:0,repeatedNetworkPuts:0,
           admittedBaselineProvisionedByFixture:true,productionHostSchedulerInstalled:false,
           independentPhysicalDevices:false,
         }));
+      }else{
+        assert.equal(await nativeRecipientFrontier().persistOriginalVerifiedCursor({
+          schema:'IWXA_T4_ORIGINAL_RECIPIENT_CURSOR_CAS_V1',workspaceId,
+          originalWriteOwnerRef:'original:t2:exchange',sourceNodeRef:'node:original:source',
+          previousCursor:p2fTask.sourceCursorBefore,verifiedCursor:p2fTask.sourceCursorAfter,
+          sourceEventId:durableSession.sourceEventId,originalReceiptRef:p2eResult.originalRecipientEventId,
+          originalHostAtomicCompareAndSetRequired:true,networkReceiptIsNotBusinessResult:true,
+        },{session:durableSession,received:p2eOpened,recipientPhasePort:p2eRecipientPhase(),
+          recipientPublicationPort:publicationPort(false)}),true);
       }
+      const incoming=await nativeRecipientFrontier().inspectOriginalRecipientCursor();
+      assert.equal(incoming.revision,frontierRevision-1);
+      assert.equal(incoming.checkpointRef,priorIncoming.checkpointRef);
+      assert.equal(incoming.originalT3EventChainVerified,true);
+      assert.equal(incoming.lastOriginalRecipientEventId,p2eResult.originalRecipientEventId);
+      assert.deepEqual(incoming.originalT3VerifiedCursor,p2fTask.sourceCursorAfter);
+      assert.equal(nativeRecipientCursorWrites,frontierRevision-1);
+      assert.equal(f2SignCalls,signed);assert.equal(f2NetworkWrites,puts);
+      assert.equal(f2RecipientPutCalls,technicalWrites);
+      assert.equal(totalNativeSubjectWrites(),writesBefore+1);
+      recipientFrontierKinds.push(kind);lastNativeRecipientFrontierPort=nativeRecipientFrontier;
 
       if(kind==='OBJECT_PUT'&&revision===2){
       console.log('T4_REAL_ORIGINAL_T3_NATIVE_NEXT_REVISION_APPLIED_PASS',
@@ -5783,6 +5836,27 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.deepEqual((await p2eCursorPort().inspectOriginalHostCursor()).originalT3NextCursor,
         recoveredObjectDelete.nextCursor);
       assert.equal(p2eFrontierPutCalls,12);
+      const finalIncoming=await lastNativeRecipientFrontierPort().inspectOriginalRecipientCursor();
+      assert.equal(finalIncoming.revision,11);
+      assert.deepEqual(finalIncoming.originalT3VerifiedCursor,recoveredObjectDelete.nextCursor);
+      assert.equal(nativeRecipientCursorWrites,11);
+      assert.deepEqual([...new Set(recipientFrontierKinds)].sort(),
+        ['ASSET_DELETE','ASSET_PUT','OBJECT_DELETE','OBJECT_PUT','RELATION_DELETE','RELATION_PUT']);
+      const incomingEvents=(await replayKernel.listEventsSince(nativeReplayWorkspace))
+        .filter(e=>e.object_id===finalIncoming.checkpointRef);
+      assert.equal(incomingEvents.length,11);
+      assert.ok(incomingEvents.every(e=>e.event_type==='t4.network.original.host.recipient.frontier'));
+      console.log('T4_REAL_ORIGINAL_T3_NATIVE_RECIPIENT_FRONTIER_ALL_SIX_KINDS_PASS',JSON.stringify({
+        originalKernel:ORIGINAL_KERNEL,originalSourceAckFrontierRevisions:12,
+        originalRecipientFrontierRevisions:11,originalBaselineAfterFirstSession:true,
+        originalRecipientFrontierKinds:recipientFrontierKinds,
+        sourceAndRecipientCursorsEqualAfterFinalApply:true,
+        allOriginalRecipientResultEventsRevalidatedLocally:true,
+        originalRecipientCursorReplyLostAndRecovered:true,
+        repeatedSubjectWrites:0,repeatedSignatures:0,repeatedNetworkPuts:0,
+        fixtureAdmittedBaseline:true,productionHostSchedulerInstalled:false,
+        independentPhysicalDevices:false,
+      }));
       console.log('T4_REAL_ORIGINAL_T3_NATIVE_ISOLATED_OBJECT_TOMBSTONE_PASS',JSON.stringify({
         originalKernel:ORIGINAL_KERNEL,allSixSubjectKindsSameOriginalHostFrontier:true,
         initialExplicitDependencyCount:dependencyReview.dependencyCount,
