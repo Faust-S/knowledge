@@ -123,6 +123,11 @@ jobs:
       - name: Install original browser
         working-directory: packages/t3-core
         run: npx --no-install playwright install chromium
+      - name: Focused original Kernel graph and capture inventory qualification
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t4-original-kernel
+        run: node --experimental-strip-types --test ../t4-network/tests/real-original-t3-graph-focus.browser.mjs
       - name: Install ephemeral HTTPS/WebDAV dependencies
         run: |
           sudo apt-get update
