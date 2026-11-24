@@ -3,7 +3,7 @@
   "id": "iwxa.activity-base",
   "display_name": "IWXA Анализ деятельности",
   "publisher": "IWXA",
-  "version": "0.3.0",
+  "version": "0.4.0-dev.1",
   "architecture": "windows-x64",
   "install_dir": "IWXA Activity",
   "entrypoint": "iwxa-activity-base-desktop.exe",
