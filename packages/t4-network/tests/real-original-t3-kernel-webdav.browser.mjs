@@ -79,7 +79,7 @@ import {recoverT4OriginalNetworkSourceCursor,confirmT4OriginalNetworkSourceAckno
   from '../src/network/original-network-source-cursor.mjs';
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort}
   from '../src/network/original-network-host-cursor.mjs';
-import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,isT4RecoverablePublicationWakeError}
   from '../src/network/original-network-publication.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,T4_RELATION_EVENT_EXTENSION,
   T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION,t4NativeSubjectCriticalExtensions,isT4NativeDeleteKind}
@@ -4241,11 +4241,12 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         lastInBatch=revision===4,
         simulatePublicationLoss=kind==='OBJECT_PUT'&&revision===2,
         simulateSubjectLoss=false,simulateTcpOutage=false,expectedAssetBytes=null,
-        simulateRecipientLifetimeAfterAck=false,autoSource=false,autoRecipient=false,
+        simulateRecipientLifetimeAfterAck=false,simulateAckTcpOutage=false,autoSource=false,autoRecipient=false,
       }={})=>{
       if(autoRecipient)assert.equal(autoSource,true);
       const recipientKernel=kind==='OBJECT_PUT'?p2cRecipientKernel:p2gRecipientKernel;
-      let recipientHostActive=true,stopAfterAck=simulateRecipientLifetimeAfterAck;
+      let recipientHostActive=true,stopAfterAck=simulateRecipientLifetimeAfterAck,cutBeforeAck=simulateAckTcpOutage;
+      assert.ok(!simulateAckTcpOutage||!simulatePublicationLoss,'independent transport loss probes');
       const tick=await p2fRunHostPrepare();
       assert.equal(tick.originalHostTaskOwnerVerified,true);
       assert.equal(tick.prepared,true);
@@ -4310,6 +4311,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         forOriginalHostLifetime:isHostActive=>observeTransport(
           transport.forOriginalHostLifetime(isHostActive),isSource),
         publishSignedFrame:async({wireBytes})=>{
+          if(!isSource&&cutBeforeAck&&decodeT4CandidateFrame(wireBytes).messageType==='APPLIED_ACK'){
+            cutBeforeAck=false;nativeRelay.cutBeforePut(packageSha256(wireBytes)+'.t4n');
+          }
           const result=await transport.publishSignedFrame({wireBytes});
           f2NetworkWrites++;
           if(!isSource&&stopAfterAck&&result.messageType==='APPLIED_ACK'){
@@ -4716,8 +4720,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       };
       const authorizeSealedOpen=async p=>receiving.operations.includes('t1.getObject')&&
         p.sourceEventId===p2fCaptured.sourceEventId;
-      const autoRecipientOptions=(signerOverride=null)=>({
-          session:durableSession,sourceCursorBefore:p2fTask.sourceCursorBefore,requireSourceAnnouncement:autoRecipient,
+      const autoRecipientOptions=(signerOverride=null,retryMissing=false)=>({
+          retryMissing,session:durableSession,sourceCursorBefore:p2fTask.sourceCursorBefore,requireSourceAnnouncement:autoRecipient,
           authorizeOriginalRecipientSession:async p=>
             JSON.stringify(p.session)===JSON.stringify(durableSession)&&
             JSON.stringify(p.sourceCursorBefore)===JSON.stringify(p2fTask.sourceCursorBefore)&&
@@ -4749,10 +4753,10 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           authorizeOriginalSealedOpen:authorizeSealedOpen,openOriginalSealedContent:openSealed,
           verifyOriginalSourceBinding:p=>verifyT4OriginalHostCapturedSubjectSource(p2fReadPorts,p),
       });
-      const autoRecipientStep=async(binding=recipientTask(),signerOverride=null)=>{
+      const autoRecipientStep=async(binding=recipientTask(),signerOverride=null,retryMissing=false)=>{
         // The original owner admits the canonical capture and predecessor
         // in this fixture. No publication address or ciphertext is supplied.
-        const result=await binding.runNativeStep(autoRecipientOptions(signerOverride));
+        const result=await binding.runNativeStep(autoRecipientOptions(signerOverride,retryMissing));
         autoRecipientStates.push(result.state);return result;
       };
       const p2eIntentEvidence={
@@ -5056,8 +5060,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         received:p2eOpened,recipientPhasePort:p2eRecipientPhase(),
         recipientPublicationPort:publicationPort(false),createSignedAppliedAckFrame:signer,
       });
-      const runRecipient=(binding=recipientTask(),signer)=>autoRecipient?
-        autoRecipientStep(binding,signer):binding.runNative(taskArgs(signer));
+      const runRecipient=(binding=recipientTask(),signer,retryMissing=false)=>autoRecipient?
+        autoRecipientStep(binding,signer,retryMissing):binding.runNative({...taskArgs(signer),retryMissing});
       const writesBefore=totalNativeSubjectWrites();
       if(simulateSubjectLoss){
         if(kind==='ASSET_PUT')p2gLoseAssetReply=true;
@@ -5072,28 +5076,58 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           'APPLY_INTENT');
         await restartRecipient();
       }
-      let recipientDone;
+      let recipientDone,ackOutageWitness=null,recoveryBinding=null;
+      const noSecondAckSignature=async()=>{throw Error('must reuse the durable signed APPLIED_ACK');};
+      if(simulateAckTcpOutage){
+        recoveryBinding=recipientTask();
+        const signs=f2SignCalls,puts=f2NetworkWrites,grants=explicitMissingRetryAuthorizations;
+        const interrupted=nativeRelay.stats().interruptedPuts;
+        const originalRecipientCursorBefore=await nativeRecipientFrontier().inspectOriginalRecipientCursor();
+        await assert.rejects(runRecipient(recoveryBinding),e=>
+          e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN'&&isT4RecoverablePublicationWakeError(e)&&
+          e.details.automaticRetryAllowed===false);
+        assert.equal(nativeRelay.stats().offline,true);
+        assert.equal(nativeRelay.stats().interruptedPuts,interrupted+1);
+        assert.equal(f2NetworkWrites,puts);assert.equal(f2SignCalls,signs+1);
+        assert.equal(totalNativeSubjectWrites(),writesBefore+1);
+        assert.equal((await p2eRecipientPhase().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
+        const saved=await publicationPort(false).inspectOriginalPublication(),ack=saved.frames.at(-1);
+        assert.equal(ack.messageType,'APPLIED_ACK');assert.equal(ack.state,'ATTEMPTED');assert.equal(ack.attempts,1);
+        nativeRelay.restore();
+        // Merely restoring TCP cannot authorize a second PUT. The same Host
+        // first proves absence using the original publication record.
+        await assert.rejects(runRecipient(recoveryBinding,noSecondAckSignature),e=>
+          e?.code==='PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED'&&
+          e.details.originalCode==='REMOTE_NOT_FOUND'&&isT4RecoverablePublicationWakeError(e));
+        assert.equal(explicitMissingRetryAuthorizations,grants);
+        assert.equal(f2NetworkWrites,puts);assert.equal(f2SignCalls,signs+1);
+        assert.equal(totalNativeSubjectWrites(),writesBefore+1);
+        assert.deepEqual((await nativeRecipientFrontier().inspectOriginalRecipientCursor()).originalT3VerifiedCursor,
+          originalRecipientCursorBefore.originalT3VerifiedCursor);
+        ackOutageWitness={kind,ackKey:ack.key,wireBytes:ack.wireBytes,signs:signs+1,puts,grants};
+      }
       if(simulateRecipientLifetimeAfterAck){
-        const oldHost=recipientTask(),count=f2NetworkWrites,signs=f2SignCalls;
-        await assert.rejects(runRecipient(oldHost),e=>
+        const oldHost=recoveryBinding??recipientTask(),count=f2NetworkWrites,signs=f2SignCalls;
+        const expectedSigns=signs+(simulateAckTcpOutage?0:1);
+        await assert.rejects(runRecipient(oldHost,simulateAckTcpOutage?noSecondAckSignature:undefined,simulateAckTcpOutage),e=>
           e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN'&&e.details.automaticRetryAllowed===false);
         assert.equal(recipientHostActive,false);
         assert.equal(stopAfterAck,false);
         assert.equal(f2NetworkWrites,count+1);
-        assert.equal(f2SignCalls,signs+1);
+        assert.equal(f2SignCalls,expectedSigns);
         assert.equal(totalNativeSubjectWrites(),writesBefore+1);
         assert.equal((await p2eRecipientPhase().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
         const before=await publicationPort(false).inspectOriginalPublication();
         assert.equal(before.frames.at(-1).state,'ATTEMPTED');
         await restartRecipient();recipientHostActive=true;
         await assert.rejects(runRecipient(oldHost),e=>e?.code==='RECIPIENT_ORIGINAL_HOST_DISPOSED');
-        assert.equal(f2NetworkWrites,count+1);assert.equal(f2SignCalls,signs+1);
+        assert.equal(f2NetworkWrites,count+1);assert.equal(f2SignCalls,expectedSigns);
         recipientDone=await runRecipient(recipientTask(),async()=>{
           throw Error('must recover the prior signed ACK after Host invalidation');
         });
         assert.equal(recipientDone.result.acknowledgement.publication.state,'REMOTE_READBACK_RECOVERED');
         assert.equal(recipientDone.originalSubjectMutationInvoked,false);
-        assert.equal(f2NetworkWrites,count+1);assert.equal(f2SignCalls,signs+1);
+        assert.equal(f2NetworkWrites,count+1);assert.equal(f2SignCalls,expectedSigns);
         assert.deepEqual((await publicationPort(false).inspectOriginalPublication())
           .frames.map(f=>f.wireBytes),before.frames.map(f=>f.wireBytes));
         console.log('T4_REAL_ORIGINAL_T3_HOST_LIFETIME_ACK_RECOVERY_PASS',JSON.stringify({
@@ -5130,14 +5164,30 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal(f2NetworkWrites,count+1);
         assert.equal(f2SignCalls,signs+1);
       }else{
-        recipientDone=await runRecipient();
+        recipientDone=simulateAckTcpOutage?await runRecipient(recoveryBinding,noSecondAckSignature,true):await runRecipient();
+      }
+      if(ackOutageWitness){
+        const recovered=await publicationPort(false).inspectOriginalPublication(),ack=recovered.frames.at(-1);
+        assert.equal(ack.key,ackOutageWitness.ackKey);
+        assert.deepEqual(ack.wireBytes,ackOutageWitness.wireBytes);
+        assert.equal(ack.state,'PRESENT');assert.equal(ack.attempts,2);
+        assert.equal(f2SignCalls,ackOutageWitness.signs);assert.equal(f2NetworkWrites,ackOutageWitness.puts+1);
+        assert.equal(explicitMissingRetryAuthorizations,ackOutageWitness.grants+1);
+        assert.equal(recipientDone.originalSubjectMutationInvoked,false);
+        assert.equal(totalNativeSubjectWrites(),writesBefore+1);
+        ackOutageWitness={kind,actualTcpInterruptedBeforeAckPut:true,
+          sameOriginalRecipientTaskResumed:true,exactSignedAckReused:true,
+          repeatedSubjectWrites:0,repeatedSignatures:0,successfulAckPuts:1,
+          ackAttempts:2,explicitOriginalRetryAuthorizations:1,
+          unauthorizedRetryPrevented:true,additionalHostInvalidation:simulateRecipientLifetimeAfterAck};
+        console.log('T4_K29_REAL_ORIGINAL_RECIPIENT_ACK_TCP_RECOVERY_PASS',JSON.stringify(ackOutageWitness));
       }
       assert.equal(recipientDone.originalHostTaskOwnerVerified,true);
       assert.equal(recipientDone.originalRecipientApplied,true);
       assert.equal(recipientDone.sourceCursorAdvanced,false);
       const p2eApplied=recipientDone.result.application;
       const finalized=recipientDone.result.acknowledgement;
-      const recoveredApplication=simulateSubjectLoss||simulatePublicationLoss||simulateRecipientLifetimeAfterAck;
+      const recoveredApplication=simulateSubjectLoss||simulatePublicationLoss||simulateRecipientLifetimeAfterAck||simulateAckTcpOutage;
       assert.equal(p2eApplied.status,recoveredApplication?'ALREADY_APPLIED_FROM_ORIGINAL_T3':'APPLIED_BY_ORIGINAL_T3');
       assert.equal(p2eApplied.originalCommitInvoked,!recoveredApplication);
       assert.equal(p2eApplied.state,'APPLIED_VERIFIED');
@@ -5153,7 +5203,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(f2SignCalls,contentSpecs.length+3);
       assert.equal(f2NetworkWrites,f2SignCalls);
       assert.equal(f2SourcePutCalls,2+2*(contentSpecs.length+1)+(simulateTcpOutage?1:0));
-      assert.equal(f2RecipientPutCalls,6);
+      assert.equal(f2RecipientPutCalls,6+(simulateAckTcpOutage?1:0));
       const p2eAppliedEvidence={
         evidenceRef:finalized.publication.key,
         evidenceDigest:'sha256:'+finalized.publication.sha256,
@@ -5378,7 +5428,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const recipientPublication=await publicationPort(false).inspectOriginalPublication();
       assert.ok(sourcePublication.frames.every(f=>f.state==='PRESENT'&&
         f.attempts===(f.sequence===outageSequence?2:1)));
-      assert.ok(recipientPublication.frames.every(f=>f.state==='PRESENT'&&f.attempts===1));
+      assert.ok(recipientPublication.frames.every(f=>f.state==='PRESENT'&&
+        f.attempts===(simulateAckTcpOutage&&f.messageType==='APPLIED_ACK'?2:1)));
       assert.equal(sourcePublication.revision,f2SourcePutCalls);
       assert.equal(recipientPublication.revision,f2RecipientPutCalls);
       return {result:p2eResult,sourcePhase:p2eSourcePhase,
@@ -5386,7 +5437,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         sourceCursor:p2fTask.sourceCursorAfter,
         sourceEventId:p2fCaptured.sourceEventId,kind,subjectId,revision,
         originalDeltaSha256:p2ePrepared.sha256,
-        originalSubjectLossRecovered:simulateSubjectLoss,outageWitness,
+        originalSubjectLossRecovered:simulateSubjectLoss,outageWitness,ackOutageWitness,
         publicationSession:durableSession.sessionRef,
         historicalSelection:{sessionRef:durableSession.sessionRef,changeId:durableSession.changeId,
           sourceEventId:durableSession.sourceEventId,sourceEventDigest:durableSession.sourceEventDigest,
@@ -5399,7 +5450,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       };
       const p2fCompleted=[];
       for(const revision of [2,3,4]){
-        p2fCompleted.push(await p2fRunCapturedSession(revision));
+        p2fCompleted.push(await p2fRunCapturedSession(revision,{simulateAckTcpOutage:revision===3}));
       }
       assert.equal(p2cCommitCalls,4);
       assert.equal(p2eFrontierPutCalls,4);
@@ -5747,6 +5798,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           simulatePublicationLoss:index===0,
           simulateSubjectLoss:spec.kind==='RELATION_PUT'||index===0,
           simulateTcpOutage:index===3,
+          simulateAckTcpOutage:index===3||spec.kind==='RELATION_PUT',
           expectedAssetBytes:spec.bytes??null,
         });
         assert.equal(completed.sourceEventId,spec.sourceEventId);
@@ -5815,7 +5867,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         const done=await p2fRunCapturedSession(null,{
           kind:spec.kind,subjectId:spec.subjectId,frontierRevision:10+index,
           currentObjectRevision:6,lastInBatch:index===deletionSpecs.length-1,
-          simulatePublicationLoss:false,simulateSubjectLoss:true,
+          simulatePublicationLoss:false,simulateSubjectLoss:true,simulateAckTcpOutage:true,
         });
         assert.equal(done.sourceEventId,spec.sourceEventId);
         assert.equal(done.originalDeltaSha256,spec.sha256);
@@ -5905,7 +5957,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const completedObjectDelete=await p2fRunCapturedSession(7,{
         kind:'OBJECT_DELETE',subjectId:p2cObjectId,frontierRevision:12,currentObjectRevision:7,
         lastInBatch:true,simulatePublicationLoss:false,simulateSubjectLoss:true,
-        simulateRecipientLifetimeAfterAck:true,autoSource:true,autoRecipient:true,
+        simulateRecipientLifetimeAfterAck:true,simulateAckTcpOutage:true,autoSource:true,autoRecipient:true,
       });
       assert.equal(completedObjectDelete.sourceEventId,recoveredObjectDelete.originalEvent.event_id);
       assert.equal(completedObjectDelete.originalDeltaSha256,recoveredObjectDelete.prepared.sha256);
@@ -6079,7 +6131,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       for(const [i,revision] of [8,9].entries()){
         const done=await p2fRunCapturedSession(revision,{kind:'GRAPH_COMMIT',subjectId:p2cObjectId,
           frontierRevision:13+i,currentObjectRevision:9,lastInBatch:i===1,
-          simulatePublicationLoss:false,simulateSubjectLoss:i===1,autoSource:true,autoRecipient:true});
+          simulatePublicationLoss:false,simulateSubjectLoss:i===1,simulateAckTcpOutage:i===0,autoSource:true,autoRecipient:true});
         assert.equal(done.originalDeltaSha256,graphCaptures[i].prepared.sha256);
         assert.equal(done.result.actualOriginalT3GraphReadback,true);
         assert.equal(done.result.originalRecipientRevision,revision);
@@ -6125,6 +6177,17 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       await recipientContext.close();recipientContext=null;
       recipientContext=await launch(recipientProfile);recipientPage=await opened(recipientContext);
       const committed=[...allEarlier,completedObjectDelete,...graphCompleted];
+      const ackRecovery=committed.filter(x=>x.ackOutageWitness).map(x=>x.ackOutageWitness);
+      assert.equal(ackRecovery.length,7);assert.equal(new Set(ackRecovery.map(x=>x.kind)).size,7);
+      console.log('T4_K29_REAL_ORIGINAL_ALL_SEVEN_ACK_TCP_RECOVERY_PASS',JSON.stringify({
+        originalKernel:ORIGINAL_KERNEL,kinds:ackRecovery.map(x=>x.kind),
+        physicalTcpInterruptions:ackRecovery.length,explicitOriginalRetryAuthorizations:ackRecovery.length,
+        repeatedSubjectWrites:ackRecovery.reduce((n,x)=>n+x.repeatedSubjectWrites,0),
+        repeatedSignatures:ackRecovery.reduce((n,x)=>n+x.repeatedSignatures,0),
+        successfulAckPuts:ackRecovery.reduce((n,x)=>n+x.successfulAckPuts,0),
+        sourceAndRecipientFrontiersConfirmed:true,originalTaskContinuationQualified:true,
+        productionHostSchedulerInstalled:false,independentPhysicalDevices:false,
+      }));
       const selections=committed.map(x=>x.historicalSelection);
       const beforeHistoricalWrites=totalNativeSubjectWrites(),beforeHistoricalCursorWrites=nativeRecipientCursorWrites;
       const historyPort=lastNativeRecipientFrontierPort();
