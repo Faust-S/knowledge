@@ -24,6 +24,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install locked T4 transport dependency
+        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
       - name: Verify network and placement contracts
         working-directory: packages/t4-network
         run: |
@@ -38,6 +40,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install locked T4 transport dependency
+        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
       - name: Install isolated WebDAV test dependencies
         run: |
           sudo apt-get update
@@ -62,6 +66,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install locked T4 transport dependency
+        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
       - name: Verify T4 network contracts on Windows
         working-directory: packages/t4-network
         run: |
@@ -78,6 +84,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install locked T4 transport dependency
+        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
       - name: Install original T3 browser-test dependencies
         run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
       - name: Verify and stage original qualified T2 Kernel 0.3.6

@@ -63,7 +63,7 @@ export function createT4CandidateFrameTransport({
       hostSessionRef:ctx.hostSessionRef,
     });
   }
-  async function hostGuard(phase,baseContext,frame,sha256){
+  async function hostGuard(phase,baseContext,frame,sha256,selector=null){
     mode();
     const observed=await hostSnapshot();
     if(!Object.keys(baseContext).every(k=>
@@ -77,9 +77,10 @@ export function createT4CandidateFrameTransport({
       operation,originalHostNodeRef,originalHostScopeRef,
       originalOwnerRef:baseContext.originalOwnerRef,
       hostSessionRef:baseContext.hostSessionRef,
-      sourceNodeRef:frame.sourceNodeRef,
-      recipientNodeRef:frame.recipientNodeRef,
-      messageType:frame.messageType,frameSha256:sha256,
+      sourceNodeRef:frame?.sourceNodeRef??selector?.sourceNodeRef,
+      recipientNodeRef:frame?.recipientNodeRef??originalHostNodeRef,
+      messageType:frame?.messageType??selector?.messageType,frameSha256:sha256,
+      ...(selector?{discoverySelector:selector,collectionReadOnly:true}:{}),
       originalNetworkHostAuthorityRequired:true,
       networkMetadataCannotGrantOriginalSubjectRights:true,
     }));
@@ -170,10 +171,14 @@ export function createT4CandidateFrameTransport({
       fail('WIRE_NETWORK_DIGEST_KEY_REQUIRED');
     const ctx=await hostSnapshot();
     // Even a confirmed remote response is not an original subject grant.
-    const downloaded=await wireTransport.getSnapshot({
-      key,expectedSha256,
-    });
+    const downloaded=await wireTransport.getSnapshot({key,expectedSha256});
     mode();
+    return verifyDownloaded({ctx,key,expectedSha256,downloaded,requiredCryptoSuite,supportedCriticalExtensions});
+  }
+  async function verifyDownloaded({ctx,key,expectedSha256,downloaded,requiredCryptoSuite,supportedCriticalExtensions}){
+    mode();
+    if(!(downloaded?.bytes instanceof Uint8Array)||hash(downloaded.bytes)!==expectedSha256)
+      fail('WIRE_NETWORK_READBACK_NOT_PROVEN');
     const frame=decodeT4CandidateFrame(downloaded.bytes);
     if(frame.recipientNodeRef!==originalHostNodeRef||
       frame.scopeRef!==originalHostScopeRef)
@@ -225,10 +230,103 @@ export function createT4CandidateFrameTransport({
       originalResultNotInferredFromNetworkAck:true,
     });
   }
+
+  /**
+   * One bounded discovery page, driven by the existing Host task. The
+   * continuation is an advisory transport enumeration, NOT a source cursor.
+   * A changed listing restarts the sweep, so a later low-hash frame is not
+   * silently skipped. Only exact peer/session/epoch/type matches reach
+   * signature, original Access and replay CAS. No application occurs here.
+   */
+  async function discoverAndVerifySignedFrames({selector,continuation=null,
+    maxCandidates=64,requiredCryptoSuite,supportedCriticalExtensions=[]}={}){
+    if(typeof wireTransport.listNativeFrameAddresses!=='function')
+      fail('WIRE_FRAME_DISCOVERY_PORT_REQUIRED');
+    if(!selector||typeof selector!=='object'||Array.isArray(selector)||
+      Object.keys(selector).some(k=>!['sourceNodeRef','ownerEpoch','sessionRef','messageType','sequence'].includes(k))||
+      !ID(selector.sourceNodeRef)||selector.sourceNodeRef===originalHostNodeRef||
+      !Number.isSafeInteger(selector.ownerEpoch)||selector.ownerEpoch<1||
+      !['HEADS','DIFF_REQUEST','CHANGE_REF','CHUNK','APPLIED_ACK','HELLO','CAPABILITIES',
+        'CHUNK_REQUEST','RECEIVED_ACK','VERIFIED_ACK','RESUME'].includes(selector.messageType)||
+      (selector.sessionRef!==undefined&&!ID(selector.sessionRef))||
+      (selector.sessionRef===undefined&&selector.messageType!=='HEADS')||
+      (selector.sequence!==undefined&&(!Number.isSafeInteger(selector.sequence)||selector.sequence<1))||
+      !Number.isSafeInteger(maxCandidates)||maxCandidates<1||maxCandidates>128||
+      !ID(requiredCryptoSuite)||!Array.isArray(supportedCriticalExtensions)||
+      supportedCriticalExtensions.length>16||!supportedCriticalExtensions.every(ID)||
+      new Set(supportedCriticalExtensions).size!==supportedCriticalExtensions.length)
+      fail('WIRE_DISCOVERY_SELECTOR_INVALID');
+    const selected=frozen({...selector}),extensions=Object.freeze([...supportedCriticalExtensions]);
+    const selectorDigest=hash(Buffer.from(JSON.stringify({
+      sourceNodeRef:selected.sourceNodeRef,ownerEpoch:selected.ownerEpoch,
+      sessionRef:selected.sessionRef??null,messageType:selected.messageType,
+      sequence:selected.sequence??null,requiredCryptoSuite,extensions
+    }),'utf8'));
+    if(continuation!==null&&(!SHA(continuation?.listingDigest)||!SHA(continuation?.selectorDigest)||
+      continuation.selectorDigest!==selectorDigest||
+      typeof continuation.afterKey!=='string'||!(/^[a-f0-9]{64}\.t4n$/).test(continuation.afterKey)))
+      fail('WIRE_DISCOVERY_CONTINUATION_INVALID');
+    const after=continuation===null?null:frozen({...continuation});
+    const ctx=await hostSnapshot();
+    await hostGuard('discover',ctx,null,null,selected);
+    const list=await wireTransport.listNativeFrameAddresses();
+    mode();
+    await hostGuard('discover-readback',ctx,null,null,selected);
+    if(list?.schema!=='IWXA_T4_NATIVE_FRAME_ADDRESS_LIST_V1'||list.collectionEnumerated!==true||
+      list.addressMetadataIsNotSignatureOrAuthority!==true||list.originalBusinessApplied!==false||
+      !SHA(list.listingDigest)||!Array.isArray(list.addresses)||list.addresses.length>8192||
+      list.addresses.some((a,i)=>!SHA(a?.sha256)||a.key!==a.sha256+'.t4n'||
+        (i>0&&a.key<=list.addresses[i-1].key)))
+      fail('WIRE_DISCOVERY_ADDRESS_LIST_INVALID');
+    const addresses=list.addresses.map(a=>frozen({key:a.key,sha256:a.sha256}));
+    const listingDigest=list.listingDigest;
+    const actual=createHash('sha256').update('IWXA-T4-FRAME-ADDRESS-LIST-V1\0')
+      .update(JSON.stringify(addresses.map(a=>a.key))).digest('hex');
+    if(actual!==listingDigest)fail('WIRE_DISCOVERY_ADDRESS_LIST_INVALID');
+    if(after&&after.listingDigest!==listingDigest)
+      return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_PAGE_V1',state:'RESTART_SCAN',
+        listingDigest,candidatesExamined:0,receipts:Object.freeze([]),continuation:null,
+        listingExhausted:false,originalBusinessApplied:false,sourceCursorAdvanced:false,
+        createsStore:false,createsScheduler:false});
+    const start=after?addresses.findIndex(a=>a.key===after.afterKey)+1:0;
+    if(after&&start===0)fail('WIRE_DISCOVERY_CONTINUATION_INVALID');
+    const page=addresses.slice(start,start+maxCandidates),receipts=[];
+    let ignoredCount=0;
+    for(const address of page){
+      await hostGuard('discover-candidate',ctx,null,address.sha256,selected);
+      const downloaded=await wireTransport.getSnapshot({key:address.key,expectedSha256:address.sha256});
+      mode();
+      if(!(downloaded?.bytes instanceof Uint8Array)||hash(downloaded.bytes)!==address.sha256)
+        fail('WIRE_DISCOVERY_CANDIDATE_DIGEST_MISMATCH');
+      // Copy before any further await. Never persist replay on an unrelated
+      // frame just because its filename occurs in a readable collection.
+      const bytes=new Uint8Array(downloaded.bytes);
+      const f=decodeT4CandidateFrame(bytes);
+      if(f.sourceNodeRef!==selected.sourceNodeRef||f.recipientNodeRef!==originalHostNodeRef||
+        f.scopeRef!==originalHostScopeRef||f.ownerEpoch!==selected.ownerEpoch||
+        f.messageType!==selected.messageType||(selected.sessionRef!==undefined&&f.sessionRef!==selected.sessionRef)||
+        (selected.sequence!==undefined&&f.sequence!==selected.sequence)){
+        ignoredCount++;continue;
+      }
+      const result=await verifyDownloaded({ctx,key:address.key,expectedSha256:address.sha256,
+        downloaded:{bytes},requiredCryptoSuite,supportedCriticalExtensions:extensions});
+      receipts.push(result);
+    }
+    await hostGuard('discover-complete',ctx,null,null,selected);
+    const exhausted=start+page.length===addresses.length;
+    return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_PAGE_V1',state:'VERIFIED_PAGE',
+      listingDigest,candidatesExamined:page.length,ignoredCount,receipts:Object.freeze(receipts),
+      listingExhausted:exhausted,continuation:exhausted?null:frozen({
+        listingDigest,selectorDigest,afterKey:page.at(-1).key}),
+      // A completed enumeration is a point-in-time observation, never a
+      // proof that a peer has no future changes or that its result exists.
+      mustRescanOnNextOriginalHostWake:true,originalBusinessApplied:false,
+      sourceCursorAdvanced:false,createsStore:false,createsScheduler:false});
+  }
   return frozen({
     schema:'IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1',
     publishSignedFrame,inspectUnknownPublication,
-    readAndVerifySignedFrame,
+    readAndVerifySignedFrame,discoverAndVerifySignedFrames,
     forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
       wireTransport,getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalHostWire,

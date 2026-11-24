@@ -1,6 +1,7 @@
 /** Opaque original-owner package transport. No codec, Kernel, signer or business Store. */
 import { createHash } from 'node:crypto';
 import { createPlacementPolicy } from '../contracts/hosted-context-boundary.mjs';
+import {decodeT4WebDavFrameAddressList,MAX_T4_FRAME_LIST_BYTES} from './webdav-frame-address-list.mjs';
 export class T4TransferError extends Error {
   constructor(code, details = {}) { super(code); this.name = 'T4TransferError'; this.code = code; this.details = Object.freeze({ ...details }); }
 }
@@ -39,11 +40,14 @@ export function createWebDavPackageTransport(options = {}) {
     state,key,sha256,etag,size,locationRef,workspaceId:policy.workspaceId,observedAt:new Date().toISOString(),
     workspaceApplied:false,signatureVerified:false,automaticRetryAllowed:false });
   async function request(method, key, headers, body, sha256) {
-    const path = checkedKey(key,keySuffix);
+    const discovery=method==='PROPFIND';
+    if(discovery&&(keySuffix!=='.t4n'||key!==null||candidateNetworkWire!==true))
+      fail('FRAME_DISCOVERY_NOT_PERMITTED');
+    const path = discovery?'':checkedKey(key,keySuffix);
     const isDelta = keySuffix === '.t4d', isNetwork = keySuffix === '.t4n';
     const op = isNetwork ? 't4.network.frame' : isDelta ? 't4.delta' : 't4.package';
-    const ctx = Object.freeze({ operation:op+(method==='PUT' ? '.publish' : '.read'),
-      key,sha256,locationRef,workspaceId:policy.workspaceId,authorityRoot:policy.authorityRoot,
+    const ctx = Object.freeze({ operation:op+(discovery?'.discover':method==='PUT' ? '.publish' : '.read'),
+      ...(discovery?{collectionOnly:true,depth:1}:{key,sha256}),locationRef,workspaceId:policy.workspaceId,authorityRoot:policy.authorityRoot,
       writeOwnerRef:policy.writeOwnerRef,objectFamily:policy.objectFamily });
     await guard(ctx);
     const auth = await getAuthorizationHeader(ctx);
@@ -64,16 +68,16 @@ export function createWebDavPackageTransport(options = {}) {
       fail(method === 'PUT' ? 'OUTCOME_UNKNOWN' : 'NETWORK_UNAVAILABLE', {operation:method,automaticRetryAllowed:false});
     }
   }
-  async function readBytes(response, controller) {
+  async function readBytes(response, controller,limit=maxBytes) {
     const length = response.headers.get('content-length');
-    if (length !== null && (!/^\d+$/.test(length) || Number(length) > maxBytes)) { controller.abort(); fail('PACKAGE_TOO_LARGE'); }
+    if (length !== null && (!/^\d+$/.test(length) || Number(length) > limit)) { controller.abort(); fail('PACKAGE_TOO_LARGE'); }
     if (!response.body) fail('EMPTY_BODY');
     const reader = response.body.getReader(), chunks = []; let size = 0;
     try {
       while (true) {
-        const {value,done} = await reader.read(); if (done) break;
-        assertMode(); size += value.byteLength;
-        if (size > maxBytes) { controller.abort(); fail('PACKAGE_TOO_LARGE'); }
+        const {value,done} = await reader.read(); assertMode(); if (done) break;
+        size += value.byteLength;
+        if (size > limit) { controller.abort(); fail('PACKAGE_TOO_LARGE'); }
         chunks.push(value);
       }
       if (!size) fail('EMPTY_BODY'); return Buffer.concat(chunks,size);
@@ -125,7 +129,24 @@ export function createWebDavPackageTransport(options = {}) {
     const result = await getSnapshot({key,expectedSha256});
     return Object.freeze({...result.receipt,state:'EXPECTED_BYTES_PRESENT',historicalWriteProven:false,automaticRetryAllowed:false});
   }
+  async function listNativeFrameAddresses(){
+    if(keySuffix!=='.t4n'||candidateNetworkWire!==true)fail('FRAME_DISCOVERY_NOT_PERMITTED');
+    const call=await request('PROPFIND',null,{Depth:'1','Content-Type':'application/xml; charset=utf-8'},
+      '<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:resourcetype/></D:prop></D:propfind>',null);
+    try{
+      const r=call.response;
+      if([401,403].includes(r.status))fail('REMOTE_AUTHORIZATION_DENIED');
+      if(r.status!==207)fail('REMOTE_FRAME_LIST_FAILED',{status:r.status});
+      const contentType=r.headers.get('content-type')??'';
+      if(!/^(?:text|application)\/xml(?:\s*;|$)/i.test(contentType))fail('REMOTE_FRAME_LIST_CONTENT_TYPE_INVALID');
+      const bytes=await readBytes(r,call.controller,MAX_T4_FRAME_LIST_BYTES);
+      const listing=decodeT4WebDavFrameAddressList(bytes,base.href);
+      await guard(call.ctx);
+      return listing;
+    }finally{call.controller.abort();call.release();}
+  }
   function close() { closed = true; for (const c of active) c.abort(); active.clear(); }
   return Object.freeze({putSnapshot,getSnapshot,inspectOutcome,close,
+    ...(keySuffix==='.t4n'?{listNativeFrameAddresses}:{}),
     wireKind:keySuffix === '.t4n' ? 'T4_NETWORK_CANDIDATE' : null});
 }
