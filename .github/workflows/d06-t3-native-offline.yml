@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 5334998c19cc6043c1e8cff32618ffcb672868ea
+          ref: ec4ba64cc8e0ff332b30474e8909aac3a414382d
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-site
@@ -119,64 +119,14 @@ jobs:
           set -euo pipefail
           node --experimental-strip-types tests/t3/verify-native-offline.mjs --offline-exchange > "$RUNNER_TEMP/d06-offline-exchange-private.log" 2>&1 || {
             echo D06_T3_OFFLINE_INDEPENDENT_EXCHANGE=FAIL
-            grep -E '^D06_T3_OFFLINE_[A-Z0-9_]+=PASS$|^D06_T3_OFFLINE_CONTROL_FACTS=[0-9:]+
-        if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
-        working-directory: private-site
-        shell: bash
-        env:
-          IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/original-core/packages/t3-core
-        run: |
-          set -euo pipefail
-          node --experimental-strip-types scripts/verify-native-transfer.mjs > "$RUNNER_TEMP/d06-t3-native-private.log" 2>&1 || {
-            echo D06_T3_INHERITED_NATIVE_EXCHANGE=FAIL
-            grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
-            grep -Eo 'D06_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u | head -20 || true
-            for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toBeVisible' 'waitForFunction' 'locator.waitFor' 'net::ERR' 'TypeError' 'EADDRINUSE'; do
-              if grep -Fq "$marker" "$RUNNER_TEMP/d06-t3-native-private.log"; then echo "D06_T3_EXCHANGE_FAILURE_CLASS=$marker"; fi
-            done
-            exit 1
-          }
-          grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
-          echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
-      - name: Privacy and evidence boundary
-        if: always()
-        run: |
-          echo D06_T3_PRODUCT_ACCEPTED=false
-          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
-          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
- "$RUNNER_TEMP/d06-offline-exchange-private.log" || true
+            grep -E '^D06_T3_OFFLINE_[A-Z0-9_]+=PASS$|^D06_T3_OFFLINE_CONTROL_FACTS=[0-9:]+$' "$RUNNER_TEMP/d06-offline-exchange-private.log" || true
             grep -Eo 'D06_T3_[A-Z0-9_]+' "$RUNNER_TEMP/d06-offline-exchange-private.log" | sort -u | head -20 || true
             for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toHaveCount' 'toBeVisible' 'toHaveValue' 'toBeEnabled' 'toContainText' 'net::ERR' 'TypeError'; do
               if grep -Fq "$marker" "$RUNNER_TEMP/d06-offline-exchange-private.log"; then echo "D06_T3_OFFLINE_EXCHANGE_FAILURE_CLASS=$marker"; fi
             done
             exit 1
           }
-          grep -E '^D06_T3_(OFFLINE_[A-Z0-9_]+|NATIVE_OFFLINE_NO_MODEL)=PASS
-        if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
-        working-directory: private-site
-        shell: bash
-        env:
-          IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/original-core/packages/t3-core
-        run: |
-          set -euo pipefail
-          node --experimental-strip-types scripts/verify-native-transfer.mjs > "$RUNNER_TEMP/d06-t3-native-private.log" 2>&1 || {
-            echo D06_T3_INHERITED_NATIVE_EXCHANGE=FAIL
-            grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
-            grep -Eo 'D06_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u | head -20 || true
-            for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toBeVisible' 'waitForFunction' 'locator.waitFor' 'net::ERR' 'TypeError' 'EADDRINUSE'; do
-              if grep -Fq "$marker" "$RUNNER_TEMP/d06-t3-native-private.log"; then echo "D06_T3_EXCHANGE_FAILURE_CLASS=$marker"; fi
-            done
-            exit 1
-          }
-          grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
-          echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
-      - name: Privacy and evidence boundary
-        if: always()
-        run: |
-          echo D06_T3_PRODUCT_ACCEPTED=false
-          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
-          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
- "$RUNNER_TEMP/d06-offline-exchange-private.log"
+          grep -E '^D06_T3_(OFFLINE_[A-Z0-9_]+|NATIVE_OFFLINE_NO_MODEL)=PASS$' "$RUNNER_TEMP/d06-offline-exchange-private.log"
       - name: Run full D06 native Exchange and lifecycle witness at exact T3 origin
         if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
         working-directory: private-site
