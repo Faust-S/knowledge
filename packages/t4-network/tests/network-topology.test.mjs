@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createT4NetworkTopology,planT4NetworkRoute,listT4NetworkChoices,
-  executeT4NetworkRoute,transitionT4NetworkTopology,T4NetworkTopologyError
+  executeT4NetworkRoute,transitionT4NetworkTopology,T4NetworkTopologyError,openT4NativeTopologyTransport
 } from '../src/network/network-topology.mjs';
 import {createT4NetworkConnectionProfile} from '../src/network/operator-connection.mjs';
 import {createWebDavPackageTransport,packageSha256} from '../src/network/webdav-package-transfer.mjs';
@@ -347,4 +347,56 @@ test('delta executable route rechecks original owner before the callback can use
  });
  assert.deepEqual(receipt,{to:'node:home'});
  assert.deepEqual(steps,['mode','endpoint','mode','owner','mode','transport']);
+});
+
+test('K34 same original topology profile identity cannot silently replace its HTTPS endpoint',async()=>{
+  const before=build(),after=createT4NetworkTopology({...before,revision:2,
+    previousTopologyDigest:before.topologyDigest,profiles:before.profiles.map(p=>p.profileRef==='profile:home'?
+      {...p,endpointUrl:'https://different.example.net/dav/'}:p)});
+  let calls=0;
+  await assert.rejects(transitionT4NetworkTopology({previous:before,candidate:after,
+    authorizeOriginalTopologyChange:async()=>{calls++;return true;}}),code('PROFILE_IDENTITY_RETARGET_FORBIDDEN'));
+  assert.equal(calls,0);
+});
+const nativeCaps=['network.frame.publish','network.frame.read','network.frame.index.publish','network.frame.index.read'];
+function nativeTopology(){
+  return build({nodes:nodes.map(n=>n.nodeRef==='node:home'?{...n,advertisedCapabilities:[...n.advertisedCapabilities,...nativeCaps]}:n),
+    connections:connections.map(c=>c.targetNodeRef==='node:home'?{...c,capabilities:[...c.capabilities,...nativeCaps]}:c)});
+}
+test('K34 original native indexed transport uses selected T4.1 operator and rejects stale topology before credentials or network',async()=>{
+  const topology=nativeTopology(),b=Buffer.from('opaque original native frame');
+  let current=topology,requests=0,credentials=0,authorizations=0,endpoints=0,allowed=true;
+  const opened=openT4NativeTopologyTransport({topology,workspaceId:'workspace:owner',objectFamily:'orders',
+    serverNodeRef:'node:home',nativeWireProfile:'INDEXED',readOriginalTopology:async()=>current,
+    getMode:()=> 'T4_NETWORK',verifyOriginalEndpoint:async p=>{
+      endpoints++;return p.endpointUrl==='https://home.example.net/dav/'&&p.originalWriteOwnerRef==='original:t2:owner';
+    },authorizeOriginalOperation:async p=>{
+      authorizations++;return allowed&&p.transportRequest.operation==='t4.network.frame.read'&&
+        p.storageLocationIsNotProtocolPeer===true&&p.serverNodeRef==='node:home';
+    },getAuthorizationHeader:async()=>{credentials++;return 'Bearer test';},
+    fetchImpl:async(url,options)=>{requests++;assert.equal(url.origin,'https://home.example.net');assert.equal(options.method,'GET');return new Response(b);}});
+  try{
+    const input={key:packageSha256(b)+'.t4n',expectedSha256:packageSha256(b)};
+    assert.equal(opened.transport.nativeFrameIndexVersion,1);
+    assert.deepEqual((await opened.transport.getSnapshot(input)).bytes,b);
+    assert.equal(requests,1);assert.equal(credentials,1);assert.ok(authorizations>0&&endpoints>0);
+    await assert.rejects(opened.transport.listNativeFrameAddresses(),e=>e.code==='AUTHORIZATION_DENIED');
+    assert.equal(requests,1);assert.equal(credentials,1);
+    allowed=false;
+    await assert.rejects(opened.transport.getSnapshot(input),code('ORIGINAL_OPERATION_NOT_AUTHORIZED'));
+    assert.equal(requests,1);assert.equal(credentials,1);
+    allowed=true;current=createT4NetworkTopology({...topology,revision:2,previousTopologyDigest:topology.topologyDigest});
+    await assert.rejects(opened.transport.getSnapshot(input),code('ORIGINAL_NATIVE_TOPOLOGY_CHANGED'));
+    assert.equal(requests,1);assert.equal(credentials,1);
+    assert.equal(opened.binding.originalWriteOwnerRef,'original:t2:owner');assert.equal(opened.protocolPeerReassigned,false);
+  }finally{opened.close();}
+});
+test('K34 native profile requires explicit capabilities and rejects a forged topology digest',()=>{
+  const topology=nativeTopology(),options={topology,workspaceId:'workspace:owner',objectFamily:'orders',
+    serverNodeRef:'node:home',nativeWireProfile:'INDEXED',readOriginalTopology:async()=>topology,
+    getMode:()=> 'T4_NETWORK',verifyOriginalEndpoint:async()=>true,authorizeOriginalOperation:async()=>true,
+    getAuthorizationHeader:async()=> 'Bearer test'};
+  assert.throws(()=>openT4NativeTopologyTransport({...options,topology:{...topology,topologyDigest:'sha256:'+'a'.repeat(64)}}),code('TOPOLOGY_DIGEST_MISMATCH'));
+  assert.throws(()=>openT4NativeTopologyTransport({...options,topology:build()}),code('CAPABILITY_NOT_AVAILABLE'));
+  assert.throws(()=>openT4NativeTopologyTransport({...options,nativeWireProfile:'LEGACY'}),code('CAPABILITY_NOT_AVAILABLE'));
 });

@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {createPlacementPolicy} from '../contracts/hosted-context-boundary.mjs';
-import {createT4NetworkConnectionProfile} from './operator-connection.mjs';
+import {createT4NetworkConnectionProfile,openT4OperatorConnection} from './operator-connection.mjs';
 
 export class T4NetworkTopologyError extends Error {
   constructor(code) {super(code);this.name='T4NetworkTopologyError';this.code=code;}
@@ -11,11 +11,14 @@ const required=(x,code='INVALID_TOPOLOGY_REFERENCE')=>{if(!id(x))fail(code);retu
 const kinds=new Set(['LOCAL_DEVICE','PERSONAL_SERVER','ORGANIZATION_SERVER','THIRD_PARTY_SERVER','IWXA_CLOUD_SERVER']);
 const states=new Set(['AVAILABLE','UNREACHABLE','UNKNOWN']);
 const connectionStates=new Set(['READY','PAUSED','UNKNOWN']);
+const nativeCapabilities=Object.freeze(['network.frame.publish','network.frame.read','network.frame.discover',
+  'network.frame.index.publish','network.frame.index.read']);
 const capabilities=new Set([
+  ...nativeCapabilities,
   'package.publish','package.read','delta.push','delta.pull',
   'replica.recover','remote.search','remote.compute','operator.anonymized-analytics'
 ]);
-const implemented=new Set(['package.publish','package.read','delta.push','delta.pull']);
+const implemented=new Set(['package.publish','package.read','delta.push','delta.pull',...nativeCapabilities]);
 const immutableArray=(xs,allowed,code)=>{
   if(!Array.isArray(xs)||xs.length>64||xs.some(x=>!id(x)||(allowed&&!allowed.has(x)))||
     new Set(xs).size!==xs.length)fail(code);
@@ -251,6 +254,77 @@ export async function executeT4NetworkRoute({
 }
 
 
+// T4.2 uses the SAME admitted T4.1 placement and operator connection.
+// The server node is the opaque storage location, not a signed protocol
+// peer or original subject write owner. Revisions require a fresh binding.
+export function openT4NativeTopologyTransport({
+  topology,workspaceId,objectFamily,serverNodeRef,nativeWireProfile,
+  readOriginalTopology,getMode,verifyOriginalEndpoint,authorizeOriginalOperation,
+  getAuthorizationHeader,verifyOriginalOwnerAgreement,fetchImpl,maxBytes,timeoutMs,
+}={}){
+  if(!['LEGACY','INDEXED'].includes(nativeWireProfile)||
+    ![readOriginalTopology,getMode,verifyOriginalEndpoint,authorizeOriginalOperation,getAuthorizationHeader]
+      .every(f=>typeof f==='function'))fail('ORIGINAL_NATIVE_TOPOLOGY_PORTS_REQUIRED');
+  const pinned=createT4NetworkTopology(topology);
+  if(pinned.topologyDigest!==topology?.topologyDigest)fail('TOPOLOGY_DIGEST_MISMATCH');
+  const allowed=['network.frame.publish','network.frame.read',
+    ...(nativeWireProfile==='INDEXED'?['network.frame.index.publish','network.frame.index.read']:['network.frame.discover'])];
+  const params={workspaceId,objectFamily,targetNodeRef:serverNodeRef};
+  const routes=allowed.map(capability=>planT4NetworkRoute({topology:pinned,...params,capability}));
+  const route=routes[0],place=pinned.placements.find(p=>p.policy.workspaceId===workspaceId&&p.policy.objectFamily===objectFamily);
+  const profile=createT4NetworkConnectionProfile(pinned.profiles.find(p=>p.profileRef===route.profileRef));
+  const binding=Object.freeze({topologyRef:pinned.topologyRef,topologyDigest:pinned.topologyDigest,
+    workspaceId,objectFamily,serverNodeRef,originalWriteOwnerRef:route.originalWriteOwnerRef,
+    profileRef:route.profileRef,locationRef:route.locationRef,nativeWireProfile});
+  const current=async()=>{
+    if(getMode()!=='T4_NETWORK')fail('T4_NETWORK_MODE_DISABLED');
+    const observed=await readOriginalTopology(binding);
+    if(getMode()!=='T4_NETWORK')fail('T4_NETWORK_MODE_DISABLED');
+    if(observed?.topologyDigest!==pinned.topologyDigest||
+      createT4NetworkTopology(observed).topologyDigest!==pinned.topologyDigest)
+      fail('ORIGINAL_NATIVE_TOPOLOGY_CHANGED');
+    return pinned;
+  };
+  const checkRequest=ctx=>{
+    const capability=typeof ctx.operation==='string'&&ctx.operation.startsWith('t4.')?ctx.operation.slice(3):null;
+    if(!allowed.includes(capability))fail('NATIVE_TOPOLOGY_TRANSPORT_OPERATION_DENIED');
+    if(ctx.workspaceId!==workspaceId||ctx.objectFamily!==objectFamily||
+      ctx.writeOwnerRef!==route.originalWriteOwnerRef||ctx.locationRef!==route.locationRef||
+      ctx.profileRef!==route.profileRef||ctx.operatorRef!==route.operatorRef)
+      fail('NATIVE_TOPOLOGY_TRANSPORT_SCOPE_MISMATCH');
+    return capability;
+  };
+  const endpoint=async proof=>{
+    await current();
+    return proof.profileRef===route.profileRef&&proof.endpointUrl===route.endpointUrl&&
+      proof.locationRef===route.locationRef&&proof.operatorRef===route.operatorRef&&proof.workspaceId===workspaceId;
+  };
+  const authorize=async ctx=>{
+    const capability=checkRequest(ctx),exact=Object.freeze({...ctx});
+    const ok=await executeT4NetworkRoute({topology:await current(),...params,capability,getMode,
+      verifyOriginalEndpoint:proof=>verifyOriginalEndpoint(Object.freeze({...proof,transportRequest:exact,
+        nativeWireProfile,serverNodeRef})),
+      authorizeOriginalOperation:proof=>authorizeOriginalOperation(Object.freeze({...proof,
+        transportRequest:exact,nativeWireProfile,serverNodeRef,storageLocationIsNotProtocolPeer:true})),
+      executeTransport:async()=>true});
+    await current();return ok===true;
+  };
+  const connection=openT4OperatorConnection({profile,placementPolicy:place.policy,getMode,authorize,
+    nativeWireProfile,verifyOperatorEndpoint:endpoint,
+    getAuthorizationHeader:async ctx=>{
+      checkRequest(ctx);await current();const header=await getAuthorizationHeader(Object.freeze({...ctx,binding}));
+      await current();return header;
+    },
+    verifyOriginalOwnerAgreement:typeof verifyOriginalOwnerAgreement==='function'?async proof=>{
+      await current();const decision=await verifyOriginalOwnerAgreement(Object.freeze({...proof,binding}));
+      await current();return decision===true;
+    }:undefined,fetchImpl,maxBytes,timeoutMs});
+  return Object.freeze({schema:'IWXA_T4_NATIVE_TOPOLOGY_TRANSPORT_V1',binding,
+    transport:connection.transport,close:connection.close,
+    originalTopologyRecheckedPerRequest:true,originalAuthorityGranted:false,
+    protocolPeerReassigned:false,operatorDerivativeRightsActivated:false,createsStore:false,createsScheduler:false});
+}
+
 export async function transitionT4NetworkTopology({
   previous,candidate,authorizeOriginalTopologyChange,
 }={}) {
@@ -273,6 +347,13 @@ export async function transitionT4NetworkTopology({
     const prior=oldNodes.get(node.nodeRef);
     if(prior&&['kind','subjectRef','operatorRef','locationRef','profileRef'].some(k=>prior[k]!==node[k]))
       fail('NODE_IDENTITY_RETARGET_FORBIDDEN');
+  }
+  // Stable profile identity cannot silently acquire a new HTTPS endpoint.
+  const oldProfiles=new Map(before.profiles.map(p=>[p.profileRef,p]));
+  for(const profile of after.profiles){
+    const prior=oldProfiles.get(profile.profileRef);
+    if(prior&&['mode','operatorRef','locationRef','endpointUrl'].some(k=>prior[k]!==profile[k]))
+      fail('PROFILE_IDENTITY_RETARGET_FORBIDDEN');
   }
   const oldPlacements=new Map(before.placements.map(p=>
     [routeKey(p.policy.workspaceId,p.policy.objectFamily),p]));
