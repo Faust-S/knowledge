@@ -8,6 +8,10 @@ submitted Result; any new submission needs fresh assessments.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from copy import deepcopy
+
+from .capacity import CapacityBlocked, ResourceNeed
+from .wip import fingerprint, _money, _fmt, assert_assurance_responsibility_current
 from typing import Any, Mapping, Sequence
 
 
@@ -99,7 +103,8 @@ def parse_criteria(raw: Any, *, customer: str, primary_resource: str,
     return tuple(sorted(result, key=lambda x: x.key))
 
 
-def assess_result_quality(work: Any, event: Mapping[str, Any]) -> None:
+def assess_result_quality(work: Any, event: Mapping[str, Any], *,
+                          state: Any = None, at: int = 0) -> None:
     if not work.assurance_criteria:
         raise AssuranceBlocked("QUALITY_CRITERIA_NOT_DECLARED")
     if work.result != "SUBMITTED" or not work.result_ref:
@@ -140,8 +145,44 @@ def assess_result_quality(work: Any, event: Mapping[str, Any]) -> None:
             reference in work.assurance_refs or
             reference in work.operation_evidence.values()):
         raise AssuranceBlocked("QUALITY_UNIQUE_EVIDENCE_REQUIRED")
-    # All checks before mutation: a blocked event never changes an assessment.
+    previous = work.assurance_reviews.get(criterion.key)
+    same_result = previous is not None and previous["result_ref"] == work.result_ref
+    change_fields = {"quality_reassessment_of", "quality_reassessment_reason",
+                     "quality_reassessment_ref"}
+    correction = None
+    if same_result:
+        if not change_fields.issubset(event):
+            raise AssuranceBlocked("QUALITY_EXPLICIT_REASSESSMENT_REQUIRED")
+        if (event["quality_reassessment_of"] != previous["model_ref"] or
+                event["quality_reassessment_reason"] not in {
+                    "MEASUREMENT_ERROR", "TRANSCRIPTION_ERROR"
+                }):
+            raise AssuranceBlocked("QUALITY_REASSESSMENT_ORIGINAL_ACT_AND_REASON_REQUIRED")
+        error_ref = event["quality_reassessment_ref"]
+        if error_ref == reference or _ref_used(work, error_ref):
+            raise AssuranceBlocked("QUALITY_REASSESSMENT_NEW_ERROR_SOURCE_REQUIRED")
+        error_revision = _owned_source(state, error_ref, criterion.assessor, at)
+        new_revision = _owned_source(state, reference, criterion.assessor, at)
+        correction = {
+            "of": previous["model_ref"],
+            "reason": event["quality_reassessment_reason"],
+            "error_ref": error_ref, "error_source_revision": error_revision,
+            "assessment_source_revision": new_revision,
+            "physical_reexecution": False,
+        }
+    elif change_fields.intersection(event):
+        raise AssuranceBlocked("QUALITY_REASSESSMENT_CURRENT_PRIOR_ACT_REQUIRED")
+    if _ref_used(work, reference):
+        raise AssuranceBlocked("QUALITY_UNIQUE_EVIDENCE_REQUIRED")
+    if work.assurance_corrections and not same_result:
+        latest = work.assurance_corrections[-1]
+        if latest.get("resubmitted_result_ref") == work.result_ref:
+            _owned_source(state, reference, criterion.assessor, at)
+    # All checks before mutation. Keep each act, including negative acts,
+    # in the SAME Work; the current review is only a projection.
     work.assurance_refs.add(reference)
+    if correction is not None:
+        work.assurance_refs.add(correction["error_ref"])
     review = {
         "result_ref": work.result_ref, "work_revision": work.source_revision,
         "commitment_org_revision": work.commitment_org_revision,
@@ -150,7 +191,12 @@ def assess_result_quality(work: Any, event: Mapping[str, Any]) -> None:
     if responsibility is not None:
         review["effective_responsible_owner"] = responsibility["effective_owner"]
         review["responsibility_revision"] = responsibility["wip_id"]
+    if correction is not None:
+        review["reassessment"] = correction
     work.assurance_reviews[criterion.key] = review
+    work.assurance_review_history.append({
+        "criterion": criterion.key, "at": at, **deepcopy(review),
+    })
 
 
 def acceptance_gate(work: Any) -> str:
@@ -212,6 +258,9 @@ def assurance_view(work: Any) -> dict[str, Any]:
         })
     return {
         "evidence": "MODEL_ONLY_UNAUTHENTICATED",
+        "assessment_history": deepcopy(work.assurance_review_history),
+        "open_correction": deepcopy(work.assurance_correction_proposal),
+        "physical_corrections": deepcopy(work.assurance_corrections),
         "criteria": entries, "required_count": len(entries),
         "model_reported_met_count": sum(
             row["status"] == "MODEL_ONLY_REPORTED_MEETS" for row in entries
@@ -222,3 +271,334 @@ def assurance_view(work: Any) -> dict[str, Any]:
         "independent_real_quality_certification": "NOT_ESTABLISHED",
         "additional_transaction_cost_or_competence_effect": "NOT_IDENTIFIABLE",
     }
+
+
+# R1-W2F: explicit correction of a rejected original Result. New actions
+# reuse original Work, declared Operation, ContextBasis and CapacityLedger.
+CORRECTION_ACTIONS = frozenset({
+    "quality_correction_propose", "quality_correction_review",
+    "quality_correction_apply", "quality_correction_cancel",
+    "quality_correction_start", "quality_correction_complete",
+})
+
+
+def _require(condition: bool, reason: str) -> None:
+    if not condition:
+        raise AssuranceBlocked(reason)
+
+
+def _owned_source(state: Any, ref: Any, owner: str, at: int) -> str | None:
+    prefix = f"model://{owner}/"
+    _require(isinstance(ref, str) and ref.startswith(prefix)
+             and len(prefix) < len(ref) <= 180,
+             "QUALITY_ORIGINAL_OWNER_SOURCE_REQUIRED")
+    if state is None:
+        return None
+    _require(owner in state.subjects and state.subjects[owner].active,
+             "QUALITY_ORIGINAL_SOURCE_OWNER_UNAVAILABLE")
+    basis = state.context_basis
+    if basis is None or not basis.strict:
+        return None
+    source = basis.sources.get(ref)
+    _require(source is not None and source.owner == owner
+             and source.status == "CONFIRMED" and owner in source.usable_by
+             and (source.valid_until is None or at <= source.valid_until),
+             "QUALITY_ORIGINAL_SOURCE_UNAVAILABLE")
+    return source.revision
+
+
+def _ref_used(work: Any, ref: Any) -> bool:
+    if not isinstance(ref, str):
+        return False
+    return (ref == work.result_ref or ref in work.assurance_refs
+            or ref in work.operation_evidence.values()
+            or any(c.source_ref == ref for c in work.assurance_criteria)
+            or any(row.get("model_ref") == ref for row in work.result_history)
+            or any(ref in row.values() for row in work.handoff_evidence.values())
+            or any(ref in (st.dispatch_ref, st.receipt_ref, st.quality_ref)
+                   for st in work.material_states.values())
+            or any(ref in (row.get("cost_source_ref"), row.get("proposal_source"))
+                   for row in work.wip_interruptions + work.wip_amendments)
+            or any(ref in (lot.get("inspection_ref"), lot.get("claim_ref"),
+                           lot.get("custody_dispatch_ref"), lot.get("custody_receipt_ref"),
+                           lot.get("custody_quality_ref")) for lot in work.wip_lots)
+            or any(ref in row.get("used_refs", {}) for row in
+                   [*work.assurance_corrections,
+                    *([work.assurance_correction_proposal]
+                      if work.assurance_correction_proposal is not None else [])]))
+
+
+def _fresh_source(state: Any, work: Any, ref: Any, owner: str, at: int) -> dict:
+    revision = _owned_source(state, ref, owner, at)
+    _require(not any(_ref_used(other, ref) for other in state.works.values()),
+             "QUALITY_CORRECTION_SOURCE_ALREADY_USED")
+    return {"owner": owner, "revision": revision}
+
+
+def failed_criteria(work: Any) -> list[QualityCriterion]:
+    return [c for c in work.assurance_criteria
+            if work.assurance_reviews.get(c.key, {}).get("result_ref") == work.result_ref
+            and work.assurance_reviews[c.key]["verdict"] == "DOES_NOT_MEET"]
+
+
+def _current_reviews(work: Any) -> bool:
+    return bool(work.assurance_criteria) and all(
+        work.assurance_reviews.get(c.key, {}).get("result_ref") == work.result_ref
+        and work.assurance_reviews[c.key]["work_revision"] == work.source_revision
+        and work.assurance_reviews[c.key]["commitment_org_revision"] == work.commitment_org_revision
+        for c in work.assurance_criteria
+    )
+
+
+def _terminal_operation(state: Any, work: Any, operation: Any) -> tuple[Any, str, str, int]:
+    op = next((o for o in work.operations if o.key == operation), None)
+    _require(op is not None and len(op.resource_requirements) == 1
+             and op.resource_requirements[0].resource == op.primary_resource
+             and not any(operation in o.requires_completed for o in work.operations)
+             and not any(h.upstream == operation for h in work.handoffs),
+             "QUALITY_CORRECTION_TERMINAL_SINGLE_RESOURCE_OPERATION_REQUIRED")
+    resource = work.wip_operation_active_resources.get(op.key, op.primary_resource)
+    return op, resource, state.resources[resource], op.resource_requirements[0].units
+
+
+def _correction_sources_current(state: Any, row: Mapping[str, Any], at: int) -> None:
+    for ref, info in row["used_refs"].items():
+        _require(_owned_source(state, ref, info["owner"], at) == info["revision"],
+                 "QUALITY_CORRECTION_SOURCE_REVISION_STALE")
+
+
+def _proposal_current(state: Any, work: Any, row: Mapping[str, Any], at: int) -> None:
+    doc = row["terms"]
+    _require(fingerprint(doc) == row["fingerprint"] and
+             doc["work"] == work.key and doc["rejected_result"] == work.result_ref
+             and doc["source_revision"] == work.source_revision
+             and doc["commitment_org_revision"] == work.commitment_org_revision
+             and doc["org_revision"] == state.institution.revision
+             and doc["reviews"] == work.assurance_reviews
+             and doc["responsibilities"] == work.assurance_responsibilities
+             and work.result == "REJECTED"
+             and work.obligation == "ACCEPTED_BY_ORIGINAL_PRINCIPALS",
+             "QUALITY_CORRECTION_ORIGINAL_REVISION_CHANGED")
+    _, resource, owner, units = _terminal_operation(state, work, doc["operation"])
+    _require((resource, owner, units) == (doc["resource"], doc["owner"], doc["units"]),
+             "QUALITY_CORRECTION_ORIGINAL_RESOURCE_CHANGED")
+    if work.assurance_responsibilities:
+        assert_assurance_responsibility_current(state, work, at)
+    _correction_sources_current(state, row, at)
+
+
+def _check_approval(row: Mapping[str, Any]) -> None:
+    _require(set(row["votes"]) == set(row["terms"]["required"]) and all(
+        r["decision"] == "SUPPORT" for r in row["votes"].values()
+    ), "QUALITY_CORRECTION_INDEPENDENT_SUPPORT_REQUIRED")
+
+
+def _resource_ready(state: Any, work: Any, doc: Mapping[str, Any], *, reserved: bool) -> None:
+    state._require_resource_available(doc["resource"])
+    needs = [ResourceNeed(doc["resource"], doc["units"])]
+    start, end = doc["start"], doc["end"]
+    if reserved:
+        _require(any(r.work == work.key and r.resource == doc["resource"]
+                     and r.start == start and r.end == end and r.units == doc["units"]
+                     for r in state.capacity_ledger.reservations),
+                 "QUALITY_CORRECTION_RESERVATION_MISSING")
+        _require(state.capacity_ledger.planned_window_risk(
+            needs, start, end, outstanding=state._outstanding_work_ids()) is None,
+            "QUALITY_CORRECTION_CAPACITY_CHANGED")
+    else:
+        try:
+            state.capacity_ledger.preview_amendment(work.key, needs, start, end)
+        except CapacityBlocked as exc:
+            raise AssuranceBlocked(exc.reason) from exc
+
+
+def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
+                             at: int) -> dict[str, Any]:
+    action, actor = event["action"], event["actor"]
+    _require(work.result == "REJECTED"
+             and work.obligation == "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+             and event.get("result_ref") == work.result_ref
+             and event.get("source_revision") == work.source_revision
+             and event.get("org_revision") == state.institution.revision,
+             "QUALITY_CORRECTION_REJECTED_ORIGINAL_RESULT_REQUIRED")
+    ident = event.get("quality_correction_id")
+    _require(isinstance(ident, str) and 0 < len(ident) <= 128,
+             "QUALITY_CORRECTION_ID_REQUIRED")
+    if action == "quality_correction_propose":
+        _require(actor == work.customer and work.assurance_correction_proposal is None
+                 and work.execution == "DONE_WITH_EVIDENCE"
+                 and not any(r["status"] in {"APPROVED", "IN_PROGRESS", "COMPLETED"}
+                             for r in work.assurance_corrections),
+                 "QUALITY_CORRECTION_ORIGINAL_CUSTOMER_AND_NO_OPEN_ATTEMPT_REQUIRED")
+        _require(not any(r["terms"]["id"] == ident for w in state.works.values()
+                         for r in [*w.assurance_corrections,
+                                   *([w.assurance_correction_proposal]
+                                     if w.assurance_correction_proposal else [])]),
+                 "QUALITY_CORRECTION_ID_REUSED")
+        failed = failed_criteria(work)
+        _require(_current_reviews(work) and bool(failed),
+                 "QUALITY_CORRECTION_ALL_ASSESSMENTS_AND_NEGATIVE_REQUIRED")
+        operation = event.get("operation")
+        _require(all(c.operation == operation for c in failed),
+                 "QUALITY_CORRECTION_FAILED_OPERATION_SCOPE_REQUIRED")
+        op, resource, owner, units = _terminal_operation(state, work, operation)
+        _require(work.operation_states[operation] == "COMPLETED"
+                 and operation in work.operation_evidence and owner != work.customer,
+                 "QUALITY_CORRECTION_COMPLETED_INDEPENDENT_OPERATION_REQUIRED")
+        if work.assurance_responsibilities:
+            assert_assurance_responsibility_current(state, work, at)
+        start, end = event.get("quality_correction_slot_start"), event.get("quality_correction_slot_end")
+        expires = event.get("quality_correction_valid_until")
+        _require(type(start) is int and type(end) is int and type(expires) is int
+                 and at < expires <= start < end,
+                 "QUALITY_CORRECTION_FUTURE_WINDOW_REQUIRED")
+        amount = _fmt(_money(event.get("quality_correction_cost"),
+                             "QUALITY_CORRECTION_ADDITIONAL_COST_REQUIRED", positive=True))
+        currency = event.get("quality_correction_currency")
+        _require(isinstance(currency, str) and len(currency) == 3
+                 and currency.isascii() and currency.isupper() and currency.isalpha(),
+                 "QUALITY_CORRECTION_CURRENCY_REQUIRED")
+        source = event.get("quality_correction_source_ref")
+        resource_ref = event.get("quality_correction_resource_ref")
+        refs = {source: _fresh_source(state, work, source, work.customer, at),
+                resource_ref: _fresh_source(state, work, resource_ref, owner, at)}
+        _require(source != resource_ref, "QUALITY_CORRECTION_DISTINCT_SOURCES_REQUIRED")
+        required = sorted(set(work.consents) | {work.customer, owner}
+                          | {c.assessor for c in work.assurance_criteria})
+        doc = {
+            "id": ident, "work": work.key, "rejected_result": work.result_ref,
+            "scope": "TERMINAL_ORIGINAL_OPERATION_CORRECTION_ONLY",
+            "operation": operation, "original_operation_evidence": work.operation_evidence[operation],
+            "resource": resource, "owner": owner, "units": units,
+            "start": start, "end": end, "expires": expires,
+            "cost_claim": amount, "currency": currency,
+            "source_ref": source, "resource_ref": resource_ref,
+            "required": required, "reviews": deepcopy(work.assurance_reviews),
+            "responsibilities": deepcopy(work.assurance_responsibilities),
+            "source_revision": work.source_revision,
+            "org_revision": state.institution.revision,
+            "commitment_org_revision": work.commitment_org_revision,
+            "source_revisions": deepcopy(refs),
+        }
+        _resource_ready(state, work, doc, reserved=False)
+        row = {"terms": doc, "fingerprint": fingerprint(doc), "votes": {},
+               "used_refs": refs, "created_at": at, "status": "PROPOSED"}
+        work.assurance_correction_proposal = row
+        return {"quality_correction_id": ident, "quality_correction_fingerprint": row["fingerprint"],
+                "quality_correction_required": required, "quality_correction_state": "PROPOSED"}
+    if action in {"quality_correction_review", "quality_correction_apply",
+                  "quality_correction_cancel"}:
+        row = work.assurance_correction_proposal
+    else:
+        row = work.assurance_corrections[-1] if work.assurance_corrections else None
+    _require(row is not None and row["terms"]["id"] == ident and
+             row["fingerprint"] == event.get("quality_correction_fingerprint"),
+             "QUALITY_CORRECTION_EXACT_PROPOSAL_REQUIRED")
+    doc = row["terms"]
+    source = event.get("quality_correction_source_ref")
+    if action == "quality_correction_cancel":
+        _require(actor == work.customer and at > row["created_at"],
+                 "QUALITY_CORRECTION_ORIGINAL_CUSTOMER_REQUIRED")
+        info = _fresh_source(state, work, source, actor, at)
+        row["used_refs"][source] = info
+        row["status"] = "CANCELLED"
+        row["cancelled_at"] = at
+        work.assurance_corrections.append(row)
+        work.assurance_correction_proposal = None
+        return {"quality_correction_id": ident, "quality_correction_state": "CANCELLED"}
+    _proposal_current(state, work, row, at)
+    if action == "quality_correction_review":
+        _require(row["status"] == "PROPOSED" and row["created_at"] < at <= doc["expires"]
+                 and actor in doc["required"] and actor not in row["votes"],
+                 "QUALITY_CORRECTION_INDEPENDENT_REVIEW_REQUIRED")
+        decision = event.get("quality_correction_decision")
+        _require(decision in {"SUPPORT", "OBJECT"},
+                 "QUALITY_CORRECTION_REVIEW_DECISION_INVALID")
+        info = _fresh_source(state, work, source, actor, at)
+        row["used_refs"][source] = info
+        row["votes"][actor] = {"decision": decision, "source_ref": source, "at": at}
+    elif action == "quality_correction_apply":
+        _require(actor == work.customer and row["status"] == "PROPOSED"
+                 and row["created_at"] < at <= doc["expires"]
+                 and all(v["at"] < at for v in row["votes"].values())
+                 and work.execution == "DONE_WITH_EVIDENCE"
+                 and work.operation_states[doc["operation"]] == "COMPLETED"
+                 and work.operation_evidence[doc["operation"]] == doc["original_operation_evidence"],
+                 "QUALITY_CORRECTION_APPLY_STATE_INVALID")
+        _check_approval(row)
+        info = _fresh_source(state, work, source, actor, at)
+        _resource_ready(state, work, doc, reserved=False)
+        needs = [ResourceNeed(doc["resource"], doc["units"])]
+        state.capacity_ledger.reserve_amendment(work.key, needs, doc["start"], doc["end"])
+        state.allocations.append((doc["resource"], work.key, doc["start"], doc["end"]))
+        row["used_refs"][source] = info
+        row["status"] = "APPROVED"
+        row["applied_at"] = at
+        work.assurance_corrections.append(row)
+        work.assurance_correction_proposal = None
+        work.operation_states[doc["operation"]] = "CORRECTION_PLANNED"
+        work.execution = "IN_PROGRESS"
+    elif action == "quality_correction_start":
+        _check_approval(row)
+        _require(actor == doc["owner"] and row["status"] == "APPROVED"
+                 and row["applied_at"] < at and doc["start"] <= at < doc["end"]
+                 and work.operation_states[doc["operation"]] == "CORRECTION_PLANNED",
+                 "QUALITY_CORRECTION_START_STATE_OR_WINDOW_INVALID")
+        _resource_ready(state, work, doc, reserved=True)
+        info = _fresh_source(state, work, source, actor, at)
+        cost_ref = event.get("quality_correction_cost_ref")
+        cost_info = _fresh_source(state, work, cost_ref, actor, at)
+        _require(source != cost_ref and
+                 _fmt(_money(event.get("quality_correction_cost"),
+                             "QUALITY_CORRECTION_ACTUAL_COST_REQUIRED", positive=True)) == doc["cost_claim"],
+                 "QUALITY_CORRECTION_COST_DIFFERS_FROM_AGREED_CLAIM")
+        row["used_refs"].update({source: info, cost_ref: cost_info})
+        row["status"] = "IN_PROGRESS"
+        row["started_at"] = at
+        row["additional_resource_use_claim"] = {
+            "owner": actor, "source_ref": cost_ref, "source_revision": cost_info["revision"],
+            "amount": doc["cost_claim"], "currency": doc["currency"],
+            "at": at, "bank_payment_proved": False,
+        }
+        work.operation_states[doc["operation"]] = "CORRECTION_RUNNING"
+    elif action == "quality_correction_complete":
+        _check_approval(row)
+        _require(actor == doc["owner"] and row["status"] == "IN_PROGRESS"
+                 and row["started_at"] < at <= doc["end"]
+                 and work.operation_states[doc["operation"]] == "CORRECTION_RUNNING",
+                 "QUALITY_CORRECTION_COMPLETE_STATE_OR_WINDOW_INVALID")
+        _resource_ready(state, work, doc, reserved=True)
+        info = _fresh_source(state, work, source, actor, at)
+        row["used_refs"][source] = info
+        row["status"] = "COMPLETED"
+        row["completed_at"] = at
+        row["operation_evidence"] = source
+        work.operation_states[doc["operation"]] = "COMPLETED"
+        work.operation_evidence[doc["operation"]] = source
+        work.execution = "DONE_WITH_EVIDENCE"
+    else:
+        raise AssuranceBlocked("QUALITY_CORRECTION_UNKNOWN_ACTION")
+    return {"quality_correction_id": ident, "quality_correction_state": row["status"],
+            "quality_correction_fingerprint": row["fingerprint"],
+            "quality_correction_source_ref": source,
+            "quality_correction_additional_resource_use_claim":
+                deepcopy(row.get("additional_resource_use_claim")),
+            "original_work_not_replaced": True}
+
+
+def qualified_resubmission(state: Any, work: Any, event: Mapping[str, Any],
+                           at: int) -> dict[str, Any] | None:
+    """A new Result reference is not evidence that failed work was corrected."""
+    if not failed_criteria(work):
+        return None
+    row = work.assurance_corrections[-1] if work.assurance_corrections else None
+    _require(row is not None and row["status"] == "COMPLETED"
+             and row["terms"]["rejected_result"] == work.result_ref
+             and event.get("quality_correction_id") == row["terms"]["id"]
+             and event.get("quality_correction_fingerprint") == row["fingerprint"]
+             and at > row["completed_at"]
+             and work.operation_evidence[row["terms"]["operation"]] == row["operation_evidence"],
+             "QUALITY_FAILED_RESULT_REQUIRES_EXECUTED_CORRECTION")
+    _proposal_current(state, work, row, at)
+    _check_approval(row)
+    return row
