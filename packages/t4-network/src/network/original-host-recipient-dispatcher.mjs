@@ -601,7 +601,7 @@ async function executeNativeRecipient(p,options,sharedGuard=null){
  * the caller. The existing original phase and publication ledgers are the
  * only durable state; no additional inbox, scheduler, or subject Store.
  */
-async function executeNativeRecipientStep(p,options){
+async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
   const schema='IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_STEP_V1';
   const done=(state,extra={})=>frozen({schema,state,sourceCursorAdvanced:false,
     originalRecipientApplied:false,originalSubjectMutationInvoked:false,
@@ -862,6 +862,13 @@ async function executeNativeRecipientStep(p,options){
     createSignedAppliedAckFrame:proof=>signFrame('APPLIED_ACK',proof.sequence,proof.body,proof.criticalExtensions),
   },guard);
   await guard('recipient-step-complete');
+  // Internal witness only. Do not return decrypted content or owner ports
+  // from a public task result; the original cursor port can re-read the
+  // actual result and both original technical ledgers before its CAS.
+  if(captureAppliedWitness)captureAppliedWitness({
+    session,received:structuredClone(received),recipientPhasePort:phase.raw,
+    recipientPublicationPort:publication,
+  });
   return result('APPLIED_AND_ACKNOWLEDGED',{originalRecipientApplied:true,
     originalSubjectMutationInvoked:tick.originalSubjectMutationInvoked,result:tick.result});
 }
@@ -883,12 +890,30 @@ async function executeNativeRecipientOwnerStep(p,options){
     authorizeOriginalRecipientSession,...stepOptions}=options;
   if(['session','sourceCursorBefore','recipientPublicationPort'].some(k=>Object.hasOwn(options,k))||
     ![readOriginalNativeSessionAtCursor,createOriginalRecipientPublicationPort,
-      authorizeOriginalRecipientSession,p.readOriginalVerifiedCursor,
-      p.persistOriginalVerifiedCursor].every(f=>typeof f==='function'))
+      authorizeOriginalRecipientSession].every(f=>typeof f==='function'))
     fail('RECIPIENT_NATIVE_OWNER_STEP_ORIGINAL_PORTS_REQUIRED');
   const identity=frozen({workspaceId:p.workspaceId,originalWriteOwnerRef:p.originalWriteOwnerRef,
     sourceNodeRef:p.sourceNodeRef,recipientNodeRef:p.recipientNodeRef,
     scopeRef:p.scopeRef,ownerEpoch:p.ownerEpoch,networkTargetRef:p.recipientNodeRef});
+  let originalCursor=null;
+  if(p.originalRecipientCursorPort!==undefined){
+    if(typeof p.readOriginalVerifiedCursor==='function'||typeof p.persistOriginalVerifiedCursor==='function')
+      fail('RECIPIENT_NATIVE_OWNER_MULTIPLE_CURSOR_PORTS');
+    originalCursor=scopeOriginalHostPort(p.originalRecipientCursorPort,p.isHostActive,
+      ['schema','identity','checkpointRef','originalT3OnlyStore','createsScheduler'],
+      'RECIPIENT_NATIVE_OWNER_ORIGINAL_CURSOR_PORT_REQUIRED');
+    if(originalCursor.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_CURSOR_PORT_V1'||
+      originalCursor.originalT3OnlyStore!==true||originalCursor.createsScheduler!==false||
+      originalCursor.identity?.sourceWorkspaceId!==identity.workspaceId||
+      !['originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch']
+        .every(k=>originalCursor.identity[k]===identity[k])||
+      !ID(originalCursor.checkpointRef)||
+      !['readOriginalVerifiedCursor','persistOriginalVerifiedCursor'].every(k=>typeof originalCursor[k]==='function'))
+      fail('RECIPIENT_NATIVE_OWNER_ORIGINAL_CURSOR_PORT_REQUIRED');
+  }else if(![p.readOriginalVerifiedCursor,p.persistOriginalVerifiedCursor].every(f=>typeof f==='function'))
+    fail('RECIPIENT_NATIVE_OWNER_STEP_ORIGINAL_PORTS_REQUIRED');
+  const readOriginalCursor=originalCursor?.readOriginalVerifiedCursor??p.readOriginalVerifiedCursor;
+  const persistOriginalCursor=originalCursor?.persistOriginalVerifiedCursor??p.persistOriginalVerifiedCursor;
   const ownerGuard=nativeRecipientGuard(p,{sessionRef:null,changeId:null});
   const initial=await ownerGuard('recipient-owner-wake');
   const scopedProof=(operation,step,extra={})=>frozen({
@@ -899,7 +924,7 @@ async function executeNativeRecipientOwnerStep(p,options){
     if(await p.authorizeOriginalRead(scopedProof('t1.getObject',step))!==true)
       fail('RECIPIENT_NATIVE_OWNER_CURSOR_READ_DENIED');
     await ownerGuard(step+'-authorized');
-    const observed=structuredClone(await p.readOriginalVerifiedCursor(scopedProof(
+    const observed=structuredClone(await readOriginalCursor(scopedProof(
       't4.network.original.recipient.cursor.read',step)));
     await ownerGuard(step+'-readback');
     if(!cursorValid(observed,p.workspaceId,p.originalWriteOwnerRef))
@@ -963,8 +988,10 @@ async function executeNativeRecipientOwnerStep(p,options){
   const publication=await createOriginalRecipientPublicationPort(frozen({
     ...identity,session,sourceCursorBefore:before,originalHostSessionRef:initial.hostSessionRef}));
   await guard('after-recipient-publication-port');
+  let appliedWitness=null;
   const tick=await executeNativeRecipientStep(p,{...stepOptions,session,sourceCursorBefore:before,
-    recipientPublicationPort:publication,authorizeOriginalRecipientSession:admission});
+    recipientPublicationPort:publication,authorizeOriginalRecipientSession:admission},
+    originalCursor?w=>{appliedWitness=w;}:null);
   await requireCurrent('after-native-recipient-step');
   if(tick?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_STEP_V1'||
     tick.sessionRef!==session.sessionRef||tick.changeId!==session.changeId||
@@ -998,13 +1025,13 @@ async function executeNativeRecipientOwnerStep(p,options){
   await guard('recipient-owner-cursor-cas-authorized');
   let stored;
   try{
-    stored=await p.persistOriginalVerifiedCursor(frozen({
+    stored=await persistOriginalCursor(frozen({
       schema:'IWXA_T4_ORIGINAL_RECIPIENT_CURSOR_CAS_V1',
       workspaceId:identity.workspaceId,originalWriteOwnerRef:identity.originalWriteOwnerRef,
       sourceNodeRef:identity.sourceNodeRef,previousCursor:before,verifiedCursor:after,
       sourceEventId:session.sourceEventId,originalReceiptRef:receiptRef,
       originalHostAtomicCompareAndSetRequired:true,networkReceiptIsNotBusinessResult:true,
-    }));
+    }),appliedWitness);
   }catch(e){
     fail('RECIPIENT_NATIVE_OWNER_CURSOR_OUTCOME_UNKNOWN',{originalErrorCode:e?.code??null,
       automaticRetryAllowed:false,originalRecipientCursorMayHaveCommitted:true});

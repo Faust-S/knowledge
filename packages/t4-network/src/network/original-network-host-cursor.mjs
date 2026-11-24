@@ -1,7 +1,11 @@
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
-import {validT4NativeSubjectRevision} from './standard-network-wire-candidate.mjs';
-import {readT4OriginalEventWindow} from './original-event-window.mjs';
+import {validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions}
+  from './standard-network-wire-candidate.mjs';
+import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
+import {validateT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
+import {isT4OriginalOutboundFrameProof} from './original-network-source-head-proof.mjs';
+import {inspectT4OriginalNetworkRecipientResult} from './original-network-subject-apply.mjs';
 import {recoverT4OriginalNetworkSourceCursor}
   from './original-network-source-cursor.mjs';
 
@@ -432,5 +436,353 @@ export function createT4OriginalNetworkHostCursorPort({
     createsStore:false,createsKernel:false,createsIAM:false,
     createsTaskEngine:false,createsScheduler:false,
     createsNewWireType:false,usesOriginalT3CAS:true,
+  });
+}
+
+
+// Recipient role of the same original Host frontier. The source ACK and
+// local recipient cursor deliberately have different causal positions.
+// Both use original Kernel Object CAS and its append-only Event evidence.
+const RECIPIENT_SCHEMA='IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_FRONTIER_V1';
+const RECIPIENT_EVENT='t4.network.original.host.recipient.frontier';
+const BASELINE_SCHEMA='IWXA_T4_ORIGINAL_RECIPIENT_BASELINE_V1';
+const RECIPIENT_TYPES=Object.freeze({
+  OBJECT_PUT:'iwxa.t4.original-object.synced',ASSET_PUT:'iwxa.t4.original-asset.synced',
+  RELATION_PUT:'iwxa.t4.original-relation.synced',OBJECT_DELETE:'iwxa.t4.original-object.deleted',
+  ASSET_DELETE:'iwxa.t4.original-asset.deleted',RELATION_DELETE:'iwxa.t4.original-relation.deleted',
+});
+const recipientEventDigest=e=>HASH({role:'RECIPIENT_EVENT',event:e});
+const canonicalCursor=(c,identity)=>validCursor(c,identity.sourceWorkspaceId,identity.originalWriteOwnerRef)&&
+  c.originalPermissionProof===false&&same(Object.keys(c).sort(),
+    ['lastEventId','originalPermissionProof','originalWriteOwnerRef','schema',
+      'seenEventCount','sourcePrefixDigest','workspaceId']);
+const exactSession=(raw,identity)=>{
+  const s=validateT4OriginalNativeCaptureSession(raw);
+  if(s.workspaceId!==identity.sourceWorkspaceId||
+    !['originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch']
+      .every(k=>s[k]===identity[k]))
+    fail('RECIPIENT_CURSOR_ORIGINAL_SESSION_SCOPE_MISMATCH');
+  return s;
+};
+function recipientTransition(identity,session,before,after){
+  if(!canonicalCursor(before,identity)||!canonicalCursor(after,identity)||
+    before.seenEventCount+1!==after.seenEventCount||
+    before.sourcePrefixDigest===after.sourcePrefixDigest||
+    before.sourcePrefixDigest!==session.sourcePrefixDigestBefore||
+    after.sourcePrefixDigest!==session.sourcePrefixDigestAfter||
+    after.lastEventId!==session.sourceEventId)
+    fail('RECIPIENT_CURSOR_ORIGINAL_CAUSAL_GAP');
+}
+function checkRecipientEvent(identity,session,event,receiptRef,stateDigest,eventRevision){
+  if(event?.event_id!==receiptRef||event.workspace_id!==identity.sourceWorkspaceId||
+    event.event_type!==RECIPIENT_TYPES[session.changeKind]||
+    (event.revision??null)!==eventRevision||
+    event.payload?.originalEventId!==session.sourceEventId||
+    event.payload?.originalEventDigest!==session.sourceEventDigest||
+    event.payload?.originalWriteOwnerRef!==identity.originalWriteOwnerRef||
+    (session.changeKind==='RELATION_PUT'?event.payload?.originalRelationDigest:
+      event.payload?.originalContentDigest)!==stateDigest||
+    (session.changeKind!=='OBJECT_PUT'&&event.payload?.originalDeltaSha256!==session.capturedSha256))
+    fail('RECIPIENT_CURSOR_ORIGINAL_RESULT_EVENT_MISMATCH');
+}
+
+/** Durable recipient continuation port. The original owner supplies an
+ * independently admitted baseline, never a cursor inferred from HEADS.
+ * The first verified advance writes one original technical Object, and
+ * subsequent advances revise that same Object. No cursor database or
+ * additional queue is introduced. Cold reads depend on local original
+ * Events, not the availability of remote ciphertext or ACK files.
+ */
+export function createT4OriginalNetworkRecipientCursorPort({
+  originalKernel,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
+  sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,getMode,readOriginalHostContext,
+  authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
+  authorizeOriginalRecipientRead,authorizeOriginalSourceRead,readOriginalSourceEvents,
+  readOriginalAdmittedBaseline,verifyOriginalRecipientBaseline,readOriginalDependencyCoverage,
+}={}){
+  if(![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
+    recipientNodeRef,scopeRef].every(ID)||sourceNodeRef===recipientNodeRef||
+    technicalWorkspaceId===sourceWorkspaceId||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
+    ![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
+      authorizeOriginalRecipientRead,authorizeOriginalSourceRead,readOriginalSourceEvents,
+      readOriginalAdmittedBaseline,verifyOriginalRecipientBaseline].every(f=>typeof f==='function')||
+    !['getObject','putObject','listEventsSince'].every(k=>
+      originalKernel?.hasOperation?.('t1.'+k)===true&&typeof originalKernel[k]==='function'))
+    fail('RECIPIENT_CURSOR_ORIGINAL_PORTS_REQUIRED');
+  const identity=frozen({technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
+    sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch});
+  const checkpointRef='t4:net:recipientfrontier:'+HASH({role:'RECIPIENT',identity}).slice(7);
+  const mode=()=>{if(getMode()!=='T4_NETWORK')fail('RECIPIENT_CURSOR_NETWORK_MODE_OFF');};
+  async function context(){
+    mode();const c=await readOriginalHostContext();mode();
+    if(c?.workspaceId!==technicalWorkspaceId||c.originalWriteOwnerRef!==originalWriteOwnerRef||
+      c.nodeRef!==recipientNodeRef||c.scopeRef!==scopeRef||!ID(c.hostSessionRef))
+      fail('RECIPIENT_CURSOR_ORIGINAL_CONTEXT_INVALID');
+    return frozen({workspaceId:c.workspaceId,originalWriteOwnerRef:c.originalWriteOwnerRef,
+      nodeRef:c.nodeRef,scopeRef:c.scopeRef,hostSessionRef:c.hostSessionRef});
+  }
+  async function guard(ctx,operation,step,recipient=false){
+    if(!same(await context(),ctx))
+      fail('RECIPIENT_CURSOR_ORIGINAL_CONTEXT_CHANGED',{automaticRetryAllowed:false});
+    const authorize=recipient?authorizeOriginalRecipientRead:
+      operation==='t1.putObject'?authorizeOriginalTechnicalWrite:authorizeOriginalTechnicalRead;
+    if(await authorize(frozen({operation,step,...identity,checkpointRef,
+      workspaceId:recipient?sourceWorkspaceId:technicalWorkspaceId,
+      originalHostSessionRef:ctx.hostSessionRef,originalT3HostAuthorityRequired:true,
+      signedNetworkACKIsNotSubjectWriteAuthority:true}))!==true)
+      fail('RECIPIENT_CURSOR_ORIGINAL_ACCESS_DENIED');
+    if(!same(await context(),ctx))
+      fail('RECIPIENT_CURSOR_ORIGINAL_CONTEXT_CHANGED',{automaticRetryAllowed:false});
+  }
+  async function baseline(ctx){
+    await guard(ctx,'t1.getObject','read-admitted-baseline');
+    const b=copy(await readOriginalAdmittedBaseline(frozen({...identity,checkpointRef,
+      originalHostSessionRef:ctx.hostSessionRef,originalBaselineAdmissionRequired:true})));
+    if(b?.schema!==BASELINE_SCHEMA||!same(b.identity,identity)||
+      !canonicalCursor(b.sourceCursor,identity)||!ID(b.originalBaselineRef)||
+      !DIG(b.originalBaselineDigest)||
+      !same(Object.keys(b).sort(),['identity','originalBaselineDigest','originalBaselineRef','schema','sourceCursor']))
+      fail('RECIPIENT_CURSOR_ORIGINAL_BASELINE_REQUIRED');
+    await guard(ctx,'t1.getObject','verify-admitted-baseline');
+    if(await verifyOriginalRecipientBaseline(frozen({operation:'t4.network.original.recipient.baseline.verify',
+      ...identity,checkpointRef,baseline:copy(b),originalHostSessionRef:ctx.hostSessionRef,
+      originalRecipientBaselineAndSourcePrefixRequired:true,networkMetadataIsNotAdmission:true}))!==true)
+      fail('RECIPIENT_CURSOR_ORIGINAL_BASELINE_DENIED');
+    await guard(ctx,'t1.getObject','baseline-readback');
+    return b;
+  }
+  const genesis=b=>HASH({identity,checkpointRef,role:'RECIPIENT',baseline:b});
+  const recordHash=r=>HASH({identity,checkpointRef,role:'RECIPIENT',record:r});
+  async function readObject(ctx,step){
+    await guard(ctx,'t1.getObject',step);
+    const row=copy(await originalKernel.getObject(technicalWorkspaceId,checkpointRef)??null);
+    await guard(ctx,'t1.getObject',step+'-readback');
+    return row;
+  }
+  async function readEvents(ctx,recipient){
+    await guard(ctx,'t1.listEventsSince','frontier-events',recipient);
+    const events=copy(await originalKernel.listEventsSince(recipient?sourceWorkspaceId:technicalWorkspaceId));
+    await guard(ctx,'t1.listEventsSince','frontier-events-readback',recipient);
+    if(!Array.isArray(events)||events.length>100000)
+      fail('RECIPIENT_CURSOR_ORIGINAL_EVENT_STREAM_INVALID');
+    return events;
+  }
+  // Only an ephemeral verification memo for the exact original Object and
+  // current Host. Each wake gets a fresh scoped port; explicit inspections
+  // and every CAS verify the original Event chains again. No authority is
+  // cached, and any changed Object forces complete verification.
+  let memo=null;
+  async function readVerified(ctx,full=true){
+    const row=await readObject(ctx,'frontier-read');
+    if(!full&&memo&&same(memo.context,ctx)&&same(memo.row,row))
+      return copy(memo.result);
+    const b=await baseline(ctx),g=genesis(b),obj=row?.object,d=obj?.data;
+    const events=(await readEvents(ctx,false)).filter(e=>
+      e?.workspace_id===technicalWorkspaceId&&e.object_id===checkpointRef);
+    let found;
+    if(row===null){
+      if(events.length)fail('RECIPIENT_CURSOR_ORIGINAL_EVENT_HISTORY_INCOMPLETE');
+      found={revision:0,last:null,cursor:copy(b.sourceCursor),chainHash:g,baseline:b};
+    }else{
+      if(obj?.workspace_id!==technicalWorkspaceId||obj.object_id!==checkpointRef||
+        obj.schema_id!=='iwxa.demo.note'||obj.schema_version!=='1.0.0'||obj.deleted!==false||
+        !Number.isSafeInteger(obj.revision)||obj.revision<1||
+        d?.schema!==RECIPIENT_SCHEMA||!same(d.identity,identity)||!same(d.baseline,b)||
+        !same(Object.keys(d).sort(),['baseline','identity','last','schema','title'])||
+        events.length!==obj.revision||!d.last)
+        fail('RECIPIENT_CURSOR_ORIGINAL_CHECKPOINT_INVALID');
+      const byRevision=new Map(),technicalIds=new Set();
+      for(const e of events){
+        if(e.event_type!==RECIPIENT_EVENT||!ID(e.event_id)||technicalIds.has(e.event_id)||
+          !Number.isSafeInteger(e.revision)||e.revision<1||e.revision>obj.revision||byRevision.has(e.revision))
+          fail('RECIPIENT_CURSOR_ORIGINAL_EVENT_CHAIN_INVALID');
+        byRevision.set(e.revision,e);technicalIds.add(e.event_id);
+      }
+      const receipts=new Map();
+      for(const e of await readEvents(ctx,true)){
+        if(e?.workspace_id!==sourceWorkspaceId||!ID(e.event_id)||receipts.has(e.event_id))
+          fail('RECIPIENT_CURSOR_ORIGINAL_EVENT_STREAM_INVALID');
+        receipts.set(e.event_id,e);
+      }
+      let previous=g,priorCursor=b.sourceCursor,last=null;
+      const usedReceipts=new Set();
+      for(let i=1;i<=obj.revision;i++){
+        const ev=byRevision.get(i),r=ev?.payload?.record;
+        if(!r||!same(ev.payload,{checkpointRef,identity,record:r,chainHash:r.chainHash,action:'ADVANCE'})||
+          !same(Object.keys(r).sort(),['chainHash','originalPublicationChainHash','originalPublicationRef',
+            'originalRecipientEventDigest','originalRecipientEventId','originalRecipientEventRevision',
+            'originalRecipientRevision','originalRecipientStateDigest','originalPhaseChainHash','originalPhaseRef',
+            'previousHash','session','signedAppliedAckDigest','sourceCursorAfter','sourceCursorBefore'].sort())||
+          ![r.originalRecipientEventId,r.originalPhaseRef,r.originalPublicationRef].every(ID)||
+          ![r.originalRecipientEventDigest,r.originalRecipientStateDigest,r.originalPhaseChainHash,
+            r.originalPublicationChainHash,r.signedAppliedAckDigest,r.previousHash,r.chainHash].every(DIG)||
+          r.previousHash!==previous||!same(r.sourceCursorBefore,priorCursor)||
+          usedReceipts.has(r.originalRecipientEventId))
+          fail('RECIPIENT_CURSOR_ORIGINAL_EVENT_CHAIN_INVALID');
+        const session=exactSession(r.session,identity);
+        recipientTransition(identity,session,r.sourceCursorBefore,r.sourceCursorAfter);
+        if(!validT4NativeSubjectRevision(session.changeKind,r.originalRecipientRevision)||
+          r.originalRecipientRevision!==session.sourceRevision)
+          fail('RECIPIENT_CURSOR_ORIGINAL_RESULT_EVENT_MISMATCH');
+        const {chainHash,...body}=r;
+        if(recordHash(body)!==chainHash)fail('RECIPIENT_CURSOR_ORIGINAL_EVENT_CHAIN_INVALID');
+        const e=receipts.get(r.originalRecipientEventId);
+        checkRecipientEvent(identity,session,e,r.originalRecipientEventId,
+          r.originalRecipientStateDigest,r.originalRecipientEventRevision);
+        if(recipientEventDigest(e)!==r.originalRecipientEventDigest)
+          fail('RECIPIENT_CURSOR_ORIGINAL_RESULT_EVENT_MISMATCH');
+        usedReceipts.add(r.originalRecipientEventId);
+        previous=chainHash;priorCursor=r.sourceCursorAfter;last=r;
+      }
+      if(!same(last,d.last))fail('RECIPIENT_CURSOR_ORIGINAL_LAST_RECORD_MISMATCH');
+      found={revision:obj.revision,last:copy(last),cursor:copy(priorCursor),chainHash:previous,baseline:b};
+    }
+    if(!same(await readObject(ctx,'frontier-double-read'),row))
+      fail('RECIPIENT_CURSOR_ORIGINAL_CHANGED_DURING_READ');
+    memo={context:copy(ctx),row:copy(row),result:copy(found)};
+    return found;
+  }
+  async function inspectOriginalRecipientCursor(){
+    const ctx=await context(),current=await readVerified(ctx);
+    return frozen({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_CURSOR_STATUS_V1',
+      ...identity,checkpointRef,revision:current.revision,
+      originalT3VerifiedCursor:copy(current.cursor),chainHash:current.chainHash,
+      lastOriginalRecipientEventId:current.last?.originalRecipientEventId??null,
+      originalBaselineAdmitted:true,originalT3EventChainVerified:current.revision>0,
+      originalT3OnlyStore:true,originalSubjectMutationInvoked:false,
+      remoteNetworkReadRequired:false,sourceCursorAdvanced:false});
+  }
+  async function readOriginalVerifiedCursor(){
+    const ctx=await context();
+    return copy((await readVerified(ctx,false)).cursor);
+  }
+  async function persistOriginalVerifiedCursor(raw,witness){
+    const cas=copy(raw);
+    const received=copy(witness?.received),session=exactSession(witness?.session,identity);
+    const phase=witness?.recipientPhasePort,publication=witness?.recipientPublicationPort;
+    if(cas?.schema!=='IWXA_T4_ORIGINAL_RECIPIENT_CURSOR_CAS_V1'||
+      cas.workspaceId!==sourceWorkspaceId||cas.originalWriteOwnerRef!==originalWriteOwnerRef||
+      cas.sourceNodeRef!==sourceNodeRef||cas.sourceEventId!==session.sourceEventId||
+      !ID(cas.originalReceiptRef)||cas.originalHostAtomicCompareAndSetRequired!==true||
+      cas.networkReceiptIsNotBusinessResult!==true||
+      received?.delta?.sourceEventId!==session.sourceEventId||
+      received.delta.workspaceId!==sourceWorkspaceId||received.delta.originalWriteOwnerRef!==originalWriteOwnerRef||
+      received.delta.windowDigest!==session.capturedWindowDigest||received.sha256!==session.capturedSha256||
+      received.originalEventDigest!==session.sourceEventDigest||
+      received.sourcePrefixDigestBefore!==session.sourcePrefixDigestBefore||
+      received.sourcePrefixDigestAfter!==session.sourcePrefixDigestAfter||
+      !['sourceNodeRef','recipientNodeRef','scopeRef','sessionRef','changeId','ownerEpoch'].every(k=>received[k]===session[k])||
+      phase?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||phase.role!=='RECIPIENT'||
+      phase.recipientApplyIntentRequired!==true||phase.originalT3TechnicalWorkspaceOnly!==true||
+      typeof phase.inspectOriginalSession!=='function'||
+      publication?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||publication.originalT3OnlyStore!==true||
+      !same(publication.session,session)||typeof publication.readOriginalPublishedFrame!=='function')
+      fail('RECIPIENT_CURSOR_ORIGINAL_APPLIED_WITNESS_REQUIRED');
+    recipientTransition(identity,session,cas.previousCursor,cas.verifiedCursor);
+    const ctx=await context(),current=await readVerified(ctx);
+    if(!same(current.cursor,cas.previousCursor))return false;
+    const live=async(fn,step,operation='t1.getObject',recipient=false)=>{
+      await guard(ctx,operation,step,recipient);const value=await fn();
+      await guard(ctx,operation,step+'-readback',recipient);return value;
+    };
+    const source=await readT4OriginalEventWindow({
+      workspaceId:sourceWorkspaceId,originalWriteOwnerRef,cursor:cas.previousCursor,maxEvents:1,
+      authorizeOriginalRead:p=>live(()=>authorizeOriginalSourceRead(p),'source-prefix-authority'),
+      readOriginalEvents:p=>live(()=>readOriginalSourceEvents(p),'source-prefix-read'),
+    });
+    if(!same(source.nextCursor,cas.verifiedCursor)||source.window.count!==1||
+      source.window.eventRefs[0].eventDigest!==session.sourceEventDigest||
+      !matchesT4OriginalCapturedWindowDigest(source.window,session.capturedWindowDigest))
+      fail('RECIPIENT_CURSOR_ORIGINAL_SOURCE_PREFIX_DIVERGED');
+    async function verifiedResult(){
+      const actual=await inspectT4OriginalNetworkRecipientResult({
+        received,originalKernel,getMode,allowHistoricalEventProof:false,
+        authorizeOriginalRead:p=>live(()=>authorizeOriginalRecipientRead(p),'original-subject-result',p.operation,true),
+        readOriginalDependencyCoverage:typeof readOriginalDependencyCoverage==='function'?
+          p=>live(()=>readOriginalDependencyCoverage(p),'original-dependency-coverage','t1.getObject',true):undefined,
+      });
+      if(actual.state!=='APPLIED_VERIFIED'||actual.originalBusinessApplied!==true||
+        actual.actualOriginalT3EventReadback!==true||actual.sourceEventId!==session.sourceEventId||
+        actual.originalRecipientEventId!==cas.originalReceiptRef||
+        actual.originalRecipientRevision!==session.sourceRevision||
+        !DIG(actual.originalRecipientStateDigest))
+        fail('RECIPIENT_CURSOR_ORIGINAL_RESULT_NOT_VERIFIED');
+      return actual;
+    }
+    const actual=await verifiedResult();
+    const status=await live(()=>phase.inspectOriginalSession(),'applied-phase');
+    const ack=await live(()=>publication.readOriginalPublishedFrame({sequence:2}),'signed-applied-ack');
+    const e=status?.currentEvidence,body=ack?.verifiedBody;
+    if(status?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||status.role!=='RECIPIENT'||
+      status.currentPhase!=='APPLIED'||status.revision!==4||status.recipientApplyIntentRequired!==true||
+      status.originalT3EventChainVerified!==true||status.originalT3OnlyStore!==true||
+      status.verifiedOriginalRecipientApplication!==true||status.originalBusinessApplied!==true||
+      status.checkpointRef!==phase.checkpointRef||!DIG(status.chainHash)||
+      !['sourceNodeRef','recipientNodeRef','scopeRef','sessionRef','changeId','ownerEpoch'].every(k=>status[k]===session[k])||
+      (status.changeKind??'OBJECT_PUT')!==session.changeKind||
+      !isT4OriginalOutboundFrameProof(ack)||ack.checkpointRef!==publication.checkpointRef||
+      ack.signedMessageType!=='APPLIED_ACK'||ack.verifiedSequence!==2||
+      ack.verifiedSourceNodeRef!==recipientNodeRef||ack.verifiedRecipientNodeRef!==sourceNodeRef||
+      ack.verifiedScopeRef!==scopeRef||ack.verifiedSessionRef!==session.sessionRef||
+      ack.verifiedOwnerEpoch!==ownerEpoch||
+      !matchesT4NativeSubjectCriticalExtensions(session.changeKind,ack.verifiedCriticalExtensions)||
+      body?.changeId!==session.changeId||body.contentDigest!==received.contentDigest||
+      body.recipientEventRef!==actual.originalRecipientEventId||
+      body.recipientRevision!==actual.originalRecipientRevision||
+      body.recipientStateDigest!==actual.originalRecipientStateDigest||
+      !same(e,{evidenceRef:ack.key,evidenceDigest:'sha256:'+ack.sha256,
+        originalRecipientEventId:actual.originalRecipientEventId,
+        originalRecipientRevision:actual.originalRecipientRevision,
+        originalRecipientStateDigest:actual.originalRecipientStateDigest}))
+      fail('RECIPIENT_CURSOR_ORIGINAL_APPLIED_WITNESS_MISMATCH');
+    const matches=(await readEvents(ctx,true)).filter(e=>e?.event_id===cas.originalReceiptRef);
+    if(matches.length!==1)fail('RECIPIENT_CURSOR_ORIGINAL_RESULT_EVENT_MISMATCH');
+    const ev=matches[0],eventRevision=ev.revision??null;
+    checkRecipientEvent(identity,session,ev,cas.originalReceiptRef,actual.originalRecipientStateDigest,eventRevision);
+    if(!same(await verifiedResult(),actual))
+      fail('RECIPIENT_CURSOR_ORIGINAL_RESULT_CHANGED');
+    const record={session:copy(session),sourceCursorBefore:copy(cas.previousCursor),
+      sourceCursorAfter:copy(cas.verifiedCursor),originalRecipientEventId:cas.originalReceiptRef,
+      originalRecipientEventDigest:recipientEventDigest(ev),originalRecipientEventRevision:eventRevision,
+      originalRecipientRevision:actual.originalRecipientRevision,
+      originalRecipientStateDigest:actual.originalRecipientStateDigest,
+      originalPhaseRef:status.checkpointRef,originalPhaseChainHash:status.chainHash,
+      originalPublicationRef:ack.checkpointRef,originalPublicationChainHash:ack.originalPublicationChainHash,
+      signedAppliedAckDigest:'sha256:'+ack.sha256,previousHash:current.chainHash};
+    const desired={...record,chainHash:recordHash(record)},revision=current.revision+1;
+    await guard(ctx,'t1.putObject','recipient-frontier-cas');
+    try{
+      const receipt=await originalKernel.putObject({
+        workspace_id:technicalWorkspaceId,object_id:checkpointRef,
+        schema_id:'iwxa.demo.note',schema_version:'1.0.0',base_revision:current.revision,
+        data:{schema:RECIPIENT_SCHEMA,title:'Original T3 native recipient frontier',
+          identity:copy(identity),baseline:copy(current.baseline),last:copy(desired)},extensions:{},
+        event:{event_type:RECIPIENT_EVENT,payload:{checkpointRef,identity:copy(identity),
+          record:copy(desired),chainHash:desired.chainHash,action:'ADVANCE'}},
+      });
+      if(receipt?.object?.object_id!==checkpointRef||receipt.object.revision!==revision||
+        receipt?.event?.event_type!==RECIPIENT_EVENT||!ID(receipt.event.event_id))
+        fail('RECIPIENT_CURSOR_ORIGINAL_RECEIPT_INVALID');
+    }catch(e){
+      fail('RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalCode:e?.code??null,
+        originalWriteMayHaveCommitted:true,automaticRetryAllowed:false});
+    }finally{memo=null;}
+    const confirmed=await readVerified(ctx);
+    if(confirmed.revision!==revision||!same(confirmed.last,desired))
+      fail('RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalWriteMayHaveCommitted:true,
+        automaticRetryAllowed:false});
+    return true;
+  }
+  return frozen({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_CURSOR_PORT_V1',
+    identity,checkpointRef,originalT3OnlyStore:true,createsScheduler:false,
+    readOriginalVerifiedCursor,persistOriginalVerifiedCursor,inspectOriginalRecipientCursor,
+    forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkRecipientCursorPort({
+      originalKernel,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
+      sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,
+      getMode:originalHostLifetimeMode(getMode,isHostActive),readOriginalHostContext,
+      authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,authorizeOriginalRecipientRead,
+      authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalAdmittedBaseline,
+      verifyOriginalRecipientBaseline,readOriginalDependencyCoverage,
+    }),
   });
 }

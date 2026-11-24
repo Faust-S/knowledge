@@ -13,6 +13,7 @@ import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFra
   from '../src/network/standard-network-wire-candidate.mjs';
 import {inspectT4OriginalNetworkRecipientResult} from '../src/network/original-network-subject-apply.mjs';
 import {createT4OriginalHostRecipientDispatcher} from '../src/network/original-host-recipient-dispatcher.mjs';
+import {createT4OriginalNetworkRecipientCursorPort} from '../src/network/original-network-host-cursor.mjs';
 
 const ws='original:workspace:k4',owner='original:owner:k4',scope='original:scope:k4',
   source='node:k4:source',recipient='node:k4:recipient',technical='original:technical:k4',
@@ -258,10 +259,27 @@ async function fixture(){
       },...overrides};
   };
   const ownerStep=(overrides,ports)=>binding(ports).runNativeOwnerStep(ownerArgs(overrides));
+  const admittedBaseline={schema:'IWXA_T4_ORIGINAL_RECIPIENT_BASELINE_V1',
+    identity:{technicalWorkspaceId:technical,sourceWorkspaceId:ws,originalWriteOwnerRef:owner,
+      sourceNodeRef:source,recipientNodeRef:recipient,scopeRef:scope,ownerEpoch:epoch},
+    originalBaselineRef:'original:baseline:k6',originalBaselineDigest:H('original admitted baseline'),
+    sourceCursor:clone(predecessor)};
+  const cursorPort=(overrides={})=>createT4OriginalNetworkRecipientCursorPort({
+    ...tech,sourceWorkspaceId:ws,sourceNodeRef:source,recipientNodeRef:recipient,scopeRef:scope,ownerEpoch:epoch,
+    authorizeOriginalRecipientRead:allow,authorizeOriginalSourceRead:async()=>sourceAllowed,
+    readOriginalSourceEvents:async()=>clone(sourceEvents),
+    readOriginalAdmittedBaseline:async()=>clone(admittedBaseline),
+    verifyOriginalRecipientBaseline:async p=>equal(p.baseline,admittedBaseline),...overrides,
+  });
+  const typedStep=(overrides={},port=cursorPort())=>ownerStep(overrides,{
+    readOriginalVerifiedCursor:undefined,persistOriginalVerifiedCursor:undefined,
+    originalRecipientCursorPort:port,
+  });
   const full=async()=>{await add(0);assert.equal((await step()).state,'DIFF_PRESENT');
     await add(1);await add(2);await add(3);};
   return {session,predecessor,nextCursor,prepared,remote,counters,events,objects,add,binding,args,step,full,phase,publication,
     ownerStep,ownerArgs,select,cursor:()=>clone(recipientCursor),cursorWrites:()=>cursorWrites,
+    cursorPort,typedStep,admittedBaseline,
     loseCursor(){loseCursor=true;},setCursor(v){recipientCursor=clone(v);},
     restart(){hostSerial++;active=true;observed=null;},loseTechnical:v=>{loseTechnical=v;},
     losePut(){losePut=true;},loseSubject(){loseSubject=true;},
@@ -436,4 +454,75 @@ test('K5 concurrent recipient cursor advance during source selection stops the s
   }}),code('RECIPIENT_NATIVE_OWNER_CURSOR_CHANGED'));
   assert.equal(f.counters.lists,0);assert.equal(f.counters.technicalWrites,0);
   assert.equal(f.cursorWrites(),0);
+});
+
+test('K6 original Kernel recipient frontier advances once from admitted baseline using actual applied witness',async()=>{
+  const f=await fixture(),port=f.cursorPort();
+  const initial=await port.inspectOriginalRecipientCursor();
+  assert.equal(initial.revision,0);assert.deepEqual(initial.originalT3VerifiedCursor,f.predecessor);
+  assert.equal(initial.originalBaselineAdmitted,true);
+  await f.full();await f.typedStep();await f.typedStep();
+  const applied=await f.typedStep();
+  assert.equal(applied.state,'RECIPIENT_CURSOR_ADVANCED');
+  const final=await f.cursorPort().inspectOriginalRecipientCursor();
+  assert.equal(final.revision,1);assert.equal(final.originalT3EventChainVerified,true);
+  assert.deepEqual(final.originalT3VerifiedCursor,f.nextCursor);
+  assert.equal(final.lastOriginalRecipientEventId,applied.originalReceiptRef);
+  assert.equal(f.events.filter(e=>e.event_type==='t4.network.original.host.recipient.frontier').length,1);
+  assert.equal(f.cursorWrites(),0);assert.equal(f.counters.subjectWrites,1);
+  const counts=clone(f.counters);f.restart();
+  assert.equal((await f.typedStep()).state,'NO_NEXT_ORIGINAL_EVENT');
+  for(const k of ['technicalWrites','subjectWrites','signatures','puts','lists'])
+    assert.equal(f.counters[k],counts[k],k);
+});
+
+test('K6 original recipient frontier lost CAS reply recovers locally on next wake without repeating ACK',async()=>{
+  const f=await fixture();await f.full();await f.typedStep();await f.typedStep();
+  f.loseTechnical('ADVANCE');
+  await assert.rejects(f.typedStep(),e=>e?.code==='RECIPIENT_NATIVE_OWNER_CURSOR_OUTCOME_UNKNOWN'&&
+    e.details.originalErrorCode==='RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN');
+  f.restart();const counts=clone(f.counters);
+  assert.equal((await f.cursorPort().inspectOriginalRecipientCursor()).revision,1);
+  assert.equal((await f.typedStep()).state,'NO_NEXT_ORIGINAL_EVENT');
+  for(const k of ['technicalWrites','subjectWrites','signatures','puts','lists'])
+    assert.equal(f.counters[k],counts[k],k);
+});
+
+test('K6 cold frontier read refuses corrupted original result or missing checkpoint Event',async()=>{
+  const f=await fixture();await f.full();await f.typedStep();await f.typedStep();await f.typedStep();
+  const receipt=f.events.find(e=>e.event_type==='iwxa.t4.original-object.synced');
+  const old=clone(receipt.payload);receipt.payload.originalContentDigest=H('wrong');
+  await assert.rejects(f.cursorPort().inspectOriginalRecipientCursor(),code('RECIPIENT_CURSOR_ORIGINAL_RESULT_EVENT_MISMATCH'));
+  receipt.payload=old;
+  const index=f.events.findIndex(e=>e.event_type==='t4.network.original.host.recipient.frontier');
+  f.events.splice(index,1);
+  await assert.rejects(f.cursorPort().inspectOriginalRecipientCursor(),code('RECIPIENT_CURSOR_ORIGINAL_CHECKPOINT_INVALID'));
+  assert.equal(f.counters.subjectWrites,1);
+});
+
+test('K6 baseline admission and independent recipient read are mandatory; raw cursor alone cannot commit',async()=>{
+  const f=await fixture();
+  await assert.rejects(f.cursorPort({verifyOriginalRecipientBaseline:async()=>false})
+    .inspectOriginalRecipientCursor(),code('RECIPIENT_CURSOR_ORIGINAL_BASELINE_DENIED'));
+  const port=f.cursorPort();
+  await assert.rejects(port.persistOriginalVerifiedCursor({
+    schema:'IWXA_T4_ORIGINAL_RECIPIENT_CURSOR_CAS_V1',previousCursor:f.predecessor,
+    verifiedCursor:f.nextCursor,originalReceiptRef:'event:fake'},{}));
+  await f.full();await f.typedStep();await f.typedStep();
+  await assert.rejects(f.typedStep({},f.cursorPort({authorizeOriginalRecipientRead:async()=>false})),
+    e=>e?.code==='RECIPIENT_NATIVE_OWNER_CURSOR_OUTCOME_UNKNOWN');
+  assert.equal((await f.cursorPort().inspectOriginalRecipientCursor()).revision,0);
+  assert.equal(f.counters.subjectWrites,1);
+  const resumed=await f.typedStep();assert.equal(resumed.state,'RECIPIENT_CURSOR_ADVANCED');
+  assert.equal(resumed.originalSubjectMutationInvoked,false);
+});
+
+test('K6 typed cursor cannot coexist with another incoming cursor owner or use another peer epoch',async()=>{
+  const f=await fixture();
+  await assert.rejects(f.ownerStep({},{
+    originalRecipientCursorPort:f.cursorPort(),
+  }),code('RECIPIENT_NATIVE_OWNER_MULTIPLE_CURSOR_PORTS'));
+  await assert.rejects(f.typedStep({},f.cursorPort({ownerEpoch:epoch+1})),
+    code('RECIPIENT_NATIVE_OWNER_ORIGINAL_CURSOR_PORT_REQUIRED'));
+  assert.equal(f.counters.lists,0);assert.equal(f.counters.technicalWrites,0);
 });
