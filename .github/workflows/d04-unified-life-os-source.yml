@@ -36,14 +36,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 664d0a405748fab3daadad81947c03fafb1b09c3
+          ref: e3d71eca90a0c07bc6df177d4afd30a51638caf7
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: 01c81b2c5445682cfbc8a8fd1269c3f93aa27c7c
+          ref: 354fdbb4f7b6a949a16f543d4e7761ca6f5b1f61
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           persist-credentials: false
@@ -53,9 +53,9 @@ jobs:
       - name: Check exact revisions and canonical model
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "664d0a405748fab3daadad81947c03fafb1b09c3"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "c59dd83a1df7945f4ccc578f084f9dc72eab7119"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "01c81b2c5445682cfbc8a8fd1269c3f93aa27c7c"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "e3d71eca90a0c07bc6df177d4afd30a51638caf7"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "bd4b424f64df0e1fb2bde28e3a0ff93dc790597e"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "354fdbb4f7b6a949a16f543d4e7761ca6f5b1f61"
           for name in LIFE_ACTION_BOARD_V0_1.mjs LIFE_ACTION_BOARD_V0_1.d.mts PERSONAL_MEDICAL_EVIDENCE_V0_1.mjs PERSONAL_MEDICAL_EVIDENCE_V0_1.d.mts LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.mjs LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.d.mts PERSONAL_GOAL_PROFILE_V0_1.mjs PERSONAL_GOAL_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_PROFILE_V0_1.mjs PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts LIFE_DASHBOARD_CALCULATIONS_V0_1.mjs LIFE_DASHBOARD_CALCULATIONS_V0_1.d.mts LIFE_DIARY_BATCH_V0_1.mjs LIFE_DIARY_BATCH_V0_1.d.mts; do
             cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
           done
