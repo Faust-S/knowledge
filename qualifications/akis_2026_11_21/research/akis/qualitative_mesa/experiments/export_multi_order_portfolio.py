@@ -6,6 +6,7 @@ from pathlib import Path
 
 from research.akis.qualitative_mesa.tests.test_r3_r4_original_multi_order_portfolio_mesa import (
     finance_portfolio, compare_portfolios, portfolio_price,
+    portfolio_trajectories, stage_outlook, stage_owner_observations, mechanics, _event,
 )
 
 
@@ -60,11 +61,34 @@ def export_multi_order_portfolio():
         prices.append({"trial": label, "status": r["status"],
                        "new_offer_and_consent_required": r["new_price_requires_new_original_offer_response_consents_and_reserve_recheck"],
                        "original_order_unchanged": r["no_original_price_or_obligation_changed"]})
+    outlooks = []
+    for label, route, forecast, expected in (
+        ("overlap_outside_preferred", {}, {}, "OUTSIDE_PREFERRED"),
+        ("overlap_cooperation_preferred", {}, {"cooperative_cost": "50.00"}, "COOPERATION_PREFERRED"),
+        ("disjoint_not_mutually_exclusive", {"disjoint": True}, {}, "UNKNOWN"),
+        ("buyer_decline", {"buyer_declines": True}, {}, "UNKNOWN"),
+        ("unquoted_receipt", {}, {"cooperative_receipts": "650.00"}, "UNKNOWN"),
+    ):
+        doc = stage_outlook(portfolio_trajectories(**route)["supplier"], **forecast)
+        tick = _event(doc, "commit", "w3")["at"]
+        rows = stage_owner_observations(mechanics(doc))
+        before = sorted({r["economic_position"] for r in rows if r["at"] < tick})
+        after = sorted({r["economic_position"] for r in rows if r["at"] >= tick})
+        assert expected in before
+        assert not (set(after) & {"COOPERATION_PREFERRED", "OUTSIDE_PREFERRED"})
+        assert all(r["economic_values"] == "NOT_REDISCLOSED" for r in rows)
+        if expected == "UNKNOWN":
+            assert before == ["UNKNOWN"]
+        outlooks.append({"trial": label, "precommit_positions": before,
+                         "postcommit_positions": after,
+                         "owner_values_not_redisclosed": True,
+                         "forecast_does_not_commit_or_reserve": True})
     manifest = {
-        "schema": "AKIS_R3_R4_ORIGINAL_MULTI_ORDER_PORTFOLIO/1.1",
+        "schema": "AKIS_R3_R4_ORIGINAL_MULTI_ORDER_PORTFOLIO/1.2",
         "engine": "MESA_3_5_2",
         "matched_portfolio_experiments": cases,
         "independent_purchase_price_experiments": prices,
+        "prospective_stage_owner_outlook_experiments": outlooks,
         "no_fictitious_lost_receipts_or_double_counted_opportunity_cost": True,
         "original_capacity_work_result_ledger_and_owner_scope_preserved": True,
         "private_amounts_sources_and_raw_trace_excluded": True,
