@@ -206,3 +206,14 @@ body{min-width:0}
  .activity-v7-widget{grid-column:span 12!important}.activity-v7-product{display:none}
  .activity-v7-menu-zone>button{padding:6px}.activity-v7-window-buttons{gap:3px}
 }
+
+/* Activity 0.4 domain route comparison, same approved visual shell. */
+.activity-domain-review{display:grid;gap:14px;min-width:0}
+.activity-domain-review .activity-v7-card{min-width:0}
+.activity-domain-label{display:grid;gap:6px;font-size:12px;font-weight:650;color:#385572;margin:12px 0}
+.activity-domain-label select{max-width:100%;min-width:0;padding:9px;border:1px solid #c9d9ed;border-radius:8px;background:#fff;color:#29476a}
+.activity-domain-group{display:grid;gap:8px;min-width:0}
+.activity-domain-group h3,.activity-domain-group p{margin:0}
+.activity-domain-ops{display:grid;gap:7px;grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr));margin:3px 0 7px}
+.activity-domain-op{display:grid;gap:4px;min-width:0;padding:10px 12px;background:#f7faff;border:1px solid #dbe7f4;border-radius:8px;overflow-wrap:anywhere}
+.activity-domain-op span{color:#617894;font-size:11px}
