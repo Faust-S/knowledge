@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 6a6a0424747edffae8264675dec761a1c70c3ab1
+          ref: bdb73585a80f43edbe6d107b13743f1e624feddb
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -38,7 +38,7 @@ jobs:
         shell: bash
         run: |
           test "$(git -C domain rev-parse HEAD)" = "39e578e8465f62c596c09e5b4aec01437f774a22"
-          test "$(git -C site rev-parse HEAD)" = "6a6a0424747edffae8264675dec761a1c70c3ab1"
+          test "$(git -C site rev-parse HEAD)" = "bdb73585a80f43edbe6d107b13743f1e624feddb"
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             f="$(basename "$path")"
             cmp "$path" "site/src/domain/$f"
@@ -105,7 +105,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 6a6a0424747edffae8264675dec761a1c70c3ab1
+          ref: bdb73585a80f43edbe6d107b13743f1e624feddb
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
