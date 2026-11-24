@@ -1,5 +1,6 @@
 import {useState} from 'react';
-import type {D05DraftValue,D05DraftUse,D05RouteGroup,D05TechnologyDraftGroup}
+import {TechnologyProposalEditor} from './TechnologyProposalEditor';
+import type {D05DraftValue,D05DraftUse,D05RouteGroup,D05TechnologyDraftGroup,D05TechnologyProposalForm}
  from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 
 const LABELS:Record<string,string>={
@@ -41,9 +42,10 @@ function show(value:D05DraftValue,field:string){
  return ['unit','calendarMode','result_type','inspection_method','action_on_failure'].includes(field)?WORDS[value]??value:value;
 }
 const SIZE=8;
-export function TechnologyDraftPanel({draft,operations}:{draft:D05TechnologyDraftGroup;operations:D05RouteGroup['operations']}){
+export function TechnologyDraftPanel({draft,operations,review}:{draft:D05TechnologyDraftGroup;operations:D05RouteGroup['operations'];review:unknown}){
  const [open,setOpen]=useState(false),[selected,setSelected]=useState(draft.profiles[0].model_number);
  const [scope,setScope]=useState('route'),[checkPage,setCheckPage]=useState(0),[checkIndex,setCheckIndex]=useState(0);
+ const [forms,setForms]=useState<Record<number,D05TechnologyProposalForm>>({});
  const profile=draft.profiles.find(p=>p.model_number===selected)??draft.profiles[0];
  const check=profile.checks[checkIndex];
  const name=(id:string|null)=>id===null?'Весь маршрут':operations.find(op=>op.id===id)?.name??'Операция';
@@ -84,10 +86,12 @@ export function TechnologyDraftPanel({draft,operations}:{draft:D05TechnologyDraf
     </div>)}
    </div>
    <h3>Условия контроля и приёмки выбранного варианта</h3>
+   <p>Полностью совпавших заявленных проверок во всех вариантах: {draft.shared_check_count}.</p>
    {profile.checks.length?<>
     <div className="activity-domain-ops">{profile.checks.slice(checkPage*SIZE,(checkPage+1)*SIZE).map((c,i)=>
       <button key={c.id} className="activity-domain-op" aria-pressed={checkIndex===checkPage*SIZE+i}
-       onClick={()=>setCheckIndex(checkPage*SIZE+i)}>{c.title}<span>{CHECK_TYPES[c.control_type]??c.control_type} · {name(c.operation_id)}</span></button>)}</div>
+       onClick={()=>setCheckIndex(checkPage*SIZE+i)}>{c.title}<span>{CHECK_TYPES[c.control_type]??c.control_type} · {name(c.operation_id)}</span>
+       <span>{c.comparison==='COMMON_DECLARATION'?'Совпадает во всех моделях':c.comparison==='SOURCE_SPECIFIC'?'Условие выбранного варианта':'Нет сравнения'}</span></button>)}</div>
     {profile.checks.length>SIZE?<div className="activity-v7-actions">
       <button disabled={checkPage===0} onClick={()=>{setCheckPage(x=>x-1);setCheckIndex((checkPage-1)*SIZE);}}>Назад</button>
       <span>Страница {checkPage+1} из {Math.ceil(profile.checks.length/SIZE)}</span>
@@ -102,6 +106,9 @@ export function TechnologyDraftPanel({draft,operations}:{draft:D05TechnologyDraf
    <h3>Что необходимо уточнить</h3>
    <ul>{profile.unresolved.map(x=><li key={x}>{GAPS[x]??x}</li>)}</ul>
    {profile.local_context_review.length?<p className="activity-v7-note">Частные сведения не перенесены в черновик: {profile.local_context_review.map(x=>LOCAL[x]??x).join(', ')}. Уточните их предметное значение перед обобщением.</p>:null}
+   <TechnologyProposalEditor key={profile.model_number} review={review} groupId={draft.group_id}
+    profile={profile} operations={operations} form={forms[profile.model_number]??{}}
+    onChange={form=>setForms(old=>({...old,[profile.model_number]:form}))}/>
    <p className="activity-v7-note hold">Это не обезличенная технология. Значения условий и названия могут содержать частные сведения. Применимость, право передачи и нормативная приёмка не установлены.</p>
   </div>:null}
  </div>;

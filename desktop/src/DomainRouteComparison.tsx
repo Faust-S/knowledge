@@ -179,7 +179,7 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
      <p>Сравнение заявленных условий. Activity не проверяет фактическое качество изделия и не утверждает норматив.</p>
     </div>:<p>Карты качества не прочитаны в этой выборке. Сравнение структуры не подтверждает совпадение критериев приёмки.</p>}
     {draft&&result?<TechnologyDraftPanel key={source+':'+group.id+':'+generation.current}
-     draft={draft} operations={group.operations}/>:null}
+     draft={draft} operations={group.operations} review={result}/>:null}
     <h3>Операции и исходные зависимости</h3>
     <div className="activity-domain-ops">
      {group.operations.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).map((op,i)=>

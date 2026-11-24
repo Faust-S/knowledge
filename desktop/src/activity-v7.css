@@ -222,3 +222,9 @@ body{min-width:0}
 .activity-domain-draft-value{font-weight:650;font-size:13px!important;color:#29476a!important;white-space:pre-wrap;overflow-wrap:anywhere}
 .activity-domain-draft ul{margin:0;padding-left:22px;color:#385572;font-size:12px}
 .activity-domain-draft .activity-domain-op[aria-pressed="true"]{border-color:#6483a6;background:#edf4ff}
+
+.activity-domain-proposal{display:grid;gap:10px;min-width:0;border-top:1px solid #dbe7f4;padding-top:10px}
+.activity-domain-proposal-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:8px;min-width:0}
+.activity-domain-proposal-fields .activity-domain-label{margin:0}
+.activity-domain-proposal textarea{font:inherit;font-weight:400;min-width:0;max-width:100%;width:100%;box-sizing:border-box;padding:9px;border:1px solid #c9d9ed;border-radius:8px;background:#fff;color:#29476a;resize:vertical}
+.activity-domain-proposal-gaps{max-height:180px;overflow:auto;border:1px solid #dbe7f4;border-radius:8px;padding:8px}

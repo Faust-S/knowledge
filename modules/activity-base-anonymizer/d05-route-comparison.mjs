@@ -592,7 +592,7 @@ export function prepareD05TechnologyProposal(review,groupId,modelNumber,form){
   const sourceGaps=profile.unresolved.filter(x=>
     ['OPERATION_OCCURRENCE_MAPPING','QUALITY_PLAN_REVIEW','UNSPECIFIED_EXECUTION_CONDITIONS'].includes(x));
   const result={
-    status:missing.length?'PROPOSAL_NEEDS_INPUT':'PROPOSAL_FOR_DOMAIN_REVIEW',
+    status:missing.length||sourceGaps.length?'PROPOSAL_NEEDS_INPUT':'PROPOSAL_FOR_DOMAIN_REVIEW',
     source_model_number:modelNumber,source_revision:profile.source_revision,
     declared_by:'LOCAL_USER_PROPOSAL',terms,operations,quality_checks:checks,
     source_route_parameters:profile.conditions.filter(c=>c.scope==='route')
