@@ -53,7 +53,6 @@ function originalInput(raw){
     !ID(raw.workspace_id)||!KEY(raw.idempotency_key)||
     !keys(raw.object,['object_id','schema_id','schema_version','data'],['extensions','base_revision'])||
     ![raw.object.object_id,raw.object.schema_id,raw.object.schema_version].every(ID)||
-    typeof raw.object.data!=='object'||raw.object.data===null||
     (raw.object.extensions!==undefined&&!record(raw.object.extensions))||
     (raw.object.base_revision!==undefined&&!REV(raw.object.base_revision))||
     !keys(raw.event,['event_type'],['payload'])||!ID(raw.event.event_type)||
@@ -73,7 +72,7 @@ function objectState(row,workspaceId,objectId){
   const o=row.object;
   if(!o||o.workspace_id!==workspaceId||o.object_id!==objectId||!ID(o.schema_id)||
     !ID(o.schema_version)||!REV(o.revision)||o.revision<1||typeof o.deleted!=='boolean'||
-    o.data===null||typeof o.data!=='object'||!record(o.extensions??{}))
+    !Object.hasOwn(o,'data')||!record(o.extensions??{}))
     fail('GRAPH_ORIGINAL_OBJECT_INVALID');
   return canonical({workspace_id:workspaceId,object_id:objectId,schema_id:o.schema_id,
     schema_version:o.schema_version,revision:o.revision,deleted:o.deleted,
@@ -126,7 +125,7 @@ async function graphState(p,scope,ids,endpointIds=[]){
     await guard('t1.getObject',{objectId:id});return r;
   };
   const before=objectState(await get(objectId),workspaceId,objectId);
-  const rows=new Map(),wanted=new Set(ids),endpoints=new Set(endpointIds);
+  const rows=new Map(),wanted=new Set(ids),endpoints=new Set(endpointIds),readable=new Set([objectId]);
   endpoints.delete(objectId);
   // With no relation mutations the native operation still retains its own
   // GRAPH_COMMIT identity; no unrelated catalog enumeration is necessary.
@@ -143,7 +142,7 @@ async function graphState(p,scope,ids,endpointIds=[]){
       const r=await get(item.object_id),o=objectState(r,workspaceId,item.object_id);
       if(!o||o.deleted||!Array.isArray(r.relations?.outgoing))
         fail('GRAPH_ORIGINAL_CATALOG_CHANGED');
-      endpoints.delete(item.object_id);
+      endpoints.delete(item.object_id);readable.add(item.object_id);
       for(const rel of r.relations.outgoing){
         if(!wanted.has(rel?.relation_id))continue;
         const exact=relation(rel,workspaceId,true);
@@ -156,14 +155,15 @@ async function graphState(p,scope,ids,endpointIds=[]){
   if(endpoints.size)fail('GRAPH_ORIGINAL_ENDPOINT_NOT_READABLE');
   const second=objectState(await get(objectId),workspaceId,objectId);
   if(!same(before,second))fail('GRAPH_ORIGINAL_STATE_CHANGED');
-  return {object:before,relations:rows};
+  return {object:before,relations:rows,readable};
 }
 const graphIds=(puts,deletes)=>[...puts,...deletes].map(r=>r.relation_id);
 const endpoints=rows=>[...new Set(rows.flatMap(r=>[r.from_object_id,r.to_object_id]))];
 function checkBefore(state,expected,puts,deletes){
   if(!same(state.object===null?null:digest(state.object),expected)||
     puts.some(r=>state.relations.has(r.relation_id))||
-    deletes.some(r=>!same(state.relations.get(r.relation_id),r)))
+    deletes.some(r=>!same(state.relations.get(r.relation_id),r)||
+      !state.readable.has(r.from_object_id)||!state.readable.has(r.to_object_id)))
     fail('GRAPH_ORIGINAL_PREIMAGE_CONFLICT');
 }
 function checkAfter(state,expected,puts,deletes){
@@ -192,7 +192,7 @@ export function verifyT4OriginalGraphDelta(d){
     d.sourceRevision!==d.baseRevision+1||
     !(d.baseRevision===0?d.objectBeforeDigest===null:DIG(d.objectBeforeDigest))||
     ![d.sourceEventDigest,d.windowDigest,d.objectContentDigest,d.graphContentDigest].every(DIG)||
-    typeof d.data!=='object'||d.data===null||!record(d.extensions))
+    !record(d.extensions))
     fail('GRAPH_DELTA_INVALID');
   const sets=relationSets(d.relationPuts,d.relationDeletes,d.workspaceId,true);
   if(!same(sets.puts,d.relationPuts)||!same(sets.deletes,d.relationDeletes)||
@@ -354,13 +354,16 @@ export async function captureT4OriginalGraphMutation(p={}){
   const pre=await readT4OriginalEventWindow({...scope,cursor:p.sourceCursor,maxEvents:1,
     authorizeOriginalRead:p.authorizeOriginalRead,readOriginalEvents:async()=>stream});
   if(pre.window.count!==0)fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
-  if(stream.some(e=>e.idempotency_key===op.idempotency_key))
+  const service=p.originalKernel.sessionInfo?.service_id;
+  if(stream.some(e=>e.idempotency_key===op.idempotency_key&&(!service||e.service_id===service)))
     fail('GRAPH_ORIGINAL_IDEMPOTENCY_ALREADY_USED');
   const before=await graphState(p,scope,graphIds(op.relation_puts,op.relation_deletes),endpoints(op.relation_puts));
   const deleted=op.relation_deletes.map(r=>{
     const row=before.relations.get(r.relation_id);if(!row)fail('GRAPH_ORIGINAL_PREIMAGE_CONFLICT');return row;
   });
-  if(op.relation_puts.some(r=>before.relations.has(r.relation_id)))fail('GRAPH_ORIGINAL_PREIMAGE_CONFLICT');
+  if(op.relation_puts.some(r=>before.relations.has(r.relation_id))||
+    deleted.some(r=>!before.readable.has(r.from_object_id)||!before.readable.has(r.to_object_id)))
+    fail('GRAPH_ORIGINAL_PREIMAGE_CONFLICT');
   const expected=expectedObject(op,before.object),originalInputDigest=digest(op);
   const traced=canonical({...op,event:{...op.event,payload:{...op.event.payload,[TRACE]:p.captureRef,[INPUT]:originalInputDigest}}});
   const intent=canonical({schema:INTENT,kind:KIND,captureRef:p.captureRef,

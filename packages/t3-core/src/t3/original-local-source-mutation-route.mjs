@@ -1,7 +1,8 @@
 import {encodeOriginalNetworkRelayArgs} from "./original-kernel-native-relay-codec.mjs";
 
 const METHODS=Object.freeze(["putObject","deleteObject","putAsset","deleteAsset","putRelation","deleteRelation"]);
-const UNSUPPORTED=new Set(["createWorkspace","commitObjectGraph","softDeleteWorkspace","restoreWorkspace",
+const GRAPH="commitObjectGraph";
+const UNSUPPORTED=new Set(["createWorkspace","softDeleteWorkspace","restoreWorkspace",
   "purgeCommit","importCommit","confirmExport"]);
 const PASS=Object.freeze({kind:"LOCAL_T3"});
 const validId=value=>typeof value==="string"&&value.length>0&&value.length<=256;
@@ -23,15 +24,19 @@ export function createOriginalLocalSourceMutationRoute({workspaceId,originalKern
         !Number.isSafeInteger(negotiated.contextEpoch)||negotiated.contextEpoch<0||
         !Array.isArray(negotiated.networkMethods)||
         !Array.isArray(negotiated.localSourceMutationMethods)||
-        negotiated.localSourceMutationMethods.length!==METHODS.length||
+        negotiated.localSourceMutationMethods.length!==METHODS.length+(negotiated.localSourceGraphVersion===1?1:0)||
         !METHODS.every(method=>negotiated.networkMethods.includes(method)&&
-          negotiated.localSourceMutationMethods.includes(method)))
+          negotiated.localSourceMutationMethods.includes(method))||
+        (negotiated.localSourceGraphVersion!==undefined&&negotiated.localSourceGraphVersion!==1)||
+        (negotiated.localSourceGraphVersion===1&&(!negotiated.networkMethods.includes(GRAPH)||
+          !negotiated.localSourceMutationMethods.includes(GRAPH))))
         fail("T3_LOCAL_SOURCE_CAPTURE_NEGOTIATION_INVALID");
-      binding=Object.freeze({sessionId:negotiated.sessionId,epoch:negotiated.contextEpoch});
+      binding=Object.freeze({sessionId:negotiated.sessionId,epoch:negotiated.contextEpoch,
+        graph:negotiated.localSourceGraphVersion===1});
     },
     clear(){binding=null;},
     async route(method,args){
-      if(!METHODS.includes(method)&&!UNSUPPORTED.has(method))return PASS;
+      if(!METHODS.includes(method)&&method!==GRAPH&&!UNSUPPORTED.has(method))return PASS;
       requireLive();
       if(!Array.isArray(args)||args.length!==1)fail("T3_LOCAL_SOURCE_CAPTURE_COMMAND_INVALID");
       const first=args[0];
@@ -42,7 +47,8 @@ export function createOriginalLocalSourceMutationRoute({workspaceId,originalKern
       // than a workspace ID. Until atomic capture is implemented, refuse
       // such unclassified mutations in this explicitly opted-in realm.
       if(validId(target)&&target!==workspaceId)return PASS;
-      if(UNSUPPORTED.has(method))fail("T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED");
+      if(UNSUPPORTED.has(method)||(method===GRAPH&&binding?.graph!==true))
+        fail("T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED");
       if(target!==workspaceId)fail("T3_LOCAL_SOURCE_CAPTURE_SCOPE_INVALID");
       const selected=binding;
       if(!selected)fail("T3_LOCAL_SOURCE_CAPTURE_BINDING_REQUIRED");

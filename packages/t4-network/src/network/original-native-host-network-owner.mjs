@@ -27,8 +27,9 @@ const hostReference=(sessionId,epoch)=>'host:relay:'+createHash('sha256')
 const fail=(code,details={})=>{throw Object.assign(Error(code),{code,details:Object.freeze(details)});};
 const COMMON=Object.freeze(['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject']);
 const SOURCE=Object.freeze([...COMMON,'t1.listAssets','t1.getAsset']);
-const LOCAL_METHODS=Object.freeze(['putObject','deleteObject','putAsset','deleteAsset','putRelation','deleteRelation']);
+const LOCAL_METHODS=Object.freeze(['putObject','deleteObject','putAsset','deleteAsset','putRelation','deleteRelation','commitObjectGraph']);
 const subjectField=method=>method.endsWith('Object')?'object_id':method.endsWith('Asset')?'asset_id':'relation_id';
+const subjectOf=(method,input)=>method==='commitObjectGraph'?input?.object?.object_id:input?.[subjectField(method)];
 const RECIPIENT=Object.freeze([...COMMON,'t1.commitObjectGraph','t1.deleteObject','t1.listAssets',
   't1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation']);
 const COMMON_PORTS=['authorizeOriginalBinding','resolveOriginalAccess','authorizeOriginalTechnicalRead',
@@ -239,11 +240,11 @@ export function createT4OriginalNativeHostNetworkOwner({
       !LOCAL_METHODS.includes(p.method)||!Array.isArray(p.args)||p.args.length!==1)
       fail('NATIVE_LOCAL_SOURCE_MUTATION_NOT_AVAILABLE');
     if(state.waking||state.localMutation)fail('NATIVE_LOCAL_SOURCE_MUTATION_BUSY');
-    const exact=structuredClone(p.args[0]),field=subjectField(p.method);
-    if(exact?.workspace_id!==sourceWorkspaceId||!ID(exact[field]))
+    const exact=structuredClone(p.args[0]),subjectId=subjectOf(p.method,exact);
+    if(exact?.workspace_id!==sourceWorkspaceId||!ID(subjectId))
       fail('NATIVE_LOCAL_SOURCE_MUTATION_SCOPE_MISMATCH');
     if(mode()==='LOCAL_T3')return Object.freeze({state:'LOCAL_T3_BYPASS'});
-    const local={method:p.method,subjectId:exact[field],captureRef:'t4:local:'+randomUUID(),invoked:false};
+    const local={method:p.method,subjectId,captureRef:'t4:local:'+randomUUID(),invoked:false};
     state.localMutation=local;
     try{
       await requireBinding(state,'local-source-admission');
@@ -302,7 +303,7 @@ export function createT4OriginalNativeHostNetworkOwner({
         if(role==='SOURCE'){
           local=state.localMutation;
           if(!enableLocalSourceCapture||!local||local.invoked||proof.operation!=='t1.'+local.method||
-            first[subjectField(local.method)]!==local.subjectId||
+            subjectOf(local.method,first)!==local.subjectId||
             first.event?.payload?.iwxa_t4_capture_ref!==local.captureRef)return null;
         }else if(proof.operation==='t1.putObject')return null;
       }

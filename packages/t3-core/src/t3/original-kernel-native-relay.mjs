@@ -15,7 +15,7 @@ const METHODS=Object.freeze({
   getObject:"t1.getObject",
   listEventsSince:"t1.listEventsSince",
 });
-const LOCAL_SOURCE_METHODS=new Set(['putObject','deleteObject','putAsset','deleteAsset','putRelation','deleteRelation']);
+const LOCAL_SOURCE_METHODS=new Set(['putObject','deleteObject','putAsset','deleteAsset','putRelation','deleteRelation','commitObjectGraph']);
 const CODE=/^[A-Z][A-Z0-9_]{4,99}$/;
 const fail=code=>{throw Object.assign(Error(code),{code});};
 const check=(ok,code)=>{if(!ok)fail(code);};
@@ -295,6 +295,8 @@ export function createOriginalKernelNativeRelay({
             }
             state.networkReady=admitted;
             state.localSourceReady=admitted&&payload.localSourceMutationVersion===1&&network.localSource!==null;
+            state.localSourceMethods=state.localSourceReady?network.localSource.methods.filter(m=>
+              m!=='commitObjectGraph'||payload.localSourceGraphVersion===1):[];
             if(!admitted)networkCleanup(state);
           }
           renewIdleLease();
@@ -302,7 +304,8 @@ export function createOriginalKernelNativeRelay({
             ...(state.networkReady?{networkRelayVersion:1,networkMethods:[...network.names]}:{}),
             ...(state.localSourceReady?{localSourceMutationVersion:1,
               localSourceWorkspaceId:network.localSource.workspaceId,
-              localSourceMutationMethods:[...network.localSource.methods]}:{})};
+              localSourceMutationMethods:[...state.localSourceMethods],
+              ...(state.localSourceMethods.includes('commitObjectGraph')?{localSourceGraphVersion:1}:{})}:{} )};
         }catch(error){
           if(live===state)detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
           else{
@@ -323,7 +326,7 @@ export function createOriginalKernelNativeRelay({
         // original execution slot. No scheduler, second queue or raw grants.
         const state=live;
         check(networkActive(state)&&state.localSourceReady===true&&attaching!==state&&
-          network.localSource.methods.includes(payload?.method)&&Array.isArray(payload?.args)&&
+          state.localSourceMethods.includes(payload?.method)&&Array.isArray(payload?.args)&&
           payload.args.length===1,
           "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_NOT_AVAILABLE");
         // Reserve the one local operation before awaiting the EXISTING

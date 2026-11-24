@@ -73,3 +73,18 @@ test("late receipt is not accepted after original binding disposal",async()=>{
   live=false;
   await assert.rejects(route.route("putObject",[command]),error("T3_HOST_DISPOSED"));
 });
+
+test("K21 negotiated original graph command remains one atomic relay request",async()=>{
+  const graph={workspace_id:"ws:original",idempotency_key:"graph:original",
+    object:{object_id:"o:1"},relation_puts:[{relation_id:"r:1"}],relation_deletes:[{relation_id:"r:2"}]};
+  const methodsWithGraph=[...methods,"commitObjectGraph"];let calls=0;
+  const route=make(async(verb,payload)=>{
+    calls++;assert.equal(verb,"sourceMutation");assert.equal(payload.method,"commitObjectGraph");
+    assert.deepEqual(payload.args,[graph]);return result;
+  });
+  route.accept({...negotiated,networkMethods:methodsWithGraph,localSourceMutationMethods:methodsWithGraph,localSourceGraphVersion:1});
+  assert.deepEqual(await route.route("commitObjectGraph",[graph]),{kind:"CAPTURED",originalReceipt:receipt});
+  assert.equal(calls,1);
+  const old=make(async()=>assert.fail("old owner must not receive graph"));old.accept(negotiated);
+  await assert.rejects(old.route("commitObjectGraph",[graph]),error("T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED"));
+});

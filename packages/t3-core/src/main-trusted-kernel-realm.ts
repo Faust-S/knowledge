@@ -76,11 +76,11 @@ async function attachOriginalNativeKernelRelay(
     granted_operations:[...plain.grantedOperations],
   };
   let connected:{sessionId:string;contextEpoch:number;networkRelayVersion?:number;
-    networkMethods?:string[];localSourceMutationVersion?:number;
+    networkMethods?:string[];localSourceMutationVersion?:number;localSourceGraphVersion?:number;
     localSourceWorkspaceId?:string;localSourceMutationMethods?:string[]}|null=null;
   try{
     connected=await owner.originalKernelRelay("attach",{sessionInfo:info,networkRelayVersion:1,
-      ...(sourceRoute?{localSourceMutationVersion:1}:{})});
+      ...(sourceRoute?{localSourceMutationVersion:1,localSourceGraphVersion:1}:{})});
   }catch(error){
     const code=(error as {code?:string}|null)?.code;
     // The ORIGINAL D3 owner is optional. Older signed D1 Hosts and an
