@@ -448,7 +448,7 @@ export function createOriginalControlHttpHandler({
         // endpoint. Original Control epoch, signed bearer and exact Origin
         // are checked before AND after dispatch; native owns the queue.
         requireThat(originalKernelRelayFor!==null&&
-          ["attach","next","result","detach"].includes(input.verb)&&
+          ["attach","next","result","detach","sourceMutation"].includes(input.verb)&&
           input.payload&&typeof input.payload==="object"&&
           !Array.isArray(input.payload),
           "T3_D3_ORIGINAL_KERNEL_RELAY_NOT_AVAILABLE");

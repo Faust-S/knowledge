@@ -20,7 +20,7 @@ export function createT4OriginalHostCaptureAdapter({
   persistOriginalIntent,readOriginalIntent,
   persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
   listOriginalPendingIntents,authorizeOriginalCaptureRecovery,
-  readOriginalAdmittedBaseline,listOriginalOutbox,
+  readOriginalAdmittedBaseline,listOriginalOutbox,resolveOriginalRelationOwner,
   isHostActive=()=>true,
 }={}){
   if(typeof getMode!=='function'||
@@ -123,6 +123,7 @@ export function createT4OriginalHostCaptureAdapter({
     const exact=structuredClone(mutationInput),supplied=structuredClone(sourceCursor);
     const capture=await captureT4OriginalHostSubjectDeletion({...hostCapturePorts(),
       kind,workspaceId:exact.workspace_id,mutationInput:exact,sourceCursor:supplied,captureRef,fromObjectId,
+      ...(resolveOriginalRelationOwner===undefined?{}:{resolveOriginalRelationOwner}),
       ...(readOriginalAdmittedBaseline===undefined?{}:{
         resolveOriginalCaptureCursor:proof=>selectCaptureCursor(proof,supplied),
       })});

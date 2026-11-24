@@ -516,7 +516,8 @@ async function stageDeletion(p,guard,captured){
  */
 export async function captureT4OriginalHostSubjectDeletion(p={}){
   const {kind,mutationInput,captureRef,workspaceId,sourceCursor,
-    originalWriteOwnerRef,withOriginalSubjectMutation,fromObjectId,resolveOriginalCaptureCursor}=p;
+    originalWriteOwnerRef,withOriginalSubjectMutation,fromObjectId,resolveOriginalCaptureCursor,
+    resolveOriginalRelationOwner}=p;
   const asset=kind==='ASSET_DELETE',object=kind==='OBJECT_DELETE';
   const subjectId=asset?mutationInput?.asset_id:object?mutationInput?.object_id:mutationInput?.relation_id;
   const objectId=asset?undefined:object?subjectId:fromObjectId;
@@ -525,7 +526,8 @@ export async function captureT4OriginalHostSubjectDeletion(p={}){
     fail('SUBJECT_CAPTURE_ORIGINAL_CURSOR_REQUIRED');
   if(resolveOriginalCaptureCursor===undefined)checkCursor(sourceCursor,workspaceId,originalWriteOwnerRef);
   if(mutationInput?.workspace_id!==workspaceId||!ID(mutationInput.event?.event_type)||
-    (!asset&&!ID(objectId))||typeof p.persistOriginalIntent!=='function'||
+    (!asset&&!ID(objectId)&&(object||typeof resolveOriginalRelationOwner!=='function'))||
+    typeof p.persistOriginalIntent!=='function'||
     (object&&mutationInput.base_revision===undefined)||
     ((asset||object)&&mutationInput.base_revision!==undefined&&
       (!Number.isSafeInteger(mutationInput.base_revision)||mutationInput.base_revision<1)))
@@ -541,8 +543,11 @@ export async function captureT4OriginalHostSubjectDeletion(p={}){
     const cursor=resolveOriginalCaptureCursor===undefined?sourceCursor:
       await resolveOriginalCaptureCursor(Object.freeze(boundary));
     checkCursor(cursor,workspaceId,originalWriteOwnerRef);
+    const resolvedObjectId=(!asset&&!object&&!ID(objectId))?
+      await resolveOriginalRelationOwner(Object.freeze(boundary)):objectId;
+    if(!asset&&!ID(resolvedObjectId))fail('SUBJECT_CAPTURE_ORIGINAL_RELATION_OWNER_REQUIRED');
     const captured=await captureT4OriginalDeletionAtMutation({
-      ...deletionParams(p,scope,key,objectId),sourceCursor:cursor,sourceEvent:event,
+      ...deletionParams(p,scope,key,resolvedObjectId),sourceCursor:cursor,sourceEvent:event,
       ...((asset||object)?{expectedBaseRevision}:{})});
     return stageDeletion(p,guard,captured);
   });

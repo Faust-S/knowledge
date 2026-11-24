@@ -1,4 +1,4 @@
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID as technicalSchemaId} from './original-network-technical-schema.mjs';
 import {createT4OriginalNetworkBaselineAdmissionPort} from './original-network-baseline-admission.mjs';
@@ -27,6 +27,8 @@ const hostReference=(sessionId,epoch)=>'host:relay:'+createHash('sha256')
 const fail=(code,details={})=>{throw Object.assign(Error(code),{code,details:Object.freeze(details)});};
 const COMMON=Object.freeze(['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject']);
 const SOURCE=Object.freeze([...COMMON,'t1.listAssets','t1.getAsset']);
+const LOCAL_METHODS=Object.freeze(['putObject','deleteObject','putAsset','deleteAsset','putRelation','deleteRelation']);
+const subjectField=method=>method.endsWith('Object')?'object_id':method.endsWith('Asset')?'asset_id':'relation_id';
 const RECIPIENT=Object.freeze([...COMMON,'t1.commitObjectGraph','t1.deleteObject','t1.listAssets',
   't1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation']);
 const COMMON_PORTS=['authorizeOriginalBinding','resolveOriginalAccess','authorizeOriginalTechnicalRead',
@@ -53,8 +55,10 @@ export function createT4OriginalNativeHostNetworkOwner({
   role,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
   recipientNodeRef,scopeRef,ownerEpoch,requiredCryptoSuite,getMode,wireTransport,
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
+  enableLocalSourceCapture=false,
 }={}){
-  if(!['SOURCE','RECIPIENT'].includes(role)||
+  if(!['SOURCE','RECIPIENT'].includes(role)||typeof enableLocalSourceCapture!=='boolean'||
+    (enableLocalSourceCapture&&(role!=='SOURCE'||typeof originalPorts?.authorizeOriginalLocalMutation!=='function'))||
     ![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
       recipientNodeRef,scopeRef,requiredCryptoSuite].every(ID)||
     technicalWorkspaceId===sourceWorkspaceId||sourceNodeRef===recipientNodeRef||
@@ -67,10 +71,12 @@ export function createT4OriginalNativeHostNetworkOwner({
       .every(k=>typeof originalPorts?.[k]==='function'))
     fail('NATIVE_NETWORK_OWNER_ORIGINAL_PORTS_REQUIRED');
   const ports=Object.freeze(Object.fromEntries([...COMMON_PORTS,
-    ...(role==='SOURCE'?SOURCE_PORTS:RECIPIENT_PORTS)].map(k=>[k,originalPorts[k]])));
+    ...(role==='SOURCE'?SOURCE_PORTS:RECIPIENT_PORTS),
+    ...(enableLocalSourceCapture?['authorizeOriginalLocalMutation']:[])].map(k=>[k,originalPorts[k]])));
   const identity=Object.freeze({technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch});
-  const operations=role==='SOURCE'?SOURCE:RECIPIENT;
+  const operations=role==='SOURCE'?(enableLocalSourceCapture?
+    Object.freeze([...new Set([...SOURCE,...LOCAL_METHODS.map(m=>'t1.'+m)])]):SOURCE):RECIPIENT;
   const nodeRef=role==='SOURCE'?sourceNodeRef:recipientNodeRef;
   let live=null;
   function mode(){
@@ -96,7 +102,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   }
   function dispose(state){
     if(!state||state.disposed)return;state.disposed=true;
-    state.task?.dispose();if(live===state)live=null;
+    state.task?.dispose();state.capture?.dispose();if(live===state)live=null;
   }
   function assemble(state){
     const originalKernel=state.kernel;
@@ -154,10 +160,41 @@ export function createT4OriginalNativeHostNetworkOwner({
         authorizeOriginalSourceRead:common.authorizeOriginalRead,readOriginalSourceEvents:readOriginalEvents});
       const capture={...common,...ledger,readOriginalEvents,networkTargetRef:recipientNodeRef,
         authorizeNetworkPublish:callback('authorizeNetworkPublish')};
+      // The local original operation and the recovery task share the same
+      // ledger, admitted baseline, signed Kernel and Host mutation boundary.
+      // The original source publication task still has no subject write port.
+      const resolveOriginalRelationOwner=async proof=>{
+        const query={workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
+          operation:'t1.listObjects',subjectKind:'RELATION_DELETE',subjectId:proof.subjectId};
+        if(await common.authorizeOriginalRead(query)!==true)fail('NATIVE_LOCAL_RELATION_OWNER_READ_DENIED');
+        const rows=await originalKernel.listObjects({workspace_id:sourceWorkspaceId,include_deleted:false});
+        if(!Array.isArray(rows)||rows.length>4096||rows.some(o=>o.workspace_id!==sourceWorkspaceId||!ID(o.object_id)))
+          fail('NATIVE_LOCAL_RELATION_OWNER_CATALOG_INVALID');
+        const matches=[];
+        for(const row of rows){
+          if(await common.authorizeOriginalRead({...query,operation:'t1.getObject',objectId:row.object_id})!==true)
+            fail('NATIVE_LOCAL_RELATION_OWNER_READ_DENIED');
+          const data=await originalKernel.getObject(sourceWorkspaceId,row.object_id);
+          if(!data||!Array.isArray(data.relations?.outgoing))fail('NATIVE_LOCAL_RELATION_OWNER_READ_INVALID');
+          for(const relation of data.relations.outgoing){
+            if(relation.relation_id===proof.subjectId){
+              if(relation.workspace_id!==sourceWorkspaceId||relation.from_object_id!==row.object_id)
+                fail('NATIVE_LOCAL_RELATION_OWNER_SCOPE_MISMATCH');
+              matches.push(row.object_id);
+            }
+          }
+        }
+        if(matches.length!==1)fail('NATIVE_LOCAL_RELATION_OWNER_NOT_UNIQUE');
+        return matches[0];
+      };
       const captureRecovery=createT4OriginalHostCaptureAdapter({...capture,
         authorizeOriginalCaptureRecovery:callback('authorizeOriginalCaptureRecovery'),
         withOriginalSubjectMutation:callback('withOriginalSubjectMutation'),
-        readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage')});
+        readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage'),
+        ...(enableLocalSourceCapture?{
+          readOriginalAdmittedBaseline:()=>baseline.readOriginalAdmittedBaseline(),
+          resolveOriginalRelationOwner,
+        }:{})});
       const dispatcher=createT4OriginalHostOutboxDispatcher({...capture,originalNativeCursorPort:sourceCursorPort});
       const task=createT4OriginalHostDispatchTaskBinding({
         expectedWorkspaceId:sourceWorkspaceId,expectedOriginalWriteOwnerRef:originalWriteOwnerRef,
@@ -171,7 +208,7 @@ export function createT4OriginalNativeHostNetworkOwner({
         return verifyT4OriginalHostCapturedSubjectSource({...capture,kind:row.kind??'OBJECT_PUT',
           subjectId:row.subjectId??row.objectId,captureRef:row.captureRef},proof);
       };
-      return {baseline,task,run:()=>task.runNativeSourceStep({...signing,sourceCursorPort,
+      return {baseline,task,capture:captureRecovery,run:()=>task.runNativeSourceStep({...signing,sourceCursorPort,
         createOriginalSourcePhasePort:phase,announceOriginalSourceSession:true,
         recoverNextOriginalCapture:p=>captureRecovery.reconcileNextOriginalCapture(p),
         authorizeOriginalRead:common.authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
@@ -196,8 +233,39 @@ export function createT4OriginalNativeHostNetworkOwner({
       authorizeOriginalSealedOpen:callback('authorizeOriginalSealedOpen'),
       openOriginalSealedContent:callback('openOriginalSealedContent')})};
   }
+  async function invokeLocalSource(p){
+    const state=live;
+    if(!enableLocalSourceCapture||!matches(state,p)||p.kernel!==state.kernel||!active(state)||
+      !LOCAL_METHODS.includes(p.method)||!Array.isArray(p.args)||p.args.length!==1)
+      fail('NATIVE_LOCAL_SOURCE_MUTATION_NOT_AVAILABLE');
+    if(state.waking||state.localMutation)fail('NATIVE_LOCAL_SOURCE_MUTATION_BUSY');
+    const exact=structuredClone(p.args[0]),field=subjectField(p.method);
+    if(exact?.workspace_id!==sourceWorkspaceId||!ID(exact[field]))
+      fail('NATIVE_LOCAL_SOURCE_MUTATION_SCOPE_MISMATCH');
+    if(mode()==='LOCAL_T3')return Object.freeze({state:'LOCAL_T3_BYPASS'});
+    const local={method:p.method,subjectId:exact[field],captureRef:'t4:local:'+randomUUID(),invoked:false};
+    state.localMutation=local;
+    try{
+      await requireBinding(state,'local-source-admission');
+      const proof=Object.freeze({...bindingProof(state,'local-source-mutation'),
+        operation:'t1.'+p.method,workspaceId:sourceWorkspaceId,subjectId:local.subjectId,
+        captureRef:local.captureRef,mutationInput:structuredClone(exact),
+        originalLocalUserOperation:true,networkGrantsNoWriteAuthority:true});
+      if(await ports.authorizeOriginalLocalMutation(proof)!==true)
+        fail('NATIVE_LOCAL_SOURCE_MUTATION_DENIED');
+      await requireBinding(state,'local-source-admission-readback');
+      const result=await state.capture[p.method]({mutationInput:exact,captureRef:local.captureRef});
+      await requireBinding(state,'local-source-receipt');
+      if(!local.invoked||result?.capture?.originalT3OutboxVerified!==true||!result.originalReceipt)
+        fail('NATIVE_LOCAL_SOURCE_MUTATION_RECEIPT_INVALID');
+      return Object.freeze({state:'ORIGINAL_SOURCE_MUTATION_CAPTURED',originalReceipt:result.originalReceipt,
+        captureRef:local.captureRef,originalT3OutboxVerified:true,networkPublished:false});
+    }finally{if(state.localMutation===local)state.localMutation=null;}
+  }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_NATIVE_HOST_NETWORK_OWNER_V1',role,identity,operations,
+    ...(enableLocalSourceCapture?{localSourceMutation:Object.freeze({workspaceId:sourceWorkspaceId,
+      methods:LOCAL_METHODS,invoke:invokeLocalSource})}:{}),
     createsScheduler:false,createsTaskEngine:false,createsStore:false,createsKernel:false,
     async onAttach(p){
       if(live!==null||!SESSION(p?.sessionId)||!Number.isSafeInteger(p.contextEpoch)||p.contextEpoch<0||
@@ -206,7 +274,8 @@ export function createT4OriginalNativeHostNetworkOwner({
         return false;
       const state={kernel:p.kernel,sessionId:p.sessionId,contextEpoch:p.contextEpoch,
         hostSessionRef:hostReference(p.sessionId,p.contextEpoch),
-        isHostActive:p.isHostActive,disposed:false,waking:false,task:null};
+        isHostActive:p.isHostActive,disposed:false,waking:false,task:null,capture:null,
+        localMutation:null,networkWakeSuspended:false};
       live=state;
       try{
         if(await ports.authorizeOriginalBinding(bindingProof(state,'attach'))!==true||
@@ -228,19 +297,30 @@ export function createT4OriginalNativeHostNetworkOwner({
       if(workspaceId===technicalWorkspaceId&&write&&
         (proof.operation!=='t1.putObject'||first?.schema_id!==technicalSchemaId||!first.object_id?.startsWith('t4:net:')))
         return null;
-      if(workspaceId===sourceWorkspaceId&&write&&
-        (role==='SOURCE'||proof.operation==='t1.putObject'))return null;
+      let local=null;
+      if(workspaceId===sourceWorkspaceId&&write){
+        if(role==='SOURCE'){
+          local=state.localMutation;
+          if(!enableLocalSourceCapture||!local||local.invoked||proof.operation!=='t1.'+local.method||
+            first[subjectField(local.method)]!==local.subjectId||
+            first.event?.payload?.iwxa_t4_capture_ref!==local.captureRef)return null;
+        }else if(proof.operation==='t1.putObject')return null;
+      }
       await requireBinding(state,'kernel-command');
       const access=await ports.resolveOriginalAccess(proof);
       await requireBinding(state,'kernel-command-readback');
+      if(local){
+        if(state.localMutation!==local||local.invoked||access==null)return null;
+        local.invoked=true;
+      }
       return access;
     },
     async onIdleWake(p){
       const state=live;
       if(!matches(state,p)||p.kernel!==state.kernel||!active(state))
         fail('NATIVE_NETWORK_OWNER_LIFETIME_ENDED');
-      if(state.waking)fail('NATIVE_NETWORK_OWNER_CONCURRENT_WAKE');
-      if(mode()==='LOCAL_T3')return;
+      if(state.waking||state.localMutation)fail('NATIVE_NETWORK_OWNER_CONCURRENT_WAKE');
+      if(mode()==='LOCAL_T3'||state.networkWakeSuspended)return;
       state.waking=true;
       try{
         await requireBinding(state,'wake');
@@ -260,7 +340,19 @@ export function createT4OriginalNativeHostNetworkOwner({
           ...(ID(result.captureRef)?{captureRef:result.captureRef}:{}),
           ...(ID(result.originalSourceEventId)?{originalSourceEventId:result.originalSourceEventId}:{}),
           ...(Number.isSafeInteger(result.pendingCaptureCount)?{pendingCaptureCount:result.pendingCaptureCount}:{})}));
-      }catch(error){dispose(state);throw error;}
+      }catch(error){
+        // A failed network wake must not remove the original local capture
+        // route while offline. Retain ONLY a still-authorized local owner;
+        // suspend networking rather than replay an uncertain remote write.
+        if(enableLocalSourceCapture&&active(state)&&mode()==='T4_NETWORK'){
+          try{await requireBinding(state,'local-source-after-network-error');}
+          catch{dispose(state);throw error;}
+          state.networkWakeSuspended=true;
+          onStep(Object.freeze({...bindingProof(state,'network-suspended'),
+            state:'NETWORK_WAKE_SUSPENDED',originalSubjectMutationInvoked:false,
+            errorCode:ID(error?.code)?error.code:'NETWORK_WAKE_FAILED'}));
+        }else{dispose(state);throw error;}
+      }
       finally{state.waking=false;}
     },
   });

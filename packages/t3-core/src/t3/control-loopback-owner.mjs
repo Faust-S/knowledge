@@ -203,7 +203,7 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
   const originalKernelRelay=async(verb,payload={})=>{
     requireTransport();
     const generation=selectionGeneration;
-    check(["attach","next","result","detach"].includes(verb)&&
+    check(["attach","next","result","detach","sourceMutation"].includes(verb)&&
       validObject(payload),"T3_D3_ORIGINAL_KERNEL_RELAY_REQUEST_INVALID");
     const epoch=await getEpoch();
     requireGeneration(generation);
@@ -216,8 +216,11 @@ export function createControlLoopbackOwner({origin,token,fetchImpl=globalThis.fe
         body:JSON.stringify({verb,payload}),
       });
     }catch{
-      fail("T3_D3_ORIGINAL_KERNEL_RELAY_TRANSPORT_LOST");
+      fail(verb==="sourceMutation"?"T3_ORIGINAL_LOCAL_SOURCE_MUTATION_OUTCOME_UNKNOWN":
+        "T3_D3_ORIGINAL_KERNEL_RELAY_TRANSPORT_LOST");
     }
+    if(verb==="sourceMutation"&&generation!==selectionGeneration)
+      fail("T3_ORIGINAL_LOCAL_SOURCE_MUTATION_OUTCOME_UNKNOWN");
     requireTransport();requireGeneration(generation);
     if(!response.ok){
       let code="T3_D3_ORIGINAL_KERNEL_RELAY_DENIED";

@@ -6,6 +6,8 @@ on:
     paths:
       - packages/t4-network/**
       - packages/t3-core/src/t3/original-kernel-native-relay*
+      - packages/t3-core/src/t3/control-loopback-owner*
+      - packages/t3-core/src/t3/original-control-http-handler.mjs
       - packages/t3-core/src/t3/subject-access-binding.mjs
       - packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
       - packages/t3-core/tests/support/t3-original-personal-authority.mjs

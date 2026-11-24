@@ -84,7 +84,8 @@ async function sourceFixture(loseOriginalWrite=false){
   }else capture=await perform();
   return {...f,technicalWorkspaceId:tech,before,capture,baselineEvent};
 }
-function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=deny,requestBaseline=true}){
+function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=deny,requestBaseline=true,
+  localCapture=false,localAdmission=allow}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
@@ -104,6 +105,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
         JSON.stringify(p.baseline.sourceCursor)===JSON.stringify(baselineInput.sourceCursor);
     },
     authorizeOriginalHostTask:allow,authorizeOriginalRead:allow,authorizeOriginalWrite:allow,
+    authorizeOriginalLocalMutation:localAdmission,
     authorizeOriginalHostWire:allow,authorizeOriginalNetwork:async p=>p.ownerEpoch===2&&p.scopeRef===SCOPE,
     authorizeOriginalFramePublish:allow,
     verifyOriginalNodeSignature:async({signerRef,bytes,signature})=>{
@@ -121,12 +123,13 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     verifyOriginalSourceSubject:deny,verifyOriginalSourceBinding:deny,verifyOriginalSourceEvent:deny,
     authorizeOriginalSealedOpen:deny,openOriginalSealedContent:async()=>{throw Error('unexpected sealed open')},
     readOriginalDependencyCoverage:async()=>null,withOriginalSubjectMutation:async(proof,action)=>{
-      assert.equal(role,'SOURCE');assert.equal(proof.originalMutationRecoveryOnly,true);
+      assert.equal(role,'SOURCE');
+      if(!localCapture)assert.equal(proof.originalMutationRecoveryOnly,true);
       assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);return action();
     },
   };
   const owner=createT4OriginalNativeHostNetworkOwner({...scope(tech),role,requiredCryptoSuite:SUITE,
-    getMode:()=>mode,wireTransport:wire.wire,originalPorts,
+    getMode:()=>mode,wireTransport:wire.wire,originalPorts,enableLocalSourceCapture:localCapture,
     readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null,
     onStep:r=>results.push(r)});
   const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,networkOwner:{
@@ -134,7 +137,8 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
   }});
   const info={contract_version:'1.3.0',runtime_version:'0.3.6',service_id:'iwxa.workspace.relay',mode:'ready',
     granted_operations:[...new Set(['t1.getWorkspace','t1.commitObjectGraph','t1.getObject','t1.listEventsSince',...owner.operations])]};
-  const attach=()=>relay.exchange({verb:'attach',payload:{sessionInfo:info,networkRelayVersion:1}},epoch);
+  const attach=()=>relay.exchange({verb:'attach',payload:{sessionInfo:info,networkRelayVersion:1,
+    ...(localCapture?{localSourceMutationVersion:1}:{})}},epoch);
   async function drive(session,target){
     // The production HTTP socket keeps the existing unref'ed long poll
     // alive. This in-process browser test has no socket, so bound its
@@ -153,7 +157,27 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
         result:encodeOriginalNetworkRelayResult(method,value)}},epoch);
     }}finally{clearTimeout(deadline);}
   }
-  return {owner,relay,attach,drive,results,commands,local,technical,get accessResolutions(){return accessResolutions},
+  async function invokeLocal(session,method,input){
+    const deadline=setTimeout(()=>relay.close(),180000);
+    let settled=false,result,error;
+    const request=relay.exchange({verb:'sourceMutation',payload:{sessionId:session.sessionId,method,args:[clone(input)]}},epoch)
+      .then(v=>{result=v;settled=true},e=>{error=e;settled=true});
+    try{
+      while(!settled){
+        // The native source operation runs concurrently with this very same
+        // original Kernel command poll; no second mutation executor exists.
+        const cmd=await relay.exchange({verb:'next',payload:{sessionId:session.sessionId}},epoch);
+        if(cmd.kind==='IDLE')continue;
+        commands.push(cmd);
+        const args=decodeOriginalNetworkRelayArgs(cmd.method,cmd.args);
+        const value=await store.kernel[cmd.method](...args);
+        await relay.exchange({verb:'result',payload:{sessionId:session.sessionId,id:cmd.id,ok:true,
+          result:encodeOriginalNetworkRelayResult(cmd.method,value)}},epoch);
+      }
+      await request;if(error)throw error;return result;
+    }finally{clearTimeout(deadline);}
+  }
+  return {owner,relay,attach,drive,invokeLocal,results,commands,local,technical,get accessResolutions(){return accessResolutions},
     revokeBinding(){admitted=false},disableMode(){mode='LOCAL_T3'},invalidate(){epoch++;relay.invalidate()}};
 }
 test('K14 existing signed native relay drives original source baseline, captured intent and HEADS, then recipient DIFF',async()=>{
@@ -261,4 +285,48 @@ test('K17 original native relay accepts canonical base64url tokens beginning wit
         args:[store.technicalWorkspaceId,'o:absent']}),null);
     }finally{f.relay.close();}
   }
+});
+
+test('K20 existing native signed relay captures an explicitly admitted local source mutation without granting its network task subject write authority',async()=>{
+  const store=kernelFixture('local-source');store.technicalWorkspaceId='ws:k20:technical';
+  const baselineEvent=(await store.kernel.putObject(mutation('o:k20:baseline','baseline','business.baseline'))).event;
+  const before=(await readT4OriginalEventWindow({workspaceId:WS,originalWriteOwnerRef:OWNER,
+    authorizeOriginalRead:allow,readOriginalEvents:()=>store.kernel.listEventsSince(WS),maxEvents:1})).nextCursor;
+  const wire=wireFixture(),f=nativeFixture({role:'SOURCE',store,wire,localCapture:true,
+    baselineInput:{sourceCursor:before,originalBaselineRef:baselineEvent.event_id,originalBaselineDigest:hash(JSON.stringify(baselineEvent))}});
+  try{
+    const session=await f.attach();assert.equal(session.localSourceMutationVersion,1);
+    assert.equal(session.localSourceWorkspaceId,WS);
+    assert.ok(session.localSourceMutationMethods.includes('putObject'));
+    await f.drive(session,'ADMITTED');
+    // Wait for completion of the existing baseline wake before a local RPC.
+    await new Promise(resolve=>setImmediate(resolve));
+    const input=mutation('o:k20:captured','local original command','business.local.created');
+    assert.equal(await f.owner.resolveOriginalAccess({sessionId:session.sessionId,contextEpoch:session.contextEpoch,
+      operation:'t1.putObject',args:[input]}),null);
+    const result=await f.invokeLocal(session,'putObject',input);
+    assert.equal(result.state,'ORIGINAL_SOURCE_MUTATION_CAPTURED');
+    assert.equal(result.originalReceipt.object.data.title,'local original command');
+    assert.equal(result.originalT3OutboxVerified,true);assert.equal(result.networkPublished,false);
+    const business=store.events.filter(e=>e.workspace_id===WS);
+    assert.equal(business.length,2);
+    assert.equal(business[1].payload.iwxa_t4_capture_ref,result.captureRef);
+    assert.equal(store.events.filter(e=>e.payload?.role==='outbox').length,1);
+    assert.equal(f.commands.filter(c=>c.method==='putObject'&&c.args[0].workspace_id===WS).length,1);
+    assert.ok(f.local.proofCount>0);assert.ok(f.technical.proofCount>0);
+    assert.equal(await f.owner.resolveOriginalAccess({sessionId:session.sessionId,contextEpoch:session.contextEpoch,
+      operation:'t1.putObject',args:[input]}),null);
+  }finally{f.relay.close();}
+});
+test('K20 local source route is opt-in and unavailable to an old relay handshake or foreign Workspace',async()=>{
+  const source=await sourceFixture(),wire=wireFixture();
+  const f=nativeFixture({role:'SOURCE',store:source,wire,
+    baselineInput:{sourceCursor:source.before,originalBaselineRef:source.baselineEvent.event_id,originalBaselineDigest:hash(JSON.stringify(source.baselineEvent))}});
+  try{
+    const s=await f.attach();assert.equal(s.localSourceMutationVersion,undefined);
+    await assert.rejects(f.relay.exchange({verb:'sourceMutation',payload:{sessionId:s.sessionId,
+      method:'putObject',args:[mutation('o:k20:forbidden','x','business.created')]}},s.contextEpoch),
+      {code:'T3_ORIGINAL_LOCAL_SOURCE_MUTATION_NOT_AVAILABLE'});
+    assert.equal(source.events.filter(e=>e.workspace_id===WS).length,2);
+  }finally{f.relay.close();}
 });
