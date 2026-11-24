@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: bd7866868c9ff0c2571310183e2bfd5843edb60a
+          ref: d3215aab6e84e6ac2869dc981cf204f516226e15
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -53,8 +53,8 @@ jobs:
       - name: Check exact revisions and canonical model
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "bd7866868c9ff0c2571310183e2bfd5843edb60a"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "d08c5a9f78a34a567641368f7f338d3fc9f2e2f0"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "d3215aab6e84e6ac2869dc981cf204f516226e15"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "6018584f97be811c0b87831cfdacfba447153e8e"
           test "$(git -C d04-private/model rev-parse HEAD)" = "1a5004aa2ea701507630cc8fa32740c3f290e9e7"
           for name in LIFE_RETROSPECTIVE_V0_1.mjs LIFE_RETROSPECTIVE_V0_1.d.mts PERSONAL_STUDY_RESULT_V0_1.mjs PERSONAL_STUDY_RESULT_V0_1.d.mts LIFE_GOAL_RESULT_REFS_V0_1.mjs LIFE_GOAL_RESULT_REFS_V0_1.d.mts PERSONAL_CUSTOM_MEASURE_V0_1.mjs PERSONAL_CUSTOM_MEASURE_V0_1.d.mts LIFE_PERIOD_COMPARISON_V0_1.mjs LIFE_PERIOD_COMPARISON_V0_1.d.mts LIFE_ACTION_BOARD_V0_1.mjs LIFE_ACTION_BOARD_V0_1.d.mts PERSONAL_MEDICAL_EVIDENCE_V0_1.mjs PERSONAL_MEDICAL_EVIDENCE_V0_1.d.mts LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.mjs LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.d.mts PERSONAL_GOAL_PROFILE_V0_1.mjs PERSONAL_GOAL_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_PROFILE_V0_1.mjs PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts LIFE_DASHBOARD_CALCULATIONS_V0_1.mjs LIFE_DASHBOARD_CALCULATIONS_V0_1.d.mts LIFE_DIARY_BATCH_V0_1.mjs LIFE_DIARY_BATCH_V0_1.d.mts; do
             cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
