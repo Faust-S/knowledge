@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inspectT4OriginalObjectDeletePreflight}
+import {inspectT4OriginalObjectDeletePreflight,readT4OriginalObjectDeletionReview}
   from '../src/network/original-object-delete-preflight.mjs';
 
 const ws='original:workspace',id='original:object:one',owner='original:owner';
@@ -90,4 +90,71 @@ test('changes to original pre-image between two reads block advisory',async()=>{
   await assert.rejects(inspectT4OriginalObjectDeletePreflight(f.ports),
     err('OBJECT_DELETE_ORIGINAL_PREIMAGE_CHANGED'));
   assert.equal(f.counts().deletes,0);
+});
+
+const coverage=()=>({schema:'IWXA_T4_ORIGINAL_OBJECT_DELETE_COVERAGE_V1',
+  workspaceId:ws,objectId:id,originalWriteOwnerRef:owner,
+  hostSessionRef:'original:host',originalAccessRef:'original:access',
+  allIncidentRelationsVisible:true,allLiveOwnedAssetsVisible:true,
+  completeOriginalAuthorityVerified:true});
+const reviewPorts=f=>({...f.ports,readOriginalDependencyCoverage:async()=>coverage()});
+const relationRow=(rid,from,to)=>({workspace_id:ws,relation_id:rid,from_object_id:from,
+  to_object_id:to,kind:'depends-on',created_by_service:'service:owner'});
+const assetRow=(aid,revision=1)=>({workspace_id:ws,asset_id:aid,object_id:id,
+  service_id:'service:asset',revision,size:29,mime:'text/plain'});
+test('complete original coverage distinguishes isolated Object from filtered empty read',async()=>{
+  const f=fixture();
+  await assert.rejects(readT4OriginalObjectDeletionReview(f.ports),
+    err('OBJECT_DELETE_COMPLETE_ORIGINAL_SCOPE_REQUIRED'));
+  await assert.rejects(readT4OriginalObjectDeletionReview({...reviewPorts(f),
+    readOriginalDependencyCoverage:async()=>({...coverage(),allIncidentRelationsVisible:false})}),
+    err('OBJECT_DELETE_ORIGINAL_DEPENDENCY_VISIBILITY_UNPROVEN'));
+  assert.equal(f.counts().reads,0);
+  const review=await readT4OriginalObjectDeletionReview(reviewPorts(f));
+  assert.equal(review.state,'ISOLATED_ORIGINAL_OBJECT');
+  assert.equal(review.originalCompleteDependencyVisibilityVerified,true);
+  assert.equal(review.networkDeletePermitted,false);
+  assert.equal(review.dependencyCount,0);
+  assert.equal(f.counts().deletes,0);
+});
+test('dependency review enumerates exact original relations and assets in stable order without cascading',async()=>{
+  const f=fixture();
+  f.getGraph().relations.outgoing=[relationRow('link:z',id,'object:z')];
+  f.getGraph().relations.incoming=[relationRow('link:a','object:a',id)];
+  f.setAssets([assetRow('asset:z',3),assetRow('asset:a',2)]);
+  const review=await readT4OriginalObjectDeletionReview(reviewPorts(f));
+  assert.equal(review.state,'DEPENDENCIES_REQUIRE_EXPLICIT_MUTATIONS');
+  assert.equal(review.dependencyCount,4);
+  assert.deepEqual(review.relations.map(x=>x.relationId),['link:a','link:z']);
+  assert.deepEqual(review.assets.map(x=>[x.assetId,x.revision]),[['asset:a',2],['asset:z',3]]);
+  assert.equal(review.relations[0].originalCreatorRef,'service:owner');
+  assert.equal(review.physicalCascadeAllowed,false);
+  assert.equal(review.originalHostMustRecheckAtMutation,true);
+  assert.equal(f.counts().deletes,0);
+});
+test('dependency review refuses changed assets without relying on Object revision',async()=>{
+  const f=fixture();let reads=0;
+  f.ports.originalKernel.listAssets=async()=>[assetRow('asset:one',++reads)];
+  await assert.rejects(readT4OriginalObjectDeletionReview(reviewPorts(f)),
+    err('OBJECT_DELETE_ORIGINAL_DEPENDENCIES_CHANGED'));
+  assert.equal(f.counts().deletes,0);
+});
+test('dependency review refuses changed original authority and invalid foreign rows',async()=>{
+  const f=fixture();let reads=0;
+  await assert.rejects(readT4OriginalObjectDeletionReview({...reviewPorts(f),
+    readOriginalDependencyCoverage:async()=>({...coverage(),hostSessionRef:'host:'+String(++reads)})}),
+    err('OBJECT_DELETE_ORIGINAL_DEPENDENCY_COVERAGE_CHANGED'));
+  f.setAssets([{...assetRow('asset:one'),object_id:'other:object'}]);
+  await assert.rejects(readT4OriginalObjectDeletionReview(reviewPorts(f)),
+    err('OBJECT_DELETE_ORIGINAL_ASSET_LIST_INVALID'));
+  assert.equal(f.counts().deletes,0);
+});
+test('self-edge appears once only if both original directions agree',async()=>{
+  const f=fixture(),self=relationRow('self:one',id,id);
+  f.getGraph().relations.outgoing=[self];
+  await assert.rejects(readT4OriginalObjectDeletionReview(reviewPorts(f)),
+    err('OBJECT_DELETE_ORIGINAL_RELATION_LIST_INVALID'));
+  f.getGraph().relations.incoming=[self];
+  const result=await readT4OriginalObjectDeletionReview(reviewPorts(f));
+  assert.equal(result.dependencyCount,1);
 });
