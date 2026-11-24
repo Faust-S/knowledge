@@ -44,6 +44,43 @@ function Find-Accessible($root, [string]$name, [int]$attempts = 35) {
     }
     return $null
 }
+# WebView2 disclosure/pressed buttons can expose ExpandCollapse or Toggle,
+# rather than Invoke. Resolve an actionable element, not a same-name text node.
+function Invoke-ActivityAction($root, [string]$name, [int]$attempts = 15) {
+    $condition = [Windows.Automation.PropertyCondition]::new(
+        [Windows.Automation.AutomationElement]::NameProperty, $name)
+    for ($i = 0; $i -lt $attempts; $i++) {
+        $matches = $root.FindAll([Windows.Automation.TreeScope]::Descendants, $condition)
+        foreach ($element in $matches) {
+            if (!$element.Current.IsEnabled) { continue }
+            $pattern = $null
+            if ($element.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+                $pattern.Invoke()
+                Write-Host "IWXA_ACTIVITY_UIA_ACTION name=$name pattern=Invoke"
+                return
+            }
+            if ($element.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)) {
+                if ($pattern.Current.ExpandCollapseState -eq [Windows.Automation.ExpandCollapseState]::Collapsed) {
+                    $pattern.Expand()
+                    Write-Host "IWXA_ACTIVITY_UIA_ACTION name=$name pattern=ExpandCollapse"
+                    return
+                }
+            }
+            if ($element.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
+                $pattern.Toggle()
+                Write-Host "IWXA_ACTIVITY_UIA_ACTION name=$name pattern=Toggle"
+                return
+            }
+            if ($element.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) {
+                $pattern.Select()
+                Write-Host "IWXA_ACTIVITY_UIA_ACTION name=$name pattern=SelectionItem"
+                return
+            }
+        }
+        Start-Sleep -Milliseconds 350
+    }
+    throw "INSTALLED_ACTIVITY_UIA_ACTION_NOT_INVOKABLE: $name"
+}
 function Close-Window($info) {
     $p = $info.Process
     try {
@@ -137,9 +174,7 @@ public static class IwxaActivityWin32 {
         throw 'INSTALLED_ACTIVITY_A41_QUALITY_DIFFERENCE_MISSING'
     }
     Write-Host 'IWXA_ACTIVITY_A41_NATIVE_QUALITY_DIFFERENCE_PASS'
-    $draft = Find-Accessible $window.Root 'Открыть технологический кандидат' 10
-    if (!$draft) { throw 'INSTALLED_ACTIVITY_A43_DRAFT_ACTION_MISSING' }
-    $draft.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-ActivityAction $window.Root 'Открыть технологический кандидат'
     if (!(Find-Accessible $window.Root 'Технологический кандидат' 10)) {
         throw 'INSTALLED_ACTIVITY_A43_DRAFT_NOT_VISIBLE'
     }
@@ -152,9 +187,7 @@ public static class IwxaActivityWin32 {
     if (!(Find-Accessible $window.Root 'Нижняя граница: 99.8' 10)) {
         throw 'INSTALLED_ACTIVITY_A43_FIRST_TOLERANCE_MISSING'
     }
-    $variant2 = Find-Accessible $window.Root 'Исходный вариант 2' 10
-    if (!$variant2) { throw 'INSTALLED_ACTIVITY_A43_SECOND_VARIANT_MISSING' }
-    $variant2.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-ActivityAction $window.Root 'Исходный вариант 2'
     if (!(Find-Accessible $window.Root 'Нижняя граница: 99.5' 10)) {
         throw 'INSTALLED_ACTIVITY_A43_SECOND_TOLERANCE_MISSING'
     }
@@ -162,16 +195,19 @@ public static class IwxaActivityWin32 {
         throw 'INSTALLED_ACTIVITY_A43_STALE_VARIANT_VALUE'
     }
     Write-Host 'IWXA_ACTIVITY_A43_NATIVE_TECHNOLOGY_DRAFT_PASS variants=2'
-    $refine = Find-Accessible $window.Root 'Уточнить технологию' 10
-    if (!$refine) { throw 'INSTALLED_ACTIVITY_A43_REFINEMENT_MISSING' }
-    $refine.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
-    $prepare = Find-Accessible $window.Root 'Подготовить локальное предложение' 10
-    if (!$prepare) { throw 'INSTALLED_ACTIVITY_A43_PROPOSAL_ACTION_MISSING' }
-    $prepare.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-ActivityAction $window.Root 'Уточнить технологию'
+    Invoke-ActivityAction $window.Root 'Подготовить локальное предложение'
     if (!(Find-Accessible $window.Root 'Нужны дополнительные сведения' 10)) {
         throw 'INSTALLED_ACTIVITY_A43_PROPOSAL_GAPS_MISSING'
     }
     Write-Host 'IWXA_ACTIVITY_A43_NATIVE_PROPOSAL_GAPS_PASS'
+    Invoke-ActivityAction $window.Root 'Подготовить к обезличиванию'
+    Invoke-ActivityAction $window.Root 'Сохранить известные параметры этой области'
+    Invoke-ActivityAction $window.Root 'Сформировать кандидат для проверки раскрытия'
+    if (!(Find-Accessible $window.Root 'Кандидат содержит незавершённые требования' 10)) {
+        throw 'INSTALLED_ACTIVITY_A43_DISCLOSURE_CANDIDATE_GAPS_MISSING'
+    }
+    Write-Host 'IWXA_ACTIVITY_A43_NATIVE_DISCLOSURE_CANDIDATE_PASS'
     $clearRoutes = Find-Accessible $window.Root 'Очистить выборку' 10
     if (!$clearRoutes) { throw 'INSTALLED_ACTIVITY_A41_CLEAR_MISSING' }
     $clearRoutes.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()

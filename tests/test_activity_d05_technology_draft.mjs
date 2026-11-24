@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {reviewD05ResultSelection,buildD05RouteQualityComparisonExample,buildD05RouteComparisonExample,
- prepareD05TechnologyProposal} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
+ prepareD05TechnologyProposal,prepareD05DisclosureCandidate} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 const fresh=()=>buildD05RouteQualityComparisonExample();
 const review=records=>reviewD05ResultSelection(records,{includeTechnologyDraft:true});
 const routes=a=>a.filter(x=>x.object.data.object_type==='operation-route');
@@ -130,4 +130,58 @@ test('proposal cannot use a different group profile, unknown operation, or contr
  assert.throws(()=>prepareD05TechnologyProposal(r,g.id,1,{...form,operations:{...form.operations,other:{role:'x'}}}),{code:'D05_ROUTE_PROPOSAL_MAPPING_INVALID'});
  assert.throws(()=>prepareD05TechnologyProposal(r,g.id,1,{...form,quality_roles:{...form.quality_roles,other:'x'}}),{code:'D05_ROUTE_PROPOSAL_MAPPING_INVALID'});
  assert.throws(()=>prepareD05TechnologyProposal(r,g.id,1,{...form,export_allowed:true}),{code:'D05_ROUTE_PROPOSAL_INPUT_INVALID'});
+});
+
+test('explicit parameterization removes individual source values but preserves original controls and graph',()=>{
+ const a=fresh(),input=routes(a)[1].object.data.value.data.inputs;
+ input.quantity='89473';input.orderName='PRIVATE_ORDER';input.operations[0].equipment='PRIVATE_MACHINE_LABEL';
+ const r=review(a),g=r.groups[0],form=formFor(r,1),selected=profile(r,1);
+ const decisions=Object.fromEntries(selected.conditions.filter(c=>c.use==='ADAPTATION_REVIEW').map(c=>[c.key,
+  {mode:'PARAMETERIZE',guidance:'Определить по производственной мощности получателя'}]));
+ const v=prepareD05DisclosureCandidate(r,g.id,2,form,decisions);
+ assert.equal(v.parameter_summary.pending,0);assert.equal(v.parameter_summary.retained,0);
+ assert.equal(v.parameter_summary.parameterized,20);
+ assert.equal(v.technology.route_parameters.find(c=>c.field==='quantity').value,null);
+ assert.equal(v.technology.quality_checks[0].declared_fields.find(c=>c.field==='lower_limit').value,'99.5');
+ assert.equal(v.technology.quality_checks[0].declared_fields.find(c=>c.field==='blocking').value,true);
+ assert.deepEqual(v.technology.operations.map(o=>o.predecessors),g.operations.map(o=>o.predecessors));
+ assert.equal(v.technology.operations.find(o=>o.operation_id===cut(r)).equipment_requirement,'Оборудование необходимого класса');
+ assert.doesNotMatch(JSON.stringify(v),/PRIVATE_ORDER|PRIVATE_MACHINE_LABEL|89473|source_name|source_revision|example-route-/);
+ assert.equal(v.export_allowed,false);assert.equal(v.anonymity,'NOT_ESTABLISHED');
+ assert.equal(v.disclosure_review,'NOT_PERFORMED');
+});
+test('retain declaration is explicit, missing values cannot be retained, text inventory has unique paths',()=>{
+ const r=review(fresh()),g=r.groups[0],p=profile(r),form=formFor(r);
+ const v=prepareD05DisclosureCandidate(r,g.id,1,form,{
+  'route.quantity':{mode:'RETAIN_DECLARATION'},
+  'route.overallReserve':{mode:'RETAIN_DECLARATION'},
+  [cut(r)+'.duration']:{mode:'PARAMETERIZE',guidance:''},
+ });
+ assert.equal(v.parameter_summary.retained,1);assert.equal(v.parameter_summary.parameterized,0);
+ assert.equal(v.parameter_summary.pending,19);
+ assert.equal(v.technology.route_parameters.find(x=>x.field==='quantity').value,'120');
+ assert.ok(v.pending_parameter_decisions.some(x=>x.key==='route.overallReserve'));
+ assert.ok(v.pending_parameter_decisions.some(x=>x.key===cut(r)+'.duration'));
+ assert.ok(v.text_review_fields.some(x=>x.path==='technology.terms.purpose'&&x.text===form.purpose));
+ assert.ok(v.text_review_fields.some(x=>x.text==='99.8'));
+ assert.equal(new Set(v.text_review_fields.map(x=>x.path)).size,v.text_review_fields.length);
+ assert.ok(v.text_review_fields.every(x=>x.path.startsWith('technology.')));
+ assert.equal(v.status,'LOCAL_CANDIDATE_NEEDS_REVIEW_INPUT');
+ assert.throws(()=>prepareD05DisclosureCandidate(r,g.id,1,form,{'other.value':{mode:'RETAIN_DECLARATION'}}),
+  {code:'D05_ROUTE_DISCLOSURE_DECISION_INVALID'});
+ assert.throws(()=>prepareD05DisclosureCandidate(r,g.id,1,form,{'route.quantity':{mode:'DROP'}}),
+  {code:'D05_ROUTE_DISCLOSURE_DECISION_INVALID'});
+});
+test('fully specified and parameter-reviewed candidate is for local disclosure review only',()=>{
+ const a=fresh();for(const d of routes(a)){
+  const input=d.object.data.value.data.inputs;input.overallReserve='0';
+  for(const op of input.operations){op.performer='Работник';op.equipment='Станок';op.material='Лист';}
+ }
+ const r=review(a),g=r.groups[0],p=profile(r),form=formFor(r);
+ const decisions=Object.fromEntries(p.conditions.filter(c=>c.use==='ADAPTATION_REVIEW').map(c=>[c.key,{mode:'RETAIN_DECLARATION'}]));
+ const v=prepareD05DisclosureCandidate(r,g.id,1,form,decisions);
+ assert.equal(v.status,'LOCAL_CANDIDATE_FOR_DISCLOSURE_REVIEW');
+ assert.equal(v.parameter_summary.retained,20);assert.equal(v.parameter_summary.pending,0);
+ assert.equal(v.domain_validation,'NOT_PERFORMED');assert.equal(v.disclosure_review,'NOT_PERFORMED');
+ assert.equal(v.export_allowed,false);assert.equal(v.iwxa_package,null);
 });

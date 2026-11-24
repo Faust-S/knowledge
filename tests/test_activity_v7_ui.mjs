@@ -146,3 +146,15 @@ test('A4.3 user proposal stays tied to selected source model and preserves the o
  assert.match(editor,/setPreview\(null\)/);
  assert.doesNotMatch(editor,/localStorage|sessionStorage|fetch\(|putObject\(|download=/);
 });
+
+test('A4.3 parameterization decisions and candidate review remain in the current source variant',()=>{
+ const panel=load('../desktop/src/TechnologyDraftPanel.tsx');
+ const disclosure=load('../desktop/src/TechnologyDisclosurePanel.tsx');
+ assert.match(panel,/decisions\[profile.model_number\]/);
+ assert.match(disclosure,/prepareD05DisclosureCandidate\(review,groupId,profile.model_number,form,decisions\)/);
+ assert.match(disclosure,/RETAIN_DECLARATION/);
+ assert.match(disclosure,/PARAMETERIZE/);
+ assert.match(disclosure,/computed\?\.form===form&&computed.decisions===decisions/);
+ assert.match(disclosure,/Сформировать кандидат для проверки раскрытия/);
+ assert.doesNotMatch(disclosure,/localStorage|sessionStorage|fetch\(|putObject\(|download=/);
+});

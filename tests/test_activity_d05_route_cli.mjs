@@ -64,3 +64,18 @@ test('technology draft is explicit and returns the very same local candidate as 
  assert.equal(invalid.code,2);assert.equal(invalid.value.code,'D05_ROUTE_CLI_ARGUMENTS_NOT_SUPPORTED');
  assert.doesNotMatch(JSON.stringify(invalid.value),/PRIVATE_EXTRA/);
 });
+
+import {prepareD05TechnologyProposal,prepareD05DisclosureCandidate} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
+test('Agent proposal and disclosure candidate operations rebuild from the supplied original selection',()=>{
+ const records=buildD05RouteQualityComparisonExample();
+ const r=reviewD05ResultSelection(records,{includeTechnologyDraft:true});
+ const input={records,group_id:r.groups[0].id,model_number:2,proposal:{purpose:'Изготовление детали'}};
+ const p=call(JSON.stringify(input),['--technology-proposal']);
+ assert.equal(p.code,0);assert.deepEqual(p.value,prepareD05TechnologyProposal(r,input.group_id,2,input.proposal));
+ const parameter_decisions={'route.quantity':{mode:'PARAMETERIZE',guidance:'Определить объём партии'}};
+ const d=call(JSON.stringify({...input,parameter_decisions}),['--disclosure-candidate']);
+ assert.equal(d.code,0);assert.deepEqual(d.value,prepareD05DisclosureCandidate(r,input.group_id,2,input.proposal,parameter_decisions));
+ assert.equal(d.value.technology.route_parameters[0].value,null);assert.equal(d.value.export_allowed,false);
+ const forged=call(JSON.stringify({...input,technology_draft:r.technology_draft}),['--technology-proposal']);
+ assert.equal(forged.code,2);assert.equal(forged.value.code,'D05_ROUTE_CLI_PROPOSAL_INVALID');
+});
