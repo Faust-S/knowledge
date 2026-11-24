@@ -613,3 +613,30 @@ test('K30 original owner must separately authorize publication migration invento
     assert.equal(f.signatureCalls,0);assert.equal(f.relay.networkAttached,true);
   }finally{f.relay.close();}
 });
+
+test('K30 final native migration refuses a changed original inventory even without revision or terminal hash change',async()=>{
+  const source=await sourceFixture(),wire=wireFixture(true);
+  wire.wire.nativeFrameIndexVersion=0;
+  const sender=recoverySource(source,wire);
+  try{const s=await sender.attach();await sender.drive(s,'HEADS_PRESENT');}
+  finally{sender.relay.close();}
+  wire.wire.nativeFrameIndexVersion=1;
+  const originalList=source.kernel.listObjects;let catalogReads=0;
+  source.kernel.listObjects=async q=>{
+    const objects=await originalList(q);
+    if(q.workspace_id===source.technicalWorkspaceId&&q.include_deleted===true&&
+      objects.some(o=>o.object_id.startsWith('t4:net:publish:'))&&++catalogReads===2){
+      const row=objects.find(o=>o.object_id.startsWith('t4:net:publish:'));
+      row.data.title='different original catalog evidence';
+    }
+    return objects;
+  };
+  const f=recoverySource(source,wire,{indexMigration:true,localCapture:true});
+  try{
+    const s=await f.attach();await f.drive(s,'NETWORK_WAKE_SUSPENDED');
+    assert.equal(catalogReads,2);
+    assert.equal(f.results.some(r=>r.state==='NETWORK_INDEX_MIGRATION_COMPLETE'),false);
+    assert.equal(f.signatureCalls,0);assert.equal(wire.puts,1);assert.equal(wire.indices.size,2);
+    assert.equal(f.relay.networkAttached,true);
+  }finally{f.relay.close();}
+});

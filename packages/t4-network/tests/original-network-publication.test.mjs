@@ -707,3 +707,24 @@ test('K30 original migration inventory rejects missing catalog row, missing Even
     err('PUBLICATION_ORIGINAL_AUTHORITY_DENIED'));
   assert.equal(eventReads,0);assert.deepEqual(f.counts(),before);
 });
+
+test('K30 final migration inventory binds full original Object and Event evidence even at unchanged revision and terminal hash',async()=>{
+  const f=fixture();await f.stageHeads();await f.port().publishPreparedFrame({sequence:1});
+  const before=await migrationInventory(f),record=before.records[0];
+  assert.match(record.originalObjectDigest,/^sha256:[0-9a-f]{64}$/);
+  assert.match(record.originalEventStreamDigest,/^sha256:[0-9a-f]{64}$/);
+  assert.deepEqual(await migrationInventory(f),before);
+  const [key,row]=[...f.objects][0];
+  f.objects.set(key,{...row,object:{...row.object,data:{...row.object.data,title:'changed without revision'}}});
+  const objectChanged=(await migrationInventory(f)).records[0];
+  assert.equal(objectChanged.revision,record.revision);assert.equal(objectChanged.chainHash,record.chainHash);
+  assert.notEqual(objectChanged.originalObjectDigest,record.originalObjectDigest);
+  assert.equal(objectChanged.originalEventStreamDigest,record.originalEventStreamDigest);
+  f.objects.set(key,row);
+  const event=f.events[0];f.events[0]={...event,event_id:'event:replacement'};
+  const eventChanged=(await migrationInventory(f)).records[0];
+  assert.equal(eventChanged.revision,record.revision);assert.equal(eventChanged.chainHash,record.chainHash);
+  assert.equal(eventChanged.originalObjectDigest,record.originalObjectDigest);
+  assert.notEqual(eventChanged.originalEventStreamDigest,record.originalEventStreamDigest);
+  f.events[0]=event;assert.deepEqual(await migrationInventory(f),before);
+});

@@ -246,7 +246,8 @@ export async function readT4OriginalPublicationMigrationInventory({
     const matches=session.workspaceId===sourceWorkspaceId&&session.originalWriteOwnerRef===originalWriteOwnerRef&&
       session.sourceNodeRef===sourceNodeRef&&session.recipientNodeRef===recipientNodeRef&&
       session.scopeRef===scopeRef&&session.ownerEpoch===ownerEpoch&&r.localNodeRef===localNodeRef;
-    records.set(o.object_id,{session,checkpointRef:o.object_id,revision:o.revision,chainHash:d.chainHash,matches});
+    records.set(o.object_id,{session,checkpointRef:o.object_id,revision:o.revision,chainHash:d.chainHash,
+      ...(matches?{originalObjectDigest:digest('PUBLICATION-MIGRATION-OBJECT',o)}:{}),matches});
   }
   for(const e of all){
     if(typeof e?.object_id!=='string'||!e.object_id.startsWith(PUBLICATION_PREFIX))continue;
@@ -262,7 +263,12 @@ export async function readT4OriginalPublicationMigrationInventory({
     if(list.length!==r.revision||list.some((e,i)=>e.revision!==i+1)||
       list.at(-1)?.payload?.chainHash!==r.chainHash)
       fail('PUBLICATION_MIGRATION_ORIGINAL_EVENT_NOT_PROVEN');
-    if(matches)selected.push(Object.freeze(r));
+    // Revision and last chain hash alone cannot show that an earlier Event
+    // or the catalog Object stayed unchanged during a multi-wake migration.
+    // These ephemeral exact-content digests bind the final inventory to the
+    // initial read. Full per-publication verification is still required.
+    if(matches)selected.push(Object.freeze({...r,
+      originalEventStreamDigest:digest('PUBLICATION-MIGRATION-EVENTS',list)}));
   }
   selected.sort((a,b)=>a.checkpointRef<b.checkpointRef?-1:a.checkpointRef>b.checkpointRef?1:0);
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_PUBLICATION_MIGRATION_INVENTORY_V1',
