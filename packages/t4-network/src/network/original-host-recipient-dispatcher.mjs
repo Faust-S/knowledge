@@ -653,7 +653,7 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
       .every(k=>typeof rawPublication[k]==='function'))
     fail('RECIPIENT_NATIVE_STEP_ORIGINAL_PORTS_REQUIRED');
   const discovery=scoped(frameDiscoveryPort,
-    ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM'],
+    ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
     'RECIPIENT_NATIVE_STEP_ORIGINAL_DISCOVERY_REQUIRED');
   const publication=scoped(rawPublication,
     ['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler'],
@@ -948,7 +948,7 @@ async function executeNativeRecipientOwnerStep(p,options){
   const selected=structuredClone(useSignedSourceAnnouncement?await discoverT4OriginalSourceSessionAnnouncement({
     identity,sourceCursorBefore:before,requiredCryptoSuite:stepOptions.requiredCryptoSuite,
     frameDiscoveryPort:scopeOriginalHostPort(stepOptions.frameDiscoveryPort,p.isHostActive,
-      ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM'],
+      ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
       'RECIPIENT_NATIVE_STEP_ORIGINAL_DISCOVERY_REQUIRED'),
     authorizeOriginalDiscovery:async()=>{await requireCurrent('recipient-owner-announcement-discovery');return true;},
   }):await readOriginalNativeSessionAtCursor(scopedProof(

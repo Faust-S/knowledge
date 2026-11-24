@@ -537,7 +537,10 @@ export function createT4OriginalNetworkPublicationPort({
     let newAttempt=entry.state==='PREPARED',recovered=false;
     if(!newAttempt){
       try{
-        const seen=await frameTransport.inspectUnknownPublication(address);
+        if(entry.state==='ATTEMPTED'&&frameTransport.nativeFrameIndexVersion===1)
+          await guard(ctx,'t4.network.publish.index.repair','repair-original-index',entry);
+        const seen=await frameTransport.inspectUnknownPublication({...address,
+          ...(entry.state==='ATTEMPTED'&&frameTransport.nativeFrameIndexVersion===1?{repairMissingFrameIndex:true}:{})});
         if(seen?.schema!=='IWXA_T4_CANDIDATE_FRAME_PRESENT_V1'||
           seen.key!==address.key||seen.sha256!==entry.sha256||
           seen.exactBytesPresent!==true||seen.originalBusinessApplied!==false)
@@ -600,7 +603,7 @@ export function createT4OriginalNetworkPublicationPort({
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       authorizeOriginalFramePublish,verifyOriginalNodeSignature,
       frameTransport:scopeOriginalHostPort(frameTransport,isHostActive,
-        ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM'],
+        ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
         'PUBLICATION_ORIGINAL_WIRE_LIFETIME_REQUIRED'),
     }),
     originalT3OnlyStore:true,createsScheduler:false,createsTaskEngine:false});

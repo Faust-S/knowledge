@@ -469,7 +469,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       typeof frameDiscoveryPort.discoverUniqueSignedFrame!=='function')
       fail('HOST_TASK_NATIVE_SOURCE_DISCOVERY_REQUIRED');
     const discovery=scopeOriginalHostPort(frameDiscoveryPort,lifetime,
-      ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM'],
+      ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
       'HOST_TASK_NATIVE_SOURCE_DISCOVERY_REQUIRED');
     const phaseMatches=p=>p?.schema==='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'&&
       p.checkpointRef===phase.checkpointRef&&p.role==='SOURCE'&&

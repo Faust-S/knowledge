@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { createPlacementPolicy } from '../contracts/hosted-context-boundary.mjs';
 import {decodeT4WebDavFrameAddressList,MAX_T4_FRAME_LIST_BYTES} from './webdav-frame-address-list.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
+import {encodeT4NativeFrameIndex,decodeT4NativeFrameIndex} from './original-network-frame-address.mjs';
 export class T4TransferError extends Error {
   constructor(code, details = {}) { super(code); this.name = 'T4TransferError'; this.code = code; this.details = Object.freeze({ ...details }); }
 }
@@ -19,8 +20,11 @@ function checkedKey(v, keySuffix) {
 export function createWebDavPackageTransport(options = {}) {
   const { baseUrl, locationRef, placementPolicy, getMode, authorize, getAuthorizationHeader,
     fetchImpl = globalThis.fetch, maxBytes = 16 * 1024 * 1024, timeoutMs = 15000,
-    allowHttpLoopbackFixture = false, keySuffix = '.iwxa', candidateNetworkWire = false } = options;
+    allowHttpLoopbackFixture = false, keySuffix = '.iwxa', candidateNetworkWire = false,
+    indexedNetworkWire = false } = options;
   if (!['.iwxa','.t4d','.t4n'].includes(keySuffix)) fail('WIRE_SUFFIX_UNSUPPORTED');
+  if(typeof indexedNetworkWire!=='boolean'||(indexedNetworkWire&&(keySuffix!=='.t4n'||candidateNetworkWire!==true)))
+    fail('NETWORK_INDEX_PROFILE_INVALID');
   if (keySuffix === '.t4n' && candidateNetworkWire !== true) fail('NETWORK_WIRE_CANDIDATE_OPT_IN_REQUIRED');
   if (![getMode, authorize, getAuthorizationHeader, fetchImpl].every(f => typeof f === 'function')) fail('HOST_PORTS_REQUIRED');
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 256 * 1024 * 1024) fail('INVALID_SIZE_LIMIT');
@@ -42,13 +46,15 @@ export function createWebDavPackageTransport(options = {}) {
   const receipt = (state, key, sha256, etag, size) => Object.freeze({ schema:'IWXA_T4_TRANSPORT_RECEIPT_V1',
     state,key,sha256,etag,size,locationRef,workspaceId:policy.workspaceId,observedAt:new Date().toISOString(),
     workspaceApplied:false,signatureVerified:false,automaticRetryAllowed:false });
-  async function request(method, key, headers, body, sha256,check=live) {
+  const indexKey=key=>{if(typeof key!=='string'||!(/^[a-f0-9]{64}\.t4i$/).test(key))fail('NETWORK_INDEX_KEY_INVALID');return key;};
+  async function request(method, key, headers, body, sha256,check=live,index=false) {
     const discovery=method==='PROPFIND';
     if(discovery&&(keySuffix!=='.t4n'||key!==null||candidateNetworkWire!==true))
       fail('FRAME_DISCOVERY_NOT_PERMITTED');
-    const path = discovery?'':checkedKey(key,keySuffix);
+    if(index&&(!indexedNetworkWire||discovery))fail('NETWORK_INDEX_PROFILE_INVALID');
+    const path = discovery?'':index?indexKey(key):checkedKey(key,keySuffix);
     const isDelta = keySuffix === '.t4d', isNetwork = keySuffix === '.t4n';
-    const op = isNetwork ? 't4.network.frame' : isDelta ? 't4.delta' : 't4.package';
+    const op = index?'t4.network.frame.index':isNetwork ? 't4.network.frame' : isDelta ? 't4.delta' : 't4.package';
     const ctx = Object.freeze({ operation:op+(discovery?'.discover':method==='PUT' ? '.publish' : '.read'),
       ...(discovery?{collectionOnly:true,depth:1}:{key,sha256}),locationRef,workspaceId:policy.workspaceId,authorityRoot:policy.authorityRoot,
       writeOwnerRef:policy.writeOwnerRef,objectFamily:policy.objectFamily });
@@ -135,6 +141,35 @@ export function createWebDavPackageTransport(options = {}) {
     const result = await getSnapshot({key,expectedSha256},check);
     return Object.freeze({...result.receipt,state:'EXPECTED_BYTES_PRESENT',historicalWriteProven:false,automaticRetryAllowed:false});
   }
+  async function getNativeFrameIndex({key}={},check=live){
+    indexKey(key);
+    const call=await request('GET',key,{},null,null,check,true);
+    try{
+      const r=call.response;
+      if(r.status===404){await guard(call.ctx,check);return null;}
+      if([401,403].includes(r.status))fail('REMOTE_AUTHORIZATION_DENIED');
+      if(r.status!==200)fail('REMOTE_INDEX_READ_FAILED',{status:r.status});
+      const bytes=await readBytes(r,call.controller,Math.min(maxBytes,256),check);
+      const frameSha256=decodeT4NativeFrameIndex(bytes);
+      await guard(call.ctx,check);
+      return Object.freeze({schema:'IWXA_T4_NATIVE_FRAME_INDEX_READ_V1',key,frameSha256,
+        addressMetadataIsNotSignatureOrAuthority:true,originalBusinessApplied:false});
+    }finally{call.controller.abort();call.release();}
+  }
+  async function putNativeFrameIndex({key,frameSha256}={},check=live){
+    indexKey(key);const bytes=encodeT4NativeFrameIndex(frameSha256);
+    const call=await request('PUT',key,{'If-None-Match':'*','Content-Type':'application/vnd.iwxa.t4-frame-address+json'},
+      bytes,frameSha256,check,true);
+    try{
+      const status=call.response.status;
+      if([401,403].includes(status))fail('REMOTE_AUTHORIZATION_DENIED');
+      if(![200,201,204,412].includes(status))fail('REMOTE_INDEX_WRITE_OUTCOME_UNKNOWN',{status});
+    }finally{call.controller.abort();call.release();}
+    const readback=await getNativeFrameIndex({key},check);
+    if(readback===null)fail('REMOTE_INDEX_WRITE_OUTCOME_UNKNOWN');
+    if(readback.frameSha256!==frameSha256)fail('REMOTE_INDEX_SLOT_CONFLICT');
+    return readback;
+  }
   async function listNativeFrameAddresses(check=live){
     if(keySuffix!=='.t4n'||candidateNetworkWire!==true)fail('FRAME_DISCOVERY_NOT_PERMITTED');
     const call=await request('PROPFIND',null,{Depth:'1','Content-Type':'application/xml; charset=utf-8'},
@@ -156,7 +191,10 @@ export function createWebDavPackageTransport(options = {}) {
     return Object.freeze({
       putSnapshot:input=>putSnapshot(input,check),getSnapshot:input=>getSnapshot(input,check),
       inspectOutcome:input=>inspectOutcome(input,check),close,
-      ...(keySuffix==='.t4n'?{listNativeFrameAddresses:()=>listNativeFrameAddresses(check)}:{}),
+      ...(keySuffix==='.t4n'?{listNativeFrameAddresses:()=>listNativeFrameAddresses(check),
+        nativeFrameIndexVersion:indexedNetworkWire?1:0,
+        ...(indexedNetworkWire?{getNativeFrameIndex:input=>getNativeFrameIndex(input,check),
+          putNativeFrameIndex:input=>putNativeFrameIndex(input,check)}:{})}:{}),
       forOriginalHostLifetime:isHostActive=>{
         const mode=originalHostLifetimeMode(()=>{check();return getMode();},isHostActive);
         return scopedPort(()=>{mode();});

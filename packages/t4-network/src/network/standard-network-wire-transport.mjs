@@ -3,6 +3,8 @@ import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-li
 import {
   decodeT4CandidateFrame,verifyT4CandidateWireFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
 } from './standard-network-wire-candidate.mjs';
+import {t4NativeSessionFrameIndexKey,t4NativeSourceHeadIndexKey,t4NativeFrameIndexKeys}
+  from './original-network-frame-address.mjs';
 
 /**
  * P2.0 experimental native T4 wire carriage over existing HTTPS/WebDAV.
@@ -45,6 +47,10 @@ export function createT4CandidateFrameTransport({
       persistOriginalReplayDecision].every(f=>typeof f==='function')||
     !ID(originalHostNodeRef)||!ID(originalHostScopeRef))
     fail('WIRE_ORIGINAL_HOST_NETWORK_PORTS_REQUIRED');
+  const indexed=wireTransport.nativeFrameIndexVersion===1;
+  if((wireTransport.nativeFrameIndexVersion!==undefined&&![0,1].includes(wireTransport.nativeFrameIndexVersion))||
+    (indexed&&![wireTransport.getNativeFrameIndex,wireTransport.putNativeFrameIndex].every(f=>typeof f==='function')))
+    fail('WIRE_NATIVE_INDEX_PROFILE_INVALID');
   const mode=()=>{
     if(getMode()!=='T4_NETWORK')
       fail('WIRE_HOST_NETWORK_MODE_OFF');
@@ -93,6 +99,26 @@ export function createT4CandidateFrameTransport({
         phase,automaticRetryAllowed:false,
       });
   }
+  function checkIndexRead(value,key){
+    if(value?.schema!=='IWXA_T4_NATIVE_FRAME_INDEX_READ_V1'||value.key!==key||!SHA(value.frameSha256)||
+      value.addressMetadataIsNotSignatureOrAuthority!==true||value.originalBusinessApplied!==false)
+      fail('WIRE_NATIVE_INDEX_READ_INVALID');
+    return value.frameSha256;
+  }
+  async function ensureIndexes(ctx,frame,sha256,repair){
+    if(!indexed)return;
+    for(const key of t4NativeFrameIndexKeys(frame)){
+      await hostGuard('index-read',ctx,frame,sha256);
+      const found=await wireTransport.getNativeFrameIndex({key});
+      if(found===null){
+        if(!repair)fail('WIRE_NATIVE_INDEX_MISSING');
+        await hostGuard('index-publish',ctx,frame,sha256);
+        const written=await wireTransport.putNativeFrameIndex({key,frameSha256:sha256});
+        if(checkIndexRead(written,key)!==sha256)fail('WIRE_NATIVE_INDEX_SLOT_CONFLICT');
+      }else if(checkIndexRead(found,key)!==sha256)fail('WIRE_NATIVE_INDEX_SLOT_CONFLICT');
+      await hostGuard('index-readback',ctx,frame,sha256);
+    }
+  }
   async function publishSignedFrame({wireBytes}={}){
     if(!(wireBytes instanceof Uint8Array))
       fail('WIRE_SIGNED_BYTES_REQUIRED');
@@ -126,6 +152,10 @@ export function createT4CandidateFrameTransport({
       fail('WIRE_NETWORK_READBACK_NOT_PROVEN',{
         automaticRetryAllowed:false,
       });
+    try{await ensureIndexes(ctx,frame,sha256,true);}
+    catch(error){fail('WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN',{
+      originalCode:error?.code??null,originalWriteMayHaveCommitted:true,
+      exactFrameReadbackVerified:true,automaticRetryAllowed:false});}
     return frozen({
       schema:'IWXA_T4_CANDIDATE_FRAME_PUBLISHED_V1',
       key,sha256,messageType:frame.messageType,
@@ -138,8 +168,8 @@ export function createT4CandidateFrameTransport({
       originalBusinessApplied:false,
     });
   }
-  async function inspectUnknownPublication({key,expectedSha256}={}){
-    if(!SHA(expectedSha256)||key!==expectedSha256+'.t4n')
+  async function inspectUnknownPublication({key,expectedSha256,repairMissingFrameIndex=false}={}){
+    if(typeof repairMissingFrameIndex!=='boolean'||!SHA(expectedSha256)||key!==expectedSha256+'.t4n')
       fail('WIRE_NETWORK_DIGEST_KEY_REQUIRED');
     const ctx=await hostSnapshot();
     const inspection=await wireTransport.inspectOutcome({key,expectedSha256});
@@ -154,6 +184,7 @@ export function createT4CandidateFrameTransport({
     if(inspection?.state!=='EXPECTED_BYTES_PRESENT'||
       inspection.sha256!==expectedSha256)
       fail('WIRE_NETWORK_READBACK_NOT_PROVEN');
+    await ensureIndexes(ctx,frame,expectedSha256,repairMissingFrameIndex);
     return frozen({
       schema:'IWXA_T4_CANDIDATE_FRAME_PRESENT_V1',
       key,sha256:expectedSha256,exactBytesPresent:true,
@@ -356,10 +387,50 @@ export function createT4CandidateFrameTransport({
     }while(continuation!==null);
     return finish(receipts.length?'FOUND':'NOT_FOUND');
   }
+  async function indexedRead({selector,requiredCryptoSuite,supportedCriticalExtensions=[],head=false},ctx){
+    if(!selector||!ID(selector.sourceNodeRef)||selector.sourceNodeRef===originalHostNodeRef||
+      !Number.isSafeInteger(selector.ownerEpoch)||selector.ownerEpoch<1||!ID(requiredCryptoSuite)||
+      !Array.isArray(supportedCriticalExtensions)||supportedCriticalExtensions.length>16||
+      !supportedCriticalExtensions.every(ID)||new Set(supportedCriticalExtensions).size!==supportedCriticalExtensions.length)
+      fail('WIRE_DISCOVERY_SELECTOR_INVALID');
+    const peer={...selector,recipientNodeRef:originalHostNodeRef,scopeRef:originalHostScopeRef};
+    const key=head?t4NativeSourceHeadIndexKey(peer):t4NativeSessionFrameIndexKey(peer);
+    await hostGuard('index-discover',ctx,null,null,selector);
+    const pointer=await wireTransport.getNativeFrameIndex({key});
+    await hostGuard('index-discover-readback',ctx,null,null,selector);
+    if(pointer===null)return null;
+    const sha256=checkIndexRead(pointer,key),frameKey=sha256+'.t4n';
+    const downloaded=await wireTransport.getSnapshot({key:frameKey,expectedSha256:sha256});
+    mode();
+    if(!(downloaded?.bytes instanceof Uint8Array)||hash(downloaded.bytes)!==sha256)
+      fail('WIRE_NATIVE_INDEX_TARGET_MISMATCH');
+    const bytes=new Uint8Array(downloaded.bytes),frame=decodeT4CandidateFrame(bytes);
+    if(frame.sourceNodeRef!==selector.sourceNodeRef||frame.recipientNodeRef!==originalHostNodeRef||
+      frame.scopeRef!==originalHostScopeRef||frame.ownerEpoch!==selector.ownerEpoch||
+      (head?(frame.messageType!=='HEADS'||frame.sequence!==1||
+        !frame.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)||
+        frame.body.familyRef!==selector.familyRef||frame.body.sourceSession?.predecessorEventCount!==selector.predecessorEventCount):
+        (frame.sessionRef!==selector.sessionRef||frame.sequence!==selector.sequence||frame.messageType!==selector.messageType))||
+      !t4NativeFrameIndexKeys(frame).includes(key))fail('WIRE_NATIVE_INDEX_TARGET_MISMATCH');
+    return verifyDownloaded({ctx,key:frameKey,expectedSha256:sha256,downloaded:{bytes},
+      requiredCryptoSuite,supportedCriticalExtensions});
+  }
+  const indexedResult=(receipts,lookups)=>frozen({state:receipts.length?'FOUND':'NOT_FOUND',
+    receipts:frozen(receipts),pages:0,candidatesExamined:lookups,listingDigest:null,
+    indexedLookup:true,indexIsNotHistoryCompletenessProof:true,
+    originalBusinessApplied:false,sourceCursorAdvanced:false,originalTransportScanOnly:true});
   async function discoverUniqueSignedFrame({selector,requiredCryptoSuite,
     supportedCriticalExtensions=[]}={}){
     if(!ID(selector?.sessionRef)||!Number.isSafeInteger(selector.sequence)||
       selector.sequence<1)fail('WIRE_DISCOVERY_EXACT_SLOT_REQUIRED');
+    if(indexed){
+      if(Object.keys(selector).some(k=>!['sourceNodeRef','ownerEpoch','sessionRef','messageType','sequence'].includes(k))||
+        !['HEADS','DIFF_REQUEST','CHANGE_REF','CHUNK','APPLIED_ACK','HELLO','CAPABILITIES','CHUNK_REQUEST','RECEIVED_ACK','VERIFIED_ACK','RESUME'].includes(selector.messageType))
+        fail('WIRE_DISCOVERY_SELECTOR_INVALID');
+      const receipt=await indexedRead({selector,requiredCryptoSuite,supportedCriticalExtensions},await hostSnapshot());
+      const {receipts,listingDigest,...result}=indexedResult(receipt?[receipt]:[],1);
+      return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1',...result,receipt});
+    }
     const {receipts,listingDigest,...r}=await sweep({selector,requiredCryptoSuite,
       supportedCriticalExtensions},1,'WIRE_DISCOVERY_EXACT_SLOT_NOT_UNIQUE');
     return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1',...r,receipt:receipts[0]??null});
@@ -368,12 +439,37 @@ export function createT4CandidateFrameTransport({
     supportedCriticalExtensions=[]}={}){
     if(!selector||Object.keys(selector).some(k=>!['sourceNodeRef','ownerEpoch','sessionRef'].includes(k))||
       !ID(selector.sessionRef))fail('WIRE_DISCOVERY_SESSION_REQUIRED');
+    if(indexed){
+      const ctx=await hostSnapshot(),receipts=[];let lookups=0;
+      const get=async(messageType,sequence)=>{lookups++;
+        const frame=await indexedRead({selector:{...selector,messageType,sequence},requiredCryptoSuite,supportedCriticalExtensions},ctx);
+        if(frame)receipts.push(frame);return frame;};
+      const head=await get('HEADS',1);
+      if(head&&await get('CHANGE_REF',2)){
+        const first=await get('CHUNK',3);
+        if(first){const count=first.verifiedBody.chunkCount;
+          if(!Number.isSafeInteger(count)||count<1||count>64||first.verifiedBody.chunkIndex!==0)
+            fail('WIRE_NATIVE_INDEX_TARGET_MISMATCH');
+          for(let n=1;n<count;n++)await get('CHUNK',n+3);
+        }
+      }
+      return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_SESSION_CONTENT_V1',...indexedResult(receipts,lookups),
+        createsStore:false,createsScheduler:false});
+    }
     const r=await sweep({selector:{...selector,messageType:'SESSION_CONTENT'},requiredCryptoSuite,
       supportedCriticalExtensions},66,'WIRE_DISCOVERY_SESSION_SLOT_CONFLICT');
     return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_SESSION_CONTENT_V1',...r,
       createsStore:false,createsScheduler:false});
   }
   async function discoverSourceSessionHeads({selector,requiredCryptoSuite}={}){
+    if(indexed){
+      if(!selector||Object.keys(selector).some(k=>!['sourceNodeRef','ownerEpoch','familyRef','predecessorEventCount'].includes(k)))
+        fail('WIRE_DISCOVERY_SOURCE_ANNOUNCEMENT_SELECTOR_INVALID');
+      const found=await indexedRead({selector:{...selector,messageType:'HEADS'},requiredCryptoSuite,head:true,
+        supportedCriticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]},await hostSnapshot());
+      return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_SOURCE_HEADS_V1',...indexedResult(found?[found]:[],1),
+        createsStore:false,createsScheduler:false});
+    }
     if(!selector||Object.keys(selector).some(k=>!['sourceNodeRef','ownerEpoch'].includes(k)))
       fail('WIRE_DISCOVERY_SOURCE_ANNOUNCEMENT_SELECTOR_INVALID');
     const r=await sweep({selector:{...selector,messageType:'HEADS',sequence:1},requiredCryptoSuite,
@@ -383,12 +479,12 @@ export function createT4CandidateFrameTransport({
       createsStore:false,createsScheduler:false});
   }
   return frozen({
-    schema:'IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1',
+    schema:'IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1',nativeFrameIndexVersion:indexed?1:0,
     publishSignedFrame,inspectUnknownPublication,
     readAndVerifySignedFrame,discoverAndVerifySignedFrames,discoverUniqueSignedFrame,discoverSessionContent,
     discoverSourceSessionHeads,
     forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
-      wireTransport:scopeOriginalHostPort(wireTransport,isHostActive,['wireKind'],
+      wireTransport:scopeOriginalHostPort(wireTransport,isHostActive,['wireKind','nativeFrameIndexVersion'],
         'WIRE_ORIGINAL_TRANSPORT_LIFETIME_REQUIRED'),
       getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalHostWire,

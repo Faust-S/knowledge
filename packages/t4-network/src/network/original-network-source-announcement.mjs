@@ -39,7 +39,8 @@ export async function discoverT4OriginalSourceSessionAnnouncement({
   };
   await guard();
   const found=await frameDiscoveryPort.discoverSourceSessionHeads({
-    selector:{sourceNodeRef:scope.sourceNodeRef,ownerEpoch:scope.ownerEpoch},requiredCryptoSuite});
+    selector:{sourceNodeRef:scope.sourceNodeRef,ownerEpoch:scope.ownerEpoch,
+      ...(frameDiscoveryPort.nativeFrameIndexVersion===1?{familyRef,predecessorEventCount:before.seenEventCount}:{})},requiredCryptoSuite});
   await guard();
   if(found?.schema!=='IWXA_T4_FRAME_DISCOVERY_SOURCE_HEADS_V1'||
     !['FOUND','NOT_FOUND','RESTART_SCAN'].includes(found.state)||found.originalTransportScanOnly!==true||
