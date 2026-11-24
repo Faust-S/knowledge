@@ -5,6 +5,8 @@ import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFra
   from '../src/network/standard-network-wire-candidate.mjs';
 import {prepareT4CandidateOpaqueChunks}
   from '../src/network/standard-network-opaque-chunks.mjs';
+import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
+import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
 import {createT4CandidateFrameTransport}
   from '../src/network/standard-network-wire-transport.mjs';
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
@@ -43,9 +45,9 @@ function task(){
   };
 }
 const headsSlots=[{sequence:1,messageType:'HEADS'}];
-function fixture(){
-  const data=task(),session=deriveT4OriginalNativeCaptureSession(data);
-  const objects=new Map(),events=[],remote=new Map();
+function fixture(data=task()){
+  const session=deriveT4OriginalNativeCaptureSession(data);
+  const objects=new Map(),events=[],remote=new Map(),replay=new Map();
   let putCalls=0,networkCalls=0,signCalls=0,reads=0,
     loseAction=null,loseNetwork=null,host='host:initial',network=true,allow=true,retryAllowed=true,
     afterNetworkPut=()=>{};
@@ -99,6 +101,13 @@ function fixture(){
       }
       return {key,sha256:expectedSha256,state:already?'ALREADY_PRESENT_VERIFIED':'PUBLISHED_AND_READ_BACK'};
     },
+    async listNativeFrameAddresses(){
+      const addresses=[...remote.keys()].sort().map(key=>({key,sha256:key.slice(0,-4)}));
+      return {schema:'IWXA_T4_NATIVE_FRAME_ADDRESS_LIST_V1',addresses,
+        listingDigest:hash('IWXA-T4-FRAME-ADDRESS-LIST-V1\0'+JSON.stringify(addresses.map(a=>a.key))),
+        collectionEnumerated:true,addressMetadataIsNotSignatureOrAuthority:true,
+        originalBusinessApplied:false};
+    },
     async getSnapshot({key,expectedSha256}){
       if(!remote.has(key))throw Object.assign(Error('missing'),{code:'REMOTE_NOT_FOUND'});
       const bytes=remote.get(key);
@@ -116,8 +125,16 @@ function fixture(){
     wireTransport:transport,originalHostNodeRef:node,originalHostScopeRef:scope,
     getMode:mode,readOriginalHostContext:async()=>({
       nodeRef:node,scopeRef:scope,originalOwnerRef:owner,hostSessionRef:host,
-    }),authorizeOriginalHostWire:auth,verifyOriginalNodeSignature:async()=>false,
-    authorizeOriginalNetwork:async()=>false,persistOriginalReplayDecision:async()=> 'DENIED',
+    }),authorizeOriginalHostWire:auth,verifyOriginalNodeSignature:async p=>
+      p.signerRef===(p.sourceNodeRef===source?'key:source':'key:recipient')&&
+      verify(null,Buffer.from(p.bytes),p.sourceNodeRef===source?keys.publicKey:peerKeys.publicKey,
+        Buffer.from(p.signature)),
+    authorizeOriginalNetwork:auth,persistOriginalReplayDecision:async p=>{
+      const key=[node,p.sourceNodeRef,p.sessionRef,p.ownerEpoch,p.sequence].join(':');
+      const old=replay.get(key);
+      if(old!==undefined)return old===p.frameDigest?'SEEN_EXACT':'CONFLICT';
+      replay.set(key,p.frameDigest);return 'RECORDED';
+    },
   });
   function port(node=source){
     return createT4OriginalNetworkPublicationPort({
@@ -183,6 +200,7 @@ function fixture(){
     },...overrides,
   });
   return {data,session,objects,events,remote,port,heads,stageHeads,changeBatch,signed,binding,
+    kernel,mode,auth,makeTransport,replay,host:()=>host,
     counts:()=>({putCalls,networkCalls,signCalls,reads}),
     loseCAS:action=>{loseAction=action;},loseNetwork:where=>{loseNetwork=where;},
     restart:()=>{host='host:cold:'+putCalls;},local:()=>{network=false;},
@@ -394,4 +412,123 @@ test('outbound proof is re-read from original publication and network without fa
   assert.equal(f.counts().signCalls,before.signCalls);
   f.remote.delete(p.key);
   await assert.rejects(f.port().readOriginalPublishedFrame({sequence:1}),err('REMOTE_NOT_FOUND'));
+});
+
+async function sourceStepFixture(){
+  const originalEvents=[1,2].map((revision,i)=>({
+    event_id:i?eventId:'event:original:one',workspace_id:ws,service_id:'iwxa.test',
+    object_id:'object:one',revision,event_type:'subject.changed',
+    occurred_at:'2026-11-23T19:00:0'+revision+'.000Z',payload:{revision},
+  }));
+  const read=cursor=>readT4OriginalEventWindow({
+    workspaceId:ws,originalWriteOwnerRef:owner,cursor,maxEvents:1,
+    authorizeOriginalRead:async()=>true,readOriginalEvents:async()=>structuredClone(originalEvents),
+  });
+  const prior=await read(null),next=await read(prior.nextCursor);
+  const data=task(),w=next.window;
+  data.sourceCursorBefore=prior.nextCursor;data.sourceCursorAfter=next.nextCursor;
+  data.capture.sourceWindow=w;data.capture.captureRef='capture:original:two';
+  data.capture.prepared.delta.sourceEventDigest=w.eventRefs[0].eventDigest;
+  data.capture.prepared.delta.windowDigest=w.windowDigest;
+  const f=fixture(data),session=f.session;
+  let sealCalls=0,sourceSignCalls=0,subjectProof=true;
+  const phase=()=>createT4OriginalNetworkSessionPhasePort({
+    originalKernel:f.kernel,technicalWorkspaceId:technical,originalWriteOwnerRef:owner,
+    sourceNodeRef:source,recipientNodeRef:recipient,localNodeRef:source,scopeRef:scope,
+    sessionRef:session.sessionRef,changeId:session.changeId,ownerEpoch:session.ownerEpoch,
+    getMode:f.mode,readOriginalHostContext:async()=>({workspaceId:technical,
+      originalWriteOwnerRef:owner,nodeRef:source,scopeRef:scope,hostSessionRef:f.host()}),
+    authorizeOriginalTechnicalRead:f.auth,authorizeOriginalTechnicalWrite:f.auth,
+    verifyOriginalPhaseEvidence:async p=>{
+      if(p.phase==='INTENT')return p.evidence.evidenceRef===session.sourceEventId&&
+        p.evidence.evidenceDigest===session.capturedWindowDigest;
+      if(p.phase==='PUBLISHED'){
+        const local=await f.port().readOriginalPublishedFrame({sequence:2});
+        return p.evidence.evidenceRef===local.key&&p.evidence.evidenceDigest==='sha256:'+local.sha256;
+      }
+      return false;
+    },verifyOriginalRecipientApplied:async()=>false,
+  });
+  const options={
+    createOriginalSourcePhasePort:async()=>phase(),
+    frameDiscoveryPort:f.makeTransport(source),requiredCryptoSuite:suite,
+    resolveOriginalSigningContext:async()=>({permissionRef:'permission:original',signerRef:'key:source'}),
+    signOriginalNodeBytes:async({bytes})=>{sourceSignCalls++;return sign(null,Buffer.from(bytes),keys.privateKey);},
+    authorizeOriginalSealedContent:f.auth,
+    readOriginalSealedContent:async p=>{
+      assert.equal(p.exactCapturedCanonicalBytesRequired,true);
+      assert.equal(p.originalCapture.prepared.sha256,session.capturedSha256);
+      sealCalls++;
+      return {ciphertext:Buffer.from('opaque test sealed content'),encryptionContextRef:'sealed:original:epoch:2'};
+    },
+    authorizeOriginalRead:f.auth,readOriginalEvents:async()=>structuredClone(originalEvents),
+    verifyOriginalSourceSubject:async p=>subjectProof&&p.originalSourceEventId===eventId&&
+      p.originalEventDigest===session.sourceEventDigest&&p.originalEventWindowDigest===session.capturedWindowDigest,
+  };
+  const step=(overrides={})=>f.binding().runNativeSourceStep({...options,...overrides});
+  const diff=async(fromHeads=[session.sourcePrefixDigestBefore])=>{
+    const bytes=await f.signed('DIFF_REQUEST',1,{familyRef:session.familyRef,fromHeads},recipient);
+    await f.makeTransport(recipient).publishSignedFrame({wireBytes:bytes});
+  };
+  return {...f,phase,options,step,diff,originalEvents,
+    sourceCounts:()=>({sealCalls,sourceSignCalls}),denySubject:()=>{subjectProof=false;}};
+}
+test('one original Host source callback resumes durable INTENT, HEADS, DIFF, content and PUBLISHED without caller addresses or slots',async()=>{
+  const f=await sourceStepFixture();
+  assert.equal((await f.step()).state,'INTENT_RECORDED');
+  assert.equal((await f.phase().inspectOriginalSession()).revision,1);
+  assert.deepEqual(f.sourceCounts(),{sealCalls:0,sourceSignCalls:0});
+  f.restart();
+  assert.equal((await f.step()).state,'HEADS_PRESENT');
+  assert.equal((await f.step()).state,'WAITING_FOR_DIFF');
+  assert.deepEqual(f.sourceCounts(),{sealCalls:0,sourceSignCalls:1});
+  await f.diff();
+  assert.equal((await f.step()).state,'CONTENT_PRESENT');
+  assert.equal((await f.port().inspectOriginalPublication()).frames.length,3);
+  assert.deepEqual(f.sourceCounts(),{sealCalls:1,sourceSignCalls:3});
+  f.restart();
+  const published=await f.step();
+  assert.equal(published.state,'PUBLISHED_RECORDED');
+  assert.equal(published.sourceFramesRemoteReceiptProven,false);
+  assert.equal((await f.phase().inspectOriginalSession()).revision,2);
+  const counts=f.counts();
+  assert.equal((await f.step()).state,'WAITING_FOR_ACK');
+  assert.equal(f.counts().putCalls,counts.putCalls);
+  assert.equal(f.counts().networkCalls,counts.networkCalls);
+  assert.deepEqual(f.sourceCounts(),{sealCalls:1,sourceSignCalls:3});
+  assert.equal(f.replay.size,1);
+});
+test('lost source batch response and cold task recover exact content with no second seal or signature',async()=>{
+  const f=await sourceStepFixture();await f.step();await f.step();await f.diff();
+  f.loseCAS('PREPARE');
+  await assert.rejects(f.step(),err('PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN'));
+  const saved=await f.port().inspectOriginalPublication();
+  assert.deepEqual(saved.frames.map(x=>x.state),['PRESENT','PREPARED','PREPARED']);
+  f.restart();
+  const resumed=await f.step();
+  assert.equal(resumed.state,'CONTENT_PRESENT');assert.equal(resumed.originalSignedBatchReused,true);
+  assert.deepEqual((await f.port().inspectOriginalPublication()).frames.map(x=>x.wireBytes),
+    saved.frames.map(x=>x.wireBytes));
+  assert.deepEqual(f.sourceCounts(),{sealCalls:1,sourceSignCalls:3});
+  assert.equal((await f.step()).state,'PUBLISHED_RECORDED');
+});
+test('wrong signed DIFF cannot initiate sealing or publication',async()=>{
+  const f=await sourceStepFixture();await f.step();await f.step();await f.diff([H('wrong')]);
+  await assert.rejects(f.step(),err('HOST_TASK_NATIVE_SOURCE_DIFF_FRONTIER_MISMATCH'));
+  assert.deepEqual(f.sourceCounts(),{sealCalls:0,sourceSignCalls:1});
+});
+test('original source subject proof is still required after all transport frames are present',async()=>{
+  const f=await sourceStepFixture();await f.step();await f.step();await f.diff();await f.step();
+  f.denySubject();
+  await assert.rejects(f.step(),err('HEAD_ORIGINAL_T3_SUBJECT_NOT_PROVEN'));
+  assert.equal((await f.phase().inspectOriginalSession()).currentPhase,'INTENT');
+});
+test('source continuation stops for local T3 and shares original Host mutual exclusion',async()=>{
+  const f=await sourceStepFixture();const b=f.binding();
+  const p=b.runNativeSourceStep(f.options);
+  await assert.rejects(b.runNativePublication({slots:headsSlots}),err('HOST_TASK_OTHER_PROTOCOL_ACTIVE'));
+  assert.equal((await p).state,'INTENT_RECORDED');
+  f.local();const before=f.counts();
+  assert.equal((await f.step()).state,'LOCAL_T3');
+  assert.deepEqual(f.counts(),before);
 });

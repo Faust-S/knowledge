@@ -389,7 +389,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       await verify(initial);
     };
     const live=fn=>async proof=>{
-      await refresh();const value=await fn(proof);await refresh();return value;
+      await verify(initial);const value=await fn(proof);await verify(initial);return value;
     };
     const request=Object.freeze({session,task,originalHostSessionRef:initial.hostSessionRef});
     const rawPhase=await createOriginalSourcePhasePort(request);
