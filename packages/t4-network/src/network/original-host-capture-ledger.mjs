@@ -155,24 +155,37 @@ export function createT4OriginalHostCaptureLedgerPort({
   // An Event whose immutable record is omitted from listObjects is not an
   // empty queue. A catalog row without its original Event is not evidence.
   // The index is ephemeral, reconstructed from the original T3 on every read.
-  async function index(initial,role){
-    await guard(initial,'t1.listObjects',role);
+  async function indexes(initial,roles){
+    // Intent and Outbox belong to the same original technical Workspace.
+    // Check both role grants around the same original reads instead of
+    // fetching an entire catalog and Event stream independently per role.
+    for(const role of roles)await guard(initial,'t1.listObjects',role);
     const catalog=await originalKernel.listObjects({workspace_id:technicalWorkspaceId,include_deleted:true});
-    await guard(initial,'t1.listObjects',role);
+    for(const role of roles)await guard(initial,'t1.listObjects',role);
     if(!Array.isArray(catalog)||catalog.length>100000)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
-    const rolePrefix=prefix+role+':',rows=new Map(),witnesses=new Map(),eventIds=new Set();
+    const partitions=new Map(roles.map(role=>[role,{rows:new Map(),witnesses:new Map()}]));
+    const roleOf=objectId=>{
+      if(typeof objectId!=='string'||!objectId.startsWith(prefix))return null;
+      const role=objectId.slice(prefix.length).split(':',1)[0];
+      return partitions.has(role)&&objectId.startsWith(prefix+role+':')?role:null;
+    };
     for(const o of catalog){
-      if(typeof o?.object_id!=='string'||!o.object_id.startsWith(rolePrefix))continue;
+      const role=roleOf(o?.object_id);if(role===null)continue;
+      const {rows}=partitions.get(role);
       if(o.workspace_id!==technicalWorkspaceId||o.schema_id!==T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID||
         o.schema_version!=='1.0.0'||o.revision!==1||o.deleted===true||
         rows.size>=4096||rows.has(o.object_id))
         fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
       rows.set(o.object_id,o);
     }
-    const all=await events(initial,role);
+    for(const role of roles)await guard(initial,'t1.listEventsSince',role);
+    const all=await originalKernel.listEventsSince(technicalWorkspaceId);
+    for(const role of roles)await guard(initial,'t1.listEventsSince',role);
+    if(!Array.isArray(all)||all.length>100000)fail('CAPTURE_LEDGER_ORIGINAL_EVENTS_INVALID');
+    const eventIds=new Set();
     for(const e of all){
-      if(typeof e?.object_id!=='string'||!e.object_id.startsWith(rolePrefix))continue;
-      const p=e.payload;
+      const role=roleOf(e?.object_id);if(role===null)continue;
+      const {rows,witnesses}=partitions.get(role),p=e.payload;
       if(e.workspace_id!==technicalWorkspaceId||e.revision!==1||e.event_type!==EVENT||
         !ID(e.event_id)||eventIds.has(e.event_id)||witnesses.has(e.object_id)||
         !ID(p?.captureRef)||ref(role,p.captureRef)!==e.object_id||p.role!==role||
@@ -184,10 +197,15 @@ export function createT4OriginalHostCaptureLedgerPort({
         fail('CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING',{recordRole:role,captureRef:p.captureRef});
       eventIds.add(e.event_id);witnesses.set(e.object_id,e);
     }
-    if(witnesses.size!==rows.size)fail('CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN');
-    const byCapture=new Map([...witnesses.values()].map(e=>[e.payload.captureRef,e]));
-    return {all,byCapture,fingerprint:canonical([...witnesses.values()].sort((a,b)=>a.object_id.localeCompare(b.object_id)))};
+    const result=new Map();
+    for(const [role,{rows,witnesses}] of partitions){
+      if(witnesses.size!==rows.size)fail('CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN');
+      const byCapture=new Map([...witnesses.values()].map(e=>[e.payload.captureRef,e]));
+      result.set(role,{byCapture,fingerprint:canonical([...witnesses.values()].sort((a,b)=>a.object_id.localeCompare(b.object_id)))});
+    }
+    return result;
   }
+  const index=async(initial,role)=>(await indexes(initial,[role])).get(role);
   function checkFilters(query){
     checkScope(query,false);
     if(query.kindFilter!==undefined&&(!Array.isArray(query.kindFilter)||
@@ -218,8 +236,8 @@ export function createT4OriginalHostCaptureLedgerPort({
   // recovery authorization, or parallel persisted work queue is created.
   async function readInventory(query,includePairs){
     checkScope(query,false);
-    const initial=await context(),intents=await index(initial,'intent'),
-      outboxes=await index(initial,'outbox'),pending=[],pairs=[];
+    const initial=await context(),snapshot=await indexes(initial,['intent','outbox']),
+      intents=snapshot.get('intent'),outboxes=snapshot.get('outbox'),pending=[],pairs=[];
     for(const [captureRef,e] of outboxes.byCapture){
       const intent=intents.byCapture.get(captureRef);
       if(!intent||intent.payload.kind!==e.payload.kind)
@@ -244,7 +262,8 @@ export function createT4OriginalHostCaptureLedgerPort({
     // There is no atomic catalog+Event snapshot on this T3 port. Refuse a
     // changed capture index rather than report a misleading absence. The
     // original Host still owns exclusion for any subsequent mutation.
-    const nextIntents=await index(initial,'intent'),nextOutboxes=await index(initial,'outbox');
+    const next=await indexes(initial,['intent','outbox']),
+      nextIntents=next.get('intent'),nextOutboxes=next.get('outbox');
     if(intents.fingerprint!==nextIntents.fingerprint||outboxes.fingerprint!==nextOutboxes.fingerprint)
       fail('CAPTURE_LEDGER_ORIGINAL_INDEX_CHANGED',{automaticRetryAllowed:false});
     if(!includePairs)return Object.freeze(pending);

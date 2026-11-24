@@ -109,7 +109,7 @@ test('K15 changed original capture inventory cannot report a stable pending resu
   const f=fixture(),p=f.port();await p.persistOriginalIntent(intent);
   const original=f.params.originalKernel.listObjects;let reads=0;
   f.params.originalKernel.listObjects=async(...args)=>{
-    if(++reads===3)await p.persistOriginalOutbox(outbox);
+    if(++reads===2)await p.persistOriginalOutbox(outbox);
     return original(...args);
   };
   await assert.rejects(p.listOriginalPendingIntents(scope),{code:'CAPTURE_LEDGER_ORIGINAL_INDEX_CHANGED'});
@@ -131,11 +131,44 @@ test('K22 combined verified capture inventory reads each original record only on
   kernel.listEventsSince=async(...args)=>{events++;return oldEvents(...args);};
   const inventory=await p.readOriginalCaptureInventory(scope);
   assert.equal(inventory.pairs.length,12);assert.equal(inventory.pending.length,0);
-  assert.equal(reads,48);assert.equal(events,4);assert.equal(catalogs,4);
+  assert.equal(reads,48);assert.equal(events,2);assert.equal(catalogs,2);
   assert.equal(inventory.originalRecordsAndEventsVerified,true);
   assert.equal(inventory.originalAuthorityGranted,false);assert.equal(f.writes,24);
   inventory.pairs[0].outbox.sourceEventId='event:tampered';
   const next=await p.readOriginalCaptureInventory(scope);
   assert.equal(next.inventoryDigest,inventory.inventoryDigest);
   assert.notEqual(next.pairs[0].outbox.sourceEventId,'event:tampered');
+});
+
+test('K27 one shared original inventory read still requires both exact role grants before and after every full read',async()=>{
+  const f=fixture(),p=f.port();await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  const calls=[],kernel=f.params.originalKernel,oldCatalog=kernel.listObjects,oldEvents=kernel.listEventsSince;
+  let deny=null,revoked=false;
+  f.params.authorizeOriginalTechnicalRead=proof=>{
+    calls.push([proof.operation,proof.recordRole,proof.captureRef]);
+    return !(proof.operation==='t1.listEventsSince'&&proof.recordRole===deny)||
+      (!revoked&&deny==='outbox');
+  };
+  kernel.listObjects=async(...args)=>{calls.push(['CATALOG']);return oldCatalog(...args);};
+  kernel.listEventsSince=async(...args)=>{calls.push(['EVENTS']);return oldEvents(...args);};
+  const exact=await f.port().readOriginalCaptureInventory(scope);
+  assert.equal(exact.pairs.length,1);
+  assert.deepEqual(calls.slice(0,10),[
+    ['t1.listObjects','intent',null],['t1.listObjects','outbox',null],['CATALOG'],
+    ['t1.listObjects','intent',null],['t1.listObjects','outbox',null],
+    ['t1.listEventsSince','intent',null],['t1.listEventsSince','outbox',null],['EVENTS'],
+    ['t1.listEventsSince','intent',null],['t1.listEventsSince','outbox',null]]);
+  calls.length=0;deny='intent';
+  await assert.rejects(f.port().readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_ORIGINAL_AUTHORITY_DENIED'});
+  assert.ok(!calls.some(c=>c[0]==='EVENTS'));
+  calls.length=0;deny='outbox';
+  kernel.listEventsSince=async(...args)=>{const result=await oldEvents(...args);revoked=true;return result;};
+  await assert.rejects(f.port().readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_ORIGINAL_AUTHORITY_DENIED'});
+  assert.equal(f.writes,2);
+});
+test('K27 duplicate original Event identity across paired roles cannot certify a capture inventory',async()=>{
+  const f=fixture(),p=f.port();await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  f.events[1].event_id=f.events[0].event_id;
+  await assert.rejects(f.port().readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN'});
+  assert.equal(f.writes,2);
 });
