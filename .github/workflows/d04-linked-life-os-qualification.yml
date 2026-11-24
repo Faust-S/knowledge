@@ -1,4 +1,4 @@
-name: D04 linked Life OS native qualification (private source)
+name: D04 remaining service goal-link native qualification (private source)
 on:
   push:
     branches:
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: f12016ec4ac5ec3385cb8db044f36239d68ddc9d
+          ref: 6cd22fa240e14e0667a78bb6431e8e8649fc3a16
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,9 +51,9 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = f12016ec4ac5ec3385cb8db044f36239d68ddc9d
+          test "$(git -C d04-private/site rev-parse HEAD)" = 6cd22fa240e14e0667a78bb6431e8e8649fc3a16
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 9b98d15c4edaad71816658c61d12e8bd1ebf9a0b
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 80f0e0cdca751ffbcf0eb61a5f12c32ea5e4aeb7
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
         with:
@@ -163,13 +163,8 @@ jobs:
       - name: Check native witness source syntax
         working-directory: d04-private/site
         run: |
-          node --check qualification/life-os-goal-observation-refs.browser.mjs
-          node --check qualification/life-os-custom-measure.browser.mjs
-          node --check qualification/life-os-observation-exchange.browser.mjs
-          node --check qualification/life-os-home-dashboard.browser.mjs
-          node --check qualification/life-os-unified-exchange.browser.mjs
-          node --check qualification/life-os-entry-responsive.browser.mjs
-          echo "D04_HOME_NATIVE_WITNESS_SYNTAX=PASS"
+          node --check qualification/life-os-goal-service-refs.browser.mjs
+          echo "D04_SERVICE_NATIVE_WITNESS_SYNTAX=PASS"
       - name: Test actual desktop/mobile T2 Host site entry
         working-directory: d04-private/site
         run: |
@@ -185,39 +180,19 @@ jobs:
           const {chromium}=createRequire(join(canonical,'package.json'))('playwright');
           const {serveRealKernelHost}=await import(pathToFileURL(join(canonical,'scripts/real-kernel-e2e.mjs')).href);
           const {selectWitnessOption}=await import(pathToFileURL(join(canonical,'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
-          const {runLifeOsEntryResponsiveBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-entry-responsive.browser.mjs')).href);
-          const {runLifeOsHomeDashboardBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-home-dashboard.browser.mjs')).href);
-          const {runLifeOsCustomMeasureBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-custom-measure.browser.mjs')).href);
-          const {runLifeOsGoalObservationRefsBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-goal-observation-refs.browser.mjs')).href);
-          console.log('D04_HOME_BROWSER_STAGE=SERVER_BOOT');
+          const {runLifeOsGoalServiceRefsBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-goal-service-refs.browser.mjs')).href);
+          console.log('D04_SERVICE_BROWSER_STAGE=SERVER_BOOT');
           const server=await serveRealKernelHost(join(site,'dist'),{independentWitness:true,previewOrigin:true});
           try{
-            console.log('D04_HOME_BROWSER_STAGE=CUSTOM_MEASURES_AND_PERIODS');
-            const custom=await runLifeOsCustomMeasureBrowser({chromium,origin:server.origin,selectWitnessOption});
-            if(custom.status!=='PASS'||custom.viewports.length!==2||custom.viewports.some(v=>v.objects!==4||v.resultEvents!==5||v.definition!==true||v.diary!==true||v.period!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_HOME_CUSTOM_RESULT_INCOMPLETE');
-            console.log('D04_HOME_CUSTOM_MEASURES=PASS');
-            console.log('D04_HOME_CUSTOM_PERIODS=PASS');
-            console.log('D04_HOME_CUSTOM_COLD_EXCHANGE=PASS');
-            console.log('D04_HOME_BROWSER_STAGE=GOAL_OBSERVATION_REFS');
-            const linked=await runLifeOsGoalObservationRefsBrowser({chromium,origin:server.origin,selectWitnessOption});
-            if(linked.status!=='PASS'||linked.viewports.length!==2||linked.viewports.some(v=>v.objects!==2||v.resultEvents!==4||v.stalePreserved!==true||v.reselected!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_HOME_GOAL_REFS_RESULT_INCOMPLETE');
-            console.log('D04_HOME_GOAL_REFS=PASS');
-            console.log('D04_HOME_BROWSER_STAGE=PUBLIC_TO_NATIVE_CREATION');
-            const personal=await runLifeOsHomeDashboardBrowser({chromium,origin:server.origin,selectWitnessOption});
-            if(personal.status!=='PASS'||personal.viewports.length!==2||personal.viewports.some(v=>v.measures!==56||v.recordable!==45||v.captureTypes!==44||v.pressurePair!==true||v.methodBatch!==true||v.personalGoal!==true||v.sleepSchedule!==true||v.mobilityMethods!==true||v.medicalRecords!==5||v.medicalCold!==true||v.medicalDay!==4||v.medicalDirectEntry!==true||v.medicalSourceReuse!==true||v.actionBoard!==true||v.unifiedChronology!==true||v.fullCalculationFields!==true||v.recordedResultsDay!==true||v.catalogFilters!==true||v.historyDates!==true||v.monthReview!==true||v.historySearch!==true||(v.width===1440&&(v.exchange?.status!=='PASS'||v.exchange?.objects!==18||v.exchange?.resultEvents<21||v.exchange?.historyPreserved!==true||v.exchange?.coldImported!==true||v.exchange?.sourceUnchanged!==true))||v.newMetricSaved!==true||v.eventsSaved!==2||v.eventsCold!==true||v.diarySaved!==4||v.diaryCold!==true||v.wholeDayRecords!==6||v.historicalDay!==true||v.calculationTools!==13||v.calculationSaved!==true||v.calculationCold!==true))throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
-            console.log('D04_HOME_CREATE_AND_COLD=PASS');
-            console.log('D04_HOME_DIARY_EVENTS_AND_CALCULATIONS=PASS');
-            for(const item of personal.viewports){
-              if(![item.emptyOpenMs,item.createReadyMs,item.coldRestoreMs].every(n=>Number.isSafeInteger(n)&&n>=0&&n<120000))throw Error('D04_HOME_LATENCY_INVALID');
-              console.log('D04_HOME_PERF_W'+item.width+'_EMPTY_MS='+item.emptyOpenMs);
-              console.log('D04_HOME_PERF_W'+item.width+'_CREATE_MS='+item.createReadyMs);
-              console.log('D04_HOME_PERF_W'+item.width+'_COLD_MS='+item.coldRestoreMs);
-            }
-            console.log('D04_HOME_BROWSER_STAGE=PUBLIC_ENTRY');
-            const result=await runLifeOsEntryResponsiveBrowser({chromium,origin:server.origin});
-            if(result.status!=='PASS'||result.viewports.length!==4)throw Error('D04_HOME_BROWSER_RESULT_INCOMPLETE');
-            console.log('D04_HOME_VIEWPORTS='+result.viewports.length);
-            console.log('D04_HOME_INTERACTIVE_ENTRY=PASS');
+            const result=await runLifeOsGoalServiceRefsBrowser({chromium,origin:server.origin,selectWitnessOption});
+            if(result.status!=='PASS'||result.viewports.length!==2||result.viewports.some(v=>v.objects!==5||v.resultEvents!==6||v.configuration!==true||v.protocol!==true||v.recovery!==true||v.reverse!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_GOAL_SERVICE_WITNESS_RESULT_INCOMPLETE');
+            console.log('D04_SERVICE_GOAL_CONFIGURATION=PASS');
+            console.log('D04_SERVICE_GOAL_PROTOCOL=PASS');
+            console.log('D04_SERVICE_GOAL_RECOVERY=PASS');
+            console.log('D04_SERVICE_GOAL_REVERSE=PASS');
+            console.log('D04_SERVICE_COLD_EXCHANGE=PASS');
+            console.log('D04_SERVICE_EXCHANGE_OBJECTS=5');
+            console.log('D04_SERVICE_EXCHANGE_RESULT_EVENTS=6');
           }finally{
             await new Promise(done=>server.server.close(done));
           }
@@ -225,28 +200,11 @@ jobs:
           code=$?
           set -e
           if [ "$code" -ne 0 ]; then
-            echo "D04_HOME_REAL_BROWSER=FAIL"
-            grep -E '^D04_HOME_(BROWSER_STAGE|VIEWPORT_W[0-9]+_FULL_JOURNEY)' "$RUNNER_TEMP/d04-home-browser.log" | tail -6 || true
-            grep -Eo 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -12 || true
-            if ! grep -Eq 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log"; then
-              if grep -q 'TimeoutError' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=TIMEOUT"
-              elif grep -q 'ERR_MODULE_NOT_FOUND' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=MODULE_NOT_FOUND"
-              elif grep -q 'EADDRINUSE' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=PORT_CONFLICT"
-              elif grep -q 'Error: ' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=UNCLASSIFIED_THROW"
-              else
-                echo "D04_HOME_BROWSER_ERROR_CLASS=EARLY_PROCESS_EXIT"
-              fi
-            fi
+            echo "D04_SERVICE_REAL_BROWSER=FAIL"
+            grep -E '^D04_(SERVICE_BROWSER_STAGE|GOAL_SERVICE_WITNESS_STAGE_|GOAL_SERVICE_WITNESS_ERROR_CLASS_|GOAL_SERVICE_WITNESS_SAFE_CAUSE_)' "$RUNNER_TEMP/d04-home-browser.log" | tail -10 || true
+            grep -Eo 'D04_GOAL_SERVICE_WITNESS_[A-Z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -12 || true
             exit "$code"
           fi
-          grep '^D04_HOME_' "$RUNNER_TEMP/d04-home-browser.log" | tail -8
-          grep -E '^D04_HOME_UNIFIED_IWXA_(OBJECTS|RESULT_EVENTS|COLD_RESTORE)=' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_PERF_W[0-9]+_(EMPTY|CREATE|COLD)_MS=[0-9]+' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE)=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_GOAL_REFS=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
-          echo "D04_HOME_REAL_BROWSER=PASS"
+          grep -E '^D04_SERVICE_(GOAL_(CONFIGURATION|PROTOCOL|RECOVERY|REVERSE)|COLD_EXCHANGE)=PASS$|^D04_SERVICE_EXCHANGE_(OBJECTS|RESULT_EVENTS)=[0-9]+$' "$RUNNER_TEMP/d04-home-browser.log"
+          echo "D04_SERVICE_REAL_BROWSER=PASS"
       # No public artifact, private dist, screenshots, code, or private logs are uploaded.
