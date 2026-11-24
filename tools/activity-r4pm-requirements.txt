@@ -1,0 +1,4 @@
+# Official PyPI r4pm 0.7.1 CPython ABI3 wheels, Windows x64 and Linux x64.
+r4pm==0.7.1 \
+    --hash=sha256:da0beffbbbd2fe8d075e0e18ed5ccb480df49a08b502bc003ea5cab499633d4e \
+    --hash=sha256:e6608bfcf53cd266f2a2a8ad5f2a834280a233baa13ea8f0610580536d4123d1
