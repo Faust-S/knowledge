@@ -9,7 +9,9 @@ permissions:
   actions: read
 concurrency:
   group: d07-t3-integration
-  cancel-in-progress: false
+  # One-time replacement of the queued read-only predecessor. Subsequent
+  # workflow changes must not cancel a qualified private publication in progress.
+  cancel-in-progress: ${{ github.event_name == 'push' && github.event.before == 'ec6788c9ea0a3d42a63e8039df03b47ef8ac6704' }}
 jobs:
   private-transport:
     runs-on: ubuntu-latest
