@@ -128,17 +128,9 @@ export function issueCorporateProductLicenseOnce({
       ledger.records[previous.requestId].signedLicense,
       ownerState.productLicenseStatusFloors?.[renewalOf]??null);
     insist(pair?.checked.status!=='REVOKED','CORP_ORIGINAL_RENEWAL_REVOKED_DENIED');
-    // A terminal revoke anywhere in this known lineage cannot be bypassed
-    // by issuing a descendant. An explicit new independent root is distinct.
-    let cursor=previous;
-    while(cursor.renewalOf!==null){
-      cursor=corporate.find(p=>p.id===cursor.renewalOf);
-      insist(cursor,'CORP_ORIGINAL_RENEWAL_PREDECESSOR_REQUIRED');
-      const ancestor=signedStatusPair(ownerState,
-        ledger.records[cursor.requestId].signedLicense,
-        ownerState.productLicenseStatusFloors?.[cursor.id]??null);
-      insist(ancestor?.checked.status!=='REVOKED','CORP_ORIGINAL_RENEWAL_REVOKED_DENIED');
-    }
+    // REVOKED is terminal for the exact predecessor license. A later
+    // revocation of an already replaced ancestor does not silently revoke
+    // a separately signed successor's own license/status.
   }
   const payload=createCorporateLicenseCandidate({request:r,ownerState,
     issuerAuthorityId,licenseId,lineageId,renewalOf,now});
