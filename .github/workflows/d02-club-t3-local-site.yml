@@ -1,0 +1,223 @@
+name: d02-club-t3-local-site
+on:
+  push:
+    branches:
+      - work/2026-11-18-d02-club-qualification
+    paths:
+      - .github/workflows/d02-club-t3-local-site.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+    steps:
+      - name: Preserve original Git LF bytes
+        run: git config --global core.autocrlf false
+      - name: Checkout exact released public T3 technology
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 3056eef0665fb3503294d49b89d937af2ea060e2
+          persist-credentials: false
+          path: one-core
+      - name: Checkout exact private Club candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: 8b5120feeedfcfc9ed8f15f05a02910870c92e28
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Checkout original T2 for one-time migration qualification only
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Download original public release archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/artifacts/14710772859/zip > "$RUNNER_TEMP/t3-platform.zip"
+          echo "6a80def6c3a9581daa24cd6d79ec26c557f70fb37f08a8b96e160ef4783b9fc4  $RUNNER_TEMP/t3-platform.zip" | sha256sum --check --status
+          echo D02_T3_PUBLIC_RELEASE_ARCHIVE=PASS
+      - name: Verify pinned release and explicit assistant boundary
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          export IWXA_T3_PLATFORM_ARCHIVE="$RUNNER_TEMP/t3-platform.zip"
+          node scripts/t3-platform-inputs.mjs verify "$IWXA_T3_PLATFORM_ARCHIVE" > "$RUNNER_TEMP/verify.json" 2> "$RUNNER_TEMP/verify.log"
+          if ! node --test scripts/test-club-t3-platform.mjs > "$RUNNER_TEMP/private-test.log" 2>&1; then
+            echo D02_T3_PLATFORM_TEST=FAIL
+            exit 1
+          fi
+          echo D02_T3_PLATFORM_127_FILES_AND_SOURCE_TESTS=PASS
+      - name: Verify existing profile, route and restoration regressions
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          for suite in test:club-native-edit-route test:club-native-project-restoration test:club-native-restore-preselect test:club-profile-field-consistency test:club-native-profile-family test:club-personal-space-start; do
+            if ! npm run "$suite" > "$RUNNER_TEMP/private-regression.log" 2>&1; then
+              echo "D02_T3_PRESERVATION_SUITE=FAIL $suite"
+              exit 1
+            fi
+            echo "D02_T3_PRESERVATION_SUITE=PASS $suite"
+          done
+      - name: Compile existing Club module into exact released original T3 Host
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npm run t3:host:prepare -- "$GITHUB_WORKSPACE/one-core/packages/t3-core" "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/t3-platform.zip" > "$RUNNER_TEMP/private-build.log" 2>&1; then
+            echo D02_T3_HOST_SOURCE_BUILD=FAIL
+            grep -Eo 'CLUB_T3_(HOST|PLATFORM)_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z_]+|T2_ACTIVE_RUNTIME_CONTRACT_HOLD|TS[0-9]{4}' "$RUNNER_TEMP/private-build.log" | sort -u | head -15 || true
+            # Expose only compile diagnostics coordinates and a fixed category,
+            # not private source, actual values, paths outside the stage or logs.
+            node --input-type=module - "$RUNNER_TEMP/private-build.log" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const lines=readFileSync(process.argv[2],'utf8').split(/\r?\n/);
+          const pattern=/^(src\/modules\/club\/[A-Za-z0-9_./-]+\.(?:ts|tsx|mts))\((\d+),(\d+)\): error (TS\d+):/;
+          const publicPattern=/^(src\/[A-Za-z0-9_./-]+\.(?:ts|tsx|mts))\((\d+),(\d+)\): error (TS\d+):/;
+          const hits=[];
+          for(const line of lines){
+            const m=line.match(pattern)||line.match(publicPattern);
+            if(!m)continue;
+            // Coordinates refer only to files already known to their owner.
+            // No message text or private file contents is emitted.
+            hits.push('D02_T3_DIAGNOSTIC='+m[4]+' '+m[1]+':'+m[2]+':'+m[3]);
+          }
+          for(const row of [...new Set(hits)].slice(0,120))console.log(row);
+          console.log('D02_T3_DIAGNOSTICS_COUNT='+hits.length);
+          NODE
+            exit 1
+          fi
+          node -e 'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(p.schema!=="IWXA_CLUB_COMPILED_HOST_INPUT/1"||p.moduleId!=="iwxa.domain.club"||p.state!=="SOURCE_BUILD_NOT_PRODUCT_ACCEPTED"||p.sourceCommit!=="3056eef0665fb3503294d49b89d937af2ea060e2")process.exit(1);console.log("D02_T3_HOST_SOURCE_BUILD=PASS; files="+p.files.length+"; module_source_files="+p.moduleSourceFiles.length)' "$RUNNER_TEMP/club-t3-host/club-t3-host-input.json"
+          echo D02_T3_DOMAIN_ACCEPTED=false
+      - name: Verify domain-owned migration adapter and build unchanged Club T2 baseline
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/t2
+          IWXA_T2_NPM_CACHE_DIR: ${{ runner.temp }}/club-npm-cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npm ci --no-audit --no-fund > "$RUNNER_TEMP/private-baseline.log" 2>&1; then
+            echo D02_T3_BASELINE_INSTALL=FAIL; exit 1
+          fi
+          if ! npm run test:club-t3-assembly > "$RUNNER_TEMP/private-assembly-test.log" 2>&1; then
+            echo D02_T3_ASSEMBLY_UNIT=FAIL
+            grep -E '^not ok [0-9]+ - ' "$RUNNER_TEMP/private-assembly-test.log" | head -10 || true
+            exit 1
+          fi
+          echo D02_T3_ASSEMBLY_UNIT=PASS
+          if ! npm run build > "$RUNNER_TEMP/private-baseline.log" 2>&1; then
+            echo D02_T3_BASELINE_BUILD=FAIL
+            grep -Eo 'CLUB_T2_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z_]+|CURRENT STATIC SOURCE CHECK: FAIL' "$RUNNER_TEMP/private-baseline.log" | sort -u | tail -25 || true
+            exit 1
+          fi
+          if ! node scripts/check-club-release.mjs > "$RUNNER_TEMP/private-baseline.log" 2>&1; then
+            echo D02_T3_BASELINE_GATE=FAIL
+            grep -Eo 'CLUB_T2_RELEASE_GATE_[A-Z0-9_]+' "$RUNNER_TEMP/private-baseline.log" | sort -u || true
+            exit 1
+          fi
+          echo D02_T3_BASELINE_ORIGINAL_PRODUCT=PASS
+      - name: Assemble and qualify single Club T3 dist without replacing domain shell
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          export OUT="$RUNNER_TEMP/club-t3-candidate/dist"
+          if ! npm run t3:assemble:candidate -- "$GITHUB_WORKSPACE/site/dist" "$RUNNER_TEMP/club-t3-host" "$OUT" "$RUNNER_TEMP/t3-platform.zip" > "$RUNNER_TEMP/private-assembly.log" 2>&1; then
+            echo D02_T3_PRODUCT_DIST=FAIL
+            grep -Eo '(CLUB_T3_ASSEMBLY_|CLUB_T3_HOST_|T3_DOMAIN_OFFLINE_|T3_D5_MODULE_|CLUB_T2_RELEASE_GATE_)[A-Z0-9_]+' "$RUNNER_TEMP/private-assembly.log" | sort -u | tail -25 || true
+            exit 1
+          fi
+          node --input-type=module - "$RUNNER_TEMP/private-assembly.log" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const lines=readFileSync(process.argv[2],'utf8').trim().split(/\r?\n/);
+          const result=JSON.parse(lines.at(-1));
+          if(result.schema!=='IWXA_CLUB_T3_ASSEMBLY/1'||result.publicRoutes!==40||
+             result.hostingProofsUnchanged!==2||result.preservedSiteAssets!==true||
+             result.localInferenceRegistered!==true||result.domainAccepted!==false)
+            process.exit(1);
+          console.log('D02_T3_PRODUCT_DIST=PASS; public_routes='+result.publicRoutes+
+            '; application_pages='+result.applicationPages+'; offline_files='+result.offlineFiles+
+            '; hosting_proofs_unchanged='+result.hostingProofsUnchanged);
+          NODE
+          if ! (cd "$RUNNER_TEMP/club-t3-candidate" && node "$GITHUB_WORKSPACE/site/scripts/check-club-release.mjs" && node "$GITHUB_WORKSPACE/site/scripts/check-htaccess.mjs") > "$RUNNER_TEMP/private-assembly.log" 2>&1; then
+            echo D02_T3_PREVIOUS_RELEASE_GATE=FAIL
+            grep -Eo 'CLUB_T2_RELEASE_GATE_[A-Z0-9_]+' "$RUNNER_TEMP/private-assembly.log" | sort -u || true
+            exit 1
+          fi
+          echo D02_T3_PREVIOUS_RELEASE_GATE=PASS
+          if ! (node scripts/check-current-static-routing.mjs "$OUT" && node scripts/test-current-preview.mjs "$OUT" && node scripts/check-club-integrated-http-preview.mjs "$OUT") > "$RUNNER_TEMP/private-http.log" 2>&1; then
+            echo D02_T3_HTTP_40_ROUTES=FAIL; exit 1
+          fi
+          echo D02_T3_HTTP_40_ROUTES=PASS
+          echo D02_T3_NATIVE_GUI_AND_OFFLINE_NOT_RUN=true
+      - name: Retain verified local original Kernel support
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npm run t3:kernel-support:prepare -- "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/t2" "$RUNNER_TEMP/club-kernel-support" > "$RUNNER_TEMP/private-local-input.log" 2>&1; then
+            echo D02_T3_LOCAL_KERNEL_SUPPORT=FAIL
+            grep -Eo 'CLUB_T3_LOCAL_KERNEL_[A-Z0-9_]+|CLUB_T2_RELEASE_GATE_[A-Z0-9_]+' "$RUNNER_TEMP/private-local-input.log" | sort -u | tail -20 || true
+            exit 1
+          fi
+          echo D02_T3_LOCAL_KERNEL_SUPPORT=PASS
+      - name: Build local T3 twice with unavailable source checkouts and no Git or npm commands in build
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv "$GITHUB_WORKSPACE/t2" "$RUNNER_TEMP/unused-t2"
+          mv "$GITHUB_WORKSPACE/one-core" "$RUNNER_TEMP/unused-one-core"
+          export IWXA_T2_SOURCE_DIR="$RUNNER_TEMP/nonexistent-t2"
+          export IWXA_T2_NPM_OFFLINE=1
+          mkdir -p "$RUNNER_TEMP/blocked-build-tools"
+          printf '#!/bin/sh\nexit 87\n' > "$RUNNER_TEMP/blocked-build-tools/git"
+          printf '#!/bin/sh\nexit 87\n' > "$RUNNER_TEMP/blocked-build-tools/npm"
+          chmod +x "$RUNNER_TEMP/blocked-build-tools/"*
+          export PATH="$RUNNER_TEMP/blocked-build-tools:$PATH"
+          for attempt in 1 2; do
+            if ! node scripts/build-club-t3-local-site.mjs "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/t3-platform.zip" > "$RUNNER_TEMP/private-local-build.log" 2>&1; then
+              echo D02_T3_LOCAL_SITE_BUILD=FAIL
+              grep -Eo 'CLUB_T3_[A-Z0-9_]+|CLUB_T2_[A-Z0-9_]+|CURRENT_STATIC_[A-Z0-9_]+' "$RUNNER_TEMP/private-local-build.log" | sort -u | tail -25 || true
+              exit 1
+            fi
+            find dist -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/local-rebuild-$attempt.private"
+          done
+          if ! cmp -s "$RUNNER_TEMP/local-rebuild-1.private" "$RUNNER_TEMP/local-rebuild-2.private"; then
+            echo D02_T3_LOCAL_REPRODUCIBLE_BYTES=FAIL; exit 1
+          fi
+          echo D02_T3_LOCAL_REPRODUCIBLE_BYTES=PASS
+          node scripts/check-club-release.mjs > "$RUNNER_TEMP/private-local-check.log" 2>&1
+          node scripts/check-club-integrated-http-preview.mjs dist > "$RUNNER_TEMP/private-local-check.log" 2>&1
+          echo D02_T3_LOCAL_SINGLE_DIST=PASS
+          echo D02_T3_LOCAL_BUILD_WITHOUT_SOURCE_CHECKOUTS=PASS
+          # Restore checkout paths for the checkout action's own post steps.
+          mv "$RUNNER_TEMP/unused-t2" "$GITHUB_WORKSPACE/t2"
+          mv "$RUNNER_TEMP/unused-one-core" "$GITHUB_WORKSPACE/one-core"
+      - name: Remove temporary private compilation and logs
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "$RUNNER_TEMP/unused-t2" ] && [ ! -e "$GITHUB_WORKSPACE/t2" ]; then mv "$RUNNER_TEMP/unused-t2" "$GITHUB_WORKSPACE/t2"; fi
+          if [ -d "$RUNNER_TEMP/unused-one-core" ] && [ ! -e "$GITHUB_WORKSPACE/one-core" ]; then mv "$RUNNER_TEMP/unused-one-core" "$GITHUB_WORKSPACE/one-core"; fi
+          rm -rf "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/private-local-input.log" "$RUNNER_TEMP/private-local-build.log" "$RUNNER_TEMP/private-local-check.log" "$RUNNER_TEMP/local-rebuild-1.private" "$RUNNER_TEMP/local-rebuild-2.private" "$RUNNER_TEMP/club-t3-candidate" "$RUNNER_TEMP/private-baseline.log" "$RUNNER_TEMP/private-assembly-test.log" "$RUNNER_TEMP/private-assembly.log" "$RUNNER_TEMP/private-http.log" "$RUNNER_TEMP/private-regression.log" "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/private-test.log" "$RUNNER_TEMP/verify.json" "$RUNNER_TEMP/verify.log"
