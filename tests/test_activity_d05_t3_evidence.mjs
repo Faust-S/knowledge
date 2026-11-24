@@ -273,3 +273,36 @@ test('A4.1 narrow port has no raw rows, permissions or alternate Workspace argum
  h.revoke();assert.ok(invalidations>=1);
  off();const n=invalidations;h.revoke();assert.equal(invalidations,n);
 });
+
+
+import {buildD05RouteQualityComparisonExample} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
+function qualityFixture(){
+ const h=fixture(),details=buildD05RouteQualityComparisonExample(W);
+ const byId=new Map(details.map(x=>[x.object.object_id,x]));
+ h.objects.push(...details.map(x=>x.object));
+ h.context.kernel.listObjects=async query=>h.objects.filter(x=>x.schema_id===query.schema_id).slice(0,query.limit);
+ const read=h.context.kernel.getObject;
+ h.context.kernel.getObject=async (ws,id)=>byId.has(id)?structuredClone(byId.get(id)):read(ws,id);
+ return {h,details,config:{...h,createSubjectKernelBinding:original.createSubjectKernelBinding,includeQualityPlans:true}};
+}
+test('A4.1-IV reads actual source shape via original T3 subject binding and compares quality requirements',async()=>{
+ const {config,h,details}=qualityFixture(),before=JSON.stringify(details);
+ const r=await reviewSelectedD05RouteModels(config);
+ assert.equal(r.source_authority,'ORIGINAL_SIGNED_SELECTED_READBACK');
+ assert.equal(r.quality_review.groups[0].comparison,'DECLARED_FIELDS_DIFFER');
+ assert.deepEqual(r.quality_review.groups[0].differing_fields,['CRITERIA']);
+ assert.equal(JSON.stringify(details),before);assert.equal(h.writes(),0);
+ assert.equal(r.export_allowed,false);
+});
+test('A4.1-IV detects changed quality relation during enumeration without changing object revision',async()=>{
+ const {config,h,details}=qualityFixture();
+ const id=details.find(x=>x.object.data.object_type==='quality-plan').object.object_id;
+ const read=h.context.kernel.getObject;let n=0;
+ h.context.kernel.getObject=async (ws,objectId)=>{
+   const result=await read(ws,objectId);
+   if(objectId===id&&++n===2)result.relations.outgoing.pop();
+   return result;
+ };
+ await assert.rejects(reviewSelectedD05RouteModels(config),{code:'D05_ROUTE_HOST_SOURCE_CHANGED'});
+ assert.equal(h.writes(),0);
+});

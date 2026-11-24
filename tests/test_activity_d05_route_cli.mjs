@@ -42,3 +42,13 @@ test('bounded input and invalid UTF8 are rejected',()=>{
  const u=call(Buffer.from([0xff,0xfe,0x00]));
  assert.equal(u.code,2);assert.equal(u.value.code,'D05_ROUTE_CLI_INVALID_JSON');
 });
+
+
+import {reviewD05ResultSelection,buildD05RouteQualityComparisonExample}
+ from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
+test('same CLI accepts original local quality Result details, with no different analyzer',()=>{
+ const input=buildD05RouteQualityComparisonExample(),r=call(JSON.stringify(input));
+ assert.equal(r.code,0);assert.deepEqual(r.value,reviewD05ResultSelection(input));
+ assert.equal(r.value.quality_review.groups[0].comparison,'DECLARED_FIELDS_DIFFER');
+ assert.equal(r.value.export_allowed,false);
+});
