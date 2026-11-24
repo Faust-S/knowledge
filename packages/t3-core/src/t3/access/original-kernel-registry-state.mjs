@@ -355,8 +355,12 @@ function corporateRegistryPort({kernel,workspaceId,objectId,trustedPolicy,clock,
       if(dedicated){
         check(dedicated.profile==="generic",
           "T3_ACCESS_REGISTRY_STORAGE_WORKSPACE_INVALID");
-        // Once a private partition exists, never treat a registry-like
-        // object supplied in a business archive as an authority source.
+        // An empty private Workspace must not reset an existing legacy
+        // registry. Once the private registry actually exists, a registry-
+        // shaped business object can never replace its authority.
+        const current=await kernel.getObject(storageId,objectId);
+        if(current==null&&await kernel.getObject(workspaceId,objectId)!=null)
+          no("T3_ACCESS_REGISTRY_STORAGE_LEGACY_CONFLICT");
         return select(storageId,"SEPARATE");
       }
       const business=await readWorkspace(workspaceId);

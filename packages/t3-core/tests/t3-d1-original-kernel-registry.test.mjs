@@ -99,7 +99,7 @@ test("signed AccessRegistry persists in the ONE original Kernel Store; cold port
     {code:"T3_ACCESS_REGISTRY_ORIGINAL_SEQUENCE_ROLLBACK"});
 });
 
-function productionRegistryFixture({legacy=false,loseCreateAck=false,denyRead=false}={}){
+function productionRegistryFixture({legacy=false,loseCreateAck=false,denyRead=false,emptyPartition=false}={}){
   // Genuine signed state, with disposable keys from the original authority fixture.
   const fixture=model();
   const policy=structuredClone(fixture.policy);
@@ -116,6 +116,7 @@ function productionRegistryFixture({legacy=false,loseCreateAck=false,denyRead=fa
   const storageId=originalEmployeeRegistryWorkspaceId(scope);
   const original=corporateKernelFixture();
   const workspaces=new Map([[scope.workspaceId,{workspace_id:scope.workspaceId,profile:"generic"}]]);
+  if(emptyPartition)workspaces.set(storageId,{workspace_id:storageId,profile:"generic"});
   const creates=[];
   const kernel={...original.api,
     hasOperation:op=>original.api.hasOperation(op)||["t1.getWorkspace","t1.createWorkspace"].includes(op),
@@ -198,4 +199,13 @@ test("unknown or denied private Workspace read never becomes an absent registry 
   await assert.rejects(p.readStoragePlacement(),{code:"DENIED"});
   await assert.rejects(p.initializeStorage({confirmed:true}),{code:"DENIED"});
   assert.equal(s.creates.length,0);
+});
+
+test("an empty private partition cannot reset a populated legacy authority",async()=>{
+  const s=productionRegistryFixture({legacy:true,emptyPartition:true});await s.prepareLegacy();
+  const port=s.port();
+  await assert.rejects(port.readStoragePlacement(),{code:"T3_ACCESS_REGISTRY_STORAGE_LEGACY_CONFLICT"});
+  await assert.rejects(port.initializeStorage({confirmed:true}),{code:"T3_ACCESS_REGISTRY_STORAGE_LEGACY_CONFLICT"});
+  assert.equal(s.creates.length,0);
+  assert.equal(s.original.calls.length,1);
 });
