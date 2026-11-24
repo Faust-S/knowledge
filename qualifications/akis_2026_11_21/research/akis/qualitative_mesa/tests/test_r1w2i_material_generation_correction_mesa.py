@@ -245,7 +245,7 @@ def test_rejected_new_material_is_not_automatically_reused():
     x.handoff_event("input","dispatch");x.handoff_event("input","receive")
     x.handoff_event("input","quality",quality_quantities=[
         dict(batch="input-2",accepted="1",rejected="1"),dict(batch="input-3",accepted="3",rejected="0")])
-    x.start("form","b",60,4500,expected="BLOCKED",reason="MATERIAL_ACCEPTED_QUANTITY_INSUFFICIENT")
+    x.start("form","b",60,4500,expected="BLOCKED",reason="MATERIAL_QUALITY_INSUFFICIENT")
     assert x.w.material_states["input-2"].accepted==Decimal(1)
     assert x.w.material_states["input-2"].rejected==Decimal(1)
     assert x.w.operation_states["form"]=="CORRECTION_PLANNED"
