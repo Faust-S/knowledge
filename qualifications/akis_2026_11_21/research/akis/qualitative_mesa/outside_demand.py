@@ -326,6 +326,46 @@ _OFFER_FIELDS = frozenset({
 })
 
 
+def normalize_original_outside_installments(raw: Any, *, price: str, offered_at: int) -> list[dict]:
+    """An optional edition of the ORIGINAL commercial offer, not another transfer.
+
+    Each instalment has its own conditional trigger, expected date, due date
+    and adverse receipt date. All ticks and amounts are explicit model inputs.
+    The adverse date is a risk hypothesis, never a new contractual due date.
+    """
+    if not isinstance(raw, list) or not 1 <= len(raw) <= 16:
+        raise OutsideDemandBlocked("OUTSIDE_INSTALLMENT_SCHEDULE_REQUIRED")
+    total = Decimal(0)
+    previous_at = offered_at
+    previous_due = offered_at
+    acceptance_phase = False
+    normalized = []
+    for row in raw:
+        if not isinstance(row, Mapping) or set(row) != {
+                "condition", "amount", "at", "due_at", "late_at"}:
+            raise OutsideDemandBlocked("OUTSIDE_INSTALLMENT_FIELDS_INVALID")
+        condition, amount = row["condition"], row["amount"]
+        at, due, late = row["at"], row["due_at"], row["late_at"]
+        if (condition not in ("ON_ORIGINAL_COMMIT", "ON_CUSTOMER_ACCEPTANCE")
+                or not isinstance(amount, str) or not _MONEY.fullmatch(amount)
+                or Decimal(amount) <= 0):
+            raise OutsideDemandBlocked("OUTSIDE_INSTALLMENT_CONDITION_OR_AMOUNT_INVALID")
+        if (any(type(t) is not int for t in (at, due, late))
+                or not previous_at < at <= due <= 10000
+                or not at <= late <= 10000 or due < previous_due):
+            raise OutsideDemandBlocked("OUTSIDE_INSTALLMENT_TIME_INVALID")
+        if acceptance_phase and condition == "ON_ORIGINAL_COMMIT":
+            raise OutsideDemandBlocked("OUTSIDE_INSTALLMENT_ADVANCE_AFTER_ACCEPTANCE_PHASE")
+        acceptance_phase = acceptance_phase or condition == "ON_CUSTOMER_ACCEPTANCE"
+        total += Decimal(amount)
+        previous_at, previous_due = at, due
+        normalized.append({"condition": condition, "amount": f"{Decimal(amount):.2f}",
+                           "at": at, "due_at": due, "late_at": late})
+    if total != Decimal(price):
+        raise OutsideDemandBlocked("OUTSIDE_INSTALLMENT_SUM_NOT_ORIGINAL_OFFER_PRICE")
+    return normalized
+
+
 def qualify_original_outside_supplier_offer(
     state: Any, event: Mapping[str, Any], at: int,
 ) -> dict[str, Any]:
@@ -334,7 +374,8 @@ def qualify_original_outside_supplier_offer(
     Neither a signed order nor an independent physical delivery/settlement.
     Do not add Work, capacity reservation, consent, or economic claim.
     """
-    if (not isinstance(event, Mapping) or set(event) != _OFFER_FIELDS
+    if (not isinstance(event, Mapping)
+            or set(event) not in (_OFFER_FIELDS, _OFFER_FIELDS | {"outside_offer_installments"})
             or event.get("action") != "outside_supplier_offer"):
         raise OutsideDemandBlocked("OUTSIDE_OFFER_ORIGINAL_EVENT_FIELDS_REQUIRED")
     seller = event["actor"]
@@ -448,7 +489,11 @@ def qualify_original_outside_supplier_offer(
         Decimal(price) > Decimal(source["outside_price_ceiling"]),
     )):
         raise OutsideDemandBlocked("OUTSIDE_OFFER_BUYER_TERMS_NOT_COMPARABLE")
+    installments = (normalize_original_outside_installments(
+        event["outside_offer_installments"], price=price, offered_at=at)
+        if "outside_offer_installments" in event else None)
     return {
+        **({"outside_offer_installments": installments} if installments is not None else {}),
         "outside_demand_id": demand_id,
         "outside_offer_id": offer_id,
         "outside_offer_source_ref": ref,
@@ -548,7 +593,8 @@ def qualify_original_outside_buyer_offer_response(
     a fresh seller offer and independent buyer-owned model evidence.
     """
     if (not isinstance(event, Mapping)
-            or set(event) != _BUYER_OFFER_RESPONSE_FIELDS
+            or set(event) not in (_BUYER_OFFER_RESPONSE_FIELDS,
+                                  _BUYER_OFFER_RESPONSE_FIELDS | {"outside_buyer_response_installments"})
             or event.get("action") != "outside_buyer_offer_response"):
         raise OutsideDemandBlocked("OUTSIDE_BUYER_RESPONSE_FIELDS_REQUIRED")
     buyer = event["actor"]
@@ -680,7 +726,17 @@ def qualify_original_outside_buyer_offer_response(
         raise OutsideDemandBlocked(
             "OUTSIDE_BUYER_RESPONSE_OWN_SOURCE_NOT_QUALIFIED"
         ) from exc
+    installments = offer.get("outside_offer_installments")
+    if installments is not None:
+        echoed = normalize_original_outside_installments(
+            event.get("outside_buyer_response_installments"),
+            price=offer["outside_offer_price"], offered_at=offer["at"])
+        if echoed != installments or echoed[0]["at"] <= at:
+            raise OutsideDemandBlocked("OUTSIDE_BUYER_RESPONSE_INSTALLMENTS_MISMATCH")
+    elif "outside_buyer_response_installments" in event:
+        raise OutsideDemandBlocked("OUTSIDE_BUYER_RESPONSE_INSTALLMENTS_WITHOUT_OFFER")
     return {
+        **({"outside_buyer_response_installments": installments} if installments is not None else {}),
         "outside_demand_id": demand_id,
         "outside_offer_id": offer_id,
         "outside_buyer_response_id": response_id,
@@ -908,6 +964,13 @@ def qualify_original_outside_work_origin(
         for criterion in work.assurance_criteria
     ):
         raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_BUYER_QUALITY_BASIS_REQUIRED")
+    installments = offer.get("outside_offer_installments")
+    if installments is not None:
+        if (response.get("outside_buyer_response_installments") != installments
+                or installments[0]["at"] <= at
+                or any(row["condition"] == "ON_ORIGINAL_COMMIT"
+                       and row["due_at"] >= work.slot_start for row in installments)):
+            raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_INSTALLMENT_TIMING_NOT_QUALIFIED")
     # IDs identify existing original events; no financial values or new
     # executable authority are added to the request.
     return {key: binding[key] for key in sorted(_OUTSIDE_WORK_ORIGIN_FIELDS)}

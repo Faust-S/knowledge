@@ -77,6 +77,7 @@ def _joint_network_settlement(
     coverage: Mapping[str, Mapping[str, str]],
     subjects: Mapping[str, Any], outside: Mapping[str, str],
     settlement_splits: Mapping[str, list[tuple[int, Decimal]]] | None = None,
+    agreed_installments: Mapping[str, list[Mapping[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Optional read-only coherent settlement *hypothesis* on the same ledger.
 
@@ -124,7 +125,12 @@ def _joint_network_settlement(
             payer, payee = row["payer"], row["payee"]
             if payer != "EXTERNAL" and payee != "EXTERNAL":
                 internal_original_count += 1
-            postings = [("expected", at, amount), ("late", late, amount)]
+            installments = (agreed_installments or {}).get(key)
+            postings = (
+                [(variant, item[field], Decimal(item["amount"]))
+                 for item in installments
+                 for variant, field in (("expected", "at"), ("late", "late_at"))]
+                if installments else [("expected", at, amount), ("late", late, amount)])
             if settlement_splits is not None:
                 pieces = settlement_splits.get(key, [(at, amount)])
                 if (not pieces or
@@ -235,6 +241,7 @@ def evaluate_cash_timing(
     outside: Mapping[str, str],
     original_payment_due: Mapping[str, int] | None = None,
     settlement_splits: Mapping[str, list[tuple[int, Decimal]]] | None = None,
+    agreed_installments: Mapping[str, list[Mapping[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Calculate only a SOURCE-DECLARED, owner-scoped liquidity conditional.
 
@@ -302,6 +309,19 @@ def evaluate_cash_timing(
             raise LiquidityInputError("ORIGINAL_TRANSFER_SOURCE_MUST_REMAIN_ATTACHED")
         windows[transfer_id] = at, late
 
+    # These schedules have already passed the original commercial and
+    # independent receipt source review. Recheck money conservation here;
+    # no scheduled amount can be added to the original transfer total.
+    for key, parts in (agreed_installments or {}).items():
+        if (key not in transfer_index or key not in windows or not parts
+                or sum((_money(p["amount"]) for p in parts), Decimal(0))
+                    != transfer_index[key]["decimal_amount"]
+                or any(_money(p["amount"]) <= 0
+                       or _at(p["at"], horizon) > _at(p["due_at"], horizon)
+                       or p["at"] > _at(p["late_at"], horizon) for p in parts)
+                or (settlement_splits or {}).get(key)
+                    != [(p["at"], _money(p["amount"])) for p in parts]):
+            raise LiquidityInputError("ORIGINAL_INSTALLMENT_CASH_CONSERVATION_OR_EVIDENCE_FAILED")
     per_owner: dict[str, Any] = {}
     scoped_counts = {"qualified_reserve_both_scenarios": 0,
                      "known_gap_in_either_scenario": 0,
@@ -327,6 +347,14 @@ def evaluate_cash_timing(
                     amount = rec["decimal_amount"]
                     signed = amount if rec["payee"] == owner else -amount
                     at, late_at = windows[key]
+                    installments = (agreed_installments or {}).get(key)
+                    if installments:
+                        for item in installments:
+                            part = _money(item["amount"]) * (1 if signed > 0 else -1)
+                            expected.append((item["at"], part))
+                            stress.append((item["late_at"] if part > 0
+                                           else min(item["at"], item["due_at"]), part))
+                        continue
                     expected.append((at, signed))
                     # Critical invariant: late receivables do not silently
                     # postpone a participant's payable obligations. Moving
@@ -430,10 +458,15 @@ def evaluate_cash_timing(
         "adverse_receipts_late_obligations_due_in_owner_private_stress": True,
         "per_owner_stress_is_not_one_simultaneously_consistent_network_schedule": True,
         "outside_comparison_is_not_actual_profit_or_legal_consent": True,
+        **({"original_agreed_installment_transfer_count": len(agreed_installments),
+            "owner_and_joint_expected_paths_use_same_original_installments": True,
+            "late_receipt_hypothesis_does_not_defer_original_installment_payables": True}
+           if agreed_installments else {}),
         "joint_network_settlement": _joint_network_settlement(
             owner_state=owner_state, windows=windows,
             transfer_index=transfer_index, coverage=coverage,
             subjects=subjects, outside=outside,
             settlement_splits=settlement_splits,
+            agreed_installments=agreed_installments,
         ),
     }

@@ -184,6 +184,7 @@ def review_original_strict_economic_sources(
         covered.add(owner)
     outside_price_qualified = False
     qualified_commercial_orders = 0
+    qualified_installment_transfers = 0
     for scoped_work in work_ids:
         work = state.works[scoped_work]
         principals = (
@@ -290,7 +291,8 @@ def review_original_strict_economic_sources(
                 # The portfolio may use the independent demand ceiling for
                 # price sensitivity. Require its own historical and current
                 # read rights as well as the independent buyer's response.
-                if "portfolio_scope_evidence" in original_claims:
+                if ("portfolio_scope_evidence" in original_claims
+                        or "outside_offer_installments" in offer):
                     buyer_core = _OWNER_CORES.get(state.subjects[buyer].kind)
                     if buyer_core is None:
                         raise StrictEconomicSourceBlocked("PORTFOLIO_ORIGINAL_BUYER_CORE_REQUIRED")
@@ -338,6 +340,58 @@ def review_original_strict_economic_sources(
                 exact = False
             if not exact or original_claims.get("currency") != offer["outside_offer_currency"]:
                 raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PURCHASE_PRICE_MISMATCH")
+            schedule = offer.get("outside_offer_installments")
+            if schedule is not None:
+                # A scheduled purchase is still ONE original transfer. Both
+                # independent parties accepted the commercial edition BEFORE
+                # Work request/commit. Only its separate historical, matched
+                # payment reports can qualify the executed cash path.
+                def blocked():
+                    raise StrictEconomicSourceBlocked("OUTSIDE_ORIGINAL_INSTALLMENT_PAYMENT_NOT_QUALIFIED")
+                responses = [r for r in state.trace
+                             if r.get("action") == "outside_buyer_offer_response"
+                             and r.get("outcome") == "APPLIED"
+                             and r.get("outside_buyer_response_id") == origin["outside_buyer_response_id"]
+                             and r.get("actor") == buyer]
+                milestones = {action: [r["at"] for r in state.trace
+                    if r.get("action") == action and r.get("outcome") == "APPLIED"
+                    and r.get("work") == scoped_work]
+                    for action in ("commit", "start", "accept")}
+                if (len(responses) != 1
+                        or responses[0].get("outside_buyer_response_installments") != schedule
+                        or any(len(times) != 1 for times in milestones.values())
+                        or any(row["late_at"] > at or row["due_at"] > at for row in schedule)):
+                    blocked()
+                commit, start, accept = (milestones[k][0] for k in ("commit", "start", "accept"))
+                for row in schedule:
+                    if row["condition"] == "ON_ORIGINAL_COMMIT":
+                        if not commit < row["at"] <= row["due_at"] < start:
+                            blocked()
+                    elif not accept < row["at"]:
+                        blocked()
+                term = next(r for r in terms if r.get("transfer_id") == payment["id"])
+                clock = original_claims.get("cash_timing", {})
+                windows = [r for r in clock.get("transfer_windows", [])
+                           if r.get("transfer_id") == payment["id"]]
+                if (len(windows) != 1 or term.get("condition") != schedule[0]["condition"]
+                        or term.get("due_at") != schedule[-1]["due_at"]
+                        or windows[0].get("at") != schedule[-1]["at"]
+                        or windows[0].get("late_at", windows[0]["at"]) != schedule[-1]["late_at"]
+                        or any(row["late_at"] > clock.get("horizon_end", -1)
+                               or row["due_at"] > clock.get("horizon_end", -1) for row in schedule)
+                        or any(r.get("transfer_id") == payment["id"]
+                               for r in original_claims.get("work_payment_due_amendments", []))):
+                    blocked()
+                receipts = [r for r in original_claims.get("work_payment_settlement_claims", [])
+                            if r.get("transfer_id") == payment["id"]]
+                try:
+                    reported = sorted((r["at"], Decimal(r["amount"])) for r in receipts)
+                    expected = [(r["at"], Decimal(r["amount"])) for r in schedule]
+                except (KeyError, TypeError, InvalidOperation, ValueError):
+                    blocked()
+                if reported != expected:
+                    blocked()
+                qualified_installment_transfers += 1
             outside_price_qualified = True
 
     # Original R2.6 payment claims are annotations on EXISTING transfers.
@@ -679,6 +733,8 @@ def review_original_strict_economic_sources(
            if portfolio is not None else {}),
         **({"original_commercial_order_payment_terms_matched_count": qualified_commercial_orders}
            if qualified_commercial_orders else {}),
+        **({"original_outside_installment_transfer_count": qualified_installment_transfers}
+           if qualified_installment_transfers else {}),
         **({"source_scoped_uncommitted_order_owner_count": qualified_uncommitted_owners,
             "source_scoped_uncommitted_recipient_observation": True}
            if uncommitted is not None else {}),

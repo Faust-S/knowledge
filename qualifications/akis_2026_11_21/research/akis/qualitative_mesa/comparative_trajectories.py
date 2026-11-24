@@ -2115,6 +2115,10 @@ def review_original_portfolio_outside_price_interval(
     if len(demands) != 1 or len(offers) != 1:
         raise TrajectoryComparisonError("PORTFOLIO_PRICE_INDEPENDENT_DEMAND_AND_QUOTE_REQUIRED")
     demand, offer = demands[0], offers[0]
+    # Existing single-posting price sensitivity cannot reallocate agreed
+    # instalment amounts or ignore their time-dependent reserve requirements.
+    if "outside_offer_installments" in offer:
+        return {**base, "status": "INSTALLMENT_REPRICING_REQUIRES_NEW_SCHEDULE_AND_OFFER"}
     seller = offer["actor"]
     selected = [t for t in money["transfers"] if t["id"] == transfer_id and t["work"] == secondary_work
                 and t["payer"] == buyer and t["payee"] == seller]

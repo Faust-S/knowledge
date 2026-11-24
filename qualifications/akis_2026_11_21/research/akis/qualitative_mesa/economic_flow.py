@@ -577,7 +577,8 @@ def _review_work_payment_progress(
 
 def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mapping[str, Any],
                              cooperation_links: Sequence[CooperationLink] = (),
-                             trace: Sequence[Mapping[str, Any]] = ()) -> dict[str, Any]:
+                             trace: Sequence[Mapping[str, Any]] = (), *,
+                             strict_outside_installment_count: int = 0) -> dict[str, Any]:
     """Evaluate explicitly declared claims in matching periods and currencies.
 
     A reported cash-flow difference is NOT profit, individual advantage, causal
@@ -864,6 +865,35 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 works=works, trace=trace, cash_timing=doc["cash_timing"],
             )
         output["work_payment_causality"] = view
+    agreed_installments = {}
+    # Only the end-of-run strict source gate can qualify the new cash path.
+    # The legacy private prospective subset without Work terms does not use
+    # subsequent settlement claims as a prediction of the owner's decision.
+    if "work_payment_conditions" in doc:
+        offers = {r["outside_offer_id"]: r for r in trace
+                  if r.get("action") == "outside_supplier_offer" and r.get("outcome") == "APPLIED"
+                  and "outside_offer_installments" in r}
+        committed = {r["work"] for r in trace
+                     if r.get("action") == "commit" and r.get("outcome") == "APPLIED"}
+        for request in trace:
+            if (request.get("action") != "request" or request.get("outcome") != "APPLIED"
+                    or request.get("work") not in committed):
+                continue
+            offer = offers.get(request.get("outside_work_origin", {}).get("outside_offer_id"))
+            if offer is None:
+                continue
+            selected = [key for key, row in transfer_index.items()
+                        if row["work"] == request["work"] and row["scenario"] == "COOPERATION"
+                        and row["payer"] == offer["outside_offer_buyer"] and row["payee"] == offer["actor"]]
+            if len(selected) != 1:
+                raise EconomicInputError("OUTSIDE_INSTALLMENT_SINGLE_ORIGINAL_TRANSFER_REQUIRED")
+            schedule = offer["outside_offer_installments"]
+            if (payment_splits is None or payment_splits.get(selected[0]) !=
+                    [(r["at"], Decimal(r["amount"])) for r in schedule]):
+                raise EconomicInputError("OUTSIDE_INSTALLMENT_ORIGINAL_PAYMENT_PROGRESS_REQUIRED")
+            agreed_installments[selected[0]] = schedule
+    if len(agreed_installments) != strict_outside_installment_count:
+        raise EconomicInputError("OUTSIDE_INSTALLMENT_STRICT_OWNER_SOURCE_QUALIFICATION_REQUIRED")
     if "cash_timing" in doc:
         # One original money ledger and one pair of owner/network cash clocks.
         # The original declared due remains a conservative due-date obligation
@@ -880,6 +910,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 transfer_index=transfer_index, coverage=covered, subjects=subjects,
                 outside=outside, original_payment_due=due_dates,
                 settlement_splits=payment_splits,
+                agreed_installments=agreed_installments or None,
             )
         except LiquidityInputError as exc:
             raise EconomicInputError(str(exc)) from exc

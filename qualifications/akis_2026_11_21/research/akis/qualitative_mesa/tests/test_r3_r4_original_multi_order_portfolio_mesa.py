@@ -798,3 +798,163 @@ def test_stage_forecast_is_invariant_to_later_original_recipient_acceptance():
     assert any(position == "OUTSIDE_PREFERRED" for _, position, _ in before(original))
     assert original["works"]["w3"]["result"] == ACCEPTED
     assert counterfactual["works"]["w3"]["result"] != ACCEPTED
+
+
+def installment_portfolio(*, advance="300.00", late_advance=False, scheduled=True,
+                          outside_opening="1000.00"):
+    """Separately execute the same physical portfolio at a fresh commercial edition."""
+    docs = finance_portfolio(outside_material="260.00", outside_price="600.00",
+                             outside_opening=outside_opening)
+    # Pay material strictly AFTER the potential advance in both schedules.
+    # A same-tick credit cannot be assumed to precede an outgoing payment.
+    for doc in docs.values():
+        commit = _event(doc, "commit", OUTSIDE)["at"]
+        for window in doc["economic_claims"]["cash_timing"]["transfer_windows"]:
+            if window["transfer_id"] == f"{OUTSIDE}-portfolio-material":
+                window.update(at=commit+2, late_at=commit+2)
+    if not scheduled:
+        return docs
+    from decimal import Decimal
+    total = Decimal("600.00")
+    for doc in docs.values():
+        offer = _event(doc, "outside_supplier_offer")
+        response = _event(doc, "outside_buyer_offer_response")
+        request = _event(doc, "request", OUTSIDE)
+        commit = _event(doc, "commit", OUTSIDE)["at"]
+        start = _event(doc, "start", OUTSIDE)["at"]
+        accept = _event(doc, "accept", OUTSIDE)["at"]
+        suffix = "-installment-" + advance.replace(".", "-") + ("-late" if late_advance else "")
+        for event, prefix, id_field in (
+            (offer, "outside_offer", "outside_offer_id"),
+            (response, "outside_buyer_response", "outside_buyer_response_id"),
+        ):
+            old_ref = event[prefix+"_source_ref"]
+            event[id_field] += suffix
+            event[prefix+"_source_ref"] += suffix
+            event[prefix+"_source_revision"] += suffix
+            for source in doc["context_evidence"]["sources"]:
+                if source["id"] == old_ref:
+                    source.update(id=event[prefix+"_source_ref"],
+                                  revision=event[prefix+"_source_revision"])
+            request["outside_work_origin"][id_field] = event[id_field]
+        response["outside_offer_id"] = offer["outside_offer_id"]
+        response["outside_offer_source_revision"] = offer["outside_offer_source_revision"]
+        installments = [
+            {"condition": "ON_ORIGINAL_COMMIT", "amount": advance,
+             "at": commit+1, "due_at": commit+1,
+             "late_at": accept+2 if late_advance else commit+1},
+            {"condition": "ON_CUSTOMER_ACCEPTANCE", "amount": f"{total-Decimal(advance):.2f}",
+             "at": accept+2, "due_at": accept+3, "late_at": accept+2},
+        ]
+        assert commit+1 < start
+        offer["outside_offer_installments"] = deepcopy(installments)
+        response["outside_buyer_response_installments"] = deepcopy(installments)
+        money = doc["economic_claims"]
+        purchase = f"{OUTSIDE}-portfolio-purchase"
+        # These new receipt sources exist in the common source universe of
+        # both arms, but a blocked Work has no claims or transfers.
+        original = next(r for r in money["work_payment_settlement_claims"]
+                        if r["transfer_id"] == purchase) if doc is docs["coproduction"] else None
+        for part, item in enumerate(installments):
+            refs = {o: f"model://{o}/portfolio-installment{suffix}-{part}" for o in (BUYER, "c")}
+            for owner, source in refs.items():
+                doc["context_evidence"]["sources"].append({
+                    "id": source, "owner": owner, "revision": "portfolio-finance-v1",
+                    "status": "CONFIRMED", "usable_by": [owner], "core": "corporate",
+                    "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"], "operations": ["READ"],
+                    "valid_from": item["at"], "valid_until": doc["model_horizon"]+1,
+                })
+            if original is not None:
+                report = deepcopy(original)
+                report.update(id=purchase+suffix+"-"+str(part), at=item["at"],
+                              amount=item["amount"], evidence_refs=refs,
+                              owner_attestations={o: {"reported_at": item["at"],
+                                                      "reported_amount": item["amount"]} for o in refs})
+                money["work_payment_settlement_claims"].append(report)
+        if original is not None:
+            money["work_payment_settlement_claims"].remove(original)
+            term = next(r for r in money["work_payment_conditions"] if r["transfer_id"] == purchase)
+            term["condition"] = "ON_ORIGINAL_COMMIT"
+    return docs
+
+
+def test_independent_installments_are_one_original_purchase_with_consistent_owner_and_network_clock():
+    base = compare_portfolios(installment_portfolio(scheduled=False))
+    docs = installment_portfolio()
+    frozen = deepcopy(docs)
+    result = compare_portfolios(docs)
+    assert docs == frozen
+    assert result["status"] == "MODEL_MATCHED_EXECUTED_MULTI_ORDER_PORTFOLIOS", result
+    old = base["local_research_only"]["arms"]["coproduction"]
+    new = result["local_research_only"]["arms"]["coproduction"]
+    assert old["consolidated_model_contribution"] == new["consolidated_model_contribution"]
+    assert old["per_owner_model_contribution"] == new["per_owner_model_contribution"]
+    assert not old["all_owner_declared_reserves_met"]
+    assert new["all_owner_declared_reserves_met"]
+    assert result["local_research_only"]["pairwise"][0]["left_minus_right_model_contribution"] == "365.00"
+    assert "coproduction" in result["best_model_contribution_among_executed_portfolio_viable_routes"]
+    out = simulate(docs["coproduction"])["economics"]
+    cash = out["cash_timing"]
+    assert cash["original_agreed_installment_transfer_count"] == 1
+    joint = cash["joint_network_settlement"]["scenarios"]["COOPERATION"]
+    assert joint["internal_cash_nets_to_zero_at_every_tick"]
+    assert joint["sum_owner_cash_changes_equals_original_external_cash_at_every_tick"]
+    for owner in ("a", "b", "c", "op", BUYER):
+        expected = cash["per_original_owner_private_research_projection"][owner]["scenario_paths"]["COOPERATION"]["expected"]
+        network = joint["per_original_owner_private_research_projection"][owner]
+        assert expected == network["expected"] == network["claim_adjusted_expected"]
+    assert portfolio_price(docs)["status"] == "INSTALLMENT_REPRICING_REQUIRES_NEW_SCHEDULE_AND_OFFER"
+
+
+def test_late_installment_receipt_does_not_erase_independent_reserve_risk():
+    out = simulate(installment_portfolio(late_advance=True)["coproduction"])["economics"]
+    cash = out["cash_timing"]
+    seller = cash["per_original_owner_private_research_projection"]["c"]["scenario_paths"]["COOPERATION"]
+    assert seller["expected"]["status"] == "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+    assert seller["declared_late_case"]["status"] != "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+    assert not out["original_portfolio_economics"]["all_owner_declared_reserves_met"]
+
+
+@pytest.mark.parametrize("change", ["missing_receipt", "amount", "unqualified_source", "wrong_condition",
+                                    "due", "wrong_time"])
+def test_independent_installments_require_exact_original_terms_and_own_receipt_evidence(change):
+    d = installment_portfolio()["coproduction"]
+    money = d["economic_claims"]
+    purchase = f"{OUTSIDE}-portfolio-purchase"
+    report = next(r for r in money["work_payment_settlement_claims"] if r["transfer_id"] == purchase)
+    term = next(r for r in money["work_payment_conditions"] if r["transfer_id"] == purchase)
+    if change == "missing_receipt":
+        money["work_payment_settlement_claims"].remove(report)
+    elif change == "amount":
+        report["amount"] = "299.00"
+    elif change == "unqualified_source":
+        ref = report["evidence_refs"]["c"]
+        next(r for r in d["context_evidence"]["sources"] if r["id"] == ref)["usable_by"] = [BUYER]
+    elif change == "wrong_condition":
+        term["condition"] = "ON_CUSTOMER_ACCEPTANCE"
+    elif change == "due":
+        term["due_at"] += 1
+    else:
+        report["at"] += 1
+    with pytest.raises(ValueError):
+        simulate(d)
+
+
+@pytest.mark.parametrize("change", ["wrong_sum", "wrong_buyer", "missing_echo", "due_after_start"])
+def test_independent_installment_offer_and_response_are_original_party_editions(change):
+    d = installment_portfolio()["coproduction"]
+    offer = _event(d, "outside_supplier_offer")
+    response = _event(d, "outside_buyer_offer_response")
+    if change == "wrong_sum":
+        offer["outside_offer_installments"][0]["amount"] = "1.00"
+    elif change == "wrong_buyer":
+        response["outside_buyer_response_installments"][0]["late_at"] += 1
+    elif change == "missing_echo":
+        response.pop("outside_buyer_response_installments")
+    else:
+        due = _event(d, "start", OUTSIDE)["at"]
+        offer["outside_offer_installments"][0]["due_at"] = due
+        response["outside_buyer_response_installments"][0]["due_at"] = due
+    out = mechanics(d)
+    assert out["works"].get(OUTSIDE, {}).get("result") != ACCEPTED
+    assert out["works"]["w3"]["result"] == ACCEPTED

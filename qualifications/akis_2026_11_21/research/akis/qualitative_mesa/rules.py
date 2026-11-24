@@ -453,6 +453,7 @@ class QualitativeAKIS:
              "outside_offer_units", "outside_offer_slot_start",
              "outside_offer_slot_end", "outside_offer_deliverable",
              "outside_offer_quality_basis", "outside_offer_valid_until",
+             "outside_offer_installments", "outside_buyer_response_installments",
              "outside_buyer_response_id", "outside_buyer_response_decision",
              "outside_buyer_response_source_ref",
              "outside_buyer_response_source_revision",
@@ -461,6 +462,10 @@ class QualitativeAKIS:
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
+            if (("outside_offer_installments" in ev and ev["action"] != "outside_supplier_offer")
+                    or ("outside_buyer_response_installments" in ev
+                        and ev["action"] != "outside_buyer_offer_response")):
+                raise InputError("OUTSIDE_INSTALLMENT_FIELDS_REQUIRE_ORIGINAL_PARTY_ACTION")
             if "preparation_mode" in ev and (
                     ev["action"] != "function_prepare"
                     or ev["preparation_mode"] not in ("S0", "S1", "S2")):

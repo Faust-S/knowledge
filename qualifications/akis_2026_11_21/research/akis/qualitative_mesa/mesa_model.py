@@ -1299,6 +1299,8 @@ class OperatorAKISModel(mesa.Model):
                 output["economics"] = evaluate_economic_claims(
                     self.economic_claims, self.qualitative.subjects, self.qualitative.works,
                     self.qualitative.cooperation_links, self.qualitative.trace,
+                    strict_outside_installment_count=(original_economic_rights or {}).get(
+                        "original_outside_installment_transfer_count", 0),
                 )
             except EconomicInputError as exc:
                 raise InputError(str(exc)) from exc
