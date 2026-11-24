@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C d04-private/site rev-parse HEAD)" = "629dad0ad5e714b48f5beb9bd7ef948e0699138b"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "69f081f31427fad44cc6c4252e49a2d924830622"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "2981fa8c37363558111deabf713870695627c343"
           test "$(git -C d04-private/model rev-parse HEAD)" = "c2fe711dce4225e2c62af9a51795446e5b91dc7f"
           for name in LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.mjs LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.d.mts PERSONAL_GOAL_PROFILE_V0_1.mjs PERSONAL_GOAL_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_PROFILE_V0_1.mjs PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts LIFE_DASHBOARD_CALCULATIONS_V0_1.mjs LIFE_DASHBOARD_CALCULATIONS_V0_1.d.mts LIFE_DIARY_BATCH_V0_1.mjs LIFE_DIARY_BATCH_V0_1.d.mts; do
             cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
