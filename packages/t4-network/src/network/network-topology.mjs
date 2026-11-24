@@ -257,6 +257,8 @@ export async function executeT4NetworkRoute({
 // T4.2 uses the SAME admitted T4.1 placement and operator connection.
 // The server node is the opaque storage location, not a signed protocol
 // peer or original subject write owner. Revisions require a fresh binding.
+const nativeTopologyBindings=new WeakSet();
+export const isT4NativeTopologyTransport=value=>!!value&&typeof value==='object'&&nativeTopologyBindings.has(value);
 export function openT4NativeTopologyTransport({
   topology,workspaceId,objectFamily,serverNodeRef,nativeWireProfile,
   readOriginalTopology,getMode,verifyOriginalEndpoint,authorizeOriginalOperation,
@@ -274,7 +276,7 @@ export function openT4NativeTopologyTransport({
   const route=routes[0],place=pinned.placements.find(p=>p.policy.workspaceId===workspaceId&&p.policy.objectFamily===objectFamily);
   const profile=createT4NetworkConnectionProfile(pinned.profiles.find(p=>p.profileRef===route.profileRef));
   const binding=Object.freeze({topologyRef:pinned.topologyRef,topologyDigest:pinned.topologyDigest,
-    workspaceId,objectFamily,serverNodeRef,originalWriteOwnerRef:route.originalWriteOwnerRef,
+    workspaceId,objectFamily,serverNodeRef,localNodeRef:pinned.localNodeRef,originalWriteOwnerRef:route.originalWriteOwnerRef,
     profileRef:route.profileRef,locationRef:route.locationRef,nativeWireProfile});
   const current=async()=>{
     if(getMode()!=='T4_NETWORK')fail('T4_NETWORK_MODE_DISABLED');
@@ -319,10 +321,11 @@ export function openT4NativeTopologyTransport({
       await current();const decision=await verifyOriginalOwnerAgreement(Object.freeze({...proof,binding}));
       await current();return decision===true;
     }:undefined,fetchImpl,maxBytes,timeoutMs});
-  return Object.freeze({schema:'IWXA_T4_NATIVE_TOPOLOGY_TRANSPORT_V1',binding,
+  const opened=Object.freeze({schema:'IWXA_T4_NATIVE_TOPOLOGY_TRANSPORT_V1',binding,
     transport:connection.transport,close:connection.close,
     originalTopologyRecheckedPerRequest:true,originalAuthorityGranted:false,
     protocolPeerReassigned:false,operatorDerivativeRightsActivated:false,createsStore:false,createsScheduler:false});
+  nativeTopologyBindings.add(opened);return opened;
 }
 
 export async function transitionT4NetworkTopology({

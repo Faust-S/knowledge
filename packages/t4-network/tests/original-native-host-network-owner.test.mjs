@@ -8,6 +8,7 @@ import {createOriginalKernelNativeRelay} from '../../t3-core/src/t3/original-ker
 import {createTemporaryOriginalPersonalAuthority} from '../../t3-core/tests/support/t3-original-personal-authority.mjs';
 import {decodeOriginalNetworkRelayArgs,encodeOriginalNetworkRelayResult} from '../../t3-core/src/t3/original-kernel-native-relay-codec.mjs';
 import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-native-host-network-owner.mjs';
+import {createT4NetworkTopology,openT4NativeTopologyTransport} from '../src/network/network-topology.mjs';
 import {createT4OriginalHostCaptureLedgerPort} from '../src/network/original-host-capture-ledger.mjs';
 import {captureT4OriginalObjectMutation} from '../src/network/original-object-mutation-capture.mjs';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
@@ -127,7 +128,8 @@ async function sourceFixture(loseOriginalWrite=false){
 }
 function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=deny,requestBaseline=true,
   localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow,
-  indexMigration=false,technicalRead=allow,explicitResume=false,resumeInput=null,resumeAdmission=deny}){
+  indexMigration=false,technicalRead=allow,explicitResume=false,resumeInput=null,resumeAdmission=deny,
+  nativeTopologyTransport=null}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
@@ -172,7 +174,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     },
   };
   const owner=createT4OriginalNativeHostNetworkOwner({...scope(tech),role,requiredCryptoSuite:SUITE,
-    getMode:()=>mode,wireTransport:wire.wire,originalPorts,enableLocalSourceCapture:localCapture,enablePublicationIndexMigration:indexMigration,monotonicNow:()=>clock,
+    getMode:()=>mode,...(nativeTopologyTransport?{nativeTopologyTransport}:{wireTransport:wire.wire}),originalPorts,enableLocalSourceCapture:localCapture,enablePublicationIndexMigration:indexMigration,monotonicNow:()=>clock,
     enableExplicitNetworkResume:explicitResume,readOriginalNetworkResumeInput:resumeInput,
     readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null,
     onStep:r=>results.push(r)});
@@ -730,4 +732,54 @@ test('K33 original signed recipient retains no automatic write permission while 
     assert.equal(wire.puts,2);assert.equal(f.signatureCalls,1);
     assert.equal(recipient.events.filter(x=>x.workspace_id===WS).length,1);
   }finally{f.relay.close();}
+});
+
+test('K34 existing signed native Host uses an admitted T4.1 topology transport and suspends on changed original topology without retargeting',async()=>{
+  const source=await sourceFixture(),server='node:k34:server',location='loc:k34:server',family='family:k34:wire';
+  const caps=['network.frame.publish','network.frame.read','network.frame.index.publish','network.frame.index.read'];
+  const topology=createT4NetworkTopology({topologyRef:'topology:k34',revision:1,localNodeRef:S,
+    nodes:[{nodeRef:S,kind:'LOCAL_DEVICE',subjectRef:OWNER,operatorRef:OWNER,locationRef:'loc:k34:local',
+      availability:'AVAILABLE',advertisedCapabilities:[]},
+      {nodeRef:server,kind:'PERSONAL_SERVER',subjectRef:OWNER,operatorRef:OWNER,locationRef:location,
+        profileRef:'profile:k34',availability:'AVAILABLE',advertisedCapabilities:caps}],
+    profiles:[{profileRef:'profile:k34',mode:'SELF_HOSTED',operatorRef:OWNER,locationRef:location,
+      endpointUrl:'https://native.example.test/dav/'}],
+    connections:[{connectionRef:'link:k34',sourceNodeRef:S,targetNodeRef:server,profileRef:'profile:k34',
+      state:'READY',capabilities:caps,objectFamilies:[family]}],
+    placements:[{policy:{objectFamily:family,workspaceId:WS,authorityRoot:OWNER,writeOwnerRef:OWNER,
+      primaryPlacement:'LOCAL_PRIMARY_HOSTED_REPLICA',allowedLocations:['loc:k34:local',location],
+      retentionClass:'test',recoveryClass:'test',universalCloudMaster:false,subjectActionAuthority:false},
+      primaryNodeRef:S,replicaNodeRefs:[server]}]});
+  let current=topology,requests=0,credentials=0;const records=new Map();
+  const transport=openT4NativeTopologyTransport({topology,workspaceId:WS,objectFamily:family,serverNodeRef:server,
+    nativeWireProfile:'INDEXED',readOriginalTopology:async()=>current,getMode:()=> 'T4_NETWORK',
+    verifyOriginalEndpoint:async p=>p.endpointUrl==='https://native.example.test/dav/'&&p.originalWriteOwnerRef===OWNER,
+    authorizeOriginalOperation:async p=>p.originalWriteOwnerRef===OWNER&&p.storageLocationIsNotProtocolPeer,
+    getAuthorizationHeader:async()=>{credentials++;return 'Bearer test';},
+    fetchImpl:async(url,options)=>{
+      requests++;assert.equal(url.origin,'https://native.example.test');
+      const k=url.pathname.split('/').at(-1);
+      if(options.method==='GET')return records.has(k)?new Response(records.get(k)):new Response(null,{status:404});
+      assert.equal(options.method,'PUT');assert.equal(options.headers['If-None-Match'],'*');
+      if(records.has(k))return new Response(null,{status:412});
+      records.set(k,Buffer.from(options.body));return new Response(null,{status:201});
+    }});
+  const f=recoverySource(source,null,{nativeTopologyTransport:transport,localCapture:true});
+  try{
+    const s=await f.attach();await f.drive(s,'HEADS_PRESENT');
+    assert.equal(f.owner.originalTopologyBinding.topologyDigest,topology.topologyDigest);
+    assert.equal(f.owner.originalTopologyBinding.serverNodeRef,server);
+    assert.equal(f.owner.identity.recipientNodeRef,R);
+    assert.equal([...records.keys()].filter(k=>k.endsWith('.t4n')).length,1);
+    assert.equal([...records.keys()].filter(k=>k.endsWith('.t4i')).length,2);
+    const frame=decodeT4CandidateFrame([...records].find(([k])=>k.endsWith('.t4n'))[1]);
+    assert.equal(frame.sourceNodeRef,S);assert.equal(frame.recipientNodeRef,R);
+    assert.equal(f.signatureCalls,1);
+    const count=requests,creds=credentials,start=f.results.length;
+    current=createT4NetworkTopology({...topology,revision:2,previousTopologyDigest:topology.topologyDigest});
+    await f.drive(s,'NETWORK_WAKE_SUSPENDED',start);
+    assert.equal(requests,count);assert.equal(credentials,creds);assert.equal(f.signatureCalls,1);
+    assert.equal(f.relay.networkAttached,true);
+    assert.equal(source.events.filter(e=>e.workspace_id===WS).length,2);
+  }finally{f.relay.close();transport.close();}
 });

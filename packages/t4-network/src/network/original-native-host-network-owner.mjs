@@ -9,6 +9,7 @@ import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCu
 import {createT4OriginalNetworkSessionPhasePort} from './original-network-session-phases.mjs';
 import {createT4OriginalNetworkPublicationPort,isT4RecoverablePublicationWakeError,createT4OriginalPublicationIndexMigrationStepper} from './original-network-publication.mjs';
 import {createT4OriginalNetworkReplayPort} from './original-network-replay-checkpoint.mjs';
+import {isT4NativeTopologyTransport} from './network-topology.mjs';
 import {createT4CandidateFrameTransport} from './standard-network-wire-transport.mjs';
 import {createT4OriginalHostOutboxDispatcher} from './original-host-outbox-dispatcher.mjs';
 import {createT4OriginalHostDispatchTaskBinding} from './original-host-dispatch-task-binding.mjs';
@@ -54,11 +55,19 @@ const RECIPIENT_PORTS=['authorizeNetworkReceive','authorizeOriginalRecipientSess
 // key operations and independent materialization/source evidence.
 export function createT4OriginalNativeHostNetworkOwner({
   role,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
-  recipientNodeRef,scopeRef,ownerEpoch,requiredCryptoSuite,getMode,wireTransport,
+  recipientNodeRef,scopeRef,ownerEpoch,requiredCryptoSuite,getMode,wireTransport,nativeTopologyTransport=null,
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
   enableLocalSourceCapture=false,enablePublicationIndexMigration=false,
   enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,monotonicNow=()=>performance.now(),
 }={}){
+  if(nativeTopologyTransport!==null){
+    const b=nativeTopologyTransport.binding;
+    if(wireTransport!==undefined||!isT4NativeTopologyTransport(nativeTopologyTransport)||
+      b.workspaceId!==sourceWorkspaceId||b.originalWriteOwnerRef!==originalWriteOwnerRef||
+      b.localNodeRef!==(role==='SOURCE'?sourceNodeRef:recipientNodeRef))
+      fail('NATIVE_NETWORK_OWNER_TOPOLOGY_BINDING_MISMATCH');
+    wireTransport=nativeTopologyTransport.transport;
+  }
   if(!['SOURCE','RECIPIENT'].includes(role)||typeof enableLocalSourceCapture!=='boolean'||
     typeof enablePublicationIndexMigration!=='boolean'||typeof enableExplicitNetworkResume!=='boolean'||
     (enableExplicitNetworkResume&&(typeof readOriginalNetworkResumeInput!=='function'||
@@ -342,6 +351,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_NATIVE_HOST_NETWORK_OWNER_V1',role,identity,operations,
+    ...(nativeTopologyTransport?{originalTopologyBinding:nativeTopologyTransport.binding}:{}),
     ...(enableLocalSourceCapture?{localSourceMutation:Object.freeze({workspaceId:sourceWorkspaceId,
       methods:LOCAL_METHODS,invoke:invokeLocalSource})}:{}),
     createsScheduler:false,createsTaskEngine:false,createsStore:false,createsKernel:false,
