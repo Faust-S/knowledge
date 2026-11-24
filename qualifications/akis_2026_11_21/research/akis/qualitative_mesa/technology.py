@@ -662,6 +662,7 @@ def review_original_route_market_scope(state: Any, work: Any, raw: Any, at: int)
     selected = tuple(op.primary_resource for op in work.operations)
     joint_feasible = all(any(o.resource == resource and matching(op, o) for o in usable)
                          for op, resource in zip(work.operations, selected))
+    selected_preview_attempted = joint_feasible
     if joint_feasible:
         try:
             state.capacity_ledger.preview_plan(work.key, reservations(selected))
@@ -700,12 +701,66 @@ def review_original_route_market_scope(state: Any, work: Any, raw: Any, at: int)
         status = "SINGLE_OWNER_ALTERNATIVE_NOT_IDENTIFIABLE"
     else:
         status = "COOPERATIVE_PLAN_EXPANDS_DECLARED_FEASIBLE_ORDER_SET"
+    # The expansion relative to a single enterprise is different from
+    # exclusivity of the selected coalition. Check the remaining qualified
+    # cross-owner combinations on the SAME capacity ledger without bookings.
+    # Never conclude absence or minimality from a truncated search.
+    choices = [sorted({o.resource for o in usable if matching(stage, o)})
+               for stage in work.operations]
+    combination_count = 1
+    for alternatives in choices:
+        combination_count *= len(alternatives)
+    selection_owners = frozenset(state.resources[r] for r in selected)
+    feasible_owner_sets = set()
+    coalition_previews = 0
+    alternative_resource_plans = 0
+    complete_catalogue = all(complete.get(owner) and owner not in uncertain for owner in owners)
+    bounded_search_complete = combination_count <= 256
+    if joint_feasible:
+        feasible_owner_sets.add(selection_owners)
+    if bounded_search_complete:
+        for combination in product(*choices):
+            if combination == selected:
+                continue
+            coalition_previews += 1
+            try:
+                state.capacity_ledger.preview_plan(work.key, reservations(combination))
+            except CapacityBlocked:
+                continue
+            except CapacityInputError:
+                bounded_search_complete = False
+                continue
+            alternative_resource_plans += 1
+            feasible_owner_sets.add(frozenset(state.resources[r] for r in combination))
+    alternative_sets = feasible_owner_sets - {selection_owners}
+    absence_qualified = bounded_search_complete and complete_catalogue
+    competitor_status = ("ALTERNATIVE_OWNER_SET_EXISTS" if alternative_sets else
+                         "NO_OTHER_OWNER_SET_IN_DECLARED_SCOPE" if absence_qualified else
+                         "ALTERNATIVE_OWNER_SET_NOT_IDENTIFIABLE")
+    minimal_sets = {candidate for candidate in feasible_owner_sets
+                    if not any(other < candidate for other in feasible_owner_sets)}
+    minimality = ("SELECTED_OWNER_SET_NOT_FEASIBLE" if not joint_feasible else
+                  "SMALLER_FEASIBLE_SUBSET_EXISTS" if selection_owners not in minimal_sets else
+                  "MINIMAL_IN_DECLARED_SCOPE" if absence_qualified else "NOT_IDENTIFIABLE")
     return {
         "status": status, "selected_cooperative_plan_preview_feasible": joint_feasible,
+        "original_competing_owner_sets": {
+            "status": competitor_status,
+            "selected_owner_set_size": len(selection_owners),
+            "observed_feasible_alternative_resource_plan_count": alternative_resource_plans,
+            "observed_distinct_feasible_owner_set_count": len(feasible_owner_sets),
+            "observed_minimal_feasible_owner_set_count": len(minimal_sets),
+            "observed_minimum_feasible_owner_count": min(map(len, feasible_owner_sets), default=None),
+            "selected_owner_set_minimality": minimality,
+            "all_declared_combinations_examined": bounded_search_complete,
+            "all_active_enterprise_catalogue_scopes_qualified": complete_catalogue,
+            "qualified_absence_limited_to_declared_catalogues": True,
+            "technical_preview_not_independent_willingness_or_agreement": True,
+        },
         "original_declared_stage_count": len(work.operations),
         "registered_active_enterprise_count": len(owners),
         "single_owner_feasibility_counts": counts,
-        "original_capacity_previews_attempted": searched + int(joint_feasible),
+        "original_capacity_previews_attempted": searched + int(selected_preview_attempted) + coalition_previews,
         "buyer_compatibility_and_owner_scope_are_declared_not_physically_verified": True,
         "no_original_capacity_reserved_or_owner_consent_created": True,
         "actual_market_absence_or_additional_revenue_verified": False,

@@ -527,7 +527,8 @@ def test_strict_technology_source_expiry_after_commit_preserves_original_work():
     assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
 
 
-def original_market_complementarity_case(*, alternate=None, incomplete=False, source_stale=False):
+def original_market_complementarity_case(*, alternate=None, incomplete=False, source_stale=False,
+                                         buyer_alternate=False):
     """One existing buyer demand and complementary offers, not a second market."""
     d = strict_original_technology_route_case()
     scope = {
@@ -568,6 +569,13 @@ def original_market_complementarity_case(*, alternate=None, incomplete=False, so
         })
         scope["requirements"][1]["compatible_resources"].append("ra-finishing")
         offer("a", "ra-finishing", "finishing", source_stale)
+    if buyer_alternate:
+        d["resources"].append({
+            "id": "rb-finishing", "owner": "b", "availability": "AVAILABLE",
+            "capacity_units": 1, "capacity_unit": "UNIT", "site": "site-b",
+        })
+        scope["requirements"][1]["compatible_resources"].append("rb-finishing")
+        offer("b", "rb-finishing", "finishing")
     for owner in ("a", "b", "c"):
         if incomplete and owner == "a":
             continue
@@ -858,3 +866,29 @@ def test_failed_market_order_quality_never_counts_new_accepted_economic_value():
     assert r["status"] == "UNKNOWN"
     assert not r["original_accepted_result"]
     assert "local_research_only" not in r
+
+
+@pytest.mark.parametrize("kwargs,competition,minimality,feasible,minimal,minimum", [
+    ({}, "NO_OTHER_OWNER_SET_IN_DECLARED_SCOPE", "MINIMAL_IN_DECLARED_SCOPE", 1, 1, 2),
+    ({"buyer_alternate": True}, "ALTERNATIVE_OWNER_SET_EXISTS", "MINIMAL_IN_DECLARED_SCOPE", 2, 2, 2),
+    ({"alternate": "AVAILABLE"}, "ALTERNATIVE_OWNER_SET_EXISTS", "SMALLER_FEASIBLE_SUBSET_EXISTS", 2, 1, 1),
+    ({"incomplete": True}, "ALTERNATIVE_OWNER_SET_NOT_IDENTIFIABLE", "NOT_IDENTIFIABLE", 1, 1, 2),
+    ({"alternate": "UNKNOWN"}, "ALTERNATIVE_OWNER_SET_NOT_IDENTIFIABLE", "NOT_IDENTIFIABLE", 1, 1, 2),
+])
+def test_original_market_competing_owner_sets_not_confused_with_single_owner_absence(
+        kwargs, competition, minimality, feasible, minimal, minimum):
+    out = simulate(original_market_complementarity_case(**kwargs))
+    reviews = _market_reviews(out)
+    assert len(reviews) == 3
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    for review in reviews:
+        r = review["original_competing_owner_sets"]
+        assert r["status"] == competition
+        assert r["selected_owner_set_minimality"] == minimality
+        assert r["observed_distinct_feasible_owner_set_count"] == feasible
+        assert r["observed_minimal_feasible_owner_set_count"] == minimal
+        assert r["observed_minimum_feasible_owner_count"] == minimum
+        assert r["technical_preview_not_independent_willingness_or_agreement"]
+    if kwargs.get("buyer_alternate"):
+        assert all(r["status"] == "COOPERATIVE_PLAN_EXPANDS_DECLARED_FEASIBLE_ORDER_SET" for r in reviews)
+        assert out["works"]["w3"]["consenting_principals"] == ["a", "b", "c"]
