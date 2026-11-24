@@ -9,6 +9,7 @@ on:
       - tools/activity-r4pm-worker.py
       - tools/activity-r4pm-requirements.txt
       - tests/test_activity_r4pm_discovery.mjs
+      - tests/probe_activity_r4pm.py
       - .github/workflows/activity-r4pm-local.yml
 permissions:
   contents: read
@@ -31,5 +32,9 @@ jobs:
       - name: Install exact published Rust4PM wheels
         run: |
           python -m pip install --only-binary=:all: --no-deps --require-hashes -r tools/activity-r4pm-requirements.txt
+      - name: Inspect real binding on an alias-only synthetic fixture
+        shell: bash
+        run: |
+          node --input-type=module -e "import {buildSyntheticOcel2Example,prepareLocalOcel2Discovery} from './modules/activity-base-anonymizer/ocel2-evidence.mjs';const x=await buildSyntheticOcel2Example();const p=await prepareLocalOcel2Discovery(x.ocel2);process.stdout.write(JSON.stringify(p.ocel2));" | python -I tests/probe_activity_r4pm.py
       - name: Compare real Rust4PM with original Activity OCEL reader
         run: node --test tests/test_activity_ocel2_evidence.mjs tests/test_activity_r4pm_discovery.mjs
