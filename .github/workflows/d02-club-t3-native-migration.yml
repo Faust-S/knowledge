@@ -12,7 +12,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 75
     env:
-      SITE_SHA: f9917447757eac020e7866078f6b914059af43b0
+      SITE_SHA: 9f178f3dbbb54e4fc071b620dfe0f92b7d0bcc8c
       T3_SHA: 3056eef0665fb3503294d49b89d937af2ea060e2
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PORT: '55478'
@@ -284,7 +284,7 @@ jobs:
             if($server){$server.Kill($true);$server.WaitForExit();$server=$null}
             $candidate=Join-Path $env:RUNNER_TEMP 'club-t3-candidate/dist'
             $server=Start-Process -FilePath node -WorkingDirectory $site -PassThru -ArgumentList @(
-              'scripts/serve-current-static.mjs',('"'+$candidate+'"'),'--t2-loopback'
+              'scripts/serve-current-static.mjs',('"'+$candidate+'"'),'--t3-loopback'
             ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-t3-migrated-server.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-t3-migrated-server-error.private.log')
             $ready=$false
             for($i=0;$i -lt 90;$i++){
@@ -374,7 +374,7 @@ jobs:
           }
           try{
             $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
-              'scripts/serve-current-static.mjs',('"'+(Join-Path $env:RUNNER_TEMP 'club-t3-candidate/dist')+'"'),'--t2-loopback'
+              'scripts/serve-current-static.mjs',('"'+(Join-Path $env:RUNNER_TEMP 'club-t3-candidate/dist')+'"'),'--t3-loopback'
             ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-exchange-http.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-exchange-error.private.log') -PassThru
             $ready=$false
             for($i=0;$i -lt 60;$i++){
@@ -688,7 +688,7 @@ jobs:
           $server=$null;$browser=$null;$reopened=$null;$weekBrowser=$null;$weekReopened=$null
           try{
             $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
-              'scripts/serve-current-static.mjs',('"'+(Join-Path $env:RUNNER_TEMP 'club-t3-candidate/dist')+'"'),'--t2-loopback'
+              'scripts/serve-current-static.mjs',('"'+(Join-Path $env:RUNNER_TEMP 'club-t3-candidate/dist')+'"'),'--t3-loopback'
             ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-import-http.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-import-error.private.log') -PassThru
             $ready=$false
             for($i=0;$i -lt 60;$i++){
@@ -811,6 +811,220 @@ jobs:
             Write-Output 'D02_T3_IWXA_MIGRATED_PROFILE_INDEPENDENT_ROUNDTRIP=PASS'
           }finally{
             foreach($p in @($reopened,$browser)){if($p){try{$p.Kill($true)}catch{}}}
+            if($server){try{$server.Kill($true)}catch{}}
+          }
+      - name: Verify original Service Worker and cold offline readback in imported native profile
+        if: steps.independent_import.outcome == 'success'
+        working-directory: site
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          $site=(Resolve-Path .).Path
+          $origin='http://localhost:55478'
+          $edge=@(
+            (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft\Edge\Application\msedge.exe'),
+            (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Microsoft\Edge\Application\msedge.exe')
+          ) | Where-Object {Test-Path $_} | Select-Object -First 1
+          if(!$edge){throw 'D02_PERSONAL_EDGE_MISSING'}
+          $scope=[System.Windows.Automation.TreeScope]::Descendants
+          function FindName([string]$name,[string]$kind) {
+            $cond=[System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,$name)
+            if($kind -eq 'button' -or $kind -eq 'edit' -or $kind -eq 'check') {
+              $type=if($kind -eq 'button'){[System.Windows.Automation.ControlType]::Button}
+                elseif($kind -eq 'edit'){[System.Windows.Automation.ControlType]::Edit}
+                else{[System.Windows.Automation.ControlType]::CheckBox}
+              $cond=[System.Windows.Automation.AndCondition]::new(
+                $cond,[System.Windows.Automation.PropertyCondition]::new(
+                  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,$type))
+            }
+            foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+              Where-Object {$_.MainWindowHandle -ne 0})) {
+              try{
+                $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$p.MainWindowHandle)
+                if(!$root){continue}
+                $item=$root.FindFirst($scope,$cond)
+                if($item -and $item.Current.IsEnabled){return $item}
+              }catch{}
+            }
+            return $null
+          }
+          function AwaitName([string]$name,[string]$kind,[string]$fail) {
+            for($i=0;$i -lt 180;$i++){
+              $item=FindName $name $kind
+              if($item){return $item}
+              Start-Sleep -Milliseconds 350
+            }
+            throw $fail
+          }
+          # UI Automation can merge nested static text into a parent Name.
+          # Require the same visible human phrase while allowing a suffix.
+          function AwaitPrefix([string]$prefix,[string]$fail){
+            for($i=0;$i -lt 105;$i++){
+              foreach($p in @(Get-Process msedge -ErrorAction SilentlyContinue|
+                Where-Object {$_.MainWindowHandle -ne 0})){
+                try{
+                  $root=[System.Windows.Automation.AutomationElement]::FromHandle(
+                    [IntPtr]$p.MainWindowHandle)
+                  if(!$root){continue}
+                  $all=$root.FindAll($scope,
+                    [System.Windows.Automation.Condition]::TrueCondition)
+                  foreach($element in $all){
+                    $name=$element.Current.Name
+                    if($name -and $name.StartsWith($prefix)){return $element}
+                  }
+                }catch{}
+              }
+              Start-Sleep -Milliseconds 350
+            }
+            throw $fail
+          }
+          function InvokeButton([string]$name,[string]$fail){
+            $button=AwaitName $name 'button' $fail
+            try{
+              $pattern=[System.Windows.Automation.InvokePattern]$button.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $pattern.Invoke()
+            }catch{throw $fail}
+          }
+          function Activate([string]$label,[string]$fail){
+            $item=AwaitName $label '' $fail
+            try{
+              $pattern=[System.Windows.Automation.InvokePattern]$item.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+              $pattern.Invoke()
+            }catch{
+              try{
+                Add-Type -AssemblyName System.Windows.Forms
+                $item.SetFocus()
+                [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+              }catch{throw $fail}
+            }
+          }
+          function EnterText([string]$label,[string]$value,[string]$fail){
+            $item=AwaitName $label 'edit' $fail
+            try{
+              Add-Type -AssemblyName System.Windows.Forms
+              $item.SetFocus()
+              Set-Clipboard -Value $value -ErrorAction Stop
+              [System.Windows.Forms.SendKeys]::SendWait('^a')
+              [System.Windows.Forms.SendKeys]::SendWait('^v')
+            }catch{throw $fail}
+          }
+          function ConfirmChoice([string]$label,[string]$fail){
+            $item=AwaitName $label 'check' $fail
+            try{
+              $toggle=[System.Windows.Automation.TogglePattern]$item.GetCurrentPattern(
+                [System.Windows.Automation.TogglePattern]::Pattern)
+              if($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On)
+                {$toggle.Toggle()}
+            }catch{throw $fail}
+          }
+          function ResumeAfterCold([string]$fail){
+            $clicked=$false
+            for($i=0;$i -lt 160;$i++){
+              if(FindName 'Мои дела и планы' ''){return}
+              if(-not $clicked){
+                $resume=FindName 'Открыть мои записи' 'button'
+                if($resume){
+                  InvokeButton 'Открыть мои записи' 'D02_PERSONAL_COLD_FOCUS_DENIED'
+                  $clicked=$true
+                }
+              }
+              Start-Sleep -Milliseconds 350
+            }
+            # Report only known UI status flags; no user profile content.
+            foreach($name in @('Включить сохранение',
+              'Продолжить с сохранёнными данными','Ищем ваши сохранённые записи...',
+              'Мои дела и планы')){
+              $seen=[bool](FindName $name '')
+              Write-Output ("D02_PERSONAL_COLD_DIAGNOSTIC_"+
+                $(switch($name){
+                  'Включить сохранение' {'FIRST_USE'}
+                  'Продолжить с сохранёнными данными' {'RESUME_PROMPT'}
+                  'Ищем ваши сохранённые записи...' {'LOADING'}
+                  default {'MY_WORK'}
+                })+"="+$seen)
+            }
+            throw $fail
+          }
+          Add-Type -AssemblyName System.Windows.Forms
+          $server=$null;$browser=$null
+          $profile=Join-Path $env:RUNNER_TEMP 'd02-independent-import-profile'
+          if(!(Test-Path $profile)){throw 'D02_T3_OFFLINE_IMPORTED_PROFILE_MISSING'}
+          try{
+            Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            $candidate=Join-Path $env:RUNNER_TEMP 'club-t3-candidate/dist'
+            $server=Start-Process -FilePath node -WorkingDirectory $site -PassThru -ArgumentList @(
+              'scripts/serve-current-static.mjs',('"'+$candidate+'"'),'--t3-loopback'
+            ) -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'd02-t3-offline-server.private.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'd02-t3-offline-server-error.private.log')
+            $ready=$false
+            for($i=0;$i -lt 90;$i++){
+              Start-Sleep -Milliseconds 350
+              try{
+                $response=Invoke-WebRequest -Uri ($origin+'/t3-offline-manifest.json') -TimeoutSec 3
+                $manifest=$response.Content | ConvertFrom-Json
+                if($response.StatusCode -eq 200 -and $manifest.domain_origin -eq $origin -and $manifest.complete_static_tree){$ready=$true;break}
+              }catch{}
+            }
+            if(!$ready){throw 'D02_T3_OFFLINE_FIXTURE_UNAVAILABLE'}
+            $args=@('--force-renderer-accessibility','--no-first-run','--no-default-browser-check',"--user-data-dir=$profile","--app=$origin/workspace/")
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList $args
+            $null=AwaitName 'Моё в Клубе' '' 'D02_T3_OFFLINE_ONLINE_HOST_MISSING'
+            ResumeAfterCold 'D02_T3_OFFLINE_ONLINE_RESUME_FAILED'
+            $null=AwaitName 'Сохранённых записей: 1' '' 'D02_T3_OFFLINE_ONLINE_PROFILE_MISSING'
+            Activate 'T3: автономный режим' 'D02_T3_OFFLINE_DISCLOSURE_FAILED'
+            $toggle=AwaitName 'Включить полностью локальный режим сайта T3' '' 'D02_T3_OFFLINE_SWITCH_UNAVAILABLE'
+            try{$toggle.SetFocus();[System.Windows.Forms.SendKeys]::SendWait(' ')}catch{throw 'D02_T3_OFFLINE_SWITCH_FAILED'}
+            # This is the actual browser confirmation for the synthetic QA
+            # profile, not an injected or bypassed Service Worker message.
+            $null=AwaitPrefix 'Установить автономную копию этого домена T3?' 'D02_T3_OFFLINE_CONSENT_DIALOG_NOT_VISIBLE'
+            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+            # Installation triggers a reload, so open the disclosure again
+            # only if the original T3 status is no longer visible.
+            $installed=$false
+            for($i=0;$i -lt 360;$i++){
+              $active=FindName 'Работает локальная копия страниц и T3 Kernel. Модель ИИ устанавливается отдельно.' ''
+              if($active){$installed=$true;break}
+              if(!(FindName 'Включить полностью локальный режим сайта T3' '')){
+                $summary=FindName 'T3: автономный режим' ''
+                if($summary){
+                  try{
+                    $pattern=$summary.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+                    if($pattern.Current.ExpandCollapseState -eq [System.Windows.Automation.ExpandCollapseState]::Collapsed){$pattern.Expand()}
+                  }catch{
+                    # The native HTML details summary can be exposed as a
+                    # button instead of an ExpandCollapsePattern element.
+                    try{$summary.SetFocus();[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')}catch{}
+                  }
+                }
+              }
+              Start-Sleep -Milliseconds 500
+            }
+            if(!$installed){throw 'D02_T3_OFFLINE_ORIGINAL_WORKER_NOT_READY'}
+            Write-Output 'D02_T3_ORIGINAL_OFFLINE_SNAPSHOT_INSTALLED=PASS'
+            # Shut down the actual source server and every Edge process.
+            # No network interception or programmatic cache population.
+            $server.Kill($true);$server.WaitForExit();$server=$null
+            $reachable=$false
+            try{Invoke-WebRequest -Uri ($origin+'/workspace/') -TimeoutSec 2 | Out-Null;$reachable=$true}catch{}
+            if($reachable){throw 'D02_T3_OFFLINE_SERVER_STILL_REACHABLE'}
+            Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 3
+            $browser=Start-Process -FilePath $edge -PassThru -ArgumentList $args
+            $null=AwaitName 'Моё в Клубе' '' 'D02_T3_OFFLINE_COLD_HOST_NOT_VISIBLE'
+            ResumeAfterCold 'D02_T3_OFFLINE_COLD_RESUME_FAILED'
+            $null=AwaitName 'Сохранённых записей: 1' '' 'D02_T3_OFFLINE_COLD_PROFILE_MISSING'
+            Activate 'Посмотреть записи по темам' 'D02_T3_OFFLINE_COLD_FAMILY_FAILED'
+            $null=AwaitPrefix 'Последняя запись: Нативная проверка Club' 'D02_T3_OFFLINE_COLD_PROFILE_CONTENT_MISMATCH'
+            Write-Output 'D02_T3_OFFLINE_COLD_IMPORTED_STORE_READBACK=PASS'
+            Activate 'Мой профиль' 'D02_T3_OFFLINE_PUBLIC_PROFILE_LINK_MISSING'
+            $null=AwaitName 'Как к вам обращаться' 'edit' 'D02_T3_OFFLINE_PUBLIC_FORM_NOT_VISIBLE'
+            Write-Output 'D02_T3_OFFLINE_PUBLIC_DOMAIN_ROUTE=PASS'
+            Write-Output 'D02_T3_LOCAL_MODEL_AND_PWA_OS_INSTALL=NOT_RUN'
+          }finally{
+            Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             if($server){try{$server.Kill($true)}catch{}}
           }
       - name: No private artifacts
