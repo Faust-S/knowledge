@@ -660,3 +660,38 @@ test('K11 capture and recover a newly created Object after the original write re
   assert.equal(f.outbox.get('capture:new').sourceEventId,'event:new');
   assert.equal(writes,1);assert.equal(record.revision,1);
 });
+
+function recoveryAdapter(f,overrides={}){
+  return createT4OriginalHostCaptureAdapter({...f.ports,originalWriteOwnerRef:owner,
+    authorizeOriginalCaptureRecovery:async()=>true,
+    withOriginalSubjectMutation:async(proof,action)=>{
+      assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+      return action();
+    },
+    listOriginalPendingIntents:async()=>[...f.intents.values()].filter(i=>!f.outbox.has(i.captureRef)).map(i=>({
+      workspaceId:ws,originalWriteOwnerRef:owner,captureRef:i.captureRef,kind:'OBJECT_PUT',subjectId:i.objectId,
+      originalIntentEventId:'technical:'+i.captureRef,originalIntentRecordDigest:'sha256:'+'a'.repeat(64),
+      state:'ORIGINAL_MUTATION_OUTCOME_REQUIRES_RECONCILIATION',automaticSubjectMutationAllowed:false
+    })),...overrides});
+}
+test('K16 existing Host recovery step restores unknown Object write without another business mutation',async()=>{
+  const f=originalFixture();f.loseAck();await assert.rejects(capture(f,1),code('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  assert.equal(f.writes.length,1);assert.equal(f.outbox.size,0);
+  const host=recoveryAdapter(f),r=await host.reconcileNextOriginalCapture({workspaceId:ws});
+  assert.equal(r.state,'ORIGINAL_CAPTURE_RECONCILED');assert.equal(r.originalSourceEventId,'event:2');
+  assert.equal(r.originalT3OutboxVerified,true);assert.equal(r.originalSubjectMutationInvoked,false);
+  assert.equal(r.sourceCursorAdvanced,false);assert.equal(f.writes.length,1);assert.equal(f.outbox.size,1);
+  assert.equal((await host.reconcileNextOriginalCapture({workspaceId:ws})).state,'NO_PENDING_ORIGINAL_CAPTURE');
+});
+test('K16 absent original Event, denied consent and ambiguous inventory never replay the original write',async()=>{
+  const f=originalFixture();f.loseAck();await assert.rejects(capture(f,1),code('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  f.events.pop();
+  assert.equal((await recoveryAdapter(f).reconcileNextOriginalCapture({workspaceId:ws})).state,'WAITING_FOR_ORIGINAL_EVENT');
+  await assert.rejects(recoveryAdapter(f,{authorizeOriginalCaptureRecovery:async()=>false})
+    .reconcileNextOriginalCapture({workspaceId:ws}),code('ORIGINAL_HOST_CAPTURE_RECOVERY_DENIED'));
+  const first=f.intents.values().next().value;
+  f.intents.set('capture:2',{...first,captureRef:'capture:2'});
+  assert.equal((await recoveryAdapter(f).reconcileNextOriginalCapture({workspaceId:ws})).state,
+    'ORIGINAL_CAPTURE_RECONCILIATION_AMBIGUOUS');
+  assert.equal(f.writes.length,1);assert.equal(f.outbox.size,0);
+});

@@ -1,4 +1,5 @@
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
+import {runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
 import {captureT4OriginalObjectMutation} from './original-object-mutation-capture.mjs';
 import {reconcileT4OriginalMutationIntent} from './original-object-intent-recovery.mjs';
 import {captureT4OriginalHostSubjectMutation,
@@ -16,6 +17,7 @@ export function createT4OriginalHostCaptureAdapter({
   authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
   persistOriginalIntent,readOriginalIntent,
   persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
+  listOriginalPendingIntents,authorizeOriginalCaptureRecovery,
   isHostActive=()=>true,
 }={}){
   if(typeof getMode!=='function'||
@@ -77,12 +79,131 @@ export function createT4OriginalHostCaptureAdapter({
     return reconcileT4OriginalHostSubjectDeletion({...hostCapturePorts(),
       kind,captureRef,workspaceId,subjectId});
   }
+  // One recovery step for an existing original Host task. The immutable
+  // Intent inventory is not a retry queue. Only a proven original Event and
+  // current subject readback may produce a missing Outbox; no subject
+  // mutation or fabricated original operation receipt is ever returned.
+  async function reconcileNextOriginalCapture({workspaceId}={}){
+    if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_RECOVERY_REQUIRES_T4');
+    requiredOriginalHostCapturePorts();
+    if(!ID(workspaceId)||typeof listOriginalPendingIntents!=='function'||
+      typeof authorizeOriginalCaptureRecovery!=='function'||typeof withOriginalSubjectMutation!=='function')
+      fail('ORIGINAL_HOST_CAPTURE_RECOVERY_PORTS_REQUIRED');
+    const query=Object.freeze({workspaceId,originalWriteOwnerRef});
+    const result=(state,extra={})=>Object.freeze({
+      schema:'IWXA_T4_ORIGINAL_HOST_CAPTURE_RECOVERY_STEP_V1',state,...query,
+      originalSubjectMutationInvoked:false,originalMutationRetried:false,
+      originalOperationReceiptRecreated:false,sourceCursorAdvanced:false,
+      networkPublished:false,createsScheduler:false,createsStore:false,...extra});
+    const operations={OBJECT_PUT:'t1.putObject',ASSET_PUT:'t1.putAsset',RELATION_PUT:'t1.putRelation',
+      OBJECT_DELETE:'t1.deleteObject',ASSET_DELETE:'t1.deleteAsset',RELATION_DELETE:'t1.deleteRelation'};
+    const readPending=async()=>{
+      mode();
+      const rows=await listOriginalPendingIntents(query);mode();
+      if(!Array.isArray(rows)||rows.length>4096||new Set(rows.map(r=>r?.captureRef)).size!==rows.length||
+        rows.some(r=>r?.workspaceId!==workspaceId||r.originalWriteOwnerRef!==originalWriteOwnerRef||
+          !Object.hasOwn(operations,r.kind)||!ID(r.captureRef)||!ID(r.subjectId)||!ID(r.originalIntentEventId)||
+          !/^sha256:[a-f0-9]{64}$/.test(r.originalIntentRecordDigest)||
+          r.state!=='ORIGINAL_MUTATION_OUTCOME_REQUIRES_RECONCILIATION'||
+          r.automaticSubjectMutationAllowed!==false))
+        fail('ORIGINAL_HOST_CAPTURE_RECOVERY_INVENTORY_INVALID');
+      return rows;
+    };
+    const rows=await readPending();
+    if(rows.length===0)return result('NO_PENDING_ORIGINAL_CAPTURE',{pendingCaptureCount:0});
+    // The original Host must resolve any violation of its single-writer
+    // capture boundary explicitly. Do not choose an intent by timestamp.
+    if(rows.length!==1)return result('ORIGINAL_CAPTURE_RECONCILIATION_AMBIGUOUS',{
+      pendingCaptureCount:rows.length});
+    const pending=structuredClone(rows[0]);
+    const {captureRef,kind,subjectId}=pending,operation=operations[kind];
+    const boundary=Object.freeze({...query,captureRef,kind,subjectId,operation,
+      originalHostMustSerializeSubjectMutations:true,
+      originalHostMustSerializeAllWorkspaceGraphMutations:true,
+      originalMutationRecoveryOnly:true,networkIsNotOriginalGrant:true});
+    const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+    // This check runs INSIDE the original Host's exclusion boundary.
+    // It does not infer any business outcome from absence of an Event.
+    async function inspect(){
+      mode();
+      const current=await readPending();
+      if(current.length!==1||!same(current[0],pending))
+        fail('ORIGINAL_HOST_CAPTURE_RECOVERY_INVENTORY_CHANGED');
+      const permission=Object.freeze({...boundary,originalIntentEventId:pending.originalIntentEventId,
+        originalIntentRecordDigest:pending.originalIntentRecordDigest});
+      if(await authorizeOriginalCaptureRecovery(permission)!==true||
+        await authorizeOriginalRead({...query,captureRef,operation:'t1.listEventsSince'})!==true||
+        await authorizeOriginalWrite(boundary)!==true)
+        fail('ORIGINAL_HOST_CAPTURE_RECOVERY_DENIED');
+      mode();
+      const intent=await readOriginalIntent({...query,captureRef,kind,subjectId});
+      const schema=kind==='OBJECT_PUT'?'IWXA_T4_ORIGINAL_OBJECT_MUTATION_INTENT_V1':
+        kind.endsWith('_DELETE')?'IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1':
+          'IWXA_T4_ORIGINAL_SUBJECT_MUTATION_INTENT_V1';
+      if(intent?.schema!==schema||intent.captureRef!==captureRef||intent.workspaceId!==workspaceId||
+        intent.originalWriteOwnerRef!==originalWriteOwnerRef||
+        (kind!=='OBJECT_PUT'&&intent.kind!==kind))
+        fail('ORIGINAL_HOST_CAPTURE_RECOVERY_INVENTORY_CHANGED');
+      const key=kind.endsWith('_DELETE')?intent.sourceEvent?.idempotency_key:intent.idempotencyKey;
+      if(kind!=='OBJECT_PUT'&&!ID(key))fail('ORIGINAL_HOST_CAPTURE_RECOVERY_INTENT_INVALID');
+      const stream=await readOriginalEvents({...query,captureRef,operation:'t1.listEventsSince'});
+      mode();
+      if(!Array.isArray(stream)||stream.length>100000||stream.some(e=>e?.workspace_id!==workspaceId))
+        fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_STREAM_INVALID');
+      const matches=stream.filter(e=>kind==='OBJECT_PUT'?e?.payload?.iwxa_t4_capture_ref===captureRef:
+        kind==='OBJECT_DELETE'?e?.payload?.iwxa_t4_object_delete_intent===key:e?.idempotency_key===key);
+      if(matches.length>1)fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_AMBIGUOUS');
+      if(matches.length===1&&!ID(matches[0].event_id))fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_STREAM_INVALID');
+      if(await authorizeOriginalCaptureRecovery(permission)!==true||
+        await authorizeOriginalRead({...query,captureRef,operation:'t1.listEventsSince'})!==true)
+        fail('ORIGINAL_HOST_CAPTURE_RECOVERY_DENIED');
+      mode();
+      return matches[0]?.event_id??null;
+    }
+    let recovered,eventId;
+    const waiting=()=>result('WAITING_FOR_ORIGINAL_EVENT',{captureRef,kind,subjectId,pendingCaptureCount:1,
+      originalT3OutboxVerified:false});
+    if(kind.endsWith('_DELETE')){
+      // Deletion recovery already enters the same original mutation
+      // boundary. Extend its proof and recheck the inventory there; do
+      // not acquire another lock or nest a second mutation executor.
+      const noEvent=Error('NO_ORIGINAL_EVENT_FOR_CAPTURE');
+      try{
+        recovered=await reconcileT4OriginalHostSubjectDeletion({...hostCapturePorts(),
+          ...query,captureRef,kind,subjectId,
+          withOriginalSubjectMutation:(proof,action)=>withOriginalSubjectMutation(
+            Object.freeze({...proof,originalHostMustSerializeAllWorkspaceGraphMutations:true,
+              originalMutationRecoveryOnly:true}),async()=>{
+                eventId=await inspect();if(eventId===null)throw noEvent;
+                return action();
+              })});
+      }catch(e){if(e===noEvent)return waiting();throw e;}
+    }else{
+      const step=await runT4OriginalSubjectMutationBoundary(withOriginalSubjectMutation,boundary,async()=>{
+        eventId=await inspect();if(eventId===null)return waiting();
+        return kind==='OBJECT_PUT'?reconcileT4OriginalMutationIntent({...hostCapturePorts(),
+          ...query,captureRef,objectId:subjectId}):reconcileT4OriginalHostSubjectMutation({...hostCapturePorts(),
+          ...query,captureRef,kind,subjectId});
+      });
+      if(step.state==='WAITING_FOR_ORIGINAL_EVENT')return step;
+      recovered=step;
+    }
+    mode();
+    if(recovered?.captureRef!==captureRef||recovered.originalT3OutboxVerified!==true||
+      recovered.originalMutationRetried!==false||recovered.originalOperationReceiptRecreated!==false||
+      recovered.sourceCursorAdvanced!==false||recovered.networkPublished!==false||
+      recovered.recipientApplied!==false||recovered.window?.lastEventId!==eventId)
+      fail('ORIGINAL_HOST_CAPTURE_RECOVERY_RESULT_INVALID');
+    return result('ORIGINAL_CAPTURE_RECONCILED',{captureRef,kind,subjectId,originalSourceEventId:eventId,
+      originalT3OutboxVerified:true});
+  }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_HOST_CAPTURE_ADAPTER_V1',
     t3OriginalSessionIsSovereign:true,
     createsIndependentHost:false,createsIndependentStore:false,
     createsIndependentTaskEngine:false,
     dispose(){disposed=true;},
+    reconcileNextOriginalCapture,
     async putObject({mutationInput,sourceCursor,captureRef}={}){
       if(mode()==='LOCAL_T3'){
         if(!mutationInput||typeof mutationInput!=='object')

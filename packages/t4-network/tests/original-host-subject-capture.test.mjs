@@ -875,3 +875,37 @@ test('Object deletion denies hidden dependencies, live assets, live links and un
     assert.equal(f.current().deleted,false);
   }
 });
+
+function nativeRecoveryAdapter(f,kind,subjectId){
+  return createT4OriginalHostCaptureAdapter({...f.ports,
+    authorizeOriginalCaptureRecovery:async p=>p.kind===kind&&p.subjectId===subjectId,
+    listOriginalPendingIntents:async()=>[...f.intents.values()].filter(i=>!f.outbox.has(i.captureRef)).map(i=>({
+      workspaceId:ws,originalWriteOwnerRef:owner,captureRef:i.captureRef,kind:i.kind,subjectId,
+      originalIntentEventId:'technical:'+i.captureRef,originalIntentRecordDigest:'sha256:'+'a'.repeat(64),
+      state:'ORIGINAL_MUTATION_OUTCOME_REQUIRES_RECONCILIATION',automaticSubjectMutationAllowed:false
+    }))});
+}
+test('K16 existing original Host recovery step covers Asset, Relation and all three native deletes',async()=>{
+  for(const kind of ['ASSET_PUT','RELATION_PUT','ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE']){
+    const f=kind==='OBJECT_DELETE'?objectDeleteFixture():fixture(),host=adapter(f),
+      ref='capture:recovery:'+kind,subjectId=kind.startsWith('ASSET')?assetId:kind.startsWith('RELATION')?relationId:objectFrom;
+    let before=await cursor(f);
+    if(kind==='RELATION_DELETE'){
+      const p=await host.putRelation({mutationInput:relationInput(),captureRef:'capture:related',
+        sourceCursor:before});before=p.capture.nextCursor;
+    }
+    if(kind==='OBJECT_DELETE')f.loseObjectAck();else f.loseAck();
+    const method={ASSET_PUT:'putAsset',RELATION_PUT:'putRelation',ASSET_DELETE:'deleteAsset',
+      RELATION_DELETE:'deleteRelation',OBJECT_DELETE:'deleteObject'}[kind];
+    const mutationInput={ASSET_PUT:assetInput,RELATION_PUT:relationInput,ASSET_DELETE:deletionAssetInput,
+      RELATION_DELETE:deletionRelationInput,OBJECT_DELETE:objectDeleteInput}[kind]();
+    await assert.rejects(host[method]({mutationInput,captureRef:ref,sourceCursor:before,fromObjectId:objectFrom}));
+    const writes=f.writes.length;assert.equal(f.outbox.has(ref),false,kind);
+    const cold=nativeRecoveryAdapter(f,kind,subjectId),result=await cold.reconcileNextOriginalCapture({workspaceId:ws});
+    assert.equal(result.state,'ORIGINAL_CAPTURE_RECONCILED',kind);
+    assert.equal(result.originalT3OutboxVerified,true);assert.equal(result.originalSubjectMutationInvoked,false);
+    assert.equal(result.sourceCursorAdvanced,false);assert.equal(f.writes.length,writes,kind);
+    assert.equal(f.outbox.get(ref).sourceEventId,result.originalSourceEventId);
+    assert.equal((await cold.reconcileNextOriginalCapture({workspaceId:ws})).state,'NO_PENDING_ORIGINAL_CAPTURE');
+  }
+});
