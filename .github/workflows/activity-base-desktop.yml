@@ -49,6 +49,9 @@ on:
       - tools/activity-d05-simpy.py
       - tools/activity-simpy-requirements.txt
       - tests/test_activity_d05_simpy.py
+      - tests/test_activity_d05_simpy_review.mjs
+      - tests/activity_d05_simpy_fixture.mjs
+      - tools/activity-d05-simpy-review.mjs
       - .github/workflows/activity-base-desktop.yml
   workflow_dispatch:
 permissions:
@@ -83,7 +86,7 @@ jobs:
             foreach ($issue in $errors) { Write-Host $issue.Message }
             throw 'WINDOWS_UI_WITNESS_SYNTAX_INVALID'
           }
-      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_quality_review.mjs tests/test_activity_d05_technology_draft.mjs tests/test_activity_presidio_text_review.mjs tests/test_activity_observation_review.mjs tests/test_activity_observation_cli.mjs tests/test_activity_d05_route_cli.mjs tests/test_activity_r4pm_result_review.mjs tests/test_activity_r4pm_cli.mjs
+      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_quality_review.mjs tests/test_activity_d05_technology_draft.mjs tests/test_activity_presidio_text_review.mjs tests/test_activity_observation_review.mjs tests/test_activity_observation_cli.mjs tests/test_activity_d05_simpy_review.mjs tests/test_activity_d05_route_cli.mjs tests/test_activity_r4pm_result_review.mjs tests/test_activity_r4pm_cli.mjs
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
       - name: Verify local ARX and OpenDP worker contracts
@@ -234,10 +237,21 @@ jobs:
       - name: Install exact original SimPy 4.1.2 wheel
         run: |
           python -m pip install --only-binary=:all: --require-hashes -r tools/activity-simpy-requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Execute original SimPy comparative model
         env:
           IWXA_ACTIVITY_REAL_SIMPY: '1'
         run: python -m unittest discover -s tests -p test_activity_d05_simpy.py -v
+      - name: Run original D05 candidate through SimPy and Activity review
+        shell: bash
+        run: |
+          set -eu
+          root="$RUNNER_TEMP/activity-simpy"
+          node tests/activity_d05_simpy_fixture.mjs "$root"
+          python tools/activity-d05-simpy.py < "$root/request.json" > "$root/result.json"
+          IWXA_ACTIVITY_SIMPY_UPSTREAM="$root" node --test tests/test_activity_d05_simpy_review.mjs
   t3-original-d2-owner-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 14

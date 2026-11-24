@@ -1,0 +1,13 @@
+export type SimPyScenarioReview={model_order_count:number;on_time_model_orders:number;elapsed_minutes:number;
+ sum_turnaround_minutes:number;max_turnaround_minutes:number;sum_queue_minutes:number;resource_cost_minor:number;
+ other_cost_minor:number;declared_total_cost_minor:number;
+ orders:Array<{model_order:number;arrival_minutes:number;completion_minutes:number;turnaround_minutes:number}>;
+ operations:Array<{operation_id:string;service_minutes:number;buffer_minutes:number;queue_minutes:number}>;
+ resources:Array<{key:string;capacity:number;busy_minutes:number;queue_minutes:number;uses:number;capacity_minutes:number;cost_minor:number}>};
+export type SimPyComparisonReview={status:'LOCAL_D05_MODEL_COMPARISON_REVIEW';engine:'SimPy';version:'4.1.2';currency:string;
+ time_basis:'CONTINUOUS_OPERATION_MINUTES';buffer_policy:'RELEASE_RESOURCE_DURING_BUFFER'|'HOLD_RESOURCE_DURING_BUFFER';
+ deadline_after_minutes:number;quality_checks_count:number;candidate_status:'LOCAL_CANDIDATE_FOR_DISCLOSURE_REVIEW'|'LOCAL_CANDIDATE_NEEDS_REVIEW_INPUT';
+ limitations:string[];baseline:SimPyScenarioReview;recipient:SimPyScenarioReview;
+ source_match:'EXACT_REQUEST_AND_TECHNOLOGY_DIGEST';source_authority:'UNVERIFIED_LOCAL_SCENARIO_AND_TOOL_OUTPUT';
+ evidence:'MODEL_NOT_EXECUTION';domain_validation:'NOT_PERFORMED';anonymity:'NOT_ESTABLISHED';export_allowed:false;iwxa_package:null};
+export function reviewD05SimPyComparison(candidate:unknown,requestBytes:Uint8Array,raw:unknown):Promise<SimPyComparisonReview>;

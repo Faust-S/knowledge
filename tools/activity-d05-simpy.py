@@ -262,6 +262,7 @@ def simulate(simpy, nodes, scenario, arrivals, deadline, policy):
         resource_rows.append({"key": key, "capacity": r["capacity"], **count,
                               "capacity_minutes": capacity_minutes, "cost_minor": cost})
     order_count = len(arrivals)
+    need(resource_cost + other_cost * order_count <= 9007199254740991, "SIMPY_ACCOUNTING_RANGE")
     return {"model_order_count": order_count, "on_time_model_orders": sum(t <= deadline for t in turnaround),
             "elapsed_minutes": elapsed, "sum_turnaround_minutes": sum(turnaround),
             "max_turnaround_minutes": max(turnaround),
