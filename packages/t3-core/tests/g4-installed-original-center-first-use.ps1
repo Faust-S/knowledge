@@ -36,6 +36,7 @@ public static class G4InstalledModal {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(
     IntPtr hwnd);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd,int command);
   [StructLayout(LayoutKind.Sequential)]
   public struct Rect {
     public int Left,Top,Right,Bottom;
@@ -188,28 +189,57 @@ function AssertV8Route([string]$id,[string]$navigation,[string]$present,[string[
   }
   Write-Host "V8_ORIGINAL_INSTALLED_ROUTE_PASS $id"
 }
+# Navigation is read-only. A physical click must be acknowledged by a
+# unique contextual control; a click event alone is not a passed route.
+function OpenV8Root([string]$label,[string]$expected){
+  $script:phase='V8_INSTALLED_ROOT_NAVIGATION'
+  for($attempt=1;$attempt -le 3;$attempt++){
+    ClickButton $label
+    $ack=$null
+    try{$ack=FindName ('Раздел: '+$expected) 'Button' 8}catch{}
+    if($ack){
+      try{
+        if($ack.Current.IsEnabled -and -not $ack.Current.IsOffscreen){
+          Write-Host "V8_NATIVE_ROOT_ACK_PASS attempt=$attempt"
+          return
+        }
+      }catch{}
+    }
+    # Retry only the same UI navigation, never an original Owner action.
+  }
+  throw 'V8_NATIVE_ROOT_NAVIGATION_NOT_ACKNOWLEDGED'
+}
 function QualifyV8OriginalRoutes(){
   $script:phase='V8_INSTALLED_RESULTS_ROOT'
-  ClickButton 'Результаты'
+  $global:appProcess.Refresh()
+  [void][G4InstalledModal]::ShowWindow($global:appProcess.MainWindowHandle,3)
+  [void][G4InstalledModal]::SetForegroundWindow($global:appProcess.MainWindowHandle)
+  Start-Sleep -Milliseconds 500
+  OpenV8Root 'Результаты' 'Workspace T3'
   Check (WaitForText 'Подписанный T3 D3 получатель доступен' 160) 'V8_INSTALLED_ORIGINAL_D3_OWNER_MISSING'
   AssertV8Route 'SIGNED_WORKSPACE' 'Workspace T3' 'Одна Workspace. Вся работа организации.' @('Подписанные поручения T3','Независимый сотрудник организации')
   AssertV8Route 'EMPLOYEES' 'Подключение сотрудника T3' 'Независимый сотрудник организации' @('Подписанные поручения T3','Защищённое получение Result')
   AssertV8Route 'SIGNED_TASKS' 'Подписанные Task' 'Подписанные поручения T3' @('Независимый сотрудник организации','Защищённое получение Result')
   AssertV8Route 'RECEIVE' 'Получение .iwxa' 'Защищённое получение Result' @('Подписанные поручения T3','Восстановить решение без повтора')
-  AssertV8Route 'REVIEW' 'Human Review' 'Восстановить решение без повтора' @('Подписанные поручения T3','Независимый сотрудник организации')
+  AssertV8Route 'REVIEW' 'Human Review' 'Восстановить решение без повтора' @('Подписанные поручения T3','Независимый сотрудник организации','Защищённое получение Result')
   AssertV8Route 'APPLY' 'Отдельное применение' 'Для отдельного применения сначала прочитайте исходный Result' @('Подписанные поручения T3','Защищённое получение Result')
   AssertV8Route 'RECOVERY' 'Восстановление' 'Восстановить решение без повтора' @('Подписанные поручения T3','Защищённое получение Result')
+  [void](FindName 'Прочитать редакции Result' 'Button')
+  $newApply=$null
+  try{$newApply=FindName 'Apply' 'Button' 1}catch{}
+  Check ($null -eq $newApply) 'V8_RECOVERY_NEW_APPLY_VISIBLE'
   AssertV8Route 'REUSE' 'Использовать Result' 'Продолжить работу в исходной Workspace' @('Подписанные поручения T3','Независимый сотрудник организации')
   Check (WaitForNativeCenterReviewToolbar) 'V8_FOCUSED_ROUTES_LOST_ORIGINAL_SIGNED_WORKSPACE'
   Write-Host 'V8_ORIGINAL_T3_EIGHT_FOCUSED_ROUTES_SAME_NATIVE_SESSION_PASS'
   # Other roots have separate existing application lifecycles.
-  ClickButton 'Планы Atlas'
+  OpenV8Root 'Планы Atlas' 'Установленный Atlas'
   AssertV8Route 'ATLAS_NATIVE' 'Установленный Atlas' 'Открыть Atlas Desktop' @('Открыть портфель Atlas')
   AssertV8Route 'ATLAS_FILE' 'Файл Atlas' 'Открыть портфель Atlas' @('Открыть Atlas Desktop')
-  ClickButton 'Personal Agent и лицензии'
+  OpenV8Root 'Personal Agent и лицензии' 'Лицензии Publisher'
   AssertV8Route 'LICENSE' 'Лицензии Publisher' 'Лицензии Admin Center от Publisher' @('Ключ получателя для защищённой лицензии')
   AssertV8Route 'LICENSE_AGE' 'Получатель лицензий' 'Ключ получателя для защищённой лицензии' @('Лицензии Admin Center от Publisher')
-  ClickButton 'Профиль и настройки'
+  OpenV8Root 'Профиль и настройки' 'Локальные черновики'
+  Check (WaitForText 'Версия программы: 0.4.1' 100) 'V8_NATIVE_PROFILE_FORM_NOT_ACKNOWLEDGED'
   AssertV8Route 'LOCAL_DRAFTS' 'Локальные черновики' 'Сохранить локально' @('Версия программы: 0.4.1')
   AssertV8Route 'AGE_EXCHANGE' 'Защищённый обмен' 'Защищённый обмен .iwxa.age' @('Версия программы: 0.4.1')
   AssertV8Route 'GUIDE' 'Справка' 'Рабочие разделы Admin Center' @('Версия программы: 0.4.1','Защищённый обмен .iwxa.age')
