@@ -12,6 +12,7 @@ import {isOriginalKernelRegistryStatePort} from './original-kernel-registry-stat
 import {signOrganizationEnrollment,verifyOrganizationEnrollment}
   from './organizational-operation.mjs';
 import {PRODUCT_CONTRACT_IDS,validateProductContract} from './product-contracts.mjs';
+import {createOriginalCorporateSeatOwner} from './original-corporate-seat-owner.mjs';
 
 const refuse=code=>{const e=new Error(code);e.name='T3OriginalEmployeeEnrollmentError';e.code=code;throw e;};
 const check=(ok,code)=>{if(!ok)refuse(code);};
@@ -56,7 +57,7 @@ const coreGrant=(state,{id:grantId,organization,employeePersonId,roleId,
  */
 export function createOriginalEmployeeEnrollmentOwner({
   registry,issuerSigner,proveManager,trustedOrganization,
-  trustedWorkspaceId,clock=Date.now
+  trustedWorkspaceId,clock=Date.now,corporateSeatSource=null
 }={}){
   check(isOriginalKernelRegistryStatePort(registry)&&
     issuerSigner&&typeof issuerSigner.sign==='function'&&
@@ -612,6 +613,11 @@ export function createOriginalEmployeeEnrollmentOwner({
       taskSigned:false,taskDelivered:false});
   }
 
+  const corporateSeats=corporateSeatSource===null?null:createOriginalCorporateSeatOwner({
+    registry,issuerSigner,proveManager,trustedOrganization:pinnedOrganization,clock,
+    resolveEnrollment:reconstruct,readLicenseState:corporateSeatSource.read,
+    installedTrust:corporateSeatSource.installedTrust});
   return Object.freeze({begin,complete,readEnrollment,cancelPending,
-    issueTaskGrant,readTaskGrant});
+    issueTaskGrant,readTaskGrant,...(corporateSeats?{
+      viewCorporateSeats:corporateSeats.view,changeCorporateSeat:corporateSeats.change}: {})});
 }

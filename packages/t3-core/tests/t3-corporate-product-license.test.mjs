@@ -1,13 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync} from 'node:crypto';
-import {keyObjectSigner,iso,digest} from '../src/t3/access/core.mjs';
+import {keyObjectSigner,iso,digest,signRecord,makeProof,copy} from '../src/t3/access/core.mjs';
+import {createOriginalEmployeeEnrollmentOwner} from '../src/t3/access/original-employee-enrollment.mjs';
+import {createOriginalKernelRegistryStatePort} from '../src/t3/access/original-kernel-registry-state.mjs';
+import {model,originalKernelFixture,NOW as MEMBER_NOW} from './support/t3-two-corp-original-authority.mjs';
+import {CORPORATE_SEAT_ACTION,CORPORATE_SEAT_RESOURCE,CORPORATE_SEAT_PURPOSE,
+ evaluateOriginalCorporateSeatUse} from '../src/t3/access/original-corporate-seat-owner.mjs';
 import {
   CORPORATE_REQUEST_SCHEMA,CORPORATE_LICENSE_SCHEMA,CORPORATE_STATUS_SCHEMA,
   validateCorporateLicenseRequest,validateCorporateLicensePayload,
   createCorporateLicenseCandidate,signCorporateLicenseCandidate,
   inspectSignedCorporateLicense,signCorporateLicenseStatus,
-  inspectSignedCorporateLicenseStatus
+  inspectSignedCorporateLicenseStatus,projectCorporateSeatLicense
 } from '../src/t3/access/corporate-product-license.mjs';
 
 const NOW=Date.parse('2026-11-22T12:00:00.000Z');
@@ -205,4 +210,178 @@ test('expired STATUS or signing time does not become usable product entitlement'
    license:l,statusEnvelope:st,installedTrust:f.ownerState,
    organizationId:'org:north',now:NOW+50*3600000}),
   'CORP_STATUS_NOT_CURRENT');
+});
+
+
+// Independent synthetic production-profile keys; no real customer credential.
+// Real Ed25519 + original Kernel registry port over the existing deterministic
+// Kernel fixture. Not a native installed Windows or commercial authority test.
+async function seatFixture({seatLimit=1,employeeLimit=10}={}){
+ const f=fixture(),m=model(),org=m.all.north.descriptors.organizations[0];
+ // Use the same deterministic clock for issuer, registry and employee proof.
+ const time=MEMBER_NOW;
+ const now=()=>time;
+ for(const key of Object.values(f.ownerState.policy.keys)){
+  key.notBefore=iso(time-86400000);key.expiresAt=iso(time+370*86400000);
+ }
+ const pairs=[],makeLicense=(id,limit,prior=null,state='ACTIVE',sequence=1)=>{
+  const request={...f.request,requestId:'request:'+id,requestedAt:iso(time-1000),
+    limits:{...f.request.limits,employeeLimit,personalAgentSeats:limit}};
+  const p=createCorporateLicenseCandidate({request,ownerState:f.ownerState,
+   issuerAuthorityId:'publisher:iwxa',licenseId:id,lineageId:'lineage:seats',
+   renewalOf:prior,now:time});
+  const license=signCorporateLicenseCandidate({payload:p,ownerState:f.ownerState,signer:f.signer,now:time});
+  const statusEnvelope=signCorporateLicenseStatus({license,ownerState:f.ownerState,
+    signer:f.statusSigner,sequence,state,validUntil:iso(time+3600000),now:time});
+  const verified=inspectSignedCorporateLicenseStatus({license,statusEnvelope,
+    installedTrust:f.ownerState,organizationId:org.organizationId,now:time});
+  return {license,statusEnvelope,floor:verified.floor};
+ };
+ pairs.push(makeLicense('license:seat:one',seatLimit));
+ let revision=1;
+ const source={installedTrust:f.ownerState,read:()=>({revision,entries:copy(pairs)})};
+ // Convert the EXISTING two-company fixture to PRODUCTION before signing.
+ // No policy is edited after the trusted registry is initialized.
+ m.policy.environment='PRODUCTION';
+ for(const key of Object.values(m.policy.keys))key.environment='PRODUCTION';
+ for(const [id,env] of Object.entries(m.state.grants))
+  m.state.grants[id]=signRecord({...env.payload,environment:'PRODUCTION'},m.signers[env.keyId]);
+ for(const [id,env] of Object.entries(m.state.statuses))
+  m.state.statuses[id]=signRecord({...env.payload,environment:'PRODUCTION'},m.signers[env.keyId]);
+ const auth=m.policy.authorities['issuer:north'];
+ auth.roles.push('worker','role:manager','assigner');
+ auth.rightClasses.push('ADMINISTRATION','DATA','ENTITLEMENT');
+ auth.resources.push('authority:issuer:north','workspace:ws:north','subject:org:north',
+   'recipient:org:north','field:result','field:task','operation:UPSERT',CORPORATE_SEAT_RESOURCE);
+ auth.actions.push('grant.issue','grant.revoke','work.prepare','package.export',CORPORATE_SEAT_ACTION);
+ auth.purposes.push('access-administration','work','handoff','assignment',CORPORATE_SEAT_PURPOSE);
+ Object.assign(m.policy.actionCatalog,{'grant.issue':'ADMINISTRATION','grant.revoke':'ADMINISTRATION',
+   'work.prepare':'ACTION','package.export':'DATA',[CORPORATE_SEAT_ACTION]:'ENTITLEMENT'});
+ const admin={...m.state.grants['grant:north'].payload,id:'grant:seat:manager',
+   lineageId:'grant:seat:manager',roleId:'role:manager',rightClass:'ADMINISTRATION',
+   resources:['authority:issuer:north'],actions:['grant.issue','grant.revoke'],
+   purposes:['access-administration']};
+ const issuer=m.all.north.issuerSigner,manager=m.all.north.credentialSigner;
+ m.state.grants[admin.id]=signRecord(admin,issuer);
+ const old=m.state.statuses['issuer:north'].payload;
+ m.state.statuses['issuer:north']=signRecord({...old,entries:[...old.entries,
+  {grantId:admin.id,state:'ACTIVE',effectiveAt:old.issuedAt,evidenceRef:'evidence:manager'}]},issuer);
+ const employees=['alice','bob','claire'].map(name=>{
+  const kp=generateKeyPairSync('ed25519'),personId='person:seat:'+name,keyId='key:seat:'+name;
+  m.policy.keys[keyId]={subjectId:personId,environment:'PRODUCTION',status:'ACTIVE',
+    uses:['PROOF'],publicKey:kp.publicKey.export({type:'spki',format:'pem'}).toString(),
+    notBefore:iso(time-1000),expiresAt:iso(time+3600000)};
+  return {personId,signer:keyObjectSigner(keyId,kp.privateKey)};
+ });
+ const kernel=originalKernelFixture(),opts={kernel:kernel.api,workspaceId:'ws:host-registry',
+   trustedPolicy:m.policy,clock:now};
+ let registry=createOriginalKernelRegistryStatePort(opts);
+ const open=(wrongProof=false)=>createOriginalEmployeeEnrollmentOwner({
+  registry,issuerSigner:issuer,clock:now,trustedOrganization:org,trustedWorkspaceId:'ws:north',
+  proveManager:async({request,challenge})=>makeProof(request,challenge,time,
+    wrongProof?employees[0].signer:manager,'PRODUCTION'),corporateSeatSource:source
+ });
+ await registry.commitSignedState(m.state);
+ let owner=open();
+ for(const e of employees){
+  const challenge=await owner.begin({organization:org,workspaceId:'ws:north',
+    employeePersonId:e.personId,credentialKeyId:e.signer.keyId,
+    managerPersonId:'person:operator',managerGrantId:admin.id,ttlSeconds:600});
+  const enrolled=await owner.complete({enrollmentId:challenge.enrollmentId,
+    employeeProof:makeProof(challenge.request,challenge.challenge,time,e.signer,'PRODUCTION')});
+  e.enrollmentId=enrolled.enrollmentId;e.workGrantId=enrolled.grantIds.work;
+ }
+ const command=async(kind,id,target=null,from=null)=>{
+  const v=await owner.viewCorporateSeats();
+  return {kind,commandId:id,expectedRegistryDigest:v.registryDigest,
+    expectedLicenseDigest:v.licenseEvidenceDigest,managerPersonId:'person:operator',
+    managerGrantId:admin.id,employeePersonId:target?.personId??null,
+    enrollmentId:target?.enrollmentId??null,fromGrantId:from};
+ };
+ const checkUse=async(e,grantId,at=time)=>{
+  const state=await registry.readState(),grant=state.grants[grantId].payload;
+  const request={id:'use:seat',actorId:e.personId,principalId:org.organizationId,
+   roleId:grant.roleId,grantId,audience:grant.audience,resource:CORPORATE_SEAT_RESOURCE,
+   action:CORPORATE_SEAT_ACTION,purpose:CORPORATE_SEAT_PURPOSE,
+   realmId:org.realmId,operationDigest:'operation:agent'};
+  const challenge='seat-use-independent-challenge';
+  return evaluateOriginalCorporateSeatUse({state,organization:org,licenseState:source.read(),
+    installedTrust:source.installedTrust,request,challenge,
+    proof:makeProof(request,challenge,at,e.signer,'PRODUCTION'),now:at});
+ };
+ return {employees,kernel,command,source,checkUse,time,
+  get owner(){return owner;},get registry(){return registry;},
+  cold(){registry=createOriginalKernelRegistryStatePort(opts);owner=open();},
+  wrongManager(){owner=open(true);},
+  renew(limit){pairs.push(makeLicense('license:seat:revision:'+revision,limit,
+    pairs.at(-1).license.payload.id));revision++;},
+  revoke(){const pair=pairs.at(-1);
+    pair.statusEnvelope=signCorporateLicenseStatus({license:pair.license,
+      ownerState:f.ownerState,signer:f.statusSigner,sequence:pair.floor.sequence+1,state:'REVOKED',
+      validUntil:iso(time+3600000),now:time});
+    pair.floor=inspectSignedCorporateLicenseStatus({license:pair.license,
+      statusEnvelope:pair.statusEnvelope,installedTrust:f.ownerState,
+      organizationId:org.organizationId,now:time}).floor;revision++;}};
+}
+test('original corporate seat: assign, exact replay, capacity rejection, atomic transfer, cold release',async()=>{
+ const s=await seatFixture(),[alice,bob]=s.employees;
+ const initial=await s.owner.viewCorporateSeats();
+ assert.equal(initial.independentlyEnrolledEmployees,3);
+ assert.equal(initial.availableSeats,1);
+ const assign=await s.command('ASSIGN','cmd:seat:alice',alice);
+ const first=await s.owner.changeCorporateSeat(assign);
+ assert.equal(first.outcome,'COMMITTED');
+ assert.equal(first.view.reservedSeats,1);assert.equal(first.view.availableSeats,0);
+ const before=s.kernel.calls.length;
+ s.cold();
+ assert.equal((await s.owner.changeCorporateSeat(assign)).outcome,'ALREADY_COMMITTED');
+ assert.equal(s.kernel.calls.length,before);
+ assert.equal((await s.checkUse(alice,first.grantId)).allowed,true);
+ assert.equal((await s.checkUse(bob,first.grantId)).allowed,false);
+ await assert.rejects(s.owner.changeCorporateSeat(await s.command('ASSIGN','cmd:seat:bob',bob)),
+  /CORP_SEAT_CAPACITY_EXCEEDED/);
+ await assert.rejects(s.owner.changeCorporateSeat({...assign,employeePersonId:bob.personId}),
+  /CORP_SEAT_COMMAND_REUSE_CONFLICT/);
+ const transfer=await s.command('TRANSFER','cmd:seat:transfer',bob,first.grantId);
+ const moved=await s.owner.changeCorporateSeat(transfer);
+ assert.equal(s.kernel.calls.length,before+1,'transfer is one original Kernel commit');
+ assert.equal(moved.view.reservedSeats,1);
+ assert.equal((await s.checkUse(alice,first.grantId)).allowed,false);
+ assert.equal((await s.checkUse(bob,moved.grantId)).allowed,true);
+ assert.equal((await s.registry.readState()).grants[alice.workGrantId].payload.rightClass,'ACTION');
+ s.cold();
+ assert.equal((await s.owner.changeCorporateSeat(transfer)).outcome,'ALREADY_COMMITTED');
+ const release=await s.command('RELEASE','cmd:seat:release',null,moved.grantId);
+ assert.equal((await s.owner.changeCorporateSeat(release)).view.reservedSeats,0);
+ assert.equal((await s.checkUse(bob,moved.grantId)).allowed,false);
+ s.cold();assert.equal((await s.owner.changeCorporateSeat(release)).outcome,'ALREADY_COMMITTED');
+});
+test('renewal shrinks signed capacity without silently deleting people; revoke disables feature only',async()=>{
+ const s=await seatFixture({seatLimit:2}),[alice,bob]=s.employees;
+ const a=await s.owner.changeCorporateSeat(await s.command('ASSIGN','cmd:renew:a',alice));
+ const b=await s.owner.changeCorporateSeat(await s.command('ASSIGN','cmd:renew:b',bob));
+ s.renew(1);
+ let v=await s.owner.viewCorporateSeats();
+ assert.equal(v.reservedSeats,2);assert.equal(v.overSeatLimit,1);
+ assert.equal((await s.checkUse(alice,a.grantId)).allowed,false);
+ assert.equal((await s.checkUse(bob,b.grantId)).allowed,false);
+ await s.owner.changeCorporateSeat(await s.command('RELEASE','cmd:renew:release',null,b.grantId));
+ assert.equal((await s.checkUse(alice,a.grantId)).allowed,true);
+ s.revoke();assert.equal((await s.owner.viewCorporateSeats()).reservedSeats,1);
+ assert.equal((await s.checkUse(alice,a.grantId)).allowed,false);
+ const result=await s.owner.changeCorporateSeat(await s.command('RELEASE','cmd:revoke:release',null,a.grantId));
+ assert.equal(result.view.reservedSeats,0);
+ assert.equal(result.view.licenseState,'NO_CURRENT_LICENSE');
+});
+test('seat change requires exact current registry and original manager proof, no hidden grant writes',async()=>{
+ const s=await seatFixture(),[alice,bob]=s.employees;
+ const pending=await s.command('ASSIGN','cmd:stale:bob',bob);
+ await s.owner.changeCorporateSeat(await s.command('ASSIGN','cmd:stale:alice',alice));
+ const before=s.kernel.calls.length;
+ await assert.rejects(s.owner.changeCorporateSeat(pending),/CORP_SEAT_REGISTRY_CHANGED/);
+ const current=await s.owner.viewCorporateSeats(),occupied=current.assignments.find(x=>x.reserved);
+ const release=await s.command('RELEASE','cmd:wrong:release',null,occupied.grantId);
+ s.wrongManager();
+ await assert.rejects(s.owner.changeCorporateSeat(release),/CORP_SEAT_MANAGER_PROOF_DENIED/);
+ assert.equal(s.kernel.calls.length,before);
 });

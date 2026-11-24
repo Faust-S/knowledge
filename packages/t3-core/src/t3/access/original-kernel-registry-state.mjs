@@ -295,8 +295,10 @@ export function createOriginalKernelRegistryStatePort({
       "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
     return Object.freeze({revision:record.revision,state:copy(state)});
   };
-  const commit=async(signedState)=>{
+  const commit=async(signedState,{expectedStateDigest=null}={})=>{
     const before=await read({allowAbsent:true});
+    if(expectedStateDigest!==null)check(before&&HEX.test(expectedStateDigest)&&
+      digest(before.state)===expectedStateDigest,'T3_ACCESS_REGISTRY_EXPECTED_STATE_CHANGED');
     const now=validClock(clock);
     const draft=copy(signedState);
     draft.lastObservedAt=iso(now);

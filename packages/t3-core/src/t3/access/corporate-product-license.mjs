@@ -5,6 +5,8 @@
 import {copy,digest,fields,identifier,insist,iso,signRecord,
   timestamp,verifyRecord} from './core.mjs';
 
+import {PRODUCT_CONTRACT_IDS,validateProductContract} from './product-contracts.mjs';
+
 export const CORPORATE_REQUEST_SCHEMA='IWXA_T3_CORPORATE_LICENSE_REQUEST/1';
 export const CORPORATE_LICENSE_SCHEMA='IWXA_T3_PRODUCT_LICENSE/3';
 export const CORPORATE_STATUS_SCHEMA='IWXA_T3_PRODUCT_LICENSE_STATUS/3';
@@ -356,4 +358,72 @@ export function inspectSignedCorporateLicenseStatus({license,statusEnvelope,
     // No effective employee grants/assignments until original Host admission.
     assignablePersonalAgentSeats:0,productionActivation:false,
     originalHolderReceiptRequired:true});
+}
+
+
+/** Commercial projection from the complete ORIGINAL recipient Store.
+ * A trusted native Host supplies the persisted pair/floor history and
+ * independently enrolled trust, never a UI tariff or a single chosen file.
+ * Historical signatures establish replacement even when a successor expires.
+ * This projection is NOT a grant, seat allocation or employee identity.
+ */
+export function projectCorporateSeatLicense({entries,revision,installedTrust,
+  organizationId,now=Date.now()}={}){
+  identifier(organizationId);
+  insist(Number.isSafeInteger(revision)&&revision>=0&&
+    Array.isArray(entries)&&entries.length<=64&&
+    Number.isSafeInteger(now)&&now>0&&
+    installedTrust?.trustOrigin==='HOST_PREINSTALLED_PUBLIC_POLICY'&&
+    installedTrust?.policy?.environment==='PRODUCTION',
+    'CORP_SEAT_ORIGINAL_LICENSE_HISTORY_REQUIRED');
+  const rows=[],requests=new Set();
+  for(const entry of entries){
+    const p=validateCorporateLicensePayload(entry?.license?.payload);
+    const st=validateCorporateStatusPayload(entry?.statusEnvelope?.payload);
+    insist(!requests.has(p.requestId),'CORP_SEAT_REQUEST_CONFLICT');
+    requests.add(p.requestId);
+    insist(entry.floor&&timestamp(p.notBefore)<=now&&
+      timestamp(st.issuedAt)<=now,'CORP_SEAT_HISTORY_FLOOR_OR_TIME_INVALID');
+    const current=now<Math.min(timestamp(p.expiresAt),timestamp(st.validUntil));
+    const verified=inspectSignedCorporateLicenseStatus({
+      license:entry.license,statusEnvelope:entry.statusEnvelope,
+      installedTrust,organizationId,priorFloor:entry.floor,
+      now:current?now:Math.max(timestamp(p.notBefore),timestamp(st.issuedAt))
+    });
+    insist(digest(verified.floor)===digest(entry.floor),
+      'CORP_SEAT_HISTORY_FLOOR_MISMATCH');
+    rows.push({p,verified,current,licenseDigest:digest(entry.license)});
+  }
+  const graph=inspectCorporateLicenseLineages(rows.map(row=>row.p));
+  const heads=new Set(graph.heads),unresolved=new Set(graph.unresolvedHeads);
+  const candidates=rows.filter(row=>heads.has(row.p.id)&&row.current&&
+    row.verified.status==='ACTIVE');
+  const state=candidates.some(row=>unresolved.has(row.p.id))?'LINEAGE_INCOMPLETE':
+    candidates.length>1?'MULTIPLE_CURRENT_LICENSES':
+    candidates.length===1?'VERIFIED_CAPACITY_CANDIDATE':'NO_CURRENT_LICENSE';
+  let candidate=null;
+  if(state==='VERIFIED_CAPACITY_CANDIDATE'){
+    const {p,verified,licenseDigest}=candidates[0];
+    const lineageDigest=digest([p.issuerAuthorityId,p.subject.id,p.product.id,p.lineageId]);
+    const licensed=p.featureIds.includes('PERSONAL_AGENT_CORPORATE');
+    const entitlement=licensed?validateProductContract('ProductFeatureEntitlement',{
+      kind:'ProductFeatureEntitlement',schema:PRODUCT_CONTRACT_IDS.ProductFeatureEntitlement,
+      entitlementId:'entitlement:'+digest([p.id,'PERSONAL_AGENT_CORPORATE']),
+      subjectType:'ORGANIZATION',subjectId:organizationId,productId:p.product.id,
+      featureId:'PERSONAL_AGENT_CORPORATE',licenseId:p.id,
+      publisherAuthorityId:p.issuerAuthorityId,status:'ACTIVE',
+      validFrom:p.notBefore,expiresAt:p.expiresAt,statusValidUntil:verified.statusValidUntil,
+      limits:{employeeLimit:p.limits.employeeLimit,
+        personalAgentSeats:p.limits.personalAgentSeats}
+    }):null;
+    candidate={licenseId:p.id,lineageId:p.lineageId,lineageDigest,licenseDigest,
+      publisherAuthorityId:p.issuerAuthorityId,tariffId:p.tariff.id,
+      tariffRevision:p.tariff.revision,sequence:verified.sequence,
+      statusDigest:verified.floor.statusDigest,expiresAt:p.expiresAt,
+      statusValidUntil:verified.statusValidUntil,employeeLimit:p.limits.employeeLimit,
+      seatLimit:licensed?p.limits.personalAgentSeats:0,entitlement};
+  }
+  return Object.freeze({organizationId,revision,state,candidate,
+    evidenceDigest:digest({revision,organizationId,entries}),
+    holderApplied:false,productionActivation:false});
 }
