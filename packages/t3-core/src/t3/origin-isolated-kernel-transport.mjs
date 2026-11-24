@@ -171,7 +171,14 @@ export function bindSignedOriginalKernelPort({port,createSignedFacade,isActive,
 
 // UI-origin transport. It is intentionally not a KernelSession: only the
 // original signed Host may construct the T2 KernelFacade behind the port.
-export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=15000}={}){
+// Original signed native Control performs JIT and current-scope readback
+// before returning from the Kernel. Windows DPAPI qualification measured
+// a real 30.6-second signed read. The previous 15-second client deadline
+// discarded valid receipts even though the native operation was successful.
+// A deadline is a bound, not a delay; successful responses still resolve
+// immediately, and SSE invalidation/disconnect still reject immediately.
+// Explicit shorter caller budgets remain supported (e.g. source tests).
+export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=120000}={}){
   if(!isPort(port)||typeof isActive!=='function'||
      !Number.isInteger(timeoutMs)||timeoutMs<100||timeoutMs>120000)
     throw fail('T3_D1_ISOLATED_KERNEL_CLIENT_INVALID');
@@ -229,7 +236,7 @@ export function createIsolatedKernelClient({port,isActive=()=>true,timeoutMs=150
         ['receive','accept','reject','applyAccepted'].includes(args[0])
           ?'T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN':null;
       // The native age CLI may legitimately run longer than the ordinary
-      // 15-second Kernel read. This only affects the signed native D7 port.
+      // signed Kernel read. This only affects the signed native D7 port.
       const operationTimeout=uncertainCode?30*60*1000:
         method==='nativeD7Request'||method==='nativeD6Request'?120000:timeoutMs;
       return new Promise((resolve,reject)=>{
