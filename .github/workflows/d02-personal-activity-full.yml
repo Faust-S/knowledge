@@ -5,6 +5,7 @@ on:
       - work/2026-11-24-d02-personal-activity-qualification
     paths:
       - .github/workflows/d02-personal-activity-full.yml
+      - packages/t3-core/tests/t3-club-full-site-roundtrip.mjs
   workflow_dispatch:
 permissions:
   contents: read

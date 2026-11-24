@@ -432,8 +432,25 @@ try{
  phase="OFFLINE_AGENDA_KERNEL_SAVE";
  await weekSummary.getByRole("link",{name:"Сохранить план в рабочей области",exact:true}).click();
  const weekImport=page.getByTestId("club-t0-import-card");
+ phase="OFFLINE_AGENDA_KERNEL_PREVIEW";
+ await weekImport.getByTestId("club-t0-import-preview").waitFor({state:"visible"});
+ phase="OFFLINE_AGENDA_KERNEL_SCOPE";
+ const choice=weekImport.getByTestId("club-t0-import-workspace-choice").filter({visible:true});
+ await poll(async()=>await choice.count()===1,"AGENDA_SINGLE_PERSONAL_SCOPE");
+ check(await choice.getAttribute("data-workspace-id")===base.scope,"AGENDA_ORIGINAL_SCOPE");
+ // The previous visit to / was intentionally unscoped. Choosing the
+ // original personal data is a human operation, not a default grant.
+ if(await choice.getAttribute("aria-pressed")!=="true")await choice.click();
+ await poll(async()=>await choice.getAttribute("aria-pressed")==="true","AGENDA_ORIGINAL_SCOPE_FOCUSED");
+ phase="OFFLINE_AGENDA_KERNEL_INSPECTION";
+ const rowChoice=weekImport.getByTestId("club-t0-import-object-checkbox");
+ await poll(async()=>await rowChoice.count()===1&&await rowChoice.isEnabled()&&await rowChoice.isChecked(),"AGENDA_TARGET_NEW");
+ phase="OFFLINE_AGENDA_KERNEL_CONSENT";
  await weekImport.getByLabel("Подтверждаю сохранение выбранных результатов на этом устройстве.",{exact:true}).check();
- await weekImport.getByRole("button",{name:"Сохранить выбранное",exact:true}).click();
+ const weekSave=weekImport.getByRole("button",{name:"Сохранить выбранное",exact:true});
+ await poll(async()=>await weekSave.isEnabled(),"AGENDA_KERNEL_SAVE_READY",15000);
+ phase="OFFLINE_AGENDA_KERNEL_COMMIT";
+ await weekSave.click();
  await poll(async()=>{
   const w=await localWeek();return w?.kernelSource?.workspaceId===base.scope&&w.kernelSource.revision>0&&w.kernelSource.syncedUpdatedAt===w.updatedAt;
  },"AGENDA_KERNEL_RECEIPT");
@@ -495,6 +512,15 @@ try{
   editorAliasPresent:!!document.querySelector('[data-testid="club-profile-host-card"] form input[name="alias"]'),
   editorGoalsPresent:!!document.querySelector('[data-testid="club-profile-host-card"] form textarea[name="goals"]'),
   profileResume:!!document.querySelector('[data-testid="club-workspace-profile-resume"]'),
+  weekSavePending:document.documentElement.hasAttribute("data-club-t2-save-pending"),
+  importCard:!!document.querySelector('[data-testid="club-t0-import-card"]'),
+  importPreviewVisible:!!document.querySelector('[data-testid="club-t0-import-preview"]'),
+  importScopeChoices:document.querySelectorAll('[data-testid="club-t0-import-workspace-choice"]').length,
+  importScopeFocused:document.querySelectorAll('[data-testid="club-t0-import-workspace-choice"][aria-pressed="true"]').length,
+  importRowCount:document.querySelectorAll('[data-testid="club-t0-import-object-checkbox"]').length,
+  importRowDisabled:document.querySelectorAll('[data-testid="club-t0-import-object-checkbox"]:disabled').length,
+  importConfirmDisabled:document.querySelector('[data-testid="club-t0-import-confirm"]')?.disabled??null,
+  nativeToday:!!document.querySelector('[data-testid="club-native-today"]'),
   restoreCard:!!document.querySelector('[data-testid="club-t2-restore-card"]'),
   restoreCheckboxes:document.querySelectorAll('[data-testid="club-t2-restore-card"] input[type="checkbox"]').length,
   restoreChecked:document.querySelectorAll('[data-testid="club-t2-restore-card"] input[type="checkbox"]:checked').length,
