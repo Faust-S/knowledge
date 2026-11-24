@@ -86,6 +86,7 @@ jobs:
           if(!(Test-Path (Join-Path $candidate 't3-offline-manifest.json'))){throw 'D02_NATIVE_T3_DIST_MISSING'}
           Write-Output 'D02_NATIVE_T3_CANDIDATE=PASS'
       - name: Verify original T2 first-use then migrate the actual browser profile to T3
+        id: migration
         working-directory: site
         run: |
           $ErrorActionPreference='Stop'
@@ -372,6 +373,34 @@ jobs:
               $pattern.Invoke()
             }catch{throw $code}
           }
+          function ConfirmCheckboxPrefix([string]$prefix,[string]$code){
+            for($i=0;$i -lt 100;$i++){
+              $found=[System.Collections.Generic.List[object]]::new()
+              $cond=[System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::CheckBox)
+              foreach($root in @(Roots)){
+                try{
+                  foreach($item in $root.FindAll($scope,$cond)){
+                    $name=$item.Current.Name
+                    if($item.Current.IsEnabled -and $name -and $name.StartsWith($prefix)){
+                      $found.Add($item)
+                    }
+                  }
+                }catch{}
+              }
+              if($found.Count -gt 1){throw ($code+'_AMBIGUOUS')}
+              if($found.Count -eq 1){
+                try{
+                  $toggle=$found[0].GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+                  if($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On){$toggle.Toggle()}
+                  if($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On){return}
+                }catch{throw $code}
+              }
+              Start-Sleep -Milliseconds 350
+            }
+            throw $code
+          }
           try{
             $server=Start-Process -FilePath node -WorkingDirectory $site -ArgumentList @(
               'scripts/serve-current-static.mjs',('"'+(Join-Path $env:RUNNER_TEMP 'club-t3-candidate/dist')+'"'),'--t3-loopback'
@@ -424,6 +453,10 @@ jobs:
               }
             }catch{throw 'D02_EXCHANGE_NATIVE_WORKSPACE_SELECTION_FAILED'}
             Activate 'Предпросмотр' 'D02_EXCHANGE_PREVIEW_BUTTON_DISABLED'
+            # T3 requires an explicit review of the ordinary unencrypted archive.
+            # Do not weaken the original UI gate or use a direct Kernel call.
+            ConfirmCheckboxPrefix 'Я проверил состав предпросмотра и понимаю' 'D02_T3_EXPORT_REVIEW_NOT_CONFIRMED'
+            Write-Output 'D02_T3_EXPORT_EXPLICIT_REVIEW=PASS'
             Activate 'Собрать архив' 'D02_EXCHANGE_ORIGINAL_PACKAGING_FAILED'
             # Numeric count only; never print archive contents or a user profile.
             $previewObjects='UNOBSERVED'
@@ -451,8 +484,11 @@ jobs:
             $digest=[System.Security.Cryptography.SHA256]::HashData($data)
             if($digest.Length -ne 32 -or $data.Length -lt 129){throw 'D02_EXCHANGE_PHYSICAL_ARCHIVE_CORRUPT'}
             Write-Output 'D02_EXCHANGE_NATIVE_PHYSICAL_EXPORT=PASS'
-            Activate 'Подтвердить приём' 'D02_EXCHANGE_CONFIRM_NOT_AVAILABLE'
-            $null=Await 'Приём подтверждён' '' 'D02_EXCHANGE_ORIGINAL_RECEIPT_MISSING'
+            # Only after reading the physical bytes may the native user
+            # acknowledge that the local backup exists on this device.
+            ConfirmCheckboxPrefix 'Я проверил, что файл ' 'D02_T3_EXPORT_PHYSICAL_FILE_ACK_FAILED'
+            Activate 'Подтвердить сохранение' 'D02_EXCHANGE_CONFIRM_NOT_AVAILABLE'
+            $null=Await 'Сохранение архива подтверждено вами' '' 'D02_EXCHANGE_ORIGINAL_RECEIPT_MISSING'
             Write-Output 'D02_EXCHANGE_NATIVE_ORIGINAL_CONFIRM_RECEIPT=PASS'
           }finally{
             if($browser){try{$browser.Kill($true)}catch{}}
@@ -814,8 +850,10 @@ jobs:
             if($server){try{$server.Kill($true)}catch{}}
           }
       - name: Verify original Service Worker and cold offline readback in imported native profile
-        if: steps.independent_import.outcome == 'success'
+        if: always() && steps.migration.outcome == 'success'
         working-directory: site
+        env:
+          INDEPENDENT_IMPORT_PASSED: ${{ steps.independent_import.outcome == 'success' }}
         run: |
           $ErrorActionPreference='Stop'
           Add-Type -AssemblyName UIAutomationClient
@@ -951,8 +989,9 @@ jobs:
           }
           Add-Type -AssemblyName System.Windows.Forms
           $server=$null;$browser=$null
-          $profile=Join-Path $env:RUNNER_TEMP 'd02-independent-import-profile'
-          if(!(Test-Path $profile)){throw 'D02_T3_OFFLINE_IMPORTED_PROFILE_MISSING'}
+          $imported=$env:INDEPENDENT_IMPORT_PASSED -eq 'true'
+          $profile=Join-Path $env:RUNNER_TEMP $(if($imported){'d02-independent-import-profile'}else{'d02-personal-first-use-edge-profile'})
+          if(!(Test-Path $profile)){throw 'D02_T3_OFFLINE_PROFILE_MISSING'}
           try{
             Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             $candidate=Join-Path $env:RUNNER_TEMP 'club-t3-candidate/dist'
@@ -1018,7 +1057,8 @@ jobs:
             $null=AwaitName 'Сохранённых записей: 1' '' 'D02_T3_OFFLINE_COLD_PROFILE_MISSING'
             Activate 'Посмотреть записи по темам' 'D02_T3_OFFLINE_COLD_FAMILY_FAILED'
             $null=AwaitPrefix 'Последняя запись: Нативная проверка Club' 'D02_T3_OFFLINE_COLD_PROFILE_CONTENT_MISMATCH'
-            Write-Output 'D02_T3_OFFLINE_COLD_IMPORTED_STORE_READBACK=PASS'
+            if($imported){Write-Output 'D02_T3_OFFLINE_COLD_IMPORTED_STORE_READBACK=PASS'}
+            else{Write-Output 'D02_T3_OFFLINE_COLD_MIGRATED_STORE_READBACK=PASS'}
             Activate 'Мой профиль' 'D02_T3_OFFLINE_PUBLIC_PROFILE_LINK_MISSING'
             $null=AwaitName 'Как к вам обращаться' 'edit' 'D02_T3_OFFLINE_PUBLIC_FORM_NOT_VISIBLE'
             Write-Output 'D02_T3_OFFLINE_PUBLIC_DOMAIN_ROUTE=PASS'
