@@ -239,3 +239,11 @@ def test_each_dependent_resource_use_binds_to_single_existing_economic_record():
     raw["resource_uses"].append({**resources[0],"id":"duplicate"})
     with pytest.raises(EconomicInputError,match="DUPLICATE_QUALITY_CORRECTION_RESOURCE_USE"):
         evaluate_economic_claims(raw,x.s.subjects,x.s.works,trace=x.s.trace)
+
+
+def test_dependency_preview_does_not_infer_failure_before_result_or_missing_assessment():
+    state=QualitativeAKIS(world())
+    assert "correction_dependency_scope" not in state.snapshot()["works"]["w1"]["assurance"]
+    case=Case()
+    case.w.result_ref=None
+    assert "correction_dependency_scope" not in case.s.snapshot()["works"]["w1"]["assurance"]
