@@ -594,7 +594,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 "joint_purchasing_original_cash_bindings",
                 "joint_purchasing_ancillary_original_bindings",
                 "operator_service_economics", "recipient_use_value_evidence", "market_order_economics",
-                "uncommitted_order_cost_evidence",
+                "uncommitted_order_cost_evidence", "portfolio_scope_evidence",
             }):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
@@ -1433,8 +1433,10 @@ def review_original_uncommitted_order_costs(
     Zero selected-work cash requires every owner's own explicit scope, not
     the mere absence of a row. Costs remain original resource-use rows.
     """
-    _record(raw, {"work", "work_revision", "refusing_owner", "refusal_at",
-                  "owner_scopes", "recipient_no_order_observation"}, "UNCOMMITTED_ORDER")
+    capacity_case = isinstance(raw, dict) and "capacity_block" in raw
+    base_fields = {"work", "work_revision", "owner_scopes", "recipient_no_order_observation"}
+    _record(raw, base_fields | ({"capacity_block"} if capacity_case else
+                               {"refusing_owner", "refusal_at"}), "UNCOMMITTED_ORDER")
     key = _identifier(raw["work"], "UNCOMMITTED_ORDER_WORK")
     strict = economic_view.get("original_strict_context_source_qualification", {})
     if (not isinstance(strict_work_ids, tuple) or key not in strict_work_ids
@@ -1443,20 +1445,53 @@ def review_original_uncommitted_order_costs(
     work = state.works[key]
     providers = state.capacity_ledger.original_owners(work.resource_requirements)
     owners = providers | {work.customer, state.institution.operator}
-    if (raw["work_revision"] != work.source_revision or raw["refusing_owner"] not in providers | {work.customer}
+    if (raw["work_revision"] != work.source_revision
             or work.obligation != "NOT_ACCEPTED" or work.result != "NOT_SUBMITTED"):
         raise EconomicInputError("UNCOMMITTED_ORDER_ORIGINAL_INDEPENDENT_REFUSAL_REQUIRED")
     events = [e for e in state.trace if e.get("work") == key]
-    refusals = [e for e in events if e.get("actor") == raw["refusing_owner"]
-                and e.get("action") == "interest_update" and e.get("outcome") == "APPLIED"]
     commits = [e for e in events if e.get("action") == "commit"]
-    if (not refusals or refusals[-1].get("interest_willingness") != "DECLINES"
-            or type(raw["refusal_at"]) is not int or refusals[-1]["at"] != raw["refusal_at"]
-            or len(commits) != 1 or commits[0].get("outcome") != "BLOCKED"
-            or commits[0].get("reason") not in {
-                "INDEPENDENT_ACCEPTANCE_MISSING", "FORMATION_INTEREST_ORIGINAL_OWNER_DECLINES"}
-            or commits[0]["at"] <= raw["refusal_at"]):
-        raise EconomicInputError("UNCOMMITTED_ORDER_ORIGINAL_REFUSAL_AND_BLOCKED_COMMIT_REQUIRED")
+    if capacity_case:
+        block = _record(raw["capacity_block"], {"at", "resource", "competing_work"},
+                        "UNCOMMITTED_ORDER_CAPACITY_BLOCK")
+        resource = _identifier(block["resource"], "CAPACITY_RESOURCE")
+        competitor = _identifier(block["competing_work"], "COMPETING_WORK")
+        # The original failed atomic commitment is the decisive evidence.
+        # A named earlier accepted reservation must overlap this order's
+        # actual resource interval. A forecast or unavailable asset alone
+        # is not an observed competition between two original Works.
+        from .technology import operation_reservations
+        from .capacity import Reservation
+        planned = (operation_reservations(key, work.operations) if work.operations else
+                   [Reservation(n.resource, key, work.slot_start, work.slot_end, n.units)
+                    for n in work.resource_requirements])
+        reservations = state.capacity_ledger.reservations
+        if (type(block["at"]) is not int or competitor == key
+                or competitor not in strict_work_ids
+                or len(commits) != 1 or commits[0].get("outcome") != "BLOCKED"
+                or commits[0].get("reason") not in {"RESOURCE_CAPACITY_EXCEEDED",
+                                                    "RESOURCE_CALENDAR_CAPACITY_EXCEEDED"}
+                or commits[0].get("blocking_resource") != resource
+                or commits[0]["at"] != block["at"]
+                or not any(e.get("work") == competitor and e.get("action") == "commit"
+                           and e.get("outcome") == "APPLIED" and e["at"] < block["at"]
+                           for e in state.trace)
+                or not any(r.work == competitor and r.resource == resource
+                           and p.resource == resource and max(r.start, p.start) < min(r.end, p.end)
+                           for r in reservations for p in planned)
+                or any(r.work == key for r in reservations)):
+            raise EconomicInputError("UNCOMMITTED_ORDER_ORIGINAL_CAPACITY_CONFLICT_REQUIRED")
+    else:
+        refusals = [e for e in events if e.get("actor") == raw["refusing_owner"]
+                    and e.get("action") == "interest_update" and e.get("outcome") == "APPLIED"]
+        if raw["refusing_owner"] not in providers | {work.customer}:
+            raise EconomicInputError("UNCOMMITTED_ORDER_ORIGINAL_INDEPENDENT_REFUSAL_REQUIRED")
+        if (not refusals or refusals[-1].get("interest_willingness") != "DECLINES"
+                or type(raw["refusal_at"]) is not int or refusals[-1]["at"] != raw["refusal_at"]
+                or len(commits) != 1 or commits[0].get("outcome") != "BLOCKED"
+                or commits[0].get("reason") not in {
+                    "INDEPENDENT_ACCEPTANCE_MISSING", "FORMATION_INTEREST_ORIGINAL_OWNER_DECLINES"}
+                or commits[0]["at"] <= raw["refusal_at"]):
+            raise EconomicInputError("UNCOMMITTED_ORDER_ORIGINAL_REFUSAL_AND_BLOCKED_COMMIT_REQUIRED")
     money = economic_claims
     if any(t["work"] == key for t in money["transfers"]):
         raise EconomicInputError("UNCOMMITTED_ORDER_ZERO_TRANSFER_SCOPE_CONTRADICTED")
@@ -1538,7 +1573,8 @@ def review_original_uncommitted_order_costs(
     return {
         "schema": "AKIS_ORIGINAL_UNCOMMITTED_ORDER_COST/1.0",
         "status": "MODEL_ORIGINAL_UNCOMMITTED_ORDER_COST_SCOPE",
-        "original_independent_refusal_applied": True,
+        "original_independent_refusal_applied": not capacity_case,
+        **({"original_capacity_conflict_applied": True} if capacity_case else {}),
         "original_commit_blocked": True,
         "original_accepted_result": False,
         "independent_zero_transfer_declaration_count": len(owners),
@@ -1556,3 +1592,152 @@ def review_original_uncommitted_order_costs(
             "declared_no_order_recipient_valuation_horizon": horizon,
         },
     }
+
+
+def review_original_portfolio_economics(
+    raw: Any, *, state: Any, economic_claims: Mapping[str, Any],
+    economic_view: Mapping[str, Any], strict_work_ids: str | tuple[str, ...] | None,
+) -> dict[str, Any]:
+    """One fixed population and selected Work set, one original ledger.
+
+    This adds no cash row, reservation, value or choice. Each owner declares
+    complete nonoverlapping incremental costs across the selected portfolio.
+    Historical cash remains in liquidity paths. A lost alternative receipt
+    is not added as a cost when its distinct order is already compared.
+    """
+    _record(raw, {"works", "owner_scopes"}, "PORTFOLIO_SCOPE")
+    works = [_identifier(w, "PORTFOLIO_WORK") for w in _bounded_list(raw["works"], "PORTFOLIO_WORK")]
+    keys = set(works)
+    strict = economic_view.get("original_strict_context_source_qualification", {})
+    owners = set(state.subjects)
+    if (len(works) < 2 or len(keys) != len(works)
+            or not isinstance(strict_work_ids, tuple) or not keys <= set(strict_work_ids)
+            or strict.get("status") != "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED"
+            or not isinstance(raw["owner_scopes"], dict) or set(raw["owner_scopes"]) != owners
+            or strict.get("source_scoped_original_portfolio_owner_count") != len(owners)):
+        raise EconomicInputError("PORTFOLIO_ORIGINAL_FIXED_OWNER_AND_WORK_SCOPE_REQUIRED")
+    money = economic_claims
+    horizon = money.get("cash_timing", {}).get("horizon_end")
+    sources = dict(economic_view["declared_source_index"])
+    life = economic_view.get("lifecycle_resource_costs", {})
+    timed = life.get("original_work_event_timing", {}).get("by_original_work", {})
+    liquidity = economic_view.get("cash_timing", {}).get("per_original_owner_private_research_projection", {})
+    payment = {row["transfer_id"]: row for row in
+               economic_view.get("work_payment_causality", {}).get("bindings", ())}
+    transfers = {t["id"]: t for t in money["transfers"] if t["work"] in keys}
+    resources = {r["id"]: r for r in money["resource_uses"] if r["work"] in keys}
+    value = economic_view.get("original_recipient_use_value", {}).get("local_research_only", {})
+    uncommitted = economic_view.get("original_uncommitted_order_costs", {})
+    rejected_key = money.get("uncommitted_order_cost_evidence", {}).get("work")
+    accepted, blocked, reasons = [], [], set()
+    gross = {o: Decimal(0) for o in owners}
+    decision_ticks = []
+    for key in works:
+        work = state.works[key]
+        if work.obligation == "FULFILLED" and work.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT":
+            accepts = [e["at"] for e in state.trace if e.get("work") == key and
+                       e.get("action") == "accept" and e.get("outcome") == "APPLIED"]
+            if key not in value or len(accepts) != 1:
+                reasons.add("PORTFOLIO_ORIGINAL_RECIPIENT_VALUE_INCOMPLETE")
+                continue
+            accepted.append(key)
+            decision_ticks.extend(accepts)
+            gross[work.customer] += Decimal(value[key]["incremental_gross_noncash_use_value"])
+        elif (key == rejected_key and uncommitted.get("original_capacity_conflict_applied")
+              and uncommitted.get("status") == "MODEL_ORIGINAL_UNCOMMITTED_ORDER_COST_SCOPE"):
+            blocked.append(key)
+            decision_ticks.append(money["uncommitted_order_cost_evidence"]["capacity_block"]["at"])
+        else:
+            reasons.add("PORTFOLIO_ORIGINAL_RESULT_OR_CAPACITY_BLOCK_REQUIRED")
+    if len({state.works[k].customer for k in keys}) != len(keys):
+        reasons.add("PORTFOLIO_DISTINCT_ORIGINAL_RECIPIENTS_REQUIRED")
+    if any(payment.get(i, {}).get("status") !=
+           "MODEL_ORIGINAL_TRIGGER_DUE_AND_POSTING_ORDER_CONSISTENT" for i in transfers):
+        reasons.add("PORTFOLIO_ORIGINAL_PAYMENT_CAUSALITY_INCOMPLETE")
+
+    def ids(values):
+        rows = [_identifier(i, "PORTFOLIO_ORIGINAL_ROW") for i in
+                _bounded_list(values, "PORTFOLIO_ORIGINAL_ROW")]
+        if len(rows) != len(set(rows)):
+            raise EconomicInputError("PORTFOLIO_DUPLICATE_ORIGINAL_ROW")
+        return set(rows)
+
+    # A scope source must be distinct from every original cost, valuation,
+    # settlement, coverage and single-order declaration. An independent
+    # document for portfolio nonoverlap cannot be its own underlying row.
+    used_ids = set()
+    for row in (*money["transfers"], *money["resource_uses"]):
+        used_ids.add(row["source"])
+    for mapping in (money["coverage"]["COOPERATION"],
+                    money.get("lifecycle_costs", {}).get("scope_proofs", {}).get("COOPERATION", {})):
+        used_ids.update(mapping.values())
+    for row in money.get("recipient_use_value_evidence", []):
+        used_ids.update(row[k]["source"] for k in ("baseline", "outcome", "rate"))
+        used_ids.add(row["nonoverlap_source"])
+    for field in ("market_order_economics", "uncommitted_order_cost_evidence"):
+        used_ids.update(r["source"] for r in money.get(field, {}).get("owner_scopes", {}).values())
+    no_order = money.get("uncommitted_order_cost_evidence", {}).get("recipient_no_order_observation")
+    if no_order:
+        used_ids.add(no_order["source"])
+    for field in ("work_payment_conditions", "work_payment_settlement_claims",
+                  "work_payment_due_amendments"):
+        for row in money.get(field, []):
+            used_ids.update(row.get("owner_sources", {}).values())
+    used_refs = {sources[i]["reference"] for i in used_ids if i in sources}
+    used_refs.update(b["cost_evidence_ref"] for b in money.get("lifecycle_costs", {}).get("event_bindings", []))
+    seen_refs, private = set(), {}
+    for owner in sorted(owners):
+        row = _record(raw["owner_scopes"][owner], {"source", "observed_at", "transfer_ids",
+                      "resource_use_ids", "complete_exclusive_portfolio_cost_and_value_scope"},
+                      "PORTFOLIO_OWNER_SCOPE")
+        ref = sources[_flow_ref(row["source"], sources, {owner})]["reference"]
+        if (ref in used_refs or ref in seen_refs
+                or row["complete_exclusive_portfolio_cost_and_value_scope"] is not True
+                or type(row["observed_at"]) is not int or type(horizon) is not int
+                or not decision_ticks or not max(decision_ticks) < row["observed_at"] <= horizon):
+            raise EconomicInputError("PORTFOLIO_INDEPENDENT_NONOVERLAP_SCOPE_REQUIRED")
+        seen_refs.add(ref)
+        ts = {i: t for i, t in transfers.items() if owner in {t["payer"], t["payee"]}}
+        rs = {i: r for i, r in resources.items() if r["owner"] == owner}
+        anchors = {b["resource_use_id"] for k in keys for b in timed.get(k, {}).get(
+            "per_original_scenario_owner", {}).get("COOPERATION", {}).get(owner, [])}
+        if (ids(row["transfer_ids"]) != set(ts) or ids(row["resource_use_ids"]) != set(rs)
+                or anchors != set(rs)
+                or not economic_view["per_subject"][owner]["declared_complete"]["COOPERATION"]
+                or not life.get("owner_scoped_details", {}).get(owner, {}).get(
+                    "scenarios", {}).get("COOPERATION", {}).get("declared_resource_scope_complete_not_audited")):
+            reasons.add("PORTFOLIO_COMPLETE_ORIGINAL_OWNER_ROWS_REQUIRED")
+        path = liquidity.get(owner, {}).get("scenario_paths", {}).get("COOPERATION", {})
+        paths = {k: path.get(k, {}).get("status") for k in ("expected", "declared_late_case")}
+        if any(v is None or v == "UNKNOWN" for v in paths.values()):
+            reasons.add("PORTFOLIO_CUMULATIVE_LIQUIDITY_UNKNOWN")
+        cash = sum((_amount(t["amount"]) * (1 if t["payee"] == owner else -1)
+                    for t in ts.values()), Decimal(0))
+        cost = sum((_amount(r["amount"]) for r in rs.values()), Decimal(0))
+        private[owner] = {"selected_work_net_cash": _sum_str([cash]),
+                          "exclusive_incremental_resource_cost": _sum_str([cost]),
+                          "incremental_recipient_use_value": _sum_str([gross[owner]]),
+                          "model_contribution": _sum_str([cash+gross[owner]-cost]),
+                          "cumulative_reserve_paths": paths}
+    output = {"schema": "AKIS_ORIGINAL_MULTI_ORDER_PORTFOLIO/1.0",
+              "status": "UNKNOWN" if reasons else "MODEL_ORIGINAL_MULTI_ORDER_PORTFOLIO_ECONOMICS",
+              "original_owner_count": len(owners), "selected_work_count": len(keys),
+              "original_accepted_order_count": len(accepted),
+              "original_capacity_blocked_order_count": len(blocked),
+              "reasons": sorted(reasons),
+              "internal_transfers_cancel_on_consolidation": True,
+              "historical_cash_preserved_in_cumulative_liquidity": True,
+              "no_foregone_receipt_added_to_another_order": True,
+              "actual_costs_use_value_profit_and_causal_effect": "NOT_IDENTIFIABLE"}
+    if reasons:
+        return output
+    total = sum((Decimal(r["model_contribution"]) for r in private.values()), Decimal(0))
+    met = "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+    output.update({
+        "all_owner_declared_reserves_met": all(v == met for r in private.values()
+                                               for v in r["cumulative_reserve_paths"].values()),
+        "local_research_only": {"per_owner": private,
+                                "consolidated_model_contribution": _sum_str([total]),
+                                "gross_incremental_recipient_use_value": _sum_str(list(gross.values()))},
+    })
+    return output

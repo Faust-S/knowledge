@@ -254,7 +254,7 @@ def review_original_strict_economic_sources(
             and row.get("work") == scoped_work
             and isinstance(row.get("outside_work_origin"), Mapping)
         ]
-        if origin_rows and "work_payment_conditions" in original_claims:
+        if origin_rows and "work_payment_conditions" in original_claims and scoped_work != uncommitted_key:
             if len(origin_rows) != 1:
                 raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_REQUEST_AMBIGUOUS")
             request = origin_rows[0]
@@ -626,8 +626,34 @@ def review_original_strict_economic_sources(
         except (KeyError, TypeError, StrictEconomicSourceBlocked) as exc:
             raise StrictEconomicSourceBlocked("MARKET_ORDER_ORIGINAL_OWNER_HISTORICAL_SOURCE_NOT_QUALIFIED") from exc
 
+    portfolio = original_claims.get("portfolio_scope_evidence")
+    qualified_portfolio_owners = 0
+    if portfolio is not None:
+        try:
+            scopes = portfolio["owner_scopes"]
+            if (not isinstance(work_id, tuple) or not isinstance(portfolio["works"], list)
+                    or not set(portfolio["works"]) <= set(work_ids)
+                    or not isinstance(scopes, dict) or set(scopes) != set(state.subjects)):
+                raise StrictEconomicSourceBlocked("PORTFOLIO_ORIGINAL_FIXED_SCOPE_REQUIRED")
+            for owner, item in scopes.items():
+                source = sources_by_id[item["source"]]
+                tick = item["observed_at"]
+                if source["owner"] != owner or type(tick) is not int or not 0 <= tick <= at:
+                    raise StrictEconomicSourceBlocked("PORTFOLIO_ORIGINAL_OWNER_SOURCE_REQUIRED")
+                if owner in getattr(context, "prospective_subjects", set()) and not any(
+                        e.get("action") == "subject_registration_apply" and e.get("outcome") == "APPLIED"
+                        and e.get("registered_original_subject") == owner and e["at"] < tick
+                        for e in state.trace):
+                    raise StrictEconomicSourceBlocked("PORTFOLIO_OWNER_NOT_YET_REGISTERED")
+                _qualify_original_event_evidence(owner, source["reference"], source["revision"],
+                                                 _OWNER_CORES[state.subjects[owner].kind], tick)
+                qualified_portfolio_owners += 1
+        except (KeyError, TypeError, StrictEconomicSourceBlocked) as exc:
+            raise StrictEconomicSourceBlocked("PORTFOLIO_ORIGINAL_OWNER_HISTORICAL_SCOPE_NOT_QUALIFIED") from exc
     return {
         "status": "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED",
+        **({"source_scoped_original_portfolio_owner_count": qualified_portfolio_owners}
+           if portfolio is not None else {}),
         **({"original_commercial_order_payment_terms_matched_count": qualified_commercial_orders}
            if qualified_commercial_orders else {}),
         **({"source_scoped_uncommitted_order_owner_count": qualified_uncommitted_owners,

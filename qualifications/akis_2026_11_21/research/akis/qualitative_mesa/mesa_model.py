@@ -46,7 +46,7 @@ from .org_code_policy import OrgCodeInputError, parse_org_code_policy
 from .economic_flow import (
     EconomicInputError, evaluate_economic_claims, review_original_operator_service_economics,
     review_original_recipient_use_value, review_original_market_order_economics,
-    review_original_uncommitted_order_costs,
+    review_original_uncommitted_order_costs, review_original_portfolio_economics,
 )
 from .strict_economic_source_review import (
     StrictEconomicSourceBlocked, review_original_strict_economic_sources,
@@ -1328,6 +1328,15 @@ class OperatorAKISModel(mesa.Model):
                 try:
                     output["economics"]["original_market_order_economics"] = review_original_market_order_economics(
                         self.economic_claims["market_order_economics"], state=self.qualitative,
+                        economic_claims=self.economic_claims, economic_view=output["economics"],
+                        strict_work_ids=self.strict_economic_source_work,
+                    )
+                except EconomicInputError as exc:
+                    raise InputError(str(exc)) from exc
+            if "portfolio_scope_evidence" in self.economic_claims:
+                try:
+                    output["economics"]["original_portfolio_economics"] = review_original_portfolio_economics(
+                        self.economic_claims["portfolio_scope_evidence"], state=self.qualitative,
                         economic_claims=self.economic_claims, economic_view=output["economics"],
                         strict_work_ids=self.strict_economic_source_work,
                     )

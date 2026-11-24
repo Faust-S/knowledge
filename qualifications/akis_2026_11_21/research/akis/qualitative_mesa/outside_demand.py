@@ -957,6 +957,10 @@ def _qualify_original_operation_resource_comparison(state, candidate, demand, at
     basis = state.context_basis
     buyer = market["buyer_source"]
     try:
+        basis.assert_original_historical_form_role_source(
+            candidate.customer, buyer["reference"], buyer["revision"], core="corporate",
+            purpose="AKIS_TECHNOLOGY_MARKET_EVIDENCE", operation="READ",
+            recipients={candidate.customer}, at=commit["at"])
         basis.assert_original_form_role_source(
             candidate.customer, buyer["reference"], buyer["revision"], core="corporate",
             purpose="AKIS_TECHNOLOGY_MARKET_EVIDENCE", operation="READ",
@@ -964,6 +968,10 @@ def _qualify_original_operation_resource_comparison(state, candidate, demand, at
         qualified = False
         for offer in offers:
             try:
+                basis.assert_original_historical_form_role_source(
+                    seller, offer["source_ref"], market["offer_revisions"][offer["id"]],
+                    core="corporate", purpose="AKIS_TECHNOLOGY_MARKET_EVIDENCE",
+                    operation="READ", recipients={candidate.customer}, at=commit["at"])
                 basis.assert_original_form_role_source(
                     seller, offer["source_ref"], market["offer_revisions"][offer["id"]],
                     core="corporate", purpose="AKIS_TECHNOLOGY_MARKET_EVIDENCE",
