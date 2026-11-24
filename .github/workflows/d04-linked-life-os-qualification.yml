@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: ea1efc3023e625bceae783c7b25672e099d04879
+          ref: e96b14be6b82730a86c5c9ed769cb64e0e367814
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,9 +51,9 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = ea1efc3023e625bceae783c7b25672e099d04879
+          test "$(git -C d04-private/site rev-parse HEAD)" = e96b14be6b82730a86c5c9ed769cb64e0e367814
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = ffcfdb071109074b44449ff170df6ee76bd2a39b
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = dbde4948485ba45bca7a16265e96968bcaeca28f
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
         with:
@@ -187,7 +187,7 @@ jobs:
             server=await serveRealKernelHost(join(site,'dist'),{independentWitness:true,previewOrigin:true});
             console.log('D04_SERVICE_BROWSER_STAGE=SERVER_READY');
             const result=await runLifeOsGoalServiceRefsBrowser({chromium,origin:server.origin,selectWitnessOption});
-            if(result.status!=='PASS'||result.viewports.length!==2||result.viewports.some(v=>v.objects!==5||v.resultEvents!==9||v.jointHistory!==true||v.configuration!==true||v.protocol!==true||v.recovery!==true||v.reverse!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_GOAL_SERVICE_WITNESS_RESULT_INCOMPLETE');
+            if(result.status!=='PASS'||result.viewports.length!==2||result.viewports.some(v=>v.objects!==5||v.resultEvents!==11||v.linkedActivity!==true||v.stalePinPreserved!==true||v.activityReselected!==true||v.jointHistory!==true||v.configuration!==true||v.protocol!==true||v.recovery!==true||v.reverse!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_GOAL_SERVICE_WITNESS_RESULT_INCOMPLETE');
             console.log('D04_SERVICE_GOAL_CONFIGURATION=PASS');
             console.log('D04_SERVICE_GOAL_PROTOCOL=PASS');
             console.log('D04_SERVICE_GOAL_RECOVERY=PASS');
