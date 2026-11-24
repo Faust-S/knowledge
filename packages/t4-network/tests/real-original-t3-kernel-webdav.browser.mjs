@@ -76,8 +76,9 @@ import {createT4OriginalNetworkHostCursorPort}
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
   from '../src/network/original-network-publication.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,T4_RELATION_EVENT_EXTENSION,
-  T4_SUBJECT_DELETE_EXTENSION,t4NativeSubjectCriticalExtensions,isT4NativeDeleteKind}
+  T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION,t4NativeSubjectCriticalExtensions,isT4NativeDeleteKind}
   from '../src/network/standard-network-wire-candidate.mjs';
+import {readT4OriginalObjectDeletionReview} from '../src/network/original-object-delete-preflight.mjs';
 import {createT4CandidateFrameTransport}
   from '../src/network/standard-network-wire-transport.mjs';
 import {persistT4OriginalHostPlanCarrier,
@@ -169,7 +170,7 @@ function originalT3ConfirmedState({workspaceId,artifact,preview,receipt}){
 test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3 Kernel and survives two cold browser processes',{
   // Mixed native backlog now includes deliberate TLS interruption, cold
   // restarts, recipient intent, signed ACK and original CAS recovery.
-  timeout:360000,
+  timeout:480000,
 },async()=>{
   const qualified=process.env.IWXA_T2_QUALIFIED_KERNEL_DIST;
   assert.ok(qualified&&existsSync(join(qualified,'_iwxa/runtime/0.3.6/runtime.js')),
@@ -4060,15 +4061,22 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       // Drive existing signed source/recipient operations one time per
       // Host-selected captured Event. This is a bounded test task, not a
       // new production scheduler.
-      let p2gAssetCalls=0,p2gRelationCalls=0,p2iAssetDeleteCalls=0,p2iRelationDeleteCalls=0;
+      let p2gAssetCalls=0,p2gRelationCalls=0,p2iAssetDeleteCalls=0,p2iRelationDeleteCalls=0,
+        p2jObjectDeleteCalls=0;
       let p2gLoseAssetReply=false,p2gLoseRelationReply=false,p2iLoseDeleteReply=false;
       let recipientDeletionBoundaryActive=false,recipientDeletionBoundaryEntries=0;
       const totalNativeSubjectWrites=()=>p2cCommitCalls+p2gAssetCalls+p2gRelationCalls+
-        p2iAssetDeleteCalls+p2iRelationDeleteCalls;
+        p2iAssetDeleteCalls+p2iRelationDeleteCalls+p2jObjectDeleteCalls;
       async function recipientOriginalDelete(operation,input){
         assert.equal(recipientDeletionBoundaryActive,true);
-        if(operation==='deleteAsset')p2iAssetDeleteCalls++;else p2iRelationDeleteCalls++;
-        const saved=await independentAssetRecipient[operation](input);
+        if(operation==='deleteAsset')p2iAssetDeleteCalls++;
+        else if(operation==='deleteRelation')p2iRelationDeleteCalls++;
+        else {assert.equal(operation,'deleteObject');p2jObjectDeleteCalls++;}
+        const saved=operation==='deleteObject'?
+          await recipientPage.evaluate(async({SERVICE,input})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.deleteObject(input);
+          },{SERVICE,input}):await independentAssetRecipient[operation](input);
         if(p2iLoseDeleteReply){p2iLoseDeleteReply=false;
           throw Object.assign(Error('original deletion reply lost'),{code:'ACK_LOST'});}
         return saved;
@@ -4077,6 +4085,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         ...p2cRecipientKernel,getAsset:independentAssetRecipient.getAsset,
         deleteAsset:input=>recipientOriginalDelete('deleteAsset',input),
         deleteRelation:input=>recipientOriginalDelete('deleteRelation',input),
+        deleteObject:input=>recipientOriginalDelete('deleteObject',input),
+        listAssets:input=>recipientPage.evaluate(async({SERVICE,input})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.listAssets(input);
+        },{SERVICE,input}),
         putAsset:async input=>{
           p2gAssetCalls++;
           const result=await independentAssetRecipient.putAsset(input);
@@ -4216,7 +4229,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         const verified=await receiver.readAndVerifySignedFrame({
           key:publication.key,expectedSha256:publication.sha256,
           requiredCryptoSuite:'X25519_AES256GCM_ED25519',
-          supportedCriticalExtensions:[T4_RELATION_EVENT_EXTENSION,T4_SUBJECT_DELETE_EXTENSION],
+          supportedCriticalExtensions:[T4_RELATION_EVENT_EXTENSION,T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION],
         });
         assert.equal(verified.originalSignatureVerified,true);
         return {publication,verified};
@@ -4246,10 +4259,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal(p2ePrepared.delta.sourceRevision,revision);
         assert.deepEqual(Buffer.from(p2ePrepared.assetBytes),expectedAssetBytes);
       }else if(isT4NativeDeleteKind(kind)){
-        assert.equal(revision,null);
+        assert.equal(revision,kind==='OBJECT_DELETE'?p2ePrepared.delta.preImage.revision+1:null);
         assert.equal(p2ePrepared.delta.kind,kind);
         assert.equal(kind==='ASSET_DELETE'?p2ePrepared.delta.preImage.assetId:
-          p2ePrepared.delta.preImage.relationId,subjectId);
+          kind==='RELATION_DELETE'?p2ePrepared.delta.preImage.relationId:
+            p2ePrepared.delta.preImage.objectId,subjectId);
         assert.equal(Object.hasOwn(p2ePrepared.delta,'sourceRevision'),false);
         assert.equal(p2fCaptured.originalDeletionPreImageVerified,true);
       }else{
@@ -4278,8 +4292,26 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       let p2eChange=null,p2eSignedAck=null,p2eOpened=null;
       let p2eSourcePhaseHostSession='host:p22e:phase:source:initial';
       let p2eRecipientPhaseHostSession='host:p22e:phase:recipient:initial';
+      // This qualification has exactly one original service schema and one
+      // controlled graph mutation executor per profile. Scope attestation is
+      // from that fixture, never from empty filtered lists or a wire grant.
+      const recipientCoverage=async p=>{
+        assert.equal(p.workspaceId,workspaceId);
+        assert.equal(p.objectId,p2cObjectId);
+        assert.equal(p.originalWriteOwnerRef,'original:t2:exchange');
+        const complete=host.passport.permissions.objects.read.includes('iwxa.demo.note')&&
+          ['t1.getObject','t1.listAssets','t1.deleteObject'].every(op=>receiving.operations.includes(op));
+        return {schema:'IWXA_T4_ORIGINAL_OBJECT_DELETE_COVERAGE_V1',
+          workspaceId,objectId:p.objectId,originalWriteOwnerRef:p.originalWriteOwnerRef,
+          hostSessionRef:p2eRecipientPhaseHostSession,originalAccessRef:'access:single-schema-fixture',
+          allIncidentRelationsVisible:complete,allLiveOwnedAssetsVisible:complete,
+          completeOriginalAuthorityVerified:complete,
+          originalWorkspaceGraphMutationsExcluded:recipientDeletionBoundaryActive,
+          originalMutationBoundaryRef:'boundary:recipient:fixture:'+recipientDeletionBoundaryEntries};
+      };
       const p2ePhaseResult=async()=>inspectT4OriginalNetworkRecipientResult({
         received:p2eOpened,originalKernel:recipientKernel,
+        readOriginalDependencyCoverage:recipientCoverage,
         allowHistoricalEventProof:true,getMode:()=> 'T4_NETWORK',
         authorizeOriginalRead:async p=>
           receiving.operations.includes(p.operation),
@@ -4632,11 +4664,13 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           p2eChange.verified.originalAccessVerified===true,
         authorizeOriginalRead:async p=>receiving.operations.includes(p.operation),
         authorizeOriginalWrite:async p=>receiving.operations.includes(p.operation),
+        readOriginalDependencyCoverage:recipientCoverage,
         // The isolated original-Kernel witness has one mutation executor.
         // This is the injected original Host boundary, not a claim that
         // the installed product serializes all processes.
         withOriginalSubjectMutation:async(proof,action)=>{
           assert.equal(proof.originalHostMustSerializeSubjectMutations,true);
+          if(kind==='OBJECT_DELETE')assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
           assert.equal(recipientDeletionBoundaryActive,false);
           recipientDeletionBoundaryEntries++;
           recipientDeletionBoundaryActive=true;
@@ -5024,7 +5058,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       async function originalSourceDelete(operation,input){
         assert.equal(sourceDeletionBoundaryActive,true);
         sourceDeleteCalls++;
-        const receipt=await sourceKernel[operation](input);
+        const receipt=operation==='deleteObject'?
+          await activeSourcePage.evaluate(async({SERVICE,input})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.deleteObject(input);
+          },{SERVICE,input}):await sourceKernel[operation](input);
         if(loseSourceDeleteReply){loseSourceDeleteReply=false;
           throw Object.assign(Error('original source native delete reply lost'),{code:'ACK_LOST'});}
         return receipt;
@@ -5032,7 +5070,33 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const deletionSourceKernel={...subjectSourceKernel,
         listEventsSince:originalCarrierKernel.listEventsSince,
         deleteAsset:input=>originalSourceDelete('deleteAsset',input),
-        deleteRelation:input=>originalSourceDelete('deleteRelation',input)};
+        deleteRelation:input=>originalSourceDelete('deleteRelation',input),
+        deleteObject:input=>originalSourceDelete('deleteObject',input),
+        listAssets:input=>activeSourcePage.evaluate(async({SERVICE,input})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.listAssets(input);
+        },{SERVICE,input})};
+      const sourceCoverage=async p=>{
+        assert.equal(p.workspaceId,workspaceId);
+        assert.equal(p.objectId,p2cObjectId);
+        assert.equal(p.originalWriteOwnerRef,'original:t2:exchange');
+        const complete=host.passport.permissions.objects.read.includes('iwxa.demo.note')&&
+          ['t1.getObject','t1.listAssets','t1.deleteObject'].every(op=>actual.grants.includes(op));
+        return {schema:'IWXA_T4_ORIGINAL_OBJECT_DELETE_COVERAGE_V1',
+          workspaceId,objectId:p.objectId,originalWriteOwnerRef:p.originalWriteOwnerRef,
+          hostSessionRef:sourceHostSession(),originalAccessRef:'access:single-schema-fixture',
+          allIncidentRelationsVisible:complete,allLiveOwnedAssetsVisible:complete,
+          completeOriginalAuthorityVerified:complete,
+          originalWorkspaceGraphMutationsExcluded:sourceDeletionBoundaryActive,
+          originalMutationBoundaryRef:'boundary:source:fixture:'+sourceDeletionBoundaryEntries};
+      };
+      const reviewObject=()=>readT4OriginalObjectDeletionReview({
+        workspaceId,objectId:p2cObjectId,originalWriteOwnerRef:'original:t2:exchange',
+        expectedBaseRevision:6,originalKernel:deletionSourceKernel,
+        authorizeOriginalRead:async p=>actual.grants.includes(p.operation),
+        authorizeOriginalDelete:async p=>actual.grants.includes(p.operation),
+        readOriginalDependencyCoverage:sourceCoverage,getMode:()=> 'T4_NETWORK',
+      });
       let loseStagedDeleteOutboxReply=false,stagedDeleteOutboxWrites=0;
       const deletionHost=()=>createT4OriginalHostCaptureAdapter({
         originalKernel:deletionSourceKernel,originalWriteOwnerRef:'original:t2:exchange',
@@ -5049,13 +5113,23 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return saved;
         },
         readOriginalOutbox:payload=>readSourceTechnical('outbox',payload.captureRef),
+        readOriginalDependencyCoverage:sourceCoverage,
         withOriginalSubjectMutation:async(proof,action)=>{
           assert.equal(proof.originalHostMustSerializeSubjectMutations,true);
+          if(proof.kind==='OBJECT_DELETE'||proof.subjectKind==='OBJECT_DELETE')
+            assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
           assert.equal(sourceDeletionBoundaryActive,false);
           sourceDeletionBoundaryEntries++;sourceDeletionBoundaryActive=true;
           try{return await action();}finally{sourceDeletionBoundaryActive=false;}
         },
       });
+      const dependencyReview=await reviewObject();
+      assert.equal(dependencyReview.state,'DEPENDENCIES_REQUIRE_EXPLICIT_MUTATIONS');
+      assert.equal(dependencyReview.dependencyCount,2);
+      assert.equal(dependencyReview.assets[0].assetId,mixedAssetId);
+      assert.equal(dependencyReview.assets[0].revision,2);
+      assert.equal(dependencyReview.relations[0].relationId,mixedRelationId);
+      assert.equal(dependencyReview.networkDeletePermitted,false);
       const deletionSpecs=[
         {kind:'RELATION_DELETE',subjectId:mixedRelationId},
         {kind:'ASSET_DELETE',subjectId:mixedAssetId},
@@ -5262,6 +5336,91 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         recipientMutationBoundary:'SINGLE_EXECUTOR_TEST_FIXTURE',
         productionHostMutationSerializationQualified:false,
         independentPhysicalDevices:false,
+      }));
+      // The next native capture is the original Object tombstone itself.
+      // The prior two independent deletion Events have already passed the
+      // same frontier; the Object can now be isolated on both profiles.
+      const isolated=await reviewObject();
+      assert.equal(isolated.state,'ISOLATED_ORIGINAL_OBJECT');
+      assert.equal(isolated.dependencyCount,0);
+      assert.equal(isolated.networkDeletePermitted,false);
+      const objectDeleteCapture='capture:native:object-delete:'+randomUUID();
+      const objectMutation={workspace_id:workspaceId,object_id:p2cObjectId,base_revision:6,
+        event:{event_type:'t4.network.p22j.object.retired',payload:{purpose:'original isolated Object retired'}}};
+      loseSourceDeleteReply=true;
+      await assert.rejects(deletionHost().deleteObject({
+        mutationInput:objectMutation,sourceCursor:mixedTail,captureRef:objectDeleteCapture,
+      }),e=>e?.code==='DELETE_ORIGINAL_SOURCE_OUTCOME_UNKNOWN');
+      assert.equal(sourceDeleteCalls,3);
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);activeSourcePage=await opened(sourceContext);
+      const recoveredObjectDelete=await deletionHost().reconcileObjectDeletion({
+        captureRef:objectDeleteCapture,workspaceId,objectId:p2cObjectId,
+      });
+      assert.equal(recoveredObjectDelete.originalReceipt,null);
+      assert.equal(recoveredObjectDelete.originalMutationRetried,false);
+      assert.equal(recoveredObjectDelete.originalT3OutboxVerified,true);
+      assert.equal(recoveredObjectDelete.originalEvent.revision,7);
+      assert.equal(recoveredObjectDelete.originalEvent.event_type,objectMutation.event.event_type);
+      assert.equal(recoveredObjectDelete.originalEvent.idempotency_key,undefined);
+      assert.equal(recoveredObjectDelete.prepared.delta.preImage.dependencyPolicy,'ISOLATED_ONLY');
+      assert.equal(sourceDeleteCalls,3);
+      assert.equal(stagedDeleteOutboxWrites,3);
+      const completedObjectDelete=await p2fRunCapturedSession(7,{
+        kind:'OBJECT_DELETE',subjectId:p2cObjectId,frontierRevision:12,currentObjectRevision:7,
+        lastInBatch:true,simulatePublicationLoss:false,simulateSubjectLoss:true,
+      });
+      assert.equal(completedObjectDelete.sourceEventId,recoveredObjectDelete.originalEvent.event_id);
+      assert.equal(completedObjectDelete.originalDeltaSha256,recoveredObjectDelete.prepared.sha256);
+      assert.equal(completedObjectDelete.result.originalRecipientRevision,7);
+      assert.equal(completedObjectDelete.result.actualOriginalT3TombstoneReadback,true);
+      assert.equal(completedObjectDelete.result.postTombstoneAssetAbsenceInferred,false);
+      assert.equal(p2jObjectDeleteCalls,1);
+      assert.equal(recipientDeletionBoundaryEntries,3);
+      assert.equal(sourceDeletionBoundaryEntries,7);
+      const srcTomb=await deletionSourceKernel.getObject(workspaceId,p2cObjectId);
+      const dstTomb=await p2gRecipientKernel.getObject(workspaceId,p2cObjectId);
+      for(const row of [srcTomb,dstTomb]){
+        assert.equal(row.object.deleted,true);
+        assert.equal(row.object.revision,7);
+        assert.equal(row.object.data.quantity,12);
+        assert.equal(row.relations.incoming.length+row.relations.outgoing.length,0);
+      }
+      assert.deepEqual(dstTomb.object.data,srcTomb.object.data);
+      const allEarlier=[...p2fCompleted,...mixedCompleted,...deletedCompleted];
+      for(const done of allEarlier){
+        const historical=await done.inspectResult();
+        assert.equal(historical.state,'APPLIED_HISTORICAL_EVENT_VERIFIED');
+        assert.equal(historical.originalRecipientEventId,done.result.originalRecipientEventId);
+        assert.equal(historical.historicalSubjectBytesReconstructed,false);
+        if(done.kind!=='OBJECT_PUT'){
+          assert.equal(historical.originalEndpointTombstoneContinuationVerified,true);
+          assert.equal(historical.currentSubjectAbsenceRevalidated,false);
+        }else assert.equal(historical.currentRecipientRevision,7);
+        assert.equal((await done.sourcePhase().inspectOriginalSession()).currentPhase,'APPLIED_CONFIRMED');
+        assert.equal((await done.recipientPhase().inspectOriginalSession()).currentPhase,'APPLIED');
+      }
+      assert.equal((await p2fRunHostPrepare()).result.state,'NO_NEXT_ORIGINAL_EVENT');
+      assert.deepEqual((await p2eCursorPort().inspectOriginalHostCursor()).originalT3NextCursor,
+        recoveredObjectDelete.nextCursor);
+      assert.equal(p2eFrontierPutCalls,12);
+      console.log('T4_REAL_ORIGINAL_T3_NATIVE_ISOLATED_OBJECT_TOMBSTONE_PASS',JSON.stringify({
+        originalKernel:ORIGINAL_KERNEL,allSixSubjectKindsSameOriginalHostFrontier:true,
+        initialExplicitDependencyCount:dependencyReview.dependencyCount,
+        remainingLiveDependencies:isolated.dependencyCount,
+        sourceObjectTombstoneRevision:srcTomb.object.revision,
+        recipientObjectTombstoneRevision:dstTomb.object.revision,
+        sourceOriginalObjectDeleteInvocations:1,recipientOriginalObjectDeleteInvocations:p2jObjectDeleteCalls,
+        sourceAndRecipientLostDeleteReplyRecoveredWithoutRepeat:true,
+        originalHostAckFrontierCASCount:p2eFrontierPutCalls,
+        historicalResultsAfterObjectTombstone:allEarlier.length,
+        physicalCascadeInvoked:false,postTombstoneAssetAbsenceInferred:false,
+        completeDependencyCoverage:'SINGLE_SCHEMA_ORIGINAL_FIXTURE',
+        mutationBoundary:'SINGLE_EXECUTOR_TEST_FIXTURE',
+        productionHostMutationSerializationQualified:false,
+        independentPhysicalDevices:false,noRemainingCapture:true,
+        signedFrames:completedObjectDelete.signedFrameCount,
+        actualHTTPSFramePuts:completedObjectDelete.actualFramePutCount,
       }));
       nativeNetworkTransport.close();
       await nativeRelay.close();nativeRelay=null;
