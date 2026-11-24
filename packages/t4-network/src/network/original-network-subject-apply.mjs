@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
-import {validateT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
+import {validateT4OriginalNativeCaptureSession,readT4OriginalSourceSessionHead}
+  from './original-network-publication.mjs';
 import {assembleT4CandidateOpaqueChunks}
   from './standard-network-opaque-chunks.mjs';
 import {applyT4OriginalObjectDelta,decodeT4OriginalObjectDeltaBytes,
@@ -11,7 +12,7 @@ import {applyT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes,
 import {applyT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes,
   verifyT4OriginalRelationPutDelta} from './original-relation-delta.mjs';
 import {decodeT4CandidateFrame,isT4NativeDeleteKind,validT4NativeSubjectRevision,
-  matchesT4NativeSubjectCriticalExtensions,t4NativeSubjectCriticalExtensions}
+  matchesT4NativeSubjectCriticalExtensions,t4NativeSubjectCriticalExtensions,T4_ORIGINAL_SOURCE_SESSION_EXTENSION}
   from './standard-network-wire-candidate.mjs';
 import {verifyT4OriginalDeleteDelta,decodeT4OriginalDeleteDeltaBytes,
   applyT4OriginalDeleteDelta,digestT4OriginalDeletedSubjectState,
@@ -113,8 +114,10 @@ function checkReceived(received){
  * Initial session negotiation remains an original owner responsibility.
  */
 export async function discoverT4OriginalNetworkSessionContent({session,frameDiscoveryPort,
-  requiredCryptoSuite,authorizeOriginalRecipientSession}={}){
+  requiredCryptoSuite,authorizeOriginalRecipientSession,requireSourceAnnouncement=false,sourceCursorBefore=null}={}){
   const identity=validateT4OriginalNativeCaptureSession(session);
+  if(typeof requireSourceAnnouncement!=='boolean'||(requireSourceAnnouncement&&sourceCursorBefore===null))
+    fail('SUBJECT_ORIGINAL_SESSION_DISCOVERY_PORTS_REQUIRED');
   if(typeof frameDiscoveryPort?.discoverSessionContent!=='function'||
     typeof authorizeOriginalRecipientSession!=='function'||!ID(requiredCryptoSuite))
     fail('SUBJECT_ORIGINAL_SESSION_DISCOVERY_PORTS_REQUIRED');
@@ -129,7 +132,8 @@ export async function discoverT4OriginalNetworkSessionContent({session,frameDisc
   const result=await frameDiscoveryPort.discoverSessionContent({selector:{
     sourceNodeRef:identity.sourceNodeRef,ownerEpoch:identity.ownerEpoch,
     sessionRef:identity.sessionRef},requiredCryptoSuite,
-    supportedCriticalExtensions:t4NativeSubjectCriticalExtensions(identity.changeKind)});
+    supportedCriticalExtensions:[...t4NativeSubjectCriticalExtensions(identity.changeKind),
+      ...(requireSourceAnnouncement?[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]:[])]});
   await guard();
   if(result?.schema!=='IWXA_T4_FRAME_DISCOVERY_SESSION_CONTENT_V1'||
     !['FOUND','NOT_FOUND','RESTART_SCAN'].includes(result.state)||
@@ -160,6 +164,13 @@ export async function discoverT4OriginalNetworkSessionContent({session,frameDisc
       if(heads||seq!==1||b.familyRef!==identity.familyRef||b.ownerEpoch!==identity.ownerEpoch||
         !same(b.heads,[identity.sourcePrefixDigestAfter]))
         fail('SUBJECT_ORIGINAL_DISCOVERED_HEAD_MISMATCH');
+      if(requireSourceAnnouncement){
+        if(!same(frame.verifiedCriticalExtensions,[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]))
+          fail('SUBJECT_ORIGINAL_SOURCE_ANNOUNCEMENT_REQUIRED');
+        readT4OriginalSourceSessionHead({identity,body:b,sessionRef:frame.verifiedSessionRef,
+          sourceCursorBefore,expectedSession:identity});
+      }else if(frame.verifiedCriticalExtensions?.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION))
+        fail('SUBJECT_ORIGINAL_SOURCE_ANNOUNCEMENT_REQUIRED');
       heads=frame;
     }else if(type==='CHANGE_REF'){
       if(change||seq!==2||b.changeId!==identity.changeId||b.changeKind!==identity.changeKind||

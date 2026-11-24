@@ -25,6 +25,7 @@ export const T4_RELATION_EVENT_EXTENSION='iwxa.relation-event.v1';
 export const T4_SUBJECT_DELETE_EXTENSION='iwxa.subject-delete.v1';
 export const isT4NativeSubjectKind=kind=>SUBJECT_KINDS.has(kind);
 export const T4_OBJECT_TOMBSTONE_EXTENSION='iwxa.object-tombstone.v1';
+export const T4_ORIGINAL_SOURCE_SESSION_EXTENSION='iwxa.original-source-session.v1';
 export const isT4NativeDeleteKind=kind=>['ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE'].includes(kind);
 export const isT4NativeEventOnlyKind=kind=>['RELATION_PUT','ASSET_DELETE','RELATION_DELETE'].includes(kind);
 export const validT4NativeSubjectRevision=(kind,revision)=>isT4NativeSubjectKind(kind)&&
@@ -130,6 +131,9 @@ function validateBody(type,body,extensions=[]){
   const objectTombstone=Array.isArray(extensions)&&extensions.includes(T4_OBJECT_TOMBSTONE_EXTENSION);
   if(objectTombstone&&(!['CHANGE_REF','APPLIED_ACK'].includes(type)||relationEvent||deletionEvent))
     fail('WIRE_OBJECT_TOMBSTONE_EXTENSION_INVALID');
+  const sourceSession=Array.isArray(extensions)&&extensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION);
+  if(sourceSession&&(type!=='HEADS'||extensions.length!==1))
+    fail('WIRE_ORIGINAL_SOURCE_SESSION_EXTENSION_INVALID');
   if(!body||typeof body!=='object'||Array.isArray(body))
     fail('WIRE_BODY_INVALID');
   if(type==='HELLO'||type==='CAPABILITIES'){
@@ -138,10 +142,24 @@ function validateBody(type,body,extensions=[]){
       !body.supportedVersions.length||!body.supportedCryptoSuites.length)
       fail('WIRE_ADVERTISEMENT_INVALID');
   }else if(type==='HEADS'){
-    sameKeys(body,['familyRef','ownerEpoch','heads']);
+    sameKeys(body,sourceSession?['familyRef','ownerEpoch','heads','sourceSession']:
+      ['familyRef','ownerEpoch','heads']);
     if(!ID(body.familyRef)||!Number.isSafeInteger(body.ownerEpoch)||
       body.ownerEpoch<1||!hashList(body.heads))
       fail('WIRE_HEADS_INVALID');
+    if(sourceSession){
+      const a=body.sourceSession;
+      sameKeys(a,['predecessorEventId','predecessorEventCount','predecessorPrefixDigest',
+        'sourceEventId','sourceEventDigest','sourceRevision','changeKind','capturedWindowDigest','capturedSha256']);
+      if(!ID(a.predecessorEventId)||!ID(a.sourceEventId)||a.predecessorEventId===a.sourceEventId||
+        !Number.isSafeInteger(a.predecessorEventCount)||a.predecessorEventCount<1||
+        a.predecessorEventCount>=Number.MAX_SAFE_INTEGER||
+        ![a.predecessorPrefixDigest,a.sourceEventDigest,a.capturedWindowDigest].every(DIGEST)||
+        !/^[a-f0-9]{64}$/.test(a.capturedSha256??'')||
+        !validT4NativeSubjectRevision(a.changeKind,a.sourceRevision)||
+        body.heads.length!==1||body.heads[0]===a.predecessorPrefixDigest)
+        fail('WIRE_ORIGINAL_SOURCE_SESSION_INVALID');
+    }
   }else if(type==='DIFF_REQUEST'){
     sameKeys(body,['familyRef','fromHeads']);
     if(!ID(body.familyRef)||!hashList(body.fromHeads))
@@ -221,6 +239,9 @@ function validateUnsigned(frame){
     !DIGEST(frame.bodyDigest))
     fail('WIRE_HEADER_INVALID');
   validateBody(frame.messageType,frame.body,frame.criticalExtensions);
+  if(frame.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)&&
+    (frame.sequence!==1||frame.body.ownerEpoch!==frame.ownerEpoch))
+    fail('WIRE_ORIGINAL_SOURCE_SESSION_ENVELOPE_INVALID');
   if(frame.bodyDigest!==digest('BODY',frame.body))
     fail('WIRE_BODY_DIGEST_INVALID');
   if(canonicalBytes(frame).length>LIMIT-128)

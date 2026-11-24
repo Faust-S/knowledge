@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {
-  decodeT4CandidateFrame,verifyT4CandidateWireFrame,
+  decodeT4CandidateFrame,verifyT4CandidateWireFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
 } from './standard-network-wire-candidate.mjs';
 
 /**
@@ -329,7 +329,8 @@ export function createT4CandidateFrameTransport({
   // One bounded, stable address sweep for an exact slot or the source's
   // complete session content. SESSION_CONTENT is a discovery selector,
   // never a new wire message type or a grant to read original subjects.
-  async function sweep({selector,requiredCryptoSuite,supportedCriticalExtensions=[]},max,duplicateCode){
+  async function sweep({selector,requiredCryptoSuite,supportedCriticalExtensions=[]},max,duplicateCode,
+    slotIdentity=r=>r.verifiedSequence){
     const selected=frozen({...selector}),extensions=Object.freeze([...supportedCriticalExtensions]);
     const initial=await hostSnapshot();
     let continuation=null,pages=0,candidatesExamined=0,listingDigest=null;
@@ -347,8 +348,9 @@ export function createT4CandidateFrameTransport({
       if(page.state==='RESTART_SCAN')return finish('RESTART_SCAN');
       if(pages>64||candidatesExamined>8192)fail('WIRE_DISCOVERY_SWEEP_LIMIT');
       for(const found of page.receipts){
-        if(sequences.has(found.verifiedSequence)||receipts.length>=max)fail(duplicateCode);
-        sequences.add(found.verifiedSequence);receipts.push(found);
+        const slot=slotIdentity(found);
+        if(sequences.has(slot)||receipts.length>=max)fail(duplicateCode);
+        sequences.add(slot);receipts.push(found);
       }
       continuation=page.continuation;
     }while(continuation!==null);
@@ -371,10 +373,20 @@ export function createT4CandidateFrameTransport({
     return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_SESSION_CONTENT_V1',...r,
       createsStore:false,createsScheduler:false});
   }
+  async function discoverSourceSessionHeads({selector,requiredCryptoSuite}={}){
+    if(!selector||Object.keys(selector).some(k=>!['sourceNodeRef','ownerEpoch'].includes(k)))
+      fail('WIRE_DISCOVERY_SOURCE_ANNOUNCEMENT_SELECTOR_INVALID');
+    const r=await sweep({selector:{...selector,messageType:'HEADS',sequence:1},requiredCryptoSuite,
+      supportedCriticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]},8192,
+      'WIRE_DISCOVERY_SOURCE_ANNOUNCEMENT_SLOT_CONFLICT',f=>f.verifiedSessionRef);
+    return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_SOURCE_HEADS_V1',...r,
+      createsStore:false,createsScheduler:false});
+  }
   return frozen({
     schema:'IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1',
     publishSignedFrame,inspectUnknownPublication,
     readAndVerifySignedFrame,discoverAndVerifySignedFrames,discoverUniqueSignedFrame,discoverSessionContent,
+    discoverSourceSessionHeads,
     forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
       wireTransport:scopeOriginalHostPort(wireTransport,isHostActive,['wireKind'],
         'WIRE_ORIGINAL_TRANSPORT_LIFETIME_REQUIRED'),

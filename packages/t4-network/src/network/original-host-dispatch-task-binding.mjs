@@ -1,10 +1,12 @@
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
-import {deriveT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalSourceSessionHead,readT4OriginalSourceSessionHead}
+  from './original-network-publication.mjs';
 import {confirmT4OriginalNetworkSourceAcknowledgement}
   from './original-network-source-cursor.mjs';
 import {verifyT4OriginalSourceHeadCausality} from './original-network-source-head-proof.mjs';
 import {prepareT4CandidateOpaqueChunks} from './standard-network-opaque-chunks.mjs';
-import {createT4CandidateUnsignedFrame,signT4CandidateFrame,t4NativeSubjectCriticalExtensions}
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,t4NativeSubjectCriticalExtensions,
+  decodeT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION}
   from './standard-network-wire-candidate.mjs';
 
 /**
@@ -362,7 +364,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     requiredCryptoSuite,resolveOriginalSigningContext,signOriginalNodeBytes,
     authorizeOriginalSealedContent,readOriginalSealedContent,
     authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
-    retryMissing=false,
+    retryMissing=false,announceOriginalSourceSession=false,
   }={}){
     const schema='IWXA_T4_ORIGINAL_HOST_NATIVE_SOURCE_STEP_V1';
     if(mode()==='LOCAL_T3')return Object.freeze({schema,state:'LOCAL_T3',
@@ -370,7 +372,8 @@ export function createT4OriginalHostDispatchTaskBinding({
     if(![createOriginalSourcePhasePort,resolveOriginalSigningContext,signOriginalNodeBytes,
       authorizeOriginalSealedContent,readOriginalSealedContent,authorizeOriginalRead,
       readOriginalEvents,verifyOriginalSourceSubject,createOriginalNativePublicationPort]
-      .every(f=>typeof f==='function')||!ID(requiredCryptoSuite)||typeof retryMissing!=='boolean')
+      .every(f=>typeof f==='function')||!ID(requiredCryptoSuite)||typeof retryMissing!=='boolean'||
+      typeof announceOriginalSourceSession!=='boolean')
       fail('HOST_TASK_NATIVE_SOURCE_STEP_PORTS_REQUIRED');
     const initial=await verify(),tick=await prepareNative();
     await verify(initial);
@@ -444,6 +447,14 @@ export function createT4OriginalHostDispatchTaskBinding({
       !Array.isArray(saved.frames)||saved.originalT3EventChainVerified!==(saved.revision>0))
       fail('HOST_TASK_NATIVE_SOURCE_DURABLE_STATE_INVALID');
     const frames=saved.frames;
+    if(frames.length&&(announceOriginalSourceSession||frames[0].wireBytes instanceof Uint8Array)){
+      const head=decodeT4CandidateFrame(frames[0].wireBytes);
+      if(head.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)!==announceOriginalSourceSession)
+        fail('HOST_TASK_NATIVE_SOURCE_ANNOUNCEMENT_PROFILE_CHANGED');
+      if(announceOriginalSourceSession)
+        readT4OriginalSourceSessionHead({identity:session,body:head.body,sessionRef:head.sessionRef,
+          sourceCursorBefore:task.sourceCursorBefore,expectedSession:session});
+    }
     // This step implements the already-qualified compact native profile.
     // Do not reinterpret other session layouts or silently renumber slots.
     if(frames.some((f,i)=>f.sequence!==i+1||
@@ -487,7 +498,8 @@ export function createT4OriginalHostDispatchTaskBinding({
           sessionRef:session.sessionRef,scopeRef:session.scopeRef,ownerEpoch:session.ownerEpoch,
           permissionRef:signing.permissionRef,signerRef:signing.signerRef,
           cryptoSuite:requiredCryptoSuite,body:spec.body,
-          criticalExtensions:spec.messageType==='CHANGE_REF'?extensions:[],
+          criticalExtensions:spec.messageType==='CHANGE_REF'?extensions:
+            spec.messageType==='HEADS'&&announceOriginalSourceSession?[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]:[],
         });
         signed.push(await signT4CandidateFrame({unsignedFrame,signOriginalNodeBytes:live(signOriginalNodeBytes)}));
       }
@@ -497,7 +509,9 @@ export function createT4OriginalHostDispatchTaskBinding({
       ...(specs?{createSignedFrames:()=>specsFor(specs)}:{})},expected);
     if(!frames.length||frames[0].state!=='PRESENT'){
       const spec={sequence:1,messageType:'HEADS',
-        body:{familyRef:session.familyRef,ownerEpoch:session.ownerEpoch,heads:[session.sourcePrefixDigestAfter]}};
+        body:announceOriginalSourceSession?createT4OriginalSourceSessionHead({
+          session,sourceCursorBefore:task.sourceCursorBefore,sourceCursorAfter:task.sourceCursorAfter}):
+          {familyRef:session.familyRef,ownerEpoch:session.ownerEpoch,heads:[session.sourcePrefixDigestAfter]}};
       const sent=await send([{sequence:1,messageType:'HEADS'}],frames.length?null:[spec]);
       return done('HEADS_PRESENT',{publications:sent.publications});
     }

@@ -9,11 +9,13 @@ import {fetchT4OriginalRelationPutDelta,applyT4OriginalRelationPutDelta,
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {runT4OriginalNetworkRecipientTask,discoverT4OriginalNetworkSessionContent,
   openT4OriginalNetworkSubjectChange} from './original-network-subject-apply.mjs';
-import {validateT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
+import {validateT4OriginalNativeCaptureSession,createT4OriginalSourceSessionHead}
+  from './original-network-publication.mjs';
+import {discoverT4OriginalSourceSessionAnnouncement} from './original-network-source-announcement.mjs';
 import {verifyT4OriginalSourceHeadCausality,isT4OriginalOutboundFrameProof}
   from './original-network-source-head-proof.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,
-  t4NativeSubjectCriticalExtensions} from './standard-network-wire-candidate.mjs';
+  t4NativeSubjectCriticalExtensions,T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
 
 /** Recipient-side coordination, using ONLY the existing original T3 Kernel/Host.
  * The source Host supplies the event window and its own scope/authorization.
@@ -614,7 +616,7 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     createOriginalRecipientPhasePort,resolveOriginalSigningContext,signOriginalNodeBytes,
     readOriginalSourceHostContext,authorizeOriginalSourceRead,readOriginalSourceEvents,
     verifyOriginalSourceSubject,authorizeOriginalSealedOpen,openOriginalSealedContent,
-    verifyOriginalSourceBinding,retryMissing=false}=options;
+    verifyOriginalSourceBinding,retryMissing=false,requireSourceAnnouncement=false}=options;
   if(!['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef',
     'scopeRef','ownerEpoch'].every(k=>session[k]===p[k]))
     fail('RECIPIENT_NATIVE_ORIGINAL_SESSION_SCOPE_MISMATCH');
@@ -623,7 +625,7 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
   if(!cursorValid(sourceCursorBefore,session.workspaceId,session.originalWriteOwnerRef)||
     sourceCursorBefore.sourcePrefixDigest!==session.sourcePrefixDigestBefore)
     fail('RECIPIENT_NATIVE_ORIGINAL_PREDECESSOR_REQUIRED');
-  if(!ID(requiredCryptoSuite)||typeof retryMissing!=='boolean'||
+  if(!ID(requiredCryptoSuite)||typeof retryMissing!=='boolean'||typeof requireSourceAnnouncement!=='boolean'||
     ![authorizeOriginalRecipientSession,createOriginalRecipientPhasePort,
       resolveOriginalSigningContext,signOriginalNodeBytes,readOriginalSourceHostContext,
       authorizeOriginalSourceRead,readOriginalSourceEvents,verifyOriginalSourceSubject,
@@ -656,7 +658,12 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
   const publication=scoped(rawPublication,
     ['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler'],
     'RECIPIENT_NATIVE_STEP_ORIGINAL_PUBLICATION_REQUIRED');
-  const extensions=t4NativeSubjectCriticalExtensions(session.changeKind);
+  const extensions=[...t4NativeSubjectCriticalExtensions(session.changeKind),
+    ...(requireSourceAnnouncement?[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]:[])];
+  const exactHead=requireSourceAnnouncement?createT4OriginalSourceSessionHead({session,sourceCursorBefore:predecessor,
+    sourceCursorAfter:{...predecessor,lastEventId:session.sourceEventId,
+      sourcePrefixDigest:session.sourcePrefixDigestAfter,seenEventCount:predecessor.seenEventCount+1}}):
+    {familyRef:session.familyRef,ownerEpoch:session.ownerEpoch,heads:[session.sourcePrefixDigestAfter]};
   const exactDiff={familyRef:session.familyRef,fromHeads:[session.sourcePrefixDigestBefore]};
   const result=(state,extra={})=>done(state,{dispatched:true,
     sessionRef:session.sessionRef,changeId:session.changeId,
@@ -734,9 +741,8 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     r.originalReplayCheckpointRecorded===true&&r.networkBytesVerified===true&&
     r.originalBusinessApplied===false&&r.originalT3ExchangeCalled===false&&
     SHA(r.sha256)&&r.key===r.sha256+'.t4n'&&ID(r.verifiedSignerRef)&&
-    same(r.verifiedCriticalExtensions,[])&&
-    same(r.verifiedBody,{familyRef:session.familyRef,ownerEpoch:session.ownerEpoch,
-      heads:[session.sourcePrefixDigestAfter]});
+    same(r.verifiedCriticalExtensions,requireSourceAnnouncement?[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]:[])&&
+    same(r.verifiedBody,exactHead);
   async function signFrame(messageType,sequence,body,criticalExtensions=[]){
     const signing=await live(resolveOriginalSigningContext,'resolve-recipient-signing')(
       frozen({session,sequence,messageType,originalNodeSigningAuthorityRequired:true}));
@@ -797,7 +803,7 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
   }
   const diff=await localDiff();
   const content=await discoverT4OriginalNetworkSessionContent({session,
-    frameDiscoveryPort:discovery,requiredCryptoSuite,
+    frameDiscoveryPort:discovery,requiredCryptoSuite,requireSourceAnnouncement,sourceCursorBefore:predecessor,
     authorizeOriginalRecipientSession:async()=>{await guard('discover-session-content');return true;}});
   await guard('after-session-content');
   if(content.state!=='CONTENT_VERIFIED')
@@ -887,10 +893,12 @@ async function executeNativeRecipientOwnerStep(p,options){
   if(p.getMode?.()==='LOCAL_T3')return result('LOCAL_T3');
   requireNativeRecipientPorts(p);
   const {readOriginalNativeSessionAtCursor,createOriginalRecipientPublicationPort,
-    authorizeOriginalRecipientSession,...stepOptions}=options;
+    authorizeOriginalRecipientSession,useSignedSourceAnnouncement=false,...stepOptions}=options;
   if(['session','sourceCursorBefore','recipientPublicationPort'].some(k=>Object.hasOwn(options,k))||
-    ![readOriginalNativeSessionAtCursor,createOriginalRecipientPublicationPort,
-      authorizeOriginalRecipientSession].every(f=>typeof f==='function'))
+    typeof useSignedSourceAnnouncement!=='boolean'||
+    (useSignedSourceAnnouncement?(readOriginalNativeSessionAtCursor!==undefined||
+      stepOptions.requireSourceAnnouncement===false):typeof readOriginalNativeSessionAtCursor!=='function')||
+    ![createOriginalRecipientPublicationPort,authorizeOriginalRecipientSession].every(f=>typeof f==='function'))
     fail('RECIPIENT_NATIVE_OWNER_STEP_ORIGINAL_PORTS_REQUIRED');
   const identity=frozen({workspaceId:p.workspaceId,originalWriteOwnerRef:p.originalWriteOwnerRef,
     sourceNodeRef:p.sourceNodeRef,recipientNodeRef:p.recipientNodeRef,
@@ -937,30 +945,48 @@ async function executeNativeRecipientOwnerStep(p,options){
       fail('RECIPIENT_NATIVE_OWNER_CURSOR_CHANGED',{automaticRetryAllowed:false});
   }
   await ownerGuard('before-source-selection');
-  const selected=structuredClone(await readOriginalNativeSessionAtCursor(scopedProof(
+  const selected=structuredClone(useSignedSourceAnnouncement?await discoverT4OriginalSourceSessionAnnouncement({
+    identity,sourceCursorBefore:before,requiredCryptoSuite:stepOptions.requiredCryptoSuite,
+    frameDiscoveryPort:scopeOriginalHostPort(stepOptions.frameDiscoveryPort,p.isHostActive,
+      ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM'],
+      'RECIPIENT_NATIVE_STEP_ORIGINAL_DISCOVERY_REQUIRED'),
+    authorizeOriginalDiscovery:async()=>{await requireCurrent('recipient-owner-announcement-discovery');return true;},
+  }):await readOriginalNativeSessionAtCursor(scopedProof(
     't4.network.original.source.session.select','recipient-owner-select',{
       sourceCursorBefore:structuredClone(before),
       originalRecipientPredecessorAdmissionRequired:true,originalSourceOwnerRequired:true,readOnly:true,
     })));
   await requireCurrent('after-source-selection');
-  if(selected?.schema!=='IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SELECTION_V1'||
+  if(selected?.schema!==(useSignedSourceAnnouncement?'IWXA_T4_ORIGINAL_SOURCE_ANNOUNCEMENT_SELECTION_V1':
+      'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SELECTION_V1')||
     !Object.keys(identity).every(k=>selected[k]===identity[k])||
-    !same(selected.sourceCursorBefore,before)||selected.originalSourceOwnerReadVerified!==true||
+    !same(selected.sourceCursorBefore,before)||selected.originalSourceOwnerReadVerified!==!useSignedSourceAnnouncement||
+    (useSignedSourceAnnouncement&&selected.originalSourceOwnerSignatureVerified!==
+      (selected.state==='ORIGINAL_NATIVE_SESSION_SELECTED'))||
     selected.originalSourceCursorAdvanced!==false||selected.originalNetworkPublished!==false||
     selected.originalSubjectMutationInvoked!==false||selected.capturedPlaintextReturned!==false||
     selected.createsStore!==false||selected.createsScheduler!==false||
     ['capture','prepared','ciphertext','bytes'].some(k=>Object.hasOwn(selected,k)))
     fail('RECIPIENT_NATIVE_OWNER_SELECTION_INVALID');
   const common={originalHostSessionRef:initial.hostSessionRef,
-    originalHostTaskOwnerVerified:true,sourceCursorBefore:before};
-  if(selected.state==='NO_NEXT_ORIGINAL_EVENT'){
+    originalHostTaskOwnerVerified:true,sourceCursorBefore:before,
+    ...(useSignedSourceAnnouncement?{sourceSessionDiscoveredFromSignedAnnouncement:true,
+      sourceSelectionDirectOriginalReadVerified:false}:{})};
+  if(useSignedSourceAnnouncement&&['WAITING_FOR_HEADS','WAITING_FOR_STABLE_DISCOVERY'].includes(selected.state)){
+    if(selected.session!==null||selected.originalCaptureEvidenceVerified!==false||
+      selected.mustRescanOnNextHostWake!==true||!same(selected.sourceCursorAfter,before))
+      fail('RECIPIENT_NATIVE_OWNER_SELECTION_INVALID');
+    return result(selected.state,{...common,sourceCursorAfter:before,mustRescanOnNextHostWake:true});
+  }
+  if(selected.state==='NO_NEXT_ORIGINAL_EVENT'&&!useSignedSourceAnnouncement){
     if(selected.session!==null||selected.originalCaptureEvidenceVerified!==false||
       selected.mustRescanOnNextHostWake!==true||!same(selected.sourceCursorAfter,before))
       fail('RECIPIENT_NATIVE_OWNER_SELECTION_INVALID');
     return result('NO_NEXT_ORIGINAL_EVENT',{...common,sourceCursorAfter:before,
       mustRescanOnNextHostWake:true});
   }
-  if(selected.state!=='ORIGINAL_NATIVE_SESSION_SELECTED'||selected.originalCaptureEvidenceVerified!==true)
+  if(selected.state!=='ORIGINAL_NATIVE_SESSION_SELECTED'||
+    selected.originalCaptureEvidenceVerified!==!useSignedSourceAnnouncement)
     fail('RECIPIENT_NATIVE_OWNER_SELECTION_INVALID');
   const session=validateT4OriginalNativeCaptureSession(selected.session);
   const after=frozen(structuredClone(selected.sourceCursorAfter));
@@ -990,6 +1016,7 @@ async function executeNativeRecipientOwnerStep(p,options){
   await guard('after-recipient-publication-port');
   let appliedWitness=null;
   const tick=await executeNativeRecipientStep(p,{...stepOptions,session,sourceCursorBefore:before,
+    requireSourceAnnouncement:useSignedSourceAnnouncement||stepOptions.requireSourceAnnouncement===true,
     recipientPublicationPort:publication,authorizeOriginalRecipientSession:admission},
     originalCursor?w=>{appliedWitness=w;}:null);
   await requireCurrent('after-native-recipient-step');

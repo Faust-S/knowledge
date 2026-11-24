@@ -3,7 +3,8 @@ import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSche
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
 import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,
-  isT4NativeEventOnlyKind,validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions}
+  isT4NativeEventOnlyKind,validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions,
+  T4_ORIGINAL_SOURCE_SESSION_EXTENSION}
   from './standard-network-wire-candidate.mjs';
 import {t4OriginalDeletedSubjectRevision} from './original-deletion-delta.mjs';
 import {assembleT4CandidateOpaqueChunks}
@@ -101,6 +102,50 @@ export function deriveT4OriginalNativeCaptureSession(task){
     capturedWindowDigest:w.windowDigest,capturedSha256:c.prepared.sha256,
     changeKind:c.kind??'OBJECT_PUT'});
 }
+const sourceCursor=(identity,lastEventId,seenEventCount,sourcePrefixDigest)=>Object.freeze({
+  schema:'IWXA_T4_ORIGINAL_EVENT_CURSOR_V1',workspaceId:identity.workspaceId,
+  originalWriteOwnerRef:identity.originalWriteOwnerRef,lastEventId,seenEventCount,
+  sourcePrefixDigest,originalPermissionProof:false,
+});
+export function originalSourceSessionFamilyRef(identity){
+  const {workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef}=identity??{};
+  if(![workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef].every(ID)||
+    sourceNodeRef===recipientNodeRef)fail('PUBLICATION_ORIGINAL_CAPTURE_IDENTITY_INVALID');
+  return 'family:t4:'+digest('NATIVE-FAMILY',{workspaceId,originalWriteOwnerRef,
+    sourceNodeRef,recipientNodeRef,scopeRef}).slice(7);
+}
+export function createT4OriginalSourceSessionHead({session,sourceCursorBefore,sourceCursorAfter}={}){
+  const s=validateT4OriginalNativeCaptureSession(session),before=sourceCursorBefore;
+  if(!ID(before?.lastEventId)||!Number.isSafeInteger(before.seenEventCount)||
+    before.seenEventCount<1||before.seenEventCount>=Number.MAX_SAFE_INTEGER||
+    before.lastEventId===s.sourceEventId||s.sourcePrefixDigestBefore===s.sourcePrefixDigestAfter||
+    !same(before,sourceCursor(s,before.lastEventId,before.seenEventCount,s.sourcePrefixDigestBefore))||
+    !same(sourceCursorAfter,sourceCursor(s,s.sourceEventId,before.seenEventCount+1,s.sourcePrefixDigestAfter)))
+    fail('PUBLICATION_ORIGINAL_SOURCE_ANNOUNCEMENT_CURSOR_INVALID');
+  return deepFreeze({familyRef:s.familyRef,ownerEpoch:s.ownerEpoch,heads:[s.sourcePrefixDigestAfter],
+    sourceSession:{predecessorEventId:before.lastEventId,predecessorEventCount:before.seenEventCount,
+      predecessorPrefixDigest:s.sourcePrefixDigestBefore,sourceEventId:s.sourceEventId,
+      sourceEventDigest:s.sourceEventDigest,sourceRevision:s.sourceRevision,changeKind:s.changeKind,
+      capturedWindowDigest:s.capturedWindowDigest,capturedSha256:s.capturedSha256}});
+}
+// This reconstructs a deterministic session from signed metadata and LOCAL
+// peer configuration. It does not prove that the remote Kernel has the event.
+export function readT4OriginalSourceSessionHead({identity,body,sessionRef,sourceCursorBefore=null,
+  expectedSession=null}={}){
+  const a=body?.sourceSession;
+  const s=canonicalSession({...identity,sourceEventId:a?.sourceEventId,sourceRevision:a?.sourceRevision,
+    sourceEventDigest:a?.sourceEventDigest,sourcePrefixDigestBefore:a?.predecessorPrefixDigest,
+    sourcePrefixDigestAfter:body?.heads?.[0],capturedWindowDigest:a?.capturedWindowDigest,
+    capturedSha256:a?.capturedSha256,changeKind:a?.changeKind});
+  const before=sourceCursor(s,a.predecessorEventId,a.predecessorEventCount,s.sourcePrefixDigestBefore);
+  const after=sourceCursor(s,s.sourceEventId,a.predecessorEventCount+1,s.sourcePrefixDigestAfter);
+  const expected=createT4OriginalSourceSessionHead({session:s,sourceCursorBefore:before,sourceCursorAfter:after});
+  if(!same(body,expected)||s.sessionRef!==sessionRef||
+    (sourceCursorBefore!==null&&!same(before,sourceCursorBefore))||
+    (expectedSession!==null&&!same(s,expectedSession)))
+    fail('PUBLICATION_ORIGINAL_SOURCE_ANNOUNCEMENT_MISMATCH');
+  return deepFreeze({session:s,sourceCursorBefore:before,sourceCursorAfter:after});
+}
 function descriptor(entry){
   return {sequence:entry.sequence,messageType:entry.messageType,sha256:entry.sha256};
 }
@@ -194,6 +239,8 @@ export function createT4OriginalNetworkPublicationPort({
       frame.ownerEpoch!==identity.ownerEpoch||!types.has(frame.messageType))
       fail('PUBLICATION_FRAME_SESSION_MISMATCH');
     const b=frame.body;
+    if(frame.messageType==='HEADS'&&frame.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION))
+      readT4OriginalSourceSessionHead({identity,body:b,sessionRef:frame.sessionRef,expectedSession:identity});
     if((['CHANGE_REF','APPLIED_ACK'].includes(frame.messageType)&&
         !matchesT4NativeSubjectCriticalExtensions(identity.changeKind,
           frame.criticalExtensions))||
