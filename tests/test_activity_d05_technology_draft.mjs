@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {reviewD05ResultSelection,buildD05RouteQualityComparisonExample,buildD05RouteComparisonExample,
  prepareD05TechnologyProposal,prepareD05DisclosureCandidate} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
+import {prepareD05ExtractionRequest,reviewD05ExtractionProposal,PROPOSAL} from '../modules/activity-base-anonymizer/d05-technology-extraction.mjs';
 const fresh=()=>buildD05RouteQualityComparisonExample();
 const review=records=>reviewD05ResultSelection(records,{includeTechnologyDraft:true});
 const routes=a=>a.filter(x=>x.object.data.object_type==='operation-route');
@@ -184,4 +185,56 @@ test('fully specified and parameter-reviewed candidate is for local disclosure r
  assert.equal(v.parameter_summary.retained,20);assert.equal(v.parameter_summary.pending,0);
  assert.equal(v.domain_validation,'NOT_PERFORMED');assert.equal(v.disclosure_review,'NOT_PERFORMED');
  assert.equal(v.export_allowed,false);assert.equal(v.iwxa_package,null);
+});
+
+async function extractionFixture(){
+ const r=review(fresh()),g=r.groups[0],req=await prepareD05ExtractionRequest(r,g.id,1);
+ const form=formFor(r),values={'technology.title':'Изготовление детали'};
+ for(const [k,v] of Object.entries(form))if(k!=='operations'&&k!=='quality_roles')values['technology.'+k]=v;
+ for(const [scope,v] of Object.entries(form.operations))for(const [k,text] of Object.entries(v))values[scope+'.'+k]=text;
+ for(const [scope,v] of Object.entries(form.quality_roles))values[scope+'.responsible_role']=v;
+ const fields=Object.fromEntries(req.document.fields.map(f=>[f.id,{value:values[f.id],basis:'PROPOSED',refs:[],note:'Требуется предметное подтверждение'}]));
+ const name=req.document.evidence.find(e=>e.field==='source_name'),id=name.scope+'.label';
+ fields[id]={value:name.text,basis:'SOURCE_SUPPORTED',refs:[{ref:name.ref,quote:name.text}],note:''};
+ return {r,g,req,proposal:{profile:PROPOSAL,request_sha256:req.request_sha256,fields}};
+}
+test('D05 extraction request binds one variant and does not copy unrelated orders or different tolerances',async()=>{
+ const x=await extractionFixture(),s=x.req.document_text;
+ assert.match(s,/99\.8/);assert.match(s,/100\.2/);assert.doesNotMatch(s,/99\.5|100\.5|example-route-|example-check-/);
+ assert.equal(x.req.export_allowed,false);assert.equal(x.req.field_count,7+4*x.g.operations.length+profile(x.r).checks.length);
+ const second=await prepareD05ExtractionRequest(x.r,x.g.id,2);
+ assert.notEqual(x.req.request_sha256,second.request_sha256);assert.match(second.document_text,/99\.5/);
+});
+test('semantic extraction keeps all original controls and fills proposal without changing original input',async()=>{
+ const x=await extractionFixture(),before=JSON.stringify(x.r);
+ const v=await reviewD05ExtractionProposal(x.r,x.g.id,1,x.proposal);
+ assert.equal(v.missing_fields.length,0);assert.equal(v.export_allowed,false);
+ assert.equal(v.suggested_title,'Изготовление детали');assert.equal(JSON.stringify(x.r),before);
+ const q=v.candidate.technology.quality_checks[0];
+ assert.equal(q.declared_fields.find(f=>f.field==='lower_limit').value,'99.8');
+ assert.equal(q.declared_fields.find(f=>f.field==='upper_limit').value,'100.2');
+ assert.equal(q.declared_fields.find(f=>f.field==='blocking').value,true);
+ assert.deepEqual(v.candidate.technology.operations.map(o=>o.predecessors),x.g.operations.map(o=>o.predecessors));
+});
+test('missing fields stay missing; no technology produced by incomplete model output',async()=>{
+ const x=await extractionFixture();x.proposal.fields['technology.inputs']={value:null,basis:'MISSING',refs:[],note:'Не установлено'};
+ const v=await reviewD05ExtractionProposal(x.r,x.g.id,1,x.proposal);
+ assert.equal(v.product,null);assert.deepEqual(v.missing_fields,['technology.inputs']);
+ assert.equal(v.form.inputs,undefined);
+});
+test('wrong variant, fake quotation, extra technical fields and unrelated operation evidence rejected',async()=>{
+ const x=await extractionFixture();
+ await assert.rejects(()=>reviewD05ExtractionProposal(x.r,x.g.id,2,x.proposal),{code:'TECHNOLOGY_D05_EXTRACTION_REQUEST_CHANGED'});
+ const changed=structuredClone(x.proposal);changed.fields['technology.upper_limit']={value:'105'};
+ await assert.rejects(()=>reviewD05ExtractionProposal(x.r,x.g.id,1,changed),{code:'TECHNOLOGY_D05_EXTRACTION_REQUEST_CHANGED'});
+ const name=x.req.document.evidence.find(e=>e.field==='source_name'),other=x.req.document.evidence.find(e=>e.field==='source_name'&&e.scope!==name.scope);
+ changed.fields=x.proposal.fields;const id=name.scope+'.label';
+ changed.fields[id].refs=[{ref:name.ref,quote:'invented quote'}];
+ await assert.rejects(()=>reviewD05ExtractionProposal(x.r,x.g.id,1,changed),{code:'TECHNOLOGY_D05_EXTRACTION_REFERENCE_NOT_FOUND'});
+ changed.fields[id].refs=[{ref:other.ref,quote:other.text}];
+ await assert.rejects(()=>reviewD05ExtractionProposal(x.r,x.g.id,1,changed),{code:'TECHNOLOGY_D05_EXTRACTION_REFERENCE_NOT_FOUND'});
+});
+test('unlinked quality plan cannot be completed by model suggestions',async()=>{
+ const r=review(buildD05RouteComparisonExample());
+ await assert.rejects(()=>prepareD05ExtractionRequest(r,r.groups[0].id,1),{code:'TECHNOLOGY_D05_EXTRACTION_SOURCE_INCOMPLETE'});
 });

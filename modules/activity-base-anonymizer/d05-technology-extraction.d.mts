@@ -1,0 +1,18 @@
+import type {D05TechnologyProposalForm,D05ParameterDecision,D05DisclosureCandidate} from './d05-route-comparison.mjs';
+import type {ProductPreview} from './technology-product.mjs';
+export const REQUEST:'IWXA_ACTIVITY_D05_EXTRACTION_REQUEST_V1';
+export const PROPOSAL:'IWXA_ACTIVITY_D05_EXTRACTION_PROPOSAL_V1';
+export type ExtractionField={value:string|null;basis:'SOURCE_SUPPORTED'|'PROPOSED'|'MISSING';refs:Array<{ref:string;quote:string}>;note:string};
+export type D05ExtractionRequest={document:{profile:typeof REQUEST;source_sha256:string;
+ fields:Array<{id:string;scope:string;field:string;instruction:string}>;
+ evidence:Array<{ref:string;scope:string;field:string;text:string;kind:string}>};
+ document_text:string;request_sha256:string;source_sha256:string;objective:string;field_count:number;
+ export_allowed:false;iwxa_package:null};
+export type D05ExtractionReview={status:'LOCAL_D05_EXTRACTION_REVIEW';request_sha256:string;source_sha256:string;
+ fields:Record<string,ExtractionField>;form:D05TechnologyProposalForm;decisions:Record<string,D05ParameterDecision>;
+ suggested_title:string|null;missing_fields:string[];proposed_fields:string[];
+ candidate:D05DisclosureCandidate;product:ProductPreview|null;product_hold:string|null;
+ source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED';evidence_semantics:'EXACT_QUOTATIONS_NOT_SEMANTIC_PROOF';
+ export_allowed:false;iwxa_package:null};
+export function prepareD05ExtractionRequest(review:unknown,groupId:string,modelNumber:number):Promise<D05ExtractionRequest>;
+export function reviewD05ExtractionProposal(review:unknown,groupId:string,modelNumber:number,proposal:unknown):Promise<D05ExtractionReview>;

@@ -2,9 +2,12 @@
 import {groupPersonalRoutineEvidence,preparePersonalTechnologyProduct,prepareD05TechnologyProduct,
  preparePersonalRecipientActivation,prepareD05RecipientInputs} from '../modules/activity-base-anonymizer/technology-product.mjs';
 import {preparePersonalExtractionRequest,reviewPersonalExtractionBundle} from '../modules/activity-base-anonymizer/personal-technology-extraction.mjs';
+import {prepareD05ExtractionRequest,reviewD05ExtractionProposal} from '../modules/activity-base-anonymizer/d05-technology-extraction.mjs';
 const fail=code=>{throw Object.assign(new Error(code),{code});};
 const exact=(v,keys)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
 const operations={
+ '--d05-extraction-request':{keys:['review','group_id','model_number'],run:v=>prepareD05ExtractionRequest(v.review,v.group_id,v.model_number)},
+ '--d05-extraction-review':{keys:['review','group_id','model_number','proposal'],run:v=>reviewD05ExtractionProposal(v.review,v.group_id,v.model_number,v.proposal)},
  '--personal-extraction-request':{keys:['source'],run:v=>preparePersonalExtractionRequest(v.source)},
  '--personal-extraction-review':{keys:['bundle'],run:v=>reviewPersonalExtractionBundle(v.bundle)},
  '--personal-group':{keys:['records'],run:v=>groupPersonalRoutineEvidence(v.records)},
