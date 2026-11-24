@@ -4375,7 +4375,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const slotsFor=specs=>specs.map(({messageType,sequence})=>({messageType,sequence}));
       const fromPublication=async(publication,from)=>{
         const receiver=from==='SOURCE'?nativeReceiver():sourceHeadVerifier;
-        const extensions=[T4_RELATION_EVENT_EXTENSION,T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION];
+        const extensions=t4NativeSubjectCriticalExtensions(kind);
         let verified;
         if(autoSource){
           const found=await receiver.discoverUniqueSignedFrame({selector:{
@@ -5972,8 +5972,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.deepEqual(srcTomb.object.extensions,dstTomb.object.extensions);
       const graphRelationOne='relation:native:graph:one:'+randomUUID();
       const graphRelationTwo='relation:native:graph:two:'+randomUUID();
-      let graphSourceCalls=0,loseGraphSourceAck=false,graphBoundary=false,graphBoundaryEntries=0;
-      const graphSourceKernel={...originalCarrierKernel,
+      let graphSourceCalls=0,graphSourceTransactions=0,loseGraphSourceAck=false,graphBoundary=false,graphBoundaryEntries=0;
+      const graphSourceKernel={...originalCarrierKernel,sessionInfo:{service_id:SERVICE},
         listObjects:input=>activeSourcePage.evaluate(async({SERVICE,input})=>{
           const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
           return kernel.t1.listObjects(input);
@@ -5984,6 +5984,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
             return kernel.t1.commitObjectGraph(input);
           },{SERVICE,input});
+          if(receipt.deduplicated===false)graphSourceTransactions++;
           if(loseGraphSourceAck){loseGraphSourceAck=false;
             throw Object.assign(Error('original graph response lost after atomic commit'),{code:'ACK_LOST'});}
           return receipt;
@@ -6001,7 +6002,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           try{return await action();}finally{graphBoundary=false;}
         }});
       let graphTail=recoveredObjectDelete.nextCursor;
-      const graphCaptures=[];
+      const graphCaptures=[],graphInputs=[];
       for(const revision of [8,9]){
         const prior=(await graphSourceKernel.getObject(workspaceId,p2cObjectId)).object;
         assert.equal(prior.revision,revision-1);
@@ -6015,6 +6016,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             to_object_id:linkedObjectId,kind:'related'}],
           relation_deletes:revision===8?[]:[{relation_id:graphRelationOne}],
           event:{event_type:'t4.network.k21.original.graph',payload:{revision}}};
+        graphInputs.push({ref,input});
         let capture;
         if(revision===9){
           loseGraphSourceAck=true;
@@ -6040,7 +6042,18 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal(capture.prepared.delta.relationDeletes.length,revision===8?0:1);
         graphTail=capture.nextCursor;graphCaptures.push(capture);
       }
-      assert.equal(graphSourceCalls,2);
+      assert.equal(graphSourceCalls,2);assert.equal(graphSourceTransactions,2);
+      // The original Kernel itself returns the older exact transaction
+      // receipt. A historical Outbox never fabricates this receipt and
+      // replay must not append a third business Event or graph revision.
+      const beforeGraphReplay=await readSourceEvents({workspaceId});
+      const replayGraph=await graphHost().commitObjectGraph({
+        mutationInput:graphInputs[0].input,sourceCursor:graphTail,captureRef:graphInputs[0].ref});
+      assert.equal(replayGraph.originalReceipt.deduplicated,true);
+      assert.equal(replayGraph.originalReceipt.transaction_id,graphCaptures[0].prepared.delta.originalTransactionId);
+      assert.equal(replayGraph.capture.originalDeduplicatedReceiptVerified,true);
+      assert.deepEqual(await readSourceEvents({workspaceId}),beforeGraphReplay);
+      assert.equal(graphSourceCalls,3);assert.equal(graphSourceTransactions,2);
       assert.equal((await graphSourceKernel.getObject(workspaceId,p2cObjectId)).object.revision,9);
       assert.equal((await p2gRecipientKernel.getObject(workspaceId,p2cObjectId)).object.revision,7);
       const graphTargetSource=await graphSourceKernel.getObject(workspaceId,p2cObjectId);
@@ -6058,7 +6071,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal(done.result.originalRecipientStateDigest,graphCaptures[i].prepared.delta.graphContentDigest);
         graphCompleted.push(done);
       }
-      assert.equal(graphSourceCalls,2);
+      assert.equal(graphSourceCalls,3);assert.equal(graphSourceTransactions,2);
       assert.equal(p2cCommitCalls,8);
       assert.equal(recipientDeletionBoundaryEntries,5);
       assert.equal(p2eFrontierPutCalls,14);
@@ -6078,7 +6091,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal((await p2fRunHostPrepare()).result.state,'NO_NEXT_ORIGINAL_EVENT');
       console.log('T4_REAL_ORIGINAL_T3_NATIVE_ATOMIC_GRAPH_COMMIT_PASS',JSON.stringify({
         originalKernel:ORIGINAL_KERNEL,sourceGraphRevisions:[8,9],recipientGraphRevisions:[8,9],
-        originalGraphSourceTransactions:graphSourceCalls,originalGraphRecipientTransactions:2,
+        originalGraphSourceTransactions:graphSourceTransactions,originalGraphSourceInvocations:graphSourceCalls,
+        originalGraphDeduplicatedReceiptVerified:true,originalGraphRecipientTransactions:2,
         originalEventPerGraphTransaction:1,originalTombstoneRevivedAtomically:true,
         originalRelationCreatedAndReplacedAtomically:true,sourceAndRecipientLostGraphResponseRecovered:true,
         originalGraphSourceBoundaryEntries:graphBoundaryEntries,
