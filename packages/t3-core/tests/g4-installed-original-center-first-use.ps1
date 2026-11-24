@@ -248,6 +248,10 @@ function QualifyV8OriginalRoutes(){
   Start-Sleep -Milliseconds 500
   OpenV8Root 'Результаты' 'Workspace T3'
   Check (WaitForText 'Подписанный T3 D3 получатель доступен' 160) 'V8_INSTALLED_ORIGINAL_D3_OWNER_MISSING'
+  Check (WaitForText 'Маршрут поручения и результата' 100) 'V8_INSTALLED_RESULTS_PIPELINE_MISSING'
+  Check (-not (HasText 'Подписанные поручения T3')) 'V8_INSTALLED_RESULTS_AGGREGATE_TASK_VISIBLE'
+  Check (-not (HasText 'Независимый сотрудник организации')) 'V8_INSTALLED_RESULTS_AGGREGATE_EMPLOYEE_VISIBLE'
+  Write-Host 'V8_NATIVE_RESULTS_FOCUSED_ENTRY_PASS'
   AssertV8Route 'SIGNED_WORKSPACE' 'Workspace T3' 'Одна Workspace. Вся работа организации.' @('Подписанные поручения T3','Независимый сотрудник организации')
   AssertV8Route 'EMPLOYEES' 'Подключение сотрудника T3' 'Независимый сотрудник организации' @('Подписанные поручения T3','Защищённое получение Result')
   AssertV8Route 'SIGNED_TASKS' 'Подписанные Task' 'Подписанные поручения T3' @('Независимый сотрудник организации','Защищённое получение Result')
@@ -259,6 +263,7 @@ function QualifyV8OriginalRoutes(){
   $newApply=$null
   try{$newApply=FindName 'Apply' 'Button' 1}catch{}
   Check ($null -eq $newApply) 'V8_RECOVERY_NEW_APPLY_VISIBLE'
+  Check (WaitForText 'Восстановление исходной операции' 80) 'V8_NATIVE_RECOVERY_HUB_MISSING'
   AssertV8Route 'REUSE' 'Использовать Result' 'Продолжить работу в исходной Workspace' @('Подписанные поручения T3','Независимый сотрудник организации')
   Check (WaitForNativeCenterReviewToolbar) 'V8_FOCUSED_ROUTES_LOST_ORIGINAL_SIGNED_WORKSPACE'
   Write-Host 'V8_ORIGINAL_T3_EIGHT_FOCUSED_ROUTES_SAME_NATIVE_SESSION_PASS'
@@ -840,6 +845,7 @@ try{
   $script:phase='OPEN_RESULT_PANEL'
   ClickButton 'Результаты'
   Write-Host 'G4_INSTALLED_FIRST_USE_RESULTS_OPENED'
+  ClickButton 'Раздел: Workspace T3'
   $script:phase='FIND_NATIVE_T3_ENROLL'
   $enroll=FindName 'Подключить организацию' 'Button'
   Check $enroll.Current.IsEnabled 'G4_INSTALLED_FIRST_USE_ENROLL_NOT_AVAILABLE'
@@ -955,6 +961,7 @@ try{
       # against the already selected, signed and cold-verified T2 Workspace.
       # A lost commit ACK cannot authorize any repeated initialize command.
       $script:phase='D3_NATIVE_ORIGINAL_REGISTRY_INITIALIZE'
+      ClickButton 'Раздел: Подключение сотрудника T3'
       $ready=$false
       for($poll=0;$poll -lt 120;$poll++){
         $button=$null
@@ -1029,6 +1036,7 @@ try{
       # A different installed Windows process checks the same original
       # signed registry. Never reissue its signed creation after restart.
       $script:phase='D3_NATIVE_REGISTRY_COLD_READ_ONLY'
+      ClickButton 'Раздел: Подключение сотрудника T3'
       $readable=$false
       for($poll=0;$poll -lt 120;$poll++){
         $button=$null
