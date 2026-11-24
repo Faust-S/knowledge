@@ -264,3 +264,19 @@ test('local source signed publication plus actual inbound DIFF proves original p
   await assert.rejects(verifyT4OriginalSourceHeadCausality({...args,verifiedChangeRef:{...c,originalPublicationChainHash:'sha256:'+'e'.repeat(64)}}),err('HEAD_SIGNED_LOCAL_PUBLICATION_MISMATCH'));
   await assert.rejects(verifyT4OriginalSourceHeadCausality({...args,verifiedChangeRef:{...c,remoteReceiptProven:true}}),err('HEAD_SIGNED_WIRE_PROOF_INVALID'));
 });
+
+test('recipient original DIFF publication and two inbound source frames prove original continuation',async()=>{
+  const s=await scenario(true);
+  const diff=outbound(s.args.verifiedDiffRequest,1);
+  const args={...s.args,verifiedHeads:{...s.args.verifiedHeads,verifiedSequence:1},
+    verifiedChangeRef:{...s.args.verifiedChangeRef,verifiedSequence:2},verifiedDiffRequest:diff};
+  const proof=await verifyT4OriginalSourceHeadCausality(args);
+  assert.equal(proof.signedRecipientDiffLocalPublicationVerified,true);
+  assert.equal(proof.recipientDiffRemoteReceiptProven,false);
+  assert.equal(proof.originalRecipientPublicationCheckpointRef,diff.checkpointRef);
+  assert.equal(proof.signedSourceFramesLocalPublicationVerified,undefined);
+  await assert.rejects(verifyT4OriginalSourceHeadCausality({...args,
+    verifiedDiffRequest:{...diff,remoteReceiptProven:true}}),err('HEAD_SIGNED_WIRE_PROOF_INVALID'));
+  await assert.rejects(verifyT4OriginalSourceHeadCausality({...args,
+    verifiedDiffRequest:{...diff,verifiedSequence:2}}),err('HEAD_SIGNED_LOCAL_PUBLICATION_MISMATCH'));
+});

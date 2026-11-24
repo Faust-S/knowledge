@@ -60,13 +60,22 @@ export async function verifyT4OriginalSourceHeadCausality({
     verifiedHeads.originalPublicationChainHash!==verifiedChangeRef.originalPublicationChainHash||
     verifiedHeads.verifiedSequence+1!==verifiedChangeRef.verifiedSequence))
     fail('HEAD_SIGNED_LOCAL_PUBLICATION_MISMATCH');
+  const recipientOutbound=isT4OriginalOutboundFrameProof(verifiedDiffRequest);
+  // A recipient proves its own immutable DIFF publication, not that the
+  // source has received it. Never accept both directions as local proofs.
+  if(outbound&&recipientOutbound)
+    fail('HEAD_SIGNED_WIRE_PROOF_INVALID');
+  if(recipientOutbound&&(verifiedDiffRequest.verifiedSequence!==1||
+    verifiedHeads?.verifiedSequence!==1||verifiedChangeRef?.verifiedSequence!==2))
+    fail('HEAD_SIGNED_LOCAL_PUBLICATION_MISMATCH');
   const messages=[
     [verifiedHeads,'HEADS',sourceNodeRef,recipientNodeRef],
     [verifiedDiffRequest,'DIFF_REQUEST',recipientNodeRef,sourceNodeRef],
     [verifiedChangeRef,'CHANGE_REF',sourceNodeRef,recipientNodeRef],
   ];
   for(const [r,type,from,to] of messages){
-    if(!(outbound&&from===sourceNodeRef?isT4OriginalOutboundFrameProof(r):receivedProof(r))||
+    if(!((outbound&&from===sourceNodeRef)||(recipientOutbound&&from===recipientNodeRef)?
+      isT4OriginalOutboundFrameProof(r):receivedProof(r))||
       r.signedMessageType!==type||
       r.verifiedSourceNodeRef!==from||
       r.verifiedRecipientNodeRef!==to||
@@ -212,6 +221,9 @@ export async function verifyT4OriginalSourceHeadCausality({
     ...(outbound?{signedSourceFramesLocalPublicationVerified:true,
       originalSourcePublicationCheckpointRef:verifiedHeads.checkpointRef,
       sourceFramesRemoteReceiptProven:false}:{}),
+    ...(recipientOutbound?{signedRecipientDiffLocalPublicationVerified:true,
+      originalRecipientPublicationCheckpointRef:verifiedDiffRequest.checkpointRef,
+      recipientDiffRemoteReceiptProven:false}:{}),
     originalT3HistoricalForkWitnessAvailable:false,
     originalBusinessApplied:false,
     originalT3ExchangeUsed:false,
