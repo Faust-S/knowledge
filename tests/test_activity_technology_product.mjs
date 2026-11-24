@@ -69,3 +69,18 @@ test('D05 missing quality, incomplete decision, cyclic dependency and changed fi
  changed.technology.quality_checks[0].declared_fields.find(f=>f.field==='upper_limit').value='90';
  assert.throws(()=>validateTechnologyProduct(changed),{code:'TECHNOLOGY_QUALITY_NUMERIC_LIMIT'});
 });
+
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+test('fixed local Agent product CLI matches the same product and recipient inputs',async()=>{
+ const cli=fileURLToPath(new URL('../tools/activity-technology-product.mjs',import.meta.url));
+ const invoke=(mode,v)=>spawnSync(process.execPath,[cli,mode],{input:JSON.stringify(v),encoding:'utf8',maxBuffer:4*1024*1024});
+ const records=personalRows(),proposal=personalProposal();
+ const result=invoke('--personal-product',{records,variant_id:'routine_001',proposal});
+ assert.equal(result.status,0,result.stderr);const p=JSON.parse(result.stdout);
+ assert.deepEqual(p,await preparePersonalTechnologyProduct(records,'routine_001',proposal));
+ const binding=personalBinding(),activation=invoke('--personal-recipient',{product:p.object_data,binding});
+ assert.equal(activation.status,0);assert.deepEqual(JSON.parse(activation.stdout),preparePersonalRecipientActivation(p.object_data,binding));
+ const refused=invoke('--personal-product',{records:records.slice(0,1),variant_id:'routine_001',proposal});
+ assert.equal(refused.status,2);assert.equal(JSON.parse(refused.stdout).status,'HOLD');
+});

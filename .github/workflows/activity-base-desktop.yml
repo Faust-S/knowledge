@@ -54,6 +54,7 @@ on:
       - tools/activity-d05-simpy-review.mjs
       - tools/activity-agent-input.py
       - tests/test_activity_agent_input.py
+      - tools/activity-technology-product.mjs
       - tests/test_activity_technology_product.mjs
       - tests/test_activity_technology_registration.mjs
       - tests/activity_technology_product_fixture.mjs
@@ -157,6 +158,11 @@ jobs:
         run: |
           python tools/activity-presidio-scan.py --language en < "$RUNNER_TEMP/activity-presidio/candidate.json" > "$RUNNER_TEMP/activity-presidio/en.json"
           python tools/activity-presidio-scan.py --language ru < "$RUNNER_TEMP/activity-presidio/candidate.json" > "$RUNNER_TEMP/activity-presidio/ru.json"
+          for kind in personal d05; do
+            for lang in en ru; do
+              python tools/activity-presidio-scan.py --language "$lang" --product < "$RUNNER_TEMP/activity-presidio/$kind-product.json" > "$RUNNER_TEMP/activity-presidio/$kind-product-$lang.json"
+            done
+          done
           IWXA_PRESIDIO_UPSTREAM_RESULTS="$RUNNER_TEMP/activity-presidio" node --test tests/test_activity_presidio_text_review.mjs
   arx-upstream:
     if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
