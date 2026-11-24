@@ -525,3 +525,126 @@ def test_strict_technology_source_expiry_after_commit_preserves_original_work():
     out = simulate(doc)
     assert next(r for r in reports(out, "commit") if r["work"] == "w3")["outcome"] == "APPLIED"
     assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def original_market_complementarity_case(*, alternate=None, incomplete=False, source_stale=False):
+    """One existing buyer demand and complementary offers, not a second market."""
+    d = strict_original_technology_route_case()
+    scope = {
+        "work": "w3", "work_revision": "d-3", "deliverable": "combined-manufacture-and-finishing",
+        "buyer_source": {"reference": "model://b/market-need-w3", "revision": "market-v1"},
+        "requirements": [
+            {"operation": "stage-a", "capability": "manufacture", "capacity_unit": "UNIT",
+             "compatible_resources": ["ra"]},
+            {"operation": "stage-c", "capability": "finishing", "capacity_unit": "UNIT",
+             "compatible_resources": ["rc"]},
+        ],
+        "offers": [], "offer_revisions": {}, "owner_scopes": {},
+    }
+    def source(owner, suffix, stale=False):
+        ref = f"model://{owner}/{suffix}"
+        d["context_evidence"]["sources"].append({
+            "id": ref, "owner": owner, "revision": "market-v1", "status": "UNKNOWN" if stale else "CONFIRMED",
+            "usable_by": sorted({owner, "b"}), "core": "corporate",
+            "purposes": ["AKIS_TECHNOLOGY_MARKET_EVIDENCE"], "operations": ["READ"],
+            "valid_from": 0, "valid_until": 190,
+        })
+        return ref
+    source("b", "market-need-w3")
+    def offer(owner, resource, capability, stale=False):
+        ident = f"{owner}-{capability}"
+        ref = source(owner, f"market-offer-{capability}", stale)
+        scope["offers"].append({
+            "id": ident, "owner": owner, "resource": resource, "capability": capability,
+            "capacity_unit": "UNIT", "source_ref": ref, "available_at": 0, "expires_at": 190,
+        })
+        scope["offer_revisions"][ident] = "market-v1"
+    offer("a", "ra", "manufacture")
+    offer("c", "rc", "finishing")
+    if alternate is not None:
+        d["resources"].append({
+            "id": "ra-finishing", "owner": "a", "availability": alternate,
+            "capacity_units": 1, "capacity_unit": "UNIT", "site": "site-a",
+        })
+        scope["requirements"][1]["compatible_resources"].append("ra-finishing")
+        offer("a", "ra-finishing", "finishing", source_stale)
+    for owner in ("a", "b", "c"):
+        if incomplete and owner == "a":
+            continue
+        scope["owner_scopes"][owner] = {
+            "source_ref": source(owner, "market-catalogue-scope-w3"),
+            "source_revision": "market-v1", "complete": True,
+        }
+    for e in d["events"]:
+        if (e["action"] == "technology_route_propose"
+                or e["action"] == "request" and e["work_spec"]["id"] == "w3"
+                or e["action"] == "commit" and e.get("work") == "w3"):
+            e["technology_route_market_scope"] = deepcopy(scope)
+    return d
+
+
+def _market_reviews(out):
+    return [row["technology_route_market_feasibility"] for row in out["trace"]
+            if row.get("outcome") == "APPLIED" and "technology_route_market_feasibility" in row]
+
+
+@pytest.mark.parametrize("kwargs,status,counts", [
+    ({}, "COOPERATIVE_PLAN_EXPANDS_DECLARED_FEASIBLE_ORDER_SET",
+     {"FEASIBLE": 0, "NO_FEASIBLE_IN_DECLARED_SCOPE": 3, "UNKNOWN": 0}),
+    ({"alternate": "AVAILABLE"}, "SINGLE_OWNER_ALTERNATIVE_EXISTS",
+     {"FEASIBLE": 1, "NO_FEASIBLE_IN_DECLARED_SCOPE": 2, "UNKNOWN": 0}),
+    ({"alternate": "UNAVAILABLE"}, "COOPERATIVE_PLAN_EXPANDS_DECLARED_FEASIBLE_ORDER_SET",
+     {"FEASIBLE": 0, "NO_FEASIBLE_IN_DECLARED_SCOPE": 3, "UNKNOWN": 0}),
+    ({"alternate": "UNKNOWN"}, "SINGLE_OWNER_ALTERNATIVE_NOT_IDENTIFIABLE",
+     {"FEASIBLE": 0, "NO_FEASIBLE_IN_DECLARED_SCOPE": 2, "UNKNOWN": 1}),
+    ({"incomplete": True}, "SINGLE_OWNER_ALTERNATIVE_NOT_IDENTIFIABLE",
+     {"FEASIBLE": 0, "NO_FEASIBLE_IN_DECLARED_SCOPE": 2, "UNKNOWN": 1}),
+    ({"alternate": "AVAILABLE", "source_stale": True}, "SINGLE_OWNER_ALTERNATIVE_NOT_IDENTIFIABLE",
+     {"FEASIBLE": 0, "NO_FEASIBLE_IN_DECLARED_SCOPE": 2, "UNKNOWN": 1}),
+])
+def test_original_market_feasibility_not_assumed_from_owner_count(kwargs, status, counts):
+    d = original_market_complementarity_case(**kwargs)
+    frozen = deepcopy(d)
+    out = simulate(d)
+    assert d == frozen
+    assert out["counts"]["blocked"] == 0, [
+        (r["at"], r["action"], r["reason"]) for r in out["trace"] if r["outcome"] == "BLOCKED"]
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    reviews = _market_reviews(out)
+    assert len(reviews) == 3
+    assert all(r["status"] == status and r["single_owner_feasibility_counts"] == counts
+               and r["selected_cooperative_plan_preview_feasible"] for r in reviews)
+    assert all(r["no_original_capacity_reserved_or_owner_consent_created"] for r in reviews)
+    assert all(not r["actual_market_absence_or_additional_revenue_verified"] for r in reviews)
+    assert out == simulate(deepcopy(d))
+
+
+def test_original_market_offer_or_scope_cannot_be_rewritten_after_consultation():
+    d = original_market_complementarity_case()
+    req = next(e for e in d["events"] if e["action"] == "request" and e["work_spec"]["id"] == "w3")
+    req["technology_route_market_scope"]["requirements"][0]["capability"] = "different"
+    out = simulate(d)
+    assert last_request(out)["reason"] == "MARKET_SCOPE_ORIGINAL_SOURCE_FINGERPRINT_MISMATCH"
+    assert "w3" not in out["works"]
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_original_market_review_cannot_substitute_original_owner_consent():
+    d = original_market_complementarity_case()
+    d["events"] = [r for r in d["events"] if not (
+        r["action"] == "consent" and r.get("work") == "w3" and r["actor"] == "c")]
+    out = simulate(d)
+    assert len(_market_reviews(out)) == 2
+    assert next(r for r in reports(out, "commit") if r["work"] == "w3")["reason"] == "INDEPENDENT_ACCEPTANCE_MISSING"
+    assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+
+
+def test_qualified_market_scope_does_not_imply_recipient_quality_or_new_revenue():
+    d = original_market_complementarity_case()
+    next(e for e in d["events"] if e["action"] == "assess_result_quality" and e.get("criterion") == "q-stage-c")[
+        "quality_verdict"] = "DOES_NOT_MEET"
+    out = simulate(d)
+    assert len(_market_reviews(out)) == 3
+    assert all(row["status"] == "COOPERATIVE_PLAN_EXPANDS_DECLARED_FEASIBLE_ORDER_SET" for row in _market_reviews(out))
+    assert out["works"]["w3"]["result"] == "SUBMITTED"
+    assert out["profit"]["system_increment"] == "UNKNOWN"

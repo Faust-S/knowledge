@@ -351,7 +351,15 @@ def qualify_original_technology_route_proposal(
         raise TechnologyRouteBlocked(
             "ORIGINAL_TECHNOLOGY_ROUTE_STAGE_QUALITY_OWNER_REQUIRED"
         )
+    market = {}
+    if "technology_route_market_scope" in ev:
+        raw = ev["technology_route_market_scope"]
+        market = {
+            "technology_route_market_scope_fingerprint": technology_route_fingerprint(raw),
+            "technology_route_market_feasibility": review_original_route_market_scope(state, candidate, raw, at),
+        }
     return {
+        **market,
         "route_original_work": candidate.key,
         "route_source_revision": candidate.source_revision,
         "route_original_principals": sorted(principals),
@@ -406,6 +414,8 @@ def qualify_original_technology_route_request(
         and row.get("technology_route_work") == work.key
     ]
     if not proposals and ev.get("technology_route_id") is None:
+        if "technology_route_market_scope" in ev:
+            raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_PROPOSAL_REQUIRED")
         return None
     if len(proposals) != 1:
         raise TechnologyRouteBlocked(
@@ -465,7 +475,9 @@ def qualify_original_technology_route_request(
     _assert_original_route_decision_source(state, proposal, at)
     for response in latest.values():
         _assert_original_route_decision_source(state, response, at)
+    market = _review_bound_market_scope(state, work, ev, proposal, at)
     return {
+        **market,
         "technology_route_original_source_qualified": True,
         **({"technology_route_strict_original_decision_sources_qualified": True}
            if state.context_basis is not None and state.context_basis.strict else {}),
@@ -478,10 +490,13 @@ def qualify_original_technology_route_request(
     }
 
 
-def qualify_original_technology_route_commit(state: Any, work: Any, at: int) -> None:
-    """Recheck source rights before the existing commitment, never revoke it later."""
+def qualify_original_technology_route_commit(state: Any, work: Any, event: Mapping[str, Any],
+                                             at: int) -> dict[str, Any] | None:
+    """Recheck source rights and optional market scope before original commitment."""
     if state.context_basis is None or not state.context_basis.strict:
-        return
+        if "technology_route_market_scope" in event:
+            raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_STRICT_CONTEXT_REQUIRED")
+        return None
     requests = [
         row for row in state.trace
         if row.get("action") == "request" and row.get("outcome") == "APPLIED"
@@ -489,7 +504,9 @@ def qualify_original_technology_route_commit(state: Any, work: Any, at: int) -> 
         and row.get("technology_route_id") is not None
     ]
     if not requests:
-        return
+        if "technology_route_market_scope" in event:
+            raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_PROPOSAL_REQUIRED")
+        return None
     if len(requests) != 1 or not requests[0].get("technology_route_strict_original_decision_sources_qualified"):
         raise TechnologyRouteBlocked("ORIGINAL_TECHNOLOGY_ROUTE_STRICT_REQUEST_REQUIRED")
     request = requests[0]
@@ -515,3 +532,196 @@ def qualify_original_technology_route_commit(state: Any, work: Any, at: int) -> 
     _assert_original_route_decision_source(state, proposal, at)
     for response in latest.values():
         _assert_original_route_decision_source(state, response, at)
+    return _review_bound_market_scope(state, work, event, proposal, at) or None
+
+
+def review_original_route_market_scope(state: Any, work: Any, raw: Any, at: int) -> dict[str, Any]:
+    """Does a cooperative technology expand the disclosed feasible order set?
+
+    Reuse original partner-discovery offer declarations and original capacity
+    previews. Buyer specifies compatible resources per operation; each owner
+    supplies its own offer and scope document. The search never changes Work,
+    schedules, ownership, technology, money or consent. A missing catalogue
+    or an unqualified source is UNKNOWN, not proof of a missing alternative.
+    This bounded model cannot establish real market absence.
+    """
+    from itertools import product
+    from .capacity import CapacityBlocked, CapacityInputError
+    from .context_basis import ContextBlocked
+    from .partner_discovery import DiscoveryInputError, parse_discovery
+
+    basis = getattr(state, "context_basis", None)
+    if basis is None or not basis.strict:
+        raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_STRICT_CONTEXT_REQUIRED")
+    fields = {"work", "work_revision", "deliverable", "buyer_source",
+              "requirements", "offers", "offer_revisions", "owner_scopes"}
+    if not isinstance(raw, dict) or set(raw) != fields:
+        raise TechnologyRouteBlocked("MARKET_SCOPE_FIELDS_INVALID")
+    if (raw["work"] != work.key or raw["work_revision"] != work.source_revision
+            or not isinstance(raw["deliverable"], str) or not 0 < len(raw["deliverable"]) <= 128):
+        raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_DEMAND_REQUIRED")
+    owners = {key for key, party in state.subjects.items() if party.kind == "SME" and party.active}
+    if work.customer not in owners:
+        raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_ENTERPRISE_CUSTOMER_REQUIRED")
+    if (len(work.operations) < 2 or any(len(op.resource_requirements) != 1
+            or op.resource_requirements[0].resource != op.primary_resource for op in work.operations)):
+        raise TechnologyRouteBlocked("MARKET_SCOPE_SINGLE_PRIMARY_RESOURCE_PER_STAGE_REQUIRED")
+
+    def check_source(owner, source_ref, revision):
+        basis.assert_original_form_role_source(
+            owner, source_ref, revision, core="corporate",
+            purpose="AKIS_TECHNOLOGY_MARKET_EVIDENCE", operation="READ",
+            recipients={work.customer}, at=at,
+        )
+
+    buyer = raw["buyer_source"]
+    if not isinstance(buyer, dict) or set(buyer) != {"reference", "revision"}:
+        raise TechnologyRouteBlocked("MARKET_SCOPE_BUYER_SOURCE_REQUIRED")
+    try:
+        check_source(work.customer, buyer["reference"], buyer["revision"])
+    except ContextBlocked as exc:
+        raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_BUYER_SOURCE_NOT_QUALIFIED") from exc
+    requirements = raw["requirements"]
+    if not isinstance(requirements, list) or len(requirements) != len(work.operations):
+        raise TechnologyRouteBlocked("MARKET_SCOPE_ALL_ORIGINAL_STAGES_REQUIRED")
+    stages = {op.key: op for op in work.operations}
+    needs = {}
+    for row in requirements:
+        if (not isinstance(row, dict) or set(row) != {
+                "operation", "capability", "capacity_unit", "compatible_resources"}
+                or not all(isinstance(row[key], str) and 0 < len(row[key]) <= 128
+                           for key in ("operation", "capability", "capacity_unit"))):
+            raise TechnologyRouteBlocked("MARKET_SCOPE_STAGE_REQUIREMENT_INVALID")
+        key = row["operation"]
+        resources = row["compatible_resources"]
+        if (key not in stages or key in needs or not isinstance(resources, list)
+                or not 1 <= len(resources) <= 128 or any(not isinstance(r, str) for r in resources)
+                or len(set(resources)) != len(resources) or not set(resources) <= set(state.resources)
+                or stages[key].primary_resource not in resources):
+            raise TechnologyRouteBlocked("MARKET_SCOPE_BUYER_COMPATIBILITY_SCOPE_INVALID")
+        needs[key] = row
+    try:
+        _, offers = parse_discovery({"demands": [], "offers": raw["offers"]},
+                                    state.subjects, state.works, state.resources)
+    except DiscoveryInputError as exc:
+        raise TechnologyRouteBlocked(str(exc)) from exc
+    revisions = raw["offer_revisions"]
+    scopes = raw["owner_scopes"]
+    if (not isinstance(revisions, dict) or set(revisions) != {o.key for o in offers}
+            or not isinstance(scopes, dict) or not set(scopes) <= owners):
+        raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_OFFER_AND_OWNER_SCOPE_REQUIRED")
+    complete = {}
+    uncertain = set()
+    used_sources = set()
+    for owner, row in scopes.items():
+        if (not isinstance(row, dict) or set(row) != {"source_ref", "source_revision", "complete"}
+                or type(row["complete"]) is not bool
+                or not isinstance(row["source_ref"], str)):
+            raise TechnologyRouteBlocked("MARKET_SCOPE_OWNER_COVERAGE_INVALID")
+        if (row["source_ref"] == buyer["reference"] or row["source_ref"] in used_sources
+                or any(o.source == row["source_ref"] for o in offers)):
+            raise TechnologyRouteBlocked("MARKET_SCOPE_DISTINCT_COVERAGE_SOURCE_REQUIRED")
+        used_sources.add(row["source_ref"])
+        try:
+            check_source(owner, row["source_ref"], row["source_revision"])
+            complete[owner] = row["complete"]
+        except ContextBlocked:
+            uncertain.add(owner)
+    if len({o.source for o in offers}) != len(offers):
+        raise TechnologyRouteBlocked("MARKET_SCOPE_DISTINCT_OFFER_SOURCE_REQUIRED")
+    usable = []
+    for offer in offers:
+        if offer.owner not in owners or not offer.available_at <= at < offer.expires_at:
+            continue
+        try:
+            check_source(offer.owner, offer.source, revisions[offer.key])
+        except ContextBlocked:
+            uncertain.add(offer.owner)
+            continue
+        spec = state.resource_specs.get(offer.resource)
+        availability = state.resource_availability.get(offer.resource)
+        if (spec is None or spec.basis != "MODEL_DECLARED"
+                or spec.unit != offer.capacity_unit
+                or state.resource_availability_origin.get(offer.resource) not in {"MODEL_INPUT", "MODEL_EVENT"}
+                or availability == "UNKNOWN"):
+            uncertain.add(offer.owner)
+            continue
+        if availability == "AVAILABLE":
+            usable.append(offer)
+
+    def matching(stage, offer):
+        row = needs[stage.key]
+        return (offer.capability == row["capability"] and offer.capacity_unit == row["capacity_unit"]
+                and offer.resource in row["compatible_resources"])
+
+    def reservations(resources):
+        return tuple(Reservation(resource, work.key, op.slot_start, op.slot_end,
+                                 op.resource_requirements[0].units)
+                     for op, resource in zip(work.operations, resources))
+
+    selected = tuple(op.primary_resource for op in work.operations)
+    joint_feasible = all(any(o.resource == resource and matching(op, o) for o in usable)
+                         for op, resource in zip(work.operations, selected))
+    if joint_feasible:
+        try:
+            state.capacity_ledger.preview_plan(work.key, reservations(selected))
+        except (CapacityBlocked, CapacityInputError):
+            joint_feasible = False
+    counts = {"FEASIBLE": 0, "NO_FEASIBLE_IN_DECLARED_SCOPE": 0, "UNKNOWN": 0}
+    searched = 0
+    for owner in sorted(owners):
+        options = [sorted({o.resource for o in usable if o.owner == owner and matching(op, o)})
+                   for op in work.operations]
+        count = 1
+        for choices in options:
+            count *= len(choices)
+        feasible = False
+        limited = count > 256
+        if count and not limited:
+            for combination in product(*options):
+                searched += 1
+                try:
+                    state.capacity_ledger.preview_plan(work.key, reservations(combination))
+                    feasible = True
+                    break
+                except CapacityBlocked:
+                    continue
+                except CapacityInputError:
+                    uncertain.add(owner)
+        status = ("FEASIBLE" if feasible else "UNKNOWN"
+                  if limited or owner in uncertain or not complete.get(owner)
+                  else "NO_FEASIBLE_IN_DECLARED_SCOPE")
+        counts[status] += 1
+    if not joint_feasible:
+        status = "SELECTED_COOPERATIVE_PLAN_NOT_QUALIFIED"
+    elif counts["FEASIBLE"]:
+        status = "SINGLE_OWNER_ALTERNATIVE_EXISTS"
+    elif counts["UNKNOWN"]:
+        status = "SINGLE_OWNER_ALTERNATIVE_NOT_IDENTIFIABLE"
+    else:
+        status = "COOPERATIVE_PLAN_EXPANDS_DECLARED_FEASIBLE_ORDER_SET"
+    return {
+        "status": status, "selected_cooperative_plan_preview_feasible": joint_feasible,
+        "original_declared_stage_count": len(work.operations),
+        "registered_active_enterprise_count": len(owners),
+        "single_owner_feasibility_counts": counts,
+        "original_capacity_previews_attempted": searched + int(joint_feasible),
+        "buyer_compatibility_and_owner_scope_are_declared_not_physically_verified": True,
+        "no_original_capacity_reserved_or_owner_consent_created": True,
+        "actual_market_absence_or_additional_revenue_verified": False,
+    }
+
+
+def _review_bound_market_scope(state, work, event, proposal, at):
+    original = proposal.get("technology_route_market_scope_fingerprint")
+    supplied = event.get("technology_route_market_scope")
+    if original is None:
+        if supplied is not None:
+            raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_PROPOSAL_REQUIRED")
+        return {}
+    if supplied is None or technology_route_fingerprint(supplied) != original:
+        raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_SOURCE_FINGERPRINT_MISMATCH")
+    return {
+        "technology_route_market_scope_fingerprint": original,
+        "technology_route_market_feasibility": review_original_route_market_scope(state, work, supplied, at),
+    }

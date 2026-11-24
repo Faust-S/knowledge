@@ -398,6 +398,7 @@ class QualitativeAKIS:
              "proposed_model_commit_responsible",
              "technology_route_id", "technology_route_work",
              "technology_route_work_spec", "technology_route_fingerprint",
+             "technology_route_market_scope",
              "technology_route_source_ref", "technology_route_valid_until",
              "technology_route_decision", "technology_route_decision_source_ref",
              "technology_route_model_code_change_id",
@@ -472,6 +473,9 @@ class QualitativeAKIS:
                 # mechanism, but a joint counterfactual requires independent
                 # pattern availability per alternative (not yet declared).
                 raise InputError("PREPARATION_PATTERN_REQUIRES_SEPARATE_EXPLICIT_DIGITAL_MODE")
+            if "technology_route_market_scope" in ev and ev["action"] not in {
+                    "technology_route_propose", "request", "commit"}:
+                raise InputError("MARKET_SCOPE_REQUIRES_ORIGINAL_TECHNOLOGY_DECISION")
             if "evaluation_economic_portfolio" in ev and (
                     ev["action"] != "participation_status"
                     or ev["evaluation_economic_portfolio"] is not True
@@ -1084,7 +1088,9 @@ class QualitativeAKIS:
                         )
                     except CooperationInputError as exc:
                         raise BlockedDecision(str(exc)) from exc
-                self._work_action(work, ev, at)
+                work_evidence = self._work_action(work, ev, at)
+                if action == "commit":
+                    technology_route_evidence = work_evidence
             report = {"at": at, "action": action, "outcome": "APPLIED", "reason": "NONE", "org_revision": self.institution.revision}
         except (BlockedDecision, ContextBlocked, MaterialBlocked, AssuranceBlocked,
                 OrgCodeBlocked, CapabilityBlocked, TechnologyRouteBlocked,
@@ -1209,6 +1215,8 @@ class QualitativeAKIS:
                 report["cooperation_source_revision"] = route_proposal[
                     "cooperation_source_revision"
                 ]
+        if action == "commit" and report["outcome"] == "APPLIED" and technology_route_evidence:
+            report.update(technology_route_evidence)
         if action in {"start_operation", "complete_operation"}:
             report["operation"] = ev.get("operation")
         if action == "assess_result_quality" and report["outcome"] == "APPLIED":
@@ -1939,7 +1947,7 @@ class QualitativeAKIS:
                 work.admitted = False
                 work.authorization_org_revision = None  # old OK cannot authorize a future commitment
 
-    def _work_action(self, w: Work, ev: dict[str, Any], at: int) -> None:
+    def _work_action(self, w: Work, ev: dict[str, Any], at: int) -> dict[str, Any] | None:
         a = ev["action"]
         actor = ev["actor"]
         if a in {"offer", "authorize", "consent", "commit"}:
@@ -2020,7 +2028,7 @@ class QualitativeAKIS:
             if set(w.consents) != required or any(w.consents[principal] != (w.source_revision, self.institution.revision) for principal in required):
                 raise BlockedDecision("INDEPENDENT_ACCEPTANCE_MISSING")
             self._assert_future_cooperation_available(w, required)
-            qualify_original_technology_route_commit(self, w, at)
+            route_market = qualify_original_technology_route_commit(self, w, ev, at)
             # Preserve the original request's lineage and qualify it again
             # before the existing reservation or commitment can take effect.
             origin = next((
@@ -2066,6 +2074,7 @@ class QualitativeAKIS:
             else:
                 for need in w.resource_requirements:
                     self.allocations.append((need.resource, w.key, w.slot_start, w.slot_end))
+            return route_market
         elif a == "start":
             if w.operations:
                 raise BlockedDecision("OPERATION_START_REQUIRED")
