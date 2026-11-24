@@ -45,12 +45,12 @@ function task(){
   };
 }
 const headsSlots=[{sequence:1,messageType:'HEADS'}];
-function fixture(data=task()){
+function fixture(data=task(),{indexed=false}={}){
   const session=deriveT4OriginalNativeCaptureSession(data);
-  const objects=new Map(),events=[],remote=new Map(),replay=new Map();
+  const objects=new Map(),events=[],remote=new Map(),replay=new Map(),indexes=new Map();
   let putCalls=0,networkCalls=0,signCalls=0,reads=0,
     loseAction=null,loseNetwork=null,host='host:initial',network=true,allow=true,retryAllowed=true,
-    afterNetworkPut=()=>{};
+    afterNetworkPut=()=>{},indexCalls=0,loseIndex=null,indexRepairAllowed=true;
   const kernel={
     hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject'].includes(op),
     async getObject(w,id){reads++;return structuredClone(objects.get(w+':'+id)??null);},
@@ -119,6 +119,22 @@ function fixture(data=task()){
       return {key,sha256:expectedSha256,state:'EXPECTED_BYTES_PRESENT'};
     },
   };
+  if(indexed){
+    const indexReceipt=(key,frameSha256)=>({schema:'IWXA_T4_NATIVE_FRAME_INDEX_READ_V1',key,frameSha256,
+      addressMetadataIsNotSignatureOrAuthority:true,originalBusinessApplied:false});
+    Object.assign(transport,{nativeFrameIndexVersion:1,
+      async getNativeFrameIndex({key}){return indexes.has(key)?indexReceipt(key,indexes.get(key)):null;},
+      async putNativeFrameIndex({key,frameSha256}){
+        indexCalls++;
+        if(loseIndex==='before'){loseIndex=null;throw Object.assign(Error('lost index write'),{code:'NETWORK_UNAVAILABLE'});}
+        if(indexes.has(key)&&indexes.get(key)!==frameSha256)
+          throw Object.assign(Error('index conflict'),{code:'REMOTE_INDEX_SLOT_CONFLICT'});
+        indexes.set(key,frameSha256);
+        if(loseIndex==='after'){loseIndex=null;throw Object.assign(Error('lost index response'),{code:'OUTCOME_UNKNOWN'});}
+        return indexReceipt(key,frameSha256);
+      },
+    });
+  }
   const mode=()=>network?'T4_NETWORK':'LOCAL_T3';
   const auth=async()=>allow;
   const makeTransport=node=>createT4CandidateFrameTransport({
@@ -144,7 +160,8 @@ function fixture(data=task()){
         originalWriteOwnerRef:owner,nodeRef:node,scopeRef:scope,hostSessionRef:host}),
       authorizeOriginalTechnicalRead:auth,authorizeOriginalTechnicalWrite:auth,
       authorizeOriginalFramePublish:async p=>allow&&
-        (p.operation!=='t4.network.publish.retry-missing'||retryAllowed),
+        (p.operation!=='t4.network.publish.retry-missing'||retryAllowed)&&
+        (p.operation!=='t4.network.publish.index.repair'||indexRepairAllowed),
       verifyOriginalNodeSignature:async({bytes,signature,signerRef})=>
         signerRef===(node===source?'key:source':'key:recipient')&&
         verify(null,Buffer.from(bytes),node===source?keys.publicKey:peerKeys.publicKey,
@@ -200,9 +217,11 @@ function fixture(data=task()){
     },...overrides,
   });
   return {data,session,objects,events,remote,port,heads,stageHeads,changeBatch,signed,binding,
-    kernel,mode,auth,makeTransport,replay,host:()=>host,
+    kernel,mode,auth,makeTransport,replay,indexes,host:()=>host,
     counts:()=>({putCalls,networkCalls,signCalls,reads}),
     loseCAS:action=>{loseAction=action;},loseNetwork:where=>{loseNetwork=where;},
+    indexCalls:()=>indexCalls,loseIndex:where=>{loseIndex=where;},
+    denyIndexRepair:()=>{indexRepairAllowed=false;},allowIndexRepair:()=>{indexRepairAllowed=true;},
     restart:()=>{host='host:cold:'+putCalls;},local:()=>{network=false;},
     revoke:()=>{allow=false;},denyRetry:()=>{retryAllowed=false;},
     onNetworkPut:fn=>{afterNetworkPut=fn;}};
@@ -531,4 +550,42 @@ test('source continuation stops for local T3 and shares original Host mutual exc
   f.local();const before=f.counts();
   assert.equal((await f.step()).state,'LOCAL_T3');
   assert.deepEqual(f.counts(),before);
+});
+
+
+test('K23 durable ATTEMPTED record repairs missing index with exact saved frame and original authorization',async()=>{
+  const f=fixture(task(),{indexed:true});
+  await f.stageHeads();
+  const saved=(await f.port().inspectOriginalPublication()).frames[0];
+  f.loseIndex('before');
+  await assert.rejects(f.port().publishPreparedFrame({sequence:1}),err('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  assert.equal(f.counts().networkCalls,1);assert.equal(f.indexCalls(),1);assert.equal(f.indexes.size,0);
+  assert.equal((await f.port().inspectOriginalPublication()).frames[0].state,'ATTEMPTED');
+  f.restart();f.denyIndexRepair();
+  await assert.rejects(f.port().publishPreparedFrame({sequence:1}),err('PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED'));
+  assert.equal(f.indexCalls(),1);assert.equal(f.counts().putCalls,2);
+  f.allowIndexRepair();
+  const recovered=await f.port().publishPreparedFrame({sequence:1});
+  assert.equal(recovered.state,'REMOTE_READBACK_RECOVERED');
+  assert.equal(f.indexCalls(),2);assert.equal(f.indexes.size,1);
+  assert.equal(f.counts().networkCalls,1);assert.equal(f.counts().signCalls,1);
+  assert.equal(f.counts().putCalls,3);
+  const present=(await f.port().inspectOriginalPublication()).frames[0];
+  assert.equal(present.state,'PRESENT');assert.equal(present.attempts,1);
+  assert.deepEqual(present.wireBytes,saved.wireBytes);
+  f.restart();
+  assert.equal((await f.port().publishPreparedFrame({sequence:1})).state,'ALREADY_PRESENT_VERIFIED');
+  assert.equal(f.indexCalls(),2);assert.equal(f.counts().networkCalls,1);
+  assert.equal(f.counts().putCalls,3);
+});
+
+test('K23 durable recovery observes already committed index without repeating index or frame write',async()=>{
+  const f=fixture(task(),{indexed:true});await f.stageHeads();
+  f.loseIndex('after');
+  await assert.rejects(f.port().publishPreparedFrame({sequence:1}),err('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  assert.equal(f.indexes.size,1);
+  f.restart();
+  assert.equal((await f.port().publishPreparedFrame({sequence:1})).state,'REMOTE_READBACK_RECOVERED');
+  assert.equal(f.indexCalls(),1);assert.equal(f.counts().networkCalls,1);
+  assert.equal(f.counts().signCalls,1);assert.equal(f.counts().putCalls,3);
 });

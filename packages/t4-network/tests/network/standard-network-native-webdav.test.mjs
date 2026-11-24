@@ -524,7 +524,7 @@ test('K23 real HTTPS indexed HEADS and exact session discovery use no collection
   const body={familyRef,ownerEpoch:2,heads:['sha256:'+'b'.repeat(64)],sourceSession:{
     predecessorEventId:'event:prev',predecessorEventCount:5,predecessorPrefixDigest:'sha256:'+'a'.repeat(64),
     sourceEventId:'event:next',sourceEventDigest:'sha256:'+'c'.repeat(64),sourceRevision:1,
-    changeKind:'OBJECT_PUT',capturedWindowDigest:'sha256:'+'d'.repeat(64),capturedSha256:'e'.repeat(64)}};
+    changeKind:'ASSET_PUT',capturedWindowDigest:'sha256:'+'d'.repeat(64),capturedSha256:'e'.repeat(64)}};
   const supportedCriticalExtensions=[T4_ORIGINAL_SOURCE_SESSION_EXTENSION];
   try{
     await source.wire.publishSignedFrame({wireBytes:await makeBytes('HEADS',{sessionRef,sequence:1,body,criticalExtensions:supportedCriticalExtensions})});
@@ -545,8 +545,8 @@ test('K23 real HTTPS indexed HEADS and exact session discovery use no collection
     const discover=()=>recipient.wire.discoverSessionContent({selector,requiredCryptoSuite:suite,supportedCriticalExtensions});
     assert.equal((await discover()).receipts.length,1);
     await source.wire.publishSignedFrame({wireBytes:await makeBytes('CHANGE_REF',{sessionRef,sequence:2,body:{
-      changeId:chunks.changeId,changeKind:'ASSET_PUT',eventRef:'event:asset',ownerRef:'original:owner:one',
-      sourceRevision:1,contentDigest:chunks.contentDigest,parents:[]}})});
+      changeId:chunks.changeId,changeKind:'ASSET_PUT',eventRef:body.sourceSession.sourceEventId,ownerRef:'original:owner:one',
+      sourceRevision:1,contentDigest:chunks.contentDigest,parents:[body.sourceSession.predecessorPrefixDigest]}})});
     assert.equal((await discover()).receipts.length,2);
     await source.wire.publishSignedFrame({wireBytes:await makeBytes('CHUNK',{sessionRef,sequence:3,body:chunks.bodies[0]})});
     assert.equal((await discover()).receipts.length,3);
