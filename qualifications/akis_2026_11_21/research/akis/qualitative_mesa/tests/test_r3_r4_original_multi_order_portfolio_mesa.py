@@ -693,7 +693,7 @@ def test_outside_price_ceiling_source_must_remain_readable_for_portfolio_project
         simulate(doc)
 
 
-def stage_outlook(doc, *, cooperative_receipts="400.00", outside_receipts="500.00"):
+def stage_outlook(doc, *, cooperative_receipts="400.00", cooperative_cost="160.00", outside_receipts="500.00"):
     """A separate owner-authored prospective declaration, not final accounting."""
     from .test_r4_independent_external_buyer_demand_mesa import owner_outlook
 
@@ -720,7 +720,7 @@ def stage_outlook(doc, *, cooperative_receipts="400.00", outside_receipts="500.0
     for key in forecast["cash"]:
         forecast["cash"][key] = {k: "0.00" for k in forecast["cash"][key]}
     forecast["cash"]["COOPERATION"]["member_supply_receipts"] = cooperative_receipts
-    forecast["cash"]["COOPERATION"]["production_cash"] = "160.00"
+    forecast["cash"]["COOPERATION"]["production_cash"] = cooperative_cost
     forecast["cash"]["INDEPENDENT_ALTERNATIVE"]["external_sales"] = outside_receipts
     forecast["cash"]["INDEPENDENT_ALTERNATIVE"]["production_cash"] = "180.00"
     doc["economic_outlooks"] = [forecast]
@@ -733,14 +733,14 @@ def stage_outlook(doc, *, cooperative_receipts="400.00", outside_receipts="500.0
 
 
 def stage_owner_observations(output):
-    return [r for r in output["decision_observations"] if r.get("actor") == "c"
+    return [r for r in output["decision_observations"] if r.get("subject") == "c"
             and r.get("work") == "w3" and "economic_position" in r]
 
 
-@pytest.mark.parametrize("receipt,position", [("400.00", "OUTSIDE_PREFERRED"),
-                                             ("650.00", "COOPERATION_PREFERRED")])
-def test_independent_supplier_precommit_stage_outlook_uses_own_forecast_not_future_ledger(receipt, position):
-    doc = stage_outlook(portfolio_trajectories()["supplier"], cooperative_receipts=receipt)
+@pytest.mark.parametrize("cost,position", [("160.00", "OUTSIDE_PREFERRED"),
+                                          ("50.00", "COOPERATION_PREFERRED")])
+def test_independent_supplier_precommit_stage_outlook_uses_own_forecast_not_future_ledger(cost, position):
+    doc = stage_outlook(portfolio_trajectories()["supplier"], cooperative_cost=cost)
     out = mechanics(doc)
     tick = _event(doc, "commit", "w3")["at"]
     rows = stage_owner_observations(out)
@@ -772,3 +772,28 @@ def test_stage_forecast_buyer_decline_cannot_be_replaced_by_sellers_cash_optimis
     assert not any(r["economic_position"] in {"COOPERATION_PREFERRED", "OUTSIDE_PREFERRED"} for r in rows)
     assert out["works"]["w3"]["result"] == ACCEPTED
     assert OUTSIDE not in out["works"]
+
+
+def test_stage_forecast_cannot_invent_cooperation_receipt_above_original_quote():
+    doc = stage_outlook(portfolio_trajectories()["supplier"], cooperative_receipts="650.00")
+    out = mechanics(doc)
+    rows = stage_owner_observations(out)
+    assert any(r["economic_reason"] == "OUTSIDE_STAGE_ORIGINAL_COOPERATION_QUOTE_NOT_QUALIFIED" for r in rows), rows
+    assert not any(r["economic_position"] in {"COOPERATION_PREFERRED", "OUTSIDE_PREFERRED"} for r in rows)
+    assert out["works"]["w3"]["result"] == ACCEPTED
+
+
+def test_stage_forecast_is_invariant_to_later_original_recipient_acceptance():
+    doc = stage_outlook(portfolio_trajectories()["supplier"])
+    changed = deepcopy(doc)
+    accept = _event(changed, "accept", "w3")
+    changed["events"].remove(accept)
+    tick = _event(doc, "commit", "w3")["at"]
+    original, counterfactual = mechanics(doc), mechanics(changed)
+    def before(out):
+        return [(r["at"], r["economic_position"], r["economic_reason"])
+                for r in stage_owner_observations(out) if r["at"] < tick]
+    assert before(original) == before(counterfactual)
+    assert any(position == "OUTSIDE_PREFERRED" for _, position, _ in before(original))
+    assert original["works"]["w3"]["result"] == ACCEPTED
+    assert counterfactual["works"]["w3"]["result"] != ACCEPTED

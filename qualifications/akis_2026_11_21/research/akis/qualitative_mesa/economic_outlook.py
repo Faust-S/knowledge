@@ -514,6 +514,49 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
             }
 
 
+    if stage_demand is not None:
+        # No speculative receipts on either side of an exact stage comparison.
+        # Match the cooperation forecast to the owner's original quoted amount,
+        # not a later realized payment or an invented source of revenue.
+        from .technology import technology_route_fingerprint
+        reqs = [r for r in (original_trace or ()) if r.get("action") == "request"
+                and r.get("outcome") == "APPLIED" and r.get("work") == work.key
+                and r["at"] <= at and r.get("technology_route_commercial_fingerprint")]
+        qualified = False
+        if len(reqs) == 1:
+            request = reqs[0]
+            events = [e for e in original_state.events if e["action"] == "request"
+                      and e["at"] == request["at"]
+                      and e.get("work", e.get("work_spec", {}).get("id")) == work.key]
+            terms = events[0].get("technology_route_commercial_terms") if len(events) == 1 else None
+            if (isinstance(terms, dict)
+                    and technology_route_fingerprint(terms) == request["technology_route_commercial_fingerprint"]
+                    and terms["currency"] == row.currency):
+                offers = [o for o in terms["offers"] if o["payee"] == owner]
+                if len(offers) == 1:
+                    quote = offers[0]
+                    cooperative, independent = row.cash["COOPERATION"], row.cash["INDEPENDENT_ALTERNATIVE"]
+                    if (at < quote["expires_at"] and at < quote["due_at"]
+                            and cooperative["member_supply_receipts"] == _amount(quote["amount"])
+                            and cooperative["external_sales"] == 0
+                            and independent["member_supply_receipts"] == 0):
+                        try:
+                            for check, tick in (
+                                    (context_basis.assert_original_historical_form_role_source, request["at"]),
+                                    (context_basis.assert_original_form_role_source, int(at))):
+                                check(owner, quote["source_ref"], quote["source_revision"],
+                                      core="corporate", purpose="AKIS_TECHNOLOGY_ROUTE_COMMERCIAL_TERMS",
+                                      operation="READ",
+                                      recipients={owner, work.customer, original_state.institution.operator},
+                                      at=tick)
+                            qualified = True
+                        except ContextBlocked:
+                            pass
+        if not qualified:
+            return {"position": "UNKNOWN", "reason": "OUTSIDE_STAGE_ORIGINAL_COOPERATION_QUOTE_NOT_QUALIFIED",
+                    "relation": row.relation, "available_at": row.available_at}
+
+
     def net(scenario: str) -> Decimal:
         p = row.cash[scenario]
         return sum((p[name] for name in _RECEIPTS), Decimal(0)) - sum(
