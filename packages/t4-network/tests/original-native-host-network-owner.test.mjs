@@ -121,9 +121,12 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     granted_operations:[...new Set(['t1.getWorkspace','t1.commitObjectGraph','t1.getObject','t1.listEventsSince',...owner.operations])]};
   const attach=()=>relay.exchange({verb:'attach',payload:{sessionInfo:info,networkRelayVersion:1}},epoch);
   async function drive(session,target){
-    const until=Date.now()+180000;
-    while(!results.some(r=>r.state===target)){
-      if(failure)throw failure;if(Date.now()>until)throw Error('native owner wake timeout: '+JSON.stringify(results));
+    // The production HTTP socket keeps the existing unref'ed long poll
+    // alive. This in-process browser test has no socket, so bound its
+    // lifetime with one test-only, referenced timeout.
+    const deadline=setTimeout(()=>relay.close(),180000);
+    try{while(!results.some(r=>r.state===target)){
+      if(failure)throw failure;
       const cmd=await relay.exchange({verb:'next',payload:{sessionId:session.sessionId}},epoch);
       if(failure)throw failure;
       if(cmd.kind==='IDLE')continue;
@@ -133,7 +136,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
       const value=await store.kernel[method](...args);
       await relay.exchange({verb:'result',payload:{sessionId:session.sessionId,id:cmd.id,ok:true,
         result:encodeOriginalNetworkRelayResult(method,value)}},epoch);
-    }
+    }}finally{clearTimeout(deadline);}
   }
   return {owner,relay,attach,drive,results,commands,local,technical,get accessResolutions(){return accessResolutions},
     revokeBinding(){admitted=false},disableMode(){mode='LOCAL_T3'},invalidate(){epoch++;relay.invalidate()}};
@@ -178,7 +181,8 @@ test('K14 existing signed native relay drives original source baseline, captured
     assert.equal(recipient.events.filter(e=>e.workspace_id===WS).length,1);
     assert.equal(wire.puts,2);
     assert.deepEqual([...wire.frames.values()].map(b=>decodeT4CandidateFrame(b).messageType),['HEADS','DIFF_REQUEST']);
-    assert.ok(r.technical.proofCount>0);assert.ok(r.local.proofCount===0||r.local.proofCount>0);
+    assert.ok(r.technical.proofCount>0);
+    assert.ok(r.commands.filter(c=>c.method==='putObject').every(c=>c.args[0].workspace_id===recipient.technicalWorkspaceId));
   }finally{r.relay.close();}
 });
 test('K14 missing original baseline remains waiting, never inferred from transport; revoked owner stops existing relay binding',async()=>{
