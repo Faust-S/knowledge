@@ -1034,3 +1034,212 @@ def summarize_original_pattern_evolution(general_views: list, *, horizon: int
         "actual_time_and_costs_measured": False,
         "full_author_repeatability_and_experience_return_ratios_identified": False,
     }
+
+
+def original_delegation_reproduction_view(
+    state: Any, *, economics: Mapping[str, Any] | None = None,
+    strict_work_ids: tuple | str | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Observe actual original grants and packets, not a second grant ledger.
+
+    A prepared and approved packet is not necessarily the effective packet
+    of a committed Work. Only the historical APPLIED commitment can establish
+    use; only the independent recipient's acceptance establishes accepted use.
+    Expenses of unused/superseded attempts remain original expenses, not
+    automatically realized losses. No live observation reads future costs.
+    """
+    trace = state.trace
+    grants = {}
+    packets = {}
+    rows_by_work = {}
+    for pos, row in enumerate(trace):
+        work = row.get("work")
+        if work is None or row.get("outcome") != "APPLIED":
+            continue
+        rows_by_work.setdefault(work, []).append((pos, row))
+        if row.get("action") == "function_delegate":
+            grants[pos] = row
+        elif row.get("action") == "function_prepare" and "model_original_delegated_preparation" in row:
+            packets[pos] = row
+    if not grants and not packets:
+        return None, None
+
+    grant_index = {(row["work"], row["at"]): pos for pos, row in grants.items()}
+    used_grants = {}
+    chain_ok = len(grant_index) == len(grants)
+    for pos, row in packets.items():
+        grant = grant_index.get((row["work"], row["model_original_delegated_preparation"]["delegation_at"]))
+        if (grant is None or grant in used_grants.values()
+                or grants[grant]["function_id"] != row["function_id"]
+                or grants[grant]["model_original_preparation_mandate"]["delegate"] != row["actor"]
+                or grants[grant]["at"] >= row["at"]):
+            chain_ok = False
+        else:
+            used_grants[pos] = grant
+
+    # Historical evidence of the actually applied original commit; never
+    # require present permission again to recognize a historical obligation.
+    committed = set()
+    accepted = set()
+    scoped_works = sorted({row["work"] for row in (*grants.values(), *packets.values())})
+    for key in scoped_works:
+        work = state.works.get(key)
+        rows = rows_by_work[key]
+        commits = [row for _, row in rows if row["action"] == "commit"]
+        if not commits:
+            continue
+        if work is None or len(commits) != 1:
+            chain_ok = False
+            continue
+        commit = commits[0]
+        policy = state.formation_policy
+        functions = [] if policy is None else [
+            fn for fn in policy.design.declarations["agent_functions"]
+            if fn["work"] == key and fn["work_revision"] == work.source_revision
+            and fn["action"] == "REQUEST_APPROVAL"
+            and fn["revision"] == commit["org_revision"]
+            and fn["available_at"] <= commit["at"] < fn["expires_at"]
+        ]
+        if len(functions) != 1:
+            chain_ok = False
+            continue
+        fn = functions[0]
+        candidates = [(pos, row) for pos, row in rows
+                      if row["action"] == "function_prepare" and row["at"] < commit["at"]
+                      and row.get("function_id") == fn["id"]
+                      and row.get("work_source_revision") == work.source_revision
+                      and row.get("org_revision") == commit["org_revision"]]
+        if not candidates:
+            chain_ok = False
+            continue
+        pos, prepared = candidates[-1]
+        # A later independent, non-delegated function edition may be the
+        # effective preparation; earlier grants are still historical costs.
+        if not fn.get("requires_original_delegation"):
+            if pos in packets:
+                chain_ok = False
+            continue
+        reviews = [row for _, row in rows
+                   if row["action"] == "function_review"
+                   and row.get("function_id") == fn["id"]
+                   and row.get("prepared_at") == prepared["at"]
+                   and row.get("actor") == work.customer
+                   and row.get("work_source_revision") == work.source_revision
+                   and row.get("org_revision") == commit["org_revision"]
+                   and prepared["at"] < row["at"] < commit["at"]]
+        if (pos not in used_grants or len(reviews) != 1
+                or reviews[0].get("human_decision") != "APPROVE"
+                or original_preparation_oc_edition(state, prepared["at"])
+                    != commit.get("org_code_model_source_edition", "BASE")
+                or prepared.get("actor") != fn["owner"]):
+            chain_ok = False
+            continue
+        committed.add(pos)
+        if work.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT":
+            if any(row["action"] == "accept" and row["actor"] == work.customer
+                   and row["at"] > commit["at"] for _, row in rows):
+                accepted.add(pos)
+            else:
+                chain_ok = False
+
+    committed_grants = {used_grants[pos] for pos in committed}
+    accepted_grants = {used_grants[pos] for pos in accepted}
+    used = set(used_grants.values())
+    shared = {
+        "scope": "ORIGINAL_BOUNDED_DELEGATION_ONLY",
+        "historical_original_chain_identified": chain_ok,
+        "applied_mandate_count": len(grants),
+        "applied_delegated_preparation_count": len(packets),
+        "mandates_used_for_preparation": len(used) if chain_ok else None,
+        "mandates_without_applied_preparation": len(grants)-len(used) if chain_ok else None,
+        "committed_effective_mandate_count": len(committed_grants) if chain_ok else None,
+        "committed_effective_preparation_count": len(committed) if chain_ok else None,
+        "accepted_effective_mandate_count": len(accepted_grants) if chain_ok else None,
+        "accepted_effective_preparation_count": len(accepted) if chain_ok else None,
+        "committed_not_accepted_preparation_count": len(committed-accepted) if chain_ok else None,
+        "other_applied_preparation_count": len(packets)-len(committed) if chain_ok else None,
+        "other_applied_mandate_count": len(grants)-len(committed_grants) if chain_ok else None,
+        "original_works_with_delegated_preparation": len({row["work"] for row in packets.values()}),
+        "original_works_with_accepted_delegated_preparation": len({packets[pos]["work"] for pos in accepted}) if chain_ok else None,
+        "historical_accepted_use_is_not_a_current_mandate": True,
+        "no_new_original_work_result_or_cost_rows": True,
+        "private_source_and_owner_identifiers_excluded": True,
+        "other_attempts_not_automatically_economic_losses": True,
+        "full_author_agent_autonomy_or_empirical_effect_identified": False,
+    }
+    if economics is None:
+        return shared, None
+
+    # The existing lifecycle review already reconciles tagged preparation
+    # activity with cost rows and pins each owner's mandate cost to its
+    # APPLIED event. Never create a resource entry or impute absent cost.
+    strict = economics.get("original_strict_context_source_qualification", {})
+    qualified = strict.get("status") == "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED"
+    strict_ids = {strict_work_ids} if isinstance(strict_work_ids, str) else set(strict_work_ids or ())
+    lifecycle = economics.get("lifecycle_resource_costs", {})
+    activity = lifecycle.get("original_preparation_activity_costs", {})
+    timing = lifecycle.get("original_work_event_timing", {}).get("by_original_work", {})
+    prep_costs = {}
+    grant_costs = {}
+    for item in activity.get("items", []):
+        pos = item["original_trace_position"]
+        if pos in packets:
+            prep_costs.setdefault(pos, []).append((item["resource_use_id"], Decimal(item["declared_resource_cost"])))
+    for key in scoped_works:
+        owners = timing.get(key, {}).get("per_original_scenario_owner", {}).get("COOPERATION", {})
+        for owner, items in owners.items():
+            for item in items:
+                pos = item["original_trace_position"]
+                if (pos in grants and item["original_applied_action"] == "function_delegate"
+                        and grants[pos]["work"] == key and grants[pos]["actor"] == owner):
+                    grant_costs.setdefault(pos, []).append((item["resource_use_id"], Decimal(item["source_declared_noncash_original_work_cost"])))
+
+    # This partial cost scope requires an explicit non-overlapping cost
+    # for each original event (zero is permitted). Multiple cost rows per
+    # mandate may be genuine, but are not silently aggregated as a proven
+    # complete cost here. Source-qualification is not actual incurrence.
+    details = {}
+    def amount(index, positions):
+        return sum((index[pos][0][1] for pos in positions), Decimal(0))
+    def money(value):
+        return f"{value:.2f}"
+    for key in scoped_works:
+        gp = {pos for pos, row in grants.items() if row["work"] == key}
+        pp = {pos for pos, row in packets.items() if row["work"] == key}
+        gc = {pos for pos in gp if len(grant_costs.get(pos, [])) == 1}
+        pc = {pos for pos in pp if len(prep_costs.get(pos, [])) == 1}
+        ids = [grant_costs[pos][0][0] for pos in gc] + [prep_costs[pos][0][0] for pos in pc]
+        complete = (chain_ok and qualified and key in strict_ids
+                    and activity.get("status") == "MODEL_ORIGINAL_PACKET_ACTIVITY_COST_RECONCILED"
+                    and gc == gp and pc == pp and len(ids) == len(set(ids)))
+        detail = {
+            "status": "MODEL_ORIGINAL_DELEGATION_ATTEMPT_COSTS_RECONCILED" if complete
+                      else "UNKNOWN_INCOMPLETE_OR_AMBIGUOUS_ORIGINAL_ATTEMPT_COST_SCOPE",
+            "applied_mandate_count": len(gp),
+            "applied_preparation_count": len(pp),
+            "uniquely_anchored_mandate_cost_count": len(gc),
+            "uniquely_anchored_preparation_cost_count": len(pc),
+            "committed_effective_preparation_count": len(pp & committed) if chain_ok else None,
+            "accepted_effective_preparation_count": len(pp & accepted) if chain_ok else None,
+        }
+        for label, gset, pset in (
+            ("all", gp, pp),
+            ("committed_effective", gp & committed_grants, pp & committed),
+            ("accepted_effective", gp & accepted_grants, pp & accepted),
+            ("other", gp-committed_grants, pp-committed),
+        ):
+            detail[label + "_customer_mandate_cost"] = money(amount(grant_costs, gset)) if complete else None
+            detail[label + "_delegate_preparation_cost"] = money(amount(prep_costs, pset)) if complete else None
+            detail[label + "_combined_cost"] = money(amount(grant_costs, gset)+amount(prep_costs, pset)) if complete else None
+        details[key] = detail
+    cost_view = {
+        "scope": "ORIGINAL_DELEGATION_ATTEMPT_RESOURCE_COSTS_ONLY",
+        "status": "MODEL_ORIGINAL_DELEGATION_ATTEMPT_COSTS_RECONCILED"
+                  if all(row["status"] == "MODEL_ORIGINAL_DELEGATION_ATTEMPT_COSTS_RECONCILED" for row in details.values())
+                  else "UNKNOWN_INCOMPLETE_OR_AMBIGUOUS_ORIGINAL_ATTEMPT_COST_SCOPE",
+        "local_research_only": {"by_original_work": details},
+        "same_original_cost_records_not_added_again": True,
+        "new_cost_rows_created": 0,
+        "actual_incurrence_profit_and_causal_saving_verified": False,
+    }
+    return shared, cost_view

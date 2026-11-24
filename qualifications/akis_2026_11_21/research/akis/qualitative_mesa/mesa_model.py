@@ -506,6 +506,9 @@ class OperatorAKISModel(mesa.Model):
             ev["action"] == "function_prepare" and "preparation_pattern" in ev
             for ev in self.qualitative.events
         )
+        self._has_original_delegation_claims = any(
+            ev["action"] == "function_delegate" for ev in self.qualitative.events
+        )
         self.assessment_truncated = False
         self._scheduled_reactions = 0
         self._outlook_epoch = 0
@@ -731,6 +734,11 @@ class OperatorAKISModel(mesa.Model):
                 self.qualitative, at=int(self.time))
             if observation is not None:
                 view["author_operator_reproducibility"]["structural_preparation_scope"] = observation
+        if self._has_original_delegation_claims:
+            from .process_preparation import original_delegation_reproduction_view
+            delegation, _ = original_delegation_reproduction_view(self.qualitative)
+            if delegation is not None:
+                view["agent_function_formation_model_gate"]["original_delegation_scope"] = delegation
         # Record only causal changes, not a new event/Result journal.
         signature = json.dumps(
             {"components": view["components"],
@@ -741,7 +749,9 @@ class OperatorAKISModel(mesa.Model):
              "configuration_dynamics": view["configuration_dynamics"],
              "bounded_agent_process": view["bounded_process_function_outputs"],
              "structural_preparation_scope": view["author_operator_reproducibility"].get(
-                 "structural_preparation_scope")},
+                 "structural_preparation_scope"),
+             "original_delegation_scope": view["agent_function_formation_model_gate"].get(
+                 "original_delegation_scope")},
             sort_keys=True, ensure_ascii=False)
         if signature != self._general_last_signature:
             self.general_views.append({
@@ -1529,6 +1539,17 @@ class OperatorAKISModel(mesa.Model):
                     self.general_views, horizon=self._model_end_at)
             if pattern_costs is not None:
                 output["economics"]["original_pattern_reproduction_costs"] = pattern_costs
+            if self._has_original_delegation_claims:
+                from .process_preparation import original_delegation_reproduction_view
+                delegation, delegation_costs = original_delegation_reproduction_view(
+                    self.qualitative, economics=output.get("economics"),
+                    strict_work_ids=self.strict_economic_source_work,
+                )
+                if delegation is not None:
+                    output["general_akis_model"]["agent_function_formation_model_gate"][
+                        "original_delegation_scope"] = delegation
+                if delegation_costs is not None:
+                    output["economics"]["original_delegation_attempt_costs"] = delegation_costs
             if "capability_dynamics" in output:
                 cap = output["capability_dynamics"]
                 output["general_akis_model"]["capability_reproduction_feedback"] = {
