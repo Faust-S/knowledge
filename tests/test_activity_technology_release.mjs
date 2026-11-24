@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {preparePersonalTechnologyProduct,TECHNOLOGY_SCHEMA,TECHNOLOGY_VERSION} from '../modules/activity-base-anonymizer/technology-product.mjs';
 import {releaseAcceptedTechnology,importTechnologyArchive} from '../modules/activity-base-anonymizer/technology-product-exchange.mjs';
+import {createTechnologyReleaseHost} from '../modules/activity-base-anonymizer/technology-release-host.mjs';
 import {personalRows,personalProposal} from './activity_technology_product_fixture.mjs';
 const counts={workspaces:1,objects:1,events:0,relations:0,assets:0,schemas:1};
 const zero=Object.fromEntries(Object.keys(counts).map(k=>[k,0]));
@@ -75,4 +76,77 @@ test('selection invalidated after original import preview still consumes token',
  await assert.rejects(()=>importTechnologyArchive({subject,workspace_id,bytes:new Uint8Array([1]),
   confirmOriginalImport:async()=>true,isCurrent:()=>current}),{code:'TECHNOLOGY_NATIVE_CONTEXT_CHANGED'});
  assert.equal(cancelled,1);assert.equal(commits,0);
+});
+
+function bindOwner(x,resolver){
+ let notify,stopped=0;
+ const binding=createTechnologyReleaseHost({resolveOriginalRelease:resolver??(async()=>x.input),
+  subscribeInvalidation(listener){notify=listener;return ()=>{stopped++;};}});
+ return {...binding,invalidate:()=>notify(),stopped:()=>stopped};
+}
+async function productRequest(x){
+ return {product_sha256:x.input.product_sha256,object_data:await x.input.readAcceptedProduct()};
+}
+test('original owner decision and real save precede the narrow release receipt',async()=>{
+ const x=await fixture(),request=await productRequest(x);
+ const h=bindOwner(x,async(r,current)=>{
+  assert.deepEqual(r,request);assert.equal(current(),true);
+  x.calls.push('owner-review');
+  return x.input;
+ });
+ const r=await h.port.reviewAndRelease(request);
+ assert.deepEqual(x.calls,['owner-review','put','preview','export','save','confirm']);
+ assert.equal(r.status,'ORIGINAL_TECHNOLOGY_RELEASED');assert.equal(r.export_confirmed,true);
+ assert.deepEqual(Object.keys(r).sort(),['export_confirmed','file_saved','package_digest','product_sha256','status']);
+ assert.deepEqual(await h.port.reviewAndRelease(request),r);
+ assert.equal(x.calls.filter(c=>c==='save').length,1);
+ h.dispose();h.dispose();assert.equal(h.stopped(),1);
+});
+test('forged renderer requests never reach original owner',async()=>{
+ const x=await fixture(),request=await productRequest(x);let resolved=0;
+ const h=bindOwner(x,async()=>{resolved++;return x.input;});
+ await assert.rejects(()=>h.port.reviewAndRelease({...request,approved:true}),{code:'TECHNOLOGY_RELEASE_REQUEST_INVALID'});
+ await assert.rejects(()=>h.port.reviewAndRelease({...request,product_sha256:'f'.repeat(64)}),{code:'TECHNOLOGY_RELEASE_REQUEST_CHANGED'});
+ assert.equal(resolved,0);assert.deepEqual(x.calls,[]);h.dispose();
+});
+test('refusal or missing original disclosure decision never exports',async()=>{
+ const x=await fixture(),request=await productRequest(x);
+ const declined=bindOwner(x,async()=>null);
+ assert.equal((await declined.port.reviewAndRelease(request)).status,'TECHNOLOGY_RELEASE_CANCELLED');
+ declined.dispose();
+ const h=bindOwner(x,async()=>{x.revoke();return x.input;});
+ assert.equal((await h.port.reviewAndRelease(request)).status,'TECHNOLOGY_RELEASE_NOT_STARTED');
+ assert.deepEqual(x.calls,[]);h.dispose();
+});
+test('parallel request and invalidation during owner review cannot dispatch',async()=>{
+ const x=await fixture(),request=await productRequest(x);
+ let finish,entered;
+ const started=new Promise(r=>{entered=r;});
+ const pending=new Promise(r=>{finish=r;});
+ const h=bindOwner(x,async()=>{entered();return pending;});
+ const first=h.port.reviewAndRelease(request);await started;
+ assert.equal((await h.port.reviewAndRelease(request)).status,'TECHNOLOGY_RELEASE_BUSY');
+ h.invalidate();finish(x.input);
+ assert.equal((await first).status,'TECHNOLOGY_RELEASE_NOT_STARTED');
+ assert.deepEqual(x.calls,[]);h.dispose();
+});
+test('unknown file outcome cannot dispatch a second save in the same Host',async()=>{
+ const x=await fixture(),request=await productRequest(x);
+ x.input.saveAndReadback=async()=>{x.calls.push('save');throw Error('lost');};
+ const h=bindOwner(x);
+ const r=await h.port.reviewAndRelease(request);
+ assert.equal(r.status,'TECHNOLOGY_SAVE_OUTCOME_UNKNOWN');assert.equal(r.file_saved,null);
+ assert.deepEqual(await h.port.reviewAndRelease(request),r);
+ h.invalidate();
+ assert.equal((await h.port.reviewAndRelease(request)).status,'TECHNOLOGY_RELEASE_RECONCILIATION_REQUIRED');
+ assert.equal(x.calls.filter(c=>c==='save').length,1);assert.ok(!x.calls.includes('confirm'));h.dispose();
+});
+test('invalidation after physical save never claims a successful release or no file',async()=>{
+ const x=await fixture(),request=await productRequest(x);
+ const h=bindOwner(x);
+ x.input.saveAndReadback=async v=>{x.calls.push('save');h.invalidate();return {status:'SAVED',bytes:v.bytes};};
+ const r=await h.port.reviewAndRelease(request);
+ assert.equal(r.status,'TECHNOLOGY_SAVED_CONFIRMATION_UNCERTAIN');
+ assert.equal(r.file_saved,true);assert.equal(r.export_confirmed,false);
+ assert.ok(!x.calls.includes('confirm'));h.dispose();
 });
