@@ -4337,7 +4337,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       }
       return {result:p2eResult,sourcePhase:p2eSourcePhase,
         recipientPhase:p2eRecipientPhase,inspectResult:p2ePhaseResult,
-        sourceCursor:p2eTask.sourceCursorAfter,
+        sourceCursor:p2fTask.sourceCursorAfter,
         sourceEventId:p2fCaptured.sourceEventId};
       };
       const p2fCompleted=[];
