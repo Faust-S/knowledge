@@ -5033,6 +5033,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         listEventsSince:originalCarrierKernel.listEventsSince,
         deleteAsset:input=>originalSourceDelete('deleteAsset',input),
         deleteRelation:input=>originalSourceDelete('deleteRelation',input)};
+      let loseStagedDeleteOutboxReply=false,stagedDeleteOutboxWrites=0;
       const deletionHost=()=>createT4OriginalHostCaptureAdapter({
         originalKernel:deletionSourceKernel,originalWriteOwnerRef:'original:t2:exchange',
         getMode:()=> 'T4_NETWORK',
@@ -5041,7 +5042,12 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         readOriginalEvents:readSourceEvents,
         persistOriginalIntent:payload=>persistSourceTechnical('intent',payload),
         readOriginalIntent:payload=>readSourceTechnical('intent',payload.captureRef),
-        persistOriginalOutbox:payload=>persistSourceTechnical('outbox',payload),
+        persistOriginalOutbox:async payload=>{
+          const saved=await persistSourceTechnical('outbox',payload);
+          if(saved)stagedDeleteOutboxWrites++;
+          if(saved&&loseStagedDeleteOutboxReply){loseStagedDeleteOutboxReply=false;return false;}
+          return saved;
+        },
         readOriginalOutbox:payload=>readSourceTechnical('outbox',payload.captureRef),
         withOriginalSubjectMutation:async(proof,action)=>{
           assert.equal(proof.originalHostMustSerializeSubjectMutations,true);
@@ -5072,8 +5078,26 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal(sourceDeleteCalls,before+1);
         await sourceContext.close();sourceContext=null;
         sourceContext=await launch(sourceProfile);activeSourcePage=await opened(sourceContext);
-        const restored=await deletionHost()[recovery]({captureRef,workspaceId,
+        spec.captureRef=captureRef;
+        const recover=()=>deletionHost()[recovery]({captureRef,workspaceId,
           ...(asset?{assetId:spec.subjectId}:{relationId:spec.subjectId})});
+        if(!asset){
+          // The original Relation deletion Event is already durable; lose
+          // the later outbox-persistence response as well. Advance the source
+          // through Asset deletion, then recover the staged Relation record.
+          loseStagedDeleteOutboxReply=true;
+          await assert.rejects(recover(),e=>e?.code==='SUBJECT_CAPTURE_OUTBOX_COMMIT_UNCERTAIN');
+          const staged=await readSourceTechnical('outbox',captureRef);
+          assert.equal(staged.originalT3MutationConfirmed,true);
+          assert.equal(staged.networkPublished,false);
+          assert.equal(sourceDeleteCalls,before+1);
+          spec.sourceEventId=staged.sourceEventId;spec.sha256=staged.sha256;
+          spec.nextCursor=staged.sourceCursorAfter;
+          spec.sourceIdempotencyKey=sourceIdempotencyKey;
+          mixedTail=staged.sourceCursorAfter;
+          continue;
+        }
+        const restored=await recover();
         assert.equal(restored.originalReceipt,null);
         assert.equal(restored.originalMutationRetried,false);
         assert.equal(restored.originalT3OutboxVerified,true);
@@ -5092,6 +5116,19 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal((await p2cRecipientKernel.getObject(workspaceId,p2cObjectId)).object.revision,4);
       await sourceContext.close();sourceContext=null;
       sourceContext=await launch(sourceProfile);activeSourcePage=await opened(sourceContext);
+      const earlierDeletion=deletionSpecs[0];
+      const recoveredStagedDeletion=await deletionHost().reconcileRelationDeletion({
+        captureRef:earlierDeletion.captureRef,workspaceId,relationId:mixedRelationId});
+      assert.equal(recoveredStagedDeletion.originalReceipt,null);
+      assert.equal(recoveredStagedDeletion.historicalStagedCaptureRecovered,true);
+      assert.equal(recoveredStagedDeletion.currentSubjectAbsenceRevalidated,false);
+      assert.equal(recoveredStagedDeletion.networkPublicationAuthorized,false);
+      assert.equal(recoveredStagedDeletion.originalEvent.event_id,earlierDeletion.sourceEventId);
+      assert.equal(recoveredStagedDeletion.originalEvent.idempotency_key,earlierDeletion.sourceIdempotencyKey);
+      assert.equal(recoveredStagedDeletion.prepared.sha256,earlierDeletion.sha256);
+      assert.deepEqual(recoveredStagedDeletion.nextCursor,earlierDeletion.nextCursor);
+      assert.equal(stagedDeleteOutboxWrites,2);
+      assert.equal(sourceDeleteCalls,2);
       const mixedCompleted=[];
       for(const [index,spec] of mixedSpecs.entries()){
         const completed=await p2fRunCapturedSession(spec.revision,{
@@ -5178,7 +5215,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       }
       assert.equal(p2iAssetDeleteCalls,1);assert.equal(p2iRelationDeleteCalls,1);
       assert.equal(recipientDeletionBoundaryEntries,2);
-      assert.equal(sourceDeletionBoundaryEntries,4);
+      assert.equal(sourceDeletionBoundaryEntries,5);
       assert.equal(p2eFrontierPutCalls,11);
       assert.equal(await p2gRecipientKernel.getAsset(workspaceId,mixedAssetId),null);
       assert.equal((await p2gRecipientKernel.getObject(workspaceId,p2cObjectId))
@@ -5212,6 +5249,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         sourceDeleteCalls,recipientAssetDeleteCalls:p2iAssetDeleteCalls,
         recipientRelationDeleteCalls:p2iRelationDeleteCalls,
         sourceOriginalLostRepliesRecoveredWithoutRepeat:true,
+        sourceStagedOutboxLostReplyRecoveredAfterLaterEvent:true,
+        originalDeletionOutboxWrites:stagedDeleteOutboxWrites,
         recipientOriginalLostRepliesRecoveredWithoutRepeat:true,
         originalRelationBothEndpointsAbsent:true,originalAssetAbsent:true,
         earlierPutBytesFromDurableOriginalOutbox:true,
