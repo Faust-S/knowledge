@@ -32,6 +32,6 @@ jobs:
           npx vitest run tests/t3-d1-signed-selected-workspace.dom.test.tsx tests/t3-d1-mounted-signed-workspace.dom.test.tsx tests/module-kernel-facade.test.ts
           node --test tests/t3-d1-origin-isolated-kernel.test.mjs tests/t3-control-loopback-owner.test.mjs
       - name: Original employee Workspace rights, signed refresh and seat lifecycle
-        run: node --test tests/t3-d3-independent-employee-original-enrollment.test.mjs
+        run: node --test tests/t3-d3-independent-employee-original-enrollment.test.mjs tests/t3-corporate-product-license.test.mjs
       - name: Build original One Core
         run: npm run build

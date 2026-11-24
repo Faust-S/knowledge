@@ -361,6 +361,56 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
  return Object.freeze({view,change,enablePolicy,readCommand});
 }
 
+// Read-only, subject-scoped observation of the same signed seat lifecycle.
+// It must NEVER stand in for authorizeOriginalCorporateSeatUse: there is no
+// Task binding, challenge, new proof, persisted decision or authority here.
+// The installed native employee owner supplies its own trusted identity,
+// existing work grant and verified local Consumer history, not UI selectors.
+export function observeOriginalCorporateEmployeeSeat({state,organization,licenseState,
+ installedTrust,actorId,credentialKeyId,workGrantId,now=Date.now()}={}){
+ const org=validateProductContract('OrganizationIdentity',organization);
+ identifier(actorId);identifier(credentialKeyId);identifier(workGrantId);
+ const auth=state.policy.authorities[org.issuerAuthorityId];
+ insist(Number.isSafeInteger(now)&&now>0&&state.policy.environment==='PRODUCTION'&&
+   state.policy.realmId===org.realmId&&auth?.principalId===org.organizationId&&
+   auth.membershipEpoch===org.membershipEpoch,
+   'CORP_SEAT_OBSERVATION_SCOPE_INVALID');
+ const snapshot=seatRows(state,org,now),work=state.grants[workGrantId]?.payload;
+ insist(work&&work.id===workGrantId,'CORP_SEAT_OBSERVATION_WORK_GRANT_REQUIRED');
+ const enrollmentId=identifier(reference(work,'employee-enrollment:'));
+ const {grant:membership,credential}=memberForSeat(state,org,{
+   personId:actorId,workGrantId,enrollmentId,credentialKeyId
+ },snapshot.status,now);
+ const commercial=projectCorporateSeatLicense({...licenseState,installedTrust,
+   organizationId:org.organizationId,now});
+ const capacity=capacityView(commercial,snapshot);
+ const row=snapshot.occupied.find(x=>x.personId===actorId)??null;
+ if(row)insist(row.workGrantId===workGrantId&&row.enrollmentId===enrollmentId&&
+   row.credentialKeyId===credentialKeyId,'CORP_SEAT_OBSERVATION_BINDING_CHANGED');
+ const policyReady=corporateSeatPolicyReady(state.policy,org.issuerAuthorityId);
+ const stateName=!policyReady?'POLICY_NOT_ENABLED':!row?'NOT_ASSIGNED':
+   row.status==='SUSPENDED'?'ASSIGNMENT_SUSPENDED':
+   !commercial.candidate?.entitlement?'ASSIGNMENT_LICENSE_UNAVAILABLE':
+   !capacity.withinLimits?'ASSIGNMENT_CAPACITY_HELD':'ASSIGNMENT_CURRENT';
+ // Keep only the employee's own seat and the minimum timing evidence.
+ // A historical revocation must not be advertised as a current reservation.
+ const validUntil=stateName==='ASSIGNMENT_CURRENT'?iso(Math.min(
+   timestamp(snapshot.status.validUntil),
+   timestamp(snapshot.status.issuedAt)+state.policy.offlineMaxAgeSeconds*1000,
+   timestamp(membership.expiresAt),timestamp(credential.expiresAt),
+   timestamp(row.expiresAt),timestamp(commercial.candidate.expiresAt),
+   timestamp(commercial.candidate.statusValidUntil))):null;
+ if(validUntil!==null)insist(timestamp(validUntil)>now,
+   'CORP_SEAT_OBSERVATION_STALE');
+ return Object.freeze({schema:'IWXA_T3_CORPORATE_EMPLOYEE_SEAT_OBSERVATION/1',
+   organizationId:org.organizationId,subjectId:actorId,
+   state:stateName,grantId:row?.grantId??null,
+   licenseId:commercial.candidate?.licenseId??null,
+   licenseRevision:licenseState.revision,statusSequence:snapshot.status.sequence,
+   observedAt:iso(now),validUntil,observationOnly:true,executionAuthorized:false,
+   dataAuthority:false,actionAuthority:false,productionActivation:false});
+}
+
 // Agent's product-specific JIT gate. The trusted Host must supply the
 // original current signed registry and complete durable Consumer history.
 // It grants ONLY the product feature, never DATA/ACTION access.

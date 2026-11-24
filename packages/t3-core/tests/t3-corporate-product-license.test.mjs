@@ -6,7 +6,7 @@ import {createOriginalEmployeeEnrollmentOwner} from '../src/t3/access/original-e
 import {createOriginalKernelRegistryStatePort,prepareOriginalEmployeeRegistryRefresh} from '../src/t3/access/original-kernel-registry-state.mjs';
 import {model,originalKernelFixture,NOW as MEMBER_NOW} from './support/t3-two-corp-original-authority.mjs';
 import {CORPORATE_SEAT_ACTION,CORPORATE_SEAT_RESOURCE,CORPORATE_SEAT_PURPOSE,
- evaluateOriginalCorporateSeatUse,authorizeOriginalCorporateSeatUse} from '../src/t3/access/original-corporate-seat-owner.mjs';
+ evaluateOriginalCorporateSeatUse,authorizeOriginalCorporateSeatUse,observeOriginalCorporateEmployeeSeat} from '../src/t3/access/original-corporate-seat-owner.mjs';
 import {
   CORPORATE_REQUEST_SCHEMA,CORPORATE_LICENSE_SCHEMA,CORPORATE_STATUS_SCHEMA,
   validateCorporateLicenseRequest,validateCorporateLicensePayload,
@@ -561,4 +561,48 @@ test('original employee use binds actual operation digest, selected seat and ind
  assert.equal((await authorize(bob)).grantId,moved.grantId);
  assert.equal((await authorize(bob)).allowed,true);
  s.revoke();assert.equal((await authorize(bob)).allowed,false);
+});
+
+test('employee seat observation reads only own signed membership and capacity without authorizing execution',async()=>{
+ const s=await seatFixture({seatLimit:2}),[alice,bob,claire]=s.employees;
+ const observe=async(e,patch={})=>observeOriginalCorporateEmployeeSeat({
+   state:await s.registry.readState(),organization:s.organization,
+   licenseState:s.source.read(),installedTrust:s.source.installedTrust,
+   actorId:e.personId,credentialKeyId:e.signer.keyId,workGrantId:e.workGrantId,
+   now:s.time,...patch});
+ const before=s.kernel.calls.length;
+ const unassigned=await observe(alice);
+ assert.equal(unassigned.state,'NOT_ASSIGNED');
+ assert.equal(unassigned.grantId,null);
+ assert.equal(unassigned.executionAuthorized,false);
+ assert.equal(s.kernel.calls.length,before);
+ const a=await s.owner.changeCorporateSeat(await s.command('ASSIGN','cmd:observe:alice',alice));
+ const b=await s.owner.changeCorporateSeat(await s.command('ASSIGN','cmd:observe:bob',bob));
+ const baseline=s.kernel.calls.length;
+ const own=await observe(alice);
+ assert.equal(own.schema,'IWXA_T3_CORPORATE_EMPLOYEE_SEAT_OBSERVATION/1');
+ assert.equal(own.state,'ASSIGNMENT_CURRENT');
+ assert.equal(own.subjectId,alice.personId);
+ assert.equal(own.grantId,a.grantId);
+ assert.equal(own.licenseRevision,1);
+ assert.ok(Date.parse(own.validUntil)>s.time);
+ for(const key of ['executionAuthorized','productionActivation','dataAuthority','actionAuthority'])
+   assert.equal(own[key],false);
+ assert.equal(own.observationOnly,true);
+ assert.ok(!JSON.stringify(own).includes(bob.personId));
+ assert.ok(!JSON.stringify(own).includes(b.grantId));
+ await assert.rejects(observe(alice,{actorId:bob.personId}),/CORP_SEAT_ORIGINAL_EMPLOYEE_INACTIVE/);
+ await assert.rejects(observe(alice,{credentialKeyId:bob.signer.keyId}),/CORP_SEAT_ORIGINAL_EMPLOYEE_INACTIVE/);
+ assert.equal((await observe(claire)).state,'NOT_ASSIGNED');
+ assert.equal(s.kernel.calls.length,baseline);
+ s.cold();assert.deepEqual(await observe(alice),own);
+ s.renew(1);
+ assert.equal((await observe(alice)).state,'ASSIGNMENT_CAPACITY_HELD');
+ assert.equal((await observe(bob)).state,'ASSIGNMENT_CAPACITY_HELD');
+ await s.owner.changeCorporateSeat(await s.command('RELEASE','cmd:observe:release',null,b.grantId));
+ assert.equal((await observe(alice)).state,'ASSIGNMENT_CURRENT');
+ assert.equal((await observe(bob)).state,'NOT_ASSIGNED');
+ s.revoke();
+ assert.equal((await observe(alice)).state,'ASSIGNMENT_LICENSE_UNAVAILABLE');
+ assert.equal((await observe(alice)).validUntil,null);
 });
