@@ -195,3 +195,95 @@ def test_prior_approved_but_superseded_packet_is_not_accepted_experience():
         _accepted_pattern_predecessor(state, work, "op", "old", 1, "model://old", 6, "first", 8)
     assert _accepted_pattern_predecessor(
         state, work, "op", "old", 3, "model://old", 6, "effective", 8)["at"] == 3
+
+
+def structural_view(out):
+    return out["general_akis_model"]["author_operator_reproducibility"]["structural_preparation_scope"]
+
+
+@pytest.mark.parametrize("arm,builds,reuses,share,returned,total", [
+    ("REBUILD", 3, 0, "0.0000", "0.0000", "333.00"),
+    ("REUSE", 1, 2, "0.6667", "1.0000", "229.00"),
+])
+def test_original_scope_counts_accepted_effective_patterns_not_full_author_ratios(
+        arm, builds, reuses, share, returned, total):
+    out = simulate(preparation_pattern_routes()[arm])
+    view = structural_view(out)
+    assert view["accepted_effective_build_count"] == builds
+    assert view["accepted_effective_reuse_count"] == reuses
+    assert view["accepted_preparation_reuse_share"] == share
+    assert view["accepted_built_version_return_share"] == returned
+    assert view["applied_preparation_count"] == view["accepted_effective_preparation_count"] == 3
+    assert not view["full_author_repeatability_and_experience_return_ratios_identified"]
+    assert view["original_pattern_cost_scope_complete"]
+    costs = out["economics"]["original_pattern_reproduction_costs"]
+    assert costs["accepted_effective_preparation_cost"] == total
+    assert costs["other_applied_preparation_cost"] == "0.00"
+    assert costs["new_cost_records_created"] == 0
+
+
+def test_revision_preserves_historical_return_scope_and_only_current_version():
+    out = simulate(revision_routes()["REUSE"])
+    view = structural_view(out)
+    assert view["distinct_accepted_built_versions"] == 2
+    assert view["distinct_versions_returned_to_accepted_work"] == 1
+    assert view["accepted_effective_revision_count"] == 1
+    assert view["accepted_preparation_reuse_share"] == "0.3333"
+    assert view["accepted_built_version_return_share"] == "0.5000"
+    assert view["accepted_versions_with_current_source_and_oc"] == 1
+    assert out["economics"]["original_pattern_reproduction_costs"]["accepted_effective_preparation_cost"] == "281.00"
+
+
+def test_prepared_but_independently_rejected_work_not_counted_as_returned_experience():
+    doc = without_costs(preparation_pattern_routes()["REUSE"])
+    event(doc, "function_review", "w3")["human_decision"] = "REJECT"
+    out = simulate(doc)
+    view = structural_view(out)
+    assert view["applied_preparation_count"] == 3
+    assert view["accepted_effective_preparation_count"] == 2
+    assert view["accepted_effective_reuse_count"] == 1
+    assert view["preparations_on_not_accepted_works"] == 1
+    assert view["accepted_preparation_reuse_share"] == "0.5000"
+    assert not view["original_pattern_cost_scope_complete"]
+    assert "economics" not in out
+
+
+def test_prepared_pattern_without_any_accepted_work_does_not_claim_a_zero_return_ratio():
+    doc = without_costs(preparation_pattern_routes()["REUSE"])
+    event(doc, "function_review", "w1")["human_decision"] = "REJECT"
+    out = simulate(doc)
+    view = structural_view(out)
+    assert view["applied_preparation_count"] >= 1
+    assert view["accepted_effective_preparation_count"] == 0
+    assert view["accepted_preparation_reuse_share"] == "UNKNOWN_ZERO_DENOMINATOR"
+    assert view["accepted_built_version_return_share"] == "UNKNOWN_ZERO_DENOMINATOR"
+
+
+def test_late_source_expiry_does_not_erase_the_history_of_returned_experience():
+    doc = without_costs(preparation_pattern_routes()["REUSE"])
+    accepted = event(doc, "accept", "w3")["at"]
+    pattern_source(doc)["valid_until"] = accepted
+    doc["model_horizon"] = max(doc.get("model_horizon", 0), accepted + 1)
+    view = structural_view(simulate(doc))
+    assert view["accepted_versions_with_current_source_and_oc"] == 0
+    assert view["distinct_versions_returned_to_accepted_work"] == 1
+    assert view["accepted_preparation_reuse_share"] == "0.6667"
+
+
+def test_partial_cost_coverage_does_not_impute_zero_preparation_cost():
+    from research.akis.qualitative_mesa.mesa_model import OperatorAKISModel
+    from research.akis.qualitative_mesa.process_preparation import original_pattern_reproduction_view
+    model = OperatorAKISModel(preparation_pattern_routes()["REUSE"])
+    out = model.execute()
+    econ = deepcopy(out["economics"])
+    rows = econ["lifecycle_resource_costs"]["original_preparation_activity_costs"]["items"]
+    rows.pop()
+    view, costs = original_pattern_reproduction_view(
+        model.qualitative, at=int(model.time), economics=econ,
+    )
+    assert view["accepted_effective_preparation_count"] == 3
+    assert not view["original_pattern_cost_scope_complete"]
+    assert costs["status"] == "UNKNOWN_INCOMPLETE_ORIGINAL_PATTERN_COST_SCOPE"
+    assert costs["accepted_effective_preparation_cost"] is None
+    assert costs["other_applied_preparation_cost"] is None
+    assert costs["total_original_pattern_preparation_cost"] is None

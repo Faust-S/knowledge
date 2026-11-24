@@ -1478,6 +1478,16 @@ class OperatorAKISModel(mesa.Model):
                 "single_original_scheduler": True,
                 "original_results_and_org_code_unmodified": True,
             }
+            from .process_preparation import original_pattern_reproduction_view
+            pattern_observation, pattern_costs = original_pattern_reproduction_view(
+                self.qualitative, at=int(self.time), economics=output.get("economics"),
+            )
+            if pattern_observation is not None:
+                output["general_akis_model"]["author_operator_reproducibility"][
+                    "structural_preparation_scope"
+                ] = pattern_observation
+            if pattern_costs is not None:
+                output["economics"]["original_pattern_reproduction_costs"] = pattern_costs
             if "capability_dynamics" in output:
                 cap = output["capability_dynamics"]
                 output["general_akis_model"]["capability_reproduction_feedback"] = {

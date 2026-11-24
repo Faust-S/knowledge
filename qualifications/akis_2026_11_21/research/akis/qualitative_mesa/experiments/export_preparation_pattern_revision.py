@@ -4,15 +4,17 @@ import json
 from pathlib import Path
 
 from research.akis.qualitative_mesa.comparative_trajectories import compare_original_preparation_pattern_reuse
-from research.akis.qualitative_mesa.tests.test_original_preparation_pattern_revision_mesa import revision_routes
+from research.akis.qualitative_mesa.tests.test_original_preparation_pattern_revision_mesa import revision_routes, structural_view
+from research.akis.qualitative_mesa.mesa_model import simulate
 from research.akis.qualitative_mesa.experiments.export_activity_efficiency import direction
 
 
 def export_pattern_revision():
     observations = []
     for mode, rate in (("S1", "8.00"), ("S2", "8.00"), ("S2", "60.00"), ("S2", "80.00")):
-        report = compare_original_preparation_pattern_reuse(
-            revision_routes(mode=mode, reuse_rate=rate))
+        docs = revision_routes(mode=mode, reuse_rate=rate)
+        report = compare_original_preparation_pattern_reuse(docs)
+        views = {arm: structural_view(simulate(doc)) for arm, doc in docs.items()}
         local = report["local_research_only"]
         arms = local["arms"]
         observations.append({
@@ -28,6 +30,15 @@ def export_pattern_revision():
             "revision_build_cost_included": arms["REUSE"]["original_pattern_revision_build_cost_included"],
             "human_validation_counts": {arm: row["human_validation_units"] for arm, row in arms.items()},
             "same_original_works_results_consents_and_cash": report["same_original_works_results_consents_and_cash"],
+            "accepted_effective_reuse_share": {arm: row["accepted_preparation_reuse_share"]
+                                               for arm, row in views.items()},
+            "accepted_built_version_return_share": {arm: row["accepted_built_version_return_share"]
+                                                    for arm, row in views.items()},
+            "current_source_and_oc_version_count": {
+                arm: row["accepted_versions_with_current_source_and_oc"]
+                for arm, row in views.items()},
+            "cost_scope_complete": all(row["original_pattern_cost_scope_complete"]
+                                       for row in views.values()),
         })
     payload = json.dumps({
         "schema": "AKIS_ORIGINAL_PREPARATION_PATTERN_REVISION_EVIDENCE/1.0",

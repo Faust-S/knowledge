@@ -516,7 +516,7 @@ def _accepted_pattern_predecessor(state: Any, work: Any, actor: str,
     subsequent acceptance. Historical provenance grants no present use right.
     """
     prior = state.works.get(prior_work)
-    if (prior is None or prior.key == work.key
+    if (prior is None or (work is not None and prior.key == work.key)
             or prior.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
             or prior.result_ref != result_ref
             or type(prepare_at) is not int or type(accept_at) is not int
@@ -702,3 +702,124 @@ def qualify_original_preparation_pattern(state: Any, work: Any, actor: str, mode
         "new_original_consent_created": False,
         **({"original_pattern_revision": revision_evidence} if revision_evidence else {}),
     }
+
+
+def original_pattern_reproduction_view(state: Any, *, at: int,
+                                       economics: Mapping[str, Any] | None = None
+                                       ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Final read-only observation of the original structural preparation scope.
+
+    Count only the effective packets of accepted original Works as returned
+    experience. Keep other applied preparation attempts and their costs visible.
+    This is a partial preparation-specific measure, not the full author ratios,
+    not a new knowledge store, and not a permission for another Work.
+    """
+    trace = state.trace
+    prepared = {
+        pos: row for pos, row in enumerate(trace)
+        if row.get("action") == "function_prepare" and row.get("outcome") == "APPLIED"
+        and "model_preparation_pattern" in row
+    }
+    if not prepared:
+        return None, None
+    cutoff = max(row["at"] for row in trace) + 1
+    accepts = {
+        row["work"]: row["at"] for row in trace
+        if row.get("action") == "accept" and row.get("outcome") == "APPLIED"
+    }
+    effective = {}
+    for pos, row in prepared.items():
+        work = state.works.get(row["work"])
+        accept_at = accepts.get(row["work"])
+        if (work is None or work.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                or accept_at is None):
+            continue
+        try:
+            predecessor = _accepted_pattern_predecessor(
+                state, None, row["actor"], work.key, row["at"], work.result_ref,
+                accept_at, row["model_preparation_pattern"]["pattern_id"], cutoff,
+            )
+        except ValueError:
+            continue
+        if predecessor is row:
+            effective[pos] = row
+
+    def version(row):
+        pattern = row["model_preparation_pattern"]
+        return (row["actor"], pattern["pattern_id"], pattern["source_fingerprint"],
+                pattern["shape_fingerprint"])
+
+    builds = {version(row) for row in effective.values()
+              if row["model_preparation_pattern"]["operation"] == "BUILD"}
+    reuses = [row for row in effective.values()
+              if row["model_preparation_pattern"]["operation"] == "REUSE"]
+    returned = {version(row) for row in reuses} & builds
+    current_versions = {
+        version(row) for row in effective.values()
+        if row.get("org_revision") == state.institution.revision
+        and original_preparation_pattern_current(state, row, at)
+    }
+    superseded = sum(
+        pos not in effective and row["work"] in accepts
+        for pos, row in prepared.items()
+    )
+    def ratio(numerator, denominator):
+        return (f"{Decimal(numerator) / Decimal(denominator):.4f}"
+                if denominator else "UNKNOWN_ZERO_DENOMINATOR")
+
+    cost_view = None
+    costs = (economics or {}).get("lifecycle_resource_costs", {}).get(
+        "original_preparation_activity_costs", {})
+    items = costs.get("items", [])
+    positions = {}
+    ambiguous = False
+    for item in items:
+        pos = item["original_trace_position"]
+        if pos not in prepared:
+            continue
+        if pos in positions:
+            ambiguous = True
+        positions[pos] = Decimal(item["declared_resource_cost"])
+    cost_complete = not ambiguous and set(positions) == set(prepared)
+    shared = {
+        "scope": "ORIGINAL_STRUCTURAL_PREPARATION_ONLY",
+        "applied_preparation_count": len(prepared),
+        "accepted_effective_preparation_count": len(effective),
+        "accepted_effective_build_count": len(effective) - len(reuses),
+        "accepted_effective_reuse_count": len(reuses),
+        "accepted_effective_revision_count": sum(
+            "original_pattern_revision" in row["model_preparation_pattern"]
+            for row in effective.values()),
+        "distinct_accepted_built_versions": len(builds),
+        "distinct_versions_returned_to_accepted_work": len(returned),
+        "accepted_versions_with_current_source_and_oc": len(current_versions),
+        "prepared_not_effective_in_accepted_work_count": len(prepared) - len(effective),
+        "non_effective_preparations_on_accepted_works": superseded,
+        "preparations_on_not_accepted_works": len(prepared) - len(effective) - superseded,
+        "accepted_preparation_reuse_share": ratio(len(reuses), len(effective)),
+        "accepted_built_version_return_share": ratio(len(returned), len(builds)),
+        "full_author_repeatability_and_experience_return_ratios_identified": False,
+        "current_source_and_oc_does_not_authorize_new_work": True,
+        "original_pattern_cost_scope_complete": cost_complete,
+        "original_cost_record_count": len(positions),
+        "private_values_sources_and_owner_ids_excluded": True,
+        "empirical_savings": "NOT_IDENTIFIABLE",
+    }
+    if economics is not None:
+        cost_view = {
+            "status": ("MODEL_ORIGINAL_PATTERN_COSTS_RECONCILED" if cost_complete
+                       else "UNKNOWN_INCOMPLETE_ORIGINAL_PATTERN_COST_SCOPE"),
+            "same_original_resource_cost_rows": True,
+            "new_cost_records_created": 0,
+            "original_pattern_cost_count": len(positions),
+            "accepted_effective_preparation_cost": (
+                f"{sum((positions[pos] for pos in effective), Decimal(0)):.2f}"
+                if cost_complete else None),
+            "other_applied_preparation_cost": (
+                f"{sum((value for pos, value in positions.items() if pos not in effective), Decimal(0)):.2f}"
+                if cost_complete else None),
+            "total_original_pattern_preparation_cost": (
+                f"{sum(positions.values(), Decimal(0)):.2f}" if cost_complete else None),
+            "other_preparation_cost_is_not_automatically_loss": True,
+        }
+    return shared, cost_view
