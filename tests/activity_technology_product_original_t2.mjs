@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import {join} from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
-import {mkdirSync,writeFileSync} from 'node:fs';
+import {mkdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {preparePersonalTechnologyProduct,prepareD05TechnologyProduct} from '../modules/activity-base-anonymizer/technology-product.mjs';
 import {personalRows,personalProposal,personalBinding,d05Candidate,d05Binding} from './activity_technology_product_fixture.mjs';
 export async function qualifyOriginalTechnologyProducts({browser,open,chromium,tmp,origin,writer,service}){
@@ -12,13 +12,23 @@ export async function qualifyOriginalTechnologyProducts({browser,open,chromium,t
  const d05=await prepareD05TechnologyProduct(d05Candidate(),'Sheet part route');
  const entries=[{product:personal,binding:personalBinding(),source:'activity-product-personal-'+randomUUID(),recipient:'activity-recipient-personal-'+randomUUID()},
   {product:d05,binding:d05Binding(d05.object_data),source:'activity-product-d05-'+randomUUID(),recipient:'activity-recipient-d05-'+randomUUID()}];
+ const outputDir=join(tmp,'activity-physically-saved-technology');
+ mkdirSync(outputDir,{recursive:true});
+ let saves=0;
+ // The fixture owner supplies a real physical save/readback, not a browser
+ // download initiation or a boolean. All files here are synthetic products.
+ await browser.page.exposeFunction('activityQualificationSaveAndReadback',input=>{
+  const path=join(outputDir,'saved-'+(++saves)+'.iwxa');
+  writeFileSync(path,Buffer.from(input.bytes),{flag:'wx'});
+  return {status:'SAVED',bytes:Array.from(readFileSync(path))};
+ });
  const archives=await browser.page.evaluate(async args=>{
-  const {exportAcceptedTechnology}=await import('/_activity/technology-product-exchange.mjs');
+  const {exportAcceptedTechnology,releaseAcceptedTechnology}=await import('/_activity/technology-product-exchange.mjs');
   const owner=await globalThis.IWXA.connect({service_id:args.writer});
   const client=await globalThis.IWXA.connect({service_id:args.service});
   const subject={getWorkspace:w=>client.t1.getWorkspace(w),getObject:(w,o)=>client.t1.getObject(w,o),
    listObjects:q=>client.t1.listObjects(q),putObject:v=>client.t1.putObject(v),
-   exportPreview:o=>client.t2.exportPreview(o),exportPackage:o=>client.t2.exportPackage(o)};
+   exportPreview:o=>client.t2.exportPreview(o),exportPackage:o=>client.t2.exportPackage(o),confirmExport:v=>client.t2.confirmExport(v)};
   const output=[];
   for(const e of args.entries){
    await owner.t1.createWorkspace({workspace_id:e.source,profile:'generic'});
@@ -27,23 +37,28 @@ export async function qualifyOriginalTechnologyProducts({browser,open,chromium,t
    // is copied here. Production must supply the original full owner.
    const inspect=async workspace=>({objects:await client.t1.listObjects({workspace_id:workspace,include_deleted:true}),
     assets:[],relations:[]});
-   const published=await exportAcceptedTechnology({subject,workspace_id:e.source,
+   let savedBytes=null;
+   const published=await releaseAcceptedTechnology({subject,workspace_id:e.source,
     product_sha256:e.product.product_sha256,readAcceptedProduct:async()=>e.product.object_data,
-    inspectWholeWorkspace:inspect,isCurrent:()=>true});
-   const a=published.artifact;
-   const confirmed=await client.t2.confirmExport({package_digest:a.package_digest,workspace_ids:[e.source]});
-   if(confirmed.package_digest!==a.package_digest)throw Error('TECHNOLOGY_NATIVE_EXPORT_CONFIRM');
+    inspectWholeWorkspace:inspect,isCurrent:()=>true,saveAndReadback:async input=>{
+     const result=await globalThis.activityQualificationSaveAndReadback({...input,bytes:Array.from(input.bytes)});
+     savedBytes=new Uint8Array(result.bytes);
+     return {status:result.status,bytes:savedBytes};
+    }});
+   if(published.status!=='ORIGINAL_TECHNOLOGY_RELEASED'||published.export_confirmed!==true||!savedBytes)
+    throw Error('TECHNOLOGY_NATIVE_EXPORT_CONFIRM');
    // A second export of the same product must recover, not write revision 2.
    const recovered=await exportAcceptedTechnology({subject,workspace_id:e.source,
     product_sha256:e.product.product_sha256,readAcceptedProduct:async()=>e.product.object_data,
     inspectWholeWorkspace:inspect,isCurrent:()=>true});
    const saved=await client.t1.getObject(e.source,published.object_id);
    if(saved.object.revision!==1||recovered.object_id!==published.object_id)throw Error('TECHNOLOGY_NATIVE_EXPORT_REPEATED_WRITE');
-   output.push({bytes:Array.from(a.bytes),object_id:published.object_id,source:e.source,digest:e.product.product_sha256,
-    manifest:a.manifest});
+   output.push({bytes:Array.from(savedBytes),object_id:published.object_id,source:e.source,digest:e.product.product_sha256,
+    manifest:recovered.artifact.manifest});
   }
   return output;
  },{writer,service,entries});
+ assert.equal(saves,2);
  for(const a of archives){
   assert.equal(a.manifest.format,'iwxa.package');
   assert.equal(a.manifest.counts.objects,1);
@@ -108,10 +123,10 @@ export async function qualifyOriginalTechnologyProducts({browser,open,chromium,t
     writeFileSync(join(output,name),bytes);
     return {name,sha256:createHash('sha256').update(bytes).digest('hex'),product_sha256:archives[i].digest};
    });
-   writeFileSync(join(output,'qualification.json'),JSON.stringify({synthetic:true,originalKernel:true,independentRecipient:true,coldReadback:true,actualActivation:false,files},null,2)+'\n');
+   writeFileSync(join(output,'qualification.json'),JSON.stringify({synthetic:true,originalKernel:true,physicalSaveReadback:true,independentRecipient:true,coldReadback:true,actualActivation:false,files},null,2)+'\n');
   }
   console.log('ACTIVITY_ORIGINAL_T2_TECHNOLOGY_ARCHIVES_INDEPENDENT_IMPORT_PASS',
-   JSON.stringify({archives:2,originalKernel:true,independentRecipient:true,coldReadback:true,
+   JSON.stringify({archives:2,originalKernel:true,physicalSaveReadback:true,independentRecipient:true,coldReadback:true,
     personalNativeInputs:true,d05NativeInputs:true,actualActivation:false}));
  }finally{if(receiver)await receiver.context.close();}
 }

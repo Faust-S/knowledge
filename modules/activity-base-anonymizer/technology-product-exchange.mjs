@@ -16,7 +16,8 @@ async function checkReadback(subject,workspace,objectId,digest){
  const read=await subject.getObject(workspace,objectId);
  const o=read?.object;
  need(o?.workspace_id===workspace&&o.object_id===objectId&&o.schema_id===TECHNOLOGY_SCHEMA&&
-  o.schema_version===TECHNOLOGY_VERSION&&o.revision===1&&o.deleted_at==null&&
+  o.schema_version===TECHNOLOGY_VERSION&&o.revision===1&&o.deleted!==true&&o.deleted_at==null&&
+  o.extensions&&Object.keys(o.extensions).length===0&&
   Array.isArray(read.relations?.incoming)&&!read.relations.incoming.length&&Array.isArray(read.relations?.outgoing)&&!read.relations.outgoing.length,
   'TECHNOLOGY_NATIVE_READBACK_REQUIRED');
  const data=validateTechnologyProduct(o.data);
@@ -66,7 +67,7 @@ export async function exportAcceptedTechnology({
   current();
   const saved=await subject.putObject({workspace_id,object_id:objectId,schema_id:TECHNOLOGY_SCHEMA,
    schema_version:TECHNOLOGY_VERSION,base_revision:0,data:product,extensions:{},
-   event:{event_type:'iwxa.activity.technology.published',payload:{target:product.target}}});
+   event:{event_type:'iwxa.activity.technology.prepared',payload:{target:product.target}}});
   current();
   need(saved?.object?.object_id===objectId&&saved.object.revision===1,'TECHNOLOGY_NATIVE_WRITE_RECEIPT');
  }
@@ -93,6 +94,75 @@ export async function exportAcceptedTechnology({
  return {status:'ORIGINAL_TECHNOLOGY_ARCHIVE_READY',object_id:objectId,product_sha256,artifact,
   confirmation_required_after_save:true};
 }
+/** Complete the original owner publication, including the real physical file.
+ * saveAndReadback is an EXISTING trusted native Host file operation. It owns
+ * the save dialog and reads the final file from disk, not from the supplied
+ * ArrayBuffer. A browser download initiation alone is not a save receipt.
+ * The local review renderer never receives archive bytes or approval rights.
+ *
+ * A failed/cancelled save is not publication. After dispatch, a failure is
+ * explicitly an uncertain file/confirmation state, never automatically retried.
+ */
+export async function releaseAcceptedTechnology(input={}){
+ const {subject,workspace_id,product_sha256,readAcceptedProduct,inspectWholeWorkspace,isCurrent,saveAndReadback}=input;
+ need(typeof saveAndReadback==='function'&&typeof subject?.confirmExport==='function',
+  'TECHNOLOGY_NATIVE_SAVE_OWNER_REQUIRED');
+ const current=()=>need(isCurrent()===true,'TECHNOLOGY_NATIVE_CONTEXT_CHANGED');
+ const accepted=async()=>{
+  current();
+  const data=validateTechnologyProduct(await readAcceptedProduct(product_sha256));
+  current();
+  need(await sha256Canonical(data)===product_sha256,'TECHNOLOGY_NATIVE_ACCEPTED_PRODUCT_CHANGED');
+  current();
+ };
+ const prepared=await exportAcceptedTechnology(input);
+ const {artifact,object_id}=prepared;
+ const expected=artifact.bytes.slice();
+ // A native save can be irreversible. Revalidate right before giving it
+ // bytes, rather than relying on a prior screen or export preview.
+ await accepted();
+ const filename=artifact.filename;
+ need(typeof filename==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,239}\\.iwxa$/i.test(filename)&&
+  artifact.size===expected.byteLength,'TECHNOLOGY_NATIVE_SAVE_FILENAME');
+ let saved;
+ try{
+  saved=await saveAndReadback({filename,bytes:expected.slice(),package_digest:artifact.package_digest,
+   product_sha256});
+ }catch{
+  return {status:'TECHNOLOGY_SAVE_OUTCOME_UNKNOWN',object_id,product_sha256,package_digest:artifact.package_digest,
+   file_saved:null,confirmation_required:true,export_confirmed:false};
+ }
+ if(saved?.status==='CANCELLED'){
+  return {status:'TECHNOLOGY_RELEASE_CANCELLED',object_id,product_sha256,package_digest:artifact.package_digest,
+   file_saved:false,confirmation_required:false,export_confirmed:false};
+ }
+ // Never accept a boolean or caller-supplied hash in place of a real readback.
+ const same=saved?.status==='SAVED'&&saved.bytes instanceof Uint8Array&&saved.bytes.byteLength===expected.byteLength&&
+  expected.every((v,i)=>v===saved.bytes[i]);
+ if(!same)return {status:'TECHNOLOGY_SAVE_READBACK_FAILED',object_id,product_sha256,package_digest:artifact.package_digest,
+  file_saved:saved?.status==='SAVED'?true:null,confirmation_required:true,export_confirmed:false};
+ try{
+  await accepted();
+  await checkReadback(subject,workspace_id,object_id,product_sha256);current();
+  const all=await inspectWholeWorkspace(workspace_id);current();
+  need(all?.objects?.length===1&&all.objects[0]?.object_id===object_id&&
+   all.objects[0]?.schema_id===TECHNOLOGY_SCHEMA&&Array.isArray(all.assets)&&!all.assets.length&&
+   Array.isArray(all.relations)&&!all.relations.length,'TECHNOLOGY_NATIVE_RELEASE_WORKSPACE_NOT_ISOLATED');
+  const receipt=await subject.confirmExport({package_digest:artifact.package_digest,workspace_ids:[workspace_id]});
+  current();
+  need(receipt?.package_digest===artifact.package_digest&&Array.isArray(receipt.workspace_ids)&&
+   receipt.workspace_ids.length===1&&receipt.workspace_ids[0]===workspace_id&&
+   receipt.confirmations===1&&Number.isFinite(Date.parse(receipt.confirmed_at)),
+   'TECHNOLOGY_NATIVE_CONFIRM_RECEIPT');
+  return {status:'ORIGINAL_TECHNOLOGY_RELEASED',object_id,product_sha256,package_digest:artifact.package_digest,
+   file_saved:true,confirmation_required:false,export_confirmed:true,receipt};
+ }catch{
+  // File bytes exist; a lost Kernel response could also have committed.
+  // Do not repeat confirmation, retract the file, or claim a successful release.
+  return {status:'TECHNOLOGY_SAVED_CONFIRMATION_UNCERTAIN',object_id,product_sha256,
+   package_digest:artifact.package_digest,file_saved:true,confirmation_required:true,export_confirmed:false};
+ }
+}
 /** Recipient independently imports exactly one product through the original
  * scoped Exchange into a chosen empty Workspace. The caller is the original
  * owner, not a product-supplied grant. Activation is a separate domain action.
@@ -111,10 +181,11 @@ export async function importTechnologyArchive({
  need(ws?.workspace_id===workspace_id&&ws.deleted_at==null,'TECHNOLOGY_NATIVE_RECIPIENT_WORKSPACE');
  const existing=await subject.listObjects({workspace_id,include_deleted:true});current();
  need(Array.isArray(existing)&&existing.length===0,'TECHNOLOGY_NATIVE_RECIPIENT_WORKSPACE_NOT_EMPTY');
- const handle=await subject.importPreview(input);current();
+ const handle=await subject.importPreview(input);
  const token=handle?.preview_token;
  let dispatch=false;
  try{
+  current();
   const p=handle?.preview,m=p?.manifest;
   need(hex(handle?.package_digest)&&m?.format==='iwxa.package'&&m.format_version==='1.0'&&
    m.package_digest===handle.package_digest&&Array.isArray(m.workspaces)&&m.workspaces.length===1&&id(m.workspaces[0])&&
