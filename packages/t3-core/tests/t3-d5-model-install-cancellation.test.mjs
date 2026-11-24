@@ -23,7 +23,7 @@ const beginDomainModelInstallation=new Function(
   source+"\nreturn beginDomainModelInstallation;",
 )(MODEL,requireCatalogModel,{
   model_list:[{model_id:MODEL.id,model:MODEL.modelSource,
-    model_lib:"https://example.invalid/pinned-webllm.wasm"}],
+    model_lib:MODEL.modelLib}],
 });
 
 // One focused source regression: Stop may arrive while the ORIGINAL

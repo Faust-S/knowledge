@@ -31,7 +31,7 @@ export async function beginDomainModelInstallation(modelId=MODEL.id,{signal}={})
   if (signal?.aborted) throw cancelled();
   const chosen=requireCatalogModel(modelId);
   const model=prebuiltAppConfig.model_list.find(row => row.model_id === chosen.id);
-  if (!model || model.model!==chosen.modelSource)
+  if (!model || model.model!==chosen.modelSource || model.model_lib!==chosen.modelLib)
     throw Error("T3_D5_MODEL_NOT_IN_WEBLLM_CATALOG");
   if (!document.documentElement.hasAttribute("data-iwxa-t3-autonomous")) {
     return async () => {}; // Ordinary online site, still requires user consent.

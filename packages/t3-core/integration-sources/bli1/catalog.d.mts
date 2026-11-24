@@ -3,6 +3,9 @@ export type BrowserLocalModel = Readonly<{
   label:string;
   engine:string;
   modelSource:string;
+  modelLib:string;
+  profileId:'light'|'balanced'|'extended'|null;
+  license:string;
   licenseInfo:string;
   quantization:string;
   expectedVramMB:number;
@@ -11,3 +14,7 @@ export type BrowserLocalModel = Readonly<{
 export const MODEL:BrowserLocalModel;
 export const MODELS:readonly BrowserLocalModel[];
 export function requireCatalogModel(modelId:string):BrowserLocalModel;
+export const MODEL_CATALOG_VERSION:number;
+export const LEGACY_MODELS:readonly BrowserLocalModel[];
+export const MODEL_PROFILES:readonly Readonly<{id:'light'|'balanced'|'extended';label:string;family:string;license:string;variants:readonly BrowserLocalModel[]}>[];
+export function modelInstallSources():{model:string;wasm:string}[];

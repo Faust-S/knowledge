@@ -34,16 +34,9 @@ let installRunning = false;
 // cache-only; the original WebLLM cache owns the downloaded files.
 const MODEL_LEASE_MARKER = "/_iwxa/t3-model-install-lease";
 const MODEL_INSTALL_MS = 60 * 60 * 1000; // Explicit, time-limited consent for one chosen model.
-const PINNED_MODEL_INSTALL_SOURCES = Object.freeze([
-  Object.freeze({
-    model:"https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC",
-    wasm:"https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_87/base/SmolLM2-360M-Instruct-q4f32_1_cs1k-webgpu.wasm",
-  }),
-  Object.freeze({
-    model:"https://huggingface.co/mlc-ai/SmolLM2-1.7B-Instruct-q4f32_1-MLC",
-    wasm:"https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_87/base/SmolLM2-1.7B-Instruct-q4f32_1_cs1k-webgpu.wasm",
-  }),
-]);
+// Replaced at build time from the single original T3 model catalog.
+// Unmaterialized worker denies every model installation (fail closed).
+const PINNED_MODEL_INSTALL_SOURCES = Object.freeze(/* IWXA_MODEL_INSTALL_SOURCES */ []);
 let leaseStarting = false;
 async function modelLease() {
   const cache = await caches.open(MODE_CACHE);

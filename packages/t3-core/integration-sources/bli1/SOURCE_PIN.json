@@ -15,7 +15,7 @@
     },
     {
       "file": "workspace-module/catalog.d.mts",
-      "blob": "dd11635c7f3a30bf5488bd092554454d391a81b6",
+      "blob": "b7293987f303be855fd136b523f5a3a4809977e9",
       "upstream_blob": "f306156f3ec500bb46bf7ba81fa632df674dd40f"
     },
     {
@@ -46,17 +46,17 @@
     },
     {
       "file": "src/catalog.mjs",
-      "blob": "5ef89b1cdfb9fdcce9ec05e8094df89f850ef138",
+      "blob": "78c0e7839a5dd58cf5b73a63c1dc97580c1420b3",
       "upstream_blob": "5d2108154772178721a1ea24ed622e75ba31d79d"
     },
     {
       "file": "src/domain-model-install.mjs",
-      "blob": "620f563b9c03a251cb18f0704455a2a9eb2e3ce9",
+      "blob": "faeabc7f70cf89ba86c27ed430d5b366bdd81cd6",
       "upstream_blob": "54edc16dff1fe6a4c34b47feea3b53ef84a59ca1"
     },
     {
       "file": "src/engine.mjs",
-      "blob": "d57aa6fba3d92f9559f9fac7771d406199188302",
+      "blob": "f738772795a43d88fb0fe74c9851c89b99f2f79e",
       "upstream_blob": "5ae5c79f4421df46157d3798defff66fb6cad0b9"
     },
     {
@@ -73,7 +73,7 @@
     }
   ],
   "executable_owner": "Faust-S/knowledge",
-  "purpose": "hash-pinned T3-owned BLI runtime, two curated WebLLM 0.2.87 models and immutable upstream attribution; no secrets, weights or credentials",
+  "purpose": "hash-pinned T3-owned BLI runtime, three multilingual profiles with exact upstream WebLLM variants; old technical models retained; no credentials or weights",
   "source_role": "HISTORICAL_BLI1_BASE_WITH_FIRST_PARTY_T3_D5_MODEL_CHOICE",
   "source_revision": "Faust-S/knowledge@c1d720650acd28a9d7510b2068700e59633db205"
 }

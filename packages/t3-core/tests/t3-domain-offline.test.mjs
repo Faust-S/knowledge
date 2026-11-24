@@ -6,6 +6,7 @@ import {join, dirname} from "node:path";
 import {createHash, webcrypto} from "node:crypto";
 import vm from "node:vm";
 import {materializeDomainMode} from "../scripts/materialize-t3-domain-mode.mjs";
+import {MODELS,modelInstallSources} from "../integration-sources/bli1/catalog.mjs";
 
 const ORIGIN = "https://club.iwxa.ru";
 const sha = value => createHash("sha256").update(value).digest("hex");
@@ -58,6 +59,11 @@ test("T3 domain switch covers ALL public routes and the original Workspace in on
     assert.match(readFileSync(join(root,"index.html"),"utf8"),/data-iwxa-t3-domain-mode/);
     assert.match(readFileSync(join(root,"profile/index.html"),"utf8"),/data-iwxa-t3-domain-mode/);
     assert.match(readFileSync(join(root,"workspace/index.html"),"utf8"),/data-iwxa-t3-domain-mode/);
+    const worker=readFileSync(join(root,"t3-sw.js"),"utf8");
+    const records=worker.match(/const PINNED_MODEL_INSTALL_SOURCES = Object\.freeze\((\[.*\])\);/);
+    assert.ok(records,"generated worker contains exact catalog");
+    assert.deepEqual(JSON.parse(records[1]),modelInstallSources());
+    assert.ok(!worker.includes("/* IWXA_MODEL_INSTALL_SOURCES */"));
     const again=materializeDomainMode(root);
     assert.equal(again.version,result.version,"idempotent final domain bundle");
     assert.equal((readFileSync(join(root,"index.html"),"utf8").match(/data-iwxa-t3-domain-mode/g)||[]).length,1);
@@ -151,7 +157,7 @@ function fakeBrowser(root,store=null,clock=Date) {
     setOwnerAlive(value){ownerAlive=!!value;},
     get liveFetches(){return liveFetches;}};
 }
-test("D5 model consent permits only pinned WebLLM assets during autonomous mode",async()=>{
+for(const model of MODELS) test("D5 consent, restart, denial and expiry for "+model.id,async()=>{
   const root=specimen();
   try {
     materializeDomainMode(root);
@@ -161,10 +167,12 @@ test("D5 model consent permits only pinned WebLLM assets during autonomous mode"
     assert.equal(install.at(-1)?.type,"READY");
     const source={type:"window",id:"model-owner",
       url:ORIGIN+"/workspace/"};
-    const pinned={
-      model_url:"https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC",
-      wasm_url:"https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_87/base/SmolLM2-360M-Instruct-q4f32_1_cs1k-webgpu.wasm",
-    };
+    const pinned={model_url:model.modelSource,wasm_url:model.modelLib};
+    const other=MODELS.find(x=>x.id!==model.id);
+    const mixed=[];
+    await browser.dispatch("T3_MODEL_INSTALL_BEGIN",{postMessage:v=>mixed.push(v)},
+      {...pinned,wasm_url:other.modelLib},source);
+    assert.equal(mixed.at(-1)?.type,"FAILED","another model library cannot be substituted");
     const weights=pinned.model_url+"/resolve/main/params_shard_0.bin";
     const blocked="https://example.org/telemetry";
     const before=browser.liveFetches;
@@ -183,6 +191,8 @@ test("D5 model consent permits only pinned WebLLM assets during autonomous mode"
     const token=permitted.at(-1).token;
     assert.equal(typeof token,"string");
     const count=browser.liveFetches;
+    assert.equal((await browser.fetchPage(other.modelSource+"/resolve/main/params_shard_0.bin")).status,503);
+    assert.equal((await browser.fetchPage(other.modelLib)).status,503);
     assert.equal((await browser.fetchPage(blocked)).status,503);
     assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/../private")).status,503);
     assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/user-workspace-secret")).status,503,

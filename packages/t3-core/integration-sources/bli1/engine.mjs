@@ -9,9 +9,11 @@ import { MODEL, MODELS, requireCatalogModel } from './catalog.mjs';
 import { BrowserInferenceError, decideLoad, requirePrompt } from './policy.mjs';
 import { inspectWebLlmOfflineCache } from './cache-readiness.mjs';
 
-const modelRecords = MODELS.map(({id})=>{
+const modelRecords = MODELS.map(({id,modelSource,modelLib})=>{
   const record=prebuiltAppConfig.model_list.find(row=>row.model_id===id);
   if(!record)throw new Error('WEBLLM_MODEL_NOT_PREBUILT:'+id);
+  if(record.model!==modelSource || record.model_lib!==modelLib)
+    throw new Error('WEBLLM_MODEL_SOURCE_MISMATCH:'+id);
   return record;
 });
 // Only curated, upstream prebuilt models. The original WebLLM Cache API is

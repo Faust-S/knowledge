@@ -7,6 +7,7 @@ import {existsSync, mkdirSync, readdirSync, readFileSync,
 import {dirname, join, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {materializePwaManifest} from "./t3-pwa-manifest.mjs";
+import {modelInstallSources} from "../integration-sources/bli1/catalog.mjs";
 
 const SCHEMA = "iwxa.t3.domain-offline/1";
 const scriptRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../src/t3/domain-mode");
@@ -150,7 +151,14 @@ export function materializeDomainMode(distRoot, assistantDistRoot = null) {
   }
   for (const [path, content] of replacements) writeFileSync(path, content);
   copyFileSync(join(scriptRoot, "t3-domain-mode.mjs"), join(root, "t3-domain-mode.mjs"));
-  copyFileSync(join(scriptRoot, "t3-sw.js"), join(root, "t3-sw.js"));
+  const workerTemplate=readFileSync(join(scriptRoot,"t3-sw.js"),"utf8");
+  const marker="/* IWXA_MODEL_INSTALL_SOURCES */ []";
+  if(workerTemplate.split(marker).length!==2)fail("MODEL_CATALOG_MARKER_INVALID");
+  const pairs=modelInstallSources();
+  if(!pairs.length||new Set(pairs.map(x=>x.model)).size!==pairs.length)
+    fail("MODEL_CATALOG_SOURCES_INVALID");
+  const materialized=workerTemplate.replace(marker,JSON.stringify(pairs));
+  writeFileSync(join(root,"t3-sw.js"),materialized);
   const files = [];
   const aliases = [];
   for (const file of scan(root)) {
