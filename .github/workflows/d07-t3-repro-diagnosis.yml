@@ -1,0 +1,68 @@
+name: D07 static byte reproducibility diagnosis
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d07-t3-repro-diagnosis.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-t3-repro-diagnosis
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: a49be4d7c3591cb8f35246cc4af37069a175ee0e
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Exact dependency and read-only diagnostic qualification
+        working-directory: site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/diagnosis-install.log" 2>&1 || { echo D07_REPRO_INSTALL=FAIL; exit 1; }
+          node --test scripts/tests/d07-static-router-time.test.mjs > "$RUNNER_TEMP/diagnosis-tests.log" 2>&1 || {
+            echo D07_REPRO_TESTS=FAIL
+            grep -E '^# (tests|pass|fail) [0-9]+$|^not ok [0-9]+ ' "$RUNNER_TEMP/diagnosis-tests.log" | cut -c1-180 | head -20
+            exit 1
+          }
+          echo D07_REPRO_TESTS=PASS
+          grep -E '^# (tests|pass|fail) [0-9]+$' "$RUNNER_TEMP/diagnosis-tests.log"
+          node --input-type=module -e 'import {readFileSync,existsSync} from "node:fs";const root="node_modules/@tanstack/router-core/";const p=JSON.parse(readFileSync(root+"package.json","utf8"));const f=[root+"dist/esm/ssr/ssr-server.js",root+"src/ssr/ssr-server.ts"].find(existsSync);console.log("D07_REPRO_ROUTER_VERSION="+p.version);console.log("D07_REPRO_ROUTER_TIMESTAMP="+(f&&/u:\s*match\.updatedAt/.test(readFileSync(f,"utf8"))?"PRESENT":"NOT_CONFIRMED"))'
+      - name: Two separate public source builds using identical locked dependencies and no network
+        working-directory: site
+        run: |
+          set -euo pipefail
+          guard="$RUNNER_TEMP/d07-repro-guard"
+          mkdir -p "$guard"
+          for name in git npm npx bun; do
+            printf '#!/bin/sh\necho D07_FORBIDDEN_ORDINARY_BUILD_TOOL >&2\nexit 73\n' > "$guard/$name"
+            chmod +x "$guard/$name"
+          done
+          nodebin="$(command -v node)"
+          for pass in 1 2; do
+            source="$GITHUB_WORKSPACE/.d07-repro-$pass/site"
+            mkdir -p "$source/runtime"
+            cp -a src public scripts docs reports t2-site-module package.json bun.lock tsconfig.json vite.config.ts prerender-routes.json components.json bunfig.toml "$source/"
+            rm -f "$source/src/routeTree.gen.ts"
+            cp -a runtime/t2-config "$source/runtime/"
+            ln -s "$PWD/node_modules" "$source/node_modules"
+            (cd "$source" && sudo unshare --net -- bash -c 'ip link set lo up && exec setpriv --reuid "$1" --regid "$2" --init-groups env PATH="$3" NODE_ENV=production VITE_D07_T3=1 D07_LOCAL_T3_BUILD=1 "$4" scripts/build-d07-clean.mjs' -- "$(id -u)" "$(id -g)" "$guard:$PATH" "$nodebin") > "$RUNNER_TEMP/repro-public-$pass.log" 2>&1 || {
+              echo D07_REPRO_PUBLIC_BUILD=FAIL
+              grep -E '^D07_PUBLIC_BUILD_STEP_(START|PASS|FAIL)=' "$RUNNER_TEMP/repro-public-$pass.log" | tail -12
+              exit 1
+            }
+            echo "D07_REPRO_PUBLIC_BUILD_$pass=PASS"
+          done
+          node scripts/diagnose-d07-reproducibility.mjs "$GITHUB_WORKSPACE/.d07-repro-1/site/dist" "$GITHUB_WORKSPACE/.d07-repro-2/site/dist"
+      # This read-only diagnosis never publishes private output or claims byte equality.
