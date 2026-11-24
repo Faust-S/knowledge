@@ -285,7 +285,7 @@ function verifiedRegistryReadback({record,events,pinned,workspaceId,objectId,now
           (priorFloors===null||observed>=priorFloors[authorityId]),
           "T3_ACCESS_REGISTRY_ORIGINAL_SEQUENCE_ROLLBACK");
       }
-      if(checkpointPolicy!==null&&same(observedPolicy,checkpointPolicy))checkpointSeen=true;
+      if(!checkpointSeen&&same(observedPolicy,checkpointPolicy))checkpointSeen=true;
       priorFloors=event.payload.status_sequences;
     }
     check(same(observedPolicy,record.data?.policy),
@@ -398,7 +398,7 @@ export function createOriginalKernelRegistryStatePort({
       event:command.event,
     });
   };
-  const read=async({allowAbsent=false}={})=>{
+  const read=async({allowAbsent=false,includeDelivery=false}={})=>{
     const now=validClock(clock);
     const result=await kernel.getObject(workspaceId,objectId);
     if(!result){
@@ -409,6 +409,7 @@ export function createOriginalKernelRegistryStatePort({
     const verified=verifiedRegistryReadback({record,events,pinned,workspaceId,objectId,now});
     // The delivery is a detached view of the very SAME authenticated read.
     // The existing invitation carrier must sign this field, not a UI copy.
+    if(!includeDelivery)return verified;
     const journal=events.filter(e=>e?.event_type===ORIGINAL_REGISTRY_EVENT&&e?.payload?.object_id===objectId);
     return Object.freeze({...verified,delivery:{rootPolicy:copy(pinned),record:copy(record),events:copy(journal)}});
   };
@@ -636,7 +637,7 @@ export function createOriginalKernelRegistryStatePort({
   };
   const port=Object.freeze({
     readState:async()=>copy((await read()).state),
-    readRegistryDelivery:async()=>copy((await read()).delivery),
+    readRegistryDelivery:async()=>(await read({includeDelivery:true})).delivery,
     commitSignedState:commit,
     admitProofCredential,readProofCredential,enableCorporateSeatPolicy,
     getStatus:async()=>{const state=(await read()).state;
