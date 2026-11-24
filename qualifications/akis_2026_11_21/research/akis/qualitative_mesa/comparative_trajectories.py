@@ -329,10 +329,22 @@ def compare_executed_original_routes(
     owner_ids = {row["id"] for row in initial}
     links = [row for row in reference.get("cooperation_links", [])
              if row["id"] == relation]
-    if (len(links) != 1 or cooperative_work not in links[0]["works"]
-            or outside_work in links[0]["works"]):
+    if len(links) != 1 or outside_work in links[0]["works"]:
         raise TrajectoryComparisonError("EXECUTED_ROUTE_FIXED_COOPERATION_BOUNDARY_REQUIRED")
-    members = set(links[0]["participants"])
+    initial_link = links[0]
+    dynamically_linked = cooperative_work not in initial_link["works"]
+    if dynamically_linked:
+        original_requests = [
+            row for row in common_prefix
+            if row.get("action") == "request"
+            and row.get("work_spec", {}).get("id") == cooperative_work
+        ]
+        if (len(original_requests) != 1
+                or original_requests[0].get("cooperation_link") != relation
+                or original_requests[0].get("cooperation_source_revision")
+                    != initial_link["source_revision"]):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_FIXED_COOPERATION_BOUNDARY_REQUIRED")
+    members = set(initial_link["participants"])
     if not members or not members < owner_ids:
         raise TrajectoryComparisonError("EXECUTED_ROUTE_DISTINCT_CONSOLIDATION_BOUNDARIES_REQUIRED")
     original_specs = list(reference["works"])
@@ -388,6 +400,28 @@ def compare_executed_original_routes(
         if prefix_output is not None and prefix_output != prefix:
             raise TrajectoryComparisonError("EXECUTED_ROUTE_APPLIED_PREFIX_CHANGED")
         prefix_output = prefix
+        # R1-P may form the third Work only after accepted original Results.
+        # Its link must really have been applied by the original scheduler,
+        # not merely declared in one experimental arm.
+        current_links = [
+            row for row in result.get("cooperation", {}).get("links", [])
+            if row.get("id") == relation
+        ]
+        if (len(current_links) != 1
+                or set(current_links[0]["original_participants"]) != members
+                or current_links[0]["source_revision"] != initial_link["source_revision"]
+                or cooperative_work not in current_links[0]["works"]
+                or outside_work in current_links[0]["works"]):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_FIXED_COOPERATION_BOUNDARY_REQUIRED")
+        if dynamically_linked and sum(
+            row.get("action") == "request" and row.get("outcome") == "APPLIED"
+            and row.get("work") == cooperative_work
+            and row.get("requested_cooperation_link") == relation
+            and row.get("requested_cooperation_source_revision")
+                == initial_link["source_revision"]
+            for row in prefix
+        ) != 1:
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_ORIGINAL_REQUEST_NOT_APPLIED")
         historical = [works[key] for key in prior_works if key in works]
         if (len(historical) != len(prior_works)
                 or any(row["result"] != accepted for row in historical)

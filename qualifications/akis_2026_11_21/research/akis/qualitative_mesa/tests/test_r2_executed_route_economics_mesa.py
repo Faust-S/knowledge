@@ -24,8 +24,13 @@ ACTIVE = "COOPERATION"
 INACTIVE = "INDEPENDENT_ALTERNATIVE"
 
 
-def paired_economics(*, cooperative_price="1200.00"):
-    docs = {name: original_outside_work_case(name) for name in ARMS}
+def paired_economics(*, cooperative_price="1200.00", docs=None):
+    # Keep the previously qualified isolated experiment intact, and allow
+    # the same financial documents to bind to a genuine R1-P trajectory.
+    dynamic_clock = docs is not None
+    docs = deepcopy(docs) if dynamic_clock else {
+        name: original_outside_work_case(name) for name in ARMS
+    }
     for d in docs.values():
         d["events"].sort(key=lambda row: row["at"])
     common_sources = []
@@ -114,7 +119,22 @@ def paired_economics(*, cooperative_price="1200.00"):
             "work_payment_conditions": [], "work_payment_settlement_claims": [],
         }
 
+        if dynamic_clock:
+            clock = {
+                action: next(row["at"] for row in d["events"]
+                             if row.get("work") == work and row["action"] == action)
+                for action in ("commit", "accept")
+            }
+
         def transfer(key, payer, payee, amount, at, late, condition):
+            if dynamic_clock:
+                if key == "purchase":
+                    at = clock["accept"] + 2
+                else:
+                    at = clock["commit"] + {
+                        "materials": 1, "operator-fee": 2, "operator-cash-cost": 3,
+                    }[key]
+                late = max(at, late) if key in {"purchase", "operator-fee"} else at
             owner = payee if payer == "EXTERNAL" else payer
             src = scope[owner]
             witnesses = {party: scope[party] for party in sorted({payer, payee} - {"EXTERNAL"})}
@@ -145,6 +165,8 @@ def paired_economics(*, cooperative_price="1200.00"):
             transfer("materials", "a", "EXTERNAL", "450.00", 88, 88, "ON_ORIGINAL_COMMIT")
             transfer("operator-cash-cost", "op", "EXTERNAL", "20.00", 100, 100, "ON_ORIGINAL_COMMIT")
             report_at = 111
+        if dynamic_clock:
+            report_at = clock["accept"] + 1
         for number, amount in enumerate((first, Decimal(price) - first), 1):
             at = report_at + number - 1
             exact = f"{amount:.2f}"

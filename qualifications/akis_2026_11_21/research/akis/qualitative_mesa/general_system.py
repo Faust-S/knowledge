@@ -226,6 +226,71 @@ class ModelFormationPolicy:
         return (policy is not None and set(policy.records) == names and
                 policy.active(state, at))
 
+    def _original_outside_followup(self, state: Any, work: Any,
+                                   at: int) -> str | None:
+        """A buyer outside a relation has its own original goal and decision.
+
+        Return None for the normal cooperative path. An outside Work must
+        retain its qualified R4 request, accepted dependencies and (where
+        required) a current original owner's explicitly scoped adoption.
+        This does not substitute for any formation phase, OC, KPB, agent
+        review, independent Work consent or original capacity reservation.
+        """
+        requests = [
+            row for row in state.trace
+            if row.get("action") == "request"
+            and row.get("outcome") == "APPLIED"
+            and row.get("work") == work.key
+            and "outside_work_origin" in row
+            and type(row.get("at")) is int and row["at"] < at
+        ]
+        if not requests:
+            return None
+        if (len(requests) != 1 or requests[0].get("actor") != work.customer
+                or any(work.key in link.works for link in state.cooperation_links)):
+            return "FORMATION_OUTSIDE_INDEPENDENT_ORIGINAL_REQUEST_REQUIRED"
+        request = requests[0]
+        from .outside_demand import (
+            OutsideDemandBlocked, qualify_original_outside_work_origin,
+        )
+        try:
+            qualify_original_outside_work_origin(
+                state, work, request["outside_work_origin"], at
+            )
+        except OutsideDemandBlocked as exc:
+            return str(exc)
+        accepted_at = []
+        for key in work.requires_accepted:
+            pilot = state.works.get(key)
+            if pilot is None:
+                return "FORMATION_OUTSIDE_ACCEPTED_ORIGINAL_DEPENDENCY_REQUIRED"
+            reason, decision = self._original_result_decision(
+                state, pilot, request["at"]
+            )
+            if reason != "NONE" or decision["action"] != "accept":
+                return "FORMATION_OUTSIDE_ACCEPTED_ORIGINAL_DEPENDENCY_REQUIRED"
+            accepted_at.append(decision["at"])
+        if (self.design.enforce_model_result_conditioned_capability_cooperation
+                and accepted_at):
+            for need in work.resource_requirements:
+                spec = state.capacity_ledger.specs[need.resource]
+                if need.units <= spec.units:
+                    continue
+                policy = state.capability_policy
+                if policy is None or not any(
+                    cap.resource == need.resource and cap.owner == spec.owner
+                    and work.key in cap.authorized_future_works
+                    and cap.declared_units >= need.units
+                    and cap.from_slot <= work.slot_start
+                    and cap.to_slot >= work.slot_end
+                    and cap.key in policy.applied
+                    and max(accepted_at) < policy.applied[cap.key] < request["at"]
+                    and policy._original_source_status(state, cap, at) == "NONE"
+                    for cap in policy.declared.values()
+                ):
+                    return "FORMATION_OUTSIDE_ORIGINAL_OWNER_ADOPTION_REQUIRED"
+        return "NONE"
+
     def confirm(self, state: Any, event: Mapping[str, Any], at: int) -> str:
         phase, key, actor = event.get("phase"), event.get("work"), event.get("actor")
         institutional = self.design.enforce_model_formation_context_code
@@ -285,14 +350,19 @@ class ModelFormationPolicy:
             )
             if (self.design.enforce_model_result_conditioned_goals and
                     work.requires_accepted):
-                dynamic_goal = any(
-                    self._result_conditioned_goal(
-                        state, request, work, request["at"]
-                    ) == "NONE"
-                    for request in requests
-                )
-                if not dynamic_goal:
-                    return "FORMATION_EMERGENT_GOAL_NOT_FROM_ORIGINAL_RESULT"
+                outside = self._original_outside_followup(state, work, at)
+                if outside is not None:
+                    if outside != "NONE":
+                        return outside
+                else:
+                    dynamic_goal = any(
+                        self._result_conditioned_goal(
+                            state, request, work, request["at"]
+                        ) == "NONE"
+                        for request in requests
+                    )
+                    if not dynamic_goal:
+                        return "FORMATION_EMERGENT_GOAL_NOT_FROM_ORIGINAL_RESULT"
             elif not has_static_goal:
                 return "FORMATION_GOAL_AND_ORIGINAL_CUSTOMER_REQUEST_NOT_LINKED"
         elif phase == 2:
@@ -866,6 +936,9 @@ class ModelFormationPolicy:
         if (not self.design.enforce_model_result_conditioned_reconfiguration
                 or not work.requires_accepted):
             return "NONE"
+        outside = self._original_outside_followup(state, work, at)
+        if outside is not None:
+            return outside
         from .cooperation import cooperation_change_reviews
         requests = [
             row for row in state.trace
@@ -1252,6 +1325,11 @@ class ModelFormationPolicy:
         if (not self.design.enforce_model_result_conditioned_interests or
                 not work.requires_accepted):
             return "NONE"
+        # The R4 buyer/seller's own current source-bound decisions are
+        # not a membership-interest update inside the compared relation.
+        outside = self._original_outside_followup(state, work, at)
+        if outside is not None:
+            return outside
         for actor in sorted(self._resource_owners(state, work) | {work.customer}):
             reason = self._original_owner_interest(state, work, actor, at)
             if reason != "NONE":
