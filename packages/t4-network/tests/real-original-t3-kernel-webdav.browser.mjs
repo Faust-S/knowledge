@@ -2960,8 +2960,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         getAuthorizationHeader:async()=>process.env.T4_TEST_AUTH,
         keySuffix:'.t4n',candidateNetworkWire:true,
       });
-      const nativeSender=createT4CandidateFrameTransport({
-        wireTransport:nativeNetworkTransport,
+      const nativeSenderFor=wireTransport=>createT4CandidateFrameTransport({
+        wireTransport,
         originalHostNodeRef:'node:original:source',
         originalHostScopeRef:'scope:original:replay',
         getMode:()=> 'T4_NETWORK',
@@ -2979,12 +2979,13 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         authorizeOriginalNetwork:async()=>false,
         persistOriginalReplayDecision:async()=> 'DENIED',
       });
+      const nativeSender=nativeSenderFor(nativeNetworkTransport);
       const nativeNetworkSent=await nativeSender.publishSignedFrame({
         wireBytes:nativeWire,
       });
       assert.match(nativeNetworkSent.key,/^[a-f0-9]{64}\.t4n$/);
-      const nativeReceiver=()=>createT4CandidateFrameTransport({
-        wireTransport:nativeNetworkTransport,
+      const nativeReceiver=(wireTransport=nativeNetworkTransport)=>createT4CandidateFrameTransport({
+        wireTransport,
         originalHostNodeRef:'node:original:recipient',
         originalHostScopeRef:'scope:original:replay',
         getMode:()=> 'T4_NETWORK',
@@ -3273,8 +3274,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         authorizeOriginalTechnicalWrite:async p=>
           actual.grants.includes(p.operation),
       });
-      const sourceHeadVerifier=createT4CandidateFrameTransport({
-        wireTransport:nativeNetworkTransport,
+      const sourceHeadVerifierFor=wireTransport=>createT4CandidateFrameTransport({
+        wireTransport,
         originalHostNodeRef:'node:original:source',
         originalHostScopeRef:'scope:original:replay',
         getMode:()=> 'T4_NETWORK',
@@ -3297,6 +3298,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         persistOriginalReplayDecision:
           sourceReplayPhasePort.persistOriginalReplayDecision,
       });
+      const sourceHeadVerifier=sourceHeadVerifierFor(nativeNetworkTransport);
       const signedHeadExchange=async(type,from,body,sequence)=>{
         const encoded=await sourceSignedFrame(type,from,body,sequence);
         const published=await (from==='SOURCE'?
@@ -4235,6 +4237,33 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       let nativeRecipientCursorWrites=0,loseNativeRecipientCursorReply=false;
       const recipientFrontierKinds=[];
       let lastNativeRecipientFrontierPort=null;
+      // The earlier protocol compatibility probes retain the legacy wire.
+      // Every captured original subject session below uses the indexed
+      // profile against the very same real Apache/TLS endpoint. No catalog
+      // discovery is permitted on that profile, including after restart.
+      const indexedWireStats={indexGet:0,indexPut:0,frameGet:0,framePut:0,collectionList:0};
+      const indexedNativeNetworkTransport=createWebDavPackageTransport({
+        baseUrl:nativeRelay.endpoint,
+        fetchImpl:async(url,options)=>{
+          const name=new URL(url).pathname;
+          if(options.method==='PROPFIND'){indexedWireStats.collectionList++;throw Error('INDEXED_NATIVE_PROFILE_COLLECTION_SCAN_FORBIDDEN');}
+          if(name.endsWith('.t4i')){
+            if(options.method==='GET')indexedWireStats.indexGet++;
+            if(options.method==='PUT')indexedWireStats.indexPut++;
+          }
+          if(name.endsWith('.t4n')){
+            if(options.method==='GET')indexedWireStats.frameGet++;
+            if(options.method==='PUT')indexedWireStats.framePut++;
+          }
+          return nativeRelay.fetch(url,options);
+        },
+        locationRef:'test-webdav',placementPolicy:policy,getMode:()=> 'T4_NETWORK',
+        authorize:async()=>true,getAuthorizationHeader:async()=>process.env.T4_TEST_AUTH,
+        keySuffix:'.t4n',candidateNetworkWire:true,indexedNetworkWire:true,
+      });
+      const indexedNativeSender=nativeSenderFor(indexedNativeNetworkTransport);
+      const indexedNativeReceiver=()=>nativeReceiver(indexedNativeNetworkTransport);
+      const indexedSourceHeadVerifier=sourceHeadVerifierFor(indexedNativeNetworkTransport);
       const p2fRunCapturedSession=async(revision,{
         kind='OBJECT_PUT',subjectId=p2cObjectId,
         frontierRevision=revision,currentObjectRevision=4,
@@ -4331,7 +4360,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       });
       const publicationPort=(isSource,session=durableSession)=>{
         assert.deepEqual(session,durableSession);
-        const transport=isSource?nativeSender:nativeReceiver();
+        const transport=isSource?indexedNativeSender:indexedNativeReceiver();
         return createT4OriginalNetworkPublicationPort({
           technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
           session,localNodeRef:isSource?'node:original:source':'node:original:recipient',
@@ -4380,10 +4409,10 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       };
       const slotsFor=specs=>specs.map(({messageType,sequence})=>({messageType,sequence}));
       const fromPublication=async(publication,from)=>{
-        const receiver=from==='SOURCE'?nativeReceiver():sourceHeadVerifier;
+        const receiver=from==='SOURCE'?indexedNativeReceiver():indexedSourceHeadVerifier;
         const extensions=t4NativeSubjectCriticalExtensions(kind);
         let verified;
-        if(autoSource){
+        {
           const found=await receiver.discoverUniqueSignedFrame({selector:{
             sourceNodeRef:from==='SOURCE'?'node:original:source':'node:original:recipient',
             sessionRef:p2eSession,ownerEpoch:2,messageType:publication.messageType,
@@ -4391,11 +4420,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             requiredCryptoSuite:'X25519_AES256GCM_ED25519',supportedCriticalExtensions:extensions});
           assert.equal(found.state,'FOUND');
           assert.equal(found.receipt.key,publication.key); // compare only AFTER discovery
-          verified=found.receipt;autoDiscovered++;
-        }else verified=await receiver.readAndVerifySignedFrame({
-          key:publication.key,expectedSha256:publication.sha256,
-          requiredCryptoSuite:'X25519_AES256GCM_ED25519',supportedCriticalExtensions:extensions,
-        });
+          assert.equal(found.indexedLookup,true);assert.equal(found.pages,0);
+          verified=found.receipt;if(autoSource)autoDiscovered++;
+        }
         assert.equal(verified.originalSignatureVerified,true);
         return {publication,verified};
       };
@@ -4572,7 +4599,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
               'sha256:'+p2eChange.publication.sha256
           );
           if(p.phase==='APPLIED_CONFIRMED'&&autoSource){
-            const found=await sourceHeadVerifier.discoverUniqueSignedFrame({selector:{
+            const found=await indexedSourceHeadVerifier.discoverUniqueSignedFrame({selector:{
               sourceNodeRef:'node:original:recipient',sessionRef:p2eSession,
               ownerEpoch:2,messageType:'APPLIED_ACK',sequence:2},
               requiredCryptoSuite:'X25519_AES256GCM_ED25519',
@@ -4726,7 +4753,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             JSON.stringify(p.session)===JSON.stringify(durableSession)&&
             JSON.stringify(p.sourceCursorBefore)===JSON.stringify(p2fTask.sourceCursorBefore)&&
             receiving.operations.includes('t1.getObject')&&receiving.operations.includes('t1.listEventsSince'),
-          frameDiscoveryPort:nativeReceiver(),recipientPublicationPort:publicationPort(false),
+          frameDiscoveryPort:indexedNativeReceiver(),recipientPublicationPort:publicationPort(false),
           requiredCryptoSuite:'X25519_AES256GCM_ED25519',
           createOriginalRecipientPhasePort:async({received,verifiedContent,sourceHeadProof})=>{
             if(received){
@@ -4767,7 +4794,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         const result=await sourceTask().runNativeSourceStep({
           createOriginalSourcePhasePort:async()=>p2eSourcePhase(),
           announceOriginalSourceSession:autoRecipient,
-          sourceCursorPort:p2eCursorPort(),frameDiscoveryPort:sourceHeadVerifier,
+          sourceCursorPort:p2eCursorPort(),frameDiscoveryPort:indexedSourceHeadVerifier,
           requiredCryptoSuite:'X25519_AES256GCM_ED25519',
           resolveOriginalSigningContext:async()=>({permissionRef:'original:permission:replay',
             signerRef:'key:original:source:p22c'}),
@@ -4895,14 +4922,16 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         const frontierBefore=await p2eCursorPort().inspectOriginalHostCursor();
         const writesBefore=totalNativeSubjectWrites();
         const putsBefore=f2NetworkWrites;
+        const interruptionsBefore=nativeRelay.stats().interruptedPuts,
+          blockedBefore=nativeRelay.stats().blockedConnections;
         nativeRelay.cutBeforePut(target.key);
         await assert.rejects(sourceTask().runNativePublication({slots:contentSlots}),
           e=>e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN'&&
             e.details?.sequence===outageSequence&&e.details?.automaticRetryAllowed===false);
         const cut=await publicationPort(true).inspectOriginalPublication();
         assert.equal(nativeRelay.stats().offline,true);
-        assert.equal(nativeRelay.stats().interruptedPuts,1);
-        assert.ok(nativeRelay.stats().blockedConnections>=1);
+        assert.equal(nativeRelay.stats().interruptedPuts,interruptionsBefore+1);
+        assert.ok(nativeRelay.stats().blockedConnections>blockedBefore);
         assert.equal(cut.frames[outageSequence-1].state,'ATTEMPTED');
         assert.equal(cut.frames[outageSequence-1].attempts,1);
         assert.ok(cut.frames.slice(0,outageSequence-1).every(f=>f.state==='PRESENT'));
@@ -5442,6 +5471,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         historicalSelection:{sessionRef:durableSession.sessionRef,changeId:durableSession.changeId,
           sourceEventId:durableSession.sourceEventId,sourceEventDigest:durableSession.sourceEventDigest,
           capturedSha256:durableSession.capturedSha256},
+        sourceAnnouncementIndexed:autoRecipient,
         sourcePublicationCount:sourcePublication.frames.length,
         recipientPublicationCount:recipientPublication.frames.length,
         signedFrameCount:f2SignCalls,actualFramePutCount:f2NetworkWrites,
@@ -6172,11 +6202,26 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       // After actual tombstone revival and relation replacement, the
       // previously committed Result Events are still verified locally
       // through the SAME frontier, without current historical graph bytes.
-      nativeNetworkTransport.close();
+      indexedNativeNetworkTransport.close();nativeNetworkTransport.close();
       await nativeRelay.close();nativeRelay=null;
       await recipientContext.close();recipientContext=null;
       recipientContext=await launch(recipientProfile);recipientPage=await opened(recipientContext);
       const committed=[...allEarlier,completedObjectDelete,...graphCompleted];
+      const indexedFrameCount=committed.reduce((n,x)=>n+x.sourcePublicationCount+x.recipientPublicationCount,0);
+      const indexedAnnouncementCount=committed.filter(x=>x.sourceAnnouncementIndexed).length;
+      assert.equal(committed.length,13);assert.equal(new Set(committed.map(x=>x.kind)).size,7);
+      assert.equal(indexedWireStats.collectionList,0);
+      assert.ok(indexedWireStats.indexGet>=indexedFrameCount);
+      assert.equal(indexedWireStats.indexPut,indexedFrameCount+indexedAnnouncementCount);
+      // The only extra frame PUT attempts are the explicit original grants
+      // after observed missing bytes: seven ACKs and one interrupted CHUNK.
+      assert.equal(indexedWireStats.framePut,indexedFrameCount+8);
+      console.log('T4_K31_REAL_ORIGINAL_INDEXED_MIXED_NATIVE_SESSIONS_PASS',JSON.stringify({
+        originalKernel:ORIGINAL_KERNEL,subjectKinds:7,completedSessions:committed.length,
+        exactImmutableFrames:indexedFrameCount,sourceAnnouncementIndexes:indexedAnnouncementCount,
+        ...indexedWireStats,remoteCollectionEnumerated:false,
+        indexedProfileRetainedAcrossColdRestart:true,independentPhysicalDevices:false,
+      }));
       const ackRecovery=committed.filter(x=>x.ackOutageWitness).map(x=>x.ackOutageWitness);
       assert.equal(ackRecovery.length,7);assert.equal(new Set(ackRecovery.map(x=>x.kind)).size,7);
       console.log('T4_K29_REAL_ORIGINAL_ALL_SEVEN_ACK_TCP_RECOVERY_PASS',JSON.stringify({
