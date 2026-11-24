@@ -27,6 +27,7 @@ jobs:
           repository: Faust-S/knowledge
           run-id: 45353153749
           artifact-ids: 14901333023
+          merge-multiple: true
           github-token: ${{ github.token }}
           path: .candidate-04
       - name: Verify immutable RC4 candidate and install on a clean Windows runner
