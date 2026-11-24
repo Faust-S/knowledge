@@ -137,6 +137,66 @@ public static class IwxaActivityWin32 {
     if (!$clearRoutes) { throw 'INSTALLED_ACTIVITY_A41_CLEAR_MISSING' }
     $clearRoutes.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
     Write-Host 'IWXA_ACTIVITY_A41_NATIVE_ROUTE_GROUPING_PASS models=3 groups=2 repeated=1'
+    # A4.2 uses two actual files produced by the pinned original Rust4PM.
+    # No special product command, injected JavaScript or test-only data in the EXE.
+    if ($env:IWXA_ACTIVITY_EXTERNAL_OCEL_FIXTURE -or $env:IWXA_ACTIVITY_EXTERNAL_OCDFG_FIXTURE) {
+        $ocelFile = $env:IWXA_ACTIVITY_EXTERNAL_OCEL_FIXTURE
+        $graphFile = $env:IWXA_ACTIVITY_EXTERNAL_OCDFG_FIXTURE
+        if (!$ocelFile -or !$graphFile -or !(Test-Path -LiteralPath $ocelFile -PathType Leaf) -or
+            !(Test-Path -LiteralPath $graphFile -PathType Leaf)) { throw 'A42_NATIVE_FIXTURE_MISSING' }
+        function Select-ActivityNativeFile($button, [string]$file) {
+            $root = [Windows.Automation.AutomationElement]::RootElement
+            $windowType = [Windows.Automation.PropertyCondition]::new(
+                [Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [Windows.Automation.ControlType]::Window)
+            $known = @($root.FindAll([Windows.Automation.TreeScope]::Children,$windowType) |
+                ForEach-Object { $_.Current.NativeWindowHandle })
+            $button.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+            $nameCondition = [Windows.Automation.PropertyCondition]::new(
+                [Windows.Automation.AutomationElement]::AutomationIdProperty,'1148')
+            $openCondition = [Windows.Automation.PropertyCondition]::new(
+                [Windows.Automation.AutomationElement]::AutomationIdProperty,'1')
+            $dialog=$null;$filename=$null;$openButton=$null
+            for($attempt=0;$attempt -lt 40;$attempt++){
+                foreach($candidate in $root.FindAll([Windows.Automation.TreeScope]::Children,$windowType)){
+                    if($known -contains $candidate.Current.NativeWindowHandle){continue}
+                    if($candidate.Current.Name -notin @('Open','Открыть')){continue}
+                    $edit=$candidate.FindFirst([Windows.Automation.TreeScope]::Descendants,$nameCondition)
+                    $open=$candidate.FindFirst([Windows.Automation.TreeScope]::Descendants,$openCondition)
+                    if($edit -and $open){$dialog=$candidate;$filename=$edit;$openButton=$open;break}
+                }
+                if($dialog){break}
+                Start-Sleep -Milliseconds 350
+            }
+            if(!$dialog){throw 'A42_NATIVE_OPEN_DIALOG_NOT_FOUND'}
+            $filename.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue([IO.Path]::GetFullPath($file))
+            $openButton.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+        }
+        $ocelNav=Find-Accessible $window.Root 'OCEL 2.0' 10
+        if(!$ocelNav){throw 'A42_NATIVE_OCEL_NAV_MISSING'}
+        $ocelNav.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+        $externalNav=Find-Accessible $window.Root 'Внешняя модель' 10
+        if(!$externalNav){throw 'A42_NATIVE_EXTERNAL_NAV_MISSING'}
+        $externalNav.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+        $pickLog=Find-Accessible $window.Root 'Выбрать журнал OCEL' 10
+        $pickGraph=Find-Accessible $window.Root 'Выбрать граф OC-DFG' 10
+        $compare=Find-Accessible $window.Root 'Сопоставить модель и журнал' 10
+        if(!$pickLog -or !$pickGraph -or !$compare -or $compare.Current.IsEnabled){throw 'A42_NATIVE_INITIAL_STATE_INVALID'}
+        Select-ActivityNativeFile $pickLog $ocelFile
+        if(!(Find-Accessible $window.Root 'Журнал: выбран · Граф: не выбран' 25)){throw 'A42_NATIVE_OCEL_SELECTION_NOT_CONFIRMED'}
+        Select-ActivityNativeFile $pickGraph $graphFile
+        if(!(Find-Accessible $window.Root 'Журнал: выбран · Граф: выбран' 25)){throw 'A42_NATIVE_GRAPH_SELECTION_NOT_CONFIRMED'}
+        $compare=Find-Accessible $window.Root 'Сопоставить модель и журнал' 10
+        if(!$compare.Current.IsEnabled){throw 'A42_NATIVE_COMPARE_DISABLED'}
+        $compare.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+        if(!(Find-Accessible $window.Root 'Структура совпадает с журналом' 30)){throw 'A42_NATIVE_MATCH_NOT_DISPLAYED'}
+        if(!(Find-Accessible $window.Root 'Полные варианты объектных траекторий' 10)){throw 'A42_NATIVE_VARIANTS_NOT_DISPLAYED'}
+        if(!(Find-Accessible $window.Root '1. registered' 10)){throw 'A42_NATIVE_REAL_TRAJECTORY_NOT_DISPLAYED'}
+        $clearExternal=Find-Accessible $window.Root 'Очистить выборку' 10
+        $clearExternal.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+        if(Find-Accessible $window.Root 'Структура совпадает с журналом' 3){throw 'A42_NATIVE_STALE_REVIEW'}
+        Write-Host 'IWXA_ACTIVITY_A42_NATIVE_EXTERNAL_MODEL_PASS original_r4pm=YES file_picker=YES variants=YES reset=YES'
+    }
     $sourcePage = Find-Accessible $window.Root 'Источники'
     if (!$sourcePage) { throw 'INSTALLED_ACTIVITY_V7_SOURCE_NAV_MISSING' }
     $sourcePage.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()

@@ -91,3 +91,16 @@ test('A4.1 is reachable inside the native shell with actual local route comparis
  assert.match(page,/Выпуск \.iwxa закрыт/);
  assert.doesNotMatch(page,/localStorage|sessionStorage|fetch\(|createWorkspace\(|putObject\(/);
 });
+
+test('A4.2 uses the actual external result and journal in the existing local UI',()=>{
+ const workspace=load('../desktop/src/ActivityWorkspace.tsx');
+ const inner=load('../desktop/src/ActivityInnerPage.tsx');
+ const page=load('../desktop/src/ExternalProcessReview.tsx');
+ assert.match(workspace,/'Внешняя модель'/);
+ assert.match(inner,/case 'Внешняя модель':return <ExternalProcessReview/);
+ assert.match(page,/await reviewExternalOcDfg\(log,graph\)/);
+ assert.match(page,/generation\.current/);
+ assert.match(page,/Полные варианты объектных траекторий/);
+ assert.match(page,/Передача и выпуск \.iwxa закрыты/);
+ assert.doesNotMatch(page,/localStorage|sessionStorage|fetch\(/);
+});

@@ -4,6 +4,7 @@ on:
     branches:
       - work/2026-11-10-activity-base-anonymizer
       - work/2026-11-24-activity-0-4-domain-routes
+      - work/2026-11-24-activity-0-4-external-ocdfg
       - work/2026-11-23-activity-0-3-freeze
       - release/0.3
       - work/2026-11-22-activity-v7-native
@@ -29,6 +30,9 @@ on:
       - tests/test_activity_v7_ui.mjs
       - tests/test_activity_d05_route_comparison.mjs
       - tests/test_activity_d05_route_cli.mjs
+      - tests/test_activity_external_ocdfg.mjs
+      - tests/test_activity_external_ocdfg_cli.mjs
+      - tools/activity-ocdfg-review.mjs
       - tools/activity-d05-route-review.mjs
       - .github/workflows/activity-base-desktop.yml
   workflow_dispatch:
@@ -64,7 +68,7 @@ jobs:
             foreach ($issue in $errors) { Write-Host $issue.Message }
             throw 'WINDOWS_UI_WITNESS_SYNTAX_INVALID'
           }
-      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_route_cli.mjs
+      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_route_cli.mjs tests/test_activity_external_ocdfg.mjs tests/test_activity_external_ocdfg_cli.mjs
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
       - name: Typecheck and bundle Activity UI before any native Rust build
@@ -161,9 +165,31 @@ jobs:
       - name: Package and qualify single-exe Setup Core installer
         shell: powershell
         run: desktop/installer/build-setup-core.ps1 -SetupCoreRoot setup-core-source -Output artifacts/IWXA-Activity-0.4.0-dev.1-Setup.exe -InstallForQualification
+      - name: Generate actual pinned Rust4PM artifacts for native file picker qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --only-binary=:all: r4pm==0.6.2
+          node --input-type=module <<'NODE'
+          import {writeFile} from 'node:fs/promises';
+          import {buildSyntheticOcel2Example} from './modules/activity-base-anonymizer/ocel2-evidence.mjs';
+          await writeFile('activity-ci-ocel.json',JSON.stringify((await buildSyntheticOcel2Example()).ocel2));
+          NODE
+          python - <<'PY'
+          import importlib.metadata, json
+          from pathlib import Path
+          import r4pm
+          assert importlib.metadata.version("r4pm") == "0.6.2"
+          log = r4pm.import_item("SlimLinkedOCEL", "activity-ci-ocel.json")
+          Path("activity-ci-ocdfg.json").write_text(json.dumps(r4pm.bindings.discover_dfg_from_ocel(log)), encoding="utf-8")
+          PY
+          ACTIVITY_R4PM_LOG=activity-ci-ocel.json ACTIVITY_R4PM_MODEL=activity-ci-ocdfg.json node --test tests/test_activity_external_ocdfg.mjs
       - name: Installed native window and synthetic first-use witness (no browser)
         shell: powershell
-        run: desktop/tests/installed-windows-ui.ps1 -Executable "$env:LOCALAPPDATA\Programs\IWXA Activity\iwxa-activity-base-desktop.exe"
+        run: |
+          $env:IWXA_ACTIVITY_EXTERNAL_OCEL_FIXTURE=(Resolve-Path activity-ci-ocel.json).Path
+          $env:IWXA_ACTIVITY_EXTERNAL_OCDFG_FIXTURE=(Resolve-Path activity-ci-ocdfg.json).Path
+          desktop/tests/installed-windows-ui.ps1 -Executable "$env:LOCALAPPDATA\Programs\IWXA Activity\iwxa-activity-base-desktop.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: iwxa-activity-desktop-setup-windows
