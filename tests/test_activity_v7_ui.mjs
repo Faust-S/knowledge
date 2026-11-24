@@ -99,3 +99,10 @@ test('A4.2 consumes original external result inside V7 and clears local state',(
  assert.match(page,/generation.current/);assert.match(page,/Выпуск \.iwxa закрыт/);
  assert.doesNotMatch(page,/localStorage|sessionStorage|fetch\(|createWorkspace\(|putObject\(/);
 });
+
+test('A4.2 full variants are selectable without reconstructing them from edges',()=>{
+ const page=load('../desktop/src/Rust4pmResultReview.tsx');
+ assert.match(page,/Полные варианты/);assert.match(page,/selected\.variants\?\.slice/);
+ assert.match(page,/v\.sequence\.map/);assert.match(page,/empty_trace_count/);
+ assert.match(page,/не восстановлены из графа/);
+});

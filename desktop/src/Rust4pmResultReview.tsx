@@ -7,13 +7,15 @@ const ERROR_TEXT:Record<string,string>={
  R4PM_FLOW_BALANCE_INVALID:'Частоты операций, переходов и границы траекторий не согласованы.',
  R4PM_DISCONNECTED_FLOW:'Есть фрагмент графа без связи с началом или концом траектории.',
  R4PM_GRAPH_LIMIT:'Размер графа превышает текущие пределы просмотра.',
+ R4PM_VARIANT_DFG_MISMATCH:'Полные варианты траекторий не согласованы с частотами графа.',
+ R4PM_VARIANT_LIMIT:'Размер набора траекторий превышает текущие пределы просмотра.',
  R4PM_FILE_LIMIT:'Выберите один JSON-файл объёмом до 8 МБ.'
 };
 export function Rust4pmResultReview(){
  const input=useRef<HTMLInputElement>(null),generation=useRef(0);
  const [result,setResult]=useState<Review|null>(null),[source,setSource]=useState(''),[problem,setProblem]=useState('');
  const [busy,setBusy]=useState(false),[group,setGroup]=useState(0),[page,setPage]=useState(0);
- const [tab,setTab]=useState<'edges'|'activities'>('edges');
+ const [tab,setTab]=useState<'edges'|'activities'|'variants'>('edges');
  useEffect(()=>()=>{generation.current++},[]);
  const reset=()=>{generation.current++;setResult(null);setSource('');setProblem('');setGroup(0);setPage(0);setTab('edges');setBusy(false);if(input.current)input.current.value=''};
  function apply(raw:unknown,label:string,token:number){
@@ -37,7 +39,7 @@ export function Rust4pmResultReview(){
   }catch(err){fail(err,token)}finally{if(token===generation.current)setBusy(false)}
  }
  function example(){reset();const token=generation.current;try{apply(buildRust4pmReviewExample(),'Встроенный пример результата',token)}catch(err){fail(err,token)}}
- const selected=result?.graphs[group],size=tab==='edges'?(selected?.transitions.length??0):(selected?.activities.length??0);
+ const selected=result?.graphs[group],size=tab==='edges'?(selected?.transitions.length??0):tab==='variants'?(selected?.variants?.length??0):(selected?.activities.length??0);
  const pages=Math.max(1,Math.ceil(size/PAGE_SIZE));
  return <div className="activity-domain-review">
   <section className="activity-v7-card">
@@ -69,20 +71,25 @@ export function Rust4pmResultReview(){
       <div><strong>{selected.derived_nonempty_trace_count}</strong><span>Непустых траекторий по балансу</span></div>
      </div>
      <p>Вхождений действий: {selected.activity_occurrences}. Вхождений переходов: {selected.transition_occurrences}. Самопереходов: {selected.self_loop_count}.</p>
+     {selected.variant_summary?<p role="status">Вариантов: {selected.variant_summary.variant_count} · Объектов: {selected.variant_summary.reported_object_count} · Без событий: {selected.variant_summary.empty_trace_count}. Частоты вариантов согласованы с графом.</p>:null}
      <div className="activity-v7-actions">
       <button aria-pressed={tab==='edges'} onClick={()=>{setTab('edges');setPage(0)}}>Прямые переходы</button>
       <button aria-pressed={tab==='activities'} onClick={()=>{setTab('activities');setPage(0)}}>Действия и границы</button>
+      {selected.variants?<button aria-pressed={tab==='variants'} onClick={()=>{setTab('variants');setPage(0)}}>Полные варианты</button>:null}
      </div>
      <div className="activity-domain-ops">
       {tab==='edges'?selected.transitions.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).map(e=><div className="activity-domain-op" key={JSON.stringify([e.from,e.to])}>
        <strong>{e.from} → {e.to}</strong><span>Вхождений: {e.occurrences}{e.from===e.to?' · Самопереход':''}</span></div>):
+       tab==='variants'?selected.variants?.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).map((v,i)=><div className="activity-domain-op" key={page*PAGE_SIZE+i}>
+        <strong>Вариант {page*PAGE_SIZE+i+1} · Объектов: {v.object_occurrences}</strong><span>Действий: {v.sequence.length}</span>
+        {v.sequence.length?<details><summary>Последовательность действий</summary><ol>{v.sequence.map((name,j)=><li key={j}>{name}</li>)}</ol></details>:<span>Нет зарегистрированных событий</span>}</div>):
        selected.activities.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).map(a=><div className="activity-domain-op" key={a.name}>
         <strong>{a.name}</strong><span>Вхождений: {a.occurrences}</span><span>Начал: {a.derived_trace_starts} · Окончаний: {a.derived_trace_ends} (по балансу)</span></div>)}
      </div>
      {!size?<p>В выбранной перспективе нет записей этого вида.</p>:null}
      <div className="activity-v7-actions"><button disabled={page===0} onClick={()=>setPage(p=>p-1)}>Назад</button><span>Страница {page+1} из {pages}</span><button disabled={page+1>=pages} onClick={()=>setPage(p=>p+1)}>Далее</button></div>
     </div>:null}
-    <div className="activity-v7-note">Частоты разных объектных перспектив не суммируются: одно событие может относиться к нескольким объектам. DFG не содержит полных траекторий или доказательства причинной связи.</div>
+    <div className="activity-v7-note">Частоты разных объектных перспектив не суммируются: одно событие может относиться к нескольким объектам. {result.full_trace_variants==='REPORTED_BY_TOOL'?'Полные варианты получены из результата инструмента, а не восстановлены из графа. Согласование частот не доказывает исходную историю.':'DFG не содержит полных траекторий.'} Причинная связь не установлена.</div>
    </>}
    <div className="activity-v7-note hold">Источник и физическое исполнение не подтверждены. Выпуск .iwxa закрыт.</div>
   </section>:null}
