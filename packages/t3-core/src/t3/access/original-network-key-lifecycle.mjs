@@ -8,7 +8,8 @@ import {canonical,copy,digest,fields,identifier,insist,timestamp,validatePolicy,
 export const ORIGINAL_NETWORK_KEY_TRANSITION='IWXA_T4_ORIGINAL_NETWORK_KEY_TRANSITION/1';
 export const ORIGINAL_NETWORK_KEY_MANAGE='t4.network.key.manage';
 const claimFields=['schema','kind','transitionRef','authorityId','principalId','previousPolicyDigest',
-  'expectedStatusSequence','previousBindingDigest','issuedAt','binding','keyRecord'];
+  'registryWorkspaceId','registryObjectId','rootPolicyDigest','expectedStatusSequence','previousBindingDigest',
+  'issuedAt','binding','keyRecord'];
 const bindingFields=['bindingRef','subjectId','permissionRef','keyId','nodeRef','recipientNodeRef',
   'workspaceId','originalWriteOwnerRef','scopeRef','ownerEpoch','generation'];
 const stableFields=bindingFields.filter(k=>!['keyId','generation','bindingRef','permissionRef'].includes(k));
@@ -20,8 +21,8 @@ function checkedClaims(input){
   const c=copy(input);fields(c,claimFields);
   check(c.schema===ORIGINAL_NETWORK_KEY_TRANSITION&&['ENROLL','ROTATE','REVOKE'].includes(c.kind),
     'NETWORK_KEY_TRANSITION_KIND_INVALID');
-  for(const k of ['transitionRef','authorityId','principalId'])identifier(c[k]);
-  check(hex(c.previousPolicyDigest)&&Number.isSafeInteger(c.expectedStatusSequence)&&c.expectedStatusSequence>=0&&
+  for(const k of ['transitionRef','authorityId','principalId','registryWorkspaceId','registryObjectId'])identifier(c[k]);
+  check(hex(c.rootPolicyDigest)&&hex(c.previousPolicyDigest)&&Number.isSafeInteger(c.expectedStatusSequence)&&c.expectedStatusSequence>=0&&
     c.expectedStatusSequence<Number.MAX_SAFE_INTEGER&&
     (c.kind==='ENROLL'?c.previousBindingDigest===null:hex(c.previousBindingDigest)),
     'NETWORK_KEY_PREDECESSOR_INVALID');
@@ -73,7 +74,7 @@ export function originalNetworkKeyStatusId(transition){
 // The original issuer's signed STATUS attests the exact transition and
 // advances its EXISTING monotonic sequence. This is replayed from the
 // original Kernel Event journal, never trusted from a writable key object.
-export function deriveOriginalNetworkKeyTransition({transition,signedStatus,policy,bindings,priorFloors}={}){
+export function deriveOriginalNetworkKeyTransition({transition,signedStatus,policy,bindings,priorFloors,registryIdentity}={}){
   const t=validateOriginalNetworkKeyTransition(transition),c=t.claims,b=c.binding;
   const authority=Object.hasOwn(policy.authorities,c.authorityId)?policy.authorities[c.authorityId]:null;
   check(authority&&authority.principalId===c.principalId&&authority.resources.includes(b.workspaceId)&&
@@ -81,12 +82,15 @@ export function deriveOriginalNetworkKeyTransition({transition,signedStatus,poli
     authority.rightClasses.includes('ADMINISTRATION')&&
     policy.actionCatalog[ORIGINAL_NETWORK_KEY_MANAGE]==='ADMINISTRATION',
     'NETWORK_KEY_AUTHORITY_SCOPE_DENIED');
+  check(registryIdentity&&c.registryWorkspaceId===registryIdentity.workspaceId&&
+    c.registryObjectId===registryIdentity.objectId&&c.rootPolicyDigest===registryIdentity.rootPolicyDigest,
+    'NETWORK_KEY_REGISTRY_SCOPE_MISMATCH');
   check(c.previousPolicyDigest===digest(policy)&&priorFloors?.[c.authorityId]===c.expectedStatusSequence,
     'NETWORK_KEY_POLICY_OR_SEQUENCE_STALE');
   const at=timestamp(c.issuedAt);
   const status=validateStatusSnapshot(c.authorityId,{policy,statuses:{[c.authorityId]:signedStatus},
     statusFloor:{[c.authorityId]:c.expectedStatusSequence+1}},at);
-  check(status.id===originalNetworkKeyStatusId(t)&&status.sequence===c.expectedStatusSequence+1&&
+  check(status.id==='status:network-key:'+digest(t)&&status.sequence===c.expectedStatusSequence+1&&
     status.issuedAt===c.issuedAt&&authority.statusKeys.includes(signedStatus.keyId),
     'NETWORK_KEY_ISSUER_STATEMENT_INVALID');
   const previous=bindings.get(b.bindingRef);

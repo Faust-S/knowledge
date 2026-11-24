@@ -4,7 +4,7 @@
 // independently trusted policy. No private key, passphrase or issuer is saved.
 // Access decisions continue to use the canonical IWXA T3 evaluate() algorithm.
 import {
-  canonical,digest,snapshot,copy,validatePolicy,validateGrant,verifyRecord,
+  canonical,digest,snapshot,copy,fields,validatePolicy,validateGrant,verifyRecord,
   validateStatusSnapshot,assertStatusTransitionHistory,iso,signRecord,evaluate,timestamp
 } from "./core.mjs";
 import {deriveOriginalNetworkKeyTransition,validateOriginalNetworkKeyTransition,
@@ -200,7 +200,7 @@ export function createOriginalKernelRegistryStatePort({
   let pinned;
   try{pinned=snapshot(trustedPolicy);validatePolicy(pinned);}
   catch{no("T3_ACCESS_REGISTRY_TRUST_ANCHOR_REQUIRED");}
-  const trustedHash=digest(pinned);
+  const trustedHash=digest(pinned),registryIdentity=Object.freeze({workspaceId,objectId,rootPolicyDigest:trustedHash});
   // Installed original Admin D3 exposes the original atomic T2 graph,
   // while prior original Host contracts expose putObject. Both preserve
   // the same signed registry Object/Event and readback. No second Store.
@@ -266,7 +266,7 @@ export function createOriginalKernelRegistryStatePort({
           "T3_ACCESS_NETWORK_KEY_HISTORY_INVALID");
         let derived;
         try{derived=deriveOriginalNetworkKeyTransition({transition:network.transition,signedStatus:network.signed_status,
-          policy:observedPolicy,bindings:networkBindings,priorFloors});}
+          policy:observedPolicy,bindings:networkBindings,priorFloors,registryIdentity});}
         catch(error){no(error?.code??"T3_ACCESS_NETWORK_KEY_HISTORY_INVALID");}
         const c=derived.transition.claims;
         check(!networkTransitions.has(c.transitionRef)&&event.payload.policy_digest===digest(derived.policy),
@@ -490,24 +490,26 @@ export function createOriginalKernelRegistryStatePort({
   // and Event CAS. It accepts an existing authority's signed STATUS and
   // current administrator proof; it does not issue either of them.
   const applyNetworkKeyTransition=async(input={})=>{
-    const args=copy(input),transition=validateOriginalNetworkKeyTransition(args.transition),
-      c=transition.claims,signedStatus=args.signedStatus;
+    const args=copy(input);
+    fields(args,['transition','signedStatus','managerRequest','managerChallenge','managerProof'],['confirmations']);
+    const transition=validateOriginalNetworkKeyTransition(args.transition),c=transition.claims,signedStatus=args.signedStatus;
     const committedResult=(latest,outcome)=>{
       const entry=latest.networkTransitions.get(c.transitionRef);
       if(!entry)return null;
       check(same(entry.transition,transition)&&same(entry.signedStatus,signedStatus),
         "T3_ACCESS_NETWORK_KEY_TRANSITION_REF_CONFLICT");
-      const current=latest.networkBindings.get(c.binding.bindingRef);
+      const current=latest.networkBindings.get(c.binding.bindingRef),key=latest.state.policy.keys[entry.binding.keyId],now=validClock(clock);
       return Object.freeze({state:outcome,transitionRef:c.transitionRef,bindingRef:c.binding.bindingRef,
         committedKeyId:entry.binding.keyId,kernelRevision:entry.revision,originalKernelEventId:entry.eventId,
-        currentBinding:copy(current),keyCurrentlyActive:current.active&&current.keyId===entry.binding.keyId,
+        currentBinding:copy(current),keyCurrentlyActive:current.active&&current.keyId===entry.binding.keyId&&
+          key?.status==='ACTIVE'&&timestamp(key.notBefore)<=now&&now<timestamp(key.expiresAt),
         originalReadback:true,safeToRetry:false,createsGrant:false});
     };
     const before=await read(),already=committedResult(before,"ORIGINAL_NETWORK_KEY_ALREADY_COMMITTED");
     if(already)return already;
     const now=validClock(clock),state=before.state,authority=state.policy.authorities[c.authorityId];
     const derived=deriveOriginalNetworkKeyTransition({transition,signedStatus,policy:state.policy,
-      bindings:before.networkBindings,priorFloors:state.statusFloor});
+      bindings:before.networkBindings,priorFloors:state.statusFloor,registryIdentity});
     check(timestamp(c.issuedAt)<=now&&now-timestamp(c.issuedAt)<state.policy.proofMaxAgeSeconds*1000,
       "T3_ACCESS_NETWORK_KEY_TRANSITION_EXPIRED");
     const request=args.managerRequest;
@@ -550,6 +552,7 @@ export function createOriginalKernelRegistryStatePort({
   };
   const readNetworkKeyEvidence=async(query={})=>{
     const q=copy(query),required=["keyId","nodeRef","recipientNodeRef","workspaceId","originalWriteOwnerRef","scopeRef"];
+    fields(q,[...required,'ownerEpoch']);
     check(required.every(k=>ID.test(q[k]??""))&&Number.isSafeInteger(q.ownerEpoch)&&q.ownerEpoch>=1,
       "T3_ACCESS_NETWORK_KEY_QUERY_INVALID");
     const latest=await read(),matching=[...latest.networkBindings.values()].filter(b=>b.active&&
