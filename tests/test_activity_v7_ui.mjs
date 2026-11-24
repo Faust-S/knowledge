@@ -136,3 +136,13 @@ test('A4.3 private technology draft preserves source variant selection in the ex
  assert.match(panel,/Технологический кандидат/);
  assert.doesNotMatch(panel,/localStorage|sessionStorage|fetch\(|putObject\(|download=/);
 });
+
+test('A4.3 user proposal stays tied to selected source model and preserves the original conditions',()=>{
+ const panel=load('../desktop/src/TechnologyDraftPanel.tsx'),editor=load('../desktop/src/TechnologyProposalEditor.tsx');
+ assert.match(panel,/forms\[profile.model_number\]/);
+ assert.match(editor,/prepareD05TechnologyProposal\(review,groupId,profile.model_number,form\)/);
+ assert.match(editor,/Предложение технологии/);
+ assert.match(editor,/Незаполненных полей/);
+ assert.match(editor,/setPreview\(null\)/);
+ assert.doesNotMatch(editor,/localStorage|sessionStorage|fetch\(|putObject\(|download=/);
+});

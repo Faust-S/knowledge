@@ -766,7 +766,7 @@ try {
       opened=await openActivityFromOriginalT2Host({
         session,control,currentWorkspace,bindings:createCehovodD05T3Bindings(),
         readActivityFromWorkspaceContext,createSubjectKernelBinding,
-        subscribeExistingInvalidation,enableD05RouteReview:true,includeD05QualityPlans:true,
+        subscribeExistingInvalidation,enableD05RouteReview:true,includeD05QualityPlans:true,includeD05TechnologyDraft:true,
       });
       const {port,d05RouteHost:routes}=opened;
       if(!routes||owners.size!==1||
@@ -786,9 +786,18 @@ try {
         JSON.stringify(comparedQuality.differing_fields)!=='["CRITERIA"]'||
         !comparedQuality.models.every(m=>m.status==='DECLARED_CHECKS_READ'&&m.check_count===1&&m.blocking_count===1))
         throw Error('A41_ORIGINAL_T2_SIGNED_QUALITY_COMPARISON_INVALID');
-      for(const forbidden of ['example-route-','example-plan-','example-check-','99.5','100.5','PRIVATE_ROUTE_MODEL','MODEL_ONLY',args.workspace])
+      const {technology_draft:technologyDraft,...ordinaryReview}=routeReview;
+      const variants=technologyDraft?.groups.find(g=>g.profiles.length===2)?.profiles;
+      if(technologyDraft?.status!=='LOCAL_TECHNOLOGY_DRAFT'||technologyDraft.external_transfer!==false||
+        variants?.length!==2||variants[0].checks[0].fields.find(f=>f.field==='lower_limit').value!=='99.8'||
+        variants[1].checks[0].fields.find(f=>f.field==='lower_limit').value!=='99.5'||
+        variants[0].source_revision!==1||variants[1].source_revision!==1)
+        throw Error('A43_ORIGINAL_T2_DRAFT_VARIANT_INVALID');
+      for(const forbidden of ['example-route-','example-plan-','example-check-','PRIVATE_ROUTE_MODEL','MODEL_ONLY',args.workspace])
         if(JSON.stringify(routeReview).includes(forbidden))
           throw Error('A41_ORIGINAL_T2_ROUTE_SOURCE_LEAK');
+      if(JSON.stringify(ordinaryReview).includes('99.5')||JSON.stringify(ordinaryReview).includes('100.5'))
+        throw Error('A43_ORDINARY_COMPARISON_EXPOSED_DRAFT_VALUES');
       const afterRoutes=await session.t1.listObjects({workspace_id:args.workspace,include_deleted:true});
       const afterHistory=await session.t1.listEventsSince(args.workspace);
       const canon=rows=>JSON.stringify([...rows].sort((a,b)=>
@@ -828,7 +837,8 @@ try {
         export_allowed:review.export_allowed,
         evidence_passport_actions:passport.actionCount,
         route_models:routeReview.model_count,route_groups:routeReview.group_count,
-        repeated_route_groups:routeReview.repeated_group_count,quality_comparison:comparedQuality.comparison};
+        repeated_route_groups:routeReview.repeated_group_count,quality_comparison:comparedQuality.comparison,
+        technology_variants:variants.length,technology_draft:technologyDraft.status};
     }finally{
       ui?.dispose();opened?.dispose();stop();
       if(owners.size)throw Error('D05_WITNESS_CONTROL_LISTENER_LEAK');
@@ -842,6 +852,10 @@ try {
   assert.equal(d05Cold.route_groups,2);
   assert.equal(d05Cold.repeated_route_groups,1);
   assert.equal(d05Cold.quality_comparison,'DECLARED_FIELDS_DIFFER');
+  assert.equal(d05Cold.technology_draft,'LOCAL_TECHNOLOGY_DRAFT');
+  assert.equal(d05Cold.technology_variants,2);
+  console.log('ACTIVITY_A43_ORIGINAL_T2_SIGNED_TECHNOLOGY_DRAFT_COLD_PASS',
+    JSON.stringify({variants:2,declaredQuality:true,sourceUnchanged:true,externalTransfer:false}));
   console.log('ACTIVITY_A41_ORIGINAL_T2_SIGNED_QUALITY_COLD_READ_PASS',JSON.stringify({plans:3,templates:3,comparison:d05Cold.quality_comparison,sourceUnchanged:true,externalTransfer:false}));
   console.log('ACTIVITY_A41_ORIGINAL_T2_SIGNED_ROUTE_COLD_READ_PASS',
     JSON.stringify({models:3,groups:2,repeated:1,sourceUnchanged:true,externalTransfer:false,

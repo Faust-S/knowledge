@@ -146,10 +146,32 @@ public static class IwxaActivityWin32 {
     if (!(Find-Accessible $window.Root 'Исходный вариант 1' 10)) {
         throw 'INSTALLED_ACTIVITY_A43_PROFILE_MISSING'
     }
-    if (!(Find-Accessible $window.Root 'Контроль ширины детали' 10)) {
+    if (!(Find-Accessible $window.Root 'Контрольная точка 1: Контроль ширины детали' 10)) {
         throw 'INSTALLED_ACTIVITY_A43_QUALITY_CHECK_MISSING'
     }
-    Write-Host 'IWXA_ACTIVITY_A43_NATIVE_TECHNOLOGY_DRAFT_PASS'
+    if (!(Find-Accessible $window.Root 'Нижняя граница: 99.8' 10)) {
+        throw 'INSTALLED_ACTIVITY_A43_FIRST_TOLERANCE_MISSING'
+    }
+    $variant2 = Find-Accessible $window.Root 'Исходный вариант 2' 10
+    if (!$variant2) { throw 'INSTALLED_ACTIVITY_A43_SECOND_VARIANT_MISSING' }
+    $variant2.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (!(Find-Accessible $window.Root 'Нижняя граница: 99.5' 10)) {
+        throw 'INSTALLED_ACTIVITY_A43_SECOND_TOLERANCE_MISSING'
+    }
+    if (Find-Accessible $window.Root 'Нижняя граница: 99.8' 2) {
+        throw 'INSTALLED_ACTIVITY_A43_STALE_VARIANT_VALUE'
+    }
+    Write-Host 'IWXA_ACTIVITY_A43_NATIVE_TECHNOLOGY_DRAFT_PASS variants=2'
+    $refine = Find-Accessible $window.Root 'Уточнить технологию' 10
+    if (!$refine) { throw 'INSTALLED_ACTIVITY_A43_REFINEMENT_MISSING' }
+    $refine.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $prepare = Find-Accessible $window.Root 'Подготовить локальное предложение' 10
+    if (!$prepare) { throw 'INSTALLED_ACTIVITY_A43_PROPOSAL_ACTION_MISSING' }
+    $prepare.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (!(Find-Accessible $window.Root 'Нужны дополнительные сведения' 10)) {
+        throw 'INSTALLED_ACTIVITY_A43_PROPOSAL_GAPS_MISSING'
+    }
+    Write-Host 'IWXA_ACTIVITY_A43_NATIVE_PROPOSAL_GAPS_PASS'
     $clearRoutes = Find-Accessible $window.Root 'Очистить выборку' 10
     if (!$clearRoutes) { throw 'INSTALLED_ACTIVITY_A41_CLEAR_MISSING' }
     $clearRoutes.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()

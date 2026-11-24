@@ -52,3 +52,15 @@ test('same CLI accepts original local quality Result details, with no different 
  assert.equal(r.value.quality_review.groups[0].comparison,'DECLARED_FIELDS_DIFFER');
  assert.equal(r.value.export_allowed,false);
 });
+
+test('technology draft is explicit and returns the very same local candidate as desktop',()=>{
+ const input=buildD05RouteQualityComparisonExample();
+ const ordinary=call(JSON.stringify(input)),draft=call(JSON.stringify(input),['--technology-draft']);
+ assert.equal(ordinary.value.technology_draft,undefined);
+ assert.equal(draft.code,0);
+ assert.deepEqual(draft.value,reviewD05ResultSelection(input,{includeTechnologyDraft:true}));
+ assert.equal(draft.value.technology_draft.external_transfer,false);
+ const invalid=call(JSON.stringify(input),['--technology-draft','PRIVATE_EXTRA']);
+ assert.equal(invalid.code,2);assert.equal(invalid.value.code,'D05_ROUTE_CLI_ARGUMENTS_NOT_SUPPORTED');
+ assert.doesNotMatch(JSON.stringify(invalid.value),/PRIVATE_EXTRA/);
+});

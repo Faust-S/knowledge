@@ -306,3 +306,19 @@ test('A4.1-IV detects changed quality relation during enumeration without changi
  await assert.rejects(reviewSelectedD05RouteModels(config),{code:'D05_ROUTE_HOST_SOURCE_CHANGED'});
  assert.equal(h.writes(),0);
 });
+
+test('A4.3 original signed D05 read enables owner-local technology values only by explicit Host selection',async()=>{
+ const {config,h}=qualityFixture();
+ const ordinary=await reviewSelectedD05RouteModels(config);
+ assert.equal(ordinary.technology_draft,undefined);
+ const result=await reviewSelectedD05RouteModels({...config,includeTechnologyDraft:true});
+ const {technology_draft,...rest}=result;assert.deepEqual(rest,ordinary);
+ assert.equal(result.source_authority,'ORIGINAL_SIGNED_SELECTED_READBACK');
+ const variants=technology_draft.groups[0].profiles;
+ assert.equal(variants.length,2);
+ assert.equal(variants[0].checks[0].fields.find(f=>f.field==='lower_limit').value,'99.8');
+ assert.equal(variants[1].checks[0].fields.find(f=>f.field==='lower_limit').value,'99.5');
+ assert.equal(technology_draft.external_transfer,false);assert.equal(h.writes(),0);
+ await assert.rejects(reviewSelectedD05RouteModels({...config,includeQualityPlans:false,includeTechnologyDraft:true}),
+  {code:'D05_ROUTE_HOST_REQUIRED'});
+});
