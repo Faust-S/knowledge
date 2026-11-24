@@ -21,9 +21,9 @@ jobs:
           test -n "${DOMEN:-}" || { echo "D05_MULTI_READ=FAIL"; exit 1; }
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
           git init --quiet site
-          GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git e7fa5aaac5bc4648490feac71196506ec6e17e0d >/dev/null 2>&1 || { echo "D05_MULTI_READ=FAIL"; exit 1; }
+          GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git fa49666491d5c49e23770c16f34cb55407e7592f >/dev/null 2>&1 || { echo "D05_MULTI_READ=FAIL"; exit 1; }
           git -C site checkout --quiet --detach FETCH_HEAD
-          test "$(git -C site rev-parse HEAD)" = "e7fa5aaac5bc4648490feac71196506ec6e17e0d" || { echo "D05_MULTI_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "fa49666491d5c49e23770c16f34cb55407e7592f" || { echo "D05_MULTI_SITE_PIN=FAIL"; exit 1; }
           unset header DOMEN
           echo "D05_MULTI_SITE_PIN=PASS"
       - uses: actions/setup-node@v4
