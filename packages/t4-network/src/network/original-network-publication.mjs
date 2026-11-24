@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
-import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,T4_RELATION_EVENT_EXTENSION}
+import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,
+  isT4NativeEventOnlyKind,validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions}
   from './standard-network-wire-candidate.mjs';
 import {assembleT4CandidateOpaqueChunks}
   from './standard-network-opaque-chunks.mjs';
@@ -44,9 +45,7 @@ function canonicalSession(input){
   if(![workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
     scopeRef,sourceEventId].every(ID)||sourceNodeRef===recipientNodeRef||
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
-    !['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(changeKind)||
-    (changeKind==='RELATION_PUT'?sourceRevision!==null:
-      (!Number.isSafeInteger(sourceRevision)||sourceRevision<1))||
+    !validT4NativeSubjectRevision(changeKind,sourceRevision)||
     ![sourceEventDigest,sourcePrefixDigestBefore,sourcePrefixDigestAfter,
       capturedWindowDigest].every(DIG)||!SHA(capturedSha256))
     fail('PUBLICATION_ORIGINAL_CAPTURE_IDENTITY_INVALID');
@@ -75,7 +74,7 @@ export function deriveT4OriginalNativeCaptureSession(task){
     c.workspaceId!==task.workspaceId||
     c.originalWriteOwnerRef!==task.originalWriteOwnerRef||
     c.sourceEventId!==d?.sourceEventId||
-    c.sourceRevision!==((c.kind??'OBJECT_PUT')==='RELATION_PUT'?null:d?.sourceRevision)||
+    c.sourceRevision!==(isT4NativeEventOnlyKind(c.kind??'OBJECT_PUT')?null:d?.sourceRevision)||
     !w||w.lastEventId!==c.sourceEventId||
     d.sourceEventDigest!==w.eventRefs?.[0]?.eventDigest||
     d.windowDigest!==w.windowDigest||
@@ -181,8 +180,8 @@ export function createT4OriginalNetworkPublicationPort({
       fail('PUBLICATION_FRAME_SESSION_MISMATCH');
     const b=frame.body;
     if((['CHANGE_REF','APPLIED_ACK'].includes(frame.messageType)&&
-        frame.criticalExtensions.includes(T4_RELATION_EVENT_EXTENSION)!==
-          (identity.changeKind==='RELATION_PUT'))||
+        !matchesT4NativeSubjectCriticalExtensions(identity.changeKind,
+          frame.criticalExtensions))||
       (frame.messageType==='APPLIED_ACK'&&b.recipientRevision!==identity.sourceRevision)||
       (b.changeId!==undefined&&b.changeId!==identity.changeId)||
       (b.familyRef!==undefined&&b.familyRef!==identity.familyRef)||

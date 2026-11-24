@@ -1,4 +1,6 @@
 import {createHash} from 'node:crypto';
+import {isT4NativeSubjectKind,validT4NativeSubjectRevision}
+  from './standard-network-wire-candidate.mjs';
 
 /**
  * T4 P2.2-B: durable per-node network session phases in the ORIGINAL T3
@@ -40,8 +42,7 @@ function proofEvidence(phase,e,changeKind){
     !ID(e.evidenceRef)||!HASH(e.evidenceDigest))
     fail('PHASE_EVIDENCE_INVALID');
   if(appliedPhase(phase)&&(!ID(e.originalRecipientEventId)||
-    (changeKind==='RELATION_PUT'?e.originalRecipientRevision!==null:
-      (!Number.isSafeInteger(e.originalRecipientRevision)||e.originalRecipientRevision<1))||
+    !validT4NativeSubjectRevision(changeKind,e.originalRecipientRevision)||
     !HASH(e.originalRecipientStateDigest)))
     fail('PHASE_ORIGINAL_RECIPIENT_EVENT_REQUIRED');
   return clone(e);
@@ -56,7 +57,7 @@ export function createT4OriginalNetworkSessionPhasePort({
 }={}){
   if(![technicalWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
     recipientNodeRef,localNodeRef,scopeRef,sessionRef,changeId]
-    .every(ID)||!['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(changeKind)||
+    .every(ID)||!isT4NativeSubjectKind(changeKind)||
     sourceNodeRef===recipientNodeRef||
     ![sourceNodeRef,recipientNodeRef].includes(localNodeRef)||
     typeof recipientApplyIntentRequired!=='boolean'||

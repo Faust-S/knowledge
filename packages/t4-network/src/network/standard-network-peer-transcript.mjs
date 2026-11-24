@@ -1,5 +1,6 @@
 import {assembleT4CandidateOpaqueChunks} from './standard-network-opaque-chunks.mjs';
-import {T4_CANDIDATE_VERSION} from './standard-network-wire-candidate.mjs';
+import {T4_CANDIDATE_VERSION,isT4NativeSubjectKind,validT4NativeSubjectRevision,
+  matchesT4NativeSubjectCriticalExtensions} from './standard-network-wire-candidate.mjs';
 
 /**
  * P2.2 candidate: bounded, READ-ONLY validation of a fully received signed
@@ -98,7 +99,10 @@ export function validateT4CandidatePeerTranscript({
     !diff.fromHeads.every(HASH)||
     change.changeId!==expectedChangeId||
     change.ownerRef!==originalWriteOwnerRef||
-    !['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(change.changeKind)||
+    !isT4NativeSubjectKind(change.changeKind)||
+    !validT4NativeSubjectRevision(change.changeKind,change.sourceRevision)||
+    !matchesT4NativeSubjectCriticalExtensions(change.changeKind,
+      receipts[6].verifiedCriticalExtensions)||
     !HASH(change.contentDigest)||
     !Array.isArray(change.parents)||
     !change.parents.every(HASH))

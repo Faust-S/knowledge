@@ -1,4 +1,5 @@
-import {T4_RELATION_EVENT_EXTENSION} from './standard-network-wire-candidate.mjs';
+import {validT4NativeSubjectRevision,validT4NativeOriginalEventRevision,
+  matchesT4NativeSubjectCriticalExtensions} from './standard-network-wire-candidate.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest}
   from './original-event-window.mjs';
 
@@ -24,9 +25,7 @@ const stable=x=>JSON.stringify(x);
 const kindOf=p=>p.changeKind??'OBJECT_PUT';
 const subjectRevision=p=>Object.hasOwn(p,'originalSourceRevision')?
   p.originalSourceRevision:p.originalEventRevision;
-const validRevision=(r,kind)=>kind==='RELATION_PUT'?r===null:
-  Number.isSafeInteger(r)&&r>=1;
-const relationExtension=r=>r?.verifiedCriticalExtensions?.includes(T4_RELATION_EVENT_EXTENSION)===true;
+const validRevision=(r,kind)=>validT4NativeSubjectRevision(kind,r);
 function checkPhase(status,proof,pendingEvidence=null){
   const pending=pendingEvidence!==null&&status?.currentPhase==='PUBLISHED';
   if(status?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||
@@ -88,7 +87,7 @@ function checkAck(ack,status,evidence){
     !DIG(body?.contentDigest)||!ID(body?.ackRef)||
     body.recipientEventRef!==evidence.originalRecipientEventId||
     body.recipientRevision!==evidence.originalRecipientRevision||
-    relationExtension(ack)!==(kindOf(status)==='RELATION_PUT')||
+    !matchesT4NativeSubjectCriticalExtensions(kindOf(status),ack.verifiedCriticalExtensions)||
     body.recipientStateDigest!==evidence.originalRecipientStateDigest)
     fail('CURSOR_SIGNED_APPLIED_ACK_NOT_BOUND_TO_ORIGINAL_RESULT');
 }
@@ -114,7 +113,7 @@ function checkChange(change,status,proof,ack){
     body?.changeId!==status.changeId||
     body?.eventRef!==proof.originalSourceEventId||
     (body?.changeKind??'OBJECT_PUT')!==kindOf(proof)||
-    relationExtension(change)!==(kindOf(proof)==='RELATION_PUT')||
+    !matchesT4NativeSubjectCriticalExtensions(kindOf(proof),change.verifiedCriticalExtensions)||
     body?.sourceRevision!==subjectRevision(proof)||
     body?.ownerRef!==proof.originalWriteOwnerRef||
     (proof.sourceChangeFrameKey!==undefined&&change.key!==proof.sourceChangeFrameKey)||
@@ -148,11 +147,8 @@ async function inspectOriginalSourceAcknowledgement({
     !DIG(proof.sourcePrefixDigestBefore)||
     !DIG(proof.sourcePrefixDigestAfter)||
     !DIG(proof.sourceEventWindowDigest)||
-    !['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(kindOf(proof))||
-    !validRevision(subjectRevision(proof),kindOf(proof))||
-    (kindOf(proof)==='ASSET_PUT'?
-      (proof.originalEventRevision!==null&&proof.originalEventRevision!==subjectRevision(proof)):
-      proof.originalEventRevision!==subjectRevision(proof)))
+    !validT4NativeOriginalEventRevision(kindOf(proof),subjectRevision(proof),
+      proof.originalEventRevision))
     fail('CURSOR_SOURCE_HEAD_PROOF_REQUIRED');
   if(getMode()!=='T4_NETWORK')fail('CURSOR_NETWORK_MODE_OFF');
   const pendingEvidence=allowPublished?Object.freeze({

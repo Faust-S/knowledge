@@ -5,6 +5,7 @@ import {
   createT4CandidateUnsignedFrame,signT4CandidateFrame,
   decodeT4CandidateFrame,negotiateT4CandidateCapabilities,
   verifyT4CandidateWireFrame,T4_CANDIDATE_VERSION,T4_RELATION_EVENT_EXTENSION,
+  T4_SUBJECT_DELETE_EXTENSION,validT4NativeOriginalEventRevision,
 } from '../src/network/standard-network-wire-candidate.mjs';
 
 const {privateKey,publicKey}=generateKeyPairSync('ed25519');
@@ -305,4 +306,40 @@ test('Relation APPLIED_ACK cannot encode synthetic numeric revision or omit exte
   assert.throws(()=>create({messageType:'HEADS',body:{familyRef:'family:one',
     ownerEpoch:2,heads:[E]},criticalExtensions:[T4_RELATION_EVENT_EXTENSION]}),
     code('WIRE_RELATION_EVENT_EXTENSION_INVALID'));
+});
+
+for(const kind of ['ASSET_DELETE','RELATION_DELETE']){
+  test(kind+' uses a mandatory critical deletion extension and null revision',async()=>{
+    const body={...base.body,changeKind:kind,sourceRevision:null};
+    assert.throws(()=>create({body}),code('WIRE_CHANGE_REF_INVALID'));
+    assert.throws(()=>create({body,criticalExtensions:[T4_RELATION_EVENT_EXTENSION]}),
+      code('WIRE_CHANGE_REF_INVALID'));
+    assert.throws(()=>create({body:{...body,sourceRevision:2},
+      criticalExtensions:[T4_SUBJECT_DELETE_EXTENSION]}),code('WIRE_CHANGE_REF_INVALID'));
+    const bytes=await wire({body,criticalExtensions:[T4_SUBJECT_DELETE_EXTENSION]});
+    assert.equal(decodeT4CandidateFrame(bytes).body.sourceRevision,null);
+    const t=trustedPorts();
+    await assert.rejects(verifyT4CandidateWireFrame({wireBytes:bytes,...t.ports}),
+      code('WIRE_UNSUPPORTED_CRITICAL_EXTENSION'));
+    assert.equal(t.observations.replayWrites,0);
+    assert.equal((await verifyT4CandidateWireFrame({wireBytes:bytes,...t.ports,
+      supportedCriticalExtensions:[T4_SUBJECT_DELETE_EXTENSION]})).originalBusinessApplied,false);
+    assert.equal(validT4NativeOriginalEventRevision(kind,null,2),true);
+    assert.equal(validT4NativeOriginalEventRevision(kind,2,2),false);
+  });
+}
+test('deletion ACK is Event evidence, not a numeric or RelationPut revision',()=>{
+  const body={changeId:'change:one',contentDigest:D,ackRef:'ack:delete',
+    recipientEventRef:'original:event:delete',recipientRevision:null,recipientStateDigest:E};
+  assert.throws(()=>create({messageType:'APPLIED_ACK',body}),
+    code('WIRE_APPLIED_ACK_EVIDENCE_INVALID'));
+  assert.throws(()=>create({messageType:'APPLIED_ACK',body:{...body,recipientRevision:2},
+    criticalExtensions:[T4_SUBJECT_DELETE_EXTENSION]}),code('WIRE_APPLIED_ACK_EVIDENCE_INVALID'));
+  assert.throws(()=>create({messageType:'APPLIED_ACK',body,
+    criticalExtensions:[T4_SUBJECT_DELETE_EXTENSION,T4_RELATION_EVENT_EXTENSION]}),
+    code('WIRE_SUBJECT_DELETE_EXTENSION_INVALID'));
+  assert.equal(create({messageType:'APPLIED_ACK',body,
+    criticalExtensions:[T4_SUBJECT_DELETE_EXTENSION]}).body.recipientRevision,null);
+  assert.throws(()=>create({criticalExtensions:[T4_SUBJECT_DELETE_EXTENSION]}),
+    code('WIRE_CHANGE_REF_INVALID'));
 });

@@ -15,10 +15,35 @@ const MESSAGE_TYPES=new Set([
   'CHUNK_REQUEST','CHUNK',
   'RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK','RESUME'
 ]);
-const SUBJECT_KINDS=new Set(['OBJECT_PUT','ASSET_PUT','RELATION_PUT']);
+const SUBJECT_KINDS=new Set(['OBJECT_PUT','ASSET_PUT','RELATION_PUT',
+  'ASSET_DELETE','RELATION_DELETE']);
 // Relation has no numeric revision in original T3. This explicit critical
 // extension is mandatory on its CHANGE_REF and APPLIED_ACK.
 export const T4_RELATION_EVENT_EXTENSION='iwxa.relation-event.v1';
+// Deletion is Event-based: no surviving subject revision is invented.
+// Asset's pre-delete revision is carried in the authenticated plaintext.
+export const T4_SUBJECT_DELETE_EXTENSION='iwxa.subject-delete.v1';
+export const isT4NativeSubjectKind=kind=>SUBJECT_KINDS.has(kind);
+export const isT4NativeDeleteKind=kind=>kind==='ASSET_DELETE'||kind==='RELATION_DELETE';
+export const isT4NativeEventOnlyKind=kind=>kind==='RELATION_PUT'||isT4NativeDeleteKind(kind);
+export const validT4NativeSubjectRevision=(kind,revision)=>isT4NativeSubjectKind(kind)&&
+  (isT4NativeEventOnlyKind(kind)?revision===null:
+    Number.isSafeInteger(revision)&&revision>=1);
+export const validT4NativeOriginalEventRevision=(kind,revision,eventRevision)=>
+  validT4NativeSubjectRevision(kind,revision)&&
+  (isT4NativeDeleteKind(kind)?
+    (eventRevision===null||(Number.isSafeInteger(eventRevision)&&eventRevision>=0)):
+    kind==='ASSET_PUT'?(eventRevision===null||eventRevision===revision):
+      eventRevision===revision);
+export const t4NativeSubjectCriticalExtensions=kind=>Object.freeze(
+  kind==='RELATION_PUT'?[T4_RELATION_EVENT_EXTENSION]:
+    isT4NativeDeleteKind(kind)?[T4_SUBJECT_DELETE_EXTENSION]:[]);
+export function matchesT4NativeSubjectCriticalExtensions(kind,extensions=[]){
+  if(!isT4NativeSubjectKind(kind)||!Array.isArray(extensions))return false;
+  const expected=t4NativeSubjectCriticalExtensions(kind);
+  return [T4_RELATION_EVENT_EXTENSION,T4_SUBJECT_DELETE_EXTENSION]
+    .every(ext=>extensions.includes(ext)===expected.includes(ext));
+}
 const ID=x=>typeof x==='string'&&
   /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const DIGEST=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
@@ -94,8 +119,12 @@ const hashList=value=>Array.isArray(value)&&value.length<=64&&
 function validateBody(type,body,extensions=[]){
   const relationEvent=Array.isArray(extensions)&&
     extensions.includes(T4_RELATION_EVENT_EXTENSION);
+  const deletionEvent=Array.isArray(extensions)&&
+    extensions.includes(T4_SUBJECT_DELETE_EXTENSION);
   if(relationEvent&&!['CHANGE_REF','APPLIED_ACK'].includes(type))
     fail('WIRE_RELATION_EVENT_EXTENSION_INVALID');
+  if(deletionEvent&&(!['CHANGE_REF','APPLIED_ACK'].includes(type)||relationEvent))
+    fail('WIRE_SUBJECT_DELETE_EXTENSION_INVALID');
   if(!body||typeof body!=='object'||Array.isArray(body))
     fail('WIRE_BODY_INVALID');
   if(type==='HELLO'||type==='CAPABILITIES'){
@@ -117,9 +146,8 @@ function validateBody(type,body,extensions=[]){
       'sourceRevision','contentDigest','parents']);
     if(!ID(body.changeId)||!SUBJECT_KINDS.has(body.changeKind)||
       !ID(body.eventRef)||!ID(body.ownerRef)||
-      (body.changeKind==='RELATION_PUT'?
-        (body.sourceRevision!==null||!relationEvent):
-        (!Number.isSafeInteger(body.sourceRevision)||body.sourceRevision<1||relationEvent))||
+      !validT4NativeSubjectRevision(body.changeKind,body.sourceRevision)||
+      !matchesT4NativeSubjectCriticalExtensions(body.changeKind,extensions)||
       !DIGEST(body.contentDigest)||
       !hashList(body.parents))
       fail('WIRE_CHANGE_REF_INVALID');
@@ -161,7 +189,7 @@ function validateBody(type,body,extensions=[]){
     if(!ID(body.changeId)||!DIGEST(body.contentDigest)||!ID(body.ackRef))
       fail('WIRE_ACK_INVALID');
     if(type==='APPLIED_ACK'&&(!ID(body.recipientEventRef)||
-      (relationEvent?body.recipientRevision!==null:
+      ((relationEvent||deletionEvent)?body.recipientRevision!==null:
         (!Number.isSafeInteger(body.recipientRevision)||body.recipientRevision<1))||
       !DIGEST(body.recipientStateDigest)))
       fail('WIRE_APPLIED_ACK_EVIDENCE_INVALID');

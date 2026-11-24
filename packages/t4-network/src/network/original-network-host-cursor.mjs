@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {validT4NativeSubjectRevision} from './standard-network-wire-candidate.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
 import {recoverT4OriginalNetworkSourceCursor}
   from './original-network-source-cursor.mjs';
@@ -54,9 +55,8 @@ function correctProof(recovered,identity){
     !ID(recovered.originalSourcePhaseCheckpointRef)||
     !DIG(recovered.originalSourcePhaseChainHash)||
     !ID(recovered.originalRecipientEventId)||
-    !['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(recovered.changeKind??'OBJECT_PUT')||
-    (recovered.changeKind==='RELATION_PUT'?recovered.originalRecipientRevision!==null:
-      (!Number.isSafeInteger(recovered.originalRecipientRevision)||recovered.originalRecipientRevision<1))||
+    !validT4NativeSubjectRevision(recovered.changeKind??'OBJECT_PUT',
+      recovered.originalRecipientRevision)||
     !DIG(recovered.originalRecipientStateDigest)||
     !validCursor(recovered.originalT3NextCursor,
       identity.sourceWorkspaceId,identity.originalWriteOwnerRef)||
@@ -109,9 +109,7 @@ function checkRecord(identity,item,previousHash){
     ![item.sourceEventDigest,item.originalSourcePhaseChainHash,
       item.recipientStateDigest,item.ciphertextDigest,item.signedAppliedAckDigest,
       item.previousHash,item.chainHash].every(DIG)||
-    !['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(item.changeKind??'OBJECT_PUT')||
-    (item.changeKind==='RELATION_PUT'?item.recipientRevision!==null:
-      (!Number.isSafeInteger(item.recipientRevision)||item.recipientRevision<1))||
+    !validT4NativeSubjectRevision(item.changeKind??'OBJECT_PUT',item.recipientRevision)||
     item.previousHash!==previousHash||
     !validCursor(item.sourceCursorBefore,identity.sourceWorkspaceId,
       identity.originalWriteOwnerRef)||
