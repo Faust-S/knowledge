@@ -32,3 +32,24 @@ export interface Ocel2EvidenceView {
 }
 export declare function inspectSyntheticOcel2(envelope: unknown): Promise<Ocel2EvidenceView>;
 export declare function buildSyntheticOcel2Example(): Promise<unknown>;
+
+export interface LocalOcelDiscoveryPreparation {
+  source_sha256: string;
+  projected_sha256: string;
+  ocel2: unknown;
+  object_views: Array<Ocel2ObjectView & {
+    trace_variants: Array<{
+      sequence: Array<{
+        activity_alias: string;
+        own_qualifiers: string[];
+        shared_object_types: Array<{object_type_alias: string; qualifier_alias: string}>;
+      }>;
+      object_trace_count: number;
+    }>;
+  }>;
+  shared_event_count: number;
+  declared_object_link_count: number;
+  risk_screen_status: Ocel2EvidenceView['status'];
+  reason_codes: string[];
+}
+export declare function prepareLocalOcel2Discovery(raw: unknown): Promise<LocalOcelDiscoveryPreparation>;

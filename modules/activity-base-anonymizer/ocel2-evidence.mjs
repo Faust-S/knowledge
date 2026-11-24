@@ -126,12 +126,16 @@ function validateRestrictedJson(raw) {
   return {objects, events, byObject, eventTypes, objectTypes, sharedEventCount, o2oCount};
 }
 
-function reconstruct(validated) {
+function reconstruct(validated, includeVariants = false) {
   const eventNames = [...validated.eventTypes.keys()].sort(cmp);
   const objectNames = [...validated.objectTypes.keys()].sort(cmp);
   const eventAlias = new Map(eventNames.map((name, i) => [name, `activity_${String(i + 1).padStart(3, '0')}`]));
   const objectAlias = new Map(objectNames.map((name, i) => [name, `object_type_${String(i + 1).padStart(3, '0')}`]));
   const views = [];
+  const qualifierNames = includeVariants ? [...new Set([...validated.events.values()].flatMap(event =>
+    event.relationships.map(relation => relation.qualifier)))].sort(cmp) : [];
+  const qualifierAlias = new Map(qualifierNames.map((name, i) =>
+    [name, `qualifier_${String(i + 1).padStart(3, '0')}`]));
   let ties = 0;
   let unobserved = 0;
   let rare = 0;
@@ -145,10 +149,10 @@ function reconstruct(validated) {
     let observed = 0;
     for (const object of relevant) {
       const events = [...validated.byObject.get(object.id)].sort((a, b) =>
-        cmp(a.time, b.time) || cmp(a.id, b.id));
+        Date.parse(a.time) - Date.parse(b.time) || cmp(a.id, b.id));
       if (!events.length) { unobserved += 1; continue; }
       // An arbitrary lexical tie-breaker is never evidence for event order.
-      const hasTimeTie = events.some((event, j) => j > 0 && event.time === events[j - 1].time);
+      const hasTimeTie = events.some((event, j) => j > 0 && Date.parse(event.time) === Date.parse(events[j - 1].time));
       if (hasTimeTie) ties += 1;
       const pattern = JSON.stringify(events.map((event) => [event.type,
         event.relationships.filter((r) => r.objectId === object.id).map((r) => r.qualifier),
@@ -175,6 +179,16 @@ function reconstruct(validated) {
       unobserved_object_count: relevant.length - observed,
       activity_aliases: [...states].sort(cmp),
       observed_successions: transitions,
+      ...(includeVariants ? {trace_variants: [...patterns.entries()].map(([pattern, count]) => ({
+        sequence: JSON.parse(pattern).map(([type, ownQualifiers, shared]) => ({
+          activity_alias: eventAlias.get(type),
+          own_qualifiers: ownQualifiers.map(q => qualifierAlias.get(q)).sort(cmp),
+          shared_object_types: shared.map(([objectType, q]) => ({
+            object_type_alias: objectAlias.get(objectType), qualifier_alias: qualifierAlias.get(q),
+          })).sort((a, b) => cmp(JSON.stringify(a), JSON.stringify(b))),
+        })),
+        object_trace_count: count,
+      })).sort((a, b) => cmp(JSON.stringify(a.sequence), JSON.stringify(b.sequence)))} : {}),
       branching: transitions.some((edge) => transitions.filter((other) => other.from === edge.from).length > 1) ?
         'OBSERVED_VARIANTS_NOT_DECISION_RULES' : 'NO_BRANCH_EVIDENCE'});
   }
@@ -258,4 +272,58 @@ export async function buildSyntheticOcel2Example() {
     source_pin: {source_id: 'SYNTH_PRIVATE_SOURCE', revision: 'revision-01',
       subject_scope: 'SYNTH_SUBJECT_PRIVATE', ocel_sha256: await sha256Canonical(ocel2)},
     ocel2};
+}
+
+/**
+ * A4.2: local, unverified OCEL copy for an independently invoked mining
+ * engine. The existing restricted reader is reused. Do not turn a local
+ * file into signed evidence. The projection preserves object relations
+ * and chronological order/equality, not original labels, dates or durations.
+ */
+export async function prepareLocalOcel2Discovery(raw) {
+  const validated = validateRestrictedJson(raw);
+  const alias = (values, prefix) => new Map([...values].sort(cmp)
+    .map((value, i) => [value, prefix + String(i + 1).padStart(3, '0')]));
+  const types = alias(validated.objectTypes.keys(), 'object_type_');
+  const activities = alias(validated.eventTypes.keys(), 'activity_');
+  const objects = alias(validated.objects.keys(), 'object_');
+  const events = alias(validated.events.keys(), 'event_');
+  const qualifiers = alias(new Set([
+    ...[...validated.objects.values()].flatMap(o => (o.relationships ?? []).map(r => r.qualifier)),
+    ...[...validated.events.values()].flatMap(e => e.relationships.map(r => r.qualifier)),
+  ]), 'qualifier_');
+  const times = [...new Set([...validated.events.values()].map(event => Date.parse(event.time)))]
+    .sort((a, b) => a - b);
+  const ordinalTime = new Map(times.map((time, i) => [time, new Date(i).toISOString()]));
+  const relations = rows => rows.map(r => ({
+    objectId: objects.get(r.objectId), qualifier: qualifiers.get(r.qualifier),
+  })).sort((a, b) => cmp(a.objectId, b.objectId) || cmp(a.qualifier, b.qualifier));
+  const projected = {
+    objectTypes: [...types.values()].map(name => ({name, attributes: []})),
+    eventTypes: [...activities.values()].map(name => ({name, attributes: []})),
+    objects: [...validated.objects.values()].map(o => ({
+      id: objects.get(o.id), type: types.get(o.type), attributes: [],
+      relationships: relations(o.relationships ?? []),
+    })).sort((a, b) => cmp(a.id, b.id)),
+    events: [...validated.events.values()].map(e => ({
+      id: events.get(e.id), type: activities.get(e.type),
+      time: ordinalTime.get(Date.parse(e.time)), attributes: [], relationships: relations(e.relationships),
+    })).sort((a, b) => cmp(a.time, b.time) || cmp(a.id, b.id)),
+  };
+  // Verify the exact input that will be handed to the external engine.
+  const view = reconstruct(validateRestrictedJson(projected), true);
+  need(!view.reason_codes.includes('AMBIGUOUS_SAME_TIME_OBJECT_EVENTS'),
+    'OCEL_DISCOVERY_AMBIGUOUS_TIME');
+  need(!view.reason_codes.includes('UNOBSERVED_OBJECTS'),
+    'OCEL_DISCOVERY_UNOBSERVED_OBJECTS');
+  return {
+    source_sha256: await sha256Canonical(raw),
+    projected_sha256: await sha256Canonical(projected),
+    ocel2: projected,
+    object_views: view.object_views,
+    shared_event_count: view.shared_event_count,
+    declared_object_link_count: view.declared_object_link_count,
+    risk_screen_status: view.status,
+    reason_codes: view.reason_codes,
+  };
 }
