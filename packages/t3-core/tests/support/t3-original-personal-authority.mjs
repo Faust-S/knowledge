@@ -21,6 +21,14 @@ const PERSONAL_ACTIONS=Object.freeze({
   "t1.listObjects":"object.read",
   "t1.listEventsSince":"event.read",
   "t1.putObject":"object.write",
+  "t1.getAsset":"asset.read",
+  "t1.putAsset":"asset.write",
+  "t1.listAssets":"asset.read",
+  "t1.deleteAsset":"asset.delete",
+  "t1.putRelation":"relation.write",
+  "t1.deleteRelation":"relation.delete",
+  "t1.deleteObject":"object.delete",
+  "t1.commitObjectGraph":"object.write",
   // D4: permissions for the ORIGINAL T2 recipient Exchange operations.
   // Only the test issuer grants these; no runtime IAM or new importer.
   "t2.importPreview":"package.import.preview",

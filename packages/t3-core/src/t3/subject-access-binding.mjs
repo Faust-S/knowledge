@@ -231,11 +231,29 @@ export function createSubjectKernelBinding({
     if (typeof kernel[method] !== "function") refused("T3_KERNEL_OPERATION_UNAVAILABLE");
     const action = await access.actionFor(operation);
     requiredId(action,"ACTION");
-    // The original Access canonicalizer intentionally accepts PLAIN DATA,
-    // not Uint8Array. Bind the imported archive's exact bytes to the same
-    // signed operation by SHA-256 + size, keeping the bytes untouched for
-    // the ORIGINAL T2 importPreview parser and Kernel.
+    // The original Access canonicalizer accepts plain data, not Uint8Array.
+    // Bind exact binary inputs by digest and size without changing the bytes
+    // handed to the original T2 Kernel. Asset metadata remains in the signed
+    // command (including workspace, owner object, MIME and base revision).
     let signedInput = command;
+    if (method === "putAsset") {
+      if (!(command?.bytes instanceof Uint8Array))
+        refused("T3_ACCESS_ASSET_BYTES_REQUIRED");
+      if (typeof globalThis.crypto?.subtle?.digest !== "function")
+        refused("T3_ACCESS_ASSET_DIGEST_UNAVAILABLE");
+      let rawDigest;
+      try {
+        rawDigest = new Uint8Array(await globalThis.crypto.subtle.digest(
+          "SHA-256",command.bytes));
+      } catch {
+        refused("T3_ACCESS_ASSET_DIGEST_UNAVAILABLE");
+      }
+      const {bytes,...metadata}=command;
+      signedInput={...metadata,bytes:{
+        byte_length:bytes.byteLength,
+        sha256:[...rawDigest].map(x=>x.toString(16).padStart(2,"0")).join(""),
+      }};
+    }
     if (method === "importPreview") {
       if (typeof globalThis.crypto?.subtle?.digest !== "function") {
         refused("T3_ACCESS_IMPORT_DIGEST_UNAVAILABLE");

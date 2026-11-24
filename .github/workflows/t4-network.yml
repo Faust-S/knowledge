@@ -6,6 +6,9 @@ on:
     paths:
       - packages/t4-network/**
       - packages/t3-core/src/t3/original-kernel-native-relay*
+      - packages/t3-core/src/t3/subject-access-binding.mjs
+      - packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
+      - packages/t3-core/tests/support/t3-original-personal-authority.mjs
       - packages/t3-core/src/main-trusted-kernel-realm.ts
       - packages/t3-core/tests/t3-d1-original-control-http.test.mjs
       - .github/workflows/t4-network.yml
@@ -35,7 +38,7 @@ jobs:
           npm run check
           npm test
       - name: Existing original T3 Control and D3 regression
-        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
+        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
 
   webdav:
     runs-on: ubuntu-latest
@@ -81,7 +84,7 @@ jobs:
           node --check src/network/operator-connection.mjs
           npm test
       - name: Existing original T3 Control and D3 regression
-        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
+        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
 
   original-kernel-webdav:
     runs-on: ubuntu-latest

@@ -4,6 +4,8 @@
 // create a second Host. Native Reconciliation/SubjectBinding decides what to
 // dispatch; this link carries only the already-authorized exact command.
 import {randomBytes} from "node:crypto";
+import {isDeepStrictEqual} from "node:util";
+import {createSubjectKernelBinding} from "./subject-access-binding.mjs";
 import {ORIGINAL_NETWORK_RELAY_METHODS as NETWORK_METHODS,
   encodeOriginalNetworkRelayArgs,decodeOriginalNetworkRelayResult}
   from "./original-kernel-native-relay-codec.mjs";
@@ -40,12 +42,14 @@ export function createOriginalKernelNativeRelay({
       networkOwner.operations.includes(NETWORK_METHODS[name])):[];
   check(networkOwner===null||(Array.isArray(networkOwner.operations)&&
     networkOwner.operations.length>0&&networkNames.length===networkOwner.operations.length&&
-    typeof networkOwner.authorizeOperation==="function"&&
+    ((typeof networkOwner.authorizeOperation==="function"&&networkOwner.resolveOriginalAccess===undefined)||
+      (typeof networkOwner.resolveOriginalAccess==="function"&&networkOwner.authorizeOperation===undefined))&&
     typeof networkOwner.onAttach==="function"&&typeof networkOwner.onDetach==="function"&&
     (networkOwner.onIdleWake===undefined||typeof networkOwner.onIdleWake==="function")),
     "T3_ORIGINAL_NETWORK_RELAY_OWNER_REQUIRED");
   const network=networkOwner===null?null:Object.freeze({
     names:Object.freeze([...networkNames]),authorize:networkOwner.authorizeOperation,
+    resolveAccess:networkOwner.resolveOriginalAccess,
     attach:networkOwner.onAttach,detach:networkOwner.onDetach,wake:networkOwner.onIdleWake,
   });
   let live=null,pending=null,closed=false,nextId=1,attaching=null;
@@ -145,18 +149,58 @@ export function createOriginalKernelNativeRelay({
       const operation=NETWORK_METHODS[method];
       check(await currentEpoch()===state.epoch&&networkActive(state),
         "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
-      check(await network.authorize(Object.freeze({operation,method,args:clone(exact),
+      const proof=Object.freeze({operation,method,args:clone(exact),
         sessionId:state.sessionId,contextEpoch:state.epoch,
-        originalKernelOperation:true,networkGrantsNoWriteAuthority:true}))===true,
+        originalKernelOperation:true,networkGrantsNoWriteAuthority:true});
+      const active=()=>networkActive(state)&&reservation===held;
+      const requireCurrent=async()=>{
+        check(await currentEpoch()===state.epoch&&active(),
+          "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+      };
+      const invoke=async()=>{
+        await requireCurrent();
+        return enqueue(method,encodeOriginalNetworkRelayArgs(method,exact),true);
+      };
+      if(network.resolveAccess){
+        // The existing signed T3 binding, not a second permission evaluator,
+        // owns the exact command and validates the REAL original receipt.
+        // A remote frame cannot select a grant or call the underlying relay.
+        const access=await network.resolveAccess(proof);
+        await requireCurrent();
+        check(access!==null&&access!==undefined,
+          "T3_ORIGINAL_NETWORK_RELAY_AUTHORITY_DENIED");
+        let invoked=false;
+        const normalize=items=>{
+          const list=[...items];
+          while(list.length&&list.at(-1)===undefined)list.pop();
+          return list;
+        };
+        const original=Object.freeze({
+          sessionInfo:state.kernel.sessionInfo,
+          hasOperation:id=>active()&&id===operation&&state.grants.granted_operations.includes(id),
+          [method]:async(...checkedArgs)=>{
+            check(!invoked&&isDeepStrictEqual(normalize(checkedArgs),normalize(exact)),
+              "T3_ORIGINAL_NETWORK_RELAY_AUTHORIZED_COMMAND_MISMATCH");
+            invoked=true;
+            return invoke();
+          },
+        });
+        const signed=createSubjectKernelBinding({kernel:original,access,isHostActive:active});
+        const result=await signed[method](...clone(exact));
+        check(invoked,"T3_ORIGINAL_NETWORK_RELAY_AUTHORIZED_COMMAND_MISSING");
+        await requireCurrent();
+        return result;
+      }
+      // Compatibility for the existing trusted owner callback. The signed
+      // native product route above always uses the actual T3 Access owner.
+      check(await network.authorize(proof)===true,
         "T3_ORIGINAL_NETWORK_RELAY_AUTHORITY_DENIED");
-      check(await currentEpoch()===state.epoch&&networkActive(state)&&reservation===held,
-        "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
-      const encoded=encodeOriginalNetworkRelayArgs(method,exact);
-      return enqueue(method,encoded,true);
+      return await invoke();
     }finally{if(reservation===held)reservation=null;}
   };
   const networkPort=state=>Object.freeze({
     sessionInfo:state.kernel.sessionInfo,
+    authorityMode:network.resolveAccess?"ORIGINAL_T3_SIGNED":"EXTERNAL_ORIGINAL_OWNER",
     // Capability discovery is available while the owner constructs its
     // original task binding; no command may execute before admission.
     hasOperation:id=>!closed&&live===state&&state.networkStarted&&

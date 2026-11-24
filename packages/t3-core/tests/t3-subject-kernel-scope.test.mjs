@@ -104,7 +104,7 @@ test("all scoped T1 object, relation and asset calls use inherited facade unchan
   assert.equal((await f.bound.deleteObject({workspace_id:ws,object_id:"item:1"})).object.workspace_id,ws);
   assert.equal((await f.bound.listAssets({workspace_id:ws}))[0].asset_id,"asset:1");
   assert.deepEqual([...(await f.bound.getAsset(ws,"asset:1")).bytes],[1,2]);
-  assert.equal((await f.bound.putAsset({workspace_id:ws,asset_id:"asset:1"})).asset.workspace_id,ws);
+  assert.equal((await f.bound.putAsset({workspace_id:ws,asset_id:"asset:1",bytes:Uint8Array.from([1,2])})).asset.workspace_id,ws);
   assert.equal((await f.bound.deleteAsset({workspace_id:ws,asset_id:"asset:1"})).asset_id,"asset:1");
   assert.equal((await f.bound.commitObjectGraph({workspace_id:ws,object:{object_id:"item:1"}})).event.workspace_id,ws);
   await f.bound.listEventsSince(ws,"evt:cursor");
