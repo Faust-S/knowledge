@@ -110,22 +110,25 @@ export function createT4OriginalVaultNodeSignaturePort({
     await signed.authorize({operation:'t4.network.node.sign',input:proof});
     current();
     let encrypted,passphrase;
-    try{encrypted=await readEncryptedVault();current();passphrase=await unlockPassphrase(Object.freeze({
+    try{encrypted=structuredClone(await readEncryptedVault());current();passphrase=await unlockPassphrase(Object.freeze({
       keyId:localKeyRef,actorId:signed.subject.actor_id,organizationId:signed.subject.organization_id,
       workspaceId,scopeRef,ownerEpoch,originalKeyBindingRef:entry.binding.bindingRef}));}
     catch{fail('ORIGINAL_VAULT_NETWORK_UNAVAILABLE');}
-    current();
-    const vault=decryptVault(typeof encrypted==='string'?strictJson(encrypted):encrypted,passphrase);
-    passphrase=null;
-    const item=Object.hasOwn(vault.keys,localKeyRef)?vault.keys[localKeyRef]:null;
-    if(!item||item.subjectId!==entry.binding.subjectId||
-      !publicDer(item.publicKeyPem).equals(publicDer(entry.key.publicKey)))
-      fail('ORIGINAL_VAULT_NETWORK_KEY_MISMATCH');
-    // A grant/binding revoked while the vault unlocks cannot sign. Re-read
-    // the original Registry and fresh signed Access, not a remembered permit.
-    exact(entry,await keyEvidence(q,frame.permissionRef));
-    await signed.authorize({operation:'t4.network.node.sign',input:proof});current();
-    const signature=keyObjectSigner(localKeyRef,vaultPrivateKey(vault,localKeyRef)).sign(raw);
+    let signature;
+    try{
+      current();
+      // Do not decrypt private key material across async authorization
+      // boundaries. Re-read original binding/Access immediately first.
+      exact(entry,await keyEvidence(q,frame.permissionRef));
+      await signed.authorize({operation:'t4.network.node.sign',input:proof});current();
+      const vault=decryptVault(typeof encrypted==='string'?strictJson(encrypted):encrypted,passphrase);
+      const item=Object.hasOwn(vault.keys,localKeyRef)?vault.keys[localKeyRef]:null;
+      if(!item||item.subjectId!==entry.binding.subjectId||
+        !publicDer(item.publicKeyPem).equals(publicDer(entry.key.publicKey)))
+        fail('ORIGINAL_VAULT_NETWORK_KEY_MISMATCH');
+      current();
+      signature=keyObjectSigner(localKeyRef,vaultPrivateKey(vault,localKeyRef)).sign(raw);
+    }finally{passphrase=null;encrypted=null;}
     current();
     exact(entry,await keyEvidence(q,frame.permissionRef));
     await signed.authorize({operation:'t4.network.node.sign',input:proof});current();
