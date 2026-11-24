@@ -124,6 +124,24 @@ jobs:
           fi
           grep -E '^T3_QUALITY_PROMPTS_PREPARED [0-9]+ forms [0-9]+$' "$RUNNER_TEMP/heldout-preparation.log"
           echo T3_MOBILE_HELDOUT_PROMPTS_ONLY_NOT_MODEL_QUALITY
+          if ! node t3-prepare-domain-quality.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" "$RUNNER_TEMP/hybrid-prompts.json" --hybrid > "$RUNNER_TEMP/hybrid-preparation.log" 2>&1; then
+            echo T3_HYBRID_PROMPT_PREPARATION_FAIL
+            exit 1
+          fi
+          grep '^T3_HYBRID_PROMPTS_PREPARED ' "$RUNNER_TEMP/hybrid-preparation.log"
+          # Exercise the exact score path with rejected and empty responses,
+          # not a claim about the quality of actual model inference.
+          node --input-type=module - "$RUNNER_TEMP/hybrid-prompts.json" "$RUNNER_TEMP/hybrid-selftest.json" <<'NODE'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          const p=JSON.parse(readFileSync(process.argv[2],'utf8'));
+          const responses=p.cases.map((c,i)=>({id:c.id,raw:i===0?JSON.stringify({fields:{field_999:"not offered"}}):JSON.stringify({fields:{}}),code:null}));
+          writeFileSync(process.argv[3],JSON.stringify({schema:"iwxa.club.assistant-comparison/1",modelId:"synthetic-scorer-selftest",runs:[{mode:"structured",responses}]}),{mode:0o600});
+          NODE
+          if ! node t3-prepare-domain-quality.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" "$RUNNER_TEMP/hybrid-selftest.json" --hybrid --score > "$RUNNER_TEMP/hybrid-score-selftest.log" 2>&1; then
+            echo T3_HYBRID_SCORE_SELFTEST_FAIL
+            exit 1
+          fi
+          grep '^T3_CLUB_HYBRID_QUALITY ' "$RUNNER_TEMP/hybrid-score-selftest.log"
           if ! node t3-explicit-facts-regression.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" > "$RUNNER_TEMP/private-explicit-facts.log" 2>&1; then
             echo T3_CLUB_EXPLICIT_FACTS_REGRESSION_FAIL
             grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-facts.log" || true
@@ -148,7 +166,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -rf "$RUNNER_TEMP/assistant-candidate" "$RUNNER_TEMP/private-mobile-source.log" "$RUNNER_TEMP/private-mobile-dom.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-preparation.log"
+          rm -rf "$RUNNER_TEMP/assistant-candidate" "$RUNNER_TEMP/private-mobile-source.log" "$RUNNER_TEMP/private-mobile-dom.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-preparation.log" "$RUNNER_TEMP/hybrid-prompts.json" "$RUNNER_TEMP/hybrid-preparation.log" "$RUNNER_TEMP/hybrid-selftest.json" "$RUNNER_TEMP/hybrid-score-selftest.log"
           rm -rf private-bli private-club private-club-owner "$RUNNER_TEMP/private-owner-skills.log" "$RUNNER_TEMP/private-explicit-facts.log" "$RUNNER_TEMP/private-explicit-challenge.log" "$RUNNER_TEMP/private-expanded.log"
   shared-host:
     runs-on: ubuntu-latest
@@ -203,12 +221,13 @@ jobs:
     runs-on: macos-latest
     env:
       T3_D5_QUALITY_SOAK: ${{ contains(github.event.head_commit.message, '[mobile-soak]') && '1' || '0' }}
+      T3_D5_QUALITY_HYBRID: ${{ contains(github.event.head_commit.message, '[mobile-hybrid]') && '1' || '0' }}
     timeout-minutes: 85
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
-        model: ${{ fromJSON(contains(github.event.head_commit.message, '[mobile-soak]') && '["Qwen2.5-7B-Instruct-q4f16_1-MLC"]' || '["Qwen2.5-0.5B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","Qwen2.5-7B-Instruct-q4f16_1-MLC"]') }}
+        model: ${{ fromJSON(contains(github.event.head_commit.message, '[mobile-soak]') && '["Qwen2.5-7B-Instruct-q4f16_1-MLC"]' || (contains(github.event.head_commit.message, '[mobile-hybrid]') && '["Qwen2.5-0.5B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC"]' || '["Qwen2.5-0.5B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","Qwen2.5-7B-Instruct-q4f16_1-MLC"]')) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -243,7 +262,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 23b5f8e24a8181fcd98f691a0cacd2303979e91d
+          ref: ba43c6c529efa01fd72d2cf84bf337436cc2b10a
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-quality-club
@@ -252,7 +271,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 7e369cca801b05a193ef940f65cce88d5a6668e8
+          ref: 80638600685631753bdf7b44dfccf735662ff5cd
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-quality-assistant
@@ -266,7 +285,9 @@ jobs:
           cp packages/t3-core/tests/t3-prepare-domain-quality.mjs "$stage/"
           cd "$stage"
           npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund jsdom@29.1.1
-          if ! node t3-prepare-domain-quality.mjs "$GITHUB_WORKSPACE/private-quality-assistant/browser-local-inference/domain-assistant" "$GITHUB_WORKSPACE/private-quality-club" "$RUNNER_TEMP/heldout-prompts.json" > "$RUNNER_TEMP/quality-prep.log" 2>&1; then
+          hybrid=()
+          if test "$T3_D5_QUALITY_HYBRID" = 1; then hybrid=(--hybrid); fi
+          if ! node t3-prepare-domain-quality.mjs "$GITHUB_WORKSPACE/private-quality-assistant/browser-local-inference/domain-assistant" "$GITHUB_WORKSPACE/private-quality-club" "$RUNNER_TEMP/heldout-prompts.json" "${hybrid[@]}" > "$RUNNER_TEMP/quality-prep.log" 2>&1; then
             echo T3_QUALITY_PREPARATION_FAIL
             exit 1
           fi
@@ -308,6 +329,16 @@ jobs:
         shell: bash
         run: |
           set -eu
+          if test "$T3_D5_QUALITY_HYBRID" = 1; then
+            cd "$RUNNER_TEMP/quality-prep"
+            if ! node t3-prepare-domain-quality.mjs "$GITHUB_WORKSPACE/private-quality-assistant/browser-local-inference/domain-assistant" "$GITHUB_WORKSPACE/private-quality-club" "$RUNNER_TEMP/heldout-responses.json" --hybrid --score > "$RUNNER_TEMP/quality-score.log" 2>&1; then
+              grep '^T3_CLUB_HYBRID_QUALITY ' "$RUNNER_TEMP/quality-score.log" || true
+              echo T3_HYBRID_ACTUAL_SCORE_FAIL
+              exit 1
+            fi
+            grep '^T3_CLUB_HYBRID_QUALITY ' "$RUNNER_TEMP/quality-score.log"
+            exit 0
+          fi
           if ! node --input-type=module - "$GITHUB_WORKSPACE/private-quality-club/scripts/score-club-assistant.mjs" "$RUNNER_TEMP/heldout-responses.json" <<'NODE' > "$RUNNER_TEMP/quality-score.log" 2>&1
           import {readFileSync} from 'node:fs';
           import {pathToFileURL} from 'node:url';

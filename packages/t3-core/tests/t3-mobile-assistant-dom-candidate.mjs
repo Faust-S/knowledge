@@ -150,7 +150,14 @@ for(const [i,c] of scenarios.entries()){
       at("explicit-values").click();
       assert(at("preview").children.length===3,"AMOUNTS_AFTER_CURRENCY");at("apply").click();
       assert(currency.value==="USD"&&income.value==="1200"&&expenses.value==="800","EXACT_CURRENCY_AMOUNTS");
+      at("prompt").value="Валюта EUR.";at("explicit-values").click();
+      assert(!at("preview").querySelector("select")&&at("unresolved-fields").textContent.includes("В форме уже есть суммы"),"NONEMPTY_AMOUNTS_BLOCK_CURRENCY_CHANGE");
+      assert(currency.value==="USD"&&income.value==="1200"&&expenses.value==="800","EXISTING_AMOUNTS_UNCHANGED");
       income.value="";expenses.value="";
+      const reserve=form.elements.namedItem("reserve");reserve.value="0";
+      at("prompt").value="Валюта EUR.";at("explicit-values").click();
+      assert(!at("preview").querySelector("select")&&at("unresolved-fields").textContent.includes("В форме уже есть суммы"),"OTHER_BATCH_ZERO_BLOCKS_CURRENCY_CHANGE");
+      reserve.value="";
       at("prompt").value="Валюта USD. Регулярный доход 1800 долларов.";at("explicit-values").click();
       const altered=at("preview").querySelector("select");altered.value="EUR";altered.closest("li").querySelector("input[type=checkbox]").checked=true;
       at("apply").click();assert(currency.value==="EUR"&&income.value==="","CURRENCY_CHANGED_DURING_CONFIRMATION_BLOCKS_AMOUNT");
