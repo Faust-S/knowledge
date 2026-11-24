@@ -277,8 +277,7 @@ def test_economic_record_link_is_existing_source_not_additional_charge():
         report(econ)
 
 
-def test_native_mesa_clock_runs_agreed_physical_correction():
-    from research.akis.qualitative_mesa.mesa_model import simulate
+def correction_scenario():
     s=run_initial()
     digest=propose(s)
     events=execution_events()+[
@@ -305,6 +304,13 @@ def test_native_mesa_clock_runs_agreed_physical_correction():
     d=scenario()
     d["events"]=events
     d["model_horizon"]=32
+    return d
+
+
+def test_native_mesa_clock_runs_agreed_physical_correction():
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    d=correction_scenario()
+    events=d["events"]
     out=simulate(d)
     assert out["counts"]=={"applied":len(events),"blocked":0}, out["trace"]
     assert out["works"]["w1"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
