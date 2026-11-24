@@ -496,3 +496,25 @@ test('original recipient refresh replays signed policy progression, assignment, 
  assert.throws(()=>refresh(latest,fakePrior),/REFRESH_PINNED_POLICY_NOT_IN_HISTORY/);
  assert.equal((await s.registry.readRegistryDelivery()).record.revision,latest.record.revision);
 });
+
+test('recipient clock advances independently and delivery mutations never change original registry',async()=>{
+ const s=await seatFixture(),[alice]=s.employees;
+ const previous=await s.registry.readState();
+ previous.lastObservedAt=iso(s.time+1000);
+ previous.localApplication={task:'task:recipient-only'};
+ await s.owner.changeCorporateSeat(await s.command('ASSIGN','cmd:delivery:clock',alice));
+ const delivery=await s.registry.readRegistryDelivery();
+ const calls=s.kernel.calls.length;
+ const refresh=(value,now)=>prepareOriginalEmployeeRegistryRefresh({
+  previousState:previous,delivery:value,organizationId:s.organization.organizationId,
+  authorityId:s.organization.issuerAuthorityId,workspaceId:'ws:host-registry',now});
+ assert.throws(()=>refresh(delivery,s.time),/T3_ACCESS_REGISTRY_CLOCK_ROLLBACK/);
+ const received=refresh(delivery,s.time+2000);
+ assert.equal(received.outcome,'VERIFIED_REFRESH');
+ assert.equal(received.state.lastObservedAt,iso(s.time+2000));
+ assert.deepEqual(received.state.localApplication,previous.localApplication);
+ const original=structuredClone(delivery);
+ delivery.record.data.grants={};
+ assert.deepEqual(await s.registry.readRegistryDelivery(),original);
+ assert.equal(s.kernel.calls.length,calls);
+});
