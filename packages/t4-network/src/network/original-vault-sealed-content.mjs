@@ -15,8 +15,9 @@ import {createT4OriginalSignedOperationAccess} from './original-signed-route-acc
 import {validateT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 
-const MAGIC=Buffer.from('T4S1'),MAX=64*8192,MAX_HEADER=4096,TAG=16;
-const SCHEMA='IWXA_T4_SEALED_CONTENT_CANDIDATE_V1',SUITE='X25519_HKDF_SHA256_AES256GCM';
+const MAGIC=Buffer.from('T4S2'),MAX=64*8192,MAX_HEADER=4096,TAG=16;
+const SCHEMA='IWXA_T4_SEALED_CONTENT_CANDIDATE_V2',SUITE='X25519_HKDF_SHA256_AES256GCM';
+const KDF_DOMAIN=Buffer.from('IWXA-T4-SEALED-CONTENT-V2\0','utf8');
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const SHA=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const fail=code=>{throw Object.assign(Error(code),{code,outcome:'DENIED'});};
@@ -42,8 +43,13 @@ function keyFor(privateKey,publicKey,salt,headerBytes){
   const shared=diffieHellman({privateKey,publicKey});
   try{
     if(shared.length!==32||!shared.some(x=>x!==0))fail('SEALED_CONTENT_SHARED_SECRET_INVALID');
-    return Buffer.from(hkdfSync('sha256',shared,salt,
-      Buffer.concat([Buffer.from('IWXA-T4-SEALED-CONTENT-V1\0'),headerBytes]),32));
+    // Bind the complete canonical header, not a truncated prefix. The
+    // fixed-length digest keeps HKDF info below Node/OpenSSL's 1024-byte
+    // API limit even for the maximum admitted header. The full original
+    // prefix and header remain the AES-GCM AAD. V2 is deliberately distinct
+    // from the unreleased V1 derivation; no implicit legacy fallback.
+    const info=Buffer.concat([KDF_DOMAIN,createHash('sha256').update(headerBytes).digest()]);
+    return Buffer.from(hkdfSync('sha256',shared,salt,info,32));
   }finally{shared.fill(0);}
 }
 function encodeHeader(header){

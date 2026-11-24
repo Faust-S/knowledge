@@ -409,7 +409,7 @@ export async function verifyT4CandidateWireFrame({
   // Snapshot the exact canonical wire bytes before any async signature or
   // Access callback. In particular, retained ACK bytes must be the bytes
   // verified by this invocation, not a later caller mutation.
-  if(!(wireBytes instanceof Uint8Array))fail('WIRE_BYTES_INVALID');
+  if(!(wireBytes instanceof Uint8Array)||wireBytes.length<64||wireBytes.length>LIMIT)fail('WIRE_BYTES_INVALID');
   const exact=new Uint8Array(wireBytes),frame=decodeT4CandidateFrame(exact);
   if(frame.recipientNodeRef!==recipientNodeRef||
     frame.scopeRef!==scopeRef||frame.cryptoSuite!==requiredCryptoSuite)

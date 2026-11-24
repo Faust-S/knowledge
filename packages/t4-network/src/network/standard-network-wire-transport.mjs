@@ -271,6 +271,8 @@ export function createT4CandidateFrameTransport({
       Object.keys(selector).some(k=>!['sourceNodeRef','sessionRef','ownerEpoch'].includes(k))||
       !ID(selector.sourceNodeRef)||selector.sourceNodeRef===originalHostNodeRef||!ID(selector.sessionRef)||
       !Number.isSafeInteger(selector.ownerEpoch)||selector.ownerEpoch<1||
+      !Array.isArray(supportedCriticalExtensions)||supportedCriticalExtensions.length>16||
+      !supportedCriticalExtensions.every(ID)||new Set(supportedCriticalExtensions).size!==supportedCriticalExtensions.length||
       (expectedSha256!==null&&!SHA(expectedSha256)))
       fail('WIRE_HISTORICAL_ACK_SLOT_INVALID');
     const exactSelector=Object.freeze({sourceNodeRef:selector.sourceNodeRef,sessionRef:selector.sessionRef,

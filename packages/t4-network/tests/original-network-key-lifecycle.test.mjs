@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateKeyPairSync,sign,createHash} from 'node:crypto';
+import {generateKeyPairSync,sign,createHash,createHmac,createPublicKey,diffieHellman,createDecipheriv} from 'node:crypto';
 import {PROFILE,digest,iso,signRecord,keyObjectSigner,makeProof} from '../../t3-core/src/t3/access/core.mjs';
 import {emptyVault,generateVaultKey,importVaultKey,encryptVault,vaultPrivateKey} from '../../t3-core/src/t3/access/local-vault.mjs';
 import {createOriginalKernelRegistryStatePort,ORIGINAL_REGISTRY_EVENT} from '../../t3-core/src/t3/access/original-kernel-registry-state.mjs';
@@ -890,4 +890,40 @@ test(pendingPhase?'K43 cold original source confirms previously accepted ACK and
     originalPriorReplay:true,originalRecipientResultFixture:true,originalPhaseConfirmed:true,
     originalCursorWrites:1,recoveredLostCAS:true,additionalNetworkPuts:0,additionalVaultReads:0,additionalSignatures:0,
     originalSubjectMutationRetried:false,kernelFixture:true,installedProduct:false}));
+});
+
+
+test('K44 bounded V2 HKDF context binds the entire long canonical header; independent HMAC expansion decrypts original Vault envelope', {timeout:30000},async()=>{
+  const q=await sealedFixture(),c=captured(Buffer.from('K44 complete header binding'), 'event:'+ 'e'.repeat(154));
+  const sealed=await q.source.readOriginalSealedContent(c.input),bytes=Buffer.from(sealed.ciphertext);
+  assert.equal(bytes.subarray(0,4).toString('ascii'),'T4S2');
+  const end=6+bytes.readUInt16BE(4),headerBytes=bytes.subarray(6,end),header=JSON.parse(headerBytes.toString('utf8'));
+  assert.equal(header.schema,'IWXA_T4_SEALED_CONTENT_CANDIDATE_V2');
+  assert.ok(headerBytes.length>1024&&headerBytes.length<=4096,'exercise the old Node HKDF info limit');
+  const ephemeral=createPublicKey({key:Buffer.from(header.ephemeralPublicKey,'base64url'),type:'spki',format:'der'});
+  const shared=diffieHellman({privateKey:vaultPrivateKey(q.f.vault,q.binding.keyId),publicKey:ephemeral});
+  const prk=createHmac('sha256',Buffer.from(header.salt,'base64url')).update(shared).digest();
+  const domain=Buffer.from('IWXA-T4-SEALED-CONTENT-V2\0','utf8');
+  const info=Buffer.concat([domain,createHash('sha256').update(headerBytes).digest()]);
+  // RFC 5869 extract + first expand block, independently of hkdfSync.
+  assert.equal(info.length,domain.length+32);assert.ok(info.length<1024);
+  const key=createHmac('sha256',prk).update(info).update(Buffer.from([1])).digest();
+  const decipher=createDecipheriv('aes-256-gcm',key,Buffer.from(header.nonce,'base64url'),{authTagLength:16});
+  decipher.setAAD(bytes.subarray(0,end),{plaintextLength:header.plaintextLength});
+  decipher.setAuthTag(bytes.subarray(-16));
+  const plaintext=Buffer.concat([decipher.update(bytes.subarray(end,-16)),decipher.final()]);
+  assert.deepEqual(plaintext,c.content);
+  const changed=Buffer.from(headerBytes);changed[changed.length-2]^=1;
+  const otherKey=createHmac('sha256',prk).update(domain).update(createHash('sha256').update(changed).digest())
+    .update(Buffer.from([1])).digest();
+  assert.notDeepEqual(otherKey,key);
+  shared.fill(0);prk.fill(0);key.fill(0);otherKey.fill(0);plaintext.fill(0);
+  const recipient=q.recipient(),opened=await recipient.openOriginalSealedContent(q.openInput(c.session,sealed));
+  assert.deepEqual(Buffer.from(opened.plaintext),c.content);
+  const legacy=Buffer.from(bytes);legacy.write('T4S1',0,'ascii');
+  const input={...q.openInput(c.session,sealed),ciphertext:legacy,contentDigest:'sha256:'+sha(legacy)};
+  await assert.rejects(recipient.openOriginalSealedContent(input),{code:'SEALED_CONTENT_ENVELOPE_INVALID'});
+  assert.equal(q.unlocks,1,'unsupported format is rejected before Vault open');
+  console.log('T4_K44_BOUNDED_HKDF_CONTEXT_PASS',JSON.stringify({headerBytes:headerBytes.length,infoBytes:info.length,
+    independentHmacExpansion:true,completeHeaderBound:true,originalVaultRoundtrip:true,legacyEnvelopeRejected:true}));
 });
