@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {isT4RecoverableWebDavError} from './webdav-package-transfer.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {
-  decodeT4CandidateFrame,verifyT4CandidateWireFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
+  decodeT4CandidateFrame,verifyT4CandidateWireFrame,verifyT4CandidateHistoricalReceivedFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
 } from './standard-network-wire-candidate.mjs';
 import {t4NativeSessionFrameIndexKey,t4NativeSourceHeadIndexKey,t4NativeFrameIndexKeys}
   from './original-network-frame-address.mjs';
@@ -41,7 +41,7 @@ export function createT4CandidateFrameTransport({
   wireTransport,getMode,readOriginalHostContext,
   authorizeOriginalHostWire,originalHostNodeRef,originalHostScopeRef,
   verifyOriginalNodeSignature,authorizeOriginalNetwork,
-  persistOriginalReplayDecision,
+  persistOriginalReplayDecision,verifyOriginalHistoricalNodeSignature=null,readOriginalHistoricalReplayEvidence=null,
 }={}){
   if(wireTransport?.wireKind!=='T4_NETWORK_CANDIDATE'||
     ![wireTransport.putSnapshot,wireTransport.getSnapshot,
@@ -51,6 +51,9 @@ export function createT4CandidateFrameTransport({
       persistOriginalReplayDecision].every(f=>typeof f==='function')||
     !ID(originalHostNodeRef)||!ID(originalHostScopeRef))
     fail('WIRE_ORIGINAL_HOST_NETWORK_PORTS_REQUIRED');
+  const historical=verifyOriginalHistoricalNodeSignature!==null||readOriginalHistoricalReplayEvidence!==null;
+  if(historical&&![verifyOriginalHistoricalNodeSignature,readOriginalHistoricalReplayEvidence].every(f=>typeof f==='function'))
+    fail('WIRE_ORIGINAL_HISTORICAL_PORTS_REQUIRED');
   const indexed=wireTransport.nativeFrameIndexVersion===1;
   if((wireTransport.nativeFrameIndexVersion!==undefined&&![0,1].includes(wireTransport.nativeFrameIndexVersion))||
     (indexed&&![wireTransport.getNativeFrameIndex,wireTransport.putNativeFrameIndex].every(f=>typeof f==='function')))
@@ -229,6 +232,26 @@ export function createT4CandidateFrameTransport({
     const downloaded=await wireTransport.getSnapshot({key,expectedSha256});
     mode();
     return verifyDownloaded({ctx,key,expectedSha256,downloaded,requiredCryptoSuite,supportedCriticalExtensions});
+  }
+  async function readOriginalHistoricalReceivedFrame({key,expectedSha256,requiredCryptoSuite,supportedCriticalExtensions=[]}={}){
+    if(!historical||!SHA(expectedSha256)||key!==expectedSha256+'.t4n')fail('WIRE_ORIGINAL_HISTORICAL_PORTS_REQUIRED');
+    const ctx=await hostSnapshot();
+    const result=await wireTransport.getSnapshot({key,expectedSha256});
+    mode();
+    if(!(result?.bytes instanceof Uint8Array)||hash(result.bytes)!==expectedSha256)
+      fail('WIRE_NETWORK_READBACK_NOT_PROVEN');
+    const raw=new Uint8Array(result.bytes),frame=decodeT4CandidateFrame(raw);
+    if(frame.recipientNodeRef!==originalHostNodeRef||frame.scopeRef!==originalHostScopeRef)
+      fail('WIRE_WRONG_RECIPIENT_OR_SCOPE');
+    await hostGuard('history-read',ctx,frame,expectedSha256);
+    const live=fn=>async proof=>{mode();const value=await fn(proof);mode();return value;};
+    const verdict=await verifyT4CandidateHistoricalReceivedFrame({wireBytes:raw,localNodeRef:originalHostNodeRef,
+      scopeRef:originalHostScopeRef,requiredCryptoSuite,supportedCriticalExtensions,
+      verifyOriginalHistoricalNodeSignature:live(verifyOriginalHistoricalNodeSignature),
+      readOriginalHistoricalReplayEvidence:live(readOriginalHistoricalReplayEvidence)});
+    await hostGuard('history-readback',ctx,frame,expectedSha256);
+    if(verdict.wireSha256!==expectedSha256||verdict.key!==key)fail('WIRE_NETWORK_READBACK_NOT_PROVEN');
+    return deepFreeze(structuredClone(verdict));
   }
   async function verifyDownloaded({ctx,key,expectedSha256,downloaded,requiredCryptoSuite,supportedCriticalExtensions}){
     mode();
@@ -509,6 +532,7 @@ export function createT4CandidateFrameTransport({
   return frozen({
     schema:'IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1',nativeFrameIndexVersion:indexed?1:0,
     publishSignedFrame,inspectUnknownPublication,
+    ...(historical?{readOriginalHistoricalReceivedFrame}:{}),
     readAndVerifySignedFrame,discoverAndVerifySignedFrames,discoverUniqueSignedFrame,discoverSessionContent,
     discoverSourceSessionHeads,
     forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
@@ -518,6 +542,7 @@ export function createT4CandidateFrameTransport({
       readOriginalHostContext,authorizeOriginalHostWire,
       originalHostNodeRef,originalHostScopeRef,verifyOriginalNodeSignature,
       authorizeOriginalNetwork,persistOriginalReplayDecision,
+      verifyOriginalHistoricalNodeSignature,readOriginalHistoricalReplayEvidence,
     }),
     originalT3ExchangeDependency:false,
     createsSubjectStore:false,createsSubjectIAM:false,

@@ -61,10 +61,17 @@ export function createT4OriginalNativeHostNetworkOwner({
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
   enableLocalSourceCapture=false,enablePublicationIndexMigration=false,
   enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,requireSignedTopologyAccess=false,
+  enableHistoricalAcknowledgementRecovery=false,
   originalVaultNodeSignaturePort=null,requireOriginalVaultNodeSignature=false,requireDurableNetworkKeyBinding=false,
   originalVaultSealedContentPort=null,requireOriginalVaultSealedContent=false,
   monotonicNow=()=>performance.now(),
 }={}){
+  if(typeof enableHistoricalAcknowledgementRecovery!=='boolean'||(enableHistoricalAcknowledgementRecovery&&
+    (role!=='SOURCE'||!isT4OriginalVaultNodeSignaturePort(originalVaultNodeSignaturePort)||
+      originalVaultNodeSignaturePort.originalDurableNetworkKeyBinding!==true||
+      !isT4NativeTopologyTransport(nativeTopologyTransport)||nativeTopologyTransport.originalSignedAccessBound!==true||
+      typeof originalPorts?.authorizeOriginalHistoricalCursorRecovery!=='function')))
+    fail('NATIVE_NETWORK_OWNER_HISTORICAL_RECOVERY_PORTS_REQUIRED');
   if(typeof requireOriginalVaultSealedContent!=='boolean'||(requireOriginalVaultSealedContent&&
     (!isT4OriginalVaultSealedContentPort(originalVaultSealedContentPort)||
       !isT4OriginalVaultNodeSignaturePort(originalVaultNodeSignaturePort)||
@@ -142,7 +149,8 @@ export function createT4OriginalNativeHostNetworkOwner({
   const ports=Object.freeze(Object.fromEntries([...COMMON_PORTS,
     ...(role==='SOURCE'?SOURCE_PORTS:RECIPIENT_PORTS),
     ...(enableLocalSourceCapture?['authorizeOriginalLocalMutation']:[]),
-    ...(enableExplicitNetworkResume?['authorizeOriginalNetworkResume']:[])].map(k=>[k,originalPorts[k]])));
+    ...(enableExplicitNetworkResume?['authorizeOriginalNetworkResume']:[]),
+    ...(enableHistoricalAcknowledgementRecovery?['authorizeOriginalHistoricalCursorRecovery']:[])].map(k=>[k,originalPorts[k]])));
   const identity=Object.freeze({technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch});
   const operations=role==='SOURCE'?(enableLocalSourceCapture?
@@ -205,7 +213,10 @@ export function createT4OriginalNativeHostNetworkOwner({
       originalHostNodeRef:nodeRef,originalHostScopeRef:scopeRef,
       verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
       authorizeOriginalNetwork:callback('authorizeOriginalNetwork'),
-      persistOriginalReplayDecision:replay.persistOriginalReplayDecision});
+      persistOriginalReplayDecision:replay.persistOriginalReplayDecision,
+      ...(scopedVault?.verifyOriginalHistoricalNodeSignature?{
+        verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),
+        readOriginalHistoricalReplayEvidence:replay.readOriginalHistoricalReplayEvidence}:{})});
     const publication=async({session})=>createT4OriginalNetworkPublicationPort({...tech,session,
       localNodeRef:nodeRef,frameTransport:frameDiscoveryPort,
       authorizeOriginalFramePublish:callback('authorizeOriginalFramePublish'),
@@ -290,7 +301,9 @@ export function createT4OriginalNativeHostNetworkOwner({
         recoverNextOriginalCapture:p=>captureRecovery.reconcileNextOriginalCapture(p),
         authorizeOriginalRead:common.authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
         authorizeOriginalSealedContent:callback('authorizeOriginalSealedContent'),
-        readOriginalSealedContent:callback('readOriginalSealedContent')})};
+        readOriginalSealedContent:callback('readOriginalSealedContent'),
+        ...(enableHistoricalAcknowledgementRecovery?{
+          authorizeOriginalHistoricalCursorRecovery:callback('authorizeOriginalHistoricalCursorRecovery')}:{})})};
     }
     const readOriginalSourceEvents=callback('readOriginalSourceEvents');
     const authorizeOriginalSourceRead=callback('authorizeOriginalSourceRead');

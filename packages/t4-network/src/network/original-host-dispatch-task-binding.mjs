@@ -365,6 +365,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     authorizeOriginalSealedContent,readOriginalSealedContent,
     authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
     retryMissing=false,announceOriginalSourceSession=false,recoverNextOriginalCapture=null,
+    authorizeOriginalHistoricalCursorRecovery=null,
   }={}){
     const schema='IWXA_T4_ORIGINAL_HOST_NATIVE_SOURCE_STEP_V1';
     if(mode()==='LOCAL_T3')return Object.freeze({schema,state:'LOCAL_T3',
@@ -374,6 +375,8 @@ export function createT4OriginalHostDispatchTaskBinding({
       readOriginalEvents,verifyOriginalSourceSubject,createOriginalNativePublicationPort]
       .every(f=>typeof f==='function')||!ID(requiredCryptoSuite)||typeof retryMissing!=='boolean'||
       typeof announceOriginalSourceSession!=='boolean'||
+      (authorizeOriginalHistoricalCursorRecovery!==null&&
+        (!announceOriginalSourceSession||typeof authorizeOriginalHistoricalCursorRecovery!=='function'))||
       (recoverNextOriginalCapture!==null&&typeof recoverNextOriginalCapture!=='function'))
       fail('HOST_TASK_NATIVE_SOURCE_STEP_PORTS_REQUIRED');
     const initial=await verify();
@@ -524,6 +527,38 @@ export function createT4OriginalHostDispatchTaskBinding({
     if(stage===0){
       await advance('INTENT',intent);
       return done('INTENT_RECORDED');
+    }
+    if(stage===3&&authorizeOriginalHistoricalCursorRecovery!==null){
+      // The original result was independently confirmed before rotation.
+      // Recover only the missing original source frontier.
+      if(typeof sourceCursorPort?.commitHistoricallyConfirmedCursor!=='function'||
+        typeof publication.readOriginalHistoricalPublishedFrame!=='function'||
+        typeof discovery.readOriginalHistoricalReceivedFrame!=='function')
+        fail('HOST_TASK_NATIVE_HISTORICAL_RECOVERY_PORTS_REQUIRED');
+      const cursor=scopeOriginalHostPort(sourceCursorPort,lifetime,
+        ['schema','checkpointRef','usesOriginalT3CAS','createsStore','createsScheduler'],
+        'HOST_TASK_NATIVE_HISTORICAL_RECOVERY_PORTS_REQUIRED');
+      await refresh();
+      await verify(initial,'t4.network.acknowledge','original-host.native-historical-ack-task');
+      const committed=await cursor.commitHistoricallyConfirmedCursor({recovery:{
+        session,sourceCursorBefore:task.sourceCursorBefore,sourcePhasePort:phase,
+        sourcePublicationPort:publication,historicalFramePort:discovery,requiredCryptoSuite,
+        authorizeOriginalHistoricalCursorRecovery:live(authorizeOriginalHistoricalCursorRecovery),
+        authorizeOriginalRead:live(authorizeOriginalRead),readOriginalEvents:live(readOriginalEvents)}});
+      await verify(initial,'t4.network.acknowledge','original-host.native-historical-ack-task');
+      const after=await cursor.inspectOriginalHostCursor();
+      await verify(initial,'t4.network.acknowledge','original-host.native-historical-ack-task');
+      if(committed?.schema!=='IWXA_T4_ORIGINAL_HOST_ACK_CURSOR_COMMIT_V1'||
+        !['ORIGINAL_T3_CAS_COMMITTED','ALREADY_COMMITTED'].includes(committed.state)||
+        committed.originalHistoricalRecoveryUsed!==true||committed.originalT3EventChainVerified!==true||
+        committed.originalT3PutObjectRetried!==false||committed.checkpointRef!==cursor.checkpointRef||
+        after.lastAcknowledgedChangeId!==session.changeId||after.lastSourceEventId!==session.sourceEventId||
+        after.lastRecipientEventId!==status.currentEvidence.originalRecipientEventId||
+        after.revision!==committed.revision||!sameJSON(after.originalT3NextCursor,task.sourceCursorAfter)||
+        !sameJSON(after.originalT3NextCursor,committed.originalT3NextCursor))
+        fail('HOST_TASK_NATIVE_HISTORICAL_CURSOR_READBACK_MISMATCH',{originalT3CursorWriteMayHaveCommitted:true,automaticRetryAllowed:false});
+      return done('SOURCE_ACK_CONFIRMED',{sourceCursorAdvanced:committed.state==='ORIGINAL_T3_CAS_COMMITTED',
+        originalSourceCursorConfirmed:true,originalHistoricalRecoveryUsed:true,committed});
     }
     const specsFor=async specs=>{
       const signed=[];

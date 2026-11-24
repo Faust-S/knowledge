@@ -9,13 +9,18 @@ import {createSignedAccessHostPort} from '../../t3-core/src/t3/signed-access-hos
 import {ORIGINAL_NETWORK_KEY_TRANSITION,ORIGINAL_NETWORK_KEY_MANAGE,originalNetworkKeyPossessionBytes,
   originalNetworkKeyOperationDigest,originalNetworkKeyStatusId,createOriginalNetworkAgreementChallenge,answerOriginalNetworkAgreementChallenge} from '../../t3-core/src/t3/access/original-network-key-lifecycle.mjs';
 import {createT4OriginalVaultSealedContentPort} from '../src/network/original-vault-sealed-content.mjs';
-import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort} from '../src/network/original-network-publication.mjs';
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,createT4OriginalSourceSessionHead} from '../src/network/original-network-publication.mjs';
+import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
+import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
+import {createT4OriginalNetworkHostCursorPort} from '../src/network/original-network-host-cursor.mjs';
+import {createT4OriginalNetworkBaselineAdmissionPort} from '../src/network/original-network-baseline-admission.mjs';
+import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID} from '../src/network/original-network-technical-schema.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {prepareT4CandidateOpaqueChunks,assembleT4CandidateOpaqueChunks} from '../src/network/standard-network-opaque-chunks.mjs';
 import {createT4OriginalVaultNodeSignaturePort} from '../src/network/original-vault-node-signature.mjs';
 import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-native-host-network-owner.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4CandidateWireFrame,decodeT4CandidateFrame,verifyT4CandidateHistoricalFrameSignature,
-  verifyT4CandidateHistoricalReceivedFrame} from '../src/network/standard-network-wire-candidate.mjs';
+  verifyT4CandidateHistoricalReceivedFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from '../src/network/standard-network-wire-candidate.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
 import {originalKernelFixture} from '../../t3-core/tests/support/t3-two-corp-original-authority.mjs';
 
@@ -234,6 +239,7 @@ test('K37 an ordinary registry snapshot cannot silently reintroduce a retired ne
     workspaceId:REG,trustedPolicy:pinned,clock:f.clock});
   await rootOnly.commitSignedState({...f.initial,policy:pinned});
   assert.equal(await rootOnly.readNetworkKeyEvidence(query(localBinding)),null);
+  assert.equal(await rootOnly.readNetworkKeyHistoryEvidence(query(localBinding)),null);
   await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',localBinding,key));
   const active=(await f.registry.readNetworkKeyEvidence(query(localBinding))).binding;
   await f.registry.applyNetworkKeyTransition(await f.prepare('REVOKE',{...localBinding,generation:2},null,active));
@@ -671,4 +677,172 @@ test('K40 receiver history proves only previously accepted exact signed frames, 
   assert.equal(f.calls,writes);assert.equal(writeGrants,1);
   console.log('T4_K40_HISTORICAL_REPLAY_PASS',JSON.stringify({oldExactReplay:true,unseenOldFrameDenied:true,
     retiredLiveFrameDenied:true,revokedReadDenied:true,additionalReplayWrites:0,subjectApply:false,kernelFixture:true}));
+});
+
+
+test('K41 cold original source finalizes already confirmed ACK after both signing keys rotate, without replay writes or re-signing', {timeout:120000},async()=>{
+  const q=await sealedFixture(),f=q.f,allow=async()=>true,tech='ws:k41:technical';
+  const sourceBinding={...localBinding,bindingRef:'binding:k41:source',keyId:'key:k41:source'};
+  const recipientBinding={...remoteBinding,subjectId:PRINCIPAL,bindingRef:'binding:k41:recipient',keyId:'key:k41:recipient'};
+  for(const binding of [sourceBinding,recipientBinding])
+    await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',binding,f.generate(binding)));
+  const encrypted=encryptVault(f.vault,PASS);
+  let vaultReads=0,signs=0,networkPuts=0,host='host:k41:initial',recoveryAllowed=true,appliedAllowed=true;
+  const signer=(local,remote,registry=f.registry)=>createT4OriginalVaultNodeSignaturePort({
+    ...scope,localNodeRef:local.nodeRef,remoteNodeRef:remote.nodeRef,localKeyRef:local.keyId,remoteKeyRef:remote.keyId,
+    registry,...f.bound(registry),expectedContext:f.context,getMode:()=> 'T4_NETWORK',clock:f.clock,
+    requireDurableNetworkKeyBinding:true,readEncryptedVault:async()=>{vaultReads++;return encrypted;},unlockPassphrase:async()=>PASS});
+  let sourceSigner=signer(sourceBinding,recipientBinding);
+  const recipientSigner=signer(recipientBinding,sourceBinding);
+  const kernel={...f.kernel,async getObject(ws,id){
+    const row=await f.kernel.getObject(ws,id);return row?{...row,object:{...row.object,deleted:false}}:null;
+  },async listEventsSince(ws){
+    const rows=await f.kernel.listEventsSince(ws),calls=f.storage.calls.filter(p=>p.workspace_id===ws);
+    return rows.map((e,i)=>({...e,object_id:calls[i].object_id,revision:calls[i].base_revision+1,
+      occurred_at:iso(NOW-1000+i),service_id:'service:k41:fixture'}));
+  }};
+  const sourceMutation=(revision,title)=>({workspace_id:WS,object_id:'object:k41:source',schema_id:'iwxa.demo.note',
+    schema_version:'1.0.0',base_revision:revision-1,data:{title},extensions:{},
+    event:{event_type:'business.changed',payload:{title}}});
+  const baselineReceipt=await kernel.putObject(sourceMutation(1,'baseline'));
+  const before=(await readT4OriginalEventWindow({workspaceId:WS,originalWriteOwnerRef:OWNER,
+    maxEvents:1,authorizeOriginalRead:allow,readOriginalEvents:()=>kernel.listEventsSince(WS)})).nextCursor;
+  await kernel.putObject(sourceMutation(2,'changed'));
+  const current=await readT4OriginalEventWindow({workspaceId:WS,originalWriteOwnerRef:OWNER,cursor:before,
+    maxEvents:1,authorizeOriginalRead:allow,readOriginalEvents:()=>kernel.listEventsSince(WS)});
+  const w=current.window,bytes=Buffer.from('K41 original captured content');
+  const capture={kind:'OBJECT_PUT',captureRef:'capture:k41:one',workspaceId:WS,originalWriteOwnerRef:OWNER,
+    sourceEventId:w.lastEventId,sourceRevision:2,sourceWindow:w,
+    originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
+    prepared:{bytes:new Uint8Array(bytes),sha256:sha(bytes),delta:{sourceEventId:w.lastEventId,sourceRevision:2,
+      sourceEventDigest:w.eventRefs[0].eventDigest,windowDigest:w.windowDigest}}};
+  const session=deriveT4OriginalNativeCaptureSession({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',
+    state:'ORIGINAL_NATIVE_CAPTURE_READY',workspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,
+    scopeRef:SCOPE,ownerEpoch:2,networkTargetRef:B,networkPublished:false,sourceCursorAdvanced:false,
+    originalRecipientApplied:false,sourceCursorBefore:before,sourceCursorAfter:current.nextCursor,capture});
+  const remote=new Map(),wire={wireKind:'T4_NETWORK_CANDIDATE',forOriginalHostLifetime(){return this;},
+    async putSnapshot({key,bytes,expectedSha256}){assert.equal(sha(bytes),expectedSha256);networkPuts++;
+      assert.equal(remote.has(key),false);remote.set(key,new Uint8Array(bytes));return {key,sha256:expectedSha256,state:'PUBLISHED_AND_READ_BACK'};},
+    async getSnapshot({key}){if(!remote.has(key))throw Object.assign(Error('missing'),{code:'REMOTE_NOT_FOUND'});
+      return {bytes:new Uint8Array(remote.get(key))};},
+    async inspectOutcome({key,expectedSha256}){await this.getSnapshot({key});return {key,sha256:expectedSha256,state:'EXPECTED_BYTES_PRESENT'};}
+  };
+  const context=async()=>({workspaceId:tech,originalWriteOwnerRef:OWNER,originalOwnerRef:OWNER,nodeRef:A,
+    scopeRef:SCOPE,hostSessionRef:host});
+  const original={technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,technicalWorkspaceId:tech,
+    sourceWorkspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,scopeRef:SCOPE,ownerEpoch:2,
+    originalKernel:kernel,getMode:()=> 'T4_NETWORK',readOriginalHostContext:context,
+    authorizeOriginalTechnicalRead:allow,authorizeOriginalTechnicalWrite:allow};
+  const replay=()=>createT4OriginalNetworkReplayPort({...original,localNodeRef:A});
+  const transport=()=>{
+    const p=replay();
+    return createT4CandidateFrameTransport({wireTransport:wire,getMode:original.getMode,readOriginalHostContext:context,
+      originalHostNodeRef:A,originalHostScopeRef:SCOPE,authorizeOriginalHostWire:allow,
+      verifyOriginalNodeSignature:sourceSigner.verifyOriginalNodeSignature,authorizeOriginalNetwork:allow,
+      persistOriginalReplayDecision:p.persistOriginalReplayDecision,
+      verifyOriginalHistoricalNodeSignature:sourceSigner.verifyOriginalHistoricalNodeSignature,
+      readOriginalHistoricalReplayEvidence:p.readOriginalHistoricalReplayEvidence});
+  };
+  const publication=()=>createT4OriginalNetworkPublicationPort({...original,session,localNodeRef:A,
+    frameTransport:transport(),authorizeOriginalFramePublish:allow,
+    verifyOriginalNodeSignature:sourceSigner.verifyOriginalNodeSignature,
+    verifyOriginalHistoricalNodeSignature:sourceSigner.verifyOriginalHistoricalNodeSignature,
+    authorizeOriginalSealedPublication:q.source.authorizeOriginalSealedPublication});
+  const baseline=()=>createT4OriginalNetworkBaselineAdmissionPort({...original,role:'SOURCE',
+    authorizeOriginalBaselineAdmission:allow,verifyOriginalBaselineEvidence:async p=>
+      p.baseline.originalBaselineRef===baselineReceipt.event.event_id&&p.baseline.sourceCursor.lastEventId===before.lastEventId});
+  await baseline().admitOriginalBaseline({sourceCursor:before,originalBaselineRef:baselineReceipt.event.event_id,
+    originalBaselineDigest:'sha256:'+sha(JSON.stringify(baselineReceipt.event))});
+  const cursor=()=>createT4OriginalNetworkHostCursorPort({...original,originalBaselinePort:baseline(),
+    authorizeOriginalSourceRead:allow,readOriginalSourceEvents:()=>kernel.listEventsSince(WS)});
+  const signSpec=async(binding,port,messageType,sequence,body,criticalExtensions=[])=>{
+    signs++;
+    return signT4CandidateFrame({unsignedFrame:createT4CandidateUnsignedFrame({
+      messageType,sequence,messageId:'message:k41:'+binding.nodeRef+':'+sequence,
+      sourceNodeRef:binding.nodeRef,recipientNodeRef:binding.recipientNodeRef,sessionRef:session.sessionRef,
+      scopeRef:SCOPE,ownerEpoch:2,cryptoSuite:SUITE,permissionRef:binding.permissionRef,
+      signerRef:binding.keyId,body,criticalExtensions}),signOriginalNodeBytes:port.signOriginalNodeBytes});
+  };
+  let pub=publication();
+  await pub.prepareSignedBatch({slots:[{sequence:1,messageType:'HEADS'}],createSignedFrames:async()=>[
+    await signSpec(sourceBinding,sourceSigner,'HEADS',1,createT4OriginalSourceSessionHead({
+      session,sourceCursorBefore:before,sourceCursorAfter:current.nextCursor}),[T4_ORIGINAL_SOURCE_SESSION_EXTENSION])]});
+  await pub.publishPreparedFrame({sequence:1});
+  const plan=await prepareT4CandidateOpaqueChunks({changeId:session.changeId,ownerRef:OWNER,sourceContentRef:capture.captureRef,
+    getMode:original.getMode,authorizeOriginalSealedContent:allow,readOriginalSealedContent:p=>
+      q.source.readOriginalSealedContent({...p,session,originalCapture:capture,exactCapturedCanonicalBytesRequired:true})});
+  const specs=[{sequence:2,messageType:'CHANGE_REF',body:{changeId:session.changeId,changeKind:session.changeKind,
+    eventRef:session.sourceEventId,ownerRef:OWNER,sourceRevision:2,contentDigest:plan.contentDigest,parents:[session.sourcePrefixDigestBefore]}},
+    ...plan.bodies.map((body,i)=>({sequence:i+3,messageType:'CHUNK',body}))];
+  const slots=specs.map(({sequence,messageType})=>({sequence,messageType}));
+  await pub.prepareSignedBatch({slots,createSignedFrames:async()=>Promise.all(specs.map(s=>signSpec(sourceBinding,sourceSigner,s.messageType,s.sequence,s.body)))});
+  for(const slot of slots)await pub.publishPreparedFrame({sequence:slot.sequence});
+  const saved=await pub.inspectOriginalPublication();
+  // Independent recipient fixture already materialized the original result.
+  const recipient=originalKernelFixture();
+  await recipient.api.putObject(sourceMutation(1,'baseline'));
+  const result=await recipient.api.putObject({...sourceMutation(2,'changed'),
+    event:{event_type:'business.received',payload:{originalEventId:session.sourceEventId}}});
+  const stateDigest='sha256:'+sha(JSON.stringify(result.object.data));
+  const ackBody={changeId:session.changeId,ackRef:'ack:k41:one',contentDigest:plan.contentDigest,
+    recipientEventRef:result.event.event_id,recipientRevision:2,recipientStateDigest:stateDigest};
+  const ack=await signSpec(recipientBinding,recipientSigner,'APPLIED_ACK',2,ackBody);
+  const ackSha=sha(ack),ackKey=ackSha+'.t4n';
+  await wire.putSnapshot({key:ackKey,bytes:ack,expectedSha256:ackSha});
+  await transport().readAndVerifySignedFrame({key:ackKey,expectedSha256:ackSha,requiredCryptoSuite:SUITE});
+  const evidence={evidenceRef:ackKey,evidenceDigest:'sha256:'+ackSha,originalRecipientEventId:result.event.event_id,
+    originalRecipientRevision:2,originalRecipientStateDigest:stateDigest};
+  const phase=()=>createT4OriginalNetworkSessionPhasePort({...original,localNodeRef:A,
+    sessionRef:session.sessionRef,changeId:session.changeId,changeKind:session.changeKind,
+    verifyOriginalPhaseEvidence:async p=>p.phase==='INTENT'?p.evidence.evidenceRef===session.sourceEventId:
+      p.phase==='PUBLISHED'?p.evidence.evidenceRef===saved.frames[1].sha256+'.t4n':
+        p.evidence.evidenceRef===ackKey,
+    verifyOriginalRecipientApplied:async p=>{
+      const row=await recipient.api.getObject(WS,'object:k41:source'),events=await recipient.api.listEventsSince(WS);
+      return appliedAllowed&&row.object.revision===p.originalRecipientRevision&&
+        'sha256:'+sha(JSON.stringify(row.object.data))===p.originalRecipientStateDigest&&
+        events.some(e=>e.event_id===p.originalRecipientEventId&&e.payload.originalEventId===session.sourceEventId);
+    }});
+  await phase().advanceOriginalSessionPhase({phase:'INTENT',evidence:{evidenceRef:session.sourceEventId,evidenceDigest:session.capturedWindowDigest}});
+  await phase().advanceOriginalSessionPhase({phase:'PUBLISHED',evidence:{evidenceRef:saved.frames[1].sha256+'.t4n',
+    evidenceDigest:'sha256:'+saved.frames[1].sha256}});
+  const recovery=()=>({session,sourceCursorBefore:before,sourcePhasePort:phase(),sourcePublicationPort:publication(),
+    historicalFramePort:transport(),requiredCryptoSuite:SUITE,
+    authorizeOriginalHistoricalCursorRecovery:async p=>recoveryAllowed&&p.originalFrameRetryAllowed===false&&
+      p.historicalAck.body.recipientEventRef===result.event.event_id,
+    authorizeOriginalRead:allow,readOriginalEvents:()=>kernel.listEventsSince(WS)});
+  await assert.rejects(cursor().commitHistoricallyConfirmedCursor({recovery:recovery()}),
+    {code:'CURSOR_ORIGINAL_SOURCE_APPLIED_NOT_CONFIRMED'});
+  await phase().advanceOriginalSessionPhase({phase:'APPLIED_CONFIRMED',evidence});
+  const replacement={...sourceBinding,keyId:'key:k41:source:next',generation:2};
+  const remoteReplacement={...recipientBinding,keyId:'key:k41:recipient:next',generation:2};
+  for(const [old,next] of [[sourceBinding,replacement],[recipientBinding,remoteReplacement]]){
+    const prior=(await f.registry.readNetworkKeyEvidence(query(old))).binding;
+    await f.registry.applyNetworkKeyTransition(await f.prepare('ROTATE',next,f.generate(next),prior));
+  }
+  host='host:k41:cold';sourceSigner=signer(replacement,remoteReplacement,createOriginalKernelRegistryStatePort(f.options));
+  const beforeReads=vaultReads,beforeSigns=signs,beforePuts=networkPuts,beforeWrites=f.calls;
+  await assert.rejects(publication().readOriginalPublishedFrame({sequence:2}),{code:'WIRE_SOURCE_SIGNATURE_NOT_VERIFIED'});
+  const historic=await publication().readOriginalHistoricalPublishedFrame({sequence:2});
+  assert.equal(historic.originalHistoricalPublicationProven,true);
+  assert.equal(historic.historicalSignature.originalKeyCurrentlyActive,false);
+  recoveryAllowed=false;
+  await assert.rejects(cursor().commitHistoricallyConfirmedCursor({recovery:recovery()}),{code:'CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED'});
+  recoveryAllowed=true;appliedAllowed=false;
+  await assert.rejects(cursor().commitHistoricallyConfirmedCursor({recovery:recovery()}),{code:'PHASE_ORIGINAL_APPLIED_NOT_PROVEN'});
+  appliedAllowed=true;
+  assert.equal(f.calls,beforeWrites);
+  f.loseNextReply();
+  await assert.rejects(cursor().commitHistoricallyConfirmedCursor({recovery:recovery()}),{code:'HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
+  host='host:k41:after-lost-cas';
+  const committed=await cursor().commitHistoricallyConfirmedCursor({recovery:recovery()});
+  assert.equal(committed.state,'ALREADY_COMMITTED');assert.equal(committed.originalHistoricalRecoveryUsed,true);
+  assert.deepEqual(committed.originalT3NextCursor,current.nextCursor);
+  assert.equal(f.calls,beforeWrites+1);
+  assert.equal(vaultReads,beforeReads);assert.equal(signs,beforeSigns);assert.equal(networkPuts,beforePuts);
+  assert.deepEqual((await publication().inspectOriginalPublication()).frames.map(f=>f.sha256),saved.frames.map(f=>f.sha256));
+  console.log('T4_K41_HISTORICALLY_CONFIRMED_SOURCE_CURSOR_PASS',JSON.stringify({rotatedSigningKeys:2,
+    originalPriorReplay:true,originalRecipientResultFixture:true,originalPhaseConfirmed:true,
+    originalCursorWrites:1,recoveredLostCAS:true,additionalNetworkPuts:0,additionalVaultReads:0,additionalSignatures:0,
+    originalSubjectMutationRetried:false,kernelFixture:true,installedProduct:false}));
 });

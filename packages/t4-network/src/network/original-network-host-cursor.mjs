@@ -8,7 +8,7 @@ import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest} from '.
 import {validateT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
 import {isT4OriginalOutboundFrameProof} from './original-network-source-head-proof.mjs';
 import {inspectT4OriginalNetworkRecipientResult} from './original-network-subject-apply.mjs';
-import {recoverT4OriginalNetworkSourceCursor}
+import {recoverT4OriginalNetworkSourceCursor,recoverT4OriginalHistoricallyConfirmedSourceCursor}
   from './original-network-source-cursor.mjs';
 
 /**
@@ -44,9 +44,10 @@ const validCursor=(c,ws,owner)=>c?.schema===CURSOR&&
   ID(c.lastEventId)&&DIG(c.sourcePrefixDigest)&&
   Number.isSafeInteger(c.seenEventCount)&&c.seenEventCount>=1;
 const head=(identity,record)=>HASH({identity,record});
-function correctProof(recovered,identity){
-  if(recovered?.schema!=='IWXA_T4_ORIGINAL_NETWORK_ACKNOWLEDGED_CURSOR_V1'||
-    recovered.state!=='SOURCE_ACK_CONFIRMED_NEXT_CURSOR_RECOVERED'||
+function correctProof(recovered,identity,historical=false){
+  if(recovered?.schema!==(historical?'IWXA_T4_ORIGINAL_HISTORICAL_ACKNOWLEDGED_CURSOR_V1':'IWXA_T4_ORIGINAL_NETWORK_ACKNOWLEDGED_CURSOR_V1')||
+    recovered.state!==(historical?'SOURCE_HISTORICAL_ACK_CONFIRMED_NEXT_CURSOR_RECOVERED':'SOURCE_ACK_CONFIRMED_NEXT_CURSOR_RECOVERED')||
+    (historical&&(recovered.originalHistoricalAcceptanceProven!==true||recovered.liveNetworkAuthorityGranted!==false))||
     recovered.sourceNodeRef!==identity.sourceNodeRef||
     recovered.recipientNodeRef!==identity.recipientNodeRef||
     recovered.scopeRef!==identity.scopeRef||
@@ -72,25 +73,22 @@ function correctProof(recovered,identity){
       recovered.sourcePrefixDigestAfter)
     fail('HOST_CURSOR_ORIGINAL_ACK_PROOF_INVALID');
 }
-function recordFor(identity,recovered,recovery,previousCursor,previousHash){
-  correctProof(recovered,identity);
+function recordFor(identity,recovered,ackBody,ackSha256,previousCursor,previousHash,historical=false){
+  correctProof(recovered,identity,historical);
   if(!validCursor(previousCursor,identity.sourceWorkspaceId,
     identity.originalWriteOwnerRef)||
-    recovery?.verifiedAppliedAck?.verifiedBody?.changeId!==recovered.changeId||
-    !DIG(recovery?.verifiedAppliedAck?.verifiedBody?.contentDigest)||
-    !DIG(recovery?.verifiedAppliedAck?.verifiedBody?.recipientStateDigest)||
-    recovery.verifiedAppliedAck.verifiedBody.recipientEventRef!==
-      recovered.originalRecipientEventId||
-    recovery.verifiedAppliedAck.verifiedBody.recipientRevision!==
-      recovered.originalRecipientRevision||
-    recovery.verifiedAppliedAck.verifiedBody.recipientStateDigest!==
-      recovered.originalRecipientStateDigest||
+    ackBody?.changeId!==recovered.changeId||
+    !DIG(ackBody?.contentDigest)||
+    !DIG(ackBody?.recipientStateDigest)||
+    ackBody.recipientEventRef!==recovered.originalRecipientEventId||
+    ackBody.recipientRevision!==recovered.originalRecipientRevision||
+    ackBody.recipientStateDigest!==recovered.originalRecipientStateDigest||
     !DIG(previousHash)||
     recovered.originalT3NextCursor.seenEventCount!==
       previousCursor.seenEventCount+1)
     fail('HOST_CURSOR_CAUSAL_ACK_MISMATCH');
   const record={
-    changeId:recovery.verifiedAppliedAck.verifiedBody.changeId,
+    changeId:ackBody.changeId,
     sourceEventId:recovered.sourceEventId,
     sourceEventDigest:recovered.sourceEventDigest,
     sourceCursorBefore:copy(previousCursor),
@@ -101,8 +99,8 @@ function recordFor(identity,recovered,recovery,previousCursor,previousHash){
     recipientRevision:recovered.originalRecipientRevision,
     ...(recovered.changeKind===undefined?{}:{changeKind:recovered.changeKind}),
     recipientStateDigest:recovered.originalRecipientStateDigest,
-    ciphertextDigest:recovery.verifiedAppliedAck.verifiedBody.contentDigest,
-    signedAppliedAckDigest:'sha256:'+recovery.verifiedAppliedAck.sha256,
+    ciphertextDigest:ackBody.contentDigest,
+    signedAppliedAckDigest:'sha256:'+ackSha256,
     previousHash,
   };
   if(!DIG(record.signedAppliedAckDigest))
@@ -350,16 +348,21 @@ export function createT4OriginalNetworkHostCursorPort({
     });
   }
   async function commitAcknowledgedCursor({recovery}={}){
+    return commitCursor(recovery,false);
+  }
+  async function commitHistoricallyConfirmedCursor({recovery}={}){
+    return commitCursor(recovery,true);
+  }
+  async function commitCursor(recovery,historical){
     if(!recovery||typeof recovery!=='object')
       fail('HOST_CURSOR_ACK_RECOVERY_PORTS_REQUIRED');
     const initial=await context();
     // Do not take a supplied "already verified" object as a grant: run
     // the complete P2.2-D recovery against original T3 again.
     await guard(initial,'t1.getObject','recovery-before-write');
-    const verified=await recoverT4OriginalNetworkSourceCursor({
-      ...recovery,getMode,
-    });
-    correctProof(verified,identity);
+    const recover=historical?recoverT4OriginalHistoricallyConfirmedSourceCursor:recoverT4OriginalNetworkSourceCursor;
+    const verified=await recover({...recovery,getMode});
+    correctProof(verified,identity,historical);
     const current=await readVerified(initial);
     const before=recovery.sourceCursorBefore;
     if(!validCursor(before,sourceWorkspaceId,originalWriteOwnerRef))
@@ -367,8 +370,9 @@ export function createT4OriginalNetworkHostCursorPort({
     // READ-ONLY original T3 prefix: an unauthorized network ACK cannot
     // bootstrap an arbitrary old frontier.
     await originalEventPrefix(verified.originalT3NextCursor,before);
-    const desired=recordFor(identity,verified,recovery,before,
-      current.chainHash);
+    const ackBody=historical?verified.historicalAck.body:recovery.verifiedAppliedAck.verifiedBody;
+    const ackSha256=historical?verified.historicalAck.sha256:recovery.verifiedAppliedAck.sha256;
+    const desired=recordFor(identity,verified,ackBody,ackSha256,before,current.chainHash,historical);
     if(current.last!==null){
       if(same(current.last.sourceCursorAfter,verified.originalT3NextCursor)&&
         same({...current.last,previousHash:genesis,chainHash:genesis},
@@ -378,6 +382,7 @@ export function createT4OriginalNetworkHostCursorPort({
           revision:current.revision,
           originalT3NextCursor:copy(current.last.sourceCursorAfter),
           signedOriginalRecipientAppliedVerified:true,
+          ...(historical?{originalHistoricalRecoveryUsed:true}:{}),
           originalT3PutObjectRetried:false,
           originalT3EventChainVerified:true,
         });
@@ -422,7 +427,9 @@ export function createT4OriginalNetworkHostCursorPort({
       });
     // Re-verify P2.2-D and the original T3 persisted Event chain.
     await guard(initial,'t1.getObject','postwrite-recovery');
-    await recoverT4OriginalNetworkSourceCursor({...recovery,getMode});
+    const recoveredAfter=await recover({...recovery,getMode});
+    if(historical&&!same(recoveredAfter,verified))fail('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{
+      originalCode:'ORIGINAL_ACK_PROOF_CHANGED',originalWriteMayHaveCommitted:true,automaticRetryAllowed:false});
     const readback=await readVerified(initial);
     if(readback.revision!==revision||!same(readback.last,desired))
       fail('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{
@@ -439,6 +446,7 @@ export function createT4OriginalNetworkHostCursorPort({
       originalT3EventChainVerified:true,
       cursorCommittedOnlyInOriginalT3:true,
       originalBusinessAppliedNotInferredFromACK:true,
+      ...(historical?{originalHistoricalRecoveryUsed:true}:{}),
     });
   }
   async function readNextOriginalSourceEvent({maxEvents=1}={}){
@@ -491,7 +499,7 @@ export function createT4OriginalNetworkHostCursorPort({
   return frozen({
     schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_PORT_V1',
     checkpointRef,
-    inspectOriginalHostCursor,commitAcknowledgedCursor,
+    inspectOriginalHostCursor,commitAcknowledgedCursor,commitHistoricallyConfirmedCursor,
     readNextOriginalSourceEvent,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkHostCursorPort({
       technicalSchemaId,

@@ -461,7 +461,9 @@ function historicalInput({wireBytes,localNodeRef,scopeRef,requiredCryptoSuite,
   direction,supportedCriticalExtensions=[]}={}){
   if(!['INBOUND','OUTBOUND'].includes(direction)||!ID(localNodeRef)||!ID(scopeRef)||
     !ID(requiredCryptoSuite))fail('WIRE_HISTORICAL_ROUTE_REQUIRED');
-  const frame=decodeT4CandidateFrame(wireBytes);
+  if(!(wireBytes instanceof Uint8Array))fail('WIRE_HISTORICAL_BYTES_REQUIRED');
+  const exact=new Uint8Array(wireBytes),frame=decodeT4CandidateFrame(exact);
+  const wireSha256=createHash('sha256').update(exact).digest('hex');
   if((direction==='INBOUND'?frame.recipientNodeRef:frame.sourceNodeRef)!==localNodeRef||
     frame.scopeRef!==scopeRef||frame.cryptoSuite!==requiredCryptoSuite)
     fail('WIRE_HISTORICAL_ROUTE_MISMATCH');
@@ -475,7 +477,7 @@ function historicalInput({wireBytes,localNodeRef,scopeRef,requiredCryptoSuite,
     scopeRef:frame.scopeRef,permissionRef:frame.permissionRef,ownerEpoch:frame.ownerEpoch,
     sessionRef:frame.sessionRef,sequence:frame.sequence,
     frameDigest:'sha256:'+createHash('sha256').update(raw).digest('hex')});
-  return {frame,proof,raw,signature:strictSignature(frame.signatureBase64),direction};
+  return {frame,proof,raw,signature:strictSignature(frame.signatureBase64),direction,wireSha256};
 }
 async function checkHistoricalSignature(p,verifyOriginalHistoricalNodeSignature){
   if(typeof verifyOriginalHistoricalNodeSignature!=='function')fail('WIRE_HISTORICAL_SIGNATURE_PORT_REQUIRED');
@@ -511,7 +513,10 @@ export async function verifyT4CandidateHistoricalReceivedFrame(options={}){
   const after=validate(await read(query));
   if(JSON.stringify(canonical(prior))!==JSON.stringify(canonical(after)))fail('WIRE_HISTORICAL_REPLAY_CHANGED');
   return Object.freeze({schema:'IWXA_T4_HISTORICAL_RECEIVED_FRAME_V1',
-    ...p.proof,historicalSignature,originalReplayCheckpointRef:prior.checkpointRef,
+    ...p.proof,historicalSignature,wireSha256:p.wireSha256,key:p.wireSha256+'.t4n',
+    messageType:p.frame.messageType,messageId:p.frame.messageId,cryptoSuite:p.frame.cryptoSuite,
+    body:structuredClone(p.frame.body),criticalExtensions:Object.freeze([...p.frame.criticalExtensions]),
+    originalReplayCheckpointRef:prior.checkpointRef,
     originalReplayEventId:prior.originalReplayEventId,originalHistoricalAcceptanceProven:true,
     originalReplayCheckpointCreated:false,originalHistoricalEvidenceOnly:true,
     liveNetworkAuthorityGranted:false,trustedSigningTimeProven:false,originalBusinessApplied:false});
