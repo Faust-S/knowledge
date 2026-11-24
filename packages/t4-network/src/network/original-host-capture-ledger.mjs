@@ -87,7 +87,8 @@ export function createT4OriginalHostCaptureLedgerPort({
     return {schema:SCHEMA,title:'Original T3 T4 '+role,...body,recordDigest:HASH(body)};
   }
   function eventPayload(data){return {captureRef:data.captureRef,role:data.role,
-    recordDigest:data.recordDigest,sourceWorkspaceId,originalWriteOwnerRef};}
+    recordDigest:data.recordDigest,kind:data.kind,sourceEventId:data.payload.sourceEventId??null,
+    sourceWorkspaceId,originalWriteOwnerRef};}
   async function events(initial,role,captureRef=null){
     await guard(initial,'t1.listEventsSince',role,captureRef);
     const value=await originalKernel.listEventsSince(technicalWorkspaceId);
@@ -100,7 +101,12 @@ export function createT4OriginalHostCaptureLedgerPort({
     await guard(initial,'t1.getObject',role,query.captureRef);
     const row=await originalKernel.getObject(technicalWorkspaceId,objectId);
     await guard(initial,'t1.getObject',role,query.captureRef);
-    if(row==null)return null;
+    if(row==null){
+      const all=knownEvents??await events(initial,role,query.captureRef);
+      if(all.some(e=>e?.workspace_id===technicalWorkspaceId&&e.object_id===objectId))
+        fail('CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING');
+      return null;
+    }
     const o=row.object,d=o?.data;
     if(o?.workspace_id!==technicalWorkspaceId||o.object_id!==objectId||
       o.schema_id!==T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID||o.schema_version!=='1.0.0'||
@@ -125,6 +131,11 @@ export function createT4OriginalHostCaptureLedgerPort({
     const data=record(role,payload),initial=await context();
     const query={workspaceId:sourceWorkspaceId,originalWriteOwnerRef,captureRef:data.captureRef};
     if(await read(role,query,initial)!==null)return false;
+    if(role==='outbox'){
+      const intent=await read('intent',query,initial);
+      if(!intent||kindOf(intent)!==data.kind||subjectOf(intent,data.kind)!==data.subjectId)
+        fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED');
+    }
     await guard(initial,'t1.putObject',role,data.captureRef);
     try{
       const receipt=await originalKernel.putObject({workspace_id:technicalWorkspaceId,
@@ -158,8 +169,18 @@ export function createT4OriginalHostCaptureLedgerPort({
       // not an in-memory list, unverified catalog data or network metadata.
       const witness=all.filter(e=>e?.object_id===row.object_id&&e.workspace_id===technicalWorkspaceId);
       const captureRef=witness[0]?.payload?.captureRef;
-      if(witness.length!==1||!ID(captureRef)||ref('outbox',captureRef)!==row.object_id)
+      const e=witness[0],p=e?.payload;
+      if(witness.length!==1||!ID(captureRef)||ref('outbox',captureRef)!==row.object_id||
+        e.revision!==1||e.event_type!==EVENT||!ID(e.event_id)||p.role!=='outbox'||
+        p.sourceWorkspaceId!==sourceWorkspaceId||p.originalWriteOwnerRef!==originalWriteOwnerRef||
+        !KINDS.includes(p.kind)||!ID(p.sourceEventId))
         fail('CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN');
+      // A native next-step always asks for an exact original source Event.
+      // Filter on its local immutable Event index, then prove the entire
+      // matching record and its digest. An absent match never advances
+      // the frontier; an unrelated later capture cannot substitute for it.
+      if(query.sourceEventId!==undefined&&p.sourceEventId!==query.sourceEventId)continue;
+      if(query.kindFilter!==undefined&&!query.kindFilter.includes(p.kind))continue;
       const payload=await read('outbox',{workspaceId:sourceWorkspaceId,originalWriteOwnerRef,captureRef},initial,all);
       if(!payload)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
       if((query.kindFilter===undefined||query.kindFilter.includes(kindOf(payload)))&&

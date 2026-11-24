@@ -49,11 +49,23 @@ test('K9 original technical CAS unknown reply requires cold read, not duplicate 
   assert.equal(await p.persistOriginalIntent(intent),false);assert.equal(f.writes,1);
 });
 test('K9 corrupt original Event, mismatching scope, and disabled original owner cannot expose or create captures',async()=>{
-  const f=fixture(),p=f.port();await p.persistOriginalOutbox(outbox);
-  f.events[0].payload.recordDigest='corrupt';
+  const f=fixture(),p=f.port();await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  f.events[1].payload.recordDigest='corrupt';
   await assert.rejects(p.readOriginalOutbox(query),{code:'CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN'});
   await assert.rejects(p.listOriginalOutbox({...scope,workspaceId:'foreign'}),{code:'CAPTURE_LEDGER_SCOPE_MISMATCH'});
   f.deny();await assert.rejects(p.persistOriginalIntent(intent),{code:'CAPTURE_LEDGER_ORIGINAL_AUTHORITY_DENIED'});
   f.disable();await assert.rejects(p.readOriginalOutbox(query),{code:'CAPTURE_LEDGER_NETWORK_MODE_OFF'});
+  assert.equal(f.writes,2);
+});
+
+test('K9 original capture cannot be reconstructed after missing Object and cannot stage Outbox without matching Intent',async()=>{
+  const f=fixture(),p=f.port();
+  await assert.rejects(p.persistOriginalOutbox(outbox),{code:'CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED'});
+  assert.equal(f.writes,0);
+  await p.persistOriginalIntent(intent);
+  const id=f.events[0].object_id;
+  f.objects.delete(id);
+  await assert.rejects(p.readOriginalIntent(query),{code:'CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING'});
+  await assert.rejects(p.persistOriginalIntent(intent),{code:'CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING'});
   assert.equal(f.writes,1);
 });
