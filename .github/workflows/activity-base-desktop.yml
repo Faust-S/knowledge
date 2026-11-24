@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - work/2026-11-10-activity-base-anonymizer
+      - work/2026-11-24-activity-0-4-domain-routes
       - work/2026-11-23-activity-0-3-freeze
       - release/0.3
       - work/2026-11-22-activity-v7-native
@@ -26,6 +27,7 @@ on:
       - tests/test_activity_desktop_contract.py
       - tests/test_activity_dashboard_layout.mjs
       - tests/test_activity_v7_ui.mjs
+      - tests/test_activity_d05_route_comparison.mjs
       - .github/workflows/activity-base-desktop.yml
   workflow_dispatch:
 permissions:
@@ -60,7 +62,7 @@ jobs:
             foreach ($issue in $errors) { Write-Host $issue.Message }
             throw 'WINDOWS_UI_WITNESS_SYNTAX_INVALID'
           }
-      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs
+      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
       - name: Typecheck and bundle Activity UI before any native Rust build
@@ -156,7 +158,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'SETUP_CORE_PIN_UNAVAILABLE' }
       - name: Package and qualify single-exe Setup Core installer
         shell: powershell
-        run: desktop/installer/build-setup-core.ps1 -SetupCoreRoot setup-core-source -Output artifacts/IWXA-Activity-0.3.0-Setup.exe -InstallForQualification
+        run: desktop/installer/build-setup-core.ps1 -SetupCoreRoot setup-core-source -Output artifacts/IWXA-Activity-0.4.0-dev.1-Setup.exe -InstallForQualification
       - name: Installed native window and synthetic first-use witness (no browser)
         shell: powershell
         run: desktop/tests/installed-windows-ui.ps1 -Executable "$env:LOCALAPPDATA\Programs\IWXA Activity\iwxa-activity-base-desktop.exe"
@@ -164,7 +166,7 @@ jobs:
         with:
           name: iwxa-activity-desktop-setup-windows
           path: |
-            artifacts/IWXA-Activity-0.3.0-Setup.exe
-            artifacts/IWXA-Activity-0.3.0-Setup.exe.sha256
+            artifacts/IWXA-Activity-0.4.0-dev.1-Setup.exe
+            artifacts/IWXA-Activity-0.4.0-dev.1-Setup.exe.sha256
           if-no-files-found: error
           retention-days: 7
