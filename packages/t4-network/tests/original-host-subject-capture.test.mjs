@@ -909,3 +909,42 @@ test('K16 existing original Host recovery step covers Asset, Relation and all th
     assert.equal((await cold.reconcileNextOriginalCapture({workspaceId:ws})).state,'NO_PENDING_ORIGINAL_CAPTURE');
   }
 });
+
+test('K18 Asset and Relation capture request workspace-wide exclusion before subject or technical writes',async()=>{
+  for(const [kind,method,input] of [['ASSET_PUT','putAsset',assetInput],['RELATION_PUT','putRelation',relationInput]]){
+    const f=fixture(),sourceCursor=await cursor(f);let inside=false,entries=0;
+    const host=createT4OriginalHostCaptureAdapter({...f.ports,
+      originalKernel:{...f.originalKernel,[method]:async value=>{
+        assert.equal(inside,true);return f.originalKernel[method](value);
+      }},
+      withOriginalSubjectMutation:async(proof,action)=>{
+        assert.equal(proof.kind,kind);assert.equal(proof.operation,'t1.'+method);
+        assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+        assert.equal(inside,false);inside=true;entries++;
+        try{return await action();}finally{inside=false;}
+      },
+      persistOriginalIntent:async value=>{assert.equal(inside,true);return f.ports.persistOriginalIntent(value);},
+      persistOriginalOutbox:async value=>{assert.equal(inside,true);return f.ports.persistOriginalOutbox(value);},
+      readOriginalOutbox:async value=>{assert.equal(inside,true);return f.ports.readOriginalOutbox(value);},
+    });
+    const result=await host[method]({mutationInput:input(),sourceCursor,captureRef:'capture:k18:'+kind});
+    assert.equal(result.capture.originalT3OutboxVerified,true);
+    assert.equal(inside,false);assert.equal(entries,1);assert.equal(f.writes.length,1);
+  }
+});
+test('K18 source Asset bytes are snapshotted before asynchronous Host admission',async()=>{
+  const f=fixture(),sourceCursor=await cursor(f),input=assetInput(),expected=Buffer.from(input.bytes);
+  const host=createT4OriginalHostCaptureAdapter({...f.ports,
+    withOriginalSubjectMutation:async(proof,action)=>{
+      input.bytes.fill(0);return action();
+    }});
+  await host.putAsset({mutationInput:input,sourceCursor,captureRef:'capture:k18:asset-snapshot'});
+  assert.deepEqual(Buffer.from(f.writes[0].input.bytes),expected);
+});
+test('K18 stale source cursor cannot create Asset or Relation Intent after another workspace mutation',async()=>{
+  const f=fixture(),host=adapter(f),before=await cursor(f);
+  await host.putAsset({mutationInput:assetInput(),sourceCursor:before,captureRef:'capture:k18:first'});
+  await assert.rejects(host.putRelation({mutationInput:relationInput(),sourceCursor:before,
+    captureRef:'capture:k18:stale-relation'}),err('ORIGINAL_HOST_CAPTURE_SOURCE_CURSOR_STALE'));
+  assert.equal(f.writes.length,1);assert.equal(f.intents.size,1);assert.equal(f.outbox.size,1);
+});

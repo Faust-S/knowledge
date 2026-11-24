@@ -1645,6 +1645,12 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       };
       const originalHostWithAckLoss=createT4OriginalHostCaptureAdapter({
         originalKernel:sourceWithAckLoss,
+        // This isolated qualification executes one original Host mutation at
+        // a time. Production cross-process serialization is a separate gate.
+        withOriginalSubjectMutation:async(proof,action)=>{
+          assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+          return action();
+        },
         originalWriteOwnerRef:'original:t2:exchange',
         getMode:()=> 'T4_NETWORK',
         authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
@@ -1766,6 +1772,12 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       };
       const subjectHost=createT4OriginalHostCaptureAdapter({
         originalKernel:subjectSourceKernel,
+        // This isolated qualification executes one original Host mutation at
+        // a time. Production cross-process serialization is a separate gate.
+        withOriginalSubjectMutation:async(proof,action)=>{
+          assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+          return action();
+        },
         originalWriteOwnerRef:'original:t2:exchange',
         getMode:()=> 'T4_NETWORK',
         authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),

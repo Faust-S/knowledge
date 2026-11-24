@@ -327,6 +327,10 @@ test('reserved trace field cannot be overwritten by source business data',async(
 function originalAdapter(f,getMode=()=> 'T4_NETWORK'){
  return createT4OriginalHostCaptureAdapter({
    ...f.ports,originalWriteOwnerRef:owner,getMode,
+   withOriginalSubjectMutation:async(proof,action)=>{
+     assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+     return action();
+   },
  });
 }
 test('optional original Host adapter leaves local T3 write and business event untouched with T4 disabled',async()=>{
@@ -694,4 +698,42 @@ test('K16 absent original Event, denied consent and ambiguous inventory never re
   assert.equal((await recoveryAdapter(f).reconcileNextOriginalCapture({workspaceId:ws})).state,
     'ORIGINAL_CAPTURE_RECONCILIATION_AMBIGUOUS');
   assert.equal(f.writes.length,1);assert.equal(f.outbox.size,0);
+});
+
+test('K18 Object capture holds the existing workspace mutation boundary through verified Outbox',async()=>{
+  const f=originalFixture();let inside=false,entries=0;
+  const current=await firstCursor(f);
+  const kernel={...f.ports.originalKernel,putObject:async input=>{
+    assert.equal(inside,true);return f.ports.originalKernel.putObject(input);
+  }};
+  const host=createT4OriginalHostCaptureAdapter({...f.ports,originalWriteOwnerRef:owner,
+    originalKernel:kernel,
+    withOriginalSubjectMutation:async(proof,action)=>{
+      assert.equal(proof.kind,'OBJECT_PUT');
+      assert.equal(proof.operation,'t1.putObject');
+      assert.equal(proof.workspaceId,ws);
+      assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+      assert.equal(inside,false);inside=true;entries++;
+      try{return await action();}finally{inside=false;}
+    },
+    persistOriginalIntent:async value=>{assert.equal(inside,true);return f.ports.persistOriginalIntent(value);},
+    persistOriginalOutbox:async value=>{assert.equal(inside,true);return f.ports.persistOriginalOutbox(value);},
+    readOriginalOutbox:async value=>{assert.equal(inside,true);return f.ports.readOriginalOutbox(value);},
+  });
+  const receipt=await host.putObject({mutationInput:mutation(1),sourceCursor:current,captureRef:'capture:k18:object'});
+  assert.equal(receipt.capture.originalT3OutboxVerified,true);
+  assert.equal(inside,false);assert.equal(entries,1);assert.equal(f.writes.length,1);
+});
+test('K18 stale Object capture position and missing original mutation boundary cannot create Intent or write',async()=>{
+  const f=originalFixture(),current=await firstCursor(f);
+  const unbound=createT4OriginalHostCaptureAdapter({...f.ports,originalWriteOwnerRef:owner,
+    withOriginalSubjectMutation:undefined});
+  await assert.rejects(unbound.putObject({mutationInput:mutation(1),sourceCursor:current,
+    captureRef:'capture:k18:unbound'}),code('ORIGINAL_HOST_CAPTURE_MUTATION_BOUNDARY_REQUIRED'));
+  assert.equal(f.writes.length,0);assert.equal(f.intents.size,0);
+  const host=originalAdapter(f);
+  await host.putObject({mutationInput:mutation(1),sourceCursor:current,captureRef:'capture:k18:first'});
+  await assert.rejects(host.putObject({mutationInput:mutation(2),sourceCursor:current,
+    captureRef:'capture:k18:stale'}),code('ORIGINAL_HOST_CAPTURE_SOURCE_CURSOR_STALE'));
+  assert.equal(f.writes.length,1);assert.equal(f.intents.size,1);assert.equal(f.outbox.size,1);
 });

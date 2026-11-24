@@ -1,4 +1,5 @@
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
+import {readT4OriginalEventWindow} from './original-event-window.mjs';
 import {runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
 import {captureT4OriginalObjectMutation} from './original-object-mutation-capture.mjs';
 import {reconcileT4OriginalMutationIntent} from './original-object-intent-recovery.mjs';
@@ -47,6 +48,38 @@ export function createT4OriginalHostCaptureAdapter({
         readOriginalOutbox].some(f=>typeof f!=='function'))
       fail('ORIGINAL_HOST_T4_CAPTURE_PORTS_REQUIRED');
   };
+  // Use the original Host's workspace-wide mutation executor, not a new
+  // T4 lock. Validate the capture position inside that boundary before
+  // creating an Intent or invoking the subject operation. The network ACK
+  // cursor is not a valid substitute for the current capture cursor.
+  async function serializePut(kind,operation,subjectId,{mutationInput,sourceCursor,captureRef},capture){
+    if(typeof withOriginalSubjectMutation!=='function')
+      fail('ORIGINAL_HOST_CAPTURE_MUTATION_BOUNDARY_REQUIRED');
+    const workspaceId=mutationInput.workspace_id;
+    if(sourceCursor?.schema!=='IWXA_T4_ORIGINAL_EVENT_CURSOR_V1'||
+      sourceCursor.workspaceId!==workspaceId||sourceCursor.originalWriteOwnerRef!==originalWriteOwnerRef)
+      fail('ORIGINAL_HOST_CAPTURE_SOURCE_CURSOR_REQUIRED');
+    // Snapshot before entering an asynchronous Host boundary. A caller
+    // retaining an Asset byte array cannot change the admitted operation.
+    const exact=structuredClone(mutationInput),cursor=structuredClone(sourceCursor);
+    const proof=Object.freeze({kind,operation,workspaceId,subjectId,captureRef,originalWriteOwnerRef,
+      originalHostMustSerializeSubjectMutations:true,
+      originalHostMustSerializeAllWorkspaceGraphMutations:true,
+      originalMutationRecoveryOnly:false,networkIsNotOriginalGrant:true});
+    const result=await runT4OriginalSubjectMutationBoundary(withOriginalSubjectMutation,proof,async()=>{
+      if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_CAPTURE_MODE_CHANGED');
+      const {window}=await readT4OriginalEventWindow({
+        workspaceId,originalWriteOwnerRef,cursor,maxEvents:1,
+        authorizeOriginalRead:guard=>authorizeOriginalRead({...proof,...guard}),
+        readOriginalEvents,
+      });
+      if(window.count!==0)fail('ORIGINAL_HOST_CAPTURE_SOURCE_CURSOR_STALE');
+      if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_CAPTURE_MODE_CHANGED');
+      return capture(exact,cursor);
+    });
+    if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_CAPTURE_MODE_CHANGED');
+    return result;
+  }
   async function deleteSubject(kind,{mutationInput,sourceCursor,captureRef,fromObjectId}={}){
     const operation=kind==='ASSET_DELETE'?'deleteAsset':kind==='OBJECT_DELETE'?'deleteObject':'deleteRelation';
     if(originalKernel.hasOperation('t1.'+operation)!==true||
@@ -223,10 +256,11 @@ export function createT4OriginalHostCaptureAdapter({
       if(!ID(captureRef)||!mutationInput||
         !ID(mutationInput.workspace_id)||!ID(mutationInput.object_id))
         fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
-      const captured=await captureT4OriginalObjectMutation({
-        ...hostCapturePorts(),workspaceId:mutationInput.workspace_id,
-        objectId:mutationInput.object_id,captureRef,sourceCursor,mutationInput,
-      });
+      const captured=await serializePut('OBJECT_PUT','t1.putObject',mutationInput.object_id,
+        {mutationInput,sourceCursor,captureRef},(exact,cursor)=>captureT4OriginalObjectMutation({
+          ...hostCapturePorts(),workspaceId:exact.workspace_id,
+          objectId:exact.object_id,captureRef,sourceCursor:cursor,mutationInput:exact,
+        }));
       mode();
       return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_PUT_RESULT_V1',
         t4Mode:'T4_NETWORK',originalReceipt:captured.originalT3Receipt,
@@ -251,11 +285,12 @@ export function createT4OriginalHostCaptureAdapter({
       if(!ID(captureRef)||!ID(mutationInput?.workspace_id)||
         !ID(mutationInput?.asset_id))
         fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
-      const capture=await captureT4OriginalHostSubjectMutation({
-        ...hostCapturePorts(),kind:'ASSET_PUT',
-        workspaceId:mutationInput.workspace_id,captureRef,sourceCursor,
-        mutationInput,
-      });
+      const capture=await serializePut('ASSET_PUT','t1.putAsset',mutationInput.asset_id,
+        {mutationInput,sourceCursor,captureRef},(exact,cursor)=>captureT4OriginalHostSubjectMutation({
+          ...hostCapturePorts(),kind:'ASSET_PUT',
+          workspaceId:exact.workspace_id,captureRef,sourceCursor:cursor,
+          mutationInput:exact,
+        }));
       mode();
       return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_PUT_RESULT_V1',
         subjectKind:'ASSET_PUT',t4Mode:'T4_NETWORK',capture,
@@ -281,11 +316,12 @@ export function createT4OriginalHostCaptureAdapter({
       if(!ID(captureRef)||!ID(mutationInput?.workspace_id)||
         !ID(mutationInput?.relation_id))
         fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
-      const capture=await captureT4OriginalHostSubjectMutation({
-        ...hostCapturePorts(),kind:'RELATION_PUT',
-        workspaceId:mutationInput.workspace_id,captureRef,sourceCursor,
-        mutationInput,
-      });
+      const capture=await serializePut('RELATION_PUT','t1.putRelation',mutationInput.relation_id,
+        {mutationInput,sourceCursor,captureRef},(exact,cursor)=>captureT4OriginalHostSubjectMutation({
+          ...hostCapturePorts(),kind:'RELATION_PUT',
+          workspaceId:exact.workspace_id,captureRef,sourceCursor:cursor,
+          mutationInput:exact,
+        }));
       mode();
       return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_PUT_RESULT_V1',
         subjectKind:'RELATION_PUT',t4Mode:'T4_NETWORK',capture,

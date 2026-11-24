@@ -469,7 +469,7 @@ function deletionScope(params,recoveryOnly=false){
   };
   const boundary={...proofContext(scope,deleteOp(kind)),
     originalHostMustSerializeSubjectMutations:true,
-    ...(kind==='OBJECT_DELETE'?{originalHostMustSerializeAllWorkspaceGraphMutations:true}:{}),
+    originalHostMustSerializeAllWorkspaceGraphMutations:true,
     networkIsNotOriginalGrant:true};
   return {scope,guard,boundary};
 }
