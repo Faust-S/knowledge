@@ -33,7 +33,7 @@ def _scaled(value):
     if isinstance(value, list):
         return [_scaled(x) for x in value]
     if isinstance(value, dict):
-        return {k: min(v * STRETCH, 10000) if k in CLOCKS and type(v) is int
+        return {k: min(v * STRETCH, 10000) if (k in CLOCKS or k.endswith(("_at", "_valid_until", "_expires_at"))) and type(v) is int
                 else _scaled(v) for k, v in value.items()}
     return value
 
@@ -260,8 +260,10 @@ def test_original_parallel_independent_order_uses_capacity_released_by_coproduct
     out = {k: mechanics(d) for k, d in docs.items()}
     assert docs == frozen
     for value in out.values():
-        assert all(value["works"][w]["result"] == ACCEPTED for w in ("w1", "w2", "w3"))
-        assert _trace(value, "request", OUTSIDE)["outcome"] == "APPLIED"
+        assert all(value["works"].get(w, {}).get("result") == ACCEPTED for w in ("w1", "w2", "w3")), [
+            (r["at"], r["action"], r.get("work"), r["reason"]) for r in value["trace"] if r["outcome"] == "BLOCKED"]
+        assert _trace(value, "request", OUTSIDE)["outcome"] == "APPLIED", [
+            (r["at"], r["action"], r.get("work"), r["reason"]) for r in value["trace"] if r["outcome"] == "BLOCKED"]
     assert out["coproduction"]["counts"]["blocked"] == 0, [
         (r["at"], r["action"], r["reason"]) for r in out["coproduction"]["trace"] if r["outcome"] == "BLOCKED"]
     assert out["coproduction"]["works"][OUTSIDE]["result"] == ACCEPTED
