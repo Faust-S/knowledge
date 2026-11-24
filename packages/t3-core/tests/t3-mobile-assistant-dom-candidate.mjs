@@ -36,7 +36,7 @@ for(const [i,c] of scenarios.entries()){
   const confirms=[];
   try{
     define("window",win);define("document",win.document);define("location",win.location);
-    define("navigator",nav);define("Option",win.Option);define("Event",win.Event);
+    define("navigator",nav);define("Option",win.Option);define("Event",win.Event);define("HTMLInputElement",win.HTMLInputElement);define("HTMLTextAreaElement",win.HTMLTextAreaElement);define("HTMLSelectElement",win.HTMLSelectElement);
     define("localStorage",win.localStorage);
     if(c.stored)win.localStorage.setItem("iwxa.t3.assistant.model-profile.v1",c.stored);
     define("isSecureContext",true);define("matchMedia",()=>({matches:c.mobile}));
@@ -94,6 +94,19 @@ for(const [i,c] of scenarios.entries()){
       at("form-check").click();
       assert(at("form-check-list").children.length===0&&at("form-check-status").textContent.includes("ошибок не найдено"),"ACTUAL_VALID_FORM");
       assert(invalid===0&&submits===0&&amount.value==="-1240"&&workers===0&&modelRequests===0,"FORM_GUIDANCE_NO_MODEL_OR_SAVE");
+      date.value="";amount.value="";
+      assert(!at("explicit-values").disabled,"EXPLICIT_FORM_AVAILABLE_WITHOUT_MODEL");
+      at("prompt").value="Заплатил за продукты 730 рублей 14.02.2028.";
+      at("explicit-values").click();
+      assert(at("preview").children.length===4,"EXPLICIT_FOUR_FACTS");
+      assert(date.value===""&&amount.value===""&&submits===0,"EXPLICIT_PREVIEW_NO_WRITE");
+      at("apply").click();
+      assert(date.value==="2028-02-14"&&amount.value==="-730"&&submits===0,"EXPLICIT_CONFIRM_NATIVE_FIELDS_NO_SAVE");
+      date.value="";amount.value="";
+      at("prompt").value="Сумма неизвестна, не помню дату.";
+      at("explicit-values").click();
+      assert(at("preview").children.length===0&&at("apply").hidden&&date.value===""&&amount.value===""&&submits===0,"UNKNOWN_NOT_INVENTED");
+      assert(workers===0&&modelRequests===0,"EXPLICIT_NO_MODEL");
     }
     at("model-settings").open=true;
     at("model-settings").dispatchEvent(new win.Event("toggle"));

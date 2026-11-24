@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: a777aa0129c7e40ae39d457fbe627f961f5cff43
+          ref: e7e6509e0cac2a5262e3d0cb3475a4d736b925b6
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -60,13 +60,32 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: f97f5a182ef87d4d93d7ddcb55936d3c35eae291
+          ref: 68184b3c499cd68534a27a0f1d2c3b4fd5c21ca9
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Exact canonical Club semantic owner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club
+          ref: fd7ec54ea5de9444bde156c1c5ee7954892a735d
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-club-owner
+      - name: Verify byte-identical original domain projection and owner tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp private-club-owner/models/assistant-skills.json private-club/assets/club-assistant-skills.json
+          node private-club/scripts/club-assistant-skills.mjs
+          if ! (cd private-club-owner && node --test tests/assistant-skills.test.mjs) > "$RUNNER_TEMP/private-owner-skills.log" 2>&1; then
+            echo T3_CLUB_OWNER_SKILLS_FAIL
+            exit 1
+          fi
+          echo T3_CLUB_OWNER_SKILLS_PASS
       - name: Original assistant field skill and profile tests
         shell: bash
         working-directory: private-bli/browser-local-inference
@@ -89,6 +108,7 @@ jobs:
           cp packages/t3-core/integration-sources/bli1/{catalog,engine,domain-model-install,storage,policy,cache-readiness,model-worker}.mjs "$stage/src/"
           cp packages/t3-core/tests/t3-mobile-assistant-dom-candidate.mjs "$stage/"
           cp packages/t3-core/tests/t3-prepare-domain-quality.mjs "$stage/"
+          cp packages/t3-core/tests/t3-explicit-facts-regression.mjs "$stage/"
           cd "$stage"
           npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund @mlc-ai/web-llm@0.2.87 jsdom@29.1.1
           set +e
@@ -104,12 +124,18 @@ jobs:
           fi
           grep -E '^T3_QUALITY_PROMPTS_PREPARED [0-9]+ forms [0-9]+$' "$RUNNER_TEMP/heldout-preparation.log"
           echo T3_MOBILE_HELDOUT_PROMPTS_ONLY_NOT_MODEL_QUALITY
+          if ! node t3-explicit-facts-regression.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" > "$RUNNER_TEMP/private-explicit-facts.log" 2>&1; then
+            echo T3_CLUB_EXPLICIT_FACTS_REGRESSION_FAIL
+            grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-facts.log" || true
+            exit 1
+          fi
+          grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-facts.log"
       - name: Remove private staged data and logs
         if: always()
         shell: bash
         run: |
           rm -rf "$RUNNER_TEMP/assistant-candidate" "$RUNNER_TEMP/private-mobile-source.log" "$RUNNER_TEMP/private-mobile-dom.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-preparation.log"
-          rm -rf private-bli private-club
+          rm -rf private-bli private-club private-club-owner "$RUNNER_TEMP/private-owner-skills.log" "$RUNNER_TEMP/private-explicit-facts.log"
   shared-host:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -119,7 +145,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: a777aa0129c7e40ae39d457fbe627f961f5cff43
+          ref: e7e6509e0cac2a5262e3d0cb3475a4d736b925b6
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -127,7 +153,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: f97f5a182ef87d4d93d7ddcb55936d3c35eae291
+          ref: 68184b3c499cd68534a27a0f1d2c3b4fd5c21ca9
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
