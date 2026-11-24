@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: 4b91c6dca7743754a143bddb74dd070230ea0a70
+          ref: a60b0a532aa566e143dc6c1dce5148e70e9fb005
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: owner
@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 1de7cab3ec3c228887b6886f74c7c92506094f9b
+          ref: 8a1a8137abd07d3c6ab70fba6f1130771bc47c60
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 4b91c6dca7743754a143bddb74dd070230ea0a70 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 4b91c6dca7743754a143bddb74dd070230ea0a70 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" a60b0a532aa566e143dc6c1dce5148e70e9fb005 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" a60b0a532aa566e143dc6c1dce5148e70e9fb005 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
             echo D02_OFFICIAL_SKILLS_IMPORT=FAIL
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/d02-import.private" | sort -u | head -20 || true
             exit 1
@@ -102,7 +102,7 @@ jobs:
           const a=source.indexOf('// BEGIN CLUB_CANONICAL_PERSONAL_ECONOMY'),b=source.indexOf('// END CLUB_CANONICAL_PERSONAL_ECONOMY',a);
           assert.ok(a>=0&&b>a);
           assert.equal(source.slice(source.indexOf('\n',a)+1,b).trim(),owner);
-          for(const name of ['personal-week-plan','today-overview','personal-cash-calendar','goal-portfolio','personal-evidence','evidence-portfolio']){
+          for(const name of ['personal-week-plan','today-overview','personal-cash-calendar','goal-portfolio','personal-evidence','evidence-portfolio','goal-lifecycle']){
             const canonical=readFileSync('../owner/logic/'+name+'.mjs','utf8').replaceAll("from './","from './club-");
             assert.equal(readFileSync('assets/club-'+name+'.mjs','utf8'),canonical);
           }

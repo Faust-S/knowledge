@@ -887,10 +887,66 @@ try{
    await form.locator("[data-club-proof-source]").isDisabled(),prefix+"_EXACT_LOCKED_SOURCE");
   const p=await localProof(),g=await localGoal();
   check(p?.objectId===proofId&&g?.objectId===goalId&&
-   p.data.personalEvidence.source.updatedAt===g.updatedAt&&p.kernelSource.workspaceId===g.kernelSource.workspaceId,prefix+"_EXACT_LINK_READBACK");
+   p.data.personalEvidence.source.updatedAt===goalRevision&&p.kernelSource.workspaceId===g.kernelSource.workspaceId,prefix+"_EXACT_LINK_READBACK");
+  if(g.updatedAt!==goalRevision){
+   const events=g.data.goalLifecycle?.events;
+   check(Array.isArray(events)&&events.length===3&&events[0].previousUpdatedAt===goalRevision&&events.at(-1).recordedAt===g.updatedAt,prefix+"_ORIGINAL_LIFECYCLE_CHAIN");
+  }
  }
  await restoreAssessment("ASSESSMENT_COLD");
  log("OFFLINE_GOAL_ASSESSMENT_EXACT_SOURCE_REOPEN");
+ async function changeGoalState(status,reason,reviewDate=null){
+  phase="OFFLINE_GOAL_LIFECYCLE_"+status.toUpperCase();
+  await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"&club_goal="+encodeURIComponent(goalId)+"#club-goal-map");
+  const form=page.locator("[data-club-goal-form]");
+  await form.locator("[data-club-goal-lifecycle]").waitFor({state:"visible"});
+  const before=await localGoal(),oldProof=await localProof();
+  check(before?.objectId===goalId&&before.kernelSource?.syncedUpdatedAt===before.updatedAt,"LIFECYCLE_PREVIOUS_RECEIPT");
+  await form.locator("[data-club-goal-life-state]").selectOption(status);
+  await form.locator("[data-club-goal-life-reason]").fill(reason);
+  if(reviewDate)await form.locator("[data-club-goal-life-review]").fill(reviewDate);
+  if(status==="completed"){
+   await form.locator("[data-club-goal-life-apply]").click();
+   check((await localGoal()).updatedAt===before.updatedAt,"LIFECYCLE_COMPLETION_NO_ACK_NO_WRITE");
+   await form.locator("[data-club-goal-life-ack]").check();
+  }
+  await form.locator("[data-club-goal-life-apply]").click();
+  await poll(async()=> (await localGoal())?.data?.goalLifecycle?.status===status,"LIFECYCLE_LOCAL_STATE");
+  const changed=await localGoal(),history=changed.data.goalLifecycle.events;
+  check(history.at(-1).previousUpdatedAt===before.updatedAt&&history.at(-1).recordedAt===changed.updatedAt&&changed.data.updatedAt===changed.updatedAt,"LIFECYCLE_EXACT_REVISION_CHAIN");
+  check(JSON.stringify(await localProof())===JSON.stringify(oldProof),"LIFECYCLE_DOES_NOT_REWRITE_PROOF");
+  await poll(async()=>(await page.locator("[data-club-goal-list]").textContent()).includes("По моей оценке: достигнута частично"),"LIFECYCLE_ASSESSMENT_STILL_APPLIES");
+  const saveLink=page.locator("[data-club-goal-list]").getByRole("link",{name:"Сохранить в IWXA",exact:true});
+  await saveLink.click();
+  const card=page.getByTestId("club-t0-import-card");
+  await card.getByTestId("club-t0-import-preview").waitFor({state:"visible"});
+  const scope=card.getByTestId("club-t0-import-workspace-choice").filter({visible:true});
+  await poll(async()=>await scope.count()===1,"LIFECYCLE_SCOPE_AVAILABLE");
+  check(await scope.getAttribute("data-workspace-id")===base.scope,"LIFECYCLE_EXACT_SCOPE");
+  if(await scope.getAttribute("aria-pressed")!=="true")await scope.click();
+  await poll(async()=>await scope.getAttribute("aria-pressed")==="true","LIFECYCLE_SCOPE_FOCUSED");
+  await card.getByLabel("Подтверждаю сохранение изменений. При конфликте прежняя запись останется без изменений.",{exact:true}).check();
+  const save=card.getByRole("button",{name:"Сохранить изменения",exact:true});
+  await poll(async()=>await save.isEnabled(),"LIFECYCLE_KERNEL_READY");
+  await save.click();
+  await poll(async()=>{const g=await localGoal();return g?.objectId===goalId&&g.kernelSource?.revision===before.kernelSource.revision+1&&g.kernelSource.syncedUpdatedAt===g.updatedAt&&g.data.goalLifecycle.status===status},"LIFECYCLE_KERNEL_RECEIPT");
+ }
+ await changeGoalState("deferred","Сначала завершить текущие обязательства",dates.future);
+ await changeGoalState("active","Появилось время для пересмотра результата");
+ await changeGoalState("completed","Завершаю работу с частично достигнутым результатом");
+ const lifecycleBeforeExport=(await localGoal()).data.goalLifecycle;
+ check(lifecycleBeforeExport.events.length===3&&lifecycleBeforeExport.events[2].assessment.proofId===proofId&&lifecycleBeforeExport.events[2].assessment.status==="partial","LIFECYCLE_THREE_HUMAN_DECISIONS");
+ log("OFFLINE_GOAL_LIFECYCLE_THREE_ORIGINAL_KERNEL_REVISIONS");
+ phase="OFFLINE_GOAL_LIFECYCLE_COLD";
+ await close();page=await launch("recipient");await context.setOffline(true);
+ await visit(page,"/workspace/");await openExisting(page);
+ const lifecycleCold=page.getByTestId("club-native-goals");
+ await poll(async()=>(await lifecycleCold.getByTestId("club-native-goal-lifecycle").textContent()).includes("Завершена"),"LIFECYCLE_COLD_STATE");
+ check((await lifecycleCold.getByTestId("club-native-goal-assessment").textContent()).includes("достигнута частично"),"LIFECYCLE_COLD_PARTIAL_ASSESSMENT");
+ check((await lifecycleCold.textContent()).includes("Записано времени по делам: 110 мин.")&&/Расходы: 17[\s\u00a0]000/.test(await lifecycleCold.textContent()),"LIFECYCLE_COLD_FACTS_PRESERVED");
+ await restoreAssessment("LIFECYCLE_COLD_RESTORE");
+ check(JSON.stringify((await localGoal()).data.goalLifecycle)===JSON.stringify(lifecycleBeforeExport),"LIFECYCLE_EXACT_COLD_HISTORY");
+ log("OFFLINE_GOAL_LIFECYCLE_COLD_READBACK");
  phase="OFFLINE_FULL_PERSONAL_EXPORT";
  await visit(page,"/workspace/exchange/#/home");
  await page.getByTestId("packages-tab-export").click();
@@ -958,6 +1014,10 @@ try{
  await poll(async()=>(await transferredGoal.getByTestId("club-native-goal-assessment").textContent()).includes("достигнута частично"),"ASSESSMENT_INDEPENDENT_NATIVE_READBACK");
  await restoreAssessment("ASSESSMENT_INDEPENDENT");
  log("INDEPENDENT_GOAL_ASSESSMENT_BASIS_IWXA_READBACK");
+ phase="INDEPENDENT_GOAL_LIFECYCLE_HISTORY";
+ check(JSON.stringify((await localGoal()).data.goalLifecycle)===JSON.stringify(lifecycleBeforeExport),"LIFECYCLE_INDEPENDENT_EXACT_HISTORY");
+ check((await localGoal()).data.goalLifecycle.status==="completed","LIFECYCLE_INDEPENDENT_COMPLETED");
+ log("INDEPENDENT_GOAL_LIFECYCLE_IWXA_READBACK");
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
 }catch(e){

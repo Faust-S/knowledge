@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 1de7cab3ec3c228887b6886f74c7c92506094f9b
+          ref: 8a1a8137abd07d3c6ab70fba6f1130771bc47c60
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: 4b91c6dca7743754a143bddb74dd070230ea0a70
+          ref: a60b0a532aa566e143dc6c1dce5148e70e9fb005
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: owner
@@ -79,7 +79,7 @@ jobs:
           fi
           grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/private-owner-fact.log"
           echo D02_T3_CANONICAL_FACT_AND_SKILLS=PASS
-          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 4b91c6dca7743754a143bddb74dd070230ea0a70 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 4b91c6dca7743754a143bddb74dd070230ea0a70 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/private-fact-import.log" 2>&1; then
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" a60b0a532aa566e143dc6c1dce5148e70e9fb005 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" a60b0a532aa566e143dc6c1dce5148e70e9fb005 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/private-fact-import.log" 2>&1; then
             echo D02_T3_OFFICIAL_FACT_SKILLS_IMPORT=FAIL
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/private-fact-import.log" | sort -u | head -20 || true
             exit 1
@@ -161,6 +161,7 @@ jobs:
           for suite in test:club-native-edit-route test:club-native-project-restoration test:club-native-restore-preselect test:club-profile-field-consistency test:club-native-profile-family test:club-personal-space-start test:club-hub test:club-native-today test:club-personal-economy test:club-assistant-skills test:club-personal-evidence test:club-goal-map test:club-evidence-portfolio; do
             if ! npm run "$suite" > "$RUNNER_TEMP/private-regression.log" 2>&1; then
               echo "D02_T3_PRESERVATION_SUITE=FAIL $suite"
+              grep -E '^not ok [0-9]+ - |^# (tests|pass|fail) ' "$RUNNER_TEMP/private-regression.log" | head -15 || true
               exit 1
             fi
             echo "D02_T3_PRESERVATION_SUITE=PASS $suite"
