@@ -43,7 +43,7 @@ jobs:
             Write-Host ("D06_FULL_" + $task.Replace(" ","_").Replace(":","_").ToUpperInvariant() + "=" + $(if ($passed) {"PASS"} else {"FAIL"}))
             if (-not $passed) {
               $body = Get-Content -LiteralPath $log -Raw
-              $stages = [regex]::Matches($body, '(?m)^>\s+[^\s@]+@[^\s]+\s+((?:check|test|build)(?::[a-z0-9.-]+)*)\s*
+              $stages = [regex]::Matches($body, '(?m)^>\s+\S+@\S+\s+((?:check|test|build)(?::[a-z0-9.-]+)*)\s*$')
               $names = @($stages | ForEach-Object { $_.Groups[1].Value })
               Write-Host ("D06_FULL_LAST_STAGES=" + (($names | Select-Object -Last 5) -join ","))
               foreach ($kind in @("TimeoutError","AssertionError","Test timeout","not ok","prettier/prettier","error TS")) {
@@ -63,25 +63,6 @@ jobs:
               foreach ($kind in @("strict mode violation","ECONNREFUSED","EADDRINUSE","ENOENT","ELIFECYCLE","No tests found","Immutability violated","exited with code","failed","did not match")) {
                 $count = ([regex]::Matches($body, [regex]::Escape($kind))).Count
                 if ($count) { Write-Host ("D06_FULL_EXTRA_CLASS=" + $kind + ":" + $count) }
-              }
-              exit 1
-            }
-          }
-      - name: Private-source boundary
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host "D06_PRIVATE_SOURCE_UPLOADS=0"
-          Write-Host "D06_PRIVATE_LOG_UPLOADS=0"
-          Write-Host "D06_PRIVATE_DIST_UPLOADS=0"
-)
-              $names = @($stages | ForEach-Object { $_.Groups[1].Value })
-              Write-Host ("D06_FULL_LAST_STAGES=" + (($names | Select-Object -Last 5) -join ","))
-              foreach ($kind in @("TimeoutError","AssertionError","Test timeout","not ok","prettier/prettier","error TS")) {
-                $count = ([regex]::Matches($body, [regex]::Escape($kind))).Count
-                if ($count -gt 0) {
-                  Write-Host ("D06_FULL_CLASS_" + $kind.Replace(" ","_").Replace("/","_").ToUpperInvariant() + "=" + $count)
-                }
               }
               exit 1
             }
