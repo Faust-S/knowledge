@@ -338,7 +338,7 @@ try{
  check(await restoredForm.locator('[name="alias"]').inputValue()===alias,"OFFLINE_UPDATE_NO_PREMATURE_FORM_WRITE");
  check((await localProfile())?.revision===base.revision&&(await localProfile())?.alias===alias,"OFFLINE_UPDATE_NO_PREMATURE_STORE_WRITE");
  phase="OFFLINE_UPDATE_REPLACEMENT_REVIEW";
- const replacement=at("preview").locator("li").filter({has:at("preview").getByRole("checkbox",{name:"Заменить: Как к вам обращаться",exact:true})});
+ const replacement=at("preview").locator("li").filter({has:page.getByRole("checkbox",{name:"Заменить: Как к вам обращаться",exact:true})});
  check(await replacement.count()===1,"OFFLINE_UPDATE_ONE_REPLACEMENT");
  const selection=replacement.getByRole("checkbox",{name:"Заменить: Как к вам обращаться",exact:true});
  check(!await selection.isChecked(),"OFFLINE_UPDATE_REPLACEMENT_REQUIRES_CHOICE");

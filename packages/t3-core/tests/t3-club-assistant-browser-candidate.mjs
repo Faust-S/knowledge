@@ -166,6 +166,14 @@ try{
    // model-generated replacement. Context is selected, previewed, then
    // explicitly included. No additional calculation or model starts.
    phase="EMPTY_RESULT_SHORTCUT";
+   // Native calendar handlers replace the initial HTML with other empty-state
+   // messages. Verify readiness, not a hard-coded placeholder string.
+   if(!await calendar.evaluate(e=>e.open))await calendar.locator(":scope > summary").click();
+   for(const marker of ["data-cash-payday-result","data-cash-calendar-summary","data-family-options-results"]){
+    const result=page.locator("["+marker+"]"),button=page.locator("["+marker+"] + button[data-iwxa-assistant-result-open]");
+    check(await result.getAttribute("data-iwxa-assistant-state")==="empty","INITIAL_DOMAIN_RESULT_NOT_READY");
+    check(await button.count()===1&&await button.isHidden(),"INITIAL_DOMAIN_RESULT_ACTION_HIDDEN");
+   }
    const output=page.locator("[data-pe-result]");
    const resultAction=page.locator("[data-pe-result] + button[data-iwxa-assistant-result-open]");
    check(await resultAction.getAttribute("aria-label")==="Разобрать результат: Расчёт личной экономики","RESULT_ACTION_ACCESSIBLE_NAME");
@@ -174,7 +182,7 @@ try{
    await form.getByRole("button",{name:"Рассчитать",exact:true}).click();
    await resultAction.waitFor({state:"visible"});
    const before=await output.innerText();
-   check(before.includes("Свободный остаток")&&before.includes("Базовый доход"),"REAL_CALCULATION_PRESENT");
+   check(before.includes("Свободный остаток")&&before.includes("Базовый доход")&&await output.getAttribute("data-iwxa-assistant-state")==="ready","REAL_CALCULATION_PRESENT");
    check(await page.evaluate(()=>window.__clubCandidateSubmits)===1,"ONE_NATIVE_CALCULATION");
    const oldPrompt=await at("prompt").inputValue();
    phase="RESULT_SWITCH_CANCEL";
