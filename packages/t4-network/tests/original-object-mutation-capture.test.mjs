@@ -577,6 +577,10 @@ test('native original Host task refuses to skip a missing, duplicate or unsuppor
   x.overrideRows([{...rows[0],schema:'IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1',
     kind:'ASSET_DELETE'},...rows.slice(1)]);
   await assert.rejects(x.newTask().prepareNative(),
+    code('DISPATCH_NATIVE_CAPTURE_CAUSAL_MISMATCH'));
+  x.overrideRows([{...rows[0],schema:'IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1',
+    kind:'OBJECT_DELETE'},...rows.slice(1)]);
+  await assert.rejects(x.newTask().prepareNative(),
     code('DISPATCH_NATIVE_NEXT_SUBJECT_KIND_NOT_IMPLEMENTED'));
   assert.equal(x.f.writes.length,3);
 });
