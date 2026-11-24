@@ -454,8 +454,65 @@ def current_material_generation(work: Any, batch_key: str) -> dict[str, Any] | N
     return None
 
 
+def _material_retry_snapshot(work: Any, ident: Any) -> dict[str, Any]:
+    """A failed delivery can be replaced, but an active or unknown custody cannot."""
+    old = work.assurance_corrections[-1] if work.assurance_corrections else None
+    _require(isinstance(ident, str) and old is not None
+             and old["terms"]["id"] == ident and old["status"] == "IN_PROGRESS"
+             and bool(old["terms"].get("material_revisions"))
+             and old["terms"]["rejected_result"] == work.result_ref
+             and work.result == "REJECTED" and work.execution == "IN_PROGRESS",
+             "QUALITY_CORRECTION_FAILED_MATERIAL_ATTEMPT_REQUIRED")
+    scope = old["terms"]["dependency_scope"]
+    _require(all(work.operation_states[key] in {"COMPLETED", "CORRECTION_PLANNED"}
+                 for key in scope["affected_operations"]),
+             "QUALITY_CORRECTION_RETRY_RUNNING_OPERATION")
+    handoffs = _handoff_snapshot(work, scope)
+    _require(all(h["state"] in {"NOT_DISPATCHED", "RECEIVED"} for h in handoffs),
+             "QUALITY_CORRECTION_RETRY_MATERIAL_IN_TRANSIT")
+    by_edge = {tuple(h["edge"]): h for h in handoffs}
+    failures = []
+    for batch in work.material_batches:
+        if batch.key not in scope["affected_material_batches"]:
+            continue
+        st = work.material_states[batch.key]
+        generation = current_material_generation(work, batch.key)
+        _require(generation is not None and generation["correction_id"] == ident,
+                 "QUALITY_CORRECTION_RETRY_GENERATION_MISMATCH")
+        h = by_edge[batch.edge]
+        if h["state"] == "NOT_DISPATCHED":
+            _require(h["evidence"] == {} and st == MaterialState(),
+                     "QUALITY_CORRECTION_RETRY_UNKNOWN_CUSTODY")
+            continue
+        _require(st.received is not None and st.accepted is not None
+                 and st.rejected is not None and st.accepted + st.rejected == st.received
+                 and st.receipt_ref == h["evidence"].get("receipt")
+                 and st.dispatch_ref == h["evidence"].get("dispatch")
+                 and st.quality_ref is not None
+                 and any(e["action"] == "handoff_quality" and e["edge"] == list(batch.edge)
+                         and e["source_ref"] == st.quality_ref for e in old["handoff_events"]),
+                 "QUALITY_CORRECTION_RETRY_ALL_RECEIVED_MATERIAL_ASSESSED_REQUIRED")
+        if st.accepted < batch.planned_quantity:
+            failures.append({"batch": batch.key, "quality_ref": st.quality_ref,
+                             "planned_quantity": str(batch.planned_quantity),
+                             "accepted_quantity": str(st.accepted),
+                             "rejected_quantity": str(st.rejected)})
+    _require(bool(failures), "QUALITY_CORRECTION_RETRY_NEGATIVE_MATERIAL_ASSESSMENT_REQUIRED")
+    return {
+        "id": ident,
+        "attempt_fingerprint": fingerprint(old),
+        "dependency_scope": deepcopy(scope),
+        "failed_batches": failures,
+        "operation_states": {key: work.operation_states[key] for key in scope["affected_operations"]},
+        "operation_evidence": {key: work.operation_evidence[key] for key in scope["affected_operations"]},
+        "handoffs": handoffs,
+        "materials": _material_snapshot(work, scope),
+    }
+
+
 def _material_revision_terms(state: Any, work: Any, event: Mapping[str, Any],
-                             scope: Mapping[str, Any], refs: dict, at: int) -> dict[str, Any]:
+                             scope: Mapping[str, Any], refs: dict, at: int,
+                             *, retry: bool = False) -> dict[str, Any]:
     _require(not scope["boundary_inputs"],
              "QUALITY_CORRECTION_BOUNDARY_INPUT_REPRODUCTION_REQUIRED")
     selected = scope["affected_material_batches"]
@@ -483,10 +540,13 @@ def _material_revision_terms(state: Any, work: Any, event: Mapping[str, Any],
         _require(all(work.wip_operation_active_resources.get(key, ops[key].primary_resource)
                      == ops[key].primary_resource for key in edge),
                  "QUALITY_CORRECTION_TRANSFERRED_HANDOFF_REDECISION_REQUIRED")
-        _require(row["state"] == "RECEIVED" and set(row["evidence"]) == {"dispatch", "receipt"},
-                 "QUALITY_CORRECTION_ORIGINAL_HANDOFF_EVIDENCE_REQUIRED")
-        prior_source(row["evidence"]["dispatch"], h.sender)
-        prior_source(row["evidence"]["receipt"], h.receiver)
+        if retry and row["state"] == "NOT_DISPATCHED":
+            _require(row["evidence"] == {}, "QUALITY_CORRECTION_RETRY_UNKNOWN_CUSTODY")
+        else:
+            _require(row["state"] == "RECEIVED" and set(row["evidence"]) == {"dispatch", "receipt"},
+                     "QUALITY_CORRECTION_ORIGINAL_HANDOFF_EVIDENCE_REQUIRED")
+            prior_source(row["evidence"]["dispatch"], h.sender)
+            prior_source(row["evidence"]["receipt"], h.receiver)
         owners.update((h.sender, h.receiver))
     batch_by_key = {b.key: b for b in work.material_batches}
     revisions = {}
@@ -501,22 +561,35 @@ def _material_revision_terms(state: Any, work: Any, event: Mapping[str, Any],
         batch = batch_by_key[key]
         h = handoffs[batch.edge]
         st = work.material_states[key]
-        _require(st.received == batch.planned_quantity and st.accepted == batch.planned_quantity
-                 and st.dispatch_ref is not None and st.receipt_ref is not None and st.quality_ref is not None
-                 and item["prior_receipt_ref"] == st.receipt_ref
-                 and item["prior_quality_ref"] == st.quality_ref,
-                 "QUALITY_CORRECTION_ORIGINAL_MATERIAL_CUSTODY_REQUIRED")
-        _require(item["disposition"] == "EXCLUDED_FROM_NEW_ATTEMPT",
+        unissued = retry and work.handoff_states[batch.edge] == "NOT_DISPATCHED"
+        if unissued:
+            _require(st == MaterialState() and item["prior_receipt_ref"] is None
+                     and item["prior_quality_ref"] is None,
+                     "QUALITY_CORRECTION_RETRY_UNKNOWN_CUSTODY")
+            disposition, disposition_owner = "NOT_DISPATCHED_GENERATION_CANCELLED", h.sender
+        else:
+            _require(st.received is not None and st.accepted is not None and st.rejected is not None
+                     and (retry or (st.received == batch.planned_quantity
+                                    and st.accepted == batch.planned_quantity))
+                     and st.dispatch_ref is not None and st.receipt_ref is not None and st.quality_ref is not None
+                     and item["prior_receipt_ref"] == st.receipt_ref
+                     and item["prior_quality_ref"] == st.quality_ref,
+                     "QUALITY_CORRECTION_ORIGINAL_MATERIAL_CUSTODY_REQUIRED")
+            disposition, disposition_owner = "EXCLUDED_FROM_NEW_ATTEMPT", h.receiver
+        _require(item["disposition"] == disposition,
                  "QUALITY_CORRECTION_PRIOR_MATERIAL_DISPOSITION_REQUIRED")
         generation = current_material_generation(work, key)
         prior_origin = generation["replacement_origin_ref"] if generation else batch.origin_ref
         for ref, owner in (
             (prior_origin, batch.origin_source_owner),
             (batch.quality_spec_ref, batch.quality_spec_owner),
-            (st.dispatch_ref, h.sender), (st.receipt_ref, h.receiver), (st.quality_ref, h.receiver),
         ):
             prior_source(ref, owner)
-        for ref, owner in ((item["disposition_ref"], h.receiver),
+        if not unissued:
+            for ref, owner in ((st.dispatch_ref, h.sender), (st.receipt_ref, h.receiver),
+                               (st.quality_ref, h.receiver)):
+                prior_source(ref, owner)
+        for ref, owner in ((item["disposition_ref"], disposition_owner),
                            (item["replacement_origin_ref"], batch.origin_source_owner)):
             info = _fresh_source(state, work, ref, owner, at)
             _require(ref not in refs and ref not in prior,
@@ -527,7 +600,9 @@ def _material_revision_terms(state: Any, work: Any, event: Mapping[str, Any],
             **item, "prior_generation": generation["correction_id"] if generation else "ORIGINAL",
             "prior_origin_ref": prior_origin, "original_origin_ref": batch.origin_ref,
             "quality_spec_ref": batch.quality_spec_ref, "planned_quantity": str(batch.planned_quantity),
-            "prior_holder": h.receiver, "declared_title_holder": batch.declared_title_holder,
+            "prior_holder": None if unissued else h.receiver,
+            "disposition_source_owner": disposition_owner,
+            "declared_title_holder": batch.declared_title_holder,
             "replacement_origin_owner": batch.origin_source_owner,
             "no_title_or_payment_inferred": True,
         }
@@ -683,10 +758,14 @@ def _plan_ready(state: Any, work: Any, doc: Mapping[str, Any]) -> None:
 
 
 def _new_dependent_plan(state: Any, work: Any, event: Mapping[str, Any],
-                        at: int, refs: dict, expires: int) -> dict[str, Any]:
+                        at: int, refs: dict, expires: int,
+                        *, retry_snapshot: Mapping[str, Any] | None = None) -> dict[str, Any]:
     expand = event.get("quality_correction_expand_inputs", False)
     _require(type(expand) is bool, "QUALITY_CORRECTION_INPUT_EXPANSION_FLAG_INVALID")
     scope = quality_dependency_scope(work, expand_inputs=expand)
+    if retry_snapshot is not None:
+        _require(scope == retry_snapshot["dependency_scope"],
+                 "QUALITY_CORRECTION_RETRY_EXACT_PREVIOUS_SCOPE_REQUIRED")
     _require(not scope["boundary_inputs"],
              "QUALITY_CORRECTION_BOUNDARY_INPUT_REPRODUCTION_REQUIRED")
     raw = event.get("quality_correction_plan")
@@ -701,7 +780,8 @@ def _new_dependent_plan(state: Any, work: Any, event: Mapping[str, Any],
         _require(isinstance(key, str) and key in scope["affected_operations"]
                  and key not in plan_by_op, "QUALITY_CORRECTION_EXACT_DEPENDENCY_CLOSURE_REQUIRED")
         op, resource, owner, units = _operation_resource(state, work, key)
-        _require(work.operation_states[key] == "COMPLETED" and key in work.operation_evidence
+        allowed_states = {"COMPLETED", "CORRECTION_PLANNED"} if retry_snapshot is not None else {"COMPLETED"}
+        _require(work.operation_states[key] in allowed_states and key in work.operation_evidence
                  and owner != work.customer, "QUALITY_CORRECTION_COMPLETED_INDEPENDENT_OPERATION_REQUIRED")
         start, end = item["slot_start"], item["slot_end"]
         _require(type(start) is int and type(end) is int and at < expires <= start < end,
@@ -730,10 +810,12 @@ def _new_dependent_plan(state: Any, work: Any, event: Mapping[str, Any],
         _require(_fmt(_money(event["quality_correction_cost"],
                              "QUALITY_CORRECTION_ADDITIONAL_COST_REQUIRED", positive=True)) == total,
                  "QUALITY_CORRECTION_PLAN_TOTAL_MISMATCH")
-    materials = _material_revision_terms(state, work, event, scope, refs, at)
+    materials = _material_revision_terms(state, work, event, scope, refs, at,
+                                         retry=retry_snapshot is not None)
     return {
         "scope": "DEPENDENT_ORIGINAL_OPERATIONS_CORRECTION",
         "dependency_scope": scope, "plan": plan, "cost_claim": total, **materials,
+        **({"material_retry": deepcopy(retry_snapshot)} if retry_snapshot is not None else {}),
         "unaffected_evidence": {key: work.operation_evidence[key]
                                 for key in scope["unaffected_operations"]},
     }
@@ -823,6 +905,13 @@ def _proposal_current(state: Any, work: Any, row: Mapping[str, Any], at: int) ->
                      work.operation_evidence.get(key) == ref
                      for key, ref in doc["unaffected_evidence"].items()),
                  "QUALITY_CORRECTION_UNAFFECTED_OPERATION_CHANGED")
+        if row["status"] == "PROPOSED" and "material_retry" in doc:
+            retry = doc["material_retry"]
+            _require(_material_retry_snapshot(work, retry["id"]) == retry,
+                     "QUALITY_CORRECTION_FAILED_ATTEMPT_CHANGED_AFTER_CONSENT")
+            old = work.assurance_corrections[-1]
+            _proposal_current(state, work, old, at)
+            _check_approval(old)
         if row["status"] == "PROPOSED" and "handoffs_before" in doc:
             _require(_handoff_snapshot(work, doc["dependency_scope"]) == doc["handoffs_before"] and
                      _material_snapshot(work, doc["dependency_scope"]) == doc["materials_before"],
@@ -880,11 +969,21 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
     _require(isinstance(ident, str) and 0 < len(ident) <= 128,
              "QUALITY_CORRECTION_ID_REQUIRED")
     if action == "quality_correction_propose":
-        _require(actor == work.customer and work.assurance_correction_proposal is None
-                 and work.execution == "DONE_WITH_EVIDENCE"
-                 and not any(r["status"] in {"APPROVED", "IN_PROGRESS", "COMPLETED"}
-                             for r in work.assurance_corrections),
+        retry_snapshot = None
+        _require(actor == work.customer and work.assurance_correction_proposal is None,
                  "QUALITY_CORRECTION_ORIGINAL_CUSTOMER_AND_NO_OPEN_ATTEMPT_REQUIRED")
+        if "quality_correction_retry_of" in event:
+            retry_snapshot = _material_retry_snapshot(work, event["quality_correction_retry_of"])
+            old = work.assurance_corrections[-1]
+            _proposal_current(state, work, old, at)
+            _check_approval(old)
+            _require("quality_correction_plan" in event,
+                     "QUALITY_CORRECTION_DEPENDENCY_PLAN_REQUIRED")
+        else:
+            _require(work.execution == "DONE_WITH_EVIDENCE"
+                     and not any(r["status"] in {"APPROVED", "IN_PROGRESS", "COMPLETED"}
+                                 for r in work.assurance_corrections),
+                     "QUALITY_CORRECTION_ORIGINAL_CUSTOMER_AND_NO_OPEN_ATTEMPT_REQUIRED")
         _require(not any(r["terms"]["id"] == ident for w in state.works.values()
                          for r in [*w.assurance_corrections,
                                    *([w.assurance_correction_proposal]
@@ -904,7 +1003,8 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
         source = event.get("quality_correction_source_ref")
         refs = {source: _fresh_source(state, work, source, work.customer, at)}
         if "quality_correction_plan" in event:
-            scoped = _new_dependent_plan(state, work, event, at, refs, expires)
+            scoped = _new_dependent_plan(state, work, event, at, refs, expires,
+                                         retry_snapshot=retry_snapshot)
         else:
             _require("quality_correction_expand_inputs" not in event and
                      "quality_correction_material_revisions" not in event,
@@ -994,11 +1094,14 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
         row["used_refs"][source] = info
         row["votes"][actor] = {"decision": decision, "source_ref": source, "at": at}
     elif action == "quality_correction_apply":
+        retry = doc.get("material_retry")
+        expected_states = retry["operation_states"] if retry is not None else {
+            part["operation"]: "COMPLETED" for part in _plan_parts(doc)}
         _require(actor == work.customer and row["status"] == "PROPOSED"
                  and row["created_at"] < at <= doc["expires"]
                  and all(v["at"] < at for v in row["votes"].values())
-                 and work.execution == "DONE_WITH_EVIDENCE"
-                 and all(work.operation_states[part["operation"]] == "COMPLETED" and
+                 and work.execution == ("IN_PROGRESS" if retry is not None else "DONE_WITH_EVIDENCE")
+                 and all(work.operation_states[part["operation"]] == expected_states[part["operation"]] and
                          work.operation_evidence[part["operation"]] == part["original_operation_evidence"]
                          for part in _plan_parts(doc)),
                  "QUALITY_CORRECTION_APPLY_STATE_INVALID")
@@ -1011,6 +1114,12 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
         row["used_refs"][source] = info
         row["status"] = "APPROVED"
         row["applied_at"] = at
+        if retry is not None:
+            old = work.assurance_corrections[-1]
+            old["status"] = "SUPERSEDED_BY_MATERIAL_RETRY"
+            old["superseded_at"] = at
+            old["superseded_by"] = doc["id"]
+            old["failed_material_snapshot"] = deepcopy(retry)
         work.assurance_corrections.append(row)
         work.assurance_correction_proposal = None
         if "plan" in doc:
@@ -1093,6 +1202,8 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
                 if action in {"quality_correction_start", "quality_correction_complete"} else None),
             **({"quality_correction_operation": operation} if "plan" in doc and
                action in {"quality_correction_start", "quality_correction_complete"} else {}),
+            **({"quality_correction_retry_of": doc["material_retry"]["id"]}
+               if "material_retry" in doc else {}),
             "original_work_not_replaced": True}
 
 
