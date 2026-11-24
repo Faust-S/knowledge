@@ -490,6 +490,9 @@ async function offlineNativeFixture(){
     inspectOriginalHostCursor:async()=>({
       schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_STATUS_V1',
       checkpointRef:'checkpoint:native:one',revision,
+      sourceWorkspaceId:ws,originalWriteOwnerRef:owner,
+      sourceNodeRef:'node:source',recipientNodeRef:'node:recipient',
+      scopeRef:'scope:native',ownerEpoch:2,
       chainHash:'sha256:'+String(revision).repeat(64),
       originalT3NextCursor:structuredClone(frontier),
       originalT3EventChainVerified:true,
@@ -617,4 +620,15 @@ test('native task preparation respects LOCAL_T3 and revoked Host authority witho
   await assert.rejects(y.newTask().prepareNative(),
     code('HOST_TASK_ORIGINAL_AUTHORITY_DENIED'));
   assert.equal(y.reads,0);
+});
+
+test('native task cannot use another recipient original ACK frontier',async()=>{
+  const x=await offlineNativeFixture();
+  const original=x.ports.originalNativeCursorPort.inspectOriginalHostCursor;
+  x.ports.originalNativeCursorPort.inspectOriginalHostCursor=async()=>({
+    ...await original(),recipientNodeRef:'node:other',
+  });
+  await assert.rejects(x.newTask().prepareNative(),
+    code('DISPATCH_NATIVE_ORIGINAL_FRONTIER_INVALID'));
+  assert.equal(x.reads,0);
 });

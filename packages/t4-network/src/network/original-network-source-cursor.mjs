@@ -177,6 +177,9 @@ export async function recoverT4OriginalNetworkSourceCursor({
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_NETWORK_ACKNOWLEDGED_CURSOR_V1',
     state:'SOURCE_ACK_CONFIRMED_NEXT_CURSOR_RECOVERED',
+    sourceNodeRef:first.sourceNodeRef,recipientNodeRef:first.recipientNodeRef,
+    scopeRef:first.scopeRef,ownerEpoch:first.ownerEpoch,
+    sessionRef:first.sessionRef,changeId:first.changeId,
     sourceEventId:proof.originalSourceEventId,
     sourceEventDigest:proof.originalEventDigest,
     sourcePrefixDigestAfter:proof.sourcePrefixDigestAfter,

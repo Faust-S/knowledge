@@ -295,6 +295,12 @@ async function prepareNextNativeObject(params){
   if(status?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_STATUS_V1'||
     status.originalT3EventChainVerified!==true||
     status.originalT3TechnicalWorkspaceOnly!==true||
+    status.sourceWorkspaceId!==params.workspaceId||
+    status.originalWriteOwnerRef!==params.originalWriteOwnerRef||
+    status.recipientNodeRef!==params.networkTargetRef||
+    !ID(status.sourceNodeRef)||status.sourceNodeRef===status.recipientNodeRef||
+    !ID(status.scopeRef)||!Number.isSafeInteger(status.ownerEpoch)||
+    status.ownerEpoch<1||
     !ID(status.checkpointRef)||!HASH(status.chainHash)||
     !Number.isSafeInteger(status.revision)||status.revision<1||
     !validCursor(status.originalT3NextCursor,params.workspaceId,
@@ -350,6 +356,10 @@ async function prepareNextNativeObject(params){
     !matchesT4OriginalCapturedWindowDigest(w,w.windowDigest))
     fail('DISPATCH_NATIVE_NEXT_EVENT_INVALID');
   await allowed(params,'native-outbox-list');
+  if(await params.authorizeOriginalRead(
+    rights(params,'t1.listObjects','native-outbox-list'))!==true)
+    fail('DISPATCH_NATIVE_ORIGINAL_OUTBOX_LIST_DENIED');
+  mode(params);
   const rows=await params.listOriginalOutbox(Object.freeze({
     workspaceId:params.workspaceId,
     originalWriteOwnerRef:params.originalWriteOwnerRef,

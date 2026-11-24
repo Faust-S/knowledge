@@ -148,7 +148,9 @@ async function fixture(){
   return {
     sourceEvents,technicalEvents,objects,phase,ack,change,recovery,
     originalKernel:kernel,before,latest,
-    port:()=>createT4OriginalNetworkHostCursorPort(originalPorts),
+    port:(overrides={})=>createT4OriginalNetworkHostCursorPort({
+      ...originalPorts,...overrides,
+    }),
     get puts(){return puts;},
     deny:()=>{allow=false;},local:()=>{network=false;},
     loseNextReply:()=>{lostAck=true;},
@@ -274,5 +276,17 @@ test('lost or malformed ORIGINAL T3 Host receipt does not permit second CAS writ
     recovery:f.recovery,
   });
   assert.equal(verified.state,'ALREADY_COMMITTED');
+  assert.equal(f.puts,1);
+});
+
+test('original Host native ACK frontier is bound to the intended peer, not any other recipient',async()=>{
+  const f=await fixture();
+  const other=f.port({recipientNodeRef:'node:other'});
+  await assert.rejects(other.commitAcknowledgedCursor({
+    recovery:f.recovery,
+  }),error('HOST_CURSOR_ORIGINAL_ACK_PROOF_INVALID'));
+  assert.equal(f.puts,0);
+  const exact=await f.port().commitAcknowledgedCursor({recovery:f.recovery});
+  assert.equal(exact.state,'ORIGINAL_T3_CAS_COMMITTED');
   assert.equal(f.puts,1);
 });

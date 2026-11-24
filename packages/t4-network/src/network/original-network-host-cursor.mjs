@@ -39,6 +39,11 @@ const head=(identity,record)=>HASH({identity,record});
 function correctProof(recovered,identity){
   if(recovered?.schema!=='IWXA_T4_ORIGINAL_NETWORK_ACKNOWLEDGED_CURSOR_V1'||
     recovered.state!=='SOURCE_ACK_CONFIRMED_NEXT_CURSOR_RECOVERED'||
+    recovered.sourceNodeRef!==identity.sourceNodeRef||
+    recovered.recipientNodeRef!==identity.recipientNodeRef||
+    recovered.scopeRef!==identity.scopeRef||
+    recovered.ownerEpoch!==identity.ownerEpoch||
+    !ID(recovered.sessionRef)||!ID(recovered.changeId)||
     recovered.signedAppliedAckVerified!==true||
     recovered.recipientOriginalResultReadbackBySourcePhase!==true||
     recovered.sourceOriginalEventPrefixReadback!==true||
@@ -63,7 +68,7 @@ function recordFor(identity,recovered,recovery,previousCursor,previousHash){
   correctProof(recovered,identity);
   if(!validCursor(previousCursor,identity.sourceWorkspaceId,
     identity.originalWriteOwnerRef)||
-    !ID(recovery?.verifiedAppliedAck?.verifiedBody?.changeId)||
+    recovery?.verifiedAppliedAck?.verifiedBody?.changeId!==recovered.changeId||
     !DIG(recovery?.verifiedAppliedAck?.verifiedBody?.contentDigest)||
     !DIG(recovery?.verifiedAppliedAck?.verifiedBody?.recipientStateDigest)||
     recovery.verifiedAppliedAck.verifiedBody.recipientEventRef!==
@@ -255,6 +260,8 @@ export function createT4OriginalNetworkHostCursorPort({
     return frozen({
       schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_STATUS_V1',
       checkpointRef,revision:found.revision,
+      sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
+      scopeRef,ownerEpoch,
       originalT3NextCursor:copy(found.last?.sourceCursorAfter??null),
       lastAcknowledgedChangeId:found.last?.changeId??null,
       lastSourceEventId:found.last?.sourceEventId??null,
