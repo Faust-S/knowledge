@@ -117,6 +117,26 @@ public static class IwxaActivityWin32 {
     if (![IwxaActivityWin32]::MoveWindow($window.Process.MainWindowHandle, 15, 15, 1280, 860, $true)) {
         throw 'INSTALLED_ACTIVITY_V7_RESTORE_RESIZE_FAILED'
     }
+    # A4.1: installed comparison of reproducible D05 route models.
+    $reconstruct = Find-Accessible $window.Root 'Реконструкция' 10
+    if (!$reconstruct) { throw 'INSTALLED_ACTIVITY_A41_RECONSTRUCTION_NAV_MISSING' }
+    $reconstruct.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $routes = Find-Accessible $window.Root 'Группировка маршрутов' 10
+    if (!$routes) { throw 'INSTALLED_ACTIVITY_A41_ROUTE_NAV_MISSING' }
+    $routes.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $example = Find-Accessible $window.Root 'Открыть пример маршрутов CehoVod' 10
+    if (!$example) { throw 'INSTALLED_ACTIVITY_A41_EXAMPLE_MISSING' }
+    $example.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (!(Find-Accessible $window.Root 'Моделей: 3 · Групп: 2 · Повторяющихся групп: 1' 10)) {
+        throw 'INSTALLED_ACTIVITY_A41_GROUP_RESULT_MISSING'
+    }
+    if (!(Find-Accessible $window.Root 'Группы структурных кандидатов' 10)) {
+        throw 'INSTALLED_ACTIVITY_A41_GROUP_CARD_MISSING'
+    }
+    $clearRoutes = Find-Accessible $window.Root 'Очистить выборку' 10
+    if (!$clearRoutes) { throw 'INSTALLED_ACTIVITY_A41_CLEAR_MISSING' }
+    $clearRoutes.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Write-Host 'IWXA_ACTIVITY_A41_NATIVE_ROUTE_GROUPING_PASS models=3 groups=2 repeated=1'
     $sourcePage = Find-Accessible $window.Root 'Источники'
     if (!$sourcePage) { throw 'INSTALLED_ACTIVITY_V7_SOURCE_NAV_MISSING' }
     $sourcePage.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
