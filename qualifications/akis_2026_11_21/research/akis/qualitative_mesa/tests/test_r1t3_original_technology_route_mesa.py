@@ -648,3 +648,212 @@ def test_qualified_market_scope_does_not_imply_recipient_quality_or_new_revenue(
     assert all(row["status"] == "COOPERATIVE_PLAN_EXPANDS_DECLARED_FEASIBLE_ORDER_SET" for row in _market_reviews(out))
     assert out["works"]["w3"]["result"] == "SUBMITTED"
     assert out["profit"]["system_increment"] == "UNKNOWN"
+
+
+def original_market_order_finance_case(*, alternate=None, incomplete=False,
+                                      fee="100.00", c_opening="400.00",
+                                      observed="14", missing_owner=False,
+                                      failed_quality=False):
+    """Attach complete owner declarations to SAME W1/W2/W3 and ledger."""
+    from .test_r1p_r3_executed_route_economics_mesa import add_original_recipient_value
+
+    d = original_market_complementarity_case(alternate=alternate, incomplete=incomplete)
+    owners = ("a", "b", "c", "op")
+    accepted_at = next(e["at"] for e in d["events"] if e.get("work") == "w3" and e["action"] == "accept")
+    d["model_horizon"] = max(d["model_horizon"], accepted_at + 5)
+    horizon = d["model_horizon"]
+    d["strict_economic_source_works"] = ["w1", "w2", "w3"]
+    coverage = {owner: f"market-terms-{owner}" for owner in owners}
+    money = d["economic_claims"] = {
+        "period": "THREE_ORIGINAL_MARKET_ORDER_PERIODS", "currency": "RUB",
+        "sources": [], "transfers": [], "resource_uses": [],
+        "coverage": {"COOPERATION": coverage, "INDEPENDENT_ALTERNATIVE": {}},
+        "outside_feasibility": {},
+        "cash_timing": {"horizon_end": horizon, "owner_positions": [], "transfer_windows": []},
+        "lifecycle_costs": {"bindings": [], "scope_proofs": {"COOPERATION": deepcopy(coverage),
+                            "INDEPENDENT_ALTERNATIVE": {}}, "event_bindings": []},
+        "work_payment_conditions": [], "work_payment_settlement_claims": [],
+    }
+    life = money["lifecycle_costs"]
+
+    def evidence(owner, name, *, declare=False, start=0):
+        ref = f"model://{owner}/{name}"
+        d["context_evidence"]["sources"].append({
+            "id": ref, "owner": owner, "revision": "market-finance-v1",
+            "status": "CONFIRMED", "usable_by": [owner],
+            "core": "operator" if owner == "op" else "corporate",
+            "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"], "operations": ["READ"],
+            "valid_from": start, "valid_until": max(190, horizon+1),
+        })
+        if declare:
+            money["sources"].append({"id": name, "owner": owner, "reference": ref,
+                                     "revision": "market-finance-v1"})
+        return ref
+
+    for owner, opening, reserve in (
+            ("a", "800.00", "100.00"), ("b", "2500.00", "100.00"),
+            ("c", c_opening, "100.00"), ("op", "100.00", "30.00")):
+        evidence(owner, coverage[owner], declare=True)
+        money["cash_timing"]["owner_positions"].append({
+            "owner": owner, "source": coverage[owner], "opening_cash": opening,
+            "reserve_cash": reserve,
+        })
+
+    def transfer(work, name, payer, payee, amount, condition, at):
+        ident = f"{work}-market-{name}"
+        parties = {payer, payee} - {"EXTERNAL"}
+        witnesses = {owner: coverage[owner] for owner in sorted(parties)}
+        money["transfers"].append({"id": ident, "scenario": "COOPERATION", "payer": payer,
+            "payee": payee, "amount": amount, "source": coverage[payer], "work": work})
+        money["cash_timing"]["transfer_windows"].append({"transfer_id": ident,
+            "at": at, "late_at": at, "owner_sources": deepcopy(witnesses)})
+        money["work_payment_conditions"].append({"transfer_id": ident, "condition": condition,
+            "due_at": at+1, "work_source_revision": f"d-{work[-1]}",
+            "org_revision": "oc-1", "owner_sources": deepcopy(witnesses)})
+        if payee != "EXTERNAL" and condition == "ON_CUSTOMER_ACCEPTANCE" and not (failed_quality and work == "w3"):
+            refs = {owner: evidence(owner, f"{ident}-receipt") for owner in sorted(parties)}
+            money["work_payment_settlement_claims"].append({
+                "id": f"{ident}-settlement", "transfer_id": ident, "at": at, "amount": amount,
+                "owner_sources": deepcopy(witnesses), "evidence_refs": refs,
+                "evidence_revisions": {owner: "market-finance-v1" for owner in parties},
+                "owner_attestations": {owner: {"reported_at": at, "reported_amount": amount}
+                                       for owner in parties},
+            })
+
+    def cost(work, name, owner, amount, action, bucket, nature):
+        ident = f"{work}-market-{name}"
+        pos, event = next((i, e) for i, e in enumerate(d["events"])
+                          if e.get("work") == work and e["action"] == action and e["actor"] == owner)
+        ref = evidence(owner, f"{ident}-cost")
+        money["resource_uses"].append({"id": ident, "scenario": "COOPERATION", "work": work,
+            "owner": owner, "source": coverage[owner], "amount": amount, "bucket": bucket})
+        life["bindings"].append({"resource_use_id": ident, "owner": owner, "source": coverage[owner],
+            "stage": "MONITORING_AND_QUALITY" if action == "assess_result_quality" else "PRODUCTION_COORDINATION",
+            "nature": nature})
+        life["event_bindings"].append({"resource_use_id": ident, "work": work, "owner": owner,
+            "source": coverage[owner], "work_source_revision": f"d-{work[-1]}", "trace_position": pos,
+            "at": event["at"], "action": action, "org_revision": "oc-1",
+            "cost_evidence_ref": ref, "cost_evidence_revision": "market-finance-v1"})
+
+    for work, purchase, material, opfee, overhead, labor in (
+            ("w1", "300.00", "180.00", "30.00", "20.00", "100.00"),
+            ("w2", "400.00", "230.00", "40.00", "25.00", "80.00")):
+        clock = {e["action"]: e["at"] for e in d["events"] if e.get("work") == work}
+        transfer(work, "purchase", "b", "a", purchase, "ON_CUSTOMER_ACCEPTANCE", clock["accept"]+2)
+        transfer(work, "material", "a", "EXTERNAL", material, "ON_ORIGINAL_COMMIT", clock["commit"]+1)
+        transfer(work, "fee", "a", "op", opfee, "ON_ORIGINAL_COMMIT", clock["commit"]+2)
+        transfer(work, "overhead", "op", "EXTERNAL", overhead, "ON_ORIGINAL_COMMIT", clock["commit"]+3)
+        cost(work, "labor", "a", labor, "start", "DELIVERY", "DIRECT_RESOURCE")
+        cost(work, "coordination", "op", "15.00", "commit", "COORDINATION", "TRANSACTION")
+    commit = next(e["at"] for e in d["events"] if e.get("work") == "w3" and e["action"] == "commit")
+    for name, payer, payee, amount, condition, at in (
+            ("purchase-a", "b", "a", "700.00", "ON_CUSTOMER_ACCEPTANCE", accepted_at+2),
+            ("purchase-c", "b", "c", "400.00", "ON_CUSTOMER_ACCEPTANCE", accepted_at+2),
+            ("fee", "b", "op", fee, "ON_CUSTOMER_ACCEPTANCE", accepted_at+2),
+            ("material-a", "a", "EXTERNAL", "300.00", "ON_ORIGINAL_COMMIT", commit+1),
+            ("material-c", "c", "EXTERNAL", "180.00", "ON_ORIGINAL_COMMIT", commit+1),
+            ("overhead", "op", "EXTERNAL", "30.00", "ON_ORIGINAL_COMMIT", commit+1)):
+        transfer("w3", name, payer, payee, amount, condition, at)
+    cost("w3", "labor-a", "a", "150.00", "start_operation", "DELIVERY", "DIRECT_RESOURCE")
+    cost("w3", "labor-c", "c", "100.00", "start_operation", "DELIVERY", "DIRECT_RESOURCE")
+    cost("w3", "coordination", "op", "50.00", "commit", "COORDINATION", "TRANSACTION")
+    cost("w3", "inspection", "b", "30.00", "assess_result_quality", "COORDINATION", "TRANSACTION")
+    add_original_recipient_value(d, "w3", observed=observed)
+    scopes = {}
+    for owner in ("a", "c", "op"):
+        if missing_owner and owner == "c":
+            continue
+        name = f"market-incremental-{owner}"
+        evidence(owner, name, declare=True, start=accepted_at+1)
+        scopes[owner] = {"source": name, "observed_at": accepted_at+1,
+            "transfer_ids": [t["id"] for t in money["transfers"]
+                             if t["work"] == "w3" and owner in {t["payer"], t["payee"]}],
+            "resource_use_ids": [r["id"] for r in money["resource_uses"]
+                                 if r["work"] == "w3" and r["owner"] == owner],
+            "incremental_costs_exclude_each_other_and_include_opportunity_costs": True}
+    money["market_order_economics"] = {"work": "w3", "work_revision": "d-3",
+        "result_ref": money["recipient_use_value_evidence"][0]["result_ref"], "owner_scopes": scopes}
+    if failed_quality:
+        next(e for e in d["events"] if e["action"] == "assess_result_quality"
+             and e.get("criterion") == "q-stage-c")["quality_verdict"] = "DOES_NOT_MEET"
+    return d
+
+
+def test_original_market_order_creates_four_independent_positive_model_contributions():
+    d = original_market_order_finance_case()
+    frozen = deepcopy(d)
+    out = simulate(d)
+    assert d == frozen
+    r = out["economics"]["original_market_order_economics"]
+    assert r["status"] == "MODEL_ORIGINAL_ACCEPTED_ORDER_ECONOMICS", r
+    assert r["newly_feasible_order_all_owner_viability"] == "MODEL_CRITERIA_MET", r
+    assert r["positive_original_owner_contribution_count"] == 4
+    assert r["all_owner_declared_reserves_met"]
+    private = r["local_research_only"]
+    assert private["buyer_payment_to_original_suppliers_and_operator"] == "1200.00"
+    assert private["gross_incremental_recipient_use_value"] == "1500.00"
+    assert private["consolidated_external_cash_net"] == "-510.00"
+    assert private["consolidated_exclusive_resource_cost"] == "330.00"
+    assert private["consolidated_model_contribution"] == "660.00"
+    assert {k: v["model_contribution"] for k, v in private["per_owner"].items()} == {
+        "a": "250.00", "b": "270.00", "c": "120.00", "op": "20.00"}
+    assert r["real_market_additionality_and_profit"] == "NOT_IDENTIFIABLE"
+    assert out == simulate(deepcopy(d))
+
+
+@pytest.mark.parametrize("kwargs,count,reason", [
+    ({"alternate": "AVAILABLE"}, 4, "SINGLE_OWNER_ALTERNATIVE_EXISTS"),
+    ({"incomplete": True}, 4, "SINGLE_OWNER_ALTERNATIVE_NOT_IDENTIFIABLE"),
+    ({"fee": "70.00"}, 3, "COOPERATIVE_PLAN_EXPANDS_DECLARED_FEASIBLE_ORDER_SET"),
+    ({"observed": "8"}, 3, "COOPERATIVE_PLAN_EXPANDS_DECLARED_FEASIBLE_ORDER_SET"),
+    ({"c_opening": "200.00"}, 4, "COOPERATIVE_PLAN_EXPANDS_DECLARED_FEASIBLE_ORDER_SET"),
+])
+def test_positive_consolidated_value_does_not_override_alternative_owner_loss_or_reserve(kwargs, count, reason):
+    r = simulate(original_market_order_finance_case(**kwargs))["economics"]["original_market_order_economics"]
+    assert r["status"] == "MODEL_ORIGINAL_ACCEPTED_ORDER_ECONOMICS", r
+    assert r["positive_original_owner_contribution_count"] == count
+    assert r["original_commit_market_feasibility"] == reason
+    assert r["newly_feasible_order_all_owner_viability"] == "NOT_ESTABLISHED"
+
+
+def test_market_order_fee_redistribution_does_not_create_consolidated_value():
+    a = simulate(original_market_order_finance_case())["economics"]["original_market_order_economics"]
+    b = simulate(original_market_order_finance_case(fee="70.00"))["economics"]["original_market_order_economics"]
+    assert a["local_research_only"]["consolidated_model_contribution"] == (
+        b["local_research_only"]["consolidated_model_contribution"])
+    assert b["negative_original_owner_contribution_count"] == 1
+
+
+def test_market_order_missing_independent_owner_scope_never_becomes_zero_cost():
+    r = simulate(original_market_order_finance_case(missing_owner=True))["economics"]["original_market_order_economics"]
+    assert r["status"] == "UNKNOWN"
+    assert "INDEPENDENT_OWNER_COST_SCOPE_INCOMPLETE" in r["reasons"]
+    assert "local_research_only" not in r
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("wrong_owner", "MARKET_ORDER_ORIGINAL_OWNER_HISTORICAL_SOURCE_NOT_QUALIFIED"),
+    ("missing_cost", "MARKET_ORDER_COMPLETE_OWNER_ORIGINAL_ROWS_REQUIRED"),
+    ("overlapping_source", "MARKET_ORDER_DISTINCT_OWNER_INCREMENTAL_SCOPE_SOURCE_REQUIRED"),
+    ("wrong_result", "MARKET_ORDER_ORIGINAL_RESULT_MISMATCH"),
+])
+def test_market_order_economic_evidence_cannot_replace_own_cost_scope_or_result(mutation, reason):
+    d = original_market_order_finance_case()
+    raw = d["economic_claims"]["market_order_economics"]
+    if mutation == "wrong_owner":
+        raw["owner_scopes"]["c"]["source"] = "market-incremental-a"
+    elif mutation == "missing_cost":
+        raw["owner_scopes"]["c"]["resource_use_ids"] = []
+    elif mutation == "overlapping_source":
+        raw["owner_scopes"]["c"]["source"] = "market-terms-c"
+    else:
+        raw["result_ref"] = "model://b/different-result"
+    with pytest.raises(ValueError, match=reason):
+        simulate(d)
+
+
+def test_failed_market_order_quality_never_counts_new_accepted_economic_value():
+    r = simulate(original_market_order_finance_case(failed_quality=True))["economics"]["original_market_order_economics"]
+    assert r["status"] == "UNKNOWN"
+    assert not r["original_accepted_result"]
+    assert "local_research_only" not in r

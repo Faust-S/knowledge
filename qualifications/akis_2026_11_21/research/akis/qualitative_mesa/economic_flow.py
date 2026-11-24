@@ -593,7 +593,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 "work_payment_settlement_claims", "work_payment_due_amendments",
                 "joint_purchasing_original_cash_bindings",
                 "joint_purchasing_ancillary_original_bindings",
-                "operator_service_economics", "recipient_use_value_evidence",
+                "operator_service_economics", "recipient_use_value_evidence", "market_order_economics",
             }):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
@@ -1210,3 +1210,183 @@ def review_original_recipient_use_value(
         "actual_use_value_profit_and_causal_additionality": "NOT_IDENTIFIABLE",
         "original_work_result_payments_and_consent_unchanged": True,
     }
+
+
+def review_original_market_order_economics(
+    raw: Any, *, state: Any, economic_claims: Mapping[str, Any],
+    economic_view: Mapping[str, Any], strict_work_ids: str | tuple[str, ...] | None,
+) -> dict[str, Any]:
+    """Read-only selected order projection over the original cumulative ledger.
+
+    Cash transfers cancel on consolidation. Independently declared incremental
+    resource and opportunity costs must exclude paid expenses and each other.
+    The buyer's own no-order valuation is NOT an executed counterfactual.
+    """
+    _record(raw, {"work", "work_revision", "result_ref", "owner_scopes"}, "MARKET_ORDER")
+    scope = (strict_work_ids,) if isinstance(strict_work_ids, str) else strict_work_ids
+    strict = economic_view.get("original_strict_context_source_qualification", {})
+    key = _identifier(raw["work"], "MARKET_ORDER_WORK")
+    if not scope or key not in scope or key not in state.works or strict.get("status") != (
+            "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED"):
+        raise EconomicInputError("MARKET_ORDER_ORIGINAL_STRICT_WORK_SCOPE_REQUIRED")
+    work = state.works[key]
+    op, buyer = state.institution.operator, work.customer
+    providers = state.capacity_ledger.original_owners(work.resource_requirements)
+    owners = providers | {buyer, op}
+    if (len(providers) < 2 or len(work.operations) < 2 or buyer in providers
+            or op in providers or op == buyer or raw["work_revision"] != work.source_revision):
+        raise EconomicInputError("MARKET_ORDER_ORIGINAL_INDEPENDENT_TECHNOLOGY_SCOPE_REQUIRED")
+    if not isinstance(raw["owner_scopes"], dict) or not set(raw["owner_scopes"]) <= owners - {buyer}:
+        raise EconomicInputError("MARKET_ORDER_ORIGINAL_OWNER_SCOPE_INVALID")
+    if strict.get("source_scoped_market_order_owner_count") != len(raw["owner_scopes"]):
+        raise EconomicInputError("MARKET_ORDER_ORIGINAL_OWNER_HISTORICAL_SOURCES_REQUIRED")
+    events = [e for e in state.trace if e.get("work") == key and e.get("outcome") == "APPLIED"]
+    commits = [e for e in events if e["action"] == "commit"]
+    accepts = [e for e in events if e["action"] == "accept" and e.get("actor") == buyer]
+    market = commits[0].get("technology_route_market_feasibility", {}) if len(commits) == 1 else {}
+    feasibility = market.get("status", "NOT_IDENTIFIABLE")
+    reasons = set()
+    accepted = (work.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                and work.obligation == "FULFILLED" and len(accepts) == len(commits) == 1)
+    if accepted:
+        if raw["result_ref"] != work.result_ref:
+            raise EconomicInputError("MARKET_ORDER_ORIGINAL_RESULT_MISMATCH")
+    else:
+        reasons.add("ORIGINAL_ACCEPTED_RESULT_REQUIRED")
+    if not market.get("selected_cooperative_plan_preview_feasible"):
+        reasons.add("ORIGINAL_COMMIT_MARKET_SCOPE_REQUIRED")
+    money = economic_claims
+    horizon = money.get("cash_timing", {}).get("horizon_end")
+    sources = dict(economic_view["declared_source_index"])
+    life = economic_view.get("lifecycle_resource_costs", {})
+    timed = life.get("original_work_event_timing", {}).get("by_original_work", {}).get(
+        key, {}).get("per_original_scenario_owner", {}).get("COOPERATION", {})
+    payment = {row["transfer_id"]: row for row in
+               economic_view.get("work_payment_causality", {}).get("bindings", ())}
+    transfers = {t["id"]: t for t in money["transfers"] if t["work"] == key}
+    resources = {r["id"]: r for r in money["resource_uses"] if r["work"] == key}
+    if (any({t["payer"], t["payee"]} - {"EXTERNAL"} - owners
+            or t["scenario"] != "COOPERATION" for t in transfers.values())
+            or any(r["owner"] not in owners or r["scenario"] != "COOPERATION"
+                   for r in resources.values())):
+        raise EconomicInputError("MARKET_ORDER_COMPLETE_SELECTED_BOUNDARY_REQUIRED")
+    if any(payment.get(i, {}).get("status") !=
+           "MODEL_ORIGINAL_TRIGGER_DUE_AND_POSTING_ORDER_CONSISTENT" for i in transfers):
+        reasons.add("ORIGINAL_PAYMENT_CAUSALITY_INCOMPLETE")
+    if set(raw["owner_scopes"]) != owners - {buyer}:
+        reasons.add("INDEPENDENT_OWNER_COST_SCOPE_INCOMPLETE")
+    buyer_value = economic_view.get("original_recipient_use_value", {}).get(
+        "local_research_only", {}).get(key)
+    if not buyer_value:
+        reasons.add("ORIGINAL_RECIPIENT_USE_VALUE_INCOMPLETE")
+
+    def ids(values):
+        keys = [_identifier(i, "MARKET_ORDER_ORIGINAL_ROW")
+                for i in _bounded_list(values, "MARKET_ORDER_ORIGINAL_ROW")]
+        if len(keys) != len(set(keys)):
+            raise EconomicInputError("MARKET_ORDER_DUPLICATE_ORIGINAL_ROW")
+        return set(keys)
+
+    amounts, paths = {}, {}
+    liquidity = economic_view.get("cash_timing", {}).get(
+        "per_original_owner_private_research_projection", {})
+    for owner in sorted(owners):
+        cash_rows = {i: t for i, t in transfers.items() if owner in {t["payer"], t["payee"]}}
+        cost_rows = {i: r for i, r in resources.items() if owner == r["owner"]}
+        owner_scope = life.get("owner_scoped_details", {}).get(owner, {}).get(
+            "scenarios", {}).get("COOPERATION", {})
+        if (not cash_rows or not cost_rows
+                or not economic_view["per_subject"][owner]["declared_complete"]["COOPERATION"]
+                or not owner_scope.get("declared_resource_scope_complete_not_audited")
+                or {row["resource_use_id"] for row in timed.get(owner, ())} != set(cost_rows)):
+            reasons.add("ORIGINAL_COMPLETE_OWNER_COST_SCOPE_REQUIRED")
+        if owner != buyer and owner in raw["owner_scopes"]:
+            row = _record(raw["owner_scopes"][owner],
+                          {"source", "observed_at", "transfer_ids", "resource_use_ids",
+                           "incremental_costs_exclude_each_other_and_include_opportunity_costs"},
+                          "MARKET_ORDER_OWNER_SCOPE")
+            ref = sources[_flow_ref(row["source"], sources, {owner})]["reference"]
+            owner_transfers = [t for t in money["transfers"] if owner in {t["payer"], t["payee"]}]
+            owner_rows = owner_transfers + [r for r in money["resource_uses"] if r["owner"] == owner]
+            excluded = {sources[r["source"]]["reference"] for r in owner_rows}
+            for source in (money["coverage"]["COOPERATION"].get(owner),
+                           money.get("lifecycle_costs", {}).get("scope_proofs", {}).get(
+                               "COOPERATION", {}).get(owner)):
+                if source in sources:
+                    excluded.add(sources[source]["reference"])
+            for binding in money.get("lifecycle_costs", {}).get("event_bindings", []):
+                if binding["owner"] == owner:
+                    excluded.add(binding["cost_evidence_ref"])
+            for field in ("work_payment_settlement_claims", "work_payment_due_amendments"):
+                for claim in money.get(field, []):
+                    if claim["transfer_id"] in {t["id"] for t in owner_transfers}:
+                        excluded.update(claim.get("evidence_refs", {}).values())
+            if ref in excluded:
+                raise EconomicInputError("MARKET_ORDER_DISTINCT_OWNER_INCREMENTAL_SCOPE_SOURCE_REQUIRED")
+            if (ids(row["transfer_ids"]) != set(cash_rows)
+                    or ids(row["resource_use_ids"]) != set(cost_rows)):
+                raise EconomicInputError("MARKET_ORDER_COMPLETE_OWNER_ORIGINAL_ROWS_REQUIRED")
+            if (type(row["observed_at"]) is not int or type(horizon) is not int
+                    or not 0 <= row["observed_at"] <= horizon
+                    or accepted and row["observed_at"] <= accepts[0]["at"]):
+                raise EconomicInputError("MARKET_ORDER_OWNER_OBSERVATION_TIME_INVALID")
+            if row["incremental_costs_exclude_each_other_and_include_opportunity_costs"] is not True:
+                reasons.add("INDEPENDENT_OWNER_COST_NONOVERLAP_AND_OPPORTUNITY_SCOPE_REQUIRED")
+        net = sum((_amount(t["amount"]) * (1 if t["payee"] == owner else -1)
+                   for t in cash_rows.values()), Decimal(0))
+        resource = sum((_amount(r["amount"]) for r in cost_rows.values()), Decimal(0))
+        gross = Decimal(buyer_value["incremental_gross_noncash_use_value"]) if owner == buyer and buyer_value else Decimal(0)
+        amounts[owner] = (net, resource, gross, gross + net - resource)
+        path = liquidity.get(owner, {}).get("scenario_paths", {}).get("COOPERATION", {})
+        paths[owner] = {name: path.get(name, {}).get("status", "NOT_IDENTIFIABLE")
+                        for name in ("expected", "declared_late_case")}
+    output = {
+        "schema": "AKIS_ORIGINAL_MARKET_ORDER_ECONOMICS/1.0",
+        "status": "UNKNOWN" if reasons else "MODEL_ORIGINAL_ACCEPTED_ORDER_ECONOMICS",
+        "original_commit_market_feasibility": feasibility,
+        "original_independent_supplier_count": len(providers),
+        "original_owner_count": len(owners),
+        "original_accepted_result": accepted,
+        "reasons": sorted(reasons),
+        "real_market_additionality_and_profit": "NOT_IDENTIFIABLE",
+        "declared_no_order_baseline_not_executed_counterfactual": True,
+        "original_internal_transfers_cancel_on_consolidation": True,
+        "no_new_payment_ledger_or_consent_created": True,
+    }
+    if reasons:
+        return output
+    met = "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+    positive = sum(v[3] > 0 for v in amounts.values())
+    total = sum((v[3] for v in amounts.values()), Decimal(0))
+    reserves_met = all(v == met for row in paths.values() for v in row.values())
+    expanded = feasibility == "COOPERATIVE_PLAN_EXPANDS_DECLARED_FEASIBLE_ORDER_SET"
+    receipts = sum((_amount(t["amount"]) for t in transfers.values()
+                    if t["payer"] == buyer and t["payee"] in providers | {op}), Decimal(0))
+    external = sum((v[0] for v in amounts.values()), Decimal(0))
+    output.update({
+        "positive_original_owner_contribution_count": positive,
+        "zero_original_owner_contribution_count": sum(v[3] == 0 for v in amounts.values()),
+        "negative_original_owner_contribution_count": sum(v[3] < 0 for v in amounts.values()),
+        "consolidated_model_contribution_direction": (
+            "POSITIVE" if total > 0 else "ZERO" if total == 0 else "NEGATIVE"),
+        "all_owner_declared_reserves_met": reserves_met,
+        "all_owner_positive_contribution_and_reserves": positive == len(owners) and reserves_met,
+        "newly_feasible_order_all_owner_viability": (
+            "MODEL_CRITERIA_MET" if expanded and positive == len(owners) and reserves_met
+            else "NOT_ESTABLISHED"),
+        "local_research_only": {
+            "buyer_payment_to_original_suppliers_and_operator": _sum_str([receipts]),
+            "gross_incremental_recipient_use_value": _sum_str([amounts[buyer][2]]),
+            "consolidated_external_cash_net": _sum_str([external]),
+            "consolidated_exclusive_resource_cost": _sum_str([v[1] for v in amounts.values()]),
+            "consolidated_model_contribution": _sum_str([total]),
+            "per_owner": {owner: {
+                "selected_work_net_cash": _sum_str([v[0]]),
+                "exclusive_incremental_resource_cost": _sum_str([v[1]]),
+                "incremental_recipient_use_value": _sum_str([v[2]]),
+                "model_contribution": _sum_str([v[3]]),
+                "cumulative_reserve_paths": paths[owner],
+            } for owner, v in amounts.items()},
+        },
+    })
+    return output

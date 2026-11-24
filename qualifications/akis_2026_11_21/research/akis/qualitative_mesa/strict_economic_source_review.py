@@ -500,8 +500,39 @@ def review_original_strict_economic_sources(
             raise StrictEconomicSourceBlocked("RECIPIENT_VALUE_ORIGINAL_OWNER_HISTORICAL_SOURCE_NOT_QUALIFIED") from exc
         qualified_recipient_values += 1
 
+    qualified_market_owners = 0
+    market_order = original_claims.get("market_order_economics")
+    if market_order is not None:
+        try:
+            selected_work = market_order["work"]
+            declarations = market_order["owner_scopes"]
+            if selected_work not in work_ids or not isinstance(declarations, dict) or len(declarations) > 128:
+                raise StrictEconomicSourceBlocked("MARKET_ORDER_SOURCE_SCOPE_INVALID")
+            selected = state.works[selected_work]
+            principals = state.capacity_ledger.original_owners(selected.resource_requirements) | {
+                state.institution.operator}
+            for owner, item in declarations.items():
+                if owner not in principals - {selected.customer}:
+                    raise StrictEconomicSourceBlocked("MARKET_ORDER_ORIGINAL_OWNER_REQUIRED")
+                source = sources_by_id[item["source"]]
+                tick = item["observed_at"]
+                if source["owner"] != owner or type(tick) is not int or not 0 <= tick <= at:
+                    raise StrictEconomicSourceBlocked("MARKET_ORDER_INDEPENDENT_OWNER_SOURCE_REQUIRED")
+                if owner in getattr(context, "prospective_subjects", set()) and not any(
+                        e.get("action") == "subject_registration_apply" and e.get("outcome") == "APPLIED"
+                        and e.get("registered_original_subject") == owner and e["at"] < tick
+                        for e in state.trace):
+                    raise StrictEconomicSourceBlocked("MARKET_ORDER_OWNER_NOT_YET_REGISTERED")
+                _qualify_original_event_evidence(owner, source["reference"], source["revision"],
+                                                 _OWNER_CORES[state.subjects[owner].kind], tick)
+                qualified_market_owners += 1
+        except (KeyError, TypeError, StrictEconomicSourceBlocked) as exc:
+            raise StrictEconomicSourceBlocked("MARKET_ORDER_ORIGINAL_OWNER_HISTORICAL_SOURCE_NOT_QUALIFIED") from exc
+
     return {
         "status": "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED",
+        **({"source_scoped_market_order_owner_count": qualified_market_owners}
+           if market_order is not None else {}),
         **({"source_scoped_original_recipient_value_count": qualified_recipient_values}
            if value_rows else {}),
         "original_source_count": len(seen),

@@ -289,8 +289,25 @@ def export_multiperiod_route_economics():
         report = compare_recipient_values(*recipient_use_value_case(**kwargs))
         report.pop("local_research_only")
         recipients.append({"trial": label, **report})
+    from research.akis.qualitative_mesa.tests.test_r1t3_original_technology_route_mesa import (
+        original_market_order_finance_case,
+    )
+    market_orders = []
+    for label, kwargs in sorted({
+        "newly_feasible_four_positive_owners": {},
+        "single_owner_alternative_exists": {"alternate": "AVAILABLE"},
+        "unqualified_catalogue": {"incomplete": True},
+        "operator_loss_despite_positive_total": {"fee": "70.00"},
+        "recipient_loss_despite_supplier_receipts": {"observed": "8"},
+        "positive_contribution_but_reserve_gap": {"c_opening": "200.00"},
+        "missing_independent_cost_scope": {"missing_owner": True},
+        "failed_recipient_quality": {"failed_quality": True},
+    }.items()):
+        report = simulate(original_market_order_finance_case(**kwargs))["economics"]["original_market_order_economics"]
+        report.pop("local_research_only", None)
+        market_orders.append({"trial": label, **report})
     manifest = {
-        "schema": "AKIS_R1P_R3_CUMULATIVE_EXECUTED_ROUTE_ECONOMICS/1.4",
+        "schema": "AKIS_R1P_R3_CUMULATIVE_EXECUTED_ROUTE_ECONOMICS/1.5",
         "engine": "MESA_3_5_2",
         "matched_route_experiments": results,
         "fourth_period_original_feedback_experiments": fourth,
@@ -299,6 +316,7 @@ def export_multiperiod_route_economics():
         "four_period_original_financial_scope_and_prior_portfolio_forecast_experiments": complete_fourth,
         "common_supplier_operator_joint_model_viability_experiments": joint,
         "independent_recipient_use_value_experiments": recipients,
+        "original_market_complementarity_economics_experiments": market_orders,
         "private_owner_amounts_and_source_references_excluded": True,
         "independent_owner_review_is_not_automatic_consent": True,
         "no_cumulative_ledger_created_outside_original_model": True,
