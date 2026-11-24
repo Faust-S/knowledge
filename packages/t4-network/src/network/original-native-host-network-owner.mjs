@@ -244,7 +244,18 @@ export function createT4OriginalNativeHostNetworkOwner({
     if(exact?.workspace_id!==sourceWorkspaceId||!ID(subjectId))
       fail('NATIVE_LOCAL_SOURCE_MUTATION_SCOPE_MISMATCH');
     if(mode()==='LOCAL_T3')return Object.freeze({state:'LOCAL_T3_BYPASS'});
-    const local={method:p.method,subjectId,captureRef:'t4:local:'+randomUUID(),invoked:false};
+    let captureRef='t4:local:'+randomUUID();
+    if(p.method==='commitObjectGraph'){
+      const service=state.kernel.sessionInfo?.service_id,key=exact.idempotency_key;
+      if(typeof service!=='string'||!service.length||typeof key!=='string'||!key.length||key.length>256)
+        fail('NATIVE_LOCAL_GRAPH_IDEMPOTENCY_SCOPE_REQUIRED');
+      // Original graph replay identity is workspace + service + idempotency
+      // key. Include the original write owner; never derive identity from a
+      // modified payload or a transient native relay lifetime.
+      captureRef='t4:local:graph:'+createHash('sha256').update(JSON.stringify([
+        sourceWorkspaceId,originalWriteOwnerRef,service,key])).digest('hex');
+    }
+    const local={method:p.method,subjectId,captureRef,invoked:false};
     state.localMutation=local;
     try{
       await requireBinding(state,'local-source-admission');

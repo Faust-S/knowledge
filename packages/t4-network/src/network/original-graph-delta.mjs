@@ -278,9 +278,9 @@ function prepare(intent,scope,event,window){
   d.graphContentDigest=digestT4OriginalGraphContent(d);
   return verifyT4OriginalGraphDelta(d);
 }
-function validateReceipt(receipt,expected,puts,deletes,event,scope){
+function validateReceipt(receipt,expected,puts,deletes,event,scope,deduplicated=false){
   if(receipt?.workspace_id!==scope.workspaceId||!ID(receipt.transaction_id)||
-    receipt.deduplicated!==false||receipt.transaction_id!==event.correlation_id||
+    receipt.deduplicated!==deduplicated||receipt.transaction_id!==event.correlation_id||
     !same(receipt.event,event)||
     !same(objectState({object:receipt.object},scope.workspaceId,scope.objectId),expected)||
     !Array.isArray(receipt.relations_put)||!Array.isArray(receipt.relation_ids_deleted)||
@@ -324,8 +324,25 @@ async function completeCapture(p,scope,intent,receipt=null){
     fail('GRAPH_SOURCE_EVENT_NOT_PROVEN');
   const {window,nextCursor}=await readT4OriginalEventWindow({...scope,cursor:intent.sourceCursor,maxEvents:1,
     authorizeOriginalRead:p.authorizeOriginalRead,readOriginalEvents:async()=>events});
-  if(window.count!==1||window.hasMore||window.lastEventId!==event.event_id)
+  if(window.count!==1||window.lastEventId!==event.event_id)
     fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+  const existing=await p.readOriginalOutbox({...scope,captureRef:p.captureRef});
+  // A committed immutable Outbox is historical proof even when subsequent
+  // original transactions have changed the live object or the relations.
+  if(receipt===null&&existing!=null){
+    const exact=verifyT4OriginalGraphCapture({intent,outbox:existing,event,window,nextCursor,
+      prepared:decodeT4OriginalGraphDeltaBytes(Buffer.from(existing.bytesBase64,'base64'))});
+    if(!same(await history(p,scope),events))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+    await guard();
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_GRAPH_CAPTURE_RECEIPT_V1',captureRef:p.captureRef,
+      originalReceipt:null,originalT3OutboxVerified:true,originalT3IsOnlyStore:true,
+      originalSourceEventId:event.event_id,originalSourceEventVerified:true,
+      originalMutationRetried:false,originalOperationReceiptRecreated:false,alreadyCaptured:true,
+      historicalOutboxVerified:true,currentObjectReadOrUsedAsHistoricalBytes:false,
+      prepared:exact,window:structuredClone(existing.sourceWindow),nextCursor,
+      networkPublished:false,recipientApplied:false,sourceCursorAdvanced:false});
+  }
+  if(window.hasMore)fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
   const prepared=prepare(intent,scope,event,window);
   if(receipt!==null)validateReceipt(receipt,x.expected,x.puts,x.deletes,event,scope);
   checkAfter(await graphState(p,scope,graphIds(x.puts,x.deletes),endpoints([...x.puts,...x.deletes])),
@@ -337,7 +354,6 @@ async function completeCapture(p,scope,intent,receipt=null){
     sourceEventId:event.event_id,sourceCursorBefore:intent.sourceCursor,sourceCursorAfter:nextCursor,
     sourceWindow:window,sha256:prepared.sha256,key:prepared.key,bytesBase64:prepared.bytes.toString('base64'),
     inputDigest:intent.inputDigest,originalT3MutationConfirmed:true,networkPublished:false,recipientApplied:false};
-  const existing=await p.readOriginalOutbox({...scope,captureRef:p.captureRef});
   if(existing==null){
     if(await p.persistOriginalOutbox(outbox)!==true)
       fail('GRAPH_OUTBOX_PERSISTENCE_UNKNOWN',{automaticRetryAllowed:false});
@@ -360,8 +376,30 @@ export async function captureT4OriginalGraphMutation(p={}){
     p.sourceCursor?.workspaceId!==scope.workspaceId||p.sourceCursor.originalWriteOwnerRef!==scope.originalWriteOwnerRef)
     fail('GRAPH_SCOPE_INVALID');
   const guard=writeGuard(p,scope,{captureRef:p.captureRef});await guard();
-  if(await p.readOriginalIntent({...scope,captureRef:p.captureRef})!=null)
-    fail('GRAPH_CAPTURE_REF_ALREADY_USED');
+  const prior=await p.readOriginalIntent({...scope,captureRef:p.captureRef});
+  if(prior!=null){
+    const original=validateIntent(prior,scope,p.captureRef);
+    if(digest(op)!==prior.originalInputDigest)fail('GRAPH_IDEMPOTENCY_PAYLOAD_MISMATCH');
+    // Never re-invoke an unresolved Intent. Only the complete durable
+    // original Event + Outbox permits requesting the native dedup receipt.
+    if(await p.readOriginalOutbox({...scope,captureRef:p.captureRef})==null)
+      fail('GRAPH_ORIGINAL_IDEMPOTENCY_OUTCOME_UNRESOLVED',{automaticRetryAllowed:false});
+    const verified=await completeCapture(p,scope,prior,null);
+    const stream=await history(p,scope);
+    const event=stream.find(e=>e.event_id===verified.originalSourceEventId);
+    const service=p.originalKernel.sessionInfo?.service_id;
+    if(!event||typeof service!=='string'||event.service_id!==service)
+      fail('GRAPH_ORIGINAL_IDEMPOTENCY_SERVICE_MISMATCH');
+    await guard();
+    let receipt;
+    try{receipt=await p.originalKernel.commitObjectGraph(original.traced);}
+    catch(error){fail('GRAPH_ORIGINAL_DEDUPLICATED_RECEIPT_UNAVAILABLE',{
+      originalCode:error?.code??null,automaticRetryAllowed:false});}
+    validateReceipt(receipt,original.expected,original.puts,original.deletes,event,scope,true);
+    if(!same(await history(p,scope),stream))fail('GRAPH_ORIGINAL_DEDUPLICATION_CHANGED_HISTORY');
+    await guard();
+    return Object.freeze({...verified,originalReceipt:receipt,originalDeduplicatedReceiptVerified:true});
+  }
   const stream=await history(p,scope);
   const pre=await readT4OriginalEventWindow({...scope,cursor:p.sourceCursor,maxEvents:1,
     authorizeOriginalRead:p.authorizeOriginalRead,readOriginalEvents:async()=>stream});
@@ -424,9 +462,14 @@ export async function reconcileT4OriginalGraphMutation(p={}){
 // preimages are bound to the event and the content address.
 export function verifyT4OriginalGraphCapture({intent,outbox,event,window,nextCursor,prepared}={}){
   const d=prepared?.delta,scope=scopeOf(d?.workspaceId,d?.originalWriteOwnerRef,d?.objectId);
-  if(!outbox||!ID(outbox.captureRef)||intent?.captureRef!==outbox.captureRef||
+  if(!outbox||outbox.schema!==OUTBOX||outbox.kind!==KIND||outbox.workspaceId!==scope.workspaceId||
+    outbox.originalWriteOwnerRef!==scope.originalWriteOwnerRef||outbox.subjectId!==scope.objectId||
+    outbox.sourceEventId!==event?.event_id||outbox.originalT3MutationConfirmed!==true||
+    outbox.networkPublished!==false||outbox.recipientApplied!==false||
+    !ID(outbox.captureRef)||intent?.captureRef!==outbox.captureRef||
+    typeof outbox.bytesBase64!=='string'||Buffer.from(outbox.bytesBase64,'base64').toString('base64')!==outbox.bytesBase64||
     outbox.inputDigest!==intent.inputDigest||!same(outbox.sourceCursorAfter,nextCursor)||
-    !outbox.sourceWindow||!matchesT4OriginalCapturedWindowDigest(window,d.windowDigest)||
+    outbox.sourceWindow?.hasMore!==false||!matchesT4OriginalCapturedWindowDigest(window,d.windowDigest)||
     !matchesT4OriginalCapturedWindowDigest(outbox.sourceWindow,d.windowDigest)||
     !same(outbox.sourceCursorBefore,intent.sourceCursor))
     fail('GRAPH_OUTBOX_PROOF_INVALID');

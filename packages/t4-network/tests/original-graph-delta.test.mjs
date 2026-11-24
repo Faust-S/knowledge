@@ -23,7 +23,7 @@ const mode=()=> 'T4_NETWORK';
 const err=code=>({code});
 const rel=(id,from,to,kind)=>({relation_id:id,from_object_id:from,to_object_id:to,kind});
 function store(name){
-  const objects=new Map(),relations=new Map(),events=[];let seq=0,graphWrites=0,lose=false;
+  const objects=new Map(),relations=new Map(),events=[],replays=new Map();let seq=0,graphWrites=0,graphInvocations=0,lose=false;
   const objectKey=(w,id)=>w+':'+id;
   const event=(p,id,revision,extra={})=>({event_id:'event:k21:'+name+':'+(++seq),
     workspace_id:p.workspace_id,object_id:id,revision,event_type:p.event.event_type,
@@ -48,6 +48,9 @@ function store(name){
     async putObject(p){const object=save(p.workspace_id,p),ev=event(p,p.object_id,object.revision);
       events.push(ev);return clone({object,event:ev});},
     async commitObjectGraph(p){
+      graphInvocations++;
+      const key=p.workspace_id+':'+p.idempotency_key,prior=replays.get(key);
+      if(prior){assert.deepEqual(p,prior.input);return clone({...prior.receipt,deduplicated:true});}
       for(const r of p.relation_puts??[])assert.ok(!relations.has(r.relation_id));
       for(const r of p.relation_deletes??[])assert.ok(relations.has(r.relation_id));
       const object=save(p.workspace_id,p.object),transaction_id='tx:k21:'+name+':'+(graphWrites+1);
@@ -58,11 +61,13 @@ function store(name){
       for(const id of deletes)relations.delete(id);
       const ev=event(p,object.object_id,object.revision,{correlation_id:transaction_id,idempotency_key:p.idempotency_key});
       events.push(ev);
+      const receipt={transaction_id,workspace_id:p.workspace_id,object,event:ev,relations_put:puts,
+        relation_ids_deleted:deletes,deduplicated:false};
+      replays.set(key,{input:clone(p),receipt:clone(receipt)});
       if(lose){lose=false;throw Object.assign(Error('original response lost'),{code:'ACK_LOST'});}
-      return clone({transaction_id,workspace_id:p.workspace_id,object,event:ev,relations_put:puts,
-        relation_ids_deleted:deletes,deduplicated:false});
+      return clone(receipt);
     }};
-  return {kernel,objects,relations,events,loseAck(){lose=true},get graphWrites(){return graphWrites}};
+  return {kernel,objects,relations,events,loseAck(){lose=true},get graphWrites(){return graphWrites},get graphInvocations(){return graphInvocations}};
 }
 async function seeded(name){
   const f=store(name);
@@ -273,4 +278,23 @@ test('K21 graph recipient does not acknowledge an incomplete original relation e
   };
   await assert.rejects(inspectT4OriginalNetworkRecipientResult(f.args()),err('GRAPH_ORIGINAL_RELATION_ENDPOINT_MISMATCH'));
   assert.equal(f.graphWrites,1);
+});
+
+test('K21 committed original graph is reconciled from its historical immutable Outbox and exact native replay returns the original receipt',async()=>{
+  const f=await fixture(),first=await f.capture(),h=f.host();
+  await h.commitObjectGraph({mutationInput:input(2),captureRef:'capture:k21:two'});
+  const recovered=await h.reconcileGraphMutation({workspaceId:ws,objectId:target,captureRef:'capture:k21:one'});
+  assert.equal(recovered.historicalOutboxVerified,true);
+  assert.equal(recovered.originalReceipt,null);assert.equal(recovered.originalMutationRetried,false);
+  assert.equal(recovered.prepared.sha256,first.capture.prepared.sha256);
+  const before=f.events.length;
+  const replay=await h.commitObjectGraph({mutationInput:input(),captureRef:'capture:k21:one'});
+  assert.equal(replay.originalReceipt.deduplicated,true);
+  assert.equal(replay.originalReceipt.transaction_id,first.originalReceipt.transaction_id);
+  assert.equal(replay.capture.originalDeduplicatedReceiptVerified,true);
+  assert.equal(replay.capture.prepared.sha256,first.capture.prepared.sha256);
+  assert.equal(f.graphWrites,2);assert.equal(f.graphInvocations,3);assert.equal(f.events.length,before);
+  await assert.rejects(h.commitObjectGraph({mutationInput:{...input(),event:{event_type:'business.changed',payload:{}}},
+    captureRef:'capture:k21:one'}),err('GRAPH_IDEMPOTENCY_PAYLOAD_MISMATCH'));
+  assert.equal(f.graphInvocations,3);assert.equal(f.events.length,before);
 });
