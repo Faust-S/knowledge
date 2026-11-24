@@ -458,7 +458,8 @@ function draftProfile(record,entry,quality){
         fields.push({field:f,use:f==='responsible_role'?MAPPING:DECLARED,value,
           status:value===null?'NOT_SPECIFIED_OR_NOT_APPLICABLE':'DECLARED'});
       }));
-      return {id:'check_'+String(i+1).padStart(3,'0'),operation_id,title,control_type,fields};
+      return {id:'check_'+String(i+1).padStart(3,'0'),operation_id,title,control_type,fields,
+        comparison:'NOT_COMPARABLE'};
     });
   }
   // Never copy individual order names, product IDs, exact calendar dates,
@@ -499,10 +500,29 @@ function attachTechnologyDraft(review,records,entries,quality){
       else if(members.length>1&&cells.every(v=>key(v.value)===key(c.value)))shared.push(c.key);
       else if(members.length>1)different.push(c.key);
     }
+    // Match entire check declarations, including all original fields that
+    // were intentionally omitted from the presentation. Use multiset counts
+    // so repeated occurrences cannot inflate shared requirements.
+    if(members.length>1&&members.every(m=>m.quality_status==='DECLARED_CHECKS_READ')){
+      const signatures=group.model_numbers.map(n=>quality[n-1].draftChecks.map(key).sort(cmp));
+      const counts=signatures.map(list=>{
+        const map=new Map();for(const s of list)map.set(s,(map.get(s)??0)+1);return map;
+      });
+      const common=new Map([...counts[0]].map(([s,n])=>[s,Math.min(n,...counts.slice(1).map(m=>m.get(s)??0))]));
+      for(let i=0;i<members.length;i++){
+        const seen=new Map();
+        members[i].checks.forEach((check,j)=>{
+          const s=signatures[i][j],n=(seen.get(s)??0)+1;seen.set(s,n);
+          check.comparison=n<=(common.get(s)??0)?'COMMON_DECLARATION':'SOURCE_SPECIFIC';
+        });
+      }
+    }
     // Keep every coherent source profile, including identical ones: repeated
     // records are not independent execution samples. No cross-product of
     // parameters and no inferred permission to substitute a profile.
-    return {group_id:group.id,shared_condition_keys:shared,
+    return {group_id:group.id,
+      shared_check_count:members[0].checks.filter(c=>c.comparison==='COMMON_DECLARATION').length,
+      shared_condition_keys:shared,
       differing_condition_keys:different,unresolved_condition_keys:unknown,
       profiles:members,variant_policy:'KEEP_ORIGINAL_CONDITION_BUNDLES'};
   });
@@ -512,4 +532,77 @@ function attachTechnologyDraft(review,records,entries,quality){
     applicability:'NOT_ESTABLISHED',external_transfer:false};
   require(new TextEncoder().encode(key(draft)).byteLength<=DRAFT_LIMIT,'D05_ROUTE_DRAFT_OUTPUT_LIMIT');
   return {...review,technology_draft:draft};
+}
+
+
+// A4.3-II/III: a user's local proposal to generalize ONE complete source
+// profile. This is not an IWXA Standard object or an authorization decision.
+// The UI keeps the source review immutable and uses this function only to
+// assemble a readable local draft. No inferred capability, no auto approval.
+const PROPOSAL_TEXT_FIELDS=['purpose','inputs','outputs','applicability','adaptation_guidance','local_context_guidance'];
+const PROPOSAL_OP_FIELDS=['label','role','equipment','material'];
+function proposalText(value){
+  return qualityText(value)&&nonempty(value)?value.trim():null;
+}
+function exactKeys(value,allowed){
+  return obj(value)&&Object.keys(value).every(k=>allowed.includes(k));
+}
+export function prepareD05TechnologyProposal(review,groupId,modelNumber,form){
+  require(review?.technology_draft?.status==='LOCAL_TECHNOLOGY_DRAFT'&&
+    review.export_allowed===false&&review.anonymity==='NOT_ESTABLISHED'&&
+    Array.isArray(review.groups)&&exactKeys(form,[...PROPOSAL_TEXT_FIELDS,'operations','quality_roles']),
+    'D05_ROUTE_PROPOSAL_INPUT_INVALID');
+  const group=review.groups.find(g=>g.id===groupId);
+  const draft=review.technology_draft.groups.find(g=>g.group_id===groupId);
+  const profile=draft?.profiles.find(p=>p.model_number===modelNumber);
+  require(group&&profile&&group.model_numbers.includes(modelNumber),'D05_ROUTE_PROPOSAL_PROFILE_INVALID');
+  const opForms=form.operations??{},roleForms=form.quality_roles??{};
+  require(exactKeys(opForms,group.operations.map(o=>o.id))&&
+    Object.values(opForms).every(v=>exactKeys(v,PROPOSAL_OP_FIELDS))&&
+    exactKeys(roleForms,profile.checks.map(c=>c.id)),
+    'D05_ROUTE_PROPOSAL_MAPPING_INVALID');
+  const missing=[];
+  const terms=Object.fromEntries(PROPOSAL_TEXT_FIELDS.map(f=>{
+    const value=proposalText(form[f]);
+    if(value===null&&(f!=='local_context_guidance'||profile.local_context_review.length||
+      profile.checks.some(c=>c.fields.some(x=>x.status==='LOCAL_REFERENCE_REVIEW_REQUIRED'))))
+      missing.push({scope:'technology',field:f});
+    return [f,value];
+  }));
+  const operations=group.operations.map(op=>{
+    const mapping=Object.fromEntries(PROPOSAL_OP_FIELDS.map(f=>{
+      const value=proposalText(opForms[op.id]?.[f]);
+      if(value===null)missing.push({scope:op.id,field:f});
+      return [f,value];
+    }));
+    return {operation_id:op.id,source_name:op.name,kind:op.kind,parallel:op.parallel,
+      milestone:op.milestone,predecessors:[...op.predecessors],proposed:mapping,
+      source_parameter_conditions:profile.conditions.filter(c=>c.scope===op.id&&c.use==='ADAPTATION_REVIEW')
+        .map(c=>({...c,value:Array.isArray(c.value)?[...c.value]:c.value}))};
+  });
+  const checks=profile.checks.map(c=>{
+    const role=proposalText(roleForms[c.id]);
+    if(role===null)missing.push({scope:c.id,field:'responsible_role'});
+    // Never relax the original controls or their blocking behavior. User
+    // role suggestions are separate; material references require review.
+    return {check_id:c.id,title:c.title,operation_id:c.operation_id,control_type:c.control_type,
+      declared_fields:c.fields.filter(f=>f.field!=='responsible_role').map(f=>({...f})),
+      proposed_responsible_role:role};
+  });
+  const sourceGaps=profile.unresolved.filter(x=>
+    ['OPERATION_OCCURRENCE_MAPPING','QUALITY_PLAN_REVIEW','UNSPECIFIED_EXECUTION_CONDITIONS'].includes(x));
+  const result={
+    status:missing.length?'PROPOSAL_NEEDS_INPUT':'PROPOSAL_FOR_DOMAIN_REVIEW',
+    source_model_number:modelNumber,source_revision:profile.source_revision,
+    declared_by:'LOCAL_USER_PROPOSAL',terms,operations,quality_checks:checks,
+    source_route_parameters:profile.conditions.filter(c=>c.scope==='route')
+      .map(c=>({...c,value:Array.isArray(c.value)?[...c.value]:c.value})),
+    missing_fields:missing,unresolved_source_requirements:sourceGaps,
+    local_context_review:[...profile.local_context_review],
+    source_quality_status:profile.quality_status,
+    domain_validation:'NOT_PERFORMED',applicability:'NOT_ESTABLISHED',
+    anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null,
+  };
+  require(new TextEncoder().encode(key(result)).byteLength<=DRAFT_LIMIT,'D05_ROUTE_DRAFT_OUTPUT_LIMIT');
+  return result;
 }

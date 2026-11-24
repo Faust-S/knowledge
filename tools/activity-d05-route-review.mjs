@@ -20,9 +20,11 @@ async function readInput(){
  }catch{fail('D05_ROUTE_CLI_INVALID_JSON');}
 }
 try{
- if(process.argv.length!==2)fail('D05_ROUTE_CLI_ARGUMENTS_NOT_SUPPORTED');
+ const args=process.argv.slice(2);
+ const draft=args.length===1&&args[0]==='--technology-draft';
+ if(args.length&&!draft)fail('D05_ROUTE_CLI_ARGUMENTS_NOT_SUPPORTED');
  const records=await readInput();
- const result=reviewD05ResultSelection(records);
+ const result=reviewD05ResultSelection(records,{includeTechnologyDraft:draft});
  if(Buffer.byteLength(JSON.stringify(result),'utf8')>OUTPUT_LIMIT)fail('D05_ROUTE_CLI_OUTPUT_LIMIT');
  write(result);
 }catch(error){
