@@ -9,7 +9,8 @@ import {applyT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes,
   from './original-asset-delta.mjs';
 import {applyT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes,
   verifyT4OriginalRelationPutDelta} from './original-relation-delta.mjs';
-import {T4_RELATION_EVENT_EXTENSION} from './standard-network-wire-candidate.mjs';
+import {decodeT4CandidateFrame,T4_RELATION_EVENT_EXTENSION}
+  from './standard-network-wire-candidate.mjs';
 
 /**
  * P2.2-C. Bind verified native network ciphertext to the ORIGINAL T3
@@ -266,6 +267,9 @@ export async function openT4OriginalNetworkSubjectChange({
     ...(frameKey(head.key)?{sourceChangeFrameKey:head.key}:{}),
     originalEventDigest:delta.sourceEventDigest,
     originalStateDigest:type.digest(delta),
+    ...(DIG(originalSourceHeadProof.sourcePrefixDigestBefore)?{
+      sourcePrefixDigestBefore:originalSourceHeadProof.sourcePrefixDigestBefore,
+    }:{}),
     sourcePrefixDigestAfter:originalSourceHeadProof.sourcePrefixDigestAfter,
     delta:structuredClone(delta),sha256:source.sha256,key:source.key,
     originalHostAuthenticatedOpen:true,
@@ -646,7 +650,7 @@ export async function applyT4OriginalNetworkSubjectChange({
  * process that sees APPLY_INTENT may only read back the original Event and
  * subject. Absence after an uncertain write is not permission to retry.
  */
-export async function applyT4OriginalNetworkSubjectWithDurableIntent(args={}){
+function originalDurableRecipientContext(args){
   const {received,recipientPhasePort}=args;
   const delta=checkReceived(received),kind=receivedKind(received);
   if(!frameKey(received.sourceChangeFrameKey)||
@@ -679,6 +683,11 @@ export async function applyT4OriginalNetworkSubjectWithDurableIntent(args={}){
       fail('SUBJECT_ORIGINAL_DURABLE_APPLY_PHASE_MISMATCH');
     return v;
   }
+  return {delta,kind,evidence,phase};
+}
+export async function applyT4OriginalNetworkSubjectWithDurableIntent(args={}){
+  const {recipientPhasePort}=args;
+  const {delta,evidence,phase}=originalDurableRecipientContext(args);
   async function recover(v){
     const original=await inspectT4OriginalNetworkRecipientResult(args);
     if(original.state!=='APPLIED_VERIFIED'||original.originalBusinessApplied!==true)
@@ -750,4 +759,190 @@ export function createT4OriginalNetworkAppliedAckBody({
     recipientRevision:verifiedResult.originalRecipientRevision,
     recipientStateDigest:verifiedResult.originalRecipientStateDigest,
   });
+}
+
+
+/**
+ * Recipient Host's ACK completion, independent from the source's ACK read.
+ * Requires the original durable apply reservation AND an independently
+ * read current T3 subject/Event. Existing publication CAS is the sole
+ * owner of the immutable signed bytes and network attempt recovery.
+ * This function never calls the original subject mutation.
+ */
+export async function finalizeT4OriginalNetworkRecipientAcknowledgement(args={}){
+  const {received,recipientPhasePort,recipientPublicationPort:port,
+    createSignedAppliedAckFrame,retryMissing=false}=args;
+  const {delta,kind,phase}=originalDurableRecipientContext(args);
+  const session=port?.session;
+  if(typeof retryMissing!=='boolean'||
+    port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
+    port.originalT3OnlyStore!==true||port.createsScheduler!==false||
+    !ID(port.checkpointRef)||
+    !['inspectOriginalPublication','prepareSignedBatch','publishPreparedFrame']
+      .every(k=>typeof port[k]==='function')||
+    session?.schema!=='IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SESSION_V1'||
+    session.workspaceId!==delta.workspaceId||
+    session.originalWriteOwnerRef!==delta.originalWriteOwnerRef||
+    session.sourceNodeRef!==received.sourceNodeRef||
+    session.recipientNodeRef!==received.recipientNodeRef||
+    session.scopeRef!==received.scopeRef||session.ownerEpoch!==received.ownerEpoch||
+    session.sessionRef!==received.sessionRef||session.changeId!==received.changeId||
+    session.sourceEventId!==delta.sourceEventId||
+    session.sourceRevision!==SUBJECTS[kind].revision(delta)||
+    session.sourceEventDigest!==delta.sourceEventDigest||
+    session.changeKind!==kind||
+    session.capturedWindowDigest!==delta.windowDigest||
+    session.capturedSha256!==received.sha256||
+    !DIG(received.sourcePrefixDigestBefore)||
+    session.sourcePrefixDigestBefore!==received.sourcePrefixDigestBefore||
+    session.sourcePrefixDigestAfter!==received.sourcePrefixDigestAfter)
+    fail('SUBJECT_ORIGINAL_ACK_PUBLICATION_PORT_MISMATCH');
+
+  const before=await phase();
+  if(before.currentPhase==='VERIFIED')
+    fail('SUBJECT_ORIGINAL_ACK_APPLY_INTENT_REQUIRED');
+  async function result(){
+    const actual=await inspectT4OriginalNetworkRecipientResult({
+      ...args,allowHistoricalEventProof:false,
+    });
+    if(actual.state!=='APPLIED_VERIFIED'||actual.originalBusinessApplied!==true)
+      fail('SUBJECT_ORIGINAL_ACK_CURRENT_RESULT_REQUIRED');
+    return actual;
+  }
+  const actual=await result();
+  // Stable logical receipt, not a synthetic T3 event identifier.
+  const ackRef='ack:t4:'+HASH(JSON.stringify([
+    'IWXA-T4-ORIGINAL-APPLIED-ACK-V1',session.sessionRef,session.changeId,
+    received.sha256,actual.originalRecipientEventId,
+    actual.originalRecipientRevision,actual.originalRecipientStateDigest,
+  ])).slice(7);
+  const body=createT4OriginalNetworkAppliedAckBody({
+    received,verifiedResult:actual,ackRef,
+  });
+  const extensions=Object.freeze(kind==='RELATION_PUT'?[T4_RELATION_EVENT_EXTENSION]:[]);
+  const confirmResult=async()=>{
+    if(!equalStable(await result(),actual))
+      fail('SUBJECT_ORIGINAL_ACK_RESULT_CHANGED');
+    return phase();
+  };
+  function checkWire(bytes,sequence){
+    const frame=decodeT4CandidateFrame(bytes);
+    if(frame.messageType!=='APPLIED_ACK'||frame.sequence!==sequence||
+      frame.sourceNodeRef!==session.recipientNodeRef||
+      frame.recipientNodeRef!==session.sourceNodeRef||
+      frame.sessionRef!==session.sessionRef||frame.scopeRef!==session.scopeRef||
+      frame.ownerEpoch!==session.ownerEpoch||
+      !equalStable(frame.criticalExtensions,extensions)||
+      !equalStable(frame.body,body))
+      fail('SUBJECT_ORIGINAL_ACK_SIGNED_BODY_MISMATCH');
+  }
+  async function publication(){
+    const p=await port.inspectOriginalPublication();
+    if(p?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1'||
+      p.checkpointRef!==port.checkpointRef||!equalStable(p.session,session)||
+      p.originalT3EventChainVerified!==true||
+      p.originalBusinessApplied!==false||p.sourceCursorAdvanced!==false||
+      !Array.isArray(p.frames)||p.frames.length<1||
+      p.frames.some((f,i)=>f.sequence!==i+1||
+        !(f.wireBytes instanceof Uint8Array)||
+        !frameKey(f.key)||f.key!==f.sha256+'.t4n'||
+        HASH(f.wireBytes)!=='sha256:'+f.sha256)||
+      !p.frames.some(f=>f.messageType==='DIFF_REQUEST'&&f.state==='PRESENT'))
+      fail('SUBJECT_ORIGINAL_ACK_PUBLICATION_HISTORY_REQUIRED');
+    const acks=p.frames.filter(f=>f.messageType==='APPLIED_ACK');
+    if(acks.length>1)fail('SUBJECT_ORIGINAL_ACK_DUPLICATE_RESERVATION');
+    const ack=acks[0]??null;
+    if(p.frames.slice(0,ack?ack.sequence-1:p.frames.length)
+      .some(f=>f.state!=='PRESENT'))
+      fail('SUBJECT_ORIGINAL_ACK_PREDECESSOR_UNCONFIRMED');
+    if(ack)checkWire(ack.wireBytes,ack.sequence);
+    return {p,ack};
+  }
+  const prior=await publication();
+  const sequence=prior.ack?.sequence??prior.p.frames.length+1;
+  const evidenceFor=f=>({
+    evidenceRef:f.key,evidenceDigest:'sha256:'+f.sha256,
+    originalRecipientEventId:actual.originalRecipientEventId,
+    originalRecipientRevision:actual.originalRecipientRevision,
+    originalRecipientStateDigest:actual.originalRecipientStateDigest,
+  });
+  function checkApplied(status,frame){
+    if(status.currentPhase==='APPLIED'&&
+      (!frame||frame.state!=='PRESENT'||
+       !equalStable(status.currentEvidence,evidenceFor(frame))))
+      fail('SUBJECT_ORIGINAL_ACK_APPLIED_EVIDENCE_MISMATCH');
+  }
+  checkApplied(before,prior.ack);
+  const current=await confirmResult();
+  checkApplied(current,prior.ack);
+  const prepared=await port.prepareSignedBatch({
+    slots:[{sequence,messageType:'APPLIED_ACK'}],
+    createSignedFrames:async()=>{
+      if(prior.ack||current.currentPhase==='APPLIED'||
+        typeof createSignedAppliedAckFrame!=='function')
+        fail('SUBJECT_ORIGINAL_ACK_NEW_SIGNATURE_NOT_ALLOWED');
+      const at=await confirmResult();
+      if(at.currentPhase!=='APPLY_INTENT')
+        fail('SUBJECT_ORIGINAL_ACK_NEW_SIGNATURE_NOT_ALLOWED');
+      const wire=await createSignedAppliedAckFrame(frozen({
+        session,sequence,body,criticalExtensions:extensions,
+        originalHostSignerRequired:true,
+      }));
+      if(!(wire instanceof Uint8Array))
+        fail('SUBJECT_ORIGINAL_ACK_SIGNED_BYTES_REQUIRED');
+      const bytes=new Uint8Array(wire);
+      checkWire(bytes,sequence);
+      await confirmResult();
+      return [bytes];
+    },
+  });
+  const stored=(await publication()).ack;
+  if(!stored||stored.sequence!==sequence||
+    prepared?.checkpointRef!==port.checkpointRef||
+    prepared.sessionRef!==session.sessionRef||
+    prepared.originalT3EventChainVerified!==true||
+    !['ORIGINAL_SIGNED_BATCH_PREPARED','ORIGINAL_SIGNED_BATCH_ALREADY_PREPARED']
+      .includes(prepared.state)||
+    !Array.isArray(prepared.frames)||prepared.frames.length!==1||
+    !equalStable(prepared.frames[0],{
+      sequence,messageType:'APPLIED_ACK',sha256:stored.sha256,
+    })||(prior.ack&&prior.ack.sha256!==stored.sha256))
+    fail('SUBJECT_ORIGINAL_ACK_DURABLE_PREPARATION_MISMATCH');
+  checkApplied(await confirmResult(),stored);
+  const published=await port.publishPreparedFrame({sequence,retryMissing});
+  const confirmed=(await publication()).ack;
+  if(!confirmed||confirmed.state!=='PRESENT'||confirmed.sha256!==stored.sha256||
+    published?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_RESULT_V1'||
+    published.sessionRef!==session.sessionRef||published.changeId!==session.changeId||
+    published.checkpointRef!==port.checkpointRef||published.sequence!==sequence||
+    published.messageType!=='APPLIED_ACK'||
+    published.key!==confirmed.key||published.sha256!==confirmed.sha256||
+    published.immutableTransportReadback!==true||
+    published.originalBusinessApplied!==false||
+    published.sourceCursorAdvanced!==false||published.recipientCursorAdvanced!==false||
+    published.originalSubjectMutationInvoked!==false)
+    fail('SUBJECT_ORIGINAL_ACK_REMOTE_READBACK_MISMATCH');
+  const evidence=evidenceFor(confirmed);
+  const at=await confirmResult();
+  checkApplied(at,confirmed);
+  // A lost phase CAS response is resolved by an original phase read on
+  // the next Host task. No new receipt or business write is manufactured.
+  const recorded=await recipientPhasePort.advanceOriginalSessionPhase({
+    phase:'APPLIED',evidence,
+  });
+  const after=await confirmResult();
+  if(recorded?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1'||
+    recorded.phase!=='APPLIED'||recorded.checkpointRef!==after.checkpointRef||
+    recorded.originalBusinessApplied!==true||
+    !['RECORDED','ALREADY_CONFIRMED'].includes(recorded.status)||
+    after.currentPhase!=='APPLIED'||recorded.revision!==after.revision||
+    recorded.chainHash!==after.chainHash||
+    !equalStable(after.currentEvidence,evidence))
+    fail('SUBJECT_ORIGINAL_ACK_APPLIED_PHASE_NOT_CONFIRMED');
+  return frozen({schema:'IWXA_T4_ORIGINAL_RECIPIENT_ACK_TASK_RESULT_V1',
+    state:before.currentPhase==='APPLIED'?'ALREADY_FINALIZED':'FINALIZED',
+    verifiedResult:actual,publication:published,recipientPhase:after,
+    originalDurableApplyIntentVerified:true,originalRecipientApplied:true,
+    originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,
+    originalHostOwnsScheduling:true,originalT3ExchangeCalled:false});
 }

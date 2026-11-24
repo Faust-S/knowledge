@@ -64,7 +64,7 @@ import {openT4OriginalNetworkObjectChange,
   inspectT4OriginalNetworkRecipientResult,
   applyT4OriginalNetworkObjectChange,openT4OriginalNetworkSubjectChange,
   applyT4OriginalNetworkSubjectChange,applyT4OriginalNetworkSubjectWithDurableIntent,
-  createT4OriginalNetworkAppliedAckBody}
+  createT4OriginalNetworkAppliedAckBody,finalizeT4OriginalNetworkRecipientAcknowledgement}
   from '../src/network/original-network-subject-apply.mjs';
 import {digestT4OriginalObjectContent}
   from '../src/network/original-object-delta.mjs';
@@ -74,7 +74,7 @@ import {createT4OriginalNetworkHostCursorPort}
   from '../src/network/original-network-host-cursor.mjs';
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
   from '../src/network/original-network-publication.mjs';
-import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_RELATION_EVENT_EXTENSION}
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,T4_RELATION_EVENT_EXTENSION}
   from '../src/network/standard-network-wire-candidate.mjs';
 import {createT4CandidateFrameTransport}
   from '../src/network/standard-network-wire-transport.mjs';
@@ -4332,14 +4332,18 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             p.evidence.evidenceRef===p2eChange.publication.key&&
             p.evidence.evidenceDigest==='sha256:'+p2eOpened.sha256
           );
-          if(p.phase==='APPLIED')return (
-            p2eSignedAck?.verified.originalSignatureVerified===true&&
-            p.evidence.evidenceRef===p2eSignedAck.publication.key&&
-            p.evidence.evidenceDigest===
-              'sha256:'+p2eSignedAck.publication.sha256&&
-            p2eSignedAck.verified.verifiedBody.recipientEventRef===
-              p.evidence.originalRecipientEventId
-          );
+          if(p.phase==='APPLIED'){
+            // Recipient verifies its own durable publication. Source
+            // receiving and checking the signed ACK is a separate task.
+            const local=await publicationPort(false).inspectOriginalPublication();
+            const ack=local.frames.find(f=>f.messageType==='APPLIED_ACK');
+            if(!ack||ack.state!=='PRESENT'||ack.key!==p.evidence.evidenceRef||
+              'sha256:'+ack.sha256!==p.evidence.evidenceDigest)return false;
+            const body=decodeT4CandidateFrame(ack.wireBytes).body;
+            return body.recipientEventRef===p.evidence.originalRecipientEventId&&
+              body.recipientRevision===p.evidence.originalRecipientRevision&&
+              body.recipientStateDigest===p.evidence.originalRecipientStateDigest;
+          }
           return false;
         },
         verifyOriginalRecipientApplied:p2eOriginalApplied,
@@ -4600,37 +4604,43 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(p2eApplied.originalRecipientRevision,revision);
       assert.equal(p2cCommitCalls+p2gAssetCalls+p2gRelationCalls,writesBefore+1);
       const p2eResult=await p2ePhaseResult();
-      const p2eAckBody=createT4OriginalNetworkAppliedAckBody({
-        received:p2eOpened,verifiedResult:p2eResult,
-        ackRef:'ack:p22e:next:'+randomUUID(),
-      });
-      const ackSpecs=[{messageType:'APPLIED_ACK',sequence:2,from:'RECIPIENT',body:p2eAckBody}];
-      await publicationPort(false).prepareSignedBatch({
-        slots:slotsFor(ackSpecs),createSignedFrames:()=>signBatch(ackSpecs),
-      });
+      const ackArgs=(signer=async p=>(await signBatch([{
+        messageType:'APPLIED_ACK',sequence:p.sequence,from:'RECIPIENT',body:p.body,
+      }]))[0])=>({...applyArgs(),recipientPublicationPort:publicationPort(false),
+        createSignedAppliedAckFrame:signer});
+      let finalized;
       if(simulatePublicationLoss){
-        const before=await publicationPort(false).inspectOriginalPublication();
         const count=f2NetworkWrites,signs=f2SignCalls;
-        await assert.rejects(publicationPort(false).publishPreparedFrame({sequence:2}),
+        await assert.rejects(finalizeT4OriginalNetworkRecipientAcknowledgement(ackArgs()),
           e=>e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN');
         assert.equal(f2NetworkWrites,count+1);
+        assert.equal(f2SignCalls,signs+1);
+        assert.equal((await p2eRecipientPhase().inspectOriginalSession()).currentPhase,
+          'APPLY_INTENT');
+        const before=await publicationPort(false).inspectOriginalPublication();
+        assert.equal(before.frames.at(-1).state,'ATTEMPTED');
         await restartRecipient();
-        const resumed=await publicationPort(false).prepareSignedBatch({
-          slots:slotsFor(ackSpecs),
-          createSignedFrames:async()=>{throw Error('do not mint second applied ACK');},
-        });
-        assert.equal(resumed.state,'ORIGINAL_SIGNED_BATCH_ALREADY_PREPARED');
+        finalized=await finalizeT4OriginalNetworkRecipientAcknowledgement(
+          ackArgs(async()=>{throw Error('do not mint second applied ACK');}));
+        assert.equal(finalized.publication.state,'REMOTE_READBACK_RECOVERED');
+        assert.equal(f2NetworkWrites,count+1);
+        assert.equal(f2SignCalls,signs+1);
         assert.deepEqual((await publicationPort(false).inspectOriginalPublication())
           .frames.map(f=>f.wireBytes),before.frames.map(f=>f.wireBytes));
-        const recovered=await publicationPort(false).publishPreparedFrame({sequence:2});
-        assert.equal(recovered.state,'REMOTE_READBACK_RECOVERED');
+        const repeated=await finalizeT4OriginalNetworkRecipientAcknowledgement(
+          ackArgs(async()=>{throw Error('do not re-sign finalized ACK');}));
+        assert.equal(repeated.state,'ALREADY_FINALIZED');
         assert.equal(f2NetworkWrites,count+1);
-        assert.equal(f2SignCalls,signs);
-        p2eSignedAck=await fromPublication(recovered,'RECIPIENT');
+        assert.equal(f2SignCalls,signs+1);
       }else{
-        p2eSignedAck=await fromPublication(await publicationPort(false)
-          .publishPreparedFrame({sequence:2}),'RECIPIENT');
+        finalized=await finalizeT4OriginalNetworkRecipientAcknowledgement(ackArgs());
       }
+      assert.equal(finalized.state,'FINALIZED');
+      assert.equal(finalized.originalSubjectMutationInvoked,false);
+      assert.equal(finalized.recipientPhase.currentPhase,'APPLIED');
+      assert.equal(p2cCommitCalls+p2gAssetCalls+p2gRelationCalls,writesBefore+1);
+      // Only now does the independent source task receive the recipient ACK.
+      p2eSignedAck=await fromPublication(finalized.publication,'RECIPIENT');
       assert.equal(f2SignCalls,contentSpecs.length+3);
       assert.equal(f2NetworkWrites,f2SignCalls);
       assert.equal(f2SourcePutCalls,2+2*(contentSpecs.length+1)+(simulateTcpOutage?1:0));
@@ -4642,9 +4652,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         originalRecipientRevision:revision,
         originalRecipientStateDigest:p2eResult.originalRecipientStateDigest,
       };
-      await p2eRecipientPhase().advanceOriginalSessionPhase({
-        phase:'APPLIED',evidence:p2eAppliedEvidence,
-      });
+      assert.deepEqual(finalized.recipientPhase.currentEvidence,p2eAppliedEvidence);
       await p2eSourcePhase().advanceOriginalSessionPhase({
         phase:'APPLIED_CONFIRMED',evidence:p2eAppliedEvidence,
       });
@@ -4983,6 +4991,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         originalHistoricalAssetResultAfterLaterRevision:true,
         originalRelationBothEndpointsVerified:true,noRemainingCapture:true,
         recipientDurableApplyIntentBeforeOriginalSubjectWrite:true,
+        recipientDurableAppliedAckTaskFinalized:true,
         independentPhysicalDevices:false,productionHostSchedulerInstalled:false,
       }));
       const interrupted=mixedCompleted.find(x=>x.outageWitness);
