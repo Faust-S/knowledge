@@ -31,7 +31,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Qualify original restricted OCEL reader and external review
-        run: node --test tests/test_activity_ocel2_evidence.mjs tests/test_activity_external_ocdfg.mjs
+        run: node --test tests/test_activity_ocel2_evidence.mjs tests/test_activity_external_ocdfg.mjs tests/test_activity_external_ocdfg_cli.mjs
       - name: Install the pinned public Rust4PM binary distribution
         run: |
           python -m pip install --only-binary=:all: r4pm==0.6.2
