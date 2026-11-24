@@ -29,6 +29,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install exact published Rust4PM wheels
-        run: python -m pip install --only-binary=:all: --no-deps --require-hashes -r tools/activity-r4pm-requirements.txt
+        run: |
+          python -m pip install --only-binary=:all: --no-deps --require-hashes -r tools/activity-r4pm-requirements.txt
       - name: Compare real Rust4PM with original Activity OCEL reader
         run: node --test tests/test_activity_ocel2_evidence.mjs tests/test_activity_r4pm_discovery.mjs
