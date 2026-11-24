@@ -1,0 +1,9 @@
+type Common={source_kind:'DECLARED_MODEL'|'DECLARED_EXECUTION';observation_unit:'ORGANIZATION';
+ source_match:'EXACT_REQUEST_AND_TECHNOLOGY_DIGEST';source_authority:'UNVERIFIED_DECLARED_COHORT_AND_LOCAL_TOOL_OUTPUT';
+ privacy_conclusion:'NOT_ESTABLISHED';domain_validation:'NOT_PERFORMED';anonymity:'NOT_ESTABLISHED';export_allowed:false;iwxa_package:null};
+export type ArxObservationReview=Common&{kind:'arx';version:'3.9.2';row_count:number;k:number;result_available:boolean;
+ before_highest_sample_risk:number;after_highest_sample_risk:number|null;levels:Array<{key:string;level:number;max_level:number}>;suppression_limit:0};
+export type ObservationMetric='CONTRIBUTING_ORGANIZATIONS'|'ACCEPTED_ORDER_COUNT'|'TOTAL_OPERATION_MINUTES';
+export type DpObservationReview=Common&{kind:'opendp';version:'0.16.0';metric:ObservationMetric;public_bound:number;
+ epsilon_milli:number;privacy_map_at_one:number;scale:number;noisy_value:number;delta:0;budget_accounting:'NOT_PERFORMED'};
+export function reviewObservationResult(candidate:unknown,requestBytes:Uint8Array,raw:unknown):Promise<ArxObservationReview|DpObservationReview>;
