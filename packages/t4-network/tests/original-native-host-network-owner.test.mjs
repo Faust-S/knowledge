@@ -67,7 +67,7 @@ function kernelFixture(name){
 }
 function wireFixture(indexed=false){
   const frames=new Map(),indices=new Map();let puts=0,gets=0,lists=0;
-  const address=(key,frameSha256)=>({schema:'IWXA_T4_FRAME_ADDRESS_READ_V1',key,frameSha256,addressMetadataIsNotSignatureOrAuthority:true,originalBusinessApplied:false});
+  const address=(key,frameSha256)=>({schema:'IWXA_T4_NATIVE_FRAME_INDEX_READ_V1',key,frameSha256,addressMetadataIsNotSignatureOrAuthority:true,originalBusinessApplied:false});
   const wire={wireKind:'T4_NETWORK_CANDIDATE',forOriginalHostLifetime(){return this},
     async listNativeFrameAddresses(){
       lists++;const keys=[...frames.keys()].sort();

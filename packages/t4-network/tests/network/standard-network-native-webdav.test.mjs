@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateKeyPairSync,sign,verify} from 'node:crypto';
+import {generateKeyPairSync,sign,verify,createHash,randomUUID} from 'node:crypto';
 import {
   createWebDavPackageTransport
 } from '../../src/network/webdav-package-transfer.mjs';
 import {
-  createT4CandidateUnsignedFrame,signT4CandidateFrame
+  createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION
 } from '../../src/network/standard-network-wire-candidate.mjs';
 import {
   createT4CandidateFrameTransport
@@ -51,10 +51,10 @@ const makeBytes=async(type='HEADS',overrides={})=>{
   });
 };
 const makeTransport=(mode=()=> 'T4_NETWORK',authorization=async()=>true,
-  fetchImpl=fetch)=>createWebDavPackageTransport({
+  fetchImpl=fetch,indexedNetworkWire=false)=>createWebDavPackageTransport({
   baseUrl:process.env.T4_TEST_URL,locationRef:'test-webdav',
   placementPolicy:policy,keySuffix:'.t4n',
-  candidateNetworkWire:true,
+  candidateNetworkWire:true,indexedNetworkWire,
   getMode:mode,authorize:authorization,
   getAuthorizationHeader:async()=>process.env.T4_TEST_AUTH,
   fetchImpl,
@@ -508,4 +508,94 @@ test('real Apache refuses frame discovery with another collection credential',as
   });
   try{await assert.rejects(t.listNativeFrameAddresses(),code('REMOTE_AUTHORIZATION_DENIED'));}
   finally{t.close();}
+});
+
+
+test('K23 real HTTPS indexed HEADS and exact session discovery use no collection listing',async()=>{
+  const requests=[];
+  const indexed=()=>makeTransport(()=> 'T4_NETWORK',async()=>true,async(url,options)=>{
+    requests.push({path:new URL(url).pathname,method:options.method});
+    assert.notEqual(options.method,'PROPFIND');
+    return fetch(url,options);
+  },true);
+  const outgoing=indexed(),incoming=indexed(),source=host('source',outgoing),recipient=host('recipient',incoming);
+  const id=randomUUID(),sessionRef='session:'+id,familyRef='family:'+id;
+  const selector={sourceNodeRef:'node:one',ownerEpoch:2,sessionRef};
+  const body={familyRef,ownerEpoch:2,heads:['sha256:'+'b'.repeat(64)],sourceSession:{
+    predecessorEventId:'event:prev',predecessorEventCount:5,predecessorPrefixDigest:'sha256:'+'a'.repeat(64),
+    sourceEventId:'event:next',sourceEventDigest:'sha256:'+'c'.repeat(64),sourceRevision:1,
+    changeKind:'OBJECT_PUT',capturedWindowDigest:'sha256:'+'d'.repeat(64),capturedSha256:'e'.repeat(64)}};
+  const supportedCriticalExtensions=[T4_ORIGINAL_SOURCE_SESSION_EXTENSION];
+  try{
+    await source.wire.publishSignedFrame({wireBytes:await makeBytes('HEADS',{sessionRef,sequence:1,body,criticalExtensions:supportedCriticalExtensions})});
+    requests.length=0;
+    const head=await recipient.wire.discoverSourceSessionHeads({selector:{sourceNodeRef:'node:one',ownerEpoch:2,familyRef,predecessorEventCount:5},requiredCryptoSuite:suite});
+    assert.equal(head.state,'FOUND');assert.equal(head.receipts[0].verifiedSessionRef,sessionRef);
+    assert.equal(head.indexedLookup,true);assert.equal(head.indexIsNotHistoryCompletenessProof,true);
+    assert.equal(requests.length,2);assert.ok(requests[0].path.endsWith('.t4i'));assert.ok(requests[1].path.endsWith('.t4n'));
+    const slot=await recipient.wire.discoverUniqueSignedFrame({selector:{...selector,messageType:'HEADS',sequence:1},requiredCryptoSuite:suite,supportedCriticalExtensions});
+    assert.equal(slot.receipt.exactPreviouslyVerifiedReplay,true);
+    const absent=await recipient.wire.discoverSourceSessionHeads({selector:{sourceNodeRef:'node:one',ownerEpoch:2,familyRef,predecessorEventCount:6},requiredCryptoSuite:suite});
+    assert.equal(absent.state,'NOT_FOUND');assert.equal(absent.sourceCursorAdvanced,false);
+    const {prepareT4CandidateOpaqueChunks}=await import('../../src/network/standard-network-opaque-chunks.mjs');
+    const chunks=await prepareT4CandidateOpaqueChunks({changeId:'change:'+id,ownerRef:'original:owner:one',
+      sourceContentRef:'asset:'+id,getMode:()=> 'T4_NETWORK',authorizeOriginalSealedContent:async()=>true,
+      readOriginalSealedContent:async()=>({ciphertext:Buffer.alloc(5000,7),encryptionContextRef:'crypto:fixture'}),chunkBytes:4096});
+    assert.equal(chunks.chunkCount,2);
+    const discover=()=>recipient.wire.discoverSessionContent({selector,requiredCryptoSuite:suite,supportedCriticalExtensions});
+    assert.equal((await discover()).receipts.length,1);
+    await source.wire.publishSignedFrame({wireBytes:await makeBytes('CHANGE_REF',{sessionRef,sequence:2,body:{
+      changeId:chunks.changeId,changeKind:'ASSET_PUT',eventRef:'event:asset',ownerRef:'original:owner:one',
+      sourceRevision:1,contentDigest:chunks.contentDigest,parents:[]}})});
+    assert.equal((await discover()).receipts.length,2);
+    await source.wire.publishSignedFrame({wireBytes:await makeBytes('CHUNK',{sessionRef,sequence:3,body:chunks.bodies[0]})});
+    assert.equal((await discover()).receipts.length,3);
+    await source.wire.publishSignedFrame({wireBytes:await makeBytes('CHUNK',{sessionRef,sequence:4,body:chunks.bodies[1]})});
+    requests.length=0;
+    const full=await discover();
+    assert.deepEqual(full.receipts.map(r=>r.signedMessageType),['HEADS','CHANGE_REF','CHUNK','CHUNK']);
+    assert.equal(full.candidatesExamined,4);assert.equal(requests.length,8);assert.equal(recipient.replay.size,4);
+    assert.equal(full.originalBusinessApplied,false);assert.equal(full.sourceCursorAdvanced,false);
+    // Another signed successor at the same source count cannot replace the first pointer.
+    await assert.rejects(source.wire.publishSignedFrame({wireBytes:await makeBytes('HEADS',{
+      sessionRef:'session:conflict:'+id,sequence:1,body:{...body,sourceSession:{...body.sourceSession,
+        predecessorPrefixDigest:'sha256:'+'f'.repeat(64)}},criticalExtensions:supportedCriticalExtensions})}),
+      code('WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN'));
+    const still=await recipient.wire.discoverSourceSessionHeads({selector:{sourceNodeRef:'node:one',ownerEpoch:2,familyRef,predecessorEventCount:5},requiredCryptoSuite:suite});
+    assert.equal(still.receipts[0].verifiedSessionRef,sessionRef);
+  }finally{outgoing.close();incoming.close();}
+});
+
+test('K23 real HTTPS repairs only missing index after durable frame upload and rejects a valid signed wrong-slot target',async()=>{
+  const sessionRef='session:repair:'+randomUUID();let framePuts=0,indexPuts=0,failIndex=true;
+  const outgoing=makeTransport(()=> 'T4_NETWORK',async()=>true,async(url,options)=>{
+    const path=new URL(url).pathname;
+    assert.notEqual(options.method,'PROPFIND');
+    if(options.method==='PUT'&&path.endsWith('.t4n'))framePuts++;
+    if(options.method==='PUT'&&path.endsWith('.t4i')){
+      indexPuts++;if(failIndex){failIndex=false;throw Error('simulated missing index write');}
+    }
+    return fetch(url,options);
+  },true),incoming=makeTransport(()=> 'T4_NETWORK',async()=>true,fetch,true);
+  const a=host('source',outgoing),b=host('recipient',incoming);
+  const bytes=await makeBytes('HEADS',{sessionRef,sequence:1}),sha256=createHash('sha256').update(bytes).digest('hex');
+  const address={key:sha256+'.t4n',expectedSha256:sha256};
+  const selector={sourceNodeRef:'node:one',ownerEpoch:2,sessionRef,messageType:'HEADS',sequence:1};
+  try{
+    await assert.rejects(a.wire.publishSignedFrame({wireBytes:bytes}),code('WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN'));
+    assert.equal(framePuts,1);assert.equal(indexPuts,1);
+    assert.equal((await b.wire.discoverUniqueSignedFrame({selector,requiredCryptoSuite:suite})).state,'NOT_FOUND');
+    await assert.rejects(a.wire.inspectUnknownPublication(address),code('WIRE_NATIVE_INDEX_MISSING'));
+    assert.equal(indexPuts,1);
+    const repaired=await a.wire.inspectUnknownPublication({...address,repairMissingFrameIndex:true});
+    assert.equal(repaired.exactBytesPresent,true);assert.equal(framePuts,1);assert.equal(indexPuts,2);
+    const received=await b.wire.discoverUniqueSignedFrame({selector,requiredCryptoSuite:suite});
+    assert.equal(received.receipt.sha256,sha256);assert.equal(b.replay.size,1);
+    const {t4NativeSessionFrameIndexKey}=await import('../../src/network/original-network-frame-address.mjs');
+    const wrong={...selector,sessionRef:'session:wrong:'+randomUUID()};
+    await outgoing.putNativeFrameIndex({key:t4NativeSessionFrameIndexKey({...wrong,recipientNodeRef:'node:two',scopeRef:'scope:opaque'}),frameSha256:sha256});
+    await assert.rejects(b.wire.discoverUniqueSignedFrame({selector:wrong,requiredCryptoSuite:suite}),code('WIRE_NATIVE_INDEX_TARGET_MISMATCH'));
+    assert.equal(b.replay.size,1);
+    await assert.rejects(outgoing.putNativeFrameIndex({key:t4NativeSessionFrameIndexKey({...selector,recipientNodeRef:'node:two',scopeRef:'scope:opaque'}),frameSha256:'0'.repeat(64)}),code('REMOTE_INDEX_SLOT_CONFLICT'));
+  }finally{outgoing.close();incoming.close();}
 });
