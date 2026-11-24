@@ -1,6 +1,6 @@
 {
   "schema": "AKIS_NATIVE_SOURCE_SCOPE/1",
-  "source_revision": "97f8b4b6256169ce036c8f370cd74bdcd866a8ce",
+  "source_revision": "99b1e1c44ef37ae74ab79d8eaada6b0d187f6a9c",
   "source_files": {
     "__init__.py": "68b595531872d6fa1de0c15a5592cb43749e062d",
     "adaptation_review.py": "3ea02ee9da9e06433abdf0b89d771e199fa6c75b",
@@ -17,7 +17,7 @@
     "configuration_behavior.py": "708e20b70c77cc318f145a945a5070f74556e88d",
     "context_basis.py": "ef8e4fa0c6f891487e621130a9592e206eaa537a",
     "cooperation.py": "5206bcd543919adf9784779d4bd4de048f32cc9e",
-    "economic_flow.py": "5023d26834e329145dd4cbd63a917c5a78494b56",
+    "economic_flow.py": "8f26b31b4b893ca0defaec4bdde9f1de4fe3575c",
     "economic_lifecycle.py": "a5a8f4903b73efa4fe260f375ee6aea79751d255",
     "economic_liquidity.py": "d477dde295fee8abefe9d89e9426729d4c8c5459",
     "economic_outlook.py": "041aeab6ade7a2a183ba002e023438dca7a74bf1",
@@ -218,8 +218,8 @@
     "three_period_original_work.py": "151ae288d5271764f8a099a038d9420b24298c8d",
     "work_assurance.py": "cc46a1d0408ebef3c2c5ccb006ec48fffadd37d6",
     "work_counterfactual.py": "9f13fa313ee0b3d921f3b22d5a0e2b4221a69f21",
-    "tests/test_original_portfolio_delegation_mesa.py": "0ea15e3ad9d2f6ceee3e837c3fcffce9b4d2fe98",
-    "experiments/export_original_portfolio_delegation.py": "6997326aa5c9b0bac3b123836eb9c5921f76b6f3"
+    "tests/test_original_portfolio_delegation_mesa.py": "c3ee756ca5ebe51b986f4dac1f4351f75691f474",
+    "experiments/export_original_portfolio_delegation.py": "c9c7de81aebdde33e7f8a9fbd9041711eac71b3a"
   },
   "retained_stand_only": {
     "tests/test_r1v2c3_intrafirm_affiliation_transfer_mesa.py": "2f9abac2495321847130dac486fcad254c9ea6c4"

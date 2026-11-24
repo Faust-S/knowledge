@@ -256,3 +256,113 @@ def test_missing_one_customer_cost_keeps_other_customer_cost_but_not_common_tota
     assert costs["per_original_owner"]["b"]["all_combined_cost"]=="12.00"
     assert costs["per_original_owner"][BUYER]["all_combined_cost"] is None
     assert costs["per_original_owner"]["op"]["all_combined_cost"] is None
+
+
+def blocked_portfolio_mandate_routes(*, mandate_cost="20.00"):
+    """Both preparations really occur, but an earlier reservation blocks Work."""
+    delegated=finance_portfolio()["supplier"]
+    money=delegated["economic_claims"]
+    life=money["lifecycle_costs"]
+    tick=reserve_original_grant_tick(delegated,OUTSIDE)
+    uncommitted=money["uncommitted_order_cost_evidence"]
+    uncommitted["capacity_block"]["at"]=_event(delegated,"commit",OUTSIDE)["at"]
+    prep=_event(delegated,"function_prepare",OUTSIDE)
+    fn=next(row for row in delegated["general_akis"]["agent_functions"]
+            if row["id"]==prep["function_id"] and row["work"]==OUTSIDE)
+    fn["requires_original_delegation"]=True
+    ref=source(delegated,BUYER,"blocked-portfolio-preparation-mandate","mandate-v1",
+               "AKIS_DELEGATED_PREPARATION","DERIVE",[BUYER,"op"])
+    grant={"at":tick,"action":"function_delegate","actor":BUYER,"work":OUTSIDE,
+           "org_revision":"oc-1","work_source_revision":fn["work_revision"],
+           "function_id":fn["id"],"function_source_ref":fn["source_ref"],
+           "delegation_source_ref":ref,"delegation_source_revision":"mandate-v1"}
+    delegated["events"].append(grant)
+    prep.update(preparation_mode="S2",delegation_at=tick)
+
+    # The original 40 precommit expenses are not packet costs. Keep all
+    # those rows and declare two distinct additional modeled activities.
+    def cost(rid,owner,amount,event,stage):
+        term=money["coverage"]["COOPERATION"][owner]
+        proof=source(delegated,owner,rid+"-proof","cost-v1",
+                     "AKIS_ECONOMIC_WORK_EVIDENCE","READ",[owner])
+        money["resource_uses"].append({"id":rid,"scenario":"COOPERATION","work":OUTSIDE,
+            "owner":owner,"source":term,"amount":amount,"bucket":"COORDINATION"})
+        life["bindings"].append({"resource_use_id":rid,"owner":owner,"source":term,
+            "stage":stage,"nature":"TRANSACTION"})
+        life["event_bindings"].append({"resource_use_id":rid,"work":OUTSIDE,"owner":owner,
+            "source":term,"work_source_revision":fn["work_revision"],"trace_position":0,
+            "at":event["at"],"action":event["action"],"org_revision":"oc-1",
+            "cost_evidence_ref":proof,"cost_evidence_revision":"cost-v1"})
+        uncommitted["owner_scopes"][owner]["resource_use_ids"].append(rid)
+        money["portfolio_scope_evidence"]["owner_scopes"][owner]["resource_use_ids"].append(rid)
+    prep_id="blocked-portfolio-packet-cost"
+    grant_id="blocked-portfolio-mandate-cost"
+    cost(prep_id,"op","51.00",prep,"PRODUCTION_COORDINATION")
+    cost(grant_id,BUYER,mandate_cost,grant,"CONTRACT_AND_PERMISSIONS")
+    life["preparation_activity_bindings"]=[{"resource_use_id":prep_id,"unit_rates_by_mode":deepcopy(RATES)}]
+    from .test_original_delegation_recovery_mesa import reindex,drop_cost
+    reindex(delegated)
+    direct=deepcopy(delegated)
+    direct["events"]=[row for row in direct["events"] if row["action"]!="function_delegate"]
+    direct_prep=_event(direct,"function_prepare",OUTSIDE)
+    direct_prep["preparation_mode"]="S1"
+    direct_prep.pop("delegation_at")
+    next(row for row in direct["general_akis"]["agent_functions"]
+         if row["id"]==fn["id"] and row["work"]==OUTSIDE).pop("requires_original_delegation")
+    dm=direct["economic_claims"]
+    next(row for row in dm["resource_uses"] if row["id"]==prep_id)["amount"]="83.00"
+    drop_cost(direct,grant_id)
+    for scope in ("uncommitted_order_cost_evidence","portfolio_scope_evidence"):
+        dm[scope]["owner_scopes"][BUYER]["resource_use_ids"].remove(grant_id)
+    reindex(direct)
+    return {"DIRECT":direct,"DELEGATED":delegated}
+
+
+def observe_blocked_portfolio_mandate(*, mandate_cost="20.00"):
+    docs=blocked_portfolio_mandate_routes(mandate_cost=mandate_cost)
+    frozen=deepcopy(docs)
+    outs={key:simulate(doc) for key,doc in docs.items()}
+    assert docs==frozen
+    a,b=outs["DIRECT"],outs["DELEGATED"]
+    assert a["works"]==b["works"] and a["capacity"]==b["capacity"]
+    assert a["economics"]["cash_timing"]==b["economics"]["cash_timing"]
+    for out in (a,b):
+        assert out["works"][OUTSIDE]["obligation"]=="NOT_ACCEPTED"
+        assert out["works"][OUTSIDE]["result"]=="NOT_SUBMITTED"
+        assert all(out["works"][key]["result"]==ACCEPTED for key in ("w1","w2","w3"))
+        rejected=out["economics"]["original_uncommitted_order_costs"]
+        assert rejected["original_capacity_conflict_applied"]
+        assert not rejected["original_accepted_result"]
+        assert rejected["independent_zero_transfer_declaration_count"]==3
+    costs=[out["economics"]["original_uncommitted_order_costs"]["local_research_only"]
+           for out in (a,b)]
+    assert costs[0]["total_exclusive_precommit_resource_cost"]=="123.00"
+    assert Decimal(costs[1]["total_exclusive_precommit_resource_cost"])==91+Decimal(mandate_cost)
+    assert Decimal(costs[1]["per_owner_exclusive_precommit_resource_cost"][BUYER])==10+Decimal(mandate_cost)
+    view=delegation_scope(b)
+    assert view["applied_mandate_count"]==view["applied_delegated_preparation_count"]==1
+    assert view["committed_effective_preparation_count"]==view["accepted_effective_preparation_count"]==0
+    cost=b["economics"]["original_delegation_attempt_costs"]["local_research_only"]["by_original_work"][OUTSIDE]
+    assert Decimal(cost["all_combined_cost"])==51+Decimal(mandate_cost)
+    assert cost["other_combined_cost"]==cost["all_combined_cost"]
+    assert cost["accepted_effective_combined_cost"]=="0.00"
+    portfolio=[out["economics"]["original_portfolio_economics"]["local_research_only"]
+               for out in (a,b)]
+    delta=Decimal(portfolio[1]["consolidated_model_contribution"])-Decimal(portfolio[0]["consolidated_model_contribution"])
+    assert delta==32-Decimal(mandate_cost)
+    assert b["economics"]["profit"]=="UNKNOWN"
+    return outs,delta
+
+
+@pytest.mark.parametrize("cost,expected",[("0.00","32.00"),("20.00","12.00"),("32.00","0.00"),("48.00","-16.00")])
+def test_original_uncommitted_order_retains_mandate_cost_without_revenue(cost,expected):
+    _,delta=observe_blocked_portfolio_mandate(mandate_cost=cost)
+    assert delta==Decimal(expected)
+
+
+def test_original_uncommitted_order_cannot_hide_applied_mandate_expense():
+    doc=blocked_portfolio_mandate_routes()["DELEGATED"]
+    doc["economic_claims"]["uncommitted_order_cost_evidence"]["owner_scopes"][BUYER]["resource_use_ids"].remove("blocked-portfolio-mandate-cost")
+    from research.akis.qualitative_mesa.rules import InputError
+    with pytest.raises(InputError,match="UNCOMMITTED_ORDER_"):
+        simulate(doc)

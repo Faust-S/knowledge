@@ -1825,7 +1825,12 @@ def review_original_uncommitted_order_costs(
     if (not resources or any(r["owner"] not in owners or r["scenario"] != "COOPERATION"
                             for r in resources.values())):
         raise EconomicInputError("UNCOMMITTED_ORDER_ORIGINAL_PRECOMMIT_COST_BOUNDARY_REQUIRED")
-    precommit_actions = {"request", "offer", "authorize", "consent", "interest_update", "function_prepare"}
+    # A separately incurred, independently sourced customer mandate is an
+    # original precommit expense even if capacity blocks the later Work.
+    # Timed lifecycle qualification already binds it to the actual APPLIED
+    # function_delegate and its own customer, not a blocked grant or commit.
+    precommit_actions = {"request", "offer", "authorize", "consent", "interest_update",
+                         "function_prepare", "function_delegate"}
     values = {}
     scope_refs = set()
     for owner in sorted(owners):

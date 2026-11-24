@@ -2,7 +2,7 @@
 from hashlib import sha256
 import json
 from pathlib import Path
-from research.akis.qualitative_mesa.tests.test_original_portfolio_delegation_mesa import observe_portfolio_mandates
+from research.akis.qualitative_mesa.tests.test_original_portfolio_delegation_mesa import (observe_portfolio_mandates, observe_blocked_portfolio_mandate)
 
 def export_portfolio_delegation():
     observations=[]
@@ -17,8 +17,18 @@ def export_portfolio_delegation():
             "same_original_two_orders_accepted":True,
             "all_owners_weakly_benefit":all(v>=0 for v in deltas.values()),
         })
+    blocked=[]
+    for label,cost in (("explicit_zero","0.00"),("positive_saving","20.00"),
+                       ("zero_saving","32.00"),("negative_saving","48.00")):
+        outputs,delta=observe_blocked_portfolio_mandate(mandate_cost=cost)
+        blocked.append({
+            "trial":label,"aggregate_contribution_change":"POSITIVE" if delta>0 else "ZERO" if delta==0 else "NEGATIVE",
+            "original_named_capacity_conflict":True,"original_second_result_accepted":False,
+            "independently_declared_zero_transfers":True,"all_applied_attempt_costs_retained":True,
+        })
     payload=json.dumps({
-        "schema":"AKIS_ORIGINAL_PORTFOLIO_DELEGATION/1.0","engine":"MESA_3_5_2","observations":observations,
+        "schema":"AKIS_ORIGINAL_PORTFOLIO_DELEGATION/1.1","engine":"MESA_3_5_2","observations":observations,
+        "blocked_order_observations":blocked,
         "private_amounts_and_source_and_owner_identifiers_excluded":True,
         "actual_profit_causal_effect_and_runtime_verified":False,
     },sort_keys=True,indent=2,allow_nan=False)+"\n"
