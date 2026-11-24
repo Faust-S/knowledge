@@ -39,7 +39,8 @@ function normalizeJson(value,seen=new Set(),depth=0){
   }
   seen.delete(value);return out;
 }
-const encode=object=>Buffer.from(JSON.stringify(normalizeJson(object)),'utf8');
+export const encodeT4OriginalDeltaJson=object=>Buffer.from(JSON.stringify(normalizeJson(object)),'utf8');
+const encode=encodeT4OriginalDeltaJson;
 function parse(bytes){
   if(!(bytes instanceof Uint8Array)||!bytes.length||bytes.length>MAX_DELTA_BYTES)
     fail('OBJECT_DELTA_BYTES_INVALID');
