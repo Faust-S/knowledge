@@ -141,6 +141,12 @@ WORK_ACTION_OPERATIONS = {
     'handoff_receive': frozenset({'ACCEPT'}),
     'handoff_quality': frozenset({'ACCEPT'}),
     'assess_result_quality': frozenset({'ACCEPT'}),
+    'quality_correction_propose': frozenset({'ACCEPT'}),
+    'quality_correction_review': frozenset({'ACCEPT'}),
+    'quality_correction_apply': frozenset({'ACCEPT'}),
+    'quality_correction_cancel': frozenset({'ACCEPT'}),
+    'quality_correction_start': frozenset({'EXECUTE'}),
+    'quality_correction_complete': frozenset({'EXECUTE'}),
     'interest_update': frozenset({'ACCEPT'}),
 }
 
