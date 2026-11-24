@@ -606,3 +606,80 @@ export function prepareD05TechnologyProposal(review,groupId,modelNumber,form){
   require(new TextEncoder().encode(key(result)).byteLength<=DRAFT_LIMIT,'D05_ROUTE_DRAFT_OUTPUT_LIMIT');
   return result;
 }
+
+
+// A4.3-IV: prepare the candidate which the existing Agent may pass to
+// qualified local privacy tools. All choices are explicit proposals. No PII
+// detector or automatic anonymizer is implemented here. This is an internal
+// review result, not an Exchange payload.
+export function prepareD05DisclosureCandidate(review,groupId,modelNumber,form,decisions){
+  const proposal=prepareD05TechnologyProposal(review,groupId,modelNumber,form);
+  const fields=[...proposal.source_route_parameters,
+    ...proposal.operations.flatMap(o=>o.source_parameter_conditions)];
+  const keys=fields.map(c=>c.key);
+  require(exactKeys(decisions,keys)&&Object.values(decisions).every(d=>
+    exactKeys(d,['mode','guidance'])&&['RETAIN_DECLARATION','PARAMETERIZE'].includes(d.mode)&&
+    (d.guidance===undefined||qualityText(d.guidance))),'D05_ROUTE_DISCLOSURE_DECISION_INVALID');
+  const pending=[];
+  let retained=0,parameterized=0;
+  const mapped=new Map(fields.map(c=>{
+    const choice=decisions[c.key],guidance=proposalText(choice?.guidance);
+    let row={field:c.field,mode:'NEEDS_DECISION',value:null,guidance:null};
+    if(choice?.mode==='RETAIN_DECLARATION'&&c.value!==null){
+      row={field:c.field,mode:choice.mode,value:Array.isArray(c.value)?[...c.value]:c.value,guidance:null};
+      retained++;
+    }else if(choice?.mode==='PARAMETERIZE'&&guidance!==null){
+      // The source value is deliberately not placed in a parameterized
+      // candidate. The recipient must determine it, never reuse a hidden
+      // factory-specific default.
+      row={field:c.field,mode:choice.mode,value:null,guidance};parameterized++;
+    }else pending.push({key:c.key,scope:c.scope,field:c.field});
+    return [c.key,row];
+  }));
+  const technology={
+    terms:{...proposal.terms},
+    route_parameters:proposal.source_route_parameters.map(c=>mapped.get(c.key)),
+    operations:proposal.operations.map(o=>({
+      operation_id:o.operation_id,label:o.proposed.label,kind:o.kind,
+      parallel:o.parallel,milestone:o.milestone,predecessors:[...o.predecessors],
+      role:o.proposed.role,equipment_requirement:o.proposed.equipment,material_requirement:o.proposed.material,
+      parameters:o.source_parameter_conditions.map(c=>mapped.get(c.key)),
+    })),
+    quality_checks:proposal.quality_checks.map(c=>({
+      check_id:c.check_id,title:c.title,operation_id:c.operation_id,control_type:c.control_type,
+      responsible_role:c.proposed_responsible_role,
+      // Never discard the actual acceptance limits or their blocking rule.
+      // A missing source material reference remains an explicit review task.
+      declared_fields:c.declared_fields.map(f=>({...f})),
+    })),
+  };
+  // Paths are generated from the candidate structure, not from caller paths
+  // or original source IDs. Keep text available for Presidio or other
+  // qualified tools; no assertion of anonymization is inferred from it.
+  const texts=[];
+  function inventory(value,path){
+    if(typeof value==='string'&&value.length)texts.push({path,text:value});
+    else if(Array.isArray(value))value.forEach((item,i)=>inventory(item,path+'.'+i));
+    else if(obj(value))for(const [k,item] of Object.entries(value)){
+      // Structural aliases and controlled enum values are not free text.
+      if(['operation_id','check_id','predecessors','kind','control_type','mode','field','use','status'].includes(k))continue;
+      inventory(item,path+'.'+k);
+    }
+  }
+  inventory(technology,'technology');
+  const out={
+    status:proposal.status==='PROPOSAL_FOR_DOMAIN_REVIEW'&&!pending.length?
+      'LOCAL_CANDIDATE_FOR_DISCLOSURE_REVIEW':'LOCAL_CANDIDATE_NEEDS_REVIEW_INPUT',
+    technology,text_review_fields:texts,
+    parameter_summary:{retained,parameterized,pending:pending.length},
+    pending_parameter_decisions:pending,
+    missing_proposal_fields:proposal.missing_fields,
+    unresolved_source_requirements:proposal.unresolved_source_requirements,
+    source_quality_status:proposal.source_quality_status,
+    domain_validation:'NOT_PERFORMED',
+    disclosure_review:'NOT_PERFORMED',anonymity:'NOT_ESTABLISHED',
+    export_allowed:false,iwxa_package:null,
+  };
+  require(new TextEncoder().encode(key(out)).byteLength<=DRAFT_LIMIT,'D05_ROUTE_DRAFT_OUTPUT_LIMIT');
+  return out;
+}

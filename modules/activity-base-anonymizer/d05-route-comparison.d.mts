@@ -76,3 +76,24 @@ export type D05TechnologyProposal={
  anonymity:'NOT_ESTABLISHED';export_allowed:false;iwxa_package:null;
 };
 export function prepareD05TechnologyProposal(review:unknown,groupId:string,modelNumber:number,form:D05TechnologyProposalForm):D05TechnologyProposal;
+
+export type D05ParameterDecision={mode:'RETAIN_DECLARATION'|'PARAMETERIZE';guidance?:string};
+export type D05DisclosureParameter={field:string;mode:'NEEDS_DECISION'|'RETAIN_DECLARATION'|'PARAMETERIZE';
+ value:D05DraftValue;guidance:string|null};
+export type D05DisclosureCandidate={
+ status:'LOCAL_CANDIDATE_FOR_DISCLOSURE_REVIEW'|'LOCAL_CANDIDATE_NEEDS_REVIEW_INPUT';
+ technology:{terms:Record<string,string|null>;route_parameters:D05DisclosureParameter[];
+  operations:Array<{operation_id:string;label:string|null;kind:D05RouteGroup['operations'][number]['kind'];
+   parallel:boolean;milestone:boolean;predecessors:string[];role:string|null;equipment_requirement:string|null;
+   material_requirement:string|null;parameters:D05DisclosureParameter[]}>;
+  quality_checks:Array<{check_id:string;title:string;operation_id:string|null;control_type:string;
+   responsible_role:string|null;declared_fields:D05DraftCheck['fields']}>};
+ text_review_fields:Array<{path:string;text:string}>;
+ parameter_summary:{retained:number;parameterized:number;pending:number};
+ pending_parameter_decisions:Array<{key:string;scope:string;field:string}>;
+ missing_proposal_fields:D05TechnologyProposal['missing_fields'];unresolved_source_requirements:string[];
+ source_quality_status:D05DraftProfile['quality_status'];domain_validation:'NOT_PERFORMED';
+ disclosure_review:'NOT_PERFORMED';anonymity:'NOT_ESTABLISHED';export_allowed:false;iwxa_package:null;
+};
+export function prepareD05DisclosureCandidate(review:unknown,groupId:string,modelNumber:number,
+ form:D05TechnologyProposalForm,decisions:Record<string,D05ParameterDecision>):D05DisclosureCandidate;

@@ -1,7 +1,7 @@
 // Optional local invocation entry point for a qualified Personal Agent adapter.
 // Reads supplied native route models only. No access to Kernel, Workspace,
 // network, files by path, authority, automatic publication or .iwxa export.
-import {reviewD05ResultSelection} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
+import {reviewD05ResultSelection,prepareD05TechnologyProposal,prepareD05DisclosureCandidate} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 const INPUT_LIMIT=8*1024*1024, OUTPUT_LIMIT=8*1024*1024;
 function hold(code){return {status:'HOLD',code,source_authority:'UNVERIFIED_LOCAL_COPY',
   anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null};}
@@ -21,10 +21,25 @@ async function readInput(){
 }
 try{
  const args=process.argv.slice(2);
- const draft=args.length===1&&args[0]==='--technology-draft';
- if(args.length&&!draft)fail('D05_ROUTE_CLI_ARGUMENTS_NOT_SUPPORTED');
- const records=await readInput();
- const result=reviewD05ResultSelection(records,{includeTechnologyDraft:draft});
+ const mode=args.length===0?'--compare':args.length===1?args[0]:null;
+ if(!['--compare','--technology-draft','--technology-proposal','--disclosure-candidate'].includes(mode)||
+   (args.length&&mode==='--compare'))fail('D05_ROUTE_CLI_ARGUMENTS_NOT_SUPPORTED');
+ const input=await readInput();
+ let result;
+ if(mode==='--compare'||mode==='--technology-draft'){
+   result=reviewD05ResultSelection(input,{includeTechnologyDraft:mode==='--technology-draft'});
+ }else{
+   const expected=['records','group_id','model_number','proposal',
+     ...(mode==='--disclosure-candidate'?['parameter_decisions']:[])];
+   if(!input||typeof input!=='object'||Array.isArray(input)||
+     Object.keys(input).length!==expected.length||!expected.every(k=>Object.hasOwn(input,k))||
+     typeof input.group_id!=='string'||!Number.isSafeInteger(input.model_number)||
+     input.model_number<1)fail('D05_ROUTE_CLI_PROPOSAL_INVALID');
+   const review=reviewD05ResultSelection(input.records,{includeTechnologyDraft:true});
+   result=mode==='--technology-proposal'?
+     prepareD05TechnologyProposal(review,input.group_id,input.model_number,input.proposal):
+     prepareD05DisclosureCandidate(review,input.group_id,input.model_number,input.proposal,input.parameter_decisions);
+ }
  if(Buffer.byteLength(JSON.stringify(result),'utf8')>OUTPUT_LIMIT)fail('D05_ROUTE_CLI_OUTPUT_LIMIT');
  write(result);
 }catch(error){
