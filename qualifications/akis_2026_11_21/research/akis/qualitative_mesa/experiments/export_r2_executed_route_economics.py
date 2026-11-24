@@ -97,7 +97,7 @@ def export_multiperiod_route_economics():
         compare as compare_periods, cumulative_routes, fourth_period_case,
         adverse_execution_cost_routes, delayed_receipt_routes,
         third_period_reviews, without_finance, outside_then_reenter_case, ACCEPTED,
-        fourth_period_finance_case,
+        fourth_period_finance_case, joint_owner_service_case, compare_joint_owner_service,
     )
 
     trials = {
@@ -265,14 +265,27 @@ def export_multiperiod_route_economics():
             "actual_bank_balance_at_review_verified": False,
             "future_work_financial_information_used_for_prior_review": False,
         })
+    joint = []
+    for label, kwargs in sorted({
+        "both_common_owners_viable": {},
+        "operator_break_even": {"third_fee": "150.00"},
+        "independent_fee_cap_exceeded": {"third_fee": "240.00"},
+        "supplier_outside_preferred": {"cooperative_price": "900.00"},
+        "operator_late_reserve_gap": {"delay_stress": True},
+        "same_cost_and_on_time_receipt": {"delay_stress": True, "on_time": True},
+    }.items()):
+        report = compare_joint_owner_service(*joint_owner_service_case(**kwargs))
+        report.pop("local_research_only")
+        joint.append({"trial": label, **report})
     manifest = {
-        "schema": "AKIS_R1P_R3_CUMULATIVE_EXECUTED_ROUTE_ECONOMICS/1.2",
+        "schema": "AKIS_R1P_R3_CUMULATIVE_EXECUTED_ROUTE_ECONOMICS/1.3",
         "engine": "MESA_3_5_2",
         "matched_route_experiments": results,
         "fourth_period_original_feedback_experiments": fourth,
         "unqualified_measurement_experiments": negative_capacity,
         "external_execution_and_independent_reentry_experiments": reentry,
         "four_period_original_financial_scope_and_prior_portfolio_forecast_experiments": complete_fourth,
+        "common_supplier_operator_joint_model_viability_experiments": joint,
         "private_owner_amounts_and_source_references_excluded": True,
         "independent_owner_review_is_not_automatic_consent": True,
         "no_cumulative_ledger_created_outside_original_model": True,

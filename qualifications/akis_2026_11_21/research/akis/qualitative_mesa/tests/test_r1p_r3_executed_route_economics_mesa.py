@@ -1134,3 +1134,132 @@ def test_fourth_period_cannot_use_financial_rows_for_uncreated_work():
          and row.get("evaluated_work") == "w3" and row["actor"] == "a")["new_participation"] = "PAUSED_NEW_WORK"
     with pytest.raises(InputError, match="ORIGINAL_ECONOMIC_WORK_MUST_EXIST"):
         simulate(doc)
+
+
+def joint_owner_service_case(*, third_fee="200.00", cap="300.00",
+                             cooperative_price="1200.00", delay_stress=False,
+                             on_time=False):
+    """Same executed routes, independent nonoverlap documents and payer cap."""
+    docs = (delayed_receipt_routes(on_time=on_time) if delay_stress
+            else cumulative_routes(cooperative_price=cooperative_price))
+    declaration = {
+        "supplier": "a", "operator": "op", "scopes": {},
+        "fee_cap": {"owner": "a", "source": "joint-a-fee-cap", "maximum_total_fee": cap},
+    }
+    for arm, doc in docs.items():
+        money = doc["economic_claims"]
+        for owner, suffix in (
+            ("a", "cooperation-nonoverlap"), ("a", "outside-nonoverlap"),
+            ("op", "cooperation-nonoverlap"), ("op", "outside-nonoverlap"),
+            ("a", "fee-cap"),
+        ):
+            key = f"joint-{owner}-{suffix}"
+            ref = f"model://{owner}/{key}"
+            money["sources"].append({"id": key, "owner": owner, "reference": ref, "revision": "v1"})
+            doc["context_evidence"]["sources"].append({
+                "id": ref, "owner": owner, "revision": "v1", "status": "CONFIRMED",
+                "usable_by": [owner], "core": "operator" if owner == "op" else "corporate",
+                "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"], "operations": ["READ"],
+                "valid_from": 0, "valid_until": 160,
+            })
+        if arm == "cooperation":
+            next(row for row in money["transfers"] if row["id"] == "operator-fee")["amount"] = third_fee
+        declaration["scopes"][arm] = {
+            owner: {
+                "source": f"joint-{owner}-{arm}-nonoverlap",
+                "transfer_ids": [row["id"] for row in money["transfers"]
+                                 if owner in {row["payer"], row["payee"]}],
+                "resource_use_ids": [row["id"] for row in money["resource_uses"]
+                                     if row["owner"] == owner],
+            } for owner in ("a", "op")
+        }
+    return docs, declaration
+
+
+def compare_joint_owner_service(docs, declaration):
+    return compare_executed_original_routes(
+        docs, cooperative_work="w3", outside_work=OUTSIDE, relation="l1",
+        prior_works=("w1", "w2"), split_at=84, joint_owner_economics=declaration,
+    )["joint_owner_service_economics"]
+
+
+def test_original_supplier_and_operator_joint_viability_not_fee_redistribution():
+    docs, declaration = joint_owner_service_case()
+    frozen = deepcopy((docs, declaration))
+    result = compare_joint_owner_service(docs, declaration)
+    assert (docs, declaration) == frozen
+    assert result["status"] == "BOTH_COMMON_OWNERS_MODEL_CONTRIBUTION_AND_RESERVE_CRITERIA_MET"
+    local = result["local_research_only"]
+    assert local["owners"]["supplier"]["cooperative_contribution"] == "310.00"
+    assert local["owners"]["supplier"]["outside_contribution"] == "140.00"
+    assert local["owners"]["operator"]["cooperative_contribution"] == "50.00"
+    assert local["owners"]["operator"]["outside_contribution"] == "-55.00"
+    assert local["cooperative_total_original_fee"] == "270.00"
+    assert local["joint_cooperative_minus_outside_contribution"] == "275.00"
+    assert result["empirical_network_additionality"] == "NOT_IDENTIFIABLE"
+    assert result["original_distinct_recipient_value_not_measured"]
+    assert result["no_automatic_consent_or_fee_change"]
+
+
+def test_original_internal_fee_change_does_not_create_joint_contribution():
+    base = compare_joint_owner_service(*joint_owner_service_case(third_fee="150.00"))
+    revised = compare_joint_owner_service(*joint_owner_service_case(third_fee="200.00"))
+    assert "OPERATOR_NONPOSITIVE_COOPERATIVE_CONTRIBUTION" in base["failure_reasons"]
+    assert revised["failure_reasons"] == []
+    for key in ("joint_cooperative_contribution", "joint_outside_contribution",
+                "joint_cooperative_minus_outside_contribution"):
+        assert base["local_research_only"][key] == revised["local_research_only"][key]
+
+
+@pytest.mark.parametrize("kwargs,reason", [
+    ({"third_fee": "240.00"}, "SUPPLIER_DECLARED_FEE_CAP_EXCEEDED"),
+    ({"cooperative_price": "900.00"}, "SUPPLIER_NO_POSITIVE_ALTERNATIVE_ADVANTAGE"),
+    ({"delay_stress": True}, "OPERATOR_DECLARED_RESERVE_NOT_ROBUST"),
+])
+def test_positive_owner_contribution_does_not_override_cap_alternative_or_reserve(kwargs, reason):
+    report = compare_joint_owner_service(*joint_owner_service_case(**kwargs))
+    assert report["status"] == "COMMON_OWNER_MODEL_VIABILITY_CRITERIA_NOT_MET"
+    assert reason in report["failure_reasons"]
+
+
+def test_payment_delay_can_be_removed_without_creating_any_more_joint_value():
+    late = compare_joint_owner_service(*joint_owner_service_case(delay_stress=True))
+    early = compare_joint_owner_service(*joint_owner_service_case(delay_stress=True, on_time=True))
+    assert "OPERATOR_DECLARED_RESERVE_NOT_ROBUST" in late["failure_reasons"]
+    assert early["failure_reasons"] == []
+    assert late["local_research_only"]["joint_cooperative_contribution"] == (
+        early["local_research_only"]["joint_cooperative_contribution"])
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("omit", "FULL_ORIGINAL_ROW_SCOPE"),
+    ("duplicate", "DUPLICATE_ORIGINAL_ROW"),
+    ("wrong_owner", "SOURCE_OWNER_NOT_PARTY"),
+    ("terms_alias", "SEPARATE_ORIGINAL_SOURCE"),
+    ("wrong_payer", "ORIGINAL_FEE_PAYER_REQUIRED"),
+])
+def test_joint_contribution_requires_independent_complete_original_scope(mutation, reason):
+    docs, declaration = joint_owner_service_case()
+    scope = declaration["scopes"]["cooperation"]["a"]
+    if mutation == "omit":
+        scope["resource_use_ids"].pop()
+    elif mutation == "duplicate":
+        scope["transfer_ids"].append(scope["transfer_ids"][0])
+    elif mutation == "wrong_owner":
+        scope["source"] = "joint-op-cooperation-nonoverlap"
+    elif mutation == "terms_alias":
+        scope["source"] = "terms-a"
+    else:
+        declaration["fee_cap"]["owner"] = "op"
+    with pytest.raises(TrajectoryComparisonError, match=reason):
+        compare_joint_owner_service(docs, declaration)
+
+
+def test_joint_contribution_is_unknown_when_selected_result_not_accepted():
+    docs, declaration = joint_owner_service_case()
+    docs["outside"]["events"] = [
+        row for row in docs["outside"]["events"]
+        if not (row.get("work") == OUTSIDE and row["action"] == "accept")]
+    result = compare_joint_owner_service(docs, declaration)
+    assert result["status"] == "UNKNOWN_EXECUTED_ROUTE_SCOPE"
+    assert result["local_research_only"] is None

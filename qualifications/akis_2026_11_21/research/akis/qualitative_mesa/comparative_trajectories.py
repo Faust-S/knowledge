@@ -235,6 +235,7 @@ def compare_executed_original_routes(
     scenarios: Mapping[str, Mapping[str, Any]], *,
     cooperative_work: str, outside_work: str, relation: str,
     prior_works: tuple[str, ...], split_at: int,
+    joint_owner_economics: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run two matched trajectories and compare their source-declared economics.
 
@@ -636,6 +637,12 @@ def compare_executed_original_routes(
 
     return {
         "schema": "AKIS_MATCHED_EXECUTED_ORIGINAL_ROUTE_ECONOMICS/1.0",
+        **({"joint_owner_service_economics": _review_joint_owner_service_economics(
+            joint_owner_economics, scenarios=scenarios, projections=private if qualified else None,
+            supplier=next(row["owner"] for row in reference["resources"]
+                          if row["id"] == coop_spec["resource"]),
+            operator=reference["institution"]["operator"], members=members,
+        )} if joint_owner_economics is not None else {}),
         "status": ("MODEL_EXECUTED_ROUTES_DECLARED_ECONOMIC_CONTRAST"
                    if qualified else "NOT_IDENTIFIABLE_FROM_EXECUTED_ROUTE_SCOPE"),
         "common_initial_state_and_applied_prefix_verified": True,
@@ -665,6 +672,174 @@ def compare_executed_original_routes(
         },
     }
 
+
+
+def _review_joint_owner_service_economics(
+    raw: Mapping[str, Any], *, scenarios: Mapping[str, Mapping[str, Any]],
+    projections: Mapping[str, Any] | None, supplier: str, operator: str,
+    members: set[str],
+) -> dict[str, Any]:
+    """Two common original owners, independently scoped model contribution.
+
+    Only qualified executed route projections may be used.  Both owners'
+    complete original transfer/resource rows must be covered by distinct
+    owner-held nonoverlap declarations in the existing strict economic
+    document.  A modeled fee cap is independently supplied by its payer.
+    Nothing here changes a payment, establishes a price or proves buyer value.
+    """
+    from decimal import Decimal
+    from .economic_flow import (_record, _flow_ref, _bounded_list,
+                                _identifier, _amount, EconomicInputError)
+
+    limits = {
+        "model_contribution_not_accounting_profit": True,
+        "original_distinct_recipient_value_not_measured": True,
+        "no_automatic_consent_or_fee_change": True,
+        "fee_cap_is_not_real_willingness_or_contract": True,
+        "empirical_network_additionality": "NOT_IDENTIFIABLE",
+    }
+    if projections is None:
+        return {
+            **limits, "status": "UNKNOWN_EXECUTED_ROUTE_SCOPE",
+            "local_research_only": None,
+        }
+    _record(raw, {"supplier", "operator", "scopes", "fee_cap"}, "JOINT_OWNER_ECONOMICS")
+    if (raw["supplier"] != supplier or raw["operator"] != operator
+            or supplier == operator or not {supplier, operator}.issubset(members)):
+        raise TrajectoryComparisonError("JOINT_OWNER_ORIGINAL_ROLES_REQUIRED")
+    if not isinstance(raw["scopes"], Mapping) or set(raw["scopes"]) != set(scenarios):
+        raise TrajectoryComparisonError("JOINT_OWNER_BOTH_EXECUTED_SCOPES_REQUIRED")
+
+    def keys(values):
+        ids = [_identifier(key, "JOINT_OWNER_ROW")
+               for key in _bounded_list(values, "JOINT_OWNER_ROW")]
+        if len(ids) != len(set(ids)):
+            raise TrajectoryComparisonError("JOINT_OWNER_DUPLICATE_ORIGINAL_ROW")
+        return set(ids)
+
+    def owner_source(source, owner, source_map, excluded):
+        key = _flow_ref(source, source_map, {owner})
+        ref = source_map[key]["reference"]
+        if ref in excluded:
+            raise TrajectoryComparisonError("JOINT_OWNER_SEPARATE_ORIGINAL_SOURCE_REQUIRED")
+        return ref
+
+    def direction(value):
+        return "POSITIVE" if value > 0 else "ZERO" if value == 0 else "NEGATIVE"
+
+    def amount(value):
+        return f"{value:.2f}"
+
+    contributions = {}
+    fee_amounts = {}
+    all_excluded = set()
+    try:
+        for arm in ("cooperation", "outside"):
+            document = scenarios[arm]
+            if not document.get("strict_economic_source_works"):
+                raise TrajectoryComparisonError("JOINT_OWNER_ORIGINAL_MULTIPERIOD_SCOPE_REQUIRED")
+            money = document["economic_claims"]
+            source_map = {row["id"]: row for row in money["sources"]}
+            scopes = raw["scopes"][arm]
+            if not isinstance(scopes, Mapping) or set(scopes) != {supplier, operator}:
+                raise TrajectoryComparisonError("JOINT_OWNER_BOTH_OWNER_SCOPES_REQUIRED")
+            contributions[arm] = {}
+            used_refs = set()
+            for owner in (supplier, operator):
+                record = _record(scopes[owner], {"source", "transfer_ids", "resource_use_ids"},
+                                 "JOINT_OWNER_NONOVERLAP")
+                transfers = {row["id"]: row for row in money["transfers"]
+                             if owner in {row["payer"], row["payee"]}}
+                resources = {row["id"]: row for row in money["resource_uses"]
+                             if row["owner"] == owner}
+                if (not transfers or not resources
+                        or keys(record["transfer_ids"]) != set(transfers)
+                        or keys(record["resource_use_ids"]) != set(resources)):
+                    raise TrajectoryComparisonError("JOINT_OWNER_FULL_ORIGINAL_ROW_SCOPE_REQUIRED")
+                # Reject aliases of the original terms, scope, timed costs,
+                # and payment witnesses.  The distinct document declares
+                # that these resource costs are not paid by any listed cash row.
+                excluded = {source_map[row["source"]]["reference"]
+                            for row in (*transfers.values(), *resources.values())}
+                for key in (money["coverage"]["COOPERATION"][owner],
+                            money["lifecycle_costs"]["scope_proofs"]["COOPERATION"][owner]):
+                    excluded.add(source_map[key]["reference"])
+                for row in money["lifecycle_costs"]["event_bindings"]:
+                    if row["resource_use_id"] in resources:
+                        excluded.add(row["cost_evidence_ref"])
+                for row in money.get("work_payment_settlement_claims", []):
+                    if row["transfer_id"] in transfers:
+                        excluded.update(row.get("evidence_refs", {}).values())
+                ref = owner_source(record["source"], owner, source_map, excluded | used_refs)
+                used_refs.add(ref)
+                all_excluded.update(excluded | {ref})
+                view = projections[arm][owner]
+                contributions[arm][owner] = (
+                    Decimal(view["declared_net_cash"]) - Decimal(view["declared_noncash_total"]))
+            operator_receipts = [row for row in money["transfers"] if row["payee"] == operator]
+            if not operator_receipts or any(row["payer"] != supplier for row in operator_receipts):
+                raise TrajectoryComparisonError("JOINT_OWNER_SINGLE_ORIGINAL_FEE_PAYER_SCOPE_REQUIRED")
+            fee_amounts[arm] = sum((_amount(row["amount"]) for row in operator_receipts), Decimal(0))
+
+        cap_record = _record(raw["fee_cap"], {"owner", "source", "maximum_total_fee"},
+                             "JOINT_OWNER_FEE_CAP")
+        if cap_record["owner"] != supplier:
+            raise TrajectoryComparisonError("JOINT_OWNER_ORIGINAL_FEE_PAYER_REQUIRED")
+        owner_source(cap_record["source"], supplier, source_map, all_excluded)
+        cap = _amount(cap_record["maximum_total_fee"])
+    except EconomicInputError as exc:
+        raise TrajectoryComparisonError(f"JOINT_OWNER_{exc}") from exc
+
+    rows = {}
+    failures = []
+    reserve_ok = "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+    for role, owner in (("supplier", supplier), ("operator", operator)):
+        coop = contributions["cooperation"][owner]
+        outside = contributions["outside"][owner]
+        delta = coop - outside
+        reserve = projections["cooperation"][owner]
+        if coop <= 0:
+            failures.append(f"{role.upper()}_NONPOSITIVE_COOPERATIVE_CONTRIBUTION")
+        if delta <= 0:
+            failures.append(f"{role.upper()}_NO_POSITIVE_ALTERNATIVE_ADVANTAGE")
+        if (reserve["expected_liquidity"] != reserve_ok
+                or reserve["late_receipt_liquidity"] != reserve_ok):
+            failures.append(f"{role.upper()}_DECLARED_RESERVE_NOT_ROBUST")
+        rows[role] = {
+            "cooperative_contribution": amount(coop),
+            "outside_contribution": amount(outside),
+            "cooperative_minus_outside_contribution": amount(delta),
+            "cooperative_expected_reserve_status": reserve["expected_liquidity"],
+            "cooperative_late_receipt_reserve_status": reserve["late_receipt_liquidity"],
+        }
+    if fee_amounts["cooperation"] > cap:
+        failures.append("SUPPLIER_DECLARED_FEE_CAP_EXCEEDED")
+    joint = {arm: sum(values.values(), Decimal(0))
+             for arm, values in contributions.items()}
+    return {
+        **limits,
+        "status": ("BOTH_COMMON_OWNERS_MODEL_CONTRIBUTION_AND_RESERVE_CRITERIA_MET"
+                   if not failures else "COMMON_OWNER_MODEL_VIABILITY_CRITERIA_NOT_MET"),
+        "original_two_common_owners_only": True,
+        "complete_declared_nonoverlap_owner_scopes": True,
+        "cooperative_contribution_directions": {
+            role: direction(Decimal(row["cooperative_contribution"]))
+            for role, row in rows.items()},
+        "cooperative_alternative_advantage_directions": {
+            role: direction(Decimal(row["cooperative_minus_outside_contribution"]))
+            for role, row in rows.items()},
+        "joint_contribution_advantage_direction": direction(joint["cooperation"] - joint["outside"]),
+        "failure_reasons": sorted(failures),
+        "local_research_only": {
+            "owners": rows,
+            "cooperative_total_original_fee": amount(fee_amounts["cooperation"]),
+            "outside_total_original_fee": amount(fee_amounts["outside"]),
+            "supplier_declared_maximum_total_fee": amount(cap),
+            "joint_cooperative_contribution": amount(joint["cooperation"]),
+            "joint_outside_contribution": amount(joint["outside"]),
+            "joint_cooperative_minus_outside_contribution": amount(joint["cooperation"] - joint["outside"]),
+        },
+    }
 
 def compare_original_preparation_modes(
     scenarios: Mapping[str, Mapping[str, Any]],
