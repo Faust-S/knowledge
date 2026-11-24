@@ -64,6 +64,26 @@ try{
    const budget=opts.find(o=>o.text.startsWith("Месячный бюджет и финансовый резерв ·"));
    check(budget&&opts.some(o=>o.text.startsWith("Денежный календарь: доход или расход ·"))&&opts.some(o=>o.text.startsWith("Регулярный денежный платёж ·")),"DISTINCT_FORM_TITLES");
    await at("form-choice").selectOption(budget.value);
+   await at("close").click();
+   const budgetShortcut=page.locator('form[data-pe-form] button[data-iwxa-assistant-form-open]');
+   const cashShortcut=page.locator('form[data-cash-calendar-entry] button[data-iwxa-assistant-form-open]');
+   check(await budgetShortcut.count()===1&&await cashShortcut.count()===1,"CONTEXT_SHORTCUT_COUNT");
+   check(await budgetShortcut.evaluate(b=>b.type==="button"&&!b.hidden),"CONTEXT_SHORTCUT_TYPE");
+   await budgetShortcut.click();
+   const waitForm=title=>page.waitForFunction(t=>document.querySelector("#iwxa-t3-assistant")?.shadowRoot?.getElementById("form-choice")?.selectedOptions[0]?.textContent?.startsWith(t),title);
+   await waitForm("Месячный бюджет и финансовый резерв ·");
+   await at("prompt").fill("Незавершённый запрос");
+   page.once("dialog",d=>d.dismiss());
+   await cashShortcut.click();
+   check(await at("prompt").inputValue()==="Незавершённый запрос"&&await at("form-choice").inputValue()===budget.value,"CONTEXT_SWITCH_CANCEL");
+   page.once("dialog",d=>d.accept());
+   await cashShortcut.click();
+   await waitForm("Денежный календарь: доход или расход ·");
+   check(await at("prompt").inputValue()==="","CONTEXT_SWITCH_CLEAR");
+   await at("close").click();
+   check(await cashShortcut.evaluate(b=>document.activeElement===b),"CONTEXT_RETURN_FOCUS");
+   await budgetShortcut.click();
+   await waitForm("Месячный бюджет и финансовый резерв ·");
    await at("prompt").fill("Валюта RUB. Регулярный доход 55000 рублей, обязательные расходы 32000 рублей.");
    await at("explicit-values").click();
    check(await at("preview").locator("li").count()===3,"EXPLICIT_PREVIEW");
@@ -91,7 +111,7 @@ try{
    check(workers===0&&modelRequests===0,"NO_MODEL_ACTIVITY");
    await at("close").click();
    check(await at("drawer").isHidden(),"CLOSE");
-   console.log("T3_CLUB_BROWSER_CASE_PASS "+JSON.stringify({width:size.width,height:size.height,sharedEngine:true,phoneLayout:size.width<621,nativeApply:true,noSubmit:true,noModel:true}));
+   console.log("T3_CLUB_BROWSER_CASE_PASS "+JSON.stringify({width:size.width,height:size.height,sharedEngine:true,phoneLayout:size.width<621,nativeApply:true,noSubmit:true,noModel:true,contextualShortcuts:true,confirmedFormSwitch:true,focusReturn:true}));
   }catch(e){const code=typeof e.message==="string"&&/^T3_CLUB_BROWSER_[A-Z_]+$/.test(e.message)?e.message:"T3_CLUB_BROWSER_UNEXPECTED";console.log("T3_CLUB_BROWSER_CASE_FAIL "+JSON.stringify({width:size.width,code}));throw Error(code);}
   finally{await ctx.close();}
  }
