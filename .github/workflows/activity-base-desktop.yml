@@ -92,7 +92,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pinned public Rust4PM version, no private Agent checkout
-        run: python -m pip install --only-binary=:all: r4pm==0.6.2
+        run: |
+          python -m pip install --only-binary=:all: r4pm==0.6.2
       - name: Produce actual upstream XES and OCEL results
         run: python tests/activity_r4pm_upstream_fixture.py "$RUNNER_TEMP/activity-r4pm"
       - name: Review exact outputs in original Activity
