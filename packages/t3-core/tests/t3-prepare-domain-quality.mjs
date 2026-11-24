@@ -10,7 +10,7 @@ const [assistantArg,domainArg,outArg]=process.argv.slice(2);
 assert.ok(assistantArg&&domainArg&&outArg,"T3_QUALITY_ARGUMENTS");
 const assistant=resolve(assistantArg),domain=resolve(domainArg);
 const load=(root,file)=>import(pathToFileURL(join(root,file)).href);
-const {fieldCandidates,fieldLabel,formProposalTask,formOutputFields,fieldBatches,splitFormProposals,parseFormProposals}=await load(assistant,"field-policy.mjs");
+const {fieldCandidates,fieldLabel,formProposalTask,formOutputFields,fieldBatches,splitFormProposals,parseFormProposals,proposalSelectedByDefault}=await load(assistant,"field-policy.mjs");
 const {validateSkillPack,skillPrompt,formHintFor}=await load(assistant,"skill-runtime.mjs");
 const {suite,scoreRun}=await load(domain,"scripts/score-club-assistant.mjs");
 const pack=validateSkillPack(JSON.parse(readFileSync(join(domain,"assets/club-assistant-skills.json"),"utf8")));
@@ -69,6 +69,7 @@ for(const [key,definition] of Object.entries(suite.forms)){
         else try{accepted=parseFormProposals(record.raw,remaining);}
         catch{rejectedResponses++;}
         assert.ok(accepted.every(row=>!known.some(k=>k.key===row.key)),"T3_HYBRID_OVERRIDE");
+        assert.ok(accepted.every(row=>row.source==="model"&&!proposalSelectedByDefault(row)),"T3_HYBRID_MODEL_DRAFT_PRESELECTED");
         modelProposals+=accepted.length;
        }
        merged.push({id:c.id,raw:JSON.stringify({fields:Object.fromEntries([...known,...accepted].map(row=>[row.key,row.proposed]))})});
@@ -81,6 +82,10 @@ if(score){
  assert.equal(captured.size,0,"T3_HYBRID_UNEXPECTED_RESPONSE");
  const {cases,...report}=scoreRun({schema:"iwxa.club.assistant-responses/1",modelId:comparison.modelId,responses:merged});
  console.log("T3_CLUB_HYBRID_QUALITY "+JSON.stringify({...report,modelCases:requiredModel,deterministicOnly,protectedFields,modelOnlyFields,knownValues,modelProposals,rejectedResponses,modelFailures,wrongFields:cases.reduce((n,c)=>n+c.wrong.length,0),missingFields:cases.reduce((n,c)=>n+c.missing.length,0),modelQualityAccepted:false}));
+ for(const c of cases.filter(c=>c.wrong.length||c.unexpected.length||c.missing.length)){
+  // Frozen synthetic fixture identifiers and field names only. Never log values.
+  console.log("T3_CLUB_HYBRID_CASE "+JSON.stringify({id:c.id,wrong:c.wrong,unexpected:c.unexpected,missing:c.missing}));
+ }
  // These are the actual proposals admitted to the preview, not automatic
  // writes or a semantic acceptance decision about the remaining text.
  assert.equal(cases.reduce((n,c)=>n+c.wrong.length,0),0,"T3_HYBRID_PRECISE_WRONG");
