@@ -167,7 +167,8 @@ try{
    // explicitly included. No additional calculation or model starts.
    phase="EMPTY_RESULT_SHORTCUT";
    const output=page.locator("[data-pe-result]");
-   const resultAction=page.getByRole("button",{name:"Разобрать результат: Расчёт личной экономики",exact:true,includeHidden:true});
+   const resultAction=page.locator("[data-pe-result] + button[data-iwxa-assistant-result-open]");
+   check(await resultAction.getAttribute("aria-label")==="Разобрать результат: Расчёт личной экономики","RESULT_ACTION_ACCESSIBLE_NAME");
    check(await resultAction.count()===1&&await resultAction.isHidden(),"EMPTY_RESULT_ACTION_HIDDEN");
    phase="NATIVE_RESULT_CALCULATION";
    await form.getByRole("button",{name:"Рассчитать",exact:true}).click();
