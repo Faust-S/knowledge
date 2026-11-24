@@ -292,3 +292,240 @@ def test_original_independent_second_order_cannot_borrow_technology_route_consen
     assert _trace(out, "commit", OUTSIDE)["reason"] == "INDEPENDENT_ACCEPTANCE_MISSING"
     assert out["works"]["w3"]["result"] == ACCEPTED
     assert out["works"][OUTSIDE]["obligation"] == "NOT_ACCEPTED"
+
+
+def test_independent_second_order_different_intervals_are_not_automatically_excluded():
+    docs = portfolio_trajectories(disjoint=True)
+    for doc in docs.values():
+        out = mechanics(doc)
+        assert out["counts"]["blocked"] == 0, [
+            (r["at"], r["action"], r.get("work"), r["reason"])
+            for r in out["trace"] if r["outcome"] == "BLOCKED"]
+        assert out["works"][OUTSIDE]["result"] == ACCEPTED
+        assert out["works"]["w3"]["result"] == ACCEPTED
+
+
+def finance_portfolio(*, disjoint=False, outside_material="180.00",
+                      outside_observed="7", outside_opening="1000.00",
+                      seller_opening="400.00", buyer_finish_material="140.00",
+                      buyer_finish_labor="80.00"):
+    """Same second demand and precommit costs in BOTH original route arms."""
+    from .test_r1p_r3_executed_route_economics_mesa import add_original_recipient_value
+
+    docs = portfolio_trajectories(disjoint=disjoint,
+                                buyer_finish_material=buyer_finish_material,
+                                buyer_finish_labor=buyer_finish_labor)
+    for arm, d in docs.items():
+        money = d["economic_claims"]
+        life = money["lifecycle_costs"]
+        horizon = d["model_horizon"]
+        commit = _event(d, "commit", OUTSIDE)["at"]
+        accept = _event(d, "accept", OUTSIDE)["at"]
+        owners = ("a", "b", "c", "op", BUYER)
+        coverage = money["coverage"]["COOPERATION"]
+        d["strict_economic_source_works"].append(OUTSIDE)
+        money["period"] = "FOUR_ORIGINAL_PORTFOLIO_WORKS"
+
+        def evidence(owner, name, *, declare=False, start=0):
+            ref = f"model://{owner}/{name}"
+            d["context_evidence"]["sources"].append({
+                "id": ref, "owner": owner, "revision": "portfolio-finance-v1",
+                "status": "CONFIRMED", "usable_by": [owner],
+                "core": "operator" if owner == "op" else "corporate",
+                "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"], "operations": ["READ"],
+                "valid_from": start, "valid_until": horizon+1,
+            })
+            if declare:
+                money["sources"].append({"id": name, "owner": owner, "reference": ref,
+                                         "revision": "portfolio-finance-v1"})
+            return ref
+
+        coverage[BUYER] = f"market-terms-{BUYER}"
+        life["scope_proofs"]["COOPERATION"][BUYER] = coverage[BUYER]
+        evidence(BUYER, coverage[BUYER], declare=True)
+        evidence(BUYER, f"market-receipt-{BUYER}", declare=True)
+        money["cash_timing"]["owner_positions"].append({
+            "owner": BUYER, "source": coverage[BUYER], "opening_cash": outside_opening,
+            "reserve_cash": "100.00",
+        })
+        next(r for r in money["cash_timing"]["owner_positions"] if r["owner"] == "c")[
+            "opening_cash"] = seller_opening
+
+        def cost(name, owner, amount, action, stage, nature="TRANSACTION", bucket="COORDINATION"):
+            ident = f"{OUTSIDE}-portfolio-{name}"
+            pos, event = next((i, e) for i, e in enumerate(d["events"])
+                              if e.get("work", e.get("work_spec", {}).get("id")) == OUTSIDE
+                              and e["action"] == action and e["actor"] == owner)
+            source = coverage[owner]
+            proof = evidence(owner, ident+"-cost")
+            money["resource_uses"].append({"id": ident, "scenario": "COOPERATION", "work": OUTSIDE,
+                "owner": owner, "source": source, "amount": amount, "bucket": bucket})
+            life["bindings"].append({"resource_use_id": ident, "owner": owner, "source": source,
+                "stage": stage, "nature": nature})
+            life["event_bindings"].append({"resource_use_id": ident, "work": OUTSIDE, "owner": owner,
+                "source": source, "work_source_revision": "outside-d1", "trace_position": pos,
+                "at": event["at"], "action": action, "org_revision": "oc-1",
+                "cost_evidence_ref": proof, "cost_evidence_revision": "portfolio-finance-v1"})
+
+        def transfer(name, payer, payee, amount, condition, at):
+            ident = f"{OUTSIDE}-portfolio-{name}"
+            parties = {payer, payee} - {"EXTERNAL"}
+            witnesses = {o: coverage[o] for o in sorted(parties)}
+            money["transfers"].append({"id": ident, "scenario": "COOPERATION", "work": OUTSIDE,
+                "payer": payer, "payee": payee, "amount": amount, "source": coverage[payer]})
+            money["cash_timing"]["transfer_windows"].append({"transfer_id": ident,
+                "at": at, "late_at": at, "owner_sources": deepcopy(witnesses)})
+            money["work_payment_conditions"].append({"transfer_id": ident, "condition": condition,
+                "due_at": at+1, "work_source_revision": "outside-d1", "org_revision": "oc-1",
+                "owner_sources": deepcopy(witnesses)})
+            if payee != "EXTERNAL" and condition == "ON_CUSTOMER_ACCEPTANCE":
+                refs = {o: evidence(o, ident+"-receipt") for o in sorted(parties)}
+                money["work_payment_settlement_claims"].append({
+                    "id": ident+"-settlement", "transfer_id": ident, "at": at, "amount": amount,
+                    "owner_sources": {o: f"market-receipt-{o}" for o in parties}, "evidence_refs": refs,
+                    "evidence_revisions": {o: "portfolio-finance-v1" for o in parties},
+                    "owner_attestations": {o: {"reported_at": at, "reported_amount": amount}
+                                           for o in parties},
+                })
+
+        # The independent customer and supplier incurred these costs
+        # before the capacity decision regardless of its eventual outcome.
+        cost("buyer-prep", BUYER, "10.00", "request", "PARTNER_SEARCH")
+        cost("seller-prep", "c", "10.00", "consent", "NEGOTIATION")
+        cost("operator-prep", "op", "20.00", "offer", "PARTNER_SEARCH")
+        for owner in ("c", "op", BUYER):
+            evidence(owner, f"portfolio-uncommitted-scope-{owner}", declare=True, start=commit+1)
+        evidence(BUYER, "portfolio-no-order-observation", declare=True, start=commit+1)
+        if arm == "coproduction" or disjoint:
+            transfer("purchase", BUYER, "c", "500.00", "ON_CUSTOMER_ACCEPTANCE", accept+2)
+            transfer("material", "c", "EXTERNAL", outside_material, "ON_ORIGINAL_COMMIT", commit+1)
+            transfer("fee", "c", "op", "50.00", "ON_ORIGINAL_COMMIT", commit+2)
+            transfer("overhead", "op", "EXTERNAL", "20.00", "ON_ORIGINAL_COMMIT", commit+3)
+            cost("labor", "c", "100.00", "start", "PRODUCTION_COORDINATION", "DIRECT_RESOURCE", "DELIVERY")
+            cost("coordination", "op", "15.00", "commit", "PRODUCTION_COORDINATION")
+            add_original_recipient_value(d, OUTSIDE, baseline="0", observed=outside_observed,
+                                         rate="100.00", source_prefix="portfolio-external-value", append=True)
+        else:
+            money["uncommitted_order_cost_evidence"] = {
+                "work": OUTSIDE, "work_revision": "outside-d1",
+                "capacity_block": {"at": commit, "resource": "rc", "competing_work": "w3"},
+                "owner_scopes": {o: {"source": f"portfolio-uncommitted-scope-{o}",
+                    "observed_at": horizon,
+                    "resource_use_ids": [r["id"] for r in money["resource_uses"]
+                                         if r["work"] == OUTSIDE and r["owner"] == o],
+                    "zero_transfer_declared": True, "complete_exclusive_precommit_resource_scope": True}
+                    for o in ("c", "op", BUYER)},
+                "recipient_no_order_observation": {
+                    "source": "portfolio-no-order-observation", "at": horizon, "quantity": "0",
+                    "unit": "useful-service-unit", "basis": "OWNER_SERVICE_USE_IN_MATCHED_HORIZON",
+                    "valuation_horizon": horizon,
+                },
+            }
+        scopes = {}
+        for owner in owners:
+            ident = f"portfolio-complete-scope-{owner}"
+            evidence(owner, ident, declare=True)
+            scopes[owner] = {"source": ident, "observed_at": horizon,
+                "transfer_ids": [t["id"] for t in money["transfers"] if t["work"] in {"w3", OUTSIDE}
+                                 and owner in {t["payer"], t["payee"]}],
+                "resource_use_ids": [r["id"] for r in money["resource_uses"]
+                                    if r["work"] in {"w3", OUTSIDE} and r["owner"] == owner],
+                "complete_exclusive_portfolio_cost_and_value_scope": True}
+        money["portfolio_scope_evidence"] = {"works": ["w3", OUTSIDE], "owner_scopes": scopes}
+
+    # A common source universe before comparison, never substituted owners.
+    sources, financial = {}, {}
+    for d in docs.values():
+        for row in d["context_evidence"]["sources"]:
+            assert row["id"] not in sources or sources[row["id"]] == row
+            sources[row["id"]] = deepcopy(row)
+        for row in d["economic_claims"]["sources"]:
+            assert row["id"] not in financial or financial[row["id"]] == row
+            financial[row["id"]] = deepcopy(row)
+    for d in docs.values():
+        d["context_evidence"]["sources"] = list(deepcopy(sources).values())
+        d["economic_claims"]["sources"] = list(deepcopy(financial).values())
+    return docs
+
+
+def compare_portfolios(docs):
+    from research.akis.qualitative_mesa.comparative_trajectories import compare_original_competing_market_routes
+    split = _event(docs["supplier"], "technology_route_propose")["at"] - 1
+    return compare_original_competing_market_routes(
+        docs, work="w3", secondary_work=OUTSIDE, prior_works=("w1", "w2"), split_at=split)
+
+
+def test_portfolio_counts_actual_alternative_order_and_retains_failed_preparation_costs():
+    docs = finance_portfolio()
+    frozen = deepcopy(docs)
+    out = {k: simulate(d) for k, d in docs.items()}
+    assert docs == frozen
+    blocked = out["supplier"]["economics"]["original_uncommitted_order_costs"]
+    assert blocked["original_capacity_conflict_applied"] and not blocked["original_independent_refusal_applied"]
+    assert blocked["local_research_only"]["total_exclusive_precommit_resource_cost"] == "40.00"
+    assert out["coproduction"]["works"][OUTSIDE]["result"] == ACCEPTED
+    r = compare_portfolios(docs)
+    assert r["status"] == "MODEL_MATCHED_EXECUTED_MULTI_ORDER_PORTFOLIOS", r
+    assert r["original_owner_count"] == 5
+    private = r["local_research_only"]
+    assert private["arms"]["supplier"]["consolidated_model_contribution"] == "620.00"
+    assert private["arms"]["coproduction"]["consolidated_model_contribution"] == "1065.00"
+    assert private["pairwise"][0]["left_minus_right_model_contribution"] == "445.00"
+    assert private["pairwise"][0]["per_original_owner_left_minus_right"] == {
+        "a": "0.00", "b": "180.00", "c": "50.00", "op": "15.00", BUYER: "200.00"}
+    assert r["pairwise_contrasts"][0]["left_weak_pareto_improvement_on_portfolio"]
+    assert r["empirical_network_additionality"] == "NOT_IDENTIFIABLE"
+
+
+def test_portfolio_disjoint_windows_keep_both_original_orders_not_fake_displacement():
+    r = compare_portfolios(finance_portfolio(disjoint=True, seller_opening="800.00"))
+    assert r["status"] == "MODEL_MATCHED_EXECUTED_MULTI_ORDER_PORTFOLIOS", r
+    assert all(a["accepted_original_order_count"] == 2 for a in r["local_research_only"]["arms"].values())
+    assert r["local_research_only"]["pairwise"][0]["left_minus_right_model_contribution"] == "60.00"
+    assert not r["pairwise_contrasts"][0]["left_weak_pareto_improvement_on_portfolio"]
+
+
+@pytest.mark.parametrize("change,reason", [
+    ("fake_competitor", "UNCOMMITTED_ORDER_ORIGINAL_CAPACITY_CONFLICT_REQUIRED"),
+    ("missing_cost", "UNCOMMITTED_ORDER_ALL_ORIGINAL_PRECOMMIT_COSTS_REQUIRED"),
+    ("wrong_owner", "PORTFOLIO_ORIGINAL_OWNER_HISTORICAL_SCOPE_NOT_QUALIFIED"),
+    ("scope_alias", "PORTFOLIO_INDEPENDENT_NONOVERLAP_SCOPE_REQUIRED"),
+])
+def test_portfolio_cannot_manufacture_opportunity_cost_or_omit_original_costs(change, reason):
+    d = finance_portfolio()["supplier"]
+    money = d["economic_claims"]
+    if change == "fake_competitor":
+        money["uncommitted_order_cost_evidence"]["capacity_block"]["competing_work"] = "w2"
+    elif change == "missing_cost":
+        money["uncommitted_order_cost_evidence"]["owner_scopes"]["c"]["resource_use_ids"] = []
+    elif change == "wrong_owner":
+        money["portfolio_scope_evidence"]["owner_scopes"]["c"]["source"] = "portfolio-complete-scope-b"
+    else:
+        money["portfolio_scope_evidence"]["owner_scopes"]["c"]["source"] = "market-terms-c"
+    with pytest.raises(ValueError, match=reason):
+        simulate(d)
+
+
+def test_portfolio_different_precommit_costs_not_a_matched_experiment():
+    docs = finance_portfolio()
+    row = next(r for r in docs["supplier"]["economic_claims"]["resource_uses"]
+               if r["id"] == f"{OUTSIDE}-portfolio-seller-prep")
+    row["amount"] = "1.00"
+    with pytest.raises(ValueError, match="SECONDARY_DEMAND_PREPARATION_OR_BASELINE_CHANGED"):
+        compare_portfolios(docs)
+
+
+def test_portfolio_no_order_observation_must_match_independent_buyer_baseline():
+    docs = finance_portfolio()
+    docs["supplier"]["economic_claims"]["uncommitted_order_cost_evidence"][
+        "recipient_no_order_observation"]["quantity"] = "1"
+    with pytest.raises(ValueError, match="SECONDARY_DEMAND_PREPARATION_OR_BASELINE_CHANGED"):
+        compare_portfolios(docs)
+
+
+def test_portfolio_positive_incremental_value_does_not_override_cumulative_reserve_shortfall():
+    r = compare_portfolios(finance_portfolio(outside_opening="500.00"))
+    assert r["status"] == "MODEL_MATCHED_EXECUTED_MULTI_ORDER_PORTFOLIOS", r
+    assert r["local_research_only"]["pairwise"][0]["left_minus_right_model_contribution"] == "445.00"
+    assert not r["local_research_only"]["arms"]["coproduction"]["all_owner_declared_reserves_met"]
+    assert r["best_model_contribution_among_executed_portfolio_viable_routes"] == []

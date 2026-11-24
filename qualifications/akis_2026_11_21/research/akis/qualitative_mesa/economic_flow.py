@@ -1709,7 +1709,7 @@ def review_original_portfolio_economics(
             reasons.add("PORTFOLIO_COMPLETE_ORIGINAL_OWNER_ROWS_REQUIRED")
         path = liquidity.get(owner, {}).get("scenario_paths", {}).get("COOPERATION", {})
         paths = {k: path.get(k, {}).get("status") for k in ("expected", "declared_late_case")}
-        if any(v is None or v == "UNKNOWN" for v in paths.values()):
+        if any(v is None or v in {"UNKNOWN", "NOT_IDENTIFIABLE"} for v in paths.values()):
             reasons.add("PORTFOLIO_CUMULATIVE_LIQUIDITY_UNKNOWN")
         cash = sum((_amount(t["amount"]) * (1 if t["payee"] == owner else -1)
                     for t in ts.values()), Decimal(0))
