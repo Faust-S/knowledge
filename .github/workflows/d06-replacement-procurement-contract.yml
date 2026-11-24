@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod
-          ref: 0ee57afa6b2671c1be55a8c9124d7363f711ddda
+          ref: 06e73346160763381d26fec58d4f840de9cbd1c8
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -32,7 +32,7 @@ jobs:
         shell: pwsh
         run: |
           $log = Join-Path $env:RUNNER_TEMP "d06-procurement-contract-private.txt"
-          foreach ($suite in @("test-replacement-demand", "test-replacement-calculation", "test-replacement-configuration", "test-replacement-assessment", "test-replacement-procurement", "test-replacement-receipt")) {
+          foreach ($suite in @("test-replacement-demand", "test-replacement-calculation", "test-replacement-configuration", "test-replacement-assessment", "test-replacement-procurement", "test-replacement-receipt", "test-material-item-allocation")) {
             & node --experimental-strip-types ("scripts/" + $suite + ".mjs") *> $log
             if ($LASTEXITCODE -ne 0) {
               Write-Host ("D06_CONTRACT_FAIL=" + $suite)
