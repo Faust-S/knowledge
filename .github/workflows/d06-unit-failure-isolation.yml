@@ -67,18 +67,7 @@ jobs:
               $positions = [regex]::Matches($body, '(?:src|scripts|tests)[/\\][^:\r\n]+\.(?:ts|tsx|mjs):(\d+):(\d+)')
               Write-Host ("D06_UNIT_STACK_LINES=" + $safe + ":" + ((@($positions | ForEach-Object { $_.Groups[1].Value + ":" + $_.Groups[2].Value } | Select-Object -Unique -First 8)) -join ","))
               if ($name -eq "test:session") {
-                $checks = @([regex]::Matches($body, '(?m)^[\s]*[\u2713\u2717].*
-          }
-          Write-Host ("D06_UNIT_PASS_COUNT=" + $passed)
-          Write-Host ("D06_UNIT_FAIL_COUNT=" + $failures)
-          if ($failures -gt 0) { exit 1 }
-      - name: Privacy boundary
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host "D06_PRIVATE_LOGS=RUNNER_LOCAL_ONLY"
-          Write-Host "D06_PUBLIC_ARTIFACT_UPLOADS=0"
-))
+                $checks = @([regex]::Matches($body, '(?m)^[\s]*[\u2713\u2717].*$'))
                 $failedOrdinals = @()
                 for ($i = 0; $i -lt $checks.Count; $i++) {
                   if ($checks[$i].Value.Contains([char]0x2717)) { $failedOrdinals += ($i + 1) }
