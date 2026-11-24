@@ -4,9 +4,44 @@ from copy import deepcopy
 import pytest
 
 from research.akis.qualitative_mesa.rules import InputError, QualitativeAKIS
-from .test_material import material_world, qualify_start, shipment, receiving, qualification
-from .test_handoff import transfer
-from .test_technology import act
+from .test_technology import act, signed, world
+
+
+def material_world():
+    scenario = world()
+    scenario["handoff_strict"] = True
+    scenario["material_strict"] = True
+    scenario["works"][0]["material_batches"] = [{
+        "id":"batch-a","from_operation":"cut","to_operation":"pack",
+        "material_id":"cut-parts","planned_quantity":"12.50",
+        "unit":"kg","declared_title_holder":"c",
+        "origin_source_owner":"a","origin_ref":"model://origin-lot-a",
+        "quality_spec_owner":"c","quality_spec_ref":"model://customer-spec",
+    }]
+    return scenario
+
+
+def qualify_start(s):
+    signed(s)
+    assert act(s,7,"start_operation","a",operation="cut")["outcome"]=="APPLIED"
+    assert act(s,8,"complete_operation","a",operation="cut",result_ref="model://cut-operation")["outcome"]=="APPLIED"
+
+
+def transfer(s, at, action, actor, ref, from_op="cut", to_op="pack", **kwargs):
+    return act(s,at,action,actor,from_operation=from_op,to_operation=to_op,result_ref=ref,source_revision="d1",org_revision="oc-1",**kwargs)
+
+
+def shipment(s,at=9,amount="12.50",**kwargs):
+    return transfer(s,at,"handoff_dispatch","a","model://dispatch",material_quantities=[{"batch":"batch-a","quantity":amount}],**kwargs)
+
+
+def receiving(s,at=10,amount="12.50",**kwargs):
+    return transfer(s,at,"handoff_receive","b","model://receipt",dispatch_ref="model://dispatch",material_quantities=[{"batch":"batch-a","quantity":amount}],**kwargs)
+
+
+def qualification(s,at=11,good="12.50",bad="0",**kwargs):
+    return transfer(s,at,"handoff_quality","b","model://quality",receipt_ref="model://receipt",quality_quantities=[{"batch":"batch-a","accepted":good,"rejected":bad}],**kwargs)
+
 
 
 def initial_shortfall():
@@ -127,7 +162,6 @@ def test_no_supplement_when_original_material_already_qualified_or_uninspected()
 
 def test_native_mesa_executes_original_material_rounds_in_one_work():
     from research.akis.qualitative_mesa.mesa_model import simulate
-    from .test_material import material_world
     s = initial_shortfall()
     supplemental(s)
     receipt(s)

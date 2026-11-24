@@ -1911,6 +1911,113 @@ def review_original_uncommitted_order_costs(
     }
 
 
+def _original_incomplete_activity_cost_exposure(
+    *, state: Any, money: Mapping[str, Any], keys: set[str], pending: list[str],
+    owners: set[str], transfers: Mapping[str, Any], resources: Mapping[str, Any],
+    payment: Mapping[str, Any], horizon: int,
+) -> dict[str, Any] | None:
+    """Observe committed unfinished activity without fabricating a final Result.
+
+    The original payment condition determines which declared obligations
+    have a modeled trigger, NOT whether payment occurred. Incurred costs
+    remain owner declarations tied to applied original events. No new
+    ledger, forecast, cancellation, output value, or optimization.
+    """
+    zero = Decimal(0)
+    consistent = "MODEL_ORIGINAL_TRIGGER_DUE_AND_POSTING_ORDER_CONSISTENT"
+    conditional = "ORIGINAL_CONDITIONAL_TRIGGER_NOT_APPLIED"
+    observations = {}
+    for key in pending:
+        work = state.works[key]
+        history = [e for e in state.trace if e.get("work") == key and e["outcome"] == "APPLIED"]
+        commits = [e["at"] for e in history if e["action"] == "commit"]
+        readiness = original_execution_readiness_view(state.trace, key, horizon)
+        if (work.obligation != "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+                or work.execution != "IN_PROGRESS" or work.result != "NOT_SUBMITTED"
+                or len(commits) != 1 or readiness is None
+                or readiness["all_observed_readiness_interruptions_closed"]):
+            return None
+        observations[key] = (work, commits[0], readiness)
+    if not observations:
+        return None
+    for ident, row in transfers.items():
+        binding = payment.get(ident, {})
+        status = binding.get("status")
+        progress = binding.get("settlement_progress", {})
+        if (progress.get("status") == "PAYMENT_CLAIMS_CAUSALLY_INCONSISTENT"
+                or binding.get("model_amendment_status") not in (
+                    None, "BILATERAL_MODEL_DUE_CHANGE_UNVERIFIED_LEGALLY")):
+            return None
+        if status == consistent:
+            continue
+        if (row["work"] not in observations or status != conditional
+                or binding.get("condition") != "ON_CUSTOMER_ACCEPTANCE"
+                or binding.get("original_condition_at") is not None
+                or progress.get("event_count", 0) != 0):
+            return None
+    by_work = {}
+    for key, (work, commit, readiness) in observations.items():
+        declared = {i: t for i, t in transfers.items() if t["work"] == key}
+        costs = {i: r for i, r in resources.items() if r["work"] == key}
+        triggered = {i: t for i, t in declared.items() if payment[i]["status"] == consistent}
+        contingent = {i: t for i, t in declared.items() if payment[i]["status"] == conditional}
+        own = {}
+        for owner in sorted(owners):
+            def net(rows):
+                return sum((_amount(t["amount"]) *
+                            ((1 if t["payee"] == owner else 0) - (1 if t["payer"] == owner else 0))
+                            for t in rows.values()), zero)
+            resource_cost = sum((_amount(r["amount"]) for r in costs.values()
+                                 if r["owner"] == owner), zero)
+            active_net = net(triggered)
+            own[owner] = {
+                "triggered_declared_net_transfer": _sum_str([active_net]),
+                "untriggered_conditional_net_transfer": _sum_str([net(contingent)]),
+                "source_anchored_exclusive_resource_cost": _sum_str([resource_cost]),
+                "triggered_net_less_declared_resource_cost": _sum_str([active_net-resource_cost]),
+                "final_owner_profit": None,
+            }
+        outflow = sum((_amount(t["amount"]) for t in triggered.values() if t["payee"] == "EXTERNAL"), zero)
+        inflow = sum((_amount(t["amount"]) for t in triggered.values() if t["payer"] == "EXTERNAL"), zero)
+        cost = sum((_amount(r["amount"]) for r in costs.values()), zero)
+        exposure = outflow + cost
+        if sum((Decimal(r["triggered_net_less_declared_resource_cost"]) for r in own.values()), zero) != (
+                inflow-exposure):
+            raise EconomicInputError("INCOMPLETE_ACTIVITY_ORIGINAL_SCOPE_CONSOLIDATION_MISMATCH")
+        by_work[key] = {
+            "original_result_state": work.result,
+            "original_commitment_remains": True,
+            "commit_to_observation_cutoff_model_ticks": horizon-commit,
+            "original_execution_readiness": readiness,
+            "completed_original_operation_count": sum(
+                v == "COMPLETED" for v in work.operation_states.values()),
+            "in_progress_original_operation_count": sum(
+                v == "IN_PROGRESS" for v in work.operation_states.values()),
+            "triggered_declared_external_outflows": _sum_str([outflow]),
+            "triggered_declared_external_inflows": _sum_str([inflow]),
+            "source_anchored_exclusive_resource_cost": _sum_str([cost]),
+            "triggered_external_outflows_plus_exclusive_resource_cost": _sum_str([exposure]),
+            "untriggered_conditional_transfer_amount_not_collected_revenue": _sum_str(
+                [_amount(t["amount"]) for t in contingent.values()]),
+            "accepted_recipient_use_value": None,
+            "net_economic_contribution": None,
+            "actual_bank_payment_and_realized_loss": "NOT_IDENTIFIABLE",
+            "per_original_owner": own,
+        }
+    return {
+        "schema": "AKIS_ORIGINAL_COMMITTED_INCOMPLETE_ACTIVITY_EXPOSURE/1.0",
+        "status": "MODEL_ORIGINAL_COMMITTED_INCOMPLETE_COST_EXPOSURE",
+        "selected_original_unfinished_work_count": len(by_work),
+        "all_selected_owner_cost_scopes_qualified_at_cutoff": True,
+        "not_final_profit_or_loss": True,
+        "untriggered_conditional_payments_not_current_revenue": True,
+        "unaccepted_use_value_unknown_not_zero": True,
+        "source_declared_cost_and_triggered_obligation_not_bank_settlement": True,
+        "no_new_original_event_or_economic_row": True,
+        "local_research_only": {"per_original_unfinished_work": by_work},
+    }
+
+
 def review_original_portfolio_economics(
     raw: Any, *, state: Any, economic_claims: Mapping[str, Any],
     economic_view: Mapping[str, Any], strict_work_ids: str | tuple[str, ...] | None,
@@ -1946,7 +2053,7 @@ def review_original_portfolio_economics(
     value = economic_view.get("original_recipient_use_value", {}).get("local_research_only", {})
     uncommitted = economic_view.get("original_uncommitted_order_costs", {})
     rejected_key = money.get("uncommitted_order_cost_evidence", {}).get("work")
-    accepted, blocked, reasons = [], [], set()
+    accepted, blocked, pending, reasons = [], [], [], set()
     gross = {o: Decimal(0) for o in owners}
     decision_ticks = []
     for key in works:
@@ -1970,6 +2077,9 @@ def review_original_portfolio_economics(
                 money["uncommitted_order_cost_evidence"]["recipient_no_order_observation"]["at"]))
         else:
             reasons.add("PORTFOLIO_ORIGINAL_RESULT_OR_CAPACITY_BLOCK_REQUIRED")
+            if (work.obligation == "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+                    and work.execution == "IN_PROGRESS" and work.result == "NOT_SUBMITTED"):
+                pending.append(key)
     if len({state.works[k].customer for k in keys}) != len(keys):
         reasons.add("PORTFOLIO_DISTINCT_ORIGINAL_RECIPIENTS_REQUIRED")
     if any(payment.get(i, {}).get("status") !=
@@ -2060,6 +2170,19 @@ def review_original_portfolio_economics(
               "no_foregone_receipt_added_to_another_order": True,
               "actual_costs_use_value_profit_and_causal_effect": "NOT_IDENTIFIABLE"}
     if reasons:
+        # A complete cutoff-specific owner scope can expose retained costs
+        # even when final portfolio contribution is not qualified. Never
+        # publish the private final-balance calculation above in that case.
+        if (pending and len(accepted)+len(blocked)+len(pending) == len(keys)
+                and reasons <= {"PORTFOLIO_ORIGINAL_RESULT_OR_CAPACITY_BLOCK_REQUIRED",
+                               "PORTFOLIO_ORIGINAL_PAYMENT_CAUSALITY_INCOMPLETE",
+                               "PORTFOLIO_CUMULATIVE_LIQUIDITY_UNKNOWN"}
+                and all(row["observed_at"] == horizon for row in raw["owner_scopes"].values())):
+            observation = _original_incomplete_activity_cost_exposure(
+                state=state, money=money, keys=keys, pending=pending, owners=owners,
+                transfers=transfers, resources=resources, payment=payment, horizon=horizon)
+            if observation is not None:
+                output["incomplete_original_activity_observation"] = observation
         return output
     total = sum((Decimal(r["model_contribution"]) for r in private.values()), Decimal(0))
     met = "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"

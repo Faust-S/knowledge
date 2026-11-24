@@ -1355,3 +1355,90 @@ def test_original_resource_restoration_cost_cannot_use_unrelated_event_or_owner(
         row["work"] = OUTSIDE
     with pytest.raises(InputError):
         simulate(doc)
+
+
+def unfinished_resource_disturbance_portfolio():
+    """An original accepted commitment remains incomplete at the cutoff."""
+    d = resource_disturbance_portfolio(declared=False)
+    money = d["economic_claims"]
+    events = d["events"]
+    loss = next(e for e in events if e["action"] == "resource_status" and e["availability"] == "UNAVAILABLE")
+    resource = loss["resource"]
+    # The attempted completion while the resource is unavailable remains
+    # in the input and is blocked. There is no restoration or final Result.
+    failed_completion = next(e for e in events if e["action"] == "complete_operation"
+                             and e.get("work") == "w3" and e["at"] > loss["at"])
+    events[:] = [e for e in events if not (
+        (e["action"] == "resource_status" and e["resource"] == resource and e["availability"] == "AVAILABLE")
+        or (e.get("work") == "w3" and e["at"] > failed_completion["at"]))]
+    # A cost row for an inspection that never occurred is not retained as
+    # an executed event cost. All earlier material/labor/coordination remain.
+    omitted = {r["resource_use_id"] for r in money["lifecycle_costs"]["event_bindings"]
+               if r["work"] == "w3" and r["at"] > failed_completion["at"]}
+    money["resource_uses"][:] = [r for r in money["resource_uses"] if r["id"] not in omitted]
+    for field in ("bindings", "event_bindings"):
+        money["lifecycle_costs"][field][:] = [r for r in money["lifecycle_costs"][field]
+                                             if r["resource_use_id"] not in omitted]
+    for row in money["lifecycle_costs"]["event_bindings"]:
+        row["trace_position"] = next(i for i, ev in enumerate(events) if ev["at"] == row["at"])
+    for field in ("market_order_economics", "portfolio_scope_evidence"):
+        for row in money[field]["owner_scopes"].values():
+            row["resource_use_ids"][:] = [i for i in row["resource_use_ids"] if i not in omitted]
+    money["recipient_use_value_evidence"][:] = [r for r in money["recipient_use_value_evidence"]
+                                               if r["work"] != "w3"]
+    conditional = {r["transfer_id"] for r in money["work_payment_conditions"]
+                   if r["condition"] == "ON_CUSTOMER_ACCEPTANCE" and r["transfer_id"].startswith("w3-")}
+    money["work_payment_settlement_claims"][:] = [
+        r for r in money["work_payment_settlement_claims"] if r["transfer_id"] not in conditional]
+    return d
+
+
+def test_original_committed_unfinished_activity_retains_cost_without_recognizing_result_or_conditional_revenue():
+    from decimal import Decimal
+    d = unfinished_resource_disturbance_portfolio()
+    frozen = deepcopy(d)
+    out = simulate(d)
+    assert d == frozen
+    assert out["works"]["w3"]["obligation"] == "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+    assert out["works"]["w3"]["result"] == "NOT_SUBMITTED"
+    assert out["works"][OUTSIDE]["result"] == ACCEPTED
+    report = out["economics"]["original_portfolio_economics"]
+    assert report["status"] == "UNKNOWN" and "local_research_only" not in report
+    observation = report["incomplete_original_activity_observation"]
+    assert observation["status"] == "MODEL_ORIGINAL_COMMITTED_INCOMPLETE_COST_EXPOSURE"
+    work = observation["local_research_only"]["per_original_unfinished_work"]["w3"]
+    assert work["accepted_recipient_use_value"] is None
+    assert work["net_economic_contribution"] is None
+    assert work["triggered_declared_external_outflows"] == "470.00"
+    assert work["source_anchored_exclusive_resource_cost"] == "280.00"
+    assert work["triggered_external_outflows_plus_exclusive_resource_cost"] == "750.00"
+    assert Decimal(work["untriggered_conditional_transfer_amount_not_collected_revenue"]) > 0
+    assert work["completed_original_operation_count"] == 1
+    assert work["in_progress_original_operation_count"] == 1
+    assert not work["original_execution_readiness"]["all_observed_readiness_interruptions_closed"]
+    assert work["original_execution_readiness"]["any_required_resource_not_ready_model_ticks"] > 0
+    assert out["economics"]["profit"] == "UNKNOWN"
+    assert all(row["final_owner_profit"] is None for row in work["per_original_owner"].values())
+    assert all(row["status"] == "ORIGINAL_CONDITIONAL_TRIGGER_NOT_APPLIED" for row in
+               out["economics"]["work_payment_causality"]["bindings"]
+               if row["original_work"] == "w3" and row["condition"] == "ON_CUSTOMER_ACCEPTANCE")
+
+
+def test_unfinished_cost_exposure_requires_complete_owner_scope_at_horizon():
+    d = unfinished_resource_disturbance_portfolio()
+    # A missing owner cost row cannot be interpreted as zero.
+    d["economic_claims"]["portfolio_scope_evidence"]["owner_scopes"]["a"]["resource_use_ids"].pop()
+    r = simulate(d)["economics"]["original_portfolio_economics"]
+    assert r["status"] == "UNKNOWN"
+    assert "incomplete_original_activity_observation" not in r
+
+
+def test_unfinished_cost_exposure_does_not_qualify_false_acceptance_settlement():
+    d = unfinished_resource_disturbance_portfolio()
+    full = resource_disturbance_portfolio(declared=False)
+    claim = next(row for row in full["economic_claims"]["work_payment_settlement_claims"]
+                 if row["transfer_id"].startswith("w3-"))
+    d["economic_claims"]["work_payment_settlement_claims"].append(deepcopy(claim))
+    r = simulate(d)["economics"]["original_portfolio_economics"]
+    assert r["status"] == "UNKNOWN"
+    assert "incomplete_original_activity_observation" not in r
