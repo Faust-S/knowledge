@@ -48,6 +48,8 @@ from .capability_dynamics import CapabilityBlocked
 from .work_assurance import (
     QualityCriterion, AssuranceInputError, AssuranceBlocked,
     parse_criteria, assess_result_quality, acceptance_gate, assurance_view,
+    CORRECTION_ACTIONS, apply_quality_correction, qualified_resubmission,
+    _ref_used as assurance_reference_used,
 )
 from .cooperation import (
     CooperationInputError, parse_cooperation_links, cooperation_view, attach_requested_work,
@@ -86,7 +88,7 @@ ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "star
     "affiliation_transfer_propose", "affiliation_transfer_review",
     "affiliation_transfer_apply"})
 GOVERNED = frozenset({"authorize", "exclude"})
-ACTIONS = ACTIONS | WIP_ACTIONS
+ACTIONS = ACTIONS | WIP_ACTIONS | CORRECTION_ACTIONS
 
 
 class InputError(ValueError):
@@ -151,6 +153,9 @@ class Work:
     assurance_criteria: tuple[QualityCriterion, ...] = ()
     assurance_reviews: dict[str, dict[str, str]] = field(default_factory=dict)
     assurance_refs: set[str] = field(default_factory=set)
+    assurance_review_history: list[dict[str, Any]] = field(default_factory=list)
+    assurance_correction_proposal: dict[str, Any] | None = None
+    assurance_corrections: list[dict[str, Any]] = field(default_factory=list)
     # Effective FUTURE-operation responsibility; original criteria stay fixed.
     # Decision and evidence history live on the original WIP amendments.
     assurance_responsibilities: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -395,6 +400,11 @@ class QualitativeAKIS:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
              "criterion", "quality_verdict", "quality_evidence_ref",
              "quality_expected_responsible_owner", "quality_responsibility_revision",
+             "quality_reassessment_of", "quality_reassessment_reason", "quality_reassessment_ref",
+             "quality_correction_id", "quality_correction_fingerprint", "quality_correction_source_ref",
+             "quality_correction_resource_ref", "quality_correction_cost_ref", "quality_correction_cost",
+             "quality_correction_currency", "quality_correction_slot_start", "quality_correction_slot_end",
+             "quality_correction_valid_until", "quality_correction_decision",
              "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
              "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until", "entry_change_id", "entry_assessment_source_ref",
              "model_code_change_id", "model_code_source_ref", "model_code_decision",
@@ -1163,6 +1173,10 @@ class QualitativeAKIS:
             report["financial_evidence"] = "SOURCE_DECLARED_NOT_CASH_RECEIPT"
             if report["outcome"] == "APPLIED":
                 report.update(wip_evidence or {})
+        if action in CORRECTION_ACTIONS:
+            report["quality_correction_id"] = ev.get("quality_correction_id")
+            if report["outcome"] == "APPLIED":
+                report.update(wip_evidence or {})
         if action in {"start_operation", "complete_operation"}:
             report["operation"] = ev.get("operation")
         if action == "assess_result_quality" and report["outcome"] == "APPLIED":
@@ -1177,6 +1191,11 @@ class QualitativeAKIS:
             report["quality_verdict"] = ev.get("quality_verdict")
             report["assessed_result_ref"] = ev.get("result_ref")
             report["quality_evidence_ref"] = ev.get("quality_evidence_ref")
+            if "quality_reassessment_of" in ev:
+                report["quality_reassessment_of"] = ev["quality_reassessment_of"]
+                report["quality_reassessment_reason"] = ev["quality_reassessment_reason"]
+                report["quality_reassessment_ref"] = ev["quality_reassessment_ref"]
+                report["physical_reexecution"] = False
             report["source_authentication"] = "MODEL_ONLY_UNVERIFIED"
             report["quality_assessment_is_not_result_acceptance"] = True
         if action in {"handoff_dispatch", "handoff_receive", "handoff_quality"}:
@@ -1859,6 +1878,8 @@ class QualitativeAKIS:
             self._guard_original_form_role_work(w, at)
         if self.context_basis is not None:
             self.context_basis.assert_allowed(w.key, a, actor, at)
+        if a in CORRECTION_ACTIONS:
+            return apply_quality_correction(self, w, ev, at)
         if a in WIP_ACTIONS:
             return apply_wip_action(self, w, ev, at)
         if a == "offer":
@@ -2046,7 +2067,7 @@ class QualitativeAKIS:
             # execution for this original criterion.
             if w.assurance_responsibilities:
                 assert_assurance_responsibility_current(self, w, at)
-            assess_result_quality(w, ev)
+            assess_result_quality(w, ev, state=self, at=at)
         elif a == "complete":
             active_resource = w.wip_active_resource or w.resource
             if actor != self.resources[active_resource] or w.execution != "IN_PROGRESS":
@@ -2068,11 +2089,22 @@ class QualitativeAKIS:
             ref = ev.get("result_ref")
             if not isinstance(ref, str) or not ref.startswith("model://") or len(ref) > 180 or ref == w.result_ref:
                 raise BlockedDecision("NEW_MODEL_ONLY_EVIDENCE_REQUIRED")
-            if ref in w.operation_evidence.values() or ref in self._handoff_references(w):
+            if assurance_reference_used(w, ref) or ref in self._handoff_references(w):
                 raise BlockedDecision("OPERATION_EVIDENCE_IS_NOT_WORK_RESULT")
+            correction = qualified_resubmission(self, w, ev, at)
+            if correction is None and ("quality_correction_id" in ev or
+                                       "quality_correction_fingerprint" in ev):
+                raise BlockedDecision("QUALITY_CORRECTION_NO_QUALIFIED_ATTEMPT")
             w.result = "SUBMITTED"
             w.result_ref = ref
-            w.result_history.append({"transition": "resubmit", "model_ref": ref})
+            row = {"transition": "resubmit", "model_ref": ref}
+            if correction is not None:
+                correction["status"] = "RESUBMITTED"
+                correction["resubmitted_result_ref"] = ref
+                correction["resubmitted_at"] = at
+                row["quality_correction_id"] = correction["terms"]["id"]
+                row["physical_correction_operation_ref"] = correction["operation_evidence"]
+            w.result_history.append(row)
         elif a in {"accept", "reject"}:
             if actor != w.customer or w.result != "SUBMITTED":
                 raise BlockedDecision("ORIGINAL_CUSTOMER_RESULT_DECISION_REQUIRED")
