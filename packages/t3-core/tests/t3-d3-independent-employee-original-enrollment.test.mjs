@@ -40,13 +40,16 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
  auth.resources.push('authority:issuer:north','workspace:ws:north',
   'subject:org:north','recipient:org:north','field:result','field:task','operation:UPSERT');
  auth.actions.push('grant.issue','work.prepare','package.export');
- auth.actions.push('workspace.read','workspace.create','workspace.exchange.import');
+ auth.actions.push('workspace.read','workspace.create','workspace.exchange.import',
+  'workspace.exchange.export');
  auth.purposes.push('access-administration','work','handoff','assignment');
- auth.purposes.push('workspace.read','workspace.work','workspace.onboarding','workspace.exchange.import');
+ auth.purposes.push('workspace.read','workspace.work','workspace.onboarding','workspace.exchange.import',
+  'workspace.exchange.export');
  Object.assign(fixture.policy.actionCatalog,{
   'grant.issue':'ADMINISTRATION','work.prepare':'ACTION','package.export':'DATA',
   'workspace.read':'DATA','object.write':'ACTION',
-  'workspace.create':'ACTION','workspace.exchange.import':'ACTION'
+  'workspace.create':'ACTION','workspace.exchange.import':'ACTION',
+   'workspace.exchange.export':'DATA'
  });
  // The Kernel's immutable initial trust anchor must match the expanded
  // fixture policy exactly. The test-only model keeps an independent copy.
@@ -737,4 +740,77 @@ test('lost ACK after original atomic employee Workspace rights commit cannot rei
  await assert.rejects(s.owner.issueWorkspaceGrantSet(args),
   {code:'T3_EMPLOYEE_WORKSPACE_OUTCOME_UNKNOWN_READBACK'});
  assert.equal(s.graphCalls.length,count+1);
+});
+
+async function enrolledWorkspaceForReturn(){
+ const s=setup({graphKernel:true});await s.init();
+ const started=await s.owner.begin(s.input(s.alice));
+ await s.owner.complete({enrollmentId:started.enrollmentId,
+  employeeProof:makeProof(started.request,started.challenge,NOW,s.alice.signer,'TEST')});
+ const args={organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:started.enrollmentId,managerPersonId:'person:operator',
+  managerGrantId:'grant:admin-north',confirmed:true};
+ return {s,args};
+}
+test('Workspace return export is explicit, separately signed DATA and not implied by package.export',async()=>{
+ const {s,args}=await enrolledWorkspaceForReturn();
+ const initial=s.graphCalls.length;
+ await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,returnExport:'true'}),
+  {code:'T3_EMPLOYEE_WORKSPACE_RETURN_EXPORT_OPTION_INVALID'});
+ await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,confirmed:false,returnExport:true}),
+  {code:'T3_EMPLOYEE_WORKSPACE_EXPLICIT_APPROVAL_REQUIRED'});
+ assert.equal(s.graphCalls.length,initial);
+ const issued=await s.owner.issueWorkspaceGrantSet({...args,returnExport:true});
+ assert.equal(s.graphCalls.length,initial+1);
+ assert.equal(issued.returnExportAvailable,true);
+ assert.equal(issued.grantIds.length,5);
+ const envelope=(await s.registry.readState()).grants[issued.attachments.exportAccess.grantId];
+ assert.deepEqual(envelope.payload.actions,['workspace.exchange.export']);
+ assert.deepEqual(envelope.payload.purposes,['workspace.exchange.export']);
+ assert.deepEqual(envelope.payload.resources,['ws:north']);
+ assert.equal(envelope.payload.rightClass,'DATA');
+ assert.equal(envelope.payload.holderId,'person:alice');
+ assert.equal(issued.attachments.exportAccess.enrollment.payload.credentialPublicKeyRef,
+  s.alice.signer.keyId);
+ const enrollment=await s.owner.readEnrollment(args);
+ assert.notEqual(enrollment.grantIds.export,issued.attachments.exportAccess.grantId);
+ await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,returnExport:true}),
+  {code:'T3_EMPLOYEE_WORKSPACE_RIGHTS_EXIST_USE_READBACK'});
+ assert.equal(s.graphCalls.length,initial+1);
+});
+test('old Workspace grant set can be extended without changing four original signed grants',async()=>{
+ const {s,args}=await enrolledWorkspaceForReturn();
+ const old=await s.owner.issueWorkspaceGrantSet(args);
+ assert.equal(old.returnExportAvailable,false);
+ assert.equal(old.grantIds.length,4);
+ assert.equal(old.attachments.exportAccess,undefined);
+ const before=await s.registry.readState(),initial=s.graphCalls.length;
+ const extended=await s.owner.issueWorkspaceGrantSet({...args,returnExport:true});
+ const after=await s.registry.readState();
+ assert.equal(extended.returnExportAvailable,true);
+ assert.equal(extended.grantIds.length,5);
+ assert.equal(s.graphCalls.length,initial+1);
+ assert.equal(after.statusFloor['issuer:north'],before.statusFloor['issuer:north']+1);
+ for(const id of old.grantIds){
+  assert.ok(extended.grantIds.includes(id));
+  assert.deepEqual(after.grants[id],before.grants[id]);
+ }
+ const recovered=await s.owner.readWorkspaceGrantSet(args);
+ assert.deepEqual(recovered.grantIds,extended.grantIds);
+ assert.equal(recovered.returnExportAvailable,true);
+});
+test('lost ACK during additive return export preserves previous grants and forbids duplicate issuance',async()=>{
+ const {s,args}=await enrolledWorkspaceForReturn();
+ const old=await s.owner.issueWorkspaceGrantSet(args);
+ const before=s.graphCalls.length;s.loseNext();
+ await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,returnExport:true}),
+  /SIMULATED_LOST_ACK_AFTER_KERNEL_COMMIT/);
+ assert.equal(s.graphCalls.length,before+1);
+ const readback=await s.owner.readWorkspaceGrantSet(args);
+ assert.equal(readback.returnExportAvailable,true);
+ assert.equal(readback.grantIds.length,5);
+ assert.ok(old.grantIds.every(id=>readback.grantIds.includes(id)));
+ await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,returnExport:true}),
+  {code:'T3_EMPLOYEE_WORKSPACE_OUTCOME_UNKNOWN_READBACK'});
+ assert.equal(s.graphCalls.length,before+1);
 });
