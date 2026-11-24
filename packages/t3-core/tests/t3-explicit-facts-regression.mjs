@@ -23,15 +23,20 @@ for(const [key,definition] of Object.entries(suite.forms)){
  const dom=new JSDOM(readFileSync(join(domain,definition.page),"utf8"));
  try{
   const form=Array.from(dom.window.document.forms).find(f=>f.hasAttribute(definition.marker));
-  assert.ok(form,"ACTUAL_FORM");
+  const fail=(reason)=>{console.log("T3_CLUB_EXPLICIT_FACTS_STRUCTURE "+JSON.stringify({suite:suiteName,form:key,reason}));throw Error(reason);};
+  if(!form)fail("ACTUAL_FORM");
   const hint=formHintFor(pack,form,"/"+definition.page.replace(/index\.html$/,""));
-  assert.ok(hint&&hint.skillId===definition.skill,"FORM_HINT_ROUTE");
+  if(!hint||hint.skillId!==definition.skill)fail("FORM_HINT_ROUTE");
   const fields=fieldCandidates(form.elements,f=>f.isConnected&&!f.closest("[hidden],[aria-hidden=true]"));
   const identity=input=>input.name||definition.fields.find(n=>n.startsWith("@")&&input.hasAttribute(n.slice(1)))||"UNNAMED";
-  assert.deepEqual(fields.map(identity),definition.fields);
+  if(JSON.stringify(fields.map(identity))!==JSON.stringify(definition.fields)){
+   console.log("T3_CLUB_EXPLICIT_FACTS_STRUCTURE "+JSON.stringify({suite:suiteName,form:key,reason:"FIELD_ORDER",expected:definition.fields.length,actual:fields.length,
+    missing:definition.fields.filter(n=>!fields.some(f=>identity(f)===n))}));
+   fail("FIELD_ORDER");
+  }
   const original=fields.map(f=>f.value);
   const matching=new Set(fields.filter(input=>hint.fields.some(h=>h.name===identity(input))));
-  assert.equal(matching.size,hint.fields.length,"EXACT_HINT_FIELDS");
+  if(matching.size!==hint.fields.length)fail("EXACT_HINT_FIELDS");
   // The real UI offers groups of no more than ten fields. Qualify the
   // same groups, then map local field keys back to the original order
   // solely for the scorer. No oversized model task is constructed.
@@ -41,7 +46,7 @@ for(const [key,definition] of Object.entries(suite.forms)){
    for(const batch of groups){
     const rows=batch.map((input,i)=>({input,form,key:"field_"+(i+1),label:fieldLabel(input),oldValue:input.value,type:input.type}));
     const {known,remaining}=splitFormProposals(rows,c.request,hint);
-    assert.ok(known.every(r=>matching.has(r.input))&&remaining.every(r=>!matching.has(r.input)));
+    if(!known.every(r=>matching.has(r.input))||!remaining.every(r=>!matching.has(r.input)))fail("MODEL_SCOPE");
     for(const row of known)merged["field_"+(fields.indexOf(row.input)+1)]=row.proposed;
    }
    assert.deepEqual(fields.map(f=>f.value),original,"NO_FORM_MUTATION");
