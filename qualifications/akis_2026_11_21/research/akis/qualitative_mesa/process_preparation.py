@@ -458,6 +458,34 @@ def review_original_preparation_diagnostic(state: Any, work: Any, actor: str,
     }
 
 
+def original_preparation_oc_edition(state: Any, at: int) -> str:
+    """Read the applied source edition at an original trace instant.
+
+    This uses the existing immutable edition transitions; it does not add
+    a second edition field to every preparation or another version store.
+    Edition identifiers cannot be reused by the original apply policy.
+    """
+    for row in reversed(state.trace):
+        if (row.get("action") == "model_code_apply" and row.get("outcome") == "APPLIED"
+                and row["at"] <= at):
+            return row["new_model_edition"]
+    return "BASE"
+
+
+def original_preparation_oc_current(state: Any, prepared: Mapping[str, Any],
+                                    at: int) -> bool:
+    """Current original OC is more than the institution revision label."""
+    policy = getattr(state, "model_org_policy", None)
+    return bool(
+        prepared.get("org_revision") == state.institution.revision
+        and original_preparation_oc_edition(state, prepared["at"])
+            == getattr(state, "model_org_code_edition", "BASE")
+        and policy is not None and policy.active(state, at)
+        and policy.agent_decision("REQUEST_APPROVAL")
+            == "OC_MODEL_PREPARATION_CANDIDATE_NOT_AUTHORIZED"
+    )
+
+
 def original_preparation_pattern_current(state: Any, prepared: Mapping[str, Any],
                                          at: int) -> bool:
     """Recheck the exact structure source used by an applied original packet.
@@ -555,7 +583,9 @@ def _accepted_pattern_predecessor(state: Any, work: Any, actor: str,
         and prepare_at < r["at"] < committed["at"]
     ]
     if (len(reviews) != 1
-            or prepared.get("org_revision") != committed.get("org_revision")):
+            or prepared.get("org_revision") != committed.get("org_revision")
+            or original_preparation_oc_edition(state, prepare_at)
+                != committed.get("org_code_model_source_edition", "BASE")):
         raise ValueError(error)
     # Resolve the active original function at the historical commitment,
     # just as ModelFormationPolicy._phase_six_ready does prospectively.
@@ -665,6 +695,9 @@ def qualify_original_preparation_pattern(state: Any, work: Any, actor: str, mode
                 changes.append("SOURCE_REVISION")
             if predecessor["org_revision"] != state.institution.revision:
                 changes.append("ORGANIZATIONAL_CODE")
+            if (original_preparation_oc_edition(state, predecessor["at"])
+                    != getattr(state, "model_org_code_edition", "BASE")):
+                changes.append("ORGANIZATIONAL_MODEL_EDITION")
             if old["shape_fingerprint"] != shape:
                 changes.append("STRUCTURE")
             if any(row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
@@ -691,6 +724,8 @@ def qualify_original_preparation_pattern(state: Any, work: Any, actor: str, mode
         )
         previous = predecessor["model_preparation_pattern"]
         if (predecessor.get("org_revision") != state.institution.revision
+                or original_preparation_oc_edition(state, predecessor["at"])
+                    != getattr(state, "model_org_code_edition", "BASE")
                 or previous["source_fingerprint"] != source
                 or previous["shape_fingerprint"] != shape
                 or any(row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
@@ -770,7 +805,7 @@ def original_pattern_reproduction_view(state: Any, *, at: int,
     accepted_versions = {version(row) for row in effective.values()}
     current_versions = {
         version(row) for row in effective.values()
-        if row.get("org_revision") == state.institution.revision
+        if original_preparation_oc_current(state, row, at)
         and original_preparation_pattern_current(state, row, at)
     }
     superseded = sum(

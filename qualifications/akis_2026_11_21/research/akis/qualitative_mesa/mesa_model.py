@@ -658,7 +658,9 @@ class OperatorAKISModel(mesa.Model):
                               if isinstance(ref, str) else None)
                     if source is not None and source.valid_until is not None:
                         instants.add(source.valid_until + 1)
-            for at in sorted(t for t in instants if t <= self._model_end_at):
+            self._general_observation_ticks = {
+                t for t in instants if t <= self._model_end_at}
+            for at in sorted(self._general_observation_ticks):
                 callback = self._capture_general_system
                 self._callbacks.append(callback)
                 self.schedule_event(callback, at=float(at), priority=Priority.LOW)
@@ -892,6 +894,19 @@ class OperatorAKISModel(mesa.Model):
 
     def _apply_event(self, event: dict[str, Any]) -> None:
         outcome = self.qualitative.apply(event, int(self.time))
+        if (event["action"] == "model_code_apply" and outcome["outcome"] == "APPLIED"
+                and self.general_akis_enabled and self._has_structural_preparation_claims):
+            # A newly APPLIED source edition can expire at a different time
+            # from the original static design. Reuse the same low-priority
+            # general observation; never create a new business event.
+            for tick in sorted({row["expires_at"] for row in
+                                self.qualitative.model_org_policy.records.values()}):
+                if (int(self.time) < tick <= self._model_end_at
+                        and tick not in self._general_observation_ticks):
+                    self._general_observation_ticks.add(tick)
+                    callback = self._capture_general_system
+                    self._callbacks.append(callback)
+                    self.schedule_event(callback, at=float(tick), priority=Priority.LOW)
         if (event["action"] == "participation_status"
                 and outcome["outcome"] == "APPLIED"
                 and "evaluation_economic_source_revision" in event):

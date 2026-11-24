@@ -16,7 +16,10 @@ from .configuration_behavior import (
     configuration_dynamics, original_configuration_commit_gate,
 )
 from .scope_policy import source_link_status, OPERATIONS as CONTEXT_OPERATIONS
-from .process_preparation import (perform_bounded_process_step, original_preparation_pattern_current)
+from .process_preparation import (
+    perform_bounded_process_step, original_preparation_pattern_current,
+    original_preparation_oc_edition,
+)
 from .cooperation import original_membership_predecessor
 
 
@@ -459,6 +462,9 @@ class ModelFormationPolicy:
         reason, _ = self._agent_packet(state, work, fn["id"], at)
         if reason != "NONE":
             return reason
+        if (original_preparation_oc_edition(state, prep["at"])
+                != getattr(state, "model_org_code_edition", "BASE")):
+            return "FORMATION_AGENT_ORIGINAL_OC_EDITION_CHANGED_AFTER_PACKET"
         if not original_preparation_pattern_current(state, prep, at):
             return "FORMATION_AGENT_ORIGINAL_PATTERN_SOURCE_CHANGED_AFTER_PACKET"
         # Even a subsequently restored source must not silently reactivate a
@@ -564,6 +570,9 @@ class ModelFormationPolicy:
                         6, fn["owner"], prep.get("function_phase_source_ref"),
                         state.institution.revision, at)):
                 return "FORMATION_AGENT_PREPARATION_SOURCE_STALE"
+            if (original_preparation_oc_edition(state, prep["at"])
+                    != getattr(state, "model_org_code_edition", "BASE")):
+                return "FORMATION_AGENT_ORIGINAL_OC_EDITION_CHANGED_AFTER_PACKET"
             if not original_preparation_pattern_current(state, prep, at):
                 return "FORMATION_AGENT_ORIGINAL_PATTERN_SOURCE_CHANGED_AFTER_PACKET"
         # A rejection is an original independent negative decision, not
