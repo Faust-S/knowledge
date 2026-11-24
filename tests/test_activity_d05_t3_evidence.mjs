@@ -201,3 +201,75 @@ test('D05 cannot suppress original Workspace lifecycle without full Kernel Works
   {code:'T3_AUTHORITATIVE_READ_REFUSED'});
  assert.equal(h.writes(),0);
 });
+
+import {reviewSelectedD05RouteModels,createTrustedD05RouteReviewPort}
+ from '../modules/activity-base-anonymizer/d05-route-host.mjs';
+import {buildD05RouteComparisonExample} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
+
+// Reuse the ORIGINAL T3 signed subject binding and existing D05 evidence
+// fixture. These are domain-shaped models, not actual factory execution.
+function routeFixture(){
+ const h=fixture();
+ const models=buildD05RouteComparisonExample();
+ const routes=models.map((value,i)=>({
+   ...h.objects[0],object_id:value.object_id,schema_id:DOMAIN+'.operation-route',
+   revision:i+1,data:{object_id:value.object_id,object_type:'operation-route',value,
+     summary_markdown:SECRET},
+ }));
+ h.objects.push(...routes);
+ const originalList=h.context.kernel.listObjects;
+ h.context.kernel.listObjects=async query=>{
+   assert.equal(query.schema_id,DOMAIN+'.operation-route');
+   assert.equal(query.include_deleted,false);
+   assert.equal(query.limit,25);
+   return (await originalList()).filter(row=>row.schema_id===query.schema_id).slice(0,query.limit);
+ };
+ const config={...h,createSubjectKernelBinding:original.createSubjectKernelBinding};
+ return {h,config,routes};
+}
+test('A4.1 uses original signed T3 subject reads of the existing route Result schema',async()=>{
+ const {h,config}=routeFixture(),before=JSON.stringify(h.objects);
+ const result=await reviewSelectedD05RouteModels(config);
+ assert.equal(result.source_authority,'ORIGINAL_SIGNED_SELECTED_READBACK');
+ assert.equal(result.model_count,3);assert.equal(result.group_count,2);
+ assert.equal(result.repeated_group_count,1);
+ assert.equal(result.epistemic_status,'CALCULATED_OR_DECLARED_NOT_OBSERVED');
+ assert.equal(result.anonymity,'NOT_ESTABLISHED');assert.equal(result.export_allowed,false);
+ assert.equal(h.writes(),0);assert.equal(JSON.stringify(h.objects),before);
+ assert.ok(h.reads()>=7);
+ for(const secret of [SECRET,W,'example-route-','org:d05','grant:activity-read'])
+   assert.equal(JSON.stringify(result).includes(secret),false,secret);
+});
+test('A4.1 refuses revoked source before original Kernel access',async()=>{
+ const {h,config}=routeFixture();h.revoke();
+ await assert.rejects(reviewSelectedD05RouteModels(config),{code:'D05_ROUTE_HOST_READ_REFUSED'});
+ assert.equal(h.reads(),0);assert.equal(h.writes(),0);
+});
+test('A4.1 fails closed on changed revision after list',async()=>{
+ const {h,config,routes}=routeFixture();
+ const read=h.context.kernel.getObject;
+ h.context.kernel.getObject=async (...args)=>{
+   if(args[1]===routes[0].object_id)routes[0].revision++;
+   return read(...args);
+ };
+ await assert.rejects(reviewSelectedD05RouteModels(config),{code:'D05_ROUTE_HOST_SOURCE_CHANGED'});
+ assert.equal(h.writes(),0);
+});
+test('A4.1 rejects foreign route response through original subject binding',async()=>{
+ const {config,routes}=routeFixture();routes[0].workspace_id='ws:foreign';
+ await assert.rejects(reviewSelectedD05RouteModels(config),{code:'D05_ROUTE_HOST_READ_REFUSED'});
+});
+test('A4.1 original signed read fails when owner invalidates during enumeration',async()=>{
+ const {h,config}=routeFixture();const list=h.context.kernel.listObjects;
+ h.context.kernel.listObjects=async q=>{const result=await list(q);h.revoke();return result;};
+ await assert.rejects(reviewSelectedD05RouteModels(config));
+ assert.equal(h.writes(),0);
+});
+test('A4.1 narrow port has no raw rows, permissions or alternate Workspace argument',async()=>{
+ const {h,config}=routeFixture(),port=createTrustedD05RouteReviewPort(config);
+ assert.deepEqual(Object.keys(port).sort(),['readSelectedRoutes','subscribeInvalidation']);
+ let invalidations=0;const off=port.subscribeInvalidation(()=>invalidations++);
+ assert.equal((await port.readSelectedRoutes()).group_count,2);
+ h.revoke();assert.ok(invalidations>=1);
+ off();const n=invalidations;h.revoke();assert.equal(invalidations,n);
+});
