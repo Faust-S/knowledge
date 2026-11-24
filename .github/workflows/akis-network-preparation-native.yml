@@ -1,0 +1,72 @@
+name: AKIS exact native preparation lifecycle and reuse economics
+on:
+  push:
+    branches:
+      - work/2026-11-24-akis-network-preparation-native
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  exact-original-preparation-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify complete pinned original executable scope
+        run: python qualifications/akis_2026_11_21/verify_source_scope.py
+      - name: Official Mesa 3.5.2
+        run: |
+          python -m pip install --disable-pip-version-check "mesa==3.5.2" "pytest>=8,<10"
+          python -c "import mesa; assert mesa.__version__ == '3.5.2'"
+      - name: Compile original package
+        run: python -m compileall -q qualifications/akis_2026_11_21/research
+      - name: Exact original transition and idle boundary parity
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_network_preparation_mesa.py
+      - name: Full original Mesa regression
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests
+  original-mass-preparation:
+    needs: exact-original-preparation-regression
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        case:
+          - {enterprises: 100, periods: 3}
+          - {enterprises: 1000, periods: 3}
+          - {enterprises: 10000, periods: 3}
+          - {enterprises: 1000, periods: 12}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify complete pinned original executable scope
+        run: python qualifications/akis_2026_11_21/verify_source_scope.py
+      - name: Official Mesa 3.5.2
+        run: |
+          python -m pip install --disable-pip-version-check "mesa==3.5.2"
+          python -c "import mesa; assert mesa.__version__ == '3.5.2'"
+      - name: Execute matched native fresh build and reuse trajectories
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_original_network_preparation.py ${{ matrix.case.enterprises }} ${{ matrix.case.periods }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: akis-network-preparation-${{ matrix.os }}-${{ matrix.case.enterprises }}-${{ matrix.case.periods }}
+          if-no-files-found: error
+          path: qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/network_preparation_${{ matrix.case.enterprises }}_${{ matrix.case.periods }}.json

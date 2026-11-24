@@ -297,6 +297,17 @@ class OperatorAKISModel(mesa.Model):
                     or len(set(raw_network_ticks)) != len(raw_network_ticks)):
                 raise InputError("NETWORK_OBSERVATION_TICKS_INVALID")
             self.network_observation_ticks = tuple(sorted(raw_network_ticks))
+        exact_preparation = research_input.pop("network_exact_preparation_observation", False)
+        if (type(exact_preparation) is not bool or
+                (exact_preparation and self.network_observation_ticks is None)):
+            raise InputError("EXACT_PREPARATION_REQUIRES_NETWORK_CHECKPOINTS")
+        self._exact_preparation = None
+        self._exact_preparation_boundaries: set[int] = set()
+        self._exact_preparation_event = None
+        if exact_preparation:
+            from .preparation_exposure import OriginalPreparationExposure
+            self._exact_preparation = OriginalPreparationExposure()
+            self._exact_preparation_callback = self._capture_exact_preparation
         requested_horizon = research_input.pop("model_horizon", None)
         if (requested_horizon is not None and
                 (type(requested_horizon) is not int or
@@ -545,7 +556,7 @@ class OperatorAKISModel(mesa.Model):
         self._has_original_delegation_claims = any(
             ev["action"] == "function_delegate" for ev in self.qualitative.events
         )
-        if self.network_observation_ticks is not None and (
+        if self.network_observation_ticks is not None and self._exact_preparation is None and (
                 self._has_original_delegation_claims or self._has_structural_preparation_claims):
             # Exact historical exposure integrals require every transition.
             # Do not quietly publish a sampled series as exact Work-time.
@@ -706,6 +717,9 @@ class OperatorAKISModel(mesa.Model):
                 instants.update(self.general_design.source_times)
             else:
                 instants.update(self.network_observation_ticks)
+            exposure_boundaries = {0, self._model_end_at}
+            if self._exact_preparation is not None:
+                exposure_boundaries.update(self.general_design.source_times)
             # Observe expiry of only the original structural sources declared
             # by existing preparation events, even if no Work is active then.
             # This does not extend the horizon, add a source, or create Work.
@@ -718,8 +732,14 @@ class OperatorAKISModel(mesa.Model):
                            else None)
                     source = (self.qualitative.context_basis.sources.get(ref)
                               if isinstance(ref, str) else None)
-                    if source is not None and source.valid_until is not None:
-                        instants.add(source.valid_until + 1)
+                    if source is not None:
+                        if source.valid_until is not None:
+                            if self._exact_preparation is not None:
+                                exposure_boundaries.add(source.valid_until + 1)
+                            else:
+                                instants.add(source.valid_until + 1)
+                        if self._exact_preparation is not None and source.scope is not None:
+                            exposure_boundaries.add(source.scope.valid_from)
             if self._has_original_delegation_claims and self.qualitative.context_basis is not None:
                 # Observe original function/core basis windows even without an event.
                 refs = {row.get("basis_source")
@@ -728,10 +748,18 @@ class OperatorAKISModel(mesa.Model):
                 for ref in refs:
                     source = self.qualitative.context_basis.sources.get(ref)
                     if source is not None:
+                        target = (exposure_boundaries if self._exact_preparation is not None
+                                  else instants)
                         if source.scope is not None:
-                            instants.add(source.scope.valid_from)
+                            target.add(source.scope.valid_from)
                         if source.valid_until is not None:
-                            instants.add(source.valid_until + 1)
+                            target.add(source.valid_until + 1)
+            if self._exact_preparation is not None:
+                self._exact_preparation_boundaries = {
+                    t for t in exposure_boundaries if 0 <= t <= self._model_end_at}
+                for at in sorted(self._exact_preparation_boundaries):
+                    self.schedule_event(self._exact_preparation_callback,
+                                        at=float(at), priority=Priority.LOW)
             self._general_observation_ticks = {
                 t for t in instants if 0 <= t <= self._model_end_at}
             for at in sorted(self._general_observation_ticks):
@@ -797,6 +825,13 @@ class OperatorAKISModel(mesa.Model):
                 except (EconomicInputError, KeyError) as exc:
                     raise InputError("OWNER_FORECAST_PRIVATE_PROJECTION_INVALID") from exc
         return self._owner_cash_economic_cache
+
+    def _capture_exact_preparation(self) -> None:
+        at = int(self.time)
+        self._exact_preparation.observe(
+            self.qualitative, at=at, event=self._exact_preparation_event,
+            boundary=at in self._exact_preparation_boundaries)
+        self._exact_preparation_event = None
 
     def _capture_general_system(self) -> None:
         view = general_system_view(
@@ -1001,6 +1036,11 @@ class OperatorAKISModel(mesa.Model):
 
     def _apply_event(self, event: dict[str, Any]) -> None:
         outcome = self.qualitative.apply(event, int(self.time))
+        if self._exact_preparation is not None and outcome["outcome"] == "APPLIED":
+            self._exact_preparation_event = outcome
+            if int(self.time) not in self._exact_preparation_boundaries:
+                self.schedule_event(self._exact_preparation_callback,
+                                    after=0.0, priority=Priority.LOW)
         if (event["action"] == "model_code_apply" and outcome["outcome"] == "APPLIED"
                 and self.general_akis_enabled
                 and (self._has_structural_preparation_claims or self._has_original_delegation_claims)):
@@ -1009,8 +1049,14 @@ class OperatorAKISModel(mesa.Model):
             # general observation; never create a new business event.
             for tick in sorted({row["expires_at"] for row in
                                 self.qualitative.model_org_policy.records.values()}):
-                if (int(self.time) < tick <= self._model_end_at
-                        and tick not in self._general_observation_ticks):
+                if not int(self.time) < tick <= self._model_end_at:
+                    continue
+                if self._exact_preparation is not None:
+                    if tick not in self._exact_preparation_boundaries:
+                        self._exact_preparation_boundaries.add(tick)
+                        self.schedule_event(self._exact_preparation_callback,
+                                            at=float(tick), priority=Priority.LOW)
+                elif tick not in self._general_observation_ticks:
                     self._general_observation_ticks.add(tick)
                     callback = self._capture_general_system
                     self._callbacks.append(callback)
@@ -1642,6 +1688,11 @@ class OperatorAKISModel(mesa.Model):
                         "observed_ticks": [row["at"] for row in self.general_views],
                         "all_original_transition_guards_still_executed": True,
                         "no_exact_exposure_inferred_between_checkpoints": True,
+                        **({"preparation_exposure": "EXACT_ORIGINAL_TRANSITIONS_AND_SOURCE_BOUNDARIES",
+                            "preparation_observation_count": self._exact_preparation.observation_count,
+                            "preparation_count_change_points": self._exact_preparation.change_point_count,
+                            "full_history_endpoint_cross_checked": True}
+                           if self._exact_preparation is not None else {}),
                     }} if self.network_observation_ticks is not None else {}),
                 "single_original_scheduler": True,
                 "original_results_and_org_code_unmodified": True,
@@ -1656,7 +1707,8 @@ class OperatorAKISModel(mesa.Model):
                 reproduction = output["general_akis_model"]["author_operator_reproducibility"]
                 reproduction["structural_preparation_scope"] = pattern_observation
                 reproduction["structural_preparation_model_time"] = summarize_original_pattern_evolution(
-                    self.general_views, horizon=self._model_end_at)
+                    self._exact_preparation.projection_points() if self._exact_preparation is not None
+                    else self.general_views, horizon=self._model_end_at)
             if pattern_costs is not None:
                 output["economics"]["original_pattern_reproduction_costs"] = pattern_costs
             if self._has_original_delegation_claims:
@@ -1671,9 +1723,13 @@ class OperatorAKISModel(mesa.Model):
                     gate = output["general_akis_model"]["agent_function_formation_model_gate"]
                     gate["original_delegation_scope"] = delegation_observation
                     gate["original_delegation_model_time"] = summarize_original_delegation_evolution(
-                        self.general_views, horizon=self._model_end_at)
+                        self._exact_preparation.projection_points() if self._exact_preparation is not None
+                        else self.general_views, horizon=self._model_end_at)
                     gate["original_packet_readiness_model_time"] = summarize_original_packet_readiness(
-                        self.general_views, horizon=self._model_end_at)
+                        self._exact_preparation.projection_points() if self._exact_preparation is not None
+                        else self.general_views, horizon=self._model_end_at)
+            if self._exact_preparation is not None:
+                self._exact_preparation.check_final(pattern_observation, delegation_observation)
             if "capability_dynamics" in output:
                 cap = output["capability_dynamics"]
                 output["general_akis_model"]["capability_reproduction_feedback"] = {

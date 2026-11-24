@@ -527,6 +527,27 @@ def _original_preparation_mandate_verdict(state: Any, work: Any, fn: Mapping[str
     return "NONE"
 
 
+def _original_preparation_work_rows(state: Any, key: str):
+    if getattr(state, "network_scale", False):
+        return state.original_work_trace(key)
+    return [row for row in state.trace if row.get("work") == key]
+
+
+def _original_preparation_source_updates(state: Any, ref: str):
+    if getattr(state, "network_scale", False):
+        return state.original_source_update_rows(ref)
+    return [row for row in state.trace if row.get("action") == "source_update"
+            and row.get("outcome") == "APPLIED" and row.get("source") == ref]
+
+
+def _original_preparation_functions(policy: Any, key: str):
+    if policy is None:
+        return ()
+    if getattr(policy.design, "network_scale", False):
+        return policy._work_functions(key)
+    return policy.design.declarations["agent_functions"]
+
+
 def original_preparation_mandate(state: Any, work: Any, fn: Mapping[str, Any],
                                  delegation_at: Any, at: int, *,
                                  fresh_use: bool = False, after_event: bool = False) -> tuple[str, Any]:
@@ -538,7 +559,8 @@ def original_preparation_mandate(state: Any, work: Any, fn: Mapping[str, Any],
     trace_before = at + int(after_event)
     if type(delegation_at) is not int or delegation_at >= trace_before:
         return "FORMATION_AGENT_ORIGINAL_DELEGATION_REQUIRED", None
-    grants = [row for row in state.trace
+    work_rows = _original_preparation_work_rows(state, work.key)
+    grants = [row for row in work_rows
               if row.get("action") == "function_delegate"
               and row.get("outcome") == "APPLIED" and row.get("work") == work.key
               and row.get("function_id") == fn["id"] and row["at"] < trace_before]
@@ -550,14 +572,15 @@ def original_preparation_mandate(state: Any, work: Any, fn: Mapping[str, Any],
         state, work, fn, grant, at, source_changed=any(
             row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
             and row.get("source") == mandate["source_ref"]
-            and delegation_at < row["at"] < trace_before for row in state.trace))
+            and delegation_at < row["at"] < trace_before
+            for row in _original_preparation_source_updates(state, mandate["source_ref"])))
     if reason != "NONE":
         return reason, None
     if fresh_use and any(
             row.get("action") == "function_prepare" and row.get("outcome") == "APPLIED"
             and row.get("work") == work.key
             and row.get("model_original_delegated_preparation", {}).get("delegation_at")
-                == delegation_at for row in state.trace):
+                == delegation_at for row in work_rows):
         return "FORMATION_AGENT_DELEGATION_ALREADY_USED", None
     return "NONE", grant
 
@@ -612,8 +635,14 @@ def original_preparation_pattern_current(state: Any, prepared: Mapping[str, Any]
             or core is None or type(prepared.get("at")) is not int
             or prepared["at"] >= at + int(after_event)):
         return False
+    if getattr(state, "network_scale", False):
+        candidates = ((ref, basis.sources[ref]) for ref in
+                      state.original_pattern_source_refs(actor, pattern.get("source_fingerprint"))
+                      if ref in basis.sources)
+    else:
+        candidates = basis.sources.items()
     matches = [
-        (ref, item) for ref, item in basis.sources.items()
+        (ref, item) for ref, item in candidates
         if item.owner == actor and preparation_source_fingerprint({
             "owner": actor, "reference": ref, "revision": item.revision,
         }) == pattern.get("source_fingerprint")
@@ -634,7 +663,7 @@ def original_preparation_pattern_current(state: Any, prepared: Mapping[str, Any]
         # tick. The original transition gate sees only earlier trace rows
         # (original event times are strictly increasing).
         and row.get("source") == ref and prepared["at"] < row["at"] <= at
-        for row in state.trace
+        for row in _original_preparation_source_updates(state, ref)
     )
 
 
@@ -657,7 +686,7 @@ def _accepted_pattern_predecessor(state: Any, work: Any, actor: str,
             or type(prepare_at) is not int or type(accept_at) is not int
             or not 0 <= prepare_at < accept_at < at):
         raise ValueError("PREPARATION_PATTERN_PRIOR_ACCEPTED_RESULT_REQUIRED")
-    rows = ([r for r in state.trace if r.get("work") == prior.key
+    rows = ([r for r in _original_preparation_work_rows(state, prior.key) if r.get("work") == prior.key
              and r.get("outcome") == "APPLIED" and r["at"] < at]
             if applied_work_rows is None else
             [r for r in applied_work_rows if r["at"] < at])
@@ -693,8 +722,8 @@ def _accepted_pattern_predecessor(state: Any, work: Any, actor: str,
     # Resolve the active original function at the historical commitment,
     # just as ModelFormationPolicy._phase_six_ready does prospectively.
     policy = state.formation_policy
-    functions = [] if policy is None else [
-        fn for fn in policy.design.declarations["agent_functions"]
+    functions = [
+        fn for fn in _original_preparation_functions(policy, prior.key)
         if fn["work"] == prior.key and fn["work_revision"] == prepared.get("work_source_revision")
         and fn["action"] == "REQUEST_APPROVAL"
         and fn["revision"] == committed.get("org_revision")
@@ -768,12 +797,13 @@ def qualify_original_preparation_pattern(state: Any, work: Any, actor: str, mode
     source = preparation_source_fingerprint({
         "owner": actor, "reference": claim["source_ref"], "revision": claim["source_revision"],
     })
-    applied = [
+    applied = (state.original_pattern_rows(actor, claim["pattern_id"])
+               if getattr(state, "network_scale", False) else [
         row for row in state.trace
         if row.get("action") == "function_prepare" and row.get("outcome") == "APPLIED"
         and row.get("actor") == actor
         and row.get("model_preparation_pattern", {}).get("pattern_id") == claim["pattern_id"]
-    ]
+    ])
     revision_evidence = None
     if operation == "BUILD":
         if applied:
@@ -805,7 +835,8 @@ def qualify_original_preparation_pattern(state: Any, work: Any, actor: str, mode
                 changes.append("STRUCTURE")
             if any(row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
                    and row.get("source") == claim["source_ref"]
-                   and predecessor["at"] < row["at"] < at for row in state.trace):
+                   and predecessor["at"] < row["at"] < at
+                   for row in _original_preparation_source_updates(state, claim["source_ref"])):
                 changes.append("SOURCE_UPDATE")
             if not changes:
                 raise ValueError("PREPARATION_PATTERN_REVISION_REQUIRES_OBSERVED_CHANGE")
@@ -833,7 +864,8 @@ def qualify_original_preparation_pattern(state: Any, work: Any, actor: str, mode
                 or previous["shape_fingerprint"] != shape
                 or any(row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
                        and row.get("source") == claim["source_ref"]
-                       and predecessor["at"] < row["at"] < at for row in state.trace)):
+                       and predecessor["at"] < row["at"] < at
+                       for row in _original_preparation_source_updates(state, claim["source_ref"]))):
             raise ValueError("PREPARATION_PATTERN_ORIGINAL_REUSE_CHAIN_NOT_QUALIFIED")
     return {
         "operation": operation, "pattern_id": claim["pattern_id"],
@@ -1112,8 +1144,8 @@ def original_delegation_reproduction_view(
             continue
         commit = commits[0]
         policy = state.formation_policy
-        functions = [] if policy is None else [
-            fn for fn in policy.design.declarations["agent_functions"]
+        functions = [
+            fn for fn in _original_preparation_functions(policy, key)
             if fn["work"] == key and fn["work_revision"] == work.source_revision
             and fn["action"] == "REQUEST_APPROVAL"
             and fn["revision"] == commit["org_revision"]
@@ -1233,9 +1265,15 @@ def original_delegation_reproduction_view(
                     and (not pp or activity.get("status") == "MODEL_ORIGINAL_PACKET_ACTIVITY_COST_RECONCILED")
                     and gc == gp and pc == pp and len(ids) == len(set(ids)))
 
+    grant_positions_by_work = {}
+    packet_positions_by_work = {}
+    for pos, row in grants.items():
+        grant_positions_by_work.setdefault(row["work"], set()).add(pos)
+    for pos, row in packets.items():
+        packet_positions_by_work.setdefault(row["work"], set()).add(pos)
     for key in scoped_works:
-        gp = {pos for pos, row in grants.items() if row["work"] == key}
-        pp = {pos for pos, row in packets.items() if row["work"] == key}
+        gp = grant_positions_by_work.get(key, set())
+        pp = packet_positions_by_work.get(key, set())
         gc = {pos for pos in gp if len(grant_costs.get(pos, [])) == 1}
         pc = {pos for pos in pp if len(prep_costs.get(pos, [])) == 1}
         complete = cost_scope_complete(gp, pp)
@@ -1339,12 +1377,14 @@ def original_delegation_authority_observation(
     latest = {}
     for pos, row in grants.items():
         latest[(row["work"], row["function_id"])] = (pos, row)
+    network = getattr(state, "network_scale", False)
     updates = {}
-    for row in state.trace:
-        if (row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
-                and row["at"] <= at):
-            updates[row["source"]] = row["at"]
-    design = state.formation_policy.design if state.formation_policy is not None else None
+    if not network:
+        for row in state.trace:
+            if (row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
+                    and row["at"] <= at):
+                updates[row["source"]] = row["at"]
+    formation = state.formation_policy
     policy = getattr(state, "model_org_policy", None)
     code_current = (policy is not None and policy.active(state, at)
                     and policy.agent_decision("REQUEST_APPROVAL")
@@ -1358,8 +1398,8 @@ def original_delegation_authority_observation(
         if work is None or work.obligation != "NOT_ACCEPTED":
             continue
         with_history += 1
-        functions = [] if design is None else [
-            fn for fn in design.declarations["agent_functions"]
+        functions = [
+            fn for fn in _original_preparation_functions(formation, key)
             if fn["work"] == key and fn["work_revision"] == work.source_revision
             and fn["action"] == "REQUEST_APPROVAL"
             and fn["revision"] == state.institution.revision
@@ -1381,7 +1421,9 @@ def original_delegation_authority_observation(
                 ref = grant["model_original_preparation_mandate"]["source_ref"]
                 reason = _original_preparation_mandate_verdict(
                     state, work, fn, grant, at,
-                    source_changed=updates.get(ref, -1) > grant["at"])
+                    source_changed=(any(grant["at"] < row["at"] <= at for row in
+                                        state.original_source_update_rows(ref))
+                                    if network else updates.get(ref, -1) > grant["at"]))
         if reason == "NONE":
             if selected[0] in used:
                 current_used += 1

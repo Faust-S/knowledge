@@ -678,6 +678,9 @@ class QualitativeAKIS:
         self._applied_coalition_proposal_rows: dict[str, list] = {}
         self._work_trace_rows: dict[str, list] = {}
         self._action_trace_rows: dict[str, list] = {}
+        self._source_update_trace_rows: dict[str, list] = {}
+        self._pattern_trace_rows: dict[tuple[str, str], list] = {}
+        self._pattern_source_refs: dict[tuple[str, str], set[str]] = {}
 
     def original_work_trace(self, work: str):
         if self.network_scale:
@@ -688,6 +691,24 @@ class QualitativeAKIS:
         if self.network_scale:
             return self._action_trace_rows.get(action, ())
         return [row for row in self.trace if row.get("action") == action]
+
+    def original_source_update_rows(self, source: str):
+        if self.network_scale:
+            return self._source_update_trace_rows.get(source, ())
+        return [row for row in self.trace if row.get("action") == "source_update"
+                and row.get("outcome") == "APPLIED" and row.get("source") == source]
+
+    def original_pattern_rows(self, actor: str, pattern_id: str):
+        if self.network_scale:
+            return self._pattern_trace_rows.get((actor, pattern_id), ())
+        return [row for row in self.trace if row.get("action") == "function_prepare"
+                and row.get("outcome") == "APPLIED" and row.get("actor") == actor
+                and row.get("model_preparation_pattern", {}).get("pattern_id") == pattern_id]
+
+    def original_pattern_source_refs(self, actor: str, fingerprint: str):
+        # Only references already qualified in an original applied packet.
+        # This is an internal lookup, never an additional source grant.
+        return self._pattern_source_refs.get((actor, fingerprint), ())
 
     def original_request_rows(self, work: str):
         if self.network_scale:
@@ -1665,6 +1686,14 @@ class QualitativeAKIS:
                 self._work_trace_rows.setdefault(work_ref, []).append(report)
             self._action_trace_rows.setdefault(action, []).append(report)
         if self.network_scale and report["outcome"] == "APPLIED":
+            if action == "source_update":
+                self._source_update_trace_rows.setdefault(report["source"], []).append(report)
+            elif action == "function_prepare" and "model_preparation_pattern" in report:
+                pattern = report["model_preparation_pattern"]
+                actor = report["actor"]
+                self._pattern_trace_rows.setdefault((actor, pattern["pattern_id"]), []).append(report)
+                self._pattern_source_refs.setdefault((actor, pattern["source_fingerprint"]), set()).add(
+                    ev["preparation_pattern"]["source_ref"])
             if action == "request":
                 self._applied_request_rows.setdefault(work_ref, []).append(report)
             elif action == "technology_route_propose":
