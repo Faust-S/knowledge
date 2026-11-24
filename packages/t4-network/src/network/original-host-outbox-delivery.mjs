@@ -1,6 +1,6 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
-import {readT4OriginalEventWindow} from './original-event-window.mjs';
-import {publishT4OriginalObjectDelta} from './original-object-delta.mjs';
+import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
+import {publishT4OriginalObjectDelta,decodeT4OriginalObjectDeltaBytes} from './original-object-delta.mjs';
 import {publishT4OriginalAssetDelta} from './original-asset-delta.mjs';
 import {publishT4OriginalRelationPutDelta} from './original-relation-delta.mjs';
 
@@ -198,8 +198,114 @@ async function loadVerifiedOutbox(params){
   if(await params.authorizeOriginalRead(historyRight)!==true||
     await params.authorizeNetworkPublish(networkRight)!==true)
     fail('OUTBOX_ORIGINAL_OR_NETWORK_AUTHORITY_DENIED');
-  return Object.freeze({...s,...verified,sourceOriginalHistoryVerified:true});
+  mode(params.getMode);
+  return Object.freeze({...s,...verified,sourceOriginalHistoryVerified:true,
+    currentSourceWindow:window,currentNextCursor:nextCursor,
+    originalSourceEvent:structuredClone(event)});
 }
+/**
+ * Native .t4n source preparation reuses the existing Capture/Outbox.
+ * An intermediate revision is authenticated by the original mutation
+ * intent, its traced original Event, canonical bytes and exact Event prefix.
+ * It is never reconstructed from the current (potentially newer) Object.
+ * No network write or original mutation is performed here.
+ */
+export async function readT4OriginalHostCapturedObject(params={}){
+  const verified=await loadVerifiedOutbox({...params,kind:'OBJECT_PUT'});
+  const {outbox,intent,originalSourceEvent:event,currentSourceWindow:window,
+    currentNextCursor:nextCursor}=verified;
+  const exact=decodeT4OriginalObjectDeltaBytes(verified.prepared.bytes);
+  const delta=exact.delta;
+  if(exact.sha256!==outbox.sha256||exact.key!==outbox.key||
+    !HASH(intent.originalInputDigest)||!HASH(intent.inputDigest)||
+    outbox.inputDigest!==intent.inputDigest||
+    !same(outbox.sourceCursorAfter,nextCursor)||
+    !outbox.sourceWindow||
+    outbox.sourceWindow.windowDigest!==delta.windowDigest||
+    !matchesT4OriginalCapturedWindowDigest(outbox.sourceWindow,delta.windowDigest)||
+    !matchesT4OriginalCapturedWindowDigest(window,delta.windowDigest)||
+    event.object_id!==delta.objectId||event.revision!==delta.sourceRevision||
+    event.payload?.iwxa_t4_capture_ref!==verified.captureRef||
+    event.payload?.iwxa_t4_original_input_digest!==intent.originalInputDigest)
+    fail('OUTBOX_NATIVE_ORIGINAL_CAPTURE_NOT_PROVEN');
+  // The original Event binds the untraced mutation bytes. The traced
+  // digest also binds the original intent to the saved Outbox.
+  const traced=structuredClone(intent.originalMutation);
+  if('sha256:'+packageSha256(wire(traced))!==intent.inputDigest)
+    fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');
+  if(traced.event?.payload?.iwxa_t4_original_input_digest!==
+      intent.originalInputDigest||
+    traced.event.payload.iwxa_t4_capture_ref!==verified.captureRef)
+    fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');
+  delete traced.event.payload.iwxa_t4_original_input_digest;
+  delete traced.event.payload.iwxa_t4_capture_ref;
+  const candidates=[traced];
+  // Existing V1 capture accepts both an omitted and an empty payload.
+  if(Object.keys(traced.event.payload).length===0){
+    const omitted=structuredClone(traced);delete omitted.event.payload;
+    candidates.push(omitted);
+  }
+  if(!candidates.some(x=>'sha256:'+packageSha256(wire(x))===
+    intent.originalInputDigest))
+    fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');
+  mode(params.getMode);
+  return Object.freeze({
+    schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURED_OBJECT_V1',
+    captureRef:verified.captureRef,workspaceId:verified.workspaceId,
+    originalWriteOwnerRef:verified.originalWriteOwnerRef,
+    objectId:verified.subjectId,sourceEventId:delta.sourceEventId,
+    sourceRevision:delta.sourceRevision,
+    sourceCursorBefore:structuredClone(outbox.sourceCursorBefore),
+    sourceCursorAfter:structuredClone(outbox.sourceCursorAfter),
+    sourceWindow:structuredClone(outbox.sourceWindow),
+    prepared:exact,
+    originalIntentEventAndCanonicalBytesVerified:true,
+    capturedWindowDigestVerified:true,
+    laterSourceEventsExist:window.hasMore,
+    currentObjectReadOrUsedAsHistoricalBytes:false,
+    originalT3OutboxUnchanged:true,
+    networkPublished:false,originalRecipientApplied:false,
+  });
+}
+
+/** Bind both HEADS subject proof and authenticated plaintext proof to the
+ * same independently re-read original capture. No network frame is trusted
+ * as historical source bytes. */
+export async function verifyT4OriginalHostCapturedObjectSource(params,proof){
+  const captured=await readT4OriginalHostCapturedObject(params);
+  const d=captured.prepared.delta,w=captured.sourceWindow;
+  if((proof?.originalSourceEventId??proof?.sourceEventId)!==d.sourceEventId||
+    (proof.originalWriteOwnerRef??proof.ownerRef)!==d.originalWriteOwnerRef||
+    (proof.originalEventDigest??proof.originalSourceEventDigest)!==d.sourceEventDigest)
+    return false;
+  if(proof.originalT3SubjectAndEventReadbackRequired===true)
+    return proof.originalCapturedRevisionReadbackRequired===true&&
+      proof.originalObjectId===d.objectId&&
+      proof.originalSourceRevision===d.sourceRevision&&
+      proof.workspaceId===d.workspaceId&&
+      proof.originalEventWindowDigest===d.windowDigest&&
+      proof.originalBeforePrefixDigest===w.sourcePrefixDigestBefore&&
+      proof.originalAfterPrefixDigest===w.sourcePrefixDigestAfter;
+  const head=proof.originalSourceHeadProof;
+  if(head?.originalCapturedRevisionProofRequired!==true||
+    head.workspaceId!==d.workspaceId||
+    head.sourceEventWindowDigest!==d.windowDigest||
+    head.sourcePrefixDigestBefore!==w.sourcePrefixDigestBefore||
+    head.sourcePrefixDigestAfter!==w.sourcePrefixDigestAfter||
+    proof.sourcePrefixDigestAfter!==w.sourcePrefixDigestAfter)
+    return false;
+  if(proof.originalT3SourceObjectEventAndContentReadbackRequired===true)
+    return proof.originalObjectId===d.objectId&&
+      proof.originalWorkspaceId===d.workspaceId&&
+      proof.originalSchemaId===d.schemaId&&
+      proof.originalSchemaVersion===d.schemaVersion&&
+      proof.originalSourceRevision===d.sourceRevision&&
+      proof.originalObjectContentDigest===d.objectContentDigest&&
+      proof.originalSourceEventDigest===d.sourceEventDigest&&
+      proof.originalEventWindowDigest===d.windowDigest;
+  return proof.originalT3SourceEventAndSubjectReadRequired===true;
+}
+
 export async function publishT4OriginalHostOutbox(params={}){
   if(typeof params.transport?.putSnapshot!=='function')
     fail('OUTBOX_NETWORK_TRANSPORT_REQUIRED');

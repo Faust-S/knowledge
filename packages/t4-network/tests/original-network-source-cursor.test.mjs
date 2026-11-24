@@ -200,3 +200,15 @@ test('later original T3 Event appends without invalidating already acknowledged 
   assert.equal(recovered.originalT3NextCursor.seenEventCount,1);
   assert.equal(recovered.originalT3HostCursorCommitStillRequired,true);
 });
+
+test('later Events do not waive a forged captured Window digest',async()=>{
+  const s=await fixture();
+  const next={...event,event_id:'event:source:two',
+    revision:2,payload:{purpose:'later source update'}};
+  s.props.readOriginalEvents=async()=>[structuredClone(event),structuredClone(next)];
+  const forged='sha256:'+'f'.repeat(64);
+  s.proof.sourceEventWindowDigest=forged;
+  s.phase.sourceIntentEvidence.evidenceDigest=forged;
+  await assert.rejects(recoverT4OriginalNetworkSourceCursor(s.props),
+    isCode('CURSOR_ORIGINAL_T3_SOURCE_EVENT_CHANGED'));
+});

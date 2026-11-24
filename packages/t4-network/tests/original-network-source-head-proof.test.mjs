@@ -214,3 +214,34 @@ test('source owner and recipient signer role cannot be inferred from HTTP bytes'
     },
   }),err('HEAD_ORIGINAL_SOURCE_SCOPE_INVALID'));
 });
+
+test('explicit original captured window may precede later original Events',async()=>{
+  const s=await scenario(true);
+  s.events.push({...structuredClone(changedEvent),
+    event_id:'event:unexpected:later',revision:8});
+  const proof=await verifyT4OriginalSourceHeadCausality({
+    ...s.args,capturedWindowDigest:s.win.windowDigest,
+    verifyOriginalSourceSubject:async p=>
+      p.originalCapturedRevisionReadbackRequired===true&&
+      p.originalEventWindowDigest===s.win.windowDigest&&
+      p.originalSourceRevision===7,
+  });
+  assert.equal(proof.originalCapturedRevisionProofRequired,true);
+  assert.equal(proof.sourceEventWindowDigest,s.win.windowDigest);
+  assert.equal(proof.originalSourceEventId,changedEvent.event_id);
+  await assert.rejects(verifyT4OriginalSourceHeadCausality({
+    ...s.args,capturedWindowDigest:'sha256:'+'f'.repeat(64),
+  }),err('HEAD_ORIGINAL_T3_EVENT_PREFIX_MISMATCH'));
+});
+test('captured window remains valid if a subsequent Event appends during verified read',async()=>{
+  const s=await scenario(true);
+  const proof=await verifyT4OriginalSourceHeadCausality({
+    ...s.args,capturedWindowDigest:s.win.windowDigest,
+    verifyOriginalSourceSubject:async p=>{
+      s.events.push({...structuredClone(changedEvent),
+        event_id:'event:unexpected:later',revision:8});
+      return p.originalCapturedRevisionReadbackRequired===true;
+    },
+  });
+  assert.equal(proof.sourceEventWindowDigest,s.win.windowDigest);
+});

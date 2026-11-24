@@ -30,6 +30,22 @@ const normalizeEvent=(event,workspaceId)=>{
     occurredAt:event.occurred_at,eventDigest});
 };
 
+/**
+ * Compare an ORIGINAL captured Window against a fresh prefix read. The
+ * only permitted historical difference is hasMore=false -> true. Rehash
+ * the exact body; never waive a digest mismatch merely because more events
+ * exist. This preserves the existing V1 captured delta format.
+ */
+export function matchesT4OriginalCapturedWindowDigest(window,expectedDigest){
+  if(window?.schema!==windowSchema||typeof window.hasMore!=='boolean'||
+    !/^sha256:[a-f0-9]{64}$/.test(expectedDigest??''))
+    return false;
+  const {windowDigest,...body}=window;
+  if(hash(body)!==windowDigest)return false;
+  return windowDigest===expectedDigest||
+    (body.hasMore===true&&hash({...body,hasMore:false})===expectedDigest);
+}
+
 export async function readT4OriginalEventWindow({
   workspaceId,originalWriteOwnerRef,cursor=null,maxEvents=128,
   authorizeOriginalRead,readOriginalEvents,

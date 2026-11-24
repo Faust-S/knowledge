@@ -1,4 +1,4 @@
-import {readT4OriginalEventWindow} from './original-event-window.mjs';
+import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
 
 /**
  * P2.2-B: the signed HEADS / DIFF / CHANGE_REF for one source event must
@@ -21,13 +21,14 @@ export async function verifyT4OriginalSourceHeadCausality({
   verifiedHeads,verifiedDiffRequest,verifiedChangeRef,
   workspaceId,originalWriteOwnerRef,sourceNodeRef,
   recipientNodeRef,scopeRef,sessionRef,ownerEpoch,
-  sourceCursorBefore=null,getMode,readOriginalHostContext,
+  sourceCursorBefore=null,capturedWindowDigest=null,getMode,readOriginalHostContext,
   authorizeOriginalRead,readOriginalEvents,
   verifyOriginalSourceSubject,
 }={}){
   if(![workspaceId,originalWriteOwnerRef,sourceNodeRef,
     recipientNodeRef,scopeRef,sessionRef].every(ID)||
     sourceNodeRef===recipientNodeRef||
+    (capturedWindowDigest!==null&&!HASH(capturedWindowDigest))||
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
     ![getMode,readOriginalHostContext,authorizeOriginalRead,
       readOriginalEvents,verifyOriginalSourceSubject]
@@ -105,7 +106,11 @@ export async function verifyT4OriginalSourceHeadCausality({
   });
   await authorized();
   const window=source.window,ref=window.eventRefs[0];
-  if(window.count!==1||window.hasMore!==false||
+  const historicalCaptureRequired=capturedWindowDigest!==null;
+  const acceptedDigest=capturedWindowDigest??window.windowDigest;
+  if(window.count!==1||
+    (!historicalCaptureRequired&&window.hasMore!==false)||
+    !matchesT4OriginalCapturedWindowDigest(window,acceptedDigest)||
     !ID(ref?.eventId)||!HASH(ref.eventDigest)||
     ref.eventId!==change.eventRef||
     ref.revision!==change.sourceRevision||
@@ -130,6 +135,8 @@ export async function verifyT4OriginalSourceHeadCausality({
     originalEventDigest:ref.eventDigest,
     originalBeforePrefixDigest:window.sourcePrefixDigestBefore,
     originalAfterPrefixDigest:window.sourcePrefixDigestAfter,
+    originalEventWindowDigest:acceptedDigest,
+    originalCapturedRevisionReadbackRequired:historicalCaptureRequired,
     ciphertextContentDigest:change.contentDigest,
     originalT3SubjectAndEventReadbackRequired:true,
     signedHeadDoesNotGrantOriginalSubjectAuthority:true,
@@ -137,15 +144,18 @@ export async function verifyT4OriginalSourceHeadCausality({
   if(await verifyOriginalSourceSubject(proof)!==true)
     fail('HEAD_ORIGINAL_T3_SUBJECT_NOT_PROVEN');
   await authorized();
-  // Repeat full event read to catch a changed original prefix during
-  // subject verification; a newly appended event fails closed here.
+  // The live-tip route remains strict. An explicit captured revision may
+  // have later Events, but its exact captured digest must still match.
   const second=await readT4OriginalEventWindow({
     workspaceId,originalWriteOwnerRef,cursor:sourceCursorBefore,
     maxEvents:1,
     authorizeOriginalRead:async()=>{await authorized();return true;},
     readOriginalEvents:async()=>readOriginalEvents(originalRead),
   });
-  if(!same(second.window,window))
+  if(historicalCaptureRequired?
+    (!matchesT4OriginalCapturedWindowDigest(second.window,acceptedDigest)||
+     !matchesT4OriginalCapturedWindowDigest(second.window,window.windowDigest)):
+    !same(second.window,window))
     fail('HEAD_ORIGINAL_T3_EVENT_CHANGED');
   await authorized();
   return Object.freeze({
@@ -157,7 +167,8 @@ export async function verifyT4OriginalSourceHeadCausality({
     originalEventRevision:ref.revision,
     sourcePrefixDigestBefore:window.sourcePrefixDigestBefore,
     sourcePrefixDigestAfter:window.sourcePrefixDigestAfter,
-    sourceEventWindowDigest:window.windowDigest,
+    sourceEventWindowDigest:acceptedDigest,
+    originalCapturedRevisionProofRequired:historicalCaptureRequired,
     signedHeadMatchesOriginalT3EventPrefix:true,
     signedDiffMatchesOriginalT3Frontier:true,
     originalSourceSubjectIndependentlyRead:true,

@@ -1,4 +1,4 @@
-import {readT4OriginalEventWindow}
+import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest}
   from './original-event-window.mjs';
 
 /**
@@ -156,10 +156,7 @@ export async function recoverT4OriginalNetworkSourceCursor({
     w.eventRefs[0]?.revision!==proof.originalEventRevision||
     w.sourcePrefixDigestBefore!==proof.sourcePrefixDigestBefore||
     w.sourcePrefixDigestAfter!==proof.sourcePrefixDigestAfter||
-    // Original Window.hasMore is a snapshot hint, NOT stable Event history.
-    // A newly appended Event can turn hasMore false -> true while the
-    // authenticated first Event and its prefix remain byte-identical.
-    (w.windowDigest!==proof.sourceEventWindowDigest&&w.hasMore!==true)||
+    !matchesT4OriginalCapturedWindowDigest(w,proof.sourceEventWindowDigest)||
     firstWindow.nextCursor.sourcePrefixDigest!==
       proof.sourcePrefixDigestAfter)
     fail('CURSOR_ORIGINAL_T3_SOURCE_EVENT_CHANGED');
@@ -171,7 +168,10 @@ export async function recoverT4OriginalNetworkSourceCursor({
   checkChange(verifiedChangeRef,second,proof,verifiedAppliedAck);
   const secondWindow=await read();
   if(getMode()!=='T4_NETWORK'||stable(first)!==stable(second)||
-    stable(firstWindow.window)!==stable(secondWindow.window)||
+    !matchesT4OriginalCapturedWindowDigest(
+      secondWindow.window,firstWindow.window.windowDigest)||
+    !matchesT4OriginalCapturedWindowDigest(
+      secondWindow.window,proof.sourceEventWindowDigest)||
     stable(firstWindow.nextCursor)!==stable(secondWindow.nextCursor))
     fail('CURSOR_ORIGINAL_T3_PROOF_CHANGED_DURING_READ');
   return Object.freeze({
