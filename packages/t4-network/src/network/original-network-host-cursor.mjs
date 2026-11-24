@@ -1,3 +1,4 @@
+import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
 import {validT4NativeSubjectRevision} from './standard-network-wire-candidate.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
@@ -414,6 +415,13 @@ export function createT4OriginalNetworkHostCursorPort({
     checkpointRef,
     inspectOriginalHostCursor,commitAcknowledgedCursor,
     readNextOriginalSourceEvent,
+    forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkHostCursorPort({
+      originalKernel,technicalWorkspaceId,sourceWorkspaceId,
+      originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,
+      getMode:originalHostLifetimeMode(getMode,isHostActive),readOriginalHostContext,
+      authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
+      authorizeOriginalSourceRead,readOriginalSourceEvents,
+    }),
     createsStore:false,createsKernel:false,createsIAM:false,
     createsTaskEngine:false,createsScheduler:false,
     createsNewWireType:false,usesOriginalT3CAS:true,

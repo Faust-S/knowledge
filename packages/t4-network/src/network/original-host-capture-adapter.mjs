@@ -1,3 +1,4 @@
+import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {captureT4OriginalObjectMutation} from './original-object-mutation-capture.mjs';
 import {reconcileT4OriginalMutationIntent} from './original-object-intent-recovery.mjs';
 import {captureT4OriginalHostSubjectMutation,
@@ -15,20 +16,24 @@ export function createT4OriginalHostCaptureAdapter({
   authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
   persistOriginalIntent,readOriginalIntent,
   persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
+  isHostActive=()=>true,
 }={}){
   if(typeof getMode!=='function'||
     typeof originalKernel?.hasOperation!=='function'||
     originalKernel.hasOperation('t1.putObject')!==true||
     typeof originalKernel.putObject!=='function')
     fail('ORIGINAL_HOST_T3_WRITE_PORT_REQUIRED');
+  let disposed=false;
+  const guardedMode=originalHostLifetimeMode(getMode,()=>!disposed&&isHostActive()===true,
+    'ORIGINAL_HOST_CAPTURE_DISPOSED');
   const mode=()=>{
-    const m=getMode();
+    const m=guardedMode();
     if(m!=='LOCAL_T3'&&m!=='T4_NETWORK')
       fail('ORIGINAL_HOST_CAPTURE_MODE_UNKNOWN');
     return m;
   };
   const hostCapturePorts=()=>({
-    originalKernel,originalWriteOwnerRef,getMode,
+    originalKernel,originalWriteOwnerRef,getMode:mode,
     authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
     persistOriginalIntent,readOriginalIntent,
     persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
@@ -75,6 +80,7 @@ export function createT4OriginalHostCaptureAdapter({
     t3OriginalSessionIsSovereign:true,
     createsIndependentHost:false,createsIndependentStore:false,
     createsIndependentTaskEngine:false,
+    dispose(){disposed=true;},
     async putObject({mutationInput,sourceCursor,captureRef}={}){
       if(mode()==='LOCAL_T3'){
         if(!mutationInput||typeof mutationInput!=='object')

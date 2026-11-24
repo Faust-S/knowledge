@@ -1,3 +1,4 @@
+import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {
   publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork,
   readT4OriginalHostCapturedSubject,
@@ -417,29 +418,38 @@ async function prepareNextNativeObject(params){
  * second Store, queue, Kernel, router, or business acknowledgement.
  */
 export function createT4OriginalHostOutboxDispatcher(params={}){
-  let active=null,activeKind=null;
+  let active=null,activeKind=null,activeLifetime=null;
+  const bound=isHostActive=>isHostActive===undefined?params:{
+    ...params,getMode:originalHostLifetimeMode(params.getMode,isHostActive),
+  };
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_HOST_OUTBOX_DISPATCHER_V1',
     usesOriginalT3HostAndStore:true,
-    async drain({maxEntries=64}={}){
+    async drain({maxEntries=64,isHostActive}={}){
+      const scoped=bound(isHostActive);
+      if(isHostActive!==undefined)scoped.getMode();
       if(active){
-        if(activeKind!=='LEGACY_DELIVERY')fail('DISPATCH_OTHER_PROTOCOL_ACTIVE');
+        if(activeKind!=='LEGACY_DELIVERY'||activeLifetime!==isHostActive)
+          fail('DISPATCH_OTHER_PROTOCOL_ACTIVE');
         return active;
       }
-      const work=execute(params,maxEntries);
-      active=work;activeKind='LEGACY_DELIVERY';
+      const work=execute(scoped,maxEntries);
+      active=work;activeKind='LEGACY_DELIVERY';activeLifetime=isHostActive;
       try{return await work;}
-      finally{if(active===work){active=null;activeKind=null;}}
+      finally{if(active===work){active=null;activeKind=null;activeLifetime=null;}}
     },
-    async prepareNextNativeObject(){
+    async prepareNextNativeObject({isHostActive}={}){
+      const scoped=bound(isHostActive);
+      if(isHostActive!==undefined)scoped.getMode();
       if(active){
-        if(activeKind!=='NATIVE_PREPARE')fail('DISPATCH_OTHER_PROTOCOL_ACTIVE');
+        if(activeKind!=='NATIVE_PREPARE'||activeLifetime!==isHostActive)
+          fail('DISPATCH_OTHER_PROTOCOL_ACTIVE');
         return active;
       }
-      const work=prepareNextNativeObject(params);
-      active=work;activeKind='NATIVE_PREPARE';
+      const work=prepareNextNativeObject(scoped);
+      active=work;activeKind='NATIVE_PREPARE';activeLifetime=isHostActive;
       try{return await work;}
-      finally{if(active===work){active=null;activeKind=null;}}
+      finally{if(active===work){active=null;activeKind=null;activeLifetime=null;}}
     },
   });
 }

@@ -1,3 +1,4 @@
+import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
 import {isT4NativeSubjectKind,validT4NativeSubjectRevision}
   from './standard-network-wire-candidate.mjs';
@@ -343,6 +344,14 @@ export function createT4OriginalNetworkSessionPhasePort({
   return frozen({
     schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1',
     inspectOriginalSession,advanceOriginalSessionPhase,
+    forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkSessionPhasePort({
+      originalKernel,technicalWorkspaceId,originalWriteOwnerRef,
+      sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef,sessionRef,
+      changeId,ownerEpoch,changeKind,recipientApplyIntentRequired,
+      getMode:originalHostLifetimeMode(getMode,isHostActive),readOriginalHostContext,
+      authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
+      verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,
+    }),
     role,checkpointRef,
     ...(recipientApplyIntentRequired?{recipientApplyIntentRequired:true}:{}),
     originalT3TechnicalWorkspaceOnly:true,

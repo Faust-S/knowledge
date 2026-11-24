@@ -1,3 +1,4 @@
+import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
 import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,
   isT4NativeEventOnlyKind,validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions}
@@ -285,6 +286,7 @@ export function createT4OriginalNetworkPublicationPort({
       await guard(ctx,'t1.getObject','empty-readback');
       if(await originalKernel.getObject(technicalWorkspaceId,checkpointRef)!==null)
         fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+      mode();
       return {entries:[],revision:0,chainHash:genesis};
     }
     const o=row?.object,d=o?.data;
@@ -324,6 +326,7 @@ export function createT4OriginalNetworkPublicationPort({
     const after=await originalKernel.getObject(technicalWorkspaceId,checkpointRef);
     if(!same(after?.object,o))
       fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    mode();
     return {entries:clone(d.entries),revision:o.revision,chainHash:previous};
   }
   async function commit(ctx,current,action,entries,slots){
@@ -495,5 +498,11 @@ export function createT4OriginalNetworkPublicationPort({
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1',
     session:identity,checkpointRef,inspectOriginalPublication,
     prepareSignedBatch,publishPreparedFrame,
+    forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkPublicationPort({
+      session:identity,localNodeRef,technicalWorkspaceId,originalKernel,
+      getMode:originalHostLifetimeMode(getMode,isHostActive),
+      readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
+      authorizeOriginalFramePublish,verifyOriginalNodeSignature,frameTransport,
+    }),
     originalT3OnlyStore:true,createsScheduler:false,createsTaskEngine:false});
 }

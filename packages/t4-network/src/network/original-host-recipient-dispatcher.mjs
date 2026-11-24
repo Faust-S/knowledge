@@ -1,3 +1,4 @@
+import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
 import {fetchT4OriginalObjectDelta,applyT4OriginalObjectDelta,
   advanceT4OriginalObjectDeltaCursor} from './original-object-delta.mjs';
@@ -471,7 +472,7 @@ async function executeNativeRecipient(p,options){
     originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,
     networkWrites:0,originalT3Reads:0,originalT3Writes:0,
   });
-  const {received,recipientPhasePort,recipientPublicationPort,
+  const {received,recipientPhasePort:rawPhasePort,recipientPublicationPort:rawPublicationPort,
     createSignedAppliedAckFrame,retryMissing=false}=options;
   const d=received?.delta;
   if(![p.workspaceId,p.originalWriteOwnerRef,p.sourceNodeRef,
@@ -527,8 +528,15 @@ async function executeNativeRecipient(p,options){
       fail('RECIPIENT_NATIVE_ORIGINAL_HOST_CONTEXT_CHANGED',{
         originalOutcomeMayExist:true,automaticRetryAllowed:false,
       });
+    mode(p);
   }
   await guard('before-native-recipient');
+  const recipientPhasePort=scopeOriginalHostPort(rawPhasePort,p.isHostActive,
+    ['schema','role','checkpointRef','recipientApplyIntentRequired','originalT3TechnicalWorkspaceOnly'],
+    'SUBJECT_ORIGINAL_DURABLE_APPLY_PHASE_PORT_REQUIRED');
+  const recipientPublicationPort=scopeOriginalHostPort(rawPublicationPort,p.isHostActive,
+    ['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler'],
+    'SUBJECT_ORIGINAL_ACK_PUBLICATION_PORT_MISMATCH');
   const protect=(fn,step)=>async proof=>{
     await guard(step);const result=await fn(proof);await guard(step+'-readback');return result;
   };
@@ -569,22 +577,37 @@ async function executeNativeRecipient(p,options){
     originalT3OnlyStore:true,result});
 }
 export function createT4OriginalHostRecipientDispatcher(params={}){
-  let active=null,activePlanDigest=null;
+  let active=null,activePlanDigest=null,disposed=false;
+  const originalActive=params.isHostActive??(()=>true);
+  const isHostActive=()=>{
+    if(disposed)return false;
+    try{if(originalActive()!==true)disposed=true;}
+    catch{disposed=true;}
+    return !disposed;
+  };
+  const scoped={...params,isHostActive,
+    getMode:typeof params.getMode==='function'?
+      originalHostLifetimeMode(params.getMode,isHostActive,'RECIPIENT_ORIGINAL_HOST_DISPOSED'):params.getMode};
+  const requireActive=()=>{
+    if(!isHostActive())fail('RECIPIENT_ORIGINAL_HOST_DISPOSED',{automaticRetryAllowed:false});
+  };
   return frozen({
     schema:'IWXA_T4_ORIGINAL_HOST_RECIPIENT_DISPATCHER_V1',
     usesOriginalT3HostAndKernel:true,
     async runNative(options={}){
+      requireActive();
       if(active)fail('RECIPIENT_CONCURRENT_NATIVE_TASK',{
         automaticRetryAllowed:false,originalWriteMayBeInFlight:true,
       });
       // Snapshot the verified subject before any asynchronous Host check.
       const safe={...options,received:structuredClone(options.received)};
-      const work=executeNativeRecipient(params,safe);
+      const work=executeNativeRecipient(scoped,safe);
       active=work;activePlanDigest=null;
       try{return await work;}
       finally{if(active===work){active=null;activePlanDigest=null;}}
     },
     async drain({entries,initialCursor,maxEntries=32}={}){
+      requireActive();
       // Snapshot Host-supplied source metadata before the first async boundary.
       // Concurrent calls may share only the EXACT same original plan and limit.
       let rows,first;
@@ -603,12 +626,13 @@ export function createT4OriginalHostRecipientDispatcher(params={}){
           });
         return active;
       }
-      const work=execute(params,rows,first,maxEntries);
+      const work=execute(scoped,rows,first,maxEntries);
       active=work;activePlanDigest=currentDigest;
       try{return await work;}
       finally{
         if(active===work){active=null;activePlanDigest=null;}
       }
     },
+    dispose(){disposed=true;},
   });
 }

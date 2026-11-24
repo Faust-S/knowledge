@@ -1,3 +1,4 @@
+import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {deriveT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
 import {confirmT4OriginalNetworkSourceAcknowledgement}
   from './original-network-source-cursor.mjs';
@@ -36,7 +37,7 @@ const taskProof=(context,operation='t4.network.publish',purpose='original-host.o
 export function createT4OriginalHostDispatchTaskBinding({
   expectedWorkspaceId,expectedOriginalWriteOwnerRef,expectedNetworkTargetRef,
   getMode,readOriginalHostContext,authorizeOriginalHostTask,dispatcher,
-  createOriginalNativePublicationPort,
+  createOriginalNativePublicationPort,isHostActive=()=>true,
 }={}) {
   if(![expectedWorkspaceId,expectedOriginalWriteOwnerRef,
     expectedNetworkTargetRef].every(ID)||
@@ -46,9 +47,15 @@ export function createT4OriginalHostDispatchTaskBinding({
     typeof dispatcher?.drain!=='function')
     fail('HOST_TASK_ORIGINAL_PORTS_REQUIRED');
   let disposed=false,active=null,activeKind=null;
+  const lifetime=()=>{
+    if(disposed)return false;
+    try{if(isHostActive()!==true)disposed=true;}
+    catch{disposed=true;}
+    return !disposed;
+  };
+  const guardedMode=originalHostLifetimeMode(getMode,lifetime,'HOST_TASK_ORIGINAL_HOST_DISPOSED');
   const mode=()=>{
-    if(disposed)fail('HOST_TASK_ORIGINAL_HOST_DISPOSED');
-    const value=getMode();
+    const value=guardedMode();
     if(value!=='T4_NETWORK'&&value!=='LOCAL_T3')
       fail('HOST_TASK_ORIGINAL_MODE_UNKNOWN');
     return value;
@@ -56,6 +63,7 @@ export function createT4OriginalHostDispatchTaskBinding({
   async function verify(initial=null,operation='t4.network.publish',purpose='original-host.outbox-task'){
     if(mode()!=='T4_NETWORK')fail('HOST_TASK_NETWORK_MODE_OFF');
     const scope=await readOriginalHostContext();
+    if(mode()!=='T4_NETWORK')fail('HOST_TASK_NETWORK_MODE_OFF');
     if(!valid(scope)||scope.workspaceId!==expectedWorkspaceId||
       scope.originalWriteOwnerRef!==expectedOriginalWriteOwnerRef||
       scope.networkTargetRef!==expectedNetworkTargetRef||
@@ -86,7 +94,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       });
     const context=await verify();
     let result;
-    try{result=await dispatcher.drain({maxEntries});}
+    try{result=await dispatcher.drain({maxEntries,isHostActive:lifetime});}
     catch(error){
       fail('HOST_TASK_DISPATCH_STOPPED',{
         originalCode:error?.code??null,
@@ -130,7 +138,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     if(typeof dispatcher.prepareNextNativeObject!=='function')
       fail('HOST_TASK_NATIVE_PREPARATION_PORT_REQUIRED');
     const context=await verify();
-    const result=await dispatcher.prepareNextNativeObject();
+    const result=await dispatcher.prepareNextNativeObject({isHostActive:lifetime});
     await verify(context);
     if(result?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1'||
       result.workspaceId!==context.workspaceId||
@@ -175,15 +183,18 @@ export function createT4OriginalHostDispatchTaskBinding({
       state:'NO_NEXT_ORIGINAL_EVENT',originalRecipientApplied:false,
     });
     const session=deriveT4OriginalNativeCaptureSession(tick.result);
-    const port=await createOriginalNativePublicationPort(Object.freeze({
+    const rawPort=await createOriginalNativePublicationPort(Object.freeze({
       session,task:tick.result,originalHostSessionRef:initial.hostSessionRef,
     }));
-    if(port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
-      JSON.stringify(port.session)!==JSON.stringify(session)||
-      port.originalT3OnlyStore!==true||port.createsScheduler!==false||
+    if(rawPort?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
+      JSON.stringify(rawPort.session)!==JSON.stringify(session)||
+      rawPort.originalT3OnlyStore!==true||rawPort.createsScheduler!==false||
       !['prepareSignedBatch','publishPreparedFrame','inspectOriginalPublication']
-        .every(op=>typeof port[op]==='function'))
+        .every(op=>typeof rawPort[op]==='function'))
       fail('HOST_TASK_ORIGINAL_NATIVE_PUBLICATION_PORT_INVALID');
+    const port=scopeOriginalHostPort(rawPort,lifetime,
+      ['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler'],
+      'HOST_TASK_ORIGINAL_NATIVE_PUBLICATION_PORT_INVALID');
     const refresh=async()=>{
       await verify(initial);
       const fresh=await prepareNative();
@@ -199,7 +210,11 @@ export function createT4OriginalHostDispatchTaskBinding({
     await refresh();
     const prepared=await port.prepareSignedBatch({
       slots,createSignedFrames:typeof createSignedFrames==='function'?
-        ctx=>createSignedFrames({...ctx,task:tick.result}):undefined,
+        async ctx=>{
+          await verify(initial);
+          const signed=await createSignedFrames({...ctx,task:tick.result});
+          await verify(initial);return signed;
+        }:undefined,
     });
     if(prepared?.sessionRef!==session.sessionRef||
       !['ORIGINAL_SIGNED_BATCH_PREPARED','ORIGINAL_SIGNED_BATCH_ALREADY_PREPARED']
@@ -233,7 +248,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       originalSubjectMutationInvoked:false,
     });
   }
-  async function executeNativeAcknowledgement({recovery,sourceCursorPort:port}={}){
+  async function executeNativeAcknowledgement({recovery,sourceCursorPort:rawPort}={}){
     if(mode()==='LOCAL_T3')return Object.freeze({
       schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_TICK_V1',
       mode:'LOCAL_T3',confirmed:false,sourceCursorAdvanced:false,
@@ -248,12 +263,18 @@ export function createT4OriginalHostDispatchTaskBinding({
       proof?.recipientNodeRef!==initial.networkTargetRef||
       typeof recovery.authorizeOriginalRead!=='function'||
       typeof recovery.readOriginalEvents!=='function'||
-      port?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_PORT_V1'||
-      port.usesOriginalT3CAS!==true||port.createsStore!==false||
-      port.createsScheduler!==false||!ID(port.checkpointRef)||
-      typeof port.inspectOriginalHostCursor!=='function'||
-      typeof port.commitAcknowledgedCursor!=='function')
+      rawPort?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_PORT_V1'||
+      rawPort.usesOriginalT3CAS!==true||rawPort.createsStore!==false||
+      rawPort.createsScheduler!==false||!ID(rawPort.checkpointRef)||
+      typeof rawPort.inspectOriginalHostCursor!=='function'||
+      typeof rawPort.commitAcknowledgedCursor!=='function')
       fail('HOST_TASK_NATIVE_ACK_ORIGINAL_PORTS_REQUIRED');
+    const port=scopeOriginalHostPort(rawPort,lifetime,
+      ['schema','checkpointRef','usesOriginalT3CAS','createsStore','createsScheduler'],
+      'HOST_TASK_NATIVE_ACK_ORIGINAL_PORTS_REQUIRED');
+    const sourcePhasePort=scopeOriginalHostPort(recovery.sourcePhasePort,lifetime,
+      ['schema','role','checkpointRef','originalT3TechnicalWorkspaceOnly'],
+      'HOST_TASK_NATIVE_ACK_ORIGINAL_PORTS_REQUIRED');
     // The existing original frontier must already be the predecessor,
     // or the exact acknowledged change after a lost original CAS reply.
     const before=await port.inspectOriginalHostCursor();
@@ -276,7 +297,7 @@ export function createT4OriginalHostDispatchTaskBinding({
            before.originalT3NextCursor?.sourcePrefixDigest===proof.sourcePrefixDigestAfter)))))
       fail('HOST_TASK_NATIVE_ACK_ORIGINAL_FRONTIER_MISMATCH');
     const guarded={
-      ...recovery,getMode:mode,
+      ...recovery,getMode:mode,sourcePhasePort,
       authorizeOriginalRead:async ctx=>{
         await refresh();const result=await recovery.authorizeOriginalRead(ctx);
         await refresh();return result;
@@ -324,6 +345,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     createsScheduler:false,createsTaskEngine:false,
     createsKernel:false,createsStore:false,
     async run({maxEntries=32}={}){
+      mode();
       if(!Number.isSafeInteger(maxEntries)||maxEntries<1||maxEntries>64)
         fail('HOST_TASK_BATCH_LIMIT_INVALID');
       if(active!==null){
@@ -336,6 +358,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       finally{if(active===promise){active=null;activeKind=null;}}
     },
     async prepareNative(){
+      mode();
       if(active!==null){
         if(activeKind!=='NATIVE_PREPARE')fail('HOST_TASK_OTHER_PROTOCOL_ACTIVE');
         return active;
@@ -346,6 +369,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       finally{if(active===promise){active=null;activeKind=null;}}
     },
     async runNativePublication(options={}){
+      mode();
       if(active!==null)
         fail('HOST_TASK_OTHER_PROTOCOL_ACTIVE',{automaticRetryAllowed:false});
       const promise=executeNativePublication(options);
@@ -354,6 +378,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       finally{if(active===promise){active=null;activeKind=null;}}
     },
     async runNativeAcknowledgement(options={}){
+      mode();
       if(active!==null)
         fail('HOST_TASK_OTHER_PROTOCOL_ACTIVE',{automaticRetryAllowed:false});
       const promise=executeNativeAcknowledgement(options);
