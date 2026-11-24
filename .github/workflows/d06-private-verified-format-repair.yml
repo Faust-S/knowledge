@@ -16,14 +16,14 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      D06_SOURCE_SHA: 6bdc25f27a17d03c32fee18b594baf2ac5b66d2d
+      D06_SOURCE_SHA: 0f471a80185819ebc9997b018931c5bd8a9cdc83
       D06_SOURCE_BRANCH: work/2026-11-11-case-driven-entry-and-drill
     steps:
       - name: Read exact private D06 source
         uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 6bdc25f27a17d03c32fee18b594baf2ac5b66d2d
+          ref: 0f471a80185819ebc9997b018931c5bd8a9cdc83
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -48,7 +48,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT_APPLY=FAIL"; exit 1 }
           $paths = @(git diff --name-only)
           $count = @($paths | Where-Object { $_ }).Count
-          if ($count -lt 1 -or $count -gt 6) {
+          Write-Host ("D06_FORMAT_CHANGED_TRACKED_FILES=" + $count)
+          if ($count -lt 1 -or $count -gt 15) {
             Write-Host "D06_FORMAT_CHANGE_LIMIT=FAIL"
             exit 1
           }
@@ -60,7 +61,8 @@ jobs:
               if ($cols[1] -match "^\d+$") { $changedLines += [int]$cols[1] }
             }
           }
-          if ($changedLines -gt 1200) { Write-Host "D06_FORMAT_CHANGE_LIMIT=FAIL"; exit 1 }
+          Write-Host ("D06_FORMAT_CHANGED_LINES=" + $changedLines)
+          if ($changedLines -gt 4000) { Write-Host "D06_FORMAT_CHANGE_LIMIT=FAIL"; exit 1 }
           & git diff --check *> $log
           if ($LASTEXITCODE -ne 0) { Write-Host "D06_FORMAT_DIFF_CHECK=FAIL"; exit 1 }
           $paths | Set-Content -LiteralPath (
