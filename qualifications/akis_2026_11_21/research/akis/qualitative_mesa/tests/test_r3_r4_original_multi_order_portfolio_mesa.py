@@ -1052,3 +1052,173 @@ def test_order_and_portfolio_measurement_preserve_distinct_cost_boundaries():
     assert order["consolidated"]["model_economic_contribution"] == "720.00"
     assert portfolio["consolidated"]["model_economic_contribution"] == "1065.00"
     assert order["per_original_work"]["w3"] == portfolio["per_original_work"]["w3"]
+
+
+def original_quality_recovery_portfolio(*, recovery=True, declare_cost=True,
+                                       seller_cost="90.00", buyer_cost="20.00"):
+    """Same accepted order, independently inspected before and after resubmission.
+
+    No new physical execution/reservation or hypothetical additional sale is
+    inferred from the original resubmit action. Cost statements are exclusive
+    resource uses of correcting the submitted result and repeat inspection.
+    """
+    d = finance_portfolio()["coproduction"]
+    money = d["economic_claims"]
+    events = d["events"]
+    first = _event(d, "assess_result_quality", OUTSIDE)
+    accept = _event(d, "accept", OUTSIDE)
+    initial_accept = accept["at"]
+    occupied = {e["at"] for e in events}
+
+    def next_tick(after):
+        tick = after+1
+        while tick in occupied:
+            tick += 1
+        occupied.add(tick)
+        return tick
+
+    resubmission_at = next_tick(initial_accept)
+    second_assessment_at = next_tick(resubmission_at)
+    final_accept_at = next_tick(second_assessment_at)
+    horizon = d["model_horizon"]
+    assert final_accept_at+4 < horizon
+    correction_ref = first["result_ref"] + "-revision-2"
+    reject = dict(accept, action="reject")
+    resubmit = {"at": resubmission_at, "action": "resubmit", "actor": "c",
+                "work": OUTSIDE, "result_ref": correction_ref}
+    reinspection = dict(first, at=second_assessment_at, result_ref=correction_ref,
+                        quality_evidence_ref=first["quality_evidence_ref"]+"-repeat")
+    revised_accept = dict(accept, at=final_accept_at)
+    if recovery:
+        first["quality_verdict"] = "DOES_NOT_MEET"
+        events.remove(accept)
+        events.extend([reject, resubmit, reinspection, revised_accept])
+        events.sort(key=lambda row: row["at"])
+    # The same pre-existing access basis in each arm, not a new IAM.
+    extra = {"events": [deepcopy(resubmit)]}
+    _original_rights(extra)
+    for row in extra["context_evidence"]["sources"]:
+        row["valid_until"] = horizon+1
+    for name in ("sources", "requirements", "decision_requirements"):
+        d["context_evidence"][name].extend(extra["context_evidence"][name])
+
+    # Keep independent model payment dates and use-value observation horizon
+    # identical across the two separately executed histories.
+    purchase = f"{OUTSIDE}-portfolio-purchase"
+    posting = final_accept_at+2
+    for row in money["cash_timing"]["transfer_windows"]:
+        if row["transfer_id"] == purchase:
+            row.update(at=posting, late_at=posting)
+    for row in money["work_payment_conditions"]:
+        if row["transfer_id"] == purchase:
+            row["due_at"] = posting+1
+    for row in money["work_payment_settlement_claims"]:
+        if row["transfer_id"] == purchase:
+            row["at"] = posting
+            for statement in row["owner_attestations"].values():
+                statement["reported_at"] = posting
+    value = next(r for r in money["recipient_use_value_evidence"] if r["work"] == OUTSIDE)
+    value["outcome"]["at"] = final_accept_at+1
+    if recovery:
+        value["result_ref"] = correction_ref
+
+    for owner, name, amount, event in (
+            ("c", "result-revision", seller_cost, resubmit),
+            (BUYER, "repeat-inspection", buyer_cost, reinspection)):
+        ident = f"{OUTSIDE}-quality-{name}"
+        proof = f"model://{owner}/{ident}-evidence"
+        d["context_evidence"]["sources"].append({
+            "id": proof, "owner": owner, "revision": "quality-cost-v1",
+            "status": "CONFIRMED", "usable_by": [owner], "core": "corporate",
+            "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"], "operations": ["READ"],
+            "valid_from": event["at"], "valid_until": horizon+1,
+        })
+        if not recovery or not declare_cost:
+            continue
+        source = money["coverage"]["COOPERATION"][owner]
+        # The new inspection is positive; its own measurement expense is
+        # monitoring, while the result revision is claims/rework.
+        money["resource_uses"].append({"id": ident, "scenario": "COOPERATION",
+            "work": OUTSIDE, "owner": owner, "source": source,
+            "amount": amount, "bucket": "COORDINATION"})
+        money["lifecycle_costs"]["bindings"].append({"resource_use_id": ident,
+            "owner": owner, "source": source, "stage": (
+                "CLAIMS_AND_REWORK" if owner == "c" else "MONITORING_AND_QUALITY"),
+            "nature": "TRANSACTION"})
+        money["lifecycle_costs"]["event_bindings"].append({
+            "resource_use_id": ident, "work": OUTSIDE, "owner": owner, "source": source,
+            "work_source_revision": "outside-d1", "trace_position": 0,
+            "at": event["at"], "action": event["action"], "org_revision": "oc-1",
+            "cost_evidence_ref": proof, "cost_evidence_revision": "quality-cost-v1"})
+        money["portfolio_scope_evidence"]["owner_scopes"][owner]["resource_use_ids"].append(ident)
+        if owner == BUYER:
+            value["resource_use_ids"].append(ident)
+    for row in money["lifecycle_costs"]["event_bindings"]:
+        row["trace_position"] = next(i for i, e in enumerate(events) if e["at"] == row["at"])
+    return d
+
+
+def _observed_quality_efficiency(doc):
+    out = simulate(doc)
+    assert out["counts"]["blocked"] == 0, [
+        (r["at"], r["action"], r["reason"]) for r in out["trace"] if r["outcome"] == "BLOCKED"]
+    assert out["works"][OUTSIDE]["result"] == ACCEPTED
+    view = out["economics"]["original_portfolio_economics"]
+    assert view["status"] == "MODEL_ORIGINAL_MULTI_ORDER_PORTFOLIO_ECONOMICS", view
+    return out, view["local_research_only"]["activity_efficiency"]
+
+
+@pytest.mark.parametrize("seller_cost,buyer_cost,net", [
+    ("90.00", "20.00", "955.00"), ("0.00", "0.00", "1065.00"),
+    ("1000.00", "100.00", "-35.00"),
+])
+def test_original_result_recovery_preserves_use_value_but_charges_own_correction_costs(
+        seller_cost, buyer_cost, net):
+    from decimal import Decimal
+    original, before = _observed_quality_efficiency(original_quality_recovery_portfolio(recovery=False))
+    doc = original_quality_recovery_portfolio(seller_cost=seller_cost, buyer_cost=buyer_cost)
+    frozen = deepcopy(doc)
+    out, after = _observed_quality_efficiency(doc)
+    assert doc == frozen
+    assert before["accepted_original_work_count"] == after["accepted_original_work_count"] == 2
+    assert before["accepted_without_prior_result_rejection_count"] == 2
+    assert after["accepted_without_prior_result_rejection_count"] == 1
+    assert after["accepted_after_result_resubmission_count"] == 1
+    assert before["consolidated"]["gross_incremental_recipient_use_value"] == (
+        after["consolidated"]["gross_incremental_recipient_use_value"]) == "2200.00"
+    assert after["consolidated"]["model_economic_contribution"] == net
+    assert before["internal_transfer_turnover_not_system_output"] == after["internal_transfer_turnover_not_system_output"]
+    assert before["reserved_capacity_unit_ticks_by_resource"] == after["reserved_capacity_unit_ticks_by_resource"]
+    x, y = (v["per_original_work"][OUTSIDE] for v in (before, after))
+    assert y["first_submission_to_accept_model_ticks"] > x["first_submission_to_accept_model_ticks"]
+    assert y["first_rejection_to_accept_model_ticks"] > 0
+    assert y["original_rejected_result_count"] == y["original_resubmission_count"] == 1
+    assert y["original_quality_assessment_count"] == 2
+    assert y["original_negative_quality_assessment_count"] == 1
+    assert y["separately_measured_rework_resource_cost"] == seller_cost
+    assert y["resubmission_does_not_establish_physical_rework"]
+    assert Decimal(after["per_original_owner"]["c"]["model_cash_resource_balance"]) == (
+        Decimal(before["per_original_owner"]["c"]["model_cash_resource_balance"])-Decimal(seller_cost))
+    assert Decimal(after["per_original_owner"][BUYER]["model_cash_resource_balance"]) == (
+        Decimal(before["per_original_owner"][BUYER]["model_cash_resource_balance"])-Decimal(buyer_cost))
+    assert [r for r in original["trace"] if r["action"] == "complete" and r["work"] == OUTSIDE] == [
+        r for r in out["trace"] if r["action"] == "complete" and r["work"] == OUTSIDE]
+
+
+def test_original_recovery_signal_without_separate_cost_measurement_is_not_zero_evidence():
+    _, view = _observed_quality_efficiency(
+        original_quality_recovery_portfolio(declare_cost=False))
+    work = view["per_original_work"][OUTSIDE]
+    assert work["claims_and_rework_measurement_status"] == (
+        "QUALITY_SIGNAL_WITHOUT_SEPARATE_REWORK_COST_MEASUREMENT")
+    assert work["separately_measured_rework_resource_cost"] is None
+    assert view["original_quality_signal_without_separately_measured_rework_cost_work_count"] == 1
+
+
+def test_original_recovered_value_cannot_be_attached_to_rejected_result_revision():
+    from research.akis.qualitative_mesa.rules import InputError
+    doc = original_quality_recovery_portfolio()
+    row = next(r for r in doc["economic_claims"]["recipient_use_value_evidence"] if r["work"] == OUTSIDE)
+    row["result_ref"] = _event(doc, "complete", OUTSIDE)["result_ref"]
+    with pytest.raises(InputError, match="RECIPIENT_VALUE_ORIGINAL_RESULT_REFERENCE_MISMATCH"):
+        simulate(doc)

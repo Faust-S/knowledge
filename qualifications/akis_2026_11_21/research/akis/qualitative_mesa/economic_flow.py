@@ -1274,6 +1274,7 @@ def _qualified_activity_efficiency(
     per_work = {key: {
         "external_in": zero, "external_out": zero, "resource_cost": zero,
         "precommit_resource_cost": zero, "rework_resource_cost": zero,
+        "rework_cost_record_count": 0,
     } for key in work_values}
     internal_turnover = zero
     for key, value in work_values.items():
@@ -1318,6 +1319,7 @@ def _qualified_activity_efficiency(
             per_work[key]["precommit_resource_cost"] += value
         if stage == "CLAIMS_AND_REWORK":
             per_work[key]["rework_resource_cost"] += value
+            per_work[key]["rework_cost_record_count"] += 1
 
     def summarize(external_in, external_out, resource_cost, value):
         cost = external_out + resource_cost
@@ -1349,6 +1351,18 @@ def _qualified_activity_efficiency(
         if completed != (len(accepts) == 1):
             raise EconomicInputError("ACTIVITY_EFFICIENCY_ORIGINAL_ACCEPTANCE_MISMATCH")
         c = per_work[key]
+        rejects = [r["at"] for r in applied if r["action"] == "reject"]
+        resubmits = [r["at"] for r in applied if r["action"] == "resubmit"]
+        negative = sum(r["action"] == "assess_result_quality" and
+                       r.get("quality_verdict") == "DOES_NOT_MEET" for r in applied)
+        submitted = [r["at"] for r in applied if r["action"] == "complete"]
+        recovery = completed and bool(rejects) and bool(resubmits)
+        quality_cost_status = (
+            "DECLARED_ORIGINAL_REWORK_RESOURCE_ROWS_NOT_ACTUAL_COST_AUDIT"
+            if c["rework_cost_record_count"] else
+            "QUALITY_SIGNAL_WITHOUT_SEPARATE_REWORK_COST_MEASUREMENT"
+            if rejects or resubmits or negative else
+            "NO_ORIGINAL_FAILURE_SIGNAL_OR_REWORK_COST_ROW")
         work_details[key] = {
             **summarize(c["external_in"], c["external_out"], c["resource_cost"], work_values[key]),
             "accepted_original_result": completed,
@@ -1359,11 +1373,23 @@ def _qualified_activity_efficiency(
             "precommit_exclusive_resource_cost": (
                 amount(c["precommit_resource_cost"]) if first_attempt[key] is not None else None),
             "claims_and_rework_exclusive_resource_cost": amount(c["rework_resource_cost"]),
-            "original_reject_or_resubmit_transition_count": sum(
-                r["action"] in {"reject", "resubmit"} for r in applied),
-            "original_negative_quality_assessment_count": sum(
-                r["action"] == "assess_result_quality" and
-                r.get("quality_verdict") == "DOES_NOT_MEET" for r in applied),
+            "original_reject_or_resubmit_transition_count": len(rejects)+len(resubmits),
+            "original_negative_quality_assessment_count": negative,
+            "original_quality_assessment_count": sum(
+                r["action"] == "assess_result_quality" for r in applied),
+            "original_rejected_result_count": len(rejects),
+            "original_resubmission_count": len(resubmits),
+            "accepted_without_prior_result_rejection": completed and not rejects,
+            "accepted_after_result_resubmission": recovery,
+            "first_submission_to_accept_model_ticks": (
+                accepts[0]-submitted[0] if completed and len(submitted) == 1 else None),
+            "first_rejection_to_accept_model_ticks": (
+                accepts[0]-rejects[0] if recovery else None),
+            "claims_and_rework_original_resource_row_count": c["rework_cost_record_count"],
+            "claims_and_rework_measurement_status": quality_cost_status,
+            "separately_measured_rework_resource_cost": (
+                amount(c["rework_resource_cost"]) if c["rework_cost_record_count"] else None),
+            "resubmission_does_not_establish_physical_rework": True,
         }
     # Keep incomparable resource units separate; reservation time is not
     # actual machine time. The reservation ledger is never changed.
@@ -1406,6 +1432,14 @@ def _qualified_activity_efficiency(
         "status": "MODEL_DECLARED_COST_VALUE_AND_EXECUTED_WORK_MEASURES",
         "selected_original_work_count": len(work_ids),
         "accepted_original_work_count": len(accepted_work_use_value),
+        "accepted_without_prior_result_rejection_count": sum(
+            w["accepted_without_prior_result_rejection"] for w in work_details.values()),
+        "accepted_after_result_resubmission_count": sum(
+            w["accepted_after_result_resubmission"] for w in work_details.values()),
+        "original_quality_signal_without_separately_measured_rework_cost_work_count": sum(
+            w["claims_and_rework_measurement_status"] ==
+            "QUALITY_SIGNAL_WITHOUT_SEPARATE_REWORK_COST_MEASUREMENT"
+            for w in work_details.values()),
         "consolidated": consolidated,
         "per_original_owner": private,
         "per_original_work": work_details,
