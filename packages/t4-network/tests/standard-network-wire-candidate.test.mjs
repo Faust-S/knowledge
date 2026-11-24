@@ -382,6 +382,7 @@ async function lifetimeWireFixture(node='node:receiver'){
   let active=true,puts=0,reads=0,inspects=0;
   const ports={
     wireTransport:{wireKind:'T4_NETWORK_CANDIDATE',
+      forOriginalHostLifetime(){return this;}, // bounded in-memory test port
       async putSnapshot(){puts++;return {key,sha256:sha,state:'PUBLISHED_AND_READ_BACK'};},
       async getSnapshot(){reads++;return {bytes};},
       async inspectOutcome(){inspects++;return {sha256:sha,state:'EXPECTED_BYTES_PRESENT'};},},

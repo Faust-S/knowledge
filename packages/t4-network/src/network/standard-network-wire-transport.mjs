@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
+import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {
   decodeT4CandidateFrame,verifyT4CandidateWireFrame,
 } from './standard-network-wire-candidate.mjs';
@@ -258,6 +258,7 @@ export function createT4CandidateFrameTransport({
       fail('WIRE_DISCOVERY_SELECTOR_INVALID');
     const selected=frozen({...selector}),extensions=Object.freeze([...supportedCriticalExtensions]);
     const selectorDigest=hash(Buffer.from(JSON.stringify({
+      originalHostNodeRef,originalHostScopeRef,
       sourceNodeRef:selected.sourceNodeRef,ownerEpoch:selected.ownerEpoch,
       sessionRef:selected.sessionRef??null,messageType:selected.messageType,
       sequence:selected.sequence??null,requiredCryptoSuite,extensions
@@ -328,7 +329,9 @@ export function createT4CandidateFrameTransport({
     publishSignedFrame,inspectUnknownPublication,
     readAndVerifySignedFrame,discoverAndVerifySignedFrames,
     forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
-      wireTransport,getMode:originalHostLifetimeMode(getMode,isHostActive),
+      wireTransport:scopeOriginalHostPort(wireTransport,isHostActive,['wireKind'],
+        'WIRE_ORIGINAL_TRANSPORT_LIFETIME_REQUIRED'),
+      getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalHostWire,
       originalHostNodeRef,originalHostScopeRef,verifyOriginalNodeSignature,
       authorizeOriginalNetwork,persistOriginalReplayDecision,

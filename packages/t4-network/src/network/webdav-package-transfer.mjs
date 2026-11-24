@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { createPlacementPolicy } from '../contracts/hosted-context-boundary.mjs';
 import {decodeT4WebDavFrameAddressList,MAX_T4_FRAME_LIST_BYTES} from './webdav-frame-address-list.mjs';
+import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 export class T4TransferError extends Error {
   constructor(code, details = {}) { super(code); this.name = 'T4TransferError'; this.code = code; this.details = Object.freeze({ ...details }); }
 }
@@ -35,11 +36,13 @@ export function createWebDavPackageTransport(options = {}) {
     if (closed) fail('TRANSPORT_CLOSED');
     if (getMode() !== 'T4_NETWORK' || policy.primaryPlacement === 'LOCAL_ONLY') fail('NETWORK_NOT_PERMITTED');
   };
-  const guard = async (ctx) => { assertMode(); if (await authorize(ctx) !== true) fail('AUTHORIZATION_DENIED'); assertMode(); };
+  const live=()=>{};
+  const assertLive=check=>{assertMode();check();};
+  const guard = async (ctx,check=live) => { assertLive(check); if (await authorize(ctx) !== true) fail('AUTHORIZATION_DENIED'); assertLive(check); };
   const receipt = (state, key, sha256, etag, size) => Object.freeze({ schema:'IWXA_T4_TRANSPORT_RECEIPT_V1',
     state,key,sha256,etag,size,locationRef,workspaceId:policy.workspaceId,observedAt:new Date().toISOString(),
     workspaceApplied:false,signatureVerified:false,automaticRetryAllowed:false });
-  async function request(method, key, headers, body, sha256) {
+  async function request(method, key, headers, body, sha256,check=live) {
     const discovery=method==='PROPFIND';
     if(discovery&&(keySuffix!=='.t4n'||key!==null||candidateNetworkWire!==true))
       fail('FRAME_DISCOVERY_NOT_PERMITTED');
@@ -49,61 +52,64 @@ export function createWebDavPackageTransport(options = {}) {
     const ctx = Object.freeze({ operation:op+(discovery?'.discover':method==='PUT' ? '.publish' : '.read'),
       ...(discovery?{collectionOnly:true,depth:1}:{key,sha256}),locationRef,workspaceId:policy.workspaceId,authorityRoot:policy.authorityRoot,
       writeOwnerRef:policy.writeOwnerRef,objectFamily:policy.objectFamily });
-    await guard(ctx);
+    await guard(ctx,check);
     const auth = await getAuthorizationHeader(ctx);
+    assertLive(check);
     if (typeof auth !== 'string' || !/^(Basic|Bearer) [^\r\n]+$/.test(auth)) fail('CREDENTIAL_REQUIRED');
-    await guard(ctx);
+    await guard(ctx,check);
     const controller = new AbortController(); active.add(controller);
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const release = () => { clearTimeout(timer); active.delete(controller); };
     try {
-      assertMode();
+      assertLive(check);
       const response = await fetchImpl(new URL(path, base), { method,redirect:'manual',cache:'no-store',
         signal:controller.signal,headers:{...headers,Authorization:auth},...(body ? {body} : {}) });
+      assertLive(check);
       if (response.status >= 300 && response.status < 400) { controller.abort(); fail('REDIRECT_REFUSED'); }
       return {response,controller,release,ctx};
     } catch (error) {
       controller.abort(); release();
       if (error instanceof T4TransferError) throw error;
+      if(error?.code==='ORIGINAL_HOST_LIFETIME_ENDED'&&method!=='PUT')throw error;
       fail(method === 'PUT' ? 'OUTCOME_UNKNOWN' : 'NETWORK_UNAVAILABLE', {operation:method,automaticRetryAllowed:false});
     }
   }
-  async function readBytes(response, controller,limit=maxBytes) {
+  async function readBytes(response, controller,limit=maxBytes,check=live) {
     const length = response.headers.get('content-length');
     if (length !== null && (!/^\d+$/.test(length) || Number(length) > limit)) { controller.abort(); fail('PACKAGE_TOO_LARGE'); }
     if (!response.body) fail('EMPTY_BODY');
     const reader = response.body.getReader(), chunks = []; let size = 0;
     try {
       while (true) {
-        const {value,done} = await reader.read(); assertMode(); if (done) break;
+        const {value,done} = await reader.read(); assertLive(check); if (done) break;
         size += value.byteLength;
         if (size > limit) { controller.abort(); fail('PACKAGE_TOO_LARGE'); }
         chunks.push(value);
       }
       if (!size) fail('EMPTY_BODY'); return Buffer.concat(chunks,size);
     } catch (error) {
-      controller.abort(); if (error instanceof T4TransferError) throw error;
+      controller.abort(); if (error instanceof T4TransferError||error?.code==='ORIGINAL_HOST_LIFETIME_ENDED') throw error;
       fail('NETWORK_UNAVAILABLE',{automaticRetryAllowed:false});
     } finally { reader.releaseLock(); }
   }
-  async function getSnapshot({key,expectedSha256,expectedETag} = {}) {
+  async function getSnapshot({key,expectedSha256,expectedETag} = {},check=live) {
     digest(expectedSha256); checkedKey(key,keySuffix);
     const headers = expectedETag === undefined ? {} : {'If-Match':strongETag(expectedETag)};
-    const call = await request('GET',key,headers,null,expectedSha256);
+    const call = await request('GET',key,headers,null,expectedSha256,check);
     try {
       const r = call.response;
       if (r.status === 404) fail('REMOTE_NOT_FOUND');
       if (r.status === 412) fail('REMOTE_CONFLICT');
       if ([401,403].includes(r.status)) fail('REMOTE_AUTHORIZATION_DENIED');
       if (r.status !== 200) fail('REMOTE_READ_FAILED',{status:r.status});
-      const bytes = await readBytes(r,call.controller);
+      const bytes = await readBytes(r,call.controller,maxBytes,check);
       if (packageSha256(bytes) !== expectedSha256) fail('DIGEST_MISMATCH');
-      await guard(call.ctx);
+      await guard(call.ctx,check);
       // Weak/missing ETag is only metadata, never a content hash or authority proof.
       return Object.freeze({bytes,receipt:receipt('DOWNLOADED_VERIFIED_BYTES',key,expectedSha256,r.headers.get('etag'),bytes.length)});
     } finally { call.controller.abort(); call.release(); }
   }
-  async function putSnapshot({key,bytes,expectedSha256,expectedETag,createOnly = false} = {}) {
+  async function putSnapshot({key,bytes,expectedSha256,expectedETag,createOnly = false} = {},check=live) {
     digest(expectedSha256); checkedKey(key,keySuffix);
     if (!(bytes instanceof Uint8Array) || !bytes.length) fail('PACKAGE_BYTES_REQUIRED');
     if (bytes.length > maxBytes) fail('PACKAGE_TOO_LARGE');
@@ -111,7 +117,7 @@ export function createWebDavPackageTransport(options = {}) {
     if (packageSha256(snapshot) !== expectedSha256) fail('DIGEST_MISMATCH');
     if (createOnly !== true || expectedETag !== undefined) fail('IMMUTABLE_WRITE_REQUIRED');
     if (key !== `${expectedSha256}${keySuffix}`) fail('DIGEST_KEY_REQUIRED');
-    const call = await request('PUT',key,{'If-None-Match':'*','Content-Type':keySuffix === '.t4n' ? 'application/vnd.iwxa.t4-network-candidate+json' : keySuffix === '.t4d' ? 'application/vnd.iwxa.t4-delta+json' : 'application/octet-stream'},snapshot,expectedSha256);
+    const call = await request('PUT',key,{'If-None-Match':'*','Content-Type':keySuffix === '.t4n' ? 'application/vnd.iwxa.t4-network-candidate+json' : keySuffix === '.t4d' ? 'application/vnd.iwxa.t4-delta+json' : 'application/octet-stream'},snapshot,expectedSha256,check);
     let alreadyPresent = false;
     try {
       const status = call.response.status;
@@ -121,32 +127,41 @@ export function createWebDavPackageTransport(options = {}) {
       else if (![200,201,204].includes(status)) fail('OUTCOME_UNKNOWN',{status,automaticRetryAllowed:false});
     } finally { call.controller.abort(); call.release(); }
     try {
-      const readback = await getSnapshot({key,expectedSha256});
+      const readback = await getSnapshot({key,expectedSha256},check);
       return receipt(alreadyPresent ? 'ALREADY_PRESENT_VERIFIED' : 'PUBLISHED_AND_READ_BACK',key,expectedSha256,readback.receipt.etag,snapshot.length);
     } catch (error) { fail('OUTCOME_UNKNOWN',{cause:error.code ?? 'READBACK_FAILED',acknowledgedWrite:!alreadyPresent,automaticRetryAllowed:false}); }
   }
-  async function inspectOutcome({key,expectedSha256} = {}) {
-    const result = await getSnapshot({key,expectedSha256});
+  async function inspectOutcome({key,expectedSha256} = {},check=live) {
+    const result = await getSnapshot({key,expectedSha256},check);
     return Object.freeze({...result.receipt,state:'EXPECTED_BYTES_PRESENT',historicalWriteProven:false,automaticRetryAllowed:false});
   }
-  async function listNativeFrameAddresses(){
+  async function listNativeFrameAddresses(check=live){
     if(keySuffix!=='.t4n'||candidateNetworkWire!==true)fail('FRAME_DISCOVERY_NOT_PERMITTED');
     const call=await request('PROPFIND',null,{Depth:'1','Content-Type':'application/xml; charset=utf-8'},
-      '<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:resourcetype/></D:prop></D:propfind>',null);
+      '<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:resourcetype/></D:prop></D:propfind>',null,check);
     try{
       const r=call.response;
       if([401,403].includes(r.status))fail('REMOTE_AUTHORIZATION_DENIED');
       if(r.status!==207)fail('REMOTE_FRAME_LIST_FAILED',{status:r.status});
       const contentType=r.headers.get('content-type')??'';
       if(!/^(?:text|application)\/xml(?:\s*;|$)/i.test(contentType))fail('REMOTE_FRAME_LIST_CONTENT_TYPE_INVALID');
-      const bytes=await readBytes(r,call.controller,MAX_T4_FRAME_LIST_BYTES);
+      const bytes=await readBytes(r,call.controller,MAX_T4_FRAME_LIST_BYTES,check);
       const listing=decodeT4WebDavFrameAddressList(bytes,base.href);
-      await guard(call.ctx);
+      await guard(call.ctx,check);
       return listing;
     }finally{call.controller.abort();call.release();}
   }
   function close() { closed = true; for (const c of active) c.abort(); active.clear(); }
-  return Object.freeze({putSnapshot,getSnapshot,inspectOutcome,close,
-    ...(keySuffix==='.t4n'?{listNativeFrameAddresses}:{}),
-    wireKind:keySuffix === '.t4n' ? 'T4_NETWORK_CANDIDATE' : null});
+  function scopedPort(check=live){
+    return Object.freeze({
+      putSnapshot:input=>putSnapshot(input,check),getSnapshot:input=>getSnapshot(input,check),
+      inspectOutcome:input=>inspectOutcome(input,check),close,
+      ...(keySuffix==='.t4n'?{listNativeFrameAddresses:()=>listNativeFrameAddresses(check)}:{}),
+      forOriginalHostLifetime:isHostActive=>{
+        const mode=originalHostLifetimeMode(()=>{check();return getMode();},isHostActive);
+        return scopedPort(()=>{mode();});
+      },
+      wireKind:keySuffix === '.t4n' ? 'T4_NETWORK_CANDIDATE' : null});
+  }
+  return scopedPort();
 }

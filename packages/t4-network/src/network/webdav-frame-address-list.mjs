@@ -57,7 +57,7 @@ export function decodeT4WebDavFrameAddressList(bytes,baseUrl){
         const field=tag.local;
         if(current[field]!==null)fail('DAV_FRAME_LIST_DUPLICATE_FIELD');
         capture={target:current,field,text:''};
-      }else if(dav(tag,'propstat'))propstat={status:null,type:null,propSeen:false};
+      }else if(dav(tag,'propstat'))propstat={status:null,type:null,propSeen:false,typeChildSeen:false};
     }else if(propstat&&depth===3&&dav(parent,'propstat')){
       if(dav(tag,'status')){
         if(propstat.status!==null)fail('DAV_FRAME_LIST_DUPLICATE_FIELD');
@@ -71,6 +71,8 @@ export function decodeT4WebDavFrameAddressList(bytes,baseUrl){
       propstat.type='FILE';
     }else if(propstat&&depth===5&&dav(parent,'resourcetype')){
       // An extension resource type is not a plain immutable file.
+      if(propstat.typeChildSeen)fail('DAV_FRAME_LIST_RESOURCE_TYPE_UNPROVEN');
+      propstat.typeChildSeen=true;
       propstat.type=dav(tag,'collection')?'COLLECTION':'OTHER';
     }
     stack.push(tag);
@@ -79,7 +81,8 @@ export function decodeT4WebDavFrameAddressList(bytes,baseUrl){
     if(capture){
       capture.text+=value;
       if(capture.text.length>MAX_HREF)fail('DAV_FRAME_LIST_HREF_INVALID');
-    }
+    }else if(dav(stack.at(-1),'resourcetype')&&value.trim())
+      fail('DAV_FRAME_LIST_RESOURCE_TYPE_UNPROVEN');
   };
   parser.on('text',chars);
   parser.on('cdata',chars);

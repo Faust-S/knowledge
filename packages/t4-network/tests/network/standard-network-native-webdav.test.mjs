@@ -458,3 +458,54 @@ test('real Apache carries complete bidirectional signed HEADS/DIFF/CHANGE/CHUNK/
     transports.SOURCE.close();transports.RECIPIENT.close();
   }
 });
+
+test('real scoped Apache mailbox discovers signed HEADS without passing their content addresses between peers',async()=>{
+  const transport=makeTransport(),source=host('source',transport),recipient=host('recipient',transport);
+  const sessionRef='session:discovery:'+process.pid;
+  const selector={sourceNodeRef:'node:one',ownerEpoch:2,sessionRef,messageType:'HEADS'};
+  try{
+    // Deliberate distractors: another message type, other recipient and session.
+    await source.wire.publishSignedFrame({wireBytes:await makeBytes('HEADS',{sessionRef:'session:discovery:other'})});
+    await source.wire.publishSignedFrame({wireBytes:await makeBytes('DIFF_REQUEST',{sessionRef})});
+    await source.wire.publishSignedFrame({wireBytes:await makeBytes('HEADS',{sessionRef,recipientNodeRef:'node:elsewhere'})});
+    const sent=await source.wire.publishSignedFrame({wireBytes:await makeBytes('HEADS',{sessionRef})});
+    const discovered=[],reads=[];
+    let continuation=null,pages=0;
+    do{
+      const page=await recipient.wire.discoverAndVerifySignedFrames({
+        selector,continuation,maxCandidates:4,requiredCryptoSuite:suite,
+      });
+      assert.equal(page.state,'VERIFIED_PAGE');assert.equal(page.originalBusinessApplied,false);
+      assert.equal(page.sourceCursorAdvanced,false);assert.ok(page.candidatesExamined<=4);
+      reads.push(page.candidatesExamined);discovered.push(...page.receipts);
+      continuation=page.continuation;pages++;
+      assert.ok(pages<2049);
+    }while(continuation);
+    assert.ok(pages>1);
+    assert.equal(discovered.length,1);
+    assert.equal(discovered[0].key,sent.key); // comparison only, not a discovery input
+    assert.equal(discovered[0].originalSignatureVerified,true);
+    assert.equal(discovered[0].verifiedSessionRef,sessionRef);
+    assert.equal(recipient.replay.size,1);
+    const fresh=host('recipient',transport,{replay:recipient.replay});
+    const repeated=await fresh.wire.discoverAndVerifySignedFrames({selector,maxCandidates:128,requiredCryptoSuite:suite});
+    assert.equal(repeated.receipts.length,1);
+    assert.equal(repeated.receipts[0].exactPreviouslyVerifiedReplay,true);
+    assert.equal(fresh.replay.size,1);
+    console.log('T4_REAL_APACHE_SCOPED_NATIVE_DISCOVERY_PASS',JSON.stringify({
+      actualDepthOneDiscovery:true,frameAddressNotPassedToRecipient:true,
+      matchedSignedFrames:discovered.length,candidateReads:reads.reduce((a,b)=>a+b,0),
+      boundedPages:pages,unrelatedFramesReplayRecorded:false,coldHostReplayExact:true,
+      originalBusinessApplied:false,
+    }));
+  }finally{transport.close();}
+});
+test('real Apache refuses frame discovery with another collection credential',async()=>{
+  const t=createWebDavPackageTransport({
+    baseUrl:process.env.T4_TEST_URL,locationRef:'test-webdav',placementPolicy:policy,
+    keySuffix:'.t4n',candidateNetworkWire:true,getMode:()=> 'T4_NETWORK',
+    authorize:async()=>true,getAuthorizationHeader:async()=>process.env.T4_TEST_OTHER_AUTH,
+  });
+  try{await assert.rejects(t.listNativeFrameAddresses(),code('REMOTE_AUTHORIZATION_DENIED'));}
+  finally{t.close();}
+});
