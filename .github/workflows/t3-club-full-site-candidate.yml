@@ -5,6 +5,7 @@ on:
       - work/2026-11-24-t3-mobile-model-catalog
     paths:
       - .github/workflows/t3-club-full-site-candidate.yml
+      - packages/t3-core/tests/t3-club-full-site-roundtrip.mjs
   workflow_dispatch:
 permissions:
   contents: read
@@ -12,11 +13,16 @@ permissions:
 jobs:
   host:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
     steps:
+      - name: Exact public qualification harness
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: qualification
       - name: Preserve original Git LF bytes
         run: git config --global core.autocrlf false
       - name: Checkout exact public T3 platform candidate
@@ -292,6 +298,21 @@ jobs:
           mv "$RUNNER_TEMP/unused-t2" "$GITHUB_WORKSPACE/t2"
           mv "$RUNNER_TEMP/unused-one-core" "$GITHUB_WORKSPACE/one-core"
           mv "$RUNNER_TEMP/unused-bli-owner" "$GITHUB_WORKSPACE/bli-owner"
+      - name: Full built Club assistant, original Kernel and independent Exchange offline roundtrip
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/club-dist-browser"
+          mkdir -p "$stage"
+          cp "$GITHUB_WORKSPACE/qualification/packages/t3-core/tests/t3-club-full-site-roundtrip.mjs" "$stage/"
+          cd "$stage"
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.61.1
+          npx --no-install playwright install --with-deps chromium
+          if ! node t3-club-full-site-roundtrip.mjs "$GITHUB_WORKSPACE/site" "$GITHUB_WORKSPACE/site/dist" > "$RUNNER_TEMP/private-dist-browser.log" 2>&1; then
+            grep -E '^CLUB_DIST_[A-Z_]+=PASS$|^CLUB_DIST_ROUNDTRIP_FAIL ' "$RUNNER_TEMP/private-dist-browser.log" || true
+            exit 1
+          fi
+          grep -E '^CLUB_DIST_[A-Z_]+=PASS$|^CLUB_DIST_ROUNDTRIP=PASS ' "$RUNNER_TEMP/private-dist-browser.log"
       - name: Remove temporary private compilation and logs
         if: always()
         shell: bash
@@ -299,4 +320,4 @@ jobs:
           if [ -d "$RUNNER_TEMP/unused-t2" ] && [ ! -e "$GITHUB_WORKSPACE/t2" ]; then mv "$RUNNER_TEMP/unused-t2" "$GITHUB_WORKSPACE/t2"; fi
           if [ -d "$RUNNER_TEMP/unused-one-core" ] && [ ! -e "$GITHUB_WORKSPACE/one-core" ]; then mv "$RUNNER_TEMP/unused-one-core" "$GITHUB_WORKSPACE/one-core"; fi
           if [ -d "$RUNNER_TEMP/unused-bli-owner" ] && [ ! -e "$GITHUB_WORKSPACE/bli-owner" ]; then mv "$RUNNER_TEMP/unused-bli-owner" "$GITHUB_WORKSPACE/bli-owner"; fi
-          rm -rf "$RUNNER_TEMP/t3-platform-outer.zip" "$RUNNER_TEMP/t3-platform.zip" "$RUNNER_TEMP/private-apache-install.log" "$RUNNER_TEMP/private-apache.log" "$RUNNER_TEMP/private-assistant-owner.log" "$RUNNER_TEMP/private-all-regression.log" "$RUNNER_TEMP/private-local-damage.log" "$RUNNER_TEMP/loader-original.private" "$RUNNER_TEMP/local-damage-readback.private" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/private-local-input.log" "$RUNNER_TEMP/private-local-build.log" "$RUNNER_TEMP/private-local-check.log" "$RUNNER_TEMP/local-rebuild-1.private" "$RUNNER_TEMP/local-rebuild-2.private" "$RUNNER_TEMP/club-t3-candidate" "$RUNNER_TEMP/private-baseline.log" "$RUNNER_TEMP/private-assembly-test.log" "$RUNNER_TEMP/private-assembly.log" "$RUNNER_TEMP/private-http.log" "$RUNNER_TEMP/private-regression.log" "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/private-test.log" "$RUNNER_TEMP/verify.json" "$RUNNER_TEMP/verify.log"
+          rm -rf "$RUNNER_TEMP/club-dist-browser" "$RUNNER_TEMP/private-dist-browser.log" "$RUNNER_TEMP/t3-platform-outer.zip" "$RUNNER_TEMP/t3-platform.zip" "$RUNNER_TEMP/private-apache-install.log" "$RUNNER_TEMP/private-apache.log" "$RUNNER_TEMP/private-assistant-owner.log" "$RUNNER_TEMP/private-all-regression.log" "$RUNNER_TEMP/private-local-damage.log" "$RUNNER_TEMP/loader-original.private" "$RUNNER_TEMP/local-damage-readback.private" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/private-local-input.log" "$RUNNER_TEMP/private-local-build.log" "$RUNNER_TEMP/private-local-check.log" "$RUNNER_TEMP/local-rebuild-1.private" "$RUNNER_TEMP/local-rebuild-2.private" "$RUNNER_TEMP/club-t3-candidate" "$RUNNER_TEMP/private-baseline.log" "$RUNNER_TEMP/private-assembly-test.log" "$RUNNER_TEMP/private-assembly.log" "$RUNNER_TEMP/private-http.log" "$RUNNER_TEMP/private-regression.log" "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/private-test.log" "$RUNNER_TEMP/verify.json" "$RUNNER_TEMP/verify.log"
