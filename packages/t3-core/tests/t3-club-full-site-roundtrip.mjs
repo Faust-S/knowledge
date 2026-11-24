@@ -14,7 +14,7 @@ const site=resolve(siteArg),dist=resolve(distArg);
 const port=55479,origin="http://localhost:"+port;
 const root=await mkdtemp(join(tmpdir(),"club-full-site-"));
 const archive=join(root,"profile.iwxa");
-const alias="Сосед Т3";
+let alias="Сосед Т3";
 const goals="Освоить ремонт бытовой техники и помогать соседям.";
 let phase="START_SERVER",server,context;
 const check=(ok,code)=>assert.ok(ok,"CLUB_DIST_"+code);
@@ -315,7 +315,62 @@ try{
  await poll(async()=>await page.locator("#iwxa-t3-assistant").locator("#form-choice").locator("option:checked").textContent().then(t=>t?.startsWith("Личный профиль ·")),"OFFLINE_CONTEXT_ASSISTANT");
  check(await restoredForm.locator('[name="alias"]').inputValue()===alias&&await restoredForm.locator('[name="goals"]').inputValue()===goals,"OFFLINE_ASSISTANT_OPEN_PRESERVES_RESTORED_VALUES");
  log("RECIPIENT_COLD_OFFLINE_KERNEL_AND_ASSISTANT");
- console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; no local model inference; no physical-phone claim");
+
+ // Continue on the original offline form. A real user may edit a verified
+ // imported Result instead of creating a duplicate or another workspace.
+ // Read the tab's existing Kernel binding solely as a receipt witness.
+ phase="OFFLINE_UPDATE_BASE_BINDING";
+ const localProfile=()=>page.evaluate(()=>{
+  const rows=JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")||"null")?.objects?.filter(o=>o.objectType==="participation-profile"&&o.status==="completed")||[];
+  if(rows.length!==1)return null;
+  const o=rows[0];
+  return {id:o.objectId,alias:o.data?.alias,goals:o.data?.goals,
+   revision:o.kernelSource?.revision,scope:o.kernelSource?.workspaceId,
+   synced:o.kernelSource?.syncedUpdatedAt===o.updatedAt};
+ });
+ const base=await localProfile();
+ check(!!base?.scope&&!!base.id&&Number.isSafeInteger(base.revision)&&base.revision>0&&base.synced&&base.alias===alias&&base.goals===goals,"OFFLINE_IMPORTED_BINDING");
+ phase="OFFLINE_UPDATE_ASSISTANT_PREVIEW";
+ const newAlias="Мастер по соседству";
+ await at("prompt").fill("Называйте меня «"+newAlias+"».");
+ await at("explicit-values").click();
+ await poll(async()=>await at("preview").locator("li").count()>0,"OFFLINE_UPDATE_PREVIEW");
+ check(await restoredForm.locator('[name="alias"]').inputValue()===alias,"OFFLINE_UPDATE_NO_PREMATURE_FORM_WRITE");
+ check((await localProfile())?.revision===base.revision&&(await localProfile())?.alias===alias,"OFFLINE_UPDATE_NO_PREMATURE_STORE_WRITE");
+ phase="OFFLINE_UPDATE_ASSISTANT_APPLY";
+ await at("apply").click();
+ check(await restoredForm.locator('[name="alias"]').inputValue()===newAlias,"OFFLINE_UPDATE_APPLIED_ALIAS");
+ check(await restoredForm.locator('[name="goals"]').inputValue()===goals,"OFFLINE_UPDATE_OTHER_VALUES_PRESERVED");
+ check((await localProfile())?.alias===alias,"OFFLINE_ASSISTANT_APPLY_NOT_SAVE");
+ await at("close").click();
+ phase="OFFLINE_UPDATE_NATIVE_FORM_SAVE";
+ await restoredForm.getByRole("button",{name:"Сохранить профиль",exact:true}).click();
+ await poll(async()=>{
+  const row=await localProfile();
+  return row?.id===base.id&&row?.scope===base.scope&&row?.revision===base.revision&&row?.alias===newAlias&&row?.goals===goals&&!row.synced;
+ },"OFFLINE_UPDATE_LOCAL_DIRTY_SAME_BINDING");
+ phase="OFFLINE_UPDATE_KERNEL_CONFIRM";
+ await page.getByRole("link",{name:"Открыть подтверждение сохранения результата на этом устройстве",exact:true}).click();
+ const importCard=page.getByTestId("club-t0-import-card");
+ await importCard.getByLabel("Подтверждаю сохранение изменений. При конфликте прежняя запись останется без изменений.",{exact:true}).check();
+ const updateButton=importCard.getByRole("button",{name:"Сохранить изменения",exact:true});
+ await poll(async()=>await updateButton.isEnabled(),"OFFLINE_UPDATE_KERNEL_READY");
+ await updateButton.click();
+ phase="OFFLINE_UPDATE_RECEIPT";
+ await poll(async()=>{
+  const row=await localProfile();
+  return row?.id===base.id&&row?.scope===base.scope&&row?.revision===base.revision+1&&row?.alias===newAlias&&row?.goals===goals&&row.synced;
+ },"OFFLINE_UPDATE_EXACT_NEXT_REVISION");
+ log("RECIPIENT_OFFLINE_SAME_PROFILE_NEXT_REVISION_RECEIPT");
+ alias=newAlias;
+ await readProfile(page,"RECIPIENT_OFFLINE_UPDATED_IMMEDIATE",base.scope);
+ log("RECIPIENT_OFFLINE_UPDATED_KERNEL_READBACK");
+ phase="OFFLINE_UPDATED_COLD";
+ await close();page=await launch("recipient");await context.setOffline(true);
+ await readProfile(page,"RECIPIENT_OFFLINE_UPDATED_COLD",base.scope);
+ check(await page.evaluate(()=>navigator.onLine===false),"OFFLINE_UPDATED_COLD_MODE");
+ log("RECIPIENT_OFFLINE_UPDATED_COLD_KERNEL_READBACK");
+ console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
 }catch(e){
  const code=typeof e?.message==="string"&&/^CLUB_DIST_[A-Z_]+$/.test(e.message)?e.message:"CLUB_DIST_UNEXPECTED";
  const page=context?.pages()[0];
