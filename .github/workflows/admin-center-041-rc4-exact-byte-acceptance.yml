@@ -1,0 +1,75 @@
+name: Admin Center 0.4.1 RC4 exact-byte installed acceptance
+on:
+  push:
+    branches:
+      - work/2026-11-24-admin-center-041-rc4-exact-byte-acceptance
+    paths:
+      - .github/workflows/admin-center-041-rc4-exact-byte-acceptance.yml
+      - packages/t3-core/tests/g4-installed-original-center-first-use.ps1
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: admin-center-041-rc4-exact-byte-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  exact-installed-original:
+    runs-on: windows-2022
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Retrieve the already built original T3 Setup Core, not a new build
+        uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/knowledge
+          run-id: 45353153749
+          artifact-ids: 14901333023
+          github-token: ${{ github.token }}
+          path: .candidate-04
+      - name: Verify immutable RC4 candidate and install on a clean Windows runner
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference='Stop'
+          $setup=(Resolve-Path '.candidate-04/IWXA-Admin-Center-0.4.1-Setup.exe').Path
+          $actual=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected='3754fc356c1eabe21a154bb69366e58590f73f6edbb132e343c70138da57ebc2'
+          if($actual -cne $expected -or (Get-Item $setup).Length -ne 137030965){
+            throw 'RC4_EXACT_CANDIDATE_BYTES_CHANGED'
+          }
+          if((Get-Content '.candidate-04/SHA256SUMS.txt' -Raw).Trim() -cne ($actual+' *IWXA-Admin-Center-0.4.1-Setup.exe')){
+            throw 'RC4_EXACT_CANDIDATE_MANIFEST_MISMATCH'
+          }
+          $test=(Resolve-Path 'packages/t3-core/tests/g4-installed-original-center-first-use.ps1').Path
+          $tokens=$null;$errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($test,[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -ne 0){throw 'RC4_UIA_SOURCE_SYNTAX_INVALID'}
+          Write-Host 'RC4_EXACT_CENTER_20993BE_ORIGINAL_T3_790C9DD_SHA256_PASS'
+          $receipt=Join-Path $env:RUNNER_TEMP 'rc4-exact-install-receipt.json'
+          $p=Start-Process -FilePath $setup -ArgumentList ('--install-file "{0}"' -f $receipt) -PassThru
+          if(!$p.WaitForExit(120000) -or $p.ExitCode -ne 0){throw 'RC4_EXACT_INSTALL_FAILED'}
+          $r=Get-Content $receipt -Raw|ConvertFrom-Json
+          if($r.status -ne 'INSTALLED_NOT_LAUNCHED' -or $r.product -ne 'iwxa.admin-center' -or $r.version -ne '0.4.1'){
+            throw 'RC4_EXACT_INSTALL_RECEIPT_INVALID'
+          }
+          $root=[IO.Path]::GetFullPath([string]$r.installRoot)
+          $registered=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center'
+          if([IO.Path]::GetFullPath([string]$registered.InstallLocation) -cne $root -or $registered.Version -ne '0.4.1'){
+            throw 'RC4_EXACT_INSTALL_REGISTRY_INVALID'
+          }
+          foreach($f in @('iwxa-admin-center.exe','t3/iwxa-t3-product-owner.exe','t3/iwxa-t3-product-consumer.exe','t3/iwxa-t3-age-desktop.exe','t3/age.exe','t3/age-keygen.exe','t3/one-dist/_iwxa/loader.js','t3/one-dist/_iwxa/runtime/0.3.6/runtime.js')){
+            if(!(Test-Path -LiteralPath (Join-Path $root $f) -PathType Leaf)){throw 'RC4_EXACT_INSTALL_COMPONENT_MISSING'}
+          }
+          "G4_INSTALLED_CENTER_ROOT=$root"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'RC4_EXACT_SETUP_CORE_ORIGINAL_T3_INSTALLED_PASS'
+      - name: Real native first use, original registry, cold D2 read and 15 focused routes
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./packages/t3-core/tests/g4-installed-original-center-first-use.ps1 -InstallRoot $env:G4_INSTALLED_CENTER_ROOT -RequireD2Read -RequireOriginalEmployeeRegistry -RequireV8Routes
+          if($LASTEXITCODE -ne 0){throw 'RC4_EXACT_NATIVE_UIA_E2E_FAILED'}
+          Write-Host 'RC4_EXACT_ORIGINAL_T3_D2_D3_V8_ACCEPTANCE_PASS'

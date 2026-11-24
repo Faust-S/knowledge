@@ -90,14 +90,36 @@ function DesktopRoot(){
   Check ($handle -ne [IntPtr]::Zero) 'G4_INSTALLED_FIRST_USE_HANDLE_MISSING'
   return [System.Windows.Automation.AutomationElement]::FromHandle($handle)
 }
+# UIA elements can become obsolete during React/Win32 transitions.
+# Reacquire only the READ snapshot. Never replay a physical click, native
+# confirmation, initialization or any signed operation on UIA errors.
+function IsUiaElementUnavailable([System.Exception]$exception){
+  for($e=$exception;$null -ne $e;$e=$e.InnerException){
+    if($e -is [System.Windows.Automation.ElementNotAvailableException] -or
+       $e.HResult -eq -2147220991){return $true}
+  }
+  return $false
+}
+function ReadUiaDescendants([System.Windows.Automation.Condition]$condition){
+  for($attempt=0;$attempt -lt 12;$attempt++){
+    try{
+      $root=DesktopRoot
+      $nodes=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)
+      return ,$nodes
+    }catch{
+      if(-not (IsUiaElementUnavailable $_.Exception)){throw}
+      if($attempt -eq 0){Write-Host "G4_INSTALLED_UIA_READ_SNAPSHOT_REACQUIRE $($script:phase)"}
+      Start-Sleep -Milliseconds 250
+    }
+  }
+  throw ('G4_INSTALLED_UIA_READ_SNAPSHOT_UNAVAILABLE_'+$script:phase)
+}
 function FindName([string]$name,[string]$controlType='Button',[int]$retries=65){
   $target=if($controlType -eq 'Edit') {
     [System.Windows.Automation.ControlType]::Edit
   }else{[System.Windows.Automation.ControlType]::Button}
   for($i=0;$i -lt $retries;$i++){
-    $root=DesktopRoot
-    $items=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-      [System.Windows.Automation.PropertyCondition]::new(
+    $items=ReadUiaDescendants ([System.Windows.Automation.PropertyCondition]::new(
         [System.Windows.Automation.AutomationElement]::NameProperty,$name))
     foreach($item in $items){
       try{if($item.Current.ControlType -eq $target){return $item}}catch{}
@@ -163,13 +185,22 @@ function TypeText([string]$label,[string]$value){
   throw 'G4_INSTALLED_FIRST_USE_NATIVE_EDIT_VALUE_NOT_ACKNOWLEDGED'
 }
 function HasText([string]$fragment){
-  $root=DesktopRoot
-  $elements=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.Condition]::TrueCondition)
-  foreach($element in $elements){
-    try{if(([string]$element.Current.Name).Contains($fragment)){return $true}}catch{}
+  for($attempt=0;$attempt -lt 12;$attempt++){
+    $elements=ReadUiaDescendants ([System.Windows.Automation.Condition]::TrueCondition)
+    $stale=$false
+    foreach($element in $elements){
+      try{if(([string]$element.Current.Name).Contains($fragment)){return $true}}
+      catch{
+        if(-not (IsUiaElementUnavailable $_.Exception)){throw}
+        $stale=$true
+      }
+    }
+    # An absent label must be established on a readable tree. An obsolete
+    # element does not prove that a forbidden or required action is absent.
+    if(-not $stale){return $false}
+    Start-Sleep -Milliseconds 180
   }
-  return $false
+  throw ('G4_INSTALLED_UIA_TEXT_SNAPSHOT_UNAVAILABLE_'+$script:phase)
 }
 function WaitForText([string]$fragment,[int]$maxPolls=55){
   for($poll=0;$poll -lt $maxPolls;$poll++){
@@ -248,9 +279,7 @@ function QualifyV8OriginalRoutes(){
 function NativeD2BoundedRefusal(){
   # UI Automation reads only the installed public UI. Never print source
   # rows, object metadata, private Native Owner stderr, or user content.
-  $root=DesktopRoot
-  $found=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.Condition]::TrueCondition)
+  $found=ReadUiaDescendants ([System.Windows.Automation.Condition]::TrueCondition)
   foreach($element in $found){
     try{
       $name=[string]$element.Current.Name
@@ -291,9 +320,7 @@ function NativeD2RefusalStage(){
 function DiagnoseOriginalEmployeeRegistryReadOnlyFailure(){
   # Inspect only bounded public error codes, never original signed content.
   $codes=[System.Collections.Generic.HashSet[string]]::new()
-  $nodes=(DesktopRoot).FindAll(
-    [System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.Condition]::TrueCondition)
+  $nodes=ReadUiaDescendants ([System.Windows.Automation.Condition]::TrueCondition)
   foreach($node in $nodes){
     try{
       $label=[string]$node.Current.Name
@@ -408,9 +435,7 @@ function OriginalSignedKernelReadTimedOut(){
   # Inspect only the existing bounded machine code from the signed UI gate.
   # A revoked grant, foreign Workspace or definitive T2 absence is NOT a
   # transport timeout and must never initiate a new signed session.
-  $all=(DesktopRoot).FindAll(
-    [System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.Condition]::TrueCondition)
+  $all=ReadUiaDescendants ([System.Windows.Automation.Condition]::TrueCondition)
   foreach($item in $all){
     try{
       $label=[string]$item.Current.Name
@@ -458,9 +483,7 @@ function EnsureOriginalSignedWorkspaceProvisioned([bool]$allowCreate=$true){
       # A read timeout is neither a rejected signed DATA right nor proof of a
       # missing Workspace. Distinguish it from a definitive denial using only
       # the same bounded UIA code emitted by the existing signed gate.
-      $root=DesktopRoot
-      $nodes=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-        [System.Windows.Automation.Condition]::TrueCondition)
+      $nodes=ReadUiaDescendants ([System.Windows.Automation.Condition]::TrueCondition)
       $readTimedOut=$false
       foreach($node in $nodes){
         try{
@@ -692,10 +715,7 @@ function ClickNativeChoice([bool]$confirm,[string]$title='IWXA T3: подклю�
 function DiagnoseSignedOwner(){
   # Emit bounded machine codes only. Organization names, user data,
   # vault files, private paths and raw UI text MUST NOT be logged.
-  $root=DesktopRoot
-  $all=$root.FindAll(
-    [System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.Condition]::TrueCondition)
+  $all=ReadUiaDescendants ([System.Windows.Automation.Condition]::TrueCondition)
   $codes=New-Object System.Collections.Generic.HashSet[string]
   foreach($item in $all){
     try {
