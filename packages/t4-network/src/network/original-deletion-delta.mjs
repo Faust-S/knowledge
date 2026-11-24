@@ -1,4 +1,7 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
+import {digestT4OriginalObjectContent} from './original-object-delta.mjs';
+import {readT4OriginalObjectDeletionReview,readT4OriginalObjectDeletionCoverage}
+  from './original-object-delete-preflight.mjs';
 import {readT4OriginalEventWindow,verifyT4OriginalRecipientAcknowledgement}
   from './original-event-window.mjs';
 
@@ -10,7 +13,7 @@ const fail=(code,details)=>{throw new T4OriginalDeletionError(code,details);};
 const ID=s=>typeof s==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(s);
 const HASH=s=>typeof s==='string'&&/^sha256:[a-f0-9]{64}$/.test(s);
 const SHA=s=>typeof s==='string'&&/^[a-f0-9]{64}$/.test(s);
-const KINDS=new Set(['RELATION_DELETE','ASSET_DELETE']);
+const KINDS=new Set(['RELATION_DELETE','ASSET_DELETE','OBJECT_DELETE']);
 const SCHEMA='IWXA_T4_ORIGINAL_DELETE_DELTA_V1';
 const PROPERTIES=['schema','kind','workspaceId','originalWriteOwnerRef',
   'captureRef','preImage','preImageDigest','sourceEventId','sourceEventDigest',
@@ -29,7 +32,38 @@ const sameKeys=(o,keys)=>o&&typeof o==='object'&&!Array.isArray(o)&&
   Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
 const RELATION_PROPS=['relationId','fromObjectId','toObjectId','relationKind'];
 const ASSET_PROPS=['assetId','objectId','mime','revision','size','assetBytesSha256'];
+const OBJECT_PROPS=['objectId','schemaId','schemaVersion','revision','objectContentDigest',
+  'dependencyPolicy'];
+const deleteSubjectId=(kind,pre)=>kind==='ASSET_DELETE'?pre.assetId:
+  kind==='RELATION_DELETE'?pre.relationId:pre.objectId;
+const deleteObjectId=(kind,pre)=>kind==='RELATION_DELETE'?pre.fromObjectId:pre.objectId;
+export const t4OriginalDeletedSubjectRevision=d=>d.kind==='OBJECT_DELETE'?
+  d.preImage.revision+1:null;
+const objectContent=o=>digestT4OriginalObjectContent({schemaId:o.schema_id,
+  schemaVersion:o.schema_version,data:o.data,extensions:o.extensions??{}});
+const emptyRelations=row=>Array.isArray(row?.relations?.incoming)&&
+  Array.isArray(row?.relations?.outgoing)&&!row.relations.incoming.length&&
+  !row.relations.outgoing.length;
+function objectPreImage(row,ws,id){
+  const o=row?.object;
+  if(o?.workspace_id!==ws||o.object_id!==id||o.deleted===true||o.deleted_at!==undefined||
+    !emptyRelations(row))fail('DELETE_ORIGINAL_OBJECT_NOT_ISOLATED_OR_LIVE');
+  const pre={objectId:id,schemaId:o.schema_id,schemaVersion:o.schema_version,
+    revision:o.revision,objectContentDigest:objectContent(o),dependencyPolicy:'ISOLATED_ONLY'};
+  if(!validPreImage('OBJECT_DELETE',pre))fail('DELETE_ORIGINAL_PREIMAGE_INVALID');
+  return pre;
+}
+function objectTombstoneMatches(row,ws,pre){
+  const o=row?.object;
+  return o?.workspace_id===ws&&o.object_id===pre.objectId&&o.deleted===true&&
+    o.revision===pre.revision+1&&o.schema_id===pre.schemaId&&o.schema_version===pre.schemaVersion&&
+    emptyRelations(row)&&objectContent(o)===pre.objectContentDigest;
+}
 function validPreImage(kind,pre){
+  if(kind==='OBJECT_DELETE')
+    return sameKeys(pre,OBJECT_PROPS)&&[pre.objectId,pre.schemaId,pre.schemaVersion].every(ID)&&
+      Number.isSafeInteger(pre.revision)&&pre.revision>=1&&pre.revision<Number.MAX_SAFE_INTEGER&&
+      HASH(pre.objectContentDigest)&&pre.dependencyPolicy==='ISOLATED_ONLY';
   if(kind==='RELATION_DELETE'){
     return sameKeys(pre,RELATION_PROPS)&&RELATION_PROPS.every(k=>ID(pre[k]))&&
       pre.fromObjectId!==pre.toObjectId;
@@ -74,6 +108,7 @@ export function decodeT4OriginalDeleteDeltaBytes(bytes){
   return exact;
 }
 function sourceRecord(record,kind,workspaceId,subjectId,objectId){
+  if(kind==='OBJECT_DELETE')return objectPreImage(record,workspaceId,subjectId);
   if(kind==='RELATION_DELETE'){
     const link=record?.relations?.outgoing?.find(r=>r.relation_id===subjectId);
     if(!link||link.workspace_id!==workspaceId||
@@ -101,14 +136,16 @@ function sourceRecord(record,kind,workspaceId,subjectId,objectId){
   }
   fail('DELETE_KIND_NOT_SUPPORTED');
 }
-const originalOperations=kind=>kind==='RELATION_DELETE'?
+const originalOperations=kind=>kind==='OBJECT_DELETE'?
+  {read:'t1.getObject',write:'t1.deleteObject'}:kind==='RELATION_DELETE'?
   {read:'t1.getObject',write:'t1.deleteRelation'}:
   {read:'t1.getAsset',write:'t1.deleteAsset'};
 async function readSource(kernel,kind,ws,subjectId,objectId){
-  return kind==='RELATION_DELETE'?
+  return kind==='OBJECT_DELETE'?kernel.getObject(ws,subjectId):kind==='RELATION_DELETE'?
     kernel.getObject(ws,objectId):kernel.getAsset(ws,subjectId);
 }
-function isGone(kind,record,subjectId){
+function isGone(kind,record,subjectId,workspaceId,pre){
+  if(kind==='OBJECT_DELETE')return objectTombstoneMatches(record,workspaceId,pre);
   return kind==='RELATION_DELETE'?
     !!record?.object&&record.object.deleted!==true&&
     Array.isArray(record?.relations?.outgoing)&&
@@ -116,7 +153,11 @@ function isGone(kind,record,subjectId){
     record===null;
 }
 function originalInput(kind,ws,subjectId,idempotencyKey,pre,trace={}){
-
+  if(kind==='OBJECT_DELETE')return {
+    workspace_id:ws,object_id:subjectId,base_revision:pre.revision,
+    event:{event_type:'iwxa.t4.original.source.object-deleted',
+      payload:{objectId:subjectId,...trace}},
+  };
   if(kind==='RELATION_DELETE')return{
     workspace_id:ws,relation_id:subjectId,
     event:{event_type:'iwxa.t4.original.source.relation-deleted',
@@ -131,8 +172,8 @@ function originalInput(kind,ws,subjectId,idempotencyKey,pre,trace={}){
   };
 }
 async function callDelete(kernel,kind,input){
-  return kind==='RELATION_DELETE'?
-    kernel.deleteRelation(input):kernel.deleteAsset(input);
+  return kind==='OBJECT_DELETE'?kernel.deleteObject(input):
+    kind==='RELATION_DELETE'?kernel.deleteRelation(input):kernel.deleteAsset(input);
 }
 function captureWitness({kind,workspaceId,originalWriteOwnerRef,
   captureRef,preImage,preImageDigest,sourceCursor,sourceEvent}){
@@ -151,6 +192,7 @@ function validateSourceEvent(event,key){
     !event.payload||typeof event.payload!=='object'||Array.isArray(event.payload)||
     Object.hasOwn(event.payload,'iwxa_t4_capture_ref')||
     Object.hasOwn(event.payload,'iwxa_t4_preimage_digest')||
+    Object.hasOwn(event.payload,'iwxa_t4_object_delete_intent')||
     wire(event).length>65536)
     fail('DELETE_ORIGINAL_SOURCE_MUTATION_EVENT_INVALID');
   return structuredClone(event);
@@ -159,18 +201,24 @@ export function originalT4DeletionCapturedEvent(capture){
   const pre=capture.preImage;
   if(capture.sourceEvent!==undefined){
     const event=validateSourceEvent(capture.sourceEvent,capture.sourceEvent.idempotency_key);
-    return {...event,payload:{...event.payload,...sourceTrace(capture)}};
+    const payload={...event.payload,...sourceTrace(capture)};
+    // Original deleteObject does not persist an Event.idempotency_key.
+    // Bind the durable intent in its actual domain payload instead.
+    if(capture.kind==='OBJECT_DELETE')
+      return {event_type:event.event_type,payload:{...payload,
+        iwxa_t4_object_delete_intent:event.idempotency_key}};
+    return {...event,payload};
   }
-  const id=capture.kind==='ASSET_DELETE'?pre.assetId:pre.relationId;
+  if(capture.kind==='OBJECT_DELETE')fail('DELETE_ORIGINAL_OBJECT_SOURCE_EVENT_REQUIRED');
+  const id=deleteSubjectId(capture.kind,pre);
   return originalInput(capture.kind,capture.workspaceId,id,capture.captureRef,
     pre,sourceTrace(capture)).event;
 }
 function sourceDeleteInput(capture){
   const pre=capture.preImage;
-  const id=capture.kind==='ASSET_DELETE'?pre.assetId:pre.relationId;
+  const id=deleteSubjectId(capture.kind,pre);
   const event=originalT4DeletionCapturedEvent(capture);
-  return {...originalInput(capture.kind,capture.workspaceId,id,event.idempotency_key,pre),
-    event};
+  return {...originalInput(capture.kind,capture.workspaceId,id,event.idempotency_key,pre),event};
 }
 export async function runT4OriginalSubjectMutationBoundary(port,proof,action){
   if(typeof port!=='function'||typeof action!=='function')
@@ -193,6 +241,9 @@ function sourceScope(params){
     originalKernel,authorizeOriginalRead,authorizeOriginalDelete,
     readOriginalPreDeleteWitness,readOriginalEvents,getMode}=params;
   if(!KINDS.has(kind))fail('DELETE_KIND_NOT_SUPPORTED');
+  if(kind==='OBJECT_DELETE'&&(params.nativeNetworkEvidence!==true||
+    typeof params.readOriginalDependencyCoverage!=='function'))
+    fail('DELETE_ORIGINAL_OBJECT_NATIVE_COVERAGE_REQUIRED');
   if(![workspaceId,originalWriteOwnerRef,subjectId,sourceIdempotencyKey,captureRef].every(ID)||
     (kind==='RELATION_DELETE'&&!ID(objectId))||
     !originalKernel||typeof originalKernel.hasOperation!=='function'||
@@ -201,7 +252,7 @@ function sourceScope(params){
     fail('DELETE_ORIGINAL_SOURCE_PORTS_REQUIRED');
   const ops=originalOperations(kind);
   if(!originalKernel.hasOperation(ops.read)||!originalKernel.hasOperation(ops.write)||
-    typeof originalKernel[kind==='RELATION_DELETE'?'getObject':'getAsset']!=='function')
+    typeof originalKernel[ops.read.slice(3)]!=='function')
     fail('DELETE_ORIGINAL_SOURCE_OPERATIONS_REQUIRED');
   networkMode(getMode);
   const ctx=Object.freeze({kind,operation:ops.write,workspaceId,
@@ -244,17 +295,44 @@ function sourceScope(params){
       capture.storedInOriginalT3Required!==true||
       capture.networkIsNotAnOriginalGrant!==true||
       !validPreImage(kind,pre)||digest(pre)!==capture.preImageDigest||
-      (kind==='RELATION_DELETE'?
-        pre.relationId!==subjectId||pre.fromObjectId!==objectId:
-        pre.assetId!==subjectId||(objectId!=null&&pre.objectId!==objectId))||
+      deleteSubjectId(kind,pre)!==subjectId||
+      (objectId!=null&&deleteObjectId(kind,pre)!==objectId)||
+      (kind==='OBJECT_DELETE'&&capture.sourceEvent===undefined)||
       !Object.hasOwn(capture,'sourceCursor'))
       fail('DELETE_ORIGINAL_PREIMAGE_READBACK_FAILED');
     if(capture.sourceEvent!==undefined)
       validateSourceEvent(capture.sourceEvent,sourceIdempotencyKey);
     return captureWitness({...capture});
   }
+  let mutationCoverage=null;
   async function verifyNativeState(pre,absent){
     if(params.nativeNetworkEvidence!==true)return;
+    if(kind==='OBJECT_DELETE'){
+      const reviewArgs={workspaceId,objectId:subjectId,originalWriteOwnerRef,
+        expectedBaseRevision:pre.revision,originalKernel,
+        authorizeOriginalRead,authorizeOriginalDelete,
+        readOriginalDependencyCoverage:params.readOriginalDependencyCoverage,getMode,
+        requireWorkspaceMutationBoundary:true};
+      const coverage=await readT4OriginalObjectDeletionCoverage(reviewArgs);
+      if(mutationCoverage&&!snapshotEqual(mutationCoverage,coverage))
+        fail('DELETE_ORIGINAL_OBJECT_MUTATION_COVERAGE_CHANGED');
+      mutationCoverage=coverage;
+      if(absent){
+        if(!objectTombstoneMatches(await read(),workspaceId,pre))
+          fail('DELETE_ORIGINAL_OBJECT_TOMBSTONE_MISMATCH');
+        // listAssets on a tombstone hides the old assets. The prior live
+        // isolated proof and original exclusive mutation boundary matter.
+      }else{
+        const review=await readT4OriginalObjectDeletionReview(reviewArgs);
+        if(review.state!=='ISOLATED_ORIGINAL_OBJECT'||
+          review.originalAccessRef!==coverage.originalAccessRef||
+          review.originalHostSessionRef!==coverage.hostSessionRef||
+          review.originalMutationBoundaryRef!==coverage.originalMutationBoundaryRef||
+          !snapshotEqual({...review.object,dependencyPolicy:'ISOLATED_ONLY'},pre))
+          fail('DELETE_ORIGINAL_OBJECT_DEPENDENCIES_REQUIRE_EXPLICIT_MUTATIONS');
+      }
+      return;
+    }
     if(originalKernel.hasOperation('t1.getObject')!==true||
       typeof originalKernel.getObject!=='function')
       fail('DELETE_NATIVE_ORIGINAL_READ_PORTS_REQUIRED');
@@ -286,23 +364,27 @@ async function finishOriginalSourceDeletion(params,scope,capture,receipt){
   const {kind,workspaceId,originalWriteOwnerRef,subjectId,sourceIdempotencyKey}=params;
   const {guard,read,readEvents,windowFrom}=scope;
   const stream=await readEvents();
-  const matches=stream.filter(e=>e?.idempotency_key===sourceIdempotencyKey);
+  const matches=stream.filter(e=>kind==='OBJECT_DELETE'?
+    e?.payload?.iwxa_t4_object_delete_intent===sourceIdempotencyKey:
+    e?.idempotency_key===sourceIdempotencyKey);
   if(matches.length!==1)
     fail('DELETE_ORIGINAL_SOURCE_EVENT_NOT_PROVEN',{matchingEventCount:matches.length});
   const event=matches[0],pre=capture.preImage;
   const expected=originalT4DeletionCapturedEvent(capture);
-  const originalObjectId=kind==='RELATION_DELETE'?pre.fromObjectId:pre.objectId;
+  const originalObjectId=deleteObjectId(kind,pre);
   if(!ID(event.event_id)||event.workspace_id!==workspaceId||
     event.event_type!==expected.event_type||
     (event.object_id!=null&&event.object_id!==originalObjectId&&event.object_id!==subjectId)||
     !snapshotEqual(event.payload,expected.payload)||
+    (kind==='OBJECT_DELETE'&&(event.object_id!==subjectId||
+      event.revision!==pre.revision+1))||
     (receipt!==null&&receipt.event.event_id!==event.event_id))
     fail('DELETE_ORIGINAL_SOURCE_EVENT_SCOPE_MISMATCH');
   const observed=await windowFrom(capture.sourceCursor,stream);
   if(observed.window.count!==1||
     observed.window.lastEventId!==event.event_id||observed.window.hasMore)
     fail('DELETE_ORIGINAL_EVENT_WINDOW_UNCERTAIN');
-  if(!isGone(kind,await read(),subjectId))
+  if(!isGone(kind,await read(),subjectId,workspaceId,pre))
     fail('DELETE_ORIGINAL_SOURCE_READBACK_FAILED');
   await scope.verifyNativeState(pre,true);
   // A concurrent Event append or scope change must not be hidden by a
@@ -333,7 +415,7 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
   const scope=sourceScope(params);
   const {lookup,guard,read,readEvents,windowFrom,verifyCapture,ops}=scope;
   if(typeof persistOriginalPreDeleteWitness!=='function'||
-    typeof originalKernel[kind==='RELATION_DELETE'?'deleteRelation':'deleteAsset']!=='function')
+    typeof originalKernel[ops.write.slice(3)]!=='function')
     fail('DELETE_ORIGINAL_SOURCE_PORTS_REQUIRED');
   await guard(ops.read);
   const existing=await readOriginalPreDeleteWitness(lookup);
@@ -341,7 +423,8 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
     fail('DELETE_ORIGINAL_SOURCE_CAPTURE_ALREADY_USED',{captureRef:sourceIdempotencyKey,
       automaticRetryAllowed:false});
   const initialEvents=await readEvents();
-  if(initialEvents.some(e=>e?.idempotency_key===sourceIdempotencyKey))
+  if(initialEvents.some(e=>e?.idempotency_key===sourceIdempotencyKey||
+    (kind==='OBJECT_DELETE'&&e?.payload?.iwxa_t4_object_delete_intent===sourceIdempotencyKey)))
     fail('DELETE_ORIGINAL_SOURCE_EVENT_KEY_ALREADY_USED');
   const priorWindow=await windowFrom(sourceCursor,initialEvents);
   if(priorWindow.window.count!==0)
@@ -350,8 +433,10 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
   const preImage=sourceRecord(state,kind,workspaceId,subjectId,params.objectId);
   const preImageDigest=digest(preImage);
   if(expectedBaseRevision!==undefined&&
-    (kind!=='ASSET_DELETE'||expectedBaseRevision!==preImage.revision))
+    (!['ASSET_DELETE','OBJECT_DELETE'].includes(kind)||expectedBaseRevision!==preImage.revision))
     fail('DELETE_ORIGINAL_SOURCE_PREIMAGE_CHANGED');
+  if(kind==='OBJECT_DELETE'&&(sourceEvent===undefined||expectedBaseRevision===undefined))
+    fail('DELETE_ORIGINAL_OBJECT_SOURCE_EVENT_REQUIRED');
   if(sourceEvent!==undefined)validateSourceEvent(sourceEvent,sourceIdempotencyKey);
   await scope.verifyNativeState(preImage,false);
   const capture=captureWitness({kind,workspaceId,originalWriteOwnerRef,
@@ -370,7 +455,8 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
     fail('DELETE_ORIGINAL_SOURCE_PREIMAGE_CHANGED');
   await scope.verifyNativeState(preImage,false);
   const beforeEvents=await readEvents();
-  if(beforeEvents.some(e=>e?.idempotency_key===sourceIdempotencyKey))
+  if(beforeEvents.some(e=>e?.idempotency_key===sourceIdempotencyKey||
+    (kind==='OBJECT_DELETE'&&e?.payload?.iwxa_t4_object_delete_intent===sourceIdempotencyKey)))
     fail('DELETE_ORIGINAL_SOURCE_EVENT_KEY_ALREADY_USED');
   const beforeWrite=await windowFrom(sourceCursor,beforeEvents);
   if(beforeWrite.window.count!==0)
@@ -387,7 +473,9 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
   }
   if(!ID(result?.event?.event_id)||
     (kind==='RELATION_DELETE'&&result.relation_id!==subjectId)||
-    (kind==='ASSET_DELETE'&&result.asset_id!==subjectId))
+    (kind==='ASSET_DELETE'&&result.asset_id!==subjectId)||
+    (kind==='OBJECT_DELETE'&&(result.object?.object_id!==subjectId||
+      result.object.deleted!==true||result.object.revision!==preImage.revision+1)))
     fail('DELETE_ORIGINAL_SOURCE_RECEIPT_INVALID');
   return finishOriginalSourceDeletion(params,scope,capture,result);
 }
@@ -408,6 +496,7 @@ export async function publishT4OriginalDeleteDelta({prepared,transport}={}){
   if(!prepared||typeof transport?.putSnapshot!=='function')
     fail('DELETE_TRANSPORT_REQUIRED');
   const exact=validateEnvelope(prepared.delta);
+  if(exact.delta.kind==='OBJECT_DELETE')fail('DELETE_ORIGINAL_OBJECT_REQUIRES_NATIVE_NETWORK');
   if(exact.sha256!==prepared.sha256||exact.key!==prepared.key)
     fail('DELETE_PREPARED_MISMATCH');
   const receipt=await transport.putSnapshot({
@@ -438,15 +527,16 @@ export async function fetchT4OriginalDeleteDelta({
 }
 // The native route is deliberately distinct from a transport receipt, but
 // shares the existing deletion codec and original Kernel write.
-const nativeEventType=kind=>kind==='ASSET_DELETE'?
-  'iwxa.t4.original-asset.deleted':'iwxa.t4.original-relation.deleted';
-const deletedSubjectId=d=>d.kind==='ASSET_DELETE'?d.preImage.assetId:d.preImage.relationId;
-const deletedObjectId=d=>d.kind==='ASSET_DELETE'?d.preImage.objectId:d.preImage.fromObjectId;
+const nativeEventType=kind=>kind==='OBJECT_DELETE'?'iwxa.t4.original-object.deleted':
+  kind==='ASSET_DELETE'?'iwxa.t4.original-asset.deleted':'iwxa.t4.original-relation.deleted';
+const deletedSubjectId=d=>deleteSubjectId(d.kind,d.preImage);
+const deletedObjectId=d=>deleteObjectId(d.kind,d.preImage);
 export function digestT4OriginalDeletedSubjectState(delta){
   const d=validateEnvelope(delta).delta;
   return digest({schema:'IWXA_T4_ORIGINAL_DELETED_SUBJECT_STATE_V1',
     kind:d.kind,workspaceId:d.workspaceId,subjectId:deletedSubjectId(d),
-    preImageDigest:d.preImageDigest,deleted:true});
+    preImageDigest:d.preImageDigest,deleted:true,
+    ...(d.kind==='OBJECT_DELETE'?{tombstoneRevision:t4OriginalDeletedSubjectRevision(d)}:{})});
 }
 function nativeDeletionPayload(d,sha256){
   return Object.freeze({
@@ -471,7 +561,9 @@ export function verifyT4OriginalNativeDeletionEvent(event,scope={}){
     d.originalWriteOwnerRef!==scope.originalWriteOwnerRef||id!==scope.subjectId||
     !ID(event.event_id)||event.workspace_id!==d.workspaceId||
     event.event_type!==nativeEventType(d.kind)||
-    event.idempotency_key!=='t4-delete-'+exact.sha256||
+    (d.kind==='OBJECT_DELETE'?
+      (event.revision!==t4OriginalDeletedSubjectRevision(d)||event.object_id!==id):
+      event.idempotency_key!=='t4-delete-'+exact.sha256)||
     (event.revision!=null&&(!Number.isSafeInteger(event.revision)||event.revision<0))||
     (event.object_id!=null&&event.object_id!==deletedObjectId(d)&&event.object_id!==id)||
     !snapshotEqual(event.payload,nativeDeletionPayload(d,exact.sha256)))
@@ -484,13 +576,17 @@ function nativeDeletionInput(d,sha256){
   return {...input,event:{...input.event,event_type:nativeEventType(d.kind),
     payload:nativeDeletionPayload(d,sha256)}};
 }
-function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode){
+function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode,
+  readOriginalDependencyCoverage,requireWorkspaceMutationBoundary=false){
   const exact=received?.delta&&validateEnvelope(received.delta);
   if(!exact||exact.key!==received.key||exact.sha256!==received.sha256)
     fail('DELETE_RECEIVED_MISMATCH');
   const d=exact.delta,pre=d.preImage,subjectId=deletedSubjectId(d);
   const ops=['t1.getObject','t1.listEventsSince',
-    ...(d.kind==='ASSET_DELETE'?['t1.getAsset']:[])];
+    ...(d.kind==='ASSET_DELETE'?['t1.getAsset']:[]),
+    ...(d.kind==='OBJECT_DELETE'?['t1.listAssets']:[])];
+  if(d.kind==='OBJECT_DELETE'&&typeof readOriginalDependencyCoverage!=='function')
+    fail('DELETE_ORIGINAL_OBJECT_NATIVE_COVERAGE_REQUIRED');
   if(typeof authorizeOriginalRead!=='function'||typeof getMode!=='function'||
     !ops.every(op=>originalKernel?.hasOperation?.(op)===true&&
       typeof originalKernel[op.slice(3)]==='function'))
@@ -513,7 +609,36 @@ function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode
       fail('DELETE_NATIVE_ORIGINAL_ENDPOINT_MISSING');
     return row;
   }
+  let coverageWitness=null;
   async function readSubject(){
+    if(d.kind==='OBJECT_DELETE'){
+      const opts={workspaceId:d.workspaceId,objectId:subjectId,
+        originalWriteOwnerRef:d.originalWriteOwnerRef,expectedBaseRevision:pre.revision,
+        readOriginalDependencyCoverage,getMode,requireWorkspaceMutationBoundary};
+      const coverage=await readT4OriginalObjectDeletionCoverage(opts);
+      if(coverageWitness&&!snapshotEqual(coverageWitness,coverage))
+        fail('DELETE_ORIGINAL_OBJECT_MUTATION_COVERAGE_CHANGED');
+      coverageWitness=coverage;
+      await guard('t1.getObject');
+      const row=await originalKernel.getObject(d.workspaceId,subjectId);
+      await guard('t1.getObject');
+      if(row?.object?.deleted===true){
+        if(!objectTombstoneMatches(row,d.workspaceId,pre))
+          fail('DELETE_ORIGINAL_OBJECT_TOMBSTONE_MISMATCH');
+        return null;
+      }
+      // Original read coverage and permission must cover dependencies;
+      // read-only result inspection never grants the mutation itself.
+      const observed=objectPreImage(row,d.workspaceId,subjectId);
+      await guard('t1.listAssets');
+      const assets=await originalKernel.listAssets({workspace_id:d.workspaceId,object_id:subjectId});
+      await guard('t1.listAssets');
+      if(!Array.isArray(assets)||assets.length)
+        fail('DELETE_ORIGINAL_OBJECT_DEPENDENCIES_REQUIRE_EXPLICIT_MUTATIONS');
+      if(!snapshotEqual(coverage,await readT4OriginalObjectDeletionCoverage(opts)))
+        fail('DELETE_ORIGINAL_OBJECT_MUTATION_COVERAGE_CHANGED');
+      return observed;
+    }
     const owner=await object(deletedObjectId(d));
     if(d.kind==='ASSET_DELETE'){
       await guard('t1.getAsset');
@@ -540,14 +665,19 @@ function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode
     if(!Array.isArray(events)||events.length>100000)
       fail('DELETE_ORIGINAL_EVENT_HISTORY_INVALID');
     const input=nativeDeletionInput(d,exact.sha256);
-    return events.filter(e=>e?.idempotency_key===input.event.idempotency_key||
-      (e?.event_type===input.event.event_type&&e?.payload?.originalEventId===d.sourceEventId));
+    return events.filter(e=>(d.kind!=='OBJECT_DELETE'&&
+      e?.idempotency_key===input.event.idempotency_key)||
+      (e?.event_type===input.event.event_type&&
+        (e?.payload?.originalEventId===d.sourceEventId||
+         e?.payload?.originalDeltaSha256===exact.sha256)));
   }
   function verifyEvent(event){
     const input=nativeDeletionInput(d,exact.sha256);
     return ID(event?.event_id)&&event.workspace_id===d.workspaceId&&
       event.event_type===input.event.event_type&&
-      event.idempotency_key===input.event.idempotency_key&&
+      (d.kind==='OBJECT_DELETE'?
+        event.object_id===subjectId&&event.revision===t4OriginalDeletedSubjectRevision(d):
+        event.idempotency_key===input.event.idempotency_key)&&
       (event.object_id==null||event.object_id===deletedObjectId(d)||event.object_id===subjectId)&&
       snapshotEqual(event.payload,input.event.payload);
   }
@@ -557,9 +687,11 @@ function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode
  * is NOT success. A re-created subject is also NOT this deletion result.
  */
 export async function inspectT4OriginalNativeDeletionResult({
-  received,originalKernel,authorizeOriginalRead,getMode,
+  received,originalKernel,authorizeOriginalRead,getMode,readOriginalDependencyCoverage,
+  requireWorkspaceMutationBoundary=false,
 }={}){
-  const c=nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode);
+  const c=nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode,
+    readOriginalDependencyCoverage,requireWorkspaceMutationBoundary);
   const {d,subjectId,readSubject,readMatches,verifyEvent}=c;
   const prior=await readSubject(),matches=await readMatches();
   if(matches.length>1)fail('DELETE_NATIVE_DUPLICATE_ORIGINAL_EVENTS');
@@ -579,19 +711,22 @@ export async function inspectT4OriginalNativeDeletionResult({
     fail('DELETE_NATIVE_ORIGINAL_RESULT_CHANGED_DURING_READ');
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
     state:'APPLIED_VERIFIED',originalSubjectKind:d.kind,originalSubjectId:subjectId,
-    originalRecipientEventId:event.event_id,originalRecipientRevision:null,
+    originalRecipientEventId:event.event_id,originalRecipientRevision:t4OriginalDeletedSubjectRevision(d),
     originalRecipientEventRevision:event.revision??null,
     originalRecipientStateDigest:digestT4OriginalDeletedSubjectState(d),
-    sourceEventId:d.sourceEventId,currentRecipientRevision:null,
+    sourceEventId:d.sourceEventId,currentRecipientRevision:t4OriginalDeletedSubjectRevision(d),
     originalBusinessApplied:true,actualOriginalT3EventReadback:true,
     actualOriginalT3SubjectReadback:true,actualOriginalT3DeletionReadback:true,
     actualOriginalT3AssetReadback:d.kind==='ASSET_DELETE',
     actualOriginalT3RelationReadback:d.kind==='RELATION_DELETE',
+    ...(d.kind==='OBJECT_DELETE'?{actualOriginalT3ObjectReadback:true,
+      actualOriginalT3TombstoneReadback:true,postTombstoneAssetAbsenceInferred:false}:{}),
     historicalReceiptFabricated:false});
 }
 export async function applyT4OriginalDeleteDelta({
   received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,
   getMode,nativeNetworkEvidence=false,authorizeOriginalRead,withOriginalSubjectMutation,
+  readOriginalDependencyCoverage,
 }={}){
   if(nativeNetworkEvidence){
     // No T4 lock or new Store. The original Host must hold the original
@@ -600,13 +735,16 @@ export async function applyT4OriginalDeleteDelta({
     if(typeof withOriginalSubjectMutation!=='function')
       fail('DELETE_NATIVE_ORIGINAL_MUTATION_BOUNDARY_REQUIRED');
     const args={received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,
-      getMode,nativeNetworkEvidence:true,authorizeOriginalRead};
-    const read=nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode);
+      getMode,nativeNetworkEvidence:true,authorizeOriginalRead,readOriginalDependencyCoverage};
+    const read=nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode,
+      readOriginalDependencyCoverage,true);
     const proof={operation:originalOperations(read.d.kind).write,
       workspaceId:read.d.workspaceId,subjectKind:read.d.kind,
       subjectId:read.subjectId,originalWriteOwnerRef:read.d.originalWriteOwnerRef,
       sourceEventId:read.d.sourceEventId,preImageDigest:read.d.preImageDigest,
-      originalHostMustSerializeSubjectMutations:true,networkIsNotOriginalGrant:true};
+      originalHostMustSerializeSubjectMutations:true,
+      ...(read.d.kind==='OBJECT_DELETE'?{originalHostMustSerializeAllWorkspaceGraphMutations:true}:{}),
+      networkIsNotOriginalGrant:true};
     return runT4OriginalSubjectMutationBoundary(withOriginalSubjectMutation,proof,
       ()=>applyOriginalDeleteCore(args));
   }
@@ -615,23 +753,25 @@ export async function applyT4OriginalDeleteDelta({
 }
 async function applyOriginalDeleteCore({
   received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,
-  getMode,nativeNetworkEvidence,authorizeOriginalRead,
+  getMode,nativeNetworkEvidence,authorizeOriginalRead,readOriginalDependencyCoverage,
 }){
   const exact=received?.delta&&validateEnvelope(received.delta);
   if(!exact||received.key!==exact.key||received.sha256!==exact.sha256)
     fail('DELETE_RECEIVED_MISMATCH');
   const d=exact.delta,pre=d.preImage;
+  if(d.kind==='OBJECT_DELETE'&&!nativeNetworkEvidence)
+    fail('DELETE_ORIGINAL_OBJECT_REQUIRES_NATIVE_NETWORK');
   const op=originalOperations(d.kind);
   if(typeof originalKernel?.hasOperation!=='function'||
     !originalKernel.hasOperation(op.read)||!originalKernel.hasOperation(op.write)||
-    typeof originalKernel[d.kind==='RELATION_DELETE'?'getObject':'getAsset']!=='function'||
-    typeof originalKernel[d.kind==='RELATION_DELETE'?'deleteRelation':'deleteAsset']!=='function'||
+    typeof originalKernel[op.read.slice(3)]!=='function'||
+    typeof originalKernel[op.write.slice(3)]!=='function'||
     typeof authorizeOriginalWrite!=='function'||
     typeof verifyOriginalSourceEvent!=='function')
     fail('DELETE_ORIGINAL_RECIPIENT_PORTS_REQUIRED');
   networkMode(getMode);
-  const subjectId=d.kind==='RELATION_DELETE'?pre.relationId:pre.assetId;
-  const fromId=d.kind==='RELATION_DELETE'?pre.fromObjectId:pre.objectId;
+  const subjectId=deletedSubjectId(d);
+  const fromId=deletedObjectId(d);
   const ctx=Object.freeze({operation:op.write,kind:d.kind,
     workspaceId:d.workspaceId,subjectId,originalWriteOwnerRef:d.originalWriteOwnerRef,
     sourceEventId:d.sourceEventId,preImageDigest:d.preImageDigest});
@@ -645,7 +785,8 @@ async function applyOriginalDeleteCore({
     fail('DELETE_ORIGINAL_SOURCE_EVENT_NOT_VERIFIED');
   if(nativeNetworkEvidence){
     const prior=await inspectT4OriginalNativeDeletionResult({
-      received,originalKernel,authorizeOriginalRead,getMode});
+      received,originalKernel,authorizeOriginalRead,getMode,readOriginalDependencyCoverage,
+      requireWorkspaceMutationBoundary:d.kind==='OBJECT_DELETE'});
     if(prior.state!=='NOT_APPLIED')fail('DELETE_NATIVE_ORIGINAL_RESULT_ALREADY_EXISTS');
   }
   const prior=await readSource(originalKernel,d.kind,d.workspaceId,subjectId,fromId);
@@ -653,7 +794,7 @@ async function applyOriginalDeleteCore({
   if(await authorizeOriginalWrite(ctx)!==true||
     await verifyOriginalSourceEvent(sourceProof)!==true)
     fail('DELETE_ORIGINAL_RECIPIENT_AUTHORITY_DENIED');
-  const absent=isGone(d.kind,prior,subjectId);
+  const absent=isGone(d.kind,prior,subjectId,d.workspaceId,pre);
   if(!absent){
     const actual=sourceRecord(prior,d.kind,d.workspaceId,subjectId,fromId);
     if(digest(actual)!==d.preImageDigest)
@@ -681,7 +822,9 @@ async function applyOriginalDeleteCore({
       originalReceiptMayExist:true,automaticRetryAllowed:false});
   if(!ID(receipt?.event?.event_id)||
     (d.kind==='RELATION_DELETE'&&receipt.relation_id!==subjectId)||
-    (d.kind==='ASSET_DELETE'&&receipt.asset_id!==subjectId))
+    (d.kind==='ASSET_DELETE'&&receipt.asset_id!==subjectId)||
+    (d.kind==='OBJECT_DELETE'&&(receipt.object?.object_id!==subjectId||
+      receipt.object.deleted!==true||receipt.object.revision!==pre.revision+1)))
     fail('DELETE_ORIGINAL_RECIPIENT_RECEIPT_INVALID');
   let current;
   try{current=await readSource(originalKernel,d.kind,d.workspaceId,subjectId,fromId);}
@@ -690,10 +833,11 @@ async function applyOriginalDeleteCore({
       originalReceiptMayExist:true,originalCode:error?.code??null,
       automaticRetryAllowed:false});
   }
-  if(!isGone(d.kind,current,subjectId))fail('DELETE_ORIGINAL_READBACK_NOT_REMOVED');
+  if(!isGone(d.kind,current,subjectId,d.workspaceId,pre))fail('DELETE_ORIGINAL_READBACK_NOT_REMOVED');
   if(nativeNetworkEvidence){
     const verified=await inspectT4OriginalNativeDeletionResult({
-      received,originalKernel,authorizeOriginalRead,getMode});
+      received,originalKernel,authorizeOriginalRead,getMode,readOriginalDependencyCoverage,
+      requireWorkspaceMutationBoundary:d.kind==='OBJECT_DELETE'});
     if(verified.state!=='APPLIED_VERIFIED'||verified.originalRecipientEventId!==receipt.event.event_id)
       fail('DELETE_NATIVE_ORIGINAL_RESULT_EVENT_OR_STATE_MISMATCH');
   }
@@ -723,6 +867,7 @@ export async function reconcileT4OriginalDeleteFromT3Event({
   if(!exact||received.key!==exact.key||received.sha256!==exact.sha256)
     fail('DELETE_RECEIVED_MISMATCH');
   const d=exact.delta,pre=d.preImage,ops=originalOperations(d.kind);
+  if(d.kind==='OBJECT_DELETE')fail('DELETE_ORIGINAL_OBJECT_REQUIRES_NATIVE_NETWORK');
   if(originalKernel?.hasOperation?.('t1.listEventsSince')!==true||
     originalKernel?.hasOperation?.(ops.read)!==true||
     typeof originalKernel.listEventsSince!=='function'||

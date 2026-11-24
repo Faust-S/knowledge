@@ -120,10 +120,44 @@ export async function inspectT4OriginalObjectDeletePreflight({
 // proof of complete visibility. Only the existing, trusted original owner
 // can attest the actual authorized unfiltered scope. This function cannot
 // elevate a passport or make an advisory read a mutation lock.
+export async function readT4OriginalObjectDeletionCoverage({
+  workspaceId,objectId,originalWriteOwnerRef,expectedBaseRevision,
+  readOriginalDependencyCoverage,getMode,requireWorkspaceMutationBoundary=false,
+}={}){
+  if(typeof getMode!=='function'||getMode()!=='T4_NETWORK')
+    fail('OBJECT_DELETE_T4_NETWORK_MODE_OFF');
+  if(typeof readOriginalDependencyCoverage!=='function'||
+    ![workspaceId,objectId,originalWriteOwnerRef].every(ID)||
+    !Number.isSafeInteger(expectedBaseRevision)||expectedBaseRevision<1)
+    fail('OBJECT_DELETE_COMPLETE_ORIGINAL_SCOPE_REQUIRED');
+  const c=await readOriginalDependencyCoverage(Object.freeze({
+    operation:'t4.original.object-delete.dependency-coverage',
+    workspaceId,objectId,originalWriteOwnerRef,expectedBaseRevision,
+    allIncidentRelationsAndLiveOwnedAssetsMustBeVisible:true,
+    originalWorkspaceGraphMutationExclusionRequired:requireWorkspaceMutationBoundary,
+    networkAuthorityDoesNotGrantOriginalDeletion:true,
+  }));
+  if(c?.schema!=='IWXA_T4_ORIGINAL_OBJECT_DELETE_COVERAGE_V1'||
+    c.workspaceId!==workspaceId||c.objectId!==objectId||
+    c.originalWriteOwnerRef!==originalWriteOwnerRef||
+    !ID(c.hostSessionRef)||!ID(c.originalAccessRef)||
+    c.allIncidentRelationsVisible!==true||c.allLiveOwnedAssetsVisible!==true||
+    c.completeOriginalAuthorityVerified!==true||
+    (requireWorkspaceMutationBoundary&&
+      (c.originalWorkspaceGraphMutationsExcluded!==true||!ID(c.originalMutationBoundaryRef))))
+    fail('OBJECT_DELETE_ORIGINAL_DEPENDENCY_VISIBILITY_UNPROVEN');
+  if(getMode()!=='T4_NETWORK')fail('OBJECT_DELETE_T4_NETWORK_MODE_OFF');
+  return Object.freeze({schema:c.schema,workspaceId,objectId,originalWriteOwnerRef,
+    hostSessionRef:c.hostSessionRef,originalAccessRef:c.originalAccessRef,
+    allIncidentRelationsVisible:true,allLiveOwnedAssetsVisible:true,
+    completeOriginalAuthorityVerified:true,
+    ...(requireWorkspaceMutationBoundary?{originalWorkspaceGraphMutationsExcluded:true,
+      originalMutationBoundaryRef:c.originalMutationBoundaryRef}:{})});
+}
 export async function readT4OriginalObjectDeletionReview({
   workspaceId,objectId,originalWriteOwnerRef,expectedBaseRevision,
   originalKernel,authorizeOriginalRead,authorizeOriginalDelete,
-  readOriginalDependencyCoverage,getMode,
+  readOriginalDependencyCoverage,getMode,requireWorkspaceMutationBoundary=false,
 }={}){
   if(![workspaceId,objectId,originalWriteOwnerRef].every(ID)||
     !Number.isSafeInteger(expectedBaseRevision)||expectedBaseRevision<1||
@@ -142,18 +176,9 @@ export async function readT4OriginalObjectDeletionReview({
   const mode=()=>{if(getMode()!=='T4_NETWORK')fail('OBJECT_DELETE_T4_NETWORK_MODE_OFF');};
   const checkCoverage=async()=>{
     mode();
-    const c=await readOriginalDependencyCoverage(ctx('t4.original.object-delete.dependency-coverage'));
-    if(c?.schema!=='IWXA_T4_ORIGINAL_OBJECT_DELETE_COVERAGE_V1'||
-      c.workspaceId!==workspaceId||c.objectId!==objectId||
-      c.originalWriteOwnerRef!==originalWriteOwnerRef||
-      !ID(c.hostSessionRef)||!ID(c.originalAccessRef)||
-      c.allIncidentRelationsVisible!==true||c.allLiveOwnedAssetsVisible!==true||
-      c.completeOriginalAuthorityVerified!==true)
-      fail('OBJECT_DELETE_ORIGINAL_DEPENDENCY_VISIBILITY_UNPROVEN');
-    const normalized={schema:c.schema,workspaceId:c.workspaceId,objectId:c.objectId,
-      originalWriteOwnerRef:c.originalWriteOwnerRef,hostSessionRef:c.hostSessionRef,
-      originalAccessRef:c.originalAccessRef,allIncidentRelationsVisible:true,
-      allLiveOwnedAssetsVisible:true,completeOriginalAuthorityVerified:true};
+    const normalized=await readT4OriginalObjectDeletionCoverage({
+      workspaceId,objectId,originalWriteOwnerRef,expectedBaseRevision,
+      readOriginalDependencyCoverage,getMode,requireWorkspaceMutationBoundary});
     if(originalCoverage!==null&&digest(normalized)!==digest(originalCoverage))
       fail('OBJECT_DELETE_ORIGINAL_DEPENDENCY_COVERAGE_CHANGED');
     originalCoverage=normalized;mode();
@@ -237,6 +262,8 @@ export async function readT4OriginalObjectDeletionReview({
     originalWriteOwnerRef,originalRevision:expectedBaseRevision,
     originalAccessRef:originalCoverage.originalAccessRef,
     originalHostSessionRef:originalCoverage.hostSessionRef,
+    ...(requireWorkspaceMutationBoundary?{originalMutationBoundaryRef:
+      originalCoverage.originalMutationBoundaryRef}:{}),
     state:count?'DEPENDENCIES_REQUIRE_EXPLICIT_MUTATIONS':'ISOLATED_ORIGINAL_OBJECT',
     reviewDigest:digest(before),originalCompleteDependencyVisibilityVerified:true,
     object:Object.freeze(before.object),
