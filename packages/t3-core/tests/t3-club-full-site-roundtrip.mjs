@@ -382,6 +382,98 @@ try{
  await readProfile(page,"RECIPIENT_OFFLINE_UPDATED_COLD",base.scope);
  check(await page.evaluate(()=>navigator.onLine===false),"OFFLINE_UPDATED_COLD_MODE");
  log("RECIPIENT_OFFLINE_UPDATED_COLD_KERNEL_READBACK");
+
+ // Actual dated commitments in the original weekly Result. Extend the
+ // already verified offline recipient profile, with no direct Store writes.
+ phase="OFFLINE_AGENDA_CREATE";
+ await visit(page,"/tools/action-route/?workspace_id="+encodeURIComponent(base.scope)+"#club-week-plan");
+ const weekForm=page.locator("form[data-club-week-form]");
+ const weekSummary=page.locator("[data-club-week-summary]");
+ await weekForm.waitFor({state:"visible"});
+ const dates=await page.evaluate(()=>{
+  const now=new Date(),local=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  const past=new Date(now),future=new Date(now);past.setDate(past.getDate()-10);future.setDate(future.getDate()+2);
+  return {today:local(now),past:local(past),future:local(future),weekday:(now.getDay()+6)%7};
+ });
+ const titles=["Проверить документы сегодня","Забрать заказ прошлой недели","Уточнить время встречи"];
+ const localWeek=()=>page.evaluate(()=>{
+  const rows=JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")||"null")?.objects?.filter(o=>o.objectId==="club-week-plan")||[];
+  return rows.length===1?rows[0]:null;
+ });
+ for(const [i,date] of [dates.today,dates.past,dates.future].entries()){
+  await weekForm.locator('[name="title"]').fill(titles[i]);
+  await weekForm.locator('[name="date"]').fill(date);
+  await weekForm.locator('[name="start"]').fill("10:00");
+  await weekForm.locator('[name="durationMinutes"]').fill(i===0?"90":"30");
+  await weekForm.locator("[data-club-week-save]").click();
+  await poll(async()=> (await localWeek())?.data?.personalWeekPlan?.slots?.length===i+1,"AGENDA_CREATE_SLOT");
+ }
+ const cap=page.locator("details").filter({has:page.locator("summary").filter({hasText:"Сколько времени я могу занять делами"})});
+ await cap.locator("summary").click();
+ await cap.locator('[data-club-day-capacity="'+dates.weekday+'"]').fill("1");
+ await cap.locator("[data-club-capacity-save]").click();
+ await poll(async()=> (await localWeek())?.data?.personalWeekPlan?.dailyCapacityMinutes?.[dates.weekday]===60,"AGENDA_CAPACITY");
+ const weekBefore=await localWeek();
+ check(weekBefore.data.personalWeekPlan.slots.length===3,"AGENDA_THREE_SLOTS");
+ log("OFFLINE_AGENDA_ORIGINAL_FORM_CREATED");
+ phase="OFFLINE_AGENDA_HOME";
+ await visit(page,"/");
+ const homeAgenda=page.locator("[data-club-today-actions]");
+ await homeAgenda.getByText(titles[1],{exact:true}).waitFor({state:"visible"});
+ check((await homeAgenda.textContent()).includes(titles[0])&&(await homeAgenda.textContent()).includes(titles[2]),"HOME_AGENDA_THREE_GROUPS");
+ const oldSlot=weekBefore.data.personalWeekPlan.slots.find(s=>s.title===titles[1]);
+ const oldCard=homeAgenda.locator("article").filter({has:page.getByText(titles[1],{exact:true})});
+ await oldCard.getByRole("link",{name:"Открыть дело",exact:true}).click();
+ await poll(async()=>await weekForm.locator('[name="title"]').inputValue()===titles[1],"HOME_AGENDA_EXACT_SLOT");
+ check(await weekForm.locator('[name="date"]').inputValue()===dates.past,"HOME_AGENDA_EXACT_DATE");
+ check((await localWeek()).updatedAt===weekBefore.updatedAt,"AGENDA_OPEN_NO_WRITE");
+ check(new URL(page.url()).searchParams.get("club_week_slot")===oldSlot.id,"HOME_AGENDA_EXACT_ID");
+ log("OFFLINE_AGENDA_HOME_EXACT_OVERDUE_EDITOR");
+ phase="OFFLINE_AGENDA_KERNEL_SAVE";
+ await weekSummary.getByRole("link",{name:"Сохранить план в рабочей области",exact:true}).click();
+ const weekImport=page.getByTestId("club-t0-import-card");
+ await weekImport.getByLabel("Подтверждаю сохранение выбранных результатов на этом устройстве.",{exact:true}).check();
+ await weekImport.getByRole("button",{name:"Сохранить выбранное",exact:true}).click();
+ await poll(async()=>{
+  const w=await localWeek();return w?.kernelSource?.workspaceId===base.scope&&w.kernelSource.revision>0&&w.kernelSource.syncedUpdatedAt===w.updatedAt;
+ },"AGENDA_KERNEL_RECEIPT");
+ log("OFFLINE_AGENDA_ORIGINAL_KERNEL_RECEIPT");
+ phase="OFFLINE_AGENDA_COLD_READBACK";
+ await close();page=await launch("recipient");await context.setOffline(true);
+ await visit(page,"/workspace/");await openExisting(page);
+ const nativeToday=page.getByTestId("club-native-today");
+ await nativeToday.waitFor({state:"visible"});
+ for(const title of titles)await nativeToday.getByText(title,{exact:true}).waitFor({state:"visible"});
+ check((await nativeToday.textContent()).includes("Просроченные дела: 1"),"AGENDA_NATIVE_OVERDUE");
+ check((await nativeToday.textContent()).includes("Сегодня: 1")&&(await nativeToday.textContent()).includes("Следующие 7 дней: 1"),"AGENDA_NATIVE_DATE_GROUPS");
+ check((await nativeToday.textContent()).includes("Возможное превышение предела: 0,5 ч"),"AGENDA_NATIVE_CAPACITY");
+ check(!(await localWeek()),"AGENDA_COLD_NO_TAB_RESULT");
+ log("OFFLINE_AGENDA_COLD_NATIVE_READBACK");
+ phase="OFFLINE_AGENDA_RESTORE";
+ await nativeToday.getByRole("button",{name:"Открыть дела недели",exact:true}).click();
+ const weekRestore=page.getByTestId("club-t2-restore-card");
+ await weekRestore.waitFor({state:"visible"});
+ await poll(async()=>await weekRestore.locator('input[type="checkbox"]:checked').count()===1,"AGENDA_EXACT_RESTORE_CHOICE");
+ const weekRestoreButton=weekRestore.getByRole("button",{name:"Открыть выбранные записи",exact:true});
+ await poll(async()=>await weekRestoreButton.isEnabled(),"AGENDA_RESTORE_READY");
+ let weekConsent=false;
+ page.once("dialog",async d=>{
+  weekConsent=d.type()==="confirm"&&d.message().includes("Загрузить 1 новых");
+  if(weekConsent)await d.accept();else await d.dismiss();
+ });
+ await weekRestoreButton.click();
+ await poll(async()=>weekConsent,"AGENDA_RESTORE_CONSENT");
+ await page.getByTestId("club-t2-restore-completed").getByRole("link",{name:"Открыть мою неделю",exact:true}).click();
+ await weekForm.waitFor({state:"visible"});
+ const restoredWeek=await localWeek();
+ check(restoredWeek?.kernelSource?.workspaceId===base.scope&&restoredWeek.data.personalWeekPlan.slots.length===3,"AGENDA_RESTORED_EXACT_RESULT");
+ const overdueDisclosure=weekSummary.locator("details").filter({has:page.locator("summary").filter({hasText:"Просроченные дела: 1"})});
+ await overdueDisclosure.locator("summary").click();
+ await overdueDisclosure.getByRole("button",{name:"Открыть дело",exact:true}).click();
+ await poll(async()=>await weekForm.locator('[name="title"]').inputValue()===titles[1],"AGENDA_RESTORED_EXACT_OVERDUE");
+ check(await weekForm.locator('[name="date"]').inputValue()===dates.past,"AGENDA_RESTORED_EXACT_DATE");
+ check(await page.evaluate(()=>navigator.onLine===false),"AGENDA_OFFLINE_MODE");
+ log("OFFLINE_AGENDA_RESTORED_AND_CONTINUED");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
 }catch(e){
  const code=typeof e?.message==="string"&&/^CLUB_DIST_[A-Z_]+$/.test(e.message)?e.message:"CLUB_DIST_UNEXPECTED";
