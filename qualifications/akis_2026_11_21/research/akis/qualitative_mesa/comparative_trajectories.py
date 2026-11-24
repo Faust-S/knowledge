@@ -1792,3 +1792,115 @@ def review_competing_market_price_interval(
                 "buyer_maximum_vs_comparator": f"{upper:.2f}",
                 "unresolved_model_value_gap": f"{max(Decimal(0), lower-upper):.2f}",
             }}
+
+
+def _competing_market_stress_design(doc, *, work):
+    """Only independently declared stress parameters may vary across cases.
+
+    The copies are equality projections, never executable scenario inputs.
+    Past ledger, physical plan, original commitments/terms, owner population,
+    scoped source universe and valuation basis remain identical.
+    """
+    from copy import deepcopy
+
+    frozen = deepcopy(doc)
+    money = frozen["economic_claims"]
+    parameter = "__DECLARED_STRESS_PARAMETER__"
+    for row in money["transfers"]:
+        if row["work"] == work and row["payee"] == "EXTERNAL":
+            row["amount"] = parameter
+    for row in money["resource_uses"]:
+        if row["work"] == work:
+            row["amount"] = parameter
+    for row in money["cash_timing"]["owner_positions"]:
+        row["opening_cash"] = parameter
+        row["reserve_cash"] = parameter
+    for row in money["recipient_use_value_evidence"]:
+        if row["work"] == work:
+            row["outcome"]["quantity"] = parameter
+    for event in frozen["events"]:
+        terms = event.get("technology_route_commercial_terms")
+        if terms and terms["work"] == work:
+            terms["buyer_maximum_payment"] = parameter
+        if event.get("technology_route_commercial_fingerprint") and (
+                event.get("work") == work or event.get("technology_route_work") == work
+                or event.get("work_spec", {}).get("id") == work
+                or event["action"] == "technology_route_response"):
+            # The original binding in EVERY executable case is independently
+            # qualified before this cross-case equality comparison.
+            event["technology_route_commercial_fingerprint"] = parameter
+    return frozen
+
+
+def review_robust_competing_market_price_interval(
+    stress_cases: Mapping[str, Mapping[str, Mapping[str, Any]]], *,
+    work: str, prior_works: tuple[str, ...], split_at: int,
+    candidate: str, comparator: str, transfer_id: str,
+) -> dict[str, Any]:
+    """Find ONE common price for all declared same-problem stress scenarios.
+
+    Every case separately executes both alternatives on original Mesa.
+    Cross-case changes are restricted to prospective external cash costs,
+    exclusive resource costs, original owner reserves, buyer budget and
+    observed use quantity. There is no probability estimate, inferred risk
+    distribution, future knowledge at original decision time or auto-consent.
+    """
+    from copy import deepcopy
+    from decimal import Decimal
+
+    if (not isinstance(stress_cases, Mapping) or not 2 <= len(stress_cases) <= 16
+            or any(not isinstance(k, str) or not k or len(k) > 64 for k in stress_cases)):
+        raise TrajectoryComparisonError("COMPETING_STRESS_BOUNDED_DECLARED_CASES_REQUIRED")
+    frozen = deepcopy(stress_cases)
+    base = {
+        "schema": "AKIS_COMPETING_MARKET_ROBUST_SINGLE_PRICE/1.0",
+        "declared_stress_case_count": len(stress_cases),
+        "no_probability_or_empirical_risk_distribution_inferred": True,
+        "only_declared_stress_set_not_all_future_market_states": True,
+        "one_new_price_still_requires_fresh_original_terms_and_consents": True,
+        "empirical_network_additionality": "NOT_IDENTIFIABLE",
+    }
+    reference = None
+    statuses, bounds = {}, {}
+    for label, scenarios in sorted(stress_cases.items()):
+        if not isinstance(scenarios, Mapping) or set(scenarios) != {candidate, comparator}:
+            raise TrajectoryComparisonError("COMPETING_STRESS_SAME_TWO_ORIGINAL_ROUTES_REQUIRED")
+        report = review_competing_market_price_interval(
+            scenarios, work=work, prior_works=prior_works, split_at=split_at,
+            candidate=candidate, comparator=comparator, transfer_id=transfer_id)
+        if report["status"] == "UNKNOWN":
+            statuses[label] = "UNKNOWN"
+            continue
+        view = report["fixed_timing_commercial_negotiation"]
+        if view["status"] == "UNKNOWN":
+            statuses[label] = "UNKNOWN"
+            continue
+        design = {name: _competing_market_stress_design(doc, work=work)
+                  for name, doc in scenarios.items()}
+        if reference is not None and design != reference:
+            raise TrajectoryComparisonError("COMPETING_STRESS_NONPARAMETER_ORIGINAL_SCOPE_CHANGED")
+        reference = design
+        statuses[label] = view["status"]
+        if view["status"] == "MODEL_VALUE_BUDGET_AND_RESERVE_PRICE_INTERVAL":
+            local = view["local_research_only"]
+            bounds[label] = (Decimal(local["minimum_purchase_price"]), Decimal(local["maximum_purchase_price"]))
+    if stress_cases != frozen:
+        raise TrajectoryComparisonError("COMPETING_STRESS_INPUT_MUTATED")
+    result = {**base, "case_statuses": statuses,
+              "qualified_stress_case_count": sum(v != "UNKNOWN" for v in statuses.values()),
+              "individually_feasible_stress_case_count": len(bounds)}
+    if "UNKNOWN" in statuses.values():
+        return {**result, "status": "UNKNOWN"}
+    if len(bounds) != len(stress_cases):
+        return {**result, "status": "NO_COMMON_PRICE_IN_DECLARED_STRESS_SET"}
+    low = max(v[0] for v in bounds.values())
+    high = min(v[1] for v in bounds.values())
+    if low > high:
+        return {**result, "status": "NO_COMMON_PRICE_IN_DECLARED_STRESS_SET",
+                "all_cases_individually_feasible_but_intersection_empty": True}
+    return {**result, "status": "MODEL_COMMON_PRICE_INTERVAL_ACROSS_DECLARED_STRESS_SET",
+            "single_price_satisfies_value_budget_and_fixed_timing_reserves_in_all_cases": True,
+            "local_research_only": {
+                "minimum_purchase_price": f"{low:.2f}", "maximum_purchase_price": f"{high:.2f}",
+                "case_intervals": {k: [f"{v[0]:.2f}", f"{v[1]:.2f}"] for k, v in bounds.items()},
+            }}

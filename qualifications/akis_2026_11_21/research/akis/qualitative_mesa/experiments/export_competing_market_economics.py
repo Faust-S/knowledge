@@ -11,6 +11,7 @@ from research.akis.qualitative_mesa.mesa_model import simulate
 from research.akis.qualitative_mesa.tests.test_r1t3_original_technology_route_mesa import (
     matched_competing_market_cases, compare_competing_market, competing_market_price,
     original_market_recipient_feedback_case, market_recipient_feedback_report,
+    robust_competing_price, robust_competing_price_cases,
 )
 
 
@@ -104,12 +105,21 @@ def export_competing_market_economics():
     assert indexed["adverse_continue"]["subsequent_original_result_accepted"]
     assert all(indexed[k]["recipient_value_asof_qualification_status"] == "UNKNOWN"
                for k in ("same_tick_observation", "foreign_owner", "stale_review_revision"))
+    robust = []
+    for mode in ("overlap", "disjoint", "reserve_failure", "unknown", "missing_budget"):
+        view = robust_competing_price(robust_competing_price_cases(mode=mode))
+        view.pop("local_research_only", None)
+        robust.append({"trial": mode, **view})
+    assert robust[0]["status"] == "MODEL_COMMON_PRICE_INTERVAL_ACROSS_DECLARED_STRESS_SET"
+    assert robust[1]["all_cases_individually_feasible_but_intersection_empty"]
+    assert robust[3]["status"] == "UNKNOWN"
     manifest = {
-        "schema": "AKIS_R3_COMPETING_MARKET_ECONOMICS/1.0",
+        "schema": "AKIS_R3_COMPETING_MARKET_ECONOMICS/1.1",
         "engine": "MESA_3_5_2",
         "matched_competing_route_experiments": routes,
         "fixed_timing_commercial_price_experiments": price_cases,
         "asof_recipient_value_and_strategy_experiments": feedback,
+        "robust_declared_stress_set_price_experiments": robust,
         "private_amounts_sources_and_raw_trace_excluded": True,
         "one_original_work_result_capacity_context_and_ledger_per_trajectory": True,
         "real_demand_quality_costs_payment_utility_and_profit_not_verified": True,

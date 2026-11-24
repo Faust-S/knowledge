@@ -712,7 +712,8 @@ def original_market_order_finance_case(*, alternate=None, incomplete=False,
                                       failed_quality=False, competing=False, buyer_finishes=False,
                                       buyer_finish_material="140.00", buyer_finish_labor="80.00",
                                       supplier_finish_price="400.00", commercial=False,
-                                      buyer_budget="1400.00", buyer_opening="2500.00"):
+                                      buyer_budget="1400.00", buyer_opening="2500.00",
+                                      supplier_finish_material="180.00", supplier_finish_labor="100.00"):
     """Attach complete owner declarations to SAME W1/W2/W3 and ledger."""
     from .test_r1p_r3_executed_route_economics_mesa import add_original_recipient_value
 
@@ -814,13 +815,13 @@ def original_market_order_finance_case(*, alternate=None, incomplete=False,
             ("fee", "b", "op", fee, "ON_CUSTOMER_ACCEPTANCE", accepted_at+2),
             ("material-a", "a", "EXTERNAL", "300.00", "ON_ORIGINAL_COMMIT", commit+1),
             ("material-" + finisher, finisher, "EXTERNAL",
-             buyer_finish_material if buyer_finishes else "180.00", "ON_ORIGINAL_COMMIT", commit+1),
+             buyer_finish_material if buyer_finishes else supplier_finish_material, "ON_ORIGINAL_COMMIT", commit+1),
             ("overhead", "op", "EXTERNAL", "30.00", "ON_ORIGINAL_COMMIT", commit+1)):
         if buyer_finishes and name == "purchase-c":
             continue
         transfer("w3", name, payer, payee, amount, condition, at)
     cost("w3", "labor-a", "a", "150.00", "start_operation", "DELIVERY", "DIRECT_RESOURCE")
-    cost("w3", "labor-" + finisher, finisher, buyer_finish_labor if buyer_finishes else "100.00",
+    cost("w3", "labor-" + finisher, finisher, buyer_finish_labor if buyer_finishes else supplier_finish_labor,
          "start_operation", "DELIVERY", "DIRECT_RESOURCE")
     cost("w3", "coordination", "op", "50.00", "commit", "COORDINATION", "TRANSACTION")
     cost("w3", "inspection", "b", "30.00", "assess_result_quality", "COORDINATION", "TRANSACTION")
@@ -1200,12 +1201,14 @@ def test_original_common_code_also_permits_independent_supplier_finishing():
 def matched_competing_market_cases(*, buyer_finish_material="140.00", buyer_finish_labor="80.00",
                                   supplier_finish_price="400.00", buyer_observed="14",
                                   c_opening="400.00", buyer_failed_quality=False, commercial=True,
-                                  buyer_budget="1400.00", buyer_opening="2500.00"):
+                                  buyer_budget="1400.00", buyer_opening="2500.00",
+                                  supplier_finish_material="180.00", supplier_finish_labor="100.00"):
     """Common exogenous source universe: both routes can be chosen by owners."""
     docs = {
         "supplier": original_market_order_finance_case(
             competing=True, supplier_finish_price=supplier_finish_price, c_opening=c_opening,
-            commercial=commercial, buyer_budget=buyer_budget, buyer_opening=buyer_opening),
+            commercial=commercial, buyer_budget=buyer_budget, buyer_opening=buyer_opening,
+            supplier_finish_material=supplier_finish_material, supplier_finish_labor=supplier_finish_labor),
         "coproduction": original_market_order_finance_case(
             competing=True, buyer_finishes=True, buyer_finish_material=buyer_finish_material,
             buyer_finish_labor=buyer_finish_labor, observed=buyer_observed,
@@ -1740,3 +1743,81 @@ def test_competing_price_budget_and_reserve_intersection(kwargs, expected_status
     assert local.get("minimum_purchase_price") == low
     assert local.get("maximum_purchase_price") == high
     assert result["new_offer_and_fresh_consents_still_required"]
+
+
+def robust_competing_price(cases):
+    from research.akis.qualitative_mesa.comparative_trajectories import review_robust_competing_market_price_interval
+    first = next(iter(cases.values()))
+    split = next(e["at"] for e in first["supplier"]["events"]
+                 if e["action"] == "technology_route_propose") - 1
+    return review_robust_competing_market_price_interval(
+        cases, work="w3", prior_works=("w1", "w2"), split_at=split,
+        candidate="supplier", comparator="coproduction", transfer_id="w3-market-purchase-c")
+
+
+def robust_competing_price_cases(*, mode="overlap", repriced="400.00"):
+    args = {"buyer_finish_material": "220.00", "buyer_finish_labor": "160.00",
+            "supplier_finish_price": repriced}
+    if mode == "disjoint":
+        return {
+            "lower_buyer_outside_cost": matched_competing_market_cases(
+                **{**args, "buyer_finish_labor": "120.00"}),
+            "higher_supplier_and_buyer_cost": matched_competing_market_cases(
+                **{**args, "buyer_finish_material": "260.00", "buyer_finish_labor": "180.00",
+                   "supplier_finish_material": "220.00", "supplier_finish_labor": "130.00"}),
+        }
+    extra = ({"buyer_opening": "1950.00"} if mode == "overlap" else
+             {"c_opening": "200.00"} if mode == "reserve_failure" else
+             {"buyer_failed_quality": True} if mode == "unknown" else
+             {"buyer_observed": "14", "commercial": False})
+    return {"normal": matched_competing_market_cases(**args),
+            "stress": matched_competing_market_cases(**{**args, **extra})}
+
+
+def test_robust_competing_market_one_price_survives_all_declared_stresses():
+    cases = robust_competing_price_cases()
+    frozen = deepcopy(cases)
+    result = robust_competing_price(cases)
+    assert cases == frozen
+    assert result["status"] == "MODEL_COMMON_PRICE_INTERVAL_ACROSS_DECLARED_STRESS_SET", result
+    assert result["local_research_only"]["minimum_purchase_price"] == "280.00"
+    assert result["local_research_only"]["maximum_purchase_price"] == "350.00"
+    assert result["no_probability_or_empirical_risk_distribution_inferred"]
+    assert result["one_new_price_still_requires_fresh_original_terms_and_consents"]
+    # Fresh quotes/consents and actual executions in each declared case.
+    for docs in robust_competing_price_cases(repriced="320.00").values():
+        r = compare_competing_market(docs)
+        assert r["status"] == "MODEL_MATCHED_EXECUTED_COMPETING_MARKET_ROUTES"
+        assert r["pairwise_contrasts"][0]["right_weak_pareto_improvement_on_selected_order"]
+        assert all(r["local_research_only"]["arms"]["supplier"]["original_owner_reserves_met"].values())
+
+
+@pytest.mark.parametrize("mode,status", [
+    ("disjoint", "NO_COMMON_PRICE_IN_DECLARED_STRESS_SET"),
+    ("reserve_failure", "NO_COMMON_PRICE_IN_DECLARED_STRESS_SET"),
+    ("unknown", "UNKNOWN"),
+    ("missing_budget", "UNKNOWN"),
+])
+def test_robust_competing_market_never_averages_away_failed_or_unknown_cases(mode, status):
+    r = robust_competing_price(robust_competing_price_cases(mode=mode))
+    assert r["status"] == status, r
+    assert "local_research_only" not in r
+    if mode == "disjoint":
+        assert r["individually_feasible_stress_case_count"] == 2
+        assert r["all_cases_individually_feasible_but_intersection_empty"]
+
+
+def test_robust_stress_comparison_rejects_unrelated_history_change_even_if_both_arms_match():
+    cases = robust_competing_price_cases()
+    for doc in cases["stress"].values():
+        doc["economic_claims"]["resource_uses"][0]["amount"] = "101.00"
+    with pytest.raises(ValueError, match="COMPETING_STRESS_NONPARAMETER_ORIGINAL_SCOPE_CHANGED"):
+        robust_competing_price(cases)
+
+
+def test_robust_stress_comparison_rejects_changed_valuation_basis_even_if_both_arms_match():
+    cases = robust_competing_price_cases()
+    for doc in cases["stress"].values():
+        doc["economic_claims"]["recipient_use_value_evidence"][0]["rate"]["amount"] = "124.00"
+    with pytest.raises(ValueError, match="COMPETING_STRESS_NONPARAMETER_ORIGINAL_SCOPE_CHANGED"):
+        robust_competing_price(cases)
