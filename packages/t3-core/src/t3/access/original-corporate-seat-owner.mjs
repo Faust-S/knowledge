@@ -391,3 +391,41 @@ export function evaluateOriginalCorporateSeatUse({state,organization,licenseStat
  }catch(error){return Object.freeze({allowed:false,outcome:'DENIED',
   reason:error?.code??'CORP_SEAT_USE_INVALID',dataAuthority:false,actionAuthority:false});}
 }
+
+// Trusted installed employee Host: bind a single concrete product operation
+// to the original signed seat and an independent employee PROOF. The caller
+// cannot pick a grant, actor role, resource, purpose, or replay a previous
+// challenge. This is a read-only JIT decision, not a new entitlement issuer.
+export function authorizeOriginalCorporateSeatUse({state,organization,licenseState,
+ installedTrust,actorId,credentialKeyId,operationDigest,prove,now=Date.now()}={}){
+ try{
+  const org=validateProductContract('OrganizationIdentity',organization);
+  identifier(actorId);identifier(credentialKeyId);
+  insist(typeof operationDigest==='string'&&HEX.test(operationDigest)&&
+    typeof prove==='function'&&Number.isSafeInteger(now)&&now>0&&
+    state.policy.environment==='PRODUCTION'&&state.policy.realmId===org.realmId,
+    'CORP_SEAT_USE_INTENT_INVALID');
+  const projection=projectCorporateSeatLicense({...licenseState,installedTrust,
+    organizationId:org.organizationId,now});
+  const snapshot=seatRows(state,org,now);
+  insist(capacityView(projection,snapshot).withinLimits,
+    'CORP_SEAT_CURRENT_LICENSE_OR_CAPACITY_REQUIRED');
+  const row=snapshot.occupied.find(x=>x.personId===actorId);
+  insist(row?.status==='ACTIVE'&&row.credentialKeyId===credentialKeyId,
+    'CORP_SEAT_ACTOR_BINDING_REQUIRED');
+  memberForSeat(state,org,row,snapshot.status,now);
+  const seat=state.grants[row.grantId].payload;
+  const request=Object.freeze({id:'seat-use:'+randomUUID(),
+    actorId,principalId:org.organizationId,roleId:seat.roleId,grantId:seat.id,
+    audience:seat.audience,resource:CORPORATE_SEAT_RESOURCE,
+    action:CORPORATE_SEAT_ACTION,purpose:CORPORATE_SEAT_PURPOSE,
+    realmId:org.realmId,operationDigest});
+  const challenge='seat-use:'+randomUUID();
+  const proof=prove({request,challenge,credentialKeyId,now});
+  const checked=evaluateOriginalCorporateSeatUse({state,organization:org,
+    licenseState,installedTrust,request,challenge,proof,now});
+  return Object.freeze({...checked,operationDigest,productionActivation:false});
+ }catch(error){return Object.freeze({allowed:false,outcome:'DENIED',
+  reason:error?.code??'CORP_SEAT_USE_INVALID',dataAuthority:false,
+  actionAuthority:false,productionActivation:false});}
+}
