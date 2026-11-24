@@ -249,11 +249,22 @@ def test_prepared_but_independently_rejected_work_not_counted_as_returned_experi
 
 
 def test_prepared_pattern_without_any_accepted_work_does_not_claim_a_zero_return_ratio():
+    from research.akis.qualitative_mesa.mesa_model import OperatorAKISModel
+    from research.akis.qualitative_mesa.process_preparation import original_pattern_reproduction_view
     doc = without_costs(preparation_pattern_routes()["REUSE"])
-    event(doc, "function_review", "w1")["human_decision"] = "REJECT"
-    out = simulate(doc)
-    view = structural_view(out)
-    assert view["applied_preparation_count"] >= 1
+    review = event(doc, "function_review", "w1")
+    review["human_decision"] = "REJECT"
+    # Observe the real scheduled prefix rather than evaluating the later
+    # competence-evidence document whose referenced Works cannot yet exist.
+    model = OperatorAKISModel(doc)
+    model.run_until(float(review["at"]) + 0.5)
+    assert model.qualitative.works["w1"].result != ACCEPTED
+    assert any(row["action"] == "function_review" and row["work"] == "w1"
+               and row["outcome"] == "APPLIED" and row["human_decision"] == "REJECT"
+               for row in model.qualitative.trace)
+    view, _ = original_pattern_reproduction_view(
+        model.qualitative, at=int(model.time))
+    assert view["applied_preparation_count"] == 1
     assert view["accepted_effective_preparation_count"] == 0
     assert view["accepted_preparation_reuse_share"] == "UNKNOWN_ZERO_DENOMINATOR"
     assert view["accepted_built_version_return_share"] == "UNKNOWN_ZERO_DENOMINATOR"
