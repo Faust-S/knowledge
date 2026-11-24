@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 8bbc71bd2baa5700ce37875260c06ab1fa5f2359
+          ref: 409a712c2027cc643d1fb8b867e4d7b08becad80
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod
-          ref: ab1dfee0d9e6755680b2d7ad8e93a15b1bc6ec8c
+          ref: d482a488372810943b18f9d770316326c04777d7
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -58,6 +58,11 @@ jobs:
             exit 1
           }
           Write-Host "D06_CANONICAL_LIFECYCLE_ECONOMICS=PASS"
+          foreach ($suite in @("test-item-exit-record", "test-item-exit-history-evidence")) {
+            & node --experimental-strip-types ("scripts/" + $suite + ".mjs") *> $log
+            if ($LASTEXITCODE -ne 0) { Write-Host "D06_CANONICAL_ACTUAL_EXIT=FAIL"; exit 1 }
+          }
+          Write-Host "D06_CANONICAL_ACTUAL_EXIT=PASS"
       - name: Verify canonical item rule matches site implementation
         shell: pwsh
         run: |
@@ -77,7 +82,7 @@ jobs:
             exit 1
           }
           Write-Host "D06_ITEM_HISTORY_CANONICAL_SYNC=PASS"
-          foreach ($path in @("src/rules/item-history-transfer.ts", "src/schemas/komplektovod/item-instance.schema.json")) {
+          foreach ($path in @("src/rules/item-history-transfer.ts", "src/schemas/komplektovod/item-instance.schema.json", "src/rules/item-exit-record.ts", "src/rules/item-exit-history-evidence.ts", "scripts/test-item-exit-record.mjs", "scripts/test-item-exit-history-evidence.mjs")) {
             $left = (& git -C private/domain rev-parse "HEAD:$path").Trim()
             $right = (& git -C private/site rev-parse "HEAD:$path").Trim()
             if (-not $left -or $left -ne $right) {
