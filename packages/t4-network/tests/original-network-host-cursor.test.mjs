@@ -324,6 +324,24 @@ async function nativeSourceTaskFixture(){
         revision:f.phase.revision,chainHash:f.phase.chainHash,originalBusinessApplied:true};
     },
   });
+  // In this contract fixture only, the original phase CAS is in memory.
+  // The real-Kernel qualification uses the actual phase port's scoped closure.
+  const phasePort=f.recovery.sourcePhasePort;
+  phasePort.forOriginalHostLifetime=isHostActive=>({
+    ...phasePort,
+    inspectOriginalSession:async()=>{
+      if(!isHostActive())throw Object.assign(Error('inactive'),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});
+      const value=await phasePort.inspectOriginalSession();
+      if(!isHostActive())throw Object.assign(Error('inactive'),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});
+      return value;
+    },
+    advanceOriginalSessionPhase:async input=>{
+      if(!isHostActive())throw Object.assign(Error('inactive'),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});
+      const value=await phasePort.advanceOriginalSessionPhase(input);
+      if(!isHostActive())throw Object.assign(Error('inactive'),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});
+      return value;
+    },
+  });
   const binding=(overrides={})=>createT4OriginalHostDispatchTaskBinding({
     expectedWorkspaceId:workspaceId,expectedOriginalWriteOwnerRef:owner,
     expectedNetworkTargetRef:recipientNodeRef,getMode:()=> 'T4_NETWORK',
@@ -372,4 +390,22 @@ test('existing source ACK task checks signed original prefix before any phase or
   await assert.rejects(x.binding().runNativeAcknowledgement(x.options()),
     error('CURSOR_SOURCE_CONFIRM_SIGNED_HEAD_BINDING_REQUIRED'));
   assert.equal(x.phaseWrites,0);assert.equal(x.f.puts,0);
+});
+
+test('source Host invalidation after phase CAS stops frontier CAS; new Host reads the existing phase',async()=>{
+  const x=await nativeSourceTaskFixture();let active=true;
+  const phase=x.f.recovery.sourcePhasePort,advance=phase.advanceOriginalSessionPhase;
+  phase.advanceOriginalSessionPhase=async input=>{
+    const result=await advance(input);active=false;return result;
+  };
+  const old=x.binding({isHostActive:()=>active});
+  await assert.rejects(old.runNativeAcknowledgement(x.options()),error('ORIGINAL_HOST_LIFETIME_ENDED'));
+  assert.equal(x.phaseWrites,1);assert.equal(x.f.puts,0);
+  active=true;
+  await assert.rejects(old.runNativeAcknowledgement(x.options()),error('HOST_TASK_ORIGINAL_HOST_DISPOSED'));
+  phase.advanceOriginalSessionPhase=advance;x.restart();
+  const recovered=await x.binding({isHostActive:()=>true}).runNativeAcknowledgement(x.options());
+  assert.equal(recovered.confirmation.state,'ALREADY_CONFIRMED');
+  assert.equal(recovered.committed.state,'ORIGINAL_T3_CAS_COMMITTED');
+  assert.equal(x.phaseWrites,1);assert.equal(x.f.puts,1);
 });

@@ -223,3 +223,30 @@ test('dispatcher refuses missing middle source event before writing even when la
     err('DISPATCH_ORIGINAL_FRONTIER_GAP'));
   assert.equal(f.writes(),0);
 });
+
+test('original Host invalidation after legacy immutable PUT leaves original attempt and recovers via a fresh Host',async()=>{
+  const f=fixture();await f.stage();let active=true;
+  const put=f.transport.putSnapshot;
+  f.transport.putSnapshot=async input=>{
+    const result=await put(input);active=false;return result;
+  };
+  const dispatcher=f.dispatcher();
+  await assert.rejects(dispatcher.drain({isHostActive:()=>active}),e=>[
+    'DISPATCH_REMOTE_OUTCOME_UNKNOWN','ORIGINAL_HOST_LIFETIME_ENDED',
+  ].includes(e?.code));
+  assert.equal(f.writes(),1);assert.equal(f.attempts.size,1);assert.equal(f.checkpoints.size,0);
+  f.transport.putSnapshot=put;
+  const result=await f.dispatcher().drain({isHostActive:()=>true});
+  assert.equal(result.results[0].state,'REMOTE_READBACK_RECOVERED');
+  assert.equal(f.writes(),1);assert.equal(f.checkpoints.size,1);
+});
+test('capture adapter retained after original Host invalidation cannot invoke original local or network mutation',async()=>{
+  const f=fixture();let active=true;
+  const old=createT4OriginalHostCaptureAdapter({...f.ports,isHostActive:()=>active});
+  active=false;
+  await assert.rejects(old.putObject({}),err('ORIGINAL_HOST_CAPTURE_DISPOSED'));
+  f.setMode('LOCAL_T3');active=true;
+  await assert.rejects(old.putObject({mutationInput:{workspace_id:ws,object_id:from}}),
+    err('ORIGINAL_HOST_CAPTURE_DISPOSED'));
+  assert.equal(f.events.length,1);assert.equal(f.outbox.size,0);
+});

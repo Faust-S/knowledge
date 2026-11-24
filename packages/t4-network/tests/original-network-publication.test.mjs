@@ -47,7 +47,8 @@ function fixture(){
   const data=task(),session=deriveT4OriginalNativeCaptureSession(data);
   const objects=new Map(),events=[],remote=new Map();
   let putCalls=0,networkCalls=0,signCalls=0,reads=0,
-    loseAction=null,loseNetwork=null,host='host:initial',network=true,allow=true,retryAllowed=true;
+    loseAction=null,loseNetwork=null,host='host:initial',network=true,allow=true,retryAllowed=true,
+    afterNetworkPut=()=>{};
   const kernel={
     hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject'].includes(op),
     async getObject(w,id){reads++;return structuredClone(objects.get(w+':'+id)??null);},
@@ -85,6 +86,7 @@ function fixture(){
       const already=remote.has(key);
       if(already)assert.deepEqual(Buffer.from(bytes),remote.get(key));
       else remote.set(key,Buffer.from(bytes));
+      afterNetworkPut();
       if(loseNetwork==='after'){
         loseNetwork=null;throw Object.assign(Error('lost remote response'),{code:'OUTCOME_UNKNOWN'});
       }
@@ -161,7 +163,7 @@ function fixture(){
     return {frames,slots:frames.map(b=>{const f=decodeT4CandidateFrame(b);
       return {sequence:f.sequence,messageType:f.messageType};})};
   }
-  const binding=()=>createT4OriginalHostDispatchTaskBinding({
+  const binding=(overrides={})=>createT4OriginalHostDispatchTaskBinding({
     expectedWorkspaceId:ws,expectedOriginalWriteOwnerRef:owner,
     expectedNetworkTargetRef:recipient,getMode:mode,
     readOriginalHostContext:async()=>({workspaceId:ws,originalWriteOwnerRef:owner,
@@ -171,13 +173,14 @@ function fixture(){
       prepareNextNativeObject:async()=>structuredClone(data)},
     createOriginalNativePublicationPort:async({session:s})=>{
       assert.deepEqual(s,session);return port();
-    },
+    },...overrides,
   });
   return {data,session,objects,events,remote,port,heads,stageHeads,changeBatch,signed,binding,
     counts:()=>({putCalls,networkCalls,signCalls,reads}),
     loseCAS:action=>{loseAction=action;},loseNetwork:where=>{loseNetwork=where;},
     restart:()=>{host='host:cold:'+putCalls;},local:()=>{network=false;},
-    revoke:()=>{allow=false;},denyRetry:()=>{retryAllowed=false;}};
+    revoke:()=>{allow=false;},denyRetry:()=>{retryAllowed=false;},
+    onNetworkPut:fn=>{afterNetworkPut=fn;}};
 }
 test('deterministic session binds exact original Event and peer, not process-local randomness',()=>{
   const f=fixture();
@@ -329,4 +332,38 @@ test('LOCAL_T3 and revoked original access never enter publication or Outbox',as
   const g=fixture();g.revoke();
   await assert.rejects(g.stageHeads(),err('PUBLICATION_ORIGINAL_AUTHORITY_DENIED'));
   assert.equal(g.counts().networkCalls,0);
+});
+
+test('invalidation during original signing cannot reserve or publish new bytes from a stale Host',async()=>{
+  const f=fixture();let active=true;
+  const old=f.binding({isHostActive:()=>active});
+  await assert.rejects(old.runNativePublication({slots:headsSlots,createSignedFrames:async()=>{
+    const bytes=await f.heads();active=false;return [bytes];
+  }}),err('HOST_TASK_ORIGINAL_HOST_DISPOSED'));
+  assert.equal(f.counts().putCalls,0);assert.equal(f.counts().networkCalls,0);
+  active=true;
+  await assert.rejects(old.runNativePublication({slots:headsSlots}),err('HOST_TASK_ORIGINAL_HOST_DISPOSED'));
+  const fresh=await f.binding({isHostActive:()=>true}).runNativePublication({
+    slots:headsSlots,createSignedFrames:async()=>[await f.heads()]});
+  assert.equal(fresh.networkPublished,true);
+  assert.equal(f.counts().networkCalls,1);
+});
+test('original Host invalidation after immutable PUT leaves durable attempt, not a confirmed record',async()=>{
+  const f=fixture();let active=true;
+  await f.stageHeads();
+  f.onNetworkPut(()=>{active=false;});
+  const old=f.binding({isHostActive:()=>active});
+  await assert.rejects(old.runNativePublication({slots:headsSlots}),err('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  const durable=await f.port().inspectOriginalPublication();
+  assert.equal(durable.frames[0].state,'ATTEMPTED');
+  assert.equal(f.counts().networkCalls,1);
+  assert.equal(f.counts().putCalls,2);
+  const signCalls=f.counts().signCalls;
+  f.restart();f.onNetworkPut(()=>{});
+  const fresh=await f.binding({isHostActive:()=>true}).runNativePublication({
+    slots:headsSlots,createSignedFrames:async()=>{throw Error('must not sign again');}});
+  assert.equal(fresh.publications[0].state,'REMOTE_READBACK_RECOVERED');
+  assert.equal(f.counts().networkCalls,1);
+  assert.equal(f.counts().signCalls,signCalls);
+  assert.equal(f.counts().putCalls,3);
 });

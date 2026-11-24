@@ -1175,3 +1175,33 @@ for(const kind of ['ASSET_DELETE','RELATION_DELETE']){
     assert.equal(parent.counts().subjectWrites,1);
   });
 }
+
+test('recipient original Host invalidation after business commit leaves durable APPLY_INTENT without ACK',async()=>{
+  const x=await ackFixture();let active=true;
+  const kernel=x.d.f.originalKernel,commit=kernel.commitObjectGraph;
+  kernel.commitObjectGraph=async input=>{
+    const result=await commit(input);active=false;return result;
+  };
+  const before=x.counts(),old=recipientBinding(x,{isHostActive:()=>active});
+  await assert.rejects(old.runNative(x.args()),e=>[
+    'SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN','RECIPIENT_ORIGINAL_HOST_DISPOSED',
+    'ORIGINAL_HOST_LIFETIME_ENDED',
+  ].includes(e?.code));
+  assert.equal(x.counts().subjectWrites,before.subjectWrites+1);
+  assert.equal(x.counts().signCalls,before.signCalls);
+  assert.equal(x.counts().puts,before.puts);
+  assert.equal((await x.d.phasePort().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
+  active=true;
+  await assert.rejects(old.runNative(x.args()),error('RECIPIENT_ORIGINAL_HOST_DISPOSED'));
+  kernel.commitObjectGraph=commit;x.d.restart();
+  const done=await recipientBinding(x,{isHostActive:()=>true}).runNative(x.args());
+  assert.equal(done.originalRecipientApplied,true);
+  assert.equal(done.originalSubjectMutationInvoked,false);
+  assert.equal(x.counts().subjectWrites,before.subjectWrites+1);
+});
+test('disposed recipient Host performs no reads, writes, or signing from retained task callback',async()=>{
+  const x=await ackFixture(),before=x.counts(),old=recipientBinding(x);
+  old.dispose();
+  await assert.rejects(old.runNative(x.args()),error('RECIPIENT_ORIGINAL_HOST_DISPOSED'));
+  assert.deepEqual(x.counts(),before);
+});
