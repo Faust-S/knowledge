@@ -4154,6 +4154,10 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       }
       const p2gRecipientKernel={
         ...p2cRecipientKernel,getAsset:independentAssetRecipient.getAsset,
+        listObjects:input=>recipientPage.evaluate(async({SERVICE,input})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.listObjects(input);
+        },{SERVICE,input}),
         deleteAsset:input=>recipientOriginalDelete('deleteAsset',input),
         deleteRelation:input=>recipientOriginalDelete('deleteRelation',input),
         deleteObject:input=>recipientOriginalDelete('deleteObject',input),
@@ -4417,6 +4421,13 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal(p2ePrepared.delta.baseRevision,revision-1);
         assert.equal(p2ePrepared.delta.sourceRevision,revision);
         assert.deepEqual(Buffer.from(p2ePrepared.assetBytes),expectedAssetBytes);
+      }else if(kind==='GRAPH_COMMIT'){
+        assert.equal(p2ePrepared.delta.kind,kind);
+        assert.equal(p2ePrepared.delta.objectId,subjectId);
+        assert.equal(p2ePrepared.delta.baseRevision,revision-1);
+        assert.equal(p2ePrepared.delta.sourceRevision,revision);
+        assert.ok(p2ePrepared.delta.originalTransactionId);
+        assert.ok(p2ePrepared.delta.graphContentDigest.startsWith('sha256:'));
       }else if(isT4NativeDeleteKind(kind)){
         assert.equal(revision,kind==='OBJECT_DELETE'?p2ePrepared.delta.preImage.revision+1:null);
         assert.equal(p2ePrepared.delta.kind,kind);
@@ -4667,7 +4678,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         // the installed product serializes all processes.
         withOriginalSubjectMutation:async(proof,action)=>{
           assert.equal(proof.originalHostMustSerializeSubjectMutations,true);
-          if(kind==='OBJECT_DELETE')assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+          if(kind==='OBJECT_DELETE'||kind==='GRAPH_COMMIT')assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
           assert.equal(recipientDeletionBoundaryActive,false);
           recipientDeletionBoundaryEntries++;
           recipientDeletionBoundaryActive=true;
@@ -4679,6 +4690,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             p.sourceEventDigest===original.prepared.delta.sourceEventDigest&&
             (kind==='OBJECT_PUT'?
               p.sourceRevision===revision&&p.objectContentDigest===p2eOpened.originalStateDigest:
+              kind==='GRAPH_COMMIT'?
+                p.kind===kind&&p.subjectId===subjectId&&p.sourceRevision===revision&&
+                p.graphContentDigest===original.prepared.delta.graphContentDigest&&
+                p.originalGraphTransactionId===original.prepared.delta.originalTransactionId&&
+                p.wireSha256===original.prepared.sha256&&p.windowDigest===original.sourceWindow.windowDigest:
               isT4NativeDeleteKind(kind)?
                 p.kind===kind&&p.subjectId===subjectId&&
                 p.preImageDigest===original.prepared.delta.preImageDigest&&
@@ -5045,6 +5061,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         if(kind==='ASSET_PUT')p2gLoseAssetReply=true;
         else if(kind==='RELATION_PUT')p2gLoseRelationReply=true;
         else if(isT4NativeDeleteKind(kind))p2iLoseDeleteReply=true;
+        else if(kind==='GRAPH_COMMIT')p2cLostOriginalAck=true;
         else throw Error('subject loss probe expects non-object');
         await assert.rejects(runRecipient(),
           e=>e?.code==='SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN');
@@ -5947,6 +5964,129 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         independentPhysicalDevices:false,noRemainingCapture:true,
         signedFrames:completedObjectDelete.signedFrameCount,
         actualHTTPSFramePuts:completedObjectDelete.actualFramePutCount,
+      }));
+      // K21: the same original native frontier now carries the complete
+      // atomic graph transaction. A tombstone revival, a relation creation,
+      // and then replacement of that relation are two original transactions,
+      // not separate Object/Relation changes. Stage both before networking.
+      assert.deepEqual(srcTomb.object.extensions,dstTomb.object.extensions);
+      const graphRelationOne='relation:native:graph:one:'+randomUUID();
+      const graphRelationTwo='relation:native:graph:two:'+randomUUID();
+      let graphSourceCalls=0,loseGraphSourceAck=false,graphBoundary=false,graphBoundaryEntries=0;
+      const graphSourceKernel={...originalCarrierKernel,
+        listObjects:input=>activeSourcePage.evaluate(async({SERVICE,input})=>{
+          const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+          return kernel.t1.listObjects(input);
+        },{SERVICE,input}),
+        commitObjectGraph:async input=>{
+          assert.equal(graphBoundary,true);graphSourceCalls++;
+          const receipt=await activeSourcePage.evaluate(async({SERVICE,input})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.commitObjectGraph(input);
+          },{SERVICE,input});
+          if(loseGraphSourceAck){loseGraphSourceAck=false;
+            throw Object.assign(Error('original graph response lost after atomic commit'),{code:'ACK_LOST'});}
+          return receipt;
+        }};
+      const graphHost=()=>createT4OriginalHostCaptureAdapter({...captureLedger(),
+        originalKernel:graphSourceKernel,originalWriteOwnerRef:'original:t2:exchange',
+        getMode:()=> 'T4_NETWORK',readOriginalEvents:readSourceEvents,
+        authorizeOriginalRead:async p=>actual.grants.includes(p.operation),
+        authorizeOriginalWrite:async p=>actual.grants.includes(p.operation),
+        authorizeOriginalCaptureRecovery:async p=>actual.grants.includes('t1.commitObjectGraph'),
+        withOriginalSubjectMutation:async(proof,action)=>{
+          assert.equal(proof.kind,'GRAPH_COMMIT');
+          assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+          assert.equal(graphBoundary,false);graphBoundary=true;graphBoundaryEntries++;
+          try{return await action();}finally{graphBoundary=false;}
+        }});
+      let graphTail=recoveredObjectDelete.nextCursor;
+      const graphCaptures=[];
+      for(const revision of [8,9]){
+        const prior=(await graphSourceKernel.getObject(workspaceId,p2cObjectId)).object;
+        assert.equal(prior.revision,revision-1);
+        const ref='capture:native:graph:'+randomUUID();
+        const input={workspace_id:workspaceId,idempotency_key:'graph:native:'+randomUUID(),
+          object:{object_id:p2cObjectId,schema_id:prior.schema_id,schema_version:prior.schema_version,
+            base_revision:prior.revision,data:{...prior.data,title:'Original atomic graph '+revision,
+              quantity:revision},extensions:{graphRevision:revision}},
+          relation_puts:revision===8?[{relation_id:graphRelationOne,from_object_id:linkedObjectId,
+            to_object_id:p2cObjectId,kind:'related'}]:[{relation_id:graphRelationTwo,from_object_id:p2cObjectId,
+            to_object_id:linkedObjectId,kind:'related'}],
+          relation_deletes:revision===8?[]:[{relation_id:graphRelationOne}],
+          event:{event_type:'t4.network.k21.original.graph',payload:{revision}}};
+        let capture;
+        if(revision===9){
+          loseGraphSourceAck=true;
+          await assert.rejects(graphHost().commitObjectGraph({mutationInput:input,sourceCursor:graphTail,captureRef:ref}),
+            e=>e?.code==='GRAPH_ORIGINAL_WRITE_OUTCOME_UNKNOWN');
+          assert.equal(graphSourceCalls,2);
+          await sourceContext.close();sourceContext=null;
+          sourceContext=await launch(sourceProfile);activeSourcePage=await opened(sourceContext);
+          capture=await graphHost().reconcileGraphMutation({captureRef:ref,workspaceId,objectId:p2cObjectId});
+          assert.equal(capture.originalReceipt,null);
+          assert.equal(capture.originalMutationRetried,false);
+          assert.equal(capture.originalOperationReceiptRecreated,false);
+        }else{
+          const first=await graphHost().commitObjectGraph({mutationInput:input,sourceCursor:graphTail,captureRef:ref});
+          assert.equal(first.originalReceipt.transaction_id,first.originalReceipt.event.correlation_id);
+          assert.equal(first.originalReceipt.event.idempotency_key,input.idempotency_key);
+          capture=first.capture;
+        }
+        assert.equal(capture.originalT3OutboxVerified,true);
+        assert.equal(capture.window.count,1);
+        assert.equal(capture.prepared.delta.sourceRevision,revision);
+        assert.equal(capture.prepared.delta.relationPuts.length,1);
+        assert.equal(capture.prepared.delta.relationDeletes.length,revision===8?0:1);
+        graphTail=capture.nextCursor;graphCaptures.push(capture);
+      }
+      assert.equal(graphSourceCalls,2);
+      assert.equal((await graphSourceKernel.getObject(workspaceId,p2cObjectId)).object.revision,9);
+      assert.equal((await p2gRecipientKernel.getObject(workspaceId,p2cObjectId)).object.revision,7);
+      const graphTargetSource=await graphSourceKernel.getObject(workspaceId,p2cObjectId);
+      const graphEndpointSource=await graphSourceKernel.getObject(workspaceId,linkedObjectId);
+      assert.ok(graphTargetSource.relations.outgoing.some(r=>r.relation_id===graphRelationTwo));
+      assert.ok(!graphEndpointSource.relations.outgoing.some(r=>r.relation_id===graphRelationOne));
+      const graphCompleted=[];
+      for(const [i,revision] of [8,9].entries()){
+        const done=await p2fRunCapturedSession(revision,{kind:'GRAPH_COMMIT',subjectId:p2cObjectId,
+          frontierRevision:13+i,currentObjectRevision:9,lastInBatch:i===1,
+          simulatePublicationLoss:false,simulateSubjectLoss:i===1,autoSource:true,autoRecipient:true});
+        assert.equal(done.originalDeltaSha256,graphCaptures[i].prepared.sha256);
+        assert.equal(done.result.actualOriginalT3GraphReadback,true);
+        assert.equal(done.result.originalRecipientRevision,revision);
+        assert.equal(done.result.originalRecipientStateDigest,graphCaptures[i].prepared.delta.graphContentDigest);
+        graphCompleted.push(done);
+      }
+      assert.equal(graphSourceCalls,2);
+      assert.equal(p2cCommitCalls,8);
+      assert.equal(recipientDeletionBoundaryEntries,5);
+      assert.equal(p2eFrontierPutCalls,14);
+      const graphTargetRecipient=await p2gRecipientKernel.getObject(workspaceId,p2cObjectId);
+      const graphEndpointRecipient=await p2gRecipientKernel.getObject(workspaceId,linkedObjectId);
+      assert.deepEqual(graphTargetRecipient.object.data,graphTargetSource.object.data);
+      assert.deepEqual(graphTargetRecipient.object.extensions,graphTargetSource.object.extensions);
+      assert.equal(graphTargetRecipient.object.deleted,false);
+      assert.ok(graphTargetRecipient.relations.outgoing.some(r=>r.relation_id===graphRelationTwo));
+      assert.ok(graphEndpointRecipient.relations.incoming.some(r=>r.relation_id===graphRelationTwo));
+      assert.ok(!graphEndpointRecipient.relations.outgoing.some(r=>r.relation_id===graphRelationOne));
+      assert.ok(!graphTargetRecipient.relations.incoming.some(r=>r.relation_id===graphRelationOne));
+      const graphIncoming=await lastNativeRecipientFrontierPort().inspectOriginalRecipientCursor();
+      assert.equal(graphIncoming.revision,13);
+      assert.deepEqual(graphIncoming.originalT3VerifiedCursor,graphTail);
+      assert.deepEqual((await p2eCursorPort().inspectOriginalHostCursor()).originalT3NextCursor,graphTail);
+      assert.equal((await p2fRunHostPrepare()).result.state,'NO_NEXT_ORIGINAL_EVENT');
+      console.log('T4_REAL_ORIGINAL_T3_NATIVE_ATOMIC_GRAPH_COMMIT_PASS',JSON.stringify({
+        originalKernel:ORIGINAL_KERNEL,sourceGraphRevisions:[8,9],recipientGraphRevisions:[8,9],
+        originalGraphSourceTransactions:graphSourceCalls,originalGraphRecipientTransactions:2,
+        originalEventPerGraphTransaction:1,originalTombstoneRevivedAtomically:true,
+        originalRelationCreatedAndReplacedAtomically:true,sourceAndRecipientLostGraphResponseRecovered:true,
+        originalGraphSourceBoundaryEntries:graphBoundaryEntries,
+        sourceAndRecipientColdRestarts:true,earlierGraphBytesFromImmutableOutbox:true,
+        originalRecipientGraphAndBothEndpointsVerified:true,originalGraphContentDigestAcknowledged:true,
+        originalSourceAckFrontierRevisions:14,originalRecipientFrontierRevisions:13,
+        actualHTTPSFramePuts:graphCompleted.reduce((n,x)=>n+x.actualFramePutCount,0),
+        newStoreOrKernel:false,productionHostSerializationQualified:false,independentPhysicalDevices:false,
       }));
       nativeNetworkTransport.close();
       await nativeRelay.close();nativeRelay=null;
