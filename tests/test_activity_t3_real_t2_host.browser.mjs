@@ -108,7 +108,7 @@ try {
   // Write permission belongs to this exact normal T2 service passport,
   // never to Activity or the original workspace writer.
   const sourceProfile=createCehovodD05T3Bindings();
-  const kinds=['production-order','production-execution','quality-check-result','operation-route'];
+  const kinds=['production-order','production-execution','quality-check-result','operation-route','quality-plan','quality-check-template'];
   const d05Schemas=kinds.map(kind=>{
     const bound=sourceProfile.objects.find(x=>
       x.schema_id==='ru.5ibs.productionops.'+kind);
@@ -444,6 +444,29 @@ try {
       if(saved?.object?.revision!==1||saved?.event?.correlation_id!==saved?.transaction_id)
         throw Error('A41_ORIGINAL_T2_ROUTE_WRITE_RECEIPT_INVALID');
     }
+    // Use the original graph commit for declared quality control. All
+    // route/template targets already exist before a plan is linked.
+    const {buildD05RouteQualityComparisonExample}=await import('/_activity/d05-route-comparison.mjs');
+    const quality=buildD05RouteQualityComparisonExample(args.workspace);
+    const templateType=schema+'quality-check-template',planType=schema+'quality-plan';
+    for(const item of [...quality.filter(x=>x.object.schema_id===templateType),
+      ...quality.filter(x=>x.object.schema_id===planType)]){
+      const {object,relations}=item;
+      const data={...object.data,source_service_id:args.service};
+      const event={event_type:'cehovod.result.saved',payload:{object_id:object.object_id}};
+      const saved=object.schema_id===planType?await client.t1.commitObjectGraph({
+        workspace_id:args.workspace,idempotency_key:'quality-witness-'+object.object_id,
+        object:{object_id:object.object_id,schema_id:object.schema_id,
+          schema_version:object.schema_version,data},
+        relation_puts:relations.outgoing.map(({relation_id,from_object_id,to_object_id,kind})=>
+          ({relation_id,from_object_id,to_object_id,kind})),relation_deletes:[],event,
+      }):await client.t1.putObject({
+        workspace_id:args.workspace,object_id:object.object_id,schema_id:object.schema_id,
+        schema_version:object.schema_version,base_revision:0,data,extensions:{},event,
+      });
+      if(saved?.object?.revision!==1||saved?.event?.correlation_id!==saved?.transaction_id)
+        throw Error('A41_ORIGINAL_T2_QUALITY_WRITE_RECEIPT_INVALID');
+    }
     const previous=await client.t1.getObject(args.workspace,'d05:case001:order');
     const updated=await client.t1.putObject({
       workspace_id:args.workspace,object_id:'d05:case001:order',
@@ -467,12 +490,12 @@ try {
     if(links.length!==1||links[0].kind!=='based_on'||
       links[0].to_object_id!=='d05:case001:order')
       throw Error('D05_WITNESS_ORIGINAL_T2_BASED_ON_RELATION_MISSING');
-    if(updated?.object?.revision!==2||records.length!==6||observed.length!==7)
+    if(updated?.object?.revision!==2||records.length!==12||observed.length!==13)
       throw Error('D05_WITNESS_ORIGINAL_T2_READBACK_INVALID');
     return {object_count:records.length,event_count:observed.length,
       revision:updated.object.revision};
   },{workspace:d05Workspace,service:d05Service});
-  assert.deepEqual(d05Saved,{object_count:6,event_count:7,revision:2});
+  assert.deepEqual(d05Saved,{object_count:12,event_count:13,revision:2});
 
   // Full SAME-host signed D1 Activity Read and separate signed Derive over
   // one REAL original T2 Kernel facade, with one selected source Workspace.
@@ -706,7 +729,7 @@ try {
       'cehovod.result.saved','cehovod.order.transitioned',
       'cehovod.operation.transitioned',
     ].includes(row.event_type));
-    if(before.length!==6||reported.length!==7||
+    if(before.length!==12||reported.length!==13||
       savedOrder?.object?.revision!==2||
       savedOrder?.object?.data?.value?.quantity!==120)
       throw Error('D05_WITNESS_ORIGINAL_T2_COLD_READBACK_MISMATCH');
@@ -743,7 +766,7 @@ try {
       opened=await openActivityFromOriginalT2Host({
         session,control,currentWorkspace,bindings:createCehovodD05T3Bindings(),
         readActivityFromWorkspaceContext,createSubjectKernelBinding,
-        subscribeExistingInvalidation,enableD05RouteReview:true,
+        subscribeExistingInvalidation,enableD05RouteReview:true,includeD05QualityPlans:true,
       });
       const {port,d05RouteHost:routes}=opened;
       if(!routes||owners.size!==1||
@@ -758,7 +781,12 @@ try {
         routeReview.epistemic_status!=='CALCULATED_OR_DECLARED_NOT_OBSERVED'||
         !routeReview.groups.some(g=>g.model_count===2&&g.differing_fields.includes('DURATION')))
         throw Error('A41_ORIGINAL_T2_SIGNED_ROUTE_GROUPING_INVALID');
-      for(const forbidden of ['example-route-','PRIVATE_ROUTE_MODEL','MODEL_ONLY',args.workspace])
+      const comparedQuality=routeReview.quality_review?.groups.find(g=>g.models.length===2);
+      if(comparedQuality?.comparison!=='DECLARED_FIELDS_DIFFER'||
+        JSON.stringify(comparedQuality.differing_fields)!=='["CRITERIA"]'||
+        !comparedQuality.models.every(m=>m.status==='DECLARED_CHECKS_READ'&&m.check_count===1&&m.blocking_count===1))
+        throw Error('A41_ORIGINAL_T2_SIGNED_QUALITY_COMPARISON_INVALID');
+      for(const forbidden of ['example-route-','example-plan-','example-check-','99.5','100.5','PRIVATE_ROUTE_MODEL','MODEL_ONLY',args.workspace])
         if(JSON.stringify(routeReview).includes(forbidden))
           throw Error('A41_ORIGINAL_T2_ROUTE_SOURCE_LEAK');
       const afterRoutes=await session.t1.listObjects({workspace_id:args.workspace,include_deleted:true});
@@ -800,7 +828,7 @@ try {
         export_allowed:review.export_allowed,
         evidence_passport_actions:passport.actionCount,
         route_models:routeReview.model_count,route_groups:routeReview.group_count,
-        repeated_route_groups:routeReview.repeated_group_count};
+        repeated_route_groups:routeReview.repeated_group_count,quality_comparison:comparedQuality.comparison};
     }finally{
       ui?.dispose();opened?.dispose();stop();
       if(owners.size)throw Error('D05_WITNESS_CONTROL_LISTENER_LEAK');
@@ -808,11 +836,13 @@ try {
   },{service:d05Service,workspace:d05Workspace,token});
   assert.equal(d05Cold.read,'REVIEW');
   assert.equal(d05Cold.status,'HOLD');
-  assert.equal(d05Cold.objects,6);
-  assert.equal(d05Cold.reported_events,7);
+  assert.equal(d05Cold.objects,12);
+  assert.equal(d05Cold.reported_events,13);
   assert.equal(d05Cold.route_models,3);
   assert.equal(d05Cold.route_groups,2);
   assert.equal(d05Cold.repeated_route_groups,1);
+  assert.equal(d05Cold.quality_comparison,'DECLARED_FIELDS_DIFFER');
+  console.log('ACTIVITY_A41_ORIGINAL_T2_SIGNED_QUALITY_COLD_READ_PASS',JSON.stringify({plans:3,templates:3,comparison:d05Cold.quality_comparison,sourceUnchanged:true,externalTransfer:false}));
   console.log('ACTIVITY_A41_ORIGINAL_T2_SIGNED_ROUTE_COLD_READ_PASS',
     JSON.stringify({models:3,groups:2,repeated:1,sourceUnchanged:true,externalTransfer:false,
       originalHostComposition:true,originalControlStreams:1}));
@@ -823,7 +853,7 @@ try {
   console.log('ACTIVITY_D05_ORIGINAL_T2_SIGNED_REPORTED_COLD_HOLD_PASS',
     JSON.stringify({realOriginalT2Kernel:true,testOnlyD05Service:true,
       signedOriginalT3Read:true,coldReadback:true,
-      savedResultTypes:4,savedObjects:6,savedEvents:7,
+      savedResultTypes:6,savedObjects:12,savedEvents:13,
       originalKernelBasedOnRelation:true,evidencePassport:true,
       provenBusinessExecution:false,
       review:'HOLD',externalTransfer:false}));
