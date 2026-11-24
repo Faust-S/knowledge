@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 3d8a7522e84c9dd516aaa877a205c0b7940b18b2
+          ref: 7e369cca801b05a193ef940f65cce88d5a6668e8
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: fa35c7eb43c0a92c2a4e8cd129638206be9915fe
+          ref: 23b5f8e24a8181fcd98f691a0cacd2303979e91d
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -71,7 +71,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: fd7ec54ea5de9444bde156c1c5ee7954892a735d
+          ref: 3acda5013df9d0b2dfb2984cdef3fd867abef159
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club-owner
@@ -130,10 +130,14 @@ jobs:
             exit 1
           fi
           grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-facts.log"
-          # Frozen second suite. Baseline evaluation records failures instead
-          # of silently editing its expected values to match the extractor.
-          node t3-explicit-facts-regression.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" --challenge > "$RUNNER_TEMP/private-explicit-challenge.log" 2>&1
-          grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-challenge.log"
+          # The frozen baseline was measured at run 45385650273. The exact
+          # same challenge now qualifies the corrected source.
+          set +e
+          node t3-explicit-facts-regression.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" --challenge --enforce > "$RUNNER_TEMP/private-explicit-challenge.log" 2>&1
+          result=$?
+          set -e
+          grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-challenge.log" || true
+          if test "$result" != 0; then echo T3_CLUB_EXPLICIT_CHALLENGE_FAIL; exit 1; fi
       - name: Remove private staged data and logs
         if: always()
         shell: bash
@@ -149,7 +153,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 3d8a7522e84c9dd516aaa877a205c0b7940b18b2
+          ref: 7e369cca801b05a193ef940f65cce88d5a6668e8
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -157,7 +161,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: fa35c7eb43c0a92c2a4e8cd129638206be9915fe
+          ref: 23b5f8e24a8181fcd98f691a0cacd2303979e91d
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
