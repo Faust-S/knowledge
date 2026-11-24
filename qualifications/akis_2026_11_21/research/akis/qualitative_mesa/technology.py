@@ -198,10 +198,21 @@ def _route_principals(state: Any, work: Any) -> set[str]:
     ) | {work.customer}
 
 
+
+def _assert_original_route_decision_source(state: Any, event: Mapping[str, Any], at: int) -> None:
+    basis = getattr(state, "context_basis", None)
+    if basis is not None and basis.strict:
+        if not getattr(basis, "decision_requirements", None):
+            raise TechnologyRouteBlocked("TECHNOLOGY_ROUTE_SOURCE_RIGHTS_NOT_QUALIFIED")
+        # Existing original ContextBasis, not a new route-specific IAM.
+        basis.assert_original_decision_rights(event, at)
+
+
 def qualify_original_technology_route_proposal(
     state: Any, ev: Mapping[str, Any], at: int,
 ) -> dict[str, Any]:
     """No future Work is created by declaring a route or reviewing it."""
+    _assert_original_route_decision_source(state, ev, at)
     route = ev.get("technology_route_id")
     if not isinstance(route, str) or not route or len(route) > 128:
         raise TechnologyRouteBlocked("ORIGINAL_TECHNOLOGY_ROUTE_ID_REQUIRED")
@@ -356,9 +367,11 @@ def qualify_original_technology_route_proposal(
 def qualify_original_technology_route_response(
     state: Any, ev: Mapping[str, Any], at: int,
 ) -> None:
+    _assert_original_route_decision_source(state, ev, at)
     proposal = _route_proposal(
         state.trace, ev.get("technology_route_id")
     )
+    _assert_original_route_decision_source(state, proposal, at)
     if (ev.get("org_revision") != state.institution.revision
             or ev.get("technology_route_fingerprint") != proposal.get(
                 "technology_route_fingerprint")
@@ -449,8 +462,13 @@ def qualify_original_technology_route_request(
         raise TechnologyRouteBlocked(
             "ORIGINAL_TECHNOLOGY_ROUTE_ORIGINAL_PRINCIPAL_OBJECTED"
         )
+    _assert_original_route_decision_source(state, proposal, at)
+    for response in latest.values():
+        _assert_original_route_decision_source(state, response, at)
     return {
         "technology_route_original_source_qualified": True,
+        **({"technology_route_strict_original_decision_sources_qualified": True}
+           if state.context_basis is not None and state.context_basis.strict else {}),
         "technology_route_id": ev["technology_route_id"],
         "technology_route_fingerprint": proposal["technology_route_fingerprint"],
         "technology_route_previous_accepted_work": proposal["pilot_work"],
@@ -458,3 +476,42 @@ def qualify_original_technology_route_request(
         "technology_route_original_work_consent_still_required": True,
         "technology_route_real_rights_and_measured_gain_not_assumed": True,
     }
+
+
+def qualify_original_technology_route_commit(state: Any, work: Any, at: int) -> None:
+    """Recheck source rights before the existing commitment, never revoke it later."""
+    if state.context_basis is None or not state.context_basis.strict:
+        return
+    requests = [
+        row for row in state.trace
+        if row.get("action") == "request" and row.get("outcome") == "APPLIED"
+        and row.get("work") == work.key
+        and row.get("technology_route_id") is not None
+    ]
+    if not requests:
+        return
+    if len(requests) != 1 or not requests[0].get("technology_route_strict_original_decision_sources_qualified"):
+        raise TechnologyRouteBlocked("ORIGINAL_TECHNOLOGY_ROUTE_STRICT_REQUEST_REQUIRED")
+    request = requests[0]
+    proposal = _route_proposal(state.trace, request["technology_route_id"])
+    if (at >= proposal["technology_route_valid_until"]
+            or state.institution.revision != request["org_revision"]
+            or state.model_org_code_edition != proposal["model_org_edition"]
+            or not any(link.key == proposal["cooperation_link"]
+                       and link.source_revision == proposal["cooperation_source_revision"]
+                       and work.key in link.works for link in state.cooperation_links)):
+        raise TechnologyRouteBlocked("ORIGINAL_TECHNOLOGY_ROUTE_COMMIT_SOURCE_OR_SCOPE_STALE")
+    latest = {}
+    for row in state.trace:
+        if (row.get("action") == "technology_route_response" and row.get("outcome") == "APPLIED"
+                and row.get("technology_route_id") == request["technology_route_id"]
+                and row.get("technology_route_fingerprint") == proposal["technology_route_fingerprint"]
+                and proposal["at"] < row["at"] < at):
+            latest[row["actor"]] = row
+    if (set(latest) != _route_principals(state, work)
+            or any(row["technology_route_decision"] != "SUPPORT_ORIGINAL_TECHNOLOGY"
+                   for row in latest.values())):
+        raise TechnologyRouteBlocked("ORIGINAL_TECHNOLOGY_ROUTE_COMMIT_INDEPENDENT_SUPPORT_REQUIRED")
+    _assert_original_route_decision_source(state, proposal, at)
+    for response in latest.values():
+        _assert_original_route_decision_source(state, response, at)

@@ -52,6 +52,9 @@ def _original_rights(data):
         "authorize": "ACCEPT", "consent": "ACCEPT",
         "commit": "ACCEPT", "start": "EXECUTE", "complete": "EXECUTE",
         "accept": "ACCEPT", "resubmit": "EXECUTE", "interest_update": "ACCEPT",
+        "start_operation": "EXECUTE", "complete_operation": "EXECUTE",
+        "handoff_dispatch": "SHARE", "handoff_receive": "ACCEPT",
+        "handoff_quality": "ACCEPT", "assess_result_quality": "ACCEPT",
     }
     for (work, action), actors in sorted(work_actor_uses.items()):
         source_id = f"model://op/work-{work}-{action}-context"

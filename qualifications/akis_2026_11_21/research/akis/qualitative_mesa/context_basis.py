@@ -53,6 +53,8 @@ DECISION_SOURCE_FIELDS = {
         "transfer_decision_source_ref", "transfer_parent_source_ref",
     ),
     "affiliation_transfer_apply": (),
+    "technology_route_propose": ("technology_route_source_ref",),
+    "technology_route_response": ("technology_route_decision_source_ref",),
 }
 DECISION_OPERATIONS = {
     action: ("EXECUTE" if action.endswith("_apply") else
@@ -66,6 +68,7 @@ DECISION_PURPOSES = {
              "AKIS_COOPERATION_LIFECYCLE" if action.startswith("cooperation_lifecycle_")
              else "AKIS_INTRA_AFFILIATION_TRANSFER"
              if action.startswith("affiliation_transfer_")
+             else "AKIS_TECHNOLOGY_ROUTE" if action.startswith("technology_route_")
              else "AKIS_COOPERATION_MEMBERSHIP")
     for action in DECISION_SOURCE_FIELDS
 }
@@ -75,6 +78,7 @@ DECISION_TARGET_FIELDS = {
              "lifecycle_id" if action.startswith("cooperation_lifecycle_")
              else "affiliation_transfer_id"
              if action.startswith("affiliation_transfer_")
+             else "technology_route_id" if action.startswith("technology_route_")
              else "change_id")
     for action in DECISION_SOURCE_FIELDS
 }

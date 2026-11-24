@@ -462,3 +462,66 @@ def test_r1t3_strict_original_kpb_never_implicitly_grants_cross_owner_route_sour
     }, 2)
     assert outcome["reason"] == "TECHNOLOGY_ROUTE_SOURCE_RIGHTS_NOT_QUALIFIED"
     assert original.works["w1"].result == "NOT_SUBMITTED"
+
+
+def strict_original_technology_route_case():
+    """Preserve original formation context and add exact independent KPB rights."""
+    from .test_r1u4_strict_original_source_rights_mesa import _original_rights
+
+    d = original_technology_route_case()
+    original = deepcopy(d["context_evidence"])
+    _original_rights(d)
+    strict = d["context_evidence"]
+    ids = {row["id"] for row in strict["sources"]}
+    assert not ids.intersection(row["id"] for row in original["sources"])
+    strict["sources"].extend(original["sources"])
+    return d
+
+
+def test_strict_original_cross_owner_technology_route_uses_existing_context_and_capacity():
+    doc = strict_original_technology_route_case()
+    frozen = deepcopy(doc)
+    out = simulate(doc)
+    assert doc == frozen
+    assert out["counts"]["blocked"] == 0, [
+        (r["at"], r["action"], r["reason"]) for r in out["trace"] if r["outcome"] == "BLOCKED"]
+    assert last_request(out)["technology_route_strict_original_decision_sources_qualified"]
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w3"]["technology"]["handoffs"]["required_edges"][0]["state"] == "RECEIVED"
+    assert out["works"]["w3"]["consenting_principals"] == ["a", "b", "c"]
+    assert out["context_basis"]["strict"]
+
+
+@pytest.mark.parametrize("actor", ["a", "b", "c"])
+def test_strict_technology_response_requires_independent_owner_source_right(actor):
+    doc = strict_original_technology_route_case()
+    vote = next(r for r in doc["events"] if r["action"] == "technology_route_response" and r["actor"] == actor)
+    vote["source_rights_ref"] = "model://op/unrelated"
+    out = simulate(doc)
+    blocked = next(r for r in reports(out, "technology_route_response") if r["actor"] == actor)
+    assert blocked["reason"] == "CONTEXT_DECISION_INDEPENDENT_OWNER_RIGHT_MISSING"
+    assert "w3" not in out["works"]
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_strict_technology_source_expiry_between_request_and_commit_blocks_new_obligation():
+    doc = strict_original_technology_route_case()
+    vote = next(r for r in doc["events"] if r["action"] == "technology_route_response" and r["actor"] == "c")
+    request = next(r for r in doc["events"] if r["action"] == "request" and r["work_spec"]["id"] == "w3")
+    source = next(r for r in doc["context_evidence"]["sources"] if r["id"] == vote["source_rights_ref"])
+    source["valid_until"] = request["at"]
+    out = simulate(doc)
+    assert last_request(out)["outcome"] == "APPLIED"
+    assert next(r for r in reports(out, "commit") if r["work"] == "w3")["reason"] == "CONTEXT_SOURCE_EXPIRED"
+    assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_strict_technology_source_expiry_after_commit_preserves_original_work():
+    doc = strict_original_technology_route_case()
+    vote = next(r for r in doc["events"] if r["action"] == "technology_route_response" and r["actor"] == "c")
+    commit = next(r for r in doc["events"] if r["action"] == "commit" and r.get("work") == "w3")
+    next(r for r in doc["context_evidence"]["sources"] if r["id"] == vote["source_rights_ref"])["valid_until"] = commit["at"]
+    out = simulate(doc)
+    assert next(r for r in reports(out, "commit") if r["work"] == "w3")["outcome"] == "APPLIED"
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"

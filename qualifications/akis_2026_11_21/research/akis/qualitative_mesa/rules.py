@@ -32,7 +32,7 @@ from .technology import (
     operation_reservations, technology_view,
     TechnologyRouteBlocked, qualify_original_technology_route_proposal,
     qualify_original_technology_route_response,
-    qualify_original_technology_route_request,
+    qualify_original_technology_route_request, qualify_original_technology_route_commit,
 )
 from .source_registration import (
     RegistrationBlocked, qualify_subject_registration,
@@ -823,18 +823,10 @@ class QualitativeAKIS:
             elif action == "model_code_function_response":
                 qualify_model_code_function_response(self, ev, at)
             elif action == "technology_route_propose":
-                if self.context_basis is not None and self.context_basis.strict:
-                    raise BlockedDecision(
-                        "TECHNOLOGY_ROUTE_SOURCE_RIGHTS_NOT_QUALIFIED"
-                    )
                 technology_route_evidence = qualify_original_technology_route_proposal(
                     self, ev, at
                 )
             elif action == "technology_route_response":
-                if self.context_basis is not None and self.context_basis.strict:
-                    raise BlockedDecision(
-                        "TECHNOLOGY_ROUTE_SOURCE_RIGHTS_NOT_QUALIFIED"
-                    )
                 qualify_original_technology_route_response(self, ev, at)
             elif action == "model_code_apply":
                 candidate = qualify_model_code_apply(
@@ -1176,6 +1168,8 @@ class QualitativeAKIS:
             if registration_evidence is not None and report["outcome"] == "APPLIED":
                 report.update(registration_evidence)
         if action in {"technology_route_propose", "technology_route_response"}:
+            if "source_rights_ref" in ev:
+                report["source_rights_ref"] = ev["source_rights_ref"]
             report["technology_route_id"] = ev.get("technology_route_id")
             report["technology_route_fingerprint"] = ev.get(
                 "technology_route_fingerprint"
@@ -2026,6 +2020,7 @@ class QualitativeAKIS:
             if set(w.consents) != required or any(w.consents[principal] != (w.source_revision, self.institution.revision) for principal in required):
                 raise BlockedDecision("INDEPENDENT_ACCEPTANCE_MISSING")
             self._assert_future_cooperation_available(w, required)
+            qualify_original_technology_route_commit(self, w, at)
             # Preserve the original request's lineage and qualify it again
             # before the existing reservation or commitment can take effect.
             origin = next((
