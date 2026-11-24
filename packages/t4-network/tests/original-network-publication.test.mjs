@@ -9,8 +9,9 @@ import {readT4OriginalEventWindow} from '../src/network/original-event-window.mj
 import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
 import {createT4CandidateFrameTransport}
   from '../src/network/standard-network-wire-transport.mjs';
-import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,readT4OriginalPublicationMigrationInventory}
   from '../src/network/original-network-publication.mjs';
+import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID} from '../src/network/original-network-technical-schema.mjs';
 import {createT4OriginalHostDispatchTaskBinding}
   from '../src/network/original-host-dispatch-task-binding.mjs';
 
@@ -52,7 +53,8 @@ function fixture(data=task(),{indexed=false,initialLegacy=false}={}){
     loseAction=null,loseNetwork=null,host='host:initial',network=true,allow=true,retryAllowed=true,
     afterNetworkPut=()=>{},indexCalls=0,loseIndex=null,indexRepairAllowed=true,indexMigrationAllowed=true;
   const kernel={
-    hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject'].includes(op),
+    hasOperation:op=>['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject'].includes(op),
+    async listObjects(q){return structuredClone([...objects.values()].map(r=>r.object).filter(o=>o.workspace_id===q.workspace_id));},
     async getObject(w,id){reads++;return structuredClone(objects.get(w+':'+id)??null);},
     async listEventsSince(w){return structuredClone(events.filter(e=>e.workspace_id===w));},
     async putObject(input){
@@ -152,9 +154,9 @@ function fixture(data=task(),{indexed=false,initialLegacy=false}={}){
       replay.set(key,p.frameDigest);return 'RECORDED';
     },
   });
-  function port(node=source){
+  function port(node=source,identity=session){
     return createT4OriginalNetworkPublicationPort({
-      session,localNodeRef:node,technicalWorkspaceId:technical,
+      session:identity,localNodeRef:node,technicalWorkspaceId:technical,
       originalKernel:kernel,getMode:mode,
       readOriginalHostContext:async()=>({workspaceId:technical,
         originalWriteOwnerRef:owner,nodeRef:node,scopeRef:scope,hostSessionRef:host}),
@@ -646,4 +648,62 @@ test('K25 whole requested migration batch must already be PRESENT; unknown addre
     'ORIGINAL_PRESENT_FRAME_INDEXES_VERIFIED');
   assert.equal(f.indexCalls(),1);assert.equal(f.counts().networkCalls,1);
   assert.deepEqual(await f.port().inspectOriginalPublication(),before);
+});
+
+function migrationInventory(f,overrides={}){
+  return readT4OriginalPublicationMigrationInventory({technicalSchemaId:T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
+    technicalWorkspaceId:technical,sourceWorkspaceId:ws,originalWriteOwnerRef:owner,
+    sourceNodeRef:source,recipientNodeRef:recipient,scopeRef:scope,ownerEpoch:2,
+    localNodeRef:source,originalKernel:f.kernel,getMode:f.mode,
+    readOriginalHostContext:async()=>({workspaceId:technical,originalWriteOwnerRef:owner,
+      nodeRef:source,scopeRef:scope,hostSessionRef:f.host()}),
+    authorizeOriginalTechnicalRead:f.auth,...overrides});
+}
+test('K30 original migration inventory binds local owner and peer epoch, including historical sessions but not foreign records',async()=>{
+  const f=fixture(task(),{indexed:true,initialLegacy:true});
+  await f.stageHeads();await f.port().publishPreparedFrame({sequence:1});
+  const another=structuredClone(f.data);
+  another.capture.sourceEventId='event:original:three';
+  another.capture.sourceWindow.lastEventId=another.capture.sourceEventId;
+  another.capture.prepared.delta.sourceEventId=another.capture.sourceEventId;
+  const later=deriveT4OriginalNativeCaptureSession(another);
+  const oldEpoch=deriveT4OriginalNativeCaptureSession({...f.data,ownerEpoch:1});
+  for(const session of [later,oldEpoch]){
+    const p=f.port(source,session);
+    await p.prepareSignedBatch({slots:headsSlots,createSignedFrames:async()=>[
+      await f.signed('HEADS',1,{familyRef:session.familyRef,ownerEpoch:session.ownerEpoch,
+        heads:[session.sourcePrefixDigestAfter]},source,{sessionRef:session.sessionRef,ownerEpoch:session.ownerEpoch})
+    ]});
+    await p.publishPreparedFrame({sequence:1});
+  }
+  const recipientPort=f.port(recipient);
+  await recipientPort.prepareSignedBatch({slots:[{sequence:1,messageType:'DIFF_REQUEST'}],
+    createSignedFrames:async()=>[await f.signed('DIFF_REQUEST',1,
+      {familyRef:f.session.familyRef,fromHeads:[f.session.sourcePrefixDigestBefore]},recipient)]});
+  await recipientPort.publishPreparedFrame({sequence:1});
+  const before=f.counts(),calls=[];
+  const result=await migrationInventory(f,{authorizeOriginalTechnicalRead:async p=>{calls.push(p.operation);return true;}});
+  assert.deepEqual(new Set(result.records.map(r=>r.session.sessionRef)),new Set([f.session.sessionRef,later.sessionRef]));
+  assert.ok(result.records.every(r=>r.revision===3));
+  assert.equal(result.originalCatalogAndEventCorrespondenceVerified,true);
+  assert.equal(result.originalPublicationChainsVerified,false);
+  assert.equal(result.originalAuthorityGranted,false);
+  assert.deepEqual(calls,['t1.listObjects','t1.listObjects','t1.listEventsSince','t1.listEventsSince']);
+  assert.deepEqual(f.counts(),before);
+  assert.equal(f.indexes.size,0);
+});
+test('K30 original migration inventory rejects missing catalog row, missing Event and denied read',async()=>{
+  const f=fixture();await f.stageHeads();await f.port().publishPreparedFrame({sequence:1});
+  const [key,row]=[...f.objects][0],before=f.counts();
+  f.objects.delete(key);
+  await assert.rejects(migrationInventory(f),err('PUBLICATION_MIGRATION_ORIGINAL_EVENT_NOT_PROVEN'));
+  f.objects.set(key,row);
+  const e=f.events.pop();
+  await assert.rejects(migrationInventory(f),err('PUBLICATION_MIGRATION_ORIGINAL_EVENT_NOT_PROVEN'));
+  f.events.push(e);
+  let eventReads=0;const list=f.kernel.listEventsSince;
+  f.kernel.listEventsSince=async(...args)=>{eventReads++;return list(...args);};
+  await assert.rejects(migrationInventory(f,{authorizeOriginalTechnicalRead:async p=>p.operation!=='t1.listEventsSince'}),
+    err('PUBLICATION_ORIGINAL_AUTHORITY_DENIED'));
+  assert.equal(eventReads,0);assert.deepEqual(f.counts(),before);
 });

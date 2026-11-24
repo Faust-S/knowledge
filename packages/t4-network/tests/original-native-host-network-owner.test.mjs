@@ -126,7 +126,8 @@ async function sourceFixture(loseOriginalWrite=false){
   return {...f,technicalWorkspaceId:tech,before,capture,baselineEvent};
 }
 function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=deny,requestBaseline=true,
-  localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow}){
+  localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow,
+  indexMigration=false,technicalRead=allow}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
@@ -139,7 +140,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
       p.sourceWorkspaceId===WS&&p.technicalWorkspaceId===tech&&p.scopeRef===SCOPE,
     resolveOriginalAccess:p=>{accessResolutions++;const q=p.args[0],ws=typeof q==='string'?q:q.workspace_id;
       return ws===WS?local.access:ws===tech?technical.access:null},
-    authorizeOriginalTechnicalRead:allow,authorizeOriginalTechnicalWrite:allow,
+    authorizeOriginalTechnicalRead:technicalRead,authorizeOriginalTechnicalWrite:allow,
     authorizeOriginalBaselineAdmission:async p=>p.baseline.originalBaselineRef===baselineInput.originalBaselineRef,
     verifyOriginalBaselineEvidence:async p=>{
       const event=store.events.find(e=>e.event_id===p.baseline.originalBaselineRef);
@@ -171,7 +172,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     },
   };
   const owner=createT4OriginalNativeHostNetworkOwner({...scope(tech),role,requiredCryptoSuite:SUITE,
-    getMode:()=>mode,wireTransport:wire.wire,originalPorts,enableLocalSourceCapture:localCapture,monotonicNow:()=>clock,
+    getMode:()=>mode,wireTransport:wire.wire,originalPorts,enableLocalSourceCapture:localCapture,enablePublicationIndexMigration:indexMigration,monotonicNow:()=>clock,
     readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null,
     onStep:r=>results.push(r)});
   const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,networkOwner:{
@@ -545,5 +546,70 @@ test('K28 permanent transport authorization failure is not a reconnectable wake'
     assert.equal(f.results.some(x=>x.state==='NETWORK_WAKE_RECOVERY_WAIT'),false);
     assert.equal(f.relay.networkAttached,true);assert.equal(attempts,1);assert.equal(f.signatureCalls,1);
     assert.equal(source.events.filter(e=>e.workspace_id===WS).length,2);
+  }finally{f.relay.close();}
+});
+
+test('K30 native original source and recipient migrate their legacy publications and recover a lost address response without re-signing',async()=>{
+  const source=await sourceFixture(),wire=wireFixture(true);
+  wire.wire.nativeFrameIndexVersion=0;
+  const sender=recoverySource(source,wire);
+  try{const s=await sender.attach();await sender.drive(s,'HEADS_PRESENT');}
+  finally{sender.relay.close();}
+  const recipient=kernelFixture('recipient-migration');recipient.technicalWorkspaceId='ws:k30:recipient:technical';
+  const baseline=(await recipient.kernel.putObject(mutation('o:k14:baseline','baseline','business.baseline.materialized'))).event;
+  const recipientFixture=options=>nativeFixture({role:'RECIPIENT',store:recipient,wire,source,
+    baselineInput:{sourceCursor:source.before,originalBaselineRef:baseline.event_id,
+      originalBaselineDigest:hash(JSON.stringify(baseline))},...options});
+  const receiver=recipientFixture();
+  try{const s=await receiver.attach();await receiver.drive(s,'DIFF_PRESENT');}
+  finally{receiver.relay.close();}
+  assert.equal(wire.puts,2);assert.equal(wire.indices.size,0);
+  const originalFrames=clone([...wire.frames]),sourceEvents=clone(source.events),recipientEvents=clone(recipient.events);
+  wire.wire.nativeFrameIndexVersion=1;
+  const putIndex=wire.wire.putNativeFrameIndex;let calls=0,lose=true,grants=0;
+  wire.wire.putNativeFrameIndex=async p=>{
+    calls++;const result=await putIndex(p);
+    if(lose){lose=false;throw new T4TransferError('OUTCOME_UNKNOWN',{operation:'PUT'});}
+    return result;
+  };
+  const sourceMigration=()=>recoverySource(source,wire,{indexMigration:true,frameAdmission:async p=>{
+    if(p.operation==='t4.network.publish.index.migrate')grants++;
+    return true;
+  }});
+  const first=sourceMigration();
+  try{
+    const s=await first.attach();await first.drive(s,'NETWORK_WAKE_RECOVERY_WAIT');
+    assert.equal(first.relay.networkAttached,true);assert.equal(wire.indices.size,1);assert.equal(calls,1);
+    assert.equal(first.signatureCalls,0);assert.deepEqual(source.events,sourceEvents);
+    first.advanceClock(5000);await first.drive(s,'NETWORK_INDEX_MIGRATION_COMPLETE');
+    assert.equal(first.results.at(-1).migratedPublicationCount,1);
+    assert.equal(first.results.at(-1).verifiedMigratedFrameCount,1);
+    assert.equal(wire.indices.size,2);assert.equal(calls,2);assert.equal(first.signatureCalls,0);
+    assert.ok(grants>0);
+  }finally{first.relay.close();}
+  const second=recipientFixture({indexMigration:true});
+  try{
+    const s=await second.attach();await second.drive(s,'NETWORK_INDEX_MIGRATION_COMPLETE');
+    assert.equal(second.results.at(-1).migratedPublicationCount,1);
+    assert.equal(second.results.at(-1).verifiedMigratedFrameCount,1);
+    assert.equal(second.signatureCalls,0);assert.equal(wire.indices.size,3);assert.equal(calls,3);
+  }finally{second.relay.close();}
+  const cold=sourceMigration();
+  try{
+    const s=await cold.attach();await cold.drive(s,'NETWORK_INDEX_MIGRATION_COMPLETE');
+    assert.equal(cold.signatureCalls,0);assert.equal(calls,3);
+  }finally{cold.relay.close();}
+  assert.equal(wire.puts,2);assert.deepEqual([...wire.frames],originalFrames);
+  assert.deepEqual(source.events,sourceEvents);assert.deepEqual(recipient.events,recipientEvents);
+});
+test('K30 original owner must separately authorize publication migration inventory; no network access on denial',async()=>{
+  const source=await sourceFixture(),wire=wireFixture(true);
+  const f=recoverySource(source,wire,{indexMigration:true,localCapture:true,
+    technicalRead:async p=>p.purpose!=='index-migration-inventory'});
+  try{
+    const s=await f.attach();await f.drive(s,'NETWORK_WAKE_SUSPENDED');
+    assert.ok(f.results.some(r=>r.state==='ADMITTED'));
+    assert.equal(wire.puts,0);assert.equal(wire.gets,0);assert.equal(wire.lists,0);
+    assert.equal(f.signatureCalls,0);assert.equal(f.relay.networkAttached,true);
   }finally{f.relay.close();}
 });
