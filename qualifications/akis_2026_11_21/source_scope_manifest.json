@@ -1,6 +1,6 @@
 {
   "schema": "AKIS_NATIVE_SOURCE_SCOPE/1",
-  "source_revision": "63fa4d38c2bef4de17d651372b8a81c6352d3b0c",
+  "source_revision": "12da8b9239d404507ccd9aab78096769bbb48e2e",
   "source_files": {
     "__init__.py": "68b595531872d6fa1de0c15a5592cb43749e062d",
     "adaptation_review.py": "3ea02ee9da9e06433abdf0b89d771e199fa6c75b",
@@ -136,7 +136,7 @@
     "tests/test_org_code_policy.py": "828d4824a5f7fd00c0988bb17d498b9fabd1e576",
     "tests/test_original_active_resource_readiness_mesa.py": "7408434ca88b3d60b37a6259303d748f7991a3ab",
     "tests/test_original_material_replenishment_mesa.py": "9a2e6277d5c45183104a71f1c897d1bad22b3c62",
-    "tests/test_original_preparation_pattern_revision_mesa.py": "514767fd882a856da05cad58e26246531a60baba",
+    "tests/test_original_preparation_pattern_revision_mesa.py": "0ac1f5ddc0da49ef99f20305f3960cfdac40c95e",
     "tests/test_owner_economic_feedback_mesa.py": "8a0c16f069029d3462eb933d93a6998ad0707afb",
     "tests/test_owner_forecast_revisions_mesa.py": "ae0db747d3ae5e322604bdb92976cc75001780ae",
     "tests/test_participant_mesa_integration.py": "e9cb42580da1f3a028a51e5bbda9f1c9775311c7",

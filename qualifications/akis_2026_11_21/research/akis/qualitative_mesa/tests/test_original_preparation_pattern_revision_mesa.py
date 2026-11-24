@@ -512,7 +512,18 @@ def observe_pattern_change_timing(*, reuse_rate="8.00", third_fee="350.00", cap=
         assert witness(early) == witness(late)
     assert all(early["works"][w]["result"] == ACCEPTED for w in ("w1", "w2", "w3"))
     assert early["counts"]["blocked"] == 0 and late["counts"]["blocked"] == 1
-    assert early["economics"]["work_payment_causality"] == late["economics"]["work_payment_causality"]
+    payment_early = deepcopy(early["economics"]["work_payment_causality"])
+    payment_late = deepcopy(late["economics"]["work_payment_causality"])
+    # The original payment proof also reports the count of noncash rows
+    # for the very same Work. It MUST expose the additional incurred
+    # preparation, while every actual condition, due time and settlement
+    # witness stays equal.
+    for a, b in zip(payment_early["bindings"], payment_late["bindings"], strict=True):
+        assert a["transfer_id"] == b["transfer_id"]
+        count_a = a.pop("same_original_work_noncash_resource_use_count")
+        count_b = b.pop("same_original_work_noncash_resource_use_count")
+        assert count_b - count_a == int(a["original_work"] == "w3")
+    assert payment_early == payment_late
     assert early["economics"]["cash_timing"] == late["economics"]["cash_timing"]
     views = {arm: structural_view(out) for arm, out in outcomes.items()}
     costs = {arm: out["economics"]["original_pattern_reproduction_costs"]
