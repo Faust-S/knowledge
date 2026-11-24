@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: c9cd8f7bd9201259856699649e86031e16d94efe
+          ref: c1e7793f517cf7fadaefaeaeb83196d839e92250
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: 9bfb2a6fd6f8c09cd8b2f6c94c7ca30538321aec
+          ref: a42d3b07cab54296391dcd749092c0fa6a8f5af0
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: owner
@@ -79,7 +79,7 @@ jobs:
           fi
           grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/private-owner-fact.log"
           echo D02_T3_CANONICAL_FACT_AND_SKILLS=PASS
-          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 9bfb2a6fd6f8c09cd8b2f6c94c7ca30538321aec && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 9bfb2a6fd6f8c09cd8b2f6c94c7ca30538321aec --apply && npm run t3:skills:check) > "$RUNNER_TEMP/private-fact-import.log" 2>&1; then
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" a42d3b07cab54296391dcd749092c0fa6a8f5af0 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" a42d3b07cab54296391dcd749092c0fa6a8f5af0 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/private-fact-import.log" 2>&1; then
             echo D02_T3_OFFICIAL_FACT_SKILLS_IMPORT=FAIL
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/private-fact-import.log" | sort -u | head -20 || true
             exit 1
@@ -95,6 +95,30 @@ jobs:
             assert.equal(readFileSync('assets/club-'+name+'.mjs','utf8'),canonical);
           }
           console.log('D02_T3_CANONICAL_FACT_PROJECTION=PASS');
+          NODE
+      - name: Validate imported bytes with exact original shared T3 runtime
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          import {loadSkillPack,validateSkillPack} from '../bli-owner/browser-local-inference/domain-assistant/skill-runtime.mjs';
+          const raw=readFileSync('assets/club-assistant-skills.json','utf8');
+          const origin='https://club.iwxa.ru';
+          const loaded=await loadSkillPack('/assets/club-assistant-skills.json',{
+            origin,request:async url=>({ok:true,redirected:false,url,text:async()=>raw})
+          });
+          const original=JSON.parse(raw);
+          assert.equal(loaded.version,original.version);
+          assert.equal(loaded.skills.length,original.skills.length);
+          assert.equal(loaded.formHints.length,original.formHints.length);
+          assert.equal(loaded.resultHints.length,original.resultHints.length);
+          const bad=structuredClone(original);
+          bad.skills[0].limit='a'.repeat(451);
+          assert.throws(()=>validateSkillPack(bad),/T3_ASSISTANT_SKILLS_ENTRY/);
+          console.log('D02_ORIGINAL_T3_IMPORTED_SKILL_RUNTIME=PASS');
           NODE
       - name: Verify original assistant field and source policy
         working-directory: bli-owner/browser-local-inference
