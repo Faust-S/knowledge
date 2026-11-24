@@ -26,13 +26,17 @@ jobs:
           set -euo pipefail
           test -n "$GH_TOKEN" || { echo "D04_UNIFIED_ACCESS=UNAVAILABLE"; exit 1; }
           for repo in Faust-S/bazmed.ru Faust-S/bazmed; do
-            gh api "repos/$repo" --jq '.id' >/dev/null 2>&1 || { echo "D04_UNIFIED_ACCESS=DENIED"; exit 1; }
+            if ! gh api "repos/$repo" --jq '.id' >/dev/null 2>"$RUNNER_TEMP/d04-access.log"; then
+              code="$(grep -Eo 'HTTP [0-9]{3}' "$RUNNER_TEMP/d04-access.log" | head -1 || true)"
+              echo "D04_UNIFIED_ACCESS=DENIED ${code:-UNKNOWN}"
+              exit 1
+            fi
           done
           echo "D04_UNIFIED_ACCESS=PASS"
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 95eff2616cda6ae3b7a3a0540c0284a1184b734f
+          ref: afaf8e93c57a143cf009525e6373e5170c6f7bee
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -49,8 +53,8 @@ jobs:
       - name: Check exact revisions and canonical model
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "95eff2616cda6ae3b7a3a0540c0284a1184b734f"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "dcbc894bedc49dafd70a01d24150958acc1ccc2a"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "afaf8e93c57a143cf009525e6373e5170c6f7bee"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "a0192daff456ecd81738c3cd4d614a39a460f49c"
           test "$(git -C d04-private/model rev-parse HEAD)" = "7aac3cfa4e1cd11ba0f6db07b77450057b3cb32a"
           for name in PERSONAL_OBSERVATION_PROFILE_V0_1.mjs PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts LIFE_DASHBOARD_CALCULATIONS_V0_1.mjs LIFE_DASHBOARD_CALCULATIONS_V0_1.d.mts LIFE_DIARY_BATCH_V0_1.mjs LIFE_DIARY_BATCH_V0_1.d.mts; do
             cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
