@@ -50,6 +50,10 @@ jobs:
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
         run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_delegation_recovery_mesa.py
+      - name: Original independent portfolio delegation
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_portfolio_delegation_mesa.py
       - name: Restored cooperation regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
@@ -77,6 +81,7 @@ jobs:
           python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_preparation_pattern_evolution.py
           python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_bounded_delegation_economics.py
           python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_original_delegation_recovery.py
+          python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_original_portfolio_delegation.py
       - uses: actions/upload-artifact@v4
         with:
           name: akis-r2-executed-route-economics-${{ matrix.os }}
@@ -99,3 +104,4 @@ jobs:
             qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r2_r3_r4_preparation_pattern_evolution_evidence.json
             qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r2_r3_r4_bounded_delegation_economics_evidence.json
             qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r1_r2_r4_original_delegation_recovery_evidence.json
+            qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r1_r2_r4_original_portfolio_delegation_evidence.json

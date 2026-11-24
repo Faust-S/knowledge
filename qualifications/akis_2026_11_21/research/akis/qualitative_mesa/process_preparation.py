@@ -1249,12 +1249,53 @@ def original_delegation_reproduction_view(
             detail[label + "_delegate_preparation_cost"] = money(amount(prep_costs, pset)) if complete else None
             detail[label + "_combined_cost"] = money(amount(grant_costs, gset)+amount(prep_costs, pset)) if complete else None
         details[key] = detail
+    # Aggregate only the same reconciled rows. Owner identity comes from
+    # the APPLIED original events, never from the operator's estimate.
+    owner_positions = {}
+    for pos, row in grants.items():
+        owner_positions.setdefault(row["actor"], {"grants": set(), "packets": set()})["grants"].add(pos)
+    for pos, row in packets.items():
+        owner_positions.setdefault(row["actor"], {"grants": set(), "packets": set()})["packets"].add(pos)
+    owners = {}
+    complete_status = "MODEL_ORIGINAL_DELEGATION_ATTEMPT_COSTS_RECONCILED"
+    for owner, positions in sorted(owner_positions.items()):
+        gp, pp = positions["grants"], positions["packets"]
+        owner_works = {grants[pos]["work"] for pos in gp} | {packets[pos]["work"] for pos in pp}
+        complete = all(details[key]["status"] == complete_status for key in owner_works)
+        view = {
+            "status": complete_status if complete else "UNKNOWN_INCOMPLETE_OR_AMBIGUOUS_ORIGINAL_ATTEMPT_COST_SCOPE",
+            "original_work_count": len(owner_works),
+            "applied_mandate_count": len(gp),
+            "applied_preparation_count": len(pp),
+            "zero_only_within_this_original_event_cost_scope": True,
+        }
+        for label, gs, ps in (
+            ("all", gp, pp),
+            ("committed_effective", gp & committed_grants, pp & committed),
+            ("accepted_effective", gp & accepted_grants, pp & accepted),
+            ("other", gp-committed_grants, pp-committed),
+        ):
+            view[label + "_mandate_cost"] = money(amount(grant_costs, gs)) if complete else None
+            view[label + "_preparation_cost"] = money(amount(prep_costs, ps)) if complete else None
+            view[label + "_combined_cost"] = money(amount(grant_costs, gs)+amount(prep_costs, ps)) if complete else None
+        owners[owner] = view
+    complete = all(row["status"] == complete_status for row in details.values())
+    aggregate = {
+        "original_owner_count_with_applied_grants_or_preparations": len(owners),
+        "original_work_count": len(details),
+        "scope_complete": complete,
+    }
+    for label in ("all", "committed_effective", "accepted_effective", "other"):
+        for kind in ("mandate", "preparation", "combined"):
+            key = label + "_" + kind + "_cost"
+            aggregate[key] = money(sum((Decimal(row[key]) for row in owners.values()), Decimal(0))) if complete else None
     cost_view = {
         "scope": "ORIGINAL_DELEGATION_ATTEMPT_RESOURCE_COSTS_ONLY",
         "status": "MODEL_ORIGINAL_DELEGATION_ATTEMPT_COSTS_RECONCILED"
                   if all(row["status"] == "MODEL_ORIGINAL_DELEGATION_ATTEMPT_COSTS_RECONCILED" for row in details.values())
                   else "UNKNOWN_INCOMPLETE_OR_AMBIGUOUS_ORIGINAL_ATTEMPT_COST_SCOPE",
-        "local_research_only": {"by_original_work": details},
+        "local_research_only": {"by_original_work": details, "per_original_owner": owners,
+                                "aggregate": aggregate},
         "same_original_cost_records_not_added_again": True,
         "new_cost_rows_created": 0,
         "actual_incurrence_profit_and_causal_saving_verified": False,

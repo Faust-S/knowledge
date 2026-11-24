@@ -1,6 +1,6 @@
 {
   "schema": "AKIS_NATIVE_SOURCE_SCOPE/1",
-  "source_revision": "07730101077757f5f5208e2fdb6ce92c4f813ad8",
+  "source_revision": "97f8b4b6256169ce036c8f370cd74bdcd866a8ce",
   "source_files": {
     "__init__.py": "68b595531872d6fa1de0c15a5592cb43749e062d",
     "adaptation_review.py": "3ea02ee9da9e06433abdf0b89d771e199fa6c75b",
@@ -76,7 +76,7 @@
     "participant_response.py": "eb0788f5d02e14f3e3f788c1c965d967d68ed9df",
     "partner_discovery.py": "147544bcb902ee7db7394403bffce5567bc451d1",
     "portfolio.py": "7bcfbc9d14d3924bef798b7f3dde69e6aaf66ea6",
-    "process_preparation.py": "8fee3f0e7f16fcb852c58a63e000fbf5241d3c3d",
+    "process_preparation.py": "1aade16803ad4a8f3e6d4b6ef3d87a9608555b10",
     "requirements.txt": "25949a181523d7749a5eda07f52bc39007413032",
     "rules.py": "cc12dfa524eefb393ceec70f235fbc7dbafdb1aa",
     "scope_policy.py": "63aa19d99dd4603ac7ceedb0a4210c46c42b54b8",
@@ -217,7 +217,9 @@
     "tests/test_work_payment_progress_mesa.py": "6bc5e69198641ec669cc7cbc11cbba65fc7bec64",
     "three_period_original_work.py": "151ae288d5271764f8a099a038d9420b24298c8d",
     "work_assurance.py": "cc46a1d0408ebef3c2c5ccb006ec48fffadd37d6",
-    "work_counterfactual.py": "9f13fa313ee0b3d921f3b22d5a0e2b4221a69f21"
+    "work_counterfactual.py": "9f13fa313ee0b3d921f3b22d5a0e2b4221a69f21",
+    "tests/test_original_portfolio_delegation_mesa.py": "0ea15e3ad9d2f6ceee3e837c3fcffce9b4d2fe98",
+    "experiments/export_original_portfolio_delegation.py": "6997326aa5c9b0bac3b123836eb9c5921f76b6f3"
   },
   "retained_stand_only": {
     "tests/test_r1v2c3_intrafirm_affiliation_transfer_mesa.py": "2f9abac2495321847130dac486fcad254c9ea6c4"
