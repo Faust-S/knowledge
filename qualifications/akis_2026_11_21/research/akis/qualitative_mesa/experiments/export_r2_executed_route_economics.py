@@ -96,7 +96,7 @@ def export_multiperiod_route_economics():
     from research.akis.qualitative_mesa.tests.test_r1p_r3_executed_route_economics_mesa import (
         compare as compare_periods, cumulative_routes, fourth_period_case,
         adverse_execution_cost_routes, delayed_receipt_routes,
-        third_period_reviews, without_finance, ACCEPTED,
+        third_period_reviews, without_finance, outside_then_reenter_case, ACCEPTED,
     )
 
     trials = {
@@ -206,12 +206,48 @@ def export_multiperiod_route_economics():
         })
     assert all(row["prior_accepted_results"] == 2 and not row["third_original_result_accepted"]
                for row in negative_capacity)
+    reentry = []
+    for label, doc in sorted({
+        "return_after_own_outside_execution": outside_then_reenter_case(),
+        "remain_paused_after_own_outside_execution": outside_then_reenter_case(stay_paused=True),
+        "wrong_original_outside_result": outside_then_reenter_case(
+            stay_paused=True, wrong_basis={"result_ref": "model://a/wrong-result"}),
+        "stale_original_outside_revision": outside_then_reenter_case(
+            stay_paused=True, wrong_basis={"source_revision": "stale"}),
+    }.items()):
+        out = simulate(doc)
+        review = next(row for row in out["trace"]
+                      if row.get("evaluation_economic_basis_kind") ==
+                      "OWN_EXECUTED_OUTSIDE_ALTERNATIVE")
+        item = {
+            "trial": label,
+            "prior_accepted_results": sum(
+                out["works"][key]["result"] == ACCEPTED
+                for key in ("w1", "w2", OUTSIDE)
+            ),
+            "outside_basis_scope_status": review["evaluation_economic_basis_status"],
+            "independent_future_participation": review["participation_value"],
+            "fourth_original_result": out["works"].get("w4", {}).get("result", "NOT_CREATED"),
+            "cooperative_third_obligation_accepted": (
+                out["works"]["w3"]["obligation"] != "NOT_ACCEPTED"),
+            "outside_buyer_replaces_original_cooperative_principal": False,
+            "empirical_additionality_verified": False,
+        }
+        assert item["prior_accepted_results"] == 3
+        assert not item["cooperative_third_obligation_accepted"]
+        assert item["fourth_original_result"] == (
+            ACCEPTED if label.startswith("return") else "NOT_CREATED")
+        assert item["outside_basis_scope_status"] == (
+            "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"
+            if label.startswith(("return", "remain")) else "UNKNOWN")
+        reentry.append(item)
     manifest = {
-        "schema": "AKIS_R1P_R3_CUMULATIVE_EXECUTED_ROUTE_ECONOMICS/1.0",
+        "schema": "AKIS_R1P_R3_CUMULATIVE_EXECUTED_ROUTE_ECONOMICS/1.1",
         "engine": "MESA_3_5_2",
         "matched_route_experiments": results,
         "fourth_period_original_feedback_experiments": fourth,
         "unqualified_measurement_experiments": negative_capacity,
+        "external_execution_and_independent_reentry_experiments": reentry,
         "private_owner_amounts_and_source_references_excluded": True,
         "independent_owner_review_is_not_automatic_consent": True,
         "no_cumulative_ledger_created_outside_original_model": True,

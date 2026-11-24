@@ -935,3 +935,37 @@ def test_own_outside_result_does_not_override_independent_pause_or_fake_basis(wr
     assert review["participation_value"] == "PAUSED_NEW_WORK"
     if wrong_basis is not None:
         assert "evaluation_economic_basis_work" not in review
+
+
+def test_incumbent_buyer_cannot_claim_the_external_suppliers_result_as_own_evidence():
+    d = outside_then_reenter_case(stay_paused=True)
+    reviews = [row for row in d["events"] if row["action"] == "participation_status"
+               and "evaluation_economic_source_revision" in row]
+    a = next(row for row in reviews if row["actor"] == "a")
+    b = next(row for row in reviews if row["actor"] == "b")
+    b["evaluation_economic_outside_basis"] = deepcopy(a["evaluation_economic_outside_basis"])
+    out = simulate(d)
+    own, other = [
+        next(row for row in out["trace"] if row.get("evaluation_economic_basis_kind") ==
+             "OWN_EXECUTED_OUTSIDE_ALTERNATIVE" and row["actor"] == owner)
+        for owner in ("a", "b")
+    ]
+    assert own["evaluation_economic_basis_status"] == "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"
+    assert other["evaluation_economic_basis_status"] == "UNKNOWN"
+    assert "evaluation_economic_basis_work" not in other
+    assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1", "w2", OUTSIDE))
+    assert "w4" not in out["works"]
+
+
+def test_external_basis_needs_current_independent_review_source_not_historical_consent():
+    d = outside_then_reenter_case(stay_paused=True)
+    review = next(row for row in d["events"]
+                  if "evaluation_economic_outside_basis" in row)
+    review["evaluation_economic_source_revision"] = "stale"
+    out = simulate(d)
+    qualified = next(row for row in out["trace"]
+                     if row.get("evaluation_economic_basis_kind") == "OWN_EXECUTED_OUTSIDE_ALTERNATIVE")
+    assert qualified["evaluation_economic_basis_status"] == "UNKNOWN"
+    assert qualified["participation_value"] == "PAUSED_NEW_WORK"
+    assert out["works"][OUTSIDE]["result"] == ACCEPTED
+    assert "w4" not in out["works"]
