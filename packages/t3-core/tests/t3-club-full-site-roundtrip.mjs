@@ -288,7 +288,16 @@ try{
  const restoreButton=restore.getByRole("button",{name:"Открыть выбранные записи",exact:true});
  await poll(async()=>await restoreButton.isEnabled(),"PROFILE_RESTORE_READY");
  phase="OFFLINE_RESTORE_CONFIRM";
+ // The original restore bridge asks for a SECOND human confirmation before
+ // any tab-session write. Playwright otherwise automatically dismisses it.
+ let restoreConsent=false;
+ page.once("dialog",async d=>{
+  restoreConsent=d.type()==="confirm"&&d.message().includes("Загрузить 1 новых");
+  if(restoreConsent)await d.accept();else await d.dismiss();
+ });
  await restoreButton.click();
+ await poll(async()=>restoreConsent,"ORIGINAL_RESTORE_EXPLICIT_CONSENT");
+ log("RECIPIENT_OFFLINE_RESTORE_CONSENT");
  phase="OFFLINE_RESTORE_COMPLETED";
  const completed=page.getByTestId("club-t2-restore-completed");
  await completed.waitFor({state:"visible"});
