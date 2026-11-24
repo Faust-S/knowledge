@@ -210,6 +210,8 @@ test('semantic extraction keeps all original controls and fills proposal without
  const v=await reviewD05ExtractionProposal(x.r,x.g.id,1,x.proposal);
  assert.equal(v.missing_fields.length,0);assert.equal(v.export_allowed,false);
  assert.equal(v.suggested_title,'Изготовление детали');assert.equal(JSON.stringify(x.r),before);
+ assert.ok(v.product, v.product_hold);assert.equal(v.product.export_allowed,false);
+ assert.equal(v.product.object_data.technology.quality_checks[0].declared_fields.find(f=>f.field==='upper_limit').value,'100.2');
  const q=v.candidate.technology.quality_checks[0];
  assert.equal(q.declared_fields.find(f=>f.field==='lower_limit').value,'99.8');
  assert.equal(q.declared_fields.find(f=>f.field==='upper_limit').value,'100.2');

@@ -23,7 +23,8 @@ export async function qualifyOriginalTechnologyProducts({browser,open,chromium,t
   return {status:'SAVED',bytes:Array.from(readFileSync(path))};
  });
  const archives=await browser.page.evaluate(async args=>{
-  const {exportAcceptedTechnology,releaseAcceptedTechnology}=await import('/_activity/technology-product-exchange.mjs');
+  const {exportAcceptedTechnology}=await import('/_activity/technology-product-exchange.mjs');
+  const {createTechnologyReleaseHost}=await import('/_activity/technology-release-host.mjs');
   const owner=await globalThis.IWXA.connect({service_id:args.writer});
   const client=await globalThis.IWXA.connect({service_id:args.service});
   const subject={getWorkspace:w=>client.t1.getWorkspace(w),getObject:(w,o)=>client.t1.getObject(w,o),
@@ -37,24 +38,45 @@ export async function qualifyOriginalTechnologyProducts({browser,open,chromium,t
    // is copied here. Production must supply the original full owner.
    const inspect=async workspace=>({objects:await client.t1.listObjects({workspace_id:workspace,include_deleted:true}),
     assets:[],relations:[]});
-   let savedBytes=null;
-   const published=await releaseAcceptedTechnology({subject,workspace_id:e.source,
-    product_sha256:e.product.product_sha256,readAcceptedProduct:async()=>e.product.object_data,
-    inspectWholeWorkspace:inspect,isCurrent:()=>true,saveAndReadback:async input=>{
-     const result=await globalThis.activityQualificationSaveAndReadback({...input,bytes:Array.from(input.bytes)});
-     savedBytes=new Uint8Array(result.bytes);
-     return {status:result.status,bytes:savedBytes};
+   let savedBytes=null,approvedManifest=null,ownerDecisions=0;
+   const releaseSubject={...subject,exportPackage:async options=>{
+    const artifact=await subject.exportPackage(options);
+    approvedManifest=structuredClone(artifact.manifest);return artifact;
+   }};
+   const host=createTechnologyReleaseHost({subscribeInvalidation:()=>()=>{},
+    resolveOriginalRelease:async (request,current)=>{
+     ownerDecisions++;
+     if(request.product_sha256!==e.product.product_sha256||!current())return null;
+     return {subject:releaseSubject,workspace_id:e.source,
+      readAcceptedProduct:async()=>e.product.object_data,
+      inspectWholeWorkspace:inspect,isCurrent:current,saveAndReadback:async input=>{
+       const result=await globalThis.activityQualificationSaveAndReadback({...input,bytes:Array.from(input.bytes)});
+       savedBytes=new Uint8Array(result.bytes);
+       return {status:result.status,bytes:savedBytes};
+      }};
     }});
-   if(published.status!=='ORIGINAL_TECHNOLOGY_RELEASED'||published.export_confirmed!==true||!savedBytes)
-    throw Error('TECHNOLOGY_NATIVE_EXPORT_CONFIRM');
-   // A second export of the same product must recover, not write revision 2.
+   let published;
+   try{
+    const request={product_sha256:e.product.product_sha256,object_data:e.product.object_data};
+    published=await host.port.reviewAndRelease(request);
+    if(published.status!=='ORIGINAL_TECHNOLOGY_RELEASED'||published.export_confirmed!==true||!savedBytes)
+     throw Error('TECHNOLOGY_NATIVE_EXPORT_CONFIRM');
+    if(Object.keys(published).sort().join(',')!=='export_confirmed,file_saved,package_digest,product_sha256,status')
+     throw Error('TECHNOLOGY_NATIVE_HOST_RECEIPT_SCOPE');
+    const replay=await host.port.reviewAndRelease(request);
+    if(JSON.stringify(replay)!==JSON.stringify(published)||ownerDecisions!==1)
+     throw Error('TECHNOLOGY_NATIVE_HOST_DUPLICATE_DISPATCH');
+   }finally{host.dispose();}
+   // Independent recovery must find the same immutable product revision.
    const recovered=await exportAcceptedTechnology({subject,workspace_id:e.source,
     product_sha256:e.product.product_sha256,readAcceptedProduct:async()=>e.product.object_data,
     inspectWholeWorkspace:inspect,isCurrent:()=>true});
-   const saved=await client.t1.getObject(e.source,published.object_id);
-   if(saved.object.revision!==1||recovered.object_id!==published.object_id)throw Error('TECHNOLOGY_NATIVE_EXPORT_REPEATED_WRITE');
-   output.push({bytes:Array.from(savedBytes),object_id:published.object_id,source:e.source,digest:e.product.product_sha256,
-    manifest:published.manifest});
+   const object_id='technology:'+e.product.product_sha256;
+   const saved=await client.t1.getObject(e.source,object_id);
+   if(saved.object.revision!==1||recovered.object_id!==object_id||approvedManifest?.package_digest!==published.package_digest)
+    throw Error('TECHNOLOGY_NATIVE_EXPORT_REPEATED_WRITE');
+   output.push({bytes:Array.from(savedBytes),object_id,source:e.source,digest:e.product.product_sha256,
+    manifest:approvedManifest});
   }
   return output;
  },{writer,service,entries});
