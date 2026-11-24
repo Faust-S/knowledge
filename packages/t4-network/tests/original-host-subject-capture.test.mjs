@@ -948,3 +948,29 @@ test('K18 stale source cursor cannot create Asset or Relation Intent after anoth
     captureRef:'capture:k18:stale-relation'}),err('ORIGINAL_HOST_CAPTURE_SOURCE_CURSOR_STALE'));
   assert.equal(f.writes.length,1);assert.equal(f.intents.size,1);assert.equal(f.outbox.size,1);
 });
+
+test('K19 automatic capture frontier supports Asset and Relation puts and deletes in the same original causal stream',async()=>{
+  const f=fixture(),baseline=await cursor(f);let held=false,entries=0;
+  const options={...f.ports,
+    withOriginalSubjectMutation:async(proof,action)=>{
+      assert.equal(held,false);assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+      held=true;entries++;try{return await action();}finally{held=false;}
+    },
+    readOriginalAdmittedBaseline:async()=>{assert.equal(held,true);return {
+      schema:'IWXA_T4_ORIGINAL_SOURCE_BASELINE_V1',
+      identity:{sourceWorkspaceId:ws,originalWriteOwnerRef:owner},
+      originalBaselineRef:'baseline:k19',originalBaselineDigest:'sha256:'+'a'.repeat(64),
+      sourceCursor:baseline};},
+    listOriginalPendingIntents:async()=>[],
+    listOriginalOutbox:async()=>[...f.outbox.values()],
+  };
+  for(const [method,input,ref] of [['putAsset',assetInput,'asset-put'],['putRelation',relationInput,'relation-put'],
+    ['deleteRelation',deletionRelationInput,'relation-delete'],['deleteAsset',deletionAssetInput,'asset-delete']]){
+    const host=createT4OriginalHostCaptureAdapter(options);
+    await host[method]({mutationInput:input(),captureRef:'capture:k19:'+ref,fromObjectId:objectFrom});
+    host.dispose();
+  }
+  assert.equal(entries,4);assert.equal(f.writes.length,4);assert.equal(f.outbox.size,4);
+  assert.deepEqual([...f.outbox.values()].map(x=>x.sourceCursorAfter.seenEventCount),
+    [2,3,4,5].map(x=>x+baseline.seenEventCount-1));
+});

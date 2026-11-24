@@ -239,8 +239,8 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
  * It is never reconstructed from the current (potentially newer) Object.
  * No network write or original mutation is performed here.
  */
-export async function readT4OriginalHostCapturedObject(params={}){
-  const verified=await loadVerifiedOutbox({...params,kind:'OBJECT_PUT'});
+async function readCapturedObject(params,requireNetworkPublish){
+  const verified=await loadVerifiedOutbox({...params,kind:'OBJECT_PUT'},{requireNetworkPublish});
   const {outbox,intent,originalSourceEvent:event,currentSourceWindow:window,
     currentNextCursor:nextCursor}=verified;
   const exact=decodeT4OriginalObjectDeltaBytes(verified.prepared.bytes);
@@ -296,6 +296,10 @@ export async function readT4OriginalHostCapturedObject(params={}){
     originalT3OutboxUnchanged:true,
     networkPublished:false,originalRecipientApplied:false,
   });
+}
+
+export async function readT4OriginalHostCapturedObject(params={}){
+  return readCapturedObject(params,true);
 }
 
 /** Bind both HEADS subject proof and authenticated plaintext proof to the
@@ -389,11 +393,11 @@ export async function readT4OriginalHostStagedDeletionForRecovery(params={}){
  * No inferred historical bytes. Older untraced subject captures are
  * deliberately not eligible for the native authenticated route.
  */
-export async function readT4OriginalHostCapturedSubject(params={}){
-  if(params.kind==='OBJECT_PUT')return readT4OriginalHostCapturedObject(params);
+async function readCapturedSubject(params,requireNetworkPublish){
+  if(params.kind==='OBJECT_PUT')return readCapturedObject(params,requireNetworkPublish);
   if(!['ASSET_PUT','RELATION_PUT'].includes(params.kind)&&!isT4NativeDeleteKind(params.kind))
     fail('OUTBOX_NATIVE_SUBJECT_KIND_UNSUPPORTED');
-  const verified=await loadVerifiedOutbox(params);
+  const verified=await loadVerifiedOutbox(params,{requireNetworkPublish});
   if(isT4NativeDeleteKind(params.kind))return verifiedNativeDeletion(verified,params);
   const {outbox,intent,originalSourceEvent:event,currentSourceWindow:window,
     currentNextCursor:nextCursor}=verified;
@@ -440,6 +444,25 @@ export async function readT4OriginalHostCapturedSubject(params={}){
     capturedWindowDigestVerified:true,laterSourceEventsExist:window.hasMore,
     currentObjectReadOrUsedAsHistoricalBytes:false,originalT3OutboxUnchanged:true,
     networkPublished:false,originalRecipientApplied:false,
+  });
+}
+export async function readT4OriginalHostCapturedSubject(params={}){
+  return readCapturedSubject(params,true);
+}
+
+// An original local capture frontier needs proof of previous local commits,
+// not a grant to publish their contents to a network peer. Return metadata
+// only; the original network publisher still invokes the authorized path.
+export async function readT4OriginalHostLocalCaptureEvidence(params={}){
+  const c=await readCapturedSubject(params,false);
+  return Object.freeze({
+    schema:'IWXA_T4_ORIGINAL_LOCAL_CAPTURE_EVIDENCE_V1',
+    kind:c.kind,subjectId:c.subjectId,captureRef:c.captureRef,
+    sourceEventId:c.sourceEventId,sourceCursorBefore:c.sourceCursorBefore,
+    sourceCursorAfter:c.sourceCursorAfter,originalEventDigest:c.prepared.delta.sourceEventDigest,
+    originalWindowDigest:c.sourceWindow.windowDigest,sha256:c.prepared.sha256,key:c.prepared.key,
+    originalIntentEventAndCanonicalBytesVerified:true,
+    networkPublicationAuthorized:false,networkPublished:false,
   });
 }
 export async function verifyT4OriginalHostCapturedSubjectSource(params,proof){

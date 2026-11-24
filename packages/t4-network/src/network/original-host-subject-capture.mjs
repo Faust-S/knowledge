@@ -516,12 +516,14 @@ async function stageDeletion(p,guard,captured){
  */
 export async function captureT4OriginalHostSubjectDeletion(p={}){
   const {kind,mutationInput,captureRef,workspaceId,sourceCursor,
-    originalWriteOwnerRef,withOriginalSubjectMutation,fromObjectId}=p;
+    originalWriteOwnerRef,withOriginalSubjectMutation,fromObjectId,resolveOriginalCaptureCursor}=p;
   const asset=kind==='ASSET_DELETE',object=kind==='OBJECT_DELETE';
   const subjectId=asset?mutationInput?.asset_id:object?mutationInput?.object_id:mutationInput?.relation_id;
   const objectId=asset?undefined:object?subjectId:fromObjectId;
   const {scope,guard,boundary}=deletionScope({...p,subjectId});
-  checkCursor(sourceCursor,workspaceId,originalWriteOwnerRef);
+  if(resolveOriginalCaptureCursor!==undefined&&typeof resolveOriginalCaptureCursor!=='function')
+    fail('SUBJECT_CAPTURE_ORIGINAL_CURSOR_REQUIRED');
+  if(resolveOriginalCaptureCursor===undefined)checkCursor(sourceCursor,workspaceId,originalWriteOwnerRef);
   if(mutationInput?.workspace_id!==workspaceId||!ID(mutationInput.event?.event_type)||
     (!asset&&!ID(objectId))||typeof p.persistOriginalIntent!=='function'||
     (object&&mutationInput.base_revision===undefined)||
@@ -536,8 +538,11 @@ export async function captureT4OriginalHostSubjectDeletion(p={}){
   const expectedBaseRevision=mutationInput.base_revision;
   return runT4OriginalSubjectMutationBoundary(withOriginalSubjectMutation,boundary,async()=>{
     await guard();
+    const cursor=resolveOriginalCaptureCursor===undefined?sourceCursor:
+      await resolveOriginalCaptureCursor(Object.freeze(boundary));
+    checkCursor(cursor,workspaceId,originalWriteOwnerRef);
     const captured=await captureT4OriginalDeletionAtMutation({
-      ...deletionParams(p,scope,key,objectId),sourceCursor,sourceEvent:event,
+      ...deletionParams(p,scope,key,objectId),sourceCursor:cursor,sourceEvent:event,
       ...((asset||object)?{expectedBaseRevision}:{})});
     return stageDeletion(p,guard,captured);
   });

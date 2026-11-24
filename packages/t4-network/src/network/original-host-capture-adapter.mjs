@@ -1,5 +1,6 @@
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
+import {readT4OriginalHostCaptureFrontier} from './original-host-capture-frontier.mjs';
 import {runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
 import {captureT4OriginalObjectMutation} from './original-object-mutation-capture.mjs';
 import {reconcileT4OriginalMutationIntent} from './original-object-intent-recovery.mjs';
@@ -19,6 +20,7 @@ export function createT4OriginalHostCaptureAdapter({
   persistOriginalIntent,readOriginalIntent,
   persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
   listOriginalPendingIntents,authorizeOriginalCaptureRecovery,
+  readOriginalAdmittedBaseline,listOriginalOutbox,
   isHostActive=()=>true,
 }={}){
   if(typeof getMode!=='function'||
@@ -48,6 +50,29 @@ export function createT4OriginalHostCaptureAdapter({
         readOriginalOutbox].some(f=>typeof f!=='function'))
       fail('ORIGINAL_HOST_T4_CAPTURE_PORTS_REQUIRED');
   };
+  // Native Host composition supplies its existing admitted baseline and
+  // ledger. Old explicit-cursor adapters remain available for existing tests
+  // and manual routes; an automatic route cannot skip a pending capture.
+  async function selectCaptureCursor(proof,supplied){
+    if(readOriginalAdmittedBaseline!==undefined){
+      const {sourceCursor}=await readT4OriginalHostCaptureFrontier({
+        ...hostCapturePorts(),workspaceId:proof.workspaceId,
+        readOriginalAdmittedBaseline,listOriginalOutbox,listOriginalPendingIntents,
+      });
+      if(supplied!==undefined&&supplied!==null&&
+        (supplied.lastEventId!==sourceCursor.lastEventId||
+         supplied.sourcePrefixDigest!==sourceCursor.sourcePrefixDigest||
+         supplied.seenEventCount!==sourceCursor.seenEventCount||
+         supplied.workspaceId!==sourceCursor.workspaceId||
+         supplied.originalWriteOwnerRef!==sourceCursor.originalWriteOwnerRef))
+        fail('ORIGINAL_HOST_CAPTURE_SOURCE_CURSOR_STALE');
+      return sourceCursor;
+    }
+    if(supplied?.schema!=='IWXA_T4_ORIGINAL_EVENT_CURSOR_V1'||
+      supplied.workspaceId!==proof.workspaceId||supplied.originalWriteOwnerRef!==originalWriteOwnerRef)
+      fail('ORIGINAL_HOST_CAPTURE_SOURCE_CURSOR_REQUIRED');
+    return supplied;
+  }
   // Use the original Host's workspace-wide mutation executor, not a new
   // T4 lock. Validate the capture position inside that boundary before
   // creating an Intent or invoking the subject operation. The network ACK
@@ -56,18 +81,16 @@ export function createT4OriginalHostCaptureAdapter({
     if(typeof withOriginalSubjectMutation!=='function')
       fail('ORIGINAL_HOST_CAPTURE_MUTATION_BOUNDARY_REQUIRED');
     const workspaceId=mutationInput.workspace_id;
-    if(sourceCursor?.schema!=='IWXA_T4_ORIGINAL_EVENT_CURSOR_V1'||
-      sourceCursor.workspaceId!==workspaceId||sourceCursor.originalWriteOwnerRef!==originalWriteOwnerRef)
-      fail('ORIGINAL_HOST_CAPTURE_SOURCE_CURSOR_REQUIRED');
     // Snapshot before entering an asynchronous Host boundary. A caller
     // retaining an Asset byte array cannot change the admitted operation.
-    const exact=structuredClone(mutationInput),cursor=structuredClone(sourceCursor);
+    const exact=structuredClone(mutationInput),supplied=structuredClone(sourceCursor);
     const proof=Object.freeze({kind,operation,workspaceId,subjectId,captureRef,originalWriteOwnerRef,
       originalHostMustSerializeSubjectMutations:true,
       originalHostMustSerializeAllWorkspaceGraphMutations:true,
       originalMutationRecoveryOnly:false,networkIsNotOriginalGrant:true});
     const result=await runT4OriginalSubjectMutationBoundary(withOriginalSubjectMutation,proof,async()=>{
       if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_CAPTURE_MODE_CHANGED');
+      const cursor=await selectCaptureCursor(proof,supplied);
       const {window}=await readT4OriginalEventWindow({
         workspaceId,originalWriteOwnerRef,cursor,maxEvents:1,
         authorizeOriginalRead:guard=>authorizeOriginalRead({...proof,...guard}),
@@ -97,8 +120,12 @@ export function createT4OriginalHostCaptureAdapter({
     requiredOriginalHostCapturePorts();
     if(!ID(captureRef)||!ID(mutationInput.workspace_id))
       fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
+    const exact=structuredClone(mutationInput),supplied=structuredClone(sourceCursor);
     const capture=await captureT4OriginalHostSubjectDeletion({...hostCapturePorts(),
-      kind,workspaceId:mutationInput.workspace_id,mutationInput,sourceCursor,captureRef,fromObjectId});
+      kind,workspaceId:exact.workspace_id,mutationInput:exact,sourceCursor:supplied,captureRef,fromObjectId,
+      ...(readOriginalAdmittedBaseline===undefined?{}:{
+        resolveOriginalCaptureCursor:proof=>selectCaptureCursor(proof,supplied),
+      })});
     mode();
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_DELETE_RESULT_V1',
       subjectKind:kind,t4Mode:'T4_NETWORK',originalReceipt:capture.originalReceipt,capture,

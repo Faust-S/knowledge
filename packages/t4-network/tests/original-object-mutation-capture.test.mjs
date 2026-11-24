@@ -737,3 +737,71 @@ test('K18 stale Object capture position and missing original mutation boundary c
     captureRef:'capture:k18:stale'}),code('ORIGINAL_HOST_CAPTURE_SOURCE_CURSOR_STALE'));
   assert.equal(f.writes.length,1);assert.equal(f.intents.size,1);assert.equal(f.outbox.size,1);
 });
+
+async function automaticObjectHost(f,overrides={}){
+  const initial=await firstCursor(f);
+  const b={schema:'IWXA_T4_ORIGINAL_SOURCE_BASELINE_V1',
+    identity:{sourceWorkspaceId:ws,originalWriteOwnerRef:owner},
+    originalBaselineRef:'baseline:k19',originalBaselineDigest:'sha256:'+'a'.repeat(64),sourceCursor:initial};
+  let inside=false;
+  return createT4OriginalHostCaptureAdapter({...f.ports,originalWriteOwnerRef:owner,
+    withOriginalSubjectMutation:async(proof,action)=>{
+      assert.equal(inside,false);inside=true;
+      try{return await action();}finally{inside=false;}
+    },
+    readOriginalAdmittedBaseline:async()=>{assert.equal(inside,true);return structuredClone(b);},
+    listOriginalOutbox:async()=>{assert.equal(inside,true);return [...f.outbox.values()];},
+    listOriginalPendingIntents:async()=>[...f.intents.values()].filter(i=>!f.outbox.has(i.captureRef)).map(i=>({
+      workspaceId:ws,originalWriteOwnerRef:owner,captureRef:i.captureRef,kind:'OBJECT_PUT',
+      subjectId:i.objectId,originalIntentEventId:'intent:'+i.captureRef,
+      originalIntentRecordDigest:'sha256:'+'b'.repeat(64),
+      state:'ORIGINAL_MUTATION_OUTCOME_REQUIRES_RECONCILIATION',automaticSubjectMutationAllowed:false
+    })),...overrides});
+}
+test('K19 automatic local capture frontier preserves several offline revisions across Host recreation without any network grant',async()=>{
+  const f=originalFixture();
+  for(let rev=1;rev<=3;rev++){
+    const host=await automaticObjectHost(f);
+    const r=await host.putObject({mutationInput:mutation(rev),captureRef:'capture:k19:'+rev});
+    assert.equal(r.originalReceipt.object.revision,rev+1);
+    assert.equal(r.capture.originalT3OutboxVerified,true);
+    host.dispose();
+  }
+  assert.equal(f.writes.length,3);assert.equal(f.outbox.size,3);
+  assert.deepEqual([...f.outbox.values()].map(o=>o.sourceCursorAfter.seenEventCount),[2,3,4]);
+  assert.deepEqual([...f.outbox.values()].map(o=>JSON.parse(Buffer.from(o.bytesBase64,'base64')).data.title),['v2','v3','v4']);
+});
+test('K19 automatic local capture refuses a missing Event capture rather than absorb it into the baseline',async()=>{
+  const f=originalFixture(),host=await automaticObjectHost(f);
+  await f.ports.originalKernel.putObject(mutation(1));
+  await assert.rejects(host.putObject({mutationInput:mutation(2),captureRef:'capture:k19:gap'}),
+    code('CAPTURE_FRONTIER_ORIGINAL_EVENT_UNCAPTURED'));
+  assert.equal(f.writes.length,1);assert.equal(f.intents.size,0);
+});
+test('K19 unresolved original Intent blocks the next operation until original read-only reconciliation',async()=>{
+  const f=originalFixture(),host=await automaticObjectHost(f);f.loseAck();
+  await assert.rejects(host.putObject({mutationInput:mutation(1),captureRef:'capture:k19:lost'}),
+    code('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  const cold=await automaticObjectHost(f);
+  await assert.rejects(cold.putObject({mutationInput:mutation(2),captureRef:'capture:k19:next'}),
+    code('CAPTURE_FRONTIER_ORIGINAL_INTENT_UNRESOLVED'));
+  assert.equal(f.writes.length,1);assert.equal(f.outbox.size,0);
+  await reconcileT4OriginalMutationIntent({...f.ports,workspaceId:ws,objectId,
+    originalWriteOwnerRef:owner,captureRef:'capture:k19:lost'});
+  await cold.putObject({mutationInput:mutation(2),captureRef:'capture:k19:next'});
+  assert.equal(f.writes.length,2);assert.equal(f.outbox.size,2);
+});
+test('K19 automatic capture refuses corrupted historical Outbox even when original current Object is valid',async()=>{
+  const f=originalFixture(),host=await automaticObjectHost(f);
+  await host.putObject({mutationInput:mutation(1),captureRef:'capture:k19:corrupt'});
+  const out=f.outbox.get('capture:k19:corrupt');out.bytesBase64=Buffer.from('corrupt').toString('base64');
+  await assert.rejects(host.putObject({mutationInput:mutation(2),captureRef:'capture:k19:later'}),
+    code('OUTBOX_ORIGINAL_BYTES_CORRUPTED'));
+  assert.equal(f.writes.length,1);
+});
+test('K19 automatic capture requires an admitted baseline, not the latest Event or network ACK',async()=>{
+  const f=originalFixture(),host=await automaticObjectHost(f,{readOriginalAdmittedBaseline:async()=>null});
+  await assert.rejects(host.putObject({mutationInput:mutation(1),captureRef:'capture:k19:unadmitted'}),
+    code('CAPTURE_FRONTIER_ORIGINAL_BASELINE_REQUIRED'));
+  assert.equal(f.writes.length,0);assert.equal(f.intents.size,0);
+});
