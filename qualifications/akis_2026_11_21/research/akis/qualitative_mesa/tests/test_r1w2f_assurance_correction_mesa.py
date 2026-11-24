@@ -450,3 +450,29 @@ def test_second_negative_result_requires_independent_second_correction_and_cost_
     assert len(s.capacity_ledger.reservations)==4
     assert len(w.assurance_review_history)==6
     assert w.result=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def test_original_material_handoff_needs_its_own_correction_before_reexecution():
+    from .test_r1w1c_assurance_responsibility_mesa import (
+        approved as original_wip, resume_and_result, quality_event as wip_quality,
+    )
+    s=resume_and_result(original_wip())
+    for event in (
+        wip_quality(32,"form-surface",owner="d",revision="wip-form-1"),
+        wip_quality(33,"form-record",owner="d",revision="wip-form-1"),
+        wip_quality(34,"finish-product",verdict="DOES_NOT_MEET"),
+    ):
+        row=s.apply(event,event["at"])
+        assert row["outcome"]=="APPLIED",row
+    check(s,35,"reject","c")
+    args=terms()
+    args.update(operation="finish",result_ref="model://a/assured-original-result",
+                quality_correction_slot_start=45,quality_correction_slot_end=48,
+                quality_correction_valid_until=44,
+                quality_correction_resource_ref="model://a/finish-correction")
+    before=deepcopy(s.works["w1"].material_states)
+    capacity=list(s.capacity_ledger.reservations)
+    row=send(s,36,"quality_correction_propose","c",**args)
+    assert row["reason"]=="QUALITY_CORRECTION_MATERIAL_REDECISION_NOT_YET_QUALIFIED",row
+    assert s.works["w1"].material_states==before
+    assert s.capacity_ledger.reservations==capacity
