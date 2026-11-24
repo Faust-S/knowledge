@@ -306,6 +306,119 @@ function verifiedRegistryReadback({record,events,pinned,workspaceId,objectId,now
     return Object.freeze({revision:record.revision,state:copy(state)});
 }
 
+// The signed business scope and the private management record have different
+// Workspace identities inside the SAME original Kernel/Store. Grant resources,
+// enrollment and the business Workspace ID are never rewritten.
+export function originalEmployeeRegistryWorkspaceId({organizationId,authorityId,workspaceId}={}){
+  check([organizationId,authorityId,workspaceId].every(x=>typeof x==="string"&&ID.test(x)),
+    "T3_ACCESS_REGISTRY_STORAGE_SCOPE_INVALID");
+  return "workspace:registry:"+digest({
+    schema:"IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_STORAGE/1",
+    organizationId,authorityId,workspaceId
+  });
+}
+
+// Native Admin only. Resolve actual original Workspace placement before
+// delegating to the existing registry port. No data copying, new state
+// format, new signer, or second Store. Legacy data is still authoritative
+// and never silently migrated or overwritten.
+function corporateRegistryPort({kernel,workspaceId,objectId,trustedPolicy,clock,corporateScope}){
+  const scope={organizationId:corporateScope?.organizationId,
+    authorityId:corporateScope?.authorityId,workspaceId};
+  const storageId=originalEmployeeRegistryWorkspaceId(scope);
+  check(storageId!==workspaceId&&trustedPolicy?.environment==="PRODUCTION"&&
+    trustedPolicy.authorities?.[scope.authorityId]?.principalId===scope.organizationId&&
+    typeof kernel.getWorkspace==="function"&&kernel.hasOperation("t1.getWorkspace"),
+    "T3_ACCESS_REGISTRY_STORAGE_SCOPE_INVALID");
+  let selected=null,lookup=null,creation=null,attempted=false;
+  const absent=error=>error?.code==="WORKSPACE_NOT_FOUND";
+  const readWorkspace=async id=>{
+    let ws;
+    try{ws=await kernel.getWorkspace(id);}
+    catch(error){if(absent(error))return null;throw error;}
+    if(ws==null)return null;
+    check(ws.workspace_id===id&&ws.deleted_at==null,
+      "T3_ACCESS_REGISTRY_STORAGE_WORKSPACE_INVALID");
+    return ws;
+  };
+  const select=(id,mode)=>{
+    const port=createOriginalKernelRegistryStatePort({
+      kernel,workspaceId:id,objectId,trustedPolicy,clock});
+    selected=Object.freeze({mode,workspaceId:id,port});
+    return selected;
+  };
+  const locate=async()=>{
+    if(selected)return selected;
+    if(lookup)return lookup;
+    lookup=(async()=>{
+      const dedicated=await readWorkspace(storageId);
+      if(dedicated){
+        check(dedicated.profile==="generic",
+          "T3_ACCESS_REGISTRY_STORAGE_WORKSPACE_INVALID");
+        // Once a private partition exists, never treat a registry-like
+        // object supplied in a business archive as an authority source.
+        return select(storageId,"SEPARATE");
+      }
+      const business=await readWorkspace(workspaceId);
+      if(!business)return null;
+      const old=await kernel.getObject(workspaceId,objectId);
+      if(old!=null)return select(workspaceId,"LEGACY");
+      return null;
+    })();
+    try{return await lookup;}finally{lookup=null;}
+  };
+  const placement=entry=>Object.freeze({
+    mode:entry?.mode??"NOT_CREATED",
+    workspaceId:entry?.workspaceId??null,
+    businessWorkspaceId:workspaceId,
+    originalReadback:true,
+    exchangePartitionReady:entry?.mode==="SEPARATE",
+  });
+  const initializeStorage=async({confirmed=false}={})=>{
+    check(confirmed===true,"T3_ACCESS_REGISTRY_STORAGE_HUMAN_REQUIRED");
+    const prior=await locate();
+    if(prior)return placement(prior);
+    if(creation)return creation;
+    check(!attempted,"T3_ACCESS_REGISTRY_STORAGE_CREATE_READBACK_REQUIRED");
+    attempted=true;
+    creation=(async()=>{
+      const business=await readWorkspace(workspaceId);
+      check(business&&business.read_only!==true,
+        "T3_ACCESS_REGISTRY_STORAGE_BUSINESS_WORKSPACE_REQUIRED");
+      check(typeof kernel.createWorkspace==="function"&&kernel.hasOperation("t1.createWorkspace"),
+        "T3_ACCESS_REGISTRY_STORAGE_CREATE_UNAVAILABLE");
+      // Exactly one dispatch. If the response is lost, read the original
+      // deterministic Workspace, rather than issuing another create.
+      let failure=null;
+      try{await kernel.createWorkspace({workspace_id:storageId,profile:"generic"});}
+      catch(error){failure=error;}
+      const observed=await locate();
+      if(observed?.mode==="SEPARATE")return placement(observed);
+      if(failure)throw failure;
+      no("T3_ACCESS_REGISTRY_STORAGE_CREATE_OUTCOME_UNKNOWN");
+    })();
+    try{return await creation;}finally{creation=null;}
+  };
+  const bound=async()=>{
+    const entry=await locate();
+    check(entry!==null,"T3_ACCESS_REGISTRY_STATE_UNAVAILABLE");
+    return entry.port;
+  };
+  const api=Object.freeze({
+    readStoragePlacement:async()=>placement(await locate()),
+    initializeStorage,
+    readState:async()=> (await bound()).readState(),
+    readRegistryDelivery:async()=> (await bound()).readRegistryDelivery(),
+    commitSignedState:async(...args)=> (await bound()).commitSignedState(...args),
+    admitProofCredential:async(...args)=> (await bound()).admitProofCredential(...args),
+    readProofCredential:async(...args)=> (await bound()).readProofCredential(...args),
+    enableCorporateSeatPolicy:async(...args)=> (await bound()).enableCorporateSeatPolicy(...args),
+    getStatus:async()=> (await bound()).getStatus(),
+  });
+  originalPorts.add(api);
+  return api;
+}
+
 /**
  * Trusted recipient-side preparation, AFTER authenticating the existing
  * signed invitation carrier with the already independently pinned issuer.
@@ -332,8 +445,12 @@ export function prepareOriginalEmployeeRegistryRefresh({
     "T3_ACCESS_REGISTRY_REFRESH_SCOPE_INVALID");
   if(previous.lastObservedAt!==undefined)check(now>=timestamp(previous.lastObservedAt),
     "T3_ACCESS_REGISTRY_CLOCK_ROLLBACK");
+  const storageWorkspaceId=delivery.record?.workspace_id;
+  const partition=originalEmployeeRegistryWorkspaceId({organizationId,authorityId,workspaceId});
+  check(storageWorkspaceId===workspaceId||storageWorkspaceId===partition,
+    "T3_ACCESS_REGISTRY_REFRESH_STORAGE_SCOPE_INVALID");
   const verified=verifiedRegistryReadback({record:delivery.record,events:delivery.events,
-    pinned,workspaceId,objectId,now,checkpointPolicy:previous.policy});
+    pinned,workspaceId:storageWorkspaceId,objectId,now,checkpointPolicy:previous.policy});
   const authorityFields=["policy","grants","statuses","statusFloor","tombstones"];
   const next=copy(previous);
   for(const key of authorityFields)next[key]=copy(verified.state[key]);
@@ -358,7 +475,7 @@ export function prepareOriginalEmployeeRegistryRefresh({
  */
 export function createOriginalKernelRegistryStatePort({
   kernel,workspaceId,objectId="t3.access.signed-registry",
-  trustedPolicy,clock=Date.now
+  trustedPolicy,clock=Date.now,corporateScope=null
 }={}){
   const direct=typeof kernel?.putObject==="function"&&
     kernel.hasOperation?.("t1.putObject")===true;
@@ -376,6 +493,8 @@ export function createOriginalKernelRegistryStatePort({
   try{pinned=snapshot(trustedPolicy);validatePolicy(pinned);}
   catch{no("T3_ACCESS_REGISTRY_TRUST_ANCHOR_REQUIRED");}
   const trustedHash=digest(pinned);
+  if(corporateScope!==null)return corporateRegistryPort({
+    kernel,workspaceId,objectId,trustedPolicy:pinned,clock,corporateScope});
   // Installed original Admin D3 exposes the original atomic T2 graph,
   // while prior original Host contracts expose putObject. Both preserve
   // the same signed registry Object/Event and readback. No second Store.
