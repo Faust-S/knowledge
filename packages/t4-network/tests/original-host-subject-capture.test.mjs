@@ -796,3 +796,82 @@ test('staged deletion recovery never accepts corrupted prior outbox or missing e
   assert.equal(f.asset(),null);
   assert.equal(saved.capture.prepared.sha256,stored.sha256);
 });
+
+function objectDeleteFixture(){
+  const f=fixture();
+  let current={workspace_id:ws,object_id:objectFrom,schema_id:'iwxa.demo.note',
+    schema_version:'1.0.0',revision:1,deleted:false,data:{title:'isolated'},extensions:{}};
+  let boundary=false,lose=false,visible=true,asset=false,link=false,exclusive=true,entries=0;
+  const native=f.ports.originalKernel,has=native.hasOperation,get=native.getObject;
+  native.hasOperation=op=>has(op)||['t1.deleteObject','t1.listAssets'].includes(op);
+  native.getObject=async(w,id)=>id!==objectFrom?get(w,id):{
+    object:structuredClone(current),relations:{incoming:[],outgoing:link?[{
+      workspace_id:ws,relation_id:'relation:probe',from_object_id:objectFrom,
+      to_object_id:objectTo,kind:'related',created_by_service:'service:original'}]:[]}};
+  native.listAssets=async()=>asset&&!current.deleted?[{
+    workspace_id:ws,object_id:objectFrom,asset_id:assetId,revision:1,
+    service_id:'service:original',size:initialBytes.length,mime:'text/plain'}]:[];
+  native.deleteObject=async input=>{
+    assert.equal(boundary,true);
+    assert.equal(input.event.idempotency_key,undefined);
+    assert.equal(input.base_revision,current.revision);
+    f.writes.push({kind:'deleteObject',input});
+    current={...current,revision:current.revision+1,deleted:true,deleted_at:'2026-11-24T10:00:00Z'};
+    const event={event_id:'original:object:delete:'+current.revision,workspace_id:ws,
+      object_id:objectFrom,revision:current.revision,event_type:input.event.event_type,
+      payload:structuredClone(input.event.payload),service_id:'service:original',
+      occurred_at:'2026-11-24T10:00:00Z'};
+    f.events.push(event);
+    if(lose){lose=false;throw Object.assign(Error('lost original delete reply'),{code:'ACK_LOST'});}
+    return {object:structuredClone(current),event};
+  };
+  f.ports.withOriginalSubjectMutation=async(proof,action)=>{
+    assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+    assert.equal(boundary,false);boundary=true;entries++;
+    try{return await action();}finally{boundary=false;}
+  };
+  f.ports.readOriginalDependencyCoverage=async proof=>({
+    schema:'IWXA_T4_ORIGINAL_OBJECT_DELETE_COVERAGE_V1',workspaceId:ws,objectId:objectFrom,
+    originalWriteOwnerRef:owner,hostSessionRef:'host:fixture',originalAccessRef:'access:fixture',
+    allIncidentRelationsVisible:visible,allLiveOwnedAssetsVisible:visible,
+    completeOriginalAuthorityVerified:visible,originalWorkspaceGraphMutationsExcluded:boundary&&exclusive,
+    originalMutationBoundaryRef:'boundary:fixture:'+entries});
+  return {...f,current:()=>current,loseObjectAck:()=>{lose=true;},hide:()=>{visible=false;},
+    addAsset:()=>{asset=true;},addLink:()=>{link=true;},noExclusion:()=>{exclusive=false;}};
+}
+const objectDeleteInput=()=>({workspace_id:ws,object_id:objectFrom,base_revision:1,
+  event:{event_type:'business.work.retired',payload:{reason:'closed'}}});
+test('isolated Object native source keeps original tombstone revision and traced Event after lost response',async()=>{
+  const f=objectDeleteFixture(),captureRef='capture:delete:object';
+  f.loseObjectAck();
+  await assert.rejects(adapter(f).deleteObject({mutationInput:objectDeleteInput(),
+    sourceCursor:await cursor(f),captureRef}),err('DELETE_ORIGINAL_SOURCE_OUTCOME_UNKNOWN'));
+  assert.equal(f.current().deleted,true);
+  assert.equal(f.current().revision,2);
+  const restored=await adapter(f).reconcileObjectDeletion({captureRef,workspaceId:ws,objectId:objectFrom});
+  assert.equal(restored.originalReceipt,null);
+  assert.equal(restored.originalMutationRetried,false);
+  assert.equal(restored.originalEvent.event_type,'business.work.retired');
+  assert.equal(restored.originalEvent.payload.reason,'closed');
+  assert.equal(restored.originalEvent.idempotency_key,undefined);
+  const native=await readT4OriginalHostCapturedSubject(outboxParams(f,'OBJECT_DELETE',captureRef,objectFrom));
+  assert.equal(native.sourceRevision,2);
+  assert.equal(native.originalEventRevision,2);
+  assert.equal(native.prepared.delta.preImage.dependencyPolicy,'ISOLATED_ONLY');
+  assert.equal(native.prepared.sha256,restored.prepared.sha256);
+  assert.equal(f.writes.length,1);
+  await assert.rejects(publishT4OriginalHostOutbox(outboxParams(f,'OBJECT_DELETE',captureRef,objectFrom)),
+    err('OUTBOX_DELETE_REQUIRES_NATIVE_NETWORK'));
+});
+test('Object deletion denies hidden dependencies, live assets, live links and unproven workspace exclusion before mutation',async()=>{
+  for(const [alter,code] of [['hide','OBJECT_DELETE_ORIGINAL_DEPENDENCY_VISIBILITY_UNPROVEN'],
+    ['addAsset','DELETE_ORIGINAL_OBJECT_DEPENDENCIES_REQUIRE_EXPLICIT_MUTATIONS'],
+    ['addLink','DELETE_ORIGINAL_OBJECT_NOT_ISOLATED_OR_LIVE'],
+    ['noExclusion','OBJECT_DELETE_ORIGINAL_DEPENDENCY_VISIBILITY_UNPROVEN']]){
+    const f=objectDeleteFixture();f[alter]();
+    await assert.rejects(adapter(f).deleteObject({mutationInput:objectDeleteInput(),
+      sourceCursor:await cursor(f),captureRef:'capture:object:blocked'}),err(code));
+    assert.equal(f.writes.length,0);assert.equal(f.intents.size,0);
+    assert.equal(f.current().deleted,false);
+  }
+});

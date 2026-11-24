@@ -5,7 +5,7 @@ import {
   createT4CandidateUnsignedFrame,signT4CandidateFrame,
   decodeT4CandidateFrame,negotiateT4CandidateCapabilities,
   verifyT4CandidateWireFrame,T4_CANDIDATE_VERSION,T4_RELATION_EVENT_EXTENSION,
-  T4_SUBJECT_DELETE_EXTENSION,validT4NativeOriginalEventRevision,
+  T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION,validT4NativeOriginalEventRevision,
 } from '../src/network/standard-network-wire-candidate.mjs';
 
 const {privateKey,publicKey}=generateKeyPairSync('ed25519');
@@ -342,4 +342,33 @@ test('deletion ACK is Event evidence, not a numeric or RelationPut revision',()=
     criticalExtensions:[T4_SUBJECT_DELETE_EXTENSION]}).body.recipientRevision,null);
   assert.throws(()=>create({criticalExtensions:[T4_SUBJECT_DELETE_EXTENSION]}),
     code('WIRE_CHANGE_REF_INVALID'));
+});
+
+test('Object tombstone carries actual next numeric revision and distinct critical extension',async()=>{
+  const body={...base.body,changeKind:'OBJECT_DELETE',sourceRevision:2};
+  assert.throws(()=>create({body}),code('WIRE_CHANGE_REF_INVALID'));
+  assert.throws(()=>create({body,criticalExtensions:[T4_SUBJECT_DELETE_EXTENSION]}),
+    code('WIRE_CHANGE_REF_INVALID'));
+  for(const sourceRevision of [null,0,1]){
+    assert.throws(()=>create({body:{...body,sourceRevision},
+      criticalExtensions:[T4_OBJECT_TOMBSTONE_EXTENSION]}),code('WIRE_CHANGE_REF_INVALID'));
+  }
+  const bytes=await wire({body,criticalExtensions:[T4_OBJECT_TOMBSTONE_EXTENSION]});
+  assert.equal(decodeT4CandidateFrame(bytes).body.sourceRevision,2);
+  const t=trustedPorts();
+  await assert.rejects(verifyT4CandidateWireFrame({wireBytes:bytes,...t.ports}),
+    code('WIRE_UNSUPPORTED_CRITICAL_EXTENSION'));
+  assert.equal((await verifyT4CandidateWireFrame({wireBytes:bytes,...t.ports,
+    supportedCriticalExtensions:[T4_OBJECT_TOMBSTONE_EXTENSION]})).originalBusinessApplied,false);
+  assert.equal(validT4NativeOriginalEventRevision('OBJECT_DELETE',2,2),true);
+  assert.equal(validT4NativeOriginalEventRevision('OBJECT_DELETE',2,null),false);
+  const ack={changeId:'change:one',contentDigest:D,ackRef:'ack:object:deleted',
+    recipientEventRef:'original:event:object:deleted',recipientRevision:2,recipientStateDigest:E};
+  assert.equal(create({messageType:'APPLIED_ACK',body:ack,
+    criticalExtensions:[T4_OBJECT_TOMBSTONE_EXTENSION]}).body.recipientRevision,2);
+  assert.throws(()=>create({messageType:'APPLIED_ACK',body:{...ack,recipientRevision:null},
+    criticalExtensions:[T4_OBJECT_TOMBSTONE_EXTENSION]}),code('WIRE_APPLIED_ACK_EVIDENCE_INVALID'));
+  assert.throws(()=>create({messageType:'APPLIED_ACK',body:ack,
+    criticalExtensions:[T4_OBJECT_TOMBSTONE_EXTENSION,T4_SUBJECT_DELETE_EXTENSION]}),
+    code('WIRE_OBJECT_TOMBSTONE_EXTENSION_INVALID'));
 });

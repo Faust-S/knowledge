@@ -15,11 +15,11 @@ import {createT4OriginalNetworkSessionPhasePort}
 
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
   from '../src/network/original-network-publication.mjs';
-import {verifyT4OriginalDeleteDelta} from '../src/network/original-deletion-delta.mjs';
+import {verifyT4OriginalDeleteDelta,t4OriginalDeletedSubjectRevision} from '../src/network/original-deletion-delta.mjs';
 import {verifyT4OriginalAssetDelta,digestT4OriginalAssetContent}
   from '../src/network/original-asset-delta.mjs';
 import {verifyT4OriginalRelationPutDelta} from '../src/network/original-relation-delta.mjs';
-import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,T4_SUBJECT_DELETE_EXTENSION}
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION}
   from '../src/network/standard-network-wire-candidate.mjs';
 
 import {createT4OriginalHostRecipientDispatcher}
@@ -317,7 +317,7 @@ test('original Event read authority is independent from Object read authority',a
 });
 
 async function durableFixture({nativeSession=false,deleteKind=null}={}){
-  const f=deleteKind?deletionFixture(deleteKind):fixture(),technicalWorkspaceId='workspace:technical:apply-intent';
+  const f=deleteKind==='OBJECT_DELETE'?objectDeletionFixture():deleteKind?deletionFixture(deleteKind):fixture(),technicalWorkspaceId='workspace:technical:apply-intent';
   let session=null;
   if(nativeSession){
     const d=f.delta,proof=f.openArgs.originalSourceHeadProof;
@@ -332,7 +332,7 @@ async function durableFixture({nativeSession=false,deleteKind=null}={}){
       networkPublished:false,sourceCursorAdvanced:false,originalRecipientApplied:false,
       sourceCursorBefore:{sourcePrefixDigest:before},sourceCursorAfter:{sourcePrefixDigest:after},
       capture:{workspaceId:d.workspaceId,originalWriteOwnerRef:d.originalWriteOwnerRef,
-        sourceEventId:d.sourceEventId,sourceRevision:deleteKind?null:d.sourceRevision,
+        sourceEventId:d.sourceEventId,sourceRevision:deleteKind?t4OriginalDeletedSubjectRevision(d):d.sourceRevision,
         ...(deleteKind?{kind:deleteKind}:{}),
         originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
         prepared:deleteKind?verifyT4OriginalDeleteDelta(d):verifyT4OriginalObjectDelta(d),
@@ -716,7 +716,8 @@ function recipientBinding(x,overrides={}){
     authorizeNetworkReceive:async()=>true,
     authorizeOriginalRead:p.authorizeOriginalRead,authorizeOriginalWrite:p.authorizeOriginalWrite,
     verifyOriginalSourceEvent:p.verifyOriginalSourceEvent,
-    withOriginalSubjectMutation:p.withOriginalSubjectMutation,...overrides,
+    withOriginalSubjectMutation:p.withOriginalSubjectMutation,
+    readOriginalDependencyCoverage:p.readOriginalDependencyCoverage,...overrides,
   });
 }
 test('existing original recipient Host task applies once, durably acknowledges, and reconciles a lost network reply',async()=>{
@@ -1001,4 +1002,107 @@ test('historical relation put rejects arbitrary absence, reversed Event order an
     payload:{...prior.event.payload,originalEventId:'source:reused:relation'}};
   x.d.f.events.push(reused);
   await assert.rejects(inspect(),error('SUBJECT_HISTORICAL_DELETION_EVENT_GAP'));
+});
+
+function objectDeletionFixture(){
+  const f=fixture(),base=f.delta,ws=base.workspaceId,id=base.objectId;
+  const pre={objectId:id,schemaId:base.schemaId,schemaVersion:base.schemaVersion,
+    revision:1,objectContentDigest:base.objectContentDigest,dependencyPolicy:'ISOLATED_ONLY'};
+  const delta={schema:'IWXA_T4_ORIGINAL_DELETE_DELTA_V1',kind:'OBJECT_DELETE',
+    workspaceId:ws,originalWriteOwnerRef:base.originalWriteOwnerRef,
+    captureRef:'source:capture:object:delete',preImage:pre,preImageDigest:H(bytes(pre)),
+    sourceEventId:base.sourceEventId,sourceEventDigest:base.sourceEventDigest,
+    windowDigest:base.windowDigest,originalEventType:'source.object.deleted'};
+  const exact=verifyT4OriginalDeleteDelta(delta);
+  let object={workspace_id:ws,object_id:id,schema_id:base.schemaId,
+    schema_version:base.schemaVersion,revision:1,deleted:false,data:base.data,extensions:base.extensions};
+  let boundary=false,entered=0,writes=0,lose=false,visible=true,exclusive=true,assets=[];
+  const events=[];
+  const originalKernel={
+    hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.listAssets','t1.deleteObject'].includes(op),
+    getObject:async()=>({object:structuredClone(object),relations:{incoming:[],outgoing:[]}}),
+    listAssets:async()=>object.deleted?[]:structuredClone(assets),
+    listEventsSince:async()=>structuredClone(events),
+    deleteObject:async input=>{
+      assert.equal(boundary,true);assert.equal(input.base_revision,1);
+      assert.equal(input.event.idempotency_key,undefined);
+      writes++;object={...object,revision:2,deleted:true,deleted_at:'2026-11-24T10:00:00Z'};
+      const event={event_id:'recipient:object:delete:'+writes,workspace_id:ws,object_id:id,
+        revision:2,event_type:input.event.event_type,payload:structuredClone(input.event.payload)};
+      events.push(event);
+      if(lose){lose=false;throw Object.assign(Error('original response lost'),{code:'ACK_LOST'});}
+      return {object:structuredClone(object),event};
+    },
+  };
+  const key=randomBytes(32),iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv);
+  const sealed=Buffer.concat([iv,cipher.update(exact.bytes),cipher.final(),cipher.getAuthTag()]);
+  const contentDigest=H(sealed),head=f.openArgs.verifiedChangeRef;
+  head.verifiedCriticalExtensions=[T4_OBJECT_TOMBSTONE_EXTENSION];
+  head.verifiedBody={...head.verifiedBody,changeKind:'OBJECT_DELETE',sourceRevision:2,contentDigest};
+  f.openArgs.verifiedChunks[0].verifiedBody={...f.openArgs.verifiedChunks[0].verifiedBody,
+    contentDigest,ciphertextSha256:contentDigest,ciphertextBase64:sealed.toString('base64')};
+  Object.assign(f.openArgs.originalSourceHeadProof,{workspaceId:ws,
+    originalWriteOwnerRef:delta.originalWriteOwnerRef,changeKind:'OBJECT_DELETE',
+    originalSourceRevision:2,originalEventRevision:2,originalCapturedRevisionProofRequired:true});
+  f.openArgs.openOriginalSealedContent=async p=>{
+    const input=Buffer.from(p.ciphertext),decipher=createDecipheriv('aes-256-gcm',key,input.subarray(0,12));
+    decipher.setAuthTag(input.subarray(-16));
+    return {authenticated:true,plaintext:new Uint8Array(Buffer.concat([
+      decipher.update(input.subarray(12,-16)),decipher.final()]))};
+  };
+  const applyArgs=received=>({received,originalKernel,getMode:()=> 'T4_NETWORK',
+    authorizeOriginalRead:async()=>true,authorizeOriginalWrite:async()=>true,
+    verifyOriginalSourceEvent:async p=>p.sourceEventId===delta.sourceEventId&&
+      p.sourceEventDigest===delta.sourceEventDigest&&p.preImageDigest===delta.preImageDigest,
+    readOriginalDependencyCoverage:async()=>({
+      schema:'IWXA_T4_ORIGINAL_OBJECT_DELETE_COVERAGE_V1',workspaceId:ws,objectId:id,
+      originalWriteOwnerRef:delta.originalWriteOwnerRef,hostSessionRef:'host:fixture',
+      originalAccessRef:'access:fixture',allIncidentRelationsVisible:visible,
+      allLiveOwnedAssetsVisible:visible,completeOriginalAuthorityVerified:visible,
+      originalWorkspaceGraphMutationsExcluded:boundary&&exclusive,
+      originalMutationBoundaryRef:'boundary:fixture:'+entered}),
+    withOriginalSubjectMutation:async(proof,action)=>{
+      assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+      assert.equal(boundary,false);boundary=true;entered++;
+      try{return await action();}finally{boundary=false;}
+    }});
+  return {delta,openArgs:f.openArgs,originalKernel,applyArgs,events,
+    get writes(){return writes;},get entered(){return entered;},
+    loseAck(){lose=true;},hide(){visible=false;},noExclusion(){exclusive=false;},
+    addAsset(){assets=[{asset_id:'dependent'}];},tamperTombstone(){object.data={tampered:true};}};
+}
+test('isolated Object native recipient uses original tombstone revision and original Event after lost reply',async()=>{
+  const x=await ackFixture({deleteKind:'OBJECT_DELETE'});
+  x.d.f.loseAck();
+  await assert.rejects(recipientBinding(x).runNative(x.args()),error('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN'));
+  assert.equal((await x.d.phasePort().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
+  x.d.restart();
+  const result=await recipientBinding(x).runNative(x.args());
+  assert.equal(result.originalSubjectMutationInvoked,false);
+  assert.equal(result.result.application.originalRecipientRevision,2);
+  assert.equal(result.result.application.actualOriginalT3TombstoneReadback,true);
+  assert.equal(result.result.application.postTombstoneAssetAbsenceInferred,false);
+  const ack=decodeT4CandidateFrame((await x.port().inspectOriginalPublication()).frames.at(-1).wireBytes);
+  assert.deepEqual(ack.criticalExtensions,[T4_OBJECT_TOMBSTONE_EXTENSION]);
+  assert.equal(ack.body.recipientRevision,2);
+  assert.equal(x.d.f.events[0].idempotency_key,undefined);
+  assert.equal(x.counts().subjectWrites,1);assert.equal(x.d.f.entered,1);
+  x.d.f.tamperTombstone();
+  await assert.rejects(inspectT4OriginalNetworkRecipientResult(x.d.f.applyArgs(x.d.received)),
+    error('DELETE_ORIGINAL_OBJECT_TOMBSTONE_MISMATCH'));
+});
+test('recipient refuses incomplete visibility and attached assets before reserving Object delete',async()=>{
+  for(const [alter,code] of [['hide','OBJECT_DELETE_ORIGINAL_DEPENDENCY_VISIBILITY_UNPROVEN'],
+    ['addAsset','DELETE_ORIGINAL_OBJECT_DEPENDENCIES_REQUIRE_EXPLICIT_MUTATIONS']]){
+    const x=await ackFixture({deleteKind:'OBJECT_DELETE'});x.d.f[alter]();
+    await assert.rejects(recipientBinding(x).runNative(x.args()),error(code));
+    assert.equal((await x.d.phasePort().inspectOriginalSession()).currentPhase,'VERIFIED');
+    assert.equal(x.counts().subjectWrites,0);
+  }
+});
+test('Object delete cannot mutate if original workspace-wide boundary is not held',async()=>{
+  const x=await ackFixture({deleteKind:'OBJECT_DELETE'});x.d.f.noExclusion();
+  await assert.rejects(recipientBinding(x).runNative(x.args()),error('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN'));
+  assert.equal(x.counts().subjectWrites,0);
+  assert.equal((await x.d.phasePort().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
 });
