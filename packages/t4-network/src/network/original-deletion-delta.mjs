@@ -135,21 +135,65 @@ async function callDelete(kernel,kind,input){
     kernel.deleteRelation(input):kernel.deleteAsset(input);
 }
 function captureWitness({kind,workspaceId,originalWriteOwnerRef,
-  captureRef,preImage,preImageDigest,sourceCursor}){
+  captureRef,preImage,preImageDigest,sourceCursor,sourceEvent}){
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1',
     kind,workspaceId,originalWriteOwnerRef,captureRef,
     preImage:Object.freeze({...preImage}),preImageDigest,
     sourceCursor:sourceCursor===null?null:Object.freeze({...sourceCursor}),
+    ...(sourceEvent===undefined?{}:{sourceEvent:Object.freeze(structuredClone(sourceEvent))}),
     storedInOriginalT3Required:true,networkIsNotAnOriginalGrant:true});
 }
 const sourceTrace=c=>({iwxa_t4_capture_ref:c.captureRef,
   iwxa_t4_preimage_digest:c.preImageDigest});
+function validateSourceEvent(event,key){
+  if(!sameKeys(event,['event_type','payload','idempotency_key'])||
+    !ID(event.event_type)||!ID(key)||event.idempotency_key!==key||
+    !event.payload||typeof event.payload!=='object'||Array.isArray(event.payload)||
+    Object.hasOwn(event.payload,'iwxa_t4_capture_ref')||
+    Object.hasOwn(event.payload,'iwxa_t4_preimage_digest')||
+    wire(event).length>65536)
+    fail('DELETE_ORIGINAL_SOURCE_MUTATION_EVENT_INVALID');
+  return structuredClone(event);
+}
+export function originalT4DeletionCapturedEvent(capture){
+  const pre=capture.preImage;
+  if(capture.sourceEvent!==undefined){
+    const event=validateSourceEvent(capture.sourceEvent,capture.sourceEvent.idempotency_key);
+    return {...event,payload:{...event.payload,...sourceTrace(capture)}};
+  }
+  const id=capture.kind==='ASSET_DELETE'?pre.assetId:pre.relationId;
+  return originalInput(capture.kind,capture.workspaceId,id,capture.captureRef,
+    pre,sourceTrace(capture)).event;
+}
+function sourceDeleteInput(capture){
+  const pre=capture.preImage;
+  const id=capture.kind==='ASSET_DELETE'?pre.assetId:pre.relationId;
+  const event=originalT4DeletionCapturedEvent(capture);
+  return {...originalInput(capture.kind,capture.workspaceId,id,event.idempotency_key,pre),
+    event};
+}
+export async function runT4OriginalSubjectMutationBoundary(port,proof,action){
+  if(typeof port!=='function'||typeof action!=='function')
+    fail('DELETE_NATIVE_ORIGINAL_MUTATION_BOUNDARY_REQUIRED');
+  let invoked=false,finished=false,receipt;
+  let result;
+  try{
+    result=await port(Object.freeze(proof),async()=>{
+      if(invoked||finished)fail('DELETE_NATIVE_ORIGINAL_MUTATION_BOUNDARY_REENTERED');
+      invoked=true;receipt=await action();return receipt;
+    });
+  }finally{finished=true;}
+  if(!invoked||receipt===undefined||result!==receipt)
+    fail('DELETE_NATIVE_ORIGINAL_MUTATION_BOUNDARY_NOT_PROVEN');
+  return receipt;
+}
 function sourceScope(params){
   const {kind,workspaceId,originalWriteOwnerRef,subjectId,objectId,
-    sourceIdempotencyKey,originalKernel,authorizeOriginalRead,authorizeOriginalDelete,
+    sourceIdempotencyKey,captureRef=sourceIdempotencyKey,
+    originalKernel,authorizeOriginalRead,authorizeOriginalDelete,
     readOriginalPreDeleteWitness,readOriginalEvents,getMode}=params;
   if(!KINDS.has(kind))fail('DELETE_KIND_NOT_SUPPORTED');
-  if(![workspaceId,originalWriteOwnerRef,subjectId,sourceIdempotencyKey].every(ID)||
+  if(![workspaceId,originalWriteOwnerRef,subjectId,sourceIdempotencyKey,captureRef].every(ID)||
     (kind==='RELATION_DELETE'&&!ID(objectId))||
     !originalKernel||typeof originalKernel.hasOperation!=='function'||
     [authorizeOriginalRead,authorizeOriginalDelete,readOriginalPreDeleteWitness,
@@ -162,8 +206,8 @@ function sourceScope(params){
   networkMode(getMode);
   const ctx=Object.freeze({kind,operation:ops.write,workspaceId,
     originalWriteOwnerRef,subjectId,objectId:objectId??null,
-    sourceIdempotencyKey,originalT3IsWriteOwner:true});
-  const lookup=Object.freeze({...ctx,captureRef:sourceIdempotencyKey});
+    sourceIdempotencyKey,captureRef,originalT3IsWriteOwner:true});
+  const lookup=Object.freeze({...ctx,captureRef});
   const guard=async operation=>{
     networkMode(getMode);
     if(await authorizeOriginalRead({...ctx,operation})!==true||
@@ -195,7 +239,8 @@ function sourceScope(params){
     if(capture?.schema!=='IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1'||
       capture.kind!==kind||capture.workspaceId!==workspaceId||
       capture.originalWriteOwnerRef!==originalWriteOwnerRef||
-      capture.captureRef!==sourceIdempotencyKey||
+      capture.captureRef!==captureRef||
+      (capture.sourceEvent?.idempotency_key??capture.captureRef)!==sourceIdempotencyKey||
       capture.storedInOriginalT3Required!==true||
       capture.networkIsNotAnOriginalGrant!==true||
       !validPreImage(kind,pre)||digest(pre)!==capture.preImageDigest||
@@ -204,9 +249,38 @@ function sourceScope(params){
         pre.assetId!==subjectId||(objectId!=null&&pre.objectId!==objectId))||
       !Object.hasOwn(capture,'sourceCursor'))
       fail('DELETE_ORIGINAL_PREIMAGE_READBACK_FAILED');
+    if(capture.sourceEvent!==undefined)
+      validateSourceEvent(capture.sourceEvent,sourceIdempotencyKey);
     return captureWitness({...capture});
   }
-  return {ctx,lookup,guard,read,readEvents,windowFrom,verifyCapture,ops};
+  async function verifyNativeState(pre,absent){
+    if(params.nativeNetworkEvidence!==true)return;
+    if(originalKernel.hasOperation('t1.getObject')!==true||
+      typeof originalKernel.getObject!=='function')
+      fail('DELETE_NATIVE_ORIGINAL_READ_PORTS_REQUIRED');
+    const ids=kind==='RELATION_DELETE'?[pre.fromObjectId,pre.toObjectId]:[pre.objectId];
+    const rows=[];
+    for(const id of ids){
+      await guard('t1.getObject');
+      const row=await originalKernel.getObject(workspaceId,id);
+      await guard('t1.getObject');
+      if(row?.object?.workspace_id!==workspaceId||row.object.object_id!==id||
+        row.object.deleted===true)fail('DELETE_NATIVE_ORIGINAL_ENDPOINT_MISSING');
+      rows.push(row);
+    }
+    if(kind==='RELATION_DELETE'){
+      const outgoing=rows[0].relations?.outgoing,incoming=rows[1].relations?.incoming;
+      if(!Array.isArray(outgoing)||!Array.isArray(incoming))
+        fail('DELETE_NATIVE_ORIGINAL_RELATION_READBACK_REQUIRED');
+      const from=outgoing.filter(r=>r?.relation_id===subjectId);
+      const to=incoming.filter(r=>r?.relation_id===subjectId);
+      if(absent?(from.length||to.length):
+        (from.length!==1||to.length!==1||!snapshotEqual(from[0],to[0])||
+         !snapshotEqual(sourceRecord(rows[0],kind,workspaceId,subjectId,pre.fromObjectId),pre)))
+        fail('DELETE_NATIVE_ORIGINAL_RELATION_IDENTITY_CONFLICT');
+    }
+  }
+  return {ctx,lookup,guard,read,readEvents,windowFrom,verifyCapture,ops,verifyNativeState};
 }
 async function finishOriginalSourceDeletion(params,scope,capture,receipt){
   const {kind,workspaceId,originalWriteOwnerRef,subjectId,sourceIdempotencyKey}=params;
@@ -216,8 +290,7 @@ async function finishOriginalSourceDeletion(params,scope,capture,receipt){
   if(matches.length!==1)
     fail('DELETE_ORIGINAL_SOURCE_EVENT_NOT_PROVEN',{matchingEventCount:matches.length});
   const event=matches[0],pre=capture.preImage;
-  const expected=originalInput(kind,workspaceId,subjectId,sourceIdempotencyKey,
-    pre,sourceTrace(capture)).event;
+  const expected=originalT4DeletionCapturedEvent(capture);
   const originalObjectId=kind==='RELATION_DELETE'?pre.fromObjectId:pre.objectId;
   if(!ID(event.event_id)||event.workspace_id!==workspaceId||
     event.event_type!==expected.event_type||
@@ -231,6 +304,7 @@ async function finishOriginalSourceDeletion(params,scope,capture,receipt){
     fail('DELETE_ORIGINAL_EVENT_WINDOW_UNCERTAIN');
   if(!isGone(kind,await read(),subjectId))
     fail('DELETE_ORIGINAL_SOURCE_READBACK_FAILED');
+  await scope.verifyNativeState(pre,true);
   // A concurrent Event append or scope change must not be hidden by a
   // successful delete receipt. The source frontier stays untouched.
   const second=await windowFrom(capture.sourceCursor,await readEvents());
@@ -253,7 +327,8 @@ async function finishOriginalSourceDeletion(params,scope,capture,receipt){
 }
 export async function captureT4OriginalDeletionAtMutation(params={}){
   const {kind,workspaceId,originalWriteOwnerRef,subjectId,
-    sourceCursor=null,sourceIdempotencyKey,originalKernel,
+    sourceCursor=null,sourceIdempotencyKey,captureRef=sourceIdempotencyKey,originalKernel,
+    sourceEvent,expectedBaseRevision,
     persistOriginalPreDeleteWitness,readOriginalPreDeleteWitness,getMode}=params;
   const scope=sourceScope(params);
   const {lookup,guard,read,readEvents,windowFrom,verifyCapture,ops}=scope;
@@ -271,8 +346,13 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
   const state=await read();
   const preImage=sourceRecord(state,kind,workspaceId,subjectId,params.objectId);
   const preImageDigest=digest(preImage);
+  if(expectedBaseRevision!==undefined&&
+    (kind!=='ASSET_DELETE'||expectedBaseRevision!==preImage.revision))
+    fail('DELETE_ORIGINAL_SOURCE_PREIMAGE_CHANGED');
+  if(sourceEvent!==undefined)validateSourceEvent(sourceEvent,sourceIdempotencyKey);
+  await scope.verifyNativeState(preImage,false);
   const capture=captureWitness({kind,workspaceId,originalWriteOwnerRef,
-    captureRef:sourceIdempotencyKey,preImage,preImageDigest,sourceCursor});
+    captureRef,preImage,preImageDigest,sourceCursor,sourceEvent});
   await guard(ops.read);
   if(await persistOriginalPreDeleteWitness(capture)!==true)
     fail('DELETE_ORIGINAL_PREIMAGE_NOT_PERSISTED');
@@ -285,14 +365,14 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
   const latest=sourceRecord(await read(),kind,workspaceId,subjectId,params.objectId);
   if(!snapshotEqual(latest,preImage))
     fail('DELETE_ORIGINAL_SOURCE_PREIMAGE_CHANGED');
+  await scope.verifyNativeState(preImage,false);
   const beforeWrite=await windowFrom(sourceCursor,await readEvents());
   if(beforeWrite.window.count!==0)
     fail('DELETE_ORIGINAL_EVENT_WINDOW_UNCERTAIN');
   await guard(ops.read);
   networkMode(getMode);
   let result;
-  try{result=await callDelete(originalKernel,kind,originalInput(
-    kind,workspaceId,subjectId,sourceIdempotencyKey,preImage,sourceTrace(capture)));}
+  try{result=await callDelete(originalKernel,kind,sourceDeleteInput(capture));}
   catch(error){
     fail('DELETE_ORIGINAL_SOURCE_OUTCOME_UNKNOWN',{
       originalCode:error?.code??null,captureRef:capture.captureRef,
@@ -495,22 +575,13 @@ export async function applyT4OriginalDeleteDelta({
     const args={received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,
       getMode,nativeNetworkEvidence:true,authorizeOriginalRead};
     const read=nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode);
-    let invoked=false,finished=false,receipt;
-    const proof=Object.freeze({operation:originalOperations(read.d.kind).write,
+    const proof={operation:originalOperations(read.d.kind).write,
       workspaceId:read.d.workspaceId,subjectKind:read.d.kind,
       subjectId:read.subjectId,originalWriteOwnerRef:read.d.originalWriteOwnerRef,
       sourceEventId:read.d.sourceEventId,preImageDigest:read.d.preImageDigest,
-      originalHostMustSerializeSubjectMutations:true,networkIsNotOriginalGrant:true});
-    const result=await withOriginalSubjectMutation(proof,async()=>{
-      if(invoked||finished)fail('DELETE_NATIVE_ORIGINAL_MUTATION_BOUNDARY_REENTERED');
-      invoked=true;
-      receipt=await applyOriginalDeleteCore(args);
-      return receipt;
-    });
-    finished=true;
-    if(!invoked||!receipt||result!==receipt)
-      fail('DELETE_NATIVE_ORIGINAL_MUTATION_BOUNDARY_NOT_PROVEN');
-    return receipt;
+      originalHostMustSerializeSubjectMutations:true,networkIsNotOriginalGrant:true};
+    return runT4OriginalSubjectMutationBoundary(withOriginalSubjectMutation,proof,
+      ()=>applyOriginalDeleteCore(args));
   }
   return applyOriginalDeleteCore({received,originalKernel,authorizeOriginalWrite,
     verifyOriginalSourceEvent,getMode,nativeNetworkEvidence:false});
