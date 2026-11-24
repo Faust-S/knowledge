@@ -958,3 +958,97 @@ def test_independent_installment_offer_and_response_are_original_party_editions(
     out = mechanics(d)
     assert out["works"].get(OUTSIDE, {}).get("result") != ACCEPTED
     assert out["works"]["w3"]["result"] == ACCEPTED
+
+
+def test_executed_activity_efficiency_separates_cost_use_value_and_owner_balance():
+    docs = finance_portfolio()
+    before = deepcopy(docs)
+    view = compare_portfolios(docs)["local_research_only"]["activity_efficiency"]
+    assert docs == before
+    assert view["no_route_search_ranking_or_owner_decision"]
+    supplier = view["arms"]["supplier"]
+    coop = view["arms"]["coproduction"]
+    for arm, use, cost, balance, ratio in (
+        (supplier, "1500.00", "880.00", "620.00", "1.7045"),
+        (coop, "2200.00", "1135.00", "1065.00", "1.9383"),
+    ):
+        total = arm["consolidated"]
+        assert total["gross_incremental_recipient_use_value"] == use
+        assert total["external_outflows_plus_exclusive_resource_cost"] == cost
+        assert total["model_economic_contribution"] == balance
+        assert total["use_value_to_cost_ratio"] == ratio
+        assert arm["accounting_profit_actual_productivity_and_causal_effect"] == "NOT_IDENTIFIABLE"
+        assert arm["per_original_owner"]["a"]["model_cash_resource_balance"] == "250.00"
+        assert arm["per_original_owner"]["a"]["nonrecipient_balance_to_declared_inflows_ratio"] == "0.3571"
+        assert arm["per_original_owner"]["b"]["nonrecipient_balance_to_declared_inflows_ratio"] is None
+        assert arm["per_original_owner"][BUYER]["nonrecipient_balance_to_declared_inflows_ratio"] is None
+    assert supplier["consolidated"]["exclusive_noncash_resource_cost"] == "370.00"
+    assert coop["consolidated"]["exclusive_noncash_resource_cost"] == "465.00"
+    assert supplier["exclusive_resource_cost_by_nature"]["TRANSACTION"] == "120.00"
+    assert coop["exclusive_resource_cost_by_nature"]["TRANSACTION"] == "135.00"
+    assert supplier["per_original_work"][OUTSIDE]["precommit_exclusive_resource_cost"] == "40.00"
+    assert supplier["per_original_work"][OUTSIDE]["model_economic_contribution"] == "-40.00"
+    assert supplier["per_original_work"][OUTSIDE]["request_to_accept_model_ticks"] is None
+    assert coop["per_original_work"][OUTSIDE]["precommit_exclusive_resource_cost"] == "40.00"
+    assert coop["per_original_work"][OUTSIDE]["model_economic_contribution"] == "345.00"
+    assert coop["per_original_work"][OUTSIDE]["request_to_accept_model_ticks"] > 0
+    assert supplier["per_original_owner"]["op"]["model_cash_resource_balance"] == "0.00"
+    assert coop["per_original_owner"]["op"]["model_cash_resource_balance"] == "15.00"
+    assert coop["per_original_owner"]["op"]["nonrecipient_balance_to_declared_inflows_ratio"] == "0.1000"
+
+
+@pytest.mark.parametrize("kwargs,expected_delta,accepted_delta,second_delta", [
+    ({}, "445.00", 1, "385.00"),
+    ({"outside_material": "260.00"}, "365.00", 1, "305.00"),
+    ({"outside_observed": "2"}, "-55.00", 1, "-115.00"),
+    ({"disjoint": True, "seller_opening": "800.00"}, "60.00", 0, "0.00"),
+])
+def test_observed_activity_decomposition_can_confirm_or_falsify_efficiency(
+        kwargs, expected_delta, accepted_delta, second_delta):
+    report = compare_portfolios(finance_portfolio(**kwargs))
+    view = report["local_research_only"]["activity_efficiency"]
+    effect = view["pairwise"][0]
+    assert effect["left_minus_right_consolidated"]["model_economic_contribution"] == expected_delta
+    assert effect["left_minus_right_accepted_work_count"] == accepted_delta
+    assert effect["left_minus_right_by_original_work"]["w3"]["model_economic_contribution"] == "60.00"
+    assert effect["left_minus_right_by_original_work"][OUTSIDE]["model_economic_contribution"] == second_delta
+    assert effect["left_minus_right_by_original_work"]["w3"][
+        "external_outflows_plus_exclusive_resource_cost"] == "-60.00"
+    for arm in view["arms"].values():
+        assert arm["capacity_measure"] == "PLANNED_RESERVATION_WITHIN_MODEL_HORIZON_NOT_ACTUAL_MACHINE_TIME"
+    if not kwargs:
+        assert view["arms"]["supplier"]["reserved_capacity_unit_ticks_by_resource"]["rc"] == (
+            view["arms"]["coproduction"]["reserved_capacity_unit_ticks_by_resource"]["rc"])
+        assert effect["left_minus_right_reserved_capacity_unit_ticks_by_resource"]["rc"] == 0
+
+
+def test_internal_purchase_price_changes_owner_distribution_not_system_efficiency():
+    before = compare_portfolios(finance_portfolio())["local_research_only"]["activity_efficiency"]
+    after = compare_portfolios(finance_portfolio(outside_price="600.00"))[
+        "local_research_only"]["activity_efficiency"]
+    a, b = (r["arms"]["coproduction"] for r in (before, after))
+    assert a["consolidated"] == b["consolidated"]
+    assert a["exclusive_resource_cost_by_stage"] == b["exclusive_resource_cost_by_stage"]
+    assert a["internal_transfer_turnover_not_system_output"] != b["internal_transfer_turnover_not_system_output"]
+    assert a["per_original_owner"]["c"]["model_economic_contribution"] != b["per_original_owner"]["c"]["model_economic_contribution"]
+
+
+def test_same_price_new_financial_timing_changes_reserves_not_declared_economic_efficiency():
+    old = compare_portfolios(installment_portfolio(scheduled=False))
+    new = compare_portfolios(installment_portfolio())
+    a, b = (r["local_research_only"]["activity_efficiency"]["arms"]["coproduction"]
+            for r in (old, new))
+    assert a == b
+    assert not old["local_research_only"]["arms"]["coproduction"]["all_owner_declared_reserves_met"]
+    assert new["local_research_only"]["arms"]["coproduction"]["all_owner_declared_reserves_met"]
+
+
+def test_order_and_portfolio_measurement_preserve_distinct_cost_boundaries():
+    out = simulate(finance_portfolio()["coproduction"])["economics"]
+    order = out["original_market_order_economics"]["local_research_only"]["activity_efficiency"]
+    portfolio = out["original_portfolio_economics"]["local_research_only"]["activity_efficiency"]
+    assert order["selected_original_work_count"] == 1
+    assert portfolio["selected_original_work_count"] == 2
+    assert order["consolidated"]["model_economic_contribution"] == "720.00"
+    assert portfolio["consolidated"]["model_economic_contribution"] == "1065.00"
+    assert order["per_original_work"]["w3"] == portfolio["per_original_work"]["w3"]

@@ -17,7 +17,7 @@ from .cooperation import (
 )
 from .modern_economic_evidence import ModernEconomicEvidenceError, review_cost_attribution
 from .economic_liquidity import LiquidityInputError, evaluate_cash_timing
-from .economic_lifecycle import LifecycleInputError, classify_lifecycle_costs
+from .economic_lifecycle import LifecycleInputError, classify_lifecycle_costs, STAGES, NATURES
 from .common_work_allocations import CommonAllocationError, review_common_work_allocations
 
 
@@ -1244,6 +1244,185 @@ def review_original_recipient_use_value(
     }
 
 
+def _qualified_activity_efficiency(
+    *, state: Any, money: Mapping[str, Any], work_ids: set[str],
+    owners: set[str], transfers: Mapping[str, Any], resources: Mapping[str, Any],
+    accepted_work_use_value: Mapping[str, Decimal],
+    expected_contribution: Decimal,
+) -> dict[str, Any]:
+    """Observe economics of already qualified ORIGINAL activity.
+
+    No new cost, financial account, search, optimizer, consent or event.
+    Use value is not enterprise revenue. Transfer amounts are declared
+    model obligations, not automatically bank receipts or accounting profit.
+    The consolidated cost denominator excludes all internal transfers.
+    """
+    zero = Decimal(0)
+
+    def amount(value):
+        return _sum_str([value])
+
+    def ratio(numerator, denominator):
+        return f"{numerator / denominator:.4f}" if denominator > 0 else None
+
+    if not set(accepted_work_use_value) <= work_ids:
+        raise EconomicInputError("ACTIVITY_EFFICIENCY_ORIGINAL_ACCEPTED_SCOPE_MISMATCH")
+    work_values = {key: accepted_work_use_value.get(key, zero) for key in sorted(work_ids)}
+    recipients = {state.works[key].customer for key in work_ids}
+    cash_in = {o: zero for o in owners}
+    cash_out, outside_in, own_cost, use_value = (dict(cash_in) for _ in range(4))
+    per_work = {key: {
+        "external_in": zero, "external_out": zero, "resource_cost": zero,
+        "precommit_resource_cost": zero, "rework_resource_cost": zero,
+    } for key in work_values}
+    internal_turnover = zero
+    for key, value in work_values.items():
+        use_value[state.works[key].customer] += value
+    for row in transfers.values():
+        key, payer, payee = row["work"], row["payer"], row["payee"]
+        value = _amount(row["amount"])
+        if payer != "EXTERNAL":
+            cash_out[payer] += value
+        if payee != "EXTERNAL":
+            cash_in[payee] += value
+        if payer == "EXTERNAL":
+            outside_in[payee] += value
+            per_work[key]["external_in"] += value
+        elif payee == "EXTERNAL":
+            per_work[key]["external_out"] += value
+        else:
+            internal_turnover += value
+
+    lifecycle = money["lifecycle_costs"]
+    classifications = {b["resource_use_id"]: b for b in lifecycle["bindings"]
+                       if b["resource_use_id"] in resources}
+    anchors = {b["resource_use_id"]: b for b in lifecycle["event_bindings"]
+               if b["resource_use_id"] in resources}
+    if set(classifications) != set(resources) or set(anchors) != set(resources):
+        raise EconomicInputError("ACTIVITY_EFFICIENCY_COMPLETE_ORIGINAL_COST_ANCHORS_REQUIRED")
+    stage_cost = {stage: zero for stage in STAGES}
+    nature_cost = {nature: zero for nature in NATURES}
+    histories = {key: [r for r in state.trace if r.get("work") == key] for key in work_values}
+    first_attempt = {key: min((r["at"] for r in history if r["action"] == "commit"),
+                              default=None)
+                     for key, history in histories.items()}
+    for rid, row in resources.items():
+        key, owner = row["work"], row["owner"]
+        value = _amount(row["amount"])
+        stage = classifications[rid]["stage"]
+        stage_cost[stage] += value
+        nature_cost[classifications[rid]["nature"]] += value
+        own_cost[owner] += value
+        per_work[key]["resource_cost"] += value
+        if first_attempt[key] is not None and anchors[rid]["at"] < first_attempt[key]:
+            per_work[key]["precommit_resource_cost"] += value
+        if stage == "CLAIMS_AND_REWORK":
+            per_work[key]["rework_resource_cost"] += value
+
+    def summarize(external_in, external_out, resource_cost, value):
+        cost = external_out + resource_cost
+        balance = value + external_in - cost
+        return {
+            "gross_incremental_recipient_use_value": amount(value),
+            "external_declared_transfer_inflows": amount(external_in),
+            "external_declared_transfer_outflows": amount(external_out),
+            "exclusive_noncash_resource_cost": amount(resource_cost),
+            "external_outflows_plus_exclusive_resource_cost": amount(cost),
+            "model_economic_contribution": amount(balance),
+            # Unclassified external receipts may represent funding rather
+            # than output. Do not label their return as operating profit.
+            "use_value_to_cost_ratio": ratio(value, cost) if external_in == 0 else None,
+            "contribution_to_cost_ratio": ratio(balance, cost) if external_in == 0 else None,
+            "cost_ratio_status": ("UNCLASSIFIED_EXTERNAL_INFLOW"
+                                  if external_in != 0 else
+                                  "POSITIVE_DECLARED_COST_DENOMINATOR"
+                                  if cost > 0 else "ZERO_COST_DENOMINATOR"),
+        }
+
+    work_details = {}
+    for key, history in histories.items():
+        applied = [r for r in history if r["outcome"] == "APPLIED"]
+        requests = [r["at"] for r in applied if r["action"] == "request"]
+        commits = [r["at"] for r in applied if r["action"] == "commit"]
+        accepts = [r["at"] for r in applied if r["action"] == "accept"]
+        completed = key in accepted_work_use_value
+        if completed != (len(accepts) == 1):
+            raise EconomicInputError("ACTIVITY_EFFICIENCY_ORIGINAL_ACCEPTANCE_MISMATCH")
+        c = per_work[key]
+        work_details[key] = {
+            **summarize(c["external_in"], c["external_out"], c["resource_cost"], work_values[key]),
+            "accepted_original_result": completed,
+            "request_to_accept_model_ticks": (
+                accepts[0] - requests[0] if completed and len(requests) == 1 else None),
+            "commit_to_accept_model_ticks": (
+                accepts[0] - commits[0] if completed and len(commits) == 1 else None),
+            "precommit_exclusive_resource_cost": (
+                amount(c["precommit_resource_cost"]) if first_attempt[key] is not None else None),
+            "claims_and_rework_exclusive_resource_cost": amount(c["rework_resource_cost"]),
+            "original_reject_or_resubmit_transition_count": sum(
+                r["action"] in {"reject", "resubmit"} for r in applied),
+            "original_negative_quality_assessment_count": sum(
+                r["action"] == "assess_result_quality" and
+                r.get("quality_verdict") == "DOES_NOT_MEET" for r in applied),
+        }
+    # Keep incomparable resource units separate; reservation time is not
+    # actual machine time. The reservation ledger is never changed.
+    horizon = money["cash_timing"]["horizon_end"]
+    reserved = {key: 0 for key in sorted(state.resources)}
+    for item in state.capacity_ledger.reservations:
+        if item.work in work_ids:
+            reserved[item.resource] += max(0, min(item.end, horizon)-item.start) * item.units
+
+    private = {}
+    for owner in sorted(owners):
+        balance = cash_in[owner] - cash_out[owner] - own_cost[owner]
+        private[owner] = {
+            "original_recipient_in_selected_scope": owner in recipients,
+            "original_operator": owner == state.institution.operator,
+            "declared_transfer_inflows": amount(cash_in[owner]),
+            "declared_transfer_outflows": amount(cash_out[owner]),
+            "exclusive_noncash_resource_cost": amount(own_cost[owner]),
+            "model_cash_resource_balance": amount(balance),
+            "gross_incremental_recipient_use_value": amount(use_value[owner]),
+            "model_economic_contribution": amount(balance + use_value[owner]),
+            "nonrecipient_balance_to_declared_inflows_ratio": (
+                ratio(balance, cash_in[owner])
+                if owner not in recipients and outside_in[owner] == 0 else None),
+        }
+    consolidated = summarize(
+        sum((v["external_in"] for v in per_work.values()), zero),
+        sum((v["external_out"] for v in per_work.values()), zero),
+        sum(own_cost.values(), zero), sum(work_values.values(), zero))
+    if (Decimal(consolidated["model_economic_contribution"]) != expected_contribution
+            or sum((Decimal(v["model_economic_contribution"]) for v in private.values()), zero)
+                != expected_contribution
+            or sum((Decimal(v["model_economic_contribution"]) for v in work_details.values()), zero)
+                != expected_contribution
+            or sum(stage_cost.values(), zero) != sum(own_cost.values(), zero)
+            or sum(nature_cost.values(), zero) != sum(own_cost.values(), zero)):
+        raise EconomicInputError("ACTIVITY_EFFICIENCY_ORIGINAL_CONSOLIDATION_MISMATCH")
+    return {
+        "schema": "AKIS_QUALIFIED_ORIGINAL_ACTIVITY_EFFICIENCY/1.0",
+        "status": "MODEL_DECLARED_COST_VALUE_AND_EXECUTED_WORK_MEASURES",
+        "selected_original_work_count": len(work_ids),
+        "accepted_original_work_count": len(accepted_work_use_value),
+        "consolidated": consolidated,
+        "per_original_owner": private,
+        "per_original_work": work_details,
+        "exclusive_resource_cost_by_stage": {k: amount(v) for k, v in stage_cost.items()},
+        "exclusive_resource_cost_by_nature": {k: amount(v) for k, v in nature_cost.items()},
+        "internal_transfer_turnover_not_system_output": amount(internal_turnover),
+        "reserved_capacity_unit_ticks_by_resource": reserved,
+        "capacity_measure": "PLANNED_RESERVATION_WITHIN_MODEL_HORIZON_NOT_ACTUAL_MACHINE_TIME",
+        "elapsed_time_measure": "ORIGINAL_EVENT_CLOCK_TICKS_NOT_PHYSICAL_TIME",
+        "selected_work_counts_not_homogeneous_physical_quantity": True,
+        "stage_and_nature_are_two_views_of_same_cost_not_additive": True,
+        "use_value_is_not_enterprise_sales_or_cash": True,
+        "accounting_profit_actual_productivity_and_causal_effect": "NOT_IDENTIFIABLE",
+        "no_original_activity_selected_ranked_or_changed": True,
+    }
+
+
 def review_original_market_order_economics(
     raw: Any, *, state: Any, economic_claims: Mapping[str, Any],
     economic_view: Mapping[str, Any], strict_work_ids: str | tuple[str, ...] | None,
@@ -1441,6 +1620,11 @@ def review_original_market_order_economics(
             "consolidated_external_cash_net": _sum_str([external]),
             "consolidated_exclusive_resource_cost": _sum_str([v[1] for v in amounts.values()]),
             "consolidated_model_contribution": _sum_str([total]),
+            "activity_efficiency": _qualified_activity_efficiency(
+                state=state, money=money, work_ids={key}, owners=owners,
+                transfers=transfers, resources=resources,
+                accepted_work_use_value={key: amounts[buyer][2]},
+                expected_contribution=total),
             "per_owner": {owner: {
                 "selected_work_net_cash": _sum_str([v[0]]),
                 "exclusive_incremental_resource_cost": _sum_str([v[1]]),
@@ -1786,6 +1970,13 @@ def review_original_portfolio_economics(
                                                for v in r["cumulative_reserve_paths"].values()),
         "local_research_only": {"per_owner": private,
                                 "consolidated_model_contribution": _sum_str([total]),
-                                "gross_incremental_recipient_use_value": _sum_str(list(gross.values()))},
+                                "gross_incremental_recipient_use_value": _sum_str(list(gross.values())),
+                                "activity_efficiency": _qualified_activity_efficiency(
+                                    state=state, money=money, work_ids=keys, owners=owners,
+                                    transfers=transfers, resources=resources,
+                                    accepted_work_use_value={
+                                        key: Decimal(value[key]["incremental_gross_noncash_use_value"])
+                                        for key in accepted},
+                                    expected_contribution=total)},
     })
     return output

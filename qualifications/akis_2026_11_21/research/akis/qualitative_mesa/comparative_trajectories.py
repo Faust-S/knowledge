@@ -1319,6 +1319,57 @@ def compare_original_market_formation_outcomes(
     }
 
 
+def _compare_qualified_activity_efficiency(arms: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    """Read-only decomposition of given, independently executed matched arms."""
+    from decimal import Decimal
+    from itertools import combinations
+    fields = ("gross_incremental_recipient_use_value", "external_declared_transfer_inflows",
+              "external_declared_transfer_outflows", "exclusive_noncash_resource_cost",
+              "external_outflows_plus_exclusive_resource_cost", "model_economic_contribution")
+
+    def difference(left, right, keys):
+        return {k: f"{Decimal(left[k])-Decimal(right[k]):.2f}" for k in keys}
+
+    contrasts = []
+    for left, right in combinations(sorted(arms), 2):
+        a, b = arms[left], arms[right]
+        if (set(a["per_original_work"]) != set(b["per_original_work"])
+                or set(a["reserved_capacity_unit_ticks_by_resource"])
+                    != set(b["reserved_capacity_unit_ticks_by_resource"])):
+            raise TrajectoryComparisonError("ACTIVITY_EFFICIENCY_MATCHED_ORIGINAL_SCOPE_MISMATCH")
+        total = difference(a["consolidated"], b["consolidated"], fields)
+        by_work = {k: difference(a["per_original_work"][k], b["per_original_work"][k], fields)
+                   for k in sorted(a["per_original_work"])}
+        if (sum((Decimal(v["model_economic_contribution"]) for v in by_work.values()), Decimal(0))
+                    != Decimal(total["model_economic_contribution"])
+                or Decimal(total["gross_incremental_recipient_use_value"])
+                    + Decimal(total["external_declared_transfer_inflows"])
+                    - Decimal(total["external_outflows_plus_exclusive_resource_cost"])
+                    != Decimal(total["model_economic_contribution"])):
+            raise TrajectoryComparisonError("ACTIVITY_EFFICIENCY_MATCHED_ORIGINAL_CONSOLIDATION_MISMATCH")
+        contrasts.append({
+            "left": left, "right": right,
+            "left_minus_right_consolidated": total,
+            "left_minus_right_by_original_work": by_work,
+            "left_minus_right_exclusive_resource_cost_by_stage": difference(
+                a["exclusive_resource_cost_by_stage"], b["exclusive_resource_cost_by_stage"],
+                sorted(a["exclusive_resource_cost_by_stage"])),
+            "left_minus_right_exclusive_resource_cost_by_nature": difference(
+                a["exclusive_resource_cost_by_nature"], b["exclusive_resource_cost_by_nature"],
+                sorted(a["exclusive_resource_cost_by_nature"])),
+            "left_minus_right_accepted_work_count": (
+                a["accepted_original_work_count"]-b["accepted_original_work_count"]),
+            "left_minus_right_reserved_capacity_unit_ticks_by_resource": {
+                k: a["reserved_capacity_unit_ticks_by_resource"][k]
+                   - b["reserved_capacity_unit_ticks_by_resource"][k]
+                for k in sorted(a["reserved_capacity_unit_ticks_by_resource"])},
+        })
+    return {"schema": "AKIS_MATCHED_ORIGINAL_ACTIVITY_EFFICIENCY/1.0",
+            "arms": dict(arms), "pairwise": contrasts,
+            "only_observation_of_independently_executed_arms": True,
+            "no_route_search_ranking_or_owner_decision": True}
+
+
 def compare_original_competing_market_routes(
     scenarios: Mapping[str, Mapping[str, Any]], *, work: str,
     prior_works: tuple[str, ...], split_at: int, secondary_work: str | None = None,
@@ -1587,6 +1638,7 @@ def compare_original_competing_market_routes(
     history = None
     observed_prefix = None
     owner_views, arm_views, reasons = {}, {}, set()
+    efficiency_views = {}
     met = "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
     for name in names:
         out, doc = outputs[name], scenarios[name]
@@ -1647,6 +1699,7 @@ def compare_original_competing_market_routes(
                     local["consolidated_model_contribution"]):
                 raise TrajectoryComparisonError("PORTFOLIO_FIXED_OWNER_CONSOLIDATION_MISMATCH")
             owner_views[name] = amounts
+            efficiency_views[name] = local["activity_efficiency"]
             arm_views[name] = {
                 "consolidated_model_contribution": local["consolidated_model_contribution"],
                 "gross_recipient_use_value": local["gross_incremental_recipient_use_value"],
@@ -1692,6 +1745,7 @@ def compare_original_competing_market_routes(
         if sum(amounts.values(), Decimal(0)) != total:
             raise TrajectoryComparisonError("COMPETING_MARKET_CONSOLIDATION_MISMATCH")
         owner_views[name] = amounts
+        efficiency_views[name] = local["activity_efficiency"]
         arm_views[name] = {
             "consolidated_model_contribution": f"{total:.2f}",
             "gross_recipient_use_value": local["gross_incremental_recipient_use_value"],
@@ -1734,7 +1788,9 @@ def compare_original_competing_market_routes(
         return output | {"pairwise_contrasts": summaries,
                          "best_model_contribution_among_executed_portfolio_viable_routes": best,
                          "recommendation_does_not_replace_independent_selection_or_consents": True,
-                         "local_research_only": {"arms": arm_views, "pairwise": pairwise}}
+                         "local_research_only": {"arms": arm_views, "pairwise": pairwise,
+                                                 "activity_efficiency": _compare_qualified_activity_efficiency(
+                                                     efficiency_views)}}
     output = {
         "schema": "AKIS_MATCHED_ORIGINAL_COMPETING_MARKET_ROUTES/1.0",
         "status": "UNKNOWN" if reasons else "MODEL_MATCHED_EXECUTED_COMPETING_MARKET_ROUTES",
@@ -1782,7 +1838,9 @@ def compare_original_competing_market_routes(
         "qualified_participant_viable_route_count": len(viable),
         "best_model_contribution_among_executed_participant_viable_routes": best,
         "recommendation_does_not_replace_independent_selection_or_consents": True,
-        "local_research_only": {"arms": arm_views, "pairwise": contrasts},
+        "local_research_only": {"arms": arm_views, "pairwise": contrasts,
+                                "activity_efficiency": _compare_qualified_activity_efficiency(
+                                    efficiency_views)},
     })
     return output
 
