@@ -20,10 +20,17 @@ OUTPUT_LIMIT = 4 * 1024 * 1024  # Original Agent U01 owner ceiling.
 WORKER_TIMEOUT = 18  # Original U01 outer timeout is 20 seconds.
 # Runtime, original local entry point, fixed worker flags.
 OPERATIONS = {
+    "personal_routine_group": ("node", "activity-technology-product.mjs", ("--personal-group",)),
+    "personal_product_prepare": ("node", "activity-technology-product.mjs", ("--personal-product",)),
+    "d05_product_prepare": ("node", "activity-technology-product.mjs", ("--d05-product",)),
+    "personal_recipient_prepare": ("node", "activity-technology-product.mjs", ("--personal-recipient",)),
+    "d05_recipient_prepare": ("node", "activity-technology-product.mjs", ("--d05-recipient",)),
     "route_compare": ("node", "activity-d05-route-review.mjs", ()),
     "technology_draft": ("node", "activity-d05-route-review.mjs", ("--technology-draft",)),
     "technology_proposal": ("node", "activity-d05-route-review.mjs", ("--technology-proposal",)),
     "disclosure_candidate": ("node", "activity-d05-route-review.mjs", ("--disclosure-candidate",)),
+    "presidio_en_product": ("python", "activity-presidio-scan.py", ("--language", "en", "--product")),
+    "presidio_ru_product": ("python", "activity-presidio-scan.py", ("--language", "ru", "--product")),
     "presidio_en": ("python", "activity-presidio-scan.py", ("--language", "en")),
     "presidio_ru": ("python", "activity-presidio-scan.py", ("--language", "ru")),
     "observation_prepare": ("node", "activity-observation-request.mjs", ("--prepare",)),

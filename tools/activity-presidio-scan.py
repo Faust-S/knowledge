@@ -97,6 +97,46 @@ def load_candidate(payload):
     return technology, fields
 
 
+def load_product(payload):
+    try:
+        preview = json.loads(payload.decode("utf-8", errors="strict"), object_pairs_hook=unique_object,
+                             parse_constant=lambda _: (_ for _ in ()).throw(Hold("PRESIDIO_PRODUCT_JSON")))
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        raise Hold("PRESIDIO_PRODUCT_JSON") from exc
+    need(type(preview) is dict and preview.get("status") == "LOCAL_TECHNOLOGY_PRODUCT_PREVIEW"
+         and preview.get("schema_id") == "iwxa.activity.technology"
+         and preview.get("schema_version") == "1.0.0"
+         and preview.get("export_allowed") is False and preview.get("iwxa_package") is None
+         and preview.get("anonymity") == "NOT_ESTABLISHED"
+         and preview.get("disclosure_status") == "REQUIRES_OWNER_REVIEW", "PRESIDIO_PRODUCT_PROFILE")
+    product = preview.get("object_data")
+    need(type(product) is dict and set(product) == {"title", "target", "technology"}
+         and product.get("target") in ("PERSONAL_AGENT_TASK_PROMPT", "D05_OPERATION_ROUTE_QUALITY")
+         and type(product.get("title")) is str and type(product.get("technology")) is dict
+         and sha256(canonical(product)).hexdigest() == preview.get("product_sha256"),
+         "PRESIDIO_PRODUCT_PROFILE")
+    fields = []
+    def walk(value, path, depth):
+        need(depth <= 12, "PRESIDIO_PRODUCT_STRUCTURE")
+        if isinstance(value, str):
+            if value:
+                need(len(value) <= 16000, "PRESIDIO_PRODUCT_TEXT_LIMIT")
+                fields.append({"path": path, "text": value})
+        elif isinstance(value, list):
+            for i, item in enumerate(value):
+                walk(item, f"{path}.{i}", depth + 1)
+        elif isinstance(value, dict):
+            for k, item in value.items():
+                need(re.fullmatch(r"[a-z][a-z0-9_]*", k), "PRESIDIO_PRODUCT_STRUCTURE")
+                walk(item, f"{path}.{k}", depth + 1)
+        else:
+            need(value is None or type(value) in (bool, int), "PRESIDIO_PRODUCT_STRUCTURE")
+    walk(product, "object_data", 0)
+    need(0 < len(fields) <= FIELD_LIMIT and sum(len(f["text"]) for f in fields) <= CHAR_LIMIT,
+         "PRESIDIO_PRODUCT_TEXT_LIMIT")
+    return product, sorted(fields, key=lambda f: f["path"])
+
+
 def analyzer(language):
     from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
     from presidio_analyzer.nlp_engine import SpacyNlpEngine
@@ -130,8 +170,8 @@ def analyzer(language):
     return engine, model, expected
 
 
-def run(payload, language):
-    technology, fields = load_candidate(payload)
+def run(payload, language, product=False):
+    technology, fields = load_product(payload) if product else load_candidate(payload)
     # A candidate from another local source does not become authenticated by
     # computing a digest; it only ties the scan to these exact bytes/fields.
     digest = sha256(canonical(technology)).hexdigest()
@@ -158,10 +198,10 @@ def run(payload, language):
             "version": VERSION, "language": language, "model": model, "model_version": model_version,
             "spacy_version": version("spacy"), "score_threshold": THRESHOLD,
             "supported_entities": entities, "phone_regions": list(REGIONS),
-            "input_sha256": sha256(payload).hexdigest(), "technology_sha256": digest,
+            "input_sha256": sha256(payload).hexdigest(), ("product_sha256" if product else "technology_sha256"): digest,
             "text_inventory_sha256": inventory_digest, "offset_unit": "UNICODE_CODE_POINT",
             "fields": output, "field_count": len(output), "finding_count": total,
-            "scope": "IDENTIFYING_TEXT_SCREENING_ONLY", "anonymity": "NOT_ESTABLISHED",
+            "scope": "PRODUCT_IDENTIFYING_TEXT_SCREENING_ONLY" if product else "IDENTIFYING_TEXT_SCREENING_ONLY", "anonymity": "NOT_ESTABLISHED",
             "export_allowed": False, "iwxa_package": None}
 
 
@@ -169,11 +209,11 @@ def main():
     logging.disable(logging.CRITICAL)
     warnings.filterwarnings("ignore")
     try:
-        need(len(sys.argv) == 3 and sys.argv[1] == "--language" and sys.argv[2] in MODELS,
+        need(len(sys.argv) in (3, 4) and sys.argv[1] == "--language" and sys.argv[2] in MODELS and\n             (len(sys.argv) == 3 or sys.argv[3] == "--product"),
              "PRESIDIO_ARGUMENTS_INVALID")
         payload = sys.stdin.buffer.read(LIMIT + 1)
         need(0 < len(payload) <= LIMIT, "PRESIDIO_INPUT_LIMIT")
-        result = run(payload, sys.argv[2])
+        result = run(payload, sys.argv[2], product=len(sys.argv) == 4)
         out = json.dumps(result, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
         need(len(out) <= LIMIT, "PRESIDIO_OUTPUT_LIMIT")
         sys.stdout.buffer.write(out + b"\n")

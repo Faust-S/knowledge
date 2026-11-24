@@ -1,4 +1,5 @@
 import type {Dispatch,SetStateAction,ReactNode} from 'react';
+import {PersonalRoutineReviewPanel} from './PersonalRoutineReviewPanel';
 import {DomainRouteComparison} from './DomainRouteComparison';
 import {ProcessToolReview} from './ProcessToolReview';
 import type {Preview} from '../../modules/activity-base-anonymizer/engine.mjs';
@@ -30,6 +31,7 @@ export function ActivityInnerPage({page,data,actions,process,object,candidate,ma
  eventPage,setEventPage,eventId,setEventId,go,choose,inspect}:Props){
  const t3=data.t3Review?.status==='REVIEW'?data.t3Review.review:null;
  switch(page){
+ case 'Личные технологии':return <PersonalRoutineReviewPanel/>;
  case 'Группировка маршрутов':return <DomainRouteComparison host={data.d05RouteHost}/>;
  case 'Результаты Process Mining':return <ProcessToolReview/>;
  case 'Схемы A0/A1':return <div className="activity-v7-grid">

@@ -8,3 +8,6 @@ export type PresidioReview={status:'LOCAL_PRESIDIO_SCREENING_REVIEW';language:'e
  scope:'IDENTIFYING_TEXT_SCREENING_ONLY';privacy_conclusion:'NOT_ESTABLISHED';
  domain_validation:'NOT_PERFORMED';anonymity:'NOT_ESTABLISHED';export_allowed:false;iwxa_package:null};
 export function reviewPresidioTextScreening(candidate:unknown,raw:unknown):Promise<PresidioReview>;
+
+export function productTextInventory(data:unknown):Array<{path:string;text:string}>;
+export function reviewProductPresidioTextScreening(preview:unknown,raw:unknown):Promise<Omit<PresidioReview,'source_match'|'scope'>&{source_match:'EXACT_CURRENT_PRODUCT_AND_TEXT_INVENTORY';scope:'PRODUCT_IDENTIFYING_TEXT_SCREENING_ONLY'}>;

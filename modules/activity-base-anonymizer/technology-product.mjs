@@ -188,10 +188,10 @@ export async function groupPersonalRoutineEvidence(records){
    context_flags:copy(r.context_flags),occurrences:[]});
   groups.get(signature).occurrences.push({occurrence_ref:r.occurrence_ref,task_ref:r.task_ref,task_digest:r.task_digest,accepted_digest:r.accepted_digest});
  }
- const variants=[...groups.values()].sort((a,b)=>b.occurrences.length-a.occurrences.length||cmp(a.objective,b.objective)||a.interval_seconds-b.interval_seconds);
+ const variants=[...groups.values()].sort((a,b)=>b.occurrences.length-a.occurrences.length||cmp(a.objective,b.objective)||a.interval_seconds-b.interval_seconds||cmp(key(a.context_flags),key(b.context_flags)));
  const out=[];
  for(const [i,v] of variants.entries())out.push({variant_id:'routine_'+String(i+1).padStart(3,'0'),
-  ...v,accepted_occurrence_count:v.occurrences.length,
+  ...v,occurrences:[...v.occurrences].sort((a,b)=>cmp(a.occurrence_ref,b.occurrence_ref)),accepted_occurrence_count:v.occurrences.length,
   repeatability:v.occurrences.length>=2?'REPEATED_ACCEPTED_TASKS_DECLARED':'ONE_ACCEPTED_TASK_DECLARED'});
  return {status:'LOCAL_PERSONAL_ROUTINE_EVIDENCE',source_authority:'UNVERIFIED_LOCAL_PROJECTION',
   variants:out,source_sha256:await sha256Canonical(records),anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null};
