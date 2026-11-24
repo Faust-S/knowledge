@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,sign,verify} from 'node:crypto';
 import {decodeT4WebDavFrameAddressList} from '../src/network/webdav-frame-address-list.mjs';
 import {createWebDavPackageTransport} from '../src/network/webdav-package-transfer.mjs';
+import {discoverT4OriginalNetworkSessionContent} from '../src/network/original-network-subject-apply.mjs';
+import {deriveT4OriginalNativeCaptureSession} from '../src/network/original-network-publication.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame} from '../src/network/standard-network-wire-candidate.mjs';
 const base='https://example.invalid/peer/',collection='/peer/';
@@ -188,4 +190,61 @@ test('Host invalidation while receiving address list prevents reads and replay',
   f.ports.wireTransport.listNativeFrameAddresses=async()=>{const value=await list();f.stop();return value;};
   await assert.rejects(f.wire().discoverAndVerifySignedFrames(opts(f)),code('ORIGINAL_HOST_LIFETIME_ENDED'));
   assert.equal(f.reads.length,0);assert.equal(f.stats.replayWrites,0);
+});
+
+async function contentFixture(){
+  const f=await fixture(),H=c=>'sha256:'+c.repeat(64);
+  const task={schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',state:'ORIGINAL_NATIVE_CAPTURE_READY',
+    workspaceId:'ws:one',originalWriteOwnerRef:'owner:one',sourceNodeRef:'node:peer',recipientNodeRef:'node:local',
+    networkTargetRef:'node:local',scopeRef:'scope:one',ownerEpoch:2,networkPublished:false,
+    sourceCursorAdvanced:false,originalRecipientApplied:false,sourceCursorBefore:{sourcePrefixDigest:H('a')},
+    sourceCursorAfter:{sourcePrefixDigest:H('b')},capture:{workspaceId:'ws:one',originalWriteOwnerRef:'owner:one',
+      sourceEventId:'event:one',sourceRevision:1,kind:'OBJECT_PUT',originalIntentEventAndCanonicalBytesVerified:true,
+      capturedWindowDigestVerified:true,sourceWindow:{lastEventId:'event:one',windowDigest:H('c'),
+      eventRefs:[{eventDigest:H('d')}],sourcePrefixDigestBefore:H('a'),sourcePrefixDigestAfter:H('b')},
+      prepared:{sha256:'e'.repeat(64),delta:{sourceEventId:'event:one',sourceRevision:1,
+      sourceEventDigest:H('d'),windowDigest:H('c')}}}};
+  const session=deriveT4OriginalNativeCaptureSession(task),parts=[Buffer.from('opaque-'),Buffer.from('ciphertext')],
+    contentDigest='sha256:'+hash(Buffer.concat(parts)),common={sessionRef:session.sessionRef};
+  const heads=()=>f.add({...common,sequence:1,body:{familyRef:session.familyRef,ownerEpoch:2,heads:[session.sourcePrefixDigestAfter]}});
+  const change=(overrides={})=>f.add({...common,messageType:'CHANGE_REF',sequence:2,body:{
+    changeId:session.changeId,changeKind:session.changeKind,eventRef:session.sourceEventId,ownerRef:session.originalWriteOwnerRef,
+    sourceRevision:session.sourceRevision,contentDigest,parents:[session.sourcePrefixDigestBefore]},...overrides});
+  const chunk=(i,overrides={})=>f.add({...common,messageType:'CHUNK',sequence:3+i,body:{
+    changeId:session.changeId,contentDigest,chunkIndex:i,chunkCount:2,ciphertextBase64:parts[i].toString('base64'),
+    ciphertextSha256:'sha256:'+hash(parts[i]),encryptionContextRef:'key:original'},...overrides});
+  const discover=extra=>discoverT4OriginalNetworkSessionContent({session,frameDiscoveryPort:f.wire(),
+    requiredCryptoSuite:suite,authorizeOriginalRecipientSession:async()=>true,...extra});
+  return {f,session,heads,change,chunk,discover};
+}
+test('one signed session sweep collects the complete ciphertext by protocol slot, not by address order',async()=>{
+  const c=await contentFixture();
+  assert.equal((await c.discover()).state,'WAITING_FOR_HEADS');
+  await c.heads();assert.equal((await c.discover()).state,'WAITING_FOR_CHANGE');
+  await c.change();await c.chunk(1);
+  const partial=await c.discover();assert.equal(partial.state,'WAITING_FOR_CHUNKS');
+  assert.deepEqual(partial.missingChunkIndexes,[0]);assert.equal(partial.originalBusinessApplied,false);
+  await c.chunk(0);await c.f.add();
+  const before=c.f.stats.lists,complete=await c.discover();
+  assert.equal(c.f.stats.lists-before,1);assert.equal(complete.state,'CONTENT_VERIFIED');
+  assert.deepEqual(complete.verifiedChunks.map(v=>v.verifiedSequence),[3,4]);
+  assert.equal(complete.originalDecryptionInvoked,false);assert.equal(complete.originalSourceEventAndSubjectNotYetVerified,true);
+  assert.equal(c.f.replay.size,4);assert.equal(complete.sourceCursorAdvanced,false);
+});
+test('session collection cannot mix signed frames with conflicting change identity or chunk slots',async()=>{
+  const c=await contentFixture();await c.heads();await c.change();
+  await c.chunk(0,{sequence:4});
+  await assert.rejects(c.discover(),code('SUBJECT_ORIGINAL_DISCOVERED_CHUNK_MISMATCH'));
+  const d=await contentFixture();await d.heads();await d.change();await d.chunk(0);
+  await d.chunk(0);
+  await assert.rejects(d.discover(),e=>/REPLAY|SLOT_CONFLICT/.test(e?.code));
+});
+test('session discovery requires original recipient permission before listing and rechecks after readback',async()=>{
+  const c=await contentFixture();await c.heads();
+  await assert.rejects(c.discover({authorizeOriginalRecipientSession:async()=>false}),code('SUBJECT_ORIGINAL_SESSION_DISCOVERY_DENIED'));
+  assert.equal(c.f.stats.lists,0);
+  let grants=0;
+  await assert.rejects(c.discover({authorizeOriginalRecipientSession:async()=>++grants===1}),code('SUBJECT_ORIGINAL_SESSION_DISCOVERY_DENIED'));
+  const altered={...c.session,sessionRef:'session:fake'};
+  await assert.rejects(c.discover({session:altered}),code('PUBLICATION_ORIGINAL_CAPTURE_IDENTITY_INVALID'));
 });

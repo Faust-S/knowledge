@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {validateT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
 import {assembleT4CandidateOpaqueChunks}
   from './standard-network-opaque-chunks.mjs';
 import {applyT4OriginalObjectDelta,decodeT4OriginalObjectDeltaBytes,
@@ -105,6 +106,105 @@ function checkReceived(received){
       received.originalSourceRevision!==type.revision(exact.delta))))
     fail('SUBJECT_RECEIVED_DELTA_CHANGED');
   return received.delta;
+}
+/** Discover the complete ciphertext for a session selected by the ORIGINAL
+ * recipient owner. No caller-supplied file addresses, decryption, application,
+ * durable phase transition or advancement of an original cursor here.
+ * Initial session negotiation remains an original owner responsibility.
+ */
+export async function discoverT4OriginalNetworkSessionContent({session,frameDiscoveryPort,
+  requiredCryptoSuite,authorizeOriginalRecipientSession}={}){
+  const identity=validateT4OriginalNativeCaptureSession(session);
+  if(typeof frameDiscoveryPort?.discoverSessionContent!=='function'||
+    typeof authorizeOriginalRecipientSession!=='function'||!ID(requiredCryptoSuite))
+    fail('SUBJECT_ORIGINAL_SESSION_DISCOVERY_PORTS_REQUIRED');
+  const proof=frozen({operation:'t4.network.discover.original.session.content',
+    session:identity,originalRecipientSessionAndPredecessorRequired:true,
+    networkMetadataDoesNotGrantOriginalSubjectRights:true});
+  const guard=async()=>{
+    if(await authorizeOriginalRecipientSession(proof)!==true)
+      fail('SUBJECT_ORIGINAL_SESSION_DISCOVERY_DENIED');
+  };
+  await guard();
+  const result=await frameDiscoveryPort.discoverSessionContent({selector:{
+    sourceNodeRef:identity.sourceNodeRef,ownerEpoch:identity.ownerEpoch,
+    sessionRef:identity.sessionRef},requiredCryptoSuite,
+    supportedCriticalExtensions:t4NativeSubjectCriticalExtensions(identity.changeKind)});
+  await guard();
+  if(result?.schema!=='IWXA_T4_FRAME_DISCOVERY_SESSION_CONTENT_V1'||
+    !['FOUND','NOT_FOUND','RESTART_SCAN'].includes(result.state)||
+    result.originalTransportScanOnly!==true||result.originalBusinessApplied!==false||
+    result.sourceCursorAdvanced!==false||!Array.isArray(result.receipts)||
+    result.receipts.length>66||(result.state==='FOUND')!==(result.receipts.length>0))
+    fail('SUBJECT_ORIGINAL_SESSION_DISCOVERY_RESULT_INVALID');
+  const waiting=(state,missing=[])=>frozen({schema:'IWXA_T4_ORIGINAL_DISCOVERED_SESSION_CONTENT_V1',
+    state,session:identity,missingChunkIndexes:frozen(missing),
+    originalDecryptionInvoked:false,originalBusinessApplied:false,sourceCursorAdvanced:false});
+  if(result.state==='RESTART_SCAN')return waiting('WAITING_FOR_STABLE_DISCOVERY');
+  let heads=null,change=null;
+  const chunks=[],sequences=new Set();
+  for(const frame of result.receipts){
+    const type=frame?.signedMessageType,seq=frame?.verifiedSequence;
+    if(!['HEADS','CHANGE_REF','CHUNK'].includes(type)||!Number.isSafeInteger(seq)||
+      seq<1||seq>66||sequences.has(seq)||!frameKey(frame.key)||frame.key!==frame.sha256+'.t4n'||
+      frame.verifiedSourceNodeRef!==identity.sourceNodeRef||
+      frame.verifiedRecipientNodeRef!==identity.recipientNodeRef||
+      frame.verifiedScopeRef!==identity.scopeRef||frame.verifiedSessionRef!==identity.sessionRef||
+      frame.verifiedOwnerEpoch!==identity.ownerEpoch||frame.verifiedCryptoSuite!==requiredCryptoSuite||
+      !ID(frame.verifiedSignerRef))
+      fail('SUBJECT_ORIGINAL_DISCOVERED_FRAME_SCOPE_INVALID');
+    verified(frame,type,frame);
+    sequences.add(seq);
+    const b=frame.verifiedBody;
+    if(type==='HEADS'){
+      if(heads||seq!==1||b.familyRef!==identity.familyRef||b.ownerEpoch!==identity.ownerEpoch||
+        !same(b.heads,[identity.sourcePrefixDigestAfter]))
+        fail('SUBJECT_ORIGINAL_DISCOVERED_HEAD_MISMATCH');
+      heads=frame;
+    }else if(type==='CHANGE_REF'){
+      if(change||seq!==2||b.changeId!==identity.changeId||b.changeKind!==identity.changeKind||
+        b.eventRef!==identity.sourceEventId||b.ownerRef!==identity.originalWriteOwnerRef||
+        b.sourceRevision!==identity.sourceRevision||!DIG(b.contentDigest)||
+        !same(b.parents,[identity.sourcePrefixDigestBefore])||
+        !matchesT4NativeSubjectCriticalExtensions(identity.changeKind,frame.verifiedCriticalExtensions))
+        fail('SUBJECT_ORIGINAL_DISCOVERED_CHANGE_MISMATCH');
+      change=frame;
+    }else{
+      if(b.changeId!==identity.changeId||!Number.isSafeInteger(b.chunkIndex)||
+        !Number.isSafeInteger(b.chunkCount)||b.chunkCount<1||b.chunkCount>64||
+        b.chunkIndex<0||b.chunkIndex>=b.chunkCount||seq!==3+b.chunkIndex)
+        fail('SUBJECT_ORIGINAL_DISCOVERED_CHUNK_MISMATCH');
+      chunks.push(frame);
+    }
+  }
+  const first=result.receipts[0];
+  if(first&&result.receipts.some(f=>f.verifiedSignerRef!==first.verifiedSignerRef))
+    fail('SUBJECT_ORIGINAL_DISCOVERED_SIGNER_MISMATCH');
+  if(chunks.length){
+    const b=chunks[0].verifiedBody;
+    if(chunks.some(f=>f.verifiedBody.chunkCount!==b.chunkCount||
+      f.verifiedBody.contentDigest!==b.contentDigest||
+      f.verifiedBody.encryptionContextRef!==b.encryptionContextRef)||
+      (change&&b.contentDigest!==change.verifiedBody.contentDigest))
+      fail('SUBJECT_ORIGINAL_DISCOVERED_CHUNK_MISMATCH');
+  }
+  if(!heads)return waiting('WAITING_FOR_HEADS');
+  if(!change)return waiting('WAITING_FOR_CHANGE');
+  if(!chunks.length)return waiting('WAITING_FOR_CHUNKS');
+  const count=chunks[0].verifiedBody.chunkCount,found=new Set(chunks.map(f=>f.verifiedBody.chunkIndex));
+  const missing=Array.from({length:count},(_,i)=>i).filter(i=>!found.has(i));
+  if(missing.length)return waiting('WAITING_FOR_CHUNKS',missing);
+  const ordered=chunks.sort((a,b)=>a.verifiedSequence-b.verifiedSequence);
+  const encryptionContextRef=ordered[0].verifiedBody.encryptionContextRef;
+  assembleT4CandidateOpaqueChunks({bodies:ordered.map(c=>c.verifiedBody),
+    expectedChangeId:identity.changeId,expectedContentDigest:change.verifiedBody.contentDigest,
+    expectedEncryptionContextRef:encryptionContextRef});
+  await guard();
+  return frozen({schema:'IWXA_T4_ORIGINAL_DISCOVERED_SESSION_CONTENT_V1',
+    state:'CONTENT_VERIFIED',session:identity,verifiedHeads:heads,verifiedChangeRef:change,
+    verifiedChunks:frozen(ordered),encryptionContextRef,originalTransportIntegrityVerified:true,
+    originalSourceEventAndSubjectNotYetVerified:true,originalDecryptionInvoked:false,
+    originalBusinessApplied:false,sourceCursorAdvanced:false});
 }
 export async function openT4OriginalNetworkSubjectChange({
   verifiedChangeRef,verifiedChunks,originalSourceHeadProof,

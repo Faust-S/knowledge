@@ -247,7 +247,8 @@ export function createT4CandidateFrameTransport({
       !ID(selector.sourceNodeRef)||selector.sourceNodeRef===originalHostNodeRef||
       !Number.isSafeInteger(selector.ownerEpoch)||selector.ownerEpoch<1||
       !['HEADS','DIFF_REQUEST','CHANGE_REF','CHUNK','APPLIED_ACK','HELLO','CAPABILITIES',
-        'CHUNK_REQUEST','RECEIVED_ACK','VERIFIED_ACK','RESUME'].includes(selector.messageType)||
+        'CHUNK_REQUEST','RECEIVED_ACK','VERIFIED_ACK','RESUME','SESSION_CONTENT'].includes(selector.messageType)||
+      (selector.messageType==='SESSION_CONTENT'&&(!ID(selector.sessionRef)||selector.sequence!==undefined))||
       (selector.sessionRef!==undefined&&!ID(selector.sessionRef))||
       (selector.sessionRef===undefined&&selector.messageType!=='HEADS')||
       (selector.sequence!==undefined&&(!Number.isSafeInteger(selector.sequence)||selector.sequence<1))||
@@ -305,7 +306,8 @@ export function createT4CandidateFrameTransport({
       const f=decodeT4CandidateFrame(bytes);
       if(f.sourceNodeRef!==selected.sourceNodeRef||f.recipientNodeRef!==originalHostNodeRef||
         f.scopeRef!==originalHostScopeRef||f.ownerEpoch!==selected.ownerEpoch||
-        f.messageType!==selected.messageType||(selected.sessionRef!==undefined&&f.sessionRef!==selected.sessionRef)||
+        (selected.messageType==='SESSION_CONTENT'? !['HEADS','CHANGE_REF','CHUNK'].includes(f.messageType):
+          f.messageType!==selected.messageType)||(selected.sessionRef!==undefined&&f.sessionRef!==selected.sessionRef)||
         (selected.sequence!==undefined&&f.sequence!==selected.sequence)){
         ignoredCount++;continue;
       }
@@ -324,41 +326,55 @@ export function createT4CandidateFrameTransport({
       mustRescanOnNextOriginalHostWake:true,originalBusinessApplied:false,
       sourceCursorAdvanced:false,createsStore:false,createsScheduler:false});
   }
-  // Resolve one exact protocol slot without a caller supplying its address.
-  // Scan the entire bounded listing; never select a first/last hash as a
-  // winner. A changed enumeration is not a proof of absence or uniqueness.
-  async function discoverUniqueSignedFrame({selector,requiredCryptoSuite,
-    supportedCriticalExtensions=[]}={}){
-    if(!ID(selector?.sessionRef)||!Number.isSafeInteger(selector.sequence)||
-      selector.sequence<1)fail('WIRE_DISCOVERY_EXACT_SLOT_REQUIRED');
+  // One bounded, stable address sweep for an exact slot or the source's
+  // complete session content. SESSION_CONTENT is a discovery selector,
+  // never a new wire message type or a grant to read original subjects.
+  async function sweep({selector,requiredCryptoSuite,supportedCriticalExtensions=[]},max,duplicateCode){
     const selected=frozen({...selector}),extensions=Object.freeze([...supportedCriticalExtensions]);
     const initial=await hostSnapshot();
-    let continuation=null,receipt=null,pages=0,candidatesExamined=0;
-    const finish=(state,value)=>frozen({
-      schema:'IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1',state,receipt:value,
-      pages,candidatesExamined,originalBusinessApplied:false,sourceCursorAdvanced:false,
-      originalTransportScanOnly:true,
-    });
+    let continuation=null,pages=0,candidatesExamined=0,listingDigest=null;
+    const receipts=[],sequences=new Set();
+    const finish=state=>frozen({state,receipts:Object.freeze(state==='RESTART_SCAN'?[]:
+      receipts.sort((a,b)=>a.verifiedSequence-b.verifiedSequence)),
+      pages,candidatesExamined,listingDigest,originalBusinessApplied:false,
+      sourceCursorAdvanced:false,originalTransportScanOnly:true});
     do{
       await hostGuard('discover-slot',initial,null,null,selected);
       const page=await discoverAndVerifySignedFrames({selector:selected,continuation,
         requiredCryptoSuite,supportedCriticalExtensions:extensions,maxCandidates:128});
       await hostGuard('discover-slot-readback',initial,null,null,selected);
-      pages++;candidatesExamined+=page.candidatesExamined;
-      if(page.state==='RESTART_SCAN')return finish('RESTART_SCAN',null);
+      pages++;candidatesExamined+=page.candidatesExamined;listingDigest=page.listingDigest;
+      if(page.state==='RESTART_SCAN')return finish('RESTART_SCAN');
       if(pages>64||candidatesExamined>8192)fail('WIRE_DISCOVERY_SWEEP_LIMIT');
       for(const found of page.receipts){
-        if(receipt!==null)fail('WIRE_DISCOVERY_EXACT_SLOT_NOT_UNIQUE');
-        receipt=found;
+        if(sequences.has(found.verifiedSequence)||receipts.length>=max)fail(duplicateCode);
+        sequences.add(found.verifiedSequence);receipts.push(found);
       }
       continuation=page.continuation;
     }while(continuation!==null);
-    return finish(receipt?'FOUND':'NOT_FOUND',receipt);
+    return finish(receipts.length?'FOUND':'NOT_FOUND');
+  }
+  async function discoverUniqueSignedFrame({selector,requiredCryptoSuite,
+    supportedCriticalExtensions=[]}={}){
+    if(!ID(selector?.sessionRef)||!Number.isSafeInteger(selector.sequence)||
+      selector.sequence<1)fail('WIRE_DISCOVERY_EXACT_SLOT_REQUIRED');
+    const {receipts,listingDigest,...r}=await sweep({selector,requiredCryptoSuite,
+      supportedCriticalExtensions},1,'WIRE_DISCOVERY_EXACT_SLOT_NOT_UNIQUE');
+    return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1',...r,receipt:receipts[0]??null});
+  }
+  async function discoverSessionContent({selector,requiredCryptoSuite,
+    supportedCriticalExtensions=[]}={}){
+    if(!selector||Object.keys(selector).some(k=>!['sourceNodeRef','ownerEpoch','sessionRef'].includes(k))||
+      !ID(selector.sessionRef))fail('WIRE_DISCOVERY_SESSION_REQUIRED');
+    const r=await sweep({selector:{...selector,messageType:'SESSION_CONTENT'},requiredCryptoSuite,
+      supportedCriticalExtensions},66,'WIRE_DISCOVERY_SESSION_SLOT_CONFLICT');
+    return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_SESSION_CONTENT_V1',...r,
+      createsStore:false,createsScheduler:false});
   }
   return frozen({
     schema:'IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1',
     publishSignedFrame,inspectUnknownPublication,
-    readAndVerifySignedFrame,discoverAndVerifySignedFrames,discoverUniqueSignedFrame,
+    readAndVerifySignedFrame,discoverAndVerifySignedFrames,discoverUniqueSignedFrame,discoverSessionContent,
     forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
       wireTransport:scopeOriginalHostPort(wireTransport,isHostActive,['wireKind'],
         'WIRE_ORIGINAL_TRANSPORT_LIFETIME_REQUIRED'),

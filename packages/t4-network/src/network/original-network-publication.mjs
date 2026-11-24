@@ -65,6 +65,13 @@ function canonicalSession(input){
     changeId:'change:t4:'+digest('NATIVE-CHANGE',key).slice(7),
   });
 }
+// Shared canonical validation, also used by the original recipient task.
+// A canonical session is an identity, NOT original permission or receipt.
+export function validateT4OriginalNativeCaptureSession(session){
+  const canonical=canonicalSession(session);
+  if(!same(canonical,session))fail('PUBLICATION_ORIGINAL_CAPTURE_IDENTITY_INVALID');
+  return canonical;
+}
 export function deriveT4OriginalNativeCaptureSession(task){
   const c=task?.capture,w=c?.sourceWindow,d=c?.prepared?.delta;
   if(task?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1'||
