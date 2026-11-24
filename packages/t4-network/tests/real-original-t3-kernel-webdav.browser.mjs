@@ -4111,8 +4111,10 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         lastInBatch=revision===4,
         simulatePublicationLoss=kind==='OBJECT_PUT'&&revision===2,
         simulateSubjectLoss=false,simulateTcpOutage=false,expectedAssetBytes=null,
+        simulateRecipientLifetimeAfterAck=false,
       }={})=>{
       const recipientKernel=kind==='OBJECT_PUT'?p2cRecipientKernel:p2gRecipientKernel;
+      let recipientHostActive=true,stopAfterAck=simulateRecipientLifetimeAfterAck;
       const tick=await p2fRunHostPrepare();
       assert.equal(tick.originalHostTaskOwnerVerified,true);
       assert.equal(tick.prepared,true);
@@ -4161,6 +4163,28 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return stored;
         },
       };
+      // The observation wrapper follows the actual original frame port when
+      // its lifetime is narrowed; fault injection must not bypass the guard.
+      const observeTransport=(transport,isSource)=>({
+        ...transport,
+        forOriginalHostLifetime:isHostActive=>observeTransport(
+          transport.forOriginalHostLifetime(isHostActive),isSource),
+        publishSignedFrame:async({wireBytes})=>{
+          const result=await transport.publishSignedFrame({wireBytes});
+          f2NetworkWrites++;
+          if(!isSource&&stopAfterAck&&result.messageType==='APPLIED_ACK'){
+            stopAfterAck=false;recipientHostActive=false;
+          }
+          if((isSource&&loseSourceNetworkReply&&result.messageType==='CHANGE_REF')||
+            (!isSource&&loseRecipientNetworkReply&&result.messageType==='APPLIED_ACK')){
+            if(isSource)loseSourceNetworkReply=false;
+            else loseRecipientNetworkReply=false;
+            throw Object.assign(Error('lost actual HTTPS publication response'),
+              {code:'OUTCOME_UNKNOWN'});
+          }
+          return result;
+        },
+      });
       const publicationPort=(isSource,session=durableSession)=>{
         assert.deepEqual(session,durableSession);
         const transport=isSource?nativeSender:nativeReceiver();
@@ -4194,21 +4218,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             verifySignature(null,Buffer.from(bytes),
               isSource?nativeKeys.publicKey:peerSignedKeys.publicKey,
               Buffer.from(signature)),
-          frameTransport:{
-            ...transport,
-            publishSignedFrame:async({wireBytes})=>{
-              const result=await transport.publishSignedFrame({wireBytes});
-              f2NetworkWrites++;
-              if((isSource&&loseSourceNetworkReply&&result.messageType==='CHANGE_REF')||
-                (!isSource&&loseRecipientNetworkReply&&result.messageType==='APPLIED_ACK')){
-                if(isSource)loseSourceNetworkReply=false;
-                else loseRecipientNetworkReply=false;
-                throw Object.assign(Error('lost actual HTTPS publication response'),
-                  {code:'OUTCOME_UNKNOWN'});
-              }
-              return result;
-            },
-          },
+          frameTransport:observeTransport(transport,isSource),
         });
       };
       const sourceTask=()=>p2fHostBinding(({session})=>publicationPort(true,session));
@@ -4649,6 +4659,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         sourceNodeRef:'node:original:source',recipientNodeRef:'node:original:recipient',
         scopeRef:'scope:original:replay',ownerEpoch:2,
         originalKernel:recipientKernel,getMode:()=> 'T4_NETWORK',
+        isHostActive:()=>recipientHostActive,
         readOriginalHostContext:async()=>({
           workspaceId,originalWriteOwnerRef:'original:t2:exchange',
           nodeRef:'node:original:recipient',scopeRef:'scope:original:replay',
@@ -4710,7 +4721,38 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         await restartRecipient();
       }
       let recipientDone;
-      if(simulatePublicationLoss){
+      if(simulateRecipientLifetimeAfterAck){
+        const oldHost=recipientTask(),count=f2NetworkWrites,signs=f2SignCalls;
+        await assert.rejects(oldHost.runNative(taskArgs()),e=>
+          e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN'&&e.details.automaticRetryAllowed===false);
+        assert.equal(recipientHostActive,false);
+        assert.equal(stopAfterAck,false);
+        assert.equal(f2NetworkWrites,count+1);
+        assert.equal(f2SignCalls,signs+1);
+        assert.equal(totalNativeSubjectWrites(),writesBefore+1);
+        assert.equal((await p2eRecipientPhase().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
+        const before=await publicationPort(false).inspectOriginalPublication();
+        assert.equal(before.frames.at(-1).state,'ATTEMPTED');
+        await restartRecipient();recipientHostActive=true;
+        await assert.rejects(oldHost.runNative(taskArgs()),e=>e?.code==='RECIPIENT_ORIGINAL_HOST_DISPOSED');
+        assert.equal(f2NetworkWrites,count+1);assert.equal(f2SignCalls,signs+1);
+        recipientDone=await recipientTask().runNative(taskArgs(async()=>{
+          throw Error('must recover the prior signed ACK after Host invalidation');
+        }));
+        assert.equal(recipientDone.result.acknowledgement.publication.state,'REMOTE_READBACK_RECOVERED');
+        assert.equal(recipientDone.originalSubjectMutationInvoked,false);
+        assert.equal(f2NetworkWrites,count+1);assert.equal(f2SignCalls,signs+1);
+        assert.deepEqual((await publicationPort(false).inspectOriginalPublication())
+          .frames.map(f=>f.wireBytes),before.frames.map(f=>f.wireBytes));
+        console.log('T4_REAL_ORIGINAL_T3_HOST_LIFETIME_ACK_RECOVERY_PASS',JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,kind,originalHostInvalidatedAfterActualHttpsAckPut:true,
+          staleHostCannotResume:true,recipientPhaseBeforeFreshHost:'APPLY_INTENT',
+          recipientPhaseAfterFreshHost:'APPLIED',durableSignedAckReused:true,
+          repeatedOriginalSubjectWrites:0,repeatedNetworkPuts:0,repeatedSignatures:0,
+          originalLifecyclePredicate:'INJECTED_TEST_HOST',productionHostLifecycleInstalled:false,
+          independentPhysicalDevices:false,
+        }));
+      }else if(simulatePublicationLoss){
         const count=f2NetworkWrites,signs=f2SignCalls;
         await assert.rejects(recipientTask().runNative(taskArgs()),
           e=>e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN');
@@ -4743,7 +4785,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(recipientDone.sourceCursorAdvanced,false);
       const p2eApplied=recipientDone.result.application;
       const finalized=recipientDone.result.acknowledgement;
-      const recoveredApplication=simulateSubjectLoss||simulatePublicationLoss;
+      const recoveredApplication=simulateSubjectLoss||simulatePublicationLoss||simulateRecipientLifetimeAfterAck;
       assert.equal(p2eApplied.status,recoveredApplication?'ALREADY_APPLIED_FROM_ORIGINAL_T3':'APPLIED_BY_ORIGINAL_T3');
       assert.equal(p2eApplied.originalCommitInvoked,!recoveredApplication);
       assert.equal(p2eApplied.state,'APPLIED_VERIFIED');
@@ -5369,6 +5411,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const completedObjectDelete=await p2fRunCapturedSession(7,{
         kind:'OBJECT_DELETE',subjectId:p2cObjectId,frontierRevision:12,currentObjectRevision:7,
         lastInBatch:true,simulatePublicationLoss:false,simulateSubjectLoss:true,
+        simulateRecipientLifetimeAfterAck:true,
       });
       assert.equal(completedObjectDelete.sourceEventId,recoveredObjectDelete.originalEvent.event_id);
       assert.equal(completedObjectDelete.originalDeltaSha256,recoveredObjectDelete.prepared.sha256);
