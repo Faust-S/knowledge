@@ -20,6 +20,7 @@ async function until(fn,code){
 }
 function define(name,value){Object.defineProperty(globalThis,name,{configurable:true,writable:true,value});}
 const scenarios=[
+ {id:"context-shortcuts",gpu:false,ram:4,mobile:true,recommend:null,shortcuts:true},
  {id:"no-webgpu",gpu:false,ram:4,mobile:true,recommend:null},
  {id:"currency-no-webgpu",gpu:false,ram:4,mobile:true,recommend:null,economy:true},
  {id:"entry-android",gpu:true,f16:false,ram:4,mobile:true,recommend:"light",vram:1061,select:"balanced",download:"900 МБ"},
@@ -29,13 +30,15 @@ const scenarios=[
  {id:"restored-profile",gpu:true,f16:true,ram:4,mobile:true,recommend:"light",stored:"balanced",vram:1630,initialSize:"900 МБ"},
 ];
 for(const [i,c] of scenarios.entries()){
-  const dom=new JSDOM('<!doctype html><main>'+(c.economy?economyMarkup:formMarkup)+'<div data-iwxa-domain-assistant data-assistant-skills="/assets/club-assistant-skills.json" data-assistant-label="Помощник Club"></div></main>',{url:origin+"/tools/personal-economy/",pretendToBeVisual:true});
+  const withButton=(markup,marker)=>markup.replace(/<form\b[^>]*>/,tag=>tag+`<button type="button" data-iwxa-assistant-form-open="${marker}" hidden>Помочь заполнить</button>`);
+  const content=c.shortcuts?withButton(economyMarkup,"data-pe-form")+withButton(formMarkup,"data-cash-calendar-entry"):(c.economy?economyMarkup:formMarkup);
+  const dom=new JSDOM('<!doctype html><main>'+content+'<div data-iwxa-domain-assistant data-assistant-skills="/assets/club-assistant-skills.json" data-assistant-label="Помощник Club"></div></main>',{url:origin+"/tools/personal-economy/",pretendToBeVisual:true});
   const win=dom.window,nav=win.navigator;
   // JSDOM has no layout. Test the real form DOM and native validity, not
   // a claim that actual mobile browser geometry has been observed.
   win.HTMLElement.prototype.getClientRects=function(){return this.closest("[hidden],[aria-hidden=true]")?[]:[{}];};
   let probes=0,devices=0,workers=0,modelRequests=0,skillRequests=0;
-  const confirms=[];
+  const confirms=[];let resolvePack=null;
   try{
     define("window",win);define("document",win.document);define("location",win.location);
     define("navigator",nav);define("Option",win.Option);define("Event",win.Event);define("HTMLInputElement",win.HTMLInputElement);define("HTMLTextAreaElement",win.HTMLTextAreaElement);define("HTMLSelectElement",win.HTMLSelectElement);
@@ -54,7 +57,9 @@ for(const [i,c] of scenarios.entries()){
     define("fetch",async url=>{
       const u=typeof url==="string"?url:url.url;
       if(u===origin+"/assets/club-assistant-skills.json"){
-        skillRequests++;return new Response(pack,{status:200});
+        skillRequests++;
+        if(c.shortcuts)await new Promise(r=>{resolvePack=r;});
+        return new Response(pack,{status:200});
       }
       modelRequests++;throw Error("MODEL_NETWORK_NOT_ALLOWED_IN_PROBE");
     });
@@ -67,6 +72,31 @@ for(const [i,c] of scenarios.entries()){
     assert(at("model").value===(c.stored??"light"),"STABLE_PROFILE_RESTORED");
     assert(at("model-transfer").hidden&&at("stop-model").disabled,"PROGRESS_IDLE");
     assert(probes===0&&workers===0&&modelRequests===0,"INITIAL_NO_ENGINE");
+    if(c.shortcuts){
+      const budget=win.document.querySelector('[data-iwxa-assistant-form-open="data-pe-form"]');
+      const cash=win.document.querySelector('[data-iwxa-assistant-form-open="data-cash-calendar-entry"]');
+      assert(budget&&!budget.hidden&&cash&&!cash.hidden,"SHORTCUT_ATTACHED");
+      // Local skill pack is deliberately delayed. Close and reopen the
+      // assistant while loading; only the latest explicit choice may win.
+      budget.click();await until(()=>typeof resolvePack==="function","SHORTCUT_PACK_REQUEST");
+      assert(!at("drawer").hidden,"SHORTCUT_OPENS");
+      at("close").click();
+      assert(win.document.activeElement===budget,"PENDING_SHORTCUT_FOCUS_RETURN");
+      cash.click();resolvePack();
+      await until(()=>at("form-choice").selectedOptions[0]?.textContent.startsWith("Денежный календарь: доход или расход ·")&&at("status").textContent.startsWith("Выбрана форма:"),"LATEST_SHORTCUT_WINS");
+      assert(at("skill-choice").value==="personal-economy","CONTEXTUAL_SKILL");
+      at("prompt").value="Незавершённый запрос";
+      budget.click();await delay(30);
+      assert(confirms.length===1&&at("prompt").value==="Незавершённый запрос"&&at("form-choice").selectedOptions[0]?.textContent.startsWith("Денежный календарь: доход или расход ·"),"SHORTCUT_CANCEL_PRESERVES");
+      win.confirm=message=>{confirms.push(message);return true;};
+      budget.click();
+      await until(()=>at("form-choice").selectedOptions[0]?.textContent.startsWith("Месячный бюджет и финансовый резерв ·"),"SHORTCUT_CONFIRM_NEW_FORM");
+      assert(at("prompt").value===""&&at("preview").children.length===0,"SHORTCUT_CONFIRM_CLEARS");
+      at("close").click();
+      assert(win.document.activeElement===budget,"SHORTCUT_RETURNS_FOCUS");
+      assert(probes===0&&workers===0&&modelRequests===0&&skillRequests===1,"CONTEXT_NO_GPU_OR_ENGINE");
+      win.confirm=message=>{confirms.push(message);return false;};
+    }
     at("launcher").click();
     await until(()=>!at("skill-all").disabled,"SKILLS_LOADED");
     at("skill-all").click();
