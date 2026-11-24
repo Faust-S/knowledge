@@ -8,6 +8,9 @@ import {
   validateStatusSnapshot,assertStatusTransitionHistory,iso,signRecord,evaluate,timestamp
 } from "./core.mjs";
 
+import {CORPORATE_SEAT_ACTION,CORPORATE_SEAT_RESOURCE,CORPORATE_SEAT_PURPOSE,
+  corporateSeatPolicyReady} from './product-contracts.mjs';
+
 export const ORIGINAL_REGISTRY_SCHEMA="iwxa.t3.access.signed-registry";
 export const ORIGINAL_REGISTRY_EVENT="t3.access.signed_registry.persisted";
 // A product gate must be bound to the actual pinned original Kernel registry,
@@ -97,6 +100,51 @@ function verifyProofKeyAdmission(trust,current,event){
     "T3_ACCESS_PROOF_KEY_SIGNED_STATUS_INVALID");
   try{verifyRecord(statement,current,at,"STATUS");}
   catch{no("T3_ACCESS_PROOF_KEY_ISSUER_SIGNATURE_INVALID");}
+  return next;
+}
+
+// An existing organization may predate the commercial seat feature. Extend
+// ONLY this fixed product ceiling, under its already pinned original issuer.
+// No grant, membership, publisher key or second policy owner is created.
+export const ORIGINAL_CORPORATE_SEAT_POLICY='IWXA_T3_ORIGINAL_CORPORATE_SEAT_POLICY/1';
+function corporateSeatPolicy(policy,authorityId,organizationId){
+  const next=copy(policy),a=next.authorities[authorityId];
+  check(next.environment==='PRODUCTION'&&a?.principalId===organizationId&&
+    (next.actionCatalog[CORPORATE_SEAT_ACTION]===undefined||
+     next.actionCatalog[CORPORATE_SEAT_ACTION]==='ENTITLEMENT'),
+    'T3_ACCESS_CORPORATE_SEAT_POLICY_SCOPE_INVALID');
+  next.actionCatalog[CORPORATE_SEAT_ACTION]='ENTITLEMENT';
+  for(const [name,value] of [['actions',CORPORATE_SEAT_ACTION],
+    ['resources',CORPORATE_SEAT_RESOURCE],['purposes',CORPORATE_SEAT_PURPOSE],
+    ['rightClasses','ENTITLEMENT']]){
+    if(!a[name].includes(value))a[name].push(value);
+  }
+  try{validatePolicy(next);}catch{no('T3_ACCESS_CORPORATE_SEAT_POLICY_INVALID');}
+  return next;
+}
+const seatPolicyDigest=({old_policy_digest,authority_id,organization_id,manager_decision_digest})=>
+  digest({schema:ORIGINAL_CORPORATE_SEAT_POLICY,old_policy_digest,
+    authority_id,organization_id,manager_decision_digest});
+function verifyCorporateSeatPolicyAdmission(trust,current,event){
+  check(dictionary(trust)&&trust.schema===ORIGINAL_CORPORATE_SEAT_POLICY&&
+    trust.old_policy_digest===digest(current)&&
+    ID.test(trust.authority_id??'')&&ID.test(trust.organization_id??'')&&
+    HEX.test(trust.manager_decision_digest??'')&&
+    !corporateSeatPolicyReady(current,trust.authority_id),
+    'T3_ACCESS_CORPORATE_SEAT_POLICY_ADMISSION_INVALID');
+  const next=corporateSeatPolicy(current,trust.authority_id,trust.organization_id);
+  const signed=trust.signed_status,p=signed?.payload;
+  const at=Date.parse(p?.issuedAt??'');
+  check(Number.isSafeInteger(at)&&at>0&&
+    p.id==='status:seat-policy:'+seatPolicyDigest(trust)&&
+    p.authorityId===trust.authority_id&&p.realmId===current.realmId&&
+    p.membershipEpoch===current.authorities[trust.authority_id].membershipEpoch&&
+    p.sequence===event.payload.status_sequences[trust.authority_id]&&
+    current.authorities[trust.authority_id].statusKeys.includes(signed.keyId)&&
+    digest(next)===event.payload.policy_digest,
+    'T3_ACCESS_CORPORATE_SEAT_POLICY_SIGNED_EVIDENCE_INVALID');
+  try{verifyRecord(signed,current,at,'STATUS');}
+  catch{no('T3_ACCESS_CORPORATE_SEAT_POLICY_SIGNATURE_INVALID');}
   return next;
 }
 
@@ -256,7 +304,18 @@ export function createOriginalKernelRegistryStatePort({
           Object.keys(pinned.authorities).length,
         "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
       const trust=event.payload.proof_credential_admission;
-      if(trust!==undefined){
+      const seatPolicy=event.payload.corporate_seat_policy_admission;
+      check(trust===undefined||seatPolicy===undefined,'T3_ACCESS_REGISTRY_POLICY_ADMISSION_CONFLICT');
+      if(seatPolicy!==undefined){
+        check(expectedRevision>1&&priorFloors,'T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH');
+        observedPolicy=verifyCorporateSeatPolicyAdmission(seatPolicy,observedPolicy,event);
+        currentHash=digest(observedPolicy);
+        for(const authorityId of Object.keys(pinned.authorities)){
+          const delta=authorityId===seatPolicy.authority_id?1:0;
+          check(event.payload.status_sequences[authorityId]===priorFloors[authorityId]+delta,
+            'T3_ACCESS_CORPORATE_SEAT_POLICY_SEQUENCE_INVALID');
+        }
+      }else if(trust!==undefined){
         check(expectedRevision>1&&priorFloors,
           "T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH");
         observedPolicy=verifyProofKeyAdmission(trust,observedPolicy,event);
@@ -467,10 +526,60 @@ export function createOriginalKernelRegistryStatePort({
       signedStatusDigest:digest(event.payload.proof_credential_admission.signed_status),
       safeToRetry:false});
   };
+  const enableCorporateSeatPolicy=async({
+    authorityId,organizationId,issuerSigner,managerRequest,managerChallenge,
+    managerProof,expectedStateDigest
+  }={})=>{
+    const before=await read(),now=validClock(clock),state=before.state;
+    const auth=state.policy.authorities[authorityId],g=state.grants[managerRequest?.grantId]?.payload;
+    check(HEX.test(expectedStateDigest??'')&&digest(state)===expectedStateDigest,
+      'T3_ACCESS_REGISTRY_EXPECTED_STATE_CHANGED');
+    check(auth?.principalId===organizationId&&
+      auth.issuerKeys.includes(issuerSigner?.keyId)&&auth.statusKeys.includes(issuerSigner?.keyId)&&
+      !corporateSeatPolicyReady(state.policy,authorityId)&&
+      g?.rightClass==='ADMINISTRATION'&&g.authorityId===authorityId&&
+      g.actions.includes('grant.revoke')&&
+      managerRequest?.principalId===organizationId&&managerRequest.action==='grant.issue'&&
+      managerRequest.resource==='authority:'+authorityId&&
+      managerRequest.purpose==='access-administration'&&
+      managerRequest.operationDigest===digest({schema:ORIGINAL_CORPORATE_SEAT_POLICY,
+        authorityId,organizationId,oldPolicyDigest:digest(state.policy)}),
+      'T3_ACCESS_CORPORATE_SEAT_POLICY_MANAGER_SCOPE_INVALID');
+    const decision=evaluate(managerRequest,state,{now:iso(now),challenge:managerChallenge,
+      proof:managerProof,timeAssurance:'LOCAL_BEST_EFFORT'});
+    check(decision.allowed===true&&decision.outcome==='PERMITTED',
+      'T3_ACCESS_CORPORATE_SEAT_POLICY_MANAGER_DENIED');
+    const next=copy(state);next.policy=corporateSeatPolicy(state.policy,authorityId,organizationId);
+    const prior=state.statuses[authorityId].payload;
+    const expiry=Math.min(timestamp(prior.validUntil),timestamp(state.policy.keys[issuerSigner.keyId].expiresAt));
+    check(expiry>now,'T3_ACCESS_CORPORATE_SEAT_POLICY_STATUS_STALE');
+    const trust={schema:ORIGINAL_CORPORATE_SEAT_POLICY,old_policy_digest:digest(state.policy),
+      authority_id:authorityId,organization_id:organizationId,manager_decision_digest:digest(decision)};
+    const signed=signRecord({...prior,id:'status:seat-policy:'+seatPolicyDigest(trust),
+      sequence:prior.sequence+1,issuedAt:iso(now),validUntil:iso(expiry)},issuerSigner);
+    verifyRecord(signed,state.policy,now,'STATUS');
+    next.statuses[authorityId]=signed;next.statusFloor[authorityId]=signed.payload.sequence;
+    next.lastObservedAt=iso(now);trust.signed_status=copy(signed);
+    const checked=stateAt(next,next.policy,now),revision=before.revision+1;
+    const receipt=await persistOriginal({workspace_id:workspaceId,object_id:objectId,
+      schema_id:ORIGINAL_REGISTRY_SCHEMA,schema_version:'1.0.0',
+      base_revision:before.revision,data:checked,extensions:{},
+      event:{event_type:ORIGINAL_REGISTRY_EVENT,payload:{object_id:objectId,
+        revision,policy_digest:digest(checked.policy),state_digest:digest(checked),
+        status_sequences:copy(checked.statusFloor),corporate_seat_policy_admission:trust}}});
+    check(receipt?.object?.revision===revision&&receipt.event?.workspace_id===workspaceId,
+      'T3_ACCESS_CORPORATE_SEAT_POLICY_ORIGINAL_COMMIT_UNKNOWN');
+    const verified=await read();
+    check(verified.revision===revision&&same(verified.state,checked),
+      'T3_ACCESS_CORPORATE_SEAT_POLICY_READBACK_UNKNOWN');
+    return Object.freeze({state:'ORIGINAL_CORPORATE_SEAT_POLICY_ENABLED',organizationId,
+      originalReadback:true,registryRevision:revision,grantCount:Object.keys(checked.grants).length,
+      productionActivation:false});
+  };
   const port=Object.freeze({
     readState:async()=>copy((await read()).state),
     commitSignedState:commit,
-    admitProofCredential,readProofCredential,
+    admitProofCredential,readProofCredential,enableCorporateSeatPolicy,
     getStatus:async()=>{const state=(await read()).state;
       return Object.freeze({sequences:copy(state.statusFloor),
         policy_digest:digest(state.policy),root_policy_digest:trustedHash});},

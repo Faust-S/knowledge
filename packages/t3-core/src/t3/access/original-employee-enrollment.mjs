@@ -619,5 +619,6 @@ export function createOriginalEmployeeEnrollmentOwner({
     installedTrust:corporateSeatSource.installedTrust});
   return Object.freeze({begin,complete,readEnrollment,cancelPending,
     issueTaskGrant,readTaskGrant,...(corporateSeats?{
-      viewCorporateSeats:corporateSeats.view,changeCorporateSeat:corporateSeats.change}: {})});
+      viewCorporateSeats:corporateSeats.view,changeCorporateSeat:corporateSeats.change,
+      enableCorporateSeatPolicy:corporateSeats.enablePolicy}: {})});
 }

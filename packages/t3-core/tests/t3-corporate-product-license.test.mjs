@@ -216,7 +216,7 @@ test('expired STATUS or signing time does not become usable product entitlement'
 // Independent synthetic production-profile keys; no real customer credential.
 // Real Ed25519 + original Kernel registry port over the existing deterministic
 // Kernel fixture. Not a native installed Windows or commercial authority test.
-async function seatFixture({seatLimit=1,employeeLimit=10}={}){
+async function seatFixture({seatLimit=1,employeeLimit=10,seatPolicy=true}={}){
  const f=fixture(),m=model(),org=m.all.north.descriptors.organizations[0];
  // Use the same deterministic clock for issuer, registry and employee proof.
  const time=MEMBER_NOW;
@@ -250,13 +250,18 @@ async function seatFixture({seatLimit=1,employeeLimit=10}={}){
   m.state.statuses[id]=signRecord({...env.payload,environment:'PRODUCTION'},m.signers[env.keyId]);
  const auth=m.policy.authorities['issuer:north'];
  auth.roles.push('worker','role:manager','assigner');
- auth.rightClasses.push('ADMINISTRATION','DATA','ENTITLEMENT');
+ auth.rightClasses.push('ADMINISTRATION','DATA');
  auth.resources.push('authority:issuer:north','workspace:ws:north','subject:org:north',
-   'recipient:org:north','field:result','field:task','operation:UPSERT',CORPORATE_SEAT_RESOURCE);
- auth.actions.push('grant.issue','grant.revoke','work.prepare','package.export',CORPORATE_SEAT_ACTION);
- auth.purposes.push('access-administration','work','handoff','assignment',CORPORATE_SEAT_PURPOSE);
+   'recipient:org:north','field:result','field:task','operation:UPSERT');
+ auth.actions.push('grant.issue','grant.revoke','work.prepare','package.export');
+ auth.purposes.push('access-administration','work','handoff','assignment');
  Object.assign(m.policy.actionCatalog,{'grant.issue':'ADMINISTRATION','grant.revoke':'ADMINISTRATION',
-   'work.prepare':'ACTION','package.export':'DATA',[CORPORATE_SEAT_ACTION]:'ENTITLEMENT'});
+   'work.prepare':'ACTION','package.export':'DATA'});
+ if(seatPolicy){
+   auth.rightClasses.push('ENTITLEMENT');auth.resources.push(CORPORATE_SEAT_RESOURCE);
+   auth.actions.push(CORPORATE_SEAT_ACTION);auth.purposes.push(CORPORATE_SEAT_PURPOSE);
+   m.policy.actionCatalog[CORPORATE_SEAT_ACTION]='ENTITLEMENT';
+ }
  const admin={...m.state.grants['grant:north'].payload,id:'grant:seat:manager',
    lineageId:'grant:seat:manager',roleId:'role:manager',rightClass:'ADMINISTRATION',
    resources:['authority:issuer:north'],actions:['grant.issue','grant.revoke'],
@@ -384,4 +389,29 @@ test('seat change requires exact current registry and original manager proof, no
  s.wrongManager();
  await assert.rejects(s.owner.changeCorporateSeat(release),/CORP_SEAT_MANAGER_PROOF_DENIED/);
  assert.equal(s.kernel.calls.length,before);
+});
+
+test('existing organization enables only the fixed original ENTITLEMENT ceiling without re-enrolling staff',async()=>{
+ const s=await seatFixture({seatPolicy:false}),[alice]=s.employees;
+ const before=await s.registry.readState(),v=await s.owner.viewCorporateSeats();
+ assert.equal(v.seatPolicyReady,false);assert.equal(v.availableSeats,0);
+ await assert.rejects(s.owner.changeCorporateSeat(await s.command('ASSIGN','cmd:legacy:seat',alice)),
+  /CORP_SEAT_POLICY_ENABLE_REQUIRED/);
+ const input={managerPersonId:'person:operator',managerGrantId:'grant:seat:manager',
+   expectedRegistryDigest:v.registryDigest};
+ const count=s.kernel.calls.length;
+ const enabled=await s.owner.enableCorporateSeatPolicy(input);
+ assert.equal(enabled.outcome,'ENABLED');assert.equal(enabled.view.availableSeats,1);
+ assert.equal(s.kernel.calls.length,count+1);
+ const after=await s.registry.readState();
+ assert.deepEqual(after.grants,before.grants);
+ assert.deepEqual(after.policy.keys,before.policy.keys);
+ assert.deepEqual(after.policy.authorities['issuer:south'],before.policy.authorities['issuer:south']);
+ assert.equal(after.policy.actionCatalog[CORPORATE_SEAT_ACTION],'ENTITLEMENT');
+ s.cold();
+ assert.equal((await s.owner.enableCorporateSeatPolicy(input)).outcome,'ALREADY_ENABLED');
+ assert.equal(s.kernel.calls.length,count+1);
+ const assigned=await s.owner.changeCorporateSeat(await s.command('ASSIGN','cmd:legacy:seat:enabled',alice));
+ assert.equal(assigned.view.reservedSeats,1);
+ assert.equal((await s.checkUse(alice,assigned.grantId)).allowed,true);
 });

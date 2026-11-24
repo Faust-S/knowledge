@@ -5,13 +5,13 @@ import {randomUUID} from 'node:crypto';
 import {copy,digest,evaluate,identifier,insist,iso,signRecord,timestamp,
   validateGrant,checkCeiling,verifiedChain,validateStatusSnapshot,
   hasRecordedTombstone} from './core.mjs';
-import {isOriginalKernelRegistryStatePort} from './original-kernel-registry-state.mjs';
-import {validateProductContract} from './product-contracts.mjs';
+import {isOriginalKernelRegistryStatePort,ORIGINAL_CORPORATE_SEAT_POLICY}
+ from './original-kernel-registry-state.mjs';
+import {validateProductContract,CORPORATE_SEAT_ACTION,CORPORATE_SEAT_RESOURCE,
+ CORPORATE_SEAT_PURPOSE,corporateSeatPolicyReady} from './product-contracts.mjs';
 import {projectCorporateSeatLicense} from './corporate-product-license.mjs';
 
-export const CORPORATE_SEAT_ACTION='product.personal-agent.corporate.use';
-export const CORPORATE_SEAT_RESOURCE='product:IWXA_ADMIN_CENTER';
-export const CORPORATE_SEAT_PURPOSE='corporate-product';
+export {CORPORATE_SEAT_ACTION,CORPORATE_SEAT_RESOURCE,CORPORATE_SEAT_PURPOSE};
 const MARK='corporate-agent-seat';
 const HEX=/^[a-f0-9]{64}$/;
 const eq=(a,b)=>digest(a)===digest(b);
@@ -59,8 +59,13 @@ function seatRows(state,org,t){
   const g=env.payload;
   if(g.principalId===org.organizationId&&g.authorityId===org.issuerAuthorityId&&
      g.rightClass==='ACTION'&&g.actions.length===1&&g.actions[0]==='work.prepare'&&
-     g.evidenceRefs.some(x=>x.startsWith('employee-enrollment:'))&&live(g,status,state,t)){
-   verifiedChain(g.id,state,t);members.add(g.holderId);
+     g.evidenceRefs.some(x=>x.startsWith('employee-enrollment:'))&&
+     !hasRecordedTombstone(state,g.id)&&timestamp(g.notBefore)<=t&&t<timestamp(g.expiresAt)){
+   const entry=statusEntry(status,g.id);
+   insist(entry,'CORP_SEAT_EMPLOYEE_STATUS_UNKNOWN');
+   if(['ACTIVE','SUSPENDED'].includes(entry.state)){
+     verifiedChain(g.id,state,t);members.add(g.holderId);
+   }
   }
  }
  return {status,rows,occupied,employeeCount:members.size};
@@ -100,30 +105,59 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
   typeof resolveEnrollment==='function'&&typeof readLicenseState==='function'&&
   typeof clock==='function','CORP_SEAT_ORIGINAL_HOST_REQUIRED');
  const org=validateProductContract('OrganizationIdentity',trustedOrganization);
- const trust=copy(installedTrust);
- insist(trust?.trustOrigin==='HOST_PREINSTALLED_PUBLIC_POLICY'&&
-   trust?.policy?.environment==='PRODUCTION','CORP_SEAT_PREINSTALLED_TRUST_REQUIRED');
+ const pinnedTrust=installedTrust===undefined?null:copy(installedTrust);
+ if(pinnedTrust!==null)insist(pinnedTrust?.trustOrigin==='HOST_PREINSTALLED_PUBLIC_POLICY'&&
+   pinnedTrust?.policy?.environment==='PRODUCTION','CORP_SEAT_PREINSTALLED_TRUST_REQUIRED');
  const time=()=>{const t=clock();insist(Number.isSafeInteger(t)&&t>0,'CORP_SEAT_CLOCK_INVALID');return t;};
  const commercial=async t=>{
   try{
    const source=await readLicenseState();
    return projectCorporateSeatLicense({entries:source.entries,revision:source.revision,
-     installedTrust:trust,organizationId:org.organizationId,now:t});
+     installedTrust:pinnedTrust??source.installedTrust,organizationId:org.organizationId,now:t});
   }catch{return null;}
  };
  const read=async t=>{
   const state=await registry.readState(),auth=state.policy.authorities[org.issuerAuthorityId];
   insist(state.policy.environment==='PRODUCTION'&&state.policy.realmId===org.realmId&&
     auth?.principalId===org.organizationId&&auth.membershipEpoch===org.membershipEpoch&&
-    auth.issuerKeys.includes(issuerSigner.keyId)&&auth.statusKeys.includes(issuerSigner.keyId),
+    auth.issuerKeys.includes(issuerSigner.keyId)&&auth.statusKeys.includes(issuerSigner.keyId)&&
+    org.issuerPublicKeyRefs.includes(issuerSigner.keyId),
     'CORP_SEAT_ORGANIZATION_AUTHORITY_REQUIRED');
   return {state,snapshot:seatRows(state,org,t)};
  };
- const projectView=(state,snapshot,license)=>Object.freeze({
-   organizationId:org.organizationId,registryDigest:digest(state),
-   ...capacityView(license,snapshot),assignments:copy(snapshot.rows),
-   // This is an original allocation, not admission of an installed Agent.
-   productionActivation:false});
+ const projectView=(state,snapshot,license)=>{
+   const ready=corporateSeatPolicyReady(state.policy,org.issuerAuthorityId);
+   const capacity=capacityView(license,snapshot);
+   return Object.freeze({organizationId:org.organizationId,registryDigest:digest(state),
+     ...capacity,seatPolicyReady:ready,availableSeats:ready?capacity.availableSeats:0,
+     assignments:copy(snapshot.rows),
+     // This is an original allocation, not admission of an installed Agent.
+     productionActivation:false});
+ };
+ async function enablePolicy({managerPersonId,managerGrantId,expectedRegistryDigest}={}){
+   identifier(managerPersonId);identifier(managerGrantId);
+   const t=time(),{state,snapshot}=await read(t);
+   if(corporateSeatPolicyReady(state.policy,org.issuerAuthorityId))
+     return Object.freeze({outcome:'ALREADY_ENABLED',view:projectView(state,snapshot,await commercial(t))});
+   insist(digest(state)===expectedRegistryDigest,'CORP_SEAT_REGISTRY_CHANGED');
+   const manager=state.grants[managerGrantId]?.payload;
+   insist(manager?.holderId===managerPersonId&&manager.authorityId===org.issuerAuthorityId&&
+     manager.rightClass==='ADMINISTRATION','CORP_SEAT_MANAGER_AUTHORITY_REQUIRED');
+   const request={id:'seat-policy:'+randomUUID(),actorId:managerPersonId,
+     principalId:org.organizationId,roleId:manager.roleId,grantId:managerGrantId,
+     audience:manager.audience,resource:'authority:'+org.issuerAuthorityId,
+     action:'grant.issue',purpose:'access-administration',realmId:org.realmId,
+     operationDigest:digest({schema:ORIGINAL_CORPORATE_SEAT_POLICY,
+       authorityId:org.issuerAuthorityId,organizationId:org.organizationId,
+       oldPolicyDigest:digest(state.policy)})};
+   const challenge=randomUUID()+randomUUID();
+   const proof=await proveManager({request,challenge,asOf:iso(t),managerPersonId,
+     organizationId:org.organizationId});
+   const receipt=await registry.enableCorporateSeatPolicy({authorityId:org.issuerAuthorityId,
+     organizationId:org.organizationId,issuerSigner,managerRequest:request,
+     managerChallenge:challenge,managerProof:proof,expectedStateDigest:expectedRegistryDigest});
+   return Object.freeze({outcome:'ENABLED',receipt,view:await view()});
+ }
  async function view(){
   const t=time(),{state,snapshot}=await read(t);
   return projectView(state,snapshot,await commercial(t));
@@ -164,8 +198,11 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
   }
   insist(digest(state)===input.expectedRegistryDigest,'CORP_SEAT_REGISTRY_CHANGED');
   const license=await commercial(t),c=license?.candidate;
-  if(assign)insist(license?.evidenceDigest===input.expectedLicenseDigest&&c?.entitlement,
+  if(assign){
+   insist(corporateSeatPolicyReady(state.policy,org.issuerAuthorityId),'CORP_SEAT_POLICY_ENABLE_REQUIRED');
+   insist(license?.evidenceDigest===input.expectedLicenseDigest&&c?.entitlement,
     'CORP_SEAT_CURRENT_SIGNED_LICENSE_REQUIRED');
+  }
   const from=release?snapshot.occupied.find(x=>x.grantId===input.fromGrantId):null;
   if(release)insist(from,'CORP_SEAT_RELEASE_OR_TRANSFER_SOURCE_NOT_RESERVED');
   let target=null,work=null,credential=null;
@@ -193,6 +230,7 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
    'CORP_SEAT_MANAGER_AUTHORITY_REQUIRED');
   const operationDigest=digest({command:input,registry:digest(state),
     license:assign?license.evidenceDigest:null});
+  const managerProofs=[];
   for(const action of [...(release?['grant.revoke']:[]),...(assign?['grant.issue']:[])]){
    const request={id:'seat-manager:'+randomUUID(),actorId:input.managerPersonId,
     principalId:org.organizationId,roleId:manager.roleId,grantId:manager.id,
@@ -204,6 +242,7 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
    const decision=evaluate(request,state,{now:iso(t),challenge,proof,
      timeAssurance:'LOCAL_BEST_EFFORT'});
    insist(decision.allowed===true&&decision.outcome==='PERMITTED','CORP_SEAT_MANAGER_PROOF_DENIED');
+   managerProofs.push({request,challenge,proof});
   }
   // Recheck the commercial Store just before dispatch; a changed/expired
   // license never authorizes a new assignment. CAS protects the shared
@@ -215,6 +254,12 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
    insist(fresh?.evidenceDigest===license.evidenceDigest&&fresh.candidate?.licenseId===c.licenseId,
     'CORP_SEAT_LICENSE_CHANGED_BEFORE_COMMIT');
    memberForSeat(state,org,target,snapshot.status,at);
+  }
+  const commitAt=time();
+  for(const p of managerProofs){
+   const decision=evaluate(p.request,state,{now:iso(commitAt),challenge:p.challenge,
+     proof:p.proof,timeAssurance:'LOCAL_BEST_EFFORT'});
+   insist(decision.allowed===true&&decision.outcome==='PERMITTED','CORP_SEAT_MANAGER_PROOF_EXPIRED');
   }
   const next=copy(state),authorityId=org.issuerAuthorityId,auth=state.policy.authorities[authorityId];
   const signingKey=state.policy.keys[issuerSigner.keyId];
@@ -262,7 +307,7 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
     grantId:assign?grantId:null,releasedGrantId:release?from.grantId:null,
     receipt,view:projectView(saved.state,saved.snapshot,await commercial(time()))});
  }
- return Object.freeze({view,change});
+ return Object.freeze({view,change,enablePolicy});
 }
 
 // Agent's product-specific JIT gate. The trusted Host must supply the
