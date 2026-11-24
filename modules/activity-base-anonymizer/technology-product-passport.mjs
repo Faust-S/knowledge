@@ -43,7 +43,7 @@ export const TECHNOLOGY_PASSPORT=freeze({
  base_path:'/workspace/activity-technology/',supported_levels:['T1','T2'],
  input_object_types:[TECHNOLOGY_SCHEMA],output_object_types:[TECHNOLOGY_SCHEMA],
  schemas:{[TECHNOLOGY_SCHEMA]:TECHNOLOGY_DECLARATION},
- permissions:{workspace:{list:false,read:true,create:false,soft_delete:false,restore:false,purge:false},
+ permissions:{workspace:{list:false,read:true,create:true,soft_delete:false,restore:false,purge:false},
   objects:{read:[TECHNOLOGY_SCHEMA],write:[TECHNOLOGY_SCHEMA],delete:[]},
   events:{read_scope:'service'},packages:{export:true,import:true,export_scope:'readable_objects',import_scope:'writable_objects'}}
 });

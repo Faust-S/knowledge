@@ -112,6 +112,7 @@ export async function importTechnologyArchive({
  const existing=await subject.listObjects({workspace_id,include_deleted:true});current();
  need(Array.isArray(existing)&&existing.length===0,'TECHNOLOGY_NATIVE_RECIPIENT_WORKSPACE_NOT_EMPTY');
  const handle=await subject.importPreview(input);current();
+ const token=handle?.preview_token;
  let dispatch=false;
  try{
   const p=handle?.preview,m=p?.manifest;
@@ -122,23 +123,30 @@ export async function importTechnologyArchive({
    Array.isArray(p.objects)&&p.objects.length===1&&p.objects[0].schema_id===TECHNOLOGY_SCHEMA&&
    (p.objects[0].schema_version===undefined||p.objects[0].schema_version===TECHNOLOGY_VERSION)&&
    p.objects[0].workspace_id===m.workspaces[0]&&/^technology:[a-f0-9]{64}$/.test(p.objects[0].object_id)&&
-   handle.allowed_modes?.includes('merge')&&m.workspaces[0]!==workspace_id,'TECHNOLOGY_NATIVE_IMPORT_SCOPE');
+   handle.allowed_modes?.includes('merge')&&m.workspaces[0]!==workspace_id&&
+   Array.isArray(p.workspaces)&&p.workspaces.some(w=>w.workspace_id===m.workspaces[0]&&w.incoming_objects===1)&&
+   one(p.included)&&zero(p.excluded_by_permission)&&
+   Object.values(p.invalid??{missing:1}).every(v=>v===0)&&
+   Array.isArray(p.conflicts)&&!p.conflicts.length&&Array.isArray(p.unsupported)&&!p.unsupported.length,'TECHNOLOGY_NATIVE_IMPORT_SCOPE');
   const oid=p.objects[0].object_id,digest=oid.slice('technology:'.length);
   need(expected_product_sha256===undefined||digest===expected_product_sha256,'TECHNOLOGY_NATIVE_IMPORT_PRODUCT_CHANGED');
   // Original recipient UI must display and confirm the actual preview.
-  need(await confirmOriginalImport(handle)===true,'TECHNOLOGY_NATIVE_IMPORT_NOT_CONFIRMED');current();
+  const sourceWorkspace=m.workspaces[0],packageDigest=handle.package_digest;
+  need(await confirmOriginalImport(structuredClone(handle))===true,'TECHNOLOGY_NATIVE_IMPORT_NOT_CONFIRMED');current();
   dispatch=true;
-  const receipt=await subject.importCommit({preview_token:handle.preview_token,package_digest:handle.package_digest,
-   plan:{mode:'merge',include_workspaces:[m.workspaces[0]],target_workspace:workspace_id,
+  const receipt=await subject.importCommit({preview_token:token,package_digest:packageDigest,
+   plan:{mode:'merge',include_workspaces:[sourceWorkspace],target_workspace:workspace_id,
     include_history:false,include_assets:false,include_relations:false,conflict:'skip'}});
   current();
-  need(receipt?.package_digest===handle.package_digest&&receipt.mode==='merge'&&
-   receipt.workspace_id_map?.[m.workspaces[0]]===workspace_id&&receipt.applied?.objects===1&&
+  need(receipt?.package_digest===packageDigest&&receipt.mode==='merge'&&receipt.cancelled!==true&&
+   receipt.workspace_id_map?.[sourceWorkspace]===workspace_id&&receipt.applied?.objects_inserted===1&&
+   receipt.applied.objects_updated===0&&receipt.applied.objects_skipped===0&&receipt.applied.events===0&&
+   receipt.applied.relations===0&&receipt.applied.assets===0&&
    Array.isArray(receipt.skipped_conflicts)&&receipt.skipped_conflicts.length===0,'TECHNOLOGY_NATIVE_IMPORT_RECEIPT');
   const product=await checkReadback(subject,workspace_id,oid,digest);current();
   return {status:'ORIGINAL_TECHNOLOGY_IMPORTED',workspace_id,object_id:oid,product_sha256:digest,product,receipt,activated:false};
  }finally{
   // Consume the ORIGINAL preview on a refusal, never replay an uncertain write.
-  if(!dispatch&&handle?.preview_token)try{await subject.importCancel(handle.preview_token);}catch{}
+  if(!dispatch&&token)try{await subject.importCancel(token);}catch{}
  }
 }
