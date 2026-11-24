@@ -152,8 +152,17 @@ def arx(req, payload):
     result = subprocess.run([java, "-Xmx512m", "--class-path", str(jar), str(source)],
                             input=("\n".join(lines) + "\n").encode(), stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, timeout=90, check=False)
-    need(result.returncode == 0 and len(result.stdout) <= 8192, "ARX_ENGINE_FAILED")
-    raw = json.loads(result.stdout, object_pairs_hook=unique, parse_constant=invalid_constant)
+    need(len(result.stdout) <= 8192, "ARX_ENGINE_FAILED")
+    try:
+        raw = json.loads(result.stdout, object_pairs_hook=unique, parse_constant=invalid_constant)
+    except (ValueError, UnicodeError):
+        raise Hold("ARX_ENGINE_LAUNCH_FAILED")
+    if result.returncode != 0:
+        codes = ("ARX_ENGINE_PROFILE", "ARX_ENGINE_INPUT", "ARX_ENGINE_RISK_BEFORE",
+                 "ARX_ENGINE_ANONYMIZE", "ARX_ENGINE_OUTPUT", "ARX_ENGINE_RISK_AFTER", "ARX_ENGINE_LEVELS")
+        if exact(raw, "status code") and raw["status"] == "HOLD" and raw["code"] in codes:
+            raise Hold(raw["code"])
+        raise Hold("ARX_ENGINE_FAILED")
     need(type(raw) is dict and type(raw.get("available")) is bool, "ARX_ENGINE_RESULT_INVALID")
     before = raw.get("before")
     need(type(before) in (int, float) and 0 < before <= 1, "ARX_ENGINE_RESULT_INVALID")

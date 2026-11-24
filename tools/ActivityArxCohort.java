@@ -25,8 +25,10 @@ class ActivityArxCohort {
         return value;
     }
     public static void main(String[] args) {
+        String stage = "ARX_ENGINE_PROFILE";
         try {
             require(args.length == 0 && "3.9.2".equals(ARXAnonymizer.VERSION));
+            stage = "ARX_ENGINE_INPUT";
             BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
             String[] cfg = read(in, 3);
             int n = Integer.parseInt(cfg[0]), m = Integer.parseInt(cfg[1]), k = Integer.parseInt(cfg[2]);
@@ -46,7 +48,9 @@ class ActivityArxCohort {
                 data.getDefinition().setMaximumGeneralization(names[j], max);
             }
             require(in.readLine() == null);
+            stage = "ARX_ENGINE_RISK_BEFORE";
             double before = risk(data.getHandle());
+            stage = "ARX_ENGINE_ANONYMIZE";
             ARXConfiguration config = ARXConfiguration.create();
             config.addPrivacyModel(new KAnonymity(k));
             config.setSuppressionLimit(0d);
@@ -56,11 +60,14 @@ class ActivityArxCohort {
                 System.out.println("{\"available\":false,\"before\":" + before + "}");
                 return;
             }
+            stage = "ARX_ENGINE_OUTPUT";
             DataHandle output = result.getOutput();
             require(output.getNumRows() == n);
             for (int i = 0; i < n; i++) require(!output.isOutlier(i));
+            stage = "ARX_ENGINE_RISK_AFTER";
             double after = risk(output);
             require(after <= 1d / k + 1e-12);
+            stage = "ARX_ENGINE_LEVELS";
             StringBuilder levels = new StringBuilder("[");
             for (int j = 0; j < m; j++) {
                 if (j > 0) levels.append(',');
@@ -71,7 +78,7 @@ class ActivityArxCohort {
                                ",\"levels\":" + levels + "}");
         } catch (Exception | LinkageError e) {
             // Raw values, paths and stack traces must not become task output.
-            System.out.println("{\"status\":\"HOLD\",\"code\":\"ARX_ENGINE_FAILED\"}");
+            System.out.println("{\"status\":\"HOLD\",\"code\":\"" + stage + "\"}");
             System.exit(2);
         }
     }

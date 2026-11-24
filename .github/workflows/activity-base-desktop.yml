@@ -164,6 +164,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Compile exact local Java adapter against official library
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/activity-arx-classes"
+          javac -encoding UTF-8 -cp "$IWXA_ACTIVITY_ARX_JAR" -d "$RUNNER_TEMP/activity-arx-classes" tools/ActivityArxCohort.java
       - name: Execute actual ARX generalization and protected-column case
         env:
           IWXA_ACTIVITY_REAL_ARX: '1'
