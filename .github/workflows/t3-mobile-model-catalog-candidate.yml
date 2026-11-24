@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 80638600685631753bdf7b44dfccf735662ff5cd
+          ref: 0b0163900170b2ff191633d472b35186c686d44a
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: ba43c6c529efa01fd72d2cf84bf337436cc2b10a
+          ref: f2b17172e611686d36fdb38c4c7050edaf68032f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -71,7 +71,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: 05d81ea61623a77ea9151b7a252a5fca967a9868
+          ref: 7db607cf052b746dede4c9991d5091cdbbc9bbed
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club-owner
@@ -177,7 +177,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 80638600685631753bdf7b44dfccf735662ff5cd
+          ref: 0b0163900170b2ff191633d472b35186c686d44a
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -185,7 +185,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: ba43c6c529efa01fd72d2cf84bf337436cc2b10a
+          ref: f2b17172e611686d36fdb38c4c7050edaf68032f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -206,11 +206,24 @@ jobs:
           grep '^T3_MOBILE_CANDIDATE_ORIGINAL_ASSISTANT_SHARED_ENGINE_PASS$' "$log"
           grep '^T3_D5_FULL_ORIGINAL_BLI_HOST_BUILD_PASS ' "$log" | cut -d' ' -f1
           echo T3_MOBILE_CANDIDATE_CLUB_HOST_PASS
+      - name: Real browser compact layout and native form workflow
+        working-directory: packages/t3-core
+        shell: bash
+        run: |
+          set -eu
+          npx --no-install playwright install --with-deps chromium
+          log="$RUNNER_TEMP/private-club-browser.log"
+          if ! node tests/t3-club-assistant-browser-candidate.mjs "$GITHUB_WORKSPACE/private-club" dist > "$log" 2>&1; then
+            grep -E '^T3_CLUB_BROWSER_CASE_(PASS|FAIL) ' "$log" || true
+            echo T3_CLUB_BROWSER_CANDIDATE_FAIL
+            exit 1
+          fi
+          grep -E '^T3_CLUB_BROWSER_(CASE_PASS|CANDIDATE_PASS) ' "$log"
       - name: Remove private temporary source and build data
         if: always()
         shell: bash
         run: |
-          rm -rf private-bli private-club "$RUNNER_TEMP/private-mobile-host.log"
+          rm -rf private-bli private-club "$RUNNER_TEMP/private-mobile-host.log" "$RUNNER_TEMP/private-club-browser.log"
           rm -rf packages/t3-core/candidate-domain-assistant packages/t3-core/dist packages/t3-core/src/modules/club
 
   real-webgpu:
