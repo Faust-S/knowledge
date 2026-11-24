@@ -69,6 +69,8 @@ import {recoverT4OriginalNetworkSourceCursor}
   from '../src/network/original-network-source-cursor.mjs';
 import {createT4OriginalNetworkHostCursorPort}
   from '../src/network/original-network-host-cursor.mjs';
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
+  from '../src/network/original-network-publication.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame}
   from '../src/network/standard-network-wire-candidate.mjs';
 import {createT4CandidateFrameTransport}
@@ -3962,7 +3964,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             return result;
           },{SERVICE,sourceCaptureWorkspace}),
       };
-      const p2fRunHostPrepare=()=>createT4OriginalHostDispatchTaskBinding({
+      const p2fHostBinding=(createOriginalNativePublicationPort)=>
+        createT4OriginalHostDispatchTaskBinding({
+        createOriginalNativePublicationPort,
         expectedWorkspaceId:workspaceId,
         expectedOriginalWriteOwnerRef:'original:t2:exchange',
         expectedNetworkTargetRef:'node:original:recipient',
@@ -3979,7 +3983,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         dispatcher:createT4OriginalHostOutboxDispatcher({
           ...p2fOriginalCapturePorts,originalNativeCursorPort:p2eCursorPort(),
         }),
-      }).prepareNative();
+      });
+      const p2fRunHostPrepare=()=>p2fHostBinding().prepareNative();
       // Drive existing signed source/recipient operations one time per
       // Host-selected captured Event. This is a bounded test task, not a
       // new production scheduler.
@@ -3998,9 +4003,118 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         workspaceId,p2cObjectId)).object.revision,4);
       assert.equal(actual.grants.includes('t1.getObject'),true);
       assert.equal(actual.grants.includes('t1.putObject'),true);
-      const p2eSession='session:original:p22e:next:'+randomUUID();
-      const p2eChangeId='change:original:p22e:next:'+randomUUID();
-      const p2eFamily='family:original:p22e:second';
+      const durableSession=deriveT4OriginalNativeCaptureSession(p2fTask);
+      const {sessionRef:p2eSession,changeId:p2eChangeId,
+        familyRef:p2eFamily}=durableSession;
+      let f2SignCalls=0,f2NetworkWrites=0,f2SourcePutCalls=0,
+        f2RecipientPutCalls=0;
+      let losePrepareReply=revision===2,loseSourceNetworkReply=revision===2,
+        loseRecipientNetworkReply=revision===2;
+      const f2SourceKernel={
+        ...originalCarrierKernel,
+        putObject:async input=>{
+          const stored=await originalCarrierKernel.putObject(input);
+          if(input.event?.event_type==='t4.network.original.frame.publication'){
+            f2SourcePutCalls++;
+            if(losePrepareReply&&input.event.payload.action==='PREPARE'&&
+              input.event.payload.slots.some(v=>v.messageType==='CHANGE_REF')){
+              losePrepareReply=false;
+              throw Object.assign(Error('lost original durable batch response'),
+                {code:'ACK_LOST'});
+            }
+          }
+          return stored;
+        },
+      };
+      const f2RecipientKernel={
+        ...replayKernel,
+        putObject:async input=>{
+          const stored=await replayKernel.putObject(input);
+          if(input.event?.event_type==='t4.network.original.frame.publication')
+            f2RecipientPutCalls++;
+          return stored;
+        },
+      };
+      const publicationPort=(isSource,session=durableSession)=>{
+        assert.deepEqual(session,durableSession);
+        const transport=isSource?nativeSender:nativeReceiver();
+        return createT4OriginalNetworkPublicationPort({
+          session,localNodeRef:isSource?'node:original:source':'node:original:recipient',
+          technicalWorkspaceId:isSource?sourceCaptureWorkspace:nativeReplayWorkspace,
+          originalKernel:isSource?f2SourceKernel:f2RecipientKernel,
+          getMode:()=> 'T4_NETWORK',
+          readOriginalHostContext:async()=>({
+            workspaceId:isSource?sourceCaptureWorkspace:nativeReplayWorkspace,
+            originalWriteOwnerRef:'original:t2:exchange',
+            nodeRef:isSource?'node:original:source':'node:original:recipient',
+            scopeRef:'scope:original:replay',
+            hostSessionRef:isSource?sourceHostSession():replayOriginalHostSession,
+          }),
+          authorizeOriginalTechnicalRead:async p=>(isSource?
+            actual.grants:receiving.operations).includes(p.operation),
+          authorizeOriginalTechnicalWrite:async p=>(isSource?
+            actual.grants:receiving.operations).includes(p.operation),
+          authorizeOriginalFramePublish:async p=>
+            p.operation.startsWith('t4.network.publish.')&&
+            p.sessionRef===p2eSession&&p.changeId===p2eChangeId&&
+            (isSource?actual.grants:receiving.operations).includes('t1.getObject'),
+          verifyOriginalNodeSignature:async({bytes,signature,signerRef})=>
+            signerRef===(isSource?'key:original:source:p22c':
+              'key:original:recipient:p22c')&&
+            verifySignature(null,Buffer.from(bytes),
+              isSource?nativeKeys.publicKey:peerSignedKeys.publicKey,
+              Buffer.from(signature)),
+          frameTransport:{
+            ...transport,
+            publishSignedFrame:async({wireBytes})=>{
+              const result=await transport.publishSignedFrame({wireBytes});
+              f2NetworkWrites++;
+              if((isSource&&loseSourceNetworkReply&&result.messageType==='CHANGE_REF')||
+                (!isSource&&loseRecipientNetworkReply&&result.messageType==='APPLIED_ACK')){
+                if(isSource)loseSourceNetworkReply=false;
+                else loseRecipientNetworkReply=false;
+                throw Object.assign(Error('lost actual HTTPS publication response'),
+                  {code:'OUTCOME_UNKNOWN'});
+              }
+              return result;
+            },
+          },
+        });
+      };
+      const sourceTask=()=>p2fHostBinding(({session})=>publicationPort(true,session));
+      const signBatch=async specs=>{
+        const result=[];
+        for(const spec of specs){
+          f2SignCalls++;
+          result.push(await p2cFrame(spec.messageType,spec.from,
+            spec.body,spec.sequence,p2eSession));
+        }
+        return result;
+      };
+      const slotsFor=specs=>specs.map(({messageType,sequence})=>({messageType,sequence}));
+      const fromPublication=async(publication,from)=>{
+        const receiver=from==='SOURCE'?nativeReceiver():sourceHeadVerifier;
+        const verified=await receiver.readAndVerifySignedFrame({
+          key:publication.key,expectedSha256:publication.sha256,
+          requiredCryptoSuite:'X25519_AES256GCM_ED25519',
+        });
+        assert.equal(verified.originalSignatureVerified,true);
+        return {publication,verified};
+      };
+      const restartSource=async()=>{
+        await sourceContext.close();sourceContext=null;
+        sourceContext=await launch(sourceProfile);
+        activeSourcePage=await opened(sourceContext);
+        const next=await p2fRunHostPrepare();
+        assert.deepEqual(deriveT4OriginalNativeCaptureSession(next.result),
+          durableSession);
+      };
+      const restartRecipient=async()=>{
+        await recipientContext.close();recipientContext=null;
+        recipientContext=await launch(recipientProfile);
+        recipientPage=await opened(recipientContext);
+        replayOriginalHostSession='original:replay:host:'+randomUUID();
+      };
       const p2ePrepared=p2fCaptured.prepared;
       assert.equal(p2ePrepared.delta.baseRevision,revision-1);
       assert.equal(p2ePrepared.delta.sourceRevision,revision);
@@ -4143,25 +4257,77 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       await p2eSourcePhase().advanceOriginalSessionPhase({
         phase:'INTENT',evidence:p2eIntentEvidence,
       });
-      const p2eHeads=await p2cExchange('HEADS','SOURCE',{
+      const headsSpecs=[{messageType:'HEADS',sequence:1,from:'SOURCE',body:{
         familyRef:p2eFamily,ownerEpoch:2,
         heads:[p2fCaptured.sourceWindow.sourcePrefixDigestAfter],
-      },1,p2eSession);
-      const p2eDiff=await p2cExchange('DIFF_REQUEST','RECIPIENT',{
-        familyRef:p2eFamily,
-        fromHeads:[p2fCaptured.sourceWindow.sourcePrefixDigestBefore],
-      },1,p2eSession);
-      p2eChange=await p2cExchange('CHANGE_REF','SOURCE',{
+      }}];
+      const headsSent=await sourceTask().runNativePublication({
+        slots:slotsFor(headsSpecs),createSignedFrames:()=>signBatch(headsSpecs),
+      });
+      assert.equal(headsSent.sourceCursorAdvanced,false);
+      const p2eHeads=await fromPublication(headsSent.publications[0],'SOURCE');
+      const diffSpecs=[{messageType:'DIFF_REQUEST',sequence:1,from:'RECIPIENT',
+        body:{familyRef:p2eFamily,fromHeads:[p2fCaptured.sourceWindow.sourcePrefixDigestBefore]}}];
+      await publicationPort(false).prepareSignedBatch({
+        slots:slotsFor(diffSpecs),createSignedFrames:()=>signBatch(diffSpecs),
+      });
+      const p2eDiff=await fromPublication(await publicationPort(false)
+        .publishPreparedFrame({sequence:1}),'RECIPIENT');
+      const contentSpecs=[{messageType:'CHANGE_REF',sequence:2,from:'SOURCE',body:{
         changeId:p2eChangeId,changeKind:'OBJECT_PUT',
         eventRef:p2fCaptured.sourceEventId,
         ownerRef:'original:t2:exchange',sourceRevision:revision,
         contentDigest:p2eChunksPlan.contentDigest,
         parents:[p2fCaptured.sourceWindow.sourcePrefixDigestBefore],
-      },2,p2eSession);
+      }},...p2eChunksPlan.bodies.map((body,index)=>({
+        messageType:'CHUNK',sequence:index+3,from:'SOURCE',body,
+      }))];
+      const contentSlots=slotsFor(contentSpecs);
+      const prepareContent=()=>sourceTask().runNativePublication({
+        slots:contentSlots,publish:false,
+        createSignedFrames:()=>signBatch(contentSpecs),
+      });
+      if(revision===2){
+        const netBefore=f2NetworkWrites;
+        await assert.rejects(prepareContent(),
+          e=>e?.code==='PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN');
+        assert.equal(f2NetworkWrites,netBefore);
+        const saved=await publicationPort(true).inspectOriginalPublication();
+        assert.equal(saved.frames.length,contentSpecs.length+1);
+        assert.ok(saved.frames.slice(1).every(f=>f.state==='PREPARED'));
+        const signsBefore=f2SignCalls;
+        await restartSource();
+        const recovered=await sourceTask().runNativePublication({
+          slots:contentSlots,publish:false,
+          createSignedFrames:async()=>{throw Error('must not re-sign prepared batch');},
+        });
+        assert.equal(recovered.preparedBatch.state,'ORIGINAL_SIGNED_BATCH_ALREADY_PREPARED');
+        assert.equal(f2SignCalls,signsBefore);
+        const sameBatch=await publicationPort(true).inspectOriginalPublication();
+        assert.deepEqual(sameBatch.frames.map(f=>f.wireBytes),saved.frames.map(f=>f.wireBytes));
+        await assert.rejects(sourceTask().runNativePublication({slots:contentSlots}),
+          e=>e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN');
+        assert.equal(f2NetworkWrites,netBefore+1);
+        const attempted=await publicationPort(true).inspectOriginalPublication();
+        assert.equal(attempted.frames[1].state,'ATTEMPTED');
+        await restartSource();
+        assert.deepEqual((await publicationPort(true).inspectOriginalPublication())
+          .frames.map(f=>f.wireBytes),saved.frames.map(f=>f.wireBytes));
+      }else{
+        await prepareContent();
+      }
+      const contentSent=await sourceTask().runNativePublication({
+        slots:contentSlots,
+        createSignedFrames:async()=>{throw Error('must use saved content bytes');},
+      });
+      if(revision===2)
+        assert.equal(contentSent.publications[0].state,'REMOTE_READBACK_RECOVERED');
+      const fullSourcePublication=await publicationPort(true).inspectOriginalPublication();
+      assert.ok(fullSourcePublication.frames.every(f=>f.state==='PRESENT'&&f.attempts===1));
+      p2eChange=await fromPublication(contentSent.publications[0],'SOURCE');
       const p2eChunks=[];
-      for(const [index,body] of p2eChunksPlan.bodies.entries())
-        p2eChunks.push(await p2cExchange('CHUNK','SOURCE',
-          body,index+3,p2eSession));
+      for(const publication of contentSent.publications.slice(1))
+        p2eChunks.push(await fromPublication(publication,'SOURCE'));
       await p2eSourcePhase().advanceOriginalSessionPhase({
         phase:'PUBLISHED',evidence:{
           evidenceRef:p2eChange.publication.key,
@@ -4256,8 +4422,37 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         received:p2eOpened,verifiedResult:p2eResult,
         ackRef:'ack:p22e:next:'+randomUUID(),
       });
-      p2eSignedAck=await p2cExchange('APPLIED_ACK','RECIPIENT',
-        p2eAckBody,2,p2eSession);
+      const ackSpecs=[{messageType:'APPLIED_ACK',sequence:2,from:'RECIPIENT',body:p2eAckBody}];
+      await publicationPort(false).prepareSignedBatch({
+        slots:slotsFor(ackSpecs),createSignedFrames:()=>signBatch(ackSpecs),
+      });
+      if(revision===2){
+        const before=await publicationPort(false).inspectOriginalPublication();
+        const count=f2NetworkWrites,signs=f2SignCalls;
+        await assert.rejects(publicationPort(false).publishPreparedFrame({sequence:2}),
+          e=>e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN');
+        assert.equal(f2NetworkWrites,count+1);
+        await restartRecipient();
+        const resumed=await publicationPort(false).prepareSignedBatch({
+          slots:slotsFor(ackSpecs),
+          createSignedFrames:async()=>{throw Error('do not mint second applied ACK');},
+        });
+        assert.equal(resumed.state,'ORIGINAL_SIGNED_BATCH_ALREADY_PREPARED');
+        assert.deepEqual((await publicationPort(false).inspectOriginalPublication())
+          .frames.map(f=>f.wireBytes),before.frames.map(f=>f.wireBytes));
+        const recovered=await publicationPort(false).publishPreparedFrame({sequence:2});
+        assert.equal(recovered.state,'REMOTE_READBACK_RECOVERED');
+        assert.equal(f2NetworkWrites,count+1);
+        assert.equal(f2SignCalls,signs);
+        p2eSignedAck=await fromPublication(recovered,'RECIPIENT');
+      }else{
+        p2eSignedAck=await fromPublication(await publicationPort(false)
+          .publishPreparedFrame({sequence:2}),'RECIPIENT');
+      }
+      assert.equal(f2SignCalls,contentSpecs.length+3);
+      assert.equal(f2NetworkWrites,f2SignCalls);
+      assert.equal(f2SourcePutCalls,2+2*(contentSpecs.length+1));
+      assert.equal(f2RecipientPutCalls,6);
       const p2eAppliedEvidence={
         evidenceRef:p2eSignedAck.publication.key,
         evidenceDigest:'sha256:'+p2eSignedAck.publication.sha256,
@@ -4335,10 +4530,22 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           independentPhysicalDevices:false,
         }));
       }
+      const sourcePublication=await publicationPort(true).inspectOriginalPublication();
+      const recipientPublication=await publicationPort(false).inspectOriginalPublication();
+      assert.ok(sourcePublication.frames.every(f=>f.state==='PRESENT'&&f.attempts===1));
+      assert.ok(recipientPublication.frames.every(f=>f.state==='PRESENT'&&f.attempts===1));
+      assert.equal(sourcePublication.revision,f2SourcePutCalls);
+      assert.equal(recipientPublication.revision,f2RecipientPutCalls);
       return {result:p2eResult,sourcePhase:p2eSourcePhase,
         recipientPhase:p2eRecipientPhase,inspectResult:p2ePhaseResult,
         sourceCursor:p2fTask.sourceCursorAfter,
-        sourceEventId:p2fCaptured.sourceEventId};
+        sourceEventId:p2fCaptured.sourceEventId,
+        publicationSession:durableSession.sessionRef,
+        sourcePublicationCount:sourcePublication.frames.length,
+        recipientPublicationCount:recipientPublication.frames.length,
+        signedFrameCount:f2SignCalls,actualFramePutCount:f2NetworkWrites,
+        inspectSourcePublication:()=>publicationPort(true).inspectOriginalPublication(),
+        inspectRecipientPublication:()=>publicationPort(false).inspectOriginalPublication()};
       };
       const p2fCompleted=[];
       for(const revision of [2,3,4]){
@@ -4361,6 +4568,35 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal((await item.recipientPhase().inspectOriginalSession())
           .currentPhase,'APPLIED');
       }
+      assert.equal(new Set(p2fCompleted.map(x=>x.publicationSession)).size,3);
+      for(const completed of p2fCompleted){
+        const sourceProof=await completed.inspectSourcePublication();
+        const recipientProof=await completed.inspectRecipientPublication();
+        assert.ok(sourceProof.originalT3EventChainVerified);
+        assert.ok(recipientProof.originalT3EventChainVerified);
+        assert.ok(sourceProof.frames.every(f=>f.state==='PRESENT'&&f.attempts===1));
+        assert.ok(recipientProof.frames.every(f=>f.state==='PRESENT'&&f.attempts===1));
+        assert.equal(completed.signedFrameCount,completed.actualFramePutCount);
+      }
+      console.log('T4_REAL_ORIGINAL_T3_DURABLE_NATIVE_PUBLICATION_TASK_PASS',
+        JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,
+          deterministicCapturedSessionCount:3,
+          durableSourceAndRecipientPublicationLedgers:6,
+          signedFrames:p2fCompleted.reduce((n,x)=>n+x.signedFrameCount,0),
+          actualHTTPSFramePuts:p2fCompleted.reduce((n,x)=>n+x.actualFramePutCount,0),
+          sourceCompleteChangeAndChunkBatchPreparedBeforePublish:true,
+          lostOriginalBatchPrepareResponseRecoveredAfterCold:true,
+          lostSourceChangeRefHTTPSResponseRecoveredAfterCold:true,
+          lostRecipientAppliedAckHTTPSResponseRecoveredAfterCold:true,
+          persistedSignedBytesReusedWithoutSigningOrSealingAgain:true,
+          originalSubjectCommits:4,
+          originalT3HostAckFrontierCAS:4,
+          originalT3ExchangeRequiredForNativeNetwork:false,
+          productionHostSchedulerInstalled:false,
+          productionKeyStorageQualified:false,
+          independentPhysicalDevices:false,
+        }));
       const p2fIdle=await p2fRunHostPrepare();
       assert.equal(p2fIdle.prepared,false);
       assert.equal(p2fIdle.result.state,'NO_NEXT_ORIGINAL_EVENT');
