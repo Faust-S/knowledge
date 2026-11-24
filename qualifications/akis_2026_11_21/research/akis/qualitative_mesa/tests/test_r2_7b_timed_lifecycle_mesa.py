@@ -12,9 +12,7 @@ from research.akis.qualitative_mesa.mesa_model import simulate
 from research.akis.qualitative_mesa.rules import InputError
 from .test_work_counterfactual_mesa import counterfactual_case
 from .test_r2_7_nine_onboarding_work_mesa import allocated_nine_case
-from .test_work_assurance_mesa import (
-    scenario as quality_case, execution_events, quality_event,
-)
+from .test_r1w2f_assurance_correction_mesa import correction_scenario
 from .test_economic_flow import fixture as money_fixture
 from .test_general_system_mesa_integration import design
 
@@ -132,26 +130,22 @@ def test_proven_original_common_work_slice_not_charged_at_full_shared_amount():
 
 
 def quality_rework_case():
-    d = quality_case()
-    d["events"] = execution_events() + [
-        quality_event(12, verdict="DOES_NOT_MEET"),
-        quality_event(13, criterion_id="documents"),
-        {"at":14, "action":"reject","actor":"c","work":"w1"},
-        {"at":15, "action":"resubmit","actor":"a","work":"w1",
-         "result_ref":"model://final-v2"},
-        quality_event(16, result_ref="model://final-v2"),
-        quality_event(17, criterion_id="documents", result_ref="model://final-v2"),
-        {"at":18,"action":"accept","actor":"c","work":"w1"},
-    ]
-    d["model_horizon"] = 21
+    d = correction_scenario()
     econ = money_fixture()
     econ["resource_uses"][0]["work"] = "w1"
-    econ["resource_uses"][1]["work"] = "w1"
+    econ["sources"].append({
+        "id": "repair-cost", "owner": "b",
+        "reference": "model://b/correction-cost-actual", "revision": "doc-r1",
+    })
+    econ["resource_uses"][1].update({
+        "work": "w1", "owner": "b", "source": "repair-cost",
+        "amount": "4500.00", "bucket": "FAILURE",
+    })
     econ["lifecycle_costs"] = {
         "bindings": [
             {"resource_use_id":"c1","owner":"op","source":"o1",
              "stage":"ONBOARDING_AND_INTEGRATION","nature":"TRANSACTION"},
-            {"resource_use_id":"c2","owner":"a","source":"a1",
+            {"resource_use_id":"c2","owner":"b","source":"repair-cost",
              "stage":"CLAIMS_AND_REWORK","nature":"DIRECT_RESOURCE"},
         ],
         "scope_proofs": {
@@ -164,19 +158,25 @@ def quality_rework_case():
     return d
 
 
+def correction_cost_binding(d, action="quality_correction_start"):
+    row = bind(d, "c2", "b", action, work="w1")
+    row["source"] = "repair-cost"
+    return row
+
+
 def test_quality_rejection_and_resubmission_cost_only_original_source_and_event():
     d = quality_rework_case()
     assert simulate(d)["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     d["economic_claims"]["lifecycle_costs"]["event_bindings"] = [
         bind(d, "c1", "op", "commit", work="w1"),
-        bind(d, "c2", "a", "reject", work="w1"),
+        correction_cost_binding(d),
     ]
     out = simulate(d)
     e = out["economics"]["lifecycle_resource_costs"]["original_work_event_timing"]
     assert e["original_applied_quality_rework_signal_count"] >= 3
     assert e["source_declared_quality_rework_cost_record_count"] == 1
     assert e["by_original_work"]["w1"]["per_original_scenario_owner"][
-        "COOPERATION"]["a"][0]["stage"] == "CLAIMS_AND_REWORK"
+        "COOPERATION"]["b"][0]["stage"] == "CLAIMS_AND_REWORK"
     assert out["economics"]["profit"] == "UNKNOWN"
     assert out["works"]["w1"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert out["general_akis_model"]["economic_time_and_cost_feedback"][
@@ -268,12 +268,21 @@ def test_rejected_blocked_customer_decision_is_not_applied_cost_evidence():
 def test_quality_success_cannot_be_claimed_as_original_failed_result_rework():
     d=quality_rework_case()
     d["economic_claims"]["lifecycle_costs"]["event_bindings"]=[
-        bind(d, "c2","a","assess_result_quality",work="w1")
+        correction_cost_binding(d, "assess_result_quality")
     ]
     row=d["economic_claims"]["lifecycle_costs"]["event_bindings"][0]
-    idx,ev=choose_event(d,"assess_result_quality",work="w1",ordinal=1)
+    idx,ev=choose_event(d,"assess_result_quality",work="w1",ordinal=0)
     assert ev["quality_verdict"]=="MEETS_DECLARED_REQUIREMENT"
     row.update({"trace_position":idx,"at":ev["at"],
                 "org_revision":ev["org_revision"]})
     with pytest.raises(InputError,match="LIFECYCLE_REWORK_REQUIRES_ORIGINAL_FAILURE_OR_CORRECTION"):
+        simulate(d)
+
+
+def test_actual_correction_cost_cannot_be_anchored_to_prior_rejection():
+    d=quality_rework_case()
+    d["economic_claims"]["lifecycle_costs"]["event_bindings"]=[
+        correction_cost_binding(d, "reject")
+    ]
+    with pytest.raises(InputError,match="LIFECYCLE_CORRECTION_EXECUTED_START_REQUIRED"):
         simulate(d)
