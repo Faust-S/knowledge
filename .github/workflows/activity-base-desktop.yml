@@ -4,6 +4,7 @@ on:
     branches:
       - work/2026-11-10-activity-base-anonymizer
       - work/2026-11-24-activity-0-4-domain-routes
+      - work/2026-11-24-activity-0-4-process-evidence
       - work/2026-11-23-activity-0-3-freeze
       - release/0.3
       - work/2026-11-22-activity-v7-native
@@ -80,7 +81,7 @@ jobs:
           test -s dist-host-surface/iwxa-activity-host-surface.css
           test -s dist-host-surface/brand.svg
   r4pm-upstream-interop:
-    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
+    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes' || github.ref == 'refs/heads/work/2026-11-24-activity-0-4-process-evidence'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -99,6 +100,20 @@ jobs:
       - name: Review exact outputs in original Activity
         shell: bash
         run: IWXA_R4PM_UPSTREAM_RESULTS="$RUNNER_TEMP/activity-r4pm" node --test tests/test_activity_r4pm_result_review.mjs
+      - name: Preserve exact public source and generated upstream fixtures
+        run: git archive --format=zip --output=activity-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: activity-process-evidence-source-${{ github.sha }}
+          path: activity-source.zip
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: activity-r4pm-original-fixture
+          path: ${{ runner.temp }}/activity-r4pm
+          if-no-files-found: error
+          retention-days: 7
   t3-original-d2-owner-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 14

@@ -32,3 +32,12 @@ export interface Ocel2EvidenceView {
 }
 export declare function inspectSyntheticOcel2(envelope: unknown): Promise<Ocel2EvidenceView>;
 export declare function buildSyntheticOcel2Example(): Promise<unknown>;
+export interface LocalOcelTraceVariant {
+ steps:{activity:string;qualifier:string;related:[string,string][]}[];count:number;
+}
+export declare function inspectLocalOcelTraceFacts(raw:unknown,options?:{includeTraces?:boolean}):{
+ event_count:number;object_count:number;shared_event_count:number;object_link_count:number;
+ groups:{object_type:string;object_count:number;objects_with_events:number;
+ activities:Map<string,number>;edges:Map<string,number>;starts:Set<string>;ends:Set<string>;
+ variants:LocalOcelTraceVariant[]}[];
+};

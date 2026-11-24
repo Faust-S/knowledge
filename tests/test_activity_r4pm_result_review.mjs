@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
-import {reviewR4pmResult,readR4pmResultBytes,R4PM_RESULT_MAX_BYTES}
+import {reviewR4pmResult,readR4pmResultBytes,compareR4pmOcelSource,R4PM_RESULT_MAX_BYTES}
  from '../modules/activity-base-anonymizer/r4pm-result-review.mjs';
 const result=(operation,data)=>({engine:'Rust4PM',version:'0.6.2',operation,data});
 const graph=()=>({activities:{cut:3,inspect:3,rework:1},
@@ -91,5 +91,85 @@ if(process.env.IWXA_R4PM_UPSTREAM_RESULTS){
   const order=o.graphs.find(g=>g.object_type==='order');
   assert.equal(order.activity_occurrences,5);assert.equal(order.transition_occurrences,3);
   assert.equal(o.event_count,null);assert.equal(o.export_allowed,false);
+ });
+}
+
+
+const bytes=value=>new TextEncoder().encode(JSON.stringify(value));
+const fixture=()=>({
+ eventTypes:['cut','inspect','rework'].map(name=>({name,attributes:[]})),
+ objectTypes:['order','material'].map(name=>({name,attributes:[]})),
+ objects:[{id:'PRIVATE_ORDER_1',type:'order',attributes:[]},{id:'PRIVATE_ORDER_2',type:'order',attributes:[]},
+  {id:'PRIVATE_MATERIAL',type:'material',attributes:[]}],
+ events:[
+ ['a','cut','2026-11-24T08:01:00Z','PRIVATE_ORDER_1',true],
+ ['b','inspect','2026-11-24T08:02:00Z','PRIVATE_ORDER_1',false],
+ ['c','cut','2026-11-24T08:03:00Z','PRIVATE_ORDER_2',true],
+ ['d','rework','2026-11-24T08:04:00Z','PRIVATE_ORDER_2',false],
+ ['e','inspect','2026-11-24T08:05:00Z','PRIVATE_ORDER_2',false],
+ ].map(([id,type,time,objectId,shared])=>({id,type,time,attributes:[],
+  relationships:[{objectId,qualifier:'order'},...(shared?[{objectId:'PRIVATE_MATERIAL',qualifier:'material'}]:[])]}))
+});
+const paired=()=>result('discover_ocdfg',{object_type_to_dfg:{
+ order:{activities:{cut:2,inspect:2,rework:1},directly_follows_relations:[[['cut','inspect'],1],[['cut','rework'],1],[['rework','inspect'],1]],start_activities:['cut'],end_activities:['inspect']},
+ material:{activities:{cut:2},directly_follows_relations:[[['cut','cut'],1]],start_activities:['cut'],end_activities:['cut']}
+}});
+test('independent source comparison preserves full recorded variants and shared event roles',()=>{
+ const raw=fixture(),tool=paired(),saved=JSON.stringify([raw,tool]);
+ const a=compareR4pmOcelSource(bytes(tool),bytes(raw));
+ assert.equal(a.status,'LOCAL_GRAPH_COUNTS_MATCH');
+ assert.deepEqual([a.event_count,a.object_count,a.shared_event_count],[5,3,2]);
+ const order=a.groups.find(g=>g.object_type==='order');
+ assert.equal(order.objects_with_events,2);
+ assert.deepEqual(order.variants.map(v=>v.steps.map(s=>s.activity)),[['cut','inspect'],['cut','rework','inspect']]);
+ assert.deepEqual(order.variants[0].steps[0].related,[['material','material']]);
+ assert.equal(a.complete_traces,'FROM_SELECTED_OCEL_ONLY');
+ assert.equal(a.export_allowed,false);assert.equal(a.iwxa_package,null);
+ assert.ok(!JSON.stringify(a).includes('PRIVATE_'));
+ assert.equal(JSON.stringify([raw,tool]),saved);
+});
+test('same aggregate counts do not conceal replaced edges, boundary sets or object types',()=>{
+ const src=fixture();
+ for(const [mutate,code] of [
+  [g=>g.order.directly_follows_relations[0][0].reverse(),'R4PM_SOURCE_TRANSITION_COUNTS_MISMATCH'],
+  [g=>g.order.activities.inspect++,'R4PM_SOURCE_ACTIVITY_COUNTS_MISMATCH'],
+  [g=>g.order.start_activities=['inspect'],'R4PM_SOURCE_BOUNDARY_MISMATCH'],
+  [g=>{g.other=g.material;delete g.material},'R4PM_SOURCE_OBJECT_TYPES_MISMATCH']
+ ]){
+  const t=paired();mutate(t.data.object_type_to_dfg);
+  assert.throws(()=>compareR4pmOcelSource(bytes(t),bytes(src)),{code});
+ }
+});
+test('timestamp ties include different fractional spellings, but fractional order remains exact',()=>{
+ const src=fixture(),tool=paired();
+ src.events[0].time='2026-11-24T08:01:00.1Z';
+ src.events[1].time='2026-11-24T08:01:00.100Z';
+ assert.throws(()=>compareR4pmOcelSource(bytes(tool),bytes(src)),{code:'R4PM_SOURCE_AMBIGUOUS_EVENT_ORDER'});
+ src.events[0].time='2026-11-24T08:01:00Z';src.events[1].time='2026-11-24T08:01:00.1Z';
+ src.events.reverse();
+ assert.equal(compareR4pmOcelSource(bytes(tool),bytes(src)).status,'LOCAL_GRAPH_COUNTS_MATCH');
+});
+test('count-only output is checked without claiming reconstruction, and XES is not silently compared with OCEL',()=>{
+ const src=bytes(fixture());
+ const r=compareR4pmOcelSource(bytes(result('count_ocel',5)),src);
+ assert.equal(r.status,'LOCAL_EVENT_COUNT_MATCH');assert.deepEqual(r.groups,[]);
+ assert.equal(r.complete_traces,'NOT_REVIEWED');
+ assert.throws(()=>compareR4pmOcelSource(bytes(result('count_ocel',6)),src),{code:'R4PM_SOURCE_EVENT_COUNT_MISMATCH'});
+ assert.throws(()=>compareR4pmOcelSource(bytes(result('discover_dfg',graph())),src),{code:'R4PM_SOURCE_PROFILE_UNSUPPORTED'});
+});
+test('actual source semantics and size limits reject corrupted selections',()=>{
+ const raw=fixture();raw.events[0].relationships[0].objectId='missing';
+ assert.throws(()=>compareR4pmOcelSource(bytes(paired()),bytes(raw)),{code:'OCEL_E2O_DANGLING_OBJECT'});
+ assert.throws(()=>compareR4pmOcelSource(bytes(paired()),new Uint8Array([255])),{code:'R4PM_SOURCE_JSON_INVALID'});
+ assert.throws(()=>compareR4pmOcelSource(bytes(paired()),new Uint8Array(R4PM_RESULT_MAX_BYTES)),{code:'R4PM_SOURCE_PAIR_LIMIT'});
+});
+if(process.env.IWXA_R4PM_UPSTREAM_RESULTS){
+ test('real Rust4PM 0.6.2 output matches its own original OCEL and exposes both complete order trajectories',()=>{
+  const root=process.env.IWXA_R4PM_UPSTREAM_RESULTS,source=readFileSync(join(root,'input.json'));
+  const audited=compareR4pmOcelSource(readFileSync(join(root,'discover_ocdfg.json')),source);
+  assert.equal(audited.status,'LOCAL_GRAPH_COUNTS_MATCH');
+  assert.deepEqual([audited.event_count,audited.object_count,audited.shared_event_count],[5,3,2]);
+  assert.equal(audited.groups.find(g=>g.object_type==='order').variants.length,2);
+  assert.equal(compareR4pmOcelSource(readFileSync(join(root,'count_ocel.json')),source).status,'LOCAL_EVENT_COUNT_MATCH');
  });
 }

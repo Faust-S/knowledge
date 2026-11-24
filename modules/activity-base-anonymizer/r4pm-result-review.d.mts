@@ -20,3 +20,15 @@ export type R4pmReview={
 };
 export function reviewR4pmResult(raw:unknown):R4pmReview;
 export function readR4pmResultBytes(bytes:Uint8Array):R4pmReview;
+
+export type R4pmOcelSourceReview={
+ status:'LOCAL_EVENT_COUNT_MATCH'|'LOCAL_GRAPH_COUNTS_MATCH';
+ event_count:number;object_count:number;shared_event_count:number;object_link_count:number;
+ groups:{object_type:string|null;object_count:number;objects_with_events:number;
+ variants:import('./ocel2-evidence.mjs').LocalOcelTraceVariant[]}[];
+ source_authority:'UNVERIFIED_LOCAL_COPY';epistemic_status:'RECORDED_EVENTS_NOT_VERIFIED_EXECUTION';
+ complete_traces:'NOT_REVIEWED'|'FROM_SELECTED_OCEL_ONLY';causality:'NOT_ESTABLISHED';
+ technology_equivalence:'NOT_ESTABLISHED';anonymity:'NOT_ESTABLISHED';
+ export_allowed:false;iwxa_package:null;
+};
+export function compareR4pmOcelSource(resultBytes:Uint8Array,sourceBytes:Uint8Array):R4pmOcelSourceReview;

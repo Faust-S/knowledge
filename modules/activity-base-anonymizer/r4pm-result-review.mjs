@@ -3,6 +3,7 @@
 // artifact store or Exchange. A local copy is NOT an authorized source.
 import {ActivityHold} from './engine.mjs';
 import {layoutObservedGraph} from './graph-order.mjs';
+import {inspectLocalOcelTraceFacts} from './ocel2-evidence.mjs';
 export const R4PM_VERSION='0.6.2';
 export const R4PM_RESULT_MAX_BYTES=8*1024*1024;
 const MAX_GRAPHS=32,MAX_ACTIVITIES=256,MAX_EDGES=2048;
@@ -112,4 +113,52 @@ export function readR4pmResultBytes(bytes){
   try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}
   catch{throw new ActivityHold('R4PM_RESULT_JSON_INVALID');}
   return reviewR4pmResult(value);
+}
+
+
+/** Compare a validated local tool result with separately selected OCEL bytes.
+ * Rust4PM 0.6.2 supplies boundary membership, not boundary frequencies.
+ * Equality of aggregates is not proof that the files share provenance.
+ */
+export function compareR4pmOcelSource(resultBytes,sourceBytes){
+  need(resultBytes instanceof Uint8Array&&sourceBytes instanceof Uint8Array&&
+    sourceBytes.length>0&&resultBytes.length+sourceBytes.length<=R4PM_RESULT_MAX_BYTES,
+    'R4PM_SOURCE_PAIR_LIMIT');
+  const result=readR4pmResultBytes(resultBytes);
+  need(result.scope!=='CASE_CENTRIC_DFG','R4PM_SOURCE_PROFILE_UNSUPPORTED');
+  let raw;
+  try{raw=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(sourceBytes));}
+  catch{throw new ActivityHold('R4PM_SOURCE_JSON_INVALID');}
+  const {groups,...counts}=inspectLocalOcelTraceFacts(raw,{includeTraces:result.scope==='OBJECT_CENTRIC_DFG'});
+  const sameMap=(actual,expected)=>actual.size===expected.size&&
+    [...actual].every(([k,n])=>expected.has(k)&&expected.get(k)===n);
+  const sameSet=(a,b)=>a.size===b.size&&[...a].every(k=>b.has(k));
+  let verified=[];
+  if(result.scope==='OCEL_EVENT_COUNT'){
+    need(result.event_count===counts.event_count,'R4PM_SOURCE_EVENT_COUNT_MISMATCH');
+  }else{
+    const byType=new Map(groups.map(g=>[g.object_type,g]));
+    // Do not silently drop declared object types or a graph that was not
+    // generated from any of the object types in the selected source.
+    need(result.graphs.length===byType.size&&result.graphs.every(g=>byType.has(g.object_type)),
+      'R4PM_SOURCE_OBJECT_TYPES_MISMATCH');
+    verified=result.graphs.map(g=>{
+      const expected=byType.get(g.object_type),labels=new Map(g.activities.map(a=>[a.id,a.label]));
+      need(sameMap(new Map(g.activities.map(a=>[a.label,a.occurrences])),expected.activities),
+        'R4PM_SOURCE_ACTIVITY_COUNTS_MISMATCH');
+      need(sameMap(new Map(g.transitions.map(e=>[JSON.stringify([labels.get(e.from),labels.get(e.to)]),e.occurrences])),expected.edges),
+        'R4PM_SOURCE_TRANSITION_COUNTS_MISMATCH');
+      need(sameSet(new Set(g.activities.filter(a=>a.start).map(a=>a.label)),expected.starts)&&
+        sameSet(new Set(g.activities.filter(a=>a.end).map(a=>a.label)),expected.ends),
+        'R4PM_SOURCE_BOUNDARY_MISMATCH');
+      return {object_type:g.object_type,object_count:expected.object_count,
+        objects_with_events:expected.objects_with_events,variants:expected.variants};
+    });
+  }
+  return {status:result.scope==='OCEL_EVENT_COUNT'?'LOCAL_EVENT_COUNT_MATCH':'LOCAL_GRAPH_COUNTS_MATCH',
+    ...counts,groups:verified,source_authority:'UNVERIFIED_LOCAL_COPY',
+    epistemic_status:'RECORDED_EVENTS_NOT_VERIFIED_EXECUTION',
+    complete_traces:result.scope==='OCEL_EVENT_COUNT'?'NOT_REVIEWED':'FROM_SELECTED_OCEL_ONLY',
+    causality:'NOT_ESTABLISHED',technology_equivalence:'NOT_ESTABLISHED',
+    anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null};
 }

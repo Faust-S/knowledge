@@ -126,6 +126,13 @@ function validateRestrictedJson(raw) {
   return {objects, events, byObject, eventTypes, objectTypes, sharedEventCount, o2oCount};
 }
 
+// Compare actual instants: lexically different fractional spellings can
+// describe one instant. The tie breaker only stabilizes display, not evidence.
+function orderedTrace(events) {
+  const ordered=[...events].sort((a,b)=>Date.parse(a.time)-Date.parse(b.time)||cmp(a.id,b.id));
+  return {events:ordered,tied:ordered.some((e,i)=>i>0&&Date.parse(e.time)===Date.parse(ordered[i-1].time))};
+}
+
 function reconstruct(validated) {
   const eventNames = [...validated.eventTypes.keys()].sort(cmp);
   const objectNames = [...validated.objectTypes.keys()].sort(cmp);
@@ -144,11 +151,9 @@ function reconstruct(validated) {
     const patterns = new Map();
     let observed = 0;
     for (const object of relevant) {
-      const events = [...validated.byObject.get(object.id)].sort((a, b) =>
-        cmp(a.time, b.time) || cmp(a.id, b.id));
+      const {events,tied:hasTimeTie}=orderedTrace(validated.byObject.get(object.id));
       if (!events.length) { unobserved += 1; continue; }
-      // An arbitrary lexical tie-breaker is never evidence for event order.
-      const hasTimeTie = events.some((event, j) => j > 0 && event.time === events[j - 1].time);
+      // An arbitrary tie-breaker is never evidence for event order.
       if (hasTimeTie) ties += 1;
       const pattern = JSON.stringify(events.map((event) => [event.type,
         event.relationships.filter((r) => r.objectId === object.id).map((r) => r.qualifier),
@@ -258,4 +263,44 @@ export async function buildSyntheticOcel2Example() {
     source_pin: {source_id: 'SYNTH_PRIVATE_SOURCE', revision: 'revision-01',
       subject_scope: 'SYNTH_SUBJECT_PRIVATE', ocel_sha256: await sha256Canonical(ocel2)},
     ocel2};
+}
+
+// Internal facts for an independent check of the original tool's aggregate
+// output. Not a new process-discovery engine, authority or export format.
+export function inspectLocalOcelTraceFacts(raw,{includeTraces=true}={}) {
+  const v=validateRestrictedJson(raw);
+  const counts={event_count:v.events.size,object_count:v.objects.size,
+    shared_event_count:v.sharedEventCount,object_link_count:v.o2oCount};
+  if(!includeTraces)return {...counts,groups:[]};
+  const increment=(map,key)=>map.set(key,(map.get(key)??0)+1);
+  const groups=[];
+  for(const type of [...v.objectTypes.keys()].sort(cmp)){
+    const objects=[...v.objects.values()].filter(o=>o.type===type);
+    const activities=new Map(),edges=new Map(),starts=new Set(),ends=new Set(),variants=new Map();
+    let observed=0;
+    for(const object of objects){
+      const {events,tied}=orderedTrace(v.byObject.get(object.id));
+      need(!tied,'R4PM_SOURCE_AMBIGUOUS_EVENT_ORDER');
+      if(!events.length)continue;
+      observed++;
+      starts.add(events[0].type);ends.add(events.at(-1).type);
+      // A trajectory is a complete sequence of recorded events for this
+      // object. Distinct E2O qualifier/type patterns remain distinct.
+      const sequence=events.map(e=>({activity:e.type,
+        qualifier:e.relationships.find(r=>r.objectId===object.id).qualifier,
+        related:e.relationships.filter(r=>r.objectId!==object.id)
+          .map(r=>[v.objects.get(r.objectId).type,r.qualifier])
+          .sort((a,b)=>cmp(JSON.stringify(a),JSON.stringify(b)))}));
+      increment(variants,JSON.stringify(sequence));
+      for(let i=0;i<events.length;i++){
+        increment(activities,events[i].type);
+        if(i)increment(edges,JSON.stringify([events[i-1].type,events[i].type]));
+      }
+    }
+    groups.push({object_type:type,object_count:objects.length,objects_with_events:observed,
+      activities,edges,starts,ends,
+      variants:[...variants].map(([key,count])=>({steps:JSON.parse(key),count}))
+        .sort((a,b)=>b.count-a.count||cmp(JSON.stringify(a.steps),JSON.stringify(b.steps)))});
+  }
+  return {...counts,groups};
 }
