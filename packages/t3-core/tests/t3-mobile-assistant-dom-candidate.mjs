@@ -107,6 +107,13 @@ for(const [i,c] of scenarios.entries()){
       at("explicit-values").click();
       assert(at("preview").children.length===0&&at("apply").hidden&&date.value===""&&amount.value===""&&submits===0,"UNKNOWN_NOT_INVENTED");
       assert(workers===0&&modelRequests===0,"EXPLICIT_NO_MODEL");
+      // Cache inventory stays accessible even without a compatible GPU.
+      const beforeProbe=probes;
+      at("stored-models").click();
+      await until(()=>!at("stored-models").disabled&&at("stored-summary").textContent!=="Проверяем сохранённые файлы. Загрузки не будет.","STORAGE_INVENTORY_COMPLETED");
+      assert(at("stored-list").children.length===0,"EMPTY_STORAGE_INVENTORY");
+      assert(probes===beforeProbe&&workers===0&&modelRequests===0,"INVENTORY_NO_GPU_NETWORK");
+
     }
     at("model-settings").open=true;
     at("model-settings").dispatchEvent(new win.Event("toggle"));
