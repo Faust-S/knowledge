@@ -41,6 +41,8 @@ import {reconcileT4OriginalMutationIntent}
   from '../src/network/original-object-intent-recovery.mjs';
 import {createT4OriginalHostCaptureAdapter}
   from '../src/network/original-host-capture-adapter.mjs';
+import {createT4OriginalHostCaptureLedgerPort}
+  from '../src/network/original-host-capture-ledger.mjs';
 import {publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork,
   readT4OriginalHostCapturedObject,verifyT4OriginalHostCapturedObjectSource,
   readT4OriginalHostCapturedSubject,verifyT4OriginalHostCapturedSubjectSource}
@@ -1437,8 +1439,35 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return kernel.t1.putObject(input);
         },{SERVICE,input}),
       };
+      const dispatchHostSessions=new WeakMap();
+      const sourceHostSession=()=>{
+        let ref=dispatchHostSessions.get(sourceContext);
+        if(!ref){
+          ref='original:host:session:'+randomUUID();
+          dispatchHostSessions.set(sourceContext,ref);
+        }
+        return ref;
+      };
+      const captureLedger=()=>createT4OriginalHostCaptureLedgerPort({
+        originalKernel:{...mutationKernel,
+          listObjects:query=>activeSourcePage.evaluate(async({SERVICE,query})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.listObjects(query);
+          },{SERVICE,query}),
+          listEventsSince:w=>activeSourcePage.evaluate(async({SERVICE,w})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.listEventsSince(w);
+          },{SERVICE,w})},
+        technicalWorkspaceId:sourceCaptureWorkspace,sourceWorkspaceId:workspaceId,
+        originalWriteOwnerRef:'original:t2:exchange',getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({workspaceId:sourceCaptureWorkspace,
+          originalWriteOwnerRef:'original:t2:exchange',hostSessionRef:sourceHostSession()}),
+        authorizeOriginalTechnicalRead:async p=>actual.grants.includes(p.operation),
+        authorizeOriginalTechnicalWrite:async p=>actual.grants.includes(p.operation),
+      });
       const technicalId=(kind,captureRef)=>'t4:'+kind+':'+captureRef;
-      const persistSourceTechnical=(kind,payload)=>activeSourcePage.evaluate(
+      const persistSourceTechnical=(kind,payload)=>kind==='intent'?captureLedger().persistOriginalIntent(payload):
+        kind==='outbox'?captureLedger().persistOriginalOutbox(payload):activeSourcePage.evaluate(
         async({SERVICE,sourceCaptureWorkspace,objectId,payload})=>{
           const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
           const saved=await kernel.t1.putObject({
@@ -1451,12 +1480,16 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return saved.object.revision===1;
         },{SERVICE,sourceCaptureWorkspace,
           objectId:technicalId(kind,payload.captureRef),payload});
-      const readSourceTechnical=(kind,captureRef)=>activeSourcePage.evaluate(
+      const readSourceTechnical=(kind,captureRef)=>{
+        const query={workspaceId,originalWriteOwnerRef:'original:t2:exchange',captureRef};
+        return kind==='intent'?captureLedger().readOriginalIntent(query):
+          kind==='outbox'?captureLedger().readOriginalOutbox(query):activeSourcePage.evaluate(
         async({SERVICE,sourceCaptureWorkspace,objectId})=>{
           const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
           return (await kernel.t1.getObject(sourceCaptureWorkspace,objectId))
             ?.object?.data??null;
         },{SERVICE,sourceCaptureWorkspace,objectId:technicalId(kind,captureRef)});
+      };
       let currentSourceCursor=deletedAsset.nextCursor;
       const stagedObjectMutations=[];
       for(const targetRevision of [5,6]){
@@ -1866,15 +1899,6 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         persistOriginalDeliveryCheckpoint:payload=>persistSourceTechnical(
           'network-checkpoint',payload),
         transport:scheduledTransport,
-      };
-      const dispatchHostSessions=new WeakMap();
-      const sourceHostSession=()=>{
-        let ref=dispatchHostSessions.get(sourceContext);
-        if(!ref){
-          ref='original:host:session:'+randomUUID();
-          dispatchHostSessions.set(sourceContext,ref);
-        }
-        return ref;
       };
       const runOriginalHostDispatchTask=maxEntries=>deltaRoute('delta.push',
         ()=>actual.grants.includes('t1.getObject')&&
@@ -4034,21 +4058,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         originalNativeCursorPort:p2eCursorPort(),
         // Cold enumeration from the original technical Workspace; no
         // capturedRefs array from memory is used as the dispatch queue.
-        listOriginalOutbox:async()=>activeSourcePage.evaluate(
-          async({SERVICE,sourceCaptureWorkspace})=>{
-            const kernel=await IWXA.connect({
-              service_id:SERVICE,required_levels:['T1','T2']});
-            const catalog=await kernel.t1.listObjects({
-              workspace_id:sourceCaptureWorkspace,include_deleted:false});
-            const result=[];
-            for(const row of catalog.filter(r=>
-              r.object_id.startsWith('t4:outbox:'))){
-              const entry=await kernel.t1.getObject(
-                sourceCaptureWorkspace,row.object_id);
-              if(entry?.object?.data)result.push(entry.object.data);
-            }
-            return result;
-          },{SERVICE,sourceCaptureWorkspace}),
+        listOriginalOutbox:query=>captureLedger().listOriginalOutbox(query),
       };
       const p2fHostBinding=(createOriginalNativePublicationPort)=>
         createT4OriginalHostDispatchTaskBinding({

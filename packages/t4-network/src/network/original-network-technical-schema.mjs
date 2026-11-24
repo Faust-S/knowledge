@@ -12,6 +12,7 @@ const RECORD_KINDS=Object.freeze([
   'IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1',
   'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_FRONTIER_V1',
   'IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_FRONTIER_V1',
+  'IWXA_T4_ORIGINAL_NETWORK_CAPTURE_LEDGER_RECORD_V1',
 ]);
 const fail=code=>{throw Object.assign(Error(code),{code});};
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
