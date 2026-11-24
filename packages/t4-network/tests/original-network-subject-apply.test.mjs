@@ -6,9 +6,12 @@ import {verifyT4OriginalObjectDelta,digestT4OriginalObjectContent}
   from '../src/network/original-object-delta.mjs';
 import {openT4OriginalNetworkObjectChange,
   inspectT4OriginalNetworkRecipientResult,
-  applyT4OriginalNetworkObjectChange,
+  applyT4OriginalNetworkObjectChange,applyT4OriginalNetworkSubjectWithDurableIntent,
   createT4OriginalNetworkAppliedAckBody}
   from '../src/network/original-network-subject-apply.mjs';
+
+import {createT4OriginalNetworkSessionPhasePort}
+  from '../src/network/original-network-session-phases.mjs';
 
 const H=b=>'sha256:'+createHash('sha256').update(b).digest('hex');
 const stable=x=>JSON.stringify(Array.isArray(x)?x.map(stable):x);
@@ -299,4 +302,162 @@ test('original Event read authority is independent from Object read authority',a
     ...f.applyArgs(received),authorizeOriginalRead:async p=>p.operation==='t1.getObject',
   }),error('SUBJECT_ORIGINAL_RESULT_READ_DENIED'));
   assert.equal(f.writes,0);
+});
+
+async function durableFixture(){
+  const f=fixture(),technicalWorkspaceId='workspace:technical:apply-intent';
+  const sha256=H('verified original change frame').slice(7);
+  f.openArgs.verifiedChangeRef.key=sha256+'.t4n';
+  f.openArgs.verifiedChangeRef.sha256=sha256;
+  const received=await openT4OriginalNetworkObjectChange(f.openArgs);
+  const objects=new Map(),events=[];
+  let technicalWrites=0,loseIntentReply=false,hostSessionRef='host:original:one';
+  const technicalKernel={
+    hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject'].includes(op),
+    getObject:async(w,id)=>structuredClone(objects.get(w+':'+id)??null),
+    listEventsSince:async w=>structuredClone(events.filter(e=>e.workspace_id===w)),
+    putObject:async input=>{
+      const id=input.workspace_id+':'+input.object_id;
+      const current=objects.get(id)?.object;
+      if(input.base_revision!==(current?.revision??0))
+        throw Object.assign(Error('original CAS conflict'),{code:'REVISION_CONFLICT'});
+      technicalWrites++;
+      const object={workspace_id:input.workspace_id,object_id:input.object_id,
+        schema_id:input.schema_id,schema_version:input.schema_version,
+        revision:input.base_revision+1,deleted:false,data:structuredClone(input.data)};
+      const event={event_id:'event:technical:'+technicalWrites,
+        workspace_id:input.workspace_id,object_id:input.object_id,
+        revision:object.revision,event_type:input.event.event_type,
+        payload:structuredClone(input.event.payload)};
+      objects.set(id,{object});events.push(event);
+      if(loseIntentReply&&input.event.payload.phase==='APPLY_INTENT'){
+        loseIntentReply=false;throw Object.assign(Error('lost intent response'),{code:'ACK_LOST'});
+      }
+      return {object,event};
+    },
+  };
+  const phasePort=()=>createT4OriginalNetworkSessionPhasePort({
+    originalKernel:technicalKernel,technicalWorkspaceId,
+    originalWriteOwnerRef:f.delta.originalWriteOwnerRef,
+    sourceNodeRef:received.sourceNodeRef,recipientNodeRef:received.recipientNodeRef,
+    localNodeRef:received.recipientNodeRef,scopeRef:received.scopeRef,
+    sessionRef:received.sessionRef,changeId:received.changeId,ownerEpoch:received.ownerEpoch,
+    recipientApplyIntentRequired:true,getMode:()=> 'T4_NETWORK',
+    readOriginalHostContext:async()=>({workspaceId:technicalWorkspaceId,
+      originalWriteOwnerRef:f.delta.originalWriteOwnerRef,nodeRef:received.recipientNodeRef,
+      scopeRef:received.scopeRef,hostSessionRef}),
+    authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true,
+    verifyOriginalPhaseEvidence:async p=>p.phase==='RECEIVED'||
+      (p.phase==='VERIFIED'&&p.evidence.evidenceRef===received.sourceChangeFrameKey&&
+        p.evidence.evidenceDigest===received.originalStateDigest)||
+      (p.phase==='APPLY_INTENT'&&p.evidence.evidenceRef===received.sourceChangeFrameKey&&
+        p.evidence.evidenceDigest==='sha256:'+received.sha256)||
+      p.phase==='APPLIED',
+    verifyOriginalRecipientApplied:async p=>{
+      const actual=await inspectT4OriginalNetworkRecipientResult(f.applyArgs(received));
+      return actual.originalBusinessApplied===true&&
+        actual.originalRecipientEventId===p.originalRecipientEventId&&
+        actual.originalRecipientRevision===p.originalRecipientRevision&&
+        actual.originalRecipientStateDigest===p.originalRecipientStateDigest;
+    },
+  });
+  await phasePort().advanceOriginalSessionPhase({
+    phase:'RECEIVED',evidence:{evidenceRef:'chunk:verified',evidenceDigest:H('chunk')},
+  });
+  await phasePort().advanceOriginalSessionPhase({
+    phase:'VERIFIED',evidence:{evidenceRef:received.sourceChangeFrameKey,
+      evidenceDigest:received.originalStateDigest},
+  });
+  const args=()=>({...f.applyArgs(received),recipientPhasePort:phasePort()});
+  return {f,received,phasePort,args,events,objects,
+    get technicalWrites(){return technicalWrites;},
+    loseIntentReply(){loseIntentReply=true;},
+    restart(){hostSessionRef='host:original:cold';}};
+}
+test('native recipient reserves exact original delta before first write and recovers from that intent',async()=>{
+  const d=await durableFixture(),write=d.f.originalKernel.commitObjectGraph;
+  d.f.originalKernel.commitObjectGraph=async input=>{
+    const phase=await d.phasePort().inspectOriginalSession();
+    assert.equal(phase.currentPhase,'APPLY_INTENT');
+    assert.equal(phase.recipientApplyIntentEvidence.evidenceDigest,'sha256:'+d.received.sha256);
+    return write(input);
+  };
+  const applied=await applyT4OriginalNetworkSubjectWithDurableIntent(d.args());
+  assert.equal(applied.originalCommitInvoked,true);
+  assert.equal(applied.originalDurableApplyIntentVerified,true);
+  assert.equal(d.f.writes,1);assert.equal(d.technicalWrites,3);
+  d.restart();
+  const recovered=await applyT4OriginalNetworkSubjectWithDurableIntent(d.args());
+  assert.equal(recovered.status,'ALREADY_APPLIED_FROM_ORIGINAL_T3');
+  assert.equal(recovered.originalCommitInvoked,false);
+  assert.equal(d.f.writes,1);assert.equal(d.technicalWrites,3);
+  await d.phasePort().advanceOriginalSessionPhase({phase:'APPLIED',evidence:{
+    evidenceRef:'ack:published',evidenceDigest:H('ack'),
+    originalRecipientEventId:applied.originalRecipientEventId,
+    originalRecipientRevision:applied.originalRecipientRevision,
+    originalRecipientStateDigest:applied.originalRecipientStateDigest,
+  }});
+  const afterAck=await applyT4OriginalNetworkSubjectWithDurableIntent(d.args());
+  assert.equal(afterAck.originalCommitInvoked,false);
+  assert.equal(d.f.writes,1);assert.equal(d.technicalWrites,4);
+});
+test('lost durable APPLY_INTENT reply cannot authorize an unproven subject write after restart',async()=>{
+  const d=await durableFixture();d.loseIntentReply();
+  await assert.rejects(applyT4OriginalNetworkSubjectWithDurableIntent(d.args()),
+    error('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  assert.equal(d.f.writes,0);assert.equal(d.technicalWrites,3);
+  d.restart();
+  assert.equal((await d.phasePort().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
+  await assert.rejects(applyT4OriginalNetworkSubjectWithDurableIntent(d.args()),
+    e=>e.code==='SUBJECT_ORIGINAL_APPLY_INTENT_OUTCOME_UNRESOLVED'&&
+      e.details.automaticRetryAllowed===false);
+  assert.equal(d.f.writes,0);assert.equal(d.technicalWrites,3);
+});
+test('lost actual original subject reply reconciles by original Event without a second mutation',async()=>{
+  const d=await durableFixture(),write=d.f.originalKernel.commitObjectGraph;
+  d.f.originalKernel.commitObjectGraph=async input=>{
+    await write(input);
+    throw Object.assign(Error('lost actual original commit reply'),{code:'ACK_LOST'});
+  };
+  await assert.rejects(applyT4OriginalNetworkSubjectWithDurableIntent(d.args()),
+    error('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN'));
+  assert.equal(d.f.writes,1);assert.equal(d.technicalWrites,3);
+  d.restart();
+  const recovered=await applyT4OriginalNetworkSubjectWithDurableIntent(d.args());
+  assert.equal(recovered.status,'ALREADY_APPLIED_FROM_ORIGINAL_T3');
+  assert.equal(recovered.originalMutationRetried,false);
+  assert.equal(d.f.writes,1);assert.equal(d.technicalWrites,3);
+});
+test('unknown absent original subject result remains unresolved; no automatic second attempt',async()=>{
+  const d=await durableFixture();let attempted=0;
+  d.f.originalKernel.commitObjectGraph=async()=>{
+    attempted++;
+    throw Object.assign(Error('original write outcome unknown'),{code:'OUTCOME_UNKNOWN'});
+  };
+  await assert.rejects(applyT4OriginalNetworkSubjectWithDurableIntent(d.args()),
+    error('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN'));
+  d.restart();
+  await assert.rejects(applyT4OriginalNetworkSubjectWithDurableIntent(d.args()),
+    error('SUBJECT_ORIGINAL_APPLY_INTENT_OUTCOME_UNRESOLVED'));
+  assert.equal(attempted,1);assert.equal(d.f.writes,0);assert.equal(d.technicalWrites,3);
+});
+test('concurrent native recipient task cannot reserve and invoke the same mutation twice',async()=>{
+  const d=await durableFixture();
+  const results=await Promise.allSettled([
+    applyT4OriginalNetworkSubjectWithDurableIntent(d.args()),
+    applyT4OriginalNetworkSubjectWithDurableIntent(d.args()),
+  ]);
+  assert.ok(results.some(r=>r.status==='fulfilled'));
+  assert.equal(d.f.writes,1);assert.equal(d.technicalWrites,3);
+  assert.equal(d.events.filter(e=>e.payload.phase==='APPLY_INTENT').length,1);
+});
+test('durable intent refuses wrong owner epoch or change frame address before mutation',async()=>{
+  const d=await durableFixture();
+  for(const received of [{...d.received,ownerEpoch:3},
+    {...d.received,sourceChangeFrameKey:'f'.repeat(64)+'.t4n'}]){
+    await assert.rejects(applyT4OriginalNetworkSubjectWithDurableIntent({
+      ...d.args(),received,
+    }),error('SUBJECT_ORIGINAL_DURABLE_APPLY_PHASE_MISMATCH'));
+  }
+  assert.equal(d.f.writes,0);assert.equal(d.technicalWrites,2);
 });
