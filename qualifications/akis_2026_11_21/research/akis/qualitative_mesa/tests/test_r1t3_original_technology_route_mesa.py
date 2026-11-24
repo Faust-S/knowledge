@@ -694,6 +694,7 @@ def original_market_order_finance_case(*, alternate=None, incomplete=False,
             ("a", "800.00", "100.00"), ("b", "2500.00", "100.00"),
             ("c", c_opening, "100.00"), ("op", "100.00", "30.00")):
         evidence(owner, coverage[owner], declare=True)
+        evidence(owner, f"market-receipt-{owner}", declare=True)
         money["cash_timing"]["owner_positions"].append({
             "owner": owner, "source": coverage[owner], "opening_cash": opening,
             "reserve_cash": reserve,
@@ -714,7 +715,7 @@ def original_market_order_finance_case(*, alternate=None, incomplete=False,
             refs = {owner: evidence(owner, f"{ident}-receipt") for owner in sorted(parties)}
             money["work_payment_settlement_claims"].append({
                 "id": f"{ident}-settlement", "transfer_id": ident, "at": at, "amount": amount,
-                "owner_sources": deepcopy(witnesses), "evidence_refs": refs,
+                "owner_sources": {owner: f"market-receipt-{owner}" for owner in parties}, "evidence_refs": refs,
                 "evidence_revisions": {owner: "market-finance-v1" for owner in parties},
                 "owner_attestations": {owner: {"reported_at": at, "reported_amount": amount}
                                        for owner in parties},
