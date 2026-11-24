@@ -21,7 +21,7 @@ jobs:
           test -n "${DOMEN:-}" || { echo "D05_MULTI_READ=FAIL"; exit 1; }
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
           GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch work/2026-10-23-t2-site-only https://github.com/Faust-S/cehovod.ru.git site >/dev/null 2>&1 || { echo "D05_MULTI_READ=FAIL"; exit 1; }
-          test "$(git -C site rev-parse HEAD)" = "9aa082fddf5f589f3c63c4bd96309e19fd0d7edf" || { echo "D05_MULTI_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "51861a89166ca03260ca5347f20a7fb59505f255" || { echo "D05_MULTI_SITE_PIN=FAIL"; exit 1; }
           unset header DOMEN
           echo "D05_MULTI_SITE_PIN=PASS"
       - uses: actions/setup-node@v4
@@ -35,10 +35,10 @@ jobs:
           echo "D05_MULTI_INSTALL=PASS"
           node --check scripts/d05-first-use-real-kernel-witness.mjs
           echo "D05_INDEPENDENT_WITNESS_SYNTAX=PASS"
-          ./node_modules/.bin/prettier --write src/lib/capacity-finance.ts src/lib/capacity-finance.test.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts src/host/CehovodCapacityPanel.tsx scripts/d05-first-use-real-kernel-witness.mjs > "$RUNNER_TEMP/d05-multi-prettier.log" 2>&1 || { echo "D05_MULTI_FORMAT=FAIL"; exit 1; }
+          ./node_modules/.bin/prettier --write src/lib/capacity-cash.ts src/lib/capacity-cash.test.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts src/host/CehovodCashPanel.tsx src/host/CehovodCapacityPanel.tsx scripts/d05-first-use-real-kernel-witness.mjs > "$RUNNER_TEMP/d05-multi-prettier.log" 2>&1 || { echo "D05_MULTI_FORMAT=FAIL"; exit 1; }
           python3 - <<'PY'
           import base64, hashlib, json, pathlib, subprocess
-          names = ["src/lib/capacity-finance.ts","src/lib/capacity-finance.test.ts","src/host/dispatch-capacity.ts","src/host/dispatch-capacity.test.ts","src/host/CehovodCapacityPanel.tsx","scripts/d05-first-use-real-kernel-witness.mjs"]
+          names = ["src/lib/capacity-cash.ts","src/lib/capacity-cash.test.ts","src/host/dispatch-capacity.ts","src/host/dispatch-capacity.test.ts","src/host/CehovodCashPanel.tsx","src/host/CehovodCapacityPanel.tsx","scripts/d05-first-use-real-kernel-witness.mjs"]
           punctuation = set('.,;:!?()[]{}\'"=<>+*/|&-')
           def partition(source):
               anchors, gaps = [], ['']
@@ -80,7 +80,7 @@ jobs:
           set -euo pipefail
           cd site
           status=0
-          if ./node_modules/.bin/vitest run src/lib/capacity-finance.test.ts src/lib/capacity-decision.test.ts src/lib/shop-capacity.test.ts src/host/dispatch-capacity.test.ts src/host/CehovodCapacityPanel.regression.test.ts --reporter=json --outputFile="$RUNNER_TEMP/d05-finance-tests.json" > "$RUNNER_TEMP/d05-finance-tests.log" 2>&1; then
+          if ./node_modules/.bin/vitest run src/lib/capacity-cash.test.ts src/lib/capacity-finance.test.ts src/lib/capacity-decision.test.ts src/lib/shop-capacity.test.ts src/host/dispatch-capacity.test.ts src/host/CehovodCapacityPanel.regression.test.ts --reporter=json --outputFile="$RUNNER_TEMP/d05-finance-tests.json" > "$RUNNER_TEMP/d05-finance-tests.log" 2>&1; then
             echo "D05_FINANCE_TESTS=PASS"
           else
             echo "D05_FINANCE_TESTS=FAIL"
@@ -111,7 +111,7 @@ jobs:
               print("D05_FINANCE_TYPE_LOCATION="+path+":"+line+":"+col+":"+code)
           PY
           fi
-          if ./node_modules/.bin/eslint src/lib/capacity-finance.ts src/lib/capacity-finance.test.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts src/host/CehovodCapacityPanel.tsx scripts/d05-first-use-real-kernel-witness.mjs --format json > "$RUNNER_TEMP/d05-finance-lint.json" 2>/dev/null; then
+          if ./node_modules/.bin/eslint src/lib/capacity-cash.ts src/lib/capacity-cash.test.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts src/host/CehovodCashPanel.tsx src/host/CehovodCapacityPanel.tsx scripts/d05-first-use-real-kernel-witness.mjs --format json > "$RUNNER_TEMP/d05-finance-lint.json" 2>/dev/null; then
             echo "D05_FINANCE_ESLINT=PASS"
           else
             echo "D05_FINANCE_ESLINT=FAIL"
