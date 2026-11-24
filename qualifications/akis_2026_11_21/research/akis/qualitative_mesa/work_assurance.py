@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from copy import deepcopy
 
 from .capacity import CapacityBlocked, ResourceNeed, Reservation
+from .material import MaterialState, material_view, assert_inbound_ready
 from .wip import fingerprint, _money, _fmt, assert_assurance_responsibility_current
 from typing import Any, Mapping, Sequence
 
@@ -274,9 +275,7 @@ def assurance_view(work: Any) -> dict[str, Any]:
         "assessment_history": deepcopy(work.assurance_review_history),
         "open_correction": deepcopy(work.assurance_correction_proposal),
         "physical_corrections": deepcopy(work.assurance_corrections),
-        **({"correction_dependency_scope": quality_dependency_scope(work)}
-           if work.operations and failed_criteria(work) and all(
-               c.operation in {op.key for op in work.operations} for c in failed_criteria(work)) else {}),
+        **quality_dependency_view(work),
         "criteria": entries, "required_count": len(entries),
         "model_reported_met_count": sum(
             row["status"] == "MODEL_ONLY_REPORTED_MEETS" for row in entries
@@ -333,6 +332,7 @@ def _ref_used(work: Any, ref: Any) -> bool:
             or any(ref in row.values() for row in work.handoff_evidence.values())
             or any(ref in (st.dispatch_ref, st.receipt_ref, st.quality_ref)
                    for st in work.material_states.values())
+            or any(ref in (batch.origin_ref, batch.quality_spec_ref) for batch in work.material_batches)
             or any(ref in (row.get("cost_source_ref"), row.get("proposal_source"))
                    for row in work.wip_interruptions + work.wip_amendments)
             or any(ref in (lot.get("inspection_ref"), lot.get("claim_ref"),
@@ -341,7 +341,11 @@ def _ref_used(work: Any, ref: Any) -> bool:
             or any(ref in row.get("used_refs", {}) or
                    ref == row.get("terms", {}).get("original_operation_evidence") or
                    any(part["original_operation_evidence"] == ref
-                       for part in row.get("terms", {}).get("plan", ())) for row in
+                       for part in row.get("terms", {}).get("plan", ())) or
+                   any(ref in h["evidence"].values() for h in row.get("terms", {}).get("handoffs_before", ())) or
+                   any(ref in (m.get("dispatch_ref"), m.get("receipt_ref"), m.get("quality_ref"),
+                               m.get("origin_ref"), m.get("quality_spec_ref"))
+                       for m in row.get("terms", {}).get("materials_before", ())) for row in
                    [*work.assurance_corrections,
                     *([work.assurance_correction_proposal]
                       if work.assurance_correction_proposal is not None else [])]))
@@ -410,6 +414,233 @@ def quality_dependency_scope(work: Any, *, expand_inputs: bool = False) -> dict[
     }
 
 
+def quality_dependency_view(work: Any) -> dict[str, Any]:
+    failures = failed_criteria(work)
+    if not work.operations or not failures or any(
+            c.operation not in {op.key for op in work.operations} for c in failures):
+        return {}
+    scope = quality_dependency_scope(work)
+    out = {"correction_dependency_scope": scope}
+    if scope["boundary_inputs"]:
+        out["correction_dependency_scope_with_input_reproduction"] = quality_dependency_scope(
+            work, expand_inputs=True)
+    return out
+
+
+def _handoff_snapshot(work: Any, scope: Mapping[str, Any]) -> list[dict[str, Any]]:
+    return [{"edge": list(edge), "state": work.handoff_states[tuple(edge)],
+             "evidence": deepcopy(work.handoff_evidence.get(tuple(edge), {}))}
+            for edge in scope["internal_handoffs"]]
+
+
+def _material_snapshot(work: Any, scope: Mapping[str, Any]) -> list[dict[str, Any]]:
+    selected = set(scope["affected_material_batches"])
+    return [row for row in material_view(work.material_batches, work.material_states)["batches"]
+            if row["batch"] in selected]
+
+
+def current_material_generation(work: Any, batch_key: str) -> dict[str, Any] | None:
+    """Current generation is a projection of applied original Work history."""
+    for row in reversed(work.assurance_corrections):
+        if row["status"] == "CANCELLED":
+            continue
+        revision = next((m for m in row["terms"].get("material_revisions", ())
+                         if m["batch"] == batch_key), None)
+        if revision is not None:
+            return {"correction_id": row["terms"]["id"],
+                    "replacement_origin_ref": revision["replacement_origin_ref"],
+                    "prior_generation": revision["prior_generation"],
+                    "original_batch_identity_unchanged": True}
+    return None
+
+
+def _material_revision_terms(state: Any, work: Any, event: Mapping[str, Any],
+                             scope: Mapping[str, Any], refs: dict, at: int) -> dict[str, Any]:
+    _require(not scope["boundary_inputs"],
+             "QUALITY_CORRECTION_BOUNDARY_INPUT_REPRODUCTION_REQUIRED")
+    selected = scope["affected_material_batches"]
+    raw = event.get("quality_correction_material_revisions", [])
+    _require(isinstance(raw, list) and len(raw) == len(selected),
+             "QUALITY_CORRECTION_EXACT_MATERIAL_GENERATIONS_REQUIRED")
+    if not scope["internal_handoffs"] and not selected:
+        return {}
+    # The original Handoff receiver is immutable here. A WIP-transferred
+    # performer needs the existing separate custody/responsibility redecision,
+    # not an implicit reset of original sender/receiver.
+    handoffs = {h.edge: h for h in work.handoffs}
+    ops = {op.key: op for op in work.operations}
+    before = _handoff_snapshot(work, scope)
+    prior = {}
+    owners = set()
+    def prior_source(ref, owner):
+        info = {"owner": owner, "revision": _owned_source(state, ref, owner, at)}
+        _require(ref not in prior or prior[ref] == info,
+                 "QUALITY_CORRECTION_ORIGINAL_MATERIAL_SOURCE_OWNER_CONFLICT")
+        prior[ref] = info
+    for row in before:
+        edge = tuple(row["edge"])
+        h = handoffs[edge]
+        _require(all(work.wip_operation_active_resources.get(key, ops[key].primary_resource)
+                     == ops[key].primary_resource for key in edge),
+                 "QUALITY_CORRECTION_TRANSFERRED_HANDOFF_REDECISION_REQUIRED")
+        _require(row["state"] == "RECEIVED" and set(row["evidence"]) == {"dispatch", "receipt"},
+                 "QUALITY_CORRECTION_ORIGINAL_HANDOFF_EVIDENCE_REQUIRED")
+        prior_source(row["evidence"]["dispatch"], h.sender)
+        prior_source(row["evidence"]["receipt"], h.receiver)
+        owners.update((h.sender, h.receiver))
+    batch_by_key = {b.key: b for b in work.material_batches}
+    revisions = {}
+    for item in raw:
+        _require(isinstance(item, dict) and set(item) == {
+            "batch", "prior_receipt_ref", "prior_quality_ref", "disposition",
+            "disposition_ref", "replacement_origin_ref",
+        }, "QUALITY_CORRECTION_MATERIAL_REVISION_FIELDS_INVALID")
+        key = item["batch"]
+        _require(isinstance(key, str) and key in selected and key not in revisions,
+                 "QUALITY_CORRECTION_EXACT_MATERIAL_GENERATIONS_REQUIRED")
+        batch = batch_by_key[key]
+        h = handoffs[batch.edge]
+        st = work.material_states[key]
+        _require(st.received == batch.planned_quantity and st.accepted == batch.planned_quantity
+                 and st.dispatch_ref is not None and st.receipt_ref is not None and st.quality_ref is not None
+                 and item["prior_receipt_ref"] == st.receipt_ref
+                 and item["prior_quality_ref"] == st.quality_ref,
+                 "QUALITY_CORRECTION_ORIGINAL_MATERIAL_CUSTODY_REQUIRED")
+        _require(item["disposition"] == "EXCLUDED_FROM_NEW_ATTEMPT",
+                 "QUALITY_CORRECTION_PRIOR_MATERIAL_DISPOSITION_REQUIRED")
+        generation = current_material_generation(work, key)
+        prior_origin = generation["replacement_origin_ref"] if generation else batch.origin_ref
+        for ref, owner in (
+            (prior_origin, batch.origin_source_owner),
+            (batch.quality_spec_ref, batch.quality_spec_owner),
+            (st.dispatch_ref, h.sender), (st.receipt_ref, h.receiver), (st.quality_ref, h.receiver),
+        ):
+            prior_source(ref, owner)
+        for ref, owner in ((item["disposition_ref"], h.receiver),
+                           (item["replacement_origin_ref"], batch.origin_source_owner)):
+            info = _fresh_source(state, work, ref, owner, at)
+            _require(ref not in refs and ref not in prior,
+                     "QUALITY_CORRECTION_DISTINCT_SOURCES_REQUIRED")
+            refs[ref] = info
+        owners.update((batch.declared_title_holder, batch.origin_source_owner, batch.quality_spec_owner))
+        revisions[key] = {
+            **item, "prior_generation": generation["correction_id"] if generation else "ORIGINAL",
+            "prior_origin_ref": prior_origin, "original_origin_ref": batch.origin_ref,
+            "quality_spec_ref": batch.quality_spec_ref, "planned_quantity": str(batch.planned_quantity),
+            "prior_holder": h.receiver, "declared_title_holder": batch.declared_title_holder,
+            "replacement_origin_owner": batch.origin_source_owner,
+            "no_title_or_payment_inferred": True,
+        }
+    _require(set(revisions) == set(selected), "QUALITY_CORRECTION_EXACT_MATERIAL_GENERATIONS_REQUIRED")
+    _require(not set(refs).intersection(prior), "QUALITY_CORRECTION_DISTINCT_SOURCES_REQUIRED")
+    return {
+        "handoffs_before": before, "materials_before": _material_snapshot(work, scope),
+        "material_revisions": [revisions[key] for key in selected],
+        "material_principals": sorted(owners),
+        "prior_material_source_revisions": prior,
+    }
+
+
+def _apply_material_generation(work: Any, row: dict[str, Any]) -> None:
+    doc = row["terms"]
+    if "handoffs_before" not in doc:
+        return
+    # Only the current projection is reset. The original immutable Handoff
+    # and MaterialBatch declarations plus prior custody acts remain in terms.
+    for entry in doc["handoffs_before"]:
+        edge = tuple(entry["edge"])
+        work.handoff_states[edge] = "NOT_DISPATCHED"
+        work.handoff_evidence.pop(edge, None)
+    for revision in doc["material_revisions"]:
+        work.material_states[revision["batch"]] = MaterialState()
+    row["handoff_events"] = []
+
+
+def qualify_correction_handoff(state: Any, work: Any, event: Mapping[str, Any], at: int):
+    """Before the existing _handoff_action, qualify the active generation."""
+    bound = "quality_correction_id" in event or "quality_correction_fingerprint" in event
+    if work.result != "REJECTED":
+        _require(not bound, "QUALITY_CORRECTION_HANDOFF_ACTIVE_GENERATION_REQUIRED")
+        return None
+    row = work.assurance_corrections[-1] if work.assurance_corrections else None
+    _require(row is not None and row["status"] == "IN_PROGRESS"
+             and "handoffs_before" in row["terms"] and bound
+             and event.get("quality_correction_id") == row["terms"]["id"]
+             and event.get("quality_correction_fingerprint") == row["fingerprint"],
+             "QUALITY_CORRECTION_HANDOFF_ACTIVE_GENERATION_REQUIRED")
+    _proposal_current(state, work, row, at)
+    _check_approval(row)
+    edge = [event.get("from_operation"), event.get("to_operation")]
+    _require(edge in row["terms"]["dependency_scope"]["internal_handoffs"],
+             "QUALITY_CORRECTION_HANDOFF_OUTSIDE_DEPENDENCY_SCOPE")
+    upstream, downstream = (row["operations"][key] for key in edge)
+    _require(upstream["status"] == "COMPLETED" and upstream["completed_at"] < at
+             and downstream["status"] == "PLANNED",
+             "QUALITY_CORRECTION_HANDOFF_EXECUTION_ORDER_REQUIRED")
+    next_part = next(p for p in row["terms"]["plan"] if p["operation"] == edge[1])
+    _require(at < next_part["end"], "QUALITY_CORRECTION_HANDOFF_OUTSIDE_REMAINING_WINDOW")
+    h = next(h for h in work.handoffs if list(h.edge) == edge)
+    owner = h.sender if event["action"] == "handoff_dispatch" else h.receiver
+    _require(event["actor"] == owner, "QUALITY_CORRECTION_ORIGINAL_HANDOFF_OWNER_REQUIRED")
+    ref = event.get("result_ref")
+    info = _fresh_source(state, work, ref, owner, at)
+    return row, edge, ref, info
+
+
+def record_correction_handoff(qualified: Any, event: Mapping[str, Any], at: int) -> dict[str, Any] | None:
+    if qualified is None:
+        return None
+    row, edge, ref, info = qualified
+    row["used_refs"][ref] = info
+    row["handoff_events"].append({
+        "edge": edge, "action": event["action"], "actor": event["actor"],
+        "at": at, "source_ref": ref, "source_revision": info["revision"],
+    })
+    return {"quality_correction_id": row["terms"]["id"],
+            "quality_correction_handoff_generation": row["terms"]["id"],
+            "original_work_not_replaced": True}
+
+
+def _material_generation_current(work: Any, row: Mapping[str, Any]) -> bool:
+    doc = row["terms"]
+    if "handoffs_before" not in doc:
+        return True
+    scope = doc["dependency_scope"]
+    if (_handoff_snapshot(work, scope) != row.get("handoffs_after") or
+            _material_snapshot(work, scope) != row.get("materials_after")):
+        return False
+    for edge in scope["internal_handoffs"]:
+        entries = [e for e in row["handoff_events"] if e["edge"] == edge]
+        batches = [b for b in work.material_batches if list(b.edge) == edge]
+        expected = ["handoff_dispatch", "handoff_receive"] + (["handoff_quality"] if batches else [])
+        if [e["action"] for e in entries] != expected:
+            return False
+        times = [row["operations"][edge[0]]["completed_at"],
+                 *[e["at"] for e in entries], row["operations"][edge[1]]["started_at"]]
+        if any(a >= b for a, b in zip(times, times[1:])):
+            return False
+        evidence = work.handoff_evidence.get(tuple(edge), {})
+        if (work.handoff_states.get(tuple(edge)) != "RECEIVED"
+                or entries[0]["source_ref"] != evidence.get("dispatch")
+                or entries[1]["source_ref"] != evidence.get("receipt")):
+            return False
+        h = next(h for h in work.handoffs if list(h.edge) == edge)
+        for i, entry in enumerate(entries):
+            owner = h.sender if i == 0 else h.receiver
+            if (entry["actor"] != owner or row["used_refs"].get(entry["source_ref"]) != {
+                    "owner": owner, "revision": entry["source_revision"]}):
+                return False
+        for batch in batches:
+            st = work.material_states[batch.key]
+            if (st.dispatched != batch.planned_quantity or st.received != batch.planned_quantity
+                    or st.accepted != batch.planned_quantity or st.rejected != 0
+                    or st.dispatch_ref != entries[0]["source_ref"]
+                    or st.receipt_ref != entries[1]["source_ref"]
+                    or st.quality_ref != entries[2]["source_ref"]):
+                return False
+    return True
+
+
 def _operation_resource(state: Any, work: Any, operation: Any) -> tuple[Any, str, str, int]:
     op = next((o for o in work.operations if o.key == operation), None)
     _require(op is not None and len(op.resource_requirements) == 1
@@ -456,9 +687,8 @@ def _new_dependent_plan(state: Any, work: Any, event: Mapping[str, Any],
     expand = event.get("quality_correction_expand_inputs", False)
     _require(type(expand) is bool, "QUALITY_CORRECTION_INPUT_EXPANSION_FLAG_INVALID")
     scope = quality_dependency_scope(work, expand_inputs=expand)
-    _require(not scope["boundary_inputs"] and not scope["internal_handoffs"]
-             and not scope["affected_material_batches"],
-             "QUALITY_CORRECTION_DEPENDENT_MATERIAL_REDECISION_REQUIRED")
+    _require(not scope["boundary_inputs"],
+             "QUALITY_CORRECTION_BOUNDARY_INPUT_REPRODUCTION_REQUIRED")
     raw = event.get("quality_correction_plan")
     _require(isinstance(raw, list) and len(raw) == len(scope["affected_operations"]),
              "QUALITY_CORRECTION_EXACT_DEPENDENCY_CLOSURE_REQUIRED")
@@ -500,9 +730,10 @@ def _new_dependent_plan(state: Any, work: Any, event: Mapping[str, Any],
         _require(_fmt(_money(event["quality_correction_cost"],
                              "QUALITY_CORRECTION_ADDITIONAL_COST_REQUIRED", positive=True)) == total,
                  "QUALITY_CORRECTION_PLAN_TOTAL_MISMATCH")
+    materials = _material_revision_terms(state, work, event, scope, refs, at)
     return {
         "scope": "DEPENDENT_ORIGINAL_OPERATIONS_CORRECTION",
-        "dependency_scope": scope, "plan": plan, "cost_claim": total,
+        "dependency_scope": scope, "plan": plan, "cost_claim": total, **materials,
         "unaffected_evidence": {key: work.operation_evidence[key]
                                 for key in scope["unaffected_operations"]},
     }
@@ -525,7 +756,7 @@ def _correction_execution_current(state: Any, work: Any, row: Mapping[str, Any])
                 or not any(r == Reservation(part["resource"], work.key, part["start"], part["end"], part["units"])
                            for r in state.capacity_ledger.reservations)):
             return False
-    return True
+    return _material_generation_current(work, row)
 
 
 def _terminal_operation(state: Any, work: Any, operation: Any) -> tuple[Any, str, str, int]:
@@ -565,6 +796,8 @@ def _correction_rights_current(state: Any, work: Any, row: Mapping[str, Any],
             basis.assert_allowed(work.key, "quality_correction_start", part["owner"], at)
         if executed.get("completed_at") is not None:
             basis.assert_allowed(work.key, "quality_correction_complete", part["owner"], at)
+    for entry in row.get("handoff_events", ()):
+        basis.assert_allowed(work.key, entry["action"], entry["actor"], at)
 
 
 def _proposal_current(state: Any, work: Any, row: Mapping[str, Any], at: int) -> None:
@@ -590,6 +823,10 @@ def _proposal_current(state: Any, work: Any, row: Mapping[str, Any], at: int) ->
                      work.operation_evidence.get(key) == ref
                      for key, ref in doc["unaffected_evidence"].items()),
                  "QUALITY_CORRECTION_UNAFFECTED_OPERATION_CHANGED")
+        if row["status"] == "PROPOSED" and "handoffs_before" in doc:
+            _require(_handoff_snapshot(work, doc["dependency_scope"]) == doc["handoffs_before"] and
+                     _material_snapshot(work, doc["dependency_scope"]) == doc["materials_before"],
+                     "QUALITY_CORRECTION_ORIGINAL_MATERIAL_CHANGED_AFTER_CONSENT")
     else:
         _, resource, owner, units = _terminal_operation(state, work, doc["operation"])
         _require((resource, owner, units) == (doc["resource"], doc["owner"], doc["units"]),
@@ -669,7 +906,8 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
         if "quality_correction_plan" in event:
             scoped = _new_dependent_plan(state, work, event, at, refs, expires)
         else:
-            _require("quality_correction_expand_inputs" not in event,
+            _require("quality_correction_expand_inputs" not in event and
+                     "quality_correction_material_revisions" not in event,
                      "QUALITY_CORRECTION_DEPENDENCY_PLAN_REQUIRED")
             operation = event.get("operation")
             _require(all(c.operation == operation for c in failed),
@@ -699,7 +937,12 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
                             work.assurance_reviews[criterion.key]["model_ref"]):
                 prior[old_ref] = {"owner": criterion.assessor,
                                   "revision": _owned_source(state, old_ref, criterion.assessor, at)}
+        for ref, info in scoped.get("prior_material_source_revisions", {}).items():
+            _require(ref not in prior or prior[ref] == info,
+                     "QUALITY_CORRECTION_ORIGINAL_MATERIAL_SOURCE_OWNER_CONFLICT")
+            prior[ref] = info
         required = sorted(set(work.consents) | {work.customer}
+                          | set(scoped.get("material_principals", ()))
                           | {part["owner"] for part in _plan_parts(scoped)}
                           | {c.assessor for c in work.assurance_criteria})
         doc = {
@@ -775,6 +1018,7 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
                                  for part in doc["plan"]}
         for part in _plan_parts(doc):
             work.operation_states[part["operation"]] = "CORRECTION_PLANNED"
+        _apply_material_generation(work, row)
         work.execution = "IN_PROGRESS"
     elif action in {"quality_correction_start", "quality_correction_complete"}:
         _check_approval(row)
@@ -792,6 +1036,10 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
             op = next(o for o in work.operations if o.key == operation)
             _require(all(work.operation_states[pred] == "COMPLETED"
                          for pred in op.requires_completed), "QUALITY_CORRECTION_PREDECESSOR_INCOMPLETE")
+            _require(all(work.handoff_states[h.edge] == "RECEIVED" for h in work.handoffs
+                         if h.downstream == operation), "QUALITY_CORRECTION_NEW_HANDOFF_RECEIPT_REQUIRED")
+            if state.material_strict:
+                assert_inbound_ready(work.material_batches, work.material_states, operation)
             _resource_ready(state, work, part, reserved=True)
             info = _fresh_source(state, work, source, actor, at)
             cost_ref = event.get("quality_correction_cost_ref")
@@ -830,6 +1078,9 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
                 if "plan" in doc:
                     row["operation_evidence"] = {p["operation"]: row["operations"][p["operation"]]["operation_evidence"]
                                                  for p in doc["plan"]}
+                if "handoffs_before" in doc:
+                    row["handoffs_after"] = _handoff_snapshot(work, doc["dependency_scope"])
+                    row["materials_after"] = _material_snapshot(work, doc["dependency_scope"])
                 work.execution = "DONE_WITH_EVIDENCE"
 
     else:
