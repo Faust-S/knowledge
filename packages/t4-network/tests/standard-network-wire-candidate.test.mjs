@@ -4,7 +4,7 @@ import {generateKeyPairSync,sign,verify} from 'node:crypto';
 import {
   createT4CandidateUnsignedFrame,signT4CandidateFrame,
   decodeT4CandidateFrame,negotiateT4CandidateCapabilities,
-  verifyT4CandidateWireFrame,T4_CANDIDATE_VERSION,
+  verifyT4CandidateWireFrame,T4_CANDIDATE_VERSION,T4_RELATION_EVENT_EXTENSION,
 } from '../src/network/standard-network-wire-candidate.mjs';
 
 const {privateKey,publicKey}=generateKeyPairSync('ed25519');
@@ -272,4 +272,37 @@ test('cross-runtime canonical wire forbids Unicode object keys with divergent UT
   assert.throws(()=>create({body:{
     ...base.body,['e\u0301']:'untrusted',
   }}),code('WIRE_OBJECT_KEYS_INVALID'));
+});
+
+
+test('Relation CHANGE_REF requires explicit critical extension and actual null revision',async()=>{
+  const body={...base.body,changeKind:'RELATION_PUT',sourceRevision:null};
+  assert.throws(()=>create({body}),code('WIRE_CHANGE_REF_INVALID'));
+  assert.throws(()=>create({body:{...body,sourceRevision:1},
+    criticalExtensions:[T4_RELATION_EVENT_EXTENSION]}),code('WIRE_CHANGE_REF_INVALID'));
+  assert.throws(()=>create({criticalExtensions:[T4_RELATION_EVENT_EXTENSION]}),
+    code('WIRE_CHANGE_REF_INVALID'));
+  const bytes=await wire({body,criticalExtensions:[T4_RELATION_EVENT_EXTENSION]});
+  assert.equal(decodeT4CandidateFrame(bytes).body.sourceRevision,null);
+  const t=trustedPorts();
+  await assert.rejects(verifyT4CandidateWireFrame({wireBytes:bytes,...t.ports}),
+    code('WIRE_UNSUPPORTED_CRITICAL_EXTENSION'));
+  assert.equal(t.observations.replayWrites,0);
+  const verified=await verifyT4CandidateWireFrame({wireBytes:bytes,...t.ports,
+    supportedCriticalExtensions:[T4_RELATION_EVENT_EXTENSION]});
+  assert.equal(verified.originalSignatureVerified,true);
+  assert.equal(verified.originalBusinessApplied,false);
+});
+test('Relation APPLIED_ACK cannot encode synthetic numeric revision or omit extension',()=>{
+  const body={changeId:'change:one',contentDigest:D,ackRef:'ack:one',
+    recipientEventRef:'original:recipient:event',recipientRevision:null,recipientStateDigest:E};
+  assert.throws(()=>create({messageType:'APPLIED_ACK',body}),
+    code('WIRE_APPLIED_ACK_EVIDENCE_INVALID'));
+  assert.throws(()=>create({messageType:'APPLIED_ACK',body:{...body,recipientRevision:1},
+    criticalExtensions:[T4_RELATION_EVENT_EXTENSION]}),code('WIRE_APPLIED_ACK_EVIDENCE_INVALID'));
+  assert.equal(create({messageType:'APPLIED_ACK',body,
+    criticalExtensions:[T4_RELATION_EVENT_EXTENSION]}).body.recipientRevision,null);
+  assert.throws(()=>create({messageType:'HEADS',body:{familyRef:'family:one',
+    ownerEpoch:2,heads:[E]},criticalExtensions:[T4_RELATION_EVENT_EXTENSION]}),
+    code('WIRE_RELATION_EVENT_EXTENSION_INVALID'));
 });

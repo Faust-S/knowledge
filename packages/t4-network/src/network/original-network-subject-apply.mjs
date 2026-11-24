@@ -333,7 +333,7 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
         a.object_id!==d.objectId||a.mime!==d.mime||a.deleted===true||
         !Number.isSafeInteger(a.revision)||a.revision<1||
         !(row.bytes instanceof Uint8Array)||!row.bytes.length||
-        a.size!==row.bytes.length)
+        (Object.hasOwn(a,'size')&&a.size!==row.bytes.length))
         fail('SUBJECT_RECIPIENT_ASSET_IDENTITY_CONFLICT');
       return {revision:a.revision,stateDigest:digestT4OriginalAssetContent({
         workspaceId:a.workspace_id,assetId:a.asset_id,objectId:a.object_id,

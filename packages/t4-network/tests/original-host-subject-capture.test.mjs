@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {createT4OriginalHostCaptureAdapter} from '../src/network/original-host-capture-adapter.mjs';
 import {packageSha256} from '../src/network/webdav-package-transfer.mjs';
-import {publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork}
+import {publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork,
+  readT4OriginalHostCapturedSubject,verifyT4OriginalHostCapturedSubjectSource}
   from '../src/network/original-host-outbox-delivery.mjs';
 
 const ws='original:workspace',owner='original:t3:owner';
@@ -559,4 +560,79 @@ test('T4_NETWORK blocks original deleteObject before any destructive write',asyn
   }}),err('ORIGINAL_HOST_T4_OBJECT_DELETE_NOT_QUALIFIED'));
   assert.equal(deleteCalls,0);
   assert.equal(f.outbox.size,0);
+});
+
+
+test('native historical Asset capture proves exact bytes even after a later Asset revision',async()=>{
+  const f=fixture(),host=adapter(f),transport=remote();
+  const first=await host.putAsset({mutationInput:assetInput(),sourceCursor:await cursor(f),
+    captureRef:'native:asset:first'});
+  const second=await host.putAsset({mutationInput:{...assetInput(),base_revision:2,
+    bytes:Buffer.from('different later bytes')},sourceCursor:first.capture.nextCursor,
+    captureRef:'native:asset:second'});
+  const p=outboxParams(f,'ASSET_PUT','native:asset:first',assetId,transport);
+  const captured=await readT4OriginalHostCapturedSubject(p);
+  assert.equal(captured.sourceRevision,2);
+  assert.equal(captured.laterSourceEventsExist,true);
+  assert.deepEqual(captured.prepared.assetBytes,nextBytes);
+  assert.equal(captured.prepared.sha256,first.capture.prepared.sha256);
+  assert.notEqual(captured.prepared.sha256,second.capture.prepared.sha256);
+  assert.equal(f.asset().asset.revision,3);
+  const intent=f.intents.get('native:asset:first');
+  assert.equal(f.events[1].payload.iwxa_t4_original_input_digest,intent.originalInputDigest);
+  const d=captured.prepared.delta,w=captured.sourceWindow;
+  const proof={originalSourceEventId:d.sourceEventId,originalWriteOwnerRef:owner,
+    originalEventDigest:d.sourceEventDigest,changeKind:'ASSET_PUT',
+    originalT3SubjectAndEventReadbackRequired:true,
+    originalCapturedRevisionReadbackRequired:true,originalSourceRevision:2,
+    originalEventRevision:2,workspaceId:ws,originalEventWindowDigest:w.windowDigest,
+    originalBeforePrefixDigest:w.sourcePrefixDigestBefore,originalAfterPrefixDigest:w.sourcePrefixDigestAfter};
+  assert.equal(await verifyT4OriginalHostCapturedSubjectSource(p,proof),true);
+  assert.equal(await verifyT4OriginalHostCapturedSubjectSource(p,{...proof,originalSourceRevision:3}),false);
+  assert.equal(transport.counts.puts,0);
+});
+test('native Relation capture uses original Event, never an invented numeric revision',async()=>{
+  const f=fixture(),host=adapter(f);
+  const saved=await host.putRelation({mutationInput:relationInput(),sourceCursor:await cursor(f),
+    captureRef:'native:relation:one'});
+  const p=outboxParams(f,'RELATION_PUT','native:relation:one',relationId);
+  const result=await readT4OriginalHostCapturedSubject(p);
+  assert.equal(result.sourceRevision,null);
+  assert.equal(result.originalEventRevision,null);
+  assert.equal(result.subjectId,relationId);
+  assert.equal(result.prepared.sha256,saved.capture.prepared.sha256);
+  assert.equal(Object.hasOwn(result.prepared.delta,'sourceRevision'),false);
+  assert.equal(f.events.at(-1).revision,null);
+});
+test('legacy untraced Asset/Relation cannot be silently promoted to native source proof',async()=>{
+  const f=fixture(),host=adapter(f);
+  await host.putRelation({mutationInput:relationInput(),sourceCursor:await cursor(f),
+    captureRef:'native:relation:untraced'});
+  delete f.intents.get('native:relation:untraced').originalInputDigest;
+  await assert.rejects(readT4OriginalHostCapturedSubject(
+    outboxParams(f,'RELATION_PUT','native:relation:untraced',relationId)),
+    err('OUTBOX_NATIVE_ORIGINAL_SUBJECT_CAPTURE_NOT_PROVEN'));
+});
+test('source Event trace prevents re-authenticating an altered normalized subject intent',async()=>{
+  const f=fixture(),host=adapter(f);
+  await host.putAsset({mutationInput:assetInput(),sourceCursor:await cursor(f),
+    captureRef:'native:asset:forged'});
+  const intent=f.intents.get('native:asset:forged');
+  intent.operation.event.payload.purpose='forged';
+  const sorted=x=>Array.isArray(x)?x.map(sorted):x&&typeof x==='object'?
+    Object.fromEntries(Object.keys(x).sort().map(k=>[k,sorted(x[k])])):x;
+  intent.inputDigest='sha256:'+packageSha256(Buffer.from(JSON.stringify(sorted(intent.operation))));
+  f.outbox.get('native:asset:forged').inputDigest=intent.inputDigest;
+  await assert.rejects(readT4OriginalHostCapturedSubject(
+    outboxParams(f,'ASSET_PUT','native:asset:forged',assetId)),
+    err('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH'));
+});
+test('subject capture reserved Event trace fields cannot be supplied by caller',async()=>{
+  const f=fixture(),host=adapter(f);
+  const input=relationInput();
+  input.event.payload.iwxa_t4_capture_ref='forged:capture';
+  await assert.rejects(host.putRelation({mutationInput:input,
+    sourceCursor:await cursor(f),captureRef:'native:relation:reserved'}),
+    err('SUBJECT_CAPTURE_RESERVED_TRACE_FIELDS'));
+  assert.equal(f.writes.length,0);assert.equal(f.intents.size,0);
 });
