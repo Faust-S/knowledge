@@ -41,7 +41,7 @@ jobs:
         working-directory: packages/t4-network
         run: |
           npm run check
-          npm test
+          node scripts/run_contract_shard.mjs core
       - name: Existing original T3 Control and D3 regression
         run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
 
@@ -87,9 +87,29 @@ jobs:
           node --check src/network/webdav-package-transfer.mjs
           node --check src/network/original-exchange-handoff.mjs
           node --check src/network/operator-connection.mjs
-          npm test
+          node scripts/run_contract_shard.mjs core
       - name: Existing original T3 Control and D3 regression
         run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
+
+  native-contract:
+    name: native-contract (${{ matrix.os }}, ${{ matrix.shard }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        shard: [native-base, native-recovery-write, native-recovery-other, native-migration]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked T4 transport dependency
+        run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+      - name: Verify original signed native relay contract shard
+        working-directory: packages/t4-network
+        run: node scripts/run_contract_shard.mjs "${{ matrix.shard }}"
 
   original-kernel-webdav:
     runs-on: ubuntu-latest
