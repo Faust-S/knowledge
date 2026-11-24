@@ -137,22 +137,19 @@ def test_assessment_cannot_claim_foreign_rights_or_other_result(change,reason):
     assert s.works["w1"].result=="SUBMITTED"
 
 
-def test_failed_quality_and_rejected_result_require_fresh_assessment_after_resubmit():
+def test_failed_quality_and_rejected_result_require_executed_correction_before_resubmit():
     s,_=apply_sequence(scenario(),execution_events())
     assert s.apply(quality_event(12,verdict="DOES_NOT_MEET"),12)["outcome"]=="APPLIED"
     assert s.apply(quality_event(13,criterion_id="documents"),13)["outcome"]=="APPLIED"
     assert act(s,14,"accept","c")["reason"]=="QUALITY_DECLARED_CRITERION_FAILED"
     assert act(s,15,"reject","c")["outcome"]=="APPLIED"
     assert s.works["w1"].result=="REJECTED"
-    assert act(s,16,"resubmit","a",result_ref="model://final-v2")["outcome"]=="APPLIED"
-    assert act(s,17,"accept","c")["reason"]=="QUALITY_ORIGINAL_ASSESSMENT_MISSING"
-    assert s.apply(quality_event(18,result_ref="model://final-v2"),18)["outcome"]=="APPLIED"
-    assert act(s,19,"accept","c")["reason"]=="QUALITY_ORIGINAL_ASSESSMENT_MISSING"
-    assert s.apply(quality_event(20,criterion_id="documents",
-                                result_ref="model://final-v2"),20)["outcome"]=="APPLIED"
-    assert act(s,21,"accept","c")["outcome"]=="APPLIED"
-    assert s.works["w1"].result_history[-1]["transition"]=="accept"
-    assert len(s.works["w1"].assurance_refs)==4
+    before=deepcopy(s.works["w1"].assurance_reviews)
+    assert act(s,16,"resubmit","a",result_ref="model://final-v2")["reason"] == (
+        "QUALITY_FAILED_RESULT_REQUIRES_EXECUTED_CORRECTION")
+    assert s.works["w1"].result_ref=="model://final-v1"
+    assert s.works["w1"].assurance_reviews==before
+    assert len(s.works["w1"].assurance_review_history)==2
 
 
 def test_quality_evidence_reference_cannot_be_reused_or_precede_result():
