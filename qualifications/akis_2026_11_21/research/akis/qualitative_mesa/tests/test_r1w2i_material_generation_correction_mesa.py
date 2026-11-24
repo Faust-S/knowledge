@@ -314,3 +314,77 @@ def test_second_material_generation_preserves_both_old_generations():
     assert out["works"]["w1"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert len(out["works"]["w1"]["assurance"]["physical_corrections"])==2
     assert x.w.assurance_corrections[0]==first
+
+
+def strict_world():
+    # Collect all source declarations from the actual non-strict event
+    # sequence. The strict case then obtains its own new fingerprint.
+    sample=MaterialCase();sample.proposal();sample.approve();sample.complete_plan()
+    sample.resubmit("model://a/final-v2");sample.assess("model://a/final-v2")
+    sample.action("accept","c")
+    d=world()
+    principals=["op","a","b","c"]
+    actions={e["action"] for e in sample.events if e["action"] not in {"offer","reject"}}
+    sources={}
+    for a in sorted(actions):
+        ident=f"model://op/right-{a}"
+        sources[ident]=dict(id=ident,owner="op",revision="right-r1",
+            status="CONFIRMED",usable_by=principals,valid_until=200)
+
+    def collect(value):
+        if isinstance(value,dict):
+            for v in value.values():
+                collect(v)
+        elif isinstance(value,list):
+            for v in value:
+                collect(v)
+        elif isinstance(value,str) and value.startswith("model://"):
+            owner=value[len("model://"):].split("/",1)[0]
+            if owner in principals and value not in sources:
+                sources[value]=dict(id=value,owner=owner,revision="r1",
+                    status="CONFIRMED",usable_by=[owner],valid_until=200)
+    collect(d["works"])
+    collect(sample.events)
+    d["context_evidence"]={
+        "strict":True,"sources":list(sources.values()),
+        "requirements":[dict(work="w1",action=a,sources=[f"model://op/right-{a}"],
+            expected_revisions=["right-r1"]) for a in sorted(actions)],
+    }
+    return d
+
+
+def revoke(x,ref):
+    owner=ref[len("model://"):].split("/",1)[0]
+    x.emit(dict(at=x.at+1,action="source_update",actor=owner,source=ref,
+                new_revision="r2",status="DISPROVED",usable_by=[owner]))
+
+
+def test_strict_kpb_new_origin_revocation_prevents_generation_change():
+    x=MaterialCase(strict_world());x.proposal()
+    for actor in ("a","b","c"):
+        x.vote(actor)
+    before=deepcopy([x.w.material_states,x.w.handoff_states,x.s.capacity_ledger.reservations])
+    ref=x.w.assurance_correction_proposal["terms"]["material_revisions"][0]["replacement_origin_ref"]
+    revoke(x,ref)
+    x.apply_plan(expected="BLOCKED",reason="QUALITY_ORIGINAL_SOURCE_UNAVAILABLE")
+    assert [x.w.material_states,x.w.handoff_states,x.s.capacity_ledger.reservations]==before
+    assert x.w.assurance_corrections==[]
+
+
+def test_strict_kpb_current_quality_source_revocation_blocks_new_operation():
+    x=MaterialCase(strict_world());x.proposal();x.approve()
+    x.start("source","a",50,12000);x.finish("source","a",53)
+    x.handoff("input")
+    revoke(x,x.w.material_states["input-2"].quality_ref)
+    x.start("form","b",60,4500,expected="BLOCKED",reason="QUALITY_ORIGINAL_SOURCE_UNAVAILABLE")
+    assert x.w.operation_states["form"]=="CORRECTION_PLANNED"
+    assert set(dict(correction_resource_claims(x.w.assurance_corrections[-1])))=={"source"}
+
+
+def test_strict_kpb_complete_material_generation_and_native_replay():
+    x=MaterialCase(strict_world());x.proposal();x.approve();x.complete_plan()
+    x.resubmit("model://a/final-v2");x.assess("model://a/final-v2");x.action("accept","c")
+    row=x.w.assurance_corrections[-1]
+    assert all(e["source_revision"]=="r1" for e in row["handoff_events"])
+    assert all(r["source_revision"]=="r1" for _,r in correction_resource_claims(row))
+    assert x.native()["works"]["w1"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
