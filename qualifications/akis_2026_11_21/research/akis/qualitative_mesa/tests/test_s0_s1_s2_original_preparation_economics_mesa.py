@@ -533,3 +533,15 @@ def test_operator_service_projection_cannot_bypass_strict_context():
     doc.pop("strict_economic_source_works")
     with pytest.raises(InputError, match="STRICT_MULTIPERIOD_ORIGINAL_SCOPE"):
         simulate(doc)
+
+
+@pytest.mark.parametrize("key,alias,error", [
+    ("service-nonoverlap", "terms-op", "SEPARATE_COST_NONOVERLAP_SOURCE"),
+    ("service-fee-cap", "terms-a", "SEPARATE_PAYER_LIMIT_SOURCE"),
+])
+def test_source_id_alias_does_not_create_independent_cost_or_budget_document(key, alias, error):
+    doc = operator_service_route()
+    sources = {row["id"]: row for row in doc["economic_claims"]["sources"]}
+    sources[key].update(reference=sources[alias]["reference"], revision=sources[alias]["revision"])
+    with pytest.raises(InputError, match=error):
+        simulate(doc)

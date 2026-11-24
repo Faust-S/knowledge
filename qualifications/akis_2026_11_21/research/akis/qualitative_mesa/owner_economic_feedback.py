@@ -259,15 +259,18 @@ def review_completed_original_owner_finance(
     *, state: Any, original_money: Mapping[str, Any] | None,
     work_id: str, owner: str, review_source: str,
     review_revision: str, at: int,
+    portfolio_work_ids: tuple[str, ...] | None = None,
 ) -> str:
     """Qualify an independently requested, owner-scoped completed Work review.
 
     A read-only selection of the original economic document goes through the
     same strict KPB, original cost anchors, and original economic evaluator.
     Later settlement/amendment reports are not available at this decision.
-    This view deliberately omits a liquidity calculation from an isolated
-    Work: the beginning-of-portfolio cash cannot be treated as its opening
-    cash. Only a generic source-scope status may leave the private calculation.
+    An isolated Work omits liquidity, since beginning-of-portfolio cash
+    cannot become its opening cash. An explicitly requested portfolio view
+    uses ALL committed-and-accepted original Works as of this decision, one
+    original opening position and source-declared forecasts, never later
+    Work/settlement reports. Only a generic qualification status is shared.
     It neither decides the owner's verdict nor creates consent or a new Work.
     """
     from .economic_flow import EconomicInputError, evaluate_economic_claims
@@ -301,6 +304,25 @@ def review_completed_original_owner_finance(
     core = original_owner_economic_core(subject.kind)
     if core is None:
         return unknown
+    portfolio = portfolio_work_ids is not None
+    selected_ids = portfolio_work_ids if portfolio else (work_id,)
+    if (not isinstance(selected_ids, tuple) or not 1 <= len(selected_ids) <= 256
+            or len(set(selected_ids)) != len(selected_ids) or work_id not in selected_ids):
+        return unknown
+    selected_set = set(selected_ids)
+    if portfolio:
+        # Missing prior commitments must not disappear from a cash forecast.
+        committed = {row.get("work") for row in state.trace
+                     if row.get("action") == "commit" and row.get("outcome") == "APPLIED"
+                     and row["at"] < at}
+        if committed != selected_set or any(
+                key not in state.works
+                or state.works[key].result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                or not any(row.get("work") == key and row.get("action") == "accept"
+                           and row.get("outcome") == "APPLIED" and row["at"] < at
+                           for row in state.trace)
+                for key in selected_ids):
+            return unknown
     try:
         basis.assert_original_form_role_source(
             owner, review_source, review_revision, core=core,
@@ -309,9 +331,9 @@ def review_completed_original_owner_finance(
         )
         doc = original_money
         transfers = [row for row in doc["transfers"]
-                     if row["work"] == work_id and row["scenario"] == active]
+                     if row["work"] in selected_set and row["scenario"] == active]
         uses = [row for row in doc["resource_uses"]
-                if row["work"] == work_id and row["scenario"] == active]
+                if row["work"] in selected_set and row["scenario"] == active]
         if not transfers or not uses:
             return unknown
         tids = {row["id"] for row in transfers}
@@ -319,8 +341,9 @@ def review_completed_original_owner_finance(
         owners = (
             {party for row in transfers for party in (row["payer"], row["payee"])}
             | {row["owner"] for row in uses}
-            | state.capacity_ledger.original_owners(work.resource_requirements)
-            | {work.customer}
+            | {principal for key in selected_ids for principal in
+               (state.capacity_ledger.original_owners(state.works[key].resource_requirements)
+                | {state.works[key].customer})}
         ) - {"EXTERNAL"}
 
         def attached(rows, key, identifiers):
@@ -329,6 +352,10 @@ def review_completed_original_owner_finance(
             return [row for row in rows if row[key] in identifiers]
 
         timing = doc["cash_timing"]
+        positions = ([row for row in timing["owner_positions"] if row["owner"] == owner]
+                     if portfolio else [])
+        if portfolio and len(positions) != 1:
+            return unknown
         life = doc["lifecycle_costs"]
         terms = attached(doc["work_payment_conditions"], "transfer_id", tids)
         windows = attached(timing["transfer_windows"], "transfer_id", tids)
@@ -360,7 +387,7 @@ def review_completed_original_owner_finance(
         # The same strict reviewer still validates every referenced owner.
         referenced = set(coverage[active].values()) | set(scope[active].values())
         for row in (
-            transfers + uses + terms + windows + classified + cost_events
+            transfers + uses + terms + windows + classified + cost_events + positions
             + prior_reports["work_payment_settlement_claims"]
             + prior_reports["work_payment_due_amendments"]
         ):
@@ -374,7 +401,7 @@ def review_completed_original_owner_finance(
             "coverage": coverage, "outside_feasibility": {},
             "cash_timing": {
                 "horizon_end": timing["horizon_end"],
-                "owner_positions": [], "transfer_windows": windows,
+                "owner_positions": positions, "transfer_windows": windows,
             },
             "lifecycle_costs": {
                 "bindings": classified, "scope_proofs": scope,
@@ -386,7 +413,7 @@ def review_completed_original_owner_finance(
         # A costed preparation must be reconciled against the original
         # Work's same activity records in this as-of-time review as well.
         tagged_preparation = any(
-            event.get("work") == work_id and event.get("outcome") == "APPLIED"
+            event.get("work") in selected_set and event.get("outcome") == "APPLIED"
             and "model_preparation_activity" in event for event in state.trace
             if event.get("at", at) < at
         )
@@ -397,7 +424,8 @@ def review_completed_original_owner_finance(
                 return unknown
             selected["lifecycle_costs"]["preparation_activity_bindings"] = activity
         rights = review_original_strict_economic_sources(
-            state=state, original_claims=selected, work_id=work_id, at=at,
+            state=state, original_claims=selected,
+            work_id=selected_ids if portfolio else work_id, at=at,
         )
         view = evaluate_economic_claims(
             selected, state.subjects, state.works,
@@ -418,4 +446,14 @@ def review_completed_original_owner_finance(
             or costs["classified_original_record_count"] != len(uses)
             or balance is None or not owner_cost["declared_resource_scope_complete_not_audited"]):
         return unknown
+    if portfolio:
+        path = view.get("cash_timing", {}).get(
+            "per_original_owner_private_research_projection", {}).get(owner, {}).get(
+                "scenario_paths", {}).get(active, {})
+        if (path.get("status") != "SOURCE_DECLARED_TIMING_ARITHMETIC_ONLY"
+                or not path.get("expected") or not path.get("declared_late_case")):
+            return unknown
+        # The owner-specific forecast is not the actual bank balance at this
+        # tick. Do not redisclose money or even a private reserve verdict.
+        return "MODEL_ORIGINAL_ACCEPTED_PORTFOLIO_FORECAST_SCOPE_QUALIFIED"
     return "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"

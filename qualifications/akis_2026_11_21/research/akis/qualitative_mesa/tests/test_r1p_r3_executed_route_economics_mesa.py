@@ -969,3 +969,168 @@ def test_external_basis_needs_current_independent_review_source_not_historical_c
     assert qualified["participation_value"] == "PAUSED_NEW_WORK"
     assert out["works"][OUTSIDE]["result"] == ACCEPTED
     assert "w4" not in out["works"]
+
+
+def fourth_period_finance_case(*, pause=False, material="220.00", missing_opening=False,
+                               early=False, stale=False):
+    """Extend the one original ledger with a genuinely requested fourth Work.
+
+    Each fourth-period term/cost/report has an owner-held source that first
+    becomes usable in the fourth period. The prior review selects only its
+    already committed original portfolio and cannot use these future rows.
+    """
+    d = fourth_period_case(pause=pause, early=early, stale=stale)
+    money = d["economic_claims"]
+    for row in d["events"]:
+        if row["action"] == "participation_status" and row.get("evaluated_work") == "w3":
+            row["evaluation_economic_portfolio"] = True
+    if missing_opening:
+        money["cash_timing"]["owner_positions"] = [
+            row for row in money["cash_timing"]["owner_positions"] if row["owner"] != "a"]
+    if pause:
+        return d
+    request = next(row["at"] for row in d["events"] if row["action"] == "request"
+                   and row["work_spec"]["id"] == "w4")
+    clock = {row["action"]: row["at"] for row in d["events"] if row.get("work") == "w4"}
+    money["period"] = "FOUR_ORIGINAL_WORK_PERIODS"
+    d["strict_economic_source_works"].append("w4")
+    scope = ("a", "b", "op")
+
+    def source(owner, suffix, since, key=None):
+        ref = f"model://{owner}/w4-{suffix}"
+        d["context_evidence"]["sources"].append({
+            "id": ref, "owner": owner, "revision": "v4", "status": "CONFIRMED",
+            "usable_by": [owner], "core": "operator" if owner == "op" else "corporate",
+            "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"], "operations": ["READ"],
+            "valid_from": since, "valid_until": 200,
+        })
+        if key:
+            money["sources"].append({"id": key, "owner": owner, "reference": ref, "revision": "v4"})
+        return ref
+
+    for owner in scope:
+        source(owner, "financial-terms", request, key=f"w4-terms-{owner}")
+    for owner in ("a", "b"):
+        source(owner, "payment-terms", request, key=f"w4-receipt-{owner}")
+    for key, payer, payee, amount, condition, at in (
+        ("purchase", "b", "a", "600.00", "ON_CUSTOMER_ACCEPTANCE", clock["accept"]+2),
+        ("materials", "a", "EXTERNAL", material, "ON_ORIGINAL_COMMIT", clock["commit"]+1),
+        ("fee", "a", "op", "80.00", "ON_ORIGINAL_COMMIT", clock["commit"]+2),
+        ("overhead", "op", "EXTERNAL", "35.00", "ON_ORIGINAL_COMMIT", clock["commit"]+3),
+    ):
+        ident = f"w4-{key}"
+        witnesses = {owner: f"w4-terms-{owner}" for owner in sorted({payer, payee} - {"EXTERNAL"})}
+        money["transfers"].append({
+            "id": ident, "scenario": "COOPERATION", "payer": payer,
+            "payee": payee, "amount": amount, "source": witnesses[payer], "work": "w4",
+        })
+        money["cash_timing"]["transfer_windows"].append({
+            "transfer_id": ident, "at": at, "late_at": at, "owner_sources": deepcopy(witnesses),
+        })
+        money["work_payment_conditions"].append({
+            "transfer_id": ident, "condition": condition, "due_at": at+1,
+            "work_source_revision": "d-4", "org_revision": "oc-1", "owner_sources": deepcopy(witnesses),
+        })
+        if key == "purchase":
+            for i, piece in enumerate(("250.00", "350.00")):
+                tick = clock["accept"]+1+i
+                refs = {owner: source(owner, f"receipt-{i}", tick) for owner in ("a", "b")}
+                money["work_payment_settlement_claims"].append({
+                    "id": f"w4-payment-{i}", "transfer_id": ident, "at": tick, "amount": piece,
+                    "owner_sources": {owner: f"w4-receipt-{owner}" for owner in ("a", "b")},
+                    "evidence_refs": refs, "evidence_revisions": {"a": "v4", "b": "v4"},
+                    "owner_attestations": {owner: {"reported_at": tick, "reported_amount": piece}
+                                           for owner in ("a", "b")},
+                })
+    life = money["lifecycle_costs"]
+    for key, owner, amount, bucket, stage, nature, action in (
+        ("labor", "a", "90.00", "DELIVERY", "PRODUCTION_COORDINATION", "DIRECT_RESOURCE", "start"),
+        ("inspection", "b", "25.00", "COORDINATION", "MONITORING_AND_QUALITY", "TRANSACTION", "assess_result_quality"),
+        ("coordination", "op", "20.00", "COORDINATION", "PRODUCTION_COORDINATION", "TRANSACTION", "commit"),
+    ):
+        ident = f"w4-{key}"
+        pos, ev = next((i, row) for i, row in enumerate(d["events"])
+                       if row.get("work") == "w4" and row["action"] == action and row["actor"] == owner)
+        proof = source(owner, f"{key}-evidence", ev["at"])
+        money["resource_uses"].append({
+            "id": ident, "scenario": "COOPERATION", "work": "w4", "owner": owner,
+            "amount": amount, "bucket": bucket, "source": f"w4-terms-{owner}",
+        })
+        life["bindings"].append({
+            "resource_use_id": ident, "owner": owner, "source": f"w4-terms-{owner}",
+            "stage": stage, "nature": nature,
+        })
+        life["event_bindings"].append({
+            "resource_use_id": ident, "work": "w4", "owner": owner, "source": f"w4-terms-{owner}",
+            "work_source_revision": "d-4", "trace_position": pos, "at": ev["at"],
+            "action": action, "org_revision": "oc-1", "cost_evidence_ref": proof,
+            "cost_evidence_revision": "v4",
+        })
+    return d
+
+
+def test_original_fourth_work_own_finance_and_cumulative_cash_without_reset():
+    doc = fourth_period_finance_case()
+    out = simulate(doc)
+    assert out["counts"]["blocked"] == 0
+    assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1", "w2", "w3", "w4"))
+    eco = out["economics"]
+    assert eco["per_subject"]["a"]["complete_cash_balance_from_claims"]["COOPERATION"] == "1120.00"
+    assert eco["per_subject"]["op"]["complete_cash_balance_from_claims"]["COOPERATION"] == "170.00"
+    assert eco["work_payment_causality"]["source_declared_consistent_count"] == eco["transfers_count"] == 16
+    assert eco["original_strict_context_source_qualification"]["source_scoped_original_cost_event_count"] == eco["resource_uses_count"] == 12
+    assert eco["work_payment_causality"]["settlement_progress"]["source_claimed_full_transfer_count"] == 4
+    assert eco["profit"] == "UNKNOWN"
+    assert out == simulate(deepcopy(doc))
+
+
+def test_original_participation_reviews_use_three_accepted_work_portfolio_not_future_fourth():
+    doc = fourth_period_finance_case(early=True)
+    out = simulate(doc)
+    assert all(row["evaluation_portfolio_forecast_scope_status"] ==
+               "MODEL_ORIGINAL_ACCEPTED_PORTFOLIO_FORECAST_SCOPE_QUALIFIED"
+               and row["evaluation_portfolio_original_completed_work_count"] == 3
+               and row["evaluation_portfolio_private_amounts_and_reserve_verdict_not_redisclosed"]
+               for row in third_period_reviews(out))
+    assert len(third_period_reviews(out)) == 2
+    shocked = simulate(fourth_period_finance_case(early=True, material="520.00"))
+    assert third_period_reviews(out) == third_period_reviews(shocked)
+    assert shocked["economics"]["per_subject"]["a"]["complete_cash_balance_from_claims"]["COOPERATION"] == "820.00"
+    assert out["works"]["w4"]["result"] == shocked["works"]["w4"]["result"] == ACCEPTED
+
+
+def test_portfolio_scope_missing_opening_is_unknown_not_an_invented_balance_or_refusal():
+    out = simulate(fourth_period_finance_case(missing_opening=True))
+    rows = {row["actor"]: row for row in third_period_reviews(out)}
+    assert rows["a"]["evaluation_portfolio_forecast_scope_status"] == "UNKNOWN"
+    assert rows["a"]["evaluation_economic_basis_status"] == "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"
+    assert rows["b"]["evaluation_portfolio_forecast_scope_status"] == "MODEL_ORIGINAL_ACCEPTED_PORTFOLIO_FORECAST_SCOPE_QUALIFIED"
+    assert out["works"]["w4"]["result"] == ACCEPTED
+
+
+def test_same_original_portfolio_forecast_can_precede_independent_pause_without_fourth_money():
+    out = simulate(fourth_period_finance_case(pause=True))
+    assert "w4" not in out["works"]
+    assert all(row["evaluation_portfolio_forecast_scope_status"] ==
+               "MODEL_ORIGINAL_ACCEPTED_PORTFOLIO_FORECAST_SCOPE_QUALIFIED"
+               for row in third_period_reviews(out))
+    assert out["economics"]["transfers_count"] == 12
+    assert next(row for row in third_period_reviews(out) if row["actor"] == "a")["participation_value"] == "PAUSED_NEW_WORK"
+
+
+def test_stale_original_review_source_cannot_qualify_portfolio_forecast():
+    out = simulate(fourth_period_finance_case(pause=True, stale=True))
+    a = next(row for row in third_period_reviews(out) if row["actor"] == "a")
+    assert a["evaluation_portfolio_forecast_scope_status"] == "UNKNOWN"
+    assert a["evaluation_economic_basis_status"] == "UNKNOWN"
+    assert a["participation_value"] == "PAUSED_NEW_WORK"
+    assert "w4" not in out["works"]
+
+
+def test_fourth_period_cannot_use_financial_rows_for_uncreated_work():
+    from research.akis.qualitative_mesa.rules import InputError
+    doc = fourth_period_finance_case()
+    next(row for row in doc["events"] if row["action"] == "participation_status"
+         and row.get("evaluated_work") == "w3" and row["actor"] == "a")["new_participation"] = "PAUSED_NEW_WORK"
+    with pytest.raises(InputError, match="ORIGINAL_ECONOMIC_WORK_MUST_EXIST"):
+        simulate(doc)

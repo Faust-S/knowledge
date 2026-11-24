@@ -934,10 +934,12 @@ def review_original_operator_service_economics(
     if any(row["scenario"] != "COOPERATION" or row["work"] not in scope
            for row in (*transfers.values(), *resources.values())):
         raise EconomicInputError("OPERATOR_SERVICE_ORIGINAL_SCOPE_MISMATCH")
-    if (source in {row["source"] for row in (*transfers.values(), *resources.values())}
-            or source == economic_claims["coverage"]["COOPERATION"].get(operator)
-            or source == economic_claims.get("lifecycle_costs", {}).get(
-                "scope_proofs", {}).get("COOPERATION", {}).get(operator)):
+    existing_scope_sources = {row["source"] for row in (*transfers.values(), *resources.values())}
+    existing_scope_sources.add(economic_claims["coverage"]["COOPERATION"].get(operator))
+    existing_scope_sources.add(economic_claims.get("lifecycle_costs", {}).get(
+        "scope_proofs", {}).get("COOPERATION", {}).get(operator))
+    if source_map[source]["reference"] in {
+            source_map[key]["reference"] for key in existing_scope_sources if key in source_map}:
         raise EconomicInputError("OPERATOR_SERVICE_SEPARATE_COST_NONOVERLAP_SOURCE_REQUIRED")
 
     def ids(field: str) -> set[str]:
@@ -988,7 +990,8 @@ def review_original_operator_service_economics(
         if owner in caps or owner not in fees_by_payer:
             raise EconomicInputError("OPERATOR_SERVICE_PAYER_LIMIT_SCOPE_MISMATCH")
         payer_source = _flow_ref(row["source"], source_map, {owner})
-        if payer_source in {transfers[key]["source"] for key in fee_ids}:
+        if source_map[payer_source]["reference"] in {
+                source_map[transfers[key]["source"]]["reference"] for key in fee_ids}:
             raise EconomicInputError("OPERATOR_SERVICE_SEPARATE_PAYER_LIMIT_SOURCE_REQUIRED")
         caps[owner] = _amount(row["maximum_total_fee"])
     if set(caps) != set(fees_by_payer):

@@ -97,6 +97,7 @@ def export_multiperiod_route_economics():
         compare as compare_periods, cumulative_routes, fourth_period_case,
         adverse_execution_cost_routes, delayed_receipt_routes,
         third_period_reviews, without_finance, outside_then_reenter_case, ACCEPTED,
+        fourth_period_finance_case,
     )
 
     trials = {
@@ -241,13 +242,37 @@ def export_multiperiod_route_economics():
             "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"
             if label.startswith(("return", "remain")) else "UNKNOWN")
         reentry.append(item)
+    complete_fourth = []
+    for label, doc in sorted({
+        "fourth_original_finance": fourth_period_finance_case(),
+        "early_review_and_later_cost_shock": fourth_period_finance_case(early=True, material="520.00"),
+        "missing_opening_owner_position": fourth_period_finance_case(missing_opening=True),
+        "independent_pause_without_fourth_money": fourth_period_finance_case(pause=True),
+        "stale_review_and_independent_pause": fourth_period_finance_case(pause=True, stale=True),
+    }.items()):
+        out = simulate(doc)
+        rows = third_period_reviews(out)
+        eco = out["economics"]
+        complete_fourth.append({
+            "trial": label,
+            "original_accepted_work_count": sum(row["result"] == ACCEPTED for row in out["works"].values()),
+            "original_transfer_count": eco["transfers_count"],
+            "original_resource_use_count": eco["resource_uses_count"],
+            "source_qualified_accepted_portfolio_forecast_review_count": sum(
+                row["evaluation_portfolio_forecast_scope_status"] ==
+                "MODEL_ORIGINAL_ACCEPTED_PORTFOLIO_FORECAST_SCOPE_QUALIFIED" for row in rows),
+            "source_claimed_full_transfer_count": eco["work_payment_causality"]["settlement_progress"]["source_claimed_full_transfer_count"],
+            "actual_bank_balance_at_review_verified": False,
+            "future_work_financial_information_used_for_prior_review": False,
+        })
     manifest = {
-        "schema": "AKIS_R1P_R3_CUMULATIVE_EXECUTED_ROUTE_ECONOMICS/1.1",
+        "schema": "AKIS_R1P_R3_CUMULATIVE_EXECUTED_ROUTE_ECONOMICS/1.2",
         "engine": "MESA_3_5_2",
         "matched_route_experiments": results,
         "fourth_period_original_feedback_experiments": fourth,
         "unqualified_measurement_experiments": negative_capacity,
         "external_execution_and_independent_reentry_experiments": reentry,
+        "four_period_original_financial_scope_and_prior_portfolio_forecast_experiments": complete_fourth,
         "private_owner_amounts_and_source_references_excluded": True,
         "independent_owner_review_is_not_automatic_consent": True,
         "no_cumulative_ledger_created_outside_original_model": True,

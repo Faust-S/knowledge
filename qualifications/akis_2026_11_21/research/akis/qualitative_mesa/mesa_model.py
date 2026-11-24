@@ -894,6 +894,26 @@ class OperatorAKISModel(mesa.Model):
                         self.qualitative.works[work_id].source_revision)
                     outcome["evaluation_economic_basis_accepted_at"] = (
                         event["evaluation_economic_outside_basis"]["accepted_at"])
+            if event.get("evaluation_economic_portfolio") is True:
+                outcome["evaluation_portfolio_forecast_scope_status"] = "UNKNOWN"
+                outcome["evaluation_portfolio_is_not_current_bank_balance"] = True
+                outcome["evaluation_portfolio_private_amounts_and_reserve_verdict_not_redisclosed"] = True
+                committed = {row.get("work") for row in self.qualitative.trace
+                             if row.get("action") == "commit" and row.get("outcome") == "APPLIED"
+                             and row["at"] < int(self.time)}
+                if (isinstance(self.strict_economic_source_work, tuple)
+                        and work_id in committed and committed <= set(scope)):
+                    prefix = tuple(key for key in scope if key in committed)
+                    status = review_completed_original_owner_finance(
+                        state=self.qualitative, original_money=self.economic_claims,
+                        work_id=work_id, owner=event["actor"],
+                        review_source=event.get("participation_evidence_ref"),
+                        review_revision=event["evaluation_economic_source_revision"],
+                        at=int(self.time), portfolio_work_ids=prefix,
+                    )
+                    outcome["evaluation_portfolio_forecast_scope_status"] = status
+                    if status == "MODEL_ORIGINAL_ACCEPTED_PORTFOLIO_FORECAST_SCOPE_QUALIFIED":
+                        outcome["evaluation_portfolio_original_completed_work_count"] = len(prefix)
             # The returned status and the owner's own verdict are different:
             # neither a missing source nor a favourable sum creates consent.
         if (event["action"] == "subject_registration_apply"
