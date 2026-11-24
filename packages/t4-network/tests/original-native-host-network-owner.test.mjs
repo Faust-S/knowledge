@@ -16,7 +16,7 @@ const sha=x=>createHash('sha256').update(x).digest('hex');
 const hash=x=>'sha256:'+sha(x);
 const keyS=generateKeyPairSync('ed25519'),keyR=generateKeyPairSync('ed25519');
 function kernelFixture(name){
-  const rows=new Map(),events=[];let writes=0;
+  const rows=new Map(),events=[],graphReplays=new Map();let writes=0,graphInvocations=0;
   const kernel={hasOperation:()=>true,
     async getObject(ws,id){return clone(rows.get(ws+':'+id)??null)},
     async listObjects(q){return clone([...rows.values()].filter(r=>r.object.workspace_id===q.workspace_id).map(r=>r.object))},
@@ -30,9 +30,40 @@ function kernelFixture(name){
         event_id:'event:k14:'+name+':'+writes,event_type:p.event.event_type,payload:clone(p.event.payload??{}),
         service_id:'service:k14',occurred_at:new Date(Date.UTC(2026,10,24,0,0,writes)).toISOString()};
       rows.set(key,{object,relations:{incoming:[],outgoing:[]}});events.push(event);return {object,event};
+    },
+    async commitObjectGraph(p){
+      graphInvocations++;
+      const replayKey=p.workspace_id+':'+p.idempotency_key,prior=graphReplays.get(replayKey);
+      if(prior){assert.deepEqual(p,prior.input);return clone({...prior.receipt,deduplicated:true});}
+      const key=p.workspace_id+':'+p.object.object_id,previous=rows.get(key);
+      assert.equal(p.object.base_revision,previous?.object.revision??0);writes++;
+      const object={workspace_id:p.workspace_id,object_id:p.object.object_id,schema_id:p.object.schema_id,
+        schema_version:p.object.schema_version,revision:p.object.base_revision+1,deleted:false,
+        data:clone(p.object.data),extensions:{...previous?.object.extensions,...p.object.extensions}};
+      rows.set(key,{object,relations:clone(previous?.relations??{incoming:[],outgoing:[]})});
+      const puts=(p.relation_puts??[]).map(r=>({...r,workspace_id:p.workspace_id,created_by_service:'iwxa.workspace.relay'}));
+      const deletes=(p.relation_deletes??[]).map(r=>r.relation_id);
+      for(const row of rows.values())if(row.object.workspace_id===p.workspace_id){
+        row.relations.incoming=row.relations.incoming.filter(r=>!deletes.includes(r.relation_id));
+        row.relations.outgoing=row.relations.outgoing.filter(r=>!deletes.includes(r.relation_id));
+      }
+      for(const r of puts){
+        rows.get(p.workspace_id+':'+r.from_object_id).relations.outgoing.push(r);
+        rows.get(p.workspace_id+':'+r.to_object_id).relations.incoming.push(r);
+      }
+      const transaction_id='tx:k21:'+name+':'+writes;
+      const event={workspace_id:p.workspace_id,object_id:object.object_id,revision:object.revision,
+        event_id:'event:k14:'+name+':'+writes,event_type:p.event.event_type,payload:clone(p.event.payload??{}),
+        service_id:'iwxa.workspace.relay',occurred_at:new Date(Date.UTC(2026,10,24,0,0,writes)).toISOString(),
+        correlation_id:transaction_id,idempotency_key:p.idempotency_key};
+      events.push(event);
+      const receipt={workspace_id:p.workspace_id,transaction_id,object,event,relations_put:puts,
+        relation_ids_deleted:deletes,deduplicated:false};
+      graphReplays.set(replayKey,{input:clone(p),receipt:clone(receipt)});
+      return clone(receipt);
     }
   };
-  return {kernel,events,rows,get writes(){return writes}};
+  return {kernel,events,rows,get writes(){return writes},get graphInvocations(){return graphInvocations}};
 }
 function wireFixture(){
   const frames=new Map();let puts=0,gets=0,lists=0;
@@ -85,7 +116,7 @@ async function sourceFixture(loseOriginalWrite=false){
   return {...f,technicalWorkspaceId:tech,before,capture,baselineEvent};
 }
 function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=deny,requestBaseline=true,
-  localCapture=false,localAdmission=allow}){
+  localCapture=false,localGraph=false,localAdmission=allow}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
@@ -138,7 +169,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
   const info={contract_version:'1.3.0',runtime_version:'0.3.6',service_id:'iwxa.workspace.relay',mode:'ready',
     granted_operations:[...new Set(['t1.getWorkspace','t1.commitObjectGraph','t1.getObject','t1.listEventsSince',...owner.operations])]};
   const attach=()=>relay.exchange({verb:'attach',payload:{sessionInfo:info,networkRelayVersion:1,
-    ...(localCapture?{localSourceMutationVersion:1}:{})}},epoch);
+    ...(localCapture?{localSourceMutationVersion:1,...(localGraph?{localSourceGraphVersion:1}:{})}:{})}},epoch);
   async function drive(session,target){
     // The production HTTP socket keeps the existing unref'ed long poll
     // alive. This in-process browser test has no socket, so bound its
@@ -333,5 +364,46 @@ test('K20 local source route is opt-in and unavailable to an old relay handshake
       method:'putObject',args:[mutation('o:k20:forbidden','x','business.created')]}},s.contextEpoch),
       {code:'T3_ORIGINAL_LOCAL_SOURCE_MUTATION_NOT_AVAILABLE'});
     assert.equal(source.events.filter(e=>e.workspace_id===WS).length,2);
+  }finally{f.relay.close();}
+});
+
+test('K21 existing native signed relay captures atomic graph and returns original dedup receipt with one business Event',async()=>{
+  const store=kernelFixture('local-graph');store.technicalWorkspaceId='ws:k21:native:technical';
+  const baseId='o:k21:base',targetId='o:k21:new';
+  const baselineEvent=(await store.kernel.putObject(mutation(baseId,'baseline','business.baseline'))).event;
+  const before=(await readT4OriginalEventWindow({workspaceId:WS,originalWriteOwnerRef:OWNER,
+    authorizeOriginalRead:allow,readOriginalEvents:()=>store.kernel.listEventsSince(WS),maxEvents:1})).nextCursor;
+  const wire=wireFixture(),f=nativeFixture({role:'SOURCE',store,wire,localCapture:true,localGraph:true,
+    baselineInput:{sourceCursor:before,originalBaselineRef:baselineEvent.event_id,
+      originalBaselineDigest:hash(JSON.stringify(baselineEvent))}});
+  try{
+    const session=await f.attach();
+    assert.equal(session.localSourceMutationVersion,1);
+    assert.equal(session.localSourceGraphVersion,1);
+    assert.ok(session.localSourceMutationMethods.includes('commitObjectGraph'));
+    await f.drive(session,'ADMITTED');await new Promise(resolve=>setImmediate(resolve));
+    const input={workspace_id:WS,idempotency_key:'original graph key',
+      object:{object_id:targetId,schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+        base_revision:0,data:{title:'atomic graph'},extensions:{}},
+      relation_puts:[{relation_id:'r:k21:local',from_object_id:targetId,to_object_id:baseId,kind:'related'}],
+      relation_deletes:[],event:{event_type:'business.graph.created',payload:{}}};
+    assert.equal(await f.owner.resolveOriginalAccess({sessionId:session.sessionId,contextEpoch:session.contextEpoch,
+      operation:'t1.commitObjectGraph',args:[input]}),null);
+    const first=await f.invokeLocal(session,'commitObjectGraph',input);
+    assert.equal(first.state,'ORIGINAL_SOURCE_MUTATION_CAPTURED');assert.equal(first.originalT3OutboxVerified,true);
+    assert.equal(first.originalReceipt.deduplicated,false);
+    assert.equal(first.originalReceipt.relations_put.length,1);
+    assert.equal(first.originalReceipt.event.correlation_id,first.originalReceipt.transaction_id);
+    const again=await f.invokeLocal(session,'commitObjectGraph',input);
+    assert.equal(again.captureRef,first.captureRef);assert.equal(again.originalReceipt.deduplicated,true);
+    assert.equal(again.originalReceipt.transaction_id,first.originalReceipt.transaction_id);
+    assert.equal(store.graphInvocations,2);
+    assert.equal(store.events.filter(e=>e.workspace_id===WS).length,2);
+    assert.equal(store.events.filter(e=>e.payload?.role==='outbox').length,1);
+    assert.equal(store.events.filter(e=>e.payload?.role==='intent').length,1);
+    assert.equal(f.commands.filter(c=>c.method==='commitObjectGraph').length,2);
+    assert.ok(f.local.proofCount>0);assert.ok(f.technical.proofCount>0);
+    const target=await store.kernel.getObject(WS,targetId),base=await store.kernel.getObject(WS,baseId);
+    assert.deepEqual(target.relations.outgoing,base.relations.incoming);
   }finally{f.relay.close();}
 });
