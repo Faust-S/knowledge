@@ -1,3 +1,5 @@
+import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
+  from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
 import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,
@@ -116,11 +118,13 @@ function slotList(slots,types){
 }
 
 export function createT4OriginalNetworkPublicationPort({
+  technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   session,localNodeRef,technicalWorkspaceId,originalKernel,getMode,
   readOriginalHostContext,authorizeOriginalTechnicalRead,
   authorizeOriginalTechnicalWrite,authorizeOriginalFramePublish,
   verifyOriginalNodeSignature,frameTransport,
 }={}){
+  requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   const identity=canonicalSession(session);
   if(!same(identity,session)||
     ![identity.sourceNodeRef,identity.recipientNodeRef].includes(localNodeRef)||
@@ -300,7 +304,7 @@ export function createT4OriginalNetworkPublicationPort({
     }
     const o=row?.object,d=o?.data;
     if(o?.workspace_id!==technicalWorkspaceId||o.object_id!==checkpointRef||
-      o.schema_id!=='iwxa.demo.note'||o.schema_version!=='1.0.0'||o.deleted===true||
+      o.schema_id!==technicalSchemaId||o.schema_version!=='1.0.0'||o.deleted===true||
       d?.schema!==SCHEMA||d.checkpointRef!==checkpointRef||
       !same(d.identity,recordIdentity)||!Array.isArray(d.entries)||
       !d.entries.length||d.entries.length>MAX_FRAMES||
@@ -342,7 +346,7 @@ export function createT4OriginalNetworkPublicationPort({
     const revision=current.revision+1;
     const event=eventRecord(revision,current.chainHash,action,slots);
     const input={workspace_id:technicalWorkspaceId,object_id:checkpointRef,
-      schema_id:'iwxa.demo.note',schema_version:'1.0.0',base_revision:current.revision,
+      schema_id:technicalSchemaId,schema_version:'1.0.0',base_revision:current.revision,
       data:{schema:SCHEMA,title:'Original T3 native publication',
         checkpointRef,identity:clone(recordIdentity),entries:clone(entries),
         chainHash:event.chainHash},extensions:{},
@@ -543,6 +547,7 @@ export function createT4OriginalNetworkPublicationPort({
     session:identity,checkpointRef,inspectOriginalPublication,
     prepareSignedBatch,publishPreparedFrame,readOriginalPublishedFrame,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkPublicationPort({
+      technicalSchemaId,
       session:identity,localNodeRef,technicalWorkspaceId,originalKernel,
       getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,

@@ -1,3 +1,5 @@
+import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
+  from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
 import {isT4NativeSubjectKind,validT4NativeSubjectRevision}
@@ -49,6 +51,7 @@ function proofEvidence(phase,e,changeKind){
   return clone(e);
 }
 export function createT4OriginalNetworkSessionPhasePort({
+  technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   originalKernel,technicalWorkspaceId,originalWriteOwnerRef,
   sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef,sessionRef,
   changeId,ownerEpoch,changeKind='OBJECT_PUT',recipientApplyIntentRequired=false,
@@ -56,6 +59,7 @@ export function createT4OriginalNetworkSessionPhasePort({
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,
 }={}){
+  requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   if(![technicalWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
     recipientNodeRef,localNodeRef,scopeRef,sessionRef,changeId]
     .every(ID)||!isT4NativeSubjectKind(changeKind)||
@@ -139,7 +143,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     const obj=row?.object,d=obj?.data;
     if(obj?.workspace_id!==technicalWorkspaceId||
       obj.object_id!==checkpointRef||
-      obj.schema_id!=='iwxa.demo.note'||
+      obj.schema_id!==technicalSchemaId||
       obj.schema_version!=='1.0.0'||obj.deleted===true||
       d?.schema!==SCHEMA||d.checkpointRef!==checkpointRef||
       !eq(d.identity,identity)||!Array.isArray(d.stages)||
@@ -301,7 +305,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     };
     const input={
       workspace_id:technicalWorkspaceId,object_id:checkpointRef,
-      schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+      schema_id:technicalSchemaId,schema_version:'1.0.0',
       data,extensions:{},base_revision:current.revision,
       event:{event_type:EVENT,payload:{
         checkpointRef,phase,index:next.index,
@@ -348,6 +352,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1',
     inspectOriginalSession,advanceOriginalSessionPhase,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkSessionPhasePort({
+      technicalSchemaId,
       originalKernel,technicalWorkspaceId,originalWriteOwnerRef,
       sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef,sessionRef,
       changeId,ownerEpoch,changeKind,recipientApplyIntentRequired,

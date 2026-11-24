@@ -1,3 +1,5 @@
+import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
+  from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
 import {validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions}
@@ -130,12 +132,14 @@ function checkRecord(identity,item,previousHash){
     fail('HOST_CURSOR_ORIGINAL_FRONTIER_HASH_MISMATCH');
 }
 export function createT4OriginalNetworkHostCursorPort({
+  technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   originalKernel,technicalWorkspaceId,sourceWorkspaceId,
   originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
   scopeRef,ownerEpoch,getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   authorizeOriginalSourceRead,readOriginalSourceEvents,
 }={}){
+  requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   if(![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef].every(ID)||
     sourceNodeRef===recipientNodeRef||
@@ -219,7 +223,7 @@ export function createT4OriginalNetworkHostCursorPort({
     const obj=row?.object,data=obj?.data;
     if(obj?.object_id!==checkpointRef||
       obj.workspace_id!==technicalWorkspaceId||
-      obj.schema_id!=='iwxa.demo.note'||
+      obj.schema_id!==technicalSchemaId||
       obj.schema_version!=='1.0.0'||obj.deleted===true||
       data?.schema!==SCHEMA||!same(data.identity,identity)||
       !Number.isSafeInteger(obj.revision)||obj.revision<1||
@@ -328,7 +332,7 @@ export function createT4OriginalNetworkHostCursorPort({
     const data={schema:SCHEMA,title:'Original T3 native ACK source frontier',
       identity:copy(identity),last:copy(desired)};
     const input={workspace_id:technicalWorkspaceId,object_id:checkpointRef,
-      schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+      schema_id:technicalSchemaId,schema_version:'1.0.0',
       data,extensions:{},base_revision:current.revision,
       event:{event_type:EVENT,payload:{
         checkpointRef,identity:copy(identity),chainHash:desired.chainHash,
@@ -427,6 +431,7 @@ export function createT4OriginalNetworkHostCursorPort({
     inspectOriginalHostCursor,commitAcknowledgedCursor,
     readNextOriginalSourceEvent,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkHostCursorPort({
+      technicalSchemaId,
       originalKernel,technicalWorkspaceId,sourceWorkspaceId,
       originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,
       getMode:originalHostLifetimeMode(getMode,isHostActive),readOriginalHostContext,
@@ -494,12 +499,14 @@ function checkRecipientEvent(identity,session,event,receiptRef,stateDigest,event
  * Events, not the availability of remote ciphertext or ACK files.
  */
 export function createT4OriginalNetworkRecipientCursorPort({
+  technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   originalKernel,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
   sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   authorizeOriginalRecipientRead,authorizeOriginalSourceRead,readOriginalSourceEvents,
   readOriginalAdmittedBaseline,verifyOriginalRecipientBaseline,readOriginalDependencyCoverage,
 }={}){
+  requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   if(![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
     recipientNodeRef,scopeRef].every(ID)||sourceNodeRef===recipientNodeRef||
     technicalWorkspaceId===sourceWorkspaceId||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
@@ -585,7 +592,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
       found={revision:0,last:null,cursor:copy(b.sourceCursor),chainHash:g,baseline:b};
     }else{
       if(obj?.workspace_id!==technicalWorkspaceId||obj.object_id!==checkpointRef||
-        obj.schema_id!=='iwxa.demo.note'||obj.schema_version!=='1.0.0'||obj.deleted!==false||
+        obj.schema_id!==technicalSchemaId||obj.schema_version!=='1.0.0'||obj.deleted!==false||
         !Number.isSafeInteger(obj.revision)||obj.revision<1||
         d?.schema!==RECIPIENT_SCHEMA||!same(d.identity,identity)||!same(d.baseline,b)||
         !same(Object.keys(d).sort(),['baseline','identity','last','schema','title'])||
@@ -754,7 +761,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
     try{
       const receipt=await originalKernel.putObject({
         workspace_id:technicalWorkspaceId,object_id:checkpointRef,
-        schema_id:'iwxa.demo.note',schema_version:'1.0.0',base_revision:current.revision,
+        schema_id:technicalSchemaId,schema_version:'1.0.0',base_revision:current.revision,
         data:{schema:RECIPIENT_SCHEMA,title:'Original T3 native recipient frontier',
           identity:copy(identity),baseline:copy(current.baseline),last:copy(desired)},extensions:{},
         event:{event_type:RECIPIENT_EVENT,payload:{checkpointRef,identity:copy(identity),
@@ -777,6 +784,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
     identity,checkpointRef,originalT3OnlyStore:true,createsScheduler:false,
     readOriginalVerifiedCursor,persistOriginalVerifiedCursor,inspectOriginalRecipientCursor,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkRecipientCursorPort({
+      technicalSchemaId,
       originalKernel,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
       sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,
       getMode:originalHostLifetimeMode(getMode,isHostActive),readOriginalHostContext,

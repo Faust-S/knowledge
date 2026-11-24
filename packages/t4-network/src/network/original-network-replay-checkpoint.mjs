@@ -1,3 +1,5 @@
+import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
+  from './original-network-technical-schema.mjs';
 import {createHash} from 'node:crypto';
 
 /**
@@ -46,10 +48,12 @@ function replayRef(proof){
   };
 }
 export function createT4OriginalNetworkReplayPort({
+  technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   originalKernel,technicalWorkspaceId,originalWriteOwnerRef,
   localNodeRef,scopeRef,getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
 }={}){
+  requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   if(![technicalWorkspaceId,originalWriteOwnerRef,localNodeRef,scopeRef]
     .every(ID)||![getMode,readOriginalHostContext,
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite]
@@ -105,7 +109,7 @@ export function createT4OriginalNetworkReplayPort({
     if(row?.object?.workspace_id!==technicalWorkspaceId||
       row?.object?.object_id!==key.checkpointRef||
       row?.object?.revision!==1||
-      row?.object?.schema_id!=='iwxa.demo.note'||
+      row?.object?.schema_id!==technicalSchemaId||
       row?.object?.schema_version!=='1.0.0'||
       row?.object?.deleted===true||
       data?.schema!==SCHEMA||
@@ -171,7 +175,7 @@ export function createT4OriginalNetworkReplayPort({
     const input={
       workspace_id:technicalWorkspaceId,
       object_id:key.checkpointRef,
-      schema_id:'iwxa.demo.note',schema_version:'1.0.0',
+      schema_id:technicalSchemaId,schema_version:'1.0.0',
       data,extensions:{},base_revision:0,
       event:{event_type:EVENT,payload:{
         checkpointRef:key.checkpointRef,

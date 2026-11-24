@@ -55,6 +55,9 @@ import {createT4OriginalHostExchangeCycle}
   from '../src/network/original-host-exchange-cycle.mjs';
 import {createT4OriginalNetworkReplayPort}
   from '../src/network/original-network-replay-checkpoint.mjs';
+import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,prepareT4OriginalNetworkTechnicalSchemaRegistration,
+  assertT4OriginalNetworkTechnicalSchemaRegistered}
+  from '../src/network/original-network-technical-schema.mjs';
 import {createT4OriginalNetworkSessionPhasePort}
   from '../src/network/original-network-session-phases.mjs';
 import {verifyT4OriginalSourceHeadCausality}
@@ -200,6 +203,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
     live=await serveRealKernelHost(dist);
     const host=materializeIntegrationHost(dist,live.origin);
     host.passport.permissions.operations=['t1.commitObjectGraph'];
+    const registration=prepareT4OriginalNetworkTechnicalSchemaRegistration(host);
+    host.domain=registration.domain;host.passport=registration.passport;
+    assert.equal(assertT4OriginalNetworkTechnicalSchemaRegistered(host),T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID);
     host.domain.runtime.kernel_release=ORIGINAL_KERNEL;
     host.domain.runtime.runtime_version=ORIGINAL_KERNEL;
     host.workspaceConfig.host.required_runtime_version=ORIGINAL_KERNEL;
@@ -2857,6 +2863,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       });
       let replayOriginalHostSession='original:replay:host:'+randomUUID();
       const nativeReplayBinding=()=>createT4OriginalNetworkReplayPort({
+        technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
         originalKernel:replayKernel,
         technicalWorkspaceId:nativeReplayWorkspace,
         originalWriteOwnerRef:'original:t2:exchange',
@@ -2974,6 +2981,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       let sourcePhaseHostSession='original:phase:source:initial';
       let recipientPhaseHostSession='original:phase:recipient:initial';
       const originalSourcePhase=()=>createT4OriginalNetworkSessionPhasePort({
+        technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
         originalKernel:originalCarrierKernel,
         technicalWorkspaceId:sourceCaptureWorkspace,
         originalWriteOwnerRef:'original:t2:exchange',
@@ -3015,6 +3023,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         verifyOriginalRecipientApplied:async()=>false,
       });
       const originalRecipientPhase=()=>createT4OriginalNetworkSessionPhasePort({
+        technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
         originalKernel:replayKernel,
         technicalWorkspaceId:nativeReplayWorkspace,
         originalWriteOwnerRef:'original:t2:exchange',
@@ -3175,6 +3184,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         });
       };
       const sourceReplayPhasePort=createT4OriginalNetworkReplayPort({
+        technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
         originalKernel:originalCarrierKernel,
         technicalWorkspaceId:sourceCaptureWorkspace,
         originalWriteOwnerRef:'original:t2:exchange',
@@ -3540,6 +3550,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       let p2cRecipientHostSession='host:p22c:recipient:initial';
       let p2cSignedAppliedAck=null;
       const p2cSourcePhase=()=>createT4OriginalNetworkSessionPhasePort({
+        technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
         originalKernel:originalCarrierKernel,
         technicalWorkspaceId:sourceCaptureWorkspace,
         originalWriteOwnerRef:'original:t2:exchange',
@@ -3605,6 +3616,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         },
       });
       const p2cRecipientPhase=()=>createT4OriginalNetworkSessionPhasePort({
+        technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
         originalKernel:replayKernel,
         technicalWorkspaceId:nativeReplayWorkspace,
         originalWriteOwnerRef:'original:t2:exchange',
@@ -3830,6 +3842,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         },
       };
       const p2eCursorPort=()=>createT4OriginalNetworkHostCursorPort({
+        technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
         originalKernel:p2eOriginalFrontierKernel,
         technicalWorkspaceId:sourceCaptureWorkspace,
         sourceWorkspaceId:workspaceId,
@@ -4234,6 +4247,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.deepEqual(session,durableSession);
         const transport=isSource?nativeSender:nativeReceiver();
         return createT4OriginalNetworkPublicationPort({
+          technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
           session,localNodeRef:isSource?'node:original:source':'node:original:recipient',
           technicalWorkspaceId:isSource?sourceCaptureWorkspace:nativeReplayWorkspace,
           originalKernel:isSource?f2SourceKernel:f2RecipientKernel,
@@ -4381,6 +4395,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           originalMutationBoundaryRef:'boundary:recipient:fixture:'+recipientDeletionBoundaryEntries};
       };
       const nativeRecipientFrontier=()=>createT4OriginalNetworkRecipientCursorPort({
+        technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
         ...recipientBaselineIdentity,originalKernel:{
           ...recipientKernel,putObject:async input=>{
             assert.equal(input.event.event_type,'t4.network.original.host.recipient.frontier');
@@ -4435,6 +4450,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           result.originalRecipientStateDigest===p.originalRecipientStateDigest;
       };
       const p2eSourcePhase=()=>createT4OriginalNetworkSessionPhasePort({
+        technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
         originalKernel:originalCarrierKernel,
         technicalWorkspaceId:sourceCaptureWorkspace,
         originalWriteOwnerRef:'original:t2:exchange',
@@ -4503,6 +4519,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         verifyOriginalRecipientApplied:p2eOriginalApplied,
       });
       const p2eRecipientPhase=()=>createT4OriginalNetworkSessionPhasePort({
+        technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
         recipientApplyIntentRequired:true,originalKernel:replayKernel,
         technicalWorkspaceId:nativeReplayWorkspace,
         originalWriteOwnerRef:'original:t2:exchange',
