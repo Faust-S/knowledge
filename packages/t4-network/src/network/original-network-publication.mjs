@@ -148,12 +148,16 @@ export function createT4OriginalNetworkPublicationPort({
   async function guard(ctx,operation,purpose,frame=null){
     if(!same(await context(),ctx))
       fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED',{automaticRetryAllowed:false});
+    const signedFrame=frame===null?null:frameFor(frame);
     const proof=Object.freeze({operation,purpose,checkpointRef,
       technicalWorkspaceId,originalWriteOwnerRef:identity.originalWriteOwnerRef,
       localNodeRef,remoteNodeRef,scopeRef:identity.scopeRef,
       sessionRef:identity.sessionRef,changeId:identity.changeId,
       ownerEpoch:identity.ownerEpoch,sourceEventId:identity.sourceEventId,
       frameSequence:frame?.sequence??null,frameSha256:frame?.sha256??null,
+      signerRef:signedFrame?.signerRef??null,
+      permissionRef:signedFrame?.permissionRef??null,
+      frameMessageType:signedFrame?.messageType??null,
       originalHostAuthorityRequired:true,networkReceiptIsNotBusinessResult:true});
     const allowed=operation==='t1.putObject'?authorizeOriginalTechnicalWrite:
       operation.startsWith('t1.')?authorizeOriginalTechnicalRead:
@@ -206,7 +210,8 @@ export function createT4OriginalNetworkPublicationPort({
       // A process may not create fresh ciphertext for an already reserved
       // CHANGE_REF sequence after a lost response.
       if(changes.length!==1||frames[0]!==changes[0]||
-        chunks.length!==frames.length-1||!chunks.length)
+        chunks.length!==frames.length-1||!chunks.length||
+        chunks.some((f,i)=>f.body.chunkIndex!==i))
         fail('PUBLICATION_COMPLETE_CHANGE_CHUNK_BATCH_REQUIRED');
       assembleT4CandidateOpaqueChunks({
         bodies:chunks.map(f=>f.body),expectedChangeId:identity.changeId,
@@ -214,6 +219,20 @@ export function createT4OriginalNetworkPublicationPort({
         expectedEncryptionContextRef:chunks[0].body.encryptionContextRef,
       });
     }
+  }
+  function verifySessionEntries(entries){
+    const once=new Set(['HELLO','CAPABILITIES','HEADS','DIFF_REQUEST',
+      'CHANGE_REF','RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK']);
+    const seen=new Set(),messageIds=new Set();
+    for(const e of entries){
+      const frame=frameFor(e);
+      if(messageIds.has(frame.messageId)||
+        (once.has(frame.messageType)&&seen.has(frame.messageType)))
+        fail('PUBLICATION_SESSION_FRAME_ALREADY_RESERVED');
+      messageIds.add(frame.messageId);seen.add(frame.messageType);
+    }
+    if(source&&seen.has('CHANGE_REF')&&!seen.has('HEADS'))
+      fail('PUBLICATION_SESSION_HEADS_REQUIRED');
   }
   function eventRecord(revision,previousHash,action,slots){
     const data={checkpointRef,revision,previousHash,action,slots};
@@ -288,6 +307,7 @@ export function createT4OriginalNetworkPublicationPort({
       frameFor(entry);total+=Buffer.byteLength(entry.wireText,'utf8');
     }
     if(total>MAX_WIRE_BYTES)fail('PUBLICATION_SIGNED_BYTES_LIMIT');
+    verifySessionEntries(d.entries);
     // Original PREPARE events are also the exact batch boundaries.
     for(const ev of events.filter(e=>e.payload.action==='PREPARE')){
       const slots=ev.payload.slots;
@@ -375,10 +395,13 @@ export function createT4OriginalNetworkPublicationPort({
     }));
     if(!Array.isArray(produced)||produced.length!==requested.length)
       fail('PUBLICATION_SIGNED_BATCH_INVALID');
-    const appended=[];
-    for(const [i,bytes] of produced.entries()){
+    const snapshots=produced.map(bytes=>{
       if(!(bytes instanceof Uint8Array))fail('PUBLICATION_SIGNED_BATCH_INVALID');
-      const copy=Buffer.from(bytes),frame=decodeT4CandidateFrame(copy);
+      return Buffer.from(bytes);
+    });
+    const appended=[];
+    for(const [i,copy] of snapshots.entries()){
+      const frame=decodeT4CandidateFrame(copy);
       if(frame.sequence!==requested[i].sequence||
         frame.messageType!==requested[i].messageType)
         fail('PUBLICATION_SIGNED_BATCH_INVALID');
@@ -388,6 +411,7 @@ export function createT4OriginalNetworkPublicationPort({
     }
     verifyBatch(appended);
     const entries=[...current.entries,...appended];
+    verifySessionEntries(entries);
     if(entries.reduce((s,e)=>s+Buffer.byteLength(e.wireText,'utf8'),0)>MAX_WIRE_BYTES)
       fail('PUBLICATION_SIGNED_BYTES_LIMIT');
     await commit(ctx,current,'PREPARE',entries,appended.map(descriptor));
@@ -427,8 +451,10 @@ export function createT4OriginalNetworkPublicationPort({
         newAttempt=true;
       }
     }
-    if(entry.state==='PRESENT'&&recovered)
+    if(entry.state==='PRESENT'&&recovered){
+      await verifyFrame(ctx,entry,'confirmed-remote-readback');
       return result(entry,'ALREADY_PRESENT_VERIFIED',current.revision);
+    }
     if(newAttempt){
       const entries=clone(current.entries),at=entries[sequence-1];
       const action=entry.state==='PREPARED'?'ATTEMPT':'RETRY';

@@ -1,3 +1,5 @@
+import {deriveT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
+
 /**
  * Optional trusted task callback for the EXISTING original T3 Host.
  *
@@ -32,6 +34,7 @@ const taskProof=context=>Object.freeze({
 export function createT4OriginalHostDispatchTaskBinding({
   expectedWorkspaceId,expectedOriginalWriteOwnerRef,expectedNetworkTargetRef,
   getMode,readOriginalHostContext,authorizeOriginalHostTask,dispatcher,
+  createOriginalNativePublicationPort,
 }={}) {
   if(![expectedWorkspaceId,expectedOriginalWriteOwnerRef,
     expectedNetworkTargetRef].every(ID)||
@@ -152,6 +155,82 @@ export function createT4OriginalHostDispatchTaskBinding({
       result,
     });
   }
+  async function executeNativePublication({slots,createSignedFrames,
+    publish=true,retryMissing=false}={}){
+    if(typeof publish!=='boolean'||typeof retryMissing!=='boolean')
+      fail('HOST_TASK_NATIVE_PUBLICATION_OPTIONS_INVALID');
+    if(mode()==='LOCAL_T3')return Object.freeze({
+      schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_PUBLICATION_TICK_V1',
+      mode:'LOCAL_T3',prepared:false,networkPublished:false,originalOutboxRead:false,
+    });
+    if(typeof createOriginalNativePublicationPort!=='function')
+      fail('HOST_TASK_ORIGINAL_NATIVE_PUBLICATION_PORT_REQUIRED');
+    const initial=await verify();
+    const tick=await prepareNative();
+    if(!tick.prepared)return Object.freeze({
+      schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_PUBLICATION_TICK_V1',
+      mode:'T4_NETWORK',prepared:false,networkPublished:false,
+      state:'NO_NEXT_ORIGINAL_EVENT',originalRecipientApplied:false,
+    });
+    const session=deriveT4OriginalNativeCaptureSession(tick.result);
+    const port=await createOriginalNativePublicationPort(Object.freeze({
+      session,task:tick.result,originalHostSessionRef:initial.hostSessionRef,
+    }));
+    if(port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
+      JSON.stringify(port.session)!==JSON.stringify(session)||
+      port.originalT3OnlyStore!==true||port.createsScheduler!==false||
+      !['prepareSignedBatch','publishPreparedFrame','inspectOriginalPublication']
+        .every(op=>typeof port[op]==='function'))
+      fail('HOST_TASK_ORIGINAL_NATIVE_PUBLICATION_PORT_INVALID');
+    const refresh=async()=>{
+      await verify(initial);
+      const fresh=await prepareNative();
+      if(!fresh.prepared||
+        JSON.stringify(deriveT4OriginalNativeCaptureSession(fresh.result))!==
+          JSON.stringify(session)||
+        fresh.result.originalHostFrontierRevision!==tick.result.originalHostFrontierRevision)
+        fail('HOST_TASK_NATIVE_ORIGINAL_FRONTIER_CHANGED',{
+          automaticRetryAllowed:false,networkOutcomeMayExist:true,
+        });
+      await verify(initial);
+    };
+    await refresh();
+    const prepared=await port.prepareSignedBatch({
+      slots,createSignedFrames:typeof createSignedFrames==='function'?
+        ctx=>createSignedFrames({...ctx,task:tick.result}):undefined,
+    });
+    if(prepared?.sessionRef!==session.sessionRef||
+      !['ORIGINAL_SIGNED_BATCH_PREPARED','ORIGINAL_SIGNED_BATCH_ALREADY_PREPARED']
+        .includes(prepared.state)||prepared.originalT3EventChainVerified!==true||
+      prepared.networkPublished!==false||prepared.originalBusinessApplied!==false||
+      !Array.isArray(prepared.frames)||!prepared.frames.length)
+      fail('HOST_TASK_NATIVE_PUBLICATION_PLAN_INVALID');
+    await refresh();
+    const publications=[];
+    if(publish){
+      for(const frame of prepared.frames){
+        await refresh();
+        const result=await port.publishPreparedFrame({sequence:frame.sequence,retryMissing});
+        if(result?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_RESULT_V1'||
+          result.sessionRef!==session.sessionRef||result.sequence!==frame.sequence||
+          result.sha256!==frame.sha256||result.messageType!==frame.messageType||
+          result.immutableTransportReadback!==true||
+          result.originalBusinessApplied!==false||
+          result.sourceCursorAdvanced!==false||result.recipientCursorAdvanced!==false)
+          fail('HOST_TASK_NATIVE_PUBLICATION_RESULT_INVALID');
+        publications.push(result);
+        await refresh();
+      }
+    }
+    return Object.freeze({
+      schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_PUBLICATION_TICK_V1',
+      mode:'T4_NETWORK',prepared:true,session,preparedBatch:prepared,
+      publications:Object.freeze(publications),networkPublished:publish,
+      originalRecipientApplied:false,sourceCursorAdvanced:false,
+      originalHostTaskOwnerVerified:true,originalT3OnlyStore:true,
+      originalSubjectMutationInvoked:false,
+    });
+  }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_HOST_DISPATCH_TASK_BINDING_V1',
     createsScheduler:false,createsTaskEngine:false,
@@ -175,6 +254,14 @@ export function createT4OriginalHostDispatchTaskBinding({
       }
       const promise=prepareNative();
       active=promise;activeKind='NATIVE_PREPARE';
+      try{return await promise;}
+      finally{if(active===promise){active=null;activeKind=null;}}
+    },
+    async runNativePublication(options={}){
+      if(active!==null)
+        fail('HOST_TASK_OTHER_PROTOCOL_ACTIVE',{automaticRetryAllowed:false});
+      const promise=executeNativePublication(options);
+      active=promise;activeKind='NATIVE_PUBLICATION';
       try{return await promise;}
       finally{if(active===promise){active=null;activeKind=null;}}
     },
