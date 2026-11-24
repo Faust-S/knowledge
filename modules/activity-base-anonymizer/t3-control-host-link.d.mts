@@ -1,4 +1,5 @@
 import type {T3ActivityReview} from './t3-selected-host.mjs';
+import type {D05RouteReviewPort} from './d05-route-host.mjs';
 export type T3ControlActivityPort = {
   readSelected(): Promise<T3ActivityReview>;
   subscribeInvalidation(listener: () => void): () => void;
@@ -12,6 +13,7 @@ export type T3ControlActivityPort = {
 };
 export type T3ControlActivityBinding = {
   readonly port: T3ControlActivityPort;
+  readonly d05RouteHost?: D05RouteReviewPort;
   dispose(): void;
 };
 export function bindT3ControlActivityReview(input: {
@@ -32,4 +34,5 @@ export function openOriginalT3ActivityReviewHost(input: {
   readActivityFromWorkspaceContext: Function;
   createSubjectKernelBinding: Function;
   subscribeExistingInvalidation?: (listener: () => void) => () => void;
+  enableD05RouteReview?: boolean;
 }): Promise<T3ControlActivityBinding>;

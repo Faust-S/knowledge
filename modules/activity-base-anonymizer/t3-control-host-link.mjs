@@ -2,6 +2,7 @@
 // the Activity review UI. The original Kernel, signed grants, D1 and D2 remain
 // entirely within the owner Host; this module neither issues nor stores rights.
 import {inspectSelectedT3Activity, T3ActivityHold} from './t3-selected-host.mjs';
+import {reviewSelectedD05RouteModels} from './d05-route-host.mjs';
 import {createTrustedT3ActivityStagePort,
   recoverSelectedT3ActivityReview} from './t3-owner-review-stage.mjs';
 
@@ -268,6 +269,7 @@ export async function openOriginalT3ActivityReviewHost({
   control,context,originalKernel,reviewerKernel=null,
   bindings,readActivityFromWorkspaceContext,
   createSubjectKernelBinding,subscribeExistingInvalidation=null,
+  enableD05RouteReview=false,
 }={}) {
   need(control?.requireSignedOwner===true &&
     callable(control,['signedActivityAccess','subscribeSignedAccessInvalidation']) &&
@@ -286,6 +288,7 @@ export async function openOriginalT3ActivityReviewHost({
       reviewerKernel.hasOperation('t1.putObject')===true))&&
     typeof readActivityFromWorkspaceContext==='function'&&
     typeof createSubjectKernelBinding==='function'&&
+    typeof enableD05RouteReview==='boolean'&&
     (subscribeExistingInvalidation===null||
       typeof subscribeExistingInvalidation==='function'),
     'T3_CONTROL_ORIGINAL_HOST_REQUIRED');
@@ -381,8 +384,33 @@ export async function openOriginalT3ActivityReviewHost({
       derivation,
     });
     stopSelection();stopSelection=null;
+    // Explicit opt-in by the domain Host, not a grant or an inferred scope.
+    // Uses the same selected context and ORIGINAL Control invalidation relay.
+    const d05RouteHost=enableD05RouteReview?Object.freeze({
+      async readSelectedRoutes(){
+        need(!closed,'T3_CONTROL_HOST_DETACHED');
+        const selected=ownerContext.currentWorkspace.get();
+        let invalidated=false;
+        const stop=bridge.port.subscribeInvalidation(()=>{invalidated=true;});
+        try{
+          const signedAccess=await shared.signedActivityAccess('activity.read');
+          need(signedAccess&&!closed&&!invalidated&&
+            ownerContext.currentWorkspace.get()===selected,
+            'T3_CONTROL_CONTEXT_CHANGED_DURING_READ');
+          const result=await reviewSelectedD05RouteModels({
+            context:ownerContext,signedAccess,createSubjectKernelBinding,
+            subscribeOwnerInvalidation:shared.subscribeSignedAccessInvalidation,
+          });
+          need(!closed&&!invalidated&&ownerContext.currentWorkspace.get()===selected,
+            'T3_CONTROL_CONTEXT_CHANGED_DURING_READ');
+          return result;
+        }finally{stop();}
+      },
+      subscribeInvalidation:listener=>bridge.port.subscribeInvalidation(listener),
+    }):null;
     return Object.freeze({
       port:bridge.port,
+      ...(d05RouteHost?{d05RouteHost}:{}),
       dispose(){
         if(closed)return;
         closed=true;

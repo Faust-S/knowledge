@@ -12,7 +12,6 @@ const READS=['t1.getWorkspace','t1.listObjects','t1.getObject'];
 const record=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const need=(ok,code)=>{if(!ok)throw new ActivityHold(code);};
 const tag=v=>typeof v==='string'&&v.length>0&&v.length<=160;
-const own=(value,property)=>Object.hasOwn(value,property);
 const cmp=(a,b)=>a<b?-1:a>b?1:0;
 
 function validateRows(rows,workspaceId){
@@ -88,8 +87,8 @@ export async function reviewSelectedD05RouteModels({
     const wsDigest=await sha256Canonical(firstWorkspace);
     const rows=validateRows(await scoped.listObjects(query),workspaceId);
     // Capture before detail reads. Do not trust shared mutable references.
-    const firstDigest=await sha256Canonical(rows);
     const firstRows=structuredClone(rows);
+    const firstDigest=await sha256Canonical(firstRows);
     const details=[];
     for(const row of firstRows){
       checkLive();

@@ -55,7 +55,7 @@ export function useOriginalT2ActivityKernelFacade(session){
 export async function openActivityFromOriginalT2Host({
   session,reviewerSession=null,control,currentWorkspace,bindings,
   readActivityFromWorkspaceContext,createSubjectKernelBinding,
-  subscribeExistingInvalidation=null,
+  subscribeExistingInvalidation=null,enableD05RouteReview=false,
 }={}){
   required(currentWorkspace&&typeof currentWorkspace.get==='function'&&
     typeof currentWorkspace.subscribe==='function',
@@ -81,6 +81,6 @@ export async function openActivityFromOriginalT2Host({
     control,originalKernel,reviewerKernel,
     context:Object.freeze({kernel:originalKernel,currentWorkspace}),
     bindings,readActivityFromWorkspaceContext,createSubjectKernelBinding,
-    subscribeExistingInvalidation,
+    subscribeExistingInvalidation,enableD05RouteReview,
   });
 }
