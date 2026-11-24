@@ -1,0 +1,188 @@
+name: D07 TOP500 255 original T2 qualification
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d07-top500-255-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-top500-255
+  cancel-in-progress: true
+jobs:
+  method-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: f8e52955dfb0529e91558577178e1afc668663a8
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: domain
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 24e95996cb1af97479b818b8ed817f0ff31c7aa0
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Verify exact HEADs and domain parity
+        shell: bash
+        run: |
+          test "$(git -C domain rev-parse HEAD)" = "f8e52955dfb0529e91558577178e1afc668663a8"
+          test "$(git -C site rev-parse HEAD)" = "24e95996cb1af97479b818b8ed817f0ff31c7aa0"
+          for f in service-subject-protocols.ts service-subject-next500-batch-j1.ts service-subject-next500-batch-j2.ts service-subject-next500-batch-j3.ts service-subject-next500-batch-j4.ts service-subject-next500-batch-j5.ts service-subject-next500-batch-k1.ts service-subject-next500-batch-k2.ts service-subject-next500-batch-k3.ts service-subject-next500-batch-k4.ts service-subject-next500-batch-k5.ts service-subject-next500-batch-l1.ts service-subject-next500-batch-l2.ts service-subject-next500-batch-l4.ts service-subject-next500-batch-l6.ts service-subject-next500-batch-l7.ts service-subject-next500-batch-m1.ts service-subject-next500-batch-m2.ts service-subject-next500-batch-m3.ts service-subject-next500-batch-m5.ts service-subject-next500-batch-m6.ts service-subject-next500-batch-n1.ts service-subject-next500-batch-n2.ts service-subject-next500-batch-n3.ts service-subject-next500-batch-n4.ts service-subject-next500-batch-n5.ts service-subject-next500-batch-o.ts service-subject-next500-batch-p1.ts service-subject-next500-batch-p2.ts service-subject-next500-batch-p3.ts service-subject-next500-batch-p4.ts service-subject-next500-batch-p5.ts service-subject-next500-batch-q1.ts service-subject-next500-batch-q2.ts service-subject-next500-batch-q3.ts service-subject-next500-batch-q4.ts service-subject-next500-batch-q5.ts service-subject-next500-batch-r1.ts service-subject-next500-batch-r2.ts service-subject-next500-batch-r3.ts service-subject-next500-batch-r4.ts service-subject-next500-batch-r5.ts service-subject-next500-batch-s1.ts service-subject-next500-batch-s2.ts service-subject-next500-batch-s3.ts service-subject-next500-batch-s4.ts service-subject-next500-batch-s5.ts service-subject-next500-batch-t1.ts service-subject-next500-batch-t2.ts service-subject-next500-batch-t3.ts service-subject-next500-batch-t4.ts service-subject-next500-batch-t5.ts service-subject-next500-batch-u1.ts service-subject-next500-batch-u2.ts service-subject-next500-batch-u3.ts service-subject-next500-batch-u4.ts service-subject-next500-batch-u5.ts service-subject-next500-batch-v1.ts service-subject-next500-batch-v2.ts service-subject-next500-batch-v3.ts service-subject-next500-batch-v4.ts service-subject-next500-batch-v5.ts service-subject-next500-batch-w1.ts service-subject-next500-batch-w2.ts service-subject-next500-batch-w3.ts service-subject-next500-batch-w4.ts service-subject-next500-batch-w5.ts service-subject-next500-batch-x1.ts service-subject-next500-batch-x2.ts service-subject-next500-batch-x3.ts service-subject-next500-batch-x4.ts service-subject-next500-batch-x5.ts service-subject-next500-batch-y1.ts service-subject-next500-batch-y2.ts service-subject-next500-batch-y3.ts service-subject-next500-batch-y4.ts service-subject-next500-batch-y5.ts service-subject-next500-batch-z1.ts service-subject-next500-batch-z2.ts service-subject-next500-batch-z3.ts service-subject-next500-batch-z4.ts service-subject-next500-batch-z5.ts service-subject-next500-batch-aa1.ts service-subject-next500-batch-aa2.ts service-subject-next500-batch-aa3.ts service-subject-next500-batch-aa4.ts service-subject-next500-batch-aa5.ts service-subject-next500-batch-ab1.ts service-subject-next500-batch-ab2.ts service-subject-next500-batch-ab3.ts service-subject-next500-batch-ab4.ts service-subject-next500-batch-ab5.ts service-subject-next500-batch-ac1.ts service-subject-next500-batch-ac2.ts service-subject-next500-batch-ac3.ts service-subject-next500-batch-ac4.ts service-subject-next500-batch-ac5.ts service-subject-next500-batch-ad1.ts service-subject-next500-batch-ad2.ts service-subject-next500-batch-ad3.ts service-subject-next500-batch-ad4.ts service-subject-next500-batch-ad5.ts service-subject-next500-batch-ae1.ts service-subject-next500-batch-ae2.ts service-subject-next500-batch-ae3.ts service-subject-next500-batch-ae4.ts service-subject-next500-batch-ae5.ts; do
+            cmp "domain/src/domain/$f" "site/src/domain/$f" || exit 2
+          done
+          echo D07_DOMAIN_PARITY=PASS
+      - name: Install exact site dependencies
+        working-directory: site
+        shell: bash
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-install.log" 2>&1 || { echo D07_INSTALL=FAIL; exit 1; }
+          echo D07_INSTALL=PASS
+      - name: Run I J K L M N individual methodology and integrated card tests
+        working-directory: site
+        shell: bash
+        run: |
+          node --check scripts/tests/d07-next500-five-j-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-k-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-l-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-m-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-n-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-o-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-p-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-q-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-r-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-r-html.test.mjs
+          node --check scripts/tests/d07-next500-five-s-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-s-html.test.mjs
+          node --check scripts/tests/d07-next500-five-t-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-t-html.test.mjs
+          node --check scripts/tests/d07-next500-five-u-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-u-html.test.mjs
+          node --check scripts/tests/d07-next500-five-v-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-v-html.test.mjs
+          node --check scripts/tests/d07-next500-five-w-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-w-html.test.mjs
+          node --check scripts/tests/d07-next500-five-x-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-x-html.test.mjs
+          node --check scripts/tests/d07-next500-five-y-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-y-html.test.mjs
+          node --check scripts/tests/d07-next500-five-z-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-z-html.test.mjs
+          node --check scripts/tests/d07-next500-five-aa-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-aa-html.test.mjs
+          node --check scripts/tests/d07-next500-five-ab-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-ab-html.test.mjs
+          node --check scripts/tests/d07-next500-five-ac-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-ac-html.test.mjs
+          node --check scripts/tests/d07-next500-five-ad-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-ad-html.test.mjs
+          node --check scripts/tests/d07-next500-five-ae-professional.test.mjs
+          node --check scripts/tests/d07-next500-five-ae-html.test.mjs
+          npm run test:next500-latest > "$RUNNER_TEMP/d07-255-tests.log" 2>&1 || {
+            echo D07_255_TESTS=FAIL
+            echo "D07_TEST_LOG_OPENING"; head -55 "$RUNNER_TEMP/d07-255-tests.log" || true
+            echo "D07_TEST_FAILURE_DETAILS"; grep -A24 -B1 "^not ok" "$RUNNER_TEMP/d07-255-tests.log" | tail -190 || true
+            exit 1
+          }
+          echo D07_255_TESTS=PASS
+          node --import tsx --test scripts/tests/d07-professional-card-release.test.mjs > "$RUNNER_TEMP/d07-255-cards.log" 2>&1 || {
+            echo D07_255_T2_PLAN_CARD_TESTS=FAIL
+            grep -A17 '^not ok' "$RUNNER_TEMP/d07-255-cards.log" | tail -55 || true
+            exit 1
+          }
+          echo D07_255_T2_PLAN_CARD_TESTS=PASS
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d07-255-tests.log" | tail -3
+      - name: Validate site TypeScript and generate TOP500
+        working-directory: site
+        shell: bash
+        run: |
+          bun run check:types > "$RUNNER_TEMP/d07-255-tsc.log" 2>&1 || {
+            echo D07_255_TYPES=FAIL
+            grep -E 'error TS[0-9]+' "$RUNNER_TEMP/d07-255-tsc.log" | head -12 || true
+            exit 1
+          }
+          echo D07_255_TYPES=PASS
+          node --import tsx scripts/generate-d07-methodology-top500.mjs "$RUNNER_TEMP/d07-255-data" --as-of=2026-11-24 > "$RUNNER_TEMP/d07-255-generate.log" 2>&1 || {
+            echo D07_255_GENERATION=FAIL
+            grep -E 'D07_[A-Z_]+' "$RUNNER_TEMP/d07-255-generate.log" | tail -10 || true
+            exit 1
+          }
+          echo D07_255_GENERATION=PASS
+          node --input-type=module -e 'import fs from "node:fs";const f=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/d07-255-data/service-professional-finalization.top500.generated.json","utf8"));const v=f.counts;console.log("D07_TOP500="+v.selected);console.log("D07_INDIVIDUAL_IN_TOP500="+v.editorialWithIndividualTechnology);if(v.selected!==500||v.editorialWithIndividualTechnology!==255)process.exit(1);'
+  original-t2-dist:
+    needs: method-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 24e95996cb1af97479b818b8ed817f0ff31c7aa0
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: T2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Install exact dependencies
+        working-directory: site
+        shell: bash
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-build-install.log" 2>&1 || { echo D07_BUILD_INSTALL=FAIL; exit 1; }
+          echo D07_BUILD_INSTALL=PASS
+      - name: Build public site plus original T2 Host and Kernel
+        working-directory: site
+        shell: bash
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/T2
+        run: |
+          node scripts/build-d07-integrated-site.mjs > "$RUNNER_TEMP/d07-255-integrated.log" 2>&1 || {
+            echo D07_ORIGINAL_T2_BUILD=FAIL
+            grep -E 'D07_[A-Z0-9_]+=(PASS|FAIL)|D07_BUILD_[A-Z_]+' "$RUNNER_TEMP/d07-255-integrated.log" | tail -22 || true
+            exit 1
+          }
+          echo D07_ORIGINAL_T2_BUILD=PASS
+          grep -E '^D07_[A-Z0-9_]+=(PASS|[0-9]+)' "$RUNNER_TEMP/d07-255-integrated.log" | tail -18 || true
+      - name: Verify all 255 physical service pages including five new cards
+        working-directory: site
+        shell: bash
+        run: |
+          node --import tsx --input-type=module -e 'import fs from "node:fs";import {SUBJECT_PROTOCOLS} from "./src/domain/service-subject-protocols.ts";let missing=[];for(const p of SUBJECT_PROTOCOLS){const f="dist/uslugi/"+p.categorySlug+"/"+p.serviceSlug+"/index.html";if(!fs.existsSync(f)||fs.statSync(f).size<1500)missing.push(p.serviceSlug);}console.log("D07_PHYSICAL_HTML="+(SUBJECT_PROTOCOLS.length-missing.length)+"/"+SUBJECT_PROTOCOLS.length);if(SUBJECT_PROTOCOLS.length!==255||missing.length)process.exit(1);'
+          node --import tsx --input-type=module -e 'import fs from "node:fs";import {SUBJECT_PROTOCOLS} from "./src/domain/service-subject-protocols.ts";const errors=[];for(const p of SUBJECT_PROTOCOLS){const path="dist/uslugi/"+p.categorySlug+"/"+p.serviceSlug+"/index.html";const h=fs.readFileSync(path,"utf8");if(!h.includes("d07-professional-service-card")||!h.includes("d07-professional-start-order")||!h.includes("/workspace/?new=1"))errors.push(p.serviceSlug+":no T2 card");for(const op of p.operations)if(!h.includes("data-operation-id="+String.fromCharCode(34)+op.id+String.fromCharCode(34)))errors.push(p.serviceSlug+":"+op.id);}console.log("D07_RENDERED_CARD_T2_AND_WORK="+(errors.length?"FAIL:"+errors.slice(0,8).join(","):"PASS"));if(errors.length)process.exit(1);'
+          echo D07_NEW_CARDS_ORIGINAL_T2_HTML=PASS
+          node --import tsx scripts/tests/d07-next500-five-r-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-s-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-t-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-u-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-v-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-w-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-x-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-y-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-z-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-aa-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ab-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ac-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ad-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ae-html.test.mjs
+      # No private source/artifact upload to public CI logs.
