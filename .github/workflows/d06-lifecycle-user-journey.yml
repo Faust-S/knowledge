@@ -1,0 +1,61 @@
+name: d06-lifecycle-user-journey
+# Addressed browser diagnosis. Does not replace the mandatory full gate.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-lifecycle-user-journey.yml
+permissions:
+  contents: read
+jobs:
+  lifecycle:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: 6b196e1d8a03ac3e6570945d5e912b16aea58be3
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Build exact static product and run two existing item journeys
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-lifecycle-private.txt"
+          foreach ($task in @("ci", "run setup:browser", "run build:static")) {
+            & cmd.exe /d /c ("npm " + $task + " > """ + $log + """ 2>&1")
+            $passed = $LASTEXITCODE -eq 0
+            Write-Host ("D06_LIFECYCLE_" + $task.Replace(" ","_").Replace(":","_").ToUpperInvariant() + "=" + $(if ($passed) {"PASS"} else {"FAIL"}))
+            if (-not $passed) { exit 1 }
+          }
+          & npm run test:e2e -- tests/e2e/d06-item-context.spec.ts tests/e2e/d06-pd20-pd21-manual-save.spec.ts --reporter=json *> $log
+          $code = $LASTEXITCODE
+          $body = Get-Content -LiteralPath $log -Raw
+          # Only fixed categories and numeric coordinates leave the runner.
+          $matches = [regex]::Matches($body, '"unexpected"\s*:\s*(\d+)')
+          if ($matches.Count) {
+            Write-Host ("D06_LIFECYCLE_UNEXPECTED=" + $matches[$matches.Count - 1].Groups[1].Value)
+          }
+          $classes = @("AssertionError","TimeoutError","TypeError","strict mode violation","ERR_ASSERTION")
+          Write-Host ("D06_LIFECYCLE_FAILURE_CLASSES=" + (($classes | Where-Object {$body.Contains($_)}) -join ","))
+          $files = @("d06-item-context","d06-pd20-pd21-manual-save")
+          for ($i = 0; $i -lt $files.Count; $i++) {
+            $positions = [regex]::Matches($body, [regex]::Escape($files[$i]) + '\.spec\.ts:(\d+):(\d+)') |
+              ForEach-Object { $_.Groups[1].Value + ":" + $_.Groups[2].Value } | Select-Object -Unique -Last 12
+            Write-Host ("D06_LIFECYCLE_COORDINATES_" + ($i + 1) + "=" + ($positions -join ","))
+          }
+          if ($code -ne 0) { Write-Host "D06_LIFECYCLE_BROWSER=FAIL"; exit 1 }
+          Write-Host "D06_LIFECYCLE_BROWSER=PASS"
+      - name: Privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_SOURCE_UPLOADS=0"
+          Write-Host "D06_PRIVATE_LOG_UPLOADS=0"
+          Write-Host "D06_PRIVATE_DIST_UPLOADS=0"
