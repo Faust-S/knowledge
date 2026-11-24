@@ -1,0 +1,57 @@
+name: D07 T3 original assistant continuity
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d07-t3-assistant-continuity.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-t3-assistant-continuity
+  cancel-in-progress: false
+jobs:
+  original-assistant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 2b2a4644bfad021c2c4ba00b4339d4ac019908d4
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: assistant
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: 21751cc98337ba81cead9196c5d2d6d778fc1a42
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: domain
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Original assistant source and all existing policy tests
+        working-directory: assistant/browser-local-inference
+        run: |
+          node --check domain-assistant/main.mjs > "$RUNNER_TEMP/d07-assistant-syntax.log" 2>&1 || { echo D07_ASSISTANT_SYNTAX=FAIL; exit 1; }
+          echo D07_ASSISTANT_SYNTAX=PASS
+          node --test tests/domain-assistant-*.test.mjs > "$RUNNER_TEMP/d07-assistant-tests.log" 2>&1 || {
+            echo D07_ASSISTANT_CONTINUITY=FAIL
+            grep -E '^# (tests|pass|fail) [0-9]+$|^not ok [0-9]+ ' "$RUNNER_TEMP/d07-assistant-tests.log" | cut -c1-180 | head -40
+            exit 1
+          }
+          echo D07_ASSISTANT_CONTINUITY=PASS
+          grep -E '^# (tests|pass|fail) [0-9]+$' "$RUNNER_TEMP/d07-assistant-tests.log"
+      - name: Recheck the exact existing D07 field policy and canonical skills
+        env:
+          D07_ORIGINAL_ASSISTANT_DIR: ${{ github.workspace }}/assistant/browser-local-inference/domain-assistant
+        run: |
+          node --test domain/tests/assistant-skills.test.mjs domain/tests/assistant-skill-field-policy.test.mjs > "$RUNNER_TEMP/d07-assistant-domain.log" 2>&1 || {
+            echo D07_ASSISTANT_DOMAIN_POLICY=FAIL
+            grep -E '^# (tests|pass|fail) [0-9]+$|^not ok [0-9]+ ' "$RUNNER_TEMP/d07-assistant-domain.log" | cut -c1-180 | head -40
+            exit 1
+          }
+          echo D07_ASSISTANT_DOMAIN_POLICY=PASS
+          grep -E '^# (tests|pass|fail) [0-9]+$' "$RUNNER_TEMP/d07-assistant-domain.log"
+      # No private logs, source, compiled assets, model weights or user data are published.
