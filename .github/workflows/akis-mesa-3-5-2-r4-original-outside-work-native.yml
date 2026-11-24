@@ -31,8 +31,17 @@ jobs:
       - name: Original Work execution and preceding buyer response
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
-        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_outside_work_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_buyer_offer_response_mesa.py
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_outside_work_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_buyer_offer_response_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_outside_work_payment_mesa.py
       - name: Full original Mesa regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
         run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests
+      - name: Export matched original Work execution and payment evidence
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_r4_original_outside_work.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: akis-r4-original-outside-work-${{ matrix.os }}
+          if-no-files-found: error
+          path: qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r4_original_outside_work_evidence.json
