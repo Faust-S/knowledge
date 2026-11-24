@@ -1797,7 +1797,22 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return receipt;
         },
       };
-      const subjectHost=automaticCaptureHost(subjectSourceKernel);
+      const automaticSubjectHost=automaticCaptureHost(subjectSourceKernel);
+      // Later historical P2.2 fixtures deliberately create additional
+      // uncaptured original Events before their independent native baseline.
+      // Their explicit-cursor route remains separate from the K19 proof;
+      // the automatic frontier must not silently skip such Events.
+      const subjectHost=createT4OriginalHostCaptureAdapter({
+        ...captureLedger(),originalKernel:subjectSourceKernel,
+        originalWriteOwnerRef:'original:t2:exchange',getMode:()=> 'T4_NETWORK',
+        authorizeOriginalRead:async p=>actual.grants.includes(p.operation),
+        authorizeOriginalWrite:async p=>actual.grants.includes(p.operation),
+        readOriginalEvents:readSourceEvents,
+        withOriginalSubjectMutation:async(proof,action)=>{
+          assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+          return action();
+        },
+      });
       const capturedAssetMutations=[];
       let capturedSourceCursor=recoveredSource.nextCursor;
       for(const index of [0,1]){
@@ -1810,7 +1825,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           event:{event_type:'t4.original.host.asset.mutation',
             payload:{sourceIndex:index}},
         };
-        const created=await subjectHost.putAsset({
+        const created=await automaticSubjectHost.putAsset({
           mutationInput,captureRef,
         });
         assert.equal(created.capture.originalT3OutboxVerified,true);
@@ -1834,7 +1849,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         originalKernelColdRestart:true,productionHostSerializationQualified:false,
       }));
       let missingRelationAckCaptureRef='t4:host:relation:'+randomUUID();
-      await assert.rejects(subjectHost.putRelation({
+      await assert.rejects(automaticSubjectHost.putRelation({
         mutationInput:{
           workspace_id:workspaceId,relation_id:capturedRelationId,
           from_object_id:linkedObjectId,to_object_id:objectId,
@@ -1861,7 +1876,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.deepEqual(Buffer.from(stored.bytesBase64,'base64'),
           item.created.capture.prepared.bytes);
       }
-      const restoredRelation=await subjectHost.reconcileRelationMutation({
+      const restoredRelation=await automaticSubjectHost.reconcileRelationMutation({
         captureRef:missingRelationAckCaptureRef,
         workspaceId,relationId:capturedRelationId,
       });
