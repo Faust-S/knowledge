@@ -656,17 +656,7 @@ export function prepareD05DisclosureCandidate(review,groupId,modelNumber,form,de
   // Paths are generated from the candidate structure, not from caller paths
   // or original source IDs. Keep text available for Presidio or other
   // qualified tools; no assertion of anonymization is inferred from it.
-  const texts=[];
-  function inventory(value,path){
-    if(typeof value==='string'&&value.length)texts.push({path,text:value});
-    else if(Array.isArray(value))value.forEach((item,i)=>inventory(item,path+'.'+i));
-    else if(obj(value))for(const [k,item] of Object.entries(value)){
-      // Structural aliases and controlled enum values are not free text.
-      if(['operation_id','check_id','predecessors','kind','control_type','mode','field','use','status'].includes(k))continue;
-      inventory(item,path+'.'+k);
-    }
-  }
-  inventory(technology,'technology');
+  const texts=disclosureTextInventory(technology);
   const out={
     status:proposal.status==='PROPOSAL_FOR_DOMAIN_REVIEW'&&!pending.length?
       'LOCAL_CANDIDATE_FOR_DISCLOSURE_REVIEW':'LOCAL_CANDIDATE_NEEDS_REVIEW_INPUT',
@@ -682,4 +672,23 @@ export function prepareD05DisclosureCandidate(review,groupId,modelNumber,form,de
   };
   require(new TextEncoder().encode(key(out)).byteLength<=DRAFT_LIMIT,'D05_ROUTE_DRAFT_OUTPUT_LIMIT');
   return out;
+}
+
+
+// Existing technology candidate text projection, shared by preparation and
+// review of external tool outputs. All structural paths are local aliases.
+export function disclosureTextInventory(technology){
+  require(obj(technology),'D05_ROUTE_DISCLOSURE_TECHNOLOGY_INVALID');
+  const texts=[];
+  const skip=new Set(['operation_id','check_id','predecessors','kind','control_type','mode','field','use','status']);
+  function inventory(value,path,depth){
+    require(depth<=10,'D05_ROUTE_DISCLOSURE_TECHNOLOGY_INVALID');
+    if(typeof value==='string'&&value.length)texts.push({path,text:value});
+    else if(Array.isArray(value))value.forEach((item,i)=>inventory(item,path+'.'+i,depth+1));
+    else if(obj(value))for(const [k,item] of Object.entries(value)){
+      if(!skip.has(k))inventory(item,path+'.'+k,depth+1);
+    }
+  }
+  inventory(technology,'technology',0);
+  return texts;
 }

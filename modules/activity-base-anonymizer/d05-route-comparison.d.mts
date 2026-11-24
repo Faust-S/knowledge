@@ -97,3 +97,5 @@ export type D05DisclosureCandidate={
 };
 export function prepareD05DisclosureCandidate(review:unknown,groupId:string,modelNumber:number,
  form:D05TechnologyProposalForm,decisions:Record<string,D05ParameterDecision>):D05DisclosureCandidate;
+
+export function disclosureTextInventory(technology:unknown):Array<{path:string;text:string}>;
