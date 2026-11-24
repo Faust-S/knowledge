@@ -275,7 +275,8 @@ def assurance_view(work: Any) -> dict[str, Any]:
         "open_correction": deepcopy(work.assurance_correction_proposal),
         "physical_corrections": deepcopy(work.assurance_corrections),
         **({"correction_dependency_scope": quality_dependency_scope(work)}
-           if work.operations and failed_criteria(work) else {}),
+           if work.operations and failed_criteria(work) and all(
+               c.operation in {op.key for op in work.operations} for c in failed_criteria(work)) else {}),
         "criteria": entries, "required_count": len(entries),
         "model_reported_met_count": sum(
             row["status"] == "MODEL_ONLY_REPORTED_MEETS" for row in entries
@@ -420,7 +421,7 @@ def _plan_parts(doc: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 
 def _execution_parts(row: Mapping[str, Any]):
-    return [(part, row["operations"][part["operation"]]) if "plan" in row["terms"]
+    return [(part, row.get("operations", {}).get(part["operation"], {})) if "plan" in row["terms"]
             else (part, row) for part in _plan_parts(row["terms"])]
 
 
