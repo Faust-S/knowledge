@@ -17,7 +17,20 @@ const panel=manifest["src/modules/t3-local-inference/LocalInferencePanel.tsx"];
 const engine="src/modules/t3-local-inference/engine.mjs";
 assert.ok(entry?.isEntry&&entry.dynamicImports?.includes(engine)&&panel?.dynamicImports?.includes(engine),"T3_CLUB_BROWSER_SHARED_ENGINE");
 const mime={".html":"text/html; charset=utf-8",".js":"text/javascript; charset=utf-8",".mjs":"text/javascript; charset=utf-8",".css":"text/css; charset=utf-8",".json":"application/json; charset=utf-8",".svg":"image/svg+xml",".png":"image/png",".jpg":"image/jpeg",".ico":"image/x-icon",".webmanifest":"application/manifest+json"};
-const paths=new Set(["/tools/personal-economy/","/tools/action-route/","/projects/"]);
+// Derive the exact current scope from the private canonical projection.
+const pack=JSON.parse(readFileSync(join(site,"assets/club-assistant-skills.json"),"utf8"));
+const routes=new Map();
+for(const hint of pack.formHints){
+ const skill=pack.skills.find(s=>s.id===hint.skillId);
+ assert.ok(skill&&/^data-[a-z0-9-]+$/.test(hint.marker),"T3_CLUB_COVERAGE_HINT");
+ const path=skill.route.split("#")[0];
+ assert.match(path,/^\/(?:[a-z0-9-]+\/)+$/);
+ if(!routes.has(path))routes.set(path,[]);
+ routes.get(path).push(hint);
+}
+assert.equal(pack.formHints.length,21);
+assert.equal(routes.size,6);
+const paths=new Set(routes.keys());
 const inside=(root,file)=>{const r=relative(root,file);return r!==""&&!r.startsWith("..")&&!isAbsolute(r);};
 const server=createServer((req,res)=>{
  try{
@@ -152,6 +165,98 @@ try{
    console.log("T3_CLUB_BROWSER_CASE_PASS "+JSON.stringify({width:size.width,height:size.height,sharedEngine:true,phoneLayout:size.width<621,nativeApply:true,noSubmit:true,noModel:true,contextualShortcuts:true,confirmedFormSwitch:true,focusReturn:true,collapsedFormsExcluded:true}));
   }catch(e){const code=typeof e.message==="string"&&/^T3_CLUB_BROWSER_[A-Z_]+$/.test(e.message)?e.message:"T3_CLUB_BROWSER_UNEXPECTED";console.log("T3_CLUB_BROWSER_CASE_FAIL "+JSON.stringify({width:size.width,phase,code,timeout:e?.name==="TimeoutError"}));throw Error(code);}
   finally{await ctx.close();}
+ }
+ // Verify all configured shortcut bindings on the actual source pages at a
+ // compact touch viewport and on desktop. Use native disclosure clicks;
+ // never remove hidden attributes or inject prerequisite records.
+ for(const size of [{width:390,height:844},{width:1440,height:900}]){
+  const ctx=await browser.newContext({viewport:size,hasTouch:size.width<621,isMobile:size.width<621,serviceWorkers:"block"});
+  let tested=0,workers=0,modelRequests=0,phase="INIT",index=0;
+  try{
+   await ctx.addInitScript(()=>{
+    Object.defineProperty(navigator,"gpu",{configurable:true,value:undefined});
+    window.__clubCoverageSubmits=0;
+    document.addEventListener("submit",()=>window.__clubCoverageSubmits++,true);
+   });
+   await ctx.route("**/*",route=>{
+    const url=new URL(route.request().url());
+    if(url.origin===origin)return route.continue();
+    if(/huggingface|hf\.co|raw\.githubusercontent/i.test(url.hostname))modelRequests++;
+    return route.abort();
+   });
+   const page=await ctx.newPage();page.on("worker",()=>workers++);
+   page.setDefaultTimeout(15000);
+   const at=id=>page.locator("#iwxa-t3-assistant").locator("#"+id);
+   const check=(v,c)=>{if(!v)throw Error("T3_CLUB_COVERAGE_"+c);};
+   for(const [path,hints] of routes){
+    phase="NAVIGATION";
+    await page.goto(origin+path,{waitUntil:"domcontentloaded"});
+    await at("launcher").waitFor({state:"visible"});
+    // A real driver route is a prerequisite to the native shift journal.
+    // First prove the unavailable shift form is absent from scan choices.
+    const driver=hints.find(h=>h.marker==="data-driver-form");
+    if(driver){
+     phase="DRIVER_PREREQUISITE";
+     const native=page.locator("form[data-driver-form]");
+     check(!await native.isVisible(),"DRIVER_INITIALLY_HIDDEN");
+     await at("launcher").click();
+     await at("skill-choice").locator("option").nth(1).waitFor({state:"attached"});
+     await at("scan-forms").click();
+     check(!(await at("form-choice").locator("option").allTextContents()).some(s=>s.startsWith(driver.title+" ·")),"DRIVER_HIDDEN_EXCLUDED");
+     await at("close").click();
+     const route=page.locator("form[data-ar-form]");
+     await route.locator('[name="targetValue"]').fill("Дополнительный доход 20000 рублей");
+     await route.locator('[name="driverComparison"]').selectOption("yes");
+     await route.locator('button[type="submit"]').click();
+     await native.waitFor({state:"visible"});
+    }
+    for(const hint of hints){
+     index++;
+     phase="NATIVE_FORM";
+     const form=page.locator("form["+hint.marker+"]");
+     check(await form.count()===1,"UNIQUE_FORM");
+     // Discover outer native disclosures from the original DOM and open
+     // in ancestor order. IDs remain private; no markup is logged.
+     const disclosures=await form.evaluate(f=>{
+      const ids=[];
+      for(let p=f.parentElement;p;p=p.parentElement)if(p.tagName==="DETAILS"&&!p.open)ids.unshift(p.id);
+      return ids;
+     });
+     for(const id of disclosures){
+      check(/^[a-zA-Z0-9_-]+$/.test(id),"DISCLOSURE_ID");
+      const detail=page.locator("#"+id);
+      if(!await detail.evaluate(e=>e.open))await detail.locator(":scope > summary").click();
+     }
+     const button=form.locator('button[data-iwxa-assistant-form-open="'+hint.marker+'"]');
+     check(await button.count()===1,"UNIQUE_SHORTCUT");
+     await button.waitFor({state:"visible"});
+     check(await button.evaluate(b=>b.type==="button"&&b.offsetHeight>=43),"SHORTCUT_TOUCH");
+     const state=()=>form.evaluate(f=>Array.from(f.elements).filter(e=>e.name).map(e=>[e.name,e.value,e.checked??null,e.disabled]));
+     const before=JSON.stringify(await state());
+     const submits=await page.evaluate(()=>window.__clubCoverageSubmits);
+     phase="CONTEXT_SELECTION";
+     await button.click();
+     await page.waitForFunction(({title,skillId})=>{
+      const r=document.querySelector("#iwxa-t3-assistant")?.shadowRoot;
+      return r?.getElementById("form-choice")?.selectedOptions[0]?.textContent?.startsWith(title+" ·")&&r.getElementById("skill-choice")?.value===skillId&&r.getElementById("status")?.textContent?.startsWith("Выбрана форма:");
+     },{title:hint.title,skillId:hint.skillId});
+     check(await at("prompt").evaluate(e=>e.getRootNode().activeElement===e),"PROMPT_FOCUS");
+     check(JSON.stringify(await state())===before,"OPEN_NO_FORM_MUTATION");
+     check(await page.evaluate(()=>window.__clubCoverageSubmits)===submits,"OPEN_NO_SUBMIT");
+     phase="RETURN_FOCUS";
+     await at("close").click();
+     check(await button.evaluate(b=>document.activeElement===b),"RETURN_FOCUS");
+     tested++;
+    }
+   }
+   check(tested===pack.formHints.length,"ALL_FORMS");
+   check(workers===0&&modelRequests===0,"NO_MODEL_ACTIVITY");
+   console.log("T3_CLUB_ALL_FORM_SHORTCUTS_PASS "+JSON.stringify({width:size.width,height:size.height,forms:tested,routes:routes.size,nativeDriverPrerequisite:true,formMutation:false,autoSubmit:false,modelActivity:false}));
+  }catch(e){
+   const code=typeof e?.message==="string"&&/^T3_CLUB_COVERAGE_[A-Z_]+$/.test(e.message)?e.message:"T3_CLUB_COVERAGE_UNEXPECTED";
+   console.log("T3_CLUB_ALL_FORM_SHORTCUTS_FAIL "+JSON.stringify({width:size.width,tested,index,phase,code,timeout:e?.name==="TimeoutError"}));
+   throw Error(code);
+  }finally{await ctx.close();}
  }
  console.log("T3_CLUB_BROWSER_CANDIDATE_PASS 4 viewports, actual compiled assistant and native form, not physical devices");
 }finally{await browser?.close();await new Promise(ok=>server.close(ok));}
