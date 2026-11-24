@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: d07-top500-500-variants
+  group: d07-top500-500-final-variants
   cancel-in-progress: true
 jobs:
   method-check:
@@ -17,14 +17,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: da427704e34d95b0d7047924e2135468ac1c5bfb
+          ref: 62ecf51c63c0f8dbbcb9acdc986d1a905f287393
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: domain
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 3a14da3bbf0eaa4fc862d7647e2df430a91be254
+          ref: 7f6698506b48402d9cf348a4e5c48c901bfd6bb2
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -37,8 +37,8 @@ jobs:
       - name: Verify exact HEADs and domain parity
         shell: bash
         run: |
-          test "$(git -C domain rev-parse HEAD)" = "da427704e34d95b0d7047924e2135468ac1c5bfb"
-          test "$(git -C site rev-parse HEAD)" = "3a14da3bbf0eaa4fc862d7647e2df430a91be254"
+          test "$(git -C domain rev-parse HEAD)" = "62ecf51c63c0f8dbbcb9acdc986d1a905f287393"
+          test "$(git -C site rev-parse HEAD)" = "7f6698506b48402d9cf348a4e5c48c901bfd6bb2"
           for path in domain/src/domain/service-subject*.ts; do
             f="$(basename "$path")"
             cmp "$path" "site/src/domain/$f" || { echo D07_DOMAIN_PARITY=FAIL; exit 2; }
@@ -210,7 +210,7 @@ jobs:
             exit 1
           }
           echo D07_500_GENERATION=PASS
-          node --import tsx --input-type=module -e 'import {SUBJECT_PROTOCOLS} from "./src/domain/service-subject-protocols.ts";import {assessManualVariantCoverage} from "./src/domain/service-manual-variant-closure.ts";let count=0;for(const p of SUBJECT_PROTOCOLS){const a=assessManualVariantCoverage(p);if(a.unresolvedBranches){count+=a.unresolvedBranches;console.log("D07_VARIANT_OPEN="+p.serviceSlug+":"+a.findings.map((x,i)=>x.status==="needs-manual-resolution"?i+1:0).filter(Boolean).join(","));}}console.log("D07_VARIANT_OPEN_TOTAL="+count);if(count!==36)process.exit(1);'
+          node --import tsx --input-type=module -e 'import {SUBJECT_PROTOCOLS} from "./src/domain/service-subject-protocols.ts";import {assessManualVariantCoverage} from "./src/domain/service-manual-variant-closure.ts";let count=0;for(const p of SUBJECT_PROTOCOLS){const a=assessManualVariantCoverage(p);if(a.unresolvedBranches){count+=a.unresolvedBranches;console.log("D07_VARIANT_OPEN="+p.serviceSlug+":"+a.findings.map((x,i)=>x.status==="needs-manual-resolution"?i+1:0).filter(Boolean).join(","));}}console.log("D07_VARIANT_OPEN_TOTAL="+count);if(count!==0)process.exit(1);'
 
           grep -E '^D07_(INDIVIDUAL_OPERATIONS|SOURCE_PRECISION_REVIEW|MANUAL_VARIANT_(BRANCHES|ROUTED|UNROUTED)|EXTERNAL_TECHNOLOGY_FIRST|INDEPENDENTLY_APPROVED_METHODS|PROFESSIONAL_FINALIZED|EXTERNAL_FACET_RESEARCH_TASKS)=' "$RUNNER_TEMP/d07-500-generate.log"
           node --input-type=module -e 'import fs from "node:fs";const f=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/d07-500-data/service-professional-finalization.top500.generated.json","utf8"));const v=f.counts;console.log("D07_TOP500="+v.selected);console.log("D07_INDIVIDUAL_IN_TOP500="+v.editorialWithIndividualTechnology);if(v.selected!==500||v.editorialWithIndividualTechnology!==500)process.exit(1);'
@@ -222,7 +222,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 3a14da3bbf0eaa4fc862d7647e2df430a91be254
+          ref: 7f6698506b48402d9cf348a4e5c48c901bfd6bb2
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -264,6 +264,7 @@ jobs:
         run: |
           node --import tsx --input-type=module -e 'import fs from "node:fs";import {SUBJECT_PROTOCOLS} from "./src/domain/service-subject-protocols.ts";let missing=[];for(const p of SUBJECT_PROTOCOLS){const f="dist/uslugi/"+p.categorySlug+"/"+p.serviceSlug+"/index.html";if(!fs.existsSync(f)||fs.statSync(f).size<1500)missing.push(p.serviceSlug);}console.log("D07_PHYSICAL_HTML="+(SUBJECT_PROTOCOLS.length-missing.length)+"/"+SUBJECT_PROTOCOLS.length);if(SUBJECT_PROTOCOLS.length!==500||missing.length)process.exit(1);'
           node --import tsx --input-type=module -e 'import fs from "node:fs";import {SUBJECT_PROTOCOLS} from "./src/domain/service-subject-protocols.ts";const errors=[];for(const p of SUBJECT_PROTOCOLS){const path="dist/uslugi/"+p.categorySlug+"/"+p.serviceSlug+"/index.html";const h=fs.readFileSync(path,"utf8");if(!h.includes("d07-professional-service-card")||!h.includes("d07-professional-start-order")||!h.includes("/workspace/?new=1"))errors.push(p.serviceSlug+":no T2 card");for(const op of p.operations)if(!h.includes("data-operation-id="+String.fromCharCode(34)+op.id+String.fromCharCode(34)))errors.push(p.serviceSlug+":"+op.id);}console.log("D07_RENDERED_CARD_T2_AND_WORK="+(errors.length?"FAIL:"+errors.slice(0,8).join(","):"PASS"));if(errors.length)process.exit(1);'
+          node --import tsx scripts/tests/d07-n500-rendered-variants.mjs
           echo D07_NEW_CARDS_ORIGINAL_T2_HTML=PASS
           node --import tsx scripts/tests/d07-next500-five-r-html.test.mjs
           node --import tsx scripts/tests/d07-next500-five-s-html.test.mjs
