@@ -43,6 +43,11 @@ def call(request, engine):
 
 
 class Boundary(unittest.TestCase):
+    def test_java_21_profile(self):
+        self.assertEqual(worker.java_major('openjdk version "21.0.9" 2026-10-20'), 21)
+        self.assertEqual(worker.java_major('java version "17.0.16"'), 17)
+        self.assertEqual(worker.java_major('unknown runtime'), 0)
+
     def test_valid_arx(self):
         self.assertEqual(worker.load_request(payload(cohort()), "arx"), cohort())
 

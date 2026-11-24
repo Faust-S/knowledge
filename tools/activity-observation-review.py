@@ -131,11 +131,21 @@ def base(req, payload):
             "export_allowed": False, "iwxa_package": None}
 
 
+def java_major(output):
+    # Class-file version 65 in the official ARX 3.9.2 jar requires Java 21.
+    match = re.search(r'(?:java|openjdk) version "([0-9]+)(?:\.|-|")', output)
+    return int(match.group(1)) if match else 0
+
+
 def arx(req, payload):
     # Runtime is provisioned by Agent, never selected by input data. Check the exact official jar.
     jar_setting = os.environ.get("IWXA_ACTIVITY_ARX_JAR")
-    java = shutil.which("java")
-    need(jar_setting and java, "ARX_PROFILE_NOT_INSTALLED")
+    configured = os.environ.get("IWXA_ACTIVITY_JAVA")
+    java = configured or shutil.which("java")
+    need(jar_setting and java and Path(java).is_file(), "ARX_PROFILE_NOT_INSTALLED")
+    probe = subprocess.run([java, "-version"], capture_output=True, timeout=10, check=False)
+    major = java_major((probe.stdout + probe.stderr).decode("utf-8", errors="replace"))
+    need(probe.returncode == 0 and major >= 21, "ARX_JAVA_21_REQUIRED")
     jar = Path(jar_setting).resolve()
     need(jar.is_file() and jar.stat().st_size <= 200 * 1024 * 1024, "ARX_PROFILE_NOT_INSTALLED")
     with jar.open("rb") as stream:
