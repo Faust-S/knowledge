@@ -1,6 +1,6 @@
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
   from './original-network-technical-schema.mjs';
-import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
+import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
 import {validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions}
   from './standard-network-wire-candidate.mjs';
@@ -131,6 +131,18 @@ function checkRecord(identity,item,previousHash){
   if(head(identity,body)!==chainHash)
     fail('HOST_CURSOR_ORIGINAL_FRONTIER_HASH_MISMATCH');
 }
+function requireOriginalBaselinePort(port,identity,role){
+  if(port?.schema!=='IWXA_T4_ORIGINAL_NETWORK_BASELINE_ADMISSION_PORT_V1'||port.role!==role||
+    !same(port.identity,identity)||!ID(port.checkpointRef)||port.originalT3OnlyStore!==true||
+    port.createsStore!==false||port.createsScheduler!==false||
+    typeof port.readOriginalAdmittedBaseline!=='function'||typeof port.forOriginalHostLifetime!=='function')
+    fail('HOST_CURSOR_ORIGINAL_BASELINE_PORT_INVALID');
+}
+function scopeBaselinePort(port,isHostActive){
+  return port===null?null:scopeOriginalHostPort(port,isHostActive,
+    ['schema','identity','role','checkpointRef','originalT3OnlyStore','createsStore','createsScheduler'],
+    'HOST_CURSOR_ORIGINAL_BASELINE_PORT_INVALID');
+}
 export function createT4OriginalNetworkHostCursorPort({
   technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   originalKernel,technicalWorkspaceId,sourceWorkspaceId,
@@ -138,11 +150,12 @@ export function createT4OriginalNetworkHostCursorPort({
   scopeRef,ownerEpoch,getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   authorizeOriginalSourceRead,readOriginalSourceEvents,
-  readOriginalAdmittedBaseline=null,verifyOriginalSourceBaseline=null,
+  readOriginalAdmittedBaseline=null,verifyOriginalSourceBaseline=null,originalBaselinePort=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
-  const baselineRequired=readOriginalAdmittedBaseline!==null||verifyOriginalSourceBaseline!==null;
-  if(baselineRequired&&![readOriginalAdmittedBaseline,verifyOriginalSourceBaseline].every(f=>typeof f==='function'))
+  const baselineRequired=originalBaselinePort!==null||readOriginalAdmittedBaseline!==null||verifyOriginalSourceBaseline!==null;
+  if(originalBaselinePort!==null?(readOriginalAdmittedBaseline!==null||verifyOriginalSourceBaseline!==null):
+    baselineRequired&&![readOriginalAdmittedBaseline,verifyOriginalSourceBaseline].every(f=>typeof f==='function'))
     fail('HOST_CURSOR_ORIGINAL_BASELINE_PORTS_REQUIRED');
   if(![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef].every(ID)||
@@ -158,6 +171,7 @@ export function createT4OriginalNetworkHostCursorPort({
     fail('HOST_CURSOR_ORIGINAL_T3_PORTS_REQUIRED');
   const identity=frozen({technicalWorkspaceId,sourceWorkspaceId,
     originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch});
+  if(originalBaselinePort!==null)requireOriginalBaselinePort(originalBaselinePort,identity,'SOURCE');
   const checkpointRef='t4:net:ackfrontier:'+HASH(identity).slice(7);
   const genesis=HASH({identity,checkpointRef,stage:'GENESIS'});
   const mode=()=>{if(getMode()!=='T4_NETWORK')fail('HOST_CURSOR_NETWORK_MODE_OFF');};
@@ -219,14 +233,14 @@ export function createT4OriginalNetworkHostCursorPort({
   async function readBaseline(initial){
     if(!baselineRequired)return null;
     await guard(initial,'t1.getObject','baseline-read');
-    const b=copy(await readOriginalAdmittedBaseline(frozen({...identity,checkpointRef,
-      originalHostSessionRef:initial.hostSessionRef,originalBaselineAdmissionRequired:true})));
+    const b=copy(await (originalBaselinePort?.readOriginalAdmittedBaseline??readOriginalAdmittedBaseline)(
+      frozen({...identity,checkpointRef,originalHostSessionRef:initial.hostSessionRef,originalBaselineAdmissionRequired:true})));
     if(b?.schema!=='IWXA_T4_ORIGINAL_SOURCE_BASELINE_V1'||!same(b.identity,identity)||
       !canonicalCursor(b.sourceCursor,identity)||!ID(b.originalBaselineRef)||
       !DIG(b.originalBaselineDigest)||
       !same(Object.keys(b).sort(),['identity','originalBaselineDigest','originalBaselineRef','schema','sourceCursor']))
       fail('HOST_CURSOR_ORIGINAL_BASELINE_REQUIRED');
-    if(await verifyOriginalSourceBaseline(frozen({...identity,checkpointRef,baseline:copy(b),
+    if(originalBaselinePort===null&&await verifyOriginalSourceBaseline(frozen({...identity,checkpointRef,baseline:copy(b),
       operation:'t4.network.original.source.baseline.verify',
       originalHostSessionRef:initial.hostSessionRef,originalRecipientBaselineAdmissionRequired:true,
       networkMetadataIsNotAdmission:true}))!==true)
@@ -480,6 +494,7 @@ export function createT4OriginalNetworkHostCursorPort({
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       authorizeOriginalSourceRead,readOriginalSourceEvents,
       readOriginalAdmittedBaseline,verifyOriginalSourceBaseline,
+      originalBaselinePort:scopeBaselinePort(originalBaselinePort,isHostActive),
     }),
     createsStore:false,createsKernel:false,createsIAM:false,
     createsTaskEngine:false,createsScheduler:false,
@@ -547,20 +562,23 @@ export function createT4OriginalNetworkRecipientCursorPort({
   sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   authorizeOriginalRecipientRead,authorizeOriginalSourceRead,readOriginalSourceEvents,
-  readOriginalAdmittedBaseline,verifyOriginalRecipientBaseline,readOriginalDependencyCoverage,
+  readOriginalAdmittedBaseline=null,verifyOriginalRecipientBaseline=null,originalBaselinePort=null,
+  readOriginalDependencyCoverage,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   if(![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
     recipientNodeRef,scopeRef].every(ID)||sourceNodeRef===recipientNodeRef||
     technicalWorkspaceId===sourceWorkspaceId||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
     ![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-      authorizeOriginalRecipientRead,authorizeOriginalSourceRead,readOriginalSourceEvents,
-      readOriginalAdmittedBaseline,verifyOriginalRecipientBaseline].every(f=>typeof f==='function')||
+      authorizeOriginalRecipientRead,authorizeOriginalSourceRead,readOriginalSourceEvents].every(f=>typeof f==='function')||
+    (originalBaselinePort!==null?(readOriginalAdmittedBaseline!==null||verifyOriginalRecipientBaseline!==null):
+      ![readOriginalAdmittedBaseline,verifyOriginalRecipientBaseline].every(f=>typeof f==='function'))||
     !['getObject','putObject','listEventsSince'].every(k=>
       originalKernel?.hasOperation?.('t1.'+k)===true&&typeof originalKernel[k]==='function'))
     fail('RECIPIENT_CURSOR_ORIGINAL_PORTS_REQUIRED');
   const identity=frozen({technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch});
+  if(originalBaselinePort!==null)requireOriginalBaselinePort(originalBaselinePort,identity,'RECIPIENT');
   const checkpointRef='t4:net:recipientfrontier:'+HASH({role:'RECIPIENT',identity}).slice(7);
   const mode=()=>{if(getMode()!=='T4_NETWORK')fail('RECIPIENT_CURSOR_NETWORK_MODE_OFF');};
   async function context(){
@@ -586,15 +604,15 @@ export function createT4OriginalNetworkRecipientCursorPort({
   }
   async function baseline(ctx){
     await guard(ctx,'t1.getObject','read-admitted-baseline');
-    const b=copy(await readOriginalAdmittedBaseline(frozen({...identity,checkpointRef,
-      originalHostSessionRef:ctx.hostSessionRef,originalBaselineAdmissionRequired:true})));
+    const b=copy(await (originalBaselinePort?.readOriginalAdmittedBaseline??readOriginalAdmittedBaseline)(
+      frozen({...identity,checkpointRef,originalHostSessionRef:ctx.hostSessionRef,originalBaselineAdmissionRequired:true})));
     if(b?.schema!==BASELINE_SCHEMA||!same(b.identity,identity)||
       !canonicalCursor(b.sourceCursor,identity)||!ID(b.originalBaselineRef)||
       !DIG(b.originalBaselineDigest)||
       !same(Object.keys(b).sort(),['identity','originalBaselineDigest','originalBaselineRef','schema','sourceCursor']))
       fail('RECIPIENT_CURSOR_ORIGINAL_BASELINE_REQUIRED');
     await guard(ctx,'t1.getObject','verify-admitted-baseline');
-    if(await verifyOriginalRecipientBaseline(frozen({operation:'t4.network.original.recipient.baseline.verify',
+    if(originalBaselinePort===null&&await verifyOriginalRecipientBaseline(frozen({operation:'t4.network.original.recipient.baseline.verify',
       ...identity,checkpointRef,baseline:copy(b),originalHostSessionRef:ctx.hostSessionRef,
       originalRecipientBaselineAndSourcePrefixRequired:true,networkMetadataIsNotAdmission:true}))!==true)
       fail('RECIPIENT_CURSOR_ORIGINAL_BASELINE_DENIED');
@@ -834,6 +852,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,authorizeOriginalRecipientRead,
       authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalAdmittedBaseline,
       verifyOriginalRecipientBaseline,readOriginalDependencyCoverage,
+      originalBaselinePort:scopeBaselinePort(originalBaselinePort,isHostActive),
     }),
   });
 }
