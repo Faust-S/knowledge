@@ -68,6 +68,217 @@
       "signedBytesSha256": "7305608cf9a83dddd409dbf728cc87d3046a095ae1a86139b6c4afdd3bc0e441",
       "wireSha256": "6ca5ec704ee1d4e1495fc2925b58eea0e5c351bac5378d48e3b264534a00724b",
       "signatureBase64": "Wn+Ma2iL3/8em0f73UWI+RtbGCe8MiVrk1o2CoUlOqFOSPEt7YmFF6GDlgZ32sWyTrDPXauKC6I93m83TBzTBg=="
+    },
+    {
+      "name": "ASSET_PUT-CHANGE_REF",
+      "messageType": "CHANGE_REF",
+      "sequence": 4,
+      "criticalExtensions": [],
+      "body": {
+        "changeId": "change:golden:asset_put",
+        "changeKind": "ASSET_PUT",
+        "eventRef": "event:golden:4",
+        "ownerRef": "owner:alice",
+        "sourceRevision": 2,
+        "contentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "parents": [
+          "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        ]
+      },
+      "bodyDigest": "sha256:6a545d1a3b981d729fee876c1a0157ca6013230c5fd023eb2ff88f43730d6f5c",
+      "signedBytesSha256": "c0a8cfc9e2b0777f45e7af7865c03091d3de763b7610739ecf550172cd4763d0",
+      "wireSha256": "8e4efb24db927adad67188b121267c32c2af1a1db5d58bdbe2762ac67d9dc2f1",
+      "signatureBase64": "JzIcOg5nQDo6JGpFGMgC1tZVarF6TWvxu/t2QG093vgxLwokExlSLqc2N4yYSRFJztvXn6nYIAqzqtIvXt3+CQ=="
+    },
+    {
+      "name": "ASSET_PUT-APPLIED_ACK",
+      "messageType": "APPLIED_ACK",
+      "sequence": 5,
+      "criticalExtensions": [],
+      "body": {
+        "changeId": "change:golden:asset_put",
+        "contentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "ackRef": "ack:golden:4",
+        "recipientEventRef": "event:received:4",
+        "recipientRevision": 2,
+        "recipientStateDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "bodyDigest": "sha256:5fc13b3bcb6e831e81a6d2817226a0fb2c93e80266f9c9dd993aa2892191e7fe",
+      "signedBytesSha256": "b6d530c3105647d431e93122ea01d73e9a2c6e5a2bdf99499b94d75a15540535",
+      "wireSha256": "22415ac1d672d61075790e53cfb48c280457edf7884217c7deb9cd7838d9c139",
+      "signatureBase64": "SXkZd5YAo768B9f6rhRAibqZY9CFaYu0T614dMlZYjsZHn9YHjFsoy6gmJaLZ0btN/DA6105P/GCyLmC394ZDw=="
+    },
+    {
+      "name": "RELATION_PUT-CHANGE_REF",
+      "messageType": "CHANGE_REF",
+      "sequence": 6,
+      "criticalExtensions": [
+        "iwxa.relation-event.v1"
+      ],
+      "body": {
+        "changeId": "change:golden:relation_put",
+        "changeKind": "RELATION_PUT",
+        "eventRef": "event:golden:6",
+        "ownerRef": "owner:alice",
+        "sourceRevision": null,
+        "contentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "parents": [
+          "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        ]
+      },
+      "bodyDigest": "sha256:2b1eeab8b3fb1d50c32b8f949586be584d5497916b2ab0d78c5f5b3711d3d1e6",
+      "signedBytesSha256": "66fa09bf7a67074f5cfc67ba27301b07f49debfa19ba359535de9de7b122f741",
+      "wireSha256": "dff8c7c15d0e8ba877e0b1e848009a477ebf7df199029bba700cde7dab5aedf1",
+      "signatureBase64": "ITwbugYwD9zJmXDONn63GVSkZFVji4xHOHnwq4EMb7WNW/HnV30aNS7/vAksd9997i5HHGNTKhUNOfx5VL92Bg=="
+    },
+    {
+      "name": "RELATION_PUT-APPLIED_ACK",
+      "messageType": "APPLIED_ACK",
+      "sequence": 7,
+      "criticalExtensions": [
+        "iwxa.relation-event.v1"
+      ],
+      "body": {
+        "changeId": "change:golden:relation_put",
+        "contentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "ackRef": "ack:golden:6",
+        "recipientEventRef": "event:received:6",
+        "recipientRevision": null,
+        "recipientStateDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "bodyDigest": "sha256:7b74991b26006dfe256250cce6de2d6f055de1d1d9911715a838f62fadc7587d",
+      "signedBytesSha256": "78e770091f6ecb7224b4e1f959e1684e535b81b009626f27624a63a95841e768",
+      "wireSha256": "520f9f142456aaa3ca752034fa4a2354037c9753a138034ddffa862d506c0ccc",
+      "signatureBase64": "GQM8QAmk3CCypz6wrJXZx8GH3sLbKWcJcUpaXBSzt6ScnKhgXS+2wX4EvOOT8DciiSDR60OZt9jFLUV4yradBA=="
+    },
+    {
+      "name": "ASSET_DELETE-CHANGE_REF",
+      "messageType": "CHANGE_REF",
+      "sequence": 8,
+      "criticalExtensions": [
+        "iwxa.subject-delete.v1"
+      ],
+      "body": {
+        "changeId": "change:golden:asset_delete",
+        "changeKind": "ASSET_DELETE",
+        "eventRef": "event:golden:8",
+        "ownerRef": "owner:alice",
+        "sourceRevision": null,
+        "contentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "parents": [
+          "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        ]
+      },
+      "bodyDigest": "sha256:87e9470438afcc4b49903d09effad97ce6f7ac4ae3aa14702c035bdb7b25fb2f",
+      "signedBytesSha256": "c17c77ed5750a40790c349354db8de31af5ae221482dea84463019162d3e95ea",
+      "wireSha256": "fe6d4a3808d699728a704688fa5fbf48a960927e7b6551c55a968390d5faf3a4",
+      "signatureBase64": "P+tVE79ebtmx9SlqtI+8V0SlobCpxWHaukaHzOulmTlA3QCBY6i4NQfZ5y1ML8lA/fjOky/X+1onAOn56mZqBQ=="
+    },
+    {
+      "name": "ASSET_DELETE-APPLIED_ACK",
+      "messageType": "APPLIED_ACK",
+      "sequence": 9,
+      "criticalExtensions": [
+        "iwxa.subject-delete.v1"
+      ],
+      "body": {
+        "changeId": "change:golden:asset_delete",
+        "contentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "ackRef": "ack:golden:8",
+        "recipientEventRef": "event:received:8",
+        "recipientRevision": null,
+        "recipientStateDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "bodyDigest": "sha256:a5cf693041c7525c299869bfc3748dec4e8c5b9ecad1cc4bd56d93903132fa69",
+      "signedBytesSha256": "01de1be3aa5b5452ce8c01d40168e6118749cf6dc45cf7e23d63deb7c6e0e226",
+      "wireSha256": "bb3952b3b64c8a34379a2762bbe6901f6b2c684d9896383b93eba75a269f6414",
+      "signatureBase64": "nBNbtjv7GP5mTtYXzafh3LvEGWgWnHo7cyhz7DwcqF7b2W+cBCP3I/05U4Dssv4vLv7ztsY+y3WELZ7kgwx+DA=="
+    },
+    {
+      "name": "RELATION_DELETE-CHANGE_REF",
+      "messageType": "CHANGE_REF",
+      "sequence": 10,
+      "criticalExtensions": [
+        "iwxa.subject-delete.v1"
+      ],
+      "body": {
+        "changeId": "change:golden:relation_delete",
+        "changeKind": "RELATION_DELETE",
+        "eventRef": "event:golden:10",
+        "ownerRef": "owner:alice",
+        "sourceRevision": null,
+        "contentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "parents": [
+          "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        ]
+      },
+      "bodyDigest": "sha256:abc72945658c14f3126a55a9b83a84490f456e4d05db36e8e04a5fb9d30a65fe",
+      "signedBytesSha256": "98064ce5c4bec621ad384dc841ada2f8d15cf7f1766dc2558a36b45da6959539",
+      "wireSha256": "6f70966c62181a93c127672e2fc481f9a034b5782629509ddcc416815e23fe37",
+      "signatureBase64": "wzHhb63HSlGIdX1jdDBaZKVYied2eNhrg7TlDuRva5IKFDVYFeYEo/v1wzJQsSpCKRrGIroQrjlxuL/pHgtOAQ=="
+    },
+    {
+      "name": "RELATION_DELETE-APPLIED_ACK",
+      "messageType": "APPLIED_ACK",
+      "sequence": 11,
+      "criticalExtensions": [
+        "iwxa.subject-delete.v1"
+      ],
+      "body": {
+        "changeId": "change:golden:relation_delete",
+        "contentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "ackRef": "ack:golden:10",
+        "recipientEventRef": "event:received:10",
+        "recipientRevision": null,
+        "recipientStateDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "bodyDigest": "sha256:7ec5ba9473b851d67a90d1733da9a7edba12f5825a701f95d5318388eba8a11a",
+      "signedBytesSha256": "8bcca2372f0c698478b769d9a9fc19c8e39e8c47e795132a569af59fae7af616",
+      "wireSha256": "b102c59f3f7abc2fff67574df741720fc792546d7ea5fc840fe35c6d32c44e2c",
+      "signatureBase64": "veFVkaguGLpKyS/BCPQwvWqwpr80d5TJnEm7Q0KZp5wp9DNc6yDsOL3kNCmkhCF3KmJsbWZfVQE1MS3xfDaRCw=="
+    },
+    {
+      "name": "OBJECT_DELETE-CHANGE_REF",
+      "messageType": "CHANGE_REF",
+      "sequence": 12,
+      "criticalExtensions": [
+        "iwxa.object-tombstone.v1"
+      ],
+      "body": {
+        "changeId": "change:golden:object_delete",
+        "changeKind": "OBJECT_DELETE",
+        "eventRef": "event:golden:12",
+        "ownerRef": "owner:alice",
+        "sourceRevision": 8,
+        "contentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "parents": [
+          "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        ]
+      },
+      "bodyDigest": "sha256:0cc9c74f00a235a1e4a6a3aa100ddccd008a47992ee05d1cc23f05b36c2fd8be",
+      "signedBytesSha256": "d584f1c75a07cd88f6098bcfb71129770713ab05e24312f09a9ca9c809dc8b8b",
+      "wireSha256": "47789b560f89dc6d3e1fc69d6a8a4f83092524f578c70e598e3726c63c4808c7",
+      "signatureBase64": "CccPOsDMbkSpsiFd4QCucd7Nk20UUAsXnzSOAxPkd6R8n0+v2BIEQxyE9WwU/tXahlxcWEsWoVSob+hdpVgiDg=="
+    },
+    {
+      "name": "OBJECT_DELETE-APPLIED_ACK",
+      "messageType": "APPLIED_ACK",
+      "sequence": 13,
+      "criticalExtensions": [
+        "iwxa.object-tombstone.v1"
+      ],
+      "body": {
+        "changeId": "change:golden:object_delete",
+        "contentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "ackRef": "ack:golden:12",
+        "recipientEventRef": "event:received:12",
+        "recipientRevision": 8,
+        "recipientStateDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "bodyDigest": "sha256:54b0cc7b112c6a09ccfccb29c1d3c1a417c2705910f96c0f44b7922e92a21def",
+      "signedBytesSha256": "37e1f7d7512b7124896035c16df90f2439b2f3fabcae19a213530df7987379b4",
+      "wireSha256": "0b30024bfe42718b6fee966b90fa821643b104280a942f2894f129ab7a524f0a",
+      "signatureBase64": "II2VxsYgHRbuX0g+sOzOmNOglvqeGAhIETN/Vxh9UO6PtJzxPh57i7+liHNIKmbPp1bH2O9OjzOU1UZqxg4tDQ=="
     }
   ]
 }

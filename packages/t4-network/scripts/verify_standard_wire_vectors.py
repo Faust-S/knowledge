@@ -33,7 +33,30 @@ def run():
     fixtures = json.loads(FIXTURE.read_text(encoding="utf-8"))
     assert fixtures["schema"] == KNOWN_SCHEMA
     assert fixtures["testOnly"] is True
-    assert len(fixtures["vectors"]) == 3
+    assert len(fixtures["vectors"]) == 13
+    assert [v["sequence"] for v in fixtures["vectors"]] == list(range(1, 14))
+    expected = {
+        "OBJECT_PUT": [], "ASSET_PUT": [],
+        "RELATION_PUT": ["iwxa.relation-event.v1"],
+        "ASSET_DELETE": ["iwxa.subject-delete.v1"],
+        "RELATION_DELETE": ["iwxa.subject-delete.v1"],
+        "OBJECT_DELETE": ["iwxa.object-tombstone.v1"],
+    }
+    changes = [v for v in fixtures["vectors"] if v["messageType"] == "CHANGE_REF"]
+    assert {v["body"]["changeKind"] for v in changes} == set(expected)
+    for change in changes:
+        kind = change["body"]["changeKind"]
+        revision = change["body"]["sourceRevision"]
+        assert change.get("criticalExtensions", []) == expected[kind]
+        if kind in ("RELATION_PUT", "RELATION_DELETE", "ASSET_DELETE"):
+            assert revision is None
+        else:
+            assert type(revision) is int and revision >= (2 if kind == "OBJECT_DELETE" else 1)
+        matches = [v for v in fixtures["vectors"] if v["messageType"] == "APPLIED_ACK"
+                   and v["body"]["changeId"] == change["body"]["changeId"]]
+        assert len(matches) == 1
+        assert matches[0]["body"]["recipientRevision"] == revision
+        assert matches[0].get("criticalExtensions", []) == expected[kind]
     checked = []
     for item in fixtures["vectors"]:
         body = item["body"]
@@ -43,6 +66,7 @@ def run():
         assert body_digest == item["bodyDigest"], item["name"]
         unsigned = {
             **fixtures["sharedFields"],
+            "criticalExtensions": item.get("criticalExtensions", fixtures["sharedFields"]["criticalExtensions"]),
             "schema": WIRE_SCHEMA,
             "protocolVersion": VERSION,
             "messageType": item["messageType"],

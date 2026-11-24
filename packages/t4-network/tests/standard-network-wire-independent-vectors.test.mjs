@@ -36,7 +36,8 @@ test('independently pinned Python / Node canonical bytes and signed Ed25519 fixt
     fixtures.testOnlyEd25519PublicHex);
   for(const vector of fixtures.vectors){
     const unsigned=createT4CandidateUnsignedFrame({
-      ...fixtures.sharedFields,messageType:vector.messageType,
+      ...fixtures.sharedFields,criticalExtensions:vector.criticalExtensions??fixtures.sharedFields.criticalExtensions,
+      messageType:vector.messageType,
       messageId:'message:golden:'+vector.sequence,
       sequence:vector.sequence,body:vector.body,
     });
@@ -63,7 +64,8 @@ test('independently pinned Python / Node canonical bytes and signed Ed25519 fixt
 test('network fixture signatures do not grant original business rights',async()=>{
   const vector=fixtures.vectors[1];
   const unsigned=createT4CandidateUnsignedFrame({
-    ...fixtures.sharedFields,messageType:vector.messageType,
+    ...fixtures.sharedFields,criticalExtensions:vector.criticalExtensions??fixtures.sharedFields.criticalExtensions,
+      messageType:vector.messageType,
     messageId:'message:golden:'+vector.sequence,
     sequence:vector.sequence,body:vector.body,
   });
@@ -80,4 +82,35 @@ test('network fixture signatures do not grant original business rights',async()=
     authorizeOriginalNetwork:async()=>false,
     persistOriginalReplayDecision:async()=>{throw Error('must not be called');},
   }),e=>e?.code==='WIRE_ORIGINAL_ACCESS_DENIED');
+});
+
+test('independent critical extension vectors cover all six changes and matched ACK semantics',async()=>{
+  const kinds=new Set();
+  for(const v of fixtures.vectors.filter(v=>v.messageType==='CHANGE_REF')){
+    kinds.add(v.body.changeKind);
+    const ack=fixtures.vectors.find(a=>a.messageType==='APPLIED_ACK'&&a.body.changeId===v.body.changeId);
+    assert.ok(ack,v.name);assert.equal(ack.body.recipientRevision,v.body.sourceRevision);
+    assert.deepEqual(ack.criticalExtensions??[],v.criticalExtensions??[]);
+    for(const vector of [v,ack]){
+      const extensions=vector.criticalExtensions??[];
+      const unsigned=createT4CandidateUnsignedFrame({...fixtures.sharedFields,
+        criticalExtensions:extensions,messageType:vector.messageType,
+        messageId:'message:golden:'+vector.sequence,sequence:vector.sequence,body:vector.body});
+      const wire=await signT4CandidateFrame({unsignedFrame:unsigned,
+        signOriginalNodeBytes:async({bytes})=>sign(null,Buffer.from(bytes),key)});
+      let replayWrites=0;
+      const ports={wireBytes:wire,recipientNodeRef:'node:bob',scopeRef:'scope:workspace:opaque',
+        requiredCryptoSuite:'X25519_AES256GCM_ED25519',
+        verifyOriginalNodeSignature:async({bytes,signature})=>verify(null,Buffer.from(bytes),publicKey,Buffer.from(signature)),
+        authorizeOriginalNetwork:async()=>true,persistOriginalReplayDecision:async()=>{replayWrites++;return 'RECORDED';}};
+      if(extensions.length){
+        await assert.rejects(verifyT4CandidateWireFrame(ports),e=>e?.code==='WIRE_UNSUPPORTED_CRITICAL_EXTENSION');
+        assert.equal(replayWrites,0);
+      }
+      const result=await verifyT4CandidateWireFrame({...ports,supportedCriticalExtensions:extensions});
+      assert.equal(result.originalBusinessApplied,false);
+      assert.equal(replayWrites,1);
+    }
+  }
+  assert.deepEqual([...kinds].sort(),['ASSET_DELETE','ASSET_PUT','OBJECT_DELETE','OBJECT_PUT','RELATION_DELETE','RELATION_PUT']);
 });
