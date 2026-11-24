@@ -1,0 +1,137 @@
+name: Activity original D05 GUI and Kernel recipient
+on:
+  push:
+    branches:
+      - test/2026-11-24-activity-d05-recipient
+    paths:
+      - .github/workflows/activity-d05-native-journey.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Fetch exact private site and immutable T2 inputs
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          test -n "${DOMEN:-}" || { echo "D05_DOMEN=UNAVAILABLE"; exit 1; }
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          git init --quiet site
+          if ! GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git d206e9cedd30ac9e81f8b41e3784e0415f633fd2 >/dev/null 2>&1; then
+            echo "D05_SITE_ACCESS=FAIL"
+            exit 1
+          fi
+          git -C site checkout --quiet --detach FETCH_HEAD
+          test "$(git -C site rev-parse HEAD)" = "d206e9cedd30ac9e81f8b41e3784e0415f633fd2" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          echo "D05_SITE_PIN=PASS"
+          git init --quiet t2
+          if ! GIT_TERMINAL_PROMPT=0 git -C t2 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/T2.git e70de29b72b83e2546f7ab74b17572685a728c17 >/dev/null 2>&1; then
+            echo "D05_T2_READ_PIN=FAIL"
+            exit 1
+          fi
+          git -C t2 checkout --quiet --detach FETCH_HEAD
+          test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17" || { echo "D05_T2_PIN=FAIL"; exit 1; }
+          echo "D05_T2_PIN=PASS"
+          unset header DOMEN
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Install site dependencies
+        run: |
+          set -euo pipefail
+          if (cd site && npm ci --no-audit --no-fund) > "$RUNNER_TEMP/d05-site-install.log" 2>&1; then
+            echo "D05_SITE_NPM_CI=PASS"
+          else
+            echo "D05_SITE_NPM_CI=FAIL"
+            exit 1
+          fi
+      - name: Verify the exact accepted T2 Kernel archive and stage
+        run: |
+          set -euo pipefail
+          archive="$GITHUB_WORKSPACE/t2/t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip"
+          node - "$archive" <<'NODE'
+          const fs=require("node:fs");
+          const crypto=require("node:crypto");
+          const archive=process.argv[2];
+          const expected="7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68";
+          const actual=crypto.createHash("sha256").update(fs.readFileSync(archive)).digest("hex");
+          if(actual!==expected) {console.log("D05_KERNEL_ARCHIVE_SHA=FAIL"); process.exit(1);}
+          console.log("D05_KERNEL_ARCHIVE_SHA=PASS");
+          NODE
+          mkdir -p "$RUNNER_TEMP/qualified-kernel" "$RUNNER_TEMP/verified-kernel"
+          unzip -qq "$archive" -d "$RUNNER_TEMP/qualified-kernel"
+          test -f "$RUNNER_TEMP/qualified-kernel/_iwxa/runtime/0.3.6/runtime.js" || { echo "D05_KERNEL_LAYOUT=FAIL"; exit 1; }
+          verifier="$GITHUB_WORKSPACE/t2/t2/current/final-successor/canonical-source/scripts/stage-verified-kernel.mjs"
+          if node "$verifier" "$RUNNER_TEMP/qualified-kernel" "$RUNNER_TEMP/verified-kernel" --qualification-only --artifact-id iwxa-kernel-k036-same-store-history-20261019-qualified.1 > "$RUNNER_TEMP/d05-kernel-verification.log" 2>&1; then
+            echo "D05_KERNEL_QUALIFIED_STAGING=PASS"
+          else
+            echo "D05_KERNEL_QUALIFIED_STAGING=FAIL"
+            exit 1
+          fi
+      - name: Fetch original public Activity Exchange witness archive
+        uses: actions/download-artifact@v4
+        with:
+          name: activity-technology-products-original-t2
+          run-id: 45400489953
+          repository: Faust-S/knowledge
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/activity-original-archive
+      - name: Verify archive bytes, source tree and format
+        run: |
+          set -euo pipefail
+          echo '9673575c553096728de552ad21460668c5ef5f0dc7dee5a3372d88b810990629  '${RUNNER_TEMP}/activity-original-archive/d05-technology.iwxa | sha256sum -c >/dev/null
+          echo D05_ACTIVITY_ORIGINAL_ARCHIVE_PIN=PASS
+          cd site
+          test "$(git rev-parse 'HEAD^{tree}')" = "9cf936d1e1f5888783f538e348cb02e0da561f6b"
+          files=(src/host/activity-technology-recipient.ts src/host/activity-technology-recipient.test.ts src/host/CehovodActivityTechnologyPanel.tsx src/host/CehovodHostApp.tsx src/host/native-port.ts src/lib/quality-plan.ts scripts/stage-cehovod-host.mjs scripts/d05-first-use-real-kernel-witness.mjs scripts/d05-activity-recipient-witness.mjs t2-site-module/cehovod/site-host-port.ts t2-site-module/cehovod/vendor/cehovod-host.d.ts eslint.config.js)
+          if ./node_modules/.bin/prettier --check "${files[@]}" > "$RUNNER_TEMP/d05-activity-format.log" 2>&1; then
+            echo D05_ACTIVITY_COMMITTED_FORMAT=PASS
+          else
+            echo D05_ACTIVITY_COMMITTED_FORMAT=FAIL
+            ./node_modules/.bin/prettier --write "${files[@]}" > /dev/null 2>&1
+            echo D05_ACTIVITY_DISPOSABLE_COPY_FORMATTED=YES
+          fi
+      - name: Assemble original T2 product and static gates
+        env:
+          IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/t2/t2/current/final-successor/canonical-source
+          IWXA_CEHOVOD_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/qualified-kernel
+          IWXA_CEHOVOD_HOST_ORIGIN: https://127.0.0.1:8443
+        run: |
+          set -euo pipefail
+          cd site
+          export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium)"
+          if npm run build > "$RUNNER_TEMP/d05-activity-full.log" 2>&1; then
+            echo D05_ACTIVITY_FULL_T2_BUILD=PASS
+          else
+            echo D05_ACTIVITY_FULL_T2_BUILD=FAIL
+            node --input-type=module - <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const s=readFileSync(process.env.RUNNER_TEMP+'/d05-activity-full.log','utf8');
+          for(const c of new Set(s.match(/\b(?:CEHOVOD_[A-Z0-9_]+|T2_[A-Z0-9_]+|ERR_[A-Z0-9_]+|TS\d{4,5}|prettier\/prettier)\b/g)||[])) console.log('D05_ACTIVITY_BUILD_CODE='+c);
+          for(const m of s.matchAll(/([A-Za-z0-9_./-]+\.tsx?)\((\d+),(\d+)\): error (TS\d+)/g)) console.log('TYPE_DIAGNOSTIC='+m[1].split('/').at(-1)+':'+m[2]+':'+m[3]+':'+m[4]);
+          console.log('D05_ACTIVITY_BUILD_ERROR_COUNT='+(s.match(/(?:FAIL|Error:|Failed:)/g)||[]).length);
+          NODE
+            exit 1
+          fi
+      - name: Run existing original independent browser witness
+        run: |
+          set -euo pipefail
+          witness="$RUNNER_TEMP/d05-t2-witness-source"
+          cp -a t2/t2/current/final-successor/canonical-source "$witness"
+          if ! (cd "$witness" && npm ci --include=dev --no-audit --no-fund) > "$RUNNER_TEMP/d05-activity-witness-install.log" 2>&1; then echo D05_ACTIVITY_WITNESS_INSTALL=FAIL; exit 1; fi
+          if ! (cd "$witness" && npx --no-install playwright install chromium) > "$RUNNER_TEMP/d05-activity-witness-browser.log" 2>&1; then echo D05_ACTIVITY_WITNESS_BROWSER=FAIL; exit 1; fi
+          cd site
+          D05_T2_WITNESS_COPY="$witness" D05_FIRST_USE_ACTIVITY_IWXA="$RUNNER_TEMP/activity-original-archive/d05-technology.iwxa" node scripts/d05-first-use-real-kernel-witness.mjs
+      - name: Remove private qualification material
+        if: always()
+        run: |
+          rm -rf site t2 "$RUNNER_TEMP/d05-t2-witness-source" "$RUNNER_TEMP/qualified-kernel" "$RUNNER_TEMP/verified-kernel"
+          rm -f "$RUNNER_TEMP"/d05-*.log
