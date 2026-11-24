@@ -365,7 +365,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     authorizeOriginalSealedContent,readOriginalSealedContent,
     authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
     retryMissing=false,announceOriginalSourceSession=false,recoverNextOriginalCapture=null,
-    authorizeOriginalHistoricalCursorRecovery=null,
+    authorizeOriginalHistoricalCursorRecovery=null,historicalOnly=false,
   }={}){
     const schema='IWXA_T4_ORIGINAL_HOST_NATIVE_SOURCE_STEP_V1';
     if(mode()==='LOCAL_T3')return Object.freeze({schema,state:'LOCAL_T3',
@@ -374,7 +374,8 @@ export function createT4OriginalHostDispatchTaskBinding({
       authorizeOriginalSealedContent,readOriginalSealedContent,authorizeOriginalRead,
       readOriginalEvents,verifyOriginalSourceSubject,createOriginalNativePublicationPort]
       .every(f=>typeof f==='function')||!ID(requiredCryptoSuite)||typeof retryMissing!=='boolean'||
-      typeof announceOriginalSourceSession!=='boolean'||
+      typeof announceOriginalSourceSession!=='boolean'||typeof historicalOnly!=='boolean'||
+      (historicalOnly&&(authorizeOriginalHistoricalCursorRecovery===null||retryMissing))||
       (authorizeOriginalHistoricalCursorRecovery!==null&&
         (!announceOriginalSourceSession||typeof authorizeOriginalHistoricalCursorRecovery!=='function'))||
       (recoverNextOriginalCapture!==null&&typeof recoverNextOriginalCapture!=='function'))
@@ -419,12 +420,14 @@ export function createT4OriginalHostDispatchTaskBinding({
         error?.code!=='DISPATCH_NATIVE_NEXT_ORIGINAL_CAPTURE_NOT_UNIQUE'||
         error.details?.matchingCaptures!==0||error.details?.networkWritesStarted!==false||
         !ID(error.details?.sourceEventId))throw error;
+      if(historicalOnly)return result('NO_ORIGINAL_HISTORICAL_RECOVERY');
       const recovered=await recovery(error.details.sourceEventId);
       if(recovered===null)throw error;
       return recovered;
     }
     await verify(initial);
     if(!tick.prepared){
+      if(historicalOnly)return result('NO_ORIGINAL_HISTORICAL_RECOVERY');
       if(recoverNextOriginalCapture!==null){
         const recovered=await recovery();if(recovered!==null)return recovered;
       }
@@ -524,6 +527,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       if(!phaseMatches(after)||after.currentPhase!==next||!evidenceMatches(after.currentEvidence,evidence))
         fail('HOST_TASK_NATIVE_SOURCE_PHASE_READBACK_MISMATCH');
     };
+    if(historicalOnly&&stage<2)return done('NO_ORIGINAL_HISTORICAL_RECOVERY');
     if(stage===0){
       await advance('INTENT',intent);
       return done('INTENT_RECORDED');
@@ -590,6 +594,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       return done('SOURCE_ACK_CONFIRMED',{sourceCursorAdvanced:committed.state==='ORIGINAL_T3_CAS_COMMITTED',
         originalSourceCursorConfirmed:true,originalHistoricalRecoveryUsed:true,committed});
     }
+    if(historicalOnly)return done('NO_ORIGINAL_HISTORICAL_RECOVERY');
     const specsFor=async specs=>{
       const signed=[];
       for(const spec of specs){

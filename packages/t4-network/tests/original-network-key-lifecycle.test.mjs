@@ -9,7 +9,9 @@ import {createSignedAccessHostPort} from '../../t3-core/src/t3/signed-access-hos
 import {ORIGINAL_NETWORK_KEY_TRANSITION,ORIGINAL_NETWORK_KEY_MANAGE,originalNetworkKeyPossessionBytes,
   originalNetworkKeyOperationDigest,originalNetworkKeyStatusId,createOriginalNetworkAgreementChallenge,answerOriginalNetworkAgreementChallenge} from '../../t3-core/src/t3/access/original-network-key-lifecycle.mjs';
 import {createT4OriginalVaultSealedContentPort} from '../src/network/original-vault-sealed-content.mjs';
-import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,createT4OriginalSourceSessionHead} from '../src/network/original-network-publication.mjs';
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,createT4OriginalSourceSessionHead,
+  createT4OriginalPublicationIndexMigrationStepper} from '../src/network/original-network-publication.mjs';
+import {createT4OriginalHostDispatchTaskBinding} from '../src/network/original-host-dispatch-task-binding.mjs';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
 import {createT4OriginalNetworkHostCursorPort} from '../src/network/original-network-host-cursor.mjs';
@@ -699,9 +701,13 @@ test(pendingPhase?'K43 cold original source confirms previously accepted ACK and
     requireDurableNetworkKeyBinding:true,readEncryptedVault:async()=>{vaultReads++;return encrypted;},unlockPassphrase:async()=>PASS});
   let sourceSigner=signer(sourceBinding,recipientBinding);
   const recipientSigner=signer(recipientBinding,sourceBinding);
-  const kernel={...f.kernel,async getObject(ws,id){
-    const row=await f.kernel.getObject(ws,id);return row?{...row,object:{...row.object,deleted:false}}:null;
-  },async listEventsSince(ws){
+  const kernel={...f.kernel,hasOperation:op=>op==='t1.listObjects'||f.kernel.hasOperation(op),
+    async getObject(ws,id){
+      const row=await f.kernel.getObject(ws,id);return row?{...row,object:{...row.object,deleted:false}}:null;
+    },async listObjects({workspace_id}){
+      const ids=[...new Set(f.storage.calls.filter(p=>p.workspace_id===workspace_id).map(p=>p.object_id))];
+      return Promise.all(ids.map(async id=>(await this.getObject(workspace_id,id)).object));
+    },async listEventsSince(ws){
     const rows=await f.kernel.listEventsSince(ws),calls=f.storage.calls.filter(p=>p.workspace_id===ws);
     return rows.map((e,i)=>({...e,object_id:calls[i].object_id,revision:calls[i].base_revision+1,
       occurred_at:iso(NOW-1000+i),service_id:'service:k41:fixture'}));
@@ -721,10 +727,12 @@ test(pendingPhase?'K43 cold original source confirms previously accepted ACK and
     originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
     prepared:{bytes:new Uint8Array(bytes),sha256:sha(bytes),delta:{sourceEventId:w.lastEventId,sourceRevision:2,
       sourceEventDigest:w.eventRefs[0].eventDigest,windowDigest:w.windowDigest}}};
-  const session=deriveT4OriginalNativeCaptureSession({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',
+  const taskValue={schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',
     state:'ORIGINAL_NATIVE_CAPTURE_READY',workspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,
     scopeRef:SCOPE,ownerEpoch:2,networkTargetRef:B,networkPublished:false,sourceCursorAdvanced:false,
-    originalRecipientApplied:false,sourceCursorBefore:before,sourceCursorAfter:current.nextCursor,capture});
+    recipientCursorAdvanced:false,originalSubjectMutationInvoked:false,originalHostFrontierRevision:0,
+    originalRecipientApplied:false,sourceCursorBefore:before,sourceCursorAfter:current.nextCursor,capture};
+  const session=deriveT4OriginalNativeCaptureSession(taskValue);
   const remote=new Map(),wire={wireKind:'T4_NETWORK_CANDIDATE',forOriginalHostLifetime(){return this;},
     async putSnapshot({key,bytes,expectedSha256}){assert.equal(sha(bytes),expectedSha256);networkPuts++;
       assert.equal(remote.has(key),false);remote.set(key,new Uint8Array(bytes));return {key,sha256:expectedSha256,state:'PUBLISHED_AND_READ_BACK'};},
@@ -801,7 +809,6 @@ test(pendingPhase?'K43 cold original source confirms previously accepted ACK and
   const beforeAcceptanceGets=networkGets;
   assert.equal(await transport().readOriginalHistoricalAppliedAck({selector,requiredCryptoSuite:SUITE}),null);
   assert.equal(networkGets,beforeAcceptanceGets,'unaccepted remote bytes are not historical proof');
-  await transport().readAndVerifySignedFrame({key:ackKey,expectedSha256:ackSha,requiredCryptoSuite:SUITE});
   const evidence={evidenceRef:ackKey,evidenceDigest:'sha256:'+ackSha,originalRecipientEventId:result.event.event_id,
     originalRecipientRevision:2,originalRecipientStateDigest:stateDigest};
   const phase=()=>createT4OriginalNetworkSessionPhasePort({...original,localNodeRef:A,
@@ -823,6 +830,25 @@ test(pendingPhase?'K43 cold original source confirms previously accepted ACK and
     authorizeOriginalHistoricalCursorRecovery:async p=>recoveryAllowed&&p.originalFrameRetryAllowed===false&&
       p.historicalAck.body.recipientEventRef===result.event.event_id,
     authorizeOriginalRead:allow,readOriginalEvents:()=>kernel.listEventsSince(WS)});
+  const unexpected=async()=>assert.fail('historical-only original Host must not use a live publication or subject proof');
+  const sourceTask=()=>createT4OriginalHostDispatchTaskBinding({
+    expectedWorkspaceId:WS,expectedOriginalWriteOwnerRef:OWNER,expectedNetworkTargetRef:B,
+    getMode:original.getMode,readOriginalHostContext:async()=>({workspaceId:WS,originalWriteOwnerRef:OWNER,
+      networkTargetRef:B,hostSessionRef:host}),authorizeOriginalHostTask:allow,
+    dispatcher:{drain:unexpected,prepareNextNativeObject:async()=>taskValue},
+    createOriginalNativePublicationPort:async()=>publication()});
+  const runHistory=()=>sourceTask().runNativeSourceStep({createOriginalSourcePhasePort:async()=>phase(),
+    sourceCursorPort:cursor(),frameDiscoveryPort:transport(),requiredCryptoSuite:SUITE,
+    resolveOriginalSigningContext:unexpected,signOriginalNodeBytes:unexpected,
+    authorizeOriginalSealedContent:unexpected,readOriginalSealedContent:unexpected,
+    authorizeOriginalRead:allow,readOriginalEvents:()=>kernel.listEventsSince(WS),verifyOriginalSourceSubject:unexpected,
+    announceOriginalSourceSession:true,historicalOnly:true,
+    authorizeOriginalHistoricalCursorRecovery:recovery().authorizeOriginalHistoricalCursorRecovery});
+  const noAckWrites=f.calls,noAckGets=networkGets;
+  assert.equal((await runHistory()).state,'NO_ORIGINAL_HISTORICAL_RECOVERY');
+  assert.equal(f.calls,noAckWrites);assert.equal(networkGets,noAckGets);
+  assert.deepEqual((await cursor().inspectOriginalCommittedSourceAcknowledgements({sessions:[session]})).results,[]);
+  await transport().readAndVerifySignedFrame({key:ackKey,expectedSha256:ackSha,requiredCryptoSuite:SUITE});
   await assert.rejects(cursor().commitHistoricallyConfirmedCursor({recovery:recovery()}),
     {code:'CURSOR_ORIGINAL_SOURCE_APPLIED_NOT_CONFIRMED'});
   if(!pendingPhase)await phase().advanceOriginalSessionPhase({phase:'APPLIED_CONFIRMED',evidence});
@@ -858,8 +884,7 @@ test(pendingPhase?'K43 cold original source confirms previously accepted ACK and
     assert.equal(f.calls,writesBeforePhase);
     appliedAllowed=true;
     f.loseNextReply();
-    await assert.rejects(confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement(recovery()),
-      {code:'PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
+    await assert.rejects(runHistory(),{code:'PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
     host='host:k43:after-lost-phase';
     const confirmed=await confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement(recovery());
     assert.equal(confirmed.state,'ALREADY_CONFIRMED');
@@ -876,7 +901,7 @@ test(pendingPhase?'K43 cold original source confirms previously accepted ACK and
   appliedAllowed=true;
   assert.equal(f.calls,beforeWrites);
   f.loseNextReply();
-  await assert.rejects(cursor().commitHistoricallyConfirmedCursor({recovery:recovery()}),{code:'HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
+  await assert.rejects(runHistory(),{code:'HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
   host='host:k41:after-lost-cas';
   const committed=await cursor().commitHistoricallyConfirmedCursor({recovery:recovery()});
   assert.equal(committed.state,'ALREADY_COMMITTED');assert.equal(committed.originalHistoricalRecoveryUsed,true);
@@ -885,6 +910,28 @@ test(pendingPhase?'K43 cold original source confirms previously accepted ACK and
   assert.equal(vaultReads,beforeReads);assert.equal(signs,beforeSigns);assert.equal(networkPuts,beforePuts);
   assert.equal(networkGets,beforeGets,'original retained ACK recovery performs no remote reads');
   assert.deepEqual((await publication().inspectOriginalPublication()).frames.map(f=>f.sha256),saved.frames.map(f=>f.sha256));
+  const completed=await cursor().inspectOriginalCommittedSourceAcknowledgements({sessions:[session]});
+  assert.equal(completed.results.length,1);
+  assert.equal(completed.results[0].originalRecipientEventId,result.event.event_id);
+  assert.equal(completed.results[0].signedAppliedAckDigest,'sha256:'+ackSha);
+  assert.equal(completed.remoteNetworkReadRequired,false);
+  await assert.rejects(cursor().inspectOriginalCommittedSourceAcknowledgements({sessions:[
+    {...session,sourceEventDigest:'sha256:'+'0'.repeat(64)}]}),{code:'HOST_CURSOR_ORIGINAL_HISTORICAL_SESSION_MISMATCH'});
+  const migrate=createT4OriginalPublicationIndexMigrationStepper({...original,localNodeRef:A,
+    createOriginalPublicationPort:async()=>publication(),
+    inspectOriginalCommittedSourceAcknowledgements:cursor().inspectOriginalCommittedSourceAcknowledgements});
+  const migrated=await migrate();
+  assert.equal(migrated.state,'NETWORK_INDEX_MIGRATION_COMPLETE');
+  assert.equal(migrated.processedPublicationCount,1);
+  assert.equal(migrated.skippedCompletedSourcePublicationCount,1);
+  assert.equal(migrated.migratedPublicationCount,0);
+  assert.equal(migrated.verifiedMigratedFrameCount,0);
+  assert.equal(migrated.skippedCompletedSourceIndexesRepaired,false);
+  assert.equal(await migrate(),null);
+  assert.equal(networkGets,beforeGets);assert.equal(networkPuts,beforePuts);assert.equal(f.calls,beforeWrites+1);
+  console.log('T4_K45_COMPLETED_SOURCE_MIGRATION_SKIP_PASS',JSON.stringify({historicalOnlyHostTask:true,
+    originalSourceFrontierEventChain:true,completedSourcePublicationSkipped:1,networkReads:0,networkWrites:0,
+    additionalOriginalWrites:0,oldIndexesClaimedRepaired:false,kernelFixture:true}));
   console.log(pendingPhase?'T4_K43_OFFLINE_HISTORICAL_PHASE_AND_CURSOR_PASS':'T4_K41_HISTORICALLY_CONFIRMED_SOURCE_CURSOR_PASS',
     JSON.stringify({rotatedSigningKeys:2,originalPhaseWritesAfterRotation:pendingPhase?1:0,additionalNetworkGets:0,
     originalPriorReplay:true,originalRecipientResultFixture:true,originalPhaseConfirmed:true,

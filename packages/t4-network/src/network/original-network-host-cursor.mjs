@@ -249,7 +249,8 @@ export function createT4OriginalNetworkHostCursorPort({
     await guard(initial,'t1.getObject','baseline-readback');
     return b;
   }
-  async function readVerified(initial){
+  async function readVerified(initial,selectedChangeIds=null){
+    const selected=new Map();
     const baseline=await readBaseline(initial);
     const firstHash=baseline?HASH({identity,checkpointRef,stage:'ADMITTED_BASELINE',baseline}):genesis;
     await guard(initial,'t1.getObject','frontier-read');
@@ -264,7 +265,7 @@ export function createT4OriginalNetworkHostCursorPort({
       await guard(initial,'t1.getObject','frontier-empty-double-read');
       if(await originalKernel.getObject(technicalWorkspaceId,checkpointRef)!=null)
         fail('HOST_CURSOR_ORIGINAL_CHANGED_DURING_READ');
-      return frozen({revision:0,last:null,chainHash:firstHash,checkpointRef,baseline});
+      return frozen({revision:0,last:null,chainHash:firstHash,checkpointRef,baseline,selected});
     }
     const obj=row?.object,data=obj?.data;
     if(obj?.object_id!==checkpointRef||
@@ -308,6 +309,10 @@ export function createT4OriginalNetworkHostCursorPort({
         ev.payload?.chainHash!==record.chainHash||
         ev.payload?.checkpointRef!==checkpointRef)
         fail('HOST_CURSOR_ORIGINAL_EVENT_PAYLOAD_MISMATCH');
+      if(selectedChangeIds?.has(record.changeId)){
+        if(selected.has(record.changeId))fail('HOST_CURSOR_ORIGINAL_HISTORICAL_RESULT_CONFLICT');
+        selected.set(record.changeId,{record:copy(record),revision:i,eventId:ev.event_id});
+      }
       prior=record.chainHash;prev=record;
     }
     if(!same(end,prev))
@@ -319,7 +324,49 @@ export function createT4OriginalNetworkHostCursorPort({
     if(!same(after?.object,obj))
       fail('HOST_CURSOR_ORIGINAL_CHANGED_DURING_READ');
     return frozen({revision:obj.revision,last:copy(end),
-      chainHash:end.chainHash,checkpointRef,baseline});
+      chainHash:end.chainHash,checkpointRef,baseline,selected});
+  }
+  // Batch lookup of already committed source sessions, directly from the
+  // original ACK frontier Event chain. No current peer connectivity, new
+  // subject receipt, cursor write or secondary history Store is involved.
+  async function inspectOriginalCommittedSourceAcknowledgements({sessions}={}){
+    if(!Array.isArray(sessions)||sessions.length>100000)fail('HOST_CURSOR_ORIGINAL_HISTORICAL_SELECTION_INVALID');
+    const query=sessions.map(validateT4OriginalNativeCaptureSession),ids=new Set(query.map(s=>s.changeId));
+    if(ids.size!==query.length||new Set(query.map(s=>s.sessionRef)).size!==query.length||
+      query.some(s=>s.workspaceId!==sourceWorkspaceId||s.originalWriteOwnerRef!==originalWriteOwnerRef||
+        s.sourceNodeRef!==sourceNodeRef||s.recipientNodeRef!==recipientNodeRef||s.scopeRef!==scopeRef||
+        s.ownerEpoch!==ownerEpoch))
+      fail('HOST_CURSOR_ORIGINAL_HISTORICAL_SELECTION_INVALID');
+    const initial=await context();
+    async function read(){
+      const found=await readVerified(initial,ids),results=[];
+      for(const s of query){
+        const item=found.selected.get(s.changeId);
+        if(!item)continue;
+        const r=item.record;
+        if(r.sourceEventId!==s.sourceEventId||r.sourceEventDigest!==s.sourceEventDigest||
+          r.sourceCursorBefore.sourcePrefixDigest!==s.sourcePrefixDigestBefore||
+          r.sourceCursorAfter.sourcePrefixDigest!==s.sourcePrefixDigestAfter||
+          r.recipientRevision!==s.sourceRevision||(r.changeKind??'OBJECT_PUT')!==s.changeKind)
+          fail('HOST_CURSOR_ORIGINAL_HISTORICAL_SESSION_MISMATCH');
+        results.push({session:copy(s),originalFrontierRecordRevision:item.revision,
+          originalFrontierEventId:item.eventId,originalFrontierRecordChainHash:r.chainHash,
+          originalSourcePhaseCheckpointRef:r.originalSourcePhaseCheckpointRef,
+          originalSourcePhaseChainHash:r.originalSourcePhaseChainHash,
+          originalRecipientEventId:r.recipientEventId,originalRecipientStateDigest:r.recipientStateDigest,
+          signedAppliedAckDigest:r.signedAppliedAckDigest,originalCommittedSourceAcknowledgementVerified:true});
+      }
+      return {revision:found.revision,chainHash:found.chainHash,results};
+    }
+    const first=await read(),after=await read();
+    if(!same(first,after)||!same(await context(),initial))
+      fail('HOST_CURSOR_ORIGINAL_HISTORICAL_RESULT_CHANGED');
+    return frozen({schema:'IWXA_T4_ORIGINAL_COMMITTED_SOURCE_ACKNOWLEDGEMENTS_V1',
+      ...identity,checkpointRef,frontierRevision:first.revision,frontierChainHash:first.chainHash,
+      results:frozen(first.results.map(x=>frozen({...x,session:frozen(x.session)}))),
+      originalT3EventChainVerified:first.revision>0,originalT3OnlyStore:true,
+      originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,remoteNetworkReadRequired:false,
+      originalAuthorityGranted:false});
   }
   async function inspectOriginalHostCursor(){
     const initial=await context();
@@ -500,7 +547,7 @@ export function createT4OriginalNetworkHostCursorPort({
     schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_PORT_V1',
     checkpointRef,
     inspectOriginalHostCursor,commitAcknowledgedCursor,commitHistoricallyConfirmedCursor,
-    readNextOriginalSourceEvent,
+    inspectOriginalCommittedSourceAcknowledgements,readNextOriginalSourceEvent,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkHostCursorPort({
       technicalSchemaId,
       originalKernel,technicalWorkspaceId,sourceWorkspaceId,

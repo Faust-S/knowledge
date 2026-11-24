@@ -224,7 +224,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
       ...(scopedVault?.verifyOriginalHistoricalNodeSignature?{verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature')}:{ }),
       ...(role==='SOURCE'&&scopedSealed?{authorizeOriginalSealedPublication:callback('authorizeOriginalSealedPublication')}:{})});
-    const migrateNextPublication=enablePublicationIndexMigration?
+    let migrateNextPublication=enablePublicationIndexMigration?
       createT4OriginalPublicationIndexMigrationStepper({...tech,localNodeRef:nodeRef,
         createOriginalPublicationPort:publication}):async()=>null;
     const phase=async({session})=>createT4OriginalNetworkSessionPhasePort({...tech,
@@ -247,6 +247,16 @@ export function createT4OriginalNativeHostNetworkOwner({
       };
       const sourceCursorPort=createT4OriginalNetworkHostCursorPort({...tech,originalBaselinePort:baseline,
         authorizeOriginalSourceRead:common.authorizeOriginalRead,readOriginalSourceEvents:readOriginalEvents});
+      // Migration is only useful for undelivered source sessions. An
+      // original committed frontier proves a completed delivery without
+      // reviving a retired signer or requiring its obsolete remote index.
+      const resetSourceMigration=()=>{
+        if(enablePublicationIndexMigration&&enableHistoricalAcknowledgementRecovery)
+          migrateNextPublication=createT4OriginalPublicationIndexMigrationStepper({...tech,localNodeRef:nodeRef,
+            createOriginalPublicationPort:publication,
+            inspectOriginalCommittedSourceAcknowledgements:sourceCursorPort.inspectOriginalCommittedSourceAcknowledgements});
+      };
+      resetSourceMigration();
       const capture={...common,...ledger,readOriginalEvents,networkTargetRef:recipientNodeRef,
         authorizeNetworkPublish:callback('authorizeNetworkPublish')};
       // The local original operation and the recovery task share the same
@@ -297,7 +307,8 @@ export function createT4OriginalNativeHostNetworkOwner({
         return verifyT4OriginalHostCapturedSubjectSource({...capture,kind:row.kind??'OBJECT_PUT',
           subjectId:row.subjectId??row.objectId,captureRef:row.captureRef},proof);
       };
-      return {baseline,task,capture:captureRecovery,migrateNextPublication,run:retryMissing=>task.runNativeSourceStep({...signing,retryMissing,sourceCursorPort,
+      return {baseline,task,capture:captureRecovery,migrateNextPublication:()=>migrateNextPublication(),
+        resetSourceMigration,run:(retryMissing,historicalOnly=false)=>task.runNativeSourceStep({...signing,retryMissing,historicalOnly,sourceCursorPort,
         createOriginalSourcePhasePort:phase,announceOriginalSourceSession:true,
         recoverNextOriginalCapture:p=>captureRecovery.reconcileNextOriginalCapture(p),
         authorizeOriginalRead:common.authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
@@ -503,7 +514,18 @@ export function createT4OriginalNativeHostNetworkOwner({
           const input=await readOriginalBaselineAdmissionInput(bindingProof(state,'baseline-request'));
           await requireBinding(state,'baseline-request-readback');
           result=input===null?{state:'WAITING_FOR_ORIGINAL_BASELINE'}:await state.baseline.admitOriginalBaseline(input);
-        }else result=await state.migrateNextPublication()??await state.run(state.networkRecovery!==null);
+        }else{
+          // A retained accepted ACK is local original evidence. Do not
+          // force an old-address migration (or live signature/remote I/O)
+          // before completing an already accepted source Result.
+          if(role==='SOURCE'&&enableHistoricalAcknowledgementRecovery&&enablePublicationIndexMigration){
+            const recovered=await state.run(false,true);
+            if(recovered.state!=='NO_ORIGINAL_HISTORICAL_RECOVERY'){
+              result=recovered;state.resetSourceMigration();
+            }
+          }
+          if(result===undefined)result=await state.migrateNextPublication()??await state.run(state.networkRecovery!==null);
+        }
         await requireBinding(state,'wake-readback');
         state.networkRecovery=null;
         // Only operational metadata to the existing native owner; no
@@ -517,7 +539,11 @@ export function createT4OriginalNativeHostNetworkOwner({
           ...(Number.isSafeInteger(result.pendingCaptureCount)?{pendingCaptureCount:result.pendingCaptureCount}:{}),
           ...(Number.isSafeInteger(result.migratedPublicationCount)?{
             migratedPublicationCount:result.migratedPublicationCount,pendingPublicationCount:result.pendingPublicationCount,
-            verifiedMigratedFrameCount:result.verifiedMigratedFrameCount}:{})}));
+            verifiedMigratedFrameCount:result.verifiedMigratedFrameCount}:{ }),
+          ...(Number.isSafeInteger(result.skippedCompletedSourcePublicationCount)?{
+            processedPublicationCount:result.processedPublicationCount,
+            skippedCompletedSourcePublicationCount:result.skippedCompletedSourcePublicationCount,
+            skippedCompletedSourceIndexesRepaired:false}:{})}));
       }catch(error){
         // A failed network wake must not remove the original local capture
         // route while offline. Retain ONLY a still-authorized local owner;
