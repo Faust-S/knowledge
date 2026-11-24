@@ -48,3 +48,21 @@ save("discover_ocdfg", bindings.discover_dfg_from_ocel(linked))
 log = r4pm.import_item("EventLog", str(root/"input.xes"))
 save("discover_dfg", bindings.discover_dfg(log))
 print("ACTIVITY_R4PM_0_6_2_REAL_OUTPUTS_WRITTEN")
+
+# Independent baseline with the same two orders, without the rework event.
+# This is a modelled input, processed by the pinned actual upstream functions.
+baseline = ['<?xml version="1.0" encoding="UTF-8"?>',
+            '<log xes.version="1.0" xmlns="http://www.xes-standard.org/">']
+for i in (1, 2):
+    baseline.append('<trace><string key="concept:name" value="order%d"/>' % i)
+    for j, name in enumerate(("cut", "inspect")):
+        when = "2026-11-24T07:%02d:00Z" % (i * 2 + j)
+        baseline.append('<event><string key="concept:name" value="%s"/><date key="time:timestamp" value="%s"/></event>' % (name, when))
+    baseline.append("</trace>")
+baseline.append("</log>")
+(root/"baseline.xes").write_text("".join(baseline), encoding="utf-8")
+base_log = r4pm.import_item("EventLog", str(root/"baseline.xes"))
+(root/"baseline_dfg.json").write_text(json.dumps({
+    "engine": "Rust4PM", "version": version("r4pm"), "operation": "discover_dfg",
+    "data": bindings.discover_dfg(base_log)}, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+print("ACTIVITY_R4PM_0_6_2_REAL_COMPARISON_PAIR_WRITTEN")

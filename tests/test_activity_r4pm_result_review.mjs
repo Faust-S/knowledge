@@ -127,3 +127,16 @@ test('boundary difference remains visible even when frequency is equal',()=>{
  assert.equal(n.status,'CHANGED');assert.equal(n.delta,0);
  assert.equal(n.baseline_start,false);assert.equal(n.comparison_start,true);
 });
+
+if(process.env.IWXA_R4PM_UPSTREAM_RESULTS){
+ test('actual upstream baseline and alternative preserve measured differences without implying improvement',()=>{
+  const root=process.env.IWXA_R4PM_UPSTREAM_RESULTS;
+  const load=name=>readR4pmResultBytes(readFileSync(join(root,name+'.json')));
+  const base=load('baseline_dfg'),alternative=load('discover_dfg');
+  const c=compareR4pmReviews(base,alternative),g=c.graphs[0];
+  assert.equal(g.baseline_activity_occurrences,4);assert.equal(g.comparison_activity_occurrences,5);
+  assert.equal(g.activity_differences,1);assert.equal(g.transition_differences,3);
+  assert.equal(g.transitions.find(e=>e.from==='cut'&&e.to==='inspect').delta,-1);
+  assert.equal(c.sample_comparability,'NOT_ESTABLISHED');assert.equal(c.export_allowed,false);
+ });
+}
