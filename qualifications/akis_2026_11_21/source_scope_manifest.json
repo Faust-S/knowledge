@@ -1,6 +1,6 @@
 {
   "schema": "AKIS_NATIVE_SOURCE_SCOPE/1",
-  "source_revision": "b64df029c0b9841713245936a7c2b9d376536dbb",
+  "source_revision": "33e4d9a8efa66d5b4e66fc241de7b1dc3ec8f2a3",
   "source_files": {
     "__init__.py": "68b595531872d6fa1de0c15a5592cb43749e062d",
     "adaptation_review.py": "3ea02ee9da9e06433abdf0b89d771e199fa6c75b",
@@ -16,7 +16,7 @@
     "competence_transfer.py": "763db98b103d3105c7f2de812d251f07748a763f",
     "configuration_behavior.py": "708e20b70c77cc318f145a945a5070f74556e88d",
     "context_basis.py": "ef8e4fa0c6f891487e621130a9592e206eaa537a",
-    "cooperation.py": "5206bcd543919adf9784779d4bd4de048f32cc9e",
+    "cooperation.py": "030a5432026db466488e20d5cd5d7e15ee37a9c5",
     "economic_flow.py": "8b736fe35b866245c528eddbb5a4e1dc008ee642",
     "economic_lifecycle.py": "a5a8f4903b73efa4fe260f375ee6aea79751d255",
     "economic_liquidity.py": "d477dde295fee8abefe9d89e9426729d4c8c5459",
@@ -81,7 +81,7 @@
     "portfolio.py": "7bcfbc9d14d3924bef798b7f3dde69e6aaf66ea6",
     "process_preparation.py": "7ff0815d0da207be5e6c5745a6b0d5daa5fb6a44",
     "requirements.txt": "25949a181523d7749a5eda07f52bc39007413032",
-    "rules.py": "42d4ef002528650fcf50a3fed9cfaa555a556ce4",
+    "rules.py": "e714a52015ae572b2712c8f7bc420d7cfaf1e035",
     "scope_policy.py": "63aa19d99dd4603ac7ceedb0a4210c46c42b54b8",
     "source_registration.py": "100da810efe54949f87df56fe44c1bf225722d01",
     "strict_economic_source_review.py": "b1e7cc1fa67a0fe1815cac1d9320fe197c9fcf3c",

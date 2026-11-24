@@ -953,12 +953,13 @@ def qualify_active_coalition_owner_assessment(
 def qualify_active_coalition_original_commit(
     state: Any, work: Any, at: int
 ) -> dict[str, Any] | None:
-    comparisons = [
+    comparisons = (state.original_coalition_proposal_rows(work.key)
+                   if hasattr(state, "original_coalition_proposal_rows") else [
         row for row in state.trace
         if row.get("action") == "active_coalition_portfolio_propose"
         and row.get("outcome") == "APPLIED"
         and work.key in row.get("coalition_portfolio_works", ())
-    ]
+    ])
     if not comparisons:
         return None
     if len(comparisons) != 1:

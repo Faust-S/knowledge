@@ -637,6 +637,7 @@ class QualitativeAKIS:
         # Derived indexes point to original rows, not another journal.
         self._applied_request_rows: dict[str, list] = {}
         self._applied_technology_proposal_rows: dict[str, list] = {}
+        self._applied_coalition_proposal_rows: dict[str, list] = {}
 
     def original_request_rows(self, work: str):
         if self.network_scale:
@@ -651,6 +652,14 @@ class QualitativeAKIS:
                 if row.get("action") == "technology_route_propose"
                 and row.get("outcome") == "APPLIED"
                 and row.get("technology_route_work") == work]
+
+    def original_coalition_proposal_rows(self, work: str):
+        if self.network_scale:
+            return self._applied_coalition_proposal_rows.get(work, ())
+        return [row for row in self.trace
+                if row.get("action") == "active_coalition_portfolio_propose"
+                and row.get("outcome") == "APPLIED"
+                and work in row.get("coalition_portfolio_works", ())]
 
     def _parse_work(self, obj: Any) -> Work:
         _keys_exact(obj, {"id", "customer", "resource", "source_revision", "slot_start", "slot_end"},
@@ -1601,6 +1610,9 @@ class QualitativeAKIS:
                 key = report.get("technology_route_work")
                 if key is not None:
                     self._applied_technology_proposal_rows.setdefault(key, []).append(report)
+            elif action == "active_coalition_portfolio_propose":
+                for key in report.get("coalition_portfolio_works", ()):
+                    self._applied_coalition_proposal_rows.setdefault(key, []).append(report)
         return report
 
     def _update_original_extended_role(self, ev: dict[str, Any],
