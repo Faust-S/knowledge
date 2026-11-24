@@ -4,7 +4,9 @@ import {
   readT4OriginalHostCapturedSubject,
 } from './original-host-outbox-delivery.mjs';
 import {isT4NativeSubjectKind} from './standard-network-wire-candidate.mjs';
-import {matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
+import {matchesT4OriginalCapturedWindowDigest,readT4OriginalEventWindow}
+  from './original-event-window.mjs';
+import {deriveT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
 
 export class T4OriginalHostOutboxDispatcherError extends Error {
   constructor(code,details={}) {
@@ -359,7 +361,22 @@ async function prepareNextNativeObject(params){
     a.seenEventCount!==before.seenEventCount+1||
     !matchesT4OriginalCapturedWindowDigest(w,w.windowDigest))
     fail('DISPATCH_NATIVE_NEXT_EVENT_INVALID');
-  await allowed(params,'native-outbox-list');
+  const captured=await selectNativeCapture(params,before,w,a,()=>allowed(params,'native-outbox-list'));
+  const kind=captured.kind??'OBJECT_PUT';
+  await guardFrontier();
+  return Object.freeze({...resultBase,
+    state:'ORIGINAL_NATIVE_CAPTURE_READY',changeKind:kind,
+    sourceCursorAfter:structuredClone(a),capture:captured,
+    originalHostMustCreateAndPersistSignedSessionBeforePublish:true,
+  });
+}
+
+// Shared read of the exact original Event/capture. The source dispatch path
+// additionally gates its source ACK frontier; the source owner's recipient
+// selection path uses an independently admitted recipient predecessor.
+async function selectNativeCapture(params,before,w,a,guardList){
+  const ev=w.eventRefs[0];
+  await guardList();
   if(await params.authorizeOriginalRead(
     rights(params,'t1.listObjects','native-outbox-list'))!==true)
     fail('DISPATCH_NATIVE_ORIGINAL_OUTBOX_LIST_DENIED');
@@ -404,12 +421,100 @@ async function prepareNextNativeObject(params){
     !matchesT4OriginalCapturedWindowDigest(w,
       captured.sourceWindow.windowDigest))
     fail('DISPATCH_NATIVE_CAPTURE_CAUSAL_MISMATCH');
-  await guardFrontier();
-  return Object.freeze({...resultBase,
-    state:'ORIGINAL_NATIVE_CAPTURE_READY',changeKind:kind,
-    sourceCursorAfter:structuredClone(a),capture:captured,
-    originalHostMustCreateAndPersistSignedSessionBeforePublish:true,
+  return captured;
+}
+
+/** Read-only original SOURCE owner port for the recipient's admitted cursor.
+ * It returns identity/digests, not the captured plaintext or authority.
+ * The same durable original Outbox is used even if the source ACK frontier
+ * has already moved ahead of the recipient's verified cursor.
+ */
+export async function readT4OriginalNativeCaptureSessionAtCursor(params={}){
+  if(![params.workspaceId,params.originalWriteOwnerRef,params.sourceNodeRef,
+    params.recipientNodeRef,params.scopeRef].every(ID)||
+    params.sourceNodeRef===params.recipientNodeRef||
+    params.networkTargetRef!==params.recipientNodeRef||
+    !Number.isSafeInteger(params.ownerEpoch)||params.ownerEpoch<1||
+    !['getMode','readOriginalHostContext','authorizeOriginalSessionSelection',
+      'authorizeOriginalRead','authorizeNetworkPublish','readOriginalEvents',
+      'listOriginalOutbox','readOriginalIntent','readOriginalOutbox'].every(k=>typeof params[k]==='function'))
+    fail('DISPATCH_NATIVE_SELECTION_ORIGINAL_PORTS_REQUIRED');
+  const before=structuredClone(params.sourceCursorBefore);
+  if(!validCursor(before,params.workspaceId,params.originalWriteOwnerRef))
+    fail('DISPATCH_NATIVE_SELECTION_ORIGINAL_CURSOR_REQUIRED');
+  const getMode=originalHostLifetimeMode(params.getMode,params.isHostActive??(()=>true),
+    'DISPATCH_NATIVE_SELECTION_HOST_DISPOSED');
+  const scoped={...params,getMode};
+  async function context(){
+    mode(scoped);
+    const v=await params.readOriginalHostContext();
+    mode(scoped);
+    if(v?.workspaceId!==params.workspaceId||v.originalWriteOwnerRef!==params.originalWriteOwnerRef||
+      v.nodeRef!==params.sourceNodeRef||v.scopeRef!==params.scopeRef||!ID(v.hostSessionRef))
+      fail('DISPATCH_NATIVE_SELECTION_SOURCE_HOST_CONTEXT_CHANGED');
+    return {workspaceId:v.workspaceId,originalWriteOwnerRef:v.originalWriteOwnerRef,
+      nodeRef:v.nodeRef,scopeRef:v.scopeRef,hostSessionRef:v.hostSessionRef};
+  }
+  const initial=await context();
+  const identity=Object.freeze({workspaceId:params.workspaceId,originalWriteOwnerRef:params.originalWriteOwnerRef,
+    sourceNodeRef:params.sourceNodeRef,recipientNodeRef:params.recipientNodeRef,
+    scopeRef:params.scopeRef,ownerEpoch:params.ownerEpoch,networkTargetRef:params.networkTargetRef});
+  async function guard(step){
+    if(!same(await context(),initial))fail('DISPATCH_NATIVE_SELECTION_SOURCE_HOST_CONTEXT_CHANGED');
+    if(await params.authorizeOriginalSessionSelection(Object.freeze({
+      operation:'t4.network.original.source.session.select',step,...identity,
+      hostSessionRef:initial.hostSessionRef,sourceCursorBefore:structuredClone(before),
+      originalRecipientPredecessorAdmissionRequired:true,originalSourceOwnerRequired:true,
+      networkHeadIsNotOriginalAuthority:true,readOnly:true,
+    }))!==true)fail('DISPATCH_NATIVE_SELECTION_ORIGINAL_AUTHORITY_DENIED');
+    if(!same(await context(),initial))fail('DISPATCH_NATIVE_SELECTION_SOURCE_HOST_CONTEXT_CHANGED');
+  }
+  const live=(fn,step)=>async(...args)=>{
+    await guard(step);const value=await fn(...args);await guard(step+'-readback');return value;
+  };
+  for(const k of ['authorizeOriginalRead','authorizeNetworkPublish','readOriginalEvents',
+    'listOriginalOutbox','readOriginalIntent','readOriginalOutbox'])
+    scoped[k]=live(params[k],k);
+  const read=()=>readT4OriginalEventWindow({
+    workspaceId:identity.workspaceId,originalWriteOwnerRef:identity.originalWriteOwnerRef,
+    cursor:before,maxEvents:1,authorizeOriginalRead:scoped.authorizeOriginalRead,
+    readOriginalEvents:scoped.readOriginalEvents,
   });
+  await guard('select-original-event');
+  const selected=await read(),w=selected.window,a=selected.nextCursor;
+  const result=(state,extra={})=>Object.freeze({
+    schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SELECTION_V1',state,...identity,
+    sourceCursorBefore:structuredClone(before),
+    originalSourceOwnerReadVerified:true,originalSourceCursorAdvanced:false,
+    originalNetworkPublished:false,originalSubjectMutationInvoked:false,
+    capturedPlaintextReturned:false,createsStore:false,createsScheduler:false,
+    ...extra,
+  });
+  if(w.count===0){
+    if(!same(a,before))fail('DISPATCH_NATIVE_SELECTION_ORIGINAL_CURSOR_CHANGED');
+    await guard('no-next-original-event');
+    return result('NO_NEXT_ORIGINAL_EVENT',{session:null,sourceCursorAfter:structuredClone(before),
+      originalCaptureEvidenceVerified:false,mustRescanOnNextHostWake:true});
+  }
+  const captured=await selectNativeCapture(scoped,before,w,a,async()=>{
+    await guard('select-original-outbox');
+    if(await scoped.authorizeNetworkPublish(rights(scoped,'t4.network.publish','native-session-select'))!==true)
+      fail('DISPATCH_NATIVE_SELECTION_ORIGINAL_AUTHORITY_DENIED');
+  });
+  // Check the current exact original prefix again after resolving the
+  // immutable captured revision. A legitimate append is not a new selection.
+  const confirmed=await read();
+  if(!same(confirmed.nextCursor,a)||
+    !matchesT4OriginalCapturedWindowDigest(confirmed.window,captured.sourceWindow.windowDigest))
+    fail('DISPATCH_NATIVE_SELECTION_ORIGINAL_EVENT_CHANGED');
+  await guard('selection-confirmed');
+  const session=deriveT4OriginalNativeCaptureSession({
+    schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',state:'ORIGINAL_NATIVE_CAPTURE_READY',
+    ...identity,sourceCursorBefore:before,sourceCursorAfter:a,capture:captured,
+    originalRecipientApplied:false,sourceCursorAdvanced:false,networkPublished:false,
+  });
+  return result('ORIGINAL_NATIVE_SESSION_SELECTED',{session,sourceCursorAfter:structuredClone(a),
+    originalCaptureEvidenceVerified:true});
 }
 
 /**

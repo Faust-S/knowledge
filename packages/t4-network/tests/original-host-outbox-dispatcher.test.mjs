@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {createT4OriginalHostCaptureAdapter} from '../src/network/original-host-capture-adapter.mjs';
-import {createT4OriginalHostOutboxDispatcher} from '../src/network/original-host-outbox-dispatcher.mjs';
+import {createT4OriginalHostOutboxDispatcher,readT4OriginalNativeCaptureSessionAtCursor}
+  from '../src/network/original-host-outbox-dispatcher.mjs';
 import {packageSha256} from '../src/network/webdav-package-transfer.mjs';
 
 const ws='original:workspace',owner='original:owner',from='original:object:a',
@@ -249,4 +250,55 @@ test('capture adapter retained after original Host invalidation cannot invoke or
   await assert.rejects(old.putObject({mutationInput:{workspace_id:ws,object_id:from}}),
     err('ORIGINAL_HOST_CAPTURE_DISPOSED'));
   assert.equal(f.events.length,1);assert.equal(f.outbox.size,0);
+});
+
+function selectionPorts(f,cursor,overrides={}){
+  const sourceNodeRef='node:original:source',recipientNodeRef='node:original:recipient',scopeRef='scope:original';
+  return {...f.dispatcherPorts,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch:2,
+    networkTargetRef:recipientNodeRef,sourceCursorBefore:cursor,
+    readOriginalHostContext:async()=>({workspaceId:ws,originalWriteOwnerRef:owner,nodeRef:sourceNodeRef,
+      scopeRef,hostSessionRef:'host:original:source'}),
+    authorizeOriginalSessionSelection:async p=>p.readOnly===true&&p.originalSourceOwnerRequired===true&&
+      p.recipientNodeRef===recipientNodeRef&&p.sourceCursorBefore.sourcePrefixDigest===cursor.sourcePrefixDigest,
+    authorizeOriginalWrite:async()=>{throw Error('read-only owner selection cannot request original write');},
+    ...overrides};
+}
+test('K5 source owner resolves exact historical captures from an admitted recipient cursor, without source ACK frontier or plaintext return',async()=>{
+  const f=fixture();await f.stage();await f.stageSecond();
+  const first=f.outbox.get('capture:relation:1'),second=f.outbox.get('capture:relation:2');
+  const before=structuredClone([...f.outbox.values()]);
+  const a=await readT4OriginalNativeCaptureSessionAtCursor(selectionPorts(f,first.sourceCursorBefore));
+  assert.equal(a.state,'ORIGINAL_NATIVE_SESSION_SELECTED');
+  assert.equal(a.originalCaptureEvidenceVerified,true);
+  assert.equal(a.session.sourceEventId,first.sourceEventId);
+  assert.equal(a.session.sourceRevision,null);assert.equal(a.session.changeKind,'RELATION_PUT');
+  assert.equal(a.session.capturedSha256,first.sha256);
+  assert.deepEqual(a.sourceCursorAfter,first.sourceCursorAfter);
+  assert.equal(a.capturedPlaintextReturned,false);assert.equal(a.capture,undefined);assert.equal(a.prepared,undefined);
+  const b=await readT4OriginalNativeCaptureSessionAtCursor(selectionPorts(f,a.sourceCursorAfter));
+  assert.equal(b.session.sourceEventId,second.sourceEventId);
+  assert.notEqual(b.session.sessionRef,a.session.sessionRef);
+  const c=await readT4OriginalNativeCaptureSessionAtCursor(selectionPorts(f,b.sourceCursorAfter));
+  assert.equal(c.state,'NO_NEXT_ORIGINAL_EVENT');assert.equal(c.session,null);
+  assert.deepEqual(c.sourceCursorAfter,b.sourceCursorAfter);
+  assert.deepEqual([...f.outbox.values()],before);assert.equal(f.writes(),0);assert.equal(f.attempts.size,0);
+});
+test('K5 source owner refuses an unadmitted cursor or missing middle original capture without selecting a later one',async()=>{
+  const f=fixture();await f.stage();await f.stageSecond();
+  const cursor=f.outbox.get('capture:relation:1').sourceCursorBefore;
+  await assert.rejects(readT4OriginalNativeCaptureSessionAtCursor(selectionPorts(f,cursor,{
+    authorizeOriginalSessionSelection:async()=>false})),err('DISPATCH_NATIVE_SELECTION_ORIGINAL_AUTHORITY_DENIED'));
+  f.outbox.delete('capture:relation:1');
+  await assert.rejects(readT4OriginalNativeCaptureSessionAtCursor(selectionPorts(f,cursor)),
+    err('DISPATCH_NATIVE_NEXT_ORIGINAL_CAPTURE_NOT_UNIQUE'));
+  assert.equal(f.writes(),0);
+});
+test('K5 original source owner invalidation during selection prevents stale metadata admission',async()=>{
+  const f=fixture();await f.stage();let active=true,reads=0;
+  const cursor=f.outbox.get('capture:relation:1').sourceCursorBefore;
+  await assert.rejects(readT4OriginalNativeCaptureSessionAtCursor(selectionPorts(f,cursor,{
+    isHostActive:()=>active,authorizeOriginalSessionSelection:async()=>{active=false;return true;},
+    readOriginalEvents:async()=>{reads++;return f.events;},
+  })),err('DISPATCH_NATIVE_SELECTION_HOST_DISPOSED'));
+  assert.equal(reads,0);assert.equal(f.writes(),0);
 });
