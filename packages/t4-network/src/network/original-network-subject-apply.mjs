@@ -226,7 +226,7 @@ export async function openT4OriginalNetworkSubjectChange({
   verifiedChangeRef,verifiedChunks,originalSourceHeadProof,
   encryptionContextRef,recipientNodeRef,scopeRef,getMode,
   readOriginalHostContext,authorizeOriginalSealedOpen,
-  openOriginalSealedContent,verifyOriginalSourceBinding,
+  openOriginalSealedContent,verifyOriginalSourceBinding,originalCaptureSession=null,
 }={}){
   const head=verifiedChangeRef;
   if(![encryptionContextRef,recipientNodeRef,scopeRef].every(ID)||
@@ -251,6 +251,12 @@ export async function openT4OriginalNetworkSubjectChange({
     (!frameKey(head.key)||head.key!==head.sha256+'.t4n'))
     fail('SUBJECT_SIGNED_CHANGE_ADDRESS_INVALID');
   const change=head.verifiedBody;
+  const captureSession=originalCaptureSession===null?null:validateT4OriginalNativeCaptureSession(originalCaptureSession);
+  if(captureSession&&(captureSession.sessionRef!==head.verifiedSessionRef||captureSession.ownerEpoch!==head.verifiedOwnerEpoch||
+    captureSession.sourceNodeRef!==head.verifiedSourceNodeRef||captureSession.recipientNodeRef!==recipientNodeRef||
+    captureSession.scopeRef!==scopeRef||captureSession.changeId!==change.changeId||captureSession.sourceEventId!==change.eventRef||
+    captureSession.originalWriteOwnerRef!==change.ownerRef||captureSession.changeKind!==change.changeKind||
+    captureSession.sourceRevision!==change.sourceRevision))fail('SUBJECT_ORIGINAL_CAPTURE_SESSION_MISMATCH');
   const type=SUBJECTS[change.changeKind];
   if(!type||!ID(change.changeId)||
     !ID(change.eventRef)||!ID(change.ownerRef)||
@@ -331,7 +337,7 @@ export async function openT4OriginalNetworkSubjectChange({
   let opened;
   try{
     opened=await openOriginalSealedContent(frozen({
-      ...proof,ciphertext:new Uint8Array(ciphertext.ciphertext),
+      ...proof,...(captureSession?{session:captureSession}:{}),ciphertext:new Uint8Array(ciphertext.ciphertext),
       originalHostAuthenticatedDecryptionRequired:true,
     }));
   }catch(error){

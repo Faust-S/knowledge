@@ -28,3 +28,5 @@ export * from './network/original-network-frame-address.mjs';
 export * from './network/original-signed-route-access.mjs';
 
 export * from './network/original-vault-node-signature.mjs';
+
+export * from './network/original-vault-sealed-content.mjs';

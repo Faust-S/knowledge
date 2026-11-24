@@ -833,7 +833,7 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     fail('RECIPIENT_NATIVE_STEP_ORIGINAL_SOURCE_WITNESS_MISMATCH');
   const received=await openT4OriginalNetworkSubjectChange({
     verifiedChangeRef:content.verifiedChangeRef,verifiedChunks:content.verifiedChunks,
-    originalSourceHeadProof:sourceHeadProof,encryptionContextRef:content.encryptionContextRef,
+    originalSourceHeadProof:sourceHeadProof,encryptionContextRef:content.encryptionContextRef,originalCaptureSession:session,
     recipientNodeRef:session.recipientNodeRef,scopeRef:session.scopeRef,getMode:p.getMode,
     readOriginalHostContext:live(p.readOriginalHostContext,'recipient-open-context'),
     authorizeOriginalSealedOpen:live(authorizeOriginalSealedOpen,'authorize-original-sealed-open'),
