@@ -712,9 +712,9 @@ try {
       throw Error('D05_WITNESS_ORIGINAL_T2_COLD_READBACK_MISMATCH');
     const {readActivityFromWorkspaceContext,createSubjectKernelBinding}=
       await import('/_t3/index.mjs');
-    const {useOriginalT2ActivityKernelFacade}=
+    const {openActivityFromOriginalT2Host}=
       await import('/_activity/t3-original-t2-owner-host.mjs');
-    const {createTrustedCehovodD05ReviewPort}=
+    const {createCehovodD05T3Bindings}=
       await import('/_activity/d05-t3-evidence-binding.mjs');
     const {buildT3EvidencePassport}=
       await import('/_activity/t3-evidence-passport.mjs');
@@ -732,24 +732,24 @@ try {
     const stop=control.subscribeSignedAccessInvalidation(()=>{
       for(const notify of owners)notify();
     });
-    let ui=null;
+    let ui=null,opened=null;
     try{
-      const signed=await control.signedActivityAccess('activity.read');
       const selected=Object.freeze({workspace_id:args.workspace});
-      const context={
-        kernel:useOriginalT2ActivityKernelFacade(session),
-        currentWorkspace:{get:()=>selected,subscribe:()=>()=>{}},
-      };
-      const subscribeOwnerInvalidation=fn=>{owners.add(fn);return()=>owners.delete(fn);};
-      const port=createTrustedCehovodD05ReviewPort({
-        context,signedAccess:signed,readActivityFromWorkspaceContext,subscribeOwnerInvalidation,
+      const currentWorkspace={get:()=>selected,subscribe:()=>()=>{}};
+      const subscribeExistingInvalidation=fn=>{owners.add(fn);return()=>owners.delete(fn);};
+      // Exercise the product composition, not a manually assembled alternate
+      // port: one original session, one signed Control stream and existing
+      // Activity Host. D05 model review is an explicit optional capability.
+      opened=await openActivityFromOriginalT2Host({
+        session,control,currentWorkspace,bindings:createCehovodD05T3Bindings(),
+        readActivityFromWorkspaceContext,createSubjectKernelBinding,
+        subscribeExistingInvalidation,enableD05RouteReview:true,
       });
-      // Use the SAME original selected context, signed control and T2 session
-      // to review stored normative routes after closing/reopening the profile.
-      const {createTrustedD05RouteReviewPort}=await import('/_activity/d05-route-host.mjs');
-      const routes=createTrustedD05RouteReviewPort({
-        context,signedAccess:signed,createSubjectKernelBinding,subscribeOwnerInvalidation,
-      });
+      const {port,d05RouteHost:routes}=opened;
+      if(!routes||owners.size!==1||
+        Object.keys(routes).sort().join(',')!=='readSelectedRoutes,subscribeInvalidation'||
+        Object.keys(port).sort().join(',')!=='readSelected,subscribeInvalidation')
+        throw Error('A41_ORIGINAL_HOST_COMPOSITION_INVALID');
       const routeReview=await routes.readSelectedRoutes();
       if(routeReview.source_authority!=='ORIGINAL_SIGNED_SELECTED_READBACK'||
         routeReview.model_count!==3||routeReview.group_count!==2||
@@ -802,7 +802,7 @@ try {
         route_models:routeReview.model_count,route_groups:routeReview.group_count,
         repeated_route_groups:routeReview.repeated_group_count};
     }finally{
-      ui?.dispose();stop();
+      ui?.dispose();opened?.dispose();stop();
       if(owners.size)throw Error('D05_WITNESS_CONTROL_LISTENER_LEAK');
     }
   },{service:d05Service,workspace:d05Workspace,token});
@@ -814,7 +814,8 @@ try {
   assert.equal(d05Cold.route_groups,2);
   assert.equal(d05Cold.repeated_route_groups,1);
   console.log('ACTIVITY_A41_ORIGINAL_T2_SIGNED_ROUTE_COLD_READ_PASS',
-    JSON.stringify({models:3,groups:2,repeated:1,sourceUnchanged:true,externalTransfer:false}));
+    JSON.stringify({models:3,groups:2,repeated:1,sourceUnchanged:true,externalTransfer:false,
+      originalHostComposition:true,originalControlStreams:1}));
   assert.equal(d05Cold.order_revision,2);
   assert.equal(d05Cold.export_allowed,false);
   assert.ok(d05Cold.evidence_passport_actions>=2);
