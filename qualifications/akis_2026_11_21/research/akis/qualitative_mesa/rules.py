@@ -16,6 +16,7 @@ from .outside_demand import (
     qualify_original_outside_demand_withdrawal,
     qualify_original_outside_supplier_offer,
     qualify_original_outside_buyer_offer_response,
+    qualify_original_outside_work_origin,
 )
 from .org_code_policy import (
     OrgCodeBlocked, NEW_WORK_ACTIONS, qualify_model_code_proposal,
@@ -452,7 +453,8 @@ class QualitativeAKIS:
              "outside_buyer_response_id", "outside_buyer_response_decision",
              "outside_buyer_response_source_ref",
              "outside_buyer_response_source_revision",
-             "outside_buyer_response_valid_until"}, "EVENT")
+             "outside_buyer_response_valid_until",
+             "outside_work_origin"}, "EVENT")
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
@@ -1684,6 +1686,20 @@ class QualitativeAKIS:
         technology_route_evidence = qualify_original_technology_route_request(
             self, ev, work, at
         )
+        outside_work_evidence = None
+        if "outside_work_origin" in ev:
+            if ev.get("cooperation_link") is not None:
+                raise BlockedDecision("OUTSIDE_WORK_NOT_PART_OF_COMPARISON_COOPERATION")
+            try:
+                origin = qualify_original_outside_work_origin(
+                    self, work, ev["outside_work_origin"], at
+                )
+            except OutsideDemandBlocked as exc:
+                raise BlockedDecision(str(exc)) from exc
+            outside_work_evidence = {
+                "outside_work_origin": origin,
+                "outside_origin_does_not_create_legal_consent": True,
+            }
         linked_change_evidence = None
         try:
             if "change_id" in ev:
@@ -1713,6 +1729,7 @@ class QualitativeAKIS:
         return {
             **(linked_change_evidence or {}),
             **(technology_route_evidence or {}),
+            **(outside_work_evidence or {}),
         } or None
 
     def _set_participation_status(self, ev: dict[str, Any]) -> None:
@@ -1946,6 +1963,20 @@ class QualitativeAKIS:
             if set(w.consents) != required or any(w.consents[principal] != (w.source_revision, self.institution.revision) for principal in required):
                 raise BlockedDecision("INDEPENDENT_ACCEPTANCE_MISSING")
             self._assert_future_cooperation_available(w, required)
+            # Preserve the original request's lineage and qualify it again
+            # before the existing reservation or commitment can take effect.
+            origin = next((
+                row["outside_work_origin"] for row in self.trace
+                if row.get("action") == "request"
+                and row.get("outcome") == "APPLIED"
+                and row.get("work") == w.key
+                and "outside_work_origin" in row
+            ), None)
+            if origin is not None:
+                try:
+                    qualify_original_outside_work_origin(self, w, origin, at)
+                except OutsideDemandBlocked as exc:
+                    raise BlockedDecision(str(exc)) from exc
             if self.formation_policy is not None:
                 issue = self.formation_policy.before_commit(self, w, at)
                 if issue != "NONE":
