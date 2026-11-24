@@ -14,7 +14,8 @@ import {decodeT4CandidateFrame,isT4NativeDeleteKind,validT4NativeSubjectRevision
   from './standard-network-wire-candidate.mjs';
 import {verifyT4OriginalDeleteDelta,decodeT4OriginalDeleteDeltaBytes,
   applyT4OriginalDeleteDelta,digestT4OriginalDeletedSubjectState,
-  inspectT4OriginalNativeDeletionResult,verifyT4OriginalNativeDeletionEvent,t4OriginalDeletedSubjectRevision}
+  inspectT4OriginalNativeDeletionResult,verifyT4OriginalNativeDeletionEvent,t4OriginalDeletedSubjectRevision,
+  verifyT4OriginalHistoricalObjectTombstone}
   from './original-deletion-delta.mjs';
 
 /**
@@ -360,17 +361,25 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
       fail('SUBJECT_ORIGINAL_RESULT_READ_DENIED');
     if(getMode()!=='T4_NETWORK')fail('SUBJECT_NETWORK_MODE_OFF');
   }
+  const endpointTombstones=new Map();
   async function object(id){
     await guard('t1.getObject',id);
     const row=await originalKernel.getObject(d.workspaceId,id);
     await guard('t1.getObject',id);
-    if(!validObject(row,d.workspaceId,id))
-      fail('SUBJECT_RECIPIENT_ENDPOINT_MISSING');
+    if(!validObject(row,d.workspaceId,id)){
+      if(!allowHistoricalEventProof||row?.object?.workspace_id!==d.workspaceId||
+        row.object.object_id!==id||row.object.deleted!==true)
+        fail('SUBJECT_RECIPIENT_ENDPOINT_MISSING');
+      if(endpointTombstones.has(id)&&!equalStable(endpointTombstones.get(id),row))
+        fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
+      endpointTombstones.set(id,structuredClone(row));
+    }else if(endpointTombstones.has(id))fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
     return row;
   }
   async function readSubject(){
     if(asset){
-      await object(d.objectId);
+      const owner=await object(d.objectId);
+      if(owner.object.deleted===true)return null;
       await guard('t1.getAsset');
       const row=await originalKernel.getAsset(d.workspaceId,subjectId);
       await guard('t1.getAsset');
@@ -395,6 +404,8 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
     const edges=outgoing.filter(r=>r?.relation_id===subjectId);
     const reverse=incoming.filter(r=>r?.relation_id===subjectId);
     if(!edges.length&&!reverse.length)return null;
+    if(from.object.deleted===true||to.object.deleted===true)
+      fail('SUBJECT_RECIPIENT_RELATION_ID_CONFLICT');
     if(edges.length!==1||reverse.length!==1||
       !relationMatches(edges[0],d)||!relationMatches(reverse[0],d))
       fail('SUBJECT_RECIPIENT_RELATION_ID_CONFLICT');
@@ -428,7 +439,7 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
   const row=await readSubject(),events=await readEvents(),matches=match(events);
   if(matches.length>1)fail('SUBJECT_ORIGINAL_DUPLICATE_APPLY_EVENTS');
   if(!matches.length){
-    if(asset?(row?.revision??0)!==d.baseRevision:row!==null)
+    if(endpointTombstones.size||(asset?(row?.revision??0)!==d.baseRevision:row!==null))
       fail('SUBJECT_RECIPIENT_DIVERGED_WITHOUT_RESULT');
     if(!equalStable(await readSubject(),row)||match(await readEvents()).length)
       fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
@@ -493,17 +504,24 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
     if(!equalStable(relevant,chain))fail('SUBJECT_HISTORICAL_DELETION_EVENT_GAP');
     return chain;
   };
-  let chain=null;
+  const endpointProof=(stream,chain)=>[...endpointTombstones].map(([objectId,original])=>
+    verifyT4OriginalHistoricalObjectTombstone({row:original,events:stream,
+      workspaceId:d.workspaceId,objectId,originalWriteOwnerRef:d.originalWriteOwnerRef,
+      afterEventId:chain.at(-1).event_id}).event);
+  let chain=null,endpointEvents=[];
   if(historical){
     if(!allowHistoricalEventProof)fail('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH');
     chain=deleted?deletedContinuity(events):continuity(events,row);
+    if(endpointTombstones.size)endpointEvents=endpointProof(events,chain);
   }else if(row.revision!==revision||row.stateDigest!==expected)
     fail('SUBJECT_ORIGINAL_RESULT_STATE_MISMATCH');
   const reread=await readSubject(),secondStream=await readEvents(),second=match(secondStream);
   if(!equalStable(reread,row)||second.length!==1||
     !equalStable(second[0],ev)||
     (historical&&!equalStable(deleted?deletedContinuity(secondStream):
-      continuity(secondStream,row),chain)))
+      continuity(secondStream,row),chain))||
+    (endpointTombstones.size&&(!deleted||
+      !equalStable(endpointEvents,endpointProof(secondStream,chain)))))
     fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
   return frozen({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
     state:historical?'APPLIED_HISTORICAL_EVENT_VERIFIED':'APPLIED_VERIFIED',
@@ -513,7 +531,11 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
     originalRecipientStateDigest:expected,sourceEventId:d.sourceEventId,
     currentRecipientRevision:row?.revision??null,originalBusinessApplied:true,
     actualOriginalT3EventReadback:true,actualOriginalT3SubjectReadback:true,
-    actualOriginalT3AssetReadback:asset,actualOriginalT3RelationReadback:!asset,
+    actualOriginalT3AssetReadback:asset&&!endpointTombstones.size,
+    actualOriginalT3RelationReadback:!asset&&!endpointTombstones.size,
+    ...(endpointTombstones.size?{originalEndpointTombstoneContinuationVerified:true,
+      currentSubjectAbsenceRevalidated:false,
+      originalEndpointTombstoneEventIds:endpointEvents.map(e=>e.event_id)}:{}),
     ...(deleted?{currentSubjectDeleted:true,
       originalT3DeletionContinuationVerified:true,
       originalDeletionRecipientEventId:chain.at(-1).event_id}:{}),
@@ -532,7 +554,7 @@ export async function inspectT4OriginalNetworkRecipientResult({
   if(isT4NativeDeleteKind(receivedKind(received))){
     checkReceived(received);
     return inspectT4OriginalNativeDeletionResult({received,originalKernel,authorizeOriginalRead,getMode,
-      readOriginalDependencyCoverage});
+      readOriginalDependencyCoverage,allowHistoricalEventProof});
   }
   if(receivedKind(received)!=='OBJECT_PUT')
     return inspectNonObject({received,originalKernel,authorizeOriginalRead,
@@ -583,7 +605,7 @@ export async function inspectT4OriginalNetworkRecipientResult({
       historicalReceiptFabricated:false});
   }
   const ev=matches[0],object=row?.object;
-  if(object?.deleted===true||
+  if((object?.deleted===true&&!allowHistoricalEventProof)||
     ev.revision!==delta.sourceRevision||
     ev.payload?.originalEventDigest!==delta.sourceEventDigest||
     ev.payload?.originalWriteOwnerRef!==delta.originalWriteOwnerRef||
@@ -606,15 +628,32 @@ export async function inspectT4OriginalNetworkRecipientResult({
       schemaId:object.schema_id,schemaVersion:object.schema_version,
       data:object.data,extensions:object.extensions??{},
     });
-    const continuity=stream=>verifyHistoricalContinuation({
-      events:stream,first:ev,from:delta.sourceRevision,to:object.revision,
+    const deleted=object.deleted===true;
+    const terminal=stream=>deleted?verifyT4OriginalHistoricalObjectTombstone({
+      row,events:stream,workspaceId:delta.workspaceId,objectId:delta.objectId,
+      originalWriteOwnerRef:delta.originalWriteOwnerRef,afterEventId:ev.event_id}):null;
+    const continuity=stream=>{
+      const deletion=terminal(stream);
+      const end=deletion?deletion.preImage.revision:object.revision;
+      if(end<delta.sourceRevision||(end===delta.sourceRevision&&state!==delta.objectContentDigest))
+        fail('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP');
+      const chain=verifyHistoricalContinuation({
+      events:stream,first:ev,from:delta.sourceRevision,to:end,
       finalDigest:state,
       select:(e,r)=>e?.workspace_id===delta.workspaceId&&
         e.object_id===delta.objectId&&e.event_type===OBJECT_EVENT&&e.revision===r,
       valid:e=>ID(e.event_id)&&ID(e.payload?.originalEventId)&&
         e.payload?.originalWriteOwnerRef===delta.originalWriteOwnerRef&&
         DIG(e.payload?.originalEventDigest)&&DIG(e.payload?.originalContentDigest),
-    });
+      });
+      if(deletion){
+        const pos=stream.findIndex(e=>e.event_id===deletion.event.event_id);
+        const last=stream.findIndex(e=>e.event_id===chain.at(-1).event_id);
+        if(pos<=last)fail('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP');
+        chain.push(deletion.event);
+      }
+      return chain;
+    };
     const chain=continuity(events);
     await guard();
     const second=await originalKernel.getObject(delta.workspaceId,delta.objectId);
@@ -640,6 +679,8 @@ export async function inspectT4OriginalNetworkRecipientResult({
       currentObjectEqualsHistoricalState:false,
       historicalSubjectBytesReconstructed:false,
       originalT3EventContinuityVerified:true,
+      ...(deleted?{currentSubjectDeleted:true,originalT3DeletionContinuationVerified:true,
+        originalDeletionRecipientEventId:chain.at(-1).event_id}:{}),
       historicalReceiptFabricated:false,
     });
   }

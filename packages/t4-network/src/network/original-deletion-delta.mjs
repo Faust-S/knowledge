@@ -570,6 +570,31 @@ export function verifyT4OriginalNativeDeletionEvent(event,scope={}){
     fail('DELETE_NATIVE_HISTORICAL_EVENT_INVALID');
   return exact;
 }
+/** Historical evidence requires a real current tombstone and the exact
+ * native deletion Event AFTER the earlier subject Event. A hidden Asset
+ * is never inferred absent from a tombstoned owning Object.
+ */
+export function verifyT4OriginalHistoricalObjectTombstone({
+  row,events,workspaceId,objectId,originalWriteOwnerRef,afterEventId,
+}={}){
+  if(!Array.isArray(events)||!ID(afterEventId))
+    fail('DELETE_NATIVE_HISTORICAL_OBJECT_TOMBSTONE_UNPROVEN');
+  const before=events.findIndex(e=>e?.event_id===afterEventId);
+  const matches=events.map((event,index)=>({event,index})).filter(({event})=>
+    event?.workspace_id===workspaceId&&event.event_type===nativeEventType('OBJECT_DELETE')&&
+    event.payload?.originalSubjectId===objectId);
+  if(before<0||matches.length!==1||matches[0].index<=before)
+    fail('DELETE_NATIVE_HISTORICAL_OBJECT_TOMBSTONE_UNPROVEN');
+  const {event,index}=matches[0];
+  const exact=verifyT4OriginalNativeDeletionEvent(event,{kind:'OBJECT_DELETE',
+    workspaceId,originalWriteOwnerRef,subjectId:objectId});
+  if(!objectTombstoneMatches(row,workspaceId,exact.delta.preImage)||
+    events.slice(index+1).some(e=>e?.workspace_id===workspaceId&&e.object_id===objectId&&
+      (e.event_type==='iwxa.t4.original-object.synced'||e.event_type===nativeEventType('OBJECT_DELETE'))))
+    fail('DELETE_NATIVE_HISTORICAL_OBJECT_TOMBSTONE_UNPROVEN');
+  return Object.freeze({event,preImage:exact.delta.preImage,
+    tombstoneRevision:t4OriginalDeletedSubjectRevision(exact.delta)});
+}
 function nativeDeletionInput(d,sha256){
   const input=originalInput(d.kind,d.workspaceId,deletedSubjectId(d),
     't4-delete-'+sha256,d.preImage);
@@ -577,7 +602,7 @@ function nativeDeletionInput(d,sha256){
     payload:nativeDeletionPayload(d,sha256)}};
 }
 function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode,
-  readOriginalDependencyCoverage,requireWorkspaceMutationBoundary=false){
+  readOriginalDependencyCoverage,requireWorkspaceMutationBoundary=false,allowHistoricalEventProof=false){
   const exact=received?.delta&&validateEnvelope(received.delta);
   if(!exact||exact.key!==received.key||exact.sha256!==received.sha256)
     fail('DELETE_RECEIVED_MISMATCH');
@@ -600,13 +625,19 @@ function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode
     }))!==true)fail('DELETE_NATIVE_ORIGINAL_READ_DENIED');
     networkMode(getMode);
   };
+  const endpointTombstones=new Map();
   async function object(id){
     await guard('t1.getObject',id);
     const row=await originalKernel.getObject(d.workspaceId,id);
     await guard('t1.getObject',id);
-    if(row?.object?.workspace_id!==d.workspaceId||
-      row.object.object_id!==id||row.object.deleted===true)
+    if(row?.object?.workspace_id!==d.workspaceId||row.object.object_id!==id||
+      (row.object.deleted===true&&!allowHistoricalEventProof))
       fail('DELETE_NATIVE_ORIGINAL_ENDPOINT_MISSING');
+    if(row.object.deleted===true){
+      if(endpointTombstones.has(id)&&!snapshotEqual(endpointTombstones.get(id),row))
+        fail('DELETE_NATIVE_ORIGINAL_RESULT_CHANGED_DURING_READ');
+      endpointTombstones.set(id,structuredClone(row));
+    }else if(endpointTombstones.has(id))fail('DELETE_NATIVE_ORIGINAL_RESULT_CHANGED_DURING_READ');
     return row;
   }
   let coverageWitness=null;
@@ -641,6 +672,7 @@ function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode
     }
     const owner=await object(deletedObjectId(d));
     if(d.kind==='ASSET_DELETE'){
+      if(owner.object.deleted===true)return null;
       await guard('t1.getAsset');
       const item=await originalKernel.getAsset(d.workspaceId,subjectId);
       await guard('t1.getAsset');
@@ -654,16 +686,22 @@ function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode
     const a=outgoing.filter(r=>r?.relation_id===subjectId);
     const b=incoming.filter(r=>r?.relation_id===subjectId);
     if(!a.length&&!b.length)return null;
+    if(owner.object.deleted===true||target.object.deleted===true)
+      fail('DELETE_NATIVE_ORIGINAL_RELATION_IDENTITY_CONFLICT');
     if(a.length!==1||b.length!==1||!snapshotEqual(a[0],b[0]))
       fail('DELETE_NATIVE_ORIGINAL_RELATION_IDENTITY_CONFLICT');
     return sourceRecord(owner,d.kind,d.workspaceId,subjectId,pre.fromObjectId);
   }
-  async function readMatches(){
+  async function readEvents(){
     await guard('t1.listEventsSince');
     const events=await originalKernel.listEventsSince(d.workspaceId);
     await guard('t1.listEventsSince');
     if(!Array.isArray(events)||events.length>100000)
       fail('DELETE_ORIGINAL_EVENT_HISTORY_INVALID');
+    return events;
+  }
+  async function readMatches(){
+    const events=await readEvents();
     const input=nativeDeletionInput(d,exact.sha256);
     return events.filter(e=>(d.kind!=='OBJECT_DELETE'&&
       e?.idempotency_key===input.event.idempotency_key)||
@@ -681,17 +719,33 @@ function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode
       (event.object_id==null||event.object_id===deletedObjectId(d)||event.object_id===subjectId)&&
       snapshotEqual(event.payload,input.event.payload);
   }
-  return {exact,d,subjectId,guard,readSubject,readMatches,verifyEvent};
+  async function historicalEndpointProof(event){
+    const stream=await readEvents();
+    const index=stream.findIndex(e=>e.event_id===event.event_id);
+    const putType=d.kind==='ASSET_DELETE'?'iwxa.t4.original-asset.synced':'iwxa.t4.original-relation.synced';
+    const putKey=d.kind==='ASSET_DELETE'?'originalAssetId':'originalRelationId';
+    if(index<0||!snapshotEqual(stream[index],event)||
+      stream.slice(index+1).some(e=>e.workspace_id===d.workspaceId&&
+        ((e.event_type===putType&&e.payload?.[putKey]===subjectId)||
+         (e.event_type===nativeEventType(d.kind)&&e.payload?.originalSubjectId===subjectId))))
+      fail('DELETE_NATIVE_HISTORICAL_SUBJECT_EVENT_GAP');
+    return [...endpointTombstones].map(([objectId,row])=>
+      verifyT4OriginalHistoricalObjectTombstone({row,events:stream,
+        workspaceId:d.workspaceId,objectId,originalWriteOwnerRef:d.originalWriteOwnerRef,
+        afterEventId:event.event_id}).event);
+  }
+  return {exact,d,subjectId,guard,readSubject,readMatches,verifyEvent,
+    endpointTombstones,historicalEndpointProof};
 }
 /** Read only. An absent subject without its exact original deletion Event
  * is NOT success. A re-created subject is also NOT this deletion result.
  */
 export async function inspectT4OriginalNativeDeletionResult({
   received,originalKernel,authorizeOriginalRead,getMode,readOriginalDependencyCoverage,
-  requireWorkspaceMutationBoundary=false,
+  requireWorkspaceMutationBoundary=false,allowHistoricalEventProof=false,
 }={}){
   const c=nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode,
-    readOriginalDependencyCoverage,requireWorkspaceMutationBoundary);
+    readOriginalDependencyCoverage,requireWorkspaceMutationBoundary,allowHistoricalEventProof);
   const {d,subjectId,readSubject,readMatches,verifyEvent}=c;
   const prior=await readSubject(),matches=await readMatches();
   if(matches.length>1)fail('DELETE_NATIVE_DUPLICATE_ORIGINAL_EVENTS');
@@ -706,19 +760,28 @@ export async function inspectT4OriginalNativeDeletionResult({
   const event=matches[0];
   if(!verifyEvent(event)||prior!==null)
     fail('DELETE_NATIVE_ORIGINAL_RESULT_EVENT_OR_STATE_MISMATCH');
+  const historical=c.endpointTombstones.size>0;
+  const endpoints=historical?await c.historicalEndpointProof(event):[];
   const again=await readMatches();
-  if(again.length!==1||!snapshotEqual(again[0],event)||await readSubject()!==null)
+  if(again.length!==1||!snapshotEqual(again[0],event)||await readSubject()!==null||
+    (historical&&!snapshotEqual(endpoints,await c.historicalEndpointProof(event)))||
+    (!historical&&c.endpointTombstones.size))
     fail('DELETE_NATIVE_ORIGINAL_RESULT_CHANGED_DURING_READ');
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
-    state:'APPLIED_VERIFIED',originalSubjectKind:d.kind,originalSubjectId:subjectId,
+    state:historical?'APPLIED_HISTORICAL_EVENT_VERIFIED':'APPLIED_VERIFIED',
+    originalSubjectKind:d.kind,originalSubjectId:subjectId,
     originalRecipientEventId:event.event_id,originalRecipientRevision:t4OriginalDeletedSubjectRevision(d),
     originalRecipientEventRevision:event.revision??null,
     originalRecipientStateDigest:digestT4OriginalDeletedSubjectState(d),
     sourceEventId:d.sourceEventId,currentRecipientRevision:t4OriginalDeletedSubjectRevision(d),
     originalBusinessApplied:true,actualOriginalT3EventReadback:true,
     actualOriginalT3SubjectReadback:true,actualOriginalT3DeletionReadback:true,
-    actualOriginalT3AssetReadback:d.kind==='ASSET_DELETE',
-    actualOriginalT3RelationReadback:d.kind==='RELATION_DELETE',
+    actualOriginalT3AssetReadback:d.kind==='ASSET_DELETE'&&!historical,
+    actualOriginalT3RelationReadback:d.kind==='RELATION_DELETE'&&!historical,
+    ...(historical?{historicalStateFromOriginalEvent:true,
+      historicalSubjectBytesReconstructed:false,currentSubjectAbsenceRevalidated:false,
+      originalEndpointTombstoneContinuationVerified:true,
+      originalEndpointTombstoneEventIds:endpoints.map(e=>e.event_id)}:{}),
     ...(d.kind==='OBJECT_DELETE'?{actualOriginalT3ObjectReadback:true,
       actualOriginalT3TombstoneReadback:true,postTombstoneAssetAbsenceInferred:false}:{}),
     historicalReceiptFabricated:false});

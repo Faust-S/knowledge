@@ -279,13 +279,13 @@ test('t4 delete cannot be granted without live original T3 source event proof',a
  }),code('DELETE_ORIGINAL_SOURCE_EVENT_NOT_VERIFIED'));
  assert.equal(r.writes.length,0);
 });
-test('object delete without original idempotency contract is explicitly unavailable',async()=>{
+test('object delete without original complete dependency coverage is explicitly unavailable',async()=>{
  const first=await start(),src=fakeOriginal('RELATION_DELETE');
  await assert.rejects(captureT4OriginalDeletionAtMutation({
    kind:'OBJECT_DELETE',workspaceId:ws,originalWriteOwnerRef:owner,
    subjectId:from,objectId:from,sourceIdempotencyKey:'test:object:delete',
    sourceCursor:first.nextCursor,originalKernel:src.kernel,
- }),code('DELETE_KIND_NOT_SUPPORTED'));
+ }),code('DELETE_ORIGINAL_OBJECT_NATIVE_COVERAGE_REQUIRED'));
  assert.equal(src.writes.length,0);
 });
 test('wire content forgery and wrong Workspace are rejected before original mutation',async()=>{
