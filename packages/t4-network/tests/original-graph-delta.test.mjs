@@ -330,7 +330,9 @@ test('K21 original EventRecord optional fields may be omitted on one read and un
   assert.equal(f.graphWrites,1);
   assert.equal((await f.read('capture:k21:one')).prepared.sha256,first.capture.prepared.sha256);
   const receiver=await recipientFixture(await f.read('capture:k21:one'));
-  assert.equal((await applyT4OriginalNetworkSubjectWithDurableIntent(receiver.args())).originalRecipientApplied,true);
+  const received=await applyT4OriginalNetworkSubjectWithDurableIntent(receiver.args());
+  assert.equal(received.originalBusinessApplied,true);assert.equal(received.actualOriginalT3GraphReadback,true);
+  assert.equal(received.status,'APPLIED_BY_ORIGINAL_T3');assert.equal(received.originalCommitInvoked,true);
   assert.equal(receiver.graphWrites,1);
 });
 
