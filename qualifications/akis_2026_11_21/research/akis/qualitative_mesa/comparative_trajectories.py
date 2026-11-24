@@ -1788,7 +1788,8 @@ def compare_original_competing_market_routes(
 
 
 
-def _fixed_timing_commercial_price_interval(doc, *, work, transfer, lower, upper, others_ok):
+def _fixed_timing_commercial_price_interval(doc, *, work, transfer, lower, upper, others_ok,
+                                              qualified_outside_ceiling=None):
     """Intersect comparative value, original buyer budget and conservative liquidity.
 
     The candidate is only a price sensitivity over the existing owner-private
@@ -1805,20 +1806,27 @@ def _fixed_timing_commercial_price_interval(doc, *, work, transfer, lower, upper
         "actual_financing_not_verified": True,
         "private_owner_reserves_not_redisclosed": True,
     }
-    proposals = [e for e in doc["events"] if e["action"] == "technology_route_propose"
-                 and e.get("technology_route_work") == work]
-    commercial = proposals[0].get("technology_route_commercial_terms") if len(proposals) == 1 else None
-    if not commercial:
-        return {**base, "reason": "ORIGINAL_INDEPENDENT_BUYER_BUDGET_NOT_QUALIFIED"}
     buyer, seller = transfer["payer"], transfer["payee"]
-    if commercial["buyer"] != buyer or len([o for o in commercial["offers"] if o["payee"] == seller]) != 1:
-        return {**base, "reason": "ORIGINAL_PURCHASE_QUOTE_NOT_QUALIFIED"}
-    fixed = sum((Decimal(o["amount"]) for o in commercial["offers"] if o["payee"] != seller), Decimal(0))
-    budget_max = Decimal(commercial["buyer_maximum_payment"]) - fixed
+    if qualified_outside_ceiling is None:
+        proposals = [e for e in doc["events"] if e["action"] == "technology_route_propose"
+                     and e.get("technology_route_work") == work]
+        commercial = proposals[0].get("technology_route_commercial_terms") if len(proposals) == 1 else None
+        if not commercial:
+            return {**base, "reason": "ORIGINAL_INDEPENDENT_BUYER_BUDGET_NOT_QUALIFIED"}
+        if commercial["buyer"] != buyer or len([o for o in commercial["offers"] if o["payee"] == seller]) != 1:
+            return {**base, "reason": "ORIGINAL_PURCHASE_QUOTE_NOT_QUALIFIED"}
+        fixed = sum((Decimal(o["amount"]) for o in commercial["offers"] if o["payee"] != seller), Decimal(0))
+        budget_max = Decimal(commercial["buyer_maximum_payment"]) - fixed
+    else:
+        # This ceiling is the buyer's OWN original demand declaration,
+        # qualified by the caller's executed portfolio review; it is not
+        # a total budget, financing promise or consent to a revised offer.
+        budget_max = qualified_outside_ceiling
     lo = int((lower * 100).to_integral_value(rounding=ROUND_CEILING))
     hi = int((min(upper, budget_max) * 100).to_integral_value(rounding=ROUND_FLOOR))
     private = {
-        "buyer_budget_available_for_selected_purchase": f"{budget_max:.2f}",
+        ("buyer_budget_available_for_selected_purchase" if qualified_outside_ceiling is None
+         else "original_independent_demand_price_ceiling"): f"{budget_max:.2f}",
         "minimum_purchase_price": None, "maximum_purchase_price": None,
     }
     if not others_ok or lo > hi:
@@ -2056,4 +2064,86 @@ def review_robust_competing_market_price_interval(
             "local_research_only": {
                 "minimum_purchase_price": f"{low:.2f}", "maximum_purchase_price": f"{high:.2f}",
                 "case_intervals": {k: [f"{v[0]:.2f}", f"{v[1]:.2f}"] for k, v in bounds.items()},
+            }}
+
+
+def review_original_portfolio_outside_price_interval(
+    scenarios: Mapping[str, Mapping[str, Any]], *, work: str, secondary_work: str,
+    prior_works: tuple[str, ...], split_at: int, candidate: str, comparator: str,
+    transfer_id: str,
+) -> dict[str, Any]:
+    """Retrospective sensitivity of ONE independent second-order purchase.
+
+    The counterfactual includes BOTH original orders and all owners, not just
+    the supplier's displaced revenue. The declared buyer demand ceiling and
+    original cumulative timing are constraints, never evidence of a new
+    offer, consent, financing or future profitability.
+    """
+    from decimal import Decimal
+
+    if candidate == comparator or candidate not in scenarios or comparator not in scenarios:
+        raise TrajectoryComparisonError("PORTFOLIO_PRICE_DISTINCT_ORIGINAL_ARMS_REQUIRED")
+    base = {
+        "schema": "AKIS_ORIGINAL_MULTI_ORDER_OUTSIDE_PRICE_INTERVAL/1.0",
+        "whole_selected_portfolio_not_single_order_comparison": True,
+        "declared_independent_demand_ceiling_not_total_budget": True,
+        "new_price_requires_new_original_offer_response_consents_and_reserve_recheck": True,
+        "no_original_price_or_obligation_changed": True,
+        "empirical_network_additionality": "NOT_IDENTIFIABLE",
+    }
+    report = compare_original_competing_market_routes(
+        scenarios, work=work, secondary_work=secondary_work,
+        prior_works=prior_works, split_at=split_at)
+    if report["status"] != "MODEL_MATCHED_EXECUTED_MULTI_ORDER_PORTFOLIOS":
+        return {**base, "status": "UNKNOWN"}
+    a, b = (report["local_research_only"]["arms"][k] for k in (candidate, comparator))
+    if not a["secondary_order_accepted"]:
+        raise TrajectoryComparisonError("PORTFOLIO_PRICE_EXECUTED_SECONDARY_ORDER_REQUIRED")
+    doc = scenarios[candidate]
+    money = doc["economic_claims"]
+    requests = [e for e in doc["events"] if e["action"] == "request"
+                and e.get("work_spec", {}).get("id") == secondary_work]
+    if len(requests) != 1:
+        raise TrajectoryComparisonError("PORTFOLIO_PRICE_ORIGINAL_SECONDARY_REQUEST_REQUIRED")
+    request = requests[0]
+    origin = request["outside_work_origin"]
+    buyer = request["work_spec"]["customer"]
+    demands = [e for e in doc["events"] if e["action"] == "outside_demand_signal"
+               and e.get("outside_demand_id") == origin["outside_demand_id"]]
+    offers = [e for e in doc["events"] if e["action"] == "outside_supplier_offer"
+              and e.get("outside_offer_id") == origin["outside_offer_id"]]
+    if len(demands) != 1 or len(offers) != 1:
+        raise TrajectoryComparisonError("PORTFOLIO_PRICE_INDEPENDENT_DEMAND_AND_QUOTE_REQUIRED")
+    demand, offer = demands[0], offers[0]
+    seller = offer["actor"]
+    selected = [t for t in money["transfers"] if t["id"] == transfer_id and t["work"] == secondary_work
+                and t["payer"] == buyer and t["payee"] == seller]
+    if (len(selected) != 1 or buyer != demand["actor"] or seller != demand["outside_supplier"]
+            or Decimal(selected[0]["amount"]) != Decimal(offer["outside_offer_price"])
+            or seller == doc["institution"].get("operator")):
+        raise TrajectoryComparisonError("PORTFOLIO_PRICE_ORIGINAL_SECONDARY_PURCHASE_REQUIRED")
+    transfer = selected[0]
+    price = Decimal(transfer["amount"])
+    ceiling = Decimal(demand["outside_price_ceiling"])
+    delta = {o: Decimal(v) - Decimal(b["per_owner_model_contribution"][o])
+             for o, v in a["per_owner_model_contribution"].items()}
+    lower = max(Decimal(0), price-delta[seller])
+    upper = price+delta[buyer]
+    others_ok = all(v >= 0 for o, v in delta.items() if o not in {buyer, seller})
+    interval = _fixed_timing_commercial_price_interval(
+        doc, work=secondary_work, transfer=transfer, lower=lower, upper=upper,
+        others_ok=others_ok, qualified_outside_ceiling=ceiling)
+    mapped = {
+        "MODEL_VALUE_BUDGET_AND_RESERVE_PRICE_INTERVAL": "MODEL_PORTFOLIO_VALUE_CEILING_AND_RESERVE_PRICE_INTERVAL",
+        "NO_PRICE_SATISFIES_VALUE_AND_BUYER_BUDGET": "NO_PRICE_SATISFIES_PORTFOLIO_VALUE_AND_DEMAND_CEILING",
+    }
+    interval["status"] = mapped.get(interval["status"], interval["status"])
+    return {**base, "status": interval["status"],
+            "other_original_owners_no_worse": others_ok,
+            "candidate_current_cumulative_reserves_met": a["all_owner_declared_reserves_met"],
+            "fixed_timing_independent_negotiation": interval,
+            "local_research_only": {
+                "current_purchase_price": f"{price:.2f}",
+                "supplier_minimum_vs_whole_portfolio_comparator": f"{lower:.2f}",
+                "buyer_maximum_vs_whole_portfolio_comparator": f"{upper:.2f}",
             }}

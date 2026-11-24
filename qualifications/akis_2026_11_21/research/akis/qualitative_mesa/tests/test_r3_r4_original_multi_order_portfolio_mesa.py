@@ -118,7 +118,7 @@ def _prepare_original_portfolio_context(d):
 
 def portfolio_trajectories(*, disjoint=False, buyer_declines=False, missing_consent=False,
                            stage="stage-c", buyer_finish_material="140.00",
-                           buyer_finish_labor="80.00"):
+                           buyer_finish_labor="80.00", outside_price="500.00"):
     original = matched_competing_market_cases(buyer_finish_material=buyer_finish_material,
                                                buyer_finish_labor=buyer_finish_labor)
     docs = {name: _scaled(d) for name, d in original.items()}
@@ -146,10 +146,22 @@ def portfolio_trajectories(*, disjoint=False, buyer_declines=False, missing_cons
                   outside_slot_start=start, outside_slot_end=end, outside_deliverable="independent-component",
                   outside_price_ceiling="700.00", outside_demand_valid_until=horizon+1)
     offer.update(actor="c", outside_offer_source_ref="model://c/portfolio-independent-offer",
-                 outside_offer_price="500.00", outside_offer_resource="rc", outside_offer_units=1,
+                 outside_offer_price=outside_price, outside_offer_resource="rc", outside_offer_units=1,
                  outside_offer_slot_start=start, outside_offer_slot_end=end,
                  outside_offer_deliverable=demand["outside_deliverable"], outside_offer_valid_until=horizon+1)
     response.update(outside_buyer_response_valid_until=horizon+1)
+    if outside_price != "500.00":
+        # A different prospective input, not mutation of an accepted order.
+        # Both seller offer and buyer response are distinct original sources.
+        suffix = outside_price.replace(".", "-")
+        offer["outside_offer_id"] += "-repriced-" + suffix
+        offer["outside_offer_source_ref"] += "-repriced-" + suffix
+        offer["outside_offer_source_revision"] = "repriced-" + suffix
+        response["outside_offer_id"] = offer["outside_offer_id"]
+        response["outside_offer_source_revision"] = offer["outside_offer_source_revision"]
+        response["outside_buyer_response_id"] += "-repriced-" + suffix
+        response["outside_buyer_response_source_ref"] += "-repriced-" + suffix
+        response["outside_buyer_response_source_revision"] = "repriced-" + suffix
     ext_sources = []
     for owner, row, prefix in ((BUYER, demand, "outside_demand"), ("c", offer, "outside_offer"),
                                (BUYER, response, "outside_buyer_response")):
@@ -312,13 +324,14 @@ def test_independent_second_order_different_intervals_are_not_automatically_excl
 def finance_portfolio(*, disjoint=False, outside_material="180.00",
                       outside_observed="7", outside_opening="1000.00",
                       seller_opening="400.00", buyer_finish_material="140.00",
-                      buyer_finish_labor="80.00"):
+                      buyer_finish_labor="80.00", outside_price="500.00"):
     """Same second demand and precommit costs in BOTH original route arms."""
     from .test_r1p_r3_executed_route_economics_mesa import add_original_recipient_value
 
     docs = portfolio_trajectories(disjoint=disjoint,
                                 buyer_finish_material=buyer_finish_material,
-                                buyer_finish_labor=buyer_finish_labor)
+                                buyer_finish_labor=buyer_finish_labor,
+                                outside_price=outside_price)
     for arm, d in docs.items():
         money = d["economic_claims"]
         life = money["lifecycle_costs"]
@@ -401,7 +414,7 @@ def finance_portfolio(*, disjoint=False, outside_material="180.00",
             evidence(owner, f"portfolio-uncommitted-scope-{owner}", declare=True, start=commit+1)
         evidence(BUYER, "portfolio-no-order-observation", declare=True, start=commit+1)
         if arm == "coproduction" or disjoint:
-            transfer("purchase", BUYER, "c", "500.00", "ON_CUSTOMER_ACCEPTANCE", accept+2)
+            transfer("purchase", BUYER, "c", outside_price, "ON_CUSTOMER_ACCEPTANCE", accept+2)
             transfer("material", "c", "EXTERNAL", outside_material, "ON_ORIGINAL_COMMIT", commit+1)
             transfer("fee", "c", "op", "50.00", "ON_ORIGINAL_COMMIT", commit+2)
             transfer("overhead", "op", "EXTERNAL", "20.00", "ON_ORIGINAL_COMMIT", commit+3)
@@ -609,3 +622,72 @@ def test_portfolio_independent_cost_or_value_can_reverse_owner_or_system_advanta
     assert pair["left_minus_right_model_contribution"] == delta
     assert pair["per_original_owner_left_minus_right"][owner] == owner_delta
     assert r["pairwise_contrasts"][0]["left_weak_pareto_improvement_on_portfolio"] is pareto
+
+
+def portfolio_price(docs, candidate="coproduction", comparator="supplier", transfer_id=None):
+    from research.akis.qualitative_mesa.comparative_trajectories import review_original_portfolio_outside_price_interval
+    split = _event(docs["supplier"], "technology_route_propose")["at"] - 1
+    return review_original_portfolio_outside_price_interval(
+        docs, work="w3", secondary_work=OUTSIDE, prior_works=("w1", "w2"),
+        split_at=split, candidate=candidate, comparator=comparator,
+        transfer_id=transfer_id or f"{OUTSIDE}-portfolio-purchase")
+
+
+@pytest.mark.parametrize("kwargs,low,high", [
+    ({}, "450.00", "700.00"),
+    ({"outside_material": "260.00"}, "530.00", "700.00"),
+    ({"outside_opening": "600.00"}, "450.00", "500.00"),
+])
+def test_outside_portfolio_price_interval_includes_whole_owner_comparison_and_cash_paths(kwargs, low, high):
+    docs = finance_portfolio(**kwargs)
+    before = deepcopy(docs)
+    r = portfolio_price(docs)
+    assert docs == before
+    assert r["status"] == "MODEL_PORTFOLIO_VALUE_CEILING_AND_RESERVE_PRICE_INTERVAL", r
+    private = r["fixed_timing_independent_negotiation"]["local_research_only"]
+    assert (private["minimum_purchase_price"], private["maximum_purchase_price"]) == (low, high)
+    assert private["original_independent_demand_price_ceiling"] == "700.00"
+
+
+@pytest.mark.parametrize("kwargs,reason", [
+    ({"outside_opening": "500.00"}, "NO_PRICE_SATISFIES_ALL_OWNER_RESERVES_AT_FIXED_TIMING"),
+    ({"outside_observed": "2"}, "NO_PRICE_SATISFIES_PORTFOLIO_VALUE_AND_DEMAND_CEILING"),
+    ({"disjoint": True, "seller_opening": "800.00"}, "NO_PRICE_SATISFIES_PORTFOLIO_VALUE_AND_DEMAND_CEILING"),
+])
+def test_outside_portfolio_price_does_not_force_mutually_infeasible_redistribution(kwargs, reason):
+    r = portfolio_price(finance_portfolio(**kwargs))
+    assert r["status"] == reason, r
+
+
+def test_repriced_independent_offer_is_a_separately_executed_portfolio_not_a_rewritten_payment():
+    old = finance_portfolio()
+    new = finance_portfolio(outside_price="600.00")
+    old_offer = _event(old["coproduction"], "outside_supplier_offer")
+    new_offer = _event(new["coproduction"], "outside_supplier_offer")
+    assert old_offer["outside_offer_id"] != new_offer["outside_offer_id"]
+    assert old_offer["outside_offer_source_revision"] != new_offer["outside_offer_source_revision"]
+    assert _event(old["coproduction"], "outside_buyer_offer_response")["outside_buyer_response_id"] != _event(new["coproduction"], "outside_buyer_offer_response")["outside_buyer_response_id"]
+    r = compare_portfolios(new)
+    assert r["status"] == "MODEL_MATCHED_EXECUTED_MULTI_ORDER_PORTFOLIOS", r
+    delta = r["local_research_only"]["pairwise"][0]
+    assert delta["left_minus_right_model_contribution"] == "445.00"
+    assert delta["per_original_owner_left_minus_right"]["c"] == "150.00"
+    assert delta["per_original_owner_left_minus_right"][BUYER] == "100.00"
+    assert portfolio_price(old)["local_research_only"]["current_purchase_price"] == "500.00"
+
+
+def test_outside_price_interval_requires_executed_original_purchase():
+    docs = finance_portfolio()
+    with pytest.raises(ValueError, match="PORTFOLIO_PRICE_EXECUTED_SECONDARY_ORDER_REQUIRED"):
+        portfolio_price(docs, candidate="supplier", comparator="coproduction")
+    with pytest.raises(ValueError, match="PORTFOLIO_PRICE_ORIGINAL_SECONDARY_PURCHASE_REQUIRED"):
+        portfolio_price(docs, transfer_id=f"{OUTSIDE}-portfolio-fee")
+
+
+def test_outside_price_ceiling_source_must_remain_readable_for_portfolio_projection():
+    doc = finance_portfolio()["coproduction"]
+    demand = _event(doc, "outside_demand_signal")
+    source = next(s for s in doc["context_evidence"]["sources"] if s["id"] == demand["outside_demand_source_ref"])
+    source["valid_until"] = doc["model_horizon"]
+    with pytest.raises(ValueError, match="OUTSIDE_WORK_ORIGINAL_OFFER_PRICE_SOURCE_NOT_READABLE"):
+        simulate(doc)

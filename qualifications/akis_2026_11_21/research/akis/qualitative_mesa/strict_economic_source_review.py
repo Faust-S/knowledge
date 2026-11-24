@@ -287,6 +287,29 @@ def review_original_strict_economic_sources(
                     offer["outside_offer_source_revision"], core=core,
                     buyer=buyer, at=at,
                 )
+                # The portfolio may use the independent demand ceiling for
+                # price sensitivity. Require its own historical and current
+                # read rights as well as the independent buyer's response.
+                if "portfolio_scope_evidence" in original_claims:
+                    buyer_core = _OWNER_CORES.get(state.subjects[buyer].kind)
+                    if buyer_core is None:
+                        raise StrictEconomicSourceBlocked("PORTFOLIO_ORIGINAL_BUYER_CORE_REQUIRED")
+                    for action, field, prefix in (
+                        ("outside_demand_signal", "outside_demand_id", "outside_demand"),
+                        ("outside_buyer_offer_response", "outside_buyer_response_id", "outside_buyer_response"),
+                    ):
+                        witnesses = [r for r in state.trace if r.get("action") == action
+                                     and r.get("outcome") == "APPLIED" and r.get(field) == origin[field]
+                                     and r.get("actor") == buyer]
+                        if len(witnesses) != 1:
+                            raise StrictEconomicSourceBlocked("PORTFOLIO_ORIGINAL_BUYER_PRICE_EVIDENCE_REQUIRED")
+                        witness = witnesses[0]
+                        ref, rev = witness[prefix+"_source_ref"], witness[prefix+"_source_revision"]
+                        context.assert_original_historical_form_role_source(
+                            buyer, ref, rev, core=buyer_core, purpose="AKIS_EXTERNAL_DEMAND_EVIDENCE",
+                            operation="READ", recipients={seller}, at=request["at"])
+                        context.assert_original_independent_outside_demand_source(
+                            buyer, ref, rev, core=buyer_core, recipient=seller, at=at)
             except ContextBlocked as exc:
                 raise StrictEconomicSourceBlocked(
                     "OUTSIDE_WORK_ORIGINAL_OFFER_PRICE_SOURCE_NOT_READABLE"

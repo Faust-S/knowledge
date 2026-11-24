@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from research.akis.qualitative_mesa.tests.test_r3_r4_original_multi_order_portfolio_mesa import (
-    finance_portfolio, compare_portfolios,
+    finance_portfolio, compare_portfolios, portfolio_price,
 )
 
 
@@ -46,10 +46,24 @@ def export_multi_order_portfolio():
     assert indexed["independent_buyer_reserve_shortfall"]["preferred_viable_route_classes"] == []
     assert indexed["supplier_higher_input_cost"]["owners_worsened_count"] == 1
     assert indexed["low_independent_use_value"]["selected_portfolio_value_direction"] == "NEGATIVE"
+    prices = []
+    for label, kwargs in sorted({
+        "baseline": {},
+        "supplier_cost_increase": {"outside_material": "260.00"},
+        "buyer_reserve_binds": {"outside_opening": "600.00"},
+        "buyer_reserve_impossible": {"outside_opening": "500.00"},
+        "insufficient_value": {"outside_observed": "2"},
+        "disjoint_capacity": {"disjoint": True, "seller_opening": "800.00"},
+    }.items()):
+        r = portfolio_price(finance_portfolio(**kwargs))
+        prices.append({"trial": label, "status": r["status"],
+                       "new_offer_and_consent_required": r["new_price_requires_new_original_offer_response_consents_and_reserve_recheck"],
+                       "original_order_unchanged": r["no_original_price_or_obligation_changed"]})
     manifest = {
-        "schema": "AKIS_R3_R4_ORIGINAL_MULTI_ORDER_PORTFOLIO/1.0",
+        "schema": "AKIS_R3_R4_ORIGINAL_MULTI_ORDER_PORTFOLIO/1.1",
         "engine": "MESA_3_5_2",
         "matched_portfolio_experiments": cases,
+        "independent_purchase_price_experiments": prices,
         "no_fictitious_lost_receipts_or_double_counted_opportunity_cost": True,
         "original_capacity_work_result_ledger_and_owner_scope_preserved": True,
         "private_amounts_sources_and_raw_trace_excluded": True,
