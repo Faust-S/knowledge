@@ -117,7 +117,7 @@ function shapeRoute(record,number){
     :field(inputs[f]));
   if(routeValues.includes(null))incomplete.push('ROUTE_PARAMETERS');
   differences.set('ROUTE_PARAMETERS',key(routeValues));
-  return {routeId,number,source,signature,operations,edgeCount,differences,incomplete,ambiguous};
+  return {routeId,number,source,signature,operations,edgeCount,differences,incomplete,ambiguous,aliases};
 }
 export function reviewD05RouteModels(records){
   require(Array.isArray(records)&&records.length>0&&records.length<=MAX_ROUTES,
@@ -168,4 +168,169 @@ export function buildD05RouteComparisonExample(){
     model(2,['Раскрой','Гибка','Контроль размеров'],[[0,1],[1,2]],[4,2,1]),
     model(3,['Раскрой','Сверление','Контроль размеров'],[[0,1],[1,2]],[3,2,1])
   ];
+}
+
+
+// A4.1-IV: compare normative quality plans, not inspection results. Read the
+// existing Result and Kernel relationship shapes; do not author a new process
+// or reimplement the domain's quality-validation/completion rules.
+const QUALITY_TYPES=['incoming-material','before-op','in-op','after-op','final',
+  'subcontract-acceptance','packaging','completeness','pre-shipment'];
+const OPERATION_CONTROL=new Set(['before-op','in-op','after-op','subcontract-acceptance']);
+const QUALITY_METHODS=['visual','measurement','count','test','document','kit-check',
+  'trial-assembly','functional','subcontractor-check','custom'];
+const QUALITY_RESULTS=['pass-fail','numeric','enumerated','text'];
+const QUALITY_ACTIONS=['recheck','adjust','rework','sort','return-to-subcontractor',
+  'scrap','concession','stop-release','custom'];
+const QUALITY_FIELDS=[
+  ['CRITERIA',['related_material_id','related_product_characteristic','requirement','unit',
+    'lower_limit','target_value','upper_limit','allowed_values','result_type']],
+  ['METHOD_AND_SAMPLING',['inspection_method','inspection_method_custom','sampling_rule']],
+  ['ROLE_AND_EVIDENCE',['responsible_role','required_evidence']],
+  ['FAILURE_AND_BLOCKING',['blocking','action_on_failure','action_custom']],
+  ['CONTROL_NOTES',['comment']],
+];
+const PLAN_CONTEXT=['product','productVersion','requirementBasis','sourceDocuments'];
+const qualityText=v=>typeof v==='string'&&v.length<=4096&&!/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v);
+const filled=v=>qualityText(v)&&v.trim().length>0;
+const stableSet=rows=>JSON.stringify(rows.map(key).sort(cmp));
+function qualityBody(row,type,ws){
+  require(obj(row)&&row.workspace_id===ws&&row.schema_id===DOMAIN+'.'+type&&
+    row.schema_version===D05_SOURCE_PIN.version&&!row.deleted_at&&row.deleted!==true&&
+    id(row.object_id)&&Number.isSafeInteger(row.revision)&&row.revision>0&&
+    obj(row.data)&&row.data.object_id===row.object_id&&row.data.object_type===type&&
+    obj(row.data.value),'D05_ROUTE_QUALITY_RESULT_INVALID');
+  const value=row.data.value;
+  if(obj(value.data)){
+    require(value.object_id===row.object_id&&value.object_type===type,
+      'D05_ROUTE_QUALITY_RESULT_INVALID');
+    return value.data;
+  }
+  return value;
+}
+function planTargets(detail,ws){
+  const row=detail?.object;
+  const body=qualityBody(row,'quality-plan',ws);
+  require(obj(detail.relations)&&Array.isArray(detail.relations.outgoing)&&
+    detail.relations.outgoing.length<=512,'D05_ROUTE_QUALITY_RELATIONS_INVALID');
+  const links=new Set(),relationIds=new Set();
+  for(const rel of detail.relations.outgoing){
+    require(obj(rel)&&rel.workspace_id===ws&&rel.from_object_id===row.object_id&&
+      id(rel.to_object_id)&&id(rel.relation_id)&&!relationIds.has(rel.relation_id),
+      'D05_ROUTE_QUALITY_RELATIONS_INVALID');
+    relationIds.add(rel.relation_id);
+    if(rel.kind==='based_on'&&!rel.deleted_at&&rel.deleted!==true)links.add(rel.to_object_id);
+  }
+  return {row,body,links};
+}
+function inspectPlan(route,plans,templates,routeIds){
+  const matching=plans.filter(p=>p.body.linked_operation_route_id===route.routeId||
+    p.body.common?.linkedOperationRouteId===route.routeId||p.links.has(route.routeId));
+  const base={model_number:route.number,check_count:0,blocking_count:0,issue_codes:[]};
+  const incomplete=(status,codes)=>({...base,status,issue_codes:[...new Set(codes)].sort(cmp),signature:null,parts:null});
+  if(!matching.length)return incomplete('NO_LINKED_PLAN',['QUALITY_PLAN_MISSING']);
+  if(matching.length!==1)return incomplete('AMBIGUOUS_PLAN',['QUALITY_MULTIPLE_PLANS']);
+  const {body,links}=matching[0],issues=[];
+  const ref=body.linked_operation_route_id,common=body.common;
+  if(!obj(common)||ref!==route.routeId||common.linkedOperationRouteId!==route.routeId||
+    !links.has(route.routeId)||[...links].some(target=>routeIds.has(target)&&target!==route.routeId))
+    return incomplete('INCOMPLETE_PLAN',['QUALITY_ROUTE_LINK_UNCONFIRMED']);
+  if(body.object_type!=='quality-plan'||!Array.isArray(body.check_template_ids)||
+    body.check_template_ids.length>128||!body.check_template_ids.every(id)||
+    new Set(body.check_template_ids).size!==body.check_template_ids.length)
+    return incomplete('INCOMPLETE_PLAN',['QUALITY_TEMPLATE_REFERENCES_INVALID']);
+  if(!body.check_template_ids.length)issues.push('QUALITY_NO_CHECKS');
+  if([...links].some(target=>templates.has(target)&&!body.check_template_ids.includes(target)))
+    issues.push('QUALITY_TEMPLATE_LINK_MISMATCH');
+  const parts=new Map(QUALITY_FIELDS.map(([k])=>[k,[]])),checks=[];
+  const context=PLAN_CONTEXT.map(f=>qualityText(common[f])?common[f]:null);
+  if(context.includes(null)||!filled(common.requirementBasis))issues.push('QUALITY_CONTEXT_INCOMPLETE');
+  for(const templateId of body.check_template_ids){
+    const template=templates.get(templateId);
+    if(!links.has(templateId)||!template){
+      issues.push('QUALITY_TEMPLATE_LINK_UNCONFIRMED');continue;
+    }
+    if(template.check_id!==templateId||!filled(template.title)||
+      !QUALITY_TYPES.includes(template.control_type)||!QUALITY_METHODS.includes(template.inspection_method)||
+      !QUALITY_RESULTS.includes(template.result_type)||!QUALITY_ACTIONS.includes(template.action_on_failure)||
+      typeof template.blocking!=='boolean'||!qualityText(template.related_operation_id)||
+      QUALITY_FIELDS.flatMap(([,fs])=>fs).some(f=>f!=='blocking'&&!qualityText(template[f]))){
+      issues.push('QUALITY_CHECK_FIELDS_INCOMPLETE');continue;
+    }
+    const sourceOp=template.related_operation_id;
+    const opAlias=sourceOp?route.aliases.get(sourceOp):null;
+    if((sourceOp&&!opAlias)||(!sourceOp&&OPERATION_CONTROL.has(template.control_type))){
+      issues.push('QUALITY_OPERATION_LINK_UNCONFIRMED');continue;
+    }
+    // Do not bind a repeated-name occurrence to an arbitrary peer.
+    if(route.ambiguous&&opAlias){issues.push('QUALITY_OPERATION_OCCURRENCE_AMBIGUOUS');continue;}
+    if(!filled(template.requirement)&&!filled(template.lower_limit)&&
+      !filled(template.upper_limit)&&!filled(template.allowed_values)&&!filled(template.target_value))
+      issues.push('QUALITY_CRITERION_UNSPECIFIED');
+    if((template.result_type==='numeric'&&!filled(template.lower_limit)&&
+        !filled(template.upper_limit)&&!filled(template.target_value))||
+       (template.result_type==='enumerated'&&!filled(template.allowed_values)))
+      issues.push('QUALITY_CRITERION_UNSPECIFIED');
+    if(!filled(template.responsible_role)||!filled(template.required_evidence))
+      issues.push('QUALITY_ROLE_OR_EVIDENCE_UNSPECIFIED');
+    if((template.inspection_method==='custom'&&!filled(template.inspection_method_custom))||
+       (template.action_on_failure==='custom'&&!filled(template.action_custom)))
+      issues.push('QUALITY_CUSTOM_RULE_UNSPECIFIED');
+    // Compare exact declared fields (no numerical normalization or inferred
+    // equivalence). The local operation alias only comes from the matched
+    // original route's own operation IDs.
+    const anchor=[opAlias,template.title,template.control_type];
+    const values=QUALITY_FIELDS.map(([category,fields])=>{
+      const part=fields.map(f=>template[f]);parts.get(category).push([anchor,part]);return part;
+    });
+    checks.push([anchor,values]);
+    base.check_count++;if(template.blocking)base.blocking_count++;
+  }
+  if(issues.length)return incomplete('INCOMPLETE_PLAN',issues);
+  const signatures=new Map([...parts].map(([k,rows])=>[k,stableSet(rows)]));
+  signatures.set('PLAN_CONTEXT',key(context));
+  return {...base,status:'DECLARED_CHECKS_READ',signature:key([context,stableSet(checks)]),parts:signatures};
+}
+
+/** Inputs: stored operation-route records; original getObject details of
+ * quality-plan records; stored quality-check-template records. Caller must
+ * provide a consistent selected Workspace snapshot. This pure function
+ * neither authenticates the source nor performs a Kernel read.
+ */
+export function reviewD05RouteModelsWithQuality(records,planDetails,templateRecords){
+  const result=reviewD05RouteModels(records);
+  const ws=records[0]?.workspace_id;
+  require(id(ws)&&records.every(r=>r.workspace_id===ws&&r.schema_id===ROUTE&&
+    !r.deleted_at&&r.deleted!==true),'D05_ROUTE_QUALITY_SCOPE_INVALID');
+  require(Array.isArray(planDetails)&&planDetails.length<=96&&
+    Array.isArray(templateRecords)&&templateRecords.length<=256,'D05_ROUTE_QUALITY_LIMIT');
+  const plans=planDetails.map(p=>planTargets(p,ws));
+  require(new Set(plans.map(p=>p.row.object_id)).size===plans.length,'D05_ROUTE_QUALITY_DUPLICATE');
+  const templates=new Map();
+  for(const row of templateRecords){
+    const body=qualityBody(row,'quality-check-template',ws);
+    require(!templates.has(row.object_id),'D05_ROUTE_QUALITY_DUPLICATE');
+    templates.set(row.object_id,body);
+  }
+  const entries=records.map((r,i)=>shapeRoute(r,i+1));
+  const ids=new Set(entries.map(r=>r.routeId));
+  const reviewed=entries.map(r=>inspectPlan(r,plans,templates,ids));
+  const groups=result.groups.map(group=>{
+    const members=group.model_numbers.map(n=>reviewed[n-1]);
+    const comparable=members.length>1&&members.every(m=>m.status==='DECLARED_CHECKS_READ');
+    let comparison='NOT_COMPARABLE',differing_fields=[];
+    if(comparable){
+      const different=new Set(members.map(m=>m.signature)).size>1;
+      comparison=different?'DECLARED_FIELDS_DIFFER':'NO_DIFFERENCE_IN_CHECKED_FIELDS';
+      differing_fields=[...members[0].parts.keys()].filter(k=>
+        new Set(members.map(m=>m.parts.get(k))).size>1);
+      if(different&&!differing_fields.length)differing_fields=['CHECK_COMBINATION'];
+    }
+    return {group_id:group.id,comparison,differing_fields,
+      models:members.map(({signature,parts,...visible})=>visible)};
+  });
+  return {...result,quality_review:{status:'LOCAL_NORMATIVE_QUALITY_REVIEW',
+    groups,quality_validation:'NOT_PERFORMED_BY_ACTIVITY',
+    revision_alignment:'CURRENT_SNAPSHOT_NOT_APPROVED_TECHNOLOGY',
+    execution_evidence:'NOT_ESTABLISHED'}};
 }

@@ -13,3 +13,19 @@ export type D05RouteReview={
 };
 export function reviewD05RouteModels(records:unknown):D05RouteReview;
 export function buildD05RouteComparisonExample():unknown[];
+
+export type D05QualityModel={
+ model_number:number;check_count:number;blocking_count:number;
+ status:'NO_LINKED_PLAN'|'AMBIGUOUS_PLAN'|'INCOMPLETE_PLAN'|'DECLARED_CHECKS_READ';
+ issue_codes:string[];
+};
+export type D05QualityReview={
+ status:'LOCAL_NORMATIVE_QUALITY_REVIEW';
+ groups:Array<{group_id:string;comparison:'NOT_COMPARABLE'|'DECLARED_FIELDS_DIFFER'|'NO_DIFFERENCE_IN_CHECKED_FIELDS';
+ differing_fields:string[];models:D05QualityModel[]}>;
+ quality_validation:'NOT_PERFORMED_BY_ACTIVITY';
+ revision_alignment:'CURRENT_SNAPSHOT_NOT_APPROVED_TECHNOLOGY';
+ execution_evidence:'NOT_ESTABLISHED';
+};
+export type D05RouteQualityReview=D05RouteReview & {quality_review:D05QualityReview};
+export function reviewD05RouteModelsWithQuality(records:unknown,planDetails:unknown,templateRecords:unknown):D05RouteQualityReview;
