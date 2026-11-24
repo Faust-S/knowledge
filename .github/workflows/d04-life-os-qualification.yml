@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: e31c186563b67077ddd9825bf848b135f1c6d7d8
+          ref: 03cc73833f5786730075c9695aecc268ef337a23
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -53,7 +53,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: a48eb11304e5fa2f8071edace3c67bc5f52c4333
+          ref: b376291b1bb363208c23c225535069fbc1cf843a
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           fetch-depth: 0
@@ -70,10 +70,10 @@ jobs:
       - name: Verify immutable site / subject / T2 revisions
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "e31c186563b67077ddd9825bf848b135f1c6d7d8"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "e9376eec9a1afc99f87911ebac85b331f1b13f84"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "a48eb11304e5fa2f8071edace3c67bc5f52c4333"
-          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "832e762fa72d632f60dd555a34395ba0c26ec0bb"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "03cc73833f5786730075c9695aecc268ef337a23"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "7f7fd350e14e553ac33b212072d46c151b32d5a9"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "b376291b1bb363208c23c225535069fbc1cf843a"
+          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "8d353efa02acdeed55ec2cd7acff3d2094da6d45"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           for path in d04-private/site d04-private/model d04-private/t2; do
             test -z "$(git -C "$path" status --porcelain --untracked-files=no)"
@@ -82,7 +82,7 @@ jobs:
           cmp d04-private/model/docs/life-os/PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts d04-private/site/t2-site-module/bazmed/PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts
           cmp d04-private/model/docs/life-os/PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs d04-private/site/t2-site-module/bazmed/PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs
           cmp d04-private/model/docs/life-os/PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts d04-private/site/t2-site-module/bazmed/PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts
-          for name in PERSONAL_STUDY_RESULT_V0_1.mjs PERSONAL_STUDY_RESULT_V0_1.d.mts LIFE_GOAL_RESULT_REFS_V0_1.mjs LIFE_GOAL_RESULT_REFS_V0_1.d.mts PERSONAL_MEDICAL_EVIDENCE_V0_1.mjs PERSONAL_MEDICAL_EVIDENCE_V0_1.d.mts PERSONAL_GOAL_PROFILE_V0_1.mjs PERSONAL_GOAL_PROFILE_V0_1.d.mts LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.mjs LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts PERSONAL_CUSTOM_MEASURE_V0_1.mjs PERSONAL_CUSTOM_MEASURE_V0_1.d.mts LIFE_PERIOD_COMPARISON_V0_1.mjs LIFE_PERIOD_COMPARISON_V0_1.d.mts LIFE_DIARY_BATCH_V0_1.mjs LIFE_DIARY_BATCH_V0_1.d.mts; do
+          for name in LIFE_RETROSPECTIVE_V0_1.mjs LIFE_RETROSPECTIVE_V0_1.d.mts PERSONAL_STUDY_RESULT_V0_1.mjs PERSONAL_STUDY_RESULT_V0_1.d.mts LIFE_GOAL_RESULT_REFS_V0_1.mjs LIFE_GOAL_RESULT_REFS_V0_1.d.mts PERSONAL_MEDICAL_EVIDENCE_V0_1.mjs PERSONAL_MEDICAL_EVIDENCE_V0_1.d.mts PERSONAL_GOAL_PROFILE_V0_1.mjs PERSONAL_GOAL_PROFILE_V0_1.d.mts LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.mjs LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts PERSONAL_CUSTOM_MEASURE_V0_1.mjs PERSONAL_CUSTOM_MEASURE_V0_1.d.mts LIFE_PERIOD_COMPARISON_V0_1.mjs LIFE_PERIOD_COMPARISON_V0_1.d.mts LIFE_DIARY_BATCH_V0_1.mjs LIFE_DIARY_BATCH_V0_1.d.mts; do
             cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
           done
           echo "D04_UNIFIED_DASHBOARD_CANONICAL_PARITY=PASS"
@@ -111,7 +111,7 @@ jobs:
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
           BAZMED_SUBJECT_SOURCE_DIR: ${{ github.workspace }}/d04-private/model
-          D04_RELEASE_SITE_SHA: e31c186563b67077ddd9825bf848b135f1c6d7d8
+          D04_RELEASE_SITE_SHA: 03cc73833f5786730075c9695aecc268ef337a23
         run: |
           set -euo pipefail
           if npm run release:check-source >"$RUNNER_TEMP/d04-release-source.log" 2>&1; then
