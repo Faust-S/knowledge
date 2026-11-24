@@ -178,3 +178,16 @@ def test_strict_retry_replays_in_native_mesa_on_same_work():
     assert x.native()["works"]["w1"]["result"]=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
     assert all(r["source_revision"]=="r1" for row in x.w.assurance_corrections
                for _,r in correction_resource_claims(row))
+
+
+def test_short_receipt_does_not_erase_unaccounted_dispatched_material():
+    x=RetryCase();x.first_start();x.handoff_event("input","dispatch")
+    x.handoff_event("input","receive",material_quantities=[
+        dict(batch="input-2",quantity="1"),dict(batch="input-3",quantity="3")])
+    x.handoff_event("input","quality",quality_quantities=[
+        dict(batch="input-2",accepted="0",rejected="1"),
+        dict(batch="input-3",accepted="3",rejected="0")])
+    before=deepcopy([x.w.material_states,x.w.assurance_corrections,x.s.capacity_ledger.reservations])
+    x.action("quality_correction_propose","c",**x.retry_terms(),expected="BLOCKED",
+             reason="QUALITY_CORRECTION_RETRY_UNRESOLVED_IN_TRANSIT_QUANTITY")
+    assert [x.w.material_states,x.w.assurance_corrections,x.s.capacity_ledger.reservations]==before
