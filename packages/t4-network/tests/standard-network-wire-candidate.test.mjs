@@ -4,7 +4,7 @@ import {generateKeyPairSync,sign,verify,createHash} from 'node:crypto';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {
   createT4CandidateUnsignedFrame,signT4CandidateFrame,
-  decodeT4CandidateFrame,negotiateT4CandidateCapabilities,
+  decodeT4CandidateFrame,decodeT4CandidateSigningBytes,negotiateT4CandidateCapabilities,
   verifyT4CandidateWireFrame,T4_CANDIDATE_VERSION,T4_RELATION_EVENT_EXTENSION,
   T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION,validT4NativeOriginalEventRevision,
 } from '../src/network/standard-network-wire-candidate.mjs';
@@ -418,4 +418,29 @@ test('original wire invalidation during network authorization prevents durable r
   x.ports.authorizeOriginalNetwork=async args=>{const ok=await auth(args);x.stop();return ok;};
   await assert.rejects(x.scoped().readAndVerifySignedFrame({key:x.key,expectedSha256:x.sha,requiredCryptoSuite:cryptoSuite}),code('ORIGINAL_HOST_LIFETIME_ENDED'));
   assert.equal(x.t.observations.replayWrites,0);
+});
+
+test('K36 asynchronous original signer and encoder use one exact canonical snapshot',async()=>{
+  const unsigned=create(),before=structuredClone(unsigned);
+  const bytes=await signT4CandidateFrame({unsignedFrame:unsigned,signOriginalNodeBytes:async p=>{
+    assert.deepEqual(decodeT4CandidateSigningBytes(p.bytes),before);
+    unsigned.body.sourceRevision=999;
+    unsigned.permissionRef='permission:substituted';
+    unsigned.signerRef='key:substituted';
+    return originalSigner(p);
+  }});
+  const frame=decodeT4CandidateFrame(bytes);
+  assert.equal(frame.permissionRef,before.permissionRef);
+  assert.equal(frame.signerRef,before.signerRef);
+  assert.deepEqual(frame.body,before.body);
+  assert.equal((await verifyT4CandidateWireFrame({wireBytes:bytes,...trustedPorts().ports})).originalSignatureVerified,true);
+});
+test('K36 signer input parser rejects Access-domain bytes, signature envelopes and noncanonical JSON',async()=>{
+  let captured;
+  await signT4CandidateFrame({unsignedFrame:create(),signOriginalNodeBytes:async p=>{captured=Buffer.from(p.bytes);return originalSigner(p);}});
+  assert.equal(decodeT4CandidateSigningBytes(captured).messageType,'CHANGE_REF');
+  assert.throws(()=>decodeT4CandidateSigningBytes(Buffer.from('IWXA-T3-ACCESS-SIGNED-V1\0'+JSON.stringify(create()))),{code:'WIRE_SIGNING_DOMAIN_INVALID'});
+  assert.throws(()=>decodeT4CandidateSigningBytes(Buffer.concat([captured,Buffer.from(' ')])),{code:'WIRE_NONCANONICAL_OR_DUPLICATE_KEYS'});
+  const signed=await wire();
+  assert.throws(()=>decodeT4CandidateSigningBytes(signed),{code:'WIRE_SIGNING_DOMAIN_INVALID'});
 });

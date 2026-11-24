@@ -296,20 +296,37 @@ export async function signT4CandidateFrame({
 }={}){
   if(typeof signOriginalNodeBytes!=='function')
     fail('WIRE_ORIGINAL_SIGNER_PORT_REQUIRED');
-  validateUnsigned(unsignedFrame);
-  const bytes=signedBytes(unsignedFrame);
+  // The caller may mutate its frame during the asynchronous vault call.
+  // Sign and encode ONE canonical snapshot, never its later object.
+  const snapshot=structuredClone(canonical(unsignedFrame));
+  validateUnsigned(snapshot);
+  const bytes=signedBytes(snapshot);
   const signed=await signOriginalNodeBytes({
-    signerRef:unsignedFrame.signerRef,
+    signerRef:snapshot.signerRef,
     bytes:new Uint8Array(bytes),
     originalNodeSignatureRequired:true,
   });
   if(!(signed instanceof Uint8Array)||signed.length!==64)
     fail('WIRE_ORIGINAL_SIGNER_RESULT_INVALID');
-  const frame={...unsignedFrame,signatureBase64:
+  const frame={...snapshot,signatureBase64:
     Buffer.from(signed).toString('base64')};
   const encoded=canonicalBytes(frame);
   if(encoded.length>LIMIT)fail('WIRE_FRAME_TOO_LARGE');
   return new Uint8Array(encoded);
+}
+// This accepts only the exact domain-separated unsigned candidate bytes.
+// It is the input boundary of the existing original encrypted key vault.
+export function decodeT4CandidateSigningBytes(bytes){
+  if(!(bytes instanceof Uint8Array)||bytes.length<=DOMAIN.length||bytes.length>DOMAIN.length+LIMIT-128)
+    fail('WIRE_SIGNING_BYTES_INVALID');
+  const raw=Buffer.from(bytes);
+  if(!raw.subarray(0,DOMAIN.length).equals(DOMAIN))fail('WIRE_SIGNING_DOMAIN_INVALID');
+  let parsed;
+  try{parsed=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw.subarray(DOMAIN.length)));}
+  catch{fail('WIRE_CANONICAL_JSON_INVALID');}
+  validateUnsigned(parsed);
+  if(!signedBytes(parsed).equals(raw))fail('WIRE_NONCANONICAL_OR_DUPLICATE_KEYS');
+  return structuredClone(parsed);
 }
 export function decodeT4CandidateFrame(bytes){
   if(!(bytes instanceof Uint8Array)||bytes.length<64||bytes.length>LIMIT)

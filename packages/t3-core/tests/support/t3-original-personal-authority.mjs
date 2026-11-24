@@ -40,6 +40,8 @@ const PERSONAL_ACTIONS=Object.freeze({
   "t4.network.frame.discover":"t4.network.frame.discover",
   "t4.network.frame.index.read":"t4.network.frame.index.read",
   "t4.network.frame.index.publish":"t4.network.frame.index.publish",
+  "t4.network.node.sign":"t4.network.node.sign",
+  "t4.network.node.verify":"t4.network.node.verify",
 });
 function createSigner(name,subject,uses,now){
   const {publicKey,privateKey}=generateKeyPairSync("ed25519");

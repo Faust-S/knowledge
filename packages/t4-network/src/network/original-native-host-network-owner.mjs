@@ -10,6 +10,7 @@ import {createT4OriginalNetworkSessionPhasePort} from './original-network-sessio
 import {createT4OriginalNetworkPublicationPort,isT4RecoverablePublicationWakeError,createT4OriginalPublicationIndexMigrationStepper} from './original-network-publication.mjs';
 import {createT4OriginalNetworkReplayPort} from './original-network-replay-checkpoint.mjs';
 import {isT4NativeTopologyTransport} from './network-topology.mjs';
+import {isT4OriginalVaultNodeSignaturePort} from './original-vault-node-signature.mjs';
 import {createT4CandidateFrameTransport} from './standard-network-wire-transport.mjs';
 import {createT4OriginalHostOutboxDispatcher} from './original-host-outbox-dispatcher.mjs';
 import {createT4OriginalHostDispatchTaskBinding} from './original-host-dispatch-task-binding.mjs';
@@ -59,8 +60,25 @@ export function createT4OriginalNativeHostNetworkOwner({
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
   enableLocalSourceCapture=false,enablePublicationIndexMigration=false,
   enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,requireSignedTopologyAccess=false,
+  originalVaultNodeSignaturePort=null,requireOriginalVaultNodeSignature=false,
   monotonicNow=()=>performance.now(),
 }={}){
+  if(typeof requireOriginalVaultNodeSignature!=='boolean'||
+    (requireOriginalVaultNodeSignature&&!isT4OriginalVaultNodeSignaturePort(originalVaultNodeSignaturePort)))
+    fail('NATIVE_NETWORK_OWNER_ORIGINAL_VAULT_REQUIRED');
+  if(originalVaultNodeSignaturePort!==null){
+    const v=originalVaultNodeSignaturePort.identity;
+    if(!isT4OriginalVaultNodeSignaturePort(originalVaultNodeSignaturePort)||!v||
+      v.workspaceId!==sourceWorkspaceId||v.originalWriteOwnerRef!==originalWriteOwnerRef||
+      v.localNodeRef!==(role==='SOURCE'?sourceNodeRef:recipientNodeRef)||
+      v.remoteNodeRef!==(role==='SOURCE'?recipientNodeRef:sourceNodeRef)||
+      v.scopeRef!==scopeRef||v.ownerEpoch!==ownerEpoch||v.requiredCryptoSuite!==requiredCryptoSuite||
+      ['verifyOriginalNodeSignature','resolveOriginalSigningContext','signOriginalNodeBytes'].some(k=>originalPorts?.[k]!==undefined))
+      fail('NATIVE_NETWORK_OWNER_ORIGINAL_VAULT_SCOPE_MISMATCH');
+    originalPorts={...originalPorts,...Object.fromEntries(
+      ['verifyOriginalNodeSignature','resolveOriginalSigningContext','signOriginalNodeBytes']
+        .map(k=>[k,originalVaultNodeSignaturePort[k]]))};
+  }
   if(typeof requireSignedTopologyAccess!=='boolean'||
     (requireSignedTopologyAccess&&(!isT4NativeTopologyTransport(nativeTopologyTransport)||
       nativeTopologyTransport.originalSignedAccessBound!==true)))
@@ -130,13 +148,14 @@ export function createT4OriginalNativeHostNetworkOwner({
     const originalKernel=state.kernel;
     const isHostActive=()=>active(state);
     const getMode=originalHostLifetimeMode(mode,isHostActive,'NATIVE_NETWORK_OWNER_LIFETIME_ENDED');
+    const scopedVault=originalVaultNodeSignaturePort?.forOriginalHostLifetime(isHostActive);
     const context=workspaceId=>async()=>{
       await requireBinding(state,'context');
       return Object.freeze({workspaceId,originalWriteOwnerRef,originalOwnerRef:originalWriteOwnerRef,
         nodeRef,scopeRef,networkTargetRef:recipientNodeRef,hostSessionRef:state.hostSessionRef});
     };
     const callback=name=>async(...args)=>{
-      await requireBinding(state,name);const result=await ports[name](...args);
+      await requireBinding(state,name);const result=await (scopedVault?.[name]??ports[name])(...args);
       await requireBinding(state,name+'-readback');return result;
     };
     // The mutation boundary callback must retain the exact function supplied
@@ -356,6 +375,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_NATIVE_HOST_NETWORK_OWNER_V1',role,identity,operations,
+    ...(originalVaultNodeSignaturePort?{originalVaultNodeIdentity:originalVaultNodeSignaturePort.identity}:{}),
     ...(nativeTopologyTransport?{originalTopologyBinding:nativeTopologyTransport.binding,
       originalSignedTopologyAccess:nativeTopologyTransport.originalSignedAccessBound===true}:{}),
     ...(enableLocalSourceCapture?{localSourceMutation:Object.freeze({workspaceId:sourceWorkspaceId,

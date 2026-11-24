@@ -90,6 +90,8 @@ export function verifyRecord(envelope, policy, now, expectedKind) {
   fields(envelope, ['schema','keyId','payload','signature']);
   insist(envelope.schema === ENVELOPE, 'UNSUPPORTED_ENVELOPE');
   identifier(envelope.keyId);
+  // Candidate T4 dedicated network keys are not Access record issuers.
+  insist(expectedKind!=='NETWORK_FRAME','NETWORK_FRAME_NOT_ACCESS_RECORD');
   const key = policy.keys[envelope.keyId];
   insist(key, 'UNKNOWN_KEY', 'UNRESOLVED');
   insist(key.status === 'ACTIVE', 'KEY_NOT_ACTIVE');
@@ -111,13 +113,21 @@ export function validatePolicy(p) {
   insist(['OFFLINE_BOUNDED','STATUS_SNAPSHOT'].includes(p.statusMode), 'UNSUPPORTED_STATUS_MODE');
   insist(['LOCAL_BEST_EFFORT','TRUSTED'].includes(p.timeAssurance), 'UNSUPPORTED_TIME_ASSURANCE');
   for (const k of ['proofMaxAgeSeconds','snapshotMaxAgeSeconds','offlineMaxAgeSeconds']) insist(Number.isSafeInteger(p[k]) && p[k] > 0 && p[k] <= 315360000, 'INVALID_ASSURANCE_LIMIT');
+  const publicKeyOwners=new Map(),networkKeys=new Set();
   for (const [id,k] of Object.entries(p.keys)) {
     identifier(id); fields(k, ['subjectId','environment','publicKey','status','uses','notBefore','expiresAt']); identifier(k.subjectId);
     insist(['TEST','PRODUCTION'].includes(k.environment) && ['ACTIVE','SUSPENDED','REVOKED'].includes(k.status), 'INVALID_KEY_METADATA');
-    strings(k.uses); insist(subset(k.uses,['GRANT','STATUS','PROOF','CONFIRMATION','LIVE_STATUS','LICENSE','LICENSE_STATUS']), 'INVALID_KEY_USAGE');
+    strings(k.uses); insist(subset(k.uses,['GRANT','STATUS','PROOF','CONFIRMATION','LIVE_STATUS','LICENSE','LICENSE_STATUS','NETWORK_FRAME']), 'INVALID_KEY_USAGE');
+    if(k.uses.includes('NETWORK_FRAME')){
+      insist(k.uses.length===1,'NETWORK_FRAME_KEY_MUST_BE_DEDICATED');networkKeys.add(id);
+    }
     insist(timestamp(k.notBefore) < timestamp(k.expiresAt), 'INVALID_KEY_INTERVAL');
     insist(typeof k.publicKey === 'string' && createPublicKey(k.publicKey).asymmetricKeyType === 'ed25519', 'INVALID_PUBLIC_KEY');
+    const fingerprint=createHash('sha256').update(createPublicKey(k.publicKey).export({type:'spki',format:'der'})).digest('hex');
+    const ids=publicKeyOwners.get(fingerprint)??[];ids.push(id);publicKeyOwners.set(fingerprint,ids);
   }
+  for(const ids of publicKeyOwners.values())if(ids.some(id=>networkKeys.has(id)))
+    insist(ids.length===1,'NETWORK_FRAME_KEY_REUSE_FORBIDDEN');
   for (const [id,a] of Object.entries(p.authorities)) {
     identifier(id); fields(a,['principalId','issuerKeys','statusKeys','audiences','resources','actions','purposes','roles','rightClasses','membershipEpoch','maxTtlSeconds','maxDelegationDepth']);
     identifier(a.principalId);

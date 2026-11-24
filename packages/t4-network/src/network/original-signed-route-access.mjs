@@ -25,53 +25,25 @@ function subject(value,workspaceId){
       value.organization_id!==null))fail('ORIGINAL_SIGNED_NETWORK_CONTEXT_INVALID');
   return Object.freeze(Object.fromEntries(CONTEXT.map(k=>[k,value[k]])));
 }
-export function createT4OriginalSignedRouteAccess({
-  access,expectedContext,binding,route,authorityRoot,getMode,clock=Date.now,
+// A single JIT decision path for exact T4 actions; the calling owner port
+// must first validate its own route or signing evidence. No permit cache.
+export function createT4OriginalSignedOperationAccess({
+  access,expectedContext,workspaceId,operations,getMode,clock=Date.now,
 }={}){
   if(!isOriginalSignedAccessHostPort(access)||typeof getMode!=='function'||typeof clock!=='function'||
-    !binding||!route||!ID(authorityRoot)||!ID(binding.workspaceId)||
-    !['LEGACY','INDEXED'].includes(binding.nativeWireProfile))
+    !ID(workspaceId)||!Array.isArray(operations)||!operations.length||operations.length>64||
+    !operations.every(op=>ID(op)&&op.startsWith('t4.network.'))||new Set(operations).size!==operations.length)
     fail('ORIGINAL_SIGNED_NETWORK_PORT_REQUIRED');
-  const selected=subject(expectedContext,binding.workspaceId);
-  const scope=freeze(snapshot({binding,route,authorityRoot}));
-  const allowed=ACTIONS.filter(x=>scope.binding.nativeWireProfile==='INDEXED'?
-    x!=='network.frame.discover':!x.startsWith('network.frame.index.'));
+  const selected=subject(expectedContext,workspaceId),allowed=Object.freeze([...operations]);
   function current(){
     if(getMode()!=='T4_NETWORK')fail('T4_NETWORK_MODE_DISABLED');
     if(!same(subject(access.currentContext(),selected.workspace_id),selected))
       fail('ORIGINAL_SIGNED_NETWORK_CONTEXT_CHANGED');
   }
-  current();
-  function exactProof(input){
-    const p=freeze(snapshot(input)),r=p.transportRequest,b=scope.binding;
-    if(!allowed.includes(p.operation)||p.storageLocationIsNotProtocolPeer!==true||
-      p.originalSignedSubject===undefined||!CONTEXT.every(k=>p.originalSignedSubject[k]===selected[k])||
-      p.workspaceId!==b.workspaceId||p.objectFamily!==b.objectFamily||
-      p.originalWriteOwnerRef!==b.originalWriteOwnerRef||p.targetNodeRef!==b.serverNodeRef||
-      p.serverNodeRef!==b.serverNodeRef||p.topologyDigest!==b.topologyDigest||
-      p.profileRef!==b.profileRef||p.locationRef!==b.locationRef||p.operatorRef!==scope.route.operatorRef||
-      p.endpointUrl!==scope.route.endpointUrl||p.nativeWireProfile!==b.nativeWireProfile||
-      r?.operation!=='t4.'+p.operation||r.workspaceId!==b.workspaceId||r.objectFamily!==b.objectFamily||
-      r.writeOwnerRef!==b.originalWriteOwnerRef||r.authorityRoot!==scope.authorityRoot||
-      r.locationRef!==b.locationRef||r.profileRef!==b.profileRef||
-      r.profileMode!==scope.route.mode||r.operatorRef!==scope.route.operatorRef)
-      fail('ORIGINAL_SIGNED_NETWORK_ROUTE_MISMATCH');
-    // Exact bounded address only. Do not admit frame plaintext, credentials,
-    // collection scans of indexed profiles, or arbitrary signed payloads.
-    const discover=p.operation==='network.frame.discover',index=p.operation.includes('.index.');
-    const keys=['operation','workspaceId','objectFamily','authorityRoot','writeOwnerRef','locationRef',
-      'profileRef','operatorRef','profileMode',...(discover?['collectionOnly','depth']:['key','sha256'])];
-    if(Object.keys(r).length!==keys.length||keys.some(k=>!Object.hasOwn(r,k))||
-      (discover?(r.collectionOnly!==true||r.depth!==1):
-        (typeof r.key!=='string'||!(index?/^[a-f0-9]{64}\.t4i$/:/^[a-f0-9]{64}\.t4n$/).test(r.key)||
-          (index&&p.operation==='network.frame.index.read'?r.sha256!==null:
-            !HEX(r.sha256)||(!index&&r.key!==r.sha256+'.t4n')))))
-      fail('ORIGINAL_SIGNED_NETWORK_ADDRESS_INVALID');
-    return p;
-  }
-  async function authorize(input){
+  async function authorize({operation,input}={}){
     current();
-    const proof=exactProof(input),operation='t4.'+proof.operation;
+    if(!allowed.includes(operation))fail('ORIGINAL_SIGNED_NETWORK_ACTION_MISMATCH');
+    const proof=freeze(snapshot(input));
     const action=await access.actionFor(operation);
     current();
     // An existing grant for object.read/object.write is NOT network consent.
@@ -108,6 +80,51 @@ export function createT4OriginalSignedRouteAccess({
       fail('ORIGINAL_SIGNED_NETWORK_ACCESS_DENIED');
     return true;
   }
-  return Object.freeze({subject:selected,authorize,originalSignedAccessOnly:true,
+  return Object.freeze({subject:selected,authorize,assertCurrent:current,originalSignedAccessOnly:true,
     createsGrant:false,createsStore:false,createsIAM:false});
+}
+export function createT4OriginalSignedRouteAccess({
+  access,expectedContext,binding,route,authorityRoot,getMode,clock=Date.now,
+}={}){
+  if(!binding||!route||!ID(authorityRoot)||!ID(binding.workspaceId)||
+    !['LEGACY','INDEXED'].includes(binding.nativeWireProfile))
+    fail('ORIGINAL_SIGNED_NETWORK_PORT_REQUIRED');
+  const scope=freeze(snapshot({binding,route,authorityRoot}));
+  const allowed=ACTIONS.filter(x=>scope.binding.nativeWireProfile==='INDEXED'?
+    x!=='network.frame.discover':!x.startsWith('network.frame.index.'));
+  const signed=createT4OriginalSignedOperationAccess({access,expectedContext,workspaceId:binding.workspaceId,
+    operations:allowed.map(op=>'t4.'+op),getMode,clock});
+  const selected=signed.subject;
+  signed.assertCurrent();
+  function exactProof(input){
+    const p=freeze(snapshot(input)),r=p.transportRequest,b=scope.binding;
+    if(!allowed.includes(p.operation)||p.storageLocationIsNotProtocolPeer!==true||
+      p.originalSignedSubject===undefined||!CONTEXT.every(k=>p.originalSignedSubject[k]===selected[k])||
+      p.workspaceId!==b.workspaceId||p.objectFamily!==b.objectFamily||
+      p.originalWriteOwnerRef!==b.originalWriteOwnerRef||p.targetNodeRef!==b.serverNodeRef||
+      p.serverNodeRef!==b.serverNodeRef||p.topologyDigest!==b.topologyDigest||
+      p.profileRef!==b.profileRef||p.locationRef!==b.locationRef||p.operatorRef!==scope.route.operatorRef||
+      p.endpointUrl!==scope.route.endpointUrl||p.nativeWireProfile!==b.nativeWireProfile||
+      r?.operation!=='t4.'+p.operation||r.workspaceId!==b.workspaceId||r.objectFamily!==b.objectFamily||
+      r.writeOwnerRef!==b.originalWriteOwnerRef||r.authorityRoot!==scope.authorityRoot||
+      r.locationRef!==b.locationRef||r.profileRef!==b.profileRef||
+      r.profileMode!==scope.route.mode||r.operatorRef!==scope.route.operatorRef)
+      fail('ORIGINAL_SIGNED_NETWORK_ROUTE_MISMATCH');
+    // Exact bounded address only. Do not admit frame plaintext, credentials,
+    // collection scans of indexed profiles, or arbitrary signed payloads.
+    const discover=p.operation==='network.frame.discover',index=p.operation.includes('.index.');
+    const keys=['operation','workspaceId','objectFamily','authorityRoot','writeOwnerRef','locationRef',
+      'profileRef','operatorRef','profileMode',...(discover?['collectionOnly','depth']:['key','sha256'])];
+    if(Object.keys(r).length!==keys.length||keys.some(k=>!Object.hasOwn(r,k))||
+      (discover?(r.collectionOnly!==true||r.depth!==1):
+        (typeof r.key!=='string'||!(index?/^[a-f0-9]{64}\.t4i$/:/^[a-f0-9]{64}\.t4n$/).test(r.key)||
+          (index&&p.operation==='network.frame.index.read'?r.sha256!==null:
+            !HEX(r.sha256)||(!index&&r.key!==r.sha256+'.t4n')))))
+      fail('ORIGINAL_SIGNED_NETWORK_ADDRESS_INVALID');
+    return p;
+  }
+  return Object.freeze({subject:selected,async authorize(input){
+      signed.assertCurrent();const proof=exactProof(input);
+      return signed.authorize({operation:'t4.'+proof.operation,input:proof});
+    },originalSignedAccessOnly:true,createsGrant:false,createsStore:false,createsIAM:false});
 }
