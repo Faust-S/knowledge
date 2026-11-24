@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: ee38b8dcb6098017adcebc7471dfddb9dab87139
+          ref: 629dad0ad5e714b48f5beb9bd7ef948e0699138b
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,7 +51,7 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = ee38b8dcb6098017adcebc7471dfddb9dab87139
+          test "$(git -C d04-private/site rev-parse HEAD)" = 629dad0ad5e714b48f5beb9bd7ef948e0699138b
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
@@ -183,7 +183,7 @@ jobs:
           try{
             console.log('D04_HOME_BROWSER_STAGE=PUBLIC_TO_NATIVE_CREATION');
             const personal=await runLifeOsHomeDashboardBrowser({chromium,origin:server.origin,selectWitnessOption});
-            if(personal.status!=='PASS'||personal.viewports.length!==2||personal.viewports.some(v=>v.measures!==56||v.recordable!==45||v.captureTypes!==44||v.pressurePair!==true||v.methodBatch!==true||v.newMetricSaved!==true||v.eventsSaved!==2||v.eventsCold!==true||v.diarySaved!==4||v.diaryCold!==true||v.wholeDayRecords!==6||v.historicalDay!==true||v.calculationTools!==13||v.calculationSaved!==true||v.calculationCold!==true))throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
+            if(personal.status!=='PASS'||personal.viewports.length!==2||personal.viewports.some(v=>v.measures!==56||v.recordable!==45||v.captureTypes!==44||v.pressurePair!==true||v.methodBatch!==true||v.personalGoal!==true||v.sleepSchedule!==true||v.mobilityMethods!==true||v.newMetricSaved!==true||v.eventsSaved!==2||v.eventsCold!==true||v.diarySaved!==4||v.diaryCold!==true||v.wholeDayRecords!==6||v.historicalDay!==true||v.calculationTools!==13||v.calculationSaved!==true||v.calculationCold!==true))throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
             console.log('D04_HOME_CREATE_AND_COLD=PASS');
             console.log('D04_HOME_DIARY_EVENTS_AND_CALCULATIONS=PASS');
             for(const item of personal.viewports){
