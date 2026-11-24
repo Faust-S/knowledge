@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 0e4e3cdfe977bfd211959dd68c2dd4047136f3af
+          ref: c3607c7fa13beffa17b36e246ea4980e46d02c66
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 0e4e3cdfe977bfd211959dd68c2dd4047136f3af
+          test "$(git -C private/site rev-parse HEAD)" = c3607c7fa13beffa17b36e246ea4980e46d02c66
           test "$(git -C private/domain rev-parse HEAD)" = bebed42b40de5a04b3633628d10eb80f842f9dc5
           cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
           cmp private/domain/learning-journey/today.ts private/site/t2/domain-modules/learn-results/learning-today.ts
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          for file in _iwxa/learn-profile-context-r6.js _iwxa/learn-link-context.js iwxa-learn-shell-r8-r6.js study/goals/goals-app.mjs study/my-routes/routes-app.mjs study/sessions/sessions-app.mjs practice/workspace-selection.mjs mind/app/workspace-ui.mjs mind/app/app.mjs mind/app/services/tools.mjs mind/app/services/labs.mjs practice/assets-r6-clean/practice-capability-gate-BaTK15az.js practice/assets-r6-clean/catalog-BWIn6LRW.js practice/assets-r6-clean/model._slug-DZ9y8kMs.js practice/assets-r6-clean/practice-workspace-picker-Cqs4_6K1.js practice/assets-r6-clean/create-SrNR54d1.js practice/assets-r6-clean/programs-ZGbS30w9.js scripts/copy-static.mjs scripts/audit-product-links.mjs scripts/audit-browser-navigation.mjs qa/d01-product-witness-2026-10-26/product-witness.mjs; do
+          for file in _iwxa/learn-profile-context-r6.js _iwxa/learn-link-context.js iwxa-learn-shell-r8-r6.js study/assets-r5/main-t2-9c777f34.js study/goals/goals-app.mjs study/my-routes/routes-app.mjs study/sessions/sessions-app.mjs practice/workspace-selection.mjs mind/app/workspace-ui.mjs mind/app/app.mjs mind/app/services/tools.mjs mind/app/services/labs.mjs practice/assets-r6-clean/practice-capability-gate-BaTK15az.js practice/assets-r6-clean/catalog-BWIn6LRW.js practice/assets-r6-clean/model._slug-DZ9y8kMs.js practice/assets-r6-clean/index-D1kuNTQO.js practice/assets-r6-clean/practice-shell-ClcATzN9.js practice/assets-r6-clean/practice-workspace-picker-Cqs4_6K1.js practice/assets-r6-clean/create-SrNR54d1.js practice/assets-r6-clean/programs-ZGbS30w9.js scripts/copy-static.mjs scripts/fingerprint-editorial-assets.mjs scripts/verify-hosting-stage.mjs scripts/audit-product-links.mjs scripts/audit-browser-navigation.mjs qa/d01-product-witness-2026-10-26/product-witness.mjs; do
             if ! node --check "$file" >"$RUNNER_TEMP/d01-syntax.log" 2>&1; then echo "D01_SYNTAX_FAIL:$file"; exit 1; fi
           done
           echo D01_SYNTAX_PASS
@@ -83,7 +83,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 0e4e3cdfe977bfd211959dd68c2dd4047136f3af
+          ref: c3607c7fa13beffa17b36e246ea4980e46d02c66
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -108,7 +108,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 0e4e3cdfe977bfd211959dd68c2dd4047136f3af
+          test "$(git -C private/site rev-parse HEAD)" = c3607c7fa13beffa17b36e246ea4980e46d02c66
           test "$(git -C private/domain rev-parse HEAD)" = bebed42b40de5a04b3633628d10eb80f842f9dc5
           test "$(git -C private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
       - name: Run actual Learn/T2 build and browser user journey
@@ -116,7 +116,7 @@ jobs:
         env:
           D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
           D01_EXPECTED_T2_HEAD: 9c64951cd78411283e8a416641c36d71e169fc1d
-          D01_EXPECTED_SITE_HEAD: 0e4e3cdfe977bfd211959dd68c2dd4047136f3af
+          D01_EXPECTED_SITE_HEAD: c3607c7fa13beffa17b36e246ea4980e46d02c66
           D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
           D01_CASE_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-001-workplace-numeracy.json
           D01_CASE_002_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-002-price-label-check.json
