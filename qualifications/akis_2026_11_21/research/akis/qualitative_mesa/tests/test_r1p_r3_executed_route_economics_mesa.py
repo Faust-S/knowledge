@@ -1263,3 +1263,157 @@ def test_joint_contribution_is_unknown_when_selected_result_not_accepted():
     result = compare_joint_owner_service(docs, declaration)
     assert result["status"] == "UNKNOWN_EXECUTED_ROUTE_SCOPE"
     assert result["local_research_only"] is None
+
+
+def add_original_recipient_value(doc, work, *, baseline="2", observed="14", rate="125.00"):
+    """Own use value, never a purchase price or new payment."""
+    money = doc["economic_claims"]
+    request = next(e for e in doc["events"] if e["action"] == "request"
+                   and e["work_spec"]["id"] == work)
+    owner = request["work_spec"]["customer"]
+    commit = next(e["at"] for e in doc["events"] if e["action"] == "commit" and e.get("work") == work)
+    accept = next(e["at"] for e in doc["events"] if e["action"] == "accept" and e.get("work") == work)
+    complete = next(e for e in doc["events"] if e["action"] == "complete" and e.get("work") == work)
+    horizon = money["cash_timing"]["horizon_end"]
+    for part, at in (("baseline", commit-2), ("rate", commit-1),
+                     ("outcome", accept+1), ("nonoverlap", accept+1)):
+        key = f"value-{owner}-{part}"
+        ref = f"model://{owner}/{key}"
+        doc["context_evidence"]["sources"].append({
+            "id": ref, "owner": owner, "revision": "value-v1", "status": "CONFIRMED",
+            "usable_by": [owner], "core": "corporate",
+            "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"], "operations": ["READ"],
+            "valid_from": at, "valid_until": max(160, horizon+1),
+        })
+        money["sources"].append({"id": key, "owner": owner, "reference": ref, "revision": "value-v1"})
+    money["recipient_use_value_evidence"] = [{
+        "work": work, "owner": owner, "work_revision": request["work_spec"]["source_revision"],
+        "result_ref": complete["result_ref"], "basis": "OWNER_SERVICE_USE_IN_MATCHED_HORIZON",
+        "unit": "useful-service-unit", "valuation_horizon": horizon,
+        "baseline": {"source": f"value-{owner}-baseline", "at": commit-2,
+                     "quantity": baseline, "kind": "DECLARED_NO_SELECTED_ORDER_BASELINE"},
+        "outcome": {"source": f"value-{owner}-outcome", "at": accept+1,
+                    "quantity": observed, "kind": "DECLARED_USE_OF_ACCEPTED_RESULT"},
+        "rate": {"source": f"value-{owner}-rate", "at": commit-1,
+                 "amount": rate, "currency": "RUB"},
+        "nonoverlap_source": f"value-{owner}-nonoverlap",
+        "transfer_ids": [t["id"] for t in money["transfers"]
+                         if t["work"] == work and owner in {t["payer"], t["payee"]}],
+        "resource_use_ids": [r["id"] for r in money["resource_uses"]
+                             if r["work"] == work and r["owner"] == owner],
+        "incremental_costs_exclude_value_and_each_other": True,
+    }]
+
+
+def recipient_use_value_case(*, cooperative_observed="14", cooperative_rate="125.00",
+                             outside_observed="12", third_fee="200.00"):
+    docs, declaration = joint_owner_service_case(third_fee=third_fee)
+    add_original_recipient_value(docs["cooperation"], "w3", observed=cooperative_observed, rate=cooperative_rate)
+    add_original_recipient_value(docs["outside"], OUTSIDE, observed=outside_observed, rate="110.00")
+    sources, context = {}, {}
+    for doc in docs.values():
+        for row in doc["economic_claims"]["sources"]:
+            sources[row["id"]] = deepcopy(row)
+        for row in doc["context_evidence"]["sources"]:
+            context[row["id"]] = deepcopy(row)
+    for doc in docs.values():
+        doc["economic_claims"]["sources"] = list(deepcopy(sources).values())
+        doc["context_evidence"]["sources"] = list(deepcopy(context).values())
+    return docs, declaration
+
+
+def compare_recipient_values(docs, declaration):
+    return compare_executed_original_routes(
+        docs, cooperative_work="w3", outside_work=OUTSIDE, relation="l1",
+        prior_works=("w1", "w2"), split_at=84, joint_owner_economics=declaration,
+    )["selected_recipient_use_value_comparison"]
+
+
+def test_original_independent_recipient_use_value_extends_common_owner_contrast():
+    docs, decl = recipient_use_value_case()
+    frozen = deepcopy((docs, decl))
+    result = compare_recipient_values(docs, decl)
+    assert (docs, decl) == frozen
+    assert result["status"] == "MODEL_SELECTED_RECIPIENT_OWN_USE_VALUE_CONTRAST"
+    assert result["both_selected_recipients_positive_vs_own_declared_no_order"]
+    assert result["cooperative_common_owners_and_recipient_viability_criteria_met"]
+    assert result["whole_selected_route_value_contrast_status"] == "MODEL_ONLY_SCOPED_INCREMENTAL_VALUE_CONTRAST"
+    local = result["local_research_only"]
+    assert local["selected_recipients"]["cooperation"]["incremental_gross_noncash_use_value"] == "1500.00"
+    assert local["selected_recipients"]["cooperation"]["recipient_model_surplus_vs_declared_no_order"] == "270.00"
+    assert local["selected_recipients"]["outside"]["recipient_model_surplus_vs_declared_no_order"] == "155.00"
+    assert local["common_owner_plus_selected_recipient_delta"] == "390.00"
+    assert result["empirical_network_additionality"] == "NOT_IDENTIFIABLE"
+
+
+@pytest.mark.parametrize("observed,rate,direction,delta", [
+    ("12", "123.00", "ZERO", "120.00"),
+    ("10", "125.00", "NEGATIVE", "-110.00"),
+    ("2", "125.00", "NEGATIVE", "-1110.00"),
+    ("1", "125.00", "NEGATIVE", "-1235.00"),
+])
+def test_supplier_operator_advantage_does_not_establish_buyer_value(observed, rate, direction, delta):
+    report = compare_recipient_values(*recipient_use_value_case(
+        cooperative_observed=observed, cooperative_rate=rate))
+    assert report["recipient_surplus_directions"]["cooperation"] == direction
+    assert report["local_research_only"]["common_owner_plus_selected_recipient_delta"] == delta
+    assert not report["cooperative_common_owners_and_recipient_viability_criteria_met"]
+
+
+def test_buyer_value_is_not_created_by_internal_fee_redistribution():
+    low = compare_recipient_values(*recipient_use_value_case(third_fee="150.00"))
+    high = compare_recipient_values(*recipient_use_value_case())
+    assert low["local_research_only"] == high["local_research_only"]
+    assert not low["cooperative_common_owners_and_recipient_viability_criteria_met"]
+    assert high["cooperative_common_owners_and_recipient_viability_criteria_met"]
+
+
+@pytest.mark.parametrize("mutation,error", [
+    ("owner", "RECIPIENT_VALUE_ORIGINAL_CUSTOMER_REQUIRED"),
+    ("result", "RECIPIENT_VALUE_ORIGINAL_RESULT_REFERENCE_MISMATCH"),
+    ("scope", "RECIPIENT_VALUE_COMPLETE_INCREMENTAL_ORIGINAL_ROWS_REQUIRED"),
+    ("alias", "RECIPIENT_VALUE_DISTINCT_OWNER_DOCUMENTS_REQUIRED"),
+    ("future", "RECIPIENT_VALUE_ORIGINAL_OWNER_HISTORICAL_SOURCE_NOT_QUALIFIED"),
+    ("late_baseline", "RECIPIENT_VALUE_BASELINE_AND_OUTCOME_TIME_ORDER_REQUIRED"),
+    ("double_count", "RECIPIENT_VALUE_INCREMENTAL_NONOVERLAP_BASIS_REQUIRED"),
+])
+def test_buyer_use_value_rejects_wrong_owner_future_or_overlapping_evidence(mutation, error):
+    from research.akis.qualitative_mesa.rules import InputError
+    docs, _ = recipient_use_value_case()
+    doc = docs["cooperation"]
+    row = doc["economic_claims"]["recipient_use_value_evidence"][0]
+    if mutation == "owner":
+        row["owner"] = "op"
+    elif mutation == "result":
+        row["result_ref"] = "model://incorrect"
+    elif mutation == "scope":
+        row["transfer_ids"].clear()
+    elif mutation == "alias":
+        row["rate"]["source"] = row["baseline"]["source"]
+    elif mutation == "future":
+        src = next(s for s in doc["context_evidence"]["sources"]
+                   if s["id"] == "model://b/value-b-baseline")
+        src["valid_from"] = row["baseline"]["at"] + 1
+    elif mutation == "late_baseline":
+        row["baseline"]["at"] = row["outcome"]["at"]
+    else:
+        row["incremental_costs_exclude_value_and_each_other"] = False
+    with pytest.raises(InputError, match=error):
+        simulate(doc)
+
+
+def test_missing_recipient_value_remains_unknown_not_zero():
+    docs, decl = recipient_use_value_case()
+    docs["outside"]["economic_claims"].pop("recipient_use_value_evidence")
+    result = compare_recipient_values(docs, decl)
+    assert result["status"] == "UNKNOWN_RECIPIENT_VALUE_SCOPE"
+    assert result["local_research_only"] is None
+
+
+def test_unaccepted_original_result_cannot_create_recipient_use_value():
+    docs, decl = recipient_use_value_case()
+    docs["outside"]["events"] = [e for e in docs["outside"]["events"]
+                                 if not (e.get("work") == OUTSIDE and e["action"] == "accept")]
+    result = compare_recipient_values(docs, decl)
+    assert result["status"] == "UNKNOWN_RECIPIENT_VALUE_SCOPE"
+    assert result["local_research_only"] is None

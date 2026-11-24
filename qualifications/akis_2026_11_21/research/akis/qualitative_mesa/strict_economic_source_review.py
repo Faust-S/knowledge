@@ -464,8 +464,46 @@ def review_original_strict_economic_sources(
             ) from exc
         qualified_original_cost_events += 1
 
+    qualified_recipient_values = 0
+    value_rows = original_claims.get("recipient_use_value_evidence", [])
+    if not isinstance(value_rows, list) or len(value_rows) > 128:
+        raise StrictEconomicSourceBlocked("RECIPIENT_VALUE_SOURCE_LIST_INVALID")
+    for record in value_rows:
+        if not isinstance(record, dict):
+            raise StrictEconomicSourceBlocked("RECIPIENT_VALUE_SOURCE_RECORD_INVALID")
+        owner, work = record.get("owner"), record.get("work")
+        if (not isinstance(owner, str) or not isinstance(work, str)
+                or work not in work_ids or owner != state.works[work].customer):
+            raise StrictEconomicSourceBlocked("RECIPIENT_VALUE_ORIGINAL_CUSTOMER_REQUIRED")
+        subject = state.subjects.get(owner)
+        core = _OWNER_CORES.get(subject.kind) if subject is not None else None
+        if core is None or not subject.active:
+            raise StrictEconomicSourceBlocked("RECIPIENT_VALUE_ORIGINAL_OWNER_REQUIRED")
+        try:
+            outcome_time = record["outcome"]["at"]
+            items = [(record[key]["source"], record[key]["at"])
+                     for key in ("baseline", "outcome", "rate")]
+            items.append((record["nonoverlap_source"], outcome_time))
+            for source_id, event_time in items:
+                if not isinstance(source_id, str) or type(event_time) is not int or not 0 <= event_time <= at:
+                    raise StrictEconomicSourceBlocked("RECIPIENT_VALUE_SOURCE_TIME_INVALID")
+                source = sources_by_id.get(source_id)
+                if source is None or source["owner"] != owner:
+                    raise StrictEconomicSourceBlocked("RECIPIENT_VALUE_INDEPENDENT_CUSTOMER_SOURCE_REQUIRED")
+                if owner in getattr(context, "prospective_subjects", set()) and not any(
+                        e.get("action") == "subject_registration_apply" and e.get("outcome") == "APPLIED"
+                        and e.get("registered_original_subject") == owner and e["at"] < event_time
+                        for e in state.trace):
+                    raise StrictEconomicSourceBlocked("RECIPIENT_VALUE_OWNER_NOT_YET_REGISTERED")
+                _qualify_original_event_evidence(owner, source["reference"], source["revision"], core, event_time)
+        except (KeyError, TypeError, StrictEconomicSourceBlocked) as exc:
+            raise StrictEconomicSourceBlocked("RECIPIENT_VALUE_ORIGINAL_OWNER_HISTORICAL_SOURCE_NOT_QUALIFIED") from exc
+        qualified_recipient_values += 1
+
     return {
         "status": "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED",
+        **({"source_scoped_original_recipient_value_count": qualified_recipient_values}
+           if value_rows else {}),
         "original_source_count": len(seen),
         **({"original_strict_work_scope_count": len(work_ids)}
            if isinstance(work_id, tuple) else {}),

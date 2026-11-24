@@ -98,6 +98,7 @@ def export_multiperiod_route_economics():
         adverse_execution_cost_routes, delayed_receipt_routes,
         third_period_reviews, without_finance, outside_then_reenter_case, ACCEPTED,
         fourth_period_finance_case, joint_owner_service_case, compare_joint_owner_service,
+        recipient_use_value_case, compare_recipient_values,
     )
 
     trials = {
@@ -277,8 +278,19 @@ def export_multiperiod_route_economics():
         report = compare_joint_owner_service(*joint_owner_service_case(**kwargs))
         report.pop("local_research_only")
         joint.append({"trial": label, **report})
+    recipients = []
+    for label, kwargs in sorted({
+        "both_recipient_surpluses_positive": {},
+        "cooperative_recipient_zero_surplus": {"cooperative_observed": "12", "cooperative_rate": "123.00"},
+        "cooperative_buyer_negative_and_route_reversal": {"cooperative_observed": "10"},
+        "no_incremental_use": {"cooperative_observed": "2"},
+        "positive_recipient_but_zero_operator_contribution": {"third_fee": "150.00"},
+    }.items()):
+        report = compare_recipient_values(*recipient_use_value_case(**kwargs))
+        report.pop("local_research_only")
+        recipients.append({"trial": label, **report})
     manifest = {
-        "schema": "AKIS_R1P_R3_CUMULATIVE_EXECUTED_ROUTE_ECONOMICS/1.3",
+        "schema": "AKIS_R1P_R3_CUMULATIVE_EXECUTED_ROUTE_ECONOMICS/1.4",
         "engine": "MESA_3_5_2",
         "matched_route_experiments": results,
         "fourth_period_original_feedback_experiments": fourth,
@@ -286,6 +298,7 @@ def export_multiperiod_route_economics():
         "external_execution_and_independent_reentry_experiments": reentry,
         "four_period_original_financial_scope_and_prior_portfolio_forecast_experiments": complete_fourth,
         "common_supplier_operator_joint_model_viability_experiments": joint,
+        "independent_recipient_use_value_experiments": recipients,
         "private_owner_amounts_and_source_references_excluded": True,
         "independent_owner_review_is_not_automatic_consent": True,
         "no_cumulative_ledger_created_outside_original_model": True,

@@ -593,7 +593,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 "work_payment_settlement_claims", "work_payment_due_amendments",
                 "joint_purchasing_original_cash_bindings",
                 "joint_purchasing_ancillary_original_bindings",
-                "operator_service_economics",
+                "operator_service_economics", "recipient_use_value_evidence",
             }):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
@@ -1041,4 +1041,172 @@ def review_original_operator_service_economics(
         "alternative_fee_timing_and_liquidity_not_simulated": True,
         "original_transfers_resources_results_and_consents_unchanged": True,
         "real_profit_and_causal_additionality": "NOT_IDENTIFIABLE",
+    }
+
+
+def review_original_recipient_use_value(
+    raw: Any, *, economic_claims: Mapping[str, Any], economic_view: Mapping[str, Any],
+    works: Mapping[str, Any], trace: Sequence[Mapping[str, Any]],
+    strict_work_ids: str | tuple[str, ...] | None,
+) -> dict[str, Any]:
+    """Recipient's own incremental use value, over existing Work-linked costs.
+
+    Baseline is a declared no-selected-order scenario, not an executed outside
+    alternative. Outcome units, valuation rate and nonoverlap are separately
+    held original owner model documents. No new price, payment, Result or
+    inferred causal gain. Use value excludes receipts and resource/cash costs.
+    """
+    from decimal import ROUND_HALF_UP
+
+    records = _bounded_list(raw, "RECIPIENT_VALUE")
+    if not records:
+        raise EconomicInputError("RECIPIENT_VALUE_EVIDENCE_REQUIRED")
+    scope = (strict_work_ids,) if isinstance(strict_work_ids, str) else strict_work_ids
+    strict = economic_view.get("original_strict_context_source_qualification", {})
+    if not scope or strict.get("status") != "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED":
+        raise EconomicInputError("RECIPIENT_VALUE_ORIGINAL_STRICT_SCOPE_REQUIRED")
+    if strict.get("source_scoped_original_recipient_value_count") != len(records):
+        raise EconomicInputError("RECIPIENT_VALUE_ORIGINAL_HISTORICAL_SOURCES_REQUIRED")
+    sources = dict(economic_view["declared_source_index"])
+    money = economic_claims
+    horizon = money.get("cash_timing", {}).get("horizon_end")
+    if type(horizon) is not int:
+        raise EconomicInputError("RECIPIENT_VALUE_ORIGINAL_HORIZON_REQUIRED")
+    life = economic_view.get("lifecycle_resource_costs", {})
+    timed = life.get("original_work_event_timing", {}).get("by_original_work", {})
+    payment = {row["transfer_id"]: row for row in
+               economic_view.get("work_payment_causality", {}).get("bindings", ())}
+    seen, output, private = set(), [], {}
+    qty_pattern = re.compile(r"(?:0|[1-9][0-9]{0,8})(?:\.[0-9]{1,4})?\Z")
+
+    def quantity(value):
+        if not isinstance(value, str) or not qty_pattern.fullmatch(value):
+            raise EconomicInputError("RECIPIENT_VALUE_EXACT_QUANTITY_REQUIRED")
+        return Decimal(value)
+
+    def ids(values):
+        keys = [_identifier(v, "RECIPIENT_VALUE_ORIGINAL_ROW")
+                for v in _bounded_list(values, "RECIPIENT_VALUE_ORIGINAL_ROW")]
+        if len(keys) != len(set(keys)):
+            raise EconomicInputError("RECIPIENT_VALUE_DUPLICATE_ORIGINAL_ROW")
+        return set(keys)
+
+    def direction(value):
+        return "POSITIVE" if value > 0 else "ZERO" if value == 0 else "NEGATIVE"
+
+    for row in records:
+        _record(row, {"work", "owner", "work_revision", "result_ref", "basis",
+                      "unit", "valuation_horizon", "baseline", "outcome", "rate",
+                      "nonoverlap_source", "transfer_ids", "resource_use_ids",
+                      "incremental_costs_exclude_value_and_each_other"},
+                "RECIPIENT_VALUE")
+        work_id = _identifier(row["work"], "RECIPIENT_VALUE_WORK")
+        owner = _identifier(row["owner"], "RECIPIENT_VALUE_OWNER")
+        if work_id in seen or work_id not in scope or work_id not in works:
+            raise EconomicInputError("RECIPIENT_VALUE_ORIGINAL_WORK_SCOPE_REQUIRED")
+        seen.add(work_id)
+        work = works[work_id]
+        if owner != work.customer or row["work_revision"] != work.source_revision:
+            raise EconomicInputError("RECIPIENT_VALUE_ORIGINAL_CUSTOMER_REVISION_REQUIRED")
+        _identifier(row["basis"], "RECIPIENT_VALUE_USE_BASIS")
+        _identifier(row["unit"], "RECIPIENT_VALUE_UNIT")
+        _identifier(row["result_ref"], "RECIPIENT_VALUE_RESULT")
+        if type(row["valuation_horizon"]) is not int or row["valuation_horizon"] != horizon:
+            raise EconomicInputError("RECIPIENT_VALUE_MATCHED_HORIZON_REQUIRED")
+        baseline = _record(row["baseline"], {"source", "at", "quantity", "kind"},
+                           "RECIPIENT_VALUE_BASELINE")
+        outcome = _record(row["outcome"], {"source", "at", "quantity", "kind"},
+                          "RECIPIENT_VALUE_OUTCOME")
+        rate = _record(row["rate"], {"source", "at", "amount", "currency"},
+                       "RECIPIENT_VALUE_RATE")
+        if (baseline["kind"] != "DECLARED_NO_SELECTED_ORDER_BASELINE"
+                or outcome["kind"] != "DECLARED_USE_OF_ACCEPTED_RESULT"
+                or rate["currency"] != money["currency"]
+                or row["incremental_costs_exclude_value_and_each_other"] is not True):
+            raise EconomicInputError("RECIPIENT_VALUE_INCREMENTAL_NONOVERLAP_BASIS_REQUIRED")
+        before, after, unit_rate = quantity(baseline["quantity"]), quantity(outcome["quantity"]), _amount(rate["amount"])
+        refs = [sources[_flow_ref(item, sources, {owner})]["reference"]
+                for item in (baseline["source"], outcome["source"], rate["source"], row["nonoverlap_source"])]
+        all_owner_transfers = [t for t in money["transfers"] if owner in {t["payer"], t["payee"]}]
+        all_owner_resources = [r for r in money["resource_uses"] if r["owner"] == owner]
+        excluded = {sources[r["source"]]["reference"] for r in
+                    (*all_owner_transfers, *all_owner_resources)}
+        for key in (money["coverage"]["COOPERATION"].get(owner),
+                    money.get("lifecycle_costs", {}).get("scope_proofs", {}).get("COOPERATION", {}).get(owner)):
+            if key in sources:
+                excluded.add(sources[key]["reference"])
+        for binding in money.get("lifecycle_costs", {}).get("event_bindings", []):
+            if binding["owner"] == owner:
+                excluded.add(binding["cost_evidence_ref"])
+        for field in ("work_payment_settlement_claims", "work_payment_due_amendments"):
+            owner_ids = {t["id"] for t in all_owner_transfers}
+            for item in money.get(field, []):
+                if item["transfer_id"] in owner_ids:
+                    excluded.update(item.get("evidence_refs", {}).values())
+        for event in trace:
+            if event.get("actor") == owner and event.get("work") == work_id:
+                for field in ("quality_evidence_ref", "review_source_ref", "result_ref"):
+                    if isinstance(event.get(field), str):
+                        excluded.add(event[field])
+        if len(set(refs)) != 4 or set(refs) & excluded:
+            raise EconomicInputError("RECIPIENT_VALUE_DISTINCT_OWNER_DOCUMENTS_REQUIRED")
+        transfers = {t["id"]: t for t in all_owner_transfers if t["work"] == work_id}
+        resources = {r["id"]: r for r in all_owner_resources if r["work"] == work_id}
+        if (ids(row["transfer_ids"]) != set(transfers)
+                or ids(row["resource_use_ids"]) != set(resources)
+                or any(r["scenario"] != "COOPERATION" for r in (*transfers.values(), *resources.values()))
+                or any(r["work"] is None for r in (*all_owner_transfers, *all_owner_resources))):
+            raise EconomicInputError("RECIPIENT_VALUE_COMPLETE_INCREMENTAL_ORIGINAL_ROWS_REQUIRED")
+        if not any(t["payer"] == owner and t["payee"] != "EXTERNAL"
+                   and _amount(t["amount"]) > 0 for t in transfers.values()):
+            raise EconomicInputError("RECIPIENT_VALUE_ORIGINAL_PURCHASE_REQUIRED")
+        events = [e for e in trace if e.get("work") == work_id and e.get("outcome") == "APPLIED"]
+        commits = [e["at"] for e in events if e["action"] == "commit"]
+        accepts = [e["at"] for e in events if e["action"] == "accept" and e.get("actor") == owner]
+        reasons = []
+        if (work.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT" or work.obligation != "FULFILLED"
+                or len(commits) != 1 or len(accepts) != 1):
+            reasons.append("ORIGINAL_ACCEPTED_RESULT_REQUIRED")
+        else:
+            if row["result_ref"] != work.result_ref:
+                raise EconomicInputError("RECIPIENT_VALUE_ORIGINAL_RESULT_REFERENCE_MISMATCH")
+            if not (0 <= baseline["at"] <= rate["at"] < commits[0] < accepts[0] < outcome["at"] <= horizon):
+                raise EconomicInputError("RECIPIENT_VALUE_BASELINE_AND_OUTCOME_TIME_ORDER_REQUIRED")
+        owner_scope = life.get("owner_scoped_details", {}).get(owner, {}).get("scenarios", {}).get("COOPERATION", {})
+        anchors = {item["resource_use_id"] for item in timed.get(work_id, {}).get(
+            "per_original_scenario_owner", {}).get("COOPERATION", {}).get(owner, [])}
+        if (not economic_view["per_subject"][owner]["declared_complete"]["COOPERATION"]
+                or not owner_scope.get("declared_resource_scope_complete_not_audited")
+                or anchors != set(resources)
+                or any(payment.get(key, {}).get("status") !=
+                       "MODEL_ORIGINAL_TRIGGER_DUE_AND_POSTING_ORDER_CONSISTENT" for key in transfers)):
+            reasons.append("ORIGINAL_INCREMENTAL_COST_SCOPE_INCOMPLETE")
+        base = {"work": work_id, "owner": owner,
+                "status": "UNKNOWN" if reasons else "MODEL_ORIGINAL_RECIPIENT_INCREMENTAL_USE_VALUE",
+                "reasons": sorted(set(reasons))}
+        if not reasons:
+            gross = ((after - before) * unit_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            net_cash = sum((_amount(t["amount"]) * (1 if t["payee"] == owner else -1)
+                            for t in transfers.values()), Decimal(0))
+            noncash = sum((_amount(r["amount"]) for r in resources.values()), Decimal(0))
+            surplus = gross + net_cash - noncash
+            base["incremental_use_value_direction"] = direction(gross)
+            base["recipient_model_surplus_direction"] = direction(surplus)
+            private[work_id] = {
+                "incremental_gross_noncash_use_value": _sum_str([gross]),
+                "original_recipient_incremental_net_cash": _sum_str([net_cash]),
+                "original_recipient_exclusive_resource_cost": _sum_str([noncash]),
+                "recipient_model_surplus_vs_declared_no_order": _sum_str([surplus]),
+            }
+        output.append(base)
+    return {
+        "schema": "AKIS_ORIGINAL_RECIPIENT_USE_VALUE/1.0",
+        "status": "MODEL_ONLY", "results": sorted(output, key=lambda r: r["work"]),
+        "qualified_original_recipient_count": len(private),
+        "local_research_only": private,
+        "no_order_baseline_not_executed_alternative": True,
+        "cash_receipts_not_counted_as_use_value": True,
+        "incremental_nonoverlap_is_owner_declaration_not_audit": True,
+        "actual_use_value_profit_and_causal_additionality": "NOT_IDENTIFIABLE",
+        "original_work_result_payments_and_consent_unchanged": True,
     }

@@ -326,6 +326,11 @@ def compare_executed_original_routes(
                 or timing.get("horizon_end") != doc["model_horizon"]):
             raise TrajectoryComparisonError("EXECUTED_ROUTE_MATCHED_HORIZON_REQUIRED")
         allowed_works = {selected, *prior_works} if multiple else {selected}
+        if "recipient_use_value_evidence" in money:
+            values = money["recipient_use_value_evidence"]
+            if (not multiple or not isinstance(values, list) or len(values) != 1
+                    or not isinstance(values[0], Mapping) or values[0].get("work") != selected):
+                raise TrajectoryComparisonError("EXECUTED_ROUTE_SELECTED_RECIPIENT_VALUE_SCOPE_REQUIRED")
         prior_records = {}
         for field in ("transfers", "resource_uses"):
             rows = money.get(field)
@@ -347,7 +352,7 @@ def compare_executed_original_routes(
                 "period", "currency", "sources", "transfers", "resource_uses",
                 "coverage", "outside_feasibility", "cash_timing", "lifecycle_costs",
                 "work_payment_conditions", "work_payment_settlement_claims",
-                "work_payment_due_amendments",
+                "work_payment_due_amendments", "recipient_use_value_evidence",
             } or set(lifecycle) - {"bindings", "scope_proofs", "event_bindings"}:
                 raise TrajectoryComparisonError("EXECUTED_ROUTE_PRIOR_EVIDENCE_SCOPE_UNSUPPORTED")
             prior_transfers = {row["id"] for row in prior_records["transfers"]}
@@ -635,14 +640,27 @@ def compare_executed_original_routes(
             for owner in sorted(owner_ids)
         }
 
+    joint = None
+    recipient = None
+    has_value = any("recipient_use_value_evidence" in scenarios[arm]["economic_claims"] for arm in arms)
+    if joint_owner_economics is not None or has_value:
+        supplier = next(row["owner"] for row in reference["resources"]
+                        if row["id"] == coop_spec["resource"])
+        operator = reference["institution"]["operator"]
+        if joint_owner_economics is not None:
+            joint = _review_joint_owner_service_economics(
+                joint_owner_economics, scenarios=scenarios, projections=private if qualified else None,
+                supplier=supplier, operator=operator, members=members,
+            )
+        if has_value:
+            recipient = _review_matched_recipient_use_values(
+                scenarios=scenarios, outputs=outputs, arms=arms, qualified=qualified,
+                joint=joint, supplier=supplier, operator=operator,
+            )
     return {
         "schema": "AKIS_MATCHED_EXECUTED_ORIGINAL_ROUTE_ECONOMICS/1.0",
-        **({"joint_owner_service_economics": _review_joint_owner_service_economics(
-            joint_owner_economics, scenarios=scenarios, projections=private if qualified else None,
-            supplier=next(row["owner"] for row in reference["resources"]
-                          if row["id"] == coop_spec["resource"]),
-            operator=reference["institution"]["operator"], members=members,
-        )} if joint_owner_economics is not None else {}),
+        **({"joint_owner_service_economics": joint} if joint is not None else {}),
+        **({"selected_recipient_use_value_comparison": recipient} if recipient is not None else {}),
         "status": ("MODEL_EXECUTED_ROUTES_DECLARED_ECONOMIC_CONTRAST"
                    if qualified else "NOT_IDENTIFIABLE_FROM_EXECUTED_ROUTE_SCOPE"),
         "common_initial_state_and_applied_prefix_verified": True,
@@ -672,6 +690,74 @@ def compare_executed_original_routes(
         },
     }
 
+
+
+
+def _review_matched_recipient_use_values(*, scenarios, outputs, arms, qualified, joint, supplier, operator):
+    """Extend the existing matched-route contrast, not the business ledger.
+
+    The distinct buyers each declare incremental noncash use value against
+    their OWN no-order baseline. Shared prior owner costs cancel in the
+    contrast. No measured interpersonal utility or causal welfare claim.
+    """
+    from decimal import Decimal
+
+    limits = {
+        "distinct_original_recipients_not_same_person_or_measured_utility": True,
+        "each_recipient_compared_to_own_declared_no_order_baseline": True,
+        "unmeasured_external_effects_excluded": True,
+        "no_new_value_cash_or_consent_created": True,
+        "empirical_network_additionality": "NOT_IDENTIFIABLE",
+    }
+
+    def direction(value):
+        return "POSITIVE" if value > 0 else "ZERO" if value == 0 else "NEGATIVE"
+
+    unknown = {**limits, "status": "UNKNOWN_RECIPIENT_VALUE_SCOPE", "local_research_only": None}
+    if not qualified:
+        return unknown
+    rows = {}
+    for arm, work in arms.items():
+        view = outputs[arm]["economics"].get("original_recipient_use_value", {})
+        private = view.get("local_research_only", {}).get(work)
+        if private is None:
+            return unknown
+        rows[arm] = {"recipient": outputs[arm]["works"][work]["original_customer"], **private}
+    surpluses = {arm: Decimal(row["recipient_model_surplus_vs_declared_no_order"])
+                 for arm, row in rows.items()}
+    verdict = {**limits,
+        "status": "MODEL_SELECTED_RECIPIENT_OWN_USE_VALUE_CONTRAST",
+        "recipient_surplus_directions": {arm: direction(v) for arm, v in surpluses.items()},
+        "both_selected_recipients_positive_vs_own_declared_no_order": all(v > 0 for v in surpluses.values()),
+        "whole_selected_route_value_contrast_status": "UNKNOWN",
+        "local_research_only": {"selected_recipients": rows},
+    }
+    if joint is None or joint["local_research_only"] is None:
+        return verdict
+    for arm, work in arms.items():
+        allowed = {supplier, operator, rows[arm]["recipient"]}
+        if len(allowed) != 3:
+            return verdict
+        money = scenarios[arm]["economic_claims"]
+        if (any({t["payer"], t["payee"]} - {"EXTERNAL"} - allowed
+                for t in money["transfers"] if t["work"] == work)
+                or any(r["owner"] not in allowed for r in money["resource_uses"] if r["work"] == work)):
+            return verdict
+    common_delta = Decimal(joint["local_research_only"]["joint_cooperative_minus_outside_contribution"])
+    delta = common_delta + surpluses["cooperation"] - surpluses["outside"]
+    verdict["whole_selected_route_value_contrast_status"] = "MODEL_ONLY_SCOPED_INCREMENTAL_VALUE_CONTRAST"
+    verdict["whole_selected_route_value_contrast_direction"] = direction(delta)
+    reserve = outputs["cooperation"]["economics"]["cash_timing"][
+        "per_original_owner_private_research_projection"][rows["cooperation"]["recipient"]][
+        "scenario_paths"]["COOPERATION"]
+    verdict["cooperative_common_owners_and_recipient_viability_criteria_met"] = (
+        joint["status"] == "BOTH_COMMON_OWNERS_MODEL_CONTRIBUTION_AND_RESERVE_CRITERIA_MET"
+        and surpluses["cooperation"] > 0
+        and all(reserve[key]["status"] == "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+                for key in ("expected", "declared_late_case"))
+    )
+    verdict["local_research_only"]["common_owner_plus_selected_recipient_delta"] = f"{delta:.2f}"
+    return verdict
 
 
 def _review_joint_owner_service_economics(
