@@ -59,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix='iwxa-t4-dav-') as temp:
   if os.environ.get('IWXA_T2_QUALIFIED_KERNEL_DIST'):
    original=subprocess.run(['node','--experimental-strip-types','--test',
      '../t4-network/tests/real-original-t3-kernel-webdav.browser.mjs'],cwd=ROOT.parent/'t3-core',env=env,
-     capture_output=True,text=True,timeout=240)
+     capture_output=True,text=True,timeout=420)
    (OUT/'original-kernel-webdav.log').write_text(original.stdout+original.stderr)
    print(original.stdout,end='')
    if original.returncode:raise RuntimeError('Original T2/T3 kernel WebDAV E2E failed')

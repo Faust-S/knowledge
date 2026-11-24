@@ -1,17 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash,createCipheriv,createDecipheriv,randomBytes}
+import {createHash,createCipheriv,createDecipheriv,randomBytes,generateKeyPairSync,sign,verify}
   from 'node:crypto';
 import {verifyT4OriginalObjectDelta,digestT4OriginalObjectContent}
   from '../src/network/original-object-delta.mjs';
 import {openT4OriginalNetworkObjectChange,
   inspectT4OriginalNetworkRecipientResult,
   applyT4OriginalNetworkObjectChange,applyT4OriginalNetworkSubjectWithDurableIntent,
-  createT4OriginalNetworkAppliedAckBody}
+  createT4OriginalNetworkAppliedAckBody,finalizeT4OriginalNetworkRecipientAcknowledgement}
   from '../src/network/original-network-subject-apply.mjs';
 
 import {createT4OriginalNetworkSessionPhasePort}
   from '../src/network/original-network-session-phases.mjs';
+
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
+  from '../src/network/original-network-publication.mjs';
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame}
+  from '../src/network/standard-network-wire-candidate.mjs';
 
 const H=b=>'sha256:'+createHash('sha256').update(b).digest('hex');
 const stable=x=>JSON.stringify(Array.isArray(x)?x.map(stable):x);
@@ -304,14 +309,43 @@ test('original Event read authority is independent from Object read authority',a
   assert.equal(f.writes,0);
 });
 
-async function durableFixture(){
+async function durableFixture({nativeSession=false}={}){
   const f=fixture(),technicalWorkspaceId='workspace:technical:apply-intent';
+  let session=null;
+  if(nativeSession){
+    const d=f.delta,proof=f.openArgs.originalSourceHeadProof;
+    const before=H('prefix-before'),after=proof.sourcePrefixDigestAfter;
+    proof.sourcePrefixDigestBefore=before;
+    session=deriveT4OriginalNativeCaptureSession({
+      schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',
+      state:'ORIGINAL_NATIVE_CAPTURE_READY',workspaceId:d.workspaceId,
+      originalWriteOwnerRef:d.originalWriteOwnerRef,
+      sourceNodeRef:proof.sourceNodeRef,recipientNodeRef:proof.recipientNodeRef,
+      networkTargetRef:proof.recipientNodeRef,scopeRef:proof.scopeRef,ownerEpoch:2,
+      networkPublished:false,sourceCursorAdvanced:false,originalRecipientApplied:false,
+      sourceCursorBefore:{sourcePrefixDigest:before},sourceCursorAfter:{sourcePrefixDigest:after},
+      capture:{workspaceId:d.workspaceId,originalWriteOwnerRef:d.originalWriteOwnerRef,
+        sourceEventId:d.sourceEventId,sourceRevision:d.sourceRevision,
+        originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
+        prepared:verifyT4OriginalObjectDelta(d),
+        sourceWindow:{lastEventId:d.sourceEventId,windowDigest:d.windowDigest,
+          eventRefs:[{eventDigest:d.sourceEventDigest}],
+          sourcePrefixDigestBefore:before,sourcePrefixDigestAfter:after}},
+    });
+    proof.sessionRef=session.sessionRef;
+    for(const frame of [f.openArgs.verifiedChangeRef,...f.openArgs.verifiedChunks]){
+      frame.verifiedSessionRef=session.sessionRef;
+      frame.verifiedBody.changeId=session.changeId;
+    }
+  }
   const sha256=H('verified original change frame').slice(7);
   f.openArgs.verifiedChangeRef.key=sha256+'.t4n';
   f.openArgs.verifiedChangeRef.sha256=sha256;
   const received=await openT4OriginalNetworkObjectChange(f.openArgs);
   const objects=new Map(),events=[];
-  let technicalWrites=0,loseIntentReply=false,hostSessionRef='host:original:one';
+  let technicalWrites=0,loseIntentReply=false,loseAppliedReply=false,
+    losePublicationAction=null,hostSessionRef='host:original:one';
+  let verifyAckEvidence=async()=>!nativeSession;
   const technicalKernel={
     hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject'].includes(op),
     getObject:async(w,id)=>structuredClone(objects.get(w+':'+id)??null),
@@ -333,6 +367,12 @@ async function durableFixture(){
       if(loseIntentReply&&input.event.payload.phase==='APPLY_INTENT'){
         loseIntentReply=false;throw Object.assign(Error('lost intent response'),{code:'ACK_LOST'});
       }
+      if(loseAppliedReply&&input.event.payload.phase==='APPLIED'){
+        loseAppliedReply=false;throw Object.assign(Error('lost applied phase response'),{code:'ACK_LOST'});
+      }
+      if(losePublicationAction&&input.event.payload.action===losePublicationAction){
+        losePublicationAction=null;throw Object.assign(Error('lost publication response'),{code:'ACK_LOST'});
+      }
       return {object,event};
     },
   };
@@ -352,7 +392,7 @@ async function durableFixture(){
         p.evidence.evidenceDigest===received.originalStateDigest)||
       (p.phase==='APPLY_INTENT'&&p.evidence.evidenceRef===received.sourceChangeFrameKey&&
         p.evidence.evidenceDigest==='sha256:'+received.sha256)||
-      p.phase==='APPLIED',
+      (p.phase==='APPLIED'&&await verifyAckEvidence(p.evidence)),
     verifyOriginalRecipientApplied:async p=>{
       const actual=await inspectT4OriginalNetworkRecipientResult(f.applyArgs(received));
       return actual.originalBusinessApplied===true&&
@@ -369,9 +409,13 @@ async function durableFixture(){
       evidenceDigest:received.originalStateDigest},
   });
   const args=()=>({...f.applyArgs(received),recipientPhasePort:phasePort()});
-  return {f,received,phasePort,args,events,objects,
+  return {f,received,phasePort,args,events,objects,technicalKernel,technicalWorkspaceId,session,
+    get hostSessionRef(){return hostSessionRef;},
     get technicalWrites(){return technicalWrites;},
     loseIntentReply(){loseIntentReply=true;},
+    loseAppliedReply(){loseAppliedReply=true;},
+    losePublicationReply(action){losePublicationAction=action;},
+    setAckEvidenceVerifier(fn){verifyAckEvidence=fn;},
     restart(){hostSessionRef='host:original:cold';}};
 }
 test('native recipient reserves exact original delta before first write and recovers from that intent',async()=>{
@@ -460,4 +504,188 @@ test('durable intent refuses wrong owner epoch or change frame address before mu
     }),error('SUBJECT_ORIGINAL_DURABLE_APPLY_PHASE_MISMATCH'));
   }
   assert.equal(d.f.writes,0);assert.equal(d.technicalWrites,2);
+});
+
+
+async function ackFixture({publishDiff=true}={}){
+  const d=await durableFixture({nativeSession:true}),s=d.session;
+  const keys=generateKeyPairSync('ed25519'),remote=new Map();
+  let signCalls=0,puts=0,loseNetwork=null;
+  const signing=async({messageType='APPLIED_ACK',sequence,body,criticalExtensions=[]})=>{
+    signCalls++;
+    return signT4CandidateFrame({
+      unsignedFrame:createT4CandidateUnsignedFrame({messageType,
+        messageId:'message:recipient:'+sequence,sourceNodeRef:s.recipientNodeRef,
+        recipientNodeRef:s.sourceNodeRef,sessionRef:s.sessionRef,scopeRef:s.scopeRef,
+        permissionRef:'permission:recipient:network',signerRef:'key:recipient:network',
+        sequence,ownerEpoch:s.ownerEpoch,cryptoSuite:'X25519_AES256GCM_ED25519',
+        criticalExtensions,body}),
+      signOriginalNodeBytes:async({bytes})=>sign(null,Buffer.from(bytes),keys.privateKey),
+    });
+  };
+  const port=()=>createT4OriginalNetworkPublicationPort({
+    session:s,localNodeRef:s.recipientNodeRef,
+    technicalWorkspaceId:d.technicalWorkspaceId,originalKernel:d.technicalKernel,
+    getMode:()=> 'T4_NETWORK',
+    readOriginalHostContext:async()=>({workspaceId:d.technicalWorkspaceId,
+      originalWriteOwnerRef:s.originalWriteOwnerRef,nodeRef:s.recipientNodeRef,
+      scopeRef:s.scopeRef,hostSessionRef:d.hostSessionRef}),
+    authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true,
+    authorizeOriginalFramePublish:async()=>true,
+    verifyOriginalNodeSignature:async({bytes,signature,signerRef})=>
+      signerRef==='key:recipient:network'&&
+      verify(null,Buffer.from(bytes),keys.publicKey,Buffer.from(signature)),
+    frameTransport:{
+      async publishSignedFrame({wireBytes}){
+        puts++;
+        const sha256=H(wireBytes).slice(7),key=sha256+'.t4n';
+        if(loseNetwork==='before'){
+          loseNetwork=null;throw Object.assign(Error('lost before remote'),{code:'NETWORK_UNAVAILABLE'});
+        }
+        assert.equal(remote.has(key),false);
+        remote.set(key,new Uint8Array(wireBytes));
+        if(loseNetwork==='after'){
+          loseNetwork=null;throw Object.assign(Error('lost after remote'),{code:'OUTCOME_UNKNOWN'});
+        }
+        return {schema:'IWXA_T4_CANDIDATE_FRAME_PUBLISHED_V1',key,sha256,
+          immutableTransportReadback:true,originalBusinessApplied:false};
+      },
+      async inspectUnknownPublication({key,expectedSha256}){
+        if(!remote.has(key))throw Object.assign(Error('absent'),{code:'REMOTE_NOT_FOUND'});
+        assert.equal(H(remote.get(key)).slice(7),expectedSha256);
+        return {schema:'IWXA_T4_CANDIDATE_FRAME_PRESENT_V1',key,sha256:expectedSha256,
+          exactBytesPresent:true,originalBusinessApplied:false};
+      },
+    },
+  });
+  d.setAckEvidenceVerifier(async e=>{
+    const local=await port().inspectOriginalPublication();
+    const ack=local.frames.find(f=>f.messageType==='APPLIED_ACK');
+    return ack?.state==='PRESENT'&&ack.key===e.evidenceRef&&
+      'sha256:'+ack.sha256===e.evidenceDigest&&
+      decodeT4CandidateFrame(ack.wireBytes).body.recipientEventRef===e.originalRecipientEventId;
+  });
+  const diff=await port().prepareSignedBatch({
+    slots:[{sequence:1,messageType:'DIFF_REQUEST'}],
+    createSignedFrames:async()=>[await signing({messageType:'DIFF_REQUEST',sequence:1,
+      body:{familyRef:s.familyRef,fromHeads:[s.sourcePrefixDigestBefore]}})],
+  });
+  assert.equal(diff.state,'ORIGINAL_SIGNED_BATCH_PREPARED');
+  if(publishDiff)await port().publishPreparedFrame({sequence:1});
+  const args=(overrides={})=>({...d.args(),recipientPublicationPort:port(),
+    createSignedAppliedAckFrame:signing,...overrides});
+  return {d,port,args,remote,signing,counts:()=>({puts,signCalls,
+    technicalWrites:d.technicalWrites,subjectWrites:d.f.writes}),
+    loseNetwork:where=>{loseNetwork=where;}};
+}
+
+test('recipient ACK cannot sign or publish before original durable intent and actual result',async()=>{
+  const x=await ackFixture(),before=x.counts();
+  await assert.rejects(finalizeT4OriginalNetworkRecipientAcknowledgement(x.args()),
+    error('SUBJECT_ORIGINAL_ACK_APPLY_INTENT_REQUIRED'));
+  x.d.loseIntentReply();
+  await assert.rejects(applyT4OriginalNetworkSubjectWithDurableIntent(x.d.args()),
+    error('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  x.d.restart();
+  await assert.rejects(finalizeT4OriginalNetworkRecipientAcknowledgement(x.args()),
+    error('SUBJECT_ORIGINAL_ACK_CURRENT_RESULT_REQUIRED'));
+  assert.equal(x.counts().signCalls,before.signCalls);
+  assert.equal(x.counts().puts,before.puts);
+  assert.equal(x.counts().subjectWrites,0);
+});
+test('recipient ACK task completes actual phase once and reuses original signed receipt after cold restart',async()=>{
+  const x=await ackFixture();
+  const applied=await applyT4OriginalNetworkSubjectWithDurableIntent(x.d.args());
+  const first=await finalizeT4OriginalNetworkRecipientAcknowledgement(x.args());
+  assert.equal(first.state,'FINALIZED');
+  assert.equal(first.verifiedResult.originalRecipientEventId,applied.originalRecipientEventId);
+  assert.equal(first.recipientPhase.currentPhase,'APPLIED');
+  const snapshot=await x.port().inspectOriginalPublication(),counts=x.counts();
+  x.d.restart();
+  const second=await finalizeT4OriginalNetworkRecipientAcknowledgement(x.args({
+    createSignedAppliedAckFrame:async()=>{throw Error('must not re-sign');},
+  }));
+  assert.equal(second.state,'ALREADY_FINALIZED');
+  assert.equal(second.publication.key,first.publication.key);
+  assert.deepEqual(x.counts(),counts);
+  assert.deepEqual((await x.port().inspectOriginalPublication()).frames,snapshot.frames);
+  assert.equal(counts.subjectWrites,1);
+});
+test('lost recipient ACK publication reply is recovered without new signature, PUT, or subject mutation',async()=>{
+  const x=await ackFixture();await applyT4OriginalNetworkSubjectWithDurableIntent(x.d.args());
+  x.loseNetwork('after');
+  await assert.rejects(finalizeT4OriginalNetworkRecipientAcknowledgement(x.args()),
+    error('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  const stored=await x.port().inspectOriginalPublication(),before=x.counts();
+  assert.equal(stored.frames.at(-1).state,'ATTEMPTED');
+  x.d.restart();
+  const recovered=await finalizeT4OriginalNetworkRecipientAcknowledgement(x.args({
+    createSignedAppliedAckFrame:async()=>{throw Error('must not re-sign');},
+  }));
+  assert.equal(recovered.publication.state,'REMOTE_READBACK_RECOVERED');
+  assert.equal(recovered.publication.key,stored.frames.at(-1).key);
+  assert.equal(x.counts().puts,before.puts);
+  assert.equal(x.counts().signCalls,before.signCalls);
+  assert.equal(x.counts().subjectWrites,1);
+});
+test('lost applied phase CAS response recovers only persisted original ACK and actual result',async()=>{
+  const x=await ackFixture();await applyT4OriginalNetworkSubjectWithDurableIntent(x.d.args());
+  x.d.loseAppliedReply();
+  await assert.rejects(finalizeT4OriginalNetworkRecipientAcknowledgement(x.args()),
+    error('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  const before=x.counts();
+  x.d.restart();
+  const recovered=await finalizeT4OriginalNetworkRecipientAcknowledgement(x.args({
+    createSignedAppliedAckFrame:async()=>{throw Error('must not re-sign');},
+  }));
+  assert.equal(recovered.state,'ALREADY_FINALIZED');
+  assert.deepEqual(x.counts(),before);
+});
+test('recipient ACK task rejects signed but altered result and unconfirmed predecessor',async()=>{
+  const x=await ackFixture();await applyT4OriginalNetworkSubjectWithDurableIntent(x.d.args());
+  const before=x.counts();
+  await assert.rejects(finalizeT4OriginalNetworkRecipientAcknowledgement(x.args({
+    createSignedAppliedAckFrame:p=>x.signing({...p,body:{...p.body,
+      recipientEventRef:'event:forged:recipient'}}),
+  })),error('SUBJECT_ORIGINAL_ACK_SIGNED_BODY_MISMATCH'));
+  assert.equal(x.counts().technicalWrites,before.technicalWrites);
+  assert.equal(x.counts().puts,before.puts);
+  assert.equal((await x.port().inspectOriginalPublication()).frames.length,1);
+  const blocked=await ackFixture({publishDiff:false});
+  await applyT4OriginalNetworkSubjectWithDurableIntent(blocked.d.args());
+  const blockedBefore=blocked.counts();
+  await assert.rejects(finalizeT4OriginalNetworkRecipientAcknowledgement(blocked.args()),
+    error('SUBJECT_ORIGINAL_ACK_PUBLICATION_HISTORY_REQUIRED'));
+  assert.deepEqual(blocked.counts(),blockedBefore);
+});
+test('unknown absent ACK requires explicit original retry while preserving exact signed bytes',async()=>{
+  const x=await ackFixture();await applyT4OriginalNetworkSubjectWithDurableIntent(x.d.args());
+  x.loseNetwork('before');
+  await assert.rejects(finalizeT4OriginalNetworkRecipientAcknowledgement(x.args()),
+    error('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  const staged=await x.port().inspectOriginalPublication(),before=x.counts();
+  x.d.restart();
+  await assert.rejects(finalizeT4OriginalNetworkRecipientAcknowledgement(x.args({
+    createSignedAppliedAckFrame:async()=>{throw Error('must not re-sign');},
+  })),error('PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED'));
+  assert.deepEqual(x.counts(),before);
+  const recovered=await finalizeT4OriginalNetworkRecipientAcknowledgement(x.args({
+    retryMissing:true,createSignedAppliedAckFrame:async()=>{throw Error('must not re-sign');},
+  }));
+  assert.equal(recovered.publication.key,staged.frames.at(-1).key);
+  assert.equal(x.counts().puts,before.puts+1);
+  assert.equal(x.counts().signCalls,before.signCalls);
+  assert.equal(x.counts().subjectWrites,1);
+});
+test('recipient ACK task cannot substitute another session or certify a historical current subject',async()=>{
+  const x=await ackFixture();await applyT4OriginalNetworkSubjectWithDurableIntent(x.d.args());
+  const before=x.counts(),port=x.port();
+  await assert.rejects(finalizeT4OriginalNetworkRecipientAcknowledgement(x.args({
+    recipientPublicationPort:{...port,session:{...port.session,ownerEpoch:9}},
+  })),error('SUBJECT_ORIGINAL_ACK_PUBLICATION_PORT_MISMATCH'));
+  const row=x.d.f.objects.values().next().value;
+  row.object.revision++;
+  await assert.rejects(finalizeT4OriginalNetworkRecipientAcknowledgement(x.args()),
+    error('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH'));
+  assert.deepEqual(x.counts(),before);
 });
