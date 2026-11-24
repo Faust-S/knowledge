@@ -21,9 +21,9 @@ jobs:
           test -n "${DOMEN:-}" || { echo "D05_MULTI_READ=FAIL"; exit 1; }
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
           git init --quiet site
-          GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git b571028dbb1ebb8ca9001a7206bf3e8ca67362b8 >/dev/null 2>&1 || { echo "D05_MULTI_READ=FAIL"; exit 1; }
+          GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git 7a7a2e1531ec375865e84330a681a589ed4e8faa >/dev/null 2>&1 || { echo "D05_MULTI_READ=FAIL"; exit 1; }
           git -C site checkout --quiet --detach FETCH_HEAD
-          test "$(git -C site rev-parse HEAD)" = "b571028dbb1ebb8ca9001a7206bf3e8ca67362b8" || { echo "D05_MULTI_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "7a7a2e1531ec375865e84330a681a589ed4e8faa" || { echo "D05_MULTI_SITE_PIN=FAIL"; exit 1; }
           unset header DOMEN
           echo "D05_MULTI_SITE_PIN=PASS"
       - uses: actions/setup-node@v4
@@ -37,10 +37,10 @@ jobs:
           echo "D05_MULTI_INSTALL=PASS"
           node --check scripts/d05-first-use-real-kernel-witness.mjs
           echo "D05_INDEPENDENT_WITNESS_SYNTAX=PASS"
-          ./node_modules/.bin/prettier --write src/lib/capacity-cash.ts src/lib/capacity-cash.test.ts src/lib/capacity-decision.ts src/lib/capacity-management.ts src/lib/capacity-management.test.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts src/host/CehovodCashPanel.tsx src/host/CehovodCapacityPanel.tsx src/host/CehovodManagementComparison.tsx scripts/d05-first-use-real-kernel-witness.mjs > "$RUNNER_TEMP/d05-multi-prettier.log" 2>&1 || { echo "D05_MULTI_FORMAT=FAIL"; exit 1; }
+          ./node_modules/.bin/prettier --write src/lib/capacity-cash.ts src/lib/capacity-cash.test.ts src/lib/capacity-decision.ts src/lib/capacity-management.ts src/lib/capacity-management.test.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts src/host/CehovodCashPanel.tsx src/host/CehovodCapacityPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts src/host/CehovodManagementComparison.tsx scripts/d05-first-use-real-kernel-witness.mjs scripts/d05-management-ui-witness.ts scripts/fixtures/d05-management-ui-harness.tsx > "$RUNNER_TEMP/d05-multi-prettier.log" 2>&1 || { echo "D05_MULTI_FORMAT=FAIL"; exit 1; }
           python3 - <<'PY'
           import base64, hashlib, json, pathlib, subprocess
-          names = ["src/lib/capacity-cash.ts","src/lib/capacity-cash.test.ts","src/lib/capacity-decision.ts","src/lib/capacity-management.ts","src/lib/capacity-management.test.ts","src/host/dispatch-capacity.ts","src/host/dispatch-capacity.test.ts","src/host/CehovodCashPanel.tsx","src/host/CehovodCapacityPanel.tsx","src/host/CehovodManagementComparison.tsx","scripts/d05-first-use-real-kernel-witness.mjs"]
+          names = ["src/lib/capacity-cash.ts","src/lib/capacity-cash.test.ts","src/lib/capacity-decision.ts","src/lib/capacity-management.ts","src/lib/capacity-management.test.ts","src/host/dispatch-capacity.ts","src/host/dispatch-capacity.test.ts","src/host/CehovodCashPanel.tsx","src/host/CehovodCapacityPanel.tsx","src/host/CehovodCapacityPanel.regression.test.ts","src/host/CehovodManagementComparison.tsx","scripts/d05-first-use-real-kernel-witness.mjs","scripts/d05-management-ui-witness.ts","scripts/fixtures/d05-management-ui-harness.tsx"]
           punctuation = set('.,;:!?()[]{}\'"=<>+*/|&-')
           def partition(source):
               anchors, gaps = [], ['']
@@ -113,7 +113,7 @@ jobs:
               print("D05_FINANCE_TYPE_LOCATION="+path+":"+line+":"+col+":"+code)
           PY
           fi
-          if ./node_modules/.bin/eslint src/lib/capacity-cash.ts src/lib/capacity-cash.test.ts src/lib/capacity-decision.ts src/lib/capacity-management.ts src/lib/capacity-management.test.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts src/host/CehovodCashPanel.tsx src/host/CehovodCapacityPanel.tsx src/host/CehovodManagementComparison.tsx scripts/d05-first-use-real-kernel-witness.mjs --format json > "$RUNNER_TEMP/d05-finance-lint.json" 2>/dev/null; then
+          if ./node_modules/.bin/eslint src/lib/capacity-cash.ts src/lib/capacity-cash.test.ts src/lib/capacity-decision.ts src/lib/capacity-management.ts src/lib/capacity-management.test.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts src/host/CehovodCashPanel.tsx src/host/CehovodCapacityPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts src/host/CehovodManagementComparison.tsx scripts/d05-first-use-real-kernel-witness.mjs scripts/d05-management-ui-witness.ts scripts/fixtures/d05-management-ui-harness.tsx --format json > "$RUNNER_TEMP/d05-finance-lint.json" 2>/dev/null; then
             echo "D05_FINANCE_ESLINT=PASS"
           else
             echo "D05_FINANCE_ESLINT=FAIL"
@@ -128,3 +128,15 @@ jobs:
           NODE
           fi
           exit "$status"
+      - name: Run positive browser qualification of the existing cash and management panels
+        run: |
+          set -euo pipefail
+          cd site
+          if node --import tsx scripts/d05-management-ui-witness.ts > "$RUNNER_TEMP/d05-management-ui.log" 2>&1; then
+            grep -E '^D05_MANAGEMENT_UI_[A-Z_]+=PASS$' "$RUNNER_TEMP/d05-management-ui.log"
+            grep -qx 'D05_MANAGEMENT_UI_WITNESS=PASS' "$RUNNER_TEMP/d05-management-ui.log"
+          else
+            grep -E '^D05_MANAGEMENT_UI_(FAILURE_(PHASE|CLASS|CODE)|[A-Z_]+)=([A-Za-z_][A-Za-z0-9_-]{0,80})$' "$RUNNER_TEMP/d05-management-ui.log" || true
+            echo "D05_MANAGEMENT_UI_WITNESS=FAIL"
+            exit 1
+          fi
