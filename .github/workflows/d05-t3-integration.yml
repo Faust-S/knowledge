@@ -15,14 +15,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod
-          ref: acb3afd9274f3440d4a07693a1bae89e733cc26a
+          ref: 82844dad095ce6565737f19c57f0a811dbe44d9d
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: 4f7a70904801d417c4e9f6b373eadffdc718f085
+          ref: 636172e1be4500997437b540d1c2beaa115dd515
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -58,14 +58,15 @@ jobs:
           import {readFileSync} from "node:fs";
           import {validateSkillPack} from "./assistant/browser-local-inference/domain-assistant/skill-runtime.mjs";
           const pack=validateSkillPack(JSON.parse(readFileSync("site/public/assets/cehovod-assistant-skills.json","utf8")));
-          if(pack.skills.length!==11||pack.formHints.length!==4||pack.resultHints.length!==4)throw Error("D05_T3_PACK_COUNTS");
+          if(pack.skills.length!==11||pack.formHints.length!==8||pack.resultHints.length!==8)throw Error("D05_T3_PACK_COUNTS");
           console.log("D05_T3_ORIGINAL_RUNTIME_SKILLS_PASS");
           JS
           if ! (cd domain && T3_ASSISTANT_SOURCE="$GITHUB_WORKSPACE/assistant/browser-local-inference/domain-assistant" node --test tests/assistant-field-policy.test.mjs) >"$log" 2>&1; then
+            grep -Eo '^not ok [0-9]+' "$log" | head -40 || true
             echo D05_T3_FIELD_POLICY_FAIL
             exit 1
           fi
-          echo D05_T3_FIELD_POLICY_19_PASS
+          echo D05_T3_FIELD_POLICY_27_PASS
           echo D05_T3_OWNER_PROJECTION_PASS
       - name: Install dependencies without exporting private sources
         working-directory: site
@@ -86,7 +87,7 @@ jobs:
           fi
           echo D05_T3_BINDINGS_PASS
           if ! npm run typecheck >"$log" 2>&1; then
-            grep -Eo 'TS[0-9]{4}' "$log" | sort -u | head -20 || true
+            grep -Eo 'TS[0-9]{4,6}' "$log" | sort -u | head -20 || true
             echo D05_T3_TYPES_FAIL
             exit 1
           fi
@@ -132,7 +133,7 @@ jobs:
           // strings, identifiers, patches containing code, or formatter diagnostics.
           const layout=/^[ \t\r\n"'\x60,;(){}\[\]\\]*$/u;
           const isLayout=c=>c!==undefined&&layout.test(c);
-          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs"]);
+          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx"]);
           for(const row of rows.filter(r=>r.errorCount)){
             const path=relative(process.cwd(),row.filePath);
             if(!allow.has(path)||row.messages.some(m=>m.severity===2&&m.ruleId!=="prettier/prettier"))continue;
@@ -185,7 +186,19 @@ jobs:
           log="$RUNNER_TEMP/d05-t3-host.log"
           if ! npm run prepare:t3-host -- "$GITHUB_WORKSPACE/one-core/packages/t3-core" "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/assistant" https://cehovod.ru >"$log" 2>&1; then
             grep -Eo 'CEHOVOD_T3_HOST_PHASE_[A-Z0-9_]+' "$log" | tail -5 || true
-            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T[23]_[A-Z0-9_]+|TS[0-9]{4}|ERR_[A-Z0-9_]+' "$log" | sort -u | head -50 || true
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T[23]_[A-Z0-9_]+|TS[0-9]{4,6}|ERR_[A-Z0-9_]+' "$log" | sort -u | head -50 || true
+            node --input-type=module <<'JS'
+          import {readFileSync} from "node:fs";
+          import {basename} from "node:path";
+          const rows=readFileSync(process.env.RUNNER_TEMP+"/d05-t3-host.log","utf8").split("\n");
+          const found=new Set();
+          for(const row of rows){
+            const match=row.match(/^\s*([A-Za-z0-9_./-]{1,240})\((\d{1,6}),(\d{1,6})\): error (TS\d{4,6}):/);
+            if(!match)continue;
+            const key=JSON.stringify({file:basename(match[1]),line:Number(match[2]),column:Number(match[3]),code:match[4],area:match[1].includes("cehovod/")?"domain":match[1].includes("node_modules")?"dependency":"core"});
+            if(!found.has(key)&&found.size<60){found.add(key);console.log("D05_T3_HOST_TYPE_DIAG "+key);}
+          }
+          JS
             echo D05_T3_HOST_BUILD_FAIL
             exit 1
           fi
@@ -199,7 +212,7 @@ jobs:
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-product.log"
           if ! npm run build:product:t3 -- "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/platform-inputs.zip" >"$log" 2>&1; then
-            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T3_[A-Z0-9_]+|TS[0-9]{4}' "$log" | sort -u | head -30 || true
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T3_[A-Z0-9_]+|TS[0-9]{4,6}' "$log" | sort -u | head -30 || true
             echo D05_T3_DIST_BUILD_FAIL
             exit 1
           fi
