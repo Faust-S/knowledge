@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: be93810c448fb04b0d556a0bbdef1e684c3d63aa
+          ref: c7c9d179edf93fdecefa3d1c5fc46faa7775c918
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,7 +51,7 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = be93810c448fb04b0d556a0bbdef1e684c3d63aa
+          test "$(git -C d04-private/site rev-parse HEAD)" = c7c9d179edf93fdecefa3d1c5fc46faa7775c918
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
@@ -115,12 +115,19 @@ jobs:
             grep -Eo 'error TS[0-9]+' "$RUNNER_TEMP/d04-home-types.log" | sort -u | head -10 || true
             exit 1
           fi
+      - name: Prepare isolated independent T2 auditor challenge
+        run: |
+          set -euo pipefail
+          umask 077
+          openssl rand -hex 32 > "$RUNNER_TEMP/d04-home-challenge"
+          echo "D04_HOME_WITNESS_CHALLENGE=SET"
       - name: Build the original integrated T2 site (no uploads)
         working-directory: d04-private/site
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
         run: |
           set -euo pipefail
+          export IWXA_T2_PRODUCT_CHALLENGE="$(cat "$RUNNER_TEMP/d04-home-challenge")"
           if npm run build:t2:site >"$RUNNER_TEMP/d04-home-build.log" 2>&1; then
             echo "D04_HOME_INTEGRATED_BUILD=PASS"
           else
@@ -159,6 +166,7 @@ jobs:
         run: |
           set -uo pipefail
           set +e
+          export IWXA_T2_PRODUCT_CHALLENGE="$(cat "$RUNNER_TEMP/d04-home-challenge")"
           node --input-type=module >"$RUNNER_TEMP/d04-home-browser.log" 2>&1 <<'NODE'
           import {createRequire} from 'node:module';
           import {resolve,join} from 'node:path';
@@ -175,8 +183,9 @@ jobs:
           try{
             console.log('D04_HOME_BROWSER_STAGE=PUBLIC_TO_NATIVE_CREATION');
             const personal=await runLifeOsHomeDashboardBrowser({chromium,origin:server.origin,selectWitnessOption});
-            if(personal.status!=='PASS'||personal.viewports.length!==2||personal.viewports.some(v=>v.measures!==56||v.recordable!==34||v.newMetricSaved!==true||v.eventsSaved!==2||v.eventsCold!==true))throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
+            if(personal.status!=='PASS'||personal.viewports.length!==2||personal.viewports.some(v=>v.measures!==56||v.recordable!==34||v.newMetricSaved!==true||v.eventsSaved!==2||v.eventsCold!==true||v.calculationTools!==13||v.calculationSaved!==true||v.calculationCold!==true))throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
             console.log('D04_HOME_CREATE_AND_COLD=PASS');
+            console.log('D04_HOME_DIARY_EVENTS_AND_CALCULATIONS=PASS');
             for(const item of personal.viewports){
               if(![item.emptyOpenMs,item.createReadyMs,item.coldRestoreMs].every(n=>Number.isSafeInteger(n)&&n>=0&&n<120000))throw Error('D04_HOME_LATENCY_INVALID');
               console.log('D04_HOME_PERF_W'+item.width+'_EMPTY_MS='+item.emptyOpenMs);

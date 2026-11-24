@@ -32,14 +32,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 5439464e3a2e7e62829f13587317f7d5e5180da5
+          ref: c7c9d179edf93fdecefa3d1c5fc46faa7775c918
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: df9cf7496d4c1575057a8bb4d73b3d952e71f5ea
+          ref: bd6396b490bcc9b7a4891f23c3d19fe428900963
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           persist-credentials: false
@@ -49,14 +49,14 @@ jobs:
       - name: Check exact revisions and canonical model
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "5439464e3a2e7e62829f13587317f7d5e5180da5"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "e3be7b1c019525aa85acfc5e54d45034f0bd6ab4"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "df9cf7496d4c1575057a8bb4d73b3d952e71f5ea"
-          for name in PERSONAL_OBSERVATION_PROFILE_V0_1.mjs PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts; do
+          test "$(git -C d04-private/site rev-parse HEAD)" = "c7c9d179edf93fdecefa3d1c5fc46faa7775c918"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "f6553ecdaeff2ce7cb902555ad03aeeda3abb5f6"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "bd6396b490bcc9b7a4891f23c3d19fe428900963"
+          for name in PERSONAL_OBSERVATION_PROFILE_V0_1.mjs PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts LIFE_DASHBOARD_CALCULATIONS_V0_1.mjs LIFE_DASHBOARD_CALCULATIONS_V0_1.d.mts; do
             cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
           done
           echo "D04_UNIFIED_PINNED_PARITY=PASS"
-          if (cd d04-private/model && node --test docs/life-os/tests/life-dashboard-model.test.mjs docs/life-os/tests/life-dashboard-projection.test.mjs docs/life-os/tests/personal-observation-dynamics.test.mjs) >"$RUNNER_TEMP/d04-domain.log" 2>&1; then
+          if (cd d04-private/model && node --test docs/life-os/tests/life-dashboard-model.test.mjs docs/life-os/tests/life-dashboard-projection.test.mjs docs/life-os/tests/personal-observation-dynamics.test.mjs docs/life-os/tests/life-dashboard-calculations.test.mjs) >"$RUNNER_TEMP/d04-domain.log" 2>&1; then
             echo "D04_UNIFIED_DOMAIN=PASS"
           else
             echo "D04_UNIFIED_DOMAIN=FAIL"
