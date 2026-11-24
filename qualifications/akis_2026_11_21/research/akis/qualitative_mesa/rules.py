@@ -50,6 +50,7 @@ from .work_assurance import (
     parse_criteria, assess_result_quality, acceptance_gate, assurance_view,
     CORRECTION_ACTIONS, apply_quality_correction, qualified_resubmission,
     assert_current_quality_evidence,
+    qualify_correction_handoff, record_correction_handoff, current_material_generation,
     _ref_used as assurance_reference_used,
 )
 from .cooperation import (
@@ -407,6 +408,7 @@ class QualitativeAKIS:
              "quality_correction_currency", "quality_correction_slot_start", "quality_correction_slot_end",
              "quality_correction_valid_until", "quality_correction_decision",
              "quality_correction_plan", "quality_correction_expand_inputs",
+             "quality_correction_material_revisions",
              "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
              "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until", "entry_change_id", "entry_assessment_source_ref",
              "model_code_change_id", "model_code_source_ref", "model_code_decision",
@@ -1201,6 +1203,8 @@ class QualitativeAKIS:
             report["source_authentication"] = "MODEL_ONLY_UNVERIFIED"
             report["quality_assessment_is_not_result_acceptance"] = True
         if action in {"handoff_dispatch", "handoff_receive", "handoff_quality"}:
+            if report["outcome"] == "APPLIED" and wip_evidence is not None:
+                report.update(wip_evidence)
             report["from_operation"] = ev.get("from_operation")
             report["to_operation"] = ev.get("to_operation")
             report["handoff_ref"] = ev.get("result_ref")
@@ -2008,7 +2012,9 @@ class QualitativeAKIS:
                     row["operation"] == ev.get("from_operation")
                     for row in w.assurance_responsibilities.values()):
                 assert_assurance_responsibility_current(self, w, at)
+            qualified = qualify_correction_handoff(self, w, ev, at)
             self._handoff_action(w, ev)
+            return record_correction_handoff(qualified, ev, at)
         elif a in {"start_operation", "complete_operation"}:
             if not w.operations:
                 raise BlockedDecision("TECHNOLOGY_NOT_DECLARED")
@@ -2326,6 +2332,10 @@ class QualitativeAKIS:
                 if self.material_strict:
                     output["works"][key]["technology"]["materials"] = material_view(
                         work.material_batches, work.material_states)
+                    for batch in output["works"][key]["technology"]["materials"]["batches"]:
+                        generation = current_material_generation(work, batch["batch"])
+                        if generation is not None:
+                            batch["correction_generation"] = generation
         for key, work in self.works.items():
             if work.wip_interruptions:
                 output["works"][key]["unfinished_production"] = {
