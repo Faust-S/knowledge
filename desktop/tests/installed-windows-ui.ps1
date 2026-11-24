@@ -137,6 +137,19 @@ public static class IwxaActivityWin32 {
         throw 'INSTALLED_ACTIVITY_A41_QUALITY_DIFFERENCE_MISSING'
     }
     Write-Host 'IWXA_ACTIVITY_A41_NATIVE_QUALITY_DIFFERENCE_PASS'
+    $draft = Find-Accessible $window.Root 'Открыть технологический кандидат' 10
+    if (!$draft) { throw 'INSTALLED_ACTIVITY_A43_DRAFT_ACTION_MISSING' }
+    $draft.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (!(Find-Accessible $window.Root 'Технологический кандидат' 10)) {
+        throw 'INSTALLED_ACTIVITY_A43_DRAFT_NOT_VISIBLE'
+    }
+    if (!(Find-Accessible $window.Root 'Исходный вариант 1' 10)) {
+        throw 'INSTALLED_ACTIVITY_A43_PROFILE_MISSING'
+    }
+    if (!(Find-Accessible $window.Root 'Контроль ширины детали' 10)) {
+        throw 'INSTALLED_ACTIVITY_A43_QUALITY_CHECK_MISSING'
+    }
+    Write-Host 'IWXA_ACTIVITY_A43_NATIVE_TECHNOLOGY_DRAFT_PASS'
     $clearRoutes = Find-Accessible $window.Root 'Очистить выборку' 10
     if (!$clearRoutes) { throw 'INSTALLED_ACTIVITY_A41_CLEAR_MISSING' }
     $clearRoutes.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()

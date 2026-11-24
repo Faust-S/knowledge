@@ -1,4 +1,5 @@
 import {useLayoutEffect,useRef,useState,type ChangeEvent} from 'react';
+import {TechnologyDraftPanel} from './TechnologyDraftPanel';
 import type {D05SignedRouteReview,D05RouteReviewPort} from '../../modules/activity-base-anonymizer/d05-route-host.mjs';
 import {reviewD05ResultSelection,buildD05RouteQualityComparisonExample,type D05RouteReview,type D05RouteQualityReview}
  from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
@@ -83,7 +84,7 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
  },[host]);
  const apply=(records:unknown,label:string,token:number)=>{
   if(token!==generation.current)return;
-  const value=reviewD05ResultSelection(records);
+  const value=reviewD05ResultSelection(records,{includeTechnologyDraft:true});
   if(token!==generation.current)return;
   setResult(value);setSource(label);setGroupIndex(0);setPage(0);
  };
@@ -126,6 +127,7 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
   finally{if(token===generation.current)setBusy(false);}
  }
  const group=result?.groups[groupIndex];
+ const draft=result?.technology_draft?.groups.find(g=>g.group_id===group?.id);
  const quality=result&&'quality_review' in result?result.quality_review?.groups.find(g=>g.group_id===group?.id):null;
  const pageCount=Math.max(1,Math.ceil((group?.operations.length??0)/PAGE_SIZE));
  const localNumber=(opId:string)=>(group?.operations.findIndex(x=>x.id===opId)??-1)+1;
@@ -176,6 +178,8 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
      </div>)}</div>
      <p>Сравнение заявленных условий. Activity не проверяет фактическое качество изделия и не утверждает норматив.</p>
     </div>:<p>Карты качества не прочитаны в этой выборке. Сравнение структуры не подтверждает совпадение критериев приёмки.</p>}
+    {draft&&result?<TechnologyDraftPanel key={source+':'+group.id+':'+generation.current}
+     draft={draft} operations={group.operations}/>:null}
     <h3>Операции и исходные зависимости</h3>
     <div className="activity-domain-ops">
      {group.operations.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).map((op,i)=>
