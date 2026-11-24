@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 9aa8f94b622261a10852c466cb4ac96f910fafef
+          ref: b627ea7a445339a0ee1043cb4ab2b0a4f681a513
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,7 +51,7 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = 9aa8f94b622261a10852c466cb4ac96f910fafef
+          test "$(git -C d04-private/site rev-parse HEAD)" = b627ea7a445339a0ee1043cb4ab2b0a4f681a513
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
           echo "D04_GROWING_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
@@ -174,10 +174,12 @@ jobs:
           const server=await serveRealKernelHost(join(site,'dist'),{independentWitness:true,previewOrigin:true});
           try{
             const result=await runGrowingDiaryBrowser({chromium,origin:server.origin});
-            if(result.status!=='PASS'||result.objects!==520||result.events!==520||!result.cold||!result.historyPaging||!result.search)
+            if(result.status!=='PASS'||result.objects!==520||result.events!==520||!result.cold||!result.historyPaging||!result.search||!result.monthReview||result.reviewedDays!==13||result.reviewedObservations!==520)
               throw Error('D04_GROWING_DIARY_INCOMPLETE');
             console.log('D04_GROWING_DIARY_520_OBJECTS_EVENTS=PASS');
             console.log('D04_GROWING_DIARY_COLD_HISTORY_SEARCH=PASS');
+            console.log('D04_GROWING_DIARY_MONTH_520=PASS');
+            console.log('D04_GROWING_DIARY_MONTH_OPEN_MS='+Math.round(result.monthOpenMs));
           }finally{await new Promise(done=>server.server.close(done));}
           NODE
           code=$?
