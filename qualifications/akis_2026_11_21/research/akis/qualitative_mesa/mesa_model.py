@@ -1328,6 +1328,7 @@ class OperatorAKISModel(mesa.Model):
                 "new_cooperation_relation_created": False,
                 "same_mesa_scheduler": True,
             }
+        delegation_observation = None
         if self.economic_claims is not None:
             # When strict source-use is requested, assert the original KPB
             # BEFORE evaluating any owner's economic records. A revoked
@@ -1361,6 +1362,17 @@ class OperatorAKISModel(mesa.Model):
                 output["economics"][
                     "original_strict_context_source_qualification"
                 ] = original_economic_rights
+            # Reconcile actual delegation attempt expense before dependent
+            # economic conclusions. An absent required expense is unknown,
+            # not an implicit zero in recipient, order or portfolio views.
+            if self._has_original_delegation_claims:
+                from .process_preparation import original_delegation_reproduction_view
+                delegation_observation, delegation_costs = original_delegation_reproduction_view(
+                    self.qualitative, at=int(self.time), economics=output["economics"],
+                    strict_work_ids=self.strict_economic_source_work,
+                )
+                if delegation_costs is not None:
+                    output["economics"]["original_delegation_attempt_costs"] = delegation_costs
             if "recipient_use_value_evidence" in self.economic_claims:
                 try:
                     output["economics"]["original_recipient_use_value"] = review_original_recipient_use_value(
@@ -1548,17 +1560,14 @@ class OperatorAKISModel(mesa.Model):
                 from .process_preparation import (
                     original_delegation_reproduction_view, summarize_original_delegation_evolution,
                 )
-                delegation, delegation_costs = original_delegation_reproduction_view(
-                    self.qualitative, at=int(self.time), economics=output.get("economics"),
-                    strict_work_ids=self.strict_economic_source_work,
-                )
-                if delegation is not None:
+                if self.economic_claims is None:
+                    delegation_observation, _ = original_delegation_reproduction_view(
+                        self.qualitative, at=int(self.time))
+                if delegation_observation is not None:
                     gate = output["general_akis_model"]["agent_function_formation_model_gate"]
-                    gate["original_delegation_scope"] = delegation
+                    gate["original_delegation_scope"] = delegation_observation
                     gate["original_delegation_model_time"] = summarize_original_delegation_evolution(
                         self.general_views, horizon=self._model_end_at)
-                if delegation_costs is not None:
-                    output["economics"]["original_delegation_attempt_costs"] = delegation_costs
             if "capability_dynamics" in output:
                 cap = output["capability_dynamics"]
                 output["general_akis_model"]["capability_reproduction_feedback"] = {

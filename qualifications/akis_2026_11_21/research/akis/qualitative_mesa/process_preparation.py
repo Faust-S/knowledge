@@ -1220,15 +1220,28 @@ def original_delegation_reproduction_view(
         return sum((index[pos][0][1] for pos in positions), Decimal(0))
     def money(value):
         return f"{value:.2f}"
+    def cost_scope_complete(gp, pp):
+        works = {grants[pos]["work"] for pos in gp} | {packets[pos]["work"] for pos in pp}
+        gc = {pos for pos in gp if len(grant_costs.get(pos, [])) == 1}
+        pc = {pos for pos in pp if len(prep_costs.get(pos, [])) == 1}
+        ids = [grant_costs[pos][0][0] for pos in gc] + [prep_costs[pos][0][0] for pos in pc]
+        return bool(chain_ok and qualified and works <= strict_ids
+                    and (not pp or activity.get("status") == "MODEL_ORIGINAL_PACKET_ACTIVITY_COST_RECONCILED")
+                    and gc == gp and pc == pp and len(ids) == len(set(ids)))
+
     for key in scoped_works:
         gp = {pos for pos, row in grants.items() if row["work"] == key}
         pp = {pos for pos, row in packets.items() if row["work"] == key}
         gc = {pos for pos in gp if len(grant_costs.get(pos, [])) == 1}
         pc = {pos for pos in pp if len(prep_costs.get(pos, [])) == 1}
-        ids = [grant_costs[pos][0][0] for pos in gc] + [prep_costs[pos][0][0] for pos in pc]
-        complete = (chain_ok and qualified and key in strict_ids
-                    and activity.get("status") == "MODEL_ORIGINAL_PACKET_ACTIVITY_COST_RECONCILED"
-                    and gc == gp and pc == pp and len(ids) == len(set(ids)))
+        complete = cost_scope_complete(gp, pp)
+        work_owners = {grants[pos]["actor"] for pos in gp} | {packets[pos]["actor"] for pos in pp}
+        owner_scope = {
+            owner: cost_scope_complete(
+                {pos for pos in gp if grants[pos]["actor"] == owner},
+                {pos for pos in pp if packets[pos]["actor"] == owner})
+            for owner in sorted(work_owners)
+        }
         detail = {
             "status": "MODEL_ORIGINAL_DELEGATION_ATTEMPT_COSTS_RECONCILED" if complete
                       else "UNKNOWN_INCOMPLETE_OR_AMBIGUOUS_ORIGINAL_ATTEMPT_COST_SCOPE",
@@ -1236,6 +1249,7 @@ def original_delegation_reproduction_view(
             "applied_preparation_count": len(pp),
             "uniquely_anchored_mandate_cost_count": len(gc),
             "uniquely_anchored_preparation_cost_count": len(pc),
+            "per_original_owner_cost_scope_complete": owner_scope,
             "committed_effective_preparation_count": len(pp & committed) if chain_ok else None,
             "accepted_effective_preparation_count": len(pp & accepted) if chain_ok else None,
         }
@@ -1264,12 +1278,7 @@ def original_delegation_reproduction_view(
         # Each owner supplies its own evidence. Missing another owner's
         # mandate expense makes the Work/aggregate incomplete, but cannot
         # erase a separately reconciled operator preparation expense.
-        owner_costs = [grant_costs[pos] for pos in gp if len(grant_costs.get(pos, [])) == 1]
-        owner_costs += [prep_costs[pos] for pos in pp if len(prep_costs.get(pos, [])) == 1]
-        own_ids = [row[0][0] for row in owner_costs]
-        complete = (chain_ok and qualified and owner_works <= strict_ids
-                    and (not pp or activity.get("status") == "MODEL_ORIGINAL_PACKET_ACTIVITY_COST_RECONCILED")
-                    and len(own_ids) == len(gp)+len(pp) and len(own_ids) == len(set(own_ids)))
+        complete = cost_scope_complete(gp, pp)
         view = {
             "status": complete_status if complete else "UNKNOWN_INCOMPLETE_OR_AMBIGUOUS_ORIGINAL_ATTEMPT_COST_SCOPE",
             "original_work_count": len(owner_works),

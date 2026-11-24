@@ -1,6 +1,6 @@
 {
   "schema": "AKIS_NATIVE_SOURCE_SCOPE/1",
-  "source_revision": "28ee4b1644077ed857cb61b5caa8503ccd0f29ef",
+  "source_revision": "3249e63acb02c72f5572b480f0c6f975cdefd5c8",
   "source_files": {
     "__init__.py": "68b595531872d6fa1de0c15a5592cb43749e062d",
     "adaptation_review.py": "3ea02ee9da9e06433abdf0b89d771e199fa6c75b",
@@ -17,7 +17,7 @@
     "configuration_behavior.py": "708e20b70c77cc318f145a945a5070f74556e88d",
     "context_basis.py": "ef8e4fa0c6f891487e621130a9592e206eaa537a",
     "cooperation.py": "5206bcd543919adf9784779d4bd4de048f32cc9e",
-    "economic_flow.py": "8f26b31b4b893ca0defaec4bdde9f1de4fe3575c",
+    "economic_flow.py": "7be4b8c53ef557d00b23b6bf783c15aea5ea2b28",
     "economic_lifecycle.py": "a5a8f4903b73efa4fe260f375ee6aea79751d255",
     "economic_liquidity.py": "d477dde295fee8abefe9d89e9426729d4c8c5459",
     "economic_outlook.py": "041aeab6ade7a2a183ba002e023438dca7a74bf1",
@@ -67,7 +67,7 @@
     "integrated_nine_component_cycle.py": "9db1f84612a0d2acc999f33c69392c0ff78bf5ee",
     "joint_purchasing.py": "6b59d5623c8dd4fa5e7ff26fa9d6294eca9b5b97",
     "material.py": "c7010ce55481ba628696f347dc08144ac51158c4",
-    "mesa_model.py": "105bceb692caa1820ad70b93b616032ca4768ec4",
+    "mesa_model.py": "fa398bfc41471b407457ecf3cae0044bbbea6683",
     "modern_economic_evidence.py": "8e577e687bfaef41ae6ee7526c7b55e7c1c39de1",
     "org_code_policy.py": "f9374a5d389b62d4f5d33010b45dc5e4b9f9f205",
     "outside_demand.py": "84749bb9c70f4f92f42c309d6907d863c45973b7",
@@ -76,7 +76,7 @@
     "participant_response.py": "eb0788f5d02e14f3e3f788c1c965d967d68ed9df",
     "partner_discovery.py": "147544bcb902ee7db7394403bffce5567bc451d1",
     "portfolio.py": "7bcfbc9d14d3924bef798b7f3dde69e6aaf66ea6",
-    "process_preparation.py": "e437871235c3da383e38a21764c40dba7594272a",
+    "process_preparation.py": "b0741dfb572390f90e05882a183f7eed4ad0cc97",
     "requirements.txt": "25949a181523d7749a5eda07f52bc39007413032",
     "rules.py": "cc12dfa524eefb393ceec70f235fbc7dbafdb1aa",
     "scope_policy.py": "63aa19d99dd4603ac7ceedb0a4210c46c42b54b8",
@@ -218,7 +218,7 @@
     "three_period_original_work.py": "151ae288d5271764f8a099a038d9420b24298c8d",
     "work_assurance.py": "cc46a1d0408ebef3c2c5ccb006ec48fffadd37d6",
     "work_counterfactual.py": "9f13fa313ee0b3d921f3b22d5a0e2b4221a69f21",
-    "tests/test_original_portfolio_delegation_mesa.py": "899af09dd5bf7b7441ef130edc382151823096d4",
+    "tests/test_original_portfolio_delegation_mesa.py": "c6eea19898ab2b96fbc3236feb2c48ddf7e3cff0",
     "experiments/export_original_portfolio_delegation.py": "c9c7de81aebdde33e7f8a9fbd9041711eac71b3a"
   },
   "retained_stand_only": {

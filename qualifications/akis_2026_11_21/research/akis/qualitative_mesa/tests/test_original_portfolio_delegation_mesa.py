@@ -282,6 +282,15 @@ def test_missing_one_customer_cost_keeps_other_customer_cost_but_not_common_tota
     assert costs["per_original_owner"][BUYER]["all_combined_cost"] is None
     assert costs["per_original_owner"]["op"]["all_combined_cost"]=="102.00"
     assert not costs["per_original_owner"]["op"]["associated_work_cost_scope_complete"]
+    ev=out["economics"]
+    assert ev["original_portfolio_economics"]["status"]=="UNKNOWN"
+    assert "ORIGINAL_DELEGATION_ATTEMPT_COST_SCOPE_INCOMPLETE" in ev["original_portfolio_economics"]["reasons"]
+    assert "local_research_only" not in ev["original_portfolio_economics"]
+    recipient=ev["original_recipient_use_value"]["local_research_only"]
+    assert OUTSIDE not in recipient and "w3" in recipient
+    assert ev["original_market_order_economics"]["status"]=="MODEL_ORIGINAL_ACCEPTED_ORDER_ECONOMICS"
+    assert all(out["works"][key]["result"]==ACCEPTED for key in ("w1","w2","w3",OUTSIDE))
+
 
 
 def blocked_portfolio_mandate_routes(*, mandate_cost="20.00"):
@@ -391,4 +400,78 @@ def test_original_uncommitted_order_cannot_hide_applied_mandate_expense():
     doc["economic_claims"]["uncommitted_order_cost_evidence"]["owner_scopes"][BUYER]["resource_use_ids"].remove("blocked-portfolio-mandate-cost")
     from research.akis.qualitative_mesa.rules import InputError
     with pytest.raises(InputError,match="UNCOMMITTED_ORDER_"):
+        simulate(doc)
+
+
+def test_missing_main_customer_mandate_expense_does_not_invent_order_economics():
+    doc=mandate_portfolio_routes()["DELEGATED"]
+    from .test_original_delegation_recovery_mesa import drop_cost
+    rid="w3-independent-mandate-cost"
+    drop_cost(doc,rid)
+    money=doc["economic_claims"]
+    money["portfolio_scope_evidence"]["owner_scopes"]["b"]["resource_use_ids"].remove(rid)
+    money["market_order_economics"]["owner_scopes"]["b"]["resource_use_ids"].remove(rid)
+    for evidence in money["recipient_use_value_evidence"]:
+        if evidence["work"]=="w3":
+            evidence["resource_use_ids"].remove(rid)
+    out=simulate(doc)
+    ev=out["economics"]
+    assert all(out["works"][key]["result"]==ACCEPTED for key in ("w1","w2","w3",OUTSIDE))
+    assert "w3" not in ev["original_recipient_use_value"]["local_research_only"]
+    assert OUTSIDE in ev["original_recipient_use_value"]["local_research_only"]
+    for key in ("original_market_order_economics","original_portfolio_economics"):
+        assert ev[key]["status"]=="UNKNOWN"
+        assert "ORIGINAL_DELEGATION_ATTEMPT_COST_SCOPE_INCOMPLETE" in ev[key]["reasons"]
+        assert "local_research_only" not in ev[key]
+    costs=ev["original_delegation_attempt_costs"]["local_research_only"]
+    assert costs["per_original_owner"]["op"]["all_combined_cost"]=="102.00"
+    assert costs["per_original_owner"]["b"]["all_combined_cost"] is None
+    assert costs["per_original_owner"][BUYER]["all_combined_cost"]=="20.00"
+
+
+def test_unreconciled_operator_preparation_blocks_joint_economics_not_customer_costs():
+    doc=mandate_portfolio_routes()["DELEGATED"]
+    doc["economic_claims"]["lifecycle_costs"].pop("preparation_activity_bindings")
+    ev=simulate(doc)["economics"]
+    costs=ev["original_delegation_attempt_costs"]["local_research_only"]
+    assert costs["per_original_owner"]["op"]["all_combined_cost"] is None
+    assert costs["per_original_owner"]["b"]["all_combined_cost"]=="12.00"
+    assert costs["per_original_owner"][BUYER]["all_combined_cost"]=="20.00"
+    assert {"w3",OUTSIDE} <= set(ev["original_recipient_use_value"]["local_research_only"])
+    for key in ("original_market_order_economics","original_portfolio_economics"):
+        assert ev[key]["status"]=="UNKNOWN"
+        assert "ORIGINAL_DELEGATION_ATTEMPT_COST_SCOPE_INCOMPLETE" in ev[key]["reasons"]
+
+
+def test_missing_blocked_order_mandate_expense_retains_blocked_facts_but_not_total():
+    doc=blocked_portfolio_mandate_routes()["DELEGATED"]
+    from .test_original_delegation_recovery_mesa import drop_cost
+    rid="blocked-portfolio-mandate-cost"
+    drop_cost(doc,rid)
+    money=doc["economic_claims"]
+    for scope in ("uncommitted_order_cost_evidence","portfolio_scope_evidence"):
+        money[scope]["owner_scopes"][BUYER]["resource_use_ids"].remove(rid)
+    out=simulate(doc)
+    ev=out["economics"]
+    rejected=ev["original_uncommitted_order_costs"]
+    assert out["works"][OUTSIDE]["obligation"]=="NOT_ACCEPTED"
+    assert rejected["original_capacity_conflict_applied"]
+    assert not rejected["original_accepted_result"]
+    assert rejected["independent_zero_transfer_declaration_count"]==3
+    assert rejected["status"]=="UNKNOWN"
+    assert "local_research_only" not in rejected
+    assert ev["original_portfolio_economics"]["status"]=="UNKNOWN"
+    assert "ORIGINAL_DELEGATION_ATTEMPT_COST_SCOPE_INCOMPLETE" in ev["original_portfolio_economics"]["reasons"]
+    costs=ev["original_delegation_attempt_costs"]["local_research_only"]
+    assert costs["per_original_owner"]["op"]["all_combined_cost"]=="51.00"
+    assert costs["per_original_owner"][BUYER]["all_combined_cost"] is None
+
+
+def test_customer_cannot_omit_existing_mandate_expense_from_recipient_evidence():
+    doc=mandate_portfolio_routes()["DELEGATED"]
+    for evidence in doc["economic_claims"]["recipient_use_value_evidence"]:
+        if evidence["work"]==OUTSIDE:
+            evidence["resource_use_ids"].remove(OUTSIDE+"-independent-mandate-cost")
+    from research.akis.qualitative_mesa.rules import InputError
+    with pytest.raises(InputError,match="RECIPIENT_VALUE_COMPLETE_INCREMENTAL_ORIGINAL_ROWS_REQUIRED"):
         simulate(doc)

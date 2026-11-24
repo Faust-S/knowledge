@@ -931,6 +931,29 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
     return output
 
 
+def _original_delegation_cost_scope_incomplete(
+    economic_view: Mapping[str, Any], work_ids, *, owner: str | None = None,
+) -> bool:
+    """Use the one reconciled attempt-cost projection, never a new ledger.
+
+    No actual delegation event in a selected Work means this particular
+    requirement is inapplicable. An owner's complete own costs remain
+    distinct from joint cost closure across all owners of that Work.
+    """
+    details = economic_view.get("original_delegation_attempt_costs", {}).get(
+        "local_research_only", {}).get("by_original_work", {})
+    for key in work_ids:
+        detail = details.get(key)
+        if detail is None:
+            continue
+        if owner is None:
+            if detail.get("status") != "MODEL_ORIGINAL_DELEGATION_ATTEMPT_COSTS_RECONCILED":
+                return True
+        elif detail.get("per_original_owner_cost_scope_complete", {}).get(owner, True) is not True:
+            return True
+    return False
+
+
 def review_original_operator_service_economics(
     raw: Any, *, economic_claims: Mapping[str, Any], economic_view: Mapping[str, Any],
     works: Mapping[str, Any], subjects: Mapping[str, Any], operator: str,
@@ -1031,6 +1054,8 @@ def review_original_operator_service_economics(
     if set(caps) != set(fees_by_payer):
         raise EconomicInputError("OPERATOR_SERVICE_ALL_INDEPENDENT_PAYER_LIMITS_REQUIRED")
 
+    if _original_delegation_cost_scope_incomplete(economic_view, scope, owner=operator):
+        raise EconomicInputError("OPERATOR_SERVICE_ORIGINAL_DELEGATION_COST_SCOPE_INCOMPLETE")
     fees = sum(fees_by_payer.values(), Decimal(0))
     cash_cost = sum((_amount(transfers[key]["amount"]) for key in cash_ids), Decimal(0))
     noncash = sum((_amount(resources[key]["amount"]) for key in noncash_ids), Decimal(0))
@@ -1215,6 +1240,8 @@ def review_original_recipient_use_value(
                 or any(payment.get(key, {}).get("status") !=
                        "MODEL_ORIGINAL_TRIGGER_DUE_AND_POSTING_ORDER_CONSISTENT" for key in transfers)):
             reasons.append("ORIGINAL_INCREMENTAL_COST_SCOPE_INCOMPLETE")
+        if _original_delegation_cost_scope_incomplete(economic_view, {work_id}, owner=owner):
+            reasons.append("ORIGINAL_DELEGATION_OWNER_COST_SCOPE_INCOMPLETE")
         base = {"work": work_id, "owner": owner,
                 "status": "UNKNOWN" if reasons else "MODEL_ORIGINAL_RECIPIENT_INCREMENTAL_USE_VALUE",
                 "reasons": sorted(set(reasons))}
@@ -1591,6 +1618,8 @@ def review_original_market_order_economics(
         "local_research_only", {}).get(key)
     if not buyer_value:
         reasons.add("ORIGINAL_RECIPIENT_USE_VALUE_INCOMPLETE")
+    if _original_delegation_cost_scope_incomplete(economic_view, {key}):
+        reasons.add("ORIGINAL_DELEGATION_ATTEMPT_COST_SCOPE_INCOMPLETE")
 
     def ids(values):
         keys = [_identifier(i, "MARKET_ORDER_ORIGINAL_ROW")
@@ -1893,9 +1922,10 @@ def review_original_uncommitted_order_costs(
         raise EconomicInputError("UNCOMMITTED_ORDER_DISTINCT_RECIPIENT_OBSERVATION_REQUIRED")
     _identifier(observation["unit"], "UNCOMMITTED_ORDER_UNIT")
     _identifier(observation["basis"], "UNCOMMITTED_ORDER_USE_BASIS")
-    return {
+    incomplete_delegation = _original_delegation_cost_scope_incomplete(economic_view, {key})
+    output = {
         "schema": "AKIS_ORIGINAL_UNCOMMITTED_ORDER_COST/1.0",
-        "status": "MODEL_ORIGINAL_UNCOMMITTED_ORDER_COST_SCOPE",
+        "status": "UNKNOWN" if incomplete_delegation else "MODEL_ORIGINAL_UNCOMMITTED_ORDER_COST_SCOPE",
         "original_independent_refusal_applied": not capacity_case,
         **({"original_capacity_conflict_applied": True} if capacity_case else {}),
         "original_commit_blocked": True,
@@ -1906,15 +1936,19 @@ def review_original_uncommitted_order_costs(
         "no_order_recipient_quantity_source_qualified_not_measured": True,
         "no_original_work_transfer_or_result_created": True,
         "actual_costs_use_value_and_causal_effect": "NOT_IDENTIFIABLE",
-        "local_research_only": {
+    }
+    if incomplete_delegation:
+        output["reasons"] = ["ORIGINAL_DELEGATION_ATTEMPT_COST_SCOPE_INCOMPLETE"]
+        return output
+    output["local_research_only"] = {
             "total_exclusive_precommit_resource_cost": _sum_str(list(values.values())),
             "per_owner_exclusive_precommit_resource_cost": {k: _sum_str([v]) for k, v in values.items()},
             "declared_no_order_recipient_quantity": observation["quantity"],
             "declared_no_order_recipient_unit": observation["unit"],
             "declared_no_order_recipient_basis": observation["basis"],
             "declared_no_order_recipient_valuation_horizon": horizon,
-        },
     }
+    return output
 
 
 def _original_incomplete_activity_cost_exposure(
@@ -2092,6 +2126,8 @@ def review_original_portfolio_economics(
                 pending.append(key)
     if len({state.works[k].customer for k in keys}) != len(keys):
         reasons.add("PORTFOLIO_DISTINCT_ORIGINAL_RECIPIENTS_REQUIRED")
+    if _original_delegation_cost_scope_incomplete(economic_view, keys):
+        reasons.add("ORIGINAL_DELEGATION_ATTEMPT_COST_SCOPE_INCOMPLETE")
     if any(payment.get(i, {}).get("status") !=
            "MODEL_ORIGINAL_TRIGGER_DUE_AND_POSTING_ORDER_CONSISTENT" for i in transfers):
         reasons.add("PORTFOLIO_ORIGINAL_PAYMENT_CAUSALITY_INCOMPLETE")
