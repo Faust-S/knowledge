@@ -30,6 +30,10 @@ jobs:
           python -c "import mesa; assert mesa.__version__ == '3.5.2'"
       - name: Compile original package
         run: python -m compileall -q qualifications/akis_2026_11_21/research
+      - name: Original independent portfolio delegation
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_portfolio_delegation_mesa.py
       - name: Addressed original executed route economics and R4 Work payment cases
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
@@ -50,10 +54,6 @@ jobs:
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
         run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_delegation_recovery_mesa.py
-      - name: Original independent portfolio delegation
-        env:
-          PYTHONPATH: qualifications/akis_2026_11_21
-        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_portfolio_delegation_mesa.py
       - name: Restored cooperation regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21

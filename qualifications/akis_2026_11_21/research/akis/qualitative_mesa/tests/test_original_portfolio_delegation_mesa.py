@@ -119,6 +119,9 @@ def mandate_portfolio_routes(*, main_cost="12.00", outside_cost="20.00"):
             "at":tick,"action":"function_delegate","org_revision":"oc-1",
             "cost_evidence_ref":proof,"cost_evidence_revision":"cost-v1"})
         money["portfolio_scope_evidence"]["owner_scopes"][owner]["resource_use_ids"].append(mandate_id)
+        for evidence in money["recipient_use_value_evidence"]:
+            if evidence["work"]==work and evidence["owner"]==owner:
+                evidence["resource_use_ids"].append(mandate_id)
         if work=="w3":
             money["market_order_economics"]["owner_scopes"][owner]["resource_use_ids"].append(mandate_id)
     from .test_original_delegation_recovery_mesa import reindex,drop_cost
@@ -135,6 +138,9 @@ def mandate_portfolio_routes(*, main_cost="12.00", outside_cost="20.00"):
         next(row for row in direct["economic_claims"]["resource_uses"] if row["id"]==rid)["amount"]="83.00"
         drop_cost(direct,mandate_ids[work])
         direct["economic_claims"]["portfolio_scope_evidence"]["owner_scopes"][owner]["resource_use_ids"].remove(mandate_ids[work])
+        for evidence in direct["economic_claims"]["recipient_use_value_evidence"]:
+            if evidence["work"]==work and evidence["owner"]==owner:
+                evidence["resource_use_ids"].remove(mandate_ids[work])
         if work=="w3":
             direct["economic_claims"]["market_order_economics"]["owner_scopes"][owner]["resource_use_ids"].remove(mandate_ids[work])
     reindex(direct)
@@ -206,20 +212,36 @@ def test_original_portfolio_delegation_separates_system_effect_from_each_owner(m
     assert all(v>=0 for v in deltas.values())==(main==outside=="0.00")
 
 
-@pytest.mark.parametrize("work",["w3",OUTSIDE])
-def test_independent_customer_mandate_expiry_cannot_block_other_original_order(work):
+def test_independent_outside_customer_mandate_expiry_does_not_block_main_order():
     doc=without_costs(mandate_portfolio_routes()["DELEGATED"])
-    g=_event(doc,"function_delegate",work)
+    g=_event(doc,"function_delegate",OUTSIDE)
     src=next(row for row in doc["context_evidence"]["sources"] if row["id"]==g["delegation_source_ref"])
     src["valid_until"]=g["at"]
     out=simulate(doc)
-    other=OUTSIDE if work=="w3" else "w3"
-    assert out["works"][work]["obligation"]=="NOT_ACCEPTED"
-    assert out["works"][other]["result"]==ACCEPTED
-    prep=next(row for row in out["trace"] if row["work"]==work and row["action"]=="function_prepare")
+    assert out["works"][OUTSIDE]["obligation"]=="NOT_ACCEPTED"
+    assert out["works"]["w3"]["result"]==ACCEPTED
+    prep=next(row for row in out["trace"] if row["work"]==OUTSIDE and row["action"]=="function_prepare")
     assert prep["reason"]=="FORMATION_AGENT_DELEGATION_SOURCE_CONTEXT_SOURCE_EXPIRED"
     assert delegation_scope(out)["accepted_effective_preparation_count"]==1
     assert authority_time(out)["pending_work_model_ticks_without_current_mandate"]>0
+
+
+def test_main_mandate_expiry_preserves_explicit_stage_comparison_dependency():
+    doc=without_costs(mandate_portfolio_routes()["DELEGATED"])
+    g=_event(doc,"function_delegate","w3")
+    src=next(row for row in doc["context_evidence"]["sources"] if row["id"]==g["delegation_source_ref"])
+    src["valid_until"]=g["at"]
+    out=simulate(doc)
+    assert all(out["works"][key]["result"]==ACCEPTED for key in ("w1","w2"))
+    assert out["works"]["w3"]["obligation"]=="NOT_ACCEPTED"
+    # This particular outside order is an independent buyer's demand, but
+    # its original stage-market comparison explicitly requires the main
+    # route's applied commitment. Do not erase that provenance dependency.
+    assert OUTSIDE not in out["works"]
+    request=next(row for row in out["trace"] if row["work"]==OUTSIDE and row["action"]=="request")
+    assert request["outcome"]=="BLOCKED"
+    assert request["reason"]=="OUTSIDE_WORK_ORIGINAL_COMMITTED_STAGE_MARKET_REQUIRED"
+    assert delegation_scope(out)["accepted_effective_preparation_count"]==0
 
 
 def test_original_other_customer_grant_cannot_be_reused_on_different_work():
@@ -248,6 +270,9 @@ def test_missing_one_customer_cost_keeps_other_customer_cost_but_not_common_tota
     rid=OUTSIDE+"-independent-mandate-cost"
     drop_cost(doc,rid)
     doc["economic_claims"]["portfolio_scope_evidence"]["owner_scopes"][BUYER]["resource_use_ids"].remove(rid)
+    for evidence in doc["economic_claims"]["recipient_use_value_evidence"]:
+        if evidence["work"]==OUTSIDE and evidence["owner"]==BUYER:
+            evidence["resource_use_ids"].remove(rid)
     out=simulate(doc)
     costs=out["economics"]["original_delegation_attempt_costs"]["local_research_only"]
     assert costs["aggregate"]["all_combined_cost"] is None
@@ -255,7 +280,8 @@ def test_missing_one_customer_cost_keeps_other_customer_cost_but_not_common_tota
     assert costs["by_original_work"]["w3"]["all_combined_cost"]=="63.00"
     assert costs["per_original_owner"]["b"]["all_combined_cost"]=="12.00"
     assert costs["per_original_owner"][BUYER]["all_combined_cost"] is None
-    assert costs["per_original_owner"]["op"]["all_combined_cost"] is None
+    assert costs["per_original_owner"]["op"]["all_combined_cost"]=="102.00"
+    assert not costs["per_original_owner"]["op"]["associated_work_cost_scope_complete"]
 
 
 def blocked_portfolio_mandate_routes(*, mandate_cost="20.00"):

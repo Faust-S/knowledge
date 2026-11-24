@@ -1261,10 +1261,20 @@ def original_delegation_reproduction_view(
     for owner, positions in sorted(owner_positions.items()):
         gp, pp = positions["grants"], positions["packets"]
         owner_works = {grants[pos]["work"] for pos in gp} | {packets[pos]["work"] for pos in pp}
-        complete = all(details[key]["status"] == complete_status for key in owner_works)
+        # Each owner supplies its own evidence. Missing another owner's
+        # mandate expense makes the Work/aggregate incomplete, but cannot
+        # erase a separately reconciled operator preparation expense.
+        owner_costs = [grant_costs[pos] for pos in gp if len(grant_costs.get(pos, [])) == 1]
+        owner_costs += [prep_costs[pos] for pos in pp if len(prep_costs.get(pos, [])) == 1]
+        own_ids = [row[0][0] for row in owner_costs]
+        complete = (chain_ok and qualified and owner_works <= strict_ids
+                    and (not pp or activity.get("status") == "MODEL_ORIGINAL_PACKET_ACTIVITY_COST_RECONCILED")
+                    and len(own_ids) == len(gp)+len(pp) and len(own_ids) == len(set(own_ids)))
         view = {
             "status": complete_status if complete else "UNKNOWN_INCOMPLETE_OR_AMBIGUOUS_ORIGINAL_ATTEMPT_COST_SCOPE",
             "original_work_count": len(owner_works),
+            "associated_work_cost_scope_complete": all(details[key]["status"] == complete_status
+                                                       for key in owner_works),
             "applied_mandate_count": len(gp),
             "applied_preparation_count": len(pp),
             "zero_only_within_this_original_event_cost_scope": True,

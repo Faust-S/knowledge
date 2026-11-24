@@ -1,6 +1,6 @@
 {
   "schema": "AKIS_NATIVE_SOURCE_SCOPE/1",
-  "source_revision": "99b1e1c44ef37ae74ab79d8eaada6b0d187f6a9c",
+  "source_revision": "28ee4b1644077ed857cb61b5caa8503ccd0f29ef",
   "source_files": {
     "__init__.py": "68b595531872d6fa1de0c15a5592cb43749e062d",
     "adaptation_review.py": "3ea02ee9da9e06433abdf0b89d771e199fa6c75b",
@@ -76,7 +76,7 @@
     "participant_response.py": "eb0788f5d02e14f3e3f788c1c965d967d68ed9df",
     "partner_discovery.py": "147544bcb902ee7db7394403bffce5567bc451d1",
     "portfolio.py": "7bcfbc9d14d3924bef798b7f3dde69e6aaf66ea6",
-    "process_preparation.py": "1aade16803ad4a8f3e6d4b6ef3d87a9608555b10",
+    "process_preparation.py": "e437871235c3da383e38a21764c40dba7594272a",
     "requirements.txt": "25949a181523d7749a5eda07f52bc39007413032",
     "rules.py": "cc12dfa524eefb393ceec70f235fbc7dbafdb1aa",
     "scope_policy.py": "63aa19d99dd4603ac7ceedb0a4210c46c42b54b8",
@@ -218,7 +218,7 @@
     "three_period_original_work.py": "151ae288d5271764f8a099a038d9420b24298c8d",
     "work_assurance.py": "cc46a1d0408ebef3c2c5ccb006ec48fffadd37d6",
     "work_counterfactual.py": "9f13fa313ee0b3d921f3b22d5a0e2b4221a69f21",
-    "tests/test_original_portfolio_delegation_mesa.py": "c3ee756ca5ebe51b986f4dac1f4351f75691f474",
+    "tests/test_original_portfolio_delegation_mesa.py": "899af09dd5bf7b7441ef130edc382151823096d4",
     "experiments/export_original_portfolio_delegation.py": "c9c7de81aebdde33e7f8a9fbd9041711eac71b3a"
   },
   "retained_stand_only": {
