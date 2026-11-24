@@ -1,4 +1,4 @@
-import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
+import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
   from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
@@ -30,7 +30,8 @@ const fail=(code,details,cause)=>{throw new T4OriginalNetworkPublicationError(co
 export function isT4RecoverablePublicationWakeError(error){
   if(isT4RecoverableFrameTransportError(error))return true;
   if(!(error instanceof T4OriginalNetworkPublicationError)||
-    !['PUBLICATION_NETWORK_OUTCOME_UNKNOWN','PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED'].includes(error.code))
+    !['PUBLICATION_NETWORK_OUTCOME_UNKNOWN','PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED',
+      'PUBLICATION_INDEX_MIGRATION_OUTCOME_UNKNOWN'].includes(error.code))
     return false;
   return isT4RecoverableFrameTransportError(error.cause)||
     (error.code==='PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED'&&
@@ -53,6 +54,9 @@ const deepFreeze=x=>{if(x&&typeof x==='object'){Object.values(x).forEach(deepFre
 const SCHEMA='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1';
 const EVENT='t4.network.original.frame.publication';
 const SESSION='IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SESSION_V1';
+const PUBLICATION_PREFIX='t4:net:publish:';
+const publicationRef=(sessionRef,localNodeRef,technicalWorkspaceId)=>PUBLICATION_PREFIX+
+  digest('PUBLICATION-KEY',{sessionRef,localNodeRef,technicalWorkspaceId}).slice(7);
 const MAX_FRAMES=80,MAX_WIRE_BYTES=1024*1024;
 const SOURCE_TYPES=new Set(['HELLO','CAPABILITIES','HEADS','CHANGE_REF','CHUNK','RESUME']);
 const RECIPIENT_TYPES=new Set(['HELLO','CAPABILITIES','DIFF_REQUEST','CHUNK_REQUEST',
@@ -176,6 +180,97 @@ function slotList(slots,types){
   return slots.map(v=>({sequence:v.sequence,messageType:v.messageType}));
 }
 
+// Enumerate only the original technical catalog and original Events. The
+// result contains scope-bound references, never a new persisted queue. The
+// existing per-session publication port still proves the complete ledger
+// before any address migration. A foreign route cannot be migrated here.
+export async function readT4OriginalPublicationMigrationInventory({
+  technicalSchemaId=T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
+  technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
+  recipientNodeRef,scopeRef,ownerEpoch,localNodeRef,originalKernel,getMode,
+  readOriginalHostContext,authorizeOriginalTechnicalRead,
+}={}){
+  requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
+  const identity={technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
+    sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,localNodeRef};
+  if(![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
+    recipientNodeRef,scopeRef,localNodeRef].every(ID)||
+    technicalWorkspaceId===sourceWorkspaceId||sourceNodeRef===recipientNodeRef||
+    ![sourceNodeRef,recipientNodeRef].includes(localNodeRef)||
+    !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
+    ![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead].every(f=>typeof f==='function')||
+    !['listObjects','listEventsSince'].every(name=>originalKernel?.hasOperation?.('t1.'+name)===true&&
+      typeof originalKernel[name]==='function'))
+    fail('PUBLICATION_MIGRATION_INVENTORY_PORTS_REQUIRED');
+  const mode=()=>{if(getMode()!=='T4_NETWORK')fail('PUBLICATION_NETWORK_MODE_OFF');};
+  async function context(){
+    mode();const c=await readOriginalHostContext();mode();
+    if(c?.workspaceId!==technicalWorkspaceId||c.originalWriteOwnerRef!==originalWriteOwnerRef||
+      c.nodeRef!==localNodeRef||c.scopeRef!==scopeRef||!ID(c.hostSessionRef))
+      fail('PUBLICATION_ORIGINAL_HOST_CONTEXT_INVALID');
+    return {workspaceId:c.workspaceId,originalWriteOwnerRef:c.originalWriteOwnerRef,
+      nodeRef:c.nodeRef,scopeRef:c.scopeRef,hostSessionRef:c.hostSessionRef};
+  }
+  const initial=await context();
+  async function guard(operation){
+    if(!same(await context(),initial))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED');
+    if(await authorizeOriginalTechnicalRead(Object.freeze({...identity,operation,
+      purpose:'index-migration-inventory',recordRole:'publication',checkpointRef:null,
+      technicalSchemaId,originalHostSessionRef:initial.hostSessionRef,
+      originalHostAuthorityRequired:true,networkReceiptIsNotBusinessResult:true}))!==true)
+      fail('PUBLICATION_ORIGINAL_AUTHORITY_DENIED',{operation,purpose:'index-migration-inventory'});
+    if(!same(await context(),initial))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED');
+  }
+  await guard('t1.listObjects');
+  const catalog=await originalKernel.listObjects({workspace_id:technicalWorkspaceId,include_deleted:true});
+  await guard('t1.listObjects');
+  await guard('t1.listEventsSince');
+  const all=await originalKernel.listEventsSince(technicalWorkspaceId);
+  await guard('t1.listEventsSince');
+  if(!Array.isArray(catalog)||catalog.length>100000||!Array.isArray(all)||all.length>100000)
+    fail('PUBLICATION_MIGRATION_ORIGINAL_INVENTORY_INVALID');
+  const records=new Map(),events=new Map(),eventIds=new Set();
+  for(const o of catalog){
+    if(typeof o?.object_id!=='string'||!o.object_id.startsWith(PUBLICATION_PREFIX))continue;
+    const d=o.data,r=d?.identity;
+    if(o.workspace_id!==technicalWorkspaceId||o.schema_id!==technicalSchemaId||
+      o.schema_version!=='1.0.0'||o.deleted===true||!Number.isSafeInteger(o.revision)||o.revision<1||
+      d?.schema!==SCHEMA||d.checkpointRef!==o.object_id||!DIG(d.chainHash)||
+      !r||r.technicalWorkspaceId!==technicalWorkspaceId||records.has(o.object_id))
+      fail('PUBLICATION_MIGRATION_ORIGINAL_INVENTORY_INVALID');
+    const session=validateT4OriginalNativeCaptureSession(r.session);
+    if(![session.sourceNodeRef,session.recipientNodeRef].includes(r.localNodeRef)||
+      !same(r,{session,localNodeRef:r.localNodeRef,technicalWorkspaceId})||
+      publicationRef(session.sessionRef,r.localNodeRef,technicalWorkspaceId)!==o.object_id)
+      fail('PUBLICATION_MIGRATION_ORIGINAL_INVENTORY_INVALID');
+    const matches=session.workspaceId===sourceWorkspaceId&&session.originalWriteOwnerRef===originalWriteOwnerRef&&
+      session.sourceNodeRef===sourceNodeRef&&session.recipientNodeRef===recipientNodeRef&&
+      session.scopeRef===scopeRef&&session.ownerEpoch===ownerEpoch&&r.localNodeRef===localNodeRef;
+    records.set(o.object_id,{session,checkpointRef:o.object_id,revision:o.revision,chainHash:d.chainHash,matches});
+  }
+  for(const e of all){
+    if(typeof e?.object_id!=='string'||!e.object_id.startsWith(PUBLICATION_PREFIX))continue;
+    if(e.workspace_id!==technicalWorkspaceId||e.event_type!==EVENT||!ID(e.event_id)||
+      eventIds.has(e.event_id)||!records.has(e.object_id))
+      fail('PUBLICATION_MIGRATION_ORIGINAL_EVENT_NOT_PROVEN');
+    eventIds.add(e.event_id);
+    const list=events.get(e.object_id)??[];list.push(e);events.set(e.object_id,list);
+  }
+  const selected=[];
+  for(const [key,{matches,...r}] of records){
+    const list=events.get(key)??[];
+    if(list.length!==r.revision||list.some((e,i)=>e.revision!==i+1)||
+      list.at(-1)?.payload?.chainHash!==r.chainHash)
+      fail('PUBLICATION_MIGRATION_ORIGINAL_EVENT_NOT_PROVEN');
+    if(matches)selected.push(Object.freeze(r));
+  }
+  selected.sort((a,b)=>a.checkpointRef<b.checkpointRef?-1:a.checkpointRef>b.checkpointRef?1:0);
+  return Object.freeze({schema:'IWXA_T4_ORIGINAL_PUBLICATION_MIGRATION_INVENTORY_V1',
+    records:Object.freeze(selected),originalCatalogAndEventCorrespondenceVerified:true,
+    originalPublicationChainsVerified:false,originalAuthorityGranted:false,
+    createsStore:false,remoteCollectionEnumerated:false});
+}
+
 export function createT4OriginalNetworkPublicationPort({
   technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   session,localNodeRef,technicalWorkspaceId,originalKernel,getMode,
@@ -202,9 +297,7 @@ export function createT4OriginalNetworkPublicationPort({
   const remoteNodeRef=source?identity.recipientNodeRef:identity.sourceNodeRef;
   const types=source?SOURCE_TYPES:RECIPIENT_TYPES;
   const recordIdentity={session:identity,localNodeRef,technicalWorkspaceId};
-  const checkpointRef='t4:net:publish:'+digest('PUBLICATION-KEY',{
-    sessionRef:identity.sessionRef,localNodeRef,technicalWorkspaceId,
-  }).slice(7);
+  const checkpointRef=publicationRef(identity.sessionRef,localNodeRef,technicalWorkspaceId);
   const genesis=digest('PUBLICATION-CHAIN',{recordIdentity,checkpointRef});
   const mode=()=>{
     if(getMode()!=='T4_NETWORK')fail('PUBLICATION_NETWORK_MODE_OFF');
@@ -529,7 +622,7 @@ export function createT4OriginalNetworkPublicationPort({
         fail('PUBLICATION_INDEX_MIGRATION_OUTCOME_UNKNOWN',{
           sequence:entry.sequence,originalCode:error?.code??null,
           originalFrameAlreadyPresent:true,networkAddressMayHaveCommitted:true,
-          automaticRetryAllowed:false,originalSignedBytesRetained:true});
+          automaticRetryAllowed:false,originalSignedBytesRetained:true},error);
       }
       if(observed?.schema!=='IWXA_T4_CANDIDATE_FRAME_PRESENT_V1'||observed.key!==key||
         observed.sha256!==entry.sha256||observed.exactBytesPresent!==true||
