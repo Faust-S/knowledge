@@ -21,15 +21,16 @@ jobs:
           test -n "${DOMEN:-}" || { echo "D05_MULTI_READ=FAIL"; exit 1; }
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
           git init --quiet site
-          GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git ed1f6f5e7ac9ca09ae924c442274a278a7ac708a >/dev/null 2>&1 || { echo "D05_MULTI_READ=FAIL"; exit 1; }
+          GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git fb5171999dbe2d011a891726bf108dd78388c9e2 >/dev/null 2>&1 || { echo "D05_MULTI_READ=FAIL"; exit 1; }
           git -C site checkout --quiet --detach FETCH_HEAD
-          test "$(git -C site rev-parse HEAD)" = "ed1f6f5e7ac9ca09ae924c442274a278a7ac708a" || { echo "D05_MULTI_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "fb5171999dbe2d011a891726bf108dd78388c9e2" || { echo "D05_MULTI_SITE_PIN=FAIL"; exit 1; }
           unset header DOMEN
           echo "D05_MULTI_SITE_PIN=PASS"
       - uses: actions/setup-node@v4
         with:
           node-version: 22.16.0
       - name: Install and check exact sources without exporting source or patches
+        id: install
         run: |
           set -euo pipefail
           cd site
@@ -37,7 +38,7 @@ jobs:
           echo "D05_MULTI_INSTALL=PASS"
           node --check scripts/d05-first-use-real-kernel-witness.mjs
           echo "D05_INDEPENDENT_WITNESS_SYNTAX=PASS"
-          for file in src/lib/capacity-funding-availability.ts src/lib/capacity-management.ts src/lib/capacity-funding-stress.ts src/lib/capacity-payment-limit.ts src/lib/capacity-work-plan.ts src/lib/capacity-queue-search.ts src/lib/capacity-management.test.ts src/lib/capacity-queue-search.test.ts src/lib/capacity-combination.test.ts src/host/CehovodManagementComparison.tsx src/host/CehovodCashDelayPanel.tsx src/host/CehovodFundingStressPanel.tsx src/host/CehovodPreparedWorkPanel.tsx scripts/d05-management-ui-witness.ts; do
+          for file in src/lib/capacity-funding-availability.ts src/lib/capacity-management.ts src/lib/capacity-funding-stress.ts src/lib/capacity-payment-limit.ts src/lib/capacity-work-plan.ts src/lib/capacity-queue-search.ts src/lib/capacity-management.test.ts src/lib/capacity-queue-search.test.ts src/lib/capacity-combination.test.ts src/host/CehovodManagementComparison.tsx src/host/CehovodCashDelayPanel.tsx src/host/CehovodFundingStressPanel.tsx src/host/CehovodPreparedWorkPanel.tsx scripts/d05-management-ui-witness.ts scripts/d05-first-use-real-kernel-witness.mjs; do
             if ./node_modules/.bin/prettier --check "$file" > "$RUNNER_TEMP/d05-format.log" 2>&1; then
               echo "D05_FORMAT_$(basename "$file")=PASS"
             else
@@ -98,6 +99,7 @@ jobs:
           fi
           exit "$status"
       - name: Run positive browser qualification of the existing cash and management panels
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           set -euo pipefail
           cd site
