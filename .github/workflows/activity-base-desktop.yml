@@ -322,7 +322,14 @@ jobs:
         env:
           IWXA_T3_PUBLIC_CORE_DIR: ../t3-public-core/packages/t3-core
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+          IWXA_ACTIVITY_TECHNOLOGY_ARTIFACTS: ${{ runner.temp }}/activity-technology-products
         run: node tests/test_activity_t3_real_t2_host.browser.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: activity-technology-products-original-t2
+          path: ${{ runner.temp }}/activity-technology-products
+          if-no-files-found: error
+          retention-days: 14
   windows-desktop:
     runs-on: windows-latest
     timeout-minutes: 50

@@ -3,7 +3,8 @@
 // archive writer, private native Agent or fabricated business execution.
 import assert from 'node:assert/strict';
 import {join} from 'node:path';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
+import {mkdirSync,writeFileSync} from 'node:fs';
 import {preparePersonalTechnologyProduct,prepareD05TechnologyProduct} from '../modules/activity-base-anonymizer/technology-product.mjs';
 import {personalRows,personalProposal,personalBinding,d05Candidate,d05Binding} from './activity_technology_product_fixture.mjs';
 export async function qualifyOriginalTechnologyProducts({browser,open,chromium,tmp,origin,writer,service}){
@@ -98,6 +99,17 @@ export async function qualifyOriginalTechnologyProducts({browser,open,chromium,t
    }));
   },{service,entries,archives});
   assert.deepEqual(cold,[personal.object_data,d05.object_data]);
+  // Publish only the two qualified, synthetic products, never original source data.
+  const output=process.env.IWXA_ACTIVITY_TECHNOLOGY_ARTIFACTS;
+  if(output){
+   mkdirSync(output,{recursive:true});
+   const files=['personal-technology.iwxa','d05-technology.iwxa'].map((name,i)=>{
+    const bytes=Buffer.from(archives[i].bytes);
+    writeFileSync(join(output,name),bytes);
+    return {name,sha256:createHash('sha256').update(bytes).digest('hex'),product_sha256:archives[i].digest};
+   });
+   writeFileSync(join(output,'qualification.json'),JSON.stringify({synthetic:true,originalKernel:true,independentRecipient:true,coldReadback:true,actualActivation:false,files},null,2)+'\n');
+  }
   console.log('ACTIVITY_ORIGINAL_T2_TECHNOLOGY_ARCHIVES_INDEPENDENT_IMPORT_PASS',
    JSON.stringify({archives:2,originalKernel:true,independentRecipient:true,coldReadback:true,
     personalNativeInputs:true,d05NativeInputs:true,actualActivation:false}));
