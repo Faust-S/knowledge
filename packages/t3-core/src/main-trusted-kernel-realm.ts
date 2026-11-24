@@ -7,6 +7,8 @@
 import { connectKernel } from "./kernel-client/connect";
 import { createKernelFacade } from "./workspace-host/context/create-kernel-facade";
 import { createControlLoopbackOwner } from "./t3/control-loopback-owner.mjs";
+import { ORIGINAL_NETWORK_RELAY_METHODS,decodeOriginalNetworkRelayArgs,
+  encodeOriginalNetworkRelayResult } from "./t3/original-kernel-native-relay-codec.mjs";
 import {
   acceptOriginalKernelRealmChannel,
   ISOLATED_KERNEL_SCHEMA,
@@ -66,9 +68,10 @@ async function attachOriginalNativeKernelRelay(
     // never advertise native APPLY for a grant-only declaration.
     granted_operations:[...plain.grantedOperations],
   };
-  let connected:{sessionId:string;contextEpoch:number}|null=null;
+  let connected:{sessionId:string;contextEpoch:number;networkRelayVersion?:number;
+    networkMethods?:string[]}|null=null;
   try{
-    connected=await owner.originalKernelRelay("attach",{sessionInfo:info});
+    connected=await owner.originalKernelRelay("attach",{sessionInfo:info,networkRelayVersion:1});
   }catch(error){
     const code=(error as {code?:string}|null)?.code;
     // The ORIGINAL D3 owner is optional. Older signed D1 Hosts and an
@@ -92,6 +95,18 @@ async function attachOriginalNativeKernelRelay(
     }).catch(()=>{});
     return;
   }
+  const networkMethods=new Set<string>();
+  if(connected.networkRelayVersion!==undefined||connected.networkMethods!==undefined){
+    if(connected.networkRelayVersion!==1||!Array.isArray(connected.networkMethods)||
+      !connected.networkMethods.length||
+      new Set(connected.networkMethods).size!==connected.networkMethods.length||
+      !connected.networkMethods.every(name=>Object.hasOwn(ORIGINAL_NETWORK_RELAY_METHODS,name)&&
+        info.granted_operations.some(operation=>operation===ORIGINAL_NETWORK_RELAY_METHODS[name]))){
+      await owner.originalKernelRelay("detach",{sessionId:connected.sessionId}).catch(()=>{});
+      throw reject("T3_ORIGINAL_NETWORK_RELAY_NEGOTIATION_INVALID");
+    }
+    for(const name of connected.networkMethods){originalMethods.add(name);networkMethods.add(name);}
+  }
   let active=true;
   const selected=connected;
   stopNativeRelay=()=>{
@@ -107,7 +122,9 @@ async function attachOriginalNativeKernelRelay(
     const fn=(plain as unknown as Record<string,unknown>)[method];
     if(typeof fn!=="function")
       throw reject("T3_D3_ORIGINAL_KERNEL_METHOD_DENIED");
-    return (fn as (...args:unknown[])=>Promise<unknown>)(...args);
+    const result=await (fn as (...args:unknown[])=>Promise<unknown>)(
+      ...(networkMethods.has(method)?decodeOriginalNetworkRelayArgs(method,args):args));
+    return networkMethods.has(method)?encodeOriginalNetworkRelayResult(method,result):result;
   };
   void (async()=>{
     while(active&&live){

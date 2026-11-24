@@ -4,6 +4,9 @@
 // create a second Host. Native Reconciliation/SubjectBinding decides what to
 // dispatch; this link carries only the already-authorized exact command.
 import {randomBytes} from "node:crypto";
+import {ORIGINAL_NETWORK_RELAY_METHODS as NETWORK_METHODS,
+  encodeOriginalNetworkRelayArgs,decodeOriginalNetworkRelayResult}
+  from "./original-kernel-native-relay-codec.mjs";
 const METHODS=Object.freeze({
   getWorkspace:"t1.getWorkspace",
   commitObjectGraph:"t1.commitObjectGraph",
@@ -23,14 +26,37 @@ const validSession=s=>s&&typeof s==="object"&&!Array.isArray(s)&&
 
 export function createOriginalKernelNativeRelay({
   currentEpoch,onAttach,onDetach=()=>{},timeoutMs=20000,
-  idleLeaseMs=30000,
+  idleLeaseMs=30000,networkOwner=null,
 }={}){
   check(typeof currentEpoch==="function"&&typeof onAttach==="function"&&
     typeof onDetach==="function"&&Number.isSafeInteger(timeoutMs)&&
     timeoutMs>=1000&&timeoutMs<=60000&&
     Number.isSafeInteger(idleLeaseMs)&&idleLeaseMs>=1000&&idleLeaseMs<=120000,
     "T3_D3_ORIGINAL_KERNEL_RELAY_HOST_REQUIRED");
+  // Explicit original native owner opt-in; the D3 port and its grants are
+  // unchanged. No network principal can select these methods.
+  const networkNames=networkOwner===null?[]:
+    Object.keys(NETWORK_METHODS).filter(name=>
+      networkOwner.operations?.includes(NETWORK_METHODS[name]));
+  check(networkOwner===null||(Array.isArray(networkOwner.operations)&&
+    networkOwner.operations.length>0&&networkNames.length===networkOwner.operations.length&&
+    typeof networkOwner.authorizeOperation==="function"&&
+    typeof networkOwner.onAttach==="function"&&typeof networkOwner.onDetach==="function"&&
+    (networkOwner.onIdleWake===undefined||typeof networkOwner.onIdleWake==="function")),
+    "T3_ORIGINAL_NETWORK_RELAY_OWNER_REQUIRED");
+  const network=networkOwner===null?null:Object.freeze({
+    names:Object.freeze([...networkNames]),authorize:networkOwner.authorizeOperation,
+    attach:networkOwner.onAttach,detach:networkOwner.onDetach,wake:networkOwner.onIdleWake,
+  });
   let live=null,pending=null,closed=false,nextId=1,attaching=null;
+  let reservation=null,wakeTask=null;
+  const networkActive=state=>!closed&&live===state&&state.networkReady===true;
+  const networkCleanup=state=>{
+    if(!state?.networkStarted)return;
+    state.networkReady=false;state.networkStarted=false;
+    try{network.detach({contextEpoch:state.epoch,sessionId:state.sessionId});}
+    catch{/* never restore an invalidated binding */}
+  };
   // Exactly one pending HTTP long-poll on the original Control. The signed
   // native owner can wake it immediately instead of waiting for hidden
   // WebView timer callbacks (which Windows/WebView2 may throttle).
@@ -44,13 +70,14 @@ export function createOriginalKernelNativeRelay({
       clearTimeout(idleLeaseTimer);idleLeaseTimer=null;
     }
     const prior=live;
-    live=null;
+    live=null;reservation=null;
     wakePoll();
     if(pending){
       const call=pending;pending=null;
       clearTimeout(call.timer);
       call.reject(Object.assign(Error(reason),{code:reason}));
     }
+    networkCleanup(prior);
     if(prior){try{onDetach();}catch{/* never restore a stale Host */}}
   };
   // The existing browser "next" long-poll renews this native session lease.
@@ -63,7 +90,7 @@ export function createOriginalKernelNativeRelay({
       if(!live||closed)return;
       // After original graph dispatch a write may have committed, even if
       // the browser vanished before returning the original receipt.
-      detach(pending?.issued&&pending.method==="commitObjectGraph"
+      detach(pending?.issued&&(["commitObjectGraph","putObject","deleteObject","putAsset","deleteAsset","putRelation","deleteRelation"].includes(pending.method))
         ?"T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN"
         :"T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
     },idleLeaseMs);
@@ -89,7 +116,10 @@ export function createOriginalKernelNativeRelay({
     check(!closed&&live&&live.epoch===epoch&&live.sessionId===sessionId&&
       live.grants.granted_operations.includes(METHODS[method]),
       "T3_D3_ORIGINAL_KERNEL_NOT_CONNECTED");
-    check(pending===null,"T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
+    check(pending===null&&reservation===null,"T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
+    return enqueue(method,args,false);
+  };
+  const enqueue=(method,args,networkCommand)=>{
     const id=nextId++;
     return new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>{
@@ -99,9 +129,52 @@ export function createOriginalKernelNativeRelay({
         detach("T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN");
       },timeoutMs);
       timer.unref?.();
-      pending={id,method,args:clone(args),issued:false,timer,resolve,reject};
+      pending={id,method,args:clone(args),networkCommand,issued:false,timer,resolve,reject};
       wakePoll();
     });
+  };
+  const networkDispatch=async(state,method,args)=>{
+    check(networkActive(state)&&attaching!==state&&network.names.includes(method),
+      "T3_ORIGINAL_NETWORK_RELAY_NOT_CONNECTED");
+    check(pending===null&&reservation===null,"T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
+    const held={};reservation=held;
+    try{
+      // Snapshot BEFORE asynchronous authorization. The owner sees exactly
+      // the arguments that will reach the original Kernel, not UI metadata.
+      const exact=clone(args);
+      const operation=NETWORK_METHODS[method];
+      check(await currentEpoch()===state.epoch&&networkActive(state),
+        "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+      check(await network.authorize(Object.freeze({operation,method,args:clone(exact),
+        sessionId:state.sessionId,contextEpoch:state.epoch,
+        originalKernelOperation:true,networkGrantsNoWriteAuthority:true}))===true,
+        "T3_ORIGINAL_NETWORK_RELAY_AUTHORITY_DENIED");
+      check(await currentEpoch()===state.epoch&&networkActive(state)&&reservation===held,
+        "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+      const encoded=encodeOriginalNetworkRelayArgs(method,exact);
+      return enqueue(method,encoded,true);
+    }finally{if(reservation===held)reservation=null;}
+  };
+  const networkPort=state=>Object.freeze({
+    sessionInfo:state.kernel.sessionInfo,
+    hasOperation:id=>networkActive(state)&&network.names.some(name=>NETWORK_METHODS[name]===id),
+    ...Object.fromEntries(network.names.map(name=>[name,(...args)=>networkDispatch(state,name,args)])),
+  });
+  // Driven by the existing browser next/lease, never an extra timer or queue.
+  // Do not await the callback in next(): its Kernel command must wake this poll.
+  const startNetworkWake=state=>{
+    if(!networkActive(state)||attaching===state||!network.wake||wakeTask||pending||reservation)return;
+    const task={state};wakeTask=task;
+    void Promise.resolve().then(async()=>{
+      if(networkActive(state))await network.wake(Object.freeze({
+        kernel:state.networkKernel,contextEpoch:state.epoch,sessionId:state.sessionId,
+        isHostActive:()=>networkActive(state),
+      }));
+    }).catch(()=>{
+      // Stop this binding on an unclassified failure. The original owner
+      // must inspect durable evidence on a new binding, not repeat a write.
+      networkCleanup(state);
+    }).finally(()=>{if(wakeTask===task)wakeTask=null;});
   };
   return Object.freeze({
     // An uncompleted native attach must never advertise an APPLY-capable
@@ -121,7 +194,7 @@ export function createOriginalKernelNativeRelay({
         // The old onAttach may still be completing after a detach. Do not let
         // a new session race the native owner while its previous binding is
         // being installed or torn down.
-        check(attaching===null,"T3_D3_ORIGINAL_KERNEL_ATTACH_IN_PROGRESS");
+        check(attaching===null&&wakeTask===null,"T3_D3_ORIGINAL_KERNEL_ATTACH_IN_PROGRESS");
         check(!live&&validSession(payload?.sessionInfo),
           "T3_D3_ORIGINAL_KERNEL_SESSION_INVALID");
         const grants=clone(payload.sessionInfo);
@@ -134,7 +207,7 @@ export function createOriginalKernelNativeRelay({
           "T3_D3_ORIGINAL_KERNEL_OPERATIONS_REQUIRED");
         const epoch=requestEpoch,sessionId=randomBytes(32).toString("base64url");
         const kernel=kernelFor(epoch,grants,sessionId);
-        const state={epoch,sessionId,grants,kernel};
+        const state={epoch,sessionId,grants,kernel,networkReady:false,networkStarted:false};
         live=state;
         attaching=state;
         try{
@@ -142,8 +215,26 @@ export function createOriginalKernelNativeRelay({
             "T3_D3_ORIGINAL_KERNEL_OWNER_ATTACH_FAILED");
           if(await currentEpoch()!==epoch||live!==state)
             fail("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+          if(network&&payload.networkRelayVersion===1&&
+            network.names.every(name=>grants.granted_operations.includes(NETWORK_METHODS[name]))){
+            state.networkStarted=true;
+            state.networkKernel=networkPort(state);
+            let admitted=false;
+            try{admitted=await network.attach(Object.freeze({
+              kernel:state.networkKernel,contextEpoch:epoch,sessionId,
+              isHostActive:()=>networkActive(state),
+            }))===true;}catch{/* network opt-in does not disable original D3 */}
+            if(await currentEpoch()!==epoch||live!==state){
+              // A late owner attach after detach may have created a binding.
+              state.networkStarted=true;networkCleanup(state);
+              fail("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+            }
+            state.networkReady=admitted;
+            if(!admitted)networkCleanup(state);
+          }
           renewIdleLease();
-          return {sessionId,contextEpoch:epoch};
+          return {sessionId,contextEpoch:epoch,
+            ...(state.networkReady?{networkRelayVersion:1,networkMethods:[...network.names]}:{})};
         }catch(error){
           if(live===state)detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
           else{
@@ -166,6 +257,7 @@ export function createOriginalKernelNativeRelay({
         if(!pending){
           check(idlePoll===null,
             "T3_D3_ORIGINAL_KERNEL_POLL_IN_PROGRESS");
+          startNetworkWake(live);
           await new Promise(resolve=>{
             const done=()=>{
               clearTimeout(timer);resolve();
@@ -184,6 +276,12 @@ export function createOriginalKernelNativeRelay({
           }
         }
         if(!pending||pending.issued)return {kind:"IDLE"};
+        if(pending.networkCommand&&!networkActive(live)){
+          const call=pending;pending=null;clearTimeout(call.timer);
+          call.reject(Object.assign(Error("T3_ORIGINAL_NETWORK_RELAY_NOT_CONNECTED"),
+            {code:"T3_ORIGINAL_NETWORK_RELAY_NOT_CONNECTED"}));
+          return {kind:"IDLE"};
+        }
         pending.issued=true;
         return {kind:"COMMAND",id:pending.id,method:pending.method,
           args:clone(pending.args)};
@@ -196,7 +294,8 @@ export function createOriginalKernelNativeRelay({
         const call=pending;pending=null;
         clearTimeout(call.timer);
         if(payload.ok===true){
-          try{call.resolve(clone(payload.result));}
+          try{call.resolve(clone(call.networkCommand?
+            decodeOriginalNetworkRelayResult(call.method,payload.result):payload.result));}
           catch{call.reject(Object.assign(
             Error("T3_D3_ORIGINAL_KERNEL_RESULT_INVALID"),
             {code:"T3_D3_ORIGINAL_KERNEL_RESULT_INVALID"}));}
