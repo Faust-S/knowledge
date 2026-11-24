@@ -150,6 +150,9 @@ jobs:
     if: ${{ success() }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    outputs:
+      retained_commit: ${{ steps.release-push.outputs.retained_commit }}
+      dist_sha256: ${{ steps.release-push.outputs.dist_sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -402,9 +405,67 @@ jobs:
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: activate qualified self-contained T3 build in work branch [skip ci] [skip actions]'
           test -z "$(git status --porcelain --untracked-files=no)"
       - name: Authorized private branch retention and exact remote readback
+        id: release-push
         working-directory: site
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
-          bash ../pipeline/scripts/d07-private-git-transport.sh publish 873573fc5ff0f0336a468849730ab15b5dfa1b53 "$(git rev-parse HEAD)"
+          candidate="$(git rev-parse HEAD)"
+          bash ../pipeline/scripts/d07-private-git-transport.sh publish 873573fc5ff0f0336a468849730ab15b5dfa1b53 "$candidate"
+          echo "retained_commit=$candidate" >> "$GITHUB_OUTPUT"
+          echo "dist_sha256=$(sha256sum "$RUNNER_TEMP/d07-local-2.sha" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       # Never upload private source, prepared inputs, dist, logs or model data.
+  retained-private-readback:
+    needs: original-t3-integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: ${{ needs.original-t3-integration.outputs.retained_commit }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Rebuild from actually retained private commit without IWXA source or network
+        working-directory: site
+        env:
+          EXPECTED_RETAINED: ${{ needs.original-t3-integration.outputs.retained_commit }}
+          EXPECTED_DIST_SHA: ${{ needs.original-t3-integration.outputs.dist_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_RETAINED" =~ ^[0-9a-f]{40}$ && "$EXPECTED_DIST_SHA" =~ ^[0-9a-f]{64}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_RETAINED"
+          node --input-type=module -e 'import {readFileSync} from "node:fs";const p=JSON.parse(readFileSync("package.json","utf8"));if(p.scripts.build!=="node --import tsx scripts/build-d07-t3-local-site.mjs"||p.scripts.build!==p.scripts["t3:build"])process.exit(1)'
+          bun install --frozen-lockfile > "$RUNNER_TEMP/readback-install.log" 2>&1 || { echo D07_T3_READBACK_INSTALL=FAIL; exit 1; }
+          guard="$RUNNER_TEMP/d07-no-build-tools"
+          mkdir -p "$guard"
+          for name in git npm npx bun; do
+            printf '#!/bin/sh\necho D07_FORBIDDEN_ORDINARY_BUILD_TOOL >&2\nexit 73\n' > "$guard/$name"
+            chmod +x "$guard/$name"
+          done
+          nodebin="$(command -v node)"
+          npmcli="$(readlink -f "$(command -v npm)")"
+          sudo unshare --net -- bash -c 'ip link set lo up && exec setpriv --reuid "$1" --regid "$2" --init-groups env PATH="$3" "$4" "$5" run build' -- "$(id -u)" "$(id -g)" "$guard:$PATH" "$nodebin" "$npmcli" > "$RUNNER_TEMP/readback-build.log" 2>&1 || {
+            echo D07_T3_RETAINED_BUILD=FAIL
+            grep -oE 'D07_(T3|STATIC|PUBLIC|FORBIDDEN)_[A-Z0-9_]+' "$RUNNER_TEMP/readback-build.log" | sort -u | head -20 || true
+            exit 1
+          }
+          (cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$RUNNER_TEMP/readback-dist.sha"
+          test "$(sha256sum "$RUNNER_TEMP/readback-dist.sha" | cut -d ' ' -f 1)" = "$EXPECTED_DIST_SHA"
+          echo D07_T3_RETAINED_BUILD_BYTES=PASS
+          node scripts/preview-d07-t3-local.mjs --http-audit > "$RUNNER_TEMP/readback-http.log" 2>&1 || {
+            echo D07_T3_RETAINED_HTTP=FAIL
+            grep -oE 'D07_T3_PREVIEW_[A-Z0-9_]+' "$RUNNER_TEMP/readback-http.log" | sort -u | head -20 || true
+            exit 1
+          }
+          grep -E '^D07_T3_PREVIEW_HTTP=PASS \{' "$RUNNER_TEMP/readback-http.log"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo D07_T3_RETAINED_READBACK=PASS
+      # Never upload private sources, files, build artifacts or private logs.

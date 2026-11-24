@@ -8,7 +8,7 @@ export GIT_TERMINAL_PROMPT=0
 repo=Faust-S/uslugovod.ru
 url=https://github.com/Faust-S/uslugovod.ru.git
 target=refs/heads/work/2026-11-24-d07-t3
-fail() { printf 'D07_T3_PRIVATE_TRANSPORT=%s\n' "$1"; exit 1; }
+fail() { printf 'D07_T3_PRIVATE_TRANSPORT=%s\n' "$1" >&2; exit 1; }
 classify() {
   local file="$1"
   if grep -Eiq 'GH001|large files detected|exceeds GitHub.s file size limit' "$file"; then echo FILE_SIZE
@@ -39,7 +39,7 @@ git_private() {
   git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
     -c http.extraheader= -c http.https://github.com/.extraheader= "$@"
 }
-if ! gh api "repos/$repo" --jq '[.private, (.permissions.push // "unknown")] | @tsv' > "$tmp/repo" 2> "$tmp/api"; then
+if ! gh api "repos/$repo" --jq '[.private, (if .permissions.push == null then "unknown" else .permissions.push end)] | @tsv' > "$tmp/repo" 2> "$tmp/api"; then
   fail "API_$(classify "$tmp/api")"
 fi
 IFS=$'\t' read -r private push < "$tmp/repo"
@@ -53,7 +53,8 @@ remote_head() {
   [[ "$output" =~ ^([0-9a-f]{40})[[:space:]]refs/heads/work/2026-11-24-d07-t3$ ]] || fail READBACK_FORMAT
   printf '%s\n' "${BASH_REMATCH[1]}"
 }
-[[ "$(remote_head)" == "$expected" ]] || fail HEAD_CONFLICT
+observed="$(remote_head)" || exit 1
+[[ "$observed" == "$expected" ]] || fail HEAD_CONFLICT
 if [[ "$mode" == preflight ]]; then
   [[ "$(git rev-parse HEAD)" == "$expected" ]] || fail LOCAL_HEAD
   # No reference or file is changed by this operation.
@@ -73,6 +74,7 @@ git merge-base --is-ancestor "$expected" "$candidate" || fail NOT_FAST_FORWARD
 if ! git_private push "$url" "HEAD:$target" > "$tmp/push" 2>&1; then
   fail "PUSH_$(classify "$tmp/push")"
 fi
-[[ "$(remote_head)" == "$candidate" ]] || fail POST_PUSH_READBACK
+observed="$(remote_head)" || exit 1
+[[ "$observed" == "$candidate" ]] || fail POST_PUSH_READBACK
 printf 'D07_T3_PRIVATE_RETAINED_COMMIT=%s\n' "$candidate"
 printf 'D07_T3_PRIVATE_TRANSPORT=PASS\n'
