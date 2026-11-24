@@ -7,6 +7,7 @@ import {
   decodeT4CandidateFrame,decodeT4CandidateSigningBytes,negotiateT4CandidateCapabilities,
   verifyT4CandidateWireFrame,T4_CANDIDATE_VERSION,T4_RELATION_EVENT_EXTENSION,
   T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION,validT4NativeOriginalEventRevision,
+  T4_SESSION_SUPERSESSION_EXTENSION,createT4CandidateSupersessionClaim,
 } from '../src/network/standard-network-wire-candidate.mjs';
 
 const {privateKey,publicKey}=generateKeyPairSync('ed25519');
@@ -443,4 +444,43 @@ test('K36 signer input parser rejects Access-domain bytes, signature envelopes a
   assert.throws(()=>decodeT4CandidateSigningBytes(Buffer.concat([captured,Buffer.from(' ')])),{code:'WIRE_NONCANONICAL_OR_DUPLICATE_KEYS'});
   const signed=await wire();
   assert.throws(()=>decodeT4CandidateSigningBytes(signed),{code:'WIRE_SIGNING_DOMAIN_INVALID'});
+});
+
+
+test('K47 candidate retirement controls have separate deterministic control addresses and preserve one original successor',async()=>{
+  const input={sourceNodeRef:base.sourceNodeRef,recipientNodeRef:base.recipientNodeRef,scopeRef:base.scopeRef,
+    ownerEpoch:base.ownerEpoch,previousSessionRef:base.sessionRef,changeId:base.body.changeId,
+    captureDigest:D,predecessorDigest:E,decisionRef:'decision:k47:one',requestRef:'request:k47:one',
+    expectedPhaseRevision:2,expectedPhaseChainHash:D};
+  const claim=createT4CandidateSupersessionClaim(input);
+  const reissue=createT4CandidateSupersessionClaim({...input,requestRef:'request:k47:two'});
+  assert.equal(claim.body.decisionDigest,reissue.body.decisionDigest);
+  assert.equal(claim.body.replacementSessionRef,reissue.body.replacementSessionRef);
+  assert.notEqual(claim.controlSessionRef,reissue.controlSessionRef);
+  assert.notEqual(claim.controlSessionRef,claim.body.replacementSessionRef);
+  assert.equal(claim.replacement.changeId,base.body.changeId);
+  assert.notEqual(createT4CandidateSupersessionClaim({...input,expectedPhaseRevision:1}).body.decisionDigest,
+    claim.body.decisionDigest);
+  const request={messageType:'ATTEMPT_RETIRE_REQUEST',sequence:1,sessionRef:claim.controlSessionRef,
+    criticalExtensions:[T4_SESSION_SUPERSESSION_EXTENSION],body:claim.body};
+  const bytes=await wire(request),p=trustedPorts(),auth=async proof=>proof.operation==='t4.network.receive.ATTEMPT_RETIRE_REQUEST';
+  await assert.rejects(verifyT4CandidateWireFrame({wireBytes:bytes,...p.ports,authorizeOriginalNetwork:auth}),
+    code('WIRE_UNSUPPORTED_CRITICAL_EXTENSION'));
+  const result=await verifyT4CandidateWireFrame({wireBytes:bytes,...p.ports,authorizeOriginalNetwork:auth,
+    supportedCriticalExtensions:[T4_SESSION_SUPERSESSION_EXTENSION]});
+  assert.equal(result.originalSignatureVerified,true);assert.equal(result.originalBusinessApplied,false);
+  assert.equal(result.originalSubjectMutationInvoked,false);
+  assert.throws(()=>create({...request,sequence:2}),code('WIRE_SUPERSESSION_CONTROL_IDENTITY_MISMATCH'));
+  assert.throws(()=>create({...request,sessionRef:claim.body.replacementSessionRef}),code('WIRE_SUPERSESSION_CONTROL_IDENTITY_MISMATCH'));
+  assert.throws(()=>create({...request,criticalExtensions:[]}),code('WIRE_SUPERSESSION_EXTENSION_REQUIRED'));
+  assert.throws(()=>create({...request,body:{...claim.body,captureDigest:E}}),code('WIRE_SUPERSESSION_CONTROL_IDENTITY_MISMATCH'));
+  assert.throws(()=>create({...request,body:{...claim.body,replacementSessionRef:'session:other'}}),code('WIRE_SUPERSESSION_CONTROL_IDENTITY_MISMATCH'));
+  const ackBody={...claim.body,retirementCheckpointRef:'checkpoint:recipient:one',retirementRevision:3,
+    retirementChainHash:E,retirementEventId:'event:recipient:retired'};
+  const ack={...request,messageType:'ATTEMPT_RETIRED_ACK',sourceNodeRef:base.recipientNodeRef,
+    recipientNodeRef:base.sourceNodeRef,body:ackBody};
+  assert.equal(decodeT4CandidateFrame(await wire(ack)).body.retirementEventId,ackBody.retirementEventId);
+  assert.throws(()=>create({...ack,sourceNodeRef:base.sourceNodeRef,recipientNodeRef:base.recipientNodeRef}),
+    code('WIRE_SUPERSESSION_CONTROL_IDENTITY_MISMATCH'));
+  assert.throws(()=>create({...ack,body:{...ackBody,retirementRevision:2}}),code('WIRE_SUPERSESSION_RETIREMENT_INVALID'));
 });

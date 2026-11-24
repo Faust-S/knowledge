@@ -16,7 +16,7 @@ import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const fail=code=>{throw Object.assign(Error(code),{code,outcome:'DENIED'});};
 const MESSAGE_TYPES=new Set(['HELLO','CAPABILITIES','HEADS','DIFF_REQUEST','CHANGE_REF','CHUNK_REQUEST',
-  'CHUNK','RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK','RESUME']);
+  'CHUNK','RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK','RESUME','ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK']);
 const digestBytes=bytes=>'sha256:'+createHash('sha256').update(bytes).digest('hex');
 const publicDer=pem=>createPublicKey(pem).export({type:'spki',format:'der'});
 const assembled=new WeakSet();

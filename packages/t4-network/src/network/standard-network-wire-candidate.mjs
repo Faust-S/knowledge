@@ -13,7 +13,7 @@ const LIMIT=32768,MAX_BODY=16384,MAX_DEPTH=14;
 const MESSAGE_TYPES=new Set([
   'HELLO','CAPABILITIES','HEADS','DIFF_REQUEST','CHANGE_REF',
   'CHUNK_REQUEST','CHUNK',
-  'RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK','RESUME'
+  'RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK','RESUME','ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK'
 ]);
 const SUBJECT_KINDS=new Set(['OBJECT_PUT','ASSET_PUT','RELATION_PUT',
   'ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE','GRAPH_COMMIT']);
@@ -27,6 +27,7 @@ export const isT4NativeSubjectKind=kind=>SUBJECT_KINDS.has(kind);
 export const T4_OBJECT_TOMBSTONE_EXTENSION='iwxa.object-tombstone.v1';
 export const T4_ATOMIC_GRAPH_EXTENSION='iwxa.atomic-graph.v1';
 export const T4_ORIGINAL_SOURCE_SESSION_EXTENSION='iwxa.original-source-session.v1';
+export const T4_SESSION_SUPERSESSION_EXTENSION='iwxa.session-supersession.v1';
 export const isT4NativeDeleteKind=kind=>['ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE'].includes(kind);
 export const isT4NativeEventOnlyKind=kind=>['RELATION_PUT','ASSET_DELETE','RELATION_DELETE'].includes(kind);
 export const validT4NativeSubjectRevision=(kind,revision)=>isT4NativeSubjectKind(kind)&&
@@ -121,6 +122,71 @@ const list=(value,max=64)=>Array.isArray(value)&&
   value.length===new Set(value).size;
 const hashList=value=>Array.isArray(value)&&value.length<=64&&
   value.every(DIGEST)&&value.length===new Set(value).size;
+// A replacement attempt has a new session address but keeps the original
+// change identity. Do not use local Workspace, key id, clock or random data
+// to derive the successor. This helper is identity only, not authorization
+// and is not yet a live native capture session or a new network profile.
+export function deriveT4OriginalReplacementAttempt(input={}){
+  const {sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,sessionRef,changeId}=input;
+  if(![sourceNodeRef,recipientNodeRef,scopeRef,sessionRef,changeId].every(ID)||
+    sourceNodeRef===recipientNodeRef||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1)
+    fail('PHASE_ORIGINAL_REPLACEMENT_IDENTITY_INVALID');
+  const identity={sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,changeId,previousSessionRef:sessionRef};
+  const replacementSessionRef='session:t4:'+createHash('sha256')
+    .update('IWXA-T4-NATIVE-REPLACEMENT-ATTEMPT-V1\0').update(canonicalBytes(identity)).digest('hex');
+  if(replacementSessionRef===sessionRef)fail('PHASE_ORIGINAL_REPLACEMENT_IDENTITY_INVALID');
+  return Object.freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_ATTEMPT_V1',...identity,replacementSessionRef,
+    originalChangeIdentityUnchanged:true,liveNetworkAuthorityGranted:false,originalSubjectMutationAllowed:false});
+}
+const SUPERSESSION_TYPES=new Set(['ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK']);
+const SUPERSESSION_CLAIM_FIELDS=['previousSessionRef','replacementSessionRef','changeId','captureDigest',
+  'predecessorDigest','decisionRef','decisionDigest','requestRef','expectedPhaseRevision','expectedPhaseChainHash'];
+const RETIREMENT_FIELDS=['retirementCheckpointRef','retirementRevision','retirementChainHash','retirementEventId'];
+
+// A control exchange is not the replacement transfer. Fresh authorized
+// requestRef values permit re-attestation of the same durable retirement
+// after key rotation without overwriting an earlier immutable control slot.
+export function createT4CandidateSupersessionClaim(input={}){
+  const {sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,previousSessionRef,changeId,captureDigest,
+    predecessorDigest,decisionRef,requestRef,expectedPhaseRevision,expectedPhaseChainHash}=input;
+  const replacement=deriveT4OriginalReplacementAttempt({sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,
+    sessionRef:previousSessionRef,changeId});
+  if(![captureDigest,predecessorDigest,expectedPhaseChainHash].every(DIGEST)||
+    ![decisionRef,requestRef].every(ID)||!Number.isSafeInteger(expectedPhaseRevision)||
+    expectedPhaseRevision<0||expectedPhaseRevision>2)
+    fail('WIRE_SUPERSESSION_DECISION_INVALID');
+  const decision={sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,previousSessionRef,
+    replacementSessionRef:replacement.replacementSessionRef,changeId,captureDigest,predecessorDigest,
+    decisionRef,expectedPhaseRevision,expectedPhaseChainHash};
+  const decisionDigest=digest('SUPERSESSION-DECISION',decision);
+  const body={previousSessionRef,replacementSessionRef:decision.replacementSessionRef,changeId,captureDigest,
+    predecessorDigest,decisionRef,decisionDigest,requestRef,expectedPhaseRevision,expectedPhaseChainHash};
+  const controlSessionRef='session:t4:control:'+digest('SUPERSESSION-CONTROL',{
+    sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,previousSessionRef,decisionDigest,requestRef}).slice(7);
+  return Object.freeze({schema:'IWXA_T4_CANDIDATE_SUPERSESSION_CLAIM_V1',controlSessionRef,
+    body:Object.freeze(body),replacement,liveNetworkAuthorityGranted:false,originalSubjectMutationAllowed:false});
+}
+
+function validateSupersessionBody(type,body){
+  sameKeys(body,type==='ATTEMPT_RETIRED_ACK'?[...SUPERSESSION_CLAIM_FIELDS,...RETIREMENT_FIELDS]:SUPERSESSION_CLAIM_FIELDS);
+  if(!['previousSessionRef','replacementSessionRef','changeId','decisionRef','requestRef'].every(k=>ID(body[k]))||
+    body.previousSessionRef===body.replacementSessionRef||
+    !['captureDigest','predecessorDigest','decisionDigest','expectedPhaseChainHash'].every(k=>DIGEST(body[k]))||
+    !Number.isSafeInteger(body.expectedPhaseRevision)||body.expectedPhaseRevision<0||body.expectedPhaseRevision>2)
+    fail('WIRE_SUPERSESSION_DECISION_INVALID');
+  if(type==='ATTEMPT_RETIRED_ACK'&&(!ID(body.retirementCheckpointRef)||!ID(body.retirementEventId)||
+    !DIGEST(body.retirementChainHash)||body.retirementRevision!==body.expectedPhaseRevision+1))
+    fail('WIRE_SUPERSESSION_RETIREMENT_INVALID');
+}
+function validateSupersessionEnvelope(frame){
+  const b=frame.body,ack=frame.messageType==='ATTEMPT_RETIRED_ACK';
+  const claim=createT4CandidateSupersessionClaim({...b,
+    sourceNodeRef:ack?frame.recipientNodeRef:frame.sourceNodeRef,
+    recipientNodeRef:ack?frame.sourceNodeRef:frame.recipientNodeRef,scopeRef:frame.scopeRef,ownerEpoch:frame.ownerEpoch});
+  if(frame.sequence!==1||frame.sessionRef!==claim.controlSessionRef||
+    !SUPERSESSION_CLAIM_FIELDS.every(k=>claim.body[k]===b[k]))
+    fail('WIRE_SUPERSESSION_CONTROL_IDENTITY_MISMATCH');
+}
 function validateBody(type,body,extensions=[]){
   const relationEvent=Array.isArray(extensions)&&
     extensions.includes(T4_RELATION_EVENT_EXTENSION);
@@ -139,9 +205,14 @@ function validateBody(type,body,extensions=[]){
   const sourceSession=Array.isArray(extensions)&&extensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION);
   if(sourceSession&&(type!=='HEADS'||extensions.length!==1))
     fail('WIRE_ORIGINAL_SOURCE_SESSION_EXTENSION_INVALID');
+  const supersession=Array.isArray(extensions)&&extensions.includes(T4_SESSION_SUPERSESSION_EXTENSION);
+  if(supersession!==SUPERSESSION_TYPES.has(type)||(supersession&&extensions.length!==1))
+    fail('WIRE_SUPERSESSION_EXTENSION_REQUIRED');
   if(!body||typeof body!=='object'||Array.isArray(body))
     fail('WIRE_BODY_INVALID');
-  if(type==='HELLO'||type==='CAPABILITIES'){
+  if(SUPERSESSION_TYPES.has(type)){
+    validateSupersessionBody(type,body);
+  }else if(type==='HELLO'||type==='CAPABILITIES'){
     sameKeys(body,['supportedVersions','supportedCryptoSuites']);
     if(!list(body.supportedVersions)||!list(body.supportedCryptoSuites)||
       !body.supportedVersions.length||!body.supportedCryptoSuites.length)
@@ -247,6 +318,7 @@ function validateUnsigned(frame){
   if(frame.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)&&
     (frame.sequence!==1||frame.body.ownerEpoch!==frame.ownerEpoch))
     fail('WIRE_ORIGINAL_SOURCE_SESSION_ENVELOPE_INVALID');
+  if(SUPERSESSION_TYPES.has(frame.messageType))validateSupersessionEnvelope(frame);
   if(frame.bodyDigest!==digest('BODY',frame.body))
     fail('WIRE_BODY_DIGEST_INVALID');
   if(canonicalBytes(frame).length>LIMIT-128)

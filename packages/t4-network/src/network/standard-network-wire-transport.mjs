@@ -400,7 +400,7 @@ export function createT4CandidateFrameTransport({
       !ID(selector.sourceNodeRef)||selector.sourceNodeRef===originalHostNodeRef||
       !Number.isSafeInteger(selector.ownerEpoch)||selector.ownerEpoch<1||
       !['HEADS','DIFF_REQUEST','CHANGE_REF','CHUNK','APPLIED_ACK','HELLO','CAPABILITIES',
-        'CHUNK_REQUEST','RECEIVED_ACK','VERIFIED_ACK','RESUME','SESSION_CONTENT'].includes(selector.messageType)||
+        'CHUNK_REQUEST','RECEIVED_ACK','VERIFIED_ACK','RESUME','ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK','SESSION_CONTENT'].includes(selector.messageType)||
       (selector.messageType==='SESSION_CONTENT'&&(!ID(selector.sessionRef)||selector.sequence!==undefined))||
       (selector.sessionRef!==undefined&&!ID(selector.sessionRef))||
       (selector.sessionRef===undefined&&selector.messageType!=='HEADS')||

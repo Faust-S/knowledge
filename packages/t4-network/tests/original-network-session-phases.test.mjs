@@ -1,5 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {generateKeyPairSync,sign,verify,createHash} from 'node:crypto';
+import {deriveT4OriginalNativeCaptureSession} from '../src/network/original-network-publication.mjs';
+import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
+import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
+import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
+  retireT4OriginalRecipientAttemptFromControl,verifyT4OriginalRecipientRetirementAck}
+  from '../src/network/original-network-session-supersession.mjs';
 import {createT4OriginalNetworkSessionPhasePort,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
 
@@ -362,6 +369,9 @@ for(const prior of [null,'RECEIVED','VERIFIED']){
     assert.equal(read.currentPhase,'SUPERSEDED');
     assert.equal(read.recipientApplyIntentEvidence,null);
     assert.equal(read.originalRecipientAttemptSuperseded,true);
+    assert.equal(read.originalSupersessionEventId,result.originalSupersessionEventId);
+    assert.equal(read.originalSupersessionEventId,f.kernel.events.at(-1).event_id);
+    assert.equal(read.originalSupersessionPreviousChainHash,before.chainHash);
     assert.equal(read.originalBusinessApplied,false);
     assert.equal(read.originalT3EventChainVerified,true);
     const repeated=await f.port().retireOriginalRecipientAttempt(request);
@@ -428,4 +438,140 @@ test('K46 retirement authority is explicit, recipient-only, and never inferred f
   const g=retirementFixture(),p=g.port(),request=retirementRequest(await p.inspectOriginalSession());
   g.deny();await assert.rejects(p.retireOriginalRecipientAttempt(request),isCode('PHASE_ORIGINAL_SUPERSESSION_DENIED'));
   assert.equal(g.kernel.calls,0);
+});
+
+
+// Real Ed25519 wire signatures and the original replay/phase contracts.
+// The transport and Kernel ports here are fixtures, not an installed Host
+// or proof of durable outgoing control publication.
+async function controlFixture(){
+  const f=retirementFixture(),sourceStore=fakeKernel(),ws='ws:k47:subject',epoch=2,
+    suite='X25519_AES256GCM_ED25519',sha=x=>createHash('sha256').update(x).digest('hex');
+  const sourceEventId='event:k47:original',capture={kind:'OBJECT_PUT',captureRef:'capture:k47:one',
+    workspaceId:ws,originalWriteOwnerRef:owner,sourceEventId,sourceRevision:7,
+    originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
+    sourceWindow:{lastEventId:sourceEventId,eventRefs:[{eventDigest:H}],windowDigest:B,
+      sourcePrefixDigestBefore:H,sourcePrefixDigestAfter:B},
+    prepared:{sha256:sha('original capture'),delta:{sourceEventId,sourceRevision:7,sourceEventDigest:H,windowDigest:B}}};
+  const session=deriveT4OriginalNativeCaptureSession({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',
+    state:'ORIGINAL_NATIVE_CAPTURE_READY',workspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,
+    scopeRef,ownerEpoch:epoch,networkTargetRef:recipientNodeRef,networkPublished:false,sourceCursorAdvanced:false,
+    originalRecipientApplied:false,sourceCursorBefore:{sourcePrefixDigest:H},sourceCursorAfter:{sourcePrefixDigest:B},capture});
+  const phase=()=>f.port({sessionRef:session.sessionRef,changeId:session.changeId});
+  let network=true,sourceAllowed=true,recipientAllowed=true,captureVerified=true,acceptanceAllowed=true,readRecipient=true;
+  let sourceKey={...generateKeyPairSync('ed25519'),id:'key:k47:source:1'},
+    recipientKey={...generateKeyPairSync('ed25519'),id:'key:k47:recipient:1'};
+  const frames=new Map();let networkPuts=0,networkGets=0;
+  const wire={wireKind:'T4_NETWORK_CANDIDATE',forOriginalHostLifetime(){return this;},
+    async putSnapshot({key,bytes,expectedSha256}){assert.equal(sha(bytes),expectedSha256);
+      if(frames.has(key)){assert.deepEqual(frames.get(key),new Uint8Array(bytes));
+        return {key,sha256:expectedSha256,state:'ALREADY_PRESENT_VERIFIED'};}
+      frames.set(key,new Uint8Array(bytes));networkPuts++;return {key,sha256:expectedSha256,state:'PUBLISHED_AND_READ_BACK'};},
+    async getSnapshot({key,expectedSha256}){networkGets++;
+      const bytes=frames.get(key);assert.ok(bytes);assert.equal(sha(bytes),expectedSha256);return {bytes:new Uint8Array(bytes)};},
+    async inspectOutcome({key,expectedSha256}){assert.equal(sha(frames.get(key)),expectedSha256);
+      return {key,sha256:expectedSha256,state:'EXPECTED_BYTES_PRESENT'};}};
+  const getMode=()=>network?'T4_NETWORK':'LOCAL_T3';
+  const context=(node,technical)=>async()=>({workspaceId:technical,originalWriteOwnerRef:owner,
+    originalOwnerRef:owner,nodeRef:node,scopeRef,hostSessionRef:'host:k47:'+node});
+  const localKey=node=>node===sourceNodeRef?sourceKey:recipientKey;
+  const transport=node=>{
+    const technical=node===sourceNodeRef?'ws:k47:source:technical':workspace,
+      kernel=node===sourceNodeRef?sourceStore.kernel:f.kernel.kernel,ctx=context(node,technical);
+    const replay=createT4OriginalNetworkReplayPort({originalKernel:kernel,technicalWorkspaceId:technical,
+      originalWriteOwnerRef:owner,localNodeRef:node,scopeRef,getMode,readOriginalHostContext:ctx,
+      authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true});
+    return createT4CandidateFrameTransport({wireTransport:wire,getMode,readOriginalHostContext:ctx,
+      originalHostNodeRef:node,originalHostScopeRef:scopeRef,authorizeOriginalHostWire:async()=>true,
+      verifyOriginalNodeSignature:async p=>{const k=localKey(p.sourceNodeRef);
+        return p.signerRef===k.id&&verify(null,Buffer.from(p.bytes),k.publicKey,Buffer.from(p.signature));},
+      authorizeOriginalNetwork:async p=>['ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK'].some(t=>p.operation==='t4.network.receive.'+t),
+      persistOriginalReplayDecision:replay.persistOriginalReplayDecision});
+  };
+  const signing=node=>({getMode,requiredCryptoSuite:suite,
+    resolveOriginalSigningContext:async p=>{assert.equal(p.originalNodeSigningAuthorityRequired,true);
+      assert.equal(p.session.workspaceId,ws);assert.ok(p.session.sessionRef.startsWith('session:t4:control:'));
+      return {permissionRef:'permission:k47:'+node,signerRef:localKey(node).id};},
+    signOriginalNodeBytes:async p=>{const k=localKey(node);assert.equal(p.signerRef,k.id);
+      return new Uint8Array(sign(null,Buffer.from(p.bytes),k.privateKey));}});
+  const before=await phase().inspectOriginalSession();
+  const plan=(requestRef='request:k47:one')=>prepareT4OriginalSupersessionControl({session,
+    expectedPhaseRevision:before.revision,expectedPhaseChainHash:before.chainHash,decisionRef:'decision:k47:one',requestRef});
+  const request=async p=>{
+    const result=await signT4OriginalSupersessionRequest({plan:p,...signing(sourceNodeRef),
+      authorizeOriginalSupersessionRequest:async proof=>sourceAllowed&&proof.originalSubjectMutationAllowed===false});
+    assert.equal(result.networkPublished,false);
+    await transport(sourceNodeRef).publishSignedFrame({wireBytes:result.wireBytes});return result;
+  };
+  const retire=(p,address)=>retireT4OriginalRecipientAttemptFromControl({plan:p,requestAddress:address,
+    recipientPhasePort:phase(),frameDiscoveryPort:transport(recipientNodeRef),...signing(recipientNodeRef),
+    verifyOriginalSourceCapture:async proof=>captureVerified&&proof.session.sourceEventId===sourceEventId&&
+      proof.originalSourceCaptureAndFrontierReadRequired===true,
+    authorizeOriginalRecipientSupersessionRequest:async proof=>recipientAllowed&&proof.originalSubjectMutationAllowed===false});
+  const publishAck=ack=>transport(recipientNodeRef).publishSignedFrame({wireBytes:ack.wireBytes});
+  const verifyAck=(p,address,patch={})=>verifyT4OriginalRecipientRetirementAck({plan:p,ackAddress:address,
+    frameDiscoveryPort:transport(sourceNodeRef),getMode,requiredCryptoSuite:suite,
+    readOriginalRecipientRetirement:async proof=>{assert.equal(proof.originalRecipientEventAndPhaseReadbackRequired,true);
+      return readRecipient?phase().inspectOriginalSession():null;},
+    authorizeOriginalSupersessionAcceptance:async proof=>acceptanceAllowed&&proof.originalSubjectMutationAllowed===false,...patch});
+  return {f,sourceStore,session,phase,plan,request,retire,publishAck,verifyAck,
+    phaseWrites:()=>f.kernel.events.filter(e=>e.event_type==='t4.network.original.session.phase').length,
+    counts:()=>({networkPuts,networkGets}),denyCapture:()=>{captureVerified=false;},allowCapture:()=>{captureVerified=true;},
+    denyRecipient:()=>{recipientAllowed=false;},allowRecipient:()=>{recipientAllowed=true;},
+    denyAcceptance:()=>{acceptanceAllowed=false;},allowAcceptance:()=>{acceptanceAllowed=true;},
+    denyRecipientRead:()=>{readRecipient=false;},allowRecipientRead:()=>{readRecipient=true;},
+    rotateRecipient:()=>{recipientKey={...generateKeyPairSync('ed25519'),id:'key:k47:recipient:2'};},
+    rotateSource:()=>{sourceKey={...generateKeyPairSync('ed25519'),id:'key:k47:source:2'};},
+    stop:()=>{network=false;}};
+}
+test('K47 signed original retirement request and independent recipient phase/Event readback; a control ACK is not new transfer admission',async()=>{
+  const x=await controlFixture(),plan=x.plan(),request=await x.request(plan);
+  x.denyCapture();await assert.rejects(x.retire(plan,request),isCode('SUPERSESSION_ORIGINAL_SOURCE_CAPTURE_NOT_PROVEN'));
+  assert.equal(x.phaseWrites(),0);
+  x.allowCapture();x.denyRecipient();
+  await assert.rejects(x.retire(plan,request),isCode('SUPERSESSION_ORIGINAL_RECIPIENT_DECISION_DENIED'));
+  assert.equal(x.phaseWrites(),0);x.allowRecipient();
+  const ack=await x.retire(plan,request);
+  assert.equal(ack.retirementStatus,'RECORDED');assert.equal(ack.networkPublished,false);
+  assert.equal(x.phaseWrites(),1);await x.publishAck(ack);
+  x.denyRecipientRead();
+  await assert.rejects(x.verifyAck(plan,ack),isCode('SUPERSESSION_ORIGINAL_RETIREMENT_NOT_PROVEN'));
+  x.allowRecipientRead();x.denyAcceptance();
+  await assert.rejects(x.verifyAck(plan,ack),isCode('SUPERSESSION_ORIGINAL_ACCEPTANCE_DENIED'));
+  x.allowAcceptance();
+  const result=await x.verifyAck(plan,ack);
+  assert.equal(result.originalRecipientRetirementEventVerified,true);
+  assert.equal(result.originalNewAttemptAdmissionStillRequired,true);
+  assert.equal(result.originalSourceCursorAdvanced,false);
+  assert.equal(result.originalSubjectMutationInvoked,false);
+  assert.equal(result.liveNetworkAuthorityGranted,false);
+  const read=await x.phase().inspectOriginalSession();
+  assert.equal(result.retirement.retirementEventId,read.originalSupersessionEventId);
+  await assert.rejects(x.verifyAck(plan,ack,{readOriginalRecipientRetirement:async()=>({...read,
+    originalSupersessionEventId:'event:substituted'})}),isCode('SUPERSESSION_SIGNED_RETIREMENT_MISMATCH'));
+  assert.equal(x.phaseWrites(),1);
+});
+test('K47 exact terminal phase CAS survives lost response and control re-attestation uses current keys without a second retirement or new change',async()=>{
+  const x=await controlFixture(),plan=x.plan(),request=await x.request(plan);
+  x.denyCapture();
+  await assert.rejects(x.retire(plan,request),isCode('SUPERSESSION_ORIGINAL_SOURCE_CAPTURE_NOT_PROVEN'));
+  x.allowCapture();x.f.kernel.loseNextReply();
+  await assert.rejects(x.retire(plan,request),isCode('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  // The first control receipt was already in the replay journal, so the
+  // lost response belongs to the phase CAS, not the network replay CAS.
+  assert.equal(x.phaseWrites(),1);
+  x.f.restart();const first=await x.retire(plan,request);await x.publishAck(first);
+  assert.equal(first.retirementStatus,'ALREADY_CONFIRMED');
+  x.rotateSource();x.rotateRecipient();
+  await assert.rejects(x.verifyAck(plan,first),isCode('WIRE_SOURCE_SIGNATURE_NOT_VERIFIED'));
+  const next=x.plan('request:k47:re-attest'),fresh=await x.request(next);
+  assert.notEqual(next.claim.controlSessionRef,plan.claim.controlSessionRef);
+  assert.equal(next.claim.body.decisionDigest,plan.claim.body.decisionDigest);
+  assert.equal(next.claim.body.replacementSessionRef,plan.claim.body.replacementSessionRef);
+  const second=await x.retire(next,fresh);await x.publishAck(second);
+  assert.equal(second.retirementStatus,'ALREADY_CONFIRMED');
+  assert.equal(second.retirement.retirementEventId,first.retirement.retirementEventId);
+  assert.equal(second.retirement.retirementChainHash,first.retirement.retirementChainHash);
+  assert.equal((await x.verifyAck(next,second)).originalRecipientRetirementEventVerified,true);
+  assert.equal(x.phaseWrites(),1);
 });

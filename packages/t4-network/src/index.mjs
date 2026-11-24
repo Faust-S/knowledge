@@ -30,3 +30,5 @@ export * from './network/original-signed-route-access.mjs';
 export * from './network/original-vault-node-signature.mjs';
 
 export * from './network/original-vault-sealed-content.mjs';
+
+export * from './network/original-network-session-supersession.mjs';

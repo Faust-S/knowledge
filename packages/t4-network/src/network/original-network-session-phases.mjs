@@ -2,8 +2,9 @@ import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSche
   from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
-import {isT4NativeSubjectKind,validT4NativeSubjectRevision}
+import {isT4NativeSubjectKind,validT4NativeSubjectRevision,deriveT4OriginalReplacementAttempt}
   from './standard-network-wire-candidate.mjs';
+export {deriveT4OriginalReplacementAttempt} from './standard-network-wire-candidate.mjs';
 
 /**
  * T4 P2.2-B: durable per-node network session phases in the ORIGINAL T3
@@ -38,22 +39,6 @@ const eq=(a,b)=>canonical(a)===canonical(b);
 const frozen=x=>Object.freeze(x);
 const TERMINAL='SUPERSEDED';
 
-// A replacement attempt has a new session address but keeps the original
-// change identity. Do not use local Workspace, key id, clock or random data
-// to derive the successor. This helper is identity only, not authorization
-// and is not yet a live native capture session or a new network profile.
-export function deriveT4OriginalReplacementAttempt(input={}){
-  const {sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,sessionRef,changeId}=input;
-  if(![sourceNodeRef,recipientNodeRef,scopeRef,sessionRef,changeId].every(ID)||
-    sourceNodeRef===recipientNodeRef||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1)
-    fail('PHASE_ORIGINAL_REPLACEMENT_IDENTITY_INVALID');
-  const identity={sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,changeId,previousSessionRef:sessionRef};
-  const replacementSessionRef='session:t4:'+createHash('sha256')
-    .update('IWXA-T4-NATIVE-REPLACEMENT-ATTEMPT-V1\0').update(canonical(identity)).digest('hex');
-  if(replacementSessionRef===sessionRef)fail('PHASE_ORIGINAL_REPLACEMENT_IDENTITY_INVALID');
-  return frozen({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_ATTEMPT_V1',...identity,replacementSessionRef,
-    originalChangeIdentityUnchanged:true,liveNetworkAuthorityGranted:false,originalSubjectMutationAllowed:false});
-}
 function proofEvidence(phase,e,changeKind,identity=null){
   if(phase===TERMINAL){
     if(!e||typeof e!=='object'||Array.isArray(e)||
@@ -218,7 +203,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       ev?.workspace_id===technicalWorkspaceId&&ev.object_id===checkpointRef);
     if(relevant.length!==stages.length||relevant.some(ev=>ev.event_type!==EVENT))
       fail('PHASE_ORIGINAL_EVENT_CHAIN_INCOMPLETE');
-    const ids=new Set();
+    const ids=new Set();let lastOriginalEventId=null;
     for(const item of stages){
       const found=relevant.filter(ev=>
         ev.revision===item.index&&ID(ev.event_id)&&
@@ -230,7 +215,7 @@ export function createT4OriginalNetworkSessionPhasePort({
         ev.payload?.evidenceDigest===item.evidence.evidenceDigest);
       if(found.length!==1||ids.has(found[0].event_id))
         fail('PHASE_ORIGINAL_EVENT_CHAIN_MISMATCH');
-      ids.add(found[0].event_id);
+      ids.add(found[0].event_id);lastOriginalEventId=found[0].event_id;
     }
     await guard(initial,'t1.getObject','double-read');
     const after=await originalKernel.getObject(
@@ -239,7 +224,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     if(!eq(after?.object,before?.object))
       fail('PHASE_ORIGINAL_CHECKPOINT_CHANGED');
     return frozen({stages:clone(stages),revision:stages.length,
-      chainHash:stages.at(-1)?.chainHash??genesis,checkpointRef});
+      chainHash:stages.at(-1)?.chainHash??genesis,checkpointRef,lastOriginalEventId});
   }
   async function appliedGate(evidence,step){
     const p=frozen({
@@ -286,6 +271,8 @@ export function createT4OriginalNetworkSessionPhasePort({
       }:{}),
       ...(terminal?{originalRecipientAttemptSuperseded:true,
         originalRecipientSupersessionEvidence:clone(current.stages.at(-1).evidence),
+        originalSupersessionEventId:current.lastOriginalEventId,
+        originalSupersessionPreviousChainHash:current.stages.at(-1).previousHash,
         originalRecipientApplyIntentAbsent:true,originalNewAttemptAdmissionStillRequired:true,
         liveNetworkAuthorityGranted:false}:{}),
       sourceNodeRef,recipientNodeRef,scopeRef,sessionRef,changeId,ownerEpoch,
@@ -377,11 +364,11 @@ export function createT4OriginalNetworkSessionPhasePort({
     const checked=await verifiedRead(initial);
     if(checked.revision!==current.revision||checked.chainHash!==current.chainHash)
       fail('PHASE_ORIGINAL_SUPERSESSION_DECISION_CONFLICT',{automaticRetryAllowed:false});
-    const outcome=already?{status:'ALREADY_CONFIRMED',revision:current.revision,chainHash:current.chainHash}:
-      await commitStage(initial,current,TERMINAL,evidence);
+    const outcome=already?{status:'ALREADY_CONFIRMED',revision:current.revision,chainHash:current.chainHash,
+      originalPhaseEventId:current.lastOriginalEventId}:await commitStage(initial,current,TERMINAL,evidence);
     return frozen({schema:'IWXA_T4_ORIGINAL_RECIPIENT_ATTEMPT_RETIREMENT_V1',
       ...identity,checkpointRef,status:outcome.status,revision:outcome.revision,
-      chainHash:outcome.chainHash,replacement,
+      chainHash:outcome.chainHash,originalSupersessionEventId:outcome.originalPhaseEventId,replacement,
       originalRecipientAttemptSuperseded:true,originalApplyIntentAbsent:true,
       originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,
       originalBusinessApplied:false,liveNetworkAuthorityGranted:false,automaticRetryAllowed:false});
@@ -435,6 +422,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1',
       phase,checkpointRef,status:'RECORDED',
       revision:confirmed.revision,chainHash:confirmed.chainHash,
+      ...(phase===TERMINAL?{originalPhaseEventId:confirmed.lastOriginalEventId}:{}),
       originalSubjectWriteRetried:false,
       historicalReceiptFabricated:false,
       originalBusinessApplied:appliedPhase(phase),
