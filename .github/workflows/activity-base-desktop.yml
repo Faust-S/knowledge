@@ -52,6 +52,8 @@ on:
       - tests/test_activity_d05_simpy_review.mjs
       - tests/activity_d05_simpy_fixture.mjs
       - tools/activity-d05-simpy-review.mjs
+      - tools/activity-agent-input.py
+      - tests/test_activity_agent_input.py
       - .github/workflows/activity-base-desktop.yml
   workflow_dispatch:
 permissions:
@@ -95,6 +97,9 @@ jobs:
       - name: Verify D05 model comparison contract
         if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
         run: python -m unittest discover -s tests -p test_activity_d05_simpy.py -v
+      - name: Verify existing U01 file-to-stdin bridge boundaries
+        if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
+        run: python -m unittest discover -s tests -p test_activity_agent_input.py -v
       - name: Typecheck and bundle Activity UI before any native Rust build
         if: matrix.os == 'ubuntu-latest'
         working-directory: desktop
@@ -252,6 +257,7 @@ jobs:
           node tests/activity_d05_simpy_fixture.mjs "$root"
           python tools/activity-d05-simpy.py < "$root/request.json" > "$root/result.json"
           IWXA_ACTIVITY_SIMPY_UPSTREAM="$root" node --test tests/test_activity_d05_simpy_review.mjs
+          IWXA_ACTIVITY_SIMPY_BRIDGE_FIXTURE="$root/request.json" python -m unittest discover -s tests -p test_activity_agent_input.py -v
   t3-original-d2-owner-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 14
