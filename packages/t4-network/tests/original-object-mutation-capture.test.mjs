@@ -8,8 +8,15 @@ import {reconcileT4OriginalMutationIntent}
 import {createT4OriginalHostCaptureAdapter}
   from '../src/network/original-host-capture-adapter.mjs';
 import {packageSha256} from '../src/network/webdav-package-transfer.mjs';
-import {publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork}
+import {publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork,
+  readT4OriginalHostCapturedObject,verifyT4OriginalHostCapturedObjectSource}
   from '../src/network/original-host-outbox-delivery.mjs';
+import {createT4OriginalHostOutboxDispatcher}
+  from '../src/network/original-host-outbox-dispatcher.mjs';
+import {createT4OriginalHostDispatchTaskBinding}
+  from '../src/network/original-host-dispatch-task-binding.mjs';
+import {verifyT4OriginalObjectDelta,digestT4OriginalObjectContent}
+  from '../src/network/original-object-delta.mjs';
 
 const ws='workspace:original',objectId='object:one',owner='original:t3:writer';
 function originalFixture(){
@@ -464,4 +471,150 @@ test('original Object remote outcome inspection preserves source and recipient c
  assert.equal(f.outbox.get('capture:1').sha256,first.prepared.sha256);
  assert.equal(put,1);
  assert.equal(inspect,1);
+});
+
+
+async function offlineNativeFixture(){
+  const f=originalFixture();
+  let frontier=await firstCursor(f),revision=1,rowsOverride=null,
+    networkMode='T4_NETWORK',allowed=true,reads=0;
+  const captured=[];
+  let tail=frontier;
+  for(const v of [1,2,3]){
+    const result=await capture(f,v,{sourceCursor:tail});
+    captured.push(result);tail=result.nextCursor;
+  }
+  const getMode=()=>networkMode;
+  const authority=async()=>allowed;
+  const cursorPort={
+    inspectOriginalHostCursor:async()=>({
+      schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_STATUS_V1',
+      checkpointRef:'checkpoint:native:one',revision,
+      chainHash:'sha256:'+String(revision).repeat(64),
+      originalT3NextCursor:structuredClone(frontier),
+      originalT3EventChainVerified:true,
+      originalT3TechnicalWorkspaceOnly:true,
+    }),
+    readNextOriginalSourceEvent:async()=>{
+      const res=await readT4OriginalEventWindow({
+        workspaceId:ws,originalWriteOwnerRef:owner,cursor:frontier,
+        maxEvents:1,authorizeOriginalRead:authority,
+        readOriginalEvents:f.ports.readOriginalEvents,
+      });
+      const base={schema:'IWXA_T4_ORIGINAL_HOST_NEXT_EVENT_V1',
+        networkPublished:false,originalSubjectMutationInvoked:false};
+      if(!res.window.count)return {...base,state:'NO_NEXT_ORIGINAL_EVENT',
+        originalT3NextCursor:structuredClone(frontier)};
+      return {...base,
+        state:'NEXT_ORIGINAL_EVENT_READY_FOR_EXISTING_HOST_TASK',
+        window:res.window,nextCursor:res.nextCursor,
+        originalHostFrontierRef:'checkpoint:native:one',
+        originalHostFrontierRevision:revision};
+    },
+  };
+  const ports={...f.ports,workspaceId:ws,originalWriteOwnerRef:owner,
+    networkTargetRef:'node:recipient',getMode,
+    authorizeOriginalRead:authority,authorizeOriginalWrite:authority,
+    authorizeNetworkPublish:authority,
+    originalNativeCursorPort:cursorPort,
+    listOriginalOutbox:async()=>{
+      reads++;return rowsOverride??Array.from(f.outbox.values());
+    },
+  };
+  const newTask=()=>createT4OriginalHostDispatchTaskBinding({
+    expectedWorkspaceId:ws,expectedOriginalWriteOwnerRef:owner,
+    expectedNetworkTargetRef:'node:recipient',getMode,
+    readOriginalHostContext:async()=>({
+      workspaceId:ws,originalWriteOwnerRef:owner,
+      networkTargetRef:'node:recipient',hostSessionRef:'host:native:one',
+    }),
+    authorizeOriginalHostTask:authority,
+    dispatcher:createT4OriginalHostOutboxDispatcher(ports),
+  });
+  return {f,captured,ports,newTask,advance:c=>{frontier=c;revision++;},
+    overrideRows:v=>{rowsOverride=v;},
+    local:()=>{networkMode='LOCAL_T3';},
+    deny:()=>{allowed=false;},get reads(){return reads;}};
+}
+test('native original Host task selects each of three offline captures by ACK frontier, not latest Object',async()=>{
+  const x=await offlineNativeFixture();
+  assert.equal(x.f.read().revision,4);
+  assert.equal(x.f.writes.length,3);
+  for(const [i,capture] of x.captured.entries()){
+    const tick=await x.newTask().prepareNative();
+    assert.equal(tick.originalHostTaskOwnerVerified,true);
+    assert.equal(tick.prepared,true);
+    assert.equal(tick.networkPublished,false);
+    const result=tick.result;
+    assert.equal(result.originalHostFrontierRevision,i+1);
+    assert.equal(result.sourceCursorAdvanced,false);
+    assert.equal(result.capture.sourceRevision,i+2);
+    assert.equal(result.capture.prepared.delta.data.title,'v'+(i+2));
+    assert.equal(result.capture.prepared.sha256,capture.prepared.sha256);
+    assert.equal(result.capture.laterSourceEventsExist,i<2);
+    assert.equal(result.capture.currentObjectReadOrUsedAsHistoricalBytes,false);
+    // This fixture simulates external original ACK-CAS, not a task write.
+    x.advance(capture.nextCursor);
+  }
+  const idle=await x.newTask().prepareNative();
+  assert.equal(idle.prepared,false);
+  assert.equal(idle.result.state,'NO_NEXT_ORIGINAL_EVENT');
+  assert.equal(x.f.writes.length,3);
+  assert.equal(x.f.outbox.size,3);
+});
+test('native original Host task refuses to skip a missing, duplicate or unsupported next capture',async()=>{
+  const x=await offlineNativeFixture();
+  const rows=Array.from(x.f.outbox.values());
+  x.overrideRows(rows.slice(1));
+  await assert.rejects(x.newTask().prepareNative(),
+    code('DISPATCH_NATIVE_NEXT_ORIGINAL_CAPTURE_NOT_UNIQUE'));
+  x.overrideRows([rows[0],...rows]);
+  await assert.rejects(x.newTask().prepareNative(),
+    code('DISPATCH_NATIVE_NEXT_ORIGINAL_CAPTURE_NOT_UNIQUE'));
+  x.overrideRows([{...rows[0],schema:'IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1',
+    kind:'ASSET_PUT'},...rows.slice(1)]);
+  await assert.rejects(x.newTask().prepareNative(),
+    code('DISPATCH_NATIVE_NEXT_SUBJECT_KIND_NOT_IMPLEMENTED'));
+  assert.equal(x.f.writes.length,3);
+});
+test('native historical source proof re-reads original captured content and exact captured Event digest',async()=>{
+  const x=await offlineNativeFixture();
+  const p={...x.ports,captureRef:'capture:1',subjectId:objectId};
+  const saved=await readT4OriginalHostCapturedObject(p);
+  const d=saved.prepared.delta,w=saved.sourceWindow;
+  const proof={originalSourceEventId:d.sourceEventId,
+    originalWriteOwnerRef:owner,originalEventDigest:d.sourceEventDigest,
+    originalT3SubjectAndEventReadbackRequired:true,
+    originalCapturedRevisionReadbackRequired:true,
+    originalObjectId:objectId,originalSourceRevision:2,workspaceId:ws,
+    originalEventWindowDigest:w.windowDigest,
+    originalBeforePrefixDigest:w.sourcePrefixDigestBefore,
+    originalAfterPrefixDigest:w.sourcePrefixDigestAfter};
+  assert.equal(await verifyT4OriginalHostCapturedObjectSource(p,proof),true);
+  assert.equal(await verifyT4OriginalHostCapturedObjectSource(p,{
+    ...proof,originalSourceRevision:4,
+  }),false);
+  // Forge both plaintext and saved intent consistently, but the actual
+  // original Event's input digest cannot validate those changed bytes.
+  const intent=x.f.intents.get('capture:1');
+  intent.originalMutation.data.title='forged historical v2';
+  const delta={...d,data:{title:'forged historical v2'}};
+  delta.objectContentDigest=digestT4OriginalObjectContent(delta);
+  const changed=verifyT4OriginalObjectDelta(delta);
+  const outbox=x.f.outbox.get('capture:1');
+  Object.assign(outbox,{key:changed.key,sha256:changed.sha256,
+    bytesBase64:changed.bytes.toString('base64')});
+  await assert.rejects(readT4OriginalHostCapturedObject(p),
+    code('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH'));
+});
+test('native task preparation respects LOCAL_T3 and revoked Host authority without outbox reads',async()=>{
+  const x=await offlineNativeFixture();
+  x.local();
+  const off=await x.newTask().prepareNative();
+  assert.equal(off.mode,'LOCAL_T3');assert.equal(off.originalOutboxRead,false);
+  assert.equal(x.reads,0);
+  const y=await offlineNativeFixture();y.deny();
+  await assert.rejects(y.newTask().prepareNative(),
+    code('HOST_TASK_ORIGINAL_AUTHORITY_DENIED'));
+  assert.equal(y.reads,0);
 });
