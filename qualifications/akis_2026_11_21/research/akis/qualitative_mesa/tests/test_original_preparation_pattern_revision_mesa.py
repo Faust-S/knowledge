@@ -287,3 +287,134 @@ def test_partial_cost_coverage_does_not_impute_zero_preparation_cost():
     assert costs["accepted_effective_preparation_cost"] is None
     assert costs["other_applied_preparation_cost"] is None
     assert costs["total_original_pattern_preparation_cost"] is None
+
+
+def recovery_after_pattern_change():
+    """One Work, two actually prepared packets, one final accepted Result.
+
+    The source is changed after independent approval but before commitment.
+    The failed commit and replacement packet occur in the same original
+    event route. Keep both independently declared preparation costs.
+    """
+    doc = preparation_pattern_routes()["REUSE"]
+    first = event(doc, "function_prepare", "w3")
+    first_review = event(doc, "function_review", "w3")
+    commitment = event(doc, "commit", "w3")
+    old_commit = commitment["at"]
+    shift = 4
+    failed = deepcopy(commitment)
+    failed["at"] = old_commit + 1
+    for row in doc["events"]:
+        if row["at"] >= old_commit:
+            assert row.get("work") == "w3"
+            row["at"] += shift
+    replacement = deepcopy(first)
+    replacement["at"] = old_commit + 2
+    old_pattern = replacement["preparation_pattern"]
+    prior = {key: old_pattern[key] for key in (
+        "prior_work", "prior_prepare_at", "prior_result_ref", "prior_accepted_at",
+        "pattern_id", "source_revision",
+    )}
+    replacement["preparation_pattern"] = {
+        "operation": "BUILD", "pattern_id": "replacement-w3-v2",
+        "source_ref": SOURCE, "source_revision": "pattern-v2",
+        "revises": prior,
+    }
+    review = deepcopy(first_review)
+    review.update(at=old_commit + 3, prepared_at=replacement["at"],
+                  review_source_ref="model://b/independent-review-w3-renewed")
+    doc["events"].extend([
+        {"at": old_commit, "action": "source_update", "actor": "op", "source": SOURCE,
+         "status": "CONFIRMED", "expected_revision": "pattern-v1", "new_revision": "pattern-v2"},
+        failed, replacement, review,
+    ])
+    doc["events"].sort(key=lambda row: row["at"])
+    assert len({row["at"] for row in doc["events"]}) == len(doc["events"])
+    # The accepted activity remains inside the SAME original resource window.
+    request = next(row for row in doc["events"] if row["action"] == "request"
+                   and row["work_spec"]["id"] == "w3")
+    assert event(doc, "accept", "w3")["at"] < request["work_spec"]["slot_end"]
+
+    money = doc["economic_claims"]
+    third_transfers = {row["id"] for row in money["transfers"] if row["work"] == "w3"}
+    for row in money["cash_timing"]["transfer_windows"]:
+        if row["transfer_id"] in third_transfers:
+            old_at = row["at"]
+            row["at"] += shift
+            row["late_at"] = (row["at"] if row["late_at"] == old_at
+                              else max(row["at"], row["late_at"]))
+    for row in money["work_payment_settlement_claims"]:
+        if row["transfer_id"] in third_transfers:
+            row["at"] += shift
+            for owner in row["owner_attestations"].values():
+                owner["reported_at"] += shift
+    lifecycle = money["lifecycle_costs"]
+    for row in lifecycle["event_bindings"]:
+        if row["work"] == "w3" and row["at"] >= old_commit:
+            row["at"] += shift
+    new_id = "w3-replacement-preparation"
+    original_cost = next(row for row in money["resource_uses"]
+                         if row["id"] == "cooperation-coordination")
+    # S2 original packet units: 13 program fills, 13 human validations,
+    # one packet overhead. New BUILD is full 60, not the old REUSE rate 8.
+    new_cost = dict(original_cost, id=new_id, amount="111.00")
+    money["resource_uses"].append(new_cost)
+    new_binding = deepcopy(next(row for row in lifecycle["bindings"]
+                               if row["resource_use_id"] == original_cost["id"]))
+    new_binding["resource_use_id"] = new_id
+    lifecycle["bindings"].append(new_binding)
+    new_anchor = deepcopy(next(row for row in lifecycle["event_bindings"]
+                              if row["resource_use_id"] == original_cost["id"]))
+    proof = "model://op/w3-replacement-preparation-cost"
+    new_anchor.update(resource_use_id=new_id, at=replacement["at"],
+                      cost_evidence_ref=proof, cost_evidence_revision="cost-v1")
+    lifecycle["event_bindings"].append(new_anchor)
+    source = deepcopy(next(row for row in doc["context_evidence"]["sources"]
+                          if row["id"] == "model://op/cooperation-coordination-event-proof"))
+    source["id"] = proof
+    doc["context_evidence"]["sources"].append(source)
+    rate_binding = deepcopy(next(row for row in lifecycle["preparation_activity_bindings"]
+                                 if row["resource_use_id"] == original_cost["id"]))
+    rate_binding["resource_use_id"] = new_id
+    lifecycle["preparation_activity_bindings"].append(rate_binding)
+    positions = {row["at"]: pos for pos, row in enumerate(doc["events"])}
+    for row in lifecycle["event_bindings"]:
+        row["trace_position"] = positions[row["at"]]
+    return doc
+
+
+def test_recovery_after_stale_approved_packet_retains_original_cost_without_second_work():
+    doc = recovery_after_pattern_change()
+    original = deepcopy(doc)
+    out = simulate(doc)
+    assert doc == original
+    commits = [row for row in out["trace"]
+               if row.get("work") == "w3" and row["action"] == "commit"]
+    assert [(row["outcome"], row["reason"]) for row in commits] == [
+        ("BLOCKED", STALE_PACKET), ("APPLIED", "NONE")]
+    assert all(out["works"][w]["result"] == ACCEPTED for w in ("w1", "w2", "w3"))
+    assert len([row for row in out["trace"] if row.get("work") == "w3"
+                and row["action"] == "accept" and row["outcome"] == "APPLIED"]) == 1
+    view = structural_view(out)
+    assert view["applied_preparation_count"] == 4
+    assert view["accepted_effective_preparation_count"] == 3
+    assert view["non_effective_preparations_on_accepted_works"] == 1
+    assert view["accepted_effective_revision_count"] == 1
+    assert view["accepted_effective_reuse_count"] == 1
+    assert view["original_pattern_cost_scope_complete"]
+    costs = out["economics"]["original_pattern_reproduction_costs"]
+    assert costs["total_original_pattern_preparation_cost"] == "340.00"
+    assert costs["accepted_effective_preparation_cost"] == "281.00"
+    assert costs["other_applied_preparation_cost"] == "59.00"
+    assert out == simulate(deepcopy(doc))
+
+
+def test_replacement_cost_must_not_reuse_the_previous_cost_evidence():
+    from research.akis.qualitative_mesa.rules import InputError
+    doc = recovery_after_pattern_change()
+    bindings = doc["economic_claims"]["lifecycle_costs"]["event_bindings"]
+    old = next(row for row in bindings if row["resource_use_id"] == "cooperation-coordination")
+    new = next(row for row in bindings if row["resource_use_id"] == "w3-replacement-preparation")
+    new["cost_evidence_ref"] = old["cost_evidence_ref"]
+    with pytest.raises(InputError, match="LIFECYCLE_TIMED_COST_EVIDENCE_NOT_UNIQUE"):
+        simulate(doc)
