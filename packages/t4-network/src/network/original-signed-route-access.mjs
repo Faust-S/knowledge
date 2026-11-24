@@ -12,6 +12,13 @@ const ACTIONS=Object.freeze(['network.frame.publish','network.frame.read','netwo
   'network.frame.index.publish','network.frame.index.read']);
 const fail=code=>{throw Object.assign(Error(code),{code,outcome:'DENIED'});};
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+// Ephemeral reference identity of the existing Host port. No permission is
+// implied by this token, which is never sent over the wire or persisted.
+const accessIdentities=new WeakMap();
+function identityOf(access){
+  if(!accessIdentities.has(access))accessIdentities.set(access,Object.freeze({}));
+  return accessIdentities.get(access);
+}
 const freeze=value=>{
   if(value&&typeof value==='object'){for(const v of Object.values(value))freeze(v);Object.freeze(value);}
   return value;
@@ -83,7 +90,7 @@ export function createT4OriginalSignedOperationAccess({
       fail('ORIGINAL_SIGNED_NETWORK_ACCESS_DENIED');
     return true;
   }
-  return Object.freeze({subject:selected,authorize,assertCurrent:current,originalSignedAccessOnly:true,
+  return Object.freeze({subject:selected,originalAccessIdentity:identityOf(access),authorize,assertCurrent:current,originalSignedAccessOnly:true,
     createsGrant:false,createsStore:false,createsIAM:false});
 }
 export function createT4OriginalSignedRouteAccess({
@@ -126,7 +133,7 @@ export function createT4OriginalSignedRouteAccess({
       fail('ORIGINAL_SIGNED_NETWORK_ADDRESS_INVALID');
     return p;
   }
-  return Object.freeze({subject:selected,async authorize(input){
+  return Object.freeze({subject:selected,originalAccessIdentity:signed.originalAccessIdentity,async authorize(input){
       signed.assertCurrent();const proof=exactProof(input);
       return signed.authorize({operation:'t4.'+proof.operation,input:proof});
     },originalSignedAccessOnly:true,createsGrant:false,createsStore:false,createsIAM:false});

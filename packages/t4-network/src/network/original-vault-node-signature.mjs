@@ -6,6 +6,9 @@ import {digest,keyObjectSigner} from '../../../t3-core/src/t3/access/core.mjs';
 import {decryptVault,vaultPrivateKey} from '../../../t3-core/src/t3/access/local-vault.mjs';
 import {strictJson} from '../../../t3-core/src/t3/access/strict-json.mjs';
 import {isOriginalKernelRegistryStatePort} from '../../../t3-core/src/t3/access/original-kernel-registry-state.mjs';
+import {isOriginalPersonalAccessCheckForRegistry} from '../../../t3-core/src/t3/access/original-personal-evaluator.mjs';
+import {isOriginalOrganizationalOperationGateForRegistry} from '../../../t3-core/src/t3/access/organizational-operation.mjs';
+import {isOriginalSignedAccessHostPortForEvaluator} from '../../../t3-core/src/t3/signed-access-host-port.mjs';
 import {createT4OriginalSignedOperationAccess} from './original-signed-route-access.mjs';
 import {decodeT4CandidateSigningBytes} from './standard-network-wire-candidate.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
@@ -20,7 +23,7 @@ const assembled=new WeakSet();
 export const isT4OriginalVaultNodeSignaturePort=value=>!!value&&typeof value==='object'&&assembled.has(value);
 export function createT4OriginalVaultNodeSignaturePort({
   workspaceId,originalWriteOwnerRef,localNodeRef,remoteNodeRef,scopeRef,ownerEpoch,
-  requiredCryptoSuite,localKeyRef,remoteKeyRef,registry,access,expectedContext,
+  requiredCryptoSuite,localKeyRef,remoteKeyRef,registry,access,originalEvaluator,expectedContext,
   readOriginalNodeKeyBinding,readEncryptedVault,unlockPassphrase,getMode,clock=Date.now,
 }={}){
   if(![workspaceId,originalWriteOwnerRef,localNodeRef,remoteNodeRef,scopeRef,
@@ -28,6 +31,13 @@ export function createT4OriginalVaultNodeSignaturePort({
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||!isOriginalKernelRegistryStatePort(registry)||
     ![readOriginalNodeKeyBinding,readEncryptedVault,unlockPassphrase,getMode,clock].every(f=>typeof f==='function'))
     fail('ORIGINAL_VAULT_NETWORK_PORTS_REQUIRED');
+  // Policy equality cannot establish Registry identity or status history.
+  // Require the exact evaluator already used by the signed Host, directly
+  // bound to this same branded original Kernel Registry instance.
+  if(!isOriginalSignedAccessHostPortForEvaluator(access,expectedContext?.kind,originalEvaluator)||
+    !(expectedContext?.kind==='PERSONAL'?isOriginalPersonalAccessCheckForRegistry(originalEvaluator,registry):
+      isOriginalOrganizationalOperationGateForRegistry(originalEvaluator,registry)))
+    fail('ORIGINAL_VAULT_NETWORK_REGISTRY_BINDING_MISMATCH');
   const identity=Object.freeze({workspaceId,originalWriteOwnerRef,localNodeRef,remoteNodeRef,scopeRef,ownerEpoch,
     requiredCryptoSuite,localKeyRef,remoteKeyRef});
   const signed=createT4OriginalSignedOperationAccess({access,expectedContext,workspaceId,
@@ -155,10 +165,10 @@ export function createT4OriginalVaultNodeSignaturePort({
       return true;
     }catch{return false;}
   }
-  const port=Object.freeze({schema:'IWXA_T4_ORIGINAL_VAULT_NODE_SIGNATURE_V1',identity,originalSignedSubject:signed.subject,
+  const port=Object.freeze({schema:'IWXA_T4_ORIGINAL_VAULT_NODE_SIGNATURE_V1',identity,originalSignedSubject:signed.subject,originalAccessIdentity:signed.originalAccessIdentity,
     resolveOriginalSigningContext,signOriginalNodeBytes,verifyOriginalNodeSignature,
     originalVault:true,originalRegistry:true,originalSignedAccess:true,createsStore:false,createsIAM:false,
-    forOriginalHostLifetime:isHostActive=>createT4OriginalVaultNodeSignaturePort({...identity,registry,access,
+    forOriginalHostLifetime:isHostActive=>createT4OriginalVaultNodeSignaturePort({...identity,registry,access,originalEvaluator,
       expectedContext:signed.subject,readOriginalNodeKeyBinding,readEncryptedVault,unlockPassphrase,
       getMode:originalHostLifetimeMode(getMode,isHostActive),clock})});
   assembled.add(port);return port;

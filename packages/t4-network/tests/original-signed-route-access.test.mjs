@@ -9,8 +9,8 @@ import {digest,iso,signRecord} from '../../t3-core/src/t3/access/core.mjs';
 import {emptyVault,importVaultKey,encryptVault} from '../../t3-core/src/t3/access/local-vault.mjs';
 import {createOriginalVaultProofSigner} from '../../t3-core/src/t3/access/original-vault-proof.mjs';
 import {createOriginalKernelRegistryStatePort} from '../../t3-core/src/t3/access/original-kernel-registry-state.mjs';
-import {createOrganizationalOperationGate} from '../../t3-core/src/t3/access/organizational-operation.mjs';
-import {createSignedAccessHostPort} from '../../t3-core/src/t3/signed-access-host-port.mjs';
+import {createOrganizationalOperationGate,isOriginalOrganizationalOperationGateForRegistry} from '../../t3-core/src/t3/access/organizational-operation.mjs';
+import {createSignedAccessHostPort,isOriginalSignedAccessHostPortForEvaluator} from '../../t3-core/src/t3/signed-access-host-port.mjs';
 
 const caps=['network.frame.read','network.frame.publish','network.frame.index.read','network.frame.index.publish'];
 const actions=caps.map(x=>'t4.'+x),family='family:network:k35',source='node:k35:source',
@@ -161,6 +161,10 @@ test('K35 two signed corporate enrollments use their original Registry and encry
       },
       prove:async args=>{proofCount++;return keys[args.context.organization_id](args);}
     }});
+  assert.equal(isOriginalOrganizationalOperationGateForRegistry(gate,registry),true);
+  assert.equal(isOriginalOrganizationalOperationGateForRegistry({...gate},registry),false);
+  assert.equal(isOriginalSignedAccessHostPortForEvaluator(access,'CORP',gate),true);
+  assert.equal(isOriginalSignedAccessHostPortForEvaluator(access,'PERSONAL',gate),false);
   const north=open(access,selected,{clock:time});let south=null;
   try{
     assert.deepEqual((await north.connection.transport.getSnapshot(input)).bytes,bytes);

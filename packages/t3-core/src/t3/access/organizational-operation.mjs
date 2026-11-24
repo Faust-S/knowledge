@@ -380,6 +380,10 @@ export function authorizeOrganizationalOperation() {
 }
 // Only a trusted local host may construct this gate with its existing
 // AccessRegistry. Never expose the factory or registry as a client API.
+const registryBoundGates=new WeakMap();
+export function isOriginalOrganizationalOperationGateForRegistry(gate,registry){
+  return !!gate&&isOriginalKernelRegistryStatePort(registry)&&registryBoundGates.get(gate)===registry;
+}
 export function createOrganizationalOperationGate({registry}={}) {
   // Reuse the ONE existing signed AccessRegistry persisted in the ORIGINAL
   // Kernel Store. No second in-memory IAM, issuer, journal or alternate DB.
@@ -398,11 +402,13 @@ export function createOrganizationalOperationGate({registry}={}) {
     allowed:false,outcome:'DENIED',
     reasons:[typeof error?.code==='string'?error.code:'ORG_OPERATION_INVALID'],
     evidenceOnly:true,productionActivation:false});
-  return Object.freeze({
+  const gate=Object.freeze({
     preview: async incoming => prepareWithBoundState(await bind(incoming)),
     authorize: async (incoming,authorization) => {
       try { return authorizeWithBoundState(await bind(incoming),authorization); }
       catch(error) { return denied(error); }
     }
   });
+  registryBoundGates.set(gate,registry);
+  return gate;
 }

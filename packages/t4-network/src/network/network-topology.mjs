@@ -339,7 +339,7 @@ export function openT4NativeTopologyTransport({
     transport:connection.transport,close:connection.close,
     originalTopologyRecheckedPerRequest:true,originalAuthorityGranted:false,
     originalSignedAccessBound:signed!==null,
-    ...(signed?{originalSignedSubject:signed.subject}:{}),
+    ...(signed?{originalSignedSubject:signed.subject,originalAccessIdentity:signed.originalAccessIdentity}:{}),
     protocolPeerReassigned:false,operatorDerivativeRightsActivated:false,createsStore:false,createsScheduler:false});
   nativeTopologyBindings.add(opened);return opened;
 }

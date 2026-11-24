@@ -4,6 +4,14 @@
 // The installed trusted Control supplies fresh signed registry state and
 // a real pre-existing actor proof signer for each selected PERSONAL request.
 import {evaluate} from "./core.mjs";
+import {isOriginalKernelRegistryStatePort} from "./original-kernel-registry-state.mjs";
+
+// Only the actual evaluator constructed against this original Registry is
+// registry-bound. A caller-provided readState remains the legacy Host path.
+const registryBoundChecks=new WeakMap();
+export function isOriginalPersonalAccessCheckForRegistry(check,registry){
+  return typeof check==="function"&&isOriginalKernelRegistryStatePort(registry)&&registryBoundChecks.get(check)===registry;
+}
 
 function refuse(code) {
   const error=new Error(code);
@@ -22,12 +30,15 @@ const NOW=ms=>Number.isSafeInteger(ms)&&ms>0&&
 // Keeping this helper Node-only avoids bundling crypto/private owner state
 // into the public Workspace or WebLLM Worker.
 export function createOriginalPersonalAccessCheck({
-  readState, signProof, clock=Date.now,
+  readState, registry=null, signProof, clock=Date.now,
   randomUUID=()=>globalThis.crypto?.randomUUID(),
 }={}){
-  for(const fn of [readState,signProof,clock,randomUUID])
+  if(registry!==null)requireThat(isOriginalKernelRegistryStatePort(registry)&&readState===undefined,
+    "T3_ACCESS_ORIGINAL_REGISTRY_BINDING_INVALID");
+  const read=registry===null?readState:()=>registry.readState();
+  for(const fn of [read,signProof,clock,randomUUID])
     requireThat(typeof fn==="function","T3_ACCESS_ORIGINAL_CALLBACK_REQUIRED");
-  return async function checkPersonalSignedRequest(request,selected){
+  const check=async function checkPersonalSignedRequest(request,selected){
     requireThat(selected?.kind==="PERSONAL"&&
       selected.organization_id===null,
       "T3_ACCESS_ORIGINAL_PERSONAL_CONTEXT_REQUIRED");
@@ -52,7 +63,7 @@ export function createOriginalPersonalAccessCheck({
     // Critically, read after the asynchronous proof. Revocation that occurs
     // while signing is observed in THIS operation's signed status snapshot.
     let state;
-    try{state=await readState();}catch{
+    try{state=await read();}catch{
       refuse("T3_ACCESS_ORIGINAL_STATE_UNAVAILABLE");
     }
     requireThat(state && typeof state==="object"&&!Array.isArray(state),
@@ -61,4 +72,6 @@ export function createOriginalPersonalAccessCheck({
       now:asOf,challenge,proof,timeAssurance:"LOCAL_BEST_EFFORT",
     });
   };
+  if(registry!==null)registryBoundChecks.set(check,registry);
+  return check;
 }

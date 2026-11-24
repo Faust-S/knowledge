@@ -40,9 +40,17 @@ function sameRequestFields(actual, expected) {
 // corporate.prove as the trusted credential proof provider. Neither is created
 // by this adapter, and no signer or registry is exposed in the returned port.
 // Provenance of an assembled Host port, not a grant or a second registry.
-const originalSignedHostPorts=new WeakSet();
+const originalSignedHostPorts=new WeakMap();
 export function isOriginalSignedAccessHostPort(value){
   return !!value&&typeof value==="object"&&originalSignedHostPorts.has(value);
+}
+// This is reference provenance only, not a new authorization decision.
+// Keep this bridge portable: Node-only registry/evaluator validation is done
+// by the trusted native consumer, not imported into the browser bridge.
+export function isOriginalSignedAccessHostPortForEvaluator(port,kind,evaluator){
+  const bound=originalSignedHostPorts.get(port);
+  return !!bound&&evaluator!=null&&((kind==="PERSONAL"&&bound.personalCheck===evaluator)||
+    (kind==="CORP"&&bound.corporateGate===evaluator));
 }
 export function createSignedAccessHostPort({
   currentContext, actionFor, operationDigest, canonicalDigest,
@@ -81,6 +89,8 @@ export function createSignedAccessHostPort({
       "T3_OWNER_CORPORATE_PRODUCT_UNSUPPORTED");
   }
   const issued = new WeakMap();
+  const personalCheck=hasPersonal?personal.check:null,corporateGate=hasCorporate?corporate.gate:null;
+  const corporatePreview=corporateGate?.preview,corporateAuthorize=corporateGate?.authorize;
 
   async function authorize(request) {
     requireThat(request && typeof request === "object" && !Array.isArray(request) &&
@@ -104,7 +114,7 @@ export function createSignedAccessHostPort({
     let decision, expectedRequestDigest, expectedOperationDigest = null;
     if (context.kind === "PERSONAL") {
       requireThat(hasPersonal, "T3_OWNER_PERSONAL_ACCESS_UNAVAILABLE");
-      decision = await personal.check(request, context);
+      decision = await personalCheck.call(personal,request,context);
       expectedRequestDigest = digestFrom(canonicalDigest, request);
       requireThat(decision?.schema === DIRECT && decision.requestDigest === expectedRequestDigest,
         "T3_OWNER_PERSONAL_DECISION_UNBOUND");
@@ -123,7 +133,7 @@ export function createSignedAccessHostPort({
       const input = {...hostInput,operation,asOf:at};
       // The real organizational owner computes a DIFFERENT, enrollment-bound
       // digest of the complete operation. Never substitute the payload digest.
-      const preview = await corporate.gate.preview(input);
+      const preview = await corporatePreview.call(corporateGate,input);
       requireThat(preview?.schema === "IWXA_T3_ORGANIZATION_OPERATION_PREVIEW/1" &&
         preview.authorized === false && preview.subjectType === "ORGANIZATION" &&
         preview.organizationId === context.organization_id &&
@@ -177,7 +187,7 @@ export function createSignedAccessHostPort({
         confirmations.every(item => item && typeof item === "object" &&
           !Array.isArray(item)), "T3_OWNER_CORPORATE_CONFIRM_INVALID");
       const atJit = nowFrom(clock);
-      decision = await corporate.gate.authorize({...input, asOf:atJit},
+      decision = await corporateAuthorize.call(corporateGate,{...input, asOf:atJit},
         {now:atJit,challenge,proof,confirmations,timeAssurance:"LOCAL_BEST_EFFORT"});
       // The original Access gate intentionally returns a short DENIED or
       // UNRESOLVED decision without success-only binding fields. Treat it as
@@ -312,6 +322,6 @@ export function createSignedAccessHostPort({
     verifyDecisionBinding,
     readAuthorizedResource,
   });
-  originalSignedHostPorts.add(port);
+  originalSignedHostPorts.set(port,{personalCheck,corporateGate});
   return port;
 }

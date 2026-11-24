@@ -32,17 +32,18 @@ async function fixture(){
   for(const node of [A,B]){
     const peer=node===A?B:A;let registry=null;
     const authority=createTemporaryOriginalPersonalAuthority({workspaceId:WS,now,clock:Date.now,
-      operations:actions,purpose:'network.synchronization',readSignedState:()=>registry.readState()});
+      operations:actions,purpose:'network.synchronization'});
     const initial=authority.snapshotSignedState();
     Object.assign(initial.policy.keys,records);
     const kernel=originalKernelFixture();
     registry=createOriginalKernelRegistryStatePort({kernel:kernel.api,workspaceId:'ws:k36:registry',
       trustedPolicy:initial.policy,clock:Date.now});
     await registry.commitSignedState(initial);
+    const bound=authority.bindOriginalRegistry(registry);
     let bindingActive=true,mode='T4_NETWORK',reads=0,unlocks=0,unlockHook=async()=>{},encrypted=vaults[node];
     const create=(patch={})=>createT4OriginalVaultNodeSignaturePort({...scope,
       localNodeRef:node,remoteNodeRef:peer,localKeyRef:keyRef[node],remoteKeyRef:keyRef[peer],
-      registry,access:authority.access,expectedContext:authority.access.currentContext(),getMode:()=>mode,
+      registry,...bound,expectedContext:bound.access.currentContext(),getMode:()=>mode,
       readOriginalNodeKeyBinding:async q=>{
         assert.equal(q.originalNodeKeyBindingRequired,true);
         if(!bindingActive||q.scopeRef!==SCOPE||q.ownerEpoch!==2||q.signerRef!==keyRef[q.sourceNodeRef])return null;
@@ -54,7 +55,7 @@ async function fixture(){
       unlockPassphrase:async q=>{unlocks++;assert.equal(q.keyId,keyRef[node]);await unlockHook();return PASS;},
       ...patch});
     const port=create();
-    sides[node]={port,create,authority,registry,kernel,policy:initial.policy,
+    sides[node]={port,create,authority,registry,kernel,bound,policy:initial.policy,
       get reads(){return reads;},get unlocks(){return unlocks;},
       setBinding:value=>{bindingActive=value;},setMode:value=>{mode=value;},
       onUnlock:fn=>{unlockHook=fn;},setVault:value=>{encrypted=value;},
@@ -96,8 +97,8 @@ test('K36 original dedicated network keys in two original registries and encrypt
     verifyOriginalNodeSignature:f.a.port.verifyOriginalNodeSignature,authorizeOriginalNetwork:async()=>true,
     persistOriginalReplayDecision:async()=> 'RECORDED'})).originalSignatureVerified,true);
   assert.equal(f.b.reads,1);
-  assert.equal(f.a.authority.proofCount,f.a.authority.registryReads);
-  assert.equal(f.b.authority.proofCount,f.b.authority.registryReads);
+  assert.ok(f.a.authority.proofCount>0);assert.ok(f.b.authority.proofCount>0);
+  assert.equal(f.a.authority.registryReads,0);assert.equal(f.b.authority.registryReads,0);
   console.log('T4_K36_ORIGINAL_VAULT_DEDICATED_NETWORK_SIGNATURE_PASS',JSON.stringify({
     independentOriginalRegistries:2,independentEncryptedVaults:2,distinctDedicatedNetworkKeys:true,
     originalSignedAccessProofs:f.a.authority.proofCount+f.b.authority.proofCount,
@@ -164,8 +165,20 @@ test('K36 original registry key must match the exact Vault key and original owne
     originalVaultNodeSignaturePort:{...f.a.port}}),{code:'NATIVE_NETWORK_OWNER_ORIGINAL_VAULT_REQUIRED'});
 });
 
-test('K36 original key Registry and signed Access cannot be taken from different policy histories',async()=>{
-  const f=await fixture(),differentRegistry=f.a.create({registry:f.b.registry});
-  await assert.rejects(sign(differentRegistry,unsigned(A)),{code:'ORIGINAL_SIGNED_NETWORK_POLICY_MISMATCH'});
+test('K36 exact original Registry and signed Host evaluator identity cannot be substituted even with identical policy and signed state',async()=>{
+  const f=await fixture();
+  assert.throws(()=>f.a.create({registry:f.b.registry}),{code:'ORIGINAL_VAULT_NETWORK_REGISTRY_BINDING_MISMATCH'});
+  const state=await f.a.registry.readState(),cloneKernel=originalKernelFixture();
+  const stale=createOriginalKernelRegistryStatePort({kernel:cloneKernel.api,workspaceId:'ws:k36:registry',
+    trustedPolicy:state.policy,clock:Date.now});
+  await stale.commitSignedState(state);
+  assert.equal(digest((await stale.readState()).policy),digest((await f.a.registry.readState()).policy));
+  assert.throws(()=>f.a.create({registry:stale}),{code:'ORIGINAL_VAULT_NETWORK_REGISTRY_BINDING_MISMATCH'});
+  assert.throws(()=>f.a.create({originalEvaluator:f.b.bound.originalEvaluator}),
+    {code:'ORIGINAL_VAULT_NETWORK_REGISTRY_BINDING_MISMATCH'});
+  assert.throws(()=>f.a.create({access:f.a.authority.access}),{code:'ORIGINAL_VAULT_NETWORK_REGISTRY_BINDING_MISMATCH'});
+  await f.a.revoke();
+  assert.throws(()=>f.a.create({registry:stale}),{code:'ORIGINAL_VAULT_NETWORK_REGISTRY_BINDING_MISMATCH'});
+  await assert.rejects(sign(f.a.port,unsigned(A)),{code:'ORIGINAL_SIGNED_NETWORK_ACCESS_DENIED'});
   assert.equal(f.a.reads,0);
 });

@@ -173,7 +173,8 @@ export function createTemporaryOriginalPersonalAuthority({
     statusFloor:{"authority:personal":1},tombstones:{},
   };
   let proofCount=0,registryReads=0;
-  const access=createSignedAccessHostPort({
+  const signProof=async input=>{proofCount++;return vaultProof(input);};
+  const createAccess=check=>createSignedAccessHostPort({
     currentContext:()=>selected,
     actionFor:operation=>{
       if(!permitted.has(operation))throw Error("D1_OPERATION_DENIED");
@@ -181,19 +182,19 @@ export function createTemporaryOriginalPersonalAuthority({
     },
     operationDigest:({operation,input,context})=>digest({operation,input,context}),
     canonicalDigest:digest,
-    personal:{check:createOriginalPersonalAccessCheck({
-      clock,
-      readState:async()=>{registryReads++;return readSignedState
-        ?readSignedState():state;},
-      signProof:async(input)=>{
-        proofCount++;
-        return vaultProof(input);
-      },
-    })},
+    personal:{check},
     clock,
   });
+  const access=createAccess(createOriginalPersonalAccessCheck({clock,signProof,
+    readState:async()=>{registryReads++;return readSignedState?readSignedState():state;}}));
   return Object.freeze({
     access,actorId,
+    // Assemble the SAME actual evaluator and proof signer against a pinned
+    // original Registry, not a second issuer or an arbitrary read callback.
+    bindOriginalRegistry(registry){
+      const originalEvaluator=createOriginalPersonalAccessCheck({registry,clock,signProof});
+      return Object.freeze({access:createAccess(originalEvaluator),originalEvaluator});
+    },
     get proofCount(){return proofCount;},
     get registryReads(){return registryReads;},
     snapshotSignedState(){return structuredClone(state);},

@@ -90,7 +90,8 @@ export function createT4OriginalNativeHostNetworkOwner({
       b.localNodeRef!==(role==='SOURCE'?sourceNodeRef:recipientNodeRef))
       fail('NATIVE_NETWORK_OWNER_TOPOLOGY_BINDING_MISMATCH');
     if(originalVaultNodeSignaturePort!==null&&nativeTopologyTransport.originalSignedAccessBound===true&&
-      JSON.stringify(nativeTopologyTransport.originalSignedSubject)!==JSON.stringify(originalVaultNodeSignaturePort.originalSignedSubject))
+      (nativeTopologyTransport.originalAccessIdentity!==originalVaultNodeSignaturePort.originalAccessIdentity||
+       JSON.stringify(nativeTopologyTransport.originalSignedSubject)!==JSON.stringify(originalVaultNodeSignaturePort.originalSignedSubject)))
       fail('NATIVE_NETWORK_OWNER_SIGNED_SUBJECT_MISMATCH');
     wireTransport=nativeTopologyTransport.transport;
   }

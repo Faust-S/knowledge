@@ -760,7 +760,7 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
   let registry=null,vaultReads=0;
   const routeAuthority=createTemporaryOriginalPersonalAuthority({workspaceId:WS,
     operations:[...caps.map(c=>'t4.'+c),'t4.network.node.sign','t4.network.node.verify'],
-    purpose:'network.synchronization',clock:Date.now,readSignedState:()=>registry.readState()});
+    purpose:'network.synchronization',clock:Date.now});
   const vault=emptyVault(),peerVault=emptyVault(),sourceKey='key:k34:network:source',peerKey='key:k34:network:peer';
   const ownKey=generateVaultKey(vault,{keyId:sourceKey,subjectId:'person:local'}),
     otherKey=generateVaultKey(peerVault,{keyId:peerKey,subjectId:'person:local'});
@@ -773,18 +773,19 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
   registry=createOriginalKernelRegistryStatePort({kernel:{...source.kernel,sessionInfo:{contract_version:'1.3.0'}},
     workspaceId:'ws:k34:registry',trustedPolicy:initial.policy,clock:Date.now});
   await registry.commitSignedState(initial);
+  const bound=routeAuthority.bindOriginalRegistry(registry);
   const passphrase='K34_TEST_ONLY_DEDICATED_VAULT_PASSPHRASE',encrypted=encryptVault(vault,passphrase);
   const originalVaultNodeSignaturePort=createT4OriginalVaultNodeSignaturePort({
     workspaceId:WS,originalWriteOwnerRef:OWNER,localNodeRef:S,remoteNodeRef:R,scopeRef:SCOPE,ownerEpoch:2,
-    requiredCryptoSuite:SUITE,localKeyRef:sourceKey,remoteKeyRef:peerKey,registry,access:routeAuthority.access,
-    expectedContext:routeAuthority.access.currentContext(),getMode:()=> 'T4_NETWORK',
+    requiredCryptoSuite:SUITE,localKeyRef:sourceKey,remoteKeyRef:peerKey,registry,...bound,
+    expectedContext:bound.access.currentContext(),getMode:()=> 'T4_NETWORK',
     readOriginalNodeKeyBinding:async p=>({bindingRef:'binding:'+p.sourceNodeRef,subjectId:'person:local',
       permissionRef:'permission:k14',keyId:p.signerRef,nodeRef:p.sourceNodeRef,recipientNodeRef:p.recipientNodeRef,
       workspaceId:WS,originalWriteOwnerRef:OWNER,scopeRef:SCOPE,ownerEpoch:2,active:true}),
     readEncryptedVault:async()=>{vaultReads++;return encrypted;},
     unlockPassphrase:async()=>passphrase});
   const transport=openT4NativeTopologyTransport({topology,workspaceId:WS,objectFamily:family,serverNodeRef:server,
-    originalSignedAccess:{access:routeAuthority.access,expectedContext:routeAuthority.access.currentContext()},
+    originalSignedAccess:{access:bound.access,expectedContext:bound.access.currentContext()},
     nativeWireProfile:'INDEXED',readOriginalTopology:async()=>current,getMode:()=> 'T4_NETWORK',
     verifyOriginalEndpoint:async p=>p.endpointUrl==='https://native.example.test/dav/'&&p.originalWriteOwnerRef===OWNER,
     authorizeOriginalOperation:async p=>p.originalWriteOwnerRef===OWNER&&p.storageLocationIsNotProtocolPeer&&
@@ -806,7 +807,7 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
     assert.equal(f.owner.originalSignedTopologyAccess,true);
     assert.equal(f.owner.originalVaultNodeIdentity.localKeyRef,sourceKey);
     assert.ok(routeAuthority.proofCount>0);
-    assert.equal(routeAuthority.proofCount,routeAuthority.registryReads);
+    assert.equal(routeAuthority.registryReads,0); // no arbitrary readState path
     assert.equal(f.owner.originalTopologyBinding.serverNodeRef,server);
     assert.equal(f.owner.identity.recipientNodeRef,R);
     assert.equal([...records.keys()].filter(k=>k.endsWith('.t4n')).length,1);
