@@ -1,4 +1,5 @@
-import {useEffect,useRef,useState,type ChangeEvent} from 'react';
+import {useLayoutEffect,useRef,useState,type ChangeEvent} from 'react';
+import type {D05SignedRouteReview,D05RouteReviewPort} from '../../modules/activity-base-anonymizer/d05-route-host.mjs';
 import {reviewD05RouteModels,buildD05RouteComparisonExample,type D05RouteReview}
  from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 const KINDS={internal:'Внутренняя',subcontract:'Подрядная',wait:'Ожидание',inspection:'Контроль',transport:'Транспорт'};
@@ -22,18 +23,41 @@ const ERRORS:Record<string,string>={
  D05_ROUTE_DEPENDENCY_CYCLE:'В плановых зависимостях есть цикл.',
  D05_ROUTE_DUPLICATE_MODEL_ID:'Один маршрут выбран несколько раз. Выберите только одну его редакцию.',
  D05_ROUTE_FILE_LIMIT:'Выберите не более 24 JSON-файлов общим объёмом до 8 МБ.',
- D05_ROUTE_FILE_INVALID:'Не удалось прочитать JSON-файл.'};
+ D05_ROUTE_FILE_INVALID:'Не удалось прочитать JSON-файл.',
+ D05_ROUTE_HOST_NO_MODELS:'В выбранной рабочей области нет сохранённых маршрутов CehoVod.',
+ D05_ROUTE_HOST_SELECTION_LIMIT:'В области более 24 маршрутов. Пока доступна выборка до 24 моделей.',
+ D05_ROUTE_HOST_SOURCE_LIMIT:'Размер выборки сохранённых моделей превышает 8 МБ.',
+ D05_ROUTE_HOST_SOURCE_CHANGED:'Исходные модели изменились во время чтения. Повторите выборку.',
+ D05_ROUTE_HOST_CONTEXT_CHANGED:'Выбранный контекст изменился. Результат чтения сброшен.',
+ D05_ROUTE_HOST_RECORD_MISMATCH:'Исходная модель не соответствует поддерживаемому контракту CehoVod.',
+ D05_ROUTE_HOST_READ_REFUSED:'Нет действующего разрешённого чтения выбранных моделей.',
+ T3_CONTROL_CONTEXT_CHANGED_DURING_READ:'Рабочая область или право чтения изменились.',
+ T3_CONTROL_HOST_DETACHED:'Подключённый источник закрыт.'};
 const PAGE_SIZE=8;
-export function DomainRouteComparison(){
+export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null}){
  const input=useRef<HTMLInputElement>(null),generation=useRef(0);
- const [result,setResult]=useState<D05RouteReview|null>(null),[source,setSource]=useState('');
+ const [result,setResult]=useState<D05RouteReview|D05SignedRouteReview|null>(null),[source,setSource]=useState('');
+ const [hostConnected,setHostConnected]=useState(false);
  const [problem,setProblem]=useState(''),[busy,setBusy]=useState(false),[groupIndex,setGroupIndex]=useState(0);
  const [page,setPage]=useState(0);
- useEffect(()=>()=>{generation.current++;},[]);
  const reset=()=>{
   generation.current++;setResult(null);setProblem('');setSource('');setBusy(false);setGroupIndex(0);setPage(0);
   if(input.current)input.current.value='';
  };
+ useLayoutEffect(()=>{
+   generation.current++;
+   setResult(null);setProblem('');setSource('');setBusy(false);setGroupIndex(0);setPage(0);setHostConnected(false);
+   let off:(()=>void)|null=null;
+   if(host){try{
+     off=host.subscribeInvalidation(()=>{
+       generation.current++;setResult(null);setSource('');setBusy(false);setGroupIndex(0);setPage(0);
+       setProblem('Контекст изменился. Предыдущая выборка очищена.');
+     });
+     if(typeof off!=='function')throw Error('invalid subscription');
+     setHostConnected(true);
+   }catch{setProblem('Не удалось подключить выбранный предметный источник.');}}
+   return ()=>{generation.current++;if(typeof off==='function')off();};
+ },[host]);
  const apply=(records:unknown,label:string,token:number)=>{
   if(token!==generation.current)return;
   const value=reviewD05RouteModels(records);
@@ -50,6 +74,17 @@ export function DomainRouteComparison(){
   try{apply(buildD05RouteComparisonExample(),'Встроенный пример трёх моделей',token);}
   catch(err){fail(err,token);}
  };
+ async function loadSelectedRoutes(){
+   if(!host||!hostConnected)return;
+   reset();const token=generation.current;setBusy(true);
+   try{
+     const value=await host.readSelectedRoutes();
+     if(token!==generation.current)return;
+     if(value.source_authority!=='ORIGINAL_SIGNED_SELECTED_READBACK'||value.export_allowed!==false||value.anonymity!=='NOT_ESTABLISHED')throw {code:'D05_ROUTE_HOST_RECORD_MISMATCH'};
+     setResult(value);setSource('Сохранённые маршруты выбранной рабочей области');
+   }catch(err){fail(err,token);}
+   finally{if(token===generation.current)setBusy(false);}
+ }
  async function onFiles(event:ChangeEvent<HTMLInputElement>){
   const picked=Array.from(event.target.files??[]);event.target.value='';
   if(!picked.length)return;
@@ -75,18 +110,20 @@ export function DomainRouteComparison(){
    <h2>Сопоставление технологических маршрутов CehoVod</h2>
    <p>Выберите несколько JSON-объектов operation-route из калькулятора или локальные копии сохранённых Result. Один файл содержит один маршрут. Activity сравнивает названия, типы операций и исходные зависимости; оборудование и другие параметры не объединяются автоматически.</p>
    <div className="activity-v7-actions">
+    {hostConnected?<button className="activity-v7-primary" disabled={busy} onClick={loadSelectedRoutes}>Получить сохранённые маршруты</button>:null}
     <input type="file" ref={input} multiple accept=".json,application/json" className="visually-hidden" onChange={onFiles} aria-label="Выбрать JSON маршрутов CehoVod"/>
     <button className="activity-v7-primary" disabled={busy} onClick={()=>input.current?.click()}>Выбрать маршруты JSON</button>
     <button disabled={busy} aria-label="Открыть пример маршрутов CehoVod" onClick={example}>Открыть пример маршрутов</button>
     <button disabled={!busy&&!result&&!problem} onClick={reset}>Очистить выборку</button>
    </div>
-   <div className="activity-v7-note">Модели рассматриваются локально, отдельно от выбранной Workspace. Названия операций могут содержать частные сведения. Данные не записываются и не передаются. При выходе из раздела выборка очищается.</div>
+   <div className="activity-v7-note">{hostConnected?'Доступно штатное чтение выбранной рабочей области через доверенный Host.':'Доменный источник не подключён. Доступны локальные JSON-модели.'} Названия операций могут содержать частные сведения. Данные не записываются и не передаются. При выходе из раздела выборка очищается.</div>
   </section>
   {busy?<p role="status">Читаются выбранные файлы…</p>:null}
   {problem?<div role="alert" className="activity-v7-note hold">{problem}</div>:null}
   {result?<section className="activity-v7-card" aria-label="Результат сопоставления маршрутов">
    <h2>Группы структурных кандидатов</h2>
    <p>{source}. Это модели и нормативные маршруты, не наблюдённое исполнение.</p>
+   {result.source_authority==='ORIGINAL_SIGNED_SELECTED_READBACK'?<p>Исходная Workspace прочитана через оригинальный подписанный Host.</p>:<p>Локальная модель: происхождение и право использования не подтверждены.</p>}
    <div className="activity-v7-stats">
     <div><strong>{result.model_count}</strong><span>Модели</span></div>
     <div><strong>{result.group_count}</strong><span>Группы структур</span></div>

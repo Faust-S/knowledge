@@ -1,6 +1,7 @@
 import {createElement} from 'react';
 import {createRoot, type Root} from 'react-dom/client';
 import {App} from './App';
+import type {D05RouteReviewPort} from '../../modules/activity-base-anonymizer/d05-route-host.mjs';
 import type {T3ReviewHost} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import './styles.css';
 import './activity-v7.css';
@@ -23,21 +24,30 @@ function narrowHost(port: unknown): port is T3ReviewHost {
       typeof (port as Record<string, unknown>).recoverSelected === 'function');
 }
 
+function narrowD05RouteHost(port: unknown): port is D05RouteReviewPort {
+  return !!port && typeof port==='object' && !Array.isArray(port) &&
+    Object.keys(port).sort().join(',')==='readSelectedRoutes,subscribeInvalidation' &&
+    typeof (port as Record<string,unknown>).readSelectedRoutes==='function' &&
+    typeof (port as Record<string,unknown>).subscribeInvalidation==='function';
+}
+
 // Existing trusted T3 owner provides an already-authorized narrow port.
 // No issuer, Kernel, selected Workspace records or new runtime enter this view.
-export function mountActivityHostSurface({container, t3Host}: {
+export function mountActivityHostSurface({container, t3Host,d05RouteHost=null}: {
   container: HTMLElement;
   t3Host: T3ReviewHost;
+  d05RouteHost?:D05RouteReviewPort|null;
 }) {
   if (!container || container.nodeType !== 1 || typeof container.appendChild !== 'function') {
     throw Error('IWXA_ACTIVITY_HOST_CONTAINER_REQUIRED');
   }
   if (!narrowHost(t3Host)) throw Error('IWXA_ACTIVITY_NARROW_T3_HOST_REQUIRED');
+  if(d05RouteHost!==null&&!narrowD05RouteHost(d05RouteHost))throw Error('IWXA_ACTIVITY_NARROW_D05_HOST_REQUIRED');
   if (mounted.has(container)) throw Error('IWXA_ACTIVITY_HOST_SURFACE_ALREADY_MOUNTED');
   const root = createRoot(container);
   mounted.set(container, root);
   try {
-    root.render(createElement(App, {t3Host, brandSrc: new URL('./brand.svg', import.meta.url).href}));
+    root.render(createElement(App, {t3Host, brandSrc: new URL('./brand.svg', import.meta.url).href,d05RouteHost}));
   } catch (error) {
     mounted.delete(container);
     root.unmount();

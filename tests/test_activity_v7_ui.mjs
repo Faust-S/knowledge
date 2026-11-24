@@ -91,3 +91,16 @@ test('A4.1 is reachable inside the native shell with actual local route comparis
  assert.match(page,/Выпуск \.iwxa закрыт/);
  assert.doesNotMatch(page,/localStorage|sessionStorage|fetch\(|createWorkspace\(|putObject\(/);
 });
+
+test('A4.1 domain Host is separate from generic D2 and uses an explicit original callback',()=>{
+ const page=load('../desktop/src/DomainRouteComparison.tsx');
+ const app=load('../desktop/src/App.tsx');
+ const surface=load('../desktop/src/host-surface.tsx');
+ assert.match(page,/await host\.readSelectedRoutes\(\)/);
+ assert.match(page,/host\.subscribeInvalidation/);
+ assert.match(page,/ORIGINAL_SIGNED_SELECTED_READBACK/);
+ assert.match(page,/hostConnected\?<button/);
+ assert.match(app,/d05RouteHost/);
+ assert.match(surface,/readSelectedRoutes,subscribeInvalidation/);
+ assert.match(surface,/IWXA_ACTIVITY_NARROW_D05_HOST_REQUIRED/);
+});

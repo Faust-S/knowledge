@@ -1,5 +1,6 @@
 import {useEffect,useMemo,useRef,useState,type DragEvent,type ReactNode} from 'react';
 import {ActivityInnerPage} from './ActivityInnerPage';
+import type {D05RouteReviewPort} from '../../modules/activity-base-anonymizer/d05-route-host.mjs';
 import type {Preview} from '../../modules/activity-base-anonymizer/engine.mjs';
 import type {SyntheticRisk} from '../../modules/activity-base-anonymizer/risk.mjs';
 import type {Ocel2EvidenceView} from '../../modules/activity-base-anonymizer/ocel2-evidence.mjs';
@@ -14,7 +15,7 @@ import {ACTIVITY_WIDGETS,ACTIVITY_BOARD_STORAGE,defaultActivityBoard,
 
 export type ActivityWorkspaceData={sourceName:string;busy:boolean;problem:string;preview:Preview|null;
   risk:SyntheticRisk|null;objectEvidence:Ocel2EvidenceView|null;t3Review:T3ReviewState|null;
-  hasT3Host:boolean;canStage:boolean;canRecover:boolean};
+  hasT3Host:boolean;canStage:boolean;canRecover:boolean;d05RouteHost:D05RouteReviewPort|null};
 export type ActivityWorkspaceActions={loadExample:()=>void;loadOcelExample:()=>void;readT3:()=>void;
   pickFile:()=>void;stageT3:()=>void;recoverT3:()=>void};
 export type ActivityWorkspaceProps={brandSrc:string;data:ActivityWorkspaceData;actions:ActivityWorkspaceActions;legacy:ReactNode};

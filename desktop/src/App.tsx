@@ -1,5 +1,6 @@
 import {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {ActivityWorkspace} from './ActivityWorkspace';
+import type {D05RouteReviewPort} from '../../modules/activity-base-anonymizer/d05-route-host.mjs';
 import {createT3ReviewController} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import {buildT3TransitionMap} from '../../modules/activity-base-anonymizer/t3-transition-map.mjs';
 import {buildT3EvidencePassport} from '../../modules/activity-base-anonymizer/t3-evidence-passport.mjs';
@@ -240,7 +241,7 @@ function T3EvidenceGaps({review}: {review: T3ActivityReview}) {
   </section>;
 }
 
-export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3ReviewHost | null; brandSrc?: string}) {
+export function App({t3Host = null, brandSrc = '/brand.svg',d05RouteHost=null}: {t3Host?: T3ReviewHost | null; brandSrc?: string; d05RouteHost?:D05RouteReviewPort|null}) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [risk, setRisk] = useState<SyntheticRisk | null>(null);
@@ -611,7 +612,7 @@ export function App({t3Host = null, brandSrc = '/brand.svg'}: {t3Host?: T3Review
   // Kernel, signed Access, Workspace IDs or mutable authorization.
   return <ActivityWorkspace brandSrc={brandSrc} data={{
     sourceName,busy,problem,preview,risk,objectEvidence,t3Review,
-    hasT3Host: Boolean(t3Host),
+    hasT3Host: Boolean(t3Host),d05RouteHost,
     canStage: typeof t3Host?.stageSelected === 'function',
     canRecover: typeof t3Host?.recoverSelected === 'function',
   }} actions={{

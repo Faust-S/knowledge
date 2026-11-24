@@ -29,7 +29,7 @@ export function ActivityInnerPage({page,data,actions,process,object,candidate,ma
  eventPage,setEventPage,eventId,setEventId,go,choose,inspect}:Props){
  const t3=data.t3Review?.status==='REVIEW'?data.t3Review.review:null;
  switch(page){
- case 'Группировка маршрутов':return <DomainRouteComparison/>;
+ case 'Группировка маршрутов':return <DomainRouteComparison host={data.d05RouteHost}/>;
  case 'Схемы A0/A1':return <div className="activity-v7-grid">
   <Card title="A0 · синтетическая последовательность"><p>Выбранный субъект, упорядоченные события, структурные этапы и роли. События должны иметь статус observed.</p></Card>
   <Card title="A1 · источник и версия"><p>Проверка source pin, SHA-256, статуса выполнения и отсутствия разрывов хронологии.</p>
