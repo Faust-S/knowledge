@@ -148,6 +148,66 @@ function checkLimits(p,cfg){
   insist(timestamp(p.expiresAt)-timestamp(p.notBefore)<=cfg.maxTtlDays*DAY,
     'CORP_LICENSE_TTL_OUTSIDE_ISSUER_SCOPE');
 }
+/** Inspect only payloads whose original signatures were already verified.
+ * A lineage is scoped to the exact publisher, organization and product.
+ * Recipient history can be incomplete (e.g. first delivery is a renewal).
+ * Competing disconnected tips in the same lineage are never combined.
+ * The owner ledger, unlike a recipient, must contain every predecessor.
+ */
+export function inspectCorporateLicenseLineages(payloads,{requireComplete=false}={}){
+  insist(Array.isArray(payloads)&&payloads.length<=4096&&
+    typeof requireComplete==='boolean','CORP_LINEAGE_INPUT_INVALID');
+  const byId=new Map(),children=new Map(),groups=new Map(),roots=new Set();
+  const key=p=>JSON.stringify([p.issuerAuthorityId,p.subject.id,p.product.id,p.lineageId]);
+  for(const raw of payloads){
+    const p=validateCorporateLicensePayload(raw),group=key(p);
+    insist(!byId.has(p.id),'CORP_LINEAGE_DUPLICATE_LICENSE');
+    byId.set(p.id,p);
+    if(!groups.has(group))groups.set(group,[]);
+    groups.get(group).push(p);
+    if(p.renewalOf===null){
+      insist(!roots.has(group),'CORP_LINEAGE_MULTIPLE_ROOTS');
+      roots.add(group);
+    }else{
+      insist(!children.has(p.renewalOf),'CORP_LINEAGE_FORK_DENIED');
+      children.set(p.renewalOf,p.id);
+    }
+  }
+  for(const p of byId.values()){
+    if(p.renewalOf===null)continue;
+    const prior=byId.get(p.renewalOf);
+    insist(prior||!requireComplete,'CORP_LINEAGE_PREDECESSOR_REQUIRED');
+    if(prior){
+      insist(key(prior)===key(p),'CORP_LINEAGE_SCOPE_MISMATCH');
+      insist(timestamp(prior.issuedAt)<=timestamp(p.issuedAt)&&
+        timestamp(prior.notBefore)<=timestamp(p.notBefore),
+        'CORP_LINEAGE_TIME_ROLLBACK');
+    }
+    // Walk known predecessors, including when a recipient receives them
+    // in reverse order. No self-reference or circular chain is admissible.
+    const seen=new Set([p.id]);
+    let cursor=prior;
+    while(cursor){
+      insist(!seen.has(cursor.id),'CORP_LINEAGE_CYCLE_DENIED');
+      seen.add(cursor.id);
+      cursor=cursor.renewalOf===null?null:byId.get(cursor.renewalOf);
+    }
+  }
+  const heads=[],unresolvedHeads=[];
+  for(const rows of groups.values()){
+    const tips=rows.filter(p=>!children.has(p.id)).map(p=>p.id);
+    insist(tips.length>0,'CORP_LINEAGE_CYCLE_DENIED');
+    if(tips.length>1){
+      insist(!requireComplete,'CORP_LINEAGE_DISCONNECTED');
+      unresolvedHeads.push(...tips);
+    }
+    heads.push(...tips);
+  }
+  return Object.freeze({heads:Object.freeze(heads.sort()),
+    superseded:Object.freeze([...children.keys()].sort()),
+    unresolvedHeads:Object.freeze(unresolvedHeads.sort())});
+}
+
 export function createCorporateLicenseCandidate({request,ownerState,
   issuerAuthorityId,licenseId,lineageId,renewalOf=null,now=Date.now()}={}){
   const r=validateCorporateLicenseRequest(request);

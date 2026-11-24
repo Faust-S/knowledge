@@ -6,7 +6,7 @@ import {copy,digest,identifier,insist,iso,timestamp} from './core.mjs';
 import {validateCorporateLicenseRequest,validateCorporateLicensePayload,
   createCorporateLicenseCandidate,signCorporateLicenseCandidate,
   inspectSignedCorporateLicense,signCorporateLicenseStatus,
-  inspectSignedCorporateLicenseStatus,CORPORATE_LICENSE_SCHEMA
+  inspectSignedCorporateLicenseStatus,inspectCorporateLicenseLineages,CORPORATE_LICENSE_SCHEMA
 } from './corporate-product-license.mjs';
 
 export const ORIGINAL_PRODUCT_ISSUE_LEDGER_SCHEMA='IWXA_T3_PRODUCT_LICENSE_ISSUE_LEDGER/1';
@@ -22,7 +22,7 @@ function inspectOriginalLedger(input,ownerState,inspectLegacyLedger){
     !Array.isArray(ledger.records)&&
     Object.keys(ledger.records).length<=4096,
     'CORP_ORIGINAL_ISSUE_LEDGER_REQUIRED');
-  const other={};
+  const other={},corporate=[];
   for(const [id,row] of Object.entries(ledger.records)){
     identifier(id);
     insist(row&&typeof row==='object'&&!Array.isArray(row)&&
@@ -45,7 +45,9 @@ function inspectOriginalLedger(input,ownerState,inspectLegacyLedger){
     inspectSignedCorporateLicense({envelope:row.signedLicense,
       installedTrust:ownerState,organizationId:p.subject.id,
       now:timestamp(p.notBefore)});
+    corporate.push(p);
   }
+  inspectCorporateLicenseLineages(corporate,{requireComplete:true});
   if(Object.keys(other).length){
     insist(typeof inspectLegacyLedger==='function',
       'CORP_ORIGINAL_LEGACY_LEDGER_INSPECTOR_REQUIRED');
@@ -89,6 +91,8 @@ export function issueCorporateProductLicenseOnce({
     insist(previous.signedLicense?.payload?.schema===CORPORATE_LICENSE_SCHEMA,
       'CORP_ORIGINAL_ISSUE_PROFILE_CONFLICT');
     const p=previous.signedLicense.payload;
+    insist(p.renewalOf===renewalOf,
+      'CORP_ORIGINAL_ISSUE_RENEWAL_CONFLICT');
     insist(p.subject.id===r.subject.id&&
       digest(p.product)===digest(r.product)&&
       digest(p.tariff)===digest(r.tariff)&&
@@ -108,10 +112,39 @@ export function issueCorporateProductLicenseOnce({
   insist(Object.keys(ledger.records).length<4096,
     'CORP_ORIGINAL_ISSUE_LEDGER_FULL');
   insist(typeof persist==='function','CORP_ORIGINAL_ATOMIC_PERSIST_REQUIRED');
+  const corporate=Object.values(ledger.records)
+    .filter(e=>e.signedLicense?.payload?.schema===CORPORATE_LICENSE_SCHEMA)
+    .map(e=>e.signedLicense.payload);
+  if(renewalOf!==null){
+    identifier(renewalOf);
+    const previous=corporate.find(p=>p.id===renewalOf);
+    insist(previous,'CORP_ORIGINAL_RENEWAL_PREDECESSOR_REQUIRED');
+    insist(previous.issuerAuthorityId===issuerAuthorityId&&
+      previous.subject.id===r.subject.id&&previous.product.id===r.product.id&&
+      previous.lineageId===lineageId,'CORP_ORIGINAL_RENEWAL_SCOPE_MISMATCH');
+    insist(!corporate.some(p=>p.renewalOf===renewalOf),
+      'CORP_ORIGINAL_RENEWAL_ALREADY_ISSUED');
+    const pair=signedStatusPair(ownerState,
+      ledger.records[previous.requestId].signedLicense,
+      ownerState.productLicenseStatusFloors?.[renewalOf]??null);
+    insist(pair?.checked.status!=='REVOKED','CORP_ORIGINAL_RENEWAL_REVOKED_DENIED');
+    // A terminal revoke anywhere in this known lineage cannot be bypassed
+    // by issuing a descendant. An explicit new independent root is distinct.
+    let cursor=previous;
+    while(cursor.renewalOf!==null){
+      cursor=corporate.find(p=>p.id===cursor.renewalOf);
+      insist(cursor,'CORP_ORIGINAL_RENEWAL_PREDECESSOR_REQUIRED');
+      const ancestor=signedStatusPair(ownerState,
+        ledger.records[cursor.requestId].signedLicense,
+        ownerState.productLicenseStatusFloors?.[cursor.id]??null);
+      insist(ancestor?.checked.status!=='REVOKED','CORP_ORIGINAL_RENEWAL_REVOKED_DENIED');
+    }
+  }
   const payload=createCorporateLicenseCandidate({request:r,ownerState,
     issuerAuthorityId,licenseId,lineageId,renewalOf,now});
   insist(!Object.values(ledger.records).some(e=>e.signedLicense?.payload?.id===payload.id),
     'CORP_ORIGINAL_LICENSE_ID_CONFLICT');
+  inspectCorporateLicenseLineages([...corporate,payload],{requireComplete:true});
   const signedLicense=signCorporateLicenseCandidate({payload,
     ownerState,signer,now});
   const next=copy(ownerState);
@@ -239,7 +272,7 @@ export function inspectCorporateOriginalOwnerSignedReadback({
     source:'ORIGINAL_T3_PRODUCT_ISSUE_LEDGER',
     licenseId,requestId:p.requestId,
     organizationId:p.subject.id,productId:p.product.id,
-    productVersion:p.product.version,
+    productVersion:p.product.version,lineageId:p.lineageId,renewalOf:p.renewalOf,
     issuerAuthorityId:p.issuerAuthorityId,
     tariffId:p.tariff.id,tariffRevision:p.tariff.revision,
     licenseEnvelopeSha256:digest(license),

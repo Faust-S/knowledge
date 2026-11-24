@@ -174,3 +174,42 @@ test('original issuer refuses changed signing key, duplicate immutable license I
  mustDeny(()=>f.issue(f.request,{inspectLegacyLedger:inspector}),
    'CORP_ORIGINAL_ISSUE_STATE_OR_TIME_INVALID');
 });
+
+test('corporate renewal binds the same signed organization, product and lineage, with exact retry',()=>{
+ const f=fixture(),first=f.issue();
+ const request={...f.request,requestId:'request:company:renewal',
+  requestedAt:iso(NOW+1000),tariff:{id:'TEAM',revision:3},
+  limits:{...f.request.limits,personalAgentSeats:2}};
+ const options={licenseId:'license:company:two',
+  lineageId:first.signedLicense.payload.lineageId,
+  renewalOf:first.signedLicense.payload.id,now:NOW+2000};
+ const renewal=f.issue(request,options);
+ assert.equal(renewal.outcome,'ISSUED_NEW');
+ assert.equal(renewal.signedLicense.payload.renewalOf,first.signedLicense.payload.id);
+ assert.equal(renewal.signedLicense.payload.lineageId,first.signedLicense.payload.lineageId);
+ assert.equal(renewal.signedLicense.payload.limits.personalAgentSeats,2);
+ assert.equal(f.transactions(),2);
+ const replay=f.issue(request,{...options,licenseId:'license:not-issued',now:NOW+3000});
+ assert.deepEqual(replay.signedLicense,renewal.signedLicense);
+ assert.equal(f.signatures(),2);
+ mustDeny(()=>f.issue(request,{...options,renewalOf:null}),
+   'CORP_ORIGINAL_ISSUE_RENEWAL_CONFLICT');
+ mustDeny(()=>f.issue({...request,requestId:'request:fork'},
+   {...options,licenseId:'license:fork',now:NOW+4000}),
+   'CORP_ORIGINAL_RENEWAL_ALREADY_ISSUED');
+ assert.equal(f.transactions(),2);
+});
+test('corporate renewal cannot attach a missing or foreign predecessor or reuse a root lineage',()=>{
+ const f=fixture();f.issue();
+ const r={...f.request,requestId:'request:company:two',requestedAt:iso(NOW)};
+ const o={licenseId:'license:company:two',now:NOW+1000,
+  lineageId:'lineage:company:one',renewalOf:'license:company:one'};
+ mustDeny(()=>f.issue(r,{...o,renewalOf:'license:missing'}),
+  'CORP_ORIGINAL_RENEWAL_PREDECESSOR_REQUIRED');
+ mustDeny(()=>f.issue({...r,subject:{type:'ORGANIZATION',id:'org:other'}},o),
+  'CORP_ORIGINAL_RENEWAL_SCOPE_MISMATCH');
+ mustDeny(()=>f.issue(r,{...o,lineageId:'lineage:other'}),
+  'CORP_ORIGINAL_RENEWAL_SCOPE_MISMATCH');
+ mustDeny(()=>f.issue(r,{...o,renewalOf:null}),'CORP_LINEAGE_MULTIPLE_ROOTS');
+ assert.equal(f.transactions(),1);assert.equal(f.signatures(),1);
+});
