@@ -14,7 +14,9 @@ import {createT4CandidateFrameTransport} from '../src/network/standard-network-w
 import {prepareT4CandidateOpaqueChunks,assembleT4CandidateOpaqueChunks} from '../src/network/standard-network-opaque-chunks.mjs';
 import {createT4OriginalVaultNodeSignaturePort} from '../src/network/original-vault-node-signature.mjs';
 import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-native-host-network-owner.mjs';
-import {createT4CandidateUnsignedFrame,signT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4CandidateWireFrame,decodeT4CandidateFrame} from '../src/network/standard-network-wire-candidate.mjs';
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4CandidateWireFrame,decodeT4CandidateFrame,verifyT4CandidateHistoricalFrameSignature,
+  verifyT4CandidateHistoricalReceivedFrame} from '../src/network/standard-network-wire-candidate.mjs';
+import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
 import {originalKernelFixture} from '../../t3-core/tests/support/t3-two-corp-original-authority.mjs';
 
 const WS='ws:k37:subject',REG='ws:k37:access',OBJECT='t3.access.signed-registry',OWNER='owner:k37',
@@ -574,4 +576,99 @@ test('K39 original prepared ciphertext requires the same active X25519 key and e
   assert.equal(await replacement.authorizeOriginalSealedPublication({...input,ciphertext:fresh.ciphertext,
     contentDigest:'sha256:'+sha(fresh.ciphertext),encryptionContextRef:fresh.encryptionContextRef}),true);
   await assert.rejects(q.recipient().openOriginalSealedContent(q.openInput(c.session,sealed)),{code:'SEALED_CONTENT_RECIPIENT_KEY_NOT_ADMITTED'});
+});
+
+
+test('K40 original historical key evidence survives cold rotation and revocation without reviving live signatures', {timeout:60000},async()=>{
+  const f=await fixture(),first=f.generate(localBinding),peer=f.generate(remoteBinding);
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',localBinding,first));
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',remoteBinding,peer));
+  const create=(binding,registry=f.registry,patch={})=>createT4OriginalVaultNodeSignaturePort({...scope,
+    localKeyRef:binding.keyId,remoteKeyRef:remoteBinding.keyId,registry,...f.bound(registry),
+    expectedContext:f.context,getMode:()=> 'T4_NETWORK',clock:f.clock,requireDurableNetworkKeyBinding:true,
+    readEncryptedVault:async()=>encryptVault(f.vault,PASS),unlockPassphrase:async()=>PASS,...patch});
+  const old=create(localBinding),wire=await signFrame(old,localBinding),before=await f.registry.readNetworkKeyHistoryEvidence(query(localBinding));
+  assert.equal(before.keyCurrentlyActive,true);assert.equal(before.retirement,null);
+  const next={...localBinding,keyId:'key:k40:next',generation:2};
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ROTATE',next,f.generate(next),before.binding));
+  const cold=createOriginalKernelRegistryStatePort(f.options);
+  const history=await cold.readNetworkKeyHistoryEvidence(query(localBinding));
+  assert.equal(history.keyCurrentlyActive,false);assert.equal(history.currentKeyStatus,'REVOKED');
+  assert.equal(history.retirement.kind,'ROTATE');assert.deepEqual(history.key,first);
+  assert.equal(await cold.readNetworkKeyEvidence(query(localBinding)),null);
+  assert.equal(await cold.readNetworkKeyHistoryEvidence({...query(localBinding),scopeRef:'scope:foreign'}),null);
+  let unlocks=0;
+  const rotated=create(next,cold,{readEncryptedVault:async()=>{unlocks++;assert.fail('historical Vault read');}});
+  const historical=()=>verifyT4CandidateHistoricalFrameSignature({wireBytes:wire,direction:'OUTBOUND',
+    localNodeRef:A,scopeRef:SCOPE,requiredCryptoSuite:SUITE,
+    verifyOriginalHistoricalNodeSignature:rotated.verifyOriginalHistoricalNodeSignature});
+  const result=await historical();
+  assert.equal(result.originalKeyCurrentlyActive,false);assert.equal(result.originalHistoricalSignatureVerified,true);
+  assert.equal(result.originalHistoricalAcceptanceProven,false);assert.equal(result.liveNetworkAuthorityGranted,false);
+  assert.equal(result.trustedSigningTimeProven,false);assert.equal(unlocks,0);
+  await assert.rejects(verifyT4CandidateOutboundSignature({wireBytes:wire,verifyOriginalNodeSignature:rotated.verifyOriginalNodeSignature}),
+    {code:'WIRE_SOURCE_SIGNATURE_NOT_VERIFIED'});
+  const current=(await cold.readNetworkKeyEvidence(query(next))).binding;
+  await f.registry.applyNetworkKeyTransition(await f.prepare('REVOKE',{...next,generation:3},null,current));
+  assert.equal((await historical()).originalKeyCurrentlyActive,false);
+  assert.equal((await cold.readNetworkKeyHistoryEvidence(query(next))).retirement.kind,'REVOKE');
+  assert.equal(unlocks,0);
+  console.log('T4_K40_ORIGINAL_KEY_HISTORY_PASS',JSON.stringify({coldRegistry:true,rotation:true,revocation:true,
+    oldPublicKeyVerified:true,liveOldKeyRejected:true,privateVaultOpened:false,trustedSigningTimeProven:false}));
+});
+
+test('K40 receiver history proves only previously accepted exact signed frames, never new frames signed by the retired key', {timeout:60000},async()=>{
+  const f=await fixture(),sourceKey=f.generate(localBinding),recipientBinding={...remoteBinding,subjectId:PRINCIPAL};
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',localBinding,sourceKey));
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',recipientBinding,f.generate(recipientBinding)));
+  const makeSigner=(local,remote,reg=f.registry)=>createT4OriginalVaultNodeSignaturePort({
+    ...scope,localNodeRef:local.nodeRef,remoteNodeRef:remote.nodeRef,localKeyRef:local.keyId,remoteKeyRef:remote.keyId,
+    registry:reg,...f.bound(reg),expectedContext:f.context,getMode:()=> 'T4_NETWORK',clock:f.clock,
+    requireDurableNetworkKeyBinding:true,readEncryptedVault:async()=>encryptVault(f.vault,PASS),unlockPassphrase:async()=>PASS});
+  const sender=makeSigner(localBinding,recipientBinding),receiver=makeSigner(recipientBinding,localBinding);
+  const signed=await signFrame(sender,localBinding);
+  const neverAccepted=await signT4CandidateFrame({unsignedFrame:createT4CandidateUnsignedFrame({
+    ...Object.fromEntries(Object.entries(unsigned(localBinding)).filter(([k])=>['messageType','messageId','sourceNodeRef','recipientNodeRef',
+      'sessionRef','scopeRef','ownerEpoch','sequence','signerRef','permissionRef','cryptoSuite','body'].includes(k))),
+    messageId:'message:k40:unseen',sequence:2}),signOriginalNodeBytes:sender.signOriginalNodeBytes});
+  const technical='ws:k40:replay';
+  // Keep one original fixture Kernel; expose the native Event metadata
+  // required by replay checkpoint readback.
+  const kernel={...f.kernel,async listEventsSince(ws){
+    const events=await f.kernel.listEventsSince(ws);
+    if(ws!==technical)return events;
+    const calls=f.storage.calls.filter(p=>p.workspace_id===ws);
+    return events.map((e,i)=>({...e,object_id:calls[i].object_id,revision:calls[i].base_revision+1}));
+  }};
+  let host='host:k40:one',writeGrants=0,readAllowed=true;
+  const makeReplay=()=>createT4OriginalNetworkReplayPort({originalKernel:kernel,technicalWorkspaceId:technical,
+    originalWriteOwnerRef:OWNER,localNodeRef:B,scopeRef:SCOPE,getMode:()=> 'T4_NETWORK',
+    readOriginalHostContext:async()=>({workspaceId:technical,originalWriteOwnerRef:OWNER,nodeRef:B,scopeRef:SCOPE,hostSessionRef:host}),
+    authorizeOriginalTechnicalRead:async()=>readAllowed,authorizeOriginalTechnicalWrite:async()=>{writeGrants++;return true;}});
+  const current=makeReplay();
+  const live={recipientNodeRef:B,scopeRef:SCOPE,requiredCryptoSuite:SUITE,
+    authorizeOriginalNetwork:async()=>true,persistOriginalReplayDecision:current.persistOriginalReplayDecision};
+  assert.equal((await verifyT4CandidateWireFrame({...live,wireBytes:signed,verifyOriginalNodeSignature:receiver.verifyOriginalNodeSignature})).originalReplayCheckpointRecorded,true);
+  const before=(await f.registry.readNetworkKeyEvidence(query(localBinding))).binding;
+  const next={...localBinding,keyId:'key:k40:sender:replacement',generation:2};
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ROTATE',next,f.generate(next),before));
+  host='host:k40:two';const cold=createOriginalKernelRegistryStatePort(f.options);
+  const newReceiver=makeSigner(recipientBinding,next,cold),r=makeReplay();
+  const history=wireBytes=>verifyT4CandidateHistoricalReceivedFrame({wireBytes,localNodeRef:B,scopeRef:SCOPE,
+    requiredCryptoSuite:SUITE,verifyOriginalHistoricalNodeSignature:newReceiver.verifyOriginalHistoricalNodeSignature,
+    readOriginalHistoricalReplayEvidence:r.readOriginalHistoricalReplayEvidence});
+  const writes=f.calls;
+  const old=await history(signed);
+  assert.equal(old.originalHistoricalAcceptanceProven,true);assert.equal(old.originalReplayCheckpointCreated,false);
+  assert.equal(old.historicalSignature.originalKeyCurrentlyActive,false);assert.equal(old.liveNetworkAuthorityGranted,false);
+  await assert.rejects(history(neverAccepted),{code:'WIRE_HISTORICAL_REPLAY_NOT_PROVEN'});
+  await assert.rejects(verifyT4CandidateWireFrame({...live,wireBytes:signed,
+    verifyOriginalNodeSignature:newReceiver.verifyOriginalNodeSignature}),{code:'WIRE_SOURCE_SIGNATURE_NOT_VERIFIED'});
+  await assert.rejects(verifyT4CandidateWireFrame({...live,wireBytes:neverAccepted,
+    verifyOriginalNodeSignature:newReceiver.verifyOriginalNodeSignature}),{code:'WIRE_SOURCE_SIGNATURE_NOT_VERIFIED'});
+  readAllowed=false;
+  await assert.rejects(history(signed),{code:'REPLAY_ORIGINAL_ACCESS_DENIED'});
+  assert.equal(f.calls,writes);assert.equal(writeGrants,1);
+  console.log('T4_K40_HISTORICAL_REPLAY_PASS',JSON.stringify({oldExactReplay:true,unseenOldFrameDenied:true,
+    retiredLiveFrameDenied:true,revokedReadDenied:true,additionalReplayWrites:0,subjectApply:false,kernelFixture:true}));
 });

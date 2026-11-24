@@ -210,6 +210,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       localNodeRef:nodeRef,frameTransport:frameDiscoveryPort,
       authorizeOriginalFramePublish:callback('authorizeOriginalFramePublish'),
       verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
+      ...(scopedVault?.verifyOriginalHistoricalNodeSignature?{verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature')}:{ }),
       ...(role==='SOURCE'&&scopedSealed?{authorizeOriginalSealedPublication:callback('authorizeOriginalSealedPublication')}:{})});
     const migrateNextPublication=enablePublicationIndexMigration?
       createT4OriginalPublicationIndexMigrationStepper({...tech,localNodeRef:nodeRef,

@@ -453,3 +453,66 @@ export async function verifyT4CandidateWireFrame({
     signedAppliedAckIsNotOriginalResult:true,
   });
 }
+
+
+// Historical verification is deliberately outside the live receive/publish
+// entrypoints. It cannot create a replay decision or produce a live receipt.
+function historicalInput({wireBytes,localNodeRef,scopeRef,requiredCryptoSuite,
+  direction,supportedCriticalExtensions=[]}={}){
+  if(!['INBOUND','OUTBOUND'].includes(direction)||!ID(localNodeRef)||!ID(scopeRef)||
+    !ID(requiredCryptoSuite))fail('WIRE_HISTORICAL_ROUTE_REQUIRED');
+  const frame=decodeT4CandidateFrame(wireBytes);
+  if((direction==='INBOUND'?frame.recipientNodeRef:frame.sourceNodeRef)!==localNodeRef||
+    frame.scopeRef!==scopeRef||frame.cryptoSuite!==requiredCryptoSuite)
+    fail('WIRE_HISTORICAL_ROUTE_MISMATCH');
+  if(!list(supportedCriticalExtensions,16)||
+    frame.criticalExtensions.some(x=>!supportedCriticalExtensions.includes(x)))
+    fail('WIRE_UNSUPPORTED_CRITICAL_EXTENSION');
+  const unsigned={...frame};delete unsigned.signatureBase64;
+  const raw=signedBytes(unsigned);
+  const proof=Object.freeze({operation:'t4.network.'+(direction==='INBOUND'?'receive.':'publish.')+frame.messageType,
+    signerRef:frame.signerRef,sourceNodeRef:frame.sourceNodeRef,recipientNodeRef:frame.recipientNodeRef,
+    scopeRef:frame.scopeRef,permissionRef:frame.permissionRef,ownerEpoch:frame.ownerEpoch,
+    sessionRef:frame.sessionRef,sequence:frame.sequence,
+    frameDigest:'sha256:'+createHash('sha256').update(raw).digest('hex')});
+  return {frame,proof,raw,signature:strictSignature(frame.signatureBase64),direction};
+}
+async function checkHistoricalSignature(p,verifyOriginalHistoricalNodeSignature){
+  if(typeof verifyOriginalHistoricalNodeSignature!=='function')fail('WIRE_HISTORICAL_SIGNATURE_PORT_REQUIRED');
+  const evidence=await verifyOriginalHistoricalNodeSignature({...p.proof,
+    operation:'t4.network.history.'+p.direction.toLowerCase()+'.'+p.frame.messageType,
+    originalHistoricalEvidenceOnly:true,bytes:new Uint8Array(p.raw),signature:new Uint8Array(p.signature)});
+  if(evidence?.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_SIGNATURE_V1'||
+    evidence.frameDigest!==p.proof.frameDigest||evidence.signerRef!==p.proof.signerRef||
+    evidence.direction!==(p.direction==='OUTBOUND'?'LOCAL':'PEER')||
+    evidence.originalHistoricalSignatureVerified!==true||evidence.originalHistoricalAcceptanceProven!==false||
+    evidence.liveNetworkAuthorityGranted!==false||evidence.trustedSigningTimeProven!==false||
+    evidence.originalBusinessApplied!==false)fail('WIRE_HISTORICAL_SIGNATURE_NOT_VERIFIED');
+  return Object.freeze(structuredClone(evidence));
+}
+export async function verifyT4CandidateHistoricalFrameSignature(options={}){
+  return checkHistoricalSignature(historicalInput(options),options.verifyOriginalHistoricalNodeSignature);
+}
+export async function verifyT4CandidateHistoricalReceivedFrame(options={}){
+  const p=historicalInput({...options,direction:'INBOUND'}),read=options.readOriginalHistoricalReplayEvidence;
+  if(typeof read!=='function')fail('WIRE_HISTORICAL_REPLAY_PORT_REQUIRED');
+  const query=Object.freeze({...p.proof,originalHistoricalEvidenceOnly:true});
+  function validate(value){
+    if(value?.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_REPLAY_EVIDENCE_V1'||
+      !Object.keys(p.proof).every(k=>value[k]===p.proof[k])||
+      !ID(value.checkpointRef)||!ID(value.originalReplayEventId)||
+      value.originalReplayCheckpointRecorded!==true||value.originalHistoricalEvidenceOnly!==true||
+      value.liveNetworkAuthorityGranted!==false||value.originalBusinessApplied!==false)
+      fail('WIRE_HISTORICAL_REPLAY_NOT_PROVEN');
+    return structuredClone(value);
+  }
+  const prior=validate(await read(query));
+  const historicalSignature=await checkHistoricalSignature(p,options.verifyOriginalHistoricalNodeSignature);
+  const after=validate(await read(query));
+  if(JSON.stringify(canonical(prior))!==JSON.stringify(canonical(after)))fail('WIRE_HISTORICAL_REPLAY_CHANGED');
+  return Object.freeze({schema:'IWXA_T4_HISTORICAL_RECEIVED_FRAME_V1',
+    ...p.proof,historicalSignature,originalReplayCheckpointRef:prior.checkpointRef,
+    originalReplayEventId:prior.originalReplayEventId,originalHistoricalAcceptanceProven:true,
+    originalReplayCheckpointCreated:false,originalHistoricalEvidenceOnly:true,
+    liveNetworkAuthorityGranted:false,trustedSigningTimeProven:false,originalBusinessApplied:false});
+}

@@ -553,14 +553,17 @@ export function createOriginalKernelRegistryStatePort({
       "T3_ACCESS_NETWORK_KEY_ORIGINAL_RECEIPT_INVALID");
     return result;
   };
-  const readNetworkKeyEvidence=async(query={})=>{
+  const networkKeyQuery=query=>{
     const q=copy(query),required=["keyId","nodeRef","recipientNodeRef","workspaceId","originalWriteOwnerRef","scopeRef","keyUse"];
     fields(q,[...required,'ownerEpoch']);
     check(required.every(k=>ID.test(q[k]??""))&&['NETWORK_FRAME','NETWORK_AGREEMENT'].includes(q.keyUse)&&
       Number.isSafeInteger(q.ownerEpoch)&&q.ownerEpoch>=1,
       "T3_ACCESS_NETWORK_KEY_QUERY_INVALID");
-    const latest=await read(),matching=[...latest.networkBindings.values()].filter(b=>b.active&&
-      required.every(k=>b[k]===q[k])&&b.ownerEpoch===q.ownerEpoch);
+    return {q,matches:b=>required.every(k=>b[k]===q[k])&&b.ownerEpoch===q.ownerEpoch};
+  };
+  const readNetworkKeyEvidence=async(query={})=>{
+    const {matches}=networkKeyQuery(query);
+    const latest=await read(),matching=[...latest.networkBindings.values()].filter(b=>b.active&&matches(b));
     check(matching.length<=1,"T3_ACCESS_NETWORK_KEY_BINDING_AMBIGUOUS");
     if(!matching.length)return null;
     const binding=matching[0],key=latest.state.policy.keys[binding.keyId],now=validClock(clock);
@@ -570,9 +573,40 @@ export function createOriginalKernelRegistryStatePort({
     return Object.freeze({binding:copy(binding),key:copy(key),policyDigest:digest(latest.state.policy),
       originalRegistryRevision:latest.revision,originalReadback:true});
   };
+  // Historical material is reconstructed from the same signed original
+  // Event history. A retired key is NEVER returned by readNetworkKeyEvidence.
+  // A signature has no trusted signing timestamp; consumers must separately
+  // prove the exact previously accepted/published frame in the original ledger.
+  const readNetworkKeyHistoryEvidence=async(query={})=>{
+    const {matches}=networkKeyQuery(query),latest=await read(),now=validClock(clock);
+    const transitions=[...latest.networkTransitions.values()];
+    const admitted=transitions.filter(e=>e.transition.claims.kind!=='REVOKE'&&matches(e.binding));
+    check(admitted.length<=1,'T3_ACCESS_NETWORK_KEY_HISTORY_AMBIGUOUS');
+    if(!admitted.length)return null;
+    const admission=admitted[0],binding=admission.binding,key=admission.transition.claims.keyRecord;
+    const next=transitions.filter(e=>e.binding.bindingRef===binding.bindingRef&&
+      e.binding.generation===binding.generation+1&&e.revision>admission.revision);
+    check(next.length<=1,'T3_ACCESS_NETWORK_KEY_HISTORY_AMBIGUOUS');
+    const retired=next[0]??null,currentKey=latest.state.policy.keys[binding.keyId];
+    check(key&&currentKey&&same({...currentKey,status:'ACTIVE'},key)&&
+      (retired===null?currentKey.status==='ACTIVE':
+        currentKey.status==='REVOKED'&&['ROTATE','REVOKE'].includes(retired.transition.claims.kind)&&
+        retired.transition.claims.previousBindingDigest===digest(binding)),
+      'T3_ACCESS_NETWORK_KEY_HISTORY_CONFLICT');
+    const statement=e=>({transitionRef:e.transition.claims.transitionRef,
+      eventId:e.eventId,revision:e.revision,issuedAt:e.transition.claims.issuedAt,
+      kind:e.transition.claims.kind,transitionDigest:digest(e.transition)});
+    const active=retired===null&&timestamp(key.notBefore)<=now&&now<timestamp(key.expiresAt);
+    return Object.freeze({schema:'IWXA_T3_ORIGINAL_NETWORK_KEY_HISTORY_V1',
+      binding:copy(binding),key:copy(key),admission:statement(admission),
+      retirement:retired===null?null:statement(retired),currentKeyStatus:currentKey.status,
+      keyCurrentlyActive:active,policyDigest:digest(latest.state.policy),
+      originalRegistryRevision:latest.revision,originalSignedHistoryVerified:true,
+      originalHistoricalEvidenceOnly:true,liveNetworkAuthorityGranted:false});
+  };
   const port=Object.freeze({
     readState:async()=>copy((await read()).state),
-    applyNetworkKeyTransition,readNetworkKeyEvidence,
+    applyNetworkKeyTransition,readNetworkKeyEvidence,readNetworkKeyHistoryEvidence,
     commitSignedState:commit,
     admitProofCredential,readProofCredential,
     getStatus:async()=>{const state=(await read()).state;

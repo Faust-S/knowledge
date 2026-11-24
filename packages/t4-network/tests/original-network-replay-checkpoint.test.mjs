@@ -192,3 +192,21 @@ test('candidate original peer receipt is never a subject Result',async()=>{
   assert.equal(repeated.exactPreviouslyVerifiedReplay,true);
   assert.equal(p.original.puts,1);
 });
+
+
+test('historical replay evidence is read-only, exact, and refuses a missing or conflicting checkpoint',async()=>{
+  const p=ports(),b=p.binding(),query={...proof,originalHistoricalEvidenceOnly:true};
+  assert.equal(await b.readOriginalHistoricalReplayEvidence(query),null);
+  assert.equal(p.original.puts,0);
+  await b.persistOriginalReplayDecision(proof);p.restart();
+  const evidence=await p.binding().readOriginalHistoricalReplayEvidence(query);
+  assert.equal(evidence.originalHistoricalEvidenceOnly,true);
+  assert.equal(evidence.originalReplayEventId,p.original.events[0].event_id);
+  assert.equal(evidence.liveNetworkAuthorityGranted,false);
+  assert.equal(evidence.frameDigest,proof.frameDigest);
+  await assert.rejects(p.binding().readOriginalHistoricalReplayEvidence({...query,signerRef:'key:foreign'}),
+    err('REPLAY_ORIGINAL_SEQUENCE_CONFLICT'));
+  p.original.events[0].payload.frameDigest='sha256:'+'0'.repeat(64);
+  await assert.rejects(p.binding().readOriginalHistoricalReplayEvidence(query),err('REPLAY_ORIGINAL_EVENT_NOT_PROVEN'));
+  assert.equal(p.original.puts,1);
+});

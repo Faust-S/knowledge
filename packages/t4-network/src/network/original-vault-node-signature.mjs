@@ -47,11 +47,11 @@ export function createT4OriginalVaultNodeSignaturePort({
   const signed=createT4OriginalSignedOperationAccess({access,expectedContext,workspaceId,
     operations:['t4.network.node.sign','t4.network.node.verify'],getMode,clock});
   const current=()=>signed.assertCurrent();
-  function frameScope(frame){
+  function frameScope(frame,historical=false){
     const local=frame.sourceNodeRef===localNodeRef&&frame.recipientNodeRef===remoteNodeRef;
     const remote=frame.sourceNodeRef===remoteNodeRef&&frame.recipientNodeRef===localNodeRef;
     if((!local&&!remote)||frame.scopeRef!==scopeRef||frame.ownerEpoch!==ownerEpoch||
-      frame.cryptoSuite!==requiredCryptoSuite||frame.signerRef!==(local?localKeyRef:remoteKeyRef))
+      frame.cryptoSuite!==requiredCryptoSuite||(!historical&&frame.signerRef!==(local?localKeyRef:remoteKeyRef)))
       fail('ORIGINAL_VAULT_NETWORK_FRAME_SCOPE_MISMATCH');
     return local?'LOCAL':'PEER';
   }
@@ -174,8 +174,51 @@ export function createT4OriginalVaultNodeSignaturePort({
       return true;
     }catch{return false;}
   }
+  async function verifyOriginalHistoricalNodeSignature(input={}){
+    try{
+      current();
+      if(!durable||input.originalHistoricalEvidenceOnly!==true||
+        !(input.bytes instanceof Uint8Array)||!(input.signature instanceof Uint8Array)||input.signature.length!==64)return null;
+      const raw=new Uint8Array(input.bytes),signature=new Uint8Array(input.signature),
+        frame=decodeT4CandidateSigningBytes(raw),direction=frameScope(frame,true),
+        q=query({...frame,direction});
+      const operation='t4.network.history.'+(direction==='LOCAL'?'outbound.':'inbound.')+frame.messageType;
+      if(input.operation!==operation||input.frameDigest!==digestBytes(raw)||
+        !['signerRef','sourceNodeRef','recipientNodeRef','scopeRef','permissionRef','sessionRef','ownerEpoch','sequence']
+          .every(k=>input[k]===frame[k]))return null;
+      const read=()=>registry.readNetworkKeyHistoryEvidence({keyId:q.signerRef,nodeRef:q.sourceNodeRef,
+        recipientNodeRef:q.recipientNodeRef,workspaceId,originalWriteOwnerRef,scopeRef,ownerEpoch,keyUse:'NETWORK_FRAME'});
+      const entry=await read();current();
+      if(entry?.schema!=='IWXA_T3_ORIGINAL_NETWORK_KEY_HISTORY_V1'||entry.originalSignedHistoryVerified!==true||
+        entry.binding.permissionRef!==frame.permissionRef||entry.key.subjectId!==entry.binding.subjectId||
+        entry.key.uses.length!==1||entry.key.uses[0]!=='NETWORK_FRAME'||
+        (direction==='LOCAL'&&(entry.binding.subjectId!==signed.subject.actor_id||
+          entry.binding.principalId!==signed.subject.principal_id))||
+        createPublicKey(entry.key.publicKey).asymmetricKeyType!=='ed25519')return null;
+      const proof=Object.freeze({...evidence(frame,raw,q,{...entry,keyDigest:digest(entry.key)}),
+        originalHistoricalEvidenceOnly:true,originalKeyAdmission:entry.admission,
+        originalKeyRetirement:entry.retirement,originalKeyCurrentlyActive:entry.keyCurrentlyActive,
+        originalRegistryRevision:entry.originalRegistryRevision,liveNetworkAuthorityGranted:false});
+      await signed.authorize({operation:'t4.network.node.verify',input:proof,expectedPolicyDigest:entry.policyDigest});
+      current();
+      if(!verify(null,raw,createPublicKey(entry.key.publicKey),signature))return null;
+      if(digest(await read())!==digest(entry))return null;
+      await signed.authorize({operation:'t4.network.node.verify',input:proof,expectedPolicyDigest:entry.policyDigest});
+      current();
+      if(digest(await read())!==digest(entry))return null;
+      current();
+      return Object.freeze({schema:'IWXA_T4_ORIGINAL_HISTORICAL_SIGNATURE_V1',frameDigest:proof.frameDigest,
+        signerRef:frame.signerRef,direction,originalKeyBindingRef:entry.binding.bindingRef,
+        originalKeyAdmission:Object.freeze(entry.admission),
+        originalKeyRetirement:entry.retirement===null?null:Object.freeze(entry.retirement),
+        originalKeyCurrentlyActive:entry.keyCurrentlyActive,
+        originalHistoricalSignatureVerified:true,originalHistoricalAcceptanceProven:false,
+        trustedSigningTimeProven:false,liveNetworkAuthorityGranted:false,originalBusinessApplied:false});
+    }catch{return null;}
+  }
   const port=Object.freeze({schema:'IWXA_T4_ORIGINAL_VAULT_NODE_SIGNATURE_V1',identity,originalSignedSubject:signed.subject,originalAccessIdentity:signed.originalAccessIdentity,
     resolveOriginalSigningContext,signOriginalNodeBytes,verifyOriginalNodeSignature,
+    ...(durable?{verifyOriginalHistoricalNodeSignature}:{}),
     originalVault:true,originalRegistry:true,originalSignedAccess:true,originalDurableNetworkKeyBinding:durable,
     createsStore:false,createsIAM:false,
     forOriginalHostLifetime:isHostActive=>createT4OriginalVaultNodeSignaturePort({...identity,registry,access,originalEvaluator,

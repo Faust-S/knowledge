@@ -104,7 +104,7 @@ export function createT4OriginalNetworkReplayPort({
         automaticRetryAllowed:false,
       });
   }
-  async function checkpointVerified(row,key,initial){
+  async function checkpointVerified(row,key,initial,historical=false){
     const data=row?.object?.data;
     if(row?.object?.workspace_id!==technicalWorkspaceId||
       row?.object?.object_id!==key.checkpointRef||
@@ -150,7 +150,25 @@ export function createT4OriginalNetworkReplayPort({
       key.signerRef===data.signerRef&&
       key.operation===data.operation;
     if(!eq)fail('REPLAY_ORIGINAL_SEQUENCE_CONFLICT');
+    if(historical)return Object.freeze({schema:'IWXA_T4_ORIGINAL_HISTORICAL_REPLAY_EVIDENCE_V1',
+      ...key.identity,checkpointRef:key.checkpointRef,frameDigest:key.frameDigest,
+      signerRef:key.signerRef,permissionRef:key.permissionRef,operation:key.operation,
+      originalReplayEventId:found[0].event_id,originalReplayCheckpointRecorded:true,
+      originalHistoricalEvidenceOnly:true,liveNetworkAuthorityGranted:false,originalBusinessApplied:false});
     return 'SEEN_EXACT';
+  }
+  async function readOriginalHistoricalReplayEvidence(proof={}){
+    if(proof.originalHistoricalEvidenceOnly!==true)fail('REPLAY_ORIGINAL_HISTORY_QUERY_REQUIRED');
+    const key=replayRef({...proof,originalDurableCompareAndSetRequired:true});
+    if(key.identity.recipientNodeRef!==localNodeRef||key.identity.scopeRef!==scopeRef)
+      fail('REPLAY_ORIGINAL_RECIPIENT_SCOPE_MISMATCH');
+    const initial=await context();
+    await guard('read',initial,key.checkpointRef);
+    const existing=await originalKernel.getObject(technicalWorkspaceId,key.checkpointRef);
+    await guard('read',initial,key.checkpointRef);
+    if(existing===null)return null;
+    if(!existing)fail('REPLAY_ORIGINAL_CHECKPOINT_INVALID');
+    return checkpointVerified(existing,key,initial,true);
   }
   async function persistOriginalReplayDecision(proof){
     const key=replayRef(proof);
@@ -210,7 +228,7 @@ export function createT4OriginalNetworkReplayPort({
   }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_T3_NETWORK_REPLAY_BINDING_V1',
-    persistOriginalReplayDecision,
+    persistOriginalReplayDecision,readOriginalHistoricalReplayEvidence,
     originalT3OnlyStore:true,originalT3EventRequired:true,
     createsStore:false,createsNewIAM:false,createsTaskEngine:false,
   });

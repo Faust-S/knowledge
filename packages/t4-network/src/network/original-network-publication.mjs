@@ -4,7 +4,7 @@ import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-li
 import {createHash} from 'node:crypto';
 import {isT4RecoverableFrameTransportError} from './standard-network-wire-transport.mjs';
 import {T4TransferError} from './webdav-package-transfer.mjs';
-import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,
+import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4CandidateHistoricalFrameSignature,
   isT4NativeEventOnlyKind,validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions,
   T4_ORIGINAL_SOURCE_SESSION_EXTENSION}
   from './standard-network-wire-candidate.mjs';
@@ -346,6 +346,7 @@ export function createT4OriginalNetworkPublicationPort({
   readOriginalHostContext,authorizeOriginalTechnicalRead,
   authorizeOriginalTechnicalWrite,authorizeOriginalFramePublish,
   verifyOriginalNodeSignature,frameTransport,authorizeOriginalSealedPublication=null,
+  verifyOriginalHistoricalNodeSignature=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   const identity=canonicalSession(session);
@@ -362,6 +363,8 @@ export function createT4OriginalNetworkPublicationPort({
     !['getObject','listEventsSince','putObject'].every(
       op=>typeof originalKernel[op]==='function'))
     fail('PUBLICATION_ORIGINAL_HOST_PORTS_REQUIRED');
+  if(verifyOriginalHistoricalNodeSignature!==null&&typeof verifyOriginalHistoricalNodeSignature!=='function')
+    fail('PUBLICATION_ORIGINAL_HISTORY_PORT_INVALID');
   const source=localNodeRef===identity.sourceNodeRef;
   if(authorizeOriginalSealedPublication!==null&&(!source||typeof authorizeOriginalSealedPublication!=='function'))
     fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_INVALID');
@@ -670,6 +673,28 @@ export function createT4OriginalNetworkPublicationPort({
       originalReplayCheckpointRecorded:false,remoteReceiptProven:false,
       networkBytesVerified:true,originalBusinessApplied:false,originalT3ExchangeCalled:false});
   }
+  // Read-only history proof from the original PRESENT Event and exact
+  // persisted bytes. No remote read/write, no fresh signer, no live proof.
+  async function readOriginalHistoricalPublishedFrame({sequence}={}){
+    if(!Number.isSafeInteger(sequence)||sequence<1||sequence>MAX_FRAMES||
+      verifyOriginalHistoricalNodeSignature===null)fail('PUBLICATION_ORIGINAL_HISTORY_PORT_REQUIRED');
+    const ctx=await context(),current=await read(ctx),entry=current.entries[sequence-1];
+    if(entry?.state!=='PRESENT')fail('PUBLICATION_HISTORICAL_PRESENT_REQUIRED');
+    const frame=frameFor(entry);
+    const historicalSignature=await verifyT4CandidateHistoricalFrameSignature({
+      wireBytes:Buffer.from(entry.wireText,'utf8'),direction:'OUTBOUND',localNodeRef,
+      scopeRef:identity.scopeRef,requiredCryptoSuite:frame.cryptoSuite,
+      supportedCriticalExtensions:frame.criticalExtensions,verifyOriginalHistoricalNodeSignature});
+    const after=await read(ctx);
+    if(after.revision!==current.revision||after.chainHash!==current.chainHash||
+      !same(after.entries[sequence-1],entry))fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_FRAME_V1',
+      checkpointRef,originalPublicationRevision:current.revision,originalPublicationChainHash:current.chainHash,
+      sessionRef:identity.sessionRef,sequence,messageType:frame.messageType,sha256:entry.sha256,
+      key:entry.sha256+'.t4n',historicalSignature,originalT3PublicationEventChainVerified:true,
+      originalHistoricalPublicationProven:true,currentRemotePresenceProven:false,remoteReceiptProven:false,
+      originalHistoricalEvidenceOnly:true,liveNetworkAuthorityGranted:false,originalBusinessApplied:false});
+  }
   // Explicit original-owner migration/repair of already PRESENT frames.
   // It is not an ordinary publication attempt, cannot promote PREPARED or
   // ATTEMPTED, and never creates a new signed frame or rewrites the original
@@ -867,6 +892,7 @@ export function createT4OriginalNetworkPublicationPort({
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1',
     session:identity,checkpointRef,inspectOriginalPublication,
     prepareSignedBatch,publishPreparedFrame,readOriginalPublishedFrame,
+    ...(verifyOriginalHistoricalNodeSignature!==null?{readOriginalHistoricalPublishedFrame}:{}),
     reconcileOriginalPublishedFrameIndexes,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkPublicationPort({
       technicalSchemaId,
@@ -874,6 +900,7 @@ export function createT4OriginalNetworkPublicationPort({
       getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       authorizeOriginalFramePublish,verifyOriginalNodeSignature,authorizeOriginalSealedPublication,
+      verifyOriginalHistoricalNodeSignature,
       frameTransport:scopeOriginalHostPort(frameTransport,isHostActive,
         ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
         'PUBLICATION_ORIGINAL_WIRE_LIFETIME_REQUIRED'),
