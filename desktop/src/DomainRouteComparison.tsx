@@ -103,6 +103,7 @@ export function DomainRouteComparison(){
     <p>Номера в текущей выборке: {group.model_numbers.join(', ')}. Операций: {group.operations.length}. Зависимостей: {group.dependency_count}.</p>
     {group.differing_fields.length>0?<p className="activity-v7-note"><strong>Требуют согласования:</strong> {group.differing_fields.map(x=>DIFFS[x]??x).join(', ')}.</p>:
       <p>В проверенных полях различий не обнаружено. Это не подтверждает совпадение требований и применимости технологий.</p>}
+    {group.incomplete_fields.length>0?<p className="activity-v7-note"><strong>Недостаточно параметров:</strong> {group.incomplete_fields.map(x=>DIFFS[x]??x).join(', ')}. Отсутствующие значения не считаются совпадением.</p>:null}
     <h3>Операции и исходные зависимости</h3>
     <div className="activity-domain-ops">
      {group.operations.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).map((op,i)=>

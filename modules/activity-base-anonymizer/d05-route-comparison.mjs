@@ -103,15 +103,21 @@ function shapeRoute(record,number){
   // and every original predecessor edge. No graph similarity or name guessing.
   const signature=ambiguous?null:key(operations.map(o=>
     [o.name,o.kind,o.parallel,o.milestone,o.predecessors]));
-  const differences=new Map(CHECKS.map(([label,fields])=>[label,key(ordered.map(id=>
-    fields.map(f=>field(nodes.get(id).raw[f]))))]));
+  const incomplete=[];
+  const differences=new Map(CHECKS.map(([label,fields])=>{
+    const values=ordered.map(id=>fields.map(f=>field(nodes.get(id).raw[f])));
+    if(values.some(row=>row.includes(null)))incomplete.push(label);
+    return [label,key(values)];
+  }));
   // These comparisons flag discrepancies, not compatibility. Calendar and
   // quantity stay local and are never copied into the structural output.
-  differences.set('ROUTE_PARAMETERS',key(ROUTE_FIELDS.map(f=>f==='workingDays'
+  const routeValues=ROUTE_FIELDS.map(f=>f==='workingDays'
     ?(Array.isArray(inputs[f])&&inputs[f].length<=7&&inputs[f].every(x=>Number.isInteger(x)&&x>=0&&x<=6)
-      ?[...inputs[f]].sort((a,b)=>a-b):null)
-    :field(inputs[f]))));
-  return {routeId,number,source,signature,operations,edgeCount,differences,ambiguous};
+      &&new Set(inputs[f]).size===inputs[f].length?[...inputs[f]].sort((a,b)=>a-b):null)
+    :field(inputs[f]));
+  if(routeValues.includes(null))incomplete.push('ROUTE_PARAMETERS');
+  differences.set('ROUTE_PARAMETERS',key(routeValues));
+  return {routeId,number,source,signature,operations,edgeCount,differences,incomplete,ambiguous};
 }
 export function reviewD05RouteModels(records){
   require(Array.isArray(records)&&records.length>0&&records.length<=MAX_ROUTES,
@@ -135,7 +141,7 @@ export function reviewD05RouteModels(records){
       model_count:members.length,model_numbers:members.map(m=>m.number),
       source_kinds:[...new Set(members.map(m=>m.source))].sort(cmp),
       operations:first.operations,dependency_count:first.edgeCount,
-      differing_fields:flags};
+      differing_fields:flags,incomplete_fields:[...new Set(members.flatMap(m=>m.incomplete))].sort(cmp)};
   });
   return {status:'LOCAL_MODEL_COMPARISON',model_count:entries.length,group_count:groups.length,
     repeated_group_count:groups.filter(g=>g.model_count>1).length,groups,

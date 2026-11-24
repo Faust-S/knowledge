@@ -3,7 +3,7 @@ export type D05RouteGroup={
  model_count:number;model_numbers:number[];source_kinds:string[];
  operations:Array<{id:string;name:string;kind:'internal'|'subcontract'|'wait'|'inspection'|'transport';
  parallel:boolean;milestone:boolean;predecessors:string[]}>;
- dependency_count:number;differing_fields:string[];
+ dependency_count:number;differing_fields:string[];incomplete_fields:string[];
 };
 export type D05RouteReview={
  status:'LOCAL_MODEL_COMPARISON';model_count:number;group_count:number;repeated_group_count:number;

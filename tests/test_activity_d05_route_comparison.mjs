@@ -84,3 +84,15 @@ test('input authority fields cannot turn a declared local model into observed or
  const v=reviewD05RouteModels([a]);assert.equal(v.export_allowed,false);
  assert.equal(v.anonymity,'NOT_ESTABLISHED');assert.doesNotMatch(JSON.stringify(v),/PRIVATE_GRANT/);
 });
+
+test('missing or invalid local parameters remain incomplete, never equivalent',()=>{
+ const [a,b]=fresh();delete ops(a)[0].equipment;delete ops(b)[0].equipment;
+ ops(a)[0].material={unexpected:'PRIVATE'};
+ ops(b)[0].material={unexpected:'PRIVATE'};
+ const v=reviewD05RouteModels([a,b]);
+ assert.ok(v.groups[0].incomplete_fields.includes('RESOURCES'));
+ assert.ok(v.groups[0].incomplete_fields.includes('MATERIALS'));
+ assert.ok(v.groups[0].incomplete_fields.includes('ROUTE_PARAMETERS'));
+ assert.equal(v.technology_equivalence,'NOT_ESTABLISHED');
+ assert.doesNotMatch(JSON.stringify(v),/PRIVATE/);
+});
