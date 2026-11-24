@@ -1,0 +1,159 @@
+name: D07 T3 original-platform integration
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d07-t3-integration.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: d07-t3-integration
+  cancel-in-progress: true
+jobs:
+  t3-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: cf9c3bfa66fdfb7db7f854a5d1ced8439373302b
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: domain
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 13d1e09bae1fa7bc011783946ef81c323dd553fd
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: assistant
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Preserve exact T2 subject and Workspace module
+        run: |
+          test "$(git -C domain rev-parse HEAD)" = "cf9c3bfa66fdfb7db7f854a5d1ced8439373302b"
+          test "$(git -C site rev-parse HEAD)" = "13d1e09bae1fa7bc011783946ef81c323dd553fd"
+          cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
+          for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
+            cmp "$path" "site/src/domain/$(basename "$path")"
+          done
+          cmp domain/src/domain/order-contract.ts site/src/domain/order-contract.ts
+          cmp domain/src/data/serviceDirectory.ts site/src/data/serviceDirectory.ts
+          for f in service-blocks.ts service-changes.ts service-execution.ts service-order-identity.ts service-money.ts service-attention.ts; do cmp "domain/src/domain/$f" "site/t2-site-module/uslugovod/$f"; done
+          echo D07_T3_DOMAIN_PARITY=PASS
+      - name: Original shared assistant validates canonical skill package
+        run: |
+          node domain/scripts/d07-skill-authoring.mjs --check > "$RUNNER_TEMP/skills.log" 2>&1 || { echo D07_T3_SKILL_GENERATION=FAIL; exit 1; }
+          node --test domain/tests/assistant-skills.test.mjs > "$RUNNER_TEMP/skill-tests.log" 2>&1 || { echo D07_T3_SKILL_TESTS=FAIL; grep -E '^not ok|^# (tests|pass|fail)' "$RUNNER_TEMP/skill-tests.log" | cut -c1-180; exit 1; }
+          node --input-type=module -e 'import fs from "node:fs";import {validateSkillPack} from "./assistant/browser-local-inference/domain-assistant/skill-runtime.mjs";const p=JSON.parse(fs.readFileSync("domain/models/assistant-skills.json","utf8"));validateSkillPack(p);console.log("D07_T3_SKILLS="+p.skills.length);console.log("D07_T3_FORM_HINTS="+p.formHints.length);console.log("D07_T3_RESULT_HINTS="+p.resultHints.length)' > "$RUNNER_TEMP/skill-schema.log" 2>&1 || { echo D07_T3_SHARED_SCHEMA=FAIL; grep -E '^Error: [A-Z0-9_]+' "$RUNNER_TEMP/skill-schema.log" | cut -c1-180; exit 1; }
+          echo D07_T3_SHARED_SCHEMA=PASS
+          grep -E '^D07_T3_[A-Z_]+=[0-9]+$' "$RUNNER_TEMP/skill-schema.log"
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/skill-tests.log"
+      - name: Locked dependencies, native product tests, TypeScript
+        working-directory: site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-install.log" 2>&1 || { echo D07_T3_INSTALL=FAIL; exit 1; }
+          npm run test:product-first > "$RUNNER_TEMP/d07-regression.log" 2>&1 || { echo D07_T3_ORIGINAL_REGRESSION=FAIL; grep -E '^not ok|^# (tests|pass|fail)' "$RUNNER_TEMP/d07-regression.log" | cut -c1-220 | head -60; exit 1; }
+          echo D07_T3_ORIGINAL_REGRESSION=PASS
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d07-regression.log"
+          bun run check:types > "$RUNNER_TEMP/d07-types.log" 2>&1 || { echo D07_T3_TYPES=FAIL; grep -E 'error TS[0-9]+' "$RUNNER_TEMP/d07-types.log" | cut -c1-220 | head -35; exit 1; }
+          echo D07_T3_TYPES=PASS
+          node --check scripts/prepare-d07-t3-host.mjs
+          node --check scripts/assemble-d07-t3-dist.mjs
+          node --check scripts/t3-platform-inputs.mjs
+          echo D07_T3_ASSEMBLY_SYNTAX=PASS
+  original-t3-integration:
+    needs: t3-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 13d1e09bae1fa7bc011783946ef81c323dd553fd
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: T2
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: assistant
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          persist-credentials: false
+          path: core
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Retrieve and authenticate exact published common platform
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/platform"
+          gh run download 45395047723 --repo Faust-S/knowledge --name iwxa-t3-mobile-portable-candidate-326f725c44d69ac99f6b912241e9e8a6c3d716a5 --dir "$RUNNER_TEMP/platform" > "$RUNNER_TEMP/platform-download.log" 2>&1 || { echo D07_T3_PLATFORM_DOWNLOAD=FAIL; exit 1; }
+          archive="$(find "$RUNNER_TEMP/platform" -type f -name '*.zip' -print -quit)"
+          test -n "$archive"
+          node site/scripts/t3-platform-inputs.mjs verify "$archive" > "$RUNNER_TEMP/platform-verify.log" 2>&1 || { echo D07_T3_PLATFORM_VERIFY=FAIL; grep -E '^Error: D07_T3_PLATFORM_[A-Z0-9_]+' "$RUNNER_TEMP/platform-verify.log" | cut -c1-160; exit 1; }
+          echo "D07_PLATFORM_ZIP=$archive" >> "$GITHUB_ENV"
+          echo D07_T3_PLATFORM_VERIFY=PASS
+      - name: Build complete D07 public site without changing native T2 orders
+        working-directory: site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/T2
+          VITE_D07_T3: '1'
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/install.log" 2>&1 || { echo D07_T3_INSTALL=FAIL; exit 1; }
+          node scripts/build-d07-integrated-site.mjs > "$RUNNER_TEMP/baseline.log" 2>&1 || { echo D07_T3_BASELINE=FAIL; grep -E '^D07_[A-Z0-9_]+=(FAIL|PASS)|^Error: D07_' "$RUNNER_TEMP/baseline.log" | cut -c1-200 | tail -20; exit 1; }
+          npm run hosting:verify > "$RUNNER_TEMP/base-audit.log" 2>&1 || { echo D07_T3_BASELINE_AUDIT=FAIL; grep -E '^D07_HOSTING_' "$RUNNER_TEMP/base-audit.log" | cut -c1-200 | tail -5; exit 1; }
+          echo D07_T3_BASELINE_AUDIT=PASS
+          grep '^D07_HOSTING_PACKAGE_AUDIT=PASS ' "$RUNNER_TEMP/base-audit.log"
+          git restore -- src/routeTree.gen.ts
+      - name: Compile original T3 Host with exact D07 module and shared BLI
+        working-directory: site
+        run: |
+          npm run t3:prepare-host -- "$GITHUB_WORKSPACE/core/packages/t3-core" "$RUNNER_TEMP/d07-host" "$D07_PLATFORM_ZIP" "$GITHUB_WORKSPACE/assistant" > "$RUNNER_TEMP/prepare-host.log" 2>&1 || {
+            echo D07_T3_HOST=FAIL
+            grep -E '^Error: (D07_|T3_)|error TS[0-9]+|^npm error code' "$RUNNER_TEMP/prepare-host.log" | cut -c1-220 | tail -35 || true
+            exit 1
+          }
+          echo D07_T3_HOST=PASS
+          grep '^{"status":"D07_T3_HOST_SOURCE_BUILT"' "$RUNNER_TEMP/prepare-host.log"
+      - name: One isolated candidate; original Kernel, permissions and full offline tree
+        working-directory: site
+        run: |
+          npm run t3:assemble -- "$PWD/dist" "$RUNNER_TEMP/d07-host" "$RUNNER_TEMP/d07-t3-dist" "$D07_PLATFORM_ZIP" > "$RUNNER_TEMP/assembly.log" 2>&1 || {
+            echo D07_T3_ASSEMBLY=FAIL
+            grep -E '^Error: (D07_|T3_|T2_)' "$RUNNER_TEMP/assembly.log" | cut -c1-200 | tail -20 || true
+            exit 1
+          }
+          echo D07_T3_ASSEMBLY=PASS
+          grep '^{"status":"D07_T3_CANDIDATE_BUILT_NOT_ACCEPTED"' "$RUNNER_TEMP/assembly.log"
+      # Never upload private domain sources, compiled assets, logs, or user data.
