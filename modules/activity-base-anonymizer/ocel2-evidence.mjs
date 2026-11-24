@@ -126,6 +126,66 @@ function validateRestrictedJson(raw) {
   return {objects, events, byObject, eventTypes, objectTypes, sharedEventCount, o2oCount};
 }
 
+// Local, restricted-profile fact census for independent readback of external
+// mining results. No raw IDs, attribute values, exact timestamps, authority
+// or mined sequences leave this function. Type/qualifier labels remain private.
+export function inspectLocalOcelCounts(raw) {
+  const v = validateRestrictedJson(raw);
+  const types = new Map([...v.objectTypes.keys()].map(name => [name, {
+    object_type: name, object_count: 0, nonempty_object_count: 0,
+    event_occurrences: 0, tied_object_count: 0, activities: new Map(),
+  }]));
+  const relations = new Map();
+  const addRelation = (kind, from, to, qualifier) => {
+    const key = JSON.stringify([kind, from, to, qualifier]);
+    const row = relations.get(key) ?? {kind, from, to, qualifier, count: 0};
+    row.count++;
+    relations.set(key, row);
+    need(relations.size <= 4096, 'OCEL_RELATION_SUMMARY_LIMIT');
+  };
+  let e2oCount = 0;
+  for (const event of v.events.values()) {
+    // The old 0.6.2 flattening path introduces these XES attributes itself.
+    // Ambiguous classifier/time overrides cannot be independently compared.
+    need(!event.attributes.some(a => a.name === 'concept:name' || a.name === 'time:timestamp'),
+      'OCEL_CLASSIFIER_OVERRIDE_UNSUPPORTED');
+    for (const rel of event.relationships) {
+      e2oCount++;
+      addRelation('E2O', event.type, v.objects.get(rel.objectId).type, rel.qualifier);
+    }
+  }
+  for (const object of v.objects.values()) {
+    const stat = types.get(object.type), events = v.byObject.get(object.id);
+    stat.object_count++;
+    if (events.length) stat.nonempty_object_count++;
+    const times = new Set();
+    let tied = false;
+    for (const event of events) {
+      stat.event_occurrences++;
+      stat.activities.set(event.type, (stat.activities.get(event.type) ?? 0) + 1);
+      const time = Date.parse(event.time);
+      if (times.has(time)) tied = true;
+      times.add(time);
+    }
+    if (tied) stat.tied_object_count++;
+    for (const rel of object.relationships ?? []) {
+      addRelation('O2O', object.type, v.objects.get(rel.objectId).type, rel.qualifier);
+    }
+  }
+  const objectTypes = [...types.values()].sort((a,b)=>cmp(a.object_type,b.object_type)).map(row => ({
+    ...row, activities: [...row.activities].sort(([a],[b])=>cmp(a,b)).map(([name,count])=>({name,count})),
+  }));
+  return {
+    event_count: v.events.size, object_count: v.objects.size,
+    e2o_count: e2oCount, o2o_count: v.o2oCount, shared_event_count: v.sharedEventCount,
+    tied_object_count: objectTypes.reduce((n,row)=>n+row.tied_object_count,0),
+    object_types: objectTypes,
+    relation_groups: [...relations.values()].sort((a,b)=>cmp(JSON.stringify([a.kind,a.from,a.to,a.qualifier]),
+      JSON.stringify([b.kind,b.from,b.to,b.qualifier]))),
+    epistemic_status: 'UNVERIFIED_NO_DOMAIN_BINDING',
+  };
+}
+
 function reconstruct(validated) {
   const eventNames = [...validated.eventTypes.keys()].sort(cmp);
   const objectNames = [...validated.objectTypes.keys()].sort(cmp);

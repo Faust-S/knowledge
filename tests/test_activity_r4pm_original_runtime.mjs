@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {reviewRust4pmResult} from '../modules/activity-base-anonymizer/r4pm-result-review.mjs';
+import {compareRust4pmOcelSource} from '../modules/activity-base-anonymizer/r4pm-ocel-source-review.mjs';
 const script=fileURLToPath(new URL('./activity_r4pm_original_fixture.py',import.meta.url));
 function actual(op){
  const child=spawnSync(process.env.IWXA_R4PM_PYTHON||'python',[script,op],{encoding:'utf8',timeout:60000,maxBuffer:2*1024*1024});
@@ -41,4 +42,14 @@ test('original Rust4PM variant binding supplies full trace variants including em
  assert.deepEqual(order.variants.map(v=>v.sequence).sort((a,b)=>a.length-b.length),[[],['prepare','check','finish'],['prepare','check','check','finish']]);
  assert.deepEqual(part.variants,[{sequence:['check','check'],object_occurrences:1}]);
  assert.equal(order.variant_summary.dfg_consistency,'MATCHED_REPORTED_VARIANTS');
+});
+
+test('independent restricted OCEL census matches genuine original variants and object counts',async()=>{
+ const child=spawnSync(process.env.IWXA_R4PM_PYTHON||'python',[script,'source_ocel'],{encoding:'utf8',timeout:60000,maxBuffer:2*1024*1024});
+ assert.ifError(child.error);assert.equal(child.status,0);
+ const result=await compareRust4pmOcelSource(actual('discover_ocel_variants'),new TextEncoder().encode(child.stdout));
+ assert.equal(result.status,'AGGREGATES_MATCH');
+ assert.equal(result.facts.event_count,7);assert.equal(result.facts.object_count,4);
+ assert.equal(result.facts.e2o_count,9);assert.equal(result.facts.shared_event_count,2);
+ assert.equal(result.full_trace_order_verified,false);
 });

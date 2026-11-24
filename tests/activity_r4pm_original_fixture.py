@@ -21,7 +21,7 @@ def run(operation):
     else:
         objects=[{"id":f"o{i}","type":"order","attributes":[]} for i in (1,2)]
         objects.append({"id":"p1","type":"part","attributes":[]})
-        if operation=="discover_ocel_variants":
+        if operation in ("discover_ocel_variants","source_ocel"):
             objects.append({"id":"o3","type":"order","attributes":[]})
         events=[]
         for i,sequence in ((1,["prepare","check","finish"]),(2,["prepare","check","check","finish"])):
@@ -33,6 +33,8 @@ def run(operation):
         source={"eventTypes":[{"name":k,"attributes":[]} for k in ("prepare","check","finish")],
                 "objectTypes":[{"name":k,"attributes":[]} for k in ("order","part")],
                 "objects":objects,"events":events}
+        if operation=="source_ocel":
+            return source
         with TemporaryDirectory() as root:
             path=Path(root)/"log.json"
             path.write_text(json.dumps(source),encoding="utf-8")
@@ -42,5 +44,5 @@ def run(operation):
                 data={**data,"object_type_to_variants":{name:bindings.get_variants_of_object_type(linked,name) for name in data["object_type_to_dfg"]}}
     return {"engine":"Rust4PM","version":version("r4pm"),"operation":operation,"data":data}
 if __name__=="__main__":
-    assert sys.argv[1] in {"count_ocel","discover_ocdfg","discover_dfg","discover_ocel_variants"}
+    assert sys.argv[1] in {"count_ocel","discover_ocdfg","discover_dfg","discover_ocel_variants","source_ocel"}
     print(json.dumps(run(sys.argv[1]),ensure_ascii=False,allow_nan=False,separators=(",",":")))

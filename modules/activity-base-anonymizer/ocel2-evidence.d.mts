@@ -32,3 +32,10 @@ export interface Ocel2EvidenceView {
 }
 export declare function inspectSyntheticOcel2(envelope: unknown): Promise<Ocel2EvidenceView>;
 export declare function buildSyntheticOcel2Example(): Promise<unknown>;
+export interface LocalOcelCountReview {
+ event_count:number;object_count:number;e2o_count:number;o2o_count:number;shared_event_count:number;tied_object_count:number;
+ object_types:{object_type:string;object_count:number;nonempty_object_count:number;event_occurrences:number;tied_object_count:number;activities:{name:string;count:number}[]}[];
+ relation_groups:{kind:'E2O'|'O2O';from:string;to:string;qualifier:string;count:number}[];
+ epistemic_status:'UNVERIFIED_NO_DOMAIN_BINDING';
+}
+export declare function inspectLocalOcelCounts(raw:unknown):LocalOcelCountReview;
