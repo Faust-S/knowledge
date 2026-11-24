@@ -360,66 +360,7 @@ jobs:
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-browser.log"
           if ! npm run check:t3-assistant-browser >"$log" 2>&1; then
-            grep -E '^CEHOVOD_T3_ASSISTANT_BROWSER_DIAG \{"skill":"[a-z0-9-]+","width":[0-9]+,"phase":"[a-z-]+","remote":[0-9]+,"workers":[0-9]+,"errors":[0-9]+,"remoteKinds":\[("[a-z]+",?)*\],"errorKinds":\[("[A-Za-z]+",?)*\]\} "$log" | sort -u | head -30 || true
-            echo D05_T3_ASSISTANT_BROWSER_FAIL
-            exit 1
-          fi
-          grep -E '^\{"status":"CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS","routes":22,"forms":20,"costRoutes":2,"orderRoutes":2,"repeatRoutes":2,"actualInference":false,"productAccepted":false\}$' "$log"
-          echo D05_T3_ASSISTANT_BROWSER_PASS
-      - name: Cold offline public site using original worker and persistent browser profile
-        id: offline
-        continue-on-error: true
-        working-directory: site
-        shell: bash
-        env:
-          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
-        run: |
-          set -euo pipefail
-          log="$RUNNER_TEMP/d05-t3-offline.log"
-          if ! npm run check:t3-public-offline >"$log" 2>&1; then
-            grep -Eo 'CEHOVOD_T3_OFFLINE_[A-Za-z0-9_-]+|TimeoutError|AssertionError' "$log" | sort -u | head -30 || true
-            echo D05_T3_PUBLIC_OFFLINE_FAIL
-            exit 1
-          fi
-          grep -E '^\{"status":"CEHOVOD_T3_PUBLIC_COLD_OFFLINE_PASS","routes":11,"files":[0-9]+,"serverStopped":true,"browserRestarted":true,"actualInference":false,"protectedWorkspaceAccepted":false\}$' "$log"
-          echo D05_T3_PUBLIC_OFFLINE_PASS
-      - name: Exact repeat build and damaged-input rollback from retained bytes
-        id: repro
-        continue-on-error: true
-        working-directory: site
-        shell: bash
-        env:
-          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
-        run: |
-          set -euo pipefail
-          log="$RUNNER_TEMP/d05-t3-repro.log"
-          if ! node scripts/check-t3-dist-reproducibility.mjs >"$log" 2>&1; then
-            grep -E '^CEHOVOD_T3_REPRO_DIAG \{"kinds":\{("[a-z-]+":[0-9]+,?)*\},"htmlEqualAfterTimestampNormalization":[0-9]+,"htmlEqualAfterRouterTimestampNormalization":[0-9]+,"htmlWithTimestampChanges":[0-9]+\}$' "$log" || true
-            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T3_[A-Z0-9_]+|AssertionError' "$log" | sort -u | head -30 || true
-            echo D05_T3_REPRO_FAIL
-            exit 1
-          fi
-          grep -E '^\{"status":"CEHOVOD_T3_REPRO_PASS","files":[0-9]+,"invalidInputPreservedDist":true,"exactBytes":true,"productAccepted":false\}$' "$log"
-          echo D05_T3_REPRO_PASS
-      - name: Require exact-source qualification
-        if: always()
-        shell: bash
-        env:
-          LINT_OUTCOME: ${{ steps.lint.outcome }}
-          TYPES_OUTCOME: ${{ steps.site_types.outcome }}
-          MODULE_OUTCOME: ${{ steps.module.outcome }}
-          SUBJECT_OUTCOME: ${{ steps.subject.outcome }}
-          BROWSER_OUTCOME: ${{ steps.browser.outcome }}
-          OFFLINE_OUTCOME: ${{ steps.offline.outcome }}
-          REPRO_OUTCOME: ${{ steps.repro.outcome }}
-        run: test "$LINT_OUTCOME" = success && test "$TYPES_OUTCOME" = success && test "$MODULE_OUTCOME" = success && test "$SUBJECT_OUTCOME" = success && test "$BROWSER_OUTCOME" = success && test "$OFFLINE_OUTCOME" = success && test "$REPRO_OUTCOME" = success
-      - name: Clear private diagnostics
-        if: always()
-        shell: bash
-        run: |
-          rm -f "$RUNNER_TEMP"/d05-t3-*.log "$RUNNER_TEMP"/d05-t3-lint.json "$RUNNER_TEMP"/d05-t3-subject.json
-          rm -rf "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/t3-artifact.zip" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$GITHUB_WORKSPACE/site/runtime/t3-platform/0.3.1-rc.1/cehovod-host" "$GITHUB_WORKSPACE/site/runtime/t3-platform/0.3.1-rc.1/platform-inputs.zip"
- "$log" || true
+            grep -E '^CEHOVOD_T3_ASSISTANT_BROWSER_DIAG \{"skill":"[a-z0-9-]+","width":[0-9]+,"phase":"[a-z-]+","remote":[0-9]+,"workers":[0-9]+,"errors":[0-9]+,"remoteKinds":\[("[a-z]+",?)*\],"errorKinds":\[("[A-Za-z]+",?)*\]\}$' "$log" || true
             grep -Eo 'CEHOVOD_T3_ASSISTANT_[A-Za-z0-9_-]+|TimeoutError|AssertionError|TS[0-9]{4,6}' "$log" | sort -u | head -30 || true
             echo D05_T3_ASSISTANT_BROWSER_FAIL
             exit 1
