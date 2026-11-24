@@ -75,6 +75,13 @@ function fixture(){
   };
   const transport={
     wireKind:'T4_NETWORK_CANDIDATE',
+    forOriginalHostLifetime(isActive){
+      const source=this;
+      const check=()=>{if(isActive()!==true)throw Object.assign(Error('original Host ended'),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});};
+      return {...source,async putSnapshot(args){check();const result=await source.putSnapshot(args);check();return result;},
+        async getSnapshot(args){check();const result=await source.getSnapshot(args);check();return result;},
+        async inspectOutcome(args){check();const result=await source.inspectOutcome(args);check();return result;}};
+    },
     async putSnapshot({key,bytes,expectedSha256,createOnly}){
       networkCalls++;
       assert.equal(createOnly,true);
