@@ -635,7 +635,7 @@ def portfolio_price(docs, candidate="coproduction", comparator="supplier", trans
 
 @pytest.mark.parametrize("kwargs,low,high", [
     ({}, "450.00", "700.00"),
-    ({"outside_material": "260.00"}, "530.00", "700.00"),
+    ({"outside_material": "260.00", "seller_opening": "800.00"}, "530.00", "700.00"),
     ({"outside_opening": "600.00"}, "450.00", "500.00"),
 ])
 def test_outside_portfolio_price_interval_includes_whole_owner_comparison_and_cash_paths(kwargs, low, high):
@@ -651,6 +651,7 @@ def test_outside_portfolio_price_interval_includes_whole_owner_comparison_and_ca
 
 @pytest.mark.parametrize("kwargs,reason", [
     ({"outside_opening": "500.00"}, "NO_PRICE_SATISFIES_ALL_OWNER_RESERVES_AT_FIXED_TIMING"),
+    ({"outside_material": "260.00"}, "NO_PRICE_SATISFIES_ALL_OWNER_RESERVES_AT_FIXED_TIMING"),
     ({"outside_observed": "2"}, "NO_PRICE_SATISFIES_PORTFOLIO_VALUE_AND_DEMAND_CEILING"),
     ({"disjoint": True, "seller_opening": "800.00"}, "NO_PRICE_SATISFIES_PORTFOLIO_VALUE_AND_DEMAND_CEILING"),
 ])
@@ -688,7 +689,7 @@ def test_outside_price_ceiling_source_must_remain_readable_for_portfolio_project
     doc = finance_portfolio()["coproduction"]
     demand = _event(doc, "outside_demand_signal")
     source = next(s for s in doc["context_evidence"]["sources"] if s["id"] == demand["outside_demand_source_ref"])
-    source["valid_until"] = doc["model_horizon"]
+    source["valid_until"] = doc["model_horizon"]-1
     with pytest.raises(ValueError, match="OUTSIDE_WORK_ORIGINAL_OFFER_PRICE_SOURCE_NOT_READABLE"):
         simulate(doc)
 

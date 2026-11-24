@@ -49,7 +49,8 @@ def export_multi_order_portfolio():
     prices = []
     for label, kwargs in sorted({
         "baseline": {},
-        "supplier_cost_increase": {"outside_material": "260.00"},
+        "supplier_cost_increase": {"outside_material": "260.00", "seller_opening": "800.00"},
+        "supplier_cost_reserve_impossible": {"outside_material": "260.00"},
         "buyer_reserve_binds": {"outside_opening": "600.00"},
         "buyer_reserve_impossible": {"outside_opening": "500.00"},
         "insufficient_value": {"outside_observed": "2"},
