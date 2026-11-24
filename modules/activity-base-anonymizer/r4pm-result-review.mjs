@@ -61,10 +61,57 @@ function reviewGraph(raw,id,objectType){
   derived_nonempty_trace_count:traceCount,start_activity_count:starts.size,end_activity_count:ends.size,
   self_loop_count:edges.filter(e=>e.from===e.to).length};
 }
+// Exact variants come from the ORIGINAL tool, not inferred from the DFG.
+// Marginal frequency agreement is not source attestation.
+function reviewVariants(raw,graph,budget){
+ need(Array.isArray(raw)&&raw.length<=2048,'R4PM_VARIANT_LIMIT');
+ const activity=new Map(graph.activities.map(x=>[x.name,x]));
+ const edges=new Map(graph.transitions.map(e=>[JSON.stringify([e.from,e.to]),e]));
+ const nodes=new Map(),transitions=new Map(),starts=new Map(),ends=new Map(),seen=new Set();
+ const variants=[];let total=0,empty=0;
+ const add=(map,key,n)=>{
+  const next=(map.get(key)??0)+n;
+  need(Number.isSafeInteger(next),'R4PM_VARIANT_COUNT_OVERFLOW');map.set(key,next);
+ };
+ for(const row of raw){
+  need(Array.isArray(row)&&row.length===2&&Array.isArray(row[0])&&row[0].length<=2048&&count(row[1]),'R4PM_VARIANT_INVALID');
+  const [sequence,n]=row;
+  budget.steps+=sequence.length;budget.variants++;
+  need(budget.steps<=200000&&budget.variants<=8192,'R4PM_VARIANT_LIMIT');
+  need(sequence.every(a=>label(a)&&activity.has(a)),'R4PM_VARIANT_INVALID');
+  const key=JSON.stringify(sequence);
+  need(!seen.has(key),'R4PM_VARIANT_INVALID');
+  seen.add(key);total+=n;
+  need(Number.isSafeInteger(total),'R4PM_VARIANT_COUNT_OVERFLOW');
+  if(sequence.length===0)empty+=n;
+  else{
+   add(starts,sequence[0],n);add(ends,sequence.at(-1),n);
+   for(let i=0;i<sequence.length;i++){
+    add(nodes,sequence[i],n);
+    if(i){
+     const edge=JSON.stringify([sequence[i-1],sequence[i]]);
+     need(edges.has(edge),'R4PM_VARIANT_DFG_MISMATCH');add(transitions,edge,n);
+    }
+   }
+  }
+  variants.push({sequence:[...sequence],object_occurrences:n});
+ }
+ need(total-empty===graph.derived_nonempty_trace_count,'R4PM_VARIANT_DFG_MISMATCH');
+ for(const row of graph.activities){
+  need((nodes.get(row.name)??0)===row.occurrences&&
+   (starts.get(row.name)??0)===row.derived_trace_starts&&(ends.get(row.name)??0)===row.derived_trace_ends,'R4PM_VARIANT_DFG_MISMATCH');
+ }
+ for(const [key,edge] of edges)need(transitions.get(key)===edge.occurrences,'R4PM_VARIANT_DFG_MISMATCH');
+ variants.sort((a,b)=>b.object_occurrences-a.object_occurrences||cmp(JSON.stringify(a.sequence),JSON.stringify(b.sequence)));
+ return {...graph,variant_summary:{reported_object_count:total,empty_trace_count:empty,
+   variant_count:variants.length,nonempty_variant_count:variants.filter(v=>v.sequence.length).length,
+   dfg_consistency:'MATCHED_REPORTED_VARIANTS'},variants};
+}
+
 export function reviewRust4pmResult(raw){
  exact(raw,['engine','version','operation','data'],'R4PM_RESULT_SHAPE_INVALID');
  need(raw.engine==='Rust4PM'&&raw.version===R4PM_VERSION,'R4PM_ENGINE_VERSION_UNSUPPORTED');
- need(['count_ocel','discover_dfg','discover_ocdfg'].includes(raw.operation),'R4PM_OPERATION_UNSUPPORTED');
+ need(['count_ocel','discover_dfg','discover_ocdfg','discover_ocel_variants'].includes(raw.operation),'R4PM_OPERATION_UNSUPPORTED');
  const result={engine:'Rust4PM',version:R4PM_VERSION,operation:raw.operation,
   local_only:true,source_binding:'UNVERIFIED_LOCAL_RESULT',epistemic_status:'REPORTED_ANALYSIS',
   full_trace_variants:'NOT_AVAILABLE_FROM_DFG',causal_dependencies:'NOT_ESTABLISHED',
@@ -75,17 +122,23 @@ export function reviewRust4pmResult(raw){
  }
  if(raw.operation==='discover_dfg')result.graphs=[reviewGraph(raw.data,'graph_001',null)];
  else{
-  exact(raw.data,['object_type_to_dfg'],'R4PM_OCDFG_SHAPE_INVALID');
+  const hasVariants=raw.operation==='discover_ocel_variants';
+  exact(raw.data,hasVariants?['object_type_to_dfg','object_type_to_variants']:['object_type_to_dfg'],'R4PM_OCDFG_SHAPE_INVALID');
   need(record(raw.data.object_type_to_dfg),'R4PM_OCDFG_SHAPE_INVALID');
   const groups=Object.entries(raw.data.object_type_to_dfg).sort(([a],[b])=>cmp(a,b));
   need(groups.length<=LIMITS.graphs,'R4PM_GRAPH_LIMIT');
-  let nodes=0,edges=0;
+  const variantMap=raw.data.object_type_to_variants;
+  if(hasVariants){
+   need(record(variantMap)&&Object.keys(variantMap).length===groups.length&&groups.every(([name])=>Object.hasOwn(variantMap,name)),'R4PM_VARIANT_TYPE_MISMATCH');
+   result.full_trace_variants='REPORTED_BY_TOOL';
+  }
+  let nodes=0,edges=0;const budget={steps:0,variants:0};
   for(const [i,[name,graph]] of groups.entries()){
    need(label(name),'R4PM_OBJECT_TYPE_INVALID');
    const g=reviewGraph(graph,'graph_'+String(i+1).padStart(3,'0'),name);
    nodes+=g.activities.length;edges+=g.transitions.length;
    need(nodes<=LIMITS.totalActivities&&edges<=LIMITS.totalEdges,'R4PM_GRAPH_LIMIT');
-   result.graphs.push(g);
+   result.graphs.push(hasVariants?reviewVariants(variantMap[name],g,budget):g);
   }
  }
  return result;

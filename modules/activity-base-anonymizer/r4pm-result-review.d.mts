@@ -6,11 +6,13 @@ export interface Rust4pmGraphReview {
  transitions:{from:string;to:string;occurrences:number}[];
  activity_occurrences:number;transition_occurrences:number;derived_nonempty_trace_count:number;
  start_activity_count:number;end_activity_count:number;self_loop_count:number;
+ variant_summary?:{reported_object_count:number;empty_trace_count:number;variant_count:number;nonempty_variant_count:number;dfg_consistency:'MATCHED_REPORTED_VARIANTS'};
+ variants?:{sequence:string[];object_occurrences:number}[];
 }
 export interface Rust4pmResultReview {
- engine:'Rust4PM';version:'0.6.2';operation:'count_ocel'|'discover_dfg'|'discover_ocdfg';
+ engine:'Rust4PM';version:'0.6.2';operation:'count_ocel'|'discover_dfg'|'discover_ocdfg'|'discover_ocel_variants';
  local_only:true;source_binding:'UNVERIFIED_LOCAL_RESULT';epistemic_status:'REPORTED_ANALYSIS';
- full_trace_variants:'NOT_AVAILABLE_FROM_DFG';causal_dependencies:'NOT_ESTABLISHED';
+ full_trace_variants:'NOT_AVAILABLE_FROM_DFG'|'REPORTED_BY_TOOL';causal_dependencies:'NOT_ESTABLISHED';
  independent_execution:'NOT_ESTABLISHED';anonymity:'NOT_ESTABLISHED';export_allowed:false;iwxa_package:null;
  unique_event_count:number|null;graphs:Rust4pmGraphReview[];
 }

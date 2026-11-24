@@ -32,3 +32,13 @@ test('original Rust4PM XES DFG is not mistaken for an OCDFG or a full trace log'
  assert.equal(g.transition_occurrences,5);assert.equal(g.derived_nonempty_trace_count,2);
  assert.equal(g.self_loop_count,1);
 });
+
+test('original Rust4PM variant binding supplies full trace variants including empty objects',()=>{
+ const r=actual('discover_ocel_variants'),order=r.graphs.find(g=>g.object_type==='order'),part=r.graphs.find(g=>g.object_type==='part');
+ assert.equal(order.variant_summary.reported_object_count,3);
+ assert.equal(order.variant_summary.empty_trace_count,1);
+ assert.equal(order.variant_summary.nonempty_variant_count,2);
+ assert.deepEqual(order.variants.map(v=>v.sequence).sort((a,b)=>a.length-b.length),[[],['prepare','check','finish'],['prepare','check','check','finish']]);
+ assert.deepEqual(part.variants,[{sequence:['check','check'],object_occurrences:1}]);
+ assert.equal(order.variant_summary.dfg_consistency,'MATCHED_REPORTED_VARIANTS');
+});

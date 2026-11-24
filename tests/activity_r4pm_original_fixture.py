@@ -21,6 +21,8 @@ def run(operation):
     else:
         objects=[{"id":f"o{i}","type":"order","attributes":[]} for i in (1,2)]
         objects.append({"id":"p1","type":"part","attributes":[]})
+        if operation=="discover_ocel_variants":
+            objects.append({"id":"o3","type":"order","attributes":[]})
         events=[]
         for i,sequence in ((1,["prepare","check","finish"]),(2,["prepare","check","check","finish"])):
             for j,kind in enumerate(sequence):
@@ -36,7 +38,9 @@ def run(operation):
             path.write_text(json.dumps(source),encoding="utf-8")
             linked=bindings.slim_link_ocel(ocel=r4pm.import_item("OCEL",str(path)))
             data=bindings.num_events(ocel=linked) if operation=="count_ocel" else bindings.discover_dfg_from_ocel(linked)
+            if operation=="discover_ocel_variants":
+                data={**data,"object_type_to_variants":{name:bindings.get_variants_of_object_type(linked,name) for name in data["object_type_to_dfg"]}}
     return {"engine":"Rust4PM","version":version("r4pm"),"operation":operation,"data":data}
 if __name__=="__main__":
-    assert sys.argv[1] in {"count_ocel","discover_ocdfg","discover_dfg"}
+    assert sys.argv[1] in {"count_ocel","discover_ocdfg","discover_dfg","discover_ocel_variants"}
     print(json.dumps(run(sys.argv[1]),ensure_ascii=False,allow_nan=False,separators=(",",":")))

@@ -67,3 +67,41 @@ test('limits and invalid counts',()=>{
  block({engine:'Rust4PM',version:'0.6.2',operation:'count_ocel',data:1.1},'R4PM_COUNT_INVALID');
  block({engine:'Rust4PM',version:'0.6.2',operation:'count_ocel',data:-1},'R4PM_COUNT_INVALID');
 });
+
+
+const withVariants=()=>{
+ const v=sample();v.operation='discover_ocel_variants';
+ v.data.object_type_to_variants={'Заказ':[
+  [['Подготовить','Проверить','Завершить'],2],
+  [['Подготовить','Проверить','Проверить','Завершить'],1],
+  [[],1]],
+  'Изделие':[[['Проверить','Завершить'],3]]};
+ return v;
+};
+test('reported full variants preserve exact order, repeats and objects without events',()=>{
+ const r=reviewRust4pmResult(withVariants()),g=r.graphs.find(g=>g.object_type==='Заказ');
+ assert.equal(r.full_trace_variants,'REPORTED_BY_TOOL');
+ assert.deepEqual(g.variant_summary,{reported_object_count:4,empty_trace_count:1,variant_count:3,nonempty_variant_count:2,dfg_consistency:'MATCHED_REPORTED_VARIANTS'});
+ assert.equal(g.derived_nonempty_trace_count,3);
+ assert.deepEqual(g.variants[0],{sequence:['Подготовить','Проверить','Завершить'],object_occurrences:2});
+ assert.equal(r.independent_execution,'NOT_ESTABLISHED');assert.equal(r.export_allowed,false);
+});
+test('different complete traces can produce exactly the same DFG and stay distinct',()=>{
+ const graph={activities:{A:1,B:2,C:1,D:1,E:1},directly_follows_relations:[[['A','B'],1],[['D','B'],1],[['B','C'],1],[['B','E'],1]],start_activities:['A','D'],end_activities:['C','E']};
+ const packet=variants=>({engine:'Rust4PM',version:'0.6.2',operation:'discover_ocel_variants',data:{object_type_to_dfg:{order:graph},object_type_to_variants:{order:variants}}});
+ const a=reviewRust4pmResult(packet([[['A','B','C'],1],[['D','B','E'],1]])).graphs[0];
+ const b=reviewRust4pmResult(packet([[['A','B','E'],1],[['D','B','C'],1]])).graphs[0];
+ assert.deepEqual(a.transitions,b.transitions);assert.notDeepEqual(a.variants,b.variants);
+});
+test('missing types, incorrect counts, duplicates and invented transitions are rejected',()=>{
+ const v=withVariants();delete v.data.object_type_to_variants['Изделие'];block(v,'R4PM_VARIANT_TYPE_MISMATCH');
+ const a=withVariants();a.data.object_type_to_variants['Заказ'][0][1]=1;block(a,'R4PM_VARIANT_DFG_MISMATCH');
+ const b=withVariants();b.data.object_type_to_variants['Заказ'].push([[],2]);block(b,'R4PM_VARIANT_INVALID');
+ const c=withVariants();c.data.object_type_to_variants['Заказ'][0][0]=['Подготовить','Завершить'];block(c,'R4PM_VARIANT_DFG_MISMATCH');
+});
+test('variants of an object type with no recorded activity preserve empty trace only',()=>{
+ const raw={engine:'Rust4PM',version:'0.6.2',operation:'discover_ocel_variants',data:{object_type_to_dfg:{part:{activities:{},directly_follows_relations:[],start_activities:[],end_activities:[]}},object_type_to_variants:{part:[[[],2]]}}};
+ const g=reviewRust4pmResult(raw).graphs[0];
+ assert.equal(g.variant_summary.reported_object_count,2);assert.equal(g.variant_summary.empty_trace_count,2);
+ assert.equal(g.derived_nonempty_trace_count,0);
+});
