@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: 4d93bffcbf6a01e99b8f1b0cc85837bff979d94b
+          ref: 5d94070dbe7b09a3422bb05b53128153305e12c4
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -123,15 +123,24 @@ jobs:
           log="$RUNNER_TEMP/d05-t3-site-types.log"
           if ! npm run typecheck -- --pretty false >"$log" 2>&1; then
             node --input-type=module <<'JS'
-          import {readFileSync} from "node:fs";
-          const rows=readFileSync(process.env.RUNNER_TEMP+"/d05-t3-site-types.log","utf8").split("\n");
-          const found=new Set();
-          for(const row of rows){
-            const m=row.match(/^\s*((?:src|scripts|t2-site-module)\/[A-Za-z0-9_./-]{1,180})\((\d{1,6}),(\d{1,6})\): error (TS\d{4,6}):/);
-            if(!m)continue;
-            const key=JSON.stringify({file:m[1],line:Number(m[2]),column:Number(m[3]),code:m[4]});
-            if(!found.has(key)&&found.size<60){found.add(key);console.log("D05_T3_SITE_TYPE_DIAG "+key);}
+          import ts from "typescript";
+          import {relative} from "node:path";
+          const config=ts.readConfigFile("tsconfig.json",ts.sys.readFile);
+          const parsed=ts.parseJsonConfigFileContent(config.config,ts.sys,process.cwd());
+          const program=ts.createProgram(parsed.fileNames,parsed.options);
+          const diagnostics=[...parsed.errors,...ts.getPreEmitDiagnostics(program)];
+          let total=0,shown=0;
+          for(const d of diagnostics){
+            if(d.category!==ts.DiagnosticCategory.Error)continue;
+            total++;
+            if(!d.file||d.start===undefined||shown>=100)continue;
+            const file=relative(process.cwd(),d.file.fileName).replaceAll("\\","/");
+            if(!/^(?:src|scripts|t2-site-module)\/[A-Za-z0-9_.$/-]{1,220}$/.test(file)&&file!=="vite.config.ts")continue;
+            const loc=d.file.getLineAndCharacterOfPosition(d.start);
+            console.log("D05_T3_SITE_TYPE_DIAG "+JSON.stringify({file,line:loc.line+1,column:loc.character+1,code:"TS"+d.code}));
+            shown++;
           }
+          console.log("D05_T3_SITE_TYPE_COUNT "+JSON.stringify({total,shown}));
           JS
             grep -Eo 'TS[0-9]{4,6}' "$log" | sort -u | head -20 || true
             echo D05_T3_TYPES_FAIL
@@ -193,7 +202,7 @@ jobs:
           // strings, identifiers, patches containing code, or formatter diagnostics.
           const layout=/^[ \t\r\n"'\x60,;(){}\[\]\\]*$/u;
           const isLayout=c=>c!==undefined&&layout.test(c);
-          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts"]);
+          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs"]);
           for(const row of rows.filter(r=>r.errorCount)){
             const path=relative(process.cwd(),row.filePath);
             if(!allow.has(path)||row.messages.some(m=>m.severity===2&&m.ruleId!=="prettier/prettier"))continue;
@@ -231,12 +240,18 @@ jobs:
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-subject.log"
-          if ! npm run test >"$log" 2>&1; then
+          if ! npm run test -- --reporter=json --outputFile="$RUNNER_TEMP/d05-t3-subject.json" >"$log" 2>&1; then
             grep -Eo 'Tests[[:space:]]+[0-9]+ failed|CEHOVOD_[A-Z0-9_]+' "$log" | sort -u | head -30 || true
             echo D05_T3_SUBJECT_FAIL
             exit 1
           fi
-          grep -E '^[[:space:]]*(Test Files|Tests)[[:space:]]+[0-9]+ passed' "$log" | tail -2 || true
+          node --input-type=module <<'JS'
+          import {readFileSync} from "node:fs";
+          const r=JSON.parse(readFileSync(process.env.RUNNER_TEMP+"/d05-t3-subject.json","utf8"));
+          const counts={total:r.numTotalTests,passed:r.numPassedTests,failed:r.numFailedTests,pending:r.numPendingTests};
+          if(!Object.values(counts).every(Number.isSafeInteger)||counts.failed!==0||counts.total!==counts.passed+counts.pending)throw Error("D05_T3_SUBJECT_RESULT");
+          console.log("D05_T3_SUBJECT_COUNTS "+JSON.stringify(counts));
+          JS
           echo D05_T3_SUBJECT_PASS
       - name: Verify exact portable common platform
         working-directory: site
@@ -388,5 +403,5 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -f "$RUNNER_TEMP"/d05-t3-*.log "$RUNNER_TEMP"/d05-t3-lint.json
+          rm -f "$RUNNER_TEMP"/d05-t3-*.log "$RUNNER_TEMP"/d05-t3-lint.json "$RUNNER_TEMP"/d05-t3-subject.json
           rm -rf "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/t3-artifact.zip" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$GITHUB_WORKSPACE/site/runtime/t3-platform/0.3.1-rc.1/cehovod-host" "$GITHUB_WORKSPACE/site/runtime/t3-platform/0.3.1-rc.1/platform-inputs.zip"
