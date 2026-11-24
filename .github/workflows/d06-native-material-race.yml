@@ -1,0 +1,228 @@
+name: d06-native-material-race
+
+# Qualified T2 and Kernel stay on the ephemeral runner. No private artifacts
+# or full logs are uploaded into this public repository.
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-native-material-race.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d06-native-material-race-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  material-race-windows:
+    runs-on: windows-latest
+    timeout-minutes: 85
+    steps:
+      - name: Verify the DOMEN token has each private repository read permission
+        shell: bash
+        env:
+          DOMEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DOMEN:-}" ]; then
+            echo "D06_T2_ACCESS=MISSING_DOMEN"
+            exit 1
+          fi
+          auth="$(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
+          for repo in komplektovod komplektovod.ru T2; do
+            if GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=AUTHORIZATION: basic ${auth}" \
+              ls-remote --exit-code "https://github.com/Faust-S/${repo}.git" HEAD \
+              >/dev/null 2>&1; then
+              echo "D06_T2_READ_${repo}=PASS"
+            else
+              echo "D06_T2_READ_${repo}=DENIED"
+              exit 1
+            fi
+          done
+      - name: Checkout D06 site at its qualified source revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: 9c6308b714b54a950d85406f593cc39bb7932877
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - name: Checkout D06 subject logic, without publication
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod
+          ref: 278e673fbd56e99c51cc32d99014ab800353f929
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - name: Checkout normative T2 at the D06 qualified revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 9c64951cd78411283e8a416641c36d71e169fc1d
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/t2
+      - name: Prepare Windows Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install existing site and T2 dependencies privately
+        shell: pwsh
+        run: |
+          $folders = @(
+            (Join-Path $env:GITHUB_WORKSPACE "private/site"),
+            (Join-Path $env:GITHUB_WORKSPACE "private/t2/t2/current/final-successor/canonical-source")
+          )
+          for ($i = 0; $i -lt $folders.Count; $i++) {
+            Push-Location $folders[$i]
+            try {
+              $log = Join-Path $env:RUNNER_TEMP ("d06-product-install-" + $i + ".txt")
+              & npm ci --no-audit --no-fund *> $log
+              if ($LASTEXITCODE -ne 0) {
+                Write-Host ("D06_T2_INSTALL_" + $i + "=FAIL")
+                exit 1
+              }
+              Write-Host ("D06_T2_INSTALL_" + $i + "=PASS")
+            } finally {
+              Pop-Location
+            }
+          }
+      - name: Verify exact qualified ZIP SHA-256 and stage runtime privately
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE (
+            "private/t2/t2/current/final-successor/kernel-successors/" +
+            "k036-same-store-event-history-20261019/" +
+            "iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip"
+          )
+          $expectedZip = "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68"
+          $expectedRuntime = "e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78"
+          if (-not (Test-Path $source)) {
+            Write-Host "D06_T2_QUALIFIED_ZIP=MISSING"
+            exit 1
+          }
+          if ((Get-FileHash $source -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedZip) {
+            Write-Host "D06_T2_QUALIFIED_ZIP=SHA_MISMATCH"
+            exit 1
+          }
+          $dest = Join-Path $env:RUNNER_TEMP "d06-qualified-kernel"
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          Expand-Archive -LiteralPath $source -DestinationPath $dest
+          $runtime = Join-Path $dest "_iwxa/runtime/0.3.6/runtime.js"
+          if (-not (Test-Path $runtime)) {
+            Write-Host "D06_T2_QUALIFIED_RUNTIME=MISSING"
+            exit 1
+          }
+          if ((Get-FileHash $runtime -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedRuntime) {
+            Write-Host "D06_T2_QUALIFIED_RUNTIME=SHA_MISMATCH"
+            exit 1
+          }
+          Write-Host "D06_T2_QUALIFIED_ZIP=PASS"
+          Write-Host "D06_T2_QUALIFIED_RUNTIME=PASS"
+      - name: Verify native D06 journey syntax before expensive integration build
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-race-syntax-private.txt"
+          & node --check scripts/verify-native-material-race.mjs *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_NATIVE_SCRIPT_SYNTAX=FAIL"
+            exit 1
+          }
+          Write-Host "D06_NATIVE_SCRIPT_SYNTAX=PASS"
+      - name: Set up existing browser runtime for genuine Host and Exchange QA
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-t2-browser-setup-private.txt"
+          & npm run setup:browser *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_T2_BROWSER_SETUP=FAIL"
+            exit 1
+          }
+          Write-Host "D06_T2_BROWSER_SETUP=PASS"
+      - name: Capture synthetic last-slot prerequisites from the real public UI
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 15
+        run: |
+          $env:D06_NATIVE_MATERIAL_FIXTURE = Join-Path $env:RUNNER_TEMP "d06-material-race-source.json"
+          $log = Join-Path $env:RUNNER_TEMP "d06-material-race-static-private.txt"
+          & npm run build:static *> $log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "D06_RACE_STATIC_BUILD=FAIL"
+            exit 1
+          }
+          & npm run test:e2e -- tests/e2e/d06-pd20-pd21-manual-save.spec.ts *> $log
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $env:D06_NATIVE_MATERIAL_FIXTURE)) {
+            Write-Host "D06_RACE_SOURCE_JOURNEY=FAIL"
+            exit 1
+          }
+          # Restore only generated tracked bytes from this disposable checkout.
+          & git restore -- src/routeTree.gen.ts *> $log
+          if ($LASTEXITCODE -ne 0 -or @(git status --porcelain --untracked-files=normal).Count -gt 0) {
+            Write-Host "D06_RACE_SOURCE_CHECKOUT=DIRTY"
+            exit 1
+          }
+          Write-Host "D06_RACE_SOURCE_JOURNEY=PASS"
+      - name: Assemble actual qualified T2 Host, Kernel, and one site dist
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 35
+        env:
+          IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/private/t2/t2/current/final-successor/canonical-source
+          IWXA_D06_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/d06-qualified-kernel
+          IWXA_D06_HOST_ORIGIN: https://localhost:8443
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-real-t2-assembly-private.txt"
+          & npm run build *> $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Write-Host "D06_REAL_T2_ASSEMBLY=FAIL"
+            $content = Get-Content -LiteralPath $log -Raw
+            $codes = [regex]::Matches($content, "(?:D06|T2|IWXA)_[A-Z0-9_]+") |
+              ForEach-Object { $_.Value } | Select-Object -Unique -First 12
+            Write-Host ("D06_REAL_T2_FAILURE_CODES=" + ($codes -join ","))
+            exit 1
+          }
+          Write-Host "D06_REAL_T2_ASSEMBLY=PASS"
+      - name: Compete for one physical slot from two actual Host pages
+        shell: pwsh
+        working-directory: private/site
+        timeout-minutes: 15
+        run: |
+          $env:D06_NATIVE_MATERIAL_FIXTURE = Join-Path $env:RUNNER_TEMP "d06-material-race-source.json"
+          $env:IWXA_T2_CANONICAL_ROOT = Join-Path $env:GITHUB_WORKSPACE "private/t2/t2/current/final-successor/canonical-source"
+          $log = Join-Path $env:RUNNER_TEMP "d06-native-material-race-private.txt"
+          & node scripts/verify-native-material-race.mjs *> $log
+          $code = $LASTEXITCODE
+          $content = Get-Content -LiteralPath $log -Raw
+          foreach ($stage in @("SOURCE_READBACK", "TWO_EDITORS_READY", "ONE_PHYSICAL_RESULT", "SUPPLIER_RETURN_READBACK", "COLD_SLOT_AND_RETURN_READBACK")) {
+            if ($content -match ("D06_RACE_STAGE=" + $stage)) {
+              Write-Host ("D06_RACE_" + $stage + "=PASS")
+            } else {
+              Write-Host ("D06_RACE_" + $stage + "=NOT_REACHED")
+            }
+          }
+          if ($code -ne 0 -or $content -notmatch "D06_NATIVE_MATERIAL_RACE=PASS") {
+            $codes = [regex]::Matches($content, "(?:D06_RACE|D06_PD18)_[A-Z0-9_]+") |
+              ForEach-Object { $_.Value } | Select-Object -Unique -First 12
+            Write-Host ("D06_RACE_FAILURE_CODES=" + ($codes -join ","))
+            $positions = [regex]::Matches($content, 'verify-native-material-race\.mjs:(\d+):(\d+)') |
+              ForEach-Object { $_.Groups[1].Value + ":" + $_.Groups[2].Value } | Select-Object -Unique -Last 8
+            Write-Host ("D06_RACE_ASSERTION_POSITIONS=" + ($positions -join ","))
+            Write-Host "D06_NATIVE_MATERIAL_RACE=FAIL"
+            exit 1
+          }
+          Write-Host "D06_NATIVE_MATERIAL_RACE=PASS"
+      - name: Report private qualification boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item (Join-Path $env:RUNNER_TEMP "d06-material-race-source.json") -ErrorAction SilentlyContinue
+          Write-Host "D06_PRIVATE_FIXTURE_RUNNER_LOCAL_ONLY=PASS"
+          Write-Host "D06_PUBLIC_ARTIFACT_UPLOADS=0"
