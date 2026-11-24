@@ -159,9 +159,9 @@ function ensureRights(params,step){
     subjectKind:params.kind,originalT3ReadRequired:true,
     selectedNetworkIsNotOriginalAuthority:true});
 }
-async function loadVerifiedOutbox(params){
+async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
   const required=['readOriginalIntent','readOriginalOutbox','readOriginalEvents',
-    'authorizeOriginalRead','authorizeNetworkPublish'];
+    'authorizeOriginalRead',...(requireNetworkPublish?['authorizeNetworkPublish']:[])];
   if(required.some(k=>typeof params[k]!=='function'))
     fail('OUTBOX_ORIGINAL_HOST_PORTS_REQUIRED');
   const s=scope(params);
@@ -169,15 +169,15 @@ async function loadVerifiedOutbox(params){
   const originalRight=ensureRights(s,'t1.getObject');
   const historyRight=ensureRights(s,'t1.listEventsSince');
   const networkRight=ensureRights(s,'t4.network.publish');
+  const networkDenied=async()=>requireNetworkPublish&&
+    await params.authorizeNetworkPublish(networkRight)!==true;
   if(await params.authorizeOriginalRead(originalRight)!==true||
-    await params.authorizeOriginalRead(historyRight)!==true||
-    await params.authorizeNetworkPublish(networkRight)!==true)
+    await params.authorizeOriginalRead(historyRight)!==true||await networkDenied())
     fail('OUTBOX_ORIGINAL_OR_NETWORK_AUTHORITY_DENIED');
   const intent=await params.readOriginalIntent(s);
   const outbox=await params.readOriginalOutbox(s);
   mode(params.getMode);
-  if(await params.authorizeOriginalRead(originalRight)!==true||
-    await params.authorizeNetworkPublish(networkRight)!==true)
+  if(await params.authorizeOriginalRead(originalRight)!==true||await networkDenied())
     fail('OUTBOX_ORIGINAL_OR_NETWORK_AUTHORITY_DENIED');
   const verified=validateEnvelope(s,outbox,intent);
   const originals=await params.readOriginalEvents(historyRight);
@@ -219,8 +219,7 @@ async function loadVerifiedOutbox(params){
     event.event_type!==intent.operation.event?.event_type)
     fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
   mode(params.getMode);
-  if(await params.authorizeOriginalRead(historyRight)!==true||
-    await params.authorizeNetworkPublish(networkRight)!==true)
+  if(await params.authorizeOriginalRead(historyRight)!==true||await networkDenied())
     fail('OUTBOX_ORIGINAL_OR_NETWORK_AUTHORITY_DENIED');
   mode(params.getMode);
   return Object.freeze({...s,...verified,sourceOriginalHistoryVerified:true,
@@ -331,6 +330,55 @@ export async function verifyT4OriginalHostCapturedObjectSource(params,proof){
   return proof.originalT3SourceEventAndSubjectReadRequired===true;
 }
 
+function verifiedNativeDeletion(verified,params){
+  const {outbox,originalSourceEvent:event,currentSourceWindow:window,
+    currentNextCursor:nextCursor}=verified;
+  const exact=decodeT4OriginalDeleteDeltaBytes(verified.prepared.bytes),d=exact.delta;
+  const originalObjectId=params.kind==='ASSET_DELETE'?d.preImage.objectId:d.preImage.fromObjectId;
+  if(exact.sha256!==outbox.sha256||exact.key!==outbox.key||
+    !same(outbox.sourceCursorAfter,nextCursor)||!outbox.sourceWindow||
+    !matchesT4OriginalCapturedWindowDigest(outbox.sourceWindow,d.windowDigest)||
+    !matchesT4OriginalCapturedWindowDigest(window,d.windowDigest)||
+    (event.object_id!=null&&event.object_id!==originalObjectId&&event.object_id!==verified.subjectId)||
+    event.payload?.iwxa_t4_capture_ref!==d.captureRef||
+    event.payload?.iwxa_t4_preimage_digest!==d.preImageDigest)
+    fail('OUTBOX_NATIVE_ORIGINAL_SUBJECT_CAPTURE_NOT_PROVEN');
+  mode(params.getMode);
+  return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURED_SUBJECT_V1',
+    kind:params.kind,subjectId:verified.subjectId,objectId:originalObjectId,
+    captureRef:verified.captureRef,workspaceId:verified.workspaceId,
+    originalWriteOwnerRef:verified.originalWriteOwnerRef,
+    sourceEventId:d.sourceEventId,sourceRevision:null,originalEventRevision:event.revision??null,
+    sourceCursorBefore:structuredClone(outbox.sourceCursorBefore),
+    sourceCursorAfter:structuredClone(outbox.sourceCursorAfter),
+    sourceWindow:structuredClone(outbox.sourceWindow),prepared:exact,
+    originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
+    originalDeletionPreImageVerified:true,laterSourceEventsExist:window.hasMore,
+    currentObjectReadOrUsedAsHistoricalBytes:false,originalT3OutboxUnchanged:true,
+    networkPublished:false,originalRecipientApplied:false});
+}
+/** Recover an already staged original deletion using only original local read
+ * authority. This does not prepare a network task or confer publication rights.
+ * The native publication route still requires separate network authorization.
+ */
+export async function readT4OriginalHostStagedDeletionForRecovery(params={}){
+  if(!isT4NativeDeleteKind(params.kind))fail('OUTBOX_NATIVE_SUBJECT_KIND_UNSUPPORTED');
+  const verified=await loadVerifiedOutbox(params,{requireNetworkPublish:false});
+  const captured=verifiedNativeDeletion(verified,params);
+  if(!same(await params.readOriginalOutbox(scope(params)),verified.outbox)||
+    !same(await params.readOriginalIntent(scope(params)),verified.intent)||
+    await params.authorizeOriginalRead(ensureRights(scope(params),'t1.getObject'))!==true||
+    await params.authorizeOriginalRead(ensureRights(scope(params),'t1.listEventsSince'))!==true)
+    fail('OUTBOX_ORIGINAL_RECOVERY_READBACK_DIVERGED');
+  mode(params.getMode);
+  return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_STAGED_DELETE_RECOVERY_V1',
+    kind:captured.kind,captureRef:captured.captureRef,prepared:captured.prepared,
+    window:captured.sourceWindow,nextCursor:captured.sourceCursorAfter,
+    originalEvent:verified.originalSourceEvent,laterSourceEventsExist:captured.laterSourceEventsExist,
+    originalT3OutboxVerified:true,networkPublicationAuthorized:false,
+    networkPublished:false,originalRecipientApplied:false});
+}
+
 /** The same original Capture/Outbox is used for all native subjects.
  * No inferred historical bytes. Older untraced subject captures are
  * deliberately not eligible for the native authenticated route.
@@ -340,33 +388,7 @@ export async function readT4OriginalHostCapturedSubject(params={}){
   if(!['ASSET_PUT','RELATION_PUT'].includes(params.kind)&&!isT4NativeDeleteKind(params.kind))
     fail('OUTBOX_NATIVE_SUBJECT_KIND_UNSUPPORTED');
   const verified=await loadVerifiedOutbox(params);
-  if(isT4NativeDeleteKind(params.kind)){
-    const {outbox,originalSourceEvent:event,currentSourceWindow:window,
-      currentNextCursor:nextCursor}=verified;
-    const exact=decodeT4OriginalDeleteDeltaBytes(verified.prepared.bytes),d=exact.delta;
-    const originalObjectId=params.kind==='ASSET_DELETE'?d.preImage.objectId:d.preImage.fromObjectId;
-    if(exact.sha256!==outbox.sha256||exact.key!==outbox.key||
-      !same(outbox.sourceCursorAfter,nextCursor)||!outbox.sourceWindow||
-      !matchesT4OriginalCapturedWindowDigest(outbox.sourceWindow,d.windowDigest)||
-      !matchesT4OriginalCapturedWindowDigest(window,d.windowDigest)||
-      (event.object_id!=null&&event.object_id!==originalObjectId&&event.object_id!==verified.subjectId)||
-      event.payload?.iwxa_t4_capture_ref!==d.captureRef||
-      event.payload?.iwxa_t4_preimage_digest!==d.preImageDigest)
-      fail('OUTBOX_NATIVE_ORIGINAL_SUBJECT_CAPTURE_NOT_PROVEN');
-    mode(params.getMode);
-    return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURED_SUBJECT_V1',
-      kind:params.kind,subjectId:verified.subjectId,objectId:originalObjectId,
-      captureRef:verified.captureRef,workspaceId:verified.workspaceId,
-      originalWriteOwnerRef:verified.originalWriteOwnerRef,
-      sourceEventId:d.sourceEventId,sourceRevision:null,originalEventRevision:event.revision??null,
-      sourceCursorBefore:structuredClone(outbox.sourceCursorBefore),
-      sourceCursorAfter:structuredClone(outbox.sourceCursorAfter),
-      sourceWindow:structuredClone(outbox.sourceWindow),prepared:exact,
-      originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
-      originalDeletionPreImageVerified:true,laterSourceEventsExist:window.hasMore,
-      currentObjectReadOrUsedAsHistoricalBytes:false,originalT3OutboxUnchanged:true,
-      networkPublished:false,originalRecipientApplied:false});
-  }
+  if(isT4NativeDeleteKind(params.kind))return verifiedNativeDeletion(verified,params);
   const {outbox,intent,originalSourceEvent:event,currentSourceWindow:window,
     currentNextCursor:nextCursor}=verified;
   const exact=params.kind==='ASSET_PUT'?

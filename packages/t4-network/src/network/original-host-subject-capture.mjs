@@ -4,6 +4,7 @@ import {prepareT4OriginalAssetDelta} from './original-asset-delta.mjs';
 import {prepareT4OriginalRelationPutDelta} from './original-relation-delta.mjs';
 import {captureT4OriginalDeletionAtMutation,reconcileT4OriginalSourceDeletion,
   runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
+import {readT4OriginalHostStagedDeletionForRecovery} from './original-host-outbox-delivery.mjs';
 
 export class T4OriginalHostSubjectCaptureError extends Error {
   constructor(code,details={}) { super(code); this.name='T4OriginalHostSubjectCaptureError';
@@ -546,6 +547,22 @@ export async function reconcileT4OriginalHostSubjectDeletion(p={}){
       !ID(intent.sourceEvent?.idempotency_key))
       fail('SUBJECT_CAPTURE_ORIGINAL_INTENT_INVALID');
     checkCursor(intent.sourceCursor,scope.workspaceId,scope.originalWriteOwnerRef);
+    // If the exact outbox already exists, its original Event and canonical
+    // bytes can be proved even when later source events have arrived.
+    // No live-subject reconstruction, second write, or publish right.
+    if(await p.readOriginalOutbox(scope)!=null){
+      const staged=await readT4OriginalHostStagedDeletionForRecovery({...p,...scope});
+      await guard();
+      return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_CAPTURE_RECEIPT_V1',
+        kind:scope.kind,captureRef:scope.captureRef,originalReceipt:null,
+        originalEvent:staged.originalEvent,originalOperationReceiptRecreated:false,
+        originalMutationRetried:false,originalT3OutboxVerified:true,
+        originalT3IsOnlyStore:true,alreadyCaptured:true,
+        historicalStagedCaptureRecovered:staged.laterSourceEventsExist,
+        currentSubjectAbsenceRevalidated:false,networkPublicationAuthorized:false,
+        networkPublished:false,recipientApplied:false,sourceCursorAdvanced:false,
+        prepared:staged.prepared,window:staged.window,nextCursor:staged.nextCursor});
+    }
     const objectId=scope.kind==='ASSET_DELETE'?intent.preImage.objectId:intent.preImage.fromObjectId;
     const captured=await reconcileT4OriginalSourceDeletion({
       ...deletionParams(p,scope,intent.sourceEvent.idempotency_key,objectId),

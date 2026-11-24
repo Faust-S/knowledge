@@ -753,3 +753,46 @@ test('altering captured delete preimage or Event trace prevents native source tr
   await assert.rejects(readT4OriginalHostCapturedSubject(outboxParams(f,'ASSET_DELETE',ref,assetId)),
     err('OUTBOX_ORIGINAL_DELETE_INTENT_MISMATCH'));
 });
+
+test('lost original delete outbox reply recovers staged bytes after later original event without network rights',async()=>{
+  const f=fixture(),ref='capture:delete:lost-outbox';
+  const lost=createT4OriginalHostCaptureAdapter({...f.ports,persistOriginalOutbox:async row=>{
+    assert.equal(await f.ports.persistOriginalOutbox(row),true);return false;
+  }});
+  await assert.rejects(lost.deleteAsset({mutationInput:deletionAssetInput(),captureRef:ref,
+    sourceCursor:await cursor(f)}),err('SUBJECT_CAPTURE_OUTBOX_COMMIT_UNCERTAIN'));
+  const stored=structuredClone(f.outbox.get(ref));
+  assert.equal(f.asset(),null);
+  await adapter(f).putRelation({mutationInput:relationInput(),captureRef:'capture:after:delete',
+    sourceCursor:stored.sourceCursorAfter});
+  const recovered=await createT4OriginalHostCaptureAdapter({...f.ports,
+    authorizeNetworkPublish:async()=>{throw Error('local recovery must not request network rights');},
+    persistOriginalOutbox:async()=>{throw Error('recovery must not write again');},
+  }).reconcileAssetDeletion({captureRef:ref,workspaceId:ws,assetId});
+  assert.equal(recovered.originalReceipt,null);
+  assert.equal(recovered.historicalStagedCaptureRecovered,true);
+  assert.equal(recovered.currentSubjectAbsenceRevalidated,false);
+  assert.equal(recovered.originalMutationRetried,false);
+  assert.equal(recovered.networkPublicationAuthorized,false);
+  assert.equal(recovered.prepared.sha256,stored.sha256);
+  assert.deepEqual(recovered.nextCursor,stored.sourceCursorAfter);
+  assert.equal(f.writes.filter(x=>x.kind==='deleteAsset').length,1);
+  assert.equal(f.outbox.size,2);
+  await assert.rejects(readT4OriginalHostCapturedSubject({
+    ...outboxParams(f,'ASSET_DELETE',ref,assetId),authorizeNetworkPublish:async()=>false,
+  }),err('OUTBOX_ORIGINAL_OR_NETWORK_AUTHORITY_DENIED'));
+});
+test('staged deletion recovery never accepts corrupted prior outbox or missing exact original Event',async()=>{
+  const f=fixture(),ref='capture:delete:corrupted-outbox';
+  const saved=await adapter(f).deleteAsset({mutationInput:deletionAssetInput(),captureRef:ref,
+    sourceCursor:await cursor(f)});
+  const stored=structuredClone(f.outbox.get(ref));
+  const recover=()=>adapter(f).reconcileAssetDeletion({captureRef:ref,workspaceId:ws,assetId});
+  f.outbox.get(ref).sha256='0'.repeat(64);
+  await assert.rejects(recover(),err('OUTBOX_ORIGINAL_INTENT_OR_ENTRY_INVALID'));
+  f.outbox.set(ref,stored);f.events.pop();
+  await assert.rejects(recover(),err('OUTBOX_ORIGINAL_EVENT_HISTORY_DIVERGED'));
+  assert.equal(f.writes.length,1);
+  assert.equal(f.asset(),null);
+  assert.equal(saved.capture.prepared.sha256,stored.sha256);
+});
