@@ -311,3 +311,83 @@ def test_native_mesa_clock_runs_agreed_physical_correction():
     assert out["works"]["w1"]["assurance"]["physical_corrections"][0]["status"]=="RESUBMITTED"
     assert out["works"]["w1"]["assurance"]["assessment_history"][1]["verdict"]=="DOES_NOT_MEET"
     assert simulate(deepcopy(d))==out
+
+
+def strict_case():
+    d=scenario()
+    actions={
+        "authorize", "consent", "commit", "start_operation", "complete_operation",
+        "complete", "assess_result_quality", "resubmit", "accept",
+        "quality_correction_propose", "quality_correction_review", "quality_correction_apply",
+        "quality_correction_start", "quality_correction_complete", "quality_correction_cancel",
+    }
+    principals=["op","a","b","c"]
+    sources=[
+        dict(id=f"model://op/right-{a}", owner="op", revision="right-r1",
+             status="CONFIRMED", usable_by=principals, valid_until=100)
+        for a in sorted(actions)
+    ]
+    refs={
+        "c": ["criterion-fit", "criterion-documents", "inspected-fit-12",
+              "inspected-documents-13", "correction-proposal", "correction-vote",
+              "correction-apply", "inspected-fit-28", "inspected-documents-29",
+              "inspected-documents-16", "calibration-error"],
+        "a": ["correction-vote"],
+        "b": ["correction-resources", "correction-vote", "correction-start",
+              "correction-cost-actual", "correction-done"],
+    }
+    for owner, names in refs.items():
+        sources.extend(dict(id=f"model://{owner}/{name}",owner=owner,revision="r1",
+                            status="CONFIRMED",usable_by=[owner],valid_until=100)
+                       for name in names)
+    d["context_evidence"]={
+        "strict":True, "sources":sources,
+        "requirements":[
+            dict(work="w1",action=a,sources=[f"model://op/right-{a}"],
+                 expected_revisions=["right-r1"]) for a in sorted(actions)
+        ],
+    }
+    return d
+
+
+def test_strict_kpb_revoked_vote_source_blocks_application_without_reservation():
+    s=run_initial(strict_case())
+    digest=propose(s)
+    for i,owner in enumerate(("a","b","c"),16):
+        assert review(s,i,owner,digest)["outcome"]=="APPLIED"
+    row=s.apply(dict(at=19,action="source_update",actor="b",
+        source="model://b/correction-vote",new_revision="r2",status="DISPROVED",
+        usable_by=["b"]),19)
+    assert row["outcome"]=="APPLIED",row
+    before=list(s.capacity_ledger.reservations)
+    result=send(s,20,"quality_correction_apply","c",
+                **fields(digest,quality_correction_source_ref="model://c/correction-apply"))
+    assert result["reason"]=="QUALITY_ORIGINAL_SOURCE_UNAVAILABLE",result
+    assert s.capacity_ledger.reservations==before
+    assert s.works["w1"].assurance_corrections==[]
+
+
+def test_strict_kpb_full_correction_and_acceptance_rechecks_new_evidence():
+    s,digest=physical_ready(strict_case())
+    assert start(s,digest)["outcome"]=="APPLIED"
+    assert finish(s,digest)["outcome"]=="APPLIED"
+    assert resubmit(s,digest)["outcome"]=="APPLIED"
+    assert s.apply(quality_event(28,result_ref="model://final-v2"),28)["outcome"]=="APPLIED"
+    assert s.apply(quality_event(29,criterion_id="documents",result_ref="model://final-v2"),29)["outcome"]=="APPLIED"
+    assert send(s,30,"accept","c")["outcome"]=="APPLIED"
+    assert s.works["w1"].assurance_corrections[0]["additional_resource_use_claim"]["source_revision"]=="r1"
+
+
+def test_strict_reassessment_is_not_accepted_after_error_source_revocation():
+    s=run_initial(strict_case(),reject=False)
+    old=s.works["w1"].assurance_reviews["documents"]["model_ref"]
+    event=quality_event(16,criterion_id="documents",quality_reassessment_of=old,
+                        quality_reassessment_reason="MEASUREMENT_ERROR",
+                        quality_reassessment_ref="model://c/calibration-error")
+    assert s.apply(event,16)["outcome"]=="APPLIED"
+    row=s.apply(dict(at=17,action="source_update",actor="c",
+        source="model://c/calibration-error",new_revision="r2",status="DISPROVED",
+        usable_by=["c"]),17)
+    assert row["outcome"]=="APPLIED",row
+    assert send(s,18,"accept","c")["reason"]=="QUALITY_ORIGINAL_SOURCE_UNAVAILABLE"
+    assert s.works["w1"].result=="SUBMITTED"
