@@ -15,14 +15,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod
-          ref: 82844dad095ce6565737f19c57f0a811dbe44d9d
+          ref: 74157ffaf21c322d0f89a53a61ec3cfad63d44e5
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: c0a1e3ec249b38c1e495bdbf557eb5a04a31b7cf
+          ref: 7bbf556e75efcec706149a3f1c1ed4d9e03dc285
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -58,7 +58,7 @@ jobs:
           import {readFileSync} from "node:fs";
           import {validateSkillPack} from "./assistant/browser-local-inference/domain-assistant/skill-runtime.mjs";
           const pack=validateSkillPack(JSON.parse(readFileSync("site/public/assets/cehovod-assistant-skills.json","utf8")));
-          if(pack.skills.length!==11||pack.formHints.length!==8||pack.resultHints.length!==8)throw Error("D05_T3_PACK_COUNTS");
+          if(pack.skills.length!==11||pack.formHints.length!==11||pack.resultHints.length!==11)throw Error("D05_T3_PACK_COUNTS");
           console.log("D05_T3_ORIGINAL_RUNTIME_SKILLS_PASS");
           JS
           if ! (cd domain && T3_ASSISTANT_SOURCE="$GITHUB_WORKSPACE/assistant/browser-local-inference/domain-assistant" node --test tests/assistant-field-policy.test.mjs) >"$log" 2>&1; then
@@ -66,7 +66,7 @@ jobs:
             echo D05_T3_FIELD_POLICY_FAIL
             exit 1
           fi
-          echo D05_T3_FIELD_POLICY_27_PASS
+          echo D05_T3_FIELD_POLICY_35_PASS
           echo D05_T3_OWNER_PROJECTION_PASS
       - name: Install dependencies without exporting private sources
         working-directory: site
@@ -74,13 +74,40 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
         run: |
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-npm.log" 2>&1 || { echo D05_T3_NPM_FAIL; exit 1; }
+      - name: Check actual TSX syntax with no source disclosure
+        working-directory: site
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import ts from "typescript";
+          import {readFileSync} from "node:fs";
+          const pack=JSON.parse(readFileSync("public/assets/cehovod-assistant-skills.json","utf8"));
+          let errors=0;
+          for(const skill of pack.skills){
+            const path="src/routes/"+skill.route.slice(1,-1).replaceAll("/",".")+".tsx";
+            const file=ts.createSourceFile(path,readFileSync(path,"utf8"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+            for(const d of file.parseDiagnostics){
+              const loc=file.getLineAndCharacterOfPosition(d.start??0);
+              console.log("D05_T3_TSX_PARSE_DIAG "+JSON.stringify({skill:skill.id,code:d.code,line:loc.line+1,column:loc.character+1}));
+              errors++;
+            }
+          }
+          if(errors)process.exitCode=1;
+          else console.log("D05_T3_TSX_PARSE_11_PASS");
+          JS
       - name: Verify real JSX bindings and source types
         working-directory: site
         shell: bash
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-site.log"
-          if ! npm run verify:t3-skills >"$log" 2>&1; then
+          if ! node scripts/cehovod-assistant-skills.mjs >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_SKILL_PROJECTION_[A-Za-z0-9_-]+' "$log" | sort -u | head -20 || true
+            echo D05_T3_BINDINGS_SOURCE_FAIL
+            exit 1
+          fi
+          echo D05_T3_BINDINGS_SOURCE_PASS
+          if ! node --test scripts/cehovod-assistant-skills.test.mjs >"$log" 2>&1; then
             grep -Eo 'CEHOVOD_SKILL_PROJECTION_[A-Z0-9_a-z-]+|^not ok [0-9]+|CEHOVOD_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
             echo D05_T3_BINDINGS_FAIL
             exit 1
@@ -145,7 +172,7 @@ jobs:
           // strings, identifiers, patches containing code, or formatter diagnostics.
           const layout=/^[ \t\r\n"'\x60,;(){}\[\]\\]*$/u;
           const isLayout=c=>c!==undefined&&layout.test(c);
-          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx"]);
+          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts"]);
           for(const row of rows.filter(r=>r.errorCount)){
             const path=relative(process.cwd(),row.filePath);
             if(!allow.has(path)||row.messages.some(m=>m.severity===2&&m.ruleId!=="prettier/prettier"))continue;
