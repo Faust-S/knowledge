@@ -280,12 +280,34 @@ export async function openT4OriginalNetworkObjectChange(args={}){
   return openT4OriginalNetworkSubjectChange(args);
 }
 
+const OBJECT_EVENT='iwxa.t4.original-object.synced';
 const ASSET_EVENT='iwxa.t4.original-asset.synced';
 const RELATION_EVENT='iwxa.t4.original-relation.synced';
 function equalStable(a,b){
   const order=x=>Array.isArray(x)?x.map(order):x&&typeof x==='object'?
     Object.fromEntries(Object.keys(x).sort().map(k=>[k,order(x[k])])):x;
   return same(order(a),order(b));
+}
+// A historical Result is a typed sequence, not a set of numeric revisions.
+// An Asset Event may carry the same object_id and revision as its owner Object.
+function verifyHistoricalContinuation({events,first,from,to,select,valid,finalDigest}){
+  let index=events.findIndex(e=>e.event_id===first.event_id);
+  if(index<0)fail('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP');
+  const ids=new Set([first.event_id]),origins=new Set([first.payload.originalEventId]);
+  const chain=[first];
+  for(let revision=from+1;revision<=to;revision++){
+    const found=events.map((event,i)=>({event,i}))
+      .filter(({event})=>select(event,revision));
+    const next=found[0];
+    if(found.length!==1||next.i<=index||!valid(next.event)||
+      ids.has(next.event.event_id)||origins.has(next.event.payload.originalEventId)||
+      (revision===to&&next.event.payload.originalContentDigest!==finalDigest))
+      fail('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP',{missingRevision:revision});
+    index=next.i;
+    ids.add(next.event.event_id);origins.add(next.event.payload.originalEventId);
+    chain.push(next.event);
+  }
+  return chain;
 }
 const relationMatches=(r,d)=>r?.workspace_id===d.workspaceId&&
   r.relation_id===d.relationId&&r.from_object_id===d.fromObjectId&&
@@ -392,29 +414,29 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
   if(!verifyEvent(ev)||row===null)
     fail('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH');
   const revision=type.revision(d),historical=asset&&row.revision>revision;
+  const continuity=stream=>verifyHistoricalContinuation({
+    events:stream,first:ev,from:revision,to:row.revision,finalDigest:row.stateDigest,
+    select:(e,r)=>e?.workspace_id===d.workspaceId&&
+      e.event_type===ASSET_EVENT&&e.payload?.originalAssetId===subjectId&&
+      e.payload?.originalAssetRevision===r,
+    valid:e=>e.payload?.originalWriteOwnerRef===d.originalWriteOwnerRef&&
+      ID(e.payload.originalEventId)&&DIG(e.payload.originalContentDigest)&&
+      DIG(e.payload.originalEventDigest)&&
+      /^[a-f0-9]{64}$/.test(e.payload.originalDeltaSha256??'')&&
+      ID(e.event_id)&&(e.revision==null||e.revision===e.payload.originalAssetRevision)&&
+      e.idempotency_key==='t4-asset-'+e.payload.originalDeltaSha256,
+  });
+  let chain=null;
   if(historical){
     if(!allowHistoricalEventProof)fail('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH');
-    // Only original native Asset events with their actual per-asset
-    // revision prove continuity. A null original Event.revision is not
-    // replaced by an invented Event revision or a global workspace ordinal.
-    for(let r=revision+1;r<=row.revision;r++){
-      const continuation=events.filter(e=>e.workspace_id===d.workspaceId&&
-        e.event_type===ASSET_EVENT&&e.payload?.originalAssetId===subjectId&&
-        e.payload?.originalAssetRevision===r&&
-        e.payload?.originalWriteOwnerRef===d.originalWriteOwnerRef&&
-        DIG(e.payload.originalContentDigest)&&DIG(e.payload.originalEventDigest)&&
-        /^[a-f0-9]{64}$/.test(e.payload.originalDeltaSha256??'')&&
-        ID(e.event_id)&&(e.revision==null||e.revision===r)&&
-        e.idempotency_key==='t4-asset-'+e.payload.originalDeltaSha256);
-      if(continuation.length!==1||
-        (r===row.revision&&continuation[0].payload.originalContentDigest!==row.stateDigest))
-        fail('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP',{missingRevision:r});
-    }
+    chain=continuity(events);
   }else if(row.revision!==revision||row.stateDigest!==expected)
     fail('SUBJECT_ORIGINAL_RESULT_STATE_MISMATCH');
-  const reread=await readSubject(),second=match(await readEvents());
+  const reread=await readSubject(),secondStream=await readEvents(),second=match(secondStream);
   if(!equalStable(reread,row)||second.length!==1||
-    !equalStable(second[0],ev))fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
+    !equalStable(second[0],ev)||
+    (historical&&!equalStable(continuity(secondStream),chain)))
+    fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
   return frozen({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
     state:historical?'APPLIED_HISTORICAL_EVENT_VERIFIED':'APPLIED_VERIFIED',
     originalSubjectKind:kind,originalSubjectId:subjectId,
@@ -446,9 +468,9 @@ export async function inspectT4OriginalNetworkRecipientResult({
     typeof originalKernel.getObject!=='function'||
     typeof originalKernel.listEventsSince!=='function')
     fail('SUBJECT_ORIGINAL_RESULT_READ_PORTS_REQUIRED');
-  const guard=async()=>{
+  const guard=async(operation='t1.getObject')=>{
     if(getMode()!=='T4_NETWORK')fail('SUBJECT_NETWORK_MODE_OFF');
-    const ctx=frozen({operation:'t1.getObject',
+    const ctx=frozen({operation,
       workspaceId:delta.workspaceId,objectId:delta.objectId,
       sourceEventId:delta.sourceEventId,originalWriteOwnerRef:delta.originalWriteOwnerRef,
       recipientT3OriginalReadAuthorityRequired:true});
@@ -456,20 +478,30 @@ export async function inspectT4OriginalNetworkRecipientResult({
       fail('SUBJECT_ORIGINAL_RESULT_READ_DENIED');
     if(getMode()!=='T4_NETWORK')fail('SUBJECT_NETWORK_MODE_OFF');
   };
+  async function readEvents(){
+    await guard('t1.listEventsSince');
+    const events=await originalKernel.listEventsSince(delta.workspaceId);
+    await guard('t1.listEventsSince');
+    if(!Array.isArray(events)||events.length>100000)
+      fail('SUBJECT_ORIGINAL_EVENT_STREAM_INVALID');
+    return events;
+  }
+  const match=events=>events.filter(e=>e?.workspace_id===delta.workspaceId&&
+    e.object_id===delta.objectId&&e.event_type===OBJECT_EVENT&&
+    e.payload?.originalEventId===delta.sourceEventId);
   await guard();
   const row=await originalKernel.getObject(delta.workspaceId,delta.objectId);
   await guard();
-  const events=await originalKernel.listEventsSince(delta.workspaceId);
-  if(!Array.isArray(events)||events.length>100000)
-    fail('SUBJECT_ORIGINAL_EVENT_STREAM_INVALID');
-  const matches=events.filter(e=>e?.workspace_id===delta.workspaceId&&
-    e.object_id===delta.objectId&&
-    e.event_type==='iwxa.t4.original-object.synced'&&
-    e.payload?.originalEventId===delta.sourceEventId);
+  const events=await readEvents(),matches=match(events);
   if(matches.length>1)fail('SUBJECT_ORIGINAL_DUPLICATE_APPLY_EVENTS');
   if(matches.length===0){
     if((row?.object?.revision??0)!==delta.baseRevision)
       fail('SUBJECT_RECIPIENT_DIVERGED_WITHOUT_RESULT');
+    await guard();
+    const second=await originalKernel.getObject(delta.workspaceId,delta.objectId);
+    await guard();
+    if(!equalStable(second?.object,row?.object)||match(await readEvents()).length)
+      fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
     return frozen({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
       state:'NOT_APPLIED',originalBusinessApplied:false,
       historicalReceiptFabricated:false});
@@ -494,36 +526,29 @@ export async function inspectT4OriginalNetworkRecipientResult({
   if(object.revision>delta.sourceRevision){
     if(allowHistoricalEventProof!==true)
       fail('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH');
-    const versions=new Set();
-    for(const event of events){
-      if(event?.workspace_id!==delta.workspaceId||
-        event.object_id!==delta.objectId)continue;
-      if(Number.isSafeInteger(event.revision)&&
-        event.revision>delta.sourceRevision&&
-        event.revision<=object.revision&&ID(event.event_id))
-        versions.add(event.revision);
-    }
-    for(let revision=delta.sourceRevision+1;
-      revision<=object.revision;revision++){
-      if(!versions.has(revision))
-        fail('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP',{
-          missingRevision:revision,
-        });
-    }
+    const state=digestT4OriginalObjectContent({
+      schemaId:object.schema_id,schemaVersion:object.schema_version,
+      data:object.data,extensions:object.extensions??{},
+    });
+    const continuity=stream=>verifyHistoricalContinuation({
+      events:stream,first:ev,from:delta.sourceRevision,to:object.revision,
+      finalDigest:state,
+      select:(e,r)=>e?.workspace_id===delta.workspaceId&&
+        e.object_id===delta.objectId&&e.event_type===OBJECT_EVENT&&e.revision===r,
+      valid:e=>ID(e.event_id)&&ID(e.payload?.originalEventId)&&
+        e.payload?.originalWriteOwnerRef===delta.originalWriteOwnerRef&&
+        DIG(e.payload?.originalEventDigest)&&DIG(e.payload?.originalContentDigest),
+    });
+    const chain=continuity(events);
     await guard();
-    const second=await originalKernel.getObject(
-      delta.workspaceId,delta.objectId);
-    if(!same(second?.object,object))
+    const second=await originalKernel.getObject(delta.workspaceId,delta.objectId);
+    await guard();
+    if(!equalStable(second?.object,object))
       fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
-    await guard();
-    const verifyEvents=await originalKernel.listEventsSince(delta.workspaceId);
-    const exact=verifyEvents?.filter(e=>
-      e?.workspace_id===delta.workspaceId&&e.object_id===delta.objectId&&
-      e.event_type==='iwxa.t4.original-object.synced'&&
-      e.payload?.originalEventId===delta.sourceEventId);
-    if(exact?.length!==1||!same(exact[0],ev))
+    const verifyEvents=await readEvents(),exact=match(verifyEvents);
+    if(exact.length!==1||!equalStable(exact[0],ev)||
+      !equalStable(continuity(verifyEvents),chain))
       fail('SUBJECT_HISTORICAL_EVENT_CHANGED_DURING_READ');
-    await guard();
     return frozen({
       schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
       state:'APPLIED_HISTORICAL_EVENT_VERIFIED',
@@ -550,9 +575,11 @@ export async function inspectT4OriginalNetworkRecipientResult({
     fail('SUBJECT_ORIGINAL_RESULT_STATE_MISMATCH');
   await guard();
   const second=await originalKernel.getObject(delta.workspaceId,delta.objectId);
-  if(!same(second?.object,object))
-    fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
   await guard();
+  const verifyEvents=match(await readEvents());
+  if(!equalStable(second?.object,object)||verifyEvents.length!==1||
+    !equalStable(verifyEvents[0],ev))
+    fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
   return frozen({
     schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
     state:'APPLIED_VERIFIED',

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,createCipheriv,createDecipheriv,randomBytes}
   from 'node:crypto';
-import {verifyT4OriginalObjectDelta}
+import {verifyT4OriginalObjectDelta,digestT4OriginalObjectContent}
   from '../src/network/original-object-delta.mjs';
 import {openT4OriginalNetworkObjectChange,
   inspectT4OriginalNetworkRecipientResult,
@@ -230,7 +230,7 @@ test('past original Result persists as Event-only evidence after a newer valid T
     event:{event_type:'iwxa.t4.original-object.synced',
       payload:{originalEventId:'event:source:two',
         originalEventDigest:H('next event'),originalWriteOwnerRef:
-          'owner:source:one',originalContentDigest:H('next content')}},
+          'owner:source:one',originalContentDigest:digestT4OriginalObjectContent({schemaId:'iwxa.demo.note',schemaVersion:'1.0.0',data:{title:'second valid revision'},extensions:{}})}},
   });
   await assert.rejects(inspectT4OriginalNetworkRecipientResult(
     f.applyArgs(old)),error('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH'));
@@ -265,7 +265,7 @@ test('historical Event proof rejects missing intermediate revision and modified 
       schema_version:'1.0.0',data:{title:'revision 2'},extensions:{},
       base_revision:1},
     event:{event_type:'iwxa.t4.original-object.synced',
-      payload:{originalEventId:'event:source:two'}},
+      payload:{originalEventId:'event:source:two',originalEventDigest:H('next event'),originalWriteOwnerRef:'owner:source:one',originalContentDigest:digestT4OriginalObjectContent({schemaId:'iwxa.demo.note',schemaVersion:'1.0.0',data:{title:'revision 2'},extensions:{}})}},
   });
   f.events[1].revision=5;
   await assert.rejects(inspectT4OriginalNetworkRecipientResult({
@@ -276,4 +276,27 @@ test('historical Event proof rejects missing intermediate revision and modified 
   await assert.rejects(inspectT4OriginalNetworkRecipientResult({
     ...f.applyArgs(old),allowHistoricalEventProof:true,
   }),error('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH'));
+});
+
+test('mixed Asset Event cannot substitute for a missing Object revision',async()=>{
+  const f=fixture(),old=await openT4OriginalNetworkObjectChange(f.openArgs);
+  await applyT4OriginalNetworkObjectChange(f.applyArgs(old));
+  await f.originalKernel.commitObjectGraph({
+    workspace_id:'workspace:object:one',
+    object:{object_id:'object:one',schema_id:'iwxa.demo.note',
+      schema_version:'1.0.0',data:{title:'revision 2'},extensions:{},base_revision:1},
+    event:{event_type:'iwxa.t4.original-asset.synced',
+      payload:{originalEventId:'event:asset:two',originalEventDigest:H('asset event'),
+        originalWriteOwnerRef:'owner:source:one',originalContentDigest:H('asset state')}},
+  });
+  await assert.rejects(inspectT4OriginalNetworkRecipientResult({
+    ...f.applyArgs(old),allowHistoricalEventProof:true,
+  }),error('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP'));
+});
+test('original Event read authority is independent from Object read authority',async()=>{
+  const f=fixture(),received=await openT4OriginalNetworkObjectChange(f.openArgs);
+  await assert.rejects(applyT4OriginalNetworkObjectChange({
+    ...f.applyArgs(received),authorizeOriginalRead:async p=>p.operation==='t1.getObject',
+  }),error('SUBJECT_ORIGINAL_RESULT_READ_DENIED'));
+  assert.equal(f.writes,0);
 });
