@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 4bf513a86c55fa99b1e0290ebb27105a371201ef
+          ref: f97f5a182ef87d4d93d7ddcb55936d3c35eae291
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -46,7 +46,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 44c76c505151fbdcb0a27d6cc0aae2844eabc5a9
+          ref: 3320932e1b9560d66d2fa893558b13d3121175fd
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: bli-owner
@@ -66,7 +66,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! (node --check domain-assistant/main.mjs && node --check domain-assistant/field-policy.mjs && node --check domain-assistant/skill-runtime.mjs && node --test tests/domain-assistant-field-policy.test.mjs tests/domain-assistant-skill-runtime.test.mjs) > "$RUNNER_TEMP/private-assistant-owner.log" 2>&1; then
+          if ! (node --check domain-assistant/main.mjs && node --check domain-assistant/field-policy.mjs && node --check domain-assistant/skill-runtime.mjs && node --check domain-assistant/device-policy.mjs && node --test tests/domain-assistant-field-policy.test.mjs tests/domain-assistant-skill-runtime.test.mjs tests/domain-assistant-device-policy.test.mjs) > "$RUNNER_TEMP/private-assistant-owner.log" 2>&1; then
             echo D02_ORIGINAL_ASSISTANT_SOURCE=FAIL
             exit 1
           fi
@@ -187,7 +187,7 @@ jobs:
           node --input-type=module - "$RUNNER_TEMP/club-t3-host/club-t3-host-input.json" <<'NODE'
           import {readFileSync} from 'node:fs';
           const p=JSON.parse(readFileSync(process.argv[2],'utf8'));
-          if(p.assistant?.sourceCommit!=='44c76c505151fbdcb0a27d6cc0aae2844eabc5a9'||
+          if(p.assistant?.sourceCommit!=='3320932e1b9560d66d2fa893558b13d3121175fd'||
              p.assistant.webllm!=='0.2.87'||!p.assistant.sharedEngine||!p.assistant.entry||
              p.files.filter(x=>/^assets\/model-worker-[A-Za-z0-9_-]+\.js$/.test(x.path)).length!==1)process.exit(1);
           console.log('D02_T3_ORIGINAL_DOMAIN_ASSISTANT_SHARED_ENGINE=PASS; workers=1');
