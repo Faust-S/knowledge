@@ -6,6 +6,7 @@ import {
   captureT4OriginalDeletionAtMutation,publishT4OriginalDeleteDelta,
   fetchT4OriginalDeleteDelta,applyT4OriginalDeleteDelta,
   reconcileT4OriginalDeleteFromT3Event,advanceT4OriginalDeleteCursor,
+  reconcileT4OriginalSourceDeletion,verifyT4OriginalDeleteDelta,decodeT4OriginalDeleteDeltaBytes,
 } from '../src/network/original-deletion-delta.mjs';
 
 const ws='workspace:owner',owner='original:t3:owner';
@@ -67,6 +68,7 @@ function fakeOriginal(kind){
     deleteAsset:async input=>deleteResult(input,'asset_id',assetId),
   };
   const persistOriginalPreDeleteWitness=async capture=>{
+    if(captures.has(capture.captureRef))return false;
     captures.set(capture.captureRef,structuredClone(capture));
     return true;
   };
@@ -172,7 +174,7 @@ test('incorrect original T3 capture readback refuses mutation before deletion',a
    sourceCursor:first.nextCursor,originalKernel:src.kernel,
    authorizeOriginalRead:async()=>true,authorizeOriginalDelete:async()=>true,
    persistOriginalPreDeleteWitness:src.persistOriginalPreDeleteWitness,
-   readOriginalPreDeleteWitness:async()=>({captureRef:'bad'}),
+   readOriginalPreDeleteWitness:async c=>c.preImage?{captureRef:'bad'}:null,
    readOriginalEvents:src.readOriginalEvents,getMode:()=> 'T4_NETWORK'
  }),code('DELETE_ORIGINAL_PREIMAGE_READBACK_FAILED'));
  assert.ok(src.asset());
@@ -332,4 +334,85 @@ test('original T3 Event history is checked live before recovery, and rights can 
    verifyOriginalSourceEvent:async()=>true,getMode:()=> 'T4_NETWORK',
  }),code('DELETE_ORIGINAL_EVENT_RECOVERY_AUTHORITY_DENIED'));
  assert.equal(r.writes.length,1);
+});
+
+function sourceRecoveryParams(src,kind,sourceCursor,changes={}){
+  return {kind,workspaceId:ws,originalWriteOwnerRef:owner,
+    subjectId:kind==='ASSET_DELETE'?assetId:relationId,objectId:from,
+    sourceCursor,sourceIdempotencyKey:'source:recover:'+kind,
+    originalKernel:src.kernel,authorizeOriginalRead:async()=>true,
+    authorizeOriginalDelete:async()=>true,readOriginalEvents:src.readOriginalEvents,
+    persistOriginalPreDeleteWitness:src.persistOriginalPreDeleteWitness,
+    readOriginalPreDeleteWitness:src.readOriginalPreDeleteWitness,
+    getMode:()=> 'T4_NETWORK',...changes};
+}
+for(const kind of ['ASSET_DELETE','RELATION_DELETE']){
+  test(kind+' source lost original ACK recovers exact bytes and never repeats a delete',async()=>{
+    const src=fakeOriginal(kind),first=await start();
+    const args=sourceRecoveryParams(src,kind,first.nextCursor);
+    src.loseAck();
+    await assert.rejects(captureT4OriginalDeletionAtMutation(args),
+      code('DELETE_ORIGINAL_SOURCE_OUTCOME_UNKNOWN'));
+    const firstRecovery=await reconcileT4OriginalSourceDeletion(args);
+    const secondRecovery=await reconcileT4OriginalSourceDeletion(args);
+    assert.equal(firstRecovery.sourceOriginalReceipt,null);
+    assert.equal(firstRecovery.originalSourceEventReadbackVerified,true);
+    assert.equal(firstRecovery.originalKernelDeleteRetried,false);
+    assert.equal(firstRecovery.sourceCursorAdvanced,false);
+    assert.equal(firstRecovery.sourceOriginalEvent.payload.iwxa_t4_capture_ref,args.sourceIdempotencyKey);
+    assert.equal(firstRecovery.sourceOriginalEvent.payload.iwxa_t4_preimage_digest,
+      firstRecovery.prepared.delta.preImageDigest);
+    assert.deepEqual(firstRecovery.prepared.bytes,secondRecovery.prepared.bytes);
+    assert.equal(src.writes.length,1);
+    assert.equal(src.captures.size,1);
+    await assert.rejects(captureT4OriginalDeletionAtMutation(args),
+      code('DELETE_ORIGINAL_SOURCE_CAPTURE_ALREADY_USED'));
+    assert.equal(src.writes.length,1);
+  });
+  test(kind+' original preimage changed after durable capture blocks physical deletion',async()=>{
+    const src=fakeOriginal(kind),first=await start();
+    const args=sourceRecoveryParams(src,kind,first.nextCursor,{
+      persistOriginalPreDeleteWitness:async c=>{
+        const saved=await src.persistOriginalPreDeleteWitness(c);
+        if(kind==='ASSET_DELETE')src.competeAsset();else src.competeRelation();
+        return saved;
+      }
+    });
+    await assert.rejects(captureT4OriginalDeletionAtMutation(args),
+      code('DELETE_ORIGINAL_SOURCE_PREIMAGE_CHANGED'));
+    assert.equal(src.writes.length,0);
+    await assert.rejects(reconcileT4OriginalSourceDeletion(args),
+      code('DELETE_ORIGINAL_SOURCE_EVENT_NOT_PROVEN'));
+    assert.equal(src.writes.length,0);
+  });
+}
+test('source deletion capture refuses an unconsumed Event prefix before mutation',async()=>{
+  const src=fakeOriginal('ASSET_DELETE'),args=sourceRecoveryParams(src,'ASSET_DELETE',null);
+  await assert.rejects(captureT4OriginalDeletionAtMutation(args),
+    code('DELETE_ORIGINAL_EVENT_WINDOW_UNCERTAIN'));
+  assert.equal(src.writes.length,0);
+  assert.equal(src.captures.size,0);
+});
+test('source deletion recovery rejects a forged original Event trace and mismatched cursor',async()=>{
+  const src=fakeOriginal('ASSET_DELETE'),first=await start();
+  const args=sourceRecoveryParams(src,'ASSET_DELETE',first.nextCursor);
+  const saved=await captureT4OriginalDeletionAtMutation(args);
+  await assert.rejects(reconcileT4OriginalSourceDeletion({...args,sourceCursor:null}),
+    code('DELETE_ORIGINAL_SOURCE_CURSOR_MISMATCH'));
+  const events=await src.readOriginalEvents();
+  events.at(-1).payload={...events.at(-1).payload,iwxa_t4_preimage_digest:'sha256:'+'0'.repeat(64)};
+  await assert.rejects(reconcileT4OriginalSourceDeletion(args),
+    code('DELETE_ORIGINAL_SOURCE_EVENT_SCOPE_MISMATCH'));
+  assert.equal(saved.sourceOriginalReceipt.event.event_id,'event:original:deleted');
+  assert.equal(src.writes.length,1);
+});
+test('deletion canonical codec reuses original envelope and freezes preimage',async()=>{
+  const c=await capture('ASSET_DELETE');
+  const decoded=decodeT4OriginalDeleteDeltaBytes(c.prepared.bytes);
+  assert.equal(decoded.sha256,c.prepared.sha256);
+  assert.equal(decoded.key,c.prepared.key);
+  assert.deepEqual(verifyT4OriginalDeleteDelta(decoded.delta).bytes,c.prepared.bytes);
+  assert.equal(Object.isFrozen(decoded.delta.preImage),true);
+  assert.throws(()=>decodeT4OriginalDeleteDeltaBytes(Buffer.concat([decoded.bytes,Buffer.from(' ')])),
+    code('DELETE_NETWORK_SCOPE_OR_CANONICAL_MISMATCH'));
 });

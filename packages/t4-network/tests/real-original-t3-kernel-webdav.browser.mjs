@@ -32,7 +32,8 @@ import {prepareT4OriginalRelationPutDelta,publishT4OriginalRelationPutDelta,
   from '../src/network/original-relation-delta.mjs';
 import {captureT4OriginalDeletionAtMutation,publishT4OriginalDeleteDelta,
   fetchT4OriginalDeleteDelta,applyT4OriginalDeleteDelta,
-  reconcileT4OriginalDeleteFromT3Event,advanceT4OriginalDeleteCursor}
+  reconcileT4OriginalDeleteFromT3Event,advanceT4OriginalDeleteCursor,
+  reconcileT4OriginalSourceDeletion}
   from '../src/network/original-deletion-delta.mjs';
 import {captureT4OriginalObjectMutation}
   from '../src/network/original-object-mutation-capture.mjs';
@@ -1160,23 +1161,21 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           const saved=await kernel.t1.putObject({
             workspace_id:sourceCaptureWorkspace,object_id:capture.captureRef,
             schema_id:'iwxa.demo.note',schema_version:'1.0.0',
-            data:{title:'Original pre-delete capture',
-              preImageDigest:capture.preImageDigest,preImage:capture.preImage,
-              captureRef:capture.captureRef},extensions:{},base_revision:0,
+            data:{title:'Original pre-delete capture',capture},extensions:{},base_revision:0,
             event:{event_type:'t4.original.predel.capture',
               payload:{captureRef:capture.captureRef}},
           });
           const checked=await kernel.t1.getObject(
             sourceCaptureWorkspace,capture.captureRef);
           return saved.object.revision===checked.object.revision&&
-            checked.object.data.preImageDigest===capture.preImageDigest;
+            checked.object.data.capture.preImageDigest===capture.preImageDigest;
         },{SERVICE,sourceCaptureWorkspace,capture});
       const readOriginalPreDeleteWitness=async capture=>
         activeSourcePage.evaluate(async({SERVICE,sourceCaptureWorkspace,capture})=>{
           const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
           const value=await kernel.t1.getObject(
             sourceCaptureWorkspace,capture.captureRef);
-          return value?.object?.data??null;
+          return value?.object?.data?.capture??null;
         },{SERVICE,sourceCaptureWorkspace,capture});
       const readSourceEvents=()=>activeSourcePage.evaluate(async({SERVICE,workspaceId})=>{
         const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
@@ -1194,17 +1193,38 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           ctx.originalWriteOwnerRef==='original:t2:exchange',
         transport:deltaTransport,getMode:()=> 'T4_NETWORK',
       });
-      const sourceDeleteCapture=async({kind,subjectId,objectId,sourceCursor})=>
-        captureT4OriginalDeletionAtMutation({
+      const sourceDeleteCapture=async({kind,subjectId,objectId,sourceCursor})=>{
+        const operation=kind==='ASSET_DELETE'?'deleteAsset':'deleteRelation';
+        let writes=0,originalReceipt=null;
+        const args={
           kind,subjectId,objectId,sourceCursor,
           workspaceId,originalWriteOwnerRef:'original:t2:exchange',
           sourceIdempotencyKey:'original:source:delete:'+randomUUID(),
-          originalKernel:sourceKernel,getMode:()=> 'T4_NETWORK',
+          originalKernel:{...sourceKernel,[operation]:async input=>{
+            writes++;originalReceipt=await sourceKernel[operation](input);
+            throw Object.assign(new Error('SIMULATED_SOURCE_DELETE_ACK_LOST'),
+              {code:'NETWORK_TIMEOUT'});
+          }},getMode:()=> 'T4_NETWORK',
           authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
           authorizeOriginalDelete:async ctx=>actual.grants.includes(ctx.operation),
           persistOriginalPreDeleteWitness,readOriginalPreDeleteWitness,
           readOriginalEvents:readSourceEvents,
-        });
+        };
+        await assert.rejects(captureT4OriginalDeletionAtMutation(args),
+          error=>error.code==='DELETE_ORIGINAL_SOURCE_OUTCOME_UNKNOWN');
+        const recovered=await reconcileT4OriginalSourceDeletion(args);
+        assert.equal(recovered.sourceOriginalReceipt,null);
+        assert.equal(recovered.sourceOriginalEvent.event_id,originalReceipt.event.event_id);
+        assert.equal(recovered.originalSourceEventReadbackVerified,true);
+        assert.equal(recovered.originalKernelDeleteRetried,false);
+        const again=await reconcileT4OriginalSourceDeletion(args);
+        assert.deepEqual(again.prepared.bytes,recovered.prepared.bytes);
+        assert.equal(writes,1);
+        console.log('T4_REAL_ORIGINAL_T3_SOURCE_DELETE_ACK_RECOVERY_PASS',
+          JSON.stringify({kind,originalEventId:recovered.sourceOriginalEvent.event_id,
+            originalSourceDeleteWrites:writes,originalReceiptRecreated:false}));
+        return recovered;
+      };
       const verifySourceDelete=async(proof,expected)=>{
         if(proof.sourceEventId!==expected.prepared.delta.sourceEventId||
           proof.sourceEventDigest!==expected.prepared.delta.sourceEventDigest||
