@@ -601,6 +601,54 @@ try{
  await poll(async()=>await page.locator("[data-club-goal-form] [name=title]").inputValue()===goalTitle,"GOAL_EXACT_EDITOR");
  check((await localGoal()).objectId===goalId,"GOAL_RESTORE_SAME_RESULT");
  log("OFFLINE_GOAL_EXACT_COLD_REOPEN");
+ phase="OFFLINE_GOAL_ASSESSMENT_CREATE";
+ const localProof=()=>page.evaluate(()=>{
+  const rows=JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")||"null")?.objects?.filter(o=>o.objectType==="project-draft"&&o.objectId.startsWith("proof-"))||[];
+  return rows.length===1?rows[0]:null;
+ });
+ const goalRevision=(await localGoal()).updatedAt;
+ const proofResult="Выбран набор инструментов, комплектность ещё не проверена";
+ const proofBasis="Список инструментов и предложение продавца";
+ const proofCheck="Сверить комплектность с перечнем работ";
+ await page.locator("[data-club-goal-list]").getByRole("button",{name:"Оценить результат",exact:true}).click();
+ const proofForm=page.locator("form[data-club-proof-form]");
+ await proofForm.waitFor({state:"visible"});
+ check(await proofForm.locator("[data-club-proof-source]").inputValue()===goalId,"ASSESSMENT_EXACT_SOURCE");
+ check(await proofForm.locator('[name="goalAssessment"]').inputValue()===""&&await proofForm.locator('[name="basis"]').inputValue()==="","ASSESSMENT_NO_IMPLICIT_DECISION");
+ check((await proofForm.locator("[data-club-proof-source-note]").textContent()).includes("Проверена комплектность"),"ASSESSMENT_ORIGINAL_CRITERION");
+ check(!(await localProof()),"ASSESSMENT_OPEN_NO_WRITE");
+ await proofForm.locator('[name="goalAssessment"]').selectOption("partial");
+ for(const [key,value] of Object.entries({result:proofResult,basis:proofBasis,check:proofCheck}))
+  await proofForm.locator('[name="'+key+'"]').fill(value);
+ await proofForm.locator("[data-club-proof-save]").click();
+ await poll(async()=> (await localProof())?.data?.personalEvidence?.goalAssessment==="partial","ASSESSMENT_ORIGINAL_FORM_WRITTEN");
+ const proofBefore=await localProof(),proofId=proofBefore.objectId;
+ check(proofBefore.data.personalEvidence.source.objectId===goalId&&proofBefore.data.personalEvidence.source.updatedAt===goalRevision,"ASSESSMENT_EXACT_GOAL_REVISION");
+ check(proofBefore.data.personalEvidence.result===proofResult&&proofBefore.data.personalEvidence.basis===proofBasis&&
+  proofBefore.data.personalEvidence.check===proofCheck&&proofBefore.data.personalEvidence.verification==="SELF_RECORDED","ASSESSMENT_SELF_RECORDED_BASIS");
+ check((await localGoal()).updatedAt===goalRevision,"ASSESSMENT_DOES_NOT_REWRITE_GOAL");
+ await poll(async()=>(await page.locator("[data-club-goal-list]").textContent()).includes("По моей оценке: достигнута частично"),"ASSESSMENT_MAP_UPDATED");
+ log("OFFLINE_GOAL_ASSESSMENT_EXPLICIT_EVIDENCE");
+ phase="OFFLINE_GOAL_ASSESSMENT_KERNEL";
+ await page.locator("[data-club-proof-list]").getByRole("link",{name:"Сохранить в IWXA",exact:true}).click();
+ const proofImport=page.getByTestId("club-t0-import-card");
+ await proofImport.getByTestId("club-t0-import-preview").waitFor({state:"visible"});
+ const proofScope=proofImport.getByTestId("club-t0-import-workspace-choice").filter({visible:true});
+ await poll(async()=>await proofScope.count()===1,"ASSESSMENT_SCOPE_AVAILABLE");
+ check(await proofScope.getAttribute("data-workspace-id")===base.scope,"ASSESSMENT_ORIGINAL_SCOPE");
+ if(await proofScope.getAttribute("aria-pressed")!=="true")await proofScope.click();
+ await poll(async()=>await proofScope.getAttribute("aria-pressed")==="true","ASSESSMENT_SCOPE_FOCUSED");
+ const proofChoice=proofImport.getByTestId("club-t0-import-object-checkbox");
+ await poll(async()=>await proofChoice.count()===1&&await proofChoice.isChecked(),"ASSESSMENT_TARGET_ONLY");
+ await proofImport.getByLabel("Подтверждаю сохранение выбранных результатов на этом устройстве.",{exact:true}).check();
+ const proofSave=proofImport.getByRole("button",{name:"Сохранить выбранное",exact:true});
+ await poll(async()=>await proofSave.isEnabled(),"ASSESSMENT_KERNEL_READY");
+ await proofSave.click();
+ await poll(async()=>{
+  const p=await localProof();return p?.objectId===proofId&&p.kernelSource?.workspaceId===base.scope&&p.kernelSource.revision>0&&p.kernelSource.syncedUpdatedAt===p.updatedAt;
+ },"ASSESSMENT_KERNEL_RECEIPT");
+ log("OFFLINE_GOAL_ASSESSMENT_ORIGINAL_KERNEL_RECEIPT");
+ await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"&club_goal="+encodeURIComponent(goalId)+"#club-goal-map");
  phase="OFFLINE_CASH_SETUP";
  await page.locator("[data-club-goal-list]").getByRole("link",{name:"Записать деньги по цели",exact:true}).click();
  const calendarGroup=page.locator("#club-money-calendar");
@@ -807,6 +855,42 @@ try{
  check(/Связанные поступления: 0/.test(await goalCold.textContent())&&!/25[\s\u00a0]000/.test(await goalCold.textContent()),"GOAL_EXCLUDES_UNLINKED_SALARY");
  check(!(await localGoal()),"GOAL_COLD_NO_TAB_RESULT");
  log("OFFLINE_GOAL_LINKED_ACTIVITY_AND_FINANCE_READBACK");
+ phase="OFFLINE_GOAL_ASSESSMENT_COLD";
+ check(!(await localProof()),"ASSESSMENT_COLD_NO_TAB_RESULT");
+ await poll(async()=>(await goalCold.getByTestId("club-native-goal-assessment").textContent()).includes("достигнута частично"),"ASSESSMENT_COLD_NATIVE_READBACK");
+ check((await goalCold.textContent()).includes(proofResult),"ASSESSMENT_COLD_RESULT");
+ async function restoreAssessment(prefix){
+  const goals=page.getByTestId("club-native-goals");
+  await goals.getByRole("button",{name:"Открыть основание цели: "+goalTitle,exact:true}).click();
+  const card=page.getByTestId("club-t2-restore-card");
+  await card.waitFor({state:"visible"});
+  await poll(async()=>await card.locator('input[type="checkbox"]:checked').count()===2,prefix+"_RELATED_SOURCE_SELECTION");
+  const button=card.getByRole("button",{name:"Открыть выбранные записи",exact:true});
+  await poll(async()=>await button.isEnabled(),prefix+"_READY");
+  let consent=false;
+  page.once("dialog",async d=>{
+   consent=d.type()==="confirm"&&d.message().includes("Загрузить 2 новых");
+   if(consent)await d.accept();else await d.dismiss();
+  });
+  await button.click();await poll(async()=>consent,prefix+"_CONSENT");
+  const link=page.getByTestId("club-t2-restore-completed").getByRole("link",{name:"Открыть выбранное основание",exact:true});
+  await link.waitFor({state:"visible"});
+  check(new URL(await link.getAttribute("href"),page.url()).searchParams.get("club_proof")===proofId,prefix+"_EXACT_PROOF");
+  await link.click();
+  const form=page.locator("form[data-club-proof-form]");
+  await form.waitFor({state:"visible"});
+  await poll(async()=>await form.locator('[name="result"]').inputValue()===proofResult,prefix+"_RESULT");
+  check(await form.locator('[name="basis"]').inputValue()===proofBasis&&
+   await form.locator('[name="check"]').inputValue()===proofCheck&&
+   await form.locator('[name="goalAssessment"]').inputValue()==="partial",prefix+"_BASIS_AND_CHECK");
+  check(await form.locator("[data-club-proof-source]").inputValue()===goalId&&
+   await form.locator("[data-club-proof-source]").isDisabled(),prefix+"_EXACT_LOCKED_SOURCE");
+  const p=await localProof(),g=await localGoal();
+  check(p?.objectId===proofId&&g?.objectId===goalId&&
+   p.data.personalEvidence.source.updatedAt===g.updatedAt&&p.kernelSource.workspaceId===g.kernelSource.workspaceId,prefix+"_EXACT_LINK_READBACK");
+ }
+ await restoreAssessment("ASSESSMENT_COLD");
+ log("OFFLINE_GOAL_ASSESSMENT_EXACT_SOURCE_REOPEN");
  phase="OFFLINE_FULL_PERSONAL_EXPORT";
  await visit(page,"/workspace/exchange/#/home");
  await page.getByTestId("packages-tab-export").click();
@@ -817,7 +901,7 @@ try{
  await page.getByTestId("export-preview").click();
  const fullPreview=page.getByTestId("export-preview-result");
  await fullPreview.waitFor({state:"visible"});
- check(Number(await fullPreview.getByText("Объектов",{exact:true}).locator("xpath=following-sibling::dd[1]").textContent())>=4,"PERSONAL_EXPORT_FOUR_RESULTS");
+ check(Number(await fullPreview.getByText("Объектов",{exact:true}).locator("xpath=following-sibling::dd[1]").textContent())>=5,"PERSONAL_EXPORT_FIVE_RESULTS");
  await page.getByTestId("export-ack-sensitive").check();
  await page.getByTestId("export-package").click();
  const fullDownloading=page.waitForEvent("download",{timeout:60000});
@@ -854,7 +938,7 @@ try{
  await fullCommit.click();
  const fullReceipt=page.getByTestId("import-receipt");
  await fullReceipt.waitFor({state:"visible"});
- check(Number(await fullReceipt.getByText("Объектов создано",{exact:true}).locator("xpath=following-sibling::dd[1]").textContent())>=4,"PERSONAL_IMPORT_FOUR_RESULTS");
+ check(Number(await fullReceipt.getByText("Объектов создано",{exact:true}).locator("xpath=following-sibling::dd[1]").textContent())>=5,"PERSONAL_IMPORT_FIVE_RESULTS");
  log("INDEPENDENT_PERSONAL_PROFILE_WEEK_FINANCE_IWXA_IMPORT");
  phase="INDEPENDENT_FULL_PERSONAL_READBACK";
  await close();page=await launch("personal-recipient");
@@ -868,8 +952,12 @@ try{
  await poll(async()=>(await transferredGoal.textContent()).includes("Записано времени по делам: 110 мин."),"PERSONAL_TRANSFER_GOAL_TIME");
  check(/Расходы: 17[\s\u00a0]000/.test(await transferredGoal.textContent()),"PERSONAL_TRANSFER_GOAL_CLOSED_EXPENSE");
  check((await transferredGoal.textContent()).includes(goalTitle),"PERSONAL_TRANSFER_GOAL_TITLE");
- check(!(await localWeek())&&!(await localCash())&&!(await localGoal()),"PERSONAL_TRANSFER_NO_TAB_RESULTS");
+ check(!(await localWeek())&&!(await localCash())&&!(await localGoal())&&!(await localProof()),"PERSONAL_TRANSFER_NO_TAB_RESULTS");
  log("INDEPENDENT_GOAL_LINKS_IWXA_READBACK");
+ phase="INDEPENDENT_GOAL_ASSESSMENT_READBACK";
+ await poll(async()=>(await transferredGoal.getByTestId("club-native-goal-assessment").textContent()).includes("достигнута частично"),"ASSESSMENT_INDEPENDENT_NATIVE_READBACK");
+ await restoreAssessment("ASSESSMENT_INDEPENDENT");
+ log("INDEPENDENT_GOAL_ASSESSMENT_BASIS_IWXA_READBACK");
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
 }catch(e){
