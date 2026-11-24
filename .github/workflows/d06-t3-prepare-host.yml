@@ -113,7 +113,12 @@ jobs:
           local_build() {
             "$node_bin" --experimental-strip-types scripts/build-d06-t3-local-site.mjs > "$RUNNER_TEMP/d06-local-private.log" 2>&1 || {
               echo "D06_T3_LOCAL_BUILD_$1=FAIL"
-              grep -E '^D06_T3_LOCAL_STAGE_[A-Z0-9_]+=(PASS|FAIL)              grep -Eo 'D06_T3_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_D5_MODULE_[A-Z0-9_]+|TS[0-9]{4}' "$RUNNER_TEMP/d06-local-private.log" | sort -u | head -25 || true
+              grep -E '^D06_T3_LOCAL_STAGE_[A-Z0-9_]+=(PASS|FAIL)$' "$RUNNER_TEMP/d06-local-private.log" || true
+              if test -f "$D06_FORBIDDEN_TOOL_LOG"; then echo "D06_T3_FORBIDDEN_TOOL_ATTEMPTS=$(wc -l < "$D06_FORBIDDEN_TOOL_LOG")"; fi
+              for marker in 'BROWSER_LAUNCH_FAILED' 'BROWSER_NOT_FOUND' 'BROWSER_NAVIGATION_BLOCKED' 'LOCAL_HTTP_BLOCKED' 'BROWSER_JAVASCRIPT_FAILED' 'Rollup failed to resolve import' 'Cannot find package' 'Could not resolve' 'Could not load' 'Could not load config' 'failed to load config' 'missing prerendered pages' 'ERR_UNSUPPORTED_DIR_IMPORT' 'ERR_MODULE_NOT_FOUND' 'Command failed' 'EACCES' 'EISDIR' 'ENOTDIR' 'SIGTERM' 'SIGKILL' 'ReferenceError' 'Hydration failed' 'Minified React error' 'Transform failed'; do
+                if grep -Fq "$marker" "$RUNNER_TEMP/d06-local-private.log"; then echo "D06_T3_LOCAL_STAGE_CLASS=$marker"; fi
+              done
+              grep -Eo 'D06_T3_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_D5_MODULE_[A-Z0-9_]+|TS[0-9]{4}' "$RUNNER_TEMP/d06-local-private.log" | sort -u | head -25 || true
               for marker in 'ERR_MODULE_NOT_FOUND' 'Cannot find module' 'ENOENT' 'SyntaxError' 'TypeError' 'missing local asset' 'not in site-routes' 'unexpected external asset origin' 'references forbidden host'; do
                 if grep -Fq "$marker" "$RUNNER_TEMP/d06-local-private.log"; then echo "D06_T3_LOCAL_FAILURE_CLASS=$marker"; fi
               done
@@ -158,173 +163,14 @@ jobs:
           set -euo pipefail
           node --experimental-strip-types tests/t3/verify-public-assistant.mjs > "$RUNNER_TEMP/d06-t3-public-private.log" 2>&1 || {
             echo D06_T3_PUBLIC_ASSISTANT_SMOKE=FAIL
-            grep -E '^D06_T3_PUBLIC_NO_MODEL_[A-Z_]+=PASS
-        if: always()
-        run: |
-          echo D06_T3_PRODUCT_ACCEPTED=false
-          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
-          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
- "$RUNNER_TEMP/d06-local-private.log" || true
-              if test -f "$D06_FORBIDDEN_TOOL_LOG"; then echo "D06_T3_FORBIDDEN_TOOL_ATTEMPTS=$(wc -l < "$D06_FORBIDDEN_TOOL_LOG")"; fi
-              for marker in 'BROWSER_LAUNCH_FAILED' 'BROWSER_NOT_FOUND' 'BROWSER_NAVIGATION_BLOCKED' 'LOCAL_HTTP_BLOCKED' 'BROWSER_JAVASCRIPT_FAILED' 'Rollup failed to resolve import' 'Cannot find package' 'Could not resolve' 'Could not load' 'Could not load config' 'failed to load config' 'missing prerendered pages' 'ERR_UNSUPPORTED_DIR_IMPORT' 'ERR_MODULE_NOT_FOUND' 'Command failed' 'EACCES' 'EISDIR' 'ENOTDIR' 'SIGTERM' 'SIGKILL' 'ReferenceError' 'Hydration failed' 'Minified React error' 'Transform failed'; do
-                if grep -Fq "$marker" "$RUNNER_TEMP/d06-local-private.log"; then echo "D06_T3_LOCAL_STAGE_CLASS=$marker"; fi
-              done
-              grep -Eo 'D06_T3_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_D5_MODULE_[A-Z0-9_]+|TS[0-9]{4}' "$RUNNER_TEMP/d06-local-private.log" | sort -u | head -25 || true
-              for marker in 'ERR_MODULE_NOT_FOUND' 'Cannot find module' 'ENOENT' 'SyntaxError' 'TypeError' 'missing local asset' 'not in site-routes' 'unexpected external asset origin' 'references forbidden host'; do
-                if grep -Fq "$marker" "$RUNNER_TEMP/d06-local-private.log"; then echo "D06_T3_LOCAL_FAILURE_CLASS=$marker"; fi
-              done
-              exit 1
-            }
-            echo "D06_T3_LOCAL_BUILD_$1=PASS"
-          }
-          snapshot() {
-            "$node_bin" --experimental-strip-types --input-type=module - "$1" <<'NODE'
-          import {writeFileSync} from 'node:fs';
-          import {snapshotD06Dist} from './scripts/assemble-d06-t3-dist.mjs';
-          const snapshot=snapshotD06Dist('dist');
-          writeFileSync(process.argv[2],JSON.stringify(snapshot));
-          console.log("D06_T3_DIST_FILES="+snapshot.length);
-          NODE
-          }
-          local_build FIRST
-          snapshot "$RUNNER_TEMP/d06-first-private.json"
-          local_build SECOND
-          snapshot "$RUNNER_TEMP/d06-second-private.json"
-          cmp -s "$RUNNER_TEMP/d06-first-private.json" "$RUNNER_TEMP/d06-second-private.json" || { echo D06_T3_BYTE_IDENTICAL_REBUILD=FAIL; exit 1; }
-          echo D06_T3_BYTE_IDENTICAL_REBUILD=PASS
-          archive="runtime/t3-platform/0.3.1-rc.1/platform-inputs.zip"
-          cp -- "$archive" "$RUNNER_TEMP/d06-good-input.zip"
-          trap 'mv -f -- "$RUNNER_TEMP/d06-good-input.zip" "$archive"' EXIT
-          printf 'corrupted' >> "$archive"
-          if "$node_bin" --experimental-strip-types scripts/build-d06-t3-local-site.mjs > "$RUNNER_TEMP/d06-corrupt-private.log" 2>&1; then
-            echo D06_T3_CORRUPTION_REJECTED=FAIL
-            exit 1
-          fi
-          grep -Fq D06_T3_PLATFORM_ARCHIVE_SHA256_MISMATCH "$RUNNER_TEMP/d06-corrupt-private.log" || { echo D06_T3_CORRUPTION_EXPECTED_REASON=FAIL; exit 1; }
-          snapshot "$RUNNER_TEMP/d06-after-corrupt-private.json"
-          cmp -s "$RUNNER_TEMP/d06-second-private.json" "$RUNNER_TEMP/d06-after-corrupt-private.json" || { echo D06_T3_PREVIOUS_DIST_RETAINED=FAIL; exit 1; }
-          test ! -s "$D06_FORBIDDEN_TOOL_LOG" || { echo D06_T3_NO_GIT_OR_PACKAGE_MANAGER=FAIL; exit 1; }
-          echo D06_T3_CORRUPTION_REJECTED=PASS
-          echo D06_T3_PREVIOUS_DIST_RETAINED=PASS
-          echo D06_T3_NO_GIT_OR_PACKAGE_MANAGER=PASS
-      - name: Privacy and evidence boundary
-        if: always()
-        run: |
-          echo D06_T3_PRODUCT_ACCEPTED=false
-          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
-          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
- "$RUNNER_TEMP/d06-t3-public-private.log" || true
+            grep -E '^D06_T3_PUBLIC_NO_MODEL_[A-Z_]+=PASS$' "$RUNNER_TEMP/d06-t3-public-private.log" || true
             grep -Eo 'D06_T3_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-public-private.log" | sort -u | head -15 || true
             for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toHaveCount' 'toBeVisible' 'toBeHidden' 'toHaveValue' 'toBeEnabled' 'toContainText'; do
               if grep -Fq "$marker" "$RUNNER_TEMP/d06-t3-public-private.log"; then echo "D06_T3_PUBLIC_FAILURE_CLASS=$marker"; fi
             done
             exit 1
           }
-          grep -E '^D06_T3_PUBLIC_(NO_MODEL_[A-Z_]+|ASSISTANT_SMOKE)=PASS
-        if: always()
-        run: |
-          echo D06_T3_PRODUCT_ACCEPTED=false
-          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
-          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
- "$RUNNER_TEMP/d06-local-private.log" || true
-              if test -f "$D06_FORBIDDEN_TOOL_LOG"; then echo "D06_T3_FORBIDDEN_TOOL_ATTEMPTS=$(wc -l < "$D06_FORBIDDEN_TOOL_LOG")"; fi
-              for marker in 'BROWSER_LAUNCH_FAILED' 'BROWSER_NOT_FOUND' 'BROWSER_NAVIGATION_BLOCKED' 'LOCAL_HTTP_BLOCKED' 'BROWSER_JAVASCRIPT_FAILED' 'Rollup failed to resolve import' 'Cannot find package' 'Could not resolve' 'Could not load' 'Could not load config' 'failed to load config' 'missing prerendered pages' 'ERR_UNSUPPORTED_DIR_IMPORT' 'ERR_MODULE_NOT_FOUND' 'Command failed' 'EACCES' 'EISDIR' 'ENOTDIR' 'SIGTERM' 'SIGKILL' 'ReferenceError' 'Hydration failed' 'Minified React error' 'Transform failed'; do
-                if grep -Fq "$marker" "$RUNNER_TEMP/d06-local-private.log"; then echo "D06_T3_LOCAL_STAGE_CLASS=$marker"; fi
-              done
-              grep -Eo 'D06_T3_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_D5_MODULE_[A-Z0-9_]+|TS[0-9]{4}' "$RUNNER_TEMP/d06-local-private.log" | sort -u | head -25 || true
-              for marker in 'ERR_MODULE_NOT_FOUND' 'Cannot find module' 'ENOENT' 'SyntaxError' 'TypeError' 'missing local asset' 'not in site-routes' 'unexpected external asset origin' 'references forbidden host'; do
-                if grep -Fq "$marker" "$RUNNER_TEMP/d06-local-private.log"; then echo "D06_T3_LOCAL_FAILURE_CLASS=$marker"; fi
-              done
-              exit 1
-            }
-            echo "D06_T3_LOCAL_BUILD_$1=PASS"
-          }
-          snapshot() {
-            "$node_bin" --experimental-strip-types --input-type=module - "$1" <<'NODE'
-          import {writeFileSync} from 'node:fs';
-          import {snapshotD06Dist} from './scripts/assemble-d06-t3-dist.mjs';
-          const snapshot=snapshotD06Dist('dist');
-          writeFileSync(process.argv[2],JSON.stringify(snapshot));
-          console.log("D06_T3_DIST_FILES="+snapshot.length);
-          NODE
-          }
-          local_build FIRST
-          snapshot "$RUNNER_TEMP/d06-first-private.json"
-          local_build SECOND
-          snapshot "$RUNNER_TEMP/d06-second-private.json"
-          cmp -s "$RUNNER_TEMP/d06-first-private.json" "$RUNNER_TEMP/d06-second-private.json" || { echo D06_T3_BYTE_IDENTICAL_REBUILD=FAIL; exit 1; }
-          echo D06_T3_BYTE_IDENTICAL_REBUILD=PASS
-          archive="runtime/t3-platform/0.3.1-rc.1/platform-inputs.zip"
-          cp -- "$archive" "$RUNNER_TEMP/d06-good-input.zip"
-          trap 'mv -f -- "$RUNNER_TEMP/d06-good-input.zip" "$archive"' EXIT
-          printf 'corrupted' >> "$archive"
-          if "$node_bin" --experimental-strip-types scripts/build-d06-t3-local-site.mjs > "$RUNNER_TEMP/d06-corrupt-private.log" 2>&1; then
-            echo D06_T3_CORRUPTION_REJECTED=FAIL
-            exit 1
-          fi
-          grep -Fq D06_T3_PLATFORM_ARCHIVE_SHA256_MISMATCH "$RUNNER_TEMP/d06-corrupt-private.log" || { echo D06_T3_CORRUPTION_EXPECTED_REASON=FAIL; exit 1; }
-          snapshot "$RUNNER_TEMP/d06-after-corrupt-private.json"
-          cmp -s "$RUNNER_TEMP/d06-second-private.json" "$RUNNER_TEMP/d06-after-corrupt-private.json" || { echo D06_T3_PREVIOUS_DIST_RETAINED=FAIL; exit 1; }
-          test ! -s "$D06_FORBIDDEN_TOOL_LOG" || { echo D06_T3_NO_GIT_OR_PACKAGE_MANAGER=FAIL; exit 1; }
-          echo D06_T3_CORRUPTION_REJECTED=PASS
-          echo D06_T3_PREVIOUS_DIST_RETAINED=PASS
-          echo D06_T3_NO_GIT_OR_PACKAGE_MANAGER=PASS
-      - name: Privacy and evidence boundary
-        if: always()
-        run: |
-          echo D06_T3_PRODUCT_ACCEPTED=false
-          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
-          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
- "$RUNNER_TEMP/d06-t3-public-private.log"
-      - name: Privacy and evidence boundary
-        if: always()
-        run: |
-          echo D06_T3_PRODUCT_ACCEPTED=false
-          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
-          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
- "$RUNNER_TEMP/d06-local-private.log" || true
-              if test -f "$D06_FORBIDDEN_TOOL_LOG"; then echo "D06_T3_FORBIDDEN_TOOL_ATTEMPTS=$(wc -l < "$D06_FORBIDDEN_TOOL_LOG")"; fi
-              for marker in 'BROWSER_LAUNCH_FAILED' 'BROWSER_NOT_FOUND' 'BROWSER_NAVIGATION_BLOCKED' 'LOCAL_HTTP_BLOCKED' 'BROWSER_JAVASCRIPT_FAILED' 'Rollup failed to resolve import' 'Cannot find package' 'Could not resolve' 'Could not load' 'Could not load config' 'failed to load config' 'missing prerendered pages' 'ERR_UNSUPPORTED_DIR_IMPORT' 'ERR_MODULE_NOT_FOUND' 'Command failed' 'EACCES' 'EISDIR' 'ENOTDIR' 'SIGTERM' 'SIGKILL' 'ReferenceError' 'Hydration failed' 'Minified React error' 'Transform failed'; do
-                if grep -Fq "$marker" "$RUNNER_TEMP/d06-local-private.log"; then echo "D06_T3_LOCAL_STAGE_CLASS=$marker"; fi
-              done
-              grep -Eo 'D06_T3_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_D5_MODULE_[A-Z0-9_]+|TS[0-9]{4}' "$RUNNER_TEMP/d06-local-private.log" | sort -u | head -25 || true
-              for marker in 'ERR_MODULE_NOT_FOUND' 'Cannot find module' 'ENOENT' 'SyntaxError' 'TypeError' 'missing local asset' 'not in site-routes' 'unexpected external asset origin' 'references forbidden host'; do
-                if grep -Fq "$marker" "$RUNNER_TEMP/d06-local-private.log"; then echo "D06_T3_LOCAL_FAILURE_CLASS=$marker"; fi
-              done
-              exit 1
-            }
-            echo "D06_T3_LOCAL_BUILD_$1=PASS"
-          }
-          snapshot() {
-            "$node_bin" --experimental-strip-types --input-type=module - "$1" <<'NODE'
-          import {writeFileSync} from 'node:fs';
-          import {snapshotD06Dist} from './scripts/assemble-d06-t3-dist.mjs';
-          const snapshot=snapshotD06Dist('dist');
-          writeFileSync(process.argv[2],JSON.stringify(snapshot));
-          console.log("D06_T3_DIST_FILES="+snapshot.length);
-          NODE
-          }
-          local_build FIRST
-          snapshot "$RUNNER_TEMP/d06-first-private.json"
-          local_build SECOND
-          snapshot "$RUNNER_TEMP/d06-second-private.json"
-          cmp -s "$RUNNER_TEMP/d06-first-private.json" "$RUNNER_TEMP/d06-second-private.json" || { echo D06_T3_BYTE_IDENTICAL_REBUILD=FAIL; exit 1; }
-          echo D06_T3_BYTE_IDENTICAL_REBUILD=PASS
-          archive="runtime/t3-platform/0.3.1-rc.1/platform-inputs.zip"
-          cp -- "$archive" "$RUNNER_TEMP/d06-good-input.zip"
-          trap 'mv -f -- "$RUNNER_TEMP/d06-good-input.zip" "$archive"' EXIT
-          printf 'corrupted' >> "$archive"
-          if "$node_bin" --experimental-strip-types scripts/build-d06-t3-local-site.mjs > "$RUNNER_TEMP/d06-corrupt-private.log" 2>&1; then
-            echo D06_T3_CORRUPTION_REJECTED=FAIL
-            exit 1
-          fi
-          grep -Fq D06_T3_PLATFORM_ARCHIVE_SHA256_MISMATCH "$RUNNER_TEMP/d06-corrupt-private.log" || { echo D06_T3_CORRUPTION_EXPECTED_REASON=FAIL; exit 1; }
-          snapshot "$RUNNER_TEMP/d06-after-corrupt-private.json"
-          cmp -s "$RUNNER_TEMP/d06-second-private.json" "$RUNNER_TEMP/d06-after-corrupt-private.json" || { echo D06_T3_PREVIOUS_DIST_RETAINED=FAIL; exit 1; }
-          test ! -s "$D06_FORBIDDEN_TOOL_LOG" || { echo D06_T3_NO_GIT_OR_PACKAGE_MANAGER=FAIL; exit 1; }
-          echo D06_T3_CORRUPTION_REJECTED=PASS
-          echo D06_T3_PREVIOUS_DIST_RETAINED=PASS
-          echo D06_T3_NO_GIT_OR_PACKAGE_MANAGER=PASS
+          grep -E '^D06_T3_PUBLIC_(NO_MODEL_[A-Z_]+|ASSISTANT_SMOKE)=PASS$' "$RUNNER_TEMP/d06-t3-public-private.log"
       - name: Privacy and evidence boundary
         if: always()
         run: |
