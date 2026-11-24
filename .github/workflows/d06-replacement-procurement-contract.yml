@@ -1,0 +1,50 @@
+name: d06-replacement-procurement-contract
+
+on:
+  push:
+    branches:
+      - test/2026-11-18-d06-qualification
+    paths:
+      - .github/workflows/d06-replacement-procurement-contract.yml
+permissions:
+  contents: read
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod
+          ref: 84d5a92160532f4c133bd3116dae467d4af326de
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Run exact canonical procurement contract
+        working-directory: private/domain
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-procurement-contract-private.txt"
+          foreach ($suite in @("test-replacement-demand", "test-replacement-calculation", "test-replacement-configuration", "test-replacement-assessment", "test-replacement-procurement")) {
+            & node --experimental-strip-types ("scripts/" + $suite + ".mjs") *> $log
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host ("D06_CONTRACT_FAIL=" + $suite)
+              $lines = Get-Content -LiteralPath $log -Raw
+              $matches = [regex]::Matches($lines, "(?:test-replacement-procurement\.mjs|replacement-offers\.ts|supplier-response\.ts):(\d+):\d+")
+              Write-Host ("D06_FAILURE_LINES=" + (($matches | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique -First 8) -join ","))
+              exit 1
+            }
+            $result = [regex]::Match((Get-Content -LiteralPath $log -Raw), "PASS\s+(\d+/\d+)")
+            Write-Host ("D06_CONTRACT_PASS=" + $suite + ":" + $result.Groups[1].Value)
+          }
+      - name: No private publication
+        if: always()
+        shell: pwsh
+        run: Write-Host "D06_PRIVATE_SOURCE_ARTIFACTS=0"
