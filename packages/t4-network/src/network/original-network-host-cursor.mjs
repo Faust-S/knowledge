@@ -510,7 +510,8 @@ const RECIPIENT_SCHEMA='IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_FRONTIER_V1';
 const RECIPIENT_EVENT='t4.network.original.host.recipient.frontier';
 const BASELINE_SCHEMA='IWXA_T4_ORIGINAL_RECIPIENT_BASELINE_V1';
 const RECIPIENT_TYPES=Object.freeze({
-  OBJECT_PUT:'iwxa.t4.original-object.synced',ASSET_PUT:'iwxa.t4.original-asset.synced',
+  OBJECT_PUT:'iwxa.t4.original-object.synced',GRAPH_COMMIT:'iwxa.t4.original-graph.synced',
+  ASSET_PUT:'iwxa.t4.original-asset.synced',
   RELATION_PUT:'iwxa.t4.original-relation.synced',OBJECT_DELETE:'iwxa.t4.original-object.deleted',
   ASSET_DELETE:'iwxa.t4.original-asset.deleted',RELATION_DELETE:'iwxa.t4.original-relation.deleted',
 });

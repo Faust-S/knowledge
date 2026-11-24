@@ -1,6 +1,7 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {encodeT4OriginalDeltaJson,digestT4OriginalObjectContent} from './original-object-delta.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
+import {runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
 
 const KIND='GRAPH_COMMIT',SCHEMA='IWXA_T4_ORIGINAL_GRAPH_DELTA_V1';
 const INTENT='IWXA_T4_ORIGINAL_SUBJECT_MUTATION_INTENT_V1';
@@ -468,6 +469,17 @@ export async function inspectT4OriginalGraphResult(p={}){
     historicalReceiptFabricated:false});
 }
 export async function applyT4OriginalGraphDelta(p={}){
+  const {delta:d}=receivedDelta(p.received);
+  if(p.nativeNetworkEvidence!==true||typeof p.withOriginalSubjectMutation!=='function')
+    fail('GRAPH_RECIPIENT_ORIGINAL_MUTATION_BOUNDARY_REQUIRED');
+  const exact={...p,received:structuredClone(p.received)};
+  return runT4OriginalSubjectMutationBoundary(p.withOriginalSubjectMutation,Object.freeze({
+    ...scopeOf(d.workspaceId,d.originalWriteOwnerRef,d.objectId),operation:'t1.commitObjectGraph',
+    sourceEventId:d.sourceEventId,originalHostMustSerializeAllWorkspaceGraphMutations:true,
+    originalHostMustSerializeSubjectMutations:true,networkGrantsNoWriteAuthority:true}),
+    ()=>applyGraphInsideBoundary(exact));
+}
+async function applyGraphInsideBoundary(p){
   const exact=receivedDelta(p.received),d=exact.delta,scope=scopeOf(d.workspaceId,d.originalWriteOwnerRef,d.objectId);
   requireReadPorts(p);
   if(!p.originalKernel.hasOperation('t1.commitObjectGraph')||typeof p.originalKernel.commitObjectGraph!=='function'||

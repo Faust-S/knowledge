@@ -16,7 +16,7 @@ const MESSAGE_TYPES=new Set([
   'RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK','RESUME'
 ]);
 const SUBJECT_KINDS=new Set(['OBJECT_PUT','ASSET_PUT','RELATION_PUT',
-  'ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE']);
+  'ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE','GRAPH_COMMIT']);
 // Relation has no numeric revision in original T3. This explicit critical
 // extension is mandatory on its CHANGE_REF and APPLIED_ACK.
 export const T4_RELATION_EVENT_EXTENSION='iwxa.relation-event.v1';
@@ -25,6 +25,7 @@ export const T4_RELATION_EVENT_EXTENSION='iwxa.relation-event.v1';
 export const T4_SUBJECT_DELETE_EXTENSION='iwxa.subject-delete.v1';
 export const isT4NativeSubjectKind=kind=>SUBJECT_KINDS.has(kind);
 export const T4_OBJECT_TOMBSTONE_EXTENSION='iwxa.object-tombstone.v1';
+export const T4_ATOMIC_GRAPH_EXTENSION='iwxa.atomic-graph.v1';
 export const T4_ORIGINAL_SOURCE_SESSION_EXTENSION='iwxa.original-source-session.v1';
 export const isT4NativeDeleteKind=kind=>['ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE'].includes(kind);
 export const isT4NativeEventOnlyKind=kind=>['RELATION_PUT','ASSET_DELETE','RELATION_DELETE'].includes(kind);
@@ -40,11 +41,12 @@ export const validT4NativeOriginalEventRevision=(kind,revision,eventRevision)=>
 export const t4NativeSubjectCriticalExtensions=kind=>Object.freeze(
   kind==='RELATION_PUT'?[T4_RELATION_EVENT_EXTENSION]:
     kind==='OBJECT_DELETE'?[T4_OBJECT_TOMBSTONE_EXTENSION]:
-      isT4NativeDeleteKind(kind)?[T4_SUBJECT_DELETE_EXTENSION]:[]);
+      kind==='GRAPH_COMMIT'?[T4_ATOMIC_GRAPH_EXTENSION]:
+        isT4NativeDeleteKind(kind)?[T4_SUBJECT_DELETE_EXTENSION]:[]);
 export function matchesT4NativeSubjectCriticalExtensions(kind,extensions=[]){
   if(!isT4NativeSubjectKind(kind)||!Array.isArray(extensions))return false;
   const expected=t4NativeSubjectCriticalExtensions(kind);
-  return [T4_RELATION_EVENT_EXTENSION,T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION]
+  return [T4_RELATION_EVENT_EXTENSION,T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION,T4_ATOMIC_GRAPH_EXTENSION]
     .every(ext=>extensions.includes(ext)===expected.includes(ext));
 }
 const ID=x=>typeof x==='string'&&
@@ -131,6 +133,9 @@ function validateBody(type,body,extensions=[]){
   const objectTombstone=Array.isArray(extensions)&&extensions.includes(T4_OBJECT_TOMBSTONE_EXTENSION);
   if(objectTombstone&&(!['CHANGE_REF','APPLIED_ACK'].includes(type)||relationEvent||deletionEvent))
     fail('WIRE_OBJECT_TOMBSTONE_EXTENSION_INVALID');
+  const graphCommit=Array.isArray(extensions)&&extensions.includes(T4_ATOMIC_GRAPH_EXTENSION);
+  if(graphCommit&&(!['CHANGE_REF','APPLIED_ACK'].includes(type)||relationEvent||deletionEvent||objectTombstone))
+    fail('WIRE_ATOMIC_GRAPH_EXTENSION_INVALID');
   const sourceSession=Array.isArray(extensions)&&extensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION);
   if(sourceSession&&(type!=='HEADS'||extensions.length!==1))
     fail('WIRE_ORIGINAL_SOURCE_SESSION_EXTENSION_INVALID');

@@ -3,6 +3,7 @@ import {readT4OriginalEventWindow} from './original-event-window.mjs';
 import {readT4OriginalHostCaptureFrontier} from './original-host-capture-frontier.mjs';
 import {runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
 import {captureT4OriginalObjectMutation} from './original-object-mutation-capture.mjs';
+import {captureT4OriginalGraphMutation,reconcileT4OriginalGraphMutation} from './original-graph-delta.mjs';
 import {reconcileT4OriginalMutationIntent} from './original-object-intent-recovery.mjs';
 import {captureT4OriginalHostSubjectMutation,
   reconcileT4OriginalHostSubjectMutation,captureT4OriginalHostSubjectDeletion,
@@ -158,7 +159,8 @@ export function createT4OriginalHostCaptureAdapter({
       originalOperationReceiptRecreated:false,sourceCursorAdvanced:false,
       networkPublished:false,createsScheduler:false,createsStore:false,...extra});
     const operations={OBJECT_PUT:'t1.putObject',ASSET_PUT:'t1.putAsset',RELATION_PUT:'t1.putRelation',
-      OBJECT_DELETE:'t1.deleteObject',ASSET_DELETE:'t1.deleteAsset',RELATION_DELETE:'t1.deleteRelation'};
+      OBJECT_DELETE:'t1.deleteObject',ASSET_DELETE:'t1.deleteAsset',RELATION_DELETE:'t1.deleteRelation',
+      GRAPH_COMMIT:'t1.commitObjectGraph'};
     const readPending=async()=>{
       mode();
       const rows=await listOriginalPendingIntents(query);mode();
@@ -207,12 +209,13 @@ export function createT4OriginalHostCaptureAdapter({
         (kind!=='OBJECT_PUT'&&intent.kind!==kind))
         fail('ORIGINAL_HOST_CAPTURE_RECOVERY_INVENTORY_CHANGED');
       const key=kind.endsWith('_DELETE')?intent.sourceEvent?.idempotency_key:intent.idempotencyKey;
-      if(kind!=='OBJECT_PUT'&&!ID(key))fail('ORIGINAL_HOST_CAPTURE_RECOVERY_INTENT_INVALID');
+      if(kind==='GRAPH_COMMIT'?(typeof key!=='string'||key.length<1||key.length>256):
+        kind!=='OBJECT_PUT'&&!ID(key))fail('ORIGINAL_HOST_CAPTURE_RECOVERY_INTENT_INVALID');
       const stream=await readOriginalEvents({...query,captureRef,operation:'t1.listEventsSince'});
       mode();
       if(!Array.isArray(stream)||stream.length>100000||stream.some(e=>e?.workspace_id!==workspaceId))
         fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_STREAM_INVALID');
-      const matches=stream.filter(e=>kind==='OBJECT_PUT'?e?.payload?.iwxa_t4_capture_ref===captureRef:
+      const matches=stream.filter(e=>kind==='OBJECT_PUT'||kind==='GRAPH_COMMIT'?e?.payload?.iwxa_t4_capture_ref===captureRef:
         kind==='OBJECT_DELETE'?e?.payload?.iwxa_t4_object_delete_intent===key:e?.idempotency_key===key);
       if(matches.length>1)fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_AMBIGUOUS');
       if(matches.length===1&&!ID(matches[0].event_id))fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_STREAM_INVALID');
@@ -247,7 +250,9 @@ export function createT4OriginalHostCaptureAdapter({
       const step=await runT4OriginalSubjectMutationBoundary(withOriginalSubjectMutation,boundary,async()=>{
         eventId=await inspect();if(eventId===null)return waiting();
         return kind==='OBJECT_PUT'?reconcileT4OriginalMutationIntent({...hostCapturePorts(),
-          ...query,captureRef,objectId:subjectId}):reconcileT4OriginalHostSubjectMutation({...hostCapturePorts(),
+          ...query,captureRef,objectId:subjectId}):kind==='GRAPH_COMMIT'?
+          reconcileT4OriginalGraphMutation({...hostCapturePorts(),...query,captureRef,subjectId}):
+          reconcileT4OriginalHostSubjectMutation({...hostCapturePorts(),
           ...query,captureRef,kind,subjectId});
       });
       if(step.state==='WAITING_FOR_ORIGINAL_EVENT')return step;
@@ -294,6 +299,40 @@ export function createT4OriginalHostCaptureAdapter({
         t4Mode:'T4_NETWORK',originalReceipt:captured.originalT3Receipt,
         originalT3OperationUsed:true,originalHostUnchanged:true,
         capture:captured,networkPublished:false});
+    },
+    async commitObjectGraph({mutationInput,sourceCursor,captureRef}={}){
+      if(originalKernel.hasOperation('t1.commitObjectGraph')!==true||
+        typeof originalKernel.commitObjectGraph!=='function')
+        fail('ORIGINAL_HOST_T3_GRAPH_PORT_REQUIRED');
+      if(!mutationInput||typeof mutationInput!=='object')fail('ORIGINAL_HOST_MUTATION_REQUIRED');
+      if(mode()==='LOCAL_T3'){
+        const originalReceipt=await originalKernel.commitObjectGraph(mutationInput);mode();
+        return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_GRAPH_RESULT_V1',
+          t4Mode:'LOCAL_T3',originalReceipt,originalHostUnchanged:true,capture:null,
+          originalT3OperationUsed:true,networkPublished:false});
+      }
+      requiredOriginalHostCapturePorts();
+      if(!ID(captureRef)||!ID(mutationInput.workspace_id)||!ID(mutationInput.object?.object_id))
+        fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
+      const capture=await serializePut('GRAPH_COMMIT','t1.commitObjectGraph',mutationInput.object.object_id,
+        {mutationInput,sourceCursor,captureRef},(exact,cursor)=>captureT4OriginalGraphMutation({
+          ...hostCapturePorts(),workspaceId:exact.workspace_id,captureRef,sourceCursor:cursor,mutationInput:exact,
+        }));
+      mode();
+      return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_GRAPH_RESULT_V1',
+        t4Mode:'T4_NETWORK',subjectKind:'GRAPH_COMMIT',originalReceipt:capture.originalReceipt,
+        originalT3OperationUsed:true,originalHostUnchanged:true,capture,networkPublished:false});
+    },
+    async reconcileGraphMutation({captureRef,workspaceId,objectId}={}){
+      if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_RECOVERY_REQUIRES_T4');
+      requiredOriginalHostCapturePorts();
+      if(![captureRef,workspaceId,objectId].every(ID))fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
+      return runT4OriginalSubjectMutationBoundary(withOriginalSubjectMutation,Object.freeze({
+        workspaceId,originalWriteOwnerRef,captureRef,subjectId:objectId,kind:'GRAPH_COMMIT',
+        operation:'t1.commitObjectGraph',originalMutationRecoveryOnly:true,
+        originalHostMustSerializeSubjectMutations:true,originalHostMustSerializeAllWorkspaceGraphMutations:true,
+        networkIsNotOriginalGrant:true}),()=>reconcileT4OriginalGraphMutation({
+          ...hostCapturePorts(),captureRef,workspaceId,subjectId:objectId}));
     },
     async putAsset({mutationInput,sourceCursor,captureRef}={}){
       if(originalKernel.hasOperation('t1.putAsset')!==true||

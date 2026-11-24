@@ -387,7 +387,7 @@ async function selectNativeCapture(params,before,w,a,guardList){
     workspaceId:params.workspaceId,
     originalWriteOwnerRef:params.originalWriteOwnerRef,
     networkTargetRef:params.networkTargetRef,
-    kindFilter:Object.freeze(['OBJECT_PUT','ASSET_PUT','RELATION_PUT','ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE']),
+    kindFilter:Object.freeze(['OBJECT_PUT','ASSET_PUT','RELATION_PUT','ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE','GRAPH_COMMIT']),
     sourceEventId:ev.eventId,
   }));
   if(!Array.isArray(rows)||rows.length>4096)
@@ -406,6 +406,7 @@ async function selectNativeCapture(params,before,w,a,guardList){
       noLaterEventMayBeSkipped:true,networkWritesStarted:false,
     });
   if((kind==='OBJECT_PUT'&&row.objectId!==ev.objectId)||
+    (kind==='GRAPH_COMMIT'&&id!==ev.objectId)||
     !ID(id)||!ID(row.captureRef)||
     !same(row.sourceCursorBefore,before)||!same(row.sourceCursorAfter,a))
     fail('DISPATCH_NATIVE_CAPTURE_CAUSAL_MISMATCH');

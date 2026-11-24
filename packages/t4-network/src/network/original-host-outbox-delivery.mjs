@@ -5,6 +5,7 @@ import {publishT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes} from './ori
 import {publishT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes} from './original-relation-delta.mjs';
 import {decodeT4OriginalDeleteDeltaBytes,originalT4DeletionCapturedEvent,t4OriginalDeletedSubjectRevision} from './original-deletion-delta.mjs';
 import {isT4NativeDeleteKind} from './standard-network-wire-candidate.mjs';
+import {decodeT4OriginalGraphDeltaBytes,verifyT4OriginalGraphCapture} from './original-graph-delta.mjs';
 
 export class T4OriginalHostOutboxDeliveryError extends Error{
   constructor(code,details={}){super(code);this.name='T4OriginalHostOutboxDeliveryError';
@@ -20,6 +21,8 @@ const KIND_SCHEMA=Object.freeze({
     intent:'IWXA_T4_ORIGINAL_OBJECT_MUTATION_INTENT_V1',
     networkPublish:publishT4OriginalObjectDelta,
   }),
+  GRAPH_COMMIT:Object.freeze({outbox:'IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1',
+    intent:'IWXA_T4_ORIGINAL_SUBJECT_MUTATION_INTENT_V1'}),
   ASSET_PUT:Object.freeze({
     outbox:'IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1',
     intent:'IWXA_T4_ORIGINAL_SUBJECT_MUTATION_INTENT_V1',
@@ -114,6 +117,11 @@ function validateEnvelope(scope,outbox,intent){
       !same(delta.extensions,intent.originalMutation.extensions??{})||
       intent.originalMutation.event?.payload?.iwxa_t4_capture_ref!==scope.captureRef)
       fail('OUTBOX_ORIGINAL_OBJECT_INTENT_MISMATCH');
+  }else if(scope.kind==='GRAPH_COMMIT'){
+    const exact=decodeT4OriginalGraphDeltaBytes(bytes);
+    if(exact.delta.objectId!==scope.subjectId||outbox.inputDigest!==intent.inputDigest||
+      exact.delta.originalIdempotencyKey!==intent.idempotencyKey)
+      fail('OUTBOX_ORIGINAL_GRAPH_INTENT_MISMATCH');
   }else if(scope.kind==='ASSET_PUT'){
     const original=intent.operation;
     if(!HASH(intent.inputDigest)||
@@ -395,12 +403,28 @@ export async function readT4OriginalHostStagedDeletionForRecovery(params={}){
  */
 async function readCapturedSubject(params,requireNetworkPublish){
   if(params.kind==='OBJECT_PUT')return readCapturedObject(params,requireNetworkPublish);
-  if(!['ASSET_PUT','RELATION_PUT'].includes(params.kind)&&!isT4NativeDeleteKind(params.kind))
+  if(!['ASSET_PUT','RELATION_PUT','GRAPH_COMMIT'].includes(params.kind)&&!isT4NativeDeleteKind(params.kind))
     fail('OUTBOX_NATIVE_SUBJECT_KIND_UNSUPPORTED');
   const verified=await loadVerifiedOutbox(params,{requireNetworkPublish});
   if(isT4NativeDeleteKind(params.kind))return verifiedNativeDeletion(verified,params);
   const {outbox,intent,originalSourceEvent:event,currentSourceWindow:window,
     currentNextCursor:nextCursor}=verified;
+  if(params.kind==='GRAPH_COMMIT'){
+    const exact=verifyT4OriginalGraphCapture({intent,outbox,event,window,nextCursor,prepared:verified.prepared});
+    const d=exact.delta;
+    if(d.objectId!==verified.subjectId||event.object_id!==d.objectId||event.revision!==d.sourceRevision)
+      fail('OUTBOX_ORIGINAL_GRAPH_INTENT_MISMATCH');
+    mode(params.getMode);
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURED_SUBJECT_V1',kind:params.kind,
+      subjectId:d.objectId,objectId:d.objectId,captureRef:verified.captureRef,workspaceId:verified.workspaceId,
+      originalWriteOwnerRef:verified.originalWriteOwnerRef,sourceEventId:d.sourceEventId,
+      sourceRevision:d.sourceRevision,originalEventRevision:event.revision,
+      sourceCursorBefore:structuredClone(outbox.sourceCursorBefore),sourceCursorAfter:structuredClone(outbox.sourceCursorAfter),
+      sourceWindow:structuredClone(outbox.sourceWindow),prepared:exact,
+      originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
+      laterSourceEventsExist:window.hasMore,currentObjectReadOrUsedAsHistoricalBytes:false,
+      originalT3OutboxUnchanged:true,networkPublished:false,originalRecipientApplied:false});
+  }
   const exact=params.kind==='ASSET_PUT'?
     decodeT4OriginalAssetDeltaBytes(verified.prepared.bytes):
     decodeT4OriginalRelationPutDeltaBytes(verified.prepared.bytes);
@@ -502,6 +526,7 @@ export async function verifyT4OriginalHostCapturedSubjectSource(params,proof){
   return proof.originalT3SourceEventAndSubjectReadRequired===true;
 }
 export async function publishT4OriginalHostOutbox(params={}){
+  if(params.kind==='GRAPH_COMMIT')fail('OUTBOX_GRAPH_REQUIRES_NATIVE_NETWORK');
   if(isT4NativeDeleteKind(params.kind))fail('OUTBOX_DELETE_REQUIRES_NATIVE_NETWORK');
   if(typeof params.transport?.putSnapshot!=='function')
     fail('OUTBOX_NETWORK_TRANSPORT_REQUIRED');
@@ -539,6 +564,7 @@ export async function publishT4OriginalHostOutbox(params={}){
   });
 }
 export async function inspectT4OriginalHostOutboxNetwork(params={}){
+  if(params.kind==='GRAPH_COMMIT')fail('OUTBOX_GRAPH_REQUIRES_NATIVE_NETWORK');
   if(typeof params.transport?.inspectOutcome!=='function')
     fail('OUTBOX_NETWORK_INSPECTION_PORT_REQUIRED');
   const verified=await loadVerifiedOutbox(params);

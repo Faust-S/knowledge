@@ -7,7 +7,7 @@ const EVENT='t4.network.original.capture.record';
 const INTENTS=['IWXA_T4_ORIGINAL_OBJECT_MUTATION_INTENT_V1',
   'IWXA_T4_ORIGINAL_SUBJECT_MUTATION_INTENT_V1','IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1'];
 const OUTBOXES=['IWXA_T4_ORIGINAL_OBJECT_DELTA_OUTBOX_V1','IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1'];
-const KINDS=['OBJECT_PUT','ASSET_PUT','RELATION_PUT','ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE'];
+const KINDS=['OBJECT_PUT','ASSET_PUT','RELATION_PUT','ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE','GRAPH_COMMIT'];
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const sorted=x=>Array.isArray(x)?x.map(sorted):

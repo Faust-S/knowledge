@@ -4,7 +4,7 @@ import {readT4OriginalHostLocalCaptureEvidence} from './original-host-outbox-del
 
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const DIG=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
-const KINDS=new Set(['OBJECT_PUT','ASSET_PUT','RELATION_PUT','OBJECT_DELETE','ASSET_DELETE','RELATION_DELETE']);
+const KINDS=new Set(['OBJECT_PUT','ASSET_PUT','RELATION_PUT','OBJECT_DELETE','ASSET_DELETE','RELATION_DELETE','GRAPH_COMMIT']);
 const ordered=x=>Array.isArray(x)?x.map(ordered):x&&typeof x==='object'?
   Object.fromEntries(Object.keys(x).sort().map(k=>[k,ordered(x[k])])):x;
 const same=(a,b)=>JSON.stringify(ordered(a))===JSON.stringify(ordered(b));

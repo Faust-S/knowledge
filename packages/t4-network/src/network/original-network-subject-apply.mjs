@@ -1,4 +1,6 @@
 import {createHash} from 'node:crypto';
+import {decodeT4OriginalGraphDeltaBytes,verifyT4OriginalGraphDelta,applyT4OriginalGraphDelta,
+  inspectT4OriginalGraphResult,digestT4OriginalGraphContent} from './original-graph-delta.mjs';
 import {validateT4OriginalNativeCaptureSession,readT4OriginalSourceSessionHead}
   from './original-network-publication.mjs';
 import {assembleT4CandidateOpaqueChunks}
@@ -62,6 +64,9 @@ const SUBJECTS=Object.freeze({
   OBJECT_PUT:Object.freeze({decode:decodeT4OriginalObjectDeltaBytes,
     verify:verifyT4OriginalObjectDelta,apply:applyT4OriginalObjectDelta,
     id:d=>d.objectId,revision:d=>d.sourceRevision,digest:d=>d.objectContentDigest}),
+  GRAPH_COMMIT:Object.freeze({decode:decodeT4OriginalGraphDeltaBytes,
+    verify:verifyT4OriginalGraphDelta,apply:applyT4OriginalGraphDelta,
+    id:d=>d.objectId,revision:d=>d.sourceRevision,digest:digestT4OriginalGraphContent}),
   ASSET_PUT:Object.freeze({decode:decodeT4OriginalAssetDeltaBytes,
     verify:verifyT4OriginalAssetDelta,apply:applyT4OriginalAssetDelta,
     id:d=>d.assetId,revision:d=>d.sourceRevision,digest:digestT4OriginalAssetContent}),
@@ -667,6 +672,10 @@ export async function inspectT4OriginalNetworkRecipientResult({
     return inspectT4OriginalNativeDeletionResult({received,originalKernel,authorizeOriginalRead,getMode,
       readOriginalDependencyCoverage,allowHistoricalEventProof});
   }
+  if(receivedKind(received)==='GRAPH_COMMIT'){
+    checkReceived(received);
+    return inspectT4OriginalGraphResult({received,originalKernel,authorizeOriginalRead,getMode});
+  }
   if(receivedKind(received)!=='OBJECT_PUT')
     return inspectNonObject({received,originalKernel,authorizeOriginalRead,
       getMode,allowHistoricalEventProof});
@@ -822,6 +831,7 @@ export async function inspectT4OriginalNetworkRecipientResult({
   });
 }
 export async function applyT4OriginalNetworkSubjectChange(args={}){
+  if(receivedKind(args.received)==='GRAPH_COMMIT')fail('SUBJECT_NATIVE_GRAPH_REQUIRES_DURABLE_APPLY_INTENT');
   if(isT4NativeDeleteKind(receivedKind(args.received)))
     fail('SUBJECT_NATIVE_DELETE_REQUIRES_DURABLE_APPLY_INTENT');
   return applyOriginalNetworkSubjectChange(args);
@@ -848,7 +858,7 @@ async function applyOriginalNetworkSubjectChange({
       received:{delta:received.delta,sha256:received.sha256,key:received.key},
       originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,getMode,
       ...(kind==='OBJECT_PUT'?{}:{nativeNetworkEvidence:true,authorizeOriginalRead}),
-      ...(isT4NativeDeleteKind(kind)?{withOriginalSubjectMutation,readOriginalDependencyCoverage}:{}),
+      ...(isT4NativeDeleteKind(kind)||kind==='GRAPH_COMMIT'?{withOriginalSubjectMutation,readOriginalDependencyCoverage}:{}),
     });
   }catch(error){
     fail('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN',{
@@ -932,6 +942,8 @@ export async function applyT4OriginalNetworkSubjectWithDurableIntent(args={}){
   }
   const before=await phase();
   if(before.currentPhase!=='VERIFIED')return recover(before);
+  if(receivedKind(args.received)==='GRAPH_COMMIT'&&typeof args.withOriginalSubjectMutation!=='function')
+    fail('SUBJECT_NATIVE_GRAPH_ORIGINAL_MUTATION_BOUNDARY_REQUIRED');
   if(isT4NativeDeleteKind(receivedKind(args.received))&&
     typeof args.withOriginalSubjectMutation!=='function')
     fail('SUBJECT_NATIVE_DELETE_ORIGINAL_MUTATION_BOUNDARY_REQUIRED');
@@ -977,6 +989,7 @@ export function createT4OriginalNetworkAppliedAckBody({
     verifiedResult.originalRecipientStateDigest!==type.digest(received.delta)||
     !ID(verifiedResult.originalRecipientEventId)||
     !validT4NativeSubjectRevision(kind,verifiedResult.originalRecipientRevision)||
+    (kind==='GRAPH_COMMIT'&&verifiedResult.actualOriginalT3GraphReadback!==true)||
     (isT4NativeDeleteKind(kind)&&verifiedResult.actualOriginalT3DeletionReadback!==true)||
     !DIG(verifiedResult.originalRecipientStateDigest))
     fail('SUBJECT_APPLIED_ACK_REQUIRES_ORIGINAL_RESULT');
