@@ -326,6 +326,35 @@ class CapacityLedger:
                           else "RESOURCE_CAPACITY_EXCEEDED")
                 raise CapacityBlocked(reason, key)
 
+    def explain_named_competing_reservation(
+        self, work: str, plan: Sequence[Reservation], competing_work: str,
+        resource: str,
+    ) -> dict[str, Any]:
+        """Read-only cause witness at the ORIGINAL failed commitment.
+
+        No reservation is released or rewritten. The same interval sweep
+        verifies that removing ONLY the named earlier work resolves all
+        capacity violations in the proposed plan at this instant. Capacity
+        alone is not a contract or a future execution guarantee.
+        """
+        proposals = list(plan)
+        combined = [*self.reservations, *proposals]
+        keys = sorted({p.resource for p in proposals})
+        violations = [v for key in keys
+                      for v in self._violations(key, combined, proposals=proposals)]
+        without = [r for r in combined if r.work != competing_work]
+        remaining = [v for key in keys
+                     for v in self._violations(key, without, proposals=proposals)]
+        relevant = [v for v in violations if v["resource"] == resource
+                    and work in v["works"] and competing_work in v["works"]]
+        return {
+            "resource": resource, "competing_work": competing_work,
+            "original_violating_interval_count": len(violations),
+            "original_named_competition_interval_count": len(relevant),
+            "capacity_violation_removed_by_named_work_absence": bool(relevant) and not remaining,
+            "original_reservations_unchanged": True,
+        }
+
     def preview_options(
         self, option_plans: Mapping[str, Sequence[Reservation]]
     ) -> list[dict[str, Any]]:

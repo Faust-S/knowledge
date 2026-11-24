@@ -1472,6 +1472,10 @@ def review_original_uncommitted_order_costs(
                                                     "RESOURCE_CALENDAR_CAPACITY_EXCEEDED"}
                 or commits[0].get("blocking_resource") != resource
                 or commits[0]["at"] != block["at"]
+                or commits[0].get("original_named_capacity_conflict", {}).get("competing_work") != competitor
+                or commits[0].get("original_named_capacity_conflict", {}).get("resource") != resource
+                or not commits[0].get("original_named_capacity_conflict", {}).get(
+                    "capacity_violation_removed_by_named_work_absence")
                 or not any(e.get("work") == competitor and e.get("action") == "commit"
                            and e.get("outcome") == "APPLIED" and e["at"] < block["at"]
                            for e in state.trace)
@@ -1685,6 +1689,9 @@ def review_original_portfolio_economics(
             used_ids.update(row.get("owner_sources", {}).values())
     used_refs = {sources[i]["reference"] for i in used_ids if i in sources}
     used_refs.update(b["cost_evidence_ref"] for b in money.get("lifecycle_costs", {}).get("event_bindings", []))
+    for field in ("work_payment_settlement_claims", "work_payment_due_amendments"):
+        for row in money.get(field, []):
+            used_refs.update(row.get("evidence_refs", {}).values())
     seen_refs, private = set(), {}
     for owner in sorted(owners):
         row = _record(raw["owner_scopes"][owner], {"source", "observed_at", "transfer_ids",

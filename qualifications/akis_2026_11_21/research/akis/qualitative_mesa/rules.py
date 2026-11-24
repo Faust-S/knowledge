@@ -1474,6 +1474,28 @@ class QualitativeAKIS:
             report["calendar_source"] = self.resource_specs[ev["resource"]].calendar.source
         if blocked_resource is not None:
             report["blocking_resource"] = blocked_resource
+            if (action == "commit" and report["reason"] in {
+                    "RESOURCE_CAPACITY_EXCEEDED", "RESOURCE_CALENDAR_CAPACITY_EXCEEDED"}
+                    and work_ref in self.works):
+                # Only source-scoped second orders opt into this new causal
+                # witness. Existing original trace/export formats are intact.
+                origin = next((r["outside_work_origin"] for r in self.trace
+                               if r.get("action") == "request" and r.get("outcome") == "APPLIED"
+                               and r.get("work") == work_ref and "outside_work_origin" in r), None)
+                demand = next((r for r in self.trace if origin
+                               and r.get("action") == "outside_demand_signal"
+                               and r.get("outcome") == "APPLIED"
+                               and r.get("outside_demand_id") == origin["outside_demand_id"]
+                               and "outside_candidate_operation" in r), None)
+                if demand is not None:
+                    from .capacity import Reservation
+                    w = self.works[work_ref]
+                    plan = (operation_reservations(w.key, w.operations) if w.operations else
+                            [Reservation(n.resource, w.key, w.slot_start, w.slot_end, n.units)
+                             for n in w.resource_requirements])
+                    report["original_named_capacity_conflict"] = (
+                        self.capacity_ledger.explain_named_competing_reservation(
+                            work_ref, plan, demand["outside_candidate_work"], blocked_resource))
         if self.cooperation_links and isinstance(work_ref, str):
             relation_ids = sorted(link.key for link in self.cooperation_links
                                   if work_ref in link.works)
