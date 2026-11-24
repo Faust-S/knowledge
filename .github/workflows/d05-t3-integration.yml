@@ -10,19 +10,19 @@ permissions:
 jobs:
   source:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod
-          ref: 5a05ab9f1a6529db0c3afc0a4325d5270b18e3fe
+          ref: acb3afd9274f3440d4a07693a1bae89e733cc26a
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: 614b3be12ad12a08f8e4659c74e90e224fbd7736
+          ref: 02700242ce9d5a52ed095c7d3123094b47c8e985
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -32,6 +32,12 @@ jobs:
           ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
           token: ${{ secrets.DOMEN }}
           path: assistant
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          path: one-core
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -55,6 +61,11 @@ jobs:
           if(pack.skills.length!==11||pack.formHints.length!==4||pack.resultHints.length!==4)throw Error("D05_T3_PACK_COUNTS");
           console.log("D05_T3_ORIGINAL_RUNTIME_SKILLS_PASS");
           JS
+          if ! (cd domain && T3_ASSISTANT_SOURCE="$GITHUB_WORKSPACE/assistant/browser-local-inference/domain-assistant" node --test tests/assistant-field-policy.test.mjs) >"$log" 2>&1; then
+            echo D05_T3_FIELD_POLICY_FAIL
+            exit 1
+          fi
+          echo D05_T3_FIELD_POLICY_19_PASS
           echo D05_T3_OWNER_PROJECTION_PASS
       - name: Install dependencies without exporting private sources
         working-directory: site
@@ -62,7 +73,7 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
         run: |
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-npm.log" 2>&1 || { echo D05_T3_NPM_FAIL; exit 1; }
-      - name: Verify real JSX bindings, source types and format
+      - name: Verify real JSX bindings and source types
         working-directory: site
         shell: bash
         run: |
@@ -80,10 +91,30 @@ jobs:
             exit 1
           fi
           echo D05_T3_TYPES_PASS
-          if ! npm run lint >"$log" 2>&1; then
-            echo D05_T3_LINT_FAIL
-            exit 1
-          fi
+      - name: Lint exact candidate and emit source-free diagnostics
+        id: lint
+        continue-on-error: true
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=0
+          npx eslint . -f json -o "$RUNNER_TEMP/d05-t3-lint.json" >"$RUNNER_TEMP/d05-t3-lint.log" 2>&1 || code=$?
+          node --input-type=module <<'JS'
+          import {readFileSync} from "node:fs";
+          import {basename,relative} from "node:path";
+          const rows=JSON.parse(readFileSync(process.env.RUNNER_TEMP+"/d05-t3-lint.json","utf8"));
+          const errors=rows.filter(r=>r.errorCount);
+          for(const row of errors.slice(0,30)){
+            const ruleCounts={};
+            for(const msg of row.messages.filter(m=>m.severity===2)){
+              const key=msg.ruleId||"parse";
+              ruleCounts[key]=(ruleCounts[key]||0)+1;
+            }
+            console.log("D05_T3_LINT_DIAG "+JSON.stringify({file:basename(row.filePath),count:row.errorCount,rules:ruleCounts}));
+          }
+          JS
+          if [ "$code" -ne 0 ]; then echo D05_T3_LINT_FAIL; exit "$code"; fi
           echo D05_T3_LINT_PASS
       - name: Verify exact portable common platform
         working-directory: site
@@ -100,7 +131,41 @@ jobs:
             exit 1
           fi
           echo D05_T3_PLATFORM_PASS
+      - name: Compile original T3 Host with current domain module and shared assistant
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-host.log"
+          if ! npm run prepare:t3-host -- "$GITHUB_WORKSPACE/one-core/packages/t3-core" "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/assistant" https://cehovod.ru >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T3_[A-Z0-9_]+|TS[0-9]{4}' "$log" | sort -u | head -30 || true
+            echo D05_T3_HOST_BUILD_FAIL
+            exit 1
+          fi
+          echo D05_T3_HOST_BUILD_PASS
+      - name: Build complete local T3 dist from retained inputs
+        working-directory: site
+        shell: bash
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-product.log"
+          if ! npm run build:product:t3 -- "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/platform-inputs.zip" >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T3_[A-Z0-9_]+|TS[0-9]{4}' "$log" | sort -u | head -30 || true
+            echo D05_T3_DIST_BUILD_FAIL
+            exit 1
+          fi
+          echo D05_T3_DIST_BUILD_PASS
+      - name: Require exact-source lint success
+        if: always()
+        shell: bash
+        env:
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+        run: test "$LINT_OUTCOME" = success
       - name: Clear private diagnostics
         if: always()
         shell: bash
-        run: rm -f "$RUNNER_TEMP"/d05-t3-*.log
+        run: |
+          rm -f "$RUNNER_TEMP"/d05-t3-*.log "$RUNNER_TEMP"/d05-t3-lint.json
+          rm -rf "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/t3-artifact.zip" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build"
