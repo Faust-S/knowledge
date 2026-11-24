@@ -186,6 +186,25 @@ export function createT4OriginalVaultSealedContentPort({
         originalCapturedBytesSealed:true,recipientKeyAgreementVerified:true,originalBusinessApplied:false});
     }finally{plaintext.fill(0);}
   }
+  // An original PREPARE event can outlive an agreement key. Revalidate
+  // the exact retained envelope before any new remote publication or index
+  // repair. This is public-key admission, not recipient AEAD verification.
+  async function authorizeOriginalSealedPublication(input={}){
+    current();
+    if(role!=='SOURCE'||input.originalPreparedCiphertextRequired!==true||
+      !(input.ciphertext instanceof Uint8Array)||input.ciphertext.length>MAX)
+      fail('SEALED_CONTENT_PUBLICATION_INPUT_REQUIRED');
+    const session=sessionFor(input.session),raw=new Uint8Array(input.ciphertext);
+    const contentDigest='sha256:'+hash(raw),encryptionContextRef=input.encryptionContextRef;
+    if(contentDigest!==input.contentDigest)fail('SEALED_CONTENT_CIPHERTEXT_DIGEST_MISMATCH');
+    const entry=await recipientKey(),parsed=parseEnvelope(raw,session,recipientKeyRef,entry.publicKey);
+    if(parsed.encryptionContextRef!==encryptionContextRef)fail('SEALED_CONTENT_ENCRYPTION_CONTEXT_MISMATCH');
+    const proof={contentDigest,encryptionContextRef,plaintextSha256:session.capturedSha256,
+      originalPreparedCiphertextRequired:true};
+    await permit(entry,session,proof);
+    sameKey(entry,await recipientKey());current();
+    return true;
+  }
   function openFromVault(encrypted,passphrase,entry,parsed){
     const vault=decryptVault(typeof encrypted==='string'?strictJson(encrypted):encrypted,passphrase);
     const item=Object.hasOwn(vault.keys,recipientKeyRef)?vault.keys[recipientKeyRef]:null;
@@ -230,7 +249,7 @@ export function createT4OriginalVaultSealedContentPort({
   const port=Object.freeze({schema:'IWXA_T4_ORIGINAL_VAULT_SEALED_CONTENT_V1',identity,
     originalAccessIdentity:signed.originalAccessIdentity,originalSignedSubject:signed.subject,
     originalRegistryAgreementKey:true,originalVault:true,createsStore:false,createsIAM:false,
-    ...(role==='SOURCE'?{readOriginalSealedContent}:{openOriginalSealedContent}),
+    ...(role==='SOURCE'?{readOriginalSealedContent,authorizeOriginalSealedPublication}:{openOriginalSealedContent}),
     forOriginalHostLifetime:isHostActive=>createT4OriginalVaultSealedContentPort({...identity,registry,access,originalEvaluator,
       expectedContext:signed.subject,readEncryptedVault,unlockPassphrase,getMode:originalHostLifetimeMode(getMode,isHostActive),clock})});
   assembled.add(port);return port;

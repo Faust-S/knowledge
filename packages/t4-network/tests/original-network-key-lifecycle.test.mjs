@@ -9,7 +9,8 @@ import {createSignedAccessHostPort} from '../../t3-core/src/t3/signed-access-hos
 import {ORIGINAL_NETWORK_KEY_TRANSITION,ORIGINAL_NETWORK_KEY_MANAGE,originalNetworkKeyPossessionBytes,
   originalNetworkKeyOperationDigest,originalNetworkKeyStatusId,createOriginalNetworkAgreementChallenge,answerOriginalNetworkAgreementChallenge} from '../../t3-core/src/t3/access/original-network-key-lifecycle.mjs';
 import {createT4OriginalVaultSealedContentPort} from '../src/network/original-vault-sealed-content.mjs';
-import {deriveT4OriginalNativeCaptureSession} from '../src/network/original-network-publication.mjs';
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort} from '../src/network/original-network-publication.mjs';
+import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {prepareT4CandidateOpaqueChunks,assembleT4CandidateOpaqueChunks} from '../src/network/standard-network-opaque-chunks.mjs';
 import {createT4OriginalVaultNodeSignaturePort} from '../src/network/original-vault-node-signature.mjs';
 import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-native-host-network-owner.mjs';
@@ -454,4 +455,123 @@ test('K38 combined original Registry, independent node Vaults and signed CHUNK f
   console.log('T4_K38_SIGNED_SEALED_CHUNKS_PASS',JSON.stringify({independentEncryptedVaults:2,independentOriginalAccessPorts:2,
     originalRegistry:true,signedChunks:plan.chunkCount,authenticatedCapture:true,exactReplayFixture:true,
     kernelFixture:true,originalBusinessWrite:false,installedProduct:false}));
+});
+
+test('K39 original retained ciphertext may resume with active agreement key, but revocation blocks the next immutable PUT after a cold Host restart', {timeout:60000},async()=>{
+  const q=await sealedFixture(),f=q.f,c=captured(Buffer.from('K39 original retained confidential bytes '.repeat(650)));
+  const sourceKey=f.generate(localBinding);
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',localBinding,sourceKey));
+  const encrypted=encryptVault(f.vault,PASS);
+  const signer=()=>createT4OriginalVaultNodeSignaturePort({...scope,localKeyRef:localBinding.keyId,
+    remoteKeyRef:remoteBinding.keyId,registry:f.registry,...f.accessFor,expectedContext:f.context,
+    getMode:()=> 'T4_NETWORK',clock:f.clock,requireDurableNetworkKeyBinding:true,
+    readEncryptedVault:async()=>encrypted,unlockPassphrase:async()=>PASS});
+  const technical='ws:k39:publication',remote=new Map(),indexes=new Map();
+  let host='host:k39:one',puts=0,signs=0,seals=0,indexWrites=0,denyAtWire=false;
+  // Adapt the existing Registry fixture's Event metadata to the native
+  // publication contract. The Registry and publication use one fixture.
+  const kernel={...f.kernel,async listEventsSince(ws){
+    const events=await f.kernel.listEventsSince(ws);
+    if(ws!==technical)return events;
+    const calls=f.storage.calls.filter(p=>p.workspace_id===ws);
+    return events.map((e,i)=>({...e,object_id:calls[i].object_id,revision:calls[i].base_revision+1}));
+  }};
+  const context=async()=>({workspaceId:technical,originalWriteOwnerRef:OWNER,originalOwnerRef:OWNER,
+    nodeRef:A,scopeRef:SCOPE,hostSessionRef:host});
+  const index=(key,frameSha256)=>({schema:'IWXA_T4_NATIVE_FRAME_INDEX_READ_V1',key,frameSha256,
+    addressMetadataIsNotSignatureOrAuthority:true,originalBusinessApplied:false});
+  const wire={wireKind:'T4_NETWORK_CANDIDATE',nativeFrameIndexVersion:1,forOriginalHostLifetime(){return this;},
+    async putSnapshot({key,bytes,expectedSha256}){puts++;remote.set(key,new Uint8Array(bytes));
+      return {key,sha256:expectedSha256,state:'PUBLISHED_AND_READ_BACK'};},
+    async getSnapshot({key}){if(!remote.has(key))throw Object.assign(Error('missing'),{code:'REMOTE_NOT_FOUND'});
+      return {bytes:new Uint8Array(remote.get(key))};},
+    async inspectOutcome({key,expectedSha256}){await this.getSnapshot({key});
+      return {key,sha256:expectedSha256,state:'EXPECTED_BYTES_PRESENT'};},
+    async getNativeFrameIndex({key}){return indexes.has(key)?index(key,indexes.get(key)):null;},
+    async putNativeFrameIndex({key,frameSha256}){indexWrites++;indexes.set(key,frameSha256);return index(key,frameSha256);}
+  };
+  const revoke=async()=>{
+    const active=(await f.registry.readNetworkKeyEvidence(query(q.binding))).binding;
+    await f.registry.applyNetworkKeyTransition(await f.prepare('REVOKE',{...q.binding,generation:2},null,active));
+  };
+  const port=()=>{
+    const s=signer();
+    const transport=createT4CandidateFrameTransport({wireTransport:wire,getMode:()=> 'T4_NETWORK',
+      readOriginalHostContext:context,originalHostNodeRef:A,originalHostScopeRef:SCOPE,
+      authorizeOriginalHostWire:async proof=>{
+        if(denyAtWire&&proof.operation==='t4.network.frame.publish'&&proof.messageType==='CHUNK'){
+          denyAtWire=false;await revoke();
+        }return true;
+      },verifyOriginalNodeSignature:s.verifyOriginalNodeSignature,authorizeOriginalNetwork:async()=>true,
+      persistOriginalReplayDecision:async()=> 'RECORDED'});
+    return createT4OriginalNetworkPublicationPort({session:c.session,localNodeRef:A,technicalWorkspaceId:technical,
+      originalKernel:kernel,getMode:()=> 'T4_NETWORK',readOriginalHostContext:context,
+      authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true,
+      authorizeOriginalFramePublish:async()=>true,verifyOriginalNodeSignature:s.verifyOriginalNodeSignature,
+      frameTransport:transport,authorizeOriginalSealedPublication:q.source.authorizeOriginalSealedPublication});
+  };
+  const signSpec=async(messageType,sequence,body)=>{
+    signs++;
+    return signT4CandidateFrame({unsignedFrame:createT4CandidateUnsignedFrame({messageType,sequence,
+      messageId:'message:k39:'+sequence,sourceNodeRef:A,recipientNodeRef:B,sessionRef:c.session.sessionRef,
+      scopeRef:SCOPE,ownerEpoch:2,cryptoSuite:SUITE,permissionRef:localBinding.permissionRef,
+      signerRef:localBinding.keyId,body}),signOriginalNodeBytes:signer().signOriginalNodeBytes});
+  };
+  let publication=port();
+  await publication.prepareSignedBatch({slots:[{sequence:1,messageType:'HEADS'}],createSignedFrames:async()=>[
+    await signSpec('HEADS',1,{familyRef:c.session.familyRef,ownerEpoch:2,heads:[c.session.sourcePrefixDigestAfter]})]});
+  await publication.publishPreparedFrame({sequence:1});
+  const plan=await prepareT4CandidateOpaqueChunks({changeId:c.session.changeId,ownerRef:OWNER,
+    sourceContentRef:c.input.sourceContentRef,getMode:()=> 'T4_NETWORK',authorizeOriginalSealedContent:async()=>true,
+    readOriginalSealedContent:async()=>{seals++;return q.source.readOriginalSealedContent(c.input);}});
+  const specs=[{sequence:2,messageType:'CHANGE_REF',body:{changeId:c.session.changeId,
+    changeKind:c.session.changeKind,eventRef:c.session.sourceEventId,ownerRef:OWNER,
+    sourceRevision:c.session.sourceRevision,contentDigest:plan.contentDigest,parents:[c.session.sourcePrefixDigestBefore]}},
+    ...plan.bodies.map((body,i)=>({sequence:i+3,messageType:'CHUNK',body}))];
+  const slots=specs.map(({sequence,messageType})=>({sequence,messageType}));
+  await publication.prepareSignedBatch({slots,createSignedFrames:async()=>Promise.all(specs.map(x=>signSpec(x.messageType,x.sequence,x.body)))});
+  const prepared=await publication.inspectOriginalPublication();
+  host='host:k39:two';publication=port();
+  const recovered=await publication.prepareSignedBatch({slots,createSignedFrames:async()=>{assert.fail('re-seal/re-sign');}});
+  assert.equal(recovered.state,'ORIGINAL_SIGNED_BATCH_ALREADY_PREPARED');
+  await publication.publishPreparedFrame({sequence:2});
+  await publication.publishPreparedFrame({sequence:3});
+  const before=await publication.inspectOriginalPublication(),count=puts,indexCount=indexWrites;
+  assert.ok(slots.length>3);denyAtWire=true;
+  await assert.rejects(publication.publishPreparedFrame({sequence:4}),error=>
+    error.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN'&&error.details.originalCode==='SEALED_CONTENT_RECIPIENT_KEY_NOT_ADMITTED');
+  assert.equal(puts,count);assert.equal(indexWrites,indexCount);
+  assert.equal(await f.registry.readNetworkKeyEvidence(query(q.binding)),null);
+  host='host:k39:three';publication=port();
+  await assert.rejects(publication.publishPreparedFrame({sequence:4,retryMissing:true}),{code:'SEALED_CONTENT_RECIPIENT_KEY_NOT_ADMITTED'});
+  assert.equal(puts,count);assert.equal(indexWrites,indexCount);
+  const after=await publication.inspectOriginalPublication();
+  assert.equal(after.frames[3].state,'ATTEMPTED');
+  assert.deepEqual(after.frames.map(x=>x.sha256),prepared.frames.map(x=>x.sha256));
+  assert.deepEqual(after.frames.map(x=>x.wireBytes),prepared.frames.map(x=>x.wireBytes));
+  assert.equal(after.revision,before.revision+1);
+  assert.equal(seals,1);assert.equal(signs,slots.length+1);
+  assert.equal((await f.registry.readState()).statuses[AUTH].payload.entries.find(x=>x.grantId==='grant:k37:member').state,'ACTIVE');
+  console.log('T4_K39_ORIGINAL_SEALED_PUBLICATION_REVOCATION_PASS',JSON.stringify({coldHostRestarts:2,
+    originalRegistry:true,originalPublicationEventChain:true,exactSignedBytesRetained:true,
+    reSeals:0,reSigns:0,blockedNewFramePut:true,blockedNewIndexPut:true,originalGrantUnchanged:true,kernelFixture:true}));
+});
+test('K39 original prepared ciphertext requires the same active X25519 key and exact session, also after rotation', {timeout:30000},async()=>{
+  const q=await sealedFixture(),c=captured(),sealed=await q.source.readOriginalSealedContent(c.input);
+  const input={session:c.session,ciphertext:sealed.ciphertext,contentDigest:'sha256:'+sha(sealed.ciphertext),
+    encryptionContextRef:sealed.encryptionContextRef,originalPreparedCiphertextRequired:true};
+  assert.equal(await q.source.authorizeOriginalSealedPublication(input),true);
+  await assert.rejects(q.source.authorizeOriginalSealedPublication({...input,contentDigest:'sha256:'+'0'.repeat(64)}),
+    {code:'SEALED_CONTENT_CIPHERTEXT_DIGEST_MISMATCH'});
+  const old=(await q.f.registry.readNetworkKeyEvidence(query(q.binding))).binding;
+  const next={...q.binding,keyId:'key:k39:replacement',generation:2};
+  const rotation=await q.f.prepare('ROTATE',next,q.f.generate(next),old);
+  await q.f.registry.applyNetworkKeyTransition(rotation.command,rotation.evidence);
+  await assert.rejects(q.source.authorizeOriginalSealedPublication(input),{code:'SEALED_CONTENT_RECIPIENT_KEY_NOT_ADMITTED'});
+  const replacement=createT4OriginalVaultSealedContentPort({...q.common,role:'SOURCE',recipientKeyRef:next.keyId});
+  await assert.rejects(replacement.authorizeOriginalSealedPublication(input),{code:'SEALED_CONTENT_ENVELOPE_BINDING_MISMATCH'});
+  const fresh=await replacement.readOriginalSealedContent(c.input);
+  assert.equal(await replacement.authorizeOriginalSealedPublication({...input,ciphertext:fresh.ciphertext,
+    contentDigest:'sha256:'+sha(fresh.ciphertext),encryptionContextRef:fresh.encryptionContextRef}),true);
+  await assert.rejects(q.recipient().openOriginalSealedContent(q.openInput(c.session,sealed)),{code:'SEALED_CONTENT_RECIPIENT_KEY_NOT_ADMITTED'});
 });

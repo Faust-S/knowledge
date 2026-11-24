@@ -209,7 +209,8 @@ export function createT4OriginalNativeHostNetworkOwner({
     const publication=async({session})=>createT4OriginalNetworkPublicationPort({...tech,session,
       localNodeRef:nodeRef,frameTransport:frameDiscoveryPort,
       authorizeOriginalFramePublish:callback('authorizeOriginalFramePublish'),
-      verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature')});
+      verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
+      ...(role==='SOURCE'&&scopedSealed?{authorizeOriginalSealedPublication:callback('authorizeOriginalSealedPublication')}:{})});
     const migrateNextPublication=enablePublicationIndexMigration?
       createT4OriginalPublicationIndexMigrationStepper({...tech,localNodeRef:nodeRef,
         createOriginalPublicationPort:publication}):async()=>null;

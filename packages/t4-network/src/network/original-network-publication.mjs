@@ -345,7 +345,7 @@ export function createT4OriginalNetworkPublicationPort({
   session,localNodeRef,technicalWorkspaceId,originalKernel,getMode,
   readOriginalHostContext,authorizeOriginalTechnicalRead,
   authorizeOriginalTechnicalWrite,authorizeOriginalFramePublish,
-  verifyOriginalNodeSignature,frameTransport,
+  verifyOriginalNodeSignature,frameTransport,authorizeOriginalSealedPublication=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   const identity=canonicalSession(session);
@@ -363,6 +363,8 @@ export function createT4OriginalNetworkPublicationPort({
       op=>typeof originalKernel[op]==='function'))
     fail('PUBLICATION_ORIGINAL_HOST_PORTS_REQUIRED');
   const source=localNodeRef===identity.sourceNodeRef;
+  if(authorizeOriginalSealedPublication!==null&&(!source||typeof authorizeOriginalSealedPublication!=='function'))
+    fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_INVALID');
   const remoteNodeRef=source?identity.recipientNodeRef:identity.sourceNodeRef;
   const types=source?SOURCE_TYPES:RECIPIENT_TYPES;
   const recordIdentity={session:identity,localNodeRef,technicalWorkspaceId};
@@ -456,12 +458,30 @@ export function createT4OriginalNetworkPublicationPort({
         chunks.length!==frames.length-1||!chunks.length||
         chunks.some((f,i)=>f.body.chunkIndex!==i))
         fail('PUBLICATION_COMPLETE_CHANGE_CHUNK_BATCH_REQUIRED');
-      assembleT4CandidateOpaqueChunks({
+      return assembleT4CandidateOpaqueChunks({
         bodies:chunks.map(f=>f.body),expectedChangeId:identity.changeId,
         expectedContentDigest:changes[0].body.contentDigest,
         expectedEncryptionContextRef:chunks[0].body.encryptionContextRef,
       });
     }
+  }
+  function contentWriteGuard(ctx,entries,entry){
+    if(authorizeOriginalSealedPublication===null||
+      !['CHANGE_REF','CHUNK'].includes(entry.messageType))return null;
+    // Only the exact original signed batch is eligible. Snapshot before
+    // awaiting Access. Never regenerate an envelope for a reserved slot.
+    const assembled=verifyBatch(entries.filter(e=>['CHANGE_REF','CHUNK'].includes(e.messageType)));
+    if(!assembled)fail('PUBLICATION_COMPLETE_CHANGE_CHUNK_BATCH_REQUIRED');
+    return async()=>{
+      if(!same(await context(),ctx))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED');
+      if(await authorizeOriginalSealedPublication(Object.freeze({
+        session:identity,contentDigest:assembled.contentDigest,
+        encryptionContextRef:assembled.encryptionContextRef,
+        ciphertext:new Uint8Array(assembled.ciphertext),originalPreparedCiphertextRequired:true,
+      }))!==true)fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_DENIED');
+      if(!same(await context(),ctx))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED');
+      return true;
+    };
   }
   function verifySessionEntries(entries){
     const once=new Set(['HELLO','CAPABILITIES','HEADS','DIFF_REQUEST',
@@ -671,6 +691,7 @@ export function createT4OriginalNetworkPublicationPort({
     for(const entry of entries){
       frames.push(await verifyFrame(ctx,entry,'index-migration-preflight'));
       await guard(ctx,'t4.network.publish.index.migrate','index-migration-preflight',entry);
+      const check=contentWriteGuard(ctx,current.entries,entry);if(check)await check();
     }
     const confirm=async()=>{
       const after=await read(ctx);
@@ -685,8 +706,10 @@ export function createT4OriginalNetworkPublicationPort({
       await guard(ctx,'t4.network.publish.index.migrate','index-migration',entry);
       let observed;
       try{
+        const check=contentWriteGuard(ctx,current.entries,entry);
         observed=await frameTransport.inspectUnknownPublication({
-          key,expectedSha256:entry.sha256,repairMissingFrameIndex:true});
+          key,expectedSha256:entry.sha256,repairMissingFrameIndex:true,
+          ...(check?{beforeNetworkWrite:check}:{})});
       }catch(error){
         fail('PUBLICATION_INDEX_MIGRATION_OUTCOME_UNKNOWN',{
           sequence:entry.sequence,originalCode:error?.code??null,
@@ -761,6 +784,7 @@ export function createT4OriginalNetworkPublicationPort({
     verifySessionEntries(entries);
     if(entries.reduce((s,e)=>s+Buffer.byteLength(e.wireText,'utf8'),0)>MAX_WIRE_BYTES)
       fail('PUBLICATION_SIGNED_BYTES_LIMIT');
+    const check=contentWriteGuard(ctx,entries,appended[0]);if(check)await check();
     await commit(ctx,current,'PREPARE',entries,appended.map(descriptor));
     return Object.freeze({state:'ORIGINAL_SIGNED_BATCH_PREPARED',
       sessionRef:identity.sessionRef,checkpointRef,
@@ -776,13 +800,15 @@ export function createT4OriginalNetworkPublicationPort({
       fail('PUBLICATION_PREDECESSOR_NOT_PRESENT');
     await verifyFrame(ctx,entry,'publish-prepared');
     const address={key:entry.sha256+'.t4n',expectedSha256:entry.sha256};
+    const checkContent=contentWriteGuard(ctx,current.entries,entry);
     let newAttempt=entry.state==='PREPARED',recovered=false;
     if(!newAttempt){
       try{
         if(entry.state==='ATTEMPTED'&&frameTransport.nativeFrameIndexVersion===1)
           await guard(ctx,'t4.network.publish.index.repair','repair-original-index',entry);
         const seen=await frameTransport.inspectUnknownPublication({...address,
-          ...(entry.state==='ATTEMPTED'&&frameTransport.nativeFrameIndexVersion===1?{repairMissingFrameIndex:true}:{})});
+          ...(entry.state==='ATTEMPTED'&&frameTransport.nativeFrameIndexVersion===1?{repairMissingFrameIndex:true,
+            ...(checkContent?{beforeNetworkWrite:checkContent}:{})}:{})});
         if(seen?.schema!=='IWXA_T4_CANDIDATE_FRAME_PRESENT_V1'||
           seen.key!==address.key||seen.sha256!==entry.sha256||
           seen.exactBytesPresent!==true||seen.originalBusinessApplied!==false)
@@ -807,6 +833,7 @@ export function createT4OriginalNetworkPublicationPort({
       return result(entry,'ALREADY_PRESENT_VERIFIED',current.revision);
     }
     if(newAttempt){
+      if(checkContent)await checkContent();
       const entries=clone(current.entries),at=entries[sequence-1];
       const action=entry.state==='PREPARED'?'ATTEMPT':'RETRY';
       at.state='ATTEMPTED';at.attempts++;
@@ -816,6 +843,7 @@ export function createT4OriginalNetworkPublicationPort({
         await verifyFrame(ctx,entry,'before-network');
         const receipt=await frameTransport.publishSignedFrame({
           wireBytes:new Uint8Array(Buffer.from(entry.wireText,'utf8')),
+          ...(checkContent?{beforeNetworkWrite:checkContent}:{})
         });
         if(receipt?.schema!=='IWXA_T4_CANDIDATE_FRAME_PUBLISHED_V1'||
           receipt.key!==address.key||receipt.sha256!==entry.sha256||
@@ -845,7 +873,7 @@ export function createT4OriginalNetworkPublicationPort({
       session:identity,localNodeRef,technicalWorkspaceId,originalKernel,
       getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-      authorizeOriginalFramePublish,verifyOriginalNodeSignature,
+      authorizeOriginalFramePublish,verifyOriginalNodeSignature,authorizeOriginalSealedPublication,
       frameTransport:scopeOriginalHostPort(frameTransport,isHostActive,
         ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
         'PUBLICATION_ORIGINAL_WIRE_LIFETIME_REQUIRED'),

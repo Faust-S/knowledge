@@ -109,7 +109,14 @@ export function createT4CandidateFrameTransport({
       fail('WIRE_NATIVE_INDEX_READ_INVALID');
     return value.frameSha256;
   }
-  async function ensureIndexes(ctx,frame,sha256,repair){
+  function requireWriteGuard(check){
+    if(check!==null&&typeof check!=='function')fail('WIRE_ORIGINAL_CONTENT_WRITE_GUARD_INVALID');
+  }
+  async function beforeWrite(check){
+    if(check!==null&&await check()!==true)fail('WIRE_ORIGINAL_CONTENT_WRITE_DENIED');
+    mode();
+  }
+  async function ensureIndexes(ctx,frame,sha256,repair,check=null){
     if(!indexed)return;
     const missing=[];
     // Inspect every deterministic slot before changing any address. A
@@ -125,12 +132,14 @@ export function createT4CandidateFrameTransport({
     if(missing.length&&!repair)fail('WIRE_NATIVE_INDEX_MISSING');
     for(const key of missing){
       await hostGuard('index-publish',ctx,frame,sha256);
+      if(check!==null)await beforeWrite(check);
       const written=await wireTransport.putNativeFrameIndex({key,frameSha256:sha256});
       if(checkIndexRead(written,key)!==sha256)fail('WIRE_NATIVE_INDEX_SLOT_CONFLICT');
       await hostGuard('index-readback',ctx,frame,sha256);
     }
   }
-  async function publishSignedFrame({wireBytes}={}){
+  async function publishSignedFrame({wireBytes,beforeNetworkWrite=null}={}){
+    requireWriteGuard(beforeNetworkWrite);
     if(!(wireBytes instanceof Uint8Array))
       fail('WIRE_SIGNED_BYTES_REQUIRED');
     // Decode before network access; freeze before any Host/network await.
@@ -143,6 +152,7 @@ export function createT4CandidateFrameTransport({
     const key=sha256+'.t4n';
     const ctx=await hostSnapshot();
     await hostGuard('publish',ctx,frame,sha256);
+    if(beforeNetworkWrite!==null)await beforeWrite(beforeNetworkWrite);
     mode();
     let receipt;
     try{
@@ -163,7 +173,7 @@ export function createT4CandidateFrameTransport({
       fail('WIRE_NETWORK_READBACK_NOT_PROVEN',{
         automaticRetryAllowed:false,
       });
-    try{await ensureIndexes(ctx,frame,sha256,true);}
+    try{await ensureIndexes(ctx,frame,sha256,true,beforeNetworkWrite);}
     catch(error){fail('WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN',{
       originalCode:error?.code??null,originalWriteMayHaveCommitted:true,
       exactFrameReadbackVerified:true,automaticRetryAllowed:false},error);}
@@ -179,7 +189,8 @@ export function createT4CandidateFrameTransport({
       originalBusinessApplied:false,
     });
   }
-  async function inspectUnknownPublication({key,expectedSha256,repairMissingFrameIndex=false}={}){
+  async function inspectUnknownPublication({key,expectedSha256,repairMissingFrameIndex=false,beforeNetworkWrite=null}={}){
+    requireWriteGuard(beforeNetworkWrite);
     if(typeof repairMissingFrameIndex!=='boolean'||!SHA(expectedSha256)||key!==expectedSha256+'.t4n')
       fail('WIRE_NETWORK_DIGEST_KEY_REQUIRED');
     const ctx=await hostSnapshot();
@@ -197,7 +208,7 @@ export function createT4CandidateFrameTransport({
     if(inspection?.state!=='EXPECTED_BYTES_PRESENT'||
       inspection.sha256!==expectedSha256)
       fail('WIRE_NETWORK_READBACK_NOT_PROVEN');
-    await ensureIndexes(ctx,frame,expectedSha256,repairMissingFrameIndex);
+    await ensureIndexes(ctx,frame,expectedSha256,repairMissingFrameIndex,beforeNetworkWrite);
     return frozen({
       schema:'IWXA_T4_CANDIDATE_FRAME_PRESENT_V1',
       key,sha256:expectedSha256,exactBytesPresent:true,
