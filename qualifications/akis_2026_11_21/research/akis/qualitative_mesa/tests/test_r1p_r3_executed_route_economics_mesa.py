@@ -815,3 +815,113 @@ def test_unqualified_third_period_cost_anchor_keeps_owner_review_unknown():
     assert all(row["evaluation_economic_basis_status"] == "UNKNOWN" for row in reviews)
     assert "w4" not in out["works"]
     assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1", "w2", "w3"))
+
+
+def outside_then_reenter_case(*, stay_paused=False, wrong_basis=None):
+    """External execution informs a member, not the incumbent buyer's rights."""
+    d = cumulative_routes()["outside"]
+    continuation = fourth_period_case()
+    # Same original formations and rights, but the selected third Work is
+    # the independently executed outside Work, not the uncommitted w3.
+    d["general_akis"] = deepcopy(continuation["general_akis"])
+    d["model_horizon"] = continuation["model_horizon"]
+    d["economic_claims"]["cash_timing"]["horizon_end"] = d["model_horizon"]
+    context = d["context_evidence"]
+    # Extend model observation horizon, keeping every original source owner.
+    for row in context["sources"]:
+        if row.get("valid_until", 0) >= 160:
+            row["valid_until"] = 200
+    other = continuation["context_evidence"]
+    ids = {row["id"] for row in context["sources"]}
+    context["sources"].extend(deepcopy(row) for row in other["sources"]
+                              if row["id"] not in ids)
+    for field in ("requirements", "decision_requirements"):
+        context[field].extend(deepcopy(row) for row in other[field]
+                              if row not in context[field])
+    def original_result(doc, work):
+        ref = next(row["result_ref"] for row in doc["events"]
+                   if row["action"] == "complete" and row.get("work") == work)
+        at = next(row["at"] for row in doc["events"]
+                  if row["action"] == "accept" and row.get("work") == work)
+        return ref, at
+    old_ref, old_at = original_result(d, "w2")
+    ext_ref, ext_at = original_result(d, OUTSIDE)
+    _, coop_at = original_result(continuation, "w3")
+    assert ext_at == coop_at
+    tail = [deepcopy(row) for row in continuation["events"] if row["at"] > coop_at]
+    # The original relation's latest ACCEPTED pilot remains w2. The
+    # incumbent buyer must assess its OWN w2, not the external buyer's result.
+    for row in tail:
+        if row.get("evaluated_work") == "w3":
+            row.update(evaluated_work="w2", evaluated_work_revision="d-2",
+                       evaluated_result_ref=old_ref, evaluated_decision_at=old_at)
+            if row["actor"] == "a":
+                row["evaluation_economic_outside_basis"] = {
+                    "work": OUTSIDE, "source_revision": "outside-d1",
+                    "result_ref": ext_ref, "accepted_at": ext_at,
+                }
+                if wrong_basis is not None:
+                    row["evaluation_economic_outside_basis"].update(wrong_basis)
+                if stay_paused:
+                    row["new_participation"] = "PAUSED_NEW_WORK"
+                    row["evaluation_verdict"] = "ADVERSE_DECLARED"
+        if row.get("pilot_work") == "w3":
+            row.update(pilot_work="w2", pilot_result_ref=old_ref,
+                       pilot_decision_at=old_at)
+        if row["action"] == "request":
+            row["work_spec"]["requires_accepted"] = ["w2"]
+    # Independent pause of relation l1 before outside commitment. This
+    # must not cancel any of w1/w2 or the outside buyer's own commitment.
+    prior = next(row for row in d["events"]
+                 if row["action"] == "participation_status"
+                 and row["actor"] == "a" and row.get("evaluated_work") == "w2")
+    pause_at = 85
+    assert pause_at not in {row["at"] for row in d["events"]}
+    pause = dict(deepcopy(prior), at=pause_at,
+                 new_participation="PAUSED_NEW_WORK",
+                 evaluation_verdict="ADVERSE_DECLARED")
+    # Reuse the already-qualified original owner source rights; they
+    # authorize the event kind and work scope, not the owner's actual choice.
+    d["events"].extend([pause, *tail])
+    d["events"].sort(key=lambda row: row["at"])
+    assert len({row["at"] for row in d["events"]}) == len(d["events"])
+    return d
+
+
+def test_original_external_result_informs_independent_reentry_and_fourth_work():
+    d = outside_then_reenter_case()
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, [
+        (row["at"], row["action"], row["reason"]) for row in out["trace"]
+        if row["outcome"] == "BLOCKED"]
+    assert all(out["works"][key]["result"] == ACCEPTED
+               for key in ("w1", "w2", OUTSIDE, "w4"))
+    assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+    review = next(row for row in out["trace"]
+                  if row.get("evaluation_economic_basis_kind") == "OWN_EXECUTED_OUTSIDE_ALTERNATIVE")
+    assert review["evaluation_economic_basis_status"] == "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"
+    assert review["evaluation_economic_basis_work"] == OUTSIDE
+    assert review["evaluated_work"] == "w2"
+    assert review["participation_value"] == "OPEN_TO_NEW_WORK"
+    assert review["evaluation_financial_basis_not_automatic_owner_decision"]
+    assert out["works"]["w4"]["customer"] == "b"
+
+
+@pytest.mark.parametrize("wrong_basis", [
+    None, {"source_revision": "stale"}, {"accepted_at": 999},
+    {"work": "w3"}, {"result_ref": "model://a/wrong-result"},
+])
+def test_own_outside_result_does_not_override_independent_pause_or_fake_basis(wrong_basis):
+    d = outside_then_reenter_case(stay_paused=True, wrong_basis=wrong_basis)
+    out = simulate(d)
+    assert all(out["works"][key]["result"] == ACCEPTED
+               for key in ("w1", "w2", OUTSIDE))
+    assert "w4" not in out["works"]
+    review = next(row for row in out["trace"]
+                  if row.get("evaluation_economic_basis_kind") == "OWN_EXECUTED_OUTSIDE_ALTERNATIVE")
+    assert review["evaluation_economic_basis_status"] == (
+        "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"
+        if wrong_basis is None else "UNKNOWN")
+    assert review["participation_value"] == "PAUSED_NEW_WORK"
+    if wrong_basis is not None:
+        assert "evaluation_economic_basis_work" not in review

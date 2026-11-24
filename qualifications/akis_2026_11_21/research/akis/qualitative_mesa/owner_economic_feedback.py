@@ -179,6 +179,82 @@ def private_owner_financial_review(
     return False
 
 
+def original_executed_outside_economic_basis(
+    *, state: Any, event: Mapping[str, Any], at: int,
+) -> str | None:
+    """Resolve an own accepted external Result as extra evidence, not a pilot.
+
+    The member's participation_status still evaluates the real relation's
+    historical pilot and must pass all existing formation gates. A prior
+    outside request and commitment have already qualified the independent
+    demand, offer and response at their original ticks. Do not require those
+    historical commercial intents to remain open forever, or confer the
+    outside customer's rights on a member. Current financial read rights
+    are independently required by review_completed_original_owner_finance.
+    """
+    basis = event.get("evaluation_economic_outside_basis")
+    if (not isinstance(basis, Mapping)
+            or set(basis) != {"work", "source_revision", "result_ref", "accepted_at"}
+            or not all(isinstance(basis[key], str) and basis[key]
+                       for key in ("work", "source_revision", "result_ref"))
+            or type(basis["accepted_at"]) is not int
+            or not 0 <= basis["accepted_at"] < at):
+        return None
+    owner = event.get("actor")
+    work = state.works.get(basis["work"])
+    link = next((item for item in state.cooperation_links
+                 if item.key == event.get("cooperation_link")
+                 and item.source_revision == event.get("cooperation_source_revision")), None)
+    if (work is None or link is None or owner not in link.participants
+            or work.key in link.works or work.customer in link.participants
+            or work.customer == owner
+            or state.resources.get(work.resource) != owner
+            or work.source_revision != basis["source_revision"]
+            or work.result_ref != basis["result_ref"]
+            or work.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"):
+        return None
+    requests = [
+        row for row in state.trace
+        if row.get("action") == "request" and row.get("outcome") == "APPLIED"
+        and row.get("work") == work.key and row.get("actor") == work.customer
+        and isinstance(row.get("outside_work_origin"), Mapping)
+        and type(row.get("at")) is int and row["at"] < basis["accepted_at"]
+    ]
+    commits = [
+        row for row in state.trace
+        if row.get("action") == "commit" and row.get("outcome") == "APPLIED"
+        and row.get("work") == work.key and type(row.get("at")) is int
+    ]
+    accepts = [
+        row for row in state.trace
+        if row.get("action") == "accept" and row.get("outcome") == "APPLIED"
+        and row.get("work") == work.key and row.get("actor") == work.customer
+        and row.get("at") == basis["accepted_at"]
+    ]
+    if (len(requests) != 1 or len(commits) != 1 or len(accepts) != 1
+            or not requests[0]["at"] < commits[0]["at"] < basis["accepted_at"]):
+        return None
+    origin = requests[0]["outside_work_origin"]
+    demands = [
+        row for row in state.trace
+        if row.get("action") == "outside_demand_signal"
+        and row.get("outcome") == "APPLIED"
+        and row.get("outside_demand_id") == origin.get("outside_demand_id")
+        and row.get("actor") == work.customer
+        and row.get("outside_supplier") == owner
+        and row.get("outside_relation") == link.key
+        and row.get("outside_relation_revision") == link.source_revision
+        and type(row.get("at")) is int and row["at"] < requests[0]["at"]
+    ]
+    if len(demands) != 1:
+        return None
+    candidate = state.works.get(demands[0].get("outside_candidate_work"))
+    if (candidate is None or candidate.key not in link.works
+            or candidate.source_revision != demands[0].get("outside_work_revision")):
+        return None
+    return work.key
+
+
 def review_completed_original_owner_finance(
     *, state: Any, original_money: Mapping[str, Any] | None,
     work_id: str, owner: str, review_source: str,

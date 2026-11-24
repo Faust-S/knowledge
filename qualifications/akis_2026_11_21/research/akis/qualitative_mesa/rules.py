@@ -386,7 +386,7 @@ class QualitativeAKIS:
         last = -1
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
-             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "evaluation_economic_source_revision", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
+             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "evaluation_economic_source_revision", "evaluation_economic_outside_basis", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
              "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until", "entry_change_id", "entry_assessment_source_ref",
              "model_code_change_id", "model_code_source_ref", "model_code_decision",
              "model_code_decision_source_ref", "new_model_edition",
@@ -1317,9 +1317,15 @@ class QualitativeAKIS:
                 report["evaluation_verdict"] = ev.get("evaluation_verdict")
                 report["formation_phase_source_ref"] = ev.get("formation_phase_source_ref")
                 report["evaluation_is_owner_judgment_not_measured_impact"] = True
-            if "evaluation_economic_source_revision" in ev:
+            if ("evaluation_economic_source_revision" in ev
+                    or "evaluation_economic_outside_basis" in ev):
                 report["evaluation_economic_basis_status"] = "UNKNOWN"
-                revision = ev["evaluation_economic_source_revision"]
+                report["evaluation_economic_basis_kind"] = (
+                    "OWN_EXECUTED_OUTSIDE_ALTERNATIVE"
+                    if "evaluation_economic_outside_basis" in ev
+                    else "OWN_RELATION_PILOT"
+                )
+                revision = ev.get("evaluation_economic_source_revision")
                 if isinstance(revision, str) and 0 < len(revision) <= 128:
                     report["evaluation_economic_source_revision"] = revision
                 report["evaluation_financial_basis_not_automatic_owner_decision"] = True

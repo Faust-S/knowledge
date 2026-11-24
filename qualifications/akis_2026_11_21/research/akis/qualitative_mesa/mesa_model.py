@@ -26,7 +26,7 @@ from .future_needs import FutureNeedInputError, parse_future_needs, future_need_
 from .modern_economic_evidence import modern_economic_review
 from .owner_economic_feedback import (
     OwnerFinanceInputError, parse_owner_finance, private_owner_financial_review,
-    review_completed_original_owner_finance,
+    review_completed_original_owner_finance, original_executed_outside_economic_basis,
 )
 from .owner_forecast_revisions import (
     ForecastRevisionInputError, parse_forecast_revisions, private_forecast_override,
@@ -872,16 +872,26 @@ class OperatorAKISModel(mesa.Model):
             # runs at this exact Mesa tick, before future responses/Work.
             scope = self.strict_economic_source_work
             scope = (scope,) if isinstance(scope, str) else scope or ()
-            if outcome.get("evaluated_work") in scope:
-                outcome["evaluation_economic_basis_status"] = (
-                    review_completed_original_owner_finance(
-                        state=self.qualitative, original_money=self.economic_claims,
-                        work_id=outcome["evaluated_work"], owner=event["actor"],
-                        review_source=event.get("participation_evidence_ref"),
-                        review_revision=event["evaluation_economic_source_revision"],
-                        at=int(self.time),
-                    )
+            work_id = outcome.get("evaluated_work")
+            if "evaluation_economic_outside_basis" in event:
+                work_id = original_executed_outside_economic_basis(
+                    state=self.qualitative, event=event, at=int(self.time))
+            if work_id in scope:
+                status = review_completed_original_owner_finance(
+                    state=self.qualitative, original_money=self.economic_claims,
+                    work_id=work_id, owner=event["actor"],
+                    review_source=event.get("participation_evidence_ref"),
+                    review_revision=event["evaluation_economic_source_revision"],
+                    at=int(self.time),
                 )
+                outcome["evaluation_economic_basis_status"] = status
+                if ("evaluation_economic_outside_basis" in event
+                        and status == "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"):
+                    outcome["evaluation_economic_basis_work"] = work_id
+                    outcome["evaluation_economic_basis_work_revision"] = (
+                        self.qualitative.works[work_id].source_revision)
+                    outcome["evaluation_economic_basis_accepted_at"] = (
+                        event["evaluation_economic_outside_basis"]["accepted_at"])
             # The returned status and the owner's own verdict are different:
             # neither a missing source nor a favourable sum creates consent.
         if (event["action"] == "subject_registration_apply"
