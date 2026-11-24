@@ -58,7 +58,7 @@ jobs:
             fi
             echo "D05_REVISION_${destination}=PASS"
           }
-          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "6cec37b103f28265c7267e7264c288761eeb529b" "site"
+          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "6be5fbdeed9f86960b26fd87c66891672c7c4ab4" "site"
           fetch_private "cehovod" "work/2026-11-23-d05-capacity-scenarios" "6cc0252323a4d16ddf43001c8915ea7a857d4dc9" "domain"
           unset header DOMEN
           # Use committed Git blobs, not CRLF-converted Windows checkout bytes.
