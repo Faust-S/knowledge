@@ -267,14 +267,12 @@ def test_rejected_blocked_customer_decision_is_not_applied_cost_evidence():
 
 def test_quality_success_cannot_be_claimed_as_original_failed_result_rework():
     d=quality_rework_case()
-    d["economic_claims"]["lifecycle_costs"]["event_bindings"]=[
-        correction_cost_binding(d, "assess_result_quality")
-    ]
-    row=d["economic_claims"]["lifecycle_costs"]["event_bindings"][0]
     idx,ev=choose_event(d,"assess_result_quality",work="w1",ordinal=0)
     assert ev["quality_verdict"]=="MEETS_DECLARED_REQUIREMENT"
+    row=correction_cost_binding(d, "assess_result_quality")
     row.update({"trace_position":idx,"at":ev["at"],
                 "org_revision":ev["org_revision"]})
+    d["economic_claims"]["lifecycle_costs"]["event_bindings"]=[row]
     with pytest.raises(InputError,match="LIFECYCLE_REWORK_REQUIRES_ORIGINAL_FAILURE_OR_CORRECTION"):
         simulate(d)
 
