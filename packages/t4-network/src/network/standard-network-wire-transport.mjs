@@ -196,6 +196,7 @@ export function createT4CandidateFrameTransport({
       verifiedSequence:frame.sequence,verifiedOwnerEpoch:frame.ownerEpoch,
       verifiedCryptoSuite:frame.cryptoSuite,
       verifiedSignerRef:frame.signerRef,
+      verifiedCriticalExtensions:Object.freeze([...frame.criticalExtensions]),
       verifiedBody:deepFreeze(structuredClone(frame.body)),
       originalSignatureVerified:verdict.originalSignatureVerified,
       originalAccessVerified:verdict.originalAccessVerified,

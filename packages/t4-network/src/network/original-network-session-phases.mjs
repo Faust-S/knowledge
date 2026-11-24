@@ -31,7 +31,7 @@ const clone=x=>structuredClone(x);
 const appliedPhase=phase=>phase==='APPLIED'||phase==='APPLIED_CONFIRMED';
 const eq=(a,b)=>canonical(a)===canonical(b);
 const frozen=x=>Object.freeze(x);
-function proofEvidence(phase,e){
+function proofEvidence(phase,e,changeKind){
   if(!e||typeof e!=='object'||Array.isArray(e)||
     Object.keys(e).sort().join(',')!==
       (appliedPhase(phase)?
@@ -40,8 +40,8 @@ function proofEvidence(phase,e){
     !ID(e.evidenceRef)||!HASH(e.evidenceDigest))
     fail('PHASE_EVIDENCE_INVALID');
   if(appliedPhase(phase)&&(!ID(e.originalRecipientEventId)||
-    !Number.isSafeInteger(e.originalRecipientRevision)||
-    e.originalRecipientRevision<1||
+    (changeKind==='RELATION_PUT'?e.originalRecipientRevision!==null:
+      (!Number.isSafeInteger(e.originalRecipientRevision)||e.originalRecipientRevision<1))||
     !HASH(e.originalRecipientStateDigest)))
     fail('PHASE_ORIGINAL_RECIPIENT_EVENT_REQUIRED');
   return clone(e);
@@ -49,13 +49,14 @@ function proofEvidence(phase,e){
 export function createT4OriginalNetworkSessionPhasePort({
   originalKernel,technicalWorkspaceId,originalWriteOwnerRef,
   sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef,sessionRef,
-  changeId,ownerEpoch,getMode,readOriginalHostContext,
+  changeId,ownerEpoch,changeKind='OBJECT_PUT',getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,
 }={}){
   if(![technicalWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
     recipientNodeRef,localNodeRef,scopeRef,sessionRef,changeId]
-    .every(ID)||sourceNodeRef===recipientNodeRef||
+    .every(ID)||!['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(changeKind)||
+    sourceNodeRef===recipientNodeRef||
     ![sourceNodeRef,recipientNodeRef].includes(localNodeRef)||
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
     ![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,
@@ -72,6 +73,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     technicalWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef,sessionRef,
     changeId,ownerEpoch,role,
+    ...(changeKind==='OBJECT_PUT'?{}:{changeKind}),
   });
   const checkpointRef='t4:net:session:'+digest(identity).slice(7);
   const genesis=digest({identity,checkpointRef,stage:'GENESIS'});
@@ -141,7 +143,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       if(item?.phase!==phase||item.index!==index+1||
         item.previousHash!==previous)
         fail('PHASE_ORIGINAL_CHAIN_INVALID');
-      const evidence=proofEvidence(phase,item.evidence);
+      const evidence=proofEvidence(phase,item.evidence,changeKind);
       const expected=entry(phase,evidence,previous,index+1);
       if(!eq(item,expected))
         fail('PHASE_ORIGINAL_CHAIN_INVALID');
@@ -190,7 +192,7 @@ export function createT4OriginalNetworkSessionPhasePort({
   async function appliedGate(evidence,step){
     const p=frozen({
       operation:'t4.original.network.session.applied.verify',
-      checkpointRef,changeId,sourceNodeRef,recipientNodeRef,
+      checkpointRef,changeId,changeKind,sourceNodeRef,recipientNodeRef,
       localNodeRef,scopeRef,ownerEpoch,
       originalRecipientEventId:evidence.originalRecipientEventId,
       originalRecipientRevision:evidence.originalRecipientRevision,
@@ -219,6 +221,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       sourcePublishedEvidence:role==='SOURCE'?
         clone(current.stages[1]?.evidence??null):null,
       sourceNodeRef,recipientNodeRef,scopeRef,sessionRef,changeId,ownerEpoch,
+      ...(changeKind==='OBJECT_PUT'?{}:{changeKind}),
       chainHash:current.chainHash,
       originalT3EventChainVerified:current.revision>0,
       originalT3OnlyStore:true,
@@ -232,7 +235,7 @@ export function createT4OriginalNetworkSessionPhasePort({
   async function advanceOriginalSessionPhase({phase,evidence}={}){
     if(!phases.includes(phase))
       fail('PHASE_ROLE_OR_STAGE_UNSUPPORTED');
-    const expectedEvidence=proofEvidence(phase,evidence);
+    const expectedEvidence=proofEvidence(phase,evidence,changeKind);
     const initial=await context();
     const current=await verifiedRead(initial);
     const pos=phases.indexOf(phase);
@@ -254,7 +257,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       fail('PHASE_PREDECESSOR_NOT_PROVEN');
     const proof=frozen({
       operation:'t4.original.network.session.phase.evidence',
-      phase,checkpointRef,role,changeId,
+      phase,checkpointRef,role,changeId,changeKind,
       sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef,
       ownerEpoch,evidence:clone(expectedEvidence),
       originalVerifiedWitnessRequired:true,

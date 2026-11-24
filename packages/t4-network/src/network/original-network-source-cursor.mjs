@@ -1,3 +1,4 @@
+import {T4_RELATION_EVENT_EXTENSION} from './standard-network-wire-candidate.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest}
   from './original-event-window.mjs';
 
@@ -20,6 +21,12 @@ const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x)
 const DIG=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
 const SHA=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const stable=x=>JSON.stringify(x);
+const kindOf=p=>p.changeKind??'OBJECT_PUT';
+const subjectRevision=p=>Object.hasOwn(p,'originalSourceRevision')?
+  p.originalSourceRevision:p.originalEventRevision;
+const validRevision=(r,kind)=>kind==='RELATION_PUT'?r===null:
+  Number.isSafeInteger(r)&&r>=1;
+const relationExtension=r=>r?.verifiedCriticalExtensions?.includes(T4_RELATION_EVENT_EXTENSION)===true;
 function checkPhase(status,proof){
   if(status?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||
     status.role!=='SOURCE'||status.currentPhase!=='APPLIED_CONFIRMED'||
@@ -35,7 +42,7 @@ function checkPhase(status,proof){
     status.sourceNodeRef!==proof.sourceNodeRef||
     status.recipientNodeRef!==proof.recipientNodeRef||
     status.scopeRef!==proof.scopeRef||
-    status.sessionRef!==proof.sessionRef)
+    status.sessionRef!==proof.sessionRef||kindOf(status)!==kindOf(proof))
     fail('CURSOR_ORIGINAL_SOURCE_APPLIED_NOT_CONFIRMED');
   const intent=status.sourceIntentEvidence;
   const publication=status.sourcePublishedEvidence;
@@ -47,8 +54,8 @@ function checkPhase(status,proof){
   const evidence=status.currentEvidence;
   if(!evidence||!ID(evidence.evidenceRef)||!DIG(evidence.evidenceDigest)||
     !ID(evidence.originalRecipientEventId)||
-    !Number.isSafeInteger(evidence.originalRecipientRevision)||
-    evidence.originalRecipientRevision<1||
+    !validRevision(evidence.originalRecipientRevision,kindOf(proof))||
+    evidence.originalRecipientRevision!==subjectRevision(proof)||
     !DIG(evidence.originalRecipientStateDigest))
     fail('CURSOR_ORIGINAL_PHASE_EVIDENCE_INVALID');
   return evidence;
@@ -75,6 +82,7 @@ function checkAck(ack,status,evidence){
     !DIG(body?.contentDigest)||!ID(body?.ackRef)||
     body.recipientEventRef!==evidence.originalRecipientEventId||
     body.recipientRevision!==evidence.originalRecipientRevision||
+    relationExtension(ack)!==(kindOf(status)==='RELATION_PUT')||
     body.recipientStateDigest!==evidence.originalRecipientStateDigest)
     fail('CURSOR_SIGNED_APPLIED_ACK_NOT_BOUND_TO_ORIGINAL_RESULT');
 }
@@ -99,7 +107,9 @@ function checkChange(change,status,proof,ack){
       'sha256:'+change.sha256||
     body?.changeId!==status.changeId||
     body?.eventRef!==proof.originalSourceEventId||
-    body?.sourceRevision!==proof.originalEventRevision||
+    (body?.changeKind??'OBJECT_PUT')!==kindOf(proof)||
+    relationExtension(change)!==(kindOf(proof)==='RELATION_PUT')||
+    body?.sourceRevision!==subjectRevision(proof)||
     body?.ownerRef!==proof.originalWriteOwnerRef||
     body?.contentDigest!==ack?.verifiedBody?.contentDigest)
     fail('CURSOR_SIGNED_CHANGE_NOT_BOUND_TO_SOURCE_AND_ACK');
@@ -126,7 +136,12 @@ export async function recoverT4OriginalNetworkSourceCursor({
     !DIG(proof.originalEventDigest)||
     !DIG(proof.sourcePrefixDigestBefore)||
     !DIG(proof.sourcePrefixDigestAfter)||
-    !DIG(proof.sourceEventWindowDigest))
+    !DIG(proof.sourceEventWindowDigest)||
+    !['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(kindOf(proof))||
+    !validRevision(subjectRevision(proof),kindOf(proof))||
+    (kindOf(proof)==='ASSET_PUT'?
+      (proof.originalEventRevision!==null&&proof.originalEventRevision!==subjectRevision(proof)):
+      proof.originalEventRevision!==subjectRevision(proof)))
     fail('CURSOR_SOURCE_HEAD_PROOF_REQUIRED');
   if(getMode()!=='T4_NETWORK')fail('CURSOR_NETWORK_MODE_OFF');
   const first=await sourcePhasePort.inspectOriginalSession();
@@ -180,6 +195,7 @@ export async function recoverT4OriginalNetworkSourceCursor({
     sourceNodeRef:first.sourceNodeRef,recipientNodeRef:first.recipientNodeRef,
     scopeRef:first.scopeRef,ownerEpoch:first.ownerEpoch,
     sessionRef:first.sessionRef,changeId:first.changeId,
+    ...(kindOf(proof)==='OBJECT_PUT'?{}:{changeKind:kindOf(proof)}),
     sourceEventId:proof.originalSourceEventId,
     sourceEventDigest:proof.originalEventDigest,
     sourcePrefixDigestAfter:proof.sourcePrefixDigestAfter,

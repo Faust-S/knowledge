@@ -54,8 +54,9 @@ function correctProof(recovered,identity){
     !ID(recovered.originalSourcePhaseCheckpointRef)||
     !DIG(recovered.originalSourcePhaseChainHash)||
     !ID(recovered.originalRecipientEventId)||
-    !Number.isSafeInteger(recovered.originalRecipientRevision)||
-    recovered.originalRecipientRevision<1||
+    !['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(recovered.changeKind??'OBJECT_PUT')||
+    (recovered.changeKind==='RELATION_PUT'?recovered.originalRecipientRevision!==null:
+      (!Number.isSafeInteger(recovered.originalRecipientRevision)||recovered.originalRecipientRevision<1))||
     !DIG(recovered.originalRecipientStateDigest)||
     !validCursor(recovered.originalT3NextCursor,
       identity.sourceWorkspaceId,identity.originalWriteOwnerRef)||
@@ -91,6 +92,7 @@ function recordFor(identity,recovered,recovery,previousCursor,previousHash){
     originalSourcePhaseChainHash:recovered.originalSourcePhaseChainHash,
     recipientEventId:recovered.originalRecipientEventId,
     recipientRevision:recovered.originalRecipientRevision,
+    ...(recovered.changeKind===undefined?{}:{changeKind:recovered.changeKind}),
     recipientStateDigest:recovered.originalRecipientStateDigest,
     ciphertextDigest:recovery.verifiedAppliedAck.verifiedBody.contentDigest,
     signedAppliedAckDigest:'sha256:'+recovery.verifiedAppliedAck.sha256,
@@ -107,8 +109,9 @@ function checkRecord(identity,item,previousHash){
     ![item.sourceEventDigest,item.originalSourcePhaseChainHash,
       item.recipientStateDigest,item.ciphertextDigest,item.signedAppliedAckDigest,
       item.previousHash,item.chainHash].every(DIG)||
-    !Number.isSafeInteger(item.recipientRevision)||
-    item.recipientRevision<1||
+    !['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(item.changeKind??'OBJECT_PUT')||
+    (item.changeKind==='RELATION_PUT'?item.recipientRevision!==null:
+      (!Number.isSafeInteger(item.recipientRevision)||item.recipientRevision<1))||
     item.previousHash!==previousHash||
     !validCursor(item.sourceCursorBefore,identity.sourceWorkspaceId,
       identity.originalWriteOwnerRef)||

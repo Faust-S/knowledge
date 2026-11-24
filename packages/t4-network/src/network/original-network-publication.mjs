@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature}
+import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,T4_RELATION_EVENT_EXTENSION}
   from './standard-network-wire-candidate.mjs';
 import {assembleT4CandidateOpaqueChunks}
   from './standard-network-opaque-chunks.mjs';
@@ -180,7 +180,11 @@ export function createT4OriginalNetworkPublicationPort({
       frame.ownerEpoch!==identity.ownerEpoch||!types.has(frame.messageType))
       fail('PUBLICATION_FRAME_SESSION_MISMATCH');
     const b=frame.body;
-    if((b.changeId!==undefined&&b.changeId!==identity.changeId)||
+    if((['CHANGE_REF','APPLIED_ACK'].includes(frame.messageType)&&
+        frame.criticalExtensions.includes(T4_RELATION_EVENT_EXTENSION)!==
+          (identity.changeKind==='RELATION_PUT'))||
+      (frame.messageType==='APPLIED_ACK'&&b.recipientRevision!==identity.sourceRevision)||
+      (b.changeId!==undefined&&b.changeId!==identity.changeId)||
       (b.familyRef!==undefined&&b.familyRef!==identity.familyRef)||
       (frame.messageType==='HEADS'&&
         (!same(b.heads,[identity.sourcePrefixDigestAfter])||b.ownerEpoch!==identity.ownerEpoch))||

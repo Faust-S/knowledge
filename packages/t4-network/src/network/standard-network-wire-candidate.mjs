@@ -16,6 +16,9 @@ const MESSAGE_TYPES=new Set([
   'RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK','RESUME'
 ]);
 const SUBJECT_KINDS=new Set(['OBJECT_PUT','ASSET_PUT','RELATION_PUT']);
+// Relation has no numeric revision in original T3. This explicit critical
+// extension is mandatory on its CHANGE_REF and APPLIED_ACK.
+export const T4_RELATION_EVENT_EXTENSION='iwxa.relation-event.v1';
 const ID=x=>typeof x==='string'&&
   /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const DIGEST=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
@@ -88,7 +91,11 @@ const list=(value,max=64)=>Array.isArray(value)&&
   value.length===new Set(value).size;
 const hashList=value=>Array.isArray(value)&&value.length<=64&&
   value.every(DIGEST)&&value.length===new Set(value).size;
-function validateBody(type,body){
+function validateBody(type,body,extensions=[]){
+  const relationEvent=Array.isArray(extensions)&&
+    extensions.includes(T4_RELATION_EVENT_EXTENSION);
+  if(relationEvent&&!['CHANGE_REF','APPLIED_ACK'].includes(type))
+    fail('WIRE_RELATION_EVENT_EXTENSION_INVALID');
   if(!body||typeof body!=='object'||Array.isArray(body))
     fail('WIRE_BODY_INVALID');
   if(type==='HELLO'||type==='CAPABILITIES'){
@@ -110,8 +117,10 @@ function validateBody(type,body){
       'sourceRevision','contentDigest','parents']);
     if(!ID(body.changeId)||!SUBJECT_KINDS.has(body.changeKind)||
       !ID(body.eventRef)||!ID(body.ownerRef)||
-      !Number.isSafeInteger(body.sourceRevision)||
-      body.sourceRevision<1||!DIGEST(body.contentDigest)||
+      (body.changeKind==='RELATION_PUT'?
+        (body.sourceRevision!==null||!relationEvent):
+        (!Number.isSafeInteger(body.sourceRevision)||body.sourceRevision<1||relationEvent))||
+      !DIGEST(body.contentDigest)||
       !hashList(body.parents))
       fail('WIRE_CHANGE_REF_INVALID');
   }else if(type==='CHUNK_REQUEST'){
@@ -152,8 +161,9 @@ function validateBody(type,body){
     if(!ID(body.changeId)||!DIGEST(body.contentDigest)||!ID(body.ackRef))
       fail('WIRE_ACK_INVALID');
     if(type==='APPLIED_ACK'&&(!ID(body.recipientEventRef)||
-      !Number.isSafeInteger(body.recipientRevision)||
-      body.recipientRevision<1||!DIGEST(body.recipientStateDigest)))
+      (relationEvent?body.recipientRevision!==null:
+        (!Number.isSafeInteger(body.recipientRevision)||body.recipientRevision<1))||
+      !DIGEST(body.recipientStateDigest)))
       fail('WIRE_APPLIED_ACK_EVIDENCE_INVALID');
   }else if(type==='RESUME'){
     sameKeys(body,['familyRef','checkpointDigest','ownerEpoch']);
@@ -177,7 +187,7 @@ function validateUnsigned(frame){
     !list(frame.criticalExtensions,16)||
     !DIGEST(frame.bodyDigest))
     fail('WIRE_HEADER_INVALID');
-  validateBody(frame.messageType,frame.body);
+  validateBody(frame.messageType,frame.body,frame.criticalExtensions);
   if(frame.bodyDigest!==digest('BODY',frame.body))
     fail('WIRE_BODY_DIGEST_INVALID');
   if(canonicalBytes(frame).length>LIMIT-128)
@@ -211,7 +221,7 @@ export function createT4CandidateUnsignedFrame(input={}){
   // Reject malformed Unicode, oversized nesting and non-JSON values
   // independently of message-specific semantic checks.
   canonical(body);
-  validateBody(messageType,body);
+  validateBody(messageType,body,criticalExtensions);
   const frame={
     schema:T4_CANDIDATE_WIRE_SCHEMA,
     protocolVersion:T4_CANDIDATE_VERSION,

@@ -575,7 +575,7 @@ test('native original Host task refuses to skip a missing, duplicate or unsuppor
   await assert.rejects(x.newTask().prepareNative(),
     code('DISPATCH_NATIVE_NEXT_ORIGINAL_CAPTURE_NOT_UNIQUE'));
   x.overrideRows([{...rows[0],schema:'IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1',
-    kind:'ASSET_PUT'},...rows.slice(1)]);
+    kind:'ASSET_DELETE'},...rows.slice(1)]);
   await assert.rejects(x.newTask().prepareNative(),
     code('DISPATCH_NATIVE_NEXT_SUBJECT_KIND_NOT_IMPLEMENTED'));
   assert.equal(x.f.writes.length,3);

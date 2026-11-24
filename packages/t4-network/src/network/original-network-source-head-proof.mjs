@@ -1,3 +1,4 @@
+import {T4_RELATION_EVENT_EXTENSION} from './standard-network-wire-candidate.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
 
 /**
@@ -63,8 +64,12 @@ export async function verifyT4OriginalSourceHeadCausality({
     !ID(heads.familyRef)||heads.familyRef!==diff.familyRef||
     !ID(change.changeId)||!ID(change.eventRef)||
     change.ownerRef!==originalWriteOwnerRef||
-    !Number.isSafeInteger(change.sourceRevision)||
-    change.sourceRevision<1||!HASH(change.contentDigest)||
+    !['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(change.changeKind)||
+    (change.changeKind==='RELATION_PUT'?
+      (change.sourceRevision!==null||
+       !verifiedChangeRef.verifiedCriticalExtensions?.includes(T4_RELATION_EVENT_EXTENSION)):
+      (!Number.isSafeInteger(change.sourceRevision)||change.sourceRevision<1))||
+    !HASH(change.contentDigest)||
     !Array.isArray(heads.heads)||heads.heads.length!==1||
     !HASH(heads.heads[0])||
     !Array.isArray(diff.fromHeads)||
@@ -113,7 +118,10 @@ export async function verifyT4OriginalSourceHeadCausality({
     !matchesT4OriginalCapturedWindowDigest(window,acceptedDigest)||
     !ID(ref?.eventId)||!HASH(ref.eventDigest)||
     ref.eventId!==change.eventRef||
-    ref.revision!==change.sourceRevision||
+    (change.changeKind==='ASSET_PUT'?
+      (ref.revision!==null&&ref.revision!==change.sourceRevision):
+      ref.revision!==change.sourceRevision)||
+    (change.changeKind!=='OBJECT_PUT'&&!historicalCaptureRequired)||
     heads.heads[0]!==window.sourcePrefixDigestAfter||
     change.parents.length!==1||
     change.parents[0]!==window.sourcePrefixDigestBefore)
@@ -130,7 +138,8 @@ export async function verifyT4OriginalSourceHeadCausality({
     changeId:change.changeId,changeKind:change.changeKind,
     originalSourceEventId:ref.eventId,
     originalEventType:ref.eventType,
-    originalSourceRevision:ref.revision,
+    originalSourceRevision:change.sourceRevision,
+    originalEventRevision:ref.revision,
     originalObjectId:ref.objectId,
     originalEventDigest:ref.eventDigest,
     originalBeforePrefixDigest:window.sourcePrefixDigestBefore,
@@ -165,6 +174,7 @@ export async function verifyT4OriginalSourceHeadCausality({
     originalSourceEventId:ref.eventId,
     originalEventDigest:ref.eventDigest,
     originalEventRevision:ref.revision,
+    originalSourceRevision:change.sourceRevision,changeKind:change.changeKind,
     sourcePrefixDigestBefore:window.sourcePrefixDigestBefore,
     sourcePrefixDigestAfter:window.sourcePrefixDigestAfter,
     sourceEventWindowDigest:acceptedDigest,
