@@ -45,6 +45,18 @@ const ADMIN_APPLIED_DECLARATION=Object.freeze({
     required:["schema","records"],additionalProperties:false,
   },embedded:{},
 });
+// Keep ORIGINAL T2's service-specific scope. Universal Workspace mode
+// would require wildcard object/delete and lifecycle purge permissions.
+// Both installed products may transfer their complete BUSINESS inventory
+// only through the signed Host's original subject binding.
+function enableInstalledBusinessExchange(passport,service){
+  if(passport.service_id!==service)return;
+  const p=passport.permissions.packages;
+  if(!p||p.export!==false||p.import!==false||
+     p.export_scope!=="readable_objects"||p.import_scope!=="writable_objects")
+    fail("ORIGINAL_CORPORATE_EXCHANGE_SOURCE_SCOPE_INVALID");
+  passport.permissions.packages={...p,export:true,import:true};
+}
 function registerInstalledAdminAppliedResult({domain,config,passport}){
   if(config?.base_path!=="/workspace/"||
      passport?.service_id!==config.workspace_service_id||
@@ -60,9 +72,13 @@ function registerInstalledAdminAppliedResult({domain,config,passport}){
     passport.permissions?.objects?.read,passport.permissions?.objects?.write];
   if(rows.some(row=>!Array.isArray(row)))
     fail("ORIGINAL_ADMIN_D3_SCHEMA_PERMISSIONS_REQUIRED");
-  for(const [schema,declaration] of [
+  const declarations=[
     [ADMIN_APPLIED_SCHEMA,ADMIN_APPLIED_DECLARATION],
-    [ADMIN_ACCESS_SCHEMA,ADMIN_ACCESS_DECLARATION]]){
+    [ADMIN_ACCESS_SCHEMA,ADMIN_ACCESS_DECLARATION]];
+  if(passport.service_id==="iwxa.admin-center.workspace")
+    declarations.push([COMPANY_WORK_SCHEMA,COMPANY_WORK_DECLARATION],
+      [AGENT_D6_RESULT_SCHEMA,AGENT_D6_RESULT_DECLARATION]);
+  for(const [schema,declaration] of declarations){
     const existing=passport.schemas[schema];
     if(existing!==undefined&&
        JSON.stringify(existing)!==JSON.stringify(declaration))
@@ -84,6 +100,7 @@ function registerInstalledAdminAppliedResult({domain,config,passport}){
   // First-run Workspace creation remains a separate signed ACTION. There
   // is no automatic Workspace creation on ACCEPT or during APPLY.
   passport.permissions.workspace.create=true;
+  enableInstalledBusinessExchange(passport,"iwxa.admin-center.workspace");
 }
 
 // Original company work material remains an Object in the inherited T2
@@ -186,6 +203,7 @@ function registerInstalledAgentAcceptedResult({domain,config,passport}){
   // Reuse the original T2 graph command, never an Agent-side Kernel writer.
   // No implicit Workspace creation or other operation is granted.
   passport.permissions.operations=['t1.commitObjectGraph'];
+  enableInstalledBusinessExchange(passport,'iwxa.personal-agent.workspace');
 }
 
 const allowedAssetExtensions=new Set([

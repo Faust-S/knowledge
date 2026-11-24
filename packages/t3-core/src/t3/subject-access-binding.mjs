@@ -71,7 +71,9 @@ function requireCompleteBusinessArchive(handle,workspace){
      m.workspaces[0]!==workspace||m.workspace_states?.length!==1||
      m.workspace_states[0]?.workspace_id!==workspace||
      !COMPLETE_OPTIONS.every(k=>m.options?.[k]===true)||
-     m.counts?.workspaces!==1||p.scope_mode!=="workspace"||
+     m.counts?.workspaces!==1||p.scope_mode!=="writable_objects"||
+     !Array.isArray(m.files)||m.files.some(f=>
+       typeof f?.path!=="string"||f.path.startsWith("technical/"))||
      !completeCounts(p.totals,p.included,p.excluded_by_permission)||
      !ARCHIVE_COUNTS.every(k=>m.counts?.[k]===p.totals[k])||
      !Array.isArray(p.objects)||p.objects.length!==p.totals.objects||
@@ -80,7 +82,7 @@ function requireCompleteBusinessArchive(handle,workspace){
      !Array.isArray(p.schemas)||p.schemas.some(row=>
        !BUSINESS_SCHEMAS.has(row?.schema_id)||
        row.schema_version!=="1.0.0"||
-       !["known_domain","known_persisted","embedded_equal","embedded_new"].includes(row.status))||
+       !["known_domain","known_persisted","embedded_equal"].includes(row.status))||
      !Array.isArray(p.unsupported)||p.unsupported.some(row=>row.kind!=="extension_field")||
      !p.invalid||!["envelopes","dependencies","schema_validation","schema_conflicts"]
        .every(k=>p.invalid[k]===0))
@@ -113,7 +115,7 @@ async function inspectBusinessExport(kernel,artifact,workspace){
      artifact.size!==artifact.bytes.byteLength||artifact.validation?.ok!==true||
      !HEX.test(artifact.package_digest??"")||
      manifest?.package_digest!==artifact.package_digest||
-     artifact.summary?.scope_mode!=="workspace"||
+     artifact.summary?.scope_mode!=="readable_objects"||
      !completeCounts(manifest?.counts,artifact.summary?.included,artifact.summary?.excluded_by_permission))
     refused("T3_CORPORATE_EXCHANGE_EXPORT_INCOMPLETE");
   // Inspect the exact generated archive with the ORIGINAL T2 parser.
@@ -276,8 +278,7 @@ export function createSubjectKernelBinding({
     if(business)requireBusinessWorkspace(context);
     if(business&&["exportPreview","exportPackage"].includes(method)&&
        (!COMPLETE_OPTIONS.every(k=>command?.[k]===true)||
-        (command.scope!=null&&(command.scope.mode!=="workspace"||
-          Object.keys(command.scope).length!==1))))
+        command.scope!=null))
       refused("T3_CORPORATE_EXCHANGE_COMPLETE_WORKSPACE_REQUIRED");
     if(business&&method==="confirmExport"){
       const prepared=previews.pendingExport;
@@ -443,6 +444,7 @@ export function createSubjectKernelBinding({
       if(identity(context)!==identity(await selected(access)))
         refused("T3_SUBJECT_CONTEXT_CHANGED");
       requireActive();
+      authorizedDecision(decision,context,Number(clock()));
     }
     // This is the exact boundary where the original Kernel operation starts.
     // Observers may record uncertainty, but cannot issue a second operation.
@@ -640,7 +642,7 @@ export function createSubjectKernelBinding({
       }
     }
     if(business&&method==="exportPreview"&&
-       (result.summary?.scope_mode!=="workspace"||
+       (result.summary?.scope_mode!=="readable_objects"||
         !completeCounts(result.counts,result.summary?.included,result.summary?.excluded_by_permission)))
       refused("T3_CORPORATE_EXCHANGE_EXPORT_INCOMPLETE");
     if(business&&method==="exportPackage"){
