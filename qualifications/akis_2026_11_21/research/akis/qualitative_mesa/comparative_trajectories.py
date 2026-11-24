@@ -664,3 +664,113 @@ def compare_executed_original_routes(
             "automatically_shared_with_participants": False,
         },
     }
+
+
+def compare_original_preparation_modes(
+    scenarios: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """S0/S1/S2 controlled preparation comparison on one original Mesa.
+
+    Only the mode of preparing the same packet and its reconciled original
+    resource-use amount may differ. This is a micro-process experiment;
+    it is NOT an assertion that whole S0/S1/S2 organizations were simulated.
+    """
+    from copy import deepcopy
+    from decimal import Decimal
+    from .mesa_model import simulate
+    from .process_preparation import PREPARATION_MODES, PREPARATION_ACTIVITY_UNITS
+
+    if not isinstance(scenarios, Mapping) or set(scenarios) != set(PREPARATION_MODES):
+        raise TrajectoryComparisonError("PREPARATION_COMPARISON_THREE_MODES_REQUIRED")
+    baseline = None
+    reference_works = None
+    reference_trace = None
+    reference_capacity = None
+    rows = {}
+    for mode in PREPARATION_MODES:
+        doc = deepcopy(scenarios[mode])
+        try:
+            money = doc["economic_claims"]
+            lifecycle = money["lifecycle_costs"]
+            bindings = lifecycle["preparation_activity_bindings"]
+            identifiers = {row["resource_use_id"] for row in bindings}
+            if len(identifiers) != len(bindings) or not identifiers:
+                raise TrajectoryComparisonError("PREPARATION_COMPARISON_COST_BINDINGS_REQUIRED")
+            scope = doc["strict_economic_source_works"]
+            if not isinstance(scope, list) or not scope or len(set(scope)) != len(scope):
+                raise TrajectoryComparisonError("PREPARATION_COMPARISON_STRICT_WORK_SCOPE_REQUIRED")
+            normalized = deepcopy(doc)
+            prepared = []
+            for event in normalized["events"]:
+                if event["action"] == "function_prepare":
+                    if event.pop("preparation_mode", None) != mode:
+                        raise TrajectoryComparisonError("PREPARATION_COMPARISON_MODE_MISMATCH")
+                    prepared.append(event.get("work"))
+            if sorted(prepared) != sorted(scope):
+                raise TrajectoryComparisonError("PREPARATION_COMPARISON_ONE_PACKET_PER_SCOPED_WORK")
+            for row in normalized["economic_claims"]["resource_uses"]:
+                if row["id"] in identifiers:
+                    row["amount"] = "MATCHED_ACTIVITY_COST"
+        except (KeyError, TypeError) as exc:
+            raise TrajectoryComparisonError("PREPARATION_COMPARISON_ORIGINAL_DOCUMENT_REQUIRED") from exc
+        fingerprint = _fingerprint(normalized)
+        if baseline is not None and fingerprint != baseline:
+            raise TrajectoryComparisonError("PREPARATION_COMPARISON_ORIGINAL_BASELINE_CHANGED")
+        baseline = fingerprint
+        result = simulate(doc)
+        works = result["works"]
+        trace = deepcopy(result["trace"])
+        for event in trace:
+            event.pop("model_preparation_activity", None)
+        if (reference_works is not None and works != reference_works
+                or reference_trace is not None and trace != reference_trace
+                or reference_capacity is not None and result["capacity"] != reference_capacity):
+            raise TrajectoryComparisonError("PREPARATION_COMPARISON_ORIGINAL_OUTCOMES_CHANGED")
+        reference_works, reference_trace, reference_capacity = works, trace, result["capacity"]
+        econ = result["economics"]
+        strict = econ.get("original_strict_context_source_qualification", {})
+        costs = econ.get("lifecycle_resource_costs", {})
+        activity = costs.get("original_preparation_activity_costs", {})
+        if (result["counts"]["blocked"]
+                or any(works[key]["result"] != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                       or works[key]["obligation"] != "FULFILLED" for key in scope)
+                or strict.get("status") != "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED"
+                or strict.get("source_scoped_original_cost_event_count") != econ["resource_uses_count"]
+                or costs.get("classified_original_record_count") != econ["resource_uses_count"]
+                or activity.get("original_cost_count") != len(scope)
+                or activity.get("status") != "MODEL_ORIGINAL_PACKET_ACTIVITY_COST_RECONCILED"
+                or econ["work_payment_causality"]["source_declared_consistent_count"] != econ["transfers_count"]
+                or result["profit"]["system_increment"] != "UNKNOWN"):
+            raise TrajectoryComparisonError("PREPARATION_COMPARISON_ORIGINAL_SCOPE_NOT_QUALIFIED")
+        rows[mode] = {
+            "accepted_original_work_count": len(scope),
+            "applied_original_customer_reviews": sum(
+                event["action"] == "function_review" and event["outcome"] == "APPLIED"
+                and event.get("work") in scope and event.get("human_decision") == "APPROVE"
+                for event in trace),
+            "modeled_activity_units": {
+                unit: sum(item["units"][unit] for item in activity["items"])
+                for unit in PREPARATION_ACTIVITY_UNITS
+            },
+            "declared_preparation_resource_cost": activity["total_declared_resource_cost"],
+        }
+    def delta(left, right):
+        return f"{Decimal(rows[left]['declared_preparation_resource_cost']) - Decimal(rows[right]['declared_preparation_resource_cost']):.2f}"
+    return {
+        "schema": "AKIS_ORIGINAL_PREPARATION_MODES_COST_COMPARISON/1.0",
+        "status": "MODEL_MATCHED_PREPARATION_ACTIVITY_COST_CONTRAST",
+        "original_baseline_fingerprint_sha256": baseline,
+        "same_original_works_results_consents_and_cash": True,
+        "same_original_capacity_and_event_sequence": True,
+        "currency": next(iter(scenarios.values()))["economic_claims"]["currency"],
+        "local_research_only": {
+            "modes": rows,
+            "S0_minus_S1_preparation_cost": delta("S0", "S1"),
+            "S1_minus_S2_preparation_cost": delta("S1", "S2"),
+            "S0_minus_S2_preparation_cost": delta("S0", "S2"),
+        },
+        "full_S0_S1_S2_organizational_experiment": False,
+        "actual_labor_time_and_agent_runtime_measured": False,
+        "empirical_network_additionality": "NOT_IDENTIFIABLE",
+        "profit": "UNKNOWN",
+    }

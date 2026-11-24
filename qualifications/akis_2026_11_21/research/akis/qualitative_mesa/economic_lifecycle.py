@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from decimal import Decimal
+import re
 from typing import Any, Mapping
+
+from .process_preparation import PREPARATION_MODES, PREPARATION_ACTIVITY_UNITS
 
 class LifecycleInputError(ValueError):
     """An attempted cost assignment lacks original owner/source/scope."""
@@ -42,7 +45,7 @@ STAGE_WORK_EVENT_ACTIONS = {
     "ONBOARDING_AND_INTEGRATION": frozenset({"request", "offer", "authorize", "consent", "commit"}),
     "PRODUCTION_COORDINATION": frozenset({
         "commit", "start", "start_operation", "complete_operation",
-        "handoff_dispatch", "handoff_receive", "complete",
+        "handoff_dispatch", "handoff_receive", "complete", "function_prepare",
     }),
     "MONITORING_AND_QUALITY": frozenset({
         "complete_operation", "handoff_quality", "assess_result_quality",
@@ -284,6 +287,90 @@ def _identifier(value: Any, error: str) -> str:
 def _amount(value: Decimal) -> str:
     return f"{value:.2f}"
 
+
+def review_original_preparation_activity_costs(
+    raw: Any, *, original_bindings: Mapping[str, Any],
+    event_bindings: list, resource_index: Mapping[str, Any], trace: list | tuple,
+) -> dict[str, Any]:
+    """Reconcile exact activity x unit-rate with existing original costs.
+
+    Rate cards are modeled source declarations belonging to the SAME cost
+    owner and evidence as the lifecycle record. No cash or resource row is
+    posted here; this is a strict check of its amount. All applied tagged
+    preparation events in the economic Work scope need one and only one row.
+    """
+    if not isinstance(raw, list) or not 1 <= len(raw) <= 500:
+        raise LifecycleInputError("PREPARATION_ACTIVITY_BINDINGS_REQUIRED")
+    if not isinstance(event_bindings, list):
+        raise LifecycleInputError("PREPARATION_ACTIVITY_ORIGINAL_EVENT_BINDINGS_REQUIRED")
+    timed = {row["resource_use_id"]: row for row in event_bindings}
+    works = {row["work"] for row in resource_index.values() if row["work"] is not None}
+    expected = {
+        pos for pos, event in enumerate(trace)
+        if event.get("action") == "function_prepare" and event.get("outcome") == "APPLIED"
+        and event.get("work") in works and "model_preparation_activity" in event
+    }
+    used_ids, used_positions = set(), set()
+    items = []
+    for binding in raw:
+        if not isinstance(binding, dict) or set(binding) != {"resource_use_id", "unit_rates_by_mode"}:
+            raise LifecycleInputError("PREPARATION_ACTIVITY_BINDING_FIELDS_INVALID")
+        rid = binding["resource_use_id"]
+        if not isinstance(rid, str) or rid in used_ids:
+            raise LifecycleInputError("PREPARATION_ACTIVITY_COST_ROW_DUPLICATE")
+        resource = resource_index.get(rid)
+        classified = original_bindings.get(rid)
+        anchor = timed.get(rid)
+        if (resource is None or classified is None or anchor is None
+                or resource["scenario"] != "COOPERATION"
+                or resource["bucket"] != "COORDINATION"
+                or classified["stage"] != "PRODUCTION_COORDINATION"
+                or classified["nature"] != "TRANSACTION"
+                or anchor["action"] != "function_prepare"):
+            raise LifecycleInputError("PREPARATION_ACTIVITY_ORIGINAL_COST_REQUIRED")
+        pos = anchor["trace_position"]
+        if pos not in expected or pos in used_positions:
+            raise LifecycleInputError("PREPARATION_ACTIVITY_ORIGINAL_EVENT_NOT_UNIQUE")
+        event = trace[pos]
+        if (event.get("actor") != resource["owner"]
+                or event.get("work") != resource["work"]):
+            raise LifecycleInputError("PREPARATION_ACTIVITY_ORIGINAL_OWNER_MISMATCH")
+        activity = event["model_preparation_activity"]
+        rates = binding["unit_rates_by_mode"]
+        if not isinstance(rates, dict) or set(rates) != set(PREPARATION_MODES):
+            raise LifecycleInputError("PREPARATION_ACTIVITY_MATCHED_RATE_CARD_REQUIRED")
+        for card in rates.values():
+            if (not isinstance(card, dict) or set(card) != set(PREPARATION_ACTIVITY_UNITS)
+                    or any(not isinstance(value, str)
+                           or re.fullmatch(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,2})?", value) is None
+                           for value in card.values())):
+                raise LifecycleInputError("PREPARATION_ACTIVITY_EXACT_UNIT_RATES_REQUIRED")
+        mode = activity["mode"]
+        cost = sum((Decimal(rates[mode][unit]) * activity["units"][unit]
+                    for unit in PREPARATION_ACTIVITY_UNITS), Decimal("0"))
+        if resource["decimal_amount"] != cost:
+            raise LifecycleInputError("PREPARATION_ACTIVITY_COST_AMOUNT_MISMATCH")
+        used_ids.add(rid)
+        used_positions.add(pos)
+        items.append({
+            "resource_use_id": rid, "work": resource["work"],
+            "original_owner": resource["owner"], "mode": mode,
+            "original_trace_position": pos, "units": dict(activity["units"]),
+            "declared_resource_cost": _amount(cost),
+        })
+    if expected != used_positions:
+        raise LifecycleInputError("PREPARATION_ACTIVITY_APPLIED_SCOPE_INCOMPLETE")
+    return {
+        "status": "MODEL_ORIGINAL_PACKET_ACTIVITY_COST_RECONCILED",
+        "original_cost_count": len(items),
+        "total_declared_resource_cost": _amount(sum(
+            (Decimal(item["declared_resource_cost"]) for item in items), Decimal("0"))),
+        "items": sorted(items, key=lambda item: item["original_trace_position"]),
+        "same_original_cost_records_not_added_again": True,
+        "actual_time_or_causal_profit_verified": False,
+    }
+
+
 def classify_lifecycle_costs(
     raw: Any, *, sources: Mapping[str, Any], resource_index: Mapping[str, Any],
     subjects: Mapping[str, Any], outside: Mapping[str, str],
@@ -300,7 +387,9 @@ def classify_lifecycle_costs(
     """
     if (not isinstance(raw, dict) or
             set(raw) not in ({"bindings", "scope_proofs"},
-                             {"bindings", "scope_proofs", "event_bindings"})):
+                             {"bindings", "scope_proofs", "event_bindings"},
+                             {"bindings", "scope_proofs", "event_bindings",
+                              "preparation_activity_bindings"})):
         raise LifecycleInputError("INVALID_LIFECYCLE_FIELDS")
     bindings = raw["bindings"]
     proofs = raw["scope_proofs"]
@@ -433,5 +522,10 @@ def classify_lifecycle_costs(
             works=works or {}, trace=trace,
             allocated_by_work=allocated_by_work,
             cooperation_links=cooperation_links,
+        )
+    if "preparation_activity_bindings" in raw:
+        response["original_preparation_activity_costs"] = review_original_preparation_activity_costs(
+            raw["preparation_activity_bindings"], original_bindings=original_binding_index,
+            event_bindings=raw["event_bindings"], resource_index=resource_index, trace=trace,
         )
     return response

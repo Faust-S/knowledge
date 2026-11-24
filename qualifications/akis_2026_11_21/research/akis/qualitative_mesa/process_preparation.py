@@ -138,3 +138,52 @@ def perform_bounded_process_step(
         kind = 'HUMAN_REVIEW_PACKET_NOT_SENT'
     return {**base, 'status': status, 'reason': 'SOURCE_AND_OC_MODEL_CHECKS_PASSED',
             'artifact': {'kind': kind, **common}}
+
+# Dissertation S0/S1/S2: a controlled preparation sub-process, not three
+# different organizations. The same original qualified audit packet and
+# independent decision gates remain in force in all three methods.
+PREPARATION_MODES = ("S0", "S1", "S2")
+PREPARATION_ACTIVITY_UNITS = (
+    "human_entry", "program_fill", "human_validation", "packet_overhead",
+)
+
+
+def model_preparation_activity(state: Any, work: Any, mode: str) -> dict[str, Any]:
+    """Count the field operations of preparing the same current Work packet.
+
+    S0: manual transcription; S1: fixed document template fills header only;
+    S2: source-bound bounded computation fills current values as well.
+    Every field remains subject to modeled human verification, and the
+    original customer's subsequent independent review is NOT replaced.
+    These are structural work units, not measured seconds or LLM tokens.
+    """
+    if mode not in PREPARATION_MODES:
+        raise ValueError("PREPARATION_MODE_INVALID")
+    from .configuration_behavior import _original_principals
+
+    # Build the SAME task set from the current original Work, rather than
+    # assigning a percentage of time saving to a mode.
+    header = ("work", "work_revision", "org_revision", "function")
+    state_fields = ("proposal", "authorized", "obligation", "execution", "result")
+    principals = _original_principals(state, work)
+    current = state_fields + tuple(
+        field for principal in principals
+        for field in (("principal", principal), ("consent_status", principal))
+    )
+    fields = len(header) + len(current)
+    program = {"S0": 0, "S1": len(header), "S2": fields}[mode]
+    return {
+        "mode": mode,
+        "original_header_field_count": len(header),
+        "original_current_field_count": len(current),
+        "original_principal_count": len(principals),
+        "units": {
+            "human_entry": fields - program,
+            "program_fill": program,
+            "human_validation": fields,
+            "packet_overhead": 1,
+        },
+        "basis": "MODEL_FIELD_OPERATIONS_ON_ORIGINAL_QUALIFIED_PACKET",
+        "independent_customer_review_remains_required": True,
+        "actual_labor_time_or_software_runtime_measured": False,
+    }

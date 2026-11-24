@@ -383,6 +383,19 @@ def review_completed_original_owner_finance(
             "work_payment_conditions": terms,
             **prior_reports,
         }
+        # A costed preparation must be reconciled against the original
+        # Work's same activity records in this as-of-time review as well.
+        tagged_preparation = any(
+            event.get("work") == work_id and event.get("outcome") == "APPLIED"
+            and "model_preparation_activity" in event for event in state.trace
+            if event.get("at", at) < at
+        )
+        if tagged_preparation:
+            activity = attached(life.get("preparation_activity_bindings", []),
+                                "resource_use_id", uids)
+            if not activity:
+                return unknown
+            selected["lifecycle_costs"]["preparation_activity_bindings"] = activity
         rights = review_original_strict_economic_sources(
             state=state, original_claims=selected, work_id=work_id, at=at,
         )
