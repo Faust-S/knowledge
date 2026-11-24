@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: cc776bc35f81a202ee8b9e7032f1864d94cfa399
+          ref: 9c1dc3abe5fbd979d359423134909ddb26fc9d1a
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,9 +51,9 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = cc776bc35f81a202ee8b9e7032f1864d94cfa399
+          test "$(git -C d04-private/site rev-parse HEAD)" = 9c1dc3abe5fbd979d359423134909ddb26fc9d1a
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = e538b583d9c61360391f10c9390af5fa7886abe1
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 846a8ceb813ff985529acccbf23d195b10239b37
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
         with:
@@ -207,10 +207,11 @@ jobs:
             console.log('D04_HOME_BROWSER_STAGE=GOAL_OBSERVATION_REFS');
             try {
               const linked=await runLifeOsGoalObservationRefsBrowser({chromium,origin:server.origin,selectWitnessOption});
-              if(linked.status!=='PASS'||linked.viewports.length!==2||linked.viewports.some(v=>v.objects!==2||v.resultEvents!==4||v.stalePreserved!==true||v.reselected!==true||v.reverseNavigation!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_HOME_GOAL_REFS_RESULT_INCOMPLETE');
+              if(linked.status!=='PASS'||linked.viewports.length!==2||linked.viewports.some(v=>v.objects!==2||v.resultEvents!==4||v.stalePreserved!==true||v.reselected!==true||v.reverseNavigation!==true||v.decisions!==true||v.allRevisions!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_HOME_GOAL_REFS_RESULT_INCOMPLETE');
               linkedPassed=true;
               console.log('D04_HOME_GOAL_REFS=PASS');
               console.log('D04_HOME_GOAL_REVERSE_NAVIGATION=PASS');
+              console.log('D04_HOME_JOINT_REVISION_HISTORY=PASS');
             } catch {console.log('D04_HOME_GOAL_REFS_INDEPENDENT=FAIL')}
             console.log('D04_HOME_BROWSER_STAGE=DAILY_PERSONAL_STUDY');
             try {
