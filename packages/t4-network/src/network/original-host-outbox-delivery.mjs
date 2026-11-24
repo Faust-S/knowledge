@@ -212,6 +212,7 @@ async function loadVerifiedOutbox(params){
   }else if(isT4NativeDeleteKind(kind)){
     const expected=originalT4DeletionCapturedEvent(intent);
     if(event.idempotency_key!==expected.idempotency_key||
+      originals.filter(row=>row?.idempotency_key===expected.idempotency_key).length!==1||
       event.event_type!==expected.event_type||!same(event.payload,expected.payload))
       fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
   }else if(event.idempotency_key!==intent.idempotencyKey||

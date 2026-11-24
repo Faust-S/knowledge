@@ -208,9 +208,9 @@ function sourceScope(params){
     originalWriteOwnerRef,subjectId,objectId:objectId??null,
     sourceIdempotencyKey,captureRef,originalT3IsWriteOwner:true});
   const lookup=Object.freeze({...ctx,captureRef});
-  const guard=async operation=>{
+  const guard=async (operation,readObjectId=ctx.objectId)=>{
     networkMode(getMode);
-    if(await authorizeOriginalRead({...ctx,operation})!==true||
+    if(await authorizeOriginalRead({...ctx,operation,objectId:readObjectId})!==true||
       await authorizeOriginalDelete(ctx)!==true)
       fail('DELETE_ORIGINAL_SOURCE_AUTHORITY_DENIED');
     networkMode(getMode);
@@ -261,9 +261,9 @@ function sourceScope(params){
     const ids=kind==='RELATION_DELETE'?[pre.fromObjectId,pre.toObjectId]:[pre.objectId];
     const rows=[];
     for(const id of ids){
-      await guard('t1.getObject');
+      await guard('t1.getObject',id);
       const row=await originalKernel.getObject(workspaceId,id);
-      await guard('t1.getObject');
+      await guard('t1.getObject',id);
       if(row?.object?.workspace_id!==workspaceId||row.object.object_id!==id||
         row.object.deleted===true)fail('DELETE_NATIVE_ORIGINAL_ENDPOINT_MISSING');
       rows.push(row);
@@ -454,8 +454,29 @@ function nativeDeletionPayload(d,sha256){
     originalWriteOwnerRef:d.originalWriteOwnerRef,originalDeltaSha256:sha256,
     originalSubjectKind:d.kind,originalSubjectId:deletedSubjectId(d),
     originalPreImageDigest:d.preImageDigest,
+    // Exact metadata-only envelope, not the deleted Asset bytes.
+    originalDeletionDelta:d,
     originalContentDigest:digestT4OriginalDeletedSubjectState(d),
   });
+}
+/** Revalidate deletion evidence from an authorized read of the original Event.
+ * Not a substitute for source signature verification at admission.
+ */
+export function verifyT4OriginalNativeDeletionEvent(event,scope={}){
+  let exact;
+  try{exact=validateEnvelope(event?.payload?.originalDeletionDelta);}
+  catch{fail('DELETE_NATIVE_HISTORICAL_EVENT_INVALID');}
+  const d=exact.delta,id=deletedSubjectId(d);
+  if(d.kind!==scope.kind||d.workspaceId!==scope.workspaceId||
+    d.originalWriteOwnerRef!==scope.originalWriteOwnerRef||id!==scope.subjectId||
+    !ID(event.event_id)||event.workspace_id!==d.workspaceId||
+    event.event_type!==nativeEventType(d.kind)||
+    event.idempotency_key!=='t4-delete-'+exact.sha256||
+    (event.revision!=null&&(!Number.isSafeInteger(event.revision)||event.revision<0))||
+    (event.object_id!=null&&event.object_id!==deletedObjectId(d)&&event.object_id!==id)||
+    !snapshotEqual(event.payload,nativeDeletionPayload(d,exact.sha256)))
+    fail('DELETE_NATIVE_HISTORICAL_EVENT_INVALID');
+  return exact;
 }
 function nativeDeletionInput(d,sha256){
   const input=originalInput(d.kind,d.workspaceId,deletedSubjectId(d),

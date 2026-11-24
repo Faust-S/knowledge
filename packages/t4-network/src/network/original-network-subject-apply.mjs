@@ -14,7 +14,8 @@ import {decodeT4CandidateFrame,isT4NativeDeleteKind,validT4NativeSubjectRevision
   from './standard-network-wire-candidate.mjs';
 import {verifyT4OriginalDeleteDelta,decodeT4OriginalDeleteDeltaBytes,
   applyT4OriginalDeleteDelta,digestT4OriginalDeletedSubjectState,
-  inspectT4OriginalNativeDeletionResult} from './original-deletion-delta.mjs';
+  inspectT4OriginalNativeDeletionResult,verifyT4OriginalNativeDeletionEvent}
+  from './original-deletion-delta.mjs';
 
 /**
  * P2.2-C. Bind verified native network ciphertext to the ORIGINAL T3
@@ -432,11 +433,11 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
       state:'NOT_APPLIED',originalBusinessApplied:false,historicalReceiptFabricated:false});
   }
   const ev=matches[0];
-  if(!verifyEvent(ev)||row===null)
-    fail('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH');
-  const revision=type.revision(d),historical=asset&&row.revision>revision;
-  const continuity=stream=>verifyHistoricalContinuation({
-    events:stream,first:ev,from:revision,to:row.revision,finalDigest:row.stateDigest,
+  if(!verifyEvent(ev))fail('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH');
+  const revision=type.revision(d),deleted=row===null;
+  const historical=deleted||(asset&&row.revision>revision);
+  const continuity=(stream,target)=>verifyHistoricalContinuation({
+    events:stream,first:ev,from:revision,to:target.revision,finalDigest:target.stateDigest,
     select:(e,r)=>e?.workspace_id===d.workspaceId&&
       e.event_type===ASSET_EVENT&&e.payload?.originalAssetId===subjectId&&
       e.payload?.originalAssetRevision===r,
@@ -445,18 +446,61 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
       DIG(e.payload.originalEventDigest)&&
       /^[a-f0-9]{64}$/.test(e.payload.originalDeltaSha256??'')&&
       ID(e.event_id)&&(e.revision==null||e.revision===e.payload.originalAssetRevision)&&
+      (e.object_id==null||e.object_id===d.objectId||e.object_id===subjectId)&&
       e.idempotency_key==='t4-asset-'+e.payload.originalDeltaSha256,
   });
+  // A historical put may end in an exact deletion, not a live row.
+  // Refuse gaps, another lifetime of the same subject, or arbitrary absence.
+  const deletedContinuity=stream=>{
+    const deletionKind=asset?'ASSET_DELETE':'RELATION_DELETE',
+      deletionType=asset?'iwxa.t4.original-asset.deleted':'iwxa.t4.original-relation.deleted',
+      putSubjectKey=asset?'originalAssetId':'originalRelationId';
+    const candidates=stream.filter(e=>e?.workspace_id===d.workspaceId&&
+      e.event_type===deletionType&&e.payload?.originalSubjectId===subjectId);
+    if(candidates.length!==1)fail('SUBJECT_HISTORICAL_DELETION_EVENT_GAP');
+    const deletion=candidates[0];
+    let exact;
+    try{exact=verifyT4OriginalNativeDeletionEvent(deletion,{kind:deletionKind,
+      workspaceId:d.workspaceId,originalWriteOwnerRef:d.originalWriteOwnerRef,subjectId});}
+    catch{fail('SUBJECT_HISTORICAL_DELETION_EVENT_INVALID');}
+    const pre=exact.delta.preImage;
+    let prior=[ev];
+    if(asset){
+      if(pre.objectId!==d.objectId||pre.mime!==d.mime||pre.revision<revision)
+        fail('SUBJECT_HISTORICAL_DELETION_PREIMAGE_MISMATCH');
+      const terminal=digestT4OriginalAssetContent({workspaceId:d.workspaceId,
+        assetId:subjectId,objectId:pre.objectId,mime:pre.mime,
+        assetSize:pre.size,assetBytesSha256:pre.assetBytesSha256});
+      if(pre.revision===revision&&terminal!==expected)
+        fail('SUBJECT_HISTORICAL_DELETION_PREIMAGE_MISMATCH');
+      prior=continuity(stream,{revision:pre.revision,stateDigest:terminal});
+    }else if(pre.fromObjectId!==d.fromObjectId||pre.toObjectId!==d.toObjectId||
+      pre.relationKind!==d.kind)
+      fail('SUBJECT_HISTORICAL_DELETION_PREIMAGE_MISMATCH');
+    const start=stream.findIndex(e=>e.event_id===ev.event_id),
+      end=stream.findIndex(e=>e.event_id===deletion.event_id);
+    if(end<=stream.findIndex(e=>e.event_id===prior.at(-1).event_id)||start<0||
+      prior.some(e=>e.event_id===deletion.event_id||
+        e.payload.originalEventId===exact.delta.sourceEventId))
+      fail('SUBJECT_HISTORICAL_DELETION_EVENT_GAP');
+    const relevant=stream.slice(start).filter(e=>e?.workspace_id===d.workspaceId&&
+      ((e.event_type===eventType&&e.payload?.[putSubjectKey]===subjectId)||
+       (e.event_type===deletionType&&e.payload?.originalSubjectId===subjectId)));
+    const chain=[...prior,deletion];
+    if(!equalStable(relevant,chain))fail('SUBJECT_HISTORICAL_DELETION_EVENT_GAP');
+    return chain;
+  };
   let chain=null;
   if(historical){
     if(!allowHistoricalEventProof)fail('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH');
-    chain=continuity(events);
+    chain=deleted?deletedContinuity(events):continuity(events,row);
   }else if(row.revision!==revision||row.stateDigest!==expected)
     fail('SUBJECT_ORIGINAL_RESULT_STATE_MISMATCH');
   const reread=await readSubject(),secondStream=await readEvents(),second=match(secondStream);
   if(!equalStable(reread,row)||second.length!==1||
     !equalStable(second[0],ev)||
-    (historical&&!equalStable(continuity(secondStream),chain)))
+    (historical&&!equalStable(deleted?deletedContinuity(secondStream):
+      continuity(secondStream,row),chain)))
     fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
   return frozen({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
     state:historical?'APPLIED_HISTORICAL_EVENT_VERIFIED':'APPLIED_VERIFIED',
@@ -464,9 +508,12 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
     originalRecipientEventId:ev.event_id,originalRecipientRevision:revision,
     originalRecipientEventRevision:ev.revision??null,
     originalRecipientStateDigest:expected,sourceEventId:d.sourceEventId,
-    currentRecipientRevision:row.revision,originalBusinessApplied:true,
+    currentRecipientRevision:row?.revision??null,originalBusinessApplied:true,
     actualOriginalT3EventReadback:true,actualOriginalT3SubjectReadback:true,
     actualOriginalT3AssetReadback:asset,actualOriginalT3RelationReadback:!asset,
+    ...(deleted?{currentSubjectDeleted:true,
+      originalT3DeletionContinuationVerified:true,
+      originalDeletionRecipientEventId:chain.at(-1).event_id}:{}),
     ...(historical?{historicalStateFromOriginalEvent:true,
       currentObjectEqualsHistoricalState:false,historicalSubjectBytesReconstructed:false,
       originalT3EventContinuityVerified:true}:{}),
