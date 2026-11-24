@@ -231,3 +231,5 @@ body{min-width:0}
 
 .activity-domain-proposal .activity-domain-op .activity-domain-label{margin:4px 0;min-width:0}
 .activity-domain-proposal-gaps button{font:inherit;text-align:left;white-space:normal;overflow-wrap:anywhere;max-width:100%;margin:2px 0}
+
+.activity-domain-proposal .activity-domain-op[aria-pressed="true"]{border-color:#6483a6;background:#edf4ff}

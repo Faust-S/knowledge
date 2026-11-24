@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {PresidioReviewPanel} from './PresidioReviewPanel';
 import {prepareD05DisclosureCandidate,type D05DisclosureCandidate,type D05DraftProfile,
  type D05RouteGroup,type D05TechnologyProposalForm,type D05ParameterDecision,type D05DraftValue}
  from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
@@ -86,7 +87,8 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
       {scopeName(p.scope)}: {LABEL[p.field]??p.field}</button></li>)}</ul>
     </div>:null}
     <p>Незаполненных полей предложения: {candidate.missing_proposal_fields.length}. Нерешённых исходных требований: {candidate.unresolved_source_requirements.length}. Сохранено контрольных точек: {candidate.technology.quality_checks.length}.</p>
-    <p className="activity-v7-note hold">Подготовлен состав данных для последующей проверки. Никакая проверка ARX, Presidio или OpenDP пока не выполнялась. Это не анонимность и не разрешение передачи.</p>
+    <PresidioReviewPanel candidate={candidate}/>
+    <p className="activity-v7-note hold">Текстовая проверка не заменяет оценку уникальности графа, коммерческих сведений и статистических выпусков. Анонимность и право передачи не установлены.</p>
    </div>:null}
   </div>:null}
  </div>;

@@ -158,3 +158,12 @@ test('A4.3 parameterization decisions and candidate review remain in the current
  assert.match(disclosure,/Сформировать кандидат для проверки раскрытия/);
  assert.doesNotMatch(disclosure,/localStorage|sessionStorage|fetch\(|putObject\(|download=/);
 });
+
+test('A4.4 reads actual candidate-bound local Presidio result without automatic disclosure',()=>{
+ const panel=load('../desktop/src/PresidioReviewPanel.tsx'),disclosure=load('../desktop/src/TechnologyDisclosurePanel.tsx');
+ assert.match(disclosure,/<PresidioReviewPanel candidate=\{candidate\}/);
+ assert.match(panel,/await reviewPresidioTextScreening\(candidate,raw\)/);
+ assert.match(panel,/generation.current/);
+ assert.match(panel,/Это не подтверждает анонимность/);
+ assert.doesNotMatch(panel,/localStorage|sessionStorage|fetch\(|putObject\(|download=/);
+});
