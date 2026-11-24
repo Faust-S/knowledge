@@ -1,6 +1,7 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {encodeT4OriginalDeltaJson,digestT4OriginalObjectContent} from './original-object-delta.mjs';
-import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
+import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest,digestT4OriginalEventRecord}
+  from './original-event-window.mjs';
 import {runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
 
 const KIND='GRAPH_COMMIT',SCHEMA='IWXA_T4_ORIGINAL_GRAPH_DELTA_V1';
@@ -24,6 +25,10 @@ const bytes=encodeT4OriginalDeltaJson;
 const digest=x=>'sha256:'+packageSha256(bytes(x));
 const same=(a,b)=>a===undefined||b===undefined?a===b:bytes(a).equals(bytes(b));
 const canonical=x=>JSON.parse(bytes(x).toString('utf8'));
+const sameEvent=(a,b,workspaceId)=>digestT4OriginalEventRecord(a,workspaceId)===
+  digestT4OriginalEventRecord(b,workspaceId);
+const sameHistory=(a,b,workspaceId)=>a.length===b.length&&
+  a.every((event,i)=>sameEvent(event,b[i],workspaceId));
 const byId=(a,b)=>a.relation_id<b.relation_id?-1:a.relation_id>b.relation_id?1:0;
 const sorted=xs=>[...xs].sort(byId);
 const mode=p=>{if(p.getMode?.()!=='T4_NETWORK')fail('GRAPH_NETWORK_MODE_OFF');};
@@ -281,7 +286,7 @@ function prepare(intent,scope,event,window){
 function validateReceipt(receipt,expected,puts,deletes,event,scope,deduplicated=false){
   if(receipt?.workspace_id!==scope.workspaceId||!ID(receipt.transaction_id)||
     receipt.deduplicated!==deduplicated||receipt.transaction_id!==event.correlation_id||
-    !same(receipt.event,event)||
+    !sameEvent(receipt.event,event,scope.workspaceId)||
     !same(objectState({object:receipt.object},scope.workspaceId,scope.objectId),expected)||
     !Array.isArray(receipt.relations_put)||!Array.isArray(receipt.relation_ids_deleted)||
     !same(sorted(receipt.relations_put.map(r=>relation(r,scope.workspaceId,true))),puts)||
@@ -332,7 +337,7 @@ async function completeCapture(p,scope,intent,receipt=null){
   if(receipt===null&&existing!=null){
     const exact=verifyT4OriginalGraphCapture({intent,outbox:existing,event,window,nextCursor,
       prepared:decodeT4OriginalGraphDeltaBytes(Buffer.from(existing.bytesBase64,'base64'))});
-    if(!same(await history(p,scope),events))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+    if(!sameHistory(await history(p,scope),events,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
     await guard();
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_GRAPH_CAPTURE_RECEIPT_V1',captureRef:p.captureRef,
       originalReceipt:null,originalT3OutboxVerified:true,originalT3IsOnlyStore:true,
@@ -347,7 +352,7 @@ async function completeCapture(p,scope,intent,receipt=null){
   if(receipt!==null)validateReceipt(receipt,x.expected,x.puts,x.deletes,event,scope);
   checkAfter(await graphState(p,scope,graphIds(x.puts,x.deletes),endpoints([...x.puts,...x.deletes])),
     x.expected,x.puts,x.deletes);
-  if(!same(await history(p,scope),events))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+  if(!sameHistory(await history(p,scope),events,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
   await guard();
   const outbox={schema:OUTBOX,kind:KIND,captureRef:p.captureRef,workspaceId:scope.workspaceId,
     originalWriteOwnerRef:scope.originalWriteOwnerRef,subjectId:scope.objectId,
@@ -396,7 +401,7 @@ export async function captureT4OriginalGraphMutation(p={}){
     catch(error){fail('GRAPH_ORIGINAL_DEDUPLICATED_RECEIPT_UNAVAILABLE',{
       originalCode:error?.code??null,automaticRetryAllowed:false});}
     validateReceipt(receipt,original.expected,original.puts,original.deletes,event,scope,true);
-    if(!same(await history(p,scope),stream))fail('GRAPH_ORIGINAL_DEDUPLICATION_CHANGED_HISTORY');
+    if(!sameHistory(await history(p,scope),stream,scope.workspaceId))fail('GRAPH_ORIGINAL_DEDUPLICATION_CHANGED_HISTORY');
     await guard();
     return Object.freeze({...verified,originalReceipt:receipt,originalDeduplicatedReceiptVerified:true});
   }
@@ -434,14 +439,14 @@ export async function captureT4OriginalGraphMutation(p={}){
   reserve.graphContentDigest=digestT4OriginalGraphContent(reserve);verifyT4OriginalGraphDelta(reserve);
   if(bytes(intent).length>MAX)fail('GRAPH_INTENT_TOO_LARGE');
   await guard();
-  if(!same(await history(p,scope),stream))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+  if(!sameHistory(await history(p,scope),stream,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
   if(await p.persistOriginalIntent(intent)!==true||
     !same(await p.readOriginalIntent({...scope,captureRef:p.captureRef}),intent))
     fail('GRAPH_INTENT_NOT_DURABLE');
   await guard();
   checkBefore(await graphState(p,scope,graphIds(op.relation_puts,deleted),endpoints([...op.relation_puts,...deleted])),
     reserve.objectBeforeDigest,op.relation_puts,deleted);
-  if(!same(await history(p,scope),stream))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
+  if(!sameHistory(await history(p,scope),stream,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
   let receipt;
   try{receipt=await p.originalKernel.commitObjectGraph(traced);}
   catch(error){fail('GRAPH_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalCode:error?.code??null,
@@ -507,7 +512,7 @@ export async function inspectT4OriginalGraphResult(p={}){
   const state=await recipientState(p,d);
   if(!matches.length){
     checkBefore(state,d.objectBeforeDigest,d.relationPuts,d.relationDeletes);
-    if(!same(await history(p,scope),stream))fail('GRAPH_RECIPIENT_HISTORY_CHANGED');
+    if(!sameHistory(await history(p,scope),stream,scope.workspaceId))fail('GRAPH_RECIPIENT_HISTORY_CHANGED');
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',state:'NOT_APPLIED',
       originalBusinessApplied:false,historicalReceiptFabricated:false});
   }
@@ -518,7 +523,7 @@ export async function inspectT4OriginalGraphResult(p={}){
   // Do not claim historical graph state after another mutation. The
   // original current graph plus its exact commit Event must both agree.
   checkAfter(state,expectedFromDelta(d),d.relationPuts,d.relationDeletes);
-  if(!same(await history(p,scope),stream))fail('GRAPH_RECIPIENT_HISTORY_CHANGED');
+  if(!sameHistory(await history(p,scope),stream,scope.workspaceId))fail('GRAPH_RECIPIENT_HISTORY_CHANGED');
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',state:'APPLIED_VERIFIED',
     originalRecipientEventId:event.event_id,originalRecipientRevision:d.sourceRevision,
     originalRecipientStateDigest:d.graphContentDigest,sourceEventId:d.sourceEventId,

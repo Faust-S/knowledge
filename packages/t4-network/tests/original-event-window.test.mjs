@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
- readT4OriginalEventWindow,verifyT4OriginalRecipientAcknowledgement,
+ readT4OriginalEventWindow,verifyT4OriginalRecipientAcknowledgement,digestT4OriginalEventRecord,
 } from '../src/network/original-event-window.mjs';
 
 const workspaceId='workspace:original-owner',owner='t3:original:owner';
@@ -118,4 +118,14 @@ test('revocation while original T3 is reading stops the window before any data i
    readOriginalEvents:async()=>{reads++;current=false;return events;}
  }),code('ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED'));
  assert.equal(reads,1);
+});
+
+test('original EventRecord digest treats omitted optional metadata consistently with V1 window; null and real changes remain distinct',async()=>{
+ const raw={...events[0],causation_id:undefined,correlation_id:undefined};
+ const projected=JSON.parse(JSON.stringify(raw));
+ assert.equal(digestT4OriginalEventRecord(raw,workspaceId),digestT4OriginalEventRecord(projected,workspaceId));
+ assert.notEqual(digestT4OriginalEventRecord({...raw,causation_id:null},workspaceId),digestT4OriginalEventRecord(raw,workspaceId));
+ assert.notEqual(digestT4OriginalEventRecord({...raw,payload:{step:9}},workspaceId),digestT4OriginalEventRecord(raw,workspaceId));
+ const {window}=await run({readOriginalEvents:async()=>[raw]});
+ assert.equal(window.eventRefs[0].eventDigest,digestT4OriginalEventRecord(raw,workspaceId));
 });

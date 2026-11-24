@@ -28,6 +28,10 @@ function store(name){
   const event=(p,id,revision,extra={})=>({event_id:'event:k21:'+name+':'+(++seq),
     workspace_id:p.workspace_id,object_id:id,revision,event_type:p.event.event_type,
     service_id:'service:k21',occurred_at:new Date(Date.UTC(2026,10,24,0,0,seq)).toISOString(),
+    // Original EventRecord from the native Kernel includes optional fields
+    // with undefined values, including on ordinary historical putObject.
+    // JSON transport may omit the same fields on the next read.
+    causation_id:undefined,correlation_id:undefined,idempotency_key:undefined,
     payload:clone(p.event.payload??{}),...extra});
   function save(w,input){
     const key=objectKey(w,input.object_id),prior=objects.get(key);
@@ -308,4 +312,24 @@ test('K21 committed original graph is reconciled from its historical immutable O
   await assert.rejects(h.commitObjectGraph({mutationInput:{...input(),event:{event_type:'business.changed',payload:{}}},
     captureRef:'capture:k21:one'}),err('GRAPH_IDEMPOTENCY_PAYLOAD_MISMATCH'));
   assert.equal(f.graphInvocations,3);assert.equal(f.events.length,before);
+});
+
+test('K21 original EventRecord optional fields may be omitted on one read and undefined on another; strict wire still rejects non-JSON subject data',async()=>{
+  const f=await fixture(),read=f.kernel.listEventsSince;
+  let n=0;
+  f.kernel.listEventsSince=async w=>{
+    const rows=await read(w);
+    return ++n%2===0?JSON.parse(JSON.stringify(rows)):rows;
+  };
+  const first=await f.capture();
+  assert.equal(first.capture.originalT3OutboxVerified,true);
+  assert.equal(f.graphWrites,1);
+  const bad=input(2);bad.object.data.unserializable=undefined;
+  await assert.rejects(f.host().commitObjectGraph({mutationInput:bad,captureRef:'capture:k21:bad-json'}),
+    err('OBJECT_DELTA_NON_JSON'));
+  assert.equal(f.graphWrites,1);
+  assert.equal((await f.read('capture:k21:one')).prepared.sha256,first.capture.prepared.sha256);
+  const receiver=await recipientFixture(await f.read('capture:k21:one'));
+  assert.equal((await applyT4OriginalNetworkSubjectWithDurableIntent(receiver.args())).originalRecipientApplied,true);
+  assert.equal(receiver.graphWrites,1);
 });

@@ -30,6 +30,13 @@ const normalizeEvent=(event,workspaceId)=>{
     occurredAt:event.occurred_at,eventDigest});
 };
 
+// EventRecord permits omitted optional fields. Reuse the existing V1 Event
+// digest for original readback comparisons; the strict subject wire codec
+// remains independent and must never accept arbitrary non-JSON values.
+export function digestT4OriginalEventRecord(event,workspaceId){
+  return normalizeEvent(event,workspaceId).eventDigest;
+}
+
 /**
  * Compare an ORIGINAL captured Window against a fresh prefix read. The
  * only permitted historical difference is hasMore=false -> true. Rehash
