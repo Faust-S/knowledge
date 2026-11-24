@@ -1,0 +1,12 @@
+import type {D05DraftValue} from './d05-route-comparison.mjs';
+export type D05RecurringFamily={family_id:string;technical_sha256:string;source_sha256:string;member_count:number;
+ model_numbers:number[];representative_model_number:number;operation_count:number;control_count:number;
+ technical_condition_count:number;unknown_technical_conditions:string[];
+ route_planning_declarations:Array<{field:string;observations:Array<{value:D05DraftValue;count:number}>;distinct_count:number}>;
+ recurrence:'REPEATED_MATCHING_DECLARATIONS'|'SINGLE_DECLARATION';qualification:'SOURCE_DECLARATIONS_ONLY'};
+export type D05RecurringReview={status:'LOCAL_D05_RECURRING_TECHNOLOGY_REVIEW';group_id:string;model_count:number;
+ family_count:number;repeated_family_count:number;families:D05RecurringFamily[];
+ excluded_models:Array<{model_number:number;reason:'INCOMPLETE_SOURCE_CONTROL_MAPPING'}>;
+ execution_evidence:'NOT_ESTABLISHED';technology_equivalence:'NOT_ESTABLISHED';source_authority:'UNVERIFIED_LOCAL_PROJECTION';
+ export_allowed:false;iwxa_package:null};
+export function reviewD05RecurringTechnologies(review:unknown,groupId:string):Promise<D05RecurringReview>;

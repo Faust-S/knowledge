@@ -5,6 +5,7 @@ import {ActivityHold,sha256Canonical} from './engine.mjs';
 import {prepareD05TechnologyProposal,prepareD05DisclosureCandidate} from './d05-route-comparison.mjs';
 import {suggestD05ParameterDecisions} from './d05-adaptation-suggestions.mjs';
 import {prepareD05TechnologyProduct} from './technology-product.mjs';
+import {reviewD05RecurringTechnologies} from './d05-recurring-technology.mjs';
 export const REQUEST='IWXA_ACTIVITY_D05_EXTRACTION_REQUEST_V1';
 export const PROPOSAL='IWXA_ACTIVITY_D05_EXTRACTION_PROPOSAL_V1';
 const TERMS=['purpose','inputs','outputs','applicability','adaptation_guidance','local_context_guidance'];
@@ -31,7 +32,8 @@ const canonical=v=>Array.isArray(v)?v.map(canonical):v!==null&&typeof v==='objec
  Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
 const serial=v=>JSON.stringify(canonical(v));
 const fieldId=(scope,field)=>scope+'.'+field;
-export async function prepareD05ExtractionRequest(review,groupId,modelNumber){
+export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{includeCompatibleDeclarations=false}={}){
+ need(typeof includeCompatibleDeclarations==='boolean','TECHNOLOGY_D05_EXTRACTION_SCOPE_INVALID');
  const initial=prepareD05TechnologyProposal(review,groupId,modelNumber,{});
  const group=review.groups.find(g=>g.id===groupId);
  const draft=review.technology_draft.groups.find(g=>g.group_id===groupId);
@@ -42,9 +44,24 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber){
  // Explicit pilot limit. Larger routes need separately qualified extraction
  // by slices, not silent truncation or partial control removal.
  need(group.operations.length<=32&&profile.checks.length<=64,'TECHNOLOGY_D05_EXTRACTION_SELECTION_LIMIT');
+ let compatible=null;
+ if(includeCompatibleDeclarations){
+  const recurring=await reviewD05RecurringTechnologies(review,groupId);
+  const family=recurring.families.find(f=>f.model_numbers.includes(modelNumber));
+  if(family?.member_count>1){
+   // The family contains exact original declaration bundles. Only summary
+   // statistics for recipient planning are projected into the model input.
+   compatible={source_sha256:family.source_sha256,member_count:family.member_count,
+    technical_condition_count:family.technical_condition_count,control_count:family.control_count,
+    unknown_technical_conditions:family.unknown_technical_conditions,
+    variable_route_planning:family.route_planning_declarations.filter(v=>v.distinct_count>1),
+    meaning:'REPEATED_DECLARATIONS_NOT_EXECUTION_OR_TECHNICAL_RANGE'};
+  }
+ }
  const source={group:{basis:group.basis,operations:group.operations,model_count:group.model_count},
   profile,shared_condition_keys:draft.shared_condition_keys,differing_condition_keys:draft.differing_condition_keys,
-  unresolved_condition_keys:draft.unresolved_condition_keys,shared_check_count:draft.shared_check_count};
+  unresolved_condition_keys:draft.unresolved_condition_keys,shared_check_count:draft.shared_check_count,
+  ...(compatible?{compatible_declarations:compatible}:{})};
  const source_sha256=await sha256Canonical(source);
  const evidence=[],fields=[];
  const add=(scope,field,value,kind='DECLARED')=>{
@@ -55,6 +72,7 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber){
  };
  const field=(scope,k)=>fields.push({id:fieldId(scope,k),scope,field:k,instruction:HINTS[k]});
  for(const k of ['title',...TERMS])field('technology',k);
+ if(compatible)add('technology','compatible_declarations',compatible);
  for(const c of profile.conditions)add(c.scope,c.field,c.value);
  for(const op of group.operations){
   for(const k of OP)field(op.id,k);
@@ -70,7 +88,8 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber){
  for(const c of initial.unresolved_source_requirements)add('technology','source_gap',c,'GAP');
  const document={profile:REQUEST,source_sha256,source_semantics:'DECLARED_CONDITIONS_NOT_EXECUTION',
   comparison:{model_count:group.model_count,shared_condition_keys:draft.shared_condition_keys,
-   differing_condition_keys:draft.differing_condition_keys,unresolved_condition_keys:draft.unresolved_condition_keys},
+   differing_condition_keys:draft.differing_condition_keys,unresolved_condition_keys:draft.unresolved_condition_keys,
+   ...(compatible?{compatible_declarations:compatible}:{})},
   fields,evidence,quality_links:profile.checks.map(c=>({scope:c.id,operation:c.operation_id}))};
  const document_text=serial(document);
  need(new TextEncoder().encode(document_text).byteLength<=42000,'TECHNOLOGY_D05_EXTRACTION_MODEL_INPUT_LIMIT');
@@ -85,8 +104,8 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber){
  return {document,document_text,request_sha256,source_sha256,objective,field_count:fields.length,
   export_allowed:false,iwxa_package:null};
 }
-export async function reviewD05ExtractionProposal(review,groupId,modelNumber,proposal){
- const request=await prepareD05ExtractionRequest(review,groupId,modelNumber);
+export async function reviewD05ExtractionProposal(review,groupId,modelNumber,proposal,options){
+ const request=await prepareD05ExtractionRequest(review,groupId,modelNumber,options);
  const {document}=request;
  need(exact(proposal,['profile','request_sha256','fields'])&&proposal.profile===PROPOSAL&&
   proposal.request_sha256===request.request_sha256&&exact(proposal.fields,document.fields.map(f=>f.id)),

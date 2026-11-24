@@ -256,3 +256,52 @@ test('quality benchmark separately measures declared evidence grounding and exac
  assert.equal(report.product_constructed,true);assert.equal(report.technical_controls_preserved,true);
  assert.equal(report.semantic_equivalence,'REQUIRES_SPECIALIST_REVIEW');assert.equal(report.export_allowed,false);
 });
+
+import {reviewD05RecurringTechnologies} from '../modules/activity-base-anonymizer/d05-recurring-technology.mjs';
+function recurringRecords(){
+ const source=fresh(),rs=source.filter(x=>x.object.schema_id.endsWith('.operation-route'));
+ const checks=source.filter(x=>x.object.schema_id.endsWith('.quality-check-template'));
+ const a=rs[0].object.data.value.data.inputs,b=rs[1].object.data.value.data.inputs;
+ for(let i=0;i<a.operations.length;i++)b.operations[i].duration=a.operations[i].duration;
+ for(const field of ['lower_limit','target_value','upper_limit'])checks[1].object.data.value[field]=checks[0].object.data.value[field];
+ b.quantity='240';return source;
+}
+test('recurring family never merges different operation durations or acceptance tolerances',async()=>{
+ const r=review(fresh()),g=r.groups[0],v=await reviewD05RecurringTechnologies(r,g.id);
+ assert.equal(v.family_count,2);assert.equal(v.repeated_family_count,0);
+ assert.equal(v.execution_evidence,'NOT_ESTABLISHED');
+ const single=await prepareD05ExtractionRequest(r,g.id,1),family=await prepareD05ExtractionRequest(r,g.id,1,{includeCompatibleDeclarations:true});
+ assert.equal(single.request_sha256,family.request_sha256);
+});
+test('matching technical declarations are extracted together while recipient planning remains variable',async()=>{
+ const r=review(recurringRecords()),g=r.groups[0],v=await reviewD05RecurringTechnologies(r,g.id),family=v.families[0];
+ assert.equal(v.family_count,1);assert.equal(family.member_count,2);
+ assert.deepEqual(family.model_numbers,[1,2]);assert.equal(family.control_count,1);
+ const q=family.route_planning_declarations.find(x=>x.field==='quantity');
+ assert.equal(q.distinct_count,2);assert.deepEqual(q.observations,[{value:'120',count:1},{value:'240',count:1}]);
+ const single=await prepareD05ExtractionRequest(r,g.id,1),request=await prepareD05ExtractionRequest(r,g.id,1,{includeCompatibleDeclarations:true});
+ assert.notEqual(single.request_sha256,request.request_sha256);
+ assert.equal(request.document.comparison.compatible_declarations.member_count,2);
+ assert.equal(request.document.comparison.compatible_declarations.meaning,'REPEATED_DECLARATIONS_NOT_EXECUTION_OR_TECHNICAL_RANGE');
+ assert.equal(request.field_count,single.field_count);
+ assert.ok(request.document.evidence.some(e=>e.field==='compatible_declarations'));
+ const form=formFor(r),fields=Object.fromEntries(request.document.fields.map(f=>{
+  const value=f.id==='technology.title'?'Изготовление детали':f.scope==='technology'?form[f.field]:
+   f.field==='responsible_role'?form.quality_roles[f.scope]:form.operations[f.scope][f.field];
+  return [f.id,{value,basis:'PROPOSED',refs:[],note:'Предметная проверка'}];
+ }));
+ const proposal={profile:PROPOSAL,request_sha256:request.request_sha256,fields};
+ const result=await reviewD05ExtractionProposal(r,g.id,1,proposal,{includeCompatibleDeclarations:true});
+ assert.ok(result.product);assert.equal(result.product.object_data.technology.quality_checks[0].declared_fields.find(f=>f.field==='upper_limit').value,'100.2');
+ await assert.rejects(()=>reviewD05ExtractionProposal(r,g.id,1,proposal),{code:'TECHNOLOGY_D05_EXTRACTION_REQUEST_CHANGED'});
+ const changed=recurringRecords(),route=changed.filter(x=>x.object.schema_id.endsWith('.operation-route'))[1];
+ route.object.data.value.data.inputs.quantity='360';
+ const updated=review(changed);
+ await assert.rejects(()=>reviewD05ExtractionProposal(updated,updated.groups[0].id,1,proposal,{includeCompatibleDeclarations:true}),{code:'TECHNOLOGY_D05_EXTRACTION_REQUEST_CHANGED'});
+});
+test('same graph and duration but changed normative tolerance forms a different family',async()=>{
+ const data=recurringRecords(),checks=data.filter(x=>x.object.schema_id.endsWith('.quality-check-template'));
+ checks[1].object.data.value.upper_limit='100.3';
+ const r=review(data),v=await reviewD05RecurringTechnologies(r,r.groups[0].id);
+ assert.equal(v.family_count,2);assert.equal(v.repeated_family_count,0);
+});

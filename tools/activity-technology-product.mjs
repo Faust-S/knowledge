@@ -9,6 +9,9 @@ const exact=(v,keys)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).
 const operations={
  '--generalization-prepare':{keys:['preview','reports','language'],run:v=>prepareProductGeneralization(v.preview,v.reports,v.language)},
  '--generalization-apply':{keys:['preview','reports','choices'],run:v=>applyProductGeneralization(v.preview,v.reports,v.choices)},
+ '--d05-recurring-review':{keys:['review','group_id'],run:async v=>(await import('../modules/activity-base-anonymizer/d05-recurring-technology.mjs')).reviewD05RecurringTechnologies(v.review,v.group_id)},
+ '--d05-recurring-extraction-request':{keys:['review','group_id','model_number'],run:v=>prepareD05ExtractionRequest(v.review,v.group_id,v.model_number,{includeCompatibleDeclarations:true})},
+ '--d05-recurring-extraction-review':{keys:['review','group_id','model_number','proposal'],run:v=>reviewD05ExtractionProposal(v.review,v.group_id,v.model_number,v.proposal,{includeCompatibleDeclarations:true})},
  '--d05-extraction-request':{keys:['review','group_id','model_number'],run:v=>prepareD05ExtractionRequest(v.review,v.group_id,v.model_number)},
  '--d05-extraction-review':{keys:['review','group_id','model_number','proposal'],run:v=>reviewD05ExtractionProposal(v.review,v.group_id,v.model_number,v.proposal)},
  '--personal-extraction-request':{keys:['source'],run:v=>preparePersonalExtractionRequest(v.source)},
