@@ -166,6 +166,7 @@ it("typed original permission denial is NEVER converted to missing or signed cre
   </SignedSelectedWorkspaceGate>);
   const msg=await screen.findByTestId("t3-d1-selected-workspace-message");
   expect(msg.textContent).toMatch(/Control не подтвердил/);
+  expect(screen.getByTestId("t3-d1-selected-workspace-diagnostic").textContent).toContain("READ_KERNEL: PERMISSION_DENIED");
   expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
   expect(screen.queryByTestId("denied-original-content")).toBeNull();
   expect(createWorkspace).not.toHaveBeenCalled();
@@ -398,4 +399,41 @@ it("D7 clean-install age restore offers original Kernel preview only if native o
   </SignedSelectedWorkspaceGate>);
   expect(screen.queryByTestId("import-age-protected")).toBeNull();
   expect(importPreview).not.toHaveBeenCalled();
+});
+
+
+it("signed first-run refuses to create a different workspace or organization than its confirmed read",async()=>{
+  for(const foreign of [{workspace_id:"ws:other",resource:"ws:other",organization_id:"org:company"},
+    {workspace_id:"ws:selected",resource:"ws:selected",organization_id:"org:other"}]){
+    const getWorkspace=vi.fn(async()=>null),createWorkspace=vi.fn();
+    const value={getWorkspace,createWorkspace,hasOperation:()=>true} as unknown as KernelFacade;
+    const resolver=vi.fn(async(operation:string)=>({kind:"CORP" as const,
+      workspace_id:"ws:selected",resource:"ws:selected",organization_id:"org:company",
+      ...(operation==="createWorkspace"?foreign:{})}));
+    const view=render(<SignedSelectedWorkspaceGate required kernel={value}
+      profile="generic" autoCreateSignedCorporate={false} trustedSelectedContext={resolver}>
+      <p data-testid="foreign-ready">Wrong subject</p>
+    </SignedSelectedWorkspaceGate>);
+    await screen.findByTestId("t3-d1-selected-workspace-message");
+    fireEvent.click(screen.getByTestId("t3-d1-create-selected-workspace"));
+    await screen.findByTestId("t3-d1-create-workspace-error");
+    expect(createWorkspace).not.toHaveBeenCalled();
+    expect(getWorkspace).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("foreign-ready")).toBeNull();
+    view.unmount();
+  }
+});
+it("first-run diagnostic never exposes untyped private exception detail or treats it as absence",async()=>{
+  const getWorkspace=vi.fn(async()=>{throw Object.assign(Error("secret subject path"),{code:"arbitrary detail"})});
+  const createWorkspace=vi.fn();
+  const kernel={getWorkspace,createWorkspace,hasOperation:()=>true} as unknown as KernelFacade;
+  render(<SignedSelectedWorkspaceGate required kernel={kernel} profile="generic"
+    trustedSelectedContext={async()=>({kind:"CORP",workspace_id:"ws:one",resource:"ws:one",organization_id:"org:one"})}>
+    <p data-testid="hidden-uncertain-workspace">Wrong</p>
+  </SignedSelectedWorkspaceGate>);
+  const diagnostic=await screen.findByTestId("t3-d1-selected-workspace-diagnostic");
+  expect(diagnostic.textContent).toContain("READ_KERNEL: T3_D1_SELECTED_WORKSPACE_UNVERIFIED");
+  expect(diagnostic.textContent).not.toMatch(/secret|arbitrary/);
+  expect(createWorkspace).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("t3-d1-create-selected-workspace")).toBeNull();
 });

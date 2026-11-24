@@ -13,7 +13,32 @@ import {PublisherLicensePanel} from "@/modules/exchange/features/packages/Publis
 
 type SignedResolver=CreateWorkspaceHostRuntimeInput["signedKernelAccess"];
 type Phase="checking"|"ready"|"missing"|"denied";
-interface Inspection {kernel:KernelFacade|null;phase:Phase}
+type FirstRunStage="READ_CONTEXT"|"READ_KERNEL"|"VERIFY_RECORD"|"LIST_KERNEL";
+type SelectedScope=Readonly<{kind:"CORP"|"PERSONAL";workspace_id:string;resource:string;organization_id:string|null}>;
+type Inspection={kernel:KernelFacade|null;phase:Phase;scope?:SelectedScope;
+  failure?:{stage:FirstRunStage;code:string}};
+function failureCode(error:unknown):string {
+  // Only bounded original protocol codes. Never expose a path, bearer, key,
+  // exception text or other subject data on the installed UI surface.
+  const code=(error as {code?:unknown}|null)?.code;
+  return typeof code==="string"&&
+    (/^T3_[A-Z0-9_]{3,96}$/.test(code)||
+      ["WORKSPACE_NOT_FOUND","PERMISSION_DENIED","OPERATION_NOT_GRANTED","KERNEL_UNAVAILABLE"].includes(code))
+    ?code:"T3_D1_SELECTED_WORKSPACE_UNVERIFIED";
+}
+function selectedScope(value:{kind?:unknown;workspace_id?:unknown;resource?:unknown;
+  organization_id?:unknown}|null|undefined):SelectedScope|null{
+  if((value?.kind!=="CORP"&&value?.kind!=="PERSONAL")||
+     typeof value.workspace_id!=="string"||!ID.test(value.workspace_id)||
+     value.resource!==value.workspace_id||
+     (value.kind==="PERSONAL"?value.organization_id!==null:
+       typeof value.organization_id!=="string"||!ID.test(value.organization_id)))return null;
+  return Object.freeze({kind:value.kind,workspace_id:value.workspace_id,resource:value.workspace_id,
+    organization_id:value.organization_id as string|null});
+}
+const sameScope=(left:SelectedScope,right:SelectedScope)=>
+  left.kind===right.kind&&left.organization_id===right.organization_id&&
+  left.workspace_id===right.workspace_id&&left.resource===right.resource;
 type FirstRunExchange=Readonly<{
   kernel:KernelFacade;
   commands:CommandsFacade;
@@ -66,22 +91,21 @@ export function SignedSelectedWorkspaceGate({
     // The installed original Control has no generic listWorkspaces grant.
     // Its signed getWorkspace context selects ONE exact Workspace ID.
     // Do not enumerate other organizations as a first-run prerequisite.
+    let stage:FirstRunStage=trustedSelectedContext?"READ_CONTEXT":"LIST_KERNEL";
     void (async()=>{
       if(trustedSelectedContext){
-        const context=await trustedSelectedContext("getWorkspace");
-        const selected=context?.workspace_id;
-        if(!["CORP","PERSONAL"].includes(String(context?.kind))||
-           (context?.kind==="PERSONAL"&&context.organization_id!==null)||
-           typeof selected!=="string"||!ID.test(selected)||
-           context?.resource!==selected)
-          throw denied("T3_D1_SELECTED_CONTEXT_NOT_TRUSTED");
+        const context=selectedScope(await trustedSelectedContext("getWorkspace"));
+        if(!context)throw denied("T3_D1_SELECTED_CONTEXT_NOT_TRUSTED");
+        if(ticket!==generation.current)return;
+        const selected=context.workspace_id;
+        stage="READ_KERNEL";
         const original=await readSelectedBeforeWrite(kernel,selected);
         if(ticket!==generation.current)return;
+        stage="VERIFY_RECORD";
         if(original&&(original.workspace_id!==selected||
-            original.deleted_at||Boolean(profile&&original.profile!==profile))){
-          setInspection({kernel,phase:"denied"});return;
-        }
-        setInspection({kernel,phase:original?"ready":"missing"});
+            original.deleted_at||Boolean(profile&&original.profile!==profile)))
+          throw denied("T3_D1_WORKSPACE_READBACK_MISMATCH");
+        setInspection({kernel,phase:original?"ready":"missing",scope:context});
         return;
       }
       // Other existing signed Hosts keep their original bounded discovery.
@@ -89,12 +113,12 @@ export function SignedSelectedWorkspaceGate({
       if(ticket!==generation.current)return;
       if(!Array.isArray(rows)||rows.length>1||
          rows.some(row=>!row||typeof row.workspace_id!=="string")){
-        setInspection({kernel,phase:"denied"});return;
+        throw denied("T3_D1_WORKSPACE_LIST_UNVERIFIED");
       }
       setInspection({kernel,phase:rows.length===1&&!rows[0].deleted_at
         ? "ready":"missing"});
-    })().catch(()=>{
-      if(ticket===generation.current)setInspection({kernel,phase:"denied"});
+    })().catch(error=>{
+      if(ticket===generation.current)setInspection({kernel,phase:"denied",failure:{stage,code:failureCode(error)}});
     });
     return ()=>{generation.current++;};
   },[required,kernel,retry,trustedSelectedContext,profile]);
@@ -121,19 +145,20 @@ export function SignedSelectedWorkspaceGate({
               organization_id?:unknown}|null;
           })();
       if(!context)throw denied("T3_D1_WORKSPACE_CREATE_GRANT_REQUIRED");
-      const selected=context?.workspace_id;
-      if(!["CORP","PERSONAL"].includes(String(context?.kind))||
-         (context?.kind==="PERSONAL"&&context.organization_id!==null)||
-         typeof selected!=="string"||!ID.test(selected)||
-         context.resource!==selected)
-        throw denied("T3_D1_CREATE_CONTEXT_NOT_TRUSTED");
+      const scope=selectedScope(context);
+      if(!scope)throw denied("T3_D1_CREATE_CONTEXT_NOT_TRUSTED");
+      if(ticket!==generation.current)return;
+      if(trustedSelectedContext&&(!inspection.scope||!sameScope(inspection.scope,scope)))
+        throw denied("T3_D1_CREATE_SCOPE_CHANGED");
+      const selected=scope.workspace_id;
       if(!profile||!kernel.hasOperation("t1.createWorkspace"))
         throw denied("T3_D1_KERNEL_CREATE_UNAVAILABLE");
       // Stable Admin-selected ID handles uncertain write acknowledgement.
       // Re-read before any write, never create another Workspace ID.
       const previous=await readSelectedBeforeWrite(kernel,selected);
+      if(ticket!==generation.current)return;
       if(previous){
-        if(previous.deleted_at||previous.profile!==profile)
+        if(previous.workspace_id!==selected||previous.deleted_at||previous.profile!==profile)
           throw denied("T3_D1_WORKSPACE_READBACK_MISMATCH");
       }else{
         let uncertain:unknown=null;
@@ -142,6 +167,7 @@ export function SignedSelectedWorkspaceGate({
           if(!receipt||receipt.workspace_id!==selected||receipt.profile!==profile)
             throw denied("T3_D1_WORKSPACE_RECEIPT_MISMATCH");
         }catch(e){uncertain=e;}
+        if(ticket!==generation.current)return;
         const observed=await kernel.getWorkspace(selected);
         if(!observed){
           if(uncertain)throw uncertain;
@@ -152,18 +178,20 @@ export function SignedSelectedWorkspaceGate({
           throw denied("T3_D1_WORKSPACE_READBACK_MISMATCH");
       }
       if(ticket!==generation.current)return;
-      setInspection({kernel,phase:"ready"});
+      setInspection({kernel,phase:"ready",scope});
     }catch(e){
       if(ticket!==generation.current)return;
-      const code=e&&typeof e==="object"&&"code" in e?String(e.code):"";
+      const code=failureCode(e);
       setCreateError(code==="T3_D1_WORKSPACE_CREATE_GRANT_REQUIRED"
         ? "Администратор не выдал отдельное подписанное право создания Workspace. Запросите его в Control и откройте Workspace заново."
-        : "Не удалось подтвердить создание в исходном Kernel. Проверьте полномочия и нажмите «Проверить повторно». Новая область автоматически не создаётся.");
+        : code==="T3_D1_CREATE_SCOPE_CHANGED"
+          ? "Выбранная область изменилась. Проверьте её повторно. Создание не выполнялось."
+          : "Не удалось подтвердить создание в исходном Kernel. Проверьте полномочия и нажмите «Проверить повторно». Новая область автоматически не создаётся. ("+code+")");
     }finally{
       running.current=false;
       if(ticket===generation.current)setBusy(false);
     }
-  },[required,kernel,signedKernelAccess,trustedSelectedContext,profile,phase]);
+  },[required,kernel,signedKernelAccess,trustedSelectedContext,profile,phase,inspection.scope]);
 
   // The employee's original signed company key opens/creates its one T2
   // Workspace. No second manual create action is required when the ORIGINAL
@@ -176,11 +204,12 @@ export function SignedSelectedWorkspaceGate({
     let active=true;
     const ticket=generation.current;
     void (async()=>{
-      const context=await trustedSelectedContext("createWorkspace");
-      if(!active||ticket!==generation.current||context?.kind!=="CORP"||
-         typeof context.organization_id!=="string"||
-         typeof context.workspace_id!=="string"||!ID.test(context.workspace_id)||
-         context.resource!==context.workspace_id)return;
+      const context=selectedScope(await trustedSelectedContext("createWorkspace"));
+      if(!active||ticket!==generation.current||context?.kind!=="CORP")return;
+      if(!inspection.scope||!sameScope(inspection.scope,context)){
+        setCreateError("Выбранная область изменилась. Проверьте её повторно. Создание не выполнялось.");
+        return;
+      }
       const key=[context.organization_id,context.workspace_id,profile].join("\u0000");
       let seen=attemptedSignedCreate.current.get(kernel);
       if(!seen){seen=new Set<string>();attemptedSignedCreate.current.set(kernel,seen);}
@@ -190,7 +219,7 @@ export function SignedSelectedWorkspaceGate({
     })().catch(()=>{}); // No unsigned fallback and no unobserved retry
     return ()=>{active=false;};
   },[autoCreateSignedCorporate,required,kernel,phase,profile,
-      trustedSelectedContext,create]);
+      trustedSelectedContext,create,inspection.scope]);
 
   if(!required)return <>{children}</>;
   if(phase==="ready")return <>{children}</>;
@@ -207,6 +236,8 @@ export function SignedSelectedWorkspaceGate({
               ? "Для выбранного профиля пока нет рабочей области в исходном Kernel. При наличии отдельного разрешения её можно создать здесь."
               : "Control не подтвердил чтение выбранной Workspace. Проверьте профиль и его полномочия в локальном Control."}
           </p>
+          {phase==="denied"&&inspection.failure&&<p data-testid="t3-d1-selected-workspace-diagnostic"
+            className="text-xs text-slate-300">IWXA: {inspection.failure.stage}: {inspection.failure.code}</p>}
           {createError&&<p role="alert" data-testid="t3-d1-create-workspace-error"
             className="text-sm text-amber-300">{createError}</p>}
           {phase==="missing"&&(signedKernelAccess||trustedSelectedContext)&&
