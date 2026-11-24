@@ -424,3 +424,31 @@ test('legacy policy admission rejects an outdated original registry digest witho
  assert.equal(s.kernel.calls.length,before);
  assert.equal((await s.owner.viewCorporateSeats()).seatPolicyReady,false);
 });
+
+test('verified original employee roster and lost-ACK recovery are read-only across restart',async()=>{
+ const s=await seatFixture(),[alice,bob]=s.employees;
+ const initial=await s.owner.viewCorporateSeats();
+ assert.equal(initial.eligibleEmployees.length,3);
+ assert.ok(initial.eligibleEmployees.every(x=>!x.reserved));
+ const a=await s.command('ASSIGN','cmd:readback:alice',alice);
+ const baseline=s.kernel.calls.length;
+ let receipt=await s.owner.readCorporateSeatCommand(a);
+ assert.equal(receipt.outcome,'NOT_COMMITTED');assert.equal(receipt.automaticRetryAllowed,false);
+ assert.equal(s.kernel.calls.length,baseline);
+ const committed=await s.owner.changeCorporateSeat(a);
+ s.cold();
+ receipt=await s.owner.readCorporateSeatCommand(a);
+ assert.equal(receipt.outcome,'ALREADY_COMMITTED');assert.equal(receipt.grantId,committed.grantId);
+ assert.equal(receipt.view.eligibleEmployees.find(x=>x.personId===alice.personId).reserved,true);
+ assert.equal(s.kernel.calls.length,baseline+1);
+ const release=await s.command('RELEASE','cmd:readback:release',null,committed.grantId);
+ await s.owner.changeCorporateSeat(release);s.cold();
+ receipt=await s.owner.readCorporateSeatCommand(release);
+ assert.equal(receipt.outcome,'ALREADY_COMMITTED');assert.equal(receipt.releasedGrantId,committed.grantId);
+ assert.equal(receipt.view.eligibleEmployees.find(x=>x.personId===alice.personId).reserved,false);
+ assert.equal(s.kernel.calls.length,baseline+2);
+ const stale={...a,commandId:'cmd:readback:unseen',employeePersonId:bob.personId,enrollmentId:bob.enrollmentId};
+ assert.equal((await s.owner.readCorporateSeatCommand(stale)).outcome,'OUTCOME_UNKNOWN');
+ await assert.rejects(s.owner.readCorporateSeatCommand({...a,employeePersonId:bob.personId}),/CORP_SEAT_COMMAND_REUSE_CONFLICT/);
+ assert.equal(s.kernel.calls.length,baseline+2);
+});

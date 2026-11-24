@@ -54,7 +54,7 @@ function seatRows(state,org,t){
  const occupied=rows.filter(x=>x.reserved);
  insist(new Set(occupied.map(x=>x.personId)).size===occupied.length,
    'CORP_SEAT_DUPLICATE_PERSON_RESERVATION');
- const members=new Set();
+ const members=new Set(),memberCandidates=[];
  for(const env of Object.values(state.grants)){
   const g=env.payload;
   if(g.principalId===org.organizationId&&g.authorityId===org.issuerAuthorityId&&
@@ -65,10 +65,15 @@ function seatRows(state,org,t){
    insist(entry,'CORP_SEAT_EMPLOYEE_STATUS_UNKNOWN');
    if(['ACTIVE','SUSPENDED'].includes(entry.state)){
      verifiedChain(g.id,state,t);members.add(g.holderId);
+     if(entry.state==='ACTIVE'){
+       const refs=g.evidenceRefs.filter(x=>x.startsWith('employee-enrollment:'));
+       insist(refs.length===1,'CORP_SEAT_EMPLOYEE_ENROLLMENT_EVIDENCE_INVALID');
+       memberCandidates.push({personId:g.holderId,enrollmentId:identifier(refs[0].slice('employee-enrollment:'.length))});
+     }
    }
   }
  }
- return {status,rows,occupied,employeeCount:members.size};
+ return {status,rows,occupied,employeeCount:members.size,memberCandidates};
 }
 function memberForSeat(state,org,row,status,t){
  const g=state.grants[row.workGrantId]?.payload;
@@ -125,12 +130,29 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
     'CORP_SEAT_ORGANIZATION_AUTHORITY_REQUIRED');
   return {state,snapshot:seatRows(state,org,t)};
  };
- const projectView=(state,snapshot,license)=>{
+ const projectView=async(state,snapshot,license,t)=>{
    const ready=corporateSeatPolicyReady(state.policy,org.issuerAuthorityId);
    const capacity=capacityView(license,snapshot);
+   const employees=[],seen=new Set();
+   for(const target of snapshot.memberCandidates){
+     let m;
+     try{
+       m=await resolveEnrollment({saved:state,employeePersonId:target.personId,
+         enrollmentId:target.enrollmentId,at:t,signEnrollment:false});
+       insist(m?.originalSigned===true&&m.organizationId===org.organizationId&&
+         m.employeePersonId===target.personId&&m.enrollmentId===target.enrollmentId,
+         'CORP_SEAT_ORIGINAL_ENROLLMENT_REQUIRED');
+       memberForSeat(state,org,{...target,workGrantId:m.grantIds.work,
+         credentialKeyId:m.credentialPublicKeyRef},snapshot.status,t);
+     }catch{continue;}
+     insist(!seen.has(target.personId),'CORP_SEAT_EMPLOYEE_ENROLLMENT_CONFLICT');
+     seen.add(target.personId);
+     employees.push({...target,reserved:snapshot.occupied.some(x=>x.personId===target.personId)});
+   }
+   employees.sort((a,b)=>a.personId.localeCompare(b.personId));
    return Object.freeze({organizationId:org.organizationId,registryDigest:digest(state),
      ...capacity,seatPolicyReady:ready,availableSeats:ready?capacity.availableSeats:0,
-     assignments:copy(snapshot.rows),
+     assignments:copy(snapshot.rows),eligibleEmployees:employees,
      // This is an original allocation, not admission of an installed Agent.
      productionActivation:false});
  };
@@ -138,7 +160,7 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
    identifier(managerPersonId);identifier(managerGrantId);
    const t=time(),{state,snapshot}=await read(t);
    if(corporateSeatPolicyReady(state.policy,org.issuerAuthorityId))
-     return Object.freeze({outcome:'ALREADY_ENABLED',view:projectView(state,snapshot,await commercial(t))});
+     return Object.freeze({outcome:'ALREADY_ENABLED',view:await projectView(state,snapshot,await commercial(t),t)});
    insist(digest(state)===expectedRegistryDigest,'CORP_SEAT_REGISTRY_CHANGED');
    const manager=state.grants[managerGrantId]?.payload;
    insist(manager?.holderId===managerPersonId&&manager.authorityId===org.issuerAuthorityId&&
@@ -160,9 +182,9 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
  }
  async function view(){
   const t=time(),{state,snapshot}=await read(t);
-  return projectView(state,snapshot,await commercial(t));
+  return await projectView(state,snapshot,await commercial(t),t);
  }
- async function change(input){
+ function commandDetails(input){
   insist(input&&Object.getPrototypeOf(input)===Object.prototype&&
    Object.keys(input).sort().join()===['kind','commandId','expectedRegistryDigest',
     'expectedLicenseDigest','managerPersonId','managerGrantId',
@@ -182,7 +204,10 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
   const commandPrefix='seat-command:'+digest(input.commandId)+':';
   const commandRef=commandPrefix+digest(input);
   const grantId='grant:seat:'+digest([org.organizationId,input.commandId]);
-  const t=time(),{state,snapshot}=await read(t);
+  return {input,assign,release,commandPrefix,commandRef,grantId};
+ }
+ function committedCommand(state,snapshot,command){
+  const {input,assign,release,commandPrefix,commandRef,grantId}=command;
   const old=state.grants[grantId]?.payload;
   const seen=snapshot.status.entries.filter(e=>e.evidenceRef.startsWith(commandPrefix));
   const known=old?.evidenceRefs?.find(e=>e.startsWith(commandPrefix));
@@ -192,10 +217,28 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
    insist((!assign||known===commandRef)&&(!release||
      seen.some(e=>e.grantId===input.fromGrantId&&e.state==='REVOKED')),
      'CORP_SEAT_COMMIT_READBACK_INCOMPLETE');
-   return Object.freeze({outcome:'ALREADY_COMMITTED',commandId:input.commandId,
-     grantId:assign?grantId:null,releasedGrantId:release?input.fromGrantId:null,
-     view:projectView(state,snapshot,await commercial(t))});
+   return {outcome:'ALREADY_COMMITTED',commandId:input.commandId,
+     grantId:assign?grantId:null,releasedGrantId:release?input.fromGrantId:null};
   }
+  return null;
+ }
+ // A lost ACK can be inspected without calling change(), proving a manager
+ // again or writing another signature. Unknown remains explicitly unknown.
+ async function readCommand(raw){
+   const command=commandDetails(raw),{input}=command;
+   const t=time(),{state,snapshot}=await read(t);
+   const known=committedCommand(state,snapshot,command);
+   const result=known??{outcome:digest(state)===input.expectedRegistryDigest?
+     'NOT_COMMITTED':'OUTCOME_UNKNOWN',commandId:input.commandId,
+     grantId:null,releasedGrantId:null};
+   return Object.freeze({...result,originalReadback:true,automaticRetryAllowed:false,
+     view:await projectView(state,snapshot,await commercial(t),t)});
+ }
+ async function change(raw){
+  const command=commandDetails(raw),{input,assign,release,commandRef,grantId}=command;
+  const t=time(),{state,snapshot}=await read(t);
+  const known=committedCommand(state,snapshot,command);
+  if(known)return Object.freeze({...known,view:await projectView(state,snapshot,await commercial(t),t)});
   insist(digest(state)===input.expectedRegistryDigest,'CORP_SEAT_REGISTRY_CHANGED');
   const license=await commercial(t),c=license?.candidate;
   if(assign){
@@ -217,7 +260,7 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
    // Same original employee owner reconstructs and verifies both signed
    // ACTION/DATA grants and independent credential in this exact state.
    const member=await resolveEnrollment({saved:state,employeePersonId:input.employeePersonId,
-     enrollmentId:input.enrollmentId,at:t});
+     enrollmentId:input.enrollmentId,at:t,signEnrollment:false});
    insist(member?.organizationId===org.organizationId&&member.employeePersonId===input.employeePersonId&&
      member.originalSigned===true,'CORP_SEAT_ORIGINAL_ENROLLMENT_REQUIRED');
    target={personId:input.employeePersonId,enrollmentId:input.enrollmentId,
@@ -305,9 +348,9 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
    'CORP_SEAT_ORIGINAL_COMMIT_READBACK_REQUIRED');
   return Object.freeze({outcome:'COMMITTED',commandId:input.commandId,
     grantId:assign?grantId:null,releasedGrantId:release?from.grantId:null,
-    receipt,view:projectView(saved.state,saved.snapshot,await commercial(time()))});
+    receipt,view:await projectView(saved.state,saved.snapshot,await commercial(time()),time())});
  }
- return Object.freeze({view,change,enablePolicy});
+ return Object.freeze({view,change,enablePolicy,readCommand});
 }
 
 // Agent's product-specific JIT gate. The trusted Host must supply the

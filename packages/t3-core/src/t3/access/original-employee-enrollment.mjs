@@ -162,7 +162,7 @@ export function createOriginalEmployeeEnrollmentOwner({
   }
   // Rebuild the EXACT same signed issuer enrollment from original persisted
   // grants after a cold restart. Never mint new IDs or a replacement grant.
-  function reconstruct({saved,employeePersonId,enrollmentId,at}){
+  function reconstruct({saved,employeePersonId,enrollmentId,at,signEnrollment=true}){
     const organization=pinnedOrganization,workspaceId=trustedWorkspaceId;
     check(organization.organizationId&&employeePersonId&&enrollmentId,
       'T3_EMPLOYEE_RECOVERY_INPUT_REQUIRED');
@@ -248,6 +248,13 @@ export function createOriginalEmployeeEnrollmentOwner({
       notBefore:work.notBefore,expiresAt:work.expiresAt,
       signedEnvelopeDigest:digest(workRecord)
     });
+    // Product inventory needs the original verified grant pair and proof
+    // binding, not another enrollment signature or invitation.
+    if(!signEnrollment)return Object.freeze({
+      enrollmentId,organizationId:organization.organizationId,employeePersonId,
+      workspaceId,credentialPublicKeyRef:credentialKeyId,
+      grantIds:{work:work.id,export:exportGrant.id},statusSequence:status.sequence,
+      originalSigned:true});
     const enrollment=signOrganizationEnrollment({
       schema:'IWXA_T3_ORGANIZATION_ENROLLMENT_CLAIMS/1',
       organizationId:organization.organizationId,
@@ -620,5 +627,6 @@ export function createOriginalEmployeeEnrollmentOwner({
   return Object.freeze({begin,complete,readEnrollment,cancelPending,
     issueTaskGrant,readTaskGrant,...(corporateSeats?{
       viewCorporateSeats:corporateSeats.view,changeCorporateSeat:corporateSeats.change,
-      enableCorporateSeatPolicy:corporateSeats.enablePolicy}: {})});
+      enableCorporateSeatPolicy:corporateSeats.enablePolicy,
+      readCorporateSeatCommand:corporateSeats.readCommand}: {})});
 }
