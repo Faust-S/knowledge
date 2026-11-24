@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: b81e9646568271c64812bff292b0736a0e1c5f60
+          ref: 1f27fdd9d000742ff73c3c1ddf1062a9f73dcd35
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,7 +51,7 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = b81e9646568271c64812bff292b0736a0e1c5f60
+          test "$(git -C d04-private/site rev-parse HEAD)" = 1f27fdd9d000742ff73c3c1ddf1062a9f73dcd35
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
@@ -167,14 +167,15 @@ jobs:
           const canonical=resolve(process.env.GITHUB_WORKSPACE,'d04-private/t2/t2/current/final-successor/canonical-source');
           const {chromium}=createRequire(join(canonical,'package.json'))('playwright');
           const {serveRealKernelHost}=await import(pathToFileURL(join(canonical,'scripts/real-kernel-e2e.mjs')).href);
+          const {selectWitnessOption}=await import(pathToFileURL(join(canonical,'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
           const {runLifeOsEntryResponsiveBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-entry-responsive.browser.mjs')).href);
           const {runLifeOsHomeDashboardBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-home-dashboard.browser.mjs')).href);
           console.log('D04_HOME_BROWSER_STAGE=SERVER_BOOT');
           const server=await serveRealKernelHost(join(site,'dist'),{independentWitness:true,previewOrigin:true});
           try{
             console.log('D04_HOME_BROWSER_STAGE=PUBLIC_TO_NATIVE_CREATION');
-            const personal=await runLifeOsHomeDashboardBrowser({chromium,origin:server.origin});
-            if(personal.status!=='PASS'||personal.viewports.length!==2)throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
+            const personal=await runLifeOsHomeDashboardBrowser({chromium,origin:server.origin,selectWitnessOption});
+            if(personal.status!=='PASS'||personal.viewports.length!==2||personal.viewports.some(v=>v.measures!==56||v.recordable!==21||v.newMetricSaved!==true))throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
             console.log('D04_HOME_CREATE_AND_COLD=PASS');
             for(const item of personal.viewports){
               if(![item.emptyOpenMs,item.createReadyMs,item.coldRestoreMs].every(n=>Number.isSafeInteger(n)&&n>=0&&n<120000))throw Error('D04_HOME_LATENCY_INVALID');

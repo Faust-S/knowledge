@@ -1,0 +1,108 @@
+name: D04 unified Life OS source checks (private source, no artifacts)
+on:
+  push:
+    branches:
+      - work/2026-11-18-d04-life-os-qualification
+    paths:
+      - .github/workflows/d04-unified-life-os-source.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d04-unified-source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preflight exact permitted source access
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo "D04_UNIFIED_ACCESS=UNAVAILABLE"; exit 1; }
+          for repo in Faust-S/bazmed.ru Faust-S/bazmed; do
+            gh api "repos/$repo" --jq '.id' >/dev/null 2>&1 || { echo "D04_UNIFIED_ACCESS=DENIED"; exit 1; }
+          done
+          echo "D04_UNIFIED_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed.ru
+          ref: 1f27fdd9d000742ff73c3c1ddf1062a9f73dcd35
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/site
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed
+          ref: abdf4de34a0522202bee5d91e10da24c43236fb0
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/model
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check exact revisions and canonical model
+        run: |
+          set -euo pipefail
+          test "$(git -C d04-private/site rev-parse HEAD)" = "1f27fdd9d000742ff73c3c1ddf1062a9f73dcd35"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "55c57207b9f785ec03aa2365ad9d2add83e56b45"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "abdf4de34a0522202bee5d91e10da24c43236fb0"
+          for name in PERSONAL_OBSERVATION_PROFILE_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts; do
+            cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
+          done
+          echo "D04_UNIFIED_PINNED_PARITY=PASS"
+          if (cd d04-private/model && node --test docs/life-os/tests/life-dashboard-model.test.mjs docs/life-os/tests/life-dashboard-projection.test.mjs docs/life-os/tests/personal-observation-dynamics.test.mjs) >"$RUNNER_TEMP/d04-domain.log" 2>&1; then
+            echo "D04_UNIFIED_DOMAIN=PASS"
+          else
+            echo "D04_UNIFIED_DOMAIN=FAIL"
+            grep -E '^not ok [0-9]+ - |^# (tests|pass|fail) [0-9]+$' "$RUNNER_TEMP/d04-domain.log" | head -15 || true
+            exit 1
+          fi
+          grep -E '^# (tests|pass|fail) [0-9]+$' "$RUNNER_TEMP/d04-domain.log" | tail -3
+      - name: Site dependencies
+        working-directory: d04-private/site
+        run: |
+          npm ci --no-audit --no-fund --include=dev >"$RUNNER_TEMP/d04-npm.log" 2>&1 || { echo "D04_UNIFIED_NPM=FAIL"; exit 1; }
+          echo "D04_UNIFIED_NPM=PASS"
+      - name: Site source and behavior tests
+        working-directory: d04-private/site
+        run: |
+          set -uo pipefail
+          code=0
+          for suite in check:life-os:research check:t2:entry check:tool-links; do
+            log="$RUNNER_TEMP/d04-${suite//:/-}.log"
+            if npm run "$suite" >"$log" 2>&1; then
+              echo "D04_UNIFIED_${suite}=PASS"
+            else
+              echo "D04_UNIFIED_${suite}=FAIL"
+              grep -E '^not ok [0-9]+ - ' "$log" | head -20 || true
+              code=1
+            fi
+            grep -E '^# (tests|pass|fail) [0-9]+$' "$log" | tail -3 || true
+          done
+          exit "$code"
+      - name: TypeScript and semantic lint
+        if: always()
+        working-directory: d04-private/site
+        run: |
+          code=0
+          if npx tsc --noEmit --pretty false >"$RUNNER_TEMP/d04-ts.log" 2>&1; then
+            echo "D04_UNIFIED_TYPESCRIPT=PASS"
+          else
+            echo "D04_UNIFIED_TYPESCRIPT=FAIL"
+            grep -Eo 'error TS[0-9]+' "$RUNNER_TEMP/d04-ts.log" | sort -u | head -15 || true
+            code=1
+          fi
+          if npm run lint -- --rule 'prettier/prettier: off' >"$RUNNER_TEMP/d04-lint.log" 2>&1; then
+            echo "D04_UNIFIED_SEMANTIC=PASS"
+          else
+            echo "D04_UNIFIED_SEMANTIC=FAIL"
+            code=1
+          fi
+          exit "$code"
+      # Never upload source, private logs, profiles or dist.
