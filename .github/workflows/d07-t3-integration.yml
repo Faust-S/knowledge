@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: d991649fcddfbb0ff53888079924ba59ef157672
+          ref: 923f38cf9c0562afd402229021b250273d0b82e1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -45,7 +45,7 @@ jobs:
       - name: Preserve exact T2 subject and Workspace module
         run: |
           test "$(git -C domain rev-parse HEAD)" = "79068637e424c8348ca5ca846d8b6d84bcddd274"
-          test "$(git -C site rev-parse HEAD)" = "d991649fcddfbb0ff53888079924ba59ef157672"
+          test "$(git -C site rev-parse HEAD)" = "923f38cf9c0562afd402229021b250273d0b82e1"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -113,6 +113,13 @@ jobs:
           node --check scripts/build-d07-clean.mjs
           node --check scripts/audit-d07-t3-context.mjs
           npm run t3:test-local > "$RUNNER_TEMP/local-tests.log" 2>&1 || { echo D07_T3_LOCAL_TESTS=FAIL; grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"; exit 1; }
+          node --test scripts/tests/d07-t3-preview.test.mjs scripts/tests/d07-retained-byte-attributes.test.mjs scripts/tests/d07-retained-index.test.mjs > "$RUNNER_TEMP/preview-tests.log" 2>&1 || {
+            echo D07_T3_PREVIEW_TESTS=FAIL
+            grep -E '^# (tests|pass|fail) [0-9]+$|^not ok [0-9]+ ' "$RUNNER_TEMP/preview-tests.log" | cut -c1-160 | head -20
+            exit 1
+          }
+          echo D07_T3_PREVIEW_TESTS=PASS
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/preview-tests.log"
           echo D07_T3_LOCAL_TESTS=PASS
           grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"
           echo D07_T3_ASSEMBLY_SYNTAX=PASS
@@ -125,7 +132,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: d991649fcddfbb0ff53888079924ba59ef157672
+          ref: 923f38cf9c0562afd402229021b250273d0b82e1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -294,37 +301,22 @@ jobs:
           manifest > "$RUNNER_TEMP/d07-after-corrupt.sha"
           cmp -s "$RUNNER_TEMP/d07-local-2.sha" "$RUNNER_TEMP/d07-after-corrupt.sha"
           echo D07_T3_CORRUPT_INPUT_PRESERVES_DIST=PASS
-      - name: Retain authenticated inputs in the exact private D07 work branch
+      - name: Actual HTTP qualification of every integrated offline resource
+        working-directory: site
+        run: |
+          node scripts/preview-d07-t3-local.mjs --http-audit > "$RUNNER_TEMP/d07-http.log" 2>&1 || {
+            echo D07_T3_PREVIEW_HTTP=FAIL
+            grep -oE 'D07_T3_PREVIEW_[A-Z0-9_]+' "$RUNNER_TEMP/d07-http.log" | sort -u | head -20 || true
+            exit 1
+          }
+          grep -E '^D07_T3_PREVIEW_HTTP=PASS \{' "$RUNNER_TEMP/d07-http.log"
+      - name: Verify staged retained bytes and fresh checkout in a disposable local index
         if: ${{ success() && needs.t3-source.result == 'success' }}
         working-directory: site
-        env:
-          D07_PRIVATE_TOKEN: ${{ secrets.DOMEN }}
         run: |
           set -euo pipefail
-          expected="d991649fcddfbb0ff53888079924ba59ef157672"
-          target="refs/heads/work/2026-11-24-d07-t3"
-          test "$(git rev-parse HEAD)" = "$expected"
+          test "$(git rev-parse HEAD)" = "923f38cf9c0562afd402229021b250273d0b82e1"
           test -z "$(git status --porcelain --untracked-files=no)"
-          test -n "$D07_PRIVATE_TOKEN"
-          ask="$RUNNER_TEMP/d07-retain-askpass"
-          cat > "$ask" <<'ASKPASS'
-          #!/bin/sh
-          case "$1" in
-            *Username*) printf '%s\n' x-access-token ;;
-            *) printf '%s\n' "$D07_PRIVATE_TOKEN" ;;
-          esac
-          ASKPASS
-          chmod 700 "$ask"
-          trap 'rm -f "$ask"' EXIT
-          export GIT_ASKPASS="$ask" GIT_TERMINAL_PROMPT=0
-          if ! remote="$(git ls-remote origin "$target" 2> "$RUNNER_TEMP/d07-retain-remote.log" | cut -f1)"; then
-            echo D07_T3_RETAIN_REMOTE=FAIL
-            exit 1
-          fi
-          if test "$remote" != "$expected"; then
-            echo D07_T3_RETAIN_STALE=SKIPPED
-            exit 0
-          fi
           local="runtime/t3-platform/0.3.1-rc.1"
           node --import tsx --input-type=module -e 'import {verifyPreparedD07Host} from "./scripts/prepare-d07-t3-host.mjs";import {verifyPreparedKernelSupport} from "./scripts/prepare-d07-local-kernel-input.mjs";import {verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";const root=process.argv[1];verifyPreparedD07Host(root+"/d07-host");verifyPreparedKernelSupport(root+"/kernel-support");verifyPlatformArchive(root+"/platform-inputs.zip")' "$local" > "$RUNNER_TEMP/d07-retain-recheck.log" 2>&1 || {
             echo D07_T3_RETAIN_RECHECK=FAIL
@@ -334,12 +326,39 @@ jobs:
             echo D07_T3_RETAIN_GIT_SIZE_LIMIT=FAIL
             exit 1
           fi
+          # Local index only. The token used for checkout is read-only.
+          # Never push private compiled bytes from this public workflow.
           git add -f -- "$local/d07-host" "$local/kernel-support" "$local/platform-inputs.zip"
-          node --input-type=module -e 'import {execFileSync} from "node:child_process";const files=execFileSync("git",["diff","--cached","--name-only","-z"],{encoding:"utf8"}).split("\0").filter(Boolean);const p="runtime/t3-platform/0.3.1-rc.1/";if(!files.length||files.some(f=>!f.startsWith(p+"d07-host/")&&!f.startsWith(p+"kernel-support/")&&f!==p+"platform-inputs.zip"))process.exit(1);console.log("D07_T3_RETAIN_FILES="+files.length)'
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: retain qualified local T3 platform inputs [skip ci]'
-          if ! git push origin "HEAD:$target" > "$RUNNER_TEMP/d07-retain-push.log" 2>&1; then
-            echo D07_T3_RETAIN_PUSH=FAIL
+          node scripts/verify-d07-retained-index.mjs > "$RUNNER_TEMP/d07-retain-index.log" 2>&1 || {
+            echo D07_T3_RETAIN_INDEX=FAIL
+            grep -oE 'D07_T3_RETAIN_INDEX_[A-Z0-9_]+' "$RUNNER_TEMP/d07-retain-index.log" | sort -u | head -15 || true
             exit 1
-          fi
-          echo "D07_T3_RETAINED_COMMIT=$(git rev-parse HEAD)"
-      # Never upload private domain sources, compiled assets, logs, or user data.
+          }
+          grep -E '^D07_T3_RETAIN_INDEX=PASS \{' "$RUNNER_TEMP/d07-retain-index.log"
+      - name: Qualify ordinary release command switch without a remote write
+        working-directory: site
+        run: |
+          set -euo pipefail
+          # Only the release command is excluded from the exact Host receipt.
+          # Exercise the actual npm entrypoint in this disposable checkout.
+          # The enclosing npm CLI dispatches once; no Git/npm/npx/bun is
+          # available to the build itself and no external network is allowed.
+          trap 'git restore --worktree -- package.json' EXIT
+          node --input-type=module -e 'import {readFileSync,writeFileSync} from "node:fs";const p="package.json",m=JSON.parse(readFileSync(p,"utf8"));if(m.scripts.build!=="node scripts/build-d07-integrated-site.mjs"||m.scripts["t3:build"]!=="node --import tsx scripts/build-d07-t3-local-site.mjs")process.exit(1);m.scripts.build=m.scripts["t3:build"];writeFileSync(p,JSON.stringify(m,null,2)+"\n")'
+          nodebin="$(command -v node)"
+          npmcli="$(readlink -f "$(command -v npm)")"
+          test -f "$npmcli"
+          guard="$RUNNER_TEMP/d07-no-build-tools"
+          sudo unshare --net -- bash -c 'ip link set lo up && exec setpriv --reuid "$1" --regid "$2" --init-groups env PATH="$3" "$4" "$5" run build' -- "$(id -u)" "$(id -g)" "$guard:$PATH" "$nodebin" "$npmcli" > "$RUNNER_TEMP/d07-ordinary-command.log" 2>&1 || {
+            echo D07_T3_ORDINARY_COMMAND=FAIL
+            grep -oE 'D07_(T3|STATIC|PUBLIC|FORBIDDEN)_[A-Z0-9_]+' "$RUNNER_TEMP/d07-ordinary-command.log" | sort -u | head -20 || true
+            exit 1
+          }
+          (cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$RUNNER_TEMP/d07-ordinary-command.sha"
+          cmp -s "$RUNNER_TEMP/d07-local-2.sha" "$RUNNER_TEMP/d07-ordinary-command.sha" || {
+            echo D07_T3_ORDINARY_COMMAND_BYTE_PARITY=FAIL
+            exit 1
+          }
+          echo D07_T3_ORDINARY_COMMAND_BYTE_PARITY=PASS
+          echo D07_T3_LOCAL_RETENTION_REQUIRED=TRUE
+      # Never upload private source, prepared inputs, dist, logs or model data.
