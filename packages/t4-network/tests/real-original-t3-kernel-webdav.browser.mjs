@@ -4111,8 +4111,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         lastInBatch=revision===4,
         simulatePublicationLoss=kind==='OBJECT_PUT'&&revision===2,
         simulateSubjectLoss=false,simulateTcpOutage=false,expectedAssetBytes=null,
-        simulateRecipientLifetimeAfterAck=false,autoSource=false,
+        simulateRecipientLifetimeAfterAck=false,autoSource=false,autoRecipient=false,
       }={})=>{
+      if(autoRecipient)assert.equal(autoSource,true);
       const recipientKernel=kind==='OBJECT_PUT'?p2cRecipientKernel:p2gRecipientKernel;
       let recipientHostActive=true,stopAfterAck=simulateRecipientLifetimeAfterAck;
       const tick=await p2fRunHostPrepare();
@@ -4140,6 +4141,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         f2RecipientPutCalls=0,explicitMissingRetryAuthorizations=0;
       let losePrepareReply=simulatePublicationLoss,loseSourceNetworkReply=simulatePublicationLoss,
         loseRecipientNetworkReply=simulatePublicationLoss;
+      let loseRecipientDiffPrepare=autoRecipient;
       const f2SourceKernel={
         ...originalCarrierKernel,
         putObject:async input=>{
@@ -4160,8 +4162,14 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         ...replayKernel,
         putObject:async input=>{
           const stored=await replayKernel.putObject(input);
-          if(input.event?.event_type==='t4.network.original.frame.publication')
+          if(input.event?.event_type==='t4.network.original.frame.publication'){
             f2RecipientPutCalls++;
+            if(loseRecipientDiffPrepare&&input.event.payload.action==='PREPARE'&&
+              input.event.payload.slots.some(v=>v.messageType==='DIFF_REQUEST')){
+              loseRecipientDiffPrepare=false;
+              throw Object.assign(Error('lost original DIFF preparation response'),{code:'ACK_LOST'});
+            }
+          }
           return stored;
         },
       };
@@ -4269,6 +4277,10 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         recipientContext=await launch(recipientProfile);
         recipientPage=await opened(recipientContext);
         replayOriginalHostSession='original:replay:host:'+randomUUID();
+        if(autoRecipient){
+          p2eRecipientPhaseHostSession='host:p22k:recipient:'+randomUUID();
+          p2eChange=null;p2eChunks=[];p2eOpened=null;p2eProof=null;
+        }
       };
       const p2ePrepared=p2fCaptured.prepared;
       if(kind==='OBJECT_PUT'){
@@ -4311,7 +4323,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           encryptionContextRef:'original:test:sealed:epoch:2',
         }),
       });
-      let p2eChange=null,p2eSignedAck=null,p2eOpened=null;
+      let p2eChange=null,p2eSignedAck=null,p2eOpened=null,p2eHeads=null,p2eDiff=null,
+        p2eChunks=[],p2eProof=null;
+      const autoRecipientStates=[];
       let p2eSourcePhaseHostSession='host:p22e:phase:source:initial';
       let p2eRecipientPhaseHostSession='host:p22e:phase:recipient:initial';
       // This qualification has exactly one original service schema and one
@@ -4467,6 +4481,103 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         },
         verifyOriginalRecipientApplied:p2eOriginalApplied,
       });
+      const recipientTask=()=>createT4OriginalHostRecipientDispatcher({
+        workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+        sourceNodeRef:'node:original:source',recipientNodeRef:'node:original:recipient',
+        scopeRef:'scope:original:replay',ownerEpoch:2,
+        originalKernel:recipientKernel,getMode:()=> 'T4_NETWORK',
+        isHostActive:()=>recipientHostActive,
+        readOriginalHostContext:async()=>({
+          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+          nodeRef:'node:original:recipient',scopeRef:'scope:original:replay',
+          hostSessionRef:p2eRecipientPhaseHostSession,
+        }),
+        authorizeOriginalHostTask:async p=>
+          p.operation==='t4.network.receive'&&p.sessionRef===p2eSession&&
+          receiving.operations.includes('t1.getObject')&&
+          receiving.operations.includes('t1.listEventsSince'),
+        authorizeNetworkReceive:async p=>p.sessionRef===p2eSession&&
+          p.sourceNodeRef==='node:original:source'&&
+          (autoRecipient?
+            receiving.operations.includes('t1.getObject')&&receiving.operations.includes('t1.listEventsSince'):
+            p2eChange.verified.originalSignatureVerified===true&&p2eChange.verified.originalAccessVerified===true),
+        authorizeOriginalRead:async p=>receiving.operations.includes(p.operation),
+        authorizeOriginalWrite:async p=>receiving.operations.includes(p.operation),
+        readOriginalDependencyCoverage:recipientCoverage,
+        // The isolated original-Kernel witness has one mutation executor.
+        // This is the injected original Host boundary, not a claim that
+        // the installed product serializes all processes.
+        withOriginalSubjectMutation:async(proof,action)=>{
+          assert.equal(proof.originalHostMustSerializeSubjectMutations,true);
+          if(kind==='OBJECT_DELETE')assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+          assert.equal(recipientDeletionBoundaryActive,false);
+          recipientDeletionBoundaryEntries++;
+          recipientDeletionBoundaryActive=true;
+          try{return await action();}finally{recipientDeletionBoundaryActive=false;}
+        },
+        verifyOriginalSourceEvent:async p=>{
+          const original=await readT4OriginalHostCapturedSubject(p2fReadPorts);
+          return p.sourceEventId===original.sourceEventId&&
+            p.sourceEventDigest===original.prepared.delta.sourceEventDigest&&
+            (kind==='OBJECT_PUT'?
+              p.sourceRevision===revision&&p.objectContentDigest===p2eOpened.originalStateDigest:
+              isT4NativeDeleteKind(kind)?
+                p.kind===kind&&p.subjectId===subjectId&&
+                p.preImageDigest===original.prepared.delta.preImageDigest&&
+                p.captureRef===original.captureRef&&p.windowDigest===original.sourceWindow.windowDigest:
+                p.originalSubjectKind===kind&&p.originalSubjectId===subjectId&&
+                p.originalSubjectDeltaSha256===original.prepared.sha256);
+        },
+      });
+      const openSealed=async p=>{
+        const input=Buffer.from(p.ciphertext);
+        const cipher=createDecipheriv('aes-256-gcm',p2eKey,input.subarray(0,12));
+        cipher.setAAD(p2eAad);cipher.setAuthTag(input.subarray(-16));
+        return {authenticated:true,plaintext:new Uint8Array(Buffer.concat([
+          cipher.update(input.subarray(12,-16)),cipher.final(),
+        ]))};
+      };
+      const authorizeSealedOpen=async p=>receiving.operations.includes('t1.getObject')&&
+        p.sourceEventId===p2fCaptured.sourceEventId;
+      const autoRecipientStep=async(binding=recipientTask(),signerOverride=null)=>{
+        // The original owner selects the canonical capture and predecessor
+        // in this fixture. No source publication address or ciphertext is
+        // passed to the recipient step, including after either cold restart.
+        const result=await binding.runNativeStep({
+          session:durableSession,sourceCursorBefore:p2fTask.sourceCursorBefore,
+          authorizeOriginalRecipientSession:async p=>
+            JSON.stringify(p.session)===JSON.stringify(durableSession)&&
+            JSON.stringify(p.sourceCursorBefore)===JSON.stringify(p2fTask.sourceCursorBefore)&&
+            receiving.operations.includes('t1.getObject')&&receiving.operations.includes('t1.listEventsSince'),
+          frameDiscoveryPort:nativeReceiver(),recipientPublicationPort:publicationPort(false),
+          requiredCryptoSuite:'X25519_AES256GCM_ED25519',
+          createOriginalRecipientPhasePort:async({received,verifiedContent,sourceHeadProof})=>{
+            if(received){
+              p2eOpened=received;p2eProof=sourceHeadProof;
+              const witness=r=>({verified:r,publication:{key:r.key,sha256:r.sha256}});
+              p2eHeads=witness(verifiedContent.verifiedHeads);
+              p2eChange=witness(verifiedContent.verifiedChangeRef);
+              p2eChunks=verifiedContent.verifiedChunks.map(witness);
+              assert.equal(sourceHeadProof.signedRecipientDiffLocalPublicationVerified,true);
+              assert.equal(sourceHeadProof.recipientDiffRemoteReceiptProven,false);
+            }
+            return p2eRecipientPhase();
+          },
+          resolveOriginalSigningContext:async()=>({permissionRef:'original:permission:replay',
+            signerRef:'key:original:recipient:p22c'}),
+          signOriginalNodeBytes:signerOverride??(async({bytes})=>{
+            f2SignCalls++;return sign(null,Buffer.from(bytes),peerSignedKeys.privateKey);
+          }),
+          readOriginalSourceHostContext:async()=>({workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+            nodeRef:'node:original:source',scopeRef:'scope:original:replay',hostSessionRef:sourceHostSession()}),
+          authorizeOriginalSourceRead:async p=>actual.grants.includes(p.operation),
+          readOriginalSourceEvents:()=>originalCarrierKernel.listEventsSince(workspaceId),
+          verifyOriginalSourceSubject:p=>verifyT4OriginalHostCapturedSubjectSource(p2fReadPorts,p),
+          authorizeOriginalSealedOpen:authorizeSealedOpen,openOriginalSealedContent:openSealed,
+          verifyOriginalSourceBinding:p=>verifyT4OriginalHostCapturedSubjectSource(p2fReadPorts,p),
+        });
+        autoRecipientStates.push(result.state);return result;
+      };
       const p2eIntentEvidence={
         evidenceRef:p2fCaptured.sourceEventId,
         evidenceDigest:p2fCaptured.sourceWindow.windowDigest,
@@ -4495,6 +4606,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         });
         autoStates.push(result.state);return result;
       };
+      if(autoRecipient)assert.equal((await autoRecipientStep()).state,'WAITING_FOR_HEADS');
       if(autoSource)assert.equal((await autoStep()).state,'INTENT_RECORDED');
       else await p2eSourcePhase().advanceOriginalSessionPhase({
         phase:'INTENT',evidence:p2eIntentEvidence,
@@ -4512,14 +4624,29 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal(autoSealReads,0);
       }
       assert.equal(headsSent.sourceCursorAdvanced,false);
-      const p2eHeads=await fromPublication(headsSent.publications[0],'SOURCE');
-      const diffSpecs=[{messageType:'DIFF_REQUEST',sequence:1,from:'RECIPIENT',
-        body:{familyRef:p2eFamily,fromHeads:[p2fCaptured.sourceWindow.sourcePrefixDigestBefore]}}];
-      await publicationPort(false).prepareSignedBatch({
-        slots:slotsFor(diffSpecs),createSignedFrames:()=>signBatch(diffSpecs),
-      });
-      const p2eDiff=await fromPublication(await publicationPort(false)
-        .publishPreparedFrame({sequence:1}),'RECIPIENT');
+      if(autoRecipient){
+        const beforeSigns=f2SignCalls,beforePuts=f2NetworkWrites;
+        await assert.rejects(autoRecipientStep(),e=>e?.code==='PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN');
+        const saved=await publicationPort(false).inspectOriginalPublication();
+        assert.equal(saved.frames[0].state,'PREPARED');
+        assert.equal(f2SignCalls,beforeSigns+1);assert.equal(f2NetworkWrites,beforePuts);
+        await restartRecipient();
+        const diff=await autoRecipientStep(recipientTask(),async()=>{throw Error('must recover exact DIFF');});
+        assert.equal(diff.state,'DIFF_PRESENT');assert.equal(diff.originalSignedDiffReused,true);
+        assert.deepEqual((await publicationPort(false).inspectOriginalPublication()).frames[0].wireBytes,
+          saved.frames[0].wireBytes);
+        assert.equal(f2SignCalls,beforeSigns+1);assert.equal(f2NetworkWrites,beforePuts+1);
+        assert.equal((await autoRecipientStep()).state,'WAITING_FOR_CHANGE');
+      }else{
+        p2eHeads=await fromPublication(headsSent.publications[0],'SOURCE');
+        const diffSpecs=[{messageType:'DIFF_REQUEST',sequence:1,from:'RECIPIENT',
+          body:{familyRef:p2eFamily,fromHeads:[p2fCaptured.sourceWindow.sourcePrefixDigestBefore]}}];
+        await publicationPort(false).prepareSignedBatch({
+          slots:slotsFor(diffSpecs),createSignedFrames:()=>signBatch(diffSpecs),
+        });
+        p2eDiff=await fromPublication(await publicationPort(false)
+          .publishPreparedFrame({sequence:1}),'RECIPIENT');
+      }
       const contentSpecs=[{messageType:'CHANGE_REF',sequence:2,from:'SOURCE',body:{
         changeId:p2eChangeId,changeKind:kind,
         eventRef:p2fCaptured.sourceEventId,
@@ -4656,10 +4783,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const fullSourcePublication=await publicationPort(true).inspectOriginalPublication();
       assert.ok(fullSourcePublication.frames.every(f=>f.state==='PRESENT'&&
         f.attempts===(f.sequence===outageSequence?2:1)));
-      p2eChange=await fromPublication(contentSent.publications[0],'SOURCE');
-      const p2eChunks=[];
-      for(const publication of contentSent.publications.slice(1))
-        p2eChunks.push(await fromPublication(publication,'SOURCE'));
+      if(!autoRecipient){
+        p2eChange=await fromPublication(contentSent.publications[0],'SOURCE');
+        for(const publication of contentSent.publications.slice(1))
+          p2eChunks.push(await fromPublication(publication,'SOURCE'));
+      }
       if(autoSource){
         assert.equal((await autoStep()).state,'PUBLISHED_RECORDED');
         assert.equal((await autoStep()).state,'WAITING_FOR_ACK');
@@ -4669,133 +4797,96 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           evidenceDigest:'sha256:'+p2eChange.publication.sha256,
         },
       });
-      const p2eProof=await verifyT4OriginalSourceHeadCausality({
-        verifiedHeads:p2eHeads.verified,
-        verifiedDiffRequest:p2eDiff.verified,
-        verifiedChangeRef:p2eChange.verified,
-        workspaceId,originalWriteOwnerRef:'original:t2:exchange',
-        sourceNodeRef:'node:original:source',
-        recipientNodeRef:'node:original:recipient',
-        scopeRef:'scope:original:replay',
-        sessionRef:p2eSession,ownerEpoch:2,
-        sourceCursorBefore:p2fTask.sourceCursorBefore,
-        getMode:()=> 'T4_NETWORK',
-        readOriginalHostContext:async()=>({
+      if(autoRecipient){
+        assert.equal((await autoRecipientStep()).state,'RECEIVED_RECORDED');
+        assert.equal((await p2eRecipientPhase().inspectOriginalSession()).currentPhase,'RECEIVED');
+        await restartRecipient();
+        assert.equal((await autoRecipientStep()).state,'VERIFIED_RECORDED');
+        assert.equal((await p2eRecipientPhase().inspectOriginalSession()).currentPhase,'VERIFIED');
+      }else{
+        p2eProof=await verifyT4OriginalSourceHeadCausality({
+          verifiedHeads:p2eHeads.verified,
+          verifiedDiffRequest:p2eDiff.verified,
+          verifiedChangeRef:p2eChange.verified,
           workspaceId,originalWriteOwnerRef:'original:t2:exchange',
-          nodeRef:'node:original:source',
+          sourceNodeRef:'node:original:source',
+          recipientNodeRef:'node:original:recipient',
           scopeRef:'scope:original:replay',
-          hostSessionRef:'host:p22e:source:head',
-        }),
-        authorizeOriginalRead:async p=>actual.grants.includes(p.operation),
-        readOriginalEvents:()=>originalCarrierKernel.listEventsSince(
-          workspaceId),
-        capturedWindowDigest:p2fCaptured.sourceWindow.windowDigest,
-        verifyOriginalSourceSubject:p=>
-          verifyT4OriginalHostCapturedSubjectSource(p2fReadPorts,p),
-      });
-      p2eOpened=await openT4OriginalNetworkSubjectChange({
-        verifiedChangeRef:p2eChange.verified,
-        verifiedChunks:p2eChunks.map(c=>c.verified),
-        originalSourceHeadProof:p2eProof,
-        encryptionContextRef:p2eChunksPlan.encryptionContextRef,
-        recipientNodeRef:'node:original:recipient',
-        scopeRef:'scope:original:replay',
-        getMode:()=> 'T4_NETWORK',
-        readOriginalHostContext:async()=>({
-          nodeRef:'node:original:recipient',
+          sessionRef:p2eSession,ownerEpoch:2,
+          sourceCursorBefore:p2fTask.sourceCursorBefore,
+          getMode:()=> 'T4_NETWORK',
+          readOriginalHostContext:async()=>({
+            workspaceId,originalWriteOwnerRef:'original:t2:exchange',
+            nodeRef:'node:original:source',
+            scopeRef:'scope:original:replay',
+            hostSessionRef:'host:p22e:source:head',
+          }),
+          authorizeOriginalRead:async p=>actual.grants.includes(p.operation),
+          readOriginalEvents:()=>originalCarrierKernel.listEventsSince(
+            workspaceId),
+          capturedWindowDigest:p2fCaptured.sourceWindow.windowDigest,
+          verifyOriginalSourceSubject:p=>
+            verifyT4OriginalHostCapturedSubjectSource(p2fReadPorts,p),
+        });
+        p2eOpened=await openT4OriginalNetworkSubjectChange({
+          verifiedChangeRef:p2eChange.verified,
+          verifiedChunks:p2eChunks.map(c=>c.verified),
+          originalSourceHeadProof:p2eProof,
+          encryptionContextRef:p2eChunksPlan.encryptionContextRef,
+          recipientNodeRef:'node:original:recipient',
           scopeRef:'scope:original:replay',
-          hostSessionRef:'host:p22e:recipient:open',
-          originalWriteOwnerRef:'original:t2:exchange',
-        }),
-        authorizeOriginalSealedOpen:async p=>
-          receiving.operations.includes('t1.getObject')&&
-          p.sourceEventId===p2fCaptured.sourceEventId,
-        verifyOriginalSourceBinding:p=>
-          verifyT4OriginalHostCapturedSubjectSource(p2fReadPorts,p),
-        openOriginalSealedContent:async p=>{
-          const input=Buffer.from(p.ciphertext);
-          const cipher=createDecipheriv('aes-256-gcm',p2eKey,
-            input.subarray(0,12));
-          cipher.setAAD(p2eAad);
-          cipher.setAuthTag(input.subarray(-16));
-          return {authenticated:true,plaintext:new Uint8Array(Buffer.concat([
-            cipher.update(input.subarray(12,-16)),cipher.final(),
-          ]))};
-        },
-      });
-      await p2eRecipientPhase().advanceOriginalSessionPhase({
-        phase:'RECEIVED',evidence:{
-          evidenceRef:p2eChunks[0].publication.key,
-          evidenceDigest:'sha256:'+p2eChunks[0].publication.sha256,
-        },
-      });
-      await p2eRecipientPhase().advanceOriginalSessionPhase({
-        phase:'VERIFIED',evidence:{
-          evidenceRef:p2eChange.publication.key,
-          evidenceDigest:p2eOpened.originalStateDigest,
-        },
-      });
+          getMode:()=> 'T4_NETWORK',
+          readOriginalHostContext:async()=>({
+            nodeRef:'node:original:recipient',
+            scopeRef:'scope:original:replay',
+            hostSessionRef:'host:p22e:recipient:open',
+            originalWriteOwnerRef:'original:t2:exchange',
+          }),
+          authorizeOriginalSealedOpen:async p=>
+            receiving.operations.includes('t1.getObject')&&
+            p.sourceEventId===p2fCaptured.sourceEventId,
+          verifyOriginalSourceBinding:p=>
+            verifyT4OriginalHostCapturedSubjectSource(p2fReadPorts,p),
+          openOriginalSealedContent:async p=>{
+            const input=Buffer.from(p.ciphertext);
+            const cipher=createDecipheriv('aes-256-gcm',p2eKey,
+              input.subarray(0,12));
+            cipher.setAAD(p2eAad);
+            cipher.setAuthTag(input.subarray(-16));
+            return {authenticated:true,plaintext:new Uint8Array(Buffer.concat([
+              cipher.update(input.subarray(12,-16)),cipher.final(),
+            ]))};
+          },
+        });
+        await p2eRecipientPhase().advanceOriginalSessionPhase({
+          phase:'RECEIVED',evidence:{
+            evidenceRef:p2eChunks[0].publication.key,
+            evidenceDigest:'sha256:'+p2eChunks[0].publication.sha256,
+          },
+        });
+        await p2eRecipientPhase().advanceOriginalSessionPhase({
+          phase:'VERIFIED',evidence:{
+            evidenceRef:p2eChange.publication.key,
+            evidenceDigest:p2eOpened.originalStateDigest,
+          },
+        });
+      }
       assert.equal((await p2ePhaseResult()).state,'NOT_APPLIED');
-      const recipientTask=()=>createT4OriginalHostRecipientDispatcher({
-        workspaceId,originalWriteOwnerRef:'original:t2:exchange',
-        sourceNodeRef:'node:original:source',recipientNodeRef:'node:original:recipient',
-        scopeRef:'scope:original:replay',ownerEpoch:2,
-        originalKernel:recipientKernel,getMode:()=> 'T4_NETWORK',
-        isHostActive:()=>recipientHostActive,
-        readOriginalHostContext:async()=>({
-          workspaceId,originalWriteOwnerRef:'original:t2:exchange',
-          nodeRef:'node:original:recipient',scopeRef:'scope:original:replay',
-          hostSessionRef:p2eRecipientPhaseHostSession,
-        }),
-        authorizeOriginalHostTask:async p=>
-          p.operation==='t4.network.receive'&&p.sessionRef===p2eSession&&
-          receiving.operations.includes('t1.getObject')&&
-          receiving.operations.includes('t1.listEventsSince'),
-        authorizeNetworkReceive:async p=>p.sessionRef===p2eSession&&
-          p.sourceNodeRef==='node:original:source'&&
-          p2eChange.verified.originalSignatureVerified===true&&
-          p2eChange.verified.originalAccessVerified===true,
-        authorizeOriginalRead:async p=>receiving.operations.includes(p.operation),
-        authorizeOriginalWrite:async p=>receiving.operations.includes(p.operation),
-        readOriginalDependencyCoverage:recipientCoverage,
-        // The isolated original-Kernel witness has one mutation executor.
-        // This is the injected original Host boundary, not a claim that
-        // the installed product serializes all processes.
-        withOriginalSubjectMutation:async(proof,action)=>{
-          assert.equal(proof.originalHostMustSerializeSubjectMutations,true);
-          if(kind==='OBJECT_DELETE')assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
-          assert.equal(recipientDeletionBoundaryActive,false);
-          recipientDeletionBoundaryEntries++;
-          recipientDeletionBoundaryActive=true;
-          try{return await action();}finally{recipientDeletionBoundaryActive=false;}
-        },
-        verifyOriginalSourceEvent:async p=>{
-          const original=await readT4OriginalHostCapturedSubject(p2fReadPorts);
-          return p.sourceEventId===original.sourceEventId&&
-            p.sourceEventDigest===original.prepared.delta.sourceEventDigest&&
-            (kind==='OBJECT_PUT'?
-              p.sourceRevision===revision&&p.objectContentDigest===p2eOpened.originalStateDigest:
-              isT4NativeDeleteKind(kind)?
-                p.kind===kind&&p.subjectId===subjectId&&
-                p.preImageDigest===original.prepared.delta.preImageDigest&&
-                p.captureRef===original.captureRef&&p.windowDigest===original.sourceWindow.windowDigest:
-                p.originalSubjectKind===kind&&p.originalSubjectId===subjectId&&
-                p.originalSubjectDeltaSha256===original.prepared.sha256);
-        },
-      });
       const taskArgs=(signer=async p=>(await signBatch([{
         messageType:'APPLIED_ACK',sequence:p.sequence,from:'RECIPIENT',body:p.body,
       }]))[0])=>({
         received:p2eOpened,recipientPhasePort:p2eRecipientPhase(),
         recipientPublicationPort:publicationPort(false),createSignedAppliedAckFrame:signer,
       });
+      const runRecipient=(binding=recipientTask(),signer)=>autoRecipient?
+        autoRecipientStep(binding,signer):binding.runNative(taskArgs(signer));
       const writesBefore=totalNativeSubjectWrites();
       if(simulateSubjectLoss){
         if(kind==='ASSET_PUT')p2gLoseAssetReply=true;
         else if(kind==='RELATION_PUT')p2gLoseRelationReply=true;
         else if(isT4NativeDeleteKind(kind))p2iLoseDeleteReply=true;
         else throw Error('subject loss probe expects non-object');
-        await assert.rejects(recipientTask().runNative(taskArgs()),
+        await assert.rejects(runRecipient(),
           e=>e?.code==='SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN');
         assert.equal(totalNativeSubjectWrites(),writesBefore+1);
         assert.equal((await p2eRecipientPhase().inspectOriginalSession()).currentPhase,
@@ -4805,7 +4896,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       let recipientDone;
       if(simulateRecipientLifetimeAfterAck){
         const oldHost=recipientTask(),count=f2NetworkWrites,signs=f2SignCalls;
-        await assert.rejects(oldHost.runNative(taskArgs()),e=>
+        await assert.rejects(runRecipient(oldHost),e=>
           e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN'&&e.details.automaticRetryAllowed===false);
         assert.equal(recipientHostActive,false);
         assert.equal(stopAfterAck,false);
@@ -4816,11 +4907,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         const before=await publicationPort(false).inspectOriginalPublication();
         assert.equal(before.frames.at(-1).state,'ATTEMPTED');
         await restartRecipient();recipientHostActive=true;
-        await assert.rejects(oldHost.runNative(taskArgs()),e=>e?.code==='RECIPIENT_ORIGINAL_HOST_DISPOSED');
+        await assert.rejects(runRecipient(oldHost),e=>e?.code==='RECIPIENT_ORIGINAL_HOST_DISPOSED');
         assert.equal(f2NetworkWrites,count+1);assert.equal(f2SignCalls,signs+1);
-        recipientDone=await recipientTask().runNative(taskArgs(async()=>{
+        recipientDone=await runRecipient(recipientTask(),async()=>{
           throw Error('must recover the prior signed ACK after Host invalidation');
-        }));
+        });
         assert.equal(recipientDone.result.acknowledgement.publication.state,'REMOTE_READBACK_RECOVERED');
         assert.equal(recipientDone.originalSubjectMutationInvoked,false);
         assert.equal(f2NetworkWrites,count+1);assert.equal(f2SignCalls,signs+1);
@@ -4836,7 +4927,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         }));
       }else if(simulatePublicationLoss){
         const count=f2NetworkWrites,signs=f2SignCalls;
-        await assert.rejects(recipientTask().runNative(taskArgs()),
+        await assert.rejects(runRecipient(),
           e=>e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN');
         assert.equal(f2NetworkWrites,count+1);
         assert.equal(f2SignCalls,signs+1);
@@ -4846,21 +4937,21 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         const before=await publicationPort(false).inspectOriginalPublication();
         assert.equal(before.frames.at(-1).state,'ATTEMPTED');
         await restartRecipient();
-        recipientDone=await recipientTask().runNative(
-          taskArgs(async()=>{throw Error('do not mint second applied ACK');}));
+        recipientDone=await runRecipient(recipientTask(),
+          async()=>{throw Error('do not mint second applied ACK');});
         assert.equal(recipientDone.result.acknowledgement.publication.state,'REMOTE_READBACK_RECOVERED');
         assert.equal(f2NetworkWrites,count+1);
         assert.equal(f2SignCalls,signs+1);
         assert.deepEqual((await publicationPort(false).inspectOriginalPublication())
           .frames.map(f=>f.wireBytes),before.frames.map(f=>f.wireBytes));
-        const repeated=await recipientTask().runNative(
-          taskArgs(async()=>{throw Error('do not re-sign finalized ACK');}));
+        const repeated=await runRecipient(recipientTask(),
+          async()=>{throw Error('do not re-sign finalized ACK');});
         assert.equal(repeated.result.acknowledgement.state,'ALREADY_FINALIZED');
         assert.equal(repeated.originalSubjectMutationInvoked,false);
         assert.equal(f2NetworkWrites,count+1);
         assert.equal(f2SignCalls,signs+1);
       }else{
-        recipientDone=await recipientTask().runNative(taskArgs());
+        recipientDone=await runRecipient();
       }
       assert.equal(recipientDone.originalHostTaskOwnerVerified,true);
       assert.equal(recipientDone.originalRecipientApplied,true);
@@ -4879,14 +4970,14 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(totalNativeSubjectWrites(),writesBefore+1);
       const p2eResult=finalized.verifiedResult;
       // Only now does the independent source task receive the recipient ACK.
-      p2eSignedAck=await fromPublication(finalized.publication,'RECIPIENT');
+      if(!autoRecipient)p2eSignedAck=await fromPublication(finalized.publication,'RECIPIENT');
       assert.equal(f2SignCalls,contentSpecs.length+3);
       assert.equal(f2NetworkWrites,f2SignCalls);
       assert.equal(f2SourcePutCalls,2+2*(contentSpecs.length+1)+(simulateTcpOutage?1:0));
       assert.equal(f2RecipientPutCalls,6);
       const p2eAppliedEvidence={
-        evidenceRef:p2eSignedAck.publication.key,
-        evidenceDigest:'sha256:'+p2eSignedAck.publication.sha256,
+        evidenceRef:finalized.publication.key,
+        evidenceDigest:'sha256:'+finalized.publication.sha256,
         originalRecipientEventId:p2eResult.originalRecipientEventId,
         originalRecipientRevision:revision,
         originalRecipientStateDigest:p2eResult.originalRecipientStateDigest,
@@ -4894,7 +4985,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.deepEqual(finalized.recipientPhase.currentEvidence,p2eAppliedEvidence);
       const p2eAckRecovery={
         sourcePhasePort:p2eSourcePhase(),
-        verifiedAppliedAck:p2eSignedAck.verified,
+        verifiedAppliedAck:p2eSignedAck?.verified,
         verifiedChangeRef:p2eChange.verified,
         originalSourceHeadProof:p2eProof,
         sourceCursorBefore:p2fTask.sourceCursorBefore,
@@ -4919,6 +5010,15 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       p2eHostSession='host:original:p22e:after-second-ack-cold';
       p2eSourcePhaseHostSession='host:p22e:phase:source:cold';
       p2eRecipientPhaseHostSession='host:p22e:phase:recipient:cold';
+      if(autoRecipient){
+        p2eOpened=null;p2eChange=null;p2eChunks=[];p2eProof=null;
+        const signed=f2SignCalls,puts=f2NetworkWrites;
+        const cold=await runRecipient(recipientTask(),async()=>{throw Error('finalized session must not re-sign');});
+        assert.equal(cold.originalSubjectMutationInvoked,false);
+        assert.equal(cold.result.acknowledgement.state,'ALREADY_FINALIZED');
+        assert.equal(totalNativeSubjectWrites(),writesBefore+1);
+        assert.equal(f2SignCalls,signed);assert.equal(f2NetworkWrites,puts);
+      }
       assert.equal((await p2eSourcePhase().inspectOriginalSession())
         .currentPhase,'APPLIED_CONFIRMED');
       const recipientPhaseAfterCold=await p2eRecipientPhase().inspectOriginalSession();
@@ -4932,10 +5032,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal(autoSealReads,1);
         assert.deepEqual(autoStates,['INTENT_RECORDED','HEADS_PRESENT','WAITING_FOR_DIFF',
           'CONTENT_PRESENT','PUBLISHED_RECORDED','WAITING_FOR_ACK','NO_NEXT_ORIGINAL_EVENT']);
-        assert.equal(autoDiscovered,contentSpecs.length+3);
+        assert.equal(autoDiscovered,autoRecipient?0:contentSpecs.length+3);
         console.log('T4_REAL_ORIGINAL_T3_NATIVE_DISCOVERED_SOURCE_TASK_PASS',JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,states:autoStates,
-          verifiedFrameAddressesNotSuppliedToDiscovery:true,discoveredExactSlots:autoDiscovered,
+          verifiedFrameAddressesNotSuppliedToDiscovery:true,explicitObservationLookups:autoDiscovered,
+          discoveredExactSlots:autoRecipient?null:autoDiscovered,
           sourceDurablePreparedBytesReusedAfterLostReply:true,originalSealedContentReads:autoSealReads,
           originalSourceAckCursorRevision:frontierRevision,
           sourceCursorCommitReplyLost:true,coldSourceTaskFoundNoNextOriginalEvent:true,
@@ -4946,14 +5047,36 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           installedProductionScheduler:false,independentPhysicalDevices:false,
         }));
       }
-      const sourceAckDone=await sourceAckTask();
-      assert.equal(sourceAckDone.originalHostTaskOwnerVerified,true);
-      assert.equal(sourceAckDone.originalSourceCursorConfirmed,true);
-      assert.equal(sourceAckDone.sourceCursorAdvanced,false);
-      assert.equal(sourceAckDone.confirmation.state,'ALREADY_CONFIRMED');
-      assert.deepEqual(sourceAckDone.confirmation.sourcePhase.currentEvidence,p2eAppliedEvidence);
-      const p2eFinalFrontier=sourceAckDone.committed;
-      assert.equal(p2eFinalFrontier.state,'ALREADY_COMMITTED');
+      let p2eFinalFrontier;
+      if(autoRecipient){
+        p2eFinalFrontier=await p2eCursorPort().inspectOriginalHostCursor();
+        assert.equal(p2eFinalFrontier.revision,frontierRevision);
+        assert.equal(p2eFinalFrontier.lastRecipientEventId,p2eResult.originalRecipientEventId);
+        assert.equal(p2eFinalFrontier.originalT3EventChainVerified,true);
+        assert.deepEqual(autoRecipientStates,['WAITING_FOR_HEADS','DIFF_PRESENT','WAITING_FOR_CHANGE',
+          'RECEIVED_RECORDED','VERIFIED_RECORDED','APPLIED_AND_ACKNOWLEDGED','APPLIED_AND_ACKNOWLEDGED']);
+        console.log('T4_REAL_ORIGINAL_T3_NATIVE_TWO_AUTONOMOUS_HOST_STEPS_PASS',JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,sourceStates:autoStates,recipientStates:autoRecipientStates,
+          callerSuppliedFrameAddresses:0,explicitFrameReceiptLookups:autoDiscovered,
+          canonicalSessionAndPredecessorAdmittedByOriginalFixture:true,
+          lostDiffPrepareResponseRecovered:true,originalRecipientColdAfterReceived:true,
+          lostOriginalSubjectReplyRecovered:true,lostAckAfterHostStopRecovered:true,
+          sourceCursorLostReplyRecovered:true,originalSourceFrontierRevision:frontierRevision,
+          originalRecipientSubjectWrites:totalNativeSubjectWrites()-writesBefore,
+          signedFrames:f2SignCalls,actualHttpsPuts:f2NetworkWrites,
+          repeatedSubjectWrites:0,repeatedSignatures:0,repeatedPuts:0,
+          productionHostSchedulerInstalled:false,independentPhysicalDevices:false,
+        }));
+      }else{
+        const sourceAckDone=await sourceAckTask();
+        assert.equal(sourceAckDone.originalHostTaskOwnerVerified,true);
+        assert.equal(sourceAckDone.originalSourceCursorConfirmed,true);
+        assert.equal(sourceAckDone.sourceCursorAdvanced,false);
+        assert.equal(sourceAckDone.confirmation.state,'ALREADY_CONFIRMED');
+        assert.deepEqual(sourceAckDone.confirmation.sourcePhase.currentEvidence,p2eAppliedEvidence);
+        p2eFinalFrontier=sourceAckDone.committed;
+        assert.equal(p2eFinalFrontier.state,'ALREADY_COMMITTED');
+      }
       assert.equal(p2eFrontierPutCalls,frontierRevision);
       assert.deepEqual(p2eFinalFrontier.originalT3NextCursor,
         p2fTask.sourceCursorAfter);
@@ -5514,7 +5637,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const completedObjectDelete=await p2fRunCapturedSession(7,{
         kind:'OBJECT_DELETE',subjectId:p2cObjectId,frontierRevision:12,currentObjectRevision:7,
         lastInBatch:true,simulatePublicationLoss:false,simulateSubjectLoss:true,
-        simulateRecipientLifetimeAfterAck:true,autoSource:true,
+        simulateRecipientLifetimeAfterAck:true,autoSource:true,autoRecipient:true,
       });
       assert.equal(completedObjectDelete.sourceEventId,recoveredObjectDelete.originalEvent.event_id);
       assert.equal(completedObjectDelete.originalDeltaSha256,recoveredObjectDelete.prepared.sha256);
