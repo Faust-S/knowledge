@@ -466,13 +466,14 @@ try{
  check((await nativeToday.textContent()).includes("Возможное превышение предела: 0,5 ч"),"AGENDA_NATIVE_CAPACITY");
  check(!(await localWeek()),"AGENDA_COLD_NO_TAB_RESULT");
  log("OFFLINE_AGENDA_COLD_NATIVE_READBACK");
- phase="OFFLINE_AGENDA_RESTORE";
- await nativeToday.getByRole("button",{name:"Открыть дела недели",exact:true}).click();
+ phase="OFFLINE_AGENDA_RESTORE_SELECTION";
+ await nativeToday.getByRole("button",{name:"Открыть дело: "+titles[1],exact:true}).click();
  const weekRestore=page.getByTestId("club-t2-restore-card");
  await weekRestore.waitFor({state:"visible"});
  await poll(async()=>await weekRestore.locator('input[type="checkbox"]:checked').count()===1,"AGENDA_EXACT_RESTORE_CHOICE");
  const weekRestoreButton=weekRestore.getByRole("button",{name:"Открыть выбранные записи",exact:true});
  await poll(async()=>await weekRestoreButton.isEnabled(),"AGENDA_RESTORE_READY");
+ phase="OFFLINE_AGENDA_RESTORE_CONSENT";
  let weekConsent=false;
  page.once("dialog",async d=>{
   weekConsent=d.type()==="confirm"&&d.message().includes("Загрузить 1 новых");
@@ -480,23 +481,135 @@ try{
  });
  await weekRestoreButton.click();
  await poll(async()=>weekConsent,"AGENDA_RESTORE_CONSENT");
- await page.getByTestId("club-t2-restore-completed").getByRole("link",{name:"Открыть мою неделю",exact:true}).click();
- await weekForm.waitFor({state:"visible"});
+ phase="OFFLINE_AGENDA_RESTORE_DESTINATION";
+ const openSlot=page.getByTestId("club-t2-restore-completed").getByRole("link",{name:"Открыть выбранное дело",exact:true});
+ await openSlot.waitFor({state:"visible"});
+ const target=new URL(await openSlot.getAttribute("href"),page.url());
+ check(target.searchParams.get("club_week_slot")===oldSlot.id,"AGENDA_RESTORE_EXACT_ID");
+ check(target.searchParams.get("workspace_id")===base.scope,"AGENDA_RESTORE_EXACT_SCOPE");
+ await openSlot.click();
+ phase="OFFLINE_AGENDA_RESTORE_EDITOR";
+ // A locator created before close() belongs to the closed browser page.
+ const reopenedWeekForm=page.locator("form[data-club-week-form]");
+ await reopenedWeekForm.waitFor({state:"visible"});
  const restoredWeek=await localWeek();
  check(restoredWeek?.kernelSource?.workspaceId===base.scope&&restoredWeek.data.personalWeekPlan.slots.length===3,"AGENDA_RESTORED_EXACT_RESULT");
- const overdueDisclosure=weekSummary.locator("details").filter({has:page.locator("summary").filter({hasText:"Просроченные дела: 1"})});
- await overdueDisclosure.locator("summary").click();
- await overdueDisclosure.getByRole("button",{name:"Открыть дело",exact:true}).click();
- await poll(async()=>await weekForm.locator('[name="title"]').inputValue()===titles[1],"AGENDA_RESTORED_EXACT_OVERDUE");
- check(await weekForm.locator('[name="date"]').inputValue()===dates.past,"AGENDA_RESTORED_EXACT_DATE");
+ await poll(async()=>await reopenedWeekForm.locator('[name="title"]').inputValue()===titles[1],"AGENDA_RESTORED_EXACT_OVERDUE");
+ check(await reopenedWeekForm.locator('[name="date"]').inputValue()===dates.past,"AGENDA_RESTORED_EXACT_DATE");
  check(await page.evaluate(()=>navigator.onLine===false),"AGENDA_OFFLINE_MODE");
  log("OFFLINE_AGENDA_RESTORED_AND_CONTINUED");
+ phase="OFFLINE_AGENDA_SERIES_PREVIEW";
+ await reopenedWeekForm.locator("[data-club-week-new]").click();
+ await reopenedWeekForm.locator('[name="title"]').fill("Ежедневная проверка документов");
+ await reopenedWeekForm.locator('[name="date"]').fill(dates.future);
+ await reopenedWeekForm.locator('[name="start"]').fill("12:00");
+ await reopenedWeekForm.locator('[name="durationMinutes"]').fill("30");
+ await reopenedWeekForm.locator("details").filter({has:page.locator("summary").filter({hasText:"Повторяющееся дело"})}).locator("summary").click();
+ await reopenedWeekForm.locator("[data-club-week-frequency]").selectOption("daily");
+ await reopenedWeekForm.locator("[data-club-week-repeat-count]").fill("3");
+ await reopenedWeekForm.locator("[data-club-week-save]").click();
+ const seriesConfirm=reopenedWeekForm.locator("[data-club-week-series-confirm]");
+ await poll(async()=>await seriesConfirm.isEnabled(),"AGENDA_SERIES_CONFIRM_READY");
+ check((await localWeek()).data.personalWeekPlan.slots.length===3,"AGENDA_SERIES_PREVIEW_NO_WRITE");
+ phase="OFFLINE_AGENDA_SERIES_CONFIRM";
+ await seriesConfirm.click();
+ await poll(async()=> (await localWeek())?.data?.personalWeekPlan?.slots?.length===6,"AGENDA_SERIES_ADDED");
+ const repeated=(await localWeek()).data.personalWeekPlan.slots.filter(s=>s.title==="Ежедневная проверка документов");
+ check(repeated.length===3&&new Set(repeated.map(s=>s.id)).size===3&&repeated.every(s=>s.durationMinutes===30),"AGENDA_SERIES_INDIVIDUAL_SLOTS");
+ log("OFFLINE_AGENDA_SERIES_EXPLICIT_CONFIRMATION");
+ phase="OFFLINE_CASH_SETUP";
+ await visit(page,"/tools/personal-economy/?workspace_id="+encodeURIComponent(base.scope)+"#club-money-calendar");
+ const calendarGroup=page.locator("#club-money-calendar");
+ if(!await calendarGroup.evaluate(el=>el.open))await calendarGroup.locator(":scope > summary").click();
+ const cashSetup=page.locator("[data-cash-calendar-setup]");
+ const cashEntry=page.locator("[data-cash-calendar-entry]");
+ const cashDates=await page.evaluate(()=>{
+  const today=new Date();
+  const offset=n=>{const d=new Date(today);d.setDate(d.getDate()+n);return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10)};
+  return {first:offset(-4),salary:offset(-3),expense:offset(-2),close:offset(-1),today:offset(0),future:offset(3),end:offset(10),nextEnd:offset(30)};
+ });
+ const localCash=()=>page.evaluate(()=>{
+  const rows=JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")||"null")?.objects?.filter(o=>o.objectId==="personal-economy")||[];
+  return rows.length===1?rows[0]:null;
+ });
+ for(const [field,value] of Object.entries({startDate:cashDates.first,endDate:cashDates.end,openingAvailableRUB:"12000",minimumBufferRUB:"5000"}))
+  await cashSetup.locator('[name="'+field+'"]').fill(value);
+ await cashSetup.getByRole("button",{name:"Рассчитать период",exact:true}).click();
+ await poll(async()=> (await localCash())?.data?.cashCalendar?.openingAvailableRUB===12000,"CASH_CALENDAR_SETUP");
+ phase="OFFLINE_CASH_ENTRIES";
+ const entries=[
+  {date:cashDates.salary,amountRUB:"25000",status:"actual",category:"payroll",note:"Полученная зарплата"},
+  {date:cashDates.expense,amountRUB:"-17000",status:"actual",category:"rent",note:"Оплаченная аренда"},
+  {date:cashDates.future,amountRUB:"-3000",status:"planned",category:"utilities",note:"Будущий платёж"}
+ ];
+ for(const [i,entry] of entries.entries()){
+  for(const [field,value] of Object.entries(entry)){
+   const control=cashEntry.locator('[name="'+field+'"]');
+   if(field==="status"||field==="category")await control.selectOption(value);else await control.fill(value);
+  }
+  await cashEntry.locator("[data-cash-calendar-save]").click();
+  await poll(async()=> (await localCash())?.data?.cashCalendar?.entries?.length===i+1,"CASH_ENTRY_WRITTEN");
+ }
+ const priorCash=await localCash();
+ phase="OFFLINE_CASH_ROLLOVER_PREVIEW";
+ const cashHistory=page.locator("#club-cash-history");
+ if(!await cashHistory.evaluate(el=>el.open))await cashHistory.locator(":scope > summary").click();
+ const advance=cashHistory.locator("[data-cash-calendar-advance]");
+ await advance.locator('[name="throughDate"]').fill(cashDates.close);
+ await advance.locator('[name="nextEndDate"]').fill(cashDates.nextEnd);
+ await advance.getByRole("button",{name:"Проверить перенос остатка",exact:true}).click();
+ await advance.locator("[data-cash-calendar-advance-preview]").getByText(/20[\s\u00a0]000/).first().waitFor({state:"visible"});
+ const confirmAdvance=advance.locator("[data-cash-calendar-advance-confirm]");
+ check(!(await confirmAdvance.isEnabled()),"CASH_CLOSE_REQUIRES_CONFIRMATION");
+ check((await localCash()).updatedAt===priorCash.updatedAt,"CASH_PREVIEW_NO_WRITE");
+ await advance.locator('[name="confirmedClosingRUB"]').fill("19999");
+ check(!(await confirmAdvance.isEnabled()),"CASH_WRONG_BALANCE_REJECTED");
+ await advance.locator('[name="confirmedClosingRUB"]').fill("20000");
+ await poll(async()=>await confirmAdvance.isEnabled(),"CASH_CORRECT_BALANCE_READY");
+ phase="OFFLINE_CASH_ROLLOVER_CONFIRM";
+ await confirmAdvance.click();
+ await poll(async()=> (await localCash())?.data?.cashCalendar?.closedPeriods?.length===1,"CASH_PERIOD_CLOSED");
+ const rolled=await localCash(),cal=rolled.data.cashCalendar;
+ check(cal.startDate===cashDates.today&&cal.openingAvailableRUB===20000&&cal.entries.length===1&&cal.entries[0].status==="planned","CASH_EXACT_CARRY");
+ check(cal.closedPeriods[0].entries.length===2&&cal.closedPeriods[0].closingAvailableRUB===20000,"CASH_HISTORY_RETAINED");
+ await cashHistory.locator("[data-cash-calendar-history-detail]").getByText("Полученная зарплата",{exact:true}).waitFor({state:"visible"});
+ log("OFFLINE_CASH_RECONCILED_PERIOD_HISTORY");
+ phase="OFFLINE_CASH_KERNEL_SAVE";
+ await page.locator("[data-cash-calendar-persist]").getByRole("link",{name:"Сохранить календарь на устройстве",exact:true}).click();
+ const cashImport=page.getByTestId("club-t0-import-card");
+ await cashImport.getByTestId("club-t0-import-preview").waitFor({state:"visible"});
+ const cashScope=cashImport.getByTestId("club-t0-import-workspace-choice").filter({visible:true});
+ await poll(async()=>await cashScope.count()===1,"CASH_SINGLE_PERSONAL_SCOPE");
+ check(await cashScope.getAttribute("data-workspace-id")===base.scope,"CASH_ORIGINAL_SCOPE");
+ if(await cashScope.getAttribute("aria-pressed")!=="true")await cashScope.click();
+ await poll(async()=>await cashScope.getAttribute("aria-pressed")==="true","CASH_SCOPE_FOCUSED");
+ const cashChoice=cashImport.getByTestId("club-t0-import-object-checkbox");
+ await poll(async()=>await cashChoice.count()===1&&await cashChoice.isEnabled()&&await cashChoice.isChecked(),"CASH_TARGET_ONLY");
+ await cashImport.getByLabel("Подтверждаю сохранение выбранных результатов на этом устройстве.",{exact:true}).check();
+ const cashSave=cashImport.getByRole("button",{name:"Сохранить выбранное",exact:true});
+ await poll(async()=>await cashSave.isEnabled(),"CASH_KERNEL_SAVE_READY");
+ await cashSave.click();
+ await poll(async()=>{
+  const c=await localCash();return c?.kernelSource?.workspaceId===base.scope&&c.kernelSource.revision>0&&c.kernelSource.syncedUpdatedAt===c.updatedAt;
+ },"CASH_KERNEL_RECEIPT");
+ log("OFFLINE_CASH_ORIGINAL_KERNEL_RECEIPT");
+ phase="OFFLINE_CASH_COLD_READBACK";
+ await close();page=await launch("recipient");await context.setOffline(true);
+ await visit(page,"/workspace/");await openExisting(page);
+ const cashToday=page.getByTestId("club-native-today");
+ await cashToday.waitFor({state:"visible"});
+ await poll(async()=>/12[\s\u00a0]000/.test(await cashToday.textContent()),"CASH_NATIVE_AVAILABLE_AFTER_BILL_AND_BUFFER");
+ check(!(await localCash()),"CASH_COLD_NO_TAB_RESULT");
+ check(await page.evaluate(()=>navigator.onLine===false),"CASH_OFFLINE_MODE");
+ log("OFFLINE_CASH_COLD_NATIVE_READBACK");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
 }catch(e){
  const code=typeof e?.message==="string"&&/^CLUB_DIST_[A-Z_]+$/.test(e.message)?e.message:"CLUB_DIST_UNEXPECTED";
  const page=context?.pages()[0];
  let flags={};
  if(page)try{flags=await page.evaluate(()=>({
+  weekForm:!!document.querySelector("form[data-club-week-form]"),
+  cashForm:!!document.querySelector("[data-cash-calendar-setup]"),
   firstUse:!!document.querySelector('[data-testid="club-create-personal-space"]'),
   work:!!document.querySelector('[data-testid="club-native-project-overview"]'),
   emptyTasks:!!document.querySelector('[data-testid="club-empty-tasks"]'),
