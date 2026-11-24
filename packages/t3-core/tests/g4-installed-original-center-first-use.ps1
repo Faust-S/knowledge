@@ -2,7 +2,7 @@
 # private Admin Center first-use. Only UI labels and PASS codes leave runner.
 # No browser automation, no private source/logs, no imitation signed owner.
 param([Parameter(Mandatory=$true)][string]$InstallRoot,[switch]$RequireD2Read,
-  [switch]$RequireOriginalEmployeeRegistry)
+  [switch]$RequireOriginalEmployeeRegistry,[switch]$RequireV8Routes)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName UIAutomationClient
@@ -176,6 +176,44 @@ function WaitForText([string]$fragment,[int]$maxPolls=55){
     Start-Sleep -Milliseconds 250
   }
   return $false
+}
+# Independent native UIA witness of the V8 focused routes. Only the exact
+# existing form labels are checked. No signed write or extra owner is used.
+function AssertV8Route([string]$id,[string]$navigation,[string]$present,[string[]]$absent=@()){
+  $script:phase='V8_INSTALLED_ROUTE_'+$id
+  ClickButton ('Раздел: '+$navigation)
+  Check (WaitForText $present 100) ('V8_INSTALLED_ROUTE_FORM_MISSING_'+$id)
+  foreach($text in $absent){
+    Check (-not (HasText $text)) ('V8_INSTALLED_OTHER_FORM_VISIBLE_'+$id)
+  }
+  Write-Host "V8_ORIGINAL_INSTALLED_ROUTE_PASS $id"
+}
+function QualifyV8OriginalRoutes(){
+  $script:phase='V8_INSTALLED_RESULTS_ROOT'
+  ClickButton 'Результаты'
+  Check (WaitForText 'Подписанный T3 D3 получатель доступен' 160) 'V8_INSTALLED_ORIGINAL_D3_OWNER_MISSING'
+  AssertV8Route 'SIGNED_WORKSPACE' 'Workspace T3' 'Одна Workspace. Вся работа организации.' @('Подписанные поручения T3','Независимый сотрудник организации')
+  AssertV8Route 'EMPLOYEES' 'Подключение сотрудника T3' 'Независимый сотрудник организации' @('Подписанные поручения T3','Защищённое получение Result')
+  AssertV8Route 'SIGNED_TASKS' 'Подписанные Task' 'Подписанные поручения T3' @('Независимый сотрудник организации','Защищённое получение Result')
+  AssertV8Route 'RECEIVE' 'Получение .iwxa' 'Защищённое получение Result' @('Подписанные поручения T3','Восстановить решение без повтора')
+  AssertV8Route 'REVIEW' 'Human Review' 'Восстановить решение без повтора' @('Подписанные поручения T3','Независимый сотрудник организации')
+  AssertV8Route 'APPLY' 'Отдельное применение' 'Для отдельного применения сначала прочитайте исходный Result' @('Подписанные поручения T3','Защищённое получение Result')
+  AssertV8Route 'RECOVERY' 'Восстановление' 'Восстановить решение без повтора' @('Подписанные поручения T3','Защищённое получение Result')
+  AssertV8Route 'REUSE' 'Использовать Result' 'Продолжить работу в исходной Workspace' @('Подписанные поручения T3','Независимый сотрудник организации')
+  Check (WaitForNativeCenterReviewToolbar) 'V8_FOCUSED_ROUTES_LOST_ORIGINAL_SIGNED_WORKSPACE'
+  Write-Host 'V8_ORIGINAL_T3_EIGHT_FOCUSED_ROUTES_SAME_NATIVE_SESSION_PASS'
+  # Other roots have separate existing application lifecycles.
+  ClickButton 'Планы Atlas'
+  AssertV8Route 'ATLAS_NATIVE' 'Установленный Atlas' 'Открыть Atlas Desktop' @('Открыть портфель Atlas')
+  AssertV8Route 'ATLAS_FILE' 'Файл Atlas' 'Открыть портфель Atlas' @('Открыть Atlas Desktop')
+  ClickButton 'Personal Agent и лицензии'
+  AssertV8Route 'LICENSE' 'Лицензии Publisher' 'Лицензии Admin Center от Publisher' @('Ключ получателя для защищённой лицензии')
+  AssertV8Route 'LICENSE_AGE' 'Получатель лицензий' 'Ключ получателя для защищённой лицензии' @('Лицензии Admin Center от Publisher')
+  ClickButton 'Профиль и настройки'
+  AssertV8Route 'LOCAL_DRAFTS' 'Локальные черновики' 'Сохранить локально' @('Версия программы: 0.4.1')
+  AssertV8Route 'AGE_EXCHANGE' 'Защищённый обмен' 'Защищённый обмен .iwxa.age' @('Версия программы: 0.4.1')
+  AssertV8Route 'GUIDE' 'Справка' 'Рабочие разделы Admin Center' @('Версия программы: 0.4.1','Защищённый обмен .iwxa.age')
+  Write-Host 'V8_FULL_INSTALLED_FIFTEEN_FOCUSED_ROUTES_PASS'
 }
 function NativeD2BoundedRefusal(){
   # UI Automation reads only the installed public UI. Never print source
@@ -966,6 +1004,7 @@ try{
       throw 'D2_INSTALLED_COLD_ORIGINAL_KERNEL_DATA_READ_FAILED'
     }
     Write-Host 'D2_INSTALLED_ORIGINAL_KERNEL_TWO_COLD_READS_PASS'
+    if($RequireV8Routes){QualifyV8OriginalRoutes}
   }
 }finally{
   if($global:appProcess){
