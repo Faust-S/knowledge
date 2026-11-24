@@ -11,15 +11,17 @@ function add(map, key, n) { map.set(key, (map.get(key) ?? 0) + n); }
 function equalMap(a, b) {
   return a.size === b.size && [...a].every(([key, n]) => b.get(key) === n);
 }
-function equalSet(a, b) {
-  return a.size === b.size && [...a].every(value => b.has(value));
+function countRows(map) {
+  return [...map].sort((a, b) => cmp(a[0], b[0]))
+    .map(([activity_alias, object_trace_occurrences]) => ({activity_alias, object_trace_occurrences}));
 }
 
 function expected(view) {
-  const activities = new Map(), edges = new Map(), starts = new Set(), ends = new Set();
+  const activities = new Map(), edges = new Map(), starts = new Map(), ends = new Map();
   for (const variant of view.trace_variants) {
     const sequence = variant.sequence.map(event => event.activity_alias);
-    starts.add(sequence[0]); ends.add(sequence.at(-1));
+    add(starts, sequence[0], variant.object_trace_count);
+    add(ends, sequence.at(-1), variant.object_trace_count);
     for (const activity of sequence) add(activities, activity, variant.object_trace_count);
     for (let i = 1; i < sequence.length; i++)
       add(edges, edgeKey(sequence[i - 1], sequence[i]), variant.object_trace_count);
@@ -33,8 +35,9 @@ function readGraph(graph) {
     start_activities: starts, end_activities: ends} = graph;
   require(activities && typeof activities === 'object' && !Array.isArray(activities) &&
     Object.keys(activities).length <= 256 && Array.isArray(transitions) &&
-    transitions.length <= 65536 && Array.isArray(starts) && starts.length <= 256 &&
-    Array.isArray(ends) && ends.length <= 256, 'OCEL_R4PM_GRAPH_INVALID');
+    transitions.length <= 65536 && [starts, ends].every(boundary => boundary &&
+      typeof boundary === 'object' && !Array.isArray(boundary) && Object.keys(boundary).length <= 256),
+    'OCEL_R4PM_GRAPH_INVALID');
   const nodes = new Map(Object.entries(activities));
   for (const [name, n] of nodes)
     require(/^activity_[0-9]{3}$/.test(name) && count(n), 'OCEL_R4PM_ACTIVITY_INVALID');
@@ -47,15 +50,16 @@ function readGraph(graph) {
     require(!edges.has(key), 'OCEL_R4PM_DUPLICATE_TRANSITION');
     edges.set(key, row[1]);
   }
-  for (const boundary of [starts, ends])
-    require(boundary.every(name => nodes.has(name)) && new Set(boundary).size === boundary.length,
+  const boundaries = [starts, ends].map(boundary => new Map(Object.entries(boundary)));
+  for (const boundary of boundaries)
+    require([...boundary].every(([name, n]) => nodes.has(name) && count(n) && n <= nodes.get(name)),
       'OCEL_R4PM_BOUNDARY_INVALID');
-  return {activities: nodes, edges, starts: new Set(starts), ends: new Set(ends)};
+  return {activities: nodes, edges, starts: boundaries[0], ends: boundaries[1]};
 }
 
 export function compareRust4pmDiscovery(prepared, external) {
   require(external?.engine === 'r4pm' && external.version === R4PM_VERSION &&
-    external.operation === 'discover_dfg_from_ocel', 'OCEL_R4PM_ENGINE_PROFILE_INVALID');
+    external.operation === 'discover_ocdfg', 'OCEL_R4PM_ENGINE_PROFILE_INVALID');
   const graphs = external.object_type_to_dfg;
   require(graphs && typeof graphs === 'object' && !Array.isArray(graphs) &&
     Object.keys(graphs).length <= 256, 'OCEL_R4PM_GRAPH_INVALID');
@@ -66,8 +70,8 @@ export function compareRust4pmDiscovery(prepared, external) {
     const actual = readGraph(graphs[view.object_type_alias]);
     const reference = expected(view);
     require(equalMap(actual.activities, reference.activities) &&
-      equalMap(actual.edges, reference.edges) && equalSet(actual.starts, reference.starts) &&
-      equalSet(actual.ends, reference.ends), 'OCEL_R4PM_DFG_MISMATCH');
+      equalMap(actual.edges, reference.edges) && equalMap(actual.starts, reference.starts) &&
+      equalMap(actual.ends, reference.ends), 'OCEL_R4PM_DFG_MISMATCH');
     return {
       object_type_alias: view.object_type_alias,
       object_trace_count: view.observed_object_count,
@@ -78,13 +82,13 @@ export function compareRust4pmDiscovery(prepared, external) {
         const [from, to] = JSON.parse(key);
         return {from, to, object_trace_occurrences: n};
       }),
-      start_activities: [...actual.starts].sort(cmp),
-      end_activities: [...actual.ends].sort(cmp),
+      start_activities: countRows(actual.starts),
+      end_activities: countRows(actual.ends),
     };
   });
   return {
     status: 'LOCAL_DFG_MATCH', engine: 'r4pm', version: R4PM_VERSION,
-    operation: 'discover_dfg_from_ocel',
+    operation: 'discover_ocdfg',
     source_authority: 'UNVERIFIED_LOCAL_COPY',
     epistemic_status: 'RECORDS_NOT_INDEPENDENTLY_OBSERVED_EXECUTION',
     source_sha256: prepared.source_sha256, projected_sha256: prepared.projected_sha256,

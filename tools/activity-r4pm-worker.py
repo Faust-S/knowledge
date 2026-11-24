@@ -27,10 +27,10 @@ def main():
         source = Path(directory) / "local.ocel.json"
         source.write_text(json.dumps(projected, ensure_ascii=True), encoding="utf-8")
         item = r4pm.import_item("SlimLinkedOCEL", str(source))
-        result = r4pm.bindings.discover_dfg_from_ocel(item)
+        result = r4pm.bindings.discover_ocdfg(item)
         output = json.dumps({
             "engine": "r4pm", "version": VERSION,
-            "operation": "discover_dfg_from_ocel",
+            "operation": "discover_ocdfg",
             "object_type_to_dfg": {
                 kind: {field: graph[field] for field in (
                     "activities", "directly_follows_relations",

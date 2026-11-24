@@ -87,16 +87,17 @@ test('unobserved object and ambiguous order never fabricate a complete external 
 });
 test('external result cannot omit or alter an object type, occurrence, start or counted adjacency', async () => {
   const prepared = await prepareLocalOcel2Discovery(await source());
-  const external = {engine: 'r4pm', version: R4PM_VERSION, operation: 'discover_dfg_from_ocel',
+  const external = {engine: 'r4pm', version: R4PM_VERSION, operation: 'discover_ocdfg',
     object_type_to_dfg: {}};
   assert.throws(() => compareRust4pmDiscovery(prepared, external), {code: 'OCEL_R4PM_OBJECT_TYPE_MISMATCH'});
   // Deliberately construct a comparison fixture only for negative unit tests.
   // The integration cases below always execute the actual Rust4PM worker.
   for (const view of prepared.object_views) {
-    const activities = {}, edges = new Map(), starts = new Set(), ends = new Set();
+    const activities = {}, edges = new Map(), starts = {}, ends = {};
     for (const variant of view.trace_variants) {
       const seq = variant.sequence.map(row => row.activity_alias);
-      starts.add(seq[0]); ends.add(seq.at(-1));
+      starts[seq[0]] = (starts[seq[0]] ?? 0) + variant.object_trace_count;
+      ends[seq.at(-1)] = (ends[seq.at(-1)] ?? 0) + variant.object_trace_count;
       for (const name of seq) activities[name] = (activities[name] ?? 0) + variant.object_trace_count;
       for (let i = 1; i < seq.length; i++) {
         const key = JSON.stringify([seq[i-1], seq[i]]);
@@ -105,15 +106,23 @@ test('external result cannot omit or alter an object type, occurrence, start or 
     }
     external.object_type_to_dfg[view.object_type_alias] = {activities,
       directly_follows_relations: [...edges].map(([key, value]) => [JSON.parse(key), value]),
-      start_activities: [...starts], end_activities: [...ends]};
+      start_activities: starts, end_activities: ends};
   }
   assert.equal(compareRust4pmDiscovery(prepared, external).status, 'LOCAL_DFG_MATCH');
   const graph = Object.values(external.object_type_to_dfg).find(g => g.directly_follows_relations.length);
   graph.directly_follows_relations[0][1]++;
   assert.throws(() => compareRust4pmDiscovery(prepared, external), {code: 'OCEL_R4PM_DFG_MISMATCH'});
   graph.directly_follows_relations[0][1]--;
-  graph.start_activities = [];
+  const start = Object.keys(graph.start_activities)[0];
+  graph.start_activities[start]--;
   assert.throws(() => compareRust4pmDiscovery(prepared, external), {code: 'OCEL_R4PM_DFG_MISMATCH'});
+  graph.start_activities[start]++;
+  const end = Object.keys(graph.end_activities)[0];
+  graph.end_activities[end]--;
+  assert.throws(() => compareRust4pmDiscovery(prepared, external), {code: 'OCEL_R4PM_DFG_MISMATCH'});
+  graph.end_activities[end]++;
+  graph.start_activities = [];
+  assert.throws(() => compareRust4pmDiscovery(prepared, external), {code: 'OCEL_R4PM_GRAPH_INVALID'});
 });
 test('actual Rust4PM independently matches the object-centric graph and retains multi-object variants', async () => {
   const result = call(await source());
@@ -127,6 +136,8 @@ test('actual Rust4PM independently matches the object-centric graph and retains 
   assert.deepEqual(order.directly_follows.map(e => e.object_trace_occurrences), [3, 3]);
   assert.equal(order.trace_variants[0].object_trace_count, 3);
   assert.equal(order.activities.length, 3);
+  assert.deepEqual(order.start_activities.map(a => a.object_trace_occurrences), [3]);
+  assert.deepEqual(order.end_activities.map(a => a.object_trace_occurrences), [3]);
 });
 test('actual Rust4PM preserves repeated operations rather than deduplicating them', async () => {
   const raw = await source();
