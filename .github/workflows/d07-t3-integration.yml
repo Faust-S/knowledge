@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 9b2116c5422146efa468aa96932dce89f933d0fc
+          ref: 325b734a51148b789421e3112e4ccee40300e1d4
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -45,7 +45,7 @@ jobs:
       - name: Preserve exact T2 subject and Workspace module
         run: |
           test "$(git -C domain rev-parse HEAD)" = "21751cc98337ba81cead9196c5d2d6d778fc1a42"
-          test "$(git -C site rev-parse HEAD)" = "9b2116c5422146efa468aa96932dce89f933d0fc"
+          test "$(git -C site rev-parse HEAD)" = "325b734a51148b789421e3112e4ccee40300e1d4"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -104,7 +104,7 @@ jobs:
           node --check scripts/retain-d07-t3-inputs.mjs
           node --check scripts/build-d07-integrated-site.mjs
           node --check scripts/build-d07-clean.mjs
-          node --import tsx --test scripts/tests/d07-t3-local-build.test.mjs scripts/tests/d07-t3-boot.test.mjs > "$RUNNER_TEMP/local-tests.log" 2>&1 || { echo D07_T3_LOCAL_TESTS=FAIL; grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"; exit 1; }
+          node --import tsx --test scripts/tests/d07-t3-local-build.test.mjs scripts/tests/d07-t3-boot.test.mjs scripts/tests/d07-tool-order-scope.test.mjs scripts/tests/d07-tool-drafts.test.mjs > "$RUNNER_TEMP/local-tests.log" 2>&1 || { echo D07_T3_LOCAL_TESTS=FAIL; grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"; exit 1; }
           echo D07_T3_LOCAL_TESTS=PASS
           grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"
           echo D07_T3_ASSEMBLY_SYNTAX=PASS
@@ -116,7 +116,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 9b2116c5422146efa468aa96932dce89f933d0fc
+          ref: 325b734a51148b789421e3112e4ccee40300e1d4
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
