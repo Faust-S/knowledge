@@ -710,7 +710,8 @@ def original_market_order_finance_case(*, alternate=None, incomplete=False,
                                       fee="100.00", c_opening="400.00",
                                       observed="14", missing_owner=False,
                                       failed_quality=False, competing=False, buyer_finishes=False,
-                                      buyer_finish_material="140.00", buyer_finish_labor="80.00"):
+                                      buyer_finish_material="140.00", buyer_finish_labor="80.00",
+                                      supplier_finish_price="400.00"):
     """Attach complete owner declarations to SAME W1/W2/W3 and ledger."""
     from .test_r1p_r3_executed_route_economics_mesa import add_original_recipient_value
 
@@ -808,7 +809,7 @@ def original_market_order_finance_case(*, alternate=None, incomplete=False,
     commit = next(e["at"] for e in d["events"] if e.get("work") == "w3" and e["action"] == "commit")
     for name, payer, payee, amount, condition, at in (
             ("purchase-a", "b", "a", "700.00", "ON_CUSTOMER_ACCEPTANCE", accepted_at+2),
-            ("purchase-c", "b", "c", "400.00", "ON_CUSTOMER_ACCEPTANCE", accepted_at+2),
+            ("purchase-c", "b", "c", supplier_finish_price, "ON_CUSTOMER_ACCEPTANCE", accepted_at+2),
             ("fee", "b", "op", fee, "ON_CUSTOMER_ACCEPTANCE", accepted_at+2),
             ("material-a", "a", "EXTERNAL", "300.00", "ON_ORIGINAL_COMMIT", commit+1),
             ("material-" + finisher, finisher, "EXTERNAL",
@@ -1191,3 +1192,165 @@ def test_original_common_code_also_permits_independent_supplier_finishing():
     assert r["local_research_only"]["consolidated_model_contribution"] == "660.00"
     assert all(m["original_competing_owner_sets"]["status"] == "ALTERNATIVE_OWNER_SET_EXISTS"
                for m in _market_reviews(out))
+
+
+def matched_competing_market_cases(*, buyer_finish_material="140.00", buyer_finish_labor="80.00",
+                                  supplier_finish_price="400.00", buyer_observed="14",
+                                  c_opening="400.00", buyer_failed_quality=False):
+    """Common exogenous source universe: both routes can be chosen by owners."""
+    docs = {
+        "supplier": original_market_order_finance_case(
+            competing=True, supplier_finish_price=supplier_finish_price, c_opening=c_opening),
+        "coproduction": original_market_order_finance_case(
+            competing=True, buyer_finishes=True, buyer_finish_material=buyer_finish_material,
+            buyer_finish_labor=buyer_finish_labor, observed=buyer_observed,
+            c_opening=c_opening, failed_quality=buyer_failed_quality),
+    }
+    # Common BEFORE-choice catalogue, existing KPB rights for both possible
+    # routes, plus independent owner documents for each possible observation.
+    # The shared Work context may be used by either original performer;
+    # original Work consent and actual owner rules still constrain execution.
+    sources, requirements, decision_rules, finance_sources = {}, {}, {}, {}
+    for d in docs.values():
+        for source in d["context_evidence"]["sources"]:
+            key = source["id"]
+            row = deepcopy(source)
+            old = sources.get(key)
+            if old is not None and old != row:
+                assert key.startswith("model://op/work-w3-"), (old, row)
+                assert {k: v for k, v in row.items() if k != "usable_by"} == {
+                    k: v for k, v in old.items() if k != "usable_by"}
+                row["usable_by"] = sorted(set(row["usable_by"]) | set(old["usable_by"]))
+            sources[key] = row
+        for row in d["context_evidence"]["requirements"]:
+            key = (row["work"], row["action"])
+            assert key not in requirements or requirements[key] == row
+            requirements[key] = deepcopy(row)
+        for row in d["context_evidence"]["decision_requirements"]:
+            key = (row["action"], row["target"], row["actor"])
+            assert key not in decision_rules or decision_rules[key] == row
+            decision_rules[key] = deepcopy(row)
+        for row in d["economic_claims"]["sources"]:
+            assert row["id"] not in finance_sources or finance_sources[row["id"]] == row
+            finance_sources[row["id"]] = deepcopy(row)
+    for d in docs.values():
+        d["context_evidence"].update(
+            sources=list(deepcopy(sources).values()), requirements=list(deepcopy(requirements).values()),
+            decision_requirements=list(deepcopy(decision_rules).values()))
+        d["economic_claims"]["sources"] = list(deepcopy(finance_sources).values())
+    return docs
+
+
+def compare_competing_market(docs):
+    from research.akis.qualitative_mesa.comparative_trajectories import compare_original_competing_market_routes
+    split = next(e["at"] for e in docs["supplier"]["events"]
+                 if e["action"] == "technology_route_propose") - 1
+    return compare_original_competing_market_routes(
+        docs, work="w3", prior_works=("w1", "w2"), split_at=split)
+
+
+def competing_market_price(docs):
+    from research.akis.qualitative_mesa.comparative_trajectories import review_competing_market_price_interval
+    split = next(e["at"] for e in docs["supplier"]["events"]
+                 if e["action"] == "technology_route_propose") - 1
+    return review_competing_market_price_interval(
+        docs, work="w3", prior_works=("w1", "w2"), split_at=split,
+        candidate="supplier", comparator="coproduction", transfer_id="w3-market-purchase-c")
+
+
+def test_matched_same_recipient_competing_routes_preserve_fixed_population_and_history():
+    docs = matched_competing_market_cases()
+    frozen = deepcopy(docs)
+    r = compare_competing_market(docs)
+    assert docs == frozen
+    assert r["status"] == "MODEL_MATCHED_EXECUTED_COMPETING_MARKET_ROUTES", r
+    assert r["qualified_route_count"] == 2
+    assert r["original_owner_count"] == 4
+    assert r["best_model_contribution_among_executed_participant_viable_routes"] == ["coproduction"]
+    pair = r["local_research_only"]["pairwise"][0]
+    assert pair["left_minus_right_model_contribution"] == "60.00"
+    assert pair["per_original_owner_left_minus_right"] == {
+        "a": "0.00", "b": "180.00", "c": "-120.00", "op": "0.00"}
+    assert not r["pairwise_contrasts"][0]["left_weak_pareto_improvement_on_selected_order"]
+    assert r["displaced_owner_zero_only_for_selected_order_not_outside_income"]
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("opening", "FINANCIAL_BASELINE_CHANGED"),
+    ("historical_cost", "PRIOR_FINANCIAL_HISTORY_CHANGED"),
+    ("valuation_rate", "RECIPIENT_VALUATION_BASIS_CHANGED"),
+    ("quantity_baseline", "RECIPIENT_VALUATION_BASIS_CHANGED"),
+    ("catalogue", "ORIGINAL_ROUTE_BINDING_REQUIRED"),
+    ("initial_capacity", "INITIAL_STATE_CHANGED"),
+    ("unrelated_event", "OTHER_POST_SPLIT_EVENT"),
+])
+def test_matched_competing_market_rejects_confounded_contrast(mutation, reason):
+    docs = matched_competing_market_cases()
+    d = docs["coproduction"]
+    money = d["economic_claims"]
+    if mutation == "opening":
+        money["cash_timing"]["owner_positions"][0]["opening_cash"] = "999.00"
+    elif mutation == "historical_cost":
+        money["resource_uses"][0]["amount"] = "999.00"
+    elif mutation == "valuation_rate":
+        money["recipient_use_value_evidence"][0]["rate"]["amount"] = "126.00"
+    elif mutation == "quantity_baseline":
+        money["recipient_use_value_evidence"][0]["baseline"]["quantity"] = "3"
+    elif mutation == "catalogue":
+        next(e for e in d["events"] if e["action"] == "technology_route_propose")[
+            "technology_route_market_scope"]["deliverable"] = "different-demand"
+    elif mutation == "initial_capacity":
+        d["resources"][0]["capacity_units"] = 9
+    else:
+        d["events"].append({"action": "accept", "work": "w2", "actor": "b",
+                            "at": d["model_horizon"]})
+    with pytest.raises(ValueError, match="COMPETING_MARKET_" + reason):
+        compare_competing_market(docs)
+
+
+def test_competing_market_requires_accepted_quality_not_just_technical_preview():
+    r = compare_competing_market(matched_competing_market_cases(buyer_failed_quality=True))
+    assert r["status"] == "UNKNOWN"
+    assert "local_research_only" not in r
+
+
+def test_competing_market_lower_realized_use_value_changes_preferred_model_route():
+    r = compare_competing_market(matched_competing_market_cases(buyer_observed="12"))
+    assert r["status"] == "MODEL_MATCHED_EXECUTED_COMPETING_MARKET_ROUTES", r
+    assert r["best_model_contribution_among_executed_participant_viable_routes"] == ["supplier"]
+    assert r["local_research_only"]["pairwise"][0]["left_minus_right_model_contribution"] == "-190.00"
+
+
+def test_competing_market_liquidity_can_exclude_positive_contribution_route():
+    r = compare_competing_market(matched_competing_market_cases(
+        c_opening="200.00", buyer_finish_material="220.00", buyer_finish_labor="160.00"))
+    assert r["status"] == "MODEL_MATCHED_EXECUTED_COMPETING_MARKET_ROUTES", r
+    assert r["local_research_only"]["arms"]["supplier"]["consolidated_model_contribution"] == "660.00"
+    assert r["best_model_contribution_among_executed_participant_viable_routes"] == ["coproduction"]
+
+
+def test_competing_market_price_cannot_redistribute_nonexistent_joint_value():
+    docs = matched_competing_market_cases()
+    r = competing_market_price(docs)
+    assert r["status"] == "NO_SINGLE_PRICE_CAN_MAKE_ALL_ORIGINAL_OWNERS_NO_WORSE"
+    assert r["local_research_only"]["supplier_minimum_vs_comparator"] == "280.00"
+    assert r["local_research_only"]["buyer_maximum_vs_comparator"] == "220.00"
+    assert r["local_research_only"]["unresolved_model_value_gap"] == "60.00"
+
+
+def test_competing_market_price_envelope_and_separately_executed_repricing():
+    args = dict(buyer_finish_material="220.00", buyer_finish_labor="160.00")
+    r = competing_market_price(matched_competing_market_cases(**args))
+    assert r["status"] == "MODEL_NONNEGATIVE_INDIVIDUAL_PRICE_INTERVAL", r
+    assert r["local_research_only"]["minimum_purchase_price"] == "280.00"
+    assert r["local_research_only"]["maximum_purchase_price"] == "380.00"
+    # A distinct scenario with independent original source declarations,
+    # NOT a mutation of an already accepted historical Work or payment.
+    adjusted = compare_competing_market(matched_competing_market_cases(
+        **args, supplier_finish_price="350.00"))
+    assert adjusted["status"] == "MODEL_MATCHED_EXECUTED_COMPETING_MARKET_ROUTES", adjusted
+    pair = adjusted["local_research_only"]["pairwise"][0]
+    assert pair["left_minus_right_model_contribution"] == "-100.00"
+    assert pair["per_original_owner_left_minus_right"] == {
+        "a": "0.00", "b": "-30.00", "c": "-70.00", "op": "0.00"}
+    assert adjusted["pairwise_contrasts"][0]["right_weak_pareto_improvement_on_selected_order"]

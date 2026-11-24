@@ -1317,3 +1317,363 @@ def compare_original_market_formation_outcomes(
             "accepted_minus_refused_model_contribution": f"{delta:.2f}",
         },
     }
+
+
+def compare_original_competing_market_routes(
+    scenarios: Mapping[str, Mapping[str, Any]], *, work: str,
+    prior_works: tuple[str, ...], split_at: int,
+) -> dict[str, Any]:
+    """Execute matched competing production plans for ONE original recipient.
+
+    One existing Mesa per counterfactual arm, never two simultaneous claims
+    on the same demand. Identical pre-decision events, sources, capacity,
+    history and opening reserves. Only selected route decisions and their
+    original Work economics may differ. No optimization over undisclosed
+    alternatives, no consent, payment, new ledger or real causal inference.
+    """
+    from copy import deepcopy
+    from decimal import Decimal
+    from itertools import combinations
+    from .mesa_model import simulate
+
+    if (not isinstance(scenarios, Mapping) or not 2 <= len(scenarios) <= MAX_ARMS
+            or any(not isinstance(k, str) or not k or len(k) > 64 for k in scenarios)
+            or not isinstance(work, str) or not work
+            or not isinstance(prior_works, tuple) or not prior_works
+            or len(set((*prior_works, work))) != len(prior_works)+1
+            or type(split_at) is not int or split_at < 0):
+        raise TrajectoryComparisonError("COMPETING_MARKET_MATCHED_DESIGN_REQUIRED")
+    names = sorted(scenarios)
+    ref = None
+    designs, plans = {}, {}
+    accepted = "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    allowed = {"period", "currency", "sources", "transfers", "resource_uses",
+               "coverage", "outside_feasibility", "cash_timing", "lifecycle_costs",
+               "work_payment_conditions", "work_payment_settlement_claims",
+               "work_payment_due_amendments", "recipient_use_value_evidence",
+               "market_order_economics"}
+
+    for name in names:
+        doc = scenarios[name]
+        if (not isinstance(doc, Mapping)
+                or doc.get("strict_economic_source_works") != [*prior_works, work]
+                or doc.get("strict_economic_source_work") is not None):
+            raise TrajectoryComparisonError("COMPETING_MARKET_ORIGINAL_STRICT_SCOPE_REQUIRED")
+        baseline = {k: v for k, v in doc.items() if k not in {"events", "economic_claims"}}
+        events = doc.get("events")
+        if not isinstance(events, list) or any(
+                not isinstance(e, Mapping) or type(e.get("at")) is not int for e in events):
+            raise TrajectoryComparisonError("COMPETING_MARKET_ORIGINAL_EVENTS_REQUIRED")
+        prefix = [e for e in events if e["at"] <= split_at]
+        later = [e for e in events if e["at"] > split_at]
+        if any((e.get("work") != work
+                and not (e["action"] == "request" and e.get("work_spec", {}).get("id") == work)
+                and not (e["action"] == "technology_route_propose"
+                         and e.get("technology_route_work") == work)
+                and e["action"] != "technology_route_response")
+               for e in later):
+            raise TrajectoryComparisonError("COMPETING_MARKET_OTHER_POST_SPLIT_EVENT")
+        proposals = [e for e in later if e["action"] == "technology_route_propose"]
+        requests = [e for e in later if e["action"] == "request"]
+        commits = [e for e in later if e["action"] == "commit"]
+        if not len(proposals) == len(requests) == len(commits) == 1:
+            raise TrajectoryComparisonError("COMPETING_MARKET_ONE_ORIGINAL_ROUTE_PER_ARM_REQUIRED")
+        proposal, request, commit = proposals[0], requests[0], commits[0]
+        spec = request["work_spec"]
+        route = proposal.get("technology_route_id")
+        market = proposal.get("technology_route_market_scope")
+        if (not isinstance(market, Mapping) or not isinstance(route, str)
+                or proposal.get("technology_route_work_spec") != spec
+                or request.get("technology_route_id") != route
+                or not split_at < proposal["at"] < request["at"] < commit["at"]
+                or any(e.get("technology_route_id") != route for e in later
+                       if e["action"] == "technology_route_response")
+                or any(e.get("technology_route_market_scope") != market for e in (request, commit))):
+            raise TrajectoryComparisonError("COMPETING_MARKET_ORIGINAL_ROUTE_BINDING_REQUIRED")
+        # Same technological problem, not identical equipment assignments.
+        # Each operation uses one original primary resource; preserve DAG,
+        # required units, planned slots, criteria and recipient. Material
+        # substitution and risk equivalence are separate experiments.
+        operations = spec.get("operations", [])
+        if (not isinstance(operations, list) or len(operations) < 2
+                or any(len(o["resource_requirements"]) != 1
+                       or o["resource_requirements"][0]["resource"] != o["primary_resource"]
+                       for o in operations)):
+            raise TrajectoryComparisonError("COMPETING_MARKET_COMPARABLE_STAGE_PLAN_REQUIRED")
+        criteria = spec.get("assurance_criteria", [])
+        if not criteria or spec.get("material_batches"):
+            raise TrajectoryComparisonError("COMPETING_MARKET_COMPARABLE_QUALITY_SCOPE_REQUIRED")
+        problem = {
+            "work": {k: v for k, v in spec.items()
+                     if k not in {"resource", "resource_requirements", "operations", "assurance_criteria"}},
+            "operations": sorted(
+                (o["id"], tuple(sorted(o["requires_completed"])), o["slot_start"],
+                 o["slot_end"], o["resource_requirements"][0]["units"]) for o in operations),
+            "criteria": sorted(
+                (c["id"], c["dimension"], c["operation"], c["assessor"],
+                 c["method"], c["source_ref"], c["source_revision"]) for c in criteria),
+            "market": market,
+            "relation": (proposal.get("cooperation_link"), proposal.get("cooperation_source_revision"),
+                         proposal.get("pilot_work"), proposal.get("pilot_result_ref"),
+                         proposal.get("technology_route_model_code_change_id")),
+        }
+        plans[name] = tuple(sorted((o["id"], o["primary_resource"]) for o in operations))
+        money = doc.get("economic_claims")
+        if (not isinstance(money, Mapping) or set(money) - allowed
+                or set(money.get("lifecycle_costs", {})) - {"bindings", "scope_proofs", "event_bindings"}
+                or set(money.get("cash_timing", {})) - {"horizon_end", "owner_positions", "transfer_windows"}):
+            raise TrajectoryComparisonError("COMPETING_MARKET_UNSUPPORTED_FINANCIAL_SCOPE")
+        life, timing = money["lifecycle_costs"], money["cash_timing"]
+        if timing["horizon_end"] != doc.get("model_horizon") or split_at >= timing["horizon_end"]:
+            raise TrajectoryComparisonError("COMPETING_MARKET_MATCHED_HORIZON_REQUIRED")
+        value = money.get("recipient_use_value_evidence", [])
+        if (len(value) != 1 or value[0].get("work") != work
+                or value[0].get("owner") != spec["customer"]
+                or money.get("market_order_economics", {}).get("work") != work):
+            raise TrajectoryComparisonError("COMPETING_MARKET_SELECTED_RECIPIENT_VALUE_REQUIRED")
+        # Valuation basis and rate are held fixed; outcome may genuinely
+        # differ after execution. A different buyer/rate is not this contrast.
+        valuation = {k: value[0][k] for k in
+                     ("owner", "work_revision", "basis", "unit", "valuation_horizon", "baseline", "rate")}
+        finance = {k: money.get(k) for k in
+                   ("period", "currency", "sources", "coverage", "outside_feasibility")}
+        finance.update(horizon=timing["horizon_end"], openings=timing["owner_positions"],
+                       resource_scope=life["scope_proofs"])
+        historical = {}
+        for field in ("transfers", "resource_uses"):
+            rows = money[field]
+            if any(r.get("work") not in {*prior_works, work}
+                   or r.get("scenario") != "COOPERATION" for r in rows):
+                raise TrajectoryComparisonError("COMPETING_MARKET_ONLY_ORIGINAL_ORDER_ROWS_REQUIRED")
+            historical[field] = [r for r in rows if r["work"] in prior_works]
+        tids = {r["id"] for r in historical["transfers"]}
+        cids = {r["id"] for r in historical["resource_uses"]}
+        for field, rows, key, ids, clocks in (
+            ("windows", timing["transfer_windows"], "transfer_id", tids, ("at", "late_at")),
+            ("terms", money.get("work_payment_conditions", []), "transfer_id", tids, ("due_at",)),
+            ("settlements", money.get("work_payment_settlement_claims", []), "transfer_id", tids, ("at",)),
+            ("amendments", money.get("work_payment_due_amendments", []), "transfer_id", tids,
+             ("agreed_at", "new_due_at")),
+            ("bindings", life["bindings"], "resource_use_id", cids, ()),
+            ("cost_events", life["event_bindings"], "resource_use_id", cids, ("at",)),
+        ):
+            attached = [r for r in rows if r[key] in ids]
+            if any(type(r[t]) is not int or r[t] > split_at for r in attached for t in clocks if t in r):
+                raise TrajectoryComparisonError("COMPETING_MARKET_PRIOR_EVIDENCE_AFTER_SPLIT")
+            historical[field] = attached
+        # No selected-route cost or transfer may be moved into the shared
+        # history. A separately executed common preparation experiment is
+        # needed if the choice itself incurred earlier costs.
+        if (any(r["work"] == work and r["at"] <= split_at for r in life["event_bindings"])
+                or any(r["transfer_id"] not in tids and r["at"] <= split_at
+                       for r in timing["transfer_windows"])):
+            raise TrajectoryComparisonError("COMPETING_MARKET_PRE_SPLIT_SELECTED_COST_UNSUPPORTED")
+        design = dict(baseline=baseline, prefix=prefix, problem=problem,
+                      valuation=valuation, finance=finance, historical=historical)
+        if ref is not None:
+            for key, reason in (
+                ("baseline", "INITIAL_STATE_CHANGED"), ("prefix", "COMMON_PREFIX_CHANGED"),
+                ("problem", "DEMAND_OR_TECHNOLOGY_SCOPE_CHANGED"),
+                ("valuation", "RECIPIENT_VALUATION_BASIS_CHANGED"),
+                ("finance", "FINANCIAL_BASELINE_CHANGED"),
+                ("historical", "PRIOR_FINANCIAL_HISTORY_CHANGED"),
+            ):
+                if design[key] != ref[key]:
+                    raise TrajectoryComparisonError("COMPETING_MARKET_" + reason)
+        ref = design
+        designs[name] = (route, spec, proposal["at"], commit["at"])
+    if len(set(plans.values())) != len(plans):
+        raise TrajectoryComparisonError("COMPETING_MARKET_DISTINCT_RESOURCE_PLANS_REQUIRED")
+
+    frozen = deepcopy(scenarios)
+    outputs = {name: simulate(deepcopy(scenarios[name])) for name in names}
+    if scenarios != frozen:
+        raise TrajectoryComparisonError("COMPETING_MARKET_INPUT_MUTATED")
+    owner_ids = {r["id"] for r in ref["baseline"]["subjects"]}
+    history = None
+    observed_prefix = None
+    owner_views, arm_views, reasons = {}, {}, set()
+    met = "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+    for name in names:
+        out, doc = outputs[name], scenarios[name]
+        route, spec, proposed_at, committed_at = designs[name]
+        trace = out["trace"]
+        prefix = [e for e in trace if e["at"] <= split_at]
+        prior = [out["works"].get(w) for w in prior_works]
+        if (set(out["subjects"]) != owner_ids
+                or any(r is None or r["result"] != accepted for r in prior)
+                or any(sum(e.get("work") == w and e["action"] == "accept"
+                           and e["outcome"] == "APPLIED" for e in prefix) != 1 for w in prior_works)
+                or (history is not None and history != prior)
+                or (observed_prefix is not None and observed_prefix != prefix)):
+            raise TrajectoryComparisonError("COMPETING_MARKET_ORIGINAL_HISTORY_CHANGED")
+        history, observed_prefix = prior, prefix
+        econ = out["economics"]
+        selected = out["works"].get(work, {})
+        market = econ.get("original_market_order_economics", {})
+        applied = [e for e in trace if e["outcome"] == "APPLIED" and e.get("work") == work]
+        commits = [e for e in applied if e["action"] == "commit" and e["at"] == committed_at]
+        if (selected.get("result") != accepted or selected.get("obligation") != "FULFILLED"
+                or len(commits) != 1 or sum(e["action"] == "accept" for e in applied) != 1
+                or not any(e["action"] == "technology_route_propose"
+                           and e.get("technology_route_id") == route and e["at"] == proposed_at
+                           and e["outcome"] == "APPLIED" for e in trace)
+                or not commits[0].get("technology_route_market_feasibility", {}).get(
+                    "selected_cooperative_plan_preview_feasible")
+                or market.get("status") != "MODEL_ORIGINAL_ACCEPTED_ORDER_ECONOMICS"):
+            reasons.add("ORIGINAL_SELECTED_ROUTE_OR_ECONOMICS_INCOMPLETE")
+            continue
+        if (not out.get("context_basis", {}).get("strict")
+                or econ.get("original_strict_context_source_qualification", {}).get("status")
+                   != "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED"
+                or out.get("profit", {}).get("system_increment") != "UNKNOWN"):
+            reasons.add("ORIGINAL_STRICT_SCOPE_OR_EMPIRICAL_BOUNDARY_INCOMPLETE")
+            continue
+        local = market["local_research_only"]
+        amounts = {}
+        reserves = {}
+        # Fixed original population: a displaced enterprise is not silently
+        # omitted from the comparison. Explicit owner-wide monetary and cost
+        # coverage plus no selected order rows qualify a zero FOR THIS ORDER.
+        # That is never its outside business income or zero opportunity cost.
+        for owner in sorted(owner_ids):
+            owned = local["per_owner"].get(owner)
+            money = doc["economic_claims"]
+            if owned is None:
+                if (not econ["per_subject"][owner]["declared_complete"]["COOPERATION"]
+                        or not econ["lifecycle_resource_costs"]["owner_scoped_details"][owner][
+                            "scenarios"]["COOPERATION"]["declared_resource_scope_complete_not_audited"]
+                        or any(t["work"] == work and owner in {t["payer"], t["payee"]}
+                               for t in money["transfers"])
+                        or any(r["work"] == work and owner == r["owner"] for r in money["resource_uses"])):
+                    reasons.add("ORIGINAL_DISPLACED_OWNER_ZERO_ORDER_SCOPE_INCOMPLETE")
+                    continue
+            amounts[owner] = Decimal(owned["model_contribution"]) if owned else Decimal(0)
+            path = econ.get("cash_timing", {}).get("per_original_owner_private_research_projection", {}).get(
+                owner, {}).get("scenario_paths", {}).get("COOPERATION", {})
+            reserves[owner] = all(path.get(k, {}).get("status") == met
+                                  for k in ("expected", "declared_late_case"))
+            if any(path.get(k, {}).get("status") in (None, "NOT_IDENTIFIABLE")
+                   for k in ("expected", "declared_late_case")):
+                reasons.add("ORIGINAL_OWNER_RESERVE_SCOPE_INCOMPLETE")
+        if set(amounts) != owner_ids:
+            continue
+        total = Decimal(local["consolidated_model_contribution"])
+        if sum(amounts.values(), Decimal(0)) != total:
+            raise TrajectoryComparisonError("COMPETING_MARKET_CONSOLIDATION_MISMATCH")
+        owner_views[name] = amounts
+        arm_views[name] = {
+            "consolidated_model_contribution": f"{total:.2f}",
+            "gross_recipient_use_value": local["gross_incremental_recipient_use_value"],
+            "per_owner_model_contribution": {k: f"{v:.2f}" for k, v in amounts.items()},
+            "original_owner_reserves_met": reserves,
+            "participating_owners": sorted(local["per_owner"]),
+            "all_participating_owners_positive_and_reserves": market[
+                "all_owner_positive_contribution_and_reserves"],
+        }
+    output = {
+        "schema": "AKIS_MATCHED_ORIGINAL_COMPETING_MARKET_ROUTES/1.0",
+        "status": "UNKNOWN" if reasons else "MODEL_MATCHED_EXECUTED_COMPETING_MARKET_ROUTES",
+        "original_route_count": len(names),
+        "qualified_route_count": len(arm_views),
+        "original_owner_count": len(owner_ids),
+        "reasons": sorted(reasons),
+        "same_recipient_demand_catalogue_and_declared_quality_scope": True,
+        "original_trajectories_executed_separately_not_duplicate_orders": True,
+        "displaced_owner_zero_only_for_selected_order_not_outside_income": True,
+        "actual_equal_product_quality_risk_and_market_profit_not_verified": True,
+        "empirical_network_additionality": "NOT_IDENTIFIABLE",
+    }
+    if reasons:
+        return output
+    def direction(v):
+        return "POSITIVE" if v > 0 else "NEGATIVE" if v < 0 else "ZERO"
+    contrasts, summaries = [], []
+    for left, right in combinations(names, 2):
+        delta = {owner: owner_views[left][owner] - owner_views[right][owner]
+                 for owner in sorted(owner_ids)}
+        total = sum(delta.values(), Decimal(0))
+        contrasts.append({
+            "left": left, "right": right,
+            "left_minus_right_model_contribution": f"{total:.2f}",
+            "per_original_owner_left_minus_right": {k: f"{v:.2f}" for k, v in delta.items()},
+        })
+        summaries.append({
+            "left": left, "right": right, "consolidated_direction": direction(total),
+            "left_owner_gain_count": sum(v > 0 for v in delta.values()),
+            "left_owner_loss_count": sum(v < 0 for v in delta.values()),
+            "left_owner_equal_count": sum(v == 0 for v in delta.values()),
+            "left_weak_pareto_improvement_on_selected_order": total > 0 and all(v >= 0 for v in delta.values()),
+            "right_weak_pareto_improvement_on_selected_order": total < 0 and all(v <= 0 for v in delta.values()),
+        })
+    viable = [name for name in names if arm_views[name]["all_participating_owners_positive_and_reserves"]]
+    best = []
+    if viable:
+        highest = max(sum(owner_views[name].values(), Decimal(0)) for name in viable)
+        best = [name for name in viable if sum(owner_views[name].values(), Decimal(0)) == highest]
+    output.update({
+        "pairwise_contrasts": summaries,
+        "qualified_participant_viable_route_count": len(viable),
+        "best_model_contribution_among_executed_participant_viable_routes": best,
+        "recommendation_does_not_replace_independent_selection_or_consents": True,
+        "local_research_only": {"arms": arm_views, "pairwise": contrasts},
+    })
+    return output
+
+
+def review_competing_market_price_interval(
+    scenarios: Mapping[str, Mapping[str, Any]], *, work: str,
+    prior_works: tuple[str, ...], split_at: int, candidate: str,
+    comparator: str, transfer_id: str,
+) -> dict[str, Any]:
+    """Bound a single existing purchase price, holding all other rows fixed.
+
+    Against the executed comparator, no original owner may lose on this
+    selected order. The displaced enterprise's other opportunities are
+    unknown. No automatic repricing, redistribution, consent or cash
+    feasibility: the new terms require new original decisions and timing.
+    """
+    from decimal import Decimal
+    result = compare_original_competing_market_routes(
+        scenarios, work=work, prior_works=prior_works, split_at=split_at)
+    if candidate == comparator or candidate not in scenarios or comparator not in scenarios:
+        raise TrajectoryComparisonError("COMPETING_PRICE_DISTINCT_ORIGINAL_ARMS_REQUIRED")
+    base = {"schema": "AKIS_COMPETING_MARKET_SINGLE_PRICE_INTERVAL/1.0",
+            "selected_order_only_not_full_owner_outside_option": True,
+            "new_price_requires_independent_terms_consent_and_reserve_recheck": True,
+            "no_original_price_or_obligation_changed": True,
+            "empirical_network_additionality": "NOT_IDENTIFIABLE"}
+    if result["status"] != "MODEL_MATCHED_EXECUTED_COMPETING_MARKET_ROUTES":
+        return {**base, "status": "UNKNOWN"}
+    a, b = (result["local_research_only"]["arms"][k] for k in (candidate, comparator))
+    doc = scenarios[candidate]
+    buyer = doc["economic_claims"]["recipient_use_value_evidence"][0]["owner"]
+    selected = [t for t in doc["economic_claims"]["transfers"]
+                if t["id"] == transfer_id and t["work"] == work and t["payer"] == buyer]
+    if len(selected) != 1 or selected[0]["payee"] not in a["participating_owners"]:
+        raise TrajectoryComparisonError("COMPETING_PRICE_ORIGINAL_BUYER_PURCHASE_REQUIRED")
+    transfer = selected[0]
+    seller = transfer["payee"]
+    if seller == doc["institution"].get("operator"):
+        raise TrajectoryComparisonError("COMPETING_PRICE_ORIGINAL_SUPPLIER_REQUIRED")
+    price = Decimal(transfer["amount"])
+    delta = {owner: Decimal(v) - Decimal(b["per_owner_model_contribution"][owner])
+             for owner, v in a["per_owner_model_contribution"].items()}
+    # price' = price + x; the supplier gains x and the buyer loses x.
+    lower = max(Decimal(0), price - delta[seller])
+    upper = price + delta[buyer]
+    others_ok = all(v >= 0 for k, v in delta.items() if k not in {buyer, seller})
+    feasible = others_ok and lower <= upper
+    return {**base,
+            "status": ("MODEL_NONNEGATIVE_INDIVIDUAL_PRICE_INTERVAL" if feasible
+                       else "NO_SINGLE_PRICE_CAN_MAKE_ALL_ORIGINAL_OWNERS_NO_WORSE"),
+            "other_original_owners_no_worse": others_ok,
+            "candidate_current_reserve_paths_met": all(a["original_owner_reserves_met"].values()),
+            "local_research_only": {
+                "current_purchase_price": f"{price:.2f}",
+                "minimum_purchase_price": f"{lower:.2f}" if feasible else None,
+                "maximum_purchase_price": f"{upper:.2f}" if feasible else None,
+                "supplier_minimum_vs_comparator": f"{lower:.2f}",
+                "buyer_maximum_vs_comparator": f"{upper:.2f}",
+                "unresolved_model_value_gap": f"{max(Decimal(0), lower-upper):.2f}",
+            }}
