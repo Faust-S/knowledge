@@ -33,6 +33,7 @@ from .technology import (
     TechnologyRouteBlocked, qualify_original_technology_route_proposal,
     qualify_original_technology_route_response,
     qualify_original_technology_route_request, qualify_original_technology_route_commit,
+    qualify_original_route_commercial_consent,
 )
 from .source_registration import (
     RegistrationBlocked, qualify_subject_registration,
@@ -399,6 +400,7 @@ class QualitativeAKIS:
              "technology_route_id", "technology_route_work",
              "technology_route_work_spec", "technology_route_fingerprint",
              "technology_route_market_scope",
+             "technology_route_commercial_terms", "technology_route_commercial_fingerprint",
              "technology_route_source_ref", "technology_route_valid_until",
              "technology_route_decision", "technology_route_decision_source_ref",
              "technology_route_model_code_change_id",
@@ -476,6 +478,11 @@ class QualitativeAKIS:
             if "technology_route_market_scope" in ev and ev["action"] not in {
                     "technology_route_propose", "request", "commit"}:
                 raise InputError("MARKET_SCOPE_REQUIRES_ORIGINAL_TECHNOLOGY_DECISION")
+            if ("technology_route_commercial_terms" in ev and ev["action"] not in {
+                    "technology_route_propose", "request", "commit"}
+                    or "technology_route_commercial_fingerprint" in ev and ev["action"] not in {
+                    "technology_route_propose", "technology_route_response", "request", "consent", "commit"}):
+                raise InputError("COMMERCIAL_TERMS_REQUIRE_ORIGINAL_TECHNOLOGY_DECISION")
             if "evaluation_economic_portfolio" in ev and (
                     ev["action"] != "participation_status"
                     or ev["evaluation_economic_portfolio"] is not True
@@ -1215,6 +1222,9 @@ class QualitativeAKIS:
                 report["cooperation_source_revision"] = route_proposal[
                     "cooperation_source_revision"
                 ]
+        if (action in {"technology_route_response", "consent"} and report["outcome"] == "APPLIED"
+                and "technology_route_commercial_fingerprint" in ev):
+            report["technology_route_commercial_fingerprint"] = ev["technology_route_commercial_fingerprint"]
         if action == "commit" and report["outcome"] == "APPLIED" and technology_route_evidence:
             report.update(technology_route_evidence)
         if action in {"start_operation", "complete_operation"}:
@@ -1975,6 +1985,7 @@ class QualitativeAKIS:
             if ev.get("source_revision") != w.source_revision or ev.get("org_revision") != self.institution.revision:
                 raise BlockedDecision("STALE_CONSENT_SOURCE_OR_ORG_CODE")
             self._assert_future_cooperation_available(w, {actor})
+            qualify_original_route_commercial_consent(self, w, ev, at)
             w.consents[actor] = (w.source_revision, self.institution.revision)
         elif a == "interest_update":
             # A MODEL_ONLY original owner's declared interest. The only state

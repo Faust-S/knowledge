@@ -358,8 +358,16 @@ def qualify_original_technology_route_proposal(
             "technology_route_market_scope_fingerprint": technology_route_fingerprint(raw),
             "technology_route_market_feasibility": review_original_route_market_scope(state, candidate, raw, at),
         }
+    commercial = {}
+    if _has_route_commercial_fields(ev):
+        if not market:
+            raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_MARKET_SCOPE_REQUIRED")
+        commercial = _review_route_commercial_terms(
+            state, candidate, ev.get(_COMMERCIAL_FIELD), ev["technology_route_fingerprint"], at)
+        if ev.get(_COMMERCIAL_DIGEST) != commercial[_COMMERCIAL_DIGEST]:
+            raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_TERMS_FINGERPRINT_MISMATCH")
     return {
-        **market,
+        **market, **commercial,
         "route_original_work": candidate.key,
         "route_source_revision": candidate.source_revision,
         "route_original_principals": sorted(principals),
@@ -388,6 +396,8 @@ def qualify_original_technology_route_response(
         raise TechnologyRouteBlocked(
             "ORIGINAL_TECHNOLOGY_ROUTE_RESPONSE_SOURCE_OR_TIME_STALE"
         )
+    if ev.get(_COMMERCIAL_DIGEST) != proposal.get(_COMMERCIAL_DIGEST):
+        raise TechnologyRouteBlocked("COMMERCIAL_RESPONSE_MUST_BIND_ORIGINAL_TERMS")
     party = ev.get("actor")
     if (party not in proposal["route_original_principals"]
             or party not in state.subjects
@@ -414,6 +424,8 @@ def qualify_original_technology_route_request(
         and row.get("technology_route_work") == work.key
     ]
     if not proposals and ev.get("technology_route_id") is None:
+        if _has_route_commercial_fields(ev):
+            raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_PROPOSAL_REQUIRED")
         if "technology_route_market_scope" in ev:
             raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_PROPOSAL_REQUIRED")
         return None
@@ -476,8 +488,9 @@ def qualify_original_technology_route_request(
     for response in latest.values():
         _assert_original_route_decision_source(state, response, at)
     market = _review_bound_market_scope(state, work, ev, proposal, at)
+    commercial = _review_bound_commercial_terms(state, work, ev, proposal, at)
     return {
-        **market,
+        **market, **commercial,
         "technology_route_original_source_qualified": True,
         **({"technology_route_strict_original_decision_sources_qualified": True}
            if state.context_basis is not None and state.context_basis.strict else {}),
@@ -494,6 +507,8 @@ def qualify_original_technology_route_commit(state: Any, work: Any, event: Mappi
                                              at: int) -> dict[str, Any] | None:
     """Recheck source rights and optional market scope before original commitment."""
     if state.context_basis is None or not state.context_basis.strict:
+        if _has_route_commercial_fields(event):
+            raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_STRICT_CONTEXT_REQUIRED")
         if "technology_route_market_scope" in event:
             raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_STRICT_CONTEXT_REQUIRED")
         return None
@@ -504,6 +519,8 @@ def qualify_original_technology_route_commit(state: Any, work: Any, event: Mappi
         and row.get("technology_route_id") is not None
     ]
     if not requests:
+        if _has_route_commercial_fields(event):
+            raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_PROPOSAL_REQUIRED")
         if "technology_route_market_scope" in event:
             raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_PROPOSAL_REQUIRED")
         return None
@@ -532,7 +549,26 @@ def qualify_original_technology_route_commit(state: Any, work: Any, event: Mappi
     _assert_original_route_decision_source(state, proposal, at)
     for response in latest.values():
         _assert_original_route_decision_source(state, response, at)
-    return _review_bound_market_scope(state, work, event, proposal, at) or None
+    market = _review_bound_market_scope(state, work, event, proposal, at)
+    commercial = _review_bound_commercial_terms(state, work, event, proposal, at)
+    if commercial:
+        digest = commercial[_COMMERCIAL_DIGEST]
+        if request.get(_COMMERCIAL_DIGEST) != digest or any(
+                not any(row["action"] == "consent" and row["outcome"] == "APPLIED"
+                        and row.get("work") == work.key and row["actor"] == owner
+                        and response["at"] < row["at"] < at
+                        and row.get(_COMMERCIAL_DIGEST) == digest
+                        and row.get("org_revision") == state.institution.revision
+                        for row in state.trace)
+                for owner, response in latest.items()):
+            raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_FRESH_WORK_CONSENTS_REQUIRED")
+        # Existing local trace is the sole original decision history. Keep
+        # the exact accepted terms for later matching of the existing ledger.
+        # Redacted research projections must never redistribute this document.
+        from copy import deepcopy
+        commercial["technology_route_commercial_terms_private_research_only"] = deepcopy(
+            event[_COMMERCIAL_FIELD])
+    return {**market, **commercial} or None
 
 
 def review_original_route_market_scope(state: Any, work: Any, raw: Any, at: int) -> dict[str, Any]:
@@ -780,3 +816,117 @@ def _review_bound_market_scope(state, work, event, proposal, at):
         "technology_route_market_scope_fingerprint": original,
         "technology_route_market_feasibility": review_original_route_market_scope(state, work, supplied, at),
     }
+
+
+# Commercial terms remain an annotation of the ORIGINAL route and Work,
+# not a contract store, payment engine, source registry or new consent type.
+_COMMERCIAL_FIELD = "technology_route_commercial_terms"
+_COMMERCIAL_DIGEST = "technology_route_commercial_fingerprint"
+_COMMERCIAL_PURPOSE = "AKIS_TECHNOLOGY_ROUTE_COMMERCIAL_TERMS"
+
+
+def _has_route_commercial_fields(event: Mapping[str, Any]) -> bool:
+    return _COMMERCIAL_FIELD in event or _COMMERCIAL_DIGEST in event
+
+
+def read_original_route_commercial_sources(state, raw, at, *, historical=False):
+    """Same strict KPB, with own quote readable by buyer and recording operator."""
+    from .context_basis import ContextBlocked
+    basis = state.context_basis
+    if basis is None or not basis.strict:
+        raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_STRICT_CONTEXT_REQUIRED")
+    buyer, operator = raw["buyer"], state.institution.operator
+    sources = [(buyer, raw["buyer_source"], {buyer})]
+    sources += [(row["payee"], row, {buyer, row["payee"], operator})
+                for row in raw["offers"]]
+    try:
+        for owner, row, readers in sources:
+            check = (basis.assert_original_historical_form_role_source if historical
+                     else basis.assert_original_form_role_source)
+            check(owner, row["source_ref"], row["source_revision"],
+                  core="operator" if owner == operator else "corporate",
+                  purpose=_COMMERCIAL_PURPOSE, operation="READ", recipients=readers, at=at)
+    except ContextBlocked as exc:
+        raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_OWNER_SOURCE_NOT_QUALIFIED") from exc
+
+
+def _review_route_commercial_terms(state, work, raw, route_digest, at):
+    from decimal import Decimal
+    import re
+
+    fields = {"work", "work_revision", "route_fingerprint", "buyer", "currency",
+              "buyer_maximum_payment", "buyer_source", "offers"}
+    if not isinstance(raw, dict) or set(raw) != fields:
+        raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_TERMS_FIELDS_INVALID")
+    buyer, operator = work.customer, state.institution.operator
+    if (raw["work"] != work.key or raw["work_revision"] != work.source_revision
+            or raw["buyer"] != buyer or buyer == operator
+            or raw["route_fingerprint"] != route_digest):
+        raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_ROUTE_REVISION_REQUIRED")
+    if not isinstance(raw["currency"], str) or not re.fullmatch(r"[A-Z]{3}", raw["currency"]):
+        raise TechnologyRouteBlocked("COMMERCIAL_CURRENCY_INVALID")
+
+    def exact(value):
+        if not isinstance(value, str) or not re.fullmatch(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,2})?", value):
+            raise TechnologyRouteBlocked("COMMERCIAL_EXACT_AMOUNT_REQUIRED")
+        return Decimal(value)
+
+    cap = exact(raw["buyer_maximum_payment"])
+    buyer_source = raw["buyer_source"]
+    if (not isinstance(buyer_source, dict)
+            or set(buyer_source) != {"source_ref", "source_revision"}):
+        raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_BUYER_BUDGET_SOURCE_REQUIRED")
+    expected = (_route_principals(state, work) - {buyer}) | {operator}
+    offers = raw["offers"]
+    if not isinstance(offers, list) or not 1 <= len(offers) <= 128:
+        raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_OFFERS_REQUIRED")
+    refs, payees, total = {buyer_source["source_ref"]} if isinstance(buyer_source["source_ref"], str) else set(), set(), Decimal(0)
+    for row in offers:
+        if (not isinstance(row, dict) or set(row) != {"payee", "amount", "condition",
+                "due_at", "expires_at", "source_ref", "source_revision"}
+                or not isinstance(row["payee"], str) or row["payee"] not in expected
+                or row["payee"] in payees or not state.subjects[row["payee"]].active):
+            raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_SUPPLIER_OR_OPERATOR_REQUIRED")
+        if (row["condition"] != "ON_CUSTOMER_ACCEPTANCE"
+                or type(row["due_at"]) is not int or not at < row["due_at"] <= 10000
+                or type(row["expires_at"]) is not int or not at < row["expires_at"] <= 10000):
+            raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_OFFER_OR_DUE_TIME_STALE")
+        if not isinstance(row["source_ref"], str) or row["source_ref"] in refs:
+            raise TechnologyRouteBlocked("COMMERCIAL_DISTINCT_ORIGINAL_OWNER_SOURCES_REQUIRED")
+        refs.add(row["source_ref"])
+        payees.add(row["payee"])
+        total += exact(row["amount"])
+    if payees != expected:
+        raise TechnologyRouteBlocked("COMMERCIAL_ALL_EXTERNAL_SUPPLIERS_AND_OPERATOR_REQUIRED")
+    if total > cap:
+        raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_BUYER_BUDGET_EXCEEDED")
+    read_original_route_commercial_sources(state, raw, at)
+    return {
+        _COMMERCIAL_DIGEST: technology_route_fingerprint(raw),
+        "technology_route_commercial_source_count": len(offers) + 1,
+        "technology_route_commercial_budget_met": True,
+        "technology_route_commercial_terms_do_not_create_payment_or_consent": True,
+    }
+
+
+def _review_bound_commercial_terms(state, work, event, proposal, at):
+    expected = proposal.get(_COMMERCIAL_DIGEST)
+    if expected is None:
+        if _has_route_commercial_fields(event):
+            raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_PROPOSAL_REQUIRED")
+        return {}
+    if (event.get(_COMMERCIAL_DIGEST) != expected
+            or technology_route_fingerprint(event.get(_COMMERCIAL_FIELD)) != expected):
+        raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_TERMS_FINGERPRINT_MISMATCH")
+    qualified = _review_route_commercial_terms(
+        state, work, event[_COMMERCIAL_FIELD], proposal["technology_route_fingerprint"], at)
+    return qualified
+
+
+def qualify_original_route_commercial_consent(state, work, event, at):
+    """A model technical assent does not stand in for concrete Work consent."""
+    requests = [r for r in state.trace if r["action"] == "request"
+                and r["outcome"] == "APPLIED" and r.get("work") == work.key]
+    expected = requests[0].get(_COMMERCIAL_DIGEST) if len(requests) == 1 else None
+    if event.get(_COMMERCIAL_DIGEST) != expected:
+        raise TechnologyRouteBlocked("COMMERCIAL_WORK_CONSENT_MUST_BIND_ORIGINAL_TERMS")

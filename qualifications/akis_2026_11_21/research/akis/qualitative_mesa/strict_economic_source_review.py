@@ -183,6 +183,7 @@ def review_original_strict_economic_sources(
             ) from exc
         covered.add(owner)
     outside_price_qualified = False
+    qualified_commercial_orders = 0
     for scoped_work in work_ids:
         work = state.works[scoped_work]
         principals = (
@@ -194,6 +195,56 @@ def review_original_strict_economic_sources(
             raise StrictEconomicSourceBlocked(
                 "ORIGINAL_ECONOMIC_INDEPENDENT_PRINCIPAL_SOURCE_MISSING"
             )
+        # The commercial route's ORIGINAL accepted digest pins the purchase
+        # obligations. Later financial records cannot silently reprice it.
+        commercial_commits = [row for row in state.trace if row["action"] == "commit"
+            and row["outcome"] == "APPLIED" and row.get("work") == scoped_work
+            and row.get("technology_route_commercial_fingerprint") is not None]
+        if commercial_commits:
+            if len(commercial_commits) != 1:
+                raise StrictEconomicSourceBlocked("COMMERCIAL_ORIGINAL_COMMIT_AMBIGUOUS")
+            committed = commercial_commits[0]
+            raw = committed.get("technology_route_commercial_terms_private_research_only")
+            from .technology import (technology_route_fingerprint,
+                                     read_original_route_commercial_sources, TechnologyRouteBlocked)
+            if (not isinstance(raw, dict)
+                    or technology_route_fingerprint(raw) != committed["technology_route_commercial_fingerprint"]):
+                raise StrictEconomicSourceBlocked("COMMERCIAL_ORIGINAL_COMMITTED_TERMS_REQUIRED")
+            try:
+                read_original_route_commercial_sources(state, raw, committed["at"], historical=True)
+                read_original_route_commercial_sources(state, raw, at)
+            except TechnologyRouteBlocked as exc:
+                raise StrictEconomicSourceBlocked("COMMERCIAL_COMMITTED_OWNER_SOURCES_NOT_READABLE") from exc
+            transfers = original_claims.get("transfers")
+            conditions = original_claims.get("work_payment_conditions")
+            if (not isinstance(transfers, list) or not isinstance(conditions, list)
+                    or original_claims.get("currency") != raw["currency"]):
+                raise StrictEconomicSourceBlocked("COMMERCIAL_ORIGINAL_PAYMENT_DOCUMENT_REQUIRED")
+            buyer = raw["buyer"]
+            payments = [r for r in transfers if isinstance(r, dict)
+                and r.get("work") == scoped_work and r.get("scenario") == "COOPERATION"
+                and r.get("payer") == buyer and r.get("payee") != "EXTERNAL"]
+            quotes = {r["payee"]: r for r in raw["offers"]}
+            if (len(payments) != len(quotes) or {r.get("payee") for r in payments} != set(quotes)):
+                raise StrictEconomicSourceBlocked("COMMERCIAL_ORIGINAL_PURCHASE_PARTIES_MISMATCH")
+            for payment in payments:
+                quote = quotes[payment["payee"]]
+                matched = [r for r in conditions if isinstance(r, dict)
+                           and r.get("transfer_id") == payment["id"]]
+                try:
+                    amount_ok = (isinstance(payment.get("amount"), str)
+                                 and Decimal(payment["amount"]).is_finite()
+                                 and Decimal(payment["amount"]) == Decimal(quote["amount"]))
+                except (InvalidOperation, TypeError, ValueError):
+                    amount_ok = False
+                if not amount_ok:
+                    raise StrictEconomicSourceBlocked("COMMERCIAL_ORIGINAL_PURCHASE_PRICE_MISMATCH")
+                if (len(matched) != 1 or matched[0].get("condition") != quote["condition"]
+                        or matched[0].get("due_at") != quote["due_at"]
+                        or matched[0].get("work_source_revision") != raw["work_revision"]
+                        or matched[0].get("org_revision") != committed["org_revision"]):
+                    raise StrictEconomicSourceBlocked("COMMERCIAL_ORIGINAL_PAYMENT_CONDITION_MISMATCH")
+            qualified_commercial_orders += 1
         # For an outside Work whose original request pinned the three earlier
         # events, compare a declared purchase payment with that original offer.
         # This is a strict-KPB review of EXISTING rows, never a new obligation.
@@ -577,6 +628,8 @@ def review_original_strict_economic_sources(
 
     return {
         "status": "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED",
+        **({"original_commercial_order_payment_terms_matched_count": qualified_commercial_orders}
+           if qualified_commercial_orders else {}),
         **({"source_scoped_uncommitted_order_owner_count": qualified_uncommitted_owners,
             "source_scoped_uncommitted_recipient_observation": True}
            if uncommitted is not None else {}),

@@ -711,7 +711,8 @@ def original_market_order_finance_case(*, alternate=None, incomplete=False,
                                       observed="14", missing_owner=False,
                                       failed_quality=False, competing=False, buyer_finishes=False,
                                       buyer_finish_material="140.00", buyer_finish_labor="80.00",
-                                      supplier_finish_price="400.00"):
+                                      supplier_finish_price="400.00", commercial=False,
+                                      buyer_budget="1400.00"):
     """Attach complete owner declarations to SAME W1/W2/W3 and ledger."""
     from .test_r1p_r3_executed_route_economics_mesa import add_original_recipient_value
 
@@ -841,6 +842,8 @@ def original_market_order_finance_case(*, alternate=None, incomplete=False,
     if failed_quality:
         next(e for e in d["events"] if e["action"] == "assess_result_quality"
              and e.get("criterion") == "q-stage-c")["quality_verdict"] = "DOES_NOT_MEET"
+    if commercial:
+        add_original_commercial_terms(d, buyer_budget=buyer_budget)
     return d
 
 
@@ -1196,15 +1199,16 @@ def test_original_common_code_also_permits_independent_supplier_finishing():
 
 def matched_competing_market_cases(*, buyer_finish_material="140.00", buyer_finish_labor="80.00",
                                   supplier_finish_price="400.00", buyer_observed="14",
-                                  c_opening="400.00", buyer_failed_quality=False):
+                                  c_opening="400.00", buyer_failed_quality=False, commercial=True):
     """Common exogenous source universe: both routes can be chosen by owners."""
     docs = {
         "supplier": original_market_order_finance_case(
-            competing=True, supplier_finish_price=supplier_finish_price, c_opening=c_opening),
+            competing=True, supplier_finish_price=supplier_finish_price, c_opening=c_opening,
+            commercial=commercial),
         "coproduction": original_market_order_finance_case(
             competing=True, buyer_finishes=True, buyer_finish_material=buyer_finish_material,
             buyer_finish_labor=buyer_finish_labor, observed=buyer_observed,
-            c_opening=c_opening, failed_quality=buyer_failed_quality),
+            c_opening=c_opening, failed_quality=buyer_failed_quality, commercial=commercial),
     }
     # Common BEFORE-choice catalogue, existing KPB rights for both possible
     # routes, plus independent owner documents for each possible observation.
@@ -1265,6 +1269,7 @@ def test_matched_same_recipient_competing_routes_preserve_fixed_population_and_h
     assert docs == frozen
     assert r["status"] == "MODEL_MATCHED_EXECUTED_COMPETING_MARKET_ROUTES", r
     assert r["qualified_route_count"] == 2
+    assert r["same_original_buyer_budget_and_precommit_commercial_terms_required"]
     assert r["original_owner_count"] == 4
     assert r["best_model_contribution_among_executed_participant_viable_routes"] == ["coproduction"]
     pair = r["local_research_only"]["pairwise"][0]
@@ -1354,3 +1359,142 @@ def test_competing_market_price_envelope_and_separately_executed_repricing():
     assert pair["per_original_owner_left_minus_right"] == {
         "a": "0.00", "b": "-30.00", "c": "-70.00", "op": "0.00"}
     assert adjusted["pairwise_contrasts"][0]["right_weak_pareto_improvement_on_selected_order"]
+
+
+def add_original_commercial_terms(d, *, buyer_budget="1400.00", expires_at=None):
+    """Independent buyer budget and each supplier/operator's exact quote."""
+    money = d["economic_claims"]
+    proposal = next(e for e in d["events"] if e["action"] == "technology_route_propose")
+    route = proposal["technology_route_id"]
+    commit = next(e for e in d["events"] if e.get("work") == "w3" and e["action"] == "commit")
+    expires_at = commit["at"]+1 if expires_at is None else expires_at
+    source_valid = max(190, d["model_horizon"]+1)
+    def source(owner, suffix, readers):
+        ref = f"model://{owner}/{suffix}"
+        d["context_evidence"]["sources"].append({
+            "id": ref, "owner": owner, "revision": "commercial-v1", "status": "CONFIRMED",
+            "usable_by": sorted(readers), "core": "operator" if owner == "op" else "corporate",
+            "purposes": ["AKIS_TECHNOLOGY_ROUTE_COMMERCIAL_TERMS"], "operations": ["READ"],
+            "valid_from": 0, "valid_until": source_valid,
+        })
+        return {"source_ref": ref, "source_revision": "commercial-v1"}
+    raw = {
+        "work": "w3", "work_revision": "d-3",
+        "route_fingerprint": proposal["technology_route_fingerprint"],
+        "buyer": "b", "currency": money["currency"], "buyer_maximum_payment": buyer_budget,
+        "buyer_source": source("b", "original-market-commercial-budget", {"b"}), "offers": [],
+    }
+    for t in money["transfers"]:
+        if t["work"] != "w3" or t["payer"] != "b" or t["payee"] == "EXTERNAL":
+            continue
+        terms = next(r for r in money["work_payment_conditions"] if r["transfer_id"] == t["id"])
+        payee = t["payee"]
+        raw["offers"].append({
+            "payee": payee, "amount": t["amount"], "condition": terms["condition"],
+            "due_at": terms["due_at"], "expires_at": expires_at,
+            **source(payee, f"original-quote-{route}", {"b", "op", payee}),
+        })
+    bind_commercial_terms(d, raw)
+    return raw
+
+
+def bind_commercial_terms(d, raw):
+    """Only for forming fresh prospective test trajectories."""
+    digest = technology_route_fingerprint(raw)
+    for e in d["events"]:
+        if (e["action"] == "technology_route_propose"
+                or e["action"] == "request" and e["work_spec"]["id"] == "w3"
+                or e["action"] == "commit" and e.get("work") == "w3"):
+            e["technology_route_commercial_terms"] = deepcopy(raw)
+            e["technology_route_commercial_fingerprint"] = digest
+        elif e["action"] == "technology_route_response" or (
+                e["action"] == "consent" and e.get("work") == "w3"):
+            e["technology_route_commercial_fingerprint"] = digest
+
+
+def test_original_technology_commercial_quotes_bind_consent_and_payment_without_new_ledger():
+    d = original_market_order_finance_case(commercial=True)
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0
+    market = out["economics"]["original_market_order_economics"]
+    assert market["original_precommit_commercial_terms_matched_to_payment_conditions"]
+    assert out["economics"]["original_strict_context_source_qualification"][
+        "original_commercial_order_payment_terms_matched_count"] == 1
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert market["local_research_only"]["consolidated_model_contribution"] == "660.00"
+
+
+@pytest.mark.parametrize("mutation,action,reason", [
+    ("budget", "technology_route_propose", "COMMERCIAL_ORIGINAL_BUYER_BUDGET_EXCEEDED"),
+    ("foreign_quote", "technology_route_propose", "COMMERCIAL_ORIGINAL_OWNER_SOURCE_NOT_QUALIFIED"),
+    ("missing_operator_quote", "technology_route_propose", "COMMERCIAL_ALL_EXTERNAL_SUPPLIERS_AND_OPERATOR_REQUIRED"),
+    ("unshared_quote", "technology_route_propose", "COMMERCIAL_ORIGINAL_OWNER_SOURCE_NOT_QUALIFIED"),
+    ("wrong_response", "technology_route_response", "COMMERCIAL_RESPONSE_MUST_BIND_ORIGINAL_TERMS"),
+    ("wrong_request", "request", "COMMERCIAL_ORIGINAL_TERMS_FINGERPRINT_MISMATCH"),
+    ("missing_consent_digest", "consent", "COMMERCIAL_WORK_CONSENT_MUST_BIND_ORIGINAL_TERMS"),
+    ("expired_quote", "commit", "COMMERCIAL_ORIGINAL_OFFER_OR_DUE_TIME_STALE"),
+    ("changed_commit_quote", "commit", "COMMERCIAL_ORIGINAL_TERMS_FINGERPRINT_MISMATCH"),
+])
+def test_original_commercial_gate_never_invents_budget_quote_or_consent(mutation, action, reason):
+    d = original_market_order_finance_case(commercial=True)
+    # In these tests exercise original transitions, without financial claims
+    # about a Work which may be rejected before creation.
+    d.pop("economic_claims")
+    d.pop("strict_economic_source_works")
+    proposal = next(e for e in d["events"] if e["action"] == "technology_route_propose")
+    raw = deepcopy(proposal["technology_route_commercial_terms"])
+    if mutation == "budget":
+        raw["buyer_maximum_payment"] = "1000.00"
+        bind_commercial_terms(d, raw)
+    elif mutation == "foreign_quote":
+        raw["offers"][0]["source_ref"] = raw["buyer_source"]["source_ref"] + "-other"
+        bind_commercial_terms(d, raw)
+    elif mutation == "missing_operator_quote":
+        raw["offers"] = [o for o in raw["offers"] if o["payee"] != "op"]
+        bind_commercial_terms(d, raw)
+    elif mutation == "unshared_quote":
+        ref = raw["offers"][0]["source_ref"]
+        next(s for s in d["context_evidence"]["sources"] if s["id"] == ref)["usable_by"] = ["a"]
+    elif mutation == "wrong_response":
+        next(e for e in d["events"] if e["action"] == "technology_route_response"
+             and e["actor"] == "a")["technology_route_commercial_fingerprint"] = "0"*64
+    elif mutation == "wrong_request":
+        next(e for e in d["events"] if e["action"] == "request" and e["work_spec"]["id"] == "w3")[
+            "technology_route_commercial_terms"]["offers"][0]["amount"] = "999.00"
+    elif mutation == "missing_consent_digest":
+        next(e for e in d["events"] if e["action"] == "consent" and e.get("work") == "w3"
+             and e["actor"] == "c").pop("technology_route_commercial_fingerprint")
+    elif mutation == "expired_quote":
+        tick = next(e["at"] for e in d["events"] if e["action"] == "commit" and e.get("work") == "w3")
+        raw["offers"][0]["expires_at"] = tick
+        bind_commercial_terms(d, raw)
+    else:
+        next(e for e in d["events"] if e["action"] == "commit" and e.get("work") == "w3")[
+            "technology_route_commercial_terms"]["offers"][0]["amount"] = "999.00"
+    out = simulate(d)
+    assert any(e["action"] == action and e["outcome"] == "BLOCKED" and e["reason"] == reason
+               for e in out["trace"]), [(e["at"], e["action"], e["reason"])
+               for e in out["trace"] if e["outcome"] == "BLOCKED"]
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"].get("w3", {}).get("result") != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("price", "COMMERCIAL_ORIGINAL_PURCHASE_PRICE_MISMATCH"),
+    ("due", "COMMERCIAL_ORIGINAL_PAYMENT_CONDITION_MISMATCH"),
+    ("currency", "COMMERCIAL_ORIGINAL_PAYMENT_DOCUMENT_REQUIRED"),
+    ("missing_purchase", "COMMERCIAL_ORIGINAL_PURCHASE_PARTIES_MISMATCH"),
+])
+def test_original_committed_commercial_terms_cannot_be_rewritten_by_financial_claim(mutation, reason):
+    d = original_market_order_finance_case(commercial=True)
+    money = d["economic_claims"]
+    if mutation == "price":
+        next(t for t in money["transfers"] if t["id"] == "w3-market-purchase-c")["amount"] = "399.00"
+    elif mutation == "due":
+        next(t for t in money["work_payment_conditions"] if t["transfer_id"] == "w3-market-purchase-c")["due_at"] += 1
+    elif mutation == "currency":
+        money["currency"] = "USD"
+    else:
+        money["transfers"] = [t for t in money["transfers"] if t["id"] != "w3-market-purchase-c"]
+    with pytest.raises(ValueError, match=reason):
+        simulate(d)

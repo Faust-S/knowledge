@@ -1374,6 +1374,9 @@ def review_original_market_order_economics(
            if buyer_produces else {}),
         "original_owner_count": len(owners),
         "original_accepted_result": accepted,
+        **({"original_precommit_commercial_terms_matched_to_payment_conditions": True}
+           if len(commits) == 1 and commits[0].get("technology_route_commercial_fingerprint")
+           and strict.get("original_commercial_order_payment_terms_matched_count", 0) > 0 else {}),
         "reasons": sorted(reasons),
         "real_market_additionality_and_profit": "NOT_IDENTIFIABLE",
         "declared_no_order_baseline_not_executed_counterfactual": True,

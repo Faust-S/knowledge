@@ -1417,6 +1417,13 @@ def compare_original_competing_market_routes(
                          proposal.get("pilot_work"), proposal.get("pilot_result_ref"),
                          proposal.get("technology_route_model_code_change_id")),
         }
+        commercial = proposal.get("technology_route_commercial_terms")
+        if commercial is not None:
+            if (not isinstance(commercial, Mapping) or any(
+                    e.get("technology_route_commercial_terms") != commercial for e in (request, commit))):
+                raise TrajectoryComparisonError("COMPETING_MARKET_ORIGINAL_COMMERCIAL_BINDING_REQUIRED")
+            problem["commercial_budget_basis"] = {k: commercial[k] for k in
+                ("work", "work_revision", "buyer", "currency", "buyer_maximum_payment", "buyer_source")}
         plans[name] = tuple(sorted((o["id"], o["primary_resource"]) for o in operations))
         money = doc.get("economic_claims")
         if (not isinstance(money, Mapping) or set(money) - allowed
@@ -1529,6 +1536,10 @@ def compare_original_competing_market_routes(
                 or out.get("profit", {}).get("system_increment") != "UNKNOWN"):
             reasons.add("ORIGINAL_STRICT_SCOPE_OR_EMPIRICAL_BOUNDARY_INCOMPLETE")
             continue
+        if ("commercial_budget_basis" in ref["problem"] and not
+                market.get("original_precommit_commercial_terms_matched_to_payment_conditions")):
+            reasons.add("ORIGINAL_PRECOMMIT_COMMERCIAL_TERMS_NOT_QUALIFIED")
+            continue
         local = market["local_research_only"]
         amounts = {}
         reserves = {}
@@ -1582,6 +1593,8 @@ def compare_original_competing_market_routes(
         "original_trajectories_executed_separately_not_duplicate_orders": True,
         "displaced_owner_zero_only_for_selected_order_not_outside_income": True,
         "actual_equal_product_quality_risk_and_market_profit_not_verified": True,
+        **({"same_original_buyer_budget_and_precommit_commercial_terms_required": True}
+           if "commercial_budget_basis" in ref["problem"] else {}),
         "empirical_network_additionality": "NOT_IDENTIFIABLE",
     }
     if reasons:
