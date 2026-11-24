@@ -25,6 +25,25 @@ for(const [key,definition] of Object.entries(suite.forms)){
   const form=Array.from(dom.window.document.forms).find(f=>f.hasAttribute(definition.marker));
   const fail=(reason)=>{console.log("T3_CLUB_EXPLICIT_FACTS_STRUCTURE "+JSON.stringify({suite:suiteName,form:key,reason}));throw Error(reason);};
   if(!form)fail("ACTUAL_FORM");
+  // The original driver form is intentionally unavailable until the user
+  // has created a route with comparison enabled. Exercise the actual
+  // Club widget's event contract; never expose hidden controls in policy.
+  if(expanded&&key==="driver"){
+   const section=form.closest("[data-driver-trials]");
+   if(!section?.hidden||fieldCandidates(form.elements,f=>f.isConnected).length!==0)fail("DRIVER_INITIALLY_HIDDEN");
+   const globals=["document","window"],original=globals.map(n=>Object.getOwnPropertyDescriptor(globalThis,n));
+   try{
+    for(const name of globals)Object.defineProperty(globalThis,name,{configurable:true,value:name==="document"?dom.window.document:dom.window});
+    await load(domain,"assets/club-driver-trials-ui.mjs");
+    const ready=route=>dom.window.document.dispatchEvent(new dom.window.CustomEvent("iwxa-club-route-progress-ready",{detail:{route}}));
+    const route={objectId:"action-route",updatedAt:"2027-01-01T00:00:00.000Z",data:{toolId:"action-route",humanSummary:"Synthetic qualification",calculatedValues:{},weeks:[{w:1,t:"Test",tasks:["Test"]}]}};
+    ready(route);if(!section.hidden)fail("DRIVER_DISABLED_ROUTE");
+    route.data.calculatedValues.driverComparisonEnabled=true;
+    ready(route);
+    if(section.hidden||!section.querySelector("[data-driver-summary]")?.textContent?.includes("Такси"))fail("DRIVER_EXPLICIT_ROUTE_ACTIVATION");
+   }finally{globals.forEach((name,i)=>original[i]?Object.defineProperty(globalThis,name,original[i]):delete globalThis[name]);}
+  }
+
   const hint=formHintFor(pack,form,"/"+definition.page.replace(/index\.html$/,""));
   if(!hint||hint.skillId!==definition.skill)fail("FORM_HINT_ROUTE");
   const fields=fieldCandidates(form.elements,f=>f.isConnected&&!f.closest("[hidden],[aria-hidden=true]"));
