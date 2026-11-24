@@ -340,7 +340,10 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
   if(existing!==null&&existing!==undefined)
     fail('DELETE_ORIGINAL_SOURCE_CAPTURE_ALREADY_USED',{captureRef:sourceIdempotencyKey,
       automaticRetryAllowed:false});
-  const priorWindow=await windowFrom(sourceCursor,await readEvents());
+  const initialEvents=await readEvents();
+  if(initialEvents.some(e=>e?.idempotency_key===sourceIdempotencyKey))
+    fail('DELETE_ORIGINAL_SOURCE_EVENT_KEY_ALREADY_USED');
+  const priorWindow=await windowFrom(sourceCursor,initialEvents);
   if(priorWindow.window.count!==0)
     fail('DELETE_ORIGINAL_EVENT_WINDOW_UNCERTAIN');
   const state=await read();
@@ -366,7 +369,10 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
   if(!snapshotEqual(latest,preImage))
     fail('DELETE_ORIGINAL_SOURCE_PREIMAGE_CHANGED');
   await scope.verifyNativeState(preImage,false);
-  const beforeWrite=await windowFrom(sourceCursor,await readEvents());
+  const beforeEvents=await readEvents();
+  if(beforeEvents.some(e=>e?.idempotency_key===sourceIdempotencyKey))
+    fail('DELETE_ORIGINAL_SOURCE_EVENT_KEY_ALREADY_USED');
+  const beforeWrite=await windowFrom(sourceCursor,beforeEvents);
   if(beforeWrite.window.count!==0)
     fail('DELETE_ORIGINAL_EVENT_WINDOW_UNCERTAIN');
   await guard(ops.read);

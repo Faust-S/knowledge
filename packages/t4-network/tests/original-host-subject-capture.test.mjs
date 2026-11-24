@@ -38,15 +38,16 @@ function fixture(){
   const originalKernel={
     hasOperation:op=>[
       't1.putObject','t1.putAsset','t1.getAsset','t1.putRelation',
-      't1.getObject','t1.listEventsSince',
+      't1.getObject','t1.listEventsSince','t1.deleteAsset','t1.deleteRelation',
     ].includes(op),
+    listEventsSince:async()=>structuredClone(events),
     putObject:async input=>{writes.push({kind:'putObject',input});return {local:true};},
     getAsset:async()=>asset?{asset:structuredClone(asset.asset),
       bytes:Buffer.from(asset.bytes)}:null,
     getObject:async(_w,id)=>id===objectFrom||id===objectTo
       ?{object:{workspace_id:ws,object_id:id,revision:1,deleted:false},
         relations:{outgoing:id===objectFrom&&relation?[structuredClone(relation)]:[],
-          incoming:[]}}:null,
+          incoming:id===objectTo&&relation?[structuredClone(relation)]:[]}}:null,
     putAsset:async input=>{
       writes.push({kind:'putAsset',input});
       const prior=receiptCache.get(input.event.idempotency_key);
@@ -69,6 +70,23 @@ function fixture(){
         {code:'NETWORK_TIMEOUT'});}
       return receipt;
     },
+    deleteAsset:async input=>{
+      writes.push({kind:'deleteAsset',input});
+      if(!asset||(input.base_revision!==undefined&&input.base_revision!==asset.asset.revision))
+        throw Object.assign(Error('asset conflict'),{code:'CONFLICT'});
+      const id=asset.asset.asset_id,objectId=asset.asset.object_id;asset=null;
+      const event=append(input,null,objectId);
+      if(loseNextAck){loseNextAck=false;throw Object.assign(Error('ACK_GONE'),{code:'NETWORK_TIMEOUT'});}
+      return {asset_id:id,event,deduplicated:false};
+    },
+    deleteRelation:async input=>{
+      writes.push({kind:'deleteRelation',input});
+      if(!relation)throw Object.assign(Error('relation missing'),{code:'NOT_FOUND'});
+      const id=relation.relation_id,from=relation.from_object_id;relation=null;
+      const event=append(input,null,from);
+      if(loseNextAck){loseNextAck=false;throw Object.assign(Error('ACK_GONE'),{code:'NETWORK_TIMEOUT'});}
+      return {relation_id:id,event,deduplicated:false};
+    },
     putRelation:async input=>{
       writes.push({kind:'putRelation',input});
       const prior=receiptCache.get(input.event.idempotency_key);
@@ -90,6 +108,12 @@ function fixture(){
     originalKernel,originalWriteOwnerRef:owner,getMode:()=> 'T4_NETWORK',
     authorizeOriginalRead:async()=>true,authorizeOriginalWrite:async()=>true,
     readOriginalEvents:async()=>events,
+    // This fixture has a single original mutation executor. It is not
+    // evidence of installed Host cross-process exclusion.
+    withOriginalSubjectMutation:async(proof,action)=>{
+      assert.equal(proof.originalHostMustSerializeSubjectMutations,true);
+      return action();
+    },
     persistOriginalIntent:async payload=>{
       if(intents.has(payload.captureRef))return false;
       intents.set(payload.captureRef,structuredClone(payload));return true;
@@ -635,4 +659,97 @@ test('subject capture reserved Event trace fields cannot be supplied by caller',
     sourceCursor:await cursor(f),captureRef:'native:relation:reserved'}),
     err('SUBJECT_CAPTURE_RESERVED_TRACE_FIELDS'));
   assert.equal(f.writes.length,0);assert.equal(f.intents.size,0);
+});
+
+const deletionAssetInput=()=>({workspace_id:ws,asset_id:assetId,base_revision:1,
+  event:{event_type:'business.asset.retired',payload:{reason:'replacement'},
+    idempotency_key:'business:delete:asset:one'}});
+const deletionRelationInput=()=>({workspace_id:ws,relation_id:relationId,
+  event:{event_type:'business.relation.retired',payload:{reason:'dependency removed'},
+    idempotency_key:'business:delete:relation:one'}});
+test('native Asset delete captures exact preimage and original domain Event in existing intent/outbox',async()=>{
+  const f=fixture(),host=adapter(f),ref='capture:delete:asset';
+  const saved=await host.deleteAsset({mutationInput:deletionAssetInput(),captureRef:ref,
+    sourceCursor:await cursor(f)});
+  assert.equal(f.asset(),null);
+  assert.equal(saved.subjectKind,'ASSET_DELETE');
+  assert.equal(saved.originalReceipt.event.event_type,'business.asset.retired');
+  assert.equal(saved.originalReceipt.event.idempotency_key,'business:delete:asset:one');
+  assert.equal(saved.originalReceipt.event.payload.reason,'replacement');
+  assert.equal(saved.capture.prepared.delta.preImage.revision,1);
+  assert.equal(saved.capture.prepared.delta.preImage.assetBytesSha256,packageSha256(initialBytes));
+  assert.equal(f.intents.size,1);assert.equal(f.outbox.size,1);
+  const native=await readT4OriginalHostCapturedSubject(outboxParams(f,'ASSET_DELETE',ref,assetId));
+  assert.equal(native.sourceRevision,null);
+  assert.equal(native.originalDeletionPreImageVerified,true);
+  assert.equal(native.prepared.sha256,saved.capture.prepared.sha256);
+  await assert.rejects(publishT4OriginalHostOutbox(outboxParams(f,'ASSET_DELETE',ref,assetId)),
+    err('OUTBOX_DELETE_REQUIRES_NATIVE_NETWORK'));
+  assert.equal(f.writes.length,1);
+});
+test('native Relation delete loss recovers exact original Event without repeating the mutation',async()=>{
+  const f=fixture(),host=adapter(f),ref='capture:delete:relation';
+  const created=await host.putRelation({mutationInput:relationInput(),captureRef:'capture:create:relation',
+    sourceCursor:await cursor(f)});
+  f.loseAck();
+  await assert.rejects(host.deleteRelation({mutationInput:deletionRelationInput(),fromObjectId:objectFrom,
+    captureRef:ref,sourceCursor:created.capture.nextCursor}),err('DELETE_ORIGINAL_SOURCE_OUTCOME_UNKNOWN'));
+  assert.equal(f.relation(),null);
+  assert.equal(f.outbox.has(ref),false);
+  const recovered=await adapter(f).reconcileRelationDeletion({captureRef:ref,workspaceId:ws,relationId});
+  assert.equal(recovered.originalReceipt,null);
+  assert.equal(recovered.originalMutationRetried,false);
+  assert.equal(recovered.originalEvent.event_type,'business.relation.retired');
+  assert.equal(recovered.originalEvent.payload.reason,'dependency removed');
+  const native=await readT4OriginalHostCapturedSubject(outboxParams(f,'RELATION_DELETE',ref,relationId));
+  assert.equal(native.prepared.sha256,recovered.prepared.sha256);
+  assert.equal(f.writes.filter(r=>r.kind==='deleteRelation').length,1);
+  assert.equal((await adapter(f).reconcileRelationDeletion({captureRef:ref,workspaceId:ws,relationId})).alreadyCaptured,true);
+});
+test('native deletion proof survives later original Events without using current subject as historical bytes',async()=>{
+  const f=fixture(),host=adapter(f),ref='capture:delete:asset';
+  const saved=await host.deleteAsset({mutationInput:deletionAssetInput(),captureRef:ref,
+    sourceCursor:await cursor(f)});
+  await host.putRelation({mutationInput:relationInput(),captureRef:'capture:next:relation',
+    sourceCursor:saved.capture.nextCursor});
+  const native=await readT4OriginalHostCapturedSubject(outboxParams(f,'ASSET_DELETE',ref,assetId));
+  assert.equal(native.laterSourceEventsExist,true);
+  assert.equal(native.originalDeletionPreImageVerified,true);
+  assert.equal(native.prepared.sha256,saved.capture.prepared.sha256);
+  const proof={originalT3SubjectAndEventReadbackRequired:true,changeKind:'ASSET_DELETE',
+    originalCapturedRevisionReadbackRequired:true,originalSourceRevision:null,
+    originalEventRevision:native.originalEventRevision,workspaceId:ws,originalWriteOwnerRef:owner,
+    originalSourceEventId:native.sourceEventId,originalEventDigest:native.prepared.delta.sourceEventDigest,
+    originalEventWindowDigest:native.sourceWindow.windowDigest,
+    originalBeforePrefixDigest:native.sourceWindow.sourcePrefixDigestBefore,
+    originalAfterPrefixDigest:native.sourceWindow.sourcePrefixDigestAfter};
+  assert.equal(await verifyT4OriginalHostCapturedSubjectSource(outboxParams(f,'ASSET_DELETE',ref,assetId),proof),true);
+  assert.equal(await verifyT4OriginalHostCapturedSubjectSource(outboxParams(f,'ASSET_DELETE',ref,assetId),
+    {...proof,originalSourceRevision:1}),false);
+});
+test('native deletion requires existing Host mutation boundary, correct Asset base revision and unspent Event key',async()=>{
+  const f=fixture(),ref='capture:delete:asset',sourceCursor=await cursor(f);
+  const unbound=createT4OriginalHostCaptureAdapter({...f.ports,withOriginalSubjectMutation:undefined});
+  await assert.rejects(unbound.deleteAsset({mutationInput:deletionAssetInput(),captureRef:ref,sourceCursor}),
+    err('SUBJECT_CAPTURE_ORIGINAL_DELETE_HOST_PORTS_REQUIRED'));
+  await assert.rejects(adapter(f).deleteAsset({mutationInput:{...deletionAssetInput(),base_revision:2},
+    captureRef:ref,sourceCursor}),err('DELETE_ORIGINAL_SOURCE_PREIMAGE_CHANGED'));
+  f.events[0].idempotency_key=deletionAssetInput().event.idempotency_key;
+  await assert.rejects(adapter(f).deleteAsset({mutationInput:deletionAssetInput(),captureRef:ref,
+    sourceCursor:await cursor(f)}),err('DELETE_ORIGINAL_SOURCE_EVENT_KEY_ALREADY_USED'));
+  assert.equal(f.writes.length,0);assert.equal(f.intents.size,0);
+});
+test('local T3 Asset delete preserves exact original user input and does not create network state',async()=>{
+  const f=fixture(),input=deletionAssetInput();
+  const result=await adapter(f,()=> 'LOCAL_T3').deleteAsset({mutationInput:input});
+  assert.equal(result.t4Mode,'LOCAL_T3');
+  assert.deepEqual(f.writes[0].input,input);
+  assert.equal(f.intents.size,0);assert.equal(f.outbox.size,0);
+});
+test('altering captured delete preimage or Event trace prevents native source transmission',async()=>{
+  const f=fixture(),ref='capture:delete:asset';
+  await adapter(f).deleteAsset({mutationInput:deletionAssetInput(),captureRef:ref,sourceCursor:await cursor(f)});
+  f.intents.get(ref).preImage.assetBytesSha256='0'.repeat(64);
+  await assert.rejects(readT4OriginalHostCapturedSubject(outboxParams(f,'ASSET_DELETE',ref,assetId)),
+    err('OUTBOX_ORIGINAL_DELETE_INTENT_MISMATCH'));
 });

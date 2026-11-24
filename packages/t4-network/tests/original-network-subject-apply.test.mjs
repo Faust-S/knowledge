@@ -4,9 +4,9 @@ import {createHash,createCipheriv,createDecipheriv,randomBytes,generateKeyPairSy
   from 'node:crypto';
 import {verifyT4OriginalObjectDelta,digestT4OriginalObjectContent}
   from '../src/network/original-object-delta.mjs';
-import {openT4OriginalNetworkObjectChange,
+import {openT4OriginalNetworkObjectChange,openT4OriginalNetworkSubjectChange,
   inspectT4OriginalNetworkRecipientResult,
-  applyT4OriginalNetworkObjectChange,applyT4OriginalNetworkSubjectWithDurableIntent,
+  applyT4OriginalNetworkObjectChange,applyT4OriginalNetworkSubjectChange,applyT4OriginalNetworkSubjectWithDurableIntent,
   createT4OriginalNetworkAppliedAckBody,finalizeT4OriginalNetworkRecipientAcknowledgement}
   from '../src/network/original-network-subject-apply.mjs';
 
@@ -15,7 +15,8 @@ import {createT4OriginalNetworkSessionPhasePort}
 
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
   from '../src/network/original-network-publication.mjs';
-import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame}
+import {verifyT4OriginalDeleteDelta} from '../src/network/original-deletion-delta.mjs';
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,T4_SUBJECT_DELETE_EXTENSION}
   from '../src/network/standard-network-wire-candidate.mjs';
 
 import {createT4OriginalHostRecipientDispatcher}
@@ -312,8 +313,8 @@ test('original Event read authority is independent from Object read authority',a
   assert.equal(f.writes,0);
 });
 
-async function durableFixture({nativeSession=false}={}){
-  const f=fixture(),technicalWorkspaceId='workspace:technical:apply-intent';
+async function durableFixture({nativeSession=false,deleteKind=null}={}){
+  const f=deleteKind?deletionFixture(deleteKind):fixture(),technicalWorkspaceId='workspace:technical:apply-intent';
   let session=null;
   if(nativeSession){
     const d=f.delta,proof=f.openArgs.originalSourceHeadProof;
@@ -328,9 +329,10 @@ async function durableFixture({nativeSession=false}={}){
       networkPublished:false,sourceCursorAdvanced:false,originalRecipientApplied:false,
       sourceCursorBefore:{sourcePrefixDigest:before},sourceCursorAfter:{sourcePrefixDigest:after},
       capture:{workspaceId:d.workspaceId,originalWriteOwnerRef:d.originalWriteOwnerRef,
-        sourceEventId:d.sourceEventId,sourceRevision:d.sourceRevision,
+        sourceEventId:d.sourceEventId,sourceRevision:deleteKind?null:d.sourceRevision,
+        ...(deleteKind?{kind:deleteKind}:{}),
         originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
-        prepared:verifyT4OriginalObjectDelta(d),
+        prepared:deleteKind?verifyT4OriginalDeleteDelta(d):verifyT4OriginalObjectDelta(d),
         sourceWindow:{lastEventId:d.sourceEventId,windowDigest:d.windowDigest,
           eventRefs:[{eventDigest:d.sourceEventDigest}],
           sourcePrefixDigestBefore:before,sourcePrefixDigestAfter:after}},
@@ -344,7 +346,7 @@ async function durableFixture({nativeSession=false}={}){
   const sha256=H('verified original change frame').slice(7);
   f.openArgs.verifiedChangeRef.key=sha256+'.t4n';
   f.openArgs.verifiedChangeRef.sha256=sha256;
-  const received=await openT4OriginalNetworkObjectChange(f.openArgs);
+  const received=await openT4OriginalNetworkSubjectChange(f.openArgs);
   const objects=new Map(),events=[];
   let technicalWrites=0,loseIntentReply=false,loseAppliedReply=false,
     losePublicationAction=null,hostSessionRef='host:original:one';
@@ -385,6 +387,7 @@ async function durableFixture({nativeSession=false}={}){
     sourceNodeRef:received.sourceNodeRef,recipientNodeRef:received.recipientNodeRef,
     localNodeRef:received.recipientNodeRef,scopeRef:received.scopeRef,
     sessionRef:received.sessionRef,changeId:received.changeId,ownerEpoch:received.ownerEpoch,
+    changeKind:deleteKind??'OBJECT_PUT',
     recipientApplyIntentRequired:true,getMode:()=> 'T4_NETWORK',
     readOriginalHostContext:async()=>({workspaceId:technicalWorkspaceId,
       originalWriteOwnerRef:f.delta.originalWriteOwnerRef,nodeRef:received.recipientNodeRef,
@@ -510,8 +513,8 @@ test('durable intent refuses wrong owner epoch or change frame address before mu
 });
 
 
-async function ackFixture({publishDiff=true}={}){
-  const d=await durableFixture({nativeSession:true}),s=d.session;
+async function ackFixture({publishDiff=true,deleteKind=null}={}){
+  const d=await durableFixture({nativeSession:true,deleteKind}),s=d.session;
   const keys=generateKeyPairSync('ed25519'),remote=new Map();
   let signCalls=0,puts=0,loseNetwork=null;
   const signing=async({messageType='APPLIED_ACK',sequence,body,criticalExtensions=[]})=>{
@@ -709,7 +712,8 @@ function recipientBinding(x,overrides={}){
       proof.operation==='t4.network.receive'&&proof.sessionRef===s.sessionRef,
     authorizeNetworkReceive:async()=>true,
     authorizeOriginalRead:p.authorizeOriginalRead,authorizeOriginalWrite:p.authorizeOriginalWrite,
-    verifyOriginalSourceEvent:p.verifyOriginalSourceEvent,...overrides,
+    verifyOriginalSourceEvent:p.verifyOriginalSourceEvent,
+    withOriginalSubjectMutation:p.withOriginalSubjectMutation,...overrides,
   });
 }
 test('existing original recipient Host task applies once, durably acknowledges, and reconciles a lost network reply',async()=>{
@@ -771,4 +775,130 @@ test('native recipient Host task does not write when DIFF_REQUEST is not durably
     error('SUBJECT_ORIGINAL_ACK_PUBLICATION_HISTORY_REQUIRED'));
   assert.deepEqual(x.counts(),before);
   assert.equal((await x.d.phasePort().inspectOriginalSession()).currentPhase,'VERIFIED');
+});
+
+function deletionFixture(kind){
+  const f=fixture(),asset=kind==='ASSET_DELETE';
+  const ws=f.delta.workspaceId,from=f.delta.objectId,to='object:target',
+    id=asset?'asset:delete:one':'relation:delete:one',data=Buffer.from('exact prior asset');
+  const pre=asset?{assetId:id,objectId:from,mime:'text/plain',revision:2,size:data.length,
+    assetBytesSha256:H(data).slice(7)}:{relationId:id,fromObjectId:from,toObjectId:to,relationKind:'related'};
+  const delta={schema:'IWXA_T4_ORIGINAL_DELETE_DELTA_V1',kind,workspaceId:ws,
+    originalWriteOwnerRef:f.delta.originalWriteOwnerRef,captureRef:'source:capture:delete',
+    preImage:pre,preImageDigest:H(bytes(pre)),sourceEventId:f.delta.sourceEventId,
+    sourceEventDigest:f.delta.sourceEventDigest,windowDigest:f.delta.windowDigest,
+    originalEventType:'source.subject.deleted'};
+  const exact=verifyT4OriginalDeleteDelta(delta);
+  let live=true,writeCount=0,lose=false,entered=0,boundary=false,keepReverse=false;
+  const events=[];
+  const relation={workspace_id:ws,relation_id:id,from_object_id:from,to_object_id:to,kind:'related'};
+  const kernel={
+    hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.getAsset','t1.deleteAsset','t1.deleteRelation'].includes(op),
+    getObject:async(w,oid)=>w!==ws||![from,to].includes(oid)?null:
+      {object:{workspace_id:ws,object_id:oid,deleted:false},relations:{
+        outgoing:!asset&&oid===from&&live?[structuredClone(relation)]:[],
+        incoming:!asset&&oid===to&&(live||keepReverse)?[structuredClone(relation)]:[]}},
+    getAsset:async(w,aid)=>asset&&live&&w===ws&&aid===id?{
+      asset:{workspace_id:ws,asset_id:id,object_id:from,mime:'text/plain',revision:2,size:data.length},
+      bytes:Buffer.from(data)}:null,
+    listEventsSince:async()=>structuredClone(events),
+  };
+  const del=async input=>{
+    assert.equal(boundary,true);
+    assert.equal(live,true);
+    assert.equal(input.workspace_id,ws);
+    if(asset)assert.equal(input.base_revision,2);
+    writeCount++;live=false;
+    const event={workspace_id:ws,object_id:from,event_id:'event:deleted:'+writeCount,
+      revision:null,event_type:input.event.event_type,payload:structuredClone(input.event.payload),
+      idempotency_key:input.event.idempotency_key};
+    events.push(event);
+    if(lose){lose=false;throw Object.assign(Error('original reply lost'),{code:'ACK_LOST'});}
+    return {event,[asset?'asset_id':'relation_id']:id};
+  };
+  kernel.deleteAsset=del;kernel.deleteRelation=del;
+  const key=randomBytes(32),iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv);
+  const sealed=Buffer.concat([iv,cipher.update(exact.bytes),cipher.final(),cipher.getAuthTag()]);
+  const contentDigest=H(sealed),head=f.openArgs.verifiedChangeRef;
+  head.verifiedCriticalExtensions=[T4_SUBJECT_DELETE_EXTENSION];
+  head.verifiedBody={...head.verifiedBody,changeKind:kind,sourceRevision:null,contentDigest};
+  f.openArgs.verifiedChunks[0].verifiedBody={...f.openArgs.verifiedChunks[0].verifiedBody,
+    contentDigest,ciphertextSha256:contentDigest,ciphertextBase64:sealed.toString('base64')};
+  Object.assign(f.openArgs.originalSourceHeadProof,{
+    workspaceId:ws,originalWriteOwnerRef:delta.originalWriteOwnerRef,changeKind:kind,
+    originalSourceRevision:null,originalEventRevision:null,originalCapturedRevisionProofRequired:true});
+  f.openArgs.openOriginalSealedContent=async p=>{
+    const input=Buffer.from(p.ciphertext),decipher=createDecipheriv('aes-256-gcm',key,input.subarray(0,12));
+    decipher.setAuthTag(input.subarray(-16));
+    return {authenticated:true,plaintext:new Uint8Array(Buffer.concat([
+      decipher.update(input.subarray(12,-16)),decipher.final()]))};
+  };
+  const applyArgs=received=>({received,originalKernel:kernel,getMode:()=> 'T4_NETWORK',
+    authorizeOriginalRead:async()=>true,authorizeOriginalWrite:async()=>true,
+    verifyOriginalSourceEvent:async p=>p.sourceEventId===delta.sourceEventId&&
+      p.sourceEventDigest===delta.sourceEventDigest&&p.preImageDigest===delta.preImageDigest,
+    withOriginalSubjectMutation:async(proof,action)=>{
+      assert.equal(proof.originalHostMustSerializeSubjectMutations,true);
+      assert.equal(boundary,false);
+      entered++;boundary=true;try{return await action();}finally{boundary=false;}
+    }});
+  return {delta,openArgs:f.openArgs,originalKernel:kernel,applyArgs,events,
+    get writes(){return writeCount;},get entered(){return entered;},
+    loseAck(){lose=true;},removeUnrelated(){live=false;},recreate(){live=true;},
+    leaveReverse(){keepReverse=true;}};
+}
+for(const kind of ['ASSET_DELETE','RELATION_DELETE']){
+  test(kind+' native Host applies after durable intent and acknowledges null revision using exact original Event',async()=>{
+    const x=await ackFixture({deleteKind:kind});
+    const direct=()=>applyT4OriginalNetworkSubjectChange(x.d.f.applyArgs(x.d.received));
+    await assert.rejects(direct(),error('SUBJECT_NATIVE_DELETE_REQUIRES_DURABLE_APPLY_INTENT'));
+    await assert.rejects(recipientBinding(x,{withOriginalSubjectMutation:undefined}).runNative(x.args()),
+      error('SUBJECT_NATIVE_DELETE_ORIGINAL_MUTATION_BOUNDARY_REQUIRED'));
+    assert.equal((await x.d.phasePort().inspectOriginalSession()).currentPhase,'VERIFIED');
+    const done=await recipientBinding(x).runNative(x.args());
+    assert.equal(done.originalSubjectMutationInvoked,true);
+    assert.equal(done.result.application.actualOriginalT3DeletionReadback,true);
+    assert.equal(done.result.application.originalRecipientRevision,null);
+    const ack=(await x.port().inspectOriginalPublication()).frames.at(-1);
+    const frame=decodeT4CandidateFrame(ack.wireBytes);
+    assert.deepEqual(frame.criticalExtensions,[T4_SUBJECT_DELETE_EXTENSION]);
+    assert.equal(frame.body.recipientRevision,null);
+    assert.equal(frame.body.recipientEventRef,x.d.f.events[0].event_id);
+    assert.equal(x.counts().subjectWrites,1);assert.equal(x.d.f.entered,1);
+  });
+  test(kind+' lost original delete reply cold-recovers without second mutation or original boundary entry',async()=>{
+    const x=await ackFixture({deleteKind:kind});
+    x.d.f.loseAck();
+    await assert.rejects(recipientBinding(x).runNative(x.args()),
+      error('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN'));
+    assert.equal((await x.d.phasePort().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
+    x.d.restart();
+    const done=await recipientBinding(x).runNative(x.args());
+    assert.equal(done.originalRecipientApplied,true);
+    assert.equal(done.originalSubjectMutationInvoked,false);
+    assert.equal(x.counts().subjectWrites,1);assert.equal(x.d.f.entered,1);
+  });
+  test(kind+' absent unrelated subject and re-created subject cannot become deletion ACK',async()=>{
+    const x=await ackFixture({deleteKind:kind});
+    x.d.f.removeUnrelated();
+    await assert.rejects(recipientBinding(x).runNative(x.args()),
+      error('DELETE_NATIVE_RECIPIENT_DIVERGED_WITHOUT_RESULT'));
+    assert.equal(x.counts().subjectWrites,0);
+    x.d.f.recreate();
+    await recipientBinding(x).runNative(x.args());
+    x.d.f.recreate();
+    await assert.rejects(inspectT4OriginalNetworkRecipientResult(x.d.f.applyArgs(x.d.received)),
+      error('DELETE_NATIVE_ORIGINAL_RESULT_EVENT_OR_STATE_MISMATCH'));
+  });
+}
+test('native Relation delete cannot acknowledge residual incoming edge',async()=>{
+  const x=await ackFixture({deleteKind:'RELATION_DELETE'});
+  x.d.f.leaveReverse();
+  await assert.rejects(recipientBinding(x).runNative(x.args()),
+    error('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN'));
+  assert.equal(x.counts().subjectWrites,1);
+  await assert.rejects(inspectT4OriginalNetworkRecipientResult(x.d.f.applyArgs(x.d.received)),
+    error('DELETE_NATIVE_ORIGINAL_RELATION_IDENTITY_CONFLICT'));
+  assert.equal((await x.d.phasePort().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
+  assert.equal(x.counts().signCalls,1);
 });
