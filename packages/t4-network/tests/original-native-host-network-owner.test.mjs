@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,sign,verify} from 'node:crypto';
+import {T4TransferError} from '../src/network/webdav-package-transfer.mjs';
+import {T4CandidateFrameTransportError} from '../src/network/standard-network-wire-transport.mjs';
+import {T4OriginalNetworkPublicationError,isT4RecoverablePublicationWakeError} from '../src/network/original-network-publication.mjs';
 import {createOriginalKernelNativeRelay} from '../../t3-core/src/t3/original-kernel-native-relay.mjs';
 import {createTemporaryOriginalPersonalAuthority} from '../../t3-core/tests/support/t3-original-personal-authority.mjs';
 import {decodeOriginalNetworkRelayArgs,encodeOriginalNetworkRelayResult} from '../../t3-core/src/t3/original-kernel-native-relay-codec.mjs';
@@ -123,14 +126,15 @@ async function sourceFixture(loseOriginalWrite=false){
   return {...f,technicalWorkspaceId:tech,before,capture,baselineEvent};
 }
 function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=deny,requestBaseline=true,
-  localCapture=false,localGraph=false,localAdmission=allow}){
+  localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
   const local=createTemporaryOriginalPersonalAuthority({workspaceId:WS,operations:localOps,clock:Date.now});
   const technical=createTemporaryOriginalPersonalAuthority({workspaceId:tech,
     operations:['t1.getObject','t1.putObject','t1.listObjects','t1.listEventsSince'],clock:Date.now});
-  const results=[],commands=[];let epoch=1,admitted=true,mode='T4_NETWORK',failure=null,accessResolutions=0;
+  const results=[],commands=[];let epoch=1,admitted=true,mode='T4_NETWORK',failure=null,accessResolutions=0,
+    clock=1000,signatureCalls=0;
   const originalPorts={authorizeOriginalBinding:async p=>admitted&&p.contextEpoch===epoch&&p.role===role&&
       p.sourceWorkspaceId===WS&&p.technicalWorkspaceId===tech&&p.scopeRef===SCOPE,
     resolveOriginalAccess:p=>{accessResolutions++;const q=p.args[0],ws=typeof q==='string'?q:q.workspace_id;
@@ -145,13 +149,13 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     authorizeOriginalHostTask:allow,authorizeOriginalRead:allow,authorizeOriginalWrite:allow,
     authorizeOriginalLocalMutation:localAdmission,
     authorizeOriginalHostWire:allow,authorizeOriginalNetwork:async p=>p.ownerEpoch===2&&p.scopeRef===SCOPE,
-    authorizeOriginalFramePublish:allow,
+    authorizeOriginalFramePublish:frameAdmission,
     verifyOriginalNodeSignature:async({signerRef,bytes,signature})=>{
       const k=signerRef==='key:k14:source'?keyS:signerRef==='key:k14:recipient'?keyR:null;
       return !!k&&verify(null,Buffer.from(bytes),k.publicKey,Buffer.from(signature));
     },
     resolveOriginalSigningContext:async()=>({permissionRef:'permission:k14',signerRef:role==='SOURCE'?'key:k14:source':'key:k14:recipient'}),
-    signOriginalNodeBytes:async({bytes})=>sign(null,Buffer.from(bytes),role==='SOURCE'?keyS.privateKey:keyR.privateKey),
+    signOriginalNodeBytes:async({bytes})=>{signatureCalls++;return sign(null,Buffer.from(bytes),role==='SOURCE'?keyS.privateKey:keyR.privateKey)},
     verifyOriginalPhaseEvidence:phaseEvidence,verifyOriginalRecipientApplied:deny,
     authorizeOriginalCaptureRecovery:async p=>role==='SOURCE'&&p.workspaceId===WS&&p.originalMutationRecoveryOnly===true,
     authorizeNetworkPublish:allow,authorizeOriginalSealedContent:deny,readOriginalSealedContent:async()=>{throw Error('unexpected content read')},
@@ -167,7 +171,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     },
   };
   const owner=createT4OriginalNativeHostNetworkOwner({...scope(tech),role,requiredCryptoSuite:SUITE,
-    getMode:()=>mode,wireTransport:wire.wire,originalPorts,enableLocalSourceCapture:localCapture,
+    getMode:()=>mode,wireTransport:wire.wire,originalPorts,enableLocalSourceCapture:localCapture,monotonicNow:()=>clock,
     readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null,
     onStep:r=>results.push(r)});
   const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,networkOwner:{
@@ -177,12 +181,12 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     granted_operations:[...new Set(['t1.getWorkspace','t1.commitObjectGraph','t1.getObject','t1.listEventsSince',...owner.operations])]};
   const attach=()=>relay.exchange({verb:'attach',payload:{sessionInfo:info,networkRelayVersion:1,
     ...(localCapture?{localSourceMutationVersion:1,...(localGraph?{localSourceGraphVersion:1}:{})}:{})}},epoch);
-  async function drive(session,target){
+  async function drive(session,target,after=0){
     // The production HTTP socket keeps the existing unref'ed long poll
     // alive. This in-process browser test has no socket, so bound its
     // lifetime with one test-only, referenced timeout.
     const deadline=setTimeout(()=>relay.close(),180000);
-    try{while(!results.some(r=>r.state===target)){
+    try{while(!results.slice(after).some(r=>r.state===target)){
       if(failure)throw failure;
       const cmd=await relay.exchange({verb:'next',payload:{sessionId:session.sessionId}},epoch);
       if(failure)throw failure;
@@ -216,7 +220,8 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     }finally{clearTimeout(deadline);}
   }
   return {owner,relay,attach,drive,invokeLocal,results,commands,local,technical,get accessResolutions(){return accessResolutions},
-    revokeBinding(){admitted=false},disableMode(){mode='LOCAL_T3'},invalidate(){epoch++;relay.invalidate()}};
+    revokeBinding(){admitted=false},disableMode(){mode='LOCAL_T3'},invalidate(){epoch++;relay.invalidate()},
+    advanceClock(ms){clock+=ms},get signatureCalls(){return signatureCalls}};
 }
 for(const indexed of [false,true])test((indexed?'K23 indexed':'K14 existing')+' signed native relay drives original source baseline, captured intent and HEADS, then recipient DIFF',async()=>{
   const source=await sourceFixture(),wire=wireFixture(indexed);
@@ -413,5 +418,132 @@ test('K21 existing native signed relay captures atomic graph and returns origina
     assert.ok(f.local.proofCount>0);assert.ok(f.technical.proofCount>0);
     const target=await store.kernel.getObject(WS,targetId),base=await store.kernel.getObject(WS,baseId);
     assert.deepEqual(target.relations.outgoing,base.relations.incoming);
+  }finally{f.relay.close();}
+});
+
+function recoverySource(source,wire,options={}){
+  return nativeFixture({role:'SOURCE',store:source,wire,
+    baselineInput:{sourceCursor:source.before,originalBaselineRef:source.baselineEvent.event_id,
+      originalBaselineDigest:hash(JSON.stringify(source.baselineEvent))},
+    phaseEvidence:async p=>p.phase==='INTENT'&&p.evidence.evidenceRef===source.capture.window.lastEventId&&
+      p.evidence.evidenceDigest===source.capture.window.windowDigest,...options});
+}
+test('K28 wake classification preserves exact typed transport cause and never retries a lost PRESENT slot, integrity or authority error',()=>{
+  const transfer=(code,details)=>new T4TransferError(code,details);
+  const wire=cause=>new T4CandidateFrameTransportError('WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN',{},cause);
+  const publish=cause=>new T4OriginalNetworkPublicationError('PUBLICATION_NETWORK_OUTCOME_UNKNOWN',{},cause);
+  const missing=(state,limit=false)=>new T4OriginalNetworkPublicationError('PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED',
+    {priorState:state,attemptLimitReached:limit},transfer('REMOTE_NOT_FOUND'));
+  for(const error of [transfer('NETWORK_UNAVAILABLE'),transfer('REMOTE_INDEX_READ_FAILED',{status:503}),
+    publish(wire(transfer('OUTCOME_UNKNOWN',{operation:'PUT'}))),missing('ATTEMPTED')])
+    assert.equal(isT4RecoverablePublicationWakeError(error),true,error.code);
+  for(const error of [transfer('REMOTE_AUTHORIZATION_DENIED'),transfer('DIGEST_MISMATCH'),
+    transfer('REMOTE_READ_FAILED',{status:400}),publish(wire(transfer('REMOTE_AUTHORIZATION_DENIED'))),
+    missing('PRESENT'),missing('ATTEMPTED',true),Object.assign(Error('fake'),{code:'NETWORK_UNAVAILABLE'}),
+    new T4OriginalNetworkPublicationError('PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN',{},transfer('NETWORK_UNAVAILABLE'))])
+    assert.equal(isT4RecoverablePublicationWakeError(error),false,error.code);
+});
+for(const failurePoint of ['after-frame','before-frame','after-index'])test('K28 existing signed relay resumes '+failurePoint+' after transport loss without re-signing or repeating subject writes',async()=>{
+  const source=await sourceFixture(),wire=wireFixture(true);
+  let offline=true,attempts=0,retryGrants=0,indexAttempts=0;
+  const originalPut=wire.wire.putSnapshot,originalIndex=wire.wire.putNativeFrameIndex,originalInspect=wire.wire.inspectOutcome;
+  wire.wire.putSnapshot=async p=>{
+    attempts++;
+    if(offline&&failurePoint==='before-frame')throw new T4TransferError('OUTCOME_UNKNOWN',{operation:'PUT'});
+    const r=await originalPut(p);
+    if(offline&&failurePoint==='after-frame')throw new T4TransferError('OUTCOME_UNKNOWN',{operation:'PUT'});
+    return r;
+  };
+  wire.wire.putNativeFrameIndex=async p=>{
+    indexAttempts++;const r=await originalIndex(p);
+    if(offline&&failurePoint==='after-index')throw new T4TransferError('OUTCOME_UNKNOWN',{operation:'PUT'});
+    return r;
+  };
+  wire.wire.inspectOutcome=async p=>{
+    if(offline)throw new T4TransferError('NETWORK_UNAVAILABLE');
+    if(!wire.frames.has(p.key))throw new T4TransferError('REMOTE_NOT_FOUND');
+    return originalInspect(p);
+  };
+  const f=recoverySource(source,wire,{frameAdmission:async p=>{
+    if(p.operation==='t4.network.publish.retry-missing')retryGrants++;
+    return true;
+  }});
+  try{
+    const session=await f.attach();
+    await f.drive(session,'NETWORK_WAKE_RECOVERY_WAIT');
+    assert.equal(f.relay.networkAttached,true);assert.equal(f.signatureCalls,1);
+    assert.equal(attempts,1);assert.equal(f.results.at(-1).retryAfterMs,5000);
+    const first=f.results.length;
+    f.advanceClock(5000);
+    await f.drive(session,'NETWORK_WAKE_RECOVERY_WAIT',first);
+    assert.equal(f.results.at(-1).retryAfterMs,10000);
+    assert.equal(attempts,1);assert.equal(f.signatureCalls,1);
+    offline=false;f.advanceClock(10000);
+    await f.drive(session,'HEADS_PRESENT');
+    assert.equal(f.relay.networkAttached,true);assert.equal(f.signatureCalls,1);
+    assert.equal(attempts,failurePoint==='before-frame'?2:1);
+    assert.equal(retryGrants,failurePoint==='before-frame'?1:0);
+    assert.equal(wire.puts,1);assert.equal(wire.indices.size,2);assert.equal(indexAttempts,2);
+    assert.equal(source.events.filter(e=>e.workspace_id===WS).length,2);
+    assert.ok(f.commands.filter(c=>c.method==='putObject').every(c=>c.args[0].workspace_id===source.technicalWorkspaceId));
+  }finally{f.relay.close();}
+});
+test('K28 cold signed owner requires original explicit retry grant after exact missing ATTEMPTED frame',async()=>{
+  const source=await sourceFixture(),wire=wireFixture(true);
+  let attempts=0,retryGrants=0;
+  const originalPut=wire.wire.putSnapshot;
+  wire.wire.putSnapshot=async()=>{attempts++;throw new T4TransferError('OUTCOME_UNKNOWN',{operation:'PUT'});};
+  wire.wire.inspectOutcome=async()=>{throw new T4TransferError('REMOTE_NOT_FOUND');};
+  const first=recoverySource(source,wire);
+  try{const s=await first.attach();await first.drive(s,'NETWORK_WAKE_RECOVERY_WAIT');
+    assert.equal(first.signatureCalls,1);
+  }finally{first.relay.close();}
+  wire.wire.putSnapshot=async p=>{attempts++;return originalPut(p);};
+  const next=recoverySource(source,wire,{localCapture:true,frameAdmission:async p=>{
+    if(p.operation==='t4.network.publish.retry-missing'){retryGrants++;return false;}
+    return true;
+  }});
+  try{
+    const s=await next.attach();await next.drive(s,'NETWORK_WAKE_RECOVERY_WAIT');
+    assert.equal(next.signatureCalls,0);assert.equal(attempts,1);
+    next.advanceClock(5000);await next.drive(s,'NETWORK_WAKE_SUSPENDED');
+    assert.equal(retryGrants,1);assert.equal(attempts,1);assert.equal(next.signatureCalls,0);
+    assert.equal(next.relay.networkAttached,true);
+    assert.equal(source.events.filter(e=>e.workspace_id===WS).length,2);
+  }finally{next.relay.close();}
+});
+test('K28 recipient reuses original native owner after a temporary indexed discovery failure',async()=>{
+  const source=await sourceFixture(),wire=wireFixture(true),sender=recoverySource(source,wire);
+  try{const s=await sender.attach();await sender.drive(s,'HEADS_PRESENT');}
+  finally{sender.relay.close();}
+  const recipient=kernelFixture('recipient-recovery');recipient.technicalWorkspaceId='ws:k28:recipient:technical';
+  const e=(await recipient.kernel.putObject(mutation('o:k14:baseline','baseline','business.baseline.materialized'))).event;
+  const originalIndex=wire.wire.getNativeFrameIndex;let offline=true;
+  wire.wire.getNativeFrameIndex=async p=>{
+    if(offline)throw new T4TransferError('REMOTE_INDEX_READ_FAILED',{status:503});
+    return originalIndex(p);
+  };
+  const f=nativeFixture({role:'RECIPIENT',store:recipient,wire,source,
+    baselineInput:{sourceCursor:source.before,originalBaselineRef:e.event_id,originalBaselineDigest:hash(JSON.stringify(e))}});
+  try{
+    const s=await f.attach();await f.drive(s,'NETWORK_WAKE_RECOVERY_WAIT');
+    assert.equal(f.relay.networkAttached,true);assert.equal(f.signatureCalls,0);
+    assert.equal(wire.puts,1);assert.equal(f.results.at(-1).originalSubjectMutationMayHaveCommitted,true);
+    offline=false;f.advanceClock(5000);
+    await f.drive(s,'DIFF_PRESENT');
+    assert.equal(f.relay.networkAttached,true);assert.equal(f.signatureCalls,1);
+    assert.equal(wire.puts,2);assert.equal(recipient.events.filter(x=>x.workspace_id===WS).length,1);
+  }finally{f.relay.close();}
+});
+test('K28 permanent transport authorization failure is not a reconnectable wake',async()=>{
+  const source=await sourceFixture(),wire=wireFixture(true);
+  let attempts=0;
+  wire.wire.putSnapshot=async()=>{attempts++;throw new T4TransferError('REMOTE_AUTHORIZATION_DENIED');};
+  const f=recoverySource(source,wire,{localCapture:true});
+  try{
+    const s=await f.attach();await f.drive(s,'NETWORK_WAKE_SUSPENDED');
+    assert.equal(f.results.some(x=>x.state==='NETWORK_WAKE_RECOVERY_WAIT'),false);
+    assert.equal(f.relay.networkAttached,true);assert.equal(attempts,1);assert.equal(f.signatureCalls,1);
+    assert.equal(source.events.filter(e=>e.workspace_id===WS).length,2);
   }finally{f.relay.close();}
 });
