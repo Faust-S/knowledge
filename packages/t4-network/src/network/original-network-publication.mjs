@@ -44,10 +44,11 @@ function canonicalSession(input){
   if(![workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
     scopeRef,sourceEventId].every(ID)||sourceNodeRef===recipientNodeRef||
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
-    !Number.isSafeInteger(sourceRevision)||sourceRevision<1||
+    !['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(changeKind)||
+    (changeKind==='RELATION_PUT'?sourceRevision!==null:
+      (!Number.isSafeInteger(sourceRevision)||sourceRevision<1))||
     ![sourceEventDigest,sourcePrefixDigestBefore,sourcePrefixDigestAfter,
-      capturedWindowDigest].every(DIG)||!SHA(capturedSha256)||
-    changeKind!=='OBJECT_PUT')
+      capturedWindowDigest].every(DIG)||!SHA(capturedSha256))
     fail('PUBLICATION_ORIGINAL_CAPTURE_IDENTITY_INVALID');
   const family={workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef};
   // Same original event and peer epoch selects the same session even after
@@ -73,7 +74,8 @@ export function deriveT4OriginalNativeCaptureSession(task){
     c.capturedWindowDigestVerified!==true||
     c.workspaceId!==task.workspaceId||
     c.originalWriteOwnerRef!==task.originalWriteOwnerRef||
-    c.sourceEventId!==d?.sourceEventId||c.sourceRevision!==d?.sourceRevision||
+    c.sourceEventId!==d?.sourceEventId||
+    c.sourceRevision!==((c.kind??'OBJECT_PUT')==='RELATION_PUT'?null:d?.sourceRevision)||
     !w||w.lastEventId!==c.sourceEventId||
     d.sourceEventDigest!==w.eventRefs?.[0]?.eventDigest||
     d.windowDigest!==w.windowDigest||
@@ -85,7 +87,7 @@ export function deriveT4OriginalNativeCaptureSession(task){
     sourcePrefixDigestBefore:w.sourcePrefixDigestBefore,
     sourcePrefixDigestAfter:w.sourcePrefixDigestAfter,
     capturedWindowDigest:w.windowDigest,capturedSha256:c.prepared.sha256,
-    changeKind:'OBJECT_PUT'});
+    changeKind:c.kind??'OBJECT_PUT'});
 }
 function descriptor(entry){
   return {sequence:entry.sequence,messageType:entry.messageType,sha256:entry.sha256};

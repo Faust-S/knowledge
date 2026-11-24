@@ -1,8 +1,8 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
 import {publishT4OriginalObjectDelta,decodeT4OriginalObjectDeltaBytes} from './original-object-delta.mjs';
-import {publishT4OriginalAssetDelta} from './original-asset-delta.mjs';
-import {publishT4OriginalRelationPutDelta} from './original-relation-delta.mjs';
+import {publishT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes} from './original-asset-delta.mjs';
+import {publishT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes} from './original-relation-delta.mjs';
 
 export class T4OriginalHostOutboxDeliveryError extends Error{
   constructor(code,details={}){super(code);this.name='T4OriginalHostOutboxDeliveryError';
@@ -251,6 +251,7 @@ export async function readT4OriginalHostCapturedObject(params={}){
   mode(params.getMode);
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURED_OBJECT_V1',
+    kind:'OBJECT_PUT',subjectId:verified.subjectId,
     captureRef:verified.captureRef,workspaceId:verified.workspaceId,
     originalWriteOwnerRef:verified.originalWriteOwnerRef,
     objectId:verified.subjectId,sourceEventId:delta.sourceEventId,
@@ -306,6 +307,98 @@ export async function verifyT4OriginalHostCapturedObjectSource(params,proof){
   return proof.originalT3SourceEventAndSubjectReadRequired===true;
 }
 
+/** The same original Capture/Outbox is used for all native subjects.
+ * No inferred historical bytes. Older untraced subject captures are
+ * deliberately not eligible for the native authenticated route.
+ */
+export async function readT4OriginalHostCapturedSubject(params={}){
+  if(params.kind==='OBJECT_PUT')return readT4OriginalHostCapturedObject(params);
+  if(!['ASSET_PUT','RELATION_PUT'].includes(params.kind))
+    fail('OUTBOX_NATIVE_SUBJECT_KIND_UNSUPPORTED');
+  const verified=await loadVerifiedOutbox(params);
+  const {outbox,intent,originalSourceEvent:event,currentSourceWindow:window,
+    currentNextCursor:nextCursor}=verified;
+  const exact=params.kind==='ASSET_PUT'?
+    decodeT4OriginalAssetDeltaBytes(verified.prepared.bytes):
+    decodeT4OriginalRelationPutDeltaBytes(verified.prepared.bytes);
+  const d=exact.delta,asset=params.kind==='ASSET_PUT';
+  const sourceRevision=asset?d.sourceRevision:null;
+  const originalObjectId=asset?d.objectId:d.fromObjectId;
+  const eventRevision=event.revision??null;
+  if(exact.sha256!==outbox.sha256||exact.key!==outbox.key||
+    !HASH(intent.originalInputDigest)||!HASH(intent.inputDigest)||
+    digest(intent.operation)!==intent.inputDigest||
+    outbox.inputDigest!==intent.inputDigest||
+    !same(outbox.sourceCursorAfter,nextCursor)||
+    !outbox.sourceWindow||
+    !matchesT4OriginalCapturedWindowDigest(outbox.sourceWindow,d.windowDigest)||
+    !matchesT4OriginalCapturedWindowDigest(window,d.windowDigest)||
+    event.payload?.iwxa_t4_capture_ref!==verified.captureRef||
+    event.payload?.iwxa_t4_original_input_digest!==intent.originalInputDigest||
+    (event.object_id!=null&&event.object_id!==originalObjectId&&
+      event.object_id!==verified.subjectId)||
+    (asset?(eventRevision!==null&&eventRevision!==sourceRevision):eventRevision!==null))
+    fail('OUTBOX_NATIVE_ORIGINAL_SUBJECT_CAPTURE_NOT_PROVEN');
+  const original=structuredClone(intent.operation);
+  if(original.event?.payload?.iwxa_t4_capture_ref!==verified.captureRef||
+    original.event?.payload?.iwxa_t4_original_input_digest!==intent.originalInputDigest)
+    fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');
+  delete original.event.payload.iwxa_t4_capture_ref;
+  delete original.event.payload.iwxa_t4_original_input_digest;
+  if(digest(original)!==intent.originalInputDigest)
+    fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');
+  mode(params.getMode);
+  return Object.freeze({
+    schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURED_SUBJECT_V1',kind:params.kind,
+    subjectId:verified.subjectId,objectId:originalObjectId,
+    captureRef:verified.captureRef,workspaceId:verified.workspaceId,
+    originalWriteOwnerRef:verified.originalWriteOwnerRef,
+    sourceEventId:d.sourceEventId,sourceRevision,originalEventRevision:eventRevision,
+    sourceCursorBefore:structuredClone(outbox.sourceCursorBefore),
+    sourceCursorAfter:structuredClone(outbox.sourceCursorAfter),
+    sourceWindow:structuredClone(outbox.sourceWindow),prepared:exact,
+    originalIntentEventAndCanonicalBytesVerified:true,
+    capturedWindowDigestVerified:true,laterSourceEventsExist:window.hasMore,
+    currentObjectReadOrUsedAsHistoricalBytes:false,originalT3OutboxUnchanged:true,
+    networkPublished:false,originalRecipientApplied:false,
+  });
+}
+export async function verifyT4OriginalHostCapturedSubjectSource(params,proof){
+  if(params.kind==='OBJECT_PUT')return verifyT4OriginalHostCapturedObjectSource(params,proof);
+  const captured=await readT4OriginalHostCapturedSubject(params);
+  const d=captured.prepared.delta,w=captured.sourceWindow;
+  if((proof?.originalSourceEventId??proof?.sourceEventId)!==d.sourceEventId||
+    (proof.originalWriteOwnerRef??proof.ownerRef)!==d.originalWriteOwnerRef||
+    (proof.originalEventDigest??proof.originalSourceEventDigest)!==d.sourceEventDigest)
+    return false;
+  if(proof.originalT3SubjectAndEventReadbackRequired===true)
+    return proof.changeKind===captured.kind&&
+      proof.originalCapturedRevisionReadbackRequired===true&&
+      proof.originalSourceRevision===captured.sourceRevision&&
+      proof.originalEventRevision===captured.originalEventRevision&&
+      proof.workspaceId===d.workspaceId&&proof.originalEventWindowDigest===d.windowDigest&&
+      proof.originalBeforePrefixDigest===w.sourcePrefixDigestBefore&&
+      proof.originalAfterPrefixDigest===w.sourcePrefixDigestAfter;
+  const head=proof.originalSourceHeadProof;
+  if(head?.originalCapturedRevisionProofRequired!==true||
+    head.changeKind!==captured.kind||head.workspaceId!==d.workspaceId||
+    head.originalSourceRevision!==captured.sourceRevision||
+    head.originalEventRevision!==captured.originalEventRevision||
+    head.sourceEventWindowDigest!==d.windowDigest||
+    head.sourcePrefixDigestBefore!==w.sourcePrefixDigestBefore||
+    head.sourcePrefixDigestAfter!==w.sourcePrefixDigestAfter||
+    proof.sourcePrefixDigestAfter!==w.sourcePrefixDigestAfter)
+    return false;
+  if(proof.originalT3SourceSubjectEventAndContentReadbackRequired===true)
+    return proof.originalSubjectKind===captured.kind&&
+      proof.originalSubjectId===captured.subjectId&&
+      proof.originalWorkspaceId===d.workspaceId&&
+      proof.originalSourceRevision===captured.sourceRevision&&
+      proof.originalSubjectDeltaSha256===captured.prepared.sha256&&
+      proof.originalSourceEventDigest===d.sourceEventDigest&&
+      proof.originalEventWindowDigest===d.windowDigest;
+  return proof.originalT3SourceEventAndSubjectReadRequired===true;
+}
 export async function publishT4OriginalHostOutbox(params={}){
   if(typeof params.transport?.putSnapshot!=='function')
     fail('OUTBOX_NETWORK_TRANSPORT_REQUIRED');

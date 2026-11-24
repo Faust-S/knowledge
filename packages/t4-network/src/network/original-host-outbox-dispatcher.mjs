@@ -1,6 +1,6 @@
 import {
   publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork,
-  readT4OriginalHostCapturedObject,
+  readT4OriginalHostCapturedSubject,
 } from './original-host-outbox-delivery.mjs';
 import {matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
 
@@ -378,21 +378,24 @@ async function prepareNextNativeObject(params){
       noLaterEventMayBeSkipped:true,networkWritesStarted:false,
     });
   const row=matches[0];
-  if(entryKind(row)!=='OBJECT_PUT')
+  const kind=entryKind(row),id=subjectId(row);
+  if(!['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(kind))
     fail('DISPATCH_NATIVE_NEXT_SUBJECT_KIND_NOT_IMPLEMENTED',{
-      sourceEventId:ev.eventId,kind:entryKind(row),
+      sourceEventId:ev.eventId,kind,
       noLaterEventMayBeSkipped:true,networkWritesStarted:false,
     });
-  if(row.objectId!==ev.objectId||!ID(row.captureRef)||
+  if((kind==='OBJECT_PUT'&&row.objectId!==ev.objectId)||
+    !ID(id)||!ID(row.captureRef)||
     !same(row.sourceCursorBefore,before)||!same(row.sourceCursorAfter,a))
     fail('DISPATCH_NATIVE_CAPTURE_CAUSAL_MISMATCH');
-  const captured=await readT4OriginalHostCapturedObject({
-    ...params,captureRef:row.captureRef,subjectId:row.objectId,
+  const captured=await readT4OriginalHostCapturedSubject({
+    ...params,kind,captureRef:row.captureRef,subjectId:id,
   });
   if(captured.prepared.sha256!==row.sha256||
     captured.prepared.key!==row.key||
     captured.sourceEventId!==ev.eventId||
-    captured.sourceRevision!==ev.revision||
+    (kind==='OBJECT_PUT'?captured.sourceRevision:
+      captured.originalEventRevision)!==ev.revision||
     captured.prepared.delta.sourceEventDigest!==ev.eventDigest||
     !same(captured.sourceCursorBefore,before)||
     !same(captured.sourceCursorAfter,a)||
@@ -401,7 +404,7 @@ async function prepareNextNativeObject(params){
     fail('DISPATCH_NATIVE_CAPTURE_CAUSAL_MISMATCH');
   await guardFrontier();
   return Object.freeze({...resultBase,
-    state:'ORIGINAL_NATIVE_CAPTURE_READY',
+    state:'ORIGINAL_NATIVE_CAPTURE_READY',changeKind:kind,
     sourceCursorAfter:structuredClone(a),capture:captured,
     originalHostMustCreateAndPersistSignedSessionBeforePublish:true,
   });

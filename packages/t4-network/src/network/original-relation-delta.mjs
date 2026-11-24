@@ -49,6 +49,17 @@ function checked(raw){
   const sha256=packageSha256(bytes);
   return Object.freeze({delta:Object.freeze(normalized),sha256,key:sha256+'.t4d',bytes});
 }
+export function decodeT4OriginalRelationPutDeltaBytes(bytes){
+  if(!(bytes instanceof Uint8Array)||!bytes.length||bytes.length>1024*1024)
+    fail('RELATION_DELTA_WIRE_MALFORMED');
+  let parsed;
+  try{parsed=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}
+  catch{fail('RELATION_DELTA_WIRE_MALFORMED');}
+  const exact=checked(parsed);
+  if(!exact.bytes.equals(Buffer.from(bytes)))
+    fail('RELATION_DELTA_WIRE_CANONICAL_MISMATCH');
+  return exact;
+}
 function ready(f){if(typeof f!=='function'||f()!=='T4_NETWORK')
   fail('RELATION_DELTA_NETWORK_MODE_OFF');}
 const same=(record,delta)=>record?.relation_id===delta.relationId&&

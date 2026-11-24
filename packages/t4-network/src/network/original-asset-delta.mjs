@@ -42,6 +42,17 @@ function checked(delta){
   return Object.freeze({delta:Object.freeze(normalized),assetBytes,bytes,
     sha256,key:sha256+'.t4d'});
 }
+export function decodeT4OriginalAssetDeltaBytes(bytes){
+  if(!(bytes instanceof Uint8Array)||!bytes.length||bytes.length>1024*1024)
+    fail('ASSET_DELTA_WIRE_MALFORMED');
+  let parsed;
+  try{parsed=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}
+  catch{fail('ASSET_DELTA_WIRE_MALFORMED');}
+  const exact=checked(parsed);
+  if(!exact.bytes.equals(Buffer.from(bytes)))
+    fail('ASSET_DELTA_WIRE_CANONICAL_MISMATCH');
+  return exact;
+}
 function matchedWindow(window,workspaceId,originalWriteOwnerRef,objectId){
   if(window?.schema!=='IWXA_T4_ORIGINAL_EVENT_WINDOW_V1'||
     window.workspaceId!==workspaceId||

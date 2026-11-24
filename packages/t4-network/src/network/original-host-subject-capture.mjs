@@ -89,12 +89,39 @@ function normalizeInput(kind,input,workspaceId,captureRef){
   return Object.freeze({operation:wire,writeInput:base,inputDigest:digest(wire),
     idempotencyKey:key});
 }
+// Bind the original Event to the exact normalized mutation. The
+// legacy idempotency key alone did not bind its content. Retain the
+// old intent format for recovery; native transmission requires trace.
+function bindOriginalTrace(normalized,captureRef){
+  const operation=structuredClone(normalized.operation);
+  const payload=operation.event.payload;
+  if(Object.hasOwn(payload,'iwxa_t4_capture_ref')||
+    Object.hasOwn(payload,'iwxa_t4_original_input_digest'))
+    fail('SUBJECT_CAPTURE_RESERVED_TRACE_FIELDS');
+  const originalInputDigest=normalized.inputDigest;
+  payload.iwxa_t4_capture_ref=captureRef;
+  payload.iwxa_t4_original_input_digest=originalInputDigest;
+  return Object.freeze({...normalized,operation,
+    writeInput:{...normalized.writeInput,event:structuredClone(operation.event)},
+    inputDigest:digest(operation),originalInputDigest});
+}
 function readBackInput(kind,intent){
   if(!intent?.operation||!ID(intent.idempotencyKey)||
     intent.operation.event?.idempotency_key!==intent.idempotencyKey||
     !HASH(intent.inputDigest)||digest(intent.operation)!==intent.inputDigest)
     fail('SUBJECT_CAPTURE_INTENT_TAMPERED');
   const op=intent.operation;
+  if(intent.originalInputDigest!==undefined){
+    const plain=structuredClone(op),payload=plain.event?.payload;
+    if(!HASH(intent.originalInputDigest)||
+      payload?.iwxa_t4_capture_ref!==intent.captureRef||
+      payload?.iwxa_t4_original_input_digest!==intent.originalInputDigest)
+      fail('SUBJECT_CAPTURE_INTENT_TAMPERED');
+    delete payload.iwxa_t4_capture_ref;
+    delete payload.iwxa_t4_original_input_digest;
+    if(digest(plain)!==intent.originalInputDigest)
+      fail('SUBJECT_CAPTURE_INTENT_TAMPERED');
+  }
   const normalized=kind==='ASSET_PUT'?
     normalizeInput(kind,{...op,bytes:Uint8Array.from(
       Buffer.from(op.bytesBase64??'','base64'))},
@@ -198,6 +225,9 @@ async function capturePayload({
       {matchingOriginalEvents:matches.length});
   const event=matches[0];
   if(event.workspace_id!==ws||
+    (intent.originalInputDigest!==undefined&&
+      (event.payload?.iwxa_t4_capture_ref!==intent.captureRef||
+       event.payload?.iwxa_t4_original_input_digest!==intent.originalInputDigest))||
     event.event_type!==writeInput.event.event_type||
     !ID(event.event_id)||
     (event.object_id!==null&&event.object_id!==undefined&&
@@ -324,7 +354,8 @@ export async function captureT4OriginalHostSubjectMutation(params={}){
   if(typeof persistOriginalIntent!=='function')
     fail('SUBJECT_CAPTURE_ORIGINAL_HOST_PORTS_REQUIRED');
   checkCursor(sourceCursor,workspaceId,originalWriteOwnerRef);
-  const normalized=normalizeInput(kind,mutationInput,workspaceId,captureRef);
+  const normalized=bindOriginalTrace(
+    normalizeInput(kind,mutationInput,workspaceId,captureRef),captureRef);
   const captureParams={...params,subjectId};
   const readCtx=proofContext({...captureParams},SUBJECTS[kind].read);
   const writeCtx=proofContext({...captureParams},SUBJECTS[kind].write);
@@ -346,6 +377,7 @@ export async function captureT4OriginalHostSubjectMutation(params={}){
     schema:INTENT,kind,workspaceId,originalWriteOwnerRef,captureRef,subjectId,
     sourceCursor,operation:normalized.operation,
     inputDigest:normalized.inputDigest,
+    originalInputDigest:normalized.originalInputDigest,
     idempotencyKey:normalized.idempotencyKey,
     expectedRevision:kind==='ASSET_PUT'?mutationInput.base_revision+1:null,
     originalT3WriteRequired:true,networkPublished:false,
