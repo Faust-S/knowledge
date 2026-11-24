@@ -17,6 +17,10 @@ import {T3_SELECTED_VIEW_SCHEMA} from
 import {createCehovodD05T3Bindings} from
   '../modules/activity-base-anonymizer/d05-t3-evidence-binding.mjs';
 
+import {planOriginalTechnologyRegistration} from '../modules/activity-base-anonymizer/technology-product-registration.node.mjs';
+import {TECHNOLOGY_SERVICE} from '../modules/activity-base-anonymizer/technology-product-passport.mjs';
+import {qualifyOriginalTechnologyProducts} from './activity_technology_product_original_t2.mjs';
+
 const core=resolve(process.env.IWXA_T3_PUBLIC_CORE_DIR??'');
 const qualified=resolve(process.env.IWXA_T2_QUALIFIED_KERNEL_DIST??'');
 assert.ok(process.env.IWXA_T3_PUBLIC_CORE_DIR&&
@@ -159,15 +163,19 @@ try {
       capability_control:'NONE',capability_ceiling:[],
       activation_any_of:[],operation_guards:[],
     }]};
+  const technologyRegistration=planOriginalTechnologyRegistration({
+    domain:withD05Domain,catalog:withD05Catalog,controlPlane:withD05Control,
+  });
+  writeFileSync(join(dist,technologyRegistration.passport_file),technologyRegistration.passport_bytes);
   writeFileSync(join(dist,d05File),d05Bytes);
   assert.equal(sha(readFileSync(join(dist,d05File))),d05Entry.sha256);
-  writeFileSync(join(dist,'_iwxa/domain.json'),JSON.stringify(withD05Domain));
+  writeFileSync(join(dist,'_iwxa/domain.json'),JSON.stringify(technologyRegistration.domain));
   writeFileSync(join(dist,'workspace/workspace.config.json'),
     JSON.stringify(host.workspaceConfig));
   writeFileSync(join(dist,'_iwxa/security/capability-control-plane.json'),
-    JSON.stringify(withD05Control));
+    JSON.stringify(technologyRegistration.controlPlane));
   writeFileSync(join(dist,'_iwxa/service-catalog.json'),
-    JSON.stringify(withD05Catalog));
+    JSON.stringify(technologyRegistration.catalog));
   writeFileSync(join(dist,prepared.passport_file),prepared.passport_bytes);
   assert.equal(sha(readFileSync(join(dist,prepared.passport_file))),
     prepared.passport_sha256,'ORIGINAL_T2_PASSPORT_DIGEST_MISMATCH');
@@ -206,7 +214,7 @@ try {
   const actFiles=['d05-t3-evidence-binding.mjs','d05-route-host.mjs','d05-route-comparison.mjs','engine.mjs','t3-evidence-passport.mjs','t3-transition-map.mjs','graph-order.mjs','t3-selected-host.mjs',
     't3-control-host-link.mjs',
     't3-owner-review-stage.mjs','t3-review-controller.mjs',
-    't3-original-t2-owner-host.mjs'];
+    't3-original-t2-owner-host.mjs','technology-product.mjs','technology-product-exchange.mjs'];
   mkdirSync(join(dist,'_activity'),{recursive:true});
   for(const name of actFiles)cpSync(join(oldCwd,'modules/activity-base-anonymizer',name),
     join(dist,'_activity',name));
@@ -872,6 +880,7 @@ try {
       provenBusinessExecution:false,
       review:'HOLD',externalTransfer:false}));
 
+  await qualifyOriginalTechnologyProducts({browser,open,chromium,tmp,origin:server.origin,writer,service:TECHNOLOGY_SERVICE});
   console.log('ACTIVITY_ORIGINAL_T2_SIGNED_COLD_RECOVERY_NO_RETRY_PASS');
   console.log('ACTIVITY_REAL_SIGNED_T3_READ_DERIVE_ORIGINAL_T2_COLD_PASS',
     JSON.stringify({signed:'ED25519_PERSONAL',

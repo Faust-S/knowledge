@@ -55,6 +55,9 @@ on:
       - tools/activity-agent-input.py
       - tests/test_activity_agent_input.py
       - tests/test_activity_technology_product.mjs
+      - tests/test_activity_technology_registration.mjs
+      - tests/activity_technology_product_fixture.mjs
+      - tests/activity_technology_product_original_t2.mjs
       - .github/workflows/activity-base-desktop.yml
   workflow_dispatch:
 permissions:
@@ -89,7 +92,7 @@ jobs:
             foreach ($issue in $errors) { Write-Host $issue.Message }
             throw 'WINDOWS_UI_WITNESS_SYNTAX_INVALID'
           }
-      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_quality_review.mjs tests/test_activity_d05_technology_draft.mjs tests/test_activity_presidio_text_review.mjs tests/test_activity_observation_review.mjs tests/test_activity_observation_cli.mjs tests/test_activity_d05_simpy_review.mjs tests/test_activity_technology_product.mjs tests/test_activity_d05_route_cli.mjs tests/test_activity_r4pm_result_review.mjs tests/test_activity_r4pm_cli.mjs
+      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_quality_review.mjs tests/test_activity_d05_technology_draft.mjs tests/test_activity_presidio_text_review.mjs tests/test_activity_observation_review.mjs tests/test_activity_observation_cli.mjs tests/test_activity_d05_simpy_review.mjs tests/test_activity_technology_product.mjs tests/test_activity_technology_registration.mjs tests/test_activity_d05_route_cli.mjs tests/test_activity_r4pm_result_review.mjs tests/test_activity_r4pm_cli.mjs
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
       - name: Verify local ARX and OpenDP worker contracts
