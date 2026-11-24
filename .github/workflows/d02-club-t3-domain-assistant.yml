@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 3256771e6cb984b25809f45ce119856956ab358d
+          ref: 085991ba1d51c3174cd7e09a0d4465e1f627e55e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -198,6 +198,21 @@ jobs:
           echo D02_T3_HTTP_40_ROUTES=PASS
           grep '^CLUB_T3_OFFLINE_SNAPSHOT_HTTP: PASS' "$RUNNER_TEMP/private-http.log"
           echo D02_T3_NATIVE_GUI_AND_OFFLINE_NOT_RUN=true
+      - name: Verify the actual deployable snapshot under isolated Apache
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v apache2 >/dev/null; then
+            sudo apt-get update -qq > "$RUNNER_TEMP/private-apache-install.log" 2>&1
+            sudo apt-get install -y -qq apache2 > "$RUNNER_TEMP/private-apache-install.log" 2>&1
+          fi
+          if ! node scripts/check-club-t3-apache.mjs "$RUNNER_TEMP/club-t3-candidate/dist" > "$RUNNER_TEMP/private-apache.log" 2>&1; then
+            echo D02_T3_APACHE_SNAPSHOT=FAIL
+            exit 1
+          fi
+          grep '^CLUB_T3_APACHE_HTTP: PASS' "$RUNNER_TEMP/private-apache.log"
+          echo D02_T3_APACHE_SNAPSHOT=PASS
       - name: Run complete existing Club source regression
         working-directory: site
         shell: bash
@@ -254,6 +269,10 @@ jobs:
           node scripts/check-club-integrated-http-preview.mjs dist > "$RUNNER_TEMP/private-local-check.log" 2>&1
           node scripts/test-current-preview.mjs dist > "$RUNNER_TEMP/private-local-http.log" 2>&1
           grep '^CLUB_T3_OFFLINE_SNAPSHOT_HTTP: PASS' "$RUNNER_TEMP/private-local-http.log"
+          if ! node scripts/check-club-t3-apache.mjs dist > "$RUNNER_TEMP/private-apache.log" 2>&1; then
+            echo D02_T3_LOCAL_APACHE=FAIL; exit 1
+          fi
+          grep '^CLUB_T3_APACHE_HTTP: PASS' "$RUNNER_TEMP/private-apache.log"
           echo D02_T3_LOCAL_SINGLE_DIST=PASS
           echo D02_T3_LOCAL_BUILD_WITHOUT_SOURCE_CHECKOUTS=PASS
           # A damaged local input must stop before changing the last good dist.
@@ -278,4 +297,4 @@ jobs:
           if [ -d "$RUNNER_TEMP/unused-t2" ] && [ ! -e "$GITHUB_WORKSPACE/t2" ]; then mv "$RUNNER_TEMP/unused-t2" "$GITHUB_WORKSPACE/t2"; fi
           if [ -d "$RUNNER_TEMP/unused-one-core" ] && [ ! -e "$GITHUB_WORKSPACE/one-core" ]; then mv "$RUNNER_TEMP/unused-one-core" "$GITHUB_WORKSPACE/one-core"; fi
           if [ -d "$RUNNER_TEMP/unused-bli-owner" ] && [ ! -e "$GITHUB_WORKSPACE/bli-owner" ]; then mv "$RUNNER_TEMP/unused-bli-owner" "$GITHUB_WORKSPACE/bli-owner"; fi
-          rm -rf "$RUNNER_TEMP/private-assistant-owner.log" "$RUNNER_TEMP/private-all-regression.log" "$RUNNER_TEMP/private-local-damage.log" "$RUNNER_TEMP/loader-original.private" "$RUNNER_TEMP/local-damage-readback.private" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/private-local-input.log" "$RUNNER_TEMP/private-local-build.log" "$RUNNER_TEMP/private-local-check.log" "$RUNNER_TEMP/local-rebuild-1.private" "$RUNNER_TEMP/local-rebuild-2.private" "$RUNNER_TEMP/club-t3-candidate" "$RUNNER_TEMP/private-baseline.log" "$RUNNER_TEMP/private-assembly-test.log" "$RUNNER_TEMP/private-assembly.log" "$RUNNER_TEMP/private-http.log" "$RUNNER_TEMP/private-regression.log" "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/private-test.log" "$RUNNER_TEMP/verify.json" "$RUNNER_TEMP/verify.log"
+          rm -rf "$RUNNER_TEMP/private-apache-install.log" "$RUNNER_TEMP/private-apache.log" "$RUNNER_TEMP/private-assistant-owner.log" "$RUNNER_TEMP/private-all-regression.log" "$RUNNER_TEMP/private-local-damage.log" "$RUNNER_TEMP/loader-original.private" "$RUNNER_TEMP/local-damage-readback.private" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/private-local-input.log" "$RUNNER_TEMP/private-local-build.log" "$RUNNER_TEMP/private-local-check.log" "$RUNNER_TEMP/local-rebuild-1.private" "$RUNNER_TEMP/local-rebuild-2.private" "$RUNNER_TEMP/club-t3-candidate" "$RUNNER_TEMP/private-baseline.log" "$RUNNER_TEMP/private-assembly-test.log" "$RUNNER_TEMP/private-assembly.log" "$RUNNER_TEMP/private-http.log" "$RUNNER_TEMP/private-regression.log" "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/private-test.log" "$RUNNER_TEMP/verify.json" "$RUNNER_TEMP/verify.log"
