@@ -36,7 +36,7 @@ def original_owner_economic_core(kind: str) -> str | None:
 
 def review_original_strict_economic_sources(
     *, state: Any, original_claims: Mapping[str, Any],
-    work_id: str, at: int,
+    work_id: str | tuple[str, ...], at: int,
 ) -> dict[str, Any]:
     """Check rights to examine each source, not rights to execute a payment.
 
@@ -57,7 +57,11 @@ def review_original_strict_economic_sources(
         raise StrictEconomicSourceBlocked(
             "ORIGINAL_ECONOMIC_CONTEXT_TIME_INVALID"
         )
-    if not isinstance(work_id, str) or work_id not in state.works:
+    work_ids = (work_id,) if isinstance(work_id, str) else work_id
+    if (not isinstance(work_ids, tuple) or not 1 <= len(work_ids) <= 256
+            or any(not isinstance(key, str) or key not in state.works
+                   for key in work_ids)
+            or len(set(work_ids)) != len(work_ids)):
         raise StrictEconomicSourceBlocked(
             "ORIGINAL_ECONOMIC_WORK_MUST_EXIST"
         )
@@ -65,6 +69,21 @@ def review_original_strict_economic_sources(
         raise StrictEconomicSourceBlocked(
             "ORIGINAL_ECONOMIC_SOURCE_DOCUMENT_REQUIRED"
         )
+    # Multi-period qualification uses the original single economic
+    # document. Do not let it silently include a Work outside the declared
+    # strict source scope, or claim historical coverage of an absent period.
+    if isinstance(work_id, tuple):
+        for field in ("transfers", "resource_uses"):
+            records = original_claims.get(field)
+            if (not isinstance(records, list)
+                    or any(not isinstance(row, dict)
+                           or row.get("work") not in work_ids
+                           or row.get("scenario") != "COOPERATION"
+                           for row in records)
+                    or {row["work"] for row in records} != set(work_ids)):
+                raise StrictEconomicSourceBlocked(
+                    "ORIGINAL_ECONOMIC_MULTI_WORK_SCOPE_INCOMPLETE"
+                )
     rows = original_claims.get("sources")
     if not isinstance(rows, list) or not 1 <= len(rows) <= 2048:
         raise StrictEconomicSourceBlocked(
@@ -149,88 +168,89 @@ def review_original_strict_economic_sources(
                 "ORIGINAL_ECONOMIC_SOURCE_NOT_USABLE_IN_STRICT_KPB"
             ) from exc
         covered.add(owner)
-    work = state.works[work_id]
-    principals = (
-        state.capacity_ledger.original_owners(
-            work.resource_requirements
-        ) | {work.customer}
-    )
-    if not principals.issubset(covered):
-        raise StrictEconomicSourceBlocked(
-            "ORIGINAL_ECONOMIC_INDEPENDENT_PRINCIPAL_SOURCE_MISSING"
-        )
-    # For an outside Work whose original request pinned the three earlier
-    # events, compare a declared purchase payment with that original offer.
-    # This is a strict-KPB review of EXISTING rows, never a new obligation.
     outside_price_qualified = False
-    origin_rows = [
-        row for row in state.trace
-        if row.get("action") == "request" and row.get("outcome") == "APPLIED"
-        and row.get("work") == work_id
-        and isinstance(row.get("outside_work_origin"), Mapping)
-    ]
-    if origin_rows and "work_payment_conditions" in original_claims:
-        if len(origin_rows) != 1:
-            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_REQUEST_AMBIGUOUS")
-        request = origin_rows[0]
-        origin = request["outside_work_origin"]
-        offers = [
-            row for row in state.trace
-            if row.get("action") == "outside_supplier_offer"
-            and row.get("outcome") == "APPLIED"
-            and row.get("outside_offer_id") == origin["outside_offer_id"]
-            and row.get("outside_demand_id") == origin["outside_demand_id"]
-        ]
-        if len(offers) != 1:
-            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_OFFER_REQUIRED")
-        offer = offers[0]
-        buyer, seller = work.customer, offer["actor"]
-        core = _OWNER_CORES.get(state.subjects[seller].kind)
-        if core is None or buyer == seller or offer["outside_offer_buyer"] != buyer:
-            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PAYMENT_PARTIES_REQUIRED")
-        # Historical qualification does not grant current access to the
-        # original commercial terms. Check both before reading the price.
-        try:
-            context.assert_original_historical_form_role_source(
-                seller, offer["outside_offer_source_ref"],
-                offer["outside_offer_source_revision"], core=core,
-                purpose="AKIS_EXTERNAL_DEMAND_EVIDENCE",
-                operation="READ", recipients={buyer}, at=request["at"],
-            )
-            context.assert_original_independent_supplier_offer_source(
-                seller, offer["outside_offer_source_ref"],
-                offer["outside_offer_source_revision"], core=core,
-                buyer=buyer, at=at,
-            )
-        except ContextBlocked as exc:
+    for scoped_work in work_ids:
+        work = state.works[scoped_work]
+        principals = (
+            state.capacity_ledger.original_owners(
+                work.resource_requirements
+            ) | {work.customer}
+        )
+        if not principals.issubset(covered):
             raise StrictEconomicSourceBlocked(
-                "OUTSIDE_WORK_ORIGINAL_OFFER_PRICE_SOURCE_NOT_READABLE"
-            ) from exc
-        transfers = original_claims.get("transfers")
-        terms = original_claims.get("work_payment_conditions")
-        if not isinstance(transfers, list) or not isinstance(terms, list):
-            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PAYMENT_DOCUMENT_REQUIRED")
-        payments = [
-            row for row in transfers if isinstance(row, dict)
-            and row.get("work") == work_id
-            and row.get("scenario") == "COOPERATION"
-            and row.get("payer") == buyer and row.get("payee") == seller
+                "ORIGINAL_ECONOMIC_INDEPENDENT_PRINCIPAL_SOURCE_MISSING"
+            )
+        # For an outside Work whose original request pinned the three earlier
+        # events, compare a declared purchase payment with that original offer.
+        # This is a strict-KPB review of EXISTING rows, never a new obligation.
+        origin_rows = [
+            row for row in state.trace
+            if row.get("action") == "request" and row.get("outcome") == "APPLIED"
+            and row.get("work") == scoped_work
+            and isinstance(row.get("outside_work_origin"), Mapping)
         ]
-        if len(payments) != 1:
-            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_SINGLE_ORIGINAL_PURCHASE_TRANSFER_REQUIRED")
-        payment = payments[0]
-        if sum(isinstance(row, dict) and row.get("transfer_id") == payment.get("id")
-               for row in terms) != 1:
-            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PURCHASE_TERMS_REQUIRED")
-        try:
-            exact = (isinstance(payment.get("amount"), str)
-                     and Decimal(payment["amount"]).is_finite()
-                     and Decimal(payment["amount"]) == Decimal(offer["outside_offer_price"]))
-        except (InvalidOperation, ValueError, TypeError):
-            exact = False
-        if not exact or original_claims.get("currency") != offer["outside_offer_currency"]:
-            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PURCHASE_PRICE_MISMATCH")
-        outside_price_qualified = True
+        if origin_rows and "work_payment_conditions" in original_claims:
+            if len(origin_rows) != 1:
+                raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_REQUEST_AMBIGUOUS")
+            request = origin_rows[0]
+            origin = request["outside_work_origin"]
+            offers = [
+                row for row in state.trace
+                if row.get("action") == "outside_supplier_offer"
+                and row.get("outcome") == "APPLIED"
+                and row.get("outside_offer_id") == origin["outside_offer_id"]
+                and row.get("outside_demand_id") == origin["outside_demand_id"]
+            ]
+            if len(offers) != 1:
+                raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_OFFER_REQUIRED")
+            offer = offers[0]
+            buyer, seller = work.customer, offer["actor"]
+            core = _OWNER_CORES.get(state.subjects[seller].kind)
+            if core is None or buyer == seller or offer["outside_offer_buyer"] != buyer:
+                raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PAYMENT_PARTIES_REQUIRED")
+            # Historical qualification does not grant current access to the
+            # original commercial terms. Check both before reading the price.
+            try:
+                context.assert_original_historical_form_role_source(
+                    seller, offer["outside_offer_source_ref"],
+                    offer["outside_offer_source_revision"], core=core,
+                    purpose="AKIS_EXTERNAL_DEMAND_EVIDENCE",
+                    operation="READ", recipients={buyer}, at=request["at"],
+                )
+                context.assert_original_independent_supplier_offer_source(
+                    seller, offer["outside_offer_source_ref"],
+                    offer["outside_offer_source_revision"], core=core,
+                    buyer=buyer, at=at,
+                )
+            except ContextBlocked as exc:
+                raise StrictEconomicSourceBlocked(
+                    "OUTSIDE_WORK_ORIGINAL_OFFER_PRICE_SOURCE_NOT_READABLE"
+                ) from exc
+            transfers = original_claims.get("transfers")
+            terms = original_claims.get("work_payment_conditions")
+            if not isinstance(transfers, list) or not isinstance(terms, list):
+                raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PAYMENT_DOCUMENT_REQUIRED")
+            payments = [
+                row for row in transfers if isinstance(row, dict)
+                and row.get("work") == scoped_work
+                and row.get("scenario") == "COOPERATION"
+                and row.get("payer") == buyer and row.get("payee") == seller
+            ]
+            if len(payments) != 1:
+                raise StrictEconomicSourceBlocked("OUTSIDE_WORK_SINGLE_ORIGINAL_PURCHASE_TRANSFER_REQUIRED")
+            payment = payments[0]
+            if sum(isinstance(row, dict) and row.get("transfer_id") == payment.get("id")
+                   for row in terms) != 1:
+                raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PURCHASE_TERMS_REQUIRED")
+            try:
+                exact = (isinstance(payment.get("amount"), str)
+                         and Decimal(payment["amount"]).is_finite()
+                         and Decimal(payment["amount"]) == Decimal(offer["outside_offer_price"]))
+            except (InvalidOperation, ValueError, TypeError):
+                exact = False
+            if not exact or original_claims.get("currency") != offer["outside_offer_currency"]:
+                raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PURCHASE_PRICE_MISMATCH")
+            outside_price_qualified = True
 
     # Original R2.6 payment claims are annotations on EXISTING transfers.
     # Each new two-party claim must have two independent, revision-pinned
@@ -263,7 +283,7 @@ def review_original_strict_economic_sources(
                 )
             original_transfer = transfers.get(record.get("transfer_id"))
             if (not isinstance(original_transfer, dict)
-                    or original_transfer.get("work") != work_id
+                    or original_transfer.get("work") not in work_ids
                     or original_transfer.get("scenario") != "COOPERATION"):
                 raise StrictEconomicSourceBlocked(
                     "ORIGINAL_PAYMENT_WRONG_WORK_OR_TRANSFER_SCOPE"
@@ -387,12 +407,13 @@ def review_original_strict_economic_sources(
         owner = binding.get("owner")
         event_time = binding.get("at")
         position = binding.get("trace_position")
-        if (binding.get("work") != work_id
+        binding_work = binding.get("work")
+        if (binding_work not in work_ids
                 or type(event_time) is not int
                 or type(position) is not int
                 or not 0 <= position < len(state.trace)
                 or state.trace[position].get("outcome") != "APPLIED"
-                or state.trace[position].get("work") != work_id
+                or state.trace[position].get("work") != binding_work
                 or state.trace[position].get("action") != binding.get("action")
                 or state.trace[position].get("at") != event_time):
             raise StrictEconomicSourceBlocked(
@@ -446,6 +467,8 @@ def review_original_strict_economic_sources(
     return {
         "status": "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED",
         "original_source_count": len(seen),
+        **({"original_strict_work_scope_count": len(work_ids)}
+           if isinstance(work_id, tuple) else {}),
         "covered_original_subject_count": len(covered),
         "all_original_work_principals_have_own_sources": True,
         "source_scoped_original_payment_event_count": qualified_payment_events,

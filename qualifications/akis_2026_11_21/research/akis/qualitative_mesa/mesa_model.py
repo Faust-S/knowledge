@@ -277,9 +277,19 @@ class OperatorAKISModel(mesa.Model):
         self.strict_economic_source_work = research_input.pop(
             "strict_economic_source_work", None
         )
+        strict_works = research_input.pop("strict_economic_source_works", None)
+        if strict_works is not None:
+            if (self.strict_economic_source_work is not None
+                    or not isinstance(strict_works, list)
+                    or not 1 <= len(strict_works) <= 256
+                    or any(not isinstance(key, str) or not key.strip()
+                           for key in strict_works)
+                    or len(set(strict_works)) != len(strict_works)):
+                raise InputError("ORIGINAL_STRICT_ECONOMIC_WORK_SCOPE_INVALID")
+            self.strict_economic_source_work = tuple(strict_works)
         if self.strict_economic_source_work is not None:
-            if (not isinstance(self.strict_economic_source_work, str)
-                    or not self.strict_economic_source_work.strip()
+            if (not isinstance(self.strict_economic_source_work, (str, tuple))
+                    or not self.strict_economic_source_work
                     or self.economic_claims is None):
                 raise InputError("ORIGINAL_STRICT_ECONOMIC_WORK_AND_LEDGER_REQUIRED")
             # Fail before the first Mesa event: without the original strict
@@ -891,6 +901,13 @@ class OperatorAKISModel(mesa.Model):
         state = self.qualitative
         if action == "request":
             impacted = [event["work_spec"]["id"]]
+            origin = event.get("outside_work_origin")
+            if isinstance(origin, dict):
+                impacted.extend(
+                    outlook.work for outlook in self.economic_outlooks
+                    if outlook.outside_demand_claim is not None
+                    and outlook.outside_demand_claim[0] == origin.get("outside_demand_id")
+                )
         elif action in {"resource_status", "resource_calendar_update", "adopt_capability"}:
             impacted = [work.key for work in state.works.values() if any(
                 need.resource == event["resource"] for need in work.resource_requirements)]
@@ -961,6 +978,22 @@ class OperatorAKISModel(mesa.Model):
             )
         else:
             impacted = [event["work"]]
+        # Once a real external candidate is committed its reservation
+        # changes feasibility of the competing cooperative Work immediately.
+        if action == "commit":
+            external_requests = [
+                row for row in state.trace
+                if row.get("action") == "request" and row.get("outcome") == "APPLIED"
+                and row.get("work") == event.get("work")
+                and isinstance(row.get("outside_work_origin"), dict)
+            ]
+            for request in external_requests:
+                demand = request["outside_work_origin"]["outside_demand_id"]
+                impacted.extend(
+                    outlook.work for outlook in self.economic_outlooks
+                    if outlook.outside_demand_claim is not None
+                    and outlook.outside_demand_claim[0] == demand
+                )
         if self.joint_purchasing_plans:
             expanded = set(impacted)
             for plan in self.joint_purchasing_plans:

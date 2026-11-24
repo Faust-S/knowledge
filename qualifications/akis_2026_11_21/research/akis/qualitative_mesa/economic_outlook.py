@@ -422,12 +422,49 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                 "reason": "OUTSIDE_CAPACITY_ORIGINAL_RESOURCE_NOT_READY",
                 "relation": row.relation, "available_at": row.available_at,
             }
-        # Intentionally never call reserve/commit or append a Work. The
-        # generated key exists for this one ephemeral preview only.
+        # Before an actual external request, the ephemeral candidate
+        # cannot borrow a named Work's adopted capacity. Once the original
+        # buyer has requested a qualified external Work, preview THAT Work
+        # with its actual owner-scoped key, not a synthetic identity.
+        candidate_key = f"__akis_outside_candidate__{owner}__{work.key}"
+        if row.outside_buyer_response_claim is not None:
+            requests = [
+                event for event in (original_trace or ())
+                if event.get("action") == "request"
+                and event.get("outcome") == "APPLIED"
+                and isinstance(event.get("outside_work_origin"), Mapping)
+                and event["outside_work_origin"].get("outside_demand_id")
+                    == row.outside_demand_claim[0]
+                and event["at"] <= at
+            ]
+            if requests:
+                expected_origin = {
+                    "outside_demand_id": row.outside_demand_claim[0],
+                    "outside_offer_id": row.outside_offer_claim,
+                    "outside_buyer_response_id": row.outside_buyer_response_claim,
+                }
+                original = (works or {}).get(requests[0].get("work"))
+                if (len(requests) != 1
+                        or requests[0]["outside_work_origin"] != expected_origin
+                        or original is None or original.key == work.key
+                        or original.customer != buyer
+                        or original.obligation != "NOT_ACCEPTED"
+                        or work.obligation != "NOT_ACCEPTED"
+                        or (original.slot_start, original.slot_end) != (start, end)
+                        or tuple((need.resource, need.units)
+                                 for need in original.resource_requirements)
+                            != ((resource, units),)
+                        or any(original.key in link.works for link in links)):
+                    return {
+                        "position": "UNKNOWN",
+                        "reason": "OUTSIDE_ORIGINAL_WORK_NOT_CURRENT_UNCOMMITTED_CANDIDATE",
+                        "relation": row.relation, "available_at": row.available_at,
+                    }
+                candidate_key = original.key
+        # Never reserve/commit or append a Work in an outlook.
         try:
             capacity_ledger.preview(
-                f"__akis_outside_candidate__{owner}__{work.key}",
-                (ResourceNeed(resource, units),), start, end,
+                candidate_key, (ResourceNeed(resource, units),), start, end,
             )
         except (CapacityInputError, CapacityBlocked):
             return {

@@ -265,16 +265,26 @@ def compare_executed_original_routes(
 
     reference = None
     reference_finance = None
+    reference_prior_finance = None
+    cumulative_scope = None
     common_prefix = None
     for name, selected in arms.items():
         doc = scenarios[name]
         if not isinstance(doc, Mapping):
             raise TrajectoryComparisonError("EXECUTED_ROUTE_SCENARIO_REQUIRED")
-        if doc.get("strict_economic_source_work") != selected:
+        multiple = "strict_economic_source_works" in doc
+        if (multiple and (
+                doc.get("strict_economic_source_work") is not None
+                or doc["strict_economic_source_works"] != [*prior_works, selected]
+            ) or not multiple and doc.get("strict_economic_source_work") != selected):
             raise TrajectoryComparisonError("EXECUTED_ROUTE_STRICT_SELECTED_WORK_REQUIRED")
+        if cumulative_scope is not None and cumulative_scope != multiple:
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_ECONOMIC_SCOPE_CHANGED")
+        cumulative_scope = multiple
         baseline = {k: v for k, v in doc.items()
                     if k not in {"events", "economic_claims",
-                                 "strict_economic_source_work"}}
+                                 "strict_economic_source_work",
+                                 "strict_economic_source_works"}}
         if reference is not None and reference != baseline:
             raise TrajectoryComparisonError("EXECUTED_ROUTE_INITIAL_STATE_CHANGED")
         reference = baseline
@@ -314,13 +324,58 @@ def compare_executed_original_routes(
         if (type(doc.get("model_horizon")) is not int
                 or timing.get("horizon_end") != doc["model_horizon"]):
             raise TrajectoryComparisonError("EXECUTED_ROUTE_MATCHED_HORIZON_REQUIRED")
+        allowed_works = {selected, *prior_works} if multiple else {selected}
+        prior_records = {}
         for field in ("transfers", "resource_uses"):
             rows = money.get(field)
             if not isinstance(rows, list) or any(
                 not isinstance(row, Mapping) or row.get("scenario") != active
-                or row.get("work") != selected for row in rows
+                or row.get("work") not in allowed_works for row in rows
             ):
                 raise TrajectoryComparisonError("EXECUTED_ROUTE_ONLY_SELECTED_ORIGINAL_ROWS")
+            if multiple:
+                if {row.get("work") for row in rows} != allowed_works:
+                    raise TrajectoryComparisonError("EXECUTED_ROUTE_PRIOR_ECONOMIC_SCOPE_INCOMPLETE")
+                prior_records[field] = [row for row in rows if row["work"] in prior_works]
+        if multiple:
+            # Prior cash, costs, terms and all their evidence must be the
+            # SAME original declarations in both counterfactual runs.
+            # This first cumulative experiment ends prior cash windows and
+            # due-date hypotheses within the common observed prefix.
+            if set(money) - {
+                "period", "currency", "sources", "transfers", "resource_uses",
+                "coverage", "outside_feasibility", "cash_timing", "lifecycle_costs",
+                "work_payment_conditions", "work_payment_settlement_claims",
+                "work_payment_due_amendments",
+            } or set(lifecycle) - {"bindings", "scope_proofs", "event_bindings"}:
+                raise TrajectoryComparisonError("EXECUTED_ROUTE_PRIOR_EVIDENCE_SCOPE_UNSUPPORTED")
+            prior_transfers = {row["id"] for row in prior_records["transfers"]}
+            prior_costs = {row["id"] for row in prior_records["resource_uses"]}
+            for field, rows, key, identifiers, clock_fields in (
+                ("windows", timing.get("transfer_windows"), "transfer_id",
+                 prior_transfers, ("at", "late_at")),
+                ("terms", money.get("work_payment_conditions"), "transfer_id",
+                 prior_transfers, ("due_at",)),
+                ("settlements", money.get("work_payment_settlement_claims", []),
+                 "transfer_id", prior_transfers, ("at",)),
+                ("amendments", money.get("work_payment_due_amendments", []),
+                 "transfer_id", prior_transfers, ("agreed_at", "new_due_at")),
+                ("classification", lifecycle.get("bindings"), "resource_use_id",
+                 prior_costs, ()),
+                ("cost_events", lifecycle.get("event_bindings"), "resource_use_id",
+                 prior_costs, ("at",)),
+            ):
+                if not isinstance(rows, list) or any(
+                        not isinstance(row, Mapping) for row in rows):
+                    raise TrajectoryComparisonError("EXECUTED_ROUTE_PRIOR_EVIDENCE_SCOPE_INCOMPLETE")
+                attached = [row for row in rows if row.get(key) in identifiers]
+                if any(type(row[k]) is not int or row[k] > split_at
+                       for row in attached for k in clock_fields if k in row):
+                    raise TrajectoryComparisonError("EXECUTED_ROUTE_PRIOR_EVIDENCE_AFTER_SPLIT")
+                prior_records[field] = attached
+            if reference_prior_finance is not None and prior_records != reference_prior_finance:
+                raise TrajectoryComparisonError("EXECUTED_ROUTE_PRIOR_FINANCIAL_HISTORY_CHANGED")
+            reference_prior_finance = prior_records
 
     # The controlled prefix already contains the original outside request.
     # There is no caller-supplied output to forge: both runs execute the
@@ -585,6 +640,13 @@ def compare_executed_original_routes(
                    if qualified else "NOT_IDENTIFIABLE_FROM_EXECUTED_ROUTE_SCOPE"),
         "common_initial_state_and_applied_prefix_verified": True,
         "previous_original_results_preserved": True,
+        **({
+            "original_financial_scope": "COMMON_PRIOR_WORKS_AND_SELECTED_EXECUTED_ROUTE",
+            "prior_economic_history_same_in_both_runs": True,
+            "prior_economic_work_count": len(prior_works),
+            "opening_cash_is_at_start_of_common_history": True,
+            "prior_cash_windows_are_model_claims_not_bank_balances": True,
+        } if cumulative_scope else {}),
         "declared_resource_calendar_and_quality_criteria_matched": True,
         "distinct_original_recipients_not_equal_measured_utility": True,
         "actual_physical_equivalence_and_causal_additionality_verified": False,

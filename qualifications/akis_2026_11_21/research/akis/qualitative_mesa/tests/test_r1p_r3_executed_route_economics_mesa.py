@@ -206,7 +206,8 @@ def compare(docs):
 def without_finance(doc):
     doc = deepcopy(doc)
     doc.pop("economic_claims")
-    doc.pop("strict_economic_source_work")
+    doc.pop("strict_economic_source_work", None)
+    doc.pop("strict_economic_source_works", None)
     return doc
 
 
@@ -277,3 +278,200 @@ def test_declared_but_not_applied_dynamic_relation_is_not_matched():
              and row["work_spec"]["id"] == "w3")["cooperation_link"] = "not-l1"
     with pytest.raises(TrajectoryComparisonError, match="FIXED_COOPERATION_BOUNDARY"):
         compare(docs)
+
+
+def cumulative_routes(*, cooperative_price="1200.00"):
+    """Add actual prior Work-linked declarations to the SAME R2 ledger.
+
+    No reset of the operator's or producer's cash at the third period.
+    Both trajectories carry identical source declarations and cost anchors
+    for w1 and w2; only the selected third Work's own records differ.
+    """
+    docs = multiperiod_routes(cooperative_price=cooperative_price)
+    for name, doc in docs.items():
+        selected = doc.pop("strict_economic_source_work")
+        doc["strict_economic_source_works"] = ["w1", "w2", selected]
+        money = doc["economic_claims"]
+        money["period"] = "THREE_ORIGINAL_WORK_PERIODS"
+        context = doc["context_evidence"]["sources"]
+        life = money["lifecycle_costs"]
+
+        def evidence(owner, suffix, revision):
+            ref = f"model://{owner}/{suffix}"
+            context.append({
+                "id": ref, "owner": owner, "revision": revision,
+                "status": "CONFIRMED", "usable_by": [owner],
+                "core": "operator" if owner == "op" else "corporate",
+                "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"],
+                "operations": ["READ"], "valid_from": 0, "valid_until": 160,
+            })
+            return ref
+
+        for work, revision, purchase, materials, fee, overhead, labor in (
+            ("w1", "d-1", "300.00", "180.00", "30.00", "20.00", "100.00"),
+            ("w2", "d-2", "400.00", "230.00", "40.00", "25.00", "80.00"),
+        ):
+            clock = {row["action"]: row["at"] for row in doc["events"]
+                     if row.get("work") == work}
+            for key, payer, payee, amount, condition, at in (
+                ("purchase", "b", "a", purchase,
+                 "ON_CUSTOMER_ACCEPTANCE", clock["accept"] + 2),
+                ("materials", "a", "EXTERNAL", materials,
+                 "ON_ORIGINAL_COMMIT", clock["commit"] + 1),
+                ("fee", "a", "op", fee,
+                 "ON_ORIGINAL_COMMIT", clock["commit"] + 2),
+                ("overhead", "op", "EXTERNAL", overhead,
+                 "ON_ORIGINAL_COMMIT", clock["commit"] + 3),
+            ):
+                ident = f"{work}-{key}"
+                parties = sorted({payer, payee} - {"EXTERNAL"})
+                witnesses = {owner: f"terms-{owner}" for owner in parties}
+                money["transfers"].append({
+                    "id": ident, "scenario": "COOPERATION", "payer": payer,
+                    "payee": payee, "amount": amount,
+                    "source": f"terms-{payer}", "work": work,
+                })
+                money["cash_timing"]["transfer_windows"].append({
+                    "transfer_id": ident, "at": at, "late_at": at,
+                    "owner_sources": deepcopy(witnesses),
+                })
+                money["work_payment_conditions"].append({
+                    "transfer_id": ident, "condition": condition,
+                    "due_at": at + 1, "work_source_revision": revision,
+                    "org_revision": "oc-1", "owner_sources": deepcopy(witnesses),
+                })
+                if key == "purchase":
+                    refs = {owner: evidence(owner, f"{work}-purchase-receipt", "v1")
+                            for owner in parties}
+                    money["work_payment_settlement_claims"].append({
+                        "id": f"{work}-settlement", "transfer_id": ident,
+                        "at": at, "amount": amount,
+                        "owner_sources": {owner: f"receipt-{owner}" for owner in parties},
+                        "evidence_refs": refs,
+                        "evidence_revisions": {owner: "v1" for owner in parties},
+                        "owner_attestations": {
+                            owner: {"reported_at": at, "reported_amount": amount}
+                            for owner in parties
+                        },
+                    })
+            for key, owner, amount, bucket, stage, nature, action in (
+                ("labor", "a", labor, "DELIVERY", "PRODUCTION_COORDINATION",
+                 "DIRECT_RESOURCE", "start"),
+                ("coordination", "op", "15.00", "COORDINATION",
+                 "PRODUCTION_COORDINATION", "TRANSACTION", "commit"),
+            ):
+                ident = f"{work}-{key}"
+                pos, event = next((i, row) for i, row in enumerate(doc["events"])
+                                  if row.get("work") == work and row["action"] == action
+                                  and row["actor"] == owner)
+                ref = evidence(owner, f"{work}-{key}-cost", "v1")
+                money["resource_uses"].append({
+                    "id": ident, "scenario": "COOPERATION", "work": work,
+                    "owner": owner, "source": f"terms-{owner}", "amount": amount,
+                    "bucket": bucket,
+                })
+                life["bindings"].append({
+                    "resource_use_id": ident, "owner": owner,
+                    "source": f"terms-{owner}", "stage": stage, "nature": nature,
+                })
+                life["event_bindings"].append({
+                    "resource_use_id": ident, "work": work, "owner": owner,
+                    "source": f"terms-{owner}", "work_source_revision": revision,
+                    "trace_position": pos, "at": event["at"], "action": action,
+                    "org_revision": "oc-1", "cost_evidence_ref": ref,
+                    "cost_evidence_revision": "v1",
+                })
+    return docs
+
+
+def test_three_period_cash_carries_forward_with_original_work_and_cost_evidence():
+    docs = cumulative_routes()
+    frozen = deepcopy(docs)
+    report = compare(docs)
+    assert docs == frozen
+    assert report["status"] == "MODEL_EXECUTED_ROUTES_DECLARED_ECONOMIC_CONTRAST", report
+    assert report["prior_economic_history_same_in_both_runs"]
+    assert all(row["source_matched_full_transfer_count"] == 3
+               for row in report["routes"].values())
+    private = report["local_research_only"]
+    assert private["boundary_projections"]["cooperation"][
+        "whole_original_subject_boundary_net_cash"] == "-955.00"
+    assert private["boundary_projections"]["outside"][
+        "whole_original_subject_boundary_net_cash"] == "-925.00"
+    assert private["original_owner_projections"]["cooperation"]["a"][
+        "declared_net_cash"] == "820.00"
+    assert private["original_owner_projections"]["cooperation"]["op"][
+        "declared_net_cash"] == "125.00"
+    assert private["original_owner_contrasts"]["a"][
+        "cash_cooperation_minus_outside"] == "150.00"
+    assert private["boundary_and_cost_contrast"][
+        "whole_subject_cash_cooperation_minus_outside"] == "-30.00"
+    assert private["boundary_and_cost_contrast"][
+        "whole_transaction_noncash_outside_minus_cooperation"] == "30.00"
+    assert report["empirical_network_additionality"] == "NOT_IDENTIFIABLE"
+
+
+@pytest.mark.parametrize("field", ["transfers", "resource_uses"])
+def test_prior_cash_or_resource_history_cannot_change_between_arms(field):
+    docs = cumulative_routes()
+    row = next(row for row in docs["outside"]["economic_claims"][field]
+               if row["work"] == "w1")
+    row["amount"] = "999.00"
+    with pytest.raises(TrajectoryComparisonError, match="PRIOR_FINANCIAL_HISTORY_CHANGED"):
+        compare(docs)
+
+
+def test_prior_payment_window_cannot_move_after_the_controlled_prefix():
+    docs = cumulative_routes()
+    for doc in docs.values():
+        row = next(row for row in doc["economic_claims"]["cash_timing"]["transfer_windows"]
+                   if row["transfer_id"] == "w1-purchase")
+        row["late_at"] = 100
+    with pytest.raises(TrajectoryComparisonError, match="PRIOR_EVIDENCE_AFTER_SPLIT"):
+        compare(docs)
+
+
+def test_prior_cost_source_revocation_does_not_leak_through_multiwork_review():
+    docs = cumulative_routes()
+    from research.akis.qualitative_mesa.rules import InputError
+    doc = docs["cooperation"]
+    doc["events"].append(e(125, "source_update", "a",
+                           source="model://a/w1-labor-cost", status="UNKNOWN"))
+    doc["events"].sort(key=lambda row: row["at"])
+    with pytest.raises(InputError, match="ORIGINAL_ECONOMIC_COST_SOURCE_NOT_USABLE"):
+        simulate(doc)
+    out = simulate(without_finance(doc))
+    assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1", "w2", "w3"))
+
+
+@pytest.mark.parametrize("price,position", [
+    ("1200.00", "COOPERATION_PREFERRED"),
+    ("1050.00", "UNKNOWN"),
+    ("900.00", "OUTSIDE_PREFERRED"),
+])
+def test_original_external_request_enables_only_current_owner_scoped_capacity_preview(price, position):
+    doc = without_finance(multiperiod_routes(cooperative_price=price)["cooperation"])
+    out = simulate(doc)
+    choices = [
+        row for row in out["decision_observations"]
+        if row.get("work") == "w3" and row.get("subject") == "a"
+        and row.get("at") == 84 and row.get("trigger") == "request"
+    ]
+    assert len(choices) == 1, choices
+    assert choices[0]["economic_position"] == position, choices
+    assert out["works"]["w3"]["result"] == ACCEPTED
+    assert out["works"][OUTSIDE]["obligation"] == "NOT_ACCEPTED"
+    assert not any(row["work"] == OUTSIDE for row in out["capacity"]["reservations"])
+
+
+def test_profitable_outlook_cannot_override_independent_original_owner_refusal():
+    doc = without_finance(multiperiod_routes()["cooperation"])
+    next(row for row in doc["events"] if row["action"] == "interest_update"
+         and row.get("work") == "w3" and row["actor"] == "a")["new_willingness"] = "DECLINES"
+    out = simulate(doc)
+    assert any(row.get("subject") == "a" and row.get("work") == "w3"
+               and row.get("economic_position") == "COOPERATION_PREFERRED"
+               for row in out["decision_observations"])
+    assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"][OUTSIDE]["obligation"] == "NOT_ACCEPTED"
+    assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1", "w2"))
