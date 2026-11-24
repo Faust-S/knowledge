@@ -100,6 +100,55 @@ jobs:
             exit 1
           fi
           echo T3_CLUB_OWNER_SKILLS_PASS
+      - name: Exact previous released skill projection for real upgrade test
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: 01d5cd2b49307d00bf130ac32df761dd4f8482bb
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-club-previous-skills
+          sparse-checkout: |
+            assets/club-assistant-skills.json
+            runtime/t3-platform/0.3.1-rc.1/domain-skills.json
+          sparse-checkout-cone-mode: false
+      - name: Real developer upgrade 1.3.0 to 1.4.0 and idempotent reapply
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! node --input-type=module - "$GITHUB_WORKSPACE/private-club-owner" 'b66b036d16bf44adb0304351d762f5c098f5312a' > "$RUNNER_TEMP/private-skill-upgrade.log" 2>&1 <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {join,relative} from 'node:path';
+          import {importClubSkills} from './private-club/scripts/import-club-skills.mjs';
+          import {skillAsset,skillPinPath,verifyClubSkillProjection} from './private-club/scripts/club-assistant-skills.mjs';
+          const asset=join('private-club',skillAsset);
+          const pinRel=relative(join(process.cwd(),'private-club'),skillPinPath);
+          const expectedAsset=readFileSync(asset),expectedPin=readFileSync(skillPinPath);
+          const oldAsset=readFileSync(join('private-club-previous-skills',skillAsset));
+          const oldPin=readFileSync(join('private-club-previous-skills',pinRel));
+          try{
+            writeFileSync(asset,oldAsset);writeFileSync(skillPinPath,oldPin);
+            const plan=importClubSkills(process.argv[2],process.argv[3]);
+            assert.equal(plan.from,'1.3.0');assert.equal(plan.to,'1.4.0');
+            assert.equal(plan.formsChange.added.length,5);assert.equal(plan.formsChange.removed.length,0);
+            assert.equal(plan.bytesChanged,true);assert.equal(plan.applied,false);
+            assert.ok(readFileSync(asset).equals(oldAsset));assert.ok(readFileSync(skillPinPath).equals(oldPin));
+            const applied=importClubSkills(process.argv[2],process.argv[3],{apply:true});
+            assert.equal(applied.applied,true);
+            assert.ok(readFileSync(asset).equals(expectedAsset));assert.ok(readFileSync(skillPinPath).equals(expectedPin));
+            assert.equal(verifyClubSkillProjection().formHints,26);
+            const repeat=importClubSkills(process.argv[2],process.argv[3],{apply:true});
+            assert.equal(repeat.bytesChanged,false);assert.equal(repeat.pinChanged,false);
+            assert.ok(readFileSync(asset).equals(expectedAsset));assert.ok(readFileSync(skillPinPath).equals(expectedPin));
+          }finally{
+            writeFileSync(asset,expectedAsset);writeFileSync(skillPinPath,expectedPin);
+          }
+          NODE
+          then
+            echo T3_CLUB_SKILL_REAL_UPGRADE_FAIL; exit 1
+          fi
+          echo T3_CLUB_SKILL_REAL_UPGRADE_21_TO_26=PASS
       - name: Original assistant field skill and profile tests
         shell: bash
         working-directory: private-bli/browser-local-inference
@@ -181,7 +230,7 @@ jobs:
         shell: bash
         run: |
           rm -rf "$RUNNER_TEMP/assistant-candidate" "$RUNNER_TEMP/private-mobile-source.log" "$RUNNER_TEMP/private-mobile-dom.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-preparation.log" "$RUNNER_TEMP/hybrid-prompts.json" "$RUNNER_TEMP/hybrid-preparation.log" "$RUNNER_TEMP/hybrid-selftest.json" "$RUNNER_TEMP/hybrid-score-selftest.log"
-          rm -rf private-bli private-club private-club-owner "$RUNNER_TEMP/private-owner-skills.log" "$RUNNER_TEMP/private-skill-import.log" "$RUNNER_TEMP/private-explicit-facts.log" "$RUNNER_TEMP/private-explicit-challenge.log" "$RUNNER_TEMP/private-expanded.log"
+          rm -rf private-bli private-club private-club-owner private-club-previous-skills "$RUNNER_TEMP/private-skill-upgrade.log" "$RUNNER_TEMP/private-owner-skills.log" "$RUNNER_TEMP/private-skill-import.log" "$RUNNER_TEMP/private-explicit-facts.log" "$RUNNER_TEMP/private-explicit-challenge.log" "$RUNNER_TEMP/private-expanded.log"
   shared-host:
     runs-on: ubuntu-latest
     timeout-minutes: 25
