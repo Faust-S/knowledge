@@ -367,6 +367,47 @@ try {
           networkDisabled:true,originalKernelReadback:true,
           priorDraftStillReadable:true,explicitSecondSave:true,
         }));
+        // Opt-in held-out model evaluation using the SAME live offline engine
+        // and exact original prompt construction. No new Worker/Store,
+        // no fixture answer fed to the model, no generated text in CI logs.
+        const qualityInput=process.env.T3_D5_QUALITY_PROMPTS;
+        if(qualityInput){
+          const prepared=JSON.parse(readFileSync(qualityInput,"utf8"));
+          const qualityOutput=process.env.T3_D5_QUALITY_RESPONSES;
+          assert.equal(prepared.schema,"iwxa.club.assistant-prompts/1");
+          assert.ok(qualityOutput&&Array.isArray(prepared.cases)&&prepared.cases.length>0);
+          const responses=[],ids=new Set();
+          const generate=coldPanel.getByRole("button",{name:"Сгенерировать локально"});
+          await coldPanel.getByTestId("t3-d5-max-tokens").fill("768");
+          for(const c of prepared.cases){
+            assert.ok(typeof c.id==="string"&&!ids.has(c.id)&&typeof c.prompt==="string"&&c.prompt.length<=6000,"T3_QUALITY_CASE_INVALID");
+            ids.add(c.id);
+            assert.equal(await coldPage.evaluate(()=>navigator.onLine),false);
+            await coldPanel.getByTestId("t3-d5-prompt").fill(c.prompt);
+            await generate.click();
+            // No saving/application of proposals to actual user records.
+            // A timed-out/invalid generation is represented by a missing
+            // response and scored honestly, never replaced with gold data.
+            let raw=null;
+            try{
+              await offlineStatus.filter({hasText:"Черновик готов."}).waitFor({state:"visible",timeout:180000});
+              raw=await coldPanel.getByTestId("t3-d5-editable-draft").inputValue();
+            }catch{
+              const stop=coldPanel.getByRole("button",{name:"Остановить"});
+              if(await stop.isEnabled())await stop.click();
+            }
+            responses.push({id:c.id,raw});
+            if(!(await generate.isEnabled())){
+              await coldPage.waitForFunction(()=>Array.from(document.querySelectorAll('[data-testid="t3-local-inference-panel"] button')).some(b=>b.textContent?.includes("Из кеша, без сети")&&!b.disabled),null,{timeout:30000});
+              await cacheButton.click();
+              await coldPage.waitForFunction(()=>Array.from(document.querySelectorAll('[data-testid="t3-local-inference-panel"] button')).some(b=>b.textContent?.includes("Выгрузить")&&!b.disabled),null,{timeout:120000});
+            }
+          }
+          assert.equal(await coldPage.evaluate(()=>navigator.onLine),false);
+          writeFileSync(qualityOutput,JSON.stringify({schema:"iwxa.club.assistant-responses/1",modelId,responses}),{mode:0o600});
+          console.log("T3_QUALITY_OFFLINE_RESPONSES_CAPTURED",JSON.stringify({modelId,cases:responses.length,nonempty:responses.filter(r=>typeof r.raw==="string"&&r.raw.trim()).length}));
+        }
+
       }else{
         const timedOut=/Модель не выдала первый токен|Модель перестала отвечать/.test(inferenceStatus);
         if(timedOut){
