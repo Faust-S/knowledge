@@ -1,6 +1,8 @@
 import {createElement} from 'react';
 import {createRoot, type Root} from 'react-dom/client';
 import {App} from './App';
+import {TechnologyReleaseContext} from './TechnologyReleasePanel';
+import type {TechnologyReleasePort} from '../../modules/activity-base-anonymizer/technology-release-host.mjs';
 import type {D05RouteReviewPort} from '../../modules/activity-base-anonymizer/d05-route-host.mjs';
 import type {T3ReviewHost} from '../../modules/activity-base-anonymizer/t3-review-controller.mjs';
 import './styles.css';
@@ -33,21 +35,25 @@ function narrowD05RouteHost(port: unknown): port is D05RouteReviewPort {
 
 // Existing trusted T3 owner provides an already-authorized narrow port.
 // No issuer, Kernel, selected Workspace records or new runtime enter this view.
-export function mountActivityHostSurface({container, t3Host,d05RouteHost=null}: {
+export function mountActivityHostSurface({container, t3Host,d05RouteHost=null,technologyReleaseHost=null}: {
   container: HTMLElement;
   t3Host: T3ReviewHost;
   d05RouteHost?:D05RouteReviewPort|null;
+  technologyReleaseHost?:TechnologyReleasePort|null;
 }) {
   if (!container || container.nodeType !== 1 || typeof container.appendChild !== 'function') {
     throw Error('IWXA_ACTIVITY_HOST_CONTAINER_REQUIRED');
   }
   if (!narrowHost(t3Host)) throw Error('IWXA_ACTIVITY_NARROW_T3_HOST_REQUIRED');
   if(d05RouteHost!==null&&!narrowD05RouteHost(d05RouteHost))throw Error('IWXA_ACTIVITY_NARROW_D05_HOST_REQUIRED');
+  if(technologyReleaseHost!==null&&(!technologyReleaseHost||Object.keys(technologyReleaseHost).join(',')!=='reviewAndRelease'||
+    typeof technologyReleaseHost.reviewAndRelease!=='function'))throw Error('IWXA_ACTIVITY_NARROW_RELEASE_HOST_REQUIRED');
   if (mounted.has(container)) throw Error('IWXA_ACTIVITY_HOST_SURFACE_ALREADY_MOUNTED');
   const root = createRoot(container);
   mounted.set(container, root);
   try {
-    root.render(createElement(App, {t3Host, brandSrc: new URL('./brand.svg', import.meta.url).href,d05RouteHost}));
+    const app=createElement(App, {t3Host, brandSrc: new URL('./brand.svg', import.meta.url).href,d05RouteHost});
+    root.render(createElement(TechnologyReleaseContext.Provider,{value:technologyReleaseHost},app));
   } catch (error) {
     mounted.delete(container);
     root.unmount();

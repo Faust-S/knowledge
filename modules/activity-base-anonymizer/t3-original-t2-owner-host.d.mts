@@ -1,4 +1,5 @@
 import type {T3ControlActivityBinding} from './t3-control-host-link.mjs';
+import type {OriginalTechnologyReleaseResolver,TechnologyReleasePort} from './technology-release-host.mjs';
 export type T2ActivityKernelFacade = {
   readonly sessionInfo: Readonly<{
     mode: string;contract_version:'1.3.0';runtime_version:'0.3.6';service_id:string;
@@ -23,4 +24,5 @@ export function openActivityFromOriginalT2Host(input:{
   enableD05RouteReview?:boolean;
   includeD05QualityPlans?:boolean;
   includeD05TechnologyDraft?:boolean;
-}):Promise<T3ControlActivityBinding>;
+  resolveOriginalTechnologyRelease?:OriginalTechnologyReleaseResolver|null;
+}):Promise<T3ControlActivityBinding & {readonly technologyReleaseHost?:TechnologyReleasePort}>;

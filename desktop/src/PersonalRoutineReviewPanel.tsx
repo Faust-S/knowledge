@@ -3,6 +3,7 @@ import {groupPersonalRoutineEvidence,preparePersonalTechnologyProduct,type Perso
  from '../../modules/activity-base-anonymizer/technology-product.mjs';
 import {BUNDLE,FIELDS,reviewPersonalExtractionBundle,type ExtractionReview} from '../../modules/activity-base-anonymizer/personal-technology-extraction.mjs';
 import {ProductPresidioReviewPanel} from './ProductPresidioReviewPanel';
+import {TechnologyReleasePanel} from './TechnologyReleasePanel';
 const EMPTY={title:'',purpose:'',inputs:'',outputs:'',applicability:'',instructions:'',requirements:'',contexts:'',cadenceGuidance:''};
 const fields=[['title','Название технологии'],['purpose','Назначение'],['inputs','Входы'],['outputs','Ожидаемый результат'],
  ['applicability','Когда применять'],['instructions','Обобщённая инструкция'],['requirements','Критерии результата, по одному в строке'],
@@ -106,7 +107,7 @@ export function PersonalRoutineReviewPanel(){
    <h3>{preview.object_data.title}</h3><p>{preview.object_data.technology.purpose}</p>
    <p>Целевой исполнитель: оригинальный Personal Agent. Перед активацией получатель выбирает свой контекст, рабочую область и допустимые источники.</p>
    <ProductPresidioReviewPanel product={preview} onRevision={setPreview}/>
-   <p className="activity-v7-note hold">Подготовлено предметное содержимое. Выпуск .iwxa и независимое применение требуют исходного владельца Exchange.</p>
+   <TechnologyReleasePanel key={preview.product_sha256} product={preview}/>
   </div>:null}
  </section>;
 }

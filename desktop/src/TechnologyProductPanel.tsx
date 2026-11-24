@@ -1,6 +1,7 @@
 import {useLayoutEffect,useRef,useState} from 'react';
 import {prepareD05TechnologyProduct,type ProductPreview} from '../../modules/activity-base-anonymizer/technology-product.mjs';
 import {ProductPresidioReviewPanel} from './ProductPresidioReviewPanel';
+import {TechnologyReleasePanel} from './TechnologyReleasePanel';
 import type {D05DisclosureCandidate} from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 export function TechnologyProductPanel({candidate}:{candidate:D05DisclosureCandidate}){
  const [title,setTitle]=useState(''),[preview,setPreview]=useState<ProductPreview|null>(null);
@@ -32,7 +33,7 @@ export function TechnologyProductPanel({candidate}:{candidate:D05DisclosureCandi
     <div><strong>{[...t.route_parameters,...t.operations.flatMap(o=>o.parameters)].filter(p=>p.mode==='PARAMETERIZE').length}</strong><span>Настраиваемых параметров</span></div></div>
    <p>В новой рабочей среде потребуется выбрать собственные ресурсы, исполнителей, материалы и значения адаптируемых параметров.</p>
    {preview?<ProductPresidioReviewPanel product={preview} onRevision={setPreview}/>:null}
-   <p className="activity-v7-note hold">Содержимое подготовлено. Право раскрытия, оригинальная публикация .iwxa и импорт получателем ещё не подтверждены.</p>
+   {preview?<TechnologyReleasePanel key={preview.product_sha256} product={preview}/>:null}
   </div>:null}
  </div>;
 }

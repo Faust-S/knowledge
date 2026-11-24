@@ -4,6 +4,7 @@
 // Only trusted Host code may call these functions, never Activity renderer.
 import {openOriginalT3ActivityReviewHost} from './t3-control-host-link.mjs';
 import {T3ActivityHold} from './t3-selected-host.mjs';
+import {createTechnologyReleaseHost} from './technology-release-host.mjs';
 
 const READ_OPERATIONS=Object.freeze([
   't1.getWorkspace','t1.listObjects','t1.getObject','t1.listEventsSince',
@@ -56,6 +57,7 @@ export async function openActivityFromOriginalT2Host({
   session,reviewerSession=null,control,currentWorkspace,bindings,
   readActivityFromWorkspaceContext,createSubjectKernelBinding,
   subscribeExistingInvalidation=null,enableD05RouteReview=false,includeD05QualityPlans=false,includeD05TechnologyDraft=false,
+  resolveOriginalTechnologyRelease=null,
 }={}){
   required(currentWorkspace&&typeof currentWorkspace.get==='function'&&
     typeof currentWorkspace.subscribe==='function',
@@ -77,10 +79,18 @@ export async function openActivityFromOriginalT2Host({
     // Two ordinary T2 service sessions. Both use ONE original Kernel/Store.
     reviewerKernel=useOriginalT2ActivityKernelFacade(reviewerSession);
   }
-  return openOriginalT3ActivityReviewHost({
+  const opened=await openOriginalT3ActivityReviewHost({
     control,originalKernel,reviewerKernel,
     context:Object.freeze({kernel:originalKernel,currentWorkspace}),
     bindings,readActivityFromWorkspaceContext,createSubjectKernelBinding,
     subscribeExistingInvalidation,enableD05RouteReview,includeD05QualityPlans,includeD05TechnologyDraft,
   });
+  if(resolveOriginalTechnologyRelease===null)return opened;
+  try{
+    const release=createTechnologyReleaseHost({resolveOriginalRelease:resolveOriginalTechnologyRelease,
+      subscribeInvalidation:listener=>opened.port.subscribeInvalidation(listener)});
+    return Object.freeze({...opened,technologyReleaseHost:release.port,dispose(){
+      try{release.dispose();}finally{opened.dispose();}
+    }});
+  }catch(error){opened.dispose();throw error;}
 }

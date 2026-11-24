@@ -214,7 +214,7 @@ try {
   const actFiles=['d05-t3-evidence-binding.mjs','d05-route-host.mjs','d05-route-comparison.mjs','engine.mjs','t3-evidence-passport.mjs','t3-transition-map.mjs','graph-order.mjs','t3-selected-host.mjs',
     't3-control-host-link.mjs',
     't3-owner-review-stage.mjs','t3-review-controller.mjs',
-    't3-original-t2-owner-host.mjs','technology-product.mjs','technology-product-exchange.mjs'];
+    't3-original-t2-owner-host.mjs','technology-product.mjs','technology-product-exchange.mjs','technology-release-host.mjs'];
   mkdirSync(join(dist,'_activity'),{recursive:true});
   for(const name of actFiles)cpSync(join(oldCwd,'modules/activity-base-anonymizer',name),
     join(dist,'_activity',name));
