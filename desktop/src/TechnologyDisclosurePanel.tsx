@@ -10,10 +10,10 @@ const LABEL:Record<string,string>={quantity:'Объём',calendarMode:'Кале�
  hoursPerDay:'Часов в день',overallReserve:'Общий резерв',duration:'Длительность',unit:'Единица времени',
  setup:'Подготовительное время',buffer:'Буфер',slack:'Резерв операции'};
 const display=(v:D05DraftValue)=>v===null?'Не задано':Array.isArray(v)?v.map(x=>['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][x]??x).join(', '):String(v);
-export function TechnologyDisclosurePanel({review,groupId,profile,operations,form,decisions,onChange}:{
+export function TechnologyDisclosurePanel({review,groupId,profile,operations,form,decisions,onChange,suggestedTitle=''}:{
  review:unknown;groupId:string;profile:D05DraftProfile;operations:D05RouteGroup['operations'];
  form:D05TechnologyProposalForm;decisions:Record<string,D05ParameterDecision>;
- onChange:(value:Record<string,D05ParameterDecision>)=>void;
+ onChange:(value:Record<string,D05ParameterDecision>)=>void;suggestedTitle?:string;
 }){
  const [open,setOpen]=useState(false),[scope,setScope]=useState('route');
  const [computed,setComputed]=useState<{form:D05TechnologyProposalForm;decisions:Record<string,D05ParameterDecision>;value:D05DisclosureCandidate}|null>(null);
@@ -97,7 +97,7 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
     <p>Незаполненных полей предложения: {candidate.missing_proposal_fields.length}. Нерешённых исходных требований: {candidate.unresolved_source_requirements.length}. Сохранено контрольных точек: {candidate.technology.quality_checks.length}.</p>
     <PresidioReviewPanel candidate={candidate}/>
     <ObservationReviewPanel candidate={candidate}/>
-    <TechnologyProductPanel candidate={candidate}/>
+    <TechnologyProductPanel candidate={candidate} suggestedTitle={suggestedTitle}/>
     <p className="activity-v7-note hold">Текстовая проверка не заменяет оценку уникальности графа, коммерческих сведений и статистических выпусков. Анонимность и право передачи не установлены.</p>
    </div>:null}
   </div>:null}

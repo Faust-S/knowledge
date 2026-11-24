@@ -3,8 +3,8 @@ import {prepareD05TechnologyProduct,type ProductPreview} from '../../modules/act
 import {ProductPresidioReviewPanel} from './ProductPresidioReviewPanel';
 import {TechnologyReleasePanel} from './TechnologyReleasePanel';
 import type {D05DisclosureCandidate} from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
-export function TechnologyProductPanel({candidate}:{candidate:D05DisclosureCandidate}){
- const [title,setTitle]=useState(''),[preview,setPreview]=useState<ProductPreview|null>(null);
+export function TechnologyProductPanel({candidate,suggestedTitle=''}:{candidate:D05DisclosureCandidate;suggestedTitle?:string}){
+ const [title,setTitle]=useState(suggestedTitle),[preview,setPreview]=useState<ProductPreview|null>(null);
  const [error,setError]=useState(''),[busy,setBusy]=useState(false),generation=useRef(0);
  useLayoutEffect(()=>{generation.current++;setPreview(null);setError('');setBusy(false);return()=>{generation.current++;};},[candidate]);
  async function prepare(){

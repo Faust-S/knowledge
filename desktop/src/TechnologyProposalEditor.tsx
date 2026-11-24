@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import {TechnologyDisclosurePanel} from './TechnologyDisclosurePanel';
+import {D05ExtractionPanel} from './D05ExtractionPanel';
 import {prepareD05TechnologyProposal,type D05TechnologyProposalForm,type D05TechnologyProposal,
  type D05DraftProfile,type D05RouteGroup,type D05ParameterDecision} from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 type TextField='purpose'|'inputs'|'outputs'|'applicability'|'adaptation_guidance'|'local_context_guidance';
@@ -27,6 +28,7 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
  const [open,setOpen]=useState(false),[opId,setOpId]=useState(operations[0].id);
  const [checkId,setCheckId]=useState(profile.checks[0]?.id??'');
  const [preview,setPreview]=useState<D05TechnologyProposal|null>(null),[error,setError]=useState('');
+ const [suggestedTitle,setSuggestedTitle]=useState('');
  const update=(value:D05TechnologyProposalForm)=>{setPreview(null);setError('');onChange(value);};
  const prepared=()=>{
   try{setError('');setPreview(prepareD05TechnologyProposal(review,groupId,profile.model_number,form));}
@@ -43,6 +45,8 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
   {open?<div className="activity-domain-group">
    <h3>Предметное уточнение технологии</h3>
    <p>Сформулируйте требования для выбранного исходного варианта {profile.model_number}. Значения других вариантов не используются. Если конкретный ресурс не нужен, укажите это с обоснованием. Исходные условия и контрольные точки не изменяются.</p>
+   <D05ExtractionPanel review={review} groupId={groupId} modelNumber={profile.model_number} form={form} decisions={decisions}
+    scopeLabel={scopeLabel} onApply={(next,params,title)=>{update(next);onDecisions(params);if(title)setSuggestedTitle(old=>old||title);}}/>
    <div className="activity-domain-proposal-fields">
     {TEXT.map(x=><label key={x.field} className="activity-domain-label">{x.label}
      <textarea rows={2} maxLength={4096} value={form[x.field]??''} placeholder={x.hint}
@@ -66,7 +70,7 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
       onChange={e=>update({...form,quality_roles:{...form.quality_roles,[checkId]:e.target.value}})}/></label>
    </>:null}
    <div className="activity-v7-actions"><button className="activity-v7-primary" onClick={prepared}>Подготовить локальное предложение</button>
-    <button onClick={()=>{update({});onDecisions({});}}>Очистить уточнения варианта</button></div>
+    <button onClick={()=>{update({});onDecisions({});setSuggestedTitle('');}}>Очистить уточнения варианта</button></div>
    {error?<p role="alert" className="activity-v7-note hold">{error}</p>:null}
    {preview?<div className="activity-domain-group" aria-label="Предложение технологии">
     <h3>Предложение технологии</h3>
@@ -84,7 +88,7 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
     <p className="activity-v7-note">Предложение существует в текущей выборке. Не является утверждённой, сохранённой или разрешённой к передаче технологией.</p>
    </div>:null}
    <TechnologyDisclosurePanel review={review} groupId={groupId} profile={profile} operations={operations}
-    form={form} decisions={decisions} onChange={onDecisions}/>
+    form={form} decisions={decisions} onChange={onDecisions} suggestedTitle={suggestedTitle}/>
   </div>:null}
  </div>;
 }

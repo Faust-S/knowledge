@@ -122,3 +122,15 @@ test('business verification cards remain read-only, bounded and keyboard-accessi
   assert.match(map,/не доказывает переделку/);
   assert.doesNotMatch(map,/fetch\(|XMLHttpRequest|WebSocket|putObject|exportPackage/);
 });
+
+test('both technology products route release requests only through the original owner',()=>{
+ const host=file('../desktop/src/host-surface.tsx'),panel=file('../desktop/src/TechnologyReleasePanel.tsx');
+ const personal=file('../desktop/src/PersonalRoutineReviewPanel.tsx'),d05=file('../desktop/src/TechnologyProductPanel.tsx');
+ assert.match(host,/TechnologyReleaseContext.Provider/);
+ assert.match(host,/Object.keys\(technologyReleaseHost\).join\(','\)!=='reviewAndRelease'/);
+ assert.match(personal,/<TechnologyReleasePanel key=\{preview.product_sha256\} product=\{preview\}/);
+ assert.match(d05,/<TechnologyReleasePanel key=\{preview.product_sha256\} product=\{preview\}/);
+ assert.match(panel,/host.reviewAndRelease\(\{product_sha256:product.product_sha256,object_data:product.object_data\}\)/);
+ assert.doesNotMatch(panel,/exportPackage|confirmExport|putObject|privateKey|approved:true|new Blob/);
+ assert.match(panel,/Полное содержимое технологии/);
+});

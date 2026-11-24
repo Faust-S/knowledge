@@ -167,3 +167,13 @@ test('A4.4 reads actual candidate-bound local Presidio result without automatic 
  assert.match(panel,/Это не подтверждает анонимность/);
  assert.doesNotMatch(panel,/localStorage|sessionStorage|fetch\(|putObject\(|download=/);
 });
+
+test('D05 proposal UI prepares a local model request, validates exact returned fields and does not overwrite user corrections',()=>{
+ const panel=load('../desktop/src/D05ExtractionPanel.tsx'),editor=load('../desktop/src/TechnologyProposalEditor.tsx');
+ assert.match(editor,/<D05ExtractionPanel/);
+ assert.match(panel,/prepareD05ExtractionRequest\(review,groupId,modelNumber\)/);
+ assert.match(panel,/reviewD05ExtractionProposal\(review,groupId,modelNumber,raw\)/);
+ assert.match(panel,/\.\.\.result.decisions,\.\.\.decisions/);
+ assert.match(panel,/!next\[k\]\?\.trim\(\)/);
+ assert.doesNotMatch(panel,/fetch\(|XMLHttpRequest|WebSocket|exportPackage|putObject/);
+});

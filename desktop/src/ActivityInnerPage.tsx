@@ -1,4 +1,5 @@
-import type {Dispatch,SetStateAction,ReactNode} from 'react';
+import {useContext,type Dispatch,type SetStateAction,type ReactNode} from 'react';
+import {TechnologyReleaseContext} from './TechnologyReleasePanel';
 import {PersonalRoutineReviewPanel} from './PersonalRoutineReviewPanel';
 import {DomainRouteComparison} from './DomainRouteComparison';
 import {ProcessToolReview} from './ProcessToolReview';
@@ -30,6 +31,7 @@ export function ActivityInnerPage({page,data,actions,process,object,candidate,ma
  processIndex,setProcessIndex,objectIndex,setObjectIndex,candidateIndex,setCandidateIndex,
  eventPage,setEventPage,eventId,setEventId,go,choose,inspect}:Props){
  const t3=data.t3Review?.status==='REVIEW'?data.t3Review.review:null;
+ const releaseHost=useContext(TechnologyReleaseContext);
  switch(page){
  case 'Личные технологии':return <PersonalRoutineReviewPanel/>;
  case 'Группировка маршрутов':return <DomainRouteComparison host={data.d05RouteHost}/>;
@@ -137,10 +139,13 @@ export function ActivityInnerPage({page,data,actions,process,object,candidate,ma
  ['IWXA Exchange','Отсутствует право на внешний экспорт .iwxa.']
  ].map(([name,description])=><Card key={name} title={name}><p>{description}</p></Card>)}</div>;
  case 'Выпуск и обмен':return <div className="activity-v7-grid">
-  <Card title="Выпуск .iwxa"><Note hold>HOLD · выпуск закрыт</Note><p>Структура не равна подтверждённой анонимности, разрешению на раскрытие или независимому исполнению.</p><button disabled>Экспорт .iwxa</button></Card>
+  <Card title="Выпуск .iwxa">{releaseHost?<Note>Владелец выпуска подключён. Каждая редакция проверяется отдельно.</Note>:<Note hold>HOLD · выпуск закрыт</Note>}
+   <p>Откройте подготовленный предметный продукт, проверьте его содержимое и передайте владельцу для выпуска через Exchange.</p>
+   <div className="activity-v7-actions"><button onClick={()=>go('Личные технологии')}>Личные технологии</button>
+    <button onClick={()=>go('Группировка маршрутов')}>Производственные технологии</button></div></Card>
   <Card title="Внутренняя проверка"><p>Если у Host есть отдельное подписанное право, можно записать структурный черновик в другую Workspace того же principal.</p><button onClick={()=>go('Черновик и восстановление')}>Открыть проверку черновика</button></Card></div>;
  case 'Квалификация':return <div className="activity-v7-grid"><Card title="Проверенные механики"><p>Детерминированная реконструкция A1/A2, ограниченный OCEL, тестовый оригинальный подписанный D1/D2, нативная Windows-сборка и проверка T2 Host/Kernel.</p></Card>
-  <Card title="Корпоративный продукт"><Note hold>PRODUCT_ACCEPTED ещё не присвоен</Note><p>Техническая квалификация на тестовом источнике не заменяет установленный корпоративный D2-Owner и производственную приёмку CehoVod.</p></Card></div>;
+  <Card title="Корпоративный продукт"><Note hold>PRODUCT_ACCEPTED ещё не присвоен</Note><p>Применение первого оригинального архива в CehoVod технически проверено. Установленный владелец выпуска и извлечение настоящей локальной моделью требуют отдельной приёмки.</p></Card></div>;
  case 'Рабочая область':return <Card title="Workspace и доступ"><strong>{data.hasT3Host?'Выбор управляется доверенным Host':'Корпоративная Workspace не подключена'}</strong>
   <p>Источник, подписант, Store, Kernel и права остаются в оригинальном T2/T3. Activity не создаёт второй Store или IAM.</p><button onClick={()=>go('T3 D1/D2')}>Проверить подключение</button></Card>;
  case 'Настройки':return <div className="activity-v7-grid">
