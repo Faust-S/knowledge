@@ -21,4 +21,5 @@ export function openActivityFromOriginalT2Host(input:{
   createSubjectKernelBinding:Function;
   subscribeExistingInvalidation?:(listener:()=>void)=>(()=>void);
   enableD05RouteReview?:boolean;
+  includeD05QualityPlans?:boolean;
 }):Promise<T3ControlActivityBinding>;

@@ -35,4 +35,5 @@ export function openOriginalT3ActivityReviewHost(input: {
   createSubjectKernelBinding: Function;
   subscribeExistingInvalidation?: (listener: () => void) => () => void;
   enableD05RouteReview?: boolean;
+  includeD05QualityPlans?:boolean;
 }): Promise<T3ControlActivityBinding>;

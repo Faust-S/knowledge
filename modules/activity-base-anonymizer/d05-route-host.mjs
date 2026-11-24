@@ -4,7 +4,7 @@
 // Unlike D2's event projection this reads a selected normative Result schema.
 import {ActivityHold,sha256Canonical} from './engine.mjs';
 import {D05_SOURCE_PIN} from './d05-t3-evidence-binding.mjs';
-import {reviewD05RouteModels} from './d05-route-comparison.mjs';
+import {reviewD05RouteModels,reviewD05RouteModelsWithQuality} from './d05-route-comparison.mjs';
 
 const SCHEMA=D05_SOURCE_PIN.domain+'.operation-route';
 const MAX_MODELS=24,MAX_BYTES=8*1024*1024;
@@ -14,15 +14,15 @@ const need=(ok,code)=>{if(!ok)throw new ActivityHold(code);};
 const tag=v=>typeof v==='string'&&v.length>0&&v.length<=160;
 const cmp=(a,b)=>a<b?-1:a>b?1:0;
 
-function validateRows(rows,workspaceId){
-  need(Array.isArray(rows)&&rows.length<=MAX_MODELS,'D05_ROUTE_HOST_SELECTION_LIMIT');
-  need(rows.length>0,'D05_ROUTE_HOST_NO_MODELS');
+function validateRows(rows,workspaceId,schema=SCHEMA,limit=MAX_MODELS,allowEmpty=false){
+  need(Array.isArray(rows)&&rows.length<=limit,'D05_ROUTE_HOST_SELECTION_LIMIT');
+  need(allowEmpty||rows.length>0,'D05_ROUTE_HOST_NO_MODELS');
   const ids=new Set();
   let bytes=0;
   for(const row of rows){
-    need(record(row)&&row.workspace_id===workspaceId&&row.schema_id===SCHEMA&&
+    need(record(row)&&row.workspace_id===workspaceId&&row.schema_id===schema&&
       row.schema_version===D05_SOURCE_PIN.version&&tag(row.object_id)&&
-      Number.isSafeInteger(row.revision)&&row.revision>0&&!row.deleted_at&&
+      Number.isSafeInteger(row.revision)&&row.revision>0&&!row.deleted_at&&row.deleted!==true&&
       record(row.data)&&!ids.has(row.object_id),'D05_ROUTE_HOST_RECORD_MISMATCH');
     ids.add(row.object_id);
     bytes+=new TextEncoder().encode(JSON.stringify(row)).byteLength;
@@ -41,9 +41,9 @@ function safeFailure(error){
  * is not approved for external disclosure. Do not hand this port to an LLM.
  */
 export async function reviewSelectedD05RouteModels({
- context,signedAccess,createSubjectKernelBinding,subscribeOwnerInvalidation,
+ context,signedAccess,createSubjectKernelBinding,subscribeOwnerInvalidation,includeQualityPlans=false,
 }={}){
-  need(record(context?.kernel)&&typeof context.kernel.hasOperation==='function'&&
+  need(typeof includeQualityPlans==='boolean'&&record(context?.kernel)&&typeof context.kernel.hasOperation==='function'&&
     READS.every(op=>context.kernel.hasOperation(op))&&
     typeof context.currentWorkspace?.get==='function'&&
     typeof context.currentWorkspace?.subscribe==='function'&&
@@ -97,6 +97,58 @@ export async function reviewSelectedD05RouteModels({
         'D05_ROUTE_HOST_SOURCE_CHANGED');
       details.push(structuredClone(detail.object));
     }
+    // Optional broader domain read, explicitly enabled by the trusted
+    // Host. No new authority: each original read uses the same signed D1.
+    let quality=null;
+    if(includeQualityPlans){
+      let bytes=new TextEncoder().encode(JSON.stringify(firstRows)).byteLength;
+      const addBytes=value=>{
+        bytes+=new TextEncoder().encode(JSON.stringify(value)).byteLength;
+        need(bytes<=MAX_BYTES,'D05_ROUTE_HOST_SOURCE_LIMIT');
+      };
+      async function readQualityType(type,limit,withRelations){
+        checkLive();
+        const schema=D05_SOURCE_PIN.domain+'.'+type;
+        const q=Object.freeze({workspace_id:workspaceId,schema_id:schema,
+          include_deleted:false,limit:limit+1});
+        const listed=structuredClone(validateRows(await scoped.listObjects(q),workspaceId,schema,limit,true));
+        addBytes(listed);
+        const digest=await sha256Canonical(listed);
+        const details=[];
+        for(const row of listed){
+          checkLive();
+          const item=await scoped.getObject(workspaceId,row.object_id);
+          need(record(item?.object)&&await sha256Canonical(item.object)===await sha256Canonical(row),
+            'D05_ROUTE_HOST_SOURCE_CHANGED');
+          if(withRelations){
+            need(Array.isArray(item.relations?.outgoing)&&item.relations.outgoing.length<=512,
+              'D05_ROUTE_QUALITY_RELATIONS_INVALID');
+            addBytes(item.relations.outgoing);
+            details.push({object:structuredClone(item.object),
+              relations:{outgoing:structuredClone(item.relations.outgoing)}});
+          }else details.push(structuredClone(item.object));
+        }
+        return {q,schema,limit,digest,details,withRelations};
+      }
+      const plans=await readQualityType('quality-plan',96,true);
+      const templates=await readQualityType('quality-check-template',256,false);
+      // Re-read all selected plan objects and their outgoing relations. A
+      // matching object revision alone does not prove unchanged links.
+      for(const item of plans.details){
+        checkLive();
+        const next=await scoped.getObject(workspaceId,item.object.object_id);
+        need(record(next?.object)&&Array.isArray(next.relations?.outgoing)&&
+          next.relations.outgoing.length<=512&&
+          await sha256Canonical({object:next.object,relations:{outgoing:next.relations.outgoing}})
+            ===await sha256Canonical(item),'D05_ROUTE_HOST_SOURCE_CHANGED');
+      }
+      for(const part of [plans,templates]){
+        checkLive();
+        const after=validateRows(await scoped.listObjects(part.q),workspaceId,part.schema,part.limit,true);
+        need(await sha256Canonical(after)===part.digest,'D05_ROUTE_HOST_SOURCE_CHANGED');
+      }
+      quality={plans:plans.details,templates:templates.details};
+    }
     checkLive();
     const afterWorkspace=await scoped.getWorkspace(workspaceId);
     need(record(afterWorkspace)&&!afterWorkspace.deleted_at&&
@@ -107,7 +159,8 @@ export async function reviewSelectedD05RouteModels({
     need(JSON.stringify(await signedAccess.currentContext())===identity,
       'D05_ROUTE_HOST_CONTEXT_CHANGED');
     checkLive();
-    const result=reviewD05RouteModels(details);
+    const result=quality?reviewD05RouteModelsWithQuality(details,quality.plans,quality.templates):
+      reviewD05RouteModels(details);
     checkLive();
     return {...result,source_authority:'ORIGINAL_SIGNED_SELECTED_READBACK'};
   }catch(error){throw safeFailure(error);}
