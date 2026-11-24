@@ -48,7 +48,9 @@ STAGE_WORK_EVENT_ACTIONS = {
         "complete_operation", "handoff_quality", "assess_result_quality",
         "accept", "reject",
     }),
-    "CLAIMS_AND_REWORK": frozenset({"reject", "resubmit", "assess_result_quality"}),
+    "CLAIMS_AND_REWORK": frozenset({
+        "reject", "resubmit", "assess_result_quality", "quality_correction_start",
+    }),
     "ADAPTATION_AND_RENEGOTIATION": frozenset({
         "interest_update", "cooperation_change_propose", "cooperation_change_response",
     }),
@@ -187,6 +189,25 @@ def review_timed_original_lifecycle_costs(
             raise LifecycleInputError("LIFECYCLE_TIMED_ORIGINAL_EVENT_ACTION_OR_TIME_MISMATCH")
         if row["org_revision"] != anchor.get("org_revision"):
             raise LifecycleInputError("LIFECYCLE_TIMED_ORG_REVISION_MISMATCH")
+        # A dedicated executed-correction resource claim is anchored only
+        # to its actual start, not to a rejection, a vote or resubmission.
+        correction_claims = [
+            (r["terms"]["id"], r["additional_resource_use_claim"])
+            for r in getattr(work, "assurance_corrections", ())
+            if r.get("additional_resource_use_claim") is not None
+            and r["additional_resource_use_claim"]["source_ref"] == sources[source]["reference"]
+        ]
+        if correction_claims or action == "quality_correction_start":
+            if len(correction_claims) != 1:
+                raise LifecycleInputError("LIFECYCLE_CORRECTION_ORIGINAL_RESOURCE_USE_REQUIRED")
+            correction_id, claim = correction_claims[0]
+            if (stage != "CLAIMS_AND_REWORK" or action != "quality_correction_start"
+                    or anchor.get("quality_correction_id") != correction_id
+                    or anchor.get("quality_correction_additional_resource_use_claim") != claim
+                    or original["scenario"] != "COOPERATION"
+                    or anchor.get("actor") != owner or claim["owner"] != owner
+                    or amount != Decimal(claim["amount"])):
+                raise LifecycleInputError("LIFECYCLE_CORRECTION_EXECUTED_START_REQUIRED")
         proof = row["cost_evidence_ref"]
         prefix = f"model://{owner}/"
         if (not isinstance(proof, str) or not proof.startswith(prefix)
@@ -226,7 +247,8 @@ def review_timed_original_lifecycle_costs(
         work_id: sum(
             event.get("work") == work_id
             and event.get("outcome") == "APPLIED"
-            and (event.get("action") in {"reject", "resubmit"}
+            and (event.get("action") in {"reject", "resubmit",
+                                         "quality_correction_start", "quality_correction_complete"}
                  or (event.get("action") == "assess_result_quality"
                      and event.get("quality_verdict") == "DOES_NOT_MEET"))
             for event in trace
