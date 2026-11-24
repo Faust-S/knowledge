@@ -1,0 +1,149 @@
+name: d06-t3-private-format-coordinates
+# Only numeric whitespace/punctuation coordinates and Git object hashes leave
+# the disposable runner. Never print private source, filenames, patch text,
+# ESLint messages, raw logs, package archives or credentials.
+on:
+  push:
+    branches:
+      - test/2026-11-24-d06-t3-preparation
+    paths:
+      - .github/workflows/d06-t3-private-format-coordinates.yml
+permissions:
+  contents: read
+jobs:
+  coordinates:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: ae31f9963b80713235be60a768c45961b290fcd2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install pinned private dependencies
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-coordinate-install.private.log"
+          & npm ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_FMT_COORD_INSTALL=FAIL"; exit 1 }
+          Write-Host "D06_FMT_COORD_INSTALL=PASS"
+      - name: Compute strictly non-content formatting coordinates
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $script = Join-Path $env:RUNNER_TEMP "d06-format-coordinates.cjs"
+          @'
+          const { execFileSync, spawnSync } = require("node:child_process");
+          const { createRequire } = require("node:module");
+          const { createHash } = require("node:crypto");
+          const path = require("node:path");
+          const req = createRequire(path.resolve("package.json"));
+          const prettier = req("prettier");
+          const git = (...args) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+          const files = git("ls-files", "-z").split("\0").filter(Boolean).sort();
+          const lint = spawnSync(process.execPath, [path.resolve("node_modules/eslint/bin/eslint.js"), ".", "--format", "json"], {
+            encoding: "utf8", maxBuffer: 64 * 1024 * 1024,
+          });
+          if (lint.status !== 0 && lint.status !== 1) throw Error("lint diagnostics unavailable");
+          const reports = JSON.parse(lint.stdout);
+          const flagged = reports.filter((report) =>
+            report.messages.some((message) => message.ruleId === "prettier/prettier"));
+          if (flagged.length > 32) throw Error("format scope limit");
+          const formatting = new Set([9, 10, 13, 32, 34, 39, 40, 41, 44, 58, 59, 91, 92, 93, 96, 123, 125]);
+          function parts(source) {
+            const content = [];
+            const gaps = [];
+            let offset = 0;
+            while (true) {
+              const start = offset;
+              while (offset < source.length && formatting.has(source.charCodeAt(offset))) offset++;
+              gaps.push({ start, value: source.slice(start, offset) });
+              if (offset === source.length) break;
+              content.push(source[offset++]);
+            }
+            return { content: content.join(""), gaps };
+          }
+          function sha(source) {
+            const bytes = Buffer.from(source, "utf8");
+            return createHash("sha1").update("blob " + bytes.length + "\0").update(bytes).digest("hex");
+          }
+          (async () => {
+            let count = 0;
+            let unsupported = 0;
+            let total = 0;
+            for (const report of flagged) {
+              const relative = path.relative(process.cwd(), report.filePath).replaceAll("\\", "/");
+              const ordinal = files.indexOf(relative) + 1;
+              if (!ordinal) throw Error("untracked format target");
+              const source = git("show", "HEAD:" + relative);
+              const sourceSha = git("rev-parse", "HEAD:" + relative).trim();
+              if (sha(source) !== sourceSha) throw Error("source blob mismatch");
+              const config = await prettier.resolveConfig(report.filePath);
+              const output = await prettier.format(source, { ...config, filepath: report.filePath });
+              const a = parts(source);
+              const b = parts(output);
+              if (a.content !== b.content || a.gaps.length !== b.gaps.length) {
+                console.log("D06_FMT_UNSUPPORTED=" + ordinal);
+                let prefix = 0;
+                while (prefix < a.content.length && prefix < b.content.length && a.content[prefix] === b.content[prefix]) prefix++;
+                let suffix = 0;
+                while (suffix < a.content.length - prefix && suffix < b.content.length - prefix && a.content[a.content.length - 1 - suffix] === b.content[b.content.length - 1 - suffix]) suffix++;
+                const pos = a.gaps[Math.min(prefix, a.gaps.length - 1)].start;
+                const line = source.slice(0, pos).split("\n").length;
+                const column = pos - source.lastIndexOf("\n", pos - 1);
+                console.log("D06_FMT_MISMATCH=" + [ordinal, line, column, a.content.length - prefix - suffix, b.content.length - prefix - suffix].join(":"));
+                unsupported++;
+                continue;
+              }
+              const edits = [];
+              for (let i = 0; i < a.gaps.length; i++) {
+                if (a.gaps[i].value === b.gaps[i].value) continue;
+                const codes = Array.from(b.gaps[i].value, (ch) => ch.charCodeAt(0));
+                if (!codes.every((code) => formatting.has(code))) throw Error("nonformat characters");
+                edits.push([a.gaps[i].start, a.gaps[i].value.length, codes]);
+              }
+              let replay = source;
+              for (const [start, length, codes] of [...edits].reverse())
+                replay = replay.slice(0, start) + String.fromCharCode(...codes) + replay.slice(start + length);
+              if (replay !== output) throw Error("coordinate replay mismatch");
+              if (!edits.length) continue;
+              if (total + edits.length > 15000) throw Error("format coordinate limit");
+              total += edits.length;
+              count++;
+              console.log("D06_FMT_BLOB=" + ordinal + ":" + sourceSha + ":" + sha(output) + ":" + edits.length);
+              for (let start = 0; start < edits.length; start += 20)
+                console.log("D06_FMT_COORD=" + ordinal + ":" + JSON.stringify(edits.slice(start, start + 20)));
+            }
+            console.log("D06_FMT_COORD_FILES=" + count);
+            console.log("D06_FMT_COORD_TOTAL=" + total);
+            console.log("D06_FMT_COORD_UNSUPPORTED=" + unsupported);
+            if (unsupported) process.exitCode = 1;
+          })().catch(() => { console.log("D06_FMT_COORD_ENGINE=FAIL"); process.exitCode = 1; });
+          '@ | Set-Content -LiteralPath $script -Encoding utf8
+          $out = Join-Path $env:RUNNER_TEMP "d06-format-coordinates.private.log"
+          & node $script *> $out
+          $code = $LASTEXITCODE
+          foreach ($line in Get-Content -LiteralPath $out) {
+            if ($line -match '^D06_FMT_BLOB=\d+:[a-f0-9]{40}:[a-f0-9]{40}:\d+$' -or
+                $line -match '^D06_FMT_COORD=\d+:[\[\],0-9]+$' -or
+                $line -match '^D06_FMT_MISMATCH=\d+:\d+:\d+:\d+:\d+$' -or
+                $line -match '^D06_FMT_(?:COORD_FILES|COORD_TOTAL|COORD_UNSUPPORTED|UNSUPPORTED)=\d+$' -or
+                $line -eq 'D06_FMT_COORD_ENGINE=FAIL') {
+              Write-Host $line
+            }
+          }
+          if ($code -ne 0) { Write-Host "D06_FMT_COORD_RESULT=FAIL"; exit 1 }
+          Write-Host "D06_FMT_COORD_RESULT=PASS"
+      - name: Confirm private source boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_SOURCE_UPLOADS=0"
+          Write-Host "D06_PRIVATE_LOG_UPLOADS=0"
+          Write-Host "D06_PRIVATE_DIST_UPLOADS=0"
