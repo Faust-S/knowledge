@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 8b5120feeedfcfc9ed8f15f05a02910870c92e28
+          ref: 7b55e9a1bbb0df195be208887196f1f44cea5359
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -170,6 +170,20 @@ jobs:
           fi
           echo D02_T3_HTTP_40_ROUTES=PASS
           echo D02_T3_NATIVE_GUI_AND_OFFLINE_NOT_RUN=true
+      - name: Run complete existing Club source regression
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          export IWXA_T3_PLATFORM_ARCHIVE="$RUNNER_TEMP/t3-platform.zip"
+          if ! npm test > "$RUNNER_TEMP/private-all-regression.log" 2>&1; then
+            echo D02_T3_COMPLETE_CLUB_REGRESSION=FAIL
+            grep -E '^not ok [0-9]+ - ' "$RUNNER_TEMP/private-all-regression.log" | head -15 || true
+            exit 1
+          fi
+          echo D02_T3_COMPLETE_CLUB_REGRESSION=PASS
+          node -e 'const fs=require("node:fs");const s=fs.readFileSync(process.argv[1],"utf8");const rows=[...s.matchAll(/^# tests (\d+)$/gm)];console.log("D02_T3_COMPLETE_CLUB_TESTS="+rows.reduce((n,x)=>n+Number(x[1]),0))' "$RUNNER_TEMP/private-all-regression.log"
+          echo D02_T3_PWA_BRAND_ICONS=PASS
       - name: Retain verified local original Kernel support
         working-directory: site
         shell: bash
@@ -211,6 +225,17 @@ jobs:
           node scripts/check-club-integrated-http-preview.mjs dist > "$RUNNER_TEMP/private-local-check.log" 2>&1
           echo D02_T3_LOCAL_SINGLE_DIST=PASS
           echo D02_T3_LOCAL_BUILD_WITHOUT_SOURCE_CHECKOUTS=PASS
+          # A damaged local input must stop before changing the last good dist.
+          cp "$RUNNER_TEMP/club-kernel-support/_iwxa/loader.js" "$RUNNER_TEMP/loader-original.private"
+          printf '\n// damaged test input\n' >> "$RUNNER_TEMP/club-kernel-support/_iwxa/loader.js"
+          if node scripts/build-club-t3-local-site.mjs "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/t3-platform.zip" > "$RUNNER_TEMP/private-local-damage.log" 2>&1; then
+            echo D02_T3_REJECT_DAMAGED_SUPPORT=FAIL; exit 1
+          fi
+          grep -q 'CLUB_T3_LOCAL_KERNEL_RETAINED_BYTES_MISMATCH' "$RUNNER_TEMP/private-local-damage.log"
+          mv "$RUNNER_TEMP/loader-original.private" "$RUNNER_TEMP/club-kernel-support/_iwxa/loader.js"
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/local-damage-readback.private"
+          cmp -s "$RUNNER_TEMP/local-rebuild-2.private" "$RUNNER_TEMP/local-damage-readback.private"
+          echo D02_T3_REJECT_DAMAGED_SUPPORT_AND_RETAIN_DIST=PASS
           # Restore checkout paths for the checkout action's own post steps.
           mv "$RUNNER_TEMP/unused-t2" "$GITHUB_WORKSPACE/t2"
           mv "$RUNNER_TEMP/unused-one-core" "$GITHUB_WORKSPACE/one-core"
@@ -220,4 +245,4 @@ jobs:
         run: |
           if [ -d "$RUNNER_TEMP/unused-t2" ] && [ ! -e "$GITHUB_WORKSPACE/t2" ]; then mv "$RUNNER_TEMP/unused-t2" "$GITHUB_WORKSPACE/t2"; fi
           if [ -d "$RUNNER_TEMP/unused-one-core" ] && [ ! -e "$GITHUB_WORKSPACE/one-core" ]; then mv "$RUNNER_TEMP/unused-one-core" "$GITHUB_WORKSPACE/one-core"; fi
-          rm -rf "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/private-local-input.log" "$RUNNER_TEMP/private-local-build.log" "$RUNNER_TEMP/private-local-check.log" "$RUNNER_TEMP/local-rebuild-1.private" "$RUNNER_TEMP/local-rebuild-2.private" "$RUNNER_TEMP/club-t3-candidate" "$RUNNER_TEMP/private-baseline.log" "$RUNNER_TEMP/private-assembly-test.log" "$RUNNER_TEMP/private-assembly.log" "$RUNNER_TEMP/private-http.log" "$RUNNER_TEMP/private-regression.log" "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/private-test.log" "$RUNNER_TEMP/verify.json" "$RUNNER_TEMP/verify.log"
+          rm -rf "$RUNNER_TEMP/private-all-regression.log" "$RUNNER_TEMP/private-local-damage.log" "$RUNNER_TEMP/loader-original.private" "$RUNNER_TEMP/local-damage-readback.private" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/private-local-input.log" "$RUNNER_TEMP/private-local-build.log" "$RUNNER_TEMP/private-local-check.log" "$RUNNER_TEMP/local-rebuild-1.private" "$RUNNER_TEMP/local-rebuild-2.private" "$RUNNER_TEMP/club-t3-candidate" "$RUNNER_TEMP/private-baseline.log" "$RUNNER_TEMP/private-assembly-test.log" "$RUNNER_TEMP/private-assembly.log" "$RUNNER_TEMP/private-http.log" "$RUNNER_TEMP/private-regression.log" "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/private-test.log" "$RUNNER_TEMP/verify.json" "$RUNNER_TEMP/verify.log"
