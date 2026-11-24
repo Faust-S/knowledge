@@ -196,6 +196,7 @@ try{
    await resultAction.click();
    await at("result-preview").waitFor({state:"visible"});
    check(resultConfirmed&&await at("result-preview").inputValue()===before.trim(),"EXACT_RESULT_PREVIEW");
+   check(await at("result-reading").isVisible()&&(await at("result-meaning").textContent())===pack.resultHints.find(h=>h.marker==="data-pe-result").meaning,"SPECIFIC_READING_WITHOUT_MODEL");
    check(await at("prompt").inputValue()===""&&await at("form-choice").inputValue()==="","NO_AUTOMATIC_CONTEXT_OR_FORM");
    check(await page.evaluate(()=>window.__clubCandidateSubmits)===1,"RESULT_OPEN_NO_CALCULATION");
    const actionSize=await resultAction.evaluate(b=>{const r=b.getBoundingClientRect();return {height:r.height,right:r.right,left:r.left,vw:window.innerWidth};});
@@ -339,5 +340,183 @@ try{
    throw Error(code);
   }finally{await ctx.close();}
  }
- console.log("T3_CLUB_BROWSER_CANDIDATE_PASS 4 viewports, actual compiled assistant and native form, not physical devices");
+ // Execute every result surface via the site's original user-facing forms.
+ // Use fresh tabs for the four pages, no injected records or simulated result.
+ assert.equal(pack.resultHints.length,13);
+ for(const size of [{width:390,height:844},{width:1440,height:900}]){
+  const ctx=await browser.newContext({viewport:size,hasTouch:size.width<621,isMobile:size.width<621,serviceWorkers:"block"});
+  let phase="INIT",tested=0,workers=0,modelRequests=0;
+  const done=new Set();
+  try{
+   await ctx.addInitScript(()=>{
+    Object.defineProperty(navigator,"gpu",{configurable:true,value:undefined});
+    window.__clubResultSubmits=0;
+    document.addEventListener("submit",()=>window.__clubResultSubmits++,true);
+   });
+   await ctx.route("**/*",route=>{
+    const url=new URL(route.request().url());
+    if(url.origin===origin)return route.continue();
+    if(/huggingface|hf\.co|raw\.githubusercontent/i.test(url.hostname))modelRequests++;
+    return route.abort();
+   });
+   let page;
+   const at=id=>page.locator("#iwxa-t3-assistant").locator("#"+id);
+   const check=(v,c)=>{if(!v)throw Error("T3_CLUB_RESULT_"+c);};
+   const output=marker=>page.locator("["+marker+"]");
+   const action=marker=>page.locator("["+marker+"] + button[data-iwxa-assistant-result-open]");
+   async function visit(path){
+    if(page)await page.close();
+    page=await ctx.newPage();page.on("worker",()=>workers++);page.setDefaultTimeout(15000);
+    await page.goto(origin+path,{waitUntil:"domcontentloaded"});
+    await at("launcher").waitFor({state:"visible"});
+   }
+   async function open(id){
+    const details=page.locator("#"+id);
+    if(!await details.evaluate(e=>e.open))await details.locator(":scope > summary").click();
+    check(await details.evaluate(e=>e.open),"NATIVE_DISCLOSURE");
+   }
+   const form=marker=>page.locator("form["+marker+"]");
+   async function fill(marker,values){
+    for(const [key,value] of Object.entries(values)){
+     const field=form(marker).locator('[name="'+key+'"]');
+     if(await field.evaluate(el=>el.tagName==="SELECT"))await field.selectOption(String(value));
+     else await field.fill(String(value));
+    }
+   }
+   async function submit(marker){await form(marker).locator('button[type="submit"]').click();}
+   async function state(marker,expected){
+    await page.waitForFunction(({marker,expected})=>document.querySelector("["+marker+"]")?.getAttribute("data-iwxa-assistant-state")===expected,{marker,expected},{timeout:15000});
+   }
+   async function initial(marker){
+    await state(marker,"empty");check(await action(marker).count()===1&&await action(marker).isHidden(),"EMPTY_OR_INSTRUCTION_HIDDEN");
+   }
+   const snapshot=()=>page.evaluate(()=>({session:sessionStorage.getItem("ru.iwxa.club.session.v1"),submits:window.__clubResultSubmits}));
+   async function verify(marker){
+    phase="VERIFY_"+(tested+1);
+    const hint=pack.resultHints.find(h=>h.marker===marker);
+    check(hint&&!done.has(marker),"CANONICAL_RESULT_HINT");
+    await state(marker,"ready");
+    await action(marker).waitFor({state:"visible"});
+    const exact=(await output(marker).innerText()).trim();
+    check(exact.length>0,"NONEMPTY_REAL_OUTPUT");
+    const before=JSON.stringify(await snapshot());
+    await action(marker).click();
+    await at("result-preview").waitFor({state:"visible"});
+    check(await at("result-preview").inputValue()===exact,"EXACT_OUTPUT");
+    check(await at("result-reading").isVisible()&&await at("result-meaning").textContent()===hint.meaning,"EXACT_RESULT_READING");
+    check(JSON.stringify(await at("result-checks").locator("li").allTextContents())===JSON.stringify(hint.checks),"EXACT_RESULT_CHECKS");
+    check((await at("result-question").textContent())?.includes(hint.question),"EXACT_SUGGESTED_QUESTION");
+    check(await at("skill-choice").inputValue()===hint.skillId,"EXACT_SERVICE");
+    check(await at("prompt").inputValue()==="","NO_IMPLICIT_ATTACHMENT");
+    await at("include-result").click();
+    const attached=await at("prompt").inputValue();
+    check(attached.includes(JSON.stringify({source:hint.title,value:exact})),"EXPLICIT_EXACT_ATTACHMENT");
+    await at("remove-result").click();
+    check(await at("prompt").inputValue()==="","REMOVE_EXACT_ATTACHMENT");
+    await at("close").click();
+    check(await action(marker).evaluate(el=>document.activeElement===el),"RESULT_FOCUS");
+    check(JSON.stringify(await snapshot())===before,"READING_DOES_NOT_WRITE_OR_SUBMIT");
+    done.add(marker);tested++;
+   }
+
+   phase="MONEY_INITIAL";
+   await visit("/tools/personal-economy/");
+   await open("club-money-calendar");
+   await open("club-money-decisions");
+   for(const marker of ["data-pe-result","data-cash-payday-result","data-cash-calendar-summary","data-family-options-results"])await initial(marker);
+   phase="MONEY_CALCULATE";
+   await fill("data-pe-form",{regularIncome:55000,mandatoryExpenses:32000,reserve:6000});
+   await submit("data-pe-form");await verify("data-pe-result");
+   phase="CASH_SETUP";
+   await fill("data-cash-calendar-setup",{startDate:"2026-11-24",endDate:"2026-12-08",openingAvailableRUB:15000,minimumBufferRUB:4000});
+   await submit("data-cash-calendar-setup");
+   await state("data-cash-calendar-summary","ready");
+   phase="CASH_ENTRIES";
+   await fill("data-cash-calendar-entry",{date:"2026-11-25",amountRUB:-8000,category:"rent",status:"planned"});
+   await submit("data-cash-calendar-entry");
+   await page.waitForFunction(()=>document.querySelector("[data-cash-calendar-summary]")?.innerText?.includes("В журнале 1 операций"));
+   await fill("data-cash-calendar-entry",{date:"2026-12-01",amountRUB:35000,category:"payroll",status:"planned"});
+   await submit("data-cash-calendar-entry");
+   await page.waitForFunction(()=>document.querySelector("[data-cash-calendar-summary]")?.innerText?.includes("В журнале 2 операций"));
+   await verify("data-cash-calendar-summary");
+   phase="PAYDAY";
+   await page.locator("[data-cash-payday-date]").fill("2026-11-24");
+   await page.locator("[data-cash-payday-run]").click();
+   await verify("data-cash-payday-result");
+   phase="FAMILY_COMPARISON";
+   const rent=form("data-family-options-form").locator('[name="rentEntry"]');
+   await page.waitForFunction(()=>document.querySelector('[data-family-options-form] [name="rentEntry"]')?.options.length>1);
+   const rentId=await rent.locator("option").nth(1).getAttribute("value");
+   await fill("data-family-options-form",{asOfDate:"2026-11-24",rentEntry:rentId,rentNewDate:"2026-12-02"});
+   await submit("data-family-options-form");
+   await verify("data-family-options-results");
+   await fill("data-family-options-form",{rentNewDate:"2026-12-03"});
+   await state("data-family-options-results","empty");
+   check(await action("data-family-options-results").isHidden(),"CHANGED_COMPARISON_NOT_RESULT");
+
+   phase="INCOME_INITIAL";
+   await visit("/tools/additional-income/");
+   await open("club-income-ledger");
+   await open("warehouse-payroll");
+   await open("club-income-contact-group");
+   await open("club-income-pvz-group");
+   for(const marker of ["data-ai-result","data-work-ledger-summary","data-warehouse-payroll-result","data-contact-preview","data-work-ledger-pvz-summary"])await initial(marker);
+   phase="INCOME_CALCULATE";
+   await fill("data-ai-form",{targetNetIncome:12000,hoursPerWeek:10,price:500,direct:80,commission:10,mandatory:6});
+   await submit("data-ai-form");await verify("data-ai-result");
+   phase="LEDGER_SETUP";
+   await fill("data-work-ledger-setup",{startDate:"2026-11-24",endDate:"2026-12-08",openingSalaryReceivableRUB:0});
+   await submit("data-work-ledger-setup");await state("data-work-ledger-summary","ready");
+   phase="WAREHOUSE_CALCULATE";
+   await fill("data-warehouse-payroll-form",{date:"2026-11-24"});
+   await submit("data-warehouse-payroll-form");await verify("data-warehouse-payroll-result");
+   phase="WAREHOUSE_INVALIDATE";
+   await fill("data-warehouse-payroll-form",{hourlyRUB:480});
+   await state("data-warehouse-payroll-result","stale");
+   check(await action("data-warehouse-payroll-result").isHidden(),"CHANGED_WAREHOUSE_NOT_RESULT");
+   await submit("data-warehouse-payroll-form");await state("data-warehouse-payroll-result","ready");
+   phase="LEDGER_NATIVE_SHIFT";
+   await submit("data-work-ledger-shift");
+   await page.waitForFunction(()=>document.querySelector('[data-work-ledger-pvz] [name="shiftId"]')?.options.length>1);
+   await verify("data-work-ledger-summary");
+   phase="PVZ_NATIVE_OPERATION";
+   const shift=form("data-work-ledger-pvz").locator('[name="shiftId"]');
+   const shiftId=await shift.locator("option").nth(1).getAttribute("value");
+   await fill("data-work-ledger-pvz",{shiftId,state:"final",received:90,issued:80,returned:5,discrepancies:1,claimRUB:0,claimState:"none"});
+   await submit("data-work-ledger-pvz");await verify("data-work-ledger-pvz-summary");
+   phase="CONTACT_CALCULATE";
+   await fill("data-contact-work-form",{date:"2026-11-25",offeredCalls:90,handledCalls:84,resolvedCalls:66,escalatedCalls:10,followupCalls:8});
+   await verify("data-contact-preview");
+   await fill("data-contact-work-form",{handledCalls:95});
+   await page.waitForFunction(()=>document.querySelector("[data-contact-preview]")?.getAttribute("data-iwxa-assistant-state")!=="ready");
+   check(await action("data-contact-preview").isHidden(),"INVALID_CONTACT_NOT_RESULT");
+
+   phase="RESOURCE_INITIAL";
+   await visit("/tools/resources-and-skills/");await initial("data-rs-result");
+   await fill("data-rs-form",{skills:"ремонт техники, диагностика",experience:"Проверено три прибора",hoursPerWeek:5,budget:1000,resources:"Ручные инструменты"});
+   await submit("data-rs-form");await verify("data-rs-result");
+
+   phase="ROUTE_INITIAL";
+   await visit("/tools/action-route/");
+   for(const marker of ["data-ar-result","data-driver-summary","data-club-week-summary"])await initial(marker);
+   await fill("data-ar-form",{targetValue:"Дополнительный доход 12000 рублей",maxHoursPerWeek:5,driverComparison:"yes"});
+   await submit("data-ar-form");await verify("data-ar-result");
+   phase="DRIVER_INITIAL_AFTER_ROUTE";
+   await initial("data-driver-summary");
+   phase="DRIVER_NATIVE_SHIFT";
+   await fill("data-driver-form",{date:"2026-11-24",mode:"taxi",actualHours:6,kmDriven:110,grossRUB:4200,tipsRUB:100,platformFeeRUB:600,taxRUB:200,fuelRUB:700,wearReserveRUB:450});
+   await submit("data-driver-form");await verify("data-driver-summary");
+   phase="WEEK_NATIVE_TASK";
+   await fill("data-club-week-form",{title:"Проверить запас времени",start:"10:00",durationMinutes:60,kind:"personal"});
+   await submit("data-club-week-form");await verify("data-club-week-summary");
+   check(tested===pack.resultHints.length&&done.size===tested,"ALL_RESULTS");
+   check(workers===0&&modelRequests===0,"NO_MODEL_ACTIVITY");
+   console.log("T3_CLUB_ALL_RESULT_HINTS_PASS "+JSON.stringify({width:size.width,height:size.height,results:tested,exactReading:true,exactContext:true,nativeOperations:true,emptyStatesExcluded:true,staleStatesExcluded:true,noModel:true,noAssistantWrite:true}));
+  }catch(e){
+   const code=typeof e.message==="string"&&/^T3_CLUB_RESULT_[A-Z_]+$/.test(e.message)?e.message:"T3_CLUB_RESULT_UNEXPECTED";
+   console.log("T3_CLUB_ALL_RESULT_HINTS_FAIL "+JSON.stringify({width:size.width,tested,phase,code,timeout:e?.name==="TimeoutError"}));
+   throw Error(code);
+  }finally{await ctx.close();}
+ }
+ console.log("T3_CLUB_BROWSER_CANDIDATE_PASS 4 viewports, actual compiled assistant and native form, 13 result hints on 2 viewports, not physical devices");
 }finally{await browser?.close();await new Promise(ok=>server.close(ok));}

@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 51fd6dfb8a2ea5d1fdb62e0c13a688eca0fb2c48
+          ref: 1b817ac8dc50df7735db8b519237b7f7c90b4ede
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: aec33bf42e0419e67d15b4c076872a7d47ade613
+          ref: 01d5cd2b49307d00bf130ac32df761dd4f8482bb
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -71,7 +71,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: 90f9ab3844fb94201ef7443726510893db17d71d
+          ref: fb06a564da034a78eb25856d60d12ce720a4633c
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club-owner
@@ -177,7 +177,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 51fd6dfb8a2ea5d1fdb62e0c13a688eca0fb2c48
+          ref: 1b817ac8dc50df7735db8b519237b7f7c90b4ede
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -185,7 +185,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: aec33bf42e0419e67d15b4c076872a7d47ade613
+          ref: 01d5cd2b49307d00bf130ac32df761dd4f8482bb
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -214,11 +214,11 @@ jobs:
           npx --no-install playwright install --with-deps chromium
           log="$RUNNER_TEMP/private-club-browser.log"
           if ! node tests/t3-club-assistant-browser-candidate.mjs "$GITHUB_WORKSPACE/private-club" dist > "$log" 2>&1; then
-            grep -E '^T3_CLUB_BROWSER_CASE_(PASS|FAIL) ' "$log" || true
+            grep -E '^T3_CLUB_(BROWSER_CASE_(PASS|FAIL)|ALL_FORM_SHORTCUTS_(PASS|FAIL)|ALL_RESULT_HINTS_(PASS|FAIL)) ' "$log" || true
             echo T3_CLUB_BROWSER_CANDIDATE_FAIL
             exit 1
           fi
-          grep -E '^T3_CLUB_BROWSER_(CASE_PASS|CANDIDATE_PASS) ' "$log"
+          grep -E '^T3_CLUB_(BROWSER_(CASE_PASS|CANDIDATE_PASS)|ALL_FORM_SHORTCUTS_PASS|ALL_RESULT_HINTS_PASS) ' "$log"
       - name: Remove private temporary source and build data
         if: always()
         shell: bash
@@ -277,7 +277,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: aec33bf42e0419e67d15b4c076872a7d47ade613
+          ref: 01d5cd2b49307d00bf130ac32df761dd4f8482bb
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-quality-club
@@ -286,7 +286,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 51fd6dfb8a2ea5d1fdb62e0c13a688eca0fb2c48
+          ref: 1b817ac8dc50df7735db8b519237b7f7c90b4ede
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-quality-assistant
