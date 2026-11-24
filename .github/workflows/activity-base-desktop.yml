@@ -30,6 +30,9 @@ on:
       - tests/test_activity_d05_route_comparison.mjs
       - tests/test_activity_d05_quality_review.mjs
       - tests/test_activity_d05_technology_draft.mjs
+      - tests/test_activity_presidio_text_review.mjs
+      - tests/activity_presidio_upstream_fixture.mjs
+      - tools/activity-presidio-scan.py
       - tests/test_activity_d05_route_cli.mjs
       - tests/test_activity_r4pm_result_review.mjs
       - tests/test_activity_r4pm_cli.mjs
@@ -70,7 +73,7 @@ jobs:
             foreach ($issue in $errors) { Write-Host $issue.Message }
             throw 'WINDOWS_UI_WITNESS_SYNTAX_INVALID'
           }
-      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_quality_review.mjs tests/test_activity_d05_technology_draft.mjs tests/test_activity_d05_route_cli.mjs tests/test_activity_r4pm_result_review.mjs tests/test_activity_r4pm_cli.mjs
+      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_quality_review.mjs tests/test_activity_d05_technology_draft.mjs tests/test_activity_presidio_text_review.mjs tests/test_activity_d05_route_cli.mjs tests/test_activity_r4pm_result_review.mjs tests/test_activity_r4pm_cli.mjs
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
       - name: Typecheck and bundle Activity UI before any native Rust build
@@ -103,6 +106,30 @@ jobs:
       - name: Review exact outputs in original Activity
         shell: bash
         run: IWXA_R4PM_UPSTREAM_RESULTS="$RUNNER_TEMP/activity-r4pm" node --test tests/test_activity_r4pm_result_review.mjs tests/test_activity_r4pm_cli.mjs
+  presidio-upstream-interop:
+    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install original pinned analyzer and original spaCy model releases
+        run: |
+          python -m pip install "presidio-analyzer==2.2.366" "spacy>=3.8,<3.9" "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" "https://github.com/explosion/spacy-models/releases/download/ru_core_news_sm-3.8.0/ru_core_news_sm-3.8.0-py3-none-any.whl"
+      - name: Create exact local Activity technology candidate using original source module
+        shell: bash
+        run: node tests/activity_presidio_upstream_fixture.mjs "$RUNNER_TEMP/activity-presidio"
+      - name: Execute actual original local Presidio profiles and verify complete result in Activity
+        shell: bash
+        run: |
+          python tools/activity-presidio-scan.py --language en < "$RUNNER_TEMP/activity-presidio/candidate.json" > "$RUNNER_TEMP/activity-presidio/en.json"
+          python tools/activity-presidio-scan.py --language ru < "$RUNNER_TEMP/activity-presidio/candidate.json" > "$RUNNER_TEMP/activity-presidio/ru.json"
+          IWXA_PRESIDIO_UPSTREAM_RESULTS="$RUNNER_TEMP/activity-presidio" node --test tests/test_activity_presidio_text_review.mjs
   t3-original-d2-owner-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 14
