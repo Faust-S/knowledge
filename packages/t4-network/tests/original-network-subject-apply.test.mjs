@@ -18,6 +18,9 @@ import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationP
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame}
   from '../src/network/standard-network-wire-candidate.mjs';
 
+import {createT4OriginalHostRecipientDispatcher}
+  from '../src/network/original-host-recipient-dispatcher.mjs';
+
 const H=b=>'sha256:'+createHash('sha256').update(b).digest('hex');
 const stable=x=>JSON.stringify(Array.isArray(x)?x.map(stable):x);
 const ordered=x=>Array.isArray(x)?x.map(ordered):
@@ -688,4 +691,84 @@ test('recipient ACK task cannot substitute another session or certify a historic
   await assert.rejects(finalizeT4OriginalNetworkRecipientAcknowledgement(x.args()),
     error('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH'));
   assert.deepEqual(x.counts(),before);
+});
+
+
+function recipientBinding(x,overrides={}){
+  const s=x.d.session,p=x.d.f.applyArgs(x.d.received);
+  return createT4OriginalHostRecipientDispatcher({
+    workspaceId:s.workspaceId,originalWriteOwnerRef:s.originalWriteOwnerRef,
+    sourceNodeRef:s.sourceNodeRef,recipientNodeRef:s.recipientNodeRef,
+    scopeRef:s.scopeRef,ownerEpoch:s.ownerEpoch,
+    originalKernel:x.d.f.originalKernel,
+    getMode:()=> 'T4_NETWORK',
+    readOriginalHostContext:async()=>({workspaceId:s.workspaceId,
+      originalWriteOwnerRef:s.originalWriteOwnerRef,nodeRef:s.recipientNodeRef,
+      scopeRef:s.scopeRef,hostSessionRef:x.d.hostSessionRef}),
+    authorizeOriginalHostTask:async proof=>proof.originalHostTaskOwnerRequired===true&&
+      proof.operation==='t4.network.receive'&&proof.sessionRef===s.sessionRef,
+    authorizeNetworkReceive:async()=>true,
+    authorizeOriginalRead:p.authorizeOriginalRead,authorizeOriginalWrite:p.authorizeOriginalWrite,
+    verifyOriginalSourceEvent:p.verifyOriginalSourceEvent,...overrides,
+  });
+}
+test('existing original recipient Host task applies once, durably acknowledges, and reconciles a lost network reply',async()=>{
+  const x=await ackFixture(),binding=recipientBinding(x);
+  x.loseNetwork('after');
+  await assert.rejects(binding.runNative(x.args()),error('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  const before=x.counts();assert.equal(before.subjectWrites,1);
+  x.d.restart();
+  const done=await recipientBinding(x).runNative(x.args({
+    createSignedAppliedAckFrame:async()=>{throw Error('must not re-sign');},
+  }));
+  assert.equal(done.originalHostTaskOwnerVerified,true);
+  assert.equal(done.originalRecipientApplied,true);
+  assert.equal(done.originalSubjectMutationInvoked,false);
+  assert.equal(done.result.acknowledgement.publication.state,'REMOTE_READBACK_RECOVERED');
+  assert.equal(x.counts().subjectWrites,1);
+  assert.equal(x.counts().signCalls,before.signCalls);
+  assert.equal(x.counts().puts,before.puts);
+});
+test('native recipient Host task respects LOCAL_T3, wrong peer, and independent Host task denial',async()=>{
+  const x=await ackFixture(),before=x.counts();
+  const local=await recipientBinding(x,{getMode:()=> 'LOCAL_T3',
+    readOriginalHostContext:async()=>{throw Error('must not read Host');}}).runNative();
+  assert.equal(local.dispatched,false);assert.equal(local.originalT3Reads,0);
+  await assert.rejects(recipientBinding(x,{sourceNodeRef:'node:wrong'}).runNative(x.args()),
+    error('RECIPIENT_NATIVE_ORIGINAL_SESSION_SCOPE_MISMATCH'));
+  await assert.rejects(recipientBinding(x,{authorizeOriginalHostTask:async()=>false}).runNative(x.args()),
+    error('RECIPIENT_NATIVE_ORIGINAL_HOST_AUTHORITY_DENIED'));
+  assert.deepEqual(x.counts(),before);
+});
+test('native recipient Host task refuses wrong publication identity before subject intent or write',async()=>{
+  const x=await ackFixture(),before=x.counts(),port=x.port();
+  await assert.rejects(recipientBinding(x).runNative(x.args({
+    recipientPublicationPort:{...port,session:{...port.session,ownerEpoch:9}},
+  })),error('SUBJECT_ORIGINAL_ACK_PUBLICATION_PORT_MISMATCH'));
+  assert.deepEqual(x.counts(),before);
+  assert.equal((await x.d.phasePort().inspectOriginalSession()).currentPhase,'VERIFIED');
+});
+test('native recipient Host task rejects concurrent second dispatch while original operation may be in flight',async()=>{
+  const x=await ackFixture();let enter,release;
+  const entered=new Promise(r=>{enter=r;});
+  const blocked=new Promise(r=>{release=r;});
+  let first=true;
+  const binding=recipientBinding(x,{authorizeOriginalHostTask:async()=>{
+    if(first){first=false;enter();await blocked;}return true;
+  }});
+  const active=binding.runNative(x.args());
+  await entered;
+  try{
+    await assert.rejects(binding.runNative(x.args()),error('RECIPIENT_CONCURRENT_NATIVE_TASK'));
+  }finally{release();}
+  const done=await active;
+  assert.equal(done.originalSubjectMutationInvoked,true);
+  assert.equal(x.counts().subjectWrites,1);
+});
+test('native recipient Host task does not write when DIFF_REQUEST is not durably published',async()=>{
+  const x=await ackFixture({publishDiff:false}),before=x.counts();
+  await assert.rejects(recipientBinding(x).runNative(x.args()),
+    error('SUBJECT_ORIGINAL_ACK_PUBLICATION_HISTORY_REQUIRED'));
+  assert.deepEqual(x.counts(),before);
+  assert.equal((await x.d.phasePort().inspectOriginalSession()).currentPhase,'VERIFIED');
 });

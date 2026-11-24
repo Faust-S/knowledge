@@ -6,6 +6,9 @@ import {readT4OriginalEventWindow}
 import {createT4OriginalNetworkHostCursorPort}
   from '../src/network/original-network-host-cursor.mjs';
 
+import {createT4OriginalHostDispatchTaskBinding}
+  from '../src/network/original-host-dispatch-task-binding.mjs';
+
 const H=x=>'sha256:'+createHash('sha256').update(x).digest('hex');
 const error=code=>e=>e?.code===code;
 const workspaceId='work:original:one',technical='t4:technical:source:one',
@@ -289,4 +292,84 @@ test('original Host native ACK frontier is bound to the intended peer, not any o
   const exact=await f.port().commitAcknowledgedCursor({recovery:f.recovery});
   assert.equal(exact.state,'ORIGINAL_T3_CAS_COMMITTED');
   assert.equal(f.puts,1);
+});
+
+
+async function nativeSourceTaskFixture(){
+  const f=await fixture(),proof=f.recovery.originalSourceHeadProof;
+  Object.assign(proof,{ownerEpoch:2,changeId,sourceChangeFrameKey:f.change.key,
+    ciphertextContentDigest:f.change.verifiedBody.contentDigest});
+  f.change.verifiedBody.parents=[proof.sourcePrefixDigestBefore];
+  f.phase.currentPhase='PUBLISHED';f.phase.revision=2;
+  f.phase.originalBusinessApplied=false;f.phase.verifiedOriginalRecipientApplication=false;
+  f.phase.currentEvidence=structuredClone(f.phase.sourcePublishedEvidence);
+  let phaseWrites=0,hostSessionRef='host:source:initial';
+  Object.assign(f.recovery.sourcePhasePort,{
+    schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1',
+    role:'SOURCE',checkpointRef:f.phase.checkpointRef,
+    originalT3TechnicalWorkspaceOnly:true,createsSecondStore:false,
+    async advanceOriginalSessionPhase({phase,evidence}){
+      assert.equal(phase,'APPLIED_CONFIRMED');
+      const already=f.phase.currentPhase===phase;
+      if(already)assert.deepEqual(f.phase.currentEvidence,evidence);
+      else{
+        phaseWrites++;
+        f.phase.currentPhase=phase;f.phase.revision=3;
+        f.phase.originalBusinessApplied=true;f.phase.verifiedOriginalRecipientApplication=true;
+        f.phase.currentEvidence=structuredClone(evidence);
+        f.phase.chainHash=H('source-confirmed');
+      }
+      return {schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1',
+        phase,checkpointRef:f.phase.checkpointRef,status:already?'ALREADY_CONFIRMED':'RECORDED',
+        revision:f.phase.revision,chainHash:f.phase.chainHash,originalBusinessApplied:true};
+    },
+  });
+  const binding=(overrides={})=>createT4OriginalHostDispatchTaskBinding({
+    expectedWorkspaceId:workspaceId,expectedOriginalWriteOwnerRef:owner,
+    expectedNetworkTargetRef:recipientNodeRef,getMode:()=> 'T4_NETWORK',
+    readOriginalHostContext:async()=>({workspaceId,originalWriteOwnerRef:owner,
+      networkTargetRef:recipientNodeRef,hostSessionRef}),
+    authorizeOriginalHostTask:async proof=>proof.operation==='t4.network.acknowledge'&&
+      proof.originalHostTaskOwnerRequired===true,
+    dispatcher:{drain:async()=>{throw Error('legacy dispatch forbidden');}},...overrides,
+  });
+  const options=()=>({recovery:f.recovery,sourceCursorPort:f.port()});
+  return {f,binding,options,get phaseWrites(){return phaseWrites;},
+    restart(){f.restart();hostSessionRef='host:source:cold';}};
+}
+test('existing original source Host ACK task commits sole frontier and recovers lost original cursor reply',async()=>{
+  const x=await nativeSourceTaskFixture();x.f.loseNextReply();
+  await assert.rejects(x.binding().runNativeAcknowledgement(x.options()),
+    error('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  assert.equal(x.phaseWrites,1);assert.equal(x.f.puts,1);
+  x.restart();
+  const done=await x.binding().runNativeAcknowledgement(x.options());
+  assert.equal(done.originalHostTaskOwnerVerified,true);
+  assert.equal(done.confirmation.state,'ALREADY_CONFIRMED');
+  assert.equal(done.committed.state,'ALREADY_COMMITTED');
+  assert.equal(done.sourceCursorAdvanced,false);
+  assert.deepEqual(done.committed.originalT3NextCursor,x.f.latest.nextCursor);
+  assert.equal(x.phaseWrites,1);assert.equal(x.f.puts,1);
+});
+test('existing source ACK task rejects wrong original frontier, Host denial, and does nothing in LOCAL_T3',async()=>{
+  const x=await nativeSourceTaskFixture();
+  const off=await x.binding({getMode:()=> 'LOCAL_T3',
+    readOriginalHostContext:async()=>{throw Error('must not read Host');}}).runNativeAcknowledgement();
+  assert.equal(off.confirmed,false);assert.equal(off.originalT3Writes,0);
+  await assert.rejects(x.binding({authorizeOriginalHostTask:async()=>false})
+    .runNativeAcknowledgement(x.options()),error('HOST_TASK_ORIGINAL_AUTHORITY_DENIED'));
+  await assert.rejects(x.binding().runNativeAcknowledgement({
+    ...x.options(),sourceCursorPort:x.f.port({scopeRef:'scope:other',
+      readOriginalHostContext:async()=>({workspaceId:technical,
+        originalWriteOwnerRef:owner,nodeRef:sourceNodeRef,
+        scopeRef:'scope:other',hostSessionRef:'host:source:other'})}),
+  }),error('HOST_TASK_NATIVE_ACK_ORIGINAL_FRONTIER_MISMATCH'));
+  assert.equal(x.phaseWrites,0);assert.equal(x.f.puts,0);
+});
+test('existing source ACK task checks signed original prefix before any phase or frontier write',async()=>{
+  const x=await nativeSourceTaskFixture();
+  x.f.change.verifiedBody.parents=[H('forged-prefix')];
+  await assert.rejects(x.binding().runNativeAcknowledgement(x.options()),
+    error('CURSOR_SOURCE_CONFIRM_SIGNED_HEAD_BINDING_REQUIRED'));
+  assert.equal(x.phaseWrites,0);assert.equal(x.f.puts,0);
 });
