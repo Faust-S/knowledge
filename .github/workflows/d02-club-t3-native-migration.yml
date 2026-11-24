@@ -12,7 +12,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 75
     env:
-      SITE_SHA: f0a5cd4e0c69bc6ca6cfe208aae693637396a862
+      SITE_SHA: f9917447757eac020e7866078f6b914059af43b0
       T3_SHA: 3056eef0665fb3503294d49b89d937af2ea060e2
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PORT: '55478'

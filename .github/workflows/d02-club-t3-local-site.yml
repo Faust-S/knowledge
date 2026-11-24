@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 7b55e9a1bbb0df195be208887196f1f44cea5359
+          ref: f9917447757eac020e7866078f6b914059af43b0
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -169,6 +169,7 @@ jobs:
             echo D02_T3_HTTP_40_ROUTES=FAIL; exit 1
           fi
           echo D02_T3_HTTP_40_ROUTES=PASS
+          grep '^CLUB_T3_OFFLINE_SNAPSHOT_HTTP: PASS' "$RUNNER_TEMP/private-http.log"
           echo D02_T3_NATIVE_GUI_AND_OFFLINE_NOT_RUN=true
       - name: Run complete existing Club source regression
         working-directory: site
@@ -223,6 +224,8 @@ jobs:
           echo D02_T3_LOCAL_REPRODUCIBLE_BYTES=PASS
           node scripts/check-club-release.mjs > "$RUNNER_TEMP/private-local-check.log" 2>&1
           node scripts/check-club-integrated-http-preview.mjs dist > "$RUNNER_TEMP/private-local-check.log" 2>&1
+          node scripts/test-current-preview.mjs dist > "$RUNNER_TEMP/private-local-http.log" 2>&1
+          grep '^CLUB_T3_OFFLINE_SNAPSHOT_HTTP: PASS' "$RUNNER_TEMP/private-local-http.log"
           echo D02_T3_LOCAL_SINGLE_DIST=PASS
           echo D02_T3_LOCAL_BUILD_WITHOUT_SOURCE_CHECKOUTS=PASS
           # A damaged local input must stop before changing the last good dist.
