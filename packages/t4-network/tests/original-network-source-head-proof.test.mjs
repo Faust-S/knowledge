@@ -245,3 +245,22 @@ test('captured window remains valid if a subsequent Event appends during verifie
   });
   assert.equal(proof.sourceEventWindowDigest,s.win.windowDigest);
 });
+
+const outbound=(r,seq)=>({...r,schema:'IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1',
+  key:'a'.repeat(64)+'.t4n',sha256:'a'.repeat(64),checkpointRef:'checkpoint:original:publication',
+  originalPublicationRevision:7,originalPublicationChainHash:'sha256:'+'f'.repeat(64),
+  originalT3PublicationEventChainVerified:true,originalOutboundSignatureVerified:true,
+  originalOutboundAuthorityVerified:true,originalImmutableTransportReadbackVerified:true,
+  originalReplayCheckpointRecorded:false,remoteReceiptProven:false,verifiedSequence:seq});
+test('local source signed publication plus actual inbound DIFF proves original prefix without remote replay fiction',async()=>{
+  const s=await scenario(true);
+  const h=outbound(s.args.verifiedHeads,1),c=outbound(s.args.verifiedChangeRef,2);
+  const args={...s.args,verifiedHeads:h,verifiedChangeRef:c};
+  const proof=await verifyT4OriginalSourceHeadCausality(args);
+  assert.equal(proof.signedSourceFramesLocalPublicationVerified,true);
+  assert.equal(proof.sourceFramesRemoteReceiptProven,false);
+  assert.equal(proof.originalSourcePublicationCheckpointRef,h.checkpointRef);
+  await assert.rejects(verifyT4OriginalSourceHeadCausality({...args,verifiedDiffRequest:outbound(s.args.verifiedDiffRequest,1)}),err('HEAD_SIGNED_WIRE_PROOF_INVALID'));
+  await assert.rejects(verifyT4OriginalSourceHeadCausality({...args,verifiedChangeRef:{...c,originalPublicationChainHash:'sha256:'+'e'.repeat(64)}}),err('HEAD_SIGNED_LOCAL_PUBLICATION_MISMATCH'));
+  await assert.rejects(verifyT4OriginalSourceHeadCausality({...args,verifiedChangeRef:{...c,remoteReceiptProven:true}}),err('HEAD_SIGNED_WIRE_PROOF_INVALID'));
+});

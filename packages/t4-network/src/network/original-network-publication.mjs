@@ -380,6 +380,41 @@ export function createT4OriginalNetworkPublicationPort({
       originalBusinessApplied:false,sourceCursorAdvanced:false,
     });
   }
+  // Local outbound proof is deliberately NOT a received-frame receipt.
+  // The source can reconstruct its own signed frame from the one original
+  // publication ledger and immutable remote readback after a cold restart.
+  // This proves neither receipt nor application by the other peer.
+  async function readOriginalPublishedFrame({sequence}={}){
+    if(!Number.isSafeInteger(sequence)||sequence<1||sequence>MAX_FRAMES)
+      fail('PUBLICATION_SEQUENCE_INVALID');
+    const ctx=await context(),current=await read(ctx),entry=current.entries[sequence-1];
+    if(entry?.state!=='PRESENT')fail('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT');
+    const frame=await verifyFrame(ctx,entry,'outbound-proof');
+    const key=entry.sha256+'.t4n';
+    await guard(ctx,'t4.network.publish.'+frame.messageType,'outbound-proof-network-readback',entry);
+    const network=await frameTransport.inspectUnknownPublication({key,expectedSha256:entry.sha256});
+    if(network?.schema!=='IWXA_T4_CANDIDATE_FRAME_PRESENT_V1'||network.key!==key||
+      network.sha256!==entry.sha256||network.exactBytesPresent!==true||network.originalBusinessApplied!==false)
+      fail('PUBLICATION_NETWORK_READBACK_NOT_PROVEN');
+    await verifyFrame(ctx,entry,'outbound-proof-after-network');
+    const after=await read(ctx);
+    if(after.revision!==current.revision||after.chainHash!==current.chainHash||
+      !same(after.entries[sequence-1],entry))fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1',
+      key,sha256:entry.sha256,checkpointRef,originalPublicationRevision:current.revision,
+      originalPublicationChainHash:current.chainHash,
+      signedMessageType:frame.messageType,verifiedMessageId:frame.messageId,
+      verifiedSourceNodeRef:frame.sourceNodeRef,verifiedRecipientNodeRef:frame.recipientNodeRef,
+      verifiedScopeRef:frame.scopeRef,verifiedSessionRef:frame.sessionRef,
+      verifiedSequence:frame.sequence,verifiedOwnerEpoch:frame.ownerEpoch,
+      verifiedCryptoSuite:frame.cryptoSuite,verifiedSignerRef:frame.signerRef,
+      verifiedCriticalExtensions:Object.freeze([...frame.criticalExtensions]),
+      verifiedBody:Object.freeze(clone(frame.body)),
+      originalT3PublicationEventChainVerified:true,originalOutboundSignatureVerified:true,
+      originalOutboundAuthorityVerified:true,originalImmutableTransportReadbackVerified:true,
+      originalReplayCheckpointRecorded:false,remoteReceiptProven:false,
+      networkBytesVerified:true,originalBusinessApplied:false,originalT3ExchangeCalled:false});
+  }
   async function prepareSignedBatch({slots,createSignedFrames}={}){
     const requested=slotList(slots,types),ctx=await context();
     const current=await read(ctx),start=requested[0].sequence;
@@ -498,7 +533,7 @@ export function createT4OriginalNetworkPublicationPort({
   }
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1',
     session:identity,checkpointRef,inspectOriginalPublication,
-    prepareSignedBatch,publishPreparedFrame,
+    prepareSignedBatch,publishPreparedFrame,readOriginalPublishedFrame,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkPublicationPort({
       session:identity,localNodeRef,technicalWorkspaceId,originalKernel,
       getMode:originalHostLifetimeMode(getMode,isHostActive),

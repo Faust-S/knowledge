@@ -374,3 +374,24 @@ test('original Host invalidation after immutable PUT leaves durable attempt, not
   assert.equal(f.counts().signCalls,signCalls);
   assert.equal(f.counts().putCalls,3);
 });
+
+test('outbound proof is re-read from original publication and network without fabricating a recipient replay receipt',async()=>{
+  const f=fixture();await f.stageHeads();
+  await assert.rejects(f.port().readOriginalPublishedFrame({sequence:1}),err('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT'));
+  await f.port().publishPreparedFrame({sequence:1});
+  const before=f.counts();f.restart();
+  const p=await f.port().readOriginalPublishedFrame({sequence:1});
+  assert.equal(p.schema,'IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1');
+  assert.equal(p.originalReplayCheckpointRecorded,false);assert.equal(p.remoteReceiptProven,false);
+  assert.equal(p.originalT3PublicationEventChainVerified,true);
+  assert.equal(p.originalOutboundSignatureVerified,true);
+  assert.equal(p.originalOutboundAuthorityVerified,true);
+  assert.equal(p.originalImmutableTransportReadbackVerified,true);
+  assert.equal(p.verifiedBody.heads[0],f.session.sourcePrefixDigestAfter);
+  assert.equal(p.originalBusinessApplied,false);
+  assert.equal(f.counts().putCalls,before.putCalls);
+  assert.equal(f.counts().networkCalls,before.networkCalls);
+  assert.equal(f.counts().signCalls,before.signCalls);
+  f.remote.delete(p.key);
+  await assert.rejects(f.port().readOriginalPublishedFrame({sequence:1}),err('REMOTE_NOT_FOUND'));
+});

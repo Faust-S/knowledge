@@ -1,5 +1,6 @@
 import {validT4NativeSubjectRevision,validT4NativeOriginalEventRevision,
   matchesT4NativeSubjectCriticalExtensions} from './standard-network-wire-candidate.mjs';
+import {isT4OriginalOutboundFrameProof} from './original-network-source-head-proof.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest}
   from './original-event-window.mjs';
 
@@ -93,16 +94,18 @@ function checkAck(ack,status,evidence){
 }
 function checkChange(change,status,proof,ack){
   const body=change?.verifiedBody;
-  if(change?.schema!=='IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1'||
-    change.signedMessageType!=='CHANGE_REF'||
+  const local=isT4OriginalOutboundFrameProof(change);
+  const trusted=local?proof.signedSourceFramesLocalPublicationVerified===true&&
+    proof.originalSourcePublicationCheckpointRef===change.checkpointRef&&
+    proof.sourceFramesRemoteReceiptProven===false:
+    change?.schema==='IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1'&&
+      change.originalSignatureVerified===true&&change.originalAccessVerified===true&&change.originalReplayCheckpointRecorded===true;
+  if(!trusted||change.signedMessageType!=='CHANGE_REF'||
     change.verifiedSourceNodeRef!==status.sourceNodeRef||
     change.verifiedRecipientNodeRef!==status.recipientNodeRef||
     change.verifiedScopeRef!==status.scopeRef||
     change.verifiedSessionRef!==status.sessionRef||
     change.verifiedOwnerEpoch!==status.ownerEpoch||
-    change.originalSignatureVerified!==true||
-    change.originalAccessVerified!==true||
-    change.originalReplayCheckpointRecorded!==true||
     change.networkBytesVerified!==true||
     change.originalBusinessApplied!==false||
     change.originalT3ExchangeCalled!==false||

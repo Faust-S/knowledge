@@ -302,3 +302,19 @@ test('source ACK task reconciles lost original phase response without another ph
   assert.equal(confirmed.state,'ALREADY_CONFIRMED');assert.equal(f.phaseWrites,1);
   assert.equal(confirmed.sourceCursorAdvanced,false);
 });
+
+test('source ACK accepts exact local outbound publication proof but never an outgoing ACK',async()=>{
+  const f=await fixture(),change=f.props.verifiedChangeRef;
+  Object.assign(change,{schema:'IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1',
+    checkpointRef:'checkpoint:publication',originalPublicationRevision:7,
+    originalPublicationChainHash:other,originalT3PublicationEventChainVerified:true,
+    originalOutboundSignatureVerified:true,originalOutboundAuthorityVerified:true,
+    originalImmutableTransportReadbackVerified:true,originalReplayCheckpointRecorded:false,
+    remoteReceiptProven:false});
+  await assert.rejects(recoverT4OriginalNetworkSourceCursor(f.props),isCode('CURSOR_SIGNED_CHANGE_NOT_BOUND_TO_SOURCE_AND_ACK'));
+  Object.assign(f.proof,{signedSourceFramesLocalPublicationVerified:true,
+    sourceFramesRemoteReceiptProven:false,originalSourcePublicationCheckpointRef:change.checkpointRef});
+  assert.equal((await recoverT4OriginalNetworkSourceCursor(f.props)).originalT3NextCursor.lastEventId,event.event_id);
+  f.signed.schema='IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1';
+  await assert.rejects(recoverT4OriginalNetworkSourceCursor(f.props),isCode('CURSOR_SIGNED_APPLIED_ACK_NOT_BOUND_TO_ORIGINAL_RESULT'));
+});

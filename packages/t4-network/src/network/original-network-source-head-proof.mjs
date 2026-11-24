@@ -20,6 +20,23 @@ const ID=x=>typeof x==='string'&&
   /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const HASH=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+const SHA=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
+// Distinguish local publication evidence from the independently verified
+// incoming receipts. In particular a local proof MUST NOT claim that the
+// other peer has recorded replay or applied the change.
+export function isT4OriginalOutboundFrameProof(r){
+  return r?.schema==='IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1'&&
+    ID(r.checkpointRef)&&Number.isSafeInteger(r.originalPublicationRevision)&&r.originalPublicationRevision>=1&&
+    HASH(r.originalPublicationChainHash)&&SHA(r.sha256)&&r.key===r.sha256+'.t4n'&&
+    r.originalT3PublicationEventChainVerified===true&&r.originalOutboundSignatureVerified===true&&
+    r.originalOutboundAuthorityVerified===true&&r.originalImmutableTransportReadbackVerified===true&&
+    r.originalReplayCheckpointRecorded===false&&r.remoteReceiptProven===false&&
+    r.networkBytesVerified===true&&r.originalBusinessApplied===false&&r.originalT3ExchangeCalled===false;
+}
+function receivedProof(r){
+  return r?.schema==='IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1'&&r.originalSignatureVerified===true&&
+    r.originalAccessVerified===true&&r.originalReplayCheckpointRecorded===true;
+}
 export async function verifyT4OriginalSourceHeadCausality({
   verifiedHeads,verifiedDiffRequest,verifiedChangeRef,
   workspaceId,originalWriteOwnerRef,sourceNodeRef,
@@ -37,22 +54,25 @@ export async function verifyT4OriginalSourceHeadCausality({
       readOriginalEvents,verifyOriginalSourceSubject]
       .every(f=>typeof f==='function'))
     fail('HEAD_ORIGINAL_T3_PORTS_REQUIRED');
+  const outbound=isT4OriginalOutboundFrameProof(verifiedHeads)&&isT4OriginalOutboundFrameProof(verifiedChangeRef);
+  if(outbound&&(verifiedHeads.checkpointRef!==verifiedChangeRef.checkpointRef||
+    verifiedHeads.originalPublicationRevision!==verifiedChangeRef.originalPublicationRevision||
+    verifiedHeads.originalPublicationChainHash!==verifiedChangeRef.originalPublicationChainHash||
+    verifiedHeads.verifiedSequence+1!==verifiedChangeRef.verifiedSequence))
+    fail('HEAD_SIGNED_LOCAL_PUBLICATION_MISMATCH');
   const messages=[
-    [verifiedHeads,'HEADS',sourceNodeRef,recipientNodeRef,5],
-    [verifiedDiffRequest,'DIFF_REQUEST',recipientNodeRef,sourceNodeRef,3],
-    [verifiedChangeRef,'CHANGE_REF',sourceNodeRef,recipientNodeRef,6],
+    [verifiedHeads,'HEADS',sourceNodeRef,recipientNodeRef],
+    [verifiedDiffRequest,'DIFF_REQUEST',recipientNodeRef,sourceNodeRef],
+    [verifiedChangeRef,'CHANGE_REF',sourceNodeRef,recipientNodeRef],
   ];
   for(const [r,type,from,to] of messages){
-    if(r?.schema!=='IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1'||
+    if(!(outbound&&from===sourceNodeRef?isT4OriginalOutboundFrameProof(r):receivedProof(r))||
       r.signedMessageType!==type||
       r.verifiedSourceNodeRef!==from||
       r.verifiedRecipientNodeRef!==to||
       r.verifiedScopeRef!==scopeRef||
       r.verifiedSessionRef!==sessionRef||
       r.verifiedOwnerEpoch!==ownerEpoch||
-      r.originalSignatureVerified!==true||
-      r.originalAccessVerified!==true||
-      r.originalReplayCheckpointRecorded!==true||
       r.networkBytesVerified!==true||
       r.originalBusinessApplied!==false||
       r.originalT3ExchangeCalled!==false||
@@ -79,6 +99,7 @@ export async function verifyT4OriginalSourceHeadCausality({
     if(getMode()!=='T4_NETWORK')
       fail('HEAD_NETWORK_MODE_OFF');
     const ctx=await readOriginalHostContext();
+    if(getMode()!=='T4_NETWORK')fail('HEAD_NETWORK_MODE_OFF');
     if(ctx?.workspaceId!==workspaceId||
       ctx?.originalWriteOwnerRef!==originalWriteOwnerRef||
       ctx?.nodeRef!==sourceNodeRef||
@@ -101,6 +122,8 @@ export async function verifyT4OriginalSourceHeadCausality({
       fail('HEAD_ORIGINAL_HOST_CONTEXT_CHANGED');
     if(await authorizeOriginalRead(originalRead)!==true)
       fail('HEAD_ORIGINAL_ACCESS_DENIED');
+    if(getMode()!=='T4_NETWORK'||!same(await stableContext(),initial))
+      fail('HEAD_ORIGINAL_HOST_CONTEXT_CHANGED');
   };
   await authorized();
   const source=await readT4OriginalEventWindow({
@@ -186,6 +209,9 @@ export async function verifyT4OriginalSourceHeadCausality({
     signedHeadMatchesOriginalT3EventPrefix:true,
     signedDiffMatchesOriginalT3Frontier:true,
     originalSourceSubjectIndependentlyRead:true,
+    ...(outbound?{signedSourceFramesLocalPublicationVerified:true,
+      originalSourcePublicationCheckpointRef:verifiedHeads.checkpointRef,
+      sourceFramesRemoteReceiptProven:false}:{}),
     originalT3HistoricalForkWitnessAvailable:false,
     originalBusinessApplied:false,
     originalT3ExchangeUsed:false,
