@@ -89,7 +89,24 @@ def _prepare_original_portfolio_context(d):
     packet = next(r for r in g["agent_functions"] if r["id"] == "approval-w3")
     g["agent_functions"].append(dict(deepcopy(packet), id="approval-outside", work=OUTSIDE,
                                     work_revision="outside-d1", source_ref="model://op/packet-approval-outside"))
+    # The expanded experiment uses real execution windows, not the earlier
+    # abstract planning slots of the one-order fixture.
+    main = _event(d, "request", "w3")["work_spec"]
+    for operation in main["operations"]:
+        key = operation["id"]
+        starts = [e["at"] for e in d["events"] if e.get("work") == "w3"
+                  and e["action"] == "start_operation" and e.get("operation") == key]
+        ends = [e["at"] for e in d["events"] if e.get("work") == "w3"
+                and e["action"] == "complete_operation" and e.get("operation") == key]
+        assert len(starts) == len(ends) == 1, (key, starts, ends)
+        operation.update(slot_start=starts[0], slot_end=ends[0]+STRETCH)
+    main.update(slot_start=min(o["slot_start"] for o in main["operations"]),
+                slot_end=max(o["slot_end"] for o in main["operations"]))
+    for adoption in d.get("capability_adoptions", []):
+        if "from_slot" in adoption:
+            adoption.update(from_slot=main["slot_start"], to_slot=main["slot_end"])
     proposal = _event(d, "technology_route_propose")
+    proposal["technology_route_work_spec"] = deepcopy(main)
     digest = technology_route_fingerprint(proposal["technology_route_work_spec"])
     for row in d["events"]:
         if row.get("technology_route_id") == proposal["technology_route_id"]:
@@ -112,7 +129,7 @@ def portfolio_trajectories(*, disjoint=False, buyer_declines=False, missing_cons
     operation = next(o for o in main["operations"] if o["id"] == "stage-c")
     start, end = operation["slot_start"], operation["slot_end"]
     if disjoint:
-        start, end = start - (end - start), start
+        start, end = end, end + (end - start)
     horizon = template["model_horizon"]
     proposal_at = _event(template, "technology_route_propose")["at"]
     occupied = {e["at"] for d in docs.values() for e in d["events"]}
