@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: c9c1891ca205855a29552dd3a6213880eff17032
+          ref: 4d93bffcbf6a01e99b8f1b0cc85837bff979d94b
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -335,7 +335,7 @@ jobs:
             echo D05_T3_ASSISTANT_BROWSER_FAIL
             exit 1
           fi
-          grep -E '^\{"status":"CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS","routes":[0-9]+,"forms":[0-9]+,"costRoutes":[0-9]+,"orderRoutes":[0-9]+,"actualInference":false,"productAccepted":false\}$' "$log"
+          grep -E '^\{"status":"CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS","routes":22,"forms":20,"costRoutes":2,"orderRoutes":2,"repeatRoutes":2,"actualInference":false,"productAccepted":false\}$' "$log"
           echo D05_T3_ASSISTANT_BROWSER_PASS
       - name: Cold offline public site using original worker and persistent browser profile
         id: offline
