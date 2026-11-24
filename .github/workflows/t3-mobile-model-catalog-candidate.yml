@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 68184b3c499cd68534a27a0f1d2c3b4fd5c21ca9
+          ref: fa35c7eb43c0a92c2a4e8cd129638206be9915fe
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -130,12 +130,16 @@ jobs:
             exit 1
           fi
           grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-facts.log"
+          # Frozen second suite. Baseline evaluation records failures instead
+          # of silently editing its expected values to match the extractor.
+          node t3-explicit-facts-regression.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" --challenge > "$RUNNER_TEMP/private-explicit-challenge.log" 2>&1
+          grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-challenge.log"
       - name: Remove private staged data and logs
         if: always()
         shell: bash
         run: |
           rm -rf "$RUNNER_TEMP/assistant-candidate" "$RUNNER_TEMP/private-mobile-source.log" "$RUNNER_TEMP/private-mobile-dom.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-preparation.log"
-          rm -rf private-bli private-club private-club-owner "$RUNNER_TEMP/private-owner-skills.log" "$RUNNER_TEMP/private-explicit-facts.log"
+          rm -rf private-bli private-club private-club-owner "$RUNNER_TEMP/private-owner-skills.log" "$RUNNER_TEMP/private-explicit-facts.log" "$RUNNER_TEMP/private-explicit-challenge.log"
   shared-host:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -153,7 +157,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 68184b3c499cd68534a27a0f1d2c3b4fd5c21ca9
+          ref: fa35c7eb43c0a92c2a4e8cd129638206be9915fe
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club

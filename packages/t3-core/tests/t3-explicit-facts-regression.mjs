@@ -10,7 +10,10 @@ const assistant=resolve(assistantArg),domain=resolve(domainArg);
 const load=(root,file)=>import(pathToFileURL(join(root,file)).href);
 const {fieldCandidates,fieldLabel,splitFormProposals}=await load(assistant,"field-policy.mjs");
 const {validateSkillPack,formHintFor}=await load(assistant,"skill-runtime.mjs");
-const {suite,scoreRun}=await load(domain,"scripts/score-club-assistant.mjs");
+const {suite:observed,scoreRun,scoreCase}=await load(domain,"scripts/score-club-assistant.mjs");
+const challenge=process.argv.includes("--challenge");
+const suite=challenge?JSON.parse(readFileSync(join(domain,"scripts/fixtures/club-assistant-challenge.json"),"utf8")):observed;
+if(challenge){assert.equal(suite.schema,"iwxa.club.assistant-challenge/1");assert.deepEqual(suite.forms,observed.forms);}
 const pack=validateSkillPack(JSON.parse(readFileSync(join(domain,"assets/club-assistant-skills.json"),"utf8")));
 const responses=[];
 for(const [key,definition] of Object.entries(suite.forms)){
@@ -34,9 +37,23 @@ for(const [key,definition] of Object.entries(suite.forms)){
   }
  }finally{dom.window.close();}
 }
-const report=scoreRun({schema:"iwxa.club.assistant-responses/1",modelId:"deterministic-domain-hints",responses});
+const report=challenge?(()=>{
+ const byId=new Map(responses.map(r=>[r.id,r.raw]));
+ const cases=suite.cases.map(c=>scoreCase(c,byId.get(c.id),suite.forms));
+ return {modelId:"deterministic-domain-hints",submitted:responses.length,expectedCases:cases.length,formatPass:cases.filter(c=>c.format).length,
+  exactFields:cases.reduce((n,c)=>n+c.exact,0),expectedFields:cases.reduce((n,c)=>n+c.total,0),
+  exactCasePass:cases.filter(c=>c.pass).length,unexpectedFields:cases.reduce((n,c)=>n+c.unexpected.length,0),
+  requiresHumanReview:cases.filter(c=>c.review.length).length,modelQualityAccepted:false,cases};
+})():scoreRun({schema:"iwxa.club.assistant-responses/1",modelId:"deterministic-domain-hints",responses});
 const {cases,...summary}=report;
-console.log("T3_CLUB_EXPLICIT_FACTS_REGRESSION "+JSON.stringify({...summary,wrongFields:cases.reduce((a,c)=>a+c.wrong.length,0),missingFields:cases.reduce((a,c)=>a+c.missing.length,0),modelExecuted:false}));
+console.log("T3_CLUB_EXPLICIT_FACTS_REGRESSION "+JSON.stringify({...summary,suite:challenge?"challenge":"observed",wrongFields:cases.reduce((a,c)=>a+c.wrong.length,0),missingFields:cases.reduce((a,c)=>a+c.missing.length,0),modelExecuted:false}));
+if(challenge){
+ for(const c of cases.filter(c=>!c.pass))console.log("T3_CLUB_EXPLICIT_FACTS_CASE "+JSON.stringify({id:c.id,wrong:c.wrong,unexpected:c.unexpected,missing:c.missing}));
+ if(!process.argv.includes("--enforce"))process.exit(0);
+ assert.equal(cases.reduce((a,c)=>a+c.wrong.length,0),0,"CHALLENGE_NO_WRONG");
+ assert.equal(report.unexpectedFields,0,"CHALLENGE_NO_UNEXPECTED");
+ assert.ok(report.exactFields>=Math.ceil(report.expectedFields*.80),"CHALLENGE_MINIMUM_COVERAGE");
+}
 assert.equal(cases.reduce((a,c)=>a+c.wrong.length,0),0,"NO_WRONG_EXPLICIT_FACTS");
 assert.equal(report.unexpectedFields,0,"NO_UNEXPECTED_EXPLICIT_FACTS");
 assert.ok(report.exactFields>=40,"EXPLICIT_FACTS_MINIMUM_COVERAGE");
