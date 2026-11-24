@@ -162,7 +162,50 @@ try{
    phase="FINAL_CLOSE";
    await at("close").click();
    check(await at("drawer").isHidden(),"CLOSE");
-   console.log("T3_CLUB_BROWSER_CASE_PASS "+JSON.stringify({width:size.width,height:size.height,sharedEngine:true,phoneLayout:size.width<621,nativeApply:true,noSubmit:true,noModel:true,contextualShortcuts:true,confirmedFormSwitch:true,focusReturn:true,collapsedFormsExcluded:true}));
+   // A real calculation in the original form, not a seeded result or a
+   // model-generated replacement. Context is selected, previewed, then
+   // explicitly included. No additional calculation or model starts.
+   phase="EMPTY_RESULT_SHORTCUT";
+   const output=page.locator("[data-pe-result]");
+   const resultAction=page.getByRole("button",{name:"Разобрать результат: Расчёт личной экономики",exact:true,includeHidden:true});
+   check(await resultAction.count()===1&&await resultAction.isHidden(),"EMPTY_RESULT_ACTION_HIDDEN");
+   phase="NATIVE_RESULT_CALCULATION";
+   await form.getByRole("button",{name:"Рассчитать",exact:true}).click();
+   await resultAction.waitFor({state:"visible"});
+   const before=await output.innerText();
+   check(before.includes("Свободный остаток")&&before.includes("Базовый доход"),"REAL_CALCULATION_PRESENT");
+   check(await page.evaluate(()=>window.__clubCandidateSubmits)===1,"ONE_NATIVE_CALCULATION");
+   const oldPrompt=await at("prompt").inputValue();
+   phase="RESULT_SWITCH_CANCEL";
+   let resultCancelled=false;
+   page.once("dialog",async d=>{resultCancelled=true;await d.dismiss();});
+   await resultAction.click();
+   check(resultCancelled&&await at("drawer").isHidden()&&await at("prompt").inputValue()===oldPrompt,"RESULT_CANCEL_PRESERVES_REQUEST");
+   phase="RESULT_SWITCH_CONFIRM";
+   let resultConfirmed=false;
+   page.once("dialog",async d=>{resultConfirmed=true;await d.accept();});
+   await resultAction.click();
+   await at("result-preview").waitFor({state:"visible"});
+   check(resultConfirmed&&await at("result-preview").inputValue()===before.trim(),"EXACT_RESULT_PREVIEW");
+   check(await at("prompt").inputValue()===""&&await at("form-choice").inputValue()==="","NO_AUTOMATIC_CONTEXT_OR_FORM");
+   check(await page.evaluate(()=>window.__clubCandidateSubmits)===1,"RESULT_OPEN_NO_CALCULATION");
+   const actionSize=await resultAction.evaluate(b=>{const r=b.getBoundingClientRect();return {height:r.height,right:r.right,left:r.left,vw:window.innerWidth};});
+   check(actionSize.height>=43&&actionSize.left>=0&&actionSize.right<=actionSize.vw+1,"RESULT_ACTION_GEOMETRY");
+   phase="STALE_RESULT_PREVIEW";
+   await income.fill("56000");
+   await form.getByRole("button",{name:"Рассчитать",exact:true}).click();
+   const current=await output.innerText();
+   check(current!==before,"ORIGINAL_RECALCULATION_CHANGED_OUTPUT");
+   await at("include-result").click();
+   check(await at("prompt").inputValue()===""&&await at("result-preview").inputValue()===current.trim(),"STALE_PREVIEW_NOT_INCLUDED");
+   phase="RESULT_EXPLICIT_INCLUDE";
+   await at("include-result").click();
+   const exactContext=JSON.stringify({source:"Расчёт личной экономики",value:current.trim()});
+   check((await at("prompt").inputValue()).includes(exactContext)&&await at("skill-choice").inputValue()==="personal-economy","EXACT_EXPLICIT_CONTEXT");
+   check(await page.evaluate(()=>window.__clubCandidateSubmits)===2&&workers===0&&modelRequests===0,"RESULT_NO_EXTRA_CALCULATION_OR_MODEL");
+   await at("close").click();
+   check(await resultAction.evaluate(b=>document.activeElement===b),"RESULT_FOCUS_RETURN");
+   console.log("T3_CLUB_BROWSER_CASE_PASS "+JSON.stringify({width:size.width,height:size.height,sharedEngine:true,phoneLayout:size.width<621,nativeApply:true,noAssistantSubmit:true,noModel:true,contextualShortcuts:true,confirmedFormSwitch:true,focusReturn:true,collapsedFormsExcluded:true,contextualResult:true,exactPreview:true,staleResultRejected:true,explicitContext:true}));
   }catch(e){const code=typeof e.message==="string"&&/^T3_CLUB_BROWSER_[A-Z_]+$/.test(e.message)?e.message:"T3_CLUB_BROWSER_UNEXPECTED";console.log("T3_CLUB_BROWSER_CASE_FAIL "+JSON.stringify({width:size.width,phase,code,timeout:e?.name==="TimeoutError"}));throw Error(code);}
   finally{await ctx.close();}
  }
