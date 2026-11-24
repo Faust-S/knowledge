@@ -885,6 +885,16 @@ def outside_then_reenter_case(*, stay_paused=False, wrong_basis=None):
     d["events"].extend([pause, *tail])
     d["events"].sort(key=lambda row: row["at"])
     assert len({row["at"] for row in d["events"]}) == len(d["events"])
+    # Fixture declarations bind to the exact original event index. The
+    # new pause is itself an original event, so construct cost anchors
+    # against this scenario's final declared sequence (never repair a
+    # mismatch in the executing model or its historical trace).
+    for binding in d["economic_claims"]["lifecycle_costs"]["event_bindings"]:
+        binding["trace_position"] = next(
+            index for index, row in enumerate(d["events"])
+            if row["at"] == binding["at"] and row.get("work") == binding["work"]
+            and row["action"] == binding["action"] and row["actor"] == binding["owner"]
+        )
     return d
 
 
@@ -904,7 +914,7 @@ def test_original_external_result_informs_independent_reentry_and_fourth_work():
     assert review["evaluated_work"] == "w2"
     assert review["participation_value"] == "OPEN_TO_NEW_WORK"
     assert review["evaluation_financial_basis_not_automatic_owner_decision"]
-    assert out["works"]["w4"]["customer"] == "b"
+    assert out["works"]["w4"]["original_customer"] == "b"
 
 
 @pytest.mark.parametrize("wrong_basis", [
