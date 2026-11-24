@@ -29,3 +29,8 @@ export type D05QualityReview={
 };
 export type D05RouteQualityReview=D05RouteReview & {quality_review:D05QualityReview};
 export function reviewD05RouteModelsWithQuality(records:unknown,planDetails:unknown,templateRecords:unknown):D05RouteQualityReview;
+
+export function reviewD05ResultSelection(records:unknown):D05RouteReview|D05RouteQualityReview;
+export function buildD05RouteQualityComparisonExample(workspaceId?:string):Array<{
+ object:Record<string,unknown>;relations:{incoming:unknown[];outgoing:Record<string,unknown>[]};
+}>;

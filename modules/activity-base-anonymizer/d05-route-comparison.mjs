@@ -334,3 +334,61 @@ export function reviewD05RouteModelsWithQuality(records,planDetails,templateReco
     revision_alignment:'CURRENT_SNAPSHOT_NOT_APPROVED_TECHNOLOGY',
     execution_evidence:'NOT_ESTABLISHED'}};
 }
+
+
+/** Existing local ObjectWithRelations representation. No new exchange
+ * carrier or trusted assertion. Ordinary route models remain compatible.
+ */
+export function reviewD05ResultSelection(records){
+  if(!Array.isArray(records)||!records.some(r=>obj(r)&&Object.hasOwn(r,'object')))
+    return reviewD05RouteModels(records);
+  require(records.length>0&&records.length<=24,'D05_ROUTE_SELECTION_LIMIT');
+  const routes=[],plans=[],templates=[];
+  for(const item of records){
+    require(obj(item)&&obj(item.object)&&obj(item.relations)&&
+      Array.isArray(item.relations.outgoing)&&Array.isArray(item.relations.incoming),
+      'D05_ROUTE_QUALITY_LOCAL_DETAIL_REQUIRED');
+    switch(item.object.schema_id){
+      case ROUTE:routes.push(item.object);break;
+      case DOMAIN+'.quality-plan':plans.push(item);break;
+      case DOMAIN+'.quality-check-template':templates.push(item.object);break;
+      default:throw new ActivityHold('D05_ROUTE_QUALITY_RESULT_INVALID');
+    }
+  }
+  return reviewD05RouteModelsWithQuality(routes,plans,templates);
+}
+
+// Modelled example of existing Result shapes, not production evidence.
+export function buildD05RouteQualityComparisonExample(workspaceId='example-quality-workspace'){
+  const examples=buildD05RouteComparisonExample(),out=[];
+  const detail=(object_id,type,value,outgoing=[])=>({
+    object:{workspace_id:workspaceId,object_id,revision:1,schema_id:DOMAIN+'.'+type,
+      schema_version:D05_SOURCE_PIN.version,data:{object_id,object_type:type,
+        source_schema_version:D05_SOURCE_PIN.version,display_label:'Учебная модель',
+        source_service_id:DOMAIN+'.quality-plan',algorithm_version:null,
+        status:'ready_for_review',summary_markdown:'',value}},
+    relations:{incoming:[],outgoing:outgoing.map((to_object_id,i)=>({
+      workspace_id:workspaceId,relation_id:'example-link-'+object_id+'-'+i,
+      from_object_id:object_id,to_object_id,kind:'based_on',
+    }))},
+  });
+  examples.forEach((route,i)=>{
+    const n=i+1,routeId=route.object_id,checkId='example-check-'+n,planId='example-plan-'+n;
+    const check={check_id:checkId,title:'Контроль ширины детали',control_type:'final',
+      related_material_id:'',related_operation_id:route.data.inputs.operations.at(-1).id,
+      related_product_characteristic:'Ширина',requirement:'Размер по технологическому чертежу',
+      unit:'мм',lower_limit:i===1?'99.5':'99.8',target_value:'100',
+      upper_limit:i===1?'100.5':'100.2',allowed_values:'',result_type:'numeric',
+      inspection_method:'measurement',inspection_method_custom:'',sampling_rule:'Каждая деталь',
+      responsible_role:'Контролёр',required_evidence:'Протокол измерений',blocking:true,
+      action_on_failure:'stop-release',action_custom:'',comment:''};
+    out.push(detail(routeId,'operation-route',route),
+      detail(planId,'quality-plan',{object_type:'quality-plan',
+        common:{linkedOperationRouteId:routeId,product:'Деталь',productVersion:'1',
+          requirementBasis:'Технологический чертёж',sourceDocuments:'Чертёж 1'},
+        linked_operation_route_id:routeId,check_template_ids:[checkId],defect_ids:[]},
+        [routeId,checkId]),
+      detail(checkId,'quality-check-template',check));
+  });
+  return out;
+}

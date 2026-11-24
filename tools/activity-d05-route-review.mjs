@@ -1,7 +1,7 @@
 // Optional local invocation entry point for a qualified Personal Agent adapter.
 // Reads supplied native route models only. No access to Kernel, Workspace,
 // network, files by path, authority, automatic publication or .iwxa export.
-import {reviewD05RouteModels} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
+import {reviewD05ResultSelection} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 const INPUT_LIMIT=8*1024*1024, OUTPUT_LIMIT=8*1024*1024;
 function hold(code){return {status:'HOLD',code,source_authority:'UNVERIFIED_LOCAL_COPY',
   anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null};}
@@ -22,7 +22,7 @@ async function readInput(){
 try{
  if(process.argv.length!==2)fail('D05_ROUTE_CLI_ARGUMENTS_NOT_SUPPORTED');
  const records=await readInput();
- const result=reviewD05RouteModels(records);
+ const result=reviewD05ResultSelection(records);
  if(Buffer.byteLength(JSON.stringify(result),'utf8')>OUTPUT_LIMIT)fail('D05_ROUTE_CLI_OUTPUT_LIMIT');
  write(result);
 }catch(error){
