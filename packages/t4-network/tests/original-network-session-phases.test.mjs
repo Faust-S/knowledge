@@ -4,8 +4,9 @@ import {generateKeyPairSync,sign,verify,createHash} from 'node:crypto';
 import {deriveT4OriginalNativeCaptureSession} from '../src/network/original-network-publication.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame} from '../src/network/standard-network-wire-candidate.mjs';
 import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
-  retireT4OriginalRecipientAttemptFromControl,verifyT4OriginalRecipientRetirementAck}
+  retireT4OriginalRecipientAttemptFromControl,verifyT4OriginalRecipientRetirementAck,recordT4OriginalSourceSupersession}
   from '../src/network/original-network-session-supersession.mjs';
 import {createT4OriginalNetworkSessionPhasePort,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
@@ -458,7 +459,8 @@ async function controlFixture(){
     scopeRef,ownerEpoch:epoch,networkTargetRef:recipientNodeRef,networkPublished:false,sourceCursorAdvanced:false,
     originalRecipientApplied:false,sourceCursorBefore:{sourcePrefixDigest:H},sourceCursorAfter:{sourcePrefixDigest:B},capture});
   const phase=()=>f.port({sessionRef:session.sessionRef,changeId:session.changeId});
-  let network=true,sourceAllowed=true,recipientAllowed=true,captureVerified=true,acceptanceAllowed=true,readRecipient=true;
+  let network=true,sourceAllowed=true,recipientAllowed=true,captureVerified=true,acceptanceAllowed=true,readRecipient=true,
+    sourcePhaseAllowed=true,sourceRecordAllowed=true,frontierChanged=false,sourceApplied=false;
   let sourceKey={...generateKeyPairSync('ed25519'),id:'key:k47:source:1'},
     recipientKey={...generateKeyPairSync('ed25519'),id:'key:k47:recipient:1'};
   const frames=new Map();let networkPuts=0,networkGets=0;
@@ -485,8 +487,15 @@ async function controlFixture(){
       originalHostNodeRef:node,originalHostScopeRef:scopeRef,authorizeOriginalHostWire:async()=>true,
       verifyOriginalNodeSignature:async p=>{const k=localKey(p.sourceNodeRef);
         return p.signerRef===k.id&&verify(null,Buffer.from(p.bytes),k.publicKey,Buffer.from(p.signature));},
-      authorizeOriginalNetwork:async p=>['ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK'].some(t=>p.operation==='t4.network.receive.'+t),
-      persistOriginalReplayDecision:replay.persistOriginalReplayDecision});
+      authorizeOriginalNetwork:async p=>['ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK','APPLIED_ACK'].some(t=>p.operation==='t4.network.receive.'+t),
+      persistOriginalReplayDecision:replay.persistOriginalReplayDecision,
+      verifyOriginalHistoricalNodeSignature:async p=>{const k=localKey(p.sourceNodeRef);
+        if(p.signerRef!==k.id||!verify(null,Buffer.from(p.bytes),k.publicKey,Buffer.from(p.signature)))return null;
+        return {schema:'IWXA_T4_ORIGINAL_HISTORICAL_SIGNATURE_V1',frameDigest:p.frameDigest,signerRef:p.signerRef,
+          direction:'PEER',originalHistoricalSignatureVerified:true,originalHistoricalAcceptanceProven:false,
+          liveNetworkAuthorityGranted:false,trustedSigningTimeProven:false,originalBusinessApplied:false};},
+      readOriginalHistoricalReplayEvidence:replay.readOriginalHistoricalReplayEvidence,
+      readOriginalHistoricalAppliedAckSlot:replay.readOriginalHistoricalAppliedAckSlot});
   };
   const signing=node=>({getMode,requiredCryptoSuite:suite,
     resolveOriginalSigningContext:async p=>{assert.equal(p.originalNodeSigningAuthorityRequired,true);
@@ -494,6 +503,25 @@ async function controlFixture(){
       return {permissionRef:'permission:k47:'+node,signerRef:localKey(node).id};},
     signOriginalNodeBytes:async p=>{const k=localKey(node);assert.equal(p.signerRef,k.id);
       return new Uint8Array(sign(null,Buffer.from(p.bytes),k.privateKey));}});
+  const technical='ws:k47:source:technical',sourcePhase=(patch={})=>createT4OriginalNetworkSessionPhasePort({
+    ...f.base,originalKernel:sourceStore.kernel,technicalWorkspaceId:technical,localNodeRef:sourceNodeRef,
+    sessionRef:session.sessionRef,changeId:session.changeId,getMode,readOriginalHostContext:context(sourceNodeRef,technical),
+    authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true,
+    verifyOriginalPhaseEvidence:async()=>true,verifyOriginalRecipientApplied:async()=>sourceApplied,
+    authorizeOriginalSourceSupersession:async proof=>sourcePhaseAllowed&&proof.originalRecipientRetirementEvidenceRequired===true&&
+      proof.originalAcceptedAppliedAckAbsentRequired===true&&proof.originalSubjectMutationAllowed===false,...patch});
+  const sourceCursorBefore={schema:'IWXA_T4_ORIGINAL_EVENT_CURSOR_V1',workspaceId:ws,originalWriteOwnerRef:owner,
+    lastEventId:'event:k47:baseline',seenEventCount:1,sourcePrefixDigest:H,originalPermissionProof:false};
+  // The source frontier is an explicit test port; the actual phase and
+  // replay Objects are exercised in the original Kernel fixture.
+  const cursorPort=Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_PORT_V1',
+    checkpointRef:'cursor:k47:source',usesOriginalT3CAS:true,createsStore:false,
+    inspectOriginalHostCursor:async()=>({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_STATUS_V1',
+      checkpointRef:'cursor:k47:source',sourceWorkspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,
+      scopeRef,ownerEpoch:epoch,revision:0,chainHash:H,originalBaselineAdmitted:true,originalT3TechnicalWorkspaceOnly:true,
+      originalBusinessApplyReceiptFabricated:false,otherCursorStoreCreated:false,originalT3EventChainVerified:false,
+      originalT3NextCursor:frontierChanged?{...sourceCursorBefore,sourcePrefixDigest:B}:sourceCursorBefore,
+      lastAcknowledgedChangeId:null,lastSourceEventId:null})});
   const before=await phase().inspectOriginalSession();
   const plan=(requestRef='request:k47:one')=>prepareT4OriginalSupersessionControl({session,
     expectedPhaseRevision:before.revision,expectedPhaseChainHash:before.chainHash,decisionRef:'decision:k47:one',requestRef});
@@ -514,7 +542,31 @@ async function controlFixture(){
     readOriginalRecipientRetirement:async proof=>{assert.equal(proof.originalRecipientEventAndPhaseReadbackRequired,true);
       return readRecipient?phase().inspectOriginalSession():null;},
     authorizeOriginalSupersessionAcceptance:async proof=>acceptanceAllowed&&proof.originalSubjectMutationAllowed===false,...patch});
-  return {f,sourceStore,session,phase,plan,request,retire,publishAck,verifyAck,
+  const recordBoth=(p,address,sourceBefore,patch={})=>recordT4OriginalSourceSupersession({plan:p,ackAddress:address,
+    sourceCursorBefore,sourcePhasePort:sourcePhase(),sourceCursorPort:cursorPort,
+    expectedSourcePhaseRevision:sourceBefore.revision,expectedSourcePhaseChainHash:sourceBefore.chainHash,
+    frameDiscoveryPort:transport(sourceNodeRef),getMode,requiredCryptoSuite:suite,
+    verifyOriginalSourceCapture:async proof=>captureVerified&&proof.session.sourceEventId===sourceEventId,
+    readOriginalRecipientRetirement:async()=>readRecipient?phase().inspectOriginalSession():null,
+    authorizeOriginalSupersessionAcceptance:async()=>acceptanceAllowed,
+    authorizeOriginalSourceSupersession:async proof=>sourceRecordAllowed&&proof.originalRecipientRetirementEventVerified===true,
+    ...patch});
+  const acceptConflictingAck=async()=>{
+    const bytes=await signT4CandidateFrame({unsignedFrame:createT4CandidateUnsignedFrame({
+      messageType:'APPLIED_ACK',messageId:'message:k48:old-ack',sourceNodeRef:recipientNodeRef,recipientNodeRef:sourceNodeRef,
+      scopeRef,sessionRef:session.sessionRef,ownerEpoch:epoch,sequence:2,cryptoSuite:suite,criticalExtensions:[],
+      signerRef:recipientKey.id,permissionRef:'permission:k47:'+recipientNodeRef,
+      body:{changeId:session.changeId,contentDigest:H,ackRef:'ack:k48:conflict',recipientEventRef:'event:k48:conflict',
+        recipientRevision:7,recipientStateDigest:B}}),signOriginalNodeBytes:signing(recipientNodeRef).signOriginalNodeBytes});
+    const published=await transport(recipientNodeRef).publishSignedFrame({wireBytes:bytes});
+    await transport(sourceNodeRef).readAndVerifySignedFrame({key:published.key,expectedSha256:published.sha256,requiredCryptoSuite:suite});
+  };
+  return {f,sourceStore,session,phase,plan,request,retire,publishAck,verifyAck,sourcePhase,recordBoth,acceptConflictingAck,
+    sourcePhaseWrites:()=>sourceStore.events.filter(e=>e.event_type==='t4.network.original.session.phase').length,
+    changeFrontier:()=>{frontierChanged=true;},restoreFrontier:()=>{frontierChanged=false;},
+    denySourceRecord:()=>{sourceRecordAllowed=false;},allowSourceRecord:()=>{sourceRecordAllowed=true;},
+    denySourcePhase:()=>{sourcePhaseAllowed=false;},allowSourcePhase:()=>{sourcePhaseAllowed=true;},
+    allowSourceApplied:()=>{sourceApplied=true;},
     phaseWrites:()=>f.kernel.events.filter(e=>e.event_type==='t4.network.original.session.phase').length,
     counts:()=>({networkPuts,networkGets}),denyCapture:()=>{captureVerified=false;},allowCapture:()=>{captureVerified=true;},
     denyRecipient:()=>{recipientAllowed=false;},allowRecipient:()=>{recipientAllowed=true;},
@@ -574,4 +626,68 @@ test('K47 exact terminal phase CAS survives lost response and control re-attesta
   assert.equal(second.retirement.retirementChainHash,first.retirement.retirementChainHash);
   assert.equal((await x.verifyAck(next,second)).originalRecipientRetirementEventVerified,true);
   assert.equal(x.phaseWrites(),1);
+});
+
+
+test('K48 source original phase records independently verified retirement only with unchanged frontier and no prior accepted APPLIED_ACK',async()=>{
+  const x=await controlFixture(),p=x.plan(),request=await x.request(p),ack=await x.retire(p,request);
+  await x.publishAck(ack);
+  for(const phase of ['INTENT','PUBLISHED'])await x.sourcePhase().advanceOriginalSessionPhase({phase,evidence:evidence('original:source')});
+  const before=await x.sourcePhase().inspectOriginalSession(),writes=x.sourcePhaseWrites();
+  x.changeFrontier();
+  await assert.rejects(x.recordBoth(p,ack,before),isCode('SUPERSESSION_ORIGINAL_SOURCE_FRONTIER_CHANGED'));
+  x.restoreFrontier();x.denySourceRecord();
+  await assert.rejects(x.recordBoth(p,ack,before),isCode('SUPERSESSION_ORIGINAL_SOURCE_DECISION_DENIED'));
+  x.allowSourceRecord();x.denySourcePhase();
+  await assert.rejects(x.recordBoth(p,ack,before),isCode('PHASE_ORIGINAL_SOURCE_SUPERSESSION_DENIED'));
+  x.allowSourcePhase();assert.equal(x.sourcePhaseWrites(),writes);
+  await x.verifyAck(p,ack);x.sourceStore.loseNextReply();
+  await assert.rejects(x.recordBoth(p,ack,before),isCode('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  assert.equal(x.sourcePhaseWrites(),writes+1);
+  const result=await x.recordBoth(p,ack,before);
+  assert.equal(result.status,'ALREADY_CONFIRMED');
+  assert.equal(result.originalSourceAttemptSuperseded,true);
+  assert.equal(result.originalRecipientAttemptSuperseded,true);
+  assert.equal(result.originalSourceCursorAdvanced,false);
+  assert.equal(result.liveNetworkAuthorityGranted,false);
+  assert.equal(result.originalNewAttemptAdmissionStillRequired,true);
+  const cold=await x.sourcePhase({authorizeOriginalSourceSupersession:null}).inspectOriginalSession();
+  assert.equal(cold.currentPhase,'SUPERSEDED');assert.equal(cold.originalBusinessApplied,false);
+  assert.equal(cold.originalSourceSupersessionEvidence.retirement.retirementEventId,ack.retirement.retirementEventId);
+  assert.equal(cold.originalSourceSupersessionEvidence.evidenceDigest,'sha256:'+ack.sha256);
+  await assert.rejects(x.sourcePhase().advanceOriginalSessionPhase({phase:'APPLIED_CONFIRMED',
+    evidence:evidence('ack:forbidden','APPLIED_CONFIRMED')}),isCode('PHASE_ORIGINAL_SOURCE_ATTEMPT_SUPERSEDED'));
+  x.rotateRecipient();x.rotateSource();
+  const next=x.plan('request:k48:current-keys'),fresh=await x.request(next),newAck=await x.retire(next,fresh);
+  await x.publishAck(newAck);
+  const reattested=await x.recordBoth(next,newAck,before);
+  assert.equal(reattested.status,'ALREADY_CONFIRMED');
+  assert.equal(reattested.originalSourcePhaseEventId,result.originalSourcePhaseEventId);
+  assert.deepEqual(reattested.sourceRetirement,result.sourceRetirement);
+  assert.notEqual(newAck.sha256,ack.sha256);
+  assert.equal(x.sourcePhaseWrites(),writes+1);
+});
+test('K48 original accepted APPLIED_ACK forbids source supersession even when retirement control exists',async()=>{
+  const x=await controlFixture(),p=x.plan(),request=await x.request(p),ack=await x.retire(p,request);
+  await x.publishAck(ack);await x.acceptConflictingAck();
+  const before=await x.sourcePhase().inspectOriginalSession();
+  await assert.rejects(x.recordBoth(p,ack,before),isCode('SUPERSESSION_ORIGINAL_APPLIED_ACK_ALREADY_ACCEPTED'));
+  assert.equal(x.sourcePhaseWrites(),0);
+});
+test('K48 source SUPERSEDED and APPLIED_CONFIRMED cannot both acquire the original phase CAS',async()=>{
+  const x=await controlFixture(),p=x.plan(),request=await x.request(p),ack=await x.retire(p,request);
+  for(const phase of ['INTENT','PUBLISHED'])await x.sourcePhase().advanceOriginalSessionPhase({phase,evidence:evidence('original:source')});
+  const before=await x.sourcePhase().inspectOriginalSession();
+  x.allowSourceApplied();
+  let release,arrived=0;const gate=new Promise(r=>{release=r;});
+  const write=async proof=>{if(['SUPERSEDED','APPLIED_CONFIRMED'].includes(proof.phase)){
+    arrived++;if(arrived===2)release();await gate;}return true;};
+  const a=x.sourcePhase({authorizeOriginalTechnicalWrite:write}),b=x.sourcePhase({authorizeOriginalTechnicalWrite:write});
+  const settled=await Promise.allSettled([a.recordOriginalSourceSupersession({expectedRevision:before.revision,
+    expectedChainHash:before.chainHash,retirementAckDigest:'sha256:'+ack.sha256,retirement:ack.retirement}),
+    b.advanceOriginalSessionPhase({phase:'APPLIED_CONFIRMED',evidence:evidence('ack:done','APPLIED_CONFIRMED')})]);
+  assert.equal(settled.filter(x=>x.status==='fulfilled').length,1);
+  assert.equal(settled.filter(x=>x.status==='rejected').length,1);
+  assert.equal(x.sourcePhaseWrites(),3);
+  assert.ok(['SUPERSEDED','APPLIED_CONFIRMED'].includes((await x.sourcePhase().inspectOriginalSession()).currentPhase));
 });

@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {validateT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
 import {createT4CandidateSupersessionClaim,T4_SESSION_SUPERSESSION_EXTENSION,
-  createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame}
+  createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,t4NativeSubjectCriticalExtensions}
   from './standard-network-wire-candidate.mjs';
 
 // A control exchange over the original wire/Vault/phase ports. This
@@ -208,4 +208,112 @@ export async function verifyT4OriginalRecipientRetirementAck({plan,ackAddress,re
     originalRetirementAckDigest:'sha256:'+ack.sha256,originalRecipientRetirementEventVerified:true,
     originalRecipientAttemptSuperseded:true,originalNewAttemptAdmissionStillRequired:true,
     originalSourceCursorAdvanced:false,originalSubjectMutationInvoked:false,liveNetworkAuthorityGranted:false});
+}
+
+
+// Record the source-side half in the existing original phase ledger only
+// after the exact recipient retirement, current original source capture,
+// unchanged source frontier and absent prior APPLIED_ACK are verified.
+// Neither the signed control nor this CAS admits a new transfer.
+export async function recordT4OriginalSourceSupersession({
+  plan,ackAddress,sourceCursorBefore,sourcePhasePort,sourceCursorPort,
+  expectedSourcePhaseRevision,expectedSourcePhaseChainHash,
+  verifyOriginalSourceCapture,authorizeOriginalSourceSupersession,...ports
+}={}){
+  const p=exactPlan(plan),s=p.session,b=p.claim.body,{getMode,frameDiscoveryPort,requiredCryptoSuite}=ports;
+  const before=freeze(clone(sourceCursorBefore));
+  if(before?.schema!=='IWXA_T4_ORIGINAL_EVENT_CURSOR_V1'||before.workspaceId!==s.workspaceId||
+    before.originalWriteOwnerRef!==s.originalWriteOwnerRef||!ID(before.lastEventId)||before.lastEventId===s.sourceEventId||
+    before.sourcePrefixDigest!==s.sourcePrefixDigestBefore||before.originalPermissionProof!==false||
+    !Number.isSafeInteger(before.seenEventCount)||before.seenEventCount<1||
+    !Number.isSafeInteger(expectedSourcePhaseRevision)||expectedSourcePhaseRevision<0||expectedSourcePhaseRevision>2||
+    !DIG(expectedSourcePhaseChainHash)||
+    sourceCursorPort?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_PORT_V1'||sourceCursorPort.usesOriginalT3CAS!==true||
+    sourceCursorPort.createsStore!==false||typeof sourceCursorPort.inspectOriginalHostCursor!=='function'||
+    sourcePhasePort?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||sourcePhasePort.role!=='SOURCE'||
+    sourcePhasePort.createsSecondStore!==false||sourcePhasePort.originalT3TechnicalWorkspaceOnly!==true||
+    !['inspectOriginalSession','recordOriginalSourceSupersession'].every(k=>typeof sourcePhasePort[k]==='function')||
+    typeof frameDiscoveryPort?.readOriginalHistoricalAppliedAck!=='function')
+    fail('SUPERSESSION_ORIGINAL_SOURCE_PORTS_REQUIRED');
+  const proof=controlProof(p,ACK,{operation:'t4.network.original.supersession.source.record',
+    sourceCursorBefore:before,expectedSourcePhaseRevision,expectedSourcePhaseChainHash,
+    originalSourceCaptureAndFrontierReadRequired:true,originalAcceptedAppliedAckAbsentRequired:true});
+  const semantic=x=>{const {requestRef,...rest}=x;return rest;};
+  async function frontier(){
+    mode(getMode);const f=await sourceCursorPort.inspectOriginalHostCursor();mode(getMode);
+    if(f?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_STATUS_V1'||
+      f.checkpointRef!==sourceCursorPort.checkpointRef||f.sourceWorkspaceId!==s.workspaceId||
+      !['originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch'].every(k=>f[k]===s[k])||
+      f.originalBaselineAdmitted!==true||f.originalT3TechnicalWorkspaceOnly!==true||
+      f.originalBusinessApplyReceiptFabricated!==false||f.otherCursorStoreCreated!==false||
+      !Number.isSafeInteger(f.revision)||f.revision<0||!DIG(f.chainHash)||
+      f.originalT3EventChainVerified!==(f.revision>0)||!same(f.originalT3NextCursor,before)||
+      f.lastAcknowledgedChangeId===s.changeId||f.lastSourceEventId===s.sourceEventId)
+      fail('SUPERSESSION_ORIGINAL_SOURCE_FRONTIER_CHANGED');
+    return freeze(clone(f));
+  }
+  async function absentAck(){
+    mode(getMode);const ack=await frameDiscoveryPort.readOriginalHistoricalAppliedAck({
+      selector:{sourceNodeRef:s.recipientNodeRef,sessionRef:s.sessionRef,ownerEpoch:s.ownerEpoch},requiredCryptoSuite,
+      supportedCriticalExtensions:t4NativeSubjectCriticalExtensions(s.changeKind)});
+    mode(getMode);if(ack!==null)fail('SUPERSESSION_ORIGINAL_APPLIED_ACK_ALREADY_ACCEPTED');
+  }
+  async function sourceStatus(){
+    mode(getMode);const v=await sourcePhasePort.inspectOriginalSession();mode(getMode);
+    if(v?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||v.role!=='SOURCE'||
+      v.checkpointRef!==sourcePhasePort.checkpointRef||!phaseFields.every(k=>v[k]===s[k])||
+      (v.changeKind??'OBJECT_PUT')!==s.changeKind||v.originalT3OnlyStore!==true||
+      v.originalT3EventChainVerified!==(v.revision>0))
+      fail('SUPERSESSION_ORIGINAL_SOURCE_PHASE_MISMATCH');
+    if(v.currentPhase==='APPLIED_CONFIRMED'||v.originalBusinessApplied!==false||
+      v.verifiedOriginalRecipientApplication!==false)fail('SUPERSESSION_ORIGINAL_SOURCE_ALREADY_APPLIED');
+    if(v.currentPhase==='SUPERSEDED'){
+      if(v.revision!==expectedSourcePhaseRevision+1||v.originalSupersessionPreviousChainHash!==expectedSourcePhaseChainHash||
+        v.originalSourceAttemptSuperseded!==true||v.originalSourceCursorAdvanced!==false||
+        v.originalNewAttemptAdmissionStillRequired!==true||v.liveNetworkAuthorityGranted!==false)
+        fail('SUPERSESSION_ORIGINAL_SOURCE_PHASE_MISMATCH');
+    }else if(v.revision!==expectedSourcePhaseRevision||v.chainHash!==expectedSourcePhaseChainHash||
+      v.currentPhase!==[null,'INTENT','PUBLISHED'][expectedSourcePhaseRevision])
+      fail('SUPERSESSION_ORIGINAL_SOURCE_PHASE_MISMATCH');
+    return freeze(clone(v));
+  }
+  await allowed(verifyOriginalSourceCapture,proof,getMode,'SUPERSESSION_ORIGINAL_SOURCE_CAPTURE_NOT_PROVEN');
+  const initial=await frontier(),phaseBefore=await sourceStatus();await absentAck();
+  const verified=await verifyT4OriginalRecipientRetirementAck({plan:p,ackAddress,...ports});
+  const fullProof={...proof,retirement:verified.retirement,retirementAckDigest:verified.originalRetirementAckDigest,
+    originalRecipientRetirementEventVerified:true};
+  await allowed(authorizeOriginalSourceSupersession,fullProof,getMode,'SUPERSESSION_ORIGINAL_SOURCE_DECISION_DENIED');
+  await allowed(verifyOriginalSourceCapture,proof,getMode,'SUPERSESSION_ORIGINAL_SOURCE_CAPTURE_NOT_PROVEN');
+  if(!same(await frontier(),initial)||!same(await sourceStatus(),phaseBefore))
+    fail('SUPERSESSION_ORIGINAL_SOURCE_STATE_CHANGED');
+  await absentAck();
+  const recorded=await sourcePhasePort.recordOriginalSourceSupersession({
+    expectedRevision:expectedSourcePhaseRevision,expectedChainHash:expectedSourcePhaseChainHash,
+    retirementAckDigest:verified.originalRetirementAckDigest,retirement:verified.retirement});
+  mode(getMode);
+  if(recorded?.schema!=='IWXA_T4_ORIGINAL_SOURCE_ATTEMPT_RETIREMENT_V1'||
+    !['RECORDED','ALREADY_CONFIRMED'].includes(recorded.status)||recorded.checkpointRef!==sourcePhasePort.checkpointRef||
+    recorded.revision!==expectedSourcePhaseRevision+1||!DIG(recorded.chainHash)||!ID(recorded.originalSupersessionEventId)||
+    recorded.originalSourceAttemptSuperseded!==true||recorded.originalSourceCursorAdvanced!==false||
+    recorded.originalSubjectMutationInvoked!==false||recorded.liveNetworkAuthorityGranted!==false||
+    recorded.originalObservedRetirementAckDigest!==verified.originalRetirementAckDigest||
+    !recorded.originalRecordedRetirement?.retirement||
+    !same(semantic(recorded.originalRecordedRetirement.retirement),semantic(verified.retirement))||
+    recorded.originalRecordedRetirement.replacementSessionRef!==b.replacementSessionRef)
+    fail('SUPERSESSION_ORIGINAL_SOURCE_RETIREMENT_NOT_PROVEN');
+  const after=await sourceStatus();await absentAck();
+  await allowed(verifyOriginalSourceCapture,proof,getMode,'SUPERSESSION_ORIGINAL_SOURCE_CAPTURE_NOT_PROVEN');
+  if(after.currentPhase!=='SUPERSEDED'||after.chainHash!==recorded.chainHash||
+    after.originalSupersessionEventId!==recorded.originalSupersessionEventId||
+    !same(after.originalSourceSupersessionEvidence,recorded.originalRecordedRetirement)||
+    !same(await frontier(),initial))fail('SUPERSESSION_ORIGINAL_SOURCE_RETIREMENT_NOT_PROVEN');
+  await allowed(authorizeOriginalSourceSupersession,fullProof,getMode,'SUPERSESSION_ORIGINAL_SOURCE_DECISION_DENIED');
+  return freeze({schema:'IWXA_T4_ORIGINAL_BOTH_ATTEMPTS_RETIRED_V1',plan:p,
+    sourceRetirement:clone(recorded.originalRecordedRetirement),originalSourcePhaseCheckpointRef:after.checkpointRef,
+    originalSourcePhaseEventId:after.originalSupersessionEventId,originalSourcePhaseChainHash:after.chainHash,
+    originalSourcePhaseRevision:after.revision,originalSourceFrontierRevision:initial.revision,
+    originalSourceFrontierChainHash:initial.chainHash,originalRecipientRetirementEventVerified:true,
+    originalSourceAttemptSuperseded:true,originalRecipientAttemptSuperseded:true,
+    originalSourceCursorAdvanced:false,originalSubjectMutationInvoked:false,liveNetworkAuthorityGranted:false,
+    originalNewAttemptAdmissionStillRequired:true,status:recorded.status});
 }

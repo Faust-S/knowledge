@@ -178,6 +178,15 @@ function validateSupersessionBody(type,body){
     !DIGEST(body.retirementChainHash)||body.retirementRevision!==body.expectedPhaseRevision+1))
     fail('WIRE_SUPERSESSION_RETIREMENT_INVALID');
 }
+// Pure structural check shared by the original source phase ledger. It
+// does not authenticate a signature or independently establish retirement.
+export function validateT4CandidateSupersessionRetirementClaim({body,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch}={}){
+  const b=structuredClone(body);validateSupersessionBody('ATTEMPT_RETIRED_ACK',b);
+  const claim=createT4CandidateSupersessionClaim({...b,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch});
+  if(!SUPERSESSION_CLAIM_FIELDS.every(k=>claim.body[k]===b[k]))
+    fail('WIRE_SUPERSESSION_CONTROL_IDENTITY_MISMATCH');
+  return Object.freeze(b);
+}
 function validateSupersessionEnvelope(frame){
   const b=frame.body,ack=frame.messageType==='ATTEMPT_RETIRED_ACK';
   const claim=createT4CandidateSupersessionClaim({...b,

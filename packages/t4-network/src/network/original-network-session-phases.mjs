@@ -2,7 +2,8 @@ import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSche
   from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
-import {isT4NativeSubjectKind,validT4NativeSubjectRevision,deriveT4OriginalReplacementAttempt}
+import {isT4NativeSubjectKind,validT4NativeSubjectRevision,deriveT4OriginalReplacementAttempt,
+  validateT4CandidateSupersessionRetirementClaim}
   from './standard-network-wire-candidate.mjs';
 export {deriveT4OriginalReplacementAttempt} from './standard-network-wire-candidate.mjs';
 
@@ -41,11 +42,19 @@ const TERMINAL='SUPERSEDED';
 
 function proofEvidence(phase,e,changeKind,identity=null){
   if(phase===TERMINAL){
-    if(!e||typeof e!=='object'||Array.isArray(e)||
-      Object.keys(e).sort().join(',')!=='evidenceDigest,evidenceRef,replacementSessionRef'||
-      !ID(e.evidenceRef)||!HASH(e.evidenceDigest)||identity===null||
+    if(!e||typeof e!=='object'||Array.isArray(e)||identity===null||
+      Object.keys(e).sort().join(',')!==(identity.role==='SOURCE'?
+        'evidenceDigest,evidenceRef,replacementSessionRef,retirement':'evidenceDigest,evidenceRef,replacementSessionRef')||
+      !ID(e.evidenceRef)||!HASH(e.evidenceDigest)||
       e.replacementSessionRef!==deriveT4OriginalReplacementAttempt(identity).replacementSessionRef)
       fail('PHASE_ORIGINAL_SUPERSESSION_EVIDENCE_INVALID');
+    if(identity.role==='SOURCE'){
+      let retirement;try{retirement=validateT4CandidateSupersessionRetirementClaim({...identity,body:e.retirement});}
+      catch{fail('PHASE_ORIGINAL_SOURCE_RETIREMENT_INVALID');}
+      if(e.evidenceRef!==e.evidenceDigest.slice(7)+'.t4n'||retirement.previousSessionRef!==identity.sessionRef||
+        retirement.changeId!==identity.changeId||retirement.replacementSessionRef!==e.replacementSessionRef)
+        fail('PHASE_ORIGINAL_SOURCE_RETIREMENT_INVALID');
+    }
     return clone(e);
   }
   if(!e||typeof e!=='object'||Array.isArray(e)||
@@ -69,7 +78,7 @@ export function createT4OriginalNetworkSessionPhasePort({
   getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,
-  authorizeOriginalRecipientSupersession=null,
+  authorizeOriginalRecipientSupersession=null,authorizeOriginalSourceSupersession=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   if(![technicalWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
@@ -81,6 +90,8 @@ export function createT4OriginalNetworkSessionPhasePort({
     (recipientApplyIntentRequired&&localNodeRef!==recipientNodeRef)||
     (authorizeOriginalRecipientSupersession!==null&&
       (!recipientApplyIntentRequired||typeof authorizeOriginalRecipientSupersession!=='function'))||
+    (authorizeOriginalSourceSupersession!==null&&
+      (localNodeRef!==sourceNodeRef||typeof authorizeOriginalSourceSupersession!=='function'))||
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
     ![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,
       authorizeOriginalTechnicalWrite,verifyOriginalPhaseEvidence,
@@ -172,7 +183,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       const terminal=item?.phase===TERMINAL;
       // Exactly one terminal fence, before the durable apply reservation.
       // A reader with supersession disabled still verifies and honors it.
-      if(terminal&&(!recipientApplyIntentRequired||index>2||index!==d.stages.length-1))
+      if(terminal&&((role==='RECIPIENT'&&!recipientApplyIntentRequired)||index>2||index!==d.stages.length-1))
         fail('PHASE_ORIGINAL_SUPERSESSION_CHAIN_INVALID');
       const phase=terminal?TERMINAL:phases[index];
       if(item?.phase!==phase||item.index!==index+1||
@@ -260,21 +271,24 @@ export function createT4OriginalNetworkSessionPhasePort({
       currentPhase:current.stages.at(-1)?.phase??null,
       currentEvidence:clone(current.stages.at(-1)?.evidence??null),
       sourceIntentEvidence:role==='SOURCE'?
-        clone(current.stages[0]?.evidence??null):null,
+        clone(current.stages.find(e=>e.phase==='INTENT')?.evidence??null):null,
       sourcePublishedEvidence:role==='SOURCE'?
-        clone(current.stages[1]?.evidence??null):null,
+        clone(current.stages.find(e=>e.phase==='PUBLISHED')?.evidence??null):null,
       ...(recipientApplyIntentRequired?{
         recipientApplyIntentRequired:true,
         recipientReceivedEvidence:clone(current.stages.find(e=>e.phase==='RECEIVED')?.evidence??null),
         recipientVerifiedEvidence:clone(current.stages.find(e=>e.phase==='VERIFIED')?.evidence??null),
         recipientApplyIntentEvidence:clone(current.stages.find(e=>e.phase==='APPLY_INTENT')?.evidence??null),
       }:{}),
-      ...(terminal?{originalRecipientAttemptSuperseded:true,
-        originalRecipientSupersessionEvidence:clone(current.stages.at(-1).evidence),
+      ...(terminal?{
+        ...(role==='RECIPIENT'?{originalRecipientAttemptSuperseded:true,
+          originalRecipientSupersessionEvidence:clone(current.stages.at(-1).evidence),
+          originalRecipientApplyIntentAbsent:true}:{originalSourceAttemptSuperseded:true,
+          originalSourceSupersessionEvidence:clone(current.stages.at(-1).evidence),
+          originalSourceCursorAdvanced:false}),
         originalSupersessionEventId:current.lastOriginalEventId,
         originalSupersessionPreviousChainHash:current.stages.at(-1).previousHash,
-        originalRecipientApplyIntentAbsent:true,originalNewAttemptAdmissionStillRequired:true,
-        liveNetworkAuthorityGranted:false}:{}),
+        originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false}:{}),
       sourceNodeRef,recipientNodeRef,scopeRef,sessionRef,changeId,ownerEpoch,
       ...(changeKind==='OBJECT_PUT'?{}:{changeKind}),
       chainHash:current.chainHash,
@@ -294,7 +308,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     const initial=await context();
     const current=await verifiedRead(initial);
     if(current.stages.at(-1)?.phase===TERMINAL)
-      fail('PHASE_ORIGINAL_RECIPIENT_ATTEMPT_SUPERSEDED',{
+      fail(role==='SOURCE'?'PHASE_ORIGINAL_SOURCE_ATTEMPT_SUPERSEDED':'PHASE_ORIGINAL_RECIPIENT_ATTEMPT_SUPERSEDED',{
         automaticRetryAllowed:false,originalSubjectMutationAllowed:false});
     const pos=phases.indexOf(phase);
     if(pos<current.stages.length){
@@ -373,6 +387,50 @@ export function createT4OriginalNetworkSessionPhasePort({
       originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,
       originalBusinessApplied:false,liveNetworkAuthorityGranted:false,automaticRetryAllowed:false});
   }
+  // A new current signed control request may re-attest the same
+  // independently verified retirement. It must not replace the first
+  // committed source Event or the exact original ACK evidence.
+  async function recordOriginalSourceSupersession({expectedRevision,expectedChainHash,retirementAckDigest,retirement}={}){
+    if(role!=='SOURCE'||authorizeOriginalSourceSupersession===null)
+      fail('PHASE_ORIGINAL_SOURCE_SUPERSESSION_NOT_ENABLED');
+    if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0||expectedRevision>2||
+      !HASH(expectedChainHash)||!HASH(retirementAckDigest))
+      fail('PHASE_ORIGINAL_SUPERSESSION_DECISION_INVALID');
+    const evidence=proofEvidence(TERMINAL,{evidenceRef:retirementAckDigest.slice(7)+'.t4n',
+      evidenceDigest:retirementAckDigest,replacementSessionRef:retirement?.replacementSessionRef,retirement},changeKind,identity);
+    const initial=await context(),current=await verifiedRead(initial),last=current.stages.at(-1),already=last?.phase===TERMINAL;
+    if(!already&&current.stages.some(e=>appliedPhase(e.phase)))
+      fail('PHASE_ORIGINAL_SOURCE_APPLIED_CANNOT_SUPERSEDE',{automaticRetryAllowed:false});
+    const semantic=x=>{const {requestRef,...rest}=x.retirement;return rest;};
+    if(already?(last.previousHash!==expectedChainHash||last.index!==expectedRevision+1||
+      !eq(semantic(last.evidence),semantic(evidence))):
+      (current.revision!==expectedRevision||current.chainHash!==expectedChainHash))
+      fail('PHASE_ORIGINAL_SUPERSESSION_DECISION_CONFLICT',{automaticRetryAllowed:false});
+    const proof=frozen({operation:'t4.network.original.source.attempt.supersede',
+      ...identity,checkpointRef,expectedRevision,expectedChainHash,
+      priorPhase:already?(current.stages.at(-2)?.phase??null):(last?.phase??null),
+      retirement:clone(evidence.retirement),retirementAckDigest,
+      originalRecipientRetirementEvidenceRequired:true,originalSourceFrontierUnchangedRequired:true,
+      originalAcceptedAppliedAckAbsentRequired:true,originalSubjectMutationAllowed:false,
+      originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false});
+    await guard(initial,'t1.getObject',TERMINAL);
+    if(await authorizeOriginalSourceSupersession(proof)!==true)
+      fail('PHASE_ORIGINAL_SOURCE_SUPERSESSION_DENIED');
+    await guard(initial,'t1.getObject',TERMINAL);
+    const checked=await verifiedRead(initial);
+    if(checked.revision!==current.revision||checked.chainHash!==current.chainHash)
+      fail('PHASE_ORIGINAL_SUPERSESSION_DECISION_CONFLICT',{automaticRetryAllowed:false});
+    const outcome=already?{status:'ALREADY_CONFIRMED',revision:current.revision,chainHash:current.chainHash,
+      originalPhaseEventId:current.lastOriginalEventId}:await commitStage(initial,current,TERMINAL,evidence);
+    return frozen({schema:'IWXA_T4_ORIGINAL_SOURCE_ATTEMPT_RETIREMENT_V1',...identity,checkpointRef,
+      status:outcome.status,revision:outcome.revision,chainHash:outcome.chainHash,
+      originalSupersessionEventId:outcome.originalPhaseEventId,
+      originalRecordedRetirement:clone(already?last.evidence:evidence),
+      originalObservedRetirementAckDigest:retirementAckDigest,
+      originalSourceAttemptSuperseded:true,originalNewAttemptAdmissionStillRequired:true,
+      originalSourceCursorAdvanced:false,originalSubjectMutationInvoked:false,
+      originalBusinessApplied:false,liveNetworkAuthorityGranted:false,automaticRetryAllowed:false});
+  }
   async function commitStage(initial,current,phase,expectedEvidence){
     const pos=current.revision;
     const next=entry(phase,expectedEvidence,current.chainHash,pos+1);
@@ -432,6 +490,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1',
     inspectOriginalSession,advanceOriginalSessionPhase,
     ...(authorizeOriginalRecipientSupersession!==null?{retireOriginalRecipientAttempt}:{}),
+    ...(authorizeOriginalSourceSupersession!==null?{recordOriginalSourceSupersession}:{}),
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkSessionPhasePort({
       technicalSchemaId,
       originalKernel,technicalWorkspaceId,originalWriteOwnerRef,
@@ -440,6 +499,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       getMode:originalHostLifetimeMode(getMode,isHostActive),readOriginalHostContext,
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,authorizeOriginalRecipientSupersession,
+      authorizeOriginalSourceSupersession,
     }),
     role,checkpointRef,
     ...(recipientApplyIntentRequired?{recipientApplyIntentRequired:true}:{}),
