@@ -502,6 +502,10 @@ class OperatorAKISModel(mesa.Model):
         # Derived snapshots, never a second journal or an original event stream.
         self.general_views: list[dict[str, Any]] = []
         self._general_last_signature: str | None = None
+        self._has_structural_preparation_claims = any(
+            ev["action"] == "function_prepare" and "preparation_pattern" in ev
+            for ev in self.qualitative.events
+        )
         self.assessment_truncated = False
         self._scheduled_reactions = 0
         self._outlook_epoch = 0
@@ -643,6 +647,17 @@ class OperatorAKISModel(mesa.Model):
             instants = {0, self._model_end_at}
             instants.update(ev["at"] for ev in self.qualitative.events)
             instants.update(self.general_design.source_times)
+            # Observe expiry of only the original structural sources declared
+            # by existing preparation events, even if no Work is active then.
+            # This does not extend the horizon, add a source, or create Work.
+            if self._has_structural_preparation_claims and self.qualitative.context_basis is not None:
+                for ev in self.qualitative.events:
+                    claim = ev.get("preparation_pattern")
+                    ref = claim.get("source_ref") if isinstance(claim, dict) else None
+                    source = (self.qualitative.context_basis.sources.get(ref)
+                              if isinstance(ref, str) else None)
+                    if source is not None and source.valid_until is not None:
+                        instants.add(source.valid_until + 1)
             for at in sorted(t for t in instants if t <= self._model_end_at):
                 callback = self._capture_general_system
                 self._callbacks.append(callback)
@@ -708,6 +723,12 @@ class OperatorAKISModel(mesa.Model):
     def _capture_general_system(self) -> None:
         view = general_system_view(
             self.general_design, self.qualitative, at=float(self.time))
+        if self._has_structural_preparation_claims:
+            from .process_preparation import original_pattern_live_observation
+            observation = original_pattern_live_observation(
+                self.qualitative, at=int(self.time))
+            if observation is not None:
+                view["author_operator_reproducibility"]["structural_preparation_scope"] = observation
         # Record only causal changes, not a new event/Result journal.
         signature = json.dumps(
             {"components": view["components"],
@@ -716,7 +737,9 @@ class OperatorAKISModel(mesa.Model):
              "org_model_edition": view["model_organizational_code_review"],
              "contexts": view["context_cores"],
              "configuration_dynamics": view["configuration_dynamics"],
-             "bounded_agent_process": view["bounded_process_function_outputs"]},
+             "bounded_agent_process": view["bounded_process_function_outputs"],
+             "structural_preparation_scope": view["author_operator_reproducibility"].get(
+                 "structural_preparation_scope")},
             sort_keys=True, ensure_ascii=False)
         if signature != self._general_last_signature:
             self.general_views.append({
@@ -1478,14 +1501,17 @@ class OperatorAKISModel(mesa.Model):
                 "single_original_scheduler": True,
                 "original_results_and_org_code_unmodified": True,
             }
-            from .process_preparation import original_pattern_reproduction_view
+            from .process_preparation import (
+                original_pattern_reproduction_view, summarize_original_pattern_evolution,
+            )
             pattern_observation, pattern_costs = original_pattern_reproduction_view(
                 self.qualitative, at=int(self.time), economics=output.get("economics"),
             )
             if pattern_observation is not None:
-                output["general_akis_model"]["author_operator_reproducibility"][
-                    "structural_preparation_scope"
-                ] = pattern_observation
+                reproduction = output["general_akis_model"]["author_operator_reproducibility"]
+                reproduction["structural_preparation_scope"] = pattern_observation
+                reproduction["structural_preparation_model_time"] = summarize_original_pattern_evolution(
+                    self.general_views, horizon=self._model_end_at)
             if pattern_costs is not None:
                 output["economics"]["original_pattern_reproduction_costs"] = pattern_costs
             if "capability_dynamics" in output:

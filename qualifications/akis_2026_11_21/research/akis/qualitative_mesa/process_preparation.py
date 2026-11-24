@@ -499,7 +499,10 @@ def original_preparation_pattern_current(state: Any, prepared: Mapping[str, Any]
         return False
     return not any(
         row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
-        and row.get("source") == ref and prepared["at"] < row["at"] < at
+        # A general-system observation follows the applied event at this
+        # tick. The original transition gate sees only earlier trace rows
+        # (original event times are strictly increasing).
+        and row.get("source") == ref and prepared["at"] < row["at"] <= at
         for row in state.trace
     )
 
@@ -507,7 +510,8 @@ def original_preparation_pattern_current(state: Any, prepared: Mapping[str, Any]
 def _accepted_pattern_predecessor(state: Any, work: Any, actor: str,
                                   prior_work: str, prepare_at: int,
                                   result_ref: str, accept_at: int,
-                                  pattern_id: str, at: int) -> Mapping[str, Any]:
+                                  pattern_id: str, at: int, *,
+                                  applied_work_rows: list | None = None) -> Mapping[str, Any]:
     """Return the effective prepared packet of an independently accepted Work.
 
     A merely approved but superseded packet is not organizational experience
@@ -522,8 +526,10 @@ def _accepted_pattern_predecessor(state: Any, work: Any, actor: str,
             or type(prepare_at) is not int or type(accept_at) is not int
             or not 0 <= prepare_at < accept_at < at):
         raise ValueError("PREPARATION_PATTERN_PRIOR_ACCEPTED_RESULT_REQUIRED")
-    rows = [r for r in state.trace if r.get("work") == prior.key
-            and r.get("outcome") == "APPLIED" and r["at"] < at]
+    rows = ([r for r in state.trace if r.get("work") == prior.key
+             and r.get("outcome") == "APPLIED" and r["at"] < at]
+            if applied_work_rows is None else
+            [r for r in applied_work_rows if r["at"] < at])
     matching = [
         r for r in rows if r.get("action") == "function_prepare"
         and r.get("actor") == actor and r["at"] == prepare_at
@@ -707,10 +713,11 @@ def qualify_original_preparation_pattern(state: Any, work: Any, actor: str, mode
 def original_pattern_reproduction_view(state: Any, *, at: int,
                                        economics: Mapping[str, Any] | None = None
                                        ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """Final read-only observation of the original structural preparation scope.
+    """Read-only observation of the LIVE original structural preparation scope.
 
-    Count only the effective packets of accepted original Works as returned
-    experience. Keep other applied preparation attempts and their costs visible.
+    The caller supplies the state at this tick, never the final state labelled
+    with an earlier time. Count only effective packets of accepted original
+    Works as returned experience. Keep other applied attempts and costs visible.
     This is a partial preparation-specific measure, not the full author ratios,
     not a new knowledge store, and not a permission for another Work.
     """
@@ -723,10 +730,15 @@ def original_pattern_reproduction_view(state: Any, *, at: int,
     if not prepared:
         return None, None
     cutoff = max(row["at"] for row in trace) + 1
-    accepts = {
-        row["work"]: row["at"] for row in trace
-        if row.get("action") == "accept" and row.get("outcome") == "APPLIED"
-    }
+    # Index the existing trace once per observation, rather than scanning
+    # the entire original history for each prepared Work.
+    applied_by_work: dict[str, list] = {}
+    accepts = {}
+    for row in trace:
+        if row.get("outcome") == "APPLIED" and row.get("work") is not None:
+            applied_by_work.setdefault(row["work"], []).append(row)
+            if row.get("action") == "accept":
+                accepts[row["work"]] = row["at"]
     effective = {}
     for pos, row in prepared.items():
         work = state.works.get(row["work"])
@@ -738,6 +750,7 @@ def original_pattern_reproduction_view(state: Any, *, at: int,
             predecessor = _accepted_pattern_predecessor(
                 state, None, row["actor"], work.key, row["at"], work.result_ref,
                 accept_at, row["model_preparation_pattern"]["pattern_id"], cutoff,
+                applied_work_rows=applied_by_work.get(work.key, []),
             )
         except ValueError:
             continue
@@ -754,6 +767,7 @@ def original_pattern_reproduction_view(state: Any, *, at: int,
     reuses = [row for row in effective.values()
               if row["model_preparation_pattern"]["operation"] == "REUSE"]
     returned = {version(row) for row in reuses} & builds
+    accepted_versions = {version(row) for row in effective.values()}
     current_versions = {
         version(row) for row in effective.values()
         if row.get("org_revision") == state.institution.revision
@@ -793,6 +807,8 @@ def original_pattern_reproduction_view(state: Any, *, at: int,
         "distinct_accepted_built_versions": len(builds),
         "distinct_versions_returned_to_accepted_work": len(returned),
         "accepted_versions_with_current_source_and_oc": len(current_versions),
+        "distinct_accepted_pattern_versions": len(accepted_versions),
+        "accepted_versions_not_currently_qualified": len(accepted_versions - current_versions),
         "prepared_not_effective_in_accepted_work_count": len(prepared) - len(effective),
         "non_effective_preparations_on_accepted_works": superseded,
         "preparations_on_not_accepted_works": len(prepared) - len(effective) - superseded,
@@ -823,3 +839,77 @@ def original_pattern_reproduction_view(state: Any, *, at: int,
             "other_preparation_cost_is_not_automatically_loss": True,
         }
     return shared, cost_view
+
+
+def original_pattern_live_observation(state: Any, *, at: int) -> dict[str, Any] | None:
+    """Use the current original state, never future economic evidence."""
+    view, _ = original_pattern_reproduction_view(state, at=at)
+    if view is None:
+        return None
+    # A historical observation is not an incomplete financial statement.
+    # Do not attach an eventual cost record or a misleading zero to it.
+    view.pop("original_pattern_cost_scope_complete")
+    view.pop("original_cost_record_count")
+    view["cost_status"] = "NOT_EVALUATED_AT_THIS_OBSERVATION"
+    return view
+
+
+def summarize_original_pattern_evolution(general_views: list, *, horizon: int
+                                        ) -> dict[str, Any] | None:
+    """Integrate observed version counts over the one existing model clock.
+
+    A state observed AFTER original actions at tick t applies on [t,next_t).
+    Expiration is observed at valid_until+1. Time ends at the explicit model
+    horizon, not at a future source deadline or a future accepted result.
+    The input is the already captured general-system evolution, not a new
+    journal. Counts are model version-ticks, never labor hours or cash.
+    """
+    points = []
+    for row in general_views:
+        view = row["projection"]["author_operator_reproducibility"].get(
+            "structural_preparation_scope")
+        if view is None:
+            continue
+        at = row["at"]
+        if not 0 <= at <= horizon or int(at) != at:
+            raise ValueError("PREPARATION_EVOLUTION_MODEL_TICK_OUTSIDE_HORIZON")
+        accepted = view["distinct_accepted_pattern_versions"]
+        current = view["accepted_versions_with_current_source_and_oc"]
+        returned = view["distinct_versions_returned_to_accepted_work"]
+        if not 0 <= current <= accepted or not 0 <= returned <= accepted:
+            raise ValueError("PREPARATION_EVOLUTION_VERSION_COUNTS_INCONSISTENT")
+        values = (accepted, current, returned)
+        if points and at <= points[-1][0]:
+            raise ValueError("PREPARATION_EVOLUTION_MODEL_TICKS_NOT_INCREASING")
+        if not points or points[-1][1] != values:
+            points.append((int(at), values))
+    if not points:
+        return None
+    accepted_ticks = current_ticks = returned_ticks = gap_ticks = 0
+    for i, (at, (accepted, current, returned)) in enumerate(points):
+        end = points[i+1][0] if i+1 < len(points) else horizon
+        elapsed = end - at
+        accepted_ticks += accepted * elapsed
+        current_ticks += current * elapsed
+        returned_ticks += returned * elapsed
+        if accepted and not current:
+            gap_ticks += elapsed
+    return {
+        "scope": "ORIGINAL_STRUCTURAL_PREPARATION_VERSION_TIME_ONLY",
+        "model_horizon_tick": horizon,
+        "first_observed_preparation_tick": points[0][0],
+        "observed_model_ticks_after_first_preparation": horizon - points[0][0],
+        "distinct_version_count_change_points": len(points),
+        "accepted_version_model_ticks": accepted_ticks,
+        "current_accepted_version_model_ticks": current_ticks,
+        "not_current_accepted_version_model_ticks": accepted_ticks - current_ticks,
+        "returned_version_model_ticks": returned_ticks,
+        "model_ticks_with_accepted_history_but_no_current_version": gap_ticks,
+        "time_weighted_current_accepted_version_share": (
+            f"{Decimal(current_ticks) / Decimal(accepted_ticks):.4f}"
+            if accepted_ticks else "UNKNOWN_ZERO_DENOMINATOR"),
+        "same_original_general_system_evolution": True,
+        "new_original_events_or_cost_rows_created": 0,
+        "actual_time_and_costs_measured": False,
+        "full_author_repeatability_and_experience_return_ratios_identified": False,
+    }
