@@ -1,0 +1,94 @@
+name: d02-personal-activity-source
+on:
+  push:
+    branches:
+      - work/2026-11-24-d02-personal-activity-qualification
+    paths:
+      - .github/workflows/d02-personal-activity-source.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Exact canonical Club source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club
+          ref: 68dd56c11fede265c84cf685fb620c42abae6a39
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: owner
+      - name: Exact Club website source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: 01405a72545bfd98b82c3302e44d68a156408c61
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify canonical semantics and generated skills
+        working-directory: owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! (node scripts/club-skill-authoring.mjs generate && git diff --exit-code && node scripts/club-skill-authoring.mjs check && node --test tests/personal-economy.test.mjs tests/assistant-skills.test.mjs) > "$RUNNER_TEMP/d02-owner.private" 2>&1; then
+            echo D02_CANONICAL_FINANCE_AND_SKILLS=FAIL
+            grep -E '^not ok [0-9]+ - |^# (tests|pass|fail) ' "$RUNNER_TEMP/d02-owner.private" | head -20 || true
+            exit 1
+          fi
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d02-owner.private"
+          echo D02_CANONICAL_FINANCE_AND_SKILLS=PASS
+      - name: Execute official skills import and verify exact resulting blobs
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 68dd56c11fede265c84cf685fb620c42abae6a39 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 68dd56c11fede265c84cf685fb620c42abae6a39 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
+            echo D02_OFFICIAL_SKILLS_IMPORT=FAIL
+            grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/d02-import.private" | sort -u | head -20 || true
+            exit 1
+          fi
+          echo "D02_IMPORTED_SKILL_BLOB=$(git hash-object assets/club-assistant-skills.json)"
+          echo "D02_IMPORTED_PIN_BLOB=$(git hash-object runtime/t3-platform/0.3.1-rc.1/domain-skills.json)"
+          echo D02_OFFICIAL_SKILLS_IMPORT=PASS
+      - name: Verify exact economic logic projection and targeted regression
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const owner=readFileSync('../owner/logic/personal-economy.mjs','utf8').split('export ')[1].trim();
+          const source=readFileSync('assets/site.js','utf8');
+          const a=source.indexOf('// BEGIN CLUB_CANONICAL_PERSONAL_ECONOMY'),b=source.indexOf('// END CLUB_CANONICAL_PERSONAL_ECONOMY',a);
+          assert.ok(a>=0&&b>a);
+          assert.equal(source.slice(source.indexOf('\n',a)+1,b).trim(),owner);
+          console.log('D02_CANONICAL_FINANCE_PROJECTION=PASS');
+          NODE
+          if ! node --check assets/site.js > "$RUNNER_TEMP/d02-syntax.private" 2>&1; then
+            echo D02_SITE_SYNTAX=FAIL
+            exit 1
+          fi
+          failed=0
+          for suite in test:club-personal-economy test:club-cash-calendar-route test:club-case-03-native-tools test:club-case-route-integration test:club-case-02-route-integration test:club-work-ledger-integration test:club-unified-ux test:club-author-voice test:club-assistant-skills; do
+            if ! npm run "$suite" > "$RUNNER_TEMP/d02-site.private" 2>&1; then
+              echo "D02_TARGETED_SUITE=FAIL $suite"
+              grep -E '^not ok [0-9]+ - |^# (tests|pass|fail) ' "$RUNNER_TEMP/d02-site.private" | head -15 || true
+              failed=1
+            else
+              echo "D02_TARGETED_SUITE=PASS $suite"
+              grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d02-site.private"
+            fi
+          done
+          test "$failed" = 0
+      - name: Remove private logs
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/d02-*.private
