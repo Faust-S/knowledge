@@ -169,6 +169,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     await guard(initial,'t1.getObject','readback');
     const before=await originalKernel.getObject(
       technicalWorkspaceId,checkpointRef);
+    mode();
     const stages=verifyStages(before);
     if(!stages.length)return frozen({stages:[],revision:0,
       chainHash:genesis,checkpointRef});
@@ -199,6 +200,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     await guard(initial,'t1.getObject','double-read');
     const after=await originalKernel.getObject(
       technicalWorkspaceId,checkpointRef);
+    mode();
     if(!eq(after?.object,before?.object))
       fail('PHASE_ORIGINAL_CHECKPOINT_CHANGED');
     return frozen({stages:clone(stages),revision:stages.length,

@@ -314,3 +314,14 @@ test('new original recipient policy reserves an apply intent in the same phase O
   assert.equal((await port.inspectOriginalSession()).revision,4);
   assert.equal(f.kernel.calls,4);
 });
+
+test('inactive original Host cannot return even an empty phase checkpoint after an awaited original read',async()=>{
+  const f=fixture();let active=true;
+  const read=f.kernel.kernel.getObject;
+  f.kernel.kernel.getObject=async(...args)=>{const row=await read(...args);active=false;return row;};
+  const port=f.create().forOriginalHostLifetime(()=>active);
+  await assert.rejects(port.inspectOriginalSession(),isCode('ORIGINAL_HOST_LIFETIME_ENDED'));
+  assert.equal(f.kernel.calls,0);
+  active=true;
+  await assert.rejects(port.inspectOriginalSession(),isCode('ORIGINAL_HOST_LIFETIME_ENDED'));
+});

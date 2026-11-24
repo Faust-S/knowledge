@@ -193,7 +193,9 @@ export function createT4OriginalNetworkHostCursorPort({
         }));
         mode();return ok===true;
       },
-      readOriginalEvents:readOriginalSourceEvents,
+      readOriginalEvents:async(...args)=>{
+        mode();const value=await readOriginalSourceEvents(...args);mode();return value;
+      },
     });
     if(!validCursor(cursor,sourceWorkspaceId,originalWriteOwnerRef)||
       !same(res.nextCursor,cursor)||res.window.count!==1||
@@ -206,6 +208,7 @@ export function createT4OriginalNetworkHostCursorPort({
     await guard(initial,'t1.getObject','frontier-read');
     const row=await originalKernel.getObject(
       technicalWorkspaceId,checkpointRef);
+    mode();
     if(row===null||row===undefined)return frozen({
       revision:0,last:null,chainHash:genesis,checkpointRef,
     });
@@ -222,6 +225,7 @@ export function createT4OriginalNetworkHostCursorPort({
     const end=data.last;
     await guard(initial,'t1.listEventsSince','frontier-event-read');
     const all=await originalKernel.listEventsSince(technicalWorkspaceId);
+    mode();
     if(!Array.isArray(all)||all.length>100000)
       fail('HOST_CURSOR_ORIGINAL_EVENT_STREAM_INVALID');
     const events=all.filter(e=>e?.workspace_id===technicalWorkspaceId&&
@@ -249,6 +253,7 @@ export function createT4OriginalNetworkHostCursorPort({
     await originalEventPrefix(end.sourceCursorAfter,end.sourceCursorBefore);
     await guard(initial,'t1.getObject','frontier-double-read');
     const after=await originalKernel.getObject(technicalWorkspaceId,checkpointRef);
+    mode();
     if(!same(after?.object,obj))
       fail('HOST_CURSOR_ORIGINAL_CHANGED_DURING_READ');
     return frozen({revision:obj.revision,last:copy(end),
@@ -381,9 +386,11 @@ export function createT4OriginalNetworkHostCursorPort({
           ...proof,sourceNodeRef,recipientNodeRef,scopeRef,
           originalSourceEventAuthorityRequired:true,
         }));
-        return ok===true;
+        mode();return ok===true;
       },
-      readOriginalEvents:readOriginalSourceEvents,
+      readOriginalEvents:async(...args)=>{
+        mode();const value=await readOriginalSourceEvents(...args);mode();return value;
+      },
     });
     await guard(initial,'t1.getObject','next-event-checkpoint');
     const after=await readVerified(initial);

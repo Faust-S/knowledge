@@ -545,6 +545,14 @@ async function ackFixture({publishDiff=true,deleteKind=null}={}){
       signerRef==='key:recipient:network'&&
       verify(null,Buffer.from(bytes),keys.publicKey,Buffer.from(signature)),
     frameTransport:{
+      forOriginalHostLifetime(isHostActive){
+        const original=this;
+        const ensure=()=>{if(isHostActive()!==true)throw Object.assign(Error('inactive'),
+          {code:'ORIGINAL_HOST_LIFETIME_ENDED'});};
+        return {...original,
+          async publishSignedFrame(args){ensure();const r=await original.publishSignedFrame(args);ensure();return r;},
+          async inspectUnknownPublication(args){ensure();const r=await original.inspectUnknownPublication(args);ensure();return r;}};
+      },
       async publishSignedFrame({wireBytes}){
         puts++;
         const sha256=H(wireBytes).slice(7),key=sha256+'.t4n';

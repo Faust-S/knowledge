@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {
   decodeT4CandidateFrame,verifyT4CandidateWireFrame,
 } from './standard-network-wire-candidate.mjs';
@@ -104,6 +105,7 @@ export function createT4CandidateFrameTransport({
     const key=sha256+'.t4n';
     const ctx=await hostSnapshot();
     await hostGuard('publish',ctx,frame,sha256);
+    mode();
     let receipt;
     try{
       receipt=await wireTransport.putSnapshot({
@@ -140,7 +142,9 @@ export function createT4CandidateFrameTransport({
       fail('WIRE_NETWORK_DIGEST_KEY_REQUIRED');
     const ctx=await hostSnapshot();
     const inspection=await wireTransport.inspectOutcome({key,expectedSha256});
+    mode();
     const result=await wireTransport.getSnapshot({key,expectedSha256});
+    mode();
     const frame=decodeT4CandidateFrame(result.bytes);
     if(frame.sourceNodeRef!==originalHostNodeRef||
       frame.scopeRef!==originalHostScopeRef)
@@ -169,17 +173,27 @@ export function createT4CandidateFrameTransport({
     const downloaded=await wireTransport.getSnapshot({
       key,expectedSha256,
     });
+    mode();
     const frame=decodeT4CandidateFrame(downloaded.bytes);
     if(frame.recipientNodeRef!==originalHostNodeRef||
       frame.scopeRef!==originalHostScopeRef)
       fail('WIRE_WRONG_RECIPIENT_OR_SCOPE');
     await hostGuard('receive',ctx,frame,expectedSha256);
+    // Every independently awaited authority callback is tied to the same
+    // original Host lifetime, including the durable replay CAS.
+    const live=fn=>async proof=>{
+      mode();
+      const result=await fn(proof);
+      mode();return result;
+    };
     const verdict=await verifyT4CandidateWireFrame({
       wireBytes:downloaded.bytes,
       recipientNodeRef:originalHostNodeRef,
       scopeRef:originalHostScopeRef,requiredCryptoSuite,
-      supportedCriticalExtensions,verifyOriginalNodeSignature,
-      authorizeOriginalNetwork,persistOriginalReplayDecision,
+      supportedCriticalExtensions,
+      verifyOriginalNodeSignature:live(verifyOriginalNodeSignature),
+      authorizeOriginalNetwork:live(authorizeOriginalNetwork),
+      persistOriginalReplayDecision:live(persistOriginalReplayDecision),
     });
     // A forged or revoked Host session must be rejected even after
     // signature and durable replay CAS succeed.
@@ -215,6 +229,12 @@ export function createT4CandidateFrameTransport({
     schema:'IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1',
     publishSignedFrame,inspectUnknownPublication,
     readAndVerifySignedFrame,
+    forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
+      wireTransport,getMode:originalHostLifetimeMode(getMode,isHostActive),
+      readOriginalHostContext,authorizeOriginalHostWire,
+      originalHostNodeRef,originalHostScopeRef,verifyOriginalNodeSignature,
+      authorizeOriginalNetwork,persistOriginalReplayDecision,
+    }),
     originalT3ExchangeDependency:false,
     createsSubjectStore:false,createsSubjectIAM:false,
     productionEncryptedChannel:false,

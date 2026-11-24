@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateKeyPairSync,sign,verify} from 'node:crypto';
+import {generateKeyPairSync,sign,verify,createHash} from 'node:crypto';
+import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {
   createT4CandidateUnsignedFrame,signT4CandidateFrame,
   decodeT4CandidateFrame,negotiateT4CandidateCapabilities,
@@ -371,4 +372,49 @@ test('Object tombstone carries actual next numeric revision and distinct critica
   assert.throws(()=>create({messageType:'APPLIED_ACK',body:ack,
     criticalExtensions:[T4_OBJECT_TOMBSTONE_EXTENSION,T4_SUBJECT_DELETE_EXTENSION]}),
     code('WIRE_OBJECT_TOMBSTONE_EXTENSION_INVALID'));
+});
+
+// Real frame-port guards, with an in-memory immutable wire fixture and original
+// authority callbacks. These do not replace the actual HTTPS qualification.
+async function lifetimeWireFixture(node='node:receiver'){
+  const bytes=await wire(),sha=createHash('sha256').update(bytes).digest('hex'),
+    key=sha+'.t4n',t=trustedPorts();
+  let active=true,puts=0,reads=0,inspects=0;
+  const ports={
+    wireTransport:{wireKind:'T4_NETWORK_CANDIDATE',
+      async putSnapshot(){puts++;return {key,sha256:sha,state:'PUBLISHED_AND_READ_BACK'};},
+      async getSnapshot(){reads++;return {bytes};},
+      async inspectOutcome(){inspects++;return {sha256:sha,state:'EXPECTED_BYTES_PRESENT'};},},
+    getMode:()=> 'T4_NETWORK',originalHostNodeRef:node,originalHostScopeRef:base.scopeRef,
+    readOriginalHostContext:async()=>({nodeRef:node,scopeRef:base.scopeRef,
+      originalOwnerRef:'original:owner',hostSessionRef:'host:live'}),
+    authorizeOriginalHostWire:async()=>true,
+    verifyOriginalNodeSignature:t.ports.verifyOriginalNodeSignature,
+    authorizeOriginalNetwork:t.ports.authorizeOriginalNetwork,
+    persistOriginalReplayDecision:t.ports.persistOriginalReplayDecision,
+  };
+  return {ports,key,sha,bytes,t,stop:()=>{active=false;},reactivate:()=>{active=true;},
+    scoped:()=>createT4CandidateFrameTransport(ports).forOriginalHostLifetime(()=>active),
+    counts:()=>({puts,reads,inspects})};
+}
+test('original wire lifetime lost during publication authority cannot issue a PUT',async()=>{
+  const x=await lifetimeWireFixture('node:source');
+  x.ports.authorizeOriginalHostWire=async()=>{x.stop();return true;};
+  const old=x.scoped();
+  await assert.rejects(old.publishSignedFrame({wireBytes:x.bytes}),code('ORIGINAL_HOST_LIFETIME_ENDED'));
+  x.reactivate();
+  await assert.rejects(old.publishSignedFrame({wireBytes:x.bytes}),code('ORIGINAL_HOST_LIFETIME_ENDED'));
+  assert.equal(x.counts().puts,0);
+});
+test('original wire inspection invalidated before immutable readback does not read again',async()=>{
+  const x=await lifetimeWireFixture('node:source'),inspect=x.ports.wireTransport.inspectOutcome;
+  x.ports.wireTransport.inspectOutcome=async args=>{const r=await inspect(args);x.stop();return r;};
+  await assert.rejects(x.scoped().inspectUnknownPublication({key:x.key,expectedSha256:x.sha}),code('ORIGINAL_HOST_LIFETIME_ENDED'));
+  assert.deepEqual(x.counts(),{puts:0,reads:0,inspects:1});
+});
+test('original wire invalidation during network authorization prevents durable replay write',async()=>{
+  const x=await lifetimeWireFixture(),auth=x.ports.authorizeOriginalNetwork;
+  x.ports.authorizeOriginalNetwork=async args=>{const ok=await auth(args);x.stop();return ok;};
+  await assert.rejects(x.scoped().readAndVerifySignedFrame({key:x.key,expectedSha256:x.sha,requiredCryptoSuite:cryptoSuite}),code('ORIGINAL_HOST_LIFETIME_ENDED'));
+  assert.equal(x.t.observations.replayWrites,0);
 });

@@ -54,6 +54,7 @@ export function createT4OriginalHostCaptureAdapter({
       fail('ORIGINAL_HOST_MUTATION_REQUIRED');
     if(mode()==='LOCAL_T3'){
       const originalReceipt=await originalKernel[operation](mutationInput);
+      mode();
       return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_DELETE_RESULT_V1',
         subjectKind:kind,t4Mode:'LOCAL_T3',originalReceipt,capture:null,
         originalT3OperationUsed:true,originalHostUnchanged:true,networkPublished:false});
@@ -63,6 +64,7 @@ export function createT4OriginalHostCaptureAdapter({
       fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
     const capture=await captureT4OriginalHostSubjectDeletion({...hostCapturePorts(),
       kind,workspaceId:mutationInput.workspace_id,mutationInput,sourceCursor,captureRef,fromObjectId});
+    mode();
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_DELETE_RESULT_V1',
       subjectKind:kind,t4Mode:'T4_NETWORK',originalReceipt:capture.originalReceipt,capture,
       originalT3OperationUsed:true,originalHostUnchanged:true,networkPublished:false});
@@ -86,6 +88,7 @@ export function createT4OriginalHostCaptureAdapter({
         if(!mutationInput||typeof mutationInput!=='object')
           fail('ORIGINAL_HOST_MUTATION_REQUIRED');
         const originalReceipt=await originalKernel.putObject(mutationInput);
+      mode();
         return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_PUT_RESULT_V1',
           t4Mode:'LOCAL_T3',originalReceipt,
           originalT3OperationUsed:true,originalHostUnchanged:true,
@@ -99,6 +102,7 @@ export function createT4OriginalHostCaptureAdapter({
         ...hostCapturePorts(),workspaceId:mutationInput.workspace_id,
         objectId:mutationInput.object_id,captureRef,sourceCursor,mutationInput,
       });
+      mode();
       return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_PUT_RESULT_V1',
         t4Mode:'T4_NETWORK',originalReceipt:captured.originalT3Receipt,
         originalT3OperationUsed:true,originalHostUnchanged:true,
@@ -112,6 +116,7 @@ export function createT4OriginalHostCaptureAdapter({
         if(!mutationInput||typeof mutationInput!=='object')
           fail('ORIGINAL_HOST_MUTATION_REQUIRED');
         const originalReceipt=await originalKernel.putAsset(mutationInput);
+      mode();
         return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_PUT_RESULT_V1',
           subjectKind:'ASSET_PUT',t4Mode:'LOCAL_T3',originalReceipt,
           capture:null,originalT3OperationUsed:true,originalHostUnchanged:true,
@@ -126,6 +131,7 @@ export function createT4OriginalHostCaptureAdapter({
         workspaceId:mutationInput.workspace_id,captureRef,sourceCursor,
         mutationInput,
       });
+      mode();
       return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_PUT_RESULT_V1',
         subjectKind:'ASSET_PUT',t4Mode:'T4_NETWORK',capture,
         originalReceipt:capture.originalReceipt,
@@ -140,6 +146,7 @@ export function createT4OriginalHostCaptureAdapter({
         if(!mutationInput||typeof mutationInput!=='object')
           fail('ORIGINAL_HOST_MUTATION_REQUIRED');
         const originalReceipt=await originalKernel.putRelation(mutationInput);
+      mode();
         return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_PUT_RESULT_V1',
           subjectKind:'RELATION_PUT',t4Mode:'LOCAL_T3',originalReceipt,
           capture:null,originalT3OperationUsed:true,originalHostUnchanged:true,
@@ -154,6 +161,7 @@ export function createT4OriginalHostCaptureAdapter({
         workspaceId:mutationInput.workspace_id,captureRef,sourceCursor,
         mutationInput,
       });
+      mode();
       return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_PUT_RESULT_V1',
         subjectKind:'RELATION_PUT',t4Mode:'T4_NETWORK',capture,
         originalReceipt:capture.originalReceipt,
@@ -174,6 +182,7 @@ export function createT4OriginalHostCaptureAdapter({
         if(!mutationInput||typeof mutationInput!=='object')
           fail('ORIGINAL_HOST_MUTATION_REQUIRED');
         const originalReceipt=await originalKernel.deleteObject(mutationInput);
+      mode();
         return Object.freeze({
           schema:'IWXA_T4_ORIGINAL_HOST_OBJECT_DELETE_RESULT_V1',
           t4Mode:'LOCAL_T3',originalReceipt,originalT3OperationUsed:true,

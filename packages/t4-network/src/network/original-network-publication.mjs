@@ -1,4 +1,4 @@
-import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
+import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
 import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,
   isT4NativeEventOnlyKind,validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions}
@@ -277,6 +277,7 @@ export function createT4OriginalNetworkPublicationPort({
     const row=await originalKernel.getObject(technicalWorkspaceId,checkpointRef);
     await guard(ctx,'t1.listEventsSince','read-publication-events');
     const all=await originalKernel.listEventsSince(technicalWorkspaceId);
+    mode();
     if(!Array.isArray(all)||all.length>100000)
       fail('PUBLICATION_ORIGINAL_EVENT_STREAM_INVALID');
     const events=all.filter(e=>e?.workspace_id===technicalWorkspaceId&&
@@ -502,7 +503,10 @@ export function createT4OriginalNetworkPublicationPort({
       session:identity,localNodeRef,technicalWorkspaceId,originalKernel,
       getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-      authorizeOriginalFramePublish,verifyOriginalNodeSignature,frameTransport,
+      authorizeOriginalFramePublish,verifyOriginalNodeSignature,
+      frameTransport:scopeOriginalHostPort(frameTransport,isHostActive,
+        ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM'],
+        'PUBLICATION_ORIGINAL_WIRE_LIFETIME_REQUIRED'),
     }),
     originalT3OnlyStore:true,createsScheduler:false,createsTaskEngine:false});
 }
