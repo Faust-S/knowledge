@@ -286,3 +286,54 @@ def material_view(batches: Sequence[MaterialBatch], states: Mapping[str, Materia
             "result_role": "INTERNAL_STAGE_CLAIMS_NOT_ORIGINAL_WORK_RESULT",
             "batches": rows}
 
+
+
+def original_unresolved_material_view(
+    batches: Sequence[MaterialBatch], states: Mapping[str, MaterialState],
+    operation_states: Mapping[str, str],
+) -> dict[str, Any] | None:
+    """Observe a retained, source-declared shortage before downstream start.
+
+    Mere planning or absent initial receipt/quality is not an observed loss.
+    A subsequent dispatched or received but not yet assessed round does not
+    erase earlier reported quantities or establish final usable inventory.
+    All quantities are the original model claims, not an inventory audit.
+    """
+    rows = {}
+    for batch in batches:
+        if operation_states.get(batch.edge[1]) != "NOT_STARTED":
+            continue
+        st = states[batch.key]
+        received = st.observed_total("received")
+        accepted = st.observed_total("accepted")
+        rejected = st.observed_total("rejected")
+        dispatched = st.observed_total("dispatched")
+        shortage = ((received is not None and received < batch.planned_quantity)
+                    or (accepted is not None and accepted < batch.planned_quantity))
+        if not shortage or (st.quality_ref is not None and accepted == batch.planned_quantity):
+            continue
+        rows[batch.key] = {
+            "unit": batch.unit,
+            "planned_quantity": str(batch.planned_quantity),
+            "cumulative_dispatched_quantity": str(dispatched) if dispatched is not None else None,
+            "cumulative_received_claim_quantity": str(received) if received is not None else None,
+            "cumulative_accepted_claim_quantity": str(accepted) if accepted is not None else None,
+            "cumulative_rejected_claim_quantity": str(rejected) if rejected is not None else None,
+            "quantity_remaining_to_qualified_requirement": (
+                str(batch.planned_quantity-accepted) if accepted is not None else None),
+            "cumulative_unreceived_quantity": (
+                str(dispatched-received) if st.received is not None else None),
+            "original_round_count": len(st.previous_rounds)+1,
+            "current_round_receipt_declared": st.receipt_ref is not None,
+            "current_round_quality_declared": st.quality_ref is not None,
+            "original_downstream_not_started": True,
+        }
+    if not rows:
+        return None
+    return {
+        "status": "MODEL_ORIGINAL_MATERIAL_REQUIREMENT_NOT_YET_QUALIFIED",
+        "per_original_batch": rows,
+        "original_prior_round_quantities_retained": True,
+        "missing_assessment_is_not_zero_accepted_quantity": True,
+        "physical_inventory_and_scrap_cost": "NOT_IDENTIFIABLE",
+    }

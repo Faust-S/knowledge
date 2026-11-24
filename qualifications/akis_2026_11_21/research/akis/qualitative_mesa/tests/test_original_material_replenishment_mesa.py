@@ -442,3 +442,145 @@ def test_original_material_replenishment_missing_cost_is_not_a_zero_measurement(
     material = report["per_original_work"]["w3"]["original_material_replenishment"]
     assert material["separately_declared_supplementary_handoff_resource_cost"] is None
     assert material["supplementary_handoff_original_cost_row_count"] == 0
+
+
+def combined_original_recovery_portfolio(*, recovery=True, material_seller="60.00",
+                                         material_buyer="15.00", restoration="85.00",
+                                         quality_seller="90.00", quality_buyer="20.00"):
+    """Three coexisting disturbances; each cost stays with its original owner/Work."""
+    from .test_r3_r4_original_multi_order_portfolio_mesa import (
+        original_quality_recovery_portfolio, resource_disturbance_portfolio,
+    )
+    doc = material_finance_portfolio(
+        supplement=recovery, seller_cost=material_seller, buyer_cost=material_buyer)
+    doc = original_quality_recovery_portfolio(
+        _doc=doc, recovery=recovery, seller_cost=quality_seller, buyer_cost=quality_buyer)
+    return resource_disturbance_portfolio(_doc=doc, disturbed=recovery, cost=restoration)
+
+
+def combined_original_recovery_view(doc, *, disturbed):
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    out = simulate(doc)
+    assert [e["reason"] for e in out["trace"] if e["outcome"] == "BLOCKED"] == (
+        ["RESOURCE_NOT_AVAILABLE"] if disturbed else [])
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    r = out["economics"]["original_portfolio_economics"]
+    assert r["status"] == "MODEL_ORIGINAL_MULTI_ORDER_PORTFOLIO_ECONOMICS", r
+    return out, r["local_research_only"]["activity_efficiency"]
+
+
+@pytest.mark.parametrize("costs,net", [
+    (("60.00","15.00","85.00","90.00","20.00"), "795.00"),
+    (("0.00","0.00","0.00","0.00","0.00"), "1065.00"),
+    (("400.00","100.00","300.00","250.00","100.00"), "-85.00"),
+])
+def test_original_combined_process_recovery_costs_not_counted_twice(costs,net):
+    from decimal import Decimal
+    from .test_r4_original_outside_work_mesa import OUTSIDE, BUYER, ACCEPTED
+    _, before = combined_original_recovery_view(
+        combined_original_recovery_portfolio(recovery=False), disturbed=False)
+    doc = combined_original_recovery_portfolio(**dict(zip(
+        ("material_seller","material_buyer","restoration","quality_seller","quality_buyer"),costs)))
+    frozen = deepcopy(doc)
+    out, after = combined_original_recovery_view(doc, disturbed=True)
+    assert doc == frozen
+    assert after["accepted_original_work_count"] == before["accepted_original_work_count"] == 2
+    assert after["consolidated"]["gross_incremental_recipient_use_value"] == (
+        before["consolidated"]["gross_incremental_recipient_use_value"]) == "2200.00"
+    assert after["consolidated"]["model_economic_contribution"] == net
+    assert Decimal(before["consolidated"]["model_economic_contribution"])-Decimal(net) == (
+        sum(map(Decimal,costs)))
+    assert after["internal_transfer_turnover_not_system_output"] == before["internal_transfer_turnover_not_system_output"]
+    assert after["reserved_capacity_unit_ticks_by_resource"] == before["reserved_capacity_unit_ticks_by_resource"]
+    a,b,r,c,q = map(Decimal,costs)
+    for owner, loss in (("a",a),("b",b+r),("c",c),(BUYER,q)):
+        assert Decimal(before["per_original_owner"][owner]["model_cash_resource_balance"])-Decimal(
+            after["per_original_owner"][owner]["model_cash_resource_balance"]) == loss
+    w = after["per_original_work"]["w3"]
+    assert w["separately_declared_resource_restoration_cost"] == costs[2]
+    assert Decimal(w["original_material_replenishment"]["separately_declared_supplementary_handoff_resource_cost"]) == a+b
+    assert after["per_original_work"][OUTSIDE]["original_resubmission_count"] == 1
+    assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1","w2","w3",OUTSIDE))
+
+
+def unfinished_material_portfolio(*, phase="shortfall"):
+    """Stop at the original blocked downstream start, retaining only applied costs."""
+    d = material_finance_portfolio()
+    money = d["economic_claims"]
+    events = d["events"]
+    start = next(e for e in events if e.get("work") == "w3"
+                 and e["action"] == "start_operation" and e["operation"] == "stage-c")
+    allowed = {"shortfall":set(), "dispatched":{"handoff_dispatch"},
+               "received":{"handoff_dispatch","handoff_receive"}}[phase]
+    events[:] = [e for e in events if not (
+        (e.get("work") == "w3" and e["at"] > start["at"])
+        or (e.get("work") == "w3" and e.get("material_replenishment_round") == 2
+            and e["action"] not in allowed))]
+    # The retained start attempt is blocked, not a resource expense.
+    applied_ticks = {e["at"] for e in events if e["at"] != start["at"]}
+    omitted = {r["resource_use_id"] for r in money["lifecycle_costs"]["event_bindings"]
+               if r["work"] == "w3" and r["at"] not in applied_ticks}
+    money["resource_uses"][:] = [r for r in money["resource_uses"] if r["id"] not in omitted]
+    for field in ("bindings","event_bindings"):
+        money["lifecycle_costs"][field][:] = [r for r in money["lifecycle_costs"][field]
+                                             if r["resource_use_id"] not in omitted]
+    for row in money["lifecycle_costs"]["event_bindings"]:
+        row["trace_position"] = next(i for i,e in enumerate(events) if e["at"] == row["at"])
+    for field in ("market_order_economics","portfolio_scope_evidence"):
+        for row in money[field]["owner_scopes"].values():
+            row["resource_use_ids"][:] = [i for i in row["resource_use_ids"] if i not in omitted]
+    money["recipient_use_value_evidence"][:] = [r for r in money["recipient_use_value_evidence"]
+                                               if r["work"] != "w3"]
+    conditional = {r["transfer_id"] for r in money["work_payment_conditions"]
+                   if r["condition"] == "ON_CUSTOMER_ACCEPTANCE" and r["transfer_id"].startswith("w3-")}
+    money["work_payment_settlement_claims"][:] = [
+        r for r in money["work_payment_settlement_claims"] if r["transfer_id"] not in conditional]
+    return d
+
+
+def observed_unfinished_material(doc):
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    out = simulate(doc)
+    assert out["works"]["w3"]["result"] == "NOT_SUBMITTED"
+    report = out["economics"]["original_portfolio_economics"]
+    assert report["status"] == "UNKNOWN" and "local_research_only" not in report
+    obs = report["incomplete_original_activity_observation"]
+    return out, obs["local_research_only"]["per_original_unfinished_work"]["w3"]
+
+
+@pytest.mark.parametrize("phase,round_count,receipt,quality,received,unreceived", [
+    ("shortfall",1,True,True,"11.25","1.25"),
+    ("dispatched",2,False,False,"11.25",None),
+    ("received",2,True,False,"12.75","1.25"),
+])
+def test_unfinished_material_retains_qualified_shortfall_without_recognizing_value(
+        phase,round_count,receipt,quality,received,unreceived):
+    from decimal import Decimal
+    doc = unfinished_material_portfolio(phase=phase)
+    frozen = deepcopy(doc)
+    out, work = observed_unfinished_material(doc)
+    assert doc == frozen
+    assert work["original_commitment_remains"]
+    assert work["accepted_recipient_use_value"] is None and work["net_economic_contribution"] is None
+    assert work["original_execution_readiness"] is None
+    material = work["original_unresolved_material"]
+    row = material["per_original_batch"]["original-w3-components"]
+    assert row["original_round_count"] == round_count
+    assert row["cumulative_received_claim_quantity"] == received
+    assert row["cumulative_accepted_claim_quantity"] == "11.00"
+    assert row["cumulative_rejected_claim_quantity"] == "0.25"
+    assert row["quantity_remaining_to_qualified_requirement"] == "1.50"
+    assert row["cumulative_unreceived_quantity"] == unreceived
+    assert row["current_round_receipt_declared"] is receipt
+    assert row["current_round_quality_declared"] is quality
+    assert row["original_downstream_not_started"]
+    assert work["completed_original_operation_count"] == 1
+    assert work["in_progress_original_operation_count"] == 0
+    assert Decimal(work["triggered_declared_external_outflows"]) == Decimal("470.00")
+    assert Decimal(work["untriggered_conditional_transfer_amount_not_collected_revenue"]) > 0
+    _, before = observed_unfinished_material(unfinished_material_portfolio())
+    assert Decimal(work["source_anchored_exclusive_resource_cost"]) - Decimal(
+        before["source_anchored_exclusive_resource_cost"]) == (
+        Decimal("0.00") if phase == "shortfall" else Decimal("60.00"))
+    assert any(e["action"] == "start_operation" and e["work"] == "w3"
+               and e["outcome"] == "BLOCKED" for e in out["trace"])

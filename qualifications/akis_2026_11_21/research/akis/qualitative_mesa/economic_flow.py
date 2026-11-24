@@ -18,6 +18,7 @@ from .cooperation import (
 from .modern_economic_evidence import ModernEconomicEvidenceError, review_cost_attribution
 from .economic_liquidity import LiquidityInputError, evaluate_cash_timing
 from .capacity import original_execution_readiness_view
+from .material import original_unresolved_material_view
 from .economic_lifecycle import LifecycleInputError, classify_lifecycle_costs, STAGES, NATURES
 from .common_work_allocations import CommonAllocationError, review_common_work_allocations
 
@@ -1932,12 +1933,15 @@ def _original_incomplete_activity_cost_exposure(
         history = [e for e in state.trace if e.get("work") == key and e["outcome"] == "APPLIED"]
         commits = [e["at"] for e in history if e["action"] == "commit"]
         readiness = original_execution_readiness_view(state.trace, key, horizon)
+        material = original_unresolved_material_view(
+            work.material_batches, work.material_states, work.operation_states)
+        readiness_open = readiness is not None and not readiness[
+            "all_observed_readiness_interruptions_closed"]
         if (work.obligation != "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
                 or work.execution != "IN_PROGRESS" or work.result != "NOT_SUBMITTED"
-                or len(commits) != 1 or readiness is None
-                or readiness["all_observed_readiness_interruptions_closed"]):
+                or len(commits) != 1 or not (readiness_open or material is not None)):
             return None
-        observations[key] = (work, commits[0], readiness)
+        observations[key] = (work, commits[0], readiness, material)
     if not observations:
         return None
     for ident, row in transfers.items():
@@ -1956,7 +1960,7 @@ def _original_incomplete_activity_cost_exposure(
                 or progress.get("event_count", 0) != 0):
             return None
     by_work = {}
-    for key, (work, commit, readiness) in observations.items():
+    for key, (work, commit, readiness, material) in observations.items():
         declared = {i: t for i, t in transfers.items() if t["work"] == key}
         costs = {i: r for i, r in resources.items() if r["work"] == key}
         triggered = {i: t for i, t in declared.items() if payment[i]["status"] == consistent}
@@ -1989,6 +1993,7 @@ def _original_incomplete_activity_cost_exposure(
             "original_commitment_remains": True,
             "commit_to_observation_cutoff_model_ticks": horizon-commit,
             "original_execution_readiness": readiness,
+            **({"original_unresolved_material": material} if material is not None else {}),
             "completed_original_operation_count": sum(
                 v == "COMPLETED" for v in work.operation_states.values()),
             "in_progress_original_operation_count": sum(

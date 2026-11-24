@@ -1055,14 +1055,14 @@ def test_order_and_portfolio_measurement_preserve_distinct_cost_boundaries():
 
 
 def original_quality_recovery_portfolio(*, recovery=True, declare_cost=True,
-                                       seller_cost="90.00", buyer_cost="20.00"):
+                                       seller_cost="90.00", buyer_cost="20.00", _doc=None):
     """Same accepted order, independently inspected before and after resubmission.
 
     No new physical execution/reservation or hypothetical additional sale is
     inferred from the original resubmit action. Cost statements are exclusive
     resource uses of correcting the submitted result and repeat inspection.
     """
-    d = finance_portfolio()["coproduction"]
+    d = finance_portfolio()["coproduction"] if _doc is None else deepcopy(_doc)
     money = d["economic_claims"]
     events = d["events"]
     first = _event(d, "assess_result_quality", OUTSIDE)
@@ -1224,13 +1224,13 @@ def test_original_recovered_value_cannot_be_attached_to_rejected_result_revision
         simulate(doc)
 
 
-def resource_disturbance_portfolio(*, disturbed=True, cost="85.00", declared=True):
+def resource_disturbance_portfolio(*, disturbed=True, cost="85.00", declared=True, _doc=None):
     """An owner-reported loss of readiness DURING an already started stage.
 
     Same technology, accepted output, reservation, commercial terms and
     payment schedule. No rework quantity or physical downtime inferred.
     """
-    d = finance_portfolio()["coproduction"]
+    d = finance_portfolio()["coproduction"] if _doc is None else deepcopy(_doc)
     events = d["events"]
     money = d["economic_claims"]
     start = next(e for e in events if e.get("work") == "w3"
