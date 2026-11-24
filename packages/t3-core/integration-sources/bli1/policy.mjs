@@ -33,3 +33,30 @@ export function humanError(error) {
   if (/network|fetch|offline/i.test(msg)) return 'Не удалось получить обязательные файлы модели. Повторите после восстановления сети или кеша.';
   return 'Не удалось завершить операцию. Подробности доступны в консоли разработчика.';
 }
+
+// Build only the small, data-only schema used by the original form assistant.
+// Use WebLLM's existing JSON grammar compiler; no model-selected authority,
+// arbitrary caller-provided grammar, second inference engine or new Store.
+export function formResponseFormat(fields) {
+  if(fields===undefined)return undefined;
+  const invalid=()=>{throw new BrowserInferenceError("FORM_SCHEMA_INVALID","Не удалось подготовить выбранные поля формы.");};
+  if(!Array.isArray(fields)||fields.length<1||fields.length>10)invalid();
+  const properties=Object.create(null);
+  for(const field of fields){
+    if(!field||typeof field!=="object"||!/^field_(?:[1-9]|10)$/.test(field.key)||
+       Object.hasOwn(properties,field.key)||
+       Object.keys(field).some(k=>k!=="key"&&k!=="choices"))invalid();
+    if(field.choices===undefined){properties[field.key]={type:"string"};continue;}
+    if(!Array.isArray(field.choices)||field.choices.length<1||field.choices.length>30||
+       field.choices.some(v=>typeof v!=="string"||!v.length||v.length>2000)||
+       new Set(field.choices).size!==field.choices.length)invalid();
+    properties[field.key]={type:"string",enum:[...field.choices]};
+  }
+  // Every inner property remains optional, so {} is a valid answer when
+  // the user did not supply enough information. Do NOT require all keys.
+  const schema=JSON.stringify({type:"object",properties:{
+    fields:{type:"object",properties,additionalProperties:false}
+  },required:["fields"],additionalProperties:false});
+  if(schema.length>16000)invalid();
+  return {type:"json_object",schema};
+}

@@ -10,7 +10,7 @@ const [assistantArg,domainArg,outArg]=process.argv.slice(2);
 assert.ok(assistantArg&&domainArg&&outArg,"T3_QUALITY_ARGUMENTS");
 const assistant=resolve(assistantArg),domain=resolve(domainArg);
 const load=(root,file)=>import(pathToFileURL(join(root,file)).href);
-const {fieldCandidates,fieldLabel,formProposalTask,fieldBatches}=await load(assistant,"field-policy.mjs");
+const {fieldCandidates,fieldLabel,formProposalTask,formOutputFields,fieldBatches}=await load(assistant,"field-policy.mjs");
 const {validateSkillPack,skillPrompt}=await load(assistant,"skill-runtime.mjs");
 const {suite}=await load(domain,"scripts/score-club-assistant.mjs");
 const pack=validateSkillPack(JSON.parse(readFileSync(join(domain,"assets/club-assistant-skills.json"),"utf8")));
@@ -34,7 +34,9 @@ for(const [key,definition] of Object.entries(suite.forms)){
       const prompt=skillPrompt(pack,skill,formProposalTask(rows,c.request),{mode:"form",maxChars:6000});
       assert.ok(prompt.includes(c.request)&&prompt.length<=6000);
       assert.ok(!tasks.has(c.id));
-      tasks.set(c.id,{id:c.id,prompt});
+      const formFields=formOutputFields(rows);
+      assert.ok(formFields.length>0&&formFields.length<=10);
+      tasks.set(c.id,{id:c.id,prompt,formFields});
    }
  }finally{dom.window.close();}
 }

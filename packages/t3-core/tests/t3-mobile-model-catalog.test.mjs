@@ -33,3 +33,26 @@ test("one exact install source per actual model including legacy, no aliasing",(
   assert.equal(new Set(pairs.map(p=>p.model)).size,pairs.length);
   assert.ok(pairs.every(p=>new URL(p.model).origin==="https://huggingface.co"&&new URL(p.wasm).origin==="https://raw.githubusercontent.com"));
 });
+
+import {formResponseFormat} from "../integration-sources/bli1/policy.mjs";
+test("WebLLM form schema restricts the actual selected fields without requiring missing values",()=>{
+ assert.equal(formResponseFormat(undefined),undefined);
+ const format=formResponseFormat([{key:"field_1"},{key:"field_3",choices:["actual","planned"]}]);
+ assert.equal(format.type,"json_object");
+ const schema=JSON.parse(format.schema);
+ assert.deepEqual(schema.required,["fields"]);
+ assert.equal(schema.additionalProperties,false);
+ assert.equal(schema.properties.fields.additionalProperties,false);
+ assert.equal(schema.properties.fields.required,undefined);
+ assert.deepEqual(schema.properties.fields.properties,{
+   field_1:{type:"string"},field_3:{type:"string",enum:["actual","planned"]}
+ });
+});
+test("unknown keys, arbitrary grammar and oversized choice lists cannot enter native structured output",()=>{
+ for(const fields of [null,[],[{key:"__proto__"}],[{key:"field_11"}],[{key:"field_1"},{key:"field_1"}],
+   [{key:"field_1",choices:[]}],[{key:"field_1",choices:["x","x"]}],[{key:"field_1",choices:[12]}],
+   [{key:"field_1",choices:Array.from({length:31},(_,i)=>String(i))}],
+   [{key:"field_1",schema:"{}"}],[{key:"field_1",choices:Array.from({length:10},(_,i)=>String(i)+"x".repeat(1700))}]]){
+   assert.throws(()=>formResponseFormat(fields),{code:"FORM_SCHEMA_INVALID"});
+ }
+});

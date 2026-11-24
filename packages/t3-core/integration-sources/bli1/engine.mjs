@@ -6,7 +6,7 @@ import {
   deleteChatConfigInCache,
 } from '@mlc-ai/web-llm';
 import { MODEL, MODELS, requireCatalogModel } from './catalog.mjs';
-import { BrowserInferenceError, decideLoad, requirePrompt } from './policy.mjs';
+import { BrowserInferenceError, decideLoad, requirePrompt, formResponseFormat } from './policy.mjs';
 import { inspectWebLlmOfflineCache } from './cache-readiness.mjs';
 
 const modelRecords = MODELS.map(chosen=>{
@@ -131,13 +131,14 @@ export class BrowserLocalRuntimeAdapter {
     }
   }
 
-  async invoke(prompt, { onChunk = () => {}, maxTokens = 256 } = {}) {
+  async invoke(prompt, { onChunk = () => {}, maxTokens = 256, formFields } = {}) {
     if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > 1024) {
       throw new BrowserInferenceError('OUTPUT_LIMIT_INVALID', 'Недопустимый размер ответа локальной модели.');
     }
     if (!this.#engine) throw new BrowserInferenceError('MODEL_NOT_LOADED', 'Сначала загрузите модель.');
     if (this.#running) throw new BrowserInferenceError('BUSY', 'Генерация уже идёт.');
     const content = requirePrompt(prompt);
+    const responseFormat=formResponseFormat(formFields);
     const activeEngine = this.#engine;
     const activeWorker = this.#worker;
     this.#running = true;
@@ -175,7 +176,8 @@ export class BrowserLocalRuntimeAdapter {
         messages: [{ role: 'user', content }],
         stream: true,
         max_tokens: maxTokens,
-        temperature: 0.4,
+        temperature: responseFormat?0:0.4,
+        ...(responseFormat?{response_format:responseFormat}:{}),
       });
       for await (const chunk of stream) {
         if (this.#cancelRequested) throw new BrowserInferenceError('CANCELLED', 'Генерация остановлена.');
