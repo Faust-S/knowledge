@@ -1,7 +1,7 @@
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalSourceSessionHead,readT4OriginalSourceSessionHead}
   from './original-network-publication.mjs';
-import {confirmT4OriginalNetworkSourceAcknowledgement}
+import {confirmT4OriginalNetworkSourceAcknowledgement,confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement}
   from './original-network-source-cursor.mjs';
 import {verifyT4OriginalSourceHeadCausality} from './original-network-source-head-proof.mjs';
 import {prepareT4CandidateOpaqueChunks} from './standard-network-opaque-chunks.mjs';
@@ -527,6 +527,36 @@ export function createT4OriginalHostDispatchTaskBinding({
     if(stage===0){
       await advance('INTENT',intent);
       return done('INTENT_RECORDED');
+    }
+    if(stage===2&&authorizeOriginalHistoricalCursorRecovery!==null){
+      if(typeof discovery.readOriginalHistoricalAppliedAck!=='function'||
+        typeof publication.readOriginalHistoricalPublishedFrame!=='function')
+        fail('HOST_TASK_NATIVE_HISTORICAL_RECOVERY_PORTS_REQUIRED');
+      // Check the original frontier before attempting the original phase
+      // CAS, as in the live ACK route. Do not use a remote slot as a grant.
+      await refresh();
+      await verify(initial,'t4.network.acknowledge','original-host.native-historical-ack-task');
+      const confirmation=await confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement({
+        session,sourceCursorBefore:task.sourceCursorBefore,sourcePhasePort:phase,
+        sourcePublicationPort:publication,historicalFramePort:discovery,requiredCryptoSuite,getMode:mode,
+        authorizeOriginalHistoricalCursorRecovery:live(authorizeOriginalHistoricalCursorRecovery),
+        authorizeOriginalRead:live(authorizeOriginalRead),readOriginalEvents:live(readOriginalEvents)});
+      await refresh();
+      await verify(initial,'t4.network.acknowledge','original-host.native-historical-ack-task');
+      if(confirmation!==null){
+        if(confirmation.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_SOURCE_ACK_CONFIRMATION_V1'||
+          !['CONFIRMED','ALREADY_CONFIRMED'].includes(confirmation.state)||
+          confirmation.originalRecipientResultIndependentlyRead!==true||
+          confirmation.originalHistoricalAcceptanceProven!==true||
+          confirmation.liveNetworkAuthorityGranted!==false||confirmation.sourceCursorAdvanced!==false||
+          confirmation.originalSubjectMutationInvoked!==false||
+          !sameJSON(confirmation.recoveredCursor.originalT3NextCursor,task.sourceCursorAfter))
+          fail('HOST_TASK_NATIVE_HISTORICAL_PHASE_READBACK_MISMATCH');
+        return done('SOURCE_PHASE_HISTORICALLY_CONFIRMED',{originalHistoricalRecoveryUsed:true,
+          originalSourcePhaseConfirmed:true,sourceCursorAdvanced:false,confirmation});
+      }
+      // Only proven absence of an earlier accepted slot permits the
+      // ordinary live receipt path below.
     }
     if(stage===3&&authorizeOriginalHistoricalCursorRecovery!==null){
       // The original result was independently confirmed before rotation.

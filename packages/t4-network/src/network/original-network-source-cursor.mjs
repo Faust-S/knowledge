@@ -305,10 +305,10 @@ export async function confirmT4OriginalNetworkSourceAcknowledgement(args={}){
 
 // Recover a frontier after APPLIED_CONFIRMED but before its original CAS.
 // Historical evidence is distinct from live receipt or new permission.
-export async function recoverT4OriginalHistoricallyConfirmedSourceCursor({
+async function inspectHistoricalSourceAcknowledgement({
   session:rawSession,sourceCursorBefore,sourcePhasePort,sourcePublicationPort,historicalFramePort,
   requiredCryptoSuite,getMode,authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents,
-}={}){
+}={},allowPending=false){
   const session=validateT4OriginalNativeCaptureSession(rawSession),before=structuredClone(sourceCursorBefore);
   const kind=session.changeKind,sha=x=>createHash('sha256').update(x).digest('hex');
   if(![getMode,authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents].every(f=>typeof f==='function')||
@@ -322,15 +322,47 @@ export async function recoverT4OriginalHistoricallyConfirmedSourceCursor({
     sourcePublicationPort.originalT3OnlyStore!==true||stable(sourcePublicationPort.session)!==stable(session)||
     !['inspectOriginalPublication','readOriginalHistoricalPublishedFrame'].every(k=>typeof sourcePublicationPort[k]==='function')||
     historicalFramePort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||
-    typeof historicalFramePort.readOriginalHistoricalReceivedFrame!=='function')
+    typeof historicalFramePort.readOriginalHistoricalReceivedFrame!=='function'||
+    (allowPending&&typeof historicalFramePort.readOriginalHistoricalAppliedAck!=='function'))
     fail('CURSOR_ORIGINAL_HISTORICAL_PORTS_REQUIRED');
   const mode=()=>{if(getMode()!=='T4_NETWORK')fail('CURSOR_NETWORK_MODE_OFF');};
   const proof={...session,originalSourceEventId:session.sourceEventId,originalSourceRevision:session.sourceRevision,
     sourceEventWindowDigest:session.capturedWindowDigest};
-  async function readPhase(){
-    mode();const p=await sourcePhasePort.inspectOriginalSession();mode();
-    const evidence=checkPhase(p,proof);
-    if(p.checkpointRef!==sourcePhasePort.checkpointRef||p.revision!==3||
+  const selector=Object.freeze({sourceNodeRef:session.recipientNodeRef,sessionRef:session.sessionRef,ownerEpoch:session.ownerEpoch});
+  const extensions=t4NativeSubjectCriticalExtensions(kind);
+  const readAck=async(expectedSha256=null)=>{
+    mode();
+    const value=typeof historicalFramePort.readOriginalHistoricalAppliedAck==='function'?
+      await historicalFramePort.readOriginalHistoricalAppliedAck({selector,requiredCryptoSuite,
+        supportedCriticalExtensions:extensions,expectedSha256}):
+      await historicalFramePort.readOriginalHistoricalReceivedFrame({key:expectedSha256+'.t4n',expectedSha256,
+        requiredCryptoSuite,supportedCriticalExtensions:extensions});
+    mode();return value;
+  };
+  async function readStatus(){mode();const value=await sourcePhasePort.inspectOriginalSession();mode();return value;}
+  const firstStatus=await readStatus(),pending=allowPending&&firstStatus?.currentPhase==='PUBLISHED';
+  let ack=null,pendingEvidence=null;
+  if(pending){
+    if(firstStatus?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||firstStatus.role!=='SOURCE'||
+      firstStatus.checkpointRef!==sourcePhasePort.checkpointRef||firstStatus.revision!==2||
+      firstStatus.sessionRef!==session.sessionRef||firstStatus.changeId!==session.changeId||
+      firstStatus.sourceNodeRef!==session.sourceNodeRef||firstStatus.recipientNodeRef!==session.recipientNodeRef||
+      firstStatus.scopeRef!==session.scopeRef||firstStatus.ownerEpoch!==session.ownerEpoch||
+      kindOf(firstStatus)!==kind||firstStatus.originalT3EventChainVerified!==true||
+      firstStatus.originalBusinessApplied!==false||firstStatus.verifiedOriginalRecipientApplication!==false)
+      fail('CURSOR_ORIGINAL_HISTORICAL_PHASE_REQUIRED');
+    // A missing original accepted slot permits the ordinary live path.
+    // An invalid or unavailable prior slot is an error, not a live retry.
+    ack=await readAck();
+    if(ack===null)return null;
+    pendingEvidence=Object.freeze({evidenceRef:ack.key,evidenceDigest:'sha256:'+ack.wireSha256,
+      originalRecipientEventId:ack.body?.recipientEventRef,originalRecipientRevision:ack.body?.recipientRevision,
+      originalRecipientStateDigest:ack.body?.recipientStateDigest});
+  }
+  function phaseSnapshot(p){
+    const evidence=checkPhase(p,proof,pendingEvidence);
+    if(p.checkpointRef!==sourcePhasePort.checkpointRef||p.revision!==(pending?2:3)||
+      p.currentPhase!==(pending?'PUBLISHED':'APPLIED_CONFIRMED')||
       !SHA(evidence.evidenceDigest.slice(7))||evidence.evidenceRef!==evidence.evidenceDigest.slice(7)+'.t4n')
       fail('CURSOR_ORIGINAL_HISTORICAL_PHASE_REQUIRED');
     return {p,evidence};
@@ -363,7 +395,7 @@ export async function recoverT4OriginalHistoricallyConfirmedSourceCursor({
       fail('CURSOR_ORIGINAL_T3_SOURCE_EVENT_CHANGED');
     return res;
   }
-  const first=await readPhase(),saved=await readPublication(),prefix=await readPrefix();
+  const first=phaseSnapshot(firstStatus),saved=await readPublication(),prefix=await readPrefix();
   const frames=saved.frames,head=decodeT4CandidateFrame(frames[0].wireBytes),change=decodeT4CandidateFrame(frames[1].wireBytes);
   if(!head.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)||
     head.cryptoSuite!==requiredCryptoSuite||change.cryptoSuite!==requiredCryptoSuite||
@@ -389,8 +421,7 @@ export async function recoverT4OriginalHistoricallyConfirmedSourceCursor({
       fail('CURSOR_ORIGINAL_HISTORICAL_PUBLICATION_MISMATCH');
   }
   const e=first.evidence;
-  const ack=await historicalFramePort.readOriginalHistoricalReceivedFrame({key:e.evidenceRef,
-    expectedSha256:e.evidenceDigest.slice(7),requiredCryptoSuite,supportedCriticalExtensions:t4NativeSubjectCriticalExtensions(kind)});
+  if(ack===null)ack=await readAck(e.evidenceDigest.slice(7));
   mode();
   if(ack?.schema!=='IWXA_T4_HISTORICAL_RECEIVED_FRAME_V1'||ack.operation!=='t4.network.receive.APPLIED_ACK'||
     ack.messageType!=='APPLIED_ACK'||ack.sequence!==2||ack.sourceNodeRef!==session.recipientNodeRef||
@@ -408,19 +439,28 @@ export async function recoverT4OriginalHistoricallyConfirmedSourceCursor({
     fail('CURSOR_ORIGINAL_HISTORICAL_ACK_MISMATCH');
   const historicalAck=Object.freeze({sha256:ack.wireSha256,body:Object.freeze(structuredClone(ack.body)),
     replayCheckpointRef:ack.originalReplayCheckpointRef,replayEventId:ack.originalReplayEventId});
-  const consent=Object.freeze({operation:'t4.network.original.cursor.recover-history',session,sourceCursorBefore:structuredClone(before),
+  const consent=Object.freeze({operation:pending?'t4.network.original.phase.recover-history':'t4.network.original.cursor.recover-history',
+    session,sourceCursorBefore:structuredClone(before),
     originalT3NextCursor:structuredClone(prefix.nextCursor),originalSourcePhaseRef:first.p.checkpointRef,
     originalSourcePhaseChainHash:first.p.chainHash,originalSourcePublicationRef:saved.checkpointRef,
     originalSourcePublicationChainHash:saved.chainHash,historicalAck,
-    originalRecipientApplicationIndependentlyVerified:true,originalFrameRetryAllowed:false,originalSubjectMutationAllowed:false});
+    originalRecipientApplicationIndependentlyVerified:!pending,originalIndependentRecipientReadbackRequired:true,
+    originalFrameRetryAllowed:false,originalSubjectMutationAllowed:false});
   if(await authorizeOriginalHistoricalCursorRecovery(consent)!==true)fail('CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED');
   mode();
-  const second=await readPhase(),after=await readPublication(),next=await readPrefix();
+  const second=phaseSnapshot(await readStatus()),after=await readPublication(),next=await readPrefix();
   if(stable(first)!==stable(second)||saved.revision!==after.revision||saved.chainHash!==after.chainHash||
     stable(frames.map(f=>f.sha256))!==stable(after.frames.map(f=>f.sha256))||
     stable(prefix.nextCursor)!==stable(next.nextCursor))
     fail('CURSOR_ORIGINAL_HISTORICAL_PROOF_CHANGED');
   mode();
+  return {first,evidence:e,historicalAck,nextCursor:next.nextCursor,session,pending};
+}
+
+// Only the already confirmed phase can produce a cursor-eligibility proof.
+export async function recoverT4OriginalHistoricallyConfirmedSourceCursor(args={}){
+  const {first,evidence:e,historicalAck,nextCursor,session}=await inspectHistoricalSourceAcknowledgement(args);
+  const kind=session.changeKind;
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_HISTORICAL_ACKNOWLEDGED_CURSOR_V1',
     state:'SOURCE_HISTORICAL_ACK_CONFIRMED_NEXT_CURSOR_RECOVERED',
     sourceNodeRef:session.sourceNodeRef,recipientNodeRef:session.recipientNodeRef,scopeRef:session.scopeRef,
@@ -429,9 +469,50 @@ export async function recoverT4OriginalHistoricallyConfirmedSourceCursor({
     sourceEventId:session.sourceEventId,sourceEventDigest:session.sourceEventDigest,sourcePrefixDigestAfter:session.sourcePrefixDigestAfter,
     originalRecipientEventId:e.originalRecipientEventId,originalRecipientRevision:e.originalRecipientRevision,
     originalRecipientStateDigest:e.originalRecipientStateDigest,originalSourcePhaseCheckpointRef:first.p.checkpointRef,
-    originalSourcePhaseChainHash:first.p.chainHash,originalT3NextCursor:next.nextCursor,historicalAck,
+    originalSourcePhaseChainHash:first.p.chainHash,originalT3NextCursor:nextCursor,historicalAck,
     signedAppliedAckVerified:true,originalHistoricalAcceptanceProven:true,liveNetworkAuthorityGranted:false,
     recipientOriginalResultReadbackBySourcePhase:true,sourceOriginalEventPrefixReadback:true,
     originalT3HostCursorWriteInvoked:false,originalT3HostCursorCommitStillRequired:true,
     originalSubjectMutationInvoked:false,originalFrameRetryAllowed:false,noSecondCursorStore:true});
+}
+
+
+// Recover the gap after original receive/replay CAS but before the source
+// APPLIED_CONFIRMED phase CAS. This is not a new receipt or live grant.
+// The SAME original phase port must run its normal independent Result gate,
+// technical authority and revision CAS. A signature/replay alone is insufficient.
+export async function confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement(args={}){
+  const port=args.sourcePhasePort;
+  if(port?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||port.role!=='SOURCE'||
+    port.originalT3TechnicalWorkspaceOnly!==true||port.createsSecondStore!==false||
+    typeof port.advanceOriginalSessionPhase!=='function')
+    fail('CURSOR_SOURCE_CONFIRM_ORIGINAL_PHASE_PORT_REQUIRED');
+  const candidate=await inspectHistoricalSourceAcknowledgement(args,true);
+  if(candidate===null)return null;
+  const {first,evidence,historicalAck,nextCursor,pending}=candidate;
+  if(args.getMode()!=='T4_NETWORK')fail('CURSOR_NETWORK_MODE_OFF');
+  let recorded=null;
+  if(pending){
+    recorded=await port.advanceOriginalSessionPhase({phase:'APPLIED_CONFIRMED',evidence});
+    if(recorded?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1'||
+      recorded.phase!=='APPLIED_CONFIRMED'||recorded.originalBusinessApplied!==true||
+      !['RECORDED','ALREADY_CONFIRMED'].includes(recorded.status)||recorded.checkpointRef!==port.checkpointRef||
+      recorded.revision!==3||!DIG(recorded.chainHash)||recorded.originalSubjectWriteRetried!==false)
+      fail('CURSOR_ORIGINAL_HISTORICAL_PHASE_NOT_CONFIRMED');
+  }
+  const recovered=await recoverT4OriginalHistoricallyConfirmedSourceCursor(args);
+  if(recovered.originalSourcePhaseCheckpointRef!==first.p.checkpointRef||
+    (recorded!==null&&recovered.originalSourcePhaseChainHash!==recorded.chainHash)||
+    (!pending&&recovered.originalSourcePhaseChainHash!==first.p.chainHash)||
+    recovered.originalRecipientEventId!==evidence.originalRecipientEventId||
+    recovered.originalRecipientRevision!==evidence.originalRecipientRevision||
+    recovered.originalRecipientStateDigest!==evidence.originalRecipientStateDigest||
+    stable(recovered.historicalAck)!==stable(historicalAck)||stable(recovered.originalT3NextCursor)!==stable(nextCursor))
+    fail('CURSOR_ORIGINAL_HISTORICAL_PHASE_NOT_CONFIRMED');
+  return Object.freeze({schema:'IWXA_T4_ORIGINAL_HISTORICAL_SOURCE_ACK_CONFIRMATION_V1',
+    state:recorded?.status==='RECORDED'?'CONFIRMED':'ALREADY_CONFIRMED',
+    originalRecipientResultIndependentlyRead:true,originalHistoricalAcceptanceProven:true,
+    liveNetworkAuthorityGranted:false,recoveredCursor:recovered,
+    originalPhaseWriteRetried:false,sourceCursorAdvanced:false,
+    originalHostCursorCommitStillRequired:true,originalSubjectMutationInvoked:false,originalFrameRetryAllowed:false});
 }

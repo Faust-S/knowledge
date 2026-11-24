@@ -13,6 +13,7 @@ import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationP
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
 import {createT4OriginalNetworkHostCursorPort} from '../src/network/original-network-host-cursor.mjs';
+import {confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement} from '../src/network/original-network-source-cursor.mjs';
 import {createT4OriginalNetworkBaselineAdmissionPort} from '../src/network/original-network-baseline-admission.mjs';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID} from '../src/network/original-network-technical-schema.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
@@ -680,14 +681,18 @@ test('K40 receiver history proves only previously accepted exact signed frames, 
 });
 
 
-test('K41 cold original source finalizes already confirmed ACK after both signing keys rotate, without replay writes or re-signing', {timeout:120000},async()=>{
+for(const pendingPhase of [false,true])
+test(pendingPhase?'K43 cold original source confirms previously accepted ACK and cursor with offline transport after key rotation':
+  'K41 cold original source finalizes already confirmed ACK after both signing keys rotate, without replay writes or re-signing',
+  {timeout:120000},async()=>{
   const q=await sealedFixture(),f=q.f,allow=async()=>true,tech='ws:k41:technical';
   const sourceBinding={...localBinding,bindingRef:'binding:k41:source',keyId:'key:k41:source'};
   const recipientBinding={...remoteBinding,subjectId:PRINCIPAL,bindingRef:'binding:k41:recipient',keyId:'key:k41:recipient'};
   for(const binding of [sourceBinding,recipientBinding])
     await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',binding,f.generate(binding)));
   const encrypted=encryptVault(f.vault,PASS);
-  let vaultReads=0,signs=0,networkPuts=0,host='host:k41:initial',recoveryAllowed=true,appliedAllowed=true;
+  let vaultReads=0,signs=0,networkPuts=0,networkGets=0,networkAvailable=true,
+    host='host:k41:initial',recoveryAllowed=true,appliedAllowed=true;
   const signer=(local,remote,registry=f.registry)=>createT4OriginalVaultNodeSignaturePort({
     ...scope,localNodeRef:local.nodeRef,remoteNodeRef:remote.nodeRef,localKeyRef:local.keyId,remoteKeyRef:remote.keyId,
     registry,...f.bound(registry),expectedContext:f.context,getMode:()=> 'T4_NETWORK',clock:f.clock,
@@ -723,7 +728,9 @@ test('K41 cold original source finalizes already confirmed ACK after both signin
   const remote=new Map(),wire={wireKind:'T4_NETWORK_CANDIDATE',forOriginalHostLifetime(){return this;},
     async putSnapshot({key,bytes,expectedSha256}){assert.equal(sha(bytes),expectedSha256);networkPuts++;
       assert.equal(remote.has(key),false);remote.set(key,new Uint8Array(bytes));return {key,sha256:expectedSha256,state:'PUBLISHED_AND_READ_BACK'};},
-    async getSnapshot({key}){if(!remote.has(key))throw Object.assign(Error('missing'),{code:'REMOTE_NOT_FOUND'});
+    async getSnapshot({key}){networkGets++;
+      if(!networkAvailable)throw Object.assign(Error('offline fixture'),{code:'NETWORK_UNAVAILABLE'});
+      if(!remote.has(key))throw Object.assign(Error('missing'),{code:'REMOTE_NOT_FOUND'});
       return {bytes:new Uint8Array(remote.get(key))};},
     async inspectOutcome({key,expectedSha256}){await this.getSnapshot({key});return {key,sha256:expectedSha256,state:'EXPECTED_BYTES_PRESENT'};}
   };
@@ -741,7 +748,8 @@ test('K41 cold original source finalizes already confirmed ACK after both signin
       verifyOriginalNodeSignature:sourceSigner.verifyOriginalNodeSignature,authorizeOriginalNetwork:allow,
       persistOriginalReplayDecision:p.persistOriginalReplayDecision,
       verifyOriginalHistoricalNodeSignature:sourceSigner.verifyOriginalHistoricalNodeSignature,
-      readOriginalHistoricalReplayEvidence:p.readOriginalHistoricalReplayEvidence});
+      readOriginalHistoricalReplayEvidence:p.readOriginalHistoricalReplayEvidence,
+      readOriginalHistoricalAppliedAckSlot:p.readOriginalHistoricalAppliedAckSlot});
   };
   const publication=()=>createT4OriginalNetworkPublicationPort({...original,session,localNodeRef:A,
     frameTransport:transport(),authorizeOriginalFramePublish:allow,
@@ -789,6 +797,10 @@ test('K41 cold original source finalizes already confirmed ACK after both signin
   const ack=await signSpec(recipientBinding,recipientSigner,'APPLIED_ACK',2,ackBody);
   const ackSha=sha(ack),ackKey=ackSha+'.t4n';
   await wire.putSnapshot({key:ackKey,bytes:ack,expectedSha256:ackSha});
+  const selector={sourceNodeRef:B,sessionRef:session.sessionRef,ownerEpoch:2};
+  const beforeAcceptanceGets=networkGets;
+  assert.equal(await transport().readOriginalHistoricalAppliedAck({selector,requiredCryptoSuite:SUITE}),null);
+  assert.equal(networkGets,beforeAcceptanceGets,'unaccepted remote bytes are not historical proof');
   await transport().readAndVerifySignedFrame({key:ackKey,expectedSha256:ackSha,requiredCryptoSuite:SUITE});
   const evidence={evidenceRef:ackKey,evidenceDigest:'sha256:'+ackSha,originalRecipientEventId:result.event.event_id,
     originalRecipientRevision:2,originalRecipientStateDigest:stateDigest};
@@ -813,7 +825,7 @@ test('K41 cold original source finalizes already confirmed ACK after both signin
     authorizeOriginalRead:allow,readOriginalEvents:()=>kernel.listEventsSince(WS)});
   await assert.rejects(cursor().commitHistoricallyConfirmedCursor({recovery:recovery()}),
     {code:'CURSOR_ORIGINAL_SOURCE_APPLIED_NOT_CONFIRMED'});
-  await phase().advanceOriginalSessionPhase({phase:'APPLIED_CONFIRMED',evidence});
+  if(!pendingPhase)await phase().advanceOriginalSessionPhase({phase:'APPLIED_CONFIRMED',evidence});
   const replacement={...sourceBinding,keyId:'key:k41:source:next',generation:2};
   const remoteReplacement={...recipientBinding,keyId:'key:k41:recipient:next',generation:2};
   for(const [old,next] of [[sourceBinding,replacement],[recipientBinding,remoteReplacement]]){
@@ -821,11 +833,42 @@ test('K41 cold original source finalizes already confirmed ACK after both signin
     await f.registry.applyNetworkKeyTransition(await f.prepare('ROTATE',next,f.generate(next),prior));
   }
   host='host:k41:cold';sourceSigner=signer(replacement,remoteReplacement,createOriginalKernelRegistryStatePort(f.options));
-  const beforeReads=vaultReads,beforeSigns=signs,beforePuts=networkPuts,beforeWrites=f.calls;
+  const beforeReads=vaultReads,beforeSigns=signs,beforePuts=networkPuts,beforeGets=networkGets;
+  networkAvailable=false;
+  const localAck=await transport().readOriginalHistoricalAppliedAck({selector,requiredCryptoSuite:SUITE});
+  assert.equal(localAck.wireSha256,ackSha);
+  assert.equal(localAck.historicalSignature.originalKeyCurrentlyActive,false);
+  assert.equal(localAck.originalReplayCheckpointCreated,false);
+  assert.equal(localAck.liveNetworkAuthorityGranted,false);
+  await assert.rejects(transport().readOriginalHistoricalAppliedAck({selector,requiredCryptoSuite:SUITE,
+    expectedSha256:'0'.repeat(64)}),{code:'WIRE_HISTORICAL_ACK_SLOT_CONFLICT'});
+  assert.equal(networkGets,beforeGets);
   await assert.rejects(publication().readOriginalPublishedFrame({sequence:2}),{code:'WIRE_SOURCE_SIGNATURE_NOT_VERIFIED'});
   const historic=await publication().readOriginalHistoricalPublishedFrame({sequence:2});
   assert.equal(historic.originalHistoricalPublicationProven,true);
   assert.equal(historic.historicalSignature.originalKeyCurrentlyActive,false);
+  if(pendingPhase){
+    const writesBeforePhase=f.calls;
+    recoveryAllowed=false;
+    await assert.rejects(confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement(recovery()),
+      {code:'CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED'});
+    recoveryAllowed=true;appliedAllowed=false;
+    await assert.rejects(confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement(recovery()),
+      {code:'PHASE_ORIGINAL_APPLIED_NOT_PROVEN'});
+    assert.equal(f.calls,writesBeforePhase);
+    appliedAllowed=true;
+    f.loseNextReply();
+    await assert.rejects(confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement(recovery()),
+      {code:'PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
+    host='host:k43:after-lost-phase';
+    const confirmed=await confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement(recovery());
+    assert.equal(confirmed.state,'ALREADY_CONFIRMED');
+    assert.equal(confirmed.originalRecipientResultIndependentlyRead,true);
+    assert.equal(confirmed.sourceCursorAdvanced,false);
+    assert.equal(confirmed.originalPhaseWriteRetried,false);
+    assert.equal(f.calls,writesBeforePhase+1);
+  }
+  const beforeWrites=f.calls;
   recoveryAllowed=false;
   await assert.rejects(cursor().commitHistoricallyConfirmedCursor({recovery:recovery()}),{code:'CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED'});
   recoveryAllowed=true;appliedAllowed=false;
@@ -840,8 +883,10 @@ test('K41 cold original source finalizes already confirmed ACK after both signin
   assert.deepEqual(committed.originalT3NextCursor,current.nextCursor);
   assert.equal(f.calls,beforeWrites+1);
   assert.equal(vaultReads,beforeReads);assert.equal(signs,beforeSigns);assert.equal(networkPuts,beforePuts);
+  assert.equal(networkGets,beforeGets,'original retained ACK recovery performs no remote reads');
   assert.deepEqual((await publication().inspectOriginalPublication()).frames.map(f=>f.sha256),saved.frames.map(f=>f.sha256));
-  console.log('T4_K41_HISTORICALLY_CONFIRMED_SOURCE_CURSOR_PASS',JSON.stringify({rotatedSigningKeys:2,
+  console.log(pendingPhase?'T4_K43_OFFLINE_HISTORICAL_PHASE_AND_CURSOR_PASS':'T4_K41_HISTORICALLY_CONFIRMED_SOURCE_CURSOR_PASS',
+    JSON.stringify({rotatedSigningKeys:2,originalPhaseWritesAfterRotation:pendingPhase?1:0,additionalNetworkGets:0,
     originalPriorReplay:true,originalRecipientResultFixture:true,originalPhaseConfirmed:true,
     originalCursorWrites:1,recoveredLostCAS:true,additionalNetworkPuts:0,additionalVaultReads:0,additionalSignatures:0,
     originalSubjectMutationRetried:false,kernelFixture:true,installedProduct:false}));

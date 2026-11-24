@@ -42,6 +42,7 @@ export function createT4CandidateFrameTransport({
   authorizeOriginalHostWire,originalHostNodeRef,originalHostScopeRef,
   verifyOriginalNodeSignature,authorizeOriginalNetwork,
   persistOriginalReplayDecision,verifyOriginalHistoricalNodeSignature=null,readOriginalHistoricalReplayEvidence=null,
+  readOriginalHistoricalAppliedAckSlot=null,
 }={}){
   if(wireTransport?.wireKind!=='T4_NETWORK_CANDIDATE'||
     ![wireTransport.putSnapshot,wireTransport.getSnapshot,
@@ -53,6 +54,9 @@ export function createT4CandidateFrameTransport({
     fail('WIRE_ORIGINAL_HOST_NETWORK_PORTS_REQUIRED');
   const historical=verifyOriginalHistoricalNodeSignature!==null||readOriginalHistoricalReplayEvidence!==null;
   if(historical&&![verifyOriginalHistoricalNodeSignature,readOriginalHistoricalReplayEvidence].every(f=>typeof f==='function'))
+    fail('WIRE_ORIGINAL_HISTORICAL_PORTS_REQUIRED');
+  const historicalAck=readOriginalHistoricalAppliedAckSlot!==null;
+  if(historicalAck&&(!historical||typeof readOriginalHistoricalAppliedAckSlot!=='function'))
     fail('WIRE_ORIGINAL_HISTORICAL_PORTS_REQUIRED');
   const indexed=wireTransport.nativeFrameIndexVersion===1;
   if((wireTransport.nativeFrameIndexVersion!==undefined&&![0,1].includes(wireTransport.nativeFrameIndexVersion))||
@@ -238,9 +242,13 @@ export function createT4CandidateFrameTransport({
     const ctx=await hostSnapshot();
     const result=await wireTransport.getSnapshot({key,expectedSha256});
     mode();
-    if(!(result?.bytes instanceof Uint8Array)||hash(result.bytes)!==expectedSha256)
+    return verifyHistoricalBytes({ctx,key,expectedSha256,bytes:result?.bytes,requiredCryptoSuite,supportedCriticalExtensions});
+  }
+  async function verifyHistoricalBytes({ctx,key,expectedSha256,bytes,requiredCryptoSuite,supportedCriticalExtensions}){
+    mode();
+    if(!(bytes instanceof Uint8Array)||hash(bytes)!==expectedSha256)
       fail('WIRE_NETWORK_READBACK_NOT_PROVEN');
-    const raw=new Uint8Array(result.bytes),frame=decodeT4CandidateFrame(raw);
+    const raw=new Uint8Array(bytes),frame=decodeT4CandidateFrame(raw);
     if(frame.recipientNodeRef!==originalHostNodeRef||frame.scopeRef!==originalHostScopeRef)
       fail('WIRE_WRONG_RECIPIENT_OR_SCOPE');
     await hostGuard('history-read',ctx,frame,expectedSha256);
@@ -252,6 +260,71 @@ export function createT4CandidateFrameTransport({
     await hostGuard('history-readback',ctx,frame,expectedSha256);
     if(verdict.wireSha256!==expectedSha256||verdict.key!==key)fail('WIRE_NETWORK_READBACK_NOT_PROVEN');
     return deepFreeze(structuredClone(verdict));
+  }
+  // A source looks up only its already accepted APPLIED_ACK slot. A
+  // missing original checkpoint is NOT an invitation to accept old bytes.
+  // Newly retained ACKs need no remote read. Pre-retention records can be
+  // verified by exact phase key or one native immutable index lookup.
+  async function readOriginalHistoricalAppliedAck({selector,requiredCryptoSuite,supportedCriticalExtensions=[],
+    expectedSha256=null}={}){
+    if(!historicalAck||!ID(requiredCryptoSuite)||!selector||
+      Object.keys(selector).some(k=>!['sourceNodeRef','sessionRef','ownerEpoch'].includes(k))||
+      !ID(selector.sourceNodeRef)||selector.sourceNodeRef===originalHostNodeRef||!ID(selector.sessionRef)||
+      !Number.isSafeInteger(selector.ownerEpoch)||selector.ownerEpoch<1||
+      (expectedSha256!==null&&!SHA(expectedSha256)))
+      fail('WIRE_HISTORICAL_ACK_SLOT_INVALID');
+    const exactSelector=Object.freeze({sourceNodeRef:selector.sourceNodeRef,sessionRef:selector.sessionRef,
+      ownerEpoch:selector.ownerEpoch,messageType:'APPLIED_ACK',sequence:2});
+    const extensions=Object.freeze([...supportedCriticalExtensions]),ctx=await hostSnapshot();
+    await hostGuard('history-slot-read',ctx,null,expectedSha256,exactSelector);
+    const query=Object.freeze({sourceNodeRef:exactSelector.sourceNodeRef,recipientNodeRef:originalHostNodeRef,
+      scopeRef:originalHostScopeRef,sessionRef:exactSelector.sessionRef,ownerEpoch:exactSelector.ownerEpoch,
+      sequence:2,operation:'t4.network.receive.APPLIED_ACK',originalHistoricalEvidenceOnly:true});
+    const slot=await readOriginalHistoricalAppliedAckSlot(query);
+    await hostGuard('history-slot-readback',ctx,null,expectedSha256,exactSelector);
+    if(slot===null)return null;
+    const slotFields=['sourceNodeRef','recipientNodeRef','scopeRef','sessionRef','ownerEpoch','sequence','operation'];
+    if(slot?.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_REPLAY_EVIDENCE_V1'||
+      !slotFields.every(k=>slot[k]===query[k])||!ID(slot.checkpointRef)||!ID(slot.originalReplayEventId)||
+      !ID(slot.signerRef)||!ID(slot.permissionRef)||!/^sha256:[a-f0-9]{64}$/.test(slot.frameDigest??'')||
+      slot.originalReplayCheckpointRecorded!==true||slot.originalHistoricalEvidenceOnly!==true||
+      slot.liveNetworkAuthorityGranted!==false||slot.originalBusinessApplied!==false)
+      fail('WIRE_HISTORICAL_ACK_SLOT_NOT_PROVEN');
+    let sha256,bytes;
+    if(slot.retainedAppliedAckBase64!==undefined||slot.wireSha256!==undefined){
+      if(!SHA(slot.wireSha256)||typeof slot.retainedAppliedAckBase64!=='string'||
+        slot.retainedAppliedAckBase64.length>43692)
+        fail('WIRE_HISTORICAL_ACK_RETAINED_BYTES_INVALID');
+      sha256=slot.wireSha256;bytes=Buffer.from(slot.retainedAppliedAckBase64,'base64');
+      if(bytes.toString('base64')!==slot.retainedAppliedAckBase64||hash(bytes)!==sha256)
+        fail('WIRE_HISTORICAL_ACK_RETAINED_BYTES_INVALID');
+    }else{
+      // Legacy original checkpoints did not retain wire bytes. No
+      // migration write, collection listing or live replay CAS is allowed.
+      sha256=expectedSha256;
+      if(sha256===null){
+        if(!indexed)fail('WIRE_HISTORICAL_ACK_BYTES_UNAVAILABLE');
+        const key=t4NativeSessionFrameIndexKey({...exactSelector,recipientNodeRef:originalHostNodeRef,scopeRef:originalHostScopeRef});
+        await hostGuard('index-discover',ctx,null,null,exactSelector);
+        const pointer=await wireTransport.getNativeFrameIndex({key});
+        await hostGuard('index-discover-readback',ctx,null,null,exactSelector);
+        if(pointer===null)fail('WIRE_HISTORICAL_ACK_BYTES_UNAVAILABLE');
+        sha256=checkIndexRead(pointer,key);
+      }
+      await hostGuard('history-legacy-read',ctx,null,sha256,exactSelector);
+      const downloaded=await wireTransport.getSnapshot({key:sha256+'.t4n',expectedSha256:sha256});
+      bytes=downloaded?.bytes;mode();
+    }
+    if(expectedSha256!==null&&expectedSha256!==sha256)fail('WIRE_HISTORICAL_ACK_SLOT_CONFLICT');
+    const verdict=await verifyHistoricalBytes({ctx,key:sha256+'.t4n',expectedSha256:sha256,bytes,
+      requiredCryptoSuite,supportedCriticalExtensions:extensions});
+    if(!slotFields.every(k=>verdict[k]===query[k])||
+      verdict.frameDigest!==slot.frameDigest||verdict.signerRef!==slot.signerRef||
+      verdict.permissionRef!==slot.permissionRef||verdict.originalReplayCheckpointRef!==slot.checkpointRef||
+      verdict.originalReplayEventId!==slot.originalReplayEventId)
+      fail('WIRE_HISTORICAL_ACK_SLOT_CONFLICT');
+    await hostGuard('history-slot-verified',ctx,null,sha256,exactSelector);
+    return verdict;
   }
   async function verifyDownloaded({ctx,key,expectedSha256,downloaded,requiredCryptoSuite,supportedCriticalExtensions}){
     mode();
@@ -533,6 +606,7 @@ export function createT4CandidateFrameTransport({
     schema:'IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1',nativeFrameIndexVersion:indexed?1:0,
     publishSignedFrame,inspectUnknownPublication,
     ...(historical?{readOriginalHistoricalReceivedFrame}:{}),
+    ...(historicalAck?{readOriginalHistoricalAppliedAck}:{}),
     readAndVerifySignedFrame,discoverAndVerifySignedFrames,discoverUniqueSignedFrame,discoverSessionContent,
     discoverSourceSessionHeads,
     forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
@@ -542,7 +616,7 @@ export function createT4CandidateFrameTransport({
       readOriginalHostContext,authorizeOriginalHostWire,
       originalHostNodeRef,originalHostScopeRef,verifyOriginalNodeSignature,
       authorizeOriginalNetwork,persistOriginalReplayDecision,
-      verifyOriginalHistoricalNodeSignature,readOriginalHistoricalReplayEvidence,
+      verifyOriginalHistoricalNodeSignature,readOriginalHistoricalReplayEvidence,readOriginalHistoricalAppliedAckSlot,
     }),
     originalT3ExchangeDependency:false,
     createsSubjectStore:false,createsSubjectIAM:false,

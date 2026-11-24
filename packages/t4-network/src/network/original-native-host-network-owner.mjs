@@ -216,7 +216,8 @@ export function createT4OriginalNativeHostNetworkOwner({
       persistOriginalReplayDecision:replay.persistOriginalReplayDecision,
       ...(scopedVault?.verifyOriginalHistoricalNodeSignature?{
         verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),
-        readOriginalHistoricalReplayEvidence:replay.readOriginalHistoricalReplayEvidence}:{})});
+        readOriginalHistoricalReplayEvidence:replay.readOriginalHistoricalReplayEvidence,
+        readOriginalHistoricalAppliedAckSlot:replay.readOriginalHistoricalAppliedAckSlot}:{})});
     const publication=async({session})=>createT4OriginalNetworkPublicationPort({...tech,session,
       localNodeRef:nodeRef,frameTransport:frameDiscoveryPort,
       authorizeOriginalFramePublish:callback('authorizeOriginalFramePublish'),
