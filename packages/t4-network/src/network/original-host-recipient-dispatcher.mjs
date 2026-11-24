@@ -6,6 +6,8 @@ import {fetchT4OriginalAssetDelta,applyT4OriginalAssetDelta,
 import {fetchT4OriginalRelationPutDelta,applyT4OriginalRelationPutDelta,
   advanceT4OriginalRelationCursor} from './original-relation-delta.mjs';
 import {packageSha256} from './webdav-package-transfer.mjs';
+import {runT4OriginalNetworkRecipientTask}
+  from './original-network-subject-apply.mjs';
 
 /** Recipient-side coordination, using ONLY the existing original T3 Kernel/Host.
  * The source Host supplies the event window and its own scope/authorization.
@@ -460,11 +462,114 @@ async function execute(p,entries,initialCursor,maxEntries){
     objectDeletionEnabled:false,createsScheduler:false,
   });
 }
+async function executeNativeRecipient(p,options){
+  if(typeof p.getMode!=='function')
+    fail('RECIPIENT_NATIVE_ORIGINAL_HOST_PORTS_REQUIRED');
+  if(p.getMode()==='LOCAL_T3')return frozen({
+    schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_TICK_V1',
+    mode:'LOCAL_T3',dispatched:false,originalRecipientApplied:false,
+    originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,
+    networkWrites:0,originalT3Reads:0,originalT3Writes:0,
+  });
+  const {received,recipientPhasePort,recipientPublicationPort,
+    createSignedAppliedAckFrame,retryMissing=false}=options;
+  const d=received?.delta;
+  if(![p.workspaceId,p.originalWriteOwnerRef,p.sourceNodeRef,
+    p.recipientNodeRef,p.scopeRef].every(ID)||
+    p.sourceNodeRef===p.recipientNodeRef||
+    !Number.isSafeInteger(p.ownerEpoch)||p.ownerEpoch<1||
+    !['readOriginalHostContext','authorizeOriginalHostTask','authorizeOriginalRead',
+      'authorizeOriginalWrite','authorizeNetworkReceive','verifyOriginalSourceEvent']
+      .every(k=>typeof p[k]==='function')||
+    typeof p.originalKernel?.hasOperation!=='function')
+    fail('RECIPIENT_NATIVE_ORIGINAL_HOST_PORTS_REQUIRED');
+  if(d?.workspaceId!==p.workspaceId||
+    d?.originalWriteOwnerRef!==p.originalWriteOwnerRef||
+    received.sourceNodeRef!==p.sourceNodeRef||
+    received.recipientNodeRef!==p.recipientNodeRef||
+    received.scopeRef!==p.scopeRef||received.ownerEpoch!==p.ownerEpoch||
+    !ID(received.sessionRef)||!ID(received.changeId))
+    fail('RECIPIENT_NATIVE_ORIGINAL_SESSION_SCOPE_MISMATCH');
+  let initial=null;
+  async function guard(step){
+    mode(p);
+    const ctx=await p.readOriginalHostContext();
+    if(ctx?.workspaceId!==p.workspaceId||
+      ctx.originalWriteOwnerRef!==p.originalWriteOwnerRef||
+      ctx.nodeRef!==p.recipientNodeRef||ctx.scopeRef!==p.scopeRef||
+      !ID(ctx.hostSessionRef))
+      fail('RECIPIENT_NATIVE_ORIGINAL_HOST_CONTEXT_CHANGED',{
+        originalOutcomeMayExist:initial!==null,automaticRetryAllowed:false,
+      });
+    const snapshot={workspaceId:ctx.workspaceId,originalWriteOwnerRef:ctx.originalWriteOwnerRef,
+      nodeRef:ctx.nodeRef,scopeRef:ctx.scopeRef,hostSessionRef:ctx.hostSessionRef};
+    if(initial!==null&&!same(snapshot,initial))
+      fail('RECIPIENT_NATIVE_ORIGINAL_HOST_CONTEXT_CHANGED',{
+        originalOutcomeMayExist:true,automaticRetryAllowed:false,
+      });
+    if(initial===null)initial=frozen(snapshot);
+    const proof=frozen({operation:'t4.network.receive',
+      purpose:'original-host.native-recipient-task',step,
+      ...snapshot,sourceNodeRef:p.sourceNodeRef,recipientNodeRef:p.recipientNodeRef,
+      ownerEpoch:p.ownerEpoch,sessionRef:received.sessionRef,changeId:received.changeId,
+      originalHostTaskOwnerRequired:true,
+      networkConnectionDoesNotGrantOriginalWriteRights:true});
+    if(await p.authorizeOriginalHostTask(proof)!==true||
+      await p.authorizeNetworkReceive(proof)!==true)
+      fail('RECIPIENT_NATIVE_ORIGINAL_HOST_AUTHORITY_DENIED',{
+        step,automaticRetryAllowed:false,
+      });
+    mode(p);
+    const after=await p.readOriginalHostContext();
+    if(!same(snapshot,{workspaceId:after?.workspaceId,
+      originalWriteOwnerRef:after?.originalWriteOwnerRef,nodeRef:after?.nodeRef,
+      scopeRef:after?.scopeRef,hostSessionRef:after?.hostSessionRef}))
+      fail('RECIPIENT_NATIVE_ORIGINAL_HOST_CONTEXT_CHANGED',{
+        originalOutcomeMayExist:true,automaticRetryAllowed:false,
+      });
+  }
+  await guard('before-native-recipient');
+  const protect=(fn,step)=>async proof=>{
+    await guard(step);const result=await fn(proof);await guard(step+'-readback');return result;
+  };
+  const result=await runT4OriginalNetworkRecipientTask({
+    received,recipientPhasePort,recipientPublicationPort,retryMissing,
+    createSignedAppliedAckFrame:typeof createSignedAppliedAckFrame==='function'?
+      protect(createSignedAppliedAckFrame,'sign-applied-ack'):undefined,
+    originalKernel:p.originalKernel,getMode:p.getMode,
+    authorizeOriginalRead:protect(p.authorizeOriginalRead,'read-original-subject'),
+    authorizeOriginalWrite:protect(p.authorizeOriginalWrite,'write-original-subject'),
+    verifyOriginalSourceEvent:protect(p.verifyOriginalSourceEvent,'verify-original-source-event'),
+  });
+  await guard('after-native-recipient');
+  if(result?.schema!=='IWXA_T4_ORIGINAL_NATIVE_RECIPIENT_TASK_RESULT_V1'||
+    result.state!=='APPLIED_AND_ACKNOWLEDGED'||result.originalRecipientApplied!==true||
+    result.sourceCursorAdvanced!==false||result.originalT3OnlyStore!==true||
+    result.acknowledgement?.recipientPhase?.currentPhase!=='APPLIED')
+    fail('RECIPIENT_NATIVE_ORIGINAL_TASK_RESULT_INVALID');
+  return frozen({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_TICK_V1',
+    mode:'T4_NETWORK',dispatched:true,
+    originalHostTaskOwnerVerified:true,originalHostSessionRef:initial.hostSessionRef,
+    originalRecipientApplied:true,sourceCursorAdvanced:false,
+    originalSubjectMutationInvoked:result.originalSubjectMutationInvoked,
+    originalT3OnlyStore:true,result});
+}
 export function createT4OriginalHostRecipientDispatcher(params={}){
   let active=null,activePlanDigest=null;
   return frozen({
     schema:'IWXA_T4_ORIGINAL_HOST_RECIPIENT_DISPATCHER_V1',
     usesOriginalT3HostAndKernel:true,
+    async runNative(options={}){
+      if(active)fail('RECIPIENT_CONCURRENT_NATIVE_TASK',{
+        automaticRetryAllowed:false,originalWriteMayBeInFlight:true,
+      });
+      // Snapshot the verified subject before any asynchronous Host check.
+      const safe={...options,received:structuredClone(options.received)};
+      const work=executeNativeRecipient(params,safe);
+      active=work;activePlanDigest=null;
+      try{return await work;}
+      finally{if(active===work){active=null;activePlanDigest=null;}}
+    },
     async drain({entries,initialCursor,maxEntries=32}={}){
       // Snapshot Host-supplied source metadata before the first async boundary.
       // Concurrent calls may share only the EXACT same original plan and limit.
@@ -478,7 +583,7 @@ export function createT4OriginalHostRecipientDispatcher(params={}){
         originalWriteOwnerRef:params.originalWriteOwnerRef,
         sourceNodeRef:params.sourceNodeRef});
       if(active){
-        if(currentDigest!==activePlanDigest)
+        if(activePlanDigest===null||currentDigest!==activePlanDigest)
           fail('RECIPIENT_CONCURRENT_PLAN_MISMATCH',{
             automaticRetryAllowed:false,originalWriteMayBeInFlight:true,
           });

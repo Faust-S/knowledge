@@ -769,10 +769,10 @@ export function createT4OriginalNetworkAppliedAckBody({
  * owner of the immutable signed bytes and network attempt recovery.
  * This function never calls the original subject mutation.
  */
-export async function finalizeT4OriginalNetworkRecipientAcknowledgement(args={}){
-  const {received,recipientPhasePort,recipientPublicationPort:port,
-    createSignedAppliedAckFrame,retryMissing=false}=args;
-  const {delta,kind,phase}=originalDurableRecipientContext(args);
+function recipientAcknowledgementContext(args){
+  const {received,recipientPublicationPort:port,retryMissing=false}=args;
+  const durable=originalDurableRecipientContext(args);
+  const {delta,kind}=durable;
   const session=port?.session;
   if(typeof retryMissing!=='boolean'||
     port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
@@ -798,6 +798,67 @@ export async function finalizeT4OriginalNetworkRecipientAcknowledgement(args={})
     session.sourcePrefixDigestAfter!==received.sourcePrefixDigestAfter)
     fail('SUBJECT_ORIGINAL_ACK_PUBLICATION_PORT_MISMATCH');
 
+  async function publication(){
+    const p=await port.inspectOriginalPublication();
+    if(p?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1'||
+      p.checkpointRef!==port.checkpointRef||!equalStable(p.session,session)||
+      p.originalT3EventChainVerified!==true||
+      p.originalBusinessApplied!==false||p.sourceCursorAdvanced!==false||
+      !Array.isArray(p.frames)||p.frames.length<1||
+      p.frames.some((f,i)=>f.sequence!==i+1||
+        !(f.wireBytes instanceof Uint8Array)||
+        !frameKey(f.key)||f.key!==f.sha256+'.t4n'||
+        HASH(f.wireBytes)!=='sha256:'+f.sha256)||
+      !p.frames.some(f=>f.messageType==='DIFF_REQUEST'&&f.state==='PRESENT'))
+      fail('SUBJECT_ORIGINAL_ACK_PUBLICATION_HISTORY_REQUIRED');
+    const acks=p.frames.filter(f=>f.messageType==='APPLIED_ACK');
+    if(acks.length>1)fail('SUBJECT_ORIGINAL_ACK_DUPLICATE_RESERVATION');
+    const ack=acks[0]??null;
+    if(p.frames.slice(0,ack?ack.sequence-1:p.frames.length)
+      .some(f=>f.state!=='PRESENT'))
+      fail('SUBJECT_ORIGINAL_ACK_PREDECESSOR_UNCONFIRMED');
+    if(ack){
+      const frame=decodeT4CandidateFrame(ack.wireBytes);
+      if(frame.messageType!=='APPLIED_ACK'||frame.sequence!==ack.sequence||
+        frame.sourceNodeRef!==session.recipientNodeRef||
+        frame.recipientNodeRef!==session.sourceNodeRef||
+        frame.sessionRef!==session.sessionRef||frame.scopeRef!==session.scopeRef||
+        frame.ownerEpoch!==session.ownerEpoch)
+        fail('SUBJECT_ORIGINAL_ACK_SIGNED_BODY_MISMATCH');
+    }
+    return {p,ack};
+  }
+  return {...durable,session,port,publication};
+}
+
+/** Existing original Host task: preflight its native publication history,
+ * perform/reconcile the sole original apply, then finalize its ACK.
+ * A prior reserved ACK cannot be used as authority to start a new apply.
+ */
+export async function runT4OriginalNetworkRecipientTask(args={}){
+  const {phase,publication}=recipientAcknowledgementContext(args);
+  const before=await phase(),prior=await publication();
+  if(before.currentPhase==='VERIFIED'&&prior.ack)
+    fail('SUBJECT_ORIGINAL_ACK_WITHOUT_DURABLE_APPLY_INTENT');
+  if(before.currentPhase==='APPLIED'&&!prior.ack)
+    fail('SUBJECT_ORIGINAL_ACK_APPLIED_EVIDENCE_MISMATCH');
+  const application=await applyT4OriginalNetworkSubjectWithDurableIntent(args);
+  const acknowledgement=await finalizeT4OriginalNetworkRecipientAcknowledgement(args);
+  if(application.originalRecipientEventId!==acknowledgement.verifiedResult.originalRecipientEventId||
+    application.originalRecipientRevision!==acknowledgement.verifiedResult.originalRecipientRevision||
+    application.originalRecipientStateDigest!==acknowledgement.verifiedResult.originalRecipientStateDigest)
+    fail('SUBJECT_ORIGINAL_ACK_RESULT_CHANGED');
+  return frozen({schema:'IWXA_T4_ORIGINAL_NATIVE_RECIPIENT_TASK_RESULT_V1',
+    state:'APPLIED_AND_ACKNOWLEDGED',application,acknowledgement,
+    originalRecipientApplied:true,sourceCursorAdvanced:false,
+    originalT3OnlyStore:true,originalHostOwnsScheduling:true,
+    originalSubjectMutationInvoked:application.originalCommitInvoked,
+    originalT3ExchangeCalled:false});
+}
+
+export async function finalizeT4OriginalNetworkRecipientAcknowledgement(args={}){
+  const {received,recipientPhasePort,createSignedAppliedAckFrame,retryMissing=false}=args;
+  const {delta,kind,phase,session,port,publication}=recipientAcknowledgementContext(args);
   const before=await phase();
   if(before.currentPhase==='VERIFIED')
     fail('SUBJECT_ORIGINAL_ACK_APPLY_INTENT_REQUIRED');
@@ -836,29 +897,8 @@ export async function finalizeT4OriginalNetworkRecipientAcknowledgement(args={})
       !equalStable(frame.body,body))
       fail('SUBJECT_ORIGINAL_ACK_SIGNED_BODY_MISMATCH');
   }
-  async function publication(){
-    const p=await port.inspectOriginalPublication();
-    if(p?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1'||
-      p.checkpointRef!==port.checkpointRef||!equalStable(p.session,session)||
-      p.originalT3EventChainVerified!==true||
-      p.originalBusinessApplied!==false||p.sourceCursorAdvanced!==false||
-      !Array.isArray(p.frames)||p.frames.length<1||
-      p.frames.some((f,i)=>f.sequence!==i+1||
-        !(f.wireBytes instanceof Uint8Array)||
-        !frameKey(f.key)||f.key!==f.sha256+'.t4n'||
-        HASH(f.wireBytes)!=='sha256:'+f.sha256)||
-      !p.frames.some(f=>f.messageType==='DIFF_REQUEST'&&f.state==='PRESENT'))
-      fail('SUBJECT_ORIGINAL_ACK_PUBLICATION_HISTORY_REQUIRED');
-    const acks=p.frames.filter(f=>f.messageType==='APPLIED_ACK');
-    if(acks.length>1)fail('SUBJECT_ORIGINAL_ACK_DUPLICATE_RESERVATION');
-    const ack=acks[0]??null;
-    if(p.frames.slice(0,ack?ack.sequence-1:p.frames.length)
-      .some(f=>f.state!=='PRESENT'))
-      fail('SUBJECT_ORIGINAL_ACK_PREDECESSOR_UNCONFIRMED');
-    if(ack)checkWire(ack.wireBytes,ack.sequence);
-    return {p,ack};
-  }
   const prior=await publication();
+  if(prior.ack)checkWire(prior.ack.wireBytes,prior.ack.sequence);
   const sequence=prior.ack?.sequence??prior.p.frames.length+1;
   const evidenceFor=f=>({
     evidenceRef:f.key,evidenceDigest:'sha256:'+f.sha256,
@@ -897,6 +937,7 @@ export async function finalizeT4OriginalNetworkRecipientAcknowledgement(args={})
     },
   });
   const stored=(await publication()).ack;
+  if(stored)checkWire(stored.wireBytes,stored.sequence);
   if(!stored||stored.sequence!==sequence||
     prepared?.checkpointRef!==port.checkpointRef||
     prepared.sessionRef!==session.sessionRef||
@@ -911,6 +952,7 @@ export async function finalizeT4OriginalNetworkRecipientAcknowledgement(args={})
   checkApplied(await confirmResult(),stored);
   const published=await port.publishPreparedFrame({sequence,retryMissing});
   const confirmed=(await publication()).ack;
+  if(confirmed)checkWire(confirmed.wireBytes,confirmed.sequence);
   if(!confirmed||confirmed.state!=='PRESENT'||confirmed.sha256!==stored.sha256||
     published?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_RESULT_V1'||
     published.sessionRef!==session.sessionRef||published.changeId!==session.changeId||
