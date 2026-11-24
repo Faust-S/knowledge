@@ -13,7 +13,7 @@ import re
 from typing import Any, Mapping
 
 from .process_preparation import (PREPARATION_MODES, PREPARATION_ACTIVITY_UNITS,
-                                  preparation_source_fingerprint)
+                                  PREPARATION_PATTERN_UNITS, preparation_source_fingerprint)
 
 class LifecycleInputError(ValueError):
     """An attempted cost assignment lacks original owner/source/scope."""
@@ -341,8 +341,13 @@ def review_original_preparation_activity_costs(
         rates = binding["unit_rates_by_mode"]
         if not isinstance(rates, dict) or set(rates) != set(PREPARATION_MODES):
             raise LifecycleInputError("PREPARATION_ACTIVITY_MATCHED_RATE_CARD_REQUIRED")
+        units = PREPARATION_ACTIVITY_UNITS
+        if "model_preparation_pattern" in event:
+            units += PREPARATION_PATTERN_UNITS
+        if set(activity["units"]) != set(units):
+            raise LifecycleInputError("PREPARATION_ACTIVITY_ORIGINAL_UNIT_SCOPE_MISMATCH")
         for card in rates.values():
-            if (not isinstance(card, dict) or set(card) != set(PREPARATION_ACTIVITY_UNITS)
+            if (not isinstance(card, dict) or set(card) != set(units)
                     or any(not isinstance(value, str)
                            or re.fullmatch(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,2})?", value) is None
                            for value in card.values())):
@@ -358,7 +363,7 @@ def review_original_preparation_activity_costs(
                 raise LifecycleInputError("PREPARATION_ACTIVITY_RATE_SOURCE_DIFFERS_FROM_ORIGINAL_REVIEW")
         mode = activity["mode"]
         cost = sum((Decimal(rates[mode][unit]) * activity["units"][unit]
-                    for unit in PREPARATION_ACTIVITY_UNITS), Decimal("0"))
+                    for unit in units), Decimal("0"))
         if resource["decimal_amount"] != cost:
             raise LifecycleInputError("PREPARATION_ACTIVITY_COST_AMOUNT_MISMATCH")
         used_ids.add(rid)

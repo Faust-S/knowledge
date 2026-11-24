@@ -823,3 +823,111 @@ def compare_original_preparation_modes(
         "empirical_network_additionality": "NOT_IDENTIFIABLE",
         "profit": "UNKNOWN",
     }
+
+
+def compare_original_preparation_pattern_reuse(
+    scenarios: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Original operator structural capital: build again versus actual reuse.
+
+    Both arms execute the SAME original digital preparation mode, same Work,
+    sources, human review, capacity, price and cost unit rates. Only the
+    independent choice to rebuild or reuse the owner's qualified structural
+    pattern and the corresponding reconciled resource amount can differ.
+    """
+    from copy import deepcopy
+    from decimal import Decimal
+    from .mesa_model import simulate
+
+    if not isinstance(scenarios, Mapping) or set(scenarios) != {"REBUILD", "REUSE"}:
+        raise TrajectoryComparisonError("PREPARATION_PATTERN_MATCHED_TWO_ARMS_REQUIRED")
+    baseline = None
+    reference = None
+    rows = {}
+    for arm in ("REBUILD", "REUSE"):
+        doc = deepcopy(scenarios[arm])
+        try:
+            normalized = deepcopy(doc)
+            scope = normalized["strict_economic_source_works"]
+            lifecycle = normalized["economic_claims"]["lifecycle_costs"]
+            cost_ids = {row["resource_use_id"] for row in lifecycle["preparation_activity_bindings"]}
+            if (not isinstance(scope, list) or len(scope) < 2
+                    or len(set(scope)) != len(scope) or len(cost_ids) != len(scope)):
+                raise TrajectoryComparisonError("PREPARATION_PATTERN_ORIGINAL_MULTIWORK_SCOPE_REQUIRED")
+            prepared = []
+            modes = set()
+            for event in normalized["events"]:
+                if event["action"] == "function_prepare":
+                    modes.add(event["preparation_mode"])
+                    claim = event["preparation_pattern"]
+                    prepared.append(event["work"])
+                    event["preparation_pattern"] = {
+                        key: claim[key] for key in ("source_ref", "source_revision")
+                    }
+            if sorted(prepared) != sorted(scope) or len(modes) != 1 or not modes <= {"S1", "S2"}:
+                raise TrajectoryComparisonError("PREPARATION_PATTERN_SAME_DIGITAL_SCOPE_REQUIRED")
+            for row in normalized["economic_claims"]["resource_uses"]:
+                if row["id"] in cost_ids:
+                    row["amount"] = "MATCHED_PATTERN_ACTIVITY_COST"
+        except (KeyError, TypeError) as exc:
+            raise TrajectoryComparisonError("PREPARATION_PATTERN_ORIGINAL_DOCUMENT_REQUIRED") from exc
+        fingerprint = _fingerprint(normalized)
+        if baseline is not None and fingerprint != baseline:
+            raise TrajectoryComparisonError("PREPARATION_PATTERN_ORIGINAL_BASELINE_CHANGED")
+        baseline = fingerprint
+        out = simulate(doc)
+        trace = deepcopy(out["trace"])
+        patterns = []
+        for event in trace:
+            pattern = event.pop("model_preparation_pattern", None)
+            if pattern is not None:
+                patterns.append(pattern)
+            event.pop("model_preparation_activity", None)
+        invariant = (out["works"], trace, out["capacity"])
+        if reference is not None and invariant != reference:
+            raise TrajectoryComparisonError("PREPARATION_PATTERN_ORIGINAL_OUTCOMES_CHANGED")
+        reference = invariant
+        econ = out["economics"]
+        costs = econ["lifecycle_resource_costs"]
+        activity = costs["original_preparation_activity_costs"]
+        strict = econ.get("original_strict_context_source_qualification", {})
+        if (out["counts"]["blocked"] or len(patterns) != len(scope)
+                or strict.get("status") != "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED"
+                or strict.get("source_scoped_original_cost_event_count") != econ["resource_uses_count"]
+                or costs.get("classified_original_record_count") != econ["resource_uses_count"]
+                or activity["original_cost_count"] != len(scope)
+                or econ["work_payment_causality"]["source_declared_consistent_count"] != econ["transfers_count"]
+                or any(out["works"][key]["result"] != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                       for key in scope)):
+            raise TrajectoryComparisonError("PREPARATION_PATTERN_ORIGINAL_SCOPE_NOT_QUALIFIED")
+        builds = sum(row["operation"] == "BUILD" for row in patterns)
+        reuses = sum(row["operation"] == "REUSE" for row in patterns)
+        if (builds + reuses != len(scope)
+                or (arm == "REBUILD" and reuses != 0)
+                or (arm == "REUSE" and (builds != 1 or reuses != len(scope) - 1))):
+            raise TrajectoryComparisonError("PREPARATION_PATTERN_INDEPENDENT_APPLICATIONS_NOT_WITNESSED")
+        rows[arm] = {
+            "accepted_original_work_count": len(scope),
+            "original_pattern_build_count": builds,
+            "original_pattern_reuse_count": reuses,
+            "original_pattern_distinct_reused_count": len({
+                row["pattern_id"] for row in patterns if row["operation"] == "REUSE"
+            }),
+            "scoped_reuse_ratio": f"{Decimal(reuses) / Decimal(len(scope)):.4f}",
+            "human_validation_units": sum(item["units"]["human_validation"] for item in activity["items"]),
+            "declared_preparation_resource_cost": activity["total_declared_resource_cost"],
+        }
+    return {
+        "schema": "AKIS_ORIGINAL_PREPARATION_PATTERN_REUSE_COMPARISON/1.0",
+        "status": "MODEL_ORIGINAL_STRUCTURAL_PATTERN_REUSE_COST_CONTRAST",
+        "original_baseline_fingerprint_sha256": baseline,
+        "same_original_works_results_consents_and_cash": True,
+        "same_original_capacity_and_event_sequence": True,
+        "local_research_only": {
+            "arms": rows,
+            "rebuild_minus_reuse_declared_preparation_cost": f"{Decimal(rows['REBUILD']['declared_preparation_resource_cost']) - Decimal(rows['REUSE']['declared_preparation_resource_cost']):.2f}",
+        },
+        "full_author_standardization_and_experience_return_ratios_established": False,
+        "empirical_operator_capital_value": "NOT_IDENTIFIABLE",
+        "profit": "UNKNOWN",
+    }

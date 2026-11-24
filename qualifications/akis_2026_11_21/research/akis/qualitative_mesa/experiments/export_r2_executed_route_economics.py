@@ -269,8 +269,9 @@ def export_multiperiod_route_economics():
 def export_preparation_mode_economics():
     from research.akis.qualitative_mesa.comparative_trajectories import compare_original_preparation_modes
     from research.akis.qualitative_mesa.tests.test_s0_s1_s2_original_preparation_economics_mesa import (
-        preparation_modes, adaptive_preparation_modes, diagnostic_profile,
+        preparation_modes, adaptive_preparation_modes, diagnostic_profile, preparation_pattern_routes,
     )
+    from research.akis.qualitative_mesa.comparative_trajectories import compare_original_preparation_pattern_reuse
     cases = {
         "ordinary_rates": preparation_modes(),
         "agent_cost_equal_to_digital": preparation_modes(agent_fill="3.00", agent_overhead="18.00"),
@@ -308,9 +309,26 @@ def export_preparation_mode_economics():
     assert indexed["agent_cost_equal_to_digital"]["S1_minus_S2_declared_preparation_cost_direction"] == "ZERO"
     assert indexed["expensive_agent"]["S1_minus_S2_declared_preparation_cost_direction"] == "NEGATIVE"
     assert indexed["adaptive_owner_choice"]["best_fixed_minus_adaptive_declared_expected_cost_direction"] == "POSITIVE"
+    patterns = []
+    for rate, expected in (("8.00", "POSITIVE"), ("60.00", "ZERO"), ("80.00", "NEGATIVE")):
+        result = compare_original_preparation_pattern_reuse(preparation_pattern_routes(reuse_rate=rate))
+        local = result.pop("local_research_only")
+        observed = direction(local["rebuild_minus_reuse_declared_preparation_cost"])
+        assert observed == expected
+        patterns.append({
+            "trial": "reuse_cost_" + expected.lower(),
+            "rebuild_minus_reuse_direction": observed,
+            "original_build_count": local["arms"]["REUSE"]["original_pattern_build_count"],
+            "original_reuse_count": local["arms"]["REUSE"]["original_pattern_reuse_count"],
+            "original_work_count": local["arms"]["REUSE"]["accepted_original_work_count"],
+            "same_original_human_validation_units": (
+                local["arms"]["REUSE"]["human_validation_units"] == local["arms"]["REBUILD"]["human_validation_units"]),
+            "full_author_experience_return_ratio_proven": False,
+        })
     manifest = {
-        "schema": "AKIS_S0_S1_S2_ORIGINAL_PREPARATION_ECONOMICS/1.0",
+        "schema": "AKIS_S0_S1_S2_ORIGINAL_PREPARATION_ECONOMICS/1.1",
         "engine": "MESA_3_5_2", "experiments": rows,
+        "structural_pattern_reuse_experiments": patterns,
         "actual_time_error_probabilities_and_money_not_empirically_observed": True,
         "private_amounts_and_source_references_excluded": True,
         "no_second_ledger_or_scheduler": True,

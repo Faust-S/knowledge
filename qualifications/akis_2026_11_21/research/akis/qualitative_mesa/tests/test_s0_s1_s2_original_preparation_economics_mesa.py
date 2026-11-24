@@ -305,3 +305,103 @@ def test_unknown_and_non_normalized_diagnostic_weights_are_not_filled_with_zero(
     with pytest.raises(ValueError, match="WEIGHTS_MUST_SUM_TO_ONE"):
         evaluate_preparation_diagnostic(profile, {"original_header_field_count": 4,
                                                   "original_current_field_count": 9})
+
+
+def preparation_pattern_routes(*, reuse_rate="8.00"):
+    """Same operator, three original Works; build/reuse costs are reconciled."""
+    template = preparation_modes()["S2"]
+    source_ref = "model://op/structural-preparation-pattern"
+    template["context_evidence"]["sources"].append({
+        "id": source_ref, "owner": "op", "revision": "pattern-v1",
+        "status": "CONFIRMED", "usable_by": ["op"], "core": "operator",
+        "purposes": ["competence-reuse"], "operations": ["DERIVE"],
+        "valid_from": 0, "valid_until": 160,
+    })
+    docs = {}
+    for arm in ("REBUILD", "REUSE"):
+        doc = deepcopy(template)
+        life = doc["economic_claims"]["lifecycle_costs"]
+        last = None
+        for work, rid in (("w1", "w1-coordination"), ("w2", "w2-coordination"),
+                          ("w3", "cooperation-coordination")):
+            event = next(row for row in doc["events"] if row["action"] == "function_prepare"
+                         and row.get("work") == work)
+            pattern = {
+                "operation": "BUILD", "pattern_id": f"template-{work}",
+                "source_ref": source_ref, "source_revision": "pattern-v1",
+            }
+            if arm == "REUSE" and last is not None:
+                pattern.update(operation="REUSE", pattern_id="template-w1",
+                               prior_work=last["work"], prior_prepare_at=last["prepare_at"],
+                               prior_result_ref=last["result_ref"], prior_accepted_at=last["accepted_at"])
+            event["preparation_pattern"] = pattern
+            last = {
+                "work": work, "prepare_at": event["at"],
+                "result_ref": next(row["result_ref"] for row in doc["events"]
+                                   if row["action"] == "complete" and row.get("work") == work),
+                "accepted_at": next(row["at"] for row in doc["events"]
+                                    if row["action"] == "accept" and row.get("work") == work),
+            }
+            cost_row = next(row for row in doc["economic_claims"]["resource_uses"] if row["id"] == rid)
+            binding = next(row for row in life["preparation_activity_bindings"]
+                           if row["resource_use_id"] == rid)
+            for mode, card in binding["unit_rates_by_mode"].items():
+                card.update(pattern_build="60.00", pattern_reuse=reuse_rate)
+            cost_row["amount"] = f"{Decimal(cost_row['amount']) + (Decimal('60') if pattern['operation'] == 'BUILD' else Decimal(reuse_rate)):.2f}"
+        docs[arm] = doc
+    return docs
+
+
+@pytest.mark.parametrize("rate,expected", [
+    ("8.00", "104.00"), ("60.00", "0.00"), ("80.00", "-40.00"),
+])
+def test_structural_operator_capital_only_saves_cost_with_qualified_actual_reuse(rate, expected):
+    from research.akis.qualitative_mesa.comparative_trajectories import compare_original_preparation_pattern_reuse
+    report = compare_original_preparation_pattern_reuse(preparation_pattern_routes(reuse_rate=rate))
+    local = report["local_research_only"]
+    assert local["rebuild_minus_reuse_declared_preparation_cost"] == expected
+    assert local["arms"]["REUSE"]["original_pattern_build_count"] == 1
+    assert local["arms"]["REUSE"]["original_pattern_reuse_count"] == 2
+    assert local["arms"]["REUSE"]["original_pattern_distinct_reused_count"] == 1
+    assert local["arms"]["REUSE"]["scoped_reuse_ratio"] == "0.6667"
+    assert local["arms"]["REBUILD"]["human_validation_units"] == local["arms"]["REUSE"]["human_validation_units"] == 39
+    assert report["profit"] == "UNKNOWN"
+
+
+@pytest.mark.parametrize("field,value,reason", [
+    ("source_revision", "stale", "PREPARATION_PATTERN_CURRENT_SOURCE_NOT_QUALIFIED"),
+    ("source_ref", "model://b/other-pattern", "PREPARATION_PATTERN_OWN_SOURCE_REQUIRED"),
+    ("prior_result_ref", "model://fake", "PREPARATION_PATTERN_PRIOR_ACCEPTED_RESULT_REQUIRED"),
+    ("prior_accepted_at", 999, "PREPARATION_PATTERN_PRIOR_ACCEPTED_RESULT_REQUIRED"),
+    ("pattern_id", "unbuilt-pattern", "PREPARATION_PATTERN_ORIGINAL_REUSE_CHAIN_NOT_QUALIFIED"),
+])
+def test_pattern_does_not_reuse_unqualified_sources_or_history(field, value, reason):
+    doc = preparation_pattern_routes()["REUSE"]
+    doc.pop("economic_claims")
+    doc.pop("strict_economic_source_works")
+    event = next(row for row in doc["events"] if row["action"] == "function_prepare" and row.get("work") == "w3")
+    event["preparation_pattern"][field] = value
+    out = simulate(doc)
+    assert any(row["reason"] == reason for row in out["trace"])
+    assert all(out["works"][key]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT" for key in ("w1", "w2"))
+    assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+
+
+def test_reuse_still_rechecks_independent_current_customer_decision():
+    doc = preparation_pattern_routes()["REUSE"]
+    doc.pop("economic_claims")
+    doc.pop("strict_economic_source_works")
+    review = next(row for row in doc["events"] if row["action"] == "function_review" and row.get("work") == "w3")
+    review["human_decision"] = "REJECT"
+    out = simulate(doc)
+    assert any(row.get("model_preparation_pattern", {}).get("operation") == "REUSE"
+               and row.get("work") == "w3" for row in out["trace"])
+    assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+
+
+def test_reuse_cost_cannot_hide_pattern_maintenance_in_previous_period():
+    doc = preparation_pattern_routes()["REUSE"]
+    row = next(row for row in doc["economic_claims"]["resource_uses"] if row["id"] == "w2-coordination")
+    row["amount"] = "51.00"
+    with pytest.raises(InputError, match="PREPARATION_ACTIVITY_COST_AMOUNT_MISMATCH"):
+        simulate(doc)
