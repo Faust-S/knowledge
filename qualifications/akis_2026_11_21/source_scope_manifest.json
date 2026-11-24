@@ -1,6 +1,6 @@
 {
   "schema": "AKIS_NATIVE_SOURCE_SCOPE/1",
-  "source_revision": "39dbdddec4f4be1fd69f52412fd3d783e6c5d992",
+  "source_revision": "3515e2de90065efc06434c88858a058a35ee2365",
   "source_files": {
     "__init__.py": "68b595531872d6fa1de0c15a5592cb43749e062d",
     "adaptation_review.py": "3ea02ee9da9e06433abdf0b89d771e199fa6c75b",
@@ -10,7 +10,7 @@
     "causal_contract.py": "2f2e9712c1f59c781ee0d09eb303bd34dee27fa1",
     "cli.py": "6a48eb672b3dd720a41c1feaf5dfb56782ad339b",
     "common_work_allocations.py": "ddbe6fbc38be78ea890b94280c4166627b19afe7",
-    "comparative_trajectories.py": "4c55b9801388c2fbc6f0965f559820d6c1f6a08e",
+    "comparative_trajectories.py": "236f98dac92531c6f1b65f74fef17c0fa1d1d8b8",
     "competence_measurement.py": "563f40bb2591d1b36aea8f12cdfb96fcee24b02c",
     "competence_reuse.py": "de3456fb0635efd493740730562fb044ec5c407b",
     "competence_transfer.py": "763db98b103d3105c7f2de812d251f07748a763f",
@@ -22,6 +22,7 @@
     "economic_liquidity.py": "d477dde295fee8abefe9d89e9426729d4c8c5459",
     "economic_outlook.py": "041aeab6ade7a2a183ba002e023438dca7a74bf1",
     "experiments/export_activity_efficiency.py": "fe28fb9163274342ee5dced1381c2c33d439c0ef",
+    "experiments/export_bounded_delegation_economics.py": "12dd5a455ab738f23b887cbe588e7201bedccbdf",
     "experiments/export_combined_process_recovery.py": "ad70f3585548597273b41b5a02f3ba75273a452d",
     "experiments/export_competing_market_economics.py": "ef52a3b15cce443b006376ca9cd435c701d31f6c",
     "experiments/export_material_replenishment.py": "c2d7518d2e97ac49ec6846b1e9c57561aef4060f",
@@ -136,7 +137,7 @@
     "tests/test_org_code_mesa_integration.py": "fbfc55b34f7fd294188c9b5a6bd0cd7cd87b06c4",
     "tests/test_org_code_policy.py": "828d4824a5f7fd00c0988bb17d498b9fabd1e576",
     "tests/test_original_active_resource_readiness_mesa.py": "7408434ca88b3d60b37a6259303d748f7991a3ab",
-    "tests/test_original_bounded_delegation_mesa.py": "d98032ef96dbc430f74cf605c46b9ab048237af6",
+    "tests/test_original_bounded_delegation_mesa.py": "c15413a4e7683a3a0aaaa32e963f6a3a2eb2af72",
     "tests/test_original_material_replenishment_mesa.py": "9a2e6277d5c45183104a71f1c897d1bad22b3c62",
     "tests/test_original_pattern_evolution_mesa.py": "0a19071b68823bfd3c7eb246b4a22aa59cf382e0",
     "tests/test_original_preparation_pattern_revision_mesa.py": "0ac1f5ddc0da49ef99f20305f3960cfdac40c95e",

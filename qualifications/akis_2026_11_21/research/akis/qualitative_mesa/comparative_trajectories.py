@@ -1089,6 +1089,183 @@ def compare_original_preparation_modes(
     }
 
 
+def compare_original_bounded_delegation_economics(
+    scenarios: Mapping[str, Mapping[str, Any]], *, work: str,
+) -> dict[str, Any]:
+    """Matched direct S1 and delegated S2 preparation on one original Work.
+
+    Count the customer's independently declared mandate expense in addition
+    to the operator's reconciled preparation expense. No transfer of cost
+    between owners is assumed to be a system saving. An absent mandate cost
+    is not a zero. No decision, real permission or profit is generated.
+    """
+    from copy import deepcopy
+    from decimal import Decimal
+    from .mesa_model import simulate
+
+    if not isinstance(scenarios, Mapping) or set(scenarios) != {"S1_DIRECT", "S2_DELEGATED"}:
+        raise TrajectoryComparisonError("DELEGATION_COMPARISON_TWO_ARMS_REQUIRED")
+    baseline = None
+    original_outcomes = None
+    reference_payment = None
+    reference_timing = None
+    observations = {}
+    for arm in ("S1_DIRECT", "S2_DELEGATED"):
+        delegated = arm == "S2_DELEGATED"
+        doc = deepcopy(scenarios[arm])
+        normalized = deepcopy(doc)
+        try:
+            scope = doc["strict_economic_source_works"]
+            if work not in scope or len(scope) != len(set(scope)):
+                raise TrajectoryComparisonError("DELEGATION_COMPARISON_ORIGINAL_SCOPE_REQUIRED")
+            events = normalized["events"]
+            prepares = [e for e in events if e["action"] == "function_prepare" and e.get("work") == work]
+            grants = [e for e in events if e["action"] == "function_delegate"]
+            if len(prepares) != 1 or len(grants) != int(delegated):
+                raise TrajectoryComparisonError("DELEGATION_COMPARISON_ONE_ORIGINAL_PACKET_REQUIRED")
+            prep = prepares[0]
+            expected_mode = "S2" if delegated else "S1"
+            if prep.pop("preparation_mode", None) != expected_mode:
+                raise TrajectoryComparisonError("DELEGATION_COMPARISON_ORIGINAL_MODE_MISMATCH")
+            if delegated:
+                grant = grants[0]
+                if (grant["work"] != work or grant["function_id"] != prep["function_id"]
+                        or prep.pop("delegation_at", None) != grant["at"]):
+                    raise TrajectoryComparisonError("DELEGATION_COMPARISON_MANDATE_MISMATCH")
+                events.remove(grant)
+            elif "delegation_at" in prep:
+                raise TrajectoryComparisonError("DELEGATION_COMPARISON_DIRECT_MODE_HAS_MANDATE")
+            functions = [row for row in normalized["general_akis"]["agent_functions"]
+                         if row["work"] == work and row["id"] == prep["function_id"]]
+            if len(functions) != 1 or bool(functions[0].pop("requires_original_delegation", False)) != delegated:
+                raise TrajectoryComparisonError("DELEGATION_COMPARISON_FUNCTION_MISMATCH")
+
+            money = normalized["economic_claims"]
+            life = money["lifecycle_costs"]
+            anchors = life["event_bindings"]
+            prep_anchors = [row for row in anchors
+                            if row["action"] == "function_prepare" and row["work"] == work]
+            mandate_anchors = [row for row in anchors if row["action"] == "function_delegate"]
+            if len(prep_anchors) != 1:
+                raise TrajectoryComparisonError("DELEGATION_COMPARISON_PREPARATION_COST_REQUIRED")
+            if len(mandate_anchors) != int(delegated):
+                raise TrajectoryComparisonError("DELEGATION_COMPARISON_EXPLICIT_MANDATE_COST_REQUIRED")
+            prep_id = prep_anchors[0]["resource_use_id"]
+            prep_rows = [row for row in money["resource_uses"] if row["id"] == prep_id]
+            if len(prep_rows) != 1:
+                raise TrajectoryComparisonError("DELEGATION_COMPARISON_ORIGINAL_COST_REQUIRED")
+            prep_rows[0]["amount"] = "MATCHED_PREPARATION_ACTIVITY_COST"
+            grant_id = None
+            if delegated:
+                anchor = mandate_anchors[0]
+                if anchor["work"] != work or anchor["at"] != grant["at"]:
+                    raise TrajectoryComparisonError("DELEGATION_COMPARISON_MANDATE_COST_WRONG_EVENT")
+                grant_id = anchor["resource_use_id"]
+                if grant_id == prep_id:
+                    raise TrajectoryComparisonError("DELEGATION_COMPARISON_COST_ROWS_OVERLAP")
+                rows = [row for row in money["resource_uses"] if row["id"] == grant_id]
+                if len(rows) != 1:
+                    raise TrajectoryComparisonError("DELEGATION_COMPARISON_EXPLICIT_MANDATE_COST_REQUIRED")
+                money["resource_uses"].remove(rows[0])
+                for key in ("bindings", "event_bindings"):
+                    matched = [row for row in life[key] if row["resource_use_id"] == grant_id]
+                    if len(matched) != 1:
+                        raise TrajectoryComparisonError("DELEGATION_COMPARISON_MANDATE_COST_WRONG_SCOPE")
+                    life[key].remove(matched[0])
+            positions = {event["at"]: i for i, event in enumerate(events)}
+            for row in life["event_bindings"]:
+                row["trace_position"] = positions[row["at"]]
+        except (KeyError, TypeError) as exc:
+            raise TrajectoryComparisonError("DELEGATION_COMPARISON_ORIGINAL_DOCUMENT_REQUIRED") from exc
+        fingerprint = _fingerprint(normalized)
+        if baseline is not None and baseline != fingerprint:
+            raise TrajectoryComparisonError("DELEGATION_COMPARISON_ORIGINAL_BASELINE_CHANGED")
+        baseline = fingerprint
+
+        result = simulate(doc)
+        econ = result["economics"]
+        strict = econ.get("original_strict_context_source_qualification", {})
+        costs = econ.get("lifecycle_resource_costs", {})
+        activities = costs.get("original_preparation_activity_costs", {})
+        if (result["counts"]["blocked"]
+                or any(result["works"][key]["result"] != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                       or result["works"][key]["obligation"] != "FULFILLED" for key in scope)
+                or strict.get("status") != "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED"
+                or strict.get("source_scoped_original_cost_event_count") != econ["resource_uses_count"]
+                or costs.get("classified_original_record_count") != econ["resource_uses_count"]
+                or activities.get("status") != "MODEL_ORIGINAL_PACKET_ACTIVITY_COST_RECONCILED"
+                or econ["work_payment_causality"]["source_declared_consistent_count"] != econ["transfers_count"]
+                or econ["profit"] != "UNKNOWN"):
+            raise TrajectoryComparisonError("DELEGATION_COMPARISON_ORIGINAL_SCOPE_NOT_QUALIFIED")
+        trace = deepcopy(result["trace"])
+        applied_grants = [row for row in trace if row["action"] == "function_delegate"]
+        applied_preps = [row for row in trace if row["action"] == "function_prepare" and row["work"] == work]
+        if (len(applied_grants) != int(delegated) or len(applied_preps) != 1
+                or ("model_original_delegated_preparation" in applied_preps[0]) != delegated):
+            raise TrajectoryComparisonError("DELEGATION_COMPARISON_ORIGINAL_EXECUTION_NOT_WITNESSED")
+        prepared = applied_preps[0]
+        prepared.pop("model_original_delegated_preparation", None)
+        prepared.pop("model_preparation_activity", None)
+        trace = [row for row in trace if row["action"] != "function_delegate"]
+        outcomes = (result["works"], result["capacity"], trace)
+        if original_outcomes is not None and original_outcomes != outcomes:
+            raise TrajectoryComparisonError("DELEGATION_COMPARISON_ORIGINAL_OUTCOMES_CHANGED")
+        original_outcomes = outcomes
+        payment = deepcopy(econ["work_payment_causality"])
+        for row in payment["bindings"]:
+            count = row.pop("same_original_work_noncash_resource_use_count")
+            row["matched_original_cost_count_without_mandate"] = count-int(delegated and row["original_work"] == work)
+        if reference_payment is not None and payment != reference_payment:
+            raise TrajectoryComparisonError("DELEGATION_COMPARISON_ORIGINAL_PAYMENTS_CHANGED")
+        reference_payment = payment
+        if reference_timing is not None and econ["cash_timing"] != reference_timing:
+            raise TrajectoryComparisonError("DELEGATION_COMPARISON_ORIGINAL_CASH_TIMING_CHANGED")
+        reference_timing = econ["cash_timing"]
+        prepared_cost = [row for row in activities["items"]
+                         if row["resource_use_id"] == prep_id and row["work"] == work
+                         and row["mode"] == expected_mode]
+        if len(prepared_cost) != 1:
+            raise TrajectoryComparisonError("DELEGATION_COMPARISON_PREPARATION_COST_NOT_RECONCILED")
+        operator_cost = Decimal(prepared_cost[0]["declared_resource_cost"])
+        customer_cost = Decimal(0)
+        if delegated:
+            # The original lifecycle review, not the grant itself, establishes
+            # the amount and cost owner for this separate resource-use row.
+            customer = applied_grants[0]["actor"]
+            timed = costs["original_work_event_timing"]["by_original_work"][work][
+                "per_original_scenario_owner"]["COOPERATION"][customer]
+            matched = [row for row in timed if row["resource_use_id"] == grant_id
+                       and row["original_applied_action"] == "function_delegate"]
+            if len(matched) != 1:
+                raise TrajectoryComparisonError("DELEGATION_COMPARISON_MANDATE_COST_NOT_RECONCILED")
+            customer_cost = Decimal(matched[0]["source_declared_noncash_original_work_cost"])
+        observations[arm] = {
+            "operator_preparation_resource_cost": f"{operator_cost:.2f}",
+            "customer_mandate_resource_cost": f"{customer_cost:.2f}",
+            "combined_preparation_and_mandate_resource_cost": f"{operator_cost+customer_cost:.2f}",
+            "accepted_original_work_count": len(scope),
+            "original_mandate_cost_record_count": int(delegated),
+        }
+    direct, delegated = observations["S1_DIRECT"], observations["S2_DELEGATED"]
+    delta = Decimal(direct["combined_preparation_and_mandate_resource_cost"])-Decimal(
+        delegated["combined_preparation_and_mandate_resource_cost"])
+    return {
+        "schema": "AKIS_ORIGINAL_BOUNDED_DELEGATION_COST_COMPARISON/1.0",
+        "status": "MODEL_MATCHED_DELEGATION_RESOURCE_COST_CONTRAST",
+        "same_original_works_results_consents_capacity_and_cash": True,
+        "local_research_only": {
+            "arms": observations,
+            "direct_minus_delegated_combined_cost": f"{delta:.2f}",
+            "operator_cost_reduction": f"{Decimal(direct['operator_preparation_resource_cost'])-Decimal(delegated['operator_preparation_resource_cost']):.2f}",
+            "additional_customer_mandate_cost": delegated["customer_mandate_resource_cost"],
+        },
+        "explicit_cost_required_even_if_zero": True,
+        "actual_agent_runtime_and_real_profit_verified": False,
+        "empirical_network_additionality": "NOT_IDENTIFIABLE",
+        "profit": "UNKNOWN",
+    }
+
+
 def compare_original_preparation_pattern_reuse(
     scenarios: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:

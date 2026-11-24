@@ -12,8 +12,12 @@ MANDATE = "model://b/w3-preparation-mandate"
 PURPOSE = "AKIS_DELEGATED_PREPARATION"
 
 
-def delegated_route(*, costs=False):
-    doc = preparation_pattern_routes()["REUSE"]
+def delegated_route(*, costs=False, patterns=True):
+    # Pattern shape includes preparation mode. For an S1/S2 contrast use
+    # the original mode experiment without pattern reuse; otherwise a new
+    # S1 packet would be an invalid reuse of the S2 shape.
+    from .test_s0_s1_s2_original_preparation_economics_mesa import preparation_modes
+    doc = preparation_pattern_routes()["REUSE"] if patterns else preparation_modes()["S2"]
     if not costs:
         without_costs(doc)
     prepare = event(doc, "function_prepare", "w3")
@@ -213,3 +217,95 @@ def test_delegation_cannot_be_attached_to_unrelated_work_event():
     event(doc,"commit","w3")["delegation_at"] = grant(doc)["at"]
     with pytest.raises(InputError,match="DELEGATION_FIELDS_REQUIRE_ORIGINAL_FUNCTION_ACTION"):
         simulate(doc)
+
+
+def matched_delegation_economics(amount="12.00"):
+    """Same three accepted Works, same timing, prices and actual decisions."""
+    delegated = delegated_route(costs=True, patterns=False)
+    money = delegated["economic_claims"]
+    life = money["lifecycle_costs"]
+    mandate = grant(delegated)
+    rid = "w3-customer-mandate-cost"
+    proof = "model://b/w3-mandate-cost-proof"
+    delegated["context_evidence"]["sources"].append({
+        "id": proof, "owner": "b", "revision": "cost-v1",
+        "status": "CONFIRMED", "usable_by": ["b"], "core": "corporate",
+        "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"], "operations": ["READ"],
+        "valid_from": 0, "valid_until": 160,
+    })
+    money["resource_uses"].append({
+        "id": rid, "scenario": "COOPERATION", "work": "w3", "owner": "b",
+        "source": "terms-b", "amount": amount, "bucket": "COORDINATION",
+    })
+    life["bindings"].append({
+        "resource_use_id": rid, "owner": "b", "source": "terms-b",
+        "stage": "CONTRACT_AND_PERMISSIONS", "nature": "TRANSACTION",
+    })
+    life["event_bindings"].append({
+        "resource_use_id": rid, "work": "w3", "owner": "b", "source": "terms-b",
+        "work_source_revision": "d-3", "trace_position": delegated["events"].index(mandate),
+        "at": mandate["at"], "action": "function_delegate", "org_revision": "oc-1",
+        "cost_evidence_ref": proof, "cost_evidence_revision": "cost-v1",
+    })
+    direct = deepcopy(delegated)
+    direct["events"].remove(grant(direct))
+    prep = event(direct, "function_prepare", "w3")
+    prep.pop("delegation_at")
+    prep["preparation_mode"] = "S1"
+    next(row for row in direct["general_akis"]["agent_functions"]
+         if row["work"] == "w3" and row["id"] == prep["function_id"]).pop("requires_original_delegation")
+    dm = direct["economic_claims"]
+    dm["resource_uses"] = [row for row in dm["resource_uses"] if row["id"] != rid]
+    # In S1 the same thirteen fields have nine manual entries, four
+    # program fills, thirteen human validations and overhead.
+    next(row for row in dm["resource_uses"]
+         if row["id"] == "cooperation-coordination")["amount"] = "83.00"
+    dl = dm["lifecycle_costs"]
+    for key in ("bindings", "event_bindings"):
+        dl[key] = [row for row in dl[key] if row["resource_use_id"] != rid]
+    positions = {row["at"]: i for i,row in enumerate(direct["events"])}
+    for row in dl["event_bindings"]:
+        row["trace_position"] = positions[row["at"]]
+    return {"S1_DIRECT": direct, "S2_DELEGATED": delegated}
+
+
+@pytest.mark.parametrize("cost,expected", [
+    ("0.00","32.00"), ("12.00","20.00"), ("32.00","0.00"), ("48.00","-16.00"),
+])
+def test_mandate_overhead_changes_combined_resource_advantage_not_original_cash(cost,expected):
+    from research.akis.qualitative_mesa.comparative_trajectories import (
+        compare_original_bounded_delegation_economics,
+    )
+    docs = matched_delegation_economics(cost)
+    frozen = deepcopy(docs)
+    report = compare_original_bounded_delegation_economics(docs,work="w3")
+    local = report["local_research_only"]
+    assert docs == frozen
+    assert local["operator_cost_reduction"] == "32.00"
+    assert local["additional_customer_mandate_cost"] == cost
+    assert local["direct_minus_delegated_combined_cost"] == expected
+    assert report["same_original_works_results_consents_capacity_and_cash"]
+    assert report["profit"] == "UNKNOWN"
+    assert report == compare_original_bounded_delegation_economics(deepcopy(docs),work="w3")
+
+
+def test_missing_mandate_cost_not_imputed_as_zero():
+    from research.akis.qualitative_mesa.comparative_trajectories import (
+        compare_original_bounded_delegation_economics, TrajectoryComparisonError,
+    )
+    docs = matched_delegation_economics()
+    money = docs["S2_DELEGATED"]["economic_claims"]
+    money["lifecycle_costs"]["event_bindings"] = [
+        row for row in money["lifecycle_costs"]["event_bindings"] if row["action"] != "function_delegate"]
+    with pytest.raises(TrajectoryComparisonError,match="DELEGATION_COMPARISON_EXPLICIT_MANDATE_COST_REQUIRED"):
+        compare_original_bounded_delegation_economics(docs,work="w3")
+
+
+def test_comparison_does_not_hide_changed_original_transfer():
+    from research.akis.qualitative_mesa.comparative_trajectories import (
+        compare_original_bounded_delegation_economics, TrajectoryComparisonError,
+    )
+    docs = matched_delegation_economics()
+    docs["S2_DELEGATED"]["economic_claims"]["transfers"][0]["amount"] = "123.00"
+    with pytest.raises(TrajectoryComparisonError,match="DELEGATION_COMPARISON_ORIGINAL_BASELINE_CHANGED"):
+        compare_original_bounded_delegation_economics(docs,work="w3")
