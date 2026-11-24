@@ -158,7 +158,7 @@ function fakeBrowser(root,store=null,clock=Date) {
     get liveFetches(){return liveFetches;}};
 }
 const artifactBase=model=>model.modelSource.endsWith("/")?model.modelSource:model.modelSource+"/resolve/main/";
-for(const model of MODELS) test("D5 consent, restart, denial and expiry for "+model.id,async()=>{
+for(const model of MODELS.filter(m=>!m.retiredForProfile)) test("D5 consent, restart, denial and expiry for "+model.id,async()=>{
   const root=specimen();
   try {
     materializeDomainMode(root);

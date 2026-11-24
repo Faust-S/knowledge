@@ -10,6 +10,8 @@ export type BrowserLocalModel = Readonly<{
   modelLibRevision?:string;
   estimatedDownloadBytes?:number;
   profileId:'light'|'balanced'|'extended'|null;
+  upstreamId?:string;
+  retiredForProfile?:'light'|'balanced'|'extended';
   license:string;
   licenseInfo:string;
   quantization:string;

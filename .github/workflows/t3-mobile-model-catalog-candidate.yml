@@ -33,7 +33,7 @@ jobs:
           import {prebuiltAppConfig} from '@mlc-ai/web-llm';
           const {MODELS}=await import(pathToFileURL(process.argv[2]));
           for(const m of MODELS){
-            const r=prebuiltAppConfig.model_list.find(x=>x.model_id===m.id);
+            const r=prebuiltAppConfig.model_list.find(x=>x.model_id===(m.upstreamId??m.id));
             assert.ok(r,m.id);
             assert.equal(r.model,m.upstreamModelSource??m.modelSource,m.id);
             assert.equal(r.model_lib,m.upstreamModelLib??m.modelLib,m.id);

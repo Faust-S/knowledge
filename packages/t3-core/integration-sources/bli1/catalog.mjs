@@ -155,5 +155,7 @@ export function requireCatalogModel(modelId) {
   return found;
 }
 export function modelInstallSources() {
-  return MODELS.map(model=>({model:model.modelSource,wasm:model.modelLib}));
+  // A retired revision remains addressable only for inspecting/removing
+  // its existing cache. It must not receive a new install lease.
+  return MODELS.filter(model=>!model.retiredForProfile).map(model=>({model:model.modelSource,wasm:model.modelLib}));
 }

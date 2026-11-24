@@ -10,12 +10,12 @@
     },
     {
       "file": "workspace-module/LocalInferencePanel.tsx",
-      "blob": "e50dddbc427d6bf16c1c78c12a7f716b2bb1ce51",
+      "blob": "67c4dfc4b0b59824b9c892296534e84fa3beb9a3",
       "upstream_blob": "57fc92d099755b63c3fbdc5feda44c5aea160ee9"
     },
     {
       "file": "workspace-module/catalog.d.mts",
-      "blob": "8c2d5a4b61a571b57328fff17c746678748324c4",
+      "blob": "29a2e6846a372f5477d686c9d5d751746ff8f51f",
       "upstream_blob": "f306156f3ec500bb46bf7ba81fa632df674dd40f"
     },
     {
@@ -46,17 +46,17 @@
     },
     {
       "file": "src/catalog.mjs",
-      "blob": "9514b88c9a2af584e2735be57618c2009dfcbe46",
+      "blob": "7a4c47eda24b99edf33084f39b67f0f096d8e4d5",
       "upstream_blob": "5d2108154772178721a1ea24ed622e75ba31d79d"
     },
     {
       "file": "src/domain-model-install.mjs",
-      "blob": "46cf4033a434f78435c035353b7af2e1a900c5ca",
+      "blob": "c02f24f3645cc9606cd4cae9919b1f44976f97f0",
       "upstream_blob": "54edc16dff1fe6a4c34b47feea3b53ef84a59ca1"
     },
     {
       "file": "src/engine.mjs",
-      "blob": "51b17237fa62db1f67fcb8ee617ffb590cbaa7af",
+      "blob": "b9facd8ae3f45efe4070c2b733603f1001121a7f",
       "upstream_blob": "5ae5c79f4421df46157d3798defff66fb6cad0b9"
     },
     {
@@ -74,7 +74,7 @@
     }
   ],
   "executable_owner": "Faust-S/knowledge",
-  "purpose": "hash-pinned T3-owned BLI runtime with three versioned multilingual profiles; exact upstream WebLLM variants and repository revisions; no credentials or weights; bounded native JSON grammar for explicit selected form fields",
+  "purpose": "hash-pinned T3-owned BLI runtime with three versioned multilingual profiles; exact upstream WebLLM variants and repository revisions; no credentials or weights; bounded native JSON grammar for explicit selected form fields; explicit developer profile replacement and previous revision cache maintenance",
   "source_role": "HISTORICAL_BLI1_BASE_WITH_FIRST_PARTY_T3_D5_MODEL_CHOICE",
   "source_revision": "Faust-S/knowledge@c1d720650acd28a9d7510b2068700e59633db205"
 }

@@ -34,6 +34,7 @@ export default function LocalInferencePanel() {
   const [maxTokens, setMaxTokens] = useState(256);
   const [output, setOutput] = useState("");
   const [draftReady, setDraftReady] = useState(false);
+  const draftOrigin=useRef<{model_id:string;engine:string}|null>(null);
   const [saved, setSaved] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [openedDraft, setOpenedDraft] = useState<OpenedDraft | null>(null);
@@ -58,7 +59,7 @@ export default function LocalInferencePanel() {
     setWorkspaceId(current());
     setWorkspaceChoice("");
     setWorkspaceChoices([]);
-    setDraftReady(false);
+    draftOrigin.current=null;setDraftReady(false);
     setSaved(false);
     setOutput("");
     setPrompt("");
@@ -131,7 +132,7 @@ export default function LocalInferencePanel() {
   // No weights are fetched and no model is started by this read-only check.
   useEffect(() => { void checkCache(); }, [modelId]);
   const selectModel = (id:string) => {
-    if (busy || ready || actionBusy.current || !MODELS.some(m=>m.id===id) ||
+    if (busy || ready || actionBusy.current || !MODELS.some(m=>m.id===id&&!m.retiredForProfile) ||
         id===activeModelId.current) return;
     if (draftReady && !saved &&
         !window.confirm("Несохранённый черновик будет очищен при смене модели. Продолжить?"))
@@ -145,7 +146,7 @@ export default function LocalInferencePanel() {
     setCached(false);
     setCacheStatus("Проверка локального кеша выбранной модели...");
     setReady(false);
-    setDraftReady(false);
+    draftOrigin.current=null;setDraftReady(false);
     setSaved(false);
     setOutput("");
     setOpenedDraft(null);
@@ -327,7 +328,7 @@ export default function LocalInferencePanel() {
     setBusy(true);
     setModelBusy(true);
     setOutput("");
-    setDraftReady(false);
+    draftOrigin.current=null;setDraftReady(false);
     setSaved(false);
     setOpenedDraft(null);
     setStatus("Генерация выполняется локально. Можно остановить.");
@@ -340,6 +341,7 @@ export default function LocalInferencePanel() {
       });
       if (!alive.current || epoch !== focusEpoch.current) return;
       setOutput(result);
+      draftOrigin.current={model_id:selectedModel.id,engine:selectedModel.engine};
       setDraftReady(Boolean(result.trim()));
       setStatus("Черновик готов. Просмотрите его перед отдельным сохранением.");
     } catch (e) {
@@ -353,7 +355,7 @@ export default function LocalInferencePanel() {
     } finally { actionBusy.current = false; if (alive.current) { setBusy(false); setModelBusy(false); } }
   };
   const save = async () => {
-    if (!draftReady || saved || !workspaceId || !output.trim() || actionBusy.current ||
+    if (!draftReady || !draftOrigin.current || saved || !workspaceId || !output.trim() || actionBusy.current ||
         !context.kernel.hasOperation("t1.putObject")) return;
     const epoch = focusEpoch.current;
     actionBusy.current = true;
@@ -361,7 +363,7 @@ export default function LocalInferencePanel() {
     try {
       const receipt = await saveLocalInferenceDraft(context, {
         expected_workspace_id: workspaceId,
-        model_id: selectedModel.id, engine: selectedModel.engine, output,
+        model_id: draftOrigin.current.model_id, engine: draftOrigin.current.engine, output,
       });
       if (!alive.current || epoch !== focusEpoch.current) return;
       setSaved(true);
@@ -478,7 +480,7 @@ export default function LocalInferencePanel() {
         className="w-full rounded p-2 text-slate-900" value={modelId}
         disabled={busy || ready || Boolean(pendingReadbackId)}
         onChange={e=>selectModel(e.target.value)}>
-        {MODELS.map(model=><option key={model.id} value={model.id}>
+        {MODELS.filter(model=>!model.retiredForProfile).map(model=><option key={model.id} value={model.id}>
           {model.label} · около {model.expectedVramMB} МБ GPU
         </option>)}
       </select>
@@ -609,12 +611,14 @@ export default function LocalInferencePanel() {
         · {openedDraft.status} · {openedDraft.model_id}</p>
       <p className="whitespace-pre-wrap break-words">{openedDraft.text}</p>
       <button type="button" disabled={busy || !workspaceId ||
-        openedDraft.model_id !== selectedModel.id || openedDraft.engine !== selectedModel.engine ||
         !context.kernel.hasOperation("t1.putObject")}
         onClick={() => {
           if (current() !== workspaceId) return;
           // Editing makes a distinct, explicitly saved draft; the original
           // Kernel object and revision are never overwritten silently.
+          // Copy the persisted origin, independent of the current model or
+          // whether that model is still offered in the active catalog.
+          draftOrigin.current={model_id:openedDraft.model_id,engine:openedDraft.engine};
           setOutput(openedDraft.text);
           setDraftReady(true);
           setSaved(false);

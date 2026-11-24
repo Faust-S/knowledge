@@ -30,7 +30,8 @@ function cancelled() {
 export async function beginDomainModelInstallation(modelId=MODEL.id,{signal}={}) {
   if (signal?.aborted) throw cancelled();
   const chosen=requireCatalogModel(modelId);
-  const model=prebuiltAppConfig.model_list.find(row => row.model_id === chosen.id);
+  if(chosen.retiredForProfile)throw Error("T3_D5_MODEL_RETIRED");
+  const model=prebuiltAppConfig.model_list.find(row => row.model_id === (chosen.upstreamId??chosen.id));
   if (!model || model.model!==(chosen.upstreamModelSource??chosen.modelSource) ||
       model.model_lib!==(chosen.upstreamModelLib??chosen.modelLib))
     throw Error("T3_D5_MODEL_NOT_IN_WEBLLM_CATALOG");

@@ -10,7 +10,7 @@ import { BrowserInferenceError, decideLoad, requirePrompt, formResponseFormat } 
 import { inspectWebLlmOfflineCache } from './cache-readiness.mjs';
 
 const modelRecords = MODELS.map(chosen=>{
-  const record=prebuiltAppConfig.model_list.find(row=>row.model_id===chosen.id);
+  const record=prebuiltAppConfig.model_list.find(row=>row.model_id===(chosen.upstreamId??chosen.id));
   if(!record)throw new Error('WEBLLM_MODEL_NOT_PREBUILT:'+chosen.id);
   if(record.model!==(chosen.upstreamModelSource??chosen.modelSource) ||
      record.model_lib!==(chosen.upstreamModelLib??chosen.modelLib))
@@ -18,7 +18,7 @@ const modelRecords = MODELS.map(chosen=>{
   // Use the same upstream WebLLM record and cache, but bind a new profile
   // to exact repository revisions. A new model revision has a distinct
   // normalized model URL/cache identity. Never mutate or delete old weights.
-  return {...record,model:chosen.modelSource,model_lib:chosen.modelLib};
+  return {...record,model_id:chosen.id,model:chosen.modelSource,model_lib:chosen.modelLib};
 });
 // Only curated, upstream prebuilt models. The original WebLLM Cache API is
 // the sole weights manager; T2 DB8 is used only for user-saved draft Result.
@@ -66,6 +66,8 @@ export class BrowserLocalRuntimeAdapter {
   get ready() { return Boolean(this.#engine); }
 
   async load({ networkConsent = false, onProgress = () => {}, signal } = {}) {
+    if(requireCatalogModel(this.#modelId).retiredForProfile)
+      throw new BrowserInferenceError("MODEL_RETIRED","Эта версия больше не предлагается. Её сохранённые файлы можно удалить отдельно.");
     if (this.#loading || this.#running) throw new BrowserInferenceError('BUSY', 'Модель занята.');
     if (this.#engine) {
       this.#worker?.postMessage({ kind: 'IWXA_NETWORK_POLICY', denyNetwork: true });
