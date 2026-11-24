@@ -69,3 +69,50 @@ test('K9 original capture cannot be reconstructed after missing Object and canno
   await assert.rejects(p.persistOriginalIntent(intent),{code:'CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING'});
   assert.equal(f.writes,1);
 });
+
+test('K15 cold original capture inventory locates unmatched Intent without guessing mutation outcome',async()=>{
+  const f=fixture(),p=f.port();
+  await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  const second={...intent,captureRef:'capture:2',objectId:'object:2',originalMutation:{data:{secret:'not returned'}}};
+  f.lose();await assert.rejects(p.persistOriginalIntent(second),{code:'CAPTURE_LEDGER_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
+  f.restart();const cold=f.port(),pending=await cold.listOriginalPendingIntents(scope);
+  assert.equal(pending.length,1);assert.deepEqual({...pending[0]},{
+    ...scope,captureRef:'capture:2',kind:'OBJECT_PUT',subjectId:'object:2',
+    originalIntentEventId:f.events[2].event_id,originalIntentRecordDigest:f.events[2].payload.recordDigest,
+    state:'ORIGINAL_MUTATION_OUTCOME_REQUIRES_RECONCILIATION',automaticSubjectMutationAllowed:false});
+  assert.equal(JSON.stringify(pending).includes('not returned'),false);
+  assert.equal(f.writes,3);
+  await cold.persistOriginalOutbox({...outbox,captureRef:'capture:2',objectId:'object:2',sourceEventId:'event:source:2'});
+  assert.deepEqual(await cold.listOriginalPendingIntents(scope),[]);
+  assert.equal(f.writes,4);
+});
+test('K15 original Event missing from catalog is a gap even outside requested outbox filter',async()=>{
+  const f=fixture(),p=f.port();await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  f.objects.delete(f.events[1].object_id);
+  await assert.rejects(p.listOriginalOutbox({...scope,sourceEventId:'event:other'}),{code:'CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING'});
+  await assert.rejects(p.listOriginalPendingIntents(scope),{code:'CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING'});
+  assert.equal(f.writes,2);
+});
+test('K15 orphan outbox, deleted ledger object and missing event never resolve an intent',async()=>{
+  const f=fixture(),p=f.port();await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  const i=f.events[0].object_id,o=f.events[1].object_id,removed=f.objects.get(i),original=f.events.shift();
+  f.objects.delete(i);
+  await assert.rejects(p.listOriginalPendingIntents(scope),{code:'CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED'});
+  f.objects.set(i,removed);f.events.unshift(original);
+  f.objects.get(o).object.deleted=true;
+  await assert.rejects(p.listOriginalOutbox(scope),{code:'CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID'});
+  f.objects.get(o).object.deleted=false;f.events.pop();
+  await assert.rejects(p.listOriginalPendingIntents(scope),{code:'CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN'});
+  assert.equal(f.writes,2);
+});
+test('K15 changed original capture inventory cannot report a stable pending result',async()=>{
+  const f=fixture(),p=f.port();await p.persistOriginalIntent(intent);
+  const original=f.params.originalKernel.listObjects;let reads=0;
+  f.params.originalKernel.listObjects=async(...args)=>{
+    if(++reads===3)await p.persistOriginalOutbox(outbox);
+    return original(...args);
+  };
+  await assert.rejects(p.listOriginalPendingIntents(scope),{code:'CAPTURE_LEDGER_ORIGINAL_INDEX_CHANGED'});
+  assert.deepEqual(await p.listOriginalPendingIntents(scope),[]);
+  assert.equal(f.writes,2);
+});

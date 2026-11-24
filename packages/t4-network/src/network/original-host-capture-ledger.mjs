@@ -151,49 +151,109 @@ export function createT4OriginalHostCaptureLedgerPort({
       fail('CAPTURE_LEDGER_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{automaticRetryAllowed:false});
     return true;
   }
-  async function listOriginalOutbox(query){
+  // Both directions of the local catalog/Event correspondence matter.
+  // An Event whose immutable record is omitted from listObjects is not an
+  // empty queue. A catalog row without its original Event is not evidence.
+  // The index is ephemeral, reconstructed from the original T3 on every read.
+  async function index(initial,role){
+    await guard(initial,'t1.listObjects',role);
+    const catalog=await originalKernel.listObjects({workspace_id:technicalWorkspaceId,include_deleted:true});
+    await guard(initial,'t1.listObjects',role);
+    if(!Array.isArray(catalog)||catalog.length>100000)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
+    const rolePrefix=prefix+role+':',rows=new Map(),witnesses=new Map(),eventIds=new Set();
+    for(const o of catalog){
+      if(typeof o?.object_id!=='string'||!o.object_id.startsWith(rolePrefix))continue;
+      if(o.workspace_id!==technicalWorkspaceId||o.schema_id!==T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID||
+        o.schema_version!=='1.0.0'||o.revision!==1||o.deleted===true||
+        rows.size>=4096||rows.has(o.object_id))
+        fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
+      rows.set(o.object_id,o);
+    }
+    const all=await events(initial,role);
+    for(const e of all){
+      if(typeof e?.object_id!=='string'||!e.object_id.startsWith(rolePrefix))continue;
+      const p=e.payload;
+      if(e.workspace_id!==technicalWorkspaceId||e.revision!==1||e.event_type!==EVENT||
+        !ID(e.event_id)||eventIds.has(e.event_id)||witnesses.has(e.object_id)||
+        !ID(p?.captureRef)||ref(role,p.captureRef)!==e.object_id||p.role!==role||
+        p.sourceWorkspaceId!==sourceWorkspaceId||p.originalWriteOwnerRef!==originalWriteOwnerRef||
+        !KINDS.includes(p.kind)||!/^sha256:[a-f0-9]{64}$/.test(p.recordDigest)||
+        (role==='outbox'?!ID(p.sourceEventId):p.sourceEventId!==null))
+        fail('CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN');
+      if(!rows.has(e.object_id))
+        fail('CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING',{recordRole:role,captureRef:p.captureRef});
+      eventIds.add(e.event_id);witnesses.set(e.object_id,e);
+    }
+    if(witnesses.size!==rows.size)fail('CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN');
+    const byCapture=new Map([...witnesses.values()].map(e=>[e.payload.captureRef,e]));
+    return {all,byCapture,fingerprint:canonical([...witnesses.values()].sort((a,b)=>a.object_id.localeCompare(b.object_id)))};
+  }
+  function checkFilters(query){
     checkScope(query,false);
     if(query.kindFilter!==undefined&&(!Array.isArray(query.kindFilter)||
       !query.kindFilter.every(k=>KINDS.includes(k))))fail('CAPTURE_LEDGER_KIND_FILTER_INVALID');
     if(query.sourceEventId!==undefined&&!ID(query.sourceEventId))fail('CAPTURE_LEDGER_EVENT_FILTER_INVALID');
-    const initial=await context();await guard(initial,'t1.listObjects','outbox');
-    const catalog=await originalKernel.listObjects({workspace_id:technicalWorkspaceId,include_deleted:true});
-    await guard(initial,'t1.listObjects','outbox');
-    if(!Array.isArray(catalog)||catalog.length>100000)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
-    const rows=catalog.filter(o=>typeof o?.object_id==='string'&&o.object_id.startsWith(prefix+'outbox:'));
-    if(rows.length>4096||new Set(rows.map(o=>o.object_id)).size!==rows.length)
-      fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
-    const all=await events(initial,'outbox'),result=[];
-    for(const row of rows){
-      // Recover the capture reference from the original immutable Event,
-      // not an in-memory list, unverified catalog data or network metadata.
-      const witness=all.filter(e=>e?.object_id===row.object_id&&e.workspace_id===technicalWorkspaceId);
-      const captureRef=witness[0]?.payload?.captureRef;
-      const e=witness[0],p=e?.payload;
-      if(witness.length!==1||!ID(captureRef)||ref('outbox',captureRef)!==row.object_id||
-        e.revision!==1||e.event_type!==EVENT||!ID(e.event_id)||p.role!=='outbox'||
-        p.sourceWorkspaceId!==sourceWorkspaceId||p.originalWriteOwnerRef!==originalWriteOwnerRef||
-        !KINDS.includes(p.kind)||!ID(p.sourceEventId))
-        fail('CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN');
-      // A native next-step always asks for an exact original source Event.
-      // Filter on its local immutable Event index, then prove the entire
-      // matching record and its digest. An absent match never advances
-      // the frontier; an unrelated later capture cannot substitute for it.
-      if(query.sourceEventId!==undefined&&p.sourceEventId!==query.sourceEventId)continue;
-      if(query.kindFilter!==undefined&&!query.kindFilter.includes(p.kind))continue;
-      const payload=await read('outbox',{workspaceId:sourceWorkspaceId,originalWriteOwnerRef,captureRef},initial,all);
-      if(!payload)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
-      if((query.kindFilter===undefined||query.kindFilter.includes(kindOf(payload)))&&
-        (query.sourceEventId===undefined||payload.sourceEventId===query.sourceEventId))result.push(payload);
+  }
+  async function readIndexed(role,e,i,initial){
+    const payload=await read(role,{workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
+      captureRef:e.payload.captureRef},initial,i.all);
+    if(!payload)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
+    return payload;
+  }
+  async function listOriginalOutbox(query){
+    checkFilters(query);
+    const initial=await context(),i=await index(initial,'outbox'),result=[];
+    for(const e of i.byCapture.values()){
+      // Filter only after proving complete local index coverage. The exact
+      // selected immutable record is then checked against its original Event.
+      if(query.sourceEventId!==undefined&&e.payload.sourceEventId!==query.sourceEventId)continue;
+      if(query.kindFilter!==undefined&&!query.kindFilter.includes(e.payload.kind))continue;
+      result.push(await readIndexed('outbox',e,i,initial));
     }
     return result;
+  }
+  // An unmatched Intent means an original operation needs reconciliation,
+  // not that the operation failed or should be re-executed. Only references
+  // to verified local records leave this inspection; no mutation input bytes,
+  // recovery authorization, or parallel persisted work queue is created.
+  async function listOriginalPendingIntents(query){
+    checkScope(query,false);
+    const initial=await context(),intents=await index(initial,'intent'),
+      outboxes=await index(initial,'outbox'),pending=[];
+    for(const [captureRef,e] of outboxes.byCapture){
+      const intent=intents.byCapture.get(captureRef);
+      if(!intent||intent.payload.kind!==e.payload.kind)
+        fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED',{captureRef});
+    }
+    for(const [captureRef,e] of intents.byCapture){
+      const input=await readIndexed('intent',e,intents,initial),kind=kindOf(input),
+        subjectId=subjectOf(input,kind),paired=outboxes.byCapture.get(captureRef);
+      if(paired){
+        const out=await readIndexed('outbox',paired,outboxes,initial);
+        if(kindOf(out)!==kind||subjectOf(out,kind)!==subjectId)
+          fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED',{captureRef});
+        continue;
+      }
+      pending.push(Object.freeze({workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
+        captureRef,kind,subjectId,originalIntentEventId:e.event_id,
+        originalIntentRecordDigest:e.payload.recordDigest,
+        state:'ORIGINAL_MUTATION_OUTCOME_REQUIRES_RECONCILIATION',
+        automaticSubjectMutationAllowed:false}));
+    }
+    // There is no atomic catalog+Event snapshot on this T3 port. Refuse a
+    // changed capture index rather than report a misleading absence. The
+    // original Host still owns exclusion for any subsequent mutation.
+    const nextIntents=await index(initial,'intent'),nextOutboxes=await index(initial,'outbox');
+    if(intents.fingerprint!==nextIntents.fingerprint||outboxes.fingerprint!==nextOutboxes.fingerprint)
+      fail('CAPTURE_LEDGER_ORIGINAL_INDEX_CHANGED',{automaticRetryAllowed:false});
+    return Object.freeze(pending);
   }
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_CAPTURE_LEDGER_PORT_V1',
     identity,technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
     readOriginalIntent:async query=>read('intent',query,await context()),
     readOriginalOutbox:async query=>read('outbox',query,await context()),
     persistOriginalIntent:p=>persist('intent',p),persistOriginalOutbox:p=>persist('outbox',p),
-    listOriginalOutbox,originalT3OnlyStore:true,createsStore:false,createsScheduler:false,
+    listOriginalOutbox,listOriginalPendingIntents,originalT3OnlyStore:true,createsStore:false,createsScheduler:false,
     forOriginalHostLifetime:isHostActive=>createT4OriginalHostCaptureLedgerPort({
       originalKernel,...identity,getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
