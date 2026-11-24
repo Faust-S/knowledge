@@ -63,8 +63,17 @@ async function readProfile(page,stage,expectedWorkspace){
  await poll(async()=>await progress.count()===1&&(await progress.textContent({timeout:1000}))?.trim()==="Сохранённых записей: 1","KERNEL_OBJECT_COUNT");
  log(stage+"_INVENTORY");
  if(expectedWorkspace){
+  phase=stage+"_WORKSPACE_SCOPE_DISCLOSURE";
   const scope=page.getByTestId("club-workspace-data-actions");
-  const select=scope.getByLabel("Какие данные открыты?",{exact:true});
+  await scope.waitFor({state:"visible"});
+  if(!await scope.evaluate(e=>e.open))await scope.locator(":scope > summary").click();
+  await poll(async()=>await scope.evaluate(e=>e.open),"WORKSPACE_SCOPE_DISCLOSURE_OPEN");
+  phase=stage+"_WORKSPACE_SCOPE_VALUE";
+  // The visible combobox is nested in a native label containing option
+  // text. Do not rely on an exact accessible-name match for that label.
+  const select=scope.getByRole("combobox");
+  await select.waitFor({state:"visible"});
+  check(await select.count()===1,"WORKSPACE_SCOPE_SINGLE_SELECT");
   check(await select.inputValue()===expectedWorkspace,"SAME_RECEIPT_WORKSPACE");
   log(stage+"_SAME_RECEIPT_WORKSPACE");
  }
@@ -250,6 +259,8 @@ try{
   work:!!document.querySelector('[data-testid="club-native-project-overview"]'),
   emptyTasks:!!document.querySelector('[data-testid="club-empty-tasks"]'),
   inventory:(()=>{const t=document.querySelector('[data-testid="club-workspace-progress"]')?.textContent?.trim()||"";return /^Сохранённых записей: [0-9]+$/.test(t)?Number(t.split(":")[1]):t==="Пока нет сохранённых записей"?"empty":t.startsWith("Часть результатов")?"family-error":t.startsWith("Загружаем")?"loading":"absent";})(),
+  scopeDisclosure:document.querySelector('[data-testid="club-workspace-data-actions"]')?.open===true,
+  scopeSelect:!!document.querySelector('[data-testid="club-workspace-data-actions"] select'),
   familyDisclosure:document.querySelector('[data-testid="club-workspace-all-families"]')?.open===true,
   profileLatest:!!document.querySelector('[data-testid="club-family-latest-participation-profile"]'),
   selectedDetail:!!document.querySelector('[data-testid="club-workspace-selected-detail"]'),
