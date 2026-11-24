@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync} from 'node:crypto';
 import {copy,digest,iso,keyObjectSigner} from '../src/t3/access/core.mjs';
-import {CORPORATE_REQUEST_SCHEMA,CORPORATE_LICENSE_SCHEMA} from
+import {CORPORATE_REQUEST_SCHEMA,CORPORATE_LICENSE_SCHEMA,inspectCorporateLicenseLineages} from
   '../src/t3/access/corporate-product-license.mjs';
 import {ORIGINAL_PRODUCT_ISSUE_LEDGER_SCHEMA,issueCorporateProductLicenseOnce}
   from '../src/t3/access/corporate-product-issuance.mjs';
@@ -212,4 +212,42 @@ test('corporate renewal cannot attach a missing or foreign predecessor or reuse 
   'CORP_ORIGINAL_RENEWAL_SCOPE_MISMATCH');
  mustDeny(()=>f.issue(r,{...o,renewalOf:null}),'CORP_LINEAGE_MULTIPLE_ROOTS');
  assert.equal(f.transactions(),1);assert.equal(f.signatures(),1);
+});
+
+test('recipient can observe a signed renewal before its predecessor without adding old limits',()=>{
+ const f=fixture(),p=f.issue().signedLicense.payload;
+ const r={...p,id:'license:renewed',requestId:'request:renewed',
+  renewalOf:p.id,issuedAt:iso(NOW+1000),notBefore:iso(NOW+1000),
+  expiresAt:iso(NOW+31*86400000)};
+ const one=inspectCorporateLicenseLineages([r]);
+ assert.deepEqual(one.heads,[r.id]);
+ assert.deepEqual(one.superseded,[p.id]);
+ assert.deepEqual(one.unresolvedHeads,[]);
+ mustDeny(()=>inspectCorporateLicenseLineages([r],{requireComplete:true}),
+  'CORP_LINEAGE_PREDECESSOR_REQUIRED');
+ const both=inspectCorporateLicenseLineages([r,p],{requireComplete:true});
+ assert.deepEqual(both,one);
+ const late={...r,id:'license:late',requestId:'request:late',
+  renewalOf:'license:middle',issuedAt:iso(NOW+3000),notBefore:iso(NOW+3000)};
+ const incomplete=inspectCorporateLicenseLineages([late,p]);
+ assert.deepEqual(incomplete.unresolvedHeads,[late.id,p.id].sort());
+ const middle={...r,id:'license:middle',requestId:'request:middle'};
+ const complete=inspectCorporateLicenseLineages([late,p,middle]);
+ assert.deepEqual(complete.heads,[late.id]);
+ assert.deepEqual(complete.unresolvedHeads,[]);
+ assert.deepEqual(complete.superseded,[p.id,middle.id].sort());
+});
+test('recipient rejects signed lineage forks, wrong scopes and cycles before any Store mutation',()=>{
+ const f=fixture(),p=f.issue().signedLicense.payload;
+ const r={...p,id:'license:renewed',requestId:'request:renewed',
+  renewalOf:p.id,issuedAt:iso(NOW+1000),notBefore:iso(NOW+1000)};
+ const fork={...r,id:'license:fork',requestId:'request:fork'};
+ mustDeny(()=>inspectCorporateLicenseLineages([p,r,fork]),'CORP_LINEAGE_FORK_DENIED');
+ mustDeny(()=>inspectCorporateLicenseLineages([p,{...r,subject:{type:'ORGANIZATION',id:'org:foreign'}}]),
+  'CORP_LINEAGE_SCOPE_MISMATCH');
+ mustDeny(()=>inspectCorporateLicenseLineages([p,{...r,issuedAt:iso(NOW-1000),notBefore:iso(NOW-1000)}]),
+  'CORP_LINEAGE_TIME_ROLLBACK');
+ mustDeny(()=>inspectCorporateLicenseLineages([
+  {...p,renewalOf:r.id}, {...r,issuedAt:p.issuedAt,notBefore:p.notBefore}
+ ]),'CORP_LINEAGE_CYCLE_DENIED');
 });
