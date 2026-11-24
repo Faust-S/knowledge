@@ -117,9 +117,10 @@ function shapeRoute(record,number){
     :field(inputs[f]));
   if(routeValues.includes(null))incomplete.push('ROUTE_PARAMETERS');
   differences.set('ROUTE_PARAMETERS',key(routeValues));
-  return {routeId,number,source,signature,operations,edgeCount,differences,incomplete,ambiguous,aliases};
+  return {routeId,number,source,signature,operations,edgeCount,differences,incomplete,ambiguous,aliases,inputs,nodes,ordered};
 }
-export function reviewD05RouteModels(records){
+export function reviewD05RouteModels(records,{includeTechnologyDraft=false}={}){
+  require(typeof includeTechnologyDraft==='boolean','D05_ROUTE_DRAFT_OPTION_INVALID');
   require(Array.isArray(records)&&records.length>0&&records.length<=MAX_ROUTES,
     'D05_ROUTE_SELECTION_LIMIT');
   const entries=records.map((r,i)=>shapeRoute(r,i+1));
@@ -143,11 +144,12 @@ export function reviewD05RouteModels(records){
       operations:first.operations,dependency_count:first.edgeCount,
       differing_fields:flags,incomplete_fields:[...new Set(members.flatMap(m=>m.incomplete))].sort(cmp)};
   });
-  return {status:'LOCAL_MODEL_COMPARISON',model_count:entries.length,group_count:groups.length,
+  const result={status:'LOCAL_MODEL_COMPARISON',model_count:entries.length,group_count:groups.length,
     repeated_group_count:groups.filter(g=>g.model_count>1).length,groups,
     epistemic_status:'CALCULATED_OR_DECLARED_NOT_OBSERVED',
     source_authority:'UNVERIFIED_LOCAL_COPY',technology_equivalence:'NOT_ESTABLISHED',
     anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null};
+  return includeTechnologyDraft?attachTechnologyDraft(result,records,entries,[]):result;
 }
 
 // Reproducible example in the existing calculator shape. Not factory evidence.
@@ -227,7 +229,7 @@ function inspectPlan(route,plans,templates,routeIds){
   const matching=plans.filter(p=>p.body.linked_operation_route_id===route.routeId||
     p.body.common?.linkedOperationRouteId===route.routeId||p.links.has(route.routeId));
   const base={model_number:route.number,check_count:0,blocking_count:0,issue_codes:[]};
-  const incomplete=(status,codes)=>({...base,status,issue_codes:[...new Set(codes)].sort(cmp),signature:null,parts:null});
+  const incomplete=(status,codes)=>({...base,status,issue_codes:[...new Set(codes)].sort(cmp),signature:null,parts:null,draftChecks:null,draftContext:null});
   if(!matching.length)return incomplete('NO_LINKED_PLAN',['QUALITY_PLAN_MISSING']);
   if(matching.length!==1)return incomplete('AMBIGUOUS_PLAN',['QUALITY_MULTIPLE_PLANS']);
   const {body,links}=matching[0],issues=[];
@@ -289,7 +291,8 @@ function inspectPlan(route,plans,templates,routeIds){
   if(issues.length)return incomplete('INCOMPLETE_PLAN',issues);
   const signatures=new Map([...parts].map(([k,rows])=>[k,stableSet(rows)]));
   signatures.set('PLAN_CONTEXT',key(context));
-  return {...base,status:'DECLARED_CHECKS_READ',signature:key([context,stableSet(checks)]),parts:signatures};
+  return {...base,status:'DECLARED_CHECKS_READ',signature:key([context,stableSet(checks)]),parts:signatures,
+    draftChecks:checks,draftContext:context};
 }
 
 /** Inputs: stored operation-route records; original getObject details of
@@ -297,7 +300,8 @@ function inspectPlan(route,plans,templates,routeIds){
  * provide a consistent selected Workspace snapshot. This pure function
  * neither authenticates the source nor performs a Kernel read.
  */
-export function reviewD05RouteModelsWithQuality(records,planDetails,templateRecords){
+export function reviewD05RouteModelsWithQuality(records,planDetails,templateRecords,{includeTechnologyDraft=false}={}){
+  require(typeof includeTechnologyDraft==='boolean','D05_ROUTE_DRAFT_OPTION_INVALID');
   const result=reviewD05RouteModels(records);
   const ws=records[0]?.workspace_id;
   require(id(ws)&&records.every(r=>r.workspace_id===ws&&r.schema_id===ROUTE&&
@@ -327,21 +331,22 @@ export function reviewD05RouteModelsWithQuality(records,planDetails,templateReco
       if(different&&!differing_fields.length)differing_fields=['CHECK_COMBINATION'];
     }
     return {group_id:group.id,comparison,differing_fields,
-      models:members.map(({signature,parts,...visible})=>visible)};
+      models:members.map(({signature,parts,draftChecks,draftContext,...visible})=>visible)};
   });
-  return {...result,quality_review:{status:'LOCAL_NORMATIVE_QUALITY_REVIEW',
+  const output={...result,quality_review:{status:'LOCAL_NORMATIVE_QUALITY_REVIEW',
     groups,quality_validation:'NOT_PERFORMED_BY_ACTIVITY',
     revision_alignment:'CURRENT_SNAPSHOT_NOT_APPROVED_TECHNOLOGY',
     execution_evidence:'NOT_ESTABLISHED'}};
+  return includeTechnologyDraft?attachTechnologyDraft(output,records,entries,reviewed):output;
 }
 
 
 /** Existing local ObjectWithRelations representation. No new exchange
  * carrier or trusted assertion. Ordinary route models remain compatible.
  */
-export function reviewD05ResultSelection(records){
+export function reviewD05ResultSelection(records,options={}){
   if(!Array.isArray(records)||!records.some(r=>obj(r)&&Object.hasOwn(r,'object')))
-    return reviewD05RouteModels(records);
+    return reviewD05RouteModels(records,options);
   require(records.length>0&&records.length<=24,'D05_ROUTE_SELECTION_LIMIT');
   const routes=[],plans=[],templates=[];
   for(const item of records){
@@ -355,7 +360,7 @@ export function reviewD05ResultSelection(records){
       default:throw new ActivityHold('D05_ROUTE_QUALITY_RESULT_INVALID');
     }
   }
-  return reviewD05RouteModelsWithQuality(routes,plans,templates);
+  return reviewD05RouteModelsWithQuality(routes,plans,templates,options);
 }
 
 // Modelled example of existing Result shapes, not production evidence.
@@ -391,4 +396,120 @@ export function buildD05RouteQualityComparisonExample(workspaceId='example-quali
       detail(checkId,'quality-check-template',check));
   });
   return out;
+}
+
+
+// A4.3-I. Owner-local preparation of a technology candidate. Explicitly
+// opt-in because declared requirements can contain identifying information.
+// The ordinary review and generic D2 still return no raw parameter values.
+// No new exchange format, authoring engine, approval or persistent store.
+const DRAFT_LIMIT=8*1024*1024;
+const DECLARED='DECLARED_SOURCE_CONDITION';
+const ADAPT='ADAPTATION_REVIEW';
+const MAPPING='FUNCTIONAL_MAPPING_REQUIRED';
+const DRAFT_ROUTE_FIELDS=[
+  ['quantity',ADAPT],['calendarMode',ADAPT],['workingDays',ADAPT],
+  ['hoursPerDay',ADAPT],['overallReserve',ADAPT],
+];
+const DRAFT_OPERATION_FIELDS=[
+  ['duration',ADAPT],['unit',ADAPT],['setup',ADAPT],['buffer',ADAPT],['slack',ADAPT],
+  ['performer',MAPPING],['equipment',MAPPING],['material',MAPPING],
+];
+const DRAFT_REQUIRED_FIELDS=[
+  'PURPOSE','INPUTS','OUTPUTS','APPLICABILITY','RESOURCE_CAPABILITIES',
+  'DOMAIN_VALIDATION','DISCLOSURE_REVIEW',
+];
+const nonempty=v=>typeof v==='string'&&v.trim().length>0;
+function draftValue(value,fieldName){
+  if(fieldName==='workingDays')
+    return Array.isArray(value)&&value.length>0&&value.length<=7&&
+      value.every(v=>Number.isInteger(v)&&v>=0&&v<=6)&&
+      new Set(value).size===value.length?[...value].sort((a,b)=>a-b):null;
+  if(fieldName==='blocking')return typeof value==='boolean'?value:null;
+  return qualityText(value)&&nonempty(value)?value:null;
+}
+function condition(scope,field,value,use){
+  return {key:scope+'.'+field,scope,field,use,value:draftValue(value,field)};
+}
+function draftProfile(record,entry,quality){
+  const conditions=DRAFT_ROUTE_FIELDS.map(([f,use])=>condition('route',f,entry.inputs[f],use));
+  for(const opId of entry.ordered){
+    const scope=entry.aliases.get(opId),raw=entry.nodes.get(opId).raw;
+    for(const [f,use] of DRAFT_OPERATION_FIELDS)conditions.push(condition(scope,f,raw[f],use));
+  }
+  // A linked plan is still a current declared plan, not an approved revision
+  // bundle. Keep entire check lists in their source variant. Do not synthesize
+  // ranges, mix tolerances, union methods or assign a free-text material ID.
+  let checks=[];
+  if(quality?.status==='DECLARED_CHECKS_READ'){
+    const ordered=[...quality.draftChecks].sort((a,b)=>cmp(key(a),key(b)));
+    checks=ordered.map(([anchor,parts],i)=>{
+      const [operation_id,title,control_type]=anchor;
+      const fields=[];
+      QUALITY_FIELDS.forEach(([category,names],j)=>names.forEach((f,k)=>{
+        // related_material_id is a source-local reference; comment is not a
+        // transferable requirement. Keep their presence as an explicit gap.
+        if(f==='related_material_id'||f==='comment'){
+          if(nonempty(parts[j][k]))fields.push({field:f,use:MAPPING,value:null,
+            status:'LOCAL_REFERENCE_REVIEW_REQUIRED'});
+          return;
+        }
+        const value=draftValue(parts[j][k],f);
+        fields.push({field:f,use:f==='responsible_role'?MAPPING:DECLARED,value,
+          status:value===null?'NOT_SPECIFIED_OR_NOT_APPLICABLE':'DECLARED'});
+      }));
+      return {id:'check_'+String(i+1).padStart(3,'0'),operation_id,title,control_type,fields};
+    });
+  }
+  // Never copy individual order names, product IDs, exact calendar dates,
+  // material-ready flags, free notes or source document names into the draft.
+  // Their possible meaning must be resolved by the subject specialist.
+  const localContext=[];
+  if(nonempty(entry.inputs.orderName))localContext.push('ORDER_CONTEXT');
+  if(nonempty(entry.inputs.startDate)||nonempty(entry.inputs.dueDate)||
+     [...entry.nodes.values()].some(n=>nonempty(n.raw.materialReadyDate)))
+    localContext.push('LOCAL_DATES');
+  if([...entry.nodes.values()].some(n=>typeof n.raw.materialReady==='boolean'))
+    localContext.push('MATERIAL_AVAILABILITY');
+  if([...entry.nodes.values()].some(n=>nonempty(n.raw.comment)))
+    localContext.push('OPERATION_NOTES');
+  if(quality?.draftContext?.some(nonempty))localContext.push('QUALITY_SOURCE_CONTEXT');
+  const gaps=[...DRAFT_REQUIRED_FIELDS];
+  if(entry.ambiguous)gaps.push('OPERATION_OCCURRENCE_MAPPING');
+  if(!quality||quality.status!=='DECLARED_CHECKS_READ')gaps.push('QUALITY_PLAN_REVIEW');
+  if(conditions.some(c=>c.value===null))gaps.push('UNSPECIFIED_EXECUTION_CONDITIONS');
+  if(localContext.length||checks.some(c=>c.fields.some(f=>f.status==='LOCAL_REFERENCE_REVIEW_REQUIRED')))
+    gaps.push('LOCAL_CONTEXT_REVIEW');
+  return {model_number:entry.number,source_kind:entry.source,
+    source_revision:Number.isSafeInteger(record?.revision)&&record.revision>0?record.revision:null,
+    conditions,quality_status:quality?.status??'NOT_READ',quality_issues:quality?.issue_codes??[],
+    checks,local_context_review:localContext,unresolved:gaps};
+}
+function attachTechnologyDraft(review,records,entries,quality){
+  const profiles=entries.map((entry,i)=>draftProfile(records[i],entry,quality[i]));
+  const groups=review.groups.map(group=>{
+    const members=group.model_numbers.map(n=>profiles[n-1]);
+    const maps=members.map(m=>new Map(m.conditions.map(c=>[c.key,c])));
+    const shared=[],different=[],unknown=[];
+    // A value is shared only if all members contain an identical nonempty
+    // declaration. Missing/invalid values NEVER become a common zero.
+    for(const c of members[0].conditions){
+      const cells=maps.map(m=>m.get(c.key));
+      if(cells.some(v=>!v||v.value===null))unknown.push(c.key);
+      else if(members.length>1&&cells.every(v=>key(v.value)===key(c.value)))shared.push(c.key);
+      else if(members.length>1)different.push(c.key);
+    }
+    // Keep every coherent source profile, including identical ones: repeated
+    // records are not independent execution samples. No cross-product of
+    // parameters and no inferred permission to substitute a profile.
+    return {group_id:group.id,shared_condition_keys:shared,
+      differing_condition_keys:different,unresolved_condition_keys:unknown,
+      profiles:members,variant_policy:'KEEP_ORIGINAL_CONDITION_BUNDLES'};
+  });
+  const draft={status:'LOCAL_TECHNOLOGY_DRAFT',groups,
+    purpose:'PREPARE_FOR_DOMAIN_AND_DISCLOSURE_REVIEW',
+    model_semantics:'DECLARED_CONDITIONS_NOT_EXECUTION',
+    applicability:'NOT_ESTABLISHED',external_transfer:false};
+  require(new TextEncoder().encode(key(draft)).byteLength<=DRAFT_LIMIT,'D05_ROUTE_DRAFT_OUTPUT_LIMIT');
+  return {...review,technology_draft:draft};
 }
