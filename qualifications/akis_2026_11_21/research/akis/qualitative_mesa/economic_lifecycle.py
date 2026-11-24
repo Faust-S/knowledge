@@ -43,7 +43,7 @@ STAGE_WORK_EVENT_ACTIONS = {
     "PARTNER_SEARCH": frozenset({"request", "offer"}),
     "SOURCE_AND_IDENTITY_VERIFICATION": frozenset({"request", "authorize", "consent"}),
     "NEGOTIATION": frozenset({"offer", "consent", "interest_update"}),
-    "CONTRACT_AND_PERMISSIONS": frozenset({"authorize", "consent", "commit"}),
+    "CONTRACT_AND_PERMISSIONS": frozenset({"authorize", "consent", "commit", "function_delegate"}),
     "ONBOARDING_AND_INTEGRATION": frozenset({"request", "offer", "authorize", "consent", "commit"}),
     "PRODUCTION_COORDINATION": frozenset({
         "commit", "start", "start_operation", "complete_operation",
@@ -223,6 +223,12 @@ def review_timed_original_lifecycle_costs(
         if (not isinstance(proof, str) or not proof.startswith(prefix)
                 or len(proof) <= len(prefix) or len(proof) > 180):
             raise LifecycleInputError("LIFECYCLE_TIMED_INDEPENDENT_OWNER_COST_SOURCE_REQUIRED")
+        if action == "function_delegate" and (
+                anchor.get("actor") != owner or owner != work.customer
+                or original["scenario"] != "COOPERATION" or original["work"] != work_id
+                or binding.get("nature") != "TRANSACTION"
+                or proof == anchor.get("model_original_preparation_mandate", {}).get("source_ref")):
+            raise LifecycleInputError("LIFECYCLE_DELEGATION_REQUIRES_INDEPENDENT_CUSTOMER_COST")
         if contextual_pause and proof == anchor.get("participation_source_ref"):
             raise LifecycleInputError(
                 "LIFECYCLE_EXIT_COST_PROOF_MUST_DIFFER_FROM_PARTICIPATION_NOTICE"

@@ -87,7 +87,7 @@ ACTIONS = frozenset({"request", "offer", "authorize", "consent", "commit", "star
     "active_coalition_portfolio_propose", "active_coalition_portfolio_assess",
     "cooperation_lifecycle_propose", "cooperation_lifecycle_response",
     "cooperation_lifecycle_apply",
-    "adopt_capability", "formation_confirm", "function_prepare", "function_review", "need_emerge",
+    "adopt_capability", "formation_confirm", "function_delegate", "function_prepare", "function_review", "need_emerge",
     "role_state_update",
     "affiliation_transfer_propose", "affiliation_transfer_review",
     "affiliation_transfer_apply"})
@@ -388,7 +388,7 @@ class QualitativeAKIS:
         last = -1
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "material_replenishment_round", "material_replenishment_source_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
-             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "preparation_mode", "preparation_diagnostic", "preparation_pattern", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "evaluation_economic_source_revision", "evaluation_economic_outside_basis", "evaluation_economic_portfolio", "evaluation_economic_recipient_value", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
+             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "preparation_mode", "preparation_diagnostic", "preparation_pattern", "delegation_at", "delegation_source_ref", "delegation_source_revision", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "evaluation_economic_source_revision", "evaluation_economic_outside_basis", "evaluation_economic_portfolio", "evaluation_economic_recipient_value", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
              "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until", "entry_change_id", "entry_assessment_source_ref",
              "model_code_change_id", "model_code_source_ref", "model_code_decision",
              "model_code_decision_source_ref", "new_model_edition",
@@ -472,6 +472,10 @@ class QualitativeAKIS:
                     or ("material_replenishment_source_ref" in ev and
                         (ev["action"] != "handoff_dispatch" or "material_replenishment_round" not in ev))):
                 raise InputError("MATERIAL_REPLENISHMENT_REQUIRES_ORIGINAL_HANDOFF_ACTION")
+            if (("delegation_at" in ev and ev["action"] != "function_prepare")
+                    or ({"delegation_source_ref", "delegation_source_revision"} & set(ev)
+                        and ev["action"] != "function_delegate")):
+                raise InputError("DELEGATION_FIELDS_REQUIRE_ORIGINAL_FUNCTION_ACTION")
             if "preparation_mode" in ev and (
                     ev["action"] != "function_prepare"
                     or ev["preparation_mode"] not in ("S0", "S1", "S2")):
@@ -725,6 +729,7 @@ class QualitativeAKIS:
         outside_demand_evidence = None
         preparation_economic_choice = None
         preparation_pattern_evidence = None
+        function_evidence = {}
         if self.capability_policy is not None:
             # Time- and owner-source eligibility is refreshed before future
             # commitments; historical reservations and Results are untouched.
@@ -933,10 +938,10 @@ class QualitativeAKIS:
                 issue = self.formation_policy.owner_emerge_need(self, ev, at)
                 if issue != "NONE":
                     raise BlockedDecision(issue)
-            elif action in {"function_prepare", "function_review"}:
+            elif action in {"function_delegate", "function_prepare", "function_review"}:
                 if self.formation_policy is None:
                     raise BlockedDecision("FORMATION_AGENT_GATE_NOT_CONFIGURED")
-                issue = self.formation_policy.process_function_action(self, ev, at)
+                issue = self.formation_policy.process_function_action(self, ev, at, evidence=function_evidence)
                 if issue != "NONE":
                     raise BlockedDecision(issue)
                 if action == "function_prepare" and "preparation_pattern" in ev:
@@ -1452,13 +1457,17 @@ class QualitativeAKIS:
                     report["formation_core"] = ev.get("formation_core")
                     report["formation_basis_source"] = ev.get("formation_basis_source")
                 report["formation_is_model_only_not_original_legal_authority"] = True
-        if action in {"function_prepare", "function_review"}:
+        if action in {"function_delegate", "function_prepare", "function_review"}:
             report["function_id"] = ev.get("function_id")
             if report["outcome"] == "APPLIED":
                 report["work_source_revision"] = self.works[work_ref].source_revision
                 report["original_human_or_program_source_authentication"] = "MODEL_ONLY"
                 report["program_cannot_create_original_work_or_result"] = True
-                if action == "function_prepare":
+                report.update(function_evidence)
+                if action == "function_delegate":
+                    report["function_source_ref"] = ev["function_source_ref"]
+                    report["delegation_is_not_work_consent"] = True
+                elif action == "function_prepare":
                     report["function_source_ref"] = ev.get("function_source_ref")
                     report["function_phase_source_ref"] = ev.get("function_phase_source_ref")
                     report["program_packet"] = "HUMAN_REVIEW_PACKET_COMPUTED"

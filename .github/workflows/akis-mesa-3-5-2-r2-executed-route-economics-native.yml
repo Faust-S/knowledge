@@ -42,6 +42,10 @@ jobs:
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
         run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_pattern_evolution_mesa.py
+      - name: Original bounded customer delegation
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_bounded_delegation_mesa.py
       - name: Restored cooperation regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21

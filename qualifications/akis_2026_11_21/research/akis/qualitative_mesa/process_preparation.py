@@ -472,6 +472,92 @@ def original_preparation_oc_edition(state: Any, at: int) -> str:
     return "BASE"
 
 
+DELEGATION_PURPOSE = "AKIS_DELEGATED_PREPARATION"
+
+
+def original_preparation_mandate_source(state: Any, work: Any, fn: Mapping[str, Any],
+                                        ref: Any, revision: Any, at: int) -> str:
+    """Check a customer's own modeled source for one bounded computation.
+
+    DERIVE is not authority to EXECUTE a Work. No authentic signature,
+    runtime permission, or other principal consent follows.
+    """
+    from .context_basis import ContextBlocked
+    from .strict_economic_source_review import original_owner_economic_core
+    customer = state.subjects.get(work.customer)
+    delegate = state.subjects.get(fn["owner"])
+    basis = state.context_basis
+    if (customer is None or not customer.active or delegate is None
+            or not delegate.active or work.customer == fn["owner"]):
+        return "FORMATION_AGENT_DELEGATION_INDEPENDENT_ACTIVE_PRINCIPALS_REQUIRED"
+    core = original_owner_economic_core(customer.kind)
+    if basis is None or not basis.strict or core is None:
+        return "FORMATION_AGENT_DELEGATION_ORIGINAL_STRICT_KPB_REQUIRED"
+    try:
+        basis.assert_original_form_role_source(
+            work.customer, ref, revision, core=core, purpose=DELEGATION_PURPOSE,
+            operation="DERIVE", recipients={work.customer, fn["owner"]}, at=at,
+        )
+    except ContextBlocked as exc:
+        return "FORMATION_AGENT_DELEGATION_SOURCE_" + exc.reason
+    return "NONE"
+
+
+def original_preparation_mandate(state: Any, work: Any, fn: Mapping[str, Any],
+                                 delegation_at: Any, at: int, *,
+                                 fresh_use: bool = False) -> tuple[str, Any]:
+    """Resolve the latest APPLIED grant in the SAME original Work trace.
+
+    A later grant supersedes, rather than revives, an old packet. A new
+    preparation requires its own mandate; review and commit recheck it.
+    """
+    if type(delegation_at) is not int or delegation_at >= at:
+        return "FORMATION_AGENT_ORIGINAL_DELEGATION_REQUIRED", None
+    grants = [row for row in state.trace
+              if row.get("action") == "function_delegate"
+              and row.get("outcome") == "APPLIED" and row.get("work") == work.key
+              and row.get("function_id") == fn["id"] and row["at"] < at]
+    if not grants or grants[-1]["at"] != delegation_at:
+        return "FORMATION_AGENT_ORIGINAL_DELEGATION_NOT_CURRENT", None
+    grant = grants[-1]
+    mandate = grant["model_original_preparation_mandate"]
+    if (grant.get("actor") != work.customer
+            or grant.get("work_source_revision") != work.source_revision
+            or grant.get("org_revision") != state.institution.revision
+            or mandate["function_fingerprint"] != preparation_source_fingerprint(fn)
+            or mandate["delegate"] != fn["owner"]
+            or original_preparation_oc_edition(state, grant["at"])
+                != getattr(state, "model_org_code_edition", "BASE")):
+        return "FORMATION_AGENT_DELEGATION_ORIGINAL_SCOPE_CHANGED", None
+    reason = original_preparation_mandate_source(
+        state, work, fn, mandate["source_ref"], mandate["source_revision"], at)
+    if reason != "NONE":
+        return reason, None
+    if any(row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
+           and row.get("source") == mandate["source_ref"]
+           and delegation_at < row["at"] < at for row in state.trace):
+        return "FORMATION_AGENT_DELEGATION_SOURCE_CHANGED_AFTER_GRANT", None
+    if fresh_use and any(
+            row.get("action") == "function_prepare" and row.get("outcome") == "APPLIED"
+            and row.get("work") == work.key
+            and row.get("model_original_delegated_preparation", {}).get("delegation_at")
+                == delegation_at for row in state.trace):
+        return "FORMATION_AGENT_DELEGATION_ALREADY_USED", None
+    return "NONE", grant
+
+
+def original_delegated_packet_current(state: Any, work: Any, fn: Mapping[str, Any],
+                                      prepared: Mapping[str, Any], at: int) -> str:
+    execution = prepared.get("model_original_delegated_preparation")
+    if not fn.get("requires_original_delegation"):
+        return "NONE" if execution is None else "FORMATION_AGENT_DELEGATED_FUNCTION_CHANGED"
+    if not isinstance(execution, Mapping):
+        return "FORMATION_AGENT_ORIGINAL_DELEGATED_PREPARATION_REQUIRED"
+    reason, _ = original_preparation_mandate(
+        state, work, fn, execution.get("delegation_at"), at)
+    return reason
+
+
 def original_preparation_oc_current(state: Any, prepared: Mapping[str, Any],
                                     at: int) -> bool:
     """Current original OC is more than the institution revision label."""

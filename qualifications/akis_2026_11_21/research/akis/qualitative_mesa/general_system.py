@@ -18,7 +18,9 @@ from .configuration_behavior import (
 from .scope_policy import source_link_status, OPERATIONS as CONTEXT_OPERATIONS
 from .process_preparation import (
     perform_bounded_process_step, original_preparation_pattern_current,
-    original_preparation_oc_edition,
+    original_preparation_oc_edition, original_preparation_mandate_source,
+    original_preparation_mandate, original_delegated_packet_current,
+    preparation_source_fingerprint,
 )
 from .cooperation import original_membership_predecessor
 
@@ -398,7 +400,7 @@ class ModelFormationPolicy:
 
 
     def _agent_packet(self, state: Any, work: Any,
-                      fn_id: str, at: int) -> tuple[str, Any]:
+                      fn_id: str, at: int, *, packet_out: dict | None = None) -> tuple[str, Any]:
         options = [
             fn for fn in self.design.declarations["agent_functions"]
             if fn["id"] == fn_id and fn["work"] == work.key
@@ -424,6 +426,8 @@ class ModelFormationPolicy:
         ]
         if len(packets) != 1 or packets[0]["status"] != "HUMAN_REVIEW_PACKET_COMPUTED":
             return "FORMATION_AGENT_ORIGINAL_PROCESS_KPB_PACKET_NOT_CURRENT", None
+        if packet_out is not None:
+            packet_out.update(packets[0])
         return "NONE", fn
 
     def _latest_agent_preparation(self, state: Any, work: Any,
@@ -467,6 +471,9 @@ class ModelFormationPolicy:
             return "FORMATION_AGENT_ORIGINAL_OC_EDITION_CHANGED_AFTER_PACKET"
         if not original_preparation_pattern_current(state, prep, at):
             return "FORMATION_AGENT_ORIGINAL_PATTERN_SOURCE_CHANGED_AFTER_PACKET"
+        reason = original_delegated_packet_current(state, work, fn, prep, at)
+        if reason != "NONE":
+            return reason
         # Even a subsequently restored source must not silently reactivate a
         # packet computed against an older context epoch. The original trace,
         # not a secondary version store, establishes the intervening change.
@@ -504,7 +511,9 @@ class ModelFormationPolicy:
         return "NONE"
 
     def process_function_action(self, state: Any, ev: Mapping[str, Any],
-                                at: int) -> str:
+                                at: int, *, evidence: dict | None = None) -> str:
+        if evidence is None:
+            evidence = {}
         if not self.design.enforce_model_formation_agent_review:
             return "FORMATION_AGENT_GATE_NOT_CONFIGURED"
         work = state.works.get(ev.get("work"))
@@ -519,11 +528,38 @@ class ModelFormationPolicy:
             return "FORMATION_AGENT_FUNCTION_REFERENCE_REQUIRED"
         if actor not in state.subjects or not state.subjects[actor].active:
             return "FORMATION_AGENT_ORIGINAL_ACTIVE_SUBJECT_REQUIRED"
-        if ev["action"] == "function_prepare":
+        if ev["action"] == "function_delegate":
+            if actor != work.customer:
+                return "FORMATION_AGENT_DELEGATION_ORIGINAL_CUSTOMER_REQUIRED"
             reason = self.before_commit(state, work, at, include_agent=False)
             if reason != "NONE":
                 return reason
             reason, fn = self._agent_packet(state, work, fn_id, at)
+            if reason != "NONE":
+                return reason
+            if not fn.get("requires_original_delegation"):
+                return "FORMATION_AGENT_DELEGATION_NOT_CONFIGURED_FOR_FUNCTION"
+            if (ev.get("work_source_revision") != work.source_revision
+                    or ev.get("function_source_ref") != fn["source_ref"]):
+                return "FORMATION_AGENT_DELEGATION_ORIGINAL_SCOPE_MISMATCH"
+            ref = ev.get("delegation_source_ref")
+            revision = ev.get("delegation_source_revision")
+            reason = original_preparation_mandate_source(state, work, fn, ref, revision, at)
+            if reason != "NONE":
+                return reason
+            evidence["model_original_preparation_mandate"] = {
+                "delegate": fn["owner"], "source_ref": ref, "source_revision": revision,
+                "function_fingerprint": preparation_source_fingerprint(fn),
+                "single_bounded_preparation_only": True,
+                "creates_work_consent_or_legal_authority": False,
+            }
+            return "NONE"
+        if ev["action"] == "function_prepare":
+            reason = self.before_commit(state, work, at, include_agent=False)
+            if reason != "NONE":
+                return reason
+            packet = {}
+            reason, fn = self._agent_packet(state, work, fn_id, at, packet_out=packet)
             if reason != "NONE":
                 return reason
             if actor != fn["owner"]:
@@ -535,6 +571,22 @@ class ModelFormationPolicy:
                 state.institution.revision, at
             ):
                 return "FORMATION_AGENT_PHASE_SIX_SOURCE_REQUIRED"
+            if fn.get("requires_original_delegation"):
+                if ev.get("preparation_mode") != "S2":
+                    return "FORMATION_AGENT_DELEGATED_PREPARATION_REQUIRES_S2"
+                reason, grant = original_preparation_mandate(
+                    state, work, fn, ev.get("delegation_at"), at, fresh_use=True)
+                if reason != "NONE":
+                    return reason
+                evidence["model_original_delegated_preparation"] = {
+                    "delegation_at": grant["at"],
+                    "packet_fingerprint": preparation_source_fingerprint(packet["artifact"]),
+                    "original_program_computation_qualified": True,
+                    "external_action_executed": False,
+                    "original_customer_review_still_required": True,
+                }
+            elif "delegation_at" in ev:
+                return "FORMATION_AGENT_DELEGATION_NOT_CONFIGURED_FOR_FUNCTION"
             return "NONE"
         if ev["action"] != "function_review":
             return "FORMATION_AGENT_UNSUPPORTED_ACTION"
@@ -575,6 +627,9 @@ class ModelFormationPolicy:
                 return "FORMATION_AGENT_ORIGINAL_OC_EDITION_CHANGED_AFTER_PACKET"
             if not original_preparation_pattern_current(state, prep, at):
                 return "FORMATION_AGENT_ORIGINAL_PATTERN_SOURCE_CHANGED_AFTER_PACKET"
+            reason = original_delegated_packet_current(state, work, fn, prep, at)
+            if reason != "NONE":
+                return reason
         # A rejection is an original independent negative decision, not
         # execution, acceptance of Work, or a grant to a program agent.
         return "NONE"
@@ -1503,8 +1558,9 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                 if group == 'agent_functions' else {'control'}
                 if group == 'organizational_code' else set()
             )
+            opt_in = {"requires_original_delegation"} if group == "agent_functions" else set()
             if (not isinstance(entry, dict) or fields - set(entry) or
-                    set(entry) - fields - optional):
+                    set(entry) - fields - optional - opt_in):
                 raise GeneralSystemInputError('INVALID_GENERAL_' + group.upper() + '_FIELDS')
             provided = set(entry) & optional
             if provided and provided != optional:
@@ -1556,6 +1612,11 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                     _s(row['basis_revision'], 'BASIS_REVISION')
             else:
                 _s(row["id"], "FUNCTION_ID")
+                if "requires_original_delegation" in row and (
+                        row["requires_original_delegation"] is not True
+                        or not enforce_agent or row["action"] != "REQUEST_APPROVAL"
+                        or "basis_source" not in row):
+                    raise GeneralSystemInputError("GENERAL_DELEGATION_REQUIRES_BOUNDED_REVIEW_FUNCTION")
                 if row["autonomy"] not in autonomies or row["action"] not in AGENT_FUNCTIONS:
                     raise GeneralSystemInputError("GENERAL_AGENT_FUNCTION_INVALID")
                 if 'basis_source' in row:
@@ -1667,6 +1728,9 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
         agent_review.append({
             'function_id': fn['id'], 'work': fn['work'], 'action': fn['action'],
             'research_review': status, 'real_agent_action_authorized': False,
+            **({"original_delegation_required_for_applied_preparation": True,
+                "computed_preview_is_not_delegated_execution": True}
+               if fn.get("requires_original_delegation") else {}),
         })
     proposals = len(state.works)
     applied = [row for row in state.trace if row.get("outcome") == "APPLIED"]
@@ -2009,6 +2073,16 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
         },
         "agent_function_formation_model_gate": {
             "opted_in": design.enforce_model_formation_agent_review,
+            **({
+                "original_delegation_grants": sum(
+                    row.get("action") == "function_delegate" and row.get("outcome") == "APPLIED"
+                    for row in state.trace),
+                "original_delegated_preparations": sum(
+                    row.get("action") == "function_prepare" and row.get("outcome") == "APPLIED"
+                    and "model_original_delegated_preparation" in row for row in state.trace),
+                "delegation_is_not_business_execution_or_consent": True,
+            } if any(fn.get("requires_original_delegation")
+                     for fn in design.declarations["agent_functions"]) else {}),
             "original_bounded_preparations": sum(
                 row.get("action") == "function_prepare"
                 and row.get("outcome") == "APPLIED" for row in state.trace
