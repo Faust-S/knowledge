@@ -1,0 +1,38 @@
+name: AKIS Mesa 3.5.2 R4 original outside Work execution and matched alternatives
+
+on:
+  push:
+    branches:
+      - work/2026-11-24-akis-r4-original-outside-work-native
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  original-mesa-outside-work:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Official Mesa 3.5.2
+        run: |
+          python -m pip install --disable-pip-version-check "mesa==3.5.2" "pytest>=8,<10"
+          python -c "import mesa; assert mesa.__version__ == '3.5.2'"
+      - name: Compile original package
+        run: python -m compileall -q qualifications/akis_2026_11_21/research
+      - name: Original Work execution and preceding buyer response
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_outside_work_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_buyer_offer_response_mesa.py
+      - name: Full original Mesa regression
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests
