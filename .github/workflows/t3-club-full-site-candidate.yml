@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 6ca0a0192f63c8e6a1f7f52cb264113f91e993ae
+          ref: ac96de038b54c06cd74d9fc79a3383e5744ab72f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 6b4be4822300ebe421b8850bdff8732549ba4cc8
+          ref: 142217fd5efb802572ccaddace1258a9e0129040
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: bli-owner
@@ -136,7 +136,7 @@ jobs:
           node --input-type=module - "$RUNNER_TEMP/club-t3-host/club-t3-host-input.json" <<'NODE'
           import {readFileSync} from 'node:fs';
           const p=JSON.parse(readFileSync(process.argv[2],'utf8'));
-          if(p.assistant?.sourceCommit!=='6b4be4822300ebe421b8850bdff8732549ba4cc8'||
+          if(p.assistant?.sourceCommit!=='142217fd5efb802572ccaddace1258a9e0129040'||
              p.assistant.webllm!=='0.2.87'||!p.assistant.sharedEngine||!p.assistant.entry||
              p.files.filter(x=>/^assets\/model-worker-[A-Za-z0-9_-]+\.js$/.test(x.path)).length!==1)process.exit(1);
           console.log('D02_T3_ORIGINAL_DOMAIN_ASSISTANT_SHARED_ENGINE=PASS; workers=1');

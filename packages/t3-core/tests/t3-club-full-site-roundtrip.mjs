@@ -271,24 +271,33 @@ try{
  await context.setOffline(true);
  await readProfile(page,"RECIPIENT_COLD_OFFLINE_READBACK");
  check(await page.evaluate(()=>navigator.onLine===false&&document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),"OFFLINE_MODE");
- phase="OFFLINE_CONTINUE_PROFILE";
+ phase="OFFLINE_CONTINUE_PROFILE_CLICK";
  const continueProfile=page.getByTestId("club-workspace-profile-resume");
  await continueProfile.waitFor({state:"visible"});
  check(!await page.getByTestId("club-workspace-profile-shortcut").isVisible(),"NO_BLANK_PROFILE_SHORTCUT");
  await continueProfile.click();
+ phase="OFFLINE_RESTORE_CARD_VISIBLE";
  const restore=page.getByTestId("club-t2-restore-card");
  await restore.waitFor({state:"visible"});
+ phase="OFFLINE_RESTORE_PRESELECT";
  const profileChoice=restore.getByRole("checkbox",{name:"Профиль участия",exact:true});
  await poll(async()=>await profileChoice.count()===1&&await profileChoice.isChecked(),"EXACT_PROFILE_PRESELECTED");
  check(await restore.locator('input[type="checkbox"]:checked').count()===1,"NO_UNRELATED_RESULTS_PRESELECTED");
+ log("RECIPIENT_OFFLINE_EXACT_PROFILE_PRESELECTED");
+ phase="OFFLINE_RESTORE_READY";
  const restoreButton=restore.getByRole("button",{name:"Открыть выбранные записи",exact:true});
  await poll(async()=>await restoreButton.isEnabled(),"PROFILE_RESTORE_READY");
+ phase="OFFLINE_RESTORE_CONFIRM";
  await restoreButton.click();
+ phase="OFFLINE_RESTORE_COMPLETED";
  const completed=page.getByTestId("club-t2-restore-completed");
  await completed.waitFor({state:"visible"});
+ log("RECIPIENT_OFFLINE_ORIGINAL_RESTORE_COMPLETED");
+ phase="OFFLINE_RESTORE_OPEN_FORM";
  await completed.getByRole("link",{name:"Открыть мой профиль",exact:true}).click();
  const restoredForm=page.locator("form[data-profile-form]");
  await restoredForm.waitFor({state:"visible"});
+ phase="OFFLINE_RESTORED_FORM_VALUES";
  check(await restoredForm.locator('[name="alias"]').inputValue()===alias,"RESTORED_SITE_PROFILE_ALIAS");
  check(await restoredForm.locator('[name="goals"]').inputValue()===goals,"RESTORED_SITE_PROFILE_GOALS");
  log("RECIPIENT_OFFLINE_PROFILE_CONTINUED_IN_ORIGINAL_FORM");
@@ -319,6 +328,11 @@ try{
   editorGoalsPresent:!!document.querySelector('[data-testid="club-profile-host-card"] form textarea[name="goals"]'),
   profileResume:!!document.querySelector('[data-testid="club-workspace-profile-resume"]'),
   restoreCard:!!document.querySelector('[data-testid="club-t2-restore-card"]'),
+  restoreCheckboxes:document.querySelectorAll('[data-testid="club-t2-restore-card"] input[type="checkbox"]').length,
+  restoreChecked:document.querySelectorAll('[data-testid="club-t2-restore-card"] input[type="checkbox"]:checked').length,
+  restoreTransferOpen:document.querySelector('details[data-club-transfer-panels]')?.open===true,
+  restoreSelectedScope:!!document.querySelector('[data-testid="club-t2-restore-card"] select')?.value,
+  restoreStatus:(()=>{const t=document.querySelector('[data-testid="club-t2-restore-card"] p[aria-live="polite"]')?.textContent||"";return t.startsWith("Здесь пока нет")?"empty":t.startsWith("Не удалось проверить")?"inventory-error":t.startsWith("Не удалось завершить")?"apply-error":t.startsWith("Нужный результат отмечен")?"preselected":t.startsWith("Выбранная запись не найдена")?"missing":t.startsWith("Выберите нужные записи")?"choose":t.startsWith("Выберите сохранённую запись")?"pending":"other";})(),
   restoreCompleted:!!document.querySelector('[data-testid="club-t2-restore-completed"]'),
   profile:!!document.querySelector('[data-profile-form]'),
   assistant:!!document.querySelector('#iwxa-t3-assistant'),

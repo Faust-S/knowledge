@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: c2124ab8e0bf10adfff0c129f7faa1291362b31a
+          ref: ac96de038b54c06cd74d9fc79a3383e5744ab72f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -185,7 +185,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: c2124ab8e0bf10adfff0c129f7faa1291362b31a
+          ref: ac96de038b54c06cd74d9fc79a3383e5744ab72f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -277,7 +277,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: c2124ab8e0bf10adfff0c129f7faa1291362b31a
+          ref: ac96de038b54c06cd74d9fc79a3383e5744ab72f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-quality-club
