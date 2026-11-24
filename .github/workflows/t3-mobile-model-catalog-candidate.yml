@@ -94,7 +94,8 @@ jobs:
             echo T3_CLUB_EXACT_DEVELOPER_IMPORT_FAIL; exit 1
           fi
           echo T3_CLUB_EXACT_DEVELOPER_IMPORT_PASS
-          grep -E '^T3_CLUB_SKILL_COVERAGE forms=[0-9]+ bound=[0-9]+ unbound=[0-9]+ excluded=[0-9]+          if ! (cd private-club-owner && node scripts/club-skill-authoring.mjs check && node --test tests/assistant-skills.test.mjs) > "$RUNNER_TEMP/private-owner-skills.log" 2>&1; then
+          grep -E '^T3_CLUB_SKILL_COVERAGE forms=[0-9]+ bound=[0-9]+ unbound=[0-9]+ excluded=[0-9]+$' "$RUNNER_TEMP/private-skill-import.log"
+          if ! (cd private-club-owner && node scripts/club-skill-authoring.mjs check && node --test tests/assistant-skills.test.mjs) > "$RUNNER_TEMP/private-owner-skills.log" 2>&1; then
             echo T3_CLUB_OWNER_SKILLS_FAIL
             exit 1
           fi
