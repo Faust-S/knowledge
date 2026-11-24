@@ -116,3 +116,26 @@ test('K15 changed original capture inventory cannot report a stable pending resu
   assert.deepEqual(await p.listOriginalPendingIntents(scope),[]);
   assert.equal(f.writes,2);
 });
+
+test('K22 combined verified capture inventory reads each original record only once per proof pass',async()=>{
+  const f=fixture(),p=f.port();
+  for(let i=1;i<=12;i++){
+    const q={captureRef:'capture:'+i,objectId:'object:'+i};
+    await p.persistOriginalIntent({...intent,...q});
+    await p.persistOriginalOutbox({...outbox,...q,sourceEventId:'event:source:'+i});
+  }
+  let reads=0,events=0,catalogs=0;
+  const kernel=f.params.originalKernel,oldGet=kernel.getObject,oldList=kernel.listObjects,oldEvents=kernel.listEventsSince;
+  kernel.getObject=async(...args)=>{reads++;return oldGet(...args);};
+  kernel.listObjects=async(...args)=>{catalogs++;return oldList(...args);};
+  kernel.listEventsSince=async(...args)=>{events++;return oldEvents(...args);};
+  const inventory=await p.readOriginalCaptureInventory(scope);
+  assert.equal(inventory.pairs.length,12);assert.equal(inventory.pending.length,0);
+  assert.equal(reads,48);assert.equal(events,4);assert.equal(catalogs,4);
+  assert.equal(inventory.originalRecordsAndEventsVerified,true);
+  assert.equal(inventory.originalAuthorityGranted,false);assert.equal(f.writes,24);
+  inventory.pairs[0].outbox.sourceEventId='event:tampered';
+  const next=await p.readOriginalCaptureInventory(scope);
+  assert.equal(next.inventoryDigest,inventory.inventoryDigest);
+  assert.notEqual(next.pairs[0].outbox.sourceEventId,'event:tampered');
+});

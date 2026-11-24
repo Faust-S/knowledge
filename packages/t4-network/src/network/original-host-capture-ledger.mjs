@@ -216,10 +216,10 @@ export function createT4OriginalHostCaptureLedgerPort({
   // not that the operation failed or should be re-executed. Only references
   // to verified local records leave this inspection; no mutation input bytes,
   // recovery authorization, or parallel persisted work queue is created.
-  async function listOriginalPendingIntents(query){
+  async function readInventory(query,includePairs){
     checkScope(query,false);
     const initial=await context(),intents=await index(initial,'intent'),
-      outboxes=await index(initial,'outbox'),pending=[];
+      outboxes=await index(initial,'outbox'),pending=[],pairs=[];
     for(const [captureRef,e] of outboxes.byCapture){
       const intent=intents.byCapture.get(captureRef);
       if(!intent||intent.payload.kind!==e.payload.kind)
@@ -232,6 +232,7 @@ export function createT4OriginalHostCaptureLedgerPort({
         const out=await readIndexed('outbox',paired,outboxes,initial);
         if(kindOf(out)!==kind||subjectOf(out,kind)!==subjectId)
           fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED',{captureRef});
+        if(includePairs)pairs.push(Object.freeze({captureRef,kind,subjectId,intent:input,outbox:out}));
         continue;
       }
       pending.push(Object.freeze({workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
@@ -246,14 +247,24 @@ export function createT4OriginalHostCaptureLedgerPort({
     const nextIntents=await index(initial,'intent'),nextOutboxes=await index(initial,'outbox');
     if(intents.fingerprint!==nextIntents.fingerprint||outboxes.fingerprint!==nextOutboxes.fingerprint)
       fail('CAPTURE_LEDGER_ORIGINAL_INDEX_CHANGED',{automaticRetryAllowed:false});
-    return Object.freeze(pending);
+    if(!includePairs)return Object.freeze(pending);
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_CAPTURE_INVENTORY_V1',
+      workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
+      pending:Object.freeze(pending),pairs:Object.freeze(pairs),
+      inventoryDigest:HASH({intents:intents.fingerprint,outboxes:outboxes.fingerprint}),
+      originalRecordsAndEventsVerified:true,originalAuthorityGranted:false,createsStore:false});
   }
+  const listOriginalPendingIntents=query=>readInventory(query,false);
+  // The existing Host's serialized local capture can reuse these exact
+  // verified pairs within one invocation. No persistent index is created.
+  const readOriginalCaptureInventory=query=>readInventory(query,true);
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_CAPTURE_LEDGER_PORT_V1',
     identity,technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
     readOriginalIntent:async query=>read('intent',query,await context()),
     readOriginalOutbox:async query=>read('outbox',query,await context()),
     persistOriginalIntent:p=>persist('intent',p),persistOriginalOutbox:p=>persist('outbox',p),
-    listOriginalOutbox,listOriginalPendingIntents,originalT3OnlyStore:true,createsStore:false,createsScheduler:false,
+    listOriginalOutbox,listOriginalPendingIntents,readOriginalCaptureInventory,
+    originalT3OnlyStore:true,createsStore:false,createsScheduler:false,
     forOriginalHostLifetime:isHostActive=>createT4OriginalHostCaptureLedgerPort({
       originalKernel,...identity,getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,

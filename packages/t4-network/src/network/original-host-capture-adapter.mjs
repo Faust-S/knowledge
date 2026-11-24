@@ -21,7 +21,7 @@ export function createT4OriginalHostCaptureAdapter({
   persistOriginalIntent,readOriginalIntent,
   persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
   listOriginalPendingIntents,authorizeOriginalCaptureRecovery,
-  readOriginalAdmittedBaseline,listOriginalOutbox,resolveOriginalRelationOwner,
+  readOriginalAdmittedBaseline,listOriginalOutbox,resolveOriginalRelationOwner,readOriginalCaptureInventory,
   isHostActive=()=>true,
 }={}){
   if(typeof getMode!=='function'||
@@ -58,7 +58,7 @@ export function createT4OriginalHostCaptureAdapter({
     if(readOriginalAdmittedBaseline!==undefined){
       const {sourceCursor}=await readT4OriginalHostCaptureFrontier({
         ...hostCapturePorts(),workspaceId:proof.workspaceId,
-        readOriginalAdmittedBaseline,listOriginalOutbox,listOriginalPendingIntents,
+        readOriginalAdmittedBaseline,listOriginalOutbox,listOriginalPendingIntents,readOriginalCaptureInventory,
       });
       if(supplied!==undefined&&supplied!==null&&
         (supplied.lastEventId!==sourceCursor.lastEventId||

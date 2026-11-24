@@ -17,12 +17,14 @@ const fail=(code,details={})=>{throw Object.assign(Error(code),{code,details:Obj
 export async function readT4OriginalHostCaptureFrontier({
   workspaceId,originalWriteOwnerRef,getMode,authorizeOriginalRead,readOriginalEvents,
   readOriginalAdmittedBaseline,listOriginalPendingIntents,listOriginalOutbox,
-  readOriginalIntent,readOriginalOutbox,
+  readOriginalIntent,readOriginalOutbox,readOriginalCaptureInventory,
 }={}){
   if(![workspaceId,originalWriteOwnerRef].every(ID)||
     ![getMode,authorizeOriginalRead,readOriginalEvents,readOriginalAdmittedBaseline,
       listOriginalPendingIntents,listOriginalOutbox,readOriginalIntent,readOriginalOutbox]
-      .every(f=>typeof f==='function'))fail('CAPTURE_FRONTIER_ORIGINAL_PORTS_REQUIRED');
+      .every(f=>typeof f==='function')||
+    (readOriginalCaptureInventory!==undefined&&typeof readOriginalCaptureInventory!=='function'))
+    fail('CAPTURE_FRONTIER_ORIGINAL_PORTS_REQUIRED');
   const scope=Object.freeze({workspaceId,originalWriteOwnerRef});
   const mode=()=>{if(getMode()!=='T4_NETWORK')fail('CAPTURE_FRONTIER_NETWORK_MODE_OFF');};
   async function guard(operation){
@@ -32,15 +34,42 @@ export async function readT4OriginalHostCaptureFrontier({
       fail('CAPTURE_FRONTIER_ORIGINAL_READ_DENIED');
     mode();
   }
-  const pending=async()=>{
-    await guard('t1.listObjects');
-    const rows=await listOriginalPendingIntents(scope);
-    await guard('t1.listObjects');
+  function requireNoPending(rows){
     if(!Array.isArray(rows)||rows.length>4096||rows.some(r=>r?.workspaceId!==workspaceId||
       r.originalWriteOwnerRef!==originalWriteOwnerRef||!ID(r.captureRef)||!KINDS.has(r.kind)))
       fail('CAPTURE_FRONTIER_ORIGINAL_PENDING_INVENTORY_INVALID');
     if(rows.length)fail('CAPTURE_FRONTIER_ORIGINAL_INTENT_UNRESOLVED',{
       pendingCaptureCount:rows.length,automaticMutationRetryAllowed:false});
+  }
+  const pending=async()=>{
+    await guard('t1.listObjects');
+    const rows=await listOriginalPendingIntents(scope);
+    await guard('t1.listObjects');
+    requireNoPending(rows);
+  };
+  const inventory=async()=>{
+    await guard('t1.listObjects');
+    const value=structuredClone(await readOriginalCaptureInventory(scope));
+    await guard('t1.listObjects');
+    if(value?.schema!=='IWXA_T4_ORIGINAL_CAPTURE_INVENTORY_V1'||
+      value.workspaceId!==workspaceId||value.originalWriteOwnerRef!==originalWriteOwnerRef||
+      value.originalRecordsAndEventsVerified!==true||value.originalAuthorityGranted!==false||
+      value.createsStore!==false||!DIG(value.inventoryDigest)||
+      !Array.isArray(value.pairs)||value.pairs.length>4096)
+      fail('CAPTURE_FRONTIER_ORIGINAL_INVENTORY_INVALID');
+    requireNoPending(value.pending);
+    const pairs=new Map();
+    for(const p of value.pairs){
+      if(!ID(p?.captureRef)||!KINDS.has(p.kind)||!ID(p.subjectId)||pairs.has(p.captureRef)||
+        p.intent?.captureRef!==p.captureRef||p.outbox?.captureRef!==p.captureRef||
+        p.intent.workspaceId!==workspaceId||p.outbox.workspaceId!==workspaceId||
+        p.intent.originalWriteOwnerRef!==originalWriteOwnerRef||p.outbox.originalWriteOwnerRef!==originalWriteOwnerRef||
+        (p.intent.kind??'OBJECT_PUT')!==p.kind||(p.outbox.kind??'OBJECT_PUT')!==p.kind||
+        (p.kind==='OBJECT_PUT'?p.outbox.objectId:p.outbox.subjectId)!==p.subjectId)
+        fail('CAPTURE_FRONTIER_ORIGINAL_INVENTORY_INVALID');
+      pairs.set(p.captureRef,p);
+    }
+    return {value,pairs};
   };
   const baseline=async()=>{
     await guard('t1.getObject');
@@ -66,13 +95,15 @@ export async function readT4OriginalHostCaptureFrontier({
     authorizeOriginalRead:async proof=>{await guard(proof.operation);return true;},
     readOriginalEvents:async()=>events,originalLocalEventSnapshot:snapshot});
   const b=await baseline();
-  await pending();
+  const initialInventory=readOriginalCaptureInventory===undefined?null:await inventory();
+  if(initialInventory===null)await pending();
   const events=await readEvents();
   const snapshot=prepareT4OriginalLocalEventSnapshot({...scope,originalEvents:events});
   // Check the whole admitted prefix even if no new Events exist.
   await readWindow(b.sourceCursor,events,snapshot);
   await guard('t1.listObjects');
-  const rows=structuredClone(await listOriginalOutbox(scope));
+  const rows=initialInventory===null?structuredClone(await listOriginalOutbox(scope)):
+    initialInventory.value.pairs.map(p=>p.outbox);
   await guard('t1.listObjects');
   if(!Array.isArray(rows)||rows.length>4096)fail('CAPTURE_FRONTIER_ORIGINAL_OUTBOX_INVALID');
   const eventPositions=new Map(events.map((e,i)=>[e.event_id,i+1]));
@@ -89,6 +120,16 @@ export async function readT4OriginalHostCaptureFrontier({
       fail('CAPTURE_FRONTIER_ORIGINAL_OUTBOX_INVALID');
     captureRefs.add(row.captureRef);byEvent.set(row.sourceEventId,{row,kind,subjectId});
   }
+  const cachedRead=(role,query)=>{
+    if(query?.workspaceId!==workspaceId||query.originalWriteOwnerRef!==originalWriteOwnerRef)
+      fail('CAPTURE_FRONTIER_ORIGINAL_INVENTORY_INVALID');
+    const p=initialInventory.pairs.get(query.captureRef);
+    if(!p||p.kind!==query.kind||p.subjectId!==query.subjectId)
+      fail('CAPTURE_FRONTIER_ORIGINAL_INVENTORY_INVALID');
+    return structuredClone(p[role]);
+  };
+  const evidencePorts=initialInventory===null?{readOriginalIntent,readOriginalOutbox}:{
+    readOriginalIntent:async q=>cachedRead('intent',q),readOriginalOutbox:async q=>cachedRead('outbox',q)};
   let cursor=b.sourceCursor,verified=0;
   // The existing ledger bounds the number of retained captures. An uncovered
   // Event must stop local capture, never be absorbed into a new baseline.
@@ -103,7 +144,7 @@ export async function readT4OriginalHostCaptureFrontier({
       fail('CAPTURE_FRONTIER_ORIGINAL_CAUSAL_GAP');
     const evidence=await readT4OriginalHostLocalCaptureEvidence({
       ...scope,kind,subjectId,captureRef:row.captureRef,getMode,
-      authorizeOriginalRead,readOriginalEvents:async()=>events,readOriginalIntent,readOriginalOutbox,
+      authorizeOriginalRead,readOriginalEvents:async()=>events,...evidencePorts,
     },snapshot);
     if(!same(evidence.sourceCursorBefore,cursor)||!same(evidence.sourceCursorAfter,nextCursor)||
       evidence.sourceEventId!==row.sourceEventId||evidence.sha256!==row.sha256||evidence.key!==row.key||
@@ -116,7 +157,13 @@ export async function readT4OriginalHostCaptureFrontier({
   // Never return a cursor from a stale read if the original Host mode,
   // baseline or subject history changed while the boundary was held.
   if(!same(await baseline(),b))fail('CAPTURE_FRONTIER_ORIGINAL_BASELINE_CHANGED');
-  await pending();
+  if(initialInventory===null)await pending();
+  else{
+    const latest=await inventory();
+    if(latest.value.inventoryDigest!==initialInventory.value.inventoryDigest||
+      !same(latest.value.pairs,initialInventory.value.pairs))
+      fail('CAPTURE_FRONTIER_ORIGINAL_INVENTORY_CHANGED');
+  }
   const final=await readWindow(cursor,await readEvents());
   if(final.window.count!==0)fail('CAPTURE_FRONTIER_ORIGINAL_HISTORY_CHANGED');
   mode();

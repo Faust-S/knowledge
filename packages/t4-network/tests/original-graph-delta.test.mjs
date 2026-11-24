@@ -333,3 +333,14 @@ test('K21 original EventRecord optional fields may be omitted on one read and un
   assert.equal((await applyT4OriginalNetworkSubjectWithDurableIntent(receiver.args())).originalRecipientApplied,true);
   assert.equal(receiver.graphWrites,1);
 });
+
+test('K22 automatic graph frontier uses verified paired original inventory instead of per-capture full ledger rereads',async()=>{
+  const f=await fixture();
+  await f.capture();
+  const original=f.ledger.readOriginalCaptureInventory;let passes=0;
+  const h=f.host({readOriginalCaptureInventory:async q=>{passes++;return original(q);},
+    listOriginalOutbox:async()=>assert.fail('legacy full inventory route'),
+    listOriginalPendingIntents:async()=>assert.fail('legacy pending route')});
+  const result=await h.commitObjectGraph({mutationInput:input(2),captureRef:'capture:k22:two'});
+  assert.equal(result.capture.originalT3OutboxVerified,true);assert.equal(passes,2);assert.equal(f.graphWrites,2);
+});
