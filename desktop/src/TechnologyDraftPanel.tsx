@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {TechnologyProposalEditor} from './TechnologyProposalEditor';
-import type {D05DraftValue,D05DraftUse,D05RouteGroup,D05TechnologyDraftGroup,D05TechnologyProposalForm}
+import type {D05DraftValue,D05DraftUse,D05RouteGroup,D05TechnologyDraftGroup,D05TechnologyProposalForm,D05ParameterDecision}
  from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 
 const LABELS:Record<string,string>={
@@ -42,10 +42,13 @@ function show(value:D05DraftValue,field:string){
  return ['unit','calendarMode','result_type','inspection_method','action_on_failure'].includes(field)?WORDS[value]??value:value;
 }
 const SIZE=8;
+const EMPTY_FORM:D05TechnologyProposalForm={};
+const EMPTY_DECISIONS:Record<string,D05ParameterDecision>={};
 export function TechnologyDraftPanel({draft,operations,review}:{draft:D05TechnologyDraftGroup;operations:D05RouteGroup['operations'];review:unknown}){
  const [open,setOpen]=useState(false),[selected,setSelected]=useState(draft.profiles[0].model_number);
  const [scope,setScope]=useState('route'),[checkPage,setCheckPage]=useState(0),[checkIndex,setCheckIndex]=useState(0);
  const [forms,setForms]=useState<Record<number,D05TechnologyProposalForm>>({});
+ const [decisions,setDecisions]=useState<Record<number,Record<string,D05ParameterDecision>>>({});
  const profile=draft.profiles.find(p=>p.model_number===selected)??draft.profiles[0];
  const check=profile.checks[checkIndex];
  const name=(id:string|null)=>id===null?'Весь маршрут':operations.find(op=>op.id===id)?.name??'Операция';
@@ -108,7 +111,9 @@ export function TechnologyDraftPanel({draft,operations,review}:{draft:D05Technol
    <ul>{profile.unresolved.map(x=><li key={x}>{GAPS[x]??x}</li>)}</ul>
    {profile.local_context_review.length?<p className="activity-v7-note">Частные сведения не перенесены в черновик: {profile.local_context_review.map(x=>LOCAL[x]??x).join(', ')}. Уточните их предметное значение перед обобщением.</p>:null}
    <TechnologyProposalEditor key={profile.model_number} review={review} groupId={draft.group_id}
-    profile={profile} operations={operations} form={forms[profile.model_number]??{}}
+    profile={profile} operations={operations} form={forms[profile.model_number]??EMPTY_FORM}
+    decisions={decisions[profile.model_number]??EMPTY_DECISIONS}
+    onDecisions={value=>setDecisions(old=>({...old,[profile.model_number]:value}))}
     onChange={form=>setForms(old=>({...old,[profile.model_number]:form}))}/>
    <p className="activity-v7-note hold">Это не обезличенная технология. Значения условий и названия могут содержать частные сведения. Применимость, право передачи и нормативная приёмка не установлены.</p>
   </div>:null}

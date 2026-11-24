@@ -228,3 +228,6 @@ body{min-width:0}
 .activity-domain-proposal-fields .activity-domain-label{margin:0}
 .activity-domain-proposal textarea{font:inherit;font-weight:400;min-width:0;max-width:100%;width:100%;box-sizing:border-box;padding:9px;border:1px solid #c9d9ed;border-radius:8px;background:#fff;color:#29476a;resize:vertical}
 .activity-domain-proposal-gaps{max-height:180px;overflow:auto;border:1px solid #dbe7f4;border-radius:8px;padding:8px}
+
+.activity-domain-proposal .activity-domain-op .activity-domain-label{margin:4px 0;min-width:0}
+.activity-domain-proposal-gaps button{font:inherit;text-align:left;white-space:normal;overflow-wrap:anywhere;max-width:100%;margin:2px 0}

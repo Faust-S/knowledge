@@ -1,6 +1,7 @@
 import {useState} from 'react';
+import {TechnologyDisclosurePanel} from './TechnologyDisclosurePanel';
 import {prepareD05TechnologyProposal,type D05TechnologyProposalForm,type D05TechnologyProposal,
- type D05DraftProfile,type D05RouteGroup} from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
+ type D05DraftProfile,type D05RouteGroup,type D05ParameterDecision} from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 type TextField='purpose'|'inputs'|'outputs'|'applicability'|'adaptation_guidance'|'local_context_guidance';
 type OpField='label'|'role'|'equipment'|'material';
 const TEXT:Array<{field:TextField;label:string;hint:string}>=[
@@ -18,9 +19,10 @@ const OP:Array<{field:OpField;label:string;hint:string}>=[
  {field:'material',label:'Требования к материалам',hint:'Свойства и совместимость или обоснованное отсутствие требования'},
 ];
 const FIELD_LABELS=Object.fromEntries([...TEXT,...OP].map(x=>[x.field,x.label]));
-export function TechnologyProposalEditor({review,groupId,profile,operations,form,onChange}:{
+export function TechnologyProposalEditor({review,groupId,profile,operations,form,onChange,decisions,onDecisions}:{
  review:unknown;groupId:string;profile:D05DraftProfile;operations:D05RouteGroup['operations'];
  form:D05TechnologyProposalForm;onChange:(form:D05TechnologyProposalForm)=>void;
+ decisions:Record<string,D05ParameterDecision>;onDecisions:(value:Record<string,D05ParameterDecision>)=>void;
 }){
  const [open,setOpen]=useState(false),[opId,setOpId]=useState(operations[0].id);
  const [checkId,setCheckId]=useState(profile.checks[0]?.id??'');
@@ -64,7 +66,7 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
       onChange={e=>update({...form,quality_roles:{...form.quality_roles,[checkId]:e.target.value}})}/></label>
    </>:null}
    <div className="activity-v7-actions"><button className="activity-v7-primary" onClick={prepared}>Подготовить локальное предложение</button>
-    <button onClick={()=>update({})}>Очистить уточнения варианта</button></div>
+    <button onClick={()=>{update({});onDecisions({});}}>Очистить уточнения варианта</button></div>
    {error?<p role="alert" className="activity-v7-note hold">{error}</p>:null}
    {preview?<div className="activity-domain-group" aria-label="Предложение технологии">
     <h3>Предложение технологии</h3>
@@ -81,6 +83,8 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
     <p>Контрольных точек исходного варианта сохранено: {preview.quality_checks.length}. Допуски и блокировка выпуска не изменены.</p>
     <p className="activity-v7-note">Предложение существует в текущей выборке. Не является утверждённой, сохранённой или разрешённой к передаче технологией.</p>
    </div>:null}
+   <TechnologyDisclosurePanel review={review} groupId={groupId} profile={profile} operations={operations}
+    form={form} decisions={decisions} onChange={onDecisions}/>
   </div>:null}
  </div>;
 }
