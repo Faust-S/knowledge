@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: dd9e6032172f2006e75ddbc01f47a9fc737db072
+          ref: ea1efc3023e625bceae783c7b25672e099d04879
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,9 +51,9 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = dd9e6032172f2006e75ddbc01f47a9fc737db072
+          test "$(git -C d04-private/site rev-parse HEAD)" = ea1efc3023e625bceae783c7b25672e099d04879
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 7fbb6c059797600a5cdd53afdf2db14f17a5602d
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = ffcfdb071109074b44449ff170df6ee76bd2a39b
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
         with:
@@ -216,7 +216,7 @@ jobs:
             console.log('D04_HOME_BROWSER_STAGE=DAILY_PERSONAL_STUDY');
             try {
               const study=await runLifeOsDailyStudyBrowser({chromium,origin:server.origin,selectWitnessOption});
-              if(study.status!=='PASS'||study.viewports.length!==2||study.viewports.some(v=>v.objects!==16||v.resultEvents!==17||v.snapshot!==true||v.goalLink!==true||v.directSourceGoal!==true||v.calendar!==true||v.retrospective!==true||v.paired!==true||v.threshold!==true||v.missing!==true||v.revision!==true||v.lag!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_STUDY_WITNESS_RESULT_INCOMPLETE');
+              if(study.status!=='PASS'||study.viewports.length!==2||study.viewports.some(v=>v.objects!==29||v.resultEvents!==31||v.followupCycle!==true||v.snapshot!==true||v.goalLink!==true||v.directSourceGoal!==true||v.calendar!==true||v.retrospective!==true||v.paired!==true||v.threshold!==true||v.missing!==true||v.revision!==true||v.lag!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_STUDY_WITNESS_RESULT_INCOMPLETE');
               studyPassed=true;
               console.log('D04_HOME_DAILY_STUDY=PASS');
               console.log('D04_HOME_DAILY_STUDY_COLD_EXCHANGE=PASS');
