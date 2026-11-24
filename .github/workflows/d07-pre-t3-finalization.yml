@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: d07-pre-t3-finalization
+  group: d07-pre-t3-finalization-n500
   cancel-in-progress: true
 jobs:
   product-regression:
@@ -17,14 +17,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 200feca976e0ab0540bd897c8cdbfb46011bb5fb
+          ref: 39e578e8465f62c596c09e5b4aec01437f774a22
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: domain
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 89d2a0b6d896efd611485bded3a3dcc6b75847fd
+          ref: 6a6a0424747edffae8264675dec761a1c70c3ab1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -37,8 +37,8 @@ jobs:
       - name: Exact domain and site revisions
         shell: bash
         run: |
-          test "$(git -C domain rev-parse HEAD)" = "200feca976e0ab0540bd897c8cdbfb46011bb5fb"
-          test "$(git -C site rev-parse HEAD)" = "89d2a0b6d896efd611485bded3a3dcc6b75847fd"
+          test "$(git -C domain rev-parse HEAD)" = "39e578e8465f62c596c09e5b4aec01437f774a22"
+          test "$(git -C site rev-parse HEAD)" = "6a6a0424747edffae8264675dec761a1c70c3ab1"
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             f="$(basename "$path")"
             cmp "$path" "site/src/domain/$f"
@@ -46,7 +46,8 @@ jobs:
           cmp domain/src/domain/order-contract.ts site/src/domain/order-contract.ts
           cmp domain/src/data/serviceDirectory.ts site/src/data/serviceDirectory.ts
           cmp domain/src/domain/service-order-identity.ts site/src/domain/service-order-identity.ts
-          for f in service-blocks.ts service-changes.ts service-execution.ts service-order-identity.ts; do cmp "domain/src/domain/$f" "site/t2-site-module/uslugovod/$f"; done
+          for f in service-blocks.ts service-changes.ts service-execution.ts service-order-identity.ts service-money.ts service-attention.ts; do cmp "domain/src/domain/$f" "site/src/domain/$f"; done
+          for f in service-blocks.ts service-changes.ts service-execution.ts service-order-identity.ts service-money.ts service-attention.ts; do cmp "domain/src/domain/$f" "site/t2-site-module/uslugovod/$f"; done
           echo D07_DOMAIN_PARITY=PASS
       - name: Install pinned site dependencies
         working-directory: site
@@ -58,7 +59,7 @@ jobs:
         working-directory: site
         shell: bash
         run: |
-          node --import tsx --test scripts/tests/d07-case-workspace-command-boundary.test.mjs scripts/tests/d07-service-execution.test.mjs scripts/tests/d07-service-blocks.test.mjs scripts/tests/d07-service-settlement.test.mjs scripts/tests/d07-service-aftercare.test.mjs scripts/tests/d07-service-regular.test.mjs scripts/tests/d07-service-correction-history.test.mjs scripts/tests/d07-service-commitments.test.mjs scripts/tests/d07-composite-service-journey.test.mjs scripts/tests/d07-host-module-tsx-parse.test.mjs > "$RUNNER_TEMP/d07-addressed.log" 2>&1 || {
+          node --import tsx --test scripts/tests/d07-case-workspace-command-boundary.test.mjs scripts/tests/d07-service-execution.test.mjs scripts/tests/d07-service-blocks.test.mjs scripts/tests/d07-service-settlement.test.mjs scripts/tests/d07-service-aftercare.test.mjs scripts/tests/d07-service-regular.test.mjs scripts/tests/d07-service-correction-history.test.mjs scripts/tests/d07-service-commitments.test.mjs scripts/tests/d07-composite-service-journey.test.mjs scripts/tests/d07-host-module-tsx-parse.test.mjs scripts/tests/d07-service-attention.test.mjs scripts/tests/d07-hosting-package.test.mjs scripts/tests/d07-startable-catalog.test.mjs scripts/tests/d07-generated-service-plans.test.mjs > "$RUNNER_TEMP/d07-addressed.log" 2>&1 || {
             echo D07_ADDRESSED=FAIL
             grep -E '^not ok|^# (tests|pass|fail)|^  (error|code|operator|location):|^    (D07_[A-Z0-9_]+|AssertionError|at )' "$RUNNER_TEMP/d07-addressed.log" | cut -c1-240 | head -120
             exit 1
@@ -104,7 +105,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 89d2a0b6d896efd611485bded3a3dcc6b75847fd
+          ref: 6a6a0424747edffae8264675dec761a1c70c3ab1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -211,6 +212,7 @@ jobs:
         run: |
           npm run hosting:verify > "$RUNNER_TEMP/d07-hosting.log" 2>&1 || { echo D07_HOSTING_VERIFY=FAIL; grep -E '^D07_[A-Z0-9_]+' "$RUNNER_TEMP/d07-hosting.log" | cut -c1-200 | tail -20; exit 1; }
           echo D07_HOSTING_VERIFY=PASS
+          grep -E '^D07_HOSTING_PACKAGE_AUDIT=PASS' "$RUNNER_TEMP/d07-hosting.log" | cut -c1-900
           for check in check:assets check:links check:htaccess check:no-localhost check:seo; do
             npm run "$check" > "$RUNNER_TEMP/d07-host-check.log" 2>&1 || { echo "D07_HOSTING_CHECK=FAIL:$check"; grep -E '^D07_[A-Z0-9_]+|^[A-Z_]+=' "$RUNNER_TEMP/d07-host-check.log" | cut -c1-200 | tail -20; exit 1; }
             echo "D07_HOSTING_CHECK=PASS:$check"
