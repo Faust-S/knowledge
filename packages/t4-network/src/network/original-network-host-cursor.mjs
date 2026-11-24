@@ -138,8 +138,12 @@ export function createT4OriginalNetworkHostCursorPort({
   scopeRef,ownerEpoch,getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   authorizeOriginalSourceRead,readOriginalSourceEvents,
+  readOriginalAdmittedBaseline=null,verifyOriginalSourceBaseline=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
+  const baselineRequired=readOriginalAdmittedBaseline!==null||verifyOriginalSourceBaseline!==null;
+  if(baselineRequired&&![readOriginalAdmittedBaseline,verifyOriginalSourceBaseline].every(f=>typeof f==='function'))
+    fail('HOST_CURSOR_ORIGINAL_BASELINE_PORTS_REQUIRED');
   if(![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef].every(ID)||
     sourceNodeRef===recipientNodeRef||
@@ -212,14 +216,44 @@ export function createT4OriginalNetworkHostCursorPort({
       fail('HOST_CURSOR_ORIGINAL_SOURCE_PREFIX_DIVERGED');
     return res;
   }
+  async function readBaseline(initial){
+    if(!baselineRequired)return null;
+    await guard(initial,'t1.getObject','baseline-read');
+    const b=copy(await readOriginalAdmittedBaseline(frozen({...identity,checkpointRef,
+      originalHostSessionRef:initial.hostSessionRef,originalBaselineAdmissionRequired:true})));
+    if(b?.schema!=='IWXA_T4_ORIGINAL_SOURCE_BASELINE_V1'||!same(b.identity,identity)||
+      !canonicalCursor(b.sourceCursor,identity)||!ID(b.originalBaselineRef)||
+      !DIG(b.originalBaselineDigest)||
+      !same(Object.keys(b).sort(),['identity','originalBaselineDigest','originalBaselineRef','schema','sourceCursor']))
+      fail('HOST_CURSOR_ORIGINAL_BASELINE_REQUIRED');
+    if(await verifyOriginalSourceBaseline(frozen({...identity,checkpointRef,baseline:copy(b),
+      operation:'t4.network.original.source.baseline.verify',
+      originalHostSessionRef:initial.hostSessionRef,originalRecipientBaselineAdmissionRequired:true,
+      networkMetadataIsNotAdmission:true}))!==true)
+      fail('HOST_CURSOR_ORIGINAL_BASELINE_DENIED');
+    await readT4OriginalEventWindow({workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
+      cursor:b.sourceCursor,maxEvents:1,authorizeOriginalRead:authorizeOriginalSourceRead,
+      readOriginalEvents:readOriginalSourceEvents});
+    await guard(initial,'t1.getObject','baseline-readback');
+    return b;
+  }
   async function readVerified(initial){
+    const baseline=await readBaseline(initial);
+    const firstHash=baseline?HASH({identity,checkpointRef,stage:'ADMITTED_BASELINE',baseline}):genesis;
     await guard(initial,'t1.getObject','frontier-read');
     const row=await originalKernel.getObject(
       technicalWorkspaceId,checkpointRef);
     mode();
-    if(row===null||row===undefined)return frozen({
-      revision:0,last:null,chainHash:genesis,checkpointRef,
-    });
+    if(row===null||row===undefined){
+      await guard(initial,'t1.listEventsSince','frontier-empty-event-read');
+      const events=await originalKernel.listEventsSince(technicalWorkspaceId);
+      if(!Array.isArray(events)||events.some(e=>e?.workspace_id===technicalWorkspaceId&&e.object_id===checkpointRef))
+        fail('HOST_CURSOR_ORIGINAL_EVENT_HISTORY_INCOMPLETE');
+      await guard(initial,'t1.getObject','frontier-empty-double-read');
+      if(await originalKernel.getObject(technicalWorkspaceId,checkpointRef)!=null)
+        fail('HOST_CURSOR_ORIGINAL_CHANGED_DURING_READ');
+      return frozen({revision:0,last:null,chainHash:firstHash,checkpointRef,baseline});
+    }
     const obj=row?.object,data=obj?.data;
     if(obj?.object_id!==checkpointRef||
       obj.workspace_id!==technicalWorkspaceId||
@@ -227,8 +261,8 @@ export function createT4OriginalNetworkHostCursorPort({
       obj.schema_version!=='1.0.0'||obj.deleted===true||
       data?.schema!==SCHEMA||!same(data.identity,identity)||
       !Number.isSafeInteger(obj.revision)||obj.revision<1||
-      !same(Object.keys(data).sort(),['identity','last','schema','title'])||
-      !data.last)
+      !same(Object.keys(data).sort(),baseline?['baseline','identity','last','schema','title']:['identity','last','schema','title'])||
+      (baseline&&!same(data.baseline,baseline))||!data.last)
       fail('HOST_CURSOR_ORIGINAL_CHECKPOINT_INVALID');
     const end=data.last;
     await guard(initial,'t1.listEventsSince','frontier-event-read');
@@ -241,14 +275,15 @@ export function createT4OriginalNetworkHostCursorPort({
     if(events.length!==obj.revision)
       fail('HOST_CURSOR_ORIGINAL_EVENT_HISTORY_INCOMPLETE');
     const seen=new Set();
-    let prior=genesis,prev=null;
+    let prior=firstHash,prev=null;
     for(let i=1;i<=obj.revision;i++){
       const found=events.filter(e=>e.revision===i&&ID(e.event_id));
       if(found.length!==1||seen.has(found[0].event_id))
         fail('HOST_CURSOR_ORIGINAL_EVENT_REVISION_CONFLICT');
       const ev=found[0],record=ev.payload?.record;
       checkRecord(identity,record,prior);
-      if(prev&&!same(prev.sourceCursorAfter,record.sourceCursorBefore))
+      if((prev&&!same(prev.sourceCursorAfter,record.sourceCursorBefore))||
+        (!prev&&baseline&&!same(baseline.sourceCursor,record.sourceCursorBefore)))
         fail('HOST_CURSOR_ORIGINAL_CHAIN_GAP');
       if(!same(ev.payload?.identity,identity)||
         ev.payload?.chainHash!==record.chainHash||
@@ -265,7 +300,7 @@ export function createT4OriginalNetworkHostCursorPort({
     if(!same(after?.object,obj))
       fail('HOST_CURSOR_ORIGINAL_CHANGED_DURING_READ');
     return frozen({revision:obj.revision,last:copy(end),
-      chainHash:end.chainHash,checkpointRef});
+      chainHash:end.chainHash,checkpointRef,baseline});
   }
   async function inspectOriginalHostCursor(){
     const initial=await context();
@@ -277,7 +312,10 @@ export function createT4OriginalNetworkHostCursorPort({
       checkpointRef,revision:found.revision,
       sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
       scopeRef,ownerEpoch,
-      originalT3NextCursor:copy(found.last?.sourceCursorAfter??null),
+      originalT3NextCursor:copy(found.last?.sourceCursorAfter??found.baseline?.sourceCursor??null),
+      ...(found.baseline?{originalBaselineAdmitted:true,
+        originalBaselineRef:found.baseline.originalBaselineRef,
+        originalBaselineDigest:found.baseline.originalBaselineDigest}:{}),
       lastAcknowledgedChangeId:found.last?.changeId??null,
       lastSourceEventId:found.last?.sourceEventId??null,
       lastRecipientEventId:found.last?.recipientEventId??null,
@@ -328,9 +366,12 @@ export function createT4OriginalNetworkHostCursorPort({
           currentRevision:current.revision,automaticRetryAllowed:false,
         });
     }
+    if(current.last===null&&current.baseline&&!same(current.baseline.sourceCursor,before))
+      fail('HOST_CURSOR_ORIGINAL_BASELINE_PREDECESSOR_MISMATCH');
     const revision=current.revision+1;
     const data={schema:SCHEMA,title:'Original T3 native ACK source frontier',
-      identity:copy(identity),last:copy(desired)};
+      identity:copy(identity),last:copy(desired),
+      ...(current.baseline?{baseline:copy(current.baseline)}:{})};
     const input={workspace_id:technicalWorkspaceId,object_id:checkpointRef,
       schema_id:technicalSchemaId,schema_version:'1.0.0',
       data,extensions:{},base_revision:current.revision,
@@ -383,8 +424,8 @@ export function createT4OriginalNetworkHostCursorPort({
     if(maxEvents!==1)fail('HOST_CURSOR_NEXT_ONE_EVENT_ONLY');
     const initial=await context();
     const committed=await readVerified(initial);
-    if(!committed.last)fail('HOST_CURSOR_ORIGINAL_ACK_NOT_COMMITTED');
-    const current=committed.last.sourceCursorAfter;
+    if(!committed.last&&!committed.baseline)fail('HOST_CURSOR_ORIGINAL_ACK_NOT_COMMITTED');
+    const current=committed.last?.sourceCursorAfter??committed.baseline.sourceCursor;
     const next=await readT4OriginalEventWindow({
       workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
       cursor:current,maxEvents:1,
@@ -402,7 +443,8 @@ export function createT4OriginalNetworkHostCursorPort({
     });
     await guard(initial,'t1.getObject','next-event-checkpoint');
     const after=await readVerified(initial);
-    if(!same(after.last,committed.last)||after.revision!==committed.revision)
+    if(!same(after.last,committed.last)||!same(after.baseline,committed.baseline)||
+      after.chainHash!==committed.chainHash||after.revision!==committed.revision)
       fail('HOST_CURSOR_ORIGINAL_FRONTIER_CHANGED_DURING_PLAN');
     if(next.window.count===0)
       return frozen({schema:'IWXA_T4_ORIGINAL_HOST_NEXT_EVENT_V1',
@@ -437,6 +479,7 @@ export function createT4OriginalNetworkHostCursorPort({
       getMode:originalHostLifetimeMode(getMode,isHostActive),readOriginalHostContext,
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       authorizeOriginalSourceRead,readOriginalSourceEvents,
+      readOriginalAdmittedBaseline,verifyOriginalSourceBaseline,
     }),
     createsStore:false,createsKernel:false,createsIAM:false,
     createsTaskEngine:false,createsScheduler:false,

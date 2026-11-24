@@ -409,3 +409,42 @@ test('source Host invalidation after phase CAS stops frontier CAS; new Host read
   assert.equal(recovered.committed.state,'ORIGINAL_T3_CAS_COMMITTED');
   assert.equal(x.phaseWrites,1);assert.equal(x.f.puts,1);
 });
+
+function admittedSourceBaseline(f){
+  const baseline={schema:'IWXA_T4_ORIGINAL_SOURCE_BASELINE_V1',
+    identity:{technicalWorkspaceId:technical,sourceWorkspaceId:workspaceId,
+      originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch:2},
+    originalBaselineRef:'original:admission:source',originalBaselineDigest:H('admitted source copy'),
+    sourceCursor:structuredClone(f.before)};
+  return {baseline,options:{readOriginalAdmittedBaseline:async()=>structuredClone(baseline),
+    verifyOriginalSourceBaseline:async p=>p.baseline.originalBaselineDigest===H('admitted source copy')}};
+}
+test('K11 admitted original source baseline offers the first pending Event without fabricating an ACK',async()=>{
+  const f=await fixture(),a=admittedSourceBaseline(f),port=f.port(a.options);
+  const initial=await port.inspectOriginalHostCursor();
+  assert.equal(initial.revision,0);assert.equal(initial.originalBaselineAdmitted,true);
+  assert.equal(initial.originalT3EventChainVerified,false);
+  assert.equal(initial.lastRecipientEventId,null);
+  assert.deepEqual(initial.originalT3NextCursor,f.before);
+  assert.equal(f.puts,0);
+  const next=await port.readNextOriginalSourceEvent();
+  assert.equal(next.state,'NEXT_ORIGINAL_EVENT_READY_FOR_EXISTING_HOST_TASK');
+  assert.equal(next.originalHostFrontierRevision,0);
+  assert.deepEqual(next.nextCursor,f.latest.nextCursor);
+  f.loseNextReply();
+  await assert.rejects(port.commitAcknowledgedCursor({recovery:f.recovery}),error('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  f.restart();const cold=f.port(a.options);
+  assert.equal((await cold.commitAcknowledgedCursor({recovery:f.recovery})).state,'ALREADY_COMMITTED');
+  assert.equal((await cold.readNextOriginalSourceEvent()).state,'NO_NEXT_ORIGINAL_EVENT');
+  assert.equal(f.puts,1);
+  a.baseline.originalBaselineRef='original:other-admission';
+  await assert.rejects(cold.inspectOriginalHostCursor(),error('HOST_CURSOR_ORIGINAL_CHECKPOINT_INVALID'));
+});
+test('K11 denied or mismatched baseline never grants a source frontier',async()=>{
+  const f=await fixture(),a=admittedSourceBaseline(f);
+  await assert.rejects(f.port({...a.options,verifyOriginalSourceBaseline:async()=>false})
+    .inspectOriginalHostCursor(),error('HOST_CURSOR_ORIGINAL_BASELINE_DENIED'));
+  a.baseline.sourceCursor.sourcePrefixDigest=H('not actual original source');
+  await assert.rejects(f.port(a.options).inspectOriginalHostCursor(),error('ORIGINAL_T3_EVENT_HISTORY_DIVERGED'));
+  assert.equal(f.puts,0);
+});

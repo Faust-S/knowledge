@@ -636,3 +636,27 @@ test('native task cannot use another recipient original ACK frontier',async()=>{
     code('DISPATCH_NATIVE_ORIGINAL_FRONTIER_INVALID'));
   assert.equal(x.reads,0);
 });
+
+test('K11 capture and recover a newly created Object after the original write reply is lost',async()=>{
+  const f=originalFixture(),newId='object:new',cursor=await firstCursor(f);
+  let record=null,writes=0;
+  const kernel={...f.ports.originalKernel,getObject:async()=>record?{object:structuredClone(record)}:null,
+    putObject:async input=>{
+      writes++;assert.equal(input.base_revision,0);assert.equal(record,null);
+      record={workspace_id:ws,object_id:newId,schema_id:input.schema_id,schema_version:input.schema_version,
+        revision:1,deleted:false,data:structuredClone(input.data),extensions:structuredClone(input.extensions)};
+      const event={event_id:'event:new',event_type:input.event.event_type,workspace_id:ws,
+        service_id:'service:original',object_id:newId,revision:1,occurred_at:'2026-11-22T18:40:02Z',
+        payload:structuredClone(input.event.payload)};
+      f.events.push(event);throw Object.assign(Error('lost original reply'),{code:'ACK_LOST'});
+    }};
+  const params={...f.ports,originalKernel:kernel,workspaceId:ws,originalWriteOwnerRef:owner,
+    objectId:newId,captureRef:'capture:new'};
+  const input={...mutation(0),object_id:newId,event:{event_type:'object.created',payload:{}}};
+  await assert.rejects(captureT4OriginalObjectMutation({...params,sourceCursor:cursor,mutationInput:input}),
+    code('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  const recovered=await reconcileT4OriginalMutationIntent(params);
+  assert.equal(recovered.originalMutationRetried,false);
+  assert.equal(f.outbox.get('capture:new').sourceEventId,'event:new');
+  assert.equal(writes,1);assert.equal(record.revision,1);
+});

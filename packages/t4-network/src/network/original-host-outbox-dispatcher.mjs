@@ -297,7 +297,9 @@ async function prepareNextNativeObject(params){
   await allowed(params,'native-frontier-read');
   const status=await cursorPort.inspectOriginalHostCursor();
   if(status?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_STATUS_V1'||
-    status.originalT3EventChainVerified!==true||
+    status.originalT3EventChainVerified!==(status.revision>0)||
+    (status.revision===0&&(status.originalBaselineAdmitted!==true||
+      !ID(status.originalBaselineRef)||!HASH(status.originalBaselineDigest)))||
     status.originalT3TechnicalWorkspaceOnly!==true||
     status.sourceWorkspaceId!==params.workspaceId||
     status.originalWriteOwnerRef!==params.originalWriteOwnerRef||
@@ -306,7 +308,7 @@ async function prepareNextNativeObject(params){
     !ID(status.scopeRef)||!Number.isSafeInteger(status.ownerEpoch)||
     status.ownerEpoch<1||
     !ID(status.checkpointRef)||!HASH(status.chainHash)||
-    !Number.isSafeInteger(status.revision)||status.revision<1||
+    !Number.isSafeInteger(status.revision)||status.revision<0||
     !validCursor(status.originalT3NextCursor,params.workspaceId,
       params.originalWriteOwnerRef))
     fail('DISPATCH_NATIVE_ORIGINAL_FRONTIER_INVALID');

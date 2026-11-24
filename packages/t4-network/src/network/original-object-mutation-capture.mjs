@@ -71,15 +71,16 @@ export async function captureT4OriginalObjectMutation({
   networkMode(getMode);
   const ctx=Object.freeze({operation:'t1.putObject',workspaceId,objectId,
     originalWriteOwnerRef,captureRef,inputDigest,
-    expectedBaseRevision:mutationInput.base_revision});
+    expectedBaseRevision:originalMutation.base_revision});
   if(await authorizeOriginalWrite(ctx)!==true||
     await authorizeOriginalRead({...ctx,operation:'t1.getObject'})!==true)
     fail('OBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
   const initial=await originalKernel.getObject(workspaceId,objectId);
   networkMode(getMode);
-  if(initial?.object?.revision!==mutationInput.base_revision||
-    initial.object.schema_id!==mutationInput.schema_id||
-    initial.object.schema_version!==mutationInput.schema_version)
+  if(originalMutation.base_revision===0?initial!=null:
+    (initial?.object?.revision!==originalMutation.base_revision||
+      initial.object.deleted===true||initial.object.schema_id!==originalMutation.schema_id||
+      initial.object.schema_version!==originalMutation.schema_version))
     fail('OBJECT_CAPTURE_BASE_REVISION_CONFLICT');
   const priorIntent=await readOriginalIntent(Object.freeze({
     captureRef,workspaceId,objectId,originalWriteOwnerRef,
@@ -94,7 +95,7 @@ export async function captureT4OriginalObjectMutation({
     workspaceId,objectId,originalWriteOwnerRef,captureRef,
     inputDigest,originalInputDigest,
     originalMutation:tracedMutation,
-    expectedBaseRevision:mutationInput.base_revision,
+    expectedBaseRevision:originalMutation.base_revision,
     sourceCursor,
     expectedSourceEventAfter:sourceCursor.lastEventId,
     originalT3WriteRequired:true,networkAcknowledged:false,
@@ -114,7 +115,7 @@ export async function captureT4OriginalObjectMutation({
       intentDurableInOriginalT3:true,automaticRetryAllowed:false});
   }
   if(receipt?.object?.object_id!==objectId||
-    receipt.object.revision!==mutationInput.base_revision+1||
+    receipt.object.revision!==originalMutation.base_revision+1||
     !ID(receipt.event?.event_id))
     fail('OBJECT_CAPTURE_ORIGINAL_RECEIPT_INVALID');
   if(await authorizeOriginalRead({...ctx,operation:'t1.listEventsSince'})!==true)
@@ -136,7 +137,7 @@ export async function captureT4OriginalObjectMutation({
       matchedEvent.payload?.[TRACE_REF]!==captureRef||
       matchedEvent.payload?.[TRACE_INPUT_DIGEST]!==originalInputDigest||
       matchedEvent.object_id!==objectId||
-      matchedEvent.revision!==mutationInput.base_revision+1)
+      matchedEvent.revision!==originalMutation.base_revision+1)
       fail('OBJECT_CAPTURE_ORIGINAL_EVENT_CORRELATION_MISSING');
     const prepared=await prepareT4OriginalObjectDelta({
       window,workspaceId,objectId,originalWriteOwnerRef,

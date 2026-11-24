@@ -40,7 +40,7 @@ function validateIntent(intent,{captureRef,workspaceId,objectId,originalWriteOwn
     intent.sourceCursor.seenEventCount<1||
     !HASH(intent.sourceCursor.sourcePrefixDigest)||
     !Number.isSafeInteger(intent.expectedBaseRevision)||
-    intent.expectedBaseRevision<1)
+    intent.expectedBaseRevision<0)
     fail('OBJECT_RECOVERY_ORIGINAL_INTENT_INVALID');
   const operation=intent.originalMutation;
   if(!operation||operation.workspace_id!==workspaceId||
@@ -59,10 +59,15 @@ function validateIntent(intent,{captureRef,workspaceId,objectId,originalWriteOwn
   const undecorated=structuredClone(exact);
   delete undecorated.event.payload[MARK];
   delete undecorated.event.payload[ORIGINAL_DIGEST];
-  if(Object.keys(undecorated.event.payload).length===0)
+  // An explicitly empty payload and an omitted payload are distinct original
+  // inputs. Accept only the exact representation bound by the saved digest.
+  if(digest(undecorated)!==intent.originalInputDigest){
+    if(Object.keys(undecorated.event.payload).length!==0)
+      fail('OBJECT_RECOVERY_ORIGINAL_INTENT_DIGEST_MISMATCH');
     delete undecorated.event.payload;
-  if(digest(undecorated)!==intent.originalInputDigest)
-    fail('OBJECT_RECOVERY_ORIGINAL_INTENT_DIGEST_MISMATCH');
+    if(digest(undecorated)!==intent.originalInputDigest)
+      fail('OBJECT_RECOVERY_ORIGINAL_INTENT_DIGEST_MISMATCH');
+  }
   return Object.freeze({intent,operation:exact});
 }
 

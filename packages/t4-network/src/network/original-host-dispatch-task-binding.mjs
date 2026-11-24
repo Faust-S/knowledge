@@ -297,7 +297,9 @@ export function createT4OriginalHostDispatchTaskBinding({
       before.scopeRef!==proof.scopeRef||before.ownerEpoch!==proof.ownerEpoch||
       before.originalT3TechnicalWorkspaceOnly!==true||
       !Number.isSafeInteger(before.revision)||before.revision<0||
-      (before.revision===0&&before.originalT3NextCursor!==null)||
+      (before.revision===0&&(before.originalBaselineAdmitted===true?
+        (!ID(before.originalBaselineRef)||!sameCursor(before.originalT3NextCursor,recovery.sourceCursorBefore)):
+        before.originalT3NextCursor!==null))||
       (before.revision>0&&(before.originalT3EventChainVerified!==true||
         (!sameCursor(before.originalT3NextCursor,recovery.sourceCursorBefore)&&
          !(before.lastSourceEventId===proof.originalSourceEventId&&
