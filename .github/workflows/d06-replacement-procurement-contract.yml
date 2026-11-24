@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod
-          ref: 84909e19e21cadeadf4a5ae15b746c4edb63fe8e
+          ref: 4bdfe949439af08bd9ed106383ef4bb9cc2f68c2
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -32,12 +32,12 @@ jobs:
         shell: pwsh
         run: |
           $log = Join-Path $env:RUNNER_TEMP "d06-procurement-contract-private.txt"
-          foreach ($suite in @("test-replacement-demand", "test-replacement-calculation", "test-replacement-configuration", "test-replacement-assessment", "test-replacement-procurement")) {
+          foreach ($suite in @("test-replacement-demand", "test-replacement-calculation", "test-replacement-configuration", "test-replacement-assessment", "test-replacement-procurement", "test-replacement-receipt")) {
             & node --experimental-strip-types ("scripts/" + $suite + ".mjs") *> $log
             if ($LASTEXITCODE -ne 0) {
               Write-Host ("D06_CONTRACT_FAIL=" + $suite)
               $lines = Get-Content -LiteralPath $log -Raw
-              $matches = [regex]::Matches($lines, "(?:test-replacement-procurement\.mjs|replacement-offers\.ts|replacement-fulfillment\.ts|supplier-response\.ts):(\d+):\d+")
+              $matches = [regex]::Matches($lines, "(?:test-replacement-procurement\.mjs|replacement-offers\.ts|replacement-fulfillment\.ts|test-replacement-receipt\.mjs|replacement-receipt\.ts|supplier-response\.ts):(\d+):\d+")
               Write-Host ("D06_FAILURE_LINES=" + (($matches | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique -First 8) -join ","))
               exit 1
             }
