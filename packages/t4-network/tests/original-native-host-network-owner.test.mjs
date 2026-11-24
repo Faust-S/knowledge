@@ -127,7 +127,7 @@ async function sourceFixture(loseOriginalWrite=false){
 }
 function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=deny,requestBaseline=true,
   localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow,
-  indexMigration=false,technicalRead=allow}){
+  indexMigration=false,technicalRead=allow,explicitResume=false,resumeInput=null,resumeAdmission=deny}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
@@ -150,7 +150,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     authorizeOriginalHostTask:allow,authorizeOriginalRead:allow,authorizeOriginalWrite:allow,
     authorizeOriginalLocalMutation:localAdmission,
     authorizeOriginalHostWire:allow,authorizeOriginalNetwork:async p=>p.ownerEpoch===2&&p.scopeRef===SCOPE,
-    authorizeOriginalFramePublish:frameAdmission,
+    authorizeOriginalFramePublish:frameAdmission,authorizeOriginalNetworkResume:resumeAdmission,
     verifyOriginalNodeSignature:async({signerRef,bytes,signature})=>{
       const k=signerRef==='key:k14:source'?keyS:signerRef==='key:k14:recipient'?keyR:null;
       return !!k&&verify(null,Buffer.from(bytes),k.publicKey,Buffer.from(signature));
@@ -173,6 +173,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
   };
   const owner=createT4OriginalNativeHostNetworkOwner({...scope(tech),role,requiredCryptoSuite:SUITE,
     getMode:()=>mode,wireTransport:wire.wire,originalPorts,enableLocalSourceCapture:localCapture,enablePublicationIndexMigration:indexMigration,monotonicNow:()=>clock,
+    enableExplicitNetworkResume:explicitResume,readOriginalNetworkResumeInput:resumeInput,
     readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null,
     onStep:r=>results.push(r)});
   const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,networkOwner:{
@@ -638,5 +639,95 @@ test('K30 final native migration refuses a changed original inventory even witho
     assert.equal(f.results.some(r=>r.state==='NETWORK_INDEX_MIGRATION_COMPLETE'),false);
     assert.equal(f.signatureCalls,0);assert.equal(wire.puts,1);assert.equal(wire.indices.size,2);
     assert.equal(f.relay.networkAttached,true);
+  }finally{f.relay.close();}
+});
+
+function resumeDecision(request,overrides={}){
+  return {schema:'IWXA_T4_ORIGINAL_NETWORK_RESUME_DECISION_V1',
+    resumeRequestRef:request.resumeRequestRef,originalHostSessionRef:request.originalHostSessionRef,
+    contextEpoch:request.contextEpoch,decisionRef:'decision:k33:explicit',
+    resolutionEvidenceRef:'evidence:k33:owner-resolution',resume:true,...overrides};
+}
+test('K33 original signed source resumes a deliberate suspension only on an exact authorized decision, not a frame retry grant',async()=>{
+  const source=await sourceFixture(),wire=wireFixture(true);
+  const originalPut=wire.wire.putSnapshot,originalInspect=wire.wire.inspectOutcome;
+  let attempts=0,blocked=true,pending=null,admitted=false,decisions=0,retryGrants=0;
+  wire.wire.putSnapshot=async p=>{
+    attempts++;if(blocked)throw new T4TransferError('REMOTE_AUTHORIZATION_DENIED');return originalPut(p);
+  };
+  wire.wire.inspectOutcome=async p=>{
+    if(!wire.frames.has(p.key))throw new T4TransferError('REMOTE_NOT_FOUND');
+    return originalInspect(p);
+  };
+  const f=recoverySource(source,wire,{localCapture:true,explicitResume:true,
+    resumeInput:async()=>{const value=pending;pending=null;return value;},
+    resumeAdmission:async p=>{
+      decisions++;assert.equal(p.operation,'t4.network.original.host.resume');
+      assert.equal(p.originalFrameRetryAllowed,false);assert.equal(p.originalSubjectMutationAllowed,false);
+      assert.equal(p.decision.resolutionEvidenceRef,'evidence:k33:owner-resolution');return admitted;
+    },
+    frameAdmission:async p=>{if(p.operation==='t4.network.publish.retry-missing')retryGrants++;return true;}
+  });
+  try{
+    const s=await f.attach();await f.drive(s,'NETWORK_WAKE_SUSPENDED');
+    const suspended=f.results.find(x=>x.state==='NETWORK_WAKE_SUSPENDED');
+    assert.ok(suspended.resumeRequestRef);assert.equal(attempts,1);assert.equal(f.signatureCalls,1);
+    assert.equal(wire.puts,0);assert.equal(f.relay.networkAttached,true);
+    const technicalBefore=clone(source.events);
+    blocked=false;
+    // Wrong suspension or lifetime cannot consume the original decision.
+    pending=resumeDecision(suspended,{originalHostSessionRef:'host:stale'});
+    let start=f.results.length;await f.drive(s,'NETWORK_RESUME_DECISION_REJECTED',start);
+    assert.equal(f.results.at(-1).reason,'ORIGINAL_RESUME_DECISION_INVALID');assert.equal(decisions,0);
+    pending=resumeDecision(suspended);start=f.results.length;
+    await f.drive(s,'NETWORK_RESUME_DECISION_REJECTED',start);
+    assert.equal(f.results.at(-1).reason,'ORIGINAL_RESUME_AUTHORITY_DENIED');assert.equal(decisions,1);
+    assert.equal(attempts,1);assert.equal(f.signatureCalls,1);assert.deepEqual(source.events,technicalBefore);
+    admitted=true;pending=resumeDecision(suspended);start=f.results.length;
+    await f.drive(s,'NETWORK_WAKE_RESUMED',start);
+    assert.equal(f.results.at(-1).originalDurableEvidenceRecheckRequired,true);
+    assert.equal(f.results.at(-1).originalFrameRetryAllowed,false);assert.equal(decisions,2);
+    assert.equal(attempts,1);assert.equal(retryGrants,0);assert.deepEqual(source.events,technicalBefore);
+    // Even a valid owner resume is not an explicit original retry-missing
+    // decision. First reconstruct the exact ATTEMPTED record and prove 404.
+    await f.drive(s,'NETWORK_WAKE_RECOVERY_WAIT',start);
+    assert.equal(attempts,1);assert.equal(retryGrants,0);assert.equal(f.signatureCalls,1);
+    f.advanceClock(5000);await f.drive(s,'HEADS_PRESENT',start);
+    assert.equal(attempts,2);assert.equal(retryGrants,1);assert.equal(wire.puts,1);
+    assert.equal(f.signatureCalls,1);assert.equal(f.relay.networkAttached,true);
+    assert.equal(source.events.filter(e=>e.workspace_id===WS).length,2);
+    const publication=[...source.rows.values()].find(row=>row.object.object_id.startsWith('t4:net:publish:'));
+    assert.equal(publication.object.data.entries[0].attempts,2);
+    assert.equal(publication.object.data.entries[0].state,'PRESENT');
+  }finally{f.relay.close();}
+});
+test('K33 original signed recipient retains no automatic write permission while a deliberate network suspension awaits owner resolution',async()=>{
+  const source=await sourceFixture(),wire=wireFixture(true),sender=recoverySource(source,wire);
+  try{const s=await sender.attach();await sender.drive(s,'HEADS_PRESENT');}
+  finally{sender.relay.close();}
+  const recipient=kernelFixture('recipient-resume');recipient.technicalWorkspaceId='ws:k33:recipient:technical';
+  const e=(await recipient.kernel.putObject(mutation('o:k14:baseline','baseline','business.baseline.materialized'))).event;
+  const originalIndex=wire.wire.getNativeFrameIndex;let blocked=true,pending=null,decisions=0;
+  wire.wire.getNativeFrameIndex=async p=>{
+    if(blocked)throw new T4TransferError('REMOTE_AUTHORIZATION_DENIED');return originalIndex(p);
+  };
+  const f=nativeFixture({role:'RECIPIENT',store:recipient,wire,source,explicitResume:true,
+    baselineInput:{sourceCursor:source.before,originalBaselineRef:e.event_id,originalBaselineDigest:hash(JSON.stringify(e))},
+    resumeInput:async()=>{const value=pending;pending=null;return value;},
+    resumeAdmission:async p=>{decisions++;return p.role==='RECIPIENT'&&p.originalFrameRetryAllowed===false;}
+  });
+  try{
+    const s=await f.attach();await f.drive(s,'NETWORK_WAKE_SUSPENDED');
+    const suspended=f.results.find(x=>x.state==='NETWORK_WAKE_SUSPENDED');
+    assert.equal(suspended.originalSubjectMutationMayHaveCommitted,true);
+    assert.equal(f.signatureCalls,0);assert.equal(wire.puts,1);assert.equal(f.relay.networkAttached,true);
+    blocked=false;pending=resumeDecision(suspended,{resumeRequestRef:'t4:resume:old'});
+    let start=f.results.length;await f.drive(s,'NETWORK_RESUME_DECISION_REJECTED',start);
+    assert.equal(decisions,0);assert.equal(f.signatureCalls,0);assert.equal(wire.puts,1);
+    pending=resumeDecision(suspended);start=f.results.length;await f.drive(s,'NETWORK_WAKE_RESUMED',start);
+    assert.equal(decisions,1);assert.equal(wire.puts,1);
+    await f.drive(s,'DIFF_PRESENT',start);
+    assert.equal(wire.puts,2);assert.equal(f.signatureCalls,1);
+    assert.equal(recipient.events.filter(x=>x.workspace_id===WS).length,1);
   }finally{f.relay.close();}
 });

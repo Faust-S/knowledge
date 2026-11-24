@@ -12,10 +12,11 @@ const all=readdirSync(new URL('../tests/',import.meta.url))
   .filter(name=>name.endsWith('.test.mjs')).sort().map(name=>'tests/'+name);
 if(!all.includes(native))throw Error('ORIGINAL_NATIVE_CONTRACT_FILE_MISSING');
 const flags={
-  'native-base':['--test-skip-pattern=^(K28|K30) '],
+  'native-base':['--test-skip-pattern=^(K28|K30|K33) '],
   'native-recovery-write':['--test-name-pattern=^K28 existing signed relay resumes '],
   'native-recovery-other':['--test-name-pattern=^K28 ','--test-skip-pattern=^K28 existing signed relay resumes '],
   'native-migration':['--test-name-pattern=^K30 '],
+  'native-resume':['--test-name-pattern=^K33 '],
 };
 const shard=process.argv[2];
 if(process.argv.length!==3||!(shard==='core'||Object.hasOwn(flags,shard)))

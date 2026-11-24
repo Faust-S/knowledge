@@ -56,10 +56,14 @@ export function createT4OriginalNativeHostNetworkOwner({
   role,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
   recipientNodeRef,scopeRef,ownerEpoch,requiredCryptoSuite,getMode,wireTransport,
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
-  enableLocalSourceCapture=false,enablePublicationIndexMigration=false,monotonicNow=()=>performance.now(),
+  enableLocalSourceCapture=false,enablePublicationIndexMigration=false,
+  enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,monotonicNow=()=>performance.now(),
 }={}){
   if(!['SOURCE','RECIPIENT'].includes(role)||typeof enableLocalSourceCapture!=='boolean'||
-    typeof enablePublicationIndexMigration!=='boolean'||
+    typeof enablePublicationIndexMigration!=='boolean'||typeof enableExplicitNetworkResume!=='boolean'||
+    (enableExplicitNetworkResume&&(typeof readOriginalNetworkResumeInput!=='function'||
+      typeof originalPorts?.authorizeOriginalNetworkResume!=='function'))||
+    (!enableExplicitNetworkResume&&readOriginalNetworkResumeInput!==null)||
     (enablePublicationIndexMigration&&wireTransport?.nativeFrameIndexVersion!==1)||
     (enableLocalSourceCapture&&(role!=='SOURCE'||typeof originalPorts?.authorizeOriginalLocalMutation!=='function'))||
     ![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
@@ -75,7 +79,8 @@ export function createT4OriginalNativeHostNetworkOwner({
     fail('NATIVE_NETWORK_OWNER_ORIGINAL_PORTS_REQUIRED');
   const ports=Object.freeze(Object.fromEntries([...COMMON_PORTS,
     ...(role==='SOURCE'?SOURCE_PORTS:RECIPIENT_PORTS),
-    ...(enableLocalSourceCapture?['authorizeOriginalLocalMutation']:[])].map(k=>[k,originalPorts[k]])));
+    ...(enableLocalSourceCapture?['authorizeOriginalLocalMutation']:[]),
+    ...(enableExplicitNetworkResume?['authorizeOriginalNetworkResume']:[])].map(k=>[k,originalPorts[k]])));
   const identity=Object.freeze({technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch});
   const operations=role==='SOURCE'?(enableLocalSourceCapture?
@@ -239,6 +244,62 @@ export function createT4OriginalNativeHostNetworkOwner({
       authorizeOriginalSealedOpen:callback('authorizeOriginalSealedOpen'),
       openOriginalSealedContent:callback('openOriginalSealedContent')})};
   }
+  // A deliberate suspension is NOT a temporary network failure. The
+  // existing owner may admit one explicit resolution decision for this
+  // exact original Host lifetime and suspension instance. This admits a
+  // new read/reconciliation wake, never a retry or a subject write.
+  async function resumeSuspended(state){
+    const suspension=state.networkWakeSuspended;
+    await requireBinding(state,'network-resume-request');
+    const request=Object.freeze({...bindingProof(state,'network-resume-request'),
+      ...suspension,state:'NETWORK_WAKE_SUSPENDED',readOnly:true,
+      originalNetworkResumeDoesNotAuthorizeRetry:true});
+    let input,reason=null;
+    try{input=await readOriginalNetworkResumeInput(request);}
+    catch{reason='ORIGINAL_RESUME_DECISION_UNAVAILABLE';}
+    await requireBinding(state,'network-resume-request-readback');
+    if(input===null&&reason===null)return;
+    // Snapshot the scalar decision before any asynchronous authorization;
+    // never pass arbitrary user/transport metadata as an original grant.
+    const d=input&&typeof input==='object'&&!Array.isArray(input)?{
+      schema:input.schema,resumeRequestRef:input.resumeRequestRef,
+      originalHostSessionRef:input.originalHostSessionRef,contextEpoch:input.contextEpoch,
+      decisionRef:input.decisionRef,resolutionEvidenceRef:input.resolutionEvidenceRef,
+      resume:input.resume,
+    }:null;
+    if(reason===null&&(!d||d.schema!=='IWXA_T4_ORIGINAL_NETWORK_RESUME_DECISION_V1'||
+      d.resumeRequestRef!==suspension.resumeRequestRef||d.originalHostSessionRef!==state.hostSessionRef||
+      d.contextEpoch!==state.contextEpoch||!ID(d.decisionRef)||!ID(d.resolutionEvidenceRef)||d.resume!==true))
+      reason='ORIGINAL_RESUME_DECISION_INVALID';
+    if(reason===null){
+      let allowed=false;
+      try{allowed=await ports.authorizeOriginalNetworkResume(Object.freeze({
+        ...request,decision:Object.freeze(d),operation:'t4.network.original.host.resume',
+        originalExplicitResolutionRequired:true,originalSubjectMutationAllowed:false,
+        originalFrameRetryAllowed:false,
+      }))===true;}catch{/* no grant from an unavailable original decision */}
+      await requireBinding(state,'network-resume-admission-readback');
+      if(!allowed)reason='ORIGINAL_RESUME_AUTHORITY_DENIED';
+    }
+    if(reason!==null){
+      onStep(Object.freeze({...bindingProof(state,'network-resume-rejected'),
+        state:'NETWORK_RESUME_DECISION_REJECTED',resumeRequestRef:suspension.resumeRequestRef,
+        reason,originalSubjectMutationInvoked:false,originalFrameRetryAllowed:false}));
+      return;
+    }
+    // Recreate only the same original port bindings; no persisted state is
+    // erased. In particular, a stale migration snapshot must not survive
+    // an explicit resolution. The following normal wake rereads the
+    // original baseline, publication chain and pending apply evidence.
+    const fresh=assemble(state);
+    state.task?.dispose();state.capture?.dispose();
+    Object.assign(state,fresh);
+    state.networkRecovery=null;state.networkWakeSuspended=null;
+    onStep(Object.freeze({...bindingProof(state,'network-resumed'),
+      state:'NETWORK_WAKE_RESUMED',resumeRequestRef:suspension.resumeRequestRef,
+      decisionRef:d.decisionRef,originalSubjectMutationInvoked:false,
+      originalFrameRetryAllowed:false,originalDurableEvidenceRecheckRequired:true}));
+  }
   async function invokeLocalSource(p){
     const state=live;
     if(!enableLocalSourceCapture||!matches(state,p)||p.kernel!==state.kernel||!active(state)||
@@ -292,7 +353,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       const state={kernel:p.kernel,sessionId:p.sessionId,contextEpoch:p.contextEpoch,
         hostSessionRef:hostReference(p.sessionId,p.contextEpoch),
         isHostActive:p.isHostActive,disposed:false,waking:false,task:null,capture:null,
-        localMutation:null,networkWakeSuspended:false,networkRecovery:null};
+        localMutation:null,networkWakeSuspended:null,networkRecovery:null};
       live=state;
       try{
         if(await ports.authorizeOriginalBinding(bindingProof(state,'attach'))!==true||
@@ -337,7 +398,15 @@ export function createT4OriginalNativeHostNetworkOwner({
       if(!matches(state,p)||p.kernel!==state.kernel||!active(state))
         fail('NATIVE_NETWORK_OWNER_LIFETIME_ENDED');
       if(state.waking||state.localMutation)fail('NATIVE_NETWORK_OWNER_CONCURRENT_WAKE');
-      if(mode()==='LOCAL_T3'||state.networkWakeSuspended)return;
+      if(mode()==='LOCAL_T3')return;
+      if(state.networkWakeSuspended!==null){
+        if(!enableExplicitNetworkResume)return;
+        state.waking=true;
+        try{await resumeSuspended(state);}
+        catch(error){dispose(state);throw error;}
+        finally{state.waking=false;}
+        return;
+      }
       const now=monotonicNow();
       if(!Number.isFinite(now)||now<0)fail('NATIVE_NETWORK_OWNER_CLOCK_INVALID');
       if(state.networkRecovery!==null&&now<state.networkRecovery.nextWakeAt)return;
@@ -385,13 +454,18 @@ export function createT4OriginalNativeHostNetworkOwner({
               originalSubjectMutationMayHaveCommitted:role==='RECIPIENT',
               originalMissingRetryGrantRequired:true,errorCode:error.code}));
           }catch(recoveryError){dispose(state);throw recoveryError;}
-        }else if(enableLocalSourceCapture&&active(state)&&mode()==='T4_NETWORK'){
+        }else if((enableLocalSourceCapture||enableExplicitNetworkResume)&&active(state)&&mode()==='T4_NETWORK'){
           try{await requireBinding(state,'local-source-after-network-error');}
           catch{dispose(state);throw error;}
-          state.networkWakeSuspended=true;
+          state.networkRecovery=null;
+          state.networkWakeSuspended=Object.freeze({
+            errorCode:ID(error?.code)?error.code:'NETWORK_WAKE_FAILED',
+            ...(enableExplicitNetworkResume?{resumeRequestRef:'t4:resume:'+randomUUID()}:{}),
+            originalSubjectMutationMayHaveCommitted:role==='RECIPIENT',
+          });
           onStep(Object.freeze({...bindingProof(state,'network-suspended'),
-            state:'NETWORK_WAKE_SUSPENDED',originalSubjectMutationInvoked:false,
-            errorCode:ID(error?.code)?error.code:'NETWORK_WAKE_FAILED'}));
+            state:'NETWORK_WAKE_SUSPENDED',originalSubjectMutationInvoked:role==='SOURCE'?false:null,
+            ...state.networkWakeSuspended,originalFrameRetryAllowed:false}));
         }else{dispose(state);throw error;}
       }
       finally{state.waking=false;}
