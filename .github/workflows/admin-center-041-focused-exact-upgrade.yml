@@ -1,0 +1,155 @@
+name: Admin Center 0.4.1 focused exact-byte upgrade from accepted 0.3
+on:
+  push:
+    branches:
+      - work/2026-11-24-admin-center-041-focused-exact-upgrade
+    paths:
+      - .github/workflows/admin-center-041-focused-exact-upgrade.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: admin-center-focused-exact-upgrade-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  upgrade-from-accepted-03:
+    runs-on: windows-2022
+    timeout-minutes: 22
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout exact Windows-accepted Admin Center 0.3 UIA source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: 776843c7cbf74dbe437a70dc7efed95513125df8
+          persist-credentials: false
+          path: .accepted-03-src
+      - name: Retrieve exact accepted 0.3 Windows Setup Core
+        uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/Center
+          run-id: 42486593582
+          name: center-windows-preparation-shell
+          github-token: ${{ secrets.CENTER || secrets.DOMEN || github.token }}
+          path: .accepted-03-artifact
+      - name: Retrieve independent full signed T3 0.4 candidate from qualified job
+        uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/knowledge
+          run-id: 45355353253
+          artifact-ids: 14901674424
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          path: .candidate-04
+      - name: Verify accepted baseline, candidate integrity and upgrade test syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C .accepted-03-src rev-parse HEAD).Trim() -cne '776843c7cbf74dbe437a70dc7efed95513125df8'){
+            throw 'ADMIN04_ACCEPTED_03_GUI_BASELINE_PIN_CHANGED'
+          }
+          $baseline='.accepted-03-artifact/artifacts/iwxa-setup-core-center-0.3-preview.exe'
+          $candidate='.candidate-04/IWXA-Admin-Center-0.4.1-Setup.exe'
+          if(!(Test-Path -LiteralPath $baseline -PathType Leaf) -or
+             !(Test-Path -LiteralPath $candidate -PathType Leaf)){
+            throw 'ADMIN04_ACCEPTED_03_OR_04_SETUP_BYTES_MISSING'
+          }
+          $shaLine=(Get-Content -LiteralPath '.candidate-04/SHA256SUMS.txt' -Raw).Trim()
+          $actual=(Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($actual -cne '5587595f6b422a81fed843092297a5a1ca7f90d86fe287ab18299109ac277e64' -or
+             (Get-Item -LiteralPath $candidate).Length -ne 137031662 -or
+             $shaLine -cne ($actual+' *IWXA-Admin-Center-0.4.1-Setup.exe')){
+            throw 'ADMIN04_RELEASE_CANDIDATE_SHA256_MISMATCH'
+          }
+          $tokens=$null;$errors=$null
+          $test=(Resolve-Path 'packages/t3-core/tests/admin-center-04-upgrade-03.ps1').Path
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $test,[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -ne 0){throw 'ADMIN04_ACCEPTED_UPGRADE_SCRIPT_SYNTAX_INVALID'}
+          New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
+          Copy-Item -LiteralPath $baseline -Destination 'artifacts/iwxa-setup-core-center-0.3-preview.exe'
+          Write-Host 'ADMIN04_ACCEPTED_03_AND_COMPLETE_04_SHA256_PINS_PASS'
+      - name: Require the pinned 0.3 source and acknowledge its read-only staff navigation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $path=(Resolve-Path '.accepted-03-src/tests/installed-windows-center.ps1').Path
+          if((& git -C .accepted-03-src hash-object tests/installed-windows-center.ps1).Trim() -cne 'e5ca27d929b6a1db896d33abf1f84325768138b5'){
+            throw 'ADMIN04_BASELINE_WITNESS_PIN_CHANGED'
+          }
+          $text=[IO.File]::ReadAllText($path).Replace("`r`n","`n")
+          $before=@'
+          function Find-TextContaining([string]$value){
+            # Reads WebView2's real UIA text nodes; not a DOM/browser mock.
+            for($i=0;$i -lt 65;$i++){
+          '@
+          $after=@'
+          function Find-TextContaining([string]$value,[int]$attempts=65){
+            # Reads WebView2's real UIA text nodes; not a DOM/browser mock.
+            for($i=0;$i -lt $attempts;$i++){
+          '@
+          if(!$text.Contains($before)){throw 'ADMIN04_BASELINE_READ_POLL_ANCHOR_MISSING'}
+          $text=$text.Replace($before,$after)
+          $signature='  public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);'
+          if(!$text.Contains($signature)){throw 'ADMIN04_BASELINE_FOREGROUND_ANCHOR_MISSING'}
+          $text=$text.Replace($signature,$signature+"`n"+'  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);')
+          $before=@'
+            Click-Control 'Сотрудники и роли'
+            [void](Find-TextContaining $staffNames[0])
+            [void](Find-TextContaining $staffNames[1])
+          '@
+          $after=@'
+            # Only this navigation is retryable. Do not repeat participant
+            # creation, assignment saving or any setup/data write.
+            $staffPageConfirmed=$false
+            for($attempt=1;$attempt -le 3;$attempt++){
+              $proc.Refresh()
+              [void][CenterNativeWindow]::SetForegroundWindow($proc.MainWindowHandle)
+              if($attempt -eq 1){Click-Control 'Сотрудники и роли'}
+              else{Click-VisibleUiButton (Find-Control 'Сотрудники и роли' 'Button') 'Сотрудники и роли'}
+              try{
+                [void](Find-TextContaining $staffNames[0] 12)
+                [void](Find-TextContaining $staffNames[1] 12)
+                $staffPageConfirmed=$true
+                Write-Host "ADMIN04_BASELINE_STAFF_ROUTE_ACK_PASS attempt=$attempt"
+                break
+              }catch{
+                if($_.Exception.Message -notlike 'Installed Corporate Panel text not found:*'){throw}
+              }
+            }
+            if(!$staffPageConfirmed){throw 'ADMIN04_BASELINE_STAFF_ROUTE_NOT_CONFIRMED'}
+          '@
+          if(!$text.Contains($before)){throw 'ADMIN04_BASELINE_STAFF_ACK_ANCHOR_MISSING'}
+          $text=$text.Replace($before,$after)
+          [IO.File]::WriteAllText($path,$text,[Text.UTF8Encoding]::new($false))
+          $tokens=$null;$errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -ne 0){throw 'ADMIN04_BASELINE_UIA_SYNTAX_INVALID'}
+          Write-Host 'ADMIN04_EXACT_BASELINE_TEST_NAV_ONLY_REACQUIRE_PASS'
+      - name: Install original accepted 0.3 and create TWO real organizations via Windows UIA
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./.accepted-03-src/tests/installed-windows-center.ps1
+          $report=Get-Content -LiteralPath 'artifacts/installed-gui-result.json' -Raw | ConvertFrom-Json
+          if($report.status -ne 'INSTALLED_GUI_TWO_ORG_ATLAS_RESTART_PASS' -or
+             $report.managerStaffCount -ne 2 -or
+             $report.managerPlannedAgentSeats -ne 1 -or
+             $report.organizationIsolation -ne 'TWO_NATIVE_ATLAS_ROOTS_AND_GUI_SWITCH_RESTART_PASS'){
+            throw 'ADMIN04_ACCEPTED_03_TWO_COMPANIES_NOT_CONFIRMED'
+          }
+          Write-Host 'ADMIN04_ORIGINAL_03_INSTALLED_ATLAS_AND_TWO_COMPANIES_UIA_PASS'
+      - name: Actual Setup Core 0.3 to 0.4 upgrade, original T3 install, native GUI and cold data hash readback
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./packages/t3-core/tests/admin-center-04-upgrade-03.ps1 -CandidateSetup '.candidate-04/IWXA-Admin-Center-0.4.1-Setup.exe' -ExpectedVersion '0.4.1'
+          Write-Host 'ADMIN04_SETUP_CORE_04_MIGRATION_FINAL_ACCEPTANCE_PASS'
