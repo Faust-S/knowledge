@@ -335,8 +335,61 @@ def evaluate_preparation_diagnostic(profile: Any, activity: Mapping[str, Any]) -
     }
 
 
+def evaluate_selected_pattern_preparation_diagnostic(profile: Any, activity: Mapping[str, Any]) -> dict[str, Any]:
+    """Risk and complete direct costs of the owner's ACTUAL selected procedure.
+
+    Reusing one structure does not establish the availability or cost of
+    another mode's pattern, and does not imply a lower error probability.
+    The original author diagnostic is retained for the selected mode only;
+    no alternative-mode ranking or recommendation is made in this experiment.
+    """
+    mode = activity.get("mode")
+    units = activity.get("units")
+    if (mode not in ("S1", "S2") or not isinstance(units, Mapping)
+            or set(units) != set(PREPARATION_ACTIVITY_UNITS + PREPARATION_PATTERN_UNITS)
+            or any(type(units[k]) is not int or units[k] not in (0, 1)
+                   for k in PREPARATION_PATTERN_UNITS)
+            or sum(units[k] for k in PREPARATION_PATTERN_UNITS) != 1):
+        raise ValueError("PREPARATION_DIAGNOSTIC_SELECTED_PATTERN_ACTIVITY_REQUIRED")
+    rates = profile.get("unit_rates_by_mode") if isinstance(profile, dict) else None
+    if not isinstance(rates, dict) or set(rates) != set(PREPARATION_MODES):
+        raise ValueError("PREPARATION_DIAGNOSTIC_THREE_MATCHED_MODES_REQUIRED")
+    base_rates = {}
+    for candidate, card in rates.items():
+        if (not isinstance(card, dict)
+                or set(card) != set(PREPARATION_ACTIVITY_UNITS + PREPARATION_PATTERN_UNITS)
+                or any(not isinstance(card[k], str)
+                       or re.fullmatch(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,2})?", card[k]) is None
+                       or Decimal(card[k]) > Decimal("999999999999")
+                       for k in PREPARATION_PATTERN_UNITS)):
+            raise ValueError("PREPARATION_DIAGNOSTIC_FULL_PATTERN_RATE_CARD_REQUIRED")
+        base_rates[candidate] = {k: card[k] for k in PREPARATION_ACTIVITY_UNITS}
+    # Only reuse the original risk equations. Do not use the legacy
+    # recommendation, because alternative pattern availability is unknown.
+    base = evaluate_preparation_diagnostic({**profile, "unit_rates_by_mode": base_rates}, activity)
+    selected = dict(base["modes"][mode])
+    direct = sum((Decimal(rates[mode][k]) * units[k] for k in units), Decimal(0))
+    pattern_cost = sum((Decimal(rates[mode][k]) * units[k]
+                        for k in PREPARATION_PATTERN_UNITS), Decimal(0))
+    if selected["declared_resource_cost"] + pattern_cost != direct:
+        raise ValueError("PREPARATION_DIAGNOSTIC_PATTERN_ACTIVITY_COST_MISMATCH")
+    selected["declared_resource_cost"] = direct
+    selected["risk_adjusted_expected_cost"] = direct + selected["expected_error_loss"]
+    return {
+        "selected_mode": mode,
+        "selected": selected,
+        "pattern_direct_resource_cost": pattern_cost,
+        "S2_admissible": base["modes"]["S2"]["admissible_for_modeled_preparation"],
+        "S2_ineligibility_reasons": base["modes"]["S2"]["ineligibility_reasons"],
+        "pattern_does_not_assume_lower_error_probability": True,
+        "expected_error_loss_not_posted_to_original_cost_ledger": True,
+        "no_mode_ranking_or_automatic_decision": True,
+    }
+
+
 def review_original_preparation_diagnostic(state: Any, work: Any, actor: str,
-                                           mode: str, profile: Any, at: int) -> dict[str, Any]:
+                                           mode: str, profile: Any, at: int, *,
+                                           pattern_operation: str | None = None) -> dict[str, Any]:
     """Check owner's present economic source before recommending a method.
 
     This cannot execute a legal act or bypass the original preparation,
@@ -345,8 +398,11 @@ def review_original_preparation_diagnostic(state: Any, work: Any, actor: str,
     from .context_basis import ContextBlocked
     from .strict_economic_source_review import original_owner_economic_core
 
-    activity = model_preparation_activity(state, work, mode)
-    assessment = evaluate_preparation_diagnostic(profile, activity)
+    activity = model_preparation_activity(state, work, mode, pattern_operation)
+    selected_pattern = (evaluate_selected_pattern_preparation_diagnostic(profile, activity)
+                        if pattern_operation is not None else None)
+    assessment = (evaluate_preparation_diagnostic(profile, activity)
+                  if selected_pattern is None else None)
     owner = state.subjects.get(actor)
     basis = getattr(state, "context_basis", None)
     core = original_owner_economic_core(owner.kind) if owner is not None else None
@@ -361,6 +417,26 @@ def review_original_preparation_diagnostic(state: Any, work: Any, actor: str,
         )
     except ContextBlocked as exc:
         raise ValueError("PREPARATION_DIAGNOSTIC_ORIGINAL_SOURCE_NOT_QUALIFIED") from exc
+    if selected_pattern is not None:
+        if not selected_pattern["selected"]["admissible_for_modeled_preparation"]:
+            raise ValueError("PREPARATION_DIAGNOSTIC_SELECTED_MODE_NOT_ADMISSIBLE")
+        return {
+            "status": "MODEL_ORIGINAL_SELECTED_PREPARATION_AND_PATTERN_RISK_REVIEW",
+            "source_document_fingerprint": preparation_source_fingerprint(profile),
+            "rate_source_fingerprint": preparation_source_fingerprint({
+                "reference": profile["source_ref"], "revision": profile["source_revision"],
+                "unit_rates_by_mode": profile["unit_rates_by_mode"],
+            }),
+            "selected_mode": mode,
+            "S2_admissible": selected_pattern["S2_admissible"],
+            "S2_ineligibility_reasons": selected_pattern["S2_ineligibility_reasons"],
+            "original_owner_choice_is_independent": True,
+            "selected_pattern_full_rate_card_qualified": True,
+            "pattern_does_not_assume_lower_error_probability": True,
+            "no_mode_ranking_or_automatic_decision": True,
+            "no_private_amounts_in_original_trace": True,
+            "no_automatic_original_consent": True,
+        }
     if not assessment["modes"][mode]["admissible_for_modeled_preparation"]:
         raise ValueError("PREPARATION_DIAGNOSTIC_SELECTED_MODE_NOT_ADMISSIBLE")
     recommendation = assessment["recommended_mode"]

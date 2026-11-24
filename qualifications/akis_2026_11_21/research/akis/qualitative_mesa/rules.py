@@ -474,11 +474,7 @@ class QualitativeAKIS:
                     ev["action"] != "function_prepare" or "preparation_mode" not in ev):
                 raise InputError("PREPARATION_DIAGNOSTIC_REQUIRES_ORIGINAL_PREPARATION_MODE")
             if "preparation_pattern" in ev and (
-                    ev["action"] != "function_prepare" or ev.get("preparation_mode") not in ("S1", "S2")
-                    or "preparation_diagnostic" in ev):
-                # Pattern and risk-adaptive studies share the same original
-                # mechanism, but a joint counterfactual requires independent
-                # pattern availability per alternative (not yet declared).
+                    ev["action"] != "function_prepare" or ev.get("preparation_mode") not in ("S1", "S2")):
                 raise InputError("PREPARATION_PATTERN_REQUIRES_SEPARATE_EXPLICIT_DIGITAL_MODE")
             if "technology_route_market_scope" in ev and ev["action"] not in {
                     "technology_route_propose", "request", "commit"}:
@@ -936,21 +932,23 @@ class QualitativeAKIS:
                 issue = self.formation_policy.process_function_action(self, ev, at)
                 if issue != "NONE":
                     raise BlockedDecision(issue)
-                if action == "function_prepare" and "preparation_diagnostic" in ev:
-                    from .process_preparation import review_original_preparation_diagnostic
-                    try:
-                        preparation_economic_choice = review_original_preparation_diagnostic(
-                            self, self.works[work_ref], ev["actor"],
-                            ev["preparation_mode"], ev["preparation_diagnostic"], at,
-                        )
-                    except ValueError as exc:
-                        raise BlockedDecision(str(exc)) from exc
                 if action == "function_prepare" and "preparation_pattern" in ev:
                     from .process_preparation import qualify_original_preparation_pattern
                     try:
                         preparation_pattern_evidence = qualify_original_preparation_pattern(
                             self, self.works[work_ref], ev["actor"], ev["preparation_mode"],
                             ev["preparation_pattern"], at,
+                        )
+                    except ValueError as exc:
+                        raise BlockedDecision(str(exc)) from exc
+                if action == "function_prepare" and "preparation_diagnostic" in ev:
+                    from .process_preparation import review_original_preparation_diagnostic
+                    try:
+                        preparation_economic_choice = review_original_preparation_diagnostic(
+                            self, self.works[work_ref], ev["actor"],
+                            ev["preparation_mode"], ev["preparation_diagnostic"], at,
+                            pattern_operation=(preparation_pattern_evidence["operation"]
+                                               if preparation_pattern_evidence is not None else None),
                         )
                     except ValueError as exc:
                         raise BlockedDecision(str(exc)) from exc

@@ -44,6 +44,7 @@ jobs:
           python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_competing_market_economics.py
           python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_multi_order_portfolio.py
           python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_activity_efficiency.py
+          python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_preparation_context_risk.py
       - uses: actions/upload-artifact@v4
         with:
           name: akis-r2-executed-route-economics-${{ matrix.os }}
@@ -55,3 +56,4 @@ jobs:
             qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r3_competing_market_economics_evidence.json
             qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r3_r4_multi_order_portfolio_evidence.json
             qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r2_r3_r4_activity_efficiency_evidence.json
+            qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r2_r3_r4_preparation_context_risk_evidence.json

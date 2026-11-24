@@ -307,9 +307,9 @@ def test_unknown_and_non_normalized_diagnostic_weights_are_not_filled_with_zero(
                                                   "original_current_field_count": 9})
 
 
-def preparation_pattern_routes(*, reuse_rate="8.00"):
+def preparation_pattern_routes(*, reuse_rate="8.00", mode="S2"):
     """Same operator, three original Works; build/reuse costs are reconciled."""
-    template = preparation_modes()["S2"]
+    template = preparation_modes()[mode]
     source_ref = "model://op/structural-preparation-pattern"
     template["context_evidence"]["sources"].append({
         "id": source_ref, "owner": "op", "revision": "pattern-v1",
@@ -407,9 +407,15 @@ def test_reuse_cost_cannot_hide_pattern_maintenance_in_previous_period():
         simulate(doc)
 
 
-def operator_service_route(mode="S2", *, cap="300.00", third_fee="150.00", pattern=None):
+def operator_service_route(mode="S2", *, cap="300.00", third_fee="150.00", pattern=None,
+                           pattern_risk=False):
     """One original service portfolio; independently held scope and fee budget."""
-    doc = (preparation_pattern_routes()[pattern] if pattern else preparation_modes()[mode])
+    if pattern_risk:
+        if pattern not in ("REBUILD", "REUSE"):
+            raise ValueError("joint pattern and risk fixture requires an original pattern operation")
+        doc = preparation_pattern_risk_routes(mode=mode)[pattern]
+    else:
+        doc = (preparation_pattern_routes()[pattern] if pattern else preparation_modes()[mode])
     money = doc["economic_claims"]
     for owner, suffix, core in (("op", "nonoverlap", "operator"), ("a", "fee-cap", "corporate")):
         ref = f"model://{owner}/service-{suffix}"
@@ -545,3 +551,135 @@ def test_source_id_alias_does_not_create_independent_cost_or_budget_document(key
     sources[key].update(reference=sources[alias]["reference"], revision=sources[alias]["revision"])
     with pytest.raises(InputError, match=error):
         simulate(doc)
+
+
+def preparation_pattern_risk_routes(*, mode="S2", reuse_rate="8.00", error_loss="100.00"):
+    docs = preparation_pattern_routes(mode=mode, reuse_rate=reuse_rate)
+    for doc in docs.values():
+        life = doc["economic_claims"]["lifecycle_costs"]
+        for work, rid in (("w1", "w1-coordination"), ("w2", "w2-coordination"),
+                          ("w3", "cooperation-coordination")):
+            event = next(r for r in doc["events"] if r["action"] == "function_prepare"
+                         and r.get("work") == work)
+            profile = diagnostic_profile(error_loss=error_loss)
+            profile["unit_rates_by_mode"] = deepcopy(next(
+                r["unit_rates_by_mode"] for r in life["preparation_activity_bindings"]
+                if r["resource_use_id"] == rid))
+            event["preparation_diagnostic"] = profile
+    return docs
+
+
+@pytest.mark.parametrize("mode,build,reuse,loss,build_expected,reuse_expected", [
+    ("S1", "429.00", "325.00", "6.00", "435.00", "331.00"),
+    ("S2", "333.00", "229.00", "6.60", "339.60", "235.60"),
+])
+def test_original_context_reuse_and_risk_are_measured_together_without_a_mode_search(
+        mode, build, reuse, loss, build_expected, reuse_expected):
+    from research.akis.qualitative_mesa.comparative_trajectories import compare_original_preparation_pattern_reuse
+    docs = preparation_pattern_risk_routes(mode=mode)
+    frozen = deepcopy(docs)
+    report = compare_original_preparation_pattern_reuse(docs)
+    assert docs == frozen
+    local = report["local_research_only"]
+    assert local["no_new_mode_ranking_or_automatic_decision"]
+    assert local["same_declared_error_risk_not_assumed_to_improve_from_reuse"]
+    assert local["expected_error_loss_not_an_added_original_resource_cost"]
+    assert local["rebuild_minus_reuse_declared_preparation_cost"] == "104.00"
+    assert local["rebuild_minus_reuse_risk_adjusted_expected_cost"] == "104.00"
+    for arm, direct, expected in (("REBUILD", build, build_expected),
+                                  ("REUSE", reuse, reuse_expected)):
+        row = local["arms"][arm]
+        assert row["declared_preparation_resource_cost"] == direct
+        assert row["declared_expected_error_loss_not_posted"] == loss
+        assert row["declared_risk_adjusted_expected_cost"] == expected
+        assert row["original_pattern_risk_review_count"] == 3
+        assert row["human_validation_units"] == 39
+        out = simulate(docs[arm])
+        assert all(out["works"][key]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                   for key in ("w1", "w2", "w3"))
+        reviews = [e["model_preparation_economic_choice"] for e in out["trace"]
+                   if "model_preparation_economic_choice" in e]
+        assert len(reviews) == 3
+        assert all("recommended_mode" not in review and
+                   review["no_mode_ranking_or_automatic_decision"] for review in reviews)
+
+
+@pytest.mark.parametrize("rate,delta", [("60.00", "0.00"), ("80.00", "-40.00")])
+def test_original_context_reuse_can_have_no_economic_benefit_even_with_joint_risk(rate, delta):
+    from research.akis.qualitative_mesa.comparative_trajectories import compare_original_preparation_pattern_reuse
+    local = compare_original_preparation_pattern_reuse(
+        preparation_pattern_risk_routes(reuse_rate=rate))["local_research_only"]
+    assert local["rebuild_minus_reuse_declared_preparation_cost"] == delta
+    assert local["rebuild_minus_reuse_risk_adjusted_expected_cost"] == delta
+
+
+@pytest.mark.parametrize("change,reason", [
+    ("critical", "PREPARATION_DIAGNOSTIC_SELECTED_MODE_NOT_ADMISSIBLE"),
+    ("missing_pattern_rate", "PREPARATION_DIAGNOSTIC_FULL_PATTERN_RATE_CARD_REQUIRED"),
+    ("stale_pattern", "PREPARATION_PATTERN_CURRENT_SOURCE_NOT_QUALIFIED"),
+    ("stale_diagnostic", "PREPARATION_DIAGNOSTIC_ORIGINAL_SOURCE_NOT_QUALIFIED"),
+])
+def test_original_context_reuse_cannot_replace_current_diagnostic_or_its_source(change, reason):
+    doc = preparation_pattern_risk_routes()["REUSE"]
+    doc.pop("economic_claims")
+    doc.pop("strict_economic_source_works")
+    event = next(r for r in doc["events"] if r["action"] == "function_prepare" and r.get("work") == "w3")
+    if change == "critical":
+        event["preparation_diagnostic"]["critical_prohibition"] = True
+    elif change == "missing_pattern_rate":
+        event["preparation_diagnostic"]["unit_rates_by_mode"]["S2"].pop("pattern_reuse")
+    elif change == "stale_pattern":
+        event["preparation_pattern"]["source_revision"] = "stale"
+    else:
+        event["preparation_diagnostic"]["source_revision"] = "stale"
+    out = simulate(doc)
+    assert any(r["action"] == "function_prepare" and r.get("work") == "w3"
+               and r["reason"] == reason for r in out["trace"])
+    assert all(out["works"][key]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+               for key in ("w1", "w2"))
+    assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+
+
+def test_original_joint_pattern_and_risk_rate_cannot_be_changed_in_cost_ledger():
+    doc = preparation_pattern_risk_routes()["REUSE"]
+    row = next(r for r in doc["economic_claims"]["lifecycle_costs"]["preparation_activity_bindings"]
+               if r["resource_use_id"] == "cooperation-coordination")
+    row["unit_rates_by_mode"]["S2"]["pattern_reuse"] = "1.00"
+    with pytest.raises(InputError, match="PREPARATION_ACTIVITY_RATE_SOURCE_DIFFERS_FROM_ORIGINAL_REVIEW"):
+        simulate(doc)
+
+
+def test_original_joint_pattern_risk_comparison_cannot_confuse_changed_risk_with_reuse():
+    from research.akis.qualitative_mesa.comparative_trajectories import compare_original_preparation_pattern_reuse
+    docs = preparation_pattern_risk_routes()
+    event = next(r for r in docs["REUSE"]["events"]
+                 if r["action"] == "function_prepare" and r.get("work") == "w3")
+    event["preparation_diagnostic"]["error_loss"] = "1.00"
+    with pytest.raises(TrajectoryComparisonError, match="PREPARATION_PATTERN_ORIGINAL_BASELINE_CHANGED"):
+        compare_original_preparation_pattern_reuse(docs)
+
+
+@pytest.mark.parametrize("mode,third_fee,fee,build,reuse,old,new", [
+    ("S1", "380.00", "450.00", "549.00", "445.00", "-99.00", "5.00"),
+    ("S2", "330.00", "400.00", "453.00", "349.00", "-53.00", "51.00"),
+])
+def test_original_operator_contribution_changes_with_same_fee_and_joint_context_risk(
+        mode, third_fee, fee, build, reuse, old, new):
+    observations = {}
+    for arm, cost, contribution in (("REBUILD", build, old), ("REUSE", reuse, new)):
+        doc = operator_service_route(mode, cap="500.00", third_fee=third_fee,
+                                     pattern=arm, pattern_risk=True)
+        frozen = deepcopy(doc)
+        out = simulate(doc)
+        assert doc == frozen
+        local = out["economics"]["original_operator_service_economics"]["local_research_only"]
+        assert local["original_fee_amount"] == fee
+        assert local["original_cash_cost"] == "95.00"
+        assert local["break_even_total_fee"] == cost
+        assert local["model_service_contribution"] == contribution
+        assert all(out["works"][key]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                   for key in ("w1", "w2", "w3"))
+        assert out["economics"]["profit"] == "UNKNOWN"
+        observations[arm] = local
+    assert Decimal(observations["REUSE"]["model_service_contribution"]) - Decimal(
+        observations["REBUILD"]["model_service_contribution"]) == Decimal("104.00")

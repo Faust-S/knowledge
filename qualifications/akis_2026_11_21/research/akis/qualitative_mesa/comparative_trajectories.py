@@ -969,6 +969,9 @@ def compare_original_preparation_modes(
             prepared = []
             for event in normalized["events"]:
                 if event["action"] == "function_prepare":
+                    if "preparation_pattern" in event:
+                        raise TrajectoryComparisonError(
+                            "PREPARATION_COMPARISON_PATTERN_REQUIRES_MATCHED_PATTERN_EXPERIMENT")
                     selected = event.pop("preparation_mode", None)
                     if (selected not in PREPARATION_MODES
                             or (mode != "ADAPTIVE" and selected != mode)
@@ -1161,6 +1164,37 @@ def compare_original_preparation_pattern_reuse(
                 or any(out["works"][key]["result"] != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
                        for key in scope)):
             raise TrajectoryComparisonError("PREPARATION_PATTERN_ORIGINAL_SCOPE_NOT_QUALIFIED")
+        # Optional joint observation of direct pattern costs and independently
+        # declared risk. The exact same selected procedure, diagnostic
+        # sources and rates must be present in both executed arms.
+        from .process_preparation import (
+            evaluate_selected_pattern_preparation_diagnostic, preparation_source_fingerprint,
+        )
+        diagnostic_count = 0
+        expected_loss = Decimal(0)
+        expected_total = Decimal(0)
+        for item in activity["items"]:
+            pos = item["original_trace_position"]
+            event = doc["events"][pos]
+            actual = out["trace"][pos]
+            diagnostic = event.get("preparation_diagnostic")
+            if diagnostic is None:
+                continue
+            assessment = evaluate_selected_pattern_preparation_diagnostic(
+                diagnostic, actual["model_preparation_activity"])
+            selected = assessment["selected"]
+            review = actual.get("model_preparation_economic_choice", {})
+            if (review.get("status") != "MODEL_ORIGINAL_SELECTED_PREPARATION_AND_PATTERN_RISK_REVIEW"
+                    or review.get("source_document_fingerprint") != preparation_source_fingerprint(diagnostic)
+                    or review.get("selected_mode") != item["mode"]
+                    or not review.get("no_mode_ranking_or_automatic_decision")
+                    or selected["declared_resource_cost"] != Decimal(item["declared_resource_cost"])):
+                raise TrajectoryComparisonError("PREPARATION_PATTERN_RISK_ORIGINAL_REVIEW_REQUIRED")
+            diagnostic_count += 1
+            expected_loss += selected["expected_error_loss"]
+            expected_total += selected["risk_adjusted_expected_cost"]
+        if diagnostic_count not in (0, len(scope)):
+            raise TrajectoryComparisonError("PREPARATION_PATTERN_RISK_SCOPE_INCOMPLETE")
         builds = sum(row["operation"] == "BUILD" for row in patterns)
         reuses = sum(row["operation"] == "REUSE" for row in patterns)
         if (builds + reuses != len(scope)
@@ -1177,6 +1211,23 @@ def compare_original_preparation_pattern_reuse(
             "scoped_reuse_ratio": f"{Decimal(reuses) / Decimal(len(scope)):.4f}",
             "human_validation_units": sum(item["units"]["human_validation"] for item in activity["items"]),
             "declared_preparation_resource_cost": activity["total_declared_resource_cost"],
+            **({"original_pattern_risk_review_count": diagnostic_count,
+                "declared_expected_error_loss_not_posted": f"{expected_loss:.2f}",
+                "declared_risk_adjusted_expected_cost": f"{expected_total:.2f}"}
+               if diagnostic_count else {}),
+        }
+    joint = {}
+    if "original_pattern_risk_review_count" in rows["REBUILD"]:
+        if (rows["REBUILD"]["original_pattern_risk_review_count"] != rows["REUSE"].get(
+                "original_pattern_risk_review_count")
+                or rows["REBUILD"]["declared_expected_error_loss_not_posted"] != rows["REUSE"][
+                    "declared_expected_error_loss_not_posted"]):
+            raise TrajectoryComparisonError("PREPARATION_PATTERN_RISK_BASELINE_CHANGED")
+        joint = {
+            "rebuild_minus_reuse_risk_adjusted_expected_cost": f"{Decimal(rows['REBUILD']['declared_risk_adjusted_expected_cost']) - Decimal(rows['REUSE']['declared_risk_adjusted_expected_cost']):.2f}",
+            "same_declared_error_risk_not_assumed_to_improve_from_reuse": True,
+            "expected_error_loss_not_an_added_original_resource_cost": True,
+            "no_new_mode_ranking_or_automatic_decision": True,
         }
     return {
         "schema": "AKIS_ORIGINAL_PREPARATION_PATTERN_REUSE_COMPARISON/1.0",
@@ -1187,6 +1238,7 @@ def compare_original_preparation_pattern_reuse(
         "local_research_only": {
             "arms": rows,
             "rebuild_minus_reuse_declared_preparation_cost": f"{Decimal(rows['REBUILD']['declared_preparation_resource_cost']) - Decimal(rows['REUSE']['declared_preparation_resource_cost']):.2f}",
+            **joint,
         },
         "full_author_standardization_and_experience_return_ratios_established": False,
         "empirical_operator_capital_value": "NOT_IDENTIFIABLE",
