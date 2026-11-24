@@ -140,7 +140,7 @@ jobs:
           set -euo pipefail
           core="$GITHUB_WORKSPACE/packages/t3-core"
           log="$RUNNER_TEMP/private-mobile-host.log"
-          if ! (node "$core/scripts/stage-t2-external-module.mjs" "$core" "$GITHUB_WORKSPACE/private-club/runtime/club-module" iwxa.domain.club club && node "$core/scripts/qualify-bli-inherited-host.mjs" --assistant-source "$GITHUB_WORKSPACE/private-bli/browser-local-inference/domain-assistant") > "$log" 2>&1; then
+          if ! (node "$core/scripts/stage-t2-external-module.mjs" "$core" "$GITHUB_WORKSPACE/private-club/runtime/club-module" iwxa.domain.club club && node "$core/scripts/qualify-bli-inherited-host.mjs" --assistant-source "$GITHUB_WORKSPACE/private-bli/browser-local-inference/domain-assistant" --quality-witness) > "$log" 2>&1; then
             echo T3_MOBILE_CANDIDATE_CLUB_HOST_FAIL
             grep -oE 'T3_D5_[A-Z0-9_]+' "$log" | sort -u | tail -20 || true
             exit 1
@@ -160,7 +160,7 @@ jobs:
     # These are desktop hardware/offline checks, NOT physical phone acceptance.
     if: contains(github.event.head_commit.message, '[mobile-metal]')
     runs-on: macos-latest
-    timeout-minutes: 40
+    timeout-minutes: 85
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -195,6 +195,7 @@ jobs:
         working-directory: packages/t3-core
         run: npx --no-install playwright install chromium
       - name: Compile original single BLI1 Host
+        if: ${{ !contains(github.event.head_commit.message, '[mobile-quality]') }}
         working-directory: packages/t3-core
         run: node scripts/qualify-bli-inherited-host.mjs
       - name: Exact held-out Club domain source for optional quality evaluation
@@ -231,6 +232,18 @@ jobs:
           fi
           echo "T3_D5_QUALITY_PROMPTS=$RUNNER_TEMP/heldout-prompts.json" >> "$GITHUB_ENV"
           echo "T3_D5_QUALITY_RESPONSES=$RUNNER_TEMP/heldout-responses.json" >> "$GITHUB_ENV"
+      - name: Compile original Host and disposable quality witness with shared adapter
+        if: contains(github.event.head_commit.message, '[mobile-quality]')
+        working-directory: packages/t3-core
+        shell: bash
+        run: |
+          set -eu
+          if ! node scripts/qualify-bli-inherited-host.mjs --assistant-source "$GITHUB_WORKSPACE/private-quality-assistant/browser-local-inference/domain-assistant" --quality-witness > "$RUNNER_TEMP/quality-build.log" 2>&1; then
+            echo T3_QUALITY_SHARED_HOST_BUILD_FAIL
+            grep -oE 'T3_D5_[A-Z0-9_]+' "$RUNNER_TEMP/quality-build.log" | sort -u | tail -20 || true
+            exit 1
+          fi
+          grep '^T3_MOBILE_QUALITY_WITNESS_SHARED_ENGINE_PASS$' "$RUNNER_TEMP/quality-build.log"
       - name: Require real hardware, pinned model, Kernel save and two offline generations
         working-directory: packages/t3-core
         env:
@@ -259,8 +272,21 @@ jobs:
           import {readFileSync} from 'node:fs';
           import {pathToFileURL} from 'node:url';
           const {scoreRun}=await import(pathToFileURL(process.argv[2]).href);
-          const {cases,...summary}=scoreRun(JSON.parse(readFileSync(process.argv[3],'utf8')));
-          console.log('T3_CLUB_REAL_MODEL_QUALITY',JSON.stringify(summary));
+          const comparison=JSON.parse(readFileSync(process.argv[3],'utf8'));
+          if(comparison.schema!=="iwxa.club.assistant-comparison/1"||comparison.runs?.length!==2)throw Error("T3_QUALITY_COMPARISON_REQUIRED");
+          const quantile=(values,fraction)=>{
+            const sorted=values.filter(Number.isFinite).sort((a,b)=>a-b);
+            return sorted.length?sorted[Math.floor((sorted.length-1)*fraction)]:null;
+          };
+          for(const run of comparison.runs){
+            const {cases,...summary}=scoreRun(run);
+            const nativeShapePass=run.responses.filter(r=>r.nativeShape===true).length;
+            console.log('T3_CLUB_REAL_MODEL_QUALITY',JSON.stringify({...summary,
+              mode:run.mode,nativeShapePass,failures:run.responses.filter(r=>r.code).length,
+              medianFirstTokenMs:quantile(run.responses.map(r=>r.firstTokenMs),.5),
+              medianElapsedMs:quantile(run.responses.map(r=>r.elapsedMs),.5),
+              p90ElapsedMs:quantile(run.responses.map(r=>r.elapsedMs),.9)}));
+          }
           NODE
           then
             echo T3_QUALITY_SCORING_FAIL
@@ -271,6 +297,6 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -rf private-quality-club private-quality-assistant "$RUNNER_TEMP/quality-prep" "$RUNNER_TEMP/quality-prep.log" "$RUNNER_TEMP/quality-score.log" "$RUNNER_TEMP/private-quality-browser.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-responses.json"
+          rm -rf private-quality-club private-quality-assistant "$RUNNER_TEMP/quality-prep" "$RUNNER_TEMP/quality-prep.log" "$RUNNER_TEMP/quality-score.log" "$RUNNER_TEMP/private-quality-browser.log" "$RUNNER_TEMP/quality-build.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-responses.json"
       - name: Desktop hardware scope
         run: echo T3_MOBILE_DESKTOP_HARDWARE_NOT_PHYSICAL_ANDROID_IOS_ACCEPTANCE

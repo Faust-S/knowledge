@@ -17,7 +17,8 @@ import {stageT2ExternalModule} from "./stage-t2-external-module.mjs";
 
 const core=join(dirname(fileURLToPath(import.meta.url)),"..");
 const args=process.argv.slice(2);
-const assistantSource=args.length===2&&args[0]==="--assistant-source"?resolve(args[1]):null;
+const withQuality=args.length===3&&args[2]==="--quality-witness";
+const assistantSource=(args.length===2||withQuality)&&args[0]==="--assistant-source"?resolve(args[1]):null;
 if(args.length&&!assistantSource)throw Error("T3_D5_ASSISTANT_BUILD_USAGE");
 const source=join(core,"integration-sources","bli1");
 const pin=JSON.parse(readFileSync(join(source,"SOURCE_PIN.json"),"utf8"));
@@ -101,6 +102,11 @@ try {
     mkdirSync(dir,{recursive:false});
     for(const name of ["main.mjs","device-policy.mjs","field-policy.mjs","skill-runtime.mjs"])
       cpSync(join(assistantSource,name),join(dir,name),{errorOnExist:true,force:false});
+    // This entry is exclusively a disposable CI witness; normal product
+    // builders never stage it. It imports the same original engine chunk.
+    if(withQuality)cpSync(join(core,"tests","t3-model-quality-witness.mjs"),
+      join(dir,"quality-witness.mjs"),{errorOnExist:true,force:false});
+    const qualityEntry=withQuality?', "quality-witness":path.join(root,"candidate-domain-assistant","quality-witness.mjs")':"";
     const config=`import base from "./vite.config.ts";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
@@ -114,7 +120,7 @@ export default {
     resolveId(id,importer){if(importer&&path.normalize(importer)===entry&&imports.has(id))
       return path.join(bli,path.basename(id));}},...(base.plugins||[])],
   build:{...base.build,manifest:true,rollupOptions:{...base.build.rollupOptions,
-    input:{...base.build.rollupOptions.input,"domain-assistant":entry}}}
+    input:{...base.build.rollupOptions.input,"domain-assistant":entry${qualityEntry}}}}
 };`;
     const configFile=join(core,"vite.mobile-assistant-candidate.config.mjs");
     writeFileSync(configFile,config,{flag:"wx"});
@@ -134,6 +140,12 @@ export default {
     const entryCode=readFileSync(join(core,"dist",entry.file),"utf8");
     for(const marker of ["model-transfer","stop-model","model-progress","device-recommend","data-assistant-skills"])
       if(!entryCode.includes(marker))throw Error("T3_D5_CANDIDATE_ASSISTANT_MISSING_MARKER");
+    if(withQuality){
+      const witness=manifest["candidate-domain-assistant/quality-witness.mjs"];
+      if(!witness?.isEntry||!witness.dynamicImports?.includes(engineKey))
+        throw Error("T3_D5_QUALITY_WITNESS_NOT_SHARED_ENGINE");
+      console.log("T3_MOBILE_QUALITY_WITNESS_SHARED_ENGINE_PASS");
+    }
     console.log("T3_MOBILE_CANDIDATE_ORIGINAL_ASSISTANT_SHARED_ENGINE_PASS");
   }else{
     safeRun(["run","typecheck"]);

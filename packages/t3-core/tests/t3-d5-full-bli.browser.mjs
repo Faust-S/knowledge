@@ -367,45 +367,43 @@ try {
           networkDisabled:true,originalKernelReadback:true,
           priorDraftStillReadable:true,explicitSecondSave:true,
         }));
-        // Opt-in held-out model evaluation using the SAME live offline engine
-        // and exact original prompt construction. No new Worker/Store,
-        // no fixture answer fed to the model, no generated text in CI logs.
+        // Opt-in: compare plain and schema-constrained generation through
+        // the exact same compiled original adapter and cached model. The
+        // normal panel is unloaded BEFORE the isolated test witness starts.
+        // No answers or private source are printed in the public CI log.
         const qualityInput=process.env.T3_D5_QUALITY_PROMPTS;
         if(qualityInput){
           const prepared=JSON.parse(readFileSync(qualityInput,"utf8"));
           const qualityOutput=process.env.T3_D5_QUALITY_RESPONSES;
           assert.equal(prepared.schema,"iwxa.club.assistant-prompts/1");
           assert.ok(qualityOutput&&Array.isArray(prepared.cases)&&prepared.cases.length>0);
-          const responses=[],ids=new Set();
-          const generate=coldPanel.getByRole("button",{name:"Сгенерировать локально"});
-          await coldPanel.getByTestId("t3-d5-max-tokens").fill("768");
+          const ids=new Set();
           for(const c of prepared.cases){
-            assert.ok(typeof c.id==="string"&&!ids.has(c.id)&&typeof c.prompt==="string"&&c.prompt.length<=6000,"T3_QUALITY_CASE_INVALID");
+            assert.ok(typeof c.id==="string"&&!ids.has(c.id)&&typeof c.prompt==="string"&&
+              c.prompt.length<=6000&&Array.isArray(c.formFields)&&c.formFields.length>0,"T3_QUALITY_CASE_INVALID");
             ids.add(c.id);
-            assert.equal(await coldPage.evaluate(()=>navigator.onLine),false);
-            await coldPanel.getByTestId("t3-d5-prompt").fill(c.prompt);
-            await generate.click();
-            // No saving/application of proposals to actual user records.
-            // A timed-out/invalid generation is represented by a missing
-            // response and scored honestly, never replaced with gold data.
-            let raw=null;
-            try{
-              await offlineStatus.filter({hasText:"Черновик готов."}).waitFor({state:"visible",timeout:180000});
-              raw=await coldPanel.getByTestId("t3-d5-editable-draft").inputValue();
-            }catch{
-              const stop=coldPanel.getByRole("button",{name:"Остановить"});
-              if(await stop.isEnabled())await stop.click();
-            }
-            responses.push({id:c.id,raw});
-            if(!(await generate.isEnabled())){
-              await coldPage.waitForFunction(()=>Array.from(document.querySelectorAll('[data-testid="t3-local-inference-panel"] button')).some(b=>b.textContent?.includes("Из кеша, без сети")&&!b.disabled),null,{timeout:30000});
-              await cacheButton.click();
-              await coldPage.waitForFunction(()=>Array.from(document.querySelectorAll('[data-testid="t3-local-inference-panel"] button')).some(b=>b.textContent?.includes("Выгрузить")&&!b.disabled),null,{timeout:120000});
-            }
           }
+          const manifest=JSON.parse(readFileSync(join(core,"dist",".vite","manifest.json"),"utf8"));
+          const witness=manifest["candidate-domain-assistant/quality-witness.mjs"];
+          assert.ok(witness?.isEntry&&/^assets\/quality-witness-[A-Za-z0-9_-]+\.js$/.test(witness.file),"T3_QUALITY_WITNESS_REQUIRED");
+          await coldPanel.getByRole("button",{name:"Выгрузить"}).click();
+          await coldPage.waitForFunction(()=>Array.from(document.querySelectorAll('[data-testid="t3-local-inference-panel"] button')).some(b=>b.textContent?.includes("Из кеша, без сети")&&!b.disabled),null,{timeout:30000});
+          const comparison=await coldPage.evaluate(async({entry,args})=>{
+            await import(entry);
+            const run=globalThis.__IWXA_T3_QUALITY_WITNESS__;
+            delete globalThis.__IWXA_T3_QUALITY_WITNESS__;
+            if(typeof run!=="function")throw Error("T3_QUALITY_WITNESS_MISSING");
+            return run(args);
+          },{entry:"/workspace/"+witness.file,args:{modelId,cases:prepared.cases,modes:["plain","structured"]}});
+          assert.equal(comparison.schema,"iwxa.club.assistant-comparison/1");
+          assert.equal(comparison.modelId,modelId);
+          assert.equal(comparison.runs.length,2);
+          for(const run of comparison.runs)assert.equal(run.responses.length,prepared.cases.length);
           assert.equal(await coldPage.evaluate(()=>navigator.onLine),false);
-          writeFileSync(qualityOutput,JSON.stringify({schema:"iwxa.club.assistant-responses/1",modelId,responses}),{mode:0o600});
-          console.log("T3_QUALITY_OFFLINE_RESPONSES_CAPTURED",JSON.stringify({modelId,cases:responses.length,nonempty:responses.filter(r=>typeof r.raw==="string"&&r.raw.trim()).length}));
+          writeFileSync(qualityOutput,JSON.stringify(comparison),{mode:0o600});
+          console.log("T3_QUALITY_OFFLINE_RESPONSES_CAPTURED",JSON.stringify({
+            modelId,cases:prepared.cases.length,modeCount:comparison.runs.length,loadCount:comparison.loadCount
+          }));
         }
 
       }else{
