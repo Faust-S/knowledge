@@ -21,61 +21,30 @@ jobs:
           test -n "${DOMEN:-}" || { echo "D05_MULTI_READ=FAIL"; exit 1; }
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
           git init --quiet site
-          GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git 0daa2d51fea440554c48389a8d6d67cbcd2439fa >/dev/null 2>&1 || { echo "D05_MULTI_READ=FAIL"; exit 1; }
+          GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git ed1f6f5e7ac9ca09ae924c442274a278a7ac708a >/dev/null 2>&1 || { echo "D05_MULTI_READ=FAIL"; exit 1; }
           git -C site checkout --quiet --detach FETCH_HEAD
-          test "$(git -C site rev-parse HEAD)" = "0daa2d51fea440554c48389a8d6d67cbcd2439fa" || { echo "D05_MULTI_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "ed1f6f5e7ac9ca09ae924c442274a278a7ac708a" || { echo "D05_MULTI_SITE_PIN=FAIL"; exit 1; }
           unset header DOMEN
           echo "D05_MULTI_SITE_PIN=PASS"
       - uses: actions/setup-node@v4
         with:
           node-version: 22.16.0
-      - name: Format temporary copy and export non-source patch
+      - name: Install and check exact sources without exporting source or patches
         run: |
           set -euo pipefail
           cd site
-          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d05-multi-install.log" 2>&1 || { echo "D05_MULTI_INSTALL=FAIL"; exit 1; }
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d05-install.log" 2>&1 || { echo "D05_MULTI_INSTALL=FAIL"; exit 1; }
           echo "D05_MULTI_INSTALL=PASS"
           node --check scripts/d05-first-use-real-kernel-witness.mjs
           echo "D05_INDEPENDENT_WITNESS_SYNTAX=PASS"
-          ./node_modules/.bin/prettier --write src/lib/shop-capacity.ts src/lib/capacity-subcontract.ts src/lib/capacity-subcontract.test.ts src/lib/capacity-cash.ts src/lib/capacity-work-plan.ts src/lib/capacity-work-revision.ts src/host/CehovodSubcontractEditor.tsx src/host/CehovodCapacityPanel.tsx src/host/CehovodPreparedWorkPanel.tsx src/host/CehovodWorkRevisionPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts scripts/d05-management-ui-witness.ts scripts/fixtures/d05-remaining-ui-harness.tsx src/lib/capacity-shift.ts src/lib/capacity-shift.test.ts src/host/CehovodShiftEditor.tsx src/lib/capacity-auxiliary-choice.ts src/lib/capacity-auxiliary-choice.test.ts src/host/CehovodAuxiliaryChoiceEditor.tsx src/lib/capacity-outsource-choice.ts src/lib/capacity-outsource-choice.test.ts src/host/CehovodOutsourceChoiceEditor.tsx src/lib/capacity-decision.ts src/lib/capacity-management.ts src/host/CehovodManagementComparison.tsx src/lib/capacity-combination.ts src/lib/capacity-combination.test.ts src/host/CehovodCombinationEditor.tsx src/lib/capacity-payment-limit.ts scripts/fixtures/d05-management-ui-harness.tsx src/lib/capacity-resource-diagnostic.ts src/lib/capacity-resource-diagnostic.test.ts src/host/CehovodResourceDiagnosticPanel.tsx scripts/d05-first-use-real-kernel-witness.mjs src/lib/shop-capacity.test.ts src/lib/capacity-management.test.ts src/lib/capacity-resource-scope.test.ts src/lib/capacity-queue-search.ts src/lib/capacity-queue-search.test.ts src/host/CehovodCashPanel.tsx src/lib/capacity-funding-stress.ts src/host/CehovodFundingStressPanel.tsx > "$RUNNER_TEMP/d05-multi-prettier.log" 2>&1 || { echo "D05_MULTI_FORMAT=FAIL"; exit 1; }
-          python3 - <<'PY'
-          import base64, hashlib, json, pathlib, subprocess
-          names = ["src/lib/shop-capacity.ts","src/lib/capacity-subcontract.ts","src/lib/capacity-subcontract.test.ts","src/lib/capacity-cash.ts","src/lib/capacity-work-plan.ts","src/lib/capacity-work-revision.ts","src/host/CehovodSubcontractEditor.tsx","src/host/CehovodCapacityPanel.tsx","src/host/CehovodPreparedWorkPanel.tsx","src/host/CehovodWorkRevisionPanel.tsx","src/host/CehovodCapacityPanel.regression.test.ts","scripts/d05-management-ui-witness.ts","scripts/fixtures/d05-remaining-ui-harness.tsx","src/lib/capacity-shift.ts","src/lib/capacity-shift.test.ts","src/host/CehovodShiftEditor.tsx","src/lib/capacity-auxiliary-choice.ts","src/lib/capacity-auxiliary-choice.test.ts","src/host/CehovodAuxiliaryChoiceEditor.tsx","src/lib/capacity-outsource-choice.ts","src/lib/capacity-outsource-choice.test.ts","src/host/CehovodOutsourceChoiceEditor.tsx","src/lib/capacity-decision.ts","src/lib/capacity-management.ts","src/host/CehovodManagementComparison.tsx","src/lib/capacity-combination.ts","src/lib/capacity-combination.test.ts","src/host/CehovodCombinationEditor.tsx","src/lib/capacity-payment-limit.ts","scripts/fixtures/d05-management-ui-harness.tsx","src/lib/capacity-resource-diagnostic.ts","src/lib/capacity-resource-diagnostic.test.ts","src/host/CehovodResourceDiagnosticPanel.tsx","scripts/d05-first-use-real-kernel-witness.mjs","src/lib/shop-capacity.test.ts","src/lib/capacity-management.test.ts","src/lib/capacity-resource-scope.test.ts","src/lib/capacity-queue-search.ts","src/lib/capacity-queue-search.test.ts","src/host/CehovodCashPanel.tsx","src/lib/capacity-funding-stress.ts","src/host/CehovodFundingStressPanel.tsx"]
-          punctuation = set('.,;:!?()[]{}\'"=<>+*/|&-')
-          def partition(source):
-              anchors, gaps = [], ['']
-              for char in source:
-                  if char.isspace() or char in punctuation:
-                      gaps[-1] += char
-                  else:
-                      anchors.append(char)
-                      gaps.append('')
-              return anchors, gaps
-          for name in names:
-              original = subprocess.check_output(["git", "show", "HEAD:" + name]).decode("utf-8")
-              formatted = pathlib.Path(name).read_text(encoding="utf-8")
-              a, ag = partition(original)
-              b, bg = partition(formatted)
-              if a != b:
-                  print("D05_SEPARATOR_ANCHORS_CHANGED="+name)
-                  raise SystemExit(2)
-              deltas = [[i, old, new] for i, (old, new) in enumerate(zip(ag, bg)) if old != new]
-              if len(deltas) > 3000:
-                  print("D05_SEPARATOR_EXCESS_DELTA="+name)
-                  raise SystemExit(3)
-              rebuilt = bg[0] + ''.join(char + bg[i + 1] for i, char in enumerate(a))
-              if rebuilt != formatted:
-                  raise SystemExit("D05_SEPARATOR_RECONSTRUCTION_INVALID")
-              payload = json.dumps({
-                  "path": name,
-                  "before": hashlib.sha256(original.encode()).hexdigest(),
-                  "after": hashlib.sha256(formatted.encode()).hexdigest(),
-                  "separatorEdits": deltas,
-              }, ensure_ascii=True, separators=(',',':'))
-              print("D05_SEPARATOR_PATCH="+base64.b64encode(payload.encode()).decode())
-              print("D05_SEPARATOR_EDIT_COUNT="+name+":"+str(len(deltas)))
-          print("D05_PRIVATE_CODE_DISCLOSED=NO")
-          PY
+          for file in src/lib/capacity-funding-availability.ts src/lib/capacity-management.ts src/lib/capacity-funding-stress.ts src/lib/capacity-payment-limit.ts src/lib/capacity-work-plan.ts src/lib/capacity-queue-search.ts src/lib/capacity-management.test.ts src/lib/capacity-queue-search.test.ts src/lib/capacity-combination.test.ts src/host/CehovodManagementComparison.tsx src/host/CehovodCashDelayPanel.tsx src/host/CehovodFundingStressPanel.tsx src/host/CehovodPreparedWorkPanel.tsx scripts/d05-management-ui-witness.ts; do
+            if ./node_modules/.bin/prettier --check "$file" > "$RUNNER_TEMP/d05-format.log" 2>&1; then
+              echo "D05_FORMAT_$(basename "$file")=PASS"
+            else
+              echo "D05_FORMAT_$(basename "$file")=FAIL"
+            fi
+          done
+          echo "D05_SOURCE_AND_PATCH_EXPORT=DISABLED"
 
       - name: Run focused financial and capacity tests, types and lint
         run: |
@@ -113,7 +82,7 @@ jobs:
               print("D05_FINANCE_TYPE_LOCATION="+path+":"+line+":"+col+":"+code)
           PY
           fi
-          if ./node_modules/.bin/eslint src/lib/capacity-cash.ts src/lib/capacity-cash.test.ts src/lib/capacity-decision.ts src/lib/capacity-management.ts src/lib/capacity-management.test.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts src/host/CehovodCashPanel.tsx src/host/CehovodCapacityPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts src/host/CehovodManagementComparison.tsx src/host/CehovodCommonCashEditor.tsx src/host/CehovodCashDelayPanel.tsx scripts/d05-first-use-real-kernel-witness.mjs scripts/d05-management-ui-witness.ts scripts/fixtures/d05-management-ui-harness.tsx src/lib/capacity-work-plan.ts src/lib/capacity-work-plan.test.ts src/host/dispatch-work-plan.ts src/host/CehovodPreparedWorkPanel.tsx src/host/CehovodDispatchQueue.tsx src/host/CehovodHostApp.tsx src/host/dispatch-work-plan.test.ts src/lib/capacity-work-revision.ts src/lib/capacity-work-revision.test.ts src/lib/capacity-decision.test.ts src/host/CehovodWorkRevisionPanel.tsx src/host/CehovodHostApp.ui-regression.test.ts src/host/CehovodDispatchQueue.ui-regression.test.ts src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/lib/capacity-remaining.ts src/lib/capacity-remaining.test.ts src/host/CehovodRemainingWorkEditor.tsx scripts/fixtures/d05-remaining-ui-harness.tsx src/lib/capacity-resource-scope.ts src/lib/capacity-readiness.ts src/lib/capacity-readiness.test.ts src/host/CehovodReadinessEditor.tsx src/lib/capacity-subcontract.ts src/lib/capacity-subcontract.test.ts src/host/CehovodSubcontractEditor.tsx src/lib/capacity-shift.ts src/lib/capacity-shift.test.ts src/host/CehovodShiftEditor.tsx src/lib/capacity-auxiliary-choice.ts src/lib/capacity-auxiliary-choice.test.ts src/host/CehovodAuxiliaryChoiceEditor.tsx src/lib/capacity-outsource-choice.ts src/lib/capacity-outsource-choice.test.ts src/host/CehovodOutsourceChoiceEditor.tsx src/lib/capacity-combination.ts src/lib/capacity-combination.test.ts src/host/CehovodCombinationEditor.tsx src/lib/capacity-payment-limit.ts src/lib/capacity-resource-diagnostic.ts src/lib/capacity-resource-diagnostic.test.ts src/host/CehovodResourceDiagnosticPanel.tsx src/lib/capacity-queue-search.ts src/lib/capacity-queue-search.test.ts src/lib/capacity-funding-stress.ts src/host/CehovodFundingStressPanel.tsx --format json > "$RUNNER_TEMP/d05-finance-lint.json" 2>/dev/null; then
+          if ./node_modules/.bin/eslint src/lib/capacity-cash.ts src/lib/capacity-cash.test.ts src/lib/capacity-decision.ts src/lib/capacity-management.ts src/lib/capacity-management.test.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts src/host/CehovodCashPanel.tsx src/host/CehovodCapacityPanel.tsx src/host/CehovodCapacityPanel.regression.test.ts src/host/CehovodManagementComparison.tsx src/host/CehovodCommonCashEditor.tsx src/host/CehovodCashDelayPanel.tsx scripts/d05-first-use-real-kernel-witness.mjs scripts/d05-management-ui-witness.ts scripts/fixtures/d05-management-ui-harness.tsx src/lib/capacity-work-plan.ts src/lib/capacity-work-plan.test.ts src/host/dispatch-work-plan.ts src/host/CehovodPreparedWorkPanel.tsx src/host/CehovodDispatchQueue.tsx src/host/CehovodHostApp.tsx src/host/dispatch-work-plan.test.ts src/lib/capacity-work-revision.ts src/lib/capacity-work-revision.test.ts src/lib/capacity-decision.test.ts src/host/CehovodWorkRevisionPanel.tsx src/host/CehovodHostApp.ui-regression.test.ts src/host/CehovodDispatchQueue.ui-regression.test.ts src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/lib/capacity-remaining.ts src/lib/capacity-remaining.test.ts src/host/CehovodRemainingWorkEditor.tsx scripts/fixtures/d05-remaining-ui-harness.tsx src/lib/capacity-resource-scope.ts src/lib/capacity-readiness.ts src/lib/capacity-readiness.test.ts src/host/CehovodReadinessEditor.tsx src/lib/capacity-subcontract.ts src/lib/capacity-subcontract.test.ts src/host/CehovodSubcontractEditor.tsx src/lib/capacity-shift.ts src/lib/capacity-shift.test.ts src/host/CehovodShiftEditor.tsx src/lib/capacity-auxiliary-choice.ts src/lib/capacity-auxiliary-choice.test.ts src/host/CehovodAuxiliaryChoiceEditor.tsx src/lib/capacity-outsource-choice.ts src/lib/capacity-outsource-choice.test.ts src/host/CehovodOutsourceChoiceEditor.tsx src/lib/capacity-combination.ts src/lib/capacity-combination.test.ts src/host/CehovodCombinationEditor.tsx src/lib/capacity-payment-limit.ts src/lib/capacity-resource-diagnostic.ts src/lib/capacity-resource-diagnostic.test.ts src/host/CehovodResourceDiagnosticPanel.tsx src/lib/capacity-queue-search.ts src/lib/capacity-queue-search.test.ts src/lib/capacity-funding-stress.ts src/lib/capacity-funding-availability.ts src/host/CehovodFundingStressPanel.tsx --format json > "$RUNNER_TEMP/d05-finance-lint.json" 2>/dev/null; then
             echo "D05_FINANCE_ESLINT=PASS"
           else
             echo "D05_FINANCE_ESLINT=FAIL"
