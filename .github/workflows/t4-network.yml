@@ -12,6 +12,8 @@ on:
       - packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
       - packages/t3-core/tests/support/t3-original-personal-authority.mjs
       - packages/t3-core/src/main-trusted-kernel-realm.ts
+      - packages/t3-core/src/t3/original-local-source-mutation-route*
+      - packages/t3-core/src/workspace-host/context/create-kernel-facade.ts
       - packages/t3-core/tests/t3-d1-original-control-http.test.mjs
       - .github/workflows/t4-network.yml
   workflow_dispatch:

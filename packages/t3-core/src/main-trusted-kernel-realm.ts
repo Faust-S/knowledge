@@ -7,6 +7,7 @@
 import { connectKernel } from "./kernel-client/connect";
 import { createKernelFacade } from "./workspace-host/context/create-kernel-facade";
 import { createControlLoopbackOwner } from "./t3/control-loopback-owner.mjs";
+import { createOriginalLocalSourceMutationRoute,type OriginalLocalSourceMutationRoute } from "./t3/original-local-source-mutation-route.mjs";
 import { ORIGINAL_NETWORK_RELAY_METHODS,decodeOriginalNetworkRelayArgs,
   encodeOriginalNetworkRelayResult } from "./t3/original-kernel-native-relay-codec.mjs";
 import {
@@ -19,7 +20,8 @@ const ORIGIN=/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/;
 const TOKEN=/^[A-Za-z0-9_-]{40,128}$/;
 const reject=(code:string)=>Object.assign(new Error(code),{code});
 type RealmConfig={schema:"IWXA_T3_TRUSTED_KERNEL_REALM/1";
-  ui_origin:string;service_id:string};
+  ui_origin:string;service_id:string;
+  local_source_capture?:{schema:"IWXA_T4_ORIGINAL_LOCAL_SOURCE_CAPTURE/1";workspace_id:string}};
 
 async function trustedConfig():Promise<RealmConfig>{
   const response=await fetch("/workspace/t3-kernel-realm.json",{
@@ -36,6 +38,10 @@ async function trustedConfig():Promise<RealmConfig>{
      typeof obj.service_id!=="string"||
      !/^[A-Za-z0-9][A-Za-z0-9._-]{1,159}$/.test(obj.service_id))
     throw reject("T3_D1_TRUSTED_REALM_CONFIG_INVALID");
+  const capture=obj.local_source_capture;
+  if(capture!==undefined&&(!capture||capture.schema!=="IWXA_T4_ORIGINAL_LOCAL_SOURCE_CAPTURE/1"||
+      typeof capture.workspace_id!=="string"||capture.workspace_id.length===0||capture.workspace_id.length>256))
+    throw reject("T3_LOCAL_SOURCE_CAPTURE_CONFIGURATION_INVALID");
   return obj as RealmConfig;
 }
 const configPromise=trustedConfig();
@@ -54,6 +60,7 @@ async function attachOriginalNativeKernelRelay(
   session:{contract_version:string;runtime_version:string;
     service?:{service_id?:string};mode?:string;
     granted_operations?:readonly string[]},
+  sourceRoute?:OriginalLocalSourceMutationRoute,
 ):Promise<void>{
   const originalMethods=new Set([
     "commitObjectGraph","getWorkspace","getObject","listEventsSince",
@@ -69,9 +76,11 @@ async function attachOriginalNativeKernelRelay(
     granted_operations:[...plain.grantedOperations],
   };
   let connected:{sessionId:string;contextEpoch:number;networkRelayVersion?:number;
-    networkMethods?:string[]}|null=null;
+    networkMethods?:string[];localSourceMutationVersion?:number;
+    localSourceWorkspaceId?:string;localSourceMutationMethods?:string[]}|null=null;
   try{
-    connected=await owner.originalKernelRelay("attach",{sessionInfo:info,networkRelayVersion:1});
+    connected=await owner.originalKernelRelay("attach",{sessionInfo:info,networkRelayVersion:1,
+      ...(sourceRoute?{localSourceMutationVersion:1}:{})});
   }catch(error){
     const code=(error as {code?:string}|null)?.code;
     // The ORIGINAL D3 owner is optional. Older signed D1 Hosts and an
@@ -107,10 +116,18 @@ async function attachOriginalNativeKernelRelay(
     }
     for(const name of connected.networkMethods){originalMethods.add(name);networkMethods.add(name);}
   }
+  if(sourceRoute){
+    try{sourceRoute.accept(connected);}
+    catch(error){
+      await owner.originalKernelRelay("detach",{sessionId:connected.sessionId}).catch(()=>{});
+      throw error;
+    }
+  }
   let active=true;
   const selected=connected;
   stopNativeRelay=()=>{
     active=false;
+    sourceRoute?.clear();
     // Even if SSE has already failed, attempt to close the original owner
     // binding. Its own epoch/session guard remains authoritative.
     void owner.originalKernelRelay("detach",{
@@ -230,10 +247,16 @@ async function attach(event:MessageEvent){
        !("session" in kernel))
       throw reject("T3_D1_ORIGINAL_KERNEL_UNAVAILABLE");
     const originalSession=kernel.session;
+    const sourceRoute=cfg.local_source_capture?createOriginalLocalSourceMutationRoute({
+      workspaceId:cfg.local_source_capture.workspace_id,
+      originalKernelRelay:(verb,payload)=>owner.originalKernelRelay(verb,payload),
+      isHostActive:()=>live,
+    }):undefined;
     const signed=createKernelFacade({
       session:originalSession,
       signedKernelAccess:owner.signedKernelAccess,
       isHostActive:()=>live,
+      routeOriginalMutation:sourceRoute?.route,
     });
     // The only execution of signed KernelFacade and original T2 happens
     // in this realm. The UI cannot access window.IWXA, IndexedDB or signer.
@@ -282,7 +305,7 @@ async function attach(event:MessageEvent){
     // original MessagePort above is already ready, and remains the only
     // UI-facing T2 interface even when this independent binding is absent.
     void attachOriginalNativeKernelRelay(
-      owner,createKernelFacade({session:originalSession}),originalSession,
+      owner,createKernelFacade({session:originalSession}),originalSession,sourceRoute,
     ).catch(()=>{
       // No false APPLY availability: native relay clears an incomplete
       // binding itself and never replays a possibly written graph.

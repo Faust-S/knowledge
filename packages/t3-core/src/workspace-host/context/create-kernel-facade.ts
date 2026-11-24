@@ -18,6 +18,7 @@ import { adapter } from "@/kernel-client/adapter";
 import { createSubjectKernelBinding } from "@/t3/index.mjs";
 import type { T3SignedActivityAccess } from "@/t3/index.mjs";
 import type { Level } from "@/kernel-client/contracts/runtime-1.3.0";
+import type { OriginalMutationRoute } from "@/t3/original-local-source-mutation-route.mjs";
 
 import { negotiateAtomicGraph } from "@/kernel-client/contracts/runtime-1.3.0/atomic-graph-negotiation";
 export interface KernelFacadeInput {
@@ -28,6 +29,8 @@ export interface KernelFacadeInput {
     ((operation: string) => T3SignedActivityAccess | null | Promise<T3SignedActivityAccess | null>);
   /** The original Host lifecycle, not a second authorization registry. */
   isHostActive?: () => boolean;
+  /** Optional original Host-only source capture, AFTER the signed D1 JIT. */
+  routeOriginalMutation?: OriginalMutationRoute;
 }
 
 export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
@@ -92,7 +95,10 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     importCommit: async (input) => adapter.importCommit(session, input),
     importCancel: async (token) => adapter.importCancel(session, token),
   };
-  if (!input.signedKernelAccess) return Object.freeze(facade);
+  if (!input.signedKernelAccess) {
+    if (input.routeOriginalMutation) throw Object.assign(new Error("T3_D1_ACCESS_OWNER_REQUIRED"), {code:"T3_D1_ACCESS_OWNER_REQUIRED"});
+    return Object.freeze(facade);
+  }
 
   const requireLiveHost = (): void => {
     if (input.isHostActive?.() === false)
@@ -150,11 +156,24 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     "purgePreview","purgeCommit","purgeCancel",
     ...(atomicAvailable ? ["commitObjectGraph"] : []),
   ];
+  const routeOriginalMutation = input.routeOriginalMutation;
+  const mutationMethods = new Set(["createWorkspace","putObject","deleteObject","putRelation","deleteRelation",
+    "putAsset","deleteAsset","commitObjectGraph","softDeleteWorkspace","restoreWorkspace",
+    "purgeCommit","importCommit","confirmExport"]);
   for (const method of subjectMethods) {
     const invokeT2 = original[method] as ((...args: unknown[]) => unknown) | undefined;
     if (typeof invokeT2 === "function") {
       inherited[method] = (...args: unknown[]) => {
         requireLiveHost(); // The final hop, AFTER asynchronous signed JIT.
+        if (routeOriginalMutation && mutationMethods.has(method)) {
+          const exact=structuredClone(args);
+          return routeOriginalMutation(method,structuredClone(exact)).then(result=>{
+            requireLiveHost();
+            if(result?.kind==="CAPTURED")return result.originalReceipt;
+            if(result?.kind!=="LOCAL_T3")return deny("T3_LOCAL_SOURCE_CAPTURE_RECEIPT_INVALID");
+            return invokeT2(...exact);
+          });
+        }
         return invokeT2(...args);
       };
     }
