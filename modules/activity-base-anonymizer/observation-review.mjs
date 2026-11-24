@@ -58,10 +58,24 @@ function requestProfile(req){
  }
  return arx?'arx':'opendp';
 }
-export async function reviewObservationResult(candidate,requestBytes,raw){
+function assertCandidate(candidate){
  need(candidate?.export_allowed===false&&candidate.anonymity==='NOT_ESTABLISHED'&&candidate.disclosure_review==='NOT_PERFORMED'&&
   candidate.iwxa_package===null&&['LOCAL_CANDIDATE_FOR_DISCLOSURE_REVIEW','LOCAL_CANDIDATE_NEEDS_REVIEW_INPUT'].includes(candidate.status)&&
   exact(candidate.technology,'terms route_parameters operations quality_checks'),'OBSERVATION_CANDIDATE_PROFILE');
+}
+export async function prepareObservationRequest(candidate,cohort){
+ assertCandidate(candidate);
+ const arx=cohort?.profile===PROFILES.arx;
+ need(exact(cohort,'profile observation_unit source_kind rows'+(arx?' k columns':' metric public_bound epsilon_milli')),
+  'OBSERVATION_PREPARATION_PROFILE_INVALID');
+ // Take a single snapshot; do not trust an externally supplied candidate digest.
+ const request={...structuredClone(cohort),technology_sha256:await sha256Canonical(candidate.technology)};
+ requestProfile(request);
+ need(new TextEncoder().encode(JSON.stringify(request)+'\n').byteLength<=LIMIT,'OBSERVATION_INPUT_LIMIT');
+ return request;
+}
+export async function reviewObservationResult(candidate,requestBytes,raw){
+ assertCandidate(candidate);
  need(requestBytes instanceof Uint8Array&&requestBytes.byteLength>0&&requestBytes.byteLength<=LIMIT,'OBSERVATION_INPUT_LIMIT');
  // Freeze the bytes used for parsing and hashing across asynchronous operations.
  const bytes=requestBytes.slice();

@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {sha256Canonical} from '../modules/activity-base-anonymizer/engine.mjs';
-import {reviewObservationResult} from '../modules/activity-base-anonymizer/observation-review.mjs';
+import {reviewObservationResult,prepareObservationRequest} from '../modules/activity-base-anonymizer/observation-review.mjs';
 import {buildD05RouteQualityComparisonExample,reviewD05ResultSelection,prepareD05DisclosureCandidate}
  from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 function candidate(){
@@ -95,4 +95,22 @@ test('consume exact genuine engine output when upstream witness provided',{skip:
  assert.equal(result.kind,kind);assert.equal(result.export_allowed,false);
  if(kind==='arx'){assert.equal(result.result_available,true);assert.equal(result.after_highest_sample_risk,.5);}
  else assert.ok(result.privacy_map_at_one<=.5);
+});
+
+test('prepare exact request from current candidate and approved cohort without manual digest',async()=>{
+ const {c,request}=await fixture();
+ const {technology_sha256,...cohort}=request;
+ const actual=await prepareObservationRequest(c,cohort);
+ assert.deepEqual(actual,request);
+ actual.rows[0].unit_id='changed';
+ assert.notEqual(cohort.rows[0].unit_id,'changed');
+ const dp=await fixture('opendp'),{technology_sha256:ignored,...dpCohort}=dp.request;
+ assert.deepEqual(await prepareObservationRequest(dp.c,dpCohort),dp.request);
+});
+test('preparation rejects caller-supplied digest or duplicate unit',async()=>{
+ const {c,request}=await fixture();
+ await assert.rejects(()=>prepareObservationRequest(c,request),{code:'OBSERVATION_PREPARATION_PROFILE_INVALID'});
+ const {technology_sha256,...cohort}=request;
+ cohort.rows[1].unit_id=cohort.rows[0].unit_id;
+ await assert.rejects(()=>prepareObservationRequest(c,cohort),{code:'OBSERVATION_UNIT_INVALID'});
 });

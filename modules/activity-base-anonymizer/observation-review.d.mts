@@ -7,3 +7,4 @@ export type ObservationMetric='CONTRIBUTING_ORGANIZATIONS'|'ACCEPTED_ORDER_COUNT
 export type DpObservationReview=Common&{kind:'opendp';version:'0.16.0';metric:ObservationMetric;public_bound:number;
  epsilon_milli:number;privacy_map_at_one:number;scale:number;noisy_value:number;delta:0;budget_accounting:'NOT_PERFORMED'};
 export function reviewObservationResult(candidate:unknown,requestBytes:Uint8Array,raw:unknown):Promise<ArxObservationReview|DpObservationReview>;
+export function prepareObservationRequest(candidate:unknown,cohort:unknown):Promise<Record<string,unknown>>;
