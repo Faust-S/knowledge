@@ -1,4 +1,5 @@
-import {useLayoutEffect,useRef,useState} from 'react';
+import {useLayoutEffect,useMemo,useRef,useState} from 'react';
+import {productTextInventory} from '../../modules/activity-base-anonymizer/presidio-text-review.mjs';
 import {prepareProductGeneralization,applyProductGeneralization,type GeneralizationPlan}
  from '../../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 import type {ProductPreview} from '../../modules/activity-base-anonymizer/technology-product.mjs';
@@ -18,6 +19,7 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
  const [choices,setChoices]=useState<Record<string,Choice>>({}),[page,setPage]=useState(0);
  const [busy,setBusy]=useState(false),[error,setError]=useState('');
  const list=Object.values(reports);
+ const sourceFields=useMemo(()=>new Map(productTextInventory(product.object_data).map(f=>[f.path,Array.from(f.text)])),[product]);
  useLayoutEffect(()=>{
   const token=++epoch.current;setChoices({});setPlan(null);setPage(0);setError('');
   if(!Object.keys(reports).length){setBusy(false);return;}
@@ -75,7 +77,12 @@ export function ProductGeneralizationPanel({product,reports,onRevision,disabled=
         onChange={e=>setChoices(x=>({...x,[g.group_id]:{...x[g.group_id],replacement:e.target.value}}))}/>
       </label></>:null}
      <details><summary>Где встречается</summary>
-      {g.spans.slice(0,20).map(s=><p key={s.path+':'+s.start+':'+s.end}>{describe(s.path)}{s.detected?'':' · совпадающий текст'}{s.edit_kind==='FIXED'?' · фиксированное поле':''}</p>)}
+      {g.spans.slice(0,20).map(s=>{
+       const points=sourceFields.get(s.path)??[];
+       const left=Math.max(0,s.start-80),right=Math.min(points.length,s.end+80);
+       return <div key={s.path+':'+s.start+':'+s.end}><p><strong>{describe(s.path)}</strong>{s.detected?'':' · совпадающий текст'}{s.edit_kind==='FIXED'?' · фиксированное поле':''}</p>
+        <p style={{overflowWrap:'anywhere'}}>{left?'…':''}{points.slice(left,s.start).join('')}<strong>{points.slice(s.start,s.end).join('')}</strong>{points.slice(s.end,right).join('')}{right<points.length?'…':''}</p></div>;
+      })}
       {g.spans.length>20?<p>Показаны первые 20 из {g.spans.length} совпадений. Замена охватывает все доступные совпадения выбранной ссылки.</p>:null}
      </details>
     </div>;

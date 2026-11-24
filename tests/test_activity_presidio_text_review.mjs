@@ -97,3 +97,41 @@ if(root){test('actual upstream Presidio scans complete personal and organization
   }
  }
 });}
+
+import {spawnSync} from 'node:child_process';
+import {prepareProductGeneralization,applyProductGeneralization} from '../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
+if(root){test('actual upstream Presidio drives functional generalization and re-scans the revised complete products',async()=>{
+ for(const kind of ['personal','d05']){
+  const p=JSON.parse(readFileSync(join(root,kind+'-product.json'),'utf8'));
+  const reports=['en','ru'].map(lang=>JSON.parse(readFileSync(join(root,kind+'-product-'+lang+'.json'),'utf8')));
+  const plan=await prepareProductGeneralization(p,reports,'en');
+  const contact=plan.groups.find(g=>g.value==='quality@example.com'&&g.types.includes('EMAIL_ADDRESS'));
+  assert.ok(contact?.suggested_replacement,'Actual Presidio must support the explicit contact replacement');
+  assert.equal(contact.blocked_count,0);
+  assert.ok(contact.spans.length>=(kind==='personal'?3:1));
+  const revision=await applyProductGeneralization(p,reports,{base_product_sha256:plan.base_product_sha256,
+   proposal_sha256:plan.proposal_sha256,language:'en',replacements:[{group_id:contact.group_id,replacement:contact.suggested_replacement}]});
+  const next=revision.preview;
+  assert.notEqual(next.product_sha256,p.product_sha256);
+  assert.doesNotMatch(JSON.stringify(next.object_data),/quality@example\.com/);
+  if(kind==='d05'){
+   assert.deepEqual(next.object_data.technology,p.object_data.technology);
+   assert.equal(next.object_data.technology.quality_checks[0].declared_fields.find(f=>f.field==='upper_limit').value,'100.2');
+  }else{
+   assert.deepEqual(next.object_data.technology.result_requirements,p.object_data.technology.result_requirements);
+   assert.match(next.object_data.technology.instructions,/Separate deadlines from preferences/);
+  }
+  for(const lang of ['en','ru']){
+   const checked=spawnSync('python',['tools/activity-presidio-scan.py','--language',lang,'--product'],
+    {input:JSON.stringify(next),encoding:'utf8',timeout:120000,maxBuffer:8*1024*1024});
+   assert.equal(checked.status,0,'Original upstream analyzer failed to re-scan');
+   const review=await reviewProductPresidioTextScreening(next,JSON.parse(checked.stdout));
+   assert.equal(review.scanned_field_count,productTextInventory(next.object_data).length);
+   assert.ok(!review.fields.some(f=>f.findings.some(x=>x.entity_type==='EMAIL_ADDRESS')));
+   assert.equal(review.anonymity,'NOT_ESTABLISHED');
+  }
+  console.log('ACTIVITY_ORIGINAL_PRESIDIO_GENERALIZATION_RESCAN_PASS',JSON.stringify({kind,
+   changed_fields:revision.summary.changed_fields,changed_occurrences:revision.summary.changed_occurrences,
+   old_digest: p.product_sha256,new_digest:next.product_sha256,complete_rescan:true,export_allowed:false}));
+ }
+});}

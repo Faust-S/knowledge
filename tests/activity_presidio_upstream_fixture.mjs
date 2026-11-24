@@ -14,7 +14,9 @@ writeFileSync(join(root,'candidate.json'),JSON.stringify(c)+'\n','utf8');
 
 import {personalRows,personalProposal,d05Candidate} from './activity_technology_product_fixture.mjs';
 import {preparePersonalTechnologyProduct,prepareD05TechnologyProduct} from '../modules/activity-base-anonymizer/technology-product.mjs';
-const proposal={...personalProposal(),title:'📋 Weekly review quality@example.com'};
+const proposal={...personalProposal(),title:'📋 Weekly review quality@example.com',
+ instructions:'Read the supplied commitments. Separate deadlines from preferences. Send the reviewed list to quality@example.com.',
+ context_requirements:['Recipient calendar or supplied list of commitments','Contact address quality@example.com']};
 const personal=await preparePersonalTechnologyProduct(personalRows(),'routine_001',proposal);
 const d05=await prepareD05TechnologyProduct(d05Candidate(),'📋 Technology quality@example.com');
 writeFileSync(join(root,'personal-product.json'),JSON.stringify(personal)+'\n','utf8');
