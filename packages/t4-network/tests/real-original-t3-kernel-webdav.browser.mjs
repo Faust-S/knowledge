@@ -40,7 +40,8 @@ import {reconcileT4OriginalMutationIntent}
 import {createT4OriginalHostCaptureAdapter}
   from '../src/network/original-host-capture-adapter.mjs';
 import {publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork,
-  readT4OriginalHostCapturedObject,verifyT4OriginalHostCapturedObjectSource}
+  readT4OriginalHostCapturedObject,verifyT4OriginalHostCapturedObjectSource,
+  readT4OriginalHostCapturedSubject,verifyT4OriginalHostCapturedSubjectSource}
   from '../src/network/original-host-outbox-delivery.mjs';
 import {createT4OriginalHostOutboxDispatcher}
   from '../src/network/original-host-outbox-dispatcher.mjs';
@@ -60,8 +61,8 @@ import {prepareT4CandidateOpaqueChunks}
   from '../src/network/standard-network-opaque-chunks.mjs';
 import {openT4OriginalNetworkObjectChange,
   inspectT4OriginalNetworkRecipientResult,
-  applyT4OriginalNetworkObjectChange,
-  createT4OriginalNetworkAppliedAckBody}
+  applyT4OriginalNetworkObjectChange,openT4OriginalNetworkSubjectChange,
+  applyT4OriginalNetworkSubjectChange,createT4OriginalNetworkAppliedAckBody}
   from '../src/network/original-network-subject-apply.mjs';
 import {digestT4OriginalObjectContent}
   from '../src/network/original-object-delta.mjs';
@@ -71,7 +72,7 @@ import {createT4OriginalNetworkHostCursorPort}
   from '../src/network/original-network-host-cursor.mjs';
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
   from '../src/network/original-network-publication.mjs';
-import {createT4CandidateUnsignedFrame,signT4CandidateFrame}
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_RELATION_EVENT_EXTENSION}
   from '../src/network/standard-network-wire-candidate.mjs';
 import {createT4CandidateFrameTransport}
   from '../src/network/standard-network-wire-transport.mjs';
@@ -3278,7 +3279,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         }),
       });
       assert.ok(p2cPlan.chunkCount>0);
-      const p2cFrame=async(type,from,body,sequence,sessionRef=p2cSession)=>{
+      const p2cFrame=async(type,from,body,sequence,sessionRef=p2cSession,criticalExtensions=[])=>{
         const source=from==='SOURCE';
         const frame=createT4CandidateUnsignedFrame({
           messageType:type,
@@ -3291,7 +3292,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           permissionRef:'original:permission:replay',
           signerRef:source?'key:original:source:p22c':
             'key:original:recipient:p22c',sequence,ownerEpoch:2,
-          cryptoSuite:'X25519_AES256GCM_ED25519',body,
+          cryptoSuite:'X25519_AES256GCM_ED25519',body,criticalExtensions,
         });
         return signT4CandidateFrame({
           unsignedFrame:frame,signOriginalNodeBytes:async({bytes})=>
@@ -3988,19 +3989,47 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       // Drive existing signed source/recipient operations one time per
       // Host-selected captured Event. This is a bounded test task, not a
       // new production scheduler.
-      const p2fRunCapturedSession=async revision=>{
+      let p2gAssetCalls=0,p2gRelationCalls=0;
+      let p2gLoseAssetReply=false,p2gLoseRelationReply=false;
+      const p2gRecipientKernel={
+        ...p2cRecipientKernel,getAsset:independentAssetRecipient.getAsset,
+        putAsset:async input=>{
+          p2gAssetCalls++;
+          const result=await independentAssetRecipient.putAsset(input);
+          if(p2gLoseAssetReply){p2gLoseAssetReply=false;
+            throw Object.assign(Error('original Asset commit response lost'),{code:'ACK_LOST'});}
+          return result;
+        },
+        putRelation:async input=>{
+          p2gRelationCalls++;
+          const result=await independentAssetRecipient.putRelation(input);
+          if(p2gLoseRelationReply){p2gLoseRelationReply=false;
+            throw Object.assign(Error('original Relation commit response lost'),{code:'ACK_LOST'});}
+          return result;
+        },
+      };
+      const p2fRunCapturedSession=async(revision,{
+        kind='OBJECT_PUT',subjectId=p2cObjectId,
+        frontierRevision=revision,currentObjectRevision=4,
+        lastInBatch=revision===4,
+        simulatePublicationLoss=kind==='OBJECT_PUT'&&revision===2,
+        simulateSubjectLoss=false,expectedAssetBytes=null,
+      }={})=>{
+      const recipientKernel=kind==='OBJECT_PUT'?p2cRecipientKernel:p2gRecipientKernel;
       const tick=await p2fRunHostPrepare();
       assert.equal(tick.originalHostTaskOwnerVerified,true);
       assert.equal(tick.prepared,true);
       const p2fTask=tick.result,p2fCaptured=p2fTask.capture;
       assert.equal(p2fCaptured.sourceRevision,revision);
-      assert.equal(p2fCaptured.laterSourceEventsExist,revision<4);
+      assert.equal(p2fCaptured.kind,kind);
+      assert.equal(p2fCaptured.subjectId,subjectId);
+      assert.equal(p2fCaptured.laterSourceEventsExist,!lastInBatch);
       assert.equal(p2fTask.sourceCursorAdvanced,false);
       assert.equal(p2fCaptured.currentObjectReadOrUsedAsHistoricalBytes,false);
       const p2fReadPorts={...p2fOriginalCapturePorts,
-        captureRef:p2fCaptured.captureRef,subjectId:p2fCaptured.objectId};
+        kind,captureRef:p2fCaptured.captureRef,subjectId:p2fCaptured.subjectId};
       assert.equal((await originalCarrierKernel.getObject(
-        workspaceId,p2cObjectId)).object.revision,4);
+        workspaceId,p2cObjectId)).object.revision,currentObjectRevision);
       assert.equal(actual.grants.includes('t1.getObject'),true);
       assert.equal(actual.grants.includes('t1.putObject'),true);
       const durableSession=deriveT4OriginalNativeCaptureSession(p2fTask);
@@ -4008,8 +4037,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         familyRef:p2eFamily}=durableSession;
       let f2SignCalls=0,f2NetworkWrites=0,f2SourcePutCalls=0,
         f2RecipientPutCalls=0;
-      let losePrepareReply=revision===2,loseSourceNetworkReply=revision===2,
-        loseRecipientNetworkReply=revision===2;
+      let losePrepareReply=simulatePublicationLoss,loseSourceNetworkReply=simulatePublicationLoss,
+        loseRecipientNetworkReply=simulatePublicationLoss;
       const f2SourceKernel={
         ...originalCarrierKernel,
         putObject:async input=>{
@@ -4087,7 +4116,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         for(const spec of specs){
           f2SignCalls++;
           result.push(await p2cFrame(spec.messageType,spec.from,
-            spec.body,spec.sequence,p2eSession));
+            spec.body,spec.sequence,p2eSession,
+            kind==='RELATION_PUT'&&['CHANGE_REF','APPLIED_ACK'].includes(spec.messageType)?
+              [T4_RELATION_EVENT_EXTENSION]:[]));
         }
         return result;
       };
@@ -4097,6 +4128,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         const verified=await receiver.readAndVerifySignedFrame({
           key:publication.key,expectedSha256:publication.sha256,
           requiredCryptoSuite:'X25519_AES256GCM_ED25519',
+          supportedCriticalExtensions:[T4_RELATION_EVENT_EXTENSION],
         });
         assert.equal(verified.originalSignatureVerified,true);
         return {publication,verified};
@@ -4116,11 +4148,20 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         replayOriginalHostSession='original:replay:host:'+randomUUID();
       };
       const p2ePrepared=p2fCaptured.prepared;
-      assert.equal(p2ePrepared.delta.baseRevision,revision-1);
-      assert.equal(p2ePrepared.delta.sourceRevision,revision);
-      assert.equal(p2ePrepared.delta.data.quantity,6+revision);
-      assert.equal(p2ePrepared.delta.data.title,
-        'Offline original T3 native revision '+revision);
+      if(kind==='OBJECT_PUT'){
+        assert.equal(p2ePrepared.delta.baseRevision,revision-1);
+        assert.equal(p2ePrepared.delta.sourceRevision,revision);
+        assert.equal(p2ePrepared.delta.data.quantity,6+revision);
+        assert.equal(p2ePrepared.delta.data.title,'Offline original T3 native revision '+revision);
+      }else if(kind==='ASSET_PUT'){
+        assert.equal(p2ePrepared.delta.baseRevision,revision-1);
+        assert.equal(p2ePrepared.delta.sourceRevision,revision);
+        assert.deepEqual(Buffer.from(p2ePrepared.assetBytes),expectedAssetBytes);
+      }else{
+        assert.equal(revision,null);
+        assert.equal(p2ePrepared.delta.relationId,subjectId);
+        assert.equal(Object.hasOwn(p2ePrepared.delta,'sourceRevision'),false);
+      }
       const p2eKey=randomBytes(32),p2eIv=randomBytes(12),
         p2eAad=Buffer.from(p2eSession+':'+p2eChangeId);
       const p2eSeal=createCipheriv('aes-256-gcm',p2eKey,p2eIv);
@@ -4143,7 +4184,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       let p2eSourcePhaseHostSession='host:p22e:phase:source:initial';
       let p2eRecipientPhaseHostSession='host:p22e:phase:recipient:initial';
       const p2ePhaseResult=async()=>inspectT4OriginalNetworkRecipientResult({
-        received:p2eOpened,originalKernel:p2cRecipientKernel,
+        received:p2eOpened,originalKernel:recipientKernel,
         allowHistoricalEventProof:true,getMode:()=> 'T4_NETWORK',
         authorizeOriginalRead:async p=>
           receiving.operations.includes(p.operation),
@@ -4164,7 +4205,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         recipientNodeRef:'node:original:recipient',
         localNodeRef:'node:original:source',
         scopeRef:'scope:original:replay',
-        sessionRef:p2eSession,changeId:p2eChangeId,ownerEpoch:2,
+        sessionRef:p2eSession,changeId:p2eChangeId,ownerEpoch:2,changeKind:kind,
         getMode:()=> 'T4_NETWORK',
         readOriginalHostContext:async()=>({
           workspaceId:sourceCaptureWorkspace,
@@ -4178,7 +4219,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           actual.grants.includes(p.operation),
         verifyOriginalPhaseEvidence:async p=>{
           if(p.phase==='INTENT'){
-            const original=await readT4OriginalHostCapturedObject(p2fReadPorts);
+            const original=await readT4OriginalHostCapturedSubject(p2fReadPorts);
             return p.evidence.evidenceRef===original.sourceEventId&&
               p.evidence.evidenceDigest===original.sourceWindow.windowDigest&&
               original.prepared.sha256===p2fCaptured.prepared.sha256;
@@ -4213,7 +4254,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         recipientNodeRef:'node:original:recipient',
         localNodeRef:'node:original:recipient',
         scopeRef:'scope:original:replay',
-        sessionRef:p2eSession,changeId:p2eChangeId,ownerEpoch:2,
+        sessionRef:p2eSession,changeId:p2eChangeId,ownerEpoch:2,changeKind:kind,
         getMode:()=> 'T4_NETWORK',
         readOriginalHostContext:async()=>({
           workspaceId:nativeReplayWorkspace,
@@ -4236,7 +4277,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           if(p.phase==='VERIFIED')return (
             p.evidence.evidenceRef===p2eChange.publication.key&&
             p.evidence.evidenceDigest===p2eOpened.originalStateDigest&&
-            p2eOpened.originalSourceEventAndObjectVerified===true
+            (p2eOpened.originalSourceEventAndObjectVerified===true||p2eOpened.originalSourceEventAndSubjectVerified===true)
           );
           if(p.phase==='APPLIED')return (
             p2eSignedAck?.verified.originalSignatureVerified===true&&
@@ -4274,7 +4315,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const p2eDiff=await fromPublication(await publicationPort(false)
         .publishPreparedFrame({sequence:1}),'RECIPIENT');
       const contentSpecs=[{messageType:'CHANGE_REF',sequence:2,from:'SOURCE',body:{
-        changeId:p2eChangeId,changeKind:'OBJECT_PUT',
+        changeId:p2eChangeId,changeKind:kind,
         eventRef:p2fCaptured.sourceEventId,
         ownerRef:'original:t2:exchange',sourceRevision:revision,
         contentDigest:p2eChunksPlan.contentDigest,
@@ -4287,7 +4328,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         slots:contentSlots,publish:false,
         createSignedFrames:()=>signBatch(contentSpecs),
       });
-      if(revision===2){
+      if(simulatePublicationLoss){
         const netBefore=f2NetworkWrites;
         await assert.rejects(prepareContent(),
           e=>e?.code==='PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN');
@@ -4320,7 +4361,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         slots:contentSlots,
         createSignedFrames:async()=>{throw Error('must use saved content bytes');},
       });
-      if(revision===2)
+      if(simulatePublicationLoss)
         assert.equal(contentSent.publications[0].state,'REMOTE_READBACK_RECOVERED');
       const fullSourcePublication=await publicationPort(true).inspectOriginalPublication();
       assert.ok(fullSourcePublication.frames.every(f=>f.state==='PRESENT'&&f.attempts===1));
@@ -4356,9 +4397,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           workspaceId),
         capturedWindowDigest:p2fCaptured.sourceWindow.windowDigest,
         verifyOriginalSourceSubject:p=>
-          verifyT4OriginalHostCapturedObjectSource(p2fReadPorts,p),
+          verifyT4OriginalHostCapturedSubjectSource(p2fReadPorts,p),
       });
-      p2eOpened=await openT4OriginalNetworkObjectChange({
+      p2eOpened=await openT4OriginalNetworkSubjectChange({
         verifiedChangeRef:p2eChange.verified,
         verifiedChunks:p2eChunks.map(c=>c.verified),
         originalSourceHeadProof:p2eProof,
@@ -4376,7 +4417,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           receiving.operations.includes('t1.getObject')&&
           p.sourceEventId===p2fCaptured.sourceEventId,
         verifyOriginalSourceBinding:p=>
-          verifyT4OriginalHostCapturedObjectSource(p2fReadPorts,p),
+          verifyT4OriginalHostCapturedSubjectSource(p2fReadPorts,p),
         openOriginalSealedContent:async p=>{
           const input=Buffer.from(p.ciphertext);
           const cipher=createDecipheriv('aes-256-gcm',p2eKey,
@@ -4401,22 +4442,40 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         },
       });
       assert.equal((await p2ePhaseResult()).state,'NOT_APPLIED');
-      const p2eApplied=await applyT4OriginalNetworkObjectChange({
-        received:p2eOpened,originalKernel:p2cRecipientKernel,
-        authorizeOriginalRead:async p=>
-          receiving.operations.includes(p.operation),
-        authorizeOriginalWrite:async p=>
-          receiving.operations.includes(p.operation),
-        verifyOriginalSourceEvent:async p=>
-          p.sourceEventId===p2fCaptured.sourceEventId&&
-          p.sourceRevision===revision&&
-          p.objectContentDigest===p2eOpened.originalStateDigest,
-        getMode:()=> 'T4_NETWORK',
+      const applyArgs=()=>({
+        received:p2eOpened,originalKernel:recipientKernel,
+        authorizeOriginalRead:async p=>receiving.operations.includes(p.operation),
+        authorizeOriginalWrite:async p=>receiving.operations.includes(p.operation),
+        verifyOriginalSourceEvent:async p=>{
+          const original=await readT4OriginalHostCapturedSubject(p2fReadPorts);
+          return p.sourceEventId===original.sourceEventId&&
+            p.sourceEventDigest===original.prepared.delta.sourceEventDigest&&
+            (kind==='OBJECT_PUT'?
+              p.sourceRevision===revision&&p.objectContentDigest===p2eOpened.originalStateDigest:
+              p.originalSubjectKind===kind&&p.originalSubjectId===subjectId&&
+              p.originalSubjectDeltaSha256===original.prepared.sha256);
+        },getMode:()=> 'T4_NETWORK',
       });
-      assert.equal(p2eApplied.status,'APPLIED_BY_ORIGINAL_T3');
+      const writesBefore=p2cCommitCalls+p2gAssetCalls+p2gRelationCalls;
+      let p2eApplied;
+      if(simulateSubjectLoss){
+        if(kind==='ASSET_PUT')p2gLoseAssetReply=true;
+        else if(kind==='RELATION_PUT')p2gLoseRelationReply=true;
+        else throw Error('subject loss probe expects non-object');
+        await assert.rejects(applyT4OriginalNetworkSubjectChange(applyArgs()),
+          e=>e?.code==='SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN');
+        assert.equal(p2cCommitCalls+p2gAssetCalls+p2gRelationCalls,writesBefore+1);
+        await restartRecipient();
+        p2eApplied=await applyT4OriginalNetworkSubjectChange(applyArgs());
+        assert.equal(p2eApplied.status,'ALREADY_APPLIED_FROM_ORIGINAL_T3');
+        assert.equal(p2eApplied.originalCommitInvoked,false);
+      }else{
+        p2eApplied=await applyT4OriginalNetworkSubjectChange(applyArgs());
+        assert.equal(p2eApplied.status,'APPLIED_BY_ORIGINAL_T3');
+      }
       assert.equal(p2eApplied.state,'APPLIED_VERIFIED');
       assert.equal(p2eApplied.originalRecipientRevision,revision);
-      assert.equal(p2cCommitCalls,revision);
+      assert.equal(p2cCommitCalls+p2gAssetCalls+p2gRelationCalls,writesBefore+1);
       const p2eResult=await p2ePhaseResult();
       const p2eAckBody=createT4OriginalNetworkAppliedAckBody({
         received:p2eOpened,verifiedResult:p2eResult,
@@ -4426,7 +4485,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       await publicationPort(false).prepareSignedBatch({
         slots:slotsFor(ackSpecs),createSignedFrames:()=>signBatch(ackSpecs),
       });
-      if(revision===2){
+      if(simulatePublicationLoss){
         const before=await publicationPort(false).inspectOriginalPublication();
         const count=f2NetworkWrites,signs=f2SignCalls;
         await assert.rejects(publicationPort(false).publishPreparedFrame({sequence:2}),
@@ -4481,7 +4540,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         recovery:p2eAckRecovery,
       }),e=>e?.code==='HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'&&
         e.details.automaticRetryAllowed===false);
-      assert.equal(p2eFrontierPutCalls,revision);
+      assert.equal(p2eFrontierPutCalls,frontierRevision);
       await sourceContext.close();sourceContext=null;
       await recipientContext.close();recipientContext=null;
       sourceContext=await launch(sourceProfile);
@@ -4498,20 +4557,20 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const p2eFinalFrontier=await p2eCursorPort()
         .commitAcknowledgedCursor({recovery:p2eAckRecovery});
       assert.equal(p2eFinalFrontier.state,'ALREADY_COMMITTED');
-      assert.equal(p2eFrontierPutCalls,revision);
+      assert.equal(p2eFrontierPutCalls,frontierRevision);
       assert.deepEqual(p2eFinalFrontier.originalT3NextCursor,
         p2fTask.sourceCursorAfter);
       assert.equal((await p2eCursorPort().readNextOriginalSourceEvent())
-        .state,revision===4?'NO_NEXT_ORIGINAL_EVENT':
+        .state,lastInBatch?'NO_NEXT_ORIGINAL_EVENT':
           'NEXT_ORIGINAL_EVENT_READY_FOR_EXISTING_HOST_TASK');
       assert.equal((await p2ePhaseResult()).state,'APPLIED_VERIFIED');
       const p2eFinalEvents=(await originalCarrierKernel.listEventsSince(
         sourceCaptureWorkspace)).filter(e=>
           e.object_id===p2eReadback.checkpointRef&&
           e.event_type==='t4.network.original.host.ack.frontier');
-      assert.equal(p2eFinalEvents.length,revision);
+      assert.equal(p2eFinalEvents.length,frontierRevision);
 
-      if(revision===2){
+      if(kind==='OBJECT_PUT'&&revision===2){
       console.log('T4_REAL_ORIGINAL_T3_NATIVE_NEXT_REVISION_APPLIED_PASS',
         JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,
@@ -4539,7 +4598,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       return {result:p2eResult,sourcePhase:p2eSourcePhase,
         recipientPhase:p2eRecipientPhase,inspectResult:p2ePhaseResult,
         sourceCursor:p2fTask.sourceCursorAfter,
-        sourceEventId:p2fCaptured.sourceEventId,
+        sourceEventId:p2fCaptured.sourceEventId,kind,subjectId,revision,
+        originalDeltaSha256:p2ePrepared.sha256,
+        originalSubjectLossRecovered:simulateSubjectLoss,
         publicationSession:durableSession.sessionRef,
         sourcePublicationCount:sourcePublication.frames.length,
         recipientPublicationCount:recipientPublication.frames.length,
@@ -4685,6 +4746,117 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           independentPhysicalDevices:false,
         }));
 
+      // All mixed mutations are local and captured BEFORE transmission.
+      const mixedAssetId='asset:native:mixed:'+randomUUID();
+      const mixedRelationId='relation:native:mixed:'+randomUUID();
+      const mixedBytes=[Buffer.concat([Buffer.from('revision one '),randomBytes(18000)]),
+        Buffer.concat([Buffer.from('revision two '),randomBytes(22000)])];
+      let mixedTail=(await p2eCursorPort().inspectOriginalHostCursor()).originalT3NextCursor;
+      const mixedSpecs=[
+        {kind:'ASSET_PUT',revision:1,subjectId:mixedAssetId,bytes:mixedBytes[0]},
+        {kind:'OBJECT_PUT',revision:5,subjectId:p2cObjectId},
+        {kind:'RELATION_PUT',revision:null,subjectId:mixedRelationId},
+        {kind:'ASSET_PUT',revision:2,subjectId:mixedAssetId,bytes:mixedBytes[1]},
+        {kind:'OBJECT_PUT',revision:6,subjectId:p2cObjectId},
+      ];
+      for(const spec of mixedSpecs){
+        const captureRef='capture:native:mixed:'+randomUUID();
+        let result;
+        if(spec.kind==='ASSET_PUT'){
+          result=await subjectHost.putAsset({
+            sourceCursor:mixedTail,captureRef,
+            mutationInput:{workspace_id:workspaceId,asset_id:mixedAssetId,
+              object_id:p2cObjectId,mime:'application/octet-stream',
+              base_revision:spec.revision-1,bytes:spec.bytes,
+              event:{event_type:'t4.network.p22g.asset',payload:{revision:spec.revision}}},
+          });
+        }else if(spec.kind==='RELATION_PUT'){
+          result=await subjectHost.putRelation({
+            sourceCursor:mixedTail,captureRef,
+            mutationInput:{workspace_id:workspaceId,relation_id:mixedRelationId,
+              from_object_id:p2cObjectId,to_object_id:linkedObjectId,kind:'related',
+              event:{event_type:'t4.network.p22g.relation',payload:{purpose:'native mixed dependency'}}},
+          });
+          assert.equal(result.originalReceipt.event.revision??null,null);
+        }else{
+          const prior=await originalCarrierKernel.getObject(workspaceId,p2cObjectId);
+          result=await subjectHost.putObject({
+            sourceCursor:mixedTail,captureRef,
+            mutationInput:{workspace_id:workspaceId,object_id:p2cObjectId,
+              schema_id:prior.object.schema_id,schema_version:prior.object.schema_version,
+              data:{...prior.object.data,title:'Offline original T3 native revision '+spec.revision,
+                quantity:6+spec.revision},extensions:prior.object.extensions??{},
+              base_revision:spec.revision-1,
+              event:{event_type:'t4.network.p22g.object',payload:{revision:spec.revision}}},
+          });
+        }
+        assert.equal(result.capture.originalT3OutboxVerified,true);
+        assert.equal(result.networkPublished,false);
+        mixedTail=result.capture.nextCursor;
+        spec.sourceEventId=result.capture.prepared.delta.sourceEventId;
+        spec.sha256=result.capture.prepared.sha256;
+      }
+      assert.equal((await subjectSourceKernel.getAsset(workspaceId,mixedAssetId)).asset.revision,2);
+      assert.equal(await p2gRecipientKernel.getAsset(workspaceId,mixedAssetId),null);
+      assert.equal((await p2cRecipientKernel.getObject(workspaceId,p2cObjectId)).object.revision,4);
+      await sourceContext.close();sourceContext=null;
+      sourceContext=await launch(sourceProfile);activeSourcePage=await opened(sourceContext);
+      const mixedCompleted=[];
+      for(const [index,spec] of mixedSpecs.entries()){
+        const completed=await p2fRunCapturedSession(spec.revision,{
+          kind:spec.kind,subjectId:spec.subjectId,
+          frontierRevision:5+index,currentObjectRevision:6,lastInBatch:index===4,
+          simulatePublicationLoss:index===0,
+          simulateSubjectLoss:spec.kind==='RELATION_PUT'||index===0,
+          expectedAssetBytes:spec.bytes??null,
+        });
+        assert.equal(completed.sourceEventId,spec.sourceEventId);
+        assert.equal(completed.originalDeltaSha256,spec.sha256);
+        mixedCompleted.push(completed);
+      }
+      assert.equal(p2gAssetCalls,2);assert.equal(p2gRelationCalls,1);
+      assert.equal(p2cCommitCalls,6);assert.equal(p2eFrontierPutCalls,9);
+      const finalMixedAsset=await p2gRecipientKernel.getAsset(workspaceId,mixedAssetId);
+      assert.equal(finalMixedAsset.asset.revision,2);
+      assert.deepEqual(Buffer.from(finalMixedAsset.bytes),mixedBytes[1]);
+      const finalMixedObject=await p2gRecipientKernel.getObject(workspaceId,p2cObjectId);
+      assert.equal(finalMixedObject.object.revision,6);
+      assert.equal(finalMixedObject.object.data.quantity,12);
+      assert.equal(finalMixedObject.relations.outgoing.filter(r=>r.relation_id===mixedRelationId).length,1);
+      const otherMixedObject=await p2gRecipientKernel.getObject(workspaceId,linkedObjectId);
+      assert.equal(otherMixedObject.relations.incoming.filter(r=>r.relation_id===mixedRelationId).length,1);
+      assert.equal((await mixedCompleted[0].inspectResult()).state,'APPLIED_HISTORICAL_EVENT_VERIFIED');
+      assert.equal((await mixedCompleted[1].inspectResult()).state,'APPLIED_HISTORICAL_EVENT_VERIFIED');
+      const mixedRelationResult=await mixedCompleted[2].inspectResult();
+      assert.equal(mixedRelationResult.state,'APPLIED_VERIFIED');
+      assert.equal(mixedRelationResult.originalRecipientRevision,null);
+      assert.equal(mixedRelationResult.originalRecipientEventRevision,null);
+      for(const done of [...p2fCompleted,...mixedCompleted]){
+        assert.equal((await done.sourcePhase().inspectOriginalSession()).currentPhase,'APPLIED_CONFIRMED');
+        assert.equal((await done.recipientPhase().inspectOriginalSession()).currentPhase,'APPLIED');
+        assert.ok((await done.inspectSourcePublication()).frames.every(f=>f.state==='PRESENT'));
+        assert.ok((await done.inspectRecipientPublication()).frames.every(f=>f.state==='PRESENT'));
+      }
+      assert.equal((await p2fRunHostPrepare()).result.state,'NO_NEXT_ORIGINAL_EVENT');
+      assert.equal(new Set(mixedCompleted.map(x=>x.result.originalRecipientEventId)).size,5);
+      assert.ok(mixedCompleted.filter(x=>x.kind==='ASSET_PUT').every(x=>x.sourcePublicationCount>3));
+      assert.equal(mixedCompleted.reduce((sum,x)=>sum+x.signedFrameCount,0),
+        mixedCompleted.reduce((sum,x)=>sum+x.actualFramePutCount,0));
+      console.log('T4_REAL_ORIGINAL_T3_NATIVE_MIXED_OBJECT_ASSET_RELATION_PASS',JSON.stringify({
+        originalKernel:ORIGINAL_KERNEL,
+        mixedCapturedKinds:mixedCompleted.map(x=>x.kind),
+        mixedCapturedRevisions:mixedCompleted.map(x=>x.revision),
+        actualOriginalObjectRevision:6,actualOriginalAssetRevision:2,
+        actualOriginalRelationRevision:null,originalObjectCommitCalls:6,
+        originalAssetPutCalls:2,originalRelationPutCalls:1,originalHostAckFrontierCASCount:9,
+        mixedSessions:5,mixedSignedFrames:mixedCompleted.reduce((n,x)=>n+x.signedFrameCount,0),
+        mixedActualHttpsPuts:mixedCompleted.reduce((n,x)=>n+x.actualFramePutCount,0),
+        multipartAssetVerified:true,exactFinalAssetBytesVerified:true,
+        originalAssetAndRelationLostCommitRepliesRecoveredWithoutWrite:true,
+        originalHistoricalAssetResultAfterLaterRevision:true,
+        originalRelationBothEndpointsVerified:true,noRemainingCapture:true,
+        independentPhysicalDevices:false,productionHostSchedulerInstalled:false,
+      }));
       nativeNetworkTransport.close();
       console.log('T4_REAL_ORIGINAL_T3_NETWORK_REPLAY_COLD_CAS_PASS',
         JSON.stringify({
