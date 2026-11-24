@@ -424,6 +424,19 @@ def quality_dependency_view(work: Any) -> dict[str, Any]:
     if scope["boundary_inputs"]:
         out["correction_dependency_scope_with_input_reproduction"] = quality_dependency_scope(
             work, expand_inputs=True)
+    active = work.assurance_corrections[-1] if work.assurance_corrections else None
+    if active is not None and active["status"] == "IN_PROGRESS" and active["terms"].get("material_revisions"):
+        try:
+            candidate = _material_retry_snapshot(work, active["terms"]["id"])
+        except AssuranceBlocked as exc:
+            out["material_retry_candidate"] = {"state": "NOT_QUALIFIED", "reason": exc.reason}
+        else:
+            out["material_retry_candidate"] = {
+                "state": "CANDIDATE_REQUIRES_ORIGINAL_SOURCES_CAPACITY_AND_INDEPENDENT_APPROVAL",
+                "retry_of": candidate["id"], "failed_batches": candidate["failed_batches"],
+                "dependency_scope": candidate["dependency_scope"],
+                "actual_prior_resource_use_preserved": True,
+            }
     return out
 
 
