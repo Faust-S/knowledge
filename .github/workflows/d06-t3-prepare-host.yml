@@ -1,0 +1,86 @@
+name: d06-t3-prepare-host
+on:
+  push:
+    branches:
+      - test/2026-11-24-d06-t3-preparation
+    paths:
+      - .github/workflows/d06-t3-prepare-host.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          persist-credentials: false
+          path: original-core
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-assistant
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: 9364d5af843b68866d2fa9fe289850d8ddc1df61
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify original public portable input
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        working-directory: private-site
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/artifacts/14920233669/zip > "$RUNNER_TEMP/platform-outer.zip"
+          echo "96bb993383af31309b79dceb6f321ac5365ac7777362f512f9225226ee51904f  $RUNNER_TEMP/platform-outer.zip" | sha256sum --check --status
+          unzip -p "$RUNNER_TEMP/platform-outer.zip" platform-inputs.zip > "$RUNNER_TEMP/platform-inputs.zip"
+          node scripts/d06-t3-platform-inputs.mjs verify "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/platform-private.log" 2>&1 || { grep -Eo 'D06_T3_PLATFORM_[A-Z0-9_]+' "$RUNNER_TEMP/platform-private.log" | sort -u | head -10; exit 1; }
+          echo D06_T3_ORIGINAL_PLATFORM_128_FILES=PASS
+      - name: Prepare compiled real D06 Host
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci > "$RUNNER_TEMP/d06-site-install-private.log" 2>&1 || { echo D06_T3_SITE_INSTALL=FAIL; exit 1; }
+          echo D06_T3_SITE_INSTALL=PASS
+          npm run t3:prepare-host -- "$GITHUB_WORKSPACE/original-core/packages/t3-core" "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/private-assistant" https://komplektovod.ru > "$RUNNER_TEMP/d06-host-private.log" 2>&1 || {
+            echo D06_T3_HOST_SOURCE_BUILD=FAIL
+            grep -Eo 'D06_T3_(HOST|PLATFORM)_[A-Z0-9_]+|D06_SITE_ONLY_[A-Z0-9_]+|D06_BUILD_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z_]+|T2_QUALIFIED_KERNEL_STAGE_[A-Z_]+|TS[0-9]{4}' "$RUNNER_TEMP/d06-host-private.log" | sort -u | head -25 || true
+            node --input-type=module - "$RUNNER_TEMP/d06-host-private.log" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const lines=readFileSync(process.argv[2],'utf8').split(/\r?\n/);
+          const matches=lines.map(line=>line.match(/^(src\/[A-Za-z0-9_./-]+\.(?:ts|tsx|mts))\((\d+),(\d+)\): error (TS\d+):/)).filter(Boolean);
+          console.log("D06_T3_COMPILE_DIAGNOSTICS="+matches.length);
+          for(const m of matches.slice(0,40))console.log("D06_T3_COMPILE_COORD="+m[4]+" "+m[1]+":"+m[2]+":"+m[3]);
+          NODE
+            exit 1
+          }
+          echo D06_T3_HOST_SOURCE_BUILD=PASS
+          node --input-type=module - "$RUNNER_TEMP/d06-t3-host" <<'NODE'
+          import {verifyPreparedD06Host} from './scripts/prepare-d06-t3-host.mjs';
+          const receipt=verifyPreparedD06Host(process.argv[2]);
+          console.log("D06_T3_HOST_READBACK=PASS");
+          console.log("D06_T3_HOST_FILES="+receipt.files.length);
+          console.log("D06_T3_SHARED_WORKER_COUNT="+receipt.files.filter(x=>/^assets\/model-worker-[A-Za-z0-9_-]+\.js$/.test(x.path)).length);
+          NODE
+      - name: Privacy and evidence boundary
+        if: always()
+        run: |
+          echo D06_T3_PRODUCT_ACCEPTED=false
+          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
+          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
