@@ -68,7 +68,8 @@ export function TechnologyProposalEditor({review,groupId,profile,operations,form
    {error?<p role="alert" className="activity-v7-note hold">{error}</p>:null}
    {preview?<div className="activity-domain-group" aria-label="Предложение технологии">
     <h3>Предложение технологии</h3>
-    <p role="status">{preview.status==='PROPOSAL_FOR_DOMAIN_REVIEW'?'Предложение подготовлено для предметной проверки':'Нужны дополнительные сведения'}</p>
+    <p role="status">{preview.status==='PROPOSAL_FOR_DOMAIN_REVIEW'?'Предложение подготовлено для предметной проверки':
+     preview.status==='PROPOSAL_WITH_SOURCE_GAPS'?'Предложение сформировано с нерешёнными исходными требованиями':'Нужны дополнительные сведения'}</p>
     <p>Незаполненных полей: {preview.missing_fields.length}. Нерешённых исходных требований: {preview.unresolved_source_requirements.length}.</p>
     {preview.missing_fields.length?<div className="activity-domain-proposal-gaps" tabIndex={0}>
      <ul>{preview.missing_fields.map(x=><li key={x.scope+'.'+x.field}>{scopeLabel(x.scope)}: {FIELD_LABELS[x.field]??'Ответственная роль'}</li>)}</ul>

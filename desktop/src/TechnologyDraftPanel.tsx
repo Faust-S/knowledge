@@ -89,7 +89,7 @@ export function TechnologyDraftPanel({draft,operations,review}:{draft:D05Technol
    <p>Полностью совпавших заявленных проверок во всех вариантах: {draft.shared_check_count}.</p>
    {profile.checks.length?<>
     <div className="activity-domain-ops">{profile.checks.slice(checkPage*SIZE,(checkPage+1)*SIZE).map((c,i)=>
-      <button key={c.id} className="activity-domain-op" aria-pressed={checkIndex===checkPage*SIZE+i}
+      <button key={c.id} className="activity-domain-op" aria-label={'Контрольная точка '+(checkPage*SIZE+i+1)+': '+c.title} aria-pressed={checkIndex===checkPage*SIZE+i}
        onClick={()=>setCheckIndex(checkPage*SIZE+i)}>{c.title}<span>{CHECK_TYPES[c.control_type]??c.control_type} · {name(c.operation_id)}</span>
        <span>{c.comparison==='COMMON_DECLARATION'?'Совпадает во всех моделях':c.comparison==='SOURCE_SPECIFIC'?'Условие выбранного варианта':'Нет сравнения'}</span></button>)}</div>
     {profile.checks.length>SIZE?<div className="activity-v7-actions">
@@ -97,7 +97,8 @@ export function TechnologyDraftPanel({draft,operations,review}:{draft:D05Technol
       <span>Страница {checkPage+1} из {Math.ceil(profile.checks.length/SIZE)}</span>
       <button disabled={(checkPage+1)*SIZE>=profile.checks.length} onClick={()=>{setCheckPage(x=>x+1);setCheckIndex((checkPage+1)*SIZE);}}>Далее</button>
     </div>:null}
-    {check?<div className="activity-domain-ops">{check.fields.map(f=><div className="activity-domain-op" key={f.field}>
+    {check?<div className="activity-domain-ops">{check.fields.map(f=><div className="activity-domain-op" key={f.field} role="group"
+      aria-label={(LABELS[f.field]??f.field)+': '+(f.status==='LOCAL_REFERENCE_REVIEW_REQUIRED'?'Требуется уточнение исходной ссылки':show(f.value,f.field))}>
       <strong>{LABELS[f.field]??f.field}</strong>
       <span className="activity-domain-draft-value">{f.status==='LOCAL_REFERENCE_REVIEW_REQUIRED'?'Требуется уточнение исходной ссылки':show(f.value,f.field)}</span>
       <span>{USE[f.use]}</span>

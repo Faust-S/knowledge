@@ -61,7 +61,7 @@ export type D05TechnologyProposalForm={
  quality_roles?:Record<string,string>;
 };
 export type D05TechnologyProposal={
- status:'PROPOSAL_NEEDS_INPUT'|'PROPOSAL_FOR_DOMAIN_REVIEW';source_model_number:number;
+ status:'PROPOSAL_NEEDS_INPUT'|'PROPOSAL_WITH_SOURCE_GAPS'|'PROPOSAL_FOR_DOMAIN_REVIEW';source_model_number:number;
  source_revision:number|null;declared_by:'LOCAL_USER_PROPOSAL';
  terms:Record<string,string|null>;
  operations:Array<{operation_id:string;source_name:string;kind:D05RouteGroup['operations'][number]['kind'];
