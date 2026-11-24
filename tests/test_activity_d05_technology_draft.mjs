@@ -240,3 +240,19 @@ test('unlinked quality plan cannot be completed by model suggestions',async()=>{
  const r=review(buildD05RouteComparisonExample());
  await assert.rejects(()=>prepareD05ExtractionRequest(r,r.groups[0].id,1),{code:'TECHNOLOGY_D05_EXTRACTION_SOURCE_INCOMPLETE'});
 });
+
+import {extractionCase,evaluateActualProposal} from './activity_d05_real_extraction_case.mjs';
+test('quality benchmark separately measures declared evidence grounding and exact product preservation',async()=>{
+ const {request}=await extractionCase();
+ const sourceFields={label:'source_name',role:'performer',equipment:'equipment',material:'material',responsible_role:'responsible_role'};
+ const fields=Object.fromEntries(request.document.fields.map(f=>{
+  const evidence=request.document.evidence.find(e=>e.scope===f.scope&&e.field===sourceFields[f.field]&&e.kind==='DECLARED');
+  return [f.id,evidence?{value:evidence.text,basis:'SOURCE_SUPPORTED',refs:[{ref:evidence.ref,quote:evidence.text}],note:''}:
+   {value:f.field==='title'?'Изготовление листовых деталей':'Условия определяются чертежом и возможностями получателя',basis:'PROPOSED',refs:[],note:'Уточнить применимость'}];
+ }));
+ const report=await evaluateActualProposal({profile:PROPOSAL,request_sha256:request.request_sha256,fields});
+ assert.equal(report.field_count,20);assert.equal(report.directly_declared_count,13);
+ assert.equal(report.direct_reference_count,13);assert.equal(report.nonmissing_count,20);
+ assert.equal(report.product_constructed,true);assert.equal(report.technical_controls_preserved,true);
+ assert.equal(report.semantic_equivalence,'REQUIRES_SPECIALIST_REVIEW');assert.equal(report.export_allowed,false);
+});
