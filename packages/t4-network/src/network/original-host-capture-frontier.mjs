@@ -1,4 +1,4 @@
-import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest}
+import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest,prepareT4OriginalLocalEventSnapshot}
   from './original-event-window.mjs';
 import {readT4OriginalHostLocalCaptureEvidence} from './original-host-outbox-delivery.mjs';
 
@@ -62,14 +62,15 @@ export async function readT4OriginalHostCaptureFrontier({
     if(!Array.isArray(rows)||rows.length>100000)fail('CAPTURE_FRONTIER_ORIGINAL_EVENTS_INVALID');
     return rows;
   };
-  const readWindow=(cursor,events)=>readT4OriginalEventWindow({...scope,cursor,maxEvents:1,
+  const readWindow=(cursor,events,snapshot=null)=>readT4OriginalEventWindow({...scope,cursor,maxEvents:1,
     authorizeOriginalRead:async proof=>{await guard(proof.operation);return true;},
-    readOriginalEvents:async()=>events});
+    readOriginalEvents:async()=>events,originalLocalEventSnapshot:snapshot});
   const b=await baseline();
   await pending();
   const events=await readEvents();
+  const snapshot=prepareT4OriginalLocalEventSnapshot({...scope,originalEvents:events});
   // Check the whole admitted prefix even if no new Events exist.
-  await readWindow(b.sourceCursor,events);
+  await readWindow(b.sourceCursor,events,snapshot);
   await guard('t1.listObjects');
   const rows=structuredClone(await listOriginalOutbox(scope));
   await guard('t1.listObjects');
@@ -96,14 +97,14 @@ export async function readT4OriginalHostCaptureFrontier({
     if(!selected)fail('CAPTURE_FRONTIER_ORIGINAL_EVENT_UNCAPTURED',{
       sourceEventId:events[i].event_id,automaticMutationRetryAllowed:false});
     const {row,kind,subjectId}=selected;
-    const {window,nextCursor}=await readWindow(cursor,events);
+    const {window,nextCursor}=await readWindow(cursor,events,snapshot);
     if(window.count!==1||window.lastEventId!==row.sourceEventId||
       !same(row.sourceCursorBefore,cursor)||!same(row.sourceCursorAfter,nextCursor))
       fail('CAPTURE_FRONTIER_ORIGINAL_CAUSAL_GAP');
     const evidence=await readT4OriginalHostLocalCaptureEvidence({
       ...scope,kind,subjectId,captureRef:row.captureRef,getMode,
       authorizeOriginalRead,readOriginalEvents:async()=>events,readOriginalIntent,readOriginalOutbox,
-    });
+    },snapshot);
     if(!same(evidence.sourceCursorBefore,cursor)||!same(evidence.sourceCursorAfter,nextCursor)||
       evidence.sourceEventId!==row.sourceEventId||evidence.sha256!==row.sha256||evidence.key!==row.key||
       evidence.originalEventDigest!==window.eventRefs[0].eventDigest||

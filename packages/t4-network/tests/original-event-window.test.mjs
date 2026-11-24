@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
  readT4OriginalEventWindow,verifyT4OriginalRecipientAcknowledgement,digestT4OriginalEventRecord,
+ prepareT4OriginalLocalEventSnapshot,readT4OriginalLocalSnapshotEvent,countT4OriginalLocalSnapshotTrace,
 } from '../src/network/original-event-window.mjs';
 
 const workspaceId='workspace:original-owner',owner='t3:original:owner';
@@ -128,4 +129,38 @@ test('original EventRecord digest treats omitted optional metadata consistently 
  assert.notEqual(digestT4OriginalEventRecord({...raw,payload:{step:9}},workspaceId),digestT4OriginalEventRecord(raw,workspaceId));
  const {window}=await run({readOriginalEvents:async()=>[raw]});
  assert.equal(window.eventRefs[0].eventDigest,digestT4OriginalEventRecord(raw,workspaceId));
+});
+
+test('K22 local snapshot preserves EVERY original V1 prefix and window digest without repeat source reads',async()=>{
+ const rows=Array.from({length:256},(_,i)=>({...events[i%5],event_id:'event:batch:'+i,
+   revision:i+1,causation_id:undefined,payload:{z:'й'+i,a:[true,{b:i,a:'é'}]},
+   idempotency_key:i%2?'key:odd':null}));
+ const snapshot=prepareT4OriginalLocalEventSnapshot({workspaceId,originalWriteOwnerRef:owner,originalEvents:rows});
+ assert.equal(snapshot.prefixDigestsComputed,257);
+ let cursor=null,reads=0;
+ const noRead=async()=>{reads++;throw Error('snapshot must not reread history');};
+ for(let i=0;i<rows.length;i++){
+   const old=await run({cursor,maxEvents:1,readOriginalEvents:async()=>rows});
+   const optimized=await run({cursor,maxEvents:1,readOriginalEvents:noRead,originalLocalEventSnapshot:snapshot});
+   assert.deepEqual(optimized,old);
+   cursor=optimized.nextCursor;
+ }
+ assert.equal(reads,0);
+ assert.equal(countT4OriginalLocalSnapshotTrace(snapshot,{workspaceId,originalWriteOwnerRef:owner,
+   kind:'idempotency_key',value:'key:odd'}),128);
+ const event=readT4OriginalLocalSnapshotEvent(snapshot,{workspaceId,originalWriteOwnerRef:owner,eventId:rows[0].event_id});
+ assert.deepEqual(event,rows[0]);event.payload.a.push('external mutation');
+ assert.deepEqual(readT4OriginalLocalSnapshotEvent(snapshot,{workspaceId,originalWriteOwnerRef:owner,eventId:rows[0].event_id}),rows[0]);
+});
+test('K22 original local snapshot cannot be substituted by plain object, cross-owner value or revoked read authority',async()=>{
+ const snapshot=prepareT4OriginalLocalEventSnapshot({workspaceId,originalWriteOwnerRef:owner,originalEvents:events});
+ await assert.rejects(run({originalLocalEventSnapshot:{...snapshot}}),code('ORIGINAL_LOCAL_EVENT_SNAPSHOT_SCOPE_INVALID'));
+ await assert.rejects(run({originalLocalEventSnapshot:snapshot,originalWriteOwnerRef:'owner:foreign'}),code('ORIGINAL_LOCAL_EVENT_SNAPSHOT_SCOPE_INVALID'));
+ let calls=0;
+ await assert.rejects(run({originalLocalEventSnapshot:snapshot,authorizeOriginalRead:async()=>++calls===1}),
+   code('ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED'));
+ const start=await run({maxEvents:2,originalLocalEventSnapshot:snapshot});
+ const changed=prepareT4OriginalLocalEventSnapshot({workspaceId,originalWriteOwnerRef:owner,
+   originalEvents:events.map((e,i)=>i===0?{...e,payload:{changed:true}}:e)});
+ await assert.rejects(run({cursor:start.nextCursor,originalLocalEventSnapshot:changed}),code('ORIGINAL_T3_EVENT_HISTORY_DIVERGED'));
 });

@@ -53,9 +53,66 @@ export function matchesT4OriginalCapturedWindowDigest(window,expectedDigest){
     (body.hasMore===true&&hash({...body,hasMore:false})===expectedDigest);
 }
 
+function normalizeHistory(raw,workspaceId){
+  if(!Array.isArray(raw)||raw.length>100000)fail('ORIGINAL_T3_EVENT_STREAM_INVALID');
+  const positions=new Map(),events=[];
+  for(const event of raw){
+    const normalized=normalizeEvent(event,workspaceId);
+    if(positions.has(normalized.eventId))fail('ORIGINAL_T3_EVENT_DUPLICATE');
+    positions.set(normalized.eventId,events.length);events.push(normalized);
+  }
+  return {positions,events};
+}
+const localSnapshots=new WeakMap();
+// Ephemeral proof calculation for ONE original Host boundary. This does not
+// persist a second cursor or grant authority. The enclosing capture frontier
+// must independently re-read the original history before returning a result.
+export function prepareT4OriginalLocalEventSnapshot({workspaceId,originalWriteOwnerRef,originalEvents}={}){
+  if(!id(workspaceId)||!id(originalWriteOwnerRef))fail('ORIGINAL_T3_OWNER_SCOPE_REQUIRED');
+  const rows=structuredClone(originalEvents),{positions,events}=normalizeHistory(rows,workspaceId);
+  const prefixes=[emptyPrefix],acc=createHash('sha256').update('[');
+  const idempotencies=new Map(),deleteTraces=new Map();
+  const increment=(map,key)=>{if(typeof key==='string')map.set(key,(map.get(key)??0)+1);};
+  for(let i=0;i<events.length;i++){
+    // Exact old V1 hash of the canonical JSON array, not a new chain format.
+    // A copy of the running SHA state plus ']' gives the prefix in O(1)
+    // additional input bytes. All prefixes are calculated in one pass.
+    if(i)acc.update(',');
+    acc.update(JSON.stringify(canonical(events[i])));
+    prefixes.push('sha256:'+acc.copy().update(']').digest('hex'));
+    increment(idempotencies,rows[i].idempotency_key);
+    increment(deleteTraces,rows[i].payload?.iwxa_t4_object_delete_intent);
+  }
+  const token=immutable({schema:'IWXA_T4_LOCAL_EVENT_READ_SNAPSHOT_V1',
+    workspaceId,originalWriteOwnerRef,originalEventsRead:events.length,
+    prefixDigestsComputed:prefixes.length,originalAuthorityGranted:false});
+  localSnapshots.set(token,{workspaceId,originalWriteOwnerRef,rows,positions,events,prefixes,
+    idempotencies,deleteTraces});
+  return token;
+}
+function localSnapshot(token,workspaceId,owner){
+  const x=localSnapshots.get(token);
+  if(!x||x.workspaceId!==workspaceId||x.originalWriteOwnerRef!==owner)
+    fail('ORIGINAL_LOCAL_EVENT_SNAPSHOT_SCOPE_INVALID');
+  return x;
+}
+// Only the already-authorized local evidence reader uses this lookup, after
+// its normal Event read guard. The ordinary publication path reads live.
+export function readT4OriginalLocalSnapshotEvent(token,{workspaceId,originalWriteOwnerRef,eventId}={}){
+  const x=localSnapshot(token,workspaceId,originalWriteOwnerRef);
+  const i=x.positions.get(eventId);
+  return i===undefined?null:structuredClone(x.rows[i]);
+}
+export function countT4OriginalLocalSnapshotTrace(token,{workspaceId,originalWriteOwnerRef,kind,value}={}){
+  const x=localSnapshot(token,workspaceId,originalWriteOwnerRef);
+  if(typeof value!=='string'||!['idempotency_key','object_delete_intent'].includes(kind))
+    fail('ORIGINAL_LOCAL_EVENT_SNAPSHOT_TRACE_INVALID');
+  return (kind==='idempotency_key'?x.idempotencies:x.deleteTraces).get(value)??0;
+}
+
 export async function readT4OriginalEventWindow({
   workspaceId,originalWriteOwnerRef,cursor=null,maxEvents=128,
-  authorizeOriginalRead,readOriginalEvents,
+  authorizeOriginalRead,readOriginalEvents,originalLocalEventSnapshot=null,
 }={}) {
   if(!id(workspaceId)||!id(originalWriteOwnerRef))fail('ORIGINAL_T3_OWNER_SCOPE_REQUIRED');
   if(!Number.isSafeInteger(maxEvents)||maxEvents<1||maxEvents>1024)
@@ -65,15 +122,12 @@ export async function readT4OriginalEventWindow({
   const guard=immutable({operation:'t1.listEventsSince',workspaceId,originalWriteOwnerRef,
     networkReadGrantsCreated:false});
   if(await authorizeOriginalRead(guard)!==true)fail('ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED');
-  const raw=await readOriginalEvents(guard);
+  const snapshot=originalLocalEventSnapshot===null?null:
+    localSnapshot(originalLocalEventSnapshot,workspaceId,originalWriteOwnerRef);
+  const raw=snapshot===null?await readOriginalEvents(guard):null;
   if(await authorizeOriginalRead(guard)!==true)fail('ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED');
-  if(!Array.isArray(raw)||raw.length>100000)fail('ORIGINAL_T3_EVENT_STREAM_INVALID');
-  const ids=new Set(),events=[];
-  for(const event of raw){
-    const normalized=normalizeEvent(event,workspaceId);
-    if(ids.has(normalized.eventId))fail('ORIGINAL_T3_EVENT_DUPLICATE');
-    ids.add(normalized.eventId);events.push(normalized);
-  }
+  const {positions,events}=snapshot??normalizeHistory(raw,workspaceId);
+  const prefix=count=>snapshot?snapshot.prefixes[count]:hash(events.slice(0,count));
   let start=0,afterEventId=null,previousDigest=emptyPrefix;
   if(cursor!==null){
     if(cursor?.schema!==cursorSchema||cursor.workspaceId!==workspaceId||
@@ -81,15 +135,15 @@ export async function readT4OriginalEventWindow({
       !id(cursor.lastEventId)||!/^sha256:[a-f0-9]{64}$/.test(cursor.sourcePrefixDigest)||
       !Number.isSafeInteger(cursor.seenEventCount)||cursor.seenEventCount<1)
       fail('ORIGINAL_EVENT_CURSOR_INVALID');
-    const index=events.findIndex(event=>event.eventId===cursor.lastEventId);
-    if(index<0||index+1!==cursor.seenEventCount)fail('ORIGINAL_EVENT_CURSOR_NOT_FOUND');
-    const actualPrefix=hash(events.slice(0,index+1));
+    const index=positions.get(cursor.lastEventId);
+    if(index===undefined||index+1!==cursor.seenEventCount)fail('ORIGINAL_EVENT_CURSOR_NOT_FOUND');
+    const actualPrefix=prefix(index+1);
     if(actualPrefix!==cursor.sourcePrefixDigest)fail('ORIGINAL_T3_EVENT_HISTORY_DIVERGED');
     start=index+1;afterEventId=cursor.lastEventId;previousDigest=actualPrefix;
   }
   const available=events.slice(start,start+maxEvents);
   const lastEventId=available.length?available.at(-1).eventId:afterEventId;
-  const afterDigest=hash(events.slice(0,start+available.length));
+  const afterDigest=prefix(start+available.length);
   const nextCursor=available.length?immutable({
     schema:cursorSchema,workspaceId,originalWriteOwnerRef,
     lastEventId,seenEventCount:start+available.length,

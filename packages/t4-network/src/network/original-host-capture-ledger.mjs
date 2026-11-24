@@ -196,7 +196,7 @@ export function createT4OriginalHostCaptureLedgerPort({
   }
   async function readIndexed(role,e,i,initial){
     const payload=await read(role,{workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
-      captureRef:e.payload.captureRef},initial,i.all);
+      captureRef:e.payload.captureRef},initial,[e]);
     if(!payload)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
     return payload;
   }

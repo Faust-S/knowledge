@@ -1,5 +1,6 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
-import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
+import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest,
+  readT4OriginalLocalSnapshotEvent,countT4OriginalLocalSnapshotTrace} from './original-event-window.mjs';
 import {publishT4OriginalObjectDelta,decodeT4OriginalObjectDeltaBytes} from './original-object-delta.mjs';
 import {publishT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes} from './original-asset-delta.mjs';
 import {publishT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes} from './original-relation-delta.mjs';
@@ -190,14 +191,17 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
   if(await params.authorizeOriginalRead(originalRight)!==true||await networkDenied())
     fail('OUTBOX_ORIGINAL_OR_NETWORK_AUTHORITY_DENIED');
   const verified=validateEnvelope(s,outbox,intent);
-  const originals=await params.readOriginalEvents(historyRight);
-  if(!Array.isArray(originals)||originals.length>100000)
+  // Reuse a single verified source read only for local frontier recovery.
+  // Publication must independently read the current original history.
+  const snapshot=requireNetworkPublish?null:params.originalLocalEventSnapshot??null;
+  const originals=snapshot===null?await params.readOriginalEvents(historyRight):null;
+  if(snapshot===null&&(!Array.isArray(originals)||originals.length>100000))
     fail('OUTBOX_ORIGINAL_EVENT_HISTORY_INVALID');
   const {window,nextCursor}=await readT4OriginalEventWindow({
     workspaceId:s.workspaceId,originalWriteOwnerRef:s.originalWriteOwnerRef,
     cursor:outbox.sourceCursorBefore,maxEvents:1,
     authorizeOriginalRead:ctx=>params.authorizeOriginalRead(ctx),
-    readOriginalEvents:async()=>originals,
+    readOriginalEvents:async()=>originals,originalLocalEventSnapshot:snapshot,
   });
   // The original Event stream may have advanced while this delta was offline.
   // hasMore may now differ from the captured immutable window; compare the
@@ -209,7 +213,8 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
     window.eventRefs[0].eventDigest!==
       verified.prepared.delta.sourceEventDigest)
     fail('OUTBOX_ORIGINAL_EVENT_HISTORY_DIVERGED');
-  const event=originals.find(row=>row?.event_id===outbox.sourceEventId);
+  const event=snapshot===null?originals.find(row=>row?.event_id===outbox.sourceEventId):
+    readT4OriginalLocalSnapshotEvent(snapshot,{...s,eventId:outbox.sourceEventId});
   const {kind}=s;
   if(!event||event.workspace_id!==s.workspaceId||
     event.event_type!==verified.prepared.delta.originalEventType)
@@ -224,7 +229,10 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
     const traceMatch=row=>kind==='OBJECT_DELETE'?
       row?.payload?.iwxa_t4_object_delete_intent===expected.payload.iwxa_t4_object_delete_intent:
       row?.idempotency_key===expected.idempotency_key;
-    if(!traceMatch(event)||originals.filter(traceMatch).length!==1||
+    const matches=snapshot===null?originals.filter(traceMatch).length:
+      countT4OriginalLocalSnapshotTrace(snapshot,{...s,kind:kind==='OBJECT_DELETE'?'object_delete_intent':'idempotency_key',
+        value:kind==='OBJECT_DELETE'?expected.payload.iwxa_t4_object_delete_intent:expected.idempotency_key});
+    if(!traceMatch(event)||matches!==1||
       event.event_type!==expected.event_type||!same(event.payload,expected.payload)||
       (kind==='OBJECT_DELETE'&&(event.object_id!==s.subjectId||
         event.revision!==t4OriginalDeletedSubjectRevision(verified.prepared.delta))))
@@ -477,8 +485,8 @@ export async function readT4OriginalHostCapturedSubject(params={}){
 // An original local capture frontier needs proof of previous local commits,
 // not a grant to publish their contents to a network peer. Return metadata
 // only; the original network publisher still invokes the authorized path.
-export async function readT4OriginalHostLocalCaptureEvidence(params={}){
-  const c=await readCapturedSubject(params,false);
+export async function readT4OriginalHostLocalCaptureEvidence(params={},originalLocalEventSnapshot=null){
+  const c=await readCapturedSubject({...params,originalLocalEventSnapshot},false);
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_LOCAL_CAPTURE_EVIDENCE_V1',
     kind:c.kind,subjectId:c.subjectId,captureRef:c.captureRef,
