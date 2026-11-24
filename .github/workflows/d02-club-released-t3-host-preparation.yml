@@ -1,0 +1,72 @@
+name: d02-club-released-t3-host-preparation
+on:
+  push:
+    branches:
+      - work/2026-11-18-d02-club-qualification
+    paths:
+      - .github/workflows/d02-club-released-t3-host-preparation.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact released public T3 technology
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 3056eef0665fb3503294d49b89d937af2ea060e2
+          persist-credentials: false
+          path: one-core
+      - name: Checkout exact private Club candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: 8d89c8a0c1a1e385f962c9f6ef6091df4feb2326
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Download original public release archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/artifacts/14710772859/zip > "$RUNNER_TEMP/t3-platform.zip"
+          echo "6a80def6c3a9581daa24cd6d79ec26c557f70fb37f08a8b96e160ef4783b9fc4  $RUNNER_TEMP/t3-platform.zip" | sha256sum --check --status
+          echo D02_T3_PUBLIC_RELEASE_ARCHIVE=PASS
+      - name: Verify pinned release and explicit assistant boundary
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          export IWXA_T3_PLATFORM_ARCHIVE="$RUNNER_TEMP/t3-platform.zip"
+          node scripts/t3-platform-inputs.mjs verify "$IWXA_T3_PLATFORM_ARCHIVE" > "$RUNNER_TEMP/verify.json" 2> "$RUNNER_TEMP/verify.log"
+          if ! node --test scripts/test-club-t3-platform.mjs > "$RUNNER_TEMP/private-test.log" 2>&1; then
+            echo D02_T3_PLATFORM_TEST=FAIL
+            exit 1
+          fi
+          echo D02_T3_PLATFORM_127_FILES_AND_SOURCE_TESTS=PASS
+      - name: Compile existing Club module into exact released original T3 Host
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npm run t3:host:prepare -- "$GITHUB_WORKSPACE/one-core/packages/t3-core" "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/t3-platform.zip" > "$RUNNER_TEMP/private-build.log" 2>&1; then
+            echo D02_T3_HOST_SOURCE_BUILD=FAIL
+            grep -Eo 'CLUB_T3_(HOST|PLATFORM)_[A-Z_]+|T2_EXTERNAL_MODULE_[A-Z_]+|T2_ACTIVE_RUNTIME_CONTRACT_HOLD|TS[0-9]{4}' "$RUNNER_TEMP/private-build.log" | sort -u | head -15 || true
+            exit 1
+          fi
+          node -e 'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(p.schema!=="IWXA_CLUB_COMPILED_HOST_INPUT/1"||p.moduleId!=="iwxa.domain.club"||p.state!=="SOURCE_BUILD_NOT_PRODUCT_ACCEPTED"||p.sourceCommit!=="3056eef0665fb3503294d49b89d937af2ea060e2")process.exit(1);console.log("D02_T3_HOST_SOURCE_BUILD=PASS; files="+p.files.length+"; module_source_files="+p.moduleSourceFiles.length)' "$RUNNER_TEMP/club-t3-host/club-t3-host-input.json"
+          echo D02_T3_DOMAIN_ACCEPTED=false
+      - name: Remove temporary private compilation and logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/private-test.log" "$RUNNER_TEMP/verify.json" "$RUNNER_TEMP/verify.log"
