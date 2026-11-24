@@ -48,6 +48,8 @@ export function createSubjectKernelBinding(input: {
   onCommitObjectGraphDispatch?: () => void;
   /** Opaque lifetime key supplied only by the original trusted Host. */
   previewSession?: object;
+  /** Only the installed original Admin/Agent business Exchange profile. */
+  corporateBusinessExchange?: boolean;
 }): Pick<KernelFacade,
   "createWorkspace" | "getWorkspace" | "getObject" | "listObjects" |
   "putObject" | "deleteObject" | "putRelation" | "deleteRelation" |

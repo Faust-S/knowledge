@@ -110,6 +110,10 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
   // Control returns fresh method-specific signed ports. Original preview
   // handles survive across them only within this live KernelFacade.
   const previewSession=Object.freeze({});
+  // Exact installed service identity from the original negotiated T2
+  // session, never a UI-provided operation or imported manifest.
+  const corporateBusinessExchange=["iwxa.admin-center.workspace",
+    "iwxa.personal-agent.workspace"].includes(session.service?.service_id??"");
   const deny = (code: string): never => {
     throw Object.assign(new Error(code), { code });
   };
@@ -129,6 +133,7 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     if (!bound) {
       bound = createSubjectKernelBinding({
         kernel: inherited as unknown as KernelFacade, access,previewSession,
+        corporateBusinessExchange,
         isHostActive:()=>input.isHostActive?.()!==false,
       });
       instances.set(access, bound);

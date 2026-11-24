@@ -35,8 +35,106 @@ const HEX = /^[a-f0-9]{64}$/;
 // call. A Kernel preview belongs to the same live Host and signed context,
 // not to that short-lived port object. The opaque key never reaches a module.
 const previewSessions = new WeakMap();
+// These are existing original product schemas, not a second Exchange.
+// The installed signed corporate Host transfers WORK data only. A native
+// D3 applied receipt and the authority registry are not user-importable.
+const BUSINESS_SCHEMAS=new Set(["iwxa.t3.company-work-record","iwxa.agent.accepted-result"]);
+const ARCHIVE_COUNTS=["workspaces","objects","events","relations","assets","schemas"];
+const COMPLETE_OPTIONS=["include_history","include_assets","include_relations","include_schemas"];
+const EXCHANGE_METHODS=new Set(["exportPreview","exportPackage","confirmExport",
+  "importPreview","importCommit","importCancel"]);
+const managementWorkspace=id=>typeof id==="string"&&id.startsWith("workspace:registry:");
+const managementObject=id=>id==="t3.access.signed-registry"||
+  typeof id==="string"&&id.startsWith("result:applied:");
+const managementEvent=event=>event?.event_type==="t3.access.signed_registry.persisted"||
+  event?.event_type==="iwxa.admin.result.applied"||
+  managementObject(event?.object_id)||managementObject(event?.payload?.object_id);
+function requireBusinessWorkspace(context){
+  if(context.kind!=="CORP"||managementWorkspace(context.workspace_id))
+    refused("T3_CORPORATE_EXCHANGE_WORKSPACE_REQUIRED");
+}
+function businessRecord(row,workspace){
+  return row?.workspace_id===workspace&&id(row.object_id)&&
+    !managementObject(row.object_id)&&BUSINESS_SCHEMAS.has(row.schema_id)&&
+    row.schema_version==="1.0.0";
+}
+function completeCounts(total,included,excluded){
+  return ARCHIVE_COUNTS.every(k=>Number.isSafeInteger(total?.[k])&&
+    total[k]>=0&&included?.[k]===total[k]&&excluded?.[k]===0);
+}
+function requireCompleteBusinessArchive(handle,workspace){
+  const p=handle?.preview,m=p?.manifest;
+  // Same signed corporate Workspace ID on both products. No foreign-source
+  // remap, personal backup or cross-organization import in this profile.
+  if(m?.format!=="iwxa.package"||m.format_version!=="1.0"||
+     m.encryption!=="none"||m.workspaces?.length!==1||
+     m.workspaces[0]!==workspace||m.workspace_states?.length!==1||
+     m.workspace_states[0]?.workspace_id!==workspace||
+     !COMPLETE_OPTIONS.every(k=>m.options?.[k]===true)||
+     m.counts?.workspaces!==1||p.scope_mode!=="workspace"||
+     !completeCounts(p.totals,p.included,p.excluded_by_permission)||
+     !ARCHIVE_COUNTS.every(k=>m.counts?.[k]===p.totals[k])||
+     !Array.isArray(p.objects)||p.objects.length!==p.totals.objects||
+     new Set(p.objects.map(row=>row.object_id)).size!==p.objects.length||
+     !p.objects.every(row=>businessRecord(row,workspace))||
+     !Array.isArray(p.schemas)||p.schemas.some(row=>
+       !BUSINESS_SCHEMAS.has(row?.schema_id)||
+       row.schema_version!=="1.0.0"||
+       !["known_domain","known_persisted","embedded_equal","embedded_new"].includes(row.status))||
+     !Array.isArray(p.unsupported)||p.unsupported.some(row=>row.kind!=="extension_field")||
+     !p.invalid||!["envelopes","dependencies","schema_validation","schema_conflicts"]
+       .every(k=>p.invalid[k]===0))
+    refused("T3_CORPORATE_EXCHANGE_BUSINESS_ARCHIVE_REQUIRED");
+}
+async function requireWorkingInventory(kernel,workspace,{forExport=false}={}){
+  for(const [method,op] of [["getObject","t1.getObject"],["listEventsSince","t1.listEventsSince"]])
+    if(!kernel.hasOperation(op)||typeof kernel[method]!=="function")
+      refused("T3_CORPORATE_EXCHANGE_INVENTORY_UNAVAILABLE");
+  const old=await kernel.getObject(workspace,"t3.access.signed-registry");
+  if(old!=null)refused("T3_CORPORATE_EXCHANGE_LEGACY_REGISTRY_PRESENT");
+  const events=await kernel.listEventsSince(workspace);
+  if(!Array.isArray(events)||events.some(e=>e?.workspace_id!==workspace))
+    refused("T3_CORPORATE_EXCHANGE_INVENTORY_UNAVAILABLE");
+  if(events.some(e=>e.event_type==="t3.access.signed_registry.persisted"||
+      e.object_id==="t3.access.signed-registry"||e.payload?.object_id==="t3.access.signed-registry"))
+    refused("T3_CORPORATE_EXCHANGE_LEGACY_REGISTRY_PRESENT");
+  if(forExport){
+    if(!kernel.hasOperation("t1.listObjects")||typeof kernel.listObjects!=="function")
+      refused("T3_CORPORATE_EXCHANGE_INVENTORY_UNAVAILABLE");
+    const rows=await kernel.listObjects({workspace_id:workspace,include_deleted:true});
+    if(!Array.isArray(rows)||!rows.every(row=>businessRecord(row,workspace))||
+       events.some(managementEvent))
+      refused("T3_CORPORATE_EXCHANGE_PROTECTED_OR_UNSUPPORTED_CONTENT");
+  }
+}
+async function inspectBusinessExport(kernel,artifact,workspace){
+  const manifest=artifact?.manifest;
+  if(!(artifact?.bytes instanceof Uint8Array)||artifact.bytes.byteLength<1||
+     artifact.size!==artifact.bytes.byteLength||artifact.validation?.ok!==true||
+     !HEX.test(artifact.package_digest??"")||
+     manifest?.package_digest!==artifact.package_digest||
+     artifact.summary?.scope_mode!=="workspace"||
+     !completeCounts(manifest?.counts,artifact.summary?.included,artifact.summary?.excluded_by_permission))
+    refused("T3_CORPORATE_EXCHANGE_EXPORT_INCOMPLETE");
+  // Inspect the exact generated archive with the ORIGINAL T2 parser.
+  // No second package format or parser; this private validation creates
+  // only a transient token, never dispatches importCommit, and cancels it.
+  if(!kernel.hasOperation("t2.importPreview")||!kernel.hasOperation("t2.importCancel")||
+     typeof kernel.importPreview!=="function"||typeof kernel.importCancel!=="function")
+    refused("T3_CORPORATE_EXCHANGE_ORIGINAL_PARSER_REQUIRED");
+  const inspected=await kernel.importPreview(new Uint8Array(artifact.bytes));
+  try{
+    if(!id(inspected?.preview_token)||inspected.package_digest!==artifact.package_digest||
+       inspected.semantic_digest!==artifact.semantic_digest)
+      refused("T3_CORPORATE_EXCHANGE_EXPORT_INCOMPLETE");
+    requireCompleteBusinessArchive(inspected,workspace);
+  }finally{
+    if(id(inspected?.preview_token))await kernel.importCancel(inspected.preview_token);
+  }
+}
 function previewStateFor(key){
-  const fresh=()=>({pendingImport:null,pendingPurge:null,importGeneration:0,purgeGeneration:0});
+  const fresh=()=>({pendingImport:null,pendingPurge:null,pendingExport:null,
+    importGeneration:0,purgeGeneration:0,exportGeneration:0});
   if(key===null)return fresh();
   if(typeof key!=="object")refused("T3_SUBJECT_PREVIEW_SESSION_INVALID");
   let state=previewSessions.get(key);
@@ -132,7 +230,7 @@ function authorizedDecision(decision,context,now) {
 export function createSubjectKernelBinding({
   kernel, access, clock = Date.now, commitObjectGraphPrecondition = null,
   isHostActive = () => true, onCommitObjectGraphDispatch = null,
-  previewSession = null,
+  previewSession = null,corporateBusinessExchange = false,
 } = {}) {
   if (!kernel || typeof kernel.hasOperation !== "function" ||
       !kernel.sessionInfo || kernel.sessionInfo.contract_version !== "1.3.0" ||
@@ -156,6 +254,8 @@ export function createSubjectKernelBinding({
   // One short-lived Host-side preview binding, NOT a new Store or journal.
   // T2 Kernel remains sole authority for purge tokens and irreversible commit.
   // A new process must create a fresh preview; no cross-process token reuse.
+  if(typeof corporateBusinessExchange!=="boolean")
+    refused("T3_CORPORATE_EXCHANGE_PROFILE_INVALID");
   const previews = previewStateFor(previewSession);
   function snapshotCommand(input) {
     try { return structuredClone(input); }
@@ -170,6 +270,30 @@ export function createSubjectKernelBinding({
     const context = await selected(access);
     // The caller cannot override a Host-selected PERSONAL/CORP context.
     if (context.workspace_id !== workspace_id) refused("T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE");
+    const business=corporateBusinessExchange&&EXCHANGE_METHODS.has(method);
+    if(corporateBusinessExchange&&managementWorkspace(workspace_id))
+      refused("T3_CORPORATE_EXCHANGE_WORKSPACE_REQUIRED");
+    if(business)requireBusinessWorkspace(context);
+    if(business&&["exportPreview","exportPackage"].includes(method)&&
+       (!COMPLETE_OPTIONS.every(k=>command?.[k]===true)||
+        (command.scope!=null&&(command.scope.mode!=="workspace"||
+          Object.keys(command.scope).length!==1))))
+      refused("T3_CORPORATE_EXCHANGE_COMPLETE_WORKSPACE_REQUIRED");
+    if(business&&method==="confirmExport"){
+      const prepared=previews.pendingExport;
+      if(!prepared||prepared.contextIdentity!==identity(context)||
+         prepared.workspaceId!==workspace_id||
+         prepared.packageDigest!==command?.package_digest)
+        refused("T3_CORPORATE_EXCHANGE_VERIFIED_EXPORT_REQUIRED");
+      previews.pendingExport=null;
+    }
+    if(corporateBusinessExchange&&["putObject","deleteObject","commitObjectGraph"].includes(method)){
+      const record=method==="commitObjectGraph"?command.object:command;
+      if(managementObject(record?.object_id)||
+         record?.schema_id==="iwxa.t3.access.signed-registry"||
+         record?.schema_id==="iwxa.admin.applied-results"||managementEvent(command.event))
+        refused("T3_CORPORATE_EXCHANGE_PROTECTED_OR_UNSUPPORTED_CONTENT");
+    }
     // T2 Exchange addresses workspaces through an array rather than a
     // workspace_id property. Require exactly the selected subject's workspace.
     // Confirming an export without explicit workspace_ids would confirm all
@@ -207,6 +331,14 @@ export function createSubjectKernelBinding({
         const source = boundImport.sourceWorkspaceId;
         const foreign = source !== workspace_id;
         const map = plan?.workspace_id_map;
+        if(business&&(foreign||boundImport.business!==true||
+           !["merge","full","selective"].includes(plan?.mode)||
+           !["fail","overwrite"].includes(plan?.conflict??"fail")||
+           !Array.isArray(plan.include_workspaces)||plan.include_workspaces.length!==1||
+           plan.include_workspaces[0]!==workspace_id||
+           (plan.include_objects?.length??0)!==0||
+           !["include_history","include_assets","include_relations"].every(k=>plan[k]===true)))
+          refused("T3_CORPORATE_EXCHANGE_COMPLETE_WORKSPACE_REQUIRED");
         if (!plan || typeof plan !== "object" || Array.isArray(plan) ||
             !["full","selective","merge","new-workspace"].includes(plan.mode) ||
             (boundImport.allowedModes &&
@@ -305,6 +437,13 @@ export function createSubjectKernelBinding({
       if (!current) refused("T3_D3_ORIGINAL_APPLICATION_PRECONDITION_DENIED");
     }
     requireActive();
+    if(business&&["exportPreview","exportPackage","importPreview","importCommit"].includes(method)){
+      await requireWorkingInventory(kernel,workspace_id,{
+        forExport:method==="exportPreview"||method==="exportPackage"});
+      if(identity(context)!==identity(await selected(access)))
+        refused("T3_SUBJECT_CONTEXT_CHANGED");
+      requireActive();
+    }
     // This is the exact boundary where the original Kernel operation starts.
     // Observers may record uncertainty, but cannot issue a second operation.
     if (method === "commitObjectGraph") onCommitObjectGraphDispatch?.();
@@ -424,6 +563,14 @@ export function createSubjectKernelBinding({
         refused("T3_KERNEL_IMPORT_SCOPE_MISMATCH");
       }
     }
+    if(business&&method==="importPreview"){
+      try{requireCompleteBusinessArchive(result,workspace_id);}
+      catch(error){
+        if(id(result?.preview_token)&&kernel.hasOperation("t2.importCancel"))
+          try{await kernel.importCancel(result.preview_token);}catch{}
+        throw error;
+      }
+    }
     if (method === "importCommit") {
       const source = boundImport.sourceWorkspaceId;
       // Original T2 full/selective receipts can omit the map when importing
@@ -492,6 +639,14 @@ export function createSubjectKernelBinding({
         refused("T3_KERNEL_EXCHANGE_SCOPE_MISMATCH");
       }
     }
+    if(business&&method==="exportPreview"&&
+       (result.summary?.scope_mode!=="workspace"||
+        !completeCounts(result.counts,result.summary?.included,result.summary?.excluded_by_permission)))
+      refused("T3_CORPORATE_EXCHANGE_EXPORT_INCOMPLETE");
+    if(business&&method==="exportPackage"){
+      await inspectBusinessExport(kernel,result,workspace_id);
+      await requireWorkingInventory(kernel,workspace_id,{forExport:true});
+    }
     // Kernel/Host methods are asynchronous. Selection can change while the
     // original Kernel is executing, even when Access JIT authorization passed.
     // Never return the prior subject's read or receipt to the new context.
@@ -500,12 +655,19 @@ export function createSubjectKernelBinding({
       refused("T3_SUBJECT_RESULT_STALE_AFTER_KERNEL");
     }
     requireActive();
+    if(business&&method==="exportPackage"){
+      if(previewGeneration!==previews.exportGeneration)
+        refused("T3_CORPORATE_EXCHANGE_EXPORT_SUPERSEDED");
+      previews.pendingExport=Object.freeze({contextIdentity:identity(context),
+        workspaceId:workspace_id,packageDigest:result.package_digest});
+    }
     if (method === "importPreview") {
       if(previewGeneration!==previews.importGeneration)
         refused("T3_SUBJECT_IMPORT_PREVIEW_SUPERSEDED");
       previews.pendingImport = Object.freeze({
         workspace_id,contextIdentity:identity(context),
         sourceWorkspaceId:result.preview.manifest.workspaces[0],
+        business,
         allowedModes:Array.isArray(result.allowed_modes)
           ?Object.freeze([...result.allowed_modes]):null,
         preview_token:result.preview_token,
@@ -591,8 +753,11 @@ export function createSubjectKernelBinding({
       invoke("restoreWorkspace",{workspace_id},workspace_id),
     exportPreview: async options =>
       invoke("exportPreview",options,oneWorkspace(options?.workspaces)),
-    exportPackage: async options =>
-      invoke("exportPackage",options,oneWorkspace(options?.workspaces)),
+    exportPackage: async options => {
+      const generation=++previews.exportGeneration;
+      previews.pendingExport=null;
+      return invoke("exportPackage",options,oneWorkspace(options?.workspaces),null,null,generation);
+    },
     confirmExport: async input =>
       invoke("confirmExport",input,oneWorkspace(input?.workspace_ids)),
     importPreview: async bytes => {
