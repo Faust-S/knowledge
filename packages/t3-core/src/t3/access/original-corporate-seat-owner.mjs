@@ -211,11 +211,15 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
   const old=state.grants[grantId]?.payload;
   const seen=snapshot.status.entries.filter(e=>e.evidenceRef.startsWith(commandPrefix));
   const known=old?.evidenceRefs?.find(e=>e.startsWith(commandPrefix));
-  if(known||seen.length){
-   insist((!known||known===commandRef)&&seen.every(e=>e.evidenceRef===commandRef),
+  const tombstones=Object.entries(state.tombstones??{}).filter(([,e])=>
+    typeof e?.reason==='string'&&e.reason.startsWith(commandPrefix));
+  if(known||seen.length||tombstones.length){
+   insist((!known||known===commandRef)&&seen.every(e=>e.evidenceRef===commandRef)&&
+     tombstones.every(([,e])=>e.reason===commandRef),
      'CORP_SEAT_COMMAND_REUSE_CONFLICT');
    insist((!assign||known===commandRef)&&(!release||
-     seen.some(e=>e.grantId===input.fromGrantId&&e.state==='REVOKED')),
+     (tombstones.some(([id])=>id===input.fromGrantId)&&
+       statusEntry(snapshot.status,input.fromGrantId)?.state==='REVOKED')),
      'CORP_SEAT_COMMIT_READBACK_INCOMPLETE');
    return {outcome:'ALREADY_COMMITTED',commandId:input.commandId,
      grantId:assign?grantId:null,releasedGrantId:release?input.fromGrantId:null};
@@ -310,7 +314,10 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
   if(release){
    const row=entries.find(x=>x.grantId===from.grantId);
    Object.assign(row,{state:'REVOKED',effectiveAt:iso(at),evidenceRef:commandRef});
-   // Preserve the terminal signed STATUS; the original registry owns it.
+   // Existing STATUS delivery requires terminal revocation evidence. Keep
+   // the original append-only tombstone so the released seat cannot return
+   // even when a later signed STATUS changes the descriptive evidenceRef.
+   next.tombstones[from.grantId]={effectiveAt:iso(at),reason:commandRef};
   }
   if(assign){
    const expiresAt=Math.min(timestamp(work.expiresAt),timestamp(credential.expiresAt),
@@ -344,7 +351,8 @@ export function createOriginalCorporateSeatOwner({registry,issuerSigner,proveMan
   const saved=await read(time());
   insist(saved.state.statusFloor[authorityId]===sequence&&
    (!assign||eq(saved.state.grants[grantId],next.grants[grantId]))&&
-   (!release||statusEntry(saved.snapshot.status,from.grantId)?.state==='REVOKED'),
+   (!release||(statusEntry(saved.snapshot.status,from.grantId)?.state==='REVOKED'&&
+     eq(saved.state.tombstones[from.grantId],next.tombstones[from.grantId]))),
    'CORP_SEAT_ORIGINAL_COMMIT_READBACK_REQUIRED');
   return Object.freeze({outcome:'COMMITTED',commandId:input.commandId,
     grantId:assign?grantId:null,releasedGrantId:release?from.grantId:null,

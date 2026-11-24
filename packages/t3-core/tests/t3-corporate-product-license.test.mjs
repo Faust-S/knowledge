@@ -445,6 +445,9 @@ test('verified original employee roster and lost-ACK recovery are read-only acro
  await s.owner.changeCorporateSeat(release);s.cold();
  receipt=await s.owner.readCorporateSeatCommand(release);
  assert.equal(receipt.outcome,'ALREADY_COMMITTED');assert.equal(receipt.releasedGrantId,committed.grantId);
+ const state=await s.registry.readState();
+ assert.equal(state.tombstones[committed.grantId].effectiveAt,state.statuses['issuer:north'].payload.entries.find(e=>e.grantId===committed.grantId).effectiveAt);
+ assert.ok(state.tombstones[committed.grantId].reason.startsWith('seat-command:'));
  assert.equal(receipt.view.eligibleEmployees.find(x=>x.personId===alice.personId).reserved,false);
  assert.equal(s.kernel.calls.length,baseline+2);
  const stale={...a,commandId:'cmd:readback:unseen',employeePersonId:bob.personId,enrollmentId:bob.enrollmentId};
