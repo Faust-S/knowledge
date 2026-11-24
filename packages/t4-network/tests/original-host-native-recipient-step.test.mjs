@@ -70,6 +70,7 @@ async function fixture(){
     signatures:0,puts:0,lists:0,gets:0,opens:0,admissions:0};
   let online=true,admitted=true,sourceAllowed=true,active=true,hostSerial=1,
     loseTechnical=null,losePut=false,loseSubject=false,observed=null,stopOnAdmission=false;
+  let recipientCursor=clone(predecessor),cursorWrites=0,loseCursor=false;
   const hostRef=()=> 'host:k4:recipient:'+hostSerial;
   const getMode=()=>online?'T4_NETWORK':'LOCAL_T3';
   const context=workspaceId=>async()=>({workspaceId,originalWriteOwnerRef:owner,originalOwnerRef:owner,
@@ -197,6 +198,19 @@ async function fixture(){
     authorizeOriginalHostTask:allow,authorizeNetworkReceive:allow,authorizeOriginalRead:allow,
     authorizeOriginalWrite:allow,verifyOriginalSourceEvent:async p=>sourceAllowed&&p.sourceEventId===session.sourceEventId&&
       p.sourceEventDigest===session.sourceEventDigest&&p.objectContentDigest===prepared.delta.objectContentDigest,
+    readOriginalVerifiedCursor:async()=>clone(recipientCursor),
+    persistOriginalVerifiedCursor:async value=>{
+      assert.equal(value.schema,'IWXA_T4_ORIGINAL_RECIPIENT_CURSOR_CAS_V1');
+      assert.deepEqual(value.previousCursor,recipientCursor);
+      assert.deepEqual(value.verifiedCursor,nextCursor);
+      assert.equal(value.sourceEventId,session.sourceEventId);
+      const status=await phase().inspectOriginalSession();
+      assert.equal(status.currentPhase,'APPLIED');
+      assert.equal(value.originalReceiptRef,status.currentEvidence.originalRecipientEventId);
+      cursorWrites++;recipientCursor=clone(value.verifiedCursor);
+      if(loseCursor){loseCursor=false;throw Object.assign(Error('lost cursor reply'),{code:'ACK_LOST'});}
+      return true;
+    },
     ...overrides,
   });
   const args=(overrides={})=>({session,sourceCursorBefore:predecessor,requiredCryptoSuite:suite,
@@ -223,9 +237,32 @@ async function fixture(){
     },...overrides,
   });
   const step=overrides=>binding().runNativeStep(args(overrides));
+  const select=async proof=>{
+    const idle=equal(proof.sourceCursorBefore,nextCursor);
+    assert.ok(idle||equal(proof.sourceCursorBefore,predecessor));
+    return {schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SELECTION_V1',
+      state:idle?'NO_NEXT_ORIGINAL_EVENT':'ORIGINAL_NATIVE_SESSION_SELECTED',
+      workspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef:source,recipientNodeRef:recipient,
+      scopeRef:scope,ownerEpoch:epoch,networkTargetRef:recipient,
+      sourceCursorBefore:clone(proof.sourceCursorBefore),sourceCursorAfter:clone(nextCursor),
+      originalSourceOwnerReadVerified:true,originalSourceCursorAdvanced:false,
+      originalNetworkPublished:false,originalSubjectMutationInvoked:false,capturedPlaintextReturned:false,
+      createsStore:false,createsScheduler:false,originalCaptureEvidenceVerified:!idle,
+      session:idle?null:session,...(idle?{mustRescanOnNextHostWake:true}:{})};
+  };
+  const ownerArgs=(overrides={})=>{
+    const {session,sourceCursorBefore,recipientPublicationPort,...a}=args();
+    return {...a,readOriginalNativeSessionAtCursor:select,
+      createOriginalRecipientPublicationPort:async proof=>{
+        assert.deepEqual(proof.session,session);return publication();
+      },...overrides};
+  };
+  const ownerStep=(overrides,ports)=>binding(ports).runNativeOwnerStep(ownerArgs(overrides));
   const full=async()=>{await add(0);assert.equal((await step()).state,'DIFF_PRESENT');
     await add(1);await add(2);await add(3);};
-  return {session,predecessor,prepared,remote,counters,events,objects,add,binding,args,step,full,phase,publication,
+  return {session,predecessor,nextCursor,prepared,remote,counters,events,objects,add,binding,args,step,full,phase,publication,
+    ownerStep,ownerArgs,select,cursor:()=>clone(recipientCursor),cursorWrites:()=>cursorWrites,
+    loseCursor(){loseCursor=true;},setCursor(v){recipientCursor=clone(v);},
     restart(){hostSerial++;active=true;observed=null;},loseTechnical:v=>{loseTechnical=v;},
     losePut(){losePut=true;},loseSubject(){loseSubject=true;},
     deny(){admitted=false;},denySource(){sourceAllowed=false;},local(){online=false;},stopOnAdmission(){stopOnAdmission=true;}};
@@ -331,4 +368,72 @@ test('K4 original dispatcher excludes concurrent native steps before any second 
   finally{release();}
   assert.equal((await running).state,'DIFF_PRESENT');assert.equal(f.counters.signatures,1);
   assert.equal(f.counters.puts,1);
+});
+
+test('K5 owner wake chooses next original event and advances its existing cursor only after verified APPLIED',async()=>{
+  const f=await fixture();
+  assert.equal((await f.ownerStep()).state,'WAITING_FOR_HEADS');
+  await f.add(0);assert.equal((await f.ownerStep()).state,'DIFF_PRESENT');
+  await f.add(1);await f.add(2);await f.add(3);
+  assert.equal((await f.ownerStep()).state,'RECEIVED_RECORDED');
+  f.restart();assert.equal((await f.ownerStep()).state,'VERIFIED_RECORDED');
+  assert.equal(f.cursorWrites(),0);assert.deepEqual(f.cursor(),f.predecessor);
+  const done=await f.ownerStep();
+  assert.equal(done.state,'RECIPIENT_CURSOR_ADVANCED');
+  assert.equal(done.originalRecipientCursorAdvanced,true);assert.equal(done.sourceCursorAdvanced,false);
+  assert.deepEqual(f.cursor(),f.nextCursor);assert.equal(f.cursorWrites(),1);
+  const writes=f.counters.technicalWrites,lists=f.counters.lists;f.restart();
+  assert.equal((await f.ownerStep()).state,'NO_NEXT_ORIGINAL_EVENT');
+  assert.equal(f.counters.technicalWrites,writes);assert.equal(f.counters.lists,lists);
+  assert.equal(f.counters.subjectWrites,1);assert.equal(f.counters.signatures,2);
+});
+
+test('K5 lost recipient cursor CAS reply is reconciled by next owner wake without repeating mutation or ACK',async()=>{
+  const f=await fixture();await f.full();
+  assert.equal((await f.ownerStep()).state,'RECEIVED_RECORDED');
+  assert.equal((await f.ownerStep()).state,'VERIFIED_RECORDED');
+  f.loseCursor();
+  await assert.rejects(f.ownerStep(),code('RECIPIENT_NATIVE_OWNER_CURSOR_OUTCOME_UNKNOWN'));
+  assert.deepEqual(f.cursor(),f.nextCursor);assert.equal(f.cursorWrites(),1);
+  const counts=clone(f.counters);f.restart();
+  assert.equal((await f.ownerStep()).state,'NO_NEXT_ORIGINAL_EVENT');
+  for(const k of ['technicalWrites','subjectWrites','signatures','puts','lists'])
+    assert.equal(f.counters[k],counts[k],k);
+  assert.equal(f.cursorWrites(),1);
+});
+
+test('K5 failed cursor CAS leaves original applied session recoverable before the next event',async()=>{
+  const f=await fixture();await f.full();
+  await f.ownerStep();await f.ownerStep();
+  await assert.rejects(f.ownerStep({},{
+    persistOriginalVerifiedCursor:async()=>false}),code('RECIPIENT_NATIVE_OWNER_CURSOR_OUTCOME_UNKNOWN'));
+  assert.deepEqual(f.cursor(),f.predecessor);assert.equal(f.counters.subjectWrites,1);
+  const counts=clone(f.counters);f.restart();
+  const done=await f.ownerStep();assert.equal(done.state,'RECIPIENT_CURSOR_ADVANCED');
+  assert.equal(done.originalSubjectMutationInvoked,false);
+  for(const k of ['technicalWrites','subjectWrites','signatures','puts'])
+    assert.equal(f.counters[k],counts[k],k);
+  assert.equal(f.cursorWrites(),1);
+});
+
+test('K5 owner rejects caller session and invalid selection before network or writes',async()=>{
+  const f=await fixture();await f.add(0);
+  await assert.rejects(f.ownerStep({session:f.session}),code('RECIPIENT_NATIVE_OWNER_STEP_ORIGINAL_PORTS_REQUIRED'));
+  await assert.rejects(f.ownerStep({readOriginalNativeSessionAtCursor:async p=>({
+    ...await f.select(p),sourceCursorAfter:{...f.nextCursor,seenEventCount:f.nextCursor.seenEventCount+1},
+  })}),code('RECIPIENT_NATIVE_OWNER_SELECTION_CAUSAL_MISMATCH'));
+  await assert.rejects(f.ownerStep({readOriginalNativeSessionAtCursor:async p=>({
+    ...await f.select(p),recipientNodeRef:'node:other',
+  })}),code('RECIPIENT_NATIVE_OWNER_SELECTION_INVALID'));
+  assert.equal(f.counters.lists,0);assert.equal(f.counters.technicalWrites,0);
+  assert.equal(f.cursorWrites(),0);
+});
+
+test('K5 concurrent recipient cursor advance during source selection stops the stale wake',async()=>{
+  const f=await fixture();await f.add(0);
+  await assert.rejects(f.ownerStep({readOriginalNativeSessionAtCursor:async p=>{
+    const value=await f.select(p);f.setCursor(f.nextCursor);return value;
+  }}),code('RECIPIENT_NATIVE_OWNER_CURSOR_CHANGED'));
+  assert.equal(f.counters.lists,0);assert.equal(f.counters.technicalWrites,0);
+  assert.equal(f.cursorWrites(),0);
 });

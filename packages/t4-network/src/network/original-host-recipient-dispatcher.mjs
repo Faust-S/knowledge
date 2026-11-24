@@ -499,7 +499,8 @@ function nativeRecipientGuard(p,session,admission=null){
       });
     if(initial===null)initial=frozen(snapshot);
     const proof=frozen({operation:'t4.network.receive',
-      purpose:'original-host.native-recipient-task',step,
+      purpose:session.sessionRef===null?'original-host.native-recipient-owner-step':
+        'original-host.native-recipient-task',step,
       ...snapshot,sourceNodeRef:p.sourceNodeRef,recipientNodeRef:p.recipientNodeRef,
       ownerEpoch:p.ownerEpoch,sessionRef:session.sessionRef,changeId:session.changeId,
       originalHostTaskOwnerRequired:true,
@@ -865,6 +866,162 @@ async function executeNativeRecipientStep(p,options){
     originalSubjectMutationInvoked:tick.originalSubjectMutationInvoked,result:tick.result});
 }
 
+/** One bounded wake from the existing recipient owner. Selection starts at
+ * its existing verified cursor, never the sender's acknowledged frontier.
+ * A session is not admitted merely because HEADS exists on the transport.
+ * The only cursor write uses the original recipient CAS contract.
+ */
+async function executeNativeRecipientOwnerStep(p,options){
+  const schema='IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_OWNER_STEP_V1';
+  const result=(state,extra={})=>frozen({schema,state,dispatched:false,
+    originalRecipientApplied:false,originalSubjectMutationInvoked:false,
+    originalRecipientCursorAdvanced:false,sourceCursorAdvanced:false,
+    createsStore:false,createsScheduler:false,...extra});
+  if(p.getMode?.()==='LOCAL_T3')return result('LOCAL_T3');
+  requireNativeRecipientPorts(p);
+  const {readOriginalNativeSessionAtCursor,createOriginalRecipientPublicationPort,
+    authorizeOriginalRecipientSession,...stepOptions}=options;
+  if(['session','sourceCursorBefore','recipientPublicationPort'].some(k=>Object.hasOwn(options,k))||
+    ![readOriginalNativeSessionAtCursor,createOriginalRecipientPublicationPort,
+      authorizeOriginalRecipientSession,p.readOriginalVerifiedCursor,
+      p.persistOriginalVerifiedCursor].every(f=>typeof f==='function'))
+    fail('RECIPIENT_NATIVE_OWNER_STEP_ORIGINAL_PORTS_REQUIRED');
+  const identity=frozen({workspaceId:p.workspaceId,originalWriteOwnerRef:p.originalWriteOwnerRef,
+    sourceNodeRef:p.sourceNodeRef,recipientNodeRef:p.recipientNodeRef,
+    scopeRef:p.scopeRef,ownerEpoch:p.ownerEpoch,networkTargetRef:p.recipientNodeRef});
+  const ownerGuard=nativeRecipientGuard(p,{sessionRef:null,changeId:null});
+  const initial=await ownerGuard('recipient-owner-wake');
+  const scopedProof=(operation,step,extra={})=>frozen({
+    operation,step,...identity,originalHostSessionRef:initial.hostSessionRef,
+    recipientOriginalT3AuthorityRequired:true,networkReceiptIsNotBusinessResult:true,...extra});
+  async function readCursor(step){
+    await ownerGuard(step);
+    if(await p.authorizeOriginalRead(scopedProof('t1.getObject',step))!==true)
+      fail('RECIPIENT_NATIVE_OWNER_CURSOR_READ_DENIED');
+    await ownerGuard(step+'-authorized');
+    const observed=structuredClone(await p.readOriginalVerifiedCursor(scopedProof(
+      't4.network.original.recipient.cursor.read',step)));
+    await ownerGuard(step+'-readback');
+    if(!cursorValid(observed,p.workspaceId,p.originalWriteOwnerRef))
+      fail('RECIPIENT_NATIVE_OWNER_CURSOR_INVALID');
+    return observed;
+  }
+  const before=frozen(await readCursor('recipient-owner-cursor'));
+  async function requireCurrent(step){
+    if(!same(await readCursor(step),before))
+      fail('RECIPIENT_NATIVE_OWNER_CURSOR_CHANGED',{automaticRetryAllowed:false});
+  }
+  await ownerGuard('before-source-selection');
+  const selected=structuredClone(await readOriginalNativeSessionAtCursor(scopedProof(
+    't4.network.original.source.session.select','recipient-owner-select',{
+      sourceCursorBefore:structuredClone(before),
+      originalRecipientPredecessorAdmissionRequired:true,originalSourceOwnerRequired:true,readOnly:true,
+    })));
+  await requireCurrent('after-source-selection');
+  if(selected?.schema!=='IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SELECTION_V1'||
+    !Object.keys(identity).every(k=>selected[k]===identity[k])||
+    !same(selected.sourceCursorBefore,before)||selected.originalSourceOwnerReadVerified!==true||
+    selected.originalSourceCursorAdvanced!==false||selected.originalNetworkPublished!==false||
+    selected.originalSubjectMutationInvoked!==false||selected.capturedPlaintextReturned!==false||
+    selected.createsStore!==false||selected.createsScheduler!==false||
+    ['capture','prepared','ciphertext','bytes'].some(k=>Object.hasOwn(selected,k)))
+    fail('RECIPIENT_NATIVE_OWNER_SELECTION_INVALID');
+  const common={originalHostSessionRef:initial.hostSessionRef,
+    originalHostTaskOwnerVerified:true,sourceCursorBefore:before};
+  if(selected.state==='NO_NEXT_ORIGINAL_EVENT'){
+    if(selected.session!==null||selected.originalCaptureEvidenceVerified!==false||
+      selected.mustRescanOnNextHostWake!==true||!same(selected.sourceCursorAfter,before))
+      fail('RECIPIENT_NATIVE_OWNER_SELECTION_INVALID');
+    return result('NO_NEXT_ORIGINAL_EVENT',{...common,sourceCursorAfter:before,
+      mustRescanOnNextHostWake:true});
+  }
+  if(selected.state!=='ORIGINAL_NATIVE_SESSION_SELECTED'||selected.originalCaptureEvidenceVerified!==true)
+    fail('RECIPIENT_NATIVE_OWNER_SELECTION_INVALID');
+  const session=validateT4OriginalNativeCaptureSession(selected.session);
+  const after=frozen(structuredClone(selected.sourceCursorAfter));
+  if(!['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch']
+    .every(k=>session[k]===identity[k])||
+    !cursorValid(after,p.workspaceId,p.originalWriteOwnerRef)||
+    session.sourcePrefixDigestBefore!==before.sourcePrefixDigest||
+    session.sourcePrefixDigestAfter!==after.sourcePrefixDigest||
+    after.lastEventId!==session.sourceEventId||after.seenEventCount!==before.seenEventCount+1)
+    fail('RECIPIENT_NATIVE_OWNER_SELECTION_CAUSAL_MISMATCH');
+  // Bind every subsequent session authorization to the unchanged owner cursor.
+  const admission=async proof=>{
+    await requireCurrent('recipient-owner-session-admission');
+    const ok=await authorizeOriginalRecipientSession(proof);
+    await requireCurrent('recipient-owner-session-admission-readback');
+    return ok===true;
+  };
+  const guard=nativeRecipientGuard(p,session,proof=>admission(frozen({
+    operation:'t4.network.original.recipient.session.admit',session,
+    sourceCursorBefore:before,originalHostSessionRef:proof.hostSessionRef,step:proof.step,
+    originalRecipientSessionAndPredecessorRequired:true,
+    networkMetadataDoesNotGrantOriginalSubjectRights:true,
+  })));
+  await guard('before-recipient-publication-port');
+  const publication=await createOriginalRecipientPublicationPort(frozen({
+    ...identity,session,sourceCursorBefore:before,originalHostSessionRef:initial.hostSessionRef}));
+  await guard('after-recipient-publication-port');
+  const tick=await executeNativeRecipientStep(p,{...stepOptions,session,sourceCursorBefore:before,
+    recipientPublicationPort:publication,authorizeOriginalRecipientSession:admission});
+  await requireCurrent('after-native-recipient-step');
+  if(tick?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_STEP_V1'||
+    tick.sessionRef!==session.sessionRef||tick.changeId!==session.changeId||
+    tick.originalHostSessionRef!==initial.hostSessionRef||tick.sourceCursorAdvanced!==false)
+    fail('RECIPIENT_NATIVE_OWNER_STEP_RESULT_INVALID');
+  const details={...common,dispatched:true,sessionRef:session.sessionRef,
+    changeId:session.changeId,sourceCursorAfter:after,step:tick};
+  if(tick.state!=='APPLIED_AND_ACKNOWLEDGED'){
+    if(tick.originalRecipientApplied!==false||tick.originalSubjectMutationInvoked!==false)
+      fail('RECIPIENT_NATIVE_OWNER_STEP_RESULT_INVALID');
+    return result(tick.state,details);
+  }
+  const task=tick.result,ack=task?.acknowledgement,actual=ack?.verifiedResult,
+    phase=ack?.recipientPhase,evidence=phase?.currentEvidence;
+  if(tick.originalRecipientApplied!==true||
+    task?.schema!=='IWXA_T4_ORIGINAL_NATIVE_RECIPIENT_TASK_RESULT_V1'||
+    task.originalT3OnlyStore!==true||task.sourceCursorAdvanced!==false||
+    !['FINALIZED','ALREADY_FINALIZED'].includes(ack?.state)||
+    phase?.currentPhase!=='APPLIED'||phase.originalBusinessApplied!==true||
+    actual?.state!=='APPLIED_VERIFIED'||!ID(actual.originalRecipientEventId)||
+    actual.originalRecipientEventId!==evidence?.originalRecipientEventId||
+    actual.originalRecipientRevision!==evidence?.originalRecipientRevision||
+    actual.originalRecipientStateDigest!==evidence?.originalRecipientStateDigest)
+    fail('RECIPIENT_NATIVE_OWNER_APPLIED_EVIDENCE_INVALID');
+  const receiptRef=actual.originalRecipientEventId;
+  await guard('before-recipient-owner-cursor-cas');
+  if(await p.authorizeOriginalWrite(scopedProof('t1.putObject','recipient-owner-cursor-cas',{
+    sessionRef:session.sessionRef,changeId:session.changeId,
+    sourceEventId:session.sourceEventId,originalReceiptRef:receiptRef}))!==true)
+    fail('RECIPIENT_NATIVE_OWNER_CURSOR_WRITE_DENIED');
+  await guard('recipient-owner-cursor-cas-authorized');
+  let stored;
+  try{
+    stored=await p.persistOriginalVerifiedCursor(frozen({
+      schema:'IWXA_T4_ORIGINAL_RECIPIENT_CURSOR_CAS_V1',
+      workspaceId:identity.workspaceId,originalWriteOwnerRef:identity.originalWriteOwnerRef,
+      sourceNodeRef:identity.sourceNodeRef,previousCursor:before,verifiedCursor:after,
+      sourceEventId:session.sourceEventId,originalReceiptRef:receiptRef,
+      originalHostAtomicCompareAndSetRequired:true,networkReceiptIsNotBusinessResult:true,
+    }));
+  }catch(e){
+    fail('RECIPIENT_NATIVE_OWNER_CURSOR_OUTCOME_UNKNOWN',{originalErrorCode:e?.code??null,
+      automaticRetryAllowed:false,originalRecipientCursorMayHaveCommitted:true});
+  }
+  // No repeat CAS after an unknown outcome. A fresh owner wake reads the
+  // existing cursor before selecting anything, including an old session.
+  if(stored!==true)
+    fail('RECIPIENT_NATIVE_OWNER_CURSOR_OUTCOME_UNKNOWN',{automaticRetryAllowed:false,
+      originalRecipientCursorMayHaveCommitted:true});
+  if(!same(await readCursor('recipient-owner-cursor-cas-readback'),after))
+    fail('RECIPIENT_NATIVE_OWNER_CURSOR_READBACK_MISMATCH',{automaticRetryAllowed:false,
+      originalRecipientCursorMayHaveCommitted:true});
+  return result('RECIPIENT_CURSOR_ADVANCED',{...details,originalRecipientApplied:true,
+    originalSubjectMutationInvoked:tick.originalSubjectMutationInvoked,
+    originalRecipientCursorAdvanced:true,originalReceiptRef:receiptRef});
+}
+
 export function createT4OriginalHostRecipientDispatcher(params={}){
   let active=null,activePlanDigest=null,disposed=false;
   const originalActive=params.isHostActive??(()=>true);
@@ -903,6 +1060,16 @@ export function createT4OriginalHostRecipientDispatcher(params={}){
       const safe={...options,session:structuredClone(options.session),
         sourceCursorBefore:structuredClone(options.sourceCursorBefore)};
       const work=executeNativeRecipientStep(scoped,safe);
+      active=work;activePlanDigest=null;
+      try{return await work;}
+      finally{if(active===work){active=null;activePlanDigest=null;}}
+    },
+    async runNativeOwnerStep(options={}){
+      requireActive();
+      if(active)fail('RECIPIENT_CONCURRENT_NATIVE_TASK',{
+        automaticRetryAllowed:false,originalWriteMayBeInFlight:true,
+      });
+      const work=executeNativeRecipientOwnerStep(scoped,{...options});
       active=work;activePlanDigest=null;
       try{return await work;}
       finally{if(active===work){active=null;activePlanDigest=null;}}
