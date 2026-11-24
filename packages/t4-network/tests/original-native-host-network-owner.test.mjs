@@ -784,8 +784,8 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
       workspaceId:WS,originalWriteOwnerRef:OWNER,scopeRef:SCOPE,ownerEpoch:2,active:true}),
     readEncryptedVault:async()=>{vaultReads++;return encrypted;},
     unlockPassphrase:async()=>passphrase});
-  const transport=openT4NativeTopologyTransport({topology,workspaceId:WS,objectFamily:family,serverNodeRef:server,
-    originalSignedAccess:{access:bound.access,expectedContext:bound.access.currentContext()},
+  const openTransport=access=>openT4NativeTopologyTransport({topology,workspaceId:WS,objectFamily:family,serverNodeRef:server,
+    originalSignedAccess:{access,expectedContext:access.currentContext()},
     nativeWireProfile:'INDEXED',readOriginalTopology:async()=>current,getMode:()=> 'T4_NETWORK',
     verifyOriginalEndpoint:async p=>p.endpointUrl==='https://native.example.test/dav/'&&p.originalWriteOwnerRef===OWNER,
     authorizeOriginalOperation:async p=>p.originalWriteOwnerRef===OWNER&&p.storageLocationIsNotProtocolPeer&&
@@ -799,6 +799,17 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
       if(records.has(k))return new Response(null,{status:412});
       records.set(k,Buffer.from(options.body));return new Response(null,{status:201});
     }});
+  // Even with identical signed context and original Registry, a different
+  // assembled Access Host port is not the exact route/signer binding.
+  const foreignAccess=routeAuthority.bindOriginalRegistry(registry).access;
+  const mismatchedTransport=openTransport(foreignAccess);
+  try{
+    assert.deepEqual(mismatchedTransport.originalSignedSubject,originalVaultNodeSignaturePort.originalSignedSubject);
+    assert.throws(()=>recoverySource(source,null,{nativeTopologyTransport:mismatchedTransport,localCapture:true,
+      requireSignedTopologyAccess:true,originalVaultNodeSignaturePort}),{code:'NATIVE_NETWORK_OWNER_SIGNED_SUBJECT_MISMATCH'});
+    assert.equal(requests,0);assert.equal(credentials,0);assert.equal(vaultReads,0);
+  }finally{mismatchedTransport.close();}
+  const transport=openTransport(bound.access);
   const f=recoverySource(source,null,{nativeTopologyTransport:transport,localCapture:true,requireSignedTopologyAccess:true,
     originalVaultNodeSignaturePort});
   try{

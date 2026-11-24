@@ -71,6 +71,8 @@ const ACTIONS=Object.freeze({
   "t4.network.frame.discover":"t4.network.frame.discover",
   "t4.network.frame.index.read":"t4.network.frame.index.read",
   "t4.network.frame.index.publish":"t4.network.frame.index.publish",
+  "t4.network.node.sign":"t4.network.node.sign",
+  "t4.network.node.verify":"t4.network.node.verify",
 });
 export function model({operations=["t1.putObject"]}={}){
   assert.ok(Array.isArray(operations)&&operations.length>0&&

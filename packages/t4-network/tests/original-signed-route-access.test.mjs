@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import {createT4NetworkTopology,openT4NativeTopologyTransport} from '../src/network/network-topology.mjs';
 import {packageSha256} from '../src/network/webdav-package-transfer.mjs';
 import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-native-host-network-owner.mjs';
+import {createT4OriginalVaultNodeSignaturePort} from '../src/network/original-vault-node-signature.mjs';
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,verifyT4CandidateOutboundSignature} from '../src/network/standard-network-wire-candidate.mjs';
 import {createTemporaryOriginalPersonalAuthority} from '../../t3-core/tests/support/t3-original-personal-authority.mjs';
 import {NOW,time,model,originalKernelFixture} from '../../t3-core/tests/support/t3-two-corp-original-authority.mjs';
 import {digest,iso,signRecord} from '../../t3-core/src/t3/access/core.mjs';
-import {emptyVault,importVaultKey,encryptVault} from '../../t3-core/src/t3/access/local-vault.mjs';
+import {emptyVault,importVaultKey,generateVaultKey,encryptVault} from '../../t3-core/src/t3/access/local-vault.mjs';
 import {createOriginalVaultProofSigner} from '../../t3-core/src/t3/access/original-vault-proof.mjs';
 import {createOriginalKernelRegistryStatePort} from '../../t3-core/src/t3/access/original-kernel-registry-state.mjs';
 import {createOrganizationalOperationGate,isOriginalOrganizationalOperationGateForRegistry} from '../../t3-core/src/t3/access/organizational-operation.mjs';
@@ -135,7 +137,16 @@ test('K35 signed context change during a network response blocks disclosure of r
   }finally{x.connection.close();}
 });
 test('K35 two signed corporate enrollments use their original Registry and encrypted credential, with independent revocation', {timeout:30000},async()=>{
-  const f=model({operations:['t4.network.frame.read']}),kernel=originalKernelFixture();
+  const f=model({operations:['t4.network.frame.read','t4.network.node.sign','t4.network.node.verify']}),kernel=originalKernelFixture();
+  const networkKeys={},networkPassword='K36_TEST_ONLY_CORP_NETWORK_VAULT';
+  for(const [short,e] of Object.entries(f.all)){
+    const v=emptyVault(),peer=emptyVault(),subjectId=e.context.actor_id;
+    const localKey=generateVaultKey(v,{keyId:'key:network:'+short+':local',subjectId}),
+      remoteKey=generateVaultKey(peer,{keyId:'key:network:'+short+':remote',subjectId});
+    for(const k of [localKey,remoteKey])f.policy.keys[k.keyId]={subjectId,environment:'TEST',
+      publicKey:k.publicKeyPem,status:'ACTIVE',uses:['NETWORK_FRAME'],notBefore:iso(NOW-60000),expiresAt:iso(NOW+600000)};
+    networkKeys[short]={localKeyRef:localKey.keyId,remoteKeyRef:remoteKey.keyId,encrypted:encryptVault(v,networkPassword),reads:0};
+  }
   const registry=createOriginalKernelRegistryStatePort({kernel:kernel.api,workspaceId:'ws:k35:registry',
     trustedPolicy:f.policy,clock:time});
   await registry.commitSignedState(f.state);
@@ -165,15 +176,45 @@ test('K35 two signed corporate enrollments use their original Registry and encry
   assert.equal(isOriginalOrganizationalOperationGateForRegistry({...gate},registry),false);
   assert.equal(isOriginalSignedAccessHostPortForEvaluator(access,'CORP',gate),true);
   assert.equal(isOriginalSignedAccessHostPortForEvaluator(access,'PERSONAL',gate),false);
-  const north=open(access,selected,{clock:time});let south=null;
+  const networkSuite='X25519_AES256GCM_ED25519';
+  function corporateSigner(short){
+    const e=f.all[short],k=networkKeys[short],ws=e.context.workspace_id,owner='owner:'+ws,
+      localNodeRef=source,remoteNodeRef='node:k35:peer:'+short,scopeRef='scope:k35:'+short;
+    const port=createT4OriginalVaultNodeSignaturePort({workspaceId:ws,originalWriteOwnerRef:owner,
+      localNodeRef,remoteNodeRef,scopeRef,ownerEpoch:2,requiredCryptoSuite:networkSuite,
+      localKeyRef:k.localKeyRef,remoteKeyRef:k.remoteKeyRef,registry,access,originalEvaluator:gate,
+      expectedContext:e.context,getMode:()=> 'T4_NETWORK',clock:time,
+      readOriginalNodeKeyBinding:async q=>({bindingRef:'binding:'+short+':'+q.sourceNodeRef,
+        subjectId:e.context.actor_id,permissionRef:'permission:k35:'+short,keyId:q.signerRef,
+        nodeRef:q.sourceNodeRef,recipientNodeRef:q.recipientNodeRef,workspaceId:ws,
+        originalWriteOwnerRef:owner,scopeRef,ownerEpoch:2,active:true}),
+      readEncryptedVault:async()=>{k.reads++;return k.encrypted;},unlockPassphrase:async()=>networkPassword});
+    const unsigned=createT4CandidateUnsignedFrame({messageType:'HEADS',messageId:'message:k35:'+short,
+      sourceNodeRef:localNodeRef,recipientNodeRef:remoteNodeRef,sessionRef:'session:k35:'+short,
+      scopeRef,ownerEpoch:2,sequence:1,permissionRef:'permission:k35:'+short,signerRef:k.localKeyRef,
+      cryptoSuite:networkSuite,body:{familyRef:'family:k35:'+short,ownerEpoch:2,heads:['sha256:'+'a'.repeat(64)]}});
+    return {port,async sign(){return signT4CandidateFrame({unsignedFrame:unsigned,signOriginalNodeBytes:port.signOriginalNodeBytes});}};
+  }
+  const northSigner=corporateSigner('north'),north=open(access,selected,{clock:time});let south=null;
   try{
     assert.deepEqual((await north.connection.transport.getSnapshot(input)).bytes,bytes);
     assert.ok(proofCount>0);assert.equal(north.stats.requests,1);
+    const northWire=await northSigner.sign();
+    assert.equal((await verifyT4CandidateOutboundSignature({wireBytes:northWire,
+      verifyOriginalNodeSignature:northSigner.port.verifyOriginalNodeSignature})).originalSignatureVerified,true);
+    assert.equal(networkKeys.north.reads,1);
     selected=f.all.south.context;south=open(access,selected,{clock:time});
+    const southSigner=corporateSigner('south');
+    await assert.rejects(northSigner.sign(),e=>['ORIGINAL_SIGNED_NETWORK_CONTEXT_CHANGED','ORIGINAL_SIGNED_NETWORK_CONTEXT_INVALID'].includes(e.code));
+    assert.equal(networkKeys.north.reads,1);
     await assert.rejects(north.connection.transport.getSnapshot(input),e=>
       ['ORIGINAL_SIGNED_NETWORK_CONTEXT_CHANGED','ORIGINAL_SIGNED_NETWORK_CONTEXT_INVALID'].includes(e.code));
     assert.equal(north.stats.requests,1);assert.equal(north.stats.credentials,1);
     assert.deepEqual((await south.connection.transport.getSnapshot(input)).bytes,bytes);
+    const southWire=await southSigner.sign();
+    assert.equal((await verifyT4CandidateOutboundSignature({wireBytes:southWire,
+      verifyOriginalNodeSignature:southSigner.port.verifyOriginalNodeSignature})).originalSignatureVerified,true);
+    assert.equal(networkKeys.south.reads,1);
     const revoked={...f.all.north.status,sequence:2,issuedAt:iso(NOW-1000),
       entries:[{grantId:'grant:north',state:'REVOKED',effectiveAt:iso(NOW-1500),evidenceRef:'evidence:k35:north-revoked'}]};
     const state=structuredClone(f.state);state.statuses['issuer:north']=signRecord(revoked,f.all.north.issuerSigner);
@@ -182,8 +223,13 @@ test('K35 two signed corporate enrollments use their original Registry and encry
     selected=f.all.north.context;
     await assert.rejects(north.connection.transport.getSnapshot(input),{code:'T3_ACCESS_NOT_PERMITTED'});
     assert.equal(north.stats.requests,1);assert.equal(north.stats.credentials,1);
+    await assert.rejects(northSigner.sign(),{code:'T3_ACCESS_NOT_PERMITTED'});
+    assert.equal(networkKeys.north.reads,1);
     selected=f.all.south.context;
     assert.deepEqual((await south.connection.transport.getSnapshot(input)).bytes,bytes);
+    assert.equal((await verifyT4CandidateOutboundSignature({wireBytes:await southSigner.sign(),
+      verifyOriginalNodeSignature:southSigner.port.verifyOriginalNodeSignature})).originalSignatureVerified,true);
+    assert.equal(networkKeys.south.reads,2);
     assert.equal(south.stats.requests,2);
     assert.equal((await registry.getStatus()).sequences['issuer:north'],2);
     assert.equal((await registry.getStatus()).sequences['issuer:south'],1);
@@ -191,5 +237,9 @@ test('K35 two signed corporate enrollments use their original Registry and encry
       independentIssuerKeys:2,independentEncryptedCredentials:2,originalRegistry:true,
       originalProofs:proofCount,revokedNorthDeniedBeforeNetwork:true,southUnaffected:true,
       noOriginalSubjectMutation:true,realKernelRegistryFixture:false,installedProduct:false}));
+    console.log('T4_K36_ORIGINAL_CORPORATE_VAULT_NETWORK_SIGNATURE_PASS',JSON.stringify({
+      dedicatedOrganizationScopedNetworkKeys:2,originalGateBoundToRegistry:true,
+      sameOriginalAccessForRouteAndSigner:true,revokedNorthSignatureDeniedBeforeVaultRead:true,
+      southSignatureUnaffected:true,proofKeysReusedAsNetworkKeys:false,installedProduct:false}));
   }finally{north.connection.close();south?.connection.close();}
 });
