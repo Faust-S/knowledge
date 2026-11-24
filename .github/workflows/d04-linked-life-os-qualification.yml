@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 6cd22fa240e14e0667a78bb6431e8e8649fc3a16
+          ref: 161ad6c1bd73e22f51bed886c01a6bd8d066ba3a
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,9 +51,9 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = 6cd22fa240e14e0667a78bb6431e8e8649fc3a16
+          test "$(git -C d04-private/site rev-parse HEAD)" = 161ad6c1bd73e22f51bed886c01a6bd8d066ba3a
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 80f0e0cdca751ffbcf0eb61a5f12c32ea5e4aeb7
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 71a2c8fa4336e59033fc9a84f7d9cbeb42d070db
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
         with:
@@ -182,8 +182,10 @@ jobs:
           const {selectWitnessOption}=await import(pathToFileURL(join(canonical,'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
           const {runLifeOsGoalServiceRefsBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-goal-service-refs.browser.mjs')).href);
           console.log('D04_SERVICE_BROWSER_STAGE=SERVER_BOOT');
-          const server=await serveRealKernelHost(join(site,'dist'),{independentWitness:true,previewOrigin:true});
+          let server;
           try{
+            server=await serveRealKernelHost(join(site,'dist'),{independentWitness:true,previewOrigin:true});
+            console.log('D04_SERVICE_BROWSER_STAGE=SERVER_READY');
             const result=await runLifeOsGoalServiceRefsBrowser({chromium,origin:server.origin,selectWitnessOption});
             if(result.status!=='PASS'||result.viewports.length!==2||result.viewports.some(v=>v.objects!==5||v.resultEvents!==6||v.configuration!==true||v.protocol!==true||v.recovery!==true||v.reverse!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_GOAL_SERVICE_WITNESS_RESULT_INCOMPLETE');
             console.log('D04_SERVICE_GOAL_CONFIGURATION=PASS');
@@ -193,15 +195,19 @@ jobs:
             console.log('D04_SERVICE_COLD_EXCHANGE=PASS');
             console.log('D04_SERVICE_EXCHANGE_OBJECTS=5');
             console.log('D04_SERVICE_EXCHANGE_RESULT_EVENTS=6');
+          }catch(e){
+            console.log('D04_SERVICE_ERROR_CLASS='+ (e instanceof Error && /^[A-Za-z]+Error$/.test(e.name)?e.name:'ERROR'));
+            console.log('D04_SERVICE_ERROR_CODE='+ (typeof e?.code==='string'&&/^[A-Z0-9_]+$/.test(e.code)?e.code:'UNKNOWN'));
+            throw e;
           }finally{
-            await new Promise(done=>server.server.close(done));
+            if(server)await new Promise(done=>server.server.close(done));
           }
           NODE
           code=$?
           set -e
           if [ "$code" -ne 0 ]; then
             echo "D04_SERVICE_REAL_BROWSER=FAIL"
-            grep -E '^D04_(SERVICE_BROWSER_STAGE|GOAL_SERVICE_WITNESS_STAGE_|GOAL_SERVICE_WITNESS_ERROR_CLASS_|GOAL_SERVICE_WITNESS_SAFE_CAUSE_)' "$RUNNER_TEMP/d04-home-browser.log" | tail -10 || true
+            grep -E '^D04_(SERVICE_BROWSER_STAGE|SERVICE_ERROR_CLASS|SERVICE_ERROR_CODE|GOAL_SERVICE_WITNESS_OUTER_|GOAL_SERVICE_WITNESS_STAGE_|GOAL_SERVICE_WITNESS_ERROR_CLASS_|GOAL_SERVICE_WITNESS_SAFE_CAUSE_)' "$RUNNER_TEMP/d04-home-browser.log" | tail -10 || true
             grep -Eo 'D04_GOAL_SERVICE_WITNESS_[A-Z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -12 || true
             exit "$code"
           fi
