@@ -407,6 +407,12 @@ class CapacityLedger:
             Reservation(n.resource, work, start, end, n.units) for n in needs
         )
 
+    def reserve_amendment_plan(self, work: str,
+                               plan: Sequence[Reservation]) -> None:
+        """Atomically append all dependent correction intervals to one ledger."""
+        self.preview_plan(work, plan, append_to_original=True)
+        self.reservations.extend(plan)
+
     def planned_window_risk(self, needs: Sequence[ResourceNeed], start: int,
                             end: int, *, outstanding: set[str] | None = None) -> str | None:
         """Capacity risk for this operation, excluding already accepted results."""
