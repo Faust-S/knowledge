@@ -1,3 +1,4 @@
+import {createT4OriginalNetworkBaselineAdmissionPort} from '../src/network/original-network-baseline-admission.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,randomUUID,generateKeyPairSync,sign,verify as verifySignature,
@@ -4151,15 +4152,36 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         originalBaselineDigest:baselineEventDigest(baselineRecipientEvent),
         sourceCursor:p2eReadback.originalT3NextCursor,
       };
-      const baselineRef='t4:original:recipient:admission:'+randomUUID();
-      const baselineWrite=await replayKernel.putObject({
-        workspace_id:nativeReplayWorkspace,object_id:baselineRef,
-        schema_id:'iwxa.demo.note',schema_version:'1.0.0',base_revision:0,
-        data:{title:'Admitted original recipient baseline',baseline:admittedRecipientBaseline},extensions:{},
-        event:{event_type:'t4.original.recipient.baseline.admitted',
-          payload:{originalRecipientEventId:baselineRecipientEvent.event_id}},
+      const recipientBaselinePort=hostSessionRef=>createT4OriginalNetworkBaselineAdmissionPort({
+        ...recipientBaselineIdentity,role:'RECIPIENT',originalKernel:replayKernel,
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({workspaceId:nativeReplayWorkspace,
+          originalWriteOwnerRef:'original:t2:exchange',nodeRef:'node:original:recipient',
+          scopeRef:'scope:original:replay',hostSessionRef:hostSessionRef()}),
+        authorizeOriginalTechnicalRead:async p=>receiving.operations.includes(p.operation),
+        authorizeOriginalTechnicalWrite:async p=>receiving.operations.includes(p.operation),
+        authorizeOriginalBaselineAdmission:async p=>receiving.operations.includes('t1.putObject')&&
+          p.baseline.originalBaselineRef===admittedRecipientBaseline.originalBaselineRef,
+        verifyOriginalBaselineEvidence:async p=>{
+          const b=p.baseline,matches=(await replayKernel.listEventsSince(workspaceId))
+            .filter(e=>e.event_id===b.originalBaselineRef);
+          return JSON.stringify(b)===JSON.stringify(admittedRecipientBaseline)&&matches.length===1&&
+            baselineEventDigest(matches[0])===b.originalBaselineDigest&&
+            matches[0].payload.originalEventId===b.sourceCursor.lastEventId;
+        },
       });
-      assert.equal(baselineWrite.object.revision,1);
+      const baselineInput={originalBaselineRef:admittedRecipientBaseline.originalBaselineRef,
+        originalBaselineDigest:admittedRecipientBaseline.originalBaselineDigest,
+        sourceCursor:admittedRecipientBaseline.sourceCursor};
+      const admitted=await recipientBaselinePort(()=> 'host:original:baseline:fixture').admitOriginalBaseline(baselineInput);
+      assert.equal(admitted.state,'ADMITTED');
+      assert.deepEqual(await recipientBaselinePort(()=> 'host:original:baseline:readback').readOriginalAdmittedBaseline(),
+        admittedRecipientBaseline);
+      console.log('T4_REAL_ORIGINAL_T3_NATIVE_BASELINE_ADMISSION_PASS',JSON.stringify({
+        originalKernel:ORIGINAL_KERNEL,originalRecipientMaterializationEventVerified:true,
+        originalTechnicalObjectAndEventVerified:true,sourceCursorAdvanced:false,
+        productionConsentInstalled:false,independentPhysicalDevices:false,
+      }));
       let nativeRecipientCursorWrites=0,loseNativeRecipientCursorReply=false;
       const recipientFrontierKinds=[];
       let lastNativeRecipientFrontierPort=null;
@@ -4429,19 +4451,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         authorizeOriginalRecipientRead:async p=>receiving.operations.includes(p.operation),
         authorizeOriginalSourceRead:async p=>actual.grants.includes(p.operation),
         readOriginalSourceEvents:()=>originalCarrierKernel.listEventsSince(workspaceId),
-        readOriginalAdmittedBaseline:async()=>(
-          await replayKernel.getObject(nativeReplayWorkspace,baselineRef)
-        )?.object?.data?.baseline,
-        verifyOriginalRecipientBaseline:async p=>{
-          const b=p.baseline;
-          const baseline=(await replayKernel.getObject(nativeReplayWorkspace,baselineRef))?.object?.data?.baseline;
-          const matches=(await replayKernel.listEventsSince(workspaceId))
-            .filter(e=>e.event_id===b.originalBaselineRef);
-          return JSON.stringify(b)===JSON.stringify(baseline)&&matches.length===1&&
-            baselineEventDigest(matches[0])===b.originalBaselineDigest&&
-            matches[0].payload.originalEventId===b.sourceCursor.lastEventId&&
-            b.originalBaselineRef===p2cRealResult.originalRecipientEventId;
-        },
+        originalBaselinePort:recipientBaselinePort(()=>p2eRecipientPhaseHostSession),
         readOriginalDependencyCoverage:recipientCoverage,
       });
       const p2ePhaseResult=async()=>inspectT4OriginalNetworkRecipientResult({

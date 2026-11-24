@@ -1,3 +1,4 @@
+import {createT4OriginalNetworkBaselineAdmissionPort} from '../src/network/original-network-baseline-admission.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
@@ -150,7 +151,7 @@ async function fixture(){
   };
   return {
     sourceEvents,technicalEvents,objects,phase,ack,change,recovery,
-    originalKernel:kernel,before,latest,
+    originalKernel:kernel,before,latest,originalPorts,
     port:(overrides={})=>createT4OriginalNetworkHostCursorPort({
       ...originalPorts,...overrides,
     }),
@@ -447,4 +448,25 @@ test('K11 denied or mismatched baseline never grants a source frontier',async()=
   a.baseline.sourceCursor.sourcePrefixDigest=H('not actual original source');
   await assert.rejects(f.port(a.options).inspectOriginalHostCursor(),error('ORIGINAL_T3_EVENT_HISTORY_DIVERGED'));
   assert.equal(f.puts,0);
+});
+
+test('K13 typed admitted source baseline supplies revision zero and survives original ACK CAS recovery',async()=>{
+  const f=await fixture(),a=admittedSourceBaseline(f);
+  const base=()=>createT4OriginalNetworkBaselineAdmissionPort({...f.originalPorts,role:'SOURCE',
+    authorizeOriginalBaselineAdmission:async()=>true,verifyOriginalBaselineEvidence:async p=>
+      p.baseline.originalBaselineDigest===a.baseline.originalBaselineDigest});
+  const {originalBaselineRef,originalBaselineDigest,sourceCursor}=a.baseline;
+  await base().admitOriginalBaseline({originalBaselineRef,originalBaselineDigest,sourceCursor});
+  const port=()=>f.port({originalBaselinePort:base()});
+  const initial=await port().inspectOriginalHostCursor();
+  assert.equal(initial.revision,0);assert.deepEqual(initial.originalT3NextCursor,f.before);
+  assert.equal(initial.lastRecipientEventId,null);assert.equal(f.puts,1);
+  assert.deepEqual((await port().readNextOriginalSourceEvent()).nextCursor,f.latest.nextCursor);
+  f.loseNextReply();await assert.rejects(port().commitAcknowledgedCursor({recovery:f.recovery}),
+    error('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  f.restart();assert.equal((await port().commitAcknowledgedCursor({recovery:f.recovery})).state,'ALREADY_COMMITTED');
+  assert.equal((await port().readNextOriginalSourceEvent()).state,'NO_NEXT_ORIGINAL_EVENT');
+  assert.equal(f.puts,2);
+  assert.throws(()=>f.port({originalBaselinePort:base(),...a.options}),error('HOST_CURSOR_ORIGINAL_BASELINE_PORTS_REQUIRED'));
+  assert.throws(()=>f.port({originalBaselinePort:base(),recipientNodeRef:'node:foreign'}),error('HOST_CURSOR_ORIGINAL_BASELINE_PORT_INVALID'));
 });

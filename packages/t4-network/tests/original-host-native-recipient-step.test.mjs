@@ -1,3 +1,4 @@
+import {createT4OriginalNetworkBaselineAdmissionPort} from '../src/network/original-network-baseline-admission.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,createCipheriv,createDecipheriv,generateKeyPairSync,randomBytes,sign,verify}
@@ -265,6 +266,9 @@ async function fixture(){
       sourceNodeRef:source,recipientNodeRef:recipient,scopeRef:scope,ownerEpoch:epoch},
     originalBaselineRef:'original:baseline:k6',originalBaselineDigest:H('original admitted baseline'),
     sourceCursor:clone(predecessor)};
+  const baselinePort=()=>createT4OriginalNetworkBaselineAdmissionPort({...tech,
+    ...admittedBaseline.identity,role:'RECIPIENT',authorizeOriginalBaselineAdmission:allow,
+    verifyOriginalBaselineEvidence:async p=>equal(p.baseline,admittedBaseline)});
   const cursorPort=(overrides={})=>createT4OriginalNetworkRecipientCursorPort({
     ...tech,sourceWorkspaceId:ws,sourceNodeRef:source,recipientNodeRef:recipient,scopeRef:scope,ownerEpoch:epoch,
     authorizeOriginalRecipientRead:allow,authorizeOriginalSourceRead:async()=>sourceAllowed,
@@ -280,7 +284,7 @@ async function fixture(){
     await add(1);await add(2);await add(3);};
   return {session,predecessor,nextCursor,prepared,remote,counters,events,objects,add,binding,args,step,full,phase,publication,
     ownerStep,ownerArgs,select,cursor:()=>clone(recipientCursor),cursorWrites:()=>cursorWrites,
-    cursorPort,typedStep,admittedBaseline,
+    cursorPort,typedStep,admittedBaseline,baselinePort,
     loseCursor(){loseCursor=true;},setCursor(v){recipientCursor=clone(v);},
     restart(){hostSerial++;active=true;observed=null;},loseTechnical:v=>{loseTechnical=v;},
     losePut(){losePut=true;},loseSubject(){loseSubject=true;},
@@ -599,4 +603,24 @@ test('K12 signed announcement still cannot replace original source access or act
   await assert.rejects(f.typedStep(signedSelectionOptions),code('HEAD_ORIGINAL_ACCESS_DENIED'));
   assert.equal(f.counters.opens,0);assert.equal(f.counters.subjectWrites,0);
   assert.equal((await f.cursorPort().inspectOriginalRecipientCursor()).revision,0);
+});
+
+test('K13 recipient owner recovers admitted baseline from original Object/Event and discovers signed successor',async()=>{
+  const f=await fixture(),{originalBaselineRef,originalBaselineDigest,sourceCursor}=f.admittedBaseline;
+  const port=()=>f.cursorPort({originalBaselinePort:f.baselinePort(),readOriginalAdmittedBaseline:null,
+    verifyOriginalRecipientBaseline:null});
+  await f.baselinePort().admitOriginalBaseline({originalBaselineRef,originalBaselineDigest,sourceCursor});
+  f.restart();
+  const wake=()=>f.typedStep(signedSelectionOptions,port());
+  assert.equal((await wake()).state,'WAITING_FOR_HEADS');
+  await f.add(0,{body:announcedHead(f),criticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]});
+  assert.equal((await wake()).state,'DIFF_PRESENT');
+  await f.add(1);await f.add(2);await f.add(3);
+  assert.equal((await wake()).state,'RECEIVED_RECORDED');f.restart();
+  assert.equal((await wake()).state,'VERIFIED_RECORDED');
+  const result=await wake();assert.equal(result.originalRecipientCursorAdvanced,true);
+  f.restart();assert.deepEqual((await port().inspectOriginalRecipientCursor()).originalT3VerifiedCursor,f.nextCursor);
+  assert.equal((await wake()).state,'WAITING_FOR_HEADS');
+  assert.equal(f.counters.subjectWrites,1);
+  assert.equal(f.events.filter(e=>e.event_type==='t4.network.original.baseline.admitted').length,1);
 });
