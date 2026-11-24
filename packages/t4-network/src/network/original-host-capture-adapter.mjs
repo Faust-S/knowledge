@@ -14,7 +14,7 @@ export function createT4OriginalHostCaptureAdapter({
   originalKernel,originalWriteOwnerRef,getMode,
   authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
   persistOriginalIntent,readOriginalIntent,
-  persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,
+  persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
 }={}){
   if(typeof getMode!=='function'||
     typeof originalKernel?.hasOperation!=='function'||
@@ -31,7 +31,7 @@ export function createT4OriginalHostCaptureAdapter({
     originalKernel,originalWriteOwnerRef,getMode,
     authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
     persistOriginalIntent,readOriginalIntent,
-    persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,
+    persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
   });
   const requiredOriginalHostCapturePorts=()=>{
     if(!ID(originalWriteOwnerRef)||
@@ -41,7 +41,7 @@ export function createT4OriginalHostCaptureAdapter({
       fail('ORIGINAL_HOST_T4_CAPTURE_PORTS_REQUIRED');
   };
   async function deleteSubject(kind,{mutationInput,sourceCursor,captureRef,fromObjectId}={}){
-    const operation=kind==='ASSET_DELETE'?'deleteAsset':'deleteRelation';
+    const operation=kind==='ASSET_DELETE'?'deleteAsset':kind==='OBJECT_DELETE'?'deleteObject':'deleteRelation';
     if(originalKernel.hasOperation('t1.'+operation)!==true||
       typeof originalKernel[operation]!=='function')
       fail('ORIGINAL_HOST_T3_DELETE_SUBJECT_PORT_REQUIRED');
@@ -160,7 +160,7 @@ export function createT4OriginalHostCaptureAdapter({
       reconcileDeletion('ASSET_DELETE',{captureRef,workspaceId,subjectId:assetId}),
     reconcileRelationDeletion:({captureRef,workspaceId,relationId}={})=>
       reconcileDeletion('RELATION_DELETE',{captureRef,workspaceId,subjectId:relationId}),
-    async deleteObject({mutationInput}={}){
+    async deleteObject({mutationInput,sourceCursor,captureRef}={}){
       if(originalKernel.hasOperation('t1.deleteObject')!==true||
         typeof originalKernel.deleteObject!=='function')
         fail('ORIGINAL_HOST_T3_DELETE_OBJECT_PORT_REQUIRED');
@@ -174,11 +174,13 @@ export function createT4OriginalHostCaptureAdapter({
           originalHostUnchanged:true,capture:null,networkPublished:false,
         });
       }
-      // The released T3 original delete may retain live Relation edges
-      // while its attached Asset vanishes from getAsset. No T4 Object
-      // Delete delta or replay can be authorized by an advisory preflight.
-      fail('ORIGINAL_HOST_T4_OBJECT_DELETE_NOT_QUALIFIED');
+      if(typeof readOriginalDependencyCoverage!=='function'||
+        typeof withOriginalSubjectMutation!=='function')
+        fail('ORIGINAL_HOST_T4_OBJECT_DELETE_NOT_QUALIFIED');
+      return deleteSubject('OBJECT_DELETE',{mutationInput,sourceCursor,captureRef});
     },
+    reconcileObjectDeletion:({captureRef,workspaceId,objectId}={})=>
+      reconcileDeletion('OBJECT_DELETE',{captureRef,workspaceId,subjectId:objectId}),
     async reconcileAssetMutation({captureRef,workspaceId,assetId}={}){
       if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_RECOVERY_REQUIRES_T4');
       requiredOriginalHostCapturePorts();

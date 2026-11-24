@@ -540,6 +540,8 @@ async function executeNativeRecipient(p,options){
     authorizeOriginalRead:protect(p.authorizeOriginalRead,'read-original-subject'),
     authorizeOriginalWrite:protect(p.authorizeOriginalWrite,'write-original-subject'),
     verifyOriginalSourceEvent:protect(p.verifyOriginalSourceEvent,'verify-original-source-event'),
+    readOriginalDependencyCoverage:typeof p.readOriginalDependencyCoverage==='function'?
+      protect(p.readOriginalDependencyCoverage,'read-complete-original-dependencies'):undefined,
     withOriginalSubjectMutation:typeof p.withOriginalSubjectMutation==='function'?
       async(proof,action)=>{
         await guard('before-original-subject-mutation-boundary');

@@ -437,9 +437,11 @@ export async function reconcileT4OriginalHostSubjectMutation(params={}){
   return result;
 }
 
-const deleteKinds=new Set(['ASSET_DELETE','RELATION_DELETE']);
-const deleteOp=kind=>kind==='ASSET_DELETE'?'t1.deleteAsset':'t1.deleteRelation';
-const deleteId=(kind,pre)=>kind==='ASSET_DELETE'?pre?.assetId:pre?.relationId;
+const deleteKinds=new Set(['ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE']);
+const deleteOp=kind=>kind==='ASSET_DELETE'?'t1.deleteAsset':
+  kind==='OBJECT_DELETE'?'t1.deleteObject':'t1.deleteRelation';
+const deleteId=(kind,pre)=>kind==='ASSET_DELETE'?pre?.assetId:
+  kind==='OBJECT_DELETE'?pre?.objectId:pre?.relationId;
 function deletionScope(params){
   const {kind,workspaceId,originalWriteOwnerRef,captureRef,subjectId,
     originalKernel,authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
@@ -448,8 +450,10 @@ function deletionScope(params){
   if(!deleteKinds.has(kind)||![workspaceId,originalWriteOwnerRef,captureRef,subjectId].every(ID)||
     typeof withOriginalSubjectMutation!=='function'||
     !['t1.getObject','t1.listEventsSince',deleteOp(kind),
-      ...(kind==='ASSET_DELETE'?['t1.getAsset']:[])].every(op=>
+      ...(kind==='ASSET_DELETE'?['t1.getAsset']:[]),
+      ...(kind==='OBJECT_DELETE'?['t1.listAssets']:[])].every(op=>
         originalKernel?.hasOperation?.(op)===true&&typeof originalKernel[op.slice(3)]==='function')||
+    (kind==='OBJECT_DELETE'&&typeof params.readOriginalDependencyCoverage!=='function')||
     [authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,readOriginalIntent,
       persistOriginalOutbox,readOriginalOutbox].some(f=>typeof f!=='function'))
     fail('SUBJECT_CAPTURE_ORIGINAL_DELETE_HOST_PORTS_REQUIRED');
@@ -464,12 +468,15 @@ function deletionScope(params){
     mode(getMode);
   };
   const boundary={...proofContext(scope,deleteOp(kind)),
-    originalHostMustSerializeSubjectMutations:true,networkIsNotOriginalGrant:true};
+    originalHostMustSerializeSubjectMutations:true,
+    ...(kind==='OBJECT_DELETE'?{originalHostMustSerializeAllWorkspaceGraphMutations:true}:{}),
+    networkIsNotOriginalGrant:true};
   return {scope,guard,boundary};
 }
 function deletionParams(p,scope,sourceIdempotencyKey,objectId){
   return {...scope,objectId,sourceIdempotencyKey,originalKernel:p.originalKernel,
     nativeNetworkEvidence:true,getMode:p.getMode,
+    readOriginalDependencyCoverage:p.readOriginalDependencyCoverage,
     authorizeOriginalRead:p.authorizeOriginalRead,authorizeOriginalDelete:p.authorizeOriginalWrite,
     persistOriginalPreDeleteWitness:p.persistOriginalIntent,
     readOriginalPreDeleteWitness:p.readOriginalIntent,readOriginalEvents:p.readOriginalEvents};
@@ -510,14 +517,15 @@ async function stageDeletion(p,guard,captured){
 export async function captureT4OriginalHostSubjectDeletion(p={}){
   const {kind,mutationInput,captureRef,workspaceId,sourceCursor,
     originalWriteOwnerRef,withOriginalSubjectMutation,fromObjectId}=p;
-  const asset=kind==='ASSET_DELETE';
-  const subjectId=asset?mutationInput?.asset_id:mutationInput?.relation_id;
-  const objectId=asset?undefined:fromObjectId;
+  const asset=kind==='ASSET_DELETE',object=kind==='OBJECT_DELETE';
+  const subjectId=asset?mutationInput?.asset_id:object?mutationInput?.object_id:mutationInput?.relation_id;
+  const objectId=asset?undefined:object?subjectId:fromObjectId;
   const {scope,guard,boundary}=deletionScope({...p,subjectId});
   checkCursor(sourceCursor,workspaceId,originalWriteOwnerRef);
   if(mutationInput?.workspace_id!==workspaceId||!ID(mutationInput.event?.event_type)||
     (!asset&&!ID(objectId))||typeof p.persistOriginalIntent!=='function'||
-    (asset&&mutationInput.base_revision!==undefined&&
+    (object&&mutationInput.base_revision===undefined)||
+    ((asset||object)&&mutationInput.base_revision!==undefined&&
       (!Number.isSafeInteger(mutationInput.base_revision)||mutationInput.base_revision<1)))
     fail('SUBJECT_CAPTURE_ORIGINAL_INPUT_INVALID');
   const key=mutationInput.event.idempotency_key??('t4-source-delete-'+
@@ -530,7 +538,7 @@ export async function captureT4OriginalHostSubjectDeletion(p={}){
     await guard();
     const captured=await captureT4OriginalDeletionAtMutation({
       ...deletionParams(p,scope,key,objectId),sourceCursor,sourceEvent:event,
-      ...(asset?{expectedBaseRevision}:{})});
+      ...((asset||object)?{expectedBaseRevision}:{})});
     return stageDeletion(p,guard,captured);
   });
 }
@@ -563,7 +571,7 @@ export async function reconcileT4OriginalHostSubjectDeletion(p={}){
         networkPublished:false,recipientApplied:false,sourceCursorAdvanced:false,
         prepared:staged.prepared,window:staged.window,nextCursor:staged.nextCursor});
     }
-    const objectId=scope.kind==='ASSET_DELETE'?intent.preImage.objectId:intent.preImage.fromObjectId;
+    const objectId=scope.kind==='RELATION_DELETE'?intent.preImage.fromObjectId:intent.preImage.objectId;
     const captured=await reconcileT4OriginalSourceDeletion({
       ...deletionParams(p,scope,intent.sourceEvent.idempotency_key,objectId),
       sourceCursor:intent.sourceCursor});

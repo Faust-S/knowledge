@@ -14,7 +14,7 @@ import {decodeT4CandidateFrame,isT4NativeDeleteKind,validT4NativeSubjectRevision
   from './standard-network-wire-candidate.mjs';
 import {verifyT4OriginalDeleteDelta,decodeT4OriginalDeleteDeltaBytes,
   applyT4OriginalDeleteDelta,digestT4OriginalDeletedSubjectState,
-  inspectT4OriginalNativeDeletionResult,verifyT4OriginalNativeDeletionEvent}
+  inspectT4OriginalNativeDeletionResult,verifyT4OriginalNativeDeletionEvent,t4OriginalDeletedSubjectRevision}
   from './original-deletion-delta.mjs';
 
 /**
@@ -71,6 +71,9 @@ const SUBJECTS=Object.freeze({
   RELATION_DELETE:Object.freeze({decode:decodeT4OriginalDeleteDeltaBytes,
     verify:verifyT4OriginalDeleteDelta,apply:applyT4OriginalDeleteDelta,
     id:d=>d.preImage.relationId,revision:()=>null,digest:digestT4OriginalDeletedSubjectState}),
+  OBJECT_DELETE:Object.freeze({decode:decodeT4OriginalDeleteDeltaBytes,
+    verify:verifyT4OriginalDeleteDelta,apply:applyT4OriginalDeleteDelta,
+    id:d=>d.preImage.objectId,revision:t4OriginalDeletedSubjectRevision,digest:digestT4OriginalDeletedSubjectState}),
 });
 const receivedKind=r=>r?.schema==='IWXA_T4_ORIGINAL_NETWORK_OBJECT_RECEIVED_V1'?
   'OBJECT_PUT':r?.schema==='IWXA_T4_ORIGINAL_NETWORK_SUBJECT_RECEIVED_V1'?
@@ -522,13 +525,14 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
 
 export async function inspectT4OriginalNetworkRecipientResult({
   received,originalKernel,authorizeOriginalRead,getMode,
-  allowHistoricalEventProof=false,
+  allowHistoricalEventProof=false,readOriginalDependencyCoverage,
 }={}){
   if(typeof allowHistoricalEventProof!=='boolean')
     fail('SUBJECT_HISTORICAL_READ_MODE_INVALID');
   if(isT4NativeDeleteKind(receivedKind(received))){
     checkReceived(received);
-    return inspectT4OriginalNativeDeletionResult({received,originalKernel,authorizeOriginalRead,getMode});
+    return inspectT4OriginalNativeDeletionResult({received,originalKernel,authorizeOriginalRead,getMode,
+      readOriginalDependencyCoverage});
   }
   if(receivedKind(received)!=='OBJECT_PUT')
     return inspectNonObject({received,originalKernel,authorizeOriginalRead,
@@ -672,11 +676,11 @@ export async function applyT4OriginalNetworkSubjectChange(args={}){
 }
 async function applyOriginalNetworkSubjectChange({
   received,originalKernel,authorizeOriginalRead,authorizeOriginalWrite,
-  verifyOriginalSourceEvent,getMode,withOriginalSubjectMutation,
+  verifyOriginalSourceEvent,getMode,withOriginalSubjectMutation,readOriginalDependencyCoverage,
 }={}){
   checkReceived(received);
   const kind=receivedKind(received),type=SUBJECTS[kind];
-  const args={received,originalKernel,authorizeOriginalRead,getMode};
+  const args={received,originalKernel,authorizeOriginalRead,getMode,readOriginalDependencyCoverage};
   const before=await inspectT4OriginalNetworkRecipientResult(args);
   if(before.originalBusinessApplied)
     return frozen({status:'ALREADY_APPLIED_FROM_ORIGINAL_T3',
@@ -692,7 +696,7 @@ async function applyOriginalNetworkSubjectChange({
       received:{delta:received.delta,sha256:received.sha256,key:received.key},
       originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,getMode,
       ...(kind==='OBJECT_PUT'?{}:{nativeNetworkEvidence:true,authorizeOriginalRead}),
-      ...(isT4NativeDeleteKind(kind)?{withOriginalSubjectMutation}:{}),
+      ...(isT4NativeDeleteKind(kind)?{withOriginalSubjectMutation,readOriginalDependencyCoverage}:{}),
     });
   }catch(error){
     fail('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN',{

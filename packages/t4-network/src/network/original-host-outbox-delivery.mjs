@@ -3,7 +3,7 @@ import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest} from '.
 import {publishT4OriginalObjectDelta,decodeT4OriginalObjectDeltaBytes} from './original-object-delta.mjs';
 import {publishT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes} from './original-asset-delta.mjs';
 import {publishT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes} from './original-relation-delta.mjs';
-import {decodeT4OriginalDeleteDeltaBytes,originalT4DeletionCapturedEvent} from './original-deletion-delta.mjs';
+import {decodeT4OriginalDeleteDeltaBytes,originalT4DeletionCapturedEvent,t4OriginalDeletedSubjectRevision} from './original-deletion-delta.mjs';
 import {isT4NativeDeleteKind} from './standard-network-wire-candidate.mjs';
 
 export class T4OriginalHostOutboxDeliveryError extends Error{
@@ -34,13 +34,15 @@ const KIND_SCHEMA=Object.freeze({
     intent:'IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1'}),
   RELATION_DELETE:Object.freeze({outbox:'IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1',
     intent:'IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1'}),
+  OBJECT_DELETE:Object.freeze({outbox:'IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1',
+    intent:'IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1'}),
 });
 const order=x=>Array.isArray(x)?x.map(order):
   x&&typeof x==='object'?Object.fromEntries(
     Object.keys(x).sort().map(k=>[k,order(x[k])])):x;
 const same=(a,b)=>JSON.stringify(order(a))===JSON.stringify(order(b));
 const wire=x=>Buffer.from(JSON.stringify(x),'utf8');
-const deletedId=(kind,pre)=>kind==='ASSET_DELETE'?pre?.assetId:pre?.relationId;
+const deletedId=(kind,pre)=>kind==='ASSET_DELETE'?pre?.assetId:kind==='OBJECT_DELETE'?pre?.objectId:pre?.relationId;
 const digest=x=>'sha256:'+packageSha256(Buffer.from(JSON.stringify(order(x)),'utf8'));
 function mode(getMode){
   if(typeof getMode!=='function'||getMode()!=='T4_NETWORK')
@@ -211,9 +213,13 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
       fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
   }else if(isT4NativeDeleteKind(kind)){
     const expected=originalT4DeletionCapturedEvent(intent);
-    if(event.idempotency_key!==expected.idempotency_key||
-      originals.filter(row=>row?.idempotency_key===expected.idempotency_key).length!==1||
-      event.event_type!==expected.event_type||!same(event.payload,expected.payload))
+    const traceMatch=row=>kind==='OBJECT_DELETE'?
+      row?.payload?.iwxa_t4_object_delete_intent===expected.payload.iwxa_t4_object_delete_intent:
+      row?.idempotency_key===expected.idempotency_key;
+    if(!traceMatch(event)||originals.filter(traceMatch).length!==1||
+      event.event_type!==expected.event_type||!same(event.payload,expected.payload)||
+      (kind==='OBJECT_DELETE'&&(event.object_id!==s.subjectId||
+        event.revision!==t4OriginalDeletedSubjectRevision(verified.prepared.delta))))
       fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
   }else if(event.idempotency_key!==intent.idempotencyKey||
     event.event_type!==intent.operation.event?.event_type)
@@ -334,7 +340,7 @@ function verifiedNativeDeletion(verified,params){
   const {outbox,originalSourceEvent:event,currentSourceWindow:window,
     currentNextCursor:nextCursor}=verified;
   const exact=decodeT4OriginalDeleteDeltaBytes(verified.prepared.bytes),d=exact.delta;
-  const originalObjectId=params.kind==='ASSET_DELETE'?d.preImage.objectId:d.preImage.fromObjectId;
+  const originalObjectId=params.kind==='RELATION_DELETE'?d.preImage.fromObjectId:d.preImage.objectId;
   if(exact.sha256!==outbox.sha256||exact.key!==outbox.key||
     !same(outbox.sourceCursorAfter,nextCursor)||!outbox.sourceWindow||
     !matchesT4OriginalCapturedWindowDigest(outbox.sourceWindow,d.windowDigest)||
@@ -348,7 +354,7 @@ function verifiedNativeDeletion(verified,params){
     kind:params.kind,subjectId:verified.subjectId,objectId:originalObjectId,
     captureRef:verified.captureRef,workspaceId:verified.workspaceId,
     originalWriteOwnerRef:verified.originalWriteOwnerRef,
-    sourceEventId:d.sourceEventId,sourceRevision:null,originalEventRevision:event.revision??null,
+    sourceEventId:d.sourceEventId,sourceRevision:t4OriginalDeletedSubjectRevision(d),originalEventRevision:event.revision??null,
     sourceCursorBefore:structuredClone(outbox.sourceCursorBefore),
     sourceCursorAfter:structuredClone(outbox.sourceCursorAfter),
     sourceWindow:structuredClone(outbox.sourceWindow),prepared:exact,

@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,
   isT4NativeEventOnlyKind,validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions}
   from './standard-network-wire-candidate.mjs';
+import {t4OriginalDeletedSubjectRevision} from './original-deletion-delta.mjs';
 import {assembleT4CandidateOpaqueChunks}
   from './standard-network-opaque-chunks.mjs';
 
@@ -74,7 +75,8 @@ export function deriveT4OriginalNativeCaptureSession(task){
     c.workspaceId!==task.workspaceId||
     c.originalWriteOwnerRef!==task.originalWriteOwnerRef||
     c.sourceEventId!==d?.sourceEventId||
-    c.sourceRevision!==(isT4NativeEventOnlyKind(c.kind??'OBJECT_PUT')?null:d?.sourceRevision)||
+    c.sourceRevision!==(c.kind==='OBJECT_DELETE'&&d?.kind==='OBJECT_DELETE'?
+      t4OriginalDeletedSubjectRevision(d):isT4NativeEventOnlyKind(c.kind??'OBJECT_PUT')?null:d?.sourceRevision)||
     !w||w.lastEventId!==c.sourceEventId||
     d.sourceEventDigest!==w.eventRefs?.[0]?.eventDigest||
     d.windowDigest!==w.windowDigest||

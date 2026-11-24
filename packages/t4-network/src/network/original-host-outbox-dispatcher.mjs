@@ -367,7 +367,7 @@ async function prepareNextNativeObject(params){
     workspaceId:params.workspaceId,
     originalWriteOwnerRef:params.originalWriteOwnerRef,
     networkTargetRef:params.networkTargetRef,
-    kindFilter:Object.freeze(['OBJECT_PUT','ASSET_PUT','RELATION_PUT','ASSET_DELETE','RELATION_DELETE']),
+    kindFilter:Object.freeze(['OBJECT_PUT','ASSET_PUT','RELATION_PUT','ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE']),
     sourceEventId:ev.eventId,
   }));
   if(!Array.isArray(rows)||rows.length>4096)

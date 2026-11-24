@@ -16,7 +16,7 @@ const MESSAGE_TYPES=new Set([
   'RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK','RESUME'
 ]);
 const SUBJECT_KINDS=new Set(['OBJECT_PUT','ASSET_PUT','RELATION_PUT',
-  'ASSET_DELETE','RELATION_DELETE']);
+  'ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE']);
 // Relation has no numeric revision in original T3. This explicit critical
 // extension is mandatory on its CHANGE_REF and APPLIED_ACK.
 export const T4_RELATION_EVENT_EXTENSION='iwxa.relation-event.v1';
@@ -24,24 +24,26 @@ export const T4_RELATION_EVENT_EXTENSION='iwxa.relation-event.v1';
 // Asset's pre-delete revision is carried in the authenticated plaintext.
 export const T4_SUBJECT_DELETE_EXTENSION='iwxa.subject-delete.v1';
 export const isT4NativeSubjectKind=kind=>SUBJECT_KINDS.has(kind);
-export const isT4NativeDeleteKind=kind=>kind==='ASSET_DELETE'||kind==='RELATION_DELETE';
-export const isT4NativeEventOnlyKind=kind=>kind==='RELATION_PUT'||isT4NativeDeleteKind(kind);
+export const T4_OBJECT_TOMBSTONE_EXTENSION='iwxa.object-tombstone.v1';
+export const isT4NativeDeleteKind=kind=>['ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE'].includes(kind);
+export const isT4NativeEventOnlyKind=kind=>['RELATION_PUT','ASSET_DELETE','RELATION_DELETE'].includes(kind);
 export const validT4NativeSubjectRevision=(kind,revision)=>isT4NativeSubjectKind(kind)&&
   (isT4NativeEventOnlyKind(kind)?revision===null:
-    Number.isSafeInteger(revision)&&revision>=1);
+    Number.isSafeInteger(revision)&&revision>=(kind==='OBJECT_DELETE'?2:1));
 export const validT4NativeOriginalEventRevision=(kind,revision,eventRevision)=>
   validT4NativeSubjectRevision(kind,revision)&&
-  (isT4NativeDeleteKind(kind)?
+  (isT4NativeDeleteKind(kind)&&kind!=='OBJECT_DELETE'?
     (eventRevision===null||(Number.isSafeInteger(eventRevision)&&eventRevision>=0)):
     kind==='ASSET_PUT'?(eventRevision===null||eventRevision===revision):
       eventRevision===revision);
 export const t4NativeSubjectCriticalExtensions=kind=>Object.freeze(
   kind==='RELATION_PUT'?[T4_RELATION_EVENT_EXTENSION]:
-    isT4NativeDeleteKind(kind)?[T4_SUBJECT_DELETE_EXTENSION]:[]);
+    kind==='OBJECT_DELETE'?[T4_OBJECT_TOMBSTONE_EXTENSION]:
+      isT4NativeDeleteKind(kind)?[T4_SUBJECT_DELETE_EXTENSION]:[]);
 export function matchesT4NativeSubjectCriticalExtensions(kind,extensions=[]){
   if(!isT4NativeSubjectKind(kind)||!Array.isArray(extensions))return false;
   const expected=t4NativeSubjectCriticalExtensions(kind);
-  return [T4_RELATION_EVENT_EXTENSION,T4_SUBJECT_DELETE_EXTENSION]
+  return [T4_RELATION_EVENT_EXTENSION,T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION]
     .every(ext=>extensions.includes(ext)===expected.includes(ext));
 }
 const ID=x=>typeof x==='string'&&
@@ -125,6 +127,9 @@ function validateBody(type,body,extensions=[]){
     fail('WIRE_RELATION_EVENT_EXTENSION_INVALID');
   if(deletionEvent&&(!['CHANGE_REF','APPLIED_ACK'].includes(type)||relationEvent))
     fail('WIRE_SUBJECT_DELETE_EXTENSION_INVALID');
+  const objectTombstone=Array.isArray(extensions)&&extensions.includes(T4_OBJECT_TOMBSTONE_EXTENSION);
+  if(objectTombstone&&(!['CHANGE_REF','APPLIED_ACK'].includes(type)||relationEvent||deletionEvent))
+    fail('WIRE_OBJECT_TOMBSTONE_EXTENSION_INVALID');
   if(!body||typeof body!=='object'||Array.isArray(body))
     fail('WIRE_BODY_INVALID');
   if(type==='HELLO'||type==='CAPABILITIES'){
@@ -190,7 +195,7 @@ function validateBody(type,body,extensions=[]){
       fail('WIRE_ACK_INVALID');
     if(type==='APPLIED_ACK'&&(!ID(body.recipientEventRef)||
       ((relationEvent||deletionEvent)?body.recipientRevision!==null:
-        (!Number.isSafeInteger(body.recipientRevision)||body.recipientRevision<1))||
+        (!Number.isSafeInteger(body.recipientRevision)||body.recipientRevision<(objectTombstone?2:1)))||
       !DIGEST(body.recipientStateDigest)))
       fail('WIRE_APPLIED_ACK_EVIDENCE_INVALID');
   }else if(type==='RESUME'){
