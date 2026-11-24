@@ -102,7 +102,8 @@ jobs:
             echo T3_MOBILE_HELDOUT_PROMPT_PREPARATION_FAIL
             exit 1
           fi
-          grep -E '^T3_QUALITY_PROMPTS_PREPARED [0-9]+ forms [0-9]+
+          grep -E '^T3_QUALITY_PROMPTS_PREPARED [0-9]+ forms [0-9]+$' "$RUNNER_TEMP/heldout-preparation.log"
+          echo T3_MOBILE_HELDOUT_PROMPTS_ONLY_NOT_MODEL_QUALITY
       - name: Remove private staged data and logs
         if: always()
         shell: bash
@@ -236,7 +237,19 @@ jobs:
           IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
           T3_D5_REQUIRE_HARDWARE_GPU: '1'
           T3_D5_MODEL_ID: ${{ matrix.model }}
-        run: node tests/t3-d5-full-bli.browser.mjs
+        shell: bash
+        run: |
+          set -eu
+          if test -n "${T3_D5_QUALITY_PROMPTS:-}"; then
+            if ! node tests/t3-d5-full-bli.browser.mjs > "$RUNNER_TEMP/private-quality-browser.log" 2>&1; then
+              echo T3_D5_REAL_HARDWARE_OR_QUALITY_FAIL
+              grep -oE 'T3_(D5|QUALITY)_[A-Z0-9_]+' "$RUNNER_TEMP/private-quality-browser.log" | sort -u | tail -20 || true
+              exit 1
+            fi
+            grep -E '^T3_(D5_[A-Z0-9_]+_PASS|QUALITY_OFFLINE_RESPONSES_CAPTURED) ' "$RUNNER_TEMP/private-quality-browser.log" | cut -d' ' -f1
+          else
+            node tests/t3-d5-full-bli.browser.mjs
+          fi
       - name: Score actual offline model responses against held-out Club expectations
         if: contains(github.event.head_commit.message, '[mobile-quality]')
         shell: bash
@@ -258,110 +271,6 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -rf private-quality-club private-quality-assistant "$RUNNER_TEMP/quality-prep" "$RUNNER_TEMP/quality-prep.log" "$RUNNER_TEMP/quality-score.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-responses.json"
+          rm -rf private-quality-club private-quality-assistant "$RUNNER_TEMP/quality-prep" "$RUNNER_TEMP/quality-prep.log" "$RUNNER_TEMP/quality-score.log" "$RUNNER_TEMP/private-quality-browser.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-responses.json"
       - name: Desktop hardware scope
         run: echo T3_MOBILE_DESKTOP_HARDWARE_NOT_PHYSICAL_ANDROID_IOS_ACCEPTANCE
- "$RUNNER_TEMP/heldout-preparation.log"
-          echo T3_MOBILE_HELDOUT_PROMPTS_ONLY_NOT_MODEL_QUALITY
-      - name: Remove private staged data and logs
-        if: always()
-        shell: bash
-        run: |
-          rm -rf "$RUNNER_TEMP/assistant-candidate" "$RUNNER_TEMP/private-mobile-source.log" "$RUNNER_TEMP/private-mobile-dom.log"
-          rm -rf private-bli private-club
-  shared-host:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v4
-      - name: Exact original private assistant
-        uses: actions/checkout@v4
-        with:
-          repository: Faust-S/T3
-          ref: a4dbc19dd8c99da2f24c07db5a22cde00de8dc4b
-          token: ${{ secrets.DOMEN }}
-          persist-credentials: false
-          path: private-bli
-      - name: Exact original Club module
-        uses: actions/checkout@v4
-        with:
-          repository: Faust-S/club.iwxa.ru
-          ref: f97f5a182ef87d4d93d7ddcb55936d3c35eae291
-          token: ${{ secrets.DOMEN }}
-          persist-credentials: false
-          path: private-club
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Compile actual Club module and original assistant into one candidate T3 Host
-        shell: bash
-        run: |
-          set -euo pipefail
-          core="$GITHUB_WORKSPACE/packages/t3-core"
-          log="$RUNNER_TEMP/private-mobile-host.log"
-          if ! (node "$core/scripts/stage-t2-external-module.mjs" "$core" "$GITHUB_WORKSPACE/private-club/runtime/club-module" iwxa.domain.club club && node "$core/scripts/qualify-bli-inherited-host.mjs" --assistant-source "$GITHUB_WORKSPACE/private-bli/browser-local-inference/domain-assistant") > "$log" 2>&1; then
-            echo T3_MOBILE_CANDIDATE_CLUB_HOST_FAIL
-            grep -oE 'T3_D5_[A-Z0-9_]+' "$log" | sort -u | tail -20 || true
-            exit 1
-          fi
-          grep '^T3_MOBILE_CANDIDATE_ORIGINAL_ASSISTANT_SHARED_ENGINE_PASS$' "$log"
-          grep '^T3_D5_FULL_ORIGINAL_BLI_HOST_BUILD_PASS ' "$log" | cut -d' ' -f1
-          echo T3_MOBILE_CANDIDATE_CLUB_HOST_PASS
-      - name: Remove private temporary source and build data
-        if: always()
-        shell: bash
-        run: |
-          rm -rf private-bli private-club "$RUNNER_TEMP/private-mobile-host.log"
-          rm -rf packages/t3-core/candidate-domain-assistant packages/t3-core/dist packages/t3-core/src/modules/club
-
-  real-webgpu:
-    # Opt in only for an exact candidate; the runner must expose actual Metal.
-    # These are desktop hardware/offline checks, NOT physical phone acceptance.
-    if: contains(github.event.head_commit.message, '[mobile-metal]')
-    runs-on: macos-latest
-    timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      max-parallel: 2
-      matrix:
-        model:
-          - Qwen2.5-0.5B-Instruct-q4f32_1-MLC
-          - Qwen2.5-1.5B-Instruct-q4f16_1-MLC
-          - Qwen2.5-7B-Instruct-q4f16_1-MLC
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install original Host dependencies
-        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
-      - name: Use OpenSSL 3 for temporary test certificate
-        run: |
-          if ! brew list --versions openssl@3 >/dev/null 2>&1; then brew install openssl@3; fi
-          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
-      - name: Verify and stage unchanged original Kernel 0.3.6
-        working-directory: packages/t3-core
-        env:
-          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
-        run: |
-          set -eu
-          archive=qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
-          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $archive" | shasum -a 256 -c -
-          mkdir -p "$IWXA_T2_QUALIFIED_KERNEL_DIST"
-          unzip -q "$archive" -d "$IWXA_T2_QUALIFIED_KERNEL_DIST"
-          node --input-type=module -e 'import {assertQualifiedKernelArtifact} from "./src/factory2/products/domain-completion/independent-browser-witness.mjs"; assertQualifiedKernelArtifact(process.env.IWXA_T2_QUALIFIED_KERNEL_DIST,{kernel:"0.3.6",contract:"1.3.0",artifactId:"iwxa-kernel-k036-same-store-history-20261019-qualified.1"});'
-      - name: Install browser for actual hardware qualification
-        working-directory: packages/t3-core
-        run: npx --no-install playwright install chromium
-      - name: Compile original single BLI1 Host
-        working-directory: packages/t3-core
-        run: node scripts/qualify-bli-inherited-host.mjs
-      - name: Require real hardware, pinned model, Kernel save and two offline generations
-        working-directory: packages/t3-core
-        env:
-          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
-          T3_D5_REQUIRE_HARDWARE_GPU: '1'
-          T3_D5_MODEL_ID: ${{ matrix.model }}
-        run: node tests/t3-d5-full-bli.browser.mjs
-      - name: Desktop hardware scope
-        run: echo T3_MOBILE_DESKTOP_HARDWARE_ONLY_NOT_ANDROID_IOS_OR_RUSSIAN_TASK_QUALITY
