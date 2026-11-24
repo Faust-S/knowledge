@@ -1,12 +1,14 @@
 import {useEffect,useRef,useState,type ChangeEvent} from 'react';
 import {productTextInventory,reviewProductPresidioTextScreening} from '../../modules/activity-base-anonymizer/presidio-text-review.mjs';
+import {editableProductTexts,reviseTechnologyProductText} from '../../modules/activity-base-anonymizer/technology-product-revision.mjs';
 import type {ProductPreview} from '../../modules/activity-base-anonymizer/technology-product.mjs';
 type Review=Awaited<ReturnType<typeof reviewProductPresidioTextScreening>>;
-export function ProductPresidioReviewPanel({product}:{product:ProductPreview}){
+export function ProductPresidioReviewPanel({product,onRevision}:{product:ProductPreview;onRevision?:(value:ProductPreview)=>void}){
  const input=useRef<HTMLInputElement>(null),generation=useRef(0);
  const [reviews,setReviews]=useState<Partial<Record<'en'|'ru',Review>>>({}),[problem,setProblem]=useState('');
+ const [replacement,setReplacement]=useState(''),[reason,setReason]=useState(''),[page,setPage]=useState<Record<'en'|'ru',number>>({en:0,ru:0});
  const [busy,setBusy]=useState(false),[selected,setSelected]=useState<{language:'en'|'ru';path:string}|null>(null);
- useEffect(()=>{generation.current++;setReviews({});setProblem('');setSelected(null);setBusy(false);return()=>{generation.current++;};},[product]);
+ useEffect(()=>{generation.current++;setReviews({});setProblem('');setSelected(null);setReplacement('');setReason('');setPage({en:0,ru:0});setBusy(false);return()=>{generation.current++;};},[product]);
  async function load(e:ChangeEvent<HTMLInputElement>){
   const f=e.target.files?.[0];e.target.value='';if(!f)return;
   const token=++generation.current;setBusy(true);setProblem('');
@@ -14,12 +16,21 @@ export function ProductPresidioReviewPanel({product}:{product:ProductPreview}){
    if(!f.size||f.size>8*1024*1024)throw Error('limit');
    const r=await reviewProductPresidioTextScreening(product,JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await f.arrayBuffer())));
    if(token!==generation.current)return;
-   setReviews(x=>({...x,[r.language]:r}));setSelected(null);
+   setReviews(x=>({...x,[r.language]:r}));setSelected(null);setReplacement('');setReason('');setPage(x=>({...x,[r.language]:0}));
   }catch{if(token===generation.current)setProblem('Результат должен относиться ко всему текущему продукту, включая название. Проверка прежней редакции не подходит.');}
   finally{if(token===generation.current)setBusy(false);}
  }
  const row=selected?reviews[selected.language]?.fields.find(f=>f.path===selected.path):null;
  const value=row?productTextInventory(product.object_data).find(f=>f.path===row.path)?.text??'':'';
+ const editKind=row?editableProductTexts(product.object_data).find(f=>f.path===row.path)?.edit_kind:'FIXED';
+ async function revise(){
+  if(!row||!onRevision)return;
+  const token=++generation.current;setBusy(true);setProblem('');
+  try{const result=await reviseTechnologyProductText(product,{base_product_sha256:product.product_sha256,edits:[{path:row.path,previous:value,replacement:replacement.trim(),reason:reason.trim()}]});
+   if(token===generation.current){onRevision(result.preview);setReviews({});setSelected(null);setReplacement('');setReason('');}}
+  catch{if(token===generation.current)setProblem('Не удалось исправить поле. Технические числовые условия, структуру и фиксированные параметры менять нельзя.');}
+  finally{if(token===generation.current)setBusy(false);}
+ }
  return <div className="activity-domain-proposal">
   <h3>Проверка полного продукта</h3><p>Оригинальный Presidio через Agent проверяет все текстовые поля, включая название и критерии результата. Это проверка признаков идентификации, а не доказательство анонимности.</p>
   <div className="activity-v7-actions"><input ref={input} type="file" className="visually-hidden" accept=".json,application/json" aria-label="Открыть результат проверки продукта" onChange={load}/>
@@ -27,9 +38,14 @@ export function ProductPresidioReviewPanel({product}:{product:ProductPreview}){
   {problem?<p role="alert" className="activity-v7-note hold">{problem}</p>:null}
   {Object.entries(reviews).map(([lang,r])=>r?<div key={lang} className="activity-domain-group"><strong>{lang==='ru'?'Русский':'Английский'} профиль</strong>
    <p>Проверено {r.scanned_field_count} полей. Обнаружений: {r.finding_count}.</p>
-   <div className="activity-domain-ops">{r.fields.slice(0,32).map(f=><button key={f.path} className="activity-domain-op" onClick={()=>setSelected({language:r.language,path:f.path})}>{f.path}<span>{f.findings.length} обнаружений</span></button>)}</div>
-   {r.fields.length>32?<p>Всего {r.fields.length} полей с находками; изучите полный локальный результат.</p>:null}
+   <div className="activity-domain-ops">{r.fields.slice(page[r.language]*24,(page[r.language]+1)*24).map(f=><button key={f.path} className="activity-domain-op" onClick={()=>{setSelected({language:r.language,path:f.path});setReplacement(productTextInventory(product.object_data).find(x=>x.path===f.path)?.text??'');setReason('');}}>{f.path}<span>{f.findings.length} обнаружений</span></button>)}</div>
+   {r.fields.length>24?<div className="activity-v7-actions"><button disabled={page[r.language]===0} onClick={()=>setPage(x=>({...x,[r.language]:x[r.language]-1}))}>Назад</button><span>{page[r.language]+1} / {Math.ceil(r.fields.length/24)}</span><button disabled={(page[r.language]+1)*24>=r.fields.length} onClick={()=>setPage(x=>({...x,[r.language]:x[r.language]+1}))}>Далее</button></div>:null}
   </div>:null)}
-  {row?<div className="activity-domain-group"><strong>{row.path}</strong><p>{value}</p>{row.findings.map((f,i)=><p key={i}>{f.entity_type}: {Array.from(value).slice(f.start,f.end).join('')}</p>)}</div>:null}
+  {row?<div className="activity-domain-group"><strong>{row.path}</strong><p>{value}</p>{row.findings.map((f,i)=><p key={i}>{f.entity_type}: {Array.from(value).slice(f.start,f.end).join('')}</p>)}
+   {onRevision&&editKind!=='FIXED'?<><label className="activity-domain-label">Обобщённая формулировка<textarea rows={4} value={replacement} maxLength={16000} onChange={e=>setReplacement(e.target.value)}/></label>
+    <label className="activity-domain-label">Что изменено и почему<input value={reason} maxLength={1000} onChange={e=>setReason(e.target.value)}/></label>
+    {editKind==='CONTROL_TEXT'?<p>Сохраните смысл требования и все технические числовые условия. Нужна новая предметная проверка.</p>:null}
+    <button disabled={busy||!replacement.trim()||replacement.trim()===value||!reason.trim()} onClick={()=>void revise()}>Исправить текст и повторить проверку</button></>:<p>Это фиксированное предметное поле. Изменение требует возврата к исходной технологии.</p>}
+   </div>:null}
  </div>;
 }

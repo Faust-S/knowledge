@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {suggestD05ParameterDecisions} from '../../modules/activity-base-anonymizer/d05-adaptation-suggestions.mjs';
 import {PresidioReviewPanel} from './PresidioReviewPanel';
 import {ObservationReviewPanel} from './ObservationReviewPanel';
 import {TechnologyProductPanel} from './TechnologyProductPanel';
@@ -38,6 +39,11 @@ export function TechnologyDisclosurePanel({review,groupId,profile,operations,for
    {open?'Закрыть подготовку к обезличиванию':'Подготовить к обезличиванию'}</button></div>
   {open?<div className="activity-domain-group">
    <h3>Параметры переносимой технологии</h3>
+   <div className="activity-v7-actions"><button onClick={()=>{
+    try{const suggested=suggestD05ParameterDecisions(review,groupId,profile.model_number);change({...suggested.decisions,...decisions});}
+    catch{setError('Не удалось подготовить настройки для выбранного варианта.');}
+   }}>Предложить настройки автоматически</button></div>
+   <p>Объём, календарь и общий резерв определяются получателем. Известные условия операций выбранного варианта сохраняются. Уже выбранные решения не перезаписываются. Предложение необходимо предметно проверить.</p>
    <p>Выберите, что оставить как заявленное условие, а что заменить правилом адаптации. Для технически существенной длительности сохраняйте необходимое требование. Исходное значение параметризованного поля в кандидат не попадает.</p>
    <label className="activity-domain-label">Область параметров
     <select value={scope} aria-label="Область параметров для переноса" onChange={e=>setScope(e.target.value)}>

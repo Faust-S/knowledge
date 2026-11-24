@@ -31,7 +31,7 @@ export function TechnologyProductPanel({candidate}:{candidate:D05DisclosureCandi
     <div><strong>{t.quality_checks.length}</strong><span>Контрольных точек</span></div>
     <div><strong>{[...t.route_parameters,...t.operations.flatMap(o=>o.parameters)].filter(p=>p.mode==='PARAMETERIZE').length}</strong><span>Настраиваемых параметров</span></div></div>
    <p>В новой рабочей среде потребуется выбрать собственные ресурсы, исполнителей, материалы и значения адаптируемых параметров.</p>
-   {preview?<ProductPresidioReviewPanel product={preview}/>:null}
+   {preview?<ProductPresidioReviewPanel product={preview} onRevision={setPreview}/>:null}
    <p className="activity-v7-note hold">Содержимое подготовлено. Право раскрытия, оригинальная публикация .iwxa и импорт получателем ещё не подтверждены.</p>
   </div>:null}
  </div>;

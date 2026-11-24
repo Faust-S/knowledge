@@ -77,7 +77,7 @@ export function PersonalRoutineReviewPanel(){
   {preview&&preview.object_data.target==='PERSONAL_AGENT_TASK_PROMPT'?<div className="activity-domain-group">
    <h3>{preview.object_data.title}</h3><p>{preview.object_data.technology.purpose}</p>
    <p>Целевой исполнитель: оригинальный Personal Agent. Перед активацией получатель выбирает свой контекст, рабочую область и допустимые источники.</p>
-   <ProductPresidioReviewPanel product={preview}/>
+   <ProductPresidioReviewPanel product={preview} onRevision={setPreview}/>
    <p className="activity-v7-note hold">Подготовлено предметное содержимое. Выпуск .iwxa и независимое применение требуют исходного владельца Exchange.</p>
   </div>:null}
  </section>;
