@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: 0c6327aa09f9cc9ace22272c5183b723190f341f
+          ref: 02cfa0e2e1081d00230fc55470206d9de24730d0
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -193,7 +193,7 @@ jobs:
           // strings, identifiers, patches containing code, or formatter diagnostics.
           const layout=/^[ \t\r\n"'\x60,;(){}\[\]\\]*$/u;
           const isLayout=c=>c!==undefined&&layout.test(c);
-          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs"]);
+          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx"]);
           for(const row of rows.filter(r=>r.errorCount)){
             const path=relative(process.cwd(),row.filePath);
             if(!allow.has(path)||row.messages.some(m=>m.severity===2&&m.ruleId!=="prettier/prettier"))continue;
@@ -223,6 +223,21 @@ jobs:
             for(let k=0;k<edits.length;k+=60)console.log("D05_T3_FORMAT_EDITS "+JSON.stringify({path,start:k,edits:edits.slice(k,k+60)}));
           }
           JS
+      - name: Run existing production subject regression
+        id: subject
+        continue-on-error: true
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-subject.log"
+          if ! npm run test >"$log" 2>&1; then
+            grep -Eo 'Tests[[:space:]]+[0-9]+ failed|CEHOVOD_[A-Z0-9_]+' "$log" | sort -u | head -30 || true
+            echo D05_T3_SUBJECT_FAIL
+            exit 1
+          fi
+          grep -E '^[[:space:]]*(Test Files|Tests)[[:space:]]+[0-9]+ passed' "$log" | tail -2 || true
+          echo D05_T3_SUBJECT_PASS
       - name: Verify exact portable common platform
         working-directory: site
         env:
@@ -294,6 +309,21 @@ jobs:
             exit 1
           fi
           echo D05_T3_DIST_BUILD_PASS
+      - name: Exercise actual no-model assistant and existing React forms
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-browser.log"
+          if ! npm run check:t3-assistant-browser >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_ASSISTANT_[A-Za-z0-9_-]+|TimeoutError|AssertionError|TS[0-9]{4,6}' "$log" | sort -u | head -30 || true
+            echo D05_T3_ASSISTANT_BROWSER_FAIL
+            exit 1
+          fi
+          grep -E '^\{"status":"CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS","routes":[0-9]+,"forms":[0-9]+,"costRoutes":[0-9]+,"actualInference":false,"productAccepted":false\}$' "$log"
+          echo D05_T3_ASSISTANT_BROWSER_PASS
       - name: Require exact-source qualification
         if: always()
         shell: bash
@@ -301,7 +331,8 @@ jobs:
           LINT_OUTCOME: ${{ steps.lint.outcome }}
           TYPES_OUTCOME: ${{ steps.site_types.outcome }}
           MODULE_OUTCOME: ${{ steps.module.outcome }}
-        run: test "$LINT_OUTCOME" = success && test "$TYPES_OUTCOME" = success && test "$MODULE_OUTCOME" = success
+          SUBJECT_OUTCOME: ${{ steps.subject.outcome }}
+        run: test "$LINT_OUTCOME" = success && test "$TYPES_OUTCOME" = success && test "$MODULE_OUTCOME" = success && test "$SUBJECT_OUTCOME" = success
       - name: Clear private diagnostics
         if: always()
         shell: bash
