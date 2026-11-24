@@ -4,6 +4,12 @@ import {assembleT4CandidateOpaqueChunks}
 import {applyT4OriginalObjectDelta,decodeT4OriginalObjectDeltaBytes,
   verifyT4OriginalObjectDelta,digestT4OriginalObjectContent}
   from './original-object-delta.mjs';
+import {applyT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes,
+  verifyT4OriginalAssetDelta,digestT4OriginalAssetContent}
+  from './original-asset-delta.mjs';
+import {applyT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes,
+  verifyT4OriginalRelationPutDelta} from './original-relation-delta.mjs';
+import {T4_RELATION_EVENT_EXTENSION} from './standard-network-wire-candidate.mjs';
 
 /**
  * P2.2-C. Bind verified native network ciphertext to the ORIGINAL T3
@@ -42,26 +48,47 @@ const verified=(r,type,head)=>{
     !r.verifiedBody||typeof r.verifiedBody!=='object')
     fail('SUBJECT_SIGNED_FRAME_PROOF_INVALID');
 };
+const SUBJECTS=Object.freeze({
+  OBJECT_PUT:Object.freeze({decode:decodeT4OriginalObjectDeltaBytes,
+    verify:verifyT4OriginalObjectDelta,apply:applyT4OriginalObjectDelta,
+    id:d=>d.objectId,revision:d=>d.sourceRevision,digest:d=>d.objectContentDigest}),
+  ASSET_PUT:Object.freeze({decode:decodeT4OriginalAssetDeltaBytes,
+    verify:verifyT4OriginalAssetDelta,apply:applyT4OriginalAssetDelta,
+    id:d=>d.assetId,revision:d=>d.sourceRevision,digest:digestT4OriginalAssetContent}),
+  RELATION_PUT:Object.freeze({decode:decodeT4OriginalRelationPutDeltaBytes,
+    verify:verifyT4OriginalRelationPutDelta,apply:applyT4OriginalRelationPutDelta,
+    id:d=>d.relationId,revision:()=>null,digest:d=>d.relationContentDigest}),
+});
+const receivedKind=r=>r?.schema==='IWXA_T4_ORIGINAL_NETWORK_OBJECT_RECEIVED_V1'?
+  'OBJECT_PUT':r?.schema==='IWXA_T4_ORIGINAL_NETWORK_SUBJECT_RECEIVED_V1'?
+    r.changeKind:null;
+const subjectRevisionOf=(proof)=>Object.hasOwn(proof,'originalSourceRevision')?
+  proof.originalSourceRevision:proof.originalEventRevision;
 function checkReceived(received){
-  if(received?.schema!=='IWXA_T4_ORIGINAL_NETWORK_OBJECT_RECEIVED_V1'||
+  const kind=receivedKind(received),type=SUBJECTS[kind];
+  if(!type||(kind!=='OBJECT_PUT'&&
+    (received.originalSourceEventAndSubjectVerified!==true||
+     received.originalSourceEventAndObjectVerified!==undefined))||
     !ID(received.changeId)||!DIG(received.contentDigest)||
     !ID(received.sourceNodeRef)||!ID(received.recipientNodeRef)||
     !ID(received.scopeRef)||!ID(received.sessionRef)||
     !ID(received.encryptionContextRef)||!DIG(received.originalEventDigest)||
     !DIG(received.sourcePrefixDigestAfter)||!DIG(received.originalStateDigest)||
-    received.originalSourceEventAndObjectVerified!==true||
+    (kind==='OBJECT_PUT'&&received.originalSourceEventAndObjectVerified!==true)||
     received.originalHostAuthenticatedOpen!==true||
     received.originalRecipientSubjectPermissionGranted!==false||
     received.originalT3ExchangeCalled!==false)
     fail('SUBJECT_RECEIVED_PROOF_INVALID');
-  const exact=verifyT4OriginalObjectDelta(received.delta);
+  const exact=type.verify(received.delta);
   if(received.sha256!==exact.sha256||received.key!==exact.key||
     received.originalEventDigest!==received.delta.sourceEventDigest||
-    received.originalStateDigest!==received.delta.objectContentDigest)
+    received.originalStateDigest!==type.digest(exact.delta)||
+    (kind!=='OBJECT_PUT'&&(received.originalSubjectId!==type.id(exact.delta)||
+      received.originalSourceRevision!==type.revision(exact.delta))))
     fail('SUBJECT_RECEIVED_DELTA_CHANGED');
   return received.delta;
 }
-export async function openT4OriginalNetworkObjectChange({
+export async function openT4OriginalNetworkSubjectChange({
   verifiedChangeRef,verifiedChunks,originalSourceHeadProof,
   encryptionContextRef,recipientNodeRef,scopeRef,getMode,
   readOriginalHostContext,authorizeOriginalSealedOpen,
@@ -87,11 +114,14 @@ export async function openT4OriginalNetworkObjectChange({
     fail('SUBJECT_SIGNED_CHANGE_REQUIRED');
   verified(head,'CHANGE_REF',head);
   const change=head.verifiedBody;
-  if(change.changeKind!=='OBJECT_PUT'||!ID(change.changeId)||
+  const type=SUBJECTS[change.changeKind];
+  if(!type||!ID(change.changeId)||
     !ID(change.eventRef)||!ID(change.ownerRef)||
     !DIG(change.contentDigest)||
-    !Number.isSafeInteger(change.sourceRevision)||
-    change.sourceRevision<1)
+    (change.changeKind==='RELATION_PUT'?
+      (change.sourceRevision!==null||
+       !head.verifiedCriticalExtensions?.includes(T4_RELATION_EVENT_EXTENSION)):
+      (!Number.isSafeInteger(change.sourceRevision)||change.sourceRevision<1)))
     fail('SUBJECT_CHANGE_REF_INVALID');
   for(const chunk of verifiedChunks){
     verified(chunk,'CHUNK',head);
@@ -112,7 +142,11 @@ export async function openT4OriginalNetworkObjectChange({
     originalSourceHeadProof.signedDiffMatchesOriginalT3Frontier!==true||
     originalSourceHeadProof.originalSourceSubjectIndependentlyRead!==true||
     originalSourceHeadProof.originalSourceEventId!==change.eventRef||
-    originalSourceHeadProof.originalEventRevision!==change.sourceRevision||
+    subjectRevisionOf(originalSourceHeadProof)!==change.sourceRevision||
+    (originalSourceHeadProof.changeKind??'OBJECT_PUT')!==change.changeKind||
+    (change.changeKind!=='OBJECT_PUT'&&
+      (originalSourceHeadProof.originalCapturedRevisionProofRequired!==true||
+       originalSourceHeadProof.originalWriteOwnerRef!==change.ownerRef))||
     originalSourceHeadProof.sourceNodeRef!==head.verifiedSourceNodeRef||
     originalSourceHeadProof.recipientNodeRef!==recipientNodeRef||
     originalSourceHeadProof.scopeRef!==scopeRef||
@@ -136,6 +170,7 @@ export async function openT4OriginalNetworkObjectChange({
     sourceNodeRef:head.verifiedSourceNodeRef,recipientNodeRef,
     scopeRef,sessionRef:head.verifiedSessionRef,
     changeId:change.changeId,sourceEventId:change.eventRef,
+    changeKind:change.changeKind,
     originalEventDigest:originalSourceHeadProof.originalEventDigest,
     ownerRef:change.ownerRef,contentDigest:change.contentDigest,
     sourcePrefixDigestAfter:originalSourceHeadProof.sourcePrefixDigestAfter,
@@ -173,12 +208,13 @@ export async function openT4OriginalNetworkObjectChange({
     !(opened.plaintext instanceof Uint8Array)||
     !opened.plaintext.length||opened.plaintext.length>CAP)
     fail('SUBJECT_ORIGINAL_AUTHENTICATED_OPEN_REQUIRED');
-  const source=decodeT4OriginalObjectDeltaBytes(
-    new Uint8Array(opened.plaintext));
+  const source=type.decode(new Uint8Array(opened.plaintext));
   const delta=source.delta;
   if(delta.originalWriteOwnerRef!==change.ownerRef||
     delta.sourceEventId!==change.eventRef||
-    delta.sourceRevision!==change.sourceRevision||
+    type.revision(delta)!==change.sourceRevision||
+    (originalSourceHeadProof.workspaceId!==undefined&&
+      delta.workspaceId!==originalSourceHeadProof.workspaceId)||
     delta.sourceEventDigest!==originalSourceHeadProof.originalEventDigest||
     delta.windowDigest!==originalSourceHeadProof.sourceEventWindowDigest)
     fail('SUBJECT_SOURCE_EVENT_CONTENT_NOT_BOUND');
@@ -188,16 +224,21 @@ export async function openT4OriginalNetworkObjectChange({
   const sourceObjectProof=await verifyOriginalSourceBinding(frozen({
     ...proof,
     originalSourceHeadProof,
-    originalObjectId:delta.objectId,
+    ...(change.changeKind==='OBJECT_PUT'?{
+      originalObjectId:delta.objectId,originalSchemaId:delta.schemaId,
+      originalSchemaVersion:delta.schemaVersion,
+      originalObjectContentDigest:delta.objectContentDigest,
+      originalT3SourceObjectEventAndContentReadbackRequired:true,
+      signedTransportContentIsNotSourceObjectEvidence:true,
+    }:{
+      originalSubjectKind:change.changeKind,originalSubjectId:type.id(delta),
+      originalSubjectDeltaSha256:source.sha256,
+      originalT3SourceSubjectEventAndContentReadbackRequired:true,
+    }),
     originalWorkspaceId:delta.workspaceId,
-    originalSchemaId:delta.schemaId,
-    originalSchemaVersion:delta.schemaVersion,
-    originalObjectContentDigest:delta.objectContentDigest,
-    originalSourceRevision:delta.sourceRevision,
+    originalSourceRevision:type.revision(delta),
     originalSourceEventDigest:delta.sourceEventDigest,
     originalEventWindowDigest:delta.windowDigest,
-    originalT3SourceObjectEventAndContentReadbackRequired:true,
-    signedTransportContentIsNotSourceObjectEvidence:true,
   }));
   if(sourceObjectProof!==true)
     fail('SUBJECT_ORIGINAL_SOURCE_CONTENT_NOT_PROVEN');
@@ -205,31 +246,199 @@ export async function openT4OriginalNetworkObjectChange({
   // The wire digest addresses ciphertext, not the T3 Object. Both are
   // now bound by the signed CHANGE_REF and the authenticated Host open.
   const result={
-    schema:'IWXA_T4_ORIGINAL_NETWORK_OBJECT_RECEIVED_V1',
+    ...(change.changeKind==='OBJECT_PUT'?{
+      schema:'IWXA_T4_ORIGINAL_NETWORK_OBJECT_RECEIVED_V1',
+      originalSourceEventAndObjectVerified:true,
+    }:{
+      schema:'IWXA_T4_ORIGINAL_NETWORK_SUBJECT_RECEIVED_V1',
+      changeKind:change.changeKind,originalSubjectId:type.id(delta),
+      originalSourceRevision:type.revision(delta),
+      originalSourceEventAndSubjectVerified:true,
+    }),
     changeId:change.changeId,contentDigest:change.contentDigest,
     encryptionContextRef,sourceNodeRef:head.verifiedSourceNodeRef,
     recipientNodeRef,scopeRef,sessionRef:head.verifiedSessionRef,
     originalEventDigest:delta.sourceEventDigest,
-    originalStateDigest:delta.objectContentDigest,
+    originalStateDigest:type.digest(delta),
     sourcePrefixDigestAfter:originalSourceHeadProof.sourcePrefixDigestAfter,
     delta:structuredClone(delta),sha256:source.sha256,key:source.key,
-    originalSourceEventAndObjectVerified:true,
     originalHostAuthenticatedOpen:true,
     originalRecipientSubjectPermissionGranted:false,
     originalT3ExchangeCalled:false,
     originalBusinessApplied:false,
     independentCorporateOwnerWitnessVerified:false,
   };
-  Object.freeze(result.delta.data);Object.freeze(result.delta.extensions);
+  if(change.changeKind==='OBJECT_PUT'){
+    Object.freeze(result.delta.data);Object.freeze(result.delta.extensions);
+  }
   Object.freeze(result.delta);
   return frozen(result);
 }
+export async function openT4OriginalNetworkObjectChange(args={}){
+  if(args.verifiedChangeRef?.verifiedBody?.changeKind!=='OBJECT_PUT')
+    fail('SUBJECT_CHANGE_REF_INVALID');
+  return openT4OriginalNetworkSubjectChange(args);
+}
+
+const ASSET_EVENT='iwxa.t4.original-asset.synced';
+const RELATION_EVENT='iwxa.t4.original-relation.synced';
+function equalStable(a,b){
+  const order=x=>Array.isArray(x)?x.map(order):x&&typeof x==='object'?
+    Object.fromEntries(Object.keys(x).sort().map(k=>[k,order(x[k])])):x;
+  return same(order(a),order(b));
+}
+const relationMatches=(r,d)=>r?.workspace_id===d.workspaceId&&
+  r.relation_id===d.relationId&&r.from_object_id===d.fromObjectId&&
+  r.to_object_id===d.toObjectId&&r.kind===d.kind;
+function validObject(row,workspaceId,objectId){
+  return row?.object?.workspace_id===workspaceId&&
+    row.object.object_id===objectId&&row.object.deleted!==true;
+}
+async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
+  getMode,allowHistoricalEventProof=false}){
+  const d=checkReceived(received),kind=receivedKind(received),type=SUBJECTS[kind];
+  const asset=kind==='ASSET_PUT',subjectId=type.id(d),expected=type.digest(d),
+    eventType=asset?ASSET_EVENT:RELATION_EVENT;
+  const operations=['t1.getObject','t1.listEventsSince',...(asset?['t1.getAsset']:[])];
+  if(![getMode,authorizeOriginalRead].every(f=>typeof f==='function')||
+    !operations.every(op=>originalKernel?.hasOperation?.(op)===true&&
+      typeof originalKernel[op.slice(3)]==='function'))
+    fail('SUBJECT_ORIGINAL_RESULT_READ_PORTS_REQUIRED');
+  async function guard(operation,id=subjectId){
+    if(getMode()!=='T4_NETWORK')fail('SUBJECT_NETWORK_MODE_OFF');
+    if(await authorizeOriginalRead(frozen({operation,subjectId:id,
+      subjectKind:kind,workspaceId:d.workspaceId,sourceEventId:d.sourceEventId,
+      originalWriteOwnerRef:d.originalWriteOwnerRef,
+      recipientT3OriginalReadAuthorityRequired:true}))!==true)
+      fail('SUBJECT_ORIGINAL_RESULT_READ_DENIED');
+    if(getMode()!=='T4_NETWORK')fail('SUBJECT_NETWORK_MODE_OFF');
+  }
+  async function object(id){
+    await guard('t1.getObject',id);
+    const row=await originalKernel.getObject(d.workspaceId,id);
+    await guard('t1.getObject',id);
+    if(!validObject(row,d.workspaceId,id))
+      fail('SUBJECT_RECIPIENT_ENDPOINT_MISSING');
+    return row;
+  }
+  async function readSubject(){
+    if(asset){
+      await object(d.objectId);
+      await guard('t1.getAsset');
+      const row=await originalKernel.getAsset(d.workspaceId,subjectId);
+      await guard('t1.getAsset');
+      if(row===null)return null;
+      const a=row?.asset;
+      if(a?.workspace_id!==d.workspaceId||a.asset_id!==subjectId||
+        a.object_id!==d.objectId||a.mime!==d.mime||a.deleted===true||
+        !Number.isSafeInteger(a.revision)||a.revision<1||
+        !(row.bytes instanceof Uint8Array)||!row.bytes.length||
+        a.size!==row.bytes.length)
+        fail('SUBJECT_RECIPIENT_ASSET_IDENTITY_CONFLICT');
+      return {revision:a.revision,stateDigest:digestT4OriginalAssetContent({
+        workspaceId:a.workspace_id,assetId:a.asset_id,objectId:a.object_id,
+        mime:a.mime,assetSize:row.bytes.length,
+        assetBytesSha256:HASH(row.bytes).slice(7),
+      })};
+    }
+    const from=await object(d.fromObjectId),to=await object(d.toObjectId);
+    const outgoing=from.relations?.outgoing,incoming=to.relations?.incoming;
+    if(!Array.isArray(outgoing)||!Array.isArray(incoming))
+      fail('SUBJECT_RECIPIENT_RELATION_READBACK_REQUIRED');
+    const edges=outgoing.filter(r=>r?.relation_id===subjectId);
+    const reverse=incoming.filter(r=>r?.relation_id===subjectId);
+    if(!edges.length&&!reverse.length)return null;
+    if(edges.length!==1||reverse.length!==1||
+      !relationMatches(edges[0],d)||!relationMatches(reverse[0],d))
+      fail('SUBJECT_RECIPIENT_RELATION_ID_CONFLICT');
+    return {revision:null,stateDigest:expected};
+  }
+  async function readEvents(){
+    await guard('t1.listEventsSince');
+    const events=await originalKernel.listEventsSince(d.workspaceId);
+    await guard('t1.listEventsSince');
+    if(!Array.isArray(events)||events.length>100000)
+      fail('SUBJECT_ORIGINAL_EVENT_STREAM_INVALID');
+    return events;
+  }
+  const match=events=>events.filter(e=>e?.workspace_id===d.workspaceId&&
+    e.event_type===eventType&&e.payload?.originalEventId===d.sourceEventId);
+  const verifyEvent=e=>ID(e?.event_id)&&
+    e.idempotency_key===(asset?'t4-asset-':'t4-relation-')+received.sha256&&
+    e.payload?.originalWriteOwnerRef===d.originalWriteOwnerRef&&
+    e.payload?.originalEventDigest===d.sourceEventDigest&&
+    e.payload?.originalDeltaSha256===received.sha256&&
+    (asset?
+      (e.payload.originalAssetId===subjectId&&
+       e.payload.originalAssetRevision===d.sourceRevision&&
+       e.payload.sourceDigest===d.assetBytesSha256&&
+       e.payload.originalContentDigest===expected&&
+       (e.revision==null||e.revision===d.sourceRevision)&&
+       (e.object_id==null||e.object_id===d.objectId||e.object_id===subjectId)):
+      (e.payload.originalRelationId===subjectId&&
+       e.payload.originalRelationDigest===expected&&e.revision==null&&
+       (e.object_id==null||e.object_id===d.fromObjectId||e.object_id===subjectId)));
+  const row=await readSubject(),events=await readEvents(),matches=match(events);
+  if(matches.length>1)fail('SUBJECT_ORIGINAL_DUPLICATE_APPLY_EVENTS');
+  if(!matches.length){
+    if(asset?(row?.revision??0)!==d.baseRevision:row!==null)
+      fail('SUBJECT_RECIPIENT_DIVERGED_WITHOUT_RESULT');
+    if(!equalStable(await readSubject(),row)||match(await readEvents()).length)
+      fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
+    return frozen({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
+      state:'NOT_APPLIED',originalBusinessApplied:false,historicalReceiptFabricated:false});
+  }
+  const ev=matches[0];
+  if(!verifyEvent(ev)||row===null)
+    fail('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH');
+  const revision=type.revision(d),historical=asset&&row.revision>revision;
+  if(historical){
+    if(!allowHistoricalEventProof)fail('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH');
+    // Only original native Asset events with their actual per-asset
+    // revision prove continuity. A null original Event.revision is not
+    // replaced by an invented Event revision or a global workspace ordinal.
+    for(let r=revision+1;r<=row.revision;r++){
+      const continuation=events.filter(e=>e.workspace_id===d.workspaceId&&
+        e.event_type===ASSET_EVENT&&e.payload?.originalAssetId===subjectId&&
+        e.payload?.originalAssetRevision===r&&
+        e.payload?.originalWriteOwnerRef===d.originalWriteOwnerRef&&
+        DIG(e.payload.originalContentDigest)&&DIG(e.payload.originalEventDigest)&&
+        /^[a-f0-9]{64}$/.test(e.payload.originalDeltaSha256??'')&&
+        ID(e.event_id)&&(e.revision==null||e.revision===r)&&
+        e.idempotency_key==='t4-asset-'+e.payload.originalDeltaSha256);
+      if(continuation.length!==1||
+        (r===row.revision&&continuation[0].payload.originalContentDigest!==row.stateDigest))
+        fail('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP',{missingRevision:r});
+    }
+  }else if(row.revision!==revision||row.stateDigest!==expected)
+    fail('SUBJECT_ORIGINAL_RESULT_STATE_MISMATCH');
+  const reread=await readSubject(),second=match(await readEvents());
+  if(!equalStable(reread,row)||second.length!==1||
+    !equalStable(second[0],ev))fail('SUBJECT_ORIGINAL_RESULT_CHANGED_DURING_READ');
+  return frozen({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
+    state:historical?'APPLIED_HISTORICAL_EVENT_VERIFIED':'APPLIED_VERIFIED',
+    originalSubjectKind:kind,originalSubjectId:subjectId,
+    originalRecipientEventId:ev.event_id,originalRecipientRevision:revision,
+    originalRecipientEventRevision:ev.revision??null,
+    originalRecipientStateDigest:expected,sourceEventId:d.sourceEventId,
+    currentRecipientRevision:row.revision,originalBusinessApplied:true,
+    actualOriginalT3EventReadback:true,actualOriginalT3SubjectReadback:true,
+    actualOriginalT3AssetReadback:asset,actualOriginalT3RelationReadback:!asset,
+    ...(historical?{historicalStateFromOriginalEvent:true,
+      currentObjectEqualsHistoricalState:false,historicalSubjectBytesReconstructed:false,
+      originalT3EventContinuityVerified:true}:{}),
+    historicalReceiptFabricated:false});
+}
+
 export async function inspectT4OriginalNetworkRecipientResult({
   received,originalKernel,authorizeOriginalRead,getMode,
   allowHistoricalEventProof=false,
 }={}){
   if(typeof allowHistoricalEventProof!=='boolean')
     fail('SUBJECT_HISTORICAL_READ_MODE_INVALID');
+  if(receivedKind(received)!=='OBJECT_PUT')
+    return inspectNonObject({received,originalKernel,authorizeOriginalRead,
+      getMode,allowHistoricalEventProof});
   const delta=checkReceived(received);
   if(![getMode,authorizeOriginalRead].every(f=>typeof f==='function')||
     !['t1.getObject','t1.listEventsSince'].every(
@@ -357,11 +566,12 @@ export async function inspectT4OriginalNetworkRecipientResult({
     historicalReceiptFabricated:false,
   });
 }
-export async function applyT4OriginalNetworkObjectChange({
+export async function applyT4OriginalNetworkSubjectChange({
   received,originalKernel,authorizeOriginalRead,authorizeOriginalWrite,
   verifyOriginalSourceEvent,getMode,
 }={}){
   checkReceived(received);
+  const kind=receivedKind(received),type=SUBJECTS[kind];
   const args={received,originalKernel,authorizeOriginalRead,getMode};
   const before=await inspectT4OriginalNetworkRecipientResult(args);
   if(before.originalBusinessApplied)
@@ -374,9 +584,10 @@ export async function applyT4OriginalNetworkObjectChange({
   // its native idempotency key and unknown-receipt fail-closed policy.
   let applied;
   try{
-    applied=await applyT4OriginalObjectDelta({
+    applied=await type.apply({
       received:{delta:received.delta,sha256:received.sha256,key:received.key},
       originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,getMode,
+      ...(kind==='OBJECT_PUT'?{}:{nativeNetworkEvidence:true,authorizeOriginalRead}),
     });
   }catch(error){
     fail('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN',{
@@ -384,7 +595,8 @@ export async function applyT4OriginalNetworkObjectChange({
       inspectOriginalEventBeforeFurtherAction:true,
     });
   }
-  if(applied.originalT3CommitApplied!==true||
+  if((kind==='OBJECT_PUT'?applied.originalT3CommitApplied:
+    applied.originalRecipientApplied)!==true||
     !ID(applied.originalReceipt?.event?.event_id))
     fail('SUBJECT_ORIGINAL_COMMIT_RECEIPT_INVALID');
   const confirmed=await inspectT4OriginalNetworkRecipientResult(args);
@@ -395,20 +607,28 @@ export async function applyT4OriginalNetworkObjectChange({
     originalCommitInvoked:true,
     originalReceipt:applied.originalReceipt});
 }
+export async function applyT4OriginalNetworkObjectChange(args={}){
+  if(receivedKind(args.received)!=='OBJECT_PUT')fail('SUBJECT_RECEIVED_PROOF_INVALID');
+  return applyT4OriginalNetworkSubjectChange(args);
+}
 export function createT4OriginalNetworkAppliedAckBody({
   received,verifiedResult,ackRef,
 }={}){
   checkReceived(received);
+  const kind=receivedKind(received),type=SUBJECTS[kind];
   if(!ID(ackRef)||verifiedResult?.state!=='APPLIED_VERIFIED'||
     verifiedResult.originalBusinessApplied!==true||
     verifiedResult.actualOriginalT3EventReadback!==true||
-    verifiedResult.actualOriginalT3ObjectReadback!==true||
+    (kind==='OBJECT_PUT'?verifiedResult.actualOriginalT3ObjectReadback!==true:
+      (verifiedResult.actualOriginalT3SubjectReadback!==true||
+       verifiedResult.originalSubjectKind!==kind||
+       verifiedResult.originalSubjectId!==type.id(received.delta)))||
     verifiedResult.sourceEventId!==received.delta.sourceEventId||
-    verifiedResult.originalRecipientRevision!==received.delta.sourceRevision||
-    verifiedResult.originalRecipientStateDigest!==
-      received.delta.objectContentDigest||
+    verifiedResult.originalRecipientRevision!==type.revision(received.delta)||
+    verifiedResult.originalRecipientStateDigest!==type.digest(received.delta)||
     !ID(verifiedResult.originalRecipientEventId)||
-    !Number.isSafeInteger(verifiedResult.originalRecipientRevision)||
+    (kind==='RELATION_PUT'?verifiedResult.originalRecipientRevision!==null:
+      !Number.isSafeInteger(verifiedResult.originalRecipientRevision))||
     !DIG(verifiedResult.originalRecipientStateDigest))
     fail('SUBJECT_APPLIED_ACK_REQUIRES_ORIGINAL_RESULT');
   return frozen({

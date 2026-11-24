@@ -49,6 +49,7 @@ function checked(raw){
   const sha256=packageSha256(bytes);
   return Object.freeze({delta:Object.freeze(normalized),sha256,key:sha256+'.t4d',bytes});
 }
+export function verifyT4OriginalRelationPutDelta(delta){return checked(delta);}
 export function decodeT4OriginalRelationPutDeltaBytes(bytes){
   if(!(bytes instanceof Uint8Array)||!bytes.length||bytes.length>1024*1024)
     fail('RELATION_DELTA_WIRE_MALFORMED');
@@ -142,6 +143,7 @@ export async function fetchT4OriginalRelationPutDelta({
 
 export async function applyT4OriginalRelationPutDelta({
   received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,getMode,
+  nativeNetworkEvidence=false,authorizeOriginalRead,
 }={}){
   const exact=received?.delta&&checked(received.delta);
   if(!exact||received.key!==exact.key||received.sha256!==exact.sha256)
@@ -154,6 +156,18 @@ export async function applyT4OriginalRelationPutDelta({
     typeof verifyOriginalSourceEvent!=='function')
     fail('RELATION_DELTA_ORIGINAL_WRITE_PORT_REQUIRED');
   const d=exact.delta;
+  if(typeof nativeNetworkEvidence!=='boolean'||
+    (nativeNetworkEvidence&&typeof authorizeOriginalRead!=='function'))
+    fail('RELATION_DELTA_ORIGINAL_WRITE_PORT_REQUIRED');
+  const guardRead=async(operation,subjectId)=>{
+    ready(getMode);
+    if(nativeNetworkEvidence&&await authorizeOriginalRead(Object.freeze({
+      operation,subjectId,workspaceId:d.workspaceId,
+      originalWriteOwnerRef:d.originalWriteOwnerRef,sourceEventId:d.sourceEventId,
+      recipientT3OriginalReadAuthorityRequired:true,
+    }))!==true)fail('RELATION_DELTA_RECIPIENT_READ_DENIED');
+    ready(getMode);
+  };
   ready(getMode);
   const ctx=Object.freeze({operation:'t1.putRelation',
     workspaceId:d.workspaceId,relationId:d.relationId,fromObjectId:d.fromObjectId,
@@ -164,13 +178,21 @@ export async function applyT4OriginalRelationPutDelta({
     toObjectId:d.toObjectId,originalWriteOwnerRef:d.originalWriteOwnerRef,
     sourceEventId:d.sourceEventId,sourceEventDigest:d.sourceEventDigest,
     relationContentDigest:d.relationContentDigest,windowDigest:d.windowDigest,
+    ...(nativeNetworkEvidence?{
+      originalSubjectKind:'RELATION_PUT',
+      originalSubjectId:d.relationId,
+      originalSubjectDeltaSha256:exact.sha256,
+    }:{}),
     networkEnvelopeIsNotSignedEvidence:true});
   if(await authorizeOriginalWrite(ctx)!==true)
     fail('RELATION_DELTA_ORIGINAL_WRITE_DENIED');
   if(await verifyOriginalSourceEvent(proof)!==true)
     fail('RELATION_DELTA_ORIGINAL_SOURCE_NOT_VERIFIED');
+  await guardRead('t1.getObject',d.fromObjectId);
   const from=await originalKernel.getObject(d.workspaceId,d.fromObjectId);
+  await guardRead('t1.getObject',d.toObjectId);
   const to=await originalKernel.getObject(d.workspaceId,d.toObjectId);
+  await guardRead('t1.getObject',d.toObjectId);
   ready(getMode);
   if(await authorizeOriginalWrite(ctx)!==true)
     fail('RELATION_DELTA_ORIGINAL_WRITE_DENIED');
@@ -180,14 +202,18 @@ export async function applyT4OriginalRelationPutDelta({
     from.object.deleted||to.object.deleted)
     fail('RELATION_DELTA_RECIPIENT_ENDPOINT_MISSING');
   const old=relationFrom(from,d.relationId);
-  if(old&&!same(old,d))
+  if(old&&(nativeNetworkEvidence||!same(old,d)))
     fail('RELATION_DELTA_RECIPIENT_ID_CONFLICT');
   const input={workspace_id:d.workspaceId,relation_id:d.relationId,
     from_object_id:d.fromObjectId,to_object_id:d.toObjectId,kind:d.kind,
     event:{event_type:'iwxa.t4.original-relation.synced',
       payload:{originalEventId:d.sourceEventId,
         originalWriteOwnerRef:d.originalWriteOwnerRef,
-        originalRelationDigest:d.relationContentDigest},
+        originalRelationDigest:d.relationContentDigest,
+        ...(nativeNetworkEvidence?{
+          originalRelationId:d.relationId,originalEventDigest:d.sourceEventDigest,
+          originalDeltaSha256:exact.sha256,
+        }:{})},
       idempotency_key:'t4-relation-'+exact.sha256},
   };
   let receipt;
@@ -206,7 +232,11 @@ export async function applyT4OriginalRelationPutDelta({
   if(!same(receipt?.relation,d)||!ID(receipt?.event?.event_id))
     fail('RELATION_DELTA_ORIGINAL_RECEIPT_INVALID');
   let observed;
-  try{observed=await originalKernel.getObject(d.workspaceId,d.fromObjectId);}
+  try{
+    await guardRead('t1.getObject',d.fromObjectId);
+    observed=await originalKernel.getObject(d.workspaceId,d.fromObjectId);
+    await guardRead('t1.getObject',d.fromObjectId);
+  }
   catch(error){fail('RELATION_DELTA_OUTCOME_UNKNOWN',{originalReceiptMayExist:true,
     originalCode:error?.code??null,automaticRetryAllowed:false});}
   if(getMode()!=='T4_NETWORK'||await authorizeOriginalWrite(ctx)!==true)

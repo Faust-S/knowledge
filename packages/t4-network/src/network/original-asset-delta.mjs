@@ -42,6 +42,14 @@ function checked(delta){
   return Object.freeze({delta:Object.freeze(normalized),assetBytes,bytes,
     sha256,key:sha256+'.t4d'});
 }
+export function verifyT4OriginalAssetDelta(delta){return checked(delta);}
+export function digestT4OriginalAssetContent(d){
+  return 'sha256:'+packageSha256(Buffer.concat([
+    Buffer.from('IWXA-T4-ORIGINAL-ASSET-CONTENT-V1\0','utf8'),
+    json({workspaceId:d.workspaceId,assetId:d.assetId,objectId:d.objectId,
+      mime:d.mime,assetSize:d.assetSize,assetBytesSha256:d.assetBytesSha256}),
+  ]));
+}
 export function decodeT4OriginalAssetDeltaBytes(bytes){
   if(!(bytes instanceof Uint8Array)||!bytes.length||bytes.length>1024*1024)
     fail('ASSET_DELTA_WIRE_MALFORMED');
@@ -139,7 +147,8 @@ export async function fetchT4OriginalAssetDelta({transport,key,sha256,
   return Object.freeze({delta:exact.delta,key,sha256,transportReceipt:read.receipt});
 }
 export async function applyT4OriginalAssetDelta({received,originalKernel,
-  authorizeOriginalWrite,verifyOriginalSourceEvent,getMode}={}){
+  authorizeOriginalWrite,verifyOriginalSourceEvent,getMode,
+  nativeNetworkEvidence=false,authorizeOriginalRead}={}){
   const exact=received?.delta&&checked(received.delta);
   if(!exact||received.key!==exact.key||received.sha256!==exact.sha256)
     fail('ASSET_DELTA_RECEIVED_MISMATCH');
@@ -151,6 +160,18 @@ export async function applyT4OriginalAssetDelta({received,originalKernel,
     typeof verifyOriginalSourceEvent!=='function')
     fail('ASSET_DELTA_ORIGINAL_WRITE_PORT_REQUIRED');
   const d=exact.delta;
+  if(typeof nativeNetworkEvidence!=='boolean'||
+    (nativeNetworkEvidence&&typeof authorizeOriginalRead!=='function'))
+    fail('ASSET_DELTA_ORIGINAL_WRITE_PORT_REQUIRED');
+  const guardRead=async(operation,subjectId)=>{
+    mode(getMode);
+    if(nativeNetworkEvidence&&await authorizeOriginalRead(Object.freeze({
+      operation,subjectId,workspaceId:d.workspaceId,
+      originalWriteOwnerRef:d.originalWriteOwnerRef,sourceEventId:d.sourceEventId,
+      recipientT3OriginalReadAuthorityRequired:true,
+    }))!==true)fail('ASSET_DELTA_RECIPIENT_READ_DENIED');
+    mode(getMode);
+  };
   mode(getMode);
   const ctx=Object.freeze({operation:'t1.putAsset',
     workspaceId:d.workspaceId,assetId:d.assetId,objectId:d.objectId,
@@ -161,12 +182,19 @@ export async function applyT4OriginalAssetDelta({received,originalKernel,
     originalWriteOwnerRef:d.originalWriteOwnerRef,sourceEventId:d.sourceEventId,
     sourceEventDigest:d.sourceEventDigest,windowDigest:d.windowDigest,
     sourceRevision:d.sourceRevision,assetBytesSha256:d.assetBytesSha256,
+    ...(nativeNetworkEvidence?{
+      originalSubjectKind:'ASSET_PUT',
+      originalSubjectId:d.assetId,
+      originalSubjectDeltaSha256:exact.sha256,
+    }:{}),
     networkEnvelopeIsNotSignedEvidence:true});
   if(await authorizeOriginalWrite(ctx)!==true)
     fail('ASSET_DELTA_RECIPIENT_WRITE_DENIED');
   if(await verifyOriginalSourceEvent(proof)!==true)
     fail('ASSET_DELTA_SOURCE_EVENT_NOT_VERIFIED');
+  await guardRead('t1.getAsset',d.assetId);
   const current=await originalKernel.getAsset(d.workspaceId,d.assetId);
+  await guardRead('t1.getAsset',d.assetId);
   mode(getMode);
   if(await authorizeOriginalWrite(ctx)!==true)
     fail('ASSET_DELTA_RECIPIENT_WRITE_DENIED');
@@ -176,6 +204,8 @@ export async function applyT4OriginalAssetDelta({received,originalKernel,
   const revision=local?.revision??0;
   if(local&&(local.object_id!==d.objectId||local.mime!==d.mime))
     fail('ASSET_DELTA_RECIPIENT_IDENTITY_CONFLICT');
+  if(nativeNetworkEvidence&&revision!==d.baseRevision)
+    fail('ASSET_DELTA_RECIPIENT_REVISION_CONFLICT',{localRevision:revision});
   if(revision!==d.baseRevision&&revision!==d.sourceRevision)
     fail('ASSET_DELTA_RECIPIENT_REVISION_CONFLICT',{localRevision:revision});
   if(revision===d.sourceRevision&&
@@ -186,7 +216,12 @@ export async function applyT4OriginalAssetDelta({received,originalKernel,
     base_revision:d.baseRevision,
     event:{event_type:'iwxa.t4.original-asset.synced',
       payload:{originalEventId:d.sourceEventId,sourceDigest:d.assetBytesSha256,
-        originalWriteOwnerRef:d.originalWriteOwnerRef},
+        originalWriteOwnerRef:d.originalWriteOwnerRef,
+        ...(nativeNetworkEvidence?{
+          originalAssetId:d.assetId,originalAssetRevision:d.sourceRevision,
+          originalEventDigest:d.sourceEventDigest,originalDeltaSha256:exact.sha256,
+          originalContentDigest:digestT4OriginalAssetContent(d),
+        }:{})},
       idempotency_key:'t4-asset-'+exact.sha256},
   };
   let receipt;
@@ -207,7 +242,11 @@ export async function applyT4OriginalAssetDelta({received,originalKernel,
     receipt?.asset?.object_id!==d.objectId||!ID(receipt?.event?.event_id))
     fail('ASSET_DELTA_ORIGINAL_RECEIPT_INVALID');
   let read;
-  try{read=await originalKernel.getAsset(d.workspaceId,d.assetId);}
+  try{
+    await guardRead('t1.getAsset',d.assetId);
+    read=await originalKernel.getAsset(d.workspaceId,d.assetId);
+    await guardRead('t1.getAsset',d.assetId);
+  }
   catch(error){fail('ASSET_DELTA_OUTCOME_UNKNOWN',{originalReceiptMayExist:true,
     originalCode:error?.code??null,automaticRetryAllowed:false});}
   if(getMode()!=='T4_NETWORK'||await authorizeOriginalWrite(ctx)!==true)
