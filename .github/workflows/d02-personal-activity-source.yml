@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: 2ed157170593b431f04ebe7a16ccf08454c9c08b
+          ref: a4ebacbe14ab21ff52a904066180bb16ba89cb22
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: owner
@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: efee2d863ce4881273a57e2ea063cfaa99aa7af3
+          ref: 2e2faa2f06ffd8016b4ce4ed336bc4000fb79b97
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! (node scripts/club-skill-authoring.mjs generate && git diff --exit-code && node scripts/club-skill-authoring.mjs check && node --test tests/personal-economy.test.mjs tests/assistant-skills.test.mjs tests/personal-week-plan.test.mjs tests/today-overview.test.mjs tests/personal-cash-calendar.test.mjs) > "$RUNNER_TEMP/d02-owner.private" 2>&1; then
+          if ! (node scripts/club-skill-authoring.mjs generate && git diff --exit-code && node scripts/club-skill-authoring.mjs check && node --test tests/personal-economy.test.mjs tests/assistant-skills.test.mjs tests/personal-week-plan.test.mjs tests/today-overview.test.mjs tests/personal-cash-calendar.test.mjs tests/goal-portfolio.test.mjs) > "$RUNNER_TEMP/d02-owner.private" 2>&1; then
             echo D02_CANONICAL_FINANCE_AND_SKILLS=FAIL
             grep -E '^not ok [0-9]+ - |^# (tests|pass|fail) ' "$RUNNER_TEMP/d02-owner.private" | head -20 || true
             exit 1
@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 2ed157170593b431f04ebe7a16ccf08454c9c08b && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 2ed157170593b431f04ebe7a16ccf08454c9c08b --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" a4ebacbe14ab21ff52a904066180bb16ba89cb22 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" a4ebacbe14ab21ff52a904066180bb16ba89cb22 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
             echo D02_OFFICIAL_SKILLS_IMPORT=FAIL
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/d02-import.private" | sort -u | head -20 || true
             exit 1
@@ -70,7 +70,7 @@ jobs:
           const a=source.indexOf('// BEGIN CLUB_CANONICAL_PERSONAL_ECONOMY'),b=source.indexOf('// END CLUB_CANONICAL_PERSONAL_ECONOMY',a);
           assert.ok(a>=0&&b>a);
           assert.equal(source.slice(source.indexOf('\n',a)+1,b).trim(),owner);
-          for(const name of ['personal-week-plan','today-overview','personal-cash-calendar']){
+          for(const name of ['personal-week-plan','today-overview','personal-cash-calendar','goal-portfolio']){
             const canonical=readFileSync('../owner/logic/'+name+'.mjs','utf8').replaceAll("from './","from './club-");
             assert.equal(readFileSync('assets/club-'+name+'.mjs','utf8'),canonical);
           }
@@ -81,7 +81,7 @@ jobs:
             exit 1
           fi
           failed=0
-          for suite in test:club-personal-economy test:club-cash-calendar-route test:club-case-03-native-tools test:club-case-route-integration test:club-case-02-route-integration test:club-work-ledger-integration test:club-unified-ux test:club-author-voice test:club-assistant-skills test:club-personal-week-plan test:club-today-overview test:club-native-today test:club-native-project-restoration test:club-native-restore-preselect test:club-hub test:club-personal-cash-calendar test:club-personal-cash-calendar-ui test:club-family-options-ui test:club-tool-groups; do
+          for suite in test:club-personal-economy test:club-cash-calendar-route test:club-case-03-native-tools test:club-case-route-integration test:club-case-02-route-integration test:club-work-ledger-integration test:club-unified-ux test:club-author-voice test:club-assistant-skills test:club-personal-week-plan test:club-today-overview test:club-native-today test:club-native-project-restoration test:club-native-restore-preselect test:club-hub test:club-personal-cash-calendar test:club-personal-cash-calendar-ui test:club-family-options-ui test:club-tool-groups test:club-goal-map test:club-project-delete-integrity test:club-native-edit-route; do
             if ! npm run "$suite" > "$RUNNER_TEMP/d02-site.private" 2>&1; then
               echo "D02_TARGETED_SUITE=FAIL $suite"
               grep -E '^not ok [0-9]+ - |^# (tests|pass|fail) ' "$RUNNER_TEMP/d02-site.private" | head -15 || true
