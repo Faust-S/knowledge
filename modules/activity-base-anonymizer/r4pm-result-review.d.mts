@@ -20,3 +20,21 @@ export type R4pmReview={
 };
 export function reviewR4pmResult(raw:unknown):R4pmReview;
 export function readR4pmResultBytes(bytes:Uint8Array):R4pmReview;
+
+export type R4pmDifference={baseline:number|null;comparison:number|null;delta:number|null;
+ status:'BASELINE_ONLY'|'COMPARISON_ONLY'|'UNCHANGED'|'CHANGED'};
+export type R4pmComparisonGraph={id:string;object_type:string|null;presence:'BOTH'|'BASELINE_ONLY'|'COMPARISON_ONLY';
+ baseline_activity_occurrences:number|null;comparison_activity_occurrences:number|null;
+ baseline_transition_occurrences:number|null;comparison_transition_occurrences:number|null;
+ activities:(R4pmDifference&{label:string;baseline_start:boolean|null;comparison_start:boolean|null;
+ baseline_end:boolean|null;comparison_end:boolean|null})[];
+ transitions:(R4pmDifference&{from:string;to:string})[];
+ activity_differences:number|null;transition_differences:number|null};
+export type R4pmComparison={status:'LOCAL_TOOL_RESULT_COMPARISON';operation:R4pmReview['operation'];
+ scope:R4pmReview['scope'];graphs:R4pmComparisonGraph[];
+ event_count:{baseline:number|null;comparison:number|null;delta:number|null}|null;
+ source_authority:'UNVERIFIED_LOCAL_TOOL_OUTPUT';match_semantics:'EXACT_LABEL_AND_OBJECT_TYPE_ONLY';
+ sample_comparability:'NOT_ESTABLISHED';technology_equivalence:'NOT_ESTABLISHED';causality:'NOT_ESTABLISHED';
+ anonymity:'NOT_ESTABLISHED';export_allowed:false;iwxa_package:null};
+export function compareR4pmReviews(baseline:R4pmReview,comparison:R4pmReview):R4pmComparison;
+export function buildR4pmComparisonExample():[R4pmReview,R4pmReview];

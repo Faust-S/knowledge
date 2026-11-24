@@ -137,6 +137,27 @@ public static class IwxaActivityWin32 {
     if (!$clearRoutes) { throw 'INSTALLED_ACTIVITY_A41_CLEAR_MISSING' }
     $clearRoutes.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
     Write-Host 'IWXA_ACTIVITY_A41_NATIVE_ROUTE_GROUPING_PASS models=3 groups=2 repeated=1'
+    # A4.2: real installed comparison using a labelled illustrative pair.
+    $miningPage = Find-Accessible $window.Root 'Результаты Process Mining' 10
+    if (!$miningPage) { throw 'INSTALLED_ACTIVITY_A42_NAV_MISSING' }
+    $miningPage.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $miningExample = Find-Accessible $window.Root 'Открыть пример сравнения' 10
+    if (!$miningExample) { throw 'INSTALLED_ACTIVITY_A42_EXAMPLE_MISSING' }
+    $miningExample.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (!(Find-Accessible $window.Root 'Отличия операций: 1 · Отличия переходов: 3' 10)) {
+        throw 'INSTALLED_ACTIVITY_A42_COMPARISON_MISSING'
+    }
+    if (!(Find-Accessible $window.Root 'Сравнение двух выборок' 10)) {
+        throw 'INSTALLED_ACTIVITY_A42_COMPARISON_CARD_MISSING'
+    }
+    $clearMining = Find-Accessible $window.Root 'Очистить результат' 10
+    if (!$clearMining) { throw 'INSTALLED_ACTIVITY_A42_CLEAR_MISSING' }
+    $clearMining.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Start-Sleep -Milliseconds 500
+    if (Find-Accessible $window.Root 'Сравнение двух выборок' 2) {
+        throw 'INSTALLED_ACTIVITY_A42_STALE_COMPARISON'
+    }
+    Write-Host 'IWXA_ACTIVITY_A42_NATIVE_COMPARISON_PASS synthetic_example=YES activity_differences=1 transition_differences=3 stale=NO'
     $sourcePage = Find-Accessible $window.Root 'Источники'
     if (!$sourcePage) { throw 'INSTALLED_ACTIVITY_V7_SOURCE_NAV_MISSING' }
     $sourcePage.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()

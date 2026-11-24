@@ -104,3 +104,15 @@ test('A4.1 domain Host is separate from generic D2 and uses an explicit original
  assert.match(surface,/readSelectedRoutes,subscribeInvalidation/);
  assert.match(surface,/IWXA_ACTIVITY_NARROW_D05_HOST_REQUIRED/);
 });
+
+test('A4.2 local result route and native comparison witness use existing shell',()=>{
+ const workspace=load('../desktop/src/ActivityWorkspace.tsx'),inner=load('../desktop/src/ActivityInnerPage.tsx');
+ const page=load('../desktop/src/ProcessToolReview.tsx'),witness=load('../desktop/tests/installed-windows-ui.ps1');
+ assert.match(workspace,/Результаты Process Mining/);assert.match(inner,/<ProcessToolReview/);
+ assert.match(page,/readR4pmResultBytes\(new Uint8Array\(await file.arrayBuffer\(\)\)\)/);
+ assert.match(page,/compareR4pmReviews\(review,next\)/);
+ assert.match(page,/adjacent.slice\(edgePage\*LIMIT/);
+ assert.match(page,/differences.slice\(diffPage\*LIMIT/);
+ assert.match(page,/условный пример/);assert.match(witness,/IWXA_ACTIVITY_A42_NATIVE_COMPARISON_PASS/);
+ assert.doesNotMatch(page,/localStorage|sessionStorage|fetch\(|createWorkspace\(|putObject\(/);
+});

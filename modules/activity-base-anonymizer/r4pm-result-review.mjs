@@ -113,3 +113,71 @@ export function readR4pmResultBytes(bytes){
   catch{throw new ActivityHold('R4PM_RESULT_JSON_INVALID');}
   return reviewR4pmResult(value);
 }
+
+// Comparison of two local reviewed outputs. Never match independent aliases.
+const difference=(a,b)=>a===null?'COMPARISON_ONLY':b===null?'BASELINE_ONLY':a===b?'UNCHANGED':'CHANGED';
+const delta=(a,b)=>a===null||b===null?null:b-a;
+const union=(a,b)=>[...new Set([...a.keys(),...b.keys()])].sort(cmp);
+function compareGraph(a,b,index){
+  const header={id:'comparison_'+String(index+1).padStart(2,'0'),
+    object_type:(a??b).object_type,presence:a&&b?'BOTH':a?'BASELINE_ONLY':'COMPARISON_ONLY',
+    baseline_activity_occurrences:a?.activity_occurrences??null,
+    comparison_activity_occurrences:b?.activity_occurrences??null,
+    baseline_transition_occurrences:a?.transition_occurrences??null,
+    comparison_transition_occurrences:b?.transition_occurrences??null};
+  // An absent object type is not a measured zero graph.
+  if(!a||!b)return {...header,activities:[],transitions:[],activity_differences:null,transition_differences:null};
+  const nodes=g=>new Map(g.activities.map(n=>[n.label,n]));
+  const left=nodes(a),right=nodes(b);
+  const activities=union(left,right).map(label=>{
+    const x=left.get(label),y=right.get(label),before=x?.occurrences??null,after=y?.occurrences??null;
+    return {label,baseline:before,comparison:after,delta:delta(before,after),
+      status:x&&y&&(x.start!==y.start||x.end!==y.end)?'CHANGED':difference(before,after),
+      baseline_start:x?.start??null,comparison_start:y?.start??null,
+      baseline_end:x?.end??null,comparison_end:y?.end??null};
+  });
+  const edgeMap=g=>{
+    const names=new Map(g.activities.map(n=>[n.id,n.label]));
+    return new Map(g.transitions.map(e=>{
+      const from=names.get(e.from),to=names.get(e.to);
+      return [JSON.stringify([from,to]),{from,to,count:e.occurrences}];
+    }));
+  };
+  const ea=edgeMap(a),eb=edgeMap(b);
+  const transitions=union(ea,eb).map(key=>{
+    const x=ea.get(key),y=eb.get(key),before=x?.count??null,after=y?.count??null;
+    return {from:(x??y).from,to:(x??y).to,baseline:before,comparison:after,
+      delta:delta(before,after),status:difference(before,after)};
+  });
+  return {...header,activities,transitions,
+    activity_differences:activities.filter(n=>n.status!=='UNCHANGED').length,
+    transition_differences:transitions.filter(e=>e.status!=='UNCHANGED').length};
+}
+export function compareR4pmReviews(baseline,comparison){
+  const reviewed=r=>r?.status==='LOCAL_TOOL_RESULT_REVIEW'&&r.engine==='Rust4PM'&&
+    r.version===R4PM_VERSION&&r.source_authority==='UNVERIFIED_LOCAL_TOOL_OUTPUT'&&
+    r.export_allowed===false&&r.iwxa_package===null&&Array.isArray(r.graphs);
+  need(reviewed(baseline)&&reviewed(comparison),'R4PM_COMPARISON_REVIEW_REQUIRED');
+  need(baseline.operation===comparison.operation&&baseline.scope===comparison.scope,
+    'R4PM_COMPARISON_SCOPE_MISMATCH');
+  const common={status:'LOCAL_TOOL_RESULT_COMPARISON',operation:baseline.operation,
+    scope:baseline.scope,source_authority:'UNVERIFIED_LOCAL_TOOL_OUTPUT',
+    match_semantics:'EXACT_LABEL_AND_OBJECT_TYPE_ONLY',
+    sample_comparability:'NOT_ESTABLISHED',technology_equivalence:'NOT_ESTABLISHED',
+    causality:'NOT_ESTABLISHED',anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null};
+  if(baseline.operation==='count_ocel')return {...common,graphs:[],
+    event_count:{baseline:baseline.event_count,comparison:comparison.event_count,
+      delta:delta(baseline.event_count,comparison.event_count)}};
+  const byType=r=>new Map(r.graphs.map(g=>[g.object_type,g]));
+  const a=byType(baseline),b=byType(comparison);
+  return {...common,event_count:null,graphs:union(a,b).map((key,i)=>compareGraph(a.get(key),b.get(key),i))};
+}
+/** Illustrative pair for first use, not a real run of Rust4PM. */
+export function buildR4pmComparisonExample(){
+  const make=data=>reviewR4pmResult({engine:'Rust4PM',version:R4PM_VERSION,operation:'discover_dfg',data});
+  return [make({activities:{'Раскрой':2,'Контроль':2},
+    directly_follows_relations:[[['Раскрой','Контроль'],2]],start_activities:['Раскрой'],end_activities:['Контроль']}),
+  make({activities:{'Раскрой':2,'Контроль':2,'Переделка':1},
+    directly_follows_relations:[[['Раскрой','Контроль'],1],[['Раскрой','Переделка'],1],[['Переделка','Контроль'],1]],
+    start_activities:['Раскрой'],end_activities:['Контроль']})];
+}

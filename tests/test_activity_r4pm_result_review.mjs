@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
-import {reviewR4pmResult,readR4pmResultBytes,R4PM_RESULT_MAX_BYTES}
+import {reviewR4pmResult,readR4pmResultBytes,R4PM_RESULT_MAX_BYTES,compareR4pmReviews,buildR4pmComparisonExample}
  from '../modules/activity-base-anonymizer/r4pm-result-review.mjs';
 const result=(operation,data)=>({engine:'Rust4PM',version:'0.6.2',operation,data});
 const graph=()=>({activities:{cut:3,inspect:3,rework:1},
@@ -93,3 +93,37 @@ if(process.env.IWXA_R4PM_UPSTREAM_RESULTS){
   assert.equal(o.event_count,null);assert.equal(o.export_allowed,false);
  });
 }
+
+test('exact label comparison across independent aliases, absence never numeric zero',()=>{
+ const [a,b]=buildR4pmComparisonExample(),c=compareR4pmReviews(a,b),g=c.graphs[0];
+ assert.equal(g.transition_differences,3);assert.equal(g.activity_differences,1);
+ assert.deepEqual(g.transitions.find(e=>e.from==='Раскрой'&&e.to==='Контроль'),
+  {from:'Раскрой',to:'Контроль',baseline:2,comparison:1,delta:-1,status:'CHANGED'});
+ assert.deepEqual(g.transitions.find(e=>e.from==='Переделка'),
+  {from:'Переделка',to:'Контроль',baseline:null,comparison:1,delta:null,status:'COMPARISON_ONLY'});
+ assert.notEqual(a.graphs[0].activities.find(n=>n.label==='Раскрой').id,b.graphs[0].activities.find(n=>n.label==='Раскрой').id);
+ assert.equal(c.sample_comparability,'NOT_ESTABLISHED');assert.equal(c.export_allowed,false);assert.equal(c.iwxa_package,null);
+ assert.equal(compareR4pmReviews(a,a).graphs[0].transition_differences,0);
+ assert.equal(compareR4pmReviews(b,a).graphs[0].transitions.find(e=>e.from==='Переделка').status,'BASELINE_ONLY');
+});
+test('object types remain separate; no fictitious zero graph',()=>{
+ const a=reviewR4pmResult(result('discover_ocdfg',{object_type_to_dfg:{order:graph(),material:graph()}}));
+ const b=reviewR4pmResult(result('discover_ocdfg',{object_type_to_dfg:{order:graph(),product:graph()}}));
+ const c=compareR4pmReviews(a,b);
+ assert.deepEqual(c.graphs.map(g=>[g.object_type,g.presence,g.transition_differences]),
+  [['material','BASELINE_ONLY',null],['order','BOTH',0],['product','COMPARISON_ONLY',null]]);
+ assert.equal(c.graphs[0].comparison_activity_occurrences,null);assert.equal(c.event_count,null);
+});
+test('count-only comparison and incompatible operation rejection',()=>{
+ const a=reviewR4pmResult(result('count_ocel',5)),b=reviewR4pmResult(result('count_ocel',9));
+ assert.deepEqual(compareR4pmReviews(a,b).event_count,{baseline:5,comparison:9,delta:4});
+ assert.throws(()=>compareR4pmReviews(a,reviewR4pmResult(result('discover_dfg',graph()))),{code:'R4PM_COMPARISON_SCOPE_MISMATCH'});
+ assert.throws(()=>compareR4pmReviews({},a),{code:'R4PM_COMPARISON_REVIEW_REQUIRED'});
+});
+test('boundary difference remains visible even when frequency is equal',()=>{
+ const a=graph(),b=graph();b.start_activities=['cut','inspect'];
+ const c=compareR4pmReviews(reviewR4pmResult(result('discover_dfg',a)),reviewR4pmResult(result('discover_dfg',b)));
+ const n=c.graphs[0].activities.find(n=>n.label==='inspect');
+ assert.equal(n.status,'CHANGED');assert.equal(n.delta,0);
+ assert.equal(n.baseline_start,false);assert.equal(n.comparison_start,true);
+});
