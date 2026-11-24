@@ -1234,10 +1234,12 @@ def review_original_market_order_economics(
     op, buyer = state.institution.operator, work.customer
     providers = state.capacity_ledger.original_owners(work.resource_requirements)
     owners = providers | {buyer, op}
-    if (len(providers) < 2 or len(work.operations) < 2 or buyer in providers
+    buyer_produces = buyer in providers
+    scoped_owners = owners if buyer_produces else owners - {buyer}
+    if (len(providers) < 2 or len(work.operations) < 2
             or op in providers or op == buyer or raw["work_revision"] != work.source_revision):
         raise EconomicInputError("MARKET_ORDER_ORIGINAL_INDEPENDENT_TECHNOLOGY_SCOPE_REQUIRED")
-    if not isinstance(raw["owner_scopes"], dict) or not set(raw["owner_scopes"]) <= owners - {buyer}:
+    if not isinstance(raw["owner_scopes"], dict) or not set(raw["owner_scopes"]) <= scoped_owners:
         raise EconomicInputError("MARKET_ORDER_ORIGINAL_OWNER_SCOPE_INVALID")
     if strict.get("source_scoped_market_order_owner_count") != len(raw["owner_scopes"]):
         raise EconomicInputError("MARKET_ORDER_ORIGINAL_OWNER_HISTORICAL_SOURCES_REQUIRED")
@@ -1274,7 +1276,7 @@ def review_original_market_order_economics(
     if any(payment.get(i, {}).get("status") !=
            "MODEL_ORIGINAL_TRIGGER_DUE_AND_POSTING_ORDER_CONSISTENT" for i in transfers):
         reasons.add("ORIGINAL_PAYMENT_CAUSALITY_INCOMPLETE")
-    if set(raw["owner_scopes"]) != owners - {buyer}:
+    if set(raw["owner_scopes"]) != scoped_owners:
         reasons.add("INDEPENDENT_OWNER_COST_SCOPE_INCOMPLETE")
     buyer_value = economic_view.get("original_recipient_use_value", {}).get(
         "local_research_only", {}).get(key)
@@ -1301,7 +1303,21 @@ def review_original_market_order_economics(
                 or not owner_scope.get("declared_resource_scope_complete_not_audited")
                 or {row["resource_use_id"] for row in timed.get(owner, ())} != set(cost_rows)):
             reasons.add("ORIGINAL_COMPLETE_OWNER_COST_SCOPE_REQUIRED")
-        if owner != buyer and owner in raw["owner_scopes"]:
+        if buyer_produces and owner == buyer:
+            # The customer is also an original productive principal. Its
+            # own production must be witnessed, not inferred from receipt
+            # or quality assessment of the Result.
+            produced = any(state.resources[operation.primary_resource] == buyer
+                           for operation in work.operations)
+            production_costs = {b["resource_use_id"] for b in money.get(
+                "lifecycle_costs", {}).get("event_bindings", [])
+                if b["owner"] == buyer and b.get("work") == key
+                and b.get("action") in {"start_operation", "complete_operation"}}
+            if (not produced or not production_costs.intersection(cost_rows)
+                    or not any(e["action"] == "complete_operation"
+                               and e.get("actor") == buyer for e in events)):
+                reasons.add("ORIGINAL_RECIPIENT_PRODUCTION_COST_SCOPE_REQUIRED")
+        if owner in raw["owner_scopes"]:
             row = _record(raw["owner_scopes"][owner],
                           {"source", "observed_at", "transfer_ids", "resource_use_ids",
                            "incremental_costs_exclude_each_other_and_include_opportunity_costs"},
@@ -1322,6 +1338,12 @@ def review_original_market_order_economics(
                 for claim in money.get(field, []):
                     if claim["transfer_id"] in {t["id"] for t in owner_transfers}:
                         excluded.update(claim.get("evidence_refs", {}).values())
+            if buyer_produces and owner == buyer:
+                for value in money.get("recipient_use_value_evidence", []):
+                    if value["work"] == key:
+                        for source_id in (value["baseline"]["source"], value["outcome"]["source"],
+                                          value["rate"]["source"], value["nonoverlap_source"]):
+                            excluded.add(sources[source_id]["reference"])
             if ref in excluded:
                 raise EconomicInputError("MARKET_ORDER_DISTINCT_OWNER_INCREMENTAL_SCOPE_SOURCE_REQUIRED")
             if (ids(row["transfer_ids"]) != set(cash_rows)
@@ -1345,7 +1367,11 @@ def review_original_market_order_economics(
         "schema": "AKIS_ORIGINAL_MARKET_ORDER_ECONOMICS/1.0",
         "status": "UNKNOWN" if reasons else "MODEL_ORIGINAL_ACCEPTED_ORDER_ECONOMICS",
         "original_commit_market_feasibility": feasibility,
-        "original_independent_supplier_count": len(providers),
+        "original_independent_supplier_count": len(providers - {buyer}),
+        **({"original_recipient_is_coproducer": True,
+            "original_technology_performer_count": len(providers),
+            "recipient_assessment_of_own_stage_not_independent_production_audit": True}
+           if buyer_produces else {}),
         "original_owner_count": len(owners),
         "original_accepted_result": accepted,
         "reasons": sorted(reasons),

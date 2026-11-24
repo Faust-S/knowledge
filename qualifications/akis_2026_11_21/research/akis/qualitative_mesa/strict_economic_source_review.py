@@ -555,10 +555,10 @@ def review_original_strict_economic_sources(
             if selected_work not in work_ids or not isinstance(declarations, dict) or len(declarations) > 128:
                 raise StrictEconomicSourceBlocked("MARKET_ORDER_SOURCE_SCOPE_INVALID")
             selected = state.works[selected_work]
-            principals = state.capacity_ledger.original_owners(selected.resource_requirements) | {
-                state.institution.operator}
+            production_owners = state.capacity_ledger.original_owners(selected.resource_requirements)
+            principals = production_owners | {state.institution.operator}
             for owner, item in declarations.items():
-                if owner not in principals - {selected.customer}:
+                if owner not in principals:
                     raise StrictEconomicSourceBlocked("MARKET_ORDER_ORIGINAL_OWNER_REQUIRED")
                 source = sources_by_id[item["source"]]
                 tick = item["observed_at"]

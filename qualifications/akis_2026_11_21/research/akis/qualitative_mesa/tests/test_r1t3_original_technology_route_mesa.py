@@ -16,8 +16,50 @@ from .test_r1t2_original_function_responsibility_mesa import r1t2_case
 from .test_r1q_original_coalition_membership_mesa import reports
 
 
-def original_technology_route_case(*, absent=None, objecting=None):
+def original_technology_route_case(*, absent=None, objecting=None,
+                                   competing=False, buyer_finishes=False):
+    assert not buyer_finishes or competing
     d = r1t2_case()
+    finisher = "b" if buyer_finishes else "c"
+    finish_resource = "rb-finishing" if buyer_finishes else "rc"
+    suffix = ("-own-finish" if buyer_finishes else "-supplier-finish") if competing else ""
+    route_id = "r1t3-route-w3" + suffix
+    if competing:
+        from research.akis.qualitative_mesa.org_code_policy import original_model_code_fingerprint
+
+        # The SAME independently approved prospective OC permits either
+        # assignment. It never transfers ownership or replaces consent.
+        proposal = next(e for e in d["events"] if e["action"] == "model_code_propose"
+                        and e.get("model_code_change_id") == "r1t2-func-1")
+        apply = next(e for e in d["events"] if e["action"] == "model_code_apply"
+                     and e.get("model_code_change_id") == "r1t2-func-1")
+        roles = ["CUSTOMER", "ENTERPRISE", "RESOURCE_OWNER"]
+        proposal["proposed_model_roles"] = roles
+        proposal["proposed_model_commit_responsible"] = ["b"]
+        controls = {r["field"]: r["control"] for r in apply["model_code_records"]}
+        next(r for r in controls["Рол"]["role_bindings"] if r["subject"] == "b")["items"] = roles
+        next(r for r in controls["Отв"]["responsibilities"]
+             if r["action"] == "commit")["original_principals"] = ["b"]
+        fingerprint = original_model_code_fingerprint(apply["model_code_records"])
+        d["events"] = [e for e in d["events"] if not (
+            e["action"] == "model_code_function_response" and e["actor"] == "c"
+            and e.get("model_code_change_id") == "r1t2-func-1")]
+        for e in d["events"]:
+            if e.get("model_code_change_id") == "r1t2-func-1":
+                e["model_code_fingerprint"] = fingerprint
+        phases = d["general_akis"]["formation_phases"]
+        if not any(r["phase"] == 3 and r["owner"] == "b" for r in phases):
+            phase = deepcopy(next(r for r in phases if r["phase"] == 3 and r["owner"] == "c"))
+            phase.update(owner="b", source_ref="model://b/formation-3")
+            phases.append(phase)
+        if buyer_finishes:
+            d["events"] = [e for e in d["events"] if not (
+                e.get("work") == "w3" and e["actor"] == "c"
+                and e["action"] in {"interest_update", "consent"})]
+            for e in d["events"]:
+                if (e.get("work") == "w3" and e["actor"] == "c"
+                        and e["action"] == "formation_confirm" and e["phase"] == 3):
+                    e.update(actor="b", formation_source_ref="model://b/formation-3")
     d["handoff_strict"] = True
     for r in d["resources"]:
         r["site"] = "site-" + r["owner"]
@@ -27,6 +69,10 @@ def original_technology_route_case(*, absent=None, objecting=None):
     )
     plan = request["work_spec"]
     assert plan["resource"] == "ra"
+    if buyer_finishes:
+        for requirement in plan["resource_requirements"]:
+            if requirement["resource"] == "rc":
+                requirement["resource"] = finish_resource
     plan["operations"] = [
         {
             "id": "stage-a", "primary_resource": "ra",
@@ -35,9 +81,9 @@ def original_technology_route_case(*, absent=None, objecting=None):
             "slot_start": 106, "slot_end": 112,
         },
         {
-            "id": "stage-c", "primary_resource": "rc",
+            "id": "stage-c", "primary_resource": finish_resource,
             "requires_completed": ["stage-a"],
-            "resource_requirements": [{"resource": "rc", "units": 1}],
+            "resource_requirements": [{"resource": finish_resource, "units": 1}],
             "slot_start": 113, "slot_end": 120,
         },
     ]
@@ -51,7 +97,7 @@ def original_technology_route_case(*, absent=None, objecting=None):
         },
         {
             "id": "q-stage-c", "dimension": "DELIVERABLE_CONFORMITY",
-            "operation": "stage-c", "responsible_owner": "c",
+            "operation": "stage-c", "responsible_owner": finisher,
             "assessor": "b", "method": "FUNCTIONAL_TEST",
             "source_ref": "model://b/quality-stage-c",
             "source_revision": "d-3",
@@ -68,16 +114,16 @@ def original_technology_route_case(*, absent=None, objecting=None):
                 and row.get("prepared_at", -1) >= request_at):
             row["prepared_at"] += 5
     request["org_revision"] = "oc-1"
-    request["technology_route_id"] = "r1t3-route-w3"
+    request["technology_route_id"] = route_id
     request["technology_route_fingerprint"] = digest
     proposal = {
         "at": request_at, "action": "technology_route_propose",
         "actor": "b", "org_revision": "oc-1",
-        "technology_route_id": "r1t3-route-w3",
+        "technology_route_id": route_id,
         "technology_route_work": "w3",
         "technology_route_work_spec": deepcopy(plan),
         "technology_route_fingerprint": digest,
-        "technology_route_source_ref": "model://b/r1t3-future-operation-plan",
+        "technology_route_source_ref": "model://b/r1t3-future-operation-plan" + suffix,
         "technology_route_valid_until": 190,
         "technology_route_model_code_change_id": "r1t2-func-1",
         "cooperation_link": "l2", "cooperation_source_revision": "rel-2",
@@ -85,19 +131,19 @@ def original_technology_route_case(*, absent=None, objecting=None):
     }
     d["events"].append(proposal)
     for i, owner in enumerate(("a", "c", "b"), start=1):
-        if absent == owner:
+        if absent == owner or (buyer_finishes and owner == "c"):
             continue
         d["events"].append({
             "at": request_at + i, "action": "technology_route_response",
             "actor": owner, "org_revision": "oc-1",
-            "technology_route_id": "r1t3-route-w3",
+            "technology_route_id": route_id,
             "technology_route_fingerprint": digest,
             "technology_route_decision": (
                 "OBJECT_ORIGINAL_TECHNOLOGY" if objecting == owner
                 else "SUPPORT_ORIGINAL_TECHNOLOGY"
             ),
             "technology_route_decision_source_ref":
-                f"model://{owner}/r1t3-own-operation-plan-approval",
+                f"model://{owner}/r1t3-own-operation-plan-approval" + suffix,
         })
     # Actual ORIGINAL technological execution of the new W3, replacing
     # legacy whole-Work start/complete with two independent owner stages.
@@ -108,7 +154,7 @@ def original_technology_route_case(*, absent=None, objecting=None):
                         if row["action"] == "complete" and row.get("work") == "w3")
     old_accept = next(row for row in d["events"]
                       if row["action"] == "accept" and row.get("work") == "w3")
-    result_ref = old_complete["result_ref"]
+    result_ref = old_complete["result_ref"] + suffix
     d["events"] = [
         row for row in d["events"]
         if row not in (start, old_complete, old_accept)
@@ -138,20 +184,20 @@ def original_technology_route_case(*, absent=None, objecting=None):
         },
         {
             "at": original_start + 3, "action": "handoff_receive",
-            "actor": "c", "work": "w3",
+            "actor": finisher, "work": "w3",
             "from_operation": "stage-a", "to_operation": "stage-c",
             "source_revision": "d-3", "org_revision": "oc-1",
             "dispatch_ref": "model://a/r1t3-handoff-dispatch",
-            "result_ref": "model://c/r1t3-handoff-receipt",
+            "result_ref": f"model://{finisher}/r1t3-handoff-receipt" + suffix,
         },
         {
             "at": original_start + 4, "action": "start_operation",
-            "actor": "c", "work": "w3", "operation": "stage-c",
+            "actor": finisher, "work": "w3", "operation": "stage-c",
         },
         {
             "at": original_start + 5, "action": "complete_operation",
-            "actor": "c", "work": "w3", "operation": "stage-c",
-            "result_ref": "model://c/r1t3-stage-c-result",
+            "actor": finisher, "work": "w3", "operation": "stage-c",
+            "result_ref": f"model://{finisher}/r1t3-stage-c-result" + suffix,
         },
         {
             "at": original_start + 6, "action": "complete",
@@ -464,11 +510,11 @@ def test_r1t3_strict_original_kpb_never_implicitly_grants_cross_owner_route_sour
     assert original.works["w1"].result == "NOT_SUBMITTED"
 
 
-def strict_original_technology_route_case():
+def strict_original_technology_route_case(**kwargs):
     """Preserve original formation context and add exact independent KPB rights."""
     from .test_r1u4_strict_original_source_rights_mesa import _original_rights
 
-    d = original_technology_route_case()
+    d = original_technology_route_case(**kwargs)
     original = deepcopy(d["context_evidence"])
     _original_rights(d)
     strict = d["context_evidence"]
@@ -528,9 +574,11 @@ def test_strict_technology_source_expiry_after_commit_preserves_original_work():
 
 
 def original_market_complementarity_case(*, alternate=None, incomplete=False, source_stale=False,
-                                         buyer_alternate=False):
+                                         buyer_alternate=False, competing=False,
+                                         buyer_finishes=False):
     """One existing buyer demand and complementary offers, not a second market."""
-    d = strict_original_technology_route_case()
+    d = strict_original_technology_route_case(competing=competing, buyer_finishes=buyer_finishes)
+    buyer_alternate = buyer_alternate or competing
     scope = {
         "work": "w3", "work_revision": "d-3", "deliverable": "combined-manufacture-and-finishing",
         "buyer_source": {"reference": "model://b/market-need-w3", "revision": "market-v1"},
@@ -661,11 +709,14 @@ def test_qualified_market_scope_does_not_imply_recipient_quality_or_new_revenue(
 def original_market_order_finance_case(*, alternate=None, incomplete=False,
                                       fee="100.00", c_opening="400.00",
                                       observed="14", missing_owner=False,
-                                      failed_quality=False):
+                                      failed_quality=False, competing=False, buyer_finishes=False,
+                                      buyer_finish_material="140.00", buyer_finish_labor="80.00"):
     """Attach complete owner declarations to SAME W1/W2/W3 and ledger."""
     from .test_r1p_r3_executed_route_economics_mesa import add_original_recipient_value
 
-    d = original_market_complementarity_case(alternate=alternate, incomplete=incomplete)
+    d = original_market_complementarity_case(alternate=alternate, incomplete=incomplete,
+                                             competing=competing, buyer_finishes=buyer_finishes)
+    finisher = "b" if buyer_finishes else "c"
     owners = ("a", "b", "c", "op")
     accepted_at = next(e["at"] for e in d["events"] if e.get("work") == "w3" and e["action"] == "accept")
     d["model_horizon"] = max(d["model_horizon"], accepted_at + 5)
@@ -760,17 +811,21 @@ def original_market_order_finance_case(*, alternate=None, incomplete=False,
             ("purchase-c", "b", "c", "400.00", "ON_CUSTOMER_ACCEPTANCE", accepted_at+2),
             ("fee", "b", "op", fee, "ON_CUSTOMER_ACCEPTANCE", accepted_at+2),
             ("material-a", "a", "EXTERNAL", "300.00", "ON_ORIGINAL_COMMIT", commit+1),
-            ("material-c", "c", "EXTERNAL", "180.00", "ON_ORIGINAL_COMMIT", commit+1),
+            ("material-" + finisher, finisher, "EXTERNAL",
+             buyer_finish_material if buyer_finishes else "180.00", "ON_ORIGINAL_COMMIT", commit+1),
             ("overhead", "op", "EXTERNAL", "30.00", "ON_ORIGINAL_COMMIT", commit+1)):
+        if buyer_finishes and name == "purchase-c":
+            continue
         transfer("w3", name, payer, payee, amount, condition, at)
     cost("w3", "labor-a", "a", "150.00", "start_operation", "DELIVERY", "DIRECT_RESOURCE")
-    cost("w3", "labor-c", "c", "100.00", "start_operation", "DELIVERY", "DIRECT_RESOURCE")
+    cost("w3", "labor-" + finisher, finisher, buyer_finish_labor if buyer_finishes else "100.00",
+         "start_operation", "DELIVERY", "DIRECT_RESOURCE")
     cost("w3", "coordination", "op", "50.00", "commit", "COORDINATION", "TRANSACTION")
     cost("w3", "inspection", "b", "30.00", "assess_result_quality", "COORDINATION", "TRANSACTION")
     add_original_recipient_value(d, "w3", observed=observed)
     scopes = {}
-    for owner in ("a", "c", "op"):
-        if missing_owner and owner == "c":
+    for owner in ("a", finisher, "op"):
+        if missing_owner and owner == finisher:
             continue
         name = f"market-incremental-{owner}"
         evidence(owner, name, declare=True, start=accepted_at+1)
@@ -1079,3 +1134,60 @@ def test_matched_market_formation_contrast_rejects_unmatched_alternative(mutatio
              and e["actor"] == "a")["new_willingness"] = "DECLINES"
     with pytest.raises(ValueError, match=reason):
         compare_original_market_formation_outcomes(docs, work="w3", prior_works=("w1", "w2"))
+
+
+def test_original_buyer_can_coproduce_and_accept_own_order_without_self_payment():
+    d = original_market_order_finance_case(competing=True, buyer_finishes=True)
+    frozen = deepcopy(d)
+    out = simulate(d)
+    assert d == frozen
+    assert out["counts"]["blocked"] == 0, [
+        (e["at"], e["action"], e.get("reason")) for e in out["trace"] if e["outcome"] == "BLOCKED"]
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert out["works"]["w3"]["consenting_principals"] == ["a", "b"]
+    assert out["works"]["w3"]["technology"]["handoffs"]["required_edges"][0]["state"] == "RECEIVED"
+    assert all(t["payer"] != t["payee"] for t in d["economic_claims"]["transfers"])
+    r = out["economics"]["original_market_order_economics"]
+    assert r["status"] == "MODEL_ORIGINAL_ACCEPTED_ORDER_ECONOMICS", r
+    assert r["original_recipient_is_coproducer"]
+    assert r["original_independent_supplier_count"] == 1
+    assert r["original_technology_performer_count"] == 2
+    assert r["original_owner_count"] == 3
+    assert r["all_owner_positive_contribution_and_reserves"]
+    private = r["local_research_only"]
+    assert private["buyer_payment_to_original_suppliers_and_operator"] == "800.00"
+    assert private["gross_incremental_recipient_use_value"] == "1500.00"
+    assert private["consolidated_external_cash_net"] == "-470.00"
+    assert private["consolidated_exclusive_resource_cost"] == "310.00"
+    assert private["consolidated_model_contribution"] == "720.00"
+    assert {k: v["model_contribution"] for k, v in private["per_owner"].items()} == {
+        "a": "250.00", "b": "450.00", "op": "20.00"}
+    assert out == simulate(deepcopy(d))
+
+
+def test_original_buyer_coproduction_requires_separate_own_production_scope():
+    d = original_market_order_finance_case(competing=True, buyer_finishes=True, missing_owner=True)
+    r = simulate(d)["economics"]["original_market_order_economics"]
+    assert r["status"] == "UNKNOWN"
+    assert "INDEPENDENT_OWNER_COST_SCOPE_INCOMPLETE" in r["reasons"]
+    assert "local_research_only" not in r
+
+
+def test_original_buyer_coproduction_cannot_reuse_value_source_as_cost_scope():
+    d = original_market_order_finance_case(competing=True, buyer_finishes=True)
+    d["economic_claims"]["market_order_economics"]["owner_scopes"]["b"]["source"] = "value-b-outcome"
+    with pytest.raises(ValueError, match="MARKET_ORDER_DISTINCT_OWNER_INCREMENTAL_SCOPE_SOURCE_REQUIRED"):
+        simulate(d)
+
+
+def test_original_common_code_also_permits_independent_supplier_finishing():
+    d = original_market_order_finance_case(competing=True)
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, [
+        (e["at"], e["action"], e.get("reason")) for e in out["trace"] if e["outcome"] == "BLOCKED"]
+    assert out["works"]["w3"]["consenting_principals"] == ["a", "b", "c"]
+    r = out["economics"]["original_market_order_economics"]
+    assert r["status"] == "MODEL_ORIGINAL_ACCEPTED_ORDER_ECONOMICS", r
+    assert r["local_research_only"]["consolidated_model_contribution"] == "660.00"
+    assert all(m["original_competing_owner_sets"]["status"] == "ALTERNATIVE_OWNER_SET_EXISTS"
+               for m in _market_reviews(out))
