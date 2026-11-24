@@ -59,15 +59,18 @@ try{
    phase="NAVIGATION";
    await page.goto(origin+"/tools/personal-economy/",{waitUntil:"domcontentloaded"});
    phase="LAUNCHER_SCAN";
+   const calendar=page.locator("#club-money-calendar");
+   const recurring=page.locator("details.club-cash-repeat");
+   if(await calendar.evaluate(e=>e.open))await calendar.locator(":scope > summary").click();
    await at("launcher").click();
    await at("skill-choice").locator("option").nth(1).waitFor({state:"attached"});
    await at("scan-forms").click();
-   const opts=await at("form-choice").locator("option").evaluateAll(o=>o.map(x=>({value:x.value,text:x.textContent})));
-   const budget=opts.find(o=>o.text.startsWith("Месячный бюджет и финансовый резерв ·"));
-   check(budget&&opts.some(o=>o.text.startsWith("Денежный календарь: доход или расход ·"))&&opts.some(o=>o.text.startsWith("Регулярный денежный платёж ·")),"DISTINCT_FORM_TITLES");
-   await at("form-choice").selectOption(budget.value);
-   phase="CLOSE_GLOBAL";
+   const closedOpts=await at("form-choice").locator("option").allTextContents();
+   check(closedOpts.some(o=>o.startsWith("Месячный бюджет и финансовый резерв ·"))&&!closedOpts.some(o=>o.startsWith("Денежный календарь:")||o.startsWith("Регулярный денежный платёж ·")),"COLLAPSED_FORM_EXCLUDED");
    await at("close").click();
+   phase="OPEN_NATIVE_DISCLOSURES";
+   await calendar.locator(":scope > summary").click();
+   if(!await recurring.evaluate(e=>e.open))await recurring.locator(":scope > summary").click();
    const budgetShortcut=page.locator('form[data-pe-form] button[data-iwxa-assistant-form-open]');
    const cashShortcut=page.locator('form[data-cash-calendar-entry] button[data-iwxa-assistant-form-open]');
    check(await budgetShortcut.count()===1&&await cashShortcut.count()===1,"CONTEXT_SHORTCUT_COUNT");
@@ -76,6 +79,9 @@ try{
    await budgetShortcut.click();
    const waitForm=title=>page.waitForFunction(t=>{const root=document.querySelector("#iwxa-t3-assistant")?.shadowRoot;return root?.getElementById("form-choice")?.selectedOptions[0]?.textContent?.startsWith(t)&&root.getElementById("status")?.textContent?.startsWith("Выбрана форма:");},title);
    await waitForm("Месячный бюджет и финансовый резерв ·");
+   const opts=await at("form-choice").locator("option").evaluateAll(o=>o.map(x=>({value:x.value,text:x.textContent})));
+   const budget=opts.find(o=>o.text.startsWith("Месячный бюджет и финансовый резерв ·"));
+   check(budget&&opts.some(o=>o.text.startsWith("Денежный календарь: доход или расход ·"))&&opts.some(o=>o.text.startsWith("Регулярный денежный платёж ·")),"DISTINCT_FORM_TITLES");
    await at("prompt").fill("Незавершённый запрос");
    phase="CASH_SHORTCUT_CANCEL";
    let cancelled=false;
@@ -93,7 +99,22 @@ try{
    phase="CASH_RETURN_FOCUS";
    await at("close").click();
    check(await cashShortcut.evaluate(b=>document.activeElement===b),"CONTEXT_RETURN_FOCUS");
+   phase="COLLAPSED_PREVIEW_REJECT";
+   await cashShortcut.click();
+   await waitForm("Денежный календарь: доход или расход ·");
+   await at("prompt").fill("Заплатил за продукты 730 рублей 14.02.2028.");
+   await at("explicit-values").click();
+   check(await at("preview").locator("li").count()>0,"CASH_PREVIEW_PRESENT");
+   await calendar.locator(":scope > summary").click();
+   const applyButton=at("apply");
+   if(await applyButton.isVisible()&&await applyButton.isEnabled())await applyButton.click();
+   check(await page.locator('form[data-cash-calendar-entry] [name="date"]').inputValue()==="","COLLAPSED_PREVIEW_NOT_APPLIED");
+   await at("close").click();
+   check(await at("launcher").evaluate(b=>b.getRootNode().activeElement===b),"HIDDEN_RETURN_FALLS_BACK");
    phase="BUDGET_RETURN";
+   // The pending cash request belongs to a different form; confirm its
+   // replacement just as a real user must.
+   page.once("dialog",d=>d.accept());
    await budgetShortcut.click();
    await waitForm("Месячный бюджет и финансовый резерв ·");
    phase="EXPLICIT_FORM";
@@ -128,7 +149,7 @@ try{
    phase="FINAL_CLOSE";
    await at("close").click();
    check(await at("drawer").isHidden(),"CLOSE");
-   console.log("T3_CLUB_BROWSER_CASE_PASS "+JSON.stringify({width:size.width,height:size.height,sharedEngine:true,phoneLayout:size.width<621,nativeApply:true,noSubmit:true,noModel:true,contextualShortcuts:true,confirmedFormSwitch:true,focusReturn:true}));
+   console.log("T3_CLUB_BROWSER_CASE_PASS "+JSON.stringify({width:size.width,height:size.height,sharedEngine:true,phoneLayout:size.width<621,nativeApply:true,noSubmit:true,noModel:true,contextualShortcuts:true,confirmedFormSwitch:true,focusReturn:true,collapsedFormsExcluded:true}));
   }catch(e){const code=typeof e.message==="string"&&/^T3_CLUB_BROWSER_[A-Z_]+$/.test(e.message)?e.message:"T3_CLUB_BROWSER_UNEXPECTED";console.log("T3_CLUB_BROWSER_CASE_FAIL "+JSON.stringify({width:size.width,phase,code,timeout:e?.name==="TimeoutError"}));throw Error(code);}
   finally{await ctx.close();}
  }

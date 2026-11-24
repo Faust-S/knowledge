@@ -31,7 +31,7 @@ const scenarios=[
 ];
 for(const [i,c] of scenarios.entries()){
   const withButton=(markup,marker)=>markup.replace(/<form\b[^>]*>/,tag=>tag+`<button type="button" data-iwxa-assistant-form-open="${marker}" hidden>Помочь заполнить</button>`);
-  const content=c.shortcuts?withButton(economyMarkup,"data-pe-form")+withButton(formMarkup,"data-cash-calendar-entry"):(c.economy?economyMarkup:formMarkup);
+  const content=c.shortcuts?withButton(economyMarkup,"data-pe-form")+'<details id="cash-disclosure"><summary>Денежный календарь</summary>'+withButton(formMarkup,"data-cash-calendar-entry")+"</details>":(c.economy?economyMarkup:formMarkup);
   const dom=new JSDOM('<!doctype html><main>'+content+'<div data-iwxa-domain-assistant data-assistant-skills="/assets/club-assistant-skills.json" data-assistant-label="Помощник Club"></div></main>',{url:origin+"/tools/personal-economy/",pretendToBeVisual:true});
   const win=dom.window,nav=win.navigator;
   // JSDOM has no layout. Test the real form DOM and native validity, not
@@ -82,6 +82,9 @@ for(const [i,c] of scenarios.entries()){
       assert(!at("drawer").hidden,"SHORTCUT_OPENS");
       at("close").click();
       assert(win.document.activeElement===budget,"PENDING_SHORTCUT_FOCUS_RETURN");
+      cash.click();await delay(30);
+      assert(at("drawer").hidden,"CLOSED_NATIVE_DISCLOSURE_NO_SHORTCUT");
+      win.document.getElementById("cash-disclosure").open=true;
       cash.click();resolvePack();
       await until(()=>at("form-choice").selectedOptions[0]?.textContent.startsWith("Денежный календарь: доход или расход ·")&&at("status").textContent.startsWith("Выбрана форма:"),"LATEST_SHORTCUT_WINS");
       assert(at("skill-choice").value==="personal-economy","CONTEXTUAL_SKILL");
@@ -94,6 +97,10 @@ for(const [i,c] of scenarios.entries()){
       assert(at("prompt").value===""&&at("preview").children.length===0,"SHORTCUT_CONFIRM_CLEARS");
       at("close").click();
       assert(win.document.activeElement===budget,"SHORTCUT_RETURNS_FOCUS");
+      win.document.getElementById("cash-disclosure").open=false;
+      at("launcher").click();at("scan-forms").click();
+      assert(at("form-choice").options.length===2&&at("form-choice").options[1].textContent.startsWith("Месячный бюджет и финансовый резерв ·"),"CLOSED_DISCLOSURE_EXCLUDED_FROM_CHOICES");
+      at("close").click();
       assert(probes===0&&workers===0&&modelRequests===0&&skillRequests===1,"CONTEXT_NO_GPU_OR_ENGINE");
       win.confirm=message=>{confirms.push(message);return false;};
     }
