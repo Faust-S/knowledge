@@ -1,5 +1,6 @@
 import type {Dispatch,SetStateAction,ReactNode} from 'react';
 import {DomainRouteComparison} from './DomainRouteComparison';
+import {Rust4pmResultReview} from './Rust4pmResultReview';
 import type {Preview} from '../../modules/activity-base-anonymizer/engine.mjs';
 import type {Ocel2EvidenceView} from '../../modules/activity-base-anonymizer/ocel2-evidence.mjs';
 import type {T3StructuralCandidate} from '../../modules/activity-base-anonymizer/t3-selected-host.mjs';
@@ -30,6 +31,7 @@ export function ActivityInnerPage({page,data,actions,process,object,candidate,ma
  const t3=data.t3Review?.status==='REVIEW'?data.t3Review.review:null;
  switch(page){
  case 'Группировка маршрутов':return <DomainRouteComparison/>;
+ case 'Внешний анализ':return <Rust4pmResultReview/>;
  case 'Схемы A0/A1':return <div className="activity-v7-grid">
   <Card title="A0 · синтетическая последовательность"><p>Выбранный субъект, упорядоченные события, структурные этапы и роли. События должны иметь статус observed.</p></Card>
   <Card title="A1 · источник и версия"><p>Проверка source pin, SHA-256, статуса выполнения и отсутствия разрывов хронологии.</p>

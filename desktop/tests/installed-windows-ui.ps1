@@ -137,6 +137,18 @@ public static class IwxaActivityWin32 {
     if (!$clearRoutes) { throw 'INSTALLED_ACTIVITY_A41_CLEAR_MISSING' }
     $clearRoutes.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
     Write-Host 'IWXA_ACTIVITY_A41_NATIVE_ROUTE_GROUPING_PASS models=3 groups=2 repeated=1'
+    $external = Find-Accessible $window.Root 'Внешний анализ' 10
+    if (!$external) { throw 'INSTALLED_ACTIVITY_A42_EXTERNAL_NAV_MISSING' }
+    $external.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $r4pmExample = Find-Accessible $window.Root 'Открыть пример Rust4PM' 10
+    if (!$r4pmExample) { throw 'INSTALLED_ACTIVITY_A42_EXAMPLE_MISSING' }
+    $r4pmExample.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (!(Find-Accessible $window.Root 'Графов: 2' 10)) { throw 'INSTALLED_ACTIVITY_A42_RESULT_MISSING' }
+    if (!(Find-Accessible $window.Root 'Исследование результата' 10)) { throw 'INSTALLED_ACTIVITY_A42_REVIEW_MISSING' }
+    $r4pmClear = Find-Accessible $window.Root 'Очистить результат анализа' 10
+    if (!$r4pmClear) { throw 'INSTALLED_ACTIVITY_A42_CLEAR_MISSING' }
+    $r4pmClear.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Write-Host 'IWXA_ACTIVITY_A42_NATIVE_REVIEW_PASS graphs=2'
     $sourcePage = Find-Accessible $window.Root 'Источники'
     if (!$sourcePage) { throw 'INSTALLED_ACTIVITY_V7_SOURCE_NAV_MISSING' }
     $sourcePage.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()

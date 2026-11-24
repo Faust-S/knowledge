@@ -91,3 +91,11 @@ test('A4.1 is reachable inside the native shell with actual local route comparis
  assert.match(page,/Выпуск \.iwxa закрыт/);
  assert.doesNotMatch(page,/localStorage|sessionStorage|fetch\(|createWorkspace\(|putObject\(/);
 });
+
+test('A4.2 consumes original external result inside V7 and clears local state',()=>{
+ const ui=load('../desktop/src/ActivityWorkspace.tsx'),inner=load('../desktop/src/ActivityInnerPage.tsx'),page=load('../desktop/src/Rust4pmResultReview.tsx');
+ assert.match(ui,/'Внешний анализ'/);assert.match(inner,/case 'Внешний анализ':return <Rust4pmResultReview/);
+ assert.match(page,/reviewRust4pmResult\(raw\)/);assert.match(page,/JSON.parse\(await file.text\(\)\)/);
+ assert.match(page,/generation.current/);assert.match(page,/Выпуск \.iwxa закрыт/);
+ assert.doesNotMatch(page,/localStorage|sessionStorage|fetch\(|createWorkspace\(|putObject\(/);
+});
