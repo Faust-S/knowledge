@@ -61,6 +61,24 @@ jobs:
           if ! npm run t3:host:prepare -- "$GITHUB_WORKSPACE/one-core/packages/t3-core" "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/t3-platform.zip" > "$RUNNER_TEMP/private-build.log" 2>&1; then
             echo D02_T3_HOST_SOURCE_BUILD=FAIL
             grep -Eo 'CLUB_T3_(HOST|PLATFORM)_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z_]+|T2_ACTIVE_RUNTIME_CONTRACT_HOLD|TS[0-9]{4}' "$RUNNER_TEMP/private-build.log" | sort -u | head -15 || true
+            # Expose only compile diagnostics coordinates and a fixed category,
+            # not private source, actual values, paths outside the stage or logs.
+            node --input-type=module - "$RUNNER_TEMP/private-build.log" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const lines=readFileSync(process.argv[2],'utf8').split(/\r?\n/);
+          const pattern=/^(src\/modules\/club\/[A-Za-z0-9_./-]+\.(?:ts|tsx|mts))\((\d+),(\d+)\): error (TS\d+):/;
+          const publicPattern=/^(src\/[A-Za-z0-9_./-]+\.(?:ts|tsx|mts))\((\d+),(\d+)\): error (TS\d+):/;
+          const hits=[];
+          for(const line of lines){
+            const m=line.match(pattern)||line.match(publicPattern);
+            if(!m)continue;
+            // Coordinates refer only to files already known to their owner.
+            // No message text or private file contents is emitted.
+            hits.push('D02_T3_DIAGNOSTIC='+m[4]+' '+m[1]+':'+m[2]+':'+m[3]);
+          }
+          for(const row of [...new Set(hits)].slice(0,120))console.log(row);
+          console.log('D02_T3_DIAGNOSTICS_COUNT='+hits.length);
+          NODE
             exit 1
           fi
           node -e 'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(p.schema!=="IWXA_CLUB_COMPILED_HOST_INPUT/1"||p.moduleId!=="iwxa.domain.club"||p.state!=="SOURCE_BUILD_NOT_PRODUCT_ACCEPTED"||p.sourceCommit!=="3056eef0665fb3503294d49b89d937af2ea060e2")process.exit(1);console.log("D02_T3_HOST_SOURCE_BUILD=PASS; files="+p.files.length+"; module_source_files="+p.moduleSourceFiles.length)' "$RUNNER_TEMP/club-t3-host/club-t3-host-input.json"
