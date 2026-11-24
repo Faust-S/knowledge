@@ -202,24 +202,18 @@ export function SignedSelectedWorkspaceGate({
   useEffect(()=>{
     if(!autoCreateSignedCorporate||!required||!kernel||
        phase!=="missing"||!profile||!trustedSelectedContext||
-       !kernel.hasOperation("t1.createWorkspace"))return;
-    let active=true;
-    const ticket=generation.current;
-    void (async()=>{
-      const context=selectedScope(await trustedSelectedContext("createWorkspace"));
-      if(!active||ticket!==generation.current||context?.kind!=="CORP")return;
-      if(!inspection.scope||!sameScope(inspection.scope,context)){
-        setCreateError("Выбранная область изменилась. Проверьте её повторно. Создание не выполнялось.");
-        return;
-      }
-      const key=[context.organization_id,context.workspace_id,profile].join("\u0000");
-      let seen=attemptedSignedCreate.current.get(kernel);
-      if(!seen){seen=new Set<string>();attemptedSignedCreate.current.set(kernel,seen);}
-      if(seen.has(key))return;
-      seen.add(key);
-      await create(); // Existing signed JIT, same original Kernel, cold readback
-    })().catch(()=>{}); // No unsigned fallback and no unobserved retry
-    return ()=>{active=false;};
+       !kernel.hasOperation("t1.createWorkspace")||
+       inspection.scope?.kind!=="CORP")return;
+    // The read gate already confirmed this exact CORP selection. Do not
+    // request the separate write context twice: create() itself obtains it,
+    // compares it to this read scope, performs the original signed JIT and
+    // verifies the original Kernel readback. Mark once before any async hop.
+    const key=[inspection.scope.organization_id,inspection.scope.workspace_id,profile].join("\u0000");
+    let seen=attemptedSignedCreate.current.get(kernel);
+    if(!seen){seen=new Set<string>();attemptedSignedCreate.current.set(kernel,seen);}
+    if(seen.has(key)||running.current)return;
+    seen.add(key);
+    void create();
   },[autoCreateSignedCorporate,required,kernel,phase,profile,
       trustedSelectedContext,create,inspection.scope]);
 

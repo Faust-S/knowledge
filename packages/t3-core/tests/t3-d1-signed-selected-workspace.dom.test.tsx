@@ -128,7 +128,8 @@ it("original signed corporate key automatically creates its Workspace with the s
     workspace_id:"ws:company-by-key",profile:"generic",
   });
   expect(listWorkspaces).not.toHaveBeenCalled();
-  expect(original).toHaveBeenCalledWith("createWorkspace");
+  expect(original.mock.calls.map(([op])=>op)).toEqual(["getWorkspace","createWorkspace"]);
+  expect(getWorkspace).toHaveBeenCalledTimes(3);
 });
 it("a signed company key without a distinct create grant never creates automatically",async()=>{
   const createWorkspace=vi.fn();
@@ -145,6 +146,41 @@ it("a signed company key without a distinct create grant never creates automatic
   await waitFor(()=>expect(original).toHaveBeenCalledWith("createWorkspace"));
   expect(createWorkspace).not.toHaveBeenCalled();
   expect(screen.queryByTestId("no-unsigned-company")).toBeNull();
+  await screen.findByTestId("t3-d1-create-workspace-error");
+  expect(original.mock.calls.map(([op])=>op)).toEqual(["getWorkspace","createWorkspace"]);
+});
+it("auto-create never requests write authority for a PERSONAL selection",async()=>{
+  const createWorkspace=vi.fn();
+  const kernel={getWorkspace:vi.fn(async()=>null),createWorkspace,
+    hasOperation:()=>true} as unknown as KernelFacade;
+  const original=vi.fn(async(method:string)=>({
+    kind:"PERSONAL" as const,organization_id:null,
+    workspace_id:"ws:personal-first",resource:"ws:personal-first",
+  }));
+  render(<SignedSelectedWorkspaceGate required kernel={kernel} profile="generic"
+    trustedSelectedContext={original}><p data-testid="personal-ready">Ready</p>
+  </SignedSelectedWorkspaceGate>);
+  await screen.findByTestId("t3-d1-selected-workspace-message");
+  expect(original.mock.calls.map(([op])=>op)).toEqual(["getWorkspace"]);
+  expect(createWorkspace).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("personal-ready")).toBeNull();
+});
+it("automatic signed create rejects a changed organization without a second context request",async()=>{
+  const getWorkspace=vi.fn(async()=>null),createWorkspace=vi.fn();
+  const kernel={getWorkspace,createWorkspace,
+    hasOperation:()=>true} as unknown as KernelFacade;
+  const original=vi.fn(async(method:string)=>({
+    kind:"CORP" as const,organization_id:method==="getWorkspace"?"org:first":"org:other",
+    workspace_id:"ws:company",resource:"ws:company",
+  }));
+  render(<SignedSelectedWorkspaceGate required kernel={kernel} profile="generic"
+    trustedSelectedContext={original}><p data-testid="foreign-ready">Ready</p>
+  </SignedSelectedWorkspaceGate>);
+  await screen.findByTestId("t3-d1-create-workspace-error");
+  expect(original.mock.calls.map(([op])=>op)).toEqual(["getWorkspace","createWorkspace"]);
+  expect(getWorkspace).toHaveBeenCalledTimes(1);
+  expect(createWorkspace).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("foreign-ready")).toBeNull();
 });
 
 it("typed original permission denial is NEVER converted to missing or signed create",async()=>{
