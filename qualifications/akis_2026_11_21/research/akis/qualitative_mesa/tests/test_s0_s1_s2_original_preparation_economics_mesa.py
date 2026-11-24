@@ -405,3 +405,131 @@ def test_reuse_cost_cannot_hide_pattern_maintenance_in_previous_period():
     row["amount"] = "51.00"
     with pytest.raises(InputError, match="PREPARATION_ACTIVITY_COST_AMOUNT_MISMATCH"):
         simulate(doc)
+
+
+def operator_service_route(mode="S2", *, cap="300.00", third_fee="150.00", pattern=None):
+    """One original service portfolio; independently held scope and fee budget."""
+    doc = (preparation_pattern_routes()[pattern] if pattern else preparation_modes()[mode])
+    money = doc["economic_claims"]
+    for owner, suffix, core in (("op", "nonoverlap", "operator"), ("a", "fee-cap", "corporate")):
+        ref = f"model://{owner}/service-{suffix}"
+        key = f"service-{suffix}"
+        doc["context_evidence"]["sources"].append({
+            "id": ref, "owner": owner, "revision": "v1", "status": "CONFIRMED",
+            "usable_by": [owner], "core": core, "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"],
+            "operations": ["READ"], "valid_from": 0, "valid_until": 160,
+        })
+        money["sources"].append({"id": key, "owner": owner, "reference": ref, "revision": "v1"})
+    next(row for row in money["transfers"] if row["id"] == "operator-fee")["amount"] = third_fee
+    money["operator_service_economics"] = {
+        "owner": "op", "source": "service-nonoverlap",
+        "fee_transfer_ids": ["w1-fee", "w2-fee", "operator-fee"],
+        "cash_cost_transfer_ids": ["w1-overhead", "w2-overhead", "operator-cash-cost"],
+        "exclusive_resource_use_ids": [
+            "w1-coordination", "w2-coordination", "cooperation-coordination", "cooperation-shared"],
+        "payer_fee_limits": [{"owner": "a", "source": "service-fee-cap", "maximum_total_fee": cap}],
+    }
+    return doc
+
+
+@pytest.mark.parametrize("mode,break_even,contribution,envelope", [
+    ("S0", "393.00", "-173.00", "DECLARED_CAPS_CANNOT_COVER_COST"),
+    ("S1", "369.00", "-149.00", "DECLARED_CAPS_CANNOT_COVER_COST"),
+    ("S2", "273.00", "-53.00", "POSITIVE_CONTRIBUTION_POSSIBLE_WITHIN_DECLARED_CAPS_ONLY"),
+])
+def test_original_operator_fee_break_even_respects_full_cost_and_independent_cap(
+        mode, break_even, contribution, envelope):
+    doc = operator_service_route(mode)
+    frozen = deepcopy(doc)
+    result = simulate(doc)
+    assert doc == frozen
+    view = result["economics"]["original_operator_service_economics"]
+    local = view["local_research_only"]
+    assert local["original_declared_cash_net"] == "125.00"
+    assert local["break_even_total_fee"] == break_even
+    assert local["model_service_contribution"] == contribution
+    assert view["declared_fee_envelope_status"] == envelope
+    assert result["economics"]["profit"] == "UNKNOWN"
+    assert result["economics"]["resource_costs_additive_to_cash"] is False
+
+
+@pytest.mark.parametrize("fee,cap,contribution,envelope,respects", [
+    ("203.00", "273.00", "0.00", "BREAK_EVEN_ONLY_WITHIN_DECLARED_CAPS", True),
+    ("230.00", "300.00", "27.00", "POSITIVE_CONTRIBUTION_POSSIBLE_WITHIN_DECLARED_CAPS_ONLY", True),
+    ("230.00", "270.00", "27.00", "DECLARED_CAPS_CANNOT_COVER_COST", False),
+])
+def test_original_operator_positive_contribution_is_not_automatic_payer_advantage(
+        fee, cap, contribution, envelope, respects):
+    result = simulate(operator_service_route(cap=cap, third_fee=fee))
+    view = result["economics"]["original_operator_service_economics"]
+    assert view["local_research_only"]["model_service_contribution"] == contribution
+    assert view["declared_fee_envelope_status"] == envelope
+    assert view["current_fee_respects_all_declared_caps"] is respects
+    assert view["fee_ceiling_does_not_prove_payer_advantage_or_agreement"]
+    assert view["alternative_fee_timing_and_liquidity_not_simulated"]
+    assert view["real_profit_and_causal_additionality"] == "NOT_IDENTIFIABLE"
+
+
+def test_operator_capital_reuse_can_open_a_previously_empty_service_fee_envelope():
+    rebuild = simulate(operator_service_route(cap="380.00", pattern="REBUILD"))[
+        "economics"]["original_operator_service_economics"]
+    reuse = simulate(operator_service_route(cap="380.00", pattern="REUSE"))[
+        "economics"]["original_operator_service_economics"]
+    assert rebuild["local_research_only"]["break_even_total_fee"] == "453.00"
+    assert reuse["local_research_only"]["break_even_total_fee"] == "349.00"
+    assert rebuild["declared_fee_envelope_status"] == "DECLARED_CAPS_CANNOT_COVER_COST"
+    assert reuse["declared_fee_envelope_status"] == "POSITIVE_CONTRIBUTION_POSSIBLE_WITHIN_DECLARED_CAPS_ONLY"
+
+
+@pytest.mark.parametrize("field,key,error", [
+    ("cash_cost_transfer_ids", "w1-overhead", "FULL_DISJOINT_ORIGINAL_COST_SCOPE"),
+    ("exclusive_resource_use_ids", "cooperation-shared", "FULL_DISJOINT_ORIGINAL_COST_SCOPE"),
+    ("fee_transfer_ids", "w2-fee", "FULL_DISJOINT_ORIGINAL_COST_SCOPE"),
+])
+def test_operator_cannot_manufacture_margin_by_removing_original_rows(field, key, error):
+    doc = operator_service_route()
+    doc["economic_claims"]["operator_service_economics"][field].remove(key)
+    with pytest.raises(InputError, match=error):
+        simulate(doc)
+
+
+def test_operator_cannot_supply_the_independent_payer_fee_ceiling():
+    doc = operator_service_route()
+    doc["economic_claims"]["operator_service_economics"]["payer_fee_limits"][0]["source"] = "service-nonoverlap"
+    with pytest.raises(InputError, match="SOURCE_OWNER_NOT_PARTY"):
+        simulate(doc)
+
+
+def test_operator_service_costs_require_explicit_separate_nonoverlap_source():
+    doc = operator_service_route()
+    doc["economic_claims"]["operator_service_economics"]["source"] = "terms-op"
+    with pytest.raises(InputError, match="SEPARATE_COST_NONOVERLAP_SOURCE"):
+        simulate(doc)
+
+
+def test_operator_service_scope_requires_original_timed_cost_anchors():
+    doc = operator_service_route()
+    life = doc["economic_claims"]["lifecycle_costs"]
+    life["event_bindings"] = [row for row in life["event_bindings"]
+                              if row["resource_use_id"] != "cooperation-shared"]
+    with pytest.raises(InputError, match="ORIGINAL_COST_ANCHORS"):
+        simulate(doc)
+
+
+def test_operator_service_source_is_not_a_new_agreement_or_payment():
+    doc = operator_service_route()
+    original = deepcopy(doc)
+    original["economic_claims"].pop("operator_service_economics")
+    reviewed = simulate(doc)
+    baseline = simulate(original)
+    for key in ("works", "trace"):
+        assert reviewed[key] == baseline[key]
+    for key in ("per_subject", "cash_timing", "work_payment_causality"):
+        assert reviewed["economics"][key] == baseline["economics"][key]
+
+
+def test_operator_service_projection_cannot_bypass_strict_context():
+    doc = operator_service_route()
+    doc.pop("strict_economic_source_works")
+    with pytest.raises(InputError, match="STRICT_MULTIPERIOD_ORIGINAL_SCOPE"):
+        simulate(doc)

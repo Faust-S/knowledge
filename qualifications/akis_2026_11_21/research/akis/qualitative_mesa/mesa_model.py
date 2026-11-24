@@ -43,7 +43,9 @@ from .general_system import (
     original_nine_component_cycle_evidence,
 )
 from .org_code_policy import OrgCodeInputError, parse_org_code_policy
-from .economic_flow import EconomicInputError, evaluate_economic_claims
+from .economic_flow import (
+    EconomicInputError, evaluate_economic_claims, review_original_operator_service_economics,
+)
 from .strict_economic_source_review import (
     StrictEconomicSourceBlocked, review_original_strict_economic_sources,
     original_owner_economic_core,
@@ -1268,6 +1270,19 @@ class OperatorAKISModel(mesa.Model):
                 output["economics"][
                     "original_strict_context_source_qualification"
                 ] = original_economic_rights
+            if "operator_service_economics" in self.economic_claims:
+                try:
+                    output["economics"]["original_operator_service_economics"] = (
+                        review_original_operator_service_economics(
+                            self.economic_claims["operator_service_economics"],
+                            economic_claims=self.economic_claims, economic_view=output["economics"],
+                            works=self.qualitative.works, subjects=self.qualitative.subjects,
+                            operator=self.qualitative.institution.operator,
+                            strict_work_ids=self.strict_economic_source_work,
+                        )
+                    )
+                except EconomicInputError as exc:
+                    raise InputError(str(exc)) from exc
             if ("joint_purchasing_ancillary_original_bindings" in self.economic_claims
                     and "joint_purchasing_original_cash_bindings" not in self.economic_claims):
                 raise InputError("PURCHASE_ANCILLARY_REQUIRES_ORIGINAL_PURCHASE_PRICE_REFERENCES")

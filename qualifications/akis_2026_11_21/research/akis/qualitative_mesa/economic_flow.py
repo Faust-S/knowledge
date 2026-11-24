@@ -593,6 +593,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 "work_payment_settlement_claims", "work_payment_due_amendments",
                 "joint_purchasing_original_cash_bindings",
                 "joint_purchasing_ancillary_original_bindings",
+                "operator_service_economics",
             }):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
@@ -894,3 +895,147 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
         except LifecycleInputError as exc:
             raise EconomicInputError(str(exc)) from exc
     return output
+
+
+def review_original_operator_service_economics(
+    raw: Any, *, economic_claims: Mapping[str, Any], economic_view: Mapping[str, Any],
+    works: Mapping[str, Any], subjects: Mapping[str, Any], operator: str,
+    strict_work_ids: str | tuple[str, ...] | None,
+) -> dict[str, Any]:
+    """Model contribution and fee envelope over original rows, not a second ledger.
+
+    The operator's independently held scope declaration explicitly asserts that
+    every listed noncash cost is an opportunity/resource cost NOT already paid
+    through any of the listed cash costs. Without that declaration no addition
+    is permitted. No price, payment, resource, consent or Work is created here.
+    A payer ceiling is an owner's declared period budget, not authenticated
+    willingness, alternative advantage or a feasible amended payment schedule.
+    """
+    _record(raw, {"owner", "source", "fee_transfer_ids", "cash_cost_transfer_ids",
+                  "exclusive_resource_use_ids", "payer_fee_limits"},
+            "OPERATOR_SERVICE_ECONOMICS")
+    if (raw["owner"] != operator or operator not in subjects
+            or getattr(subjects[operator], "kind", None) != "OPERATOR"):
+        raise EconomicInputError("OPERATOR_SERVICE_REQUIRES_ORIGINAL_OPERATOR")
+    if (not isinstance(strict_work_ids, tuple) or not strict_work_ids
+            or not economic_view.get("original_strict_context_source_qualification")):
+        raise EconomicInputError("OPERATOR_SERVICE_REQUIRES_STRICT_MULTIPERIOD_ORIGINAL_SCOPE")
+    scope = set(strict_work_ids)
+    source_map = dict(economic_view["declared_source_index"])
+    source = _flow_ref(raw["source"], source_map, {operator})
+    if any(getattr(works[key], "result", None) != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+           for key in scope):
+        raise EconomicInputError("OPERATOR_SERVICE_REQUIRES_ACCEPTED_ORIGINAL_RESULTS")
+
+    transfers = {row["id"]: row for row in economic_claims["transfers"]
+                 if operator in {row["payer"], row["payee"]}}
+    resources = {row["id"]: row for row in economic_claims["resource_uses"]
+                 if row["owner"] == operator}
+    if any(row["scenario"] != "COOPERATION" or row["work"] not in scope
+           for row in (*transfers.values(), *resources.values())):
+        raise EconomicInputError("OPERATOR_SERVICE_ORIGINAL_SCOPE_MISMATCH")
+    if (source in {row["source"] for row in (*transfers.values(), *resources.values())}
+            or source == economic_claims["coverage"]["COOPERATION"].get(operator)
+            or source == economic_claims.get("lifecycle_costs", {}).get(
+                "scope_proofs", {}).get("COOPERATION", {}).get(operator)):
+        raise EconomicInputError("OPERATOR_SERVICE_SEPARATE_COST_NONOVERLAP_SOURCE_REQUIRED")
+
+    def ids(field: str) -> set[str]:
+        rows = _bounded_list(raw[field], "OPERATOR_SERVICE_REFERENCE")
+        keys = [_identifier(value, "OPERATOR_SERVICE_REFERENCE") for value in rows]
+        if len(set(keys)) != len(keys):
+            raise EconomicInputError("OPERATOR_SERVICE_DUPLICATE_REFERENCE")
+        return set(keys)
+
+    fee_ids = ids("fee_transfer_ids")
+    cash_ids = ids("cash_cost_transfer_ids")
+    noncash_ids = ids("exclusive_resource_use_ids")
+    if (not fee_ids or not noncash_ids or fee_ids & cash_ids
+            or fee_ids | cash_ids != set(transfers) or noncash_ids != set(resources)):
+        raise EconomicInputError("OPERATOR_SERVICE_FULL_DISJOINT_ORIGINAL_COST_SCOPE_REQUIRED")
+    if any(transfers[key]["payee"] != operator or transfers[key]["payer"] == "EXTERNAL"
+           for key in fee_ids) or any(transfers[key]["payer"] != operator for key in cash_ids):
+        raise EconomicInputError("OPERATOR_SERVICE_TRANSFER_DIRECTION_MISMATCH")
+    if ({transfers[key]["work"] for key in fee_ids} != scope
+            or {resources[key]["work"] for key in noncash_ids} != scope):
+        raise EconomicInputError("OPERATOR_SERVICE_ALL_PERIODS_REQUIRE_FEE_AND_COST_ROWS")
+    if not economic_view["per_subject"][operator]["declared_complete"]["COOPERATION"]:
+        raise EconomicInputError("OPERATOR_SERVICE_FULL_CASH_SCOPE_REQUIRED")
+    life = economic_view.get("lifecycle_resource_costs", {})
+    owner_scope = life.get("owner_scoped_details", {}).get(operator, {}).get(
+        "scenarios", {}).get("COOPERATION", {})
+    if not owner_scope.get("declared_resource_scope_complete_not_audited"):
+        raise EconomicInputError("OPERATOR_SERVICE_FULL_RESOURCE_SCOPE_REQUIRED")
+    timed = life.get("original_work_event_timing", {}).get("by_original_work", {})
+    anchored = {row["resource_use_id"] for key in scope
+                for row in timed.get(key, {}).get("per_original_scenario_owner", {})
+                .get("COOPERATION", {}).get(operator, ())}
+    if anchored != noncash_ids:
+        raise EconomicInputError("OPERATOR_SERVICE_ORIGINAL_COST_ANCHORS_REQUIRED")
+    terms = {row["transfer_id"]: row for row in
+             economic_view.get("work_payment_causality", {}).get("bindings", ())}
+    if any(terms.get(key, {}).get("status") !=
+           "MODEL_ORIGINAL_TRIGGER_DUE_AND_POSTING_ORDER_CONSISTENT"
+           for key in transfers):
+        raise EconomicInputError("OPERATOR_SERVICE_ORIGINAL_PAYMENT_CAUSALITY_REQUIRED")
+    fees_by_payer: dict[str, Decimal] = defaultdict(Decimal)
+    for key in fee_ids:
+        fees_by_payer[transfers[key]["payer"]] += _amount(transfers[key]["amount"])
+    caps = {}
+    for row in _bounded_list(raw["payer_fee_limits"], "OPERATOR_SERVICE_PAYER_LIMIT"):
+        _record(row, {"owner", "source", "maximum_total_fee"}, "OPERATOR_SERVICE_PAYER_LIMIT")
+        owner = _identifier(row["owner"], "OPERATOR_SERVICE_PAYER")
+        if owner in caps or owner not in fees_by_payer:
+            raise EconomicInputError("OPERATOR_SERVICE_PAYER_LIMIT_SCOPE_MISMATCH")
+        payer_source = _flow_ref(row["source"], source_map, {owner})
+        if payer_source in {transfers[key]["source"] for key in fee_ids}:
+            raise EconomicInputError("OPERATOR_SERVICE_SEPARATE_PAYER_LIMIT_SOURCE_REQUIRED")
+        caps[owner] = _amount(row["maximum_total_fee"])
+    if set(caps) != set(fees_by_payer):
+        raise EconomicInputError("OPERATOR_SERVICE_ALL_INDEPENDENT_PAYER_LIMITS_REQUIRED")
+
+    fees = sum(fees_by_payer.values(), Decimal(0))
+    cash_cost = sum((_amount(transfers[key]["amount"]) for key in cash_ids), Decimal(0))
+    noncash = sum((_amount(resources[key]["amount"]) for key in noncash_ids), Decimal(0))
+    floor = cash_cost + noncash
+    ceiling = sum(caps.values(), Decimal(0))
+    contribution = fees - floor
+    liquidity = economic_view.get("cash_timing", {}).get(
+        "per_original_owner_private_research_projection", {})
+    paths = {owner: liquidity.get(owner, {}).get("scenario_paths", {}).get(
+        "COOPERATION", {}).get("declared_late_case", {}).get("status", "NOT_IDENTIFIABLE")
+        for owner in (operator, *sorted(caps))}
+    return {
+        "evidence": "MODEL_ONLY_SOURCE_DECLARED_NONOVERLAPPING_SERVICE_COST",
+        "original_work_count": len(scope),
+        "original_fee_transfer_count": len(fee_ids),
+        "original_cash_cost_transfer_count": len(cash_ids),
+        "original_exclusive_resource_use_count": len(noncash_ids),
+        "independent_payer_count": len(caps),
+        "contribution_direction": "POSITIVE" if contribution > 0 else "ZERO" if contribution == 0 else "NEGATIVE",
+        "declared_fee_envelope_status": (
+            "POSITIVE_CONTRIBUTION_POSSIBLE_WITHIN_DECLARED_CAPS_ONLY"
+            if ceiling > floor else "BREAK_EVEN_ONLY_WITHIN_DECLARED_CAPS"
+            if ceiling == floor else "DECLARED_CAPS_CANNOT_COVER_COST"),
+        "current_fee_respects_all_declared_caps": all(
+            fees_by_payer[owner] <= caps[owner] for owner in caps),
+        "current_modeled_stress_reserve_status_counts": {
+            status: list(paths.values()).count(status) for status in sorted(set(paths.values()))
+        },
+        "local_research_only": {
+            "original_fee_amount": _sum_str([fees]),
+            "original_cash_cost": _sum_str([cash_cost]),
+            "original_declared_cash_net": _sum_str([fees - cash_cost]),
+            "exclusive_noncash_resource_cost": _sum_str([noncash]),
+            "model_service_contribution": _sum_str([contribution]),
+            "break_even_total_fee": _sum_str([floor]),
+            "aggregate_declared_payer_ceiling": _sum_str([ceiling]),
+            "maximum_model_contribution_within_caps": _sum_str([ceiling - floor]),
+            "current_owner_stress_reserve_status": paths,
+        },
+        "cash_and_resource_addition_requires_explicit_owned_nonoverlap_declaration": True,
+        "fee_ceiling_does_not_prove_payer_advantage_or_agreement": True,
+        "alternative_fee_timing_and_liquidity_not_simulated": True,
+        "original_transfers_resources_results_and_consents_unchanged": True,
+        "real_profit_and_causal_additionality": "NOT_IDENTIFIABLE",
+    }

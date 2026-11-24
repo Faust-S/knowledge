@@ -270,6 +270,7 @@ def export_preparation_mode_economics():
     from research.akis.qualitative_mesa.comparative_trajectories import compare_original_preparation_modes
     from research.akis.qualitative_mesa.tests.test_s0_s1_s2_original_preparation_economics_mesa import (
         preparation_modes, adaptive_preparation_modes, diagnostic_profile, preparation_pattern_routes,
+        operator_service_route,
     )
     from research.akis.qualitative_mesa.comparative_trajectories import compare_original_preparation_pattern_reuse
     cases = {
@@ -325,10 +326,26 @@ def export_preparation_mode_economics():
                 local["arms"]["REUSE"]["human_validation_units"] == local["arms"]["REBUILD"]["human_validation_units"]),
             "full_author_experience_return_ratio_proven": False,
         })
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    services = []
+    for label, doc in sorted({
+        "manual_above_payer_cap": operator_service_route("S0"),
+        "digital_above_payer_cap": operator_service_route("S1"),
+        "agent_negative_at_current_fee": operator_service_route(),
+        "agent_break_even": operator_service_route(cap="273.00", third_fee="203.00"),
+        "agent_positive_within_declared_cap": operator_service_route(third_fee="230.00"),
+        "agent_positive_above_declared_cap": operator_service_route(cap="270.00", third_fee="230.00"),
+        "rebuild_above_cap": operator_service_route(cap="380.00", pattern="REBUILD"),
+        "reuse_opens_fee_envelope": operator_service_route(cap="380.00", pattern="REUSE"),
+    }.items()):
+        view = simulate(doc)["economics"]["original_operator_service_economics"]
+        view.pop("local_research_only")
+        services.append({"trial": label, **view})
     manifest = {
-        "schema": "AKIS_S0_S1_S2_ORIGINAL_PREPARATION_ECONOMICS/1.1",
+        "schema": "AKIS_S0_S1_S2_ORIGINAL_PREPARATION_ECONOMICS/1.2",
         "engine": "MESA_3_5_2", "experiments": rows,
         "structural_pattern_reuse_experiments": patterns,
+        "original_operator_service_fee_envelope_experiments": services,
         "actual_time_error_probabilities_and_money_not_empirically_observed": True,
         "private_amounts_and_source_references_excluded": True,
         "no_second_ledger_or_scheduler": True,
