@@ -397,3 +397,56 @@ def test_strict_reassessment_is_not_accepted_after_error_source_revocation():
     assert row["outcome"]=="APPLIED",row
     assert send(s,18,"accept","c")["reason"]=="QUALITY_ORIGINAL_SOURCE_UNAVAILABLE"
     assert s.works["w1"].result=="SUBMITTED"
+
+
+def test_strict_kpb_original_review_right_revocation_blocks_approved_attempt():
+    s=run_initial(strict_case())
+    digest=propose(s)
+    for i,owner in enumerate(("a","b","c"),16):
+        assert review(s,i,owner,digest)["outcome"]=="APPLIED"
+    row=s.apply(dict(at=19,action="source_update",actor="op",
+        source="model://op/right-quality_correction_review",
+        new_revision="right-r2",status="DISPROVED",usable_by=["op"]),19)
+    assert row["outcome"]=="APPLIED",row
+    before=list(s.capacity_ledger.reservations)
+    result=send(s,20,"quality_correction_apply","c",
+                **fields(digest,quality_correction_source_ref="model://c/correction-apply"))
+    assert result["reason"] in {"CONTEXT_USE_NOT_PERMITTED", "CONTEXT_REVISION_STALE"},result
+    assert s.capacity_ledger.reservations==before
+
+
+def test_second_negative_result_requires_independent_second_correction_and_cost_source():
+    s,digest=physical_ready()
+    assert start(s,digest)["outcome"]=="APPLIED"
+    assert finish(s,digest)["outcome"]=="APPLIED"
+    assert resubmit(s,digest)["outcome"]=="APPLIED"
+    assert s.apply(quality_event(28,result_ref="model://final-v2"),28)["outcome"]=="APPLIED"
+    assert s.apply(quality_event(29,criterion_id="documents",result_ref="model://final-v2",
+                                verdict="DOES_NOT_MEET"),29)["outcome"]=="APPLIED"
+    check(s,30,"reject","c")
+    args=terms()
+    args.update(quality_correction_id="correction-2",result_ref="model://final-v2",
+                quality_correction_slot_start=40,quality_correction_slot_end=42,
+                quality_correction_valid_until=39,quality_correction_cost="1700",
+                quality_correction_source_ref="model://c/second-correction",
+                quality_correction_resource_ref="model://b/second-resources")
+    second=check(s,31,"quality_correction_propose","c",**args)["quality_correction_fingerprint"]
+    for i,owner in enumerate(("a","b","c"),32):
+        check(s,i,"quality_correction_review",owner,**fields(second,
+            quality_correction_id="correction-2",result_ref="model://final-v2",
+            quality_correction_decision="SUPPORT",quality_correction_source_ref=f"model://{owner}/second-vote"))
+    common=fields(second,quality_correction_id="correction-2",result_ref="model://final-v2")
+    check(s,35,"quality_correction_apply","c",**common,quality_correction_source_ref="model://c/second-apply")
+    check(s,40,"quality_correction_start","b",**common,quality_correction_source_ref="model://b/second-start",
+          quality_correction_cost_ref="model://b/second-actual-cost",quality_correction_cost="1700")
+    check(s,42,"quality_correction_complete","b",**common,quality_correction_source_ref="model://b/second-done")
+    check(s,43,"resubmit","a",result_ref="model://final-v3",quality_correction_id="correction-2",
+          quality_correction_fingerprint=second)
+    assert s.apply(quality_event(44,result_ref="model://final-v3"),44)["outcome"]=="APPLIED"
+    assert s.apply(quality_event(45,criterion_id="documents",result_ref="model://final-v3"),45)["outcome"]=="APPLIED"
+    check(s,46,"accept","c")
+    w=s.works["w1"]
+    assert [r["additional_resource_use_claim"]["amount"] for r in w.assurance_corrections]==["4500.00","1700.00"]
+    assert len(s.capacity_ledger.reservations)==4
+    assert len(w.assurance_review_history)==6
+    assert w.result=="ACCEPTED_BY_ORIGINAL_RECIPIENT"
