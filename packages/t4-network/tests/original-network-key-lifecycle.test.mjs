@@ -7,7 +7,7 @@ import {createOriginalKernelRegistryStatePort,ORIGINAL_REGISTRY_EVENT} from '../
 import {createOriginalPersonalAccessCheck} from '../../t3-core/src/t3/access/original-personal-evaluator.mjs';
 import {createSignedAccessHostPort} from '../../t3-core/src/t3/signed-access-host-port.mjs';
 import {ORIGINAL_NETWORK_KEY_TRANSITION,ORIGINAL_NETWORK_KEY_MANAGE,originalNetworkKeyPossessionBytes,
-  originalNetworkKeyOperationDigest,originalNetworkKeyStatusId} from '../../t3-core/src/t3/access/original-network-key-lifecycle.mjs';
+  originalNetworkKeyOperationDigest,originalNetworkKeyStatusId,createOriginalNetworkAgreementChallenge,answerOriginalNetworkAgreementChallenge} from '../../t3-core/src/t3/access/original-network-key-lifecycle.mjs';
 import {createT4OriginalVaultNodeSignaturePort} from '../src/network/original-vault-node-signature.mjs';
 import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-native-host-network-owner.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,verifyT4CandidateOutboundSignature} from '../src/network/standard-network-wire-candidate.mjs';
@@ -26,10 +26,10 @@ function signer(id,subjectId,uses){
 }
 const localBinding=Object.freeze({bindingRef:'binding:k37:local',subjectId:PRINCIPAL,
   permissionRef:'permission:k37:local',keyId:'key:k37:network:local',nodeRef:A,recipientNodeRef:B,
-  workspaceId:WS,originalWriteOwnerRef:OWNER,scopeRef:SCOPE,ownerEpoch:2,generation:1});
+  workspaceId:WS,originalWriteOwnerRef:OWNER,scopeRef:SCOPE,ownerEpoch:2,generation:1,keyUse:'NETWORK_FRAME'});
 const remoteBinding=Object.freeze({...localBinding,bindingRef:'binding:k37:peer',subjectId:PEER,
   permissionRef:'permission:k37:peer',keyId:'key:k37:network:peer',nodeRef:B,recipientNodeRef:A});
-const query=b=>Object.fromEntries(['keyId','nodeRef','recipientNodeRef','workspaceId','originalWriteOwnerRef','scopeRef','ownerEpoch'].map(k=>[k,b[k]]));
+const query=b=>Object.fromEntries(['keyId','nodeRef','recipientNodeRef','workspaceId','originalWriteOwnerRef','scopeRef','ownerEpoch','keyUse'].map(k=>[k,b[k]]));
 const scope={workspaceId:WS,originalWriteOwnerRef:OWNER,localNodeRef:A,remoteNodeRef:B,scopeRef:SCOPE,
   ownerEpoch:2,requiredCryptoSuite:SUITE};
 async function fixture(){
@@ -75,8 +75,9 @@ async function fixture(){
   };
   const vault=emptyVault();
   function generate(binding){
-    const k=generateVaultKey(vault,{keyId:binding.keyId,subjectId:binding.subjectId});
-    return keyRecord(k.subjectId,k.publicKeyPem,['NETWORK_FRAME']);
+    const k=generateVaultKey(vault,{keyId:binding.keyId,subjectId:binding.subjectId,
+      algorithm:binding.keyUse==='NETWORK_AGREEMENT'?'X25519':'Ed25519'});
+    return keyRecord(k.subjectId,k.publicKeyPem,[binding.keyUse]);
   }
   let transitionNumber=0;
   const requestFor=(transition,actorMode=false)=>{
@@ -94,11 +95,18 @@ async function fixture(){
       previousPolicyDigest:digest(state.policy),expectedStatusSequence:state.statusFloor[AUTH],
       previousBindingDigest:previous===null?null:digest(previous),issuedAt:iso(now),binding:structuredClone(binding),
       keyRecord:key,...patch};
-    const transition={claims,possessionSignature:kind==='REVOKE'?null:sign(null,originalNetworkKeyPossessionBytes(claims),
-      vaultPrivateKey(vault,binding.keyId)).toString('base64url')};
+    let transition,evidence=null;
+    if(kind!=='REVOKE'&&binding.keyUse==='NETWORK_AGREEMENT'){
+      const challenge=createOriginalNetworkAgreementChallenge(claims,{clock:()=>now});
+      const response=answerOriginalNetworkAgreementChallenge({claims,challenge:challenge.challenge,
+        privateKey:vaultPrivateKey(vault,binding.keyId)});
+      ({transition,evidence}=challenge.verifyResponse(response));
+    }else transition={claims,possessionSignature:kind==='REVOKE'?null:sign(null,originalNetworkKeyPossessionBytes(claims),
+      vaultPrivateKey(vault,binding.keyId)).toString('base64url'),agreementPossession:null};
     const signedStatus=signRecord({...state.statuses[AUTH].payload,id:originalNetworkKeyStatusId(transition),
       sequence:claims.expectedStatusSequence+1,issuedAt:claims.issuedAt},issuer.provider);
-    return {transition,signedStatus,...requestFor(transition)};
+    const command={transition,signedStatus,...requestFor(transition)};
+    return evidence===null?command:{command,evidence};
   }
   const accessFor=bound(registry);
   return {registry,options,storage,kernel,policy,initial,context,issuer,manager,actor,generate,prepare,requestFor,vault,
@@ -228,4 +236,59 @@ test('K37 an ordinary registry snapshot cannot silently reintroduce a retired ne
   const sameKeyNewBinding={...localBinding,bindingRef:'binding:k37:new',generation:1};
   await assert.rejects(f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',sameKeyNewBinding,key)),
     {code:'NETWORK_KEY_ID_OR_LIFETIME_INVALID'});
+});
+
+test('K38 independent X25519 agreement key uses the original Vault and the same signed Registry lifecycle, not an Ed25519 signing key',async()=>{
+  const f=await fixture(),frame=f.generate(localBinding);
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',localBinding,frame));
+  const agreement={...localBinding,bindingRef:'binding:k38:agreement',keyId:'key:k38:agreement',keyUse:'NETWORK_AGREEMENT'};
+  const key=f.generate(agreement);
+  const enrollment=await f.prepare('ENROLL',agreement,key);
+  await assert.rejects(f.registry.applyNetworkKeyTransition(enrollment.command),
+    {code:'T3_ACCESS_NETWORK_AGREEMENT_POSSESSION_REQUIRED'});
+  await assert.rejects(f.registry.applyNetworkKeyTransition(enrollment.command,{...enrollment.evidence}),
+    {code:'T3_ACCESS_NETWORK_AGREEMENT_POSSESSION_REQUIRED'});
+  const admitted=await f.registry.applyNetworkKeyTransition(enrollment.command,enrollment.evidence);
+  assert.equal(admitted.keyCurrentlyActive,true);
+  const cold=createOriginalKernelRegistryStatePort(f.options),current=await cold.readNetworkKeyEvidence(query(agreement));
+  assert.equal(current.key.uses[0],'NETWORK_AGREEMENT');assert.equal(current.binding.keyUse,'NETWORK_AGREEMENT');
+  assert.equal(vaultPrivateKey(f.vault,agreement.keyId).asymmetricKeyType,'x25519');
+  assert.equal(await cold.readNetworkKeyEvidence({...query(agreement),keyUse:'NETWORK_FRAME'}),null);
+  assert.equal((await cold.readNetworkKeyEvidence(query(localBinding))).key.uses[0],'NETWORK_FRAME');
+  const replacement={...agreement,keyId:'key:k38:agreement:next',generation:2};
+  const rotation=await f.prepare('ROTATE',replacement,f.generate(replacement),current.binding);
+  await f.registry.applyNetworkKeyTransition(rotation.command,rotation.evidence);
+  assert.equal(await cold.readNetworkKeyEvidence(query(agreement)),null);
+  const active=await cold.readNetworkKeyEvidence(query(replacement));
+  await f.registry.applyNetworkKeyTransition(await f.prepare('REVOKE',{...replacement,generation:3},null,active.binding));
+  assert.equal(await cold.readNetworkKeyEvidence(query(replacement)),null);
+  assert.ok(await cold.readNetworkKeyEvidence(query(localBinding)));
+  const state=await cold.readState();
+  assert.equal(state.policy.keys[agreement.keyId].status,'REVOKED');
+  assert.equal(state.policy.keys[replacement.keyId].status,'REVOKED');
+  assert.equal(state.policy.keys[localBinding.keyId].status,'ACTIVE');
+  assert.deepEqual(state.grants,f.initial.grants);
+  console.log('T4_K38_ORIGINAL_AGREEMENT_KEY_LIFECYCLE_PASS',JSON.stringify({originalRegistry:true,
+    sameOriginalVault:true,actualX25519PossessionChallenge:true,distinctFrameAndAgreementKeys:true,
+    forgedEvidenceRefused:true,agreementRotationAndRevocation:true,frameKeyUnaffected:true,
+    productionIssuer:false}));
+});
+test('K38 X25519 possession challenge is exact, one-use and rejects other private keys and stale responses',async()=>{
+  const f=await fixture(),agreement={...localBinding,bindingRef:'binding:k38:agreement',keyId:'key:k38:agreement',keyUse:'NETWORK_AGREEMENT'};
+  const prepared=await f.prepare('ENROLL',agreement,f.generate(agreement)),claims=prepared.command.transition.claims;
+  const other={...agreement,keyId:'key:k38:other'};f.generate(other);
+  const challenge=createOriginalNetworkAgreementChallenge(claims,{clock:f.clock});
+  assert.throws(()=>answerOriginalNetworkAgreementChallenge({claims,challenge:challenge.challenge,
+    privateKey:vaultPrivateKey(f.vault,other.keyId)}),{code:'NETWORK_AGREEMENT_POSSESSION_KEY_MISMATCH'});
+  assert.throws(()=>challenge.verifyResponse('A'.repeat(43)),{code:'NETWORK_AGREEMENT_POSSESSION_INVALID'});
+  const fresh=createOriginalNetworkAgreementChallenge(claims,{clock:f.clock});
+  const response=answerOriginalNetworkAgreementChallenge({claims,challenge:fresh.challenge,
+    privateKey:vaultPrivateKey(f.vault,agreement.keyId)});
+  fresh.verifyResponse(response);
+  assert.throws(()=>fresh.verifyResponse(response),{code:'NETWORK_AGREEMENT_CHALLENGE_ALREADY_USED'});
+  const stale=createOriginalNetworkAgreementChallenge(claims,{clock:f.clock});
+  const staleResponse=answerOriginalNetworkAgreementChallenge({claims,challenge:stale.challenge,
+    privateKey:vaultPrivateKey(f.vault,agreement.keyId)});
+  f.setClock(NOW+61000);
+  assert.throws(()=>stale.verifyResponse(staleResponse),{code:'NETWORK_AGREEMENT_CHALLENGE_EXPIRED'});
 });

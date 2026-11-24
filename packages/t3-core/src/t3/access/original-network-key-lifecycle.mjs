@@ -1,7 +1,7 @@
 // Candidate T4 extension of the ORIGINAL signed T3 Access registry.
 // Pure verification and transition derivation only: no registry, key store,
 // authority issuer, device scheduler or subject-write permission is created.
-import {createPublicKey,verify} from 'node:crypto';
+import {createPublicKey,verify,generateKeyPairSync,diffieHellman,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
 import {canonical,copy,digest,fields,identifier,insist,timestamp,validatePolicy,
   validateStatusSnapshot} from './core.mjs';
 
@@ -11,7 +11,7 @@ const claimFields=['schema','kind','transitionRef','authorityId','principalId','
   'registryWorkspaceId','registryObjectId','rootPolicyDigest','expectedStatusSequence','previousBindingDigest',
   'issuedAt','binding','keyRecord'];
 const bindingFields=['bindingRef','subjectId','permissionRef','keyId','nodeRef','recipientNodeRef',
-  'workspaceId','originalWriteOwnerRef','scopeRef','ownerEpoch','generation'];
+  'workspaceId','originalWriteOwnerRef','scopeRef','ownerEpoch','generation','keyUse'];
 const stableFields=bindingFields.filter(k=>!['keyId','generation','bindingRef','permissionRef'].includes(k));
 const same=(a,b)=>canonical(a)===canonical(b);
 const hex=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
@@ -28,7 +28,7 @@ function checkedClaims(input){
     'NETWORK_KEY_PREDECESSOR_INVALID');
   timestamp(c.issuedAt);fields(c.binding,bindingFields);
   for(const k of bindingFields.filter(k=>!['ownerEpoch','generation'].includes(k)))identifier(c.binding[k]);
-  check(c.binding.nodeRef!==c.binding.recipientNodeRef&&
+  check(['NETWORK_FRAME','NETWORK_AGREEMENT'].includes(c.binding.keyUse)&&c.binding.nodeRef!==c.binding.recipientNodeRef&&
     Number.isSafeInteger(c.binding.ownerEpoch)&&c.binding.ownerEpoch>=1&&
     Number.isSafeInteger(c.binding.generation)&&c.binding.generation>=1,
     'NETWORK_KEY_BINDING_INVALID');
@@ -37,25 +37,102 @@ function checkedClaims(input){
     fields(c.keyRecord,['subjectId','environment','publicKey','status','uses','notBefore','expiresAt']);
     const k=c.keyRecord;
     check(k.subjectId===c.binding.subjectId&&k.status==='ACTIVE'&&
-      Array.isArray(k.uses)&&k.uses.length===1&&k.uses[0]==='NETWORK_FRAME'&&
+      Array.isArray(k.uses)&&k.uses.length===1&&k.uses[0]===c.binding.keyUse&&
       ['TEST','PRODUCTION'].includes(k.environment)&&
       timestamp(k.notBefore)<=timestamp(c.issuedAt)&&timestamp(c.issuedAt)<timestamp(k.expiresAt)&&
-      typeof k.publicKey==='string'&&createPublicKey(k.publicKey).asymmetricKeyType==='ed25519',
+      typeof k.publicKey==='string'&&createPublicKey(k.publicKey).asymmetricKeyType===(c.binding.keyUse==='NETWORK_AGREEMENT'?'x25519':'ed25519'),
       'NETWORK_KEY_RECORD_INVALID');
   }
   return c;
 }
 export function originalNetworkKeyPossessionBytes(claims){
   const c=checkedClaims(claims);
-  check(c.kind!=='REVOKE','NETWORK_KEY_POSSESSION_NOT_APPLICABLE');
+  check(c.kind!=='REVOKE'&&c.binding.keyUse==='NETWORK_FRAME','NETWORK_KEY_POSSESSION_NOT_APPLICABLE');
   return Buffer.from('IWXA-T4-NETWORK-KEY-POSSESSION-V1\0'+canonical(c));
 }
+// A fresh DH possession challenge is verified in the original trusted
+// issuer process. Its ephemeral secret is never in the Registry or Vault.
+// Cold replay authenticates the issuer's signed STATUS attesting the exact
+// public witness. The in-memory evidence below is not a grant or a Store.
+const agreementChallenges=new WeakMap();
+const challengeSchema='IWXA_T4_NETWORK_AGREEMENT_CHALLENGE/1';
+const b64=(value,length)=>{
+  check(typeof value==='string'&&/^[A-Za-z0-9_-]+$/.test(value)&&value.length<=128,
+    'NETWORK_AGREEMENT_ENCODING_INVALID');
+  const bytes=Buffer.from(value,'base64url');
+  check(bytes.length===length&&bytes.toString('base64url')===value,'NETWORK_AGREEMENT_ENCODING_INVALID');
+  return bytes;
+};
+function checkedAgreementChallenge(input,claims){
+  const c=copy(input);fields(c,['schema','claimsDigest','issuerEphemeralPublicKey','nonce']);
+  check(c.schema===challengeSchema&&c.claimsDigest===digest(claims),'NETWORK_AGREEMENT_CHALLENGE_MISMATCH');
+  b64(c.nonce,32);
+  const der=b64(c.issuerEphemeralPublicKey,44),pub=createPublicKey({key:der,format:'der',type:'spki'});
+  check(pub.asymmetricKeyType==='x25519'&&pub.export({type:'spki',format:'der'}).equals(der),
+    'NETWORK_AGREEMENT_CHALLENGE_KEY_INVALID');
+  return {challenge:c,publicKey:pub};
+}
+function agreementResponse(privateKey,publicKey,challenge){
+  const shared=diffieHellman({privateKey,publicKey});
+  try{
+    check(shared.length===32&&shared.some(x=>x!==0),'NETWORK_AGREEMENT_SHARED_SECRET_INVALID');
+    return createHmac('sha256',shared).update('IWXA-T4-NETWORK-AGREEMENT-POSSESSION-V1\0'+canonical(challenge)).digest();
+  }finally{shared.fill(0);}
+}
+function agreementClaims(input){
+  const c=checkedClaims(input);
+  check(c.kind!=='REVOKE'&&c.binding.keyUse==='NETWORK_AGREEMENT','NETWORK_AGREEMENT_POSSESSION_NOT_APPLICABLE');
+  return c;
+}
+export function createOriginalNetworkAgreementChallenge(input,{clock=Date.now}={}){
+  const claims=agreementClaims(input),now=clock(),at=timestamp(claims.issuedAt);
+  check(Number.isSafeInteger(now)&&at<=now&&now-at<60000,'NETWORK_AGREEMENT_CHALLENGE_EXPIRED');
+  const {publicKey,privateKey}=generateKeyPairSync('x25519');
+  const challenge=Object.freeze({schema:challengeSchema,claimsDigest:digest(claims),
+    issuerEphemeralPublicKey:publicKey.export({type:'spki',format:'der'}).toString('base64url'),
+    nonce:randomBytes(32).toString('base64url')});
+  const expected=agreementResponse(privateKey,createPublicKey(claims.keyRecord.publicKey),challenge);
+  let used=false;
+  return Object.freeze({challenge,verifyResponse(response){
+    check(!used,'NETWORK_AGREEMENT_CHALLENGE_ALREADY_USED');used=true;
+    try{
+      const observed=clock();
+      check(Number.isSafeInteger(observed)&&observed>=now&&observed-at<60000,'NETWORK_AGREEMENT_CHALLENGE_EXPIRED');
+      check(timingSafeEqual(expected,b64(response,32)),'NETWORK_AGREEMENT_POSSESSION_INVALID');
+      const transition=validateOriginalNetworkKeyTransition({claims,possessionSignature:null,
+        agreementPossession:{challenge,response}});
+      const evidence=Object.freeze({transitionDigest:digest(transition)});
+      agreementChallenges.set(evidence,{transitionDigest:digest(transition),verifiedAt:observed});
+      return Object.freeze({transition,evidence});
+    }finally{expected.fill(0);}
+  }});
+}
+export function answerOriginalNetworkAgreementChallenge({claims:input,challenge,privateKey}={}){
+  const claims=agreementClaims(input),parsed=checkedAgreementChallenge(challenge,claims);
+  check(privateKey?.type==='private'&&privateKey.asymmetricKeyType==='x25519'&&
+    createPublicKey(privateKey).export({type:'spki',format:'der'}).equals(
+      createPublicKey(claims.keyRecord.publicKey).export({type:'spki',format:'der'})),
+    'NETWORK_AGREEMENT_POSSESSION_KEY_MISMATCH');
+  const response=agreementResponse(privateKey,parsed.publicKey,parsed.challenge);
+  try{return response.toString('base64url');}finally{response.fill(0);}
+}
+export function isVerifiedOriginalNetworkAgreementPossession(evidence,transition,now){
+  const record=agreementChallenges.get(evidence);
+  return !!record&&record.transitionDigest===digest(transition)&&Number.isSafeInteger(now)&&
+    now>=record.verifiedAt&&now-record.verifiedAt<60000;
+}
 export function validateOriginalNetworkKeyTransition(input){
-  const t=copy(input);fields(t,['claims','possessionSignature']);
+  const t=copy(input);fields(t,['claims','possessionSignature','agreementPossession']);
   t.claims=checkedClaims(t.claims);
   if(t.claims.kind==='REVOKE')
-    check(t.possessionSignature===null,'NETWORK_KEY_REVOKE_CANNOT_ADD_KEY');
-  else{
+    check(t.possessionSignature===null&&t.agreementPossession===null,'NETWORK_KEY_REVOKE_CANNOT_ADD_KEY');
+  else if(t.claims.binding.keyUse==='NETWORK_AGREEMENT'){
+    check(t.possessionSignature===null,'NETWORK_AGREEMENT_CANNOT_SIGN_ACCESS_OR_FRAME');
+    fields(t.agreementPossession,['challenge','response']);
+    checkedAgreementChallenge(t.agreementPossession.challenge,t.claims);
+    b64(t.agreementPossession.response,32);
+  }else{
+    check(t.agreementPossession===null,'NETWORK_KEY_POSSESSION_INVALID');
     check(typeof t.possessionSignature==='string'&&/^[A-Za-z0-9_-]{86}$/.test(t.possessionSignature),
       'NETWORK_KEY_POSSESSION_INVALID');
     const raw=Buffer.from(t.possessionSignature,'base64url');
@@ -103,7 +180,7 @@ export function deriveOriginalNetworkKeyTransition({transition,signedStatus,poli
       previous.generation+1===b.generation&&c.previousBindingDigest===digest(previous)&&
       stableFields.every(k=>previous[k]===b[k])&&previous.permissionRef===b.permissionRef&&
       Object.hasOwn(policy.keys,previous.keyId)&&policy.keys[previous.keyId].status==='ACTIVE'&&
-      policy.keys[previous.keyId].uses.length===1&&policy.keys[previous.keyId].uses[0]==='NETWORK_FRAME',
+      policy.keys[previous.keyId].uses.length===1&&policy.keys[previous.keyId].uses[0]===b.keyUse,
       'NETWORK_KEY_BINDING_PREDECESSOR_MISMATCH');
     check(c.kind==='ROTATE'?b.keyId!==previous.keyId:b.keyId===previous.keyId,
       'NETWORK_KEY_TRANSITION_KEY_MISMATCH');

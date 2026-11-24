@@ -8,7 +8,7 @@ import {
   validateStatusSnapshot,assertStatusTransitionHistory,iso,signRecord,evaluate,timestamp
 } from "./core.mjs";
 import {deriveOriginalNetworkKeyTransition,validateOriginalNetworkKeyTransition,
-  originalNetworkKeyOperationDigest,ORIGINAL_NETWORK_KEY_MANAGE}
+  originalNetworkKeyOperationDigest,ORIGINAL_NETWORK_KEY_MANAGE,isVerifiedOriginalNetworkAgreementPossession}
   from "./original-network-key-lifecycle.mjs";
 
 export const ORIGINAL_REGISTRY_SCHEMA="iwxa.t3.access.signed-registry";
@@ -489,7 +489,7 @@ export function createOriginalKernelRegistryStatePort({
   // Network key lifecycle commits through the SAME original Registry Object
   // and Event CAS. It accepts an existing authority's signed STATUS and
   // current administrator proof; it does not issue either of them.
-  const applyNetworkKeyTransition=async(input={})=>{
+  const applyNetworkKeyTransition=async(input={},agreementEvidence=null)=>{
     const args=copy(input);
     fields(args,['transition','signedStatus','managerRequest','managerChallenge','managerProof'],['confirmations']);
     const transition=validateOriginalNetworkKeyTransition(args.transition),c=transition.claims,signedStatus=args.signedStatus;
@@ -510,6 +510,9 @@ export function createOriginalKernelRegistryStatePort({
     const now=validClock(clock),state=before.state,authority=state.policy.authorities[c.authorityId];
     const derived=deriveOriginalNetworkKeyTransition({transition,signedStatus,policy:state.policy,
       bindings:before.networkBindings,priorFloors:state.statusFloor,registryIdentity});
+    const agreementRequired=c.binding.keyUse==='NETWORK_AGREEMENT'&&c.kind!=='REVOKE';
+    check(agreementRequired?isVerifiedOriginalNetworkAgreementPossession(agreementEvidence,transition,now):agreementEvidence===null,
+      'T3_ACCESS_NETWORK_AGREEMENT_POSSESSION_REQUIRED');
     check(timestamp(c.issuedAt)<=now&&now-timestamp(c.issuedAt)<state.policy.proofMaxAgeSeconds*1000,
       "T3_ACCESS_NETWORK_KEY_TRANSITION_EXPIRED");
     const request=args.managerRequest;
@@ -551,9 +554,10 @@ export function createOriginalKernelRegistryStatePort({
     return result;
   };
   const readNetworkKeyEvidence=async(query={})=>{
-    const q=copy(query),required=["keyId","nodeRef","recipientNodeRef","workspaceId","originalWriteOwnerRef","scopeRef"];
+    const q=copy(query),required=["keyId","nodeRef","recipientNodeRef","workspaceId","originalWriteOwnerRef","scopeRef","keyUse"];
     fields(q,[...required,'ownerEpoch']);
-    check(required.every(k=>ID.test(q[k]??""))&&Number.isSafeInteger(q.ownerEpoch)&&q.ownerEpoch>=1,
+    check(required.every(k=>ID.test(q[k]??""))&&['NETWORK_FRAME','NETWORK_AGREEMENT'].includes(q.keyUse)&&
+      Number.isSafeInteger(q.ownerEpoch)&&q.ownerEpoch>=1,
       "T3_ACCESS_NETWORK_KEY_QUERY_INVALID");
     const latest=await read(),matching=[...latest.networkBindings.values()].filter(b=>b.active&&
       required.every(k=>b[k]===q[k])&&b.ownerEpoch===q.ownerEpoch);
@@ -561,7 +565,7 @@ export function createOriginalKernelRegistryStatePort({
     if(!matching.length)return null;
     const binding=matching[0],key=latest.state.policy.keys[binding.keyId],now=validClock(clock);
     if(!key||key.status!=="ACTIVE"||key.subjectId!==binding.subjectId||
-      key.uses.length!==1||key.uses[0]!=="NETWORK_FRAME"||
+      key.uses.length!==1||key.uses[0]!==binding.keyUse||
       !(timestamp(key.notBefore)<=now&&now<timestamp(key.expiresAt)))return null;
     return Object.freeze({binding:copy(binding),key:copy(key),policyDigest:digest(latest.state.policy),
       originalRegistryRevision:latest.revision,originalReadback:true});

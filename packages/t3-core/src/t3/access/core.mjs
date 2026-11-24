@@ -92,6 +92,7 @@ export function verifyRecord(envelope, policy, now, expectedKind) {
   identifier(envelope.keyId);
   // Candidate T4 dedicated network keys are not Access record issuers.
   insist(expectedKind!=='NETWORK_FRAME','NETWORK_FRAME_NOT_ACCESS_RECORD');
+  insist(expectedKind!=='NETWORK_AGREEMENT','NETWORK_AGREEMENT_NOT_ACCESS_RECORD');
   const key = policy.keys[envelope.keyId];
   insist(key, 'UNKNOWN_KEY', 'UNRESOLVED');
   insist(key.status === 'ACTIVE', 'KEY_NOT_ACTIVE');
@@ -113,21 +114,27 @@ export function validatePolicy(p) {
   insist(['OFFLINE_BOUNDED','STATUS_SNAPSHOT'].includes(p.statusMode), 'UNSUPPORTED_STATUS_MODE');
   insist(['LOCAL_BEST_EFFORT','TRUSTED'].includes(p.timeAssurance), 'UNSUPPORTED_TIME_ASSURANCE');
   for (const k of ['proofMaxAgeSeconds','snapshotMaxAgeSeconds','offlineMaxAgeSeconds']) insist(Number.isSafeInteger(p[k]) && p[k] > 0 && p[k] <= 315360000, 'INVALID_ASSURANCE_LIMIT');
-  const publicKeyOwners=new Map(),networkKeys=new Set();
+  const publicKeyOwners=new Map(),networkKeys=new Map();
+  const hasNetworkKeys=Object.values(p.keys).some(k=>Array.isArray(k?.uses)&&k.uses.some(u=>u==='NETWORK_FRAME'||u==='NETWORK_AGREEMENT'));
   for (const [id,k] of Object.entries(p.keys)) {
     identifier(id); fields(k, ['subjectId','environment','publicKey','status','uses','notBefore','expiresAt']); identifier(k.subjectId);
     insist(['TEST','PRODUCTION'].includes(k.environment) && ['ACTIVE','SUSPENDED','REVOKED'].includes(k.status), 'INVALID_KEY_METADATA');
-    strings(k.uses); insist(subset(k.uses,['GRANT','STATUS','PROOF','CONFIRMATION','LIVE_STATUS','LICENSE','LICENSE_STATUS','NETWORK_FRAME']), 'INVALID_KEY_USAGE');
-    if(k.uses.includes('NETWORK_FRAME')){
-      insist(k.uses.length===1,'NETWORK_FRAME_KEY_MUST_BE_DEDICATED');networkKeys.add(id);
-    }
+    strings(k.uses); insist(subset(k.uses,['GRANT','STATUS','PROOF','CONFIRMATION','LIVE_STATUS','LICENSE','LICENSE_STATUS','NETWORK_FRAME','NETWORK_AGREEMENT']), 'INVALID_KEY_USAGE');
+    const networkUse=k.uses.find(u=>u==='NETWORK_FRAME'||u==='NETWORK_AGREEMENT');
+    if(networkUse){insist(k.uses.length===1,networkUse+'_KEY_MUST_BE_DEDICATED');networkKeys.set(id,networkUse);}
     insist(timestamp(k.notBefore) < timestamp(k.expiresAt), 'INVALID_KEY_INTERVAL');
-    insist(typeof k.publicKey === 'string' && createPublicKey(k.publicKey).asymmetricKeyType === 'ed25519', 'INVALID_PUBLIC_KEY');
-    const fingerprint=createHash('sha256').update(createPublicKey(k.publicKey).export({type:'spki',format:'der'})).digest('hex');
-    const ids=publicKeyOwners.get(fingerprint)??[];ids.push(id);publicKeyOwners.set(fingerprint,ids);
+    insist(typeof k.publicKey === 'string','INVALID_PUBLIC_KEY');
+    const publicKey=createPublicKey(k.publicKey);
+    insist(publicKey.asymmetricKeyType===(networkUse==='NETWORK_AGREEMENT'?'x25519':'ed25519'),'INVALID_PUBLIC_KEY');
+    if(hasNetworkKeys){
+      const fingerprint=createHash('sha256').update(publicKey.export({type:'spki',format:'der'})).digest('hex');
+      const ids=publicKeyOwners.get(fingerprint)??[];ids.push(id);publicKeyOwners.set(fingerprint,ids);
+    }
   }
-  for(const ids of publicKeyOwners.values())if(ids.some(id=>networkKeys.has(id)))
-    insist(ids.length===1,'NETWORK_FRAME_KEY_REUSE_FORBIDDEN');
+  for(const ids of publicKeyOwners.values()){
+    const use=ids.map(id=>networkKeys.get(id)).find(Boolean);
+    if(use)insist(ids.length===1,use+'_KEY_REUSE_FORBIDDEN');
+  }
   for (const [id,a] of Object.entries(p.authorities)) {
     identifier(id); fields(a,['principalId','issuerKeys','statusKeys','audiences','resources','actions','purposes','roles','rightClasses','membershipEpoch','maxTtlSeconds','maxDelegationDepth']);
     identifier(a.principalId);

@@ -66,7 +66,7 @@ export function createT4OriginalVaultNodeSignaturePort({
     // This is a resolution by the ORIGINAL owner, not authority from a
     // network header. BindingRef names existing owner evidence; T4 issues no binding.
     const observed=durable?await registry.readNetworkKeyEvidence({keyId:q.signerRef,nodeRef:q.sourceNodeRef,
-      recipientNodeRef:q.recipientNodeRef,workspaceId,originalWriteOwnerRef,scopeRef,ownerEpoch}):null;
+      recipientNodeRef:q.recipientNodeRef,workspaceId,originalWriteOwnerRef,scopeRef,ownerEpoch,keyUse:'NETWORK_FRAME'}):null;
     const b=durable?observed?.binding:await readOriginalNodeKeyBinding(q);
     current();
     if(!b||b.active!==true||!ID(b.bindingRef)||!ID(b.subjectId)||!ID(b.permissionRef)||
@@ -80,7 +80,7 @@ export function createT4OriginalVaultNodeSignaturePort({
     const binding=Object.freeze({bindingRef:b.bindingRef,subjectId:b.subjectId,permissionRef:b.permissionRef,
       keyId:b.keyId,nodeRef:b.nodeRef,recipientNodeRef:b.recipientNodeRef,workspaceId:b.workspaceId,
       originalWriteOwnerRef:b.originalWriteOwnerRef,scopeRef:b.scopeRef,ownerEpoch:b.ownerEpoch,
-      ...(durable?{generation:b.generation,transitionDigest:b.transitionDigest,authorityId:b.authorityId,principalId:b.principalId}:{})});
+      ...(durable?{keyUse:b.keyUse,generation:b.generation,transitionDigest:b.transitionDigest,authorityId:b.authorityId,principalId:b.principalId}:{})});
     const state=durable?null:await registry.readState();
     current();
     const policy=state?.policy,key=durable?observed.key:(Object.hasOwn(policy.keys,q.signerRef)?policy.keys[q.signerRef]:null),now=clock();

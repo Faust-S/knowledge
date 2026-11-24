@@ -7,26 +7,32 @@ const b64=b=>Buffer.from(b).toString('base64url');
 const unb64=(s,length=null)=>{insist(typeof s==='string'&&s.length>0&&s.length<=4*1024*1024&&/^[A-Za-z0-9_-]+$/.test(s),'VAULT_ENCODING_INVALID');const b=Buffer.from(s,'base64url');insist(b.toString('base64url')===s&&(length===null||b.length===length),'VAULT_ENCODING_INVALID');return b;};
 function insist(ok,code){if(!ok){const e=new Error(code);e.code=code;throw e;}}
 function derive(passphrase,salt){insist(typeof passphrase==='string'&&passphrase.length>=12,'VAULT_PASSPHRASE_TOO_SHORT');return scryptSync(passphrase,salt,32,{N:32768,r:8,p:1,maxmem:64*1024*1024});}
-function publicPem(privatePem){const pk=createPrivateKey(privatePem);insist(pk.asymmetricKeyType==='ed25519','ED25519_PRIVATE_KEY_REQUIRED');return createPublicKey(pk).export({type:'spki',format:'pem'}).toString();}
+const keyType=algorithm=>algorithm==='Ed25519'?'ed25519':algorithm==='X25519'?'x25519':null;
+function publicPem(privatePem,algorithm='Ed25519'){
+  const type=keyType(algorithm);insist(type!==null,'VAULT_KEY_ALGORITHM_INVALID');
+  const pk=createPrivateKey(privatePem);insist(pk.asymmetricKeyType===type,algorithm.toUpperCase()+'_PRIVATE_KEY_REQUIRED');
+  return createPublicKey(pk).export({type:'spki',format:'pem'}).toString();
+}
 export function validateVault(vault){
   insist(vault?.schema==='IWXA_T3_LOCAL_KEY_VAULT_CONTENT/1'&&vault.version===1&&vault.keys&&typeof vault.keys==='object'&&!Array.isArray(vault.keys)&&Object.keys(vault.keys).length<=128,'VAULT_CONTENT_INVALID');
   for(const [id,k] of Object.entries(vault.keys)){
-    insist(/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(id)&&!['__proto__','constructor','prototype'].includes(id)&&k?.keyId===id&&typeof k.subjectId==='string'&&k.subjectId.length>0&&k.algorithm==='Ed25519'&&Number.isFinite(Date.parse(k.createdAt))&&typeof k.privateKeyPem==='string'&&k.privateKeyPem.length<4096,'VAULT_KEY_INVALID');
-    try{insist(publicPem(k.privateKeyPem)===k.publicKeyPem,'VAULT_PUBLIC_PRIVATE_MISMATCH');}catch{throw new Error('VAULT_KEY_INVALID');}
+    insist(/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(id)&&!['__proto__','constructor','prototype'].includes(id)&&k?.keyId===id&&typeof k.subjectId==='string'&&k.subjectId.length>0&&keyType(k.algorithm)!==null&&Number.isFinite(Date.parse(k.createdAt))&&typeof k.privateKeyPem==='string'&&k.privateKeyPem.length<4096,'VAULT_KEY_INVALID');
+    try{insist(publicPem(k.privateKeyPem,k.algorithm)===k.publicKeyPem,'VAULT_PUBLIC_PRIVATE_MISMATCH');}catch{throw new Error('VAULT_KEY_INVALID');}
   }
   return vault;
 }
 export function emptyVault(){return {schema:'IWXA_T3_LOCAL_KEY_VAULT_CONTENT/1',version:1,keys:{}};}
-export function generateVaultKey(vault,{keyId,subjectId,createdAt=new Date().toISOString()}={}){
+export function generateVaultKey(vault,{keyId,subjectId,algorithm='Ed25519',createdAt=new Date().toISOString()}={}){
   insist(typeof keyId==='string'&&keyId,'KEY_ID_REQUIRED');insist(typeof subjectId==='string'&&subjectId,'SUBJECT_ID_REQUIRED');insist(!vault.keys[keyId],'KEY_ALREADY_EXISTS');
-  const {publicKey,privateKey}=generateKeyPairSync('ed25519');
-  vault.keys[keyId]={keyId,subjectId,algorithm:'Ed25519',createdAt,privateKeyPem:privateKey.export({type:'pkcs8',format:'pem'}).toString(),publicKeyPem:publicKey.export({type:'spki',format:'pem'}).toString()};
+  const type=keyType(algorithm);insist(type!==null,'VAULT_KEY_ALGORITHM_INVALID');
+  const {publicKey,privateKey}=generateKeyPairSync(type);
+  vault.keys[keyId]={keyId,subjectId,algorithm,createdAt,privateKeyPem:privateKey.export({type:'pkcs8',format:'pem'}).toString(),publicKeyPem:publicKey.export({type:'spki',format:'pem'}).toString()};
   return vault.keys[keyId];
 }
-export function importVaultKey(vault,{keyId,subjectId,privateKeyPem,expectedPublicKeyPem=null,createdAt=new Date().toISOString()}={}){
+export function importVaultKey(vault,{keyId,subjectId,privateKeyPem,expectedPublicKeyPem=null,algorithm='Ed25519',createdAt=new Date().toISOString()}={}){
   insist(typeof keyId==='string'&&keyId,'KEY_ID_REQUIRED');insist(typeof subjectId==='string'&&subjectId,'SUBJECT_ID_REQUIRED');insist(!vault.keys[keyId],'KEY_ALREADY_EXISTS');
-  const pub=publicPem(privateKeyPem); if(expectedPublicKeyPem){const a=Buffer.from(pub),b=Buffer.from(String(expectedPublicKeyPem));insist(a.length===b.length&&timingSafeEqual(a,b),'PUBLIC_KEY_MISMATCH');}
-  vault.keys[keyId]={keyId,subjectId,algorithm:'Ed25519',createdAt,privateKeyPem:String(privateKeyPem),publicKeyPem:pub}; return vault.keys[keyId];
+  const pub=publicPem(privateKeyPem,algorithm); if(expectedPublicKeyPem){const a=Buffer.from(pub),b=Buffer.from(String(expectedPublicKeyPem));insist(a.length===b.length&&timingSafeEqual(a,b),'PUBLIC_KEY_MISMATCH');}
+  vault.keys[keyId]={keyId,subjectId,algorithm,createdAt,privateKeyPem:String(privateKeyPem),publicKeyPem:pub}; return vault.keys[keyId];
 }
 export function encryptVault(vault,passphrase){
   validateVault(vault);
