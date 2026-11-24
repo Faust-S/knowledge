@@ -965,7 +965,7 @@ test('K19 automatic capture frontier supports Asset and Relation puts and delete
     listOriginalOutbox:async()=>[...f.outbox.values()],
   };
   for(const [method,input,ref] of [['putAsset',assetInput,'asset-put'],['putRelation',relationInput,'relation-put'],
-    ['deleteRelation',deletionRelationInput,'relation-delete'],['deleteAsset',deletionAssetInput,'asset-delete']]){
+    ['deleteRelation',deletionRelationInput,'relation-delete'],['deleteAsset',()=>({...deletionAssetInput(),base_revision:2}),'asset-delete']]){
     const host=createT4OriginalHostCaptureAdapter(options);
     await host[method]({mutationInput:input(),captureRef:'capture:k19:'+ref,fromObjectId:objectFrom});
     host.dispose();
@@ -973,4 +973,21 @@ test('K19 automatic capture frontier supports Asset and Relation puts and delete
   assert.equal(entries,4);assert.equal(f.writes.length,4);assert.equal(f.outbox.size,4);
   assert.deepEqual([...f.outbox.values()].map(x=>x.sourceCursorAfter.seenEventCount),
     [2,3,4,5].map(x=>x+baseline.seenEventCount-1));
+});
+
+test('K19 automatic Object deletion uses admitted frontier and the same single workspace mutation boundary',async()=>{
+  const f=objectDeleteFixture(),baseline=await cursor(f);
+  const originalBoundary=f.ports.withOriginalSubjectMutation;let entries=0;
+  const host=createT4OriginalHostCaptureAdapter({...f.ports,
+    withOriginalSubjectMutation:(proof,action)=>{entries++;return originalBoundary(proof,action);},
+    readOriginalAdmittedBaseline:async()=>({
+      schema:'IWXA_T4_ORIGINAL_SOURCE_BASELINE_V1',
+      identity:{sourceWorkspaceId:ws,originalWriteOwnerRef:owner},
+      originalBaselineRef:'baseline:k19:delete',originalBaselineDigest:'sha256:'+'a'.repeat(64),
+      sourceCursor:baseline}),
+    listOriginalPendingIntents:async()=>[],listOriginalOutbox:async()=>[...f.outbox.values()],
+  });
+  const result=await host.deleteObject({mutationInput:objectDeleteInput(),captureRef:'capture:k19:delete-object'});
+  assert.equal(result.originalReceipt.object.deleted,true);
+  assert.equal(entries,1);assert.equal(f.writes.length,1);assert.equal(f.outbox.size,1);
 });

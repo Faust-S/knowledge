@@ -1491,18 +1491,66 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             ?.object?.data??null;
         },{SERVICE,sourceCaptureWorkspace,objectId:technicalId(kind,captureRef)});
       };
-      let currentSourceCursor=deletedAsset.nextCursor;
+      const admittedCaptureCursor=structuredClone(deletedAsset.nextCursor);
+      const captureBaselineIdentity={
+        technicalWorkspaceId:sourceCaptureWorkspace,sourceWorkspaceId:workspaceId,
+        originalWriteOwnerRef:'original:t2:exchange',sourceNodeRef:'node:original:source',
+        recipientNodeRef:'node:original:recipient',scopeRef:'scope:original:local-capture',ownerEpoch:1,
+      };
+      const captureBaselinePort=()=>createT4OriginalNetworkBaselineAdmissionPort({
+        ...captureBaselineIdentity,role:'SOURCE',
+        originalKernel:{...mutationKernel,
+          listEventsSince:w=>activeSourcePage.evaluate(async({SERVICE,w})=>{
+            const kernel=await IWXA.connect({service_id:SERVICE,required_levels:['T1','T2']});
+            return kernel.t1.listEventsSince(w);
+          },{SERVICE,w})},
+        getMode:()=> 'T4_NETWORK',
+        readOriginalHostContext:async()=>({workspaceId:sourceCaptureWorkspace,
+          originalWriteOwnerRef:'original:t2:exchange',hostSessionRef:sourceHostSession(),
+          nodeRef:captureBaselineIdentity.sourceNodeRef,scopeRef:captureBaselineIdentity.scopeRef}),
+        authorizeOriginalTechnicalRead:async p=>actual.grants.includes(p.operation),
+        authorizeOriginalTechnicalWrite:async p=>actual.grants.includes(p.operation),
+        authorizeOriginalBaselineAdmission:async p=>p.role==='SOURCE',
+        verifyOriginalBaselineEvidence:async p=>{
+          assert.deepEqual(p.baseline.sourceCursor,admittedCaptureCursor);
+          const evidence=await readT4OriginalEventWindow({
+            workspaceId,originalWriteOwnerRef:'original:t2:exchange',cursor:admittedCaptureCursor,
+            authorizeOriginalRead:async q=>actual.grants.includes(q.operation),readOriginalEvents:readSourceEvents,
+            maxEvents:1});
+          return evidence.window.sourcePrefixDigestBefore===admittedCaptureCursor.sourcePrefixDigest;
+        },
+      });
+      const admission=await captureBaselinePort().admitOriginalBaseline({
+        originalBaselineRef:'baseline:original:local-capture:'+randomUUID(),
+        originalBaselineDigest:admittedCaptureCursor.sourcePrefixDigest,sourceCursor:admittedCaptureCursor,
+      });
+      assert.equal(admission.state,'ADMITTED');
+      let captureBoundaryHeld=false;
+      const automaticCaptureHost=(kernel=mutationKernel)=>createT4OriginalHostCaptureAdapter({
+        ...captureLedger(),originalKernel:kernel,originalWriteOwnerRef:'original:t2:exchange',
+        getMode:()=> 'T4_NETWORK',
+        authorizeOriginalRead:async p=>actual.grants.includes(p.operation),
+        authorizeOriginalWrite:async p=>actual.grants.includes(p.operation),
+        readOriginalEvents:readSourceEvents,
+        readOriginalAdmittedBaseline:()=>captureBaselinePort().readOriginalAdmittedBaseline(),
+        // The original-Kernel fixture has a single original subject executor.
+        // It is not proof of installed-product cross-process serialization.
+        withOriginalSubjectMutation:async(proof,action)=>{
+          assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+          assert.equal(captureBoundaryHeld,false);captureBoundaryHeld=true;
+          try{return await action();}finally{captureBoundaryHeld=false;}
+        },
+      });
+      let currentSourceCursor=admittedCaptureCursor;
       const stagedObjectMutations=[];
       for(const targetRevision of [5,6]){
         const prior=await sourceKernel.getObject(workspaceId,linkedObjectId);
         assert.equal(prior.object.revision,targetRevision-1);
         const targetTitle='Continuous captured original T3 revision '+targetRevision+
           ' '+randomUUID();
-        const captured=await captureT4OriginalObjectMutation({
-          workspaceId,objectId:linkedObjectId,
-          originalWriteOwnerRef:'original:t2:exchange',
+        const automatic=automaticCaptureHost();
+        const {capture:captured}=await automatic.putObject({
           captureRef:'t4:original:mutation:'+randomUUID(),
-          sourceCursor:currentSourceCursor,
           mutationInput:{
             workspace_id:workspaceId,object_id:linkedObjectId,
             schema_id:prior.object.schema_id,
@@ -1513,16 +1561,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             event:{event_type:'t4.original.mutation.capture.write',
               payload:{revision:targetRevision}},
           },
-          originalKernel:mutationKernel,
-          authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
-          authorizeOriginalWrite:async ctx=>actual.grants.includes(ctx.operation),
-          readOriginalEvents:readSourceEvents,
-          getMode:()=> 'T4_NETWORK',
-          persistOriginalIntent:payload=>persistSourceTechnical('intent',payload),
-          readOriginalIntent:payload=>readSourceTechnical('intent',payload.captureRef),
-          persistOriginalOutbox:payload=>persistSourceTechnical('outbox',payload),
-          readOriginalOutbox:payload=>readSourceTechnical('outbox',payload.captureRef),
         });
+        automatic.dispose();
         assert.equal(captured.originalT3OutboxVerified,true);
         assert.equal(captured.sourceRevision,targetRevision);
         assert.equal(captured.prepared.delta.data.title,targetTitle);
@@ -1643,32 +1683,19 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return saved;
         },
       };
-      const originalHostWithAckLoss=createT4OriginalHostCaptureAdapter({
-        originalKernel:sourceWithAckLoss,
-        // This isolated qualification executes one original Host mutation at
-        // a time. Production cross-process serialization is a separate gate.
-        withOriginalSubjectMutation:async(proof,action)=>{
-          assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
-          return action();
-        },
-        originalWriteOwnerRef:'original:t2:exchange',
-        getMode:()=> 'T4_NETWORK',
-        authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
-        authorizeOriginalWrite:async ctx=>actual.grants.includes(ctx.operation),
-        readOriginalEvents:readSourceEvents,
-        persistOriginalIntent:payload=>persistSourceTechnical('intent',payload),
-        readOriginalIntent:payload=>readSourceTechnical('intent',payload.captureRef),
-        persistOriginalOutbox:payload=>persistSourceTechnical('outbox',payload),
-        readOriginalOutbox:payload=>readSourceTechnical('outbox',payload.captureRef),
-      });
+      const originalHostWithAckLoss=automaticCaptureHost(sourceWithAckLoss);
       await assert.rejects(originalHostWithAckLoss.putObject({
-        sourceCursor:currentSourceCursor,captureRef:uncertainCaptureRef,
-        mutationInput:unknownInput,
+        captureRef:uncertainCaptureRef,mutationInput:unknownInput,
       }),error=>error.code==='OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'&&
         error.details.automaticRetryAllowed===false);
       assert.equal((await sourceKernel.getObject(workspaceId,linkedObjectId))
         .object.revision,7);
       assert.equal(await readSourceTechnical('outbox',uncertainCaptureRef),null);
+      await assert.rejects(automaticCaptureHost().putObject({
+        captureRef:'t4:original:blocked:'+randomUUID(),
+        mutationInput:{...unknownInput,base_revision:7},
+      }),error=>error.code==='CAPTURE_FRONTIER_ORIGINAL_INTENT_UNRESOLVED');
+      assert.equal((await sourceKernel.getObject(workspaceId,linkedObjectId)).object.revision,7);
 
       // A cold source process restart occurs while the original T3 write has
       // committed but the T4 outbox has not been recorded.
@@ -1677,7 +1704,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       activeSourcePage=await opened(sourceContext);
       assert.equal((await sourceKernel.getObject(workspaceId,linkedObjectId))
         .object.revision,7);
-      const recoveredSource=await originalHostWithAckLoss.reconcileObjectMutation({
+      const recoveredSource=await automaticCaptureHost().reconcileObjectMutation({
         captureRef:uncertainCaptureRef,workspaceId,objectId:linkedObjectId,
       });
       assert.equal(recoveredSource.originalSourceEventVerified,true);
@@ -1770,24 +1797,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           return receipt;
         },
       };
-      const subjectHost=createT4OriginalHostCaptureAdapter({
-        originalKernel:subjectSourceKernel,
-        // This isolated qualification executes one original Host mutation at
-        // a time. Production cross-process serialization is a separate gate.
-        withOriginalSubjectMutation:async(proof,action)=>{
-          assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
-          return action();
-        },
-        originalWriteOwnerRef:'original:t2:exchange',
-        getMode:()=> 'T4_NETWORK',
-        authorizeOriginalRead:async ctx=>actual.grants.includes(ctx.operation),
-        authorizeOriginalWrite:async ctx=>actual.grants.includes(ctx.operation),
-        readOriginalEvents:readSourceEvents,
-        persistOriginalIntent:payload=>persistSourceTechnical('intent',payload),
-        readOriginalIntent:payload=>readSourceTechnical('intent',payload.captureRef),
-        persistOriginalOutbox:payload=>persistSourceTechnical('outbox',payload),
-        readOriginalOutbox:payload=>readSourceTechnical('outbox',payload.captureRef),
-      });
+      const subjectHost=automaticCaptureHost(subjectSourceKernel);
       const capturedAssetMutations=[];
       let capturedSourceCursor=recoveredSource.nextCursor;
       for(const index of [0,1]){
@@ -1801,7 +1811,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             payload:{sourceIndex:index}},
         };
         const created=await subjectHost.putAsset({
-          mutationInput,sourceCursor:capturedSourceCursor,captureRef,
+          mutationInput,captureRef,
         });
         assert.equal(created.capture.originalT3OutboxVerified,true);
         assert.equal(created.originalReceipt.asset.revision,index+1);
@@ -1816,6 +1826,13 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal((await subjectSourceKernel.getAsset(workspaceId,capturedAssetId))
         .asset.revision,2);
       assert.equal(await recipientDeleteKernel.getAsset(workspaceId,capturedAssetId),null);
+      console.log('T4_REAL_ORIGINAL_T3_AUTOMATIC_LOCAL_CAPTURE_FRONTIER_PASS',JSON.stringify({
+        originalKernel:ORIGINAL_KERNEL,originalDurableBaseline:true,
+        objectRevisions:[5,6,7],assetRevisions:[1,2],
+        originalCaptureFrontierIndependentOfNetworkAck:true,
+        blockedPendingIntentBeforeAnotherWrite:true,
+        originalKernelColdRestart:true,productionHostSerializationQualified:false,
+      }));
       let missingRelationAckCaptureRef='t4:host:relation:'+randomUUID();
       await assert.rejects(subjectHost.putRelation({
         mutationInput:{
@@ -1826,7 +1843,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             payload:{businessPurpose:'linked dependency'},
           },
         },
-        sourceCursor:capturedSourceCursor,captureRef:missingRelationAckCaptureRef,
+        captureRef:missingRelationAckCaptureRef,
       }),err=>err.code==='SUBJECT_CAPTURE_SOURCE_WRITE_OUTCOME_UNKNOWN'&&
         err.details.automaticRetryAllowed===false);
       assert.equal(subjectSourcePutRelationCalls,1);
