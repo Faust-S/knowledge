@@ -1,0 +1,65 @@
+name: D01 UX source and public stage
+on:
+  push:
+    branches: [work/2026-11-24-d01-ux-qualification]
+    paths: [.github/workflows/d01-ux-source.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/learn.iwxa.ru
+          ref: 37a2432d98837bed17572fb277b8c1ee855d3822
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/learn
+          ref: bebed42b40de5a04b3633628d10eb80f842f9dc5
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Exact revision and unchanged subject projection
+        shell: bash
+        run: |
+          set -eu
+          test "$(git -C private/site rev-parse HEAD)" = 37a2432d98837bed17572fb277b8c1ee855d3822
+          test "$(git -C private/domain rev-parse HEAD)" = bebed42b40de5a04b3633628d10eb80f842f9dc5
+          cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
+          cmp private/domain/learning-journey/today.ts private/site/t2/domain-modules/learn-results/learning-today.ts
+          echo D01_OWNER_PARITY_PASS
+      - name: Navigation and existing Study Practice tests
+        working-directory: private/site
+        shell: bash
+        run: |
+          set -eu
+          log="$RUNNER_TEMP/d01-source.log"
+          if node --test t2/domain-modules/learn-results/learning-navigation.test.mjs study/my-routes/practice-repeat.test.mjs >"$log" 2>&1; then
+            grep -E '^# (tests|pass|fail|skipped) ' "$log"
+          else
+            grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$log" | cut -c1-200
+            exit 1
+          fi
+      - name: Build public stage without original Host
+        working-directory: private/site
+        shell: bash
+        run: |
+          set -eu
+          npm ci --no-audit --no-fund >"$RUNNER_TEMP/d01-deps.log" 2>&1
+          log="$RUNNER_TEMP/d01-stage.log"
+          if npm run build:public-stage >"$log" 2>&1; then
+            echo D01_PUBLIC_STAGE_PASS
+            grep -E 'PASS:|contract OK:|Unified Learn shell|preloaded on' "$log" | cut -c1-200
+          else
+            grep -oE 'D01_[A-Z0-9_]+|STUDY_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$log" | sort -u | tail -20
+            exit 1
+          fi
