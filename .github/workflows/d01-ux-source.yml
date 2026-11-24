@@ -14,14 +14,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 47970893220c96bb6821be18dd255a8990850da0
+          ref: cd69dc0692f2cdc5a45033d9fb6fc143a6c12433
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn
-          ref: bebed42b40de5a04b3633628d10eb80f842f9dc5
+          ref: b1de0cec514da68e6279fd943175d7fef68b0564
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -32,9 +32,15 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 47970893220c96bb6821be18dd255a8990850da0
-          test "$(git -C private/domain rev-parse HEAD)" = bebed42b40de5a04b3633628d10eb80f842f9dc5
+          test "$(git -C private/site rev-parse HEAD)" = cd69dc0692f2cdc5a45033d9fb6fc143a6c12433
+          test "$(git -C private/domain rev-parse HEAD)" = b1de0cec514da68e6279fd943175d7fef68b0564
           cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
+          for path in study/services t2/domain-modules/learn t2/domain-modules/learn-results; do
+            cmp private/domain/learning-journey/study-sources.mjs "private/site/$path/study-sources.mjs"
+          done
+          cmp private/domain/learning-journey/study-sources.d.mts private/site/t2/domain-modules/learn-results/study-sources.d.mts
+          cmp private/site/study/services/goal-service.mjs private/site/t2/domain-modules/learn/goal-service.mjs
+          cmp private/site/study/services/route-service.mjs private/site/t2/domain-modules/learn/route-service.mjs
           cmp private/domain/learning-journey/today.ts private/site/t2/domain-modules/learn-results/learning-today.ts
           cmp private/domain/learning-journey/workplace-shifts.mjs private/site/practice/quick-arithmetic/engine/workplace-shifts.mjs
           cmp private/domain/learning-journey/price-check.mjs private/site/practice/quick-arithmetic/engine/price-check.mjs
@@ -42,18 +48,24 @@ jobs:
             test ! -f "private/site/practice/models/$(basename "$model")" || cmp "$model" "private/site/practice/models/$(basename "$model")"
           done
           echo D01_OWNER_PARITY_PASS
+          set +e
+          node --test --test-reporter=tap private/domain/learning-journey/study-sources.test.mjs private/domain/learning-journey/projection.test.mjs >"$RUNNER_TEMP/d01-domain.log" 2>&1
+          code=$?
+          grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/d01-domain.log" | cut -c1-200 || true
+          if [ "$code" -ne 0 ]; then echo D01_DOMAIN_SOURCE_LINK_TEST_FAIL; exit "$code"; fi
+          echo D01_DOMAIN_SOURCE_LINK_TEST_PASS
       - name: Source syntax and navigation regressions
         working-directory: private/site
         shell: bash
         run: |
           set -eu
-          for file in _iwxa/learn-profile-context-r6.js _iwxa/learn-link-context.js iwxa-learn-shell-r8-r6.js study/assets-r5/main-t2-9c777f34.js study/assets-r5/src-eldniVto.js calculators/assets-r5/index-CwKME0Vd.js career/assets-r5/MapPage-DT3PY6CS.js t2/domain-modules/learn/profile-area.mjs study/goals/goals-app.mjs study/my-routes/routes-app.mjs study/sessions/sessions-app.mjs practice/workspace-selection.mjs mind/app/workspace-ui.mjs mind/app/app.mjs mind/app/services/tools.mjs mind/app/services/labs.mjs practice/assets-r6-clean/practice-capability-gate-BaTK15az.js practice/assets-r6-clean/catalog-BWIn6LRW.js practice/assets-r6-clean/model._slug-DZ9y8kMs.js practice/assets-r6-clean/index-D1kuNTQO.js practice/assets-r6-clean/practice-shell-ClcATzN9.js practice/assets-r6-clean/practice-workspace-picker-Cqs4_6K1.js practice/assets-r6-clean/create-SrNR54d1.js practice/assets-r6-clean/programs-ZGbS30w9.js scripts/copy-static.mjs scripts/fingerprint-editorial-assets.mjs scripts/verify-hosting-stage.mjs scripts/audit-product-links.mjs scripts/audit-browser-navigation.mjs qa/d01-product-witness-2026-10-26/product-witness.mjs; do
+          for file in _iwxa/learn-profile-context-r6.js _iwxa/learn-link-context.js iwxa-learn-shell-r8-r6.js study/assets-r5/main-t2-9c777f34.js study/assets-r5/src-eldniVto.js calculators/assets-r5/index-CwKME0Vd.js career/assets-r5/MapPage-DT3PY6CS.js t2/domain-modules/learn/profile-area.mjs study/services/study-sources.mjs study/services/goal-service.mjs study/services/route-service.mjs study/source-panel.mjs study/goals/goals-app.mjs study/my-routes/routes-app.mjs study/sessions/sessions-app.mjs practice/workspace-selection.mjs mind/app/workspace-ui.mjs mind/app/app.mjs mind/app/services/tools.mjs mind/app/services/labs.mjs practice/assets-r6-clean/practice-capability-gate-BaTK15az.js practice/assets-r6-clean/catalog-BWIn6LRW.js practice/assets-r6-clean/model._slug-DZ9y8kMs.js practice/assets-r6-clean/index-D1kuNTQO.js practice/assets-r6-clean/practice-shell-ClcATzN9.js practice/assets-r6-clean/practice-workspace-picker-Cqs4_6K1.js practice/assets-r6-clean/create-SrNR54d1.js practice/assets-r6-clean/programs-ZGbS30w9.js scripts/copy-static.mjs scripts/fingerprint-editorial-assets.mjs scripts/verify-hosting-stage.mjs scripts/audit-product-links.mjs scripts/audit-browser-navigation.mjs qa/d01-product-witness-2026-10-26/product-witness.mjs qa/d01-product-witness-2026-10-26/repeat-scenario-witness.mjs scripts/materialize-t2-local-preview.mjs assets-r5/index-C3JXOmeg.js career/assets-r5/HypothesesPage-DX3XrAWC.js; do
             if ! node --check "$file" >"$RUNNER_TEMP/d01-syntax.log" 2>&1; then echo "D01_SYNTAX_FAIL:$file"; exit 1; fi
           done
           echo D01_SYNTAX_PASS
           set +e
           log="$RUNNER_TEMP/d01-source.log"
-          node --test --test-reporter=tap t2/domain-modules/learn-results/learning-navigation.test.mjs study/my-routes/practice-repeat.test.mjs scripts/test-learn-link-context.mjs scripts/test-t2-host-frame-boundary.mjs scripts/test-practice-workspace-selection.mjs scripts/test-mind-workspace-ui.mjs scripts/test-product-links.mjs scripts/test-t2-local-preview.mjs >"$log" 2>&1
+          node --test --test-reporter=tap t2/domain-modules/learn-results/learning-navigation.test.mjs study/my-routes/practice-repeat.test.mjs scripts/test-learn-link-context.mjs scripts/test-t2-host-frame-boundary.mjs scripts/test-practice-workspace-selection.mjs scripts/test-mind-workspace-ui.mjs scripts/test-product-links.mjs scripts/test-t2-local-preview.mjs scripts/test-t2-owner-passports.mjs >"$log" 2>&1
           code=$?
           grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$log" | cut -c1-200 || true
           if [ "$code" -ne 0 ]; then echo D01_NAV_TEST_FAIL; exit "$code"; fi
@@ -83,14 +95,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 47970893220c96bb6821be18dd255a8990850da0
+          ref: cd69dc0692f2cdc5a45033d9fb6fc143a6c12433
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn
-          ref: bebed42b40de5a04b3633628d10eb80f842f9dc5
+          ref: b1de0cec514da68e6279fd943175d7fef68b0564
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -108,15 +120,15 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 47970893220c96bb6821be18dd255a8990850da0
-          test "$(git -C private/domain rev-parse HEAD)" = bebed42b40de5a04b3633628d10eb80f842f9dc5
+          test "$(git -C private/site rev-parse HEAD)" = cd69dc0692f2cdc5a45033d9fb6fc143a6c12433
+          test "$(git -C private/domain rev-parse HEAD)" = b1de0cec514da68e6279fd943175d7fef68b0564
           test "$(git -C private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
       - name: Run actual Learn/T2 build and browser user journey
         shell: bash
         env:
           D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
           D01_EXPECTED_T2_HEAD: 9c64951cd78411283e8a416641c36d71e169fc1d
-          D01_EXPECTED_SITE_HEAD: 47970893220c96bb6821be18dd255a8990850da0
+          D01_EXPECTED_SITE_HEAD: cd69dc0692f2cdc5a45033d9fb6fc143a6c12433
           D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
           D01_CASE_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-001-workplace-numeracy.json
           D01_CASE_002_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-002-price-label-check.json
