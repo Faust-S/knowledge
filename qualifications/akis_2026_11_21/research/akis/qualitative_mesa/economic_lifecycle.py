@@ -11,6 +11,8 @@ from collections import defaultdict
 from decimal import Decimal
 from typing import Any, Mapping
 
+from .work_assurance import correction_resource_claims
+
 class LifecycleInputError(ValueError):
     """An attempted cost assignment lacks original owner/source/scope."""
 
@@ -192,17 +194,18 @@ def review_timed_original_lifecycle_costs(
         # A dedicated executed-correction resource claim is anchored only
         # to its actual start, not to a rejection, a vote or resubmission.
         correction_claims = [
-            (r["terms"]["id"], r["additional_resource_use_claim"])
+            (r["terms"]["id"], operation, claim)
             for r in getattr(work, "assurance_corrections", ())
-            if r.get("additional_resource_use_claim") is not None
-            and r["additional_resource_use_claim"]["source_ref"] == sources[source]["reference"]
+            for operation, claim in correction_resource_claims(r)
+            if claim["source_ref"] == sources[source]["reference"]
         ]
         if correction_claims or action == "quality_correction_start":
             if len(correction_claims) != 1:
                 raise LifecycleInputError("LIFECYCLE_CORRECTION_ORIGINAL_RESOURCE_USE_REQUIRED")
-            correction_id, claim = correction_claims[0]
+            correction_id, operation, claim = correction_claims[0]
             if (stage != "CLAIMS_AND_REWORK" or action != "quality_correction_start"
                     or anchor.get("quality_correction_id") != correction_id
+                    or anchor.get("quality_correction_operation", operation) != operation
                     or anchor.get("quality_correction_additional_resource_use_claim") != claim
                     or original["scenario"] != "COOPERATION"
                     or anchor.get("actor") != owner or claim["owner"] != owner
