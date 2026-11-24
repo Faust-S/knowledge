@@ -234,33 +234,42 @@ def test_risk_adjustment_reverses_low_direct_agent_cost_without_automatic_select
     (diagnostic_profile(critical=True), "ORIGINAL_DECLARED_CRITICAL_PROHIBITION"),
 ])
 def test_cheap_agent_cannot_compensate_original_declared_critical_diagnostic(profile, reason):
-    profiles = {work: profile for work in ("w1", "w2", "w3")}
+    # Exercise the refusal on the third Work. Earlier accepted Works and
+    # their original competence measurement remain available to the model.
+    profiles = {"w1": diagnostic_profile(), "w2": diagnostic_profile(), "w3": profile}
     doc = preparation_modes(profiles=profiles)["S1"]
     out = simulate(doc)
     choices = [row["model_preparation_economic_choice"] for row in out["trace"]
                if "model_preparation_economic_choice" in row]
     assert len(choices) == 3
-    assert all(not row["S2_admissible"] and reason in row["S2_ineligibility_reasons"]
-               and row["recommended_mode"] in {"S0", "S1"} for row in choices)
+    assert all(row["S2_admissible"] for row in choices[:2])
+    assert not choices[-1]["S2_admissible"]
+    assert reason in choices[-1]["S2_ineligibility_reasons"]
+    assert choices[-1]["recommended_mode"] in {"S0", "S1"}
     denied = preparation_modes(profiles=profiles)["S2"]
     denied.pop("economic_claims")
     denied.pop("strict_economic_source_works")
     out = simulate(denied)
     assert any(row["reason"] == "PREPARATION_DIAGNOSTIC_SELECTED_MODE_NOT_ADMISSIBLE"
                for row in out["trace"])
-    assert out["works"]["w1"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+    assert all(out["works"][key]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+               for key in ("w1", "w2"))
 
 
 def test_economic_recommendation_requires_current_own_kpb_not_just_low_cost():
     doc = adaptive_preparation_modes()["ADAPTIVE"]
     doc.pop("economic_claims")
     doc.pop("strict_economic_source_works")
-    first = next(row for row in doc["events"] if row["action"] == "function_prepare")
-    first["preparation_diagnostic"]["source_revision"] = "stale"
+    last = next(row for row in doc["events"]
+                if row["action"] == "function_prepare" and row.get("work") == "w3")
+    last["preparation_diagnostic"]["source_revision"] = "stale"
     out = simulate(doc)
     assert any(row["reason"] == "PREPARATION_DIAGNOSTIC_ORIGINAL_SOURCE_NOT_QUALIFIED"
                for row in out["trace"])
-    assert out["works"]["w1"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+    assert all(out["works"][key]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+               for key in ("w1", "w2"))
 
 
 def test_rate_card_cannot_be_replaced_after_original_diagnostic_review():
