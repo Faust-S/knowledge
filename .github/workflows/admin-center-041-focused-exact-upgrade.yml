@@ -94,6 +94,8 @@ jobs:
             # Reads WebView2's real UIA text nodes; not a DOM/browser mock.
             for($i=0;$i -lt $attempts;$i++){
           '@
+          $before=$before.Replace("`r`n","`n")
+          $after=$after.Replace("`r`n","`n")
           if(!$text.Contains($before)){throw 'ADMIN04_BASELINE_READ_POLL_ANCHOR_MISSING'}
           $text=$text.Replace($before,$after)
           $signature='  public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);'
@@ -125,6 +127,8 @@ jobs:
             }
             if(!$staffPageConfirmed){throw 'ADMIN04_BASELINE_STAFF_ROUTE_NOT_CONFIRMED'}
           '@
+          $before=$before.Replace("`r`n","`n")
+          $after=$after.Replace("`r`n","`n")
           if(!$text.Contains($before)){throw 'ADMIN04_BASELINE_STAFF_ACK_ANCHOR_MISSING'}
           $text=$text.Replace($before,$after)
           [IO.File]::WriteAllText($path,$text,[Text.UTF8Encoding]::new($false))
