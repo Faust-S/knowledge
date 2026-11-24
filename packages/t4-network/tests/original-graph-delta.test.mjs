@@ -248,3 +248,29 @@ test('K21 GRAPH_COMMIT is an explicit critical protocol capability, not a legacy
   assert.equal(decodeT4CandidateFrame(wire).body.changeKind,'GRAPH_COMMIT');
   assert.deepEqual(decodeT4CandidateFrame(wire).criticalExtensions,extensions);
 });
+
+test('K21 graph rejects a one-sided original relation view before any mutation',async()=>{
+  const f=await fixture(),get=f.kernel.getObject;
+  f.kernel.getObject=async(w,id)=>{
+    const row=await get(w,id);
+    if(w===ws&&id===b&&row)row.relations.incoming=row.relations.incoming.filter(r=>r.relation_id!==old);
+    return row;
+  };
+  await assert.rejects(f.host().commitObjectGraph({mutationInput:input(),captureRef:'capture:k21:one-sided'}),
+    err('GRAPH_ORIGINAL_RELATION_ENDPOINT_MISMATCH'));
+  assert.equal(f.graphWrites,0);
+  assert.equal((await f.ledger.listOriginalPendingIntents({workspaceId:ws,originalWriteOwnerRef:owner})).length,0);
+});
+test('K21 graph recipient does not acknowledge an incomplete original relation endpoint view',async()=>{
+  const sourceStore=await fixture();await sourceStore.capture();
+  const f=await recipientFixture(await sourceStore.read('capture:k21:one'));
+  await applyT4OriginalNetworkSubjectWithDurableIntent(f.args());
+  const get=f.kernel.getObject;
+  f.kernel.getObject=async(w,id)=>{
+    const row=await get(w,id);
+    if(w===ws&&id===b&&row)row.relations.incoming=row.relations.incoming.filter(r=>r.relation_id!==fresh);
+    return row;
+  };
+  await assert.rejects(inspectT4OriginalNetworkRecipientResult(f.args()),err('GRAPH_ORIGINAL_RELATION_ENDPOINT_MISMATCH'));
+  assert.equal(f.graphWrites,1);
+});

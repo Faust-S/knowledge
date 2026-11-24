@@ -125,7 +125,7 @@ async function graphState(p,scope,ids,endpointIds=[]){
     await guard('t1.getObject',{objectId:id});return r;
   };
   const before=objectState(await get(objectId),workspaceId,objectId);
-  const rows=new Map(),wanted=new Set(ids),endpoints=new Set(endpointIds),readable=new Set([objectId]);
+  const rows=new Map(),incoming=new Map(),wanted=new Set(ids),endpoints=new Set(endpointIds),readable=new Set();
   endpoints.delete(objectId);
   // With no relation mutations the native operation still retains its own
   // GRAPH_COMMIT identity; no unrelated catalog enumeration is necessary.
@@ -140,7 +140,7 @@ async function graphState(p,scope,ids,endpointIds=[]){
       fail('GRAPH_ORIGINAL_CATALOG_INVALID');
     for(const item of catalog){
       const r=await get(item.object_id),o=objectState(r,workspaceId,item.object_id);
-      if(!o||o.deleted||!Array.isArray(r.relations?.outgoing))
+      if(!o||o.deleted||!Array.isArray(r.relations?.outgoing)||!Array.isArray(r.relations?.incoming))
         fail('GRAPH_ORIGINAL_CATALOG_CHANGED');
       endpoints.delete(item.object_id);readable.add(item.object_id);
       for(const rel of r.relations.outgoing){
@@ -150,7 +150,19 @@ async function graphState(p,scope,ids,endpointIds=[]){
           fail('GRAPH_ORIGINAL_RELATION_SCOPE_MISMATCH');
         rows.set(exact.relation_id,exact);
       }
+      for(const rel of r.relations.incoming){
+        if(!wanted.has(rel?.relation_id))continue;
+        const exact=relation(rel,workspaceId,true);
+        if(exact.to_object_id!==item.object_id||incoming.has(exact.relation_id))
+          fail('GRAPH_ORIGINAL_RELATION_SCOPE_MISMATCH');
+        incoming.set(exact.relation_id,exact);
+      }
     }
+    // A relation is a single original record observed through BOTH endpoints.
+    // Never infer its absence from just one direction of a filtered read.
+    if(rows.size!==incoming.size||[...rows].some(([id,row])=>!same(row,incoming.get(id))||
+      !readable.has(row.from_object_id)||!readable.has(row.to_object_id)))
+      fail('GRAPH_ORIGINAL_RELATION_ENDPOINT_MISMATCH');
   }
   if(endpoints.size)fail('GRAPH_ORIGINAL_ENDPOINT_NOT_READABLE');
   const second=objectState(await get(objectId),workspaceId,objectId);
@@ -316,7 +328,7 @@ async function completeCapture(p,scope,intent,receipt=null){
     fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
   const prepared=prepare(intent,scope,event,window);
   if(receipt!==null)validateReceipt(receipt,x.expected,x.puts,x.deletes,event,scope);
-  checkAfter(await graphState(p,scope,graphIds(x.puts,x.deletes),endpoints(x.puts)),
+  checkAfter(await graphState(p,scope,graphIds(x.puts,x.deletes),endpoints([...x.puts,...x.deletes])),
     x.expected,x.puts,x.deletes);
   if(!same(await history(p,scope),events))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
   await guard();
@@ -389,7 +401,7 @@ export async function captureT4OriginalGraphMutation(p={}){
     !same(await p.readOriginalIntent({...scope,captureRef:p.captureRef}),intent))
     fail('GRAPH_INTENT_NOT_DURABLE');
   await guard();
-  checkBefore(await graphState(p,scope,graphIds(op.relation_puts,deleted),endpoints(op.relation_puts)),
+  checkBefore(await graphState(p,scope,graphIds(op.relation_puts,deleted),endpoints([...op.relation_puts,...deleted])),
     reserve.objectBeforeDigest,op.relation_puts,deleted);
   if(!same(await history(p,scope),stream))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');
   let receipt;
@@ -442,7 +454,7 @@ function recipientInput(d,sha256){
 }
 async function recipientState(p,d){
   const scope=scopeOf(d.workspaceId,d.originalWriteOwnerRef,d.objectId);
-  return graphState(p,scope,graphIds(d.relationPuts,d.relationDeletes),endpoints(d.relationPuts));
+  return graphState(p,scope,graphIds(d.relationPuts,d.relationDeletes),endpoints([...d.relationPuts,...d.relationDeletes]));
 }
 export async function inspectT4OriginalGraphResult(p={}){
   const exact=receivedDelta(p.received),d=exact.delta,scope=scopeOf(d.workspaceId,d.originalWriteOwnerRef,d.objectId);
