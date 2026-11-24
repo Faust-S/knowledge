@@ -1,0 +1,252 @@
+name: D04 linked Life OS native qualification (private source)
+on:
+  push:
+    branches:
+      - work/2026-11-18-d04-life-os-qualification
+    paths:
+      - .github/workflows/d04-linked-life-os-qualification.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d04-linked-life-os-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  home:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify authorized source access, without revealing credentials
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo "D04_HOME_PRIVATE_ACCESS=UNAVAILABLE"; exit 1; }
+          for repo in Faust-S/bazmed.ru Faust-S/T2; do
+            gh api "repos/$repo" --jq '.id' >/dev/null 2>&1 ||
+              { echo "D04_HOME_PRIVATE_ACCESS=DENIED"; exit 1; }
+          done
+          echo "D04_HOME_PRIVATE_ACCESS=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/bazmed.ru
+          ref: cf372c91f4a889682e072073886b75ff4c78569f
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/site
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 9c64951cd78411283e8a416641c36d71e169fc1d
+          token: ${{ secrets.DOMEN }}
+          path: d04-private/t2
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check exact private code identity
+        run: |
+          set -euo pipefail
+          test "$(git -C d04-private/site rev-parse HEAD)" = cf372c91f4a889682e072073886b75ff4c78569f
+          test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 19ee7abeaadeb5531fabf82c3d03a8796a0b2907
+          echo "D04_HOME_PINNED_SOURCES=PASS"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install private site dependencies in ephemeral runner
+        working-directory: d04-private/site
+        run: |
+          set -euo pipefail
+          if npm ci --no-audit --no-fund >"$RUNNER_TEMP/d04-home-npm.log" 2>&1; then
+            echo "D04_HOME_NPM_CI=PASS"
+          else
+            echo "D04_HOME_NPM_CI=FAIL"
+            exit 1
+          fi
+      - name: Test dashboard, navigation, scope and T2 original Host
+        working-directory: d04-private/site
+        run: |
+          set -euo pipefail
+          if node --test \
+               tests/life-os-home-dashboard.test.mjs \
+               tests/life-action-board.test.mjs \
+               tests/life-os-pending-intent.test.mjs \
+               tests/d04-navigation-workspace-ux.test.mjs \
+               tests/bazmed-site-owned.test.mjs \
+               tests/bazmed-site-controls.test.mjs \
+               tests/life-os-workspace-integration.test.mjs \
+               tests/life-os-entry-overview.test.mjs \
+               tests/life-os-entry-links.test.mjs \
+               tests/life-os-entry-usability.test.mjs \
+               tests/life-os-overview-focus.test.mjs \
+               >"$RUNNER_TEMP/d04-home-tests.log" 2>&1; then
+            echo "D04_HOME_TARGETED_TESTS=PASS"
+            grep -E '^# (tests|pass|fail) [0-9]+' "$RUNNER_TEMP/d04-home-tests.log" |
+              sed 's/^# /D04_HOME_TARGETED_/' | tail -3 || true
+          else
+            echo "D04_HOME_TARGETED_TESTS=FAIL"
+            grep -E '^# (tests|pass|fail) [0-9]+' "$RUNNER_TEMP/d04-home-tests.log" |
+              sed 's/^# /D04_HOME_TARGETED_/' | tail -3 || true
+            grep -E '^not ok [0-9]+ - ' "$RUNNER_TEMP/d04-home-tests.log" |
+              sed -E 's/^not ok ([0-9]+) - (.{0,110}).*/D04_HOME_FAILED_TEST_\1=\2/' | head -8 || true
+            exit 1
+          fi
+      - name: Verify original T2 entry contracts
+        working-directory: d04-private/site
+        run: |
+          if npm run check:t2:entry >"$RUNNER_TEMP/d04-home-entry.log" 2>&1; then
+            echo "D04_HOME_T2_ENTRY=PASS"
+          else
+            echo "D04_HOME_T2_ENTRY=FAIL"
+            grep -E '^# (tests|pass|fail) [0-9]+' "$RUNNER_TEMP/d04-home-entry.log" |
+              sed 's/^# /D04_HOME_ENTRY_/' | tail -3 || true
+            exit 1
+          fi
+      - name: Type-check site and native dashboard
+        working-directory: d04-private/site
+        run: |
+          if npx tsc --noEmit --pretty false >"$RUNNER_TEMP/d04-home-types.log" 2>&1; then
+            echo "D04_HOME_TYPESCRIPT=PASS"
+          else
+            echo "D04_HOME_TYPESCRIPT=FAIL"
+            grep -Eo 'error TS[0-9]+' "$RUNNER_TEMP/d04-home-types.log" | sort -u | head -10 || true
+            exit 1
+          fi
+      - name: Prepare isolated independent T2 auditor challenge
+        run: |
+          set -euo pipefail
+          umask 077
+          openssl rand -hex 32 > "$RUNNER_TEMP/d04-home-challenge"
+          echo "D04_HOME_WITNESS_CHALLENGE=SET"
+      - name: Build the original integrated T2 site (no uploads)
+        working-directory: d04-private/site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
+        run: |
+          set -euo pipefail
+          export IWXA_T2_PRODUCT_CHALLENGE="$(cat "$RUNNER_TEMP/d04-home-challenge")"
+          if npm run build:t2:site >"$RUNNER_TEMP/d04-home-build.log" 2>&1; then
+            echo "D04_HOME_INTEGRATED_BUILD=PASS"
+          else
+            echo "D04_HOME_INTEGRATED_BUILD=FAIL"
+            grep -Eo 'BAZMED_[A-Z0-9_]+|D04_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d04-home-build.log" |
+              sort -u | head -18 || true
+            exit 1
+          fi
+          test -s dist/index.html
+          test -s dist/workspace/index.html
+          test -s dist/workspace/exchange/index.html
+          test -s dist/_iwxa/current.json
+          grep -RqF 'life-os-demo-dashboard' dist/assets ||
+            { echo "D04_HOME_PUBLIC_BUNDLE=MISSING"; exit 1; }
+          grep -RqF 'life-os-personal-dashboard' dist/workspace/assets ||
+            { echo "D04_HOME_PERSONAL_HOST_BUNDLE=MISSING"; exit 1; }
+          test -s dist/dlya-sebya/index.html || { echo "D04_HOME_PUBLIC_TOOLS_HTML=MISSING"; exit 1; }
+          grep -RqF 'life-os-public-medical-history' dist/assets ||
+            { echo "D04_HOME_MEDICAL_ENTRY_BUNDLE=MISSING"; exit 1; }
+          echo "D04_HOME_BOTH_DASHBOARDS_IN_DIST=PASS"
+      - name: Install browser in runner for viewport and interactive entry check
+        run: |
+          set -euo pipefail
+          canonical="d04-private/t2/t2/current/final-successor/canonical-source"
+          if (cd "$canonical" && npm ci --no-audit --no-fund --include=dev && npx playwright install chromium) >"$RUNNER_TEMP/d04-home-browser-install.log" 2>&1; then
+            echo "D04_HOME_BROWSER_INSTALL=PASS"
+          else
+            echo "D04_HOME_BROWSER_INSTALL=FAIL"
+            exit 1
+          fi
+      - name: Check native witness source syntax
+        working-directory: d04-private/site
+        run: |
+          node --check qualification/life-os-goal-observation-refs.browser.mjs
+          node --check qualification/life-os-custom-measure.browser.mjs
+          node --check qualification/life-os-observation-exchange.browser.mjs
+          node --check qualification/life-os-home-dashboard.browser.mjs
+          node --check qualification/life-os-unified-exchange.browser.mjs
+          node --check qualification/life-os-entry-responsive.browser.mjs
+          echo "D04_HOME_NATIVE_WITNESS_SYNTAX=PASS"
+      - name: Test actual desktop/mobile T2 Host site entry
+        working-directory: d04-private/site
+        run: |
+          set -uo pipefail
+          set +e
+          export IWXA_T2_PRODUCT_CHALLENGE="$(cat "$RUNNER_TEMP/d04-home-challenge")"
+          node --input-type=module >"$RUNNER_TEMP/d04-home-browser.log" 2>&1 <<'NODE'
+          import {createRequire} from 'node:module';
+          import {resolve,join} from 'node:path';
+          import {pathToFileURL} from 'node:url';
+          const site=process.cwd();
+          const canonical=resolve(process.env.GITHUB_WORKSPACE,'d04-private/t2/t2/current/final-successor/canonical-source');
+          const {chromium}=createRequire(join(canonical,'package.json'))('playwright');
+          const {serveRealKernelHost}=await import(pathToFileURL(join(canonical,'scripts/real-kernel-e2e.mjs')).href);
+          const {selectWitnessOption}=await import(pathToFileURL(join(canonical,'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
+          const {runLifeOsEntryResponsiveBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-entry-responsive.browser.mjs')).href);
+          const {runLifeOsHomeDashboardBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-home-dashboard.browser.mjs')).href);
+          const {runLifeOsCustomMeasureBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-custom-measure.browser.mjs')).href);
+          const {runLifeOsGoalObservationRefsBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-goal-observation-refs.browser.mjs')).href);
+          console.log('D04_HOME_BROWSER_STAGE=SERVER_BOOT');
+          const server=await serveRealKernelHost(join(site,'dist'),{independentWitness:true,previewOrigin:true});
+          try{
+            console.log('D04_HOME_BROWSER_STAGE=CUSTOM_MEASURES_AND_PERIODS');
+            const custom=await runLifeOsCustomMeasureBrowser({chromium,origin:server.origin,selectWitnessOption});
+            if(custom.status!=='PASS'||custom.viewports.length!==2||custom.viewports.some(v=>v.objects!==4||v.resultEvents!==5||v.definition!==true||v.diary!==true||v.period!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_HOME_CUSTOM_RESULT_INCOMPLETE');
+            console.log('D04_HOME_CUSTOM_MEASURES=PASS');
+            console.log('D04_HOME_CUSTOM_PERIODS=PASS');
+            console.log('D04_HOME_CUSTOM_COLD_EXCHANGE=PASS');
+            console.log('D04_HOME_BROWSER_STAGE=GOAL_OBSERVATION_REFS');
+            const linked=await runLifeOsGoalObservationRefsBrowser({chromium,origin:server.origin,selectWitnessOption});
+            if(linked.status!=='PASS'||linked.viewports.length!==2||linked.viewports.some(v=>v.objects!==2||v.resultEvents!==4||v.stalePreserved!==true||v.reselected!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_HOME_GOAL_REFS_RESULT_INCOMPLETE');
+            console.log('D04_HOME_GOAL_REFS=PASS');
+            console.log('D04_HOME_BROWSER_STAGE=PUBLIC_TO_NATIVE_CREATION');
+            const personal=await runLifeOsHomeDashboardBrowser({chromium,origin:server.origin,selectWitnessOption});
+            if(personal.status!=='PASS'||personal.viewports.length!==2||personal.viewports.some(v=>v.measures!==56||v.recordable!==45||v.captureTypes!==44||v.pressurePair!==true||v.methodBatch!==true||v.personalGoal!==true||v.sleepSchedule!==true||v.mobilityMethods!==true||v.medicalRecords!==5||v.medicalCold!==true||v.medicalDay!==4||v.medicalDirectEntry!==true||v.medicalSourceReuse!==true||v.actionBoard!==true||v.unifiedChronology!==true||v.fullCalculationFields!==true||v.recordedResultsDay!==true||v.catalogFilters!==true||v.historyDates!==true||v.monthReview!==true||v.historySearch!==true||(v.width===1440&&(v.exchange?.status!=='PASS'||v.exchange?.objects!==18||v.exchange?.resultEvents<21||v.exchange?.historyPreserved!==true||v.exchange?.coldImported!==true||v.exchange?.sourceUnchanged!==true))||v.newMetricSaved!==true||v.eventsSaved!==2||v.eventsCold!==true||v.diarySaved!==4||v.diaryCold!==true||v.wholeDayRecords!==6||v.historicalDay!==true||v.calculationTools!==13||v.calculationSaved!==true||v.calculationCold!==true))throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
+            console.log('D04_HOME_CREATE_AND_COLD=PASS');
+            console.log('D04_HOME_DIARY_EVENTS_AND_CALCULATIONS=PASS');
+            for(const item of personal.viewports){
+              if(![item.emptyOpenMs,item.createReadyMs,item.coldRestoreMs].every(n=>Number.isSafeInteger(n)&&n>=0&&n<120000))throw Error('D04_HOME_LATENCY_INVALID');
+              console.log('D04_HOME_PERF_W'+item.width+'_EMPTY_MS='+item.emptyOpenMs);
+              console.log('D04_HOME_PERF_W'+item.width+'_CREATE_MS='+item.createReadyMs);
+              console.log('D04_HOME_PERF_W'+item.width+'_COLD_MS='+item.coldRestoreMs);
+            }
+            console.log('D04_HOME_BROWSER_STAGE=PUBLIC_ENTRY');
+            const result=await runLifeOsEntryResponsiveBrowser({chromium,origin:server.origin});
+            if(result.status!=='PASS'||result.viewports.length!==4)throw Error('D04_HOME_BROWSER_RESULT_INCOMPLETE');
+            console.log('D04_HOME_VIEWPORTS='+result.viewports.length);
+            console.log('D04_HOME_INTERACTIVE_ENTRY=PASS');
+          }finally{
+            await new Promise(done=>server.server.close(done));
+          }
+          NODE
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "D04_HOME_REAL_BROWSER=FAIL"
+            grep -E '^D04_HOME_(BROWSER_STAGE|VIEWPORT_W[0-9]+_FULL_JOURNEY)' "$RUNNER_TEMP/d04-home-browser.log" | tail -6 || true
+            grep -Eo 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -12 || true
+            if ! grep -Eq 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log"; then
+              if grep -q 'TimeoutError' "$RUNNER_TEMP/d04-home-browser.log"; then
+                echo "D04_HOME_BROWSER_ERROR_CLASS=TIMEOUT"
+              elif grep -q 'ERR_MODULE_NOT_FOUND' "$RUNNER_TEMP/d04-home-browser.log"; then
+                echo "D04_HOME_BROWSER_ERROR_CLASS=MODULE_NOT_FOUND"
+              elif grep -q 'EADDRINUSE' "$RUNNER_TEMP/d04-home-browser.log"; then
+                echo "D04_HOME_BROWSER_ERROR_CLASS=PORT_CONFLICT"
+              elif grep -q 'Error: ' "$RUNNER_TEMP/d04-home-browser.log"; then
+                echo "D04_HOME_BROWSER_ERROR_CLASS=UNCLASSIFIED_THROW"
+              else
+                echo "D04_HOME_BROWSER_ERROR_CLASS=EARLY_PROCESS_EXIT"
+              fi
+            fi
+            exit "$code"
+          fi
+          grep '^D04_HOME_' "$RUNNER_TEMP/d04-home-browser.log" | tail -8
+          grep -E '^D04_HOME_UNIFIED_IWXA_(OBJECTS|RESULT_EVENTS|COLD_RESTORE)=' "$RUNNER_TEMP/d04-home-browser.log" || true
+          grep -E '^D04_HOME_PERF_W[0-9]+_(EMPTY|CREATE|COLD)_MS=[0-9]+' "$RUNNER_TEMP/d04-home-browser.log" || true
+          grep -E '^D04_HOME_CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE)=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
+          grep -E '^D04_HOME_GOAL_REFS=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
+          echo "D04_HOME_REAL_BROWSER=PASS"
+      # No public artifact, private dist, screenshots, code, or private logs are uploaded.
