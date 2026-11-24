@@ -4,6 +4,7 @@ on:
     branches:
       - work/2026-11-10-activity-base-anonymizer
       - work/2026-11-24-activity-0-4-domain-routes
+      - work/2026-11-24-activity-0-4-external-analysis
       - work/2026-11-23-activity-0-3-freeze
       - release/0.3
       - work/2026-11-22-activity-v7-native
@@ -29,6 +30,9 @@ on:
       - tests/test_activity_v7_ui.mjs
       - tests/test_activity_d05_route_comparison.mjs
       - tests/test_activity_d05_route_cli.mjs
+      - tests/test_activity_r4pm_result_review.mjs
+      - tests/activity_r4pm_original_fixture.py
+      - tests/test_activity_r4pm_original_runtime.mjs
       - tools/activity-d05-route-review.mjs
       - .github/workflows/activity-base-desktop.yml
   workflow_dispatch:
@@ -64,7 +68,7 @@ jobs:
             foreach ($issue in $errors) { Write-Host $issue.Message }
             throw 'WINDOWS_UI_WITNESS_SYNTAX_INVALID'
           }
-      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_route_cli.mjs
+      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_route_cli.mjs tests/test_activity_r4pm_result_review.mjs
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
       - name: Typecheck and bundle Activity UI before any native Rust build
@@ -77,6 +81,25 @@ jobs:
           test -s dist-host-surface/iwxa-activity-host-surface.js
           test -s dist-host-surface/iwxa-activity-host-surface.css
           test -s dist-host-surface/brand.svg
+  r4pm-original-output:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install exact original public Rust4PM release
+        run: python -m pip install --disable-pip-version-check r4pm==0.6.2
+      - name: Exercise actual OCEL and XES engine output
+        run: node --test tests/test_activity_r4pm_original_runtime.mjs
   t3-original-d2-owner-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 14
