@@ -133,6 +133,10 @@ public static class IwxaActivityWin32 {
     if (!(Find-Accessible $window.Root 'Группы структурных кандидатов' 10)) {
         throw 'INSTALLED_ACTIVITY_A41_GROUP_CARD_MISSING'
     }
+    if (!(Find-Accessible $window.Root 'Различаются заявленные требования качества' 10)) {
+        throw 'INSTALLED_ACTIVITY_A41_QUALITY_DIFFERENCE_MISSING'
+    }
+    Write-Host 'IWXA_ACTIVITY_A41_NATIVE_QUALITY_DIFFERENCE_PASS'
     $clearRoutes = Find-Accessible $window.Root 'Очистить выборку' 10
     if (!$clearRoutes) { throw 'INSTALLED_ACTIVITY_A41_CLEAR_MISSING' }
     $clearRoutes.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()

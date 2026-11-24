@@ -84,7 +84,7 @@ test('A4.1 is reachable inside the native shell with actual local route comparis
  const inner=load('../desktop/src/ActivityInnerPage.tsx');
  const page=load('../desktop/src/DomainRouteComparison.tsx');
  assert.match(inner,/case 'Группировка маршрутов':return <DomainRouteComparison/);
- assert.match(page,/reviewD05RouteModels\(records\)/);
+ assert.match(page,/reviewD05ResultSelection\(records\)/);
  assert.match(page,/multiple accept="\.json,application\/json"/);
  assert.match(page,/JSON.parse\(await file.text\(\)\)/);
  assert.match(page,/generation.current/);
@@ -115,4 +115,12 @@ test('A4.2 local result route and native comparison witness use existing shell',
  assert.match(page,/differences.slice\(diffPage\*LIMIT/);
  assert.match(page,/условный пример/);assert.match(witness,/IWXA_ACTIVITY_A42_NATIVE_COMPARISON_PASS/);
  assert.doesNotMatch(page,/localStorage|sessionStorage|fetch\(|createWorkspace\(|putObject\(/);
+});
+
+test('A4.1-IV shows declared quality differences in the existing route review',()=>{
+ const page=load('../desktop/src/DomainRouteComparison.tsx');
+ assert.match(page,/buildD05RouteQualityComparisonExample/);
+ assert.match(page,/Карты качества и критерии приёмки/);
+ assert.match(page,/Различаются заявленные требования качества/);
+ assert.match(page,/QUALITY_COMPARISON\[quality.comparison\]/);
 });

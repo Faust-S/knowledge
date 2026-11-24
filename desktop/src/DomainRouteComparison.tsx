@@ -1,6 +1,6 @@
 import {useLayoutEffect,useRef,useState,type ChangeEvent} from 'react';
 import type {D05SignedRouteReview,D05RouteReviewPort} from '../../modules/activity-base-anonymizer/d05-route-host.mjs';
-import {reviewD05RouteModels,buildD05RouteComparisonExample,type D05RouteReview}
+import {reviewD05ResultSelection,buildD05RouteQualityComparisonExample,type D05RouteReview,type D05RouteQualityReview}
  from '../../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 const KINDS={internal:'Внутренняя',subcontract:'Подрядная',wait:'Ожидание',inspection:'Контроль',transport:'Транспорт'};
 const DIFFS:Record<string,string>={DURATION:'Длительность и буферы',RESOURCES:'Исполнители и оборудование',
@@ -33,10 +33,33 @@ const ERRORS:Record<string,string>={
  D05_ROUTE_HOST_READ_REFUSED:'Нет действующего разрешённого чтения выбранных моделей.',
  T3_CONTROL_CONTEXT_CHANGED_DURING_READ:'Рабочая область или право чтения изменились.',
  T3_CONTROL_HOST_DETACHED:'Подключённый источник закрыт.'};
+const QUALITY_FIELDS:Record<string,string>={CRITERIA:'Критерии и допуски',
+ METHOD_AND_SAMPLING:'Метод и выборка',ROLE_AND_EVIDENCE:'Роли и свидетельства',
+ FAILURE_AND_BLOCKING:'Реакция и блокировка выпуска',CONTROL_NOTES:'Примечания к проверкам',
+ PLAN_CONTEXT:'Условия и документы',CHECK_COMBINATION:'Сочетание критериев'};
+const QUALITY_STATUS={NO_LINKED_PLAN:'Нет связанной карты',AMBIGUOUS_PLAN:'Несколько карт',
+ INCOMPLETE_PLAN:'Недостаточно сведений',DECLARED_CHECKS_READ:'Заявленные проверки прочитаны'};
+const QUALITY_COMPARISON={NOT_COMPARABLE:'Недостаточно сопоставимых карт качества',
+ DECLARED_FIELDS_DIFFER:'Различаются заявленные требования качества',
+ NO_DIFFERENCE_IN_CHECKED_FIELDS:'В проверенных полях карт качества различий нет'};
+const QUALITY_ISSUES:Record<string,string>={QUALITY_PLAN_MISSING:'Карта качества не найдена',
+ QUALITY_MULTIPLE_PLANS:'Нужно выбрать действующую карту',
+ QUALITY_ROUTE_LINK_UNCONFIRMED:'Нет однозначной связи карты с маршрутом',
+ QUALITY_TEMPLATE_REFERENCES_INVALID:'Некорректный перечень шаблонов',
+ QUALITY_NO_CHECKS:'Нет контрольных точек',
+ QUALITY_TEMPLATE_LINK_MISMATCH:'Перечень проверок и исходные связи расходятся',
+ QUALITY_TEMPLATE_LINK_UNCONFIRMED:'Нет сохранённой проверки или исходной связи',
+ QUALITY_CONTEXT_INCOMPLETE:'Не хватает основания или контекста требований',
+ QUALITY_CHECK_FIELDS_INCOMPLETE:'Не заполнены поля контрольной точки',
+ QUALITY_OPERATION_LINK_UNCONFIRMED:'Не определена исходная операция',
+ QUALITY_OPERATION_OCCURRENCE_AMBIGUOUS:'Повторяемые операции требуют уточнения',
+ QUALITY_CRITERION_UNSPECIFIED:'Не определён критерий',
+ QUALITY_ROLE_OR_EVIDENCE_UNSPECIFIED:'Не заданы роль или свидетельство',
+ QUALITY_CUSTOM_RULE_UNSPECIFIED:'Не описан пользовательский метод или действие'};
 const PAGE_SIZE=8;
 export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null}){
  const input=useRef<HTMLInputElement>(null),generation=useRef(0);
- const [result,setResult]=useState<D05RouteReview|D05SignedRouteReview|null>(null),[source,setSource]=useState('');
+ const [result,setResult]=useState<D05RouteReview|D05RouteQualityReview|D05SignedRouteReview|null>(null),[source,setSource]=useState('');
  const [hostConnected,setHostConnected]=useState(false);
  const [problem,setProblem]=useState(''),[busy,setBusy]=useState(false),[groupIndex,setGroupIndex]=useState(0);
  const [page,setPage]=useState(0);
@@ -60,7 +83,7 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
  },[host]);
  const apply=(records:unknown,label:string,token:number)=>{
   if(token!==generation.current)return;
-  const value=reviewD05RouteModels(records);
+  const value=reviewD05ResultSelection(records);
   if(token!==generation.current)return;
   setResult(value);setSource(label);setGroupIndex(0);setPage(0);
  };
@@ -71,7 +94,7 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
  };
  const example=()=>{
   reset();const token=generation.current;
-  try{apply(buildD05RouteComparisonExample(),'Встроенный пример трёх моделей',token);}
+  try{apply(buildD05RouteQualityComparisonExample(),'Встроенный пример трёх моделей с картами качества',token);}
   catch(err){fail(err,token);}
  };
  async function loadSelectedRoutes(){
@@ -103,12 +126,13 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
   finally{if(token===generation.current)setBusy(false);}
  }
  const group=result?.groups[groupIndex];
+ const quality=result&&'quality_review' in result?result.quality_review?.groups.find(g=>g.group_id===group?.id):null;
  const pageCount=Math.max(1,Math.ceil((group?.operations.length??0)/PAGE_SIZE));
  const localNumber=(opId:string)=>(group?.operations.findIndex(x=>x.id===opId)??-1)+1;
  return <div className="activity-domain-review">
   <section className="activity-v7-card">
    <h2>Сопоставление технологических маршрутов CehoVod</h2>
-   <p>Выберите несколько JSON-объектов operation-route из калькулятора или локальные копии сохранённых Result. Один файл содержит один маршрут. Activity сравнивает названия, типы операций и исходные зависимости; оборудование и другие параметры не объединяются автоматически.</p>
+   <p>Выберите модели маршрутов CehoVod. Для совместного сравнения карт качества загрузите локальные копии исходных объектов Result с отношениями (object, relations): маршруты, карты и шаблоны проверок. Один файл содержит один объект, до 24 файлов. При подключённом Host можно получать сохранённые модели непосредственно.</p>
    <div className="activity-v7-actions">
     {hostConnected?<button className="activity-v7-primary" disabled={busy} onClick={loadSelectedRoutes}>Получить сохранённые маршруты</button>:null}
     <input type="file" ref={input} multiple accept=".json,application/json" className="visually-hidden" onChange={onFiles} aria-label="Выбрать JSON маршрутов CehoVod"/>
@@ -141,6 +165,17 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
     {group.differing_fields.length>0?<p className="activity-v7-note"><strong>Требуют согласования:</strong> {group.differing_fields.map(x=>DIFFS[x]??x).join(', ')}.</p>:
       <p>В проверенных полях различий не обнаружено. Это не подтверждает совпадение требований и применимости технологий.</p>}
     {group.incomplete_fields.length>0?<p className="activity-v7-note"><strong>Недостаточно параметров:</strong> {group.incomplete_fields.map(x=>DIFFS[x]??x).join(', ')}. Отсутствующие значения не считаются совпадением.</p>:null}
+    <h3>Карты качества и критерии приёмки</h3>
+    {quality?<div className="activity-domain-group">
+     <p role="status">{QUALITY_COMPARISON[quality.comparison]}</p>
+     {quality.differing_fields.length>0?<p className="activity-v7-note"><strong>Различия:</strong> {quality.differing_fields.map(x=>QUALITY_FIELDS[x]??x).join(', ')}.</p>:null}
+     <div className="activity-domain-ops">{quality.models.map(m=><div className="activity-domain-op" key={m.model_number}>
+       <strong>Модель {m.model_number} · {QUALITY_STATUS[m.status]}</strong>
+       <span>Прочитано проверок: {m.check_count}. Блокирующих: {m.blocking_count}.</span>
+       {m.issue_codes.map(code=><span key={code}>{QUALITY_ISSUES[code]??'Требуется уточнение предметных сведений'}</span>)}
+     </div>)}</div>
+     <p>Сравнение заявленных условий. Activity не проверяет фактическое качество изделия и не утверждает норматив.</p>
+    </div>:<p>Карты качества не прочитаны в этой выборке. Сравнение структуры не подтверждает совпадение критериев приёмки.</p>}
     <h3>Операции и исходные зависимости</h3>
     <div className="activity-domain-ops">
      {group.operations.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).map((op,i)=>
