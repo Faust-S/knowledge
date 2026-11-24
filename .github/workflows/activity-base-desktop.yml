@@ -31,6 +31,7 @@ on:
       - tests/test_activity_d05_route_comparison.mjs
       - tests/test_activity_d05_route_cli.mjs
       - tests/test_activity_r4pm_result_review.mjs
+      - tests/test_activity_r4pm_source_review.mjs
       - tests/activity_r4pm_original_fixture.py
       - tests/test_activity_r4pm_original_runtime.mjs
       - tools/activity-d05-route-review.mjs
@@ -68,7 +69,7 @@ jobs:
             foreach ($issue in $errors) { Write-Host $issue.Message }
             throw 'WINDOWS_UI_WITNESS_SYNTAX_INVALID'
           }
-      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_route_cli.mjs tests/test_activity_r4pm_result_review.mjs
+      - run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_ocel2_evidence.mjs tests/test_activity_t3_selected_host.mjs tests/test_activity_t3_review_controller.mjs tests/test_activity_t3_evidence_passport.mjs tests/test_activity_t3_transition_map.mjs tests/test_activity_t3_control_host_link.mjs tests/test_activity_host_surface.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_route_cli.mjs tests/test_activity_r4pm_result_review.mjs tests/test_activity_r4pm_source_review.mjs
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
       - name: Typecheck and bundle Activity UI before any native Rust build

@@ -1,7 +1,9 @@
 import {useEffect,useRef,useState,type ChangeEvent} from 'react';
 import {reviewRust4pmResult,buildRust4pmReviewExample,R4PM_MAX_BYTES,type Rust4pmResultReview as Review}
  from '../../modules/activity-base-anonymizer/r4pm-result-review.mjs';
+import {compareRust4pmOcelSource,type Rust4pmOcelSourceReview as SourceReview} from '../../modules/activity-base-anonymizer/r4pm-ocel-source-review.mjs';
 const PAGE_SIZE=8;
+const MISMATCH:Record<string,string>={EVENT_COUNT:'Число событий',OBJECT_TYPE_MISSING:'Тип объекта отсутствует в результате',OBJECT_TYPE_UNEXPECTED:'Лишний тип объекта',OBJECT_OR_EVENT_OCCURRENCES:'Число объектов или вхождений событий',ACTIVITY_OCCURRENCES:'Частоты действий',VARIANT_OBJECT_COUNT:'Число объектов в полных вариантах'};
 const ERROR_TEXT:Record<string,string>={
  R4PM_ENGINE_VERSION_UNSUPPORTED:'Поддерживается исходный результат Rust4PM 0.6.2.',
  R4PM_FLOW_BALANCE_INVALID:'Частоты операций, переходов и границы траекторий не согласованы.',
@@ -13,11 +15,14 @@ const ERROR_TEXT:Record<string,string>={
 };
 export function Rust4pmResultReview(){
  const input=useRef<HTMLInputElement>(null),generation=useRef(0);
+ const sourceInput=useRef<HTMLInputElement>(null),sourceGeneration=useRef(0);
+ const [sourceReview,setSourceReview]=useState<SourceReview|null>(null),[sourceBusy,setSourceBusy]=useState(false),[sourceProblem,setSourceProblem]=useState(''),[relationPage,setRelationPage]=useState(0);
  const [result,setResult]=useState<Review|null>(null),[source,setSource]=useState(''),[problem,setProblem]=useState('');
  const [busy,setBusy]=useState(false),[group,setGroup]=useState(0),[page,setPage]=useState(0);
  const [tab,setTab]=useState<'edges'|'activities'|'variants'>('edges');
- useEffect(()=>()=>{generation.current++},[]);
- const reset=()=>{generation.current++;setResult(null);setSource('');setProblem('');setGroup(0);setPage(0);setTab('edges');setBusy(false);if(input.current)input.current.value=''};
+ useEffect(()=>()=>{generation.current++;sourceGeneration.current++},[]);
+ const clearSource=()=>{sourceGeneration.current++;setSourceReview(null);setSourceProblem('');setSourceBusy(false);setRelationPage(0);if(sourceInput.current)sourceInput.current.value=''};
+ const reset=()=>{generation.current++;clearSource();setResult(null);setSource('');setProblem('');setGroup(0);setPage(0);setTab('edges');setBusy(false);if(input.current)input.current.value=''};
  function apply(raw:unknown,label:string,token:number){
   if(token!==generation.current)return;
   const reviewed=reviewRust4pmResult(raw);
@@ -37,6 +42,18 @@ export function Rust4pmResultReview(){
    const raw:unknown=JSON.parse(await file.text());
    apply(raw,'Локальный результат',token);
   }catch(err){fail(err,token)}finally{if(token===generation.current)setBusy(false)}
+ }
+ async function onSourceFile(event:ChangeEvent<HTMLInputElement>){
+  const file=event.target.files?.[0];event.target.value='';if(!file||!result||result.operation==='discover_dfg')return;
+  clearSource();const token=sourceGeneration.current;setSourceBusy(true);
+  try{
+   if(file.size>R4PM_MAX_BYTES)throw new Error('R4PM_OCEL_SOURCE_LIMIT');
+   const bytes=new Uint8Array(await file.arrayBuffer());
+   if(token!==sourceGeneration.current)return;
+   const comparison=await compareRust4pmOcelSource(result,bytes);
+   if(token===sourceGeneration.current)setSourceReview(comparison);
+  }catch{if(token===sourceGeneration.current)setSourceProblem('Не удалось прочитать поддерживаемый профиль OCEL JSON (до 8 МБ). Сверка не выполнена.')}
+  finally{if(token===sourceGeneration.current)setSourceBusy(false)}
  }
  function example(){reset();const token=generation.current;try{apply(buildRust4pmReviewExample(),'Встроенный пример результата',token)}catch(err){fail(err,token)}}
  const selected=result?.graphs[group],size=tab==='edges'?(selected?.transitions.length??0):tab==='variants'?(selected?.variants?.length??0):(selected?.activities.length??0);
@@ -92,6 +109,34 @@ export function Rust4pmResultReview(){
     <div className="activity-v7-note">Частоты разных объектных перспектив не суммируются: одно событие может относиться к нескольким объектам. {result.full_trace_variants==='REPORTED_BY_TOOL'?'Полные варианты получены из результата инструмента, а не восстановлены из графа. Согласование частот не доказывает исходную историю.':'DFG не содержит полных траекторий.'} Причинная связь не установлена.</div>
    </>}
    <div className="activity-v7-note hold">Источник и физическое исполнение не подтверждены. Выпуск .iwxa закрыт.</div>
+  </section>:null}
+  {result&&result.operation!=='discover_dfg'?<section className="activity-v7-card" aria-label="Сверка исходного OCEL">
+   <h2>Сверка исходного OCEL</h2>
+   <p>При наличии исходного JSON-журнала можно проверить число событий, объектов, связи и частоты действий. Сверка не устанавливает происхождение результата или порядок полной траектории.</p>
+   <div className="activity-v7-actions">
+    <input type="file" ref={sourceInput} accept=".json,application/json" className="visually-hidden" onChange={onSourceFile} aria-label="Выбрать исходный OCEL JSON"/>
+    <button disabled={sourceBusy} onClick={()=>sourceInput.current?.click()}>Сверить с исходным OCEL</button>
+    <button disabled={!sourceReview&&!sourceBusy&&!sourceProblem} onClick={clearSource}>Очистить сверку</button>
+   </div>
+   {sourceBusy?<p role="status">Проверяется исходный журнал…</p>:null}
+   {sourceProblem?<p role="alert">{sourceProblem}</p>:null}
+   {sourceReview?<div className="activity-domain-group">
+    <div role="status" className={'activity-v7-note '+(sourceReview.status==='MISMATCH'?'hold':'')}>{sourceReview.status==='AGGREGATES_MATCH'?'Проверенные частоты согласованы':'Обнаружены расхождения с выбранным журналом'}. Происхождение результата не подтверждено.</div>
+    {sourceReview.mismatches.length?<ul>{sourceReview.mismatches.map((m,i)=><li key={i}>{MISMATCH[m.code]??m.code}{m.object_type?' · '+m.object_type:''}</li>)}</ul>:null}
+    <div className="activity-v7-stats">
+     <div><strong>{sourceReview.facts.event_count}</strong><span>Событий</span></div>
+     <div><strong>{sourceReview.facts.object_count}</strong><span>Объектов</span></div>
+     <div><strong>{sourceReview.facts.shared_event_count}</strong><span>Общих событий</span></div>
+    </div>
+    <p>Связей событий с объектами (E2O): {sourceReview.facts.e2o_count}. Связей объектов (O2O): {sourceReview.facts.o2o_count}.</p>
+    <p>{sourceReview.facts.tied_object_count?'Объектов с совпадающими моментами событий: '+sourceReview.facts.tied_object_count+'. Их порядок требует предметного подтверждения.':'В проверенном журнале одинаковых моментов событий внутри объекта не найдено.'} Эпистемический статус не подтверждён доменом.</p>
+    <details><summary>Состав объектов</summary><div className="activity-domain-ops">{sourceReview.facts.object_types.map(o=><div className="activity-domain-op" key={o.object_type}><strong>{o.object_type}</strong><span>Объектов: {o.object_count} · С событиями: {o.nonempty_object_count}</span><span>Вхождений событий: {o.event_occurrences}</span></div>)}</div></details>
+    <h3>Связи по типам и квалификаторам</h3>
+    <div className="activity-domain-ops">{sourceReview.facts.relation_groups.slice(relationPage*PAGE_SIZE,(relationPage+1)*PAGE_SIZE).map((r,i)=><div className="activity-domain-op" key={relationPage*PAGE_SIZE+i}><strong>{r.kind} · {r.from} → {r.to}</strong><span>{r.qualifier} · Связей: {r.count}</span></div>)}</div>
+    {!sourceReview.facts.relation_groups.length?<p>Связи не представлены.</p>:null}
+    <div className="activity-v7-actions"><button disabled={relationPage===0} onClick={()=>setRelationPage(p=>p-1)}>Назад</button><span>Страница {relationPage+1} из {Math.max(1,Math.ceil(sourceReview.facts.relation_groups.length/PAGE_SIZE))}</span><button disabled={(relationPage+1)*PAGE_SIZE>=sourceReview.facts.relation_groups.length} onClick={()=>setRelationPage(p=>p+1)}>Далее</button></div>
+    <details><summary>Контрольная сумма выбранного файла</summary><p style={{overflowWrap:'anywhere'}}>{sourceReview.source_sha256}</p></details>
+   </div>:null}
   </section>:null}
  </div>;
 }

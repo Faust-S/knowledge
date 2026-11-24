@@ -106,3 +106,13 @@ test('A4.2 full variants are selectable without reconstructing them from edges',
  assert.match(page,/v\.sequence\.map/);assert.match(page,/empty_trace_count/);
  assert.match(page,/не восстановлены из графа/);
 });
+
+test('local original OCEL comparison uses selected file bytes and clears on source replacement',()=>{
+ const page=load('../desktop/src/Rust4pmResultReview.tsx');
+ assert.match(page,/compareRust4pmOcelSource\(result,bytes\)/);
+ assert.match(page,/new Uint8Array\(await file.arrayBuffer\(\)\)/);
+ assert.match(page,/generation.current\+\+;clearSource\(\)/);
+ assert.match(page,/sourceGeneration.current/);
+ assert.match(page,/Происхождение результата не подтверждено/);
+ assert.match(page,/relation_groups\.slice/);
+});
