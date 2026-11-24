@@ -2,6 +2,7 @@
 // No staged source pages, seeded store, simulated model, direct write or mock SW.
 // Disposable local profiles and synthetic data. Never upload archive or logs.
 import assert from "node:assert/strict";
+import {isDeepStrictEqual} from "node:util";
 import {spawn} from "node:child_process";
 import {mkdtemp,rm,stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
@@ -20,6 +21,32 @@ let phase="START_SERVER",server,context;
 const check=(ok,code)=>assert.ok(ok,"CLUB_DIST_"+code);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const log=(code)=>console.log("CLUB_DIST_"+code+"=PASS");
+// JSON objects have no semantic property order. Keep all keys, types, exact
+// values and array order; a real changed event must still fail the check.
+function verifyHistory(actual,expected,prefix){
+ const equal=isDeepStrictEqual(actual,expected);
+ if(!equal){
+  const rootKeys=["schema","status","events"];
+  const eventKeys=["from","to","previousUpdatedAt","recordedAt","reason","reviewDate","assessment"];
+  const differences=rootKeys.filter(k=>k!=="events"&&!isDeepStrictEqual(actual?.[k],expected?.[k]));
+  const a=actual?.events,e=expected?.events;
+  if(!Array.isArray(a)||!Array.isArray(e)||a.length!==e.length)differences.push("events.length_or_type");
+  if(Array.isArray(a)&&Array.isArray(e))for(let i=0;i<Math.min(a.length,e.length);i++){
+   if(isDeepStrictEqual(a[i],e[i]))continue;
+   const fields=eventKeys.filter(k=>!isDeepStrictEqual(a[i]?.[k],e[i]?.[k]));
+   differences.push("events["+i+"]:"+(fields.join(",")||"other_own_keys"));
+  }
+  console.log("CLUB_DIST_LIFECYCLE_SEMANTIC_MISMATCH "+JSON.stringify({prefix,differences:differences.length?differences:["other_own_keys"]}));
+ }
+ check(equal,prefix+"_EXACT_HISTORY");
+ if(JSON.stringify(actual)!==JSON.stringify(expected))log(prefix+"_OBJECT_KEY_ORDER_ONLY");
+ log(prefix+"_EXACT_HISTORY");
+}
+check(isDeepStrictEqual({status:"active",events:[{from:"deferred",to:"active"}]},
+ {events:[{to:"active",from:"deferred"}],status:"active"}),"HISTORY_OBJECT_ORDER_INDEPENDENT");
+check(!isDeepStrictEqual({events:[{to:"deferred"},{to:"active"}]},{events:[{to:"active"},{to:"deferred"}]})&&
+ !isDeepStrictEqual({events:[{to:"active",reason:"one"}]},{events:[{to:"active",reason:"two"}]}),
+ "HISTORY_EVENT_ORDER_AND_VALUES_STRICT");
 async function poll(fn,code,ms=60000){
  const deadline=Date.now()+ms;
  let value;
@@ -441,6 +468,25 @@ try{
   await weekForm.locator('[name="start"]').fill("10:00");
   await weekForm.locator('[name="durationMinutes"]').fill(i===0?"90":"30");
   await weekForm.locator('[name="projectId"]').selectOption(i===0?goalId:"");
+  if(i===0){
+   phase="OFFLINE_WEEK_CHANGE_PREVIEW_CREATE";
+   const before=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
+   const preview=weekForm.locator("[data-club-week-change-preview]");
+   const checkButton=weekForm.locator("[data-club-week-check-change]");
+   await checkButton.click();
+   await poll(async()=>await preview.getAttribute("data-iwxa-assistant-state")==="ready","PREVIEW_CREATE_READY");
+   check((await preview.textContent()).includes("0 мин. / 90 мин."),"PREVIEW_CREATE_EXACT_DEMAND");
+   check((await preview.textContent()).includes("Журнал не открыт"),"PREVIEW_CREATE_MISSING_JOURNAL_DISCLOSED");
+   await weekForm.locator('[name="durationMinutes"]').fill("120");
+   await poll(async()=>await preview.getAttribute("data-iwxa-assistant-state")==="empty","PREVIEW_EDIT_INVALIDATES");
+   await checkButton.click();
+   await poll(async()=>await preview.getAttribute("data-iwxa-assistant-state")==="ready","PREVIEW_SECOND_VARIANT_READY");
+   check((await preview.textContent()).includes("0 мин. / 120 мин."),"PREVIEW_SECOND_VARIANT_EXACT");
+   check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===before&&!(await localWeek()),"PREVIEW_CREATE_NO_WRITE");
+   await weekForm.locator('[name="durationMinutes"]').fill("90");
+   log("OFFLINE_WEEK_CREATE_TWO_VARIANTS_NO_WRITE");
+   phase="OFFLINE_AGENDA_CREATE";
+  }
   await weekForm.locator("[data-club-week-save]").click();
   await poll(async()=> (await localWeek())?.data?.personalWeekPlan?.slots?.length===i+1,"AGENDA_CREATE_SLOT");
  }
@@ -466,6 +512,19 @@ try{
  check((await localWeek()).updatedAt===weekBefore.updatedAt,"AGENDA_OPEN_NO_WRITE");
  check(new URL(page.url()).searchParams.get("club_week_slot")===oldSlot.id,"HOME_AGENDA_EXACT_ID");
  log("OFFLINE_AGENDA_HOME_EXACT_OVERDUE_EDITOR");
+ phase="OFFLINE_WEEK_CHANGE_PREVIEW_MOVE";
+ const movedPreview=weekForm.locator("[data-club-week-change-preview]");
+ const beforeMove=await localWeek();
+ await weekForm.locator('[name="date"]').fill(dates.future);
+ await weekForm.locator("[data-club-week-check-change]").click();
+ await poll(async()=>await movedPreview.getAttribute("data-iwxa-assistant-state")==="ready","PREVIEW_MOVE_READY");
+ const moveText=await movedPreview.textContent();
+ check(moveText.includes(dates.past+" (исходная дата)")&&moveText.includes(dates.future+" (новая дата)"),"PREVIEW_MOVE_BOTH_EXACT_DATES");
+ check(moveText.includes("30 мин. / 0 мин.")&&moveText.includes("30 мин. / 60 мин."),"PREVIEW_MOVE_REPLACES_ONE_TASK");
+ check(moveText.includes("Известные пересечения этого дела: 1"),"PREVIEW_MOVE_KNOWN_CONFLICT");
+ check(isDeepStrictEqual(await localWeek(),beforeMove),"PREVIEW_MOVE_NO_WRITE");
+ await weekForm.locator('[name="date"]').fill(dates.past);
+ log("OFFLINE_WEEK_MOVE_EXACT_CONFLICT_NO_WRITE");
  phase="OFFLINE_AGENDA_KERNEL_SAVE";
  await weekSummary.getByRole("link",{name:"Сохранить план в рабочей области",exact:true}).click();
  const weekImport=page.getByTestId("club-t0-import-card");
@@ -977,6 +1036,14 @@ try{
   check((await cards.nth(3).textContent()).includes("частично: 1"),prefix+"_PARTIAL_NOT_ACHIEVED");
   check((await result.textContent()).includes("По сохранённым записям этой рабочей области"),prefix+"_SAVED_SCOPE");
   check((await cards.nth(1).textContent()).includes("из"),prefix+"_COVERAGE_DISCLOSED");
+  const follow=result.locator("[data-club-review-followup]");
+  await follow.locator(":scope > summary").click();
+  const overdue=follow.locator('[data-club-review-followup-code="overdue-personal"]');
+  await overdue.getByRole("button",{name:"Открыть дело",exact:true}).waitFor({state:"visible"});
+  const estimate=follow.locator('[data-club-review-followup-code="review-estimates"]');
+  check((await estimate.textContent()).includes("20 мин."),prefix+"_MATCHED_DEVIATION_FOLLOWUP");
+  await follow.locator('[data-club-review-followup-code="cash-coverage"]').getByRole("button",{name:"Открыть денежный календарь",exact:true}).waitFor({state:"visible"});
+  log(prefix+"_FOLLOWUP_SOURCE_ACTIONS");
   const goalGroup=result.locator("details").filter({has:page.getByText("По личным целям (1)",{exact:true})});
   await goalGroup.locator(":scope > summary").click();
   const linked=goalGroup.locator("article").filter({has:page.getByRole("heading",{name:goalTitle,exact:true})});
@@ -1059,7 +1126,7 @@ try{
  await restoreAssessment("ASSESSMENT_INDEPENDENT");
  log("INDEPENDENT_GOAL_ASSESSMENT_BASIS_IWXA_READBACK");
  phase="INDEPENDENT_GOAL_LIFECYCLE_HISTORY";
- check(JSON.stringify((await localGoal()).data.goalLifecycle)===JSON.stringify(lifecycleBeforeExport),"LIFECYCLE_INDEPENDENT_EXACT_HISTORY");
+ verifyHistory((await localGoal()).data.goalLifecycle,lifecycleBeforeExport,"LIFECYCLE_INDEPENDENT");
  check((await localGoal()).data.goalLifecycle.status==="completed","LIFECYCLE_INDEPENDENT_COMPLETED");
  log("INDEPENDENT_GOAL_LIFECYCLE_IWXA_READBACK");
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");
