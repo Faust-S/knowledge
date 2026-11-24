@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 7a411f38b340e99c146b6b9264b511ae3f3a2124
+          ref: 4784c4256a87f0fda7fd1a6339bf4d49eccf37c5
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-site
@@ -98,6 +98,7 @@ jobs:
           npm run setup:browser > "$RUNNER_TEMP/d06-browser-install-private.log" 2>&1 || { echo D06_T3_BROWSER_INSTALL=FAIL; exit 1; }
           echo D06_T3_BROWSER_INSTALL=PASS
       - name: Rebuild twice solely from retained local inputs and preserve last good dist on corruption
+        id: local-rebuild
         working-directory: private-site
         shell: bash
         run: |
@@ -137,10 +138,62 @@ jobs:
           }
           local_build FIRST
           snapshot "$RUNNER_TEMP/d06-first-private.json"
+          cp -a dist "$RUNNER_TEMP/d06-first-dist"
           local_build SECOND
           snapshot "$RUNNER_TEMP/d06-second-private.json"
-          cmp -s "$RUNNER_TEMP/d06-first-private.json" "$RUNNER_TEMP/d06-second-private.json" || { echo D06_T3_BYTE_IDENTICAL_REBUILD=FAIL; exit 1; }
-          echo D06_T3_BYTE_IDENTICAL_REBUILD=PASS
+          echo "built=true" >> "$GITHUB_OUTPUT"
+          reproducible=0
+          if cmp -s "$RUNNER_TEMP/d06-first-private.json" "$RUNNER_TEMP/d06-second-private.json"; then
+            echo D06_T3_BYTE_IDENTICAL_REBUILD=PASS
+          else
+            echo D06_T3_BYTE_IDENTICAL_REBUILD=FAIL
+            reproducible=1
+            # Diagnose only: no relaxed comparison or source/filename output.
+            "$node_bin" --input-type=module - "$RUNNER_TEMP" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const root=process.argv[2];
+          const read=(name)=>JSON.parse(readFileSync(join(root,name),"utf8"));
+          const a=new Map(read("d06-first-private.json").map(x=>[x.path,x.sha256]));
+          const b=new Map(read("d06-second-private.json").map(x=>[x.path,x.sha256]));
+          const groups=new Map();
+          const group=p=>p==="t3-offline-manifest.json"?"OFFLINE_MANIFEST":
+            p==="build-info.json"?"BUILD_INFO":p==="sitemap.xml"?"SITEMAP":
+            p.endsWith(".html")?"HTML":p.startsWith("workspace/assets/")?"HOST_ASSET":
+            p.startsWith("assets/")&&p.endsWith(".js")?"PUBLIC_JS":
+            p.endsWith(".css")?"CSS":p.endsWith(".json")?"JSON":"OTHER";
+          const masks=[
+            ["EPOCH_MS",s=>s.replace(/\b\d{13}\b/g,"<epoch-ms>")],
+            ["ISO_DATE",s=>s.replace(/\b20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b/g,"<iso-date>")],
+            ["STAGE_PATH",s=>s.replace(/\.d06-t3-local-build-[A-Za-z0-9]+/g,"<stage>")],
+            ["ASSET_HASH",s=>s.replace(/(-[A-Za-z0-9_-]{8,})(?=\.(?:js|css)\b)/g,"-<asset-hash>")],
+          ];
+          for(const p of new Set([...a.keys(),...b.keys()])){
+            if(a.get(p)===b.get(p))continue;
+            const g=group(p), v=groups.get(g)||{missing:0,added:0,changed:0,classified:{}};
+            if(!a.has(p))v.added++;
+            else if(!b.has(p))v.missing++;
+            else{
+              v.changed++;
+              if(/\.(?:html|js|mjs|css|json|xml)$/.test(p)){
+                const before=readFileSync(join(root,"d06-first-dist",p),"utf8");
+                const after=readFileSync(join("dist",p),"utf8");
+                for(const [kind,normalize] of masks){
+                  if(normalize(before)===normalize(after))v.classified[kind]=(v.classified[kind]||0)+1;
+                }
+                if(masks.reduce((s,[,f])=>f(s),before)===masks.reduce((s,[,f])=>f(s),after))
+                  v.classified.COMBINED=(v.classified.COMBINED||0)+1;
+              }
+            }
+            groups.set(g,v);
+          }
+          for(const [g,v] of groups){
+            console.log("D06_T3_REBUILD_DIFF_"+g+"="+[v.missing,v.added,v.changed].join(":"));
+            for(const [k,n] of Object.entries(v.classified))
+              console.log("D06_T3_REBUILD_DIAG_"+g+"_"+k+"="+n);
+          }
+          NODE
+          fi
           archive="runtime/t3-platform/0.3.1-rc.1/platform-inputs.zip"
           cp -- "$archive" "$RUNNER_TEMP/d06-good-input.zip"
           trap 'mv -f -- "$RUNNER_TEMP/d06-good-input.zip" "$archive"' EXIT
@@ -156,7 +209,9 @@ jobs:
           echo D06_T3_CORRUPTION_REJECTED=PASS
           echo D06_T3_PREVIOUS_DIST_RETAINED=PASS
           echo D06_T3_NO_GIT_OR_PACKAGE_MANAGER=PASS
+          exit "$reproducible"
       - name: Real public assistant without installing a model
+        if: ${{ !cancelled() && steps.local-rebuild.outputs.built == 'true' }}
         working-directory: private-site
         shell: bash
         run: |

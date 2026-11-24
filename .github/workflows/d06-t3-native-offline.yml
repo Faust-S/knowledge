@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 7a411f38b340e99c146b6b9264b511ae3f3a2124
+          ref: 4784c4256a87f0fda7fd1a6339bf4d49eccf37c5
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-site
@@ -79,6 +79,7 @@ jobs:
           console.log("D06_T3_SHARED_WORKER_COUNT="+receipt.files.filter(x=>/^assets\/model-worker-[A-Za-z0-9_-]+\.js$/.test(x.path)).length);
           NODE
       - name: Build exact HTTPS loopback candidate
+        id: preview-build
         working-directory: private-site
         shell: bash
         run: |
@@ -100,7 +101,7 @@ jobs:
           set -euo pipefail
           node --experimental-strip-types tests/t3/verify-native-offline.mjs > "$RUNNER_TEMP/d06-offline-private.log" 2>&1 || {
             echo D06_T3_NATIVE_OFFLINE_NO_MODEL=FAIL
-            grep -E '^D06_T3_OFFLINE_[A-Z0-9_]+=PASS$' "$RUNNER_TEMP/d06-offline-private.log" || true
+            grep -E '^D06_T3_OFFLINE_[A-Z0-9_]+=PASS$|^D06_T3_OFFLINE_CONTROL_FACTS=[0-9:]+$' "$RUNNER_TEMP/d06-offline-private.log" || true
             grep -Eo 'D06_T3_[A-Z0-9_]+' "$RUNNER_TEMP/d06-offline-private.log" | sort -u | head -20 || true
             for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toHaveCount' 'toBeVisible' 'toHaveValue' 'toBeEnabled' 'toBeChecked' 'net::ERR' 'TypeError'; do
               if grep -Fq "$marker" "$RUNNER_TEMP/d06-offline-private.log"; then echo "D06_T3_OFFLINE_FAILURE_CLASS=$marker"; fi
@@ -109,6 +110,7 @@ jobs:
           }
           grep -E '^D06_T3_(OFFLINE_[A-Z0-9_]+|NATIVE_OFFLINE_NO_MODEL)=PASS$' "$RUNNER_TEMP/d06-offline-private.log"
       - name: Run unmodified D06 native Exchange and lifecycle witness on original T3
+        if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
         working-directory: private-site
         shell: bash
         env:
