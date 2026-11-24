@@ -22,7 +22,7 @@ export type ActivityWorkspaceProps={brandSrc:string;data:ActivityWorkspaceData;a
 const GROUPS=[
   {name:'Главная',icon:'home',pages:['Главная']},
   {name:'Источники',icon:'database',pages:['Источники','Схемы A0/A1','Рабочая область']},
-  {name:'Реконструкция',icon:'layers',pages:['Реконструкция','Группировка маршрутов','Карта процессов','Аудит A2']},
+  {name:'Реконструкция',icon:'layers',pages:['Реконструкция','Группировка маршрутов','Результаты Process Mining','Карта процессов','Аудит A2']},
   {name:'OCEL 2.0',icon:'network',pages:['OCEL 2.0','Стандарты']},
   {name:'T3 D1/D2',icon:'shield',pages:['T3 D1/D2','Карта T3','Паспорт фактов','Свидетельства D05']},
   {name:'Проверка',icon:'check',pages:['Проверка','Черновик и восстановление','Выпуск и обмен','Квалификация']},
