@@ -24,12 +24,12 @@ jobs:
           test -n "${DOMEN:-}" || { echo "D05_DOMEN=UNAVAILABLE"; exit 1; }
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
           git init --quiet site
-          if ! GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git d206e9cedd30ac9e81f8b41e3784e0415f633fd2 >/dev/null 2>&1; then
+          if ! GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git 497890a15abacbfae6f6d6afb2294f859f981ce0 >/dev/null 2>&1; then
             echo "D05_SITE_ACCESS=FAIL"
             exit 1
           fi
           git -C site checkout --quiet --detach FETCH_HEAD
-          test "$(git -C site rev-parse HEAD)" = "d206e9cedd30ac9e81f8b41e3784e0415f633fd2" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "497890a15abacbfae6f6d6afb2294f859f981ce0" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
           echo "D05_SITE_PIN=PASS"
           git init --quiet t2
           if ! GIT_TERMINAL_PROMPT=0 git -C t2 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/T2.git e70de29b72b83e2546f7ab74b17572685a728c17 >/dev/null 2>&1; then
@@ -90,7 +90,7 @@ jobs:
           echo '9673575c553096728de552ad21460668c5ef5f0dc7dee5a3372d88b810990629  '${RUNNER_TEMP}/activity-original-archive/d05-technology.iwxa | sha256sum -c >/dev/null
           echo D05_ACTIVITY_ORIGINAL_ARCHIVE_PIN=PASS
           cd site
-          test "$(git rev-parse 'HEAD^{tree}')" = "9cf936d1e1f5888783f538e348cb02e0da561f6b"
+          test "$(git rev-parse 'HEAD^{tree}')" = "ee8e60d3f5da84ea9b5fabe2ba54e12a665d4c60"
           files=(src/host/activity-technology-recipient.ts src/host/activity-technology-recipient.test.ts src/host/CehovodActivityTechnologyPanel.tsx src/host/CehovodHostApp.tsx src/host/native-port.ts src/lib/quality-plan.ts scripts/stage-cehovod-host.mjs scripts/d05-first-use-real-kernel-witness.mjs scripts/d05-activity-recipient-witness.mjs t2-site-module/cehovod/site-host-port.ts t2-site-module/cehovod/vendor/cehovod-host.d.ts eslint.config.js)
           if ./node_modules/.bin/prettier --check "${files[@]}" > "$RUNNER_TEMP/d05-activity-format.log" 2>&1; then
             echo D05_ACTIVITY_COMMITTED_FORMAT=PASS

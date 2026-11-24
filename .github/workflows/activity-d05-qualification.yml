@@ -25,7 +25,7 @@ jobs:
           test -n "${DOMEN:-}" || { echo D05_DOMEN=UNAVAILABLE; exit 1; }
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
           git init --quiet private-d05
-          if ! GIT_TERMINAL_PROMPT=0 git -C private-d05 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git 74d2401f515d92c6dc0bb3007688aeefc65793b3 >/dev/null 2>&1; then
+          if ! GIT_TERMINAL_PROMPT=0 git -C private-d05 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git 497890a15abacbfae6f6d6afb2294f859f981ce0 >/dev/null 2>&1; then
             echo D05_SITE_ACCESS=FAIL
             exit 1
           fi
@@ -40,8 +40,8 @@ jobs:
         run: |
           set -euo pipefail
           cd private-d05
-          test "$(git rev-parse HEAD)" = "74d2401f515d92c6dc0bb3007688aeefc65793b3"
-          test "$(git rev-parse 'HEAD^{tree}')" = "09f019ec1bc717021f1155af908b98aceb72f3dd"
+          test "$(git rev-parse HEAD)" = "497890a15abacbfae6f6d6afb2294f859f981ce0"
+          test "$(git rev-parse 'HEAD^{tree}')" = "ee8e60d3f5da84ea9b5fabe2ba54e12a665d4c60"
           node --input-type=module - <<'NODE'
           import {readFileSync} from 'node:fs';
           import {execFileSync} from 'node:child_process';
