@@ -34,7 +34,7 @@ test("one exact install source per actual model including legacy, no aliasing",(
   assert.ok(pairs.every(p=>new URL(p.model).origin==="https://huggingface.co"&&new URL(p.wasm).origin==="https://raw.githubusercontent.com"));
 });
 
-import {formResponseFormat} from "../integration-sources/bli1/policy.mjs";
+import {formResponseFormat,classifyInferenceFailure,BrowserInferenceError} from "../integration-sources/bli1/policy.mjs";
 test("WebLLM form schema restricts the actual selected fields without requiring missing values",()=>{
  assert.equal(formResponseFormat(undefined),undefined);
  const format=formResponseFormat([{key:"field_1"},{key:"field_3",choices:["actual","planned"]}]);
@@ -96,4 +96,23 @@ test("developer replacement dry run preserves the other two profiles and retains
  validateModelCatalog(restored);
  assert.deepEqual(restored.MODEL_PROFILES,current.MODEL_PROFILES);
  assert.ok(!restored.LEGACY_MODELS.some(m=>m.retiredForProfile&&m.modelSource===prior.variants[0].modelSource));
+});
+
+test("WebLLM worker rejection strings have typed, non-data-bearing failure diagnostics",()=>{
+ const cases=[
+  ["ContextWindowSizeExceededError: Prompt tokens exceed context window size: number of prompt tokens: 12000","CONTEXT_WINDOW_EXCEEDED"],
+  ["DeviceLostError: The WebGPU device was lost while loading the model","GPU_DEVICE_LOST"],
+  [Error("GPUOutOfMemoryError: allocation failed"),"GPU_MEMORY_EXHAUSTED"],
+  ["ModelNotLoadedError: Model not loaded before trying to complete chat","MODEL_SESSION_LOST"],
+  ["GrammarMatcherInitError: Failed to initialize the grammar matcher","FORM_GRAMMAR_FAILED"],
+  ["unexpected PRIVATE_REQUEST_SENTINEL","LOCAL_INFERENCE_FAILED"],
+  [null,"LOCAL_INFERENCE_FAILED"],
+  [new BrowserInferenceError("CANCELLED","stopped"),"CANCELLED"]
+ ];
+ for(const [error,code] of cases){
+  const result=classifyInferenceFailure(error);
+  assert.equal(result.code,code);
+  assert.ok(result instanceof BrowserInferenceError);
+  assert.doesNotMatch(result.message,/PRIVATE_REQUEST_SENTINEL|12000/);
+ }
 });

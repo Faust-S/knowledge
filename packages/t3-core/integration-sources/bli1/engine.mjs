@@ -6,7 +6,7 @@ import {
   deleteChatConfigInCache,
 } from '@mlc-ai/web-llm';
 import { MODEL, MODELS, requireCatalogModel } from './catalog.mjs';
-import { BrowserInferenceError, decideLoad, requirePrompt, formResponseFormat } from './policy.mjs';
+import { BrowserInferenceError, decideLoad, requirePrompt, formResponseFormat, classifyInferenceFailure } from './policy.mjs';
 import { inspectWebLlmOfflineCache } from './cache-readiness.mjs';
 
 const modelRecords = MODELS.map(chosen=>{
@@ -198,6 +198,19 @@ export class BrowserLocalRuntimeAdapter {
     };
     try {
       return await Promise.race([infer(), stopped]);
+    } catch(error) {
+      const failure=classifyInferenceFailure(error);
+      // A failed WebLLM request may leave the remote pipeline or its GPU
+      // state unusable while the JavaScript proxy still exists. Do not
+      // advertise Ready, reuse that Worker or retry a user request.
+      // Empty generation is a completed request and can be tried again.
+      if(failure.code!=="EMPTY_GENERATION"){
+        this.#cancelRequested=true;
+        activeWorker?.terminate();
+        if(this.#worker===activeWorker)this.#worker=null;
+        if(this.#engine===activeEngine)this.#engine=null;
+      }
+      throw failure;
     } finally {
       clearTimeout(timer);
       activeWorker?.removeEventListener('error', workerFailed);

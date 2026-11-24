@@ -60,3 +60,27 @@ export function formResponseFormat(fields) {
   if(schema.length>16000)invalid();
   return {type:"json_object",schema};
 }
+
+// The pinned WebLLM Worker serializes exceptions with err.toString() and
+// rejects the caller with a STRING, not an Error carrying .name/.code.
+// Convert only known classes/messages to bounded diagnostics. Never expose
+// arbitrary engine errors (they can include the request or model output).
+export function classifyInferenceFailure(error) {
+  if(error instanceof BrowserInferenceError&&["CANCELLED","WORKER_FAILED","GENERATION_TIMEOUT","EMPTY_GENERATION"].includes(error.code))
+    return error;
+  const name=typeof error?.name==="string"?error.name:"";
+  const detail=typeof error==="string"?error:typeof error?.message==="string"?error.message:"";
+  const raw=(name+" "+detail).slice(0,8192);
+  const known=(code,message)=>new BrowserInferenceError(code,message);
+  if(/ContextWindowSizeExceededError|Prompt tokens exceed context window size/i.test(raw))
+    return known("CONTEXT_WINDOW_EXCEEDED","Вопрос вместе с контекстом слишком длинный для этой модели. Сократите его и запустите модель из кеша.");
+  if(/DeviceLostError|(?:WebGPU )?device (?:was |is |has been )?lost|device\.lost|GPUDeviceLost/i.test(raw))
+    return known("GPU_DEVICE_LOST","Графический ускоритель остановил вычисления. Попробуйте запустить более лёгкую модель.");
+  if(/out of memory|GPUOutOfMemoryError|allocation failed|failed to allocate|insufficient memory/i.test(raw))
+    return known("GPU_MEMORY_EXHAUSTED","Не хватило памяти для вычислений. Выберите более лёгкую модель.");
+  if(/ModelNotLoadedError|WorkerEngineModelNotLoadedError|EngineNotLoadedError|Model not loaded before trying|is not loaded with a model|Engine not yet loaded/i.test(raw))
+    return known("MODEL_SESSION_LOST","Модель больше не запущена. Её можно снова открыть из сохранённых файлов.");
+  if(/GrammarMatcherInitError|InvalidResponseFormat(?:Grammar)?Error|Failed to initialize the grammar matcher/i.test(raw))
+    return known("FORM_GRAMMAR_FAILED","Не удалось подготовить ответ для этой формы. Запустите модель снова или воспользуйтесь подсказками без модели.");
+  return known("LOCAL_INFERENCE_FAILED","Не удалось завершить вычисления. Модель остановлена; сохранённые файлы доступны для повторного запуска.");
+}
