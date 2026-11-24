@@ -3,9 +3,10 @@ from hashlib import sha256
 import json
 from pathlib import Path
 from decimal import Decimal
+from research.akis.qualitative_mesa.mesa_model import simulate
 
 from research.akis.qualitative_mesa.tests.test_original_delegation_recovery_mesa import (
-    observe_renewal, delegation_scope, attempt_costs,
+    observe_renewal, delegation_scope, attempt_costs, authority_time, idle_mandate_route,
 )
 
 
@@ -35,11 +36,14 @@ def export_original_delegation_recovery():
                     "LOWER" if total<83 else "EQUAL" if total==83 else "HIGHER"
                 ) if "S1_DIRECT" in outcomes else "NOT_MATCHED_ACROSS_PATTERN_MODES",
                 "independent_attempt_costs_reconciled": costs["status"]=="MODEL_ORIGINAL_DELEGATION_ATTEMPT_COSTS_RECONCILED",
+                "pending_work_model_time": authority_time(out),
             })
         rows.append({"trial":label,"arms":arms,"same_original_result_capacity_cash_and_acceptance":True})
+    idle = [{"expiry_kind":kind,"model_time":authority_time(simulate(idle_mandate_route(kind)[0]))}
+            for kind in ("source","function","oc")]
     payload = json.dumps({
-        "schema":"AKIS_ORIGINAL_DELEGATION_RECOVERY/1.0",
-        "engine":"MESA_3_5_2","observations":rows,
+        "schema":"AKIS_ORIGINAL_DELEGATION_RECOVERY/1.1",
+        "engine":"MESA_3_5_2","observations":rows,"idle_expiry_observations":idle,
         "private_amounts_source_and_owner_identifiers_excluded":True,
         "real_costs_runtime_profit_and_causal_effect_verified":False,
     },sort_keys=True,indent=2,allow_nan=False)+"\n"

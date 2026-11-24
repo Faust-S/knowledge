@@ -503,6 +503,28 @@ def original_preparation_mandate_source(state: Any, work: Any, fn: Mapping[str, 
     return "NONE"
 
 
+def _original_preparation_mandate_verdict(state: Any, work: Any, fn: Mapping[str, Any],
+                                          grant: Mapping[str, Any], at: int,
+                                          *, source_changed: bool) -> str:
+    """The exact original scope check, also used by the read-only observer."""
+    mandate = grant["model_original_preparation_mandate"]
+    if (grant.get("actor") != work.customer
+            or grant.get("work_source_revision") != work.source_revision
+            or grant.get("org_revision") != state.institution.revision
+            or mandate["function_fingerprint"] != preparation_source_fingerprint(fn)
+            or mandate["delegate"] != fn["owner"]
+            or original_preparation_oc_edition(state, grant["at"])
+                != getattr(state, "model_org_code_edition", "BASE")):
+        return "FORMATION_AGENT_DELEGATION_ORIGINAL_SCOPE_CHANGED"
+    reason = original_preparation_mandate_source(
+        state, work, fn, mandate["source_ref"], mandate["source_revision"], at)
+    if reason != "NONE":
+        return reason
+    if source_changed:
+        return "FORMATION_AGENT_DELEGATION_SOURCE_CHANGED_AFTER_GRANT"
+    return "NONE"
+
+
 def original_preparation_mandate(state: Any, work: Any, fn: Mapping[str, Any],
                                  delegation_at: Any, at: int, *,
                                  fresh_use: bool = False) -> tuple[str, Any]:
@@ -521,22 +543,13 @@ def original_preparation_mandate(state: Any, work: Any, fn: Mapping[str, Any],
         return "FORMATION_AGENT_ORIGINAL_DELEGATION_NOT_CURRENT", None
     grant = grants[-1]
     mandate = grant["model_original_preparation_mandate"]
-    if (grant.get("actor") != work.customer
-            or grant.get("work_source_revision") != work.source_revision
-            or grant.get("org_revision") != state.institution.revision
-            or mandate["function_fingerprint"] != preparation_source_fingerprint(fn)
-            or mandate["delegate"] != fn["owner"]
-            or original_preparation_oc_edition(state, grant["at"])
-                != getattr(state, "model_org_code_edition", "BASE")):
-        return "FORMATION_AGENT_DELEGATION_ORIGINAL_SCOPE_CHANGED", None
-    reason = original_preparation_mandate_source(
-        state, work, fn, mandate["source_ref"], mandate["source_revision"], at)
+    reason = _original_preparation_mandate_verdict(
+        state, work, fn, grant, at, source_changed=any(
+            row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
+            and row.get("source") == mandate["source_ref"]
+            and delegation_at < row["at"] < at for row in state.trace))
     if reason != "NONE":
         return reason, None
-    if any(row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
-           and row.get("source") == mandate["source_ref"]
-           and delegation_at < row["at"] < at for row in state.trace):
-        return "FORMATION_AGENT_DELEGATION_SOURCE_CHANGED_AFTER_GRANT", None
     if fresh_use and any(
             row.get("action") == "function_prepare" and row.get("outcome") == "APPLIED"
             and row.get("work") == work.key
@@ -1037,7 +1050,7 @@ def summarize_original_pattern_evolution(general_views: list, *, horizon: int
 
 
 def original_delegation_reproduction_view(
-    state: Any, *, economics: Mapping[str, Any] | None = None,
+    state: Any, *, at: int, economics: Mapping[str, Any] | None = None,
     strict_work_ids: tuple | str | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Observe actual original grants and packets, not a second grant ledger.
@@ -1066,16 +1079,18 @@ def original_delegation_reproduction_view(
 
     grant_index = {(row["work"], row["at"]): pos for pos, row in grants.items()}
     used_grants = {}
+    seen_grant_positions = set()
     chain_ok = len(grant_index) == len(grants)
     for pos, row in packets.items():
         grant = grant_index.get((row["work"], row["model_original_delegated_preparation"]["delegation_at"]))
-        if (grant is None or grant in used_grants.values()
+        if (grant is None or grant in seen_grant_positions
                 or grants[grant]["function_id"] != row["function_id"]
                 or grants[grant]["model_original_preparation_mandate"]["delegate"] != row["actor"]
                 or grants[grant]["at"] >= row["at"]):
             chain_ok = False
         else:
             used_grants[pos] = grant
+            seen_grant_positions.add(grant)
 
     # Historical evidence of the actually applied original commit; never
     # require present permission again to recognize a historical obligation.
@@ -1166,6 +1181,8 @@ def original_delegation_reproduction_view(
         "private_source_and_owner_identifiers_excluded": True,
         "other_attempts_not_automatically_economic_losses": True,
         "full_author_agent_autonomy_or_empirical_effect_identified": False,
+        "current_mandate_scope": original_delegation_authority_observation(
+            state, grants, used, at=at),
     }
     if economics is None:
         return shared, None
@@ -1243,3 +1260,137 @@ def original_delegation_reproduction_view(
         "actual_incurrence_profit_and_causal_saving_verified": False,
     }
     return shared, cost_view
+
+
+def original_delegation_authority_observation(
+    state: Any, grants: Mapping[int, Mapping[str, Any]], used: set[int], *, at: int,
+) -> dict[str, Any]:
+    """Observe CURRENT mandate scope after the original event at this tick.
+
+    This is only the mandate, function declaration and OC limit. It is not
+    full Work readiness, packet validity, approval, a new permission or
+    verified production downtime. Once committed, a Work no longer needs a
+    preparation mandate for its historical obligation.
+    """
+    latest = {}
+    for pos, row in grants.items():
+        latest[(row["work"], row["function_id"])] = (pos, row)
+    updates = {}
+    for row in state.trace:
+        if (row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
+                and row["at"] <= at):
+            updates[row["source"]] = row["at"]
+    design = state.formation_policy.design if state.formation_policy is not None else None
+    policy = getattr(state, "model_org_policy", None)
+    code_current = (policy is not None and policy.active(state, at)
+                    and policy.agent_decision("REQUEST_APPROVAL")
+                    == "OC_MODEL_PREPARATION_CANDIDATE_NOT_AUTHORIZED")
+    current_unused = current_used = without_current = with_history = 0
+    reasons = {}
+    for key in sorted({key for key, _ in latest}):
+        work = state.works.get(key)
+        if work is None or work.obligation != "NOT_ACCEPTED":
+            continue
+        with_history += 1
+        functions = [] if design is None else [
+            fn for fn in design.declarations["agent_functions"]
+            if fn["work"] == key and fn["work_revision"] == work.source_revision
+            and fn["action"] == "REQUEST_APPROVAL"
+            and fn["revision"] == state.institution.revision
+            and fn["available_at"] <= at < fn["expires_at"]
+        ]
+        reason = "NONE"
+        selected = None
+        if len(functions) != 1 or not functions[0].get("requires_original_delegation"):
+            reason = "FORMATION_AGENT_ORIGINAL_FUNCTION_NOT_CURRENT"
+        elif not code_current:
+            reason = "FORMATION_AGENT_ORIGINAL_OC_FUNCTION_NOT_PERMITTED"
+        else:
+            fn = functions[0]
+            selected = latest.get((key, fn["id"]))
+            if selected is None:
+                reason = "FORMATION_AGENT_ORIGINAL_DELEGATION_NOT_CURRENT"
+            else:
+                _, grant = selected
+                ref = grant["model_original_preparation_mandate"]["source_ref"]
+                reason = _original_preparation_mandate_verdict(
+                    state, work, fn, grant, at,
+                    source_changed=updates.get(ref, -1) > grant["at"])
+        if reason == "NONE":
+            if selected[0] in used:
+                current_used += 1
+            else:
+                current_unused += 1
+        else:
+            without_current += 1
+            reasons[reason] = reasons.get(reason, 0) + 1
+    return {
+        "uncommitted_works_with_original_mandate_history": with_history,
+        "uncommitted_works_without_current_mandate": without_current,
+        "uncommitted_works_with_current_unused_mandate": current_unused,
+        "uncommitted_works_with_current_consumed_mandate": current_used,
+        "current_mandate_failure_reasons": dict(sorted(reasons.items())),
+        "consumed_mandate_does_not_permit_another_preparation": True,
+        "current_mandate_is_not_full_packet_readiness_or_work_consent": True,
+        "committed_work_excluded_from_prospective_scope": True,
+    }
+
+
+def summarize_original_delegation_evolution(general_views: list, *, horizon: int
+                                            ) -> dict[str, Any] | None:
+    """Integrate only observed pending Work scope over the existing clock.
+
+    Source expiry is observed at valid_until+1. Work-ticks are not real
+    work hours, duration of work execution, or proof of avoidable delay.
+    The count ceases at the actual original commitment (or at horizon).
+    """
+    points = []
+    last_at = -1
+    fields = (
+        "uncommitted_works_with_original_mandate_history",
+        "uncommitted_works_without_current_mandate",
+        "uncommitted_works_with_current_unused_mandate",
+        "uncommitted_works_with_current_consumed_mandate",
+    )
+    for row in general_views:
+        scope = row["projection"]["agent_function_formation_model_gate"].get(
+            "original_delegation_scope")
+        if scope is None:
+            continue
+        at = row["at"]
+        if not 0 <= at <= horizon or int(at) != at or at <= last_at:
+            raise ValueError("DELEGATION_EVOLUTION_ORIGINAL_TICK_INVALID")
+        last_at = at
+        current = scope["current_mandate_scope"]
+        values = tuple(current[key] for key in fields)
+        if any(type(v) is not int or v < 0 for v in values) or values[0] != sum(values[1:]):
+            raise ValueError("DELEGATION_EVOLUTION_PENDING_WORK_COUNTS_INCONSISTENT")
+        if not points or points[-1][1] != values:
+            points.append((int(at), values))
+    if not points:
+        return None
+    totals = [0, 0, 0, 0]
+    any_without = 0
+    for i, (at, values) in enumerate(points):
+        end = points[i+1][0] if i+1 < len(points) else horizon
+        duration = end-at
+        for j,v in enumerate(values):
+            totals[j] += v*duration
+        if values[1]:
+            any_without += duration
+    return {
+        "scope": "ORIGINAL_PENDING_MANDATE_SCOPE_MODEL_TIME_ONLY",
+        "model_horizon_tick": horizon,
+        "first_original_mandate_observed_at": points[0][0],
+        "pending_work_model_ticks_after_first_mandate": totals[0],
+        "pending_work_model_ticks_without_current_mandate": totals[1],
+        "pending_work_model_ticks_with_current_unused_mandate": totals[2],
+        "pending_work_model_ticks_with_current_consumed_mandate": totals[3],
+        "model_ticks_with_any_pending_work_without_current_mandate": any_without,
+        "pending_work_time_share_without_current_mandate": (
+            f"{Decimal(totals[1])/Decimal(totals[0]):.4f}" if totals[0]
+            else "UNKNOWN_ZERO_DENOMINATOR"),
+        "model_ticks_are_not_measured_labor_or_production_delay": True,
+        "same_original_general_system_evolution": True,
+        "no_original_event_or_cost_created": True,
+    }

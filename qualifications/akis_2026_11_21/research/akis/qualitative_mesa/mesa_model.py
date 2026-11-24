@@ -653,10 +653,13 @@ class OperatorAKISModel(mesa.Model):
             # Observe expiry of only the original structural sources declared
             # by existing preparation events, even if no Work is active then.
             # This does not extend the horizon, add a source, or create Work.
-            if self._has_structural_preparation_claims and self.qualitative.context_basis is not None:
+            if ((self._has_structural_preparation_claims or self._has_original_delegation_claims)
+                    and self.qualitative.context_basis is not None):
                 for ev in self.qualitative.events:
                     claim = ev.get("preparation_pattern")
-                    ref = claim.get("source_ref") if isinstance(claim, dict) else None
+                    ref = (claim.get("source_ref") if isinstance(claim, dict)
+                           else ev.get("delegation_source_ref") if ev["action"] == "function_delegate"
+                           else None)
                     source = (self.qualitative.context_basis.sources.get(ref)
                               if isinstance(ref, str) else None)
                     if source is not None and source.valid_until is not None:
@@ -736,7 +739,8 @@ class OperatorAKISModel(mesa.Model):
                 view["author_operator_reproducibility"]["structural_preparation_scope"] = observation
         if self._has_original_delegation_claims:
             from .process_preparation import original_delegation_reproduction_view
-            delegation, _ = original_delegation_reproduction_view(self.qualitative)
+            delegation, _ = original_delegation_reproduction_view(
+                self.qualitative, at=int(self.time))
             if delegation is not None:
                 view["agent_function_formation_model_gate"]["original_delegation_scope"] = delegation
         # Record only causal changes, not a new event/Result journal.
@@ -905,7 +909,8 @@ class OperatorAKISModel(mesa.Model):
     def _apply_event(self, event: dict[str, Any]) -> None:
         outcome = self.qualitative.apply(event, int(self.time))
         if (event["action"] == "model_code_apply" and outcome["outcome"] == "APPLIED"
-                and self.general_akis_enabled and self._has_structural_preparation_claims):
+                and self.general_akis_enabled
+                and (self._has_structural_preparation_claims or self._has_original_delegation_claims)):
             # A newly APPLIED source edition can expire at a different time
             # from the original static design. Reuse the same low-priority
             # general observation; never create a new business event.
@@ -1540,14 +1545,18 @@ class OperatorAKISModel(mesa.Model):
             if pattern_costs is not None:
                 output["economics"]["original_pattern_reproduction_costs"] = pattern_costs
             if self._has_original_delegation_claims:
-                from .process_preparation import original_delegation_reproduction_view
+                from .process_preparation import (
+                    original_delegation_reproduction_view, summarize_original_delegation_evolution,
+                )
                 delegation, delegation_costs = original_delegation_reproduction_view(
-                    self.qualitative, economics=output.get("economics"),
+                    self.qualitative, at=int(self.time), economics=output.get("economics"),
                     strict_work_ids=self.strict_economic_source_work,
                 )
                 if delegation is not None:
-                    output["general_akis_model"]["agent_function_formation_model_gate"][
-                        "original_delegation_scope"] = delegation
+                    gate = output["general_akis_model"]["agent_function_formation_model_gate"]
+                    gate["original_delegation_scope"] = delegation
+                    gate["original_delegation_model_time"] = summarize_original_delegation_evolution(
+                        self.general_views, horizon=self._model_end_at)
                 if delegation_costs is not None:
                     output["economics"]["original_delegation_attempt_costs"] = delegation_costs
             if "capability_dynamics" in output:

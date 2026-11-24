@@ -298,3 +298,114 @@ def test_no_new_original_review_no_recovered_commit():
     assert delegation_scope(out)["committed_effective_preparation_count"] == 0
     assert delegation_scope(out)["applied_delegated_preparation_count"] == 2
     assert all(out["works"][w]["result"]==ACCEPTED for w in ("w1","w2"))
+
+
+def authority_points(out):
+    return {int(row["at"]): scope["current_mandate_scope"]
+            for row in out["general_akis_model"]["read_only_evolution"]
+            if (scope := row["projection"]["agent_function_formation_model_gate"].get(
+                "original_delegation_scope")) is not None}
+
+
+def authority_time(out):
+    return out["general_akis_model"]["agent_function_formation_model_gate"][
+        "original_delegation_model_time"]
+
+
+@pytest.mark.parametrize("same_revision",[False,True])
+def test_model_time_observes_exact_source_change_and_new_grant_not_work_duration(same_revision):
+    out = simulate(renewal_routes(same_revision=same_revision)["RECOVERED"])
+    g1,g2 = original_applied(out,"function_delegate")
+    p1,p2 = original_applied(out,"function_prepare")
+    change = next(row for row in out["trace"] if row["action"]=="source_update"
+                  and row.get("source")==MANDATE)
+    commit = original_applied(out,"commit")[0]
+    points = authority_points(out)
+    no_current = "uncommitted_works_without_current_mandate"
+    unused = "uncommitted_works_with_current_unused_mandate"
+    consumed = "uncommitted_works_with_current_consumed_mandate"
+    assert points[g1["at"]][unused] == 1
+    assert points[p1["at"]][consumed] == 1
+    assert points[change["at"]][no_current] == 1
+    assert points[g2["at"]][unused] == 1
+    assert points[p2["at"]][consumed] == 1
+    assert points[commit["at"]]["uncommitted_works_with_original_mandate_history"] == 0
+    time = authority_time(out)
+    duration = commit["at"]-g1["at"]
+    gap = g2["at"]-change["at"]
+    idle = p1["at"]-g1["at"]+p2["at"]-g2["at"]
+    assert time["pending_work_model_ticks_after_first_mandate"] == duration
+    assert time["pending_work_model_ticks_without_current_mandate"] == gap == 2
+    assert time["pending_work_model_ticks_with_current_unused_mandate"] == idle
+    assert time["pending_work_model_ticks_with_current_consumed_mandate"] == duration-gap-idle
+    assert time["model_ticks_with_any_pending_work_without_current_mandate"] == gap
+    assert time["pending_work_time_share_without_current_mandate"] == f"{Decimal(gap)/Decimal(duration):.4f}"
+    assert time["model_ticks_are_not_measured_labor_or_production_delay"]
+
+
+def idle_mandate_route(kind):
+    doc = without_costs(delegated_route(costs=True,patterns=False))
+    review = event(doc,"function_review","w3")
+    expiry = review["at"]+2
+    doc["events"] = [row for row in doc["events"] if row["at"] <= review["at"]]
+    doc["model_horizon"] = expiry+5
+    if kind == "source":
+        from .test_original_bounded_delegation_mesa import mandate_source
+        mandate_source(doc)["valid_until"] = expiry
+        observed = expiry+1
+    elif kind == "function":
+        next(fn for fn in doc["general_akis"]["agent_functions"]
+             if fn["work"]=="w3")["expires_at"] = expiry
+        observed = expiry
+    elif kind == "oc":
+        for row in doc["general_akis"]["organizational_code"]:
+            row["expires_at"] = expiry
+        observed = expiry
+    else:
+        raise AssertionError(kind)
+    return doc, observed
+
+
+@pytest.mark.parametrize("kind,reason",[
+    ("source","FORMATION_AGENT_DELEGATION_SOURCE_CONTEXT_SOURCE_EXPIRED"),
+    ("function","FORMATION_AGENT_ORIGINAL_FUNCTION_NOT_CURRENT"),
+    ("oc","FORMATION_AGENT_ORIGINAL_OC_FUNCTION_NOT_PERMITTED"),
+])
+def test_idle_expiry_changes_scope_without_original_business_event(kind,reason):
+    doc, tick = idle_mandate_route(kind)
+    out = simulate(doc)
+    assert out["counts"]["blocked"] == 0
+    assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+    points = authority_points(out)
+    assert points[tick]["uncommitted_works_without_current_mandate"] == 1
+    assert points[tick]["current_mandate_failure_reasons"] == {reason:1}
+    assert not any(row["at"] == tick for row in out["trace"])
+    time = authority_time(out)
+    assert time["pending_work_model_ticks_without_current_mandate"] == doc["model_horizon"]-tick
+    assert delegation_scope(out)["applied_delegated_preparation_count"] == 1
+    assert delegation_scope(out)["committed_effective_preparation_count"] == 0
+    assert all(out["works"][w]["result"]==ACCEPTED for w in ("w1","w2"))
+    assert out == simulate(deepcopy(doc))
+
+
+def test_expiry_after_committed_work_does_not_create_prospective_mandate_gap():
+    from .test_original_bounded_delegation_mesa import mandate_source
+    doc = delegated_route(costs=True, patterns=False)
+    mandate_source(doc)["valid_until"] = event(doc,"commit","w3")["at"]
+    out = simulate(doc)
+    assert out["counts"]["blocked"] == 0
+    assert delegation_scope(out)["accepted_effective_preparation_count"] == 1
+    assert authority_time(out)["pending_work_model_ticks_without_current_mandate"] == 0
+    assert delegation_scope(out)["current_mandate_scope"]["uncommitted_works_with_original_mandate_history"] == 0
+
+
+def test_no_current_work_time_at_first_observed_grant_has_unknown_share():
+    from research.akis.qualitative_mesa.mesa_model import OperatorAKISModel
+    from research.akis.qualitative_mesa.process_preparation import summarize_original_delegation_evolution
+    doc = without_costs(delegated_route(costs=True,patterns=False))
+    tick = grant(doc)["at"]
+    model = OperatorAKISModel(doc)
+    model.run_until(float(tick)+0.5)
+    time = summarize_original_delegation_evolution(model.general_views,horizon=tick)
+    assert time["pending_work_model_ticks_after_first_mandate"] == 0
+    assert time["pending_work_time_share_without_current_mandate"] == "UNKNOWN_ZERO_DENOMINATOR"
