@@ -4111,7 +4111,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         lastInBatch=revision===4,
         simulatePublicationLoss=kind==='OBJECT_PUT'&&revision===2,
         simulateSubjectLoss=false,simulateTcpOutage=false,expectedAssetBytes=null,
-        simulateRecipientLifetimeAfterAck=false,
+        simulateRecipientLifetimeAfterAck=false,autoSource=false,
       }={})=>{
       const recipientKernel=kind==='OBJECT_PUT'?p2cRecipientKernel:p2gRecipientKernel;
       let recipientHostActive=true,stopAfterAck=simulateRecipientLifetimeAfterAck;
@@ -4134,6 +4134,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const durableSession=deriveT4OriginalNativeCaptureSession(p2fTask);
       const {sessionRef:p2eSession,changeId:p2eChangeId,
         familyRef:p2eFamily}=durableSession;
+      let autoSealReads=0,autoDiscovered=0;
+      const autoStates=[];
       let f2SignCalls=0,f2NetworkWrites=0,f2SourcePutCalls=0,
         f2RecipientPutCalls=0,explicitMissingRetryAuthorizations=0;
       let losePrepareReply=simulatePublicationLoss,loseSourceNetworkReply=simulatePublicationLoss,
@@ -4236,10 +4238,20 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const slotsFor=specs=>specs.map(({messageType,sequence})=>({messageType,sequence}));
       const fromPublication=async(publication,from)=>{
         const receiver=from==='SOURCE'?nativeReceiver():sourceHeadVerifier;
-        const verified=await receiver.readAndVerifySignedFrame({
+        const extensions=[T4_RELATION_EVENT_EXTENSION,T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION];
+        let verified;
+        if(autoSource){
+          const found=await receiver.discoverUniqueSignedFrame({selector:{
+            sourceNodeRef:from==='SOURCE'?'node:original:source':'node:original:recipient',
+            sessionRef:p2eSession,ownerEpoch:2,messageType:publication.messageType,
+            sequence:publication.sequence},
+            requiredCryptoSuite:'X25519_AES256GCM_ED25519',supportedCriticalExtensions:extensions});
+          assert.equal(found.state,'FOUND');
+          assert.equal(found.receipt.key,publication.key); // compare only AFTER discovery
+          verified=found.receipt;autoDiscovered++;
+        }else verified=await receiver.readAndVerifySignedFrame({
           key:publication.key,expectedSha256:publication.sha256,
-          requiredCryptoSuite:'X25519_AES256GCM_ED25519',
-          supportedCriticalExtensions:[T4_RELATION_EVENT_EXTENSION,T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION],
+          requiredCryptoSuite:'X25519_AES256GCM_ED25519',supportedCriticalExtensions:extensions,
         });
         assert.equal(verified.originalSignatureVerified,true);
         return {publication,verified};
@@ -4361,6 +4373,12 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
               p.evidence.evidenceDigest===original.sourceWindow.windowDigest&&
               original.prepared.sha256===p2fCaptured.prepared.sha256;
           }
+          if(p.phase==='PUBLISHED'&&autoSource){
+            const local=await publicationPort(true).readOriginalPublishedFrame({sequence:2});
+            return local.originalOutboundSignatureVerified===true&&
+              local.remoteReceiptProven===false&&local.key===p.evidence.evidenceRef&&
+              'sha256:'+local.sha256===p.evidence.evidenceDigest;
+          }
           if(p.phase==='PUBLISHED')return (
             p2eChange?.verified.originalSignatureVerified===true&&
             p2eChange.publication.immutableTransportReadback===true&&
@@ -4368,6 +4386,19 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             p.evidence.evidenceDigest===
               'sha256:'+p2eChange.publication.sha256
           );
+          if(p.phase==='APPLIED_CONFIRMED'&&autoSource){
+            const found=await sourceHeadVerifier.discoverUniqueSignedFrame({selector:{
+              sourceNodeRef:'node:original:recipient',sessionRef:p2eSession,
+              ownerEpoch:2,messageType:'APPLIED_ACK',sequence:2},
+              requiredCryptoSuite:'X25519_AES256GCM_ED25519',
+              supportedCriticalExtensions:t4NativeSubjectCriticalExtensions(kind)});
+            const r=found.receipt;
+            return found.state==='FOUND'&&r.originalSignatureVerified===true&&
+              r.originalAccessVerified===true&&r.key===p.evidence.evidenceRef&&
+              'sha256:'+r.sha256===p.evidence.evidenceDigest&&
+              r.verifiedBody.recipientEventRef===p.evidence.originalRecipientEventId&&
+              r.verifiedBody.recipientStateDigest===p.evidence.originalRecipientStateDigest;
+          }
           if(p.phase==='APPLIED_CONFIRMED')return (
             p2eSignedAck?.verified.originalSignatureVerified===true&&
             p2eSignedAck.verified.originalAccessVerified===true&&
@@ -4440,16 +4471,46 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         evidenceRef:p2fCaptured.sourceEventId,
         evidenceDigest:p2fCaptured.sourceWindow.windowDigest,
       };
-      await p2eSourcePhase().advanceOriginalSessionPhase({
+      const autoStep=async()=>{
+        const result=await sourceTask().runNativeSourceStep({
+          createOriginalSourcePhasePort:async()=>p2eSourcePhase(),
+          sourceCursorPort:p2eCursorPort(),frameDiscoveryPort:sourceHeadVerifier,
+          requiredCryptoSuite:'X25519_AES256GCM_ED25519',
+          resolveOriginalSigningContext:async()=>({permissionRef:'original:permission:replay',
+            signerRef:'key:original:source:p22c'}),
+          signOriginalNodeBytes:async({bytes})=>{
+            f2SignCalls++;return sign(null,Buffer.from(bytes),nativeKeys.privateKey);
+          },
+          authorizeOriginalSealedContent:async()=>actual.grants.includes('t1.getObject'),
+          readOriginalSealedContent:async p=>{
+            assert.equal(p.exactCapturedCanonicalBytesRequired,true);
+            assert.equal(p.originalCapture.prepared.sha256,p2fCaptured.prepared.sha256);
+            assert.deepEqual(Buffer.from(p.originalCapture.prepared.bytes),Buffer.from(p2ePrepared.bytes));
+            autoSealReads++;
+            return {ciphertext:new Uint8Array(p2eCiphertext),encryptionContextRef:p2eChunksPlan.encryptionContextRef};
+          },
+          authorizeOriginalRead:async p=>actual.grants.includes(p.operation),
+          readOriginalEvents:()=>originalCarrierKernel.listEventsSince(workspaceId),
+          verifyOriginalSourceSubject:p=>verifyT4OriginalHostCapturedSubjectSource(p2fReadPorts,p),
+        });
+        autoStates.push(result.state);return result;
+      };
+      if(autoSource)assert.equal((await autoStep()).state,'INTENT_RECORDED');
+      else await p2eSourcePhase().advanceOriginalSessionPhase({
         phase:'INTENT',evidence:p2eIntentEvidence,
       });
       const headsSpecs=[{messageType:'HEADS',sequence:1,from:'SOURCE',body:{
         familyRef:p2eFamily,ownerEpoch:2,
         heads:[p2fCaptured.sourceWindow.sourcePrefixDigestAfter],
       }}];
-      const headsSent=await sourceTask().runNativePublication({
+      const headsSent=autoSource?await autoStep():await sourceTask().runNativePublication({
         slots:slotsFor(headsSpecs),createSignedFrames:()=>signBatch(headsSpecs),
       });
+      if(autoSource){
+        assert.equal(headsSent.state,'HEADS_PRESENT');
+        assert.equal((await autoStep()).state,'WAITING_FOR_DIFF');
+        assert.equal(autoSealReads,0);
+      }
       assert.equal(headsSent.sourceCursorAdvanced,false);
       const p2eHeads=await fromPublication(headsSent.publications[0],'SOURCE');
       const diffSpecs=[{messageType:'DIFF_REQUEST',sequence:1,from:'RECIPIENT',
@@ -4473,7 +4534,20 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         slots:contentSlots,publish:false,
         createSignedFrames:()=>signBatch(contentSpecs),
       });
-      if(simulatePublicationLoss){
+      if(autoSource){
+        const netBefore=f2NetworkWrites;
+        losePrepareReply=true;
+        await assert.rejects(autoStep(),e=>e?.code==='PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN');
+        assert.equal(f2NetworkWrites,netBefore);
+        const saved=await publicationPort(true).inspectOriginalPublication();
+        assert.ok(saved.frames.slice(1).every(f=>f.state==='PREPARED'));
+        assert.equal(autoSealReads,1);
+        const signsBefore=f2SignCalls;
+        await restartSource();
+        assert.deepEqual((await publicationPort(true).inspectOriginalPublication()).frames.map(f=>f.wireBytes),
+          saved.frames.map(f=>f.wireBytes));
+        assert.equal(f2SignCalls,signsBefore);
+      }else if(simulatePublicationLoss){
         const netBefore=f2NetworkWrites;
         await assert.rejects(prepareContent(),
           e=>e?.code==='PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN');
@@ -4550,10 +4624,15 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           tcpInterruptedBeforeRemoteWrite:true,coldOriginalHostReadback:true,
           absentFrameNotRetriedWithoutExplicitDecision:true};
       }
-      const contentSent=await sourceTask().runNativePublication({
+      const contentSent=autoSource?await autoStep():await sourceTask().runNativePublication({
         slots:contentSlots,retryMissing:simulateTcpOutage,
         createSignedFrames:async()=>{throw Error('must use saved content bytes');},
       });
+      if(autoSource){
+        assert.equal(contentSent.state,'CONTENT_PRESENT');
+        assert.equal(contentSent.originalSignedBatchReused,true);
+        assert.equal(autoSealReads,1);
+      }
       if(simulateTcpOutage){
         const resumed=await publicationPort(true).inspectOriginalPublication();
         assert.deepEqual(resumed.frames.map(f=>f.wireBytes),outageWitness.savedBytes);
@@ -4581,7 +4660,10 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const p2eChunks=[];
       for(const publication of contentSent.publications.slice(1))
         p2eChunks.push(await fromPublication(publication,'SOURCE'));
-      await p2eSourcePhase().advanceOriginalSessionPhase({
+      if(autoSource){
+        assert.equal((await autoStep()).state,'PUBLISHED_RECORDED');
+        assert.equal((await autoStep()).state,'WAITING_FOR_ACK');
+      }else await p2eSourcePhase().advanceOriginalSessionPhase({
         phase:'PUBLISHED',evidence:{
           evidenceRef:p2eChange.publication.key,
           evidenceDigest:'sha256:'+p2eChange.publication.sha256,
@@ -4824,7 +4906,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         recovery:p2eAckRecovery,sourceCursorPort:p2eCursorPort(),
       });
       p2eLoseOriginalCursorAck=true;
-      await assert.rejects(sourceAckTask(),
+      await assert.rejects(autoSource?autoStep():sourceAckTask(),
         e=>e?.code==='HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'&&
           e.details.automaticRetryAllowed===false);
       assert.equal(p2eFrontierPutCalls,frontierRevision);
@@ -4843,6 +4925,27 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(recipientPhaseAfterCold.currentPhase,'APPLIED');
       assert.equal(recipientPhaseAfterCold.revision,4);
       assert.equal(recipientPhaseAfterCold.recipientApplyIntentRequired,true);
+      if(autoSource){
+        const before=f2SignCalls;
+        assert.equal((await autoStep()).state,'NO_NEXT_ORIGINAL_EVENT');
+        assert.equal(f2SignCalls,before);
+        assert.equal(autoSealReads,1);
+        assert.deepEqual(autoStates,['INTENT_RECORDED','HEADS_PRESENT','WAITING_FOR_DIFF',
+          'CONTENT_PRESENT','PUBLISHED_RECORDED','WAITING_FOR_ACK','NO_NEXT_ORIGINAL_EVENT']);
+        assert.equal(autoDiscovered,contentSpecs.length+3);
+        console.log('T4_REAL_ORIGINAL_T3_NATIVE_DISCOVERED_SOURCE_TASK_PASS',JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,states:autoStates,
+          verifiedFrameAddressesNotSuppliedToDiscovery:true,discoveredExactSlots:autoDiscovered,
+          sourceDurablePreparedBytesReusedAfterLostReply:true,originalSealedContentReads:autoSealReads,
+          originalSourceAckCursorRevision:frontierRevision,
+          sourceCursorCommitReplyLost:true,coldSourceTaskFoundNoNextOriginalEvent:true,
+          signedFrames:f2SignCalls,actualHTTPSFramePuts:f2NetworkWrites,
+          originalRecipientSubjectWrites:totalNativeSubjectWrites()-writesBefore,
+          originalSourceFramesRemoteReceiptFabricated:false,
+          originalTaskStepUsesExistingHostBinding:true,
+          installedProductionScheduler:false,independentPhysicalDevices:false,
+        }));
+      }
       const sourceAckDone=await sourceAckTask();
       assert.equal(sourceAckDone.originalHostTaskOwnerVerified,true);
       assert.equal(sourceAckDone.originalSourceCursorConfirmed,true);
@@ -5411,7 +5514,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const completedObjectDelete=await p2fRunCapturedSession(7,{
         kind:'OBJECT_DELETE',subjectId:p2cObjectId,frontierRevision:12,currentObjectRevision:7,
         lastInBatch:true,simulatePublicationLoss:false,simulateSubjectLoss:true,
-        simulateRecipientLifetimeAfterAck:true,
+        simulateRecipientLifetimeAfterAck:true,autoSource:true,
       });
       assert.equal(completedObjectDelete.sourceEventId,recoveredObjectDelete.originalEvent.event_id);
       assert.equal(completedObjectDelete.originalDeltaSha256,recoveredObjectDelete.prepared.sha256);

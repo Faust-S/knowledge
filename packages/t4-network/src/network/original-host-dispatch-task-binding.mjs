@@ -196,6 +196,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     }));
     if(rawPort?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
       JSON.stringify(rawPort.session)!==JSON.stringify(session)||
+      (expected?.publicationCheckpointRef&&rawPort.checkpointRef!==expected.publicationCheckpointRef)||
       rawPort.originalT3OnlyStore!==true||rawPort.createsScheduler!==false||
       !['prepareSignedBatch','publishPreparedFrame','inspectOriginalPublication']
         .every(op=>typeof rawPort[op]==='function'))
@@ -410,6 +411,7 @@ export function createT4OriginalHostDispatchTaskBinding({
       !['inspectOriginalPublication','readOriginalPublishedFrame','prepareSignedBatch','publishPreparedFrame']
         .every(k=>typeof rawPublication[k]==='function'))
       fail('HOST_TASK_ORIGINAL_NATIVE_PUBLICATION_PORT_INVALID');
+    expected.publicationCheckpointRef=rawPublication.checkpointRef;
     const publication=scopeOriginalHostPort(rawPublication,lifetime,
       ['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler'],
       'HOST_TASK_ORIGINAL_NATIVE_PUBLICATION_PORT_INVALID');
@@ -494,8 +496,8 @@ export function createT4OriginalHostDispatchTaskBinding({
     if(!frames.length||frames[0].state!=='PRESENT'){
       const spec={sequence:1,messageType:'HEADS',
         body:{familyRef:session.familyRef,ownerEpoch:session.ownerEpoch,heads:[session.sourcePrefixDigestAfter]}};
-      await send([{sequence:1,messageType:'HEADS'}],frames.length?null:[spec]);
-      return done('HEADS_PRESENT');
+      const sent=await send([{sequence:1,messageType:'HEADS'}],frames.length?null:[spec]);
+      return done('HEADS_PRESENT',{publications:sent.publications});
     }
     async function inbound(messageType,sequence){
       await refresh();
@@ -544,12 +546,12 @@ export function createT4OriginalHostDispatchTaskBinding({
         sourceRevision:session.sourceRevision,contentDigest:chunks.contentDigest,
         parents:[session.sourcePrefixDigestBefore],
       }},...chunks.bodies.map((body,i)=>({sequence:i+3,messageType:'CHUNK',body}))];
-      await send(specs.map(({sequence,messageType})=>({sequence,messageType})),specs);
-      return done('CONTENT_PRESENT');
+      const sent=await send(specs.map(({sequence,messageType})=>({sequence,messageType})),specs);
+      return done('CONTENT_PRESENT',{publications:sent.publications});
     }
     if(frames.some(f=>f.state!=='PRESENT')){
-      await send(frames.slice(1).map(({sequence,messageType})=>({sequence,messageType})),null);
-      return done('CONTENT_PRESENT',{originalSignedBatchReused:true});
+      const sent=await send(frames.slice(1).map(({sequence,messageType})=>({sequence,messageType})),null);
+      return done('CONTENT_PRESENT',{originalSignedBatchReused:true,publications:sent.publications});
     }
     // Source reconstructs its own signed publication, not a fabricated
     // receiver's receipt, and checks exact original history before ACK.
