@@ -17,7 +17,7 @@ async function checkReadback(subject,workspace,objectId,digest){
  const o=read?.object;
  need(o?.workspace_id===workspace&&o.object_id===objectId&&o.schema_id===TECHNOLOGY_SCHEMA&&
   o.schema_version===TECHNOLOGY_VERSION&&o.revision===1&&o.deleted!==true&&o.deleted_at==null&&
-  o.extensions&&Object.keys(o.extensions).length===0&&
+  o.extensions&&typeof o.extensions==='object'&&!Array.isArray(o.extensions)&&Object.keys(o.extensions).length===0&&
   Array.isArray(read.relations?.incoming)&&!read.relations.incoming.length&&Array.isArray(read.relations?.outgoing)&&!read.relations.outgoing.length,
   'TECHNOLOGY_NATIVE_READBACK_REQUIRED');
  const data=validateTechnologyProduct(o.data);
@@ -122,7 +122,7 @@ export async function releaseAcceptedTechnology(input={}){
  // bytes, rather than relying on a prior screen or export preview.
  await accepted();
  const filename=artifact.filename;
- need(typeof filename==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,239}\\.iwxa$/i.test(filename)&&
+ need(typeof filename==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,239}\.iwxa$/i.test(filename)&&
   artifact.size===expected.byteLength,'TECHNOLOGY_NATIVE_SAVE_FILENAME');
  let saved;
  try{
@@ -155,7 +155,7 @@ export async function releaseAcceptedTechnology(input={}){
    receipt.confirmations===1&&Number.isFinite(Date.parse(receipt.confirmed_at)),
    'TECHNOLOGY_NATIVE_CONFIRM_RECEIPT');
   return {status:'ORIGINAL_TECHNOLOGY_RELEASED',object_id,product_sha256,package_digest:artifact.package_digest,
-   file_saved:true,confirmation_required:false,export_confirmed:true,receipt};
+   file_saved:true,confirmation_required:false,export_confirmed:true,manifest:structuredClone(artifact.manifest),receipt};
  }catch{
   // File bytes exist; a lost Kernel response could also have committed.
   // Do not repeat confirmation, retract the file, or claim a successful release.

@@ -54,7 +54,7 @@ export async function qualifyOriginalTechnologyProducts({browser,open,chromium,t
    const saved=await client.t1.getObject(e.source,published.object_id);
    if(saved.object.revision!==1||recovered.object_id!==published.object_id)throw Error('TECHNOLOGY_NATIVE_EXPORT_REPEATED_WRITE');
    output.push({bytes:Array.from(savedBytes),object_id:published.object_id,source:e.source,digest:e.product.product_sha256,
-    manifest:recovered.artifact.manifest});
+    manifest:published.manifest});
   }
   return output;
  },{writer,service,entries});

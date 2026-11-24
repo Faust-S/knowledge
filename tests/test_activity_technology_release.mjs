@@ -33,6 +33,7 @@ test('original release confirms only after actual trusted readback, does not rep
  const x=await fixture();const r=await releaseAcceptedTechnology(x.input);
  assert.equal(r.status,'ORIGINAL_TECHNOLOGY_RELEASED');assert.equal(r.object_id,x.object_id);
  assert.equal(r.file_saved,true);assert.equal(r.export_confirmed,true);
+ assert.equal(r.manifest.package_digest,r.package_digest);
  assert.deepEqual(x.calls,['put','preview','export','save','confirm']);
  await releaseAcceptedTechnology(x.input);assert.equal(x.calls.filter(c=>c==='put').length,1);
 });
