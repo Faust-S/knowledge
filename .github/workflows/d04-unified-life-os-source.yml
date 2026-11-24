@@ -32,14 +32,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 86fa7e797d17a361f7df879d9e32e4bb6de483c2
+          ref: 95eff2616cda6ae3b7a3a0540c0284a1184b734f
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: d89ff284713c3b8a8af0d70da08b153cb840030c
+          ref: 7aac3cfa4e1cd11ba0f6db07b77450057b3cb32a
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           persist-credentials: false
@@ -49,9 +49,9 @@ jobs:
       - name: Check exact revisions and canonical model
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "86fa7e797d17a361f7df879d9e32e4bb6de483c2"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "217f47a1f0415f2ced65a3f4d7c3e6eb822fa643"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "d89ff284713c3b8a8af0d70da08b153cb840030c"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "95eff2616cda6ae3b7a3a0540c0284a1184b734f"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "dcbc894bedc49dafd70a01d24150958acc1ccc2a"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "7aac3cfa4e1cd11ba0f6db07b77450057b3cb32a"
           for name in PERSONAL_OBSERVATION_PROFILE_V0_1.mjs PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts LIFE_DASHBOARD_CALCULATIONS_V0_1.mjs LIFE_DASHBOARD_CALCULATIONS_V0_1.d.mts LIFE_DIARY_BATCH_V0_1.mjs LIFE_DIARY_BATCH_V0_1.d.mts; do
             cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
           done
