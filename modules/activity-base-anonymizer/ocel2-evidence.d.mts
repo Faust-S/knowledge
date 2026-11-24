@@ -42,6 +42,7 @@ export interface ExternalOcDfgReview {
   object_views:Array<{
     object_type:string; object_count:number; objects_with_events:number; ambiguous_objects:number;
     comparison:'MATCHED'|'AMBIGUOUS_TIME_ORDER';
+    endpoint_representation:'NATIVE_SETS_COUNTS_RECONCILED'|'NATIVE_COUNTS';
     activities:Array<{activity:string;count:number}>;
     transitions:Array<{from:string;to:string;count:number}>;
     starts:Array<{activity:string;count:number}>;

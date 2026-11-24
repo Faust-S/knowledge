@@ -273,7 +273,6 @@ export async function reviewExternalOcDfg(ocel, model) {
     shape(graph,['activities','directly_follows_relations','start_activities','end_activities'],
       ['activities','directly_follows_relations','start_activities','end_activities'],'OCDFG_TYPE_GRAPH_INVALID');
     const activities=countMap(graph.activities,validated.eventTypes);
-    const starts=countMap(graph.start_activities,activities),ends=countMap(graph.end_activities,activities);
     need(Array.isArray(graph.directly_follows_relations)&&graph.directly_follows_relations.length<=relations,'OCDFG_EDGE_LIMIT');
     const edges=new Map();
     for(const entry of graph.directly_follows_relations){
@@ -290,9 +289,26 @@ export async function reviewExternalOcDfg(ocel, model) {
       outgoing.set(from,(outgoing.get(from)??0)+count);
       incoming.set(to,(incoming.get(to)??0)+count);
     }
-    need([...activities].every(([label,count])=>
-      (incoming.get(label)??0)+(starts.get(label)??0)===count&&
-      (outgoing.get(label)??0)+(ends.get(label)??0)===count),'OCDFG_FLOW_COUNTS_INCONSISTENT');
+    // Rust4PM 0.6.2 uses sets of endpoint activities; later native
+    // versions may carry counts. In both representations reconcile the
+    // exact residual frequency against the independently read traces.
+    function endpointMap(raw, flow){
+      const residual=new Map();
+      for(const [label,count] of activities){
+        const rest=count-(flow.get(label)??0);
+        need(Number.isSafeInteger(rest)&&rest>=0,'OCDFG_FLOW_COUNTS_INCONSISTENT');
+        if(rest>0)residual.set(label,rest);
+      }
+      if(Array.isArray(raw)){
+        need(raw.length<=MAX_TYPES&&new Set(raw).size===raw.length&&
+          raw.every(label=>residual.has(label))&&raw.length===residual.size,'OCDFG_FLOW_COUNTS_INCONSISTENT');
+        return residual;
+      }
+      const explicit=countMap(raw,activities);
+      need(equalMap(explicit,residual),'OCDFG_FLOW_COUNTS_INCONSISTENT');
+      return explicit;
+    }
+    const starts=endpointMap(graph.start_activities,incoming),ends=endpointMap(graph.end_activities,outgoing);
     need(equalMap(activities,row.occurrences),'OCDFG_ACTIVITY_COUNT_MISMATCH');
     const sum=map=>[...map.values()].reduce((n,v)=>n+v,0);
     need(sum(starts)===row.objects_with_events&&sum(ends)===row.objects_with_events,'OCDFG_TRACE_COUNT_MISMATCH');
@@ -304,6 +320,7 @@ export async function reviewExternalOcDfg(ocel, model) {
     views.push({
       object_type:row.type,object_count:row.object_count,objects_with_events:row.objects_with_events,
       ambiguous_objects:row.tied_objects,comparison:confirmed?'MATCHED':'AMBIGUOUS_TIME_ORDER',
+      endpoint_representation:Array.isArray(graph.start_activities)||Array.isArray(graph.end_activities)?'NATIVE_SETS_COUNTS_RECONCILED':'NATIVE_COUNTS',
       activities:[...activities].sort(([a],[b])=>cmp(a,b)).map(([activity,count])=>({activity,count})),
       transitions:confirmed?[...edges].sort(([a],[b])=>cmp(a,b)).map(([key,count])=>{
         const [from,to]=JSON.parse(key);return {from,to,count};

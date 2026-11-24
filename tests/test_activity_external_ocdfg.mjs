@@ -29,6 +29,20 @@ test('accepts native graph only when all object-local frequencies reconcile',asy
  for(const value of ['EVENT_PRIVATE','ORDER_PRIVATE','RESOURCE_PRIVATE','SYNTH_SECRET','person.name@example.invalid','2026-01-','privateNote'])
   assert.equal(serialized.includes(value),false,value);
 });
+test('native endpoint sets are reconciled with exact frequency residuals, never treated as counts of one',async()=>{
+ const {log,model}=await sample();
+ for(const graph of Object.values(model.object_type_to_dfg)){
+  graph.start_activities=Object.keys(graph.start_activities);
+  graph.end_activities=Object.keys(graph.end_activities);
+ }
+ const view=await reviewExternalOcDfg(log,model);
+ const order=view.object_views.find(x=>x.object_type==='order');
+ assert.equal(order.endpoint_representation,'NATIVE_SETS_COUNTS_RECONCILED');
+ assert.deepEqual(order.starts,[{activity:'registered',count:3}]);
+ assert.deepEqual(order.ends,[{activity:'completed',count:3}]);
+ model.object_type_to_dfg.order.end_activities=['registered'];
+ await assert.rejects(reviewExternalOcDfg(log,model),e=>e.code==='OCDFG_FLOW_COUNTS_INCONSISTENT');
+});
 test('rejects a different population, missing type, malformed counts and duplicated edges',async()=>{
  for(const [change,code] of [
   [m=>delete m.object_type_to_dfg.resource,'OCDFG_OBJECT_SCOPE_MISMATCH'],
