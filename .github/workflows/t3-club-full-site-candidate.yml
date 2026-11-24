@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: f776d3a18a50ebad796b07e93f51930553317cdd
+          ref: 6ca0a0192f63c8e6a1f7f52cb264113f91e993ae
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -97,7 +97,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for suite in test:club-native-edit-route test:club-native-project-restoration test:club-native-restore-preselect test:club-profile-field-consistency test:club-native-profile-family test:club-personal-space-start; do
+          for suite in test:club-native-edit-route test:club-native-project-restoration test:club-native-restore-preselect test:club-profile-field-consistency test:club-native-profile-family test:club-personal-space-start test:club-hub; do
             if ! npm run "$suite" > "$RUNNER_TEMP/private-regression.log" 2>&1; then
               echo "D02_T3_PRESERVATION_SUITE=FAIL $suite"
               exit 1

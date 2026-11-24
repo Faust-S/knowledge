@@ -92,17 +92,36 @@ async function readProfile(page,stage,expectedWorkspace){
  log(stage+"_PROFILE_PREVIEW");
  phase=stage+"_SELECT_RESULT";
  await family.getByRole("button",{name:"Просмотреть",exact:true}).click();
- await page.getByTestId("club-workspace-selected-detail").waitFor({state:"visible"});
+ const selected=page.getByTestId("club-workspace-selected-detail");
+ await selected.waitFor({state:"visible"});
+ phase=stage+"_RESULT_DETAIL_VALUES";
+ const detail=selected.getByTestId("club-result-detail");
+ await detail.waitFor({state:"visible"});
+ check((await detail.textContent())?.includes(alias),"KERNEL_DETAIL_ALIAS");
+ check((await detail.textContent())?.includes(goals),"KERNEL_DETAIL_GOALS");
+ log(stage+"_RESULT_DETAIL_VALUES");
  const editor=page.getByTestId("club-profile-native-editor");
  phase=stage+"_OPEN_EDITOR";
  await editor.getByRole("button",{name:"Редактировать профиль здесь",exact:true}).click();
  const card=page.getByTestId("club-profile-host-card");
  await card.waitFor({state:"visible"});
- phase=stage+"_EDITOR_READBACK";
+ phase=stage+"_EDITOR_LOAD";
  await poll(async()=>{
-  const a=card.getByLabel("Как к вам обращаться",{exact:true}),g=card.getByLabel("Цели",{exact:true});
-  return await a.count()===1&&await g.count()===1&&await a.inputValue()===alias&&await g.inputValue()===goals;
- },"KERNEL_NATIVE_EDITOR_VALUES");
+  const state=await card.getAttribute("data-profile-load-state");
+  check(state!=="error","KERNEL_NATIVE_EDITOR_LOAD_ERROR");
+  return state==="ready";
+ },"KERNEL_NATIVE_EDITOR_READY");
+ check((await card.getByTestId("club-profile-load-message").textContent())?.includes("Сохранённый профиль загружен"),"KERNEL_NATIVE_EDITOR_LOADED_EXISTING");
+ phase=stage+"_EDITOR_READBACK";
+ const a=card.locator('form input[name="alias"]'),g=card.locator('form textarea[name="goals"]');
+ check(await a.count()===1&&await g.count()===1,"KERNEL_NATIVE_EDITOR_FIELDS");
+ check(await a.inputValue()===alias,"KERNEL_NATIVE_EDITOR_ALIAS");
+ check(await g.inputValue()===goals,"KERNEL_NATIVE_EDITOR_GOALS");
+ log(stage+"_EDITOR_VALUES");
+ phase=stage+"_EDITOR_ACCESSIBILITY";
+ check(await card.getByLabel("Как к вам обращаться",{exact:true}).count()===1,"KERNEL_NATIVE_ALIAS_LABEL");
+ check(await card.getByLabel("Цели",{exact:true}).count()===1,"KERNEL_NATIVE_GOALS_LABEL");
+ log(stage+"_EDITOR_ACCESSIBILITY");
 }
 async function stopServer(){
  if(server&&server.exitCode===null&&server.signalCode===null){
@@ -158,6 +177,13 @@ try{
  await form.locator('[name="goals"]').fill(goals);
  await form.getByRole("button",{name:"Сохранить профиль",exact:true}).click();
  await poll(async()=>await saved()===1,"EXPLICIT_SITE_SAVE");
+ phase="SITE_SAVED_VALUES";
+ const savedValues=await page.evaluate(({alias,goals})=>{
+  const data=JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")||"null")?.objects?.find(o=>o.objectType==="participation-profile"&&o.status==="completed")?.data;
+  return {alias:data?.alias===alias,goals:data?.goals===goals};
+ },{alias,goals});
+ check(savedValues.alias&&savedValues.goals,"SITE_PROFILE_VALUES");
+ log("SITE_SAVED_PROFILE_VALUES");
  phase="KERNEL_RECEIPT";
  await page.getByRole("link",{name:"Открыть подтверждение сохранения результата на этом устройстве",exact:true}).click();
  await page.getByLabel("Подтверждаю сохранение выбранных результатов на этом устройстве.",{exact:true}).check();
@@ -245,9 +271,31 @@ try{
  await context.setOffline(true);
  await readProfile(page,"RECIPIENT_COLD_OFFLINE_READBACK");
  check(await page.evaluate(()=>navigator.onLine===false&&document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),"OFFLINE_MODE");
- await page.getByTestId("club-workspace-profile-shortcut").click();
- await page.locator('form[data-profile-form] button[data-iwxa-assistant-form-open]').click();
+ phase="OFFLINE_CONTINUE_PROFILE";
+ const continueProfile=page.getByTestId("club-workspace-profile-resume");
+ await continueProfile.waitFor({state:"visible"});
+ check(!await page.getByTestId("club-workspace-profile-shortcut").isVisible(),"NO_BLANK_PROFILE_SHORTCUT");
+ await continueProfile.click();
+ const restore=page.getByTestId("club-t2-restore-card");
+ await restore.waitFor({state:"visible"});
+ const profileChoice=restore.getByRole("checkbox",{name:"Профиль участия",exact:true});
+ await poll(async()=>await profileChoice.count()===1&&await profileChoice.isChecked(),"EXACT_PROFILE_PRESELECTED");
+ check(await restore.locator('input[type="checkbox"]:checked').count()===1,"NO_UNRELATED_RESULTS_PRESELECTED");
+ const restoreButton=restore.getByRole("button",{name:"Открыть выбранные записи",exact:true});
+ await poll(async()=>await restoreButton.isEnabled(),"PROFILE_RESTORE_READY");
+ await restoreButton.click();
+ const completed=page.getByTestId("club-t2-restore-completed");
+ await completed.waitFor({state:"visible"});
+ await completed.getByRole("link",{name:"Открыть мой профиль",exact:true}).click();
+ const restoredForm=page.locator("form[data-profile-form]");
+ await restoredForm.waitFor({state:"visible"});
+ check(await restoredForm.locator('[name="alias"]').inputValue()===alias,"RESTORED_SITE_PROFILE_ALIAS");
+ check(await restoredForm.locator('[name="goals"]').inputValue()===goals,"RESTORED_SITE_PROFILE_GOALS");
+ log("RECIPIENT_OFFLINE_PROFILE_CONTINUED_IN_ORIGINAL_FORM");
+ phase="OFFLINE_CONTEXT_ASSISTANT";
+ await restoredForm.locator('button[data-iwxa-assistant-form-open]').click();
  await poll(async()=>await page.locator("#iwxa-t3-assistant").locator("#form-choice").locator("option:checked").textContent().then(t=>t?.startsWith("Личный профиль ·")),"OFFLINE_CONTEXT_ASSISTANT");
+ check(await restoredForm.locator('[name="alias"]').inputValue()===alias&&await restoredForm.locator('[name="goals"]').inputValue()===goals,"OFFLINE_ASSISTANT_OPEN_PRESERVES_RESTORED_VALUES");
  log("RECIPIENT_COLD_OFFLINE_KERNEL_AND_ASSISTANT");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; no local model inference; no physical-phone claim");
 }catch(e){
@@ -266,6 +314,12 @@ try{
   selectedDetail:!!document.querySelector('[data-testid="club-workspace-selected-detail"]'),
   nativeEditor:!!document.querySelector('[data-testid="club-profile-native-editor"]'),
   editorForm:!!document.querySelector('[data-testid="club-profile-host-card"]'),
+  editorState:(()=>{const state=document.querySelector('[data-testid="club-profile-host-card"]')?.getAttribute("data-profile-load-state");return ["idle","loading","ready","error"].includes(state)?state:"absent";})(),
+  editorAliasPresent:!!document.querySelector('[data-testid="club-profile-host-card"] form input[name="alias"]'),
+  editorGoalsPresent:!!document.querySelector('[data-testid="club-profile-host-card"] form textarea[name="goals"]'),
+  profileResume:!!document.querySelector('[data-testid="club-workspace-profile-resume"]'),
+  restoreCard:!!document.querySelector('[data-testid="club-t2-restore-card"]'),
+  restoreCompleted:!!document.querySelector('[data-testid="club-t2-restore-completed"]'),
   profile:!!document.querySelector('[data-profile-form]'),
   assistant:!!document.querySelector('#iwxa-t3-assistant'),
   exchange:!!document.querySelector('[data-testid="packages-view"]'),
