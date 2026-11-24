@@ -83,10 +83,11 @@ export function createT4OriginalHostCaptureAdapter({
   // Intent inventory is not a retry queue. Only a proven original Event and
   // current subject readback may produce a missing Outbox; no subject
   // mutation or fabricated original operation receipt is ever returned.
-  async function reconcileNextOriginalCapture({workspaceId}={}){
+  async function reconcileNextOriginalCapture({workspaceId,expectedOriginalSourceEventId=null}={}){
     if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_RECOVERY_REQUIRES_T4');
     requiredOriginalHostCapturePorts();
-    if(!ID(workspaceId)||typeof listOriginalPendingIntents!=='function'||
+    if(!ID(workspaceId)||(expectedOriginalSourceEventId!==null&&!ID(expectedOriginalSourceEventId))||
+      typeof listOriginalPendingIntents!=='function'||
       typeof authorizeOriginalCaptureRecovery!=='function'||typeof withOriginalSubjectMutation!=='function')
       fail('ORIGINAL_HOST_CAPTURE_RECOVERY_PORTS_REQUIRED');
     const query=Object.freeze({workspaceId,originalWriteOwnerRef});
@@ -158,7 +159,10 @@ export function createT4OriginalHostCaptureAdapter({
         await authorizeOriginalRead({...query,captureRef,operation:'t1.listEventsSince'})!==true)
         fail('ORIGINAL_HOST_CAPTURE_RECOVERY_DENIED');
       mode();
-      return matches[0]?.event_id??null;
+      const eventId=matches[0]?.event_id??null;
+      if(expectedOriginalSourceEventId!==null&&eventId!==expectedOriginalSourceEventId)
+        fail('ORIGINAL_HOST_CAPTURE_RECOVERY_SOURCE_EVENT_MISMATCH');
+      return eventId;
     }
     let recovered,eventId;
     const waiting=()=>result('WAITING_FOR_ORIGINAL_EVENT',{captureRef,kind,subjectId,pendingCaptureCount:1,

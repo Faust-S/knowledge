@@ -58,7 +58,7 @@ function scope(technicalWorkspaceId){return {technicalWorkspaceId,sourceWorkspac
   originalWriteOwnerRef:OWNER,sourceNodeRef:S,recipientNodeRef:R,scopeRef:SCOPE,ownerEpoch:2}}
 const mutation=(objectId,title,eventType)=>({workspace_id:WS,object_id:objectId,schema_id:'iwxa.demo.note',
   schema_version:'1.0.0',base_revision:0,data:{title},extensions:{},event:{event_type:eventType,payload:{title}}});
-async function sourceFixture(){
+async function sourceFixture(loseOriginalWrite=false){
   const f=kernelFixture('source'),tech='ws:k14:source:technical';
   const baselineEvent=(await f.kernel.putObject(mutation('o:k14:baseline','baseline','business.baseline'))).event;
   const before=(await readT4OriginalEventWindow({workspaceId:WS,originalWriteOwnerRef:OWNER,
@@ -66,11 +66,22 @@ async function sourceFixture(){
   const ledger=createT4OriginalHostCaptureLedgerPort({...scope(tech),originalKernel:f.kernel,
     getMode:()=> 'T4_NETWORK',readOriginalHostContext:async()=>({workspaceId:tech,originalWriteOwnerRef:OWNER,hostSessionRef:'host:fixture:capture'}),
     authorizeOriginalTechnicalRead:allow,authorizeOriginalTechnicalWrite:allow});
-  const capture=await captureT4OriginalObjectMutation({...ledger,workspaceId:WS,objectId:'o:k14:change',
+  const originalKernel=loseOriginalWrite?{...f.kernel,async putObject(p){
+    const receipt=await f.kernel.putObject(p);
+    if(p.workspace_id===WS)throw Object.assign(Error('lost original mutation response'),{code:'ACK_LOST'});
+    return receipt;
+  }}:f.kernel;
+  const perform=()=>captureT4OriginalObjectMutation({...ledger,workspaceId:WS,objectId:'o:k14:change',
     originalWriteOwnerRef:OWNER,captureRef:'capture:k14:change',sourceCursor:before,
     mutationInput:mutation('o:k14:change','captured exact bytes','business.created'),
-    originalKernel:f.kernel,authorizeOriginalRead:allow,authorizeOriginalWrite:allow,
+    originalKernel,authorizeOriginalRead:allow,authorizeOriginalWrite:allow,
     readOriginalEvents:()=>f.kernel.listEventsSince(WS),getMode:()=> 'T4_NETWORK'});
+  let capture;
+  if(loseOriginalWrite){
+    await assert.rejects(perform(),{code:'OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
+    capture=await readT4OriginalEventWindow({workspaceId:WS,originalWriteOwnerRef:OWNER,
+      cursor:before,authorizeOriginalRead:allow,readOriginalEvents:()=>f.kernel.listEventsSince(WS),maxEvents:1});
+  }else capture=await perform();
   return {...f,technicalWorkspaceId:tech,before,capture,baselineEvent};
 }
 function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=deny,requestBaseline=true}){
@@ -102,13 +113,17 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     resolveOriginalSigningContext:async()=>({permissionRef:'permission:k14',signerRef:role==='SOURCE'?'key:k14:source':'key:k14:recipient'}),
     signOriginalNodeBytes:async({bytes})=>sign(null,Buffer.from(bytes),role==='SOURCE'?keyS.privateKey:keyR.privateKey),
     verifyOriginalPhaseEvidence:phaseEvidence,verifyOriginalRecipientApplied:deny,
+    authorizeOriginalCaptureRecovery:async p=>role==='SOURCE'&&p.workspaceId===WS&&p.originalMutationRecoveryOnly===true,
     authorizeNetworkPublish:allow,authorizeOriginalSealedContent:deny,readOriginalSealedContent:async()=>{throw Error('unexpected content read')},
     authorizeNetworkReceive:allow,authorizeOriginalRecipientSession:allow,
     authorizeOriginalSourceRead:allow,readOriginalSourceEvents:()=>source.kernel.listEventsSince(WS),
     readOriginalSourceHostContext:async()=>({workspaceId:WS,originalWriteOwnerRef:OWNER,nodeRef:S,scopeRef:SCOPE,hostSessionRef:'host:k14:source:proof'}),
     verifyOriginalSourceSubject:deny,verifyOriginalSourceBinding:deny,verifyOriginalSourceEvent:deny,
     authorizeOriginalSealedOpen:deny,openOriginalSealedContent:async()=>{throw Error('unexpected sealed open')},
-    readOriginalDependencyCoverage:async()=>null,withOriginalSubjectMutation:async()=>{throw Error('unexpected subject mutation')},
+    readOriginalDependencyCoverage:async()=>null,withOriginalSubjectMutation:async(proof,action)=>{
+      assert.equal(role,'SOURCE');assert.equal(proof.originalMutationRecoveryOnly,true);
+      assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);return action();
+    },
   };
   const owner=createT4OriginalNativeHostNetworkOwner({...scope(tech),role,requiredCryptoSuite:SUITE,
     getMode:()=>mode,wireTransport:wire.wire,originalPorts,
@@ -199,5 +214,29 @@ test('K14 missing original baseline remains waiting, never inferred from transpo
     f.invalidate();assert.equal(f.relay.networkAttached,false);
     assert.equal(await f.owner.resolveOriginalAccess({sessionId:s.sessionId,contextEpoch:s.contextEpoch,
       operation:'t1.getObject',args:[store.technicalWorkspaceId,'o:k14:missing']}),null);
+  }finally{f.relay.close();}
+});
+
+test('K17 existing native source wake recovers original missing Outbox through signed relay, then publishes HEADS',async()=>{
+  const source=await sourceFixture(true),wire=wireFixture();
+  const f=nativeFixture({role:'SOURCE',store:source,wire,
+    baselineInput:{sourceCursor:source.before,originalBaselineRef:source.baselineEvent.event_id,
+      originalBaselineDigest:hash(JSON.stringify(source.baselineEvent))},
+    phaseEvidence:async p=>p.phase==='INTENT'&&p.evidence.evidenceRef===source.capture.window.lastEventId&&
+      p.evidence.evidenceDigest===source.capture.window.windowDigest});
+  try{
+    const s=await f.attach();
+    await f.drive(s,'ORIGINAL_CAPTURE_RECONCILED');
+    assert.equal(wire.puts,0);
+    const recovery=f.results.find(r=>r.state==='ORIGINAL_CAPTURE_RECONCILED');
+    assert.equal(recovery.originalSourceEventId,source.capture.window.lastEventId);
+    assert.equal(recovery.originalSubjectMutationInvoked,false);
+    assert.equal(source.events.filter(e=>e.workspace_id===WS).length,2);
+    assert.ok(source.events.some(e=>e.payload?.role==='outbox'));
+    await f.drive(s,'HEADS_PRESENT');
+    assert.equal(wire.puts,1);
+    assert.equal(decodeT4CandidateFrame([...wire.frames.values()][0]).body.sourceSession.sourceEventId,
+      source.capture.window.lastEventId);
+    assert.ok(f.commands.filter(c=>c.method==='putObject').every(c=>c.args[0].workspace_id===source.technicalWorkspaceId));
   }finally{f.relay.close();}
 });

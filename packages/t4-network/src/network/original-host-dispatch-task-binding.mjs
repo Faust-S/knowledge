@@ -364,7 +364,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     requiredCryptoSuite,resolveOriginalSigningContext,signOriginalNodeBytes,
     authorizeOriginalSealedContent,readOriginalSealedContent,
     authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
-    retryMissing=false,announceOriginalSourceSession=false,
+    retryMissing=false,announceOriginalSourceSession=false,recoverNextOriginalCapture=null,
   }={}){
     const schema='IWXA_T4_ORIGINAL_HOST_NATIVE_SOURCE_STEP_V1';
     if(mode()==='LOCAL_T3')return Object.freeze({schema,state:'LOCAL_T3',
@@ -373,15 +373,60 @@ export function createT4OriginalHostDispatchTaskBinding({
       authorizeOriginalSealedContent,readOriginalSealedContent,authorizeOriginalRead,
       readOriginalEvents,verifyOriginalSourceSubject,createOriginalNativePublicationPort]
       .every(f=>typeof f==='function')||!ID(requiredCryptoSuite)||typeof retryMissing!=='boolean'||
-      typeof announceOriginalSourceSession!=='boolean')
+      typeof announceOriginalSourceSession!=='boolean'||
+      (recoverNextOriginalCapture!==null&&typeof recoverNextOriginalCapture!=='function'))
       fail('HOST_TASK_NATIVE_SOURCE_STEP_PORTS_REQUIRED');
-    const initial=await verify(),tick=await prepareNative();
-    await verify(initial);
+    const initial=await verify();
     const result=(state,extra={})=>Object.freeze({schema,state,
       originalHostTaskOwnerVerified:true,originalOutboxRead:true,
       originalHostSessionRef:initial.hostSessionRef,sourceCursorAdvanced:false,
       originalSubjectMutationInvoked:false,createsScheduler:false,createsStore:false,...extra});
-    if(!tick.prepared)return result('NO_NEXT_ORIGINAL_EVENT');
+    const recovery=async(sourceEventId=null)=>{
+      await verify(initial);
+      const r=await recoverNextOriginalCapture(Object.freeze({
+        workspaceId:initial.workspaceId,originalWriteOwnerRef:initial.originalWriteOwnerRef,
+        originalHostSessionRef:initial.hostSessionRef,expectedOriginalSourceEventId:sourceEventId,
+        originalSubjectMutationAllowed:false,
+      }));
+      await verify(initial);
+      if(r?.schema!=='IWXA_T4_ORIGINAL_HOST_CAPTURE_RECOVERY_STEP_V1'||
+        r.workspaceId!==initial.workspaceId||r.originalWriteOwnerRef!==initial.originalWriteOwnerRef||
+        r.originalSubjectMutationInvoked!==false||r.originalMutationRetried!==false||
+        r.originalOperationReceiptRecreated!==false||r.sourceCursorAdvanced!==false||
+        r.networkPublished!==false||r.createsStore!==false||r.createsScheduler!==false||
+        !['NO_PENDING_ORIGINAL_CAPTURE','WAITING_FOR_ORIGINAL_EVENT',
+          'ORIGINAL_CAPTURE_RECONCILIATION_AMBIGUOUS','ORIGINAL_CAPTURE_RECONCILED'].includes(r.state))
+        fail('HOST_TASK_ORIGINAL_CAPTURE_RECOVERY_RESULT_INVALID');
+      if(r.state==='ORIGINAL_CAPTURE_RECONCILED'&&
+        (r.originalT3OutboxVerified!==true||!ID(r.captureRef)||!ID(r.originalSourceEventId)||
+          (sourceEventId!==null&&r.originalSourceEventId!==sourceEventId)))
+        fail('HOST_TASK_ORIGINAL_CAPTURE_RECOVERY_RESULT_INVALID');
+      if(r.state==='NO_PENDING_ORIGINAL_CAPTURE')return null;
+      return result(r.state,{...(ID(r.captureRef)?{captureRef:r.captureRef}:{}),
+        ...(ID(r.originalSourceEventId)?{originalSourceEventId:r.originalSourceEventId}:{}),
+        ...(Number.isSafeInteger(r.pendingCaptureCount)?{pendingCaptureCount:r.pendingCaptureCount}:{}),
+        originalT3OutboxVerified:r.originalT3OutboxVerified===true,networkPublished:false});
+    };
+    let tick;
+    try{tick=await prepareNative();}
+    catch(error){
+      // Only initial selection (before any network effect) may recover a
+      // missing Outbox. Do not catch refresh/phase/publication errors.
+      if(recoverNextOriginalCapture===null||
+        error?.code!=='DISPATCH_NATIVE_NEXT_ORIGINAL_CAPTURE_NOT_UNIQUE'||
+        error.details?.matchingCaptures!==0||error.details?.networkWritesStarted!==false||
+        !ID(error.details?.sourceEventId))throw error;
+      const recovered=await recovery(error.details.sourceEventId);
+      if(recovered===null)throw error;
+      return recovered;
+    }
+    await verify(initial);
+    if(!tick.prepared){
+      if(recoverNextOriginalCapture!==null){
+        const recovered=await recovery();if(recovered!==null)return recovered;
+      }
+      return result('NO_NEXT_ORIGINAL_EVENT');
+    }
     const task=tick.result,session=deriveT4OriginalNativeCaptureSession(task);
     const expected={initial,session,frontierRevision:task.originalHostFrontierRevision};
     const extensions=t4NativeSubjectCriticalExtensions(session.changeKind);

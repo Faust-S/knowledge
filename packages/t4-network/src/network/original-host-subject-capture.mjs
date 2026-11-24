@@ -289,16 +289,16 @@ async function capturePayload({
   }
   return Object.freeze({window,nextCursor,prepared,originalEvent:event});
 }
-async function originalPorts(params){
+async function originalPorts(params,recoveryOnly=false){
   const {kind,workspaceId,originalWriteOwnerRef,captureRef,subjectId,
     originalKernel,authorizeOriginalRead,authorizeOriginalWrite,
     readOriginalEvents,readOriginalIntent,persistOriginalOutbox,
     readOriginalOutbox,getMode}=params;
   if(!SUBJECTS[kind]||![workspaceId,originalWriteOwnerRef,captureRef,subjectId].every(ID)||
-    !originalKernel?.hasOperation?.(SUBJECTS[kind].write)||
+    (!recoveryOnly&&!originalKernel?.hasOperation?.(SUBJECTS[kind].write))||
     !originalKernel?.hasOperation?.(SUBJECTS[kind].read)||
     !originalKernel?.hasOperation?.('t1.listEventsSince')||
-    typeof originalKernel[kind==='ASSET_PUT'?'putAsset':'putRelation']!=='function'||
+    (!recoveryOnly&&typeof originalKernel[kind==='ASSET_PUT'?'putAsset':'putRelation']!=='function')||
     typeof originalKernel[kind==='ASSET_PUT'?'getAsset':'getObject']!=='function'||
     [authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
       readOriginalIntent,persistOriginalOutbox,readOriginalOutbox]
@@ -417,7 +417,7 @@ export async function captureT4OriginalHostSubjectMutation(params={}){
 export async function reconcileT4OriginalHostSubjectMutation(params={}){
   const {kind,workspaceId,originalWriteOwnerRef,captureRef,
     subjectId,readOriginalIntent}=params;
-  await originalPorts(params);
+  await originalPorts(params,true);
   const scope=Object.freeze({kind,workspaceId,originalWriteOwnerRef,
     captureRef,subjectId});
   const readCtx=proofContext(scope,'t1.listEventsSince');
@@ -442,14 +442,14 @@ const deleteOp=kind=>kind==='ASSET_DELETE'?'t1.deleteAsset':
   kind==='OBJECT_DELETE'?'t1.deleteObject':'t1.deleteRelation';
 const deleteId=(kind,pre)=>kind==='ASSET_DELETE'?pre?.assetId:
   kind==='OBJECT_DELETE'?pre?.objectId:pre?.relationId;
-function deletionScope(params){
+function deletionScope(params,recoveryOnly=false){
   const {kind,workspaceId,originalWriteOwnerRef,captureRef,subjectId,
     originalKernel,authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
     readOriginalIntent,persistOriginalOutbox,readOriginalOutbox,getMode,
     withOriginalSubjectMutation}=params;
   if(!deleteKinds.has(kind)||![workspaceId,originalWriteOwnerRef,captureRef,subjectId].every(ID)||
     typeof withOriginalSubjectMutation!=='function'||
-    !['t1.getObject','t1.listEventsSince',deleteOp(kind),
+    !['t1.getObject','t1.listEventsSince',...(recoveryOnly?[]:[deleteOp(kind)]),
       ...(kind==='ASSET_DELETE'?['t1.getAsset']:[]),
       ...(kind==='OBJECT_DELETE'?['t1.listAssets']:[])].every(op=>
         originalKernel?.hasOperation?.(op)===true&&typeof originalKernel[op.slice(3)]==='function')||
@@ -543,7 +543,7 @@ export async function captureT4OriginalHostSubjectDeletion(p={}){
   });
 }
 export async function reconcileT4OriginalHostSubjectDeletion(p={}){
-  const {scope,guard,boundary}=deletionScope(p);
+  const {scope,guard,boundary}=deletionScope(p,true);
   return runT4OriginalSubjectMutationBoundary(p.withOriginalSubjectMutation,boundary,async()=>{
     await guard();
     const intent=await p.readOriginalIntent(scope);

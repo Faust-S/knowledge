@@ -235,7 +235,7 @@ export async function runT4OriginalSubjectMutationBoundary(port,proof,action){
     fail('DELETE_NATIVE_ORIGINAL_MUTATION_BOUNDARY_NOT_PROVEN');
   return receipt;
 }
-function sourceScope(params){
+function sourceScope(params,recoveryOnly=false){
   const {kind,workspaceId,originalWriteOwnerRef,subjectId,objectId,
     sourceIdempotencyKey,captureRef=sourceIdempotencyKey,
     originalKernel,authorizeOriginalRead,authorizeOriginalDelete,
@@ -251,7 +251,7 @@ function sourceScope(params){
       readOriginalEvents].some(f=>typeof f!=='function'))
     fail('DELETE_ORIGINAL_SOURCE_PORTS_REQUIRED');
   const ops=originalOperations(kind);
-  if(!originalKernel.hasOperation(ops.read)||!originalKernel.hasOperation(ops.write)||
+  if(!originalKernel.hasOperation(ops.read)||(!recoveryOnly&&!originalKernel.hasOperation(ops.write))||
     typeof originalKernel[ops.read.slice(3)]!=='function')
     fail('DELETE_ORIGINAL_SOURCE_OPERATIONS_REQUIRED');
   networkMode(getMode);
@@ -483,7 +483,7 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
  * It never invokes a delete, persists a second capture or invents a receipt.
  */
 export async function reconcileT4OriginalSourceDeletion(params={}){
-  const scope=sourceScope(params);
+  const scope=sourceScope(params,true);
   await scope.guard(scope.ops.read);
   const capture=scope.verifyCapture(await params.readOriginalPreDeleteWitness(scope.lookup));
   if(Object.hasOwn(params,'sourceCursor')&&

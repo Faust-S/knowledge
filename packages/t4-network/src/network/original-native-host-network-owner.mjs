@@ -2,6 +2,7 @@ import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID as technicalSchemaId} from './original-network-technical-schema.mjs';
 import {createT4OriginalNetworkBaselineAdmissionPort} from './original-network-baseline-admission.mjs';
 import {createT4OriginalHostCaptureLedgerPort} from './original-host-capture-ledger.mjs';
+import {createT4OriginalHostCaptureAdapter} from './original-host-capture-adapter.mjs';
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort}
   from './original-network-host-cursor.mjs';
 import {createT4OriginalNetworkSessionPhasePort} from './original-network-session-phases.mjs';
@@ -16,6 +17,7 @@ import {verifyT4OriginalHostCapturedSubjectSource} from './original-host-outbox-
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const fail=(code,details={})=>{throw Object.assign(Error(code),{code,details:Object.freeze(details)});};
 const COMMON=Object.freeze(['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject']);
+const SOURCE=Object.freeze([...COMMON,'t1.listAssets','t1.getAsset']);
 const RECIPIENT=Object.freeze([...COMMON,'t1.commitObjectGraph','t1.deleteObject','t1.listAssets',
   't1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation']);
 const COMMON_PORTS=['authorizeOriginalBinding','resolveOriginalAccess','authorizeOriginalTechnicalRead',
@@ -24,7 +26,8 @@ const COMMON_PORTS=['authorizeOriginalBinding','resolveOriginalAccess','authoriz
   'authorizeOriginalHostWire','authorizeOriginalNetwork','authorizeOriginalFramePublish',
   'verifyOriginalNodeSignature','resolveOriginalSigningContext','signOriginalNodeBytes',
   'verifyOriginalPhaseEvidence','verifyOriginalRecipientApplied'];
-const SOURCE_PORTS=['authorizeNetworkPublish','authorizeOriginalSealedContent','readOriginalSealedContent'];
+const SOURCE_PORTS=['authorizeNetworkPublish','authorizeOriginalSealedContent','readOriginalSealedContent',
+  'authorizeOriginalCaptureRecovery','withOriginalSubjectMutation','readOriginalDependencyCoverage'];
 const RECIPIENT_PORTS=['authorizeNetworkReceive','authorizeOriginalRecipientSession',
   'authorizeOriginalSourceRead','readOriginalSourceEvents','readOriginalSourceHostContext',
   'verifyOriginalSourceSubject','verifyOriginalSourceBinding','verifyOriginalSourceEvent',
@@ -58,7 +61,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     ...(role==='SOURCE'?SOURCE_PORTS:RECIPIENT_PORTS)].map(k=>[k,originalPorts[k]])));
   const identity=Object.freeze({technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch});
-  const operations=role==='SOURCE'?COMMON:RECIPIENT;
+  const operations=role==='SOURCE'?SOURCE:RECIPIENT;
   const nodeRef=role==='SOURCE'?sourceNodeRef:recipientNodeRef;
   let live=null;
   function mode(){
@@ -142,6 +145,10 @@ export function createT4OriginalNativeHostNetworkOwner({
         authorizeOriginalSourceRead:common.authorizeOriginalRead,readOriginalSourceEvents:readOriginalEvents});
       const capture={...common,...ledger,readOriginalEvents,networkTargetRef:recipientNodeRef,
         authorizeNetworkPublish:callback('authorizeNetworkPublish')};
+      const captureRecovery=createT4OriginalHostCaptureAdapter({...capture,
+        authorizeOriginalCaptureRecovery:callback('authorizeOriginalCaptureRecovery'),
+        withOriginalSubjectMutation:callback('withOriginalSubjectMutation'),
+        readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage')});
       const dispatcher=createT4OriginalHostOutboxDispatcher({...capture,originalNativeCursorPort:sourceCursorPort});
       const task=createT4OriginalHostDispatchTaskBinding({
         expectedWorkspaceId:sourceWorkspaceId,expectedOriginalWriteOwnerRef:originalWriteOwnerRef,
@@ -157,6 +164,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       };
       return {baseline,task,run:()=>task.runNativeSourceStep({...signing,sourceCursorPort,
         createOriginalSourcePhasePort:phase,announceOriginalSourceSession:true,
+        recoverNextOriginalCapture:p=>captureRecovery.reconcileNextOriginalCapture(p),
         authorizeOriginalRead:common.authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
         authorizeOriginalSealedContent:callback('authorizeOriginalSealedContent'),
         readOriginalSealedContent:callback('readOriginalSealedContent')})};
@@ -238,7 +246,10 @@ export function createT4OriginalNativeHostNetworkOwner({
         onStep(Object.freeze({...bindingProof(state,'completed'),state:result.state,
           sourceCursorAdvanced:result.sourceCursorAdvanced===true,
           originalRecipientCursorAdvanced:result.originalRecipientCursorAdvanced===true,
-          originalSubjectMutationInvoked:result.originalSubjectMutationInvoked===true}));
+          originalSubjectMutationInvoked:result.originalSubjectMutationInvoked===true,
+          ...(ID(result.captureRef)?{captureRef:result.captureRef}:{}),
+          ...(ID(result.originalSourceEventId)?{originalSourceEventId:result.originalSourceEventId}:{}),
+          ...(Number.isSafeInteger(result.pendingCaptureCount)?{pendingCaptureCount:result.pendingCaptureCount}:{})}));
       }catch(error){dispose(state);throw error;}
       finally{state.waking=false;}
     },
