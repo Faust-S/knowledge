@@ -7,7 +7,7 @@ import {createT4OriginalHostCaptureAdapter} from './original-host-capture-adapte
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort}
   from './original-network-host-cursor.mjs';
 import {createT4OriginalNetworkSessionPhasePort} from './original-network-session-phases.mjs';
-import {createT4OriginalNetworkPublicationPort} from './original-network-publication.mjs';
+import {createT4OriginalNetworkPublicationPort,isT4RecoverablePublicationWakeError} from './original-network-publication.mjs';
 import {createT4OriginalNetworkReplayPort} from './original-network-replay-checkpoint.mjs';
 import {createT4CandidateFrameTransport} from './standard-network-wire-transport.mjs';
 import {createT4OriginalHostOutboxDispatcher} from './original-host-outbox-dispatcher.mjs';
@@ -56,7 +56,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   role,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
   recipientNodeRef,scopeRef,ownerEpoch,requiredCryptoSuite,getMode,wireTransport,
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
-  enableLocalSourceCapture=false,
+  enableLocalSourceCapture=false,monotonicNow=()=>performance.now(),
 }={}){
   if(!['SOURCE','RECIPIENT'].includes(role)||typeof enableLocalSourceCapture!=='boolean'||
     (enableLocalSourceCapture&&(role!=='SOURCE'||typeof originalPorts?.authorizeOriginalLocalMutation!=='function'))||
@@ -64,7 +64,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       recipientNodeRef,scopeRef,requiredCryptoSuite].every(ID)||
     technicalWorkspaceId===sourceWorkspaceId||sourceNodeRef===recipientNodeRef||
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
-    ![getMode,readOriginalBaselineAdmissionInput,onStep].every(f=>typeof f==='function')||
+    ![getMode,readOriginalBaselineAdmissionInput,onStep,monotonicNow].every(f=>typeof f==='function')||
     wireTransport?.wireKind!=='T4_NETWORK_CANDIDATE'||
     !['putSnapshot','getSnapshot','inspectOutcome','listNativeFrameAddresses','forOriginalHostLifetime']
       .every(k=>typeof wireTransport[k]==='function')||
@@ -150,7 +150,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       authorizeOriginalRead:callback('authorizeOriginalRead'),authorizeOriginalWrite:callback('authorizeOriginalWrite')};
     const signing={requiredCryptoSuite,frameDiscoveryPort,
       resolveOriginalSigningContext:callback('resolveOriginalSigningContext'),
-      signOriginalNodeBytes:callback('signOriginalNodeBytes'),retryMissing:false};
+      signOriginalNodeBytes:callback('signOriginalNodeBytes')};
     if(role==='SOURCE'){
       const ledger=createT4OriginalHostCaptureLedgerPort(tech);
       const readOriginalEvents=async()=>{
@@ -209,7 +209,7 @@ export function createT4OriginalNativeHostNetworkOwner({
         return verifyT4OriginalHostCapturedSubjectSource({...capture,kind:row.kind??'OBJECT_PUT',
           subjectId:row.subjectId??row.objectId,captureRef:row.captureRef},proof);
       };
-      return {baseline,task,capture:captureRecovery,run:()=>task.runNativeSourceStep({...signing,sourceCursorPort,
+      return {baseline,task,capture:captureRecovery,run:retryMissing=>task.runNativeSourceStep({...signing,retryMissing,sourceCursorPort,
         createOriginalSourcePhasePort:phase,announceOriginalSourceSession:true,
         recoverNextOriginalCapture:p=>captureRecovery.reconcileNextOriginalCapture(p),
         authorizeOriginalRead:common.authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
@@ -225,7 +225,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       authorizeNetworkReceive:callback('authorizeNetworkReceive'),verifyOriginalSourceEvent:callback('verifyOriginalSourceEvent'),
       readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage'),
       withOriginalSubjectMutation:callback('withOriginalSubjectMutation')});
-    return {baseline,task,run:()=>task.runNativeOwnerStep({...signing,useSignedSourceAnnouncement:true,
+    return {baseline,task,run:retryMissing=>task.runNativeOwnerStep({...signing,retryMissing,useSignedSourceAnnouncement:true,
       createOriginalRecipientPublicationPort:publication,createOriginalRecipientPhasePort:phase,
       authorizeOriginalRecipientSession:callback('authorizeOriginalRecipientSession'),
       readOriginalSourceHostContext:callback('readOriginalSourceHostContext'),
@@ -287,7 +287,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       const state={kernel:p.kernel,sessionId:p.sessionId,contextEpoch:p.contextEpoch,
         hostSessionRef:hostReference(p.sessionId,p.contextEpoch),
         isHostActive:p.isHostActive,disposed:false,waking:false,task:null,capture:null,
-        localMutation:null,networkWakeSuspended:false};
+        localMutation:null,networkWakeSuspended:false,networkRecovery:null};
       live=state;
       try{
         if(await ports.authorizeOriginalBinding(bindingProof(state,'attach'))!==true||
@@ -333,6 +333,9 @@ export function createT4OriginalNativeHostNetworkOwner({
         fail('NATIVE_NETWORK_OWNER_LIFETIME_ENDED');
       if(state.waking||state.localMutation)fail('NATIVE_NETWORK_OWNER_CONCURRENT_WAKE');
       if(mode()==='LOCAL_T3'||state.networkWakeSuspended)return;
+      const now=monotonicNow();
+      if(!Number.isFinite(now)||now<0)fail('NATIVE_NETWORK_OWNER_CLOCK_INVALID');
+      if(state.networkRecovery!==null&&now<state.networkRecovery.nextWakeAt)return;
       state.waking=true;
       try{
         await requireBinding(state,'wake');
@@ -341,8 +344,9 @@ export function createT4OriginalNativeHostNetworkOwner({
           const input=await readOriginalBaselineAdmissionInput(bindingProof(state,'baseline-request'));
           await requireBinding(state,'baseline-request-readback');
           result=input===null?{state:'WAITING_FOR_ORIGINAL_BASELINE'}:await state.baseline.admitOriginalBaseline(input);
-        }else result=await state.run();
+        }else result=await state.run(state.networkRecovery!==null);
         await requireBinding(state,'wake-readback');
+        state.networkRecovery=null;
         // Only operational metadata to the existing native owner; no
         // captured bytes, object bodies, keys or network authority exposed.
         onStep(Object.freeze({...bindingProof(state,'completed'),state:result.state,
@@ -356,7 +360,24 @@ export function createT4OriginalNativeHostNetworkOwner({
         // A failed network wake must not remove the original local capture
         // route while offline. Retain ONLY a still-authorized local owner;
         // suspend networking rather than replay an uncertain remote write.
-        if(enableLocalSourceCapture&&active(state)&&mode()==='T4_NETWORK'){
+        if(isT4RecoverablePublicationWakeError(error)&&active(state)&&mode()==='T4_NETWORK'){
+          // Existing relay wake only; reconstruct from durable T3 evidence.
+          // A repeated immutable PUT still needs exact 404 and the
+          // original explicit retry-missing grant at the publication port.
+          try{
+            await requireBinding(state,'network-recovery-admission');
+            const observed=monotonicNow();
+            if(!Number.isFinite(observed)||observed<now)fail('NATIVE_NETWORK_OWNER_CLOCK_INVALID');
+            const failures=Math.min(5,(state.networkRecovery?.failures??0)+1);
+            const retryAfterMs=Math.min(60000,5000*2**(failures-1));
+            state.networkRecovery={failures,nextWakeAt:observed+retryAfterMs};
+            onStep(Object.freeze({...bindingProof(state,'network-recovery-wait'),
+              state:'NETWORK_WAKE_RECOVERY_WAIT',retryAfterMs,
+              originalSubjectMutationInvoked:role==='SOURCE'?false:null,
+              originalSubjectMutationMayHaveCommitted:role==='RECIPIENT',
+              originalMissingRetryGrantRequired:true,errorCode:error.code}));
+          }catch(recoveryError){dispose(state);throw recoveryError;}
+        }else if(enableLocalSourceCapture&&active(state)&&mode()==='T4_NETWORK'){
           try{await requireBinding(state,'local-source-after-network-error');}
           catch{dispose(state);throw error;}
           state.networkWakeSuspended=true;

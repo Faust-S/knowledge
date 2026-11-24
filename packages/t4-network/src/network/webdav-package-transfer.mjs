@@ -5,9 +5,23 @@ import {decodeT4WebDavFrameAddressList,MAX_T4_FRAME_LIST_BYTES} from './webdav-f
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {encodeT4NativeFrameIndex,decodeT4NativeFrameIndex} from './original-network-frame-address.mjs';
 export class T4TransferError extends Error {
-  constructor(code, details = {}) { super(code); this.name = 'T4TransferError'; this.code = code; this.details = Object.freeze({ ...details }); }
+  constructor(code, details = {}, cause) { super(code, cause===undefined?undefined:{cause}); this.name = 'T4TransferError'; this.code = code; this.details = Object.freeze({ ...details }); }
 }
-const fail = (code, details) => { throw new T4TransferError(code, details); };
+const fail = (code, details, cause) => { throw new T4TransferError(code, details, cause); };
+// A temporary transport failure is not authority to repeat a PUT or Kernel write.
+const TEMPORARY_HTTP=new Set([408,429,500,502,503,504]);
+export function isT4RecoverableWebDavError(error){
+  if(!(error instanceof T4TransferError))return false;
+  if(error.code==='NETWORK_UNAVAILABLE')return true;
+  if(['REMOTE_READ_FAILED','REMOTE_INDEX_READ_FAILED','REMOTE_FRAME_LIST_FAILED',
+    'REMOTE_INDEX_WRITE_OUTCOME_UNKNOWN'].includes(error.code))
+    return TEMPORARY_HTTP.has(error.details.status);
+  if(error.code==='OUTCOME_UNKNOWN')
+    return error.details.operation==='PUT'||TEMPORARY_HTTP.has(error.details.status)||
+      (error.cause instanceof T4TransferError&&error.cause.code!=='OUTCOME_UNKNOWN'&&
+        isT4RecoverableWebDavError(error.cause));
+  return false;
+}
 export const packageSha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const digest = (v) => { if (typeof v !== 'string' || !/^[a-f0-9]{64}$/.test(v)) fail('EXPECTED_DIGEST_REQUIRED'); return v; };
 const strongETag = (v) => { if (typeof v !== 'string' || !/^"[\x21\x23-\x7e]+"$/.test(v)) fail('STRONG_ETAG_REQUIRED'); return v; };
@@ -135,7 +149,7 @@ export function createWebDavPackageTransport(options = {}) {
     try {
       const readback = await getSnapshot({key,expectedSha256},check);
       return receipt(alreadyPresent ? 'ALREADY_PRESENT_VERIFIED' : 'PUBLISHED_AND_READ_BACK',key,expectedSha256,readback.receipt.etag,snapshot.length);
-    } catch (error) { fail('OUTCOME_UNKNOWN',{cause:error.code ?? 'READBACK_FAILED',acknowledgedWrite:!alreadyPresent,automaticRetryAllowed:false}); }
+    } catch (error) { fail('OUTCOME_UNKNOWN',{cause:error.code ?? 'READBACK_FAILED',acknowledgedWrite:!alreadyPresent,automaticRetryAllowed:false},error); }
   }
   async function inspectOutcome({key,expectedSha256} = {},check=live) {
     const result = await getSnapshot({key,expectedSha256},check);

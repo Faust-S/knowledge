@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {isT4RecoverableWebDavError} from './webdav-package-transfer.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {
   decodeT4CandidateFrame,verifyT4CandidateWireFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
@@ -15,12 +16,15 @@ import {t4NativeSessionFrameIndexKey,t4NativeSourceHeadIndexKey,t4NativeFrameInd
  * session/packet scheduler is created here.
  */
 export class T4CandidateFrameTransportError extends Error{
-  constructor(code,details={}){
-    super(code);this.name='T4CandidateFrameTransportError';
+  constructor(code,details={},cause){
+    super(code,cause===undefined?undefined:{cause});this.name='T4CandidateFrameTransportError';
     this.code=code;this.details=Object.freeze({...details});
   }
 }
-const fail=(code,details)=>{throw new T4CandidateFrameTransportError(code,details)};
+const fail=(code,details,cause)=>{throw new T4CandidateFrameTransportError(code,details,cause)};
+export const isT4RecoverableFrameTransportError=error=>isT4RecoverableWebDavError(error)||
+  (error instanceof T4CandidateFrameTransportError&&error.code==='WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN'&&
+    isT4RecoverableWebDavError(error.cause));
 const ID=s=>typeof s==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(s);
 const SHA=s=>typeof s==='string'&&/^[a-f0-9]{64}$/.test(s);
 const frozen=o=>Object.freeze(o);
@@ -150,7 +154,7 @@ export function createT4CandidateFrameTransport({
         originalCode:e?.code??null,
         originalWriteMayHaveCommitted:true,
         automaticRetryAllowed:false,
-      });
+      },e);
     }
     await hostGuard('after-network',ctx,frame,sha256);
     if(receipt?.sha256!==sha256||receipt.key!==key||
@@ -162,7 +166,7 @@ export function createT4CandidateFrameTransport({
     try{await ensureIndexes(ctx,frame,sha256,true);}
     catch(error){fail('WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN',{
       originalCode:error?.code??null,originalWriteMayHaveCommitted:true,
-      exactFrameReadbackVerified:true,automaticRetryAllowed:false});}
+      exactFrameReadbackVerified:true,automaticRetryAllowed:false},error);}
     return frozen({
       schema:'IWXA_T4_CANDIDATE_FRAME_PUBLISHED_V1',
       key,sha256,messageType:frame.messageType,

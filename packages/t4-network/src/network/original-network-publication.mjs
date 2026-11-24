@@ -2,6 +2,8 @@ import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSche
   from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {createHash} from 'node:crypto';
+import {isT4RecoverableFrameTransportError} from './standard-network-wire-transport.mjs';
+import {T4TransferError} from './webdav-package-transfer.mjs';
 import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,
   isT4NativeEventOnlyKind,validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions,
   T4_ORIGINAL_SOURCE_SESSION_EXTENSION}
@@ -17,12 +19,24 @@ import {assembleT4CandidateOpaqueChunks}
  * No additional Store, queue, scheduler, signer or subject write.
  */
 export class T4OriginalNetworkPublicationError extends Error {
-  constructor(code,details={}){
-    super(code);this.name='T4OriginalNetworkPublicationError';this.code=code;
+  constructor(code,details={},cause){
+    super(code,cause===undefined?undefined:{cause});this.name='T4OriginalNetworkPublicationError';this.code=code;
     this.details=Object.freeze({...details});
   }
 }
-const fail=(code,details)=>{throw new T4OriginalNetworkPublicationError(code,details);};
+const fail=(code,details,cause)=>{throw new T4OriginalNetworkPublicationError(code,details,cause);};
+// Only a missing ATTEMPTED slot may be recovered after a cold attach.
+// A lost PRESENT frame, corrupt bytes or denied access is not a retry.
+export function isT4RecoverablePublicationWakeError(error){
+  if(isT4RecoverableFrameTransportError(error))return true;
+  if(!(error instanceof T4OriginalNetworkPublicationError)||
+    !['PUBLICATION_NETWORK_OUTCOME_UNKNOWN','PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED'].includes(error.code))
+    return false;
+  return isT4RecoverableFrameTransportError(error.cause)||
+    (error.code==='PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED'&&
+      error.details.priorState==='ATTEMPTED'&&error.details.attemptLimitReached===false&&
+      error.cause instanceof T4TransferError&&error.cause.code==='REMOTE_NOT_FOUND');
+}
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const DIG=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
 const SHA=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
@@ -618,9 +632,10 @@ export function createT4OriginalNetworkPublicationPort({
         if(error?.code!=='REMOTE_NOT_FOUND'||entry.state!=='ATTEMPTED'||
           retryMissing!==true||entry.attempts>=16)
           fail('PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED',{
-            originalCode:error?.code??null,sequence,
+            originalCode:error?.code??null,sequence,priorState:entry.state,
+            attemptLimitReached:entry.attempts>=16,
             automaticRetryAllowed:false,exactSignedBytesRetained:true,
-          });
+          },error);
         await guard(ctx,'t4.network.publish.retry-missing','explicit-identical-retry',entry);
         newAttempt=true;
       }
@@ -650,7 +665,7 @@ export function createT4OriginalNetworkPublicationPort({
         fail('PUBLICATION_NETWORK_OUTCOME_UNKNOWN',{
           originalCode:error?.code??null,sequence,
           automaticRetryAllowed:false,exactSignedBytesRetained:true,
-        });
+        },error);
       }
     }
     await verifyFrame(ctx,entry,'confirm-present');
