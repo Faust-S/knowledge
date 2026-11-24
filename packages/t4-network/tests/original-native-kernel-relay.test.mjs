@@ -128,3 +128,38 @@ test("K7 malformed Asset representation cannot become an original Kernel byte ar
     assert.throws(()=>decodeOriginalNetworkRelayArgs("putAsset",[value]),
       {code:"T3_ORIGINAL_KERNEL_ASSET_BYTES_INVALID"});
 });
+
+test("K7 owner constructs original task bindings using negotiated capabilities before command admission",async()=>{
+  let staged=false;
+  const f=fixture({onAttach:async({kernel,isHostActive})=>{
+    assert.equal(kernel.hasOperation("t1.putObject"),true);
+    assert.equal(isHostActive(),false);
+    await assert.rejects(kernel.putObject({}),{code:"T3_ORIGINAL_NETWORK_RELAY_NOT_CONNECTED"});
+    staged=true;return true;
+  }});
+  try{
+    const s=await f.attach();
+    assert.equal(staged,true);assert.equal(f.relay.networkAttached,true);
+    assert.equal(f.context.isHostActive(),true);
+    await f.exchange(s.sessionId,"detach");
+    assert.equal(f.relay.networkAttached,false);
+    assert.equal(f.context.kernel.hasOperation("t1.putObject"),false);
+  }finally{f.relay.close();}
+});
+test("K7 failed wake disables only its network owner and does not silently retry",async()=>{
+  let wakes=0;
+  const f=fixture({onIdleWake:()=>{wakes++;throw Error("uncertain original task");}});
+  try{
+    const s=await f.attach();
+    const poll=f.exchange(s.sessionId,"next");
+    await new Promise(r=>setImmediate(r));
+    assert.equal(f.relay.networkAttached,false);
+    assert.equal(f.relay.attached,true);
+    // D3 still wakes the SAME long-poll; failure did not add a retry queue.
+    const read=f.relay.nativeKernel.getObject("ws","o");
+    const command=await poll;
+    assert.equal(command.method,"getObject");
+    await f.exchange(s.sessionId,"result",{id:command.id,ok:true,result:null});
+    assert.equal(await read,null);assert.equal(wakes,1);assert.equal(f.detaches,1);
+  }finally{f.relay.close();}
+});

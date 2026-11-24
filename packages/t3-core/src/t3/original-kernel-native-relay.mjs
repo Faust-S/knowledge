@@ -35,9 +35,9 @@ export function createOriginalKernelNativeRelay({
     "T3_D3_ORIGINAL_KERNEL_RELAY_HOST_REQUIRED");
   // Explicit original native owner opt-in; the D3 port and its grants are
   // unchanged. No network principal can select these methods.
-  const networkNames=networkOwner===null?[]:
+  const networkNames=Array.isArray(networkOwner?.operations)?
     Object.keys(NETWORK_METHODS).filter(name=>
-      networkOwner.operations?.includes(NETWORK_METHODS[name]));
+      networkOwner.operations.includes(NETWORK_METHODS[name])):[];
   check(networkOwner===null||(Array.isArray(networkOwner.operations)&&
     networkOwner.operations.length>0&&networkNames.length===networkOwner.operations.length&&
     typeof networkOwner.authorizeOperation==="function"&&
@@ -157,7 +157,10 @@ export function createOriginalKernelNativeRelay({
   };
   const networkPort=state=>Object.freeze({
     sessionInfo:state.kernel.sessionInfo,
-    hasOperation:id=>networkActive(state)&&network.names.some(name=>NETWORK_METHODS[name]===id),
+    // Capability discovery is available while the owner constructs its
+    // original task binding; no command may execute before admission.
+    hasOperation:id=>!closed&&live===state&&state.networkStarted&&
+      network.names.some(name=>NETWORK_METHODS[name]===id),
     ...Object.fromEntries(network.names.map(name=>[name,(...args)=>networkDispatch(state,name,args)])),
   });
   // Driven by the existing browser next/lease, never an extra timer or queue.
@@ -180,6 +183,7 @@ export function createOriginalKernelNativeRelay({
     // An uncompleted native attach must never advertise an APPLY-capable
     // Kernel to the installed owner, even before its epoch is rechecked.
     get attached(){return !closed&&live!==null&&attaching!==live;},
+    get networkAttached(){return !!live&&attaching!==live&&networkActive(live);},
     get nativeKernel(){return !closed&&live&&attaching!==live?live.kernel:null;},
     invalidate(){detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");},
     close(){closed=true;detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");},
@@ -275,6 +279,9 @@ export function createOriginalKernelNativeRelay({
             fail("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
           }
         }
+        // A detach/re-attach at the SAME epoch during an async poll check
+        // must not deliver the replacement session's command to the old realm.
+        same(payload?.sessionId,requestEpoch);
         if(!pending||pending.issued)return {kind:"IDLE"};
         if(pending.networkCommand&&!networkActive(live)){
           const call=pending;pending=null;clearTimeout(call.timer);

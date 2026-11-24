@@ -5,6 +5,9 @@ on:
       - work/2026-11-22-t4-t3-0.3.0-integration
     paths:
       - packages/t4-network/**
+      - packages/t3-core/src/t3/original-kernel-native-relay*
+      - packages/t3-core/src/main-trusted-kernel-realm.ts
+      - packages/t3-core/tests/t3-d1-original-control-http.test.mjs
       - .github/workflows/t4-network.yml
   workflow_dispatch:
 
@@ -31,6 +34,8 @@ jobs:
         run: |
           npm run check
           npm test
+      - name: Existing original T3 Control and D3 regression
+        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
 
   webdav:
     runs-on: ubuntu-latest
@@ -75,6 +80,8 @@ jobs:
           node --check src/network/original-exchange-handoff.mjs
           node --check src/network/operator-connection.mjs
           npm test
+      - name: Existing original T3 Control and D3 regression
+        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs
 
   original-kernel-webdav:
     runs-on: ubuntu-latest
@@ -88,6 +95,9 @@ jobs:
         run: npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
       - name: Install original T3 browser-test dependencies
         run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Typecheck original T3 trusted Kernel realm
+        working-directory: packages/t3-core
+        run: npx --no-install tsc --noEmit
       - name: Verify and stage original qualified T2 Kernel 0.3.6
         working-directory: packages/t3-core
         env:

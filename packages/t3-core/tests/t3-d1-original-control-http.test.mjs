@@ -11,6 +11,8 @@ import {createControlLoopbackOwner}
   from "../src/t3/control-loopback-owner.mjs";
 import {createOriginalKernelNativeRelay}
   from "../src/t3/original-kernel-native-relay.mjs";
+import {decodeOriginalNetworkRelayArgs,encodeOriginalNetworkRelayResult}
+  from "../src/t3/original-kernel-native-relay-codec.mjs";
 import {createSubjectKernelBinding}
   from "../src/t3/subject-access-binding.mjs";
 import {createTemporaryOriginalPersonalAuthority}
@@ -1503,4 +1505,60 @@ test("original nested Kernel allows only exact installed Agent grandparent",asyn
     await f?.close();
     rmSync(root,{recursive:true,force:true});
   }
+});
+
+test("T4 opt-in native owner uses original signed Control HTTP and exact binary Asset relay",{
+  timeout:12000,
+},async()=>{
+  let context=null,wakes=0,finished;
+  const done=new Promise(r=>{finished=r;});
+  const operations=["t1.getAsset","t1.putAsset"];
+  const relay=createOriginalKernelNativeRelay({
+    currentEpoch:()=>1,onAttach:()=>true,
+    networkOwner:{
+      operations,
+      onAttach:ctx=>{context=ctx;return true;},
+      onDetach:()=>{},
+      authorizeOperation:({operation,args})=>operations.includes(operation)&&
+        (operation==="t1.getAsset"?args[0]==="ws:personal":args[0].workspace_id==="ws:personal"),
+      onIdleWake:async({kernel})=>{
+        wakes++;
+        const asset=await kernel.getAsset("ws:personal","a:original");
+        assert.deepEqual(asset.bytes,Uint8Array.from([0,127,128,255]));
+        const result=await kernel.putAsset({workspace_id:"ws:personal",
+          object_id:"o:original",asset_id:"a:original",mime:"application/octet-stream",
+          base_revision:1,bytes:asset.bytes});
+        assert.equal(result.asset.revision,2);finished();
+      },
+    },
+  });
+  const f=await fixture({originalKernelRelayFor:()=>relay});
+  const stop=f.browser.subscribeSignedAccessInvalidation(()=>{});
+  try{
+    const s=await f.browser.originalKernelRelay("attach",{networkRelayVersion:1,sessionInfo:{
+      contract_version:"1.3.0",runtime_version:"0.3.6",
+      service_id:"iwxa.workspace.relay",mode:"ready",
+      granted_operations:["t1.getWorkspace","t1.getObject","t1.listEventsSince","t1.commitObjectGraph",...operations],
+    }});
+    assert.deepEqual(s.networkMethods,["getAsset","putAsset"]);
+    assert.equal(relay.nativeKernel.getAsset,undefined);
+    await assert.rejects(context.kernel.getAsset("ws:foreign","a:original"),
+      {code:"T3_ORIGINAL_NETWORK_RELAY_AUTHORITY_DENIED"});
+    const read=await f.browser.originalKernelRelay("next",{sessionId:s.sessionId});
+    assert.equal(read.method,"getAsset");
+    await f.browser.originalKernelRelay("result",{sessionId:s.sessionId,id:read.id,ok:true,
+      result:encodeOriginalNetworkRelayResult(read.method,{asset:{asset_id:"a:original",revision:1},
+        bytes:Uint8Array.from([0,127,128,255])})});
+    const write=await f.browser.originalKernelRelay("next",{sessionId:s.sessionId});
+    assert.equal(write.method,"putAsset");
+    assert.deepEqual(decodeOriginalNetworkRelayArgs(write.method,write.args)[0].bytes,
+      Uint8Array.from([0,127,128,255]));
+    await f.browser.originalKernelRelay("result",{sessionId:s.sessionId,id:write.id,ok:true,
+      result:{asset:{asset_id:"a:original",revision:2}}});
+    await done;
+    assert.equal(wakes,1);
+    await f.browser.originalKernelRelay("detach",{sessionId:s.sessionId});
+    assert.equal(context.isHostActive(),false);
+    await assert.rejects(context.kernel.putAsset({}),{code:"T3_ORIGINAL_NETWORK_RELAY_NOT_CONNECTED"});
+  }finally{stop();relay.close();await f.close();}
 });
