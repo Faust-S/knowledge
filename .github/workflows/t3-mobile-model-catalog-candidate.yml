@@ -43,3 +43,63 @@ jobs:
           NODE
       - name: Explicit source scope
         run: echo T3_MOBILE_SOURCE_ONLY_REAL_WEBGPU_AND_PHONE_ACCEPTANCE_NOT_RUN
+  assistant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exact original assistant source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 47e5b9d229fe3b37d1e39f8d917c38d8697ee5c1
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-bli
+      - name: Exact actual Club skills
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: f97f5a182ef87d4d93d7ddcb55936d3c35eae291
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-club
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Original assistant field skill and profile tests
+        shell: bash
+        working-directory: private-bli/browser-local-inference
+        run: |
+          set -euo pipefail
+          if ! (node --check domain-assistant/main.mjs && node --check domain-assistant/device-policy.mjs && node --test tests/domain-assistant-*.test.mjs) > "$RUNNER_TEMP/private-mobile-source.log" 2>&1; then
+            echo T3_MOBILE_ORIGINAL_ASSISTANT_SOURCE_FAIL
+            exit 1
+          fi
+          grep '^# tests ' "$RUNNER_TEMP/private-mobile-source.log" || true
+          grep '^# pass ' "$RUNNER_TEMP/private-mobile-source.log" || true
+          echo T3_MOBILE_ORIGINAL_ASSISTANT_SOURCE_PASS
+      - name: Prepare one shared catalog and actual assistant DOM qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/assistant-candidate"
+          mkdir -p "$stage/domain-assistant" "$stage/src"
+          cp private-bli/browser-local-inference/domain-assistant/{main,field-policy,skill-runtime,device-policy}.mjs "$stage/domain-assistant/"
+          cp packages/t3-core/integration-sources/bli1/{catalog,engine,domain-model-install,storage,policy,cache-readiness,model-worker}.mjs "$stage/src/"
+          cp packages/t3-core/tests/t3-mobile-assistant-dom-candidate.mjs "$stage/"
+          cd "$stage"
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund @mlc-ai/web-llm@0.2.87 jsdom@29.1.1
+          set +e
+          node t3-mobile-assistant-dom-candidate.mjs "$stage" "$GITHUB_WORKSPACE/private-club/assets/club-assistant-skills.json" > "$RUNNER_TEMP/private-mobile-dom.log" 2>&1
+          result=$?
+          set -e
+          grep -E '^T3_MOBILE_DOM_(CASE_PASS|CASE_FAIL|CONTRACT_PASS) [a-zA-Z0-9 _-]+$' "$RUNNER_TEMP/private-mobile-dom.log" || true
+          if test "$result" != 0; then echo T3_MOBILE_ORIGINAL_ASSISTANT_DOM_FAIL; exit 1; fi
+          echo T3_MOBILE_ORIGINAL_ASSISTANT_DOM_PASS
+      - name: Remove private staged data and logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/assistant-candidate" "$RUNNER_TEMP/private-mobile-source.log" "$RUNNER_TEMP/private-mobile-dom.log"
+          rm -rf private-bli private-club
