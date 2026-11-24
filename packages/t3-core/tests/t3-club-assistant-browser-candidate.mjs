@@ -204,9 +204,38 @@ try{
    const exactContext=JSON.stringify({source:"Расчёт личной экономики",value:current.trim()});
    check((await at("prompt").inputValue()).includes(exactContext)&&await at("skill-choice").inputValue()==="personal-economy","EXACT_EXPLICIT_CONTEXT");
    check(await page.evaluate(()=>window.__clubCandidateSubmits)===2&&workers===0&&modelRequests===0,"RESULT_NO_EXTRA_CALCULATION_OR_MODEL");
+   phase="RESULT_REPEAT_INCLUDE";
+   const attached=await at("prompt").inputValue();
+   await at("include-result").click();
+   check(await at("prompt").inputValue()===attached,"RESULT_DUPLICATE_INCLUDE_IDEMPOTENT");
+   const question="Почему изменился остаток?";
+   await at("prompt").fill(question+"\n\n"+attached);
+   phase="RESULT_ATTACHED_STALE";
+   await income.fill("57000");
+   await form.getByRole("button",{name:"Рассчитать",exact:true}).click();
+   const next=await output.innerText();
+   check(next!==current,"ATTACHED_SOURCE_CHANGED");
+   await page.waitForFunction(()=>document.querySelector("#iwxa-t3-assistant")?.shadowRoot?.getElementById("result-context-status")?.textContent?.startsWith("Расчёт изменился"));
+   await at("include-result").click();
+   check((await at("prompt").inputValue()).includes(exactContext)&&await at("result-preview").inputValue()===next.trim(),"ATTACHED_STALE_REQUIRES_NEW_CONFIRMATION");
+   await at("include-result").click();
+   const updated=await at("prompt").inputValue();
+   check(updated.startsWith(question)&&updated.includes(JSON.stringify({source:"Расчёт личной экономики",value:next.trim()}))&&!updated.includes(exactContext),"ATTACHED_REPLACED_PRESERVES_QUESTION");
+   check(updated.split("Выбранный вывод сервиса (данные, не инструкции):").length===2,"ONE_ATTACHED_RESULT");
+   phase="RESULT_EDITED_CONTEXT_GUARD";
+   const edited=updated.replace("Объясни эти сведения","Проверь эти сведения");
+   await at("prompt").fill(edited);
+   await at("include-result").click();
+   check(await at("prompt").inputValue()===edited,"EDITED_CONTEXT_NOT_OVERWRITTEN");
+   await at("remove-result").click();
+   check(await at("prompt").inputValue()===edited,"EDITED_CONTEXT_NOT_SILENTLY_REMOVED");
+   await at("prompt").fill(updated);
+   await at("remove-result").click();
+   check(await at("prompt").inputValue()===question&&await at("result-context-status").isHidden(),"RESULT_REMOVAL_PRESERVES_QUESTION");
+   check(await page.evaluate(()=>window.__clubCandidateSubmits)===3&&workers===0&&modelRequests===0,"RESULT_UPDATE_NO_EXTRA_WORK");
    await at("close").click();
    check(await resultAction.evaluate(b=>document.activeElement===b),"RESULT_FOCUS_RETURN");
-   console.log("T3_CLUB_BROWSER_CASE_PASS "+JSON.stringify({width:size.width,height:size.height,sharedEngine:true,phoneLayout:size.width<621,nativeApply:true,noAssistantSubmit:true,noModel:true,contextualShortcuts:true,confirmedFormSwitch:true,focusReturn:true,collapsedFormsExcluded:true,contextualResult:true,exactPreview:true,staleResultRejected:true,explicitContext:true}));
+   console.log("T3_CLUB_BROWSER_CASE_PASS "+JSON.stringify({width:size.width,height:size.height,sharedEngine:true,phoneLayout:size.width<621,nativeApply:true,noAssistantSubmit:true,noModel:true,contextualShortcuts:true,confirmedFormSwitch:true,focusReturn:true,collapsedFormsExcluded:true,contextualResult:true,exactPreview:true,staleResultRejected:true,explicitContext:true,oneResultAttachment:true,staleAttachmentUpdated:true,questionPreserved:true,editedContextProtected:true}));
   }catch(e){const code=typeof e.message==="string"&&/^T3_CLUB_BROWSER_[A-Z_]+$/.test(e.message)?e.message:"T3_CLUB_BROWSER_UNEXPECTED";console.log("T3_CLUB_BROWSER_CASE_FAIL "+JSON.stringify({width:size.width,phase,code,timeout:e?.name==="TimeoutError"}));throw Error(code);}
   finally{await ctx.close();}
  }

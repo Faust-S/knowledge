@@ -337,6 +337,18 @@ try{
  await poll(async()=>await at("preview").locator("li").count()>0,"OFFLINE_UPDATE_PREVIEW");
  check(await restoredForm.locator('[name="alias"]').inputValue()===alias,"OFFLINE_UPDATE_NO_PREMATURE_FORM_WRITE");
  check((await localProfile())?.revision===base.revision&&(await localProfile())?.alias===alias,"OFFLINE_UPDATE_NO_PREMATURE_STORE_WRITE");
+ phase="OFFLINE_UPDATE_REPLACEMENT_REVIEW";
+ const replacement=at("preview").locator("li").filter({has:at("preview").getByRole("checkbox",{name:"Заменить: Как к вам обращаться",exact:true})});
+ check(await replacement.count()===1,"OFFLINE_UPDATE_ONE_REPLACEMENT");
+ const selection=replacement.getByRole("checkbox",{name:"Заменить: Как к вам обращаться",exact:true});
+ check(!await selection.isChecked(),"OFFLINE_UPDATE_REPLACEMENT_REQUIRES_CHOICE");
+ check(await replacement.locator("[data-assistant-previous-value]").textContent()===alias,"OFFLINE_UPDATE_REVIEW_OLD_VALUE");
+ check(await replacement.getByRole("textbox",{name:"Как к вам обращаться",exact:true}).inputValue()===newAlias,"OFFLINE_UPDATE_REVIEW_NEW_VALUE");
+ await at("apply").click();
+ check(await replacement.count()===1&&await restoredForm.locator('[name="alias"]').inputValue()===alias,"OFFLINE_UPDATE_UNSELECTED_PRESERVED");
+ await selection.check();
+ check((await at("proposal-summary").textContent())?.includes("Выбрано 1 из 1"),"OFFLINE_UPDATE_SELECTION_SUMMARY");
+ log("RECIPIENT_OFFLINE_REPLACEMENT_EXPLICITLY_SELECTED");
  phase="OFFLINE_UPDATE_ASSISTANT_APPLY";
  await at("apply").click();
  check(await restoredForm.locator('[name="alias"]').inputValue()===newAlias,"OFFLINE_UPDATE_APPLIED_ALIAS");
