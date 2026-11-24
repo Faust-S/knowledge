@@ -371,6 +371,8 @@ def _terminal_operation(state: Any, work: Any, operation: Any) -> tuple[Any, str
              and not any(operation in o.requires_completed for o in work.operations)
              and not any(h.upstream == operation for h in work.handoffs),
              "QUALITY_CORRECTION_TERMINAL_SINGLE_RESOURCE_OPERATION_REQUIRED")
+    _require(not any(operation in batch.edge for batch in work.material_batches),
+             "QUALITY_CORRECTION_MATERIAL_REDECISION_NOT_YET_QUALIFIED")
     resource = work.wip_operation_active_resources.get(op.key, op.primary_resource)
     return op, resource, state.resources[resource], op.resource_requirements[0].units
 
@@ -380,6 +382,22 @@ def _correction_sources_current(state: Any, row: Mapping[str, Any], at: int) -> 
                       **row["used_refs"]}.items():
         _require(_owned_source(state, ref, info["owner"], at) == info["revision"],
                  "QUALITY_CORRECTION_SOURCE_REVISION_STALE")
+
+
+def _correction_rights_current(state: Any, work: Any, row: Mapping[str, Any],
+                               at: int) -> None:
+    basis = state.context_basis
+    if basis is None:
+        return
+    basis.assert_allowed(work.key, "quality_correction_propose", work.customer, at)
+    for owner in row["votes"]:
+        basis.assert_allowed(work.key, "quality_correction_review", owner, at)
+    if row.get("applied_at") is not None:
+        basis.assert_allowed(work.key, "quality_correction_apply", work.customer, at)
+    if row.get("started_at") is not None:
+        basis.assert_allowed(work.key, "quality_correction_start", row["terms"]["owner"], at)
+    if row.get("completed_at") is not None:
+        basis.assert_allowed(work.key, "quality_correction_complete", row["terms"]["owner"], at)
 
 
 def _proposal_current(state: Any, work: Any, row: Mapping[str, Any], at: int) -> None:
@@ -400,6 +418,7 @@ def _proposal_current(state: Any, work: Any, row: Mapping[str, Any], at: int) ->
     if work.assurance_responsibilities:
         assert_assurance_responsibility_current(state, work, at)
     _correction_sources_current(state, row, at)
+    _correction_rights_current(state, work, row, at)
 
 
 def _check_approval(row: Mapping[str, Any]) -> None:
@@ -631,6 +650,7 @@ def assert_current_quality_evidence(state: Any, work: Any, at: int) -> None:
                      if r.get("resubmitted_result_ref") == work.result_ref), None)
     if physical is not None:
         _correction_sources_current(state, physical, at)
+        _correction_rights_current(state, work, physical, at)
         _require(fingerprint(physical["terms"]) == physical["fingerprint"]
                  and physical["status"] == "RESUBMITTED"
                  and work.operation_evidence.get(physical["terms"]["operation"]) ==
