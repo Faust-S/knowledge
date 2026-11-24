@@ -22,6 +22,8 @@ import {createT4CandidateFrameTransport} from '../src/network/standard-network-w
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION}
   from '../src/network/standard-network-wire-candidate.mjs';
 import {t4NativeFrameIndexKeys} from '../src/network/original-network-frame-address.mjs';
+import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
+import {discoverT4OriginalSourceSessionAnnouncement} from '../src/network/original-network-source-announcement.mjs';
 import {decodeT4CandidateFrame} from '../src/network/standard-network-wire-candidate.mjs';
 import {readT4OriginalHostCapturedSubject} from '../src/network/original-host-outbox-delivery.mjs';
 import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
@@ -243,7 +245,7 @@ test('K21/K22 focused original Kernel atomic graph, source inventory and cold re
         sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,networkTargetRef:recipientNodeRef,
         sourceCursorBefore:before,readOriginalHostContext:async()=>({...await source.context(),workspaceId:ws}),
         authorizeOriginalSessionSelection:async p=>p.workspaceId===ws&&p.ownerEpoch===ownerEpoch});
-      const selected=[await selection(initial),await selection(captures[0].nextCursor)];
+      const selected=[await selection(initial),await selection(captures[0].sourceCursorAfter)];
       assert.ok(selected.every(x=>x.state==='ORIGINAL_NATIVE_SESSION_SELECTED'&&x.originalCaptureEvidenceVerified));
       const keys={source:generateKeyPairSync('ed25519'),recipient:generateKeyPairSync('ed25519')};
       const suite='X25519_AES256GCM_ED25519',stats={framePut:0,indexPut:0,collectionList:0};
@@ -278,8 +280,16 @@ test('K21/K22 focused original Kernel atomic graph, source inventory and cold re
         wireTransport,getMode:mode,originalHostNodeRef:node(e),originalHostScopeRef:scopeRef,
         readOriginalHostContext:async()=>({...await e.context(),originalOwnerRef:owner}),
         authorizeOriginalHostWire:async p=>p.originalHostNodeRef===node(e),
-        verifyOriginalNodeSignature:async()=>false,authorizeOriginalNetwork:async()=>false,
-        persistOriginalReplayDecision:async()=> 'DENIED',
+        verifyOriginalNodeSignature:async({bytes,signature,signerRef,sourceNodeRef:from})=>{
+          const peer=e===source?recipient:source;
+          return from===node(peer)&&signerRef===keyRef(peer)&&
+            verify(null,Buffer.from(bytes),keys[peer.role].publicKey,Buffer.from(signature));
+        },
+        authorizeOriginalNetwork:async p=>p.sourceNodeRef===remote(e)&&p.recipientNodeRef===node(e)&&
+          p.ownerEpoch===ownerEpoch&&p.scopeRef===scopeRef&&p.permissionRef==='permission:graph-focus'&&
+          selected.some(x=>x.session.sessionRef===p.sessionRef),
+        persistOriginalReplayDecision:createT4OriginalNetworkReplayPort({...tech(e),
+          technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,localNodeRef:node(e)}).persistOriginalReplayDecision,
       });
       const publication=(e,session,wireTransport)=>createT4OriginalNetworkPublicationPort({
         ...tech(e),session,localNodeRef:node(e),technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
@@ -352,12 +362,51 @@ test('K21/K22 focused original Kernel atomic graph, source inventory and cold re
         assert.deepEqual(await Promise.all([source,recipient].map(e=>e.kernel.listEventsSince(ws))),business);
         assert.equal(stats.framePut,4);assert.equal(signatureCalls,4);assert.equal(stats.indexPut,addressCount);
         assert.equal(stats.collectionList,0);assert.equal(hashFile(kernelPath),pinned);
+        // Address migration is not a recipient receipt. Only after the
+        // preceding no-write proof do the two original peers independently
+        // discover, authenticate and record their existing signed frames.
+        const receive=async item=>{
+          const peer=item.e===source?recipient:source,frame=decodeT4CandidateFrame(item.bytes);
+          const found=await frameTransport(peer,indexed).discoverUniqueSignedFrame({
+            selector:{sourceNodeRef:node(item.e),sessionRef:item.session.sessionRef,
+              ownerEpoch,messageType:frame.messageType,sequence:1},requiredCryptoSuite:suite,
+            supportedCriticalExtensions:frame.criticalExtensions});
+          assert.equal(found.state,'FOUND');assert.equal(found.indexedLookup,true);
+          assert.equal(found.pages,0);assert.equal(found.receipt.sha256,item.before.frames[0].sha256);
+          assert.equal(found.receipt.originalSignatureVerified,true);
+          assert.equal(found.receipt.originalAccessVerified,true);
+          assert.equal(found.receipt.originalReplayCheckpointRecorded,true);
+          assert.equal(found.receipt.originalBusinessApplied,false);return found.receipt;
+        };
+        for(const item of exactFrames)assert.equal((await receive(item)).exactPreviouslyVerifiedReplay,false);
+        const announcement=async before=>discoverT4OriginalSourceSessionAnnouncement({
+          identity:{workspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch},
+          sourceCursorBefore:before,frameDiscoveryPort:frameTransport(recipient,indexed),requiredCryptoSuite:suite,
+          authorizeOriginalDiscovery:async p=>p.workspaceId===ws&&p.ownerEpoch===ownerEpoch});
+        const discovered=await announcement(initial);
+        assert.equal(discovered.state,'ORIGINAL_NATIVE_SESSION_SELECTED');
+        assert.deepEqual(discovered.session,selected[0].session);
+        assert.equal(discovered.originalCaptureEvidenceVerified,false);
+        assert.equal((await announcement(captures[0].sourceCursorAfter)).state,'WAITING_FOR_HEADS');
+        const replayHistories=await Promise.all([source,recipient].map(e=>e.kernel.listEventsSince(e.tech)));
+        for(const [i,events] of replayHistories.entries()){
+          const before=histories[i];assert.deepEqual(events.slice(0,before.length),before);
+          assert.equal(events.length,before.length+2);
+          assert.ok(events.slice(before.length).every(e=>e.event_type==='t4.network.original.frame.replay.checkpoint'));
+        }
+        await source.open();await recipient.open();
+        for(const item of exactFrames)assert.equal((await receive(item)).exactPreviouslyVerifiedReplay,true);
+        assert.deepEqual(await Promise.all([source,recipient].map(e=>e.kernel.listEventsSince(e.tech))),replayHistories);
+        assert.deepEqual(await Promise.all([source,recipient].map(e=>e.kernel.listEventsSince(ws))),business);
+        assert.equal(stats.framePut,4);assert.equal(signatureCalls,4);assert.equal(stats.indexPut,addressCount);
+        assert.equal(stats.collectionList,0);
         console.log('T4_K32_REAL_ORIGINAL_PUBLICATION_PROFILE_MIGRATION_PASS',JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,originalPublicationRecords:4,immutableFrames:4,verifiedIndexes:addressCount,
           lostCommittedHttpsIndexResponseRecovered:true,originalHostMigrationStepperUsed:true,
           originalSourceAndRecipientColdProfiles:true,oldUnsignedAnnouncementNotInvented:true,
           repeatedSubjectWrites:0,repeatedFramePuts:0,repeatedSignatures:0,repeatedIndexPuts:0,
-          originalPublicationEventsUnchanged:true,remoteCollectionEnumerated:false,
+          originalPublicationEventsUnchanged:true,originalPeerDiscoveryVerified:4,
+          originalReplayColdReadbackVerified:4,oldHeadWithoutAnnouncementNotPromoted:true,remoteCollectionEnumerated:false,
           installedNativeSchedulerQualified:false,independentPhysicalDevices:false
         }));
       }finally{legacy.close();indexed.close();}
