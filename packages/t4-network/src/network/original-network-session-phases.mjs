@@ -239,6 +239,7 @@ export function createT4OriginalNetworkSessionPhasePort({
         clone(current.stages[1]?.evidence??null):null,
       ...(recipientApplyIntentRequired?{
         recipientApplyIntentRequired:true,
+        recipientReceivedEvidence:clone(current.stages[0]?.evidence??null),
         recipientVerifiedEvidence:clone(current.stages[1]?.evidence??null),
         recipientApplyIntentEvidence:clone(current.stages[2]?.evidence??null),
       }:{}),

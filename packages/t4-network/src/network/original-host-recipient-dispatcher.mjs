@@ -504,11 +504,13 @@ function nativeRecipientGuard(p,session,admission=null){
       ownerEpoch:p.ownerEpoch,sessionRef:session.sessionRef,changeId:session.changeId,
       originalHostTaskOwnerRequired:true,
       networkConnectionDoesNotGrantOriginalWriteRights:true});
-    if(await p.authorizeOriginalHostTask(proof)!==true||
-      await p.authorizeNetworkReceive(proof)!==true)
-      fail('RECIPIENT_NATIVE_ORIGINAL_HOST_AUTHORITY_DENIED',{
-        step,automaticRetryAllowed:false,
-      });
+    const deny=()=>fail('RECIPIENT_NATIVE_ORIGINAL_HOST_AUTHORITY_DENIED',{
+      step,automaticRetryAllowed:false,
+    });
+    if(await p.authorizeOriginalHostTask(proof)!==true)deny();
+    mode(p);
+    if(await p.authorizeNetworkReceive(proof)!==true)deny();
+    mode(p);
     if(admission&&await admission(proof)!==true)
       fail('RECIPIENT_NATIVE_ORIGINAL_ADMISSION_DENIED',{step,automaticRetryAllowed:false});
     mode(p);
@@ -730,7 +732,8 @@ async function executeNativeRecipientStep(p,options){
     r.originalSignatureVerified===true&&r.originalAccessVerified===true&&
     r.originalReplayCheckpointRecorded===true&&r.networkBytesVerified===true&&
     r.originalBusinessApplied===false&&r.originalT3ExchangeCalled===false&&
-    SHA(r.sha256)&&r.key===r.sha256+'.t4n'&&
+    SHA(r.sha256)&&r.key===r.sha256+'.t4n'&&ID(r.verifiedSignerRef)&&
+    same(r.verifiedCriticalExtensions,[])&&
     same(r.verifiedBody,{familyRef:session.familyRef,ownerEpoch:session.ownerEpoch,
       heads:[session.sourcePrefixDigestAfter]});
   async function signFrame(messageType,sequence,body,criticalExtensions=[]){
@@ -840,7 +843,7 @@ async function executeNativeRecipientStep(p,options){
     evidenceDigest:'sha256:'+content.verifiedChunks[0].sha256};
   const verifiedEvidence={evidenceRef:received.sourceChangeFrameKey,evidenceDigest:received.originalStateDigest};
   const intentEvidence={evidenceRef:received.sourceChangeFrameKey,evidenceDigest:'sha256:'+received.sha256};
-  if((stage===1&&!same(status.currentEvidence,transportEvidence))||
+  if((stage>=1&&!same(status.recipientReceivedEvidence,transportEvidence))||
     (stage>=2&&!same(status.recipientVerifiedEvidence,verifiedEvidence))||
     (stage>=3&&!same(status.recipientApplyIntentEvidence,intentEvidence))||
     (stage<3&&saved.frames.length===2)||(stage===4&&saved.frames[1]?.state!=='PRESENT'))
