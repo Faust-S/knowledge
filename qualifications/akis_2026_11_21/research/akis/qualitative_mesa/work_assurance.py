@@ -424,7 +424,7 @@ def quality_dependency_view(work: Any) -> dict[str, Any]:
     if scope["boundary_inputs"]:
         out["correction_dependency_scope_with_input_reproduction"] = quality_dependency_scope(
             work, expand_inputs=True)
-    active = work.assurance_corrections[-1] if work.assurance_corrections else None
+    active = _last_applied_correction(work)
     if active is not None and active["status"] == "IN_PROGRESS" and active["terms"].get("material_revisions"):
         try:
             candidate = _material_retry_snapshot(work, active["terms"]["id"])
@@ -467,9 +467,14 @@ def current_material_generation(work: Any, batch_key: str) -> dict[str, Any] | N
     return None
 
 
+def _last_applied_correction(work: Any) -> dict[str, Any] | None:
+    return next((row for row in reversed(work.assurance_corrections)
+                 if row["status"] != "CANCELLED"), None)
+
+
 def _material_retry_snapshot(work: Any, ident: Any) -> dict[str, Any]:
     """A failed delivery can be replaced, but an active or unknown custody cannot."""
-    old = work.assurance_corrections[-1] if work.assurance_corrections else None
+    old = _last_applied_correction(work)
     _require(isinstance(ident, str) and old is not None
              and old["terms"]["id"] == ident and old["status"] == "IN_PROGRESS"
              and bool(old["terms"].get("material_revisions"))
@@ -650,7 +655,7 @@ def qualify_correction_handoff(state: Any, work: Any, event: Mapping[str, Any], 
     if work.result != "REJECTED":
         _require(not bound, "QUALITY_CORRECTION_HANDOFF_ACTIVE_GENERATION_REQUIRED")
         return None
-    row = work.assurance_corrections[-1] if work.assurance_corrections else None
+    row = _last_applied_correction(work)
     _require(row is not None and row["status"] == "IN_PROGRESS"
              and "handoffs_before" in row["terms"] and bound
              and event.get("quality_correction_id") == row["terms"]["id"]
@@ -922,7 +927,7 @@ def _proposal_current(state: Any, work: Any, row: Mapping[str, Any], at: int) ->
             retry = doc["material_retry"]
             _require(_material_retry_snapshot(work, retry["id"]) == retry,
                      "QUALITY_CORRECTION_FAILED_ATTEMPT_CHANGED_AFTER_CONSENT")
-            old = work.assurance_corrections[-1]
+            old = _last_applied_correction(work)
             _proposal_current(state, work, old, at)
             _check_approval(old)
         if row["status"] == "PROPOSED" and "handoffs_before" in doc:
@@ -987,7 +992,7 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
                  "QUALITY_CORRECTION_ORIGINAL_CUSTOMER_AND_NO_OPEN_ATTEMPT_REQUIRED")
         if "quality_correction_retry_of" in event:
             retry_snapshot = _material_retry_snapshot(work, event["quality_correction_retry_of"])
-            old = work.assurance_corrections[-1]
+            old = _last_applied_correction(work)
             _proposal_current(state, work, old, at)
             _check_approval(old)
             _require("quality_correction_plan" in event,
@@ -1079,7 +1084,7 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
                   "quality_correction_cancel"}:
         row = work.assurance_correction_proposal
     else:
-        row = work.assurance_corrections[-1] if work.assurance_corrections else None
+        row = _last_applied_correction(work)
     _require(row is not None and row["terms"]["id"] == ident and
              row["fingerprint"] == event.get("quality_correction_fingerprint"),
              "QUALITY_CORRECTION_EXACT_PROPOSAL_REQUIRED")
@@ -1128,7 +1133,7 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
         row["status"] = "APPROVED"
         row["applied_at"] = at
         if retry is not None:
-            old = work.assurance_corrections[-1]
+            old = _last_applied_correction(work)
             old["status"] = "SUPERSEDED_BY_MATERIAL_RETRY"
             old["superseded_at"] = at
             old["superseded_by"] = doc["id"]
@@ -1225,7 +1230,7 @@ def qualified_resubmission(state: Any, work: Any, event: Mapping[str, Any],
     """A new Result reference is not evidence that failed work was corrected."""
     if not failed_criteria(work):
         return None
-    row = work.assurance_corrections[-1] if work.assurance_corrections else None
+    row = _last_applied_correction(work)
     _require(row is not None and row["status"] == "COMPLETED"
              and row["terms"]["rejected_result"] == work.result_ref
              and event.get("quality_correction_id") == row["terms"]["id"]
