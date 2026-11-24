@@ -68,7 +68,7 @@ import {openT4OriginalNetworkObjectChange,
   from '../src/network/original-network-subject-apply.mjs';
 import {digestT4OriginalObjectContent}
   from '../src/network/original-object-delta.mjs';
-import {recoverT4OriginalNetworkSourceCursor}
+import {recoverT4OriginalNetworkSourceCursor,confirmT4OriginalNetworkSourceAcknowledgement}
   from '../src/network/original-network-source-cursor.mjs';
 import {createT4OriginalNetworkHostCursorPort}
   from '../src/network/original-network-host-cursor.mjs';
@@ -4655,9 +4655,6 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         originalRecipientStateDigest:p2eResult.originalRecipientStateDigest,
       };
       assert.deepEqual(finalized.recipientPhase.currentEvidence,p2eAppliedEvidence);
-      await p2eSourcePhase().advanceOriginalSessionPhase({
-        phase:'APPLIED_CONFIRMED',evidence:p2eAppliedEvidence,
-      });
       const p2eAckRecovery={
         sourcePhasePort:p2eSourcePhase(),
         verifiedAppliedAck:p2eSignedAck.verified,
@@ -4668,6 +4665,14 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         readOriginalEvents:()=>originalCarrierKernel.listEventsSince(
           workspaceId),
       };
+      const sourceConfirmed=await confirmT4OriginalNetworkSourceAcknowledgement({
+        ...p2eAckRecovery,getMode:()=> 'T4_NETWORK',
+      });
+      assert.equal(sourceConfirmed.state,'CONFIRMED');
+      assert.deepEqual(sourceConfirmed.sourcePhase.currentEvidence,p2eAppliedEvidence);
+      assert.deepEqual(sourceConfirmed.recoveredCursor.originalT3NextCursor,
+        p2fTask.sourceCursorAfter);
+      assert.equal(sourceConfirmed.sourceCursorAdvanced,false);
       p2eLoseOriginalCursorAck=true;
       await assert.rejects(p2eCursorPort().commitAcknowledgedCursor({
         recovery:p2eAckRecovery,
@@ -4994,6 +4999,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         originalRelationBothEndpointsVerified:true,noRemainingCapture:true,
         recipientDurableApplyIntentBeforeOriginalSubjectWrite:true,
         recipientDurableAppliedAckTaskFinalized:true,
+        sourceAckValidatedAgainstOriginalEventBeforeConfirmation:true,
         independentPhysicalDevices:false,productionHostSchedulerInstalled:false,
       }));
       const interrupted=mixedCompleted.find(x=>x.outageWitness);

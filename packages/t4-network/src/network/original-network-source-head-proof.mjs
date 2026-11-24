@@ -170,7 +170,13 @@ export async function verifyT4OriginalSourceHeadCausality({
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_SOURCE_NETWORK_HEAD_PROOF_V1',
     workspaceId,originalWriteOwnerRef,sourceNodeRef,
-    recipientNodeRef,scopeRef,sessionRef,
+    recipientNodeRef,scopeRef,sessionRef,ownerEpoch,changeId:change.changeId,
+    ciphertextContentDigest:change.contentDigest,
+    ...(typeof verifiedChangeRef.sha256==='string'&&
+      /^[a-f0-9]{64}$/.test(verifiedChangeRef.sha256)&&
+      verifiedChangeRef.key===verifiedChangeRef.sha256+'.t4n'?{
+        sourceChangeFrameKey:verifiedChangeRef.key,
+      }:{}),
     originalSourceEventId:ref.eventId,
     originalEventDigest:ref.eventDigest,
     originalEventRevision:ref.revision,

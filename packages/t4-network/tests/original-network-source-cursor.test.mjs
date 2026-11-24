@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readT4OriginalEventWindow}
   from '../src/network/original-event-window.mjs';
-import {recoverT4OriginalNetworkSourceCursor}
+import {recoverT4OriginalNetworkSourceCursor,confirmT4OriginalNetworkSourceAcknowledgement}
   from '../src/network/original-network-source-cursor.mjs';
 
 const hash='sha256:'+'a'.repeat(64),other='sha256:'+'b'.repeat(64),
@@ -211,4 +211,94 @@ test('later Events do not waive a forged captured Window digest',async()=>{
   s.phase.sourceIntentEvidence.evidenceDigest=forged;
   await assert.rejects(recoverT4OriginalNetworkSourceCursor(s.props),
     isCode('CURSOR_ORIGINAL_T3_SOURCE_EVENT_CHANGED'));
+});
+
+
+async function confirmationFixture(){
+  const f=await fixture(),{phase,props,proof}=f,change=props.verifiedChangeRef;
+  proof.ownerEpoch=phase.ownerEpoch;proof.changeId=phase.changeId;
+  proof.sourceChangeFrameKey=change.key;
+  proof.ciphertextContentDigest=change.verifiedBody.contentDigest;
+  change.verifiedBody.parents=[proof.sourcePrefixDigestBefore];
+  phase.currentPhase='PUBLISHED';phase.revision=2;
+  phase.originalBusinessApplied=false;phase.verifiedOriginalRecipientApplication=false;
+  phase.currentEvidence=structuredClone(phase.sourcePublishedEvidence);
+  let writes=0,allowRecipient=true,losePhaseReply=false;
+  const port=props.sourcePhasePort;
+  Object.assign(port,{
+    schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1',role:'SOURCE',
+    checkpointRef:phase.checkpointRef,originalT3TechnicalWorkspaceOnly:true,
+    createsSecondStore:false,
+    async advanceOriginalSessionPhase({phase:stage,evidence}){
+      assert.equal(stage,'APPLIED_CONFIRMED');
+      if(!allowRecipient)throw Object.assign(Error('recipient original result denied'),
+        {code:'PHASE_ORIGINAL_RECIPIENT_APPLICATION_NOT_VERIFIED'});
+      const already=phase.currentPhase===stage;
+      if(already)assert.deepEqual(evidence,phase.currentEvidence);
+      else{
+        assert.equal(phase.currentPhase,'PUBLISHED');
+        writes++;phase.currentPhase=stage;phase.revision=3;
+        phase.currentEvidence=structuredClone(evidence);phase.chainHash=other;
+        phase.originalBusinessApplied=true;phase.verifiedOriginalRecipientApplication=true;
+      }
+      if(losePhaseReply){
+        losePhaseReply=false;throw Object.assign(Error('lost original phase reply'),
+          {code:'PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'});
+      }
+      return {schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1',phase:stage,
+        checkpointRef:phase.checkpointRef,revision:phase.revision,
+        chainHash:phase.chainHash,originalBusinessApplied:true,
+        status:already?'ALREADY_CONFIRMED':'RECORDED'};
+    },
+  });
+  return {props:f.props,phase:f.phase,signed:f.signed,proof:f.proof,source:f.source,
+    get reads(){return f.reads;},get phaseWrites(){return writes;},
+    denyRecipient(){allowRecipient=false;},losePhaseReply(){losePhaseReply=true;}};
+}
+test('source ACK task checks original Event prefix before APPLIED_CONFIRMED and leaves cursor CAS to original Host',async()=>{
+  const f=await confirmationFixture(),write=f.props.sourcePhasePort.advanceOriginalSessionPhase;
+  f.props.sourcePhasePort.advanceOriginalSessionPhase=async args=>{
+    assert.ok(f.reads>=2);return write(args);
+  };
+  const confirmed=await confirmT4OriginalNetworkSourceAcknowledgement(f.props);
+  assert.equal(confirmed.state,'CONFIRMED');
+  assert.equal(confirmed.sourceCursorAdvanced,false);
+  assert.equal(confirmed.originalHostCursorCommitStillRequired,true);
+  assert.equal(confirmed.recoveredCursor.originalT3NextCursor.lastEventId,event.event_id);
+  assert.equal(f.phaseWrites,1);
+  const again=await confirmT4OriginalNetworkSourceAcknowledgement(f.props);
+  assert.equal(again.state,'ALREADY_CONFIRMED');
+  assert.equal(f.phaseWrites,1);
+});
+test('source ACK task never confirms a wrong signed CHANGE_REF parent or owner epoch',async()=>{
+  const f=await confirmationFixture();
+  f.props.verifiedChangeRef.verifiedBody.parents=[other];
+  await assert.rejects(confirmT4OriginalNetworkSourceAcknowledgement(f.props),
+    isCode('CURSOR_SOURCE_CONFIRM_SIGNED_HEAD_BINDING_REQUIRED'));
+  f.props.verifiedChangeRef.verifiedBody.parents=[f.proof.sourcePrefixDigestBefore];
+  f.signed.verifiedOwnerEpoch=3;
+  await assert.rejects(confirmT4OriginalNetworkSourceAcknowledgement(f.props),
+    isCode('CURSOR_SOURCE_CONFIRM_SIGNED_HEAD_BINDING_REQUIRED'));
+  assert.equal(f.phaseWrites,0);assert.equal(f.reads,0);
+});
+test('source ACK task rejects original prefix mutation before phase write',async()=>{
+  const f=await confirmationFixture();
+  f.props.readOriginalEvents=async()=>[{...event,payload:{purpose:'forged'}}];
+  await assert.rejects(confirmT4OriginalNetworkSourceAcknowledgement(f.props),
+    isCode('CURSOR_ORIGINAL_T3_SOURCE_EVENT_CHANGED'));
+  assert.equal(f.phaseWrites,0);
+});
+test('source ACK task requires independent original recipient Result authority, not signed network receipt',async()=>{
+  const f=await confirmationFixture();f.denyRecipient();
+  await assert.rejects(confirmT4OriginalNetworkSourceAcknowledgement(f.props),
+    isCode('PHASE_ORIGINAL_RECIPIENT_APPLICATION_NOT_VERIFIED'));
+  assert.equal(f.phaseWrites,0);assert.equal(f.phase.currentPhase,'PUBLISHED');
+});
+test('source ACK task reconciles lost original phase response without another phase mutation',async()=>{
+  const f=await confirmationFixture();f.losePhaseReply();
+  await assert.rejects(confirmT4OriginalNetworkSourceAcknowledgement(f.props),
+    isCode('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  const confirmed=await confirmT4OriginalNetworkSourceAcknowledgement(f.props);
+  assert.equal(confirmed.state,'ALREADY_CONFIRMED');assert.equal(f.phaseWrites,1);
+  assert.equal(confirmed.sourceCursorAdvanced,false);
 });

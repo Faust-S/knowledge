@@ -27,11 +27,12 @@ const subjectRevision=p=>Object.hasOwn(p,'originalSourceRevision')?
 const validRevision=(r,kind)=>kind==='RELATION_PUT'?r===null:
   Number.isSafeInteger(r)&&r>=1;
 const relationExtension=r=>r?.verifiedCriticalExtensions?.includes(T4_RELATION_EVENT_EXTENSION)===true;
-function checkPhase(status,proof){
+function checkPhase(status,proof,pendingEvidence=null){
+  const pending=pendingEvidence!==null&&status?.currentPhase==='PUBLISHED';
   if(status?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||
-    status.role!=='SOURCE'||status.currentPhase!=='APPLIED_CONFIRMED'||
-    status.originalBusinessApplied!==true||
-    status.verifiedOriginalRecipientApplication!==true||
+    status.role!=='SOURCE'||(!pending&&status.currentPhase!=='APPLIED_CONFIRMED')||
+    status.originalBusinessApplied!==!pending||
+    status.verifiedOriginalRecipientApplication!==!pending||
     status.originalT3EventChainVerified!==true||
     status.originalT3OnlyStore!==true||
     !ID(status.checkpointRef)||!DIG(status.chainHash)||
@@ -42,7 +43,9 @@ function checkPhase(status,proof){
     status.sourceNodeRef!==proof.sourceNodeRef||
     status.recipientNodeRef!==proof.recipientNodeRef||
     status.scopeRef!==proof.scopeRef||
-    status.sessionRef!==proof.sessionRef||kindOf(status)!==kindOf(proof))
+    status.sessionRef!==proof.sessionRef||kindOf(status)!==kindOf(proof)||
+    (proof.ownerEpoch!==undefined&&status.ownerEpoch!==proof.ownerEpoch)||
+    (proof.changeId!==undefined&&status.changeId!==proof.changeId))
     fail('CURSOR_ORIGINAL_SOURCE_APPLIED_NOT_CONFIRMED');
   const intent=status.sourceIntentEvidence;
   const publication=status.sourcePublishedEvidence;
@@ -51,7 +54,10 @@ function checkPhase(status,proof){
     !ID(publication?.evidenceRef)||
     !DIG(publication?.evidenceDigest))
     fail('CURSOR_ORIGINAL_SOURCE_INTENT_NOT_BOUND');
-  const evidence=status.currentEvidence;
+  if(pending&&(status.currentEvidence?.evidenceRef!==publication.evidenceRef||
+    status.currentEvidence?.evidenceDigest!==publication.evidenceDigest))
+    fail('CURSOR_ORIGINAL_SOURCE_INTENT_NOT_BOUND');
+  const evidence=pending?pendingEvidence:status.currentEvidence;
   if(!evidence||!ID(evidence.evidenceRef)||!DIG(evidence.evidenceDigest)||
     !ID(evidence.originalRecipientEventId)||
     !validRevision(evidence.originalRecipientRevision,kindOf(proof))||
@@ -111,15 +117,20 @@ function checkChange(change,status,proof,ack){
     relationExtension(change)!==(kindOf(proof)==='RELATION_PUT')||
     body?.sourceRevision!==subjectRevision(proof)||
     body?.ownerRef!==proof.originalWriteOwnerRef||
+    (proof.sourceChangeFrameKey!==undefined&&change.key!==proof.sourceChangeFrameKey)||
+    (proof.ciphertextContentDigest!==undefined&&
+      body?.contentDigest!==proof.ciphertextContentDigest)||
+    (body?.parents!==undefined&&
+      stable(body.parents)!==stable([proof.sourcePrefixDigestBefore]))||
     body?.contentDigest!==ack?.verifiedBody?.contentDigest)
     fail('CURSOR_SIGNED_CHANGE_NOT_BOUND_TO_SOURCE_AND_ACK');
 }
-export async function recoverT4OriginalNetworkSourceCursor({
+async function inspectOriginalSourceAcknowledgement({
   sourcePhasePort,verifiedAppliedAck,verifiedChangeRef,
   originalSourceHeadProof,
   sourceCursorBefore=null,getMode,authorizeOriginalRead,
   readOriginalEvents,
-}={}){
+}={},allowPublished=false){
   if(!sourcePhasePort||
     typeof sourcePhasePort.inspectOriginalSession!=='function'||
     ![getMode,authorizeOriginalRead,readOriginalEvents]
@@ -144,8 +155,15 @@ export async function recoverT4OriginalNetworkSourceCursor({
       proof.originalEventRevision!==subjectRevision(proof)))
     fail('CURSOR_SOURCE_HEAD_PROOF_REQUIRED');
   if(getMode()!=='T4_NETWORK')fail('CURSOR_NETWORK_MODE_OFF');
+  const pendingEvidence=allowPublished?Object.freeze({
+    evidenceRef:verifiedAppliedAck?.key,
+    evidenceDigest:'sha256:'+verifiedAppliedAck?.sha256,
+    originalRecipientEventId:verifiedAppliedAck?.verifiedBody?.recipientEventRef,
+    originalRecipientRevision:verifiedAppliedAck?.verifiedBody?.recipientRevision,
+    originalRecipientStateDigest:verifiedAppliedAck?.verifiedBody?.recipientStateDigest,
+  }):null;
   const first=await sourcePhasePort.inspectOriginalSession();
-  const evidence=checkPhase(first,proof);
+  const evidence=checkPhase(first,proof,pendingEvidence);
   checkAck(verifiedAppliedAck,first,evidence);
   checkChange(verifiedChangeRef,first,proof,verifiedAppliedAck);
   const read=()=>readT4OriginalEventWindow({
@@ -178,8 +196,8 @@ export async function recoverT4OriginalNetworkSourceCursor({
   // Re-verify original checkpoint and original Event prefix across all async
   // reads; an appended later event is allowed but a rewritten prefix is not.
   const second=await sourcePhasePort.inspectOriginalSession();
-  checkPhase(second,proof);
-  checkAck(verifiedAppliedAck,second,second.currentEvidence);
+  const secondEvidence=checkPhase(second,proof,pendingEvidence);
+  checkAck(verifiedAppliedAck,second,secondEvidence);
   checkChange(verifiedChangeRef,second,proof,verifiedAppliedAck);
   const secondWindow=await read();
   if(getMode()!=='T4_NETWORK'||stable(first)!==stable(second)||
@@ -189,6 +207,10 @@ export async function recoverT4OriginalNetworkSourceCursor({
       secondWindow.window,proof.sourceEventWindowDigest)||
     stable(firstWindow.nextCursor)!==stable(secondWindow.nextCursor))
     fail('CURSOR_ORIGINAL_T3_PROOF_CHANGED_DURING_READ');
+  return {first,evidence,proof,firstWindow};
+}
+export async function recoverT4OriginalNetworkSourceCursor(args={}){
+  const {first,evidence,proof,firstWindow}=await inspectOriginalSourceAcknowledgement(args);
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_NETWORK_ACKNOWLEDGED_CURSOR_V1',
     state:'SOURCE_ACK_CONFIRMED_NEXT_CURSOR_RECOVERED',
@@ -212,5 +234,68 @@ export async function recoverT4OriginalNetworkSourceCursor({
     originalT3HostCursorCommitStillRequired:true,
     noSecondCursorStore:true,
     originalExchangeUsed:false,
+  });
+}
+
+
+/**
+ * Source Host task: validate the signed ACK, exact signed CHANGE_REF and
+ * original Event prefix BEFORE the existing phase CAS is allowed. The
+ * phase port still independently checks the original recipient Result.
+ * No cursor write occurs here; the original Host cursor port must perform
+ * its own full recovery and CAS after this confirmation.
+ */
+export async function confirmT4OriginalNetworkSourceAcknowledgement(args={}){
+  const {sourcePhasePort:port,originalSourceHeadProof:proof,
+    verifiedChangeRef:change,verifiedAppliedAck:ack}=args;
+  if(port?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||
+    port.role!=='SOURCE'||port.originalT3TechnicalWorkspaceOnly!==true||
+    port.createsSecondStore!==false||!ID(port.checkpointRef)||
+    typeof port.advanceOriginalSessionPhase!=='function')
+    fail('CURSOR_SOURCE_CONFIRM_ORIGINAL_PHASE_PORT_REQUIRED');
+  if(!Number.isSafeInteger(proof?.ownerEpoch)||proof.ownerEpoch<1||
+    proof.ownerEpoch!==change?.verifiedOwnerEpoch||
+    proof.ownerEpoch!==ack?.verifiedOwnerEpoch||
+    !ID(proof.changeId)||proof.changeId!==change?.verifiedBody?.changeId||
+    proof.changeId!==ack?.verifiedBody?.changeId||
+    !SHA(change?.sha256)||proof.sourceChangeFrameKey!==change.key||
+    proof.sourceChangeFrameKey!==change.sha256+'.t4n'||
+    !DIG(proof.ciphertextContentDigest)||
+    proof.ciphertextContentDigest!==change.verifiedBody?.contentDigest||
+    stable(change.verifiedBody?.parents)!==stable([proof.sourcePrefixDigestBefore]))
+    fail('CURSOR_SOURCE_CONFIRM_SIGNED_HEAD_BINDING_REQUIRED');
+  const candidate=await inspectOriginalSourceAcknowledgement(args,true);
+  const {first,evidence}=candidate;
+  if(first.checkpointRef!==port.checkpointRef||
+    !Number.isSafeInteger(first.revision)||first.revision!==(
+      first.currentPhase==='PUBLISHED'?2:3))
+    fail('CURSOR_SOURCE_CONFIRM_ORIGINAL_PHASE_MISMATCH');
+  // The existing phase authority independently reads the recipient's
+  // actual T3 result, not a supplied boolean or a transport receipt.
+  const recorded=await port.advanceOriginalSessionPhase({
+    phase:'APPLIED_CONFIRMED',evidence,
+  });
+  const recovered=await recoverT4OriginalNetworkSourceCursor(args);
+  const after=await port.inspectOriginalSession();
+  checkPhase(after,proof);
+  checkAck(ack,after,after.currentEvidence);
+  checkChange(change,after,proof,ack);
+  if(recorded?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1'||
+    recorded.phase!=='APPLIED_CONFIRMED'||recorded.originalBusinessApplied!==true||
+    !['RECORDED','ALREADY_CONFIRMED'].includes(recorded.status)||
+    recorded.checkpointRef!==first.checkpointRef||recorded.revision!==3||
+    recorded.chainHash!==recovered.originalSourcePhaseChainHash||
+    after.chainHash!==recorded.chainHash||after.revision!==recorded.revision||
+    recovered.originalSourcePhaseCheckpointRef!==first.checkpointRef||
+    stable(recovered.originalT3NextCursor)!==stable(candidate.firstWindow.nextCursor))
+    fail('CURSOR_SOURCE_CONFIRM_ORIGINAL_PHASE_NOT_CONFIRMED');
+  return Object.freeze({
+    schema:'IWXA_T4_ORIGINAL_SOURCE_ACK_TASK_RESULT_V1',
+    state:first.currentPhase==='APPLIED_CONFIRMED'?'ALREADY_CONFIRMED':'CONFIRMED',
+    originalRecipientResultIndependentlyRead:true,
+    originalT3SourceEventPrefixVerifiedBeforeConfirmation:true,
+    sourcePhase:after,recoveredCursor:recovered,
+    sourceCursorAdvanced:false,originalHostCursorCommitStillRequired:true,
+    originalT3ExchangeCalled:false,originalSubjectMutationInvoked:false,
   });
 }
