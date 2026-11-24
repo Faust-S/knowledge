@@ -107,6 +107,9 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
   const original = Object.freeze({ ...facade }) as Record<string, unknown>;
   const inherited = { ...facade } as Record<string, unknown>;
   const instances = new WeakMap<object, ReturnType<typeof createSubjectKernelBinding>>();
+  // Control returns fresh method-specific signed ports. Original preview
+  // handles survive across them only within this live KernelFacade.
+  const previewSession=Object.freeze({});
   const deny = (code: string): never => {
     throw Object.assign(new Error(code), { code });
   };
@@ -125,7 +128,8 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     let bound = instances.get(access);
     if (!bound) {
       bound = createSubjectKernelBinding({
-        kernel: inherited as unknown as KernelFacade, access,
+        kernel: inherited as unknown as KernelFacade, access,previewSession,
+        isHostActive:()=>input.isHostActive?.()!==false,
       });
       instances.set(access, bound);
     }

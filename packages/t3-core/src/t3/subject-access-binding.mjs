@@ -31,6 +31,18 @@ const OPERATIONS = Object.freeze({
 export const SUBJECT_SCOPED_OPERATION_IDS = Object.freeze(Object.values(OPERATIONS));
 const REF = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX = /^[a-f0-9]{64}$/;
+// The original Host may select a NEW method-specific Access port on every
+// call. A Kernel preview belongs to the same live Host and signed context,
+// not to that short-lived port object. The opaque key never reaches a module.
+const previewSessions = new WeakMap();
+function previewStateFor(key){
+  const fresh=()=>({pendingImport:null,pendingPurge:null,importGeneration:0,purgeGeneration:0});
+  if(key===null)return fresh();
+  if(typeof key!=="object")refused("T3_SUBJECT_PREVIEW_SESSION_INVALID");
+  let state=previewSessions.get(key);
+  if(!state){state=fresh();previewSessions.set(key,state);}
+  return state;
+}
 
 function refused(code) {
   const error = new Error(code);
@@ -120,6 +132,7 @@ function authorizedDecision(decision,context,now) {
 export function createSubjectKernelBinding({
   kernel, access, clock = Date.now, commitObjectGraphPrecondition = null,
   isHostActive = () => true, onCommitObjectGraphDispatch = null,
+  previewSession = null,
 } = {}) {
   if (!kernel || typeof kernel.hasOperation !== "function" ||
       !kernel.sessionInfo || kernel.sessionInfo.contract_version !== "1.3.0" ||
@@ -143,13 +156,12 @@ export function createSubjectKernelBinding({
   // One short-lived Host-side preview binding, NOT a new Store or journal.
   // T2 Kernel remains sole authority for purge tokens and irreversible commit.
   // A new process must create a fresh preview; no cross-process token reuse.
-  let pendingPurge = null;
-  let pendingImport = null;
+  const previews = previewStateFor(previewSession);
   function snapshotCommand(input) {
     try { return structuredClone(input); }
     catch { refused("T3_KERNEL_INPUT_NOT_CLONEABLE"); }
   }
-  async function invoke(method, input, workspace_id, boundPurge = null, boundImport = null) {
+  async function invoke(method, input, workspace_id, boundPurge = null, boundImport = null, previewGeneration = null) {
     requireActive();
     requiredId(workspace_id,"WORKSPACE_ID");
     // Freeze the caller's command BEFORE any asynchronous native-owner call.
@@ -489,7 +501,9 @@ export function createSubjectKernelBinding({
     }
     requireActive();
     if (method === "importPreview") {
-      pendingImport = Object.freeze({
+      if(previewGeneration!==previews.importGeneration)
+        refused("T3_SUBJECT_IMPORT_PREVIEW_SUPERSEDED");
+      previews.pendingImport = Object.freeze({
         workspace_id,contextIdentity:identity(context),
         sourceWorkspaceId:result.preview.manifest.workspaces[0],
         allowedModes:Array.isArray(result.allowed_modes)
@@ -500,7 +514,9 @@ export function createSubjectKernelBinding({
       });
     }
     if (method === "purgePreview") {
-      pendingPurge = Object.freeze({
+      if(previewGeneration!==previews.purgeGeneration)
+        refused("T3_SUBJECT_PURGE_PREVIEW_SUPERSEDED");
+      previews.pendingPurge = Object.freeze({
         workspace_id,contextIdentity:identity(context),
         purge_token:result.purge_token,challenge:result.challenge,
         expiresAt:Date.parse(result.expires_at),
@@ -511,11 +527,11 @@ export function createSubjectKernelBinding({
     return result; // Original T2 Kernel receipt; no duplicate source-of-truth.
   }
   async function consumeImport(token) {
-    const plan = pendingImport;
+    const plan = previews.pendingImport;
     if (!plan || plan.preview_token !== token) {
       refused("T3_SUBJECT_IMPORT_PREVIEW_REQUIRED");
     }
-    pendingImport = null; // Valid token consumed BEFORE awaiting native owner.
+    previews.pendingImport = null; // Valid token consumed BEFORE awaiting native owner.
     if (plan.contextIdentity !== identity(await selected(access))) {
       refused("T3_SUBJECT_IMPORT_PREVIEW_REQUIRED");
     }
@@ -523,12 +539,12 @@ export function createSubjectKernelBinding({
     return plan;
   }
   async function consumePurge(token,confirmation,commit) {
-    const plan = pendingPurge;
+    const plan = previews.pendingPurge;
     if (!plan || plan.purge_token !== token) {
       refused("T3_SUBJECT_PURGE_PREVIEW_REQUIRED");
     }
     if (Number(clock()) >= plan.expiresAt) {
-      pendingPurge = null;
+      previews.pendingPurge = null;
       refused("T3_SUBJECT_PURGE_PREVIEW_EXPIRED");
     }
     // A mistaken confirmation is corrected within the SAME original preview.
@@ -538,7 +554,7 @@ export function createSubjectKernelBinding({
     if (commit && (typeof confirmation !== "string" ||
         confirmation !== plan.challenge))
       refused("T3_SUBJECT_PURGE_CHALLENGE_MISMATCH");
-    pendingPurge = null;
+    previews.pendingPurge = null;
     if (plan.contextIdentity !== identity(await selected(access))) {
       refused("T3_SUBJECT_PURGE_PREVIEW_REQUIRED");
     }
@@ -580,11 +596,12 @@ export function createSubjectKernelBinding({
     confirmExport: async input =>
       invoke("confirmExport",input,oneWorkspace(input?.workspace_ids)),
     importPreview: async bytes => {
-      pendingImport = null;
+      const generation=++previews.importGeneration;
+      previews.pendingImport = null;
       const commandBytes = snapshotCommand(bytes);
       const context = await selected(access);
       return invoke("importPreview",{workspace_id:context.workspace_id,bytes:commandBytes},
-        context.workspace_id);
+        context.workspace_id,null,null,generation);
     },
     importCommit: async input => {
       const command = snapshotCommand(input);
@@ -596,8 +613,9 @@ export function createSubjectKernelBinding({
       return invoke("importCancel",{preview_token:token},plan.workspace_id,null,plan);
     },
     purgePreview: async input => {
-      pendingPurge = null;
-      return invoke("purgePreview",input,input?.workspace_id);
+      const generation=++previews.purgeGeneration;
+      previews.pendingPurge = null;
+      return invoke("purgePreview",input,input?.workspace_id,null,null,generation);
     },
     purgeCommit: async input => {
       const command = snapshotCommand(input);

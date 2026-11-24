@@ -46,6 +46,8 @@ export function createSubjectKernelBinding(input: {
   isHostActive?: () => boolean;
   /** Notification immediately before the ORIGINAL Graph call (no retry). */
   onCommitObjectGraphDispatch?: () => void;
+  /** Opaque lifetime key supplied only by the original trusted Host. */
+  previewSession?: object;
 }): Pick<KernelFacade,
   "createWorkspace" | "getWorkspace" | "getObject" | "listObjects" |
   "putObject" | "deleteObject" | "putRelation" | "deleteRelation" |
