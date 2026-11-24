@@ -372,7 +372,7 @@ function corporateRegistryPort({kernel,workspaceId,objectId,trustedPolicy,clock,
     workspaceId:entry?.workspaceId??null,
     businessWorkspaceId:workspaceId,
     originalReadback:true,
-    exchangePartitionReady:entry?.mode==="SEPARATE",
+    registrySeparated:entry?.mode==="SEPARATE",
   });
   const initializeStorage=async({confirmed=false}={})=>{
     check(confirmed===true,"T3_ACCESS_REGISTRY_STORAGE_HUMAN_REQUIRED");
