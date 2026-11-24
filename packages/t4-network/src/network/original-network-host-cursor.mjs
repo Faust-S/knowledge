@@ -641,14 +641,15 @@ export function createT4OriginalNetworkRecipientCursorPort({
   // and every CAS verify the original Event chains again. No authority is
   // cached, and any changed Object forces complete verification.
   let memo=null;
-  async function readVerified(ctx,full=true){
+  async function readVerified(ctx,full=true,selectedSessions=null){
     const row=await readObject(ctx,'frontier-read');
-    if(!full&&memo&&same(memo.context,ctx)&&same(memo.row,row))
+    if(!full&&selectedSessions===null&&memo&&same(memo.context,ctx)&&same(memo.row,row))
       return copy(memo.result);
     const b=await baseline(ctx),g=genesis(b),obj=row?.object,d=obj?.data;
     const events=(await readEvents(ctx,false)).filter(e=>
       e?.workspace_id===technicalWorkspaceId&&e.object_id===checkpointRef);
     let found;
+    const selected=new Map();
     if(row===null){
       if(events.length)fail('RECIPIENT_CURSOR_ORIGINAL_EVENT_HISTORY_INCOMPLETE');
       found={revision:0,last:null,cursor:copy(b.sourceCursor),chainHash:g,baseline:b};
@@ -674,7 +675,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
         receipts.set(e.event_id,e);
       }
       let previous=g,priorCursor=b.sourceCursor,last=null;
-      const usedReceipts=new Set();
+      const usedReceipts=new Set(),usedSessions=new Set(),usedSourceEvents=new Set(),usedChanges=new Set();
       for(let i=1;i<=obj.revision;i++){
         const ev=byRevision.get(i),r=ev?.payload?.record;
         if(!r||!same(ev.payload,{checkpointRef,identity,record:r,chainHash:r.chainHash,action:'ADVANCE'})||
@@ -689,6 +690,9 @@ export function createT4OriginalNetworkRecipientCursorPort({
           usedReceipts.has(r.originalRecipientEventId))
           fail('RECIPIENT_CURSOR_ORIGINAL_EVENT_CHAIN_INVALID');
         const session=exactSession(r.session,identity);
+        if(usedSessions.has(session.sessionRef)||usedSourceEvents.has(session.sourceEventId)||usedChanges.has(session.changeId))
+          fail('RECIPIENT_CURSOR_ORIGINAL_EVENT_CHAIN_INVALID');
+        usedSessions.add(session.sessionRef);usedSourceEvents.add(session.sourceEventId);usedChanges.add(session.changeId);
         recipientTransition(identity,session,r.sourceCursorBefore,r.sourceCursorAfter);
         if(!validT4NativeSubjectRevision(session.changeKind,r.originalRecipientRevision)||
           r.originalRecipientRevision!==session.sourceRevision)
@@ -701,6 +705,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
         if(recipientEventDigest(e)!==r.originalRecipientEventDigest)
           fail('RECIPIENT_CURSOR_ORIGINAL_RESULT_EVENT_MISMATCH');
         usedReceipts.add(r.originalRecipientEventId);
+        if(selectedSessions?.has(session.sessionRef))selected.set(session.sessionRef,{revision:i,record:copy(r)});
         previous=chainHash;priorCursor=r.sourceCursorAfter;last=r;
       }
       if(!same(last,d.last))fail('RECIPIENT_CURSOR_ORIGINAL_LAST_RECORD_MISMATCH');
@@ -709,7 +714,61 @@ export function createT4OriginalNetworkRecipientCursorPort({
     if(!same(await readObject(ctx,'frontier-double-read'),row))
       fail('RECIPIENT_CURSOR_ORIGINAL_CHANGED_DURING_READ');
     memo={context:copy(ctx),row:copy(row),result:copy(found)};
-    return found;
+    return selectedSessions===null?found:{...found,selected};
+  }
+  // Historical confirmation is a read of the EXISTING incoming frontier,
+  // not an attempt to recreate old subject bytes from a later live graph.
+  // At each original frontier CAS the current result, original Event,
+  // durable APPLIED phase and exact signed ACK were verified. A cold
+  // historical read checks the original chain and all its Result Events.
+  // It grants no new signing, publication, subject mutation or cursor CAS.
+  async function inspectOriginalCommittedRecipientResults({selections}={}){
+    const query=copy(selections);
+    const selectionKeys=['capturedSha256','changeId','sessionRef','sourceEventDigest','sourceEventId'];
+    if(!Array.isArray(query)||query.length<1||query.length>1024||
+      query.some(s=>!s||!same(Object.keys(s).sort(),selectionKeys)||
+        ![s.sessionRef,s.changeId,s.sourceEventId].every(ID)||!DIG(s.sourceEventDigest)||
+        typeof s.capturedSha256!=='string'||!/^[a-f0-9]{64}$/.test(s.capturedSha256))||
+      new Set(query.map(s=>s.sessionRef)).size!==query.length)
+      fail('RECIPIENT_CURSOR_HISTORICAL_SELECTION_INVALID');
+    const ctx=await context(),ids=new Set(query.map(s=>s.sessionRef));
+    const read=async()=>{
+      const result=await readVerified(ctx,true,ids);
+      const items=query.map(s=>{
+        const found=result.selected.get(s.sessionRef),record=found?.record;
+        if(!record)fail('RECIPIENT_CURSOR_HISTORICAL_RESULT_NOT_COMMITTED',{sessionRef:s.sessionRef});
+        if(!selectionKeys.every(k=>record.session[k]===s[k]))
+          fail('RECIPIENT_CURSOR_HISTORICAL_SESSION_MISMATCH',{sessionRef:s.sessionRef});
+        return {session:copy(record.session),frontierRecordRevision:found.revision,
+          frontierRecordChainHash:record.chainHash,
+          originalRecipientEventId:record.originalRecipientEventId,
+          originalRecipientEventDigest:record.originalRecipientEventDigest,
+          originalRecipientEventRevision:record.originalRecipientEventRevision,
+          originalRecipientRevision:record.originalRecipientRevision,
+          originalRecipientStateDigest:record.originalRecipientStateDigest,
+          originalPhaseRef:record.originalPhaseRef,originalPhaseChainHash:record.originalPhaseChainHash,
+          originalPublicationRef:record.originalPublicationRef,
+          originalPublicationChainHash:record.originalPublicationChainHash,
+          signedAppliedAckDigest:record.signedAppliedAckDigest,
+          sourceCursorBefore:copy(record.sourceCursorBefore),sourceCursorAfter:copy(record.sourceCursorAfter),
+          originalT3EventReadback:true,originalCommittedRecipientResultVerified:true,
+          historicalStateFromOriginalFrontier:true,historicalSubjectBytesReconstructed:false,
+          currentSubjectReadback:false,originalBusinessAppliedAtCommit:true,
+          newAppliedAckPermitted:false};
+      });
+      return {revision:result.revision,chainHash:result.chainHash,
+        originalT3VerifiedCursor:copy(result.cursor),items};
+    };
+    const first=await read(),second=await read();
+    if(!same(first,second))fail('RECIPIENT_CURSOR_HISTORICAL_RESULT_CHANGED_DURING_READ');
+    return frozen({schema:'IWXA_T4_ORIGINAL_COMMITTED_RECIPIENT_RESULTS_V1',
+      ...identity,checkpointRef,frontierRevision:first.revision,frontierChainHash:first.chainHash,
+      originalT3VerifiedCursor:first.originalT3VerifiedCursor,
+      results:frozen(first.items.map(x=>frozen(x))),
+      originalT3EventChainVerified:true,originalT3OnlyStore:true,
+      originalSubjectMutationInvoked:false,originalRecipientCursorAdvanced:false,
+      remoteNetworkReadRequired:false,newAppliedAckPermitted:false,
+      historicalReceiptFabricated:false,currentSubjectStateClaimed:false});
   }
   async function inspectOriginalRecipientCursor(){
     const ctx=await context(),current=await readVerified(ctx);
@@ -845,6 +904,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
   return frozen({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_CURSOR_PORT_V1',
     identity,checkpointRef,originalT3OnlyStore:true,createsScheduler:false,
     readOriginalVerifiedCursor,persistOriginalVerifiedCursor,inspectOriginalRecipientCursor,
+    inspectOriginalCommittedRecipientResults,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkRecipientCursorPort({
       technicalSchemaId,
       originalKernel,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,

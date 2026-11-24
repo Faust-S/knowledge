@@ -5388,6 +5388,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         originalDeltaSha256:p2ePrepared.sha256,
         originalSubjectLossRecovered:simulateSubjectLoss,outageWitness,
         publicationSession:durableSession.sessionRef,
+        historicalSelection:{sessionRef:durableSession.sessionRef,changeId:durableSession.changeId,
+          sourceEventId:durableSession.sourceEventId,sourceEventDigest:durableSession.sourceEventDigest,
+          capturedSha256:durableSession.capturedSha256},
         sourcePublicationCount:sourcePublication.frames.length,
         recipientPublicationCount:recipientPublication.frames.length,
         signedFrameCount:f2SignCalls,actualFramePutCount:f2NetworkWrites,
@@ -6114,8 +6117,44 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         actualHTTPSFramePuts:graphCompleted.reduce((n,x)=>n+x.actualFramePutCount,0),
         newStoreOrKernel:false,productionHostSerializationQualified:false,independentPhysicalDevices:false,
       }));
+      // After actual tombstone revival and relation replacement, the
+      // previously committed Result Events are still verified locally
+      // through the SAME frontier, without current historical graph bytes.
       nativeNetworkTransport.close();
       await nativeRelay.close();nativeRelay=null;
+      await recipientContext.close();recipientContext=null;
+      recipientContext=await launch(recipientProfile);recipientPage=await opened(recipientContext);
+      const committed=[...allEarlier,completedObjectDelete,...graphCompleted];
+      const selections=committed.map(x=>x.historicalSelection);
+      const beforeHistoricalWrites=totalNativeSubjectWrites(),beforeHistoricalCursorWrites=nativeRecipientCursorWrites;
+      const historyPort=lastNativeRecipientFrontierPort();
+      const historical=await historyPort.inspectOriginalCommittedRecipientResults({selections});
+      assert.equal(historical.frontierRevision,13);
+      assert.equal(historical.results.length,13);
+      assert.equal(historical.currentSubjectStateClaimed,false);
+      assert.equal(historical.newAppliedAckPermitted,false);
+      assert.equal(historical.remoteNetworkReadRequired,false);
+      assert.deepEqual(historical.originalT3VerifiedCursor,graphTail);
+      for(const [i,proof] of historical.results.entries()){
+        const item=committed[i];
+        assert.equal(proof.session.changeKind,item.kind);
+        assert.equal(proof.frontierRecordRevision,i+1);
+        assert.equal(proof.originalRecipientEventId,item.result.originalRecipientEventId);
+        assert.equal(proof.originalRecipientRevision,item.result.originalRecipientRevision);
+        assert.equal(proof.originalRecipientStateDigest,item.result.originalRecipientStateDigest);
+        assert.equal(proof.currentSubjectReadback,false);
+        assert.equal(proof.historicalSubjectBytesReconstructed,false);
+        assert.equal(proof.newAppliedAckPermitted,false);
+      }
+      assert.equal(new Set(historical.results.map(x=>x.session.changeKind)).size,7);
+      assert.equal(totalNativeSubjectWrites(),beforeHistoricalWrites);
+      assert.equal(nativeRecipientCursorWrites,beforeHistoricalCursorWrites);
+      console.log('T4_REAL_ORIGINAL_T3_COMMITTED_MIXED_RECIPIENT_RESULTS_PASS',JSON.stringify({
+        originalKernel:ORIGINAL_KERNEL,committedResults:historical.results.length,subjectKinds:7,
+        currentGraphRevived:true,recipientColdRestart:true,remoteRelayClosed:true,
+        originalFrontierRevalidated:true,historicalSubjectBytesReconstructed:false,
+        repeatedSubjectWrites:0,repeatedCursorWrites:0,newAppliedAckPermitted:false,
+        independentPhysicalDevices:false}));
       console.log('T4_REAL_ORIGINAL_T3_NETWORK_REPLAY_COLD_CAS_PASS',
         JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,
