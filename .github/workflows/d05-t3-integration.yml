@@ -1,0 +1,106 @@
+name: D05 T3 source and platform qualification
+on:
+  push:
+    branches: [test/2026-11-24-d05-t3-integration]
+    paths: [.github/workflows/d05-t3-integration.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod
+          ref: 5a05ab9f1a6529db0c3afc0a4325d5270b18e3fe
+          token: ${{ secrets.DOMEN }}
+          path: domain
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod.ru
+          ref: 614b3be12ad12a08f8e4659c74e90e224fbd7736
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
+          token: ${{ secrets.DOMEN }}
+          path: assistant
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify owner pack and original runtime contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-owner.log"
+          if ! (cd domain && node scripts/cehovod-skill-authoring.mjs check && node --test tests/assistant-skills.test.mjs) >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+            echo D05_T3_OWNER_SKILLS_FAIL
+            exit 1
+          fi
+          cmp -s domain/models/assistant-skills.json site/public/assets/cehovod-assistant-skills.json
+          cmp -s domain/src/lib/iwps/registry-snapshot.generated.json site/src/lib/iwps/registry-snapshot.generated.json
+          node --input-type=module <<'JS'
+          import {readFileSync} from "node:fs";
+          import {validateSkillPack} from "./assistant/browser-local-inference/domain-assistant/skill-runtime.mjs";
+          const pack=validateSkillPack(JSON.parse(readFileSync("site/public/assets/cehovod-assistant-skills.json","utf8")));
+          if(pack.skills.length!==11||pack.formHints.length!==4||pack.resultHints.length!==4)throw Error("D05_T3_PACK_COUNTS");
+          console.log("D05_T3_ORIGINAL_RUNTIME_SKILLS_PASS");
+          JS
+          echo D05_T3_OWNER_PROJECTION_PASS
+      - name: Install dependencies without exporting private sources
+        working-directory: site
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+        run: |
+          npm ci --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-npm.log" 2>&1 || { echo D05_T3_NPM_FAIL; exit 1; }
+      - name: Verify real JSX bindings, source types and format
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-site.log"
+          if ! npm run verify:t3-skills >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|[A-Z]+_MARKER_[a-z-]+|[A-Z]+_FIELDS_[a-z-]+' "$log" | sort -u | head -20 || true
+            echo D05_T3_BINDINGS_FAIL
+            exit 1
+          fi
+          echo D05_T3_BINDINGS_PASS
+          if ! npm run typecheck >"$log" 2>&1; then
+            grep -Eo 'TS[0-9]{4}' "$log" | sort -u | head -20 || true
+            echo D05_T3_TYPES_FAIL
+            exit 1
+          fi
+          echo D05_T3_TYPES_PASS
+          if ! npm run lint >"$log" 2>&1; then
+            echo D05_T3_LINT_FAIL
+            exit 1
+          fi
+          echo D05_T3_LINT_PASS
+      - name: Verify exact portable common platform
+        working-directory: site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/artifacts/14920233669/zip > "$RUNNER_TEMP/t3-artifact.zip"
+          unzip -p "$RUNNER_TEMP/t3-artifact.zip" platform-inputs.zip > "$RUNNER_TEMP/platform-inputs.zip"
+          if ! node scripts/t3-platform-inputs.mjs verify "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/d05-t3-platform.log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_PLATFORM_[A-Z0-9_]+' "$RUNNER_TEMP/d05-t3-platform.log" | sort -u | head -20 || true
+            echo D05_T3_PLATFORM_FAIL
+            exit 1
+          fi
+          echo D05_T3_PLATFORM_PASS
+      - name: Clear private diagnostics
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP"/d05-t3-*.log
