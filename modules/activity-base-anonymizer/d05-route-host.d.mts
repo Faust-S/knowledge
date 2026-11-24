@@ -8,7 +8,7 @@ export type D05RouteReviewPort={
 };
 export type D05RouteHostConfig={
  context:unknown;signedAccess:unknown;createSubjectKernelBinding:Function;
- subscribeOwnerInvalidation:(listener:()=>void)=>(()=>void);includeQualityPlans?:boolean;
+ subscribeOwnerInvalidation:(listener:()=>void)=>(()=>void);includeQualityPlans?:boolean;includeTechnologyDraft?:boolean;
 };
 export function reviewSelectedD05RouteModels(config:D05RouteHostConfig):Promise<D05SignedRouteReview>;
 export function createTrustedD05RouteReviewPort(config:D05RouteHostConfig):D05RouteReviewPort;

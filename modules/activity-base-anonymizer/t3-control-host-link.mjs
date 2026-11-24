@@ -269,7 +269,7 @@ export async function openOriginalT3ActivityReviewHost({
   control,context,originalKernel,reviewerKernel=null,
   bindings,readActivityFromWorkspaceContext,
   createSubjectKernelBinding,subscribeExistingInvalidation=null,
-  enableD05RouteReview=false,includeD05QualityPlans=false,
+  enableD05RouteReview=false,includeD05QualityPlans=false,includeD05TechnologyDraft=false,
 }={}) {
   need(control?.requireSignedOwner===true &&
     callable(control,['signedActivityAccess','subscribeSignedAccessInvalidation']) &&
@@ -290,6 +290,7 @@ export async function openOriginalT3ActivityReviewHost({
     typeof createSubjectKernelBinding==='function'&&
     typeof enableD05RouteReview==='boolean'&&typeof includeD05QualityPlans==='boolean'&&
     (!includeD05QualityPlans||enableD05RouteReview)&&
+    typeof includeD05TechnologyDraft==='boolean'&&(!includeD05TechnologyDraft||includeD05QualityPlans)&&
     (subscribeExistingInvalidation===null||
       typeof subscribeExistingInvalidation==='function'),
     'T3_CONTROL_ORIGINAL_HOST_REQUIRED');
@@ -401,7 +402,7 @@ export async function openOriginalT3ActivityReviewHost({
           const result=await reviewSelectedD05RouteModels({
             context:ownerContext,signedAccess,createSubjectKernelBinding,
             subscribeOwnerInvalidation:shared.subscribeSignedAccessInvalidation,
-            includeQualityPlans:includeD05QualityPlans,
+            includeQualityPlans:includeD05QualityPlans,includeTechnologyDraft:includeD05TechnologyDraft,
           });
           need(!closed&&!invalidated&&ownerContext.currentWorkspace.get()===selected,
             'T3_CONTROL_CONTEXT_CHANGED_DURING_READ');

@@ -55,7 +55,7 @@ export function useOriginalT2ActivityKernelFacade(session){
 export async function openActivityFromOriginalT2Host({
   session,reviewerSession=null,control,currentWorkspace,bindings,
   readActivityFromWorkspaceContext,createSubjectKernelBinding,
-  subscribeExistingInvalidation=null,enableD05RouteReview=false,includeD05QualityPlans=false,
+  subscribeExistingInvalidation=null,enableD05RouteReview=false,includeD05QualityPlans=false,includeD05TechnologyDraft=false,
 }={}){
   required(currentWorkspace&&typeof currentWorkspace.get==='function'&&
     typeof currentWorkspace.subscribe==='function',
@@ -81,6 +81,6 @@ export async function openActivityFromOriginalT2Host({
     control,originalKernel,reviewerKernel,
     context:Object.freeze({kernel:originalKernel,currentWorkspace}),
     bindings,readActivityFromWorkspaceContext,createSubjectKernelBinding,
-    subscribeExistingInvalidation,enableD05RouteReview,includeD05QualityPlans,
+    subscribeExistingInvalidation,enableD05RouteReview,includeD05QualityPlans,includeD05TechnologyDraft,
   });
 }

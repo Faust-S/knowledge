@@ -41,9 +41,10 @@ function safeFailure(error){
  * is not approved for external disclosure. Do not hand this port to an LLM.
  */
 export async function reviewSelectedD05RouteModels({
- context,signedAccess,createSubjectKernelBinding,subscribeOwnerInvalidation,includeQualityPlans=false,
+ context,signedAccess,createSubjectKernelBinding,subscribeOwnerInvalidation,includeQualityPlans=false,includeTechnologyDraft=false,
 }={}){
-  need(typeof includeQualityPlans==='boolean'&&record(context?.kernel)&&typeof context.kernel.hasOperation==='function'&&
+  need(typeof includeQualityPlans==='boolean'&&typeof includeTechnologyDraft==='boolean'&&
+    (!includeTechnologyDraft||includeQualityPlans)&&record(context?.kernel)&&typeof context.kernel.hasOperation==='function'&&
     READS.every(op=>context.kernel.hasOperation(op))&&
     typeof context.currentWorkspace?.get==='function'&&
     typeof context.currentWorkspace?.subscribe==='function'&&
@@ -159,7 +160,7 @@ export async function reviewSelectedD05RouteModels({
     need(JSON.stringify(await signedAccess.currentContext())===identity,
       'D05_ROUTE_HOST_CONTEXT_CHANGED');
     checkLive();
-    const result=quality?reviewD05RouteModelsWithQuality(details,quality.plans,quality.templates):
+    const result=quality?reviewD05RouteModelsWithQuality(details,quality.plans,quality.templates,{includeTechnologyDraft}):
       reviewD05RouteModels(details);
     checkLive();
     return {...result,source_authority:'ORIGINAL_SIGNED_SELECTED_READBACK'};

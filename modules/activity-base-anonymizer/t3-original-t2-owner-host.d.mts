@@ -22,4 +22,5 @@ export function openActivityFromOriginalT2Host(input:{
   subscribeExistingInvalidation?:(listener:()=>void)=>(()=>void);
   enableD05RouteReview?:boolean;
   includeD05QualityPlans?:boolean;
+  includeD05TechnologyDraft?:boolean;
 }):Promise<T3ControlActivityBinding>;
