@@ -350,10 +350,175 @@ export async function fetchT4OriginalDeleteDelta({
   return Object.freeze({delta:verified.delta,key,sha256,
     transportReceipt:result.receipt,recipientApplied:false});
 }
+// The native route is deliberately distinct from a transport receipt, but
+// shares the existing deletion codec and original Kernel write.
+const nativeEventType=kind=>kind==='ASSET_DELETE'?
+  'iwxa.t4.original-asset.deleted':'iwxa.t4.original-relation.deleted';
+const deletedSubjectId=d=>d.kind==='ASSET_DELETE'?d.preImage.assetId:d.preImage.relationId;
+const deletedObjectId=d=>d.kind==='ASSET_DELETE'?d.preImage.objectId:d.preImage.fromObjectId;
+export function digestT4OriginalDeletedSubjectState(delta){
+  const d=validateEnvelope(delta).delta;
+  return digest({schema:'IWXA_T4_ORIGINAL_DELETED_SUBJECT_STATE_V1',
+    kind:d.kind,workspaceId:d.workspaceId,subjectId:deletedSubjectId(d),
+    preImageDigest:d.preImageDigest,deleted:true});
+}
+function nativeDeletionPayload(d,sha256){
+  return Object.freeze({
+    originalEventId:d.sourceEventId,originalEventDigest:d.sourceEventDigest,
+    originalWriteOwnerRef:d.originalWriteOwnerRef,originalDeltaSha256:sha256,
+    originalSubjectKind:d.kind,originalSubjectId:deletedSubjectId(d),
+    originalPreImageDigest:d.preImageDigest,
+    originalContentDigest:digestT4OriginalDeletedSubjectState(d),
+  });
+}
+function nativeDeletionInput(d,sha256){
+  const input=originalInput(d.kind,d.workspaceId,deletedSubjectId(d),
+    't4-delete-'+sha256,d.preImage);
+  return {...input,event:{...input.event,event_type:nativeEventType(d.kind),
+    payload:nativeDeletionPayload(d,sha256)}};
+}
+function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode){
+  const exact=received?.delta&&validateEnvelope(received.delta);
+  if(!exact||exact.key!==received.key||exact.sha256!==received.sha256)
+    fail('DELETE_RECEIVED_MISMATCH');
+  const d=exact.delta,pre=d.preImage,subjectId=deletedSubjectId(d);
+  const ops=['t1.getObject','t1.listEventsSince',
+    ...(d.kind==='ASSET_DELETE'?['t1.getAsset']:[])];
+  if(typeof authorizeOriginalRead!=='function'||typeof getMode!=='function'||
+    !ops.every(op=>originalKernel?.hasOperation?.(op)===true&&
+      typeof originalKernel[op.slice(3)]==='function'))
+    fail('DELETE_NATIVE_ORIGINAL_READ_PORTS_REQUIRED');
+  const guard=async(operation,id=subjectId)=>{
+    networkMode(getMode);
+    if(await authorizeOriginalRead(Object.freeze({
+      operation,subjectId:id,subjectKind:d.kind,workspaceId:d.workspaceId,
+      originalWriteOwnerRef:d.originalWriteOwnerRef,sourceEventId:d.sourceEventId,
+      recipientT3OriginalReadAuthorityRequired:true,
+    }))!==true)fail('DELETE_NATIVE_ORIGINAL_READ_DENIED');
+    networkMode(getMode);
+  };
+  async function object(id){
+    await guard('t1.getObject',id);
+    const row=await originalKernel.getObject(d.workspaceId,id);
+    await guard('t1.getObject',id);
+    if(row?.object?.workspace_id!==d.workspaceId||
+      row.object.object_id!==id||row.object.deleted===true)
+      fail('DELETE_NATIVE_ORIGINAL_ENDPOINT_MISSING');
+    return row;
+  }
+  async function readSubject(){
+    const owner=await object(deletedObjectId(d));
+    if(d.kind==='ASSET_DELETE'){
+      await guard('t1.getAsset');
+      const item=await originalKernel.getAsset(d.workspaceId,subjectId);
+      await guard('t1.getAsset');
+      if(item===null)return null;
+      return sourceRecord(item,d.kind,d.workspaceId,subjectId,pre.objectId);
+    }
+    const target=await object(pre.toObjectId);
+    const outgoing=owner.relations?.outgoing,incoming=target.relations?.incoming;
+    if(!Array.isArray(outgoing)||!Array.isArray(incoming))
+      fail('DELETE_NATIVE_ORIGINAL_RELATION_READBACK_REQUIRED');
+    const a=outgoing.filter(r=>r?.relation_id===subjectId);
+    const b=incoming.filter(r=>r?.relation_id===subjectId);
+    if(!a.length&&!b.length)return null;
+    if(a.length!==1||b.length!==1||!snapshotEqual(a[0],b[0]))
+      fail('DELETE_NATIVE_ORIGINAL_RELATION_IDENTITY_CONFLICT');
+    return sourceRecord(owner,d.kind,d.workspaceId,subjectId,pre.fromObjectId);
+  }
+  async function readMatches(){
+    await guard('t1.listEventsSince');
+    const events=await originalKernel.listEventsSince(d.workspaceId);
+    await guard('t1.listEventsSince');
+    if(!Array.isArray(events)||events.length>100000)
+      fail('DELETE_ORIGINAL_EVENT_HISTORY_INVALID');
+    const input=nativeDeletionInput(d,exact.sha256);
+    return events.filter(e=>e?.idempotency_key===input.event.idempotency_key||
+      (e?.event_type===input.event.event_type&&e?.payload?.originalEventId===d.sourceEventId));
+  }
+  function verifyEvent(event){
+    const input=nativeDeletionInput(d,exact.sha256);
+    return ID(event?.event_id)&&event.workspace_id===d.workspaceId&&
+      event.event_type===input.event.event_type&&
+      event.idempotency_key===input.event.idempotency_key&&
+      (event.object_id==null||event.object_id===deletedObjectId(d)||event.object_id===subjectId)&&
+      snapshotEqual(event.payload,input.event.payload);
+  }
+  return {exact,d,subjectId,guard,readSubject,readMatches,verifyEvent};
+}
+/** Read only. An absent subject without its exact original deletion Event
+ * is NOT success. A re-created subject is also NOT this deletion result.
+ */
+export async function inspectT4OriginalNativeDeletionResult({
+  received,originalKernel,authorizeOriginalRead,getMode,
+}={}){
+  const c=nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode);
+  const {d,subjectId,readSubject,readMatches,verifyEvent}=c;
+  const prior=await readSubject(),matches=await readMatches();
+  if(matches.length>1)fail('DELETE_NATIVE_DUPLICATE_ORIGINAL_EVENTS');
+  if(!matches.length){
+    if(prior===null||digest(prior)!==d.preImageDigest)
+      fail('DELETE_NATIVE_RECIPIENT_DIVERGED_WITHOUT_RESULT');
+    if(!snapshotEqual(prior,await readSubject())||(await readMatches()).length)
+      fail('DELETE_NATIVE_ORIGINAL_RESULT_CHANGED_DURING_READ');
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
+      state:'NOT_APPLIED',originalBusinessApplied:false,historicalReceiptFabricated:false});
+  }
+  const event=matches[0];
+  if(!verifyEvent(event)||prior!==null)
+    fail('DELETE_NATIVE_ORIGINAL_RESULT_EVENT_OR_STATE_MISMATCH');
+  const again=await readMatches();
+  if(again.length!==1||!snapshotEqual(again[0],event)||await readSubject()!==null)
+    fail('DELETE_NATIVE_ORIGINAL_RESULT_CHANGED_DURING_READ');
+  return Object.freeze({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',
+    state:'APPLIED_VERIFIED',originalSubjectKind:d.kind,originalSubjectId:subjectId,
+    originalRecipientEventId:event.event_id,originalRecipientRevision:null,
+    originalRecipientEventRevision:event.revision??null,
+    originalRecipientStateDigest:digestT4OriginalDeletedSubjectState(d),
+    sourceEventId:d.sourceEventId,currentRecipientRevision:null,
+    originalBusinessApplied:true,actualOriginalT3EventReadback:true,
+    actualOriginalT3SubjectReadback:true,actualOriginalT3DeletionReadback:true,
+    actualOriginalT3AssetReadback:d.kind==='ASSET_DELETE',
+    actualOriginalT3RelationReadback:d.kind==='RELATION_DELETE',
+    historicalReceiptFabricated:false});
+}
 export async function applyT4OriginalDeleteDelta({
   received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,
-  getMode,
+  getMode,nativeNetworkEvidence=false,authorizeOriginalRead,withOriginalSubjectMutation,
 }={}){
+  if(nativeNetworkEvidence){
+    // No T4 lock or new Store. The original Host must hold the original
+    // subject mutation boundary across preimage inspection and deletion.
+    // Relation has no CAS revision; an advisory read alone is insufficient.
+    if(typeof withOriginalSubjectMutation!=='function')
+      fail('DELETE_NATIVE_ORIGINAL_MUTATION_BOUNDARY_REQUIRED');
+    const args={received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,
+      getMode,nativeNetworkEvidence:true,authorizeOriginalRead};
+    const read=nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode);
+    let invoked=false,finished=false,receipt;
+    const proof=Object.freeze({operation:originalOperations(read.d.kind).write,
+      workspaceId:read.d.workspaceId,subjectKind:read.d.kind,
+      subjectId:read.subjectId,originalWriteOwnerRef:read.d.originalWriteOwnerRef,
+      sourceEventId:read.d.sourceEventId,preImageDigest:read.d.preImageDigest,
+      originalHostMustSerializeSubjectMutations:true,networkIsNotOriginalGrant:true});
+    const result=await withOriginalSubjectMutation(proof,async()=>{
+      if(invoked||finished)fail('DELETE_NATIVE_ORIGINAL_MUTATION_BOUNDARY_REENTERED');
+      invoked=true;
+      receipt=await applyOriginalDeleteCore(args);
+      return receipt;
+    });
+    finished=true;
+    if(!invoked||!receipt||result!==receipt)
+      fail('DELETE_NATIVE_ORIGINAL_MUTATION_BOUNDARY_NOT_PROVEN');
+    return receipt;
+  }
+  return applyOriginalDeleteCore({received,originalKernel,authorizeOriginalWrite,
+    verifyOriginalSourceEvent,getMode,nativeNetworkEvidence:false});
+}
+async function applyOriginalDeleteCore({
+  received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,
+  getMode,nativeNetworkEvidence,authorizeOriginalRead,
+}){
   const exact=received?.delta&&validateEnvelope(received.delta);
   if(!exact||received.key!==exact.key||received.sha256!==exact.sha256)
     fail('DELETE_RECEIVED_MISMATCH');
@@ -380,6 +545,11 @@ export async function applyT4OriginalDeleteDelta({
     fail('DELETE_ORIGINAL_RECIPIENT_AUTHORITY_DENIED');
   if(await verifyOriginalSourceEvent(sourceProof)!==true)
     fail('DELETE_ORIGINAL_SOURCE_EVENT_NOT_VERIFIED');
+  if(nativeNetworkEvidence){
+    const prior=await inspectT4OriginalNativeDeletionResult({
+      received,originalKernel,authorizeOriginalRead,getMode});
+    if(prior.state!=='NOT_APPLIED')fail('DELETE_NATIVE_ORIGINAL_RESULT_ALREADY_EXISTS');
+  }
   const prior=await readSource(originalKernel,d.kind,d.workspaceId,subjectId,fromId);
   networkMode(getMode);
   if(await authorizeOriginalWrite(ctx)!==true||
@@ -396,7 +566,8 @@ export async function applyT4OriginalDeleteDelta({
     fail('DELETE_ORIGINAL_RECIPIENT_ABSENT_REQUIRES_EVENT_RECONCILIATION');
   }
   const key='t4-delete-'+exact.sha256;
-  const input=originalInput(d.kind,d.workspaceId,subjectId,key,pre);
+  const input=nativeNetworkEvidence?nativeDeletionInput(d,exact.sha256):
+    originalInput(d.kind,d.workspaceId,subjectId,key,pre);
   let receipt;
   try{receipt=await callDelete(originalKernel,d.kind,input);}
   catch(error){
@@ -422,6 +593,12 @@ export async function applyT4OriginalDeleteDelta({
       automaticRetryAllowed:false});
   }
   if(!isGone(d.kind,current,subjectId))fail('DELETE_ORIGINAL_READBACK_NOT_REMOVED');
+  if(nativeNetworkEvidence){
+    const verified=await inspectT4OriginalNativeDeletionResult({
+      received,originalKernel,authorizeOriginalRead,getMode});
+    if(verified.state!=='APPLIED_VERIFIED'||verified.originalRecipientEventId!==receipt.event.event_id)
+      fail('DELETE_NATIVE_ORIGINAL_RESULT_EVENT_OR_STATE_MISMATCH');
+  }
   if(getMode()!=='T4_NETWORK'||await authorizeOriginalWrite(ctx)!==true)
     fail('DELETE_ORIGINAL_RECIPIENT_OUTCOME_UNKNOWN',{
       originalReceiptMayExist:true,automaticRetryAllowed:false});

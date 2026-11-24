@@ -540,6 +540,18 @@ async function executeNativeRecipient(p,options){
     authorizeOriginalRead:protect(p.authorizeOriginalRead,'read-original-subject'),
     authorizeOriginalWrite:protect(p.authorizeOriginalWrite,'write-original-subject'),
     verifyOriginalSourceEvent:protect(p.verifyOriginalSourceEvent,'verify-original-source-event'),
+    withOriginalSubjectMutation:typeof p.withOriginalSubjectMutation==='function'?
+      async(proof,action)=>{
+        await guard('before-original-subject-mutation-boundary');
+        const result=await p.withOriginalSubjectMutation(proof,async()=>{
+          await guard('inside-original-subject-mutation-boundary');
+          const value=await action();
+          await guard('inside-original-subject-mutation-readback');
+          return value;
+        });
+        await guard('after-original-subject-mutation-boundary');
+        return result;
+      }:undefined,
   });
   await guard('after-native-recipient');
   if(result?.schema!=='IWXA_T4_ORIGINAL_NATIVE_RECIPIENT_TASK_RESULT_V1'||

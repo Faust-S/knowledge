@@ -9,8 +9,12 @@ import {applyT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes,
   from './original-asset-delta.mjs';
 import {applyT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes,
   verifyT4OriginalRelationPutDelta} from './original-relation-delta.mjs';
-import {decodeT4CandidateFrame,T4_RELATION_EVENT_EXTENSION}
+import {decodeT4CandidateFrame,isT4NativeDeleteKind,validT4NativeSubjectRevision,
+  matchesT4NativeSubjectCriticalExtensions,t4NativeSubjectCriticalExtensions}
   from './standard-network-wire-candidate.mjs';
+import {verifyT4OriginalDeleteDelta,decodeT4OriginalDeleteDeltaBytes,
+  applyT4OriginalDeleteDelta,digestT4OriginalDeletedSubjectState,
+  inspectT4OriginalNativeDeletionResult} from './original-deletion-delta.mjs';
 
 /**
  * P2.2-C. Bind verified native network ciphertext to the ORIGINAL T3
@@ -60,6 +64,12 @@ const SUBJECTS=Object.freeze({
   RELATION_PUT:Object.freeze({decode:decodeT4OriginalRelationPutDeltaBytes,
     verify:verifyT4OriginalRelationPutDelta,apply:applyT4OriginalRelationPutDelta,
     id:d=>d.relationId,revision:()=>null,digest:d=>d.relationContentDigest}),
+  ASSET_DELETE:Object.freeze({decode:decodeT4OriginalDeleteDeltaBytes,
+    verify:verifyT4OriginalDeleteDelta,apply:applyT4OriginalDeleteDelta,
+    id:d=>d.preImage.assetId,revision:()=>null,digest:digestT4OriginalDeletedSubjectState}),
+  RELATION_DELETE:Object.freeze({decode:decodeT4OriginalDeleteDeltaBytes,
+    verify:verifyT4OriginalDeleteDelta,apply:applyT4OriginalDeleteDelta,
+    id:d=>d.preImage.relationId,revision:()=>null,digest:digestT4OriginalDeletedSubjectState}),
 });
 const receivedKind=r=>r?.schema==='IWXA_T4_ORIGINAL_NETWORK_OBJECT_RECEIVED_V1'?
   'OBJECT_PUT':r?.schema==='IWXA_T4_ORIGINAL_NETWORK_SUBJECT_RECEIVED_V1'?
@@ -82,7 +92,8 @@ function checkReceived(received){
     received.originalT3ExchangeCalled!==false)
     fail('SUBJECT_RECEIVED_PROOF_INVALID');
   const exact=type.verify(received.delta);
-  if(received.sha256!==exact.sha256||received.key!==exact.key||
+  if((isT4NativeDeleteKind(kind)&&exact.delta.kind!==kind)||
+    received.sha256!==exact.sha256||received.key!==exact.key||
     received.originalEventDigest!==received.delta.sourceEventDigest||
     received.originalStateDigest!==type.digest(exact.delta)||
     (kind!=='OBJECT_PUT'&&(received.originalSubjectId!==type.id(exact.delta)||
@@ -123,10 +134,8 @@ export async function openT4OriginalNetworkSubjectChange({
   if(!type||!ID(change.changeId)||
     !ID(change.eventRef)||!ID(change.ownerRef)||
     !DIG(change.contentDigest)||
-    (change.changeKind==='RELATION_PUT'?
-      (change.sourceRevision!==null||
-       !head.verifiedCriticalExtensions?.includes(T4_RELATION_EVENT_EXTENSION)):
-      (!Number.isSafeInteger(change.sourceRevision)||change.sourceRevision<1)))
+    !validT4NativeSubjectRevision(change.changeKind,change.sourceRevision)||
+    !matchesT4NativeSubjectCriticalExtensions(change.changeKind,head.verifiedCriticalExtensions))
     fail('SUBJECT_CHANGE_REF_INVALID');
   for(const chunk of verifiedChunks){
     verified(chunk,'CHUNK',head);
@@ -215,7 +224,8 @@ export async function openT4OriginalNetworkSubjectChange({
     fail('SUBJECT_ORIGINAL_AUTHENTICATED_OPEN_REQUIRED');
   const source=type.decode(new Uint8Array(opened.plaintext));
   const delta=source.delta;
-  if(delta.originalWriteOwnerRef!==change.ownerRef||
+  if((isT4NativeDeleteKind(change.changeKind)&&delta.kind!==change.changeKind)||
+    delta.originalWriteOwnerRef!==change.ownerRef||
     delta.sourceEventId!==change.eventRef||
     type.revision(delta)!==change.sourceRevision||
     (originalSourceHeadProof.workspaceId!==undefined&&
@@ -281,6 +291,7 @@ export async function openT4OriginalNetworkSubjectChange({
   if(change.changeKind==='OBJECT_PUT'){
     Object.freeze(result.delta.data);Object.freeze(result.delta.extensions);
   }
+  if(isT4NativeDeleteKind(change.changeKind))Object.freeze(result.delta.preImage);
   Object.freeze(result.delta);
   return frozen(result);
 }
@@ -468,6 +479,10 @@ export async function inspectT4OriginalNetworkRecipientResult({
 }={}){
   if(typeof allowHistoricalEventProof!=='boolean')
     fail('SUBJECT_HISTORICAL_READ_MODE_INVALID');
+  if(isT4NativeDeleteKind(receivedKind(received))){
+    checkReceived(received);
+    return inspectT4OriginalNativeDeletionResult({received,originalKernel,authorizeOriginalRead,getMode});
+  }
   if(receivedKind(received)!=='OBJECT_PUT')
     return inspectNonObject({received,originalKernel,authorizeOriginalRead,
       getMode,allowHistoricalEventProof});
@@ -603,9 +618,14 @@ export async function inspectT4OriginalNetworkRecipientResult({
     historicalReceiptFabricated:false,
   });
 }
-export async function applyT4OriginalNetworkSubjectChange({
+export async function applyT4OriginalNetworkSubjectChange(args={}){
+  if(isT4NativeDeleteKind(receivedKind(args.received)))
+    fail('SUBJECT_NATIVE_DELETE_REQUIRES_DURABLE_APPLY_INTENT');
+  return applyOriginalNetworkSubjectChange(args);
+}
+async function applyOriginalNetworkSubjectChange({
   received,originalKernel,authorizeOriginalRead,authorizeOriginalWrite,
-  verifyOriginalSourceEvent,getMode,
+  verifyOriginalSourceEvent,getMode,withOriginalSubjectMutation,
 }={}){
   checkReceived(received);
   const kind=receivedKind(received),type=SUBJECTS[kind];
@@ -625,6 +645,7 @@ export async function applyT4OriginalNetworkSubjectChange({
       received:{delta:received.delta,sha256:received.sha256,key:received.key},
       originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,getMode,
       ...(kind==='OBJECT_PUT'?{}:{nativeNetworkEvidence:true,authorizeOriginalRead}),
+      ...(isT4NativeDeleteKind(kind)?{withOriginalSubjectMutation}:{}),
     });
   }catch(error){
     fail('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN',{
@@ -708,6 +729,9 @@ export async function applyT4OriginalNetworkSubjectWithDurableIntent(args={}){
   }
   const before=await phase();
   if(before.currentPhase!=='VERIFIED')return recover(before);
+  if(isT4NativeDeleteKind(receivedKind(args.received))&&
+    typeof args.withOriginalSubjectMutation!=='function')
+    fail('SUBJECT_NATIVE_DELETE_ORIGINAL_MUTATION_BOUNDARY_REQUIRED');
   if((await inspectT4OriginalNetworkRecipientResult(args)).state!=='NOT_APPLIED')
     fail('SUBJECT_ORIGINAL_RESULT_WITHOUT_DURABLE_APPLY_INTENT');
   const reserved=await recipientPhasePort.advanceOriginalSessionPhase({
@@ -724,7 +748,7 @@ export async function applyT4OriginalNetworkSubjectWithDurableIntent(args={}){
   if(after.currentPhase!=='APPLY_INTENT'||after.revision!==reserved.revision||
     after.chainHash!==reserved.chainHash)
     fail('SUBJECT_ORIGINAL_DURABLE_APPLY_PHASE_MISMATCH');
-  const result=await applyT4OriginalNetworkSubjectChange(args);
+  const result=await applyOriginalNetworkSubjectChange(args);
   return frozen({...result,originalDurableApplyIntentVerified:true,
     originalApplyIntentCheckpointRef:after.checkpointRef,
     originalMutationRetried:false});
@@ -749,8 +773,8 @@ export function createT4OriginalNetworkAppliedAckBody({
     verifiedResult.originalRecipientRevision!==type.revision(received.delta)||
     verifiedResult.originalRecipientStateDigest!==type.digest(received.delta)||
     !ID(verifiedResult.originalRecipientEventId)||
-    (kind==='RELATION_PUT'?verifiedResult.originalRecipientRevision!==null:
-      !Number.isSafeInteger(verifiedResult.originalRecipientRevision))||
+    !validT4NativeSubjectRevision(kind,verifiedResult.originalRecipientRevision)||
+    (isT4NativeDeleteKind(kind)&&verifiedResult.actualOriginalT3DeletionReadback!==true)||
     !DIG(verifiedResult.originalRecipientStateDigest))
     fail('SUBJECT_APPLIED_ACK_REQUIRES_ORIGINAL_RESULT');
   return frozen({
@@ -880,7 +904,7 @@ export async function finalizeT4OriginalNetworkRecipientAcknowledgement(args={})
   const body=createT4OriginalNetworkAppliedAckBody({
     received,verifiedResult:actual,ackRef,
   });
-  const extensions=Object.freeze(kind==='RELATION_PUT'?[T4_RELATION_EVENT_EXTENSION]:[]);
+  const extensions=t4NativeSubjectCriticalExtensions(kind);
   const confirmResult=async()=>{
     if(!equalStable(await result(),actual))
       fail('SUBJECT_ORIGINAL_ACK_RESULT_CHANGED');
