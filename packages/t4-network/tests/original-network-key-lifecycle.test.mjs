@@ -13,7 +13,7 @@ import {deriveT4OriginalNativeCaptureSession} from '../src/network/original-netw
 import {prepareT4CandidateOpaqueChunks,assembleT4CandidateOpaqueChunks} from '../src/network/standard-network-opaque-chunks.mjs';
 import {createT4OriginalVaultNodeSignaturePort} from '../src/network/original-vault-node-signature.mjs';
 import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-native-host-network-owner.mjs';
-import {createT4CandidateUnsignedFrame,signT4CandidateFrame,verifyT4CandidateOutboundSignature} from '../src/network/standard-network-wire-candidate.mjs';
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4CandidateWireFrame,decodeT4CandidateFrame} from '../src/network/standard-network-wire-candidate.mjs';
 import {originalKernelFixture} from '../../t3-core/tests/support/t3-two-corp-original-authority.mjs';
 
 const WS='ws:k37:subject',REG='ws:k37:access',OBJECT='t3.access.signed-registry',OWNER='owner:k37',
@@ -400,4 +400,58 @@ test('K38 revocation during Vault unlock invalidates seal and open while subject
   assert.equal((await q.f.registry.readState()).statuses[AUTH].payload.entries.find(x=>x.grantId==='grant:k37:member').state,'ACTIVE');
   console.log('T4_K38_REVOKED_AGREEMENT_KEY_REFUSED',JSON.stringify({revocationDuringUnlock:true,subsequentSealDenied:true,
     originalGrantUnchanged:true,plaintextReturned:false}));
+});
+
+test('K38 combined original Registry, independent node Vaults and signed CHUNK frames with exact authenticated content', {timeout:60000},async()=>{
+  const q=await sealedFixture(),f=q.f,c=captured(Buffer.from('Original network capture fixture '.repeat(350)));
+  const sourceBinding={...localBinding,bindingRef:'binding:k38:source:signer',keyId:'key:k38:source:signer'};
+  const receiverBinding={...remoteBinding,subjectId:PRINCIPAL,bindingRef:'binding:k38:recipient:signer',keyId:'key:k38:recipient:signer'};
+  for(const b of [sourceBinding,receiverBinding])
+    await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',b,f.generate(b)));
+  const vaultFor=(...bindings)=>{
+    const vault=emptyVault();
+    for(const b of bindings){const k=f.vault.keys[b.keyId];importVaultKey(vault,{keyId:k.keyId,subjectId:k.subjectId,
+      algorithm:k.algorithm,privateKeyPem:k.privateKeyPem,expectedPublicKeyPem:k.publicKeyPem});}
+    return encryptVault(vault,PASS);
+  };
+  const sourceEncrypted=vaultFor(sourceBinding),recipientEncrypted=vaultFor(receiverBinding,q.binding);
+  const receiverAccess=f.bound(f.registry);
+  const signer=(local,remote,bound,encrypted)=>createT4OriginalVaultNodeSignaturePort({workspaceId:WS,
+    originalWriteOwnerRef:OWNER,localNodeRef:local.nodeRef,remoteNodeRef:remote.nodeRef,scopeRef:SCOPE,ownerEpoch:2,
+    requiredCryptoSuite:SUITE,localKeyRef:local.keyId,remoteKeyRef:remote.keyId,registry:f.registry,...bound,
+    expectedContext:f.context,getMode:()=> 'T4_NETWORK',clock:f.clock,requireDurableNetworkKeyBinding:true,
+    readEncryptedVault:async()=>encrypted,unlockPassphrase:async()=>PASS});
+  const sourceSigner=signer(sourceBinding,receiverBinding,f.accessFor,sourceEncrypted);
+  const receiverSigner=signer(receiverBinding,sourceBinding,receiverAccess,recipientEncrypted);
+  const receiver=q.recipient({...receiverAccess,readEncryptedVault:async()=>recipientEncrypted});
+  assert.notEqual(sourceSigner.originalAccessIdentity,receiverSigner.originalAccessIdentity);
+  assert.equal(sourceSigner.originalAccessIdentity,q.source.originalAccessIdentity);
+  assert.equal(receiverSigner.originalAccessIdentity,receiver.originalAccessIdentity);
+  const plan=await prepareT4CandidateOpaqueChunks({changeId:c.session.changeId,ownerRef:OWNER,
+    sourceContentRef:c.input.sourceContentRef,getMode:()=> 'T4_NETWORK',authorizeOriginalSealedContent:async()=>true,
+    readOriginalSealedContent:p=>q.source.readOriginalSealedContent({...p,...c.input})});
+  const replay=new Map(),received=[];
+  for(const body of plan.bodies){
+    const unsigned=createT4CandidateUnsignedFrame({messageType:'CHUNK',messageId:'message:k38:chunk:'+body.chunkIndex,
+      sourceNodeRef:A,recipientNodeRef:B,sessionRef:c.session.sessionRef,scopeRef:SCOPE,ownerEpoch:2,
+      permissionRef:sourceBinding.permissionRef,signerRef:sourceBinding.keyId,sequence:body.chunkIndex+1,
+      cryptoSuite:SUITE,body});
+    const bytes=await signT4CandidateFrame({unsignedFrame:unsigned,signOriginalNodeBytes:sourceSigner.signOriginalNodeBytes});
+    const verdict=await verifyT4CandidateWireFrame({wireBytes:bytes,recipientNodeRef:B,scopeRef:SCOPE,requiredCryptoSuite:SUITE,
+      verifyOriginalNodeSignature:receiverSigner.verifyOriginalNodeSignature,authorizeOriginalNetwork:async()=>true,
+      persistOriginalReplayDecision:async p=>{
+        if(replay.has(p.sequence))return replay.get(p.sequence)===p.frameDigest?'SEEN_EXACT':'CONFLICT';
+        replay.set(p.sequence,p.frameDigest);return 'RECORDED';
+      }});
+    assert.equal(verdict.originalSignatureVerified,true);assert.equal(verdict.originalBusinessApplied,false);
+    received.push(decodeT4CandidateFrame(bytes).body);
+  }
+  const assembled=assembleT4CandidateOpaqueChunks({bodies:received,expectedChangeId:plan.changeId,
+    expectedContentDigest:plan.contentDigest,expectedEncryptionContextRef:plan.encryptionContextRef});
+  const result=await receiver.openOriginalSealedContent(q.openInput(c.session,assembled));
+  assert.deepEqual(Buffer.from(result.plaintext),c.content);
+  assert.equal(replay.size,plan.chunkCount);assert.equal(result.originalBusinessApplied,false);
+  console.log('T4_K38_SIGNED_SEALED_CHUNKS_PASS',JSON.stringify({independentEncryptedVaults:2,independentOriginalAccessPorts:2,
+    originalRegistry:true,signedChunks:plan.chunkCount,authenticatedCapture:true,exactReplayFixture:true,
+    kernelFixture:true,originalBusinessWrite:false,installedProduct:false}));
 });

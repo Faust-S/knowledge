@@ -179,3 +179,21 @@ test('modified original buffer after authorized read cannot mutate frozen planne
   });
   assert.deepEqual(decodePlain(x.ciphertext),source.plaintext);
 });
+
+test('encryption context is snapshotted with ciphertext across original authorization readback',async()=>{
+  const original={ciphertext:new Uint8Array(source.ciphertext),encryptionContextRef:'crypto:original:epoch:7'};
+  let checks=0;
+  const p=await prepareT4CandidateOpaqueChunks(ports({readOriginalSealedContent:async()=>original,
+    authorizeOriginalSealedContent:async()=>{if(++checks===2)original.encryptionContextRef='crypto:foreign:epoch:8';return true;}}));
+  assert.equal(p.encryptionContextRef,'crypto:original:epoch:7');
+  assert.ok(p.bodies.every(b=>b.encryptionContextRef===p.encryptionContextRef));
+});
+test('custom chunk size cannot exceed the 64-frame protocol capacity',async()=>{
+  await assert.rejects(prepareT4CandidateOpaqueChunks(ports({chunkBytes:1})),err('CHUNK_TRANSPORT_CAPACITY_EXCEEDED'));
+  const bytes=new Uint8Array(64).fill(3);
+  const p=await prepareT4CandidateOpaqueChunks(ports({chunkBytes:1,
+    readOriginalSealedContent:async()=>({ciphertext:bytes,encryptionContextRef:'crypto:original:epoch:7'})}));
+  assert.equal(p.chunkCount,64);
+  assert.deepEqual(assembleT4CandidateOpaqueChunks({bodies:p.bodies,expectedChangeId:p.changeId,
+    expectedContentDigest:p.contentDigest,expectedEncryptionContextRef:p.encryptionContextRef}).ciphertext,bytes);
+});

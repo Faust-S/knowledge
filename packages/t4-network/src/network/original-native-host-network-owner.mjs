@@ -77,8 +77,12 @@ export function createT4OriginalNativeHostNetworkOwner({
       v.workspaceId!==sourceWorkspaceId||v.originalWriteOwnerRef!==originalWriteOwnerRef||
       v.sourceNodeRef!==sourceNodeRef||v.recipientNodeRef!==recipientNodeRef||v.scopeRef!==scopeRef||
       v.ownerEpoch!==ownerEpoch||v.requiredCryptoSuite!==requiredCryptoSuite||originalPorts?.[method]!==undefined||
-      (originalVaultNodeSignaturePort!==null&&originalVaultNodeSignaturePort.originalAccessIdentity!==originalVaultSealedContentPort.originalAccessIdentity)||
-      (nativeTopologyTransport?.originalSignedAccessBound===true&&nativeTopologyTransport.originalAccessIdentity!==originalVaultSealedContentPort.originalAccessIdentity))
+      (originalVaultNodeSignaturePort!==null&&
+        (originalVaultNodeSignaturePort.originalAccessIdentity!==originalVaultSealedContentPort.originalAccessIdentity||
+         JSON.stringify(originalVaultNodeSignaturePort.originalSignedSubject)!==JSON.stringify(originalVaultSealedContentPort.originalSignedSubject)))||
+      (nativeTopologyTransport?.originalSignedAccessBound===true&&
+        (nativeTopologyTransport.originalAccessIdentity!==originalVaultSealedContentPort.originalAccessIdentity||
+         JSON.stringify(nativeTopologyTransport.originalSignedSubject)!==JSON.stringify(originalVaultSealedContentPort.originalSignedSubject))))
       fail('NATIVE_NETWORK_OWNER_ORIGINAL_SEALED_SCOPE_MISMATCH');
     originalPorts={...originalPorts,[method]:originalVaultSealedContentPort[method]};
   }
