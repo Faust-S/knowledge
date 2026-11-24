@@ -355,13 +355,16 @@ def _fresh_source(state: Any, work: Any, ref: Any, owner: str, at: int) -> dict:
 
 
 def failed_criteria(work: Any) -> list[QualityCriterion]:
+    if work.result_ref is None:
+        return []
     return [c for c in work.assurance_criteria
-            if work.assurance_reviews.get(c.key, {}).get("result_ref") == work.result_ref
-            and work.assurance_reviews[c.key]["verdict"] == "DOES_NOT_MEET"]
+            if (review := work.assurance_reviews.get(c.key)) is not None
+            and review.get("result_ref") == work.result_ref
+            and review["verdict"] == "DOES_NOT_MEET"]
 
 
 def _current_reviews(work: Any) -> bool:
-    return bool(work.assurance_criteria) and all(
+    return bool(work.assurance_criteria and work.result_ref) and all(
         work.assurance_reviews.get(c.key, {}).get("result_ref") == work.result_ref
         and work.assurance_reviews[c.key]["work_revision"] == work.source_revision
         and work.assurance_reviews[c.key]["commitment_org_revision"] == work.commitment_org_revision
