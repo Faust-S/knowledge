@@ -1,0 +1,67 @@
+name: Activity external OC-DFG qualification
+on:
+  push:
+    branches:
+      - work/2026-11-24-activity-0-4-external-ocdfg
+    paths:
+      - modules/activity-base-anonymizer/**
+      - tests/test_activity_external_ocdfg.mjs
+      - tests/test_activity_ocel2_evidence.mjs
+      - tools/activity-ocdfg-review.mjs
+      - tests/test_activity_external_ocdfg_cli.mjs
+      - desktop/**
+      - .github/workflows/activity-external-ocdfg.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  external-model:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Qualify original restricted OCEL reader and external review
+        run: node --test tests/test_activity_ocel2_evidence.mjs tests/test_activity_external_ocdfg.mjs
+      - name: Install the pinned public Rust4PM binary distribution
+        run: python -m pip install --only-binary=:all: r4pm==0.6.2
+      - name: Generate a synthetic OCEL input and execute original Rust4PM
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {writeFile} from 'node:fs/promises';
+          import {buildSyntheticOcel2Example} from './modules/activity-base-anonymizer/ocel2-evidence.mjs';
+          const example=await buildSyntheticOcel2Example();
+          await writeFile('activity-ci-ocel.json',JSON.stringify(example.ocel2));
+          NODE
+          python - <<'PY'
+          import importlib.metadata
+          import json
+          from pathlib import Path
+          import r4pm
+          assert importlib.metadata.version("r4pm") == "0.6.2"
+          log = r4pm.import_item("SlimLinkedOCEL", "activity-ci-ocel.json")
+          model = r4pm.bindings.discover_dfg_from_ocel(log)
+          Path("activity-ci-ocdfg.json").write_text(json.dumps(model, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+          print("ACTIVITY_EXTERNAL_R4PM_EXECUTED=PASS")
+          PY
+          ACTIVITY_R4PM_LOG=activity-ci-ocel.json ACTIVITY_R4PM_MODEL=activity-ci-ocdfg.json node --test tests/test_activity_external_ocdfg.mjs
+      - name: Typecheck and build existing Activity React and Host surfaces
+        working-directory: desktop
+        shell: bash
+        run: |
+          npm install --no-fund --no-audit
+          npm run build
+          npm run build:host-surface
+      - name: Check existing Activity source contracts
+        run: node --test tests/test_activity_base_a1.mjs tests/test_activity_base_a2.mjs tests/test_activity_graph_layout.mjs tests/test_activity_dashboard_layout.mjs tests/test_activity_v7_ui.mjs tests/test_activity_host_surface.mjs tests/test_activity_d05_route_comparison.mjs tests/test_activity_d05_route_cli.mjs
