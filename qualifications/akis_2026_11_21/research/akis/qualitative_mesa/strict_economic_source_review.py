@@ -6,6 +6,7 @@ A source-declared cost or transfer does not become verified settlement.
 """
 from __future__ import annotations
 
+from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
@@ -35,6 +36,142 @@ def original_owner_economic_core(kind: str) -> str | None:
     return _OWNER_CORES.get(kind)
 
 
+def _review_network_period_scope(state, claims, work_keys, sources, at, qualify):
+    """Exact owner and Work coverage of one declared network ledger.
+
+    Scope declarations neither certify actual costs nor create money, events
+    or an alternative economy. Period-wide common expenses have no fictitious
+    Work anchor; each is counted once by its own original owner.
+    """
+    scope = claims["network_period_scope"]
+    def fail():
+        raise StrictEconomicSourceBlocked("NETWORK_ORIGINAL_PERIOD_SCOPE_INCOMPLETE")
+    if (not isinstance(scope, dict)
+            or set(scope) != {"period", "owners", "common_resource_use_ids", "uncommitted_works"}
+            or scope["period"] != claims.get("period")
+            or work_keys != set(state.works)
+            or not isinstance(scope["owners"], dict)
+            or set(scope["owners"]) != set(state.subjects)):
+        fail()
+    # Restrict this new research contract to its qualified ledger fields.
+    # The established specialized routes continue to use their own gates.
+    if set(claims) != {"period", "currency", "sources", "transfers", "resource_uses",
+                      "coverage", "outside_feasibility", "lifecycle_costs",
+                      "network_period_scope"}:
+        fail()
+    if claims["outside_feasibility"] != {}:
+        fail()
+    life = claims["lifecycle_costs"]
+    if not isinstance(life, dict):
+        fail()
+    coverage = claims["coverage"]
+    proofs = life.get("scope_proofs")
+    for mapping in (coverage, proofs):
+        if (not isinstance(mapping, dict)
+                or set(mapping) != {"COOPERATION", "INDEPENDENT_ALTERNATIVE"}
+                or not isinstance(mapping["COOPERATION"], dict)
+                or set(mapping["COOPERATION"]) != set(state.subjects)
+                or mapping["INDEPENDENT_ALTERNATIVE"] != {}):
+            fail()
+    transfer_ids, cost_ids = set(), set()
+    by_owner_t, by_owner_c = defaultdict(set), defaultdict(set)
+    transfer_works, cost_works, common, direct = set(), set(), set(), set()
+    source_ids = set(coverage["COOPERATION"].values()) | set(proofs["COOPERATION"].values())
+    for field, ids in (("transfers", transfer_ids), ("resource_uses", cost_ids)):
+        rows = claims.get(field)
+        if not isinstance(rows, list):
+            fail()
+        for row in rows:
+            if not isinstance(row, dict) or row.get("scenario") != "COOPERATION":
+                fail()
+            key, work = row.get("id"), row.get("work")
+            if (not isinstance(key, str) or key in ids
+                    or (work is not None and work not in work_keys)):
+                fail()
+            ids.add(key)
+            source_ids.add(row.get("source"))
+            if field == "transfers":
+                if work is None:
+                    fail()
+                transfer_works.add(work)
+                for owner in (row.get("payer"), row.get("payee")):
+                    if owner != "EXTERNAL":
+                        if owner not in state.subjects:
+                            fail()
+                        by_owner_t[owner].add(key)
+            else:
+                owner = row.get("owner")
+                if owner not in state.subjects:
+                    fail()
+                by_owner_c[owner].add(key)
+                if work is None:
+                    if row.get("bucket") not in {"COMMON_CAPABILITY", "PARTICIPANT_CONNECT"}:
+                        fail()
+                    common.add(key)
+                else:
+                    cost_works.add(work)
+                    direct.add(key)
+    if transfer_ids & cost_ids:
+        fail()
+    def exact_ids(value, expected):
+        return (isinstance(value, list) and all(isinstance(x, str) for x in value)
+                and len(value) == len(expected) and set(value) == expected)
+    accepted, uncommitted = set(), set()
+    for key, work in state.works.items():
+        trace = state.original_work_trace(key)
+        if (work.obligation == "FULFILLED"
+                and work.result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                and any(r.get("action") == "accept" and r.get("outcome") == "APPLIED"
+                        and r.get("actor") == work.customer for r in trace)):
+            accepted.add(key)
+        elif (work.obligation == "NOT_ACCEPTED" and work.result == "NOT_SUBMITTED"
+                and any(r.get("action") == "commit" and r.get("outcome") == "BLOCKED"
+                        for r in trace)
+                and not any(r.get("action") == "commit" and r.get("outcome") == "APPLIED"
+                            for r in trace)):
+            uncommitted.add(key)
+        else:
+            fail()
+    if (transfer_works != accepted or cost_works != work_keys
+            or not exact_ids(scope["uncommitted_works"], uncommitted)
+            or not exact_ids(scope["common_resource_use_ids"], common)):
+        fail()
+    bindings, timed = life.get("bindings"), life.get("event_bindings")
+    if not isinstance(bindings, list) or not isinstance(timed, list):
+        fail()
+    if (not exact_ids([r.get("resource_use_id") for r in bindings if isinstance(r, dict)], cost_ids)
+            or len(bindings) != len(cost_ids)
+            or not exact_ids([r.get("resource_use_id") for r in timed if isinstance(r, dict)], direct)
+            or len(timed) != len(direct)):
+        fail()
+    used_refs = {sources[k]["reference"] for k in source_ids if k in sources}
+    used_refs.update(r.get("cost_evidence_ref") for r in timed)
+    for owner, row in scope["owners"].items():
+        if (not isinstance(row, dict)
+                or set(row) != {"source", "observed_at", "transfer_ids", "resource_use_ids",
+                               "complete_exclusive_period_scope"}
+                or row["complete_exclusive_period_scope"] is not True
+                or type(row["observed_at"]) is not int
+                or row["observed_at"] != at
+                or not exact_ids(row["transfer_ids"], by_owner_t[owner])
+                or not exact_ids(row["resource_use_ids"], by_owner_c[owner])):
+            fail()
+        source = sources.get(row["source"])
+        if (source is None or source["owner"] != owner
+                or source["reference"] in used_refs):
+            fail()
+        used_refs.add(source["reference"])
+        qualify(owner, source["reference"], source["revision"],
+                _OWNER_CORES[state.subjects[owner].kind], at)
+    return {"network_period_owner_count": len(scope["owners"]),
+            "network_period_accepted_work_count": len(accepted),
+            "network_period_uncommitted_work_count": len(uncommitted),
+            "network_period_common_cost_count": len(common),
+            "network_period_direct_cost_count": len(direct),
+            "network_period_exact_declared_owner_scope": True,
+            "network_period_actual_profit_verified": False}
+
+
 def review_original_strict_economic_sources(
     *, state: Any, original_claims: Mapping[str, Any],
     work_id: str | tuple[str, ...], at: int,
@@ -54,12 +191,15 @@ def review_original_strict_economic_sources(
         raise StrictEconomicSourceBlocked(
             "ORIGINAL_ECONOMIC_STRICT_CONTEXT_REQUIRED"
         )
-    if type(at) is not int or at < 0 or at > 10000:
+    mass = getattr(state, "network_scale", False)
+    time_limit = context.max_time if mass else 10000
+    row_limit = 2_000_000 if mass else 2048
+    if type(at) is not int or at < 0 or at > time_limit:
         raise StrictEconomicSourceBlocked(
             "ORIGINAL_ECONOMIC_CONTEXT_TIME_INVALID"
         )
     work_ids = (work_id,) if isinstance(work_id, str) else work_id
-    if (not isinstance(work_ids, tuple) or not 1 <= len(work_ids) <= 256
+    if (not isinstance(work_ids, tuple) or not 1 <= len(work_ids) <= (300_000 if mass else 256)
             or any(not isinstance(key, str) or key not in state.works
                    for key in work_ids)
             or len(set(work_ids)) != len(work_ids)):
@@ -73,6 +213,9 @@ def review_original_strict_economic_sources(
     # Multi-period qualification uses the original single economic
     # document. Do not let it silently include a Work outside the declared
     # strict source scope, or claim historical coverage of an absent period.
+    network_scope = "network_period_scope" in original_claims
+    if network_scope and (not mass or not isinstance(work_id, tuple)):
+        raise StrictEconomicSourceBlocked("NETWORK_ORIGINAL_PERIOD_STRICT_SCOPE_REQUIRED")
     uncommitted = original_claims.get("uncommitted_order_cost_evidence")
     uncommitted_key = None
     if uncommitted is not None:
@@ -86,7 +229,7 @@ def review_original_strict_economic_sources(
                 or any(e.get("work") == uncommitted_key and e.get("action") in {"commit", "accept"}
                        and e.get("outcome") == "APPLIED" for e in state.trace)):
             raise StrictEconomicSourceBlocked("UNCOMMITTED_ORDER_CANNOT_OMIT_COMMITTED_TRANSFERS")
-    if isinstance(work_id, tuple):
+    if isinstance(work_id, tuple) and not network_scope:
         for field in ("transfers", "resource_uses"):
             expected = set(work_ids) - ({uncommitted_key} if field == "transfers" and uncommitted_key else set())
             records = original_claims.get(field)
@@ -100,7 +243,7 @@ def review_original_strict_economic_sources(
                     "ORIGINAL_ECONOMIC_MULTI_WORK_SCOPE_INCOMPLETE"
                 )
     rows = original_claims.get("sources")
-    if not isinstance(rows, list) or not 1 <= len(rows) <= 2048:
+    if not isinstance(rows, list) or not 1 <= len(rows) <= row_limit:
         raise StrictEconomicSourceBlocked(
             "ORIGINAL_ECONOMIC_OWNER_SOURCES_REQUIRED"
         )
@@ -183,6 +326,10 @@ def review_original_strict_economic_sources(
                 "ORIGINAL_ECONOMIC_SOURCE_NOT_USABLE_IN_STRICT_KPB"
             ) from exc
         covered.add(owner)
+    work_keys = set(work_ids)
+    network_period = (_review_network_period_scope(
+        state, original_claims, work_keys, sources_by_id, at, _qualify_original_event_evidence)
+        if network_scope else {})
     outside_price_qualified = False
     qualified_commercial_orders = 0
     qualified_installment_transfers = 0
@@ -199,7 +346,8 @@ def review_original_strict_economic_sources(
             )
         # The commercial route's ORIGINAL accepted digest pins the purchase
         # obligations. Later financial records cannot silently reprice it.
-        commercial_commits = [row for row in state.trace if row["action"] == "commit"
+        work_trace = state.original_work_trace(scoped_work) if mass else state.trace
+        commercial_commits = [row for row in work_trace if row["action"] == "commit"
             and row["outcome"] == "APPLIED" and row.get("work") == scoped_work
             and row.get("technology_route_commercial_fingerprint") is not None]
         if commercial_commits:
@@ -251,7 +399,7 @@ def review_original_strict_economic_sources(
         # events, compare a declared purchase payment with that original offer.
         # This is a strict-KPB review of EXISTING rows, never a new obligation.
         origin_rows = [
-            row for row in state.trace
+            row for row in work_trace
             if row.get("action") == "request" and row.get("outcome") == "APPLIED"
             and row.get("work") == scoped_work
             and isinstance(row.get("outside_work_origin"), Mapping)
@@ -537,7 +685,7 @@ def review_original_strict_economic_sources(
             "ORIGINAL_ECONOMIC_LIFECYCLE_DOCUMENT_INVALID"
         )
     event_bindings = lifecycle.get("event_bindings", [])
-    if not isinstance(event_bindings, list) or len(event_bindings) > 2048:
+    if not isinstance(event_bindings, list) or len(event_bindings) > row_limit:
         raise StrictEconomicSourceBlocked(
             "ORIGINAL_ECONOMIC_COST_EVENT_COUNT_INVALID"
         )
@@ -551,7 +699,7 @@ def review_original_strict_economic_sources(
         event_time = binding.get("at")
         position = binding.get("trace_position")
         binding_work = binding.get("work")
-        if (binding_work not in work_ids
+        if (binding_work not in work_keys
                 or type(event_time) is not int
                 or type(position) is not int
                 or not 0 <= position < len(state.trace)
@@ -733,6 +881,7 @@ def review_original_strict_economic_sources(
             raise StrictEconomicSourceBlocked("PORTFOLIO_ORIGINAL_OWNER_HISTORICAL_SCOPE_NOT_QUALIFIED") from exc
     return {
         "status": "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED",
+        **network_period,
         **({"source_scoped_original_portfolio_owner_count": qualified_portfolio_owners}
            if portfolio is not None else {}),
         **({"original_commercial_order_payment_terms_matched_count": qualified_commercial_orders}

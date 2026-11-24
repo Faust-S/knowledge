@@ -60,7 +60,11 @@ def assess_author_causal_edges(
         if (work is None or work.customer != goal["owner"] or
                 work.source_revision != goal["work_revision"]):
             continue
-        for event in applied:
+        request_rows = (original.original_request_rows(goal["work"])
+                        if getattr(original, "network_scale", False) else applied)
+        for event in request_rows:
+            if event.get("outcome") != "APPLIED":
+                continue
             event_at = event.get("at")
             if (event.get("action") == "request" and
                     event.get("work") == goal["work"] and

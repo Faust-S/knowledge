@@ -465,7 +465,9 @@ def original_preparation_oc_edition(state: Any, at: int) -> str:
     a second edition field to every preparation or another version store.
     Edition identifiers cannot be reused by the original apply policy.
     """
-    for row in reversed(state.trace):
+    history = (state.original_action_trace("model_code_apply")
+               if getattr(state, "network_scale", False) else state.trace)
+    for row in reversed(history):
         if (row.get("action") == "model_code_apply" and row.get("outcome") == "APPLIED"
                 and row["at"] <= at):
             return row["new_model_edition"]

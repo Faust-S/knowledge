@@ -263,6 +263,21 @@ class OperatorAKISModel(mesa.Model):
         raw_joint_purchasing = research_input.pop("joint_purchasing_proposals", [])
         raw_partner_discovery = research_input.pop("partner_discovery", None)
         raw_general_akis = research_input.pop("general_akis", None)
+        # Explicit scientific observation design: original decisions are still
+        # checked at every original event. Only full read-only snapshots are
+        # reduced to the declared checkpoints for mass-scale experiments.
+        raw_network_ticks = research_input.pop("network_observation_ticks", None)
+        self.network_observation_ticks = None
+        if raw_network_ticks is not None:
+            if (research_input.get("network_scale") is not True
+                    or raw_general_akis is None
+                    or not isinstance(raw_network_ticks, list)
+                    or len(raw_network_ticks) > 32
+                    or any(type(t) is not int or not 0 <= t <= 3_000_000
+                           for t in raw_network_ticks)
+                    or len(set(raw_network_ticks)) != len(raw_network_ticks)):
+                raise InputError("NETWORK_OBSERVATION_TICKS_INVALID")
+            self.network_observation_ticks = tuple(sorted(raw_network_ticks))
         requested_horizon = research_input.pop("model_horizon", None)
         if (requested_horizon is not None and
                 (type(requested_horizon) is not int or
@@ -291,7 +306,7 @@ class OperatorAKISModel(mesa.Model):
         if strict_works is not None:
             if (self.strict_economic_source_work is not None
                     or not isinstance(strict_works, list)
-                    or not 1 <= len(strict_works) <= 256
+                    or not 1 <= len(strict_works) <= (300000 if research_input.get("network_scale") is True else 256)
                     or any(not isinstance(key, str) or not key.strip()
                            for key in strict_works)
                     or len(set(strict_works)) != len(strict_works)):
@@ -450,7 +465,8 @@ class OperatorAKISModel(mesa.Model):
                                 "FUTURE_ORIGINAL_SME_CANNOT_CLAIM_PAST_SOURCE"
                             )
             self.general_design = parse_general_system(
-                raw_general_akis, preflight_subjects, known_works
+                raw_general_akis, preflight_subjects, known_works,
+                network_scale=self.qualitative.network_scale,
             ) if self.general_akis_enabled else None
             if (self.general_akis_enabled and
                     (self.general_design.enforce_model_org_code or
@@ -479,6 +495,7 @@ class OperatorAKISModel(mesa.Model):
                     # Preflight never adds it to QualitativeAKIS.subjects.
                     preflight_subjects, self.qualitative.institution,
                     actions=set(ACTIONS),
+                    network_scale=self.qualitative.network_scale,
                 ) if self.general_akis_enabled and
                      self.general_design.enforce_model_org_code else None
             )
@@ -509,6 +526,11 @@ class OperatorAKISModel(mesa.Model):
         self._has_original_delegation_claims = any(
             ev["action"] == "function_delegate" for ev in self.qualitative.events
         )
+        if self.network_observation_ticks is not None and (
+                self._has_original_delegation_claims or self._has_structural_preparation_claims):
+            # Exact historical exposure integrals require every transition.
+            # Do not quietly publish a sampled series as exact Work-time.
+            raise InputError("NETWORK_CHECKPOINTS_REQUIRE_EXACT_DELEGATION_AND_PATTERN_OBSERVATION")
         self.assessment_truncated = False
         self._scheduled_reactions = 0
         self._outlook_epoch = 0
@@ -539,10 +561,19 @@ class OperatorAKISModel(mesa.Model):
         )
         # Mesa may hold callbacks weakly: keep references for the lifetime of the simulation.
         self._callbacks: list[Any] = []
-        for event in self.qualitative.events:
-            callback = partial(self._apply_event, event)
-            self._callbacks.append(callback)
-            self.schedule_event(callback, at=float(event["at"]), priority=Priority.HIGH)
+        if self.qualitative.network_scale:
+            # There is still ONE native Mesa queue. Original event times are
+            # strictly increasing, so retaining only the next original event
+            # preserves HIGH priority at each original tick, including all
+            # DEFAULT/LOW native reactions, without a million queued callbacks.
+            self._next_original_index = 0
+            self._next_original_callback = self._apply_next_original_network_event
+            self._schedule_next_original_network_event()
+        else:
+            for event in self.qualitative.events:
+                callback = partial(self._apply_event, event)
+                self._callbacks.append(callback)
+                self.schedule_event(callback, at=float(event["at"]), priority=Priority.HIGH)
         # Forecast activation and expiration reuse the SAME Mesa scheduler.
         # Neither is appended as an ORIGINAL economic event or accepted Result.
         last_original_at = max((event["at"] for event in self.qualitative.events), default=0)
@@ -565,6 +596,9 @@ class OperatorAKISModel(mesa.Model):
                 if self.general_design is not None else 0,
             )
         )
+        if (self.network_observation_ticks is not None
+                and any(t > self._model_end_at for t in self.network_observation_ticks)):
+            raise InputError("NETWORK_OBSERVATION_AFTER_MODEL_HORIZON")
         outlook_changes = {
             (row.available_at, "economic_outlook_available", row.work)
             for row in self.economic_outlooks
@@ -648,8 +682,11 @@ class OperatorAKISModel(mesa.Model):
             # One original model clock; take read-only assessments after every
             # original transition and every current-source change.
             instants = {0, self._model_end_at}
-            instants.update(ev["at"] for ev in self.qualitative.events)
-            instants.update(self.general_design.source_times)
+            if self.network_observation_ticks is None:
+                instants.update(ev["at"] for ev in self.qualitative.events)
+                instants.update(self.general_design.source_times)
+            else:
+                instants.update(self.network_observation_ticks)
             # Observe expiry of only the original structural sources declared
             # by existing preparation events, even if no Work is active then.
             # This does not extend the horizon, add a source, or create Work.
@@ -672,8 +709,8 @@ class OperatorAKISModel(mesa.Model):
                 for ref in refs:
                     source = self.qualitative.context_basis.sources.get(ref)
                     if source is not None:
-                        if source.valid_from is not None:
-                            instants.add(source.valid_from)
+                        if source.scope is not None:
+                            instants.add(source.scope.valid_from)
                         if source.valid_until is not None:
                             instants.add(source.valid_until + 1)
             self._general_observation_ticks = {
@@ -755,6 +792,13 @@ class OperatorAKISModel(mesa.Model):
                 self.qualitative, at=int(self.time))
             if delegation is not None:
                 view["agent_function_formation_model_gate"]["original_delegation_scope"] = delegation
+        if self.network_observation_ticks is not None:
+            self.general_views.append({
+                "at": float(self.time),
+                "original_trace_position": len(self.qualitative.trace),
+                "projection": view,
+            })
+            return
         # Record only causal changes, not a new event/Result journal.
         signature = json.dumps(
             {"components": view["components"],
@@ -917,6 +961,22 @@ class OperatorAKISModel(mesa.Model):
         self._outlook_epoch += 1
         self._schedule_responses({"action": trigger, "work": work_id})
         self._schedule_future_need_refresh()
+
+    def _schedule_next_original_network_event(self) -> None:
+        index = self._next_original_index
+        if index < len(self.qualitative.events):
+            self.schedule_event(
+                self._next_original_callback,
+                at=float(self.qualitative.events[index]["at"]),
+                priority=Priority.HIGH,
+            )
+
+    def _apply_next_original_network_event(self) -> None:
+        index = self._next_original_index
+        event = self.qualitative.events[index]
+        self._apply_event(event)
+        self._next_original_index = index + 1
+        self._schedule_next_original_network_event()
 
     def _apply_event(self, event: dict[str, Any]) -> None:
         outcome = self.qualitative.apply(event, int(self.time))
@@ -1368,6 +1428,8 @@ class OperatorAKISModel(mesa.Model):
                     strict_outside_installment_count=(original_economic_rights or {}).get(
                         "original_outside_installment_transfer_count", 0),
                     network_scale=self.qualitative.network_scale,
+                    strict_network_period_qualified=(original_economic_rights or {}).get(
+                        "network_period_exact_declared_owner_scope", False),
                 )
             except EconomicInputError as exc:
                 raise InputError(str(exc)) from exc
@@ -1553,6 +1615,13 @@ class OperatorAKISModel(mesa.Model):
             output["general_akis_model"] = {
                 **current,
                 "read_only_evolution": list(self.general_views),
+                **({"network_observation_design": {
+                        "mode": "DECLARED_CHECKPOINTS_NOT_COMPLETE_EVENT_TIME_SERIES",
+                        "declared_checkpoints": list(self.network_observation_ticks),
+                        "observed_ticks": [row["at"] for row in self.general_views],
+                        "all_original_transition_guards_still_executed": True,
+                        "no_exact_exposure_inferred_between_checkpoints": True,
+                    }} if self.network_observation_ticks is not None else {}),
                 "single_original_scheduler": True,
                 "original_results_and_org_code_unmodified": True,
             }

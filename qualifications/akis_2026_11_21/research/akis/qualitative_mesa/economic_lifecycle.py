@@ -75,6 +75,7 @@ def review_timed_original_lifecycle_costs(
     works: Mapping[str, Any], trace: tuple[Mapping[str, Any], ...] | list[Mapping[str, Any]],
     allocated_by_work: Mapping[str, Any] | None,
     cooperation_links: tuple[Any, ...] | list[Any] = (),
+    network_scale: bool = False,
 ) -> dict[str, Any]:
     """Qualify source assertions against ONE original trace, never post new cash.
 
@@ -82,7 +83,7 @@ def review_timed_original_lifecycle_costs(
     incurred or paid. An outside-option row cannot become historical execution
     of a counterfactual alternative merely by sharing the demand reference.
     """
-    if not isinstance(raw, list) or len(raw) > 4096:
+    if not isinstance(raw, list) or len(raw) > (2_000_000 if network_scale else 4096):
         raise LifecycleInputError("INVALID_LIFECYCLE_TIMED_BINDING_COUNT")
     if not isinstance(trace, (tuple, list)):
         raise LifecycleInputError("LIFECYCLE_ORIGINAL_TRACE_REQUIRED")
@@ -262,17 +263,14 @@ def review_timed_original_lifecycle_costs(
             rework_qualified += 1
         if contextual_pause:
             future_pause_costs += 1
-    rework_by_work = {
-        work_id: sum(
-            event.get("work") == work_id
-            and event.get("outcome") == "APPLIED"
-            and (event.get("action") in {"reject", "resubmit"}
-                 or (event.get("action") == "assess_result_quality"
-                     and event.get("quality_verdict") == "DOES_NOT_MEET"))
-            for event in trace
-        )
-        for work_id in sorted(works)
-    }
+    rework_by_work = dict.fromkeys(works, 0)
+    for event in trace:
+        key = event.get("work")
+        if (key in rework_by_work and event.get("outcome") == "APPLIED"
+                and (event.get("action") in {"reject", "resubmit"}
+                     or (event.get("action") == "assess_result_quality"
+                         and event.get("quality_verdict") == "DOES_NOT_MEET"))):
+            rework_by_work[key] += 1
     return {
         "evidence": "MODEL_ONLY_ORIGINAL_APPLIED_WORK_EVENT_AND_RESOURCE_REFERENCES",
         "original_lifecycle_timed_record_count": len(indexed),
@@ -315,6 +313,7 @@ def review_original_preparation_activity_costs(
     raw: Any, *, original_bindings: Mapping[str, Any],
     event_bindings: list, resource_index: Mapping[str, Any],
     sources: Mapping[str, Any], trace: list | tuple,
+    network_scale: bool = False,
 ) -> dict[str, Any]:
     """Reconcile exact activity x unit-rate with existing original costs.
 
@@ -323,7 +322,7 @@ def review_original_preparation_activity_costs(
     posted here; this is a strict check of its amount. All applied tagged
     preparation events in the economic Work scope need one and only one row.
     """
-    if not isinstance(raw, list) or not 1 <= len(raw) <= 500:
+    if not isinstance(raw, list) or not 1 <= len(raw) <= (300_000 if network_scale else 500):
         raise LifecycleInputError("PREPARATION_ACTIVITY_BINDINGS_REQUIRED")
     if not isinstance(event_bindings, list):
         raise LifecycleInputError("PREPARATION_ACTIVITY_ORIGINAL_EVENT_BINDINGS_REQUIRED")
@@ -416,6 +415,7 @@ def classify_lifecycle_costs(
     trace: tuple[Mapping[str, Any], ...] | list[Mapping[str, Any]] = (),
     allocated_by_work: Mapping[str, Any] | None = None,
     cooperation_links: tuple[Any, ...] | list[Any] = (),
+    network_scale: bool = False,
 ) -> dict[str, Any]:
     """Provide independent scoped owner comparisons but NO new money.
 
@@ -431,7 +431,7 @@ def classify_lifecycle_costs(
         raise LifecycleInputError("INVALID_LIFECYCLE_FIELDS")
     bindings = raw["bindings"]
     proofs = raw["scope_proofs"]
-    if not isinstance(bindings, list) or len(bindings) > 4096:
+    if not isinstance(bindings, list) or len(bindings) > (2_000_000 if network_scale else 4096):
         raise LifecycleInputError("INVALID_LIFECYCLE_BINDING_COUNT")
     if not isinstance(proofs, dict) or set(proofs) != set(_SCENARIOS):
         raise LifecycleInputError("INVALID_LIFECYCLE_PROOF_MAP")
@@ -481,19 +481,20 @@ def classify_lifecycle_costs(
         scenario = original["scenario"]
         classified[scenario][owner][nature].append(original["decimal_amount"])
         by_stage[scenario][owner][stage].append(original["decimal_amount"])
+    original_by_owner: dict[tuple[str, str], set[str]] = defaultdict(set)
+    bound_by_owner: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for key, row in resource_index.items():
+        owner_scope = (row["owner"], row["scenario"])
+        original_by_owner[owner_scope].add(key)
+        if key in seen:
+            bound_by_owner[owner_scope].add(key)
     result: dict[str, Any] = {}
     count_comparable = 0
     for owner in sorted(subjects):
         scenarios: dict[str, Any] = {}
         for scenario in _SCENARIOS:
-            original_ids = {
-                key for key, row in resource_index.items()
-                if row["owner"] == owner and row["scenario"] == scenario
-            }
-            bound_ids = {
-                key for key, row in resource_index.items()
-                if row["owner"] == owner and row["scenario"] == scenario and key in seen
-            }
+            original_ids = original_by_owner.get((owner, scenario), set())
+            bound_ids = bound_by_owner.get((owner, scenario), set())
             proof = owner in verified[scenario]
             complete = proof and original_ids == bound_ids
             scenarios[scenario] = {
@@ -559,12 +560,12 @@ def classify_lifecycle_costs(
             sources=sources, resource_index=resource_index,
             works=works or {}, trace=trace,
             allocated_by_work=allocated_by_work,
-            cooperation_links=cooperation_links,
+            cooperation_links=cooperation_links, network_scale=network_scale,
         )
     if "preparation_activity_bindings" in raw:
         response["original_preparation_activity_costs"] = review_original_preparation_activity_costs(
             raw["preparation_activity_bindings"], original_bindings=original_binding_index,
             event_bindings=raw["event_bindings"], resource_index=resource_index,
-            sources=sources, trace=trace,
+            sources=sources, trace=trace, network_scale=network_scale,
         )
     return response

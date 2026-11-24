@@ -7,6 +7,7 @@ corporate documents, real IAM, or a new kernel. Unknown is not permission.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from bisect import bisect_left
 from typing import Any
 
 from .scope_policy import (
@@ -153,20 +154,27 @@ class ContextBasis:
     def __init__(self, data: Any, subjects: dict[str, Any], known_works: set[str],
                  *, prospective_subjects: set[str] | None = None,
                  prospective_subject_kinds: dict[str, str] | None = None,
-                 operator: str | None = None):
+                 operator: str | None = None,
+                 network_scale: bool = False):
         _fields(data, {"strict", "sources", "requirements"},
                 {"decision_requirements"}, "INVALID_CONTEXT_BASIS")
         if type(data["strict"]) is not bool:
             raise ContextInputError("INVALID_CONTEXT_STRICT")
+        if type(network_scale) is not bool:
+            raise ContextInputError("INVALID_CONTEXT_NETWORK_SCALE")
         self.strict = data["strict"]
+        self.network_scale = network_scale
+        self.max_time = 3_000_001 if network_scale else 10000
+        source_limit = 2_000_000 if network_scale else MAX_SOURCES
+        requirement_limit = 3_000_000 if network_scale else MAX_REQUIREMENTS
         self.subjects = subjects
         self.prospective_subjects = prospective_subjects or set()
         self.prospective_subject_kinds = prospective_subject_kinds or {}
         self.operator = operator
         sources, requirements = data["sources"], data["requirements"]
-        if not isinstance(sources, list) or len(sources) > MAX_SOURCES:
+        if not isinstance(sources, list) or len(sources) > source_limit:
             raise ContextInputError("INVALID_CONTEXT_SOURCE_COUNT")
-        if not isinstance(requirements, list) or len(requirements) > MAX_REQUIREMENTS:
+        if not isinstance(requirements, list) or len(requirements) > requirement_limit:
             raise ContextInputError("INVALID_CONTEXT_REQUIREMENT_COUNT")
         self.sources: dict[str, SourceAssertion] = {}
         # Retain immutable revisions of the SAME original sources; this
@@ -176,6 +184,8 @@ class ContextBasis:
         self._source_versions: dict[str, list[tuple[int, SourceAssertion]]] = {}
         self._historical_time_unknown: set[str] = set()
         self.requirements: dict[tuple[str, str], RequiredContext] = {}
+        self._affected_work_index: dict[str, set[str]] = {}
+        self._decision_source_ids: set[str] = set()
         for item in sources:
             _fields(item, {"id", "owner", "revision", "status", "usable_by"}, {"valid_until"} | set(SCOPE_FIELDS), "INVALID_CONTEXT_SOURCE")
             key = _identifier(item["id"], "INVALID_CONTEXT_SOURCE_ID")
@@ -195,7 +205,7 @@ class ContextBasis:
             if until is not None and (type(until) is not int or until < 0):
                 raise ContextInputError("INVALID_CONTEXT_VALID_UNTIL")
             try:
-                scope = parse_scope(item)
+                scope = parse_scope(item, max_time=self.max_time)
             except ScopeInputError as exc:
                 raise ContextInputError(str(exc)) from exc
             self.sources[key] = SourceAssertion(key, owner, revision, status, usable_by, until, scope)
@@ -222,9 +232,12 @@ class ContextBasis:
             if key in self.requirements:
                 raise ContextInputError("DUPLICATE_CONTEXT_REQUIREMENT")
             self.requirements[key] = RequiredContext(work, action, refs, revs, scope)
+            if self.network_scale:
+                for ref in refs:
+                    self._affected_work_index.setdefault(ref, set()).add(work)
         raw_decisions = data.get("decision_requirements", [])
         if (not isinstance(raw_decisions, list)
-                or len(raw_decisions) > MAX_REQUIREMENTS):
+                or len(raw_decisions) > requirement_limit):
             raise ContextInputError("INVALID_CONTEXT_DECISION_REQUIREMENT_COUNT")
         self.decision_requirements: dict[
             tuple[str, str, str], OriginalDecisionRights
@@ -269,6 +282,8 @@ class ContextBasis:
             self.decision_requirements[key] = OriginalDecisionRights(
                 target, action, actor, refs, revs, scope
             )
+            if self.network_scale:
+                self._decision_source_ids.update(refs)
 
     def assert_original_decision_rights(self, event: dict[str, Any], at: int) -> None:
         """Re-evaluate the ORIGINAL owners' source assertions at decision time.
@@ -435,7 +450,7 @@ class ContextBasis:
         """
         if (not isinstance(buyer, str) or not isinstance(recipient, str)
                 or not buyer or not recipient or buyer == recipient
-                or type(at) is not int or not 0 <= at <= 10000):
+                or type(at) is not int or not 0 <= at <= self.max_time):
             raise ContextBlocked("OUTSIDE_DEMAND_INDEPENDENT_READER_REQUIRED")
         self._assert_owner_source_state(
             self.sources.get(reference) if isinstance(reference, str) else None,
@@ -457,7 +472,7 @@ class ContextBasis:
         """
         if (not isinstance(supplier, str) or not isinstance(buyer, str)
                 or not supplier or not buyer or supplier == buyer
-                or type(at) is not int or not 0 <= at <= 10000):
+                or type(at) is not int or not 0 <= at <= self.max_time):
             raise ContextBlocked("OUTSIDE_OFFER_INDEPENDENT_READER_REQUIRED")
         self._assert_owner_source_state(
             self.sources.get(reference) if isinstance(reference, str) else None,
@@ -478,7 +493,7 @@ class ContextBasis:
         restoration, revert an already accepted Work, or grant current use.
         An update on the same tick is an unordered case and fails closed.
         """
-        if type(at) is not int or at < 0 or at > 10000:
+        if type(at) is not int or at < 0 or at > self.max_time:
             raise ContextBlocked("CONTEXT_HISTORICAL_EVENT_TIME_INVALID")
         if not isinstance(reference, str):
             raise ContextBlocked("AUTHOR_ROLE_ORIGINAL_SOURCE_OWNER_REQUIRED")
@@ -487,17 +502,14 @@ class ContextBasis:
             raise ContextBlocked("AUTHOR_ROLE_ORIGINAL_SOURCE_OWNER_REQUIRED")
         if reference in self._historical_time_unknown:
             raise ContextBlocked("CONTEXT_HISTORICAL_SOURCE_ORDER_UNKNOWN")
-        for changed_at, _source in history[1:]:
-            if changed_at == at:
-                raise ContextBlocked(
-                    "CONTEXT_HISTORICAL_SAME_TICK_SOURCE_UPDATE_UNQUALIFIED"
-                )
-        version = history[0][1]
-        for changed_at, updated in history[1:]:
-            if changed_at < at:
-                version = updated
-            else:
-                break
+        # The original owner_update path enforces strictly increasing ticks.
+        # Binary search reads the very same immutable history, not a new store.
+        index = bisect_left(history, at, key=lambda item: item[0])
+        if index < len(history) and history[index][0] == at:
+            raise ContextBlocked(
+                "CONTEXT_HISTORICAL_SAME_TICK_SOURCE_UPDATE_UNQUALIFIED"
+            )
+        version = history[index-1][1]
         self._assert_owner_source_state(
             version, actor, reference, expected_revision,
             core=core, purpose=purpose, operation=operation,
@@ -555,7 +567,8 @@ class ContextBasis:
         # accepted independent decisions. Non-rights legacy research inputs
         # retain their original optional CAS behavior.
         protected_rights = self.strict and (
-            any(sid in rule.sources for rule in self.decision_requirements.values())
+            (sid in self._decision_source_ids if self.network_scale else
+             any(sid in rule.sources for rule in self.decision_requirements.values()))
             or any(
                 sid in {
                     getattr(p, "self_role_source_ref", None),
@@ -601,7 +614,7 @@ class ContextBasis:
         # untimed update is still supported, but it disqualifies historical
         # replay for this source. Never guess its position in time.
         if at is not None:
-            if type(at) is not int or not 0 <= at <= 10000:
+            if type(at) is not int or not 0 <= at <= self.max_time:
                 raise ContextBlocked("CONTEXT_HISTORICAL_UPDATE_TIME_INVALID")
             last_at = self._source_versions[sid][-1][0]
             if at <= last_at:
@@ -616,6 +629,8 @@ class ContextBasis:
             self._source_versions[sid].append((at, replace(item)))
 
     def affected_works(self, source: str) -> list[str]:
+        if self.network_scale:
+            return sorted(self._affected_work_index.get(source, ()))
         return sorted({r.work for r in self.requirements.values() if source in r.sources})
 
     def snapshot(self) -> dict[str, Any]:

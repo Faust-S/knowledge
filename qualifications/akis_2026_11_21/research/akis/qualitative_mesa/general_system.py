@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .configuration_behavior import (
-    configuration_dynamics, original_configuration_commit_gate,
+    configuration_dynamics, original_configuration_commit_gate, original_work_scope,
 )
 from .scope_policy import source_link_status, OPERATIONS as CONTEXT_OPERATIONS
 from .process_preparation import (
@@ -65,7 +65,8 @@ def _set(raw: Any, expected: set[str], field: str) -> None:
         raise GeneralSystemInputError("INVALID_GENERAL_" + field + "_FIELDS")
 
 
-def _owner_source(record: Mapping[str, Any], subjects: Mapping[str, Any]) -> None:
+def _owner_source(record: Mapping[str, Any], subjects: Mapping[str, Any], *,
+                  max_time: int = 10000) -> None:
     owner = _s(record["owner"], "OWNER")
     if owner not in subjects:
         raise GeneralSystemInputError("GENERAL_OWNER_UNKNOWN")
@@ -75,7 +76,7 @@ def _owner_source(record: Mapping[str, Any], subjects: Mapping[str, Any]) -> Non
     _s(record["revision"], "REVISION")
     start, end = record["available_at"], record["expires_at"]
     if (type(start) is not int or type(end) is not int or
-            start < 0 or end <= start or end > 10000):
+            start < 0 or end <= start or end > max_time):
         raise GeneralSystemInputError("GENERAL_SOURCE_TIME_INVALID")
 
 
@@ -95,6 +96,11 @@ class GeneralSystemDesign:
     enforce_model_result_conditioned_reconfiguration: bool = False
     enforce_model_result_conditioned_capability_cooperation: bool = False
     enforce_model_author_configuration_work_scope: bool = False
+    network_scale: bool = False
+
+    @property
+    def max_time(self) -> int:
+        return 3_000_001 if self.network_scale else 10000
 
     @property
     def source_times(self) -> tuple[int, ...]:
@@ -114,6 +120,40 @@ class ModelFormationPolicy:
 
     def __init__(self, design: GeneralSystemDesign):
         self.design = design
+        # Only indexes of original immutable declarations, not new rights.
+        self._phases = {}
+        self._goals = {}
+        self._functions = {}
+        self._core_claims = {}
+        self._core_owners = {}
+        self._function_basis = {}
+        self._all_context_refs_by_revision = {}
+        if design.network_scale:
+            for row in design.declarations["formation_phases"]:
+                key = (row["phase"], row["owner"], row["source_ref"], row["revision"])
+                self._phases.setdefault(key, []).append(row)
+            for row in design.declarations["goals"]:
+                self._goals.setdefault(row["work"], []).append(row)
+            for row in design.declarations["agent_functions"]:
+                self._functions.setdefault(row["work"], []).append(row)
+            for row in design.declarations["context_cores"]:
+                key = (row["core"], row["owner"], row.get("basis_source"))
+                self._core_claims.setdefault(key, []).append(row)
+                self._core_owners.setdefault(row["core"], set()).add(row["owner"])
+                self._function_basis.setdefault(_context_function_key(row), []).append(row)
+                if row.get("basis_source"):
+                    self._all_context_refs_by_revision.setdefault(row["revision"], set()).add(row["basis_source"])
+
+    def _work_trace(self, state: Any, key: str):
+        return state.original_work_trace(key) if self.design.network_scale else state.trace
+
+    def _work_functions(self, key: str):
+        return (self._functions.get(key, ()) if self.design.network_scale
+                else self.design.declarations["agent_functions"])
+
+    def _work_goals(self, key: str):
+        return (self._goals.get(key, ()) if self.design.network_scale
+                else self.design.declarations["goals"])
 
     def _source_active(self, phase: int, owner: str, ref: str,
                        revision: str, at: int) -> bool:
@@ -121,7 +161,9 @@ class ModelFormationPolicy:
             row["phase"] == phase and row["owner"] == owner and
             row["source_ref"] == ref and row["revision"] == revision and
             row["available_at"] <= at < row["expires_at"]
-            for row in self.design.declarations["formation_phases"]
+            for row in (self._phases.get((phase, owner, ref, revision), ())
+                        if self.design.network_scale
+                        else self.design.declarations["formation_phases"])
         )
 
     @staticmethod
@@ -131,7 +173,7 @@ class ModelFormationPolicy:
     def _ack_status(self, state: Any, work: Any, phase: int, owner: str,
                     at: int) -> str:
         history = [
-            event for event in state.trace
+            event for event in self._work_trace(state, work.key)
             if event.get("outcome") == "APPLIED" and
             event.get("action") == "formation_confirm" and
             event.get("work") == work.key and event.get("phase") == phase and
@@ -176,7 +218,9 @@ class ModelFormationPolicy:
             return "FORMATION_KPB_ORIGINAL_BASIS_REFERENCE_REQUIRED"
         actor = event.get("actor")
         rows = [
-            row for row in self.design.declarations["context_cores"]
+            row for row in (self._core_claims.get((core, actor, basis_source), ())
+                            if self.design.network_scale
+                            else self.design.declarations["context_cores"])
             if row["core"] == core and row["owner"] == actor and
             row.get("basis_source") == basis_source and
             row["revision"] == state.institution.revision and
@@ -197,7 +241,7 @@ class ModelFormationPolicy:
 
     def _core_status(self, state: Any, work: Any, core: str, at: int) -> str:
         history = [
-            event for event in state.trace
+            event for event in self._work_trace(state, work.key)
             if event.get("outcome") == "APPLIED" and
             event.get("action") == "formation_confirm" and
             event.get("phase") == 4 and
@@ -320,9 +364,9 @@ class ModelFormationPolicy:
             core = event.get("formation_core")
             if core not in CORES:
                 return "FORMATION_KPB_AUTHOR_CORE_UNKNOWN"
-            expected = {row["owner"] for row in
-                        self.design.declarations["context_cores"]
-                        if row["core"] == core}
+            expected = (self._core_owners.get(core, set()) if self.design.network_scale
+                        else {row["owner"] for row in self.design.declarations["context_cores"]
+                              if row["core"] == core})
         else:
             expected = set(state.institution.founders)
         if actor not in expected:
@@ -338,7 +382,7 @@ class ModelFormationPolicy:
             return "FORMATION_DUPLICATE_LIVE_PHASE_CONFIRMATION"
         if phase == 1:
             requests = [
-                row for row in state.trace
+                row for row in self._work_trace(state, key)
                 if row.get("action") == "request" and
                 row.get("outcome") == "APPLIED" and
                 row.get("work") == key and
@@ -351,7 +395,7 @@ class ModelFormationPolicy:
                 goal["revision"] == request.get("org_revision") and
                 goal["available_at"] <= request["at"] < goal["expires_at"]
                 for request in requests
-                for goal in self.design.declarations["goals"]
+                for goal in self._work_goals(key)
             )
             if (self.design.enforce_model_result_conditioned_goals and
                     work.requires_accepted):
@@ -402,7 +446,7 @@ class ModelFormationPolicy:
     def _agent_packet(self, state: Any, work: Any,
                       fn_id: str, at: int, *, packet_out: dict | None = None) -> tuple[str, Any]:
         options = [
-            fn for fn in self.design.declarations["agent_functions"]
+            fn for fn in self._work_functions(work.key)
             if fn["id"] == fn_id and fn["work"] == work.key
             and fn["work_revision"] == work.source_revision
             and fn["revision"] == state.institution.revision
@@ -419,11 +463,27 @@ class ModelFormationPolicy:
                     != "OC_MODEL_PREPARATION_CANDIDATE_NOT_AUTHORIZED"):
             return "FORMATION_AGENT_ORIGINAL_OC_FUNCTION_NOT_PERMITTED", None
         # Reuse the ONE model's source-qualified process computation.
-        view = general_system_view(self.design, state, at=float(at))
-        packets = [
-            row for row in view["bounded_process_function_outputs"]
-            if row["function"] == fn_id and row["work"] == work.key
-        ]
+        if self.design.network_scale:
+            current_contexts = [row for row in self._function_basis.get(_agent_context_key(fn), ())
+                                if row["revision"] == state.institution.revision
+                                and row["available_at"] <= at < row["expires_at"]
+                                and _context_claim_status(state.context_basis, row, at) == "MODEL_SOURCE_SCOPE_CONSISTENT"]
+            code_rows = _current_code_rows(self.design, state, at)
+            code_fields, ambiguous = _code_field_scope(code_rows)
+            author_codes = set(self.design.catalog["taxonomy"]["organizational_code_components"])
+            assessment = _agent_scope_review(
+                fn, current_contexts, len(code_fields) == len(author_codes) and not ambiguous,
+                policy, True)
+            packets = [perform_bounded_process_step(
+                fn, assessment["research_review"],
+                original_work_scope(state, self.design.configuration, work.key),
+                state, at=float(at))]
+        else:
+            view = general_system_view(self.design, state, at=float(at))
+            packets = [
+                row for row in view["bounded_process_function_outputs"]
+                if row["function"] == fn_id and row["work"] == work.key
+            ]
         if len(packets) != 1 or packets[0]["status"] != "HUMAN_REVIEW_PACKET_COMPUTED":
             return "FORMATION_AGENT_ORIGINAL_PROCESS_KPB_PACKET_NOT_CURRENT", None
         if packet_out is not None:
@@ -434,7 +494,7 @@ class ModelFormationPolicy:
                                   fn_id: str, at: int, *, after_event: bool = False) -> dict[str, Any] | None:
         trace_before = at + int(after_event)
         candidates = [
-            row for row in state.trace
+            row for row in self._work_trace(state, work.key)
             if row.get("action") == "function_prepare"
             and row.get("outcome") == "APPLIED"
             and row.get("work") == work.key and row.get("function_id") == fn_id
@@ -450,7 +510,7 @@ class ModelFormationPolicy:
         # Source validity is evaluated at at, never at at+1.
         trace_before = at + int(after_event)
         functions = [
-            fn for fn in self.design.declarations["agent_functions"]
+            fn for fn in self._work_functions(work.key)
             if fn["work"] == work.key and fn["work_revision"] == work.source_revision
             and fn["action"] == "REQUEST_APPROVAL"
             and fn["revision"] == state.institution.revision
@@ -482,24 +542,28 @@ class ModelFormationPolicy:
         # Even a subsequently restored source must not silently reactivate a
         # packet computed against an older context epoch. The original trace,
         # not a secondary version store, establishes the intervening change.
-        packet_sources = {
-            row.get("basis_source")
-            for row in self.design.declarations["context_cores"]
-            if row["revision"] == state.institution.revision
-            and row.get("basis_source")
-        }
-        packet_sources.add(fn.get("basis_source"))
+        # Use the same source epoch rule. The mass index is read-only;
+        # avoid copying the entire set of source references for each Work.
+        packet_sources = (self._all_context_refs_by_revision.get(state.institution.revision, set())
+                          if self.design.network_scale else {
+                              row.get("basis_source")
+                              for row in self.design.declarations["context_cores"]
+                              if row["revision"] == state.institution.revision
+                              and row.get("basis_source")
+                          })
+        function_basis = fn.get("basis_source")
         if any(
             row.get("action") == "source_update"
             and row.get("outcome") == "APPLIED"
-            and row.get("source") in packet_sources
+            and (row.get("source") in packet_sources or row.get("source") == function_basis)
             and type(row.get("at")) is int
             and prep["at"] < row["at"] < trace_before
-            for row in state.trace
+            for row in (state.original_action_trace("source_update")
+                        if self.design.network_scale else state.trace)
         ):
             return "FORMATION_AGENT_ORIGINAL_KPB_CHANGED_AFTER_PACKET"
         reviews = [
-            row for row in state.trace
+            row for row in self._work_trace(state, work.key)
             if row.get("action") == "function_review"
             and row.get("outcome") == "APPLIED"
             and row.get("work") == work.key and row.get("function_id") == fn["id"]
@@ -614,7 +678,7 @@ class ModelFormationPolicy:
             and row.get("work") == work.key
             and row.get("function_id") == fn_id
             and row.get("prepared_at") == prep["at"]
-            for row in state.trace
+            for row in self._work_trace(state, work.key)
         ):
             return "FORMATION_AGENT_PREPARATION_ALREADY_REVIEWED"
         if decision == "APPROVE":
@@ -745,7 +809,7 @@ class ModelFormationPolicy:
                 len(ref) <= len("model://" + actor + "/")):
             return "FORMATION_EMERGENT_OWNER_GOAL_SOURCE_REQUIRED"
         expiry = event.get("goal_expires_at")
-        if type(expiry) is not int or not at < expiry <= 10000:
+        if type(expiry) is not int or not at < expiry <= self.design.max_time:
             return "FORMATION_EMERGENT_OWNER_GOAL_TIME_REQUIRED"
         if event.get("goal_objective") not in OBJECTIVES:
             return "FORMATION_EMERGENT_GOAL_OBJECTIVE_UNKNOWN"
@@ -1325,7 +1389,7 @@ class ModelFormationPolicy:
                     len(source) <= len("model://" + actor + "/")):
                 return "FORMATION_INTEREST_OWNER_SOURCE_REQUIRED"
             expiry = ev.get("interest_valid_until")
-            if type(expiry) is not int or not at < expiry <= 10000:
+            if type(expiry) is not int or not at < expiry <= self.design.max_time:
                 return "FORMATION_INTEREST_SOURCE_EXPIRY_REQUIRED"
             return "NONE"
         claims = [
@@ -1454,8 +1518,13 @@ class ModelFormationPolicy:
 
 def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                          known_works: Mapping[str, Any],
-                         *, catalog: Mapping[str, Any] | None = None) -> GeneralSystemDesign:
+                         *, catalog: Mapping[str, Any] | None = None,
+                         network_scale: bool = False) -> GeneralSystemDesign:
     """Bind source-declared theoretical parameters to original subject/work keys."""
+    if type(network_scale) is not bool:
+        raise GeneralSystemInputError("GENERAL_NETWORK_SCALE_MUST_BE_BOOLEAN")
+    declaration_limit = 3_000_000 if network_scale else MAX_DECLARATIONS
+    max_time = 3_000_001 if network_scale else 10000
     cat = author_catalog() if catalog is None else catalog
     required = {"configuration", "morphology", "goals", "organizational_code",
                 "formation_phases", "context_cores", "agent_functions"}
@@ -1550,10 +1619,10 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
     total = 0
     for group, fields in schema.items():
         data = raw[group]
-        if not isinstance(data, list) or len(data) > MAX_DECLARATIONS:
+        if not isinstance(data, list) or len(data) > declaration_limit:
             raise GeneralSystemInputError("GENERAL_INVALID_" + group.upper() + "_COUNT")
         total += len(data)
-        if total > MAX_DECLARATIONS:
+        if total > declaration_limit:
             raise GeneralSystemInputError("GENERAL_TOTAL_DECLARATIONS_LIMIT")
         rows = []
         for entry in data:
@@ -1570,7 +1639,7 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
             provided = set(entry) & optional
             if provided and provided != optional:
                 raise GeneralSystemInputError('GENERAL_PARTIAL_ORIGINAL_SCOPE_BINDING')
-            _owner_source(entry, subjects)
+            _owner_source(entry, subjects, max_time=max_time)
             # One source document may prove several *distinct* concepts. Reject
             # conflicting claims to the same original concept at the same time,
             # not legitimate reuse of the document across different fields.
@@ -1639,7 +1708,68 @@ def parse_general_system(raw: Any, subjects: Mapping[str, Any],
                                enforce_institutional, enforce_agent,
                                enforce_lifecycle, enforce_emergent,
                                enforce_interests, enforce_reconfiguration,
-                               enforce_capability_cooperation, form_scope)
+                               enforce_capability_cooperation, form_scope, network_scale)
+
+
+def _context_function_key(row: Mapping[str, Any]) -> tuple:
+    return (row.get("basis_source"), row.get("basis_revision"),
+            row.get("recipient"), row.get("purpose"), row.get("operation"))
+
+
+def _agent_context_key(fn: Mapping[str, Any]) -> tuple:
+    return (fn.get("basis_source"), fn.get("basis_revision"),
+            fn["owner"], fn.get("purpose"), fn.get("operation"))
+
+
+def _context_claim_status(basis: Any, row: Mapping[str, Any], at: float) -> str:
+    return source_link_status(
+        basis, source_id=row.get("basis_source"),
+        expected_revision=row.get("basis_revision"), original_owner=row["owner"],
+        recipient=row["recipient"], core=row["core"], purpose=row["purpose"],
+        operation=row["operation"], at=at)
+
+
+def _current_code_rows(design: GeneralSystemDesign, state: Any, at: float):
+    model_code = getattr(state, "model_org_policy", None)
+    rows = (model_code.records.values() if model_code is not None
+            and getattr(state, "model_org_code_edition", "BASE") != "BASE"
+            else design.declarations["organizational_code"])
+    return [row for row in rows if row["revision"] == state.institution.revision
+            and row["available_at"] <= at < row["expires_at"]]
+
+
+def _code_field_scope(rows):
+    owners = {}
+    for source in rows:
+        owners.setdefault(source["field"], set()).add(source["owner"])
+    return set(owners), sorted(field for field, parties in owners.items() if len(parties) > 1)
+
+
+def _agent_scope_review(fn, matches, complete_code, model_code, model_code_active):
+    # The global view and the scoped Work gate share this exact predicate.
+    if "basis_source" not in fn:
+        status = "DECLARED_FUNCTION_WITHOUT_CONTEXT_SOURCE"
+    elif not matches:
+        status = "NO_CURRENT_ORIGINAL_CORE_SCOPE_FOR_FUNCTION"
+    elif len(matches) > 1:
+        status = "AMBIGUOUS_ORIGINAL_CORE_FOR_FUNCTION"
+    elif not complete_code:
+        status = "ORIGINAL_ORGANIZATIONAL_CODE_INCOMPLETE"
+    elif fn["action"] == "EXECUTE":
+        status = "PROGRAM_EXECUTION_REQUIRES_ORIGINAL_AUTHORIZATION"
+    else:
+        status = "MODEL_SOURCE_SCOPED_PREPARATION_ONLY"
+        if model_code_active:
+            model_result = model_code.agent_decision(fn["action"])
+            if model_result != "OC_MODEL_PREPARATION_CANDIDATE_NOT_AUTHORIZED":
+                status = model_result
+    return {
+        "function_id": fn["id"], "work": fn["work"], "action": fn["action"],
+        "research_review": status, "real_agent_action_authorized": False,
+        **({"original_delegation_required_for_applied_preparation": True,
+            "computed_preview_is_not_delegated_execution": True}
+           if fn.get("requires_original_delegation") else {}),
+    }
 
 
 def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
@@ -1655,24 +1785,8 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
                                     state.works[row["work"]].source_revision == row["work_revision"]))]
     model_code = getattr(state, "model_org_policy", None)
     model_code_active = bool(model_code is not None and model_code.active(state, at))
-    # R1-T: the current prospective thirteen-field edition is not the
-    # historical baseline declaration. A LIVE projection reads exactly the
-    # original model's currently installed source edition; older archived
-    # original read_only_evolution snapshots still keep their old evidence.
-    if model_code is not None and getattr(
-        state, "model_org_code_edition", "BASE"
-    ) != "BASE":
-        valid["organizational_code"] = [
-            row for row in model_code.records.values()
-            if row["revision"] == state.institution.revision
-            and row["available_at"] <= at < row["expires_at"]
-        ]
-    code_fields = {x["field"] for x in valid["organizational_code"]}
-    code_field_owners: dict[str, set[str]] = {}
-    for source in valid["organizational_code"]:
-        code_field_owners.setdefault(source["field"], set()).add(source["owner"])
-    ambiguous_code_fields = sorted(
-        field for field, owners in code_field_owners.items() if len(owners) > 1)
+    valid["organizational_code"] = _current_code_rows(design, state, at)
+    code_fields, ambiguous_code_fields = _code_field_scope(valid["organizational_code"])
     phases = {x["phase"] for x in valid["formation_phases"]}
     formation_attempts = [
         row for row in state.trace if row.get("action") == "formation_confirm"
@@ -1686,57 +1800,21 @@ def general_system_view(design: GeneralSystemDesign, state: Any, *, at: float,
     original_basis = getattr(state, 'context_basis', None)
     # A claimed contextual core must map to one ORIGINAL owner-scoped source
     # in the existing ContextBasis, or remain epistemically unqualified.
-    scoped_core_rows = []
-    for row in valid['context_cores']:
-        status = source_link_status(
-            original_basis, source_id=row.get('basis_source'),
-            expected_revision=row.get('basis_revision'), original_owner=row['owner'],
-            recipient=row['recipient'], core=row['core'], purpose=row['purpose'],
-            operation=row['operation'], at=at,
-        )
-        scoped_core_rows.append((row, status))
-    scoped_cores = {
-        row['core'] for row, status in scoped_core_rows
-        if status == 'MODEL_SOURCE_SCOPE_CONSISTENT'
-    }
-    # An agent function is still just a source-declared proposal. To qualify
-    # even a preparation proposal, both original source and the matching
-    # four-core context declaration must be present at this SAME time.
-    agent_review = []
-    for fn in valid['agent_functions']:
-        bound = 'basis_source' in fn
-        matches = [
-            row for row, status in scoped_core_rows
-            if status == 'MODEL_SOURCE_SCOPE_CONSISTENT'
-            and row.get('basis_source') == fn.get('basis_source')
-            and row.get('basis_revision') == fn.get('basis_revision')
-            and row['recipient'] == fn['owner']
-            and row['purpose'] == fn.get('purpose')
-            and row['operation'] == fn.get('operation')
-        ] if bound else []
-        if not bound:
-            status = 'DECLARED_FUNCTION_WITHOUT_CONTEXT_SOURCE'
-        elif not matches:
-            status = 'NO_CURRENT_ORIGINAL_CORE_SCOPE_FOR_FUNCTION'
-        elif len(matches) > 1:
-            status = 'AMBIGUOUS_ORIGINAL_CORE_FOR_FUNCTION'
-        elif len(code_fields) != len(author_codes) or ambiguous_code_fields:
-            status = 'ORIGINAL_ORGANIZATIONAL_CODE_INCOMPLETE'
-        elif fn['action'] == 'EXECUTE':
-            status = 'PROGRAM_EXECUTION_REQUIRES_ORIGINAL_AUTHORIZATION'
-        else:
-            status = 'MODEL_SOURCE_SCOPED_PREPARATION_ONLY'
-            if model_code_active:
-                model_result = model_code.agent_decision(fn['action'])
-                if model_result != 'OC_MODEL_PREPARATION_CANDIDATE_NOT_AUTHORIZED':
-                    status = model_result
-        agent_review.append({
-            'function_id': fn['id'], 'work': fn['work'], 'action': fn['action'],
-            'research_review': status, 'real_agent_action_authorized': False,
-            **({"original_delegation_required_for_applied_preparation": True,
-                "computed_preview_is_not_delegated_execution": True}
-               if fn.get("requires_original_delegation") else {}),
-        })
+    scoped_core_rows = [(row, _context_claim_status(original_basis, row, at))
+                        for row in valid["context_cores"]]
+    scoped_cores = {row["core"] for row, status in scoped_core_rows
+                    if status == "MODEL_SOURCE_SCOPE_CONSISTENT"}
+    # Index only qualified rows; exact matching and ambiguity stay unchanged.
+    qualified_contexts = {}
+    for row, status in scoped_core_rows:
+        if status == "MODEL_SOURCE_SCOPE_CONSISTENT":
+            qualified_contexts.setdefault(_context_function_key(row), []).append(row)
+    complete_code = len(code_fields) == len(author_codes) and not ambiguous_code_fields
+    agent_review = [
+        _agent_scope_review(fn, qualified_contexts.get(_agent_context_key(fn), ()),
+                            complete_code, model_code, model_code_active)
+        for fn in valid["agent_functions"]
+    ]
     proposals = len(state.works)
     applied = [row for row in state.trace if row.get("outcome") == "APPLIED"]
     # Observable transaction *events*, not invented monetary savings.

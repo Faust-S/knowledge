@@ -70,9 +70,12 @@ def _next_research_step(state: Any, configuration: str, work: Any,
     return "PREPARE_ORIGINAL_COMMIT_REVIEW_NO_AUTOMATIC_CONTRACT"
 
 
-def _original_work_projection(state: Any, configuration: str) -> list[dict[str, Any]]:
+def _original_work_projection(state: Any, configuration: str, *,
+                              work_key: str | None = None) -> list[dict[str, Any]]:
     result = []
-    for key, work in sorted(state.works.items()):
+    items = (sorted(state.works.items()) if work_key is None
+             else [(work_key, state.works[work_key])])
+    for key, work in items:
         principals = _original_principals(state, work)
         multi_owner = len(principals) > 1
         outside_original = [subject for subject in principals if subject not in state.subjects]
@@ -173,6 +176,10 @@ def _original_work_projection(state: Any, configuration: str) -> list[dict[str, 
         })
     return result
 
+
+def original_work_scope(state: Any, configuration: str, work_key: str) -> dict[str, Any]:
+    """Exactly the original morphology projection, restricted to one Work."""
+    return _original_work_projection(state, configuration, work_key=work_key)[0]
 
 
 # R1-V1: a negative-only original Work commit gate. The author's form is

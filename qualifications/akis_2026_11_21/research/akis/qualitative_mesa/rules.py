@@ -628,6 +628,7 @@ class QualitativeAKIS:
                     prospective_subjects=set(prospective_kinds),
                     prospective_subject_kinds=prospective_kinds,
                     operator=self.institution.operator,
+                    network_scale=self.network_scale,
                 )
             except ContextInputError as exc:
                 raise InputError(str(exc)) from exc
@@ -638,6 +639,18 @@ class QualitativeAKIS:
         self._applied_request_rows: dict[str, list] = {}
         self._applied_technology_proposal_rows: dict[str, list] = {}
         self._applied_coalition_proposal_rows: dict[str, list] = {}
+        self._work_trace_rows: dict[str, list] = {}
+        self._action_trace_rows: dict[str, list] = {}
+
+    def original_work_trace(self, work: str):
+        if self.network_scale:
+            return self._work_trace_rows.get(work, ())
+        return [row for row in self.trace if row.get("work") == work]
+
+    def original_action_trace(self, action: str):
+        if self.network_scale:
+            return self._action_trace_rows.get(action, ())
+        return [row for row in self.trace if row.get("action") == action]
 
     def original_request_rows(self, work: str):
         if self.network_scale:
@@ -1603,6 +1616,10 @@ class QualitativeAKIS:
                 report["original_trace_buyer_model_signal_only"] = True
             report["outside_work_or_money_not_created"] = True
         self.trace.append(report)
+        if self.network_scale:
+            if isinstance(work_ref, str):
+                self._work_trace_rows.setdefault(work_ref, []).append(report)
+            self._action_trace_rows.setdefault(action, []).append(report)
         if self.network_scale and report["outcome"] == "APPLIED":
             if action == "request":
                 self._applied_request_rows.setdefault(work_ref, []).append(report)

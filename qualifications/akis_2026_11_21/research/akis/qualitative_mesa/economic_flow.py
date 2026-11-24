@@ -581,7 +581,8 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                              cooperation_links: Sequence[CooperationLink] = (),
                              trace: Sequence[Mapping[str, Any]] = (), *,
                              strict_outside_installment_count: int = 0,
-                             network_scale: bool = False) -> dict[str, Any]:
+                             network_scale: bool = False,
+                             strict_network_period_qualified: bool = False) -> dict[str, Any]:
     """Evaluate explicitly declared claims in matching periods and currencies.
 
     A reported cash-flow difference is NOT profit, individual advantage, causal
@@ -599,9 +600,13 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 "joint_purchasing_ancillary_original_bindings",
                 "operator_service_economics", "recipient_use_value_evidence", "market_order_economics",
                 "uncommitted_order_cost_evidence", "portfolio_scope_evidence",
+                "network_period_scope",
             }):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
+    if "network_period_scope" in doc and not (
+            network_scale and strict_network_period_qualified is True):
+        raise EconomicInputError("NETWORK_ORIGINAL_PERIOD_STRICT_SCOPE_REQUIRED")
     period = _identifier(doc["period"], "ECONOMIC_PERIOD")
     currency = doc["currency"]
     if not isinstance(currency, str) or not _CURRENCY.fullmatch(currency):
@@ -933,6 +938,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 allocated_by_work=output.get("common_work_allocations", {}).get(
                     "by_work", {}
                 ),
+                network_scale=network_scale,
             )
         except LifecycleInputError as exc:
             raise EconomicInputError(str(exc)) from exc

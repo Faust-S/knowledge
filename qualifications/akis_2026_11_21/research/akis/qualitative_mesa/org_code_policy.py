@@ -37,8 +37,9 @@ def _keys(row: Any, required: set[str], label: str) -> None:
         raise OrgCodeInputError("OC_CONTROL_INVALID_" + label)
 
 
-def _identifiers(value: Any, label: str, *, allow_empty: bool = False) -> tuple[str, ...]:
-    if (not isinstance(value, list) or len(value) > MAX_ROWS or
+def _identifiers(value: Any, label: str, *, allow_empty: bool = False,
+                 limit: int = MAX_ROWS) -> tuple[str, ...]:
+    if (not isinstance(value, list) or len(value) > limit or
             (not value and not allow_empty) or
             any(not isinstance(v, str) or not v or len(v) > 128 for v in value) or
             len(set(value)) != len(value)):
@@ -47,8 +48,9 @@ def _identifiers(value: Any, label: str, *, allow_empty: bool = False) -> tuple[
 
 
 def _table(rows: Any, label: str, *, subjects: set[str],
-           actions: set[str] | None = None) -> dict[str, tuple[str, ...]]:
-    if not isinstance(rows, list) or len(rows) > MAX_ROWS:
+           actions: set[str] | None = None,
+           limit: int = MAX_ROWS) -> dict[str, tuple[str, ...]]:
+    if not isinstance(rows, list) or len(rows) > limit:
         raise OrgCodeInputError("OC_CONTROL_INVALID_" + label)
     result: dict[str, tuple[str, ...]] = {}
     for row in rows:
@@ -81,6 +83,16 @@ class ModelOrgCodePolicy:
     revision: str
     original_trace_required: bool
     responsible_by_work: Mapping[tuple[str, str, str], tuple[str, ...]] = field(default_factory=dict)
+    network_scale: bool = False
+    _responsibilities_index: Mapping[tuple[str, str], tuple] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        index = {}
+        if self.network_scale:
+            for (work, revision, action), owners in self.responsible_by_work.items():
+                index.setdefault((work, action), []).append((revision, owners))
+        object.__setattr__(self, "_responsibilities_index",
+                           {key: tuple(rows) for key, rows in index.items()})
 
     def active(self, original_state: Any, at: int) -> bool:
         return all(row["revision"] == original_state.institution.revision and
@@ -126,8 +138,9 @@ class ModelOrgCodePolicy:
             # Existing ContextBasis still performs the source's own checks.
             basis.assert_allowed(key, action, actor, at)
         responsible = self.responsible_by_action.get(action, ())
-        scoped = [(rev, owners) for (work, rev, act), owners in self.responsible_by_work.items()
-                  if work == key and act == action]
+        scoped = (self._responsibilities_index.get((key, action), ()) if self.network_scale
+                  else [(rev, owners) for (work, rev, act), owners in self.responsible_by_work.items()
+                        if work == key and act == action])
         if scoped:
             revision = (getattr(original_work, "source_revision", None) if original_work is not None else
                         spec.get("source_revision") if action == "request" and isinstance(spec, dict) else None)
@@ -172,12 +185,18 @@ class ModelOrgCodePolicy:
 
 
 def parse_org_code_policy(claims: Any, subjects: Mapping[str, Any],
-                          institution: Any, *, actions: set[str]) -> ModelOrgCodePolicy:
+                          institution: Any, *, actions: set[str],
+                          network_scale: bool = False) -> ModelOrgCodePolicy:
     """Require all thirteen *source-bound* field controls before enforcement.
 
     An operator claim cannot invent rights of other independent principals.
     Their existing QualitativeAKIS consents and ContextBasis still decide.
     """
+    if type(network_scale) is not bool:
+        raise OrgCodeInputError("OC_NETWORK_SCALE_MUST_BE_BOOLEAN")
+    subject_limit = 100002 if network_scale else MAX_ROWS
+    work_rows_limit = 1_800_000 if network_scale else MAX_ROWS
+    max_time = 3_000_001 if network_scale else 10000
     if not isinstance(claims, (list, tuple)) or len(claims) != len(FIELDS):
         raise OrgCodeInputError("OC_ENFORCEMENT_REQUIRES_THIRTEEN_CONTROLS")
     rows = {}
@@ -194,7 +213,7 @@ def parse_org_code_policy(claims: Any, subjects: Mapping[str, Any],
             raise OrgCodeInputError("OC_POLICY_REVISION_OR_OWNER_SOURCE_INVALID")
         if (type(row.get("available_at")) is not int or
                 type(row.get("expires_at")) is not int or
-                not 0 <= row["available_at"] < row["expires_at"] <= 10000):
+                not 0 <= row["available_at"] < row["expires_at"] <= max_time):
             raise OrgCodeInputError("OC_POLICY_SOURCE_TIME_INVALID")
         rows[row["field"]] = row
     if set(rows) != set(FIELDS):
@@ -205,16 +224,16 @@ def parse_org_code_policy(claims: Any, subjects: Mapping[str, Any],
             raise OrgCodeInputError("OC_FIELD_CONTROL_MISSING_" + field)
     known = set(subjects) | {"COUNCIL"}
     _keys(c["С"], {"subjects"}, "С")
-    controlled = frozenset(_identifiers(c["С"]["subjects"], "SUBJECTS"))
+    controlled = frozenset(_identifiers(c["С"]["subjects"], "SUBJECTS", limit=subject_limit))
     if not controlled <= known or operator not in controlled:
         raise OrgCodeInputError("OC_CONTROL_INVALID_ORIGINAL_SUBJECTS")
     _keys(c["ИД"], {"model_identified"}, "ИД")
-    identified = frozenset(_identifiers(c["ИД"]["model_identified"], "IDENTITIES"))
+    identified = frozenset(_identifiers(c["ИД"]["model_identified"], "IDENTITIES", limit=subject_limit))
     if not identified <= controlled:
         raise OrgCodeInputError("OC_IDENTITY_OUTSIDE_DECLARED_SUBJECTS")
     _keys(c["Рол"], {"role_bindings"}, "Рол")
     roles = _table(c["Рол"]["role_bindings"], "ROLES", subjects=set(controlled),
-                   actions=set(VALID_ROLES))
+                   actions=set(VALID_ROLES), limit=subject_limit)
     _keys(c["Пр"], {"permitted"}, "Пр")
     _keys(c["Запр"], {"denied"}, "Запр")
     # Do not accept source rules pretending to control already accepted Work.
@@ -265,8 +284,9 @@ def parse_org_code_policy(claims: Any, subjects: Mapping[str, Any],
             raise OrgCodeInputError("OC_RESPONSIBILITY_OUTSIDE_SUBJECTS")
     scoped = {}
     work_rows = c["Отв"].get("work_responsibilities", [])
-    if not isinstance(work_rows, list) or len(work_rows) > MAX_ROWS:
+    if not isinstance(work_rows, list) or len(work_rows) > work_rows_limit:
         raise OrgCodeInputError("OC_WORK_RESPONSIBILITY_INVALID")
+    qualified_subjects = controlled & identified & set(subjects)
     for row in work_rows:
         _keys(row, {"work", "work_revision", "action", "original_principals"}, "WORK_RESPONSIBILITY")
         work, revision, action = row["work"], row["work_revision"], row["action"]
@@ -276,7 +296,7 @@ def parse_org_code_policy(claims: Any, subjects: Mapping[str, Any],
                 or (work, revision, action) in scoped):
             raise OrgCodeInputError("OC_WORK_RESPONSIBILITY_INVALID")
         principals = _identifiers(row["original_principals"], "WORK_RESPONSIBILITY")
-        if not set(principals) <= controlled & identified & set(subjects):
+        if not set(principals) <= qualified_subjects:
             raise OrgCodeInputError("OC_WORK_RESPONSIBILITY_OUTSIDE_CONTROLLED_SUBJECTS")
         scoped[(work, revision, action)] = principals
     _keys(c["Журн"], {"require_original_trace"}, "Журн")
@@ -288,7 +308,7 @@ def parse_org_code_policy(claims: Any, subjects: Mapping[str, Any],
     return ModelOrgCodePolicy(rows, controlled, identified, roles, rights, denied,
                               req_scoped, allowed_events, require_admitted,
                               autonomy, reviewer_by_action, responsibility_by_action,
-                              institution.revision, True, scoped)
+                              institution.revision, True, scoped, network_scale)
 
 # R1-T: qualification of a prospective MODEL-ONLY edition of the same
 # original thirteen-field code. No second policy engine, IAM, signature or
@@ -639,7 +659,8 @@ def qualify_model_code_apply(state: Any, event: Mapping[str, Any],
             raise OrgCodeBlocked("OC_MODEL_EDITION_FRESH_THIRTEEN_SOURCES_REQUIRED")
     try:
         candidate = parse_org_code_policy(
-            claims, state.subjects, state.institution, actions=actions
+            claims, state.subjects, state.institution, actions=actions,
+            network_scale=getattr(state, "network_scale", False),
         )
     except OrgCodeInputError as exc:
         raise OrgCodeBlocked("OC_MODEL_EDITION_INVALID_ORIGINAL_THIRTEEN_CONTROLS:" +

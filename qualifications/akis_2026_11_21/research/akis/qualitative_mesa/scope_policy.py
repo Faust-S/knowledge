@@ -40,7 +40,7 @@ class SourceScope:
     valid_from: int
 
 
-def parse_scope(item: Mapping[str, Any]) -> SourceScope | None:
+def parse_scope(item: Mapping[str, Any], *, max_time: int = 10000) -> SourceScope | None:
     """Optional legacy compatibility; partially scoped sources are rejected."""
     present = set(item).intersection(SCOPE_FIELDS)
     if not present:
@@ -53,7 +53,7 @@ def parse_scope(item: Mapping[str, Any]) -> SourceScope | None:
     purposes = _names(item['purposes'], 'CONTEXT_PURPOSES_INVALID')
     operations = _names(item['operations'], 'CONTEXT_OPERATIONS_INVALID', OPERATIONS)
     start = item.get('valid_from', 0)
-    if type(start) is not int or not 0 <= start <= 10000:
+    if type(start) is not int or not 0 <= start <= max_time:
         raise ScopeInputError('CONTEXT_VALID_FROM_INVALID')
     if 'valid_until' in item and item['valid_until'] is not None:
         until = item['valid_until']
