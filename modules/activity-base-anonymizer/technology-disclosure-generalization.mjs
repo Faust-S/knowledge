@@ -26,8 +26,7 @@ function boundary(points,start,end,value,kind){
  return true;
 }
 function occurrences(row,value,kind){
- const out=[],offsets=new Map();let offset=0;
- row.points.forEach((ch,i)=>{offsets.set(offset,i);offset+=ch.length;});offsets.set(offset,row.points.length);
+ const out=[],offsets=row.offsets;
  let at=0;
  for(;;){
   const pos=row.text.indexOf(value,at);if(pos<0)break;
@@ -48,7 +47,11 @@ export async function prepareProductGeneralization(preview,reports,language='ru'
  const reviews=await Promise.all(reports.map(r=>reviewProductPresidioTextScreening(preview,r)));
  need(new Set(reviews.map(r=>r.language)).size===reviews.length,'TECHNOLOGY_GENERALIZATION_REPORTS');
  const report_sha256=(await Promise.all(reports.map(r=>sha256Canonical(r)))).sort(cmp);
- const inventory=editableProductTexts(preview.object_data).map(r=>({...r,points:Array.from(r.text)}));
+ const inventory=editableProductTexts(preview.object_data).map(r=>{
+  const points=Array.from(r.text),offsets=new Map();let offset=0;
+  points.forEach((ch,i)=>{offsets.set(offset,i);offset+=ch.length;});offsets.set(offset,points.length);
+  return {...r,points,offsets};
+ });
  const fields=new Map(inventory.map(r=>[r.path,r])),groups=new Map();
  for(const review of reviews)for(const field of review.fields)for(const f of field.findings){
   const row=fields.get(field.path),value=row.points.slice(f.start,f.end).join('');
@@ -86,10 +89,18 @@ export async function prepareProductGeneralization(preview,reports,language='ru'
  }
  // A single direct identifier may be detected by both profiles. Do not
  // choose a winner if distinct suggested identifiers overlap.
- const automatic=result.filter(g=>g.suggested_replacement!==null);
- for(let i=0;i<automatic.length;i++)for(let j=i+1;j<automatic.length;j++){
-  if(automatic[i].spans.some(a=>automatic[j].spans.some(b=>overlaps(a,b)))){
-   for(const g of [automatic[i],automatic[j]]){g.mode='CONTEXT_REQUIRED';g.suggested_replacement=null;}
+ const autoByPath=new Map();
+ for(const g of result.filter(g=>g.suggested_replacement!==null))for(const span of g.spans){
+  const items=autoByPath.get(span.path)??[];items.push({...span,group:g});autoByPath.set(span.path,items);
+ }
+ for(const items of autoByPath.values()){
+  items.sort((a,b)=>a.start-b.start||b.end-a.end);
+  let outer=null;
+  for(const item of items){
+   if(outer&&item.start<outer.end&&item.group!==outer.group){
+    for(const g of [outer.group,item.group]){g.mode='CONTEXT_REQUIRED';g.suggested_replacement=null;}
+   }
+   if(!outer||item.end>outer.end)outer=item;
   }
  }
  const body={base_product_sha256:preview.product_sha256,report_sha256,language,groups:result};

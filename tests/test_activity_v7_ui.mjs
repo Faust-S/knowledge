@@ -177,3 +177,13 @@ test('D05 proposal UI prepares a local model request, validates exact returned f
  assert.match(panel,/!next\[k\]\?\.trim\(\)/);
  assert.doesNotMatch(panel,/fetch\(|XMLHttpRequest|WebSocket|exportPackage|putObject/);
 });
+
+test('complete product screening offers batch functional corrections, resetting all reports when the product changes',()=>{
+ const panel=load('../desktop/src/ProductPresidioReviewPanel.tsx'),general=load('../desktop/src/ProductGeneralizationPanel.tsx');
+ assert.match(panel,/setRawReports\(\{\}\)/);
+ assert.match(panel,/ProductGeneralizationPanel key=\{product.product_sha256\}/);
+ assert.match(general,/prepareProductGeneralization\(product,Object.values\(reports\),language\)/);
+ assert.match(general,/applyProductGeneralization\(product,Object.values\(reports\)/);
+ assert.match(general,/onRevision\(value.preview\)/);
+ assert.doesNotMatch(general,/fetch\(|putObject|exportPackage|localStorage/);
+});
