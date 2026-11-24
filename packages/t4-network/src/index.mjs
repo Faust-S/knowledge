@@ -18,3 +18,5 @@ export * from './network/original-network-subject-apply.mjs';
 export * from './network/original-network-source-cursor.mjs';
 
 export * from './network/original-network-host-cursor.mjs';
+
+export * from './network/original-network-publication.mjs';

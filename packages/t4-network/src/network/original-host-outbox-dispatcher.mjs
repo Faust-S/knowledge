@@ -313,6 +313,8 @@ async function prepareNextNativeObject(params){
     workspaceId:params.workspaceId,
     originalWriteOwnerRef:params.originalWriteOwnerRef,
     networkTargetRef:params.networkTargetRef,
+    sourceNodeRef:status.sourceNodeRef,recipientNodeRef:status.recipientNodeRef,
+    scopeRef:status.scopeRef,ownerEpoch:status.ownerEpoch,
     originalHostFrontierRef:status.checkpointRef,
     originalHostFrontierRevision:status.revision,
     sourceCursorBefore:structuredClone(before),

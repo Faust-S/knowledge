@@ -285,6 +285,32 @@ export function negotiateT4CandidateCapabilities({
     candidateNegotiationOnly:true,
   });
 }
+// A local sender must verify the exact signed bytes BEFORE durable
+// publication. This is deliberately not an inbound replay decision.
+export async function verifyT4CandidateOutboundSignature({
+  wireBytes,verifyOriginalNodeSignature,
+}={}){
+  if(typeof verifyOriginalNodeSignature!=='function')
+    fail('WIRE_ORIGINAL_SIGNER_PORT_REQUIRED');
+  const frame=decodeT4CandidateFrame(wireBytes);
+  const unsigned={...frame};delete unsigned.signatureBase64;
+  const bytes=signedBytes(unsigned);
+  const proof=Object.freeze({
+    operation:'t4.network.publish.'+frame.messageType,
+    signerRef:frame.signerRef,sourceNodeRef:frame.sourceNodeRef,
+    recipientNodeRef:frame.recipientNodeRef,scopeRef:frame.scopeRef,
+    permissionRef:frame.permissionRef,sessionRef:frame.sessionRef,
+    ownerEpoch:frame.ownerEpoch,sequence:frame.sequence,
+    frameDigest:'sha256:'+createHash('sha256').update(bytes).digest('hex'),
+    originalSubjectAuthorizationRequired:true,
+  });
+  if(await verifyOriginalNodeSignature({...proof,
+    bytes:new Uint8Array(bytes),
+    signature:new Uint8Array(strictSignature(frame.signatureBase64)),
+  })!==true)fail('WIRE_SOURCE_SIGNATURE_NOT_VERIFIED');
+  return Object.freeze({frame,proof,originalSignatureVerified:true});
+}
+
 export async function verifyT4CandidateWireFrame({
   wireBytes,recipientNodeRef,scopeRef,requiredCryptoSuite,
   supportedCriticalExtensions=[],
