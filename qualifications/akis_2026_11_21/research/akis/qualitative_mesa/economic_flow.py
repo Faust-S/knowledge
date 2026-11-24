@@ -700,7 +700,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
     # non-cash records, never charged a second time merely because its
     # original recipient reported quality. These record counts are not
     # completeness, settlement or causal savings proof.
-    from .work_assurance import acceptance_gate
+    from .work_assurance import acceptance_gate, correction_resource_claims
     work_record_evidence: dict[str, dict[str, Any]] = {}
     for work_id, work in sorted(works.items()):
         cash_rows = {sc: 0 for sc in _SCENARIOS}
@@ -715,34 +715,32 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
         # EXISTING economic record, never create another cash/cost entry.
         correction_claims = []
         for correction in getattr(work, "assurance_corrections", ()):
-            claim = correction.get("additional_resource_use_claim")
-            if claim is None:
-                continue
-            matches = [
-                (key, item) for key, item in resource_index.items()
-                if item["scenario"] == "COOPERATION" and
-                   sources[item["source"]]["reference"] == claim["source_ref"]
-            ]
-            if len(matches) > 1:
-                raise EconomicInputError("DUPLICATE_QUALITY_CORRECTION_RESOURCE_USE")
-            bound = None
-            if matches:
-                key, item = matches[0]
-                if (item["work"] != work_id or item["owner"] != claim["owner"] or
-                        currency != claim["currency"] or
-                        item["decimal_amount"] != Decimal(claim["amount"]) or
-                        (claim["source_revision"] is not None and
-                         sources[item["source"]]["revision"] != claim["source_revision"])):
-                    raise EconomicInputError("QUALITY_CORRECTION_RESOURCE_USE_SOURCE_MISMATCH")
-                bound = key
-            correction_claims.append({
-                "correction_id": correction["terms"]["id"],
-                "source_ref": claim["source_ref"], "amount": claim["amount"],
-                "currency": claim["currency"], "original_resource_use_id": bound,
-                "state": ("BOUND_EXISTING_RESOURCE_USE" if bound is not None else
-                          "UNLINKED_RESOURCE_USE_CLAIM"),
-                "additional_cash_or_cost_row_created": False,
-            })
+            for operation, claim in correction_resource_claims(correction):
+                matches = [
+                    (key, item) for key, item in resource_index.items()
+                    if item["scenario"] == "COOPERATION" and
+                       sources[item["source"]]["reference"] == claim["source_ref"]
+                ]
+                if len(matches) > 1:
+                    raise EconomicInputError("DUPLICATE_QUALITY_CORRECTION_RESOURCE_USE")
+                bound = None
+                if matches:
+                    key, item = matches[0]
+                    if (item["work"] != work_id or item["owner"] != claim["owner"] or
+                            currency != claim["currency"] or
+                            item["decimal_amount"] != Decimal(claim["amount"]) or
+                            (claim["source_revision"] is not None and
+                             sources[item["source"]]["revision"] != claim["source_revision"])):
+                        raise EconomicInputError("QUALITY_CORRECTION_RESOURCE_USE_SOURCE_MISMATCH")
+                    bound = key
+                correction_claims.append({
+                    "correction_id": correction["terms"]["id"], "operation": operation,
+                    "source_ref": claim["source_ref"], "amount": claim["amount"],
+                    "currency": claim["currency"], "original_resource_use_id": bound,
+                    "state": ("BOUND_EXISTING_RESOURCE_USE" if bound is not None else
+                              "UNLINKED_RESOURCE_USE_CLAIM"),
+                    "additional_cash_or_cost_row_created": False,
+                })
         scoped_quality = getattr(work, "assurance_criteria", ())
         quality_gate = acceptance_gate(work) if scoped_quality else "NOT_DECLARED"
         work_record_evidence[work_id] = {
