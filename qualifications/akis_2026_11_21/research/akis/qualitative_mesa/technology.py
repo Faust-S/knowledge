@@ -417,12 +417,13 @@ def qualify_original_technology_route_response(
 def qualify_original_technology_route_request(
     state: Any, ev: Mapping[str, Any], work: Any, at: int,
 ) -> dict[str, Any] | None:
-    proposals = [
+    proposals = (state.original_technology_proposal_rows(work.key)
+                 if hasattr(state, "original_technology_proposal_rows") else [
         row for row in state.trace
         if row.get("action") == "technology_route_propose"
         and row.get("outcome") == "APPLIED"
         and row.get("technology_route_work") == work.key
-    ]
+    ])
     if not proposals and ev.get("technology_route_id") is None:
         if _has_route_commercial_fields(ev):
             raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_PROPOSAL_REQUIRED")
@@ -512,12 +513,13 @@ def qualify_original_technology_route_commit(state: Any, work: Any, event: Mappi
         if "technology_route_market_scope" in event:
             raise TechnologyRouteBlocked("MARKET_SCOPE_ORIGINAL_STRICT_CONTEXT_REQUIRED")
         return None
-    requests = [
+    original_requests = (state.original_request_rows(work.key)
+                         if hasattr(state, "original_request_rows") else [
         row for row in state.trace
         if row.get("action") == "request" and row.get("outcome") == "APPLIED"
         and row.get("work") == work.key
-        and row.get("technology_route_id") is not None
-    ]
+    ])
+    requests = [row for row in original_requests if row.get("technology_route_id") is not None]
     if not requests:
         if _has_route_commercial_fields(event):
             raise TechnologyRouteBlocked("COMMERCIAL_ORIGINAL_PROPOSAL_REQUIRED")
@@ -925,8 +927,10 @@ def _review_bound_commercial_terms(state, work, event, proposal, at):
 
 def qualify_original_route_commercial_consent(state, work, event, at):
     """A model technical assent does not stand in for concrete Work consent."""
-    requests = [r for r in state.trace if r["action"] == "request"
-                and r["outcome"] == "APPLIED" and r.get("work") == work.key]
+    requests = (state.original_request_rows(work.key)
+                if hasattr(state, "original_request_rows") else [
+        r for r in state.trace if r["action"] == "request"
+        and r["outcome"] == "APPLIED" and r.get("work") == work.key])
     expected = requests[0].get(_COMMERCIAL_DIGEST) if len(requests) == 1 else None
     if event.get(_COMMERCIAL_DIGEST) != expected:
         raise TechnologyRouteBlocked("COMMERCIAL_WORK_CONSENT_MUST_BIND_ORIGINAL_TERMS")

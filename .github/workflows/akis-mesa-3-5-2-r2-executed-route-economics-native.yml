@@ -30,6 +30,10 @@ jobs:
           python -c "import mesa; assert mesa.__version__ == '3.5.2'"
       - name: Compile original package
         run: python -m compileall -q qualifications/akis_2026_11_21/research
+      - name: Original network scale profile and semantic parity
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_network_scale_mesa.py
       - name: Original delegated packet readiness
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
@@ -111,3 +115,31 @@ jobs:
             qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r1_r2_r4_original_delegation_recovery_evidence.json
             qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r1_r2_r4_original_portfolio_delegation_evidence.json
             qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r1_r2_r4_original_packet_readiness_evidence.json
+  original-mesa-network-scale:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        enterprises: [100, 1000, 10000, 30000]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify complete pinned original executable scope
+        run: python qualifications/akis_2026_11_21/verify_source_scope.py
+      - name: Official Mesa 3.5.2
+        run: |
+          python -m pip install --disable-pip-version-check "mesa==3.5.2"
+          python -c "import mesa; assert mesa.__version__ == '3.5.2'"
+      - name: Execute one original connected enterprise network
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_original_network_scale.py ${{ matrix.enterprises }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: akis-network-scale-${{ matrix.os }}-${{ matrix.enterprises }}
+          if-no-files-found: error
+          path: qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/network_scale_infrastructure_${{ matrix.enterprises }}.json

@@ -266,7 +266,7 @@ class OperatorAKISModel(mesa.Model):
         requested_horizon = research_input.pop("model_horizon", None)
         if (requested_horizon is not None and
                 (type(requested_horizon) is not int or
-                 not 0 <= requested_horizon <= 10000)):
+                 not 0 <= requested_horizon <= (3000000 if research_input.get("network_scale") is True else 10000))):
             raise InputError("MODEL_HORIZON_MUST_BE_NONNEGATIVE_INTEGER")
         raw_capability_adoptions = research_input.pop("capability_adoptions", None)
         self.capability_enabled = raw_capability_adoptions is not None
@@ -1367,6 +1367,7 @@ class OperatorAKISModel(mesa.Model):
                     self.qualitative.cooperation_links, self.qualitative.trace,
                     strict_outside_installment_count=(original_economic_rights or {}).get(
                         "original_outside_installment_transfer_count", 0),
+                    network_scale=self.qualitative.network_scale,
                 )
             except EconomicInputError as exc:
                 raise InputError(str(exc)) from exc

@@ -196,6 +196,35 @@ class CapacityLedger:
         self.reservations: list[Reservation] = []
         # Part of this same reservation ledger, not a separate resource engine.
         self.future_capacity_claims: dict[str, list[FutureCapacityClaim]] = {}
+        # Index references to the ONE original reservation list. A shallow
+        # counterfactual copy can replace the list and gets a fresh index.
+        self._indexed_list = self.reservations
+        self._indexed_count = 0
+        self._by_resource: dict[str, list[Reservation]] = {}
+        self._by_work: dict[str, list[Reservation]] = {}
+
+    def _ensure_reservation_index(self) -> None:
+        if self._indexed_list is self.reservations and self._indexed_count == len(self.reservations):
+            return
+        self._by_resource = {}
+        self._by_work = {}
+        for row in self.reservations:
+            self._by_resource.setdefault(row.resource, []).append(row)
+            self._by_work.setdefault(row.work, []).append(row)
+        self._indexed_list = self.reservations
+        self._indexed_count = len(self.reservations)
+
+    def _append_original_reservations(self, rows) -> None:
+        self._ensure_reservation_index()
+        for row in rows:
+            self.reservations.append(row)
+            self._by_resource.setdefault(row.resource, []).append(row)
+            self._by_work.setdefault(row.work, []).append(row)
+        self._indexed_count = len(self.reservations)
+
+    def reservation_work_ids(self, resources: set[str]) -> set[str]:
+        self._ensure_reservation_index()
+        return {r.work for key in resources for r in self._by_resource.get(key, ())}
 
     def original_owners(self, needs: Sequence[ResourceNeed]) -> set[str]:
         return {self.specs[n.resource].owner for n in needs}
@@ -284,7 +313,8 @@ class CapacityLedger:
         """Validate ALL proposed operation intervals without changing any booking."""
         if not plan or len(plan) > 1024:
             raise CapacityInputError("INVALID_OPERATION_RESERVATIONS")
-        if any(r.work == work for r in self.reservations):
+        self._ensure_reservation_index()
+        if work in self._by_work:
             raise CapacityBlocked("WORK_ALREADY_RESERVED")
         if any(r.work != work or r.resource not in self.specs or
                type(r.units) is not int or not 1 <= r.units <= MAX_UNITS or
@@ -292,8 +322,11 @@ class CapacityLedger:
                r.start < 0 or r.start >= r.end for r in plan):
             raise CapacityInputError("INVALID_OPERATION_RESERVATIONS")
         proposals = list(plan)
-        combined = self.reservations + proposals
         for key in sorted({p.resource for p in proposals}):
+            # Other resources cannot affect this resource's exact interval
+            # predicates. Keep all original reservations of THIS resource.
+            combined = [*self._by_resource.get(key, ()),
+                        *(p for p in proposals if p.resource == key)]
             # When a claim raises the resource ceiling, every work sharing
             # the additional units must be in the owner's explicit scope.
             # A third party cannot silently piggyback on another Work's grant.
@@ -394,7 +427,7 @@ class CapacityLedger:
     def reserve_plan(self, work: str, plan: Sequence[Reservation]) -> None:
         self.preview_plan(work, plan)
         # All resources, all operation windows: one atomic commitment.
-        self.reservations.extend(plan)
+        self._append_original_reservations(plan)
 
     def preview(self, work: str, needs: Sequence[ResourceNeed], start: int, end: int) -> None:
         """Backward-compatible whole-work reservations, without double booking."""
@@ -410,14 +443,16 @@ class CapacityLedger:
 
     def reserve(self, work: str, needs: Sequence[ResourceNeed], start: int, end: int) -> None:
         self.preview(work, needs, start, end)
-        self.reservations.extend(Reservation(n.resource, work, start, end, n.units)
-                                 for n in needs)
+        self._append_original_reservations(Reservation(n.resource, work, start, end, n.units)
+                                           for n in needs)
 
     def planned_window_risk(self, needs: Sequence[ResourceNeed], start: int,
                             end: int, *, outstanding: set[str] | None = None) -> str | None:
         """Capacity risk for this operation, excluding already accepted results."""
-        relevant = [r for r in self.reservations if outstanding is None or r.work in outstanding]
+        self._ensure_reservation_index()
         for key in sorted({n.resource for n in needs}):
+            relevant = [r for r in self._by_resource.get(key, ())
+                        if outstanding is None or r.work in outstanding]
             for item in self._violations(key, relevant):
                 if max(start, item["start"]) < min(end, item["end"]):
                     return key
@@ -436,15 +471,18 @@ class CapacityLedger:
         self, *, resources: set[str] | None = None, outstanding: set[str] | None = None
     ) -> list[dict[str, Any]]:
         """Conflicts for accepted modeled obligations, not evidence of breach."""
+        self._ensure_reservation_index()
         risks = []
         for key in sorted(resources if resources is not None else self.specs):
-            relevant = [r for r in self.reservations if r.resource == key and
-                        (outstanding is None or r.work in outstanding)]
+            relevant = [r for r in self._by_resource.get(key, ())
+                        if outstanding is None or r.work in outstanding]
             risks.extend(self._violations(key, relevant))
         return risks
 
     def is_work_at_risk(self, work: str, *, outstanding: set[str] | None = None) -> str | None:
-        for item in self.reservation_risks(outstanding=outstanding):
+        self._ensure_reservation_index()
+        keys = {r.resource for r in self._by_work.get(work, ())}
+        for item in self.reservation_risks(resources=keys, outstanding=outstanding):
             if work in item["works"]:
                 return item["resource"]
         return None

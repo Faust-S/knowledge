@@ -57,8 +57,8 @@ def _sum_str(values: list[Decimal]) -> str:
     return f"{sum(values, Decimal('0')):.2f}"
 
 
-def _bounded_list(value: Any, name: str) -> list:
-    if not isinstance(value, list) or len(value) > _MAX_RECORDS:
+def _bounded_list(value: Any, name: str, *, limit: int = _MAX_RECORDS) -> list:
+    if not isinstance(value, list) or len(value) > limit:
         raise EconomicInputError(f"INVALID_{name}_COUNT")
     return value
 
@@ -580,7 +580,8 @@ def _review_work_payment_progress(
 def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mapping[str, Any],
                              cooperation_links: Sequence[CooperationLink] = (),
                              trace: Sequence[Mapping[str, Any]] = (), *,
-                             strict_outside_installment_count: int = 0) -> dict[str, Any]:
+                             strict_outside_installment_count: int = 0,
+                             network_scale: bool = False) -> dict[str, Any]:
     """Evaluate explicitly declared claims in matching periods and currencies.
 
     A reported cash-flow difference is NOT profit, individual advantage, causal
@@ -605,14 +606,19 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
     currency = doc["currency"]
     if not isinstance(currency, str) or not _CURRENCY.fullmatch(currency):
         raise EconomicInputError("INVALID_CURRENCY")
-    if len(subjects) > _MAX_SUBJECTS:
+    if type(network_scale) is not bool:
+        raise EconomicInputError("NETWORK_SCALE_MUST_BE_BOOLEAN")
+    subject_limit = 100001 if network_scale else _MAX_SUBJECTS
+    record_limit = 2000000 if network_scale else _MAX_RECORDS
+    if len(subjects) > subject_limit:
         raise EconomicInputError("TOO_MANY_SUBJECTS")
     party_ids = set(subjects)
+    party_ids_with_external = party_ids | {"EXTERNAL"}
     if "EXTERNAL" in party_ids:
         raise EconomicInputError("RESERVED_SUBJECT_ID")
 
     sources: dict[str, dict] = {}
-    for source in _bounded_list(doc["sources"], "SOURCE"):
+    for source in _bounded_list(doc["sources"], "SOURCE", limit=record_limit):
         _record(source, {"id", "owner", "reference", "revision"}, "SOURCE")
         key = _identifier(source["id"], "SOURCE_ID")
         owner = _identifier(source["owner"], "SOURCE_OWNER")
@@ -631,7 +637,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
     linked_works: dict[str, str] = {}
     transfer_index: dict[str, dict[str, Any]] = {}
 
-    for row in _bounded_list(doc["transfers"], "TRANSFER"):
+    for row in _bounded_list(doc["transfers"], "TRANSFER", limit=record_limit):
         _record(row, {"id", "scenario", "payer", "payee", "amount", "source", "work"}, "TRANSFER")
         identifier = _identifier(row["id"], "TRANSFER_ID")
         if identifier in used_ids:
@@ -641,7 +647,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
         if not isinstance(sc, str) or sc not in _SCENARIOS:
             raise EconomicInputError("INVALID_ECONOMIC_SCENARIO")
         payer, payee = _identifier(row["payer"], "PAYER"), _identifier(row["payee"], "PAYEE")
-        if payer == payee or payer not in (party_ids | {"EXTERNAL"}) or payee not in (party_ids | {"EXTERNAL"}):
+        if payer == payee or payer not in party_ids_with_external or payee not in party_ids_with_external:
             raise EconomicInputError("INVALID_TRANSFER_BOUNDARY")
         _flow_ref(row["source"], sources, {payer, payee} - {"EXTERNAL"})
         work = _existing_work(row["work"], works)
@@ -665,7 +671,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
     resource_costs: dict[str, dict[str, dict[str, list[Decimal]]]] = {
         sc: {pid: defaultdict(list) for pid in sorted(party_ids)} for sc in _SCENARIOS
     }
-    for row in _bounded_list(doc["resource_uses"], "RESOURCE_USE"):
+    for row in _bounded_list(doc["resource_uses"], "RESOURCE_USE", limit=record_limit):
         _record(row, {"id", "scenario", "owner", "amount", "bucket", "source", "work"}, "RESOURCE_USE")
         key = _identifier(row["id"], "RESOURCE_USE_ID")
         if key in used_ids or key in used_cost_ids:
@@ -695,7 +701,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
     covered: dict[str, dict[str, str]] = {}
     for sc in _SCENARIOS:
         mapping = coverage_raw[sc]
-        if not isinstance(mapping, dict) or len(mapping) > _MAX_SUBJECTS:
+        if not isinstance(mapping, dict) or len(mapping) > subject_limit:
             raise EconomicInputError("INVALID_COVERAGE_MAP")
         if any(not isinstance(pid, str) for pid in mapping) or not set(mapping).issubset(party_ids):
             raise EconomicInputError("INVALID_COVERAGE_SUBJECT")
@@ -747,15 +753,17 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
     # completeness, settlement or causal savings proof.
     from .work_assurance import acceptance_gate
     work_record_evidence: dict[str, dict[str, Any]] = {}
+    # Group each existing row ONCE; avoid a full ledger scan for every Work.
+    cash_counts: dict[str, dict[str, int]] = {}
+    cost_counts: dict[str, dict[str, int]] = {}
+    for index, counts in ((transfer_index, cash_counts), (resource_index, cost_counts)):
+        for item in index.values():
+            if item["work"] is not None:
+                row = counts.setdefault(item["work"], {sc: 0 for sc in _SCENARIOS})
+                row[item["scenario"]] += 1
     for work_id, work in sorted(works.items()):
-        cash_rows = {sc: 0 for sc in _SCENARIOS}
-        cost_rows = {sc: 0 for sc in _SCENARIOS}
-        for item in transfer_index.values():
-            if item["work"] == work_id:
-                cash_rows[item["scenario"]] += 1
-        for item in resource_index.values():
-            if item["work"] == work_id:
-                cost_rows[item["scenario"]] += 1
+        cash_rows = cash_counts.get(work_id, {sc: 0 for sc in _SCENARIOS})
+        cost_rows = cost_counts.get(work_id, {sc: 0 for sc in _SCENARIOS})
         scoped_quality = getattr(work, "assurance_criteria", ())
         quality_gate = acceptance_gate(work) if scoped_quality else "NOT_DECLARED"
         work_record_evidence[work_id] = {

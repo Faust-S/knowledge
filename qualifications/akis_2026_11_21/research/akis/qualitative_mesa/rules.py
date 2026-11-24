@@ -200,8 +200,17 @@ class QualitativeAKIS:
         _keys_exact(
             scenario,
             {"schema", "evidence", "institution", "subjects", "resources", "works", "events"},
-            {"portfolio_review", "context_evidence", "capacity_strict", "calendar_strict", "handoff_strict", "material_strict", "cooperation_links"}, "INPUT",
+            {"portfolio_review", "context_evidence", "capacity_strict", "calendar_strict", "handoff_strict", "material_strict", "cooperation_links", "network_scale"}, "INPUT",
         )
+        # Explicit resource budget for a large research execution, not an
+        # economic parameter or relaxation of original decision predicates.
+        self.network_scale = scenario.get("network_scale", False)
+        if type(self.network_scale) is not bool:
+            raise InputError("NETWORK_SCALE_MUST_BE_BOOLEAN")
+        self.subject_limit = 100001 if self.network_scale else 128
+        self.work_limit = 300000 if self.network_scale else 256
+        self.resource_limit = 200000 if self.network_scale else 256
+        self.event_limit = 3000000 if self.network_scale else 500
         self.portfolio_review_enabled = scenario.get("portfolio_review", False)
         if type(self.portfolio_review_enabled) is not bool:
             raise InputError("PORTFOLIO_REVIEW_MUST_BE_BOOLEAN")
@@ -237,7 +246,7 @@ class QualitativeAKIS:
             raise InputError("MIXED_REQUIRES_EXPLICIT_RESERVED_SCOPE")
         if ins["mode"] in {"COLLEGIAL", "MIXED"} and ins["council_quorum"] == 0:
             raise InputError("ZERO_COUNCIL_QUORUM")
-        if not isinstance(scenario["subjects"], list) or not scenario["subjects"] or len(scenario["subjects"]) > 128:
+        if not isinstance(scenario["subjects"], list) or not scenario["subjects"] or len(scenario["subjects"]) > self.subject_limit:
             raise InputError("INVALID_SUBJECTS")
         self.subjects: dict[str, Party] = {}
         for obj in scenario["subjects"]:
@@ -334,7 +343,7 @@ class QualitativeAKIS:
             council_members=council, council_quorum=ins["council_quorum"], council_rule=ins["council_rule"],
             operator_mandate=frozenset(ins["operator_mandate"]), mixed_reserved=frozenset(ins["mixed_reserved"]),
         )
-        if not isinstance(scenario["resources"], list) or len(scenario["resources"]) > 256:
+        if not isinstance(scenario["resources"], list) or len(scenario["resources"]) > self.resource_limit:
             raise InputError("INVALID_RESOURCES")
         self.resources: dict[str, str] = {}
         self.resource_availability: dict[str, str] = {}
@@ -361,7 +370,7 @@ class QualitativeAKIS:
             key: ({spec.calendar.revision} if spec.calendar is not None else set())
             for key, spec in self.resource_specs.items()
         }
-        if not isinstance(scenario["works"], list) or len(scenario["works"]) > 256:
+        if not isinstance(scenario["works"], list) or len(scenario["works"]) > self.work_limit:
             raise InputError("INVALID_WORKS")
         self.works: dict[str, Work] = {}
         for obj in scenario["works"]:
@@ -383,7 +392,7 @@ class QualitativeAKIS:
         except CooperationInputError as exc:
             raise InputError(str(exc)) from exc
         events = scenario["events"]
-        if not isinstance(events, list) or len(events) > 500:
+        if not isinstance(events, list) or len(events) > self.event_limit:
             raise InputError("INVALID_EVENT_COUNT")
         last = -1
         for ev in events:
@@ -625,6 +634,23 @@ class QualitativeAKIS:
         self.events = [dict(ev) for ev in events]
         self.allocations: list[tuple[str, str, int, int]] = []  # resource, work, start, end
         self.trace: list[dict[str, Any]] = []
+        # Derived indexes point to original rows, not another journal.
+        self._applied_request_rows: dict[str, list] = {}
+        self._applied_technology_proposal_rows: dict[str, list] = {}
+
+    def original_request_rows(self, work: str):
+        if self.network_scale:
+            return self._applied_request_rows.get(work, ())
+        return [row for row in self.trace if row.get("action") == "request"
+                and row.get("outcome") == "APPLIED" and row.get("work") == work]
+
+    def original_technology_proposal_rows(self, work: str):
+        if self.network_scale:
+            return self._applied_technology_proposal_rows.get(work, ())
+        return [row for row in self.trace
+                if row.get("action") == "technology_route_propose"
+                and row.get("outcome") == "APPLIED"
+                and row.get("technology_route_work") == work]
 
     def _parse_work(self, obj: Any) -> Work:
         _keys_exact(obj, {"id", "customer", "resource", "source_revision", "slot_start", "slot_end"},
@@ -1504,14 +1530,14 @@ class QualitativeAKIS:
                     and work_ref in self.works):
                 # Only source-scoped second orders opt into this new causal
                 # witness. Existing original trace/export formats are intact.
-                origin = next((r["outside_work_origin"] for r in self.trace
-                               if r.get("action") == "request" and r.get("outcome") == "APPLIED"
-                               and r.get("work") == work_ref and "outside_work_origin" in r), None)
-                demand = next((r for r in self.trace if origin
-                               and r.get("action") == "outside_demand_signal"
+                origin = next((r["outside_work_origin"] for r in self.original_request_rows(work_ref)
+                               if "outside_work_origin" in r), None)
+                demand = (next((r for r in self.trace
+                               if r.get("action") == "outside_demand_signal"
                                and r.get("outcome") == "APPLIED"
                                and r.get("outside_demand_id") == origin["outside_demand_id"]
                                and "outside_candidate_operation" in r), None)
+                          if origin is not None else None)
                 if demand is not None:
                     from .capacity import Reservation
                     w = self.works[work_ref]
@@ -1568,6 +1594,13 @@ class QualitativeAKIS:
                 report["original_trace_buyer_model_signal_only"] = True
             report["outside_work_or_money_not_created"] = True
         self.trace.append(report)
+        if self.network_scale and report["outcome"] == "APPLIED":
+            if action == "request":
+                self._applied_request_rows.setdefault(work_ref, []).append(report)
+            elif action == "technology_route_propose":
+                key = report.get("technology_route_work")
+                if key is not None:
+                    self._applied_technology_proposal_rows.setdefault(key, []).append(report)
         return report
 
     def _update_original_extended_role(self, ev: dict[str, Any],
@@ -1797,7 +1830,7 @@ class QualitativeAKIS:
         self._guard_original_form_role_work(work, at)
         if work.key in self.works:
             raise BlockedDecision("WORK_ALREADY_EXISTS")
-        if len(self.works) >= 256:
+        if len(self.works) >= self.work_limit:
             raise BlockedDecision("WORK_LIMIT_REACHED")
         if ev["actor"] != work.customer:
             raise BlockedDecision("ORIGINAL_CUSTOMER_REQUEST_REQUIRED")
@@ -1953,10 +1986,13 @@ class QualitativeAKIS:
                 "original_commitments_reservations_and_prior_evidence_preserved": True,
                 "resource_status_is_not_a_physical_audit": True}
 
-    def _outstanding_work_ids(self) -> set[str]:
-        return {key for key, work in self.works.items()
-                if work.obligation == "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
-                and work.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"}
+    def _outstanding_work_ids(self, *, resources: set[str] | None = None) -> set[str]:
+        # Only an existing original reservation can affect capacity risk.
+        keys = (self.works if resources is None
+                else self.capacity_ledger.reservation_work_ids(resources))
+        return {key for key in keys
+                if self.works[key].obligation == "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
+                and self.works[key].result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"}
 
     def _set_resource_calendar(self, ev: dict[str, Any]) -> list[dict[str, Any]]:
         key = ev.get("resource")
@@ -2115,11 +2151,8 @@ class QualitativeAKIS:
             # Preserve the original request's lineage and qualify it again
             # before the existing reservation or commitment can take effect.
             origin = next((
-                row["outside_work_origin"] for row in self.trace
-                if row.get("action") == "request"
-                and row.get("outcome") == "APPLIED"
-                and row.get("work") == w.key
-                and "outside_work_origin" in row
+                row["outside_work_origin"] for row in self.original_request_rows(w.key)
+                if "outside_work_origin" in row
             ), None)
             if origin is not None:
                 try:
@@ -2169,7 +2202,8 @@ class QualitativeAKIS:
             for need in w.resource_requirements:
                 self._require_resource_available(need.resource)
             if (at_risk_resource := self.capacity_ledger.is_work_at_risk(
-                    w.key, outstanding=self._outstanding_work_ids())) is not None:
+                    w.key, outstanding=self._outstanding_work_ids(
+                        resources={n.resource for n in w.resource_requirements}))) is not None:
                 raise BlockedDecision("RESOURCE_CALENDAR_CHANGED_AFTER_COMMIT", at_risk_resource)
             w.execution = "IN_PROGRESS"
         elif a in {"handoff_dispatch", "handoff_receive", "handoff_quality"}:
@@ -2202,7 +2236,8 @@ class QualitativeAKIS:
                     self._require_resource_available(need.resource)
                 if (risky := self.capacity_ledger.planned_window_risk(
                         op.resource_requirements, op.slot_start, op.slot_end,
-                        outstanding=self._outstanding_work_ids())) is not None:
+                        outstanding=self._outstanding_work_ids(
+                            resources={n.resource for n in op.resource_requirements}))) is not None:
                     raise BlockedDecision("RESOURCE_CALENDAR_CHANGED_AFTER_COMMIT", risky)
                 w.execution = "IN_PROGRESS"
                 w.operation_states[op.key] = "IN_PROGRESS"
