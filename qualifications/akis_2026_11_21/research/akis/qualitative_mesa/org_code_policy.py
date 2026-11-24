@@ -6,7 +6,7 @@ The selected optional policy can only REFUSE an original action, never grant one
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 import hashlib
 import json
@@ -80,6 +80,7 @@ class ModelOrgCodePolicy:
     responsible_by_action: Mapping[str, tuple[str, ...]]
     revision: str
     original_trace_required: bool
+    responsible_by_work: Mapping[tuple[str, str, str], tuple[str, ...]] = field(default_factory=dict)
 
     def active(self, original_state: Any, at: int) -> bool:
         return all(row["revision"] == original_state.institution.revision and
@@ -125,6 +126,15 @@ class ModelOrgCodePolicy:
             # Existing ContextBasis still performs the source's own checks.
             basis.assert_allowed(key, action, actor, at)
         responsible = self.responsible_by_action.get(action, ())
+        revision = (original_work.source_revision if original_work is not None else
+                    spec.get("source_revision") if action == "request" and isinstance(spec, dict) else None)
+        scoped = [(rev, owners) for (work, rev, act), owners in self.responsible_by_work.items()
+                  if work == key and act == action]
+        if scoped:
+            exact = [owners for rev, owners in scoped if rev == revision]
+            if len(exact) != 1:
+                raise OrgCodeBlocked("OC_WORK_RESPONSIBILITY_SOURCE_REVISION_MISMATCH", reviewer)
+            responsible = exact[0]
         if responsible:
             if original_work is not None:
                 principals = {original_work.customer}
@@ -239,7 +249,8 @@ def parse_org_code_policy(claims: Any, subjects: Mapping[str, Any],
                 row["subject"] not in subjects):
             raise OrgCodeInputError("OC_ESCALATION_INVALID")
         reviewer_by_action[row["action"]] = row["subject"]
-    _keys(c["Отв"], {"responsibilities"}, "Отв")
+    if set(c["Отв"]) not in ({"responsibilities"}, {"responsibilities", "work_responsibilities"}):
+        raise OrgCodeInputError("OC_CONTROL_INVALID_Отв")
     owners = c["Отв"]["responsibilities"]
     if not isinstance(owners, list):
         raise OrgCodeInputError("OC_RESPONSIBILITY_INVALID")
@@ -252,6 +263,22 @@ def parse_org_code_policy(claims: Any, subjects: Mapping[str, Any],
         responsibility_by_action[row["action"]] = _identifiers(row["original_principals"], "RESPONSIBILITY")
         if not set(responsibility_by_action[row["action"]]) <= set(subjects):
             raise OrgCodeInputError("OC_RESPONSIBILITY_OUTSIDE_SUBJECTS")
+    scoped = {}
+    work_rows = c["Отв"].get("work_responsibilities", [])
+    if not isinstance(work_rows, list) or len(work_rows) > MAX_ROWS:
+        raise OrgCodeInputError("OC_WORK_RESPONSIBILITY_INVALID")
+    for row in work_rows:
+        _keys(row, {"work", "work_revision", "action", "original_principals"}, "WORK_RESPONSIBILITY")
+        work, revision, action = row["work"], row["work_revision"], row["action"]
+        if (not isinstance(work, str) or not 0 < len(work) <= 128
+                or not isinstance(revision, str) or not 0 < len(revision) <= 128
+                or not isinstance(action, str) or action not in NEW_WORK_ACTIONS
+                or (work, revision, action) in scoped):
+            raise OrgCodeInputError("OC_WORK_RESPONSIBILITY_INVALID")
+        principals = _identifiers(row["original_principals"], "WORK_RESPONSIBILITY")
+        if not set(principals) <= controlled & identified & set(subjects):
+            raise OrgCodeInputError("OC_WORK_RESPONSIBILITY_OUTSIDE_CONTROLLED_SUBJECTS")
+        scoped[(work, revision, action)] = principals
     _keys(c["Журн"], {"require_original_trace"}, "Журн")
     if c["Журн"]["require_original_trace"] is not True:
         raise OrgCodeInputError("OC_ORIGINAL_JOURNAL_REQUIRED")
@@ -261,7 +288,7 @@ def parse_org_code_policy(claims: Any, subjects: Mapping[str, Any],
     return ModelOrgCodePolicy(rows, controlled, identified, roles, rights, denied,
                               req_scoped, allowed_events, require_admitted,
                               autonomy, reviewer_by_action, responsibility_by_action,
-                              institution.revision, True)
+                              institution.revision, True, scoped)
 
 # R1-T: qualification of a prospective MODEL-ONLY edition of the same
 # original thirteen-field code. No second policy engine, IAM, signature or
@@ -630,9 +657,9 @@ def qualify_model_code_apply(state: Any, event: Mapping[str, Any],
                        if owner != target)
                 or candidate.responsible_by_action.get("commit", ())
                     != future_responsible
-                or any(candidate.responsible_by_action.get(action) != original
-                       for action, original in old.responsible_by_action.items()
-                       if action != "commit")
+                or {k: v for k, v in candidate.responsible_by_action.items() if k != "commit"}
+                    != {k: v for k, v in old.responsible_by_action.items() if k != "commit"}
+                or candidate.responsible_by_work != old.responsible_by_work
                 or any(candidate.records[field]["control"]
                        != old.records[field]["control"]
                        for field in FIELDS if field not in {"Рол", "Отв"})):

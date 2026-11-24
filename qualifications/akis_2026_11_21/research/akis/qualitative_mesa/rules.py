@@ -440,7 +440,7 @@ class QualitativeAKIS:
              "transfer_decision", "transfer_decision_source_ref",
              "transfer_parent_source_ref",
              "outside_demand_id", "outside_supplier", "outside_relation",
-             "outside_relation_revision", "outside_candidate_work",
+             "outside_relation_revision", "outside_candidate_work", "outside_candidate_operation",
              "outside_work_revision", "outside_resource", "outside_units",
              "outside_slot_start", "outside_slot_end", "outside_deliverable",
              "outside_quality_basis", "outside_currency",

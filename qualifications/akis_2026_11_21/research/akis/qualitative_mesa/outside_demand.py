@@ -54,7 +54,8 @@ def qualify_original_outside_demand_signal(
     state: Any, event: Mapping[str, Any], at: int,
 ) -> dict[str, Any]:
     """Check the buyer's own original source before applying ONE trace event."""
-    if set(event) != _SOURCE_FIELDS or event.get("action") != "outside_demand_signal":
+    if (set(event) not in (_SOURCE_FIELDS, _SOURCE_FIELDS | {"outside_candidate_operation"})
+            or event.get("action") != "outside_demand_signal"):
         raise OutsideDemandBlocked("OUTSIDE_DEMAND_ORIGINAL_EVENT_FIELDS_REQUIRED")
     buyer = event["actor"]
     seller = event["outside_supplier"]
@@ -67,6 +68,8 @@ def qualify_original_outside_demand_signal(
         "outside_demand_source_ref", "outside_demand_source_revision",
     )):
         raise OutsideDemandBlocked("OUTSIDE_DEMAND_IDENTIFIERS_REQUIRED")
+    if "outside_candidate_operation" in event and not _identifier(event["outside_candidate_operation"]):
+        raise OutsideDemandBlocked("OUTSIDE_DEMAND_ORIGINAL_OPERATION_IDENTIFIER_REQUIRED")
     participants = state.subjects
     if (
         buyer == seller or buyer == state.institution.operator
@@ -124,6 +127,8 @@ def qualify_original_outside_demand_signal(
         "outside_relation": link.key,
         "outside_relation_revision": link.source_revision,
         "outside_candidate_work": event["outside_candidate_work"],
+        **({"outside_candidate_operation": event["outside_candidate_operation"]}
+           if "outside_candidate_operation" in event else {}),
         "outside_work_revision": event["outside_work_revision"],
         "outside_resource": event["outside_resource"],
         "outside_units": units,
@@ -858,9 +863,11 @@ def qualify_original_outside_work_origin(
         candidate is None or candidate.key == work.key or relation is None
         or candidate.key not in relation.works
         or candidate.source_revision != demand["outside_work_revision"]
-        or (candidate.slot_start, candidate.slot_end)
-            != (work.slot_start, work.slot_end)
     ):
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_COMPARISON_BASIS_REQUIRED")
+    if "outside_candidate_operation" in demand:
+        _qualify_original_operation_resource_comparison(state, candidate, demand, at)
+    elif (candidate.slot_start, candidate.slot_end) != (work.slot_start, work.slot_end):
         raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_COMPARISON_BASIS_REQUIRED")
     needs = tuple((need.resource, need.units) for need in work.resource_requirements)
     if needs != ((work.resource, offer["outside_offer_units"]),):
@@ -904,3 +911,68 @@ def qualify_original_outside_work_origin(
     # IDs identify existing original events; no financial values or new
     # executable authority are added to the request.
     return {key: binding[key] for key in sorted(_OUTSIDE_WORK_ORIGIN_FIELDS)}
+
+
+def _qualify_original_operation_resource_comparison(state, candidate, demand, at):
+    """Independent demand competes for a source-declared stage resource.
+
+    The second demand is a different product, potentially with a different
+    window. The existing ledger, not this provenance check, determines
+    whether both can be committed. The candidate's actually APPLIED original
+    market route must identify the selected or compatible stage resource;
+    a buyer cannot claim an arbitrary resource was released.
+    """
+    from .technology import technology_route_fingerprint
+
+    operation = next((op for op in candidate.operations
+                      if op.key == demand["outside_candidate_operation"]), None)
+    if operation is None:
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_OPERATION_REQUIRED")
+    commits = [r for r in state.trace if r["action"] == "commit" and r["outcome"] == "APPLIED"
+               and r.get("work") == candidate.key and r["at"] < at
+               and r.get("technology_route_market_scope_fingerprint")]
+    if len(commits) != 1:
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_COMMITTED_STAGE_MARKET_REQUIRED")
+    commit = commits[0]
+    events = [e for e in state.events if e["action"] == "commit"
+              and e.get("work") == candidate.key and e["at"] == commit["at"]]
+    market = events[0].get("technology_route_market_scope") if len(events) == 1 else None
+    if (not isinstance(market, dict)
+            or technology_route_fingerprint(market) != commit["technology_route_market_scope_fingerprint"]
+            or market.get("work") != candidate.key or market.get("work_revision") != candidate.source_revision):
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_STAGE_MARKET_FINGERPRINT_MISMATCH")
+    requirements = [r for r in market["requirements"] if r["operation"] == operation.key]
+    resource, seller = demand["outside_resource"], demand["outside_supplier"]
+    if (len(requirements) != 1 or resource not in requirements[0]["compatible_resources"]
+            or state.resources.get(resource) != seller):
+        raise OutsideDemandBlocked("OUTSIDE_WORK_RESOURCE_NOT_IN_ORIGINAL_STAGE_CATALOGUE")
+    requirement = requirements[0]
+    offers = [o for o in market["offers"] if o["resource"] == resource and o["owner"] == seller
+              and o["capability"] == requirement["capability"]
+              and o["capacity_unit"] == requirement["capacity_unit"]
+              and o["available_at"] <= commit["at"] < o["expires_at"]
+              and o["available_at"] <= at < o["expires_at"]]
+    if not offers:
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_STAGE_OFFER_NOT_CURRENT")
+    basis = state.context_basis
+    buyer = market["buyer_source"]
+    try:
+        basis.assert_original_form_role_source(
+            candidate.customer, buyer["reference"], buyer["revision"], core="corporate",
+            purpose="AKIS_TECHNOLOGY_MARKET_EVIDENCE", operation="READ",
+            recipients={candidate.customer}, at=at)
+        qualified = False
+        for offer in offers:
+            try:
+                basis.assert_original_form_role_source(
+                    seller, offer["source_ref"], market["offer_revisions"][offer["id"]],
+                    core="corporate", purpose="AKIS_TECHNOLOGY_MARKET_EVIDENCE",
+                    operation="READ", recipients={candidate.customer}, at=at)
+                qualified = True
+                break
+            except ContextBlocked:
+                continue
+        if not qualified:
+            raise ContextBlocked("OUTSIDE_STAGE_OWNER_OFFER_NOT_READABLE")
+    except ContextBlocked as exc:
+        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_STAGE_MARKET_SOURCE_NOT_CURRENT") from exc
