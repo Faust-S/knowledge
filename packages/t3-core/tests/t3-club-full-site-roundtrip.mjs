@@ -385,11 +385,46 @@ try{
 
  // Actual dated commitments in the original weekly Result. Extend the
  // already verified offline recipient profile, with no direct Store writes.
+ phase="OFFLINE_GOAL_CREATE";
+ const goalTitle="Купить инструменты для ремонта";
+ const goalStep="Проверить документы сегодня";
+ const localGoal=()=>page.evaluate(()=>{
+  const rows=JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")||"null")?.objects?.filter(o=>o.objectType==="project-draft"&&o.objectId.startsWith("goal-"))||[];
+  return rows.length===1?rows[0]:null;
+ });
+ await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"#club-goal-map");
+ const goalForm=page.locator("[data-club-goal-form]");
+ await goalForm.waitFor({state:"visible"});
+ for(const [key,value] of Object.entries({title:goalTitle,outcome:"Есть набор для начала практики",nextStep:goalStep,successCriteria:"Проверена комплектность и пригодность набора"}))
+  await goalForm.locator('[name="'+key+'"]').fill(value);
+ await goalForm.locator("[data-club-goal-save]").click();
+ await poll(async()=> (await localGoal())?.data?.title===goalTitle,"GOAL_CREATED_IN_ORIGINAL_EDITOR");
+ const goalId=(await localGoal()).objectId;
+ await page.locator("[data-club-goal-list]").getByRole("link",{name:"Сохранить в IWXA",exact:true}).click();
+ const goalImport=page.getByTestId("club-t0-import-card");
+ await goalImport.getByTestId("club-t0-import-preview").waitFor({state:"visible"});
+ const goalScope=goalImport.getByTestId("club-t0-import-workspace-choice").filter({visible:true});
+ await poll(async()=>await goalScope.count()===1,"GOAL_SCOPE_AVAILABLE");
+ check(await goalScope.getAttribute("data-workspace-id")===base.scope,"GOAL_ORIGINAL_SCOPE");
+ if(await goalScope.getAttribute("aria-pressed")!=="true")await goalScope.click();
+ await poll(async()=>await goalScope.getAttribute("aria-pressed")==="true","GOAL_SCOPE_FOCUSED");
+ await goalImport.getByLabel("Подтверждаю сохранение выбранных результатов на этом устройстве.",{exact:true}).check();
+ const goalSave=goalImport.getByRole("button",{name:"Сохранить выбранное",exact:true});
+ await poll(async()=>await goalSave.isEnabled(),"GOAL_KERNEL_READY");
+ await goalSave.click();
+ await poll(async()=>{
+  const g=await localGoal();return g?.kernelSource?.workspaceId===base.scope&&g.kernelSource.revision>0&&g.kernelSource.syncedUpdatedAt===g.updatedAt;
+ },"GOAL_KERNEL_RECEIPT");
+ log("OFFLINE_GOAL_ORIGINAL_KERNEL_RECEIPT");
  phase="OFFLINE_AGENDA_CREATE";
- await visit(page,"/tools/action-route/?workspace_id="+encodeURIComponent(base.scope)+"#club-week-plan");
+ await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"&club_goal="+encodeURIComponent(goalId)+"#club-goal-map");
+ await page.locator("[data-club-goal-list]").getByRole("link",{name:"Запланировать шаг",exact:true}).click();
  const weekForm=page.locator("form[data-club-week-form]");
  const weekSummary=page.locator("[data-club-week-summary]");
  await weekForm.waitFor({state:"visible"});
+ await poll(async()=>await weekForm.locator('[name="title"]').inputValue()===goalStep,"GOAL_STEP_PREFILLED");
+ check(await weekForm.locator('[name="projectId"]').inputValue()===goalId,"GOAL_EXACT_WEEK_LINK");
+ check(!(await page.evaluate(()=>JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")||"null")?.objects?.some(o=>o.objectId==="club-week-plan"))),"GOAL_PREFILL_NO_WRITE");
  const dates=await page.evaluate(()=>{
   const now=new Date(),local=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
   const past=new Date(now),future=new Date(now);past.setDate(past.getDate()-10);future.setDate(future.getDate()+2);
@@ -405,6 +440,7 @@ try{
   await weekForm.locator('[name="date"]').fill(date);
   await weekForm.locator('[name="start"]').fill("10:00");
   await weekForm.locator('[name="durationMinutes"]').fill(i===0?"90":"30");
+  await weekForm.locator('[name="projectId"]').selectOption(i===0?goalId:"");
   await weekForm.locator("[data-club-week-save]").click();
   await poll(async()=> (await localWeek())?.data?.personalWeekPlan?.slots?.length===i+1,"AGENDA_CREATE_SLOT");
  }
@@ -415,6 +451,7 @@ try{
  await poll(async()=> (await localWeek())?.data?.personalWeekPlan?.dailyCapacityMinutes?.[dates.weekday]===60,"AGENDA_CAPACITY");
  const weekBefore=await localWeek();
  check(weekBefore.data.personalWeekPlan.slots.length===3,"AGENDA_THREE_SLOTS");
+ check(weekBefore.data.personalWeekPlan.slots[0].projectId===goalId&&weekBefore.data.personalWeekPlan.slots.slice(1).every(s=>!s.projectId),"AGENDA_EXPLICIT_GOAL_LINK_ONLY");
  log("OFFLINE_AGENDA_ORIGINAL_FORM_CREATED");
  phase="OFFLINE_AGENDA_HOME";
  await visit(page,"/");
@@ -540,8 +577,32 @@ try{
    w.kernelSource.syncedUpdatedAt===w.updatedAt&&w.data.personalWeekPlan.slots.length===6;
  },"AGENDA_SERIES_UPDATED_KERNEL_RECEIPT");
  log("OFFLINE_AGENDA_SERIES_PERSISTED");
+ phase="OFFLINE_GOAL_REOPEN";
+ await visit(page,"/workspace/");await openExisting(page);
+ const goalsPanel=page.getByTestId("club-native-goals");
+ await goalsPanel.getByRole("button",{name:"Открыть цель: "+goalTitle,exact:true}).click();
+ const restoreGoal=page.getByTestId("club-t2-restore-card");
+ await restoreGoal.waitFor({state:"visible"});
+ await poll(async()=>await restoreGoal.locator('input[type="checkbox"]:checked').count()===1,"GOAL_RESTORE_EXACT");
+ const openGoalButton=restoreGoal.getByRole("button",{name:"Открыть выбранные записи",exact:true});
+ await poll(async()=>await openGoalButton.isEnabled(),"GOAL_RESTORE_READY");
+ let goalConsent=false;
+ page.once("dialog",async d=>{
+  goalConsent=d.type()==="confirm"&&d.message().includes("Загрузить 1 новых");
+  if(goalConsent)await d.accept();else await d.dismiss();
+ });
+ await openGoalButton.click();
+ await poll(async()=>goalConsent,"GOAL_RESTORE_CONSENT");
+ const openGoal=page.getByTestId("club-t2-restore-completed").getByRole("link",{name:"Открыть выбранную цель",exact:true});
+ await openGoal.waitFor({state:"visible"});
+ const goalUrl=new URL(await openGoal.getAttribute("href"),page.url());
+ check(goalUrl.searchParams.get("club_goal")===goalId&&goalUrl.searchParams.get("workspace_id")===base.scope,"GOAL_EXACT_DESTINATION");
+ await openGoal.click();
+ await poll(async()=>await page.locator("[data-club-goal-form] [name=title]").inputValue()===goalTitle,"GOAL_EXACT_EDITOR");
+ check((await localGoal()).objectId===goalId,"GOAL_RESTORE_SAME_RESULT");
+ log("OFFLINE_GOAL_EXACT_COLD_REOPEN");
  phase="OFFLINE_CASH_SETUP";
- await visit(page,"/tools/personal-economy/?workspace_id="+encodeURIComponent(base.scope)+"#club-money-calendar");
+ await page.locator("[data-club-goal-list]").getByRole("link",{name:"Записать деньги по цели",exact:true}).click();
  const calendarGroup=page.locator("#club-money-calendar");
  if(!await calendarGroup.evaluate(el=>el.open))await calendarGroup.locator(":scope > summary").click();
  const cashSetup=page.locator("[data-cash-calendar-setup]");
@@ -561,14 +622,14 @@ try{
  await poll(async()=> (await localCash())?.data?.cashCalendar?.openingAvailableRUB===12000,"CASH_CALENDAR_SETUP");
  phase="OFFLINE_CASH_ENTRIES";
  const entries=[
-  {date:cashDates.salary,amountRUB:"25000",status:"actual",category:"payroll",note:"Полученная зарплата"},
-  {date:cashDates.expense,amountRUB:"-17000",status:"actual",category:"rent",note:"Оплаченная аренда"},
-  {date:cashDates.future,amountRUB:"-3000",status:"planned",category:"utilities",note:"Будущий платёж"}
+  {date:cashDates.salary,amountRUB:"25000",status:"actual",category:"payroll",note:"Полученная зарплата",goalId:""},
+  {date:cashDates.expense,amountRUB:"-17000",status:"actual",category:"other",note:"Оплачен набор инструментов",goalId},
+  {date:cashDates.future,amountRUB:"-3000",status:"planned",category:"utilities",note:"Будущий платёж",goalId:""}
  ];
  for(const [i,entry] of entries.entries()){
   for(const [field,value] of Object.entries(entry)){
    const control=cashEntry.locator('[name="'+field+'"]');
-   if(field==="status"||field==="category")await control.selectOption(value);else await control.fill(value);
+   if(field==="status"||field==="category"||field==="goalId")await control.selectOption(value);else await control.fill(value);
   }
   await cashEntry.locator("[data-cash-calendar-save]").click();
   await poll(async()=> (await localCash())?.data?.cashCalendar?.entries?.length===i+1,"CASH_ENTRY_WRITTEN");
@@ -595,6 +656,9 @@ try{
  const rolled=await localCash(),cal=rolled.data.cashCalendar;
  check(cal.startDate===cashDates.today&&cal.openingAvailableRUB===20000&&cal.entries.length===1&&cal.entries[0].status==="planned","CASH_EXACT_CARRY");
  check(cal.closedPeriods[0].entries.length===2&&cal.closedPeriods[0].closingAvailableRUB===20000,"CASH_HISTORY_RETAINED");
+ check(cal.closedPeriods[0].entries.find(e=>e.note==="Оплачен набор инструментов")?.goalId===goalId&&
+  !cal.closedPeriods[0].entries.find(e=>e.note==="Полученная зарплата")?.goalId,"GOAL_CASH_EXPLICIT_LINK_CLOSED");
+ log("OFFLINE_GOAL_CASH_HISTORY_LINK");
  await cashHistory.locator("[data-cash-calendar-history-detail]").getByText("Полученная зарплата",{exact:true}).waitFor({state:"visible"});
  log("OFFLINE_CASH_RECONCILED_PERIOD_HISTORY");
  phase="OFFLINE_CASH_KERNEL_SAVE";
@@ -734,6 +798,15 @@ try{
  await poll(async()=>(await factCold.textContent()).includes("план 90 мин., факт 110 мин."),"FACT_NATIVE_MATCHED_COMPARISON");
  check(!(await localWeek()),"FACT_COLD_NO_TAB_RESULT");
  log("OFFLINE_FACT_COLD_NATIVE_READBACK");
+ phase="OFFLINE_GOAL_COMBINED_READBACK";
+ const goalCold=page.getByTestId("club-native-goals");
+ await goalCold.waitFor({state:"visible"});
+ check((await goalCold.textContent()).includes(goalTitle),"GOAL_SAVED_TITLE");
+ await poll(async()=>(await goalCold.textContent()).includes("Записано времени по делам: 110 мин."),"GOAL_SAVED_ACTUAL_MINUTES");
+ check(/Расходы: 17[\s\u00a0]000/.test(await goalCold.textContent()),"GOAL_SAVED_CLOSED_EXPENSE");
+ check(/Связанные поступления: 0/.test(await goalCold.textContent())&&!/25[\s\u00a0]000/.test(await goalCold.textContent()),"GOAL_EXCLUDES_UNLINKED_SALARY");
+ check(!(await localGoal()),"GOAL_COLD_NO_TAB_RESULT");
+ log("OFFLINE_GOAL_LINKED_ACTIVITY_AND_FINANCE_READBACK");
  phase="OFFLINE_FULL_PERSONAL_EXPORT";
  await visit(page,"/workspace/exchange/#/home");
  await page.getByTestId("packages-tab-export").click();
@@ -744,7 +817,7 @@ try{
  await page.getByTestId("export-preview").click();
  const fullPreview=page.getByTestId("export-preview-result");
  await fullPreview.waitFor({state:"visible"});
- check(Number(await fullPreview.getByText("Объектов",{exact:true}).locator("xpath=following-sibling::dd[1]").textContent())>=3,"PERSONAL_EXPORT_THREE_RESULTS");
+ check(Number(await fullPreview.getByText("Объектов",{exact:true}).locator("xpath=following-sibling::dd[1]").textContent())>=4,"PERSONAL_EXPORT_FOUR_RESULTS");
  await page.getByTestId("export-ack-sensitive").check();
  await page.getByTestId("export-package").click();
  const fullDownloading=page.waitForEvent("download",{timeout:60000});
@@ -781,7 +854,7 @@ try{
  await fullCommit.click();
  const fullReceipt=page.getByTestId("import-receipt");
  await fullReceipt.waitFor({state:"visible"});
- check(Number(await fullReceipt.getByText("Объектов создано",{exact:true}).locator("xpath=following-sibling::dd[1]").textContent())>=3,"PERSONAL_IMPORT_THREE_RESULTS");
+ check(Number(await fullReceipt.getByText("Объектов создано",{exact:true}).locator("xpath=following-sibling::dd[1]").textContent())>=4,"PERSONAL_IMPORT_FOUR_RESULTS");
  log("INDEPENDENT_PERSONAL_PROFILE_WEEK_FINANCE_IWXA_IMPORT");
  phase="INDEPENDENT_FULL_PERSONAL_READBACK";
  await close();page=await launch("personal-recipient");
@@ -791,7 +864,12 @@ try{
  await poll(async()=>(await transferred.textContent()).includes("план 90 мин., факт 110 мин."),"PERSONAL_TRANSFER_MATCHED_FACT");
  check(/12[\s\u00a0]000/.test(await transferred.textContent()),"PERSONAL_TRANSFER_CASH_BALANCE");
  check((await transferred.textContent()).includes(titles[1]),"PERSONAL_TRANSFER_OVERDUE");
- check(!(await localWeek())&&!(await localCash()),"PERSONAL_TRANSFER_NO_TAB_RESULTS");
+ const transferredGoal=page.getByTestId("club-native-goals");
+ await poll(async()=>(await transferredGoal.textContent()).includes("Записано времени по делам: 110 мин."),"PERSONAL_TRANSFER_GOAL_TIME");
+ check(/Расходы: 17[\s\u00a0]000/.test(await transferredGoal.textContent()),"PERSONAL_TRANSFER_GOAL_CLOSED_EXPENSE");
+ check((await transferredGoal.textContent()).includes(goalTitle),"PERSONAL_TRANSFER_GOAL_TITLE");
+ check(!(await localWeek())&&!(await localCash())&&!(await localGoal()),"PERSONAL_TRANSFER_NO_TAB_RESULTS");
+ log("INDEPENDENT_GOAL_LINKS_IWXA_READBACK");
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
 }catch(e){
