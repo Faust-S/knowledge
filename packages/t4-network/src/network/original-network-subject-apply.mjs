@@ -605,7 +605,7 @@ export async function inspectT4OriginalNetworkRecipientResult({
       historicalReceiptFabricated:false});
   }
   const ev=matches[0],object=row?.object;
-  if((object?.deleted===true&&!allowHistoricalEventProof)||
+  if((object?.deleted===true&&(!allowHistoricalEventProof||object.revision<=delta.sourceRevision))||
     ev.revision!==delta.sourceRevision||
     ev.payload?.originalEventDigest!==delta.sourceEventDigest||
     ev.payload?.originalWriteOwnerRef!==delta.originalWriteOwnerRef||

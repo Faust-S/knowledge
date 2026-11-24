@@ -1106,3 +1106,72 @@ test('Object delete cannot mutate if original workspace-wide boundary is not hel
   assert.equal(x.counts().subjectWrites,0);
   assert.equal((await x.d.phasePort().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
 });
+
+test('historical Object put proves exact earlier Event after original isolated tombstone, not current application',async()=>{
+  const prior=fixture(),received=await openT4OriginalNetworkObjectChange(prior.openArgs);
+  await applyT4OriginalNetworkObjectChange(prior.applyArgs(received));
+  const x=await ackFixture({deleteKind:'OBJECT_DELETE'});
+  await recipientBinding(x).runNative(x.args());
+  const tombstone=await x.d.f.originalKernel.getObject(prior.delta.workspaceId,prior.delta.objectId);
+  const del=structuredClone(x.d.f.events[0]);
+  prior.objects.set(prior.delta.workspaceId+':'+prior.delta.objectId,tombstone);
+  const args=prior.applyArgs(received),inspect=()=>inspectT4OriginalNetworkRecipientResult({
+    ...args,allowHistoricalEventProof:true});
+  await assert.rejects(inspect(),error('DELETE_NATIVE_HISTORICAL_OBJECT_TOMBSTONE_UNPROVEN'));
+  prior.events.push(del);
+  const proved=await inspect();
+  assert.equal(proved.state,'APPLIED_HISTORICAL_EVENT_VERIFIED');
+  assert.equal(proved.originalRecipientRevision,1);
+  assert.equal(proved.currentRecipientRevision,2);
+  assert.equal(proved.currentSubjectDeleted,true);
+  assert.equal(proved.originalDeletionRecipientEventId,del.event_id);
+  assert.equal(proved.historicalSubjectBytesReconstructed,false);
+  assert.throws(()=>createT4OriginalNetworkAppliedAckBody({received,verifiedResult:proved,
+    ackRef:'ack:historic:forbidden'}),error('SUBJECT_APPLIED_ACK_REQUIRES_ORIGINAL_RESULT'));
+  await assert.rejects(inspectT4OriginalNetworkRecipientResult(args),error('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH'));
+  tombstone.object.revision=1;
+  await assert.rejects(inspect(),error('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH'));
+  tombstone.object.revision=2;
+  del.payload.originalDeletionDelta.preImage.revision=7;
+  await assert.rejects(inspect(),error('DELETE_NATIVE_HISTORICAL_EVENT_INVALID'));
+  assert.equal(prior.writes,1);
+});
+for(const kind of ['ASSET_DELETE','RELATION_DELETE']){
+  test(kind+' history survives exact later Object tombstone, but hidden child absence is not current evidence',async()=>{
+    const child=await ackFixture({deleteKind:kind}),parent=await ackFixture({deleteKind:'OBJECT_DELETE'});
+    await recipientBinding(child).runNative(child.args());
+    await recipientBinding(parent).runNative(parent.args());
+    const parentId=parent.d.f.delta.preImage.objectId,
+      tombstone=await parent.d.f.originalKernel.getObject(parent.d.f.delta.workspaceId,parentId),
+      parentEvent=structuredClone(parent.d.f.events[0]);
+    const childEvent=child.d.f.events[0],
+      puts=(kind==='ASSET_DELETE'?[1,2]:[null]).map(r=>historicalPutFixture(child.d.received,r));
+    child.d.f.events.unshift(...puts.map(p=>p.event));
+    const get=child.d.f.originalKernel.getObject;
+    child.d.f.originalKernel.getObject=async(w,id)=>id===parentId?structuredClone(tombstone):get(w,id);
+    const inspect=received=>inspectT4OriginalNetworkRecipientResult({
+      ...child.d.f.applyArgs(received),allowHistoricalEventProof:true});
+    await assert.rejects(inspect(child.d.received),error('DELETE_NATIVE_HISTORICAL_OBJECT_TOMBSTONE_UNPROVEN'));
+    child.d.f.events.push(parentEvent);
+    for(const received of [child.d.received,...puts.map(p=>p.received)]){
+      const historic=await inspect(received);
+      assert.equal(historic.state,'APPLIED_HISTORICAL_EVENT_VERIFIED');
+      assert.equal(historic.originalEndpointTombstoneContinuationVerified,true);
+      assert.equal(historic.currentSubjectAbsenceRevalidated,false);
+      assert.deepEqual(historic.originalEndpointTombstoneEventIds,[parentEvent.event_id]);
+      assert.equal(historic.historicalSubjectBytesReconstructed,false);
+      assert.throws(()=>createT4OriginalNetworkAppliedAckBody({received,verifiedResult:historic,
+        ackRef:'ack:historic:forbidden'}),error('SUBJECT_APPLIED_ACK_REQUIRES_ORIGINAL_RESULT'));
+    }
+    const historical=await inspect(child.d.received);
+    assert.equal(historical.originalRecipientEventId,childEvent.event_id);
+    assert.equal(historical.actualOriginalT3DeletionReadback,false);
+    await assert.rejects(inspectT4OriginalNetworkRecipientResult(child.d.f.applyArgs(child.d.received)),
+      error('DELETE_NATIVE_ORIGINAL_ENDPOINT_MISSING'));
+    child.d.f.events.pop();
+    child.d.f.events.unshift(parentEvent);
+    await assert.rejects(inspect(child.d.received),error('DELETE_NATIVE_HISTORICAL_OBJECT_TOMBSTONE_UNPROVEN'));
+    assert.equal(child.counts().subjectWrites,1);
+    assert.equal(parent.counts().subjectWrites,1);
+  });
+}

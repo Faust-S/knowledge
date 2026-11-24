@@ -656,6 +656,8 @@ function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode
       if(row?.object?.deleted===true){
         if(!objectTombstoneMatches(row,d.workspaceId,pre))
           fail('DELETE_ORIGINAL_OBJECT_TOMBSTONE_MISMATCH');
+        if(!snapshotEqual(coverage,await readT4OriginalObjectDeletionCoverage(opts)))
+          fail('DELETE_ORIGINAL_OBJECT_MUTATION_COVERAGE_CHANGED');
         return null;
       }
       // Original read coverage and permission must cover dependencies;
@@ -775,7 +777,8 @@ export async function inspectT4OriginalNativeDeletionResult({
     originalRecipientStateDigest:digestT4OriginalDeletedSubjectState(d),
     sourceEventId:d.sourceEventId,currentRecipientRevision:t4OriginalDeletedSubjectRevision(d),
     originalBusinessApplied:true,actualOriginalT3EventReadback:true,
-    actualOriginalT3SubjectReadback:true,actualOriginalT3DeletionReadback:true,
+    actualOriginalT3SubjectReadback:!historical,actualOriginalT3DeletionReadback:!historical,
+    originalT3DeletionEventVerified:true,
     actualOriginalT3AssetReadback:d.kind==='ASSET_DELETE'&&!historical,
     actualOriginalT3RelationReadback:d.kind==='RELATION_DELETE'&&!historical,
     ...(historical?{historicalStateFromOriginalEvent:true,
