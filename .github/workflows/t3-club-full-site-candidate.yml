@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 8e0263d93e51827510415faa752d82c5c39426cb
+          ref: 0a9e8e335cc9e2d6d4f4ca7a9aaf56b9fb9626e1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -185,10 +185,11 @@ jobs:
           import {readFileSync} from 'node:fs';
           const lines=readFileSync(process.argv[2],'utf8').trim().split(/\r?\n/);
           const result=JSON.parse(lines.at(-1));
-          const skills=JSON.parse(readFileSync('assets/club-assistant-skills.json','utf8'));
-          if(result.schema!=='IWXA_CLUB_T3_ASSEMBLY/1'||result.publicRoutes!==40||
+          const {expectedClubAssistantScope}=await import('./scripts/assemble-club-t3-dist.mjs');
+          const scope=expectedClubAssistantScope();
+          if(result.schema!=='IWXA_CLUB_T3_ASSEMBLY/1'||result.publicRoutes!==scope.publicRoutes||
              result.hostingProofsUnchanged!==2||result.preservedSiteAssets!==true||
-             result.localInferenceRegistered!==true||result.domainAssistantPages!==39||result.domainAssistantFormShortcuts!==skills.formHints.length||result.domainAssistantSharedEngine!==true||result.domainAccepted!==false)
+             result.localInferenceRegistered!==true||result.domainAssistantPages!==scope.pages.length||result.domainAssistantFormShortcuts!==scope.forms||result.domainAssistantSharedEngine!==true||result.domainAccepted!==false)
             process.exit(1);
           console.log('D02_T3_PRODUCT_DIST=PASS; public_routes='+result.publicRoutes+
             '; application_pages='+result.applicationPages+'; offline_files='+result.offlineFiles+

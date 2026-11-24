@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 8e0263d93e51827510415faa752d82c5c39426cb
+          ref: 0a9e8e335cc9e2d6d4f4ca7a9aaf56b9fb9626e1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -86,11 +86,332 @@ jobs:
           const plan=importClubSkills(process.argv[2],process.argv[3]);
           if(plan.bytesChanged||plan.pinChanged||plan.applied)throw Error('EXACT_OWNER_IMPORT_MISMATCH');
           console.log('CLUB_SKILL_IMPORT_NO_CHANGES');
+          const {reportClubAssistantCoverage}=await import('./private-club/scripts/club-assistant-skills.mjs');
+          const report=reportClubAssistantCoverage();
+          console.log('T3_CLUB_SKILL_COVERAGE forms='+report.totalForms+' bound='+report.boundForms+' unbound='+report.unboundForms+' excluded='+report.excludedForms);
           NODE
           then
             echo T3_CLUB_EXACT_DEVELOPER_IMPORT_FAIL; exit 1
           fi
           echo T3_CLUB_EXACT_DEVELOPER_IMPORT_PASS
+          grep -E '^T3_CLUB_SKILL_COVERAGE forms=[0-9]+ bound=[0-9]+ unbound=[0-9]+ excluded=[0-9]+          if ! (cd private-club-owner && node scripts/club-skill-authoring.mjs check && node --test tests/assistant-skills.test.mjs) > "$RUNNER_TEMP/private-owner-skills.log" 2>&1; then
+            echo T3_CLUB_OWNER_SKILLS_FAIL
+            exit 1
+          fi
+          echo T3_CLUB_OWNER_SKILLS_PASS
+      - name: Original assistant field skill and profile tests
+        shell: bash
+        working-directory: private-bli/browser-local-inference
+        run: |
+          set -euo pipefail
+          if ! (node --check domain-assistant/main.mjs && node --check domain-assistant/device-policy.mjs && node --test tests/domain-assistant-*.test.mjs) > "$RUNNER_TEMP/private-mobile-source.log" 2>&1; then
+            echo T3_MOBILE_ORIGINAL_ASSISTANT_SOURCE_FAIL
+            exit 1
+          fi
+          grep '^# tests ' "$RUNNER_TEMP/private-mobile-source.log" || true
+          grep '^# pass ' "$RUNNER_TEMP/private-mobile-source.log" || true
+          echo T3_MOBILE_ORIGINAL_ASSISTANT_SOURCE_PASS
+      - name: Prepare one shared catalog and actual assistant DOM qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/assistant-candidate"
+          mkdir -p "$stage/domain-assistant" "$stage/src"
+          cp private-bli/browser-local-inference/domain-assistant/{main,field-policy,skill-runtime,device-policy}.mjs "$stage/domain-assistant/"
+          cp packages/t3-core/integration-sources/bli1/{catalog,engine,domain-model-install,storage,policy,cache-readiness,model-worker}.mjs "$stage/src/"
+          cp packages/t3-core/tests/t3-mobile-assistant-dom-candidate.mjs "$stage/"
+          cp packages/t3-core/tests/t3-prepare-domain-quality.mjs "$stage/"
+          cp packages/t3-core/tests/t3-explicit-facts-regression.mjs "$stage/"
+          cd "$stage"
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund @mlc-ai/web-llm@0.2.87 jsdom@29.1.1
+          set +e
+          node t3-mobile-assistant-dom-candidate.mjs "$stage" "$GITHUB_WORKSPACE/private-club/assets/club-assistant-skills.json" > "$RUNNER_TEMP/private-mobile-dom.log" 2>&1
+          result=$?
+          set -e
+          grep -E '^T3_MOBILE_DOM_(CASE_PASS|CASE_FAIL|CONTRACT_PASS) [a-zA-Z0-9 _-]+$' "$RUNNER_TEMP/private-mobile-dom.log" || true
+          if test "$result" != 0; then echo T3_MOBILE_ORIGINAL_ASSISTANT_DOM_FAIL; exit 1; fi
+          echo T3_MOBILE_ORIGINAL_ASSISTANT_DOM_PASS
+          if ! node t3-prepare-domain-quality.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" "$RUNNER_TEMP/heldout-prompts.json" > "$RUNNER_TEMP/heldout-preparation.log" 2>&1; then
+            echo T3_MOBILE_HELDOUT_PROMPT_PREPARATION_FAIL
+            exit 1
+          fi
+          grep -E '^T3_QUALITY_PROMPTS_PREPARED [0-9]+ forms [0-9]+$' "$RUNNER_TEMP/heldout-preparation.log"
+          echo T3_MOBILE_HELDOUT_PROMPTS_ONLY_NOT_MODEL_QUALITY
+          if ! node t3-prepare-domain-quality.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" "$RUNNER_TEMP/hybrid-prompts.json" --hybrid > "$RUNNER_TEMP/hybrid-preparation.log" 2>&1; then
+            echo T3_HYBRID_PROMPT_PREPARATION_FAIL
+            exit 1
+          fi
+          grep '^T3_HYBRID_PROMPTS_PREPARED ' "$RUNNER_TEMP/hybrid-preparation.log"
+          # Exercise the exact score path with rejected and empty responses,
+          # not a claim about the quality of actual model inference.
+          node --input-type=module - "$RUNNER_TEMP/hybrid-prompts.json" "$RUNNER_TEMP/hybrid-selftest.json" <<'NODE'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          const p=JSON.parse(readFileSync(process.argv[2],'utf8'));
+          const responses=p.cases.map((c,i)=>({id:c.id,raw:i===0?JSON.stringify({fields:{field_999:"not offered"}}):JSON.stringify({fields:{}}),code:null}));
+          writeFileSync(process.argv[3],JSON.stringify({schema:"iwxa.club.assistant-comparison/1",modelId:"synthetic-scorer-selftest",runs:[{mode:"structured",responses}]}),{mode:0o600});
+          NODE
+          if ! node t3-prepare-domain-quality.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" "$RUNNER_TEMP/hybrid-selftest.json" --hybrid --score > "$RUNNER_TEMP/hybrid-score-selftest.log" 2>&1; then
+            echo T3_HYBRID_SCORE_SELFTEST_FAIL
+            exit 1
+          fi
+          grep -E '^T3_CLUB_HYBRID_(QUALITY|CASE) ' "$RUNNER_TEMP/hybrid-score-selftest.log"
+          if ! node t3-explicit-facts-regression.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" > "$RUNNER_TEMP/private-explicit-facts.log" 2>&1; then
+            echo T3_CLUB_EXPLICIT_FACTS_REGRESSION_FAIL
+            grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-facts.log" || true
+            exit 1
+          fi
+          grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-facts.log"
+          # The frozen baseline was measured at run 45385650273. The exact
+          # same challenge now qualifies the corrected source.
+          set +e
+          node t3-explicit-facts-regression.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" --challenge --enforce > "$RUNNER_TEMP/private-explicit-challenge.log" 2>&1
+          result=$?
+          set -e
+          grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-challenge.log" || true
+          if test "$result" != 0; then echo T3_CLUB_EXPLICIT_CHALLENGE_FAIL; exit 1; fi
+          set +e
+          node t3-explicit-facts-regression.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" --expanded --enforce > "$RUNNER_TEMP/private-expanded.log" 2>&1
+          result=$?
+          set -e
+          grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-expanded.log" || true
+          if test "$result" != 0; then echo T3_CLUB_EXPANDED_FACTS_FAIL; exit 1; fi
+      - name: Remove private staged data and logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/assistant-candidate" "$RUNNER_TEMP/private-mobile-source.log" "$RUNNER_TEMP/private-mobile-dom.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-preparation.log" "$RUNNER_TEMP/hybrid-prompts.json" "$RUNNER_TEMP/hybrid-preparation.log" "$RUNNER_TEMP/hybrid-selftest.json" "$RUNNER_TEMP/hybrid-score-selftest.log"
+          rm -rf private-bli private-club private-club-owner "$RUNNER_TEMP/private-owner-skills.log" "$RUNNER_TEMP/private-skill-import.log" "$RUNNER_TEMP/private-explicit-facts.log" "$RUNNER_TEMP/private-explicit-challenge.log" "$RUNNER_TEMP/private-expanded.log"
+  shared-host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exact original private assistant
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-bli
+      - name: Exact original Club module
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: 0a9e8e335cc9e2d6d4f4ca7a9aaf56b9fb9626e1
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-club
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile actual Club module and original assistant into one candidate T3 Host
+        shell: bash
+        run: |
+          set -euo pipefail
+          core="$GITHUB_WORKSPACE/packages/t3-core"
+          log="$RUNNER_TEMP/private-mobile-host.log"
+          if ! (node "$core/scripts/stage-t2-external-module.mjs" "$core" "$GITHUB_WORKSPACE/private-club/runtime/club-module" iwxa.domain.club club && node "$core/scripts/qualify-bli-inherited-host.mjs" --assistant-source "$GITHUB_WORKSPACE/private-bli/browser-local-inference/domain-assistant" --quality-witness) > "$log" 2>&1; then
+            echo T3_MOBILE_CANDIDATE_CLUB_HOST_FAIL
+            grep -oE 'T3_D5_[A-Z0-9_]+' "$log" | sort -u | tail -20 || true
+            exit 1
+          fi
+          grep '^T3_MOBILE_CANDIDATE_ORIGINAL_ASSISTANT_SHARED_ENGINE_PASS$' "$log"
+          grep '^T3_D5_FULL_ORIGINAL_BLI_HOST_BUILD_PASS ' "$log" | cut -d' ' -f1
+          echo T3_MOBILE_CANDIDATE_CLUB_HOST_PASS
+      - name: Real browser compact layout and native form workflow
+        working-directory: packages/t3-core
+        shell: bash
+        run: |
+          set -eu
+          npx --no-install playwright install --with-deps chromium
+          log="$RUNNER_TEMP/private-club-browser.log"
+          if ! node tests/t3-club-assistant-browser-candidate.mjs "$GITHUB_WORKSPACE/private-club" dist > "$log" 2>&1; then
+            grep -E '^T3_CLUB_(BROWSER_CASE_(PASS|FAIL)|ALL_FORM_SHORTCUTS_(PASS|FAIL)|ALL_RESULT_HINTS_(PASS|FAIL)) ' "$log" || true
+            echo T3_CLUB_BROWSER_CANDIDATE_FAIL
+            exit 1
+          fi
+          grep -E '^T3_CLUB_(BROWSER_(CASE_PASS|CANDIDATE_PASS)|ALL_FORM_SHORTCUTS_PASS|ALL_RESULT_HINTS_PASS) ' "$log"
+      - name: Remove private temporary source and build data
+        if: always()
+        shell: bash
+        run: |
+          rm -rf private-bli private-club "$RUNNER_TEMP/private-mobile-host.log" "$RUNNER_TEMP/private-club-browser.log"
+          rm -rf packages/t3-core/candidate-domain-assistant packages/t3-core/dist packages/t3-core/src/modules/club
+
+  real-webgpu:
+    # Opt in only for an exact candidate; the runner must expose actual Metal.
+    # These are desktop hardware/offline checks, NOT physical phone acceptance.
+    if: contains(github.event.head_commit.message, '[mobile-metal]')
+    needs: [source, assistant, shared-host]
+    runs-on: macos-latest
+    env:
+      T3_D5_QUALITY_UI: ${{ contains(github.event.head_commit.message, '[mobile-ui]') && '1' || '0' }}
+      T3_D5_QUALITY_CLUB_SITE: ${{ github.workspace }}/private-quality-club
+      T3_D5_QUALITY_SOAK: ${{ contains(github.event.head_commit.message, '[mobile-soak]') && '1' || '0' }}
+      T3_D5_QUALITY_HYBRID: ${{ contains(github.event.head_commit.message, '[mobile-hybrid]') && '1' || '0' }}
+    timeout-minutes: 85
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        model: ${{ fromJSON(contains(github.event.head_commit.message, '[mobile-ui]') && '["Qwen2.5-1.5B-Instruct-q4f16_1-MLC"]' || (contains(github.event.head_commit.message, '[mobile-soak]') && '["Qwen2.5-7B-Instruct-q4f16_1-MLC"]' || (contains(github.event.head_commit.message, '[mobile-hybrid]') && '["Qwen2.5-0.5B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC"]' || '["Qwen2.5-0.5B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","Qwen2.5-7B-Instruct-q4f16_1-MLC"]'))) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install original Host dependencies
+        run: npm ci --prefix packages/t3-core --ignore-scripts --no-audit --no-fund
+      - name: Use OpenSSL 3 for temporary test certificate
+        run: |
+          if ! brew list --versions openssl@3 >/dev/null 2>&1; then brew install openssl@3; fi
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+      - name: Verify and stage unchanged original Kernel 0.3.6
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+        run: |
+          set -eu
+          archive=qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip
+          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $archive" | shasum -a 256 -c -
+          mkdir -p "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          unzip -q "$archive" -d "$IWXA_T2_QUALIFIED_KERNEL_DIST"
+          node --input-type=module -e 'import {assertQualifiedKernelArtifact} from "./src/factory2/products/domain-completion/independent-browser-witness.mjs"; assertQualifiedKernelArtifact(process.env.IWXA_T2_QUALIFIED_KERNEL_DIST,{kernel:"0.3.6",contract:"1.3.0",artifactId:"iwxa-kernel-k036-same-store-history-20261019-qualified.1"});'
+      - name: Install browser for actual hardware qualification
+        working-directory: packages/t3-core
+        run: npx --no-install playwright install chromium
+      - name: Compile original single BLI1 Host
+        if: ${{ !contains(github.event.head_commit.message, '[mobile-quality]') }}
+        working-directory: packages/t3-core
+        run: node scripts/qualify-bli-inherited-host.mjs
+      - name: Exact held-out Club domain source for optional quality evaluation
+        if: contains(github.event.head_commit.message, '[mobile-quality]')
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: 0a9e8e335cc9e2d6d4f4ca7a9aaf56b9fb9626e1
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-quality-club
+      - name: Exact production assistant for optional quality evaluation
+        if: contains(github.event.head_commit.message, '[mobile-quality]')
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-quality-assistant
+      - name: Prepare real domain prompts without expected responses
+        if: contains(github.event.head_commit.message, '[mobile-quality]') && !contains(github.event.head_commit.message, '[mobile-ui]')
+        shell: bash
+        run: |
+          set -eu
+          stage="$RUNNER_TEMP/quality-prep"
+          mkdir -p "$stage"
+          cp packages/t3-core/tests/t3-prepare-domain-quality.mjs "$stage/"
+          cd "$stage"
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund jsdom@29.1.1
+          hybrid=()
+          if test "$T3_D5_QUALITY_HYBRID" = 1; then hybrid=(--hybrid); fi
+          if ! node t3-prepare-domain-quality.mjs "$GITHUB_WORKSPACE/private-quality-assistant/browser-local-inference/domain-assistant" "$GITHUB_WORKSPACE/private-quality-club" "$RUNNER_TEMP/heldout-prompts.json" "${hybrid[@]}" > "$RUNNER_TEMP/quality-prep.log" 2>&1; then
+            echo T3_QUALITY_PREPARATION_FAIL
+            exit 1
+          fi
+          echo "T3_D5_QUALITY_PROMPTS=$RUNNER_TEMP/heldout-prompts.json" >> "$GITHUB_ENV"
+          echo "T3_D5_QUALITY_RESPONSES=$RUNNER_TEMP/heldout-responses.json" >> "$GITHUB_ENV"
+      - name: Compile original Host and disposable quality witness with shared adapter
+        if: contains(github.event.head_commit.message, '[mobile-quality]')
+        working-directory: packages/t3-core
+        shell: bash
+        run: |
+          set -eu
+          if ! node scripts/qualify-bli-inherited-host.mjs --assistant-source "$GITHUB_WORKSPACE/private-quality-assistant/browser-local-inference/domain-assistant" --quality-witness > "$RUNNER_TEMP/quality-build.log" 2>&1; then
+            echo T3_QUALITY_SHARED_HOST_BUILD_FAIL
+            grep -oE 'T3_D5_[A-Z0-9_]+' "$RUNNER_TEMP/quality-build.log" | sort -u | tail -20 || true
+            exit 1
+          fi
+          grep '^T3_MOBILE_QUALITY_WITNESS_SHARED_ENGINE_PASS$' "$RUNNER_TEMP/quality-build.log"
+      - name: Require real hardware, pinned model, Kernel save and two offline generations
+        working-directory: packages/t3-core
+        env:
+          IWXA_T2_QUALIFIED_KERNEL_DIST: ${{ runner.temp }}/iwxa-t3-kernel
+          T3_D5_REQUIRE_HARDWARE_GPU: '1'
+          T3_D5_MODEL_ID: ${{ matrix.model }}
+        shell: bash
+        run: |
+          set -eu
+          if test -n "${T3_D5_QUALITY_PROMPTS:-}" || test "$T3_D5_QUALITY_UI" = 1; then
+            if ! node tests/t3-d5-full-bli.browser.mjs > "$RUNNER_TEMP/private-quality-browser.log" 2>&1; then
+              echo T3_D5_REAL_HARDWARE_OR_QUALITY_FAIL
+              grep '^T3_D5_CLUB_UI_ROUTE_FAIL ' "$RUNNER_TEMP/private-quality-browser.log" || true
+              grep -oE 'T3_(D5|QUALITY)_[A-Z0-9_]+' "$RUNNER_TEMP/private-quality-browser.log" | sort -u | tail -20 || true
+              exit 1
+            fi
+            grep -E '^T3_(D5_[A-Z0-9_]+_PASS|QUALITY_OFFLINE_RESPONSES_CAPTURED) ' "$RUNNER_TEMP/private-quality-browser.log" | cut -d' ' -f1
+            if test "$T3_D5_QUALITY_UI" = 1; then grep '^T3_D5_CLUB_HYBRID_USER_ROUTE_PASS ' "$RUNNER_TEMP/private-quality-browser.log"; fi
+          else
+            node tests/t3-d5-full-bli.browser.mjs
+          fi
+      - name: Score actual offline model responses against held-out Club expectations
+        if: contains(github.event.head_commit.message, '[mobile-quality]') && !contains(github.event.head_commit.message, '[mobile-ui]')
+        shell: bash
+        run: |
+          set -eu
+          if test "$T3_D5_QUALITY_HYBRID" = 1; then
+            cd "$RUNNER_TEMP/quality-prep"
+            if ! node t3-prepare-domain-quality.mjs "$GITHUB_WORKSPACE/private-quality-assistant/browser-local-inference/domain-assistant" "$GITHUB_WORKSPACE/private-quality-club" "$RUNNER_TEMP/heldout-responses.json" --hybrid --score > "$RUNNER_TEMP/quality-score.log" 2>&1; then
+              grep -E '^T3_CLUB_HYBRID_(QUALITY|CASE) ' "$RUNNER_TEMP/quality-score.log" || true
+              echo T3_HYBRID_ACTUAL_SCORE_FAIL
+              exit 1
+            fi
+            grep -E '^T3_CLUB_HYBRID_(QUALITY|CASE) ' "$RUNNER_TEMP/quality-score.log"
+            exit 0
+          fi
+          if ! node --input-type=module - "$GITHUB_WORKSPACE/private-quality-club/scripts/score-club-assistant.mjs" "$RUNNER_TEMP/heldout-responses.json" <<'NODE' > "$RUNNER_TEMP/quality-score.log" 2>&1
+          import {readFileSync} from 'node:fs';
+          import {pathToFileURL} from 'node:url';
+          const {scoreRun}=await import(pathToFileURL(process.argv[2]).href);
+          const comparison=JSON.parse(readFileSync(process.argv[3],'utf8'));
+          if(comparison.schema!=="iwxa.club.assistant-comparison/1"||comparison.runs?.length!==2)throw Error("T3_QUALITY_COMPARISON_REQUIRED");
+          const quantile=(values,fraction)=>{
+            const sorted=values.filter(Number.isFinite).sort((a,b)=>a-b);
+            return sorted.length?sorted[Math.floor((sorted.length-1)*fraction)]:null;
+          };
+          for(const run of comparison.runs){
+            const successful=run.responses.filter(r=>!r.code&&typeof r.raw==="string");
+            const errors=Object.fromEntries([...new Set(run.responses.map(r=>r.code).filter(Boolean))].sort().map(code=>[code,run.responses.filter(r=>r.code===code).length]));
+            const nativeShapePass=run.responses.filter(r=>r.nativeShape===true).length;
+            const unsafeReuse=run.responses.filter(r=>r.code&&r.code!=="EMPTY_GENERATION"&&r.readyAfter===true).length;
+            if(unsafeReuse)throw Error("T3_FAILED_WORKER_STILL_READY");
+            const timing={medianFirstTokenMs:quantile(successful.map(r=>r.firstTokenMs),.5),
+              medianElapsedMs:quantile(successful.map(r=>r.elapsedMs),.5),
+              p90ElapsedMs:quantile(successful.map(r=>r.elapsedMs),.9)};
+            if(process.env.T3_D5_QUALITY_SOAK==="1"){
+              console.log('T3_CLUB_MODEL_SOAK_DIAGNOSTIC',JSON.stringify({modelId:run.modelId,mode:run.mode,
+                attempts:run.responses.length,successful:successful.length,nativeShapePass,errors,unsafeReuse,
+                totalLoadAttempts:comparison.loadCount,loadFailures:comparison.loadFailures,...timing,modelQualityAccepted:false}));
+            }else{
+              const {cases,...summary}=scoreRun(run);
+              console.log('T3_CLUB_REAL_MODEL_QUALITY',JSON.stringify({...summary,mode:run.mode,nativeShapePass,
+                failures:run.responses.filter(r=>r.code).length,errors,unsafeReuse,...timing}));
+            }
+          }
+          NODE
+          then
+            echo T3_QUALITY_SCORING_FAIL
+            exit 1
+          fi
+          grep -E '^T3_CLUB_(REAL_MODEL_QUALITY|MODEL_SOAK_DIAGNOSTIC) ' "$RUNNER_TEMP/quality-score.log"
+      - name: Remove private quality inputs and actual responses
+        if: always()
+        shell: bash
+        run: |
+          rm -rf private-quality-club private-quality-assistant "$RUNNER_TEMP/quality-prep" "$RUNNER_TEMP/quality-prep.log" "$RUNNER_TEMP/quality-score.log" "$RUNNER_TEMP/private-quality-browser.log" "$RUNNER_TEMP/quality-build.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-responses.json"
+      - name: Desktop hardware scope
+        run: echo T3_MOBILE_DESKTOP_HARDWARE_NOT_PHYSICAL_ANDROID_IOS_ACCEPTANCE
+ "$RUNNER_TEMP/private-skill-import.log"
           if ! (cd private-club-owner && node scripts/club-skill-authoring.mjs check && node --test tests/assistant-skills.test.mjs) > "$RUNNER_TEMP/private-owner-skills.log" 2>&1; then
             echo T3_CLUB_OWNER_SKILLS_FAIL
             exit 1
@@ -195,7 +516,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 8e0263d93e51827510415faa752d82c5c39426cb
+          ref: 0a9e8e335cc9e2d6d4f4ca7a9aaf56b9fb9626e1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -287,7 +608,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 8e0263d93e51827510415faa752d82c5c39426cb
+          ref: 0a9e8e335cc9e2d6d4f4ca7a9aaf56b9fb9626e1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-quality-club
