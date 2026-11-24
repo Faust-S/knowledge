@@ -262,3 +262,18 @@ export function capabilityPreview(catalog,productId,featureId){
  return {schema:"IWXA_T3_CAPABILITY_PREVIEW/1",productId,featureId,authorityGate:feature.authorityGate,commercialPolicy:"UNDECIDED",entitlementIsAuthority:false,authorized:false,productionEnabled:false};
 }
 export const PRODUCT_CONTRACT_IDS=Object.freeze(Object.fromEntries(Object.entries(SPECS).map(([k,v])=>[k,v.schema])));
+
+// Fixed commercial ENTITLEMENT vocabulary, shared by the original policy
+// admission and seat lifecycle. These identifiers alone confer no rights.
+export const CORPORATE_SEAT_ACTION='product.personal-agent.corporate.use';
+export const CORPORATE_SEAT_RESOURCE='product:IWXA_ADMIN_CENTER';
+export const CORPORATE_SEAT_PURPOSE='corporate-product';
+export function corporateSeatPolicyReady(policy,authorityId){
+ const a=policy?.authorities?.[authorityId];
+ return policy?.environment==='PRODUCTION'&&
+  policy.actionCatalog?.[CORPORATE_SEAT_ACTION]==='ENTITLEMENT'&&
+  a?.actions?.includes(CORPORATE_SEAT_ACTION)===true&&
+  a.resources?.includes(CORPORATE_SEAT_RESOURCE)===true&&
+  a.purposes?.includes(CORPORATE_SEAT_PURPOSE)===true&&
+  a.rightClasses?.includes('ENTITLEMENT')===true;
+}

@@ -415,3 +415,12 @@ test('existing organization enables only the fixed original ENTITLEMENT ceiling 
  assert.equal(assigned.view.reservedSeats,1);
  assert.equal((await s.checkUse(alice,assigned.grantId)).allowed,true);
 });
+
+test('legacy policy admission rejects an outdated original registry digest without signing or committing',async()=>{
+ const s=await seatFixture({seatPolicy:false});
+ const before=s.kernel.calls.length;
+ await assert.rejects(s.owner.enableCorporateSeatPolicy({managerPersonId:'person:operator',
+  managerGrantId:'grant:seat:manager',expectedRegistryDigest:'0'.repeat(64)}),/CORP_SEAT_REGISTRY_CHANGED/);
+ assert.equal(s.kernel.calls.length,before);
+ assert.equal((await s.owner.viewCorporateSeats()).seatPolicyReady,false);
+});
