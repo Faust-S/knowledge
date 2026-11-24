@@ -72,15 +72,29 @@ def review_original_strict_economic_sources(
     # Multi-period qualification uses the original single economic
     # document. Do not let it silently include a Work outside the declared
     # strict source scope, or claim historical coverage of an absent period.
+    uncommitted = original_claims.get("uncommitted_order_cost_evidence")
+    uncommitted_key = None
+    if uncommitted is not None:
+        if (not isinstance(work_id, tuple) or not isinstance(uncommitted, dict)
+                or not isinstance(uncommitted.get("work"), str)
+                or uncommitted["work"] not in work_ids):
+            raise StrictEconomicSourceBlocked("UNCOMMITTED_ORDER_ORIGINAL_MULTIPERIOD_SCOPE_REQUIRED")
+        uncommitted_key = uncommitted["work"]
+        candidate = state.works[uncommitted_key]
+        if (candidate.obligation != "NOT_ACCEPTED" or candidate.result != "NOT_SUBMITTED"
+                or any(e.get("work") == uncommitted_key and e.get("action") in {"commit", "accept"}
+                       and e.get("outcome") == "APPLIED" for e in state.trace)):
+            raise StrictEconomicSourceBlocked("UNCOMMITTED_ORDER_CANNOT_OMIT_COMMITTED_TRANSFERS")
     if isinstance(work_id, tuple):
         for field in ("transfers", "resource_uses"):
+            expected = set(work_ids) - ({uncommitted_key} if field == "transfers" and uncommitted_key else set())
             records = original_claims.get(field)
             if (not isinstance(records, list)
                     or any(not isinstance(row, dict)
                            or row.get("work") not in work_ids
                            or row.get("scenario") != "COOPERATION"
                            for row in records)
-                    or {row["work"] for row in records} != set(work_ids)):
+                    or {row["work"] for row in records} != expected):
                 raise StrictEconomicSourceBlocked(
                     "ORIGINAL_ECONOMIC_MULTI_WORK_SCOPE_INCOMPLETE"
                 )
@@ -500,6 +514,38 @@ def review_original_strict_economic_sources(
             raise StrictEconomicSourceBlocked("RECIPIENT_VALUE_ORIGINAL_OWNER_HISTORICAL_SOURCE_NOT_QUALIFIED") from exc
         qualified_recipient_values += 1
 
+    qualified_uncommitted_owners = 0
+    if uncommitted is not None:
+        try:
+            candidate = state.works[uncommitted_key]
+            principals = state.capacity_ledger.original_owners(candidate.resource_requirements) | {
+                candidate.customer, state.institution.operator}
+            declarations = uncommitted["owner_scopes"]
+            if not isinstance(declarations, dict) or set(declarations) != principals:
+                raise StrictEconomicSourceBlocked("UNCOMMITTED_ORDER_ALL_ORIGINAL_OWNER_SCOPES_REQUIRED")
+            for owner, item in declarations.items():
+                source = sources_by_id[item["source"]]
+                tick = item["observed_at"]
+                if source["owner"] != owner or type(tick) is not int or not 0 <= tick <= at:
+                    raise StrictEconomicSourceBlocked("UNCOMMITTED_ORDER_INDEPENDENT_OWNER_SOURCE_REQUIRED")
+                if owner in getattr(context, "prospective_subjects", set()) and not any(
+                        e.get("action") == "subject_registration_apply" and e.get("outcome") == "APPLIED"
+                        and e.get("registered_original_subject") == owner and e["at"] < tick
+                        for e in state.trace):
+                    raise StrictEconomicSourceBlocked("UNCOMMITTED_ORDER_OWNER_NOT_YET_REGISTERED")
+                _qualify_original_event_evidence(owner, source["reference"], source["revision"],
+                                                 _OWNER_CORES[state.subjects[owner].kind], tick)
+                qualified_uncommitted_owners += 1
+            observation = uncommitted["recipient_no_order_observation"]
+            source = sources_by_id[observation["source"]]
+            tick = observation["at"]
+            if source["owner"] != candidate.customer or type(tick) is not int or not 0 <= tick <= at:
+                raise StrictEconomicSourceBlocked("UNCOMMITTED_ORDER_RECIPIENT_SOURCE_REQUIRED")
+            _qualify_original_event_evidence(candidate.customer, source["reference"], source["revision"],
+                                             _OWNER_CORES[state.subjects[candidate.customer].kind], tick)
+        except (KeyError, TypeError, StrictEconomicSourceBlocked) as exc:
+            raise StrictEconomicSourceBlocked("UNCOMMITTED_ORDER_ORIGINAL_HISTORICAL_SCOPE_NOT_QUALIFIED") from exc
+
     qualified_market_owners = 0
     market_order = original_claims.get("market_order_economics")
     if market_order is not None:
@@ -531,6 +577,9 @@ def review_original_strict_economic_sources(
 
     return {
         "status": "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED",
+        **({"source_scoped_uncommitted_order_owner_count": qualified_uncommitted_owners,
+            "source_scoped_uncommitted_recipient_observation": True}
+           if uncommitted is not None else {}),
         **({"source_scoped_market_order_owner_count": qualified_market_owners}
            if market_order is not None else {}),
         **({"source_scoped_original_recipient_value_count": qualified_recipient_values}

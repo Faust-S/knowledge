@@ -1192,3 +1192,128 @@ def compare_original_preparation_pattern_reuse(
         "empirical_operator_capital_value": "NOT_IDENTIFIABLE",
         "profit": "UNKNOWN",
     }
+
+
+def compare_original_market_formation_outcomes(
+    scenarios: Mapping[str, Mapping[str, Any]], *, work: str, prior_works: tuple[str, ...],
+) -> dict[str, Any]:
+    """Controlled MODEL_ONLY acceptance/refusal comparison, same original Mesa.
+
+    The failed formation carries its independently declared noncash costs,
+    not an assumed free or financially verified alternative. Compare only
+    matched original histories, opening positions, and common preparation
+    rows. No new scheduler, legal agreement, accounting profit or empirical
+    estimator is introduced.
+    """
+    from copy import deepcopy
+    from decimal import Decimal
+    from .mesa_model import simulate
+
+    if (not isinstance(scenarios, Mapping) or set(scenarios) != {"accepted", "refused"}
+            or not isinstance(work, str) or not isinstance(prior_works, tuple) or not prior_works
+            or len(set((*prior_works, work))) != len(prior_works)+1):
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_MATCHED_DESIGN_REQUIRED")
+    a, b = (scenarios[key] for key in ("accepted", "refused"))
+    if any(d.get("strict_economic_source_works") != [*prior_works, work] for d in (a, b)):
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_STRICT_WORK_SCOPE_REQUIRED")
+    if ({k: v for k, v in a.items() if k not in {"events", "economic_claims"}} !=
+            {k: v for k, v in b.items() if k not in {"events", "economic_claims"}}):
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_INITIAL_STATE_CHANGED")
+    am, bm = a["economic_claims"], b["economic_claims"]
+    raw = bm.get("uncommitted_order_cost_evidence", {})
+    if raw.get("work") != work or am.get("market_order_economics", {}).get("work") != work:
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_SELECTED_SCOPE_REQUIRED")
+    refusing = raw.get("refusing_owner")
+    split = raw.get("refusal_at")
+    expected_events = deepcopy(a["events"])
+    interest = [e for e in expected_events if e.get("work") == work
+                and e["action"] == "interest_update" and e["actor"] == refusing and e["at"] == split]
+    consents = [e for e in expected_events if e.get("work") == work
+                and e["action"] == "consent" and e["actor"] == refusing and e["at"] > split]
+    if len(interest) != 1 or len(consents) != 1 or interest[0]["new_willingness"] != "WILLING":
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_ONLY_ORIGINAL_REFUSAL_MAY_CHANGE")
+    interest[0]["new_willingness"] = "DECLINES"
+    expected_events.remove(consents[0])
+    if expected_events != b["events"]:
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_ONLY_ORIGINAL_REFUSAL_MAY_CHANGE")
+    allowed = {"period", "currency", "sources", "transfers", "resource_uses", "coverage",
+               "outside_feasibility", "cash_timing", "lifecycle_costs", "work_payment_conditions",
+               "work_payment_settlement_claims", "work_payment_due_amendments",
+               "recipient_use_value_evidence", "market_order_economics", "uncommitted_order_cost_evidence"}
+    if any(set(m) - allowed or set(m["lifecycle_costs"]) - {"bindings", "scope_proofs", "event_bindings"}
+           for m in (am, bm)):
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_UNSUPPORTED_FINANCIAL_SCOPE")
+    for field in ("period", "currency", "sources", "coverage", "outside_feasibility"):
+        if am.get(field) != bm.get(field):
+            raise TrajectoryComparisonError("FORMATION_CONTRAST_FINANCIAL_BASELINE_CHANGED")
+    for field in ("horizon_end", "owner_positions"):
+        if am["cash_timing"].get(field) != bm["cash_timing"].get(field):
+            raise TrajectoryComparisonError("FORMATION_CONTRAST_FINANCIAL_BASELINE_CHANGED")
+    if am["lifecycle_costs"]["scope_proofs"] != bm["lifecycle_costs"]["scope_proofs"]:
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_FINANCIAL_BASELINE_CHANGED")
+    if any(t["work"] not in prior_works for t in bm["transfers"]):
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_UNCOMMITTED_TRANSFERS_FORBIDDEN")
+    prior = {t["id"] for t in bm["transfers"]}
+    kept = {r["id"] for r in bm["resource_uses"]}
+    if ([t for t in am["transfers"] if t["work"] in prior_works] != bm["transfers"]
+            or [r for r in am["resource_uses"] if r["id"] in kept] != bm["resource_uses"]
+            or [r for r in am["resource_uses"] if r["work"] in prior_works] !=
+               [r for r in bm["resource_uses"] if r["work"] in prior_works]):
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_COMMON_FINANCIAL_HISTORY_CHANGED")
+    for field in ("work_payment_conditions", "work_payment_settlement_claims", "work_payment_due_amendments"):
+        if [r for r in am.get(field, []) if r["transfer_id"] in prior] != bm.get(field, []):
+            raise TrajectoryComparisonError("FORMATION_CONTRAST_COMMON_FINANCIAL_HISTORY_CHANGED")
+    if ([r for r in am["cash_timing"]["transfer_windows"] if r["transfer_id"] in prior]
+            != bm["cash_timing"]["transfer_windows"]):
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_COMMON_FINANCIAL_HISTORY_CHANGED")
+    for field in ("bindings", "event_bindings"):
+        if [r for r in am["lifecycle_costs"][field] if r["resource_use_id"] in kept] != bm["lifecycle_costs"][field]:
+            raise TrajectoryComparisonError("FORMATION_CONTRAST_COMMON_FINANCIAL_HISTORY_CHANGED")
+    # All shared preparation costs must remain in both arms, not just a
+    # convenient subset. Prior works and actual precommit attempts are fixed.
+    commit_tick = next(e["at"] for e in a["events"] if e.get("work") == work and e["action"] == "commit")
+    expected_shared_costs = {r["resource_use_id"] for r in am["lifecycle_costs"]["event_bindings"]
+                             if r["work"] != work or r["at"] < commit_tick}
+    if kept != expected_shared_costs:
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_COMMON_FINANCIAL_HISTORY_CHANGED")
+    value = am["recipient_use_value_evidence"]
+    if len(value) != 1 or value[0]["work"] != work:
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_SELECTED_RECIPIENT_VALUE_REQUIRED")
+    obs = raw["recipient_no_order_observation"]
+    if (any(obs[field] != value[0][field] for field in ("unit", "basis", "valuation_horizon"))
+            or obs["quantity"] != value[0]["baseline"]["quantity"]):
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_RECIPIENT_NO_ORDER_QUANTITY_NOT_MATCHED")
+    frozen = deepcopy(scenarios)
+    oa, ob = simulate(deepcopy(a)), simulate(deepcopy(b))
+    if frozen != scenarios:
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_INPUT_MUTATED")
+    if ([e for e in oa["trace"] if e["at"] < split] != [e for e in ob["trace"] if e["at"] < split]
+            or any(oa["works"][key] != ob["works"][key]
+                   or oa["works"][key]["result"] != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+                   for key in prior_works)):
+        raise TrajectoryComparisonError("FORMATION_CONTRAST_HISTORICAL_ORIGINAL_RESULT_CHANGED")
+    left = oa["economics"].get("original_market_order_economics", {})
+    right = ob["economics"].get("original_uncommitted_order_costs", {})
+    if (left.get("status") != "MODEL_ORIGINAL_ACCEPTED_ORDER_ECONOMICS"
+            or right.get("status") != "MODEL_ORIGINAL_UNCOMMITTED_ORDER_COST_SCOPE"):
+        return {"status": "UNKNOWN_ORIGINAL_FORMATION_ECONOMIC_SCOPE",
+                "empirical_network_additionality": "NOT_IDENTIFIABLE"}
+    accepted_value = Decimal(left["local_research_only"]["consolidated_model_contribution"])
+    refused_value = -Decimal(right["local_research_only"]["total_exclusive_precommit_resource_cost"])
+    delta = accepted_value - refused_value
+    return {
+        "schema": "AKIS_MATCHED_ORIGINAL_MARKET_FORMATION_OUTCOMES/1.0",
+        "status": "MODEL_MATCHED_ORIGINAL_FORMATION_VALUE_CONTRAST",
+        "common_prior_and_precommit_costs_preserved": True,
+        "recipient_declared_no_order_quantity_matched": True,
+        "original_accepted_route_and_independent_refusal_executed_separately": True,
+        "no_order_cash_zero_independently_declared_not_assumed": True,
+        "buyer_no_order_observation_is_model_only": True,
+        "model_contribution_contrast_direction": "POSITIVE" if delta > 0 else "ZERO" if delta == 0 else "NEGATIVE",
+        "empirical_network_additionality": "NOT_IDENTIFIABLE",
+        "local_research_only": {
+            "accepted_selected_model_contribution": f"{accepted_value:.2f}",
+            "refused_selected_model_contribution": f"{refused_value:.2f}",
+            "accepted_minus_refused_model_contribution": f"{delta:.2f}",
+        },
+    }

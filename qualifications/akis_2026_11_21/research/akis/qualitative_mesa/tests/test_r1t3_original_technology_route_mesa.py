@@ -892,3 +892,190 @@ def test_original_market_competing_owner_sets_not_confused_with_single_owner_abs
     if kwargs.get("buyer_alternate"):
         assert all(r["status"] == "COOPERATIVE_PLAN_EXPANDS_DECLARED_FEASIBLE_ORDER_SET" for r in reviews)
         assert out["works"]["w3"]["consenting_principals"] == ["a", "b", "c"]
+
+
+def original_market_formation_outcome_case(*, observation="2", fee="120.00"):
+    """Identical original history, demand, technology, and preparation costs.
+
+    Only one original owner's later decision and missing own consent diverge.
+    Failed formation has no selected cash transfers, with all owners' explicit
+    independent evidence; costs of actual precommit events are retained.
+    """
+    accepted = original_market_order_finance_case(fee=fee)
+    money = accepted["economic_claims"]
+    life = money["lifecycle_costs"]
+    selected = "w3"
+    commit = next(e["at"] for e in accepted["events"] if e.get("work") == selected and e["action"] == "commit")
+    horizon = money["cash_timing"]["horizon_end"]
+    scope = money["market_order_economics"]["owner_scopes"]
+
+    def evidence(owner, name, *, declare=False, start=0):
+        ref = f"model://{owner}/{name}"
+        accepted["context_evidence"]["sources"].append({
+            "id": ref, "owner": owner, "revision": "formation-cost-v1",
+            "status": "CONFIRMED", "usable_by": [owner],
+            "core": "operator" if owner == "op" else "corporate",
+            "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"], "operations": ["READ"],
+            "valid_from": start, "valid_until": max(190, horizon+1),
+        })
+        if declare:
+            money["sources"].append({"id": name, "owner": owner, "reference": ref,
+                                     "revision": "formation-cost-v1"})
+        return ref
+
+    prep_ids = set()
+    for owner, action, stage, amount in (
+            ("b", "request", "PARTNER_SEARCH", "10.00"),
+            ("a", "interest_update", "ADAPTATION_AND_RENEGOTIATION", "10.00"),
+            ("c", "interest_update", "ADAPTATION_AND_RENEGOTIATION", "10.00"),
+            ("op", "offer", "PARTNER_SEARCH", "20.00")):
+        position, ev = next((i, e) for i, e in enumerate(accepted["events"])
+                            if (e.get("work") == selected or e.get("work_spec", {}).get("id") == selected)
+                            and e["action"] == action and e["actor"] == owner)
+        ident = f"{selected}-formation-{owner}"
+        prep_ids.add(ident)
+        terms = f"market-terms-{owner}"
+        proof = evidence(owner, f"{ident}-cost")
+        money["resource_uses"].append({"id": ident, "scenario": "COOPERATION", "work": selected,
+            "owner": owner, "source": terms, "amount": amount, "bucket": "COORDINATION"})
+        life["bindings"].append({"resource_use_id": ident, "owner": owner, "source": terms,
+            "stage": stage, "nature": "TRANSACTION"})
+        life["event_bindings"].append({"resource_use_id": ident, "work": selected, "owner": owner,
+            "source": terms, "work_source_revision": "d-3", "trace_position": position,
+            "at": ev["at"], "action": action, "org_revision": "oc-1",
+            "cost_evidence_ref": proof, "cost_evidence_revision": "formation-cost-v1"})
+        if owner == "b":
+            money["recipient_use_value_evidence"][0]["resource_use_ids"].append(ident)
+        else:
+            scope[owner]["resource_use_ids"].append(ident)
+        evidence(owner, f"refused-scope-{owner}", declare=True, start=commit+1)
+    evidence("b", "refused-recipient-use", declare=True, start=commit+1)
+    refused = deepcopy(accepted)
+    own_interest = next(e for e in refused["events"] if e.get("work") == selected
+                        and e["action"] == "interest_update" and e["actor"] == "c")
+    own_interest["new_willingness"] = "DECLINES"
+    refused["events"] = [e for e in refused["events"] if not (
+        e.get("work") == selected and e["action"] == "consent" and e["actor"] == "c")]
+    cost = refused["economic_claims"]
+    prior_transfers = {t["id"] for t in cost["transfers"] if t["work"] != selected}
+    cost["transfers"] = [t for t in cost["transfers"] if t["id"] in prior_transfers]
+    for field in ("work_payment_conditions", "work_payment_settlement_claims"):
+        cost[field] = [t for t in cost[field] if t["transfer_id"] in prior_transfers]
+    cost["cash_timing"]["transfer_windows"] = [t for t in cost["cash_timing"]["transfer_windows"]
+                                                  if t["transfer_id"] in prior_transfers]
+    cost["resource_uses"] = [r for r in cost["resource_uses"] if r["work"] != selected or r["id"] in prep_ids]
+    retained = {r["id"] for r in cost["resource_uses"]}
+    for field in ("bindings", "event_bindings"):
+        cost["lifecycle_costs"][field] = [r for r in cost["lifecycle_costs"][field]
+                                            if r["resource_use_id"] in retained]
+    use = cost.pop("recipient_use_value_evidence")[0]
+    cost.pop("market_order_economics")
+    cost["uncommitted_order_cost_evidence"] = {
+        "work": selected, "work_revision": "d-3", "refusing_owner": "c",
+        "refusal_at": own_interest["at"],
+        "owner_scopes": {owner: {"source": f"refused-scope-{owner}", "observed_at": commit+1,
+            "resource_use_ids": [r["id"] for r in cost["resource_uses"]
+                                 if r["work"] == selected and r["owner"] == owner],
+            "zero_transfer_declared": True, "complete_exclusive_precommit_resource_scope": True}
+            for owner in ("a", "b", "c", "op")},
+        "recipient_no_order_observation": {
+            "source": "refused-recipient-use", "at": horizon, "quantity": observation,
+            "unit": use["unit"], "basis": use["basis"], "valuation_horizon": horizon,
+        },
+    }
+    return {"accepted": accepted, "refused": refused}
+
+
+def test_declined_original_order_retains_precommit_costs_without_creating_receipts():
+    docs = original_market_formation_outcome_case()
+    out = simulate(docs["refused"])
+    r = out["economics"]["original_uncommitted_order_costs"]
+    assert r["original_commit_blocked"] and r["original_independent_refusal_applied"]
+    assert r["independent_zero_transfer_declaration_count"] == 4
+    assert r["original_precommit_resource_cost_count"] == 4
+    assert r["local_research_only"]["total_exclusive_precommit_resource_cost"] == "50.00"
+    assert r["local_research_only"]["per_owner_exclusive_precommit_resource_cost"] == {
+        "a": "10.00", "b": "10.00", "c": "10.00", "op": "20.00"}
+    assert out["works"]["w3"]["result"] == "NOT_SUBMITTED"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert r["actual_costs_use_value_and_causal_effect"] == "NOT_IDENTIFIABLE"
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("missing_owner", "UNCOMMITTED_ORDER_ORIGINAL_HISTORICAL_SCOPE_NOT_QUALIFIED"),
+    ("not_zero", "UNCOMMITTED_ORDER_EXPLICIT_COMPLETE_ZERO_TRANSFER_SCOPE_REQUIRED"),
+    ("missing_cost", "UNCOMMITTED_ORDER_ALL_ORIGINAL_PRECOMMIT_COSTS_REQUIRED"),
+    ("aliased_scope", "UNCOMMITTED_ORDER_DISTINCT_OWNER_SCOPE_SOURCE_REQUIRED"),
+    ("no_refusal", "UNCOMMITTED_ORDER_ORIGINAL_REFUSAL_AND_BLOCKED_COMMIT_REQUIRED"),
+    ("wrong_refusal_tick", "UNCOMMITTED_ORDER_ORIGINAL_REFUSAL_AND_BLOCKED_COMMIT_REQUIRED"),
+])
+def test_uncommitted_order_cannot_use_absent_cash_or_cost_as_automatic_zero(mutation, reason):
+    d = original_market_formation_outcome_case()["refused"]
+    evidence = d["economic_claims"]["uncommitted_order_cost_evidence"]
+    if mutation == "missing_owner":
+        del evidence["owner_scopes"]["c"]
+    elif mutation == "not_zero":
+        evidence["owner_scopes"]["c"]["zero_transfer_declared"] = False
+    elif mutation == "missing_cost":
+        evidence["owner_scopes"]["c"]["resource_use_ids"] = []
+    elif mutation == "aliased_scope":
+        evidence["owner_scopes"]["c"]["source"] = "market-terms-c"
+    elif mutation == "no_refusal":
+        next(e for e in d["events"] if e.get("work") == "w3"
+             and e["action"] == "interest_update" and e["actor"] == "c")["new_willingness"] = "WILLING"
+    else:
+        evidence["refusal_at"] -= 1
+    with pytest.raises(ValueError, match=reason):
+        simulate(d)
+
+
+def test_uncommitted_order_omission_cannot_erase_committed_original_payment_scope():
+    docs = original_market_formation_outcome_case()
+    accepted = docs["accepted"]
+    accepted["economic_claims"]["uncommitted_order_cost_evidence"] = docs["refused"][
+        "economic_claims"]["uncommitted_order_cost_evidence"]
+    with pytest.raises(ValueError, match="UNCOMMITTED_ORDER_CANNOT_OMIT_COMMITTED_TRANSFERS"):
+        simulate(accepted)
+
+
+def test_matched_original_market_formation_outcomes_include_unsuccessful_preparation():
+    from research.akis.qualitative_mesa.comparative_trajectories import compare_original_market_formation_outcomes
+    docs = original_market_formation_outcome_case()
+    frozen = deepcopy(docs)
+    r = compare_original_market_formation_outcomes(docs, work="w3", prior_works=("w1", "w2"))
+    assert docs == frozen
+    assert r["status"] == "MODEL_MATCHED_ORIGINAL_FORMATION_VALUE_CONTRAST"
+    assert r["common_prior_and_precommit_costs_preserved"]
+    assert r["recipient_declared_no_order_quantity_matched"]
+    private = r["local_research_only"]
+    assert private["accepted_selected_model_contribution"] == "610.00"
+    assert private["refused_selected_model_contribution"] == "-50.00"
+    assert private["accepted_minus_refused_model_contribution"] == "660.00"
+    assert r["empirical_network_additionality"] == "NOT_IDENTIFIABLE"
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("history", "FORMATION_CONTRAST_COMMON_FINANCIAL_HISTORY_CHANGED"),
+    ("preparation", "FORMATION_CONTRAST_COMMON_FINANCIAL_HISTORY_CHANGED"),
+    ("opening", "FORMATION_CONTRAST_FINANCIAL_BASELINE_CHANGED"),
+    ("observation", "FORMATION_CONTRAST_RECIPIENT_NO_ORDER_QUANTITY_NOT_MATCHED"),
+    ("other_decision", "FORMATION_CONTRAST_ONLY_ORIGINAL_REFUSAL_MAY_CHANGE"),
+])
+def test_matched_market_formation_contrast_rejects_unmatched_alternative(mutation, reason):
+    from research.akis.qualitative_mesa.comparative_trajectories import compare_original_market_formation_outcomes
+    docs = original_market_formation_outcome_case()
+    d = docs["refused"]
+    money = d["economic_claims"]
+    if mutation == "history":
+        money["resource_uses"][0]["amount"] = "999.00"
+    elif mutation == "preparation":
+        next(r for r in money["resource_uses"] if r["id"] == "w3-formation-op")["amount"] = "99.00"
+    elif mutation == "opening":
+        money["cash_timing"]["owner_positions"][0]["opening_cash"] = "900.00"
+    elif mutation == "observation":
+        money["uncommitted_order_cost_evidence"]["recipient_no_order_observation"]["quantity"] = "3"
+    else:
+        next(e for e in d["events"] if e.get("work") == "w3" and e["action"] == "interest_update"
+             and e["actor"] == "a")["new_willingness"] = "DECLINES"
+    with pytest.raises(ValueError, match=reason):
+        compare_original_market_formation_outcomes(docs, work="w3", prior_works=("w1", "w2"))

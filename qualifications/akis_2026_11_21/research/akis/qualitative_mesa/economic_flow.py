@@ -594,6 +594,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 "joint_purchasing_original_cash_bindings",
                 "joint_purchasing_ancillary_original_bindings",
                 "operator_service_economics", "recipient_use_value_evidence", "market_order_economics",
+                "uncommitted_order_cost_evidence",
             }):
         raise EconomicInputError("INVALID_ECONOMICS_FIELDS")
     doc = raw
@@ -1390,3 +1391,139 @@ def review_original_market_order_economics(
         },
     })
     return output
+
+
+def review_original_uncommitted_order_costs(
+    raw: Any, *, state: Any, economic_claims: Mapping[str, Any],
+    economic_view: Mapping[str, Any], strict_work_ids: str | tuple[str, ...] | None,
+) -> dict[str, Any]:
+    """Cost of unsuccessful formation, not an invented zero-cost alternative.
+
+    Only the original requested Work, independent declined interest and
+    blocked commitment are read. No new payment or fictitious accepted Result.
+    Zero selected-work cash requires every owner's own explicit scope, not
+    the mere absence of a row. Costs remain original resource-use rows.
+    """
+    _record(raw, {"work", "work_revision", "refusing_owner", "refusal_at",
+                  "owner_scopes", "recipient_no_order_observation"}, "UNCOMMITTED_ORDER")
+    key = _identifier(raw["work"], "UNCOMMITTED_ORDER_WORK")
+    strict = economic_view.get("original_strict_context_source_qualification", {})
+    if (not isinstance(strict_work_ids, tuple) or key not in strict_work_ids
+            or key not in state.works or not strict.get("source_scoped_uncommitted_recipient_observation")):
+        raise EconomicInputError("UNCOMMITTED_ORDER_ORIGINAL_STRICT_SCOPE_REQUIRED")
+    work = state.works[key]
+    providers = state.capacity_ledger.original_owners(work.resource_requirements)
+    owners = providers | {work.customer, state.institution.operator}
+    if (raw["work_revision"] != work.source_revision or raw["refusing_owner"] not in providers | {work.customer}
+            or work.obligation != "NOT_ACCEPTED" or work.result != "NOT_SUBMITTED"):
+        raise EconomicInputError("UNCOMMITTED_ORDER_ORIGINAL_INDEPENDENT_REFUSAL_REQUIRED")
+    events = [e for e in state.trace if e.get("work") == key]
+    refusals = [e for e in events if e.get("actor") == raw["refusing_owner"]
+                and e.get("action") == "interest_update" and e.get("outcome") == "APPLIED"]
+    commits = [e for e in events if e.get("action") == "commit"]
+    if (not refusals or refusals[-1].get("interest_willingness") != "DECLINES"
+            or type(raw["refusal_at"]) is not int or refusals[-1]["at"] != raw["refusal_at"]
+            or len(commits) != 1 or commits[0].get("outcome") != "BLOCKED"
+            or commits[0].get("reason") not in {
+                "INDEPENDENT_ACCEPTANCE_MISSING", "FORMATION_INTEREST_ORIGINAL_OWNER_DECLINES"}
+            or commits[0]["at"] <= raw["refusal_at"]):
+        raise EconomicInputError("UNCOMMITTED_ORDER_ORIGINAL_REFUSAL_AND_BLOCKED_COMMIT_REQUIRED")
+    money = economic_claims
+    if any(t["work"] == key for t in money["transfers"]):
+        raise EconomicInputError("UNCOMMITTED_ORDER_ZERO_TRANSFER_SCOPE_CONTRADICTED")
+    if (not isinstance(raw["owner_scopes"], dict) or set(raw["owner_scopes"]) != owners
+            or strict.get("source_scoped_uncommitted_order_owner_count") != len(owners)):
+        raise EconomicInputError("UNCOMMITTED_ORDER_ALL_ORIGINAL_OWNER_SCOPES_REQUIRED")
+    horizon = money.get("cash_timing", {}).get("horizon_end")
+    sources = dict(economic_view["declared_source_index"])
+    life = economic_view.get("lifecycle_resource_costs", {})
+    timed = life.get("original_work_event_timing", {}).get("by_original_work", {}).get(
+        key, {}).get("per_original_scenario_owner", {}).get("COOPERATION", {})
+    resources = {r["id"]: r for r in money["resource_uses"] if r["work"] == key}
+    if (not resources or any(r["owner"] not in owners or r["scenario"] != "COOPERATION"
+                            for r in resources.values())):
+        raise EconomicInputError("UNCOMMITTED_ORDER_ORIGINAL_PRECOMMIT_COST_BOUNDARY_REQUIRED")
+    precommit_actions = {"request", "offer", "authorize", "consent", "interest_update", "function_prepare"}
+    values = {}
+    scope_refs = set()
+    for owner in sorted(owners):
+        row = _record(raw["owner_scopes"][owner],
+                      {"source", "observed_at", "resource_use_ids", "zero_transfer_declared",
+                       "complete_exclusive_precommit_resource_scope"}, "UNCOMMITTED_ORDER_OWNER")
+        if (row["zero_transfer_declared"] is not True
+                or row["complete_exclusive_precommit_resource_scope"] is not True
+                or type(row["observed_at"]) is not int or type(horizon) is not int
+                or not commits[0]["at"] < row["observed_at"] <= horizon):
+            raise EconomicInputError("UNCOMMITTED_ORDER_EXPLICIT_COMPLETE_ZERO_TRANSFER_SCOPE_REQUIRED")
+        ref = sources[_flow_ref(row["source"], sources, {owner})]["reference"]
+        own = {i: r for i, r in resources.items() if r["owner"] == owner}
+        ids = [_identifier(i, "UNCOMMITTED_ORDER_RESOURCE_ROW")
+               for i in _bounded_list(row["resource_use_ids"], "UNCOMMITTED_ORDER_RESOURCE_ROW")]
+        anchors = timed.get(owner, [])
+        owner_rows = [t for t in money["transfers"] if owner in {t["payer"], t["payee"]}]
+        owner_rows += [r for r in money["resource_uses"] if r["owner"] == owner]
+        excluded = {sources[r["source"]]["reference"] for r in owner_rows}
+        for source in (money["coverage"]["COOPERATION"].get(owner),
+                       money.get("lifecycle_costs", {}).get("scope_proofs", {}).get("COOPERATION", {}).get(owner)):
+            if source in sources:
+                excluded.add(sources[source]["reference"])
+        for binding in money.get("lifecycle_costs", {}).get("event_bindings", []):
+            if binding["owner"] == owner:
+                excluded.add(binding["cost_evidence_ref"])
+        excluded.update(e.get("interest_evidence_ref") for e in events if e.get("actor") == owner)
+        if ref in excluded or ref in scope_refs:
+            raise EconomicInputError("UNCOMMITTED_ORDER_DISTINCT_OWNER_SCOPE_SOURCE_REQUIRED")
+        scope_refs.add(ref)
+        if (len(ids) != len(set(ids)) or set(ids) != set(own)
+                or {a["resource_use_id"] for a in anchors} != set(own)
+                or any(a["original_applied_action"] not in precommit_actions
+                       or a["original_event_at"] >= commits[0]["at"] for a in anchors)
+                or not economic_view["per_subject"][owner]["declared_complete"]["COOPERATION"]
+                or not life.get("owner_scoped_details", {}).get(owner, {}).get(
+                    "scenarios", {}).get("COOPERATION", {}).get("declared_resource_scope_complete_not_audited")):
+            raise EconomicInputError("UNCOMMITTED_ORDER_ALL_ORIGINAL_PRECOMMIT_COSTS_REQUIRED")
+        values[owner] = sum((_amount(r["amount"]) for r in own.values()), Decimal(0))
+    observation = _record(raw["recipient_no_order_observation"],
+                          {"source", "at", "quantity", "unit", "basis", "valuation_horizon"},
+                          "UNCOMMITTED_ORDER_RECIPIENT")
+    ref = sources[_flow_ref(observation["source"], sources, {work.customer})]["reference"]
+    buyer = work.customer
+    excluded_observation_refs = {sources[r["source"]]["reference"] for r in money["transfers"]
+                                 if buyer in {r["payer"], r["payee"]}}
+    excluded_observation_refs.update(sources[r["source"]]["reference"] for r in money["resource_uses"]
+                                     if r["owner"] == buyer)
+    excluded_observation_refs.update(r["cost_evidence_ref"] for r in money.get(
+        "lifecycle_costs", {}).get("event_bindings", []) if r["owner"] == buyer)
+    for source in (money["coverage"]["COOPERATION"].get(buyer),
+                   money.get("lifecycle_costs", {}).get("scope_proofs", {}).get("COOPERATION", {}).get(buyer)):
+        if source in sources:
+            excluded_observation_refs.add(sources[source]["reference"])
+    if (ref in scope_refs or ref in excluded_observation_refs or type(observation["at"]) is not int
+            or not commits[0]["at"] < observation["at"] <= horizon
+            or observation["valuation_horizon"] != horizon
+            or not isinstance(observation["quantity"], str)
+            or not re.fullmatch(r"(?:0|[1-9][0-9]{0,8})(?:\.[0-9]{1,4})?", observation["quantity"])):
+        raise EconomicInputError("UNCOMMITTED_ORDER_DISTINCT_RECIPIENT_OBSERVATION_REQUIRED")
+    _identifier(observation["unit"], "UNCOMMITTED_ORDER_UNIT")
+    _identifier(observation["basis"], "UNCOMMITTED_ORDER_USE_BASIS")
+    return {
+        "schema": "AKIS_ORIGINAL_UNCOMMITTED_ORDER_COST/1.0",
+        "status": "MODEL_ORIGINAL_UNCOMMITTED_ORDER_COST_SCOPE",
+        "original_independent_refusal_applied": True,
+        "original_commit_blocked": True,
+        "original_accepted_result": False,
+        "independent_zero_transfer_declaration_count": len(owners),
+        "original_precommit_resource_cost_count": len(resources),
+        "positive_precommit_cost_owner_count": sum(v > 0 for v in values.values()),
+        "no_order_recipient_quantity_source_qualified_not_measured": True,
+        "no_original_work_transfer_or_result_created": True,
+        "actual_costs_use_value_and_causal_effect": "NOT_IDENTIFIABLE",
+        "local_research_only": {
+            "total_exclusive_precommit_resource_cost": _sum_str(list(values.values())),
+            "per_owner_exclusive_precommit_resource_cost": {k: _sum_str([v]) for k, v in values.items()},
+            "declared_no_order_recipient_quantity": observation["quantity"],
+            "declared_no_order_recipient_unit": observation["unit"],
+            "declared_no_order_recipient_basis": observation["basis"],
+            "declared_no_order_recipient_valuation_horizon": horizon,
+        },
+    }

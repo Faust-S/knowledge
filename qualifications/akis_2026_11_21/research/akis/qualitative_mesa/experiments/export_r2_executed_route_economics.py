@@ -306,8 +306,13 @@ def export_multiperiod_route_economics():
         report = simulate(original_market_order_finance_case(**kwargs))["economics"]["original_market_order_economics"]
         report.pop("local_research_only", None)
         market_orders.append({"trial": label, **report})
+    from research.akis.qualitative_mesa.comparative_trajectories import compare_original_market_formation_outcomes
+    from research.akis.qualitative_mesa.tests.test_r1t3_original_technology_route_mesa import original_market_formation_outcome_case
+    formation = compare_original_market_formation_outcomes(
+        original_market_formation_outcome_case(), work="w3", prior_works=("w1", "w2"))
+    formation.pop("local_research_only", None)
     manifest = {
-        "schema": "AKIS_R1P_R3_CUMULATIVE_EXECUTED_ROUTE_ECONOMICS/1.5",
+        "schema": "AKIS_R1P_R3_CUMULATIVE_EXECUTED_ROUTE_ECONOMICS/1.6",
         "engine": "MESA_3_5_2",
         "matched_route_experiments": results,
         "fourth_period_original_feedback_experiments": fourth,
@@ -317,6 +322,7 @@ def export_multiperiod_route_economics():
         "common_supplier_operator_joint_model_viability_experiments": joint,
         "independent_recipient_use_value_experiments": recipients,
         "original_market_complementarity_economics_experiments": market_orders,
+        "matched_market_formation_outcomes": formation,
         "private_owner_amounts_and_source_references_excluded": True,
         "independent_owner_review_is_not_automatic_consent": True,
         "no_cumulative_ledger_created_outside_original_model": True,
