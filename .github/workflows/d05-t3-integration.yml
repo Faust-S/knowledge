@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: 02cfa0e2e1081d00230fc55470206d9de24730d0
+          ref: e4806a71513bd00ca8598c300037b67bf11a48fb
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -193,7 +193,7 @@ jobs:
           // strings, identifiers, patches containing code, or formatter diagnostics.
           const layout=/^[ \t\r\n"'\x60,;(){}\[\]\\]*$/u;
           const isLayout=c=>c!==undefined&&layout.test(c);
-          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx"]);
+          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts"]);
           for(const row of rows.filter(r=>r.errorCount)){
             const path=relative(process.cwd(),row.filePath);
             if(!allow.has(path)||row.messages.some(m=>m.severity===2&&m.ruleId!=="prettier/prettier"))continue;
@@ -295,21 +295,34 @@ jobs:
           fi
           grep -Eq '"added":0' "$log"
           echo D05_T3_RETAIN_PASS
+      - name: Remove disposable original source checkouts before ordinary assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in domain assistant one-core; do
+            test -d "$GITHUB_WORKSPACE/$name"
+            test ! -L "$GITHUB_WORKSPACE/$name"
+            rm -rf "$GITHUB_WORKSPACE/$name"
+            test ! -e "$GITHUB_WORKSPACE/$name"
+          done
+          echo D05_T3_NO_EXTERNAL_SOURCE_CHECKOUTS_PASS
       - name: Build complete local T3 dist from retained inputs
         working-directory: site
         shell: bash
         env:
-          CHROME_PATH: /usr/bin/google-chrome
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-product.log"
-          if ! npm run build:product:t3 >"$log" 2>&1; then
+          if ! node scripts/build-cehovod-t3-local-site.mjs >"$log" 2>&1; then
             grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T3_[A-Z0-9_]+|TS[0-9]{4,6}' "$log" | sort -u | head -30 || true
             echo D05_T3_DIST_BUILD_FAIL
             exit 1
           fi
           echo D05_T3_DIST_BUILD_PASS
       - name: Exercise actual no-model assistant and existing React forms
+        id: browser
+        continue-on-error: true
         working-directory: site
         shell: bash
         env:
@@ -322,8 +335,42 @@ jobs:
             echo D05_T3_ASSISTANT_BROWSER_FAIL
             exit 1
           fi
-          grep -E '^\{"status":"CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS","routes":[0-9]+,"forms":[0-9]+,"costRoutes":[0-9]+,"actualInference":false,"productAccepted":false\}$' "$log"
+          grep -E '^\{"status":"CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS","routes":[0-9]+,"forms":[0-9]+,"costRoutes":[0-9]+,"orderRoutes":[0-9]+,"actualInference":false,"productAccepted":false\}$' "$log"
           echo D05_T3_ASSISTANT_BROWSER_PASS
+      - name: Cold offline public site using original worker and persistent browser profile
+        id: offline
+        continue-on-error: true
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-offline.log"
+          if ! npm run check:t3-public-offline >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_OFFLINE_[A-Za-z0-9_-]+|TimeoutError|AssertionError' "$log" | sort -u | head -30 || true
+            echo D05_T3_PUBLIC_OFFLINE_FAIL
+            exit 1
+          fi
+          grep -E '^\{"status":"CEHOVOD_T3_PUBLIC_COLD_OFFLINE_PASS","routes":11,"files":[0-9]+,"serverStopped":true,"browserRestarted":true,"actualInference":false,"protectedWorkspaceAccepted":false\}$' "$log"
+          echo D05_T3_PUBLIC_OFFLINE_PASS
+      - name: Exact repeat build and damaged-input rollback from retained bytes
+        id: repro
+        continue-on-error: true
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-repro.log"
+          if ! node scripts/check-t3-dist-reproducibility.mjs >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T3_[A-Z0-9_]+|AssertionError' "$log" | sort -u | head -30 || true
+            echo D05_T3_REPRO_FAIL
+            exit 1
+          fi
+          grep -E '^\{"status":"CEHOVOD_T3_REPRO_PASS","files":[0-9]+,"invalidInputPreservedDist":true,"exactBytes":true,"productAccepted":false\}$' "$log"
+          echo D05_T3_REPRO_PASS
       - name: Require exact-source qualification
         if: always()
         shell: bash
@@ -332,7 +379,10 @@ jobs:
           TYPES_OUTCOME: ${{ steps.site_types.outcome }}
           MODULE_OUTCOME: ${{ steps.module.outcome }}
           SUBJECT_OUTCOME: ${{ steps.subject.outcome }}
-        run: test "$LINT_OUTCOME" = success && test "$TYPES_OUTCOME" = success && test "$MODULE_OUTCOME" = success && test "$SUBJECT_OUTCOME" = success
+          BROWSER_OUTCOME: ${{ steps.browser.outcome }}
+          OFFLINE_OUTCOME: ${{ steps.offline.outcome }}
+          REPRO_OUTCOME: ${{ steps.repro.outcome }}
+        run: test "$LINT_OUTCOME" = success && test "$TYPES_OUTCOME" = success && test "$MODULE_OUTCOME" = success && test "$SUBJECT_OUTCOME" = success && test "$BROWSER_OUTCOME" = success && test "$OFFLINE_OUTCOME" = success && test "$REPRO_OUTCOME" = success
       - name: Clear private diagnostics
         if: always()
         shell: bash
