@@ -1,7 +1,8 @@
 import {captureT4OriginalObjectMutation} from './original-object-mutation-capture.mjs';
 import {reconcileT4OriginalMutationIntent} from './original-object-intent-recovery.mjs';
 import {captureT4OriginalHostSubjectMutation,
-  reconcileT4OriginalHostSubjectMutation} from './original-host-subject-capture.mjs';
+  reconcileT4OriginalHostSubjectMutation,captureT4OriginalHostSubjectDeletion,
+  reconcileT4OriginalHostSubjectDeletion} from './original-host-subject-capture.mjs';
 
 export class T4OriginalHostCaptureAdapterError extends Error{
   constructor(code){super(code);this.name='T4OriginalHostCaptureAdapterError';this.code=code;}
@@ -13,7 +14,7 @@ export function createT4OriginalHostCaptureAdapter({
   originalKernel,originalWriteOwnerRef,getMode,
   authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
   persistOriginalIntent,readOriginalIntent,
-  persistOriginalOutbox,readOriginalOutbox,
+  persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,
 }={}){
   if(typeof getMode!=='function'||
     typeof originalKernel?.hasOperation!=='function'||
@@ -30,7 +31,7 @@ export function createT4OriginalHostCaptureAdapter({
     originalKernel,originalWriteOwnerRef,getMode,
     authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
     persistOriginalIntent,readOriginalIntent,
-    persistOriginalOutbox,readOriginalOutbox,
+    persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,
   });
   const requiredOriginalHostCapturePorts=()=>{
     if(!ID(originalWriteOwnerRef)||
@@ -39,6 +40,36 @@ export function createT4OriginalHostCaptureAdapter({
         readOriginalOutbox].some(f=>typeof f!=='function'))
       fail('ORIGINAL_HOST_T4_CAPTURE_PORTS_REQUIRED');
   };
+  async function deleteSubject(kind,{mutationInput,sourceCursor,captureRef,fromObjectId}={}){
+    const operation=kind==='ASSET_DELETE'?'deleteAsset':'deleteRelation';
+    if(originalKernel.hasOperation('t1.'+operation)!==true||
+      typeof originalKernel[operation]!=='function')
+      fail('ORIGINAL_HOST_T3_DELETE_SUBJECT_PORT_REQUIRED');
+    if(!mutationInput||typeof mutationInput!=='object')
+      fail('ORIGINAL_HOST_MUTATION_REQUIRED');
+    if(mode()==='LOCAL_T3'){
+      const originalReceipt=await originalKernel[operation](mutationInput);
+      return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_DELETE_RESULT_V1',
+        subjectKind:kind,t4Mode:'LOCAL_T3',originalReceipt,capture:null,
+        originalT3OperationUsed:true,originalHostUnchanged:true,networkPublished:false});
+    }
+    requiredOriginalHostCapturePorts();
+    if(!ID(captureRef)||!ID(mutationInput.workspace_id))
+      fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
+    const capture=await captureT4OriginalHostSubjectDeletion({...hostCapturePorts(),
+      kind,workspaceId:mutationInput.workspace_id,mutationInput,sourceCursor,captureRef,fromObjectId});
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_DELETE_RESULT_V1',
+      subjectKind:kind,t4Mode:'T4_NETWORK',originalReceipt:capture.originalReceipt,capture,
+      originalT3OperationUsed:true,originalHostUnchanged:true,networkPublished:false});
+  }
+  async function reconcileDeletion(kind,{captureRef,workspaceId,subjectId}={}){
+    if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_RECOVERY_REQUIRES_T4');
+    requiredOriginalHostCapturePorts();
+    if(![captureRef,workspaceId,subjectId].every(ID))
+      fail('ORIGINAL_HOST_T4_MUTATION_SCOPE_REQUIRED');
+    return reconcileT4OriginalHostSubjectDeletion({...hostCapturePorts(),
+      kind,captureRef,workspaceId,subjectId});
+  }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_HOST_CAPTURE_ADAPTER_V1',
     t3OriginalSessionIsSovereign:true,
@@ -123,6 +154,12 @@ export function createT4OriginalHostCaptureAdapter({
         originalT3OperationUsed:true,originalHostUnchanged:true,
         networkPublished:false});
     },
+    deleteAsset:options=>deleteSubject('ASSET_DELETE',options),
+    deleteRelation:options=>deleteSubject('RELATION_DELETE',options),
+    reconcileAssetDeletion:({captureRef,workspaceId,assetId}={})=>
+      reconcileDeletion('ASSET_DELETE',{captureRef,workspaceId,subjectId:assetId}),
+    reconcileRelationDeletion:({captureRef,workspaceId,relationId}={})=>
+      reconcileDeletion('RELATION_DELETE',{captureRef,workspaceId,subjectId:relationId}),
     async deleteObject({mutationInput}={}){
       if(originalKernel.hasOperation('t1.deleteObject')!==true||
         typeof originalKernel.deleteObject!=='function')

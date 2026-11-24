@@ -2,6 +2,7 @@ import {
   publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork,
   readT4OriginalHostCapturedSubject,
 } from './original-host-outbox-delivery.mjs';
+import {isT4NativeSubjectKind} from './standard-network-wire-candidate.mjs';
 import {matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
 
 export class T4OriginalHostOutboxDispatcherError extends Error {
@@ -366,7 +367,7 @@ async function prepareNextNativeObject(params){
     workspaceId:params.workspaceId,
     originalWriteOwnerRef:params.originalWriteOwnerRef,
     networkTargetRef:params.networkTargetRef,
-    kindFilter:Object.freeze(['OBJECT_PUT','ASSET_PUT','RELATION_PUT']),
+    kindFilter:Object.freeze(['OBJECT_PUT','ASSET_PUT','RELATION_PUT','ASSET_DELETE','RELATION_DELETE']),
     sourceEventId:ev.eventId,
   }));
   if(!Array.isArray(rows)||rows.length>4096)
@@ -379,7 +380,7 @@ async function prepareNextNativeObject(params){
     });
   const row=matches[0];
   const kind=entryKind(row),id=subjectId(row);
-  if(!['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(kind))
+  if(!isT4NativeSubjectKind(kind))
     fail('DISPATCH_NATIVE_NEXT_SUBJECT_KIND_NOT_IMPLEMENTED',{
       sourceEventId:ev.eventId,kind,
       noLaterEventMayBeSkipped:true,networkWritesStarted:false,

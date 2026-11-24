@@ -2,6 +2,8 @@ import {packageSha256} from './webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
 import {prepareT4OriginalAssetDelta} from './original-asset-delta.mjs';
 import {prepareT4OriginalRelationPutDelta} from './original-relation-delta.mjs';
+import {captureT4OriginalDeletionAtMutation,reconcileT4OriginalSourceDeletion,
+  runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
 
 export class T4OriginalHostSubjectCaptureError extends Error {
   constructor(code,details={}) { super(code); this.name='T4OriginalHostSubjectCaptureError';
@@ -432,4 +434,122 @@ export async function reconcileT4OriginalHostSubjectMutation(params={}){
   if(result.originalEvent.idempotency_key!==normalized.idempotencyKey)
     fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_NOT_PROVEN');
   return result;
+}
+
+const deleteKinds=new Set(['ASSET_DELETE','RELATION_DELETE']);
+const deleteOp=kind=>kind==='ASSET_DELETE'?'t1.deleteAsset':'t1.deleteRelation';
+const deleteId=(kind,pre)=>kind==='ASSET_DELETE'?pre?.assetId:pre?.relationId;
+function deletionScope(params){
+  const {kind,workspaceId,originalWriteOwnerRef,captureRef,subjectId,
+    originalKernel,authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
+    readOriginalIntent,persistOriginalOutbox,readOriginalOutbox,getMode,
+    withOriginalSubjectMutation}=params;
+  if(!deleteKinds.has(kind)||![workspaceId,originalWriteOwnerRef,captureRef,subjectId].every(ID)||
+    typeof withOriginalSubjectMutation!=='function'||
+    !['t1.getObject','t1.listEventsSince',deleteOp(kind),
+      ...(kind==='ASSET_DELETE'?['t1.getAsset']:[])].every(op=>
+        originalKernel?.hasOperation?.(op)===true&&typeof originalKernel[op.slice(3)]==='function')||
+    [authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,readOriginalIntent,
+      persistOriginalOutbox,readOriginalOutbox].some(f=>typeof f!=='function'))
+    fail('SUBJECT_CAPTURE_ORIGINAL_DELETE_HOST_PORTS_REQUIRED');
+  mode(getMode);
+  const scope=Object.freeze({kind,workspaceId,originalWriteOwnerRef,captureRef,subjectId});
+  const guard=async()=>{
+    mode(getMode);
+    if(await authorizeOriginalRead(proofContext(scope,'t1.getObject'))!==true||
+      await authorizeOriginalRead(proofContext(scope,'t1.listEventsSince'))!==true||
+      await authorizeOriginalWrite(proofContext(scope,deleteOp(kind)))!==true)
+      fail('SUBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
+    mode(getMode);
+  };
+  const boundary={...proofContext(scope,deleteOp(kind)),
+    originalHostMustSerializeSubjectMutations:true,networkIsNotOriginalGrant:true};
+  return {scope,guard,boundary};
+}
+function deletionParams(p,scope,sourceIdempotencyKey,objectId){
+  return {...scope,objectId,sourceIdempotencyKey,originalKernel:p.originalKernel,
+    nativeNetworkEvidence:true,getMode:p.getMode,
+    authorizeOriginalRead:p.authorizeOriginalRead,authorizeOriginalDelete:p.authorizeOriginalWrite,
+    persistOriginalPreDeleteWitness:p.persistOriginalIntent,
+    readOriginalPreDeleteWitness:p.readOriginalIntent,readOriginalEvents:p.readOriginalEvents};
+}
+function deletionOutbox(capture){
+  const i=capture.originalPreDeleteCapture,w=capture.window,d=capture.prepared;
+  return Object.freeze({schema:OUTBOX,kind:i.kind,workspaceId:i.workspaceId,
+    originalWriteOwnerRef:i.originalWriteOwnerRef,subjectId:deleteId(i.kind,i.preImage),
+    captureRef:i.captureRef,inputDigest:digest(i),sourceEventId:w.lastEventId,
+    sourceCursorBefore:i.sourceCursor,sourceCursorAfter:capture.nextCursor,
+    sourceWindow:w,key:d.key,sha256:d.sha256,bytesBase64:d.bytes.toString('base64'),
+    originalT3MutationConfirmed:true,networkPublished:false,recipientApplied:false});
+}
+async function stageDeletion(p,guard,captured){
+  const row=deletionOutbox(captured);
+  await guard();
+  let prior=await p.readOriginalOutbox(row);
+  const reused=prior!=null;
+  if(!reused){
+    if(await p.persistOriginalOutbox(row)!==true)
+      fail('SUBJECT_CAPTURE_OUTBOX_COMMIT_UNCERTAIN',{captureRef:row.captureRef,
+        originalWriteAlreadyCommitted:true,automaticRetryAllowed:false});
+    prior=await p.readOriginalOutbox(row);
+  }
+  if(!equal(prior,row))fail('SUBJECT_CAPTURE_ORIGINAL_OUTBOX_MISMATCH');
+  await guard();
+  return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_CAPTURE_RECEIPT_V1',
+    kind:row.kind,captureRef:row.captureRef,originalReceipt:captured.sourceOriginalReceipt,
+    originalEvent:captured.sourceOriginalEvent,
+    originalOperationReceiptRecreated:false,originalMutationRetried:false,
+    originalT3OutboxVerified:true,originalT3IsOnlyStore:true,alreadyCaptured:reused,
+    networkPublished:false,recipientApplied:false,sourceCursorAdvanced:false,
+    prepared:captured.prepared,window:captured.window,nextCursor:captured.nextCursor});
+}
+/** Native delete goes through the original subject intent/outbox ports.
+ * The existing Host, not T4, owns exclusion of competing graph mutations.
+ */
+export async function captureT4OriginalHostSubjectDeletion(p={}){
+  const {kind,mutationInput,captureRef,workspaceId,sourceCursor,
+    originalWriteOwnerRef,withOriginalSubjectMutation,fromObjectId}=p;
+  const asset=kind==='ASSET_DELETE';
+  const subjectId=asset?mutationInput?.asset_id:mutationInput?.relation_id;
+  const objectId=asset?undefined:fromObjectId;
+  const {scope,guard,boundary}=deletionScope({...p,subjectId});
+  checkCursor(sourceCursor,workspaceId,originalWriteOwnerRef);
+  if(mutationInput?.workspace_id!==workspaceId||!ID(mutationInput.event?.event_type)||
+    (!asset&&!ID(objectId))||typeof p.persistOriginalIntent!=='function'||
+    (asset&&mutationInput.base_revision!==undefined&&
+      (!Number.isSafeInteger(mutationInput.base_revision)||mutationInput.base_revision<1)))
+    fail('SUBJECT_CAPTURE_ORIGINAL_INPUT_INVALID');
+  const key=mutationInput.event.idempotency_key??('t4-source-delete-'+
+    packageSha256(Buffer.from([kind,workspaceId,captureRef].join('|'))));
+  if(!ID(key))fail('SUBJECT_CAPTURE_ORIGINAL_IDEMPOTENCY_KEY_INVALID');
+  const event={event_type:mutationInput.event.event_type,
+    payload:structuredClone(mutationInput.event.payload??{}),idempotency_key:key};
+  const expectedBaseRevision=mutationInput.base_revision;
+  return runT4OriginalSubjectMutationBoundary(withOriginalSubjectMutation,boundary,async()=>{
+    await guard();
+    const captured=await captureT4OriginalDeletionAtMutation({
+      ...deletionParams(p,scope,key,objectId),sourceCursor,sourceEvent:event,
+      ...(asset?{expectedBaseRevision}:{})});
+    return stageDeletion(p,guard,captured);
+  });
+}
+export async function reconcileT4OriginalHostSubjectDeletion(p={}){
+  const {scope,guard,boundary}=deletionScope(p);
+  return runT4OriginalSubjectMutationBoundary(p.withOriginalSubjectMutation,boundary,async()=>{
+    await guard();
+    const intent=await p.readOriginalIntent(scope);
+    if(intent?.schema!=='IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1'||
+      intent.kind!==scope.kind||intent.captureRef!==scope.captureRef||
+      intent.workspaceId!==scope.workspaceId||
+      intent.originalWriteOwnerRef!==scope.originalWriteOwnerRef||
+      deleteId(scope.kind,intent.preImage)!==scope.subjectId||
+      !ID(intent.sourceEvent?.idempotency_key))
+      fail('SUBJECT_CAPTURE_ORIGINAL_INTENT_INVALID');
+    checkCursor(intent.sourceCursor,scope.workspaceId,scope.originalWriteOwnerRef);
+    const objectId=scope.kind==='ASSET_DELETE'?intent.preImage.objectId:intent.preImage.fromObjectId;
+    const captured=await reconcileT4OriginalSourceDeletion({
+      ...deletionParams(p,scope,intent.sourceEvent.idempotency_key,objectId),
+      sourceCursor:intent.sourceCursor});
+    return stageDeletion(p,guard,captured);
+  });
 }

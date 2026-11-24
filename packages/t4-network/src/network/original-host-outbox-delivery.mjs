@@ -3,6 +3,8 @@ import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest} from '.
 import {publishT4OriginalObjectDelta,decodeT4OriginalObjectDeltaBytes} from './original-object-delta.mjs';
 import {publishT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes} from './original-asset-delta.mjs';
 import {publishT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes} from './original-relation-delta.mjs';
+import {decodeT4OriginalDeleteDeltaBytes,originalT4DeletionCapturedEvent} from './original-deletion-delta.mjs';
+import {isT4NativeDeleteKind} from './standard-network-wire-candidate.mjs';
 
 export class T4OriginalHostOutboxDeliveryError extends Error{
   constructor(code,details={}){super(code);this.name='T4OriginalHostOutboxDeliveryError';
@@ -28,12 +30,17 @@ const KIND_SCHEMA=Object.freeze({
     intent:'IWXA_T4_ORIGINAL_SUBJECT_MUTATION_INTENT_V1',
     networkPublish:publishT4OriginalRelationPutDelta,
   }),
+  ASSET_DELETE:Object.freeze({outbox:'IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1',
+    intent:'IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1'}),
+  RELATION_DELETE:Object.freeze({outbox:'IWXA_T4_ORIGINAL_SUBJECT_DELTA_OUTBOX_V1',
+    intent:'IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1'}),
 });
 const order=x=>Array.isArray(x)?x.map(order):
   x&&typeof x==='object'?Object.fromEntries(
     Object.keys(x).sort().map(k=>[k,order(x[k])])):x;
 const same=(a,b)=>JSON.stringify(order(a))===JSON.stringify(order(b));
 const wire=x=>Buffer.from(JSON.stringify(x),'utf8');
+const deletedId=(kind,pre)=>kind==='ASSET_DELETE'?pre?.assetId:pre?.relationId;
 const digest=x=>'sha256:'+packageSha256(Buffer.from(JSON.stringify(order(x)),'utf8'));
 function mode(getMode){
   if(typeof getMode!=='function'||getMode()!=='T4_NETWORK')
@@ -61,7 +68,8 @@ function validateEnvelope(scope,outbox,intent){
       (outbox.objectId!==scope.subjectId||
        intent.objectId!==scope.subjectId):
       (outbox.subjectId!==scope.subjectId||
-       intent.subjectId!==scope.subjectId||
+       (isT4NativeDeleteKind(scope.kind)?deletedId(scope.kind,intent.preImage):
+         intent.subjectId)!==scope.subjectId||
        outbox.kind!==scope.kind||
        intent.kind!==scope.kind))||
     !SHA(outbox.sha256)||outbox.key!==outbox.sha256+'.t4d'||
@@ -119,6 +127,16 @@ function validateEnvelope(scope,outbox,intent){
       delta.assetBytesSha256!==packageSha256(
         Buffer.from(original.bytesBase64??'','base64')))
       fail('OUTBOX_ORIGINAL_ASSET_INTENT_MISMATCH');
+  }else if(isT4NativeDeleteKind(scope.kind)){
+    const exact=decodeT4OriginalDeleteDeltaBytes(bytes);
+    if(exact.delta.kind!==scope.kind||exact.delta.captureRef!==scope.captureRef||
+      exact.delta.preImageDigest!==intent.preImageDigest||
+      !same(exact.delta.preImage,intent.preImage)||
+      digest(intent.preImage)!==intent.preImageDigest||
+      outbox.inputDigest!==digest(intent)||
+      !ID(intent.sourceEvent?.idempotency_key)||
+      intent.storedInOriginalT3Required!==true||intent.networkIsNotAnOriginalGrant!==true)
+      fail('OUTBOX_ORIGINAL_DELETE_INTENT_MISMATCH');
   }else{
     const original=intent.operation;
     if(!HASH(intent.inputDigest)||
@@ -190,6 +208,11 @@ async function loadVerifiedOutbox(params){
     if(event.payload?.iwxa_t4_capture_ref!==s.captureRef||
       event.payload?.iwxa_t4_original_input_digest!==
         intent.originalInputDigest)
+      fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
+  }else if(isT4NativeDeleteKind(kind)){
+    const expected=originalT4DeletionCapturedEvent(intent);
+    if(event.idempotency_key!==expected.idempotency_key||
+      event.event_type!==expected.event_type||!same(event.payload,expected.payload))
       fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
   }else if(event.idempotency_key!==intent.idempotencyKey||
     event.event_type!==intent.operation.event?.event_type)
@@ -313,9 +336,36 @@ export async function verifyT4OriginalHostCapturedObjectSource(params,proof){
  */
 export async function readT4OriginalHostCapturedSubject(params={}){
   if(params.kind==='OBJECT_PUT')return readT4OriginalHostCapturedObject(params);
-  if(!['ASSET_PUT','RELATION_PUT'].includes(params.kind))
+  if(!['ASSET_PUT','RELATION_PUT'].includes(params.kind)&&!isT4NativeDeleteKind(params.kind))
     fail('OUTBOX_NATIVE_SUBJECT_KIND_UNSUPPORTED');
   const verified=await loadVerifiedOutbox(params);
+  if(isT4NativeDeleteKind(params.kind)){
+    const {outbox,originalSourceEvent:event,currentSourceWindow:window,
+      currentNextCursor:nextCursor}=verified;
+    const exact=decodeT4OriginalDeleteDeltaBytes(verified.prepared.bytes),d=exact.delta;
+    const originalObjectId=params.kind==='ASSET_DELETE'?d.preImage.objectId:d.preImage.fromObjectId;
+    if(exact.sha256!==outbox.sha256||exact.key!==outbox.key||
+      !same(outbox.sourceCursorAfter,nextCursor)||!outbox.sourceWindow||
+      !matchesT4OriginalCapturedWindowDigest(outbox.sourceWindow,d.windowDigest)||
+      !matchesT4OriginalCapturedWindowDigest(window,d.windowDigest)||
+      (event.object_id!=null&&event.object_id!==originalObjectId&&event.object_id!==verified.subjectId)||
+      event.payload?.iwxa_t4_capture_ref!==d.captureRef||
+      event.payload?.iwxa_t4_preimage_digest!==d.preImageDigest)
+      fail('OUTBOX_NATIVE_ORIGINAL_SUBJECT_CAPTURE_NOT_PROVEN');
+    mode(params.getMode);
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURED_SUBJECT_V1',
+      kind:params.kind,subjectId:verified.subjectId,objectId:originalObjectId,
+      captureRef:verified.captureRef,workspaceId:verified.workspaceId,
+      originalWriteOwnerRef:verified.originalWriteOwnerRef,
+      sourceEventId:d.sourceEventId,sourceRevision:null,originalEventRevision:event.revision??null,
+      sourceCursorBefore:structuredClone(outbox.sourceCursorBefore),
+      sourceCursorAfter:structuredClone(outbox.sourceCursorAfter),
+      sourceWindow:structuredClone(outbox.sourceWindow),prepared:exact,
+      originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
+      originalDeletionPreImageVerified:true,laterSourceEventsExist:window.hasMore,
+      currentObjectReadOrUsedAsHistoricalBytes:false,originalT3OutboxUnchanged:true,
+      networkPublished:false,originalRecipientApplied:false});
+  }
   const {outbox,intent,originalSourceEvent:event,currentSourceWindow:window,
     currentNextCursor:nextCursor}=verified;
   const exact=params.kind==='ASSET_PUT'?
@@ -400,6 +450,7 @@ export async function verifyT4OriginalHostCapturedSubjectSource(params,proof){
   return proof.originalT3SourceEventAndSubjectReadRequired===true;
 }
 export async function publishT4OriginalHostOutbox(params={}){
+  if(isT4NativeDeleteKind(params.kind))fail('OUTBOX_DELETE_REQUIRES_NATIVE_NETWORK');
   if(typeof params.transport?.putSnapshot!=='function')
     fail('OUTBOX_NETWORK_TRANSPORT_REQUIRED');
   const verified=await loadVerifiedOutbox(params);
