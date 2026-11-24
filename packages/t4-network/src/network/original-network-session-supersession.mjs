@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {validateT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
+import {validateT4OriginalNativeCaptureSession,deriveT4OriginalSupersessionPublicationSession} from './original-network-publication.mjs';
 import {createT4CandidateSupersessionClaim,T4_SESSION_SUPERSESSION_EXTENSION,
   createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,t4NativeSubjectCriticalExtensions}
   from './standard-network-wire-candidate.mjs';
@@ -146,7 +146,7 @@ export async function signT4OriginalSupersessionRequest({plan,authorizeOriginalS
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_SUPERSESSION_REQUEST_FRAME_V1',plan:p,...signed,
     originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false});
 }
-export async function retireT4OriginalRecipientAttemptFromControl({plan,requestAddress,recipientPhasePort,
+async function retireFromControl({plan,requestAddress,recipientPhasePort,
   authorizeOriginalRecipientSupersessionRequest,verifyOriginalSourceCapture,...ports}={}){
   const p=exactPlan(plan),b=p.claim.body,{getMode}=ports;
   if(recipientPhasePort?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||recipientPhasePort.role!=='RECIPIENT'||
@@ -181,12 +181,96 @@ export async function retireT4OriginalRecipientAttemptFromControl({plan,requestA
     retired.originalSubjectMutationInvoked!==false||retired.liveNetworkAuthorityGranted!==false)
     fail('SUPERSESSION_ORIGINAL_RETIREMENT_NOT_PROVEN');
   await authorize();
+  return {p,evidence,authorize,read,retired,ports};
+}
+export async function retireT4OriginalRecipientAttemptFromControl(options={}){
+  const {p,evidence,authorize,read,retired,ports}=await retireFromControl(options);
   const signed=await signControl(p,ACK,evidence,ports);
   await authorize();
   if(!same(await read(),evidence))fail('SUPERSESSION_ORIGINAL_RETIREMENT_CHANGED');
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_RETIREMENT_ACK_FRAME_V1',plan:p,retirement:evidence,...signed,
     retirementStatus:retired.status,originalRecipientAttemptSuperseded:true,originalNewAttemptAdmissionStillRequired:true,
     originalSubjectMutationInvoked:false,liveNetworkAuthorityGranted:false});
+}
+async function publishControl({p,type,body,authorize,read=null,ports}){
+  const {getMode,createOriginalControlPublicationPort,retryMissing=false}=ports;
+  if(typeof createOriginalControlPublicationPort!=='function'||typeof retryMissing!=='boolean')
+    fail('SUPERSESSION_ORIGINAL_CONTROL_PUBLICATION_PORT_REQUIRED');
+  const session=deriveT4OriginalSupersessionPublicationSession({session:p.session,claim:p.claim});
+  const current=async()=>{
+    await authorize();
+    if(read&&!same(await read(),body))fail('SUPERSESSION_ORIGINAL_RETIREMENT_CHANGED');
+    mode(getMode);
+  };
+  await current();
+  const port=await createOriginalControlPublicationPort(freeze({session,
+    originalControlPublicationRequired:true,originalNewAttemptAdmissionStillRequired:true}));
+  mode(getMode);
+  if(port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||!same(port.session,session)||
+    !ID(port.checkpointRef)||port.originalT3OnlyStore!==true||port.createsScheduler!==false||
+    port.createsTaskEngine!==false||port.originalControlPublication!==true||
+    !['prepareSignedBatch','publishPreparedFrame','inspectOriginalPublication'].every(k=>typeof port[k]==='function'))
+    fail('SUPERSESSION_ORIGINAL_CONTROL_PUBLICATION_PORT_REQUIRED');
+  const prepared=await port.prepareSignedBatch({slots:[{sequence:1,messageType:type}],
+    createSignedFrames:async()=>{
+      await current();
+      const signed=await signControl(p,type,body,ports);
+      await current();
+      return [signed.wireBytes];
+    }});
+  await current();
+  const entry=prepared?.frames?.[0];
+  if(!['ORIGINAL_SIGNED_BATCH_ALREADY_PREPARED','ORIGINAL_SIGNED_BATCH_PREPARED'].includes(prepared?.state)||
+    prepared.sessionRef!==session.sessionRef||prepared.checkpointRef!==port.checkpointRef||
+    prepared.frames?.length!==1||entry.sequence!==1||entry.messageType!==type||!SHA(entry.sha256)||
+    prepared.originalT3EventChainVerified!==true||prepared.networkPublished!==false||
+    prepared.originalBusinessApplied!==false)
+    fail('SUPERSESSION_ORIGINAL_CONTROL_PREPARATION_INVALID');
+  async function inspect(){
+    const saved=await port.inspectOriginalPublication();mode(getMode);
+    const frame=saved?.frames?.[0];
+    if(saved?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1'||!same(saved.session,session)||
+      saved.checkpointRef!==port.checkpointRef||saved.originalT3EventChainVerified!==true||
+      saved.originalBusinessApplied!==false||saved.sourceCursorAdvanced!==false||
+      !Number.isSafeInteger(saved.revision)||saved.revision<1||!DIG(saved.chainHash)||
+      saved.frames?.length!==1||frame.sequence!==1||frame.messageType!==type||
+      frame.sha256!==entry.sha256||frame.key!==entry.sha256+'.t4n'||
+      !(frame.wireBytes instanceof Uint8Array)||bytesHash(frame.wireBytes)!==entry.sha256||
+      !same(decodeT4CandidateFrame(frame.wireBytes).body,body))
+      fail('SUPERSESSION_ORIGINAL_CONTROL_PREPARATION_INVALID');
+    return saved;
+  }
+  await inspect();await current();
+  const published=await port.publishPreparedFrame({sequence:1,retryMissing});mode(getMode);
+  await current();const saved=await inspect();
+  if(published?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_RESULT_V1'||
+    published.sessionRef!==session.sessionRef||published.changeId!==session.changeId||
+    published.checkpointRef!==port.checkpointRef||published.sequence!==1||published.messageType!==type||
+    published.sha256!==entry.sha256||published.key!==entry.sha256+'.t4n'||
+    !['PUBLISHED_AND_READ_BACK','ALREADY_PRESENT_VERIFIED','REMOTE_READBACK_RECOVERED'].includes(published.state)||
+    published.originalPublicationRevision!==saved.revision||saved.frames[0].state!=='PRESENT'||
+    published.immutableTransportReadback!==true||published.originalBusinessApplied!==false||
+    published.originalSubjectMutationInvoked!==false||published.sourceCursorAdvanced!==false||
+    published.recipientCursorAdvanced!==false||published.originalT3ExchangeCalled!==false)
+    fail('SUPERSESSION_ORIGINAL_CONTROL_PUBLICATION_NOT_PROVEN');
+  return Object.freeze({schema:'IWXA_T4_ORIGINAL_SUPERSESSION_CONTROL_PUBLISHED_V1',
+    plan:p,controlMessageType:type,controlSessionRef:session.sessionRef,key:published.key,sha256:published.sha256,
+    originalPublicationCheckpointRef:port.checkpointRef,originalPublicationRevision:saved.revision,
+    originalPublicationChainHash:saved.chainHash,publicationState:published.state,
+    networkPublished:true,originalSignedBytesRetained:true,originalT3PublicationEventChainVerified:true,
+    originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,
+    originalBusinessApplied:false,sourceCursorAdvanced:false,liveNetworkAuthorityGranted:false});
+}
+export async function publishT4OriginalSupersessionRequest({plan,authorizeOriginalSupersessionRequest,...ports}={}){
+  const p=exactPlan(plan),proof=controlProof(p,REQUEST,{operation:'t4.network.original.supersession.request'});
+  const authorize=()=>allowed(authorizeOriginalSupersessionRequest,proof,ports.getMode,'SUPERSESSION_ORIGINAL_REQUEST_DENIED');
+  return publishControl({p,type:REQUEST,body:p.claim.body,authorize,ports});
+}
+export async function publishT4OriginalRecipientRetirementAck(options={}){
+  const {p,evidence,authorize,read,retired,ports}=await retireFromControl(options);
+  const published=await publishControl({p,type:ACK,body:evidence,authorize,read,ports});
+  return Object.freeze({...published,retirement:evidence,retirementStatus:retired.status,
+    originalRecipientAttemptSuperseded:true});
 }
 export async function verifyT4OriginalRecipientRetirementAck({plan,ackAddress,readOriginalRecipientRetirement,
   authorizeOriginalSupersessionAcceptance,...ports}={}){

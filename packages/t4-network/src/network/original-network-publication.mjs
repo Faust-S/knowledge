@@ -6,7 +6,8 @@ import {isT4RecoverableFrameTransportError} from './standard-network-wire-transp
 import {T4TransferError} from './webdav-package-transfer.mjs';
 import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4CandidateHistoricalFrameSignature,
   isT4NativeEventOnlyKind,validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions,
-  T4_ORIGINAL_SOURCE_SESSION_EXTENSION}
+  T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_SESSION_SUPERSESSION_EXTENSION,
+  createT4CandidateSupersessionClaim,validateT4CandidateSupersessionRetirementClaim}
   from './standard-network-wire-candidate.mjs';
 import {t4OriginalDeletedSubjectRevision} from './original-deletion-delta.mjs';
 import {assembleT4CandidateOpaqueChunks}
@@ -54,6 +55,7 @@ const deepFreeze=x=>{if(x&&typeof x==='object'){Object.values(x).forEach(deepFre
 const SCHEMA='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1';
 const EVENT='t4.network.original.frame.publication';
 const SESSION='IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SESSION_V1';
+const CONTROL_SESSION='IWXA_T4_ORIGINAL_SUPERSESSION_PUBLICATION_SESSION_V1';
 const PUBLICATION_PREFIX='t4:net:publish:';
 const publicationRef=(sessionRef,localNodeRef,technicalWorkspaceId)=>PUBLICATION_PREFIX+
   digest('PUBLICATION-KEY',{sessionRef,localNodeRef,technicalWorkspaceId}).slice(7);
@@ -91,6 +93,29 @@ function canonicalSession(input){
 export function validateT4OriginalNativeCaptureSession(session){
   const canonical=canonicalSession(session);
   if(!same(canonical,session))fail('PUBLICATION_ORIGINAL_CAPTURE_IDENTITY_INVALID');
+  return canonical;
+}
+// Control frames use the same original publication Object/Event and slot
+// machine. Their identity is not a new native transfer session.
+export function deriveT4OriginalSupersessionPublicationSession({session,claim}={}){
+  const original=validateT4OriginalNativeCaptureSession(session);
+  const b=claim?.body;
+  const exact=createT4CandidateSupersessionClaim({
+    sourceNodeRef:original.sourceNodeRef,recipientNodeRef:original.recipientNodeRef,
+    scopeRef:original.scopeRef,ownerEpoch:original.ownerEpoch,previousSessionRef:original.sessionRef,
+    changeId:original.changeId,captureDigest:digest('SUPERSESSION-CAPTURE',original),
+    predecessorDigest:original.sourcePrefixDigestBefore,
+    expectedPhaseRevision:b?.expectedPhaseRevision,expectedPhaseChainHash:b?.expectedPhaseChainHash,
+    decisionRef:b?.decisionRef,requestRef:b?.requestRef});
+  if(!same(exact,claim))fail('PUBLICATION_ORIGINAL_CONTROL_CLAIM_INVALID');
+  return deepFreeze({...original,schema:CONTROL_SESSION,sessionRef:exact.controlSessionRef,
+    originalCaptureSession:original,controlClaim:exact});
+}
+function validatePublicationSession(session){
+  if(session?.schema!==CONTROL_SESSION)return validateT4OriginalNativeCaptureSession(session);
+  const canonical=deriveT4OriginalSupersessionPublicationSession({
+    session:session.originalCaptureSession,claim:session.controlClaim});
+  if(!same(canonical,session))fail('PUBLICATION_ORIGINAL_CONTROL_SESSION_INVALID');
   return canonical;
 }
 export function deriveT4OriginalNativeCaptureSession(task){
@@ -238,7 +263,7 @@ export async function readT4OriginalPublicationMigrationInventory({
       d?.schema!==SCHEMA||d.checkpointRef!==o.object_id||!DIG(d.chainHash)||
       !r||r.technicalWorkspaceId!==technicalWorkspaceId||records.has(o.object_id))
       fail('PUBLICATION_MIGRATION_ORIGINAL_INVENTORY_INVALID');
-    const session=validateT4OriginalNativeCaptureSession(r.session);
+    const session=validatePublicationSession(r.session);
     if(![session.sourceNodeRef,session.recipientNodeRef].includes(r.localNodeRef)||
       !same(r,{session,localNodeRef:r.localNodeRef,technicalWorkspaceId})||
       publicationRef(session.sessionRef,r.localNodeRef,technicalWorkspaceId)!==o.object_id)
@@ -257,7 +282,7 @@ export async function readT4OriginalPublicationMigrationInventory({
     eventIds.add(e.event_id);
     const list=events.get(e.object_id)??[];list.push(e);events.set(e.object_id,list);
   }
-  const selected=[];
+  const selected=[],controlRecords=[];
   for(const [key,{matches,...r}] of records){
     const list=events.get(key)??[];
     if(list.length!==r.revision||list.some((e,i)=>e.revision!==i+1)||
@@ -267,12 +292,16 @@ export async function readT4OriginalPublicationMigrationInventory({
     // or the catalog Object stayed unchanged during a multi-wake migration.
     // These ephemeral exact-content digests bind the final inventory to the
     // initial read. Full per-publication verification is still required.
-    if(matches)selected.push(Object.freeze({...r,
+    // Controls are created only with native index V1. They do not belong
+    // to legacy source HEAD migration or the committed business frontier.
+    // Still bind their complete original Object/Event inventory to the scan.
+    if(matches)(r.session.schema===CONTROL_SESSION?controlRecords:selected).push(Object.freeze({...r,
       originalEventStreamDigest:digest('PUBLICATION-MIGRATION-EVENTS',list)}));
   }
-  selected.sort((a,b)=>a.checkpointRef<b.checkpointRef?-1:a.checkpointRef>b.checkpointRef?1:0);
+  const byRef=(a,b)=>a.checkpointRef<b.checkpointRef?-1:a.checkpointRef>b.checkpointRef?1:0;
+  selected.sort(byRef);controlRecords.sort(byRef);
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_PUBLICATION_MIGRATION_INVENTORY_V1',
-    records:Object.freeze(selected),originalCatalogAndEventCorrespondenceVerified:true,
+    records:Object.freeze(selected),...(controlRecords.length?{controlRecords:Object.freeze(controlRecords)}:{}),originalCatalogAndEventCorrespondenceVerified:true,
     originalPublicationChainsVerified:false,originalAuthorityGranted:false,
     createsStore:false,remoteCollectionEnumerated:false});
 }
@@ -373,7 +402,7 @@ export function createT4OriginalPublicationIndexMigrationStepper({
       }
       if(migrationPosition===records.length){
         const after=await readMigrationInventory();
-        if(!same(after.records,records))
+        if(!same(after.records,records)||!same(after.controlRecords??[],migrationInventory.controlRecords??[]))
           fail('NATIVE_INDEX_MIGRATION_INVENTORY_CHANGED');
         const completedAfter=await readCompleted(after.records);
         for(const [changeId,prior] of completedSourceRecords)
@@ -396,10 +425,10 @@ export function createT4OriginalNetworkPublicationPort({
   readOriginalHostContext,authorizeOriginalTechnicalRead,
   authorizeOriginalTechnicalWrite,authorizeOriginalFramePublish,
   verifyOriginalNodeSignature,frameTransport,authorizeOriginalSealedPublication=null,
-  verifyOriginalHistoricalNodeSignature=null,
+  verifyOriginalHistoricalNodeSignature=null,authorizeOriginalControlPublication=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
-  const identity=canonicalSession(session);
+  const identity=validatePublicationSession(session),control=identity.schema===CONTROL_SESSION;
   if(!same(identity,session)||
     ![identity.sourceNodeRef,identity.recipientNodeRef].includes(localNodeRef)||
     !ID(technicalWorkspaceId)||
@@ -416,10 +445,13 @@ export function createT4OriginalNetworkPublicationPort({
   if(verifyOriginalHistoricalNodeSignature!==null&&typeof verifyOriginalHistoricalNodeSignature!=='function')
     fail('PUBLICATION_ORIGINAL_HISTORY_PORT_INVALID');
   const source=localNodeRef===identity.sourceNodeRef;
+  if(control?(frameTransport.nativeFrameIndexVersion!==1||typeof authorizeOriginalControlPublication!=='function'||
+      authorizeOriginalSealedPublication!==null):authorizeOriginalControlPublication!==null)
+    fail('PUBLICATION_ORIGINAL_CONTROL_AUTHORITY_REQUIRED');
   if(authorizeOriginalSealedPublication!==null&&(!source||typeof authorizeOriginalSealedPublication!=='function'))
     fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_INVALID');
   const remoteNodeRef=source?identity.recipientNodeRef:identity.sourceNodeRef;
-  const types=source?SOURCE_TYPES:RECIPIENT_TYPES;
+  const types=control?new Set([source?'ATTEMPT_RETIRE_REQUEST':'ATTEMPT_RETIRED_ACK']):source?SOURCE_TYPES:RECIPIENT_TYPES;
   const recordIdentity={session:identity,localNodeRef,technicalWorkspaceId};
   const checkpointRef=publicationRef(identity.sessionRef,localNodeRef,technicalWorkspaceId);
   const genesis=digest('PUBLICATION-CHAIN',{recordIdentity,checkpointRef});
@@ -450,12 +482,19 @@ export function createT4OriginalNetworkPublicationPort({
       signerRef:signedFrame?.signerRef??null,
       permissionRef:signedFrame?.permissionRef??null,
       frameMessageType:signedFrame?.messageType??null,
+      ...(control?{originalControlPublicationRequired:true,originalCaptureSession:identity.originalCaptureSession,
+        controlClaim:identity.controlClaim,controlBody:signedFrame?deepFreeze(clone(signedFrame.body)):null,
+        originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationAllowed:false}:{}),
       originalHostAuthorityRequired:true,networkReceiptIsNotBusinessResult:true});
     const allowed=operation==='t1.putObject'?authorizeOriginalTechnicalWrite:
       operation.startsWith('t1.')?authorizeOriginalTechnicalRead:
         authorizeOriginalFramePublish;
     if(await allowed(proof)!==true)
       fail('PUBLICATION_ORIGINAL_AUTHORITY_DENIED',{operation,purpose});
+    if(!same(await context(),ctx))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED',{automaticRetryAllowed:false});
+    if(control&&operation.startsWith('t4.network.publish.')&&
+      await authorizeOriginalControlPublication(proof)!==true)
+      fail('PUBLICATION_ORIGINAL_CONTROL_AUTHORITY_DENIED',{operation,purpose});
     if(!same(await context(),ctx))
       fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED',{automaticRetryAllowed:false});
   }
@@ -470,6 +509,16 @@ export function createT4OriginalNetworkPublicationPort({
       frame.ownerEpoch!==identity.ownerEpoch||!types.has(frame.messageType))
       fail('PUBLICATION_FRAME_SESSION_MISMATCH');
     const b=frame.body;
+    if(control){
+      const claim=identity.controlClaim.body;
+      if(frame.sequence!==1||!same(frame.criticalExtensions,[T4_SESSION_SUPERSESSION_EXTENSION])||
+        (source?!same(b,claim):!Object.keys(claim).every(k=>claim[k]===b[k])))
+        fail('PUBLICATION_CONTROL_CLAIM_MISMATCH');
+      if(!source)validateT4CandidateSupersessionRetirementClaim({
+        body:b,sourceNodeRef:identity.sourceNodeRef,recipientNodeRef:identity.recipientNodeRef,
+        scopeRef:identity.scopeRef,ownerEpoch:identity.ownerEpoch});
+      return frame;
+    }
     if(frame.messageType==='HEADS'&&frame.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION))
       readT4OriginalSourceSessionHead({identity,body:b,sessionRef:frame.sessionRef,expectedSession:identity});
     if((['CHANGE_REF','APPLIED_ACK'].includes(frame.messageType)&&
@@ -519,6 +568,9 @@ export function createT4OriginalNetworkPublicationPort({
     }
   }
   function contentWriteGuard(ctx,entries,entry){
+    // A control frame and every index repair use current original decision
+    // and signer authority immediately before the physical write.
+    if(control)return async()=>{await verifyFrame(ctx,entry,'before-control-network-write');return true;};
     if(authorizeOriginalSealedPublication===null||
       !['CHANGE_REF','CHUNK'].includes(entry.messageType))return null;
     // Only the exact original signed batch is eligible. Snapshot before
@@ -537,6 +589,11 @@ export function createT4OriginalNetworkPublicationPort({
     };
   }
   function verifySessionEntries(entries){
+    if(control){
+      if(entries.length!==1||frameFor(entries[0]).sequence!==1)
+        fail('PUBLICATION_CONTROL_SINGLE_SLOT_REQUIRED');
+      return;
+    }
     const once=new Set(['HELLO','CAPABILITIES','HEADS','DIFF_REQUEST',
       'CHANGE_REF','RECEIVED_ACK','VERIFIED_ACK','APPLIED_ACK']);
     const seen=new Set(),messageIds=new Set();
@@ -950,10 +1007,11 @@ export function createT4OriginalNetworkPublicationPort({
       getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       authorizeOriginalFramePublish,verifyOriginalNodeSignature,authorizeOriginalSealedPublication,
-      verifyOriginalHistoricalNodeSignature,
+      verifyOriginalHistoricalNodeSignature,authorizeOriginalControlPublication,
       frameTransport:scopeOriginalHostPort(frameTransport,isHostActive,
         ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
         'PUBLICATION_ORIGINAL_WIRE_LIFETIME_REQUIRED'),
     }),
+    ...(control?{originalControlPublication:true,originalNewAttemptAdmissionStillRequired:true}:{}),
     originalT3OnlyStore:true,createsScheduler:false,createsTaskEngine:false});
 }

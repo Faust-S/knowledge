@@ -9,7 +9,10 @@ import {readT4OriginalEventWindow} from '../src/network/original-event-window.mj
 import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
 import {createT4CandidateFrameTransport}
   from '../src/network/standard-network-wire-transport.mjs';
-import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,readT4OriginalPublicationMigrationInventory}
+import {prepareT4OriginalSupersessionControl,publishT4OriginalSupersessionRequest}
+  from '../src/network/original-network-session-supersession.mjs';
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,readT4OriginalPublicationMigrationInventory,
+  deriveT4OriginalSupersessionPublicationSession}
   from '../src/network/original-network-publication.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID} from '../src/network/original-network-technical-schema.mjs';
 import {createT4OriginalHostDispatchTaskBinding}
@@ -154,7 +157,7 @@ function fixture(data=task(),{indexed=false,initialLegacy=false}={}){
       replay.set(key,p.frameDigest);return 'RECORDED';
     },
   });
-  function port(node=source,identity=session){
+  function port(node=source,identity=session,extra={}){
     return createT4OriginalNetworkPublicationPort({
       session:identity,localNodeRef:node,technicalWorkspaceId:technical,
       originalKernel:kernel,getMode:mode,
@@ -169,7 +172,7 @@ function fixture(data=task(),{indexed=false,initialLegacy=false}={}){
         signerRef===(node===source?'key:source':'key:recipient')&&
         verify(null,Buffer.from(bytes),node===source?keys.publicKey:peerKeys.publicKey,
           Buffer.from(signature)),
-      frameTransport:makeTransport(node),
+      frameTransport:makeTransport(node),...extra,
     });
   }
   async function signed(messageType,sequence,body,node=source,overrides={}){
@@ -727,4 +730,66 @@ test('K30 final migration inventory binds full original Object and Event evidenc
   assert.equal(eventChanged.originalObjectDigest,record.originalObjectDigest);
   assert.notEqual(eventChanged.originalEventStreamDigest,record.originalEventStreamDigest);
   f.events[0]=event;assert.deepEqual(await migrationInventory(f),before);
+});
+
+function controlPlan(f,requestRef='request:k49:first'){
+  return prepareT4OriginalSupersessionControl({session:f.session,expectedPhaseRevision:0,
+    expectedPhaseChainHash:H('recipient-genesis'),decisionRef:'decision:k49:replace',requestRef});
+}
+test('K49 control publication uses original PREPARE/ATTEMPT/PRESENT CAS and recovers without re-signing',async()=>{
+  const f=fixture(task(),{indexed:true}),plan=controlPlan(f);
+  let signatures=0,allowed=true;
+  const createOriginalControlPublicationPort=async({session})=>f.port(source,session,{
+    authorizeOriginalControlPublication:async p=>allowed&&p.originalControlPublicationRequired===true&&
+      p.originalSubjectMutationAllowed===false});
+  const publish=()=>publishT4OriginalSupersessionRequest({plan,getMode:f.mode,requiredCryptoSuite:suite,
+    createOriginalControlPublicationPort,authorizeOriginalSupersessionRequest:f.auth,
+    resolveOriginalSigningContext:async()=>({permissionRef:'permission:original',signerRef:'key:source'}),
+    signOriginalNodeBytes:async({bytes})=>{signatures++;return new Uint8Array(sign(null,Buffer.from(bytes),keys.privateKey));}});
+  f.loseCAS('PREPARE');
+  await assert.rejects(publish(),err('PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN'));
+  assert.equal(signatures,1);assert.equal(f.counts().networkCalls,0);
+  f.restart();f.loseNetwork('after');
+  await assert.rejects(publish(),err('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  assert.equal(signatures,1);assert.equal(f.counts().networkCalls,1);
+  allowed=false;await assert.rejects(publish(),err('PUBLICATION_ORIGINAL_CONTROL_AUTHORITY_DENIED'));
+  allowed=true;f.restart();const done=await publish();
+  assert.equal(done.publicationState,'REMOTE_READBACK_RECOVERED');
+  assert.equal(done.originalNewAttemptAdmissionStillRequired,true);
+  assert.equal(done.originalBusinessApplied,false);assert.equal(signatures,1);
+  assert.equal(f.counts().networkCalls,1);assert.equal(f.objects.size,1);
+  assert.deepEqual(f.events.map(e=>e.payload.action),['PREPARE','ATTEMPT','PRESENT']);
+  const saved=await publish();assert.equal(saved.publicationState,'ALREADY_PRESENT_VERIFIED');
+  assert.equal(saved.key,done.key);assert.equal(signatures,1);
+  const inv=await readT4OriginalPublicationMigrationInventory({
+    technicalSchemaId:T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,technicalWorkspaceId:technical,
+    sourceWorkspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef:source,recipientNodeRef:recipient,
+    scopeRef:scope,ownerEpoch:2,localNodeRef:source,originalKernel:f.kernel,getMode:f.mode,
+    readOriginalHostContext:async()=>({workspaceId:technical,originalWriteOwnerRef:owner,nodeRef:source,scopeRef:scope,hostSessionRef:f.host()}),
+    authorizeOriginalTechnicalRead:f.auth});
+  assert.equal(inv.records.length,0);assert.equal(inv.controlRecords.length,1);
+  assert.equal(inv.controlRecords[0].checkpointRef,done.originalPublicationCheckpointRef);
+});
+test('K49 control slots require indexed transport and explicit original decision authority, not a subject publication',async()=>{
+  const f=fixture(task(),{indexed:true}),plan=controlPlan(f);
+  const control=deriveT4OriginalSupersessionPublicationSession({session:f.session,claim:plan.claim});
+  assert.throws(()=>f.port(source,control),err('PUBLICATION_ORIGINAL_CONTROL_AUTHORITY_REQUIRED'));
+  assert.throws(()=>f.port(source,f.session,{authorizeOriginalControlPublication:f.auth}),
+    err('PUBLICATION_ORIGINAL_CONTROL_AUTHORITY_REQUIRED'));
+  const legacy=fixture(),old=deriveT4OriginalSupersessionPublicationSession({session:legacy.session,claim:controlPlan(legacy).claim});
+  assert.throws(()=>legacy.port(source,old,{authorizeOriginalControlPublication:legacy.auth}),
+    err('PUBLICATION_ORIGINAL_CONTROL_AUTHORITY_REQUIRED'));
+  const port=f.port(source,control,{authorizeOriginalControlPublication:f.auth});
+  const next=controlPlan(f,'request:k49:next');
+  const forged=await f.signed('ATTEMPT_RETIRE_REQUEST',1,next.claim.body,source,{
+    sessionRef:next.claim.controlSessionRef,criticalExtensions:['iwxa.session-supersession.v1']});
+  await assert.rejects(port.prepareSignedBatch({slots:[{sequence:1,messageType:'ATTEMPT_RETIRE_REQUEST'}],
+    createSignedFrames:async()=>[forged]}),err('PUBLICATION_FRAME_SESSION_MISMATCH'));
+  assert.equal(f.counts().putCalls,0);assert.equal(f.counts().networkCalls,0);
+  const denied=await f.signed('ATTEMPT_RETIRE_REQUEST',1,plan.claim.body,source,{
+    sessionRef:plan.claim.controlSessionRef,criticalExtensions:['iwxa.session-supersession.v1']});
+  await assert.rejects(f.port(source,control,{authorizeOriginalControlPublication:async()=>false})
+    .prepareSignedBatch({slots:[{sequence:1,messageType:'ATTEMPT_RETIRE_REQUEST'}],createSignedFrames:async()=>[denied]}),
+    err('PUBLICATION_ORIGINAL_CONTROL_AUTHORITY_DENIED'));
+  assert.equal(f.counts().putCalls,0);
 });
