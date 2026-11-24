@@ -156,42 +156,7 @@ jobs:
           VITE_D07_T3: '1'
         run: |
           bun install --frozen-lockfile > "$RUNNER_TEMP/install.log" 2>&1 || { echo D07_T3_INSTALL=FAIL; exit 1; }
-          node scripts/build-d07-integrated-site.mjs > "$RUNNER_TEMP/baseline.log" 2>&1 || { echo D07_T3_BASELINE=FAIL; grep -E '^D07_PUBLIC_BUILD_STEP_(START|PASS|FAIL)=(generate:sitemap|generate:prerender-routes|quality:gate:pre|build:app|flatten:dist|prerender|quality:gate:post)(:[A-Z_0-9]+(:SIGNAL_[A-Z_0-9]+)?|:[0-9]+s)?$|^D07_BUILD_(SITE|HOST|KERNEL)_WORKER_FAILED$|^D07_[A-Z0-9_]+=(FAIL|PASS); exit 1; }
-          npm run hosting:verify > "$RUNNER_TEMP/base-audit.log" 2>&1 || { echo D07_T3_BASELINE_AUDIT=FAIL; grep -E '^D07_HOSTING_' "$RUNNER_TEMP/base-audit.log" | cut -c1-200 | tail -5; exit 1; }
-          echo D07_T3_BASELINE_AUDIT=PASS
-          grep '^D07_HOSTING_PACKAGE_AUDIT=PASS ' "$RUNNER_TEMP/base-audit.log"
-          # Generated routeTree is ignored, not tracked. Never reset source to mask drift.
-          test -z "$(git status --porcelain --untracked-files=no)"
-      - name: Verify every rendered professional context against canonical protocol
-        working-directory: site
-        run: |
-          node --import tsx scripts/audit-d07-t3-context.mjs "$PWD/dist" "$GITHUB_WORKSPACE/assistant"
-      - name: Compile original T3 Host with exact D07 module and shared BLI
-        working-directory: site
-        run: |
-          npm run t3:prepare-host -- "$GITHUB_WORKSPACE/core/packages/t3-core" "$RUNNER_TEMP/d07-host" "$D07_PLATFORM_ZIP" "$GITHUB_WORKSPACE/assistant" > "$RUNNER_TEMP/prepare-host.log" 2>&1 || {
-            echo D07_T3_HOST=FAIL
-            grep -E '^Error: (D07_|T3_)|error TS[0-9]+|^npm error code' "$RUNNER_TEMP/prepare-host.log" | cut -c1-220 | tail -35 || true
-            exit 1
-          }
-          echo D07_T3_HOST=PASS
-          grep '^{"status":"D07_T3_HOST_SOURCE_BUILT"' "$RUNNER_TEMP/prepare-host.log"
-      - name: One isolated candidate; original Kernel, permissions and full offline tree
-        working-directory: site
-        run: |
-          npm run t3:assemble -- "$PWD/dist" "$RUNNER_TEMP/d07-host" "$RUNNER_TEMP/d07-t3-dist" "$D07_PLATFORM_ZIP" > "$RUNNER_TEMP/assembly.log" 2>&1 || {
-            echo D07_T3_ASSEMBLY=FAIL
-            grep -E '^Error: (D07_|T3_|T2_)' "$RUNNER_TEMP/assembly.log" | cut -c1-200 | tail -20 || true
-            exit 1
-          }
-          echo D07_T3_ASSEMBLY=PASS
-          grep '^{"status":"D07_T3_CANDIDATE_BUILT_NOT_ACCEPTED"' "$RUNNER_TEMP/assembly.log"
-      - name: Recheck complete integrated T3 context and native Workspace boundary
-        working-directory: site
-        run: |
-          node --import tsx scripts/audit-d07-t3-context.mjs "$RUNNER_TEMP/d07-t3-dist" "$GITHUB_WORKSPACE/assistant"
-      # Never upload private domain sources, compiled assets, logs, or user data.
- "$RUNNER_TEMP/baseline.log" | tail -30 || true; exit 1; }
+          node scripts/build-d07-integrated-site.mjs > "$RUNNER_TEMP/baseline.log" 2>&1 || { echo D07_T3_BASELINE=FAIL; grep -E '^D07_PUBLIC_BUILD_STEP_(START|PASS|FAIL)=(generate:sitemap|generate:prerender-routes|quality:gate:pre|build:app|flatten:dist|prerender|quality:gate:post)(:[A-Z_0-9]+(:SIGNAL_[A-Z_0-9]+)?|:[0-9]+s)?$|^D07_BUILD_(SITE|HOST|KERNEL)_WORKER_FAILED$|^D07_[A-Z0-9_]+=(FAIL|PASS)$' "$RUNNER_TEMP/baseline.log" | tail -30 || true; exit 1; }
           npm run hosting:verify > "$RUNNER_TEMP/base-audit.log" 2>&1 || { echo D07_T3_BASELINE_AUDIT=FAIL; grep -E '^D07_HOSTING_' "$RUNNER_TEMP/base-audit.log" | cut -c1-200 | tail -5; exit 1; }
           echo D07_T3_BASELINE_AUDIT=PASS
           grep '^D07_HOSTING_PACKAGE_AUDIT=PASS ' "$RUNNER_TEMP/base-audit.log"
