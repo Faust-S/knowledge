@@ -2,6 +2,10 @@ import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-li
 import {deriveT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
 import {confirmT4OriginalNetworkSourceAcknowledgement}
   from './original-network-source-cursor.mjs';
+import {verifyT4OriginalSourceHeadCausality} from './original-network-source-head-proof.mjs';
+import {prepareT4CandidateOpaqueChunks} from './standard-network-opaque-chunks.mjs';
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,t4NativeSubjectCriticalExtensions}
+  from './standard-network-wire-candidate.mjs';
 
 /**
  * Optional trusted task callback for the EXISTING original T3 Host.
@@ -166,7 +170,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     });
   }
   async function executeNativePublication({slots,createSignedFrames,
-    publish=true,retryMissing=false}={}){
+    publish=true,retryMissing=false}={},expected=null){
     if(typeof publish!=='boolean'||typeof retryMissing!=='boolean')
       fail('HOST_TASK_NATIVE_PUBLICATION_OPTIONS_INVALID');
     if(mode()==='LOCAL_T3')return Object.freeze({
@@ -175,8 +179,12 @@ export function createT4OriginalHostDispatchTaskBinding({
     });
     if(typeof createOriginalNativePublicationPort!=='function')
       fail('HOST_TASK_ORIGINAL_NATIVE_PUBLICATION_PORT_REQUIRED');
-    const initial=await verify();
+    const initial=await verify(expected?.initial??null);
     const tick=await prepareNative();
+    if(expected&&(!tick.prepared||
+      JSON.stringify(deriveT4OriginalNativeCaptureSession(tick.result))!==JSON.stringify(expected.session)||
+      tick.result.originalHostFrontierRevision!==expected.frontierRevision))
+      fail('HOST_TASK_NATIVE_ORIGINAL_FRONTIER_CHANGED');
     if(!tick.prepared)return Object.freeze({
       schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_PUBLICATION_TICK_V1',
       mode:'T4_NETWORK',prepared:false,networkPublished:false,
@@ -248,14 +256,14 @@ export function createT4OriginalHostDispatchTaskBinding({
       originalSubjectMutationInvoked:false,
     });
   }
-  async function executeNativeAcknowledgement({recovery,sourceCursorPort:rawPort}={}){
+  async function executeNativeAcknowledgement({recovery,sourceCursorPort:rawPort}={},expected=null){
     if(mode()==='LOCAL_T3')return Object.freeze({
       schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_TICK_V1',
       mode:'LOCAL_T3',confirmed:false,sourceCursorAdvanced:false,
       originalOutboxRead:false,networkWrites:0,originalT3Writes:0,
     });
     const purpose='original-host.native-ack-task',operation='t4.network.acknowledge';
-    const initial=await verify(null,operation,purpose);
+    const initial=await verify(expected,operation,purpose);
     const refresh=()=>verify(initial,operation,purpose);
     const proof=recovery?.originalSourceHeadProof,ack=recovery?.verifiedAppliedAck;
     if(proof?.workspaceId!==initial.workspaceId||
@@ -340,6 +348,247 @@ export function createT4OriginalHostDispatchTaskBinding({
       originalSubjectMutationInvoked:false,
     });
   }
+  /**
+   * One resumable SOURCE step for the existing Host's wake/task callback.
+   * No new scheduling, persisted progress, queue or subject mutation.
+   * The native capture, original phase and publication ledger determine
+   * the next action. Incoming frames are discovered by session/slot.
+   */
+  async function executeNativeSourceStep({
+    createOriginalSourcePhasePort,sourceCursorPort,frameDiscoveryPort,
+    requiredCryptoSuite,resolveOriginalSigningContext,signOriginalNodeBytes,
+    authorizeOriginalSealedContent,readOriginalSealedContent,
+    authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
+    retryMissing=false,
+  }={}){
+    const schema='IWXA_T4_ORIGINAL_HOST_NATIVE_SOURCE_STEP_V1';
+    if(mode()==='LOCAL_T3')return Object.freeze({schema,state:'LOCAL_T3',
+      originalOutboxRead:false,sourceCursorAdvanced:false,originalSubjectMutationInvoked:false});
+    if(![createOriginalSourcePhasePort,resolveOriginalSigningContext,signOriginalNodeBytes,
+      authorizeOriginalSealedContent,readOriginalSealedContent,authorizeOriginalRead,
+      readOriginalEvents,verifyOriginalSourceSubject,createOriginalNativePublicationPort]
+      .every(f=>typeof f==='function')||!ID(requiredCryptoSuite)||typeof retryMissing!=='boolean')
+      fail('HOST_TASK_NATIVE_SOURCE_STEP_PORTS_REQUIRED');
+    const initial=await verify(),tick=await prepareNative();
+    await verify(initial);
+    const result=(state,extra={})=>Object.freeze({schema,state,
+      originalHostTaskOwnerVerified:true,originalOutboxRead:true,
+      originalHostSessionRef:initial.hostSessionRef,sourceCursorAdvanced:false,
+      originalSubjectMutationInvoked:false,createsScheduler:false,createsStore:false,...extra});
+    if(!tick.prepared)return result('NO_NEXT_ORIGINAL_EVENT');
+    const task=tick.result,session=deriveT4OriginalNativeCaptureSession(task);
+    const expected={initial,session,frontierRevision:task.originalHostFrontierRevision};
+    const extensions=t4NativeSubjectCriticalExtensions(session.changeKind);
+    const sameJSON=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+    const refresh=async()=>{
+      await verify(initial);
+      const fresh=await prepareNative();
+      if(!fresh.prepared||!sameJSON(deriveT4OriginalNativeCaptureSession(fresh.result),session)||
+        fresh.result.originalHostFrontierRevision!==expected.frontierRevision)
+        fail('HOST_TASK_NATIVE_ORIGINAL_FRONTIER_CHANGED',{automaticRetryAllowed:false});
+      await verify(initial);
+    };
+    const live=fn=>async proof=>{
+      await refresh();const value=await fn(proof);await refresh();return value;
+    };
+    const request=Object.freeze({session,task,originalHostSessionRef:initial.hostSessionRef});
+    const rawPhase=await createOriginalSourcePhasePort(request);
+    await refresh();
+    if(rawPhase?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||
+      rawPhase.role!=='SOURCE'||rawPhase.originalT3TechnicalWorkspaceOnly!==true||
+      !ID(rawPhase.checkpointRef)||typeof rawPhase.inspectOriginalSession!=='function'||
+      typeof rawPhase.advanceOriginalSessionPhase!=='function')
+      fail('HOST_TASK_NATIVE_SOURCE_PHASE_REQUIRED');
+    const phase=scopeOriginalHostPort(rawPhase,lifetime,
+      ['schema','role','checkpointRef','originalT3TechnicalWorkspaceOnly'],
+      'HOST_TASK_NATIVE_SOURCE_PHASE_REQUIRED');
+    const rawPublication=await createOriginalNativePublicationPort(request);
+    await refresh();
+    if(rawPublication?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
+      !sameJSON(rawPublication.session,session)||rawPublication.originalT3OnlyStore!==true||
+      !ID(rawPublication.checkpointRef)||
+      !['inspectOriginalPublication','readOriginalPublishedFrame','prepareSignedBatch','publishPreparedFrame']
+        .every(k=>typeof rawPublication[k]==='function'))
+      fail('HOST_TASK_ORIGINAL_NATIVE_PUBLICATION_PORT_INVALID');
+    const publication=scopeOriginalHostPort(rawPublication,lifetime,
+      ['schema','session','checkpointRef','originalT3OnlyStore','createsScheduler'],
+      'HOST_TASK_ORIGINAL_NATIVE_PUBLICATION_PORT_INVALID');
+    if(frameDiscoveryPort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||
+      typeof frameDiscoveryPort.discoverUniqueSignedFrame!=='function')
+      fail('HOST_TASK_NATIVE_SOURCE_DISCOVERY_REQUIRED');
+    const discovery=scopeOriginalHostPort(frameDiscoveryPort,lifetime,
+      ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM'],
+      'HOST_TASK_NATIVE_SOURCE_DISCOVERY_REQUIRED');
+    const phaseMatches=p=>p?.schema==='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'&&
+      p.checkpointRef===phase.checkpointRef&&p.role==='SOURCE'&&
+      p.originalT3OnlyStore===true&&p.sourceNodeRef===session.sourceNodeRef&&
+      p.recipientNodeRef===session.recipientNodeRef&&p.scopeRef===session.scopeRef&&
+      p.sessionRef===session.sessionRef&&p.changeId===session.changeId&&
+      p.ownerEpoch===session.ownerEpoch&&(p.changeKind??'OBJECT_PUT')===session.changeKind;
+    const intent={evidenceRef:session.sourceEventId,evidenceDigest:session.capturedWindowDigest};
+    const evidenceMatches=(a,b)=>a?.evidenceRef===b?.evidenceRef&&a?.evidenceDigest===b?.evidenceDigest;
+    const status=await phase.inspectOriginalSession();
+    const saved=await publication.inspectOriginalPublication();
+    await refresh();
+    const stage=[null,'INTENT','PUBLISHED','APPLIED_CONFIRMED'].indexOf(status?.currentPhase);
+    if(!phaseMatches(status)||stage<0||status.revision!==stage||
+      status.originalT3EventChainVerified!==(stage>0)||
+      (stage>0&&!evidenceMatches(status.sourceIntentEvidence,intent))||
+      saved?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1'||
+      saved.checkpointRef!==publication.checkpointRef||!sameJSON(saved.session,session)||
+      saved.originalBusinessApplied!==false||saved.sourceCursorAdvanced!==false||
+      !Array.isArray(saved.frames)||saved.originalT3EventChainVerified!==(saved.revision>0))
+      fail('HOST_TASK_NATIVE_SOURCE_DURABLE_STATE_INVALID');
+    const frames=saved.frames;
+    // This step implements the already-qualified compact native profile.
+    // Do not reinterpret other session layouts or silently renumber slots.
+    if(frames.some((f,i)=>f.sequence!==i+1||
+      f.messageType!==(i===0?'HEADS':i===1?'CHANGE_REF':'CHUNK')||
+      !['PREPARED','ATTEMPTED','PRESENT'].includes(f.state))||
+      (frames.length===2)||(stage===0&&frames.length!==0)||
+      (stage>=2&&(frames.length<3||frames.some(f=>f.state!=='PRESENT'))))
+      fail('HOST_TASK_NATIVE_SOURCE_PROFILE_OR_STATE_CONFLICT');
+    const done=(state,extra={})=>result(state,{sessionRef:session.sessionRef,
+      changeId:session.changeId,originalHostFrontierRevision:expected.frontierRevision,...extra});
+    const advance=async(next,evidence)=>{
+      await refresh();
+      const recorded=await phase.advanceOriginalSessionPhase({phase:next,evidence});
+      await refresh();
+      if(recorded?.phase!==next||recorded.checkpointRef!==phase.checkpointRef||
+        recorded.status!=='RECORDED')fail('HOST_TASK_NATIVE_SOURCE_PHASE_CONFLICT');
+      const after=await phase.inspectOriginalSession();
+      await refresh();
+      if(!phaseMatches(after)||after.currentPhase!==next||!evidenceMatches(after.currentEvidence,evidence))
+        fail('HOST_TASK_NATIVE_SOURCE_PHASE_READBACK_MISMATCH');
+    };
+    if(stage===0){
+      await advance('INTENT',intent);
+      return done('INTENT_RECORDED');
+    }
+    const specsFor=async specs=>{
+      const signed=[];
+      for(const spec of specs){
+        await refresh();
+        const signing=await resolveOriginalSigningContext(Object.freeze({
+          session,sequence:spec.sequence,messageType:spec.messageType,
+          originalNodeSigningAuthorityRequired:true,
+        }));
+        await refresh();
+        if(!ID(signing?.permissionRef)||!ID(signing?.signerRef))
+          fail('HOST_TASK_NATIVE_SOURCE_SIGNING_CONTEXT_INVALID');
+        const unsignedFrame=createT4CandidateUnsignedFrame({
+          messageType:spec.messageType,sequence:spec.sequence,
+          messageId:'msg:t4:'+session.sessionRef.slice(-64)+':'+spec.sequence,
+          sourceNodeRef:session.sourceNodeRef,recipientNodeRef:session.recipientNodeRef,
+          sessionRef:session.sessionRef,scopeRef:session.scopeRef,ownerEpoch:session.ownerEpoch,
+          permissionRef:signing.permissionRef,signerRef:signing.signerRef,
+          cryptoSuite:requiredCryptoSuite,body:spec.body,
+          criticalExtensions:spec.messageType==='CHANGE_REF'?extensions:[],
+        });
+        signed.push(await signT4CandidateFrame({unsignedFrame,signOriginalNodeBytes:live(signOriginalNodeBytes)}));
+      }
+      return signed;
+    };
+    const send=async(slots,specs)=>executeNativePublication({slots,retryMissing,
+      ...(specs?{createSignedFrames:()=>specsFor(specs)}:{})},expected);
+    if(!frames.length||frames[0].state!=='PRESENT'){
+      const spec={sequence:1,messageType:'HEADS',
+        body:{familyRef:session.familyRef,ownerEpoch:session.ownerEpoch,heads:[session.sourcePrefixDigestAfter]}};
+      await send([{sequence:1,messageType:'HEADS'}],frames.length?null:[spec]);
+      return done('HEADS_PRESENT');
+    }
+    async function inbound(messageType,sequence){
+      await refresh();
+      const found=await discovery.discoverUniqueSignedFrame({selector:{
+        sourceNodeRef:session.recipientNodeRef,sessionRef:session.sessionRef,
+        ownerEpoch:session.ownerEpoch,messageType,sequence},
+        requiredCryptoSuite,supportedCriticalExtensions:extensions});
+      await refresh();
+      if(found?.schema!=='IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1'||
+        !['FOUND','NOT_FOUND','RESTART_SCAN'].includes(found.state)||
+        found.originalBusinessApplied!==false||found.sourceCursorAdvanced!==false||
+        (found.state!=='FOUND'&&found.receipt!==null))
+        fail('HOST_TASK_NATIVE_SOURCE_DISCOVERY_INVALID');
+      const r=found.receipt;
+      if(found.state==='FOUND'&&(r?.schema!=='IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1'||
+        r.signedMessageType!==messageType||r.verifiedSequence!==sequence||
+        r.verifiedSourceNodeRef!==session.recipientNodeRef||
+        r.verifiedRecipientNodeRef!==session.sourceNodeRef||
+        r.verifiedSessionRef!==session.sessionRef||r.verifiedScopeRef!==session.scopeRef||
+        r.verifiedOwnerEpoch!==session.ownerEpoch||r.verifiedCryptoSuite!==requiredCryptoSuite||
+        r.originalSignatureVerified!==true||r.originalAccessVerified!==true||
+        r.originalReplayCheckpointRecorded!==true||r.networkBytesVerified!==true||
+        r.originalBusinessApplied!==false))
+        fail('HOST_TASK_NATIVE_SOURCE_DISCOVERY_INVALID');
+      return found;
+    }
+    const diff=await inbound('DIFF_REQUEST',1);
+    if(diff.state!=='FOUND')return done(diff.state==='RESTART_SCAN'?
+      'WAITING_FOR_STABLE_DISCOVERY':'WAITING_FOR_DIFF');
+    if(diff.receipt.verifiedBody?.familyRef!==session.familyRef||
+      !sameJSON(diff.receipt.verifiedBody?.fromHeads,[session.sourcePrefixDigestBefore]))
+      fail('HOST_TASK_NATIVE_SOURCE_DIFF_FRONTIER_MISMATCH');
+    if(frames.length===1){
+      const chunks=await prepareT4CandidateOpaqueChunks({
+        changeId:session.changeId,ownerRef:session.originalWriteOwnerRef,
+        sourceContentRef:task.capture.captureRef,getMode:mode,
+        authorizeOriginalSealedContent:live(authorizeOriginalSealedContent),
+        readOriginalSealedContent:live(p=>readOriginalSealedContent(Object.freeze({
+          ...p,session,originalCapture:task.capture,
+          exactCapturedCanonicalBytesRequired:true,
+        }))),
+      });
+      const specs=[{sequence:2,messageType:'CHANGE_REF',body:{
+        changeId:session.changeId,changeKind:session.changeKind,
+        eventRef:session.sourceEventId,ownerRef:session.originalWriteOwnerRef,
+        sourceRevision:session.sourceRevision,contentDigest:chunks.contentDigest,
+        parents:[session.sourcePrefixDigestBefore],
+      }},...chunks.bodies.map((body,i)=>({sequence:i+3,messageType:'CHUNK',body}))];
+      await send(specs.map(({sequence,messageType})=>({sequence,messageType})),specs);
+      return done('CONTENT_PRESENT');
+    }
+    if(frames.some(f=>f.state!=='PRESENT')){
+      await send(frames.slice(1).map(({sequence,messageType})=>({sequence,messageType})),null);
+      return done('CONTENT_PRESENT',{originalSignedBatchReused:true});
+    }
+    // Source reconstructs its own signed publication, not a fabricated
+    // receiver's receipt, and checks exact original history before ACK.
+    const heads=await publication.readOriginalPublishedFrame({sequence:1});
+    const change=await publication.readOriginalPublishedFrame({sequence:2});
+    await refresh();
+    const published={evidenceRef:change.key,evidenceDigest:'sha256:'+change.sha256};
+    const sourceProof=await verifyT4OriginalSourceHeadCausality({
+      verifiedHeads:heads,verifiedDiffRequest:diff.receipt,verifiedChangeRef:change,
+      workspaceId:session.workspaceId,originalWriteOwnerRef:session.originalWriteOwnerRef,
+      sourceNodeRef:session.sourceNodeRef,recipientNodeRef:session.recipientNodeRef,
+      scopeRef:session.scopeRef,sessionRef:session.sessionRef,ownerEpoch:session.ownerEpoch,
+      capturedWindowDigest:session.capturedWindowDigest,sourceCursorBefore:task.sourceCursorBefore,
+      getMode:mode,readOriginalHostContext:async()=>{
+        await verify(initial);
+        return {...initial,nodeRef:session.sourceNodeRef,scopeRef:session.scopeRef};
+      },
+      authorizeOriginalRead:live(authorizeOriginalRead),readOriginalEvents:live(readOriginalEvents),
+      verifyOriginalSourceSubject:live(verifyOriginalSourceSubject),
+    });
+    await refresh();
+    if(stage===1){
+      await advance('PUBLISHED',published);
+      return done('PUBLISHED_RECORDED',{sourceFramesRemoteReceiptProven:false});
+    }
+    if(!evidenceMatches(status.sourcePublishedEvidence,published))
+      fail('HOST_TASK_NATIVE_SOURCE_PUBLICATION_EVIDENCE_CONFLICT');
+    const ack=await inbound('APPLIED_ACK',2);
+    if(ack.state!=='FOUND')return done(ack.state==='RESTART_SCAN'?
+      'WAITING_FOR_STABLE_DISCOVERY':'WAITING_FOR_ACK');
+    const confirmed=await executeNativeAcknowledgement({sourceCursorPort,recovery:{
+      sourcePhasePort:rawPhase,verifiedAppliedAck:ack.receipt,verifiedChangeRef:change,
+      originalSourceHeadProof:sourceProof,sourceCursorBefore:task.sourceCursorBefore,
+      authorizeOriginalRead,readOriginalEvents,
+    }},initial);
+    return done('SOURCE_ACK_CONFIRMED',{sourceCursorAdvanced:confirmed.sourceCursorAdvanced,
+      originalSourceCursorConfirmed:true,confirmation:confirmed.confirmation,
+      committed:confirmed.committed});
+  }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_HOST_DISPATCH_TASK_BINDING_V1',
     createsScheduler:false,createsTaskEngine:false,
@@ -383,6 +632,14 @@ export function createT4OriginalHostDispatchTaskBinding({
         fail('HOST_TASK_OTHER_PROTOCOL_ACTIVE',{automaticRetryAllowed:false});
       const promise=executeNativeAcknowledgement(options);
       active=promise;activeKind='NATIVE_ACKNOWLEDGEMENT';
+      try{return await promise;}
+      finally{if(active===promise){active=null;activeKind=null;}}
+    },
+    async runNativeSourceStep(options={}){
+      mode();
+      if(active!==null)fail('HOST_TASK_OTHER_PROTOCOL_ACTIVE',{automaticRetryAllowed:false});
+      const promise=executeNativeSourceStep(options);
+      active=promise;activeKind='NATIVE_SOURCE_STEP';
       try{return await promise;}
       finally{if(active===promise){active=null;activeKind=null;}}
     },

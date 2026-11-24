@@ -32,6 +32,7 @@ const digest=(domain,x)=>'sha256:'+createHash('sha256')
   .update('IWXA-T4-ORIGINAL-'+domain+'-V1\0')
   .update(JSON.stringify(sorted(x))).digest('hex');
 const clone=x=>structuredClone(x);
+const deepFreeze=x=>{if(x&&typeof x==='object'){Object.values(x).forEach(deepFreeze);Object.freeze(x);}return x;};
 const SCHEMA='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1';
 const EVENT='t4.network.original.frame.publication';
 const SESSION='IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SESSION_V1';
@@ -409,7 +410,7 @@ export function createT4OriginalNetworkPublicationPort({
       verifiedSequence:frame.sequence,verifiedOwnerEpoch:frame.ownerEpoch,
       verifiedCryptoSuite:frame.cryptoSuite,verifiedSignerRef:frame.signerRef,
       verifiedCriticalExtensions:Object.freeze([...frame.criticalExtensions]),
-      verifiedBody:Object.freeze(clone(frame.body)),
+      verifiedBody:deepFreeze(clone(frame.body)),
       originalT3PublicationEventChainVerified:true,originalOutboundSignatureVerified:true,
       originalOutboundAuthorityVerified:true,originalImmutableTransportReadbackVerified:true,
       originalReplayCheckpointRecorded:false,remoteReceiptProven:false,
