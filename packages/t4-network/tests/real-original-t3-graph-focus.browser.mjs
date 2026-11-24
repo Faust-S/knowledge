@@ -161,6 +161,22 @@ test('K21/K22 focused original Kernel atomic graph, source inventory and cold re
     const replay=await h.commitObjectGraph({mutationInput:oneInput,captureRef:oneRef});
     assert.equal(replay.originalReceipt.deduplicated,true);assert.equal(replay.capture.prepared.sha256,one.capture.prepared.sha256);
     assert.equal(source.invocations,3);assert.equal(source.commits,2);assert.deepEqual(await history(),beforeReplay);
+    // Observe the actual released listEventsSince contract. A date-based
+    // filter (or event-id filter) alone is not a durable original ordinal.
+    const probeSince=async value=>{
+      try{
+        const rows=await source.kernel.listEventsSince(ws,value);
+        assert.ok(Array.isArray(rows));assert.ok(rows.every(e=>e.workspace_id===ws));
+        return {count:rows.length,eventIds:rows.map(e=>e.event_id),
+          equalsStrictOriginalSuffix:JSON.stringify(rows.map(e=>e.event_id))===
+            JSON.stringify(beforeReplay.slice(initial.seenEventCount).map(e=>e.event_id))};
+      }catch(error){return {code:error?.code??'ORIGINAL_QUERY_REJECTED'};}
+    };
+    console.log('T4_REAL_ORIGINAL_EVENT_SINCE_PROBE',JSON.stringify({originalKernel:ORIGINAL_KERNEL,
+      baselineCount:initial.seenEventCount,wholeCount:beforeReplay.length,
+      sinceOriginalEventId:await probeSince(initial.lastEventId),
+      sinceOriginalOccurredAt:await probeSince(baselineEvent.occurred_at),
+      durableOrdinalContractNotInferred:true}));
     const readCapture=captureRef=>readT4OriginalHostCapturedSubject({...common(),kind:'GRAPH_COMMIT',subjectId:target,captureRef});
     const captures=[await readCapture(oneRef),await readCapture(twoRef)];
     assert.equal(captures[0].laterSourceEventsExist,true);
@@ -213,7 +229,8 @@ test('K21/K22 focused original Kernel atomic graph, source inventory and cold re
       recipientInvocations:recipient.invocations,sourceColdRecovery:true,recipientColdRecovery:true,
       pairedOriginalInventory:inventory.pairs.length,productionHostSerializationQualified:false,fullNetworkRoute:false}));
   }finally{
-    for(const c of contexts.values())await c.close();
-    if(live)await live.close();rmSync(root,{recursive:true,force:true});
+    for(const c of contexts.values())await c.close().catch(()=>{});
+    if(live?.server?.listening)await new Promise(done=>live.server.close(done));
+    rmSync(root,{recursive:true,force:true});
   }
 });

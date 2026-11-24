@@ -429,7 +429,9 @@ export function createT4CandidateFrameTransport({
       if(Object.keys(selector).some(k=>!['sourceNodeRef','ownerEpoch','sessionRef','messageType','sequence'].includes(k))||
         !['HEADS','DIFF_REQUEST','CHANGE_REF','CHUNK','APPLIED_ACK','HELLO','CAPABILITIES','CHUNK_REQUEST','RECEIVED_ACK','VERIFIED_ACK','RESUME'].includes(selector.messageType))
         fail('WIRE_DISCOVERY_SELECTOR_INVALID');
-      const receipt=await indexedRead({selector,requiredCryptoSuite,supportedCriticalExtensions},await hostSnapshot());
+      const input=Object.freeze({...selector});
+      const extensions=Array.isArray(supportedCriticalExtensions)?Object.freeze([...supportedCriticalExtensions]):supportedCriticalExtensions;
+      const receipt=await indexedRead({selector:input,requiredCryptoSuite,supportedCriticalExtensions:extensions},await hostSnapshot());
       const {receipts,listingDigest,...result}=indexedResult(receipt?[receipt]:[],1);
       return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1',...result,receipt});
     }
@@ -442,9 +444,11 @@ export function createT4CandidateFrameTransport({
     if(!selector||Object.keys(selector).some(k=>!['sourceNodeRef','ownerEpoch','sessionRef'].includes(k))||
       !ID(selector.sessionRef))fail('WIRE_DISCOVERY_SESSION_REQUIRED');
     if(indexed){
+      const input=Object.freeze({...selector});
+      const extensions=Array.isArray(supportedCriticalExtensions)?Object.freeze([...supportedCriticalExtensions]):supportedCriticalExtensions;
       const ctx=await hostSnapshot(),receipts=[];let lookups=0;
       const get=async(messageType,sequence)=>{lookups++;
-        const frame=await indexedRead({selector:{...selector,messageType,sequence},requiredCryptoSuite,supportedCriticalExtensions},ctx);
+        const frame=await indexedRead({selector:{...input,messageType,sequence},requiredCryptoSuite,supportedCriticalExtensions:extensions},ctx);
         if(frame)receipts.push(frame);return frame;};
       const head=await get('HEADS',1);
       if(head&&await get('CHANGE_REF',2)){
