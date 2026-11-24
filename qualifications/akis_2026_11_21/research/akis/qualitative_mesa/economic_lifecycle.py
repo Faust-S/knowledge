@@ -330,8 +330,9 @@ def review_original_preparation_activity_costs(
     works = {row["work"] for row in resource_index.values() if row["work"] is not None}
     expected = {
         pos for pos, event in enumerate(trace)
-        if event.get("action") == "function_prepare" and event.get("outcome") == "APPLIED"
-        and event.get("work") in works and "model_preparation_activity" in event
+        if event.get("outcome") == "APPLIED" and event.get("work") in works
+        and ((event.get("action") == "function_prepare" and "model_preparation_activity" in event)
+             or (event.get("action") == "authorize" and "model_direct_contract_activity" in event))
     }
     used_ids, used_positions = set(), set()
     items = []
@@ -347,9 +348,11 @@ def review_original_preparation_activity_costs(
         if (resource is None or classified is None or anchor is None
                 or resource["scenario"] != "COOPERATION"
                 or resource["bucket"] != "COORDINATION"
-                or classified["stage"] != "PRODUCTION_COORDINATION"
                 or classified["nature"] != "TRANSACTION"
-                or anchor["action"] != "function_prepare"):
+                or (anchor["action"], classified["stage"]) not in {
+                    ("function_prepare", "PRODUCTION_COORDINATION"),
+                    ("authorize", "CONTRACT_AND_PERMISSIONS"),
+                }):
             raise LifecycleInputError("PREPARATION_ACTIVITY_ORIGINAL_COST_REQUIRED")
         pos = anchor["trace_position"]
         if pos not in expected or pos in used_positions:
@@ -358,7 +361,8 @@ def review_original_preparation_activity_costs(
         if (event.get("actor") != resource["owner"]
                 or event.get("work") != resource["work"]):
             raise LifecycleInputError("PREPARATION_ACTIVITY_ORIGINAL_OWNER_MISMATCH")
-        activity = event["model_preparation_activity"]
+        direct = anchor["action"] == "authorize"
+        activity = event["model_direct_contract_activity" if direct else "model_preparation_activity"]
         rates = binding["unit_rates_by_mode"]
         if not isinstance(rates, dict) or set(rates) != set(PREPARATION_MODES):
             raise LifecycleInputError("PREPARATION_ACTIVITY_MATCHED_RATE_CARD_REQUIRED")
@@ -394,6 +398,7 @@ def review_original_preparation_activity_costs(
             "original_owner": resource["owner"], "mode": mode,
             "original_trace_position": pos, "units": dict(activity["units"]),
             "declared_resource_cost": _amount(cost),
+            **({"direct_owner_documentation_without_akis": True} if direct else {}),
         })
     if expected != used_positions:
         raise LifecycleInputError("PREPARATION_ACTIVITY_APPLIED_SCOPE_INCOMPLETE")
@@ -562,6 +567,10 @@ def classify_lifecycle_costs(
             allocated_by_work=allocated_by_work,
             cooperation_links=cooperation_links, network_scale=network_scale,
         )
+    if ("preparation_activity_bindings" not in raw
+            and any("model_direct_contract_activity" in row and row.get("outcome") == "APPLIED"
+                    for row in trace)):
+        raise LifecycleInputError("DIRECT_CONTRACT_ACTIVITY_COST_BINDINGS_REQUIRED")
     if "preparation_activity_bindings" in raw:
         response["original_preparation_activity_costs"] = review_original_preparation_activity_costs(
             raw["preparation_activity_bindings"], original_bindings=original_binding_index,

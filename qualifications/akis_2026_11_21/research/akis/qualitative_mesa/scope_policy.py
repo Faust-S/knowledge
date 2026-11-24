@@ -128,6 +128,9 @@ def source_link_status(basis: Any, *, source_id: str | None,
 # These mappings distinguish source claims from specific Work event authority.
 # They do NOT authorize a program agent to emit any original Work event.
 WORK_ACTION_OPERATIONS = {
+    'request': frozenset({'SHARE'}),
+    'offer': frozenset({'SHARE'}),
+    'reject': frozenset({'ACCEPT'}),
     'authorize': frozenset({'ACCEPT'}),
     'consent': frozenset({'ACCEPT'}),
     'commit': frozenset({'ACCEPT'}),

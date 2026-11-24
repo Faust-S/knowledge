@@ -155,7 +155,8 @@ class ContextBasis:
                  *, prospective_subjects: set[str] | None = None,
                  prospective_subject_kinds: dict[str, str] | None = None,
                  operator: str | None = None,
-                 network_scale: bool = False):
+                 network_scale: bool = False,
+                 direct_owner_contracts: bool = False):
         _fields(data, {"strict", "sources", "requirements"},
                 {"decision_requirements"}, "INVALID_CONTEXT_BASIS")
         if type(data["strict"]) is not bool:
@@ -163,6 +164,10 @@ class ContextBasis:
         if type(network_scale) is not bool:
             raise ContextInputError("INVALID_CONTEXT_NETWORK_SCALE")
         self.strict = data["strict"]
+        if type(direct_owner_contracts) is not bool:
+            raise ContextInputError("INVALID_DIRECT_CONTRACT_CONTEXT_PROFILE")
+        self.qualified_actions = (QUALIFIED_ACTIONS | {"request", "offer", "reject"}
+                                  if direct_owner_contracts else QUALIFIED_ACTIONS)
         self.network_scale = network_scale
         self.max_time = 3_000_001 if network_scale else 10000
         source_limit = 2_000_000 if network_scale else MAX_SOURCES
@@ -214,7 +219,7 @@ class ContextBasis:
             _fields(item, {"work", "action", "sources", "expected_revisions"}, {"core", "purpose", "operation"}, "INVALID_CONTEXT_REQUIREMENT")
             work = _identifier(item["work"], "INVALID_CONTEXT_WORK")
             action = item["action"]
-            if work not in known_works or not isinstance(action, str) or action not in QUALIFIED_ACTIONS:
+            if work not in known_works or not isinstance(action, str) or action not in self.qualified_actions:
                 raise ContextInputError("UNKNOWN_CONTEXT_WORK_OR_ACTION")
             refs = _identifiers(item["sources"], code="INVALID_CONTEXT_REFERENCE")
             revs = _identifiers(item["expected_revisions"], code="INVALID_CONTEXT_EXPECTED_REVISION", unique=False)
@@ -516,14 +521,21 @@ class ContextBasis:
             recipients=recipients, at=at,
         )
 
-    def assert_allowed(self, work: str, action: str, actor: str, at: int) -> None:
-        if action not in QUALIFIED_ACTIONS:
+    def assert_allowed(self, work: str, action: str, actor: str, at: int, *,
+                       required_owners: set[str] | None = None,
+                       required_purpose: str | None = None) -> None:
+        if action not in self.qualified_actions:
             return
         rule = self.requirements.get((work, action))
         if rule is None:
             if self.strict:
                 raise ContextBlocked("CONTEXT_REQUIREMENT_MISSING")
             return
+        if required_owners is not None and (
+                not self.strict or {self.sources[sid].owner for sid in rule.sources} != required_owners
+                or rule.scope is None or rule.scope[0] != "corporate"
+                or rule.scope[1] != required_purpose):
+            raise ContextBlocked("DIRECT_CONTRACT_ORIGINAL_OWNER_SCOPE_REQUIRED")
         assertions: list[str] = []
         for sid, version in zip(rule.sources, rule.expected_revisions, strict=True):
             s = self.sources[sid]

@@ -242,6 +242,25 @@ class OperatorAKISModel(mesa.Model):
         if not isinstance(scenario, dict):
             raise InputError("INPUT_MUST_BE_OBJECT")
         research_input = dict(scenario)
+        if research_input.get("direct_owner_contracts") is True:
+            # Only the common physical engine and original source/ledger
+            # evaluator may operate in this research control trajectory.
+            # No operator, AKIS code, agent, discovery, reuse or allocation
+            # service may be silently enabled in the independent control.
+            allowed = {"schema", "evidence", "institution", "subjects", "resources",
+                       "works", "events", "network_scale", "direct_owner_contracts",
+                       "context_evidence", "capacity_strict", "calendar_strict",
+                       "handoff_strict", "material_strict", "portfolio_review",
+                       "model_horizon", "economic_claims", "strict_economic_source_works"}
+            if set(research_input) - allowed:
+                raise InputError("DIRECT_OWNER_CONTRACTS_AKIS_SERVICES_FORBIDDEN")
+            money = research_input.get("economic_claims")
+            if money is not None and (
+                    not isinstance(money, dict)
+                    or not isinstance(research_input.get("strict_economic_source_works"), list)
+                    or "network_period_scope" not in money
+                    or "lifecycle_costs" not in money):
+                raise InputError("DIRECT_OWNER_ECONOMICS_REQUIRES_STRICT_PERIOD_SCOPE")
         raw_profiles = research_input.pop("decision_profiles", [])
         raw_subject_goals = research_input.pop("subject_goals", [])
         raw_future_needs = research_input.pop("future_need_signals", [])

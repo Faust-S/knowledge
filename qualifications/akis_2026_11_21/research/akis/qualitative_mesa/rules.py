@@ -182,7 +182,7 @@ class Party:
 
 @dataclass
 class Institution:
-    operator: str
+    operator: str | None
     founders: tuple[str, ...]
     mode: str
     revision: str
@@ -200,13 +200,22 @@ class QualitativeAKIS:
         _keys_exact(
             scenario,
             {"schema", "evidence", "institution", "subjects", "resources", "works", "events"},
-            {"portfolio_review", "context_evidence", "capacity_strict", "calendar_strict", "handoff_strict", "material_strict", "cooperation_links", "network_scale"}, "INPUT",
+            {"portfolio_review", "context_evidence", "capacity_strict", "calendar_strict", "handoff_strict", "material_strict", "cooperation_links", "network_scale", "direct_owner_contracts"}, "INPUT",
         )
         # Explicit resource budget for a large research execution, not an
         # economic parameter or relaxation of original decision predicates.
         self.network_scale = scenario.get("network_scale", False)
         if type(self.network_scale) is not bool:
             raise InputError("NETWORK_SCALE_MUST_BE_BOOLEAN")
+        self.direct_owner_contracts = scenario.get("direct_owner_contracts", False)
+        if type(self.direct_owner_contracts) is not bool:
+            raise InputError("DIRECT_OWNER_CONTRACTS_MUST_BE_BOOLEAN")
+        if self.direct_owner_contracts and (
+                not self.network_scale or scenario.get("capacity_strict") is not True
+                or not isinstance(scenario.get("context_evidence"), dict)
+                or scenario["context_evidence"].get("strict") is not True
+                or scenario.get("cooperation_links") is not None):
+            raise InputError("DIRECT_OWNER_CONTRACTS_REQUIRE_STRICT_ORIGINAL_CAPACITY_AND_SOURCES")
         self.subject_limit = 100001 if self.network_scale else 128
         self.work_limit = 300000 if self.network_scale else 256
         self.resource_limit = 200000 if self.network_scale else 256
@@ -234,7 +243,9 @@ class QualitativeAKIS:
         _keys_exact(ins, {"operator", "founders", "mode", "revision", "council_members", "council_quorum", "council_rule", "operator_mandate", "mixed_reserved"}, set(), "INSTITUTION")
         if not isinstance(ins["mode"], str) or ins["mode"] not in MODES or not isinstance(ins["council_rule"], str) or ins["council_rule"] not in {"UNANIMOUS", "MAJORITY"}:
             raise InputError("INVALID_GOVERNANCE")
-        if not isinstance(ins["founders"], list) or not ins["founders"] or not isinstance(ins["council_members"], list):
+        if (not isinstance(ins["founders"], list)
+                or (not ins["founders"] and not self.direct_owner_contracts)
+                or not isinstance(ins["council_members"], list)):
             raise InputError("INVALID_GOVERNANCE_PARTIES")
         if not isinstance(ins["operator_mandate"], list) or not set(ins["operator_mandate"]).issubset(GOVERNED):
             raise InputError("INVALID_OPERATOR_MANDATE")
@@ -328,9 +339,21 @@ class QualitativeAKIS:
                     party.organization not in self.subjects
                     or self.subjects[party.organization].kind != "SME"):
                 raise InputError("INTRAFIRM_ROLE_REQUIRES_REAL_ORIGINAL_SME")
-        op = _id(ins["operator"], "operator")
-        if op not in self.subjects or self.subjects[op].kind != "OPERATOR":
-            raise InputError("MISSING_OR_INVALID_OPERATOR")
+        if self.direct_owner_contracts:
+            # This is an independently executed comparator, not an AKIS
+            # with a free or hidden operator. Retain the existing revision
+            # field only as the common contract edition in the simulator.
+            if (ins["operator"] is not None or ins["mode"] != "UNSELECTED"
+                    or ins["founders"] or ins["council_members"]
+                    or ins["council_quorum"] != 0 or ins["operator_mandate"]
+                    or ins["mixed_reserved"]
+                    or any(p.kind != "SME" for p in self.subjects.values())):
+                raise InputError("DIRECT_OWNER_CONTRACTS_NO_OPERATOR_OR_GOVERNING_BODY")
+            op = None
+        else:
+            op = _id(ins["operator"], "operator")
+            if op not in self.subjects or self.subjects[op].kind != "OPERATOR":
+                raise InputError("MISSING_OR_INVALID_OPERATOR")
         founders = tuple(ins["founders"])
         council = tuple(ins["council_members"])
         if len(founders) != len(set(founders)) or len(council) != len(set(council)) or not set(founders + council).issubset(self.subjects):
@@ -397,7 +420,7 @@ class QualitativeAKIS:
         last = -1
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "material_replenishment_round", "material_replenishment_source_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
-             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "preparation_mode", "preparation_diagnostic", "preparation_pattern", "delegation_at", "delegation_source_ref", "delegation_source_revision", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "evaluation_economic_source_revision", "evaluation_economic_outside_basis", "evaluation_economic_portfolio", "evaluation_economic_recipient_value", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
+             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "preparation_mode", "preparation_diagnostic", "preparation_pattern", "direct_documentation_mode", "delegation_at", "delegation_source_ref", "delegation_source_revision", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "evaluation_economic_source_revision", "evaluation_economic_outside_basis", "evaluation_economic_portfolio", "evaluation_economic_recipient_value", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
              "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until", "entry_change_id", "entry_assessment_source_ref",
              "model_code_change_id", "model_code_source_ref", "model_code_decision",
              "model_code_decision_source_ref", "new_model_edition",
@@ -472,6 +495,19 @@ class QualitativeAKIS:
             if type(ev["at"]) is not int or ev["at"] <= last or not isinstance(ev["action"], str) or ev["action"] not in ACTIONS:
                 raise InputError("EVENTS_MUST_HAVE_STRICTLY_INCREASING_INTEGER_TIMES_AND_KNOWN_ACTIONS")
             last = ev["at"]
+            if self.direct_owner_contracts and ev["action"] not in {
+                    "request", "offer", "authorize", "consent", "commit",
+                    "start", "complete", "accept", "reject", "resubmit",
+                    "assess_result_quality", "start_operation", "complete_operation",
+                    "handoff_dispatch", "handoff_receive", "handoff_quality",
+                    "resource_status", "resource_calendar_update", "source_update",
+            }:
+                raise InputError("DIRECT_OWNER_CONTRACTS_NO_AKIS_GOVERNANCE_EVENT")
+            if ("direct_documentation_mode" in ev or
+                    (self.direct_owner_contracts and ev["action"] == "authorize")):
+                if (not self.direct_owner_contracts or ev["action"] != "authorize"
+                        or ev.get("direct_documentation_mode") not in ("S0", "S1", "S2")):
+                    raise InputError("DIRECT_DOCUMENTATION_REQUIRES_ORIGINAL_BUYER_AUTHORIZATION")
             if (("outside_offer_installments" in ev and ev["action"] != "outside_supplier_offer")
                     or ("outside_buyer_response_installments" in ev
                         and ev["action"] != "outside_buyer_offer_response")):
@@ -629,6 +665,7 @@ class QualitativeAKIS:
                     prospective_subject_kinds=prospective_kinds,
                     operator=self.institution.operator,
                     network_scale=self.network_scale,
+                    direct_owner_contracts=self.direct_owner_contracts,
                 )
             except ContextInputError as exc:
                 raise InputError(str(exc)) from exc
@@ -1180,6 +1217,13 @@ class QualitativeAKIS:
             "actor": ev["actor"], "work": work_ref, "resource": ev.get("resource"),
             "subject": ev.get("subject"), "prior_org_revision": previous_revision,
         })
+        if self.direct_owner_contracts and report["outcome"] == "APPLIED" and action == "authorize":
+            from .process_preparation import model_preparation_activity
+            activity = model_preparation_activity(
+                self, self.works[work_ref], ev["direct_documentation_mode"])
+            activity["basis"] = "MODEL_FIELD_OPERATIONS_ON_INDEPENDENT_OWNER_CONTRACT"
+            activity["independent_principal_consent_remains_required"] = True
+            report["model_direct_contract_activity"] = activity
         if self.model_org_policy is not None and action in NEW_WORK_ACTIONS:
             report["model_org_code_review"] = (
                 model_org_review["status"] if model_org_review is not None
@@ -1865,6 +1909,10 @@ class QualitativeAKIS:
             raise BlockedDecision("ORIGINAL_CUSTOMER_REQUEST_REQUIRED")
         if not self.subjects[work.customer].active:
             raise BlockedDecision("REQUESTER_NOT_AVAILABLE")
+        if self.direct_owner_contracts:
+            self.context_basis.assert_allowed(
+                work.key, "request", ev["actor"], at,
+                required_owners={work.customer}, required_purpose="DIRECT_OWNER_WORK")
         if any(dep not in self.works for dep in work.requires_accepted):
             raise BlockedDecision("DEPENDENCY_WORK_UNKNOWN")
         if self.formation_policy is not None:
@@ -2099,16 +2147,33 @@ class QualitativeAKIS:
         actor = ev["actor"]
         if a in {"offer", "authorize", "consent", "commit"}:
             self._guard_original_form_role_work(w, at)
-        if self.context_basis is not None:
+        if self.direct_owner_contracts:
+            owners = self.capacity_ledger.original_owners(w.resource_requirements)
+            principals = owners | {w.customer}
+            if a == "offer":
+                if actor != self.resources[w.resource] or not self.subjects[actor].active:
+                    raise BlockedDecision("DIRECT_ORIGINAL_SUPPLIER_OFFER_REQUIRED")
+                required_sources = {actor}
+            else:
+                required_sources = principals
+            self.context_basis.assert_allowed(
+                w.key, a, actor, at, required_owners=required_sources,
+                required_purpose="DIRECT_OWNER_WORK")
+        elif self.context_basis is not None:
             self.context_basis.assert_allowed(w.key, a, actor, at)
         if a == "offer":
-            if actor != self.institution.operator or w.proposal not in {"DRAFT", "REQUESTED"}:
+            if ((not self.direct_owner_contracts and actor != self.institution.operator)
+                    or w.proposal not in {"DRAFT", "REQUESTED"}):
                 raise BlockedDecision("PROPOSAL_NOT_AVAILABLE")
             w.proposal = "OFFERED"
         elif a == "authorize":
             if w.proposal != "OFFERED" or w.admitted:
                 raise BlockedDecision("NO_OPEN_PROPOSAL")
-            self._authority(ev, a)
+            if self.direct_owner_contracts:
+                if actor != w.customer or not self.subjects[actor].active:
+                    raise BlockedDecision("DIRECT_ORIGINAL_BUYER_REVIEW_REQUIRED")
+            else:
+                self._authority(ev, a)
             w.admitted = True
             w.authorization_org_revision = self.institution.revision
         elif a == "consent":
@@ -2165,7 +2230,10 @@ class QualitativeAKIS:
                 if issue != "NONE":
                     raise BlockedDecision(issue)
         elif a == "commit":
-            if actor != self.institution.operator:
+            if self.direct_owner_contracts:
+                if actor != w.customer:
+                    raise BlockedDecision("DIRECT_ORIGINAL_BUYER_RECORDING_REQUIRED")
+            elif actor != self.institution.operator:
                 raise BlockedDecision("OPERATOR_RECORDING_MANDATE_REQUIRED")
             if not w.admitted or w.obligation != "NOT_ACCEPTED" or w.authorization_org_revision != self.institution.revision:
                 raise BlockedDecision("NO_AUTHORIZED_UNCOMMITTED_PROPOSAL")
@@ -2491,7 +2559,11 @@ class QualitativeAKIS:
             "schema": "IWXA_AKIS_QUALITATIVE_RESULT/0.1",
             "evidence": "MODEL_ONLY",
             "profit": {"operator": "UNKNOWN", "participants": "UNKNOWN", "system_increment": "UNKNOWN"},
-            "institution": {"mode": self.institution.mode, "revision": self.institution.revision, "resource_distribution_is_distinct": True},
+            "institution": {"mode": self.institution.mode, "revision": self.institution.revision, "resource_distribution_is_distinct": True,
+                            **({"coordination_mode": "DIRECT_OWNER_CONTRACTS",
+                                "operator_present": False,
+                                "common_contract_edition_not_akis_governance": True}
+                               if self.direct_owner_contracts else {})},
             "subjects": {
                 k: {
                     "kind": v.kind,

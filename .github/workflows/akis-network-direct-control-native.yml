@@ -1,0 +1,77 @@
+name: AKIS native matched direct-owner economic control
+on:
+  push:
+    branches:
+      - work/2026-11-24-akis-network-direct-control-native
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  original-direct-contract-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify complete pinned original executable scope
+        run: python qualifications/akis_2026_11_21/verify_source_scope.py
+      - name: Official Mesa 3.5.2
+        run: |
+          python -m pip install --disable-pip-version-check "mesa==3.5.2" "pytest>=8,<10"
+          python -c "import mesa; assert mesa.__version__ == '3.5.2'"
+      - name: Compile original package
+        run: python -m compileall -q qualifications/akis_2026_11_21/research
+      - name: Direct original owner authority and matched economic regression
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_network_direct_control_mesa.py
+      - name: Full original Mesa regression
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests
+  original-mass-direct-control:
+    needs: original-direct-contract-regression
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        case:
+          - {enterprises: 100, periods: 3, mode: S0, fee: '80.00'}
+          - {enterprises: 1000, periods: 3, mode: S0, fee: '80.00'}
+          - {enterprises: 10000, periods: 3, mode: S0, fee: '60.00'}
+          - {enterprises: 10000, periods: 3, mode: S0, fee: '80.00'}
+          - {enterprises: 10000, periods: 3, mode: S0, fee: '100.00'}
+          - {enterprises: 10000, periods: 3, mode: S1, fee: '80.00'}
+          - {enterprises: 10000, periods: 3, mode: S2, fee: '80.00'}
+          - {enterprises: 1000, periods: 36, mode: S0, fee: '80.00'}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify complete pinned original executable scope
+        run: python qualifications/akis_2026_11_21/verify_source_scope.py
+      - name: Official Mesa 3.5.2
+        run: |
+          python -m pip install --disable-pip-version-check "mesa==3.5.2"
+          python -c "import mesa; assert mesa.__version__ == '3.5.2'"
+      - name: Execute both original trajectories, compare every owner
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_original_network_direct_control.py ${{ matrix.case.enterprises }} ${{ matrix.case.periods }} ${{ matrix.case.mode }} ${{ matrix.case.fee }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: akis-direct-control-${{ matrix.os }}-${{ matrix.case.enterprises }}-${{ matrix.case.periods }}-${{ matrix.case.mode }}-${{ matrix.case.fee }}
+          if-no-files-found: error
+          path: qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/network_direct_control_${{ matrix.case.enterprises }}_${{ matrix.case.periods }}_${{ matrix.case.mode }}_${{ matrix.case.fee }}.json
