@@ -26,11 +26,11 @@ test('V7 ships installed and host surface with original purple brand asset',()=>
  assert.match(component,/ACTIVITY_BOARD_STORAGE/);
  assert.match(component,/moveActivityWidget/);
 });
-test('all nineteen user-facing routes and owner-only safety states are reachable',()=>{
+test('all twenty user-facing routes and owner-only safety states are reachable',()=>{
  const component=load('../desktop/src/ActivityWorkspace.tsx');
  const inner=load('../desktop/src/ActivityInnerPage.tsx');
  const names=['Главная','Источники','Схемы A0/A1','Рабочая область',
-  'Реконструкция','Карта процессов','Аудит A2','OCEL 2.0','Стандарты',
+  'Реконструкция','Группировка маршрутов','Карта процессов','Аудит A2','OCEL 2.0','Стандарты',
   'T3 D1/D2','Карта T3','Паспорт фактов','Свидетельства D05',
   'Проверка','Черновик и восстановление','Выпуск и обмен','Квалификация','Настройки','Справка'];
  for(const name of names)assert.ok(component.includes(name)||inner.includes(name),name);
@@ -78,4 +78,16 @@ test('the dashboard changes an explicitly pinned source in place and bounds larg
  assert.match(ui,/states\.slice\(0,8\)/);
  assert.match(ui,/Открыть всю карту/);
  assert.match(ui,/Все процессы/);
+});
+
+test('A4.1 is reachable inside the native shell with actual local route comparison',()=>{
+ const inner=load('../desktop/src/ActivityInnerPage.tsx');
+ const page=load('../desktop/src/DomainRouteComparison.tsx');
+ assert.match(inner,/case 'Группировка маршрутов':return <DomainRouteComparison/);
+ assert.match(page,/reviewD05RouteModels\(records\)/);
+ assert.match(page,/multiple accept="\.json,application\/json"/);
+ assert.match(page,/JSON.parse\(await file.text\(\)\)/);
+ assert.match(page,/generation.current/);
+ assert.match(page,/Выпуск \.iwxa закрыт/);
+ assert.doesNotMatch(page,/localStorage|sessionStorage|fetch\(|createWorkspace\(|putObject\(/);
 });
