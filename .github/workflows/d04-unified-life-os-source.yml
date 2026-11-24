@@ -36,14 +36,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 161ad6c1bd73e22f51bed886c01a6bd8d066ba3a
+          ref: d3612d556321f498b752a4c177d7f98142f4c7f9
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: 034543635cd3a544a9d496f8c06117cb88d8694d
+          ref: 9472a702202315b3c34d3e236a4d7a1b23aff45c
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           persist-credentials: false
@@ -53,15 +53,15 @@ jobs:
       - name: Check exact revisions and canonical model
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "161ad6c1bd73e22f51bed886c01a6bd8d066ba3a"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "71a2c8fa4336e59033fc9a84f7d9cbeb42d070db"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "034543635cd3a544a9d496f8c06117cb88d8694d"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "d3612d556321f498b752a4c177d7f98142f4c7f9"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "b3443690b9ed9a84106e6a6f8308eb1ebfe15dbe"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "9472a702202315b3c34d3e236a4d7a1b23aff45c"
           for name in LIFE_GOAL_RESULT_REFS_V0_1.mjs LIFE_GOAL_RESULT_REFS_V0_1.d.mts PERSONAL_CUSTOM_MEASURE_V0_1.mjs PERSONAL_CUSTOM_MEASURE_V0_1.d.mts LIFE_PERIOD_COMPARISON_V0_1.mjs LIFE_PERIOD_COMPARISON_V0_1.d.mts LIFE_ACTION_BOARD_V0_1.mjs LIFE_ACTION_BOARD_V0_1.d.mts PERSONAL_MEDICAL_EVIDENCE_V0_1.mjs PERSONAL_MEDICAL_EVIDENCE_V0_1.d.mts LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.mjs LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.d.mts PERSONAL_GOAL_PROFILE_V0_1.mjs PERSONAL_GOAL_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_PROFILE_V0_1.mjs PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts LIFE_DASHBOARD_CALCULATIONS_V0_1.mjs LIFE_DASHBOARD_CALCULATIONS_V0_1.d.mts LIFE_DIARY_BATCH_V0_1.mjs LIFE_DIARY_BATCH_V0_1.d.mts; do
             cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
           done
-          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "55d23e43c4070ba2481f8f7f22afa7528670d157"
+          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "847b7e544d675048238c6d7a462f684d3da70e73"
           echo "D04_UNIFIED_PINNED_PARITY=PASS"
-          if (cd d04-private/model && node --test docs/life-os/tests/life-dashboard-model.test.mjs docs/life-os/tests/life-dashboard-projection.test.mjs docs/life-os/tests/personal-observation-dynamics.test.mjs docs/life-os/tests/life-dashboard-calculations.test.mjs docs/life-os/tests/life-diary-batch.test.mjs docs/life-os/tests/life-observation-methods.test.mjs docs/life-os/tests/personal-goal-profile.test.mjs docs/life-os/tests/life-dashboard-sleep-schedule.test.mjs docs/life-os/tests/personal-medical-evidence.test.mjs docs/life-os/tests/life-action-board.test.mjs docs/life-os/tests/life-period-comparison.test.mjs docs/life-os/tests/personal-custom-measure.test.mjs docs/life-os/tests/goal-observation-refs.test.mjs docs/life-os/tests/goal-result-refs.test.mjs) >"$RUNNER_TEMP/d04-domain.log" 2>&1; then
+          if (cd d04-private/model && node --test docs/life-os/tests/life-dashboard-model.test.mjs docs/life-os/tests/life-dashboard-projection.test.mjs docs/life-os/tests/personal-observation-dynamics.test.mjs docs/life-os/tests/life-dashboard-calculations.test.mjs docs/life-os/tests/life-diary-batch.test.mjs docs/life-os/tests/life-observation-methods.test.mjs docs/life-os/tests/personal-goal-profile.test.mjs docs/life-os/tests/life-dashboard-sleep-schedule.test.mjs docs/life-os/tests/personal-medical-evidence.test.mjs docs/life-os/tests/life-action-board.test.mjs docs/life-os/tests/life-period-comparison.test.mjs docs/life-os/tests/personal-custom-measure.test.mjs docs/life-os/tests/goal-observation-refs.test.mjs docs/life-os/tests/goal-result-refs.test.mjs docs/life-os/tests/life-daily-study.test.mjs) >"$RUNNER_TEMP/d04-domain.log" 2>&1; then
             echo "D04_UNIFIED_DOMAIN=PASS"
           else
             echo "D04_UNIFIED_DOMAIN=FAIL"
@@ -112,7 +112,7 @@ jobs:
           else
             echo "D04_UNIFIED_TYPESCRIPT=FAIL"
             grep -Eo 'error TS[0-9]+' "$RUNNER_TEMP/d04-ts.log" | sort -u | head -15 || true
-            grep -Eo '(GoalResultEvidence\.tsx|goal-result-admission\.ts|GoalObservationEvidence\.tsx|BazmedGoalEditor\.tsx|commands\.ts|LifeDashboard\.tsx|life-dashboard-demo\.ts|BazmedObservationEditor\.tsx|BazmedOverviewCard\.tsx|BazmedNativeWorkspace\.tsx|BazmedDiaryEditor\.tsx|ObservationMethodEditor\.tsx)\([0-9]+,[0-9]+\): error TS[0-9]+' "$RUNNER_TEMP/d04-ts.log" | head -15 || true
+            grep -Eo '(LifeDailyStudyPanel\.tsx|GoalResultEvidence\.tsx|goal-result-admission\.ts|GoalObservationEvidence\.tsx|BazmedGoalEditor\.tsx|commands\.ts|LifeDashboard\.tsx|life-dashboard-demo\.ts|BazmedObservationEditor\.tsx|BazmedOverviewCard\.tsx|BazmedNativeWorkspace\.tsx|BazmedDiaryEditor\.tsx|ObservationMethodEditor\.tsx)\([0-9]+,[0-9]+\): error TS[0-9]+' "$RUNNER_TEMP/d04-ts.log" | head -15 || true
             code=1
           fi
           if npm run lint -- --rule 'prettier/prettier: off' >"$RUNNER_TEMP/d04-lint.log" 2>&1; then
