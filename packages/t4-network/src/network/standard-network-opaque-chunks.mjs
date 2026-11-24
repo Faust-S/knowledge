@@ -53,7 +53,8 @@ export async function prepareT4CandidateOpaqueChunks({
     !original.ciphertext.byteLength||
     original.ciphertext.byteLength>MAX)
     fail('CHUNK_ORIGINAL_SEALED_CONTENT_INVALID');
-  const snapshot=new Uint8Array(original.ciphertext);
+  const snapshot=new Uint8Array(original.ciphertext),encryptionContextRef=original.encryptionContextRef;
+  if(Math.ceil(snapshot.length/chunkBytes)>64)fail('CHUNK_TRANSPORT_CAPACITY_EXCEEDED');
   await guard(p,'t4.network.sealed.readback');
   const digest=HASH(snapshot);
   const count=Math.ceil(snapshot.length/chunkBytes);
@@ -64,13 +65,13 @@ export async function prepareT4CandidateOpaqueChunks({
       changeId,contentDigest:digest,chunkIndex:n,chunkCount:count,
       ciphertextBase64:Buffer.from(bytes).toString('base64'),
       ciphertextSha256:HASH(bytes),
-      encryptionContextRef:original.encryptionContextRef,
+      encryptionContextRef,
     }));
   }
   return frozen({
     schema:'IWXA_T4_CANDIDATE_OPAQUE_CHUNK_PLAN_V1',
     changeId,sourceContentRef,ownerRef,contentDigest:digest,
-    encryptionContextRef:original.encryptionContextRef,
+    encryptionContextRef,
     chunkCount:count,bodies:frozen(bodies),
     originalSealedContentPortUsed:true,
     originalSubjectWriteAuthorityGranted:false,

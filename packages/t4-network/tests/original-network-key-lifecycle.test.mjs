@@ -1,13 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateKeyPairSync,sign} from 'node:crypto';
+import {generateKeyPairSync,sign,createHash} from 'node:crypto';
 import {PROFILE,digest,iso,signRecord,keyObjectSigner,makeProof} from '../../t3-core/src/t3/access/core.mjs';
-import {emptyVault,generateVaultKey,encryptVault,vaultPrivateKey} from '../../t3-core/src/t3/access/local-vault.mjs';
+import {emptyVault,generateVaultKey,importVaultKey,encryptVault,vaultPrivateKey} from '../../t3-core/src/t3/access/local-vault.mjs';
 import {createOriginalKernelRegistryStatePort,ORIGINAL_REGISTRY_EVENT} from '../../t3-core/src/t3/access/original-kernel-registry-state.mjs';
 import {createOriginalPersonalAccessCheck} from '../../t3-core/src/t3/access/original-personal-evaluator.mjs';
 import {createSignedAccessHostPort} from '../../t3-core/src/t3/signed-access-host-port.mjs';
 import {ORIGINAL_NETWORK_KEY_TRANSITION,ORIGINAL_NETWORK_KEY_MANAGE,originalNetworkKeyPossessionBytes,
   originalNetworkKeyOperationDigest,originalNetworkKeyStatusId,createOriginalNetworkAgreementChallenge,answerOriginalNetworkAgreementChallenge} from '../../t3-core/src/t3/access/original-network-key-lifecycle.mjs';
+import {createT4OriginalVaultSealedContentPort} from '../src/network/original-vault-sealed-content.mjs';
+import {deriveT4OriginalNativeCaptureSession} from '../src/network/original-network-publication.mjs';
+import {prepareT4CandidateOpaqueChunks,assembleT4CandidateOpaqueChunks} from '../src/network/standard-network-opaque-chunks.mjs';
 import {createT4OriginalVaultNodeSignaturePort} from '../src/network/original-vault-node-signature.mjs';
 import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-native-host-network-owner.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,verifyT4CandidateOutboundSignature} from '../src/network/standard-network-wire-candidate.mjs';
@@ -35,7 +38,7 @@ const scope={workspaceId:WS,originalWriteOwnerRef:OWNER,localNodeRef:A,remoteNod
 async function fixture(){
   const issuer=signer('key:k37:issuer',PRINCIPAL,['GRANT','STATUS']),
     manager=signer('key:k37:manager',MANAGER,['PROOF']),actor=signer('key:k37:actor',PRINCIPAL,['PROOF']);
-  const actions=['t4.network.node.sign','t4.network.node.verify'],admin=ORIGINAL_NETWORK_KEY_MANAGE;
+  const actions=['t4.network.node.sign','t4.network.node.verify','t4.network.content.seal','t4.network.content.open'],admin=ORIGINAL_NETWORK_KEY_MANAGE;
   const policy={schema:PROFILE,id:'policy:k37',version:'v1',realmId:'realm:k37',environment:'TEST',
     statusMode:'OFFLINE_BOUNDED',timeAssurance:'LOCAL_BEST_EFFORT',proofMaxAgeSeconds:60,
     snapshotMaxAgeSeconds:3600,offlineMaxAgeSeconds:3600,
@@ -291,4 +294,110 @@ test('K38 X25519 possession challenge is exact, one-use and rejects other privat
     privateKey:vaultPrivateKey(f.vault,agreement.keyId)});
   f.setClock(NOW+61000);
   assert.throws(()=>stale.verifyResponse(staleResponse),{code:'NETWORK_AGREEMENT_CHALLENGE_EXPIRED'});
+});
+
+const sha=x=>createHash('sha256').update(x).digest('hex');
+function captured(content=Buffer.from('IWXA original test fixture confidential content '.repeat(700)),eventId='event:k38:one'){
+  const d=x=>'sha256:'+sha(x);
+  const identity={workspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,scopeRef:SCOPE,ownerEpoch:2};
+  const before=d('before'),after=d('after:'+eventId),window=d('window:'+eventId),event=d(eventId);
+  const capture={kind:'OBJECT_PUT',captureRef:'capture:k38:one',workspaceId:WS,originalWriteOwnerRef:OWNER,
+    sourceEventId:eventId,sourceRevision:1,originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
+    sourceWindow:{lastEventId:eventId,eventRefs:[{eventDigest:event}],windowDigest:window,
+      sourcePrefixDigestBefore:before,sourcePrefixDigestAfter:after},
+    prepared:{bytes:new Uint8Array(content),sha256:sha(content),
+      delta:{sourceEventId:eventId,sourceRevision:1,sourceEventDigest:event,windowDigest:window}}};
+  const session=deriveT4OriginalNativeCaptureSession({...identity,schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',
+    state:'ORIGINAL_NATIVE_CAPTURE_READY',networkPublished:false,sourceCursorAdvanced:false,
+    originalRecipientApplied:false,networkTargetRef:B,sourceCursorBefore:{sourcePrefixDigest:before},
+    sourceCursorAfter:{sourcePrefixDigest:after},capture});
+  return {session,content,input:{session,originalCapture:capture,exactCapturedCanonicalBytesRequired:true,
+    changeId:session.changeId,ownerRef:OWNER,sourceContentRef:capture.captureRef}};
+}
+async function sealedFixture(){
+  const f=await fixture(),binding={...remoteBinding,subjectId:PRINCIPAL,bindingRef:'binding:k38:receiver',
+    keyId:'key:k38:receiver',keyUse:'NETWORK_AGREEMENT'};
+  const prepared=await f.prepare('ENROLL',binding,f.generate(binding));
+  await f.registry.applyNetworkKeyTransition(prepared.command,prepared.evidence);
+  const vault=emptyVault(),k=f.vault.keys[binding.keyId];
+  importVaultKey(vault,{keyId:k.keyId,subjectId:k.subjectId,algorithm:'X25519',privateKeyPem:k.privateKeyPem,
+    expectedPublicKeyPem:k.publicKeyPem});
+  const encrypted=encryptVault(vault,PASS);
+  const common={workspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,
+    scopeRef:SCOPE,ownerEpoch:2,requiredCryptoSuite:SUITE,recipientKeyRef:binding.keyId,
+    registry:f.registry,...f.accessFor,expectedContext:f.context,getMode:()=> 'T4_NETWORK',clock:f.clock};
+  let unlocks=0;
+  const source=createT4OriginalVaultSealedContentPort({...common,role:'SOURCE'});
+  const recipient=(patch={})=>createT4OriginalVaultSealedContentPort({...common,role:'RECIPIENT',
+    readEncryptedVault:async()=>encrypted,unlockPassphrase:async()=>{unlocks++;return PASS;},...patch});
+  const openInput=(session,sealed)=>({session,sourceNodeRef:A,recipientNodeRef:B,scopeRef:SCOPE,
+    sessionRef:session.sessionRef,changeId:session.changeId,changeKind:session.changeKind,
+    sourceEventId:session.sourceEventId,originalEventDigest:session.sourceEventDigest,ownerRef:OWNER,
+    sourcePrefixDigestAfter:session.sourcePrefixDigestAfter,
+    contentDigest:'sha256:'+sha(sealed.ciphertext),encryptionContextRef:sealed.encryptionContextRef,
+    ciphertext:sealed.ciphertext,originalHostAuthenticatedDecryptionRequired:true});
+  return {f,binding,source,recipient,openInput,common,get unlocks(){return unlocks;}};
+}
+test('K38 native captured bytes protected with X25519 HKDF AES-GCM and existing opaque chunk path; recipient-only original Vault opens exact captured content', {timeout:30000},async()=>{
+  const q=await sealedFixture(),c=captured();
+  const plan=await prepareT4CandidateOpaqueChunks({changeId:c.session.changeId,ownerRef:OWNER,
+    sourceContentRef:c.input.sourceContentRef,getMode:()=> 'T4_NETWORK',
+    authorizeOriginalSealedContent:async()=>true,readOriginalSealedContent:p=>q.source.readOriginalSealedContent({...p,...c.input})});
+  assert.ok(plan.chunkCount>1);
+  const assembled=assembleT4CandidateOpaqueChunks({bodies:[...plan.bodies].reverse(),expectedChangeId:c.session.changeId,
+    expectedContentDigest:plan.contentDigest,expectedEncryptionContextRef:plan.encryptionContextRef});
+  assert.ok(!Buffer.from(assembled.ciphertext).includes(Buffer.from('IWXA original test fixture confidential content')));
+  const recipient=q.recipient(),opened=await recipient.openOriginalSealedContent(q.openInput(c.session,assembled));
+  assert.deepEqual(Buffer.from(opened.plaintext),c.content);
+  assert.equal(opened.originalCapturedBytesVerified,true);assert.equal(opened.originalBusinessApplied,false);
+  assert.equal(q.unlocks,1);
+  const second=await q.source.readOriginalSealedContent(c.input);
+  assert.notDeepEqual(second.ciphertext,assembled.ciphertext);
+  assert.notEqual(second.encryptionContextRef,assembled.encryptionContextRef);
+  assert.throws(()=>createT4OriginalNativeHostNetworkOwner({requireOriginalVaultSealedContent:true}),
+    {code:'NATIVE_NETWORK_OWNER_ORIGINAL_SEALED_CONTENT_REQUIRED'});
+  console.log('T4_K38_AUTHENTICATED_CONTENT_ROUNDTRIP_PASS',JSON.stringify({algorithm:'X25519_HKDF_SHA256_AES256GCM',
+    chunkCount:plan.chunkCount,bytes:c.content.length,originalRegistry:true,originalRecipientVault:true,
+    sourceUnlocks:0,recipientUnlocks:q.unlocks,byteExact:true,fixtureCapture:true,originalBusinessWrite:false,realKernelStore:false}));
+});
+test('K38 ciphertext, AAD, session, capture and key substitutions fail closed before returning plaintext', {timeout:30000},async()=>{
+  const q=await sealedFixture(),c=captured(),sealed=await q.source.readOriginalSealedContent(c.input);
+  const recipient=q.recipient(),input=q.openInput(c.session,sealed);
+  const bad=new Uint8Array(sealed.ciphertext);bad[bad.length-1]^=1;
+  await assert.rejects(recipient.openOriginalSealedContent({...input,ciphertext:bad}),
+    {code:'SEALED_CONTENT_CIPHERTEXT_DIGEST_MISMATCH'});
+  await assert.rejects(recipient.openOriginalSealedContent({...input,encryptionContextRef:'sealed:wrong'}),
+    {code:'SEALED_CONTENT_ENCRYPTION_CONTEXT_MISMATCH'});
+  const other=captured(c.content,'event:k38:other');
+  await assert.rejects(recipient.openOriginalSealedContent(q.openInput(other.session,sealed)),
+    {code:'SEALED_CONTENT_ENVELOPE_BINDING_MISMATCH'});
+  assert.equal(q.unlocks,0);
+  await assert.rejects(recipient.openOriginalSealedContent({...input,ciphertext:bad,contentDigest:'sha256:'+sha(bad)}),
+    {code:'SEALED_CONTENT_AUTHENTICATION_FAILED'});
+  const wrong=emptyVault();generateVaultKey(wrong,{keyId:q.binding.keyId,subjectId:PRINCIPAL,algorithm:'X25519'});
+  const wrongVault=encryptVault(wrong,PASS);
+  await assert.rejects(q.recipient({readEncryptedVault:async()=>wrongVault}).openOriginalSealedContent(input),
+    {code:'SEALED_CONTENT_VAULT_KEY_MISMATCH'});
+  const changed=structuredClone(c.input);changed.originalCapture.prepared.bytes[0]^=1;
+  await assert.rejects(q.source.readOriginalSealedContent(changed),{code:'SEALED_CONTENT_SOURCE_CAPTURE_DIGEST_MISMATCH'});
+  const large=captured(Buffer.alloc(64*8192,0x61));
+  await assert.rejects(q.source.readOriginalSealedContent(large.input),{code:'SEALED_CONTENT_TRANSPORT_LIMIT_EXCEEDED'});
+  console.log('T4_K38_CONTENT_SUBSTITUTION_REJECTED',JSON.stringify({wrongDigest:true,wrongContext:true,
+    foreignSession:true,tamperedAuthenticationTag:true,wrongVaultKey:true,alteredCapture:true,envelopeLimit:true}));
+});
+test('K38 revocation during Vault unlock invalidates seal and open while subject Grant remains active', {timeout:30000},async()=>{
+  const q=await sealedFixture(),c=captured(),sealed=await q.source.readOriginalSealedContent(c.input);
+  let revoked=false;
+  const recipient=q.recipient({unlockPassphrase:async()=>{
+    const current=(await q.f.registry.readNetworkKeyEvidence(query(q.binding))).binding;
+    await q.f.registry.applyNetworkKeyTransition(await q.f.prepare('REVOKE',{...q.binding,generation:2},null,current));
+    revoked=true;return PASS;
+  }});
+  await assert.rejects(recipient.openOriginalSealedContent(q.openInput(c.session,sealed)),
+    {code:'SEALED_CONTENT_RECIPIENT_KEY_NOT_ADMITTED'});
+  assert.equal(revoked,true);
+  await assert.rejects(q.source.readOriginalSealedContent(c.input),{code:'SEALED_CONTENT_RECIPIENT_KEY_NOT_ADMITTED'});
+  assert.equal((await q.f.registry.readState()).statuses[AUTH].payload.entries.find(x=>x.grantId==='grant:k37:member').state,'ACTIVE');
+  console.log('T4_K38_REVOKED_AGREEMENT_KEY_REFUSED',JSON.stringify({revocationDuringUnlock:true,subsequentSealDenied:true,
+    originalGrantUnchanged:true,plaintextReturned:false}));
 });

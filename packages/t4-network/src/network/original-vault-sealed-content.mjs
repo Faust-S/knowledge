@@ -162,8 +162,8 @@ export function createT4OriginalVaultSealedContentPort({
   async function readOriginalSealedContent(input={}){
     current();
     if(role!=='SOURCE'||input.exactCapturedCanonicalBytesRequired!==true)fail('SEALED_CONTENT_SOURCE_CAPTURE_REQUIRED');
-    const session=sessionFor(input.session),c=input.originalCapture;
-    if(input.changeId!==session.changeId||input.ownerRef!==originalWriteOwnerRef||input.sourceContentRef!==c?.captureRef||
+    const session=sessionFor(input.session),c=input.originalCapture,sourceContentRef=input.sourceContentRef;
+    if(input.changeId!==session.changeId||input.ownerRef!==originalWriteOwnerRef||!ID(sourceContentRef)||sourceContentRef!==c?.captureRef||
       c?.originalIntentEventAndCanonicalBytesVerified!==true||c.capturedWindowDigestVerified!==true||
       c.workspaceId!==workspaceId||c.originalWriteOwnerRef!==originalWriteOwnerRef||c.sourceEventId!==session.sourceEventId||
       (c.kind??'OBJECT_PUT')!==session.changeKind||c.sourceRevision!==session.sourceRevision||
@@ -174,7 +174,7 @@ export function createT4OriginalVaultSealedContentPort({
     const plaintext=Buffer.from(c.prepared.bytes);
     try{
       if(hash(plaintext)!==session.capturedSha256)fail('SEALED_CONTENT_SOURCE_CAPTURE_DIGEST_MISMATCH');
-      const entry=await recipientKey(),proof={sourceContentRef:input.sourceContentRef,plaintextSha256:session.capturedSha256};
+      const proof={sourceContentRef,plaintextSha256:session.capturedSha256},entry=await recipientKey();
       await permit(entry,session,proof);
       sameKey(entry,await recipientKey());current();
       const sealed=sealBytes(plaintext,session,recipientKeyRef,entry.publicKey);
@@ -185,6 +185,14 @@ export function createT4OriginalVaultSealedContentPort({
       return Object.freeze({ciphertext:new Uint8Array(sealed.ciphertext),encryptionContextRef:sealed.encryptionContextRef,
         originalCapturedBytesSealed:true,recipientKeyAgreementVerified:true,originalBusinessApplied:false});
     }finally{plaintext.fill(0);}
+  }
+  function openFromVault(encrypted,passphrase,entry,parsed){
+    const vault=decryptVault(typeof encrypted==='string'?strictJson(encrypted):encrypted,passphrase);
+    const item=Object.hasOwn(vault.keys,recipientKeyRef)?vault.keys[recipientKeyRef]:null;
+    if(item?.algorithm!=='X25519'||item.subjectId!==entry.binding.subjectId||
+      !pubDer(publicAgreementKey(item.publicKeyPem)).equals(pubDer(entry.publicKey)))
+      fail('SEALED_CONTENT_VAULT_KEY_MISMATCH');
+    return openBytes(parsed,vaultPrivateKey(vault,recipientKeyRef));
   }
   async function openOriginalSealedContent(input={}){
     current();
@@ -209,13 +217,8 @@ export function createT4OriginalVaultSealedContentPort({
       passphrase=await unlockPassphrase(Object.freeze({keyId:recipientKeyRef,workspaceId,scopeRef,ownerEpoch,
         actorId:signed.subject.actor_id,organizationId:signed.subject.organization_id,originalBindingRef:entry.binding.bindingRef}));
       current();sameKey(entry,await recipientKey());await permit(entry,session,proof);current();
-      // No asynchronous boundary while the private key is decrypted.
-      const vault=decryptVault(typeof encrypted==='string'?strictJson(encrypted):encrypted,passphrase);
-      const item=Object.hasOwn(vault.keys,recipientKeyRef)?vault.keys[recipientKeyRef]:null;
-      if(item?.algorithm!=='X25519'||item.subjectId!==entry.binding.subjectId||
-        !pubDer(publicAgreementKey(item.publicKeyPem)).equals(pubDer(entry.publicKey)))
-        fail('SEALED_CONTENT_VAULT_KEY_MISMATCH');
-      plaintext=openBytes(parsed,vaultPrivateKey(vault,recipientKeyRef));
+      // The decrypted Vault and KeyObject do not escape this synchronous call.
+      plaintext=openFromVault(encrypted,passphrase,entry,parsed);
       passphrase=null;encrypted=null;
       if(plaintext.length!==parsed.header.plaintextLength||hash(plaintext)!==session.capturedSha256)
         fail('SEALED_CONTENT_AUTHENTICATED_CAPTURE_MISMATCH');
