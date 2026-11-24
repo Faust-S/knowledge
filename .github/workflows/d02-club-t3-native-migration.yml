@@ -12,7 +12,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 75
     env:
-      SITE_SHA: 9f178f3dbbb54e4fc071b620dfe0f92b7d0bcc8c
+      SITE_SHA: 085991ba1d51c3174cd7e09a0d4465e1f627e55e
       T3_SHA: 3056eef0665fb3503294d49b89d937af2ea060e2
       T2_SHA: e70de29b72b83e2546f7ab74b17572685a728c17
       PORT: '55478'
@@ -48,6 +48,14 @@ jobs:
           ref: ${{ env.T3_SHA }}
           persist-credentials: false
           path: one-core
+      - name: Checkout exact original domain assistant candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 049e65bcc9ca02a04f3bbbba26da79281c15a290
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: bli-owner
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
@@ -79,7 +87,7 @@ jobs:
           if((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '6a80def6c3a9581daa24cd6d79ec26c557f70fb37f08a8b96e160ef4783b9fc4'){throw 'D02_NATIVE_T3_ARCHIVE_PIN_FAILED'}
           $hostPath=Join-Path $env:RUNNER_TEMP 'club-t3-host'
           $candidate=Join-Path $env:RUNNER_TEMP 'club-t3-candidate/dist'
-          & npm run t3:host:prepare -- (Join-Path $env:GITHUB_WORKSPACE 'one-core/packages/t3-core') $hostPath $zip *> (Join-Path $env:RUNNER_TEMP 't3-native-host.private.log')
+          & npm run t3:host:prepare -- (Join-Path $env:GITHUB_WORKSPACE 'one-core/packages/t3-core') $hostPath $zip (Join-Path $env:GITHUB_WORKSPACE 'bli-owner') *> (Join-Path $env:RUNNER_TEMP 't3-native-host.private.log')
           if($LASTEXITCODE -ne 0){throw 'D02_NATIVE_T3_HOST_PREPARE_FAILED'}
           & npm run t3:assemble:candidate -- (Join-Path (Get-Location).Path 'dist') $hostPath $candidate $zip *> (Join-Path $env:RUNNER_TEMP 't3-native-assemble.private.log')
           if($LASTEXITCODE -ne 0){throw 'D02_NATIVE_T3_ASSEMBLE_FAILED'}
@@ -743,15 +751,84 @@ jobs:
               throw 'D02_IMPORT_ORIGINAL_CAPABILITY_NOT_GRANTED'
             }
             ActivateTab 'Импортировать' 'D02_IMPORT_NATIVE_TAB_MISSING'
+            # Verify a genuine native Windows file dialog before entering
+            # a path. Sending keys to an assumed browser focus is not evidence.
+            function FileDialog(){
+              $class=[System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ClassNameProperty,'#32770')
+              foreach($dialog in [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+                [System.Windows.Automation.TreeScope]::Children,$class)){
+                try{
+                  $proc=Get-Process -Id $dialog.Current.ProcessId -ErrorAction Stop
+                  if($proc.ProcessName -notmatch '^msedge$'){continue}
+                  if($dialog.Current.IsOffscreen){continue}
+                  $editCond=[System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Edit)
+                  $fileEdit=$null
+                  foreach($candidateEdit in $dialog.FindAll($scope,$editCond)){
+                    if($candidateEdit.Current.AutomationId -eq '1148' -or
+                       $candidateEdit.Current.Name -match '^(File name:?|Имя файла:?)$'){
+                      $fileEdit=$candidateEdit;break
+                    }
+                  }
+                  $openCond=[System.Windows.Automation.AndCondition]::new(
+                    [System.Windows.Automation.PropertyCondition]::new(
+                      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                      [System.Windows.Automation.ControlType]::Button),
+                    [System.Windows.Automation.OrCondition]::new(
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::AutomationIdProperty,'1'),
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::NameProperty,'Open'),
+                      [System.Windows.Automation.PropertyCondition]::new(
+                        [System.Windows.Automation.AutomationElement]::NameProperty,'Открыть')))
+                  $open=$dialog.FindFirst($scope,$openCond)
+                  if($fileEdit -and $open -and $open.Current.IsEnabled){
+                    return @{dialog=$dialog;edit=$fileEdit;open=$open}
+                  }
+                }catch{}
+              }
+              return $null
+            }
+            function WaitDialog([int]$attempts=24){
+              for($i=0;$i -lt $attempts;$i++){
+                $d=FileDialog
+                if($d){return $d}
+                Start-Sleep -Milliseconds 250
+              }
+              return $null
+            }
+            if(FileDialog){throw 'D02_IMPORT_UNEXPECTED_EXISTING_FILE_DIALOG'}
             $choose=$null
-            for($i=0;$i -lt 50;$i++){
-              foreach($label in @('Выберите файл .iwxa','Выбрать файл','Choose File','Choose file','Browse...')){
+            $labels=@('Выберите файл .iwxa','Выбрать файл','Choose File','Choose file','Browse...','Browse')
+            for($i=0;$i -lt 25;$i++){
+              foreach($label in $labels){
                 $choose=Locate $label ''
                 if($choose){break}
               }
               if($choose){break}
-              Start-Sleep -Milliseconds 250
+              Start-Sleep -Milliseconds 200
             }
+            # Chromium sometimes exposes a nested native file button only
+            # through the RawView tree. Search that exact accessible label.
+            if(!$choose){
+              $raw=[System.Windows.Automation.TreeWalker]::RawViewWalker
+              $seen=0
+              $pending=[System.Collections.Generic.Queue[object]]::new()
+              foreach($root in @(Roots)){$pending.Enqueue($root)}
+              while($pending.Count -gt 0 -and $seen -lt 2400){
+                $n=$pending.Dequeue();$seen++
+                try{
+                  if($n.Current.IsEnabled -and $labels -contains $n.Current.Name){
+                    $choose=$n;break
+                  }
+                  $child=$raw.GetFirstChild($n)
+                  while($child){$pending.Enqueue($child);$child=$raw.GetNextSibling($child)}
+                }catch{}
+              }
+            }
+            $dialog=$null
             if($choose){
               Write-Output 'D02_IMPORT_NATIVE_FILE_CONTROL_FOUND=PASS'
               try{
@@ -759,49 +836,64 @@ jobs:
                   [System.Windows.Automation.InvokePattern]::Pattern)
                 $pattern.Invoke()
               }catch{
-                try{
-                  $choose.SetFocus()
-                  [System.Windows.Forms.SendKeys]::SendWait(' ')
-                  Write-Output 'D02_IMPORT_FILE_PICKER_TRIGGER=KEYBOARD_ON_CONTROL'
-                }catch{NativeClick $choose 'D02_IMPORT_NATIVE_FILE_PICKER_NOT_OPENED'}
+                try{$choose.SetFocus();[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')}catch{}
               }
-            }else{
-              # Chromium may expose <input type=file> as a nested OS chooser
-              # without its HTML aria-label. The first keyboard Tab after
-              # the selected Import tab goes to that native file input.
-              # Do not inspect or print filenames or profile contents.
+              $dialog=WaitDialog
+              if(!$dialog){
+                try{NativeClick $choose 'D02_IMPORT_NATIVE_FILE_POINTER_FAILED'}catch{}
+                $dialog=WaitDialog
+              }
+            }
+            if(!$dialog){
               $tab=Locate 'Импортировать' 'tab'
-              if(!$tab -or !(ImportTabSelected $tab) -or
-                 (ExistsUIName 'Скачать .iwxa')){
+              if(!$tab -or !(ImportTabSelected $tab) -or (ExistsUIName 'Скачать .iwxa')){
                 throw 'D02_IMPORT_TAB_OR_PANEL_NOT_CONFIRMED'
               }
-              try{
-                $tab.SetFocus()
+              $tab.SetFocus()
+              # Look through consecutive focus targets in the active import
+              # panel, without entering the file path unless the OS picker
+              # is identified. Enter is the native activation for file input.
+              for($i=0;$i -lt 7 -and !$dialog;$i++){
                 [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
                 Start-Sleep -Milliseconds 200
                 $focus=[System.Windows.Automation.AutomationElement]::FocusedElement
-                if(!$focus){throw 'D02_IMPORT_FILE_FOCUS_MISSING'}
-                $focusType=$focus.Current.ControlType.ProgrammaticName
-                Write-Output "D02_IMPORT_FIRST_FOCUS_TYPE=$focusType"
-                if($focusType -notmatch 'Button|Edit|Group|SplitButton'){
-                  throw 'D02_IMPORT_FOCUSED_NON_FILE_CONTROL'
+                if(!$focus){continue}
+                $named=$labels -contains $focus.Current.Name
+                $kind=$focus.Current.ControlType.ProgrammaticName
+                if($named -or ($i -eq 0 -and $kind -match 'Button|SplitButton')){
+                  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+                  $dialog=WaitDialog 12
+                  if(!$dialog){
+                    [System.Windows.Forms.SendKeys]::SendWait(' ')
+                    $dialog=WaitDialog 12
+                  }
                 }
-                [System.Windows.Forms.SendKeys]::SendWait(' ')
-                Write-Output 'D02_IMPORT_FILE_PICKER_TRIGGER=KEYBOARD_TAB_FROM_IMPORT'
-              }catch{
-                throw 'D02_IMPORT_NATIVE_FILE_PICKER_KEYBOARD_FAILED'
               }
             }
-            Start-Sleep -Milliseconds 700
-            # The standard Windows file chooser belongs to Edge. Entering an
-            # actual file path here is a genuine native user operation; no
-            # page.evaluate, simulated Kernel command or fabricated package.
-            Set-Clipboard -Value $archive.FullName
-            [System.Windows.Forms.SendKeys]::SendWait('%n')
-            Start-Sleep -Milliseconds 300
-            [System.Windows.Forms.SendKeys]::SendWait('^v')
-            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+            if(!$dialog){throw 'D02_IMPORT_NATIVE_FILE_DIALOG_NOT_CONFIRMED'}
+            Write-Output 'D02_IMPORT_NATIVE_FILE_DIALOG_OPEN=PASS'
+            try{
+              $value=[System.Windows.Automation.ValuePattern]$dialog.edit.GetCurrentPattern(
+                [System.Windows.Automation.ValuePattern]::Pattern)
+              $value.SetValue($archive.FullName)
+              if($value.Current.Value -ne $archive.FullName){throw 'D02_IMPORT_NATIVE_PATH_VALUE_MISMATCH'}
+            }catch{
+              $dialog.edit.SetFocus()
+              Set-Clipboard -Value $archive.FullName
+              [System.Windows.Forms.SendKeys]::SendWait('^a')
+              [System.Windows.Forms.SendKeys]::SendWait('^v')
+              $value=[System.Windows.Automation.ValuePattern]$dialog.edit.GetCurrentPattern(
+                [System.Windows.Automation.ValuePattern]::Pattern)
+              if($value.Current.Value -ne $archive.FullName){throw 'D02_IMPORT_NATIVE_PATH_VALUE_MISMATCH'}
+            }
+            $openPattern=[System.Windows.Automation.InvokePattern]$dialog.open.GetCurrentPattern(
+              [System.Windows.Automation.InvokePattern]::Pattern)
+            $openPattern.Invoke()
+            for($i=0;$i -lt 40 -and (FileDialog);$i++){Start-Sleep -Milliseconds 200}
+            if(FileDialog){throw 'D02_IMPORT_NATIVE_FILE_DIALOG_NOT_CLOSED'}
             Write-Output 'D02_IMPORT_NATIVE_FILE_CHOOSER_USED=TRUE'
+            $null=Await 'Предпросмотр' '' 'D02_IMPORT_ORIGINAL_PREVIEW_NOT_VISIBLE'
+            Write-Output 'D02_IMPORT_NATIVE_PREVIEW_VISIBLE=PASS'
             $null=Await 'Импортировать (1)' 'button' 'D02_IMPORT_PREVIEW_OR_PLAN_NOT_READY'
             Write-Output 'D02_IMPORT_ORIGINAL_PREVIEW=PASS'
             Click 'Импортировать (1)' 'D02_IMPORT_COMMIT_BUTTON_DISABLED'
@@ -1062,6 +1154,27 @@ jobs:
             Activate 'Мой профиль' 'D02_T3_OFFLINE_PUBLIC_PROFILE_LINK_MISSING'
             $null=AwaitName 'Как к вам обращаться' 'edit' 'D02_T3_OFFLINE_PUBLIC_FORM_NOT_VISIBLE'
             Write-Output 'D02_T3_OFFLINE_PUBLIC_DOMAIN_ROUTE=PASS'
+            # The original site-wide assistant must also open in the cold
+            # autonomous browser, with no local model downloaded or started.
+            $field=AwaitName 'Как к вам обращаться' 'edit' 'D02_T3_ASSISTANT_FORM_FIELD_MISSING'
+            $fieldValue=[System.Windows.Automation.ValuePattern]$field.GetCurrentPattern(
+              [System.Windows.Automation.ValuePattern]::Pattern)
+            $before=$fieldValue.Current.Value
+            InvokeButton 'Помощник Клуба' 'D02_T3_OFFLINE_ASSISTANT_LAUNCH_MISSING'
+            $null=AwaitName 'Установить модель' 'button' 'D02_T3_OFFLINE_ASSISTANT_MODEL_CONTROL_MISSING'
+            $null=AwaitName 'Вопрос или задача' 'edit' 'D02_T3_OFFLINE_ASSISTANT_QUESTION_MISSING'
+            InvokeButton 'Добавить текст текущей страницы' 'D02_T3_OFFLINE_ASSISTANT_CONTEXT_BUTTON_MISSING'
+            $null=AwaitPrefix 'Контекст добавлен.' 'D02_T3_OFFLINE_ASSISTANT_CONTEXT_NOT_ADDED'
+            InvokeButton 'Найти страницу домена' 'D02_T3_OFFLINE_ASSISTANT_PAGE_LIST_BUTTON_MISSING'
+            $pages=AwaitPrefix 'Доступно страниц домена:' 'D02_T3_OFFLINE_ASSISTANT_PAGE_LIST_NOT_READY'
+            if($pages.Current.Name -notmatch 'Доступно страниц домена:\s*([1-9][0-9]*)'){throw 'D02_T3_OFFLINE_ASSISTANT_EMPTY_PAGE_LIST'}
+            InvokeButton 'Найти формы страницы' 'D02_T3_OFFLINE_ASSISTANT_FORM_SCAN_BUTTON_MISSING'
+            $null=AwaitPrefix 'Выберите форму или калькулятор.' 'D02_T3_OFFLINE_ASSISTANT_FORM_NOT_DISCOVERED'
+            $field=AwaitName 'Как к вам обращаться' 'edit' 'D02_T3_OFFLINE_ASSISTANT_FORM_FIELD_LOST'
+            $after=([System.Windows.Automation.ValuePattern]$field.GetCurrentPattern(
+              [System.Windows.Automation.ValuePattern]::Pattern)).Current.Value
+            if($after -ne $before){throw 'D02_T3_OFFLINE_ASSISTANT_UNREQUESTED_FORM_WRITE'}
+            Write-Output 'D02_T3_OFFLINE_ASSISTANT_CONTEXT_AND_FORM_DISCOVERY=PASS'
             Write-Output 'D02_T3_LOCAL_MODEL_AND_PWA_OS_INSTALL=NOT_RUN'
           }finally{
             Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
