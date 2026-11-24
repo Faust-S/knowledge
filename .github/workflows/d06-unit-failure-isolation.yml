@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 3e58b2d8f395587706bd9946af930c0c7eafd41b
+          ref: 8ff7cc2f64132fc66a40860c086add7fc0310777
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -59,7 +59,34 @@ jobs:
             & cmd.exe /d /c ("npm run " + $name + " > """ + $log + """ 2>&1")
             $status = if ($LASTEXITCODE -eq 0) { "PASS" } else { "FAIL" }
             Write-Host ("D06_UNIT_" + $safe + "=" + $status)
-            if ($LASTEXITCODE -eq 0) { $passed += 1 } else { $failures += 1 }
+            if ($status -eq "PASS") { $passed += 1 } else {
+              $failures += 1
+              $body = Get-Content -LiteralPath $log -Raw
+              $classes = @("AssertionError", "TypeError", "SyntaxError", "MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND", "ERR_ASSERTION", "Missing script")
+              Write-Host ("D06_UNIT_FAILURE_CLASSES=" + $safe + ":" + (($classes | Where-Object { $body.Contains($_) }) -join ","))
+              $positions = [regex]::Matches($body, '(?:src|scripts|tests)[/\\][^:\r\n]+\.(?:ts|tsx|mjs):(\d+):(\d+)')
+              Write-Host ("D06_UNIT_STACK_LINES=" + $safe + ":" + ((@($positions | ForEach-Object { $_.Groups[1].Value + ":" + $_.Groups[2].Value } | Select-Object -Unique -First 8)) -join ","))
+              if ($name -eq "test:session") {
+                $checks = @([regex]::Matches($body, '(?m)^[\s]*[\u2713\u2717].*
+          }
+          Write-Host ("D06_UNIT_PASS_COUNT=" + $passed)
+          Write-Host ("D06_UNIT_FAIL_COUNT=" + $failures)
+          if ($failures -gt 0) { exit 1 }
+      - name: Privacy boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_LOGS=RUNNER_LOCAL_ONLY"
+          Write-Host "D06_PUBLIC_ARTIFACT_UPLOADS=0"
+))
+                $failedOrdinals = @()
+                for ($i = 0; $i -lt $checks.Count; $i++) {
+                  if ($checks[$i].Value.Contains([char]0x2717)) { $failedOrdinals += ($i + 1) }
+                }
+                Write-Host ("D06_SESSION_FAILED_ORDINALS=" + ($failedOrdinals -join ","))
+                Write-Host ("D06_SESSION_CHECK_COUNT=" + $checks.Count)
+              }
+            }
           }
           Write-Host ("D06_UNIT_PASS_COUNT=" + $passed)
           Write-Host ("D06_UNIT_FAIL_COUNT=" + $failures)
