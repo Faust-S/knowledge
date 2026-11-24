@@ -1634,6 +1634,106 @@ def compare_original_competing_market_routes(
     return output
 
 
+
+def _fixed_timing_commercial_price_interval(doc, *, work, transfer, lower, upper, others_ok):
+    """Intersect comparative value, original buyer budget and conservative liquidity.
+
+    The candidate is only a price sensitivity over the existing owner-private
+    timing arithmetic. No settlement claims, amended dates, credit, new Work,
+    signed offer or future revenue are manufactured by this review.
+    """
+    from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
+    from .economic_liquidity import evaluate_cash_timing
+
+    base = {
+        "status": "UNKNOWN",
+        "fixed_original_payment_conditions_and_windows": True,
+        "new_offer_and_fresh_consents_still_required": True,
+        "actual_financing_not_verified": True,
+        "private_owner_reserves_not_redisclosed": True,
+    }
+    proposals = [e for e in doc["events"] if e["action"] == "technology_route_propose"
+                 and e.get("technology_route_work") == work]
+    commercial = proposals[0].get("technology_route_commercial_terms") if len(proposals) == 1 else None
+    if not commercial:
+        return {**base, "reason": "ORIGINAL_INDEPENDENT_BUYER_BUDGET_NOT_QUALIFIED"}
+    buyer, seller = transfer["payer"], transfer["payee"]
+    if commercial["buyer"] != buyer or len([o for o in commercial["offers"] if o["payee"] == seller]) != 1:
+        return {**base, "reason": "ORIGINAL_PURCHASE_QUOTE_NOT_QUALIFIED"}
+    fixed = sum((Decimal(o["amount"]) for o in commercial["offers"] if o["payee"] != seller), Decimal(0))
+    budget_max = Decimal(commercial["buyer_maximum_payment"]) - fixed
+    lo = int((lower * 100).to_integral_value(rounding=ROUND_CEILING))
+    hi = int((min(upper, budget_max) * 100).to_integral_value(rounding=ROUND_FLOOR))
+    private = {
+        "buyer_budget_available_for_selected_purchase": f"{budget_max:.2f}",
+        "minimum_purchase_price": None, "maximum_purchase_price": None,
+    }
+    if not others_ok or lo > hi:
+        return {**base, "status": "NO_PRICE_SATISFIES_VALUE_AND_BUYER_BUDGET",
+                "local_research_only": private}
+    money = doc["economic_claims"]
+    sources = {s["id"]: s for s in money["sources"]}
+    owners = {s["id"]: s for s in doc["subjects"]}
+    due = {t["transfer_id"]: t["due_at"] for t in money.get("work_payment_conditions", [])}
+    target = transfer["id"]
+    cache = {}
+    met = "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+
+    def cash_at(cents):
+        if cents not in cache:
+            index = {t["id"]: {**t, "decimal_amount": (
+                Decimal(cents) / 100 if t["id"] == target else Decimal(t["amount"]))}
+                for t in money["transfers"]}
+            paths = evaluate_cash_timing(
+                money["cash_timing"], sources=sources, transfer_index=index,
+                coverage=money["coverage"], subjects=owners, outside={},
+                original_payment_due=due,
+            )["per_original_owner_private_research_projection"]
+            result = {}
+            for owner, view in paths.items():
+                path = view["scenario_paths"]["COOPERATION"]
+                if path["status"] != "SOURCE_DECLARED_TIMING_ARITHMETIC_ONLY":
+                    return None
+                result[owner] = all(path[k]["status"] == met for k in ("expected", "declared_late_case"))
+            cache[cents] = result
+        return cache[cents]
+
+    at_low, at_high = cash_at(lo), cash_at(hi)
+    if at_low is None or at_high is None:
+        return {**base, "reason": "ORIGINAL_CASH_TIMING_SCOPE_INCOMPLETE"}
+    # Buyer reserve feasibility is nonincreasing in price, seller
+    # nondecreasing, all other owner cash paths invariant. Search exact cents.
+    if (not at_low[buyer] or not at_high[seller] or
+            not all(v for k, v in at_low.items() if k not in {buyer, seller})):
+        return {**base, "status": "NO_PRICE_SATISFIES_ALL_OWNER_RESERVES_AT_FIXED_TIMING",
+                "local_research_only": private}
+    left, right = lo, hi
+    while left < right:
+        mid = (left + right) // 2
+        if cash_at(mid)[seller]:
+            right = mid
+        else:
+            left = mid + 1
+    reserve_min = left
+    left, right = lo, hi
+    while left < right:
+        mid = (left + right + 1) // 2
+        if cash_at(mid)[buyer]:
+            left = mid
+        else:
+            right = mid - 1
+    reserve_max = left
+    if reserve_min > reserve_max:
+        return {**base, "status": "NO_PRICE_SATISFIES_ALL_OWNER_RESERVES_AT_FIXED_TIMING",
+                "local_research_only": private}
+    assert all(cash_at(reserve_min).values()) and all(cash_at(reserve_max).values())
+    private.update(minimum_purchase_price=f"{Decimal(reserve_min)/100:.2f}",
+                   maximum_purchase_price=f"{Decimal(reserve_max)/100:.2f}")
+    return {**base, "status": "MODEL_VALUE_BUDGET_AND_RESERVE_PRICE_INTERVAL",
+            "exact_cent_endpoints_qualified_in_expected_and_late_paths": True,
+            "local_research_only": private}
+
+
 def review_competing_market_price_interval(
     scenarios: Mapping[str, Mapping[str, Any]], *, work: str,
     prior_works: tuple[str, ...], split_at: int, candidate: str,
@@ -1682,6 +1782,8 @@ def review_competing_market_price_interval(
                        else "NO_SINGLE_PRICE_CAN_MAKE_ALL_ORIGINAL_OWNERS_NO_WORSE"),
             "other_original_owners_no_worse": others_ok,
             "candidate_current_reserve_paths_met": all(a["original_owner_reserves_met"].values()),
+            "fixed_timing_commercial_negotiation": _fixed_timing_commercial_price_interval(
+                doc, work=work, transfer=transfer, lower=lower, upper=upper, others_ok=others_ok),
             "local_research_only": {
                 "current_purchase_price": f"{price:.2f}",
                 "minimum_purchase_price": f"{lower:.2f}" if feasible else None,

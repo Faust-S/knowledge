@@ -712,7 +712,7 @@ def original_market_order_finance_case(*, alternate=None, incomplete=False,
                                       failed_quality=False, competing=False, buyer_finishes=False,
                                       buyer_finish_material="140.00", buyer_finish_labor="80.00",
                                       supplier_finish_price="400.00", commercial=False,
-                                      buyer_budget="1400.00"):
+                                      buyer_budget="1400.00", buyer_opening="2500.00"):
     """Attach complete owner declarations to SAME W1/W2/W3 and ledger."""
     from .test_r1p_r3_executed_route_economics_mesa import add_original_recipient_value
 
@@ -752,7 +752,7 @@ def original_market_order_finance_case(*, alternate=None, incomplete=False,
         return ref
 
     for owner, opening, reserve in (
-            ("a", "800.00", "100.00"), ("b", "2500.00", "100.00"),
+            ("a", "800.00", "100.00"), ("b", buyer_opening, "100.00"),
             ("c", c_opening, "100.00"), ("op", "100.00", "30.00")):
         evidence(owner, coverage[owner], declare=True)
         evidence(owner, f"market-receipt-{owner}", declare=True)
@@ -1199,16 +1199,18 @@ def test_original_common_code_also_permits_independent_supplier_finishing():
 
 def matched_competing_market_cases(*, buyer_finish_material="140.00", buyer_finish_labor="80.00",
                                   supplier_finish_price="400.00", buyer_observed="14",
-                                  c_opening="400.00", buyer_failed_quality=False, commercial=True):
+                                  c_opening="400.00", buyer_failed_quality=False, commercial=True,
+                                  buyer_budget="1400.00", buyer_opening="2500.00"):
     """Common exogenous source universe: both routes can be chosen by owners."""
     docs = {
         "supplier": original_market_order_finance_case(
             competing=True, supplier_finish_price=supplier_finish_price, c_opening=c_opening,
-            commercial=commercial),
+            commercial=commercial, buyer_budget=buyer_budget, buyer_opening=buyer_opening),
         "coproduction": original_market_order_finance_case(
             competing=True, buyer_finishes=True, buyer_finish_material=buyer_finish_material,
             buyer_finish_labor=buyer_finish_labor, observed=buyer_observed,
-            c_opening=c_opening, failed_quality=buyer_failed_quality, commercial=commercial),
+            c_opening=c_opening, failed_quality=buyer_failed_quality, commercial=commercial,
+            buyer_budget=buyer_budget, buyer_opening=buyer_opening),
     }
     # Common BEFORE-choice catalogue, existing KPB rights for both possible
     # routes, plus independent owner documents for each possible observation.
@@ -1712,3 +1714,29 @@ def test_original_recipient_value_feedback_rejects_future_foreign_or_stale_evide
     assert review["evaluation_recipient_value_scope_status"] == "UNKNOWN"
     assert review["outcome"] == "APPLIED"
     assert out["works"]["w4"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+@pytest.mark.parametrize("kwargs,expected_status,low,high", [
+    ({"buyer_finish_material": "220.00", "buyer_finish_labor": "160.00"},
+     "MODEL_VALUE_BUDGET_AND_RESERVE_PRICE_INTERVAL", "280.00", "380.00"),
+    ({"buyer_finish_material": "260.00", "buyer_finish_labor": "180.00", "buyer_budget": "1200.00"},
+     "MODEL_VALUE_BUDGET_AND_RESERVE_PRICE_INTERVAL", "280.00", "400.00"),
+    ({"buyer_finish_material": "220.00", "buyer_finish_labor": "160.00", "buyer_opening": "1950.00"},
+     "MODEL_VALUE_BUDGET_AND_RESERVE_PRICE_INTERVAL", "280.00", "350.00"),
+    ({"buyer_finish_material": "220.00", "buyer_finish_labor": "160.00", "buyer_opening": "1850.00"},
+     "NO_PRICE_SATISFIES_ALL_OWNER_RESERVES_AT_FIXED_TIMING", None, None),
+    ({"buyer_finish_material": "220.00", "buyer_finish_labor": "160.00", "c_opening": "200.00"},
+     "NO_PRICE_SATISFIES_ALL_OWNER_RESERVES_AT_FIXED_TIMING", None, None),
+    ({}, "NO_PRICE_SATISFIES_VALUE_AND_BUYER_BUDGET", None, None),
+    ({"commercial": False}, "UNKNOWN", None, None),
+])
+def test_competing_price_budget_and_reserve_intersection(kwargs, expected_status, low, high):
+    docs = matched_competing_market_cases(**kwargs)
+    frozen = deepcopy(docs)
+    result = competing_market_price(docs)["fixed_timing_commercial_negotiation"]
+    assert docs == frozen
+    assert result["status"] == expected_status, result
+    local = result.get("local_research_only", {})
+    assert local.get("minimum_purchase_price") == low
+    assert local.get("maximum_purchase_price") == high
+    assert result["new_offer_and_fresh_consents_still_required"]
