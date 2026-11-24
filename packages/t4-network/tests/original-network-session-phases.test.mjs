@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createT4OriginalNetworkSessionPhasePort} from
+import {createT4OriginalNetworkSessionPhasePort,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
 
 const workspace='t4:network:technical:session',
@@ -324,4 +324,108 @@ test('inactive original Host cannot return even an empty phase checkpoint after 
   assert.equal(f.kernel.calls,0);
   active=true;
   await assert.rejects(port.inspectOriginalSession(),isCode('ORIGINAL_HOST_LIFETIME_ENDED'));
+});
+
+
+const retirementRequest=status=>({expectedRevision:status.revision,expectedChainHash:status.chainHash,
+  decisionRef:'decision:k46:replace',decisionDigest:B});
+function retirementFixture(){
+  const f=fixture(recipientNodeRef),decisions=[];let allow=true;
+  const base={...f.base,recipientApplyIntentRequired:true,
+    authorizeOriginalRecipientSupersession:async p=>{decisions.push(structuredClone(p));return allow;}};
+  const port=patch=>createT4OriginalNetworkSessionPhasePort({...base,...patch});
+  return {...f,base,port,decisions,deny:()=>{allow=false;}};
+}
+for(const prior of [null,'RECEIVED','VERIFIED']){
+  test('K46 terminal retirement at '+(prior??'GENESIS')+' binds one successor in original phase CAS and survives cold read',async()=>{
+    const f=retirementFixture(),p=f.port();
+    if(prior!==null)await p.advanceOriginalSessionPhase({phase:'RECEIVED',evidence:evidence('frame:change')});
+    if(prior==='VERIFIED')await p.advanceOriginalSessionPhase({phase:'VERIFIED',evidence:evidence('frame:change')});
+    const before=await p.inspectOriginalSession(),request=retirementRequest(before);
+    const result=await p.retireOriginalRecipientAttempt(request);
+    assert.equal(result.status,'RECORDED');
+    assert.equal(result.revision,before.revision+1);
+    assert.equal(result.originalApplyIntentAbsent,true);
+    assert.equal(result.originalNewAttemptAdmissionStillRequired,true);
+    assert.equal(result.liveNetworkAuthorityGranted,false);
+    const next=deriveT4OriginalReplacementAttempt(f.base);
+    assert.equal(result.replacement.replacementSessionRef,next.replacementSessionRef);
+    assert.equal(next.changeId,changeId);assert.notEqual(next.replacementSessionRef,sessionRef);
+    assert.deepEqual(deriveT4OriginalReplacementAttempt({...f.base,localNodeRef:sourceNodeRef,
+      technicalWorkspaceId:'ws:other:technical'}),next);
+    assert.notEqual(deriveT4OriginalReplacementAttempt({...f.base,ownerEpoch:3}).replacementSessionRef,next.replacementSessionRef);
+    assert.equal(f.kernel.objects.size,1);
+    assert.equal(f.kernel.events.length,before.revision+1);
+    f.restart();
+    const cold=f.port({authorizeOriginalRecipientSupersession:null});
+    const read=await cold.inspectOriginalSession();
+    assert.equal(read.currentPhase,'SUPERSEDED');
+    assert.equal(read.recipientApplyIntentEvidence,null);
+    assert.equal(read.originalRecipientAttemptSuperseded,true);
+    assert.equal(read.originalBusinessApplied,false);
+    assert.equal(read.originalT3EventChainVerified,true);
+    const repeated=await f.port().retireOriginalRecipientAttempt(request);
+    assert.equal(repeated.status,'ALREADY_CONFIRMED');
+    assert.equal(repeated.chainHash,result.chainHash);
+    assert.equal(f.kernel.calls,before.revision+1);
+    for(const phase of ['RECEIVED','VERIFIED','APPLY_INTENT','APPLIED'])
+      await assert.rejects(cold.advanceOriginalSessionPhase({phase,evidence:evidence('frame:change',phase)}),
+        isCode('PHASE_ORIGINAL_RECIPIENT_ATTEMPT_SUPERSEDED'));
+    await assert.rejects(f.port().retireOriginalRecipientAttempt({...request,decisionRef:'decision:foreign'}),
+      isCode('PHASE_ORIGINAL_SUPERSESSION_DECISION_CONFLICT'));
+    f.deny();await assert.rejects(f.port().retireOriginalRecipientAttempt(request),isCode('PHASE_ORIGINAL_SUPERSESSION_DENIED'));
+    assert.equal(f.kernel.calls,before.revision+1);
+  });
+}
+test('K46 original apply reservation forbids retirement even when no recipient result is available',async()=>{
+  const f=retirementFixture(),p=f.port();
+  for(const phase of ['RECEIVED','VERIFIED','APPLY_INTENT'])
+    await p.advanceOriginalSessionPhase({phase,evidence:evidence('frame:change')});
+  const status=await p.inspectOriginalSession();
+  await assert.rejects(p.retireOriginalRecipientAttempt({expectedRevision:2,
+    expectedChainHash:status.chainHash,decisionRef:'decision:k46:replace',decisionDigest:B}),
+    isCode('PHASE_ORIGINAL_SUPERSESSION_APPLY_OUTCOME_REQUIRED'));
+  f.allowApplied();await p.advanceOriginalSessionPhase({phase:'APPLIED',evidence:evidence('ack:done','APPLIED')});
+  await assert.rejects(p.retireOriginalRecipientAttempt({expectedRevision:2,
+    expectedChainHash:status.chainHash,decisionRef:'decision:k46:replace',decisionDigest:B}),
+    isCode('PHASE_ORIGINAL_SUPERSESSION_APPLY_OUTCOME_REQUIRED'));
+  assert.equal(f.kernel.calls,4);assert.equal(f.decisions.length,0);
+});
+test('K46 loss of retirement CAS response is recovered exactly; missing Object with surviving Event cannot create a fence',async()=>{
+  const f=retirementFixture(),p=f.port(),request=retirementRequest(await p.inspectOriginalSession());
+  f.kernel.loseNextReply();
+  await assert.rejects(p.retireOriginalRecipientAttempt(request),isCode('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  f.restart();
+  assert.equal((await f.port().retireOriginalRecipientAttempt(request)).status,'ALREADY_CONFIRMED');
+  assert.equal(f.kernel.calls,1);f.kernel.objects.clear();
+  await assert.rejects(f.port().inspectOriginalSession(),isCode('PHASE_ORIGINAL_EVENT_CHAIN_INCOMPLETE'));
+  await assert.rejects(f.port().retireOriginalRecipientAttempt(request),isCode('PHASE_ORIGINAL_EVENT_CHAIN_INCOMPLETE'));
+  assert.equal(f.kernel.calls,1);
+});
+test('K46 retirement and APPLY_INTENT contend on one original CAS; only one transition wins',async()=>{
+  const f=retirementFixture(),p=f.port();
+  for(const phase of ['RECEIVED','VERIFIED'])await p.advanceOriginalSessionPhase({phase,evidence:evidence('frame:change')});
+  const before=await p.inspectOriginalSession(),request=retirementRequest(before);
+  let unblock,arrived=0;const gate=new Promise(r=>{unblock=r;});
+  const write=async proof=>{if(['SUPERSEDED','APPLY_INTENT'].includes(proof.phase)){
+    arrived++;if(arrived===2)unblock();await gate;}return true;};
+  const p1=f.port({authorizeOriginalTechnicalWrite:write}),p2=f.port({authorizeOriginalTechnicalWrite:write});
+  const results=await Promise.allSettled([p1.retireOriginalRecipientAttempt(request),
+    p2.advanceOriginalSessionPhase({phase:'APPLY_INTENT',evidence:evidence('frame:change')})]);
+  assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
+  assert.equal(results.filter(x=>x.status==='rejected').length,1);
+  const final=await f.port().inspectOriginalSession();
+  assert.equal(final.revision,3);assert.ok(['SUPERSEDED','APPLY_INTENT'].includes(final.currentPhase));
+  assert.equal(f.kernel.events.length,3);
+  if(final.currentPhase==='SUPERSEDED')assert.equal(final.recipientApplyIntentEvidence,null);
+  else assert.equal(final.originalRecipientAttemptSuperseded,undefined);
+});
+test('K46 retirement authority is explicit, recipient-only, and never inferred from transport or legacy phase',async()=>{
+  const f=fixture(recipientNodeRef),legacy=f.create();
+  assert.equal(legacy.retireOriginalRecipientAttempt,undefined);
+  assert.throws(()=>createT4OriginalNetworkSessionPhasePort({...f.base,authorizeOriginalRecipientSupersession:async()=>true}),
+    isCode('PHASE_ORIGINAL_T3_HOST_PORTS_REQUIRED'));
+  const g=retirementFixture(),p=g.port(),request=retirementRequest(await p.inspectOriginalSession());
+  g.deny();await assert.rejects(p.retireOriginalRecipientAttempt(request),isCode('PHASE_ORIGINAL_SUPERSESSION_DENIED'));
+  assert.equal(g.kernel.calls,0);
 });
