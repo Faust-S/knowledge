@@ -60,9 +60,12 @@ export function createT4OriginalNativeHostNetworkOwner({
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
   enableLocalSourceCapture=false,enablePublicationIndexMigration=false,
   enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,requireSignedTopologyAccess=false,
-  originalVaultNodeSignaturePort=null,requireOriginalVaultNodeSignature=false,
+  originalVaultNodeSignaturePort=null,requireOriginalVaultNodeSignature=false,requireDurableNetworkKeyBinding=false,
   monotonicNow=()=>performance.now(),
 }={}){
+  if(typeof requireDurableNetworkKeyBinding!=='boolean'||(requireDurableNetworkKeyBinding&&
+    (!isT4OriginalVaultNodeSignaturePort(originalVaultNodeSignaturePort)||originalVaultNodeSignaturePort.originalDurableNetworkKeyBinding!==true)))
+    fail('NATIVE_NETWORK_OWNER_DURABLE_KEY_BINDING_REQUIRED');
   if(typeof requireOriginalVaultNodeSignature!=='boolean'||
     (requireOriginalVaultNodeSignature&&!isT4OriginalVaultNodeSignaturePort(originalVaultNodeSignaturePort)))
     fail('NATIVE_NETWORK_OWNER_ORIGINAL_VAULT_REQUIRED');
@@ -379,7 +382,8 @@ export function createT4OriginalNativeHostNetworkOwner({
   }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_NATIVE_HOST_NETWORK_OWNER_V1',role,identity,operations,
-    ...(originalVaultNodeSignaturePort?{originalVaultNodeIdentity:originalVaultNodeSignaturePort.identity}:{}),
+    ...(originalVaultNodeSignaturePort?{originalVaultNodeIdentity:originalVaultNodeSignaturePort.identity,
+      originalDurableNetworkKeyBinding:originalVaultNodeSignaturePort.originalDurableNetworkKeyBinding===true}:{}),
     ...(nativeTopologyTransport?{originalTopologyBinding:nativeTopologyTransport.binding,
       originalSignedTopologyAccess:nativeTopologyTransport.originalSignedAccessBound===true}:{}),
     ...(enableLocalSourceCapture?{localSourceMutation:Object.freeze({workspaceId:sourceWorkspaceId,

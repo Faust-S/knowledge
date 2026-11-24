@@ -24,12 +24,15 @@ export const isT4OriginalVaultNodeSignaturePort=value=>!!value&&typeof value==='
 export function createT4OriginalVaultNodeSignaturePort({
   workspaceId,originalWriteOwnerRef,localNodeRef,remoteNodeRef,scopeRef,ownerEpoch,
   requiredCryptoSuite,localKeyRef,remoteKeyRef,registry,access,originalEvaluator,expectedContext,
-  readOriginalNodeKeyBinding,readEncryptedVault,unlockPassphrase,getMode,clock=Date.now,
+  readOriginalNodeKeyBinding=null,requireDurableNetworkKeyBinding=false,readEncryptedVault,unlockPassphrase,getMode,clock=Date.now,
 }={}){
   if(![workspaceId,originalWriteOwnerRef,localNodeRef,remoteNodeRef,scopeRef,
     requiredCryptoSuite,localKeyRef,remoteKeyRef].every(ID)||localNodeRef===remoteNodeRef||localKeyRef===remoteKeyRef||
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||!isOriginalKernelRegistryStatePort(registry)||
-    ![readOriginalNodeKeyBinding,readEncryptedVault,unlockPassphrase,getMode,clock].every(f=>typeof f==='function'))
+    typeof requireDurableNetworkKeyBinding!=='boolean'||
+    (readOriginalNodeKeyBinding!==null&&typeof readOriginalNodeKeyBinding!=='function')||
+    (requireDurableNetworkKeyBinding&&readOriginalNodeKeyBinding!==null)||
+    ![readEncryptedVault,unlockPassphrase,getMode,clock].every(f=>typeof f==='function'))
     fail('ORIGINAL_VAULT_NETWORK_PORTS_REQUIRED');
   // Policy equality cannot establish Registry identity or status history.
   // Require the exact evaluator already used by the signed Host, directly
@@ -38,6 +41,7 @@ export function createT4OriginalVaultNodeSignaturePort({
     !(expectedContext?.kind==='PERSONAL'?isOriginalPersonalAccessCheckForRegistry(originalEvaluator,registry):
       isOriginalOrganizationalOperationGateForRegistry(originalEvaluator,registry)))
     fail('ORIGINAL_VAULT_NETWORK_REGISTRY_BINDING_MISMATCH');
+  const durable=readOriginalNodeKeyBinding===null;
   const identity=Object.freeze({workspaceId,originalWriteOwnerRef,localNodeRef,remoteNodeRef,scopeRef,ownerEpoch,
     requiredCryptoSuite,localKeyRef,remoteKeyRef});
   const signed=createT4OriginalSignedOperationAccess({access,expectedContext,workspaceId,
@@ -61,27 +65,32 @@ export function createT4OriginalVaultNodeSignaturePort({
     current();
     // This is a resolution by the ORIGINAL owner, not authority from a
     // network header. BindingRef names existing owner evidence; T4 issues no binding.
-    const b=await readOriginalNodeKeyBinding(q);
+    const observed=durable?await registry.readNetworkKeyEvidence({keyId:q.signerRef,nodeRef:q.sourceNodeRef,
+      recipientNodeRef:q.recipientNodeRef,workspaceId,originalWriteOwnerRef,scopeRef,ownerEpoch}):null;
+    const b=durable?observed?.binding:await readOriginalNodeKeyBinding(q);
     current();
     if(!b||b.active!==true||!ID(b.bindingRef)||!ID(b.subjectId)||!ID(b.permissionRef)||
       b.keyId!==q.signerRef||b.nodeRef!==q.sourceNodeRef||b.recipientNodeRef!==q.recipientNodeRef||
       b.workspaceId!==workspaceId||b.originalWriteOwnerRef!==originalWriteOwnerRef||
       b.scopeRef!==scopeRef||b.ownerEpoch!==ownerEpoch||
       (expectedPermissionRef!==null&&b.permissionRef!==expectedPermissionRef)||
-      (q.direction==='LOCAL'&&b.subjectId!==signed.subject.actor_id))
+      (q.direction==='LOCAL'&&(b.subjectId!==signed.subject.actor_id||
+        (durable&&b.principalId!==signed.subject.principal_id))))
       fail('ORIGINAL_VAULT_NETWORK_KEY_BINDING_DENIED');
     const binding=Object.freeze({bindingRef:b.bindingRef,subjectId:b.subjectId,permissionRef:b.permissionRef,
       keyId:b.keyId,nodeRef:b.nodeRef,recipientNodeRef:b.recipientNodeRef,workspaceId:b.workspaceId,
-      originalWriteOwnerRef:b.originalWriteOwnerRef,scopeRef:b.scopeRef,ownerEpoch:b.ownerEpoch});
-    const state=await registry.readState();
+      originalWriteOwnerRef:b.originalWriteOwnerRef,scopeRef:b.scopeRef,ownerEpoch:b.ownerEpoch,
+      ...(durable?{generation:b.generation,transitionDigest:b.transitionDigest,authorityId:b.authorityId,principalId:b.principalId}:{})});
+    const state=durable?null:await registry.readState();
     current();
-    const policy=state.policy,key=Object.hasOwn(policy.keys,q.signerRef)?policy.keys[q.signerRef]:null,now=clock();
+    const policy=state?.policy,key=durable?observed.key:(Object.hasOwn(policy.keys,q.signerRef)?policy.keys[q.signerRef]:null),now=clock();
     if(!Number.isSafeInteger(now)||now<=0||!key||key.subjectId!==binding.subjectId||
-      key.status!=='ACTIVE'||key.environment!==policy.environment||key.uses?.length!==1||
+      key.status!=='ACTIVE'||(!durable&&key.environment!==policy.environment)||key.uses?.length!==1||
       key.uses[0]!=='NETWORK_FRAME'||!(Date.parse(key.notBefore)<=now&&now<Date.parse(key.expiresAt))||
       createPublicKey(key.publicKey).asymmetricKeyType!=='ed25519')
       fail('ORIGINAL_VAULT_NETWORK_KEY_NOT_ADMITTED');
-    return Object.freeze({binding,key:Object.freeze(structuredClone(key)),keyDigest:digest(key),policyDigest:digest(policy)});
+    return Object.freeze({binding,key:Object.freeze(structuredClone(key)),keyDigest:digest(key),
+      policyDigest:durable?observed.policyDigest:digest(policy)});
   }
   const exact=(before,after)=>{
     if(before.policyDigest!==after.policyDigest||before.keyDigest!==after.keyDigest||
@@ -167,9 +176,11 @@ export function createT4OriginalVaultNodeSignaturePort({
   }
   const port=Object.freeze({schema:'IWXA_T4_ORIGINAL_VAULT_NODE_SIGNATURE_V1',identity,originalSignedSubject:signed.subject,originalAccessIdentity:signed.originalAccessIdentity,
     resolveOriginalSigningContext,signOriginalNodeBytes,verifyOriginalNodeSignature,
-    originalVault:true,originalRegistry:true,originalSignedAccess:true,createsStore:false,createsIAM:false,
+    originalVault:true,originalRegistry:true,originalSignedAccess:true,originalDurableNetworkKeyBinding:durable,
+    createsStore:false,createsIAM:false,
     forOriginalHostLifetime:isHostActive=>createT4OriginalVaultNodeSignaturePort({...identity,registry,access,originalEvaluator,
-      expectedContext:signed.subject,readOriginalNodeKeyBinding,readEncryptedVault,unlockPassphrase,
+      expectedContext:signed.subject,readOriginalNodeKeyBinding,requireDurableNetworkKeyBinding,
+      readEncryptedVault,unlockPassphrase,
       getMode:originalHostLifetimeMode(getMode,isHostActive),clock})});
   assembled.add(port);return port;
 }

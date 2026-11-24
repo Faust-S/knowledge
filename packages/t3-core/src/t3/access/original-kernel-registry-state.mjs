@@ -7,6 +7,9 @@ import {
   canonical,digest,snapshot,copy,validatePolicy,validateGrant,verifyRecord,
   validateStatusSnapshot,assertStatusTransitionHistory,iso,signRecord,evaluate,timestamp
 } from "./core.mjs";
+import {deriveOriginalNetworkKeyTransition,validateOriginalNetworkKeyTransition,
+  originalNetworkKeyOperationDigest,ORIGINAL_NETWORK_KEY_MANAGE}
+  from "./original-network-key-lifecycle.mjs";
 
 export const ORIGINAL_REGISTRY_SCHEMA="iwxa.t3.access.signed-registry";
 export const ORIGINAL_REGISTRY_EVENT="t3.access.signed_registry.persisted";
@@ -246,6 +249,7 @@ export function createOriginalKernelRegistryStatePort({
     // An admitted employee proof key cannot become a new issuer or admin.
     let observedPolicy=copy(pinned),currentHash=trustedHash;
     let priorFloors=null,expectedRevision=0;
+    const networkBindings=new Map(),networkTransitions=new Map();
     for(const event of journal){
       expectedRevision++;
       check(event.workspace_id===workspaceId &&
@@ -255,8 +259,25 @@ export function createOriginalKernelRegistryStatePort({
         Object.keys(event.payload.status_sequences).length===
           Object.keys(pinned.authorities).length,
         "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
-      const trust=event.payload.proof_credential_admission;
-      if(trust!==undefined){
+      const trust=event.payload.proof_credential_admission,network=event.payload.network_key_transition;
+      check(trust===undefined||network===undefined,"T3_ACCESS_REGISTRY_MULTIPLE_POLICY_TRANSITIONS");
+      if(network!==undefined){
+        check(expectedRevision>1&&priorFloors&&dictionary(network)&&ID.test(event.event_id??""),
+          "T3_ACCESS_NETWORK_KEY_HISTORY_INVALID");
+        let derived;
+        try{derived=deriveOriginalNetworkKeyTransition({transition:network.transition,signedStatus:network.signed_status,
+          policy:observedPolicy,bindings:networkBindings,priorFloors});}
+        catch(error){no(error?.code??"T3_ACCESS_NETWORK_KEY_HISTORY_INVALID");}
+        const c=derived.transition.claims;
+        check(!networkTransitions.has(c.transitionRef)&&event.payload.policy_digest===digest(derived.policy),
+          "T3_ACCESS_NETWORK_KEY_HISTORY_CONFLICT");
+        for(const authorityId of Object.keys(pinned.authorities))check(event.payload.status_sequences[authorityId]===
+          priorFloors[authorityId]+(authorityId===c.authorityId?1:0),"T3_ACCESS_NETWORK_KEY_SEQUENCE_INVALID");
+        observedPolicy=derived.policy;currentHash=digest(observedPolicy);
+        networkBindings.set(derived.binding.bindingRef,derived.binding);
+        networkTransitions.set(c.transitionRef,{transition:derived.transition,signedStatus:copy(network.signed_status),
+          revision:expectedRevision,eventId:event.event_id,binding:derived.binding});
+      }else if(trust!==undefined){
         check(expectedRevision>1&&priorFloors,
           "T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH");
         observedPolicy=verifyProofKeyAdmission(trust,observedPolicy,event);
@@ -293,7 +314,7 @@ export function createOriginalKernelRegistryStatePort({
       last.payload.policy_digest===digest(state.policy) &&
       last.payload.state_digest===digest(state),
       "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
-    return Object.freeze({revision:record.revision,state:copy(state)});
+    return Object.freeze({revision:record.revision,state:copy(state),networkBindings,networkTransitions});
   };
   const commit=async(signedState)=>{
     const before=await read({allowAbsent:true});
@@ -465,8 +486,86 @@ export function createOriginalKernelRegistryStatePort({
       signedStatusDigest:digest(event.payload.proof_credential_admission.signed_status),
       safeToRetry:false});
   };
+  // Network key lifecycle commits through the SAME original Registry Object
+  // and Event CAS. It accepts an existing authority's signed STATUS and
+  // current administrator proof; it does not issue either of them.
+  const applyNetworkKeyTransition=async(input={})=>{
+    const args=copy(input),transition=validateOriginalNetworkKeyTransition(args.transition),
+      c=transition.claims,signedStatus=args.signedStatus;
+    const committedResult=(latest,outcome)=>{
+      const entry=latest.networkTransitions.get(c.transitionRef);
+      if(!entry)return null;
+      check(same(entry.transition,transition)&&same(entry.signedStatus,signedStatus),
+        "T3_ACCESS_NETWORK_KEY_TRANSITION_REF_CONFLICT");
+      const current=latest.networkBindings.get(c.binding.bindingRef);
+      return Object.freeze({state:outcome,transitionRef:c.transitionRef,bindingRef:c.binding.bindingRef,
+        committedKeyId:entry.binding.keyId,kernelRevision:entry.revision,originalKernelEventId:entry.eventId,
+        currentBinding:copy(current),keyCurrentlyActive:current.active&&current.keyId===entry.binding.keyId,
+        originalReadback:true,safeToRetry:false,createsGrant:false});
+    };
+    const before=await read(),already=committedResult(before,"ORIGINAL_NETWORK_KEY_ALREADY_COMMITTED");
+    if(already)return already;
+    const now=validClock(clock),state=before.state,authority=state.policy.authorities[c.authorityId];
+    const derived=deriveOriginalNetworkKeyTransition({transition,signedStatus,policy:state.policy,
+      bindings:before.networkBindings,priorFloors:state.statusFloor});
+    check(timestamp(c.issuedAt)<=now&&now-timestamp(c.issuedAt)<state.policy.proofMaxAgeSeconds*1000,
+      "T3_ACCESS_NETWORK_KEY_TRANSITION_EXPIRED");
+    const request=args.managerRequest;
+    check(request?.principalId===c.principalId&&request.resource===c.binding.workspaceId&&
+      request.realmId===state.policy.realmId&&request.action===ORIGINAL_NETWORK_KEY_MANAGE&&
+      request.purpose==="access-administration"&&request.operationDigest===originalNetworkKeyOperationDigest(transition),
+      "T3_ACCESS_NETWORK_KEY_MANAGER_SCOPE_INVALID");
+    const decision=evaluate(request,state,{now:iso(now),challenge:args.managerChallenge,
+      proof:args.managerProof,confirmations:args.confirmations??[],timeAssurance:"LOCAL_BEST_EFFORT"});
+    check(decision.allowed===true&&decision.outcome==="PERMITTED"&&decision.authorityPath.at(-1)?.authorityId===c.authorityId,
+      "T3_ACCESS_NETWORK_KEY_MANAGER_DENIED");
+    const priorStatus=state.statuses[c.authorityId].payload;
+    check(authority&&same(priorStatus.entries,signedStatus.payload.entries),
+      "T3_ACCESS_NETWORK_KEY_CANNOT_CHANGE_GRANT_STATUS");
+    assertStatusTransitionHistory(priorStatus,signedStatus.payload,"NETWORK_KEY_STATUS");
+    const next=copy(state);next.policy=derived.policy;
+    next.statuses[c.authorityId]=copy(signedStatus);next.statusFloor[c.authorityId]=c.expectedStatusSequence+1;
+    next.lastObservedAt=iso(now);
+    const checked=stateAt(next,next.policy,now),revision=before.revision+1;
+    const command={workspace_id:workspaceId,object_id:objectId,
+      schema_id:ORIGINAL_REGISTRY_SCHEMA,schema_version:"1.0.0",base_revision:before.revision,
+      data:checked,extensions:{},event:{event_type:ORIGINAL_REGISTRY_EVENT,payload:{
+        object_id:objectId,revision,policy_digest:digest(checked.policy),state_digest:digest(checked),
+        status_sequences:copy(checked.statusFloor),network_key_transition:{transition,signed_status:copy(signedStatus)}
+      }}};
+    let receipt=null,uncertain=false;
+    try{receipt=await persistOriginal(command);}
+    catch{uncertain=true;}
+    // Never repeat an ambiguous original mutation. Recover the exact
+    // signed Event from the current original history, even if a later
+    // authorized transition has already changed the current key.
+    let latest;
+    try{latest=await read();}catch{no("T3_ACCESS_NETWORK_KEY_ORIGINAL_OUTCOME_UNKNOWN");}
+    const result=committedResult(latest,uncertain?"ORIGINAL_NETWORK_KEY_COMMIT_RECOVERED":"ORIGINAL_NETWORK_KEY_COMMITTED");
+    check(result&&result.kernelRevision===revision,"T3_ACCESS_NETWORK_KEY_ORIGINAL_OUTCOME_UNKNOWN");
+    if(!uncertain)check(receipt?.object?.workspace_id===workspaceId&&receipt.object.object_id===objectId&&
+      receipt.object.revision===revision&&receipt.event?.event_id===result.originalKernelEventId,
+      "T3_ACCESS_NETWORK_KEY_ORIGINAL_RECEIPT_INVALID");
+    return result;
+  };
+  const readNetworkKeyEvidence=async(query={})=>{
+    const q=copy(query),required=["keyId","nodeRef","recipientNodeRef","workspaceId","originalWriteOwnerRef","scopeRef"];
+    check(required.every(k=>ID.test(q[k]??""))&&Number.isSafeInteger(q.ownerEpoch)&&q.ownerEpoch>=1,
+      "T3_ACCESS_NETWORK_KEY_QUERY_INVALID");
+    const latest=await read(),matching=[...latest.networkBindings.values()].filter(b=>b.active&&
+      required.every(k=>b[k]===q[k])&&b.ownerEpoch===q.ownerEpoch);
+    check(matching.length<=1,"T3_ACCESS_NETWORK_KEY_BINDING_AMBIGUOUS");
+    if(!matching.length)return null;
+    const binding=matching[0],key=latest.state.policy.keys[binding.keyId],now=validClock(clock);
+    if(!key||key.status!=="ACTIVE"||key.subjectId!==binding.subjectId||
+      key.uses.length!==1||key.uses[0]!=="NETWORK_FRAME"||
+      !(timestamp(key.notBefore)<=now&&now<timestamp(key.expiresAt)))return null;
+    return Object.freeze({binding:copy(binding),key:copy(key),policyDigest:digest(latest.state.policy),
+      originalRegistryRevision:latest.revision,originalReadback:true});
+  };
   const port=Object.freeze({
     readState:async()=>copy((await read()).state),
+    applyNetworkKeyTransition,readNetworkKeyEvidence,
     commitSignedState:commit,
     admitProofCredential,readProofCredential,
     getStatus:async()=>{const state=(await read()).state;

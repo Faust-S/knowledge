@@ -15,8 +15,9 @@ on:
       - packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
       - packages/t3-core/tests/support/t3-original-personal-authority.mjs
       - packages/t3-core/tests/support/t3-two-corp-original-authority.mjs
+      - packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs
       - packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs
-      - packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs
+      - packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs
       - packages/t3-core/src/main-trusted-kernel-realm.ts
       - packages/t3-core/src/t3/original-local-source-mutation-route*
       - packages/t3-core/src/workspace-host/context/create-kernel-facade.ts
@@ -49,7 +50,7 @@ jobs:
           npm run check
           node scripts/run_contract_shard.mjs core
       - name: Existing original T3 Control and D3 regression
-        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-subject-kernel-scope.test.mjs packages/t3-core/tests/t3-signed-access-host-port.test.mjs packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs
+        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-subject-kernel-scope.test.mjs packages/t3-core/tests/t3-signed-access-host-port.test.mjs packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs
 
   webdav:
     runs-on: ubuntu-latest
@@ -95,7 +96,7 @@ jobs:
           node --check src/network/operator-connection.mjs
           node scripts/run_contract_shard.mjs core
       - name: Existing original T3 Control and D3 regression
-        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-subject-kernel-scope.test.mjs packages/t3-core/tests/t3-signed-access-host-port.test.mjs packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs
+        run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-subject-kernel-scope.test.mjs packages/t3-core/tests/t3-signed-access-host-port.test.mjs packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs
 
   native-contract:
     name: native-contract (${{ matrix.os }}, ${{ matrix.shard }})
