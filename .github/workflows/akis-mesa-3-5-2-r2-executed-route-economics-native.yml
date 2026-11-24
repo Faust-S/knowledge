@@ -31,7 +31,7 @@ jobs:
       - name: Addressed original executed route economics and R4 Work payment cases
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
-        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r2_executed_route_economics_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_outside_work_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_outside_work_payment_mesa.py
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r2_executed_route_economics_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_outside_work_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_outside_work_payment_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1p_r3_executed_route_economics_mesa.py
       - name: Full original Mesa regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
@@ -44,4 +44,6 @@ jobs:
         with:
           name: akis-r2-executed-route-economics-${{ matrix.os }}
           if-no-files-found: error
-          path: qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r2_executed_route_economics_evidence.json
+          path: |
+            qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r2_executed_route_economics_evidence.json
+            qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r1p_r3_multiperiod_route_economics_evidence.json

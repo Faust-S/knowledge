@@ -482,13 +482,14 @@ def test_profitable_outlook_cannot_override_independent_original_owner_refusal()
     assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1", "w2"))
 
 
-def fourth_period_case(*, pause=False, early=False, stale=False):
+def fourth_period_case(*, pause=False, early=False, stale=False, cost_shock=False):
     """A fourth original Work follows independently reviewed third Result.
 
     Financial source review is attached to each existing participation_status,
     not to an automatic decision or a new finance/event registry.
     """
-    d = cumulative_routes()["cooperation"]
+    d = (adverse_execution_cost_routes() if cost_shock else
+         cumulative_routes())["cooperation"]
     g = d["general_akis"]
     prior_request = next(row for row in d["events"]
                          if row["action"] == "request" and row["work_spec"]["id"] == "w3")
@@ -735,3 +736,82 @@ def test_measurement_inside_uncertainty_cannot_grant_either_route_future_capacit
         assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1", "w2"))
         assert all(out["works"].get(key, {}).get("result") != ACCEPTED
                    for key in ("w3", OUTSIDE))
+
+
+def adverse_execution_cost_routes():
+    """Hold the original offer-time forecast fixed; change own cost evidence."""
+    docs = cumulative_routes()
+    money = docs["cooperation"]["economic_claims"]
+    next(row for row in money["transfers"] if row["id"] == "materials")[
+        "amount"
+    ] = "700.00"
+    next(row for row in money["resource_uses"]
+         if row["id"] == "cooperation-negotiation")["amount"] = "100.00"
+    return docs
+
+
+def delayed_receipt_routes(*, on_time=False):
+    docs = cumulative_routes()
+    for doc in docs.values():
+        next(row for row in doc["economic_claims"]["transfers"]
+             if row["id"] == "w2-overhead")["amount"] = "55.00"
+    if on_time:
+        row = next(row for row in docs["cooperation"]["economic_claims"][
+            "cash_timing"]["transfer_windows"] if row["transfer_id"] == "operator-fee")
+        row["late_at"] = row["at"]
+    return docs
+
+
+def test_original_execution_cost_shock_reverses_declared_advantage_not_prior_forecast():
+    base, changed = cumulative_routes(), adverse_execution_cost_routes()
+    assert base["cooperation"]["economic_outlooks"] == changed["cooperation"]["economic_outlooks"]
+    report = compare(changed)
+    assert report["status"] == "MODEL_EXECUTED_ROUTES_DECLARED_ECONOMIC_CONTRAST"
+    private = report["local_research_only"]
+    assert private["original_owner_contrasts"]["a"]["cash_cooperation_minus_outside"] == "-100.00"
+    assert private["boundary_and_cost_contrast"][
+        "whole_subject_cash_cooperation_minus_outside"] == "-280.00"
+    assert private["boundary_and_cost_contrast"][
+        "whole_transaction_noncash_outside_minus_cooperation"] == "-30.00"
+    out = simulate(changed["cooperation"])
+    assert any(row.get("economic_position") == "COOPERATION_PREFERRED"
+               and row.get("subject") == "a" and row.get("at") == 84
+               for row in out["decision_observations"])
+    assert out["works"]["w3"]["result"] == ACCEPTED
+    # The next decision is the owner's explicit source-scoped evaluation,
+    # never a new automatic signature based on the changed arithmetic.
+    stopped = simulate(fourth_period_case(pause=True, cost_shock=True))
+    review = next(row for row in third_period_reviews(stopped) if row["actor"] == "a")
+    assert review["evaluation_economic_basis_status"] == (
+        "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"
+    )
+    assert review["participation_value"] == "PAUSED_NEW_WORK"
+    assert "w4" not in stopped["works"]
+
+
+def test_declared_delay_alone_changes_operator_reserve_without_changing_net_cash():
+    late = compare(delayed_receipt_routes())
+    on_time = compare(delayed_receipt_routes(on_time=True))
+    a, b = late["local_research_only"], on_time["local_research_only"]
+    assert a["original_owner_contrasts"] == b["original_owner_contrasts"]
+    assert a["boundary_and_cost_contrast"] == b["boundary_and_cost_contrast"]
+    def reserve(private):
+        return private["original_owner_projections"]["cooperation"]["op"][
+            "late_receipt_liquidity"]
+    assert reserve(a) == "SOURCE_DECLARED_LIQUIDITY_GAP_IN_ALL_SAME_TICK_ORDERINGS"
+    assert reserve(b) == "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+
+
+def test_unqualified_third_period_cost_anchor_keeps_owner_review_unknown():
+    d = fourth_period_case(pause=True)
+    life = d["economic_claims"]["lifecycle_costs"]
+    life["event_bindings"] = [
+        row for row in life["event_bindings"]
+        if row["resource_use_id"] != "cooperation-negotiation"
+    ]
+    out = simulate(d)
+    reviews = third_period_reviews(out)
+    assert len(reviews) == 2
+    assert all(row["evaluation_economic_basis_status"] == "UNKNOWN" for row in reviews)
+    assert "w4" not in out["works"]
+    assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1", "w2", "w3"))

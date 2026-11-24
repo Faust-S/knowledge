@@ -1319,7 +1319,11 @@ class QualitativeAKIS:
                 report["evaluation_is_owner_judgment_not_measured_impact"] = True
             if "evaluation_economic_source_revision" in ev:
                 report["evaluation_economic_basis_status"] = "UNKNOWN"
+                revision = ev["evaluation_economic_source_revision"]
+                if isinstance(revision, str) and 0 < len(revision) <= 128:
+                    report["evaluation_economic_source_revision"] = revision
                 report["evaluation_financial_basis_not_automatic_owner_decision"] = True
+                report["evaluation_financial_basis_is_not_bank_payment"] = True
                 report["evaluation_private_financial_values_not_redisclosed"] = True
             report["participation_link"] = ev.get("cooperation_link")
             report["participation_relation_revision"] = ev.get("cooperation_source_revision")
