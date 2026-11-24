@@ -21,6 +21,7 @@ const scenarios=[
  {id:"strong-android",gpu:true,f16:true,ram:8,mobile:true,recommend:"balanced",vram:945,select:"balanced",download:"900 МБ"},
  {id:"unknown-safari-memory",gpu:true,f16:true,mobile:true,recommend:"light",vram:945},
  {id:"desktop",gpu:true,f16:true,ram:16,mobile:false,recommend:"extended",vram:945,select:"extended",download:"4,4 ГБ"},
+ {id:"restored-profile",gpu:true,f16:true,ram:4,mobile:true,recommend:"light",stored:"balanced",vram:1630,initialSize:"900 МБ"},
 ];
 for(const [i,c] of scenarios.entries()){
   const dom=new JSDOM('<!doctype html><main><div data-iwxa-domain-assistant data-assistant-skills="/assets/club-assistant-skills.json" data-assistant-label="Помощник Club"></div></main>',{url:origin+"/tools/personal-economy/",pretendToBeVisual:true});
@@ -30,6 +31,8 @@ for(const [i,c] of scenarios.entries()){
   try{
     define("window",win);define("document",win.document);define("location",win.location);
     define("navigator",nav);define("Option",win.Option);define("Event",win.Event);
+    define("localStorage",win.localStorage);
+    if(c.stored)win.localStorage.setItem("iwxa.t3.assistant.model-profile.v1",c.stored);
     define("isSecureContext",true);define("matchMedia",()=>({matches:c.mobile}));
     if(c.ram!==undefined)Object.defineProperty(nav,"deviceMemory",{value:c.ram,configurable:true});
     Object.defineProperty(nav,"gpu",{configurable:true,value:c.gpu?{requestAdapter:async()=>{
@@ -53,6 +56,8 @@ for(const [i,c] of scenarios.entries()){
     const at=id=>shadow.getElementById(id);
     assert([...at("model").options].map(o=>o.value).join(",")==="light,balanced,extended","THREE_PROFILES");
     assert(at("model-settings").open===false,"SETTINGS_CLOSED");
+    assert(at("model").value===(c.stored??"light"),"STABLE_PROFILE_RESTORED");
+    assert(at("model-transfer").hidden&&at("stop-model").disabled,"PROGRESS_IDLE");
     assert(probes===0&&workers===0&&modelRequests===0,"INITIAL_NO_ENGINE");
     at("launcher").click();
     await until(()=>!at("skill-all").disabled,"SKILLS_LOADED");
@@ -70,16 +75,31 @@ for(const [i,c] of scenarios.entries()){
     }else{
       assert(!at("install").disabled,"MODEL_INSTALL_AVAILABLE");
       assert(at("model-detail").textContent.includes(c.vram+" МБ"),"F16_OR_F32_VARIANT");
-      assert(at("model-detail").textContent.includes("300 МБ"),"LIGHT_DOWNLOAD_ESTIMATE");
+      assert(at("model-detail").textContent.includes(c.initialSize??"300 МБ"),"INITIAL_DOWNLOAD_ESTIMATE");
       const recommendation=[...at("model").options].find(o=>o.textContent.includes("предложена"));
       assert(recommendation?.value===c.recommend,"DEVICE_PROFILE_RECOMMENDATION");
       if(c.select){
         at("model").value=c.select;at("model").dispatchEvent(new win.Event("change"));
         assert(at("model").value===c.select,"MANUAL_PROFILE_SELECTION");
+        assert(win.localStorage.getItem("iwxa.t3.assistant.model-profile.v1")===c.select,"PROFILE_PREFERENCE_ONLY");
         assert(at("model-detail").textContent.includes(c.download),"DOWNLOAD_ESTIMATE");
         at("install").click();
         assert(confirms.length===1&&confirms[0].includes("huggingface.co")&&confirms[0].includes("raw.githubusercontent.com")&&confirms[0].includes(c.download),"EXPLICIT_SOURCE_CONSENT");
         assert(at("status").textContent==="Установка отменена.","CANCELLED_WITHOUT_LOAD");
+        assert(at("model-progress").textContent==="Установка отменена.","CANCEL_VISIBLE_IN_SETTINGS");
+        if(c.id==="entry-android"){
+          // Stop a consented installation while browser persistence is pending.
+          // The original code must abort before requesting SW authority or a Worker.
+          let finishPersistence;
+          nav.storage.persist=()=>new Promise(resolve=>{finishPersistence=resolve;});
+          win.confirm=()=>true;
+          at("install").click();
+          await until(()=>typeof finishPersistence==="function","PERSISTENCE_PENDING");
+          assert(!at("model-transfer").hidden&&!at("stop-model").disabled,"MOBILE_PROGRESS_AND_STOP_VISIBLE");
+          at("stop-model").click();finishPersistence(true);
+          await until(()=>at("model-transfer").hidden&&at("stop-model").disabled,"ABORT_FINISHED");
+          assert(at("model-progress").textContent.includes("Загрузка остановлена"),"ABORT_VISIBLE");
+        }
       }
     }
     await delay(100);

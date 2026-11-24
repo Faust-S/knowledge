@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 47e5b9d229fe3b37d1e39f8d917c38d8697ee5c1
+          ref: fac335aed898db4727d65b95beac12a4b87bca4d
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -103,3 +103,47 @@ jobs:
         run: |
           rm -rf "$RUNNER_TEMP/assistant-candidate" "$RUNNER_TEMP/private-mobile-source.log" "$RUNNER_TEMP/private-mobile-dom.log"
           rm -rf private-bli private-club
+  shared-host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exact original private assistant
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: fac335aed898db4727d65b95beac12a4b87bca4d
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-bli
+      - name: Exact original Club module
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/club.iwxa.ru
+          ref: f97f5a182ef87d4d93d7ddcb55936d3c35eae291
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-club
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile actual Club module and original assistant into one candidate T3 Host
+        shell: bash
+        run: |
+          set -euo pipefail
+          core="$GITHUB_WORKSPACE/packages/t3-core"
+          log="$RUNNER_TEMP/private-mobile-host.log"
+          if ! (node "$core/scripts/stage-t2-external-module.mjs" "$core" "$GITHUB_WORKSPACE/private-club/runtime/club-module" iwxa.domain.club club && node "$core/scripts/qualify-bli-inherited-host.mjs" --assistant-source "$GITHUB_WORKSPACE/private-bli/browser-local-inference/domain-assistant") > "$log" 2>&1; then
+            echo T3_MOBILE_CANDIDATE_CLUB_HOST_FAIL
+            grep -oE 'T3_D5_[A-Z0-9_]+' "$log" | sort -u | tail -20 || true
+            exit 1
+          fi
+          grep '^T3_MOBILE_CANDIDATE_ORIGINAL_ASSISTANT_SHARED_ENGINE_PASS$' "$log"
+          grep '^T3_D5_FULL_ORIGINAL_BLI_HOST_BUILD_PASS ' "$log" | cut -d' ' -f1
+          echo T3_MOBILE_CANDIDATE_CLUB_HOST_PASS
+      - name: Remove private temporary source and build data
+        if: always()
+        shell: bash
+        run: |
+          rm -rf private-bli private-club "$RUNNER_TEMP/private-mobile-host.log"
+          rm -rf packages/t3-core/candidate-domain-assistant packages/t3-core/dist packages/t3-core/src/modules/club

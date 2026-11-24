@@ -8,7 +8,7 @@
  * No second Kernel, Store, inference engine, or remote runtime is created.
  */
 import {cpSync,existsSync,mkdtempSync,mkdirSync,readFileSync,readdirSync,rmSync,writeFileSync} from "node:fs";
-import {join,dirname} from "node:path";
+import {join,dirname,resolve} from "node:path";
 import {tmpdir} from "node:os";
 import {createHash} from "node:crypto";
 import {execFileSync} from "node:child_process";
@@ -16,6 +16,9 @@ import {fileURLToPath} from "node:url";
 import {stageT2ExternalModule} from "./stage-t2-external-module.mjs";
 
 const core=join(dirname(fileURLToPath(import.meta.url)),"..");
+const args=process.argv.slice(2);
+const assistantSource=args.length===2&&args[0]==="--assistant-source"?resolve(args[1]):null;
+if(args.length&&!assistantSource)throw Error("T3_D5_ASSISTANT_BUILD_USAGE");
 const source=join(core,"integration-sources","bli1");
 const pin=JSON.parse(readFileSync(join(source,"SOURCE_PIN.json"),"utf8"));
 if(pin.source_head!=="680375c9b47fb04b6273a410f7bc8dbb85556778" ||
@@ -90,8 +93,52 @@ try {
      !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(webllm.integrity??"")){
     throw Error("T3_D5_WEBLLM_LOCK_INVALID");
   }
-  safeRun(["run","typecheck"]);
-  safeRun(["run","build"]);
+  if(assistantSource){
+    // Same integration route as the existing product-owned Club builder.
+    // The private assistant is another ENTRY of this single Host bundle.
+    // Only its four original source files are staged, no second runtime.
+    const dir=join(core,"candidate-domain-assistant");
+    mkdirSync(dir,{recursive:false});
+    for(const name of ["main.mjs","device-policy.mjs","field-policy.mjs","skill-runtime.mjs"])
+      cpSync(join(assistantSource,name),join(dir,name),{errorOnExist:true,force:false});
+    const config=`import base from "./vite.config.ts";
+import path from "node:path";
+import {fileURLToPath} from "node:url";
+const root=path.dirname(fileURLToPath(import.meta.url));
+const entry=path.join(root,"candidate-domain-assistant","main.mjs");
+const bli=path.join(root,"src","modules","t3-local-inference");
+const imports=new Set(["../src/catalog.mjs","../src/engine.mjs","../src/storage.mjs","../src/domain-model-install.mjs"]);
+export default {
+  ...base,
+  plugins:[{name:"iwxa-original-assistant-shared-bli",enforce:"pre",
+    resolveId(id,importer){if(importer&&path.normalize(importer)===entry&&imports.has(id))
+      return path.join(bli,path.basename(id));}},...(base.plugins||[])],
+  build:{...base.build,manifest:true,rollupOptions:{...base.build.rollupOptions,
+    input:{...base.build.rollupOptions.input,"domain-assistant":entry}}}
+};`;
+    const configFile=join(core,"vite.mobile-assistant-candidate.config.mjs");
+    writeFileSync(configFile,config,{flag:"wx"});
+    safeRun(["run","typecheck","--","--allowImportingTsExtensions"]);
+    safeRun(["run","check:runtime"]);
+    const runNode=(script,argv=[])=>execFileSync(process.execPath,[script,...argv],{
+      cwd:core,stdio:"inherit",env:{...process.env,CI:"true"}});
+    runNode(join(core,"node_modules","vite","bin","vite.js"),["build","--config",configFile]);
+    runNode(join(core,"scripts","materialize-static-routes.mjs"));
+    const manifest=JSON.parse(readFileSync(join(core,"dist",".vite","manifest.json"),"utf8"));
+    const entry=manifest["candidate-domain-assistant/main.mjs"];
+    const panel=manifest["src/modules/t3-local-inference/LocalInferencePanel.tsx"];
+    const engineKey="src/modules/t3-local-inference/engine.mjs";
+    if(!entry?.isEntry||!panel||!manifest[engineKey]||
+       !entry.dynamicImports?.includes(engineKey)||!panel.dynamicImports?.includes(engineKey))
+      throw Error("T3_D5_CANDIDATE_ASSISTANT_NOT_SHARED_ENGINE");
+    const entryCode=readFileSync(join(core,"dist",entry.file),"utf8");
+    for(const marker of ["model-transfer","stop-model","model-progress","device-recommend","data-assistant-skills"])
+      if(!entryCode.includes(marker))throw Error("T3_D5_CANDIDATE_ASSISTANT_MISSING_MARKER");
+    console.log("T3_MOBILE_CANDIDATE_ORIGINAL_ASSISTANT_SHARED_ENGINE_PASS");
+  }else{
+    safeRun(["run","typecheck"]);
+    safeRun(["run","build"]);
+  }
   const assets=join(core,"dist","assets");
   const names=readdirSync(assets).filter(name=>name.endsWith(".js"));
   const worker=names.filter(name=>/^model-worker-[A-Za-z0-9_-]+\.js$/.test(name));
