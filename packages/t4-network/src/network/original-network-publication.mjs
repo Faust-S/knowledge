@@ -428,7 +428,8 @@ export function createT4OriginalNetworkPublicationPort({
   verifyOriginalHistoricalNodeSignature=null,authorizeOriginalControlPublication=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
-  const identity=validatePublicationSession(session),control=identity.schema===CONTROL_SESSION;
+  const control=session?.schema===CONTROL_SESSION;
+  const identity=control?validatePublicationSession(session):canonicalSession(session);
   if(!same(identity,session)||
     ![identity.sourceNodeRef,identity.recipientNodeRef].includes(localNodeRef)||
     !ID(technicalWorkspaceId)||

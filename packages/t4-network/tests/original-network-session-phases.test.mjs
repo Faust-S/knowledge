@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,sign,verify,createHash} from 'node:crypto';
-import {deriveT4OriginalNativeCaptureSession} from '../src/network/original-network-publication.mjs';
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort} from '../src/network/original-network-publication.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame} from '../src/network/standard-network-wire-candidate.mjs';
 import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
-  retireT4OriginalRecipientAttemptFromControl,verifyT4OriginalRecipientRetirementAck,recordT4OriginalSourceSupersession}
+  retireT4OriginalRecipientAttemptFromControl,verifyT4OriginalRecipientRetirementAck,recordT4OriginalSourceSupersession,
+  publishT4OriginalRecipientRetirementAck}
   from '../src/network/original-network-session-supersession.mjs';
 import {createT4OriginalNetworkSessionPhasePort,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
@@ -445,7 +446,7 @@ test('K46 retirement authority is explicit, recipient-only, and never inferred f
 // Real Ed25519 wire signatures and the original replay/phase contracts.
 // The transport and Kernel ports here are fixtures, not an installed Host
 // or proof of durable outgoing control publication.
-async function controlFixture(){
+async function controlFixture({indexed=false}={}){
   const f=retirementFixture(),sourceStore=fakeKernel(),ws='ws:k47:subject',epoch=2,
     suite='X25519_AES256GCM_ED25519',sha=x=>createHash('sha256').update(x).digest('hex');
   const sourceEventId='event:k47:original',capture={kind:'OBJECT_PUT',captureRef:'capture:k47:one',
@@ -463,16 +464,28 @@ async function controlFixture(){
     sourcePhaseAllowed=true,sourceRecordAllowed=true,frontierChanged=false,sourceApplied=false;
   let sourceKey={...generateKeyPairSync('ed25519'),id:'key:k47:source:1'},
     recipientKey={...generateKeyPairSync('ed25519'),id:'key:k47:recipient:1'};
-  const frames=new Map();let networkPuts=0,networkGets=0;
+  const frames=new Map(),indexes=new Map();let networkPuts=0,networkGets=0,signatures=0,loseControlWrite=false,controlPublicationAllowed=true;
   const wire={wireKind:'T4_NETWORK_CANDIDATE',forOriginalHostLifetime(){return this;},
     async putSnapshot({key,bytes,expectedSha256}){assert.equal(sha(bytes),expectedSha256);
       if(frames.has(key)){assert.deepEqual(frames.get(key),new Uint8Array(bytes));
         return {key,sha256:expectedSha256,state:'ALREADY_PRESENT_VERIFIED'};}
-      frames.set(key,new Uint8Array(bytes));networkPuts++;return {key,sha256:expectedSha256,state:'PUBLISHED_AND_READ_BACK'};},
+      frames.set(key,new Uint8Array(bytes));networkPuts++;
+      if(loseControlWrite){loseControlWrite=false;throw Object.assign(Error('lost control response'),{code:'OUTCOME_UNKNOWN'});}
+      return {key,sha256:expectedSha256,state:'PUBLISHED_AND_READ_BACK'};},
     async getSnapshot({key,expectedSha256}){networkGets++;
       const bytes=frames.get(key);assert.ok(bytes);assert.equal(sha(bytes),expectedSha256);return {bytes:new Uint8Array(bytes)};},
     async inspectOutcome({key,expectedSha256}){assert.equal(sha(frames.get(key)),expectedSha256);
       return {key,sha256:expectedSha256,state:'EXPECTED_BYTES_PRESENT'};}};
+  if(indexed){
+    const receipt=(key,frameSha256)=>({schema:'IWXA_T4_NATIVE_FRAME_INDEX_READ_V1',key,frameSha256,
+      addressMetadataIsNotSignatureOrAuthority:true,originalBusinessApplied:false});
+    Object.assign(wire,{nativeFrameIndexVersion:1,
+      async getNativeFrameIndex({key}){return indexes.has(key)?receipt(key,indexes.get(key)):null;},
+      async putNativeFrameIndex({key,frameSha256}){
+        if(indexes.has(key))assert.equal(indexes.get(key),frameSha256);
+        indexes.set(key,frameSha256);return receipt(key,frameSha256);
+      }});
+  }
   const getMode=()=>network?'T4_NETWORK':'LOCAL_T3';
   const context=(node,technical)=>async()=>({workspaceId:technical,originalWriteOwnerRef:owner,
     originalOwnerRef:owner,nodeRef:node,scopeRef,hostSessionRef:'host:k47:'+node});
@@ -501,7 +514,7 @@ async function controlFixture(){
     resolveOriginalSigningContext:async p=>{assert.equal(p.originalNodeSigningAuthorityRequired,true);
       assert.equal(p.session.workspaceId,ws);assert.ok(p.session.sessionRef.startsWith('session:t4:control:'));
       return {permissionRef:'permission:k47:'+node,signerRef:localKey(node).id};},
-    signOriginalNodeBytes:async p=>{const k=localKey(node);assert.equal(p.signerRef,k.id);
+    signOriginalNodeBytes:async p=>{signatures++;const k=localKey(node);assert.equal(p.signerRef,k.id);
       return new Uint8Array(sign(null,Buffer.from(p.bytes),k.privateKey));}});
   const technical='ws:k47:source:technical',sourcePhase=(patch={})=>createT4OriginalNetworkSessionPhasePort({
     ...f.base,originalKernel:sourceStore.kernel,technicalWorkspaceId:technical,localNodeRef:sourceNodeRef,
@@ -538,6 +551,23 @@ async function controlFixture(){
       proof.originalSourceCaptureAndFrontierReadRequired===true,
     authorizeOriginalRecipientSupersessionRequest:async proof=>recipientAllowed&&proof.originalSubjectMutationAllowed===false});
   const publishAck=ack=>transport(recipientNodeRef).publishSignedFrame({wireBytes:ack.wireBytes});
+  const controlPublication=node=>async({session:identity})=>{
+    const technical=node===sourceNodeRef?'ws:k47:source:technical':workspace,
+      kernel=node===sourceNodeRef?sourceStore.kernel:f.kernel.kernel;
+    return createT4OriginalNetworkPublicationPort({session:identity,localNodeRef:node,technicalWorkspaceId:technical,
+      originalKernel:kernel,getMode,readOriginalHostContext:context(node,technical),
+      authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true,
+      authorizeOriginalFramePublish:async()=>true,authorizeOriginalControlPublication:async proof=>
+        controlPublicationAllowed&&proof.originalSubjectMutationAllowed===false&&proof.originalControlPublicationRequired===true,
+      verifyOriginalNodeSignature:async p=>{const k=localKey(node);
+        return p.signerRef===k.id&&verify(null,Buffer.from(p.bytes),k.publicKey,Buffer.from(p.signature));},
+      frameTransport:transport(node)});
+  };
+  const durableRetire=(p,address,patch={})=>publishT4OriginalRecipientRetirementAck({plan:p,requestAddress:address,
+    recipientPhasePort:phase(),frameDiscoveryPort:transport(recipientNodeRef),...signing(recipientNodeRef),
+    verifyOriginalSourceCapture:async proof=>captureVerified&&proof.session.sourceEventId===sourceEventId,
+    authorizeOriginalRecipientSupersessionRequest:async proof=>recipientAllowed&&proof.originalSubjectMutationAllowed===false,
+    createOriginalControlPublicationPort:controlPublication(recipientNodeRef),...patch});
   const verifyAck=(p,address,patch={})=>verifyT4OriginalRecipientRetirementAck({plan:p,ackAddress:address,
     frameDiscoveryPort:transport(sourceNodeRef),getMode,requiredCryptoSuite:suite,
     readOriginalRecipientRetirement:async proof=>{assert.equal(proof.originalRecipientEventAndPhaseReadbackRequired,true);
@@ -563,6 +593,8 @@ async function controlFixture(){
     await transport(sourceNodeRef).readAndVerifySignedFrame({key:published.key,expectedSha256:published.sha256,requiredCryptoSuite:suite});
   };
   return {f,sourceStore,session,phase,plan,request,retire,publishAck,verifyAck,sourcePhase,recordBoth,acceptConflictingAck,
+    durableRetire,signatureCount:()=>signatures,loseControlWrite:()=>{loseControlWrite=true;},
+    denyControlPublication:()=>{controlPublicationAllowed=false;},allowControlPublication:()=>{controlPublicationAllowed=true;},
     sourcePhaseWrites:()=>sourceStore.events.filter(e=>e.event_type==='t4.network.original.session.phase').length,
     changeFrontier:()=>{frontierChanged=true;},restoreFrontier:()=>{frontierChanged=false;},
     denySourceRecord:()=>{sourceRecordAllowed=false;},allowSourceRecord:()=>{sourceRecordAllowed=true;},
@@ -708,4 +740,27 @@ test('K48 changed source frontier during final authorization never yields bilate
   x.restoreFrontier();
   assert.equal((await x.recordBoth(p,ack,before)).status,'ALREADY_CONFIRMED');
   assert.equal(x.sourcePhaseWrites(),1);
+});
+
+test('K49 recipient terminal retirement and durable outgoing ACK survive lost HTTPS response without a second retirement or signature',async()=>{
+  const x=await controlFixture({indexed:true}),p=x.plan(),request=await x.request(p);
+  const before=x.signatureCount();
+  await assert.rejects(x.durableRetire(p,request,{createOriginalControlPublicationPort:null}),
+    isCode('SUPERSESSION_ORIGINAL_CONTROL_PUBLICATION_PORT_REQUIRED'));
+  assert.equal(x.phaseWrites(),0);
+  x.loseControlWrite();
+  await assert.rejects(x.durableRetire(p,request),isCode('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  assert.equal(x.signatureCount(),before+1);
+  assert.equal(x.phaseWrites(),1);
+  x.f.restart();x.denyControlPublication();
+  await assert.rejects(x.durableRetire(p,request),isCode('PUBLICATION_ORIGINAL_CONTROL_AUTHORITY_DENIED'));
+  x.allowControlPublication();const result=await x.durableRetire(p,request);
+  assert.equal(result.publicationState,'REMOTE_READBACK_RECOVERED');
+  assert.equal(result.retirementStatus,'ALREADY_CONFIRMED');
+  assert.equal(result.networkPublished,true);
+  assert.equal(result.originalSubjectMutationInvoked,false);
+  assert.equal(x.phaseWrites(),1);assert.equal(x.signatureCount(),before+1);
+  assert.equal((await x.verifyAck(p,result)).originalRecipientRetirementEventVerified,true);
+  assert.deepEqual(x.f.kernel.events.filter(e=>e.event_type==='t4.network.original.frame.publication').map(e=>e.payload.action),
+    ['PREPARE','ATTEMPT','PRESENT']);
 });

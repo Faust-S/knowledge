@@ -793,3 +793,19 @@ test('K49 control slots require indexed transport and explicit original decision
     err('PUBLICATION_ORIGINAL_CONTROL_AUTHORITY_DENIED'));
   assert.equal(f.counts().putCalls,0);
 });
+
+test('K49 revoked control authority after frame PUT blocks index write; exact original attempted slot recovers after explicit authorization',async()=>{
+  const f=fixture(task(),{indexed:true}),plan=controlPlan(f),session=deriveT4OriginalSupersessionPublicationSession({session:f.session,claim:plan.claim});
+  let allowed=true;const port=()=>f.port(source,session,{authorizeOriginalControlPublication:async()=>allowed});
+  const bytes=await f.signed('ATTEMPT_RETIRE_REQUEST',1,plan.claim.body,source,{
+    sessionRef:plan.claim.controlSessionRef,criticalExtensions:['iwxa.session-supersession.v1']});
+  await port().prepareSignedBatch({slots:[{sequence:1,messageType:'ATTEMPT_RETIRE_REQUEST'}],createSignedFrames:async()=>[bytes]});
+  f.onNetworkPut(()=>{allowed=false;});
+  await assert.rejects(port().publishPreparedFrame({sequence:1}),err('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  assert.equal(f.counts().networkCalls,1);assert.equal(f.indexCalls(),0);
+  assert.equal((await port().inspectOriginalPublication()).frames[0].state,'ATTEMPTED');
+  allowed=true;f.restart();
+  const result=await port().publishPreparedFrame({sequence:1});
+  assert.equal(result.state,'REMOTE_READBACK_RECOVERED');
+  assert.equal(f.counts().networkCalls,1);assert.equal(f.indexCalls(),1);
+});

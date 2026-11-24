@@ -267,6 +267,9 @@ export async function publishT4OriginalSupersessionRequest({plan,authorizeOrigin
   return publishControl({p,type:REQUEST,body:p.claim.body,authorize,ports});
 }
 export async function publishT4OriginalRecipientRetirementAck(options={}){
+  if(typeof options.createOriginalControlPublicationPort!=='function'||
+    (options.retryMissing!==undefined&&typeof options.retryMissing!=='boolean'))
+    fail('SUPERSESSION_ORIGINAL_CONTROL_PUBLICATION_PORT_REQUIRED');
   const {p,evidence,authorize,read,retired,ports}=await retireFromControl(options);
   const published=await publishControl({p,type:ACK,body:evidence,authorize,read,ports});
   return Object.freeze({...published,retirement:evidence,retirementStatus:retired.status,
