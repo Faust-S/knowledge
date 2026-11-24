@@ -470,3 +470,47 @@ test('K13 typed admitted source baseline supplies revision zero and survives ori
   assert.throws(()=>f.port({originalBaselinePort:base(),...a.options}),error('HOST_CURSOR_ORIGINAL_BASELINE_PORTS_REQUIRED'));
   assert.throws(()=>f.port({originalBaselinePort:base(),recipientNodeRef:'node:foreign'}),error('HOST_CURSOR_ORIGINAL_BASELINE_PORT_INVALID'));
 });
+
+test('K26 cold original source frontier verifies many revisions in one indexed pass, not quadratic scans',async()=>{
+  const f=await fixture(),port=f.port(),n=160;
+  await port.commitAcknowledgedCursor({recovery:f.recovery});
+  const first=f.technicalEvents[0],identity=first.payload.identity;
+  const sort=x=>Array.isArray(x)?x.map(sort):
+    x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,sort(x[k])])):x;
+  const hash=x=>H('IWXA-T4-ORIGINAL-NATIVE-ACK-FRONTIER-V1\0'+JSON.stringify(sort(x)));
+  let prior=first.payload.record;
+  for(let i=2;i<=n;i++)f.sourceEvents.push(originalEvent(i+1));
+  for(let i=2;i<=n;i++){
+    const window=await readT4OriginalEventWindow({
+      workspaceId,originalWriteOwnerRef:owner,cursor:prior.sourceCursorAfter,maxEvents:1,
+      authorizeOriginalRead:async()=>true,readOriginalEvents:async()=>f.sourceEvents,
+    });
+    const {chainHash,...previous}=prior;
+    const record={...previous,changeId:'change:'+i,sourceEventId:window.window.lastEventId,
+      sourceEventDigest:window.window.eventRefs[0].eventDigest,
+      sourceCursorBefore:prior.sourceCursorAfter,sourceCursorAfter:window.nextCursor,
+      recipientEventId:'event:recipient:'+i,recipientRevision:i+1,
+      originalSourcePhaseCheckpointRef:'checkpoint:phase:'+i,previousHash:chainHash};
+    prior={...record,chainHash:hash({identity,record})};
+    f.technicalEvents.push({...structuredClone(first),event_id:'event:technical:'+i,revision:i,
+      payload:{...structuredClone(first.payload),record:prior,chainHash:prior.chainHash}});
+  }
+  const stored=[...f.objects.values()][0].object;
+  stored.revision=n;stored.data.last=structuredClone(prior);
+  let revisionReads=0;
+  f.originalKernel.listEventsSince=async w=>f.technicalEvents.filter(e=>e.workspace_id===w)
+    .reverse().map(e=>{
+      const clone=structuredClone(e),revision=clone.revision;
+      return Object.defineProperty(clone,'revision',{enumerable:true,get(){revisionReads++;return revision;}});
+    });
+  f.restart();
+  const status=await f.port().inspectOriginalHostCursor();
+  assert.equal(status.revision,n);assert.equal(status.lastSourceEventId,'event:source:'+(n+1));
+  assert.equal(status.chainHash,prior.chainHash);assert.ok(revisionReads<=n*3,`revision reads: ${revisionReads}`);
+  assert.equal(f.puts,1);
+  f.technicalEvents[4].revision=4;
+  await assert.rejects(f.port().inspectOriginalHostCursor(),error('HOST_CURSOR_ORIGINAL_EVENT_REVISION_CONFLICT'));
+  f.technicalEvents[4].revision=5;f.technicalEvents[4].event_id=f.technicalEvents[3].event_id;
+  await assert.rejects(f.port().inspectOriginalHostCursor(),error('HOST_CURSOR_ORIGINAL_EVENT_REVISION_CONFLICT'));
+  assert.equal(f.puts,1);
+});

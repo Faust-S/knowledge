@@ -432,16 +432,29 @@ function equalStable(a,b){
 }
 // A historical Result is a typed sequence, not a set of numeric revisions.
 // An Asset Event may carry the same object_id and revision as its owner Object.
-function verifyHistoricalContinuation({events,first,from,to,select,valid,finalDigest}){
-  let index=events.findIndex(e=>e.event_id===first.event_id);
+function verifyHistoricalContinuation({events,first,from,to,selectRevision,valid,finalDigest}){
+  if(!Number.isSafeInteger(from)||from<1||!Number.isSafeInteger(to)||to<from||
+    to-from>=events.length)
+    fail('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP');
+  let index=-1;
+  const byRevision=new Map();
+  // One transient index over the authorized original Event stream. A
+  // revision number belonging to another subject kind is not evidence.
+  for(let i=0;i<events.length;i++){
+    const event=events[i];
+    if(index<0&&event?.event_id===first.event_id)index=i;
+    const revision=selectRevision(event);
+    if(!Number.isSafeInteger(revision)||revision<=from||revision>to)continue;
+    if(byRevision.has(revision))
+      fail('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP',{missingRevision:revision});
+    byRevision.set(revision,{event,i});
+  }
   if(index<0)fail('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP');
   const ids=new Set([first.event_id]),origins=new Set([first.payload.originalEventId]);
   const chain=[first];
   for(let revision=from+1;revision<=to;revision++){
-    const found=events.map((event,i)=>({event,i}))
-      .filter(({event})=>select(event,revision));
-    const next=found[0];
-    if(found.length!==1||next.i<=index||!valid(next.event)||
+    const next=byRevision.get(revision);
+    if(!next||next.i<=index||!valid(next.event)||
       ids.has(next.event.event_id)||origins.has(next.event.payload.originalEventId)||
       (revision===to&&next.event.payload.originalContentDigest!==finalDigest))
       fail('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP',{missingRevision:revision});
@@ -568,9 +581,9 @@ async function inspectNonObject({received,originalKernel,authorizeOriginalRead,
   const historical=deleted||(asset&&row.revision>revision);
   const continuity=(stream,target)=>verifyHistoricalContinuation({
     events:stream,first:ev,from:revision,to:target.revision,finalDigest:target.stateDigest,
-    select:(e,r)=>e?.workspace_id===d.workspaceId&&
-      e.event_type===ASSET_EVENT&&e.payload?.originalAssetId===subjectId&&
-      e.payload?.originalAssetRevision===r,
+    selectRevision:e=>e?.workspace_id===d.workspaceId&&
+      e.event_type===ASSET_EVENT&&e.payload?.originalAssetId===subjectId?
+      e.payload.originalAssetRevision:null,
     valid:e=>e.payload?.originalWriteOwnerRef===d.originalWriteOwnerRef&&
       ID(e.payload.originalEventId)&&DIG(e.payload.originalContentDigest)&&
       DIG(e.payload.originalEventDigest)&&
@@ -760,8 +773,8 @@ export async function inspectT4OriginalNetworkRecipientResult({
       const chain=verifyHistoricalContinuation({
       events:stream,first:ev,from:delta.sourceRevision,to:end,
       finalDigest:state,
-      select:(e,r)=>e?.workspace_id===delta.workspaceId&&
-        e.object_id===delta.objectId&&e.event_type===OBJECT_EVENT&&e.revision===r,
+      selectRevision:e=>e?.workspace_id===delta.workspaceId&&
+        e.object_id===delta.objectId&&e.event_type===OBJECT_EVENT?e.revision:null,
       valid:e=>ID(e.event_id)&&ID(e.payload?.originalEventId)&&
         e.payload?.originalWriteOwnerRef===delta.originalWriteOwnerRef&&
         DIG(e.payload?.originalEventDigest)&&DIG(e.payload?.originalContentDigest),

@@ -1213,3 +1213,44 @@ test('disposed recipient Host performs no reads, writes, or signing from retaine
   await assert.rejects(old.runNative(x.args()),error('RECIPIENT_ORIGINAL_HOST_DISPOSED'));
   assert.deepEqual(x.counts(),before);
 });
+
+test('K26 original historical Object proof scales linearly and still rejects reordered or duplicate revisions',async()=>{
+  const f=fixture(),old=await openT4OriginalNetworkObjectChange(f.openArgs),n=192;
+  await applyT4OriginalNetworkObjectChange(f.applyArgs(old));
+  for(let i=2;i<=n;i++){
+    const data={title:'revision '+i};
+    await f.originalKernel.commitObjectGraph({
+      workspace_id:f.delta.workspaceId,idempotency_key:'next:'+i,
+      object:{object_id:f.delta.objectId,schema_id:f.delta.schemaId,schema_version:f.delta.schemaVersion,
+        data,extensions:{},base_revision:i-1},
+      event:{event_type:'iwxa.t4.original-object.synced',payload:{
+        originalEventId:'event:source:'+i,originalEventDigest:H('source:'+i),
+        originalWriteOwnerRef:f.delta.originalWriteOwnerRef,
+        originalContentDigest:digestT4OriginalObjectContent({schemaId:f.delta.schemaId,
+          schemaVersion:f.delta.schemaVersion,data,extensions:{}})}},
+    });
+    // Same numeric revision, but unrelated Asset evidence.
+    f.events.push({workspace_id:f.delta.workspaceId,object_id:f.delta.objectId,
+      event_type:'iwxa.t4.original-asset.synced',event_id:'event:asset:'+i,
+      revision:i,payload:{originalEventId:'event:other:'+i}});
+  }
+  let revisionReads=0;
+  f.originalKernel.listEventsSince=async w=>f.events.filter(e=>e.workspace_id===w).map(e=>{
+    const clone=structuredClone(e),revision=clone.revision;
+    return Object.defineProperty(clone,'revision',{enumerable:true,get(){revisionReads++;return revision;}});
+  });
+  const read=()=>inspectT4OriginalNetworkRecipientResult({...f.applyArgs(old),allowHistoricalEventProof:true});
+  const result=await read();
+  assert.equal(result.state,'APPLIED_HISTORICAL_EVENT_VERIFIED');
+  assert.equal(result.originalRecipientRevision,1);assert.equal(result.currentRecipientRevision,n);
+  assert.ok(revisionReads<=n*12,`revision reads: ${revisionReads}`);
+  const duplicate=structuredClone(f.events.find(e=>e.event_type==='iwxa.t4.original-object.synced'&&e.revision===3));
+  f.events.push({...duplicate,event_id:'event:duplicate'});
+  await assert.rejects(read(),error('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP'));
+  f.events.pop();
+  const second=f.events.findIndex(e=>e.event_type==='iwxa.t4.original-object.synced'&&e.revision===2),
+    third=f.events.findIndex(e=>e.event_type==='iwxa.t4.original-object.synced'&&e.revision===3);
+  [f.events[second],f.events[third]]=[f.events[third],f.events[second]];
+  await assert.rejects(read(),error('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP'));
+  assert.equal(f.writes,n);
+});

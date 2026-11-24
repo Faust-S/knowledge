@@ -288,13 +288,20 @@ export function createT4OriginalNetworkHostCursorPort({
       e.object_id===checkpointRef&&e.event_type===EVENT);
     if(events.length!==obj.revision)
       fail('HOST_CURSOR_ORIGINAL_EVENT_HISTORY_INCOMPLETE');
-    const seen=new Set();
+    // Index this freshly authorized read, never a second persistent frontier.
+    // Preserve revision-order verification without rescanning all Events for each revision.
+    const byRevision=new Map(),seen=new Set();
+    for(const ev of events){
+      const revision=ev.revision;
+      if(!Number.isSafeInteger(revision)||revision<1||revision>obj.revision||
+        !ID(ev.event_id)||seen.has(ev.event_id)||byRevision.has(revision))
+        fail('HOST_CURSOR_ORIGINAL_EVENT_REVISION_CONFLICT');
+      byRevision.set(revision,ev);seen.add(ev.event_id);
+    }
     let prior=firstHash,prev=null;
     for(let i=1;i<=obj.revision;i++){
-      const found=events.filter(e=>e.revision===i&&ID(e.event_id));
-      if(found.length!==1||seen.has(found[0].event_id))
-        fail('HOST_CURSOR_ORIGINAL_EVENT_REVISION_CONFLICT');
-      const ev=found[0],record=ev.payload?.record;
+      const ev=byRevision.get(i),record=ev?.payload?.record;
+      if(!ev)fail('HOST_CURSOR_ORIGINAL_EVENT_REVISION_CONFLICT');
       checkRecord(identity,record,prior);
       if((prev&&!same(prev.sourceCursorAfter,record.sourceCursorBefore))||
         (!prev&&baseline&&!same(baseline.sourceCursor,record.sourceCursorBefore)))
@@ -303,7 +310,7 @@ export function createT4OriginalNetworkHostCursorPort({
         ev.payload?.chainHash!==record.chainHash||
         ev.payload?.checkpointRef!==checkpointRef)
         fail('HOST_CURSOR_ORIGINAL_EVENT_PAYLOAD_MISMATCH');
-      seen.add(ev.event_id);prior=record.chainHash;prev=record;
+      prior=record.chainHash;prev=record;
     }
     if(!same(end,prev))
       fail('HOST_CURSOR_ORIGINAL_LAST_RECORD_MISMATCH');

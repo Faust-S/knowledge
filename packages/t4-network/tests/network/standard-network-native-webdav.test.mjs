@@ -563,6 +563,10 @@ test('K23 real HTTPS indexed HEADS and exact session discovery use no collection
       code('WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN'));
     const still=await recipient.wire.discoverSourceSessionHeads({selector:{sourceNodeRef:'node:one',ownerEpoch:2,familyRef,predecessorEventCount:5},requiredCryptoSuite:suite});
     assert.equal(still.receipts[0].verifiedSessionRef,sessionRef);
+    const rejected=await recipient.wire.discoverUniqueSignedFrame({selector:{...selector,
+      sessionRef:'session:conflict:'+id,messageType:'HEADS',sequence:1},requiredCryptoSuite:suite,
+      supportedCriticalExtensions});
+    assert.equal(rejected.state,'NOT_FOUND');
   }finally{outgoing.close();incoming.close();}
 });
 
@@ -598,4 +602,48 @@ test('K23 real HTTPS repairs only missing index after durable frame upload and r
     assert.equal(b.replay.size,1);
     await assert.rejects(outgoing.putNativeFrameIndex({key:t4NativeSessionFrameIndexKey({...selector,recipientNodeRef:'node:two',scopeRef:'scope:opaque'}),frameSha256:'0'.repeat(64)}),code('REMOTE_INDEX_SLOT_CONFLICT'));
   }finally{outgoing.close();incoming.close();}
+});
+
+test('K25 real HTTPS migrates an existing signed source announcement without rewriting its native frame',async()=>{
+  const requests=[];
+  const observedFetch=async(url,options)=>{
+    requests.push({path:new URL(url).pathname,method:options.method});
+    assert.notEqual(options.method,'PROPFIND');
+    return fetch(url,options);
+  };
+  const legacy=makeTransport(()=> 'T4_NETWORK',async()=>true,observedFetch,false),
+    indexed=makeTransport(()=> 'T4_NETWORK',async()=>true,observedFetch,true),
+    incoming=makeTransport(()=> 'T4_NETWORK',async()=>true,observedFetch,true);
+  const id=randomUUID(),sessionRef='session:migrate:'+id,familyRef='family:migrate:'+id;
+  const selector={sourceNodeRef:'node:one',ownerEpoch:2,familyRef,predecessorEventCount:5};
+  const body={familyRef,ownerEpoch:2,heads:['sha256:'+'b'.repeat(64)],sourceSession:{
+    predecessorEventId:'event:prev',predecessorEventCount:5,predecessorPrefixDigest:'sha256:'+'a'.repeat(64),
+    sourceEventId:'event:next',sourceEventDigest:'sha256:'+'c'.repeat(64),sourceRevision:1,
+    changeKind:'OBJECT_PUT',capturedWindowDigest:'sha256:'+'d'.repeat(64),capturedSha256:'e'.repeat(64)}};
+  const supportedCriticalExtensions=[T4_ORIGINAL_SOURCE_SESSION_EXTENSION];
+  try{
+    const bytes=await makeBytes('HEADS',{sessionRef,sequence:1,body,criticalExtensions:supportedCriticalExtensions});
+    const original=await host('source',legacy).wire.publishSignedFrame({wireBytes:bytes});
+    const address={key:original.key,expectedSha256:original.sha256};
+    const a=host('source',indexed),b=host('recipient',incoming);
+    assert.equal((await b.wire.discoverSourceSessionHeads({selector,requiredCryptoSuite:suite})).state,'NOT_FOUND');
+    requests.length=0;
+    await assert.rejects(a.wire.inspectUnknownPublication(address),code('WIRE_NATIVE_INDEX_MISSING'));
+    assert.ok(requests.every(r=>r.method==='GET'));
+    requests.length=0;
+    assert.equal((await a.wire.inspectUnknownPublication({...address,repairMissingFrameIndex:true})).exactBytesPresent,true);
+    assert.equal(requests.filter(r=>r.method==='PUT'&&r.path.endsWith('.t4i')).length,2);
+    assert.equal(requests.filter(r=>r.method==='PUT'&&r.path.endsWith('.t4n')).length,0);
+    requests.length=0;
+    const found=await b.wire.discoverSourceSessionHeads({selector,requiredCryptoSuite:suite});
+    assert.equal(found.receipts[0].sha256,original.sha256);assert.equal(found.receipts[0].verifiedSessionRef,sessionRef);
+    assert.equal(requests.length,2);
+    const exact=await b.wire.discoverUniqueSignedFrame({selector:{sourceNodeRef:'node:one',ownerEpoch:2,
+      sessionRef,messageType:'HEADS',sequence:1},requiredCryptoSuite:suite,supportedCriticalExtensions});
+    assert.equal(exact.receipt.exactPreviouslyVerifiedReplay,true);
+    requests.length=0;
+    const again=host('source',indexed);
+    await again.wire.inspectUnknownPublication({...address,repairMissingFrameIndex:true});
+    assert.ok(requests.every(r=>r.method==='GET'));assert.equal(b.replay.size,1);
+  }finally{legacy.close();indexed.close();incoming.close();}
 });
