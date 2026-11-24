@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: e3d71eca90a0c07bc6df177d4afd30a51638caf7
+          ref: c4eb1a1cc2ebdb0ccc6beab730d8a819fb136f74
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,9 +51,9 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = e3d71eca90a0c07bc6df177d4afd30a51638caf7
+          test "$(git -C d04-private/site rev-parse HEAD)" = c4eb1a1cc2ebdb0ccc6beab730d8a819fb136f74
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = bd4b424f64df0e1fb2bde28e3a0ff93dc790597e
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 23e73b0229dc9388b42433baae716340d3a43587
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
         with:
@@ -163,6 +163,8 @@ jobs:
       - name: Check native witness source syntax
         working-directory: d04-private/site
         run: |
+          node --check qualification/life-os-custom-measure.browser.mjs
+          node --check qualification/life-os-observation-exchange.browser.mjs
           node --check qualification/life-os-home-dashboard.browser.mjs
           node --check qualification/life-os-unified-exchange.browser.mjs
           node --check qualification/life-os-entry-responsive.browser.mjs
@@ -184,9 +186,16 @@ jobs:
           const {selectWitnessOption}=await import(pathToFileURL(join(canonical,'src/factory2/products/domain-completion/independent-browser-witness.mjs')).href);
           const {runLifeOsEntryResponsiveBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-entry-responsive.browser.mjs')).href);
           const {runLifeOsHomeDashboardBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-home-dashboard.browser.mjs')).href);
+          const {runLifeOsCustomMeasureBrowser}=await import(pathToFileURL(join(site,'qualification/life-os-custom-measure.browser.mjs')).href);
           console.log('D04_HOME_BROWSER_STAGE=SERVER_BOOT');
           const server=await serveRealKernelHost(join(site,'dist'),{independentWitness:true,previewOrigin:true});
           try{
+            console.log('D04_HOME_BROWSER_STAGE=CUSTOM_MEASURES_AND_PERIODS');
+            const custom=await runLifeOsCustomMeasureBrowser({chromium,origin:server.origin,selectWitnessOption});
+            if(custom.status!=='PASS'||custom.viewports.length!==2||custom.viewports.some(v=>v.objects!==4||v.resultEvents!==5||v.definition!==true||v.diary!==true||v.period!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_HOME_CUSTOM_RESULT_INCOMPLETE');
+            console.log('D04_HOME_CUSTOM_MEASURES=PASS');
+            console.log('D04_HOME_CUSTOM_PERIODS=PASS');
+            console.log('D04_HOME_CUSTOM_COLD_EXCHANGE=PASS');
             console.log('D04_HOME_BROWSER_STAGE=PUBLIC_TO_NATIVE_CREATION');
             const personal=await runLifeOsHomeDashboardBrowser({chromium,origin:server.origin,selectWitnessOption});
             if(personal.status!=='PASS'||personal.viewports.length!==2||personal.viewports.some(v=>v.measures!==56||v.recordable!==45||v.captureTypes!==44||v.pressurePair!==true||v.methodBatch!==true||v.personalGoal!==true||v.sleepSchedule!==true||v.mobilityMethods!==true||v.medicalRecords!==5||v.medicalCold!==true||v.medicalDay!==4||v.medicalDirectEntry!==true||v.medicalSourceReuse!==true||v.actionBoard!==true||v.unifiedChronology!==true||v.fullCalculationFields!==true||v.recordedResultsDay!==true||v.catalogFilters!==true||v.historyDates!==true||v.monthReview!==true||v.historySearch!==true||(v.width===1440&&(v.exchange?.status!=='PASS'||v.exchange?.objects!==18||v.exchange?.resultEvents<21||v.exchange?.historyPreserved!==true||v.exchange?.coldImported!==true||v.exchange?.sourceUnchanged!==true))||v.newMetricSaved!==true||v.eventsSaved!==2||v.eventsCold!==true||v.diarySaved!==4||v.diaryCold!==true||v.wholeDayRecords!==6||v.historicalDay!==true||v.calculationTools!==13||v.calculationSaved!==true||v.calculationCold!==true))throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
@@ -212,8 +221,8 @@ jobs:
           if [ "$code" -ne 0 ]; then
             echo "D04_HOME_REAL_BROWSER=FAIL"
             grep -E '^D04_HOME_(BROWSER_STAGE|VIEWPORT_W[0-9]+_FULL_JOURNEY)' "$RUNNER_TEMP/d04-home-browser.log" | tail -6 || true
-            grep -Eo 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -12 || true
-            if ! grep -Eq 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log"; then
+            grep -Eo 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -12 || true
+            if ! grep -Eq 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log"; then
               if grep -q 'TimeoutError' "$RUNNER_TEMP/d04-home-browser.log"; then
                 echo "D04_HOME_BROWSER_ERROR_CLASS=TIMEOUT"
               elif grep -q 'ERR_MODULE_NOT_FOUND' "$RUNNER_TEMP/d04-home-browser.log"; then
@@ -231,5 +240,8 @@ jobs:
           grep '^D04_HOME_' "$RUNNER_TEMP/d04-home-browser.log" | tail -8
           grep -E '^D04_HOME_UNIFIED_IWXA_(OBJECTS|RESULT_EVENTS|COLD_RESTORE)=' "$RUNNER_TEMP/d04-home-browser.log" || true
           grep -E '^D04_HOME_PERF_W[0-9]+_(EMPTY|CREATE|COLD)_MS=[0-9]+' "$RUNNER_TEMP/d04-home-browser.log" || true
+          grep -E '^D04_HOME_CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE)=PASS
+      # No public artifact, private dist, screenshots, code, or private logs are uploaded.
+ "$RUNNER_TEMP/d04-home-browser.log" || true
           echo "D04_HOME_REAL_BROWSER=PASS"
       # No public artifact, private dist, screenshots, code, or private logs are uploaded.
