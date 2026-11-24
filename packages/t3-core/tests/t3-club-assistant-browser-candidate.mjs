@@ -28,8 +28,10 @@ for(const hint of pack.formHints){
  if(!routes.has(path))routes.set(path,[]);
  routes.get(path).push(hint);
 }
-assert.equal(pack.formHints.length,21);
-assert.equal(routes.size,6);
+assert.ok(pack.formHints.length>=26);
+assert.ok(routes.size>=6);
+for(const marker of ["data-family-options-form","data-work-ledger-shift","data-warehouse-payroll-form","data-contact-work-form","data-work-ledger-pvz"])
+ assert.ok(pack.formHints.some(h=>h.marker===marker),"NEW_ORIGINAL_FORM_HINT");
 const paths=new Set(routes.keys());
 const inside=(root,file)=>{const r=relative(root,file);return r!==""&&!r.startsWith("..")&&!isAbsolute(r);};
 const server=createServer((req,res)=>{
@@ -342,7 +344,7 @@ try{
  }
  // Execute every result surface via the site's original user-facing forms.
  // Use fresh tabs for the four pages, no injected records or simulated result.
- assert.equal(pack.resultHints.length,13);
+ assert.ok(pack.resultHints.length>=13);
  for(const size of [{width:390,height:844},{width:1440,height:900}]){
   const ctx=await browser.newContext({viewport:size,hasTouch:size.width<621,isMobile:size.width<621,serviceWorkers:"block"});
   let phase="INIT",tested=0,workers=0,modelRequests=0;
@@ -383,7 +385,36 @@ try{
      else await field.fill(String(value));
     }
    }
-   async function submit(marker){await form(marker).locator('button[type="submit"]').click();}
+   async function submit(marker){
+    check(await form(marker).evaluate(f=>f.checkValidity()),"NATIVE_FORM_VALID_BEFORE_SUBMIT");
+    await form(marker).locator('button[type="submit"]').click();
+   }
+   // Explicit real assistant application, without model, submit or storage.
+   async function assistantFill(marker,question,group,expected){
+    const hint=pack.formHints.find(h=>h.marker===marker);
+    check(hint,"FORM_HINT");
+    const original=Object.fromEntries(await Promise.all(Object.keys(expected).map(async k=>[k,await form(marker).locator('[name="'+k+'"]').inputValue()])));
+    const submits=await page.evaluate(()=>window.__clubResultSubmits);
+    await form(marker).locator("button[data-iwxa-assistant-form-open]").click();
+    await page.waitForFunction(title=>{
+     const root=document.querySelector("#iwxa-t3-assistant")?.shadowRoot;
+     return root?.getElementById("form-choice")?.selectedOptions[0]?.textContent?.startsWith(title+" ·")&&root.getElementById("status")?.textContent?.startsWith("Выбрана форма:");
+    },hint.title);
+    await at("field-group").selectOption(group);
+    await at("prompt").fill(question);
+    await at("explicit-values").click();
+    const rows=at("preview").locator("li");
+    check(await rows.count()===Object.keys(expected).length,"GROWTH_EXACT_PROPOSALS");
+    for(const key of Object.keys(expected))
+     check(await form(marker).locator('[name="'+key+'"]').inputValue()===original[key],"GROWTH_NO_PREMATURE_WRITE");
+    for(const checkbox of await rows.locator('input[type="checkbox"]').all())await checkbox.check();
+    await at("apply").click();
+    for(const [key,value] of Object.entries(expected))
+     check(await form(marker).locator('[name="'+key+'"]').inputValue()===value,"GROWTH_EXACT_NATIVE_APPLY");
+    check(await page.evaluate(()=>window.__clubResultSubmits)===submits,"GROWTH_NO_AUTO_SUBMIT");
+    await at("prompt").fill("");
+    await at("close").click();
+   }
    async function state(marker,expected){
     await page.waitForFunction(({marker,expected})=>document.querySelector("["+marker+"]")?.getAttribute("data-iwxa-assistant-state")===expected,{marker,expected},{timeout:15000});
    }
@@ -392,15 +423,17 @@ try{
    }
    const snapshot=()=>page.evaluate(()=>({session:sessionStorage.getItem("ru.iwxa.club.session.v1"),submits:window.__clubResultSubmits}));
    async function verify(marker){
-    phase="VERIFY_"+(tested+1);
+    phase="VERIFY_"+(tested+1)+"_READY";
     const hint=pack.resultHints.find(h=>h.marker===marker);
     check(hint&&!done.has(marker),"CANONICAL_RESULT_HINT");
     await state(marker,"ready");
+    phase="VERIFY_"+(tested+1)+"_ACTION";
     await action(marker).waitFor({state:"visible"});
     const exact=(await output(marker).innerText()).trim();
     check(exact.length>0,"NONEMPTY_REAL_OUTPUT");
     const before=JSON.stringify(await snapshot());
     await action(marker).click();
+    phase="VERIFY_"+(tested+1)+"_PREVIEW";
     await at("result-preview").waitFor({state:"visible"});
     check(await at("result-preview").inputValue()===exact,"EXACT_OUTPUT");
     check(await at("result-reading").isVisible()&&await at("result-meaning").textContent()===hint.meaning,"EXACT_RESULT_READING");
@@ -408,6 +441,7 @@ try{
     check((await at("result-question").textContent())?.includes(hint.question),"EXACT_SUGGESTED_QUESTION");
     check(await at("skill-choice").inputValue()===hint.skillId,"EXACT_SERVICE");
     check(await at("prompt").inputValue()==="","NO_IMPLICIT_ATTACHMENT");
+    phase="VERIFY_"+(tested+1)+"_ATTACH";
     await at("include-result").click();
     const attached=await at("prompt").inputValue();
     check(attached.includes(JSON.stringify({source:hint.title,value:exact})),"EXPLICIT_EXACT_ATTACHMENT");
@@ -447,7 +481,11 @@ try{
    const rent=form("data-family-options-form").locator('[name="rentEntry"]');
    await page.waitForFunction(()=>document.querySelector('[data-family-options-form] [name="rentEntry"]')?.options.length>1);
    const rentId=await rent.locator("option").nth(1).getAttribute("value");
-   await fill("data-family-options-form",{asOfDate:"2026-11-24",rentEntry:rentId,rentNewDate:"2026-12-02"});
+   await assistantFill("data-family-options-form","Дата оценки 24.11.2026. Новая дата аренды 02.12.2026.","0",{asOfDate:"2026-11-24",rentNewDate:"2026-12-02"});
+   // The assistant does not select an existing rent record or invent work.
+   check(await rent.inputValue()==="","FAMILY_RELATION_MANUAL");
+   await rent.selectOption(rentId);
+   check(await form("data-family-options-form").locator('[name="sideHours"]').inputValue()==="0","OPTIONAL_SIDE_WORK_ZERO");
    await submit("data-family-options-form");
    await verify("data-family-options-results");
    await fill("data-family-options-form",{rentNewDate:"2026-12-03"});
@@ -486,6 +524,7 @@ try{
    await submit("data-work-ledger-pvz");await verify("data-work-ledger-pvz-summary");
    phase="CONTACT_CALCULATE";
    await fill("data-contact-work-form",{date:"2026-11-25",offeredCalls:90,handledCalls:84,resolvedCalls:66,escalatedCalls:10,followupCalls:8});
+   await assistantFill("data-contact-work-form","Разговоры 300 минут. Обработка после звонков 60 минут.","1",{talkMinutes:"300",wrapMinutes:"60"});
    await verify("data-contact-preview");
    await fill("data-contact-work-form",{handledCalls:95});
    await page.waitForFunction(()=>document.querySelector("[data-contact-preview]")?.getAttribute("data-iwxa-assistant-state")!=="ready");
@@ -511,12 +550,12 @@ try{
    await submit("data-club-week-form");await verify("data-club-week-summary");
    check(tested===pack.resultHints.length&&done.size===tested,"ALL_RESULTS");
    check(workers===0&&modelRequests===0,"NO_MODEL_ACTIVITY");
-   console.log("T3_CLUB_ALL_RESULT_HINTS_PASS "+JSON.stringify({width:size.width,height:size.height,results:tested,exactReading:true,exactContext:true,nativeOperations:true,emptyStatesExcluded:true,staleStatesExcluded:true,noModel:true,noAssistantWrite:true}));
+   console.log("T3_CLUB_ALL_RESULT_HINTS_PASS "+JSON.stringify({width:size.width,height:size.height,results:tested,exactReading:true,exactContext:true,nativeOperations:true,emptyStatesExcluded:true,staleStatesExcluded:true,labelledDateApply:true,labelledMinutesApply:true,noModel:true,noAssistantWrite:true}));
   }catch(e){
    const code=typeof e.message==="string"&&/^T3_CLUB_RESULT_[A-Z_]+$/.test(e.message)?e.message:"T3_CLUB_RESULT_UNEXPECTED";
    console.log("T3_CLUB_ALL_RESULT_HINTS_FAIL "+JSON.stringify({width:size.width,tested,phase,code,timeout:e?.name==="TimeoutError"}));
    throw Error(code);
   }finally{await ctx.close();}
  }
- console.log("T3_CLUB_BROWSER_CANDIDATE_PASS 4 viewports, actual compiled assistant and native form, 13 result hints on 2 viewports, not physical devices");
+ console.log("T3_CLUB_BROWSER_CANDIDATE_PASS 4 viewports, actual compiled assistant and native form, "+pack.resultHints.length+" result hints on 2 viewports, not physical devices");
 }finally{await browser?.close();await new Promise(ok=>server.close(ok));}

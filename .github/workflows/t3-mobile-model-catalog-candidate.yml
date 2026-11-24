@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 1b817ac8dc50df7735db8b519237b7f7c90b4ede
+          ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 01d5cd2b49307d00bf130ac32df761dd4f8482bb
+          ref: 8e0263d93e51827510415faa752d82c5c39426cb
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -71,7 +71,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: fb06a564da034a78eb25856d60d12ce720a4633c
+          ref: b66b036d16bf44adb0304351d762f5c098f5312a
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club-owner
@@ -81,7 +81,17 @@ jobs:
           set -euo pipefail
           cmp private-club-owner/models/assistant-skills.json private-club/assets/club-assistant-skills.json
           node private-club/scripts/club-assistant-skills.mjs
-          if ! (cd private-club-owner && node --test tests/assistant-skills.test.mjs) > "$RUNNER_TEMP/private-owner-skills.log" 2>&1; then
+          if ! node --input-type=module - "$GITHUB_WORKSPACE/private-club-owner" 'b66b036d16bf44adb0304351d762f5c098f5312a' > "$RUNNER_TEMP/private-skill-import.log" 2>&1 <<'NODE'
+          import {importClubSkills} from './private-club/scripts/import-club-skills.mjs';
+          const plan=importClubSkills(process.argv[2],process.argv[3]);
+          if(plan.bytesChanged||plan.pinChanged||plan.applied)throw Error('EXACT_OWNER_IMPORT_MISMATCH');
+          console.log('CLUB_SKILL_IMPORT_NO_CHANGES');
+          NODE
+          then
+            echo T3_CLUB_EXACT_DEVELOPER_IMPORT_FAIL; exit 1
+          fi
+          echo T3_CLUB_EXACT_DEVELOPER_IMPORT_PASS
+          if ! (cd private-club-owner && node scripts/club-skill-authoring.mjs check && node --test tests/assistant-skills.test.mjs) > "$RUNNER_TEMP/private-owner-skills.log" 2>&1; then
             echo T3_CLUB_OWNER_SKILLS_FAIL
             exit 1
           fi
@@ -167,7 +177,7 @@ jobs:
         shell: bash
         run: |
           rm -rf "$RUNNER_TEMP/assistant-candidate" "$RUNNER_TEMP/private-mobile-source.log" "$RUNNER_TEMP/private-mobile-dom.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-preparation.log" "$RUNNER_TEMP/hybrid-prompts.json" "$RUNNER_TEMP/hybrid-preparation.log" "$RUNNER_TEMP/hybrid-selftest.json" "$RUNNER_TEMP/hybrid-score-selftest.log"
-          rm -rf private-bli private-club private-club-owner "$RUNNER_TEMP/private-owner-skills.log" "$RUNNER_TEMP/private-explicit-facts.log" "$RUNNER_TEMP/private-explicit-challenge.log" "$RUNNER_TEMP/private-expanded.log"
+          rm -rf private-bli private-club private-club-owner "$RUNNER_TEMP/private-owner-skills.log" "$RUNNER_TEMP/private-skill-import.log" "$RUNNER_TEMP/private-explicit-facts.log" "$RUNNER_TEMP/private-explicit-challenge.log" "$RUNNER_TEMP/private-expanded.log"
   shared-host:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -177,7 +187,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 1b817ac8dc50df7735db8b519237b7f7c90b4ede
+          ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -185,7 +195,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 01d5cd2b49307d00bf130ac32df761dd4f8482bb
+          ref: 8e0263d93e51827510415faa752d82c5c39426cb
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -277,7 +287,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 01d5cd2b49307d00bf130ac32df761dd4f8482bb
+          ref: 8e0263d93e51827510415faa752d82c5c39426cb
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-quality-club
@@ -286,7 +296,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 1b817ac8dc50df7735db8b519237b7f7c90b4ede
+          ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-quality-assistant
