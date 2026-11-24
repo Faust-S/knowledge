@@ -217,7 +217,7 @@ it("late read from replaced corporate owner never reveals prior Workspace", asyn
 
 type SignedResolver=NonNullable<CreateWorkspaceHostRuntimeInput["signedKernelAccess"]>;
 const selectedPort=(id:string,resource=id)=>({currentContext:async()=>({
-  kind:"CORP",workspace_id:id,resource,
+  kind:"CORP",workspace_id:id,resource,organization_id:"org:approved",
 })});
 
 it("explicit signed create ACTION creates the selected Workspace via original Kernel",async()=>{

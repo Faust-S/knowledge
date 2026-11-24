@@ -189,7 +189,9 @@ export function SignedSelectedWorkspaceGate({
           : "Не удалось подтвердить создание в исходном Kernel. Проверьте полномочия и нажмите «Проверить повторно». Новая область автоматически не создаётся. ("+code+")");
     }finally{
       running.current=false;
-      if(ticket===generation.current)setBusy(false);
+      // No other create can run while this one holds running. Release the
+      // UI even if an intervening signed context change invalidated its result.
+      setBusy(false);
     }
   },[required,kernel,signedKernelAccess,trustedSelectedContext,profile,phase,inspection.scope]);
 
