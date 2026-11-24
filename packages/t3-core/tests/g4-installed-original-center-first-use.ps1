@@ -265,6 +265,16 @@ function QualifyV8OriginalRoutes(){
   Check ($null -eq $newApply) 'V8_RECOVERY_NEW_APPLY_VISIBLE'
   Check (WaitForText 'Восстановление исходной операции' 80) 'V8_NATIVE_RECOVERY_HUB_MISSING'
   AssertV8Route 'REUSE' 'Использовать Result' 'Продолжить работу в исходной Workspace' @('Подписанные поручения T3','Независимый сотрудник организации')
+  $script:phase='V8_INSTALLED_ORIGINAL_REUSE_EMPTY_INBOX'
+  $read=FindName 'Прочитать применённый Result' 'Button'
+  Check (-not $read.Current.IsEnabled) 'V8_REUSE_READ_WITHOUT_SOURCE_ENABLED'
+  ClickButton 'Обновить список принятых Result'
+  Check (WaitForText 'В полученном списке пока нет принятых результатов.' 160) 'V8_REUSE_ORIGINAL_INBOX_NOT_ACKNOWLEDGED'
+  $read=FindName 'Прочитать применённый Result' 'Button'
+  Check (-not $read.Current.IsEnabled) 'V8_REUSE_EMPTY_INBOX_READ_ENABLED'
+  Check (-not (HasText 'Вставить в новый черновик')) 'V8_REUSE_WITHOUT_APPLY_DRAFT_VISIBLE'
+  Check (-not (HasText 'Результат применён и подтверждён')) 'V8_REUSE_WITHOUT_SOURCE_CONFIRMED'
+  Write-Host 'V8_ORIGINAL_INSTALLED_REUSE_EMPTY_INBOX_READ_ONLY_PASS'
   Check (WaitForNativeCenterReviewToolbar) 'V8_FOCUSED_ROUTES_LOST_ORIGINAL_SIGNED_WORKSPACE'
   Write-Host 'V8_ORIGINAL_T3_EIGHT_FOCUSED_ROUTES_SAME_NATIVE_SESSION_PASS'
   # Other roots have separate existing application lifecycles.

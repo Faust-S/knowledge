@@ -1,8 +1,8 @@
-name: Admin Center 0.4.1 focused Results and original T3 acceptance
+name: Admin Center 0.4.1 Result continuation and original T3 acceptance
 on:
   push:
     branches:
-      - work/2026-11-24-admin-center-041-v8-focused-results-unified
+      - work/2026-11-24-admin-center-041-reuse-native-unified
     paths:
       - .github/workflows/admin-center-041-unified-release-windows.yml
       - packages/t3-core/tests/admin-center-04-upgrade-03.ps1
@@ -182,7 +182,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/Center
-          ref: b6afd79829979304943be10a828f0a1851bfaa0c
+          ref: 4d92439d822d36f0f8d8b02d66d71aa2c44a5b72
           persist-credentials: false
           path: .private/center
       - name: Stage original Atlas owner
@@ -213,7 +213,7 @@ jobs:
           $t3=(& git -C .private/t3 rev-parse HEAD).Trim()
           $center=(& git -C .private/center rev-parse HEAD).Trim()
           if($t3 -cne '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -or
-             $center -cne 'b6afd79829979304943be10a828f0a1851bfaa0c'){
+             $center -cne '4d92439d822d36f0f8d8b02d66d71aa2c44a5b72'){
             throw 'D2_INSTALLED_ORIGINAL_PRIVATE_SOURCE_PIN_CHANGED'
           }
           Add-Content -LiteralPath '.git/info/exclude' -Value '/.private/'
@@ -315,7 +315,7 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
-          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha 'b6afd79829979304943be10a828f0a1851bfaa0c' -ExpectedT3Sha '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -ExpectedVersion '0.4.1'
+          & ./packages/t3-core/tests/g4-installed-original-center-smoke.ps1 -CenterRoot '.private/center' -OriginalT3Root '.private/t3' -ExpectedCenterSha '4d92439d822d36f0f8d8b02d66d71aa2c44a5b72' -ExpectedT3Sha '790c9dd270a2e7a11aead6a9ee7666c6d7b677fc' -ExpectedVersion '0.4.1'
           if($LASTEXITCODE -ne 0){throw 'D2_INSTALLED_ORIGINAL_CENTER_GUI_FAILED'}
           Write-Host 'D2_INSTALLED_ORIGINAL_OWNER_SETUP_AND_GUI_PASS_NOT_FULL_E2E'
       - name: Verify complete 0.4 distributable and produce immutable public candidate
@@ -437,6 +437,67 @@ jobs:
           New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
           Copy-Item -LiteralPath $baseline -Destination 'artifacts/iwxa-setup-core-center-0.3-preview.exe'
           Write-Host 'ADMIN04_ACCEPTED_03_AND_COMPLETE_04_SHA256_PINS_PASS'
+      - name: Require the pinned 0.3 source and acknowledge its read-only staff navigation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $path=(Resolve-Path '.accepted-03-src/tests/installed-windows-center.ps1').Path
+          if((& git -C .accepted-03-src hash-object tests/installed-windows-center.ps1).Trim() -cne 'e5ca27d929b6a1db896d33abf1f84325768138b5'){
+            throw 'ADMIN04_BASELINE_WITNESS_PIN_CHANGED'
+          }
+          $text=[IO.File]::ReadAllText($path).Replace("`r`n","`n")
+          $before=@'
+          function Find-TextContaining([string]$value){
+            # Reads WebView2's real UIA text nodes; not a DOM/browser mock.
+            for($i=0;$i -lt 65;$i++){
+          '@
+          $after=@'
+          function Find-TextContaining([string]$value,[int]$attempts=65){
+            # Reads WebView2's real UIA text nodes; not a DOM/browser mock.
+            for($i=0;$i -lt $attempts;$i++){
+          '@
+          $before=$before.Replace("`r`n","`n")
+          $after=$after.Replace("`r`n","`n")
+          if(!$text.Contains($before)){throw 'ADMIN04_BASELINE_READ_POLL_ANCHOR_MISSING'}
+          $text=$text.Replace($before,$after)
+          $signature='  public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);'
+          if(!$text.Contains($signature)){throw 'ADMIN04_BASELINE_FOREGROUND_ANCHOR_MISSING'}
+          $text=$text.Replace($signature,$signature+"`n"+'  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);')
+          $before=@'
+            Click-Control 'Сотрудники и роли'
+            [void](Find-TextContaining $staffNames[0])
+            [void](Find-TextContaining $staffNames[1])
+          '@
+          $after=@'
+            # Only this navigation is retryable. Do not repeat participant
+            # creation, assignment saving or any setup/data write.
+            $staffPageConfirmed=$false
+            for($attempt=1;$attempt -le 3;$attempt++){
+              $proc.Refresh()
+              [void][CenterNativeWindow]::SetForegroundWindow($proc.MainWindowHandle)
+              if($attempt -eq 1){Click-Control 'Сотрудники и роли'}
+              else{Click-VisibleUiButton (Find-Control 'Сотрудники и роли' 'Button') 'Сотрудники и роли'}
+              try{
+                [void](Find-TextContaining $staffNames[0] 12)
+                [void](Find-TextContaining $staffNames[1] 12)
+                $staffPageConfirmed=$true
+                Write-Host "ADMIN04_BASELINE_STAFF_ROUTE_ACK_PASS attempt=$attempt"
+                break
+              }catch{
+                if($_.Exception.Message -notlike 'Installed Corporate Panel text not found:*'){throw}
+              }
+            }
+            if(!$staffPageConfirmed){throw 'ADMIN04_BASELINE_STAFF_ROUTE_NOT_CONFIRMED'}
+          '@
+          $before=$before.Replace("`r`n","`n")
+          $after=$after.Replace("`r`n","`n")
+          if(!$text.Contains($before)){throw 'ADMIN04_BASELINE_STAFF_ACK_ANCHOR_MISSING'}
+          $text=$text.Replace($before,$after)
+          [IO.File]::WriteAllText($path,$text,[Text.UTF8Encoding]::new($false))
+          $tokens=$null;$errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -ne 0){throw 'ADMIN04_BASELINE_UIA_SYNTAX_INVALID'}
+          Write-Host 'ADMIN04_EXACT_BASELINE_TEST_NAV_ONLY_REACQUIRE_PASS'
       - name: Install original accepted 0.3 and create TWO real organizations via Windows UIA
         shell: pwsh
         timeout-minutes: 10
