@@ -27,12 +27,12 @@ jobs:
           test -n "${DOMEN:-}" || { echo "D05_DOMEN=UNAVAILABLE"; exit 1; }
           header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$DOMEN" | base64 | tr -d '\r\n')"
           git init --quiet site
-          if ! GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git 63dc745999834330dc3a179cd40557e4665471ba >/dev/null 2>&1; then
+          if ! GIT_TERMINAL_PROMPT=0 git -C site -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/cehovod.ru.git ada83ea6200956448b9b7f139f1cc1e240cda627 >/dev/null 2>&1; then
             echo "D05_SITE_ACCESS=FAIL"
             exit 1
           fi
           git -C site checkout --quiet --detach FETCH_HEAD
-          test "$(git -C site rev-parse HEAD)" = "63dc745999834330dc3a179cd40557e4665471ba" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "ada83ea6200956448b9b7f139f1cc1e240cda627" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
           echo "D05_SITE_PIN=PASS"
           git init --quiet t2
           if ! GIT_TERMINAL_PROMPT=0 git -C t2 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/T2.git e70de29b72b83e2546f7ab74b17572685a728c17 >/dev/null 2>&1; then
