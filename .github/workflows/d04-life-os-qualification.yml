@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 9c1dc3abe5fbd979d359423134909ddb26fc9d1a
+          ref: c14b17d4f3f1cf084d9d4618ad9dc3dbcc3e6d8f
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -53,7 +53,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: 993e559a17cc9384f7654c24872cd0e8b81c4726
+          ref: 7230fea2fb61aefdbeee5ba7564e8eb01319a300
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           fetch-depth: 0
@@ -70,10 +70,10 @@ jobs:
       - name: Verify immutable site / subject / T2 revisions
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "9c1dc3abe5fbd979d359423134909ddb26fc9d1a"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "846a8ceb813ff985529acccbf23d195b10239b37"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "993e559a17cc9384f7654c24872cd0e8b81c4726"
-          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "a16b8da35258db29d680b2b4ce34096bb0539f11"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "c14b17d4f3f1cf084d9d4618ad9dc3dbcc3e6d8f"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "4e117ab6217554e02b7c1a589c191c622ddbd9b6"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "7230fea2fb61aefdbeee5ba7564e8eb01319a300"
+          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "c3afbf5934efdc540c60d0c52b3e196c7c1ab5e2"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           for path in d04-private/site d04-private/model d04-private/t2; do
             test -z "$(git -C "$path" status --porcelain --untracked-files=no)"
@@ -111,7 +111,7 @@ jobs:
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
           BAZMED_SUBJECT_SOURCE_DIR: ${{ github.workspace }}/d04-private/model
-          D04_RELEASE_SITE_SHA: 9c1dc3abe5fbd979d359423134909ddb26fc9d1a
+          D04_RELEASE_SITE_SHA: c14b17d4f3f1cf084d9d4618ad9dc3dbcc3e6d8f
         run: |
           set -euo pipefail
           if npm run release:check-source >"$RUNNER_TEMP/d04-release-source.log" 2>&1; then
