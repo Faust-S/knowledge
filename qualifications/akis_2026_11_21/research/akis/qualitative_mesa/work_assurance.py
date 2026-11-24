@@ -133,7 +133,7 @@ def assess_result_quality(work: Any, event: Mapping[str, Any], *,
           "quality_responsibility_revision" in event):
         raise AssuranceBlocked("QUALITY_UNCHANGED_CRITERION_CANNOT_INFER_NEW_RESPONSIBILITY")
     verdict = event.get("quality_verdict")
-    if verdict not in {"MEETS_DECLARED_REQUIREMENT", "DOES_NOT_MEET"}:
+    if not isinstance(verdict, str) or verdict not in {"MEETS_DECLARED_REQUIREMENT", "DOES_NOT_MEET"}:
         raise AssuranceBlocked("QUALITY_ASSESSMENT_VERDICT_INVALID")
     reference = event.get("quality_evidence_ref")
     if (not isinstance(reference, str) or
@@ -154,6 +154,7 @@ def assess_result_quality(work: Any, event: Mapping[str, Any], *,
         if not change_fields.issubset(event):
             raise AssuranceBlocked("QUALITY_EXPLICIT_REASSESSMENT_REQUIRED")
         if (event["quality_reassessment_of"] != previous["model_ref"] or
+                not isinstance(event["quality_reassessment_reason"], str) or
                 event["quality_reassessment_reason"] not in {
                     "MEASUREMENT_ERROR", "TRANSCRIPTION_ERROR"
                 }):
@@ -174,10 +175,19 @@ def assess_result_quality(work: Any, event: Mapping[str, Any], *,
         raise AssuranceBlocked("QUALITY_REASSESSMENT_CURRENT_PRIOR_ACT_REQUIRED")
     if _ref_used(work, reference):
         raise AssuranceBlocked("QUALITY_UNIQUE_EVIDENCE_REQUIRED")
-    if work.assurance_corrections and not same_result:
-        latest = work.assurance_corrections[-1]
-        if latest.get("resubmitted_result_ref") == work.result_ref:
-            _owned_source(state, reference, criterion.assessor, at)
+    physical = next((r for r in reversed(work.assurance_corrections)
+                     if r.get("resubmitted_result_ref") == work.result_ref), None)
+    assessment_revision = None
+    if physical is not None:
+        assessment_revision = _owned_source(state, reference, criterion.assessor, at)
+    if state is not None and (same_result or physical is not None):
+        _require(not any(_ref_used(other, reference)
+                         for other in state.works.values()),
+                 "QUALITY_UNIQUE_EVIDENCE_REQUIRED")
+        if correction is not None:
+            _require(not any(_ref_used(other, correction["error_ref"])
+                             for other in state.works.values()),
+                     "QUALITY_REASSESSMENT_NEW_ERROR_SOURCE_REQUIRED")
     # All checks before mutation. Keep each act, including negative acts,
     # in the SAME Work; the current review is only a projection.
     work.assurance_refs.add(reference)
@@ -193,6 +203,9 @@ def assess_result_quality(work: Any, event: Mapping[str, Any], *,
         review["responsibility_revision"] = responsibility["wip_id"]
     if correction is not None:
         review["reassessment"] = correction
+    if physical is not None:
+        review["physical_correction_id"] = physical["terms"]["id"]
+        review["assessment_source_revision"] = assessment_revision
     work.assurance_reviews[criterion.key] = review
     work.assurance_review_history.append({
         "criterion": criterion.key, "at": at, **deepcopy(review),
@@ -322,7 +335,8 @@ def _ref_used(work: Any, ref: Any) -> bool:
             or any(ref in (lot.get("inspection_ref"), lot.get("claim_ref"),
                            lot.get("custody_dispatch_ref"), lot.get("custody_receipt_ref"),
                            lot.get("custody_quality_ref")) for lot in work.wip_lots)
-            or any(ref in row.get("used_refs", {}) for row in
+            or any(ref in row.get("used_refs", {}) or
+                   ref == row.get("terms", {}).get("original_operation_evidence") for row in
                    [*work.assurance_corrections,
                     *([work.assurance_correction_proposal]
                       if work.assurance_correction_proposal is not None else [])]))
@@ -362,7 +376,8 @@ def _terminal_operation(state: Any, work: Any, operation: Any) -> tuple[Any, str
 
 
 def _correction_sources_current(state: Any, row: Mapping[str, Any], at: int) -> None:
-    for ref, info in row["used_refs"].items():
+    for ref, info in {**row["terms"].get("prior_source_revisions", {}),
+                      **row["used_refs"]}.items():
         _require(_owned_source(state, ref, info["owner"], at) == info["revision"],
                  "QUALITY_CORRECTION_SOURCE_REVISION_STALE")
 
@@ -462,6 +477,12 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
         resource_ref = event.get("quality_correction_resource_ref")
         refs = {source: _fresh_source(state, work, source, work.customer, at),
                 resource_ref: _fresh_source(state, work, resource_ref, owner, at)}
+        prior = {}
+        for criterion in work.assurance_criteria:
+            for old_ref in (criterion.source_ref,
+                            work.assurance_reviews[criterion.key]["model_ref"]):
+                prior[old_ref] = {"owner": criterion.assessor,
+                                  "revision": _owned_source(state, old_ref, criterion.assessor, at)}
         _require(source != resource_ref, "QUALITY_CORRECTION_DISTINCT_SOURCES_REQUIRED")
         required = sorted(set(work.consents) | {work.customer, owner}
                           | {c.assessor for c in work.assurance_criteria})
@@ -478,7 +499,7 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
             "source_revision": work.source_revision,
             "org_revision": state.institution.revision,
             "commitment_org_revision": work.commitment_org_revision,
-            "source_revisions": deepcopy(refs),
+            "source_revisions": deepcopy(refs), "prior_source_revisions": prior,
         }
         _resource_ready(state, work, doc, reserved=False)
         row = {"terms": doc, "fingerprint": fingerprint(doc), "votes": {},
@@ -512,7 +533,7 @@ def apply_quality_correction(state: Any, work: Any, event: Mapping[str, Any],
                  and actor in doc["required"] and actor not in row["votes"],
                  "QUALITY_CORRECTION_INDEPENDENT_REVIEW_REQUIRED")
         decision = event.get("quality_correction_decision")
-        _require(decision in {"SUPPORT", "OBJECT"},
+        _require(isinstance(decision, str) and decision in {"SUPPORT", "OBJECT"},
                  "QUALITY_CORRECTION_REVIEW_DECISION_INVALID")
         info = _fresh_source(state, work, source, actor, at)
         row["used_refs"][source] = info
@@ -602,3 +623,33 @@ def qualified_resubmission(state: Any, work: Any, event: Mapping[str, Any],
     _proposal_current(state, work, row, at)
     _check_approval(row)
     return row
+
+
+def assert_current_quality_evidence(state: Any, work: Any, at: int) -> None:
+    """Current original rights are checked at acceptance, not retroactively."""
+    physical = next((r for r in reversed(work.assurance_corrections)
+                     if r.get("resubmitted_result_ref") == work.result_ref), None)
+    if physical is not None:
+        _correction_sources_current(state, physical, at)
+        _require(fingerprint(physical["terms"]) == physical["fingerprint"]
+                 and physical["status"] == "RESUBMITTED"
+                 and work.operation_evidence.get(physical["terms"]["operation"]) ==
+                     physical["operation_evidence"],
+                 "QUALITY_CORRECTION_EXECUTED_ATTEMPT_NOT_CURRENT")
+        _check_approval(physical)
+    for criterion in work.assurance_criteria:
+        review = work.assurance_reviews.get(criterion.key)
+        if not review or review["result_ref"] != work.result_ref:
+            continue
+        change = review.get("reassessment")
+        if change is not None:
+            _require(_owned_source(state, change["error_ref"], criterion.assessor, at)
+                     == change["error_source_revision"] and
+                     _owned_source(state, review["model_ref"], criterion.assessor, at)
+                     == change["assessment_source_revision"],
+                     "QUALITY_REASSESSMENT_SOURCE_REVISION_STALE")
+        if physical is not None:
+            _require(review.get("physical_correction_id") == physical["terms"]["id"] and
+                     _owned_source(state, review["model_ref"], criterion.assessor, at)
+                     == review.get("assessment_source_revision"),
+                     "QUALITY_CORRECTION_NEW_ASSESSMENT_SOURCE_STALE")
