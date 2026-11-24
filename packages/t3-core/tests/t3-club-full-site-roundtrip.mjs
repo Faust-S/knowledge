@@ -838,6 +838,50 @@ try{
   const c=await localCash();return c?.kernelSource?.workspaceId===base.scope&&c.kernelSource.revision>0&&c.kernelSource.syncedUpdatedAt===c.updatedAt;
  },"CASH_KERNEL_RECEIPT");
  log("OFFLINE_CASH_ORIGINAL_KERNEL_RECEIPT");
+ phase="OFFLINE_GOAL_RESOURCE_COMPARE";
+ // The same browser tab has explicitly restored and saved these three
+ // original Results. Comparing alternatives must not write any of them.
+ await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"&club_goal="+encodeURIComponent(goalId)+"#club-goal-map");
+ const goalResourceTask=(await localWeek())?.data?.personalWeekPlan?.slots?.find(s=>s.projectId===goalId&&s.status==="planned");
+ check(!!goalResourceTask&&goalResourceTask.date===dates.today&&goalResourceTask.durationMinutes===90,"GOAL_RESOURCE_ORIGINAL_TASK");
+ check((await localGoal())?.objectId===goalId&&(await localCash())?.data?.cashCalendar?.openingAvailableRUB===20000,"GOAL_RESOURCE_ORIGINAL_SOURCES");
+ const resourceOpen=page.locator("[data-club-goal-list]").getByRole("button",{name:"Проверить следующий шаг",exact:true});
+ await resourceOpen.click();
+ const resourcePanel=page.locator("[data-club-goal-resource-review]");
+ const resourceForm=resourcePanel.locator("[data-club-goal-resource-form]");
+ const resourceResult=resourcePanel.locator("[data-club-goal-resource-result]");
+ const resourceRun=resourceForm.locator("[data-club-goal-resource-run]");
+ await resourceForm.waitFor({state:"visible"});
+ await poll(async()=>await resourceRun.isEnabled(),"GOAL_RESOURCE_SOURCE_READY");
+ const resourceBefore=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
+ const expenseChoices=await resourceForm.locator('[name="entryId"] option').evaluateAll(nodes=>nodes.map(x=>x.value));
+ check(isDeepStrictEqual(expenseChoices,["","new"]),"GOAL_RESOURCE_NO_UNLINKED_EXPENSE_SELECTION");
+ await resourceForm.locator('[name="slotId"]').selectOption(goalResourceTask.id);
+ check(await resourceForm.locator('[name="minutesA"]').inputValue()==="90","GOAL_RESOURCE_EXACT_PREFILL");
+ await resourceForm.locator('[name="entryId"]').selectOption("new");
+ for(const [k,v] of Object.entries({dateA:dates.today,startA:"10:00",minutesA:"90",expenseDateA:cashDates.today,expenseA:"15000",
+  dateB:dates.future,startB:"10:00",minutesB:"60",expenseDateB:cashDates.future,expenseB:"11000"}))
+  await resourceForm.locator('[name="'+k+'"]').fill(v);
+ await resourceRun.click();
+ await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="ready","GOAL_RESOURCE_COMPARE_READY");
+ const goalResourceA=resourceResult.locator("article").filter({has:page.getByRole("heading",{name:"Вариант А",exact:true})});
+ const goalResourceB=resourceResult.locator("article").filter({has:page.getByRole("heading",{name:"Вариант Б",exact:true})});
+ check(await goalResourceA.count()===1&&await goalResourceB.count()===1,"GOAL_RESOURCE_TWO_CARDS");
+ const resourceMetric=async(card,label)=>{
+  const row=card.locator("p.club-review-line").filter({has:page.getByText(label,{exact:true})});
+  check(await row.count()===1,"GOAL_RESOURCE_EXACT_METRIC");
+  return Number((await row.locator("strong").textContent()).replace(/[^0-9-]/g,""));
+ };
+ check(await resourceMetric(goalResourceA,"Превышение предела")===30,"GOAL_RESOURCE_A_OVER_CAPACITY");
+ check(await resourceMetric(goalResourceB,"Известные пересечения дела")===1,"GOAL_RESOURCE_B_CONFLICT");
+ check(await resourceMetric(goalResourceA,"Прогноз к концу периода")===2000&&
+  await resourceMetric(goalResourceB,"Прогноз к концу периода")===6000,"GOAL_RESOURCE_INDEPENDENT_CASH");
+ const originalTaskHref=await resourceResult.getByRole("link",{name:"Открыть исходное дело",exact:true}).getAttribute("href");
+ check(new URL(originalTaskHref,page.url()).searchParams.get("club_week_slot")===goalResourceTask.id,"GOAL_RESOURCE_EXACT_TASK_EDITOR");
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===resourceBefore,"GOAL_RESOURCE_NO_WRITE");
+ await resourceForm.locator('[name="minutesB"]').fill("75");
+ await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_RESOURCE_INVALIDATED");
+ log("OFFLINE_GOAL_RESOURCE_TIME_AND_CASH_ALTERNATIVES");
  phase="OFFLINE_CASH_COLD_READBACK";
  await close();page=await launch("recipient");await context.setOffline(true);
  await visit(page,"/workspace/");await openExisting(page);
@@ -1107,7 +1151,7 @@ try{
  }
  await verifyPeriodReview("OFFLINE_NATIVE_PERIOD_REVIEW");
  await restoreAssessment("LIFECYCLE_COLD_RESTORE");
- check(JSON.stringify((await localGoal()).data.goalLifecycle)===JSON.stringify(lifecycleBeforeExport),"LIFECYCLE_EXACT_COLD_HISTORY");
+ verifyHistory((await localGoal()).data.goalLifecycle,lifecycleBeforeExport,"LIFECYCLE_COLD");
  log("OFFLINE_GOAL_LIFECYCLE_COLD_READBACK");
  phase="OFFLINE_FULL_PERSONAL_EXPORT";
  await visit(page,"/workspace/exchange/#/home");
