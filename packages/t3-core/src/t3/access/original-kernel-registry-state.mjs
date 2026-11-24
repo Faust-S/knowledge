@@ -219,6 +219,136 @@ function assertForward(previous,next) {
       "T3_ACCESS_REGISTRY_CLOCK_ROLLBACK");
 }
 
+// Shared original readback verifier. The receiving Host replays the same
+// signed policy admissions, rather than accepting an invitation's arbitrary
+// policy as an independently trusted root.
+function verifiedRegistryReadback({record,events,pinned,workspaceId,objectId,now,checkpointPolicy=null}){
+    const trustedHash=digest(pinned);
+    let checkpointSeen=checkpointPolicy===null;
+    check(record?.workspace_id===workspaceId &&
+      record.object_id===objectId &&
+      record.schema_id===ORIGINAL_REGISTRY_SCHEMA &&
+      record.schema_version==="1.0.0" &&
+      Number.isSafeInteger(record.revision)&&record.revision>0,
+      "T3_ACCESS_REGISTRY_ORIGINAL_RECEIPT_INVALID");
+    check(Array.isArray(events),"T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_UNAVAILABLE");
+    const journal=events.filter(e=>e?.event_type===ORIGINAL_REGISTRY_EVENT &&
+      e?.payload?.object_id===objectId);
+    check(journal.length>0,"T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_MISSING");
+    // The ORIGINAL T2 event journal is the monotonic evidence. A caller
+    // cannot silently replay an earlier signed STATUS by rewriting only the
+    // latest Object revision while its higher-sequence event remains.
+    // Historical original Kernel Events are the signed policy progression.
+    // An admitted employee proof key cannot become a new issuer or admin.
+    let observedPolicy=copy(pinned),currentHash=trustedHash;
+    let priorFloors=null,expectedRevision=0;
+    for(const event of journal){
+      expectedRevision++;
+      check(event.workspace_id===workspaceId &&
+        event.payload?.object_id===objectId&&
+        event.payload.revision===expectedRevision &&
+        dictionary(event.payload.status_sequences) &&
+        Object.keys(event.payload.status_sequences).length===
+          Object.keys(pinned.authorities).length,
+        "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
+      const trust=event.payload.proof_credential_admission;
+      const seatPolicy=event.payload.corporate_seat_policy_admission;
+      check(trust===undefined||seatPolicy===undefined,'T3_ACCESS_REGISTRY_POLICY_ADMISSION_CONFLICT');
+      if(seatPolicy!==undefined){
+        check(expectedRevision>1&&priorFloors,'T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH');
+        observedPolicy=verifyCorporateSeatPolicyAdmission(seatPolicy,observedPolicy,event);
+        currentHash=digest(observedPolicy);
+        for(const authorityId of Object.keys(pinned.authorities)){
+          const delta=authorityId===seatPolicy.authority_id?1:0;
+          check(event.payload.status_sequences[authorityId]===priorFloors[authorityId]+delta,
+            'T3_ACCESS_CORPORATE_SEAT_POLICY_SEQUENCE_INVALID');
+        }
+      }else if(trust!==undefined){
+        check(expectedRevision>1&&priorFloors,
+          "T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH");
+        observedPolicy=verifyProofKeyAdmission(trust,observedPolicy,event);
+        currentHash=digest(observedPolicy);
+        for(const authorityId of Object.keys(pinned.authorities)){
+          const delta=authorityId===trust.authority_id?1:0;
+          check(event.payload.status_sequences[authorityId]===
+            priorFloors[authorityId]+delta,
+            "T3_ACCESS_PROOF_KEY_STATUS_SEQUENCE_INVALID");
+        }
+      }else{
+        check(event.payload.policy_digest===currentHash,
+          expectedRevision===1?"T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH":
+            "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
+      }
+      for(const authorityId of Object.keys(pinned.authorities)){
+        const observed=event.payload.status_sequences[authorityId];
+        check(Number.isSafeInteger(observed)&&observed>=0&&
+          (priorFloors===null||observed>=priorFloors[authorityId]),
+          "T3_ACCESS_REGISTRY_ORIGINAL_SEQUENCE_ROLLBACK");
+      }
+      if(checkpointPolicy!==null&&same(observedPolicy,checkpointPolicy))checkpointSeen=true;
+      priorFloors=event.payload.status_sequences;
+    }
+    check(same(observedPolicy,record.data?.policy),
+      "T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH");
+    const state=stateAt(record.data,observedPolicy,now);
+    for(const authorityId of Object.keys(pinned.authorities)){
+      check(priorFloors[authorityId]===state.statusFloor[authorityId],
+        "T3_ACCESS_REGISTRY_ORIGINAL_SEQUENCE_ROLLBACK");
+    }
+    const last=journal.at(-1);
+    check(last.workspace_id===workspaceId &&
+      last.payload.revision===record.revision &&
+      last.payload.policy_digest===digest(state.policy) &&
+      last.payload.state_digest===digest(state),
+      "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
+
+    check(checkpointSeen,"T3_ACCESS_REGISTRY_REFRESH_PINNED_POLICY_NOT_IN_HISTORY");
+    return Object.freeze({revision:record.revision,state:copy(state)});
+}
+
+/**
+ * Trusted recipient-side preparation, AFTER authenticating the existing
+ * signed invitation carrier with the already independently pinned issuer.
+ * No persistence, signing, new authority, package format or membership.
+ * Root policy from the delivery must replay to the recipient's EXISTING
+ * pinned policy before the new signed state can be considered.
+ */
+export function prepareOriginalEmployeeRegistryRefresh({
+  previousState,delivery,organizationId,authorityId,workspaceId,
+  objectId="t3.access.signed-registry",now=Date.now()
+}={}){
+  check(ID.test(organizationId??"")&&ID.test(authorityId??"")&&
+    ID.test(workspaceId??"")&&ID.test(objectId??"")&&
+    Number.isSafeInteger(now)&&now>0,"T3_ACCESS_REGISTRY_REFRESH_SCOPE_INVALID");
+  let previous,pinned;
+  try{
+    previous=snapshot(previousState);validatePolicy(previous.policy);
+    pinned=snapshot(delivery.rootPolicy);validatePolicy(pinned);
+  }catch{no("T3_ACCESS_REGISTRY_REFRESH_PINNED_POLICY_REQUIRED");}
+  check(previous.policy.environment==="PRODUCTION"&&pinned.environment==="PRODUCTION"&&
+    previous.policy.realmId===pinned.realmId&&previous.policy.id===pinned.id&&
+    previous.policy.authorities[authorityId]?.principalId===organizationId&&
+    pinned.authorities[authorityId]?.principalId===organizationId,
+    "T3_ACCESS_REGISTRY_REFRESH_SCOPE_INVALID");
+  if(previous.lastObservedAt!==undefined)check(now>=timestamp(previous.lastObservedAt),
+    "T3_ACCESS_REGISTRY_CLOCK_ROLLBACK");
+  const verified=verifiedRegistryReadback({record:delivery.record,events:delivery.events,
+    pinned,workspaceId,objectId,now,checkpointPolicy:previous.policy});
+  const authorityFields=["policy","grants","statuses","statusFloor","tombstones"];
+  const next=copy(previous);
+  for(const key of authorityFields)next[key]=copy(verified.state[key]);
+  next.lastObservedAt=iso(now);
+  // Prior policy may change ONLY through the original signed journal replay
+  // above. Existing grant bytes, status floors and terminal tombstones
+  // still obey the exact SAME forward-only registry rules.
+  assertForward({...previous,policy:next.policy},next);
+  const changed=authorityFields.some(key=>!same(previous[key],next[key]));
+  return Object.freeze({outcome:changed?"VERIFIED_REFRESH":"ALREADY_CURRENT",
+    state:changed?next:copy(previous),originalRevision:verified.revision,
+    priorDigest:digest(previous),stateDigest:digest(changed?next:previous),
+    originalReadback:true,productionActivation:false});
+}
+
 /**
  * No implicit issuance or fallback. First write needs explicit signed state
  * and a trusted policy pinned outside the user-writable Kernel object.
@@ -275,84 +405,12 @@ export function createOriginalKernelRegistryStatePort({
       if(allowAbsent)return null;
       no("T3_ACCESS_REGISTRY_STATE_UNAVAILABLE");
     }
-    const record=result.object;
-    check(record?.workspace_id===workspaceId &&
-      record.object_id===objectId &&
-      record.schema_id===ORIGINAL_REGISTRY_SCHEMA &&
-      record.schema_version==="1.0.0" &&
-      Number.isSafeInteger(record.revision)&&record.revision>0,
-      "T3_ACCESS_REGISTRY_ORIGINAL_RECEIPT_INVALID");
-    const events=await kernel.listEventsSince(workspaceId);
-    check(Array.isArray(events),"T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_UNAVAILABLE");
-    const journal=events.filter(e=>e?.event_type===ORIGINAL_REGISTRY_EVENT &&
-      e?.payload?.object_id===objectId);
-    check(journal.length>0,"T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_MISSING");
-    // The ORIGINAL T2 event journal is the monotonic evidence. A caller
-    // cannot silently replay an earlier signed STATUS by rewriting only the
-    // latest Object revision while its higher-sequence event remains.
-    // Historical original Kernel Events are the signed policy progression.
-    // An admitted employee proof key cannot become a new issuer or admin.
-    let observedPolicy=copy(pinned),currentHash=trustedHash;
-    let priorFloors=null,expectedRevision=0;
-    for(const event of journal){
-      expectedRevision++;
-      check(event.workspace_id===workspaceId &&
-        event.payload?.object_id===objectId&&
-        event.payload.revision===expectedRevision &&
-        dictionary(event.payload.status_sequences) &&
-        Object.keys(event.payload.status_sequences).length===
-          Object.keys(pinned.authorities).length,
-        "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
-      const trust=event.payload.proof_credential_admission;
-      const seatPolicy=event.payload.corporate_seat_policy_admission;
-      check(trust===undefined||seatPolicy===undefined,'T3_ACCESS_REGISTRY_POLICY_ADMISSION_CONFLICT');
-      if(seatPolicy!==undefined){
-        check(expectedRevision>1&&priorFloors,'T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH');
-        observedPolicy=verifyCorporateSeatPolicyAdmission(seatPolicy,observedPolicy,event);
-        currentHash=digest(observedPolicy);
-        for(const authorityId of Object.keys(pinned.authorities)){
-          const delta=authorityId===seatPolicy.authority_id?1:0;
-          check(event.payload.status_sequences[authorityId]===priorFloors[authorityId]+delta,
-            'T3_ACCESS_CORPORATE_SEAT_POLICY_SEQUENCE_INVALID');
-        }
-      }else if(trust!==undefined){
-        check(expectedRevision>1&&priorFloors,
-          "T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH");
-        observedPolicy=verifyProofKeyAdmission(trust,observedPolicy,event);
-        currentHash=digest(observedPolicy);
-        for(const authorityId of Object.keys(pinned.authorities)){
-          const delta=authorityId===trust.authority_id?1:0;
-          check(event.payload.status_sequences[authorityId]===
-            priorFloors[authorityId]+delta,
-            "T3_ACCESS_PROOF_KEY_STATUS_SEQUENCE_INVALID");
-        }
-      }else{
-        check(event.payload.policy_digest===currentHash,
-          expectedRevision===1?"T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH":
-            "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
-      }
-      for(const authorityId of Object.keys(pinned.authorities)){
-        const observed=event.payload.status_sequences[authorityId];
-        check(Number.isSafeInteger(observed)&&observed>=0&&
-          (priorFloors===null||observed>=priorFloors[authorityId]),
-          "T3_ACCESS_REGISTRY_ORIGINAL_SEQUENCE_ROLLBACK");
-      }
-      priorFloors=event.payload.status_sequences;
-    }
-    check(same(observedPolicy,record.data?.policy),
-      "T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH");
-    const state=stateAt(record.data,observedPolicy,now);
-    for(const authorityId of Object.keys(pinned.authorities)){
-      check(priorFloors[authorityId]===state.statusFloor[authorityId],
-        "T3_ACCESS_REGISTRY_ORIGINAL_SEQUENCE_ROLLBACK");
-    }
-    const last=journal.at(-1);
-    check(last.workspace_id===workspaceId &&
-      last.payload.revision===record.revision &&
-      last.payload.policy_digest===digest(state.policy) &&
-      last.payload.state_digest===digest(state),
-      "T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT");
-    return Object.freeze({revision:record.revision,state:copy(state)});
+    const record=result.object,events=await kernel.listEventsSince(workspaceId);
+    const verified=verifiedRegistryReadback({record,events,pinned,workspaceId,objectId,now});
+    // The delivery is a detached view of the very SAME authenticated read.
+    // The existing invitation carrier must sign this field, not a UI copy.
+    const journal=events.filter(e=>e?.event_type===ORIGINAL_REGISTRY_EVENT&&e?.payload?.object_id===objectId);
+    return Object.freeze({...verified,delivery:{rootPolicy:copy(pinned),record:copy(record),events:copy(journal)}});
   };
   const commit=async(signedState,{expectedStateDigest=null}={})=>{
     const before=await read({allowAbsent:true});
@@ -578,6 +636,7 @@ export function createOriginalKernelRegistryStatePort({
   };
   const port=Object.freeze({
     readState:async()=>copy((await read()).state),
+    readRegistryDelivery:async()=>copy((await read()).delivery),
     commitSignedState:commit,
     admitProofCredential,readProofCredential,enableCorporateSeatPolicy,
     getStatus:async()=>{const state=(await read()).state;

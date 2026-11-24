@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {generateKeyPairSync} from 'node:crypto';
 import {keyObjectSigner,iso,digest,signRecord,makeProof,copy} from '../src/t3/access/core.mjs';
 import {createOriginalEmployeeEnrollmentOwner} from '../src/t3/access/original-employee-enrollment.mjs';
-import {createOriginalKernelRegistryStatePort} from '../src/t3/access/original-kernel-registry-state.mjs';
+import {createOriginalKernelRegistryStatePort,prepareOriginalEmployeeRegistryRefresh} from '../src/t3/access/original-kernel-registry-state.mjs';
 import {model,originalKernelFixture,NOW as MEMBER_NOW} from './support/t3-two-corp-original-authority.mjs';
 import {CORPORATE_SEAT_ACTION,CORPORATE_SEAT_RESOURCE,CORPORATE_SEAT_PURPOSE,
  evaluateOriginalCorporateSeatUse} from '../src/t3/access/original-corporate-seat-owner.mjs';
@@ -314,7 +314,7 @@ async function seatFixture({seatLimit=1,employeeLimit=10,seatPolicy=true}={}){
     installedTrust:source.installedTrust,request,challenge,
     proof:makeProof(request,challenge,at,e.signer,'PRODUCTION'),now:at});
  };
- return {employees,kernel,command,source,checkUse,time,
+ return {employees,kernel,command,source,checkUse,time,organization:org,
   get owner(){return owner;},get registry(){return registry;},
   cold(){registry=createOriginalKernelRegistryStatePort(opts);owner=open();},
   wrongManager(){owner=open(true);},
@@ -454,4 +454,45 @@ test('verified original employee roster and lost-ACK recovery are read-only acro
  assert.equal((await s.owner.readCorporateSeatCommand(stale)).outcome,'OUTCOME_UNKNOWN');
  await assert.rejects(s.owner.readCorporateSeatCommand({...a,employeePersonId:bob.personId}),/CORP_SEAT_COMMAND_REUSE_CONFLICT/);
  assert.equal(s.kernel.calls.length,baseline+2);
+});
+
+test('original recipient refresh replays signed policy progression, assignment, transfer and tombstones without resetting local work',async()=>{
+ const s=await seatFixture({seatPolicy:false}),[alice,bob]=s.employees;
+ const prior=await s.registry.readState();
+ prior.audit=[{operationId:'local:work:preserve'}];prior.localApplication={task:'task:already-saved'};
+ const refresh=(delivery,previous=prior,overrides={})=>prepareOriginalEmployeeRegistryRefresh({
+  previousState:previous,delivery,organizationId:s.organization.organizationId,
+  authorityId:s.organization.issuerAuthorityId,workspaceId:'ws:host-registry',now:s.time,...overrides});
+ const initial=await s.registry.readRegistryDelivery();
+ assert.equal(refresh(initial).outcome,'ALREADY_CURRENT');
+ const v=await s.owner.viewCorporateSeats();
+ await s.owner.enableCorporateSeatPolicy({managerPersonId:'person:operator',
+   managerGrantId:'grant:seat:manager',expectedRegistryDigest:v.registryDigest});
+ const assigned=await s.owner.changeCorporateSeat(await s.command('ASSIGN','cmd:delivery:alice',alice));
+ const first=await s.registry.readRegistryDelivery();
+ const received=refresh(first);
+ assert.equal(received.outcome,'VERIFIED_REFRESH');
+ assert.equal(received.state.grants[assigned.grantId].payload.rightClass,'ENTITLEMENT');
+ assert.deepEqual(received.state.audit,prior.audit);
+ assert.deepEqual(received.state.localApplication,prior.localApplication);
+ assert.equal(refresh(first,received.state).outcome,'ALREADY_CURRENT');
+ const moved=await s.owner.changeCorporateSeat(await s.command('TRANSFER','cmd:delivery:bob',bob,assigned.grantId));
+ const latest=await s.registry.readRegistryDelivery();
+ const next=refresh(latest,received.state);
+ assert.equal(next.state.grants[moved.grantId].payload.holderId,bob.personId);
+ assert.ok(next.state.tombstones[assigned.grantId]);
+ assert.deepEqual(next.state.grants[alice.workGrantId],prior.grants[alice.workGrantId]);
+ assert.throws(()=>refresh(first,next.state),/T3_ACCESS_REGISTRY_(GRANT_HISTORY|TOMBSTONE|SEQUENCE|FLOOR)_ROLLBACK/);
+ const tampered=structuredClone(latest);
+ tampered.record.data.policy.authorities[s.organization.issuerAuthorityId].actions.push('untrusted-action');
+ assert.throws(()=>refresh(tampered),/T3_ACCESS_REGISTRY_TRUST_ANCHOR_MISMATCH/);
+ const missing=structuredClone(latest);
+ missing.events=missing.events.filter(e=>!e.payload.corporate_seat_policy_admission);
+ assert.throws(()=>refresh(missing),/T3_ACCESS_REGISTRY_ORIGINAL_HISTORY_CONFLICT/);
+ assert.throws(()=>refresh(latest,prior,{organizationId:'org:unrelated'}),/REFRESH_SCOPE_INVALID/);
+ // Cannot swap the earlier recipient policy for an unattested variant.
+ const fakePrior=structuredClone(prior);
+ fakePrior.policy.authorities[s.organization.issuerAuthorityId].purposes.push('unattested');
+ assert.throws(()=>refresh(latest,fakePrior),/REFRESH_PINNED_POLICY_NOT_IN_HISTORY/);
+ assert.equal((await s.registry.readRegistryDelivery()).record.revision,latest.record.revision);
 });
