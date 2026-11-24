@@ -1055,7 +1055,8 @@ def test_order_and_portfolio_measurement_preserve_distinct_cost_boundaries():
 
 
 def original_quality_recovery_portfolio(*, recovery=True, declare_cost=True,
-                                       seller_cost="90.00", buyer_cost="20.00", _doc=None):
+                                       seller_cost="90.00", buyer_cost="20.00", _doc=None,
+                                       _reserved_ticks=()):
     """Same accepted order, independently inspected before and after resubmission.
 
     No new physical execution/reservation or hypothetical additional sale is
@@ -1068,7 +1069,7 @@ def original_quality_recovery_portfolio(*, recovery=True, declare_cost=True,
     first = _event(d, "assess_result_quality", OUTSIDE)
     accept = _event(d, "accept", OUTSIDE)
     initial_accept = accept["at"]
-    occupied = {e["at"] for e in events}
+    occupied = {e["at"] for e in events} | set(_reserved_ticks)
 
     def next_tick(after):
         tick = after+1

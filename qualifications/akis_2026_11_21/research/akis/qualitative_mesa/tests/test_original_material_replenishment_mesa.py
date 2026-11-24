@@ -453,9 +453,18 @@ def combined_original_recovery_portfolio(*, recovery=True, material_seller="60.0
     )
     doc = material_finance_portfolio(
         supplement=recovery, seller_cost=material_seller, buyer_cost=material_buyer)
-    doc = original_quality_recovery_portfolio(
-        _doc=doc, recovery=recovery, seller_cost=quality_seller, buyer_cost=quality_buyer)
-    return resource_disturbance_portfolio(_doc=doc, disturbed=recovery, cost=restoration)
+    # Reserve the same prospective interruption positions in both arms.
+    # The counterfactual has no restoration event, but the independent
+    # quality and payment schedule is not allowed to shift as a side effect.
+    planned = resource_disturbance_portfolio(
+        _doc=doc, disturbed=True, declared=False)
+    occupied = {e["at"] for e in doc["events"]}
+    reserved = {e["at"] for e in planned["events"]} - occupied
+    doc = resource_disturbance_portfolio(
+        _doc=doc, disturbed=recovery, cost=restoration)
+    return original_quality_recovery_portfolio(
+        _doc=doc, recovery=recovery, seller_cost=quality_seller,
+        buyer_cost=quality_buyer, _reserved_ticks=reserved)
 
 
 def combined_original_recovery_view(doc, *, disturbed):
@@ -481,6 +490,10 @@ def test_original_combined_process_recovery_costs_not_counted_twice(costs,net):
         combined_original_recovery_portfolio(recovery=False), disturbed=False)
     doc = combined_original_recovery_portfolio(**dict(zip(
         ("material_seller","material_buyer","restoration","quality_seller","quality_buyer"),costs)))
+    base_doc = combined_original_recovery_portfolio(recovery=False)
+    # Genuine matched financial conditions; not just equal transfer totals.
+    assert doc["economic_claims"]["cash_timing"] == base_doc["economic_claims"]["cash_timing"]
+    assert doc["economic_claims"]["work_payment_conditions"] == base_doc["economic_claims"]["work_payment_conditions"]
     frozen = deepcopy(doc)
     out, after = combined_original_recovery_view(doc, disturbed=True)
     assert doc == frozen
