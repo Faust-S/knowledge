@@ -130,6 +130,12 @@ export function createOriginalKernelNativeRelay({
     check(!closed&&live&&live.epoch===epoch&&live.sessionId===sessionId&&
       live.grants.granted_operations.includes(METHODS[method]),
       "T3_D3_ORIGINAL_KERNEL_NOT_CONNECTED");
+    // Native D3 cannot silently produce an uncaptured source graph while
+    // an explicit local-capture owner is installed. Ordinary D3 outside this
+    // one source workspace remains the inherited T3 route.
+    check(!(method==="commitObjectGraph"&&network?.localSource&&
+      args[0]?.workspace_id===network.localSource.workspaceId),
+      "T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED");
     check(pending===null&&reservation===null&&localSourceTask===null,"T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
     return enqueue(method,args,false);
   };
@@ -222,7 +228,7 @@ export function createOriginalKernelNativeRelay({
   const startNetworkWake=state=>{
     if(!networkActive(state)||attaching===state||!network.wake||wakeTask||localSourceTask||pending||reservation)return;
     const task={state};wakeTask=task;
-    void Promise.resolve().then(async()=>{
+    task.done=Promise.resolve().then(async()=>{
       if(networkActive(state))await network.wake(Object.freeze({
         kernel:state.networkKernel,contextEpoch:state.epoch,sessionId:state.sessionId,
         isHostActive:()=>networkActive(state),
@@ -320,18 +326,25 @@ export function createOriginalKernelNativeRelay({
           network.localSource.methods.includes(payload?.method)&&Array.isArray(payload?.args)&&
           payload.args.length===1,
           "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_NOT_AVAILABLE");
-        check(wakeTask===null&&localSourceTask===null&&pending===null&&reservation===null,
+        // Reserve the one local operation before awaiting the EXISTING
+        // in-flight wake. No next wake can overtake this user command.
+        // Do not admit a second user command or compete with native D3.
+        const currentWake=wakeTask;
+        check(localSourceTask===null&&(currentWake!==null||pending===null&&reservation===null),
           "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_BUSY");
-        const exact=clone(decodeOriginalNetworkRelayArgs(payload.method,payload.args));
+        const method=payload.method;
+        const exact=clone(decodeOriginalNetworkRelayArgs(method,payload.args));
         check(exact[0]&&typeof exact[0]==="object"&&
           exact[0].workspace_id===network.localSource.workspaceId,
           "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_SCOPE_DENIED");
         const task={state};localSourceTask=task;
         try{
-          check(await currentEpoch()===state.epoch&&networkActive(state),
+          if(currentWake!==null)await currentWake.done;
+          check(await currentEpoch()===state.epoch&&networkActive(state)&&localSourceTask===task,
             "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+          check(pending===null&&reservation===null,"T3_ORIGINAL_LOCAL_SOURCE_MUTATION_BUSY");
           const result=await network.localSource.invoke(Object.freeze({
-            method:payload.method,args:exact,contextEpoch:state.epoch,sessionId:state.sessionId,
+            method,args:exact,contextEpoch:state.epoch,sessionId:state.sessionId,
             kernel:state.networkKernel,isHostActive:()=>networkActive(state),
           }));
           check(await currentEpoch()===state.epoch&&networkActive(state),

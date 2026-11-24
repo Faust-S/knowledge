@@ -35,7 +35,9 @@ export function createOriginalLocalSourceMutationRoute({workspaceId,originalKern
       requireLive();
       if(!Array.isArray(args)||args.length!==1)fail("T3_LOCAL_SOURCE_CAPTURE_COMMAND_INVALID");
       const first=args[0];
-      const target=typeof first==="string"?first:first?.workspace_id;
+      const target=method==="importCommit"||method==="purgeCommit"?null:
+        method==="confirmExport"?(first?.workspace_ids?.length===1?first.workspace_ids[0]:null):
+        typeof first==="string"?first:first?.workspace_id;
       // Import/purge confirmations carry an original preview token rather
       // than a workspace ID. Until atomic capture is implemented, refuse
       // such unclassified mutations in this explicitly opted-in realm.

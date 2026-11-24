@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createKernelFacade } from "@/workspace-host/context";
 import type { KernelSession } from "@/kernel-client/types";
 import { OperationNotGrantedError } from "@/kernel-client/adapter";
+import { createTemporaryOriginalPersonalAuthority } from "./support/t3-original-personal-authority.mjs";
 
 function makeSession(
   grantedOperations: string[],
@@ -131,5 +132,52 @@ describe("KernelFacade — capability-checked adapter binding", () => {
     expect(facade.session).toBeUndefined();
     expect(facade.adapter).toBeUndefined();
     expect(facade.runtime).toBeUndefined();
+  });
+});
+
+describe("K20 original signed source mutation binding",()=>{
+  const ws="workspace:source:k20";
+  const command={workspace_id:ws,object_id:"o:k20",schema_id:"iwxa.demo.note",
+    schema_version:"1.0.0",base_revision:0,data:{title:"original"},extensions:{},
+    event:{event_type:"business.created",payload:{title:"original"}}};
+  const receipt={object:{workspace_id:ws,object_id:"o:k20",revision:1},event:{workspace_id:ws}};
+  const sessionFor=(putObject:KernelSession["t1"]["putObject"])=>({
+    ...makeSession(["t1.putObject"],{putObject}),contract_version:"1.3.0",runtime_version:"0.3.6",
+  }) as KernelSession;
+  it("routes only after genuine signed Access; returns the original receipt once, never raw T2 again",async()=>{
+    const authority=createTemporaryOriginalPersonalAuthority({workspaceId:ws});
+    let raw=0,routed=0;
+    const facade=createKernelFacade({
+      session:sessionFor(async()=>{raw++;return receipt as never;}),
+      signedKernelAccess:authority.access,
+      routeOriginalMutation:async(method,args)=>{
+        expect(authority.proofCount).toBeGreaterThan(0);
+        expect(method).toBe("putObject");expect(args).toEqual([command]);routed++;
+        return {kind:"CAPTURED",originalReceipt:receipt};
+      },
+    });
+    expect(await facade.putObject(command as never)).toEqual(receipt);
+    expect(routed).toBe(1);expect(raw).toBe(0);
+    authority.revoke();
+    await expect(facade.putObject(command as never)).rejects.toBeDefined();
+    expect(routed).toBe(1);expect(raw).toBe(0);
+  });
+  it("preserves original local route and does not fall back after unknown capture result",async()=>{
+    const authority=createTemporaryOriginalPersonalAuthority({workspaceId:ws});
+    let raw=0;
+    const session=sessionFor(async()=>{raw++;return receipt as never;});
+    const local=createKernelFacade({session,signedKernelAccess:authority.access,
+      routeOriginalMutation:async()=>({kind:"LOCAL_T3"})});
+    expect(await local.putObject(command as never)).toEqual(receipt);
+    expect(raw).toBe(1);
+    const unknown=createKernelFacade({session,signedKernelAccess:authority.access,
+      routeOriginalMutation:async()=>{throw Error("OUTCOME_UNKNOWN");}});
+    await expect(unknown.putObject(command as never)).rejects.toThrow("OUTCOME_UNKNOWN");
+    expect(raw).toBe(1);
+  });
+  it("does not enable capture without original signed Access",()=>{
+    const session=sessionFor(async()=>receipt as never);
+    expect(()=>createKernelFacade({session,routeOriginalMutation:async()=>({kind:"LOCAL_T3"})}))
+      .toThrow("T3_D1_ACCESS_OWNER_REQUIRED");
   });
 });

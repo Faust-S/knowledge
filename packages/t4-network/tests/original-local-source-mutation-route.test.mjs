@@ -48,7 +48,9 @@ test("unimplemented atomic and token-based mutations cannot bypass configured so
   for(const method of ["commitObjectGraph","softDeleteWorkspace","restoreWorkspace","createWorkspace",
     "importCommit","purgeCommit","confirmExport"])
     await assert.rejects(route.route(method,[command]),error("T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED"));
-  await assert.rejects(route.route("importCommit",[{preview_token:"opaque"}]),error("T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED"));
+  await assert.rejects(route.route("importCommit",[{preview_token:"opaque",workspace_id:"foreign"}]),error("T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED"));
+  await assert.rejects(route.route("purgeCommit",[{purge_token:"opaque",workspace_id:"foreign"}]),error("T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED"));
+  await assert.rejects(route.route("confirmExport",[{workspace_ids:["ws:original"],workspace_id:"foreign"}]),error("T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED"));
 });
 test("no automatic bypass or second operation after unknown, mode change or invalid receipt",async()=>{
   for(const [bad,code] of [[{state:"LOCAL_T3_BYPASS"},"T3_LOCAL_SOURCE_CAPTURE_MODE_CHANGED"],

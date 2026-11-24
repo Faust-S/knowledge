@@ -14,6 +14,7 @@ on:
       - packages/t3-core/src/main-trusted-kernel-realm.ts
       - packages/t3-core/src/t3/original-local-source-mutation-route*
       - packages/t3-core/src/workspace-host/context/create-kernel-facade.ts
+      - packages/t3-core/tests/module-kernel-facade.test.ts
       - packages/t3-core/tests/t3-d1-original-control-http.test.mjs
       - .github/workflows/t4-network.yml
   workflow_dispatch:
@@ -105,6 +106,9 @@ jobs:
       - name: Typecheck original T3 trusted Kernel realm
         working-directory: packages/t3-core
         run: npx --no-install tsc --noEmit
+      - name: Qualify original signed KernelFacade capture binding
+        working-directory: packages/t3-core
+        run: npx --no-install vitest run tests/module-kernel-facade.test.ts
       - name: Verify and stage original qualified T2 Kernel 0.3.6
         working-directory: packages/t3-core
         env:

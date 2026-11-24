@@ -298,6 +298,11 @@ test('K20 existing native signed relay captures an explicitly admitted local sou
     const session=await f.attach();assert.equal(session.localSourceMutationVersion,1);
     assert.equal(session.localSourceWorkspaceId,WS);
     assert.ok(session.localSourceMutationMethods.includes('putObject'));
+    assert.throws(()=>f.relay.nativeKernel.commitObjectGraph({workspace_id:WS,object:{object_id:'o:bypass'}}),
+      {code:'T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED'});
+    await assert.rejects(f.relay.exchange({verb:'sourceMutation',payload:{sessionId:session.sessionId,
+      method:'putObject',args:[{...mutation('o:foreign','no','business.created'),workspace_id:'ws:foreign'}]}},session.contextEpoch),
+      {code:'T3_ORIGINAL_LOCAL_SOURCE_MUTATION_SCOPE_DENIED'});
     await f.drive(session,'ADMITTED');
     // Wait for completion of the existing baseline wake before a local RPC.
     await new Promise(resolve=>setImmediate(resolve));
