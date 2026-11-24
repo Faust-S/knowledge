@@ -1,9 +1,12 @@
 // Fixed local Activity operations for the existing Agent U01 adapter.
 import {groupPersonalRoutineEvidence,preparePersonalTechnologyProduct,prepareD05TechnologyProduct,
  preparePersonalRecipientActivation,prepareD05RecipientInputs} from '../modules/activity-base-anonymizer/technology-product.mjs';
+import {preparePersonalExtractionRequest,reviewPersonalExtractionBundle} from '../modules/activity-base-anonymizer/personal-technology-extraction.mjs';
 const fail=code=>{throw Object.assign(new Error(code),{code});};
 const exact=(v,keys)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
 const operations={
+ '--personal-extraction-request':{keys:['source'],run:v=>preparePersonalExtractionRequest(v.source)},
+ '--personal-extraction-review':{keys:['bundle'],run:v=>reviewPersonalExtractionBundle(v.bundle)},
  '--personal-group':{keys:['records'],run:v=>groupPersonalRoutineEvidence(v.records)},
  '--personal-product':{keys:['records','variant_id','proposal'],run:v=>preparePersonalTechnologyProduct(v.records,v.variant_id,v.proposal)},
  '--d05-product':{keys:['candidate','title'],run:v=>prepareD05TechnologyProduct(v.candidate,v.title)},

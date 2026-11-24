@@ -1,0 +1,14 @@
+import type {PersonalEvidenceRow,ProductPreview} from './technology-product.mjs';
+export const SOURCE:'LOCAL_ACTIVITY_PERSONAL_EXTRACTION_SOURCE';
+export const REQUEST:'IWXA_ACTIVITY_PERSONAL_EXTRACTION_REQUEST_V1';
+export const PROPOSAL:'IWXA_ACTIVITY_PERSONAL_EXTRACTION_PROPOSAL_V1';
+export const BUNDLE:'LOCAL_ACTIVITY_PERSONAL_EXTRACTION_RESULT';
+export type ExtractionField='title'|'purpose'|'inputs'|'outputs'|'applicability'|'instructions'|'result_requirements'|'context_requirements'|'cadence_guidance';
+export const FIELDS:ExtractionField[];
+export type FieldReview={value:string|string[]|null;basis:'SOURCE_SUPPORTED'|'PROPOSED'|'MISSING';refs:Array<{id:string;path:string;quote:string}>;note:string};
+export type ExtractionReview={status:'LOCAL_PERSONAL_EXTRACTION_REVIEW';request_sha256:string;source_sha256:string;variant_id:string;
+ fields:Record<ExtractionField,FieldReview>;missing_fields:ExtractionField[];proposed_fields:ExtractionField[];
+ proposal:unknown;product:ProductPreview|null;source_authority:'ORIGINAL_OWNER_READBACK_REQUIRED';
+ evidence_semantics:'EXACT_QUOTATIONS_NOT_SEMANTIC_PROOF';export_allowed:false;iwxa_package:null};
+export function preparePersonalExtractionRequest(source:unknown):Promise<{document:unknown;document_text:string;request_sha256:string;source_sha256:string;source_rows:PersonalEvidenceRow[];variant_id:string;export_allowed:false;iwxa_package:null}>;
+export function reviewPersonalExtractionBundle(bundle:unknown):Promise<ExtractionReview>;
