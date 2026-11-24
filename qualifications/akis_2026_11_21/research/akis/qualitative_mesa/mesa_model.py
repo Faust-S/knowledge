@@ -26,6 +26,7 @@ from .future_needs import FutureNeedInputError, parse_future_needs, future_need_
 from .modern_economic_evidence import modern_economic_review
 from .owner_economic_feedback import (
     OwnerFinanceInputError, parse_owner_finance, private_owner_financial_review,
+    review_completed_original_owner_finance,
 )
 from .owner_forecast_revisions import (
     ForecastRevisionInputError, parse_forecast_revisions, private_forecast_override,
@@ -277,6 +278,10 @@ class OperatorAKISModel(mesa.Model):
         self.strict_economic_source_work = research_input.pop(
             "strict_economic_source_work", None
         )
+        if self.strict_economic_source_work is not None and (
+                not isinstance(self.strict_economic_source_work, str)
+                or not self.strict_economic_source_work.strip()):
+            raise InputError("ORIGINAL_STRICT_ECONOMIC_WORK_AND_LEDGER_REQUIRED")
         strict_works = research_input.pop("strict_economic_source_works", None)
         if strict_works is not None:
             if (self.strict_economic_source_work is not None
@@ -859,6 +864,26 @@ class OperatorAKISModel(mesa.Model):
 
     def _apply_event(self, event: dict[str, Any]) -> None:
         outcome = self.qualitative.apply(event, int(self.time))
+        if (event["action"] == "participation_status"
+                and outcome["outcome"] == "APPLIED"
+                and "evaluation_economic_source_revision" in event):
+            # The existing original event owns the decision. Its optional
+            # explicitly requested financial-basis check is read-only and
+            # runs at this exact Mesa tick, before future responses/Work.
+            scope = self.strict_economic_source_work
+            scope = (scope,) if isinstance(scope, str) else scope or ()
+            if outcome.get("evaluated_work") in scope:
+                outcome["evaluation_economic_basis_status"] = (
+                    review_completed_original_owner_finance(
+                        state=self.qualitative, original_money=self.economic_claims,
+                        work_id=outcome["evaluated_work"], owner=event["actor"],
+                        review_source=event.get("participation_evidence_ref"),
+                        review_revision=event["evaluation_economic_source_revision"],
+                        at=int(self.time),
+                    )
+                )
+            # The returned status and the owner's own verdict are different:
+            # neither a missing source nor a favourable sum creates consent.
         if (event["action"] == "subject_registration_apply"
                 and outcome["outcome"] == "APPLIED"):
             key = outcome["registered_original_subject"]

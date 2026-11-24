@@ -177,3 +177,156 @@ def private_owner_financial_review(
             if scenario.get(variant, {}).get("status") != "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS":
                 return True
     return False
+
+
+def review_completed_original_owner_finance(
+    *, state: Any, original_money: Mapping[str, Any] | None,
+    work_id: str, owner: str, review_source: str,
+    review_revision: str, at: int,
+) -> str:
+    """Qualify an independently requested, owner-scoped completed Work review.
+
+    A read-only selection of the original economic document goes through the
+    same strict KPB, original cost anchors, and original economic evaluator.
+    Later settlement/amendment reports are not available at this decision.
+    This view deliberately omits a liquidity calculation from an isolated
+    Work: the beginning-of-portfolio cash cannot be treated as its opening
+    cash. Only a generic source-scope status may leave the private calculation.
+    It neither decides the owner's verdict nor creates consent or a new Work.
+    """
+    from .economic_flow import EconomicInputError, evaluate_economic_claims
+    from .strict_economic_source_review import (
+        StrictEconomicSourceBlocked, original_owner_economic_core,
+        review_original_strict_economic_sources,
+    )
+
+    unknown = "UNKNOWN"
+    active, inactive = "COOPERATION", "INDEPENDENT_ALTERNATIVE"
+    basis = getattr(state, "context_basis", None)
+    work = state.works.get(work_id)
+    subject = state.subjects.get(owner)
+    if (basis is None or not basis.strict or work is None
+            or subject is None or not subject.active
+            or owner not in (
+                state.capacity_ledger.original_owners(work.resource_requirements)
+                | {work.customer}
+            )
+            or work.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+            or type(at) is not int
+            or not isinstance(review_source, str)
+            or not review_source.startswith(f"model://{owner}/")
+            or not isinstance(review_revision, str) or not review_revision.strip()
+            or not isinstance(original_money, Mapping)
+            or not any(row.get("work") == work_id
+                       and row.get("action") == "accept"
+                       and row.get("outcome") == "APPLIED"
+                       and row["at"] < at for row in state.trace)):
+        return unknown
+    core = original_owner_economic_core(subject.kind)
+    if core is None:
+        return unknown
+    try:
+        basis.assert_original_form_role_source(
+            owner, review_source, review_revision, core=core,
+            purpose="AKIS_ECONOMIC_WORK_EVIDENCE", operation="READ",
+            recipients={owner}, at=at,
+        )
+        doc = original_money
+        transfers = [row for row in doc["transfers"]
+                     if row["work"] == work_id and row["scenario"] == active]
+        uses = [row for row in doc["resource_uses"]
+                if row["work"] == work_id and row["scenario"] == active]
+        if not transfers or not uses:
+            return unknown
+        tids = {row["id"] for row in transfers}
+        uids = {row["id"] for row in uses}
+        owners = (
+            {party for row in transfers for party in (row["payer"], row["payee"])}
+            | {row["owner"] for row in uses}
+            | state.capacity_ledger.original_owners(work.resource_requirements)
+            | {work.customer}
+        ) - {"EXTERNAL"}
+
+        def attached(rows, key, identifiers):
+            if not isinstance(rows, list):
+                raise ValueError("ORIGINAL_FINANCIAL_REVIEW_ROWS_REQUIRED")
+            return [row for row in rows if row[key] in identifiers]
+
+        timing = doc["cash_timing"]
+        life = doc["lifecycle_costs"]
+        terms = attached(doc["work_payment_conditions"], "transfer_id", tids)
+        windows = attached(timing["transfer_windows"], "transfer_id", tids)
+        classified = attached(life["bindings"], "resource_use_id", uids)
+        cost_events = attached(life["event_bindings"], "resource_use_id", uids)
+        if (len(terms) != len(transfers) or len(windows) != len(transfers)
+                or len(classified) != len(uses) or len(cost_events) != len(uses)
+                or any(type(row["at"]) is not int or row["at"] >= at
+                       for row in cost_events)):
+            return unknown
+        prior_reports = {}
+        for field, clock in (
+            ("work_payment_settlement_claims", "at"),
+            ("work_payment_due_amendments", "agreed_at"),
+        ):
+            candidates = attached(doc.get(field, []), "transfer_id", tids)
+            if any(type(row[clock]) is not int for row in candidates):
+                return unknown
+            prior_reports[field] = [row for row in candidates if row[clock] < at]
+        coverage = {sc: {} for sc in (active, inactive)}
+        scope = {sc: {} for sc in (active, inactive)}
+        coverage[active] = {key: value for key, value in doc["coverage"][active].items()
+                            if key in owners}
+        scope[active] = {key: value for key, value in life["scope_proofs"][active].items()
+                         if key in owners}
+        if owner not in coverage[active] or owner not in scope[active]:
+            return unknown
+        # Do not read unused sources or the other Work's future declarations.
+        # The same strict reviewer still validates every referenced owner.
+        referenced = set(coverage[active].values()) | set(scope[active].values())
+        for row in (
+            transfers + uses + terms + windows + classified + cost_events
+            + prior_reports["work_payment_settlement_claims"]
+            + prior_reports["work_payment_due_amendments"]
+        ):
+            if "source" in row:
+                referenced.add(row["source"])
+            referenced.update(row.get("owner_sources", {}).values())
+        selected = {
+            "period": doc["period"], "currency": doc["currency"],
+            "sources": [row for row in doc["sources"] if row["id"] in referenced],
+            "transfers": transfers, "resource_uses": uses,
+            "coverage": coverage, "outside_feasibility": {},
+            "cash_timing": {
+                "horizon_end": timing["horizon_end"],
+                "owner_positions": [], "transfer_windows": windows,
+            },
+            "lifecycle_costs": {
+                "bindings": classified, "scope_proofs": scope,
+                "event_bindings": cost_events,
+            },
+            "work_payment_conditions": terms,
+            **prior_reports,
+        }
+        rights = review_original_strict_economic_sources(
+            state=state, original_claims=selected, work_id=work_id, at=at,
+        )
+        view = evaluate_economic_claims(
+            selected, state.subjects, state.works,
+            state.cooperation_links, state.trace,
+        )
+    except (ContextBlocked, StrictEconomicSourceBlocked, EconomicInputError,
+            KeyError, TypeError, ValueError, AttributeError):
+        # Neither inaccessible data nor incomplete sources may appear in an
+        # owner review, and an independent refusal remains possible.
+        return unknown
+    payment = view["work_payment_causality"]
+    costs = view["lifecycle_resource_costs"]
+    balance = view["per_subject"][owner]["complete_cash_balance_from_claims"][active]
+    owner_cost = costs["owner_scoped_details"][owner]["scenarios"][active]
+    if (payment["status"] != "DECLARED_CAUSAL_PAYMENT_ORDER_ONLY_NOT_SETTLEMENT"
+            or payment["source_declared_consistent_count"] != len(transfers)
+            or rights["source_scoped_original_cost_event_count"] != len(uses)
+            or costs["classified_original_record_count"] != len(uses)
+            or balance is None or not owner_cost["declared_resource_scope_complete_not_audited"]):
+        return unknown
+    return "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"

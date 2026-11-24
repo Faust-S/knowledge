@@ -26,7 +26,7 @@ from .test_r4_original_buyer_offer_response_mesa import buyer_response_case
 from .test_r2_executed_route_economics_mesa import paired_economics
 
 
-def multiperiod_routes(*, cooperative_price="1200.00"):
+def multiperiod_routes(*, cooperative_price="1200.00", outside_extra_ticks=0):
     d = original_three_period_economic_case()
     g = d["general_akis"]
     outside_template = original_outside_work_case("outside")
@@ -150,6 +150,10 @@ def multiperiod_routes(*, cooperative_price="1200.00"):
             org_revision="oc-1",
         ))
         accept["at"] += 1
+        if work == OUTSIDE and outside_extra_ticks:
+            for event in rows:
+                if event["action"] in ("complete", "assess_result_quality", "accept"):
+                    event["at"] += outside_extra_ticks
         rows.sort(key=lambda row: row["at"])
         assert accept["at"] < ext["work_spec"]["slot_end"]
 
@@ -280,14 +284,15 @@ def test_declared_but_not_applied_dynamic_relation_is_not_matched():
         compare(docs)
 
 
-def cumulative_routes(*, cooperative_price="1200.00"):
+def cumulative_routes(*, cooperative_price="1200.00", outside_extra_ticks=0):
     """Add actual prior Work-linked declarations to the SAME R2 ledger.
 
     No reset of the operator's or producer's cash at the third period.
     Both trajectories carry identical source declarations and cost anchors
     for w1 and w2; only the selected third Work's own records differ.
     """
-    docs = multiperiod_routes(cooperative_price=cooperative_price)
+    docs = multiperiod_routes(cooperative_price=cooperative_price,
+                              outside_extra_ticks=outside_extra_ticks)
     for name, doc in docs.items():
         selected = doc.pop("strict_economic_source_work")
         doc["strict_economic_source_works"] = ["w1", "w2", selected]
@@ -475,3 +480,258 @@ def test_profitable_outlook_cannot_override_independent_original_owner_refusal()
     assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
     assert out["works"][OUTSIDE]["obligation"] == "NOT_ACCEPTED"
     assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1", "w2"))
+
+
+def fourth_period_case(*, pause=False, early=False, stale=False):
+    """A fourth original Work follows independently reviewed third Result.
+
+    Financial source review is attached to each existing participation_status,
+    not to an automatic decision or a new finance/event registry.
+    """
+    d = cumulative_routes()["cooperation"]
+    g = d["general_akis"]
+    prior_request = next(row for row in d["events"]
+                         if row["action"] == "request" and row["work_spec"]["id"] == "w3")
+    acceptance = next(row["at"] for row in d["events"]
+                      if row["action"] == "accept" and row.get("work") == "w3")
+    result_ref = next(row["result_ref"] for row in d["events"]
+                      if row["action"] == "complete" and row.get("work") == "w3")
+    request_at = acceptance + 13
+    shift = request_at - prior_request["at"]
+    new_spec = deepcopy(prior_request["work_spec"])
+    new_spec.update(
+        id="w4", source_revision="d-4",
+        slot_start=new_spec["slot_start"] + shift,
+        slot_end=new_spec["slot_end"] + shift,
+        requires_accepted=["w3"],
+        resource_requirements=[{"resource": "ra", "units": 1}],
+    )
+    for quality in new_spec["assurance_criteria"]:
+        quality.update(source_ref="model://b/w4-quality", source_revision="d-4")
+    d["model_horizon"] = 180
+    d["economic_claims"]["cash_timing"]["horizon_end"] = 180
+    for category in ("goals", "formation_phases", "context_cores",
+                     "agent_functions", "organizational_code"):
+        for row in g[category]:
+            if row["expires_at"] >= 160:
+                row["expires_at"] = 200
+    context = d["context_evidence"]
+    for row in context["sources"]:
+        if row.get("valid_until", 0) >= 160:
+            row["valid_until"] = 200
+    template = next(row for row in g["agent_functions"] if row["id"] == "approval-w3")
+    g["agent_functions"].append(dict(
+        deepcopy(template), id="approval-w4", work="w4", work_revision="d-4",
+        source_ref="model://op/packet-approval-w4",
+    ))
+    following = []
+    for owner, when in (
+        ("a", acceptance + (1 if early else 6)),
+        ("b", acceptance + 7),
+    ):
+        source = f"model://{owner}/review-third-original-work-finance"
+        context["sources"].append({
+            "id": source, "owner": owner, "revision": "review-v1",
+            "status": "CONFIRMED", "usable_by": [owner],
+            "core": "corporate", "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"],
+            "operations": ["READ"], "valid_from": acceptance + 1, "valid_until": 200,
+        })
+        following.append(e(
+            when, "participation_status", owner, org_revision="oc-1",
+            cooperation_link="l1", cooperation_source_revision="rel-1",
+            new_participation=("PAUSED_NEW_WORK" if pause and owner == "a"
+                               else "OPEN_TO_NEW_WORK"),
+            economic_channel="TRANSACTION_COST", participation_evidence_ref=source,
+            evaluated_work="w3", evaluated_work_revision="d-3",
+            evaluated_result_ref=result_ref, evaluated_decision_at=acceptance,
+            evaluation_verdict=("ADVERSE_DECLARED" if pause and owner == "a"
+                                else "FAVOURABLE_DECLARED"),
+            formation_phase_source_ref=f"model://{owner}/formation-8",
+            evaluation_economic_source_revision=(
+                "stale" if stale and owner == "a" else "review-v1"
+            ),
+        ))
+    following.append(e(
+        acceptance + 8, "need_emerge", "b", work="w4",
+        work_source_revision="d-4", org_revision="oc-1",
+        goal_source_ref="model://b/goal-after-third-result",
+        goal_expires_at=200, goal_objective="RESILIENCE", goal_priority=2,
+        cooperation_link="l1", cooperation_source_revision="rel-1",
+        pilot_work="w3", pilot_result_ref=result_ref, pilot_decision_at=acceptance,
+    ))
+    following.append(e(
+        acceptance + 9, "cooperation_change_propose", "a",
+        org_revision="oc-1", cooperation_link="l1",
+        cooperation_source_revision="rel-1", change_id="chg-w3",
+        change_kind="REVISE_RESOURCE_COOPERATION",
+        economic_channel="TRANSACTION_COST",
+        change_source_ref="model://a/change-after-third-original-result",
+        pilot_work="w3", pilot_result_ref=result_ref, pilot_decision_at=acceptance,
+    ))
+    for i, owner in enumerate(("a", "b", "op"), 10):
+        following.append(e(
+            acceptance + i, "cooperation_change_response", owner,
+            org_revision="oc-1", cooperation_link="l1",
+            cooperation_source_revision="rel-1", change_id="chg-w3",
+            change_decision="SUPPORT_MODEL_PROPOSAL",
+            change_source_ref=f"model://{owner}/review-chg-w3",
+        ))
+    following.append(e(
+        request_at, "request", "b", work_spec=new_spec,
+        cooperation_link="l1", cooperation_source_revision="rel-1",
+        pilot_work="w3", change_id="chg-w3",
+        emergent_goal_source_ref="model://b/goal-after-third-result",
+    ))
+    for old in d["events"]:
+        if old.get("work") != "w3" or old["at"] <= prior_request["at"]:
+            continue
+        row = dict(deepcopy(old), work="w4", at=old["at"]+shift)
+        if row.get("source_revision") == "d-3":
+            row["source_revision"] = "d-4"
+        if row.get("function_id") == "approval-w3":
+            row["function_id"] = "approval-w4"
+        if "function_source_ref" in row:
+            row["function_source_ref"] = "model://op/packet-approval-w4"
+        if "review_source_ref" in row:
+            row["review_source_ref"] = "model://b/independent-review-w4"
+        if "prepared_at" in row:
+            row["prepared_at"] += shift
+        if row["action"] in ("complete", "assess_result_quality"):
+            row["result_ref"] = "model://w4-result"
+        if row["action"] == "assess_result_quality":
+            row["quality_evidence_ref"] = "model://b/w4-inspection"
+        if row["action"] == "interest_update":
+            row.update(
+                pilot_work="w3", pilot_result_ref=result_ref,
+                pilot_decision_at=acceptance, interest_valid_until=200,
+                interest_evidence_ref=f"model://{row['actor']}/w4-independent-interest",
+            )
+        following.append(row)
+    following.sort(key=lambda row: row["at"])
+    assert len({row["at"] for row in following}) == len(following)
+    more = {"events": following}
+    _original_rights(more)
+    strict = more["context_evidence"]
+    for field in ("sources", "requirements", "decision_requirements"):
+        context[field].extend(strict[field])
+    d["events"].extend(following)
+    d["events"].sort(key=lambda row: row["at"])
+    return d
+
+
+def third_period_reviews(out):
+    return [row for row in out["trace"]
+            if row.get("action") == "participation_status"
+            and row.get("evaluated_work") == "w3"
+            and row.get("outcome") == "APPLIED"]
+
+
+def test_original_financial_review_and_independent_decision_reproduce_fourth_work():
+    d = fourth_period_case()
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, [
+        (row["at"], row["action"], row["reason"]) for row in out["trace"]
+        if row["outcome"] == "BLOCKED"
+    ]
+    assert all(out["works"][key]["result"] == ACCEPTED
+               for key in ("w1", "w2", "w3", "w4"))
+    reviews = third_period_reviews(out)
+    assert len(reviews) == 2
+    assert all(row["evaluation_economic_basis_status"] ==
+               "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"
+               for row in reviews)
+    assert all(row["evaluation_financial_basis_not_automatic_owner_decision"]
+               and row["evaluation_private_financial_values_not_redisclosed"]
+               for row in reviews)
+    assert out["profit"]["system_increment"] == "UNKNOWN"
+    assert out == simulate(deepcopy(d))
+
+
+def test_same_qualified_finance_can_lead_to_independent_pause_not_automatic_consent():
+    open_case, pause_case = fourth_period_case(), fourth_period_case(pause=True)
+    assert open_case["economic_claims"] == pause_case["economic_claims"]
+    continued, stopped = simulate(open_case), simulate(pause_case)
+    for key in ("w1", "w2", "w3"):
+        assert continued["works"][key] == stopped["works"][key]
+    owner_review = next(row for row in third_period_reviews(stopped) if row["actor"] == "a")
+    assert owner_review["evaluation_economic_basis_status"] == (
+        "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"
+    )
+    assert owner_review["participation_value"] == "PAUSED_NEW_WORK"
+    assert continued["works"]["w4"]["result"] == ACCEPTED
+    assert "w4" not in stopped["works"]
+    request = next(row for row in stopped["trace"]
+                   if row["action"] == "request" and row.get("work") == "w4")
+    assert request["outcome"] == "BLOCKED"
+
+
+def test_current_owner_economic_review_does_not_read_future_payment_evidence():
+    d = fourth_period_case(early=True)
+    claims = d["economic_claims"]["work_payment_settlement_claims"]
+    sources = {row["id"]: row for row in d["context_evidence"]["sources"]}
+    for claim in claims:
+        if claim["transfer_id"] != "purchase":
+            continue
+        for ref in claim["evidence_refs"].values():
+            sources[ref]["valid_from"] = claim["at"]
+    out = simulate(d)
+    early = next(row for row in third_period_reviews(out) if row["actor"] == "a")
+    assert any(claim["transfer_id"] == "purchase" and claim["at"] > early["at"]
+               for claim in claims)
+    assert early["evaluation_economic_basis_status"] == (
+        "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED"
+    )
+    assert out["works"]["w4"]["result"] == ACCEPTED
+
+
+def test_stale_owner_review_source_is_unknown_not_an_override_of_own_choice():
+    out = simulate(fourth_period_case(stale=True, pause=True))
+    review = next(row for row in third_period_reviews(out) if row["actor"] == "a")
+    assert review["evaluation_economic_basis_status"] == "UNKNOWN"
+    assert review["participation_value"] == "PAUSED_NEW_WORK"
+    assert "w4" not in out["works"]
+    assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1", "w2", "w3"))
+
+
+def test_cash_history_changes_reserve_risk_not_third_period_cash_advantage():
+    isolated = compare(multiperiod_routes())
+    cumulative = compare(cumulative_routes())
+    def status(report):
+        return report["local_research_only"]["original_owner_projections"][
+            "cooperation"]["op"]["late_receipt_liquidity"]
+    assert status(isolated) == "SOURCE_DECLARED_LIQUIDITY_GAP_IN_ALL_SAME_TICK_ORDERINGS"
+    assert status(cumulative) == "SOURCE_DECLARED_RESERVE_MET_IN_ALL_SAME_TICK_ORDERINGS"
+    assert isolated["local_research_only"]["original_owner_contrasts"]["a"] == (
+        cumulative["local_research_only"]["original_owner_contrasts"]["a"]
+    )
+    docs = cumulative_routes()
+    for doc in docs.values():
+        next(row for row in doc["economic_claims"]["transfers"]
+             if row["id"] == "w2-overhead")["amount"] = "55.00"
+    stressed = compare(docs)
+    assert status(stressed) == "SOURCE_DECLARED_LIQUIDITY_GAP_IN_ALL_SAME_TICK_ORDERINGS"
+    assert stressed["local_research_only"]["original_owner_contrasts"]["op"][
+        "cash_cooperation_minus_outside"] == "120.00"
+
+
+def test_longer_executed_outside_duration_remains_separate_from_cash_and_noncash():
+    report = compare(cumulative_routes(outside_extra_ticks=2))
+    assert report["status"] == "MODEL_EXECUTED_ROUTES_DECLARED_ECONOMIC_CONTRAST"
+    assert report["routes"]["cooperation"]["execution_model_ticks"] == 1
+    assert report["routes"]["outside"]["execution_model_ticks"] == 3
+    assert report["local_research_only"]["original_owner_contrasts"]["a"][
+        "cash_cooperation_minus_outside"] == "150.00"
+    assert report["empirical_network_additionality"] == "NOT_IDENTIFIABLE"
+
+
+def test_measurement_inside_uncertainty_cannot_grant_either_route_future_capacity():
+    docs = cumulative_routes()
+    for doc in docs.values():
+        d = without_finance(doc)
+        d["competence_reuse_evidence"][0]["subsequent_observation"]["value"] = "9.8000"
+        out = simulate(d)
+        adoption = next(row for row in out["trace"] if row["action"] == "adopt_capability")
+        assert adoption["outcome"] == "BLOCKED"
+        assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1", "w2"))
+        assert all(out["works"].get(key, {}).get("result") != ACCEPTED
+                   for key in ("w3", OUTSIDE))
