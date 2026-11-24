@@ -524,11 +524,16 @@ def unfinished_material_portfolio(*, phase="shortfall"):
     start = next(e for e in events if e.get("work") == "w3"
                  and e["action"] == "start_operation" and e["operation"] == "stage-c")
     allowed = {"shortfall":set(), "dispatched":{"handoff_dispatch"},
-               "received":{"handoff_dispatch","handoff_receive"}}[phase]
+               "received":{"handoff_dispatch","handoff_receive"},
+               "initial_received":set(), "not_received":set()}[phase]
     events[:] = [e for e in events if not (
         (e.get("work") == "w3" and e["at"] > start["at"])
         or (e.get("work") == "w3" and e.get("material_replenishment_round") == 2
-            and e["action"] not in allowed))]
+            and e["action"] not in allowed)
+        or (e.get("work") == "w3" and phase in {"initial_received","not_received"}
+            and e["action"] == "handoff_quality")
+        or (e.get("work") == "w3" and phase == "not_received"
+            and e["action"] == "handoff_receive"))]
     # The retained start attempt is blocked, not a resource expense.
     applied_ticks = {e["at"] for e in events if e["at"] != start["at"]}
     omitted = {r["resource_use_id"] for r in money["lifecycle_costs"]["event_bindings"]
@@ -597,3 +602,34 @@ def test_unfinished_material_retains_qualified_shortfall_without_recognizing_val
         Decimal("0.00") if phase == "shortfall" else Decimal("60.00"))
     assert any(e["action"] == "start_operation" and e["work"] == "w3"
                and e["outcome"] == "BLOCKED" for e in out["trace"])
+
+
+def test_initial_material_receipt_shortage_preserves_unknown_unassessed_quality():
+    _, work=observed_unfinished_material(unfinished_material_portfolio(phase="initial_received"))
+    row=work["original_unresolved_material"]["per_original_batch"]["original-w3-components"]
+    assert row["cumulative_received_claim_quantity"]=="11.25"
+    assert row["cumulative_accepted_claim_quantity"] is None
+    assert row["cumulative_rejected_claim_quantity"] is None
+    assert row["quantity_remaining_to_qualified_requirement"] is None
+    assert row["current_round_receipt_declared"] and not row["current_round_quality_declared"]
+    assert work["accepted_recipient_use_value"] is None
+
+
+def test_absent_initial_receipt_is_not_an_observed_material_shortage_or_zero_output():
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    out=simulate(unfinished_material_portfolio(phase="not_received"))
+    assert out["works"]["w3"]["result"]=="NOT_SUBMITTED"
+    report=out["economics"]["original_portfolio_economics"]
+    assert report["status"]=="UNKNOWN"
+    assert "incomplete_original_activity_observation" not in report
+    assert "local_research_only" not in report
+
+
+def test_combined_original_recovery_cannot_add_same_resource_cost_row_twice():
+    from research.akis.qualitative_mesa.mesa_model import simulate
+    from research.akis.qualitative_mesa.rules import InputError
+    doc=combined_original_recovery_portfolio()
+    rows=doc["economic_claims"]["resource_uses"]
+    rows.append(deepcopy(next(r for r in rows if r["id"]=="w3-original-supplement-stock-and-dispatch")))
+    with pytest.raises(InputError):
+        simulate(doc)

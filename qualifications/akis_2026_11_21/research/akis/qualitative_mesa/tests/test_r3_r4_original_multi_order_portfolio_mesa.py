@@ -1443,3 +1443,139 @@ def test_unfinished_cost_exposure_does_not_qualify_false_acceptance_settlement()
     r = simulate(d)["economics"]["original_portfolio_economics"]
     assert r["status"] == "UNKNOWN"
     assert "incomplete_original_activity_observation" not in r
+
+
+def original_recovery_reproduction_case(*, disturbed=True, cost="85.00",
+                                        pause=False, fourth_material="220.00"):
+    """Retained restored third Work -> independent reviews -> original fourth Work.
+
+    Stretch original model instants to leave time for applied owner resource
+    events, not to claim measured physical duration. Same original
+    commitments, preparation, consent, source rights, and one money document.
+    """
+    from .test_r1p_r3_executed_route_economics_mesa import fourth_period_finance_case
+    d = _scaled(fourth_period_finance_case(pause=pause, material=fourth_material))
+    # Original outside documents are observations in the same model clock.
+    for ev in d["events"]:
+        for key in ("outside_slot_start","outside_slot_end",
+                    "outside_offer_slot_start","outside_offer_slot_end"):
+            if key in ev:
+                ev[key] *= STRETCH
+    for applied in (e for e in d["events"] if e["action"] == "model_code_apply"):
+        digest = original_model_code_fingerprint(applied["model_code_records"])
+        for ev in d["events"]:
+            if ev.get("model_code_change_id") == applied["model_code_change_id"]:
+                ev["model_code_fingerprint"] = digest
+
+    money = d["economic_claims"]
+    start = _event(d,"start","w3")
+    complete = _event(d,"complete","w3")
+    owner = start["actor"]
+    resource = _event(d,"request","w3")["work_spec"]["resource"]
+    occupied = {ev["at"] for ev in d["events"]}
+    free = [i for i in range(start["at"]+1,complete["at"]) if i not in occupied]
+    assert len(free) >= 3, (start,complete,free)
+    lost, blocked, restored = free[:3]
+    if disturbed:
+        d["events"].extend([
+            {"at":lost,"action":"resource_status","actor":owner,
+             "resource":resource,"availability":"UNAVAILABLE"},
+            dict(complete,at=blocked),
+            {"at":restored,"action":"resource_status","actor":owner,
+             "resource":resource,"availability":"AVAILABLE"},
+        ])
+        d["events"].sort(key=lambda row:row["at"])
+    ident = "w3-reproduction-original-restoration-cost"
+    proof = f"model://{owner}/{ident}"
+    d["context_evidence"]["sources"].append({
+        "id":proof,"owner":owner,"revision":"restoration-cycle-v1",
+        "status":"CONFIRMED","usable_by":[owner],"core":"corporate",
+        "purposes":["AKIS_ECONOMIC_WORK_EVIDENCE"],"operations":["READ"],
+        "valid_from":restored,"valid_until":d["model_horizon"]+1,
+    })
+    if disturbed:
+        source=money["coverage"]["COOPERATION"][owner]
+        money["resource_uses"].append({
+            "id":ident,"scenario":"COOPERATION","work":"w3",
+            "owner":owner,"source":source,"amount":cost,"bucket":"FAILURE",
+        })
+        life=money["lifecycle_costs"]
+        life["bindings"].append({"resource_use_id":ident,"owner":owner,
+            "source":source,"stage":"PRODUCTION_COORDINATION","nature":"DIRECT_RESOURCE"})
+        life["event_bindings"].append({
+            "resource_use_id":ident,"work":"w3","owner":owner,"source":source,
+            "work_source_revision":"d-3","trace_position":0,"at":restored,
+            "action":"resource_status","org_revision":"oc-1",
+            "cost_evidence_ref":proof,"cost_evidence_revision":"restoration-cycle-v1",
+        })
+    for row in money["lifecycle_costs"]["event_bindings"]:
+        row["trace_position"]=next(i for i,ev in enumerate(d["events"]) if ev["at"]==row["at"])
+    return d
+
+
+def observe_recovery_reproduction(doc, *, disturbed=True, pause=False):
+    from .test_r1p_r3_executed_route_economics_mesa import third_period_reviews
+    out = simulate(doc)
+    assert all(out["works"][key]["result"] == ACCEPTED for key in ("w1","w2","w3"))
+    if pause:
+        assert "w4" not in out["works"]
+    else:
+        assert out["works"]["w4"]["result"] == ACCEPTED, [
+            (e["at"],e["action"],e["reason"]) for e in out["trace"] if e["outcome"]=="BLOCKED"]
+        assert [e["reason"] for e in out["trace"] if e["outcome"]=="BLOCKED"] == (
+            ["RESOURCE_NOT_AVAILABLE"] if disturbed else [])
+    reviews=third_period_reviews(out)
+    assert len(reviews)==2
+    assert all(row["evaluation_economic_basis_status"] ==
+               "MODEL_ORIGINAL_COMPLETED_WORK_FINANCE_SCOPE_QUALIFIED" and
+               row["evaluation_portfolio_forecast_scope_status"] ==
+               "MODEL_ORIGINAL_ACCEPTED_PORTFOLIO_FORECAST_SCOPE_QUALIFIED" and
+               row["evaluation_portfolio_original_completed_work_count"]==3
+               and row["evaluation_financial_basis_not_automatic_owner_decision"]
+               and row["evaluation_portfolio_private_amounts_and_reserve_verdict_not_redisclosed"]
+               for row in reviews), reviews
+    return out,reviews
+
+
+@pytest.mark.parametrize("cost", ["0.00","85.00","1100.00"])
+def test_original_restored_result_and_costs_are_in_prior_review_before_next_work(cost):
+    from decimal import Decimal
+    base, _ = observe_recovery_reproduction(
+        original_recovery_reproduction_case(disturbed=False), disturbed=False)
+    doc=original_recovery_reproduction_case(cost=cost)
+    frozen=deepcopy(doc)
+    out,reviews=observe_recovery_reproduction(doc)
+    assert doc==frozen
+    owner=out["economics"]["per_subject"]["a"]
+    reference=base["economics"]["per_subject"]["a"]
+    assert owner["complete_cash_balance_from_claims"]==reference["complete_cash_balance_from_claims"]
+    def resource_cost(row):
+        return sum(map(Decimal,row["resource_uses_by_bucket"]["COOPERATION"].values()))
+    assert resource_cost(owner)-resource_cost(reference)==Decimal(cost)
+    assert out["economics"]["resource_uses_count"]==base["economics"]["resource_uses_count"]+1
+    assert out["economics"]["original_strict_context_source_qualification"][
+        "source_scoped_original_cost_event_count"]==out["economics"]["resource_uses_count"]
+    assert out["works"]["w3"]["original_execution_readiness"]["all_observed_readiness_interruptions_closed"]
+    new_need=next(e for e in out["trace"] if e["action"]=="need_emerge" and e.get("work")=="w4")
+    assert new_need["outcome"]=="APPLIED" and max(r["at"] for r in reviews)<new_need["at"]
+    assert out["economics"]["profit"]=="UNKNOWN"
+    assert out==simulate(deepcopy(doc))
+
+
+def test_same_restored_result_and_own_cost_can_precede_independent_pause_or_continuation():
+    opened,_=observe_recovery_reproduction(original_recovery_reproduction_case(cost="1100.00"))
+    paused,reviews=observe_recovery_reproduction(
+        original_recovery_reproduction_case(cost="1100.00",pause=True),pause=True)
+    assert all(opened["works"][key]==paused["works"][key] for key in ("w1","w2","w3"))
+    assert next(r for r in reviews if r["actor"]=="a")["participation_value"]=="PAUSED_NEW_WORK"
+    assert opened["works"]["w4"]["result"]==ACCEPTED and "w4" not in paused["works"]
+
+
+def test_future_fourth_cost_does_not_change_prior_review_after_original_recovery():
+    first,reviews=observe_recovery_reproduction(original_recovery_reproduction_case())
+    later,other=observe_recovery_reproduction(
+        original_recovery_reproduction_case(fourth_material="520.00"))
+    assert reviews==other
+    from decimal import Decimal
+    assert Decimal(first["economics"]["per_subject"]["a"]["complete_cash_balance_from_claims"]["COOPERATION"])-Decimal(
+        later["economics"]["per_subject"]["a"]["complete_cash_balance_from_claims"]["COOPERATION"])==Decimal("300.00")
