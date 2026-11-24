@@ -22,6 +22,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Verify complete pinned original executable scope
+        run: python qualifications/akis_2026_11_21/verify_source_scope.py
       - name: Official Mesa 3.5.2
         run: |
           python -m pip install --disable-pip-version-check "mesa==3.5.2" "pytest>=8,<10"

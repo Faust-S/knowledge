@@ -1,0 +1,148 @@
+{
+  "schema": "IWXA_AKIS_QUALITATIVE_INPUT/0.1",
+  "evidence": "MODEL_ONLY",
+  "institution": {
+    "operator": "op",
+    "founders": [
+      "op",
+      "a",
+      "b"
+    ],
+    "mode": "SOLE",
+    "revision": "oc-1",
+    "council_members": [
+      "a",
+      "b"
+    ],
+    "council_quorum": 2,
+    "council_rule": "UNANIMOUS",
+    "operator_mandate": [
+      "authorize",
+      "exclude"
+    ],
+    "mixed_reserved": []
+  },
+  "subjects": [
+    {
+      "id": "op",
+      "kind": "OPERATOR"
+    },
+    {
+      "id": "a",
+      "kind": "SME"
+    },
+    {
+      "id": "b",
+      "kind": "SME"
+    }
+  ],
+  "resources": [
+    {
+      "id": "ra",
+      "owner": "a",
+      "availability": "UNKNOWN"
+    }
+  ],
+  "works": [],
+  "events": [
+    {
+      "at": 1,
+      "action": "request",
+      "actor": "b",
+      "work_spec": {
+        "id": "w1",
+        "customer": "b",
+        "resource": "ra",
+        "source_revision": "d-1",
+        "slot_start": 7,
+        "slot_end": 11
+      }
+    },
+    {
+      "at": 2,
+      "action": "offer",
+      "actor": "op",
+      "work": "w1"
+    },
+    {
+      "at": 3,
+      "action": "authorize",
+      "actor": "op",
+      "work": "w1"
+    },
+    {
+      "at": 4,
+      "action": "consent",
+      "actor": "a",
+      "work": "w1",
+      "source_revision": "d-1",
+      "org_revision": "oc-1"
+    },
+    {
+      "at": 5,
+      "action": "consent",
+      "actor": "b",
+      "work": "w1",
+      "source_revision": "d-1",
+      "org_revision": "oc-1"
+    },
+    {
+      "at": 6,
+      "action": "commit",
+      "actor": "op",
+      "work": "w1"
+    },
+    {
+      "at": 7,
+      "action": "resource_status",
+      "actor": "a",
+      "resource": "ra",
+      "availability": "AVAILABLE"
+    },
+    {
+      "at": 8,
+      "action": "commit",
+      "actor": "op",
+      "work": "w1"
+    },
+    {
+      "at": 9,
+      "action": "resource_status",
+      "actor": "a",
+      "resource": "ra",
+      "availability": "UNAVAILABLE"
+    },
+    {
+      "at": 10,
+      "action": "start",
+      "actor": "a",
+      "work": "w1"
+    },
+    {
+      "at": 11,
+      "action": "resource_status",
+      "actor": "a",
+      "resource": "ra",
+      "availability": "AVAILABLE"
+    },
+    {
+      "at": 12,
+      "action": "start",
+      "actor": "a",
+      "work": "w1"
+    },
+    {
+      "at": 13,
+      "action": "complete",
+      "actor": "a",
+      "work": "w1",
+      "result_ref": "model://needs-resource"
+    },
+    {
+      "at": 14,
+      "action": "accept",
+      "actor": "b",
+      "work": "w1"
+    }
+  ]
+}

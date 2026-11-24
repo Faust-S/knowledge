@@ -1,0 +1,285 @@
+{
+  "schema": "IWXA_AKIS_QUALITATIVE_INPUT/0.1",
+  "evidence": "MODEL_ONLY",
+  "institution": {
+    "operator": "op",
+    "founders": [
+      "op",
+      "a",
+      "b"
+    ],
+    "mode": "SOLE",
+    "revision": "oc-1",
+    "council_members": [
+      "a",
+      "b"
+    ],
+    "council_quorum": 2,
+    "council_rule": "UNANIMOUS",
+    "operator_mandate": [
+      "authorize",
+      "exclude"
+    ],
+    "mixed_reserved": []
+  },
+  "subjects": [
+    {
+      "id": "op",
+      "kind": "OPERATOR"
+    },
+    {
+      "id": "a",
+      "kind": "SME"
+    },
+    {
+      "id": "b",
+      "kind": "SME"
+    },
+    {
+      "id": "c",
+      "kind": "SME"
+    }
+  ],
+  "resources": [
+    {
+      "id": "ra",
+      "owner": "a",
+      "availability": "AVAILABLE",
+      "capacity_units": 1,
+      "capacity_unit": "machine",
+      "site": "site-a"
+    },
+    {
+      "id": "rb",
+      "owner": "b",
+      "availability": "AVAILABLE",
+      "capacity_units": 1,
+      "capacity_unit": "team",
+      "site": "site-b"
+    }
+  ],
+  "works": [
+    {
+      "id": "w1",
+      "customer": "c",
+      "resource": "ra",
+      "source_revision": "d1",
+      "slot_start": 0,
+      "slot_end": 8,
+      "operations": [
+        {
+          "id": "cut",
+          "primary_resource": "ra",
+          "requires_completed": [],
+          "resource_requirements": [
+            {
+              "resource": "ra",
+              "units": 1
+            }
+          ],
+          "slot_start": 0,
+          "slot_end": 4
+        },
+        {
+          "id": "pack",
+          "primary_resource": "rb",
+          "requires_completed": [
+            "cut"
+          ],
+          "resource_requirements": [
+            {
+              "resource": "rb",
+              "units": 1
+            }
+          ],
+          "slot_start": 4,
+          "slot_end": 8
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "at": 1,
+      "action": "offer",
+      "actor": "op",
+      "work": "w1"
+    },
+    {
+      "at": 2,
+      "action": "authorize",
+      "actor": "op",
+      "work": "w1"
+    },
+    {
+      "at": 3,
+      "action": "consent",
+      "actor": "a",
+      "work": "w1",
+      "source_revision": "d1",
+      "org_revision": "oc-1"
+    },
+    {
+      "at": 4,
+      "action": "consent",
+      "actor": "b",
+      "work": "w1",
+      "source_revision": "d1",
+      "org_revision": "oc-1"
+    },
+    {
+      "at": 5,
+      "action": "consent",
+      "actor": "c",
+      "work": "w1",
+      "source_revision": "d1",
+      "org_revision": "oc-1"
+    },
+    {
+      "at": 6,
+      "action": "commit",
+      "actor": "op",
+      "work": "w1"
+    },
+    {
+      "at": 7,
+      "action": "start_operation",
+      "actor": "a",
+      "work": "w1",
+      "operation": "cut"
+    },
+    {
+      "at": 8,
+      "action": "complete_operation",
+      "actor": "a",
+      "work": "w1",
+      "operation": "cut",
+      "result_ref": "model://cut"
+    },
+    {
+      "at": 9,
+      "action": "start_operation",
+      "actor": "b",
+      "work": "w1",
+      "operation": "pack"
+    },
+    {
+      "at": 10,
+      "action": "handoff_receive",
+      "actor": "b",
+      "work": "w1",
+      "from_operation": "cut",
+      "to_operation": "pack",
+      "source_revision": "d1",
+      "org_revision": "oc-1",
+      "result_ref": "model://receipt",
+      "dispatch_ref": "model://dispatch"
+    },
+    {
+      "at": 11,
+      "action": "handoff_dispatch",
+      "actor": "op",
+      "work": "w1",
+      "from_operation": "cut",
+      "to_operation": "pack",
+      "source_revision": "d1",
+      "org_revision": "oc-1",
+      "result_ref": "model://dispatch"
+    },
+    {
+      "at": 12,
+      "action": "handoff_dispatch",
+      "actor": "a",
+      "work": "w1",
+      "from_operation": "cut",
+      "to_operation": "pack",
+      "source_revision": "d1",
+      "org_revision": "oc-1",
+      "result_ref": "model://cut"
+    },
+    {
+      "at": 13,
+      "action": "handoff_dispatch",
+      "actor": "a",
+      "work": "w1",
+      "from_operation": "cut",
+      "to_operation": "pack",
+      "source_revision": "d1",
+      "org_revision": "oc-1",
+      "result_ref": "model://dispatch"
+    },
+    {
+      "at": 14,
+      "action": "handoff_receive",
+      "actor": "a",
+      "work": "w1",
+      "from_operation": "cut",
+      "to_operation": "pack",
+      "source_revision": "d1",
+      "org_revision": "oc-1",
+      "result_ref": "model://receipt",
+      "dispatch_ref": "model://dispatch"
+    },
+    {
+      "at": 15,
+      "action": "handoff_receive",
+      "actor": "b",
+      "work": "w1",
+      "from_operation": "cut",
+      "to_operation": "pack",
+      "source_revision": "d1",
+      "org_revision": "oc-1",
+      "result_ref": "model://receipt",
+      "dispatch_ref": "model://wrong"
+    },
+    {
+      "at": 16,
+      "action": "handoff_receive",
+      "actor": "b",
+      "work": "w1",
+      "from_operation": "cut",
+      "to_operation": "pack",
+      "source_revision": "d1",
+      "org_revision": "oc-1",
+      "result_ref": "model://receipt",
+      "dispatch_ref": "model://dispatch"
+    },
+    {
+      "at": 17,
+      "action": "start_operation",
+      "actor": "b",
+      "work": "w1",
+      "operation": "pack"
+    },
+    {
+      "at": 18,
+      "action": "complete_operation",
+      "actor": "b",
+      "work": "w1",
+      "operation": "pack",
+      "result_ref": "model://pack"
+    },
+    {
+      "at": 19,
+      "action": "complete",
+      "actor": "a",
+      "work": "w1",
+      "result_ref": "model://receipt"
+    },
+    {
+      "at": 20,
+      "action": "complete",
+      "actor": "a",
+      "work": "w1",
+      "result_ref": "model://whole"
+    },
+    {
+      "at": 21,
+      "action": "accept",
+      "actor": "c",
+      "work": "w1"
+    }
+  ],
+  "capacity_strict": true,
+  "handoff_strict": true
+}
