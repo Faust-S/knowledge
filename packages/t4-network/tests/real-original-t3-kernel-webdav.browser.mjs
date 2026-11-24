@@ -170,7 +170,10 @@ function originalT3ConfirmedState({workspaceId,artifact,preview,receipt}){
 test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3 Kernel and survives two cold browser processes',{
   // Mixed native backlog now includes deliberate TLS interruption, cold
   // restarts, recipient intent, signed ACK and original CAS recovery.
-  timeout:480000,
+  // Full original-Kernel regression now includes 12 causal sessions,
+  // two autonomous Host steps and cold recipient owner CAS recovery.
+  // This is the whole-fixture budget, not a protocol/network deadline.
+  timeout:720000,
 },async()=>{
   const qualified=process.env.IWXA_T2_QUALIFIED_KERNEL_DIST;
   assert.ok(qualified&&existsSync(join(qualified,'_iwxa/runtime/0.3.6/runtime.js')),
