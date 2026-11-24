@@ -32,7 +32,7 @@ const personal=record({purpose:str(4096),inputs:str(4096),outputs:str(4096),appl
  guidance:nullableStr(4096)}),context_requirements:arr(str(1000),0,16)});
 export const TECHNOLOGY_DECLARATION=freeze({
  schema_version:TECHNOLOGY_VERSION,preserve_unknown:false,
- json_schema:{type:'object',oneOf:[
+ json_schema:{...record({title:str(240),target:en(D05_TARGET,PERSONAL_TARGET),technology:{type:'object'}}),oneOf:[
   record({title:str(240),target:{const:D05_TARGET},technology:d05}),
   record({title:str(240),target:{const:PERSONAL_TARGET},technology:personal}),
  ]},embedded:{}
