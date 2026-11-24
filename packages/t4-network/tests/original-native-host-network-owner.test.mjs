@@ -65,8 +65,9 @@ function kernelFixture(name){
   };
   return {kernel,events,rows,get writes(){return writes},get graphInvocations(){return graphInvocations}};
 }
-function wireFixture(){
-  const frames=new Map();let puts=0,gets=0,lists=0;
+function wireFixture(indexed=false){
+  const frames=new Map(),indices=new Map();let puts=0,gets=0,lists=0;
+  const address=(key,frameSha256)=>({schema:'IWXA_T4_FRAME_ADDRESS_READ_V1',key,frameSha256,addressMetadataIsNotSignatureOrAuthority:true,originalBusinessApplied:false});
   const wire={wireKind:'T4_NETWORK_CANDIDATE',forOriginalHostLifetime(){return this},
     async listNativeFrameAddresses(){
       lists++;const keys=[...frames.keys()].sort();
@@ -83,7 +84,13 @@ function wireFixture(){
       if(!frames.has(key))throw Object.assign(Error('missing'),{code:'REMOTE_NOT_FOUND'});
       assert.equal(sha(frames.get(key)),expectedSha256);return {key,sha256:expectedSha256,state:'EXPECTED_BYTES_PRESENT'};
     }};
-  return {wire,frames,get puts(){return puts},get gets(){return gets},get lists(){return lists}};
+  if(indexed)Object.assign(wire,{nativeFrameIndexVersion:1,
+    async getNativeFrameIndex({key}){return indices.has(key)?address(key,indices.get(key)):null;},
+    async putNativeFrameIndex({key,frameSha256}){
+      if(indices.has(key))assert.equal(indices.get(key),frameSha256);
+      indices.set(key,frameSha256);return address(key,frameSha256);
+    }});
+  return {wire,frames,indices,get puts(){return puts},get gets(){return gets},get lists(){return lists}};
 }
 function scope(technicalWorkspaceId){return {technicalWorkspaceId,sourceWorkspaceId:WS,
   originalWriteOwnerRef:OWNER,sourceNodeRef:S,recipientNodeRef:R,scopeRef:SCOPE,ownerEpoch:2}}
@@ -211,8 +218,8 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
   return {owner,relay,attach,drive,invokeLocal,results,commands,local,technical,get accessResolutions(){return accessResolutions},
     revokeBinding(){admitted=false},disableMode(){mode='LOCAL_T3'},invalidate(){epoch++;relay.invalidate()}};
 }
-test('K14 existing signed native relay drives original source baseline, captured intent and HEADS, then recipient DIFF',async()=>{
-  const source=await sourceFixture(),wire=wireFixture();
+for(const indexed of [false,true])test((indexed?'K23 indexed':'K14 existing')+' signed native relay drives original source baseline, captured intent and HEADS, then recipient DIFF',async()=>{
+  const source=await sourceFixture(),wire=wireFixture(indexed);
   const baselineInput={sourceCursor:source.before,originalBaselineRef:source.baselineEvent.event_id,
     originalBaselineDigest:hash(JSON.stringify(source.baselineEvent))};
   const f=nativeFixture({role:'SOURCE',store:source,wire,baselineInput,
@@ -251,6 +258,7 @@ test('K14 existing signed native relay drives original source baseline, captured
     assert.equal(recipient.events.filter(e=>e.workspace_id===WS).length,1);
     assert.equal(wire.puts,2);
     assert.deepEqual([...wire.frames.values()].map(b=>decodeT4CandidateFrame(b).messageType),['HEADS','DIFF_REQUEST']);
+    if(indexed){assert.equal(wire.indices.size,3);assert.equal(wire.lists,0);}
     assert.ok(r.technical.proofCount>0);
     assert.ok(r.commands.filter(c=>c.method==='putObject').every(c=>c.args[0].workspace_id===recipient.technicalWorkspaceId));
   }finally{r.relay.close();}

@@ -176,6 +176,8 @@ export function createT4CandidateFrameTransport({
     mode();
     const result=await wireTransport.getSnapshot({key,expectedSha256});
     mode();
+    if(!(result?.bytes instanceof Uint8Array)||hash(result.bytes)!==expectedSha256)
+      fail('WIRE_NETWORK_READBACK_NOT_PROVEN');
     const frame=decodeT4CandidateFrame(result.bytes);
     if(frame.sourceNodeRef!==originalHostNodeRef||
       frame.scopeRef!==originalHostScopeRef)
