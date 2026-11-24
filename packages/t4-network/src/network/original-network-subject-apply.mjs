@@ -30,6 +30,7 @@ const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const frozen=x=>Object.freeze(x);
 const HASH=x=>'sha256:'+createHash('sha256').update(x).digest('hex');
 const CAP=64*8192;
+const frameKey=k=>typeof k==='string'&&/^[a-f0-9]{64}\.t4n$/.test(k);
 const verified=(r,type,head)=>{
   if(r?.schema!=='IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1'||
     r.signedMessageType!==type||
@@ -113,6 +114,9 @@ export async function openT4OriginalNetworkSubjectChange({
     !ID(head.verifiedSignerRef))
     fail('SUBJECT_SIGNED_CHANGE_REQUIRED');
   verified(head,'CHANGE_REF',head);
+  if((head.key!==undefined||head.sha256!==undefined)&&
+    (!frameKey(head.key)||head.key!==head.sha256+'.t4n'))
+    fail('SUBJECT_SIGNED_CHANGE_ADDRESS_INVALID');
   const change=head.verifiedBody;
   const type=SUBJECTS[change.changeKind];
   if(!type||!ID(change.changeId)||
@@ -258,6 +262,8 @@ export async function openT4OriginalNetworkSubjectChange({
     changeId:change.changeId,contentDigest:change.contentDigest,
     encryptionContextRef,sourceNodeRef:head.verifiedSourceNodeRef,
     recipientNodeRef,scopeRef,sessionRef:head.verifiedSessionRef,
+    ownerEpoch:head.verifiedOwnerEpoch,
+    ...(frameKey(head.key)?{sourceChangeFrameKey:head.key}:{}),
     originalEventDigest:delta.sourceEventDigest,
     originalStateDigest:type.digest(delta),
     sourcePrefixDigestAfter:originalSourceHeadProof.sourcePrefixDigestAfter,
@@ -633,6 +639,86 @@ export async function applyT4OriginalNetworkSubjectChange({
   return frozen({...confirmed,status:'APPLIED_BY_ORIGINAL_T3',
     originalCommitInvoked:true,
     originalReceipt:applied.originalReceipt});
+}
+/**
+ * Native recipient Host task boundary. The ORIGINAL phase Object reserves
+ * the exact canonical subject mutation before any business write. A cold
+ * process that sees APPLY_INTENT may only read back the original Event and
+ * subject. Absence after an uncertain write is not permission to retry.
+ */
+export async function applyT4OriginalNetworkSubjectWithDurableIntent(args={}){
+  const {received,recipientPhasePort}=args;
+  const delta=checkReceived(received),kind=receivedKind(received);
+  if(!frameKey(received.sourceChangeFrameKey)||
+    !Number.isSafeInteger(received.ownerEpoch)||received.ownerEpoch<1||
+    recipientPhasePort?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||
+    recipientPhasePort.role!=='RECIPIENT'||
+    recipientPhasePort.recipientApplyIntentRequired!==true||
+    recipientPhasePort.originalT3TechnicalWorkspaceOnly!==true||
+    typeof recipientPhasePort.inspectOriginalSession!=='function'||
+    typeof recipientPhasePort.advanceOriginalSessionPhase!=='function')
+    fail('SUBJECT_ORIGINAL_DURABLE_APPLY_PORT_REQUIRED');
+  const evidence=frozen({evidenceRef:received.sourceChangeFrameKey,
+    evidenceDigest:'sha256:'+received.sha256});
+  const verifiedEvidence=frozen({evidenceRef:received.sourceChangeFrameKey,
+    evidenceDigest:received.originalStateDigest});
+  async function phase(){
+    const v=await recipientPhasePort.inspectOriginalSession();
+    if(v?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||
+      v.role!=='RECIPIENT'||v.recipientApplyIntentRequired!==true||
+      v.checkpointRef!==recipientPhasePort.checkpointRef||
+      v.originalT3OnlyStore!==true||v.originalT3EventChainVerified!==true||
+      v.sessionRef!==received.sessionRef||v.changeId!==received.changeId||
+      v.sourceNodeRef!==received.sourceNodeRef||
+      v.recipientNodeRef!==received.recipientNodeRef||
+      v.scopeRef!==received.scopeRef||v.ownerEpoch!==received.ownerEpoch||
+      (v.changeKind??'OBJECT_PUT')!==kind||
+      !['VERIFIED','APPLY_INTENT','APPLIED'].includes(v.currentPhase)||
+      !equalStable(v.recipientVerifiedEvidence,verifiedEvidence)||
+      (v.currentPhase!=='VERIFIED'&&!equalStable(v.recipientApplyIntentEvidence,evidence)))
+      fail('SUBJECT_ORIGINAL_DURABLE_APPLY_PHASE_MISMATCH');
+    return v;
+  }
+  async function recover(v){
+    const original=await inspectT4OriginalNetworkRecipientResult(args);
+    if(original.state!=='APPLIED_VERIFIED'||original.originalBusinessApplied!==true)
+      fail('SUBJECT_ORIGINAL_APPLY_INTENT_OUTCOME_UNRESOLVED',{
+        sourceEventId:delta.sourceEventId,originalSubjectMutationMayHaveCommitted:true,
+        originalApplyIntentAlreadyPresent:true,automaticRetryAllowed:false,
+        originalHostMustResolveUnknownOutcome:true,
+      });
+    if(v.currentPhase==='APPLIED'&&
+      (v.currentEvidence?.originalRecipientEventId!==original.originalRecipientEventId||
+       v.currentEvidence?.originalRecipientRevision!==original.originalRecipientRevision||
+       v.currentEvidence?.originalRecipientStateDigest!==original.originalRecipientStateDigest))
+      fail('SUBJECT_ORIGINAL_DURABLE_APPLY_RESULT_MISMATCH');
+    return frozen({...original,status:'ALREADY_APPLIED_FROM_ORIGINAL_T3',
+      originalCommitInvoked:false,originalDurableApplyIntentVerified:true,
+      originalApplyIntentCheckpointRef:v.checkpointRef,
+      originalMutationRetried:false});
+  }
+  const before=await phase();
+  if(before.currentPhase!=='VERIFIED')return recover(before);
+  if((await inspectT4OriginalNetworkRecipientResult(args)).state!=='NOT_APPLIED')
+    fail('SUBJECT_ORIGINAL_RESULT_WITHOUT_DURABLE_APPLY_INTENT');
+  const reserved=await recipientPhasePort.advanceOriginalSessionPhase({
+    phase:'APPLY_INTENT',evidence,
+  });
+  if(reserved?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1'||
+    reserved.phase!=='APPLY_INTENT'||reserved.checkpointRef!==before.checkpointRef||
+    reserved.originalBusinessApplied!==false||
+    !['RECORDED','ALREADY_CONFIRMED'].includes(reserved.status))
+    fail('SUBJECT_ORIGINAL_DURABLE_APPLY_RESERVATION_INVALID');
+  const after=await phase();
+  if(reserved.status==='ALREADY_CONFIRMED'||after.currentPhase==='APPLIED')
+    return recover(after);
+  if(after.currentPhase!=='APPLY_INTENT'||after.revision!==reserved.revision||
+    after.chainHash!==reserved.chainHash)
+    fail('SUBJECT_ORIGINAL_DURABLE_APPLY_PHASE_MISMATCH');
+  const result=await applyT4OriginalNetworkSubjectChange(args);
+  return frozen({...result,originalDurableApplyIntentVerified:true,
+    originalApplyIntentCheckpointRef:after.checkpointRef,
+    originalMutationRetried:false});
 }
 export async function applyT4OriginalNetworkObjectChange(args={}){
   if(receivedKind(args.received)!=='OBJECT_PUT')fail('SUBJECT_RECEIVED_PROOF_INVALID');

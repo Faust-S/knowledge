@@ -80,7 +80,7 @@ function fixture(localNodeRef=sourceNodeRef,kernel=fakeKernel()){
     }),
     authorizeOriginalTechnicalRead:async proof=>allowRead&&
       proof.originalT3HostAuthorityRequired===true&&
-      proof.operation==='t1.getObject',
+      ['t1.getObject','t1.listEventsSince'].includes(proof.operation),
     authorizeOriginalTechnicalWrite:async proof=>allowWrite&&
       proof.originalT3HostAuthorityRequired===true&&
       proof.operation==='t1.putObject',
@@ -283,4 +283,34 @@ test('source APPLIED_CONFIRMED requires an independent original recipient Result
   f.kernel.events[2].payload.evidenceDigest=B;
   await assert.rejects(recovered.inspectOriginalSession(),
     isCode('PHASE_ORIGINAL_EVENT_CHAIN_MISMATCH'));
+});
+
+test('new original recipient policy reserves an apply intent in the same phase Object',async()=>{
+  const f=fixture(recipientNodeRef),port=createT4OriginalNetworkSessionPhasePort({
+    ...f.base,recipientApplyIntentRequired:true,
+  });
+  await port.advanceOriginalSessionPhase({phase:'RECEIVED',evidence:evidence('signed:received:one')});
+  await port.advanceOriginalSessionPhase({phase:'VERIFIED',evidence:evidence('signed:change:one')});
+  f.allowApplied();
+  await assert.rejects(port.advanceOriginalSessionPhase({
+    phase:'APPLIED',evidence:evidence('signed:applied:one','APPLIED'),
+  }),isCode('PHASE_PREDECESSOR_NOT_PROVEN'));
+  await assert.rejects(port.advanceOriginalSessionPhase({
+    phase:'APPLY_INTENT',evidence:evidence('signed:change:other'),
+  }),isCode('PHASE_ORIGINAL_APPLY_INTENT_CHANGE_MISMATCH'));
+  const intent=await port.advanceOriginalSessionPhase({
+    phase:'APPLY_INTENT',evidence:evidence('signed:change:one'),
+  });
+  assert.equal(intent.revision,3);
+  assert.equal((await port.inspectOriginalSession()).originalBusinessApplied,false);
+  // No parallel phase ledger and no downgrade to legacy three-phase mode.
+  assert.equal(f.kernel.objects.size,1);
+  assert.equal(f.create().checkpointRef,port.checkpointRef);
+  await assert.rejects(f.create().inspectOriginalSession(),
+    isCode('PHASE_ORIGINAL_RECIPIENT_POLICY_MISMATCH'));
+  await port.advanceOriginalSessionPhase({
+    phase:'APPLIED',evidence:evidence('signed:applied:one','APPLIED'),
+  });
+  assert.equal((await port.inspectOriginalSession()).revision,4);
+  assert.equal(f.kernel.calls,4);
 });

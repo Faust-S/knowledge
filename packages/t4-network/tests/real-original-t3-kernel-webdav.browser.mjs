@@ -63,7 +63,8 @@ import {prepareT4CandidateOpaqueChunks}
 import {openT4OriginalNetworkObjectChange,
   inspectT4OriginalNetworkRecipientResult,
   applyT4OriginalNetworkObjectChange,openT4OriginalNetworkSubjectChange,
-  applyT4OriginalNetworkSubjectChange,createT4OriginalNetworkAppliedAckBody}
+  applyT4OriginalNetworkSubjectChange,applyT4OriginalNetworkSubjectWithDurableIntent,
+  createT4OriginalNetworkAppliedAckBody}
   from '../src/network/original-network-subject-apply.mjs';
 import {digestT4OriginalObjectContent}
   from '../src/network/original-object-delta.mjs';
@@ -4295,7 +4296,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         verifyOriginalRecipientApplied:p2eOriginalApplied,
       });
       const p2eRecipientPhase=()=>createT4OriginalNetworkSessionPhasePort({
-        originalKernel:replayKernel,
+        recipientApplyIntentRequired:true,originalKernel:replayKernel,
         technicalWorkspaceId:nativeReplayWorkspace,
         originalWriteOwnerRef:'original:t2:exchange',
         sourceNodeRef:'node:original:source',
@@ -4326,6 +4327,10 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             p.evidence.evidenceRef===p2eChange.publication.key&&
             p.evidence.evidenceDigest===p2eOpened.originalStateDigest&&
             (p2eOpened.originalSourceEventAndObjectVerified===true||p2eOpened.originalSourceEventAndSubjectVerified===true)
+          );
+          if(p.phase==='APPLY_INTENT')return (
+            p.evidence.evidenceRef===p2eChange.publication.key&&
+            p.evidence.evidenceDigest==='sha256:'+p2eOpened.sha256
           );
           if(p.phase==='APPLIED')return (
             p2eSignedAck?.verified.originalSignatureVerified===true&&
@@ -4559,6 +4564,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal((await p2ePhaseResult()).state,'NOT_APPLIED');
       const applyArgs=()=>({
         received:p2eOpened,originalKernel:recipientKernel,
+        recipientPhasePort:p2eRecipientPhase(),
         authorizeOriginalRead:async p=>receiving.operations.includes(p.operation),
         authorizeOriginalWrite:async p=>receiving.operations.includes(p.operation),
         verifyOriginalSourceEvent:async p=>{
@@ -4577,18 +4583,20 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         if(kind==='ASSET_PUT')p2gLoseAssetReply=true;
         else if(kind==='RELATION_PUT')p2gLoseRelationReply=true;
         else throw Error('subject loss probe expects non-object');
-        await assert.rejects(applyT4OriginalNetworkSubjectChange(applyArgs()),
+        await assert.rejects(applyT4OriginalNetworkSubjectWithDurableIntent(applyArgs()),
           e=>e?.code==='SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN');
         assert.equal(p2cCommitCalls+p2gAssetCalls+p2gRelationCalls,writesBefore+1);
         await restartRecipient();
-        p2eApplied=await applyT4OriginalNetworkSubjectChange(applyArgs());
+        p2eApplied=await applyT4OriginalNetworkSubjectWithDurableIntent(applyArgs());
         assert.equal(p2eApplied.status,'ALREADY_APPLIED_FROM_ORIGINAL_T3');
         assert.equal(p2eApplied.originalCommitInvoked,false);
       }else{
-        p2eApplied=await applyT4OriginalNetworkSubjectChange(applyArgs());
+        p2eApplied=await applyT4OriginalNetworkSubjectWithDurableIntent(applyArgs());
         assert.equal(p2eApplied.status,'APPLIED_BY_ORIGINAL_T3');
       }
       assert.equal(p2eApplied.state,'APPLIED_VERIFIED');
+      assert.equal(p2eApplied.originalDurableApplyIntentVerified,true);
+      assert.equal((await p2eRecipientPhase().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
       assert.equal(p2eApplied.originalRecipientRevision,revision);
       assert.equal(p2cCommitCalls+p2gAssetCalls+p2gRelationCalls,writesBefore+1);
       const p2eResult=await p2ePhaseResult();
@@ -4667,8 +4675,10 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       p2eRecipientPhaseHostSession='host:p22e:phase:recipient:cold';
       assert.equal((await p2eSourcePhase().inspectOriginalSession())
         .currentPhase,'APPLIED_CONFIRMED');
-      assert.equal((await p2eRecipientPhase().inspectOriginalSession())
-        .currentPhase,'APPLIED');
+      const recipientPhaseAfterCold=await p2eRecipientPhase().inspectOriginalSession();
+      assert.equal(recipientPhaseAfterCold.currentPhase,'APPLIED');
+      assert.equal(recipientPhaseAfterCold.revision,4);
+      assert.equal(recipientPhaseAfterCold.recipientApplyIntentRequired,true);
       const p2eFinalFrontier=await p2eCursorPort()
         .commitAcknowledgedCursor({recovery:p2eAckRecovery});
       assert.equal(p2eFinalFrontier.state,'ALREADY_COMMITTED');
@@ -4972,6 +4982,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         originalAssetAndRelationLostCommitRepliesRecoveredWithoutWrite:true,
         originalHistoricalAssetResultAfterLaterRevision:true,
         originalRelationBothEndpointsVerified:true,noRemainingCapture:true,
+        recipientDurableApplyIntentBeforeOriginalSubjectWrite:true,
         independentPhysicalDevices:false,productionHostSchedulerInstalled:false,
       }));
       const interrupted=mixedCompleted.find(x=>x.outageWitness);

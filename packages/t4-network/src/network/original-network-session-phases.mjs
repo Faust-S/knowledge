@@ -49,7 +49,8 @@ function proofEvidence(phase,e,changeKind){
 export function createT4OriginalNetworkSessionPhasePort({
   originalKernel,technicalWorkspaceId,originalWriteOwnerRef,
   sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef,sessionRef,
-  changeId,ownerEpoch,changeKind='OBJECT_PUT',getMode,readOriginalHostContext,
+  changeId,ownerEpoch,changeKind='OBJECT_PUT',recipientApplyIntentRequired=false,
+  getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,
 }={}){
@@ -58,6 +59,8 @@ export function createT4OriginalNetworkSessionPhasePort({
     .every(ID)||!['OBJECT_PUT','ASSET_PUT','RELATION_PUT'].includes(changeKind)||
     sourceNodeRef===recipientNodeRef||
     ![sourceNodeRef,recipientNodeRef].includes(localNodeRef)||
+    typeof recipientApplyIntentRequired!=='boolean'||
+    (recipientApplyIntentRequired&&localNodeRef!==recipientNodeRef)||
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
     ![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,
       authorizeOriginalTechnicalWrite,verifyOriginalPhaseEvidence,
@@ -68,7 +71,8 @@ export function createT4OriginalNetworkSessionPhasePort({
       op=>typeof originalKernel[op]==='function'))
     fail('PHASE_ORIGINAL_T3_HOST_PORTS_REQUIRED');
   const role=localNodeRef===sourceNodeRef?'SOURCE':'RECIPIENT';
-  const phases=ALLOWED[role];
+  const phases=recipientApplyIntentRequired?
+    Object.freeze(['RECEIVED','VERIFIED','APPLY_INTENT','APPLIED']):ALLOWED[role];
   const identity=frozen({
     technicalWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef,sessionRef,
@@ -76,7 +80,11 @@ export function createT4OriginalNetworkSessionPhasePort({
     ...(changeKind==='OBJECT_PUT'?{}:{changeKind}),
   });
   const checkpointRef='t4:net:session:'+digest(identity).slice(7);
-  const genesis=digest({identity,checkpointRef,stage:'GENESIS'});
+  // Same checkpoint identity across upgrades: no second phase history.
+  // The new recipient policy is part of the original chain genesis, so
+  // an older reader cannot silently bypass a persisted apply reservation.
+  const genesis=digest({identity,checkpointRef,stage:'GENESIS',
+    ...(recipientApplyIntentRequired?{recipientApplyIntentRequired:true}:{})});
   function mode(){
     if(getMode()!=='T4_NETWORK')fail('PHASE_NETWORK_MODE_OFF');
   }
@@ -136,6 +144,8 @@ export function createT4OriginalNetworkSessionPhasePort({
       d.stages.length<1||d.stages.length>phases.length||
       obj.revision!==d.stages.length)
       fail('PHASE_ORIGINAL_CHECKPOINT_INVALID');
+    if((d.recipientApplyIntentRequired===true)!==recipientApplyIntentRequired)
+      fail('PHASE_ORIGINAL_RECIPIENT_POLICY_MISMATCH');
     let previous=genesis;
     const normalized=[];
     for(const [index,item] of d.stages.entries()){
@@ -144,6 +154,8 @@ export function createT4OriginalNetworkSessionPhasePort({
         item.previousHash!==previous)
         fail('PHASE_ORIGINAL_CHAIN_INVALID');
       const evidence=proofEvidence(phase,item.evidence,changeKind);
+      if(phase==='APPLY_INTENT'&&evidence.evidenceRef!==normalized.at(-1)?.evidence.evidenceRef)
+        fail('PHASE_ORIGINAL_APPLY_INTENT_CHANGE_MISMATCH');
       const expected=entry(phase,evidence,previous,index+1);
       if(!eq(item,expected))
         fail('PHASE_ORIGINAL_CHAIN_INVALID');
@@ -158,8 +170,9 @@ export function createT4OriginalNetworkSessionPhasePort({
     const stages=verifyStages(before);
     if(!stages.length)return frozen({stages:[],revision:0,
       chainHash:genesis,checkpointRef});
-    await guard(initial,'t1.getObject','original-event-read');
+    await guard(initial,'t1.listEventsSince','original-event-read');
     const events=await originalKernel.listEventsSince(technicalWorkspaceId);
+    await guard(initial,'t1.listEventsSince','original-event-readback');
     if(!Array.isArray(events)||events.length>100000)
       fail('PHASE_ORIGINAL_EVENT_STREAM_INVALID');
     const relevant=events.filter(ev=>
@@ -220,6 +233,11 @@ export function createT4OriginalNetworkSessionPhasePort({
         clone(current.stages[0]?.evidence??null):null,
       sourcePublishedEvidence:role==='SOURCE'?
         clone(current.stages[1]?.evidence??null):null,
+      ...(recipientApplyIntentRequired?{
+        recipientApplyIntentRequired:true,
+        recipientVerifiedEvidence:clone(current.stages[1]?.evidence??null),
+        recipientApplyIntentEvidence:clone(current.stages[2]?.evidence??null),
+      }:{}),
       sourceNodeRef,recipientNodeRef,scopeRef,sessionRef,changeId,ownerEpoch,
       ...(changeKind==='OBJECT_PUT'?{}:{changeKind}),
       chainHash:current.chainHash,
@@ -255,6 +273,8 @@ export function createT4OriginalNetworkSessionPhasePort({
     }
     if(pos!==current.stages.length)
       fail('PHASE_PREDECESSOR_NOT_PROVEN');
+    if(phase==='APPLY_INTENT'&&expectedEvidence.evidenceRef!==current.stages.at(-1)?.evidence.evidenceRef)
+      fail('PHASE_ORIGINAL_APPLY_INTENT_CHANGE_MISMATCH');
     const proof=frozen({
       operation:'t4.original.network.session.phase.evidence',
       phase,checkpointRef,role,changeId,changeKind,
@@ -272,6 +292,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     const data={
       schema:SCHEMA,title:'T4 network original session phases',
       checkpointRef,identity:clone(identity),stages,
+      ...(recipientApplyIntentRequired?{recipientApplyIntentRequired:true}:{}),
     };
     const input={
       workspace_id:technicalWorkspaceId,object_id:checkpointRef,
@@ -322,6 +343,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1',
     inspectOriginalSession,advanceOriginalSessionPhase,
     role,checkpointRef,
+    ...(recipientApplyIntentRequired?{recipientApplyIntentRequired:true}:{}),
     originalT3TechnicalWorkspaceOnly:true,
     createsSecondStore:false,createsNewIAM:false,
     createsScheduler:false,originalT3ExchangeRequired:false,
