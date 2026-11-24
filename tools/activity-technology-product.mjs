@@ -3,9 +3,12 @@ import {groupPersonalRoutineEvidence,preparePersonalTechnologyProduct,prepareD05
  preparePersonalRecipientActivation,prepareD05RecipientInputs} from '../modules/activity-base-anonymizer/technology-product.mjs';
 import {preparePersonalExtractionRequest,reviewPersonalExtractionBundle} from '../modules/activity-base-anonymizer/personal-technology-extraction.mjs';
 import {prepareD05ExtractionRequest,reviewD05ExtractionProposal} from '../modules/activity-base-anonymizer/d05-technology-extraction.mjs';
+import {prepareProductGeneralization,applyProductGeneralization} from '../modules/activity-base-anonymizer/technology-disclosure-generalization.mjs';
 const fail=code=>{throw Object.assign(new Error(code),{code});};
 const exact=(v,keys)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
 const operations={
+ '--generalization-prepare':{keys:['preview','reports','language'],run:v=>prepareProductGeneralization(v.preview,v.reports,v.language)},
+ '--generalization-apply':{keys:['preview','reports','choices'],run:v=>applyProductGeneralization(v.preview,v.reports,v.choices)},
  '--d05-extraction-request':{keys:['review','group_id','model_number'],run:v=>prepareD05ExtractionRequest(v.review,v.group_id,v.model_number)},
  '--d05-extraction-review':{keys:['review','group_id','model_number','proposal'],run:v=>reviewD05ExtractionProposal(v.review,v.group_id,v.model_number,v.proposal)},
  '--personal-extraction-request':{keys:['source'],run:v=>preparePersonalExtractionRequest(v.source)},
