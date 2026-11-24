@@ -11,6 +11,28 @@ concurrency:
   group: d07-t3-integration
   cancel-in-progress: false
 jobs:
+  private-transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: pipeline
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 873573fc5ff0f0336a468849730ab15b5dfa1b53
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - name: Classify Git transport failures without exposing logs
+        run: bash pipeline/scripts/test-d07-private-git-transport.sh
+      - name: Verify existing token and exact private receive-pack without writes
+        working-directory: site
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 873573fc5ff0f0336a468849730ab15b5dfa1b53
   t3-source:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -25,7 +47,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 923f38cf9c0562afd402229021b250273d0b82e1
+          ref: 873573fc5ff0f0336a468849730ab15b5dfa1b53
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -45,7 +67,7 @@ jobs:
       - name: Preserve exact T2 subject and Workspace module
         run: |
           test "$(git -C domain rev-parse HEAD)" = "79068637e424c8348ca5ca846d8b6d84bcddd274"
-          test "$(git -C site rev-parse HEAD)" = "923f38cf9c0562afd402229021b250273d0b82e1"
+          test "$(git -C site rev-parse HEAD)" = "873573fc5ff0f0336a468849730ab15b5dfa1b53"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -113,7 +135,7 @@ jobs:
           node --check scripts/build-d07-clean.mjs
           node --check scripts/audit-d07-t3-context.mjs
           npm run t3:test-local > "$RUNNER_TEMP/local-tests.log" 2>&1 || { echo D07_T3_LOCAL_TESTS=FAIL; grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"; exit 1; }
-          node --test scripts/tests/d07-t3-preview.test.mjs scripts/tests/d07-retained-byte-attributes.test.mjs scripts/tests/d07-retained-index.test.mjs > "$RUNNER_TEMP/preview-tests.log" 2>&1 || {
+          node --test scripts/tests/d07-t3-preview.test.mjs scripts/tests/d07-retained-byte-attributes.test.mjs scripts/tests/d07-retained-index.test.mjs scripts/tests/d07-private-release.test.mjs > "$RUNNER_TEMP/preview-tests.log" 2>&1 || {
             echo D07_T3_PREVIEW_TESTS=FAIL
             grep -E '^# (tests|pass|fail) [0-9]+$|^not ok [0-9]+ ' "$RUNNER_TEMP/preview-tests.log" | cut -c1-160 | head -20
             exit 1
@@ -124,15 +146,19 @@ jobs:
           grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"
           echo D07_T3_ASSEMBLY_SYNTAX=PASS
   original-t3-integration:
-    needs: t3-source
-    if: ${{ !cancelled() }}
+    needs: [t3-source, private-transport]
+    if: ${{ success() }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
+          path: pipeline
+      - uses: actions/checkout@v4
+        with:
           repository: Faust-S/uslugovod.ru
-          ref: 923f38cf9c0562afd402229021b250273d0b82e1
+          ref: 873573fc5ff0f0336a468849730ab15b5dfa1b53
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -315,7 +341,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "923f38cf9c0562afd402229021b250273d0b82e1"
+          test "$(git rev-parse HEAD)" = "873573fc5ff0f0336a468849730ab15b5dfa1b53"
           test -z "$(git status --porcelain --untracked-files=no)"
           local="runtime/t3-platform/0.3.1-rc.1"
           node --import tsx --input-type=module -e 'import {verifyPreparedD07Host} from "./scripts/prepare-d07-t3-host.mjs";import {verifyPreparedKernelSupport} from "./scripts/prepare-d07-local-kernel-input.mjs";import {verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";const root=process.argv[1];verifyPreparedD07Host(root+"/d07-host");verifyPreparedKernelSupport(root+"/kernel-support");verifyPlatformArchive(root+"/platform-inputs.zip")' "$local" > "$RUNNER_TEMP/d07-retain-recheck.log" 2>&1 || {
@@ -326,8 +352,8 @@ jobs:
             echo D07_T3_RETAIN_GIT_SIZE_LIMIT=FAIL
             exit 1
           fi
-          # Local index only. The token used for checkout is read-only.
-          # Never push private compiled bytes from this public workflow.
+          # Authenticate the exact index before any private retention commit.
+          # No private compiled bytes are uploaded as public artifacts.
           git add -f -- "$local/d07-host" "$local/kernel-support" "$local/platform-inputs.zip"
           node scripts/verify-d07-retained-index.mjs > "$RUNNER_TEMP/d07-retain-index.log" 2>&1 || {
             echo D07_T3_RETAIN_INDEX=FAIL
@@ -335,7 +361,7 @@ jobs:
             exit 1
           }
           grep -E '^D07_T3_RETAIN_INDEX=PASS \{' "$RUNNER_TEMP/d07-retain-index.log"
-      - name: Qualify ordinary release command switch without a remote write
+      - name: Qualify ordinary release command switch before publication
         working-directory: site
         run: |
           set -euo pipefail
@@ -360,5 +386,25 @@ jobs:
             exit 1
           }
           echo D07_T3_ORDINARY_COMMAND_BYTE_PARITY=PASS
-          echo D07_T3_LOCAL_RETENTION_REQUIRED=TRUE
+          echo D07_T3_RELEASE_COMMAND_VERIFIED=PASS
+      - name: Commit only the exact qualified private inputs and tested release command
+        working-directory: site
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "873573fc5ff0f0336a468849730ab15b5dfa1b53"
+          test -z "$(git diff --name-only)"
+          node scripts/verify-d07-retained-index.mjs
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: retain qualified local T3 platform inputs [skip ci] [skip actions]'
+          echo "D07_T3_RETAINED_INPUT_PARENT=$(git rev-parse HEAD)"
+          node --input-type=module -e 'import {readFileSync,writeFileSync} from "node:fs";const p="package.json",m=JSON.parse(readFileSync(p,"utf8"));if(m.scripts.build!=="node scripts/build-d07-integrated-site.mjs"||m.scripts["t3:build"]!=="node --import tsx scripts/build-d07-t3-local-site.mjs")process.exit(1);m.scripts.build=m.scripts["t3:build"];writeFileSync(p,JSON.stringify(m,null,2)+"\n")'
+          git add -- package.json
+          test "$(git diff --cached --name-only)" = package.json
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: activate qualified self-contained T3 build in work branch [skip ci] [skip actions]'
+          test -z "$(git status --porcelain --untracked-files=no)"
+      - name: Authorized private branch retention and exact remote readback
+        working-directory: site
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          bash ../pipeline/scripts/d07-private-git-transport.sh publish 873573fc5ff0f0336a468849730ab15b5dfa1b53 "$(git rev-parse HEAD)"
       # Never upload private source, prepared inputs, dist, logs or model data.
