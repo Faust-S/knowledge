@@ -83,8 +83,10 @@ def export_executed_route_economics():
     assert "model://" not in payload
     assert "original_owner_contrasts" not in payload
     path = Path(__file__).resolve().parent / "r2_executed_route_economics_evidence.json"
-    path.write_text(payload, encoding="utf-8")
-    return path, sha256(payload.encode("utf-8")).hexdigest()
+    # Hash the actual portable artifact bytes, not an in-memory text surrogate.
+    # Writing bytes also prevents Windows from translating LF into CRLF.
+    path.write_bytes(payload.encode("utf-8"))
+    return path, sha256(path.read_bytes()).hexdigest()
 
 
 
@@ -221,8 +223,10 @@ def export_multiperiod_route_economics():
     assert "original_owner_contrasts" not in payload
     assert "local_research_only" not in payload
     path = Path(__file__).resolve().parent / "r1p_r3_multiperiod_route_economics_evidence.json"
-    path.write_text(payload, encoding="utf-8")
-    return path, sha256(payload.encode("utf-8")).hexdigest()
+    # Hash the actual portable artifact bytes, not an in-memory text surrogate.
+    # Writing bytes also prevents Windows from translating LF into CRLF.
+    path.write_bytes(payload.encode("utf-8"))
+    return path, sha256(path.read_bytes()).hexdigest()
 
 
 if __name__ == "__main__":
