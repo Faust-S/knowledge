@@ -1,0 +1,52 @@
+name: T3 mobile portable platform candidate
+on:
+  push:
+    branches: [work/2026-11-24-t3-mobile-model-catalog]
+    paths:
+      - packages/t3-core/scripts/package-t3-portable-platform.mjs
+      - .github/workflows/t3-mobile-portable-candidate.yml
+      - packages/t3-core/package.json
+      - packages/t3-core/package-lock.json
+permissions:
+  contents: read
+jobs:
+  platform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact public original Kernel
+        working-directory: packages/t3-core
+        run: |
+          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip" | sha256sum -c -
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Broad inherited T3 product regressions (before BLI staging)
+        working-directory: packages/t3-core
+        run: |
+          npm run check:source
+          npm run typecheck
+          npm run test:product:core
+          npm run test:product:workspace
+          node --test tests/t3-activity/*.test.mjs tests/t3-mobile-model-catalog.test.mjs tests/t3-domain-offline.test.mjs tests/t3-pwa-install.test.mjs tests/t3-d5-model-install-cancellation.test.mjs
+      - name: Compile original generic Host with the exact candidate shared BLI
+        working-directory: packages/t3-core
+        run: node scripts/qualify-bli-inherited-host.mjs
+      - name: Package and independently read every portable input back
+        working-directory: packages/t3-core
+        run: |
+          node scripts/package-t3-portable-platform.mjs "$RUNNER_TEMP/t3-platform-candidate" "$GITHUB_SHA" "$GITHUB_RUN_ID"
+          mkdir "$RUNNER_TEMP/t3-platform-extract"
+          unzip -q "$RUNNER_TEMP/t3-platform-candidate/platform-inputs.zip" -d "$RUNNER_TEMP/t3-platform-extract"
+          cd "$RUNNER_TEMP/t3-platform-extract"
+          sha256sum -c t3-platform-inputs.sha256
+          node --input-type=module -e 'import("./scripts/materialize-t3-domain-mode.mjs").then(x=>{if(typeof x.materializeDomainMode!=="function")process.exit(1);console.log("T3_PORTABLE_MATERIALIZER_IMPORT_PASS")})'
+      - name: Retain public-only exact portable candidate input, no private domain
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-t3-mobile-portable-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/t3-platform-candidate/
+          if-no-files-found: error
+          retention-days: 30
