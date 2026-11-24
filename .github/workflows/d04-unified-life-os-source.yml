@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 98519371b2c88f57f1ba6053ace3f9459f37b3cf
+          ref: 161ad6c1bd73e22f51bed886c01a6bd8d066ba3a
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -53,8 +53,8 @@ jobs:
       - name: Check exact revisions and canonical model
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "98519371b2c88f57f1ba6053ace3f9459f37b3cf"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "3b488ce32a88c0a4b702002488c7c400be1abdb5"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "161ad6c1bd73e22f51bed886c01a6bd8d066ba3a"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "71a2c8fa4336e59033fc9a84f7d9cbeb42d070db"
           test "$(git -C d04-private/model rev-parse HEAD)" = "034543635cd3a544a9d496f8c06117cb88d8694d"
           for name in LIFE_GOAL_RESULT_REFS_V0_1.mjs LIFE_GOAL_RESULT_REFS_V0_1.d.mts PERSONAL_CUSTOM_MEASURE_V0_1.mjs PERSONAL_CUSTOM_MEASURE_V0_1.d.mts LIFE_PERIOD_COMPARISON_V0_1.mjs LIFE_PERIOD_COMPARISON_V0_1.d.mts LIFE_ACTION_BOARD_V0_1.mjs LIFE_ACTION_BOARD_V0_1.d.mts PERSONAL_MEDICAL_EVIDENCE_V0_1.mjs PERSONAL_MEDICAL_EVIDENCE_V0_1.d.mts LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.mjs LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.d.mts PERSONAL_GOAL_PROFILE_V0_1.mjs PERSONAL_GOAL_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_PROFILE_V0_1.mjs PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts LIFE_DASHBOARD_CALCULATIONS_V0_1.mjs LIFE_DASHBOARD_CALCULATIONS_V0_1.d.mts LIFE_DIARY_BATCH_V0_1.mjs LIFE_DIARY_BATCH_V0_1.d.mts; do
             cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
@@ -87,6 +87,7 @@ jobs:
             else
               echo "D04_UNIFIED_${suite}=FAIL"
               grep -E '^not ok [0-9]+ - ' "$log" | head -20 || true
+              grep -Eo 'D04_SERVICE_MATRIX_[A-Z0-9_]+|BAZMED_[A-Z0-9_]+' "$log" | sort -u | head -15 || true
               code=1
             fi
             grep -E '^# (tests|pass|fail) [0-9]+$' "$log" | tail -3 || true
