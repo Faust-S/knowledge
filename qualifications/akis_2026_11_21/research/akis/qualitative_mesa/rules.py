@@ -49,6 +49,7 @@ from .work_assurance import (
     QualityCriterion, AssuranceInputError, AssuranceBlocked,
     parse_criteria, assess_result_quality, acceptance_gate, assurance_view,
     CORRECTION_ACTIONS, apply_quality_correction, qualified_resubmission,
+    assert_current_quality_evidence,
     _ref_used as assurance_reference_used,
 )
 from .cooperation import (
@@ -2122,6 +2123,7 @@ class QualitativeAKIS:
                 quality_gate = acceptance_gate(w)
                 if quality_gate != "NONE":
                     raise BlockedDecision(quality_gate)
+                assert_current_quality_evidence(self, w, at)
             w.result = "ACCEPTED_BY_ORIGINAL_RECIPIENT" if a == "accept" else "REJECTED"
             w.obligation = "FULFILLED" if a == "accept" else "ACCEPTED_BY_ORIGINAL_PRINCIPALS"
             w.result_history.append({"transition": a, "model_ref": w.result_ref})
