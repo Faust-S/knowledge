@@ -254,91 +254,13 @@ jobs:
           code=$?
           set -e
           if [ "$code" -ne 0 ]; then
-            grep -E '^D04_HOME_(CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE|INDEPENDENT)|GOAL_(REFS|REVERSE_NAVIGATION|REFS_INDEPENDENT)|DAILY_STUDY(_COLD_EXCHANGE)?|PERSONAL_CASE|INTERACTIVE_ENTRY)=(PASS|FAIL) "$RUNNER_TEMP/d04-home-browser.log" || true
+            grep -E '^D04_HOME_(CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE|INDEPENDENT)|GOAL_(REFS|REVERSE_NAVIGATION|REFS_INDEPENDENT)|DAILY_STUDY(_COLD_EXCHANGE)?|PERSONAL_CASE|INTERACTIVE_ENTRY)=(PASS|FAIL)$' "$RUNNER_TEMP/d04-home-browser.log" || true
             echo "D04_HOME_REAL_BROWSER=FAIL"
             grep -E '^D04_HOME_(BROWSER_STAGE|VIEWPORT_W[0-9]+_FULL_JOURNEY)' "$RUNNER_TEMP/d04-home-browser.log" | tail -6 || true
             # Keep independent fixed stage and error codes from every case.
             # Never print the raw exception, source contents or private logs.
-            grep -E '^D04_(GOAL_REF|STUDY|CUSTOM|HOME)_WITNESS_(STAGE|ERROR_CLASS|ERROR|SAFE_CAUSE|CAUSE|OUTER)_[A-Za-z0-9_]+
-            if ! grep -Eq 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_STUDY_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log"; then
-              if grep -q 'TimeoutError' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=TIMEOUT"
-              elif grep -q 'ERR_MODULE_NOT_FOUND' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=MODULE_NOT_FOUND"
-              elif grep -q 'EADDRINUSE' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=PORT_CONFLICT"
-              elif grep -q 'Error: ' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=UNCLASSIFIED_THROW"
-              else
-                echo "D04_HOME_BROWSER_ERROR_CLASS=EARLY_PROCESS_EXIT"
-              fi
-            fi
-            exit "$code"
-          fi
-          grep '^D04_HOME_' "$RUNNER_TEMP/d04-home-browser.log" | tail -8
-          grep -E '^D04_HOME_UNIFIED_IWXA_(OBJECTS|RESULT_EVENTS|COLD_RESTORE)=' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_PERF_W[0-9]+_(EMPTY|CREATE|COLD)_MS=[0-9]+' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE)=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_GOAL_(REFS|REVERSE_NAVIGATION)=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_DAILY_STUDY(_COLD_EXCHANGE)?=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
-          echo "D04_HOME_REAL_BROWSER=PASS"
-      # No public artifact, private dist, screenshots, code, or private logs are uploaded.
- "$RUNNER_TEMP/d04-home-browser.log" || true
-            echo "D04_HOME_REAL_BROWSER=FAIL"
-            grep -E '^D04_HOME_(BROWSER_STAGE|VIEWPORT_W[0-9]+_FULL_JOURNEY)' "$RUNNER_TEMP/d04-home-browser.log" | tail -6 || true
-            grep -Eo 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_STUDY_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -12 || true
-            if ! grep -Eq 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_STUDY_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log"; then
-              if grep -q 'TimeoutError' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=TIMEOUT"
-              elif grep -q 'ERR_MODULE_NOT_FOUND' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=MODULE_NOT_FOUND"
-              elif grep -q 'EADDRINUSE' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=PORT_CONFLICT"
-              elif grep -q 'Error: ' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=UNCLASSIFIED_THROW"
-              else
-                echo "D04_HOME_BROWSER_ERROR_CLASS=EARLY_PROCESS_EXIT"
-              fi
-            fi
-            exit "$code"
-          fi
-          grep '^D04_HOME_' "$RUNNER_TEMP/d04-home-browser.log" | tail -8
-          grep -E '^D04_HOME_UNIFIED_IWXA_(OBJECTS|RESULT_EVENTS|COLD_RESTORE)=' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_PERF_W[0-9]+_(EMPTY|CREATE|COLD)_MS=[0-9]+' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE)=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_GOAL_(REFS|REVERSE_NAVIGATION)=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_DAILY_STUDY(_COLD_EXCHANGE)?=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
-          echo "D04_HOME_REAL_BROWSER=PASS"
-      # No public artifact, private dist, screenshots, code, or private logs are uploaded.
- "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -40 || true
+            grep -E '^D04_(GOAL_REF|STUDY|CUSTOM|HOME)_WITNESS_(STAGE|ERROR_CLASS|ERROR|SAFE_CAUSE|CAUSE|OUTER)_[A-Za-z0-9_]+$' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -40 || true
             grep -Eo 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_STUDY_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -40 || true
-            if ! grep -Eq 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_STUDY_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log"; then
-              if grep -q 'TimeoutError' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=TIMEOUT"
-              elif grep -q 'ERR_MODULE_NOT_FOUND' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=MODULE_NOT_FOUND"
-              elif grep -q 'EADDRINUSE' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=PORT_CONFLICT"
-              elif grep -q 'Error: ' "$RUNNER_TEMP/d04-home-browser.log"; then
-                echo "D04_HOME_BROWSER_ERROR_CLASS=UNCLASSIFIED_THROW"
-              else
-                echo "D04_HOME_BROWSER_ERROR_CLASS=EARLY_PROCESS_EXIT"
-              fi
-            fi
-            exit "$code"
-          fi
-          grep '^D04_HOME_' "$RUNNER_TEMP/d04-home-browser.log" | tail -8
-          grep -E '^D04_HOME_UNIFIED_IWXA_(OBJECTS|RESULT_EVENTS|COLD_RESTORE)=' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_PERF_W[0-9]+_(EMPTY|CREATE|COLD)_MS=[0-9]+' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE)=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_GOAL_(REFS|REVERSE_NAVIGATION)=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_DAILY_STUDY(_COLD_EXCHANGE)?=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
-          echo "D04_HOME_REAL_BROWSER=PASS"
-      # No public artifact, private dist, screenshots, code, or private logs are uploaded.
- "$RUNNER_TEMP/d04-home-browser.log" || true
-            echo "D04_HOME_REAL_BROWSER=FAIL"
-            grep -E '^D04_HOME_(BROWSER_STAGE|VIEWPORT_W[0-9]+_FULL_JOURNEY)' "$RUNNER_TEMP/d04-home-browser.log" | tail -6 || true
-            grep -Eo 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_STUDY_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log" | sort -u | head -12 || true
             if ! grep -Eq 'D04_UI_[A-Za-z0-9_]+|D04_HOME_WITNESS_[A-Za-z0-9_]+|D04_STUDY_WITNESS_[A-Za-z0-9_]+|D04_CUSTOM_WITNESS_[A-Za-z0-9_]+|D04_GOAL_REF_WITNESS_[A-Za-z0-9_]+|D04_OBSERVATION_EXCHANGE_[A-Za-z0-9_]+' "$RUNNER_TEMP/d04-home-browser.log"; then
               if grep -q 'TimeoutError' "$RUNNER_TEMP/d04-home-browser.log"; then
                 echo "D04_HOME_BROWSER_ERROR_CLASS=TIMEOUT"
