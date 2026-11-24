@@ -435,9 +435,14 @@ try{
  check(await goalScope.getAttribute("data-workspace-id")===base.scope,"GOAL_ORIGINAL_SCOPE");
  if(await goalScope.getAttribute("aria-pressed")!=="true")await goalScope.click();
  await poll(async()=>await goalScope.getAttribute("aria-pressed")==="true","GOAL_SCOPE_FOCUSED");
- await goalImport.getByLabel("Подтверждаю сохранение выбранных результатов на этом устройстве.",{exact:true}).check();
+ const goalSaveConsentControl=goalImport.getByTestId("club-t0-import-consent");
+ const goalSaveReadinessPanel=goalImport.getByTestId("club-t0-import-preview");
  const goalSave=goalImport.getByRole("button",{name:"Сохранить выбранное",exact:true});
- await poll(async()=>await goalSave.isEnabled(),"GOAL_KERNEL_READY");
+ await poll(async()=>await goalSaveReadinessPanel.getAttribute("data-club-save-readiness")==="READY"&&await goalSaveConsentControl.isEnabled(),"GOAL_INSPECTION_BEFORE_CONSENT");
+ check(!await goalSaveConsentControl.isChecked()&&!await goalSave.isEnabled(),"GOAL_EXPLICIT_CONSENT_REQUIRED");
+ await goalSaveConsentControl.check();
+ await poll(async()=>await goalSaveConsentControl.isChecked()&&await goalSave.isEnabled(),"GOAL_KERNEL_READY");
+ log("OFFLINE_GOAL_INSPECTED_EXPLICIT_CONFIRMATION");
  await goalSave.click();
  await poll(async()=>{
   const g=await localGoal();return g?.kernelSource?.workspaceId===base.scope&&g.kernelSource.revision>0&&g.kernelSource.syncedUpdatedAt===g.updatedAt;
@@ -768,6 +773,52 @@ try{
  log("OFFLINE_GOAL_CASH_HISTORY_LINK");
  await cashHistory.locator("[data-cash-calendar-history-detail]").getByText("Полученная зарплата",{exact:true}).waitFor({state:"visible"});
  log("OFFLINE_CASH_RECONCILED_PERIOD_HISTORY");
+ async function verifyExpenseAlternatives(prefix){
+  phase=prefix;
+  const group=page.locator("#club-money-decisions");
+  if(!await group.evaluate(el=>el.open))await group.locator(":scope > summary").click();
+  const panel=group.locator("[data-club-expense-options]");
+  const form=panel.locator("[data-club-expense-options-form]");
+  const result=panel.locator("[data-club-expense-options-result]");
+  const run=form.locator("[data-club-expense-options-run]");
+  await poll(async()=>await run.isEnabled(),prefix+"_SOURCE_READY");
+  const before=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
+  const exactCash=await localCash();
+  const metric=async(title,label)=>{
+   const card=result.locator("article").filter({has:page.getByRole("heading",{name:title,exact:true})});
+   check(await card.count()===1,prefix+"_EXACT_CARD");
+   const row=card.locator("p.club-review-line").filter({has:page.getByText(label,{exact:true})});
+   check(await row.count()===1,prefix+"_EXACT_METRIC");
+   return Number((await row.locator("strong").textContent()).replace(/[^0-9-]/g,""));
+  };
+  await form.locator('[name="entryId"]').selectOption("");
+  for(const [k,v] of Object.entries({dateA:cashDates.today,amountA:"15000",dateB:cashDates.future,amountB:"11000"}))
+   await form.locator('[name="'+k+'"]').fill(v);
+  await run.click();
+  await poll(async()=>await result.getAttribute("data-iwxa-assistant-state")==="ready",prefix+"_COMPARE_READY");
+  check(await metric("Исходный календарь","Прогноз к концу периода")===17000,prefix+"_BASELINE");
+  check(await metric("Вариант А","Прогноз к концу периода")===2000,prefix+"_A_END");
+  check(await metric("Вариант Б","Прогноз к концу периода")===6000,prefix+"_B_END");
+  check(await metric("Вариант А","Не хватает на эти платежи и запас")===3000,prefix+"_A_SHORTFALL");
+  check(await metric("Вариант Б","Остаток сверх них по записанным деньгам")===1000,prefix+"_B_RESERVE");
+  await form.locator('[name="amountA"]').fill("14000");
+  await poll(async()=>await result.getAttribute("data-iwxa-assistant-state")==="empty",prefix+"_DRAFT_INVALIDATES");
+  const plan=exactCash.data.cashCalendar.entries[0];
+  await form.locator('[name="entryId"]').selectOption(plan.id);
+  check(await form.locator('[name="dateA"]').inputValue()===plan.date&&
+   await form.locator('[name="amountA"]').inputValue()==="3000",prefix+"_EXACT_PLAN_PREFILL");
+  await form.locator('[name="dateB"]').fill(cashDates.nextEnd);
+  await form.locator('[name="amountB"]').fill("4000");
+  await run.click();
+  await poll(async()=>await result.getAttribute("data-iwxa-assistant-state")==="ready",prefix+"_REPLACE_READY");
+  check(await metric("Вариант А","Прогноз к концу периода")===17000,prefix+"_EXISTING_NOT_DUPLICATED");
+  check(await metric("Вариант Б","Прогноз к концу периода")===16000,prefix+"_ONE_REPLACEMENT");
+  check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===before&&
+   isDeepStrictEqual(await localCash(),exactCash),prefix+"_NO_SOURCE_WRITE");
+  await group.locator(":scope > summary").click();
+  log(prefix);
+ }
+ await verifyExpenseAlternatives("OFFLINE_EXPENSE_TWO_INDEPENDENT_ALTERNATIVES");
  phase="OFFLINE_CASH_KERNEL_SAVE";
  await page.locator("[data-cash-calendar-persist]").getByRole("link",{name:"Сохранить календарь на устройстве",exact:true}).click();
  const cashImport=page.getByTestId("club-t0-import-card");
@@ -843,6 +894,7 @@ try{
  await history.locator("[data-cash-calendar-history-detail]").getByText("Полученная зарплата",{exact:true}).waitFor({state:"visible"});
  check(await page.evaluate(()=>navigator.onLine===false),"CASH_RESTORED_OFFLINE");
  log("OFFLINE_CASH_HISTORY_RESTORED_AND_CONTINUED");
+ await verifyExpenseAlternatives("OFFLINE_RESTORED_EXPENSE_ALTERNATIVES");
  phase="OFFLINE_FACT_RESTORE_WEEK";
  await visit(page,"/workspace/");await openExisting(page);
  const factToday=page.getByTestId("club-native-today");
@@ -1161,6 +1213,10 @@ try{
   importRowCount:document.querySelectorAll('[data-testid="club-t0-import-object-checkbox"]').length,
   importRowDisabled:document.querySelectorAll('[data-testid="club-t0-import-object-checkbox"]:disabled').length,
   importConfirmDisabled:document.querySelector('[data-testid="club-t0-import-confirm"]')?.disabled??null,
+  importConsentChecked:document.querySelector('[data-testid="club-t0-import-consent"]')?.checked??null,
+  importConsentDisabled:document.querySelector('[data-testid="club-t0-import-consent"]')?.disabled??null,
+  importReadiness:(()=>{const s=document.querySelector('[data-testid="club-t0-import-preview"]')?.getAttribute("data-club-save-readiness");
+   return ["READY","BUSY","WORKSPACE","SELECTION","UPDATE_SCOPE","INSPECTION_FAILED","INSPECTION_PENDING","TARGET_CONFLICT","AUTHORITY","SOURCE_MISSING"].includes(s)?s:"absent";})(),
   nativeToday:!!document.querySelector('[data-testid="club-native-today"]'),
   restoreCard:!!document.querySelector('[data-testid="club-t2-restore-card"]'),
   restoreCheckboxes:document.querySelectorAll('[data-testid="club-t2-restore-card"] input[type="checkbox"]').length,
