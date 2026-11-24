@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {buildD05RouteQualityComparisonExample,reviewD05ResultSelection} from '../modules/activity-base-anonymizer/d05-route-comparison.mjs';
 import {prepareD05ExtractionRequest,reviewD05ExtractionProposal} from '../modules/activity-base-anonymizer/d05-technology-extraction.mjs';
 
-export async function extractionCase(){
+export async function extractionCase({recurring=false}={}){
  const records=buildD05RouteQualityComparisonExample();
  const resources={
   'Раскрой':['Оператор лазерной резки','Лазерный станок с ЧПУ','Листовая сталь толщиной 2 мм'],
@@ -23,15 +23,23 @@ export async function extractionCase(){
    }
   }
  }
+ if(recurring){
+  const routes=records.filter(rec=>rec.object.schema_id.endsWith('.operation-route'));
+  const controls=records.filter(rec=>rec.object.schema_id.endsWith('.quality-check-template'));
+  const a=routes[0].object.data.value.data.inputs,b=routes[1].object.data.value.data.inputs;
+  for(let i=0;i<a.operations.length;i++)b.operations[i].duration=a.operations[i].duration;
+  for(const k of ['lower_limit','target_value','upper_limit'])controls[1].object.data.value[k]=controls[0].object.data.value[k];
+  b.quantity='240';
+ }
  const review=reviewD05ResultSelection(records,{includeTechnologyDraft:true});
  const group=review.groups.find(g=>g.model_numbers.includes(1));
  assert.ok(group&&group.operations.length===3);
- const request=await prepareD05ExtractionRequest(review,group.id,1);
+ const request=await prepareD05ExtractionRequest(review,group.id,1,{includeCompatibleDeclarations:recurring});
  return {review,group,request};
 }
-export async function evaluateActualProposal(proposal){
- const {review,group,request}=await extractionCase();
- const result=await reviewD05ExtractionProposal(review,group.id,1,proposal);
+export async function evaluateActualProposal(proposal,{recurring=false}={}){
+ const {review,group,request}=await extractionCase({recurring});
+ const result=await reviewD05ExtractionProposal(review,group.id,1,proposal,{includeCompatibleDeclarations:recurring});
  const facts=new Map(request.document.evidence.map(x=>[x.ref,x]));
  // These are the directly declared operation facts. A reference to another
  // field of the same operation does not count as direct grounding here.
@@ -65,10 +73,10 @@ export async function evaluateActualProposal(proposal){
 }
 if(process.argv[1]?.endsWith('activity_d05_real_extraction_case.mjs')){
  try{
-  if(process.argv[2]==='--request')process.stdout.write(JSON.stringify((await extractionCase()).request)+'\n');
-  else if(process.argv[2]==='--evaluate'){
+  if(['--request','--recurring-request'].includes(process.argv[2]))process.stdout.write(JSON.stringify((await extractionCase({recurring:process.argv[2]==='--recurring-request'})).request)+'\n');
+  else if(['--evaluate','--recurring-evaluate'].includes(process.argv[2])){
    let input='';for await(const chunk of process.stdin){input+=chunk;if(Buffer.byteLength(input)>2*1024*1024)throw Error('INPUT_LIMIT');}
-   process.stdout.write(JSON.stringify(await evaluateActualProposal(JSON.parse(input)))+'\n');
+   process.stdout.write(JSON.stringify(await evaluateActualProposal(JSON.parse(input),{recurring:process.argv[2]==='--recurring-evaluate'}))+'\n');
   }else throw Error('QUALIFICATION_OPERATION_REQUIRED');
  }catch(e){
   const code=typeof e?.code==='string'&&/^TECHNOLOGY_[A-Z0-9_]+$/.test(e.code)?e.code:'ACTIVITY_D05_QUALIFICATION_FAILED';

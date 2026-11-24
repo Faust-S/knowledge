@@ -21,11 +21,12 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
  const file=useRef<HTMLInputElement>(null),generation=useRef(0);
  const [request,setRequest]=useState<D05ExtractionRequest|null>(null),[result,setResult]=useState<D05ExtractionReview|null>(null);
  const [busy,setBusy]=useState(false),[problem,setProblem]=useState(''),[page,setPage]=useState(0);
+ const [includeCompatibleDeclarations,setCompatible]=useState(true);
  useLayoutEffect(()=>{generation.current++;setRequest(null);setResult(null);setProblem('');setBusy(false);setPage(0);
-  return()=>{generation.current++;};},[review,groupId,modelNumber]);
+  return()=>{generation.current++;};},[review,groupId,modelNumber,includeCompatibleDeclarations]);
  async function prepare(){
   const token=++generation.current;setBusy(true);setProblem('');setResult(null);setRequest(null);
-  try{const value=await prepareD05ExtractionRequest(review,groupId,modelNumber);
+  try{const value=await prepareD05ExtractionRequest(review,groupId,modelNumber,{includeCompatibleDeclarations});
    if(token===generation.current)setRequest(value);}
   catch{if(token===generation.current)setProblem('Для извлечения нужен однозначный маршрут с исходной картой качества. Большие выборки необходимо разделить по технологиям.');}
   finally{if(token===generation.current)setBusy(false);}
@@ -36,7 +37,7 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
   try{
    if(!selected.size||selected.size>2*1024*1024)throw Error('size');
    const raw=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await selected.arrayBuffer()));
-   const value=await reviewD05ExtractionProposal(review,groupId,modelNumber,raw);
+   const value=await reviewD05ExtractionProposal(review,groupId,modelNumber,raw,{includeCompatibleDeclarations});
    if(token===generation.current)setResult(value);
   }catch{if(token===generation.current)setProblem('Ответ не соответствует точной редакции источника, полям предложения или указанным основаниям. Проверьте задачу в Agent.');}
   finally{if(token===generation.current)setBusy(false);}
@@ -56,14 +57,25 @@ export function D05ExtractionPanel({review,groupId,modelNumber,form,decisions,on
   onApply(next,{...result.decisions,...decisions},result.suggested_title);
  }
  const fields=result?Object.entries(result.fields):[],pageSize=12;
+ const family=request?.document.comparison.compatible_declarations;
  return <div className="activity-domain-group">
   <h3>Автоматизированное извлечение технологии</h3>
-  <p>Локальная модель обобщает выбранный вариант, не меняя операции, зависимости, допуски и контроль качества.</p>
+  <p>Локальная модель обобщает выбранную технологию, не меняя операции, зависимости, допуски и контроль качества.</p>
+  <label className="activity-domain-label">Объём исходного опыта
+   <select disabled={busy} value={includeCompatibleDeclarations?'compatible':'single'} onChange={e=>setCompatible(e.target.value==='compatible')}>
+    <option value="compatible">Выбранная технология и совпадающие технические декларации</option>
+    <option value="single">Только выбранный вариант</option>
+   </select>
+  </label>
+  <p>Сходные маршруты с различными технологическими условиями или допусками остаются отдельными. Объём партии и календарь получателя не считаются техническими пределами.</p>
   <div className="activity-v7-actions"><button disabled={busy} onClick={()=>void prepare()}>Подготовить задание для локальной модели</button>
    {request?<button disabled={busy} onClick={()=>saveLocalRequest(request)}>Сохранить локальное задание Agent</button>:null}
    <input ref={file} className="visually-hidden" type="file" accept=".json,application/json" aria-label="Открыть извлечённую производственную технологию" onChange={load}/>
    <button disabled={busy} onClick={()=>file.current?.click()}>Открыть извлечённую технологию</button></div>
-  {request?<p role="status">Подготовлено {request.field_count} предметных полей. Откройте локальное задание в Agent. Используйте только разрешённую локальную модель и отдельную рабочую область; файл содержит частные сведения, не отправляйте его в облако.</p>:null}
+  {family?<div className="activity-v7-stats"><div><strong>{family.member_count}</strong><span>Совпадающих исходных деклараций</span></div>
+   <div><strong>{family.technical_condition_count}</strong><span>Совпадающих технических условий</span></div>
+   <div><strong>{family.control_count}</strong><span>Совпадающих контрольных точек</span></div></div>:null}
+  {request?<p role="status">Подготовлено {request.field_count} предметных полей. {family?'Повторение заявленных условий не подтверждает фактическое исполнение.':'Включён один исходный вариант.'} Откройте локальное задание в Agent. Используйте только разрешённую локальную модель и отдельную рабочую область; файл содержит частные сведения, не отправляйте его в облако.</p>:null}
   {busy?<p role="status">Проверяется выбранная редакция…</p>:null}
   {problem?<p role="alert" className="activity-v7-note hold">{problem}</p>:null}
   {result?<><div className="activity-v7-stats"><div><strong>{fields.length-result.missing_fields.length}</strong><span>Подготовлено полей</span></div>
