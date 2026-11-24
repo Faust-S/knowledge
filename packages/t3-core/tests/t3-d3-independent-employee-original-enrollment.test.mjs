@@ -773,7 +773,8 @@ test('Workspace return export is explicit, separately signed DATA and not implie
  assert.equal(issued.attachments.exportAccess.enrollment.payload.credentialPublicKeyRef,
   s.alice.signer.keyId);
  const enrollment=await s.owner.readEnrollment(args);
- assert.notEqual(enrollment.grantIds.export,issued.attachments.exportAccess.grantId);
+ assert.equal(enrollment.state,'ORIGINAL_GRANTS_ACTIVE');
+ assert.notEqual(enrollment.exportGrant.payload.id,issued.attachments.exportAccess.grantId);
  await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,returnExport:true}),
   {code:'T3_EMPLOYEE_WORKSPACE_RIGHTS_EXIST_USE_READBACK'});
  assert.equal(s.graphCalls.length,initial+1);
@@ -813,4 +814,27 @@ test('lost ACK during additive return export preserves previous grants and forbi
  await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,returnExport:true}),
   {code:'T3_EMPLOYEE_WORKSPACE_OUTCOME_UNKNOWN_READBACK'});
  assert.equal(s.graphCalls.length,before+1);
+});
+
+test('return-export revocation is retained by original signed registry; no new right is issued silently',async()=>{
+ const {s,args}=await enrolledWorkspaceForReturn();
+ const permitted=await s.owner.issueWorkspaceGrantSet({...args,returnExport:true});
+ const grantId=permitted.attachments.exportAccess.grantId;
+ const next=structuredClone(await s.registry.readState()),authority='issuer:north';
+ const status=next.statuses[authority].payload;
+ next.tombstones[grantId]={effectiveAt:iso(NOW),reason:'workspace-return-revoked'};
+ next.statuses[authority]=signRecord({...status,
+  id:'status:employee-workspace-return-revoked',sequence:status.sequence+1,
+  issuedAt:iso(NOW),entries:status.entries.map(row=>
+   row.grantId===grantId?{...row,state:'REVOKED',effectiveAt:iso(NOW)}:row)
+ },s.north.issuerSigner);
+ next.statusFloor[authority]=status.sequence+1;
+ await s.registry.commitSignedState(next);
+ const initial=s.graphCalls.length;
+ await assert.rejects(s.owner.readWorkspaceGrantSet(args),
+  {code:'T3_EMPLOYEE_WORKSPACE_RIGHT_REVOKED_OR_UNKNOWN'});
+ assert.equal((await s.owner.readEnrollment(args)).state,'ORIGINAL_GRANTS_ACTIVE');
+ await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,returnExport:true}),
+  {code:'T3_EMPLOYEE_WORKSPACE_RIGHTS_EXIST_USE_READBACK'});
+ assert.equal(s.graphCalls.length,initial);
 });
