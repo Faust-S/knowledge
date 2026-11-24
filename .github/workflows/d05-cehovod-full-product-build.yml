@@ -30,7 +30,7 @@ jobs:
             echo "D05_SITE_ACCESS=FAIL"
             exit 1
           fi
-          test "$(git -C site rev-parse HEAD)" = "e19c87a534cdc1449566b6b05b06946024c6d387" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
+          test "$(git -C site rev-parse HEAD)" = "a72116b2d694f756b999c13d935f364c36bc398a" || { echo "D05_SITE_PIN=FAIL"; exit 1; }
           echo "D05_SITE_PIN=PASS"
           git init --quiet t2
           if ! GIT_TERMINAL_PROMPT=0 git -C t2 -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags https://github.com/Faust-S/T2.git e70de29b72b83e2546f7ab74b17572685a728c17 >/dev/null 2>&1; then
@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           cd site
-          ./node_modules/.bin/prettier --check src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx src/lib/capacity-finance.ts src/lib/capacity-finance.test.ts src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts scripts/d05-first-use-real-kernel-witness.mjs > /dev/null
+          ./node_modules/.bin/prettier --check src/lib/shop-capacity.ts src/lib/shop-capacity.test.ts src/host/CehovodCapacityPanel.tsx src/lib/capacity-finance.ts src/lib/capacity-finance.test.ts src/lib/capacity-cash.ts src/lib/capacity-cash.test.ts src/host/CehovodCashPanel.tsx src/host/dispatch-capacity.ts src/host/dispatch-capacity.test.ts scripts/d05-first-use-real-kernel-witness.mjs > /dev/null
           echo "D05_FORMATTED_SOURCE_CHECK=PASS"
       - name: Assemble full static T2 product with native Chrome browser gates
         env:
