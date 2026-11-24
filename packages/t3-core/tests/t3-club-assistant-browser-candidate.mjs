@@ -44,7 +44,7 @@ try{
  browser=await chromium.launch({headless:true,args:["--disable-gpu"]});
  for(const size of [{width:320,height:568},{width:390,height:844},{width:820,height:1024},{width:1440,height:900}]){
   const ctx=await browser.newContext({viewport:size,hasTouch:size.width<621,isMobile:size.width<621,serviceWorkers:"block"});
-  let modelRequests=0,workers=0;
+  let modelRequests=0,workers=0,phase="INIT";
   try{
    await ctx.addInitScript(()=>{Object.defineProperty(navigator,"gpu",{configurable:true,value:undefined});});
    await ctx.route("**/*",route=>{
@@ -56,7 +56,9 @@ try{
    const page=await ctx.newPage();page.on("worker",()=>workers++);
    const at=id=>page.locator("#iwxa-t3-assistant").locator("#"+id);
    const check=(v,c)=>{if(!v)throw Error("T3_CLUB_BROWSER_"+c);};
+   phase="NAVIGATION";
    await page.goto(origin+"/tools/personal-economy/",{waitUntil:"domcontentloaded"});
+   phase="LAUNCHER_SCAN";
    await at("launcher").click();
    await at("skill-choice").locator("option").nth(1).waitFor({state:"attached"});
    await at("scan-forms").click();
@@ -64,26 +66,37 @@ try{
    const budget=opts.find(o=>o.text.startsWith("Месячный бюджет и финансовый резерв ·"));
    check(budget&&opts.some(o=>o.text.startsWith("Денежный календарь: доход или расход ·"))&&opts.some(o=>o.text.startsWith("Регулярный денежный платёж ·")),"DISTINCT_FORM_TITLES");
    await at("form-choice").selectOption(budget.value);
+   phase="CLOSE_GLOBAL";
    await at("close").click();
    const budgetShortcut=page.locator('form[data-pe-form] button[data-iwxa-assistant-form-open]');
    const cashShortcut=page.locator('form[data-cash-calendar-entry] button[data-iwxa-assistant-form-open]');
    check(await budgetShortcut.count()===1&&await cashShortcut.count()===1,"CONTEXT_SHORTCUT_COUNT");
    check(await budgetShortcut.evaluate(b=>b.type==="button"&&!b.hidden),"CONTEXT_SHORTCUT_TYPE");
+   phase="BUDGET_SHORTCUT";
    await budgetShortcut.click();
-   const waitForm=title=>page.waitForFunction(t=>document.querySelector("#iwxa-t3-assistant")?.shadowRoot?.getElementById("form-choice")?.selectedOptions[0]?.textContent?.startsWith(t),title);
+   const waitForm=title=>page.waitForFunction(t=>{const root=document.querySelector("#iwxa-t3-assistant")?.shadowRoot;return root?.getElementById("form-choice")?.selectedOptions[0]?.textContent?.startsWith(t)&&root.getElementById("status")?.textContent?.startsWith("Выбрана форма:");},title);
    await waitForm("Месячный бюджет и финансовый резерв ·");
    await at("prompt").fill("Незавершённый запрос");
-   page.once("dialog",d=>d.dismiss());
+   phase="CASH_SHORTCUT_CANCEL";
+   let cancelled=false;
+   page.once("dialog",async d=>{cancelled=true;await d.dismiss();});
    await cashShortcut.click();
+   check(cancelled,"CONTEXT_CANCEL_DIALOG");
    check(await at("prompt").inputValue()==="Незавершённый запрос"&&await at("form-choice").inputValue()===budget.value,"CONTEXT_SWITCH_CANCEL");
-   page.once("dialog",d=>d.accept());
+   phase="CASH_SHORTCUT_CONFIRM";
+   let confirmed=false;
+   page.once("dialog",async d=>{confirmed=true;await d.accept();});
    await cashShortcut.click();
+   check(confirmed,"CONTEXT_CONFIRM_DIALOG");
    await waitForm("Денежный календарь: доход или расход ·");
    check(await at("prompt").inputValue()==="","CONTEXT_SWITCH_CLEAR");
+   phase="CASH_RETURN_FOCUS";
    await at("close").click();
    check(await cashShortcut.evaluate(b=>document.activeElement===b),"CONTEXT_RETURN_FOCUS");
+   phase="BUDGET_RETURN";
    await budgetShortcut.click();
    await waitForm("Месячный бюджет и финансовый резерв ·");
+   phase="EXPLICIT_FORM";
    await at("prompt").fill("Валюта RUB. Регулярный доход 55000 рублей, обязательные расходы 32000 рублей.");
    await at("explicit-values").click();
    check(await at("preview").locator("li").count()===3,"EXPLICIT_PREVIEW");
@@ -91,6 +104,7 @@ try{
    const income=form.locator('[name="regularIncome"]'),expenses=form.locator('[name="mandatoryExpenses"]');
    check(await income.inputValue()===""&&await expenses.inputValue()==="","NO_EARLY_WRITE");
    await page.evaluate(()=>{window.__clubCandidateSubmits=0;document.querySelector("[data-pe-form]").addEventListener("submit",e=>{e.preventDefault();window.__clubCandidateSubmits++;},true);});
+   phase="GEOMETRY";
    const geometry=await at("drawer").evaluate(drawer=>{
     const bounds=drawer.getBoundingClientRect(),host=drawer.getRootNode().host.getBoundingClientRect(),vw=window.innerWidth;
     const nodes=[...drawer.querySelectorAll("select,button,input,textarea")].filter(el=>el.getClientRects().length);
@@ -102,17 +116,20 @@ try{
    });
    check(!geometry.overflow&&!geometry.controlOverflow,"ASSISTANT_HORIZONTAL_OVERFLOW");
    if(size.width<621)check(!geometry.smallTouch&&!geometry.smallText,"PHONE_TOUCH_TARGETS");
+   phase="NATIVE_APPLY";
    await at("apply").click();
    check(await income.inputValue()==="55000"&&await expenses.inputValue()==="32000","NATIVE_FORM_APPLY");
    check(await page.evaluate(()=>window.__clubCandidateSubmits)===0,"NO_FORM_SUBMIT");
+   phase="MODELLESS_SETTINGS";
    await at("model-settings").locator("summary").first().click();
    await page.waitForFunction(()=>{const r=document.querySelector("#iwxa-t3-assistant")?.shadowRoot;return r?.getElementById("device-status")?.textContent?.includes("не готов");});
    check(await at("install").isDisabled()&&await at("cached").isDisabled(),"MODELLESS_PHONE_FALLBACK");
    check(workers===0&&modelRequests===0,"NO_MODEL_ACTIVITY");
+   phase="FINAL_CLOSE";
    await at("close").click();
    check(await at("drawer").isHidden(),"CLOSE");
    console.log("T3_CLUB_BROWSER_CASE_PASS "+JSON.stringify({width:size.width,height:size.height,sharedEngine:true,phoneLayout:size.width<621,nativeApply:true,noSubmit:true,noModel:true,contextualShortcuts:true,confirmedFormSwitch:true,focusReturn:true}));
-  }catch(e){const code=typeof e.message==="string"&&/^T3_CLUB_BROWSER_[A-Z_]+$/.test(e.message)?e.message:"T3_CLUB_BROWSER_UNEXPECTED";console.log("T3_CLUB_BROWSER_CASE_FAIL "+JSON.stringify({width:size.width,code}));throw Error(code);}
+  }catch(e){const code=typeof e.message==="string"&&/^T3_CLUB_BROWSER_[A-Z_]+$/.test(e.message)?e.message:"T3_CLUB_BROWSER_UNEXPECTED";console.log("T3_CLUB_BROWSER_CASE_FAIL "+JSON.stringify({width:size.width,phase,code,timeout:e?.name==="TimeoutError"}));throw Error(code);}
   finally{await ctx.close();}
  }
  console.log("T3_CLUB_BROWSER_CANDIDATE_PASS 4 viewports, actual compiled assistant and native form, not physical devices");
