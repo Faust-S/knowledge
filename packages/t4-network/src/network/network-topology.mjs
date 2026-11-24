@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {createPlacementPolicy} from '../contracts/hosted-context-boundary.mjs';
 import {createT4NetworkConnectionProfile,openT4OperatorConnection} from './operator-connection.mjs';
+import {createT4OriginalSignedRouteAccess} from './original-signed-route-access.mjs';
 
 export class T4NetworkTopologyError extends Error {
   constructor(code) {super(code);this.name='T4NetworkTopologyError';this.code=code;}
@@ -263,6 +264,7 @@ export function openT4NativeTopologyTransport({
   topology,workspaceId,objectFamily,serverNodeRef,nativeWireProfile,
   readOriginalTopology,getMode,verifyOriginalEndpoint,authorizeOriginalOperation,
   getAuthorizationHeader,verifyOriginalOwnerAgreement,fetchImpl,maxBytes,timeoutMs,
+  originalSignedAccess=null,
 }={}){
   if(!['LEGACY','INDEXED'].includes(nativeWireProfile)||
     ![readOriginalTopology,getMode,verifyOriginalEndpoint,authorizeOriginalOperation,getAuthorizationHeader]
@@ -278,6 +280,10 @@ export function openT4NativeTopologyTransport({
   const binding=Object.freeze({topologyRef:pinned.topologyRef,topologyDigest:pinned.topologyDigest,
     workspaceId,objectFamily,serverNodeRef,localNodeRef:pinned.localNodeRef,originalWriteOwnerRef:route.originalWriteOwnerRef,
     profileRef:route.profileRef,locationRef:route.locationRef,nativeWireProfile});
+  const signed=originalSignedAccess===null?null:createT4OriginalSignedRouteAccess({
+    access:originalSignedAccess.access,expectedContext:originalSignedAccess.expectedContext,
+    clock:originalSignedAccess.clock,binding,route,authorityRoot:place.policy.authorityRoot,getMode,
+  });
   const current=async()=>{
     if(getMode()!=='T4_NETWORK')fail('T4_NETWORK_MODE_DISABLED');
     const observed=await readOriginalTopology(binding);
@@ -306,8 +312,16 @@ export function openT4NativeTopologyTransport({
     const ok=await executeT4NetworkRoute({topology:await current(),...params,capability,getMode,
       verifyOriginalEndpoint:proof=>verifyOriginalEndpoint(Object.freeze({...proof,transportRequest:exact,
         nativeWireProfile,serverNodeRef})),
-      authorizeOriginalOperation:proof=>authorizeOriginalOperation(Object.freeze({...proof,
-        transportRequest:exact,nativeWireProfile,serverNodeRef,storageLocationIsNotProtocolPeer:true})),
+      authorizeOriginalOperation:async proof=>{
+        const request=Object.freeze({...proof,transportRequest:exact,nativeWireProfile,serverNodeRef,
+          storageLocationIsNotProtocolPeer:true,...(signed?{originalSignedSubject:signed.subject}:{})});
+        // Original route consent and exact signed Access are independent
+        // gates. Neither a generic read/write grant nor a valid endpoint
+        // substitutes the other.
+        if(await authorizeOriginalOperation(request)!==true)return false;
+        if(signed)await signed.authorize(request);
+        return true;
+      },
       executeTransport:async()=>true});
     await current();return ok===true;
   };
@@ -324,6 +338,7 @@ export function openT4NativeTopologyTransport({
   const opened=Object.freeze({schema:'IWXA_T4_NATIVE_TOPOLOGY_TRANSPORT_V1',binding,
     transport:connection.transport,close:connection.close,
     originalTopologyRecheckedPerRequest:true,originalAuthorityGranted:false,
+    originalSignedAccessBound:signed!==null,
     protocolPeerReassigned:false,operatorDerivativeRightsActivated:false,createsStore:false,createsScheduler:false});
   nativeTopologyBindings.add(opened);return opened;
 }

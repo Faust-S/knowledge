@@ -39,6 +39,11 @@ function sameRequestFields(actual, expected) {
 // pre-existing createOrganizationalOperationGate({registry}) instance and
 // corporate.prove as the trusted credential proof provider. Neither is created
 // by this adapter, and no signer or registry is exposed in the returned port.
+// Provenance of an assembled Host port, not a grant or a second registry.
+const originalSignedHostPorts=new WeakSet();
+export function isOriginalSignedAccessHostPort(value){
+  return !!value&&typeof value==="object"&&originalSignedHostPorts.has(value);
+}
 export function createSignedAccessHostPort({
   currentContext, actionFor, operationDigest, canonicalDigest,
   personal, corporate, resourceRead = null,
@@ -299,7 +304,7 @@ export function createSignedAccessHostPort({
     });
   }
 
-  return Object.freeze({
+  const port=Object.freeze({
     currentContext,
     actionFor,
     operationDigest,
@@ -307,4 +312,6 @@ export function createSignedAccessHostPort({
     verifyDecisionBinding,
     readAuthorizedResource,
   });
+  originalSignedHostPorts.add(port);
+  return port;
 }

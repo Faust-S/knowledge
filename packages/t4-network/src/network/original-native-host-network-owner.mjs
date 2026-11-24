@@ -58,8 +58,13 @@ export function createT4OriginalNativeHostNetworkOwner({
   recipientNodeRef,scopeRef,ownerEpoch,requiredCryptoSuite,getMode,wireTransport,nativeTopologyTransport=null,
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
   enableLocalSourceCapture=false,enablePublicationIndexMigration=false,
-  enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,monotonicNow=()=>performance.now(),
+  enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,requireSignedTopologyAccess=false,
+  monotonicNow=()=>performance.now(),
 }={}){
+  if(typeof requireSignedTopologyAccess!=='boolean'||
+    (requireSignedTopologyAccess&&(!isT4NativeTopologyTransport(nativeTopologyTransport)||
+      nativeTopologyTransport.originalSignedAccessBound!==true)))
+    fail('NATIVE_NETWORK_OWNER_SIGNED_TOPOLOGY_REQUIRED');
   if(nativeTopologyTransport!==null){
     const b=nativeTopologyTransport.binding;
     if(wireTransport!==undefined||!isT4NativeTopologyTransport(nativeTopologyTransport)||
@@ -351,7 +356,8 @@ export function createT4OriginalNativeHostNetworkOwner({
   }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_NATIVE_HOST_NETWORK_OWNER_V1',role,identity,operations,
-    ...(nativeTopologyTransport?{originalTopologyBinding:nativeTopologyTransport.binding}:{}),
+    ...(nativeTopologyTransport?{originalTopologyBinding:nativeTopologyTransport.binding,
+      originalSignedTopologyAccess:nativeTopologyTransport.originalSignedAccessBound===true}:{}),
     ...(enableLocalSourceCapture?{localSourceMutation:Object.freeze({workspaceId:sourceWorkspaceId,
       methods:LOCAL_METHODS,invoke:invokeLocalSource})}:{}),
     createsScheduler:false,createsTaskEngine:false,createsStore:false,createsKernel:false,

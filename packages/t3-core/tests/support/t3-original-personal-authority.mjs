@@ -33,6 +33,13 @@ const PERSONAL_ACTIONS=Object.freeze({
   // Only the test issuer grants these; no runtime IAM or new importer.
   "t2.importPreview":"package.import.preview",
   "t2.importCommit":"package.import.commit",
+  // Explicitly selected test actions only: ordinary Kernel grants do not
+  // acquire network authority. No production grant is issued here.
+  "t4.network.frame.read":"t4.network.frame.read",
+  "t4.network.frame.publish":"t4.network.frame.publish",
+  "t4.network.frame.discover":"t4.network.frame.discover",
+  "t4.network.frame.index.read":"t4.network.frame.index.read",
+  "t4.network.frame.index.publish":"t4.network.frame.index.publish",
 });
 function createSigner(name,subject,uses,now){
   const {publicKey,privateKey}=generateKeyPairSync("ed25519");
@@ -56,7 +63,7 @@ export function createTemporaryOriginalPersonalAuthority({
      !Array.isArray(operations)||operations.length===0||
      operations.some(op=>!Object.hasOwn(PERSONAL_ACTIONS,op))||
      new Set(operations).size!==operations.length||
-     !["purpose:work","activity.analysis","activity.derivation"].includes(purpose)||
+     !["purpose:work","activity.analysis","activity.derivation","network.synchronization"].includes(purpose)||
      !(operationActions===null||(
        operationActions&&typeof operationActions==="object"&&
        !Array.isArray(operationActions)&&

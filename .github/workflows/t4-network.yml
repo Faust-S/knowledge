@@ -9,6 +9,9 @@ on:
       - packages/t3-core/src/t3/control-loopback-owner*
       - packages/t3-core/src/t3/original-control-http-handler.mjs
       - packages/t3-core/src/t3/subject-access-binding.mjs
+      - packages/t3-core/src/t3/signed-access-host-port.mjs
+      - packages/t3-core/src/t3/access/**
+      - packages/t3-core/tests/t3-signed-access-host-port.test.mjs
       - packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
       - packages/t3-core/tests/support/t3-original-personal-authority.mjs
       - packages/t3-core/src/main-trusted-kernel-realm.ts
