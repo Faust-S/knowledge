@@ -131,7 +131,7 @@ jobs:
             exit 1
           }
           echo D07_300_TYPES=PASS
-          node --import tsx --test --test-name-pattern="generated TOP-500|TOP-500 generated|existing D07 acceptance checks" scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-300-method-regression.log" 2>&1 || { grep -E 'not ok|D07_[A-Z_]+|AssertionError|# fail' "$RUNNER_TEMP/d07-300-method-regression.log" | tail -30; exit 1; }
+          node --import tsx --test --test-name-pattern="batch outputs exactly 500|existing D07 acceptance checks" scripts/tests/d07-methodology-top500.test.mjs > "$RUNNER_TEMP/d07-300-method-regression.log" 2>&1 || { grep -E 'not ok|D07_[A-Z_]+|AssertionError|# fail' "$RUNNER_TEMP/d07-300-method-regression.log" | tail -30; exit 1; }
           node --import tsx scripts/generate-d07-methodology-top500.mjs "$RUNNER_TEMP/d07-300-data" --as-of=2026-11-24 > "$RUNNER_TEMP/d07-300-generate.log" 2>&1 || {
             echo D07_300_GENERATION=FAIL
             grep -E 'D07_[A-Z_]+' "$RUNNER_TEMP/d07-300-generate.log" | tail -10 || true
