@@ -1,6 +1,7 @@
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
   from './original-network-technical-schema.mjs';
 import {createHash} from 'node:crypto';
+import {readT4CandidateAppliedAckRetention} from './standard-network-wire-candidate.mjs';
 
 /**
  * P2.2 original-T3 durable replay checkpoint for accepted SIGNED NETWORK
@@ -19,16 +20,12 @@ const DIGEST=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
 const SCHEMA='IWXA_T4_ORIGINAL_NETWORK_REPLAY_CHECKPOINT_V1';
 const EVENT='t4.network.original.frame.replay.checkpoint';
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-function validProof(p){
-  return ID(p.sourceNodeRef)&&ID(p.recipientNodeRef)&&
-    ID(p.scopeRef)&&ID(p.sessionRef)&&DIGEST(p.frameDigest);
-}
-function replayRef(proof){
-  if(!validProof(proof)||!ID(proof.permissionRef)||
-    !ID(proof.signerRef)||
+const SHA=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
+function replaySlot(proof){
+  if(![proof.sourceNodeRef,proof.recipientNodeRef,proof.scopeRef,proof.sessionRef].every(ID)||
+    proof.sourceNodeRef===proof.recipientNodeRef||
     !Number.isSafeInteger(proof.ownerEpoch)||proof.ownerEpoch<1||
     !Number.isSafeInteger(proof.sequence)||proof.sequence<1||
-    proof.originalDurableCompareAndSetRequired!==true||
     !/^t4\.network\.receive\.[A-Z_]+$/.test(proof.operation??''))
     fail('REPLAY_ORIGINAL_FRAME_PROOF_REQUIRED');
   const identity={
@@ -40,12 +37,33 @@ function replayRef(proof){
   const key=createHash('sha256').update(
     'IWXA-T4-ORIGINAL-NETWORK-REPLAY-KEY-V1\0')
     .update(JSON.stringify(identity)).digest('hex');
-  return {
-    checkpointRef:'t4:net:replay:'+key,
-    identity,frameDigest:proof.frameDigest,
-    permissionRef:proof.permissionRef,signerRef:proof.signerRef,
-    operation:proof.operation,
-  };
+  return {checkpointRef:'t4:net:replay:'+key,identity,operation:proof.operation};
+}
+function retainedAck(proof,slot){
+  const encoded=proof.retainedAppliedAckBase64,sha=proof.wireSha256;
+  if(encoded===undefined&&sha===undefined)return null;
+  if(slot.operation!=='t4.network.receive.APPLIED_ACK'||!SHA(sha)||
+    typeof encoded!=='string'||encoded.length>43692||encoded.length<64)
+    fail('REPLAY_ORIGINAL_RETAINED_ACK_INVALID');
+  let raw,exact;
+  try{raw=Buffer.from(encoded,'base64');
+    if(raw.toString('base64')!==encoded)throw Error('noncanonical base64');
+    exact=readT4CandidateAppliedAckRetention(raw);
+  }catch{fail('REPLAY_ORIGINAL_RETAINED_ACK_INVALID');}
+  if(exact.wireSha256!==sha||exact.operation!==slot.operation||
+    !Object.keys(slot.identity).every(k=>exact[k]===slot.identity[k])||
+    !['frameDigest','signerRef','permissionRef'].every(k=>exact[k]===proof[k]))
+    fail('REPLAY_ORIGINAL_RETAINED_ACK_INVALID');
+  return {wireSha256:sha,retainedAppliedAckBase64:encoded};
+}
+function replayRef(proof){
+  const slot=replaySlot(proof);
+  if(!DIGEST(proof.frameDigest)||!ID(proof.permissionRef)||!ID(proof.signerRef)||
+    proof.originalDurableCompareAndSetRequired!==true)
+    fail('REPLAY_ORIGINAL_FRAME_PROOF_REQUIRED');
+  const retained=retainedAck(proof,slot);
+  return {...slot,frameDigest:proof.frameDigest,permissionRef:proof.permissionRef,signerRef:proof.signerRef,
+    ...(retained??{})};
 }
 export function createT4OriginalNetworkReplayPort({
   technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
@@ -121,6 +139,9 @@ export function createT4OriginalNetworkReplayPort({
       !DIGEST(data.frameDigest)||!ID(data.permissionRef)||
       !ID(data.signerRef)||!ID(data.operation))
       fail('REPLAY_ORIGINAL_CHECKPOINT_INVALID');
+    const retained=retainedAck(data,key);
+    if(retained&&key.wireSha256!==undefined&&retained.wireSha256!==key.wireSha256)
+      fail('REPLAY_ORIGINAL_SEQUENCE_CONFLICT');
     await guard('read',initial,key.checkpointRef);
     let events;
     try{events=await originalKernel.listEventsSince(technicalWorkspaceId);}
@@ -129,16 +150,16 @@ export function createT4OriginalNetworkReplayPort({
     });}
     if(!Array.isArray(events)||events.length>100000)
       fail('REPLAY_ORIGINAL_EVENT_HISTORY_UNAVAILABLE');
-    const found=events.filter(x=>x?.workspace_id===technicalWorkspaceId&&
-      x.object_id===key.checkpointRef&&x.revision===1&&
-      x.event_type===EVENT&&ID(x.event_id)&&
-      x.payload?.checkpointRef===key.checkpointRef&&
-      x.payload?.frameDigest===data.frameDigest&&
-      x.payload?.sourceNodeRef===key.identity.sourceNodeRef&&
-      x.payload?.recipientNodeRef===key.identity.recipientNodeRef&&
-      x.payload?.ownerEpoch===key.identity.ownerEpoch&&
-      x.payload?.sequence===key.identity.sequence);
-    if(found.length!==1)
+    const found=events.filter(x=>x?.workspace_id===technicalWorkspaceId&&x.object_id===key.checkpointRef);
+    const expectedPayload={
+      checkpointRef:key.checkpointRef,frameDigest:data.frameDigest,
+      sourceNodeRef:key.identity.sourceNodeRef,recipientNodeRef:key.identity.recipientNodeRef,
+      ownerEpoch:key.identity.ownerEpoch,sequence:key.identity.sequence,
+      ...(retained?{wireSha256:retained.wireSha256}:{})};
+    const ev=found[0],payload=ev?.payload;
+    if(found.length!==1||ev.revision!==1||ev.event_type!==EVENT||!ID(ev.event_id)||
+      !payload||Object.keys(payload).length!==Object.keys(expectedPayload).length||
+      !Object.keys(expectedPayload).every(k=>payload[k]===expectedPayload[k]))
       fail('REPLAY_ORIGINAL_EVENT_NOT_PROVEN');
     await guard('read',initial,key.checkpointRef);
     const second=await originalKernel.getObject(
@@ -154,21 +175,61 @@ export function createT4OriginalNetworkReplayPort({
       ...key.identity,checkpointRef:key.checkpointRef,frameDigest:key.frameDigest,
       signerRef:key.signerRef,permissionRef:key.permissionRef,operation:key.operation,
       originalReplayEventId:found[0].event_id,originalReplayCheckpointRecorded:true,
+      ...(retained??{}),
       originalHistoricalEvidenceOnly:true,liveNetworkAuthorityGranted:false,originalBusinessApplied:false});
     return 'SEEN_EXACT';
   }
-  async function readOriginalHistoricalReplayEvidence(proof={}){
-    if(proof.originalHistoricalEvidenceOnly!==true)fail('REPLAY_ORIGINAL_HISTORY_QUERY_REQUIRED');
-    const key=replayRef({...proof,originalDurableCompareAndSetRequired:true});
+  async function requireAbsent(initial,key){
+    // A missing Object is not an empty replay slot when the original
+    // journal still records that slot. Do not recreate a lost checkpoint.
+    await guard('read',initial,key.checkpointRef);
+    const events=await originalKernel.listEventsSince(technicalWorkspaceId);
+    if(!Array.isArray(events)||events.length>100000)
+      fail('REPLAY_ORIGINAL_EVENT_HISTORY_UNAVAILABLE');
+    if(events.some(e=>e?.workspace_id===technicalWorkspaceId&&e.object_id===key.checkpointRef))
+      fail('REPLAY_ORIGINAL_CHECKPOINT_MISSING_WITH_EVENT');
+    await guard('read',initial,key.checkpointRef);
+    if(await originalKernel.getObject(technicalWorkspaceId,key.checkpointRef)!=null)
+      fail('REPLAY_ORIGINAL_CHECKPOINT_CHANGED');
+    await guard('read',initial,key.checkpointRef);
+  }
+  function requireLocalSlot(key){
     if(key.identity.recipientNodeRef!==localNodeRef||key.identity.scopeRef!==scopeRef)
       fail('REPLAY_ORIGINAL_RECIPIENT_SCOPE_MISMATCH');
+  }
+  async function readOriginalHistoricalReplayEvidence(proof={}){
+    if(proof.originalHistoricalEvidenceOnly!==true||
+      (proof.expectedWireSha256!==undefined&&!SHA(proof.expectedWireSha256)))
+      fail('REPLAY_ORIGINAL_HISTORY_QUERY_REQUIRED');
+    const key=replayRef({...proof,originalDurableCompareAndSetRequired:true});
+    requireLocalSlot(key);
     const initial=await context();
     await guard('read',initial,key.checkpointRef);
     const existing=await originalKernel.getObject(technicalWorkspaceId,key.checkpointRef);
     await guard('read',initial,key.checkpointRef);
-    if(existing===null)return null;
-    if(!existing)fail('REPLAY_ORIGINAL_CHECKPOINT_INVALID');
-    return checkpointVerified(existing,key,initial,true);
+    if(existing==null){await requireAbsent(initial,key);return null;}
+    const result=await checkpointVerified(existing,key,initial,true);
+    if(result.wireSha256!==undefined&&proof.expectedWireSha256!==undefined&&result.wireSha256!==proof.expectedWireSha256)
+      fail('REPLAY_ORIGINAL_SEQUENCE_CONFLICT');
+    return result;
+  }
+  // Exact source/recipient/scope/session/epoch/sequence lookup in the
+  // original Kernel, never enumeration of a remote inbox. The caller must
+  // still independently verify the retained frame signature.
+  async function readOriginalHistoricalAppliedAckSlot(proof={}){
+    if(proof.originalHistoricalEvidenceOnly!==true||proof.operation!=='t4.network.receive.APPLIED_ACK'||proof.sequence!==2)
+      fail('REPLAY_ORIGINAL_HISTORY_QUERY_REQUIRED');
+    const slot=replaySlot(proof);requireLocalSlot(slot);
+    const initial=await context();
+    await guard('read',initial,slot.checkpointRef);
+    const row=await originalKernel.getObject(technicalWorkspaceId,slot.checkpointRef);
+    await guard('read',initial,slot.checkpointRef);
+    if(row==null){await requireAbsent(initial,slot);return null;}
+    const data=row.object?.data;
+    if(!data||data.operation!==slot.operation)fail('REPLAY_ORIGINAL_SEQUENCE_CONFLICT');
+    const key=replayRef({...slot.identity,operation:slot.operation,frameDigest:data.frameDigest,
+      signerRef:data.signerRef,permissionRef:data.permissionRef,originalDurableCompareAndSetRequired:true});
+    return checkpointVerified(row,key,initial,true);
   }
   async function persistOriginalReplayDecision(proof){
     const key=replayRef(proof);
@@ -180,6 +241,7 @@ export function createT4OriginalNetworkReplayPort({
     const existing=await originalKernel.getObject(
       technicalWorkspaceId,key.checkpointRef);
     if(existing)return checkpointVerified(existing,key,initial);
+    await requireAbsent(initial,key);
     await guard('write',initial,key.checkpointRef);
     const data={
       schema:SCHEMA,title:'T4 network frame checkpoint',
@@ -188,6 +250,7 @@ export function createT4OriginalNetworkReplayPort({
       identity:key.identity,frameDigest:key.frameDigest,
       signerRef:key.signerRef,permissionRef:key.permissionRef,
       operation:key.operation,
+      ...(key.wireSha256===undefined?{}:{wireSha256:key.wireSha256,retainedAppliedAckBase64:key.retainedAppliedAckBase64}),
       originalT3EventRequired:true,originalSubjectMutation:false,
     };
     const input={
@@ -202,6 +265,7 @@ export function createT4OriginalNetworkReplayPort({
         recipientNodeRef:key.identity.recipientNodeRef,
         ownerEpoch:key.identity.ownerEpoch,
         sequence:key.identity.sequence,
+        ...(key.wireSha256===undefined?{}:{wireSha256:key.wireSha256}),
       }},
     };
     try{
@@ -228,7 +292,7 @@ export function createT4OriginalNetworkReplayPort({
   }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_T3_NETWORK_REPLAY_BINDING_V1',
-    persistOriginalReplayDecision,readOriginalHistoricalReplayEvidence,
+    persistOriginalReplayDecision,readOriginalHistoricalReplayEvidence,readOriginalHistoricalAppliedAckSlot,
     originalT3OnlyStore:true,originalT3EventRequired:true,
     createsStore:false,createsNewIAM:false,createsTaskEngine:false,
   });

@@ -406,7 +406,11 @@ export async function verifyT4CandidateWireFrame({
   if(![verifyOriginalNodeSignature,authorizeOriginalNetwork,
     persistOriginalReplayDecision].every(v=>typeof v==='function'))
     fail('WIRE_ORIGINAL_TRUST_PORTS_REQUIRED');
-  const frame=decodeT4CandidateFrame(wireBytes);
+  // Snapshot the exact canonical wire bytes before any async signature or
+  // Access callback. In particular, retained ACK bytes must be the bytes
+  // verified by this invocation, not a later caller mutation.
+  if(!(wireBytes instanceof Uint8Array))fail('WIRE_BYTES_INVALID');
+  const exact=new Uint8Array(wireBytes),frame=decodeT4CandidateFrame(exact);
   if(frame.recipientNodeRef!==recipientNodeRef||
     frame.scopeRef!==scopeRef||frame.cryptoSuite!==requiredCryptoSuite)
     fail('WIRE_WRONG_RECIPIENT_SCOPE_OR_SUITE');
@@ -434,8 +438,10 @@ export async function verifyT4CandidateWireFrame({
   if(verified!==true)fail('WIRE_SOURCE_SIGNATURE_NOT_VERIFIED');
   if(await authorizeOriginalNetwork(proof)!==true)
     fail('WIRE_ORIGINAL_ACCESS_DENIED');
+  const retained=frame.messageType==='APPLIED_ACK'?readT4CandidateAppliedAckRetention(exact):null;
   const replay=await persistOriginalReplayDecision(Object.freeze({
     ...proof,originalDurableCompareAndSetRequired:true,
+    ...(retained?{wireSha256:retained.wireSha256,retainedAppliedAckBase64:retained.retainedAppliedAckBase64}:{}),
   }));
   if(replay!=='RECORDED'&&replay!=='SEEN_EXACT')
     fail('WIRE_DURABLE_REPLAY_NOT_PROVEN');
@@ -454,6 +460,22 @@ export async function verifyT4CandidateWireFrame({
   });
 }
 
+
+// Pure structural binding for retaining one small final ACK in its original
+// replay Object/Event. This does NOT verify a signature or grant authority.
+export function readT4CandidateAppliedAckRetention(wireBytes){
+  const frame=decodeT4CandidateFrame(wireBytes);
+  if(frame.messageType!=='APPLIED_ACK')fail('WIRE_APPLIED_ACK_RETENTION_REQUIRED');
+  const unsigned={...frame};delete unsigned.signatureBase64;
+  const raw=signedBytes(unsigned),bytes=Buffer.from(wireBytes);
+  return Object.freeze({operation:'t4.network.receive.APPLIED_ACK',
+    signerRef:frame.signerRef,sourceNodeRef:frame.sourceNodeRef,recipientNodeRef:frame.recipientNodeRef,
+    scopeRef:frame.scopeRef,permissionRef:frame.permissionRef,ownerEpoch:frame.ownerEpoch,
+    sessionRef:frame.sessionRef,sequence:frame.sequence,
+    frameDigest:'sha256:'+createHash('sha256').update(raw).digest('hex'),
+    wireSha256:createHash('sha256').update(bytes).digest('hex'),
+    retainedAppliedAckBase64:bytes.toString('base64')});
+}
 
 // Historical verification is deliberately outside the live receive/publish
 // entrypoints. It cannot create a replay decision or produce a live receipt.
@@ -498,11 +520,12 @@ export async function verifyT4CandidateHistoricalFrameSignature(options={}){
 export async function verifyT4CandidateHistoricalReceivedFrame(options={}){
   const p=historicalInput({...options,direction:'INBOUND'}),read=options.readOriginalHistoricalReplayEvidence;
   if(typeof read!=='function')fail('WIRE_HISTORICAL_REPLAY_PORT_REQUIRED');
-  const query=Object.freeze({...p.proof,originalHistoricalEvidenceOnly:true});
+  const query=Object.freeze({...p.proof,expectedWireSha256:p.wireSha256,originalHistoricalEvidenceOnly:true});
   function validate(value){
     if(value?.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_REPLAY_EVIDENCE_V1'||
       !Object.keys(p.proof).every(k=>value[k]===p.proof[k])||
       !ID(value.checkpointRef)||!ID(value.originalReplayEventId)||
+      (value.wireSha256!==undefined&&value.wireSha256!==p.wireSha256)||
       value.originalReplayCheckpointRecorded!==true||value.originalHistoricalEvidenceOnly!==true||
       value.liveNetworkAuthorityGranted!==false||value.originalBusinessApplied!==false)
       fail('WIRE_HISTORICAL_REPLAY_NOT_PROVEN');

@@ -210,3 +210,66 @@ test('historical replay evidence is read-only, exact, and refuses a missing or c
   await assert.rejects(p.binding().readOriginalHistoricalReplayEvidence(query),err('REPLAY_ORIGINAL_EVENT_NOT_PROVEN'));
   assert.equal(p.original.puts,1);
 });
+
+
+test('K42 original replay stores exact previously authorized final ACK bytes, not chunk copies, and resolves the original slot after restart',async()=>{
+  const p=ports(),b=p.binding(),suite='X25519_AES256GCM_ED25519';
+  const raw=createT4CandidateUnsignedFrame({messageType:'APPLIED_ACK',messageId:'message:k42:ack',
+    sourceNodeRef:proof.sourceNodeRef,recipientNodeRef:proof.recipientNodeRef,scopeRef:proof.scopeRef,
+    sessionRef:proof.sessionRef,permissionRef:proof.permissionRef,signerRef:proof.signerRef,
+    sequence:2,ownerEpoch:proof.ownerEpoch,cryptoSuite:suite,
+    body:{changeId:'change:k42:one',ackRef:'ack:k42:one',contentDigest:sha,
+      recipientEventRef:'event:k42:recipient',recipientRevision:7,recipientStateDigest:sha}});
+  const bytes=await signT4CandidateFrame({unsignedFrame:raw,signOriginalNodeBytes:async({bytes})=>
+    sign(null,Buffer.from(bytes),privateKey)});
+  const exact=new Uint8Array(bytes);
+  const slot={sourceNodeRef:proof.sourceNodeRef,recipientNodeRef:proof.recipientNodeRef,scopeRef:proof.scopeRef,
+    sessionRef:proof.sessionRef,ownerEpoch:proof.ownerEpoch,sequence:2,operation:'t4.network.receive.APPLIED_ACK',
+    originalHistoricalEvidenceOnly:true};
+  assert.equal(await b.readOriginalHistoricalAppliedAckSlot(slot),null);
+  const live={recipientNodeRef:proof.recipientNodeRef,scopeRef:proof.scopeRef,requiredCryptoSuite:suite,
+    verifyOriginalNodeSignature:async({bytes,signature})=>verify(null,Buffer.from(bytes),publicKey,Buffer.from(signature)),
+    authorizeOriginalNetwork:async()=>{bytes.fill(0);return true;},
+    persistOriginalReplayDecision:b.persistOriginalReplayDecision};
+  const accepted=await verifyT4CandidateWireFrame({...live,wireBytes:bytes});
+  assert.equal(accepted.originalReplayCheckpointRecorded,true);
+  assert.equal(p.original.puts,1);p.restart();
+  const evidence=await p.binding().readOriginalHistoricalAppliedAckSlot(slot);
+  assert.equal(evidence.frameDigest,accepted.frameDigest);
+  assert.deepEqual(Buffer.from(evidence.retainedAppliedAckBase64,'base64'),Buffer.from(exact));
+  assert.equal(p.original.events[0].payload.wireSha256,evidence.wireSha256);
+  assert.equal(evidence.originalHistoricalEvidenceOnly,true);
+  assert.equal(evidence.liveNetworkAuthorityGranted,false);
+  assert.equal(evidence.originalBusinessApplied,false);
+  assert.equal(p.original.puts,1);
+  const repeated=await verifyT4CandidateWireFrame({...live,wireBytes:exact,authorizeOriginalNetwork:async()=>true});
+  assert.equal(repeated.exactPreviouslyVerifiedReplay,true);assert.equal(p.original.puts,1);
+  const saved=p.original.rows.values().next().value;
+  const original=structuredClone(saved.object.data);
+  saved.object.data.retainedAppliedAckBase64=Buffer.from('wrong bytes').toString('base64');
+  await assert.rejects(p.binding().readOriginalHistoricalAppliedAckSlot(slot),err('REPLAY_ORIGINAL_RETAINED_ACK_INVALID'));
+  saved.object.data=original;
+  p.original.events[0].payload.wireSha256='0'.repeat(64);
+  await assert.rejects(p.binding().readOriginalHistoricalAppliedAckSlot(slot),err('REPLAY_ORIGINAL_EVENT_NOT_PROVEN'));
+  assert.equal(p.original.puts,1);
+});
+test('K42 an original orphan replay Event blocks slot recreation and historical claims',async()=>{
+  const p=ports();await p.binding().persistOriginalReplayDecision(proof);
+  p.original.rows.clear();p.restart();
+  await assert.rejects(p.binding().persistOriginalReplayDecision(proof),err('REPLAY_ORIGINAL_CHECKPOINT_MISSING_WITH_EVENT'));
+  await assert.rejects(p.binding().readOriginalHistoricalReplayEvidence({...proof,originalHistoricalEvidenceOnly:true}),
+    err('REPLAY_ORIGINAL_CHECKPOINT_MISSING_WITH_EVENT'));
+  assert.equal(p.original.puts,1);
+});
+test('K42 historical ACK lookup distinguishes a legacy accepted slot from an absent slot and never rewrites it',async()=>{
+  const p=ports(),ack={...proof,operation:'t4.network.receive.APPLIED_ACK'};
+  await p.binding().persistOriginalReplayDecision(ack);p.restart();
+  const query={sourceNodeRef:ack.sourceNodeRef,recipientNodeRef:ack.recipientNodeRef,scopeRef:ack.scopeRef,
+    sessionRef:ack.sessionRef,ownerEpoch:ack.ownerEpoch,sequence:2,operation:ack.operation,originalHistoricalEvidenceOnly:true};
+  const old=await p.binding().readOriginalHistoricalAppliedAckSlot(query);
+  assert.equal(old.frameDigest,ack.frameDigest);assert.equal(old.retainedAppliedAckBase64,undefined);
+  assert.equal(await p.binding().readOriginalHistoricalAppliedAckSlot({...query,sessionRef:'session:absent'}),null);
+  p.revoke();
+  await assert.rejects(p.binding().readOriginalHistoricalAppliedAckSlot(query),err('REPLAY_ORIGINAL_ACCESS_DENIED'));
+  assert.equal(p.original.puts,1);
+});
