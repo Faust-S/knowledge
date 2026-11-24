@@ -272,6 +272,10 @@ def test_original_parallel_independent_order_uses_capacity_released_by_coproduct
     assert commit["org_code_model_accountable_original_subjects"] == [BUYER]
     denied = _trace(out["supplier"], "commit", OUTSIDE)
     assert denied["reason"] == "RESOURCE_CAPACITY_EXCEEDED", denied
+    witness = denied["original_named_capacity_conflict"]
+    assert witness["competing_work"] == "w3"
+    assert witness["capacity_violation_removed_by_named_work_absence"]
+    assert witness["original_reservations_unchanged"]
     assert out["supplier"]["works"][OUTSIDE]["obligation"] == "NOT_ACCEPTED"
     assert out["supplier"]["works"][OUTSIDE]["result"] != ACCEPTED
 
@@ -529,3 +533,79 @@ def test_portfolio_positive_incremental_value_does_not_override_cumulative_reser
     assert r["local_research_only"]["pairwise"][0]["left_minus_right_model_contribution"] == "445.00"
     assert not r["local_research_only"]["arms"]["coproduction"]["all_owner_declared_reserves_met"]
     assert r["best_model_contribution_among_executed_portfolio_viable_routes"] == []
+
+
+@pytest.mark.parametrize("start,end,units,other,expected", [
+    (12, 18, 1, False, True),
+    (20, 25, 1, False, False),
+    (12, 18, 2, False, False),
+    (12, 25, 1, True, False),
+])
+def test_named_capacity_witness_uses_existing_interval_sweep_without_mutation(start, end, units, other, expected):
+    from research.akis.qualitative_mesa.capacity import (
+        CapacityLedger, ResourceCapacity, ResourceNeed, Reservation,
+    )
+    ledger = CapacityLedger({"rc": ResourceCapacity("rc", "c", 1, "UNIT", None, "MODEL_DECLARED")})
+    ledger.reserve("w3", [ResourceNeed("rc", 1)], 10, 20)
+    if other:
+        ledger.reserve("another", [ResourceNeed("rc", 1)], 20, 30)
+    old = list(ledger.reservations)
+    answer = ledger.explain_named_competing_reservation(
+        "outside", [Reservation("rc", "outside", start, end, units)], "w3", "rc")
+    assert answer["capacity_violation_removed_by_named_work_absence"] is expected
+    assert ledger.reservations == old
+
+
+@pytest.mark.parametrize("revision,principal,reason", [
+    ("wrong-revision", BUYER, "OC_WORK_RESPONSIBILITY_SOURCE_REVISION_MISMATCH"),
+    ("outside-d1", "b", "OC_RESPONSIBILITY_NOT_ORIGINAL_PRINCIPAL"),
+])
+def test_work_scoped_responsibility_cannot_replace_original_work_principal(revision, principal, reason):
+    doc = portfolio_trajectories()["coproduction"]
+
+    def change(records):
+        control = next(r["control"] for r in records if r["field"] == "Отв")
+        row = next(r for r in control["work_responsibilities"] if r["action"] == "commit")
+        row.update(work_revision=revision, original_principals=[principal])
+
+    change(doc["general_akis"]["organizational_code"])
+    for event in [e for e in doc["events"] if e["action"] == "model_code_apply"]:
+        change(event["model_code_records"])
+        digest = original_model_code_fingerprint(event["model_code_records"])
+        for row in doc["events"]:
+            if row.get("model_code_change_id") == event["model_code_change_id"]:
+                row["model_code_fingerprint"] = digest
+    result = mechanics(doc)
+    assert _trace(result, "commit", OUTSIDE)["reason"] == reason
+    assert result["works"]["w3"]["result"] == ACCEPTED
+    assert result["works"][OUTSIDE]["obligation"] == "NOT_ACCEPTED"
+
+
+def test_both_executed_secondary_orders_require_same_own_costs():
+    docs = finance_portfolio(disjoint=True, seller_opening="800.00")
+    row = next(r for r in docs["supplier"]["economic_claims"]["transfers"]
+               if r["id"] == f"{OUTSIDE}-portfolio-material")
+    row["amount"] = "181.00"
+    with pytest.raises(ValueError, match="PORTFOLIO_SECONDARY_EXECUTED_ECONOMICS_CHANGED"):
+        compare_portfolios(docs)
+
+
+def test_portfolio_scope_cannot_certify_future_use_observation():
+    d = finance_portfolio()["coproduction"]
+    money = d["economic_claims"]
+    money["portfolio_scope_evidence"]["owner_scopes"][BUYER]["observed_at"] = _event(d, "accept", OUTSIDE)["at"]
+    with pytest.raises(ValueError, match="PORTFOLIO_INDEPENDENT_NONOVERLAP_SCOPE_REQUIRED"):
+        simulate(d)
+
+
+@pytest.mark.parametrize("kwargs,delta,owner,owner_delta,pareto", [
+    ({"outside_material": "260.00"}, "365.00", "c", "-30.00", False),
+    ({"outside_observed": "2"}, "-55.00", BUYER, "-300.00", False),
+])
+def test_portfolio_independent_cost_or_value_can_reverse_owner_or_system_advantage(kwargs, delta, owner, owner_delta, pareto):
+    r = compare_portfolios(finance_portfolio(**kwargs))
+    assert r["status"] == "MODEL_MATCHED_EXECUTED_MULTI_ORDER_PORTFOLIOS", r
+    pair = r["local_research_only"]["pairwise"][0]
+    assert pair["left_minus_right_model_contribution"] == delta
+    assert pair["per_original_owner_left_minus_right"][owner] == owner_delta
+    assert r["pairwise_contrasts"][0]["left_weak_pareto_improvement_on_portfolio"] is pareto

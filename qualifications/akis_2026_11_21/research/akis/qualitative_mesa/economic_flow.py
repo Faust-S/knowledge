@@ -1646,11 +1646,15 @@ def review_original_portfolio_economics(
                 continue
             accepted.append(key)
             decision_ticks.extend(accepts)
+            decision_ticks.extend(v["outcome"]["at"] for v in money["recipient_use_value_evidence"]
+                                  if v["work"] == key)
             gross[work.customer] += Decimal(value[key]["incremental_gross_noncash_use_value"])
         elif (key == rejected_key and uncommitted.get("original_capacity_conflict_applied")
               and uncommitted.get("status") == "MODEL_ORIGINAL_UNCOMMITTED_ORDER_COST_SCOPE"):
             blocked.append(key)
-            decision_ticks.append(money["uncommitted_order_cost_evidence"]["capacity_block"]["at"])
+            decision_ticks.extend((
+                money["uncommitted_order_cost_evidence"]["capacity_block"]["at"],
+                money["uncommitted_order_cost_evidence"]["recipient_no_order_observation"]["at"]))
         else:
             reasons.add("PORTFOLIO_ORIGINAL_RESULT_OR_CAPACITY_BLOCK_REQUIRED")
     if len({state.works[k].customer for k in keys}) != len(keys):
@@ -1692,6 +1696,12 @@ def review_original_portfolio_economics(
     for field in ("work_payment_settlement_claims", "work_payment_due_amendments"):
         for row in money.get(field, []):
             used_refs.update(row.get("evidence_refs", {}).values())
+    # Scope cannot certify value or costs observed only later. A no-order
+    # observation at the final horizon can be certified at that same tick.
+    decision_ticks.extend(b["at"] for b in money["lifecycle_costs"]["event_bindings"]
+                          if b["work"] in keys)
+    decision_ticks.extend(r["at"] for r in money.get("work_payment_settlement_claims", [])
+                          if r["transfer_id"] in transfers)
     seen_refs, private = set(), {}
     for owner in sorted(owners):
         row = _record(raw["owner_scopes"][owner], {"source", "observed_at", "transfer_ids",
@@ -1701,7 +1711,7 @@ def review_original_portfolio_economics(
         if (ref in used_refs or ref in seen_refs
                 or row["complete_exclusive_portfolio_cost_and_value_scope"] is not True
                 or type(row["observed_at"]) is not int or type(horizon) is not int
-                or not decision_ticks or not max(decision_ticks) < row["observed_at"] <= horizon):
+                or not decision_ticks or not max(decision_ticks) <= row["observed_at"] <= horizon):
             raise EconomicInputError("PORTFOLIO_INDEPENDENT_NONOVERLAP_SCOPE_REQUIRED")
         seen_refs.add(ref)
         ts = {i: t for i, t in transfers.items() if owner in {t["payer"], t["payee"]}}

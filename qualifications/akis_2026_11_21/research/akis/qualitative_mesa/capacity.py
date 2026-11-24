@@ -345,13 +345,25 @@ class CapacityLedger:
         without = [r for r in combined if r.work != competing_work]
         remaining = [v for key in keys
                      for v in self._violations(key, without, proposals=proposals)]
+        # Check the unchanged owner-scoped adoption rules as well as the
+        # numerical sweep, by calling the original preview on a local view.
+        from copy import copy
+        alternate = copy(self)
+        alternate.reservations = [r for r in self.reservations if r.work != competing_work]
+        feasible_without = False
+        if work != competing_work and not remaining:
+            try:
+                alternate.preview_plan(work, proposals)
+                feasible_without = True
+            except (CapacityBlocked, CapacityInputError):
+                pass
         relevant = [v for v in violations if v["resource"] == resource
                     and work in v["works"] and competing_work in v["works"]]
         return {
             "resource": resource, "competing_work": competing_work,
             "original_violating_interval_count": len(violations),
             "original_named_competition_interval_count": len(relevant),
-            "capacity_violation_removed_by_named_work_absence": bool(relevant) and not remaining,
+            "capacity_violation_removed_by_named_work_absence": bool(relevant) and feasible_without,
             "original_reservations_unchanged": True,
         }
 

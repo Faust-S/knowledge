@@ -1353,6 +1353,7 @@ def compare_original_competing_market_routes(
     ref = None
     designs, plans = {}, {}
     second_valuation = None
+    second_executed_economics = None
     accepted = "ACCEPTED_BY_ORIGINAL_RECIPIENT"
     allowed = {"period", "currency", "sources", "transfers", "resource_uses",
                "coverage", "outside_feasibility", "cash_timing", "lifecycle_costs",
@@ -1464,7 +1465,8 @@ def compare_original_competing_market_routes(
         life, timing = money["lifecycle_costs"], money["cash_timing"]
         if timing["horizon_end"] != doc.get("model_horizon") or split_at >= timing["horizon_end"]:
             raise TrajectoryComparisonError("COMPETING_MARKET_MATCHED_HORIZON_REQUIRED")
-        value = [v for v in money.get("recipient_use_value_evidence", []) if v.get("work") == work]
+        all_values = money.get("recipient_use_value_evidence", [])
+        value = [v for v in all_values if v.get("work") == work] if portfolio else all_values
         if (len(value) != 1 or value[0].get("work") != work
                 or value[0].get("owner") != spec["customer"]
                 or money.get("market_order_economics", {}).get("work") != work):
@@ -1522,6 +1524,23 @@ def compare_original_competing_market_routes(
                     raise TrajectoryComparisonError("PORTFOLIO_SECONDARY_VALUATION_BASIS_CHANGED")
                 # Store separately from per-arm selected route descriptions.
                 second_valuation = secondary_valuation
+                # When both arms execute the independent order, its own
+                # value and cost/payment basis must remain fixed. Changes
+                # in independent production economics are separate trials.
+                tr = [r for r in money["transfers"] if r["work"] == secondary_work]
+                ru = [r for r in money["resource_uses"] if r["work"] == secondary_work]
+                ti, ri = {r["id"] for r in tr}, {r["id"] for r in ru}
+                executed = {"value": v, "transfers": tr, "resource_uses": ru,
+                            "windows": [r for r in timing["transfer_windows"] if r["transfer_id"] in ti],
+                            "terms": [r for r in money.get("work_payment_conditions", []) if r["transfer_id"] in ti],
+                            "settlements": [r for r in money.get("work_payment_settlement_claims", []) if r["transfer_id"] in ti],
+                            "amendments": [r for r in money.get("work_payment_due_amendments", []) if r["transfer_id"] in ti],
+                            "bindings": [r for r in life["bindings"] if r["resource_use_id"] in ri],
+                            "cost_events": [{k: val for k, val in r.items() if k != "trace_position"}
+                                            for r in life["event_bindings"] if r["resource_use_id"] in ri]}
+                if second_executed_economics is not None and second_executed_economics != executed:
+                    raise TrajectoryComparisonError("PORTFOLIO_SECONDARY_EXECUTED_ECONOMICS_CHANGED")
+                second_executed_economics = executed
             elif not second_values and no_order.get("work") == secondary_work and "capacity_block" in no_order:
                 second_baseline = {k: no_order["recipient_no_order_observation"][k] for k in
                                    ("quantity", "unit", "basis", "valuation_horizon")}
