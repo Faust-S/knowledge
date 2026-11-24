@@ -14,23 +14,36 @@ function nativeShape(raw,fields){
    });
  }catch{return false;}
 }
-async function evaluateLocalForms({modelId,cases,modes}){
+async function evaluateLocalForms({modelId,cases,modes,maxLoads=Number.POSITIVE_INFINITY}){
  const checkOffline=()=>{if(navigator.onLine!==false)throw Error("T3_QUALITY_NETWORK_NOT_DISABLED");};
  checkOffline();
  const {BrowserLocalRuntimeAdapter}=await import("../src/modules/t3-local-inference/engine.mjs");
  const runtime=new BrowserLocalRuntimeAdapter({modelId});
  const reports=modes.map(mode=>({schema:"iwxa.club.assistant-responses/1",modelId,mode,responses:[]}));
- let loadCount=0;
+ let loadCount=0,loadFailures=0;
+ const safeCode=e=>typeof e?.code==="string"&&["CANCELLED","WORKER_FAILED","GENERATION_TIMEOUT","EMPTY_GENERATION","CONTEXT_WINDOW_EXCEEDED","GPU_DEVICE_LOST","GPU_MEMORY_EXHAUSTED","MODEL_SESSION_LOST","FORM_GRAMMAR_FAILED","LOCAL_INFERENCE_FAILED","MODEL_NOT_CACHED","OFFLINE_ASSETS_INCOMPLETE","WEBGPU_UNAVAILABLE","BUSY"].includes(e.code)?e.code:"INFERENCE_FAILED";
  try{
    const offline=await runtime.cachedForOffline();
    if(!offline.ready)throw Error("T3_QUALITY_CACHED_MODEL_REQUIRED");
    for(const c of cases){
      for(const report of reports){
        checkOffline();
+       let first=null,raw=null,code=null,loadMs=null;
        if(!runtime.ready){
-         await runtime.load({networkConsent:false});loadCount++;
+         if(loadCount>=maxLoads){
+           report.responses.push({id:c.id,raw:null,code:"RELOAD_LIMIT",nativeShape:false,firstTokenMs:null,elapsedMs:null,loadMs:null,readyAfter:false});
+           continue;
+         }
+         loadCount++;
+         const loadStart=performance.now();
+         try{await runtime.load({networkConsent:false});}
+         catch(e){
+           loadFailures++;
+           report.responses.push({id:c.id,raw:null,code:"LOAD_"+safeCode(e),nativeShape:false,firstTokenMs:null,elapsedMs:null,loadMs:Math.round(performance.now()-loadStart),readyAfter:runtime.ready});
+           continue;
+         }
+         loadMs=Math.round(performance.now()-loadStart);
        }
-       let first=null,raw=null,code=null;
        const start=performance.now();
        try{
          raw=await runtime.invoke(c.prompt,{
@@ -38,15 +51,15 @@ async function evaluateLocalForms({modelId,cases,modes}){
            ...(report.mode==="structured"?{formFields:c.formFields}:{}),
            onChunk:value=>{if(first===null&&value.length)first=performance.now()-start;}
          });
-       }catch(e){code=typeof e?.code==="string"?e.code:"INFERENCE_FAILED";}
+       }catch(e){code=safeCode(e);}
        const elapsed=performance.now()-start;
        checkOffline();
        report.responses.push({id:c.id,raw,code,
          nativeShape:typeof raw==="string"&&nativeShape(raw,c.formFields),
-         firstTokenMs:first===null?null:Math.round(first),elapsedMs:Math.round(elapsed)});
+         firstTokenMs:first===null?null:Math.round(first),elapsedMs:Math.round(elapsed),loadMs,readyAfter:runtime.ready});
      }
    }
-   return {schema:"iwxa.club.assistant-comparison/1",modelId,loadCount,runs:reports};
+   return {schema:"iwxa.club.assistant-comparison/1",modelId,loadCount,loadFailures,runs:reports};
  }finally{
    try{if(runtime.ready)await runtime.unload();}finally{runtime.dispose();}
  }

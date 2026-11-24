@@ -193,16 +193,16 @@ jobs:
     # Opt in only for an exact candidate; the runner must expose actual Metal.
     # These are desktop hardware/offline checks, NOT physical phone acceptance.
     if: contains(github.event.head_commit.message, '[mobile-metal]')
+    needs: [source, assistant, shared-host]
     runs-on: macos-latest
+    env:
+      T3_D5_QUALITY_SOAK: ${{ contains(github.event.head_commit.message, '[mobile-soak]') && '1' || '0' }}
     timeout-minutes: 85
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
-        model:
-          - Qwen2.5-0.5B-Instruct-q4f32_1-MLC
-          - Qwen2.5-1.5B-Instruct-q4f16_1-MLC
-          - Qwen2.5-7B-Instruct-q4f16_1-MLC
+        model: ${{ fromJSON(contains(github.event.head_commit.message, '[mobile-soak]') && '["Qwen2.5-7B-Instruct-q4f16_1-MLC"]' || '["Qwen2.5-0.5B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","Qwen2.5-7B-Instruct-q4f16_1-MLC"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -237,7 +237,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: f97f5a182ef87d4d93d7ddcb55936d3c35eae291
+          ref: 23b5f8e24a8181fcd98f691a0cacd2303979e91d
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-quality-club
@@ -246,7 +246,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: a777aa0129c7e40ae39d457fbe627f961f5cff43
+          ref: 7e369cca801b05a193ef940f65cce88d5a6668e8
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-quality-assistant
@@ -313,20 +313,30 @@ jobs:
             return sorted.length?sorted[Math.floor((sorted.length-1)*fraction)]:null;
           };
           for(const run of comparison.runs){
-            const {cases,...summary}=scoreRun(run);
+            const successful=run.responses.filter(r=>!r.code&&typeof r.raw==="string");
+            const errors=Object.fromEntries([...new Set(run.responses.map(r=>r.code).filter(Boolean))].sort().map(code=>[code,run.responses.filter(r=>r.code===code).length]));
             const nativeShapePass=run.responses.filter(r=>r.nativeShape===true).length;
-            console.log('T3_CLUB_REAL_MODEL_QUALITY',JSON.stringify({...summary,
-              mode:run.mode,nativeShapePass,failures:run.responses.filter(r=>r.code).length,
-              medianFirstTokenMs:quantile(run.responses.map(r=>r.firstTokenMs),.5),
-              medianElapsedMs:quantile(run.responses.map(r=>r.elapsedMs),.5),
-              p90ElapsedMs:quantile(run.responses.map(r=>r.elapsedMs),.9)}));
+            const unsafeReuse=run.responses.filter(r=>r.code&&r.code!=="EMPTY_GENERATION"&&r.readyAfter===true).length;
+            if(unsafeReuse)throw Error("T3_FAILED_WORKER_STILL_READY");
+            const timing={medianFirstTokenMs:quantile(successful.map(r=>r.firstTokenMs),.5),
+              medianElapsedMs:quantile(successful.map(r=>r.elapsedMs),.5),
+              p90ElapsedMs:quantile(successful.map(r=>r.elapsedMs),.9)};
+            if(process.env.T3_D5_QUALITY_SOAK==="1"){
+              console.log('T3_CLUB_MODEL_SOAK_DIAGNOSTIC',JSON.stringify({modelId:run.modelId,mode:run.mode,
+                attempts:run.responses.length,successful:successful.length,nativeShapePass,errors,unsafeReuse,
+                totalLoadAttempts:comparison.loadCount,loadFailures:comparison.loadFailures,...timing,modelQualityAccepted:false}));
+            }else{
+              const {cases,...summary}=scoreRun(run);
+              console.log('T3_CLUB_REAL_MODEL_QUALITY',JSON.stringify({...summary,mode:run.mode,nativeShapePass,
+                failures:run.responses.filter(r=>r.code).length,errors,unsafeReuse,...timing}));
+            }
           }
           NODE
           then
             echo T3_QUALITY_SCORING_FAIL
             exit 1
           fi
-          grep '^T3_CLUB_REAL_MODEL_QUALITY ' "$RUNNER_TEMP/quality-score.log"
+          grep -E '^T3_CLUB_(REAL_MODEL_QUALITY|MODEL_SOAK_DIAGNOSTIC) ' "$RUNNER_TEMP/quality-score.log"
       - name: Remove private quality inputs and actual responses
         if: always()
         shell: bash

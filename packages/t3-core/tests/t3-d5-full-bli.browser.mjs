@@ -377,8 +377,11 @@ try {
           const qualityOutput=process.env.T3_D5_QUALITY_RESPONSES;
           assert.equal(prepared.schema,"iwxa.club.assistant-prompts/1");
           assert.ok(qualityOutput&&Array.isArray(prepared.cases)&&prepared.cases.length>0);
+          const soak=process.env.T3_D5_QUALITY_SOAK==="1";
+          const selected=soak?[0,2,5,10,13,16,17].map(i=>prepared.cases[i]):prepared.cases;
+          if(soak)assert.equal(selected.length,7);
           const ids=new Set();
-          for(const c of prepared.cases){
+          for(const c of selected){
             assert.ok(typeof c.id==="string"&&!ids.has(c.id)&&typeof c.prompt==="string"&&
               c.prompt.length<=6000&&Array.isArray(c.formFields)&&c.formFields.length>0,"T3_QUALITY_CASE_INVALID");
             ids.add(c.id);
@@ -394,15 +397,15 @@ try {
             delete globalThis.__IWXA_T3_QUALITY_WITNESS__;
             if(typeof run!=="function")throw Error("T3_QUALITY_WITNESS_MISSING");
             return run(args);
-          },{entry:"/workspace/"+witness.file,args:{modelId,cases:prepared.cases,modes:["plain","structured"]}});
+          },{entry:"/workspace/"+witness.file,args:{modelId,cases:selected,modes:["plain","structured"],...(soak?{maxLoads:5}:{})}});
           assert.equal(comparison.schema,"iwxa.club.assistant-comparison/1");
           assert.equal(comparison.modelId,modelId);
           assert.equal(comparison.runs.length,2);
-          for(const run of comparison.runs)assert.equal(run.responses.length,prepared.cases.length);
+          for(const run of comparison.runs)assert.equal(run.responses.length,selected.length);
           assert.equal(await coldPage.evaluate(()=>navigator.onLine),false);
           writeFileSync(qualityOutput,JSON.stringify(comparison),{mode:0o600});
           console.log("T3_QUALITY_OFFLINE_RESPONSES_CAPTURED",JSON.stringify({
-            modelId,cases:prepared.cases.length,modeCount:comparison.runs.length,loadCount:comparison.loadCount
+            modelId,cases:selected.length,modeCount:comparison.runs.length,loadCount:comparison.loadCount,loadFailures:comparison.loadFailures
           }));
         }
 
