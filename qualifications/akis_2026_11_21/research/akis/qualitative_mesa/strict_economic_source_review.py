@@ -6,6 +6,7 @@ A source-declared cost or transfer does not become verified settlement.
 """
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
 from .context_basis import ContextBlocked
@@ -158,6 +159,79 @@ def review_original_strict_economic_sources(
         raise StrictEconomicSourceBlocked(
             "ORIGINAL_ECONOMIC_INDEPENDENT_PRINCIPAL_SOURCE_MISSING"
         )
+    # For an outside Work whose original request pinned the three earlier
+    # events, compare a declared purchase payment with that original offer.
+    # This is a strict-KPB review of EXISTING rows, never a new obligation.
+    outside_price_qualified = False
+    origin_rows = [
+        row for row in state.trace
+        if row.get("action") == "request" and row.get("outcome") == "APPLIED"
+        and row.get("work") == work_id
+        and isinstance(row.get("outside_work_origin"), Mapping)
+    ]
+    if origin_rows and "work_payment_conditions" in original_claims:
+        if len(origin_rows) != 1:
+            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_REQUEST_AMBIGUOUS")
+        request = origin_rows[0]
+        origin = request["outside_work_origin"]
+        offers = [
+            row for row in state.trace
+            if row.get("action") == "outside_supplier_offer"
+            and row.get("outcome") == "APPLIED"
+            and row.get("outside_offer_id") == origin["outside_offer_id"]
+            and row.get("outside_demand_id") == origin["outside_demand_id"]
+        ]
+        if len(offers) != 1:
+            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_OFFER_REQUIRED")
+        offer = offers[0]
+        buyer, seller = work.customer, offer["actor"]
+        core = _OWNER_CORES.get(state.subjects[seller].kind)
+        if core is None or buyer == seller or offer["outside_offer_buyer"] != buyer:
+            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PAYMENT_PARTIES_REQUIRED")
+        # Historical qualification does not grant current access to the
+        # original commercial terms. Check both before reading the price.
+        try:
+            context.assert_original_historical_form_role_source(
+                seller, offer["outside_offer_source_ref"],
+                offer["outside_offer_source_revision"], core=core,
+                purpose="AKIS_EXTERNAL_DEMAND_EVIDENCE",
+                operation="READ", recipients={buyer}, at=request["at"],
+            )
+            context.assert_original_independent_supplier_offer_source(
+                seller, offer["outside_offer_source_ref"],
+                offer["outside_offer_source_revision"], core=core,
+                buyer=buyer, at=at,
+            )
+        except ContextBlocked as exc:
+            raise StrictEconomicSourceBlocked(
+                "OUTSIDE_WORK_ORIGINAL_OFFER_PRICE_SOURCE_NOT_READABLE"
+            ) from exc
+        transfers = original_claims.get("transfers")
+        terms = original_claims.get("work_payment_conditions")
+        if not isinstance(transfers, list) or not isinstance(terms, list):
+            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PAYMENT_DOCUMENT_REQUIRED")
+        payments = [
+            row for row in transfers if isinstance(row, dict)
+            and row.get("work") == work_id
+            and row.get("scenario") == "COOPERATION"
+            and row.get("payer") == buyer and row.get("payee") == seller
+        ]
+        if len(payments) != 1:
+            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_SINGLE_ORIGINAL_PURCHASE_TRANSFER_REQUIRED")
+        payment = payments[0]
+        if sum(isinstance(row, dict) and row.get("transfer_id") == payment.get("id")
+               for row in terms) != 1:
+            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PURCHASE_TERMS_REQUIRED")
+        try:
+            exact = (isinstance(payment.get("amount"), str)
+                     and Decimal(payment["amount"]).is_finite()
+                     and Decimal(payment["amount"]) == Decimal(offer["outside_offer_price"]))
+        except (InvalidOperation, ValueError, TypeError):
+            exact = False
+        if not exact or original_claims.get("currency") != offer["outside_offer_currency"]:
+            raise StrictEconomicSourceBlocked("OUTSIDE_WORK_ORIGINAL_PURCHASE_PRICE_MISMATCH")
+        outside_price_qualified = True
+
     # Original R2.6 payment claims are annotations on EXISTING transfers.
     # Each new two-party claim must have two independent, revision-pinned
     # owner-held source assertions valid at the claim's own declared time.
@@ -386,6 +460,8 @@ def review_original_strict_economic_sources(
         "payment_witnesses_are_not_bank_settlement": True,
         "original_work_and_source_scope_preserved": True,
         "economic_input_not_new_ledger_or_consent": True,
+        **({"outside_work_original_offer_purchase_transfer_price_matched": True}
+           if outside_price_qualified else {}),
         "source_review_does_not_verify_actual_cost_or_bank_settlement": True,
         "member_private_cash_values_or_source_refs_redisclosed": False,
         "measured_network_additionality": "NOT_IDENTIFIABLE",
