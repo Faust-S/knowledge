@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 5175484a0fc356f97f141a831acc4ceddd4fc535
+          ref: d901a50889ecede2e6ae32e7a4ba1ebd7ce03428
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -53,8 +53,8 @@ jobs:
       - name: Check exact revisions and canonical model
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "5175484a0fc356f97f141a831acc4ceddd4fc535"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "c830645abff1d750efb280603928f25d51441a03"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "d901a50889ecede2e6ae32e7a4ba1ebd7ce03428"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "554cc8e53b4eefe211f621a19843d275a5c1f8c0"
           test "$(git -C d04-private/model rev-parse HEAD)" = "8d4b6acdc8136be5a3f5a7f3d0a975a7e7595d2c"
           for name in PERSONAL_MEDICAL_EVIDENCE_V0_1.mjs PERSONAL_MEDICAL_EVIDENCE_V0_1.d.mts LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.mjs LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.d.mts PERSONAL_GOAL_PROFILE_V0_1.mjs PERSONAL_GOAL_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_PROFILE_V0_1.mjs PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts LIFE_DASHBOARD_CALCULATIONS_V0_1.mjs LIFE_DASHBOARD_CALCULATIONS_V0_1.d.mts LIFE_DIARY_BATCH_V0_1.mjs LIFE_DIARY_BATCH_V0_1.d.mts; do
             cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
