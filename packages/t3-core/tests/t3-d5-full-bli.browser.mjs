@@ -81,6 +81,12 @@ try {
   writeFileSync(join(root,"index.html"),
     '<!doctype html><html lang="ru"><head><title>T3 offline Host</title></head>'+
     '<body><main><a href="/workspace/">Workspace</a></main></body></html>');
+  const uiRoute=process.env.T3_D5_QUALITY_UI==="1";
+  const clubRoute=uiRoute?await import("./t3-club-hybrid-user-route.mjs"):null;
+  if(uiRoute){
+    assert.ok(process.env.T3_D5_QUALITY_CLUB_SITE,"T3_D5_CLUB_UI_SOURCE");
+    await clubRoute.stageClubHybridUserRoute({root,compiled:join(core,"dist"),site:process.env.T3_D5_QUALITY_CLUB_SITE});
+  }
   const offlineDist=materializeDomainMode(root);
   assert.equal(offlineDist.original_kernel_unchanged,true);
   context=await chromium.launchPersistentContext(profile,browserLaunch);
@@ -371,7 +377,12 @@ try {
         // the exact same compiled original adapter and cached model. The
         // normal panel is unloaded BEFORE the isolated test witness starts.
         // No answers or private source are printed in the public CI log.
-        const qualityInput=process.env.T3_D5_QUALITY_PROMPTS;
+        if(uiRoute){
+          await coldPanel.getByRole("button",{name:"Выгрузить"}).click();
+          await coldPage.waitForFunction(()=>Array.from(document.querySelectorAll('[data-testid="t3-local-inference-panel"] button')).some(b=>b.textContent?.includes("Из кеша, без сети")&&!b.disabled),null,{timeout:30000});
+          await clubRoute.qualifyClubHybridUserRoute({context,origin:live.origin,model});
+        }
+        const qualityInput=uiRoute?null:process.env.T3_D5_QUALITY_PROMPTS;
         if(qualityInput){
           const prepared=JSON.parse(readFileSync(qualityInput,"utf8"));
           const qualityOutput=process.env.T3_D5_QUALITY_RESPONSES;

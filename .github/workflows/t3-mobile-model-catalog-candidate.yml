@@ -233,6 +233,8 @@ jobs:
     needs: [source, assistant, shared-host]
     runs-on: macos-latest
     env:
+      T3_D5_QUALITY_UI: ${{ contains(github.event.head_commit.message, '[mobile-ui]') && '1' || '0' }}
+      T3_D5_QUALITY_CLUB_SITE: ${{ github.workspace }}/private-quality-club
       T3_D5_QUALITY_SOAK: ${{ contains(github.event.head_commit.message, '[mobile-soak]') && '1' || '0' }}
       T3_D5_QUALITY_HYBRID: ${{ contains(github.event.head_commit.message, '[mobile-hybrid]') && '1' || '0' }}
     timeout-minutes: 85
@@ -240,7 +242,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        model: ${{ fromJSON(contains(github.event.head_commit.message, '[mobile-soak]') && '["Qwen2.5-7B-Instruct-q4f16_1-MLC"]' || (contains(github.event.head_commit.message, '[mobile-hybrid]') && '["Qwen2.5-0.5B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC"]' || '["Qwen2.5-0.5B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","Qwen2.5-7B-Instruct-q4f16_1-MLC"]')) }}
+        model: ${{ fromJSON(contains(github.event.head_commit.message, '[mobile-ui]') && '["Qwen2.5-1.5B-Instruct-q4f16_1-MLC"]' || (contains(github.event.head_commit.message, '[mobile-soak]') && '["Qwen2.5-7B-Instruct-q4f16_1-MLC"]' || (contains(github.event.head_commit.message, '[mobile-hybrid]') && '["Qwen2.5-0.5B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC"]' || '["Qwen2.5-0.5B-Instruct-q4f32_1-MLC","Qwen2.5-1.5B-Instruct-q4f16_1-MLC","Qwen2.5-7B-Instruct-q4f16_1-MLC"]'))) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -289,7 +291,7 @@ jobs:
           persist-credentials: false
           path: private-quality-assistant
       - name: Prepare real domain prompts without expected responses
-        if: contains(github.event.head_commit.message, '[mobile-quality]')
+        if: contains(github.event.head_commit.message, '[mobile-quality]') && !contains(github.event.head_commit.message, '[mobile-ui]')
         shell: bash
         run: |
           set -eu
@@ -327,18 +329,20 @@ jobs:
         shell: bash
         run: |
           set -eu
-          if test -n "${T3_D5_QUALITY_PROMPTS:-}"; then
+          if test -n "${T3_D5_QUALITY_PROMPTS:-}" || test "$T3_D5_QUALITY_UI" = 1; then
             if ! node tests/t3-d5-full-bli.browser.mjs > "$RUNNER_TEMP/private-quality-browser.log" 2>&1; then
               echo T3_D5_REAL_HARDWARE_OR_QUALITY_FAIL
+              grep '^T3_D5_CLUB_UI_ROUTE_FAIL ' "$RUNNER_TEMP/private-quality-browser.log" || true
               grep -oE 'T3_(D5|QUALITY)_[A-Z0-9_]+' "$RUNNER_TEMP/private-quality-browser.log" | sort -u | tail -20 || true
               exit 1
             fi
             grep -E '^T3_(D5_[A-Z0-9_]+_PASS|QUALITY_OFFLINE_RESPONSES_CAPTURED) ' "$RUNNER_TEMP/private-quality-browser.log" | cut -d' ' -f1
+            if test "$T3_D5_QUALITY_UI" = 1; then grep '^T3_D5_CLUB_HYBRID_USER_ROUTE_PASS ' "$RUNNER_TEMP/private-quality-browser.log"; fi
           else
             node tests/t3-d5-full-bli.browser.mjs
           fi
       - name: Score actual offline model responses against held-out Club expectations
-        if: contains(github.event.head_commit.message, '[mobile-quality]')
+        if: contains(github.event.head_commit.message, '[mobile-quality]') && !contains(github.event.head_commit.message, '[mobile-ui]')
         shell: bash
         run: |
           set -eu
