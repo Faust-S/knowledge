@@ -56,7 +56,7 @@ async function openExisting(page){
 async function readProfile(page){
  await visit(page,"/workspace/");
  await openExisting(page);
- await poll(async()=>await page.getByTestId("club-workspace-progress").textContent()==="Сохранённых записей: 1","KERNEL_OBJECT_COUNT");
+ await poll(async()=>(await page.getByTestId("club-workspace-progress").textContent())?.trim()==="Сохранённых записей: 1","KERNEL_OBJECT_COUNT");
  const all=page.getByTestId("club-workspace-all-families");
  if(!await all.evaluate(e=>e.open))await all.locator("summary").click();
  const family=page.getByTestId("club-family-participation-profile");
@@ -85,12 +85,23 @@ try{
    const m=await r.json();return m.domain_origin===origin&&m.complete_static_tree===true;
   }catch{return false;}
  },"ORIGINAL_PREVIEW_READY");
- phase="FIRST_USE";
+ phase="FIRST_USE_LAUNCH";
  let page=await launch("source");
  await visit(page,"/workspace/");
+ phase="FIRST_USE_CREATE";
  await page.getByTestId("club-create-personal-space").click();
+ phase="FIRST_USE_FOCUS";
  await page.getByTestId("club-native-project-overview").waitFor({state:"visible"});
- await page.getByTestId("club-workspace-profile-shortcut").click();
+ log("ORIGINAL_PERSONAL_WORKSPACE_CREATED");
+ phase="FIRST_USE_PROFILE_ENTRY";
+ // The original Club intentionally presents the first task in its
+ // empty-workspace section. The regular shortcut appears only after
+ // a completed Result exists; use the actual visible entry in either case.
+ const firstProfile=page.getByTestId("club-empty-tasks").getByRole("link",{name:"Мой профиль",exact:true});
+ const regularProfile=page.getByTestId("club-workspace-profile-shortcut");
+ await poll(async()=>await firstProfile.isVisible()||await regularProfile.isVisible(),"PROFILE_TASK_AVAILABLE");
+ if(await firstProfile.isVisible())await firstProfile.click();
+ else await regularProfile.click();
  const form=page.locator("form[data-profile-form]");
  await form.waitFor({state:"visible"});
  phase="ASSISTANT_NATIVE_FORM";
@@ -198,7 +209,21 @@ try{
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; no local model inference; no physical-phone claim");
 }catch(e){
  const code=typeof e?.message==="string"&&/^CLUB_DIST_[A-Z_]+$/.test(e.message)?e.message:"CLUB_DIST_UNEXPECTED";
- console.log("CLUB_DIST_ROUNDTRIP_FAIL "+JSON.stringify({phase,code}));
+ const page=context?.pages()[0];
+ let flags={};
+ if(page)try{flags=await page.evaluate(()=>({
+  firstUse:!!document.querySelector('[data-testid="club-create-personal-space"]'),
+  work:!!document.querySelector('[data-testid="club-native-project-overview"]'),
+  emptyTasks:!!document.querySelector('[data-testid="club-empty-tasks"]'),
+  profile:!!document.querySelector('[data-profile-form]'),
+  assistant:!!document.querySelector('#iwxa-t3-assistant'),
+  exchange:!!document.querySelector('[data-testid="packages-view"]'),
+  importPreview:!!document.querySelector('[data-testid="import-preview"]'),
+  importError:!!document.querySelector('[data-testid="import-error"]'),
+  importPlanIssues:!!document.querySelector('[data-testid="import-plan-issues"]'),
+  exportReceipt:!!document.querySelector('[data-testid="export-receipt"]')
+ }));}catch{}
+ console.log("CLUB_DIST_ROUNDTRIP_FAIL "+JSON.stringify({phase,code,timeout:e?.name==="TimeoutError",flags}));
  process.exitCode=1;
 }finally{
  await close().catch(()=>{});await stopServer().catch(()=>{});await rm(root,{recursive:true,force:true});
