@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from research.akis.qualitative_mesa.comparative_trajectories import compare_original_preparation_pattern_reuse
-from research.akis.qualitative_mesa.tests.test_original_preparation_pattern_revision_mesa import revision_routes, structural_view
+from research.akis.qualitative_mesa.tests.test_original_preparation_pattern_revision_mesa import revision_routes, structural_view, observe_pattern_change_timing
 from research.akis.qualitative_mesa.mesa_model import simulate
 from research.akis.qualitative_mesa.experiments.export_activity_efficiency import direction
 
@@ -40,10 +40,32 @@ def export_pattern_revision():
             "cost_scope_complete": all(row["original_pattern_cost_scope_complete"]
                                        for row in views.values()),
         })
+    timing = []
+    for label, rate, fee in (("late_positive_to_negative", "8.00", "350.00"),
+                             ("late_zero_to_negative", "8.00", "331.00"),
+                             ("late_positive_to_zero", "8.00", "390.00"),
+                             ("zero_reuse_rate", "0.00", "350.00"),
+                             ("equal_build_reuse_rate", "60.00", "350.00")):
+        report = observe_pattern_change_timing(reuse_rate=rate, third_fee=fee, cap="500.00")
+        timing.append({
+            "trial": label,
+            "accepted_effective_preparation_counts": {
+                arm: row["accepted_effective_preparation_count"]
+                for arm, row in report["views"].items()},
+            "non_effective_preparation_counts": {
+                arm: row["non_effective_preparations_on_accepted_works"]
+                for arm, row in report["views"].items()},
+            "operator_model_contribution_direction": {
+                arm: row["contribution_direction"] for arm, row in report["services"].items()},
+            "extra_applied_preparation_cost_direction": direction(
+                report["costs"]["LATE"]["other_applied_preparation_cost"]),
+            "same_original_commit_accept_capacity_and_cash": True,
+        })
     payload = json.dumps({
-        "schema": "AKIS_ORIGINAL_PREPARATION_PATTERN_REVISION_EVIDENCE/1.0",
+        "schema": "AKIS_ORIGINAL_PREPARATION_PATTERN_REVISION_EVIDENCE/1.1",
         "engine": "MESA_3_5_2",
         "observations": observations,
+        "matched_source_change_timing": timing,
         "no_automatic_owner_decision": True,
         "private_owner_values_and_sources_excluded": True,
         "empirical_organizational_capital_value": "NOT_IDENTIFIABLE",

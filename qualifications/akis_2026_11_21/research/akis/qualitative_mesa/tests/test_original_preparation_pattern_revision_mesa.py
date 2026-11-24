@@ -300,14 +300,14 @@ def test_partial_cost_coverage_does_not_impute_zero_preparation_cost():
     assert costs["total_original_pattern_preparation_cost"] is None
 
 
-def recovery_after_pattern_change():
+def recovery_after_pattern_change(*, reuse_rate="8.00"):
     """One Work, two actually prepared packets, one final accepted Result.
 
     The source is changed after independent approval but before commitment.
     The failed commit and replacement packet occur in the same original
     event route. Keep both independently declared preparation costs.
     """
-    doc = preparation_pattern_routes()["REUSE"]
+    doc = preparation_pattern_routes(reuse_rate=reuse_rate)["REUSE"]
     first = event(doc, "function_prepare", "w3")
     first_review = event(doc, "function_review", "w3")
     commitment = event(doc, "commit", "w3")
@@ -429,3 +429,126 @@ def test_replacement_cost_must_not_reuse_the_previous_cost_evidence():
     new["cost_evidence_ref"] = old["cost_evidence_ref"]
     with pytest.raises(InputError, match="LIFECYCLE_TIMED_COST_EVIDENCE_NOT_UNIQUE"):
         simulate(doc)
+
+
+def matched_pattern_change_timing(*, reuse_rate="8.00", third_fee="350.00", cap="450.00"):
+    """Same final Work, capacity window, independent consent and payments.
+
+    Early: the original source changes before preparation.
+    Late: the change is observed after an approved packet; the old attempt
+    remains in the source-declared costs. Both actually commit/accept at the
+    same time. No new decision rule or predicted profitability is supplied.
+    """
+    from .test_s0_s1_s2_original_preparation_economics_mesa import operator_service_route
+    late = recovery_after_pattern_change(reuse_rate=reuse_rate)
+    early = deepcopy(late)
+    prepares = [row for row in early["events"]
+                if row["action"] == "function_prepare" and row.get("work") == "w3"]
+    reviews = [row for row in early["events"]
+               if row["action"] == "function_review" and row.get("work") == "w3"]
+    commits = [row for row in early["events"]
+               if row["action"] == "commit" and row.get("work") == "w3"]
+    assert len(prepares) == len(reviews) == len(commits) == 2
+    first, replacement = prepares
+    first["preparation_pattern"] = deepcopy(replacement["preparation_pattern"])
+    source_update = next(row for row in early["events"]
+                         if row["action"] == "source_update" and row.get("source") == SOURCE)
+    used = {row["at"] for row in early["events"]}
+    source_update["at"] = next(at for at in range(event(early, "accept", "w2")["at"] + 1,
+                                                first["at"]) if at not in used)
+    early["events"] = sorted([row for row in early["events"]
+                              if row not in (replacement, reviews[1], commits[0])],
+                             key=lambda row: row["at"])
+    new_id = "w3-replacement-preparation"
+    money = early["economic_claims"]
+    costs = money["resource_uses"]
+    old = next(row for row in costs if row["id"] == "cooperation-coordination")
+    new = next(row for row in costs if row["id"] == new_id)
+    old["amount"] = new["amount"]
+    costs.remove(new)
+    lifecycle = money["lifecycle_costs"]
+    for key in ("bindings", "event_bindings", "preparation_activity_bindings"):
+        lifecycle[key] = [row for row in lifecycle[key] if row["resource_use_id"] != new_id]
+    early["context_evidence"]["sources"] = [
+        row for row in early["context_evidence"]["sources"]
+        if row["id"] != "model://op/w3-replacement-preparation-cost"
+    ]
+    positions = {row["at"]: pos for pos, row in enumerate(early["events"])}
+    for row in lifecycle["event_bindings"]:
+        row["trace_position"] = positions[row["at"]]
+
+    # Attach the EXISTING independent non-overlap and payer cap declarations
+    # for the original operator service. Both arms retain the same agreed
+    # model fees and cash costs. Do not infer consent from the fee envelope.
+    template = operator_service_route(pattern="REUSE", third_fee=third_fee, cap=cap)
+    template_money = template["economic_claims"]
+    for doc in (early, late):
+        money = doc["economic_claims"]
+        for src in template_money["sources"]:
+            if src["id"] in ("service-nonoverlap", "service-fee-cap"):
+                money["sources"].append(deepcopy(src))
+        for src in template["context_evidence"]["sources"]:
+            if src["id"] in ("model://op/service-nonoverlap", "model://a/service-fee-cap"):
+                doc["context_evidence"]["sources"].append(deepcopy(src))
+        next(row for row in money["transfers"] if row["id"] == "operator-fee")["amount"] = third_fee
+        money["operator_service_economics"] = deepcopy(template_money["operator_service_economics"])
+        if doc is late:
+            money["operator_service_economics"]["exclusive_resource_use_ids"].append(new_id)
+    return {"EARLY": early, "LATE": late}
+
+
+def observe_pattern_change_timing(*, reuse_rate="8.00", third_fee="350.00", cap="450.00"):
+    """Compare only actual original transitions, with no invented outside work."""
+    docs = matched_pattern_change_timing(reuse_rate=reuse_rate, third_fee=third_fee, cap=cap)
+    before = deepcopy(docs)
+    outcomes = {arm: simulate(doc) for arm, doc in docs.items()}
+    assert docs == before
+    early, late = outcomes["EARLY"], outcomes["LATE"]
+    assert early["works"] == late["works"]
+    assert early["capacity"] == late["capacity"]
+    for action in ("commit", "accept"):
+        witness = lambda out: [(row["work"], row["at"], row["actor"]) for row in out["trace"]
+                              if row["action"] == action and row["outcome"] == "APPLIED"]
+        assert witness(early) == witness(late)
+    assert all(early["works"][w]["result"] == ACCEPTED for w in ("w1", "w2", "w3"))
+    assert early["counts"]["blocked"] == 0 and late["counts"]["blocked"] == 1
+    assert early["economics"]["work_payment_causality"] == late["economics"]["work_payment_causality"]
+    assert early["economics"]["cash_timing"] == late["economics"]["cash_timing"]
+    views = {arm: structural_view(out) for arm, out in outcomes.items()}
+    costs = {arm: out["economics"]["original_pattern_reproduction_costs"]
+             for arm, out in outcomes.items()}
+    services = {arm: out["economics"]["original_operator_service_economics"]
+                for arm, out in outcomes.items()}
+    for arm in outcomes:
+        assert views[arm]["accepted_effective_preparation_count"] == 3
+        assert views[arm]["accepted_effective_revision_count"] == 1
+        assert views[arm]["original_pattern_cost_scope_complete"]
+        assert outcomes[arm]["economics"]["profit"] == "UNKNOWN"
+    assert costs["EARLY"]["accepted_effective_preparation_cost"] == costs["LATE"]["accepted_effective_preparation_cost"]
+    assert views["EARLY"]["non_effective_preparations_on_accepted_works"] == 0
+    assert views["LATE"]["non_effective_preparations_on_accepted_works"] == 1
+    a, b = [services[k]["local_research_only"] for k in ("EARLY", "LATE")]
+    assert a["original_declared_cash_net"] == b["original_declared_cash_net"]
+    assert a["original_fee_amount"] == b["original_fee_amount"]
+    assert a["aggregate_declared_payer_ceiling"] == b["aggregate_declared_payer_ceiling"]
+    assert (Decimal(a["model_service_contribution"]) - Decimal(b["model_service_contribution"])
+            == Decimal(costs["LATE"]["other_applied_preparation_cost"]))
+    return {"views": views, "costs": costs, "services": services}
+
+
+@pytest.mark.parametrize("rate,fee,early,late,extra,early_effect,late_effect", [
+    ("8.00", "350.00", "281.00", "340.00", "59.00", "19.00", "-40.00"),
+    ("8.00", "331.00", "281.00", "340.00", "59.00", "0.00", "-59.00"),
+    ("8.00", "390.00", "281.00", "340.00", "59.00", "59.00", "0.00"),
+    ("0.00", "350.00", "273.00", "324.00", "51.00", "27.00", "-24.00"),
+    ("60.00", "350.00", "333.00", "444.00", "111.00", "-33.00", "-144.00"),
+])
+def test_matched_source_change_timing_changes_operator_effect_not_accepted_results(
+        rate, fee, early, late, extra, early_effect, late_effect):
+    view = observe_pattern_change_timing(reuse_rate=rate, third_fee=fee, cap="500.00")
+    costs, services = view["costs"], view["services"]
+    assert costs["EARLY"]["total_original_pattern_preparation_cost"] == early
+    assert costs["LATE"]["total_original_pattern_preparation_cost"] == late
+    assert costs["LATE"]["other_applied_preparation_cost"] == extra
+    assert services["EARLY"]["local_research_only"]["model_service_contribution"] == early_effect
+    assert services["LATE"]["local_research_only"]["model_service_contribution"] == late_effect
