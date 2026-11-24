@@ -4,12 +4,13 @@ import {createHash,createCipheriv,createDecipheriv,generateKeyPairSync,randomByt
   from 'node:crypto';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {prepareT4OriginalObjectDelta} from '../src/network/original-object-delta.mjs';
-import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,createT4OriginalSourceSessionHead}
   from '../src/network/original-network-publication.mjs';
 import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
-import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame}
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,
+  T4_ORIGINAL_SOURCE_SESSION_EXTENSION}
   from '../src/network/standard-network-wire-candidate.mjs';
 import {inspectT4OriginalNetworkRecipientResult} from '../src/network/original-network-subject-apply.mjs';
 import {createT4OriginalHostRecipientDispatcher} from '../src/network/original-host-recipient-dispatcher.mjs';
@@ -525,4 +526,77 @@ test('K6 typed cursor cannot coexist with another incoming cursor owner or use a
   await assert.rejects(f.typedStep({},f.cursorPort({ownerEpoch:epoch+1})),
     code('RECIPIENT_NATIVE_OWNER_ORIGINAL_CURSOR_PORT_REQUIRED'));
   assert.equal(f.counters.lists,0);assert.equal(f.counters.technicalWrites,0);
+});
+
+const signedSelectionOptions={readOriginalNativeSessionAtCursor:undefined,useSignedSourceAnnouncement:true};
+const announcedHead=f=>createT4OriginalSourceSessionHead({session:f.session,
+  sourceCursorBefore:f.predecessor,sourceCursorAfter:f.nextCursor});
+test('K12 recipient owner discovers signed successor, then uses existing proof and original cursor CAS',async()=>{
+  const f=await fixture();
+  const wake=()=>f.typedStep(signedSelectionOptions);
+  const initial=await wake();
+  assert.equal(initial.state,'WAITING_FOR_HEADS');
+  assert.equal(initial.sourceSelectionDirectOriginalReadVerified,false);
+  assert.equal(initial.originalRecipientCursorAdvanced,false);
+  await f.add(0,{body:announcedHead(f),criticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]});
+  const diff=await wake();
+  assert.equal(diff.state,'DIFF_PRESENT');
+  assert.equal(diff.sourceSessionDiscoveredFromSignedAnnouncement,true);
+  assert.equal(f.counters.opens,0);assert.equal(f.counters.subjectWrites,0);
+  await f.add(1);await f.add(2);await f.add(3);
+  assert.equal((await wake()).state,'RECEIVED_RECORDED');
+  f.restart();assert.equal((await wake()).state,'VERIFIED_RECORDED');
+  f.loseTechnical('ADVANCE');
+  await assert.rejects(wake(),e=>e?.code==='RECIPIENT_NATIVE_OWNER_CURSOR_OUTCOME_UNKNOWN');
+  assert.equal(f.counters.subjectWrites,1);
+  assert.equal((await f.cursorPort().inspectOriginalRecipientCursor()).revision,1);
+  f.restart();const before=clone(f.counters),idle=await wake();
+  assert.equal(idle.state,'WAITING_FOR_HEADS');assert.equal(idle.originalRecipientCursorAdvanced,false);
+  for(const k of ['technicalWrites','subjectWrites','signatures','puts'])
+    assert.equal(f.counters[k],before[k],k);
+  assert.deepEqual((await f.cursorPort().inspectOriginalRecipientCursor()).originalT3VerifiedCursor,f.nextCursor);
+});
+test('K12 incompatible or legacy announcement cannot silently supply recipient selection',async()=>{
+  const f=await fixture();await f.add(0);
+  assert.equal((await f.typedStep(signedSelectionOptions)).state,'WAITING_FOR_HEADS');
+  assert.equal(f.counters.signatures,0);assert.equal(f.counters.subjectWrites,0);
+  await assert.rejects(f.typedStep({...signedSelectionOptions,readOriginalNativeSessionAtCursor:f.select}),
+    code('RECIPIENT_NATIVE_OWNER_STEP_ORIGINAL_PORTS_REQUIRED'));
+  await assert.rejects(f.typedStep({...signedSelectionOptions,requireSourceAnnouncement:false}),
+    code('RECIPIENT_NATIVE_OWNER_STEP_ORIGINAL_PORTS_REQUIRED'));
+});
+test('K12 same predecessor count with different original history is a conflict',async()=>{
+  const f=await fixture(),body=clone(announcedHead(f));
+  body.sourceSession.predecessorPrefixDigest=H('fork');
+  await f.add(0,{body,criticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]});
+  await assert.rejects(f.typedStep(signedSelectionOptions),code('SOURCE_ANNOUNCEMENT_PREDECESSOR_CONFLICT'));
+  assert.equal(f.counters.signatures,0);assert.equal(f.counters.subjectWrites,0);
+});
+test('K12 a second signed successor at the same position cannot be selected by arrival order',async()=>{
+  const f=await fixture(),body=clone(announcedHead(f));
+  const otherEvent='event:k4:competing';
+  const hashDomain=(domain,value)=>{
+    const sort=x=>x&&typeof x==='object'&&!Array.isArray(x)?
+      Object.fromEntries(Object.keys(x).sort().map(k=>[k,sort(x[k])])):x;
+    return sha(Buffer.from('IWXA-T4-ORIGINAL-'+domain+'-V1\0'+JSON.stringify(sort(value))));
+  };
+  const {workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch}=f.session;
+  const otherSession='session:t4:'+hashDomain('NATIVE-SESSION',{workspaceId,originalWriteOwnerRef,sourceNodeRef,
+    recipientNodeRef,scopeRef,ownerEpoch,sourceEventId:otherEvent});
+  await f.add(0,{body,criticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]});
+  body.sourceSession.sourceEventId=otherEvent;
+  body.sourceSession.sourceEventDigest=H('other event');
+  body.heads=[H('other successor')];
+  await f.add(0,{body,sessionRef:otherSession,messageId:'message:k12:other',
+    criticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]});
+  await assert.rejects(f.typedStep(signedSelectionOptions),code('SOURCE_ANNOUNCEMENT_SUCCESSOR_CONFLICT'));
+  assert.equal(f.counters.subjectWrites,0);assert.equal(f.counters.signatures,0);
+});
+test('K12 signed announcement still cannot replace original source access or actual result proof',async()=>{
+  const f=await fixture();await f.add(0,{body:announcedHead(f),criticalExtensions:[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]});
+  await f.typedStep(signedSelectionOptions);await f.add(1);await f.add(2);await f.add(3);
+  f.denySource();
+  await assert.rejects(f.typedStep(signedSelectionOptions),code('HEAD_ORIGINAL_ACCESS_DENIED'));
+  assert.equal(f.counters.opens,0);assert.equal(f.counters.subjectWrites,0);
+  assert.equal((await f.cursorPort().inspectOriginalRecipientCursor()).revision,0);
 });

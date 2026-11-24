@@ -4645,7 +4645,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const authorizeSealedOpen=async p=>receiving.operations.includes('t1.getObject')&&
         p.sourceEventId===p2fCaptured.sourceEventId;
       const autoRecipientOptions=(signerOverride=null)=>({
-          session:durableSession,sourceCursorBefore:p2fTask.sourceCursorBefore,
+          session:durableSession,sourceCursorBefore:p2fTask.sourceCursorBefore,requireSourceAnnouncement:autoRecipient,
           authorizeOriginalRecipientSession:async p=>
             JSON.stringify(p.session)===JSON.stringify(durableSession)&&
             JSON.stringify(p.sourceCursorBefore)===JSON.stringify(p2fTask.sourceCursorBefore)&&
@@ -4690,6 +4690,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const autoStep=async()=>{
         const result=await sourceTask().runNativeSourceStep({
           createOriginalSourcePhasePort:async()=>p2eSourcePhase(),
+          announceOriginalSourceSession:autoRecipient,
           sourceCursorPort:p2eCursorPort(),frameDiscoveryPort:sourceHeadVerifier,
           requiredCryptoSuite:'X25519_AES256GCM_ED25519',
           resolveOriginalSigningContext:async()=>({permissionRef:'original:permission:replay',
@@ -5207,30 +5208,12 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         // session or frame addresses, and loses its original cursor reply.
         let ownerSelections=0;
         const ownerWake=async()=>{
+          ownerSelections++;
           const {session,sourceCursorBefore,recipientPublicationPort,...options}=
             autoRecipientOptions(async()=>{throw Error('owner continuation must not re-sign');});
           return recipientTask({originalRecipientCursorPort:nativeRecipientFrontier()}).runNativeOwnerStep({
               ...options,
-              readOriginalNativeSessionAtCursor:async proof=>{
-                ownerSelections++;
-                const selected=await readT4OriginalNativeCaptureSessionAtCursor({
-                  ...p2fOriginalCapturePorts,...proof,
-                  readOriginalHostContext:async()=>({workspaceId,
-                    originalWriteOwnerRef:'original:t2:exchange',
-                    nodeRef:'node:original:source',scopeRef:'scope:original:replay',
-                    hostSessionRef:sourceHostSession()}),
-                  authorizeOriginalSessionSelection:async p=>
-                    p.readOnly===true&&p.originalRecipientPredecessorAdmissionRequired===true&&
-                    actual.grants.includes('t1.getObject')&&actual.grants.includes('t1.listObjects')&&
-                    actual.grants.includes('t1.listEventsSince'),
-                });
-                if(selected.state==='ORIGINAL_NATIVE_SESSION_SELECTED'){
-                  assert.deepEqual(selected.session,durableSession);
-                  assert.equal(selected.capturedPlaintextReturned,false);
-                  assert.equal(Object.hasOwn(selected,'capture'),false);
-                }
-                return selected;
-              },
+              useSignedSourceAnnouncement:true,
               createOriginalRecipientPublicationPort:async proof=>publicationPort(false,proof.session),
             });
         };
@@ -5241,16 +5224,25 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal(nativeRecipientCursorWrites,frontierRevision-1);
         await restartRecipient();
         const idle=await ownerWake();
-        assert.equal(idle.state,'NO_NEXT_ORIGINAL_EVENT');
+        assert.equal(idle.state,'WAITING_FOR_HEADS');
         assert.equal(idle.originalRecipientCursorAdvanced,false);
+        assert.equal(idle.sourceSessionDiscoveredFromSignedAnnouncement,true);
+        assert.equal(idle.sourceSelectionDirectOriginalReadVerified,false);
         assert.equal(ownerSelections,2);
         const rehydrated=await recipientTask().runNativeStep(autoRecipientOptions(
           async()=>{throw Error('historical verification must not re-sign');}));
         assert.equal(rehydrated.result.acknowledgement.state,'ALREADY_FINALIZED');
         assert.equal(rehydrated.originalSubjectMutationInvoked,false);
+        console.log('T4_REAL_ORIGINAL_T3_NATIVE_SIGNED_SOURCE_ANNOUNCEMENT_PASS',JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,signedHeadPublishedByOriginalSourceTask:true,
+          sourceSelectionDirectOriginalReadVerified:false,recipientSelectedWithoutSessionOrFrameAddress:true,
+          independentOriginalSourceProofStillRequired:true,recipientCursorReplyLostAndRecovered:true,
+          repeatedSubjectWrites:0,repeatedSignatures:0,repeatedNetworkPuts:0,independentPhysicalDevices:false,
+        }));
         console.log('T4_REAL_ORIGINAL_T3_NATIVE_RECIPIENT_OWNER_CONTINUATION_PASS',JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,sourceFrontierAlreadyAhead:true,
-          callerSuppliedSessionOrFrameAddresses:0,originalSourceOwnerSelections:ownerSelections,
+          callerSuppliedSessionOrFrameAddresses:0,originalSourceOwnerSelections:0,
+          signedAnnouncementOwnerWakes:ownerSelections,sourceSelectionDirectOriginalReadVerified:false,
           recipientCursorCASWrites:1,totalRecipientFrontierWrites:nativeRecipientCursorWrites,
           recipientCursorReplyLost:true,coldOwnerState:idle.state,
           originalRecipientEventRef:p2eResult.originalRecipientEventId,
