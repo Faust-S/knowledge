@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID as technicalSchemaId} from './original-network-technical-schema.mjs';
 import {createT4OriginalNetworkBaselineAdmissionPort} from './original-network-baseline-admission.mjs';
@@ -15,6 +16,14 @@ import {createT4OriginalHostRecipientDispatcher} from './original-host-recipient
 import {verifyT4OriginalHostCapturedSubjectSource} from './original-host-outbox-delivery.mjs';
 
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
+// The original native relay issues a 32-byte base64url token. Its first
+// character need not be alphanumeric. Keep that exact token for the local
+// relay handshake, but derive a separate canonical original Host reference
+// for T4 context, task and durable technical evidence.
+const SESSION=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{43}$/.test(x)&&
+  Buffer.from(x,'base64url').length===32&&Buffer.from(x,'base64url').toString('base64url')===x;
+const hostReference=(sessionId,epoch)=>'host:relay:'+createHash('sha256')
+  .update(JSON.stringify([sessionId,epoch])).digest('hex');
 const fail=(code,details={})=>{throw Object.assign(Error(code),{code,details:Object.freeze(details)});};
 const COMMON=Object.freeze(['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject']);
 const SOURCE=Object.freeze([...COMMON,'t1.listAssets','t1.getAsset']);
@@ -76,7 +85,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   }
   function bindingProof(state,step){
     return Object.freeze({...identity,role,nodeRef,step,sessionId:state.sessionId,
-      contextEpoch:state.contextEpoch,originalHostSessionRef:state.sessionId,
+      contextEpoch:state.contextEpoch,originalHostSessionRef:state.hostSessionRef,
       originalNativeOwnerRequired:true,networkGrantsNoWriteAuthority:true});
   }
   async function requireBinding(state,step){
@@ -96,7 +105,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     const context=workspaceId=>async()=>{
       await requireBinding(state,'context');
       return Object.freeze({workspaceId,originalWriteOwnerRef,originalOwnerRef:originalWriteOwnerRef,
-        nodeRef,scopeRef,networkTargetRef:recipientNodeRef,hostSessionRef:state.sessionId});
+        nodeRef,scopeRef,networkTargetRef:recipientNodeRef,hostSessionRef:state.hostSessionRef});
     };
     const callback=name=>async(...args)=>{
       await requireBinding(state,name);const result=await ports[name](...args);
@@ -191,11 +200,12 @@ export function createT4OriginalNativeHostNetworkOwner({
     schema:'IWXA_T4_ORIGINAL_NATIVE_HOST_NETWORK_OWNER_V1',role,identity,operations,
     createsScheduler:false,createsTaskEngine:false,createsStore:false,createsKernel:false,
     async onAttach(p){
-      if(live!==null||!ID(p?.sessionId)||!Number.isSafeInteger(p.contextEpoch)||p.contextEpoch<0||
+      if(live!==null||!SESSION(p?.sessionId)||!Number.isSafeInteger(p.contextEpoch)||p.contextEpoch<0||
         typeof p.isHostActive!=='function'||p.kernel?.authorityMode!=='ORIGINAL_T3_SIGNED'||
         !operations.every(op=>p.kernel.hasOperation?.(op)===true&&typeof p.kernel[op.slice(3)]==='function'))
         return false;
       const state={kernel:p.kernel,sessionId:p.sessionId,contextEpoch:p.contextEpoch,
+        hostSessionRef:hostReference(p.sessionId,p.contextEpoch),
         isHostActive:p.isHostActive,disposed:false,waking:false,task:null};
       live=state;
       try{

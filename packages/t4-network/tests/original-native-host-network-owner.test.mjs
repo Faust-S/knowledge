@@ -240,3 +240,25 @@ test('K17 existing native source wake recovers original missing Outbox through s
     assert.ok(f.commands.filter(c=>c.method==='putObject').every(c=>c.args[0].workspace_id===source.technicalWorkspaceId));
   }finally{f.relay.close();}
 });
+
+test('K17 original native relay accepts canonical base64url tokens beginning with hyphen or underscore',async()=>{
+  const store=kernelFixture('session-identity');store.technicalWorkspaceId='ws:k14:token:technical';
+  for(const first of [248,252]){
+    const bytes=Buffer.alloc(32);bytes[0]=first;const sessionId=bytes.toString('base64url');
+    assert.ok(sessionId.startsWith(first===248?'-':'_'));
+    const wire=wireFixture(),f=nativeFixture({role:'SOURCE',store,wire,baselineInput:{},requestBaseline:false});
+    const p={sessionId,contextEpoch:1,kernel:{...store.kernel,authorityMode:'ORIGINAL_T3_SIGNED',
+      listAssets:async()=>[],getAsset:async()=>null},isHostActive:()=>true};
+    try{
+      assert.equal(await f.owner.onAttach(p),true);
+      await f.owner.onIdleWake(p);
+      const r=f.results.at(-1);
+      assert.equal(r.state,'WAITING_FOR_ORIGINAL_BASELINE');
+      assert.match(r.originalHostSessionRef,/^host:relay:[a-f0-9]{64}$/);
+      assert.notEqual(r.originalHostSessionRef,sessionId);
+      f.owner.onDetach(p);
+      assert.equal(await f.owner.resolveOriginalAccess({sessionId,contextEpoch:1,operation:'t1.getObject',
+        args:[store.technicalWorkspaceId,'o:absent']}),null);
+    }finally{f.relay.close();}
+  }
+});
