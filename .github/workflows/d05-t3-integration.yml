@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: 5d94070dbe7b09a3422bb05b53128153305e12c4
+          ref: a7fe4c9b8fd0ae1155adcd12b1b5399c55177461
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -74,6 +74,20 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
         run: |
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-npm.log" 2>&1 || { echo D05_T3_NPM_FAIL; exit 1; }
+      - name: Verify deterministic static hydration and model witness syntax
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-ssr-test.log"
+          if ! npm run check:t3-ssr-determinism >"$log" 2>&1; then
+            grep -Eo '^not ok [0-9]+|CEHOVOD_T3_SSR_[A-Z0-9_]+' "$log" | head -20 || true
+            echo D05_T3_SSR_TEST_FAIL
+            exit 1
+          fi
+          node --check scripts/d05-t3-real-model-witness.mjs >"$RUNNER_TEMP/d05-t3-model-syntax.log" 2>&1 || { echo D05_T3_MODEL_SYNTAX_FAIL; exit 1; }
+          echo D05_T3_SSR_TEST_PASS
+          echo D05_T3_MODEL_SYNTAX_PASS
       - name: Check actual TSX syntax with no source disclosure
         working-directory: site
         shell: bash
@@ -202,7 +216,7 @@ jobs:
           // strings, identifiers, patches containing code, or formatter diagnostics.
           const layout=/^[ \t\r\n"'\x60,;(){}\[\]\\]*$/u;
           const isLayout=c=>c!==undefined&&layout.test(c);
-          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs"]);
+          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs","scripts/d05-t3-real-model-witness.mjs","scripts/prerender.ts","scripts/lib/prerender-determinism.mjs","scripts/lib/prerender-determinism.test.mjs","src/styles.css"]);
           for(const row of rows.filter(r=>r.errorCount)){
             const path=relative(process.cwd(),row.filePath);
             if(!allow.has(path)||row.messages.some(m=>m.severity===2&&m.ruleId!=="prettier/prettier"))continue;
@@ -346,6 +360,66 @@ jobs:
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-browser.log"
           if ! npm run check:t3-assistant-browser >"$log" 2>&1; then
+            grep -E '^CEHOVOD_T3_ASSISTANT_BROWSER_DIAG \{"skill":"[a-z0-9-]+","width":[0-9]+,"phase":"[a-z-]+","remote":[0-9]+,"workers":[0-9]+,"errors":[0-9]+,"remoteKinds":\[("[a-z]+",?)*\],"errorKinds":\[("[A-Za-z]+",?)*\]\} "$log" | sort -u | head -30 || true
+            echo D05_T3_ASSISTANT_BROWSER_FAIL
+            exit 1
+          fi
+          grep -E '^\{"status":"CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS","routes":22,"forms":20,"costRoutes":2,"orderRoutes":2,"repeatRoutes":2,"actualInference":false,"productAccepted":false\}$' "$log"
+          echo D05_T3_ASSISTANT_BROWSER_PASS
+      - name: Cold offline public site using original worker and persistent browser profile
+        id: offline
+        continue-on-error: true
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-offline.log"
+          if ! npm run check:t3-public-offline >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_OFFLINE_[A-Za-z0-9_-]+|TimeoutError|AssertionError' "$log" | sort -u | head -30 || true
+            echo D05_T3_PUBLIC_OFFLINE_FAIL
+            exit 1
+          fi
+          grep -E '^\{"status":"CEHOVOD_T3_PUBLIC_COLD_OFFLINE_PASS","routes":11,"files":[0-9]+,"serverStopped":true,"browserRestarted":true,"actualInference":false,"protectedWorkspaceAccepted":false\}$' "$log"
+          echo D05_T3_PUBLIC_OFFLINE_PASS
+      - name: Exact repeat build and damaged-input rollback from retained bytes
+        id: repro
+        continue-on-error: true
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-repro.log"
+          if ! node scripts/check-t3-dist-reproducibility.mjs >"$log" 2>&1; then
+            grep -E '^CEHOVOD_T3_REPRO_DIAG \{"kinds":\{("[a-z-]+":[0-9]+,?)*\},"htmlEqualAfterTimestampNormalization":[0-9]+,"htmlEqualAfterRouterTimestampNormalization":[0-9]+,"htmlWithTimestampChanges":[0-9]+\}$' "$log" || true
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T3_[A-Z0-9_]+|AssertionError' "$log" | sort -u | head -30 || true
+            echo D05_T3_REPRO_FAIL
+            exit 1
+          fi
+          grep -E '^\{"status":"CEHOVOD_T3_REPRO_PASS","files":[0-9]+,"invalidInputPreservedDist":true,"exactBytes":true,"productAccepted":false\}$' "$log"
+          echo D05_T3_REPRO_PASS
+      - name: Require exact-source qualification
+        if: always()
+        shell: bash
+        env:
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+          TYPES_OUTCOME: ${{ steps.site_types.outcome }}
+          MODULE_OUTCOME: ${{ steps.module.outcome }}
+          SUBJECT_OUTCOME: ${{ steps.subject.outcome }}
+          BROWSER_OUTCOME: ${{ steps.browser.outcome }}
+          OFFLINE_OUTCOME: ${{ steps.offline.outcome }}
+          REPRO_OUTCOME: ${{ steps.repro.outcome }}
+        run: test "$LINT_OUTCOME" = success && test "$TYPES_OUTCOME" = success && test "$MODULE_OUTCOME" = success && test "$SUBJECT_OUTCOME" = success && test "$BROWSER_OUTCOME" = success && test "$OFFLINE_OUTCOME" = success && test "$REPRO_OUTCOME" = success
+      - name: Clear private diagnostics
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP"/d05-t3-*.log "$RUNNER_TEMP"/d05-t3-lint.json "$RUNNER_TEMP"/d05-t3-subject.json
+          rm -rf "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/t3-artifact.zip" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$GITHUB_WORKSPACE/site/runtime/t3-platform/0.3.1-rc.1/cehovod-host" "$GITHUB_WORKSPACE/site/runtime/t3-platform/0.3.1-rc.1/platform-inputs.zip"
+ "$log" || true
             grep -Eo 'CEHOVOD_T3_ASSISTANT_[A-Za-z0-9_-]+|TimeoutError|AssertionError|TS[0-9]{4,6}' "$log" | sort -u | head -30 || true
             echo D05_T3_ASSISTANT_BROWSER_FAIL
             exit 1
