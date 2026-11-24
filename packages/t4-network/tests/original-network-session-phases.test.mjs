@@ -505,6 +505,7 @@ async function controlFixture(){
       return new Uint8Array(sign(null,Buffer.from(p.bytes),k.privateKey));}});
   const technical='ws:k47:source:technical',sourcePhase=(patch={})=>createT4OriginalNetworkSessionPhasePort({
     ...f.base,originalKernel:sourceStore.kernel,technicalWorkspaceId:technical,localNodeRef:sourceNodeRef,
+    recipientApplyIntentRequired:false,authorizeOriginalRecipientSupersession:null,
     sessionRef:session.sessionRef,changeId:session.changeId,getMode,readOriginalHostContext:context(sourceNodeRef,technical),
     authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true,
     verifyOriginalPhaseEvidence:async()=>true,verifyOriginalRecipientApplied:async()=>sourceApplied,
@@ -690,4 +691,21 @@ test('K48 source SUPERSEDED and APPLIED_CONFIRMED cannot both acquire the origin
   assert.equal(settled.filter(x=>x.status==='rejected').length,1);
   assert.equal(x.sourcePhaseWrites(),3);
   assert.ok(['SUPERSEDED','APPLIED_CONFIRMED'].includes((await x.sourcePhase().inspectOriginalSession()).currentPhase));
+});
+
+test('K48 changed source frontier during final authorization never yields bilateral retirement proof',async()=>{
+  const x=await controlFixture(),p=x.plan(),request=await x.request(p),ack=await x.retire(p,request);
+  await x.publishAck(ack);
+  const before=await x.sourcePhase().inspectOriginalSession();
+  let checks=0;
+  await assert.rejects(x.recordBoth(p,ack,before,{authorizeOriginalSourceSupersession:async()=>{
+    if(++checks===2)x.changeFrontier();
+    return true;
+  }}),isCode('SUPERSESSION_ORIGINAL_SOURCE_FRONTIER_CHANGED'));
+  assert.equal(checks,2);
+  assert.equal(x.sourcePhaseWrites(),1);
+  assert.equal((await x.sourcePhase().inspectOriginalSession()).currentPhase,'SUPERSEDED');
+  x.restoreFrontier();
+  assert.equal((await x.recordBoth(p,ack,before)).status,'ALREADY_CONFIRMED');
+  assert.equal(x.sourcePhaseWrites(),1);
 });

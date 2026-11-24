@@ -308,6 +308,9 @@ export async function recordT4OriginalSourceSupersession({
     !same(after.originalSourceSupersessionEvidence,recorded.originalRecordedRetirement)||
     !same(await frontier(),initial))fail('SUPERSESSION_ORIGINAL_SOURCE_RETIREMENT_NOT_PROVEN');
   await allowed(authorizeOriginalSourceSupersession,fullProof,getMode,'SUPERSESSION_ORIGINAL_SOURCE_DECISION_DENIED');
+  if(!same(await frontier(),initial)||!same(await sourceStatus(),after))
+    fail('SUPERSESSION_ORIGINAL_SOURCE_STATE_CHANGED');
+  await absentAck();
   return freeze({schema:'IWXA_T4_ORIGINAL_BOTH_ATTEMPTS_RETIRED_V1',plan:p,
     sourceRetirement:clone(recorded.originalRecordedRetirement),originalSourcePhaseCheckpointRef:after.checkpointRef,
     originalSourcePhaseEventId:after.originalSupersessionEventId,originalSourcePhaseChainHash:after.chainHash,
