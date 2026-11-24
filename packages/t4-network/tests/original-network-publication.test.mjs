@@ -45,12 +45,12 @@ function task(){
   };
 }
 const headsSlots=[{sequence:1,messageType:'HEADS'}];
-function fixture(data=task(),{indexed=false}={}){
+function fixture(data=task(),{indexed=false,initialLegacy=false}={}){
   const session=deriveT4OriginalNativeCaptureSession(data);
   const objects=new Map(),events=[],remote=new Map(),replay=new Map(),indexes=new Map();
   let putCalls=0,networkCalls=0,signCalls=0,reads=0,
     loseAction=null,loseNetwork=null,host='host:initial',network=true,allow=true,retryAllowed=true,
-    afterNetworkPut=()=>{},indexCalls=0,loseIndex=null,indexRepairAllowed=true;
+    afterNetworkPut=()=>{},indexCalls=0,loseIndex=null,indexRepairAllowed=true,indexMigrationAllowed=true;
   const kernel={
     hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject'].includes(op),
     async getObject(w,id){reads++;return structuredClone(objects.get(w+':'+id)??null);},
@@ -122,7 +122,7 @@ function fixture(data=task(),{indexed=false}={}){
   if(indexed){
     const indexReceipt=(key,frameSha256)=>({schema:'IWXA_T4_NATIVE_FRAME_INDEX_READ_V1',key,frameSha256,
       addressMetadataIsNotSignatureOrAuthority:true,originalBusinessApplied:false});
-    Object.assign(transport,{nativeFrameIndexVersion:1,
+    Object.assign(transport,{nativeFrameIndexVersion:initialLegacy?0:1,
       async getNativeFrameIndex({key}){return indexes.has(key)?indexReceipt(key,indexes.get(key)):null;},
       async putNativeFrameIndex({key,frameSha256}){
         indexCalls++;
@@ -161,7 +161,8 @@ function fixture(data=task(),{indexed=false}={}){
       authorizeOriginalTechnicalRead:auth,authorizeOriginalTechnicalWrite:auth,
       authorizeOriginalFramePublish:async p=>allow&&
         (p.operation!=='t4.network.publish.retry-missing'||retryAllowed)&&
-        (p.operation!=='t4.network.publish.index.repair'||indexRepairAllowed),
+        (p.operation!=='t4.network.publish.index.repair'||indexRepairAllowed)&&
+        (p.operation!=='t4.network.publish.index.migrate'||indexMigrationAllowed),
       verifyOriginalNodeSignature:async({bytes,signature,signerRef})=>
         signerRef===(node===source?'key:source':'key:recipient')&&
         verify(null,Buffer.from(bytes),node===source?keys.publicKey:peerKeys.publicKey,
@@ -222,6 +223,8 @@ function fixture(data=task(),{indexed=false}={}){
     loseCAS:action=>{loseAction=action;},loseNetwork:where=>{loseNetwork=where;},
     indexCalls:()=>indexCalls,loseIndex:where=>{loseIndex=where;},
     denyIndexRepair:()=>{indexRepairAllowed=false;},allowIndexRepair:()=>{indexRepairAllowed=true;},
+    enableIndexed:()=>{assert.equal(indexed,true);transport.nativeFrameIndexVersion=1;},
+    denyIndexMigration:()=>{indexMigrationAllowed=false;},allowIndexMigration:()=>{indexMigrationAllowed=true;},
     restart:()=>{host='host:cold:'+putCalls;},local:()=>{network=false;},
     revoke:()=>{allow=false;},denyRetry:()=>{retryAllowed=false;},
     onNetworkPut:fn=>{afterNetworkPut=fn;}};
@@ -588,4 +591,59 @@ test('K23 durable recovery observes already committed index without repeating in
   assert.equal((await f.port().publishPreparedFrame({sequence:1})).state,'REMOTE_READBACK_RECOVERED');
   assert.equal(f.indexCalls(),1);assert.equal(f.counts().networkCalls,1);
   assert.equal(f.counts().signCalls,1);assert.equal(f.counts().putCalls,3);
+});
+
+
+test('K25 migrate exact already PRESENT legacy frames to indexed transport without another publication, signature or original CAS',async()=>{
+  const f=fixture(task(),{indexed:true,initialLegacy:true});
+  await f.stageHeads();await f.port().publishPreparedFrame({sequence:1});
+  const before=await f.port().inspectOriginalPublication();
+  assert.equal(f.indexes.size,0);
+  await assert.rejects(f.port().reconcileOriginalPublishedFrameIndexes({sequences:[1]}),
+    err('PUBLICATION_NATIVE_INDEX_PROFILE_REQUIRED'));
+  f.restart();f.enableIndexed();
+  await assert.rejects(f.port().readOriginalPublishedFrame({sequence:1}),err('WIRE_NATIVE_INDEX_MISSING'));
+  assert.equal(f.indexCalls(),0);
+  f.denyIndexMigration();
+  await assert.rejects(f.port().reconcileOriginalPublishedFrameIndexes({sequences:[1]}),
+    err('PUBLICATION_ORIGINAL_AUTHORITY_DENIED'));
+  assert.equal(f.indexCalls(),0);
+  f.allowIndexMigration();
+  const migrated=await f.port().reconcileOriginalPublishedFrameIndexes({sequences:[1]});
+  assert.equal(migrated.state,'ORIGINAL_PRESENT_FRAME_INDEXES_VERIFIED');
+  assert.equal(migrated.originalPublicationRevision,before.revision);
+  assert.equal(migrated.originalPublicationChainHash,before.chainHash);
+  assert.equal(migrated.frames[0].sha256,before.frames[0].sha256);
+  assert.equal(migrated.frames[0].nativeSessionIndexVerified,true);
+  assert.equal(migrated.frames[0].sourceAnnouncementIndexVerified,false);
+  assert.equal(migrated.originalFramePutInvoked,false);assert.equal(migrated.originalSigningInvoked,false);
+  assert.equal(f.indexCalls(),1);assert.equal(f.indexes.size,1);
+  assert.equal(f.counts().networkCalls,1);assert.equal(f.counts().signCalls,1);assert.equal(f.counts().putCalls,3);
+  assert.deepEqual(await f.port().inspectOriginalPublication(),before);
+  assert.equal((await f.port().readOriginalPublishedFrame({sequence:1})).sha256,before.frames[0].sha256);
+  f.restart();
+  assert.deepEqual(await f.port().reconcileOriginalPublishedFrameIndexes({sequences:[1]}),migrated);
+  assert.equal(f.indexCalls(),1);assert.equal(f.counts().networkCalls,1);
+});
+test('K25 whole requested migration batch must already be PRESENT; unknown address response is read back on an explicit new call',async()=>{
+  const f=fixture(task(),{indexed:true,initialLegacy:true});
+  await f.stageHeads();await f.port().publishPreparedFrame({sequence:1});
+  const batch=await f.changeBatch();
+  await f.port().prepareSignedBatch({slots:batch.slots,createSignedFrames:async()=>batch.frames});
+  f.enableIndexed();
+  await assert.rejects(f.port().reconcileOriginalPublishedFrameIndexes({sequences:[1,2]}),
+    err('PUBLICATION_INDEX_MIGRATION_PRESENT_REQUIRED'));
+  await assert.rejects(f.port().reconcileOriginalPublishedFrameIndexes({sequences:[1,1]}),
+    err('PUBLICATION_INDEX_MIGRATION_SEQUENCE_INVALID'));
+  assert.equal(f.indexCalls(),0);
+  const before=await f.port().inspectOriginalPublication();
+  f.loseIndex('after');
+  await assert.rejects(f.port().reconcileOriginalPublishedFrameIndexes({sequences:[1]}),
+    e=>e?.code==='PUBLICATION_INDEX_MIGRATION_OUTCOME_UNKNOWN'&&e.details.automaticRetryAllowed===false);
+  assert.equal(f.indexes.size,1);
+  f.restart();
+  assert.equal((await f.port().reconcileOriginalPublishedFrameIndexes({sequences:[1]})).state,
+    'ORIGINAL_PRESENT_FRAME_INDEXES_VERIFIED');
+  assert.equal(f.indexCalls(),1);assert.equal(f.counts().networkCalls,1);
+  assert.deepEqual(await f.port().inspectOriginalPublication(),before);
 });

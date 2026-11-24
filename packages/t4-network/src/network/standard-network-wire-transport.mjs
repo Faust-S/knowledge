@@ -107,15 +107,22 @@ export function createT4CandidateFrameTransport({
   }
   async function ensureIndexes(ctx,frame,sha256,repair){
     if(!indexed)return;
+    const missing=[];
+    // Inspect every deterministic slot before changing any address. A
+    // pre-existing competing HEADS must not create a second session pointer
+    // as a side effect of attempting to repair the source announcement.
     for(const key of t4NativeFrameIndexKeys(frame)){
       await hostGuard('index-read',ctx,frame,sha256);
       const found=await wireTransport.getNativeFrameIndex({key});
-      if(found===null){
-        if(!repair)fail('WIRE_NATIVE_INDEX_MISSING');
-        await hostGuard('index-publish',ctx,frame,sha256);
-        const written=await wireTransport.putNativeFrameIndex({key,frameSha256:sha256});
-        if(checkIndexRead(written,key)!==sha256)fail('WIRE_NATIVE_INDEX_SLOT_CONFLICT');
-      }else if(checkIndexRead(found,key)!==sha256)fail('WIRE_NATIVE_INDEX_SLOT_CONFLICT');
+      if(found===null)missing.push(key);
+      else if(checkIndexRead(found,key)!==sha256)fail('WIRE_NATIVE_INDEX_SLOT_CONFLICT');
+      await hostGuard('index-readback',ctx,frame,sha256);
+    }
+    if(missing.length&&!repair)fail('WIRE_NATIVE_INDEX_MISSING');
+    for(const key of missing){
+      await hostGuard('index-publish',ctx,frame,sha256);
+      const written=await wireTransport.putNativeFrameIndex({key,frameSha256:sha256});
+      if(checkIndexRead(written,key)!==sha256)fail('WIRE_NATIVE_INDEX_SLOT_CONFLICT');
       await hostGuard('index-readback',ctx,frame,sha256);
     }
   }

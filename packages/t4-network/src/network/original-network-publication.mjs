@@ -474,6 +474,72 @@ export function createT4OriginalNetworkPublicationPort({
       originalReplayCheckpointRecorded:false,remoteReceiptProven:false,
       networkBytesVerified:true,originalBusinessApplied:false,originalT3ExchangeCalled:false});
   }
+  // Explicit original-owner migration/repair of already PRESENT frames.
+  // It is not an ordinary publication attempt, cannot promote PREPARED or
+  // ATTEMPTED, and never creates a new signed frame or rewrites the original
+  // publication history. The exact saved bytes remain the authority.
+  async function reconcileOriginalPublishedFrameIndexes({sequences}={}){
+    const requested=clone(sequences);
+    if(frameTransport.nativeFrameIndexVersion!==1)
+      fail('PUBLICATION_NATIVE_INDEX_PROFILE_REQUIRED');
+    if(!Array.isArray(requested)||!requested.length||requested.length>MAX_FRAMES||
+      requested.some(n=>!Number.isSafeInteger(n)||n<1||n>MAX_FRAMES)||
+      new Set(requested).size!==requested.length)
+      fail('PUBLICATION_INDEX_MIGRATION_SEQUENCE_INVALID');
+    const ctx=await context(),current=await read(ctx);
+    const entries=requested.map(sequence=>current.entries[sequence-1]);
+    if(entries.some(e=>e?.state!=='PRESENT'))fail('PUBLICATION_INDEX_MIGRATION_PRESENT_REQUIRED');
+    // Validate every selected original signed frame and migration decision
+    // before the first address PUT. This is not a remote collection sweep.
+    const frames=[];
+    for(const entry of entries){
+      frames.push(await verifyFrame(ctx,entry,'index-migration-preflight'));
+      await guard(ctx,'t4.network.publish.index.migrate','index-migration-preflight',entry);
+    }
+    const confirm=async()=>{
+      const after=await read(ctx);
+      if(after.revision!==current.revision||after.chainHash!==current.chainHash||
+        !same(after.entries,current.entries))fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    };
+    await confirm();
+    const results=[];
+    for(let i=0;i<entries.length;i++){
+      const entry=entries[i],frame=frames[i],key=entry.sha256+'.t4n';
+      await verifyFrame(ctx,entry,'index-migration');
+      await guard(ctx,'t4.network.publish.index.migrate','index-migration',entry);
+      let observed;
+      try{
+        observed=await frameTransport.inspectUnknownPublication({
+          key,expectedSha256:entry.sha256,repairMissingFrameIndex:true});
+      }catch(error){
+        fail('PUBLICATION_INDEX_MIGRATION_OUTCOME_UNKNOWN',{
+          sequence:entry.sequence,originalCode:error?.code??null,
+          originalFrameAlreadyPresent:true,networkAddressMayHaveCommitted:true,
+          automaticRetryAllowed:false,originalSignedBytesRetained:true});
+      }
+      if(observed?.schema!=='IWXA_T4_CANDIDATE_FRAME_PRESENT_V1'||observed.key!==key||
+        observed.sha256!==entry.sha256||observed.exactBytesPresent!==true||
+        observed.originalBusinessApplied!==false)
+        fail('PUBLICATION_NETWORK_READBACK_NOT_PROVEN');
+      await verifyFrame(ctx,entry,'index-migration-readback');
+      await guard(ctx,'t4.network.publish.index.migrate','index-migration-readback',entry);
+      results.push(Object.freeze({sequence:entry.sequence,messageType:entry.messageType,key,
+        sha256:entry.sha256,exactOriginalSignedFrameReadback:true,
+        nativeSessionIndexVerified:true,
+        sourceAnnouncementIndexVerified:frame.messageType==='HEADS'&&
+          frame.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION),
+        signedFrameRewritten:false}));
+    }
+    await confirm();
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_PUBLICATION_INDEX_MIGRATION_V1',
+      sessionRef:identity.sessionRef,changeId:identity.changeId,checkpointRef,
+      state:'ORIGINAL_PRESENT_FRAME_INDEXES_VERIFIED',originalPublicationRevision:current.revision,
+      originalPublicationChainHash:current.chainHash,frames:Object.freeze(results),
+      originalT3EventChainVerified:true,originalPublicationLedgerChanged:false,
+      originalFramePutInvoked:false,originalSigningInvoked:false,originalSubjectMutationInvoked:false,
+      sourceCursorAdvanced:false,recipientCursorAdvanced:false,originalBusinessApplied:false,
+      remoteCollectionEnumerated:false});
+  }
   async function prepareSignedBatch({slots,createSignedFrames}={}){
     const requested=slotList(slots,types),ctx=await context();
     const current=await read(ctx),start=requested[0].sequence;
@@ -596,6 +662,7 @@ export function createT4OriginalNetworkPublicationPort({
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1',
     session:identity,checkpointRef,inspectOriginalPublication,
     prepareSignedBatch,publishPreparedFrame,readOriginalPublishedFrame,
+    reconcileOriginalPublishedFrameIndexes,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkPublicationPort({
       technicalSchemaId,
       session:identity,localNodeRef,technicalWorkspaceId,originalKernel,
