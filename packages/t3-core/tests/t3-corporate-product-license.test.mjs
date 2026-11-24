@@ -6,7 +6,7 @@ import {createOriginalEmployeeEnrollmentOwner} from '../src/t3/access/original-e
 import {createOriginalKernelRegistryStatePort,prepareOriginalEmployeeRegistryRefresh} from '../src/t3/access/original-kernel-registry-state.mjs';
 import {model,originalKernelFixture,NOW as MEMBER_NOW} from './support/t3-two-corp-original-authority.mjs';
 import {CORPORATE_SEAT_ACTION,CORPORATE_SEAT_RESOURCE,CORPORATE_SEAT_PURPOSE,
- evaluateOriginalCorporateSeatUse} from '../src/t3/access/original-corporate-seat-owner.mjs';
+ evaluateOriginalCorporateSeatUse,authorizeOriginalCorporateSeatUse} from '../src/t3/access/original-corporate-seat-owner.mjs';
 import {
   CORPORATE_REQUEST_SCHEMA,CORPORATE_LICENSE_SCHEMA,CORPORATE_STATUS_SCHEMA,
   validateCorporateLicenseRequest,validateCorporateLicensePayload,
@@ -517,4 +517,48 @@ test('recipient clock advances independently and delivery mutations never change
  delivery.record.data.grants={};
  assert.deepEqual(await s.registry.readRegistryDelivery(),original);
  assert.equal(s.kernel.calls.length,calls);
+});
+
+test('original employee use binds actual operation digest, selected seat and independent proof',async()=>{
+ const s=await seatFixture(),[alice,bob]=s.employees;
+ const operation=digest({taskId:'task:original',revision:'revision:original'});
+ let proofs=0,previousRequest=null,previousChallenge=null,previousProof=null;
+ const authorize=async(e,options={})=>authorizeOriginalCorporateSeatUse({
+  state:await s.registry.readState(),organization:s.organization,
+  licenseState:s.source.read(),installedTrust:s.source.installedTrust,
+  actorId:e.personId,credentialKeyId:e.signer.keyId,operationDigest:operation,
+  now:s.time,prove:({request,challenge,credentialKeyId,now})=>{
+   proofs++;
+   assert.equal(credentialKeyId,e.signer.keyId);
+   assert.equal(request.operationDigest,operation);
+   assert.equal(request.actorId,e.personId);
+   const proof=makeProof(request,challenge,now,e.signer,'PRODUCTION');
+   previousRequest=request;previousChallenge=challenge;previousProof=proof;
+   return proof;
+  },...options});
+ assert.equal((await authorize(alice)).allowed,false);
+ assert.equal(proofs,0,'unassigned employee must not sign a use proof');
+ const a=await s.owner.changeCorporateSeat(await s.command('ASSIGN','cmd:operation:alice',alice));
+ const before=s.kernel.calls.length;
+ const good=await authorize(alice);
+ assert.equal(good.allowed,true);
+ assert.equal(good.grantId,a.grantId);assert.equal(good.operationDigest,operation);
+ assert.equal(good.authorityClass,'ENTITLEMENT');
+ assert.equal(good.dataAuthority,false);assert.equal(good.actionAuthority,false);
+ assert.equal(good.productionActivation,false);
+ assert.equal(proofs,1);
+ const oldChallenge=previousChallenge,oldRequest=previousRequest,oldProof=previousProof;
+ assert.equal((await authorize(alice,{prove:({request,challenge})=>{
+  assert.notEqual(challenge,oldChallenge);assert.notEqual(request.id,oldRequest.id);return oldProof;
+ }})).allowed,false);
+ assert.equal((await authorize(alice,{prove:({request,challenge,now})=>
+  makeProof(request,challenge,now,bob.signer,'PRODUCTION')})).allowed,false);
+ assert.equal((await authorize(alice,{operationDigest:'invalid'})).allowed,false);
+ assert.equal((await authorize(bob)).allowed,false);
+ assert.equal(s.kernel.calls.length,before,'JIT use is read-only');
+ const moved=await s.owner.changeCorporateSeat(await s.command('TRANSFER','cmd:operation:bob',bob,a.grantId));
+ assert.equal((await authorize(alice)).allowed,false);
+ assert.equal((await authorize(bob)).grantId,moved.grantId);
+ assert.equal((await authorize(bob)).allowed,true);
+ s.revoke();assert.equal((await authorize(bob)).allowed,false);
 });
