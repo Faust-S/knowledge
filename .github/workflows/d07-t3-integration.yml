@@ -9,7 +9,7 @@ permissions:
   actions: read
 concurrency:
   group: d07-t3-integration
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   t3-source:
     runs-on: ubuntu-latest
@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: f0debb2e33f371af22b60cf8dc7ddfcf9535e582
+          ref: c28541e83140ff31fc2301f2c13c899c408b94c9
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -45,7 +45,7 @@ jobs:
       - name: Preserve exact T2 subject and Workspace module
         run: |
           test "$(git -C domain rev-parse HEAD)" = "21751cc98337ba81cead9196c5d2d6d778fc1a42"
-          test "$(git -C site rev-parse HEAD)" = "f0debb2e33f371af22b60cf8dc7ddfcf9535e582"
+          test "$(git -C site rev-parse HEAD)" = "c28541e83140ff31fc2301f2c13c899c408b94c9"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -104,19 +104,21 @@ jobs:
           node --check scripts/retain-d07-t3-inputs.mjs
           node --check scripts/build-d07-integrated-site.mjs
           node --check scripts/build-d07-clean.mjs
-          node --import tsx --test scripts/tests/d07-t3-local-build.test.mjs scripts/tests/d07-t3-boot.test.mjs scripts/tests/d07-tool-order-scope.test.mjs scripts/tests/d07-tool-drafts.test.mjs > "$RUNNER_TEMP/local-tests.log" 2>&1 || { echo D07_T3_LOCAL_TESTS=FAIL; grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"; exit 1; }
+          node --check scripts/audit-d07-t3-context.mjs
+          node --import tsx --test scripts/tests/d07-t3-local-build.test.mjs scripts/tests/d07-t3-boot.test.mjs scripts/tests/d07-tool-order-scope.test.mjs scripts/tests/d07-tool-drafts.test.mjs scripts/tests/d07-tool-draft-commit.test.mjs scripts/tests/d07-tool-directory-ref.test.mjs > "$RUNNER_TEMP/local-tests.log" 2>&1 || { echo D07_T3_LOCAL_TESTS=FAIL; grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"; exit 1; }
           echo D07_T3_LOCAL_TESTS=PASS
           grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"
           echo D07_T3_ASSEMBLY_SYNTAX=PASS
   original-t3-integration:
     needs: t3-source
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: f0debb2e33f371af22b60cf8dc7ddfcf9535e582
+          ref: c28541e83140ff31fc2301f2c13c899c408b94c9
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -164,7 +166,7 @@ jobs:
           VITE_D07_T3: '1'
         run: |
           bun install --frozen-lockfile > "$RUNNER_TEMP/install.log" 2>&1 || { echo D07_T3_INSTALL=FAIL; exit 1; }
-          node scripts/build-d07-integrated-site.mjs > "$RUNNER_TEMP/baseline.log" 2>&1 || { echo D07_T3_BASELINE=FAIL; grep -E '^D07_PUBLIC_BUILD_STEP_(START|PASS|FAIL)=(generate:sitemap|generate:prerender-routes|quality:gate:pre|build:app|flatten:dist|prerender|quality:gate:post)(:[A-Z_0-9]+(:SIGNAL_[A-Z_0-9]+)?|:[0-9]+s)?$|^D07_BUILD_(SITE|HOST|KERNEL)_WORKER_FAILED$|^D07_[A-Z0-9_]+=(FAIL|PASS)$' "$RUNNER_TEMP/baseline.log" | tail -30 || true; exit 1; }
+          node scripts/build-d07-integrated-site.mjs > "$RUNNER_TEMP/baseline.log" 2>&1 || { echo D07_T3_BASELINE=FAIL; grep -E '^D07_PUBLIC_BUILD_STEP_(START|PASS|FAIL)=(generate:sitemap|generate:prerender-routes|quality:gate:pre|build:app|flatten:dist|prerender|quality:gate:post)(:[A-Z_0-9]+(:SIGNAL_[A-Z_0-9]+)?|:[0-9]+s)?$|^D07_BUILD_(SITE|HOST|KERNEL)_WORKER_FAILED$|^D07_PUBLIC_BUILD_GATE_CRITICAL=[a-z0-9-]+:[0-9]+$|^D07_PUBLIC_BUILD_GATE_REPORT=(CRITICAL|NO_CRITICAL_CODES|UNAVAILABLE)$|^D07_[A-Z0-9_]+=(FAIL|PASS)$' "$RUNNER_TEMP/baseline.log" | tail -60 || true; grep -oE '^Error: D07_[A-Z0-9_]+' "$RUNNER_TEMP/baseline.log" | tail -10 || true; exit 1; }
           npm run hosting:verify > "$RUNNER_TEMP/base-audit.log" 2>&1 || { echo D07_T3_BASELINE_AUDIT=FAIL; grep -E '^D07_HOSTING_' "$RUNNER_TEMP/base-audit.log" | cut -c1-200 | tail -5; exit 1; }
           echo D07_T3_BASELINE_AUDIT=PASS
           grep '^D07_HOSTING_PACKAGE_AUDIT=PASS ' "$RUNNER_TEMP/base-audit.log"
@@ -173,7 +175,12 @@ jobs:
       - name: Verify every rendered professional context against canonical protocol
         working-directory: site
         run: |
-          node --import tsx scripts/audit-d07-t3-context.mjs "$PWD/dist" "$GITHUB_WORKSPACE/assistant"
+          node --import tsx scripts/audit-d07-t3-context.mjs "$PWD/dist" "$GITHUB_WORKSPACE/assistant" > "$RUNNER_TEMP/context-base.log" 2>&1 || {
+            echo D07_T3_RENDERED_CONTEXT=FAIL
+            grep -oE 'D07_CONTEXT_[A-Z0-9_]+' "$RUNNER_TEMP/context-base.log" | sort -u | tail -20 || true
+            exit 1
+          }
+          grep -E '^D07_T3_RENDERED_CONTEXT=PASS \{' "$RUNNER_TEMP/context-base.log"
       - name: Compile original T3 Host with exact D07 module and shared BLI
         working-directory: site
         run: |
@@ -197,7 +204,12 @@ jobs:
       - name: Recheck complete integrated T3 context and native Workspace boundary
         working-directory: site
         run: |
-          node --import tsx scripts/audit-d07-t3-context.mjs "$RUNNER_TEMP/d07-t3-dist" "$GITHUB_WORKSPACE/assistant"
+          node --import tsx scripts/audit-d07-t3-context.mjs "$RUNNER_TEMP/d07-t3-dist" "$GITHUB_WORKSPACE/assistant" > "$RUNNER_TEMP/context-candidate.log" 2>&1 || {
+            echo D07_T3_RENDERED_CONTEXT=FAIL
+            grep -oE 'D07_CONTEXT_[A-Z0-9_]+' "$RUNNER_TEMP/context-candidate.log" | sort -u | tail -20 || true
+            exit 1
+          }
+          grep -E '^D07_T3_RENDERED_CONTEXT=PASS \{' "$RUNNER_TEMP/context-candidate.log"
       - name: Retain verified original platform inputs in the disposable private checkout
         working-directory: site
         run: |
@@ -239,7 +251,7 @@ jobs:
           for pass in 1 2; do
             isolated > "$RUNNER_TEMP/d07-local-$pass.log" 2>&1 || {
               echo D07_T3_LOCAL_REBUILD=FAIL
-              grep -E '^D07_PUBLIC_BUILD_STEP_(START|PASS|FAIL)=(generate:sitemap|generate:prerender-routes|quality:gate:pre|build:app|flatten:dist|prerender|quality:gate:post)(:[A-Z_0-9]+(:SIGNAL_[A-Z_0-9]+)?|:[0-9]+s)?$|^D07_FORBIDDEN_ORDINARY_BUILD_TOOL$' "$RUNNER_TEMP/d07-local-$pass.log" | tail -20 || true
+              grep -E '^D07_PUBLIC_BUILD_STEP_(START|PASS|FAIL)=(generate:sitemap|generate:prerender-routes|quality:gate:pre|build:app|flatten:dist|prerender|quality:gate:post)(:[A-Z_0-9]+(:SIGNAL_[A-Z_0-9]+)?|:[0-9]+s)?$|^D07_PUBLIC_BUILD_GATE_CRITICAL=[a-z0-9-]+:[0-9]+$|^D07_PUBLIC_BUILD_GATE_REPORT=(CRITICAL|NO_CRITICAL_CODES|UNAVAILABLE)$|^D07_FORBIDDEN_ORDINARY_BUILD_TOOL$' "$RUNNER_TEMP/d07-local-$pass.log" | tail -20 || true
               grep -oE '^Error: D07_[A-Z0-9_]+' "$RUNNER_TEMP/d07-local-$pass.log" | tail -10 || true
               exit 1
             }
@@ -249,7 +261,12 @@ jobs:
           cmp -s "$RUNNER_TEMP/d07-local-1.sha" "$RUNNER_TEMP/d07-local-2.sha" || { echo D07_T3_LOCAL_BYTE_REPRODUCIBILITY=FAIL; exit 1; }
           echo D07_T3_LOCAL_BYTE_REPRODUCIBILITY=PASS
           # Final rendered forms are audited against the exact validator, after the isolated build.
-          node --import tsx scripts/audit-d07-t3-context.mjs "$PWD/dist" "$RUNNER_TEMP/validator"
+          node --import tsx scripts/audit-d07-t3-context.mjs "$PWD/dist" "$RUNNER_TEMP/validator" > "$RUNNER_TEMP/context-local.log" 2>&1 || {
+            echo D07_T3_RENDERED_CONTEXT=FAIL
+            grep -oE 'D07_CONTEXT_[A-Z0-9_]+' "$RUNNER_TEMP/context-local.log" | sort -u | tail -20 || true
+            exit 1
+          }
+          grep -E '^D07_T3_RENDERED_CONTEXT=PASS \{' "$RUNNER_TEMP/context-local.log"
           local="$PWD/runtime/t3-platform/0.3.1-rc.1"
           cp "$local/platform-inputs.zip" "$RUNNER_TEMP/d07-bad.zip"
           node -e 'const fs=require("node:fs"),p=process.argv[1],b=fs.readFileSync(p);b[0]^=1;fs.writeFileSync(p,b)' "$RUNNER_TEMP/d07-bad.zip"
@@ -261,4 +278,52 @@ jobs:
           manifest > "$RUNNER_TEMP/d07-after-corrupt.sha"
           cmp -s "$RUNNER_TEMP/d07-local-2.sha" "$RUNNER_TEMP/d07-after-corrupt.sha"
           echo D07_T3_CORRUPT_INPUT_PRESERVES_DIST=PASS
+      - name: Retain authenticated inputs in the exact private D07 work branch
+        if: ${{ success() && needs.t3-source.result == 'success' }}
+        working-directory: site
+        env:
+          D07_PRIVATE_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          expected="c28541e83140ff31fc2301f2c13c899c408b94c9"
+          target="refs/heads/work/2026-11-24-d07-t3"
+          test "$(git rev-parse HEAD)" = "$expected"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          test -n "$D07_PRIVATE_TOKEN"
+          ask="$RUNNER_TEMP/d07-retain-askpass"
+          cat > "$ask" <<'ASKPASS'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' x-access-token ;;
+            *) printf '%s\n' "$D07_PRIVATE_TOKEN" ;;
+          esac
+          ASKPASS
+          chmod 700 "$ask"
+          trap 'rm -f "$ask"' EXIT
+          export GIT_ASKPASS="$ask" GIT_TERMINAL_PROMPT=0
+          if ! remote="$(git ls-remote origin "$target" 2> "$RUNNER_TEMP/d07-retain-remote.log" | cut -f1)"; then
+            echo D07_T3_RETAIN_REMOTE=FAIL
+            exit 1
+          fi
+          if test "$remote" != "$expected"; then
+            echo D07_T3_RETAIN_STALE=SKIPPED
+            exit 0
+          fi
+          local="runtime/t3-platform/0.3.1-rc.1"
+          node --import tsx --input-type=module -e 'import {verifyPreparedD07Host} from "./scripts/prepare-d07-t3-host.mjs";import {verifyPreparedKernelSupport} from "./scripts/prepare-d07-local-kernel-input.mjs";import {verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";const root=process.argv[1];verifyPreparedD07Host(root+"/d07-host");verifyPreparedKernelSupport(root+"/kernel-support");verifyPlatformArchive(root+"/platform-inputs.zip")' "$local" > "$RUNNER_TEMP/d07-retain-recheck.log" 2>&1 || {
+            echo D07_T3_RETAIN_RECHECK=FAIL
+            exit 1
+          }
+          if test -n "$(find "$local/d07-host" "$local/kernel-support" "$local/platform-inputs.zip" -type f -size +95M -print -quit)"; then
+            echo D07_T3_RETAIN_GIT_SIZE_LIMIT=FAIL
+            exit 1
+          fi
+          git add -f -- "$local/d07-host" "$local/kernel-support" "$local/platform-inputs.zip"
+          node --input-type=module -e 'import {execFileSync} from "node:child_process";const files=execFileSync("git",["diff","--cached","--name-only","-z"],{encoding:"utf8"}).split("\0").filter(Boolean);const p="runtime/t3-platform/0.3.1-rc.1/";if(!files.length||files.some(f=>!f.startsWith(p+"d07-host/")&&!f.startsWith(p+"kernel-support/")&&f!==p+"platform-inputs.zip"))process.exit(1);console.log("D07_T3_RETAIN_FILES="+files.length)'
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: retain qualified local T3 platform inputs [skip ci]'
+          if ! git push origin "HEAD:$target" > "$RUNNER_TEMP/d07-retain-push.log" 2>&1; then
+            echo D07_T3_RETAIN_PUSH=FAIL
+            exit 1
+          fi
+          echo "D07_T3_RETAINED_COMMIT=$(git rev-parse HEAD)"
       # Never upload private domain sources, compiled assets, logs, or user data.
