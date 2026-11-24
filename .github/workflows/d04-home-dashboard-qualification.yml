@@ -240,8 +240,6 @@ jobs:
           grep '^D04_HOME_' "$RUNNER_TEMP/d04-home-browser.log" | tail -8
           grep -E '^D04_HOME_UNIFIED_IWXA_(OBJECTS|RESULT_EVENTS|COLD_RESTORE)=' "$RUNNER_TEMP/d04-home-browser.log" || true
           grep -E '^D04_HOME_PERF_W[0-9]+_(EMPTY|CREATE|COLD)_MS=[0-9]+' "$RUNNER_TEMP/d04-home-browser.log" || true
-          grep -E '^D04_HOME_CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE)=PASS
-      # No public artifact, private dist, screenshots, code, or private logs are uploaded.
- "$RUNNER_TEMP/d04-home-browser.log" || true
+          grep -E '^D04_HOME_CUSTOM_(MEASURES|PERIODS|COLD_EXCHANGE)=PASS$' "$RUNNER_TEMP/d04-home-browser.log" || true
           echo "D04_HOME_REAL_BROWSER=PASS"
       # No public artifact, private dist, screenshots, code, or private logs are uploaded.
