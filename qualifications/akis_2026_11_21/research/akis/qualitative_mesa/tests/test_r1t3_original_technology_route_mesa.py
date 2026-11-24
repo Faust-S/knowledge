@@ -1498,3 +1498,217 @@ def test_original_committed_commercial_terms_cannot_be_rewritten_by_financial_cl
         money["transfers"] = [t for t in money["transfers"] if t["id"] != "w3-market-purchase-c"]
     with pytest.raises(ValueError, match=reason):
         simulate(d)
+
+
+def original_market_recipient_feedback_case(*, observed="14", pause=False, early=False,
+                                            wrong_owner=False, stale=False):
+    """Fourth original Work after buyer's own accepted technological Result.
+
+    The buyer can commission a new Work or independently pause. The value
+    scope is computed at the original phase-8 event, not at the final
+    horizon. Fourth-period financial sources are absent from that review.
+    """
+    from research.akis.qualitative_mesa.org_code_policy import original_model_code_fingerprint
+    from .test_r1u4_strict_original_source_rights_mesa import _original_rights
+    from .test_r1p_r3_executed_route_economics_mesa import (
+        attach_original_fourth_work_finance, add_original_recipient_value,
+    )
+
+    d = original_market_order_finance_case(competing=True, buyer_finishes=True,
+                                         commercial=True, observed=observed)
+    g, money = d["general_akis"], d["economic_claims"]
+    old_request = next(e for e in d["events"] if e["action"] == "request"
+                       and e["work_spec"]["id"] == "w3")
+    accept = next(e["at"] for e in d["events"] if e["action"] == "accept" and e.get("work") == "w3")
+    result = money["recipient_use_value_evidence"][0]["result_ref"]
+    request_at = accept + 14
+    shift = request_at - old_request["at"]
+    horizon = max(230, request_at+65)
+    d["model_horizon"] = horizon
+    money["cash_timing"]["horizon_end"] = horizon
+    money["recipient_use_value_evidence"][0]["valuation_horizon"] = horizon
+    # Extend the controlled study horizon prospectively, not any accepted
+    # Work, payment or agreed commercial quote. All source editions still
+    # have distinct, independently reviewed fingerprints.
+    for field in ("goals", "formation_phases", "context_cores", "agent_functions", "organizational_code"):
+        for row in g[field]:
+            if row["expires_at"] >= 160:
+                row["expires_at"] = horizon+1
+    for applied in (e for e in d["events"] if e["action"] == "model_code_apply"):
+        for row in applied["model_code_records"]:
+            if row["expires_at"] >= 160:
+                row["expires_at"] = horizon+1
+        digest = original_model_code_fingerprint(applied["model_code_records"])
+        for row in d["events"]:
+            if row.get("model_code_change_id") == applied["model_code_change_id"]:
+                row["model_code_fingerprint"] = digest
+    context = d["context_evidence"]
+    for row in context["sources"]:
+        if row.get("valid_until", 0) >= 160:
+            row["valid_until"] = horizon+1
+    following = []
+    for actor, tick in (("a", accept+4), ("b", accept+(1 if early else 6))):
+        source = f"model://{actor}/third-market-owner-review"
+        context["sources"].append({
+            "id": source, "owner": actor, "revision": "market-review-v1", "status": "CONFIRMED",
+            "usable_by": [actor], "core": "corporate", "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"],
+            "operations": ["READ"], "valid_from": accept+1, "valid_until": horizon+1,
+        })
+        row = {
+            "at": tick, "action": "participation_status", "actor": actor, "org_revision": "oc-1",
+            "cooperation_link": "l2", "cooperation_source_revision": "rel-2",
+            "new_participation": "PAUSED_NEW_WORK" if actor == "b" and pause else "OPEN_TO_NEW_WORK",
+            "economic_channel": "TRANSACTION_COST", "participation_evidence_ref": source,
+            "evaluated_work": "w3", "evaluated_work_revision": "d-3",
+            "evaluated_result_ref": result, "evaluated_decision_at": accept,
+            "evaluation_verdict": ("ADVERSE_DECLARED" if actor == "b" and pause
+                                   else "FAVOURABLE_DECLARED"),
+            "formation_phase_source_ref": f"model://{actor}/formation-8",
+            "evaluation_economic_source_revision": "stale" if stale and actor == "b" else "market-review-v1",
+        }
+        if actor == ("a" if wrong_owner else "b"):
+            row["evaluation_economic_recipient_value"] = True
+        following.append(row)
+    following.extend([
+        {"at": accept+7, "action": "need_emerge", "actor": "b", "work": "w4",
+         "work_source_revision": "d-4", "org_revision": "oc-1",
+         "goal_source_ref": "model://b/goal-after-market-order", "goal_expires_at": horizon+1,
+         "goal_objective": "RESILIENCE", "goal_priority": 2, "cooperation_link": "l2",
+         "cooperation_source_revision": "rel-2", "pilot_work": "w3",
+         "pilot_result_ref": result, "pilot_decision_at": accept},
+        {"at": accept+8, "action": "cooperation_change_propose", "actor": "a", "org_revision": "oc-1",
+         "cooperation_link": "l2", "cooperation_source_revision": "rel-2",
+         "change_id": "chg-w3", "change_kind": "REVISE_RESOURCE_COOPERATION",
+         "economic_channel": "TRANSACTION_COST", "change_source_ref": "model://a/market-followup",
+         "pilot_work": "w3", "pilot_result_ref": result, "pilot_decision_at": accept},
+    ])
+    for i, actor in enumerate(("a", "b", "c", "op"), 9):
+        following.append({
+            "at": accept+i, "action": "cooperation_change_response", "actor": actor,
+            "org_revision": "oc-1", "cooperation_link": "l2", "cooperation_source_revision": "rel-2",
+            "change_id": "chg-w3", "change_decision": "SUPPORT_MODEL_PROPOSAL",
+            "change_source_ref": f"model://{actor}/market-followup-response",
+        })
+    # The new Work uses the actual first supplier's own capacity. It is a
+    # separate demand and never reuses an earlier technology or money consent.
+    spec = {
+        "id": "w4", "customer": "b", "resource": "ra", "source_revision": "d-4",
+        "slot_start": request_at+35, "slot_end": request_at+50,
+        "requires_accepted": ["w3"], "resource_requirements": [{"resource": "ra", "units": 1}],
+        "assurance_criteria": [{"id": "q-w4", "dimension": "DELIVERABLE_CONFORMITY",
+            "operation": "WORK", "responsible_owner": "a", "assessor": "b", "method": "INSPECTION",
+            "source_ref": "model://b/w4-market-quality", "source_revision": "d-4"}],
+    }
+    following.append({
+        "at": request_at, "action": "request", "actor": "b", "work_spec": spec,
+        "cooperation_link": "l2", "cooperation_source_revision": "rel-2", "pilot_work": "w3",
+        "change_id": "chg-w3", "emergent_goal_source_ref": "model://b/goal-after-market-order",
+    })
+    packet = deepcopy(next(row for row in g["agent_functions"] if row["id"] == "approval-w3"))
+    packet.update(id="approval-w4", work="w4", work_revision="d-4",
+                  source_ref="model://op/packet-approval-w4")
+    g["agent_functions"].append(packet)
+    for e in d["events"]:
+        if e.get("work") != "w3" or e["action"] not in {
+                "interest_update", "formation_confirm", "function_prepare", "function_review",
+                "offer", "authorize", "consent", "commit"}:
+            continue
+        if e["action"] == "formation_confirm" and e.get("phase") == 3 and e["actor"] != "a":
+            continue
+        row = deepcopy(e)
+        row.update(work="w4", at=e["at"]+shift)
+        for field in ("technology_route_market_scope", "technology_route_commercial_terms",
+                      "technology_route_commercial_fingerprint", "technology_route_id", "technology_route_fingerprint"):
+            row.pop(field, None)
+        if row.get("source_revision") == "d-3":
+            row["source_revision"] = "d-4"
+        if row.get("function_id") == "approval-w3":
+            row["function_id"] = "approval-w4"
+        if "function_source_ref" in row:
+            row["function_source_ref"] = "model://op/packet-approval-w4"
+        if "review_source_ref" in row:
+            row["review_source_ref"] = "model://b/independent-review-w4"
+        if "prepared_at" in row:
+            row["prepared_at"] += shift
+        if row["action"] == "interest_update":
+            row.update(pilot_work="w3", pilot_result_ref=result, pilot_decision_at=accept,
+                       interest_valid_until=horizon+1,
+                       interest_evidence_ref=f"model://{row['actor']}/w4-market-own-interest")
+        following.append(row)
+    start = max(spec["slot_start"], max(e["at"] for e in following)+1)
+    assert start+3 < spec["slot_end"]
+    following.extend([
+        {"at": start, "action": "start", "actor": "a", "work": "w4"},
+        {"at": start+1, "action": "complete", "actor": "a", "work": "w4",
+         "result_ref": "model://a/w4-market-result"},
+        {"at": start+2, "action": "assess_result_quality", "actor": "b", "work": "w4",
+         "source_revision": "d-4", "org_revision": "oc-1", "criterion": "q-w4",
+         "quality_verdict": "MEETS_DECLARED_REQUIREMENT", "quality_evidence_ref": "model://b/w4-market-inspection",
+         "result_ref": "model://a/w4-market-result"},
+        {"at": start+3, "action": "accept", "actor": "b", "work": "w4"},
+    ])
+    following.sort(key=lambda row: row["at"])
+    assert len({e["at"] for e in following}) == len(following)
+    more = {"events": following}
+    _original_rights(more)
+    for row in more["context_evidence"]["sources"]:
+        row["valid_until"] = horizon+1
+    for field in ("sources", "requirements", "decision_requirements"):
+        context[field].extend(more["context_evidence"][field])
+    d["events"].extend(following)
+    d["events"].sort(key=lambda e: e["at"])
+    if not pause:
+        attach_original_fourth_work_finance(d)
+        add_original_recipient_value(d, "w4", baseline="0", observed="8", rate="100.00",
+                                    source_prefix="value-w4-b", append=True)
+    return d
+
+
+def market_recipient_feedback_report(out):
+    return next(r for r in out["trace"] if r["action"] == "participation_status"
+                and r.get("evaluated_work") == "w3" and "evaluation_recipient_value_scope_status" in r)
+
+
+def test_original_recipient_value_asof_review_and_fourth_work_economics():
+    d = original_market_recipient_feedback_case()
+    out = simulate(d)
+    assert out["counts"]["blocked"] == 0, [
+        (e["at"], e["action"], e["reason"]) for e in out["trace"] if e["outcome"] == "BLOCKED"]
+    review = market_recipient_feedback_report(out)
+    assert review["evaluation_recipient_value_scope_status"] == (
+        "MODEL_ORIGINAL_COMPLETED_RECIPIENT_VALUE_SCOPE_QUALIFIED")
+    assert review["evaluation_recipient_value_private_advice_not_redisclosed"]
+    assert "private_owner_model_contribution" not in review
+    assert out["works"]["w3"]["result"] == out["works"]["w4"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    private = out["economics"]["original_recipient_use_value"]["local_research_only"]
+    assert private["w3"]["recipient_model_surplus_vs_declared_no_order"] == "450.00"
+    assert private["w4"]["recipient_model_surplus_vs_declared_no_order"] == "175.00"
+    assert out["economics"]["original_strict_context_source_qualification"]["original_strict_work_scope_count"] == 4
+
+
+@pytest.mark.parametrize("observed,pause,expected", [
+    ("6", True, "PAUSED_NEW_WORK"),
+    ("14", True, "PAUSED_NEW_WORK"),
+    ("6", False, "OPEN_TO_NEW_WORK"),
+])
+def test_original_recipient_own_strategy_does_not_follow_value_automatically(observed, pause, expected):
+    out = simulate(original_market_recipient_feedback_case(observed=observed, pause=pause))
+    review = market_recipient_feedback_report(out)
+    assert review["evaluation_recipient_value_scope_status"] == "MODEL_ORIGINAL_COMPLETED_RECIPIENT_VALUE_SCOPE_QUALIFIED"
+    assert review["participation_value"] == expected
+    assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    if pause:
+        assert "w4" not in out["works"]
+        assert any(r["action"] == "need_emerge" and r["outcome"] == "BLOCKED"
+                   and r.get("work") == "w4" for r in out["trace"])
+    else:
+        assert out["works"]["w4"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+@pytest.mark.parametrize("kwargs", [{"early": True}, {"wrong_owner": True}, {"stale": True}])
+def test_original_recipient_value_feedback_rejects_future_foreign_or_stale_evidence(kwargs):
+    out = simulate(original_market_recipient_feedback_case(**kwargs))
+    review = market_recipient_feedback_report(out)
+    assert review["evaluation_recipient_value_scope_status"] == "UNKNOWN"
+    assert review["outcome"] == "APPLIED"
+    assert out["works"]["w4"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"

@@ -989,6 +989,12 @@ def fourth_period_finance_case(*, pause=False, material="220.00", missing_openin
             row for row in money["cash_timing"]["owner_positions"] if row["owner"] != "a"]
     if pause:
         return d
+    return attach_original_fourth_work_finance(d, material=material)
+
+
+def attach_original_fourth_work_finance(d, *, material="220.00"):
+    """Test fixture: append source-qualified fourth Work to existing money document."""
+    money = d["economic_claims"]
     request = next(row["at"] for row in d["events"] if row["action"] == "request"
                    and row["work_spec"]["id"] == "w4")
     clock = {row["action"]: row["at"] for row in d["events"] if row.get("work") == "w4"}
@@ -1002,7 +1008,7 @@ def fourth_period_finance_case(*, pause=False, material="220.00", missing_openin
             "id": ref, "owner": owner, "revision": "v4", "status": "CONFIRMED",
             "usable_by": [owner], "core": "operator" if owner == "op" else "corporate",
             "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"], "operations": ["READ"],
-            "valid_from": since, "valid_until": 200,
+            "valid_from": since, "valid_until": max(200, d["model_horizon"]+1),
         })
         if key:
             money["sources"].append({"id": key, "owner": owner, "reference": ref, "revision": "v4"})
@@ -1265,19 +1271,21 @@ def test_joint_contribution_is_unknown_when_selected_result_not_accepted():
     assert result["local_research_only"] is None
 
 
-def add_original_recipient_value(doc, work, *, baseline="2", observed="14", rate="125.00"):
+def add_original_recipient_value(doc, work, *, baseline="2", observed="14", rate="125.00",
+                                 source_prefix=None, append=False):
     """Own use value, never a purchase price or new payment."""
     money = doc["economic_claims"]
     request = next(e for e in doc["events"] if e["action"] == "request"
                    and e["work_spec"]["id"] == work)
     owner = request["work_spec"]["customer"]
+    prefix = source_prefix or f"value-{owner}"
     commit = next(e["at"] for e in doc["events"] if e["action"] == "commit" and e.get("work") == work)
     accept = next(e["at"] for e in doc["events"] if e["action"] == "accept" and e.get("work") == work)
     complete = next(e for e in doc["events"] if e["action"] == "complete" and e.get("work") == work)
     horizon = money["cash_timing"]["horizon_end"]
     for part, at in (("baseline", commit-2), ("rate", commit-1),
                      ("outcome", accept+1), ("nonoverlap", accept+1)):
-        key = f"value-{owner}-{part}"
+        key = f"{prefix}-{part}"
         ref = f"model://{owner}/{key}"
         doc["context_evidence"]["sources"].append({
             "id": ref, "owner": owner, "revision": "value-v1", "status": "CONFIRMED",
@@ -1286,23 +1294,27 @@ def add_original_recipient_value(doc, work, *, baseline="2", observed="14", rate
             "valid_from": at, "valid_until": max(160, horizon+1),
         })
         money["sources"].append({"id": key, "owner": owner, "reference": ref, "revision": "value-v1"})
-    money["recipient_use_value_evidence"] = [{
+    values = [{
         "work": work, "owner": owner, "work_revision": request["work_spec"]["source_revision"],
         "result_ref": complete["result_ref"], "basis": "OWNER_SERVICE_USE_IN_MATCHED_HORIZON",
         "unit": "useful-service-unit", "valuation_horizon": horizon,
-        "baseline": {"source": f"value-{owner}-baseline", "at": commit-2,
+        "baseline": {"source": f"{prefix}-baseline", "at": commit-2,
                      "quantity": baseline, "kind": "DECLARED_NO_SELECTED_ORDER_BASELINE"},
-        "outcome": {"source": f"value-{owner}-outcome", "at": accept+1,
+        "outcome": {"source": f"{prefix}-outcome", "at": accept+1,
                     "quantity": observed, "kind": "DECLARED_USE_OF_ACCEPTED_RESULT"},
-        "rate": {"source": f"value-{owner}-rate", "at": commit-1,
+        "rate": {"source": f"{prefix}-rate", "at": commit-1,
                  "amount": rate, "currency": "RUB"},
-        "nonoverlap_source": f"value-{owner}-nonoverlap",
+        "nonoverlap_source": f"{prefix}-nonoverlap",
         "transfer_ids": [t["id"] for t in money["transfers"]
                          if t["work"] == work and owner in {t["payer"], t["payee"]}],
         "resource_use_ids": [r["id"] for r in money["resource_uses"]
                              if r["work"] == work and r["owner"] == owner],
         "incremental_costs_exclude_value_and_each_other": True,
     }]
+    if append:
+        money.setdefault("recipient_use_value_evidence", []).extend(values)
+    else:
+        money["recipient_use_value_evidence"] = values
 
 
 def recipient_use_value_case(*, cooperative_observed="14", cooperative_rate="125.00",

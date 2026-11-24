@@ -896,6 +896,19 @@ class OperatorAKISModel(mesa.Model):
                         self.qualitative.works[work_id].source_revision)
                     outcome["evaluation_economic_basis_accepted_at"] = (
                         event["evaluation_economic_outside_basis"]["accepted_at"])
+            if event.get("evaluation_economic_recipient_value") is True:
+                outcome["evaluation_recipient_value_scope_status"] = "UNKNOWN"
+                outcome["evaluation_recipient_value_private_advice_not_redisclosed"] = True
+                outcome["evaluation_recipient_value_not_automatic_owner_decision"] = True
+                if work_id in scope:
+                    review = review_completed_original_owner_finance(
+                        state=self.qualitative, original_money=self.economic_claims,
+                        work_id=work_id, owner=event["actor"],
+                        review_source=event.get("participation_evidence_ref"),
+                        review_revision=event["evaluation_economic_source_revision"],
+                        at=int(self.time), recipient_value=True,
+                    )
+                    outcome["evaluation_recipient_value_scope_status"] = review["status"]
             if event.get("evaluation_economic_portfolio") is True:
                 outcome["evaluation_portfolio_forecast_scope_status"] = "UNKNOWN"
                 outcome["evaluation_portfolio_is_not_current_bank_balance"] = True

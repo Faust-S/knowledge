@@ -260,8 +260,9 @@ def review_completed_original_owner_finance(
     work_id: str, owner: str, review_source: str,
     review_revision: str, at: int,
     portfolio_work_ids: tuple[str, ...] | None = None,
-) -> str:
-    """Qualify an independently requested, owner-scoped completed Work review.
+    recipient_value: bool = False,
+) -> str | dict[str, Any]:
+    """Qualify an independently requested, owner-scoped completed Work review. 
 
     A read-only selection of the original economic document goes through the
     same strict KPB, original cost anchors, and original economic evaluator.
@@ -279,7 +280,8 @@ def review_completed_original_owner_finance(
         review_original_strict_economic_sources,
     )
 
-    unknown = "UNKNOWN"
+    unknown = ({"status": "UNKNOWN", "private_owner_advice": "NOT_IDENTIFIABLE"}
+               if recipient_value else "UNKNOWN")
     active, inactive = "COOPERATION", "INDEPENDENT_ALTERNATIVE"
     basis = getattr(state, "context_basis", None)
     work = state.works.get(work_id)
@@ -305,6 +307,8 @@ def review_completed_original_owner_finance(
     if core is None:
         return unknown
     portfolio = portfolio_work_ids is not None
+    if recipient_value and (portfolio or owner != work.customer):
+        return unknown
     selected_ids = portfolio_work_ids if portfolio else (work_id,)
     if (not isinstance(selected_ids, tuple) or not 1 <= len(selected_ids) <= 256
             or len(set(selected_ids)) != len(selected_ids) or work_id not in selected_ids):
@@ -394,6 +398,22 @@ def review_completed_original_owner_finance(
             if "source" in row:
                 referenced.add(row["source"])
             referenced.update(row.get("owner_sources", {}).values())
+        value_records = []
+        if recipient_value:
+            values = doc.get("recipient_use_value_evidence", [])
+            if not isinstance(values, list):
+                return unknown
+            value_records = [r for r in values if r["work"] == work_id and r["owner"] == owner]
+            if len(value_records) != 1:
+                return unknown
+            value = value_records[0]
+            # A future observation may not be imported just because a later
+            # horizon or source is already present in the model input.
+            if any(type(value[k]["at"]) is not int or value[k]["at"] >= at
+                   for k in ("baseline", "rate", "outcome")):
+                return unknown
+            referenced.update(value[k]["source"] for k in ("baseline", "rate", "outcome"))
+            referenced.add(value["nonoverlap_source"])
         selected = {
             "period": doc["period"], "currency": doc["currency"],
             "sources": [row for row in doc["sources"] if row["id"] in referenced],
@@ -409,6 +429,7 @@ def review_completed_original_owner_finance(
             },
             "work_payment_conditions": terms,
             **prior_reports,
+            **({"recipient_use_value_evidence": value_records} if recipient_value else {}),
         }
         # A costed preparation must be reconciled against the original
         # Work's same activity records in this as-of-time review as well.
@@ -446,6 +467,31 @@ def review_completed_original_owner_finance(
             or costs["classified_original_record_count"] != len(uses)
             or balance is None or not owner_cost["declared_resource_scope_complete_not_audited"]):
         return unknown
+    if recipient_value:
+        from .economic_flow import review_original_recipient_use_value
+        from decimal import Decimal
+        try:
+            view["original_strict_context_source_qualification"] = rights
+            qualified = review_original_recipient_use_value(
+                selected["recipient_use_value_evidence"], economic_claims=selected,
+                economic_view=view, works=state.works, trace=state.trace, strict_work_ids=work_id)
+            own = qualified.get("local_research_only", {}).get(work_id)
+            if own is None:
+                return unknown
+            surplus = Decimal(own["recipient_model_surplus_vs_declared_no_order"])
+        except (EconomicInputError, KeyError, TypeError, ValueError, AttributeError):
+            return unknown
+        # Returned to the original owner's private assessor ONLY. The
+        # caller may export a generic qualification, never the amount,
+        # the sign, or the private advice to shared observations.
+        return {
+            "status": "MODEL_ORIGINAL_COMPLETED_RECIPIENT_VALUE_SCOPE_QUALIFIED",
+            "private_owner_model_contribution": f"{surplus:.2f}",
+            "private_owner_advice": ("CONSIDER_FUTURE_WORK" if surplus > 0
+                                     else "REVIEW_FUTURE_WORK"),
+            "declared_use_value_not_empirical_profit": True,
+            "actual_owner_decision_or_consent_created": False,
+        }
     if portfolio:
         path = view.get("cash_timing", {}).get(
             "per_original_owner_private_research_projection", {}).get(owner, {}).get(
