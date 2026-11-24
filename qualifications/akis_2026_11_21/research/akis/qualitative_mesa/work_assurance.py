@@ -502,6 +502,10 @@ def _material_retry_snapshot(work: Any, ident: Any) -> dict[str, Any]:
             _require(h["evidence"] == {} and st == MaterialState(),
                      "QUALITY_CORRECTION_RETRY_UNKNOWN_CUSTODY")
             continue
+        # RECEIVED is an act, not a proof that every dispatched unit arrived.
+        # Missing units require a separate custody decision before any reset.
+        _require(st.dispatched is not None and st.received == st.dispatched,
+                 "QUALITY_CORRECTION_RETRY_UNRESOLVED_IN_TRANSIT_QUANTITY")
         _require(st.received is not None and st.accepted is not None
                  and st.rejected is not None and st.accepted + st.rejected == st.received
                  and st.receipt_ref == h["evidence"].get("receipt")
