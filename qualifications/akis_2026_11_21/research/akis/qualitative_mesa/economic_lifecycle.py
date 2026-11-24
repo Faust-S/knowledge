@@ -12,7 +12,8 @@ from decimal import Decimal
 import re
 from typing import Any, Mapping
 
-from .process_preparation import PREPARATION_MODES, PREPARATION_ACTIVITY_UNITS
+from .process_preparation import (PREPARATION_MODES, PREPARATION_ACTIVITY_UNITS,
+                                  preparation_source_fingerprint)
 
 class LifecycleInputError(ValueError):
     """An attempted cost assignment lacks original owner/source/scope."""
@@ -290,7 +291,8 @@ def _amount(value: Decimal) -> str:
 
 def review_original_preparation_activity_costs(
     raw: Any, *, original_bindings: Mapping[str, Any],
-    event_bindings: list, resource_index: Mapping[str, Any], trace: list | tuple,
+    event_bindings: list, resource_index: Mapping[str, Any],
+    sources: Mapping[str, Any], trace: list | tuple,
 ) -> dict[str, Any]:
     """Reconcile exact activity x unit-rate with existing original costs.
 
@@ -345,6 +347,15 @@ def review_original_preparation_activity_costs(
                            or re.fullmatch(r"(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,2})?", value) is None
                            for value in card.values())):
                 raise LifecycleInputError("PREPARATION_ACTIVITY_EXACT_UNIT_RATES_REQUIRED")
+        choice = event.get("model_preparation_economic_choice")
+        if choice is not None:
+            source = sources[resource["source"]]
+            fingerprint = preparation_source_fingerprint({
+                "reference": source["reference"], "revision": source["revision"],
+                "unit_rates_by_mode": rates,
+            })
+            if fingerprint != choice["rate_source_fingerprint"]:
+                raise LifecycleInputError("PREPARATION_ACTIVITY_RATE_SOURCE_DIFFERS_FROM_ORIGINAL_REVIEW")
         mode = activity["mode"]
         cost = sum((Decimal(rates[mode][unit]) * activity["units"][unit]
                     for unit in PREPARATION_ACTIVITY_UNITS), Decimal("0"))
@@ -526,6 +537,7 @@ def classify_lifecycle_costs(
     if "preparation_activity_bindings" in raw:
         response["original_preparation_activity_costs"] = review_original_preparation_activity_costs(
             raw["preparation_activity_bindings"], original_bindings=original_binding_index,
-            event_bindings=raw["event_bindings"], resource_index=resource_index, trace=trace,
+            event_bindings=raw["event_bindings"], resource_index=resource_index,
+            sources=sources, trace=trace,
         )
     return response

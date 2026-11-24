@@ -678,16 +678,21 @@ def compare_original_preparation_modes(
     from copy import deepcopy
     from decimal import Decimal
     from .mesa_model import simulate
-    from .process_preparation import PREPARATION_MODES, PREPARATION_ACTIVITY_UNITS
+    from .process_preparation import (
+        PREPARATION_MODES, PREPARATION_ACTIVITY_UNITS,
+        evaluate_preparation_diagnostic, preparation_source_fingerprint,
+    )
 
-    if not isinstance(scenarios, Mapping) or set(scenarios) != set(PREPARATION_MODES):
+    if (not isinstance(scenarios, Mapping)
+            or set(scenarios) not in (set(PREPARATION_MODES), set(PREPARATION_MODES) | {"ADAPTIVE"})):
         raise TrajectoryComparisonError("PREPARATION_COMPARISON_THREE_MODES_REQUIRED")
+    arms = (*PREPARATION_MODES, "ADAPTIVE") if "ADAPTIVE" in scenarios else PREPARATION_MODES
     baseline = None
     reference_works = None
     reference_trace = None
     reference_capacity = None
     rows = {}
-    for mode in PREPARATION_MODES:
+    for mode in arms:
         doc = deepcopy(scenarios[mode])
         try:
             money = doc["economic_claims"]
@@ -703,7 +708,10 @@ def compare_original_preparation_modes(
             prepared = []
             for event in normalized["events"]:
                 if event["action"] == "function_prepare":
-                    if event.pop("preparation_mode", None) != mode:
+                    selected = event.pop("preparation_mode", None)
+                    if (selected not in PREPARATION_MODES
+                            or (mode != "ADAPTIVE" and selected != mode)
+                            or (mode == "ADAPTIVE" and "preparation_diagnostic" not in event)):
                         raise TrajectoryComparisonError("PREPARATION_COMPARISON_MODE_MISMATCH")
                     prepared.append(event.get("work"))
             if sorted(prepared) != sorted(scope):
@@ -722,6 +730,9 @@ def compare_original_preparation_modes(
         trace = deepcopy(result["trace"])
         for event in trace:
             event.pop("model_preparation_activity", None)
+            if "model_preparation_economic_choice" in event:
+                event["model_preparation_economic_choice"].pop("selected_mode")
+                event["model_preparation_economic_choice"].pop("selection_minimizes_declared_expected_cost")
         if (reference_works is not None and works != reference_works
                 or reference_trace is not None and trace != reference_trace
                 or reference_capacity is not None and result["capacity"] != reference_capacity):
@@ -742,8 +753,35 @@ def compare_original_preparation_modes(
                 or econ["work_payment_causality"]["source_declared_consistent_count"] != econ["transfers_count"]
                 or result["profit"]["system_increment"] != "UNKNOWN"):
             raise TrajectoryComparisonError("PREPARATION_COMPARISON_ORIGINAL_SCOPE_NOT_QUALIFIED")
+        expected_cost, chosen_modes, minimum_count = Decimal(0), {}, 0
+        diagnostic_count = 0
+        for item in activity["items"]:
+            position = item["original_trace_position"]
+            original_event = doc["events"][position]
+            actual_event = result["trace"][position]
+            diagnostic = original_event.get("preparation_diagnostic")
+            chosen_modes[item["work"]] = item["mode"]
+            if diagnostic is None:
+                continue
+            assessment = evaluate_preparation_diagnostic(
+                diagnostic, actual_event["model_preparation_activity"])
+            review = actual_event.get("model_preparation_economic_choice", {})
+            if (review.get("source_document_fingerprint") != preparation_source_fingerprint(diagnostic)
+                    or review.get("recommended_mode") != assessment["recommended_mode"]
+                    or review.get("selected_mode") != item["mode"]):
+                raise TrajectoryComparisonError("PREPARATION_COMPARISON_ORIGINAL_REVIEW_REQUIRED")
+            expected_cost += assessment["modes"][item["mode"]]["risk_adjusted_expected_cost"]
+            minimum_count += int(item["mode"] == assessment["recommended_mode"])
+            diagnostic_count += 1
+        if diagnostic_count not in (0, len(scope)):
+            raise TrajectoryComparisonError("PREPARATION_COMPARISON_DIAGNOSTIC_SCOPE_INCOMPLETE")
         rows[mode] = {
             "accepted_original_work_count": len(scope),
+            "selected_modes_by_original_work": chosen_modes,
+            "source_reviewed_risk_adjusted_expected_cost": (
+                f"{expected_cost:.2f}" if diagnostic_count else None),
+            "economically_minimizing_owner_selection_count": minimum_count,
+            "original_diagnostic_review_count": diagnostic_count,
             "applied_original_customer_reviews": sum(
                 event["action"] == "function_review" and event["outcome"] == "APPLIED"
                 and event.get("work") in scope and event.get("human_decision") == "APPROVE"
@@ -756,8 +794,18 @@ def compare_original_preparation_modes(
         }
     def delta(left, right):
         return f"{Decimal(rows[left]['declared_preparation_resource_cost']) - Decimal(rows[right]['declared_preparation_resource_cost']):.2f}"
+    adaptive = {}
+    if "ADAPTIVE" in rows:
+        fixed = min(PREPARATION_MODES, key=lambda mode: (
+            Decimal(rows[mode]["source_reviewed_risk_adjusted_expected_cost"]),
+            PREPARATION_MODES.index(mode),
+        ))
+        adaptive = {
+            "best_fixed_mode_by_declared_expected_cost": fixed,
+            "best_fixed_minus_adaptive_expected_cost": f"{Decimal(rows[fixed]['source_reviewed_risk_adjusted_expected_cost']) - Decimal(rows['ADAPTIVE']['source_reviewed_risk_adjusted_expected_cost']):.2f}",
+        }
     return {
-        "schema": "AKIS_ORIGINAL_PREPARATION_MODES_COST_COMPARISON/1.0",
+        "schema": "AKIS_ORIGINAL_PREPARATION_MODES_COST_COMPARISON/1.1",
         "status": "MODEL_MATCHED_PREPARATION_ACTIVITY_COST_CONTRAST",
         "original_baseline_fingerprint_sha256": baseline,
         "same_original_works_results_consents_and_cash": True,
@@ -768,6 +816,7 @@ def compare_original_preparation_modes(
             "S0_minus_S1_preparation_cost": delta("S0", "S1"),
             "S1_minus_S2_preparation_cost": delta("S1", "S2"),
             "S0_minus_S2_preparation_cost": delta("S0", "S2"),
+            **adaptive,
         },
         "full_S0_S1_S2_organizational_experiment": False,
         "actual_labor_time_and_agent_runtime_measured": False,

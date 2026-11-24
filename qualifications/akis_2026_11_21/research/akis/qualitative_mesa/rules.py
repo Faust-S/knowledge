@@ -386,7 +386,7 @@ class QualitativeAKIS:
         last = -1
         for ev in events:
             _keys_exact(ev, {"at", "action", "actor"}, {"work", "accepted_by", "votes", "subject", "authorized_by", "new_mode", "new_revision", "expected_revision", "new_reserved", "result_ref", "source_revision", "org_revision", "work_spec", "resource", "availability", "source", "status", "usable_by", "calendar", "expected_calendar_revision", "operation", "from_operation", "to_operation", "dispatch_ref", "material_quantities", "quality_quantities", "receipt_ref", "reported_actual_at", "reported_external_ref", "cooperation_link", "cooperation_source_revision", "economic_channel", "new_willingness", "new_outside_option", "interest_evidence_ref", "new_participation", "participation_evidence_ref", "change_id", "change_kind", "change_source_ref", "change_decision", "proposed_subject",
-             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "preparation_mode", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "evaluation_economic_source_revision", "evaluation_economic_outside_basis", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
+             "criterion", "quality_verdict", "quality_evidence_ref", "capability", "expected_capacity_revision", "phase", "formation_source_ref", "formation_core", "formation_basis_source", "function_id", "function_source_ref", "function_phase_source_ref", "preparation_mode", "preparation_diagnostic", "prepared_at", "human_decision", "review_source_ref", "pilot_work", "evaluated_work", "evaluated_work_revision", "evaluated_result_ref", "evaluated_decision_at", "evaluation_verdict", "evaluation_economic_source_revision", "evaluation_economic_outside_basis", "formation_phase_source_ref", "work_source_revision", "goal_source_ref", "goal_expires_at", "goal_objective", "goal_priority", "pilot_result_ref", "pilot_decision_at", "emergent_goal_source_ref", "interest_valid_until",
              "new_link_id", "new_link_revision", "new_link_source_ref", "entry_goal_source_ref", "entry_alternative_source_ref", "entry_assessment_source_ref", "entry_willingness", "entry_outside_option", "entry_valid_until", "entry_change_id", "entry_assessment_source_ref",
              "model_code_change_id", "model_code_source_ref", "model_code_decision",
              "model_code_decision_source_ref", "new_model_edition",
@@ -462,6 +462,9 @@ class QualitativeAKIS:
                     ev["action"] != "function_prepare"
                     or ev["preparation_mode"] not in ("S0", "S1", "S2")):
                 raise InputError("PREPARATION_MODE_REQUIRES_ORIGINAL_PREPARE_ACTION")
+            if "preparation_diagnostic" in ev and (
+                    ev["action"] != "function_prepare" or "preparation_mode" not in ev):
+                raise InputError("PREPARATION_DIAGNOSTIC_REQUIRES_ORIGINAL_PREPARATION_MODE")
             _id(ev["actor"], "actor")
             if ev["action"] == "request":
                 # The ORIGINAL request remains source-validated at its own
@@ -683,6 +686,7 @@ class QualitativeAKIS:
         lifecycle_evidence = None
         active_coalition_commit_evidence = None
         outside_demand_evidence = None
+        preparation_economic_choice = None
         if self.capability_policy is not None:
             # Time- and owner-source eligibility is refreshed before future
             # commitments; historical reservations and Results are untouched.
@@ -905,6 +909,15 @@ class QualitativeAKIS:
                 issue = self.formation_policy.process_function_action(self, ev, at)
                 if issue != "NONE":
                     raise BlockedDecision(issue)
+                if action == "function_prepare" and "preparation_diagnostic" in ev:
+                    from .process_preparation import review_original_preparation_diagnostic
+                    try:
+                        preparation_economic_choice = review_original_preparation_diagnostic(
+                            self, self.works[work_ref], ev["actor"],
+                            ev["preparation_mode"], ev["preparation_diagnostic"], at,
+                        )
+                    except ValueError as exc:
+                        raise BlockedDecision(str(exc)) from exc
             elif action == "adopt_capability":
                 if self.capability_policy is None:
                     raise BlockedDecision("CAPABILITY_POLICY_NOT_CONFIGURED")
@@ -1399,6 +1412,8 @@ class QualitativeAKIS:
                         from .process_preparation import model_preparation_activity
                         report["model_preparation_activity"] = model_preparation_activity(
                             self, self.works[work_ref], ev["preparation_mode"])
+                    if preparation_economic_choice is not None:
+                        report["model_preparation_economic_choice"] = preparation_economic_choice
                 else:
                     report["prepared_at"] = ev.get("prepared_at")
                     report["human_decision"] = ev.get("human_decision")

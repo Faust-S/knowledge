@@ -265,6 +265,64 @@ def export_multiperiod_route_economics():
     return path, sha256(path.read_bytes()).hexdigest()
 
 
+
+def export_preparation_mode_economics():
+    from research.akis.qualitative_mesa.comparative_trajectories import compare_original_preparation_modes
+    from research.akis.qualitative_mesa.tests.test_s0_s1_s2_original_preparation_economics_mesa import (
+        preparation_modes, adaptive_preparation_modes, diagnostic_profile,
+    )
+    cases = {
+        "ordinary_rates": preparation_modes(),
+        "agent_cost_equal_to_digital": preparation_modes(agent_fill="3.00", agent_overhead="18.00"),
+        "expensive_agent": preparation_modes(agent_fill="8.00"),
+        "adaptive_owner_choice": adaptive_preparation_modes(),
+        "risk_reverses_low_direct_agent_cost": preparation_modes(
+            profiles={key: diagnostic_profile(agent_base="0.60", error_loss="400.00")
+                      for key in ("w1", "w2", "w3")}),
+    }
+    rows = []
+    for label, docs in sorted(cases.items()):
+        report = compare_original_preparation_modes(docs)
+        local = report.pop("local_research_only")
+        item = {
+            "trial": label,
+            "status": report["status"],
+            "same_original_works_results_consents_and_cash": report["same_original_works_results_consents_and_cash"],
+            "modes": {mode: {
+                "accepted_original_work_count": row["accepted_original_work_count"],
+                "applied_original_customer_reviews": row["applied_original_customer_reviews"],
+                "modeled_activity_units": row["modeled_activity_units"],
+                "economically_minimizing_owner_selection_count": row["economically_minimizing_owner_selection_count"],
+                "original_diagnostic_review_count": row["original_diagnostic_review_count"],
+            } for mode, row in local["modes"].items()},
+            "S1_minus_S2_declared_preparation_cost_direction": direction(local["S1_minus_S2_preparation_cost"]),
+            "best_fixed_minus_adaptive_declared_expected_cost_direction": (
+                direction(local["best_fixed_minus_adaptive_expected_cost"])
+                if "best_fixed_minus_adaptive_expected_cost" in local else "UNKNOWN"),
+            "full_S0_S1_S2_organizational_experiment": False,
+            "empirical_network_additionality": "NOT_IDENTIFIABLE",
+        }
+        rows.append(item)
+    indexed = {row["trial"]: row for row in rows}
+    assert indexed["ordinary_rates"]["S1_minus_S2_declared_preparation_cost_direction"] == "POSITIVE"
+    assert indexed["agent_cost_equal_to_digital"]["S1_minus_S2_declared_preparation_cost_direction"] == "ZERO"
+    assert indexed["expensive_agent"]["S1_minus_S2_declared_preparation_cost_direction"] == "NEGATIVE"
+    assert indexed["adaptive_owner_choice"]["best_fixed_minus_adaptive_declared_expected_cost_direction"] == "POSITIVE"
+    manifest = {
+        "schema": "AKIS_S0_S1_S2_ORIGINAL_PREPARATION_ECONOMICS/1.0",
+        "engine": "MESA_3_5_2", "experiments": rows,
+        "actual_time_error_probabilities_and_money_not_empirically_observed": True,
+        "private_amounts_and_source_references_excluded": True,
+        "no_second_ledger_or_scheduler": True,
+    }
+    payload = json.dumps(manifest, sort_keys=True, ensure_ascii=False,
+                         indent=2, allow_nan=False) + "\n"
+    assert "model://" not in payload and "local_research_only" not in payload
+    path = Path(__file__).resolve().parent / "s0_s1_s2_original_preparation_economics_evidence.json"
+    path.write_bytes(payload.encode("utf-8"))
+    return path, sha256(path.read_bytes()).hexdigest()
+
+
 if __name__ == "__main__":
     path, digest = export_executed_route_economics()
     print(f"AKIS_R2_EXECUTED_ROUTE_ECONOMICS_SHA256={digest}")
@@ -272,3 +330,6 @@ if __name__ == "__main__":
     path, digest = export_multiperiod_route_economics()
     print(f"AKIS_R1P_R3_MULTIPERIOD_ECONOMICS_SHA256={digest}")
     print(f"AKIS_R1P_R3_MULTIPERIOD_ECONOMICS_JSON={path}")
+    path, digest = export_preparation_mode_economics()
+    print(f"AKIS_S0_S1_S2_PREPARATION_ECONOMICS_SHA256={digest}")
+    print(f"AKIS_S0_S1_S2_PREPARATION_ECONOMICS_JSON={path}")

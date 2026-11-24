@@ -20,7 +20,8 @@ from .test_r1p_r3_executed_route_economics_mesa import cumulative_routes
 MODES = ("S0", "S1", "S2")
 
 
-def preparation_modes(*, agent_fill="1.00", agent_overhead="12.00"):
+def preparation_modes(*, agent_fill="1.00", agent_overhead="12.00",
+                      profiles=None, adaptive_modes=None):
     """Declare common unit rates, independently calculate each original row."""
     template = cumulative_routes()["cooperation"]
     rates = {
@@ -35,14 +36,18 @@ def preparation_modes(*, agent_fill="1.00", agent_overhead="12.00"):
     # five current state fields, two fields for each of the two principals.
     fields = 4 + 5 + 2 * 2
     docs = {}
-    for mode in MODES:
+    arms = (*MODES, "ADAPTIVE") if adaptive_modes is not None else MODES
+    for mode in arms:
         doc = deepcopy(template)
         money = doc["economic_claims"]
         life = money["lifecycle_costs"]
         life["preparation_activity_bindings"] = []
         for event in doc["events"]:
             if event["action"] == "function_prepare":
-                event["preparation_mode"] = mode
+                work = event["work"]
+                event["preparation_mode"] = adaptive_modes[work] if mode == "ADAPTIVE" else mode
+                if profiles is not None:
+                    event["preparation_diagnostic"] = deepcopy(profiles[work])
         for work, rid in (("w1", "w1-coordination"), ("w2", "w2-coordination"),
                           ("w3", "cooperation-coordination")):
             pos, event = next((i, e) for i, e in enumerate(doc["events"])
@@ -52,12 +57,14 @@ def preparation_modes(*, agent_fill="1.00", agent_overhead="12.00"):
             binding = next(row for row in life["event_bindings"] if row["resource_use_id"] == rid)
             # Replace the EXISTING coordination cost; never add it again.
             binding.update(action="function_prepare", trace_position=pos, at=event["at"])
-            fill = {"S0": 0, "S1": 4, "S2": fields}[mode]
+            selected = event["preparation_mode"]
+            card = profiles[work]["unit_rates_by_mode"] if profiles is not None else rates
+            fill = {"S0": 0, "S1": 4, "S2": fields}[selected]
             amounts = {"human_entry": fields - fill, "program_fill": fill,
                        "human_validation": fields, "packet_overhead": 1}
-            cost_row["amount"] = f"{sum(Decimal(rates[mode][key]) * value for key, value in amounts.items()):.2f}"
+            cost_row["amount"] = f"{sum(Decimal(card[selected][key]) * value for key, value in amounts.items()):.2f}"
             life["preparation_activity_bindings"].append(
-                {"resource_use_id": rid, "unit_rates_by_mode": deepcopy(rates)})
+                {"resource_use_id": rid, "unit_rates_by_mode": deepcopy(card)})
         docs[mode] = doc
     return docs
 
@@ -149,3 +156,143 @@ def test_mode_cannot_remove_independent_review_or_fabricate_preparation():
     out = simulate(doc)
     assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
     assert out["works"]["w1"]["result"] == out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+
+
+def diagnostic_profile(*, agent_fill="1.00", digital_overhead="8.00", agent_base="0.10",
+                       error_loss="100.00", observed="0.90", critical=False):
+    return {
+        "source_ref": "model://op/route-terms", "source_revision": "finance-v1",
+        "maturity_scores": [{"weight": "0.5", "score": "4"},
+                            {"weight": "0.5", "score": "4"}],
+        "context_scores": [{"weight": "1", "score": "4"}],
+        "debt_observations": [{"weight": "1", "formal": "1", "observed": observed}],
+        "frequency": "0.8", "connectivity": "0.8", "error_price_norm": "0.5",
+        "complexity": "1", "error_loss": error_loss,
+        "thresholds": {"maturity_min": "0.6", "context_min": "0.6",
+                       "debt_max": "0.3", "risk_max": "0.10"},
+        "critical_prohibition": critical,
+        "unit_rates_by_mode": {
+            "S0": {"human_entry": "5.00", "program_fill": "1.00",
+                   "human_validation": "2.00", "packet_overhead": "0.00"},
+            "S1": {"human_entry": "5.00", "program_fill": "1.00",
+                   "human_validation": "2.00", "packet_overhead": digital_overhead},
+            "S2": {"human_entry": "5.00", "program_fill": agent_fill,
+                   "human_validation": "2.00", "packet_overhead": "12.00"},
+        },
+        "mode_risk": {
+            "S0": {"declared_error_probability": "0.02"},
+            "S1": {"declared_error_probability": "0.02"},
+            "S2": {"base_error_probability": agent_base, "autonomy_factor": "1",
+                   "autonomy": "0.5"},
+        },
+    }
+
+
+def adaptive_preparation_modes():
+    profiles = {
+        "w1": diagnostic_profile(agent_fill="8.00"),
+        "w2": diagnostic_profile(),
+        "w3": diagnostic_profile(agent_fill="8.00", digital_overhead="20.00"),
+    }
+    return preparation_modes(profiles=profiles,
+                             adaptive_modes={"w1": "S1", "w2": "S2", "w3": "S0"})
+
+
+def test_original_independent_adaptive_mode_selection_beats_every_fixed_preparation_mode():
+    docs = adaptive_preparation_modes()
+    report = compare_original_preparation_modes(docs)
+    local = report["local_research_only"]
+    expected = {key: row["source_reviewed_risk_adjusted_expected_cost"]
+                for key, row in local["modes"].items()}
+    assert expected == {"S0": "279.00", "S1": "267.00", "S2": "341.60", "ADAPTIVE": "231.20"}
+    assert local["best_fixed_mode_by_declared_expected_cost"] == "S1"
+    assert local["best_fixed_minus_adaptive_expected_cost"] == "35.80"
+    adaptive = local["modes"]["ADAPTIVE"]
+    assert adaptive["economically_minimizing_owner_selection_count"] == 3
+    assert adaptive["selected_modes_by_original_work"] == {"w1": "S1", "w2": "S2", "w3": "S0"}
+    assert adaptive["applied_original_customer_reviews"] == 3
+    assert adaptive["declared_preparation_resource_cost"] == "225.00"
+    assert report["profit"] == "UNKNOWN"
+
+
+def test_risk_adjustment_reverses_low_direct_agent_cost_without_automatic_selection():
+    profile = diagnostic_profile(agent_base="0.60", error_loss="400.00")
+    docs = preparation_modes(profiles={work: profile for work in ("w1", "w2", "w3")})
+    report = compare_original_preparation_modes(docs)
+    assert report["local_research_only"]["S1_minus_S2_preparation_cost"] == "96.00"
+    out = simulate(docs["S2"])
+    choices = [row["model_preparation_economic_choice"] for row in out["trace"]
+               if "model_preparation_economic_choice" in row]
+    assert len(choices) == 3
+    assert all(row["recommended_mode"] == "S1" and row["selected_mode"] == "S2"
+               and row["S2_admissible"] and row["no_automatic_original_consent"] for row in choices)
+    assert all(out["works"][key]["obligation"] == "FULFILLED" for key in ("w1", "w2", "w3"))
+
+
+@pytest.mark.parametrize("profile,reason", [
+    (diagnostic_profile(observed="0.20"), "PROCESS_DEBT_ABOVE_OWNER_THRESHOLD"),
+    (diagnostic_profile(critical=True), "ORIGINAL_DECLARED_CRITICAL_PROHIBITION"),
+])
+def test_cheap_agent_cannot_compensate_original_declared_critical_diagnostic(profile, reason):
+    profiles = {work: profile for work in ("w1", "w2", "w3")}
+    doc = preparation_modes(profiles=profiles)["S1"]
+    out = simulate(doc)
+    choices = [row["model_preparation_economic_choice"] for row in out["trace"]
+               if "model_preparation_economic_choice" in row]
+    assert len(choices) == 3
+    assert all(not row["S2_admissible"] and reason in row["S2_ineligibility_reasons"]
+               and row["recommended_mode"] in {"S0", "S1"} for row in choices)
+    denied = preparation_modes(profiles=profiles)["S2"]
+    denied.pop("economic_claims")
+    denied.pop("strict_economic_source_works")
+    out = simulate(denied)
+    assert any(row["reason"] == "PREPARATION_DIAGNOSTIC_SELECTED_MODE_NOT_ADMISSIBLE"
+               for row in out["trace"])
+    assert out["works"]["w1"]["obligation"] == "NOT_ACCEPTED"
+
+
+def test_economic_recommendation_requires_current_own_kpb_not_just_low_cost():
+    doc = adaptive_preparation_modes()["ADAPTIVE"]
+    doc.pop("economic_claims")
+    doc.pop("strict_economic_source_works")
+    first = next(row for row in doc["events"] if row["action"] == "function_prepare")
+    first["preparation_diagnostic"]["source_revision"] = "stale"
+    out = simulate(doc)
+    assert any(row["reason"] == "PREPARATION_DIAGNOSTIC_ORIGINAL_SOURCE_NOT_QUALIFIED"
+               for row in out["trace"])
+    assert out["works"]["w1"]["obligation"] == "NOT_ACCEPTED"
+
+
+def test_rate_card_cannot_be_replaced_after_original_diagnostic_review():
+    doc = adaptive_preparation_modes()["ADAPTIVE"]
+    doc["economic_claims"]["lifecycle_costs"]["preparation_activity_bindings"][0][
+        "unit_rates_by_mode"]["S0"]["human_entry"] = "4.00"
+    with pytest.raises(InputError, match="RATE_SOURCE_DIFFERS_FROM_ORIGINAL_REVIEW"):
+        simulate(doc)
+
+
+def test_author_risk_equations_are_exact_and_probability_is_bounded():
+    from research.akis.qualitative_mesa.process_preparation import evaluate_preparation_diagnostic
+    profile = diagnostic_profile()
+    activity = {"original_header_field_count": 4, "original_current_field_count": 9}
+    out = evaluate_preparation_diagnostic(profile, activity)
+    assert out["maturity"] == Decimal("0.8")
+    assert out["context_readiness"] == Decimal("0.8")
+    assert out["process_debt"] == Decimal("0.1")
+    assert out["modes"]["S2"]["modeled_error_probability"] == Decimal("0.022")
+    assert out["modes"]["S2"]["digital_amplification_score"] == Decimal("0.016")
+    assert out["modes"]["S2"]["risk_adjusted_expected_cost"] == Decimal("53.20")
+    profile["mode_risk"]["S2"].update(base_error_probability="1", autonomy_factor="10")
+    profile["complexity"] = "10"
+    out = evaluate_preparation_diagnostic(profile, activity)
+    assert out["modes"]["S2"]["modeled_error_probability"] == 1
+    assert out["modes"]["S2"]["probability_saturated_at_one"]
+
+
+def test_unknown_and_non_normalized_diagnostic_weights_are_not_filled_with_zero():
+    from research.akis.qualitative_mesa.process_preparation import evaluate_preparation_diagnostic
+    profile = diagnostic_profile()
+    profile["maturity_scores"][0]["weight"] = "0"
+    with pytest.raises(ValueError, match="WEIGHTS_MUST_SUM_TO_ONE"):
+        evaluate_preparation_diagnostic(profile, {"original_header_field_count": 4,
+                                                  "original_current_field_count": 9})
