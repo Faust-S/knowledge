@@ -10,6 +10,7 @@ import {tmpdir} from "node:os";
 import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {chromium} from "playwright";
+import {MODEL,requireCatalogModel} from "../integration-sources/bli1/catalog.mjs";
 import {registerT3LocalInferenceService}
   from "../scripts/register-t3-local-inference.mjs";
 import {materializeIntegrationHost,serveRealKernelHost}
@@ -20,6 +21,8 @@ import {assertQualifiedKernelArtifact}
 
 const core=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const hardwareRequired=process.env.T3_D5_REQUIRE_HARDWARE_GPU==="1";
+const model=requireCatalogModel(process.env.T3_D5_MODEL_ID||MODEL.id);
+const modelId=model.id;
 const browserLaunch={
   headless:true,ignoreHTTPSErrors:true,
   ...(process.platform==="darwin"?{channel:"chromium"}:{}),
@@ -128,6 +131,8 @@ try {
   const panel=page.getByTestId("t3-local-inference-panel");
   await panel.waitFor({state:"visible",timeout:30000});
   assert.match(await panel.innerText(),/SmolLM2 360M|WebGPU/);
+  await panel.getByTestId("t3-d5-model-select").selectOption(modelId);
+  assert.equal(await panel.getByTestId("t3-d5-model-select").inputValue(),modelId);
   // Explicitly select a real Workspace through the existing Host base
   // command. Create a source object through the original Kernel 0.3.6,
   // never through fixture state or a second Store.
@@ -226,14 +231,14 @@ try {
     }
     if(!modelStarted){
       console.log("T3_D5_REAL_WEBGPU_INSTALL_BLOCKED",JSON.stringify({
-        model:"SmolLM2-360M-Instruct-q4f32_1-MLC",
+        model:modelId,profile:model.profileId??null,
         status:modelStatus.slice(0,600),requestFailures:modelFailureRequests,
         uiAndKernelPreviouslyPassed:true,
       }));
       if(hardwareRequired)throw Error("T3_D5_HARDWARE_WEBGPU_MODEL_INSTALL_FAILED");
     }else{
       await panel.getByTestId("t3-d5-prompt")
-        .fill("Reply with the word hello.");
+        .fill(model.profileId?"Ответь одним словом: привет.":"Reply with the word hello.");
       await panel.getByTestId("t3-d5-max-tokens").fill("8");
       await panel.getByRole("button",{name:"Сгенерировать локально"}).click();
       let inferenceStatus="";
@@ -291,6 +296,8 @@ try {
         await coldLauncher.getByRole("button",{name:"Открыть локальную модель"}).click();
         const coldPanel=coldPage.getByTestId("t3-local-inference-panel");
         await coldPanel.waitFor({state:"visible",timeout:15000});
+        await coldPanel.getByTestId("t3-d5-model-select").selectOption(modelId);
+        assert.equal(await coldPanel.getByTestId("t3-d5-model-select").inputValue(),modelId);
         // Browser process restart may restore the Kernel DB without restoring
         // Host focus. Use the existing Workspace owner, not an implicit
         // rewrite or an unscoped draft save.
@@ -316,7 +323,7 @@ try {
           '[data-testid="t3-local-inference-panel"] button')).some(b=>
           b.textContent?.includes("Выгрузить") && !b.disabled),null,{timeout:120000});
         console.log("T3_D5_REAL_WEBGPU_KERNEL_COLD_OFFLINE_PASS",JSON.stringify({
-          model:"SmolLM2-360M-Instruct-q4f32_1-MLC",
+          model:modelId,profile:model.profileId??null,
           generatedCharacters:output.length,workspace:chosenWorkspace,
           savedObject:savedId,originalKernelReadback:true,
           browserColdRestart:true,networkDisabled:true,
@@ -327,7 +334,7 @@ try {
         // The user edits and explicitly saves it through the original
         // scoped Kernel, then reads back the new persisted object.
         await coldPanel.getByTestId("t3-d5-prompt")
-          .fill("Reply with one short word about offline work.");
+          .fill(model.profileId?"Назови одним словом действие без интернета.":"Reply with one short word about offline work.");
         await coldPanel.getByTestId("t3-d5-max-tokens").fill("12");
         await coldPanel.getByRole("button",{name:"Сгенерировать локально"}).click();
         const offlineStatus=coldPanel.locator('p[role="status"][aria-live="polite"]');
@@ -354,7 +361,7 @@ try {
         assert.equal(await coldPage.evaluate(()=>navigator.onLine),false,
           "offline inference must not silently enable network");
         console.log("T3_D5_REAL_WEBGPU_OFFLINE_REGENERATION_KERNEL_PASS",JSON.stringify({
-          model:"SmolLM2-360M-Instruct-q4f32_1-MLC",
+          model:modelId,profile:model.profileId??null,
           freshGeneratedCharacters:offlineOutput.length,
           workspace:chosenWorkspace,savedObject:offlineId,
           networkDisabled:true,originalKernelReadback:true,
