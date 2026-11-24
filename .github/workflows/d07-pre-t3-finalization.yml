@@ -1,0 +1,214 @@
+name: D07 pre-T3 product finalization
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d07-pre-t3-finalization.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-pre-t3-finalization
+  cancel-in-progress: true
+jobs:
+  product-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: 2b7e5a7b60a6290695d85453a9089fb545894174
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: domain
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 6dd09f157dc2757e3b0f343bb4528d0010cbb179
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Exact domain and site revisions
+        shell: bash
+        run: |
+          test "$(git -C domain rev-parse HEAD)" = "2b7e5a7b60a6290695d85453a9089fb545894174"
+          test "$(git -C site rev-parse HEAD)" = "6dd09f157dc2757e3b0f343bb4528d0010cbb179"
+          for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
+            f="$(basename "$path")"
+            cmp "$path" "site/src/domain/$f"
+          done
+          for f in service-blocks.ts service-changes.ts service-execution.ts; do cmp "domain/src/domain/$f" "site/t2-site-module/uslugovod/$f"; done
+          echo D07_DOMAIN_PARITY=PASS
+      - name: Install pinned site dependencies
+        working-directory: site
+        shell: bash
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-install.log" 2>&1
+          echo D07_INSTALL=PASS
+      - name: Addressed protection and correction tests
+        working-directory: site
+        shell: bash
+        run: |
+          node --import tsx --test scripts/tests/d07-case-workspace-command-boundary.test.mjs scripts/tests/d07-service-execution.test.mjs scripts/tests/d07-service-blocks.test.mjs scripts/tests/d07-service-settlement.test.mjs scripts/tests/d07-service-aftercare.test.mjs scripts/tests/d07-service-regular.test.mjs scripts/tests/d07-service-correction-history.test.mjs scripts/tests/d07-service-commitments.test.mjs scripts/tests/d07-composite-service-journey.test.mjs scripts/tests/d07-host-module-tsx-parse.test.mjs > "$RUNNER_TEMP/d07-addressed.log" 2>&1 || {
+            echo D07_ADDRESSED=FAIL
+            grep -E '^not ok|^# (tests|pass|fail)|^  (error|code|operator|location):|^    (D07_[A-Z0-9_]+|AssertionError|at )' "$RUNNER_TEMP/d07-addressed.log" | cut -c1-240 | head -120
+            exit 1
+          }
+          echo D07_ADDRESSED=PASS
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d07-addressed.log"
+      - name: Complete product-first regression
+        working-directory: site
+        shell: bash
+        run: |
+          npm run test:product-first > "$RUNNER_TEMP/d07-product.log" 2>&1 || {
+            echo D07_PRODUCT_REGRESSION=FAIL
+            grep -E '^not ok|^# (tests|pass|fail)|^  (error|code|operator|location):|^    (D07_[A-Z0-9_]+|AssertionError|at )' "$RUNNER_TEMP/d07-product.log" | cut -c1-240 | head -160
+            exit 1
+          }
+          echo D07_PRODUCT_REGRESSION=PASS
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d07-product.log"
+      - name: Typecheck and final TOP500 regression
+        working-directory: site
+        shell: bash
+        run: |
+          bun run check:types > "$RUNNER_TEMP/d07-types.log" 2>&1 || { echo D07_TYPES=FAIL; grep -E 'error TS[0-9]+' "$RUNNER_TEMP/d07-types.log" | cut -c1-240 | head -30; exit 1; }
+          echo D07_TYPES=PASS
+          node --import tsx --test scripts/tests/d07-professional-card-release.test.mjs scripts/tests/d07-professional-form-release.test.mjs scripts/tests/d07-n500-legacy-variants.test.mjs > "$RUNNER_TEMP/d07-n500.log" 2>&1 || {
+            echo D07_N500=FAIL
+            grep -E '^not ok|^# (tests|pass|fail)|^  (error|code|operator|location):|^    (D07_[A-Z0-9_]+|AssertionError|at )' "$RUNNER_TEMP/d07-n500.log" | cut -c1-240 | head -100
+            exit 1
+          }
+          echo D07_N500=PASS
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d07-n500.log"
+          npm run test:next500-latest > "$RUNNER_TEMP/d07-all-methods.log" 2>&1 || {
+            echo D07_METHOD_REGRESSION=FAIL
+            grep -E '^not ok|^# (tests|pass|fail)|^  (error|code|operator|location):|^    (D07_[A-Z0-9_]+|AssertionError|at )' "$RUNNER_TEMP/d07-all-methods.log" | cut -c1-240 | head -100
+            exit 1
+          }
+          echo D07_METHOD_REGRESSION=PASS
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d07-all-methods.log"
+  original-t2-dist:
+    needs: product-regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 6dd09f157dc2757e3b0f343bb4528d0010cbb179
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: T2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Install exact dependencies
+        working-directory: site
+        shell: bash
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/d07-build-install.log" 2>&1 || { echo D07_BUILD_INSTALL=FAIL; exit 1; }
+          echo D07_BUILD_INSTALL=PASS
+      - name: Build public site plus original T2 Host and Kernel
+        working-directory: site
+        shell: bash
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/T2
+        run: |
+          node scripts/build-d07-integrated-site.mjs > "$RUNNER_TEMP/d07-500-integrated.log" 2>&1 || {
+            echo D07_ORIGINAL_T2_BUILD=FAIL
+            grep -E 'D07_[A-Z0-9_]+=(PASS|FAIL)|D07_BUILD_[A-Z_]+' "$RUNNER_TEMP/d07-500-integrated.log" | tail -22 || true
+            exit 1
+          }
+          echo D07_ORIGINAL_T2_BUILD=PASS
+          grep -E '^D07_[A-Z0-9_]+=(PASS|[0-9]+)' "$RUNNER_TEMP/d07-500-integrated.log" | tail -18 || true
+      - name: Verify all 500 physical service pages and original T2 links
+        working-directory: site
+        shell: bash
+        run: |
+          node --import tsx --input-type=module -e 'import fs from "node:fs";import {SUBJECT_PROTOCOLS} from "./src/domain/service-subject-protocols.ts";let missing=[];for(const p of SUBJECT_PROTOCOLS){const f="dist/uslugi/"+p.categorySlug+"/"+p.serviceSlug+"/index.html";if(!fs.existsSync(f)||fs.statSync(f).size<1500)missing.push(p.serviceSlug);}console.log("D07_PHYSICAL_HTML="+(SUBJECT_PROTOCOLS.length-missing.length)+"/"+SUBJECT_PROTOCOLS.length);if(SUBJECT_PROTOCOLS.length!==500||missing.length)process.exit(1);'
+          node --import tsx --input-type=module -e 'import fs from "node:fs";import {SUBJECT_PROTOCOLS} from "./src/domain/service-subject-protocols.ts";const errors=[];for(const p of SUBJECT_PROTOCOLS){const path="dist/uslugi/"+p.categorySlug+"/"+p.serviceSlug+"/index.html";const h=fs.readFileSync(path,"utf8");if(!h.includes("d07-professional-service-card")||!h.includes("d07-professional-start-order")||!h.includes("/workspace/?new=1"))errors.push(p.serviceSlug+":no T2 card");for(const op of p.operations)if(!h.includes("data-operation-id="+String.fromCharCode(34)+op.id+String.fromCharCode(34)))errors.push(p.serviceSlug+":"+op.id);}console.log("D07_RENDERED_CARD_T2_AND_WORK="+(errors.length?"FAIL:"+errors.slice(0,8).join(","):"PASS"));if(errors.length)process.exit(1);'
+          node --import tsx scripts/tests/d07-n500-rendered-variants.mjs
+          echo D07_NEW_CARDS_ORIGINAL_T2_HTML=PASS
+          node --import tsx scripts/tests/d07-next500-five-r-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-s-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-t-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-u-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-v-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-w-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-x-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-y-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-z-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-aa-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ab-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ac-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ad-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ae-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-af-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ag-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ah-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ai-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-aj-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ak-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-al-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-am-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-an-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ao-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ap-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-aq-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ar-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-as-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-at-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-au-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-av-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-aw-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ax-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ay-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-az-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-ba-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-bb-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-bc-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-bd-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-be-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-bf-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-bg-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-bh-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-bi-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-bj-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-bk-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-bl-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-five-bm-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-ten-bn-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-ten-bo-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-ten-bp-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-thirteen-bq-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-twelve-br-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-ten-bs-html.test.mjs
+          node --import tsx scripts/tests/d07-next500-ten-bt-html.test.mjs
+      # No private source/artifact upload to public CI logs.
+
+      - name: Verify final hosting package and public navigation
+        working-directory: site
+        shell: bash
+        run: |
+          npm run hosting:verify > "$RUNNER_TEMP/d07-hosting.log" 2>&1 || { echo D07_HOSTING_VERIFY=FAIL; grep -E '^D07_[A-Z0-9_]+' "$RUNNER_TEMP/d07-hosting.log" | cut -c1-200 | tail -20; exit 1; }
+          echo D07_HOSTING_VERIFY=PASS
+          for check in check:assets check:links check:htaccess check:no-localhost check:seo; do
+            npm run "$check" > "$RUNNER_TEMP/d07-host-check.log" 2>&1 || { echo "D07_HOSTING_CHECK=FAIL:$check"; grep -E '^D07_[A-Z0-9_]+|^[A-Z_]+=' "$RUNNER_TEMP/d07-host-check.log" | cut -c1-200 | tail -20; exit 1; }
+            echo "D07_HOSTING_CHECK=PASS:$check"
+          done
