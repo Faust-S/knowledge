@@ -224,3 +224,347 @@ def compare_original_trajectories(
             len({row["original_next_work_result"] for row in rows}) > 1
         ),
     }
+
+
+# R2/R4: compare two independently EXECUTED original Work routes, rather
+# than interpreting a projected alternative in a single run as execution.
+# This is a research reader of the original Mesa and original economic
+# projections, not a second executor, monetary ledger, IAM or optimizer.
+
+def compare_executed_original_routes(
+    scenarios: Mapping[str, Mapping[str, Any]], *,
+    cooperative_work: str, outside_work: str, relation: str,
+    prior_works: tuple[str, ...], split_at: int,
+) -> dict[str, Any]:
+    """Run two matched trajectories and compare their source-declared economics.
+
+    Each arm contains one active original economic ledger, using its existing
+    COOPERATION slot for the executed route (not a claim of link membership).
+    Inputs for the two actualized routes may differ after the common prefix:
+    owner-declared transfers, classified resource-use rows and their evidence.
+    This is a controlled MODEL_ONLY contrast, not a causal estimator. The
+    private research view is never automatically shared with participants.
+    """
+    from copy import deepcopy
+    from decimal import Decimal
+    from .mesa_model import simulate
+
+    active = "COOPERATION"
+    inactive = "INDEPENDENT_ALTERNATIVE"
+    accepted = "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    arms = {"cooperation": cooperative_work, "outside": outside_work}
+    if (not isinstance(scenarios, Mapping) or set(scenarios) != set(arms)
+            or any(not isinstance(value, str) or not value for value in
+                   (cooperative_work, outside_work, relation))
+            or not isinstance(prior_works, tuple) or not prior_works
+            or any(not isinstance(value, str) or not value for value in prior_works)
+            or len(set((*prior_works, cooperative_work, outside_work)))
+               != len(prior_works) + 2
+            or type(split_at) is not int or split_at < 0):
+        raise TrajectoryComparisonError("EXECUTED_ROUTE_MATCHED_DESIGN_REQUIRED")
+
+    reference = None
+    reference_finance = None
+    common_prefix = None
+    for name, selected in arms.items():
+        doc = scenarios[name]
+        if not isinstance(doc, Mapping):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_SCENARIO_REQUIRED")
+        if doc.get("strict_economic_source_work") != selected:
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_STRICT_SELECTED_WORK_REQUIRED")
+        baseline = {k: v for k, v in doc.items()
+                    if k not in {"events", "economic_claims",
+                                 "strict_economic_source_work"}}
+        if reference is not None and reference != baseline:
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_INITIAL_STATE_CHANGED")
+        reference = baseline
+        events = doc.get("events")
+        if not isinstance(events, list) or any(
+            not isinstance(row, Mapping) or type(row.get("at")) is not int
+            for row in events
+        ):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_ORIGINAL_EVENTS_REQUIRED")
+        prefix = [row for row in events if row["at"] <= split_at]
+        if common_prefix is not None and common_prefix != prefix:
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_COMMON_PREFIX_CHANGED")
+        common_prefix = prefix
+        # Only the selected Work's later decisions and execution may differ.
+        # Exogenous shocks need a separately controlled experiment.
+        if any(row.get("work") != selected for row in events
+               if row["at"] > split_at):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_OTHER_POST_SPLIT_EVENT")
+        money = doc.get("economic_claims")
+        if not isinstance(money, Mapping):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_ORIGINAL_MONEY_REQUIRED")
+        timing = money.get("cash_timing")
+        lifecycle = money.get("lifecycle_costs")
+        if not isinstance(timing, Mapping) or not isinstance(lifecycle, Mapping):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_COST_AND_TIME_SCOPE_REQUIRED")
+        financial_baseline = {
+            "period": money.get("period"), "currency": money.get("currency"),
+            "sources": money.get("sources"), "coverage": money.get("coverage"),
+            "outside_feasibility": money.get("outside_feasibility"),
+            "opening_positions": timing.get("owner_positions"),
+            "horizon": timing.get("horizon_end"),
+            "resource_scope_proofs": lifecycle.get("scope_proofs"),
+        }
+        if reference_finance is not None and reference_finance != financial_baseline:
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_ECONOMIC_BASELINE_CHANGED")
+        reference_finance = financial_baseline
+        if (type(doc.get("model_horizon")) is not int
+                or timing.get("horizon_end") != doc["model_horizon"]):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_MATCHED_HORIZON_REQUIRED")
+        for field in ("transfers", "resource_uses"):
+            rows = money.get(field)
+            if not isinstance(rows, list) or any(
+                not isinstance(row, Mapping) or row.get("scenario") != active
+                or row.get("work") != selected for row in rows
+            ):
+                raise TrajectoryComparisonError("EXECUTED_ROUTE_ONLY_SELECTED_ORIGINAL_ROWS")
+
+    # The controlled prefix already contains the original outside request.
+    # There is no caller-supplied output to forge: both runs execute the
+    # existing Mesa, then original strict KPB and original R2 projections.
+    initial = reference["subjects"]
+    owner_ids = {row["id"] for row in initial}
+    links = [row for row in reference.get("cooperation_links", [])
+             if row["id"] == relation]
+    if (len(links) != 1 or cooperative_work not in links[0]["works"]
+            or outside_work in links[0]["works"]):
+        raise TrajectoryComparisonError("EXECUTED_ROUTE_FIXED_COOPERATION_BOUNDARY_REQUIRED")
+    members = set(links[0]["participants"])
+    if not members or not members < owner_ids:
+        raise TrajectoryComparisonError("EXECUTED_ROUTE_DISTINCT_CONSOLIDATION_BOUNDARIES_REQUIRED")
+    original_specs = list(reference["works"])
+    original_specs += [
+        row["work_spec"] for row in common_prefix if row.get("action") == "request"
+    ]
+    specs = {row["id"]: row for row in original_specs}
+    if not {cooperative_work, outside_work}.issubset(specs):
+        raise TrajectoryComparisonError("EXECUTED_ROUTE_BOTH_ORIGINAL_WORK_DECLARATIONS_REQUIRED")
+    coop_spec, out_spec = specs[cooperative_work], specs[outside_work]
+    if (coop_spec["customer"] not in members or out_spec["customer"] in members
+            or out_spec["customer"] not in owner_ids
+            or any(coop_spec.get(k) != out_spec.get(k)
+                   for k in ("resource", "slot_start", "slot_end", "requires_accepted"))):
+        raise TrajectoryComparisonError("EXECUTED_ROUTE_DECLARED_PLAN_SCOPE_MISMATCH")
+
+    def criteria(spec):
+        return sorted(
+            (row["id"], row["dimension"], row["operation"],
+             row["responsible_owner"], row["method"])
+            for row in spec.get("assurance_criteria", [])
+        )
+
+    if not criteria(coop_spec) or criteria(coop_spec) != criteria(out_spec):
+        raise TrajectoryComparisonError("EXECUTED_ROUTE_DECLARED_QUALITY_BASIS_MISMATCH")
+
+    frozen = deepcopy(scenarios)
+    outputs = {name: simulate(deepcopy(scenarios[name])) for name in arms}
+    if frozen != scenarios:
+        raise TrajectoryComparisonError("EXECUTED_ROUTE_INPUT_MUTATED")
+    prefix_output = None
+    history = None
+    reasons: set[str] = set()
+    routes: dict[str, Any] = {}
+    private: dict[str, Any] = {}
+    projections: dict[str, Any] = {}
+
+    def money(value):
+        return f"{value:.2f}"
+
+    def total(values):
+        return sum((Decimal(v) for v in values), Decimal(0))
+
+    for name, selected in arms.items():
+        result = outputs[name]
+        doc = scenarios[name]["economic_claims"]
+        trace, works = result["trace"], result["works"]
+        if result.get("profit", {}).get("system_increment") != "UNKNOWN":
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_EMPIRICAL_PROFIT_NOT_IDENTIFIED")
+        if set(result["subjects"]) != owner_ids:
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_SUBJECT_BOUNDARY_CHANGED")
+        prefix = [row for row in trace if row["at"] <= split_at]
+        if prefix_output is not None and prefix_output != prefix:
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_APPLIED_PREFIX_CHANGED")
+        prefix_output = prefix
+        historical = [works[key] for key in prior_works if key in works]
+        if (len(historical) != len(prior_works)
+                or any(row["result"] != accepted for row in historical)
+                or any(sum(row.get("action") == "accept"
+                           and row.get("work") == key
+                           and row.get("outcome") == "APPLIED"
+                           for row in prefix) != 1 for key in prior_works)):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_PRIOR_ACCEPTED_HISTORY_REQUIRED")
+        if history is not None and history != historical:
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_HISTORICAL_RESULT_CHANGED")
+        history = historical
+        if not set(arms.values()).issubset(works):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_ORIGINAL_REQUEST_NOT_APPLIED")
+        requirements = result.get("capacity", {}).get("requirements", {})
+        if (not requirements.get(cooperative_work)
+                or requirements.get(cooperative_work) != requirements.get(outside_work)):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_CAPACITY_SCOPE_MISMATCH")
+        if not any(row.get("action") == "request" and row.get("outcome") == "APPLIED"
+                   and row.get("work") == outside_work
+                   and isinstance(row.get("outside_work_origin"), Mapping)
+                   for row in prefix):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_ORIGINAL_OUTSIDE_LINEAGE_REQUIRED")
+        inactive_work = arms["outside" if name == "cooperation" else "cooperation"]
+        if (works[inactive_work]["obligation"] != "NOT_ACCEPTED"
+                or works[inactive_work]["result"] != "NOT_SUBMITTED"):
+            raise TrajectoryComparisonError("EXECUTED_ROUTE_INCOMPATIBLE_WORK_ALSO_ACCEPTED")
+        chosen = works[selected]
+        current = [row for row in trace if row.get("work") == selected
+                   and row.get("outcome") == "APPLIED"]
+        times = {
+            action: [row["at"] for row in current if row["action"] == action]
+            for action in ("commit", "start", "complete", "accept")
+        }
+        executed = (
+            chosen["result"] == accepted
+            and chosen["obligation"] == "FULFILLED"
+            and all(len(seq) == 1 for seq in times.values())
+            and times["commit"][0] < times["start"][0] < times["complete"][0]
+                < times["accept"][0]
+            and chosen.get("assurance", {}).get("current_result_quality_gate") == "NONE"
+        )
+        econ = result["economics"]
+        strict = econ.get("original_strict_context_source_qualification", {})
+        costs = econ.get("lifecycle_resource_costs", {})
+        pay = econ.get("work_payment_causality", {})
+        cash = econ.get("cash_timing", {})
+        route_reasons = []
+        if not executed:
+            route_reasons.append("SELECTED_ORIGINAL_RESULT_NOT_QUALIFIED")
+        if (not result.get("context_basis", {}).get("strict")
+                or strict.get("status") != "ORIGINAL_STRICT_CONTEXT_SOURCES_QUALIFIED"):
+            route_reasons.append("STRICT_ORIGINAL_SOURCE_SCOPE_INCOMPLETE")
+        if name == "outside" and not strict.get(
+                "outside_work_original_offer_purchase_transfer_price_matched"):
+            route_reasons.append("ORIGINAL_OUTSIDE_PRICE_NOT_QUALIFIED")
+        if (not doc["transfers"]
+                or pay.get("source_declared_consistent_count") != econ["transfers_count"]
+                or pay.get("status") != "DECLARED_CAUSAL_PAYMENT_ORDER_ONLY_NOT_SETTLEMENT"):
+            route_reasons.append("ORIGINAL_PAYMENT_TERMS_OR_CAUSAL_ORDER_INCOMPLETE")
+        if (not doc["resource_uses"]
+                or strict.get("source_scoped_original_cost_event_count")
+                   != econ["resource_uses_count"]
+                or costs.get("classified_original_record_count") != econ["resource_uses_count"]):
+            route_reasons.append("ORIGINAL_COST_CLASSIFICATION_OR_EVENT_SOURCES_INCOMPLETE")
+        if cash.get("missing_transfer_window_count") != 0:
+            route_reasons.append("ORIGINAL_CASH_TIME_SCOPE_INCOMPLETE")
+
+        owner_rows = {}
+        for owner in sorted(owner_ids):
+            balance = econ.get("per_subject", {}).get(owner, {}).get(
+                "complete_cash_balance_from_claims", {}
+            ).get(active)
+            cost = costs.get("owner_scoped_details", {}).get(owner, {}).get(
+                "scenarios", {}
+            ).get(active, {})
+            path = cash.get("per_original_owner_private_research_projection", {}).get(
+                owner, {}
+            ).get("scenario_paths", {}).get(active, {})
+            expected = path.get("expected", {})
+            delayed = path.get("declared_late_case", {})
+            if (balance is None or not cost.get("declared_resource_scope_complete_not_audited")
+                    or expected.get("end_of_horizon_cash_from_declared_transfers") is None
+                    or delayed.get("status") is None):
+                route_reasons.append("ORIGINAL_OWNER_CASH_COST_OR_RESERVE_SCOPE_INCOMPLETE")
+                continue
+            owner_rows[owner] = {
+                "declared_net_cash": balance,
+                "declared_noncash_by_nature": cost["noncash_use_by_nature"],
+                "declared_noncash_total": money(total(cost["noncash_use_by_nature"].values())),
+                "expected_liquidity": expected["status"],
+                "late_receipt_liquidity": delayed["status"],
+            }
+        route_reasons = sorted(set(route_reasons))
+        reasons.update(route_reasons)
+        routes[name] = {
+            "selected_original_result": chosen["result"],
+            "original_recipient_quality_gate_passed": executed,
+            "original_acceptance_tick": times["accept"][0] if executed else None,
+            "execution_model_ticks": times["complete"][0]-times["start"][0] if executed else None,
+            "source_matched_full_transfer_count": pay.get("settlement_progress", {}).get(
+                "source_claimed_full_transfer_count", 0),
+            "bank_payment_verified": False,
+            "economic_scope_status": "QUALIFIED_MODEL_ONLY" if not route_reasons else "UNKNOWN",
+            "reasons": route_reasons,
+        }
+        if not route_reasons:
+            whole = total(row["declared_net_cash"] for row in owner_rows.values())
+            original_external = econ["complete_consolidated_external_balance_from_claims"][active]
+            if original_external is None or whole != Decimal(original_external):
+                raise TrajectoryComparisonError("EXECUTED_ROUTE_ORIGINAL_CASH_NOT_CONSERVED")
+            # A fixed subset's net boundary cash equals the sum of original
+            # member balances. Internal payments cancel exactly. No new
+            # transfer, cost or separate consolidated money register.
+            subset = total(owner_rows[owner]["declared_net_cash"] for owner in members)
+            projections[name] = {
+                "fixed_cooperation_boundary_net_cash": money(subset),
+                "whole_original_subject_boundary_net_cash": money(whole),
+                "whole_original_noncash_total": money(total(
+                    row["declared_noncash_total"] for row in owner_rows.values())),
+                "whole_original_transaction_noncash": money(total(
+                    row["declared_noncash_by_nature"].get("TRANSACTION", "0")
+                    for row in owner_rows.values())),
+            }
+            private[name] = owner_rows
+
+    # No economic zero or winner is manufactured when one route is incomplete.
+    qualified = not reasons and set(projections) == set(arms)
+    comparison = None
+    private_delta = None
+    if qualified:
+        coop, outside = projections["cooperation"], projections["outside"]
+        comparison = {
+            "fixed_cooperation_cash_cooperation_minus_outside": money(
+                Decimal(coop["fixed_cooperation_boundary_net_cash"])
+                - Decimal(outside["fixed_cooperation_boundary_net_cash"])),
+            "whole_subject_cash_cooperation_minus_outside": money(
+                Decimal(coop["whole_original_subject_boundary_net_cash"])
+                - Decimal(outside["whole_original_subject_boundary_net_cash"])),
+            "whole_noncash_outside_minus_cooperation": money(
+                Decimal(outside["whole_original_noncash_total"])
+                - Decimal(coop["whole_original_noncash_total"])),
+            "whole_transaction_noncash_outside_minus_cooperation": money(
+                Decimal(outside["whole_original_transaction_noncash"])
+                - Decimal(coop["whole_original_transaction_noncash"])),
+        }
+        private_delta = {
+            owner: {
+                "cash_cooperation_minus_outside": money(
+                    Decimal(private["cooperation"][owner]["declared_net_cash"])
+                    - Decimal(private["outside"][owner]["declared_net_cash"])),
+                "noncash_outside_minus_cooperation": money(
+                    Decimal(private["outside"][owner]["declared_noncash_total"])
+                    - Decimal(private["cooperation"][owner]["declared_noncash_total"])),
+            }
+            for owner in sorted(owner_ids)
+        }
+
+    return {
+        "schema": "AKIS_MATCHED_EXECUTED_ORIGINAL_ROUTE_ECONOMICS/1.0",
+        "status": ("MODEL_EXECUTED_ROUTES_DECLARED_ECONOMIC_CONTRAST"
+                   if qualified else "NOT_IDENTIFIABLE_FROM_EXECUTED_ROUTE_SCOPE"),
+        "common_initial_state_and_applied_prefix_verified": True,
+        "previous_original_results_preserved": True,
+        "declared_resource_calendar_and_quality_criteria_matched": True,
+        "distinct_original_recipients_not_equal_measured_utility": True,
+        "actual_physical_equivalence_and_causal_additionality_verified": False,
+        "original_bank_payment_verified": False,
+        "cash_and_noncash_are_not_added": True,
+        "separate_incompatible_runs_not_summed": True,
+        "empirical_network_additionality": "NOT_IDENTIFIABLE",
+        "routes": routes,
+        "reasons": sorted(reasons),
+        "local_research_only": {
+            "boundary_projections": projections if qualified else None,
+            "boundary_and_cost_contrast": comparison,
+            "original_owner_projections": private if qualified else None,
+            "original_owner_contrasts": private_delta,
+            "automatically_shared_with_participants": False,
+        },
+    }
