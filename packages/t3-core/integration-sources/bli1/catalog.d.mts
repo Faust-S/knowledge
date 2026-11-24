@@ -4,6 +4,11 @@ export type BrowserLocalModel = Readonly<{
   engine:string;
   modelSource:string;
   modelLib:string;
+  upstreamModelSource?:string;
+  upstreamModelLib?:string;
+  modelRevision?:string;
+  modelLibRevision?:string;
+  estimatedDownloadBytes?:number;
   profileId:'light'|'balanced'|'extended'|null;
   license:string;
   licenseInfo:string;

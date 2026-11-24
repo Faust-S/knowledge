@@ -157,6 +157,7 @@ function fakeBrowser(root,store=null,clock=Date) {
     setOwnerAlive(value){ownerAlive=!!value;},
     get liveFetches(){return liveFetches;}};
 }
+const artifactBase=model=>model.modelSource.endsWith("/")?model.modelSource:model.modelSource+"/resolve/main/";
 for(const model of MODELS) test("D5 consent, restart, denial and expiry for "+model.id,async()=>{
   const root=specimen();
   try {
@@ -173,7 +174,8 @@ for(const model of MODELS) test("D5 consent, restart, denial and expiry for "+mo
     await browser.dispatch("T3_MODEL_INSTALL_BEGIN",{postMessage:v=>mixed.push(v)},
       {...pinned,wasm_url:other.modelLib},source);
     assert.equal(mixed.at(-1)?.type,"FAILED","another model library cannot be substituted");
-    const weights=pinned.model_url+"/resolve/main/params_shard_0.bin";
+    const base=artifactBase(model);
+    const weights=base+"params_shard_0.bin";
     const blocked="https://example.org/telemetry";
     const before=browser.liveFetches;
     assert.equal((await browser.fetchPage(weights)).status,503);
@@ -191,26 +193,34 @@ for(const model of MODELS) test("D5 consent, restart, denial and expiry for "+mo
     const token=permitted.at(-1).token;
     assert.equal(typeof token,"string");
     const count=browser.liveFetches;
-    assert.equal((await browser.fetchPage(other.modelSource+"/resolve/main/params_shard_0.bin")).status,503);
+    assert.equal((await browser.fetchPage(artifactBase(other)+"params_shard_0.bin")).status,503);
     assert.equal((await browser.fetchPage(other.modelLib)).status,503);
+    if(model.modelRevision){
+      assert.equal((await browser.fetchPage(model.upstreamModelSource+"/resolve/main/params_shard_0.bin")).status,503,
+        "a pinned release cannot fetch mutable main weights");
+      assert.equal((await browser.fetchPage(model.upstreamModelLib)).status,503,
+        "a pinned release cannot fetch mutable main WASM");
+      assert.equal((await browser.fetchPage(base.replace(model.modelRevision,"0".repeat(40))+"params_shard_0.bin")).status,503,
+        "a different model revision is not consented");
+    }
     assert.equal((await browser.fetchPage(blocked)).status,503);
-    assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/../private")).status,503);
-    assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/user-workspace-secret")).status,503,
+    assert.equal((await browser.fetchPage(base+"../private")).status,503);
+    assert.equal((await browser.fetchPage(base+"user-workspace-secret")).status,503,
       "a model URL must not carry arbitrary private Workspace data");
-    assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/params_shard_fake.bin")).status,503);
-    assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/vocab.dat")).status,503);
-    assert.equal((await browser.fetchPage(pinned.model_url+"/resolve/main/tokenizer_private.json")).status,503);
+    assert.equal((await browser.fetchPage(base+"params_shard_fake.bin")).status,503);
+    assert.equal((await browser.fetchPage(base+"vocab.dat")).status,503);
+    assert.equal((await browser.fetchPage(base+"tokenizer_private.json")).status,503);
     assert.equal((await browser.fetchPage(weights+"?token=private")).status,503);
     assert.equal((await browser.fetchPage(weights,"POST")).status,503);
     assert.equal(browser.liveFetches,count);
     for (const asset of [
       weights,
-      pinned.model_url+"/resolve/main/mlc-chat-config.json",
-      pinned.model_url+"/resolve/main/tokenizer.json",
-      pinned.model_url+"/resolve/main/tokenizer_config.json",
-      pinned.model_url+"/resolve/main/vocab.json",
-      pinned.model_url+"/resolve/main/merges.txt",
-      pinned.model_url+"/resolve/main/tensor-cache.json",
+      base+"mlc-chat-config.json",
+      base+"tokenizer.json",
+      base+"tokenizer_config.json",
+      base+"vocab.json",
+      base+"merges.txt",
+      base+"tensor-cache.json",
       pinned.wasm_url,
     ]) {
       assert.equal((await browser.fetchPage(asset)).status,404,

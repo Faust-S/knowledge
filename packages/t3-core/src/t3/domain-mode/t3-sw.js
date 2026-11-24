@@ -92,7 +92,12 @@ async function modelFetchAllowed(request, url) {
   if (request.method !== "GET" || url.username || url.password || url.hash ||
       (url.search && url.search !== "?download=true")) return false;
   if (url.href === modelInstall.wasm) return true;
-  const prefix = modelInstall.modelPath + "/resolve/main/";
+  // WebLLM normalizes a base repo to resolve/main, but respects an
+  // explicitly specified /resolve/<commit>/ base. The lease still derives
+  // this exact path only from an approved catalog pair.
+  const path = modelInstall.modelPath.replace(/\/$/,"");
+  const prefix = /\/resolve\/[a-f0-9]{40}$/.test(path) ?
+    path + "/" : path + "/resolve/main/";
   if (url.origin !== "https://huggingface.co" || !url.pathname.startsWith(prefix)) {
     return false;
   }

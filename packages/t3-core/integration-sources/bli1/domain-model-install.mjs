@@ -31,7 +31,8 @@ export async function beginDomainModelInstallation(modelId=MODEL.id,{signal}={})
   if (signal?.aborted) throw cancelled();
   const chosen=requireCatalogModel(modelId);
   const model=prebuiltAppConfig.model_list.find(row => row.model_id === chosen.id);
-  if (!model || model.model!==chosen.modelSource || model.model_lib!==chosen.modelLib)
+  if (!model || model.model!==(chosen.upstreamModelSource??chosen.modelSource) ||
+      model.model_lib!==(chosen.upstreamModelLib??chosen.modelLib))
     throw Error("T3_D5_MODEL_NOT_IN_WEBLLM_CATALOG");
   if (!document.documentElement.hasAttribute("data-iwxa-t3-autonomous")) {
     return async () => {}; // Ordinary online site, still requires user consent.
@@ -42,7 +43,7 @@ export async function beginDomainModelInstallation(modelId=MODEL.id,{signal}={})
     throw Error("T3_D5_AUTONOMOUS_WORKER_REQUIRED");
   }
   const reply = await send(worker,"T3_MODEL_INSTALL_BEGIN",{
-    model_url:model.model,wasm_url:model.model_lib,
+    model_url:chosen.modelSource,wasm_url:chosen.modelLib,
   });
   if (reply?.type !== "MODEL_INSTALL_ALLOWED" ||
       typeof reply.token !== "string") throw Error("T3_D5_MODEL_INSTALL_NOT_ALLOWED");

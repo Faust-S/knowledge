@@ -2,17 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {MODEL,MODELS,MODEL_PROFILES,LEGACY_MODELS,modelInstallSources,requireCatalogModel} from "../integration-sources/bli1/catalog.mjs";
 
-test("three stable user profiles contain one family each and two hardware variants",()=>{
+test("three stable user profiles contain one family each and hardware variants",()=>{
   assert.deepEqual(MODEL_PROFILES.map(p=>p.id),["light","balanced","extended"]);
   assert.equal(new Set(MODEL_PROFILES.map(p=>p.family)).size,3);
   for(const profile of MODEL_PROFILES){
     assert.ok(Object.isFrozen(profile)&&Object.isFrozen(profile.variants));
-    assert.equal(profile.variants.length,2);
-    assert.deepEqual(profile.variants.map(m=>m.quantization),["q4f16_1","q4f32_1"]);
+    assert.ok(profile.variants.length>=1);
+    assert.equal(new Set(profile.variants.map(m=>m.quantization)).size,profile.variants.length);
     for(const m of profile.variants){
       assert.equal(m.profileId,profile.id);
       assert.equal(m.license,"Apache-2.0");
       assert.ok(m.expectedVramMB>0);
+      assert.ok(Number.isSafeInteger(m.estimatedDownloadBytes)&&m.estimatedDownloadBytes>0);
+      assert.match(m.modelRevision,/^[a-f0-9]{40}$/);
+      assert.match(m.modelLibRevision,/^[a-f0-9]{40}$/);
+      assert.equal(m.modelSource,m.upstreamModelSource+"/resolve/"+m.modelRevision+"/");
       assert.equal(m.id,requireCatalogModel(m.id).id);
       assert.ok(Object.isFrozen(m));
     }

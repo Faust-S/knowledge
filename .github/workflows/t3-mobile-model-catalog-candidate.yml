@@ -15,6 +15,7 @@ jobs:
           node-version: '22'
       - name: Verify exact compiled catalog and original autonomous install contracts
         run: |
+          node packages/t3-core/scripts/t3-model-catalog.mjs
           node --check packages/t3-core/integration-sources/bli1/engine.mjs
           node --check packages/t3-core/integration-sources/bli1/domain-model-install.mjs
           node --check packages/t3-core/src/t3/domain-mode/t3-sw.js
@@ -34,8 +35,8 @@ jobs:
           for(const m of MODELS){
             const r=prebuiltAppConfig.model_list.find(x=>x.model_id===m.id);
             assert.ok(r,m.id);
-            assert.equal(r.model,m.modelSource,m.id);
-            assert.equal(r.model_lib,m.modelLib,m.id);
+            assert.equal(r.model,m.upstreamModelSource??m.modelSource,m.id);
+            assert.equal(r.model_lib,m.upstreamModelLib??m.modelLib,m.id);
             if(m.profileId)assert.equal(r.vram_required_MB,m.expectedVramMB,m.id);
           }
           console.log('T3_MOBILE_UPSTREAM_EXACT_RECORDS=PASS',MODELS.length);
