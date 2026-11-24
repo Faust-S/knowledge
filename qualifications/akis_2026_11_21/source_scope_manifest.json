@@ -1,6 +1,6 @@
 {
   "schema": "AKIS_NATIVE_SOURCE_SCOPE/1",
-  "source_revision": "0ab1d187871e131ad06d707c38e1f2d65158d423",
+  "source_revision": "66daeef1751de9eb750de18f8084815bf57c443c",
   "source_files": {
     "__init__.py": "68b595531872d6fa1de0c15a5592cb43749e062d",
     "adaptation_review.py": "3ea02ee9da9e06433abdf0b89d771e199fa6c75b",
@@ -110,7 +110,7 @@
     "tests/test_cooperation_integrity.py": "d759016d7c70f2a236295fd0b8960c49c5a37fd8",
     "tests/test_cooperation_lifecycle.py": "d3e8a9c405cc9eb608bc4e4e001115928285edce",
     "tests/test_cooperation_participation_integration.py": "0e7573a06dcbde6feceeef0518917a7aba652e0d",
-    "tests/test_cooperation.py": "440f5c9692b7bbe4e446ea7e29a76771e31a45f4",
+    "tests/test_cooperation.py": "af3da591de415146f297de1e4c964d73cdb40f79",
     "tests/test_cooperative_dynamics.py": "3b1fa4ee2567c3db7c6e269a8b9fd31b275d19b7",
     "tests/test_dynamic_transitions.py": "3adb7233518ab37cafdba46e598ab360aa558c80",
     "tests/test_economic_flow.py": "f06c478f289b9614cf5dfcca167badac3d91effe",

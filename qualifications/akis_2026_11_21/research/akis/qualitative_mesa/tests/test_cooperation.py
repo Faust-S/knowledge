@@ -1,12 +1,19 @@
 from types import SimpleNamespace as N
 from decimal import Decimal
 import pytest
+from research.akis.qualitative_mesa.rules import Work
+from research.akis.qualitative_mesa.capacity import ResourceNeed
 from research.akis.qualitative_mesa.cooperation import parse_cooperation_links,cooperation_view,evaluate_cooperation_cost_channels,CooperationInputError
 
 def scenario():
     subs={x:N(kind='SME') for x in ['a','b','c']};subs['op']=N(kind='OPERATOR')
     res={'ra':'a','rb':'b'}
-    works={'x':N(customer='c',resource_requirements=[N(resource='ra'),N(resource='rb')],consents={},obligation='NOT_ACCEPTED',result='NOT_SUBMITTED')}
+    # Use the actual original Work contract, including its assurance fields.
+    # This fixture deliberately declares no quality criteria; it never claims
+    # qualified quality for the accepted model Result.
+    works={'x':Work(key='x', customer='c', resource='ra', source_revision='d-x',
+                    slot_start=1, slot_end=2,
+                    resource_requirements=(ResourceNeed('ra', 1), ResourceNeed('rb', 1)))}
     links=[{'id':'collab','purpose':'joint purchasing and sales', 'coordinator':'op','participants':['a','b','c','op'],'works':['x'],'mechanisms':['JOINT_PURCHASE','SHARED_MARKETING','MEMBER_SOURCING','TRANSACTION_COST','SHARED_LOGISTICS'],'source_ref':'model://collab','source_revision':'r1'}]
     return subs,res,works,links
 

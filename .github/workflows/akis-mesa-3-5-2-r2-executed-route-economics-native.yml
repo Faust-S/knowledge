@@ -38,6 +38,10 @@ jobs:
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
         run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_preparation_pattern_revision_mesa.py
+      - name: Restored cooperation regression
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_cooperation.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_cooperation_author_code.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_cooperation_change.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_cooperation_economic_evidence.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_cooperation_integrity.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_cooperation_lifecycle.py
       - name: Full original Mesa regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
