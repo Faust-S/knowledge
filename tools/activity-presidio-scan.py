@@ -209,7 +209,8 @@ def main():
     logging.disable(logging.CRITICAL)
     warnings.filterwarnings("ignore")
     try:
-        need(len(sys.argv) in (3, 4) and sys.argv[1] == "--language" and sys.argv[2] in MODELS and\n             (len(sys.argv) == 3 or sys.argv[3] == "--product"),
+        need(len(sys.argv) in (3, 4) and sys.argv[1] == "--language" and sys.argv[2] in MODELS and
+             (len(sys.argv) == 3 or sys.argv[3] == "--product"),
              "PRESIDIO_ARGUMENTS_INVALID")
         payload = sys.stdin.buffer.read(LIMIT + 1)
         need(0 < len(payload) <= LIMIT, "PRESIDIO_INPUT_LIMIT")
