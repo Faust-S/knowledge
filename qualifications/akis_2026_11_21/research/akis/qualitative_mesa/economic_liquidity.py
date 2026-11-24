@@ -242,6 +242,7 @@ def evaluate_cash_timing(
     original_payment_due: Mapping[str, int] | None = None,
     settlement_splits: Mapping[str, list[tuple[int, Decimal]]] | None = None,
     agreed_installments: Mapping[str, list[Mapping[str, Any]]] | None = None,
+    network_scale: bool = False,
 ) -> dict[str, Any]:
     """Calculate only a SOURCE-DECLARED, owner-scoped liquidity conditional.
 
@@ -260,12 +261,14 @@ def evaluate_cash_timing(
     }:
         raise LiquidityInputError("INVALID_LIQUIDITY_FIELDS")
     horizon = raw["horizon_end"]
-    if type(horizon) is not int or not 0 <= horizon <= 10000:
+    if type(horizon) is not int or not 0 <= horizon <= (3_000_000 if network_scale else 10000):
         raise LiquidityInputError("INVALID_LIQUIDITY_HORIZON")
     positions = raw["owner_positions"]
     settlements = raw["transfer_windows"]
-    if (not isinstance(positions, list) or len(positions) > 128
-            or not isinstance(settlements, list) or len(settlements) > 4096):
+    if (not isinstance(positions, list)
+            or len(positions) > (100_001 if network_scale else 128)
+            or not isinstance(settlements, list)
+            or len(settlements) > (2_000_000 if network_scale else 4096)):
         raise LiquidityInputError("INVALID_LIQUIDITY_RECORD_COUNT")
     owner_state: dict[str, tuple[Decimal, Decimal]] = {}
     for p in positions:
@@ -322,6 +325,12 @@ def evaluate_cash_timing(
                 or (settlement_splits or {}).get(key)
                     != [(p["at"], _money(p["amount"])) for p in parts]):
             raise LiquidityInputError("ORIGINAL_INSTALLMENT_CASH_CONSERVATION_OR_EVIDENCE_FAILED")
+    # Index each original transfer by actual payer/payee once. Preserve
+    # independent owner cash trajectories without scanning the whole ledger.
+    owner_transfers: dict[tuple[str, str], list] = {}
+    for key, record in transfer_index.items():
+        for owner in {record["payer"], record["payee"]} - {"EXTERNAL"}:
+            owner_transfers.setdefault((owner, record["scenario"]), []).append((key, record))
     per_owner: dict[str, Any] = {}
     scoped_counts = {"qualified_reserve_both_scenarios": 0,
                      "known_gap_in_either_scenario": 0,
@@ -330,9 +339,7 @@ def evaluate_cash_timing(
     for owner in sorted(subjects):
         outcome: dict[str, Any] = {}
         for scenario in _SCENARIOS:
-            originals = [(key, rec) for key, rec in transfer_index.items()
-                         if rec["scenario"] == scenario
-                         and owner in {rec["payer"], rec["payee"]}]
+            originals = owner_transfers.get((owner, scenario), ())
             if owner not in owner_state:
                 outcome[scenario] = {"status": "OPENING_POSITION_NOT_SOURCE_DECLARED"}
             elif owner not in coverage[scenario]:

@@ -926,6 +926,7 @@ def evaluate_economic_claims(raw: Any, subjects: Mapping[str, Any], works: Mappi
                 outside=outside, original_payment_due=due_dates,
                 settlement_splits=payment_splits,
                 agreed_installments=agreed_installments or None,
+                network_scale=network_scale,
             )
         except LiquidityInputError as exc:
             raise EconomicInputError(str(exc)) from exc

@@ -55,9 +55,11 @@ def _review_network_period_scope(state, claims, work_keys, sources, at, qualify)
         fail()
     # Restrict this new research contract to its qualified ledger fields.
     # The established specialized routes continue to use their own gates.
-    if set(claims) != {"period", "currency", "sources", "transfers", "resource_uses",
-                      "coverage", "outside_feasibility", "lifecycle_costs",
-                      "network_period_scope"}:
+    required_claims = {"period", "currency", "sources", "transfers", "resource_uses",
+                       "coverage", "outside_feasibility", "lifecycle_costs",
+                       "network_period_scope"}
+    if (not required_claims <= set(claims)
+            or set(claims) - required_claims - {"cash_timing"}):
         fail()
     if claims["outside_feasibility"] != {}:
         fail()
@@ -74,6 +76,7 @@ def _review_network_period_scope(state, claims, work_keys, sources, at, qualify)
                 or mapping["INDEPENDENT_ALTERNATIVE"] != {}):
             fail()
     transfer_ids, cost_ids = set(), set()
+    transfer_by_id = {}
     by_owner_t, by_owner_c = defaultdict(set), defaultdict(set)
     transfer_works, cost_works, common, direct = set(), set(), set(), set()
     source_ids = set(coverage["COOPERATION"].values()) | set(proofs["COOPERATION"].values())
@@ -94,6 +97,7 @@ def _review_network_period_scope(state, claims, work_keys, sources, at, qualify)
                 if work is None:
                     fail()
                 transfer_works.add(work)
+                transfer_by_id[key] = row
                 for owner in (row.get("payer"), row.get("payee")):
                     if owner != "EXTERNAL":
                         if owner not in state.subjects:
@@ -144,6 +148,54 @@ def _review_network_period_scope(state, claims, work_keys, sources, at, qualify)
             or not exact_ids([r.get("resource_use_id") for r in timed if isinstance(r, dict)], direct)
             or len(timed) != len(direct)):
         fail()
+    # Cash timing uses only these same original transfers. Opening positions
+    # and both parties' timing evidence must be independently source-scoped.
+    cash_timing_count = 0
+    if "cash_timing" in claims:
+        cash = claims["cash_timing"]
+        if (not isinstance(cash, dict)
+                or set(cash) != {"horizon_end","owner_positions","transfer_windows"}
+                or cash["horizon_end"] != at
+                or not isinstance(cash["owner_positions"], list)
+                or not isinstance(cash["transfer_windows"], list)):
+            fail()
+        positioned = set()
+        for row in cash["owner_positions"]:
+            if (not isinstance(row, dict) or row.get("owner") not in state.subjects
+                    or row["owner"] in positioned):
+                fail()
+            owner = row["owner"]
+            proof = sources.get(row.get("source"))
+            if proof is None or proof["owner"] != owner or row["source"] in source_ids:
+                fail()
+            positioned.add(owner)
+            source_ids.add(row["source"])
+            qualify(owner, proof["reference"], proof["revision"],
+                    _OWNER_CORES[state.subjects[owner].kind], 0)
+        if positioned != set(state.subjects):
+            fail()
+        timed_transfers = set()
+        for row in cash["transfer_windows"]:
+            if (not isinstance(row, dict)
+                    or row.get("transfer_id") not in transfer_by_id
+                    or row["transfer_id"] in timed_transfers
+                    or type(row.get("at")) is not int or not 0 <= row["at"] <= at):
+                fail()
+            transfer = transfer_by_id[row["transfer_id"]]
+            parties = {transfer["payer"],transfer["payee"]} - {"EXTERNAL"}
+            if not isinstance(row.get("owner_sources"), dict) or set(row["owner_sources"]) != parties:
+                fail()
+            for owner,key in row["owner_sources"].items():
+                proof = sources.get(key)
+                if proof is None or proof["owner"] != owner:
+                    fail()
+                source_ids.add(key)
+                qualify(owner, proof["reference"], proof["revision"],
+                        _OWNER_CORES[state.subjects[owner].kind], row["at"])
+            timed_transfers.add(row["transfer_id"])
+        if timed_transfers != transfer_ids:
+            fail()
+        cash_timing_count = len(timed_transfers)
     used_refs = {sources[k]["reference"] for k in source_ids if k in sources}
     used_refs.update(r.get("cost_evidence_ref") for r in timed)
     for owner, row in scope["owners"].items():
@@ -168,6 +220,9 @@ def _review_network_period_scope(state, claims, work_keys, sources, at, qualify)
             "network_period_uncommitted_work_count": len(uncommitted),
             "network_period_common_cost_count": len(common),
             "network_period_direct_cost_count": len(direct),
+            **({"network_period_source_scoped_transfer_timing_count": cash_timing_count,
+                "network_period_complete_declared_cash_timing": True}
+               if "cash_timing" in claims else {}),
             "network_period_exact_declared_owner_scope": True,
             "network_period_actual_profit_verified": False}
 

@@ -749,6 +749,7 @@ class OperatorAKISModel(mesa.Model):
                     {k: original[k] for k in required},
                     self.qualitative.subjects, self.qualitative.works,
                     self.qualitative.cooperation_links, self.qualitative.trace,
+                    network_scale=self.qualitative.network_scale,
                 )
             except (EconomicInputError, KeyError) as exc:
                 raise InputError("OWNER_FINANCE_ORIGINAL_CASH_PROJECTION_INVALID") from exc
@@ -772,6 +773,7 @@ class OperatorAKISModel(mesa.Model):
                          "cash_timing": updated},
                         self.qualitative.subjects, self.qualitative.works,
                         self.qualitative.cooperation_links, self.qualitative.trace,
+                        network_scale=self.qualitative.network_scale,
                     )
                 except (EconomicInputError, KeyError) as exc:
                     raise InputError("OWNER_FORECAST_PRIVATE_PROJECTION_INVALID") from exc

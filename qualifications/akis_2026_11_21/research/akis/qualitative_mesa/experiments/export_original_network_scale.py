@@ -26,8 +26,12 @@ ALT = "INDEPENDENT_ALTERNATIVE"
 def network_document(enterprises: int, periods: int = 3) -> dict:
     if type(enterprises) is not int or not 10 <= enterprises <= 30000:
         raise ValueError("NETWORK_EXPERIMENT_ENTERPRISES_OUTSIDE_QUALIFICATION_SCOPE")
-    if type(periods) is not int or not 1 <= periods <= 3:
+    if type(periods) is not int or not 1 <= periods <= 60:
         raise ValueError("NETWORK_EXPERIMENT_PERIODS_OUTSIDE_QUALIFICATION_SCOPE")
+    attempted_per_period = enterprises+(enterprises+9)//10
+    events_per_period = 10*enterprises+7*((enterprises+9)//10)
+    if attempted_per_period*periods > 300_000 or events_per_period*periods > 3_000_000:
+        raise ValueError("NETWORK_EXPERIMENT_DECLARED_LIMIT_EXCEEDED")
     firms = [f"enterprise-{i:05d}" for i in range(enterprises)]
     resources = [f"resource-{i:05d}" for i in range(enterprises)]
     subjects = [{"id":"op","kind":"OPERATOR"}] + [
@@ -73,13 +77,16 @@ def network_document(enterprises: int, periods: int = 3) -> dict:
         # One source-declared entry expense per enterprise, not per order.
         cost(f"entry-{i}",owner,60+i%23,"PARTICIPANT_CONNECT",None)
     for period in range(periods):
+        # Keep three distinct principals even when the horizon exceeds
+        # the population in a small contract-regression fixture.
+        offset = 1+period%(enterprises-2)
         # Once for this original operator/period. It is not replicated for
         # each enterprise. The amounts are stress fixture inputs only.
         cost(f"common-{period}","op",100000+period*10000,"COMMON_CAPABILITY",None)
         scheduled = []
         for i, owner in enumerate(firms):
-            first = (i+period+1)%enterprises
-            second = (i+period+2)%enterprises
+            first = (i+offset)%enterprises
+            second = (i+offset+1)%enterprises
             work = f"work-{period}-{i:05d}"
             submit(work,i,first,second,period)
             scheduled.append((work,i,first,second))
@@ -99,7 +106,7 @@ def network_document(enterprises: int, periods: int = 3) -> dict:
         # They incur declared preparation expense but no sale/fee/delivery.
         for i in range(0,enterprises,10):
             work = f"conflict-{period}-{i:05d}"
-            submit(work,i,(i+period+1)%enterprises,(i+period+2)%enterprises,period)
+            submit(work,i,(i+offset)%enterprises,(i+offset+1)%enterprises,period)
             cost(work+"-preparation",firms[i],8+i%7,"COORDINATION",work)
             cost(work+"-operator-attempt","op",4+i%3,"COORDINATION",work)
         # All successful obligations are outstanding before execution begins.

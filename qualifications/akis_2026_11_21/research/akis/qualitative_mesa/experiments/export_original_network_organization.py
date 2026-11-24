@@ -36,11 +36,19 @@ PLATFORM_INCREMENT = {"S0":0, "S1":15000, "S2":50000}
 
 def organization_document(enterprises: int, periods: int = 3, mode: str = "S2",
                           *, strict_period: bool = True, checkpoints: bool = True,
-                          agent_fill: str = "1.00") -> dict:
+                          agent_fill: str = "1.00", timed_cash: bool = False) -> dict:
     if mode not in MODES:
         raise ValueError("NETWORK_PREPARATION_MODE_INVALID")
     rates = {k: dict(v) for k,v in RATES.items()}
     rates["S2"]["program_fill"] = agent_fill
+    if type(enterprises) is not int or type(periods) is not int:
+        raise ValueError("NETWORK_EXPERIMENT_INVALID_DIMENSIONS")
+    if timed_cash and not strict_period:
+        raise ValueError("NETWORK_TIMED_CASH_REQUIRES_STRICT_PERIOD")
+    attempts = periods*(enterprises+(enterprises+9)//10)
+    event_count = periods*(10*enterprises+7*((enterprises+9)//10))+13*attempts
+    if event_count+(101 if timed_cash else 1) > 3_000_000:
+        raise ValueError("NETWORK_ORGANIZATION_DECLARED_LIMIT_EXCEEDED")
     d = network_document(enterprises, periods)
     firms = [row["id"] for row in d["subjects"] if row["id"] != "op"]
     parties = ["op", *firms]
@@ -56,7 +64,7 @@ def organization_document(enterprises: int, periods: int = 3, mode: str = "S2",
     def emit(action, actor, **fields):
         event = {"at":len(events)+1,"action":action,"actor":actor,**fields}
         events.append(event)
-        if action in {"request", "function_prepare", "complete"}:
+        if action in {"request", "function_prepare", "commit", "start", "complete", "accept"}:
             work = event["work_spec"]["id"] if action=="request" else event["work"]
             positions[(work,action)] = len(events)-1
         return event["at"]
@@ -153,7 +161,7 @@ def organization_document(enterprises: int, periods: int = 3, mode: str = "S2",
              human_decision="APPROVE",review_source_ref=f"model://{buyer}/review-{work}",
              org_revision="oc-1")
     d["events"] = events
-    horizon = len(events)+1
+    horizon = len(events)+(101 if timed_cash else 1)
     d["model_horizon"] = horizon
     if checkpoints:
         # Keep only two explicit boundary observations at this scale. All
@@ -256,6 +264,31 @@ def organization_document(enterprises: int, periods: int = 3, mode: str = "S2",
             "uncommitted_works":sorted(w for w in work_specs if w.startswith("conflict-")),
         }
         d["strict_economic_source_works"] = sorted(work_specs)
+    if timed_cash:
+        positions_cash, windows = [], []
+        for i,owner in enumerate(parties):
+            key = "opening-"+owner
+            money["sources"].append({"id":key,"owner":owner,
+                "reference":f"model://{owner}/opening-reserve","revision":"economic-1"})
+            positions_cash.append({"owner":owner,"source":key,
+                "opening_cash":str(50000 if owner=="op" else 30+(i*137)%501),
+                "reserve_cash":str(10000 if owner=="op" else 20+(i*17)%31)})
+        # Explicit declared stress schedule, not a real settlement event or
+        # a forecast. No reset of opening cash at the next period boundary.
+        for row in money["transfers"]:
+            work = row["work"]
+            kind = row["id"].rsplit("-",1)[1]
+            phase = {"sale":"accept","supplier":"complete","support":"complete",
+                     "operator":"commit","materials":"start"}[kind]
+            at = events[positions[(work,phase)]]["at"]+1
+            period,i = map(int,work.split("-")[1:])
+            delay = 2+(period*13+i*17+len(kind))%49
+            owners = {row["payer"],row["payee"]}-{"EXTERNAL"}
+            windows.append({"transfer_id":row["id"],"at":at,"late_at":at+delay,
+                "owner_sources":{owner:money["coverage"][COOP][owner]
+                                 for owner in sorted(owners)}})
+        money["cash_timing"] = {"horizon_end":horizon,
+            "owner_positions":positions_cash,"transfer_windows":windows}
     for row in money["sources"]:
         owner = row["owner"]
         source(row["reference"],owner,[owner],"operator" if owner=="op" else "corporate",
@@ -275,9 +308,84 @@ def _hash_rows(rows):
     return digest.hexdigest()
 
 
+def _period_totals(money, periods):
+    # Derived arithmetic on the original unique rows; never an additional
+    # transaction register. Group by the declared generation period of
+    # Work. This is not the settlement-date period or accrual accounting.
+    fields = ("external_cash","noncash","entry","shared","failed","preparation")
+    groups = [{key:Decimal(0) for key in fields} for _ in range(periods)]
+    for row in money["transfers"]:
+        if "EXTERNAL" not in (row["payer"],row["payee"]):
+            continue
+        period = int(row["work"].split("-")[1])
+        groups[period]["external_cash"] += Decimal(row["amount"])*(1 if row["payer"]=="EXTERNAL" else -1)
+    for row in money["resource_uses"]:
+        amount = Decimal(row["amount"])
+        work = row["work"]
+        period = int(work.split("-")[1]) if work is not None else (
+            int(row["id"].split("-")[1]) if row["bucket"]=="COMMON_CAPABILITY" else 0)
+        g = groups[period]
+        g["noncash"] += amount
+        if row["bucket"]=="COMMON_CAPABILITY":
+            g["shared"] += amount
+        if row["bucket"]=="PARTICIPANT_CONNECT":
+            g["entry"] += amount
+        if work is not None and work.startswith("conflict-"):
+            g["failed"] += amount
+        if work is not None and row["owner"]=="op":
+            g["preparation"] += amount
+    balance = Decimal(0)
+    result = []
+    for period,g in enumerate(groups):
+        net = g["external_cash"]-g["noncash"]
+        balance += net
+        result.append({"period":period+1,**{key:str(g[key]) for key in fields},
+            "cash_minus_exclusive_noncash":str(net),
+            "cumulative_cash_minus_exclusive_noncash":str(balance)})
+    return result
+
+
+def _liquidity_summary(money, econ, scope, cash_by_owner):
+    timing = econ["cash_timing"]
+    joint = timing["joint_network_settlement"]["scenarios"][COOP]
+    assert scope["network_period_complete_declared_cash_timing"]
+    assert scope["network_period_source_scoped_transfer_timing_count"]==len(money["transfers"])
+    assert timing["missing_transfer_window_count"]==0
+    assert joint["internal_cash_nets_to_zero_at_every_tick"]
+    assert joint["sum_owner_cash_changes_equals_original_external_cash_at_every_tick"]
+    opening = {row["owner"]:Decimal(row["opening_cash"]) for row in money["cash_timing"]["owner_positions"]}
+    paths = timing["per_original_owner_private_research_projection"]
+    joint_paths = joint["per_original_owner_private_research_projection"]
+    assert set(opening)==set(paths)==set(joint_paths)==set(cash_by_owner)
+    counts = {key:Counter() for key in ("expected","owner_late_receipt_stress","joint_late_settlement")}
+    for owner,net_cash in cash_by_owner.items():
+        own = paths[owner]["scenario_paths"][COOP]
+        assert own["status"]=="SOURCE_DECLARED_TIMING_ARITHMETIC_ONLY"
+        details = {"expected":own["expected"],
+            "owner_late_receipt_stress":own["declared_late_case"],
+            "joint_late_settlement":joint_paths[owner]["joint_posted_late_case"]}
+        for key,row in details.items():
+            assert Decimal(row["end_of_horizon_cash_from_declared_transfers"])==opening[owner]+net_cash
+            if owner!="op":
+                counts[key][row["status"]] += 1
+    return {"enterprise_status_counts":{k:dict(v) for k,v in counts.items()},
+        "operator_status":{k:v["status"] for k,v in {
+            "expected":paths["op"]["scenario_paths"][COOP]["expected"],
+            "owner_late_receipt_stress":paths["op"]["scenario_paths"][COOP]["declared_late_case"],
+            "joint_late_settlement":joint_paths["op"]["joint_posted_late_case"]}.items()},
+        "original_source_qualified_timing_rows":len(money["transfers"]),
+        "opening_positions_not_income_or_reset":True,
+        "joint_cash_conserved_each_tick":True,
+        "owner_stress_not_joint_forecast":True,
+        "real_bank_balance_verified":False,
+        "declared_timing_sha256":_hash_rows(money["cash_timing"]["owner_positions"]+
+                                             money["cash_timing"]["transfer_windows"])}
+
+
 def run_organization(enterprises: int, periods: int, mode: str,
-                     *, agent_fill: str = "1.00") -> tuple[dict,dict]:
-    doc = organization_document(enterprises,periods,mode,agent_fill=agent_fill)
+                     *, agent_fill: str = "1.00", timed_cash: bool = False) -> tuple[dict,dict]:
+    doc = organization_document(enterprises,periods,mode,agent_fill=agent_fill,
+                                timed_cash=timed_cash)
     out = simulate(doc)
     result = verify_network_result(doc,out,enterprises,periods)
     n = result["original_works"]
@@ -333,8 +441,19 @@ def run_organization(enterprises: int, periods: int, mode: str,
         r["owner"]=="op" and (r["work"] is not None or r["bucket"]=="COMMON_CAPABILITY")))
     state_hash=_hash_rows(({"work":key,**out["works"][key]}
                            for key in sorted(out["works"])))
+    period_rows = _period_totals(money,periods)
+    for key,total in (("external_cash",sum_cash),("noncash",sum_cost),
+                      ("preparation",prep_cost),("shared",shared),("entry",entry),
+                      ("failed",failed)):
+        assert sum((Decimal(row[key]) for row in period_rows),Decimal(0))==total
+    assert Decimal(period_rows[-1]["cumulative_cash_minus_exclusive_noncash"])==sum_cash-sum_cost
     result.update({
         "schema":"AKIS_ORIGINAL_NETWORK_ORGANIZATION/1",
+        "declared_period_arithmetic":period_rows,
+        "periods_are_model_work_groups_not_months_or_accrual_accounts":True,
+        **({"declared_liquidity":_liquidity_summary(money,econ,scope,cash_by_owner)}
+           if timed_cash else {}),
+
         "preparation_mode":mode,"four_original_context_cores":4,
         "thirteen_original_oc_controls_active":True,
         "applied_original_formation_confirmations":applied["formation_confirm"],
@@ -366,10 +485,10 @@ def run_organization(enterprises: int, periods: int, mode: str,
 
 
 def compare_network_modes(enterprises: int, periods: int=3, *, agent_fill: str="1.00",
-                          modes=MODES) -> dict:
+                          modes=MODES, timed_cash: bool = False) -> dict:
     results, nets = {},{}
     for mode in modes:
-        results[mode],nets[mode]=run_organization(enterprises,periods,mode,agent_fill=agent_fill)
+        results[mode],nets[mode]=run_organization(enterprises,periods,mode,agent_fill=agent_fill,timed_cash=timed_cash)
     if "S0" not in results or "S2" not in results:
         raise ValueError("NETWORK_MODE_COMPARISON_NEEDS_S0_S2")
     first=results["S0"]
@@ -377,6 +496,8 @@ def compare_network_modes(enterprises: int, periods: int=3, *, agent_fill: str="
         for key in ("matched_original_event_baseline_sha256","matched_original_transfer_sha256",
                     "matched_other_resource_cost_sha256","matched_final_original_work_sha256"):
             assert result[key]==first[key],key
+        if timed_cash:
+            assert result["declared_liquidity"]==first["declared_liquidity"]
     contrasts={}
     for mode in results:
         if mode=="S0":
@@ -387,7 +508,21 @@ def compare_network_modes(enterprises: int, periods: int=3, *, agent_fill: str="
         saving=Decimal(first["declared_preparation_cost_rub"])-Decimal(result["declared_preparation_cost_rub"])
         extra=Decimal(result["declared_operator_shared_cost_rub"])-Decimal(first["declared_operator_shared_cost_rub"])
         assert total==saving-extra
-        contrasts[mode]={"declared_preparation_cost_reduction_rub":str(saving),
+        accumulated = Decimal(0)
+        period_contrast = []
+        first_positive = None
+        for baseline, arm in zip(first["declared_period_arithmetic"],
+                                 result["declared_period_arithmetic"],strict=True):
+            period_delta = (Decimal(baseline["noncash"])-Decimal(arm["noncash"]))
+            accumulated += period_delta
+            period_contrast.append({"period":baseline["period"],"net_cost_reduction":str(period_delta),
+                                    "cumulative_net_cost_reduction":str(accumulated)})
+            if first_positive is None and accumulated>0:
+                first_positive=baseline["period"]
+        assert accumulated==total
+        contrasts[mode]={"declared_period_contrast":period_contrast,
+                         "first_positive_cumulative_period":first_positive,
+                         "declared_preparation_cost_reduction_rub":str(saving),
                          "declared_incremental_platform_cost_rub":str(extra),
                          "declared_net_cost_reduction_rub":str(total),
                          "operator_change_rub":str(changes["op"]),
@@ -405,9 +540,10 @@ if __name__=="__main__":
     n=int(sys.argv[1])
     periods=int(sys.argv[2]) if len(sys.argv)>2 else 3
     started=time.perf_counter()
-    report=compare_network_modes(n,periods,modes=("S0","S2"))
+    timed_cash="--timed-cash" in sys.argv[3:]
+    report=compare_network_modes(n,periods,modes=("S0","S2"),timed_cash=timed_cash)
     payload=json.dumps(report,sort_keys=True,indent=2,allow_nan=False)+"\n"
-    path=Path(__file__).resolve().parent/f"network_organization_{n}_{periods}.json"
+    path=Path(__file__).resolve().parent/f"network_organization_{n}_{periods}{'_timed' if timed_cash else ''}.json"
     path.write_bytes(payload.encode("utf-8"))
     print(payload,end="")
     print("AKIS_NETWORK_ORGANIZATION_SHA256="+sha256(path.read_bytes()).hexdigest())

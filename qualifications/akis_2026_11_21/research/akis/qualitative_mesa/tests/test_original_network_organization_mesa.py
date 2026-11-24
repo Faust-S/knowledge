@@ -118,3 +118,59 @@ def test_cost_scope_does_not_turn_missing_or_zero_amount_into_saving():
          if row["id"].endswith("-operator-preparation"))["amount"]="0.00"
     with pytest.raises(InputError,match="PREPARATION_ACTIVITY_COST_AMOUNT_MISMATCH"):
         simulate(d)
+
+
+def test_long_period_fixture_keeps_distinct_original_principals_and_one_entry_per_firm():
+    from research.akis.qualitative_mesa.experiments.export_original_network_scale import network_document
+    d=network_document(10,12)
+    money=d["economic_claims"]
+    assert sum(r["bucket"]=="PARTICIPANT_CONNECT" for r in money["resource_uses"])==10
+    assert sum(r["bucket"]=="COMMON_CAPABILITY" for r in money["resource_uses"])==12
+    for row in d["events"]:
+        if row["action"]=="request":
+            spec=row["work_spec"]
+            owners={r["resource"].replace("resource-","enterprise-")
+                    for r in spec["resource_requirements"]}
+            assert len(owners|{spec["customer"]})==3
+    with pytest.raises(ValueError,match="NETWORK_ORGANIZATION_DECLARED_LIMIT_EXCEEDED"):
+        organization_document(30000,12,timed_cash=True)
+
+
+def test_matched_long_horizon_cash_reserves_and_period_costs_reconcile():
+    report=compare_network_modes(10,3,modes=("S0","S2"),timed_cash=True)
+    a,b=(report["modes"][mode] for mode in ("S0","S2"))
+    assert a["declared_liquidity"]==b["declared_liquidity"]
+    liquidity=a["declared_liquidity"]
+    assert liquidity["original_source_qualified_timing_rows"]==150
+    assert liquidity["joint_cash_conserved_each_tick"]
+    assert liquidity["opening_positions_not_income_or_reset"]
+    for counts in liquidity["enterprise_status_counts"].values():
+        assert sum(counts.values())==10
+    for row in (a,b):
+        assert len(row["declared_period_arithmetic"])==3
+        assert Decimal(row["declared_period_arithmetic"][0]["entry"])>0
+        assert all(Decimal(p["entry"])==0 for p in row["declared_period_arithmetic"][1:])
+        assert Decimal(row["declared_period_arithmetic"][-1]["cumulative_cash_minus_exclusive_noncash"])==Decimal(row["declared_cash_minus_exclusive_noncash_cost_rub"])
+    s2=report["relative_to_S0"]["S2"]
+    assert Decimal(s2["declared_period_contrast"][-1]["cumulative_net_cost_reduction"])==Decimal(s2["declared_net_cost_reduction_rub"])
+    assert s2["first_positive_cumulative_period"] is None
+
+
+@pytest.mark.parametrize("fault",["missing_opening","missing_window","foreign_timing_source","duplicate_window","foreign_opening_source"])
+def test_strict_long_horizon_rejects_incomplete_or_foreign_timing(fault):
+    d=organization_document(10,1,timed_cash=True)
+    cash=d["economic_claims"]["cash_timing"]
+    if fault=="missing_opening":
+        cash["owner_positions"].pop()
+    elif fault=="missing_window":
+        cash["transfer_windows"].pop()
+    elif fault=="duplicate_window":
+        cash["transfer_windows"].append(deepcopy(cash["transfer_windows"][0]))
+    elif fault=="foreign_timing_source":
+        first=cash["transfer_windows"][0]
+        owner=next(iter(first["owner_sources"]))
+        first["owner_sources"][owner]="finance-op"
+    else:
+        cash["owner_positions"][-1]["source"]="opening-op"
+    with pytest.raises(InputError,match="NETWORK_ORIGINAL_PERIOD_SCOPE_INCOMPLETE"):
+        simulate(d)

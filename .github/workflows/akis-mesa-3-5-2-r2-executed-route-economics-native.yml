@@ -184,3 +184,37 @@ jobs:
           name: akis-network-organization-${{ matrix.os }}-${{ matrix.enterprises }}-${{ matrix.periods }}
           if-no-files-found: error
           path: qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/network_organization_${{ matrix.enterprises }}_${{ matrix.periods }}.json
+
+  original-mesa-network-long-horizon:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        case: [{enterprises: 1000, periods: 12}, {enterprises: 1000, periods: 36}, {enterprises: 1000, periods: 60}, {enterprises: 10000, periods: 6}]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify complete pinned original executable scope
+        run: python qualifications/akis_2026_11_21/verify_source_scope.py
+      - name: Official Mesa 3.5.2
+        run: |
+          python -m pip install --disable-pip-version-check "mesa==3.5.2" "pytest>=8,<10"
+          python -c "import mesa; assert mesa.__version__ == '3.5.2'"
+      - name: Qualify timed cash and owner scope on original transition guards
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_network_organization_mesa.py
+      - name: Execute matched cumulative organization and cash stress trajectories
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_original_network_organization.py ${{ matrix.case.enterprises }} ${{ matrix.case.periods }} --timed-cash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: akis-network-long-horizon-${{ matrix.os }}-${{ matrix.case.enterprises }}-${{ matrix.case.periods }}
+          if-no-files-found: error
+          path: qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/network_organization_${{ matrix.case.enterprises }}_${{ matrix.case.periods }}_timed.json
