@@ -691,3 +691,84 @@ def test_outside_price_ceiling_source_must_remain_readable_for_portfolio_project
     source["valid_until"] = doc["model_horizon"]
     with pytest.raises(ValueError, match="OUTSIDE_WORK_ORIGINAL_OFFER_PRICE_SOURCE_NOT_READABLE"):
         simulate(doc)
+
+
+def stage_outlook(doc, *, cooperative_receipts="400.00", outside_receipts="500.00"):
+    """A separate owner-authored prospective declaration, not final accounting."""
+    from .test_r4_independent_external_buyer_demand_mesa import owner_outlook
+
+    forecast = deepcopy(owner_outlook(buyer_response_case()))
+    demand = _event(doc, "outside_demand_signal")
+    offer = _event(doc, "outside_supplier_offer")
+    response = _event(doc, "outside_buyer_offer_response")
+    start = _event(doc, "request", "w3")["at"]
+    source = "model://c/portfolio-precommit-economic-outlook"
+    forecast.update(owner="c", relation="l2", relation_source_revision="rel-2",
+                    work="w3", work_source_revision="d-3", org_revision="oc-1",
+                    available_at=start, expires_at=doc["model_horizon"]+1,
+                    source_ref=source, source_revision="stage-outlook-v1",
+                    period="SAME_DECLARED_PORTFOLIO_HORIZON",
+                    outside_capacity_probe={"resource": "rc", "units": 1,
+                                            "slot_start": demand["outside_slot_start"],
+                                            "slot_end": demand["outside_slot_end"]},
+                    outside_demand_claim={"signal_id": demand["outside_demand_id"],
+                                          "deliverable": demand["outside_deliverable"],
+                                          "quality_basis": demand["outside_quality_basis"]},
+                    outside_offer_claim=offer["outside_offer_id"],
+                    outside_buyer_response_claim=response["outside_buyer_response_id"],
+                    minimum_extra_cash="0.00")
+    for key in forecast["cash"]:
+        forecast["cash"][key] = {k: "0.00" for k in forecast["cash"][key]}
+    forecast["cash"]["COOPERATION"]["member_supply_receipts"] = cooperative_receipts
+    forecast["cash"]["COOPERATION"]["production_cash"] = "160.00"
+    forecast["cash"]["INDEPENDENT_ALTERNATIVE"]["external_sales"] = outside_receipts
+    forecast["cash"]["INDEPENDENT_ALTERNATIVE"]["production_cash"] = "180.00"
+    doc["economic_outlooks"] = [forecast]
+    doc["context_evidence"]["sources"].append({
+        "id": source, "owner": "c", "revision": "stage-outlook-v1", "status": "CONFIRMED",
+        "usable_by": ["c"], "core": "corporate", "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"],
+        "operations": ["READ"], "valid_from": start, "valid_until": doc["model_horizon"]+1,
+    })
+    return doc
+
+
+def stage_owner_observations(output):
+    return [r for r in output["decision_observations"] if r.get("actor") == "c"
+            and r.get("work") == "w3" and "economic_position" in r]
+
+
+@pytest.mark.parametrize("receipt,position", [("400.00", "OUTSIDE_PREFERRED"),
+                                             ("650.00", "COOPERATION_PREFERRED")])
+def test_independent_supplier_precommit_stage_outlook_uses_own_forecast_not_future_ledger(receipt, position):
+    doc = stage_outlook(portfolio_trajectories()["supplier"], cooperative_receipts=receipt)
+    out = mechanics(doc)
+    tick = _event(doc, "commit", "w3")["at"]
+    rows = stage_owner_observations(out)
+    assert any(r["at"] < tick and r["economic_position"] == position for r in rows), rows
+    assert not any(r["at"] >= tick and r["economic_position"] in {"COOPERATION_PREFERRED", "OUTSIDE_PREFERRED"}
+                   for r in rows)
+    assert out["works"]["w3"]["result"] == ACCEPTED
+    assert out["works"][OUTSIDE]["obligation"] == "NOT_ACCEPTED"
+    assert all(r["economic_values"] == "NOT_REDISCLOSED" for r in rows)
+    assert not any(w.startswith("__akis_outside_candidate__") for w in out["works"])
+
+
+def test_disjoint_stage_forecast_cannot_treat_both_compatible_orders_as_mutually_exclusive():
+    doc = stage_outlook(portfolio_trajectories(disjoint=True)["supplier"])
+    out = mechanics(doc)
+    tick = _event(doc, "commit", "w3")["at"]
+    rows = stage_owner_observations(out)
+    assert any(r["at"] < tick and r["economic_reason"] ==
+               "OUTSIDE_STAGE_BOTH_WORKS_CAPACITY_COMPATIBLE_PORTFOLIO_REQUIRED" for r in rows), rows
+    assert not any(r["economic_position"] in {"COOPERATION_PREFERRED", "OUTSIDE_PREFERRED"} for r in rows)
+    assert out["works"][OUTSIDE]["result"] == ACCEPTED
+
+
+def test_stage_forecast_buyer_decline_cannot_be_replaced_by_sellers_cash_optimism():
+    doc = stage_outlook(portfolio_trajectories(buyer_declines=True)["supplier"])
+    out = mechanics(doc)
+    rows = stage_owner_observations(out)
+    assert any(r["economic_reason"] == "OUTSIDE_BUYER_INDEPENDENTLY_DECLINED_OFFER" for r in rows), rows
+    assert not any(r["economic_position"] in {"COOPERATION_PREFERRED", "OUTSIDE_PREFERRED"} for r in rows)
+    assert out["works"]["w3"]["result"] == ACCEPTED
+    assert OUTSIDE not in out["works"]

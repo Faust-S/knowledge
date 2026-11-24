@@ -913,7 +913,7 @@ def qualify_original_outside_work_origin(
     return {key: binding[key] for key in sorted(_OUTSIDE_WORK_ORIGIN_FIELDS)}
 
 
-def _qualify_original_operation_resource_comparison(state, candidate, demand, at):
+def _qualify_original_operation_resource_comparison(state, candidate, demand, at, *, prospective=False):
     """Independent demand competes for a source-declared stage resource.
 
     The second demand is a different product, potentially with a different
@@ -928,17 +928,21 @@ def _qualify_original_operation_resource_comparison(state, candidate, demand, at
                       if op.key == demand["outside_candidate_operation"]), None)
     if operation is None:
         raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_OPERATION_REQUIRED")
-    commits = [r for r in state.trace if r["action"] == "commit" and r["outcome"] == "APPLIED"
-               and r.get("work") == candidate.key and r["at"] < at
-               and r.get("technology_route_market_scope_fingerprint")]
-    if len(commits) != 1:
-        raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_COMMITTED_STAGE_MARKET_REQUIRED")
-    commit = commits[0]
-    events = [e for e in state.events if e["action"] == "commit"
-              and e.get("work") == candidate.key and e["at"] == commit["at"]]
+    if prospective and candidate.obligation != "NOT_ACCEPTED":
+        raise OutsideDemandBlocked("OUTSIDE_STAGE_PROSPECTIVE_UNCOMMITTED_WORK_REQUIRED")
+    action = "request" if prospective else "commit"
+    originals = [r for r in state.trace if r["action"] == action and r["outcome"] == "APPLIED"
+                 and r.get("work") == candidate.key and (r["at"] <= at if prospective else r["at"] < at)
+                 and r.get("technology_route_market_scope_fingerprint")]
+    if len(originals) != 1:
+        raise OutsideDemandBlocked("OUTSIDE_STAGE_PROSPECTIVE_REQUEST_MARKET_REQUIRED" if prospective
+                                   else "OUTSIDE_WORK_ORIGINAL_COMMITTED_STAGE_MARKET_REQUIRED")
+    original = originals[0]
+    events = [e for e in state.events if e["action"] == action
+              and e.get("work", e.get("work_spec", {}).get("id")) == candidate.key and e["at"] == original["at"]]
     market = events[0].get("technology_route_market_scope") if len(events) == 1 else None
     if (not isinstance(market, dict)
-            or technology_route_fingerprint(market) != commit["technology_route_market_scope_fingerprint"]
+            or technology_route_fingerprint(market) != original["technology_route_market_scope_fingerprint"]
             or market.get("work") != candidate.key or market.get("work_revision") != candidate.source_revision):
         raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_STAGE_MARKET_FINGERPRINT_MISMATCH")
     requirements = [r for r in market["requirements"] if r["operation"] == operation.key]
@@ -950,7 +954,7 @@ def _qualify_original_operation_resource_comparison(state, candidate, demand, at
     offers = [o for o in market["offers"] if o["resource"] == resource and o["owner"] == seller
               and o["capability"] == requirement["capability"]
               and o["capacity_unit"] == requirement["capacity_unit"]
-              and o["available_at"] <= commit["at"] < o["expires_at"]
+              and o["available_at"] <= original["at"] < o["expires_at"]
               and o["available_at"] <= at < o["expires_at"]]
     if not offers:
         raise OutsideDemandBlocked("OUTSIDE_WORK_ORIGINAL_STAGE_OFFER_NOT_CURRENT")
@@ -960,7 +964,7 @@ def _qualify_original_operation_resource_comparison(state, candidate, demand, at
         basis.assert_original_historical_form_role_source(
             candidate.customer, buyer["reference"], buyer["revision"], core="corporate",
             purpose="AKIS_TECHNOLOGY_MARKET_EVIDENCE", operation="READ",
-            recipients={candidate.customer}, at=commit["at"])
+            recipients={candidate.customer}, at=original["at"])
         basis.assert_original_form_role_source(
             candidate.customer, buyer["reference"], buyer["revision"], core="corporate",
             purpose="AKIS_TECHNOLOGY_MARKET_EVIDENCE", operation="READ",
@@ -971,7 +975,7 @@ def _qualify_original_operation_resource_comparison(state, candidate, demand, at
                 basis.assert_original_historical_form_role_source(
                     seller, offer["source_ref"], market["offer_revisions"][offer["id"]],
                     core="corporate", purpose="AKIS_TECHNOLOGY_MARKET_EVIDENCE",
-                    operation="READ", recipients={candidate.customer}, at=commit["at"])
+                    operation="READ", recipients={candidate.customer}, at=original["at"])
                 basis.assert_original_form_role_source(
                     seller, offer["source_ref"], market["offer_revisions"][offer["id"]],
                     core="corporate", purpose="AKIS_TECHNOLOGY_MARKET_EVIDENCE",

@@ -19,6 +19,7 @@ from .outside_demand import (
     assess_original_independent_outside_demand,
     assess_original_outside_supplier_offer,
     assess_original_buyer_offer_response,
+    OutsideDemandBlocked, _qualify_original_operation_resource_comparison,
 )
 
 
@@ -116,7 +117,12 @@ def parse_outlooks(raw: Any, subjects: Mapping[str, Any], links: Sequence[Any],
                 and event.get("new_link_id") == relation
                 and event.get("new_link_revision") == record["relation_source_revision"]
                 and event.get("cooperation_link") in link_map
-                and owner in link_map[event["cooperation_link"]].participants
+                and (owner in link_map[event["cooperation_link"]].participants
+                     or any(p.get("action") == "cooperation_change_propose"
+                            and p.get("change_id") == event.get("change_id")
+                            and p.get("cooperation_link") == event.get("cooperation_link")
+                            and p.get("proposed_subject") == owner
+                            for p in future_membership_events if isinstance(p, Mapping)))
                 for event in future_membership_events
                 if isinstance(event, Mapping)
             )
@@ -244,7 +250,8 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                    resource_owners: Mapping[str, str] | None = None,
                    resource_availability: Mapping[str, str] | None = None,
                    original_trace: Sequence[Mapping[str, Any]] | None = None,
-                   subjects: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                   subjects: Mapping[str, Any] | None = None,
+                   original_state: Any | None = None) -> dict[str, Any]:
     """Use only current owner's information at model time, never end-of-run claims."""
     matching = [row for row in outlooks if row.owner == owner and row.work == work.key and
                 row.available_at <= at < row.expires_at and
@@ -389,6 +396,27 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                 "available_at": row.available_at,
             }
 
+    stage_demand = None
+    if row.outside_demand_claim is not None:
+        stage_demand = next((e for e in (original_trace or ())
+                             if e.get("action") == "outside_demand_signal"
+                             and e.get("outcome") == "APPLIED"
+                             and e.get("outside_demand_id") == row.outside_demand_claim[0]
+                             and "outside_candidate_operation" in e), None)
+    if stage_demand is not None:
+        # A stage-specific statement may compare mutually exclusive uses
+        # only before commitment and after original request/market binding.
+        # All three current independent buyer/seller sources are required.
+        if original_state is None or row.outside_buyer_response_claim is None:
+            return {"position": "UNKNOWN", "reason": "OUTSIDE_STAGE_ORIGINAL_BILATERAL_PREVIEW_REQUIRED",
+                    "relation": row.relation, "available_at": row.available_at}
+        try:
+            _qualify_original_operation_resource_comparison(
+                original_state, work, stage_demand, int(at), prospective=True)
+        except OutsideDemandBlocked as exc:
+            return {"position": "UNKNOWN", "reason": str(exc),
+                    "relation": row.relation, "available_at": row.available_at}
+
     if row.outside_capacity_probe is not None:
         # This is an owner-held outside candidate, not a second Work. It
         # must fit the SAME original Work's planned horizon, be owned by the
@@ -410,7 +438,7 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                 "reason": "OUTSIDE_CAPACITY_INDEPENDENT_RESOURCE_OWNER_REQUIRED",
                 "relation": row.relation, "available_at": row.available_at,
             }
-        if start != work.slot_start or end != work.slot_end:
+        if stage_demand is None and (start != work.slot_start or end != work.slot_end):
             return {
                 "position": "UNKNOWN",
                 "reason": "OUTSIDE_CAPACITY_COMPARABLE_WORK_HORIZON_REQUIRED",
@@ -466,6 +494,18 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
             capacity_ledger.preview(
                 candidate_key, (ResourceNeed(resource, units),), start, end,
             )
+            if stage_demand is not None:
+                from .capacity import Reservation
+                from .technology import operation_reservations
+                conflicts = capacity_ledger.preview_options({
+                    work.key: operation_reservations(work.key, work.operations),
+                    candidate_key: [Reservation(resource, candidate_key, start, end, units)],
+                })
+                if not any(c["resource"] == resource and {work.key, candidate_key} <= set(c["works"])
+                           for c in conflicts):
+                    return {"position": "UNKNOWN",
+                            "reason": "OUTSIDE_STAGE_BOTH_WORKS_CAPACITY_COMPATIBLE_PORTFOLIO_REQUIRED",
+                            "relation": row.relation, "available_at": row.available_at}
         except (CapacityInputError, CapacityBlocked):
             return {
                 "position": "UNKNOWN",
@@ -530,5 +570,9 @@ def choose_outlook(outlooks: Sequence[OwnerOutlook], *, owner: str, work: Any,
                 "NOT_REQUESTED"
             ),
             "buyer_model_intent_not_contract_or_Work_consent": True,
+            **({"original_stage_competing_capacity_preview_only": True,
+                "both_alternatives_individually_feasible_but_simultaneous_capacity_conflict": True,
+                "only_precommit_sources_no_future_result_or_realized_ledger_used": True}
+               if stage_demand is not None else {}),
         },
     }
