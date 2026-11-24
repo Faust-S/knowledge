@@ -14,7 +14,7 @@ import {applyT4OriginalNetworkSubjectWithDurableIntent,applyT4OriginalNetworkSub
   inspectT4OriginalNetworkRecipientResult,createT4OriginalNetworkAppliedAckBody}
   from '../src/network/original-network-subject-apply.mjs';
 import {T4_ATOMIC_GRAPH_EXTENSION,createT4CandidateUnsignedFrame,signT4CandidateFrame,
-  decodeT4CandidateFrame,matchesT4NativeSubjectCriticalExtensions,t4NativeSubjectCriticalExtensions}
+  decodeT4CandidateFrame,verifyT4CandidateWireFrame,matchesT4NativeSubjectCriticalExtensions,t4NativeSubjectCriticalExtensions}
   from '../src/network/standard-network-wire-candidate.mjs';
 const ws='ws:k21:business',owner='owner:k21',source='node:k21:source',recipient='node:k21:recipient',
   scopeRef='scope:k21',target='o:k21:target',a='o:k21:a',b='o:k21:b',old='r:k21:old',fresh='r:k21:new';
@@ -252,6 +252,15 @@ test('K21 GRAPH_COMMIT is an explicit critical protocol capability, not a legacy
     signOriginalNodeBytes:async({bytes})=>sign(null,Buffer.from(bytes),keys.privateKey)});
   assert.equal(decodeT4CandidateFrame(wire).body.changeKind,'GRAPH_COMMIT');
   assert.deepEqual(decodeT4CandidateFrame(wire).criticalExtensions,extensions);
+  let checks=0,records=0;
+  const ports={wireBytes:wire,recipientNodeRef:recipient,scopeRef,requiredCryptoSuite:fields.cryptoSuite,
+    verifyOriginalNodeSignature:async({bytes,signature})=>{checks++;return verify(null,Buffer.from(bytes),keys.publicKey,Buffer.from(signature));},
+    authorizeOriginalNetwork:allow,persistOriginalReplayDecision:async()=>{records++;return 'RECORDED';}};
+  await assert.rejects(verifyT4CandidateWireFrame({...ports,supportedCriticalExtensions:[]}),err('WIRE_UNSUPPORTED_CRITICAL_EXTENSION'));
+  assert.equal(checks,0);assert.equal(records,0);
+  const verdict=await verifyT4CandidateWireFrame({...ports,supportedCriticalExtensions:extensions});
+  assert.equal(verdict.originalSignatureVerified,true);assert.equal(verdict.originalBusinessApplied,false);
+  assert.equal(checks,1);assert.equal(records,1);
 });
 
 test('K21 graph rejects a one-sided original relation view before any mutation',async()=>{
