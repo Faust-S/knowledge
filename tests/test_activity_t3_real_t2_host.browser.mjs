@@ -108,7 +108,7 @@ try {
   // Write permission belongs to this exact normal T2 service passport,
   // never to Activity or the original workspace writer.
   const sourceProfile=createCehovodD05T3Bindings();
-  const kinds=['production-order','production-execution','quality-check-result'];
+  const kinds=['production-order','production-execution','quality-check-result','operation-route'];
   const d05Schemas=kinds.map(kind=>{
     const bound=sourceProfile.objects.find(x=>
       x.schema_id==='ru.5ibs.productionops.'+kind);
@@ -203,7 +203,7 @@ try {
   for(const name of ['index.mjs','kernel-reader.mjs']){
     cpSync(join(core,'src/t3/activity',name),join(dist,'_t3/activity',name));
   }
-  const actFiles=['d05-t3-evidence-binding.mjs','t3-evidence-passport.mjs','t3-transition-map.mjs','graph-order.mjs','t3-selected-host.mjs',
+  const actFiles=['d05-t3-evidence-binding.mjs','d05-route-host.mjs','d05-route-comparison.mjs','engine.mjs','t3-evidence-passport.mjs','t3-transition-map.mjs','graph-order.mjs','t3-selected-host.mjs',
     't3-control-host-link.mjs',
     't3-owner-review-stage.mjs','t3-review-controller.mjs',
     't3-original-t2-owner-host.mjs'];
@@ -428,6 +428,22 @@ try {
         saved?.event?.correlation_id!==saved?.transaction_id)
         throw Error('D05_WITNESS_ORIGINAL_T2_WRITE_RECEIPT_INVALID');
     }
+    // Save the actual route Result representation in the same ORIGINAL T2
+    // test service and store. These are reproducible models, never execution.
+    const {buildD05RouteComparisonExample}=await import('/_activity/d05-route-comparison.mjs');
+    for(const value of buildD05RouteComparisonExample()){
+      const id=value.object_id;
+      const saved=await client.t1.putObject({
+        workspace_id:args.workspace,object_id:id,schema_id:schema+'operation-route',
+        schema_version:'1.0.0',base_revision:0,
+        data:{object_id:id,object_type:'operation-route',source_schema_version:'1.0.0',
+          display_label:'PRIVATE_ROUTE_MODEL',source_service_id:args.service,
+          algorithm_version:null,status:'active',summary_markdown:'MODEL_ONLY',value},
+        extensions:{},event:{event_type:'cehovod.result.saved',payload:{object_id:id}},
+      });
+      if(saved?.object?.revision!==1||saved?.event?.correlation_id!==saved?.transaction_id)
+        throw Error('A41_ORIGINAL_T2_ROUTE_WRITE_RECEIPT_INVALID');
+    }
     const previous=await client.t1.getObject(args.workspace,'d05:case001:order');
     const updated=await client.t1.putObject({
       workspace_id:args.workspace,object_id:'d05:case001:order',
@@ -451,12 +467,12 @@ try {
     if(links.length!==1||links[0].kind!=='based_on'||
       links[0].to_object_id!=='d05:case001:order')
       throw Error('D05_WITNESS_ORIGINAL_T2_BASED_ON_RELATION_MISSING');
-    if(updated?.object?.revision!==2||records.length!==3||observed.length!==4)
+    if(updated?.object?.revision!==2||records.length!==6||observed.length!==7)
       throw Error('D05_WITNESS_ORIGINAL_T2_READBACK_INVALID');
     return {object_count:records.length,event_count:observed.length,
       revision:updated.object.revision};
   },{workspace:d05Workspace,service:d05Service});
-  assert.deepEqual(d05Saved,{object_count:3,event_count:4,revision:2});
+  assert.deepEqual(d05Saved,{object_count:6,event_count:7,revision:2});
 
   // Full SAME-host signed D1 Activity Read and separate signed Derive over
   // one REAL original T2 Kernel facade, with one selected source Workspace.
@@ -690,11 +706,11 @@ try {
       'cehovod.result.saved','cehovod.order.transitioned',
       'cehovod.operation.transitioned',
     ].includes(row.event_type));
-    if(before.length!==3||reported.length!==4||
+    if(before.length!==6||reported.length!==7||
       savedOrder?.object?.revision!==2||
       savedOrder?.object?.data?.value?.quantity!==120)
       throw Error('D05_WITNESS_ORIGINAL_T2_COLD_READBACK_MISMATCH');
-    const {readActivityFromWorkspaceContext}=
+    const {readActivityFromWorkspaceContext,createSubjectKernelBinding}=
       await import('/_t3/index.mjs');
     const {useOriginalT2ActivityKernelFacade}=
       await import('/_activity/t3-original-t2-owner-host.mjs');
@@ -720,18 +736,37 @@ try {
     try{
       const signed=await control.signedActivityAccess('activity.read');
       const selected=Object.freeze({workspace_id:args.workspace});
+      const context={
+        kernel:useOriginalT2ActivityKernelFacade(session),
+        currentWorkspace:{get:()=>selected,subscribe:()=>()=>{}},
+      };
+      const subscribeOwnerInvalidation=fn=>{owners.add(fn);return()=>owners.delete(fn);};
       const port=createTrustedCehovodD05ReviewPort({
-        context:{
-          kernel:useOriginalT2ActivityKernelFacade(session),
-          currentWorkspace:{
-            get:()=>selected,subscribe:()=>()=>{},
-          },
-        },
-        signedAccess:signed,readActivityFromWorkspaceContext,
-        subscribeOwnerInvalidation:fn=>{
-          owners.add(fn);return()=>owners.delete(fn);
-        },
+        context,signedAccess:signed,readActivityFromWorkspaceContext,subscribeOwnerInvalidation,
       });
+      // Use the SAME original selected context, signed control and T2 session
+      // to review stored normative routes after closing/reopening the profile.
+      const {createTrustedD05RouteReviewPort}=await import('/_activity/d05-route-host.mjs');
+      const routes=createTrustedD05RouteReviewPort({
+        context,signedAccess:signed,createSubjectKernelBinding,subscribeOwnerInvalidation,
+      });
+      const routeReview=await routes.readSelectedRoutes();
+      if(routeReview.source_authority!=='ORIGINAL_SIGNED_SELECTED_READBACK'||
+        routeReview.model_count!==3||routeReview.group_count!==2||
+        routeReview.repeated_group_count!==1||routeReview.export_allowed!==false||
+        routeReview.anonymity!=='NOT_ESTABLISHED'||routeReview.iwxa_package!==null||
+        routeReview.epistemic_status!=='CALCULATED_OR_DECLARED_NOT_OBSERVED'||
+        !routeReview.groups.some(g=>g.model_count===2&&g.differing_fields.includes('DURATION')))
+        throw Error('A41_ORIGINAL_T2_SIGNED_ROUTE_GROUPING_INVALID');
+      for(const forbidden of ['example-route-','PRIVATE_ROUTE_MODEL','MODEL_ONLY',args.workspace])
+        if(JSON.stringify(routeReview).includes(forbidden))
+          throw Error('A41_ORIGINAL_T2_ROUTE_SOURCE_LEAK');
+      const afterRoutes=await session.t1.listObjects({workspace_id:args.workspace,include_deleted:true});
+      const afterHistory=await session.t1.listEventsSince(args.workspace);
+      const canon=rows=>JSON.stringify([...rows].sort((a,b)=>
+        String(a.object_id??a.event_id).localeCompare(String(b.object_id??b.event_id))));
+      if(canon(afterRoutes)!==canon(before)||canon(afterHistory)!==canon(history))
+        throw Error('A41_ROUTE_READ_MUTATED_ORIGINAL_STORE');
       const states=[];
       ui=createT3ReviewController({host:port,onUpdate:s=>states.push(s)});
       const outcome=await ui.readSelected();
@@ -763,7 +798,9 @@ try {
         reason_codes:review.reason_codes,objects:before.length,
         reported_events:reported.length,order_revision:savedOrder.object.revision,
         export_allowed:review.export_allowed,
-        evidence_passport_actions:passport.actionCount};
+        evidence_passport_actions:passport.actionCount,
+        route_models:routeReview.model_count,route_groups:routeReview.group_count,
+        repeated_route_groups:routeReview.repeated_group_count};
     }finally{
       ui?.dispose();stop();
       if(owners.size)throw Error('D05_WITNESS_CONTROL_LISTENER_LEAK');
@@ -771,8 +808,13 @@ try {
   },{service:d05Service,workspace:d05Workspace,token});
   assert.equal(d05Cold.read,'REVIEW');
   assert.equal(d05Cold.status,'HOLD');
-  assert.equal(d05Cold.objects,3);
-  assert.equal(d05Cold.reported_events,4);
+  assert.equal(d05Cold.objects,6);
+  assert.equal(d05Cold.reported_events,7);
+  assert.equal(d05Cold.route_models,3);
+  assert.equal(d05Cold.route_groups,2);
+  assert.equal(d05Cold.repeated_route_groups,1);
+  console.log('ACTIVITY_A41_ORIGINAL_T2_SIGNED_ROUTE_COLD_READ_PASS',
+    JSON.stringify({models:3,groups:2,repeated:1,sourceUnchanged:true,externalTransfer:false}));
   assert.equal(d05Cold.order_revision,2);
   assert.equal(d05Cold.export_allowed,false);
   assert.ok(d05Cold.evidence_passport_actions>=2);
@@ -780,7 +822,7 @@ try {
   console.log('ACTIVITY_D05_ORIGINAL_T2_SIGNED_REPORTED_COLD_HOLD_PASS',
     JSON.stringify({realOriginalT2Kernel:true,testOnlyD05Service:true,
       signedOriginalT3Read:true,coldReadback:true,
-      savedResultTypes:3,savedEvents:4,
+      savedResultTypes:4,savedObjects:6,savedEvents:7,
       originalKernelBasedOnRelation:true,evidencePassport:true,
       provenBusinessExecution:false,
       review:'HOLD',externalTransfer:false}));
