@@ -487,3 +487,78 @@ class CapacityLedger:
             result["reservation_risks"] = self.reservation_risks(outstanding=outstanding)
             result["planned_slot_axis"] = "SEPARATE_FROM_EVENT_DECISION_CLOCK"
         return result
+
+
+def original_resource_restoration_anchor(event: Mapping[str, Any], work: str, owner: str) -> bool:
+    """A real transition in the original modeled resource state, not a new cost."""
+    transition = event.get("original_active_execution_resource_transition", {})
+    return (
+        event.get("action") == "resource_status"
+        and event.get("outcome") == "APPLIED"
+        and event.get("actor") == owner
+        and transition.get("before") in {"UNAVAILABLE", "UNKNOWN"}
+        and transition.get("after") == "AVAILABLE"
+        and any(row["work"] == work for row in transition.get("affected", ()))
+    )
+
+
+def original_execution_readiness_view(trace: Sequence[Mapping[str, Any]], work: str,
+                                      horizon: int) -> dict[str, Any] | None:
+    """Union of original active-execution readiness intervals on event clock.
+
+    Overlap across required resources is counted once for Work exposure.
+    UNKNOWN is not asserted to be physical unavailability. Open intervals
+    remain open at the observation cutoff. No new clock or reservation.
+    """
+    active: dict[str, tuple[int, str]] = {}
+    intervals: list[tuple[str, int, int, str]] = []
+    changes = []
+    for event in trace:
+        transition = event.get("original_active_execution_resource_transition")
+        tick = event.get("at")
+        if (not transition or event.get("outcome") != "APPLIED"
+                or tick > horizon or not any(
+                    row["work"] == work for row in transition["affected"])):
+            continue
+        resource = event["resource"]
+        old, new = transition["before"], transition["after"]
+        changes.append((resource, old, new))
+        if resource in active:
+            begin, status = active.pop(resource)
+            intervals.append((resource, begin, tick, status))
+        if new in {"UNAVAILABLE", "UNKNOWN"}:
+            active[resource] = (tick, new)
+    if not changes:
+        return None
+    for resource, (begin, status) in active.items():
+        intervals.append((resource, begin, horizon, status))
+
+    def union(rows):
+        end = total = 0
+        for start, stop in sorted((a, b) for _, a, b, _ in rows):
+            total += max(0, stop-max(start, end))
+            end = max(end, stop)
+        return total
+
+    resources = {}
+    for resource in sorted({row[0] for row in intervals}):
+        own = [r for r in intervals if r[0] == resource]
+        resources[resource] = {
+            "declared_unavailable_ticks": union([r for r in own if r[3] == "UNAVAILABLE"]),
+            "unknown_readiness_ticks": union([r for r in own if r[3] == "UNKNOWN"]),
+            "still_not_ready_at_observation_cutoff": resource in active,
+        }
+    return {
+        "original_active_execution_readiness_change_count": len(changes),
+        "any_required_resource_not_ready_model_ticks": union(intervals),
+        "any_required_resource_declared_unavailable_model_ticks": union(
+            [r for r in intervals if r[3] == "UNAVAILABLE"]),
+        "any_required_resource_unknown_readiness_model_ticks": union(
+            [r for r in intervals if r[3] == "UNKNOWN"]),
+        "per_original_resource": resources,
+        "all_observed_readiness_interruptions_closed": not active,
+        "observation_cutoff_model_tick": horizon,
+        "elapsed_exposure_not_measured_physical_downtime": True,
+        "parallel_resource_intervals_not_added_to_work_elapsed_time": True,
+        "does_not_infer_scrap_rework_lost_output_or_cost": True,
+    }

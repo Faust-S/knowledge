@@ -10,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
 from .context_basis import ContextBlocked
+from .capacity import original_resource_restoration_anchor
 
 
 class StrictEconomicSourceBlocked(ValueError):
@@ -555,7 +556,10 @@ def review_original_strict_economic_sources(
                 or type(position) is not int
                 or not 0 <= position < len(state.trace)
                 or state.trace[position].get("outcome") != "APPLIED"
-                or state.trace[position].get("work") != binding_work
+                or (not original_resource_restoration_anchor(
+                        state.trace[position], binding_work, owner)
+                    if binding.get("action") == "resource_status"
+                    else state.trace[position].get("work") != binding_work)
                 or state.trace[position].get("action") != binding.get("action")
                 or state.trace[position].get("at") != event_time):
             raise StrictEconomicSourceBlocked(

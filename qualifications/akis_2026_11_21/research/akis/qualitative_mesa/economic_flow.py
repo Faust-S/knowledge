@@ -17,6 +17,7 @@ from .cooperation import (
 )
 from .modern_economic_evidence import ModernEconomicEvidenceError, review_cost_attribution
 from .economic_liquidity import LiquidityInputError, evaluate_cash_timing
+from .capacity import original_execution_readiness_view
 from .economic_lifecycle import LifecycleInputError, classify_lifecycle_costs, STAGES, NATURES
 from .common_work_allocations import CommonAllocationError, review_common_work_allocations
 
@@ -1275,6 +1276,7 @@ def _qualified_activity_efficiency(
         "external_in": zero, "external_out": zero, "resource_cost": zero,
         "precommit_resource_cost": zero, "rework_resource_cost": zero,
         "rework_cost_record_count": 0,
+        "resource_restoration_cost": zero, "resource_restoration_cost_count": 0,
     } for key in work_values}
     internal_turnover = zero
     for key, value in work_values.items():
@@ -1320,6 +1322,9 @@ def _qualified_activity_efficiency(
         if stage == "CLAIMS_AND_REWORK":
             per_work[key]["rework_resource_cost"] += value
             per_work[key]["rework_cost_record_count"] += 1
+        if anchors[rid]["action"] == "resource_status":
+            per_work[key]["resource_restoration_cost"] += value
+            per_work[key]["resource_restoration_cost_count"] += 1
 
     def summarize(external_in, external_out, resource_cost, value):
         cost = external_out + resource_cost
@@ -1341,6 +1346,7 @@ def _qualified_activity_efficiency(
                                   if cost > 0 else "ZERO_COST_DENOMINATOR"),
         }
 
+    horizon = money["cash_timing"]["horizon_end"]
     work_details = {}
     for key, history in histories.items():
         applied = [r for r in history if r["outcome"] == "APPLIED"]
@@ -1363,7 +1369,13 @@ def _qualified_activity_efficiency(
             "QUALITY_SIGNAL_WITHOUT_SEPARATE_REWORK_COST_MEASUREMENT"
             if rejects or resubmits or negative else
             "NO_ORIGINAL_FAILURE_SIGNAL_OR_REWORK_COST_ROW")
+        disturbance = original_execution_readiness_view(state.trace, key, horizon)
         work_details[key] = {
+            **({"original_execution_readiness": disturbance,
+                "separately_declared_resource_restoration_cost": (
+                    amount(c["resource_restoration_cost"]) if c["resource_restoration_cost_count"] else None),
+                "resource_restoration_cost_record_count": c["resource_restoration_cost_count"]}
+               if disturbance is not None else {}),
             **summarize(c["external_in"], c["external_out"], c["resource_cost"], work_values[key]),
             "accepted_original_result": completed,
             "request_to_accept_model_ticks": (
@@ -1393,7 +1405,6 @@ def _qualified_activity_efficiency(
         }
     # Keep incomparable resource units separate; reservation time is not
     # actual machine time. The reservation ledger is never changed.
-    horizon = money["cash_timing"]["horizon_end"]
     reserved = {key: 0 for key in sorted(state.resources)}
     for item in state.capacity_ledger.reservations:
         if item.work in work_ids:

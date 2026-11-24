@@ -12,6 +12,7 @@ from decimal import Decimal
 import re
 from typing import Any, Mapping
 
+from .capacity import original_resource_restoration_anchor
 from .process_preparation import (PREPARATION_MODES, PREPARATION_ACTIVITY_UNITS,
                                   PREPARATION_PATTERN_UNITS, preparation_source_fingerprint)
 
@@ -151,7 +152,19 @@ def review_timed_original_lifecycle_costs(
         stage = binding["stage"]
         contextual_pause = (stage == "RENEWAL_EXIT_AND_SWITCHING" and
                             "cooperation_link" in row)
-        if contextual_pause:
+        contextual_resource_restoration = action == "resource_status"
+        if contextual_resource_restoration:
+            # Costs of an observed interruption/restart may be attached to
+            # the owner's ORIGINAL restoration event only when that Work was
+            # actively exposed. No arbitrary link to a resource status event.
+            if (stage != "PRODUCTION_COORDINATION"
+                    or binding["nature"] not in {"DIRECT_RESOURCE", "TRANSACTION"}
+                    or original["scenario"] != "COOPERATION"
+                    or original["work"] != work_id or original["bucket"] != "FAILURE"
+                    or "cooperation_link" in row
+                    or not original_resource_restoration_anchor(anchor, work_id, owner)):
+                raise LifecycleInputError("LIFECYCLE_ORIGINAL_ACTIVE_RESOURCE_RESTORATION_REQUIRED")
+        elif contextual_pause:
             # Existing relation-wide participation event, NOT a new Work
             # event, legal exit or release of any accepted obligation.
             link_id = row.get("cooperation_link")
@@ -229,6 +242,9 @@ def review_timed_original_lifecycle_costs(
             "anchor_is_not_cost_incurrence_or_cash_settlement_proof": True,
             "outside_option_action_was_not_executed": scenario == "INDEPENDENT_ALTERNATIVE",
             "relation_future_pause_context_only": contextual_pause,
+            **({"original_active_resource_restoration_cost_context": True,
+                "resource_restoration_not_cost_or_physical_repair_proof": True}
+               if contextual_resource_restoration else {}),
             "future_pause_does_not_prove_legal_exit_switching_or_contract_discharge": True,
             "original_accepted_work_obligations_unchanged": True,
         }

@@ -1222,3 +1222,136 @@ def test_original_recovered_value_cannot_be_attached_to_rejected_result_revision
     row["result_ref"] = _event(doc, "complete", OUTSIDE)["result_ref"]
     with pytest.raises(InputError, match="RECIPIENT_VALUE_ORIGINAL_RESULT_REFERENCE_MISMATCH"):
         simulate(doc)
+
+
+def resource_disturbance_portfolio(*, disturbed=True, cost="85.00", declared=True):
+    """An owner-reported loss of readiness DURING an already started stage.
+
+    Same technology, accepted output, reservation, commercial terms and
+    payment schedule. No rework quantity or physical downtime inferred.
+    """
+    d = finance_portfolio()["coproduction"]
+    events = d["events"]
+    money = d["economic_claims"]
+    start = next(e for e in events if e.get("work") == "w3"
+                 and e["action"] == "start_operation" and e["operation"] == "stage-c")
+    complete = next(e for e in events if e.get("work") == "w3"
+                    and e["action"] == "complete_operation" and e["operation"] == "stage-c")
+    request = _event(d, "request", "w3")["work_spec"]
+    op = next(o for o in request["operations"] if o["id"] == "stage-c")
+    owner = start["actor"]
+    resource = op["primary_resource"]
+    occupied = {ev["at"] for ev in events}
+    free = [tick for tick in range(start["at"]+1, complete["at"]) if tick not in occupied]
+    assert len(free) >= 3, (start, complete, free)
+    loss_at, blocked_at, restored_at = free[:3]
+    if disturbed:
+        events.extend([
+            {"at": loss_at, "action": "resource_status", "actor": owner,
+             "resource": resource, "availability": "UNAVAILABLE"},
+            dict(complete, at=blocked_at),
+            {"at": restored_at, "action": "resource_status", "actor": owner,
+             "resource": resource, "availability": "AVAILABLE"},
+        ])
+        events.sort(key=lambda row: row["at"])
+    ident = "w3-original-readiness-restoration-cost"
+    proof = f"model://{owner}/{ident}"
+    d["context_evidence"]["sources"].append({
+        "id": proof, "owner": owner, "revision": "readiness-cost-v1",
+        "status": "CONFIRMED", "usable_by": [owner], "core": "corporate",
+        "purposes": ["AKIS_ECONOMIC_WORK_EVIDENCE"], "operations": ["READ"],
+        "valid_from": restored_at, "valid_until": d["model_horizon"]+1,
+    })
+    if disturbed and declared:
+        source = money["coverage"]["COOPERATION"][owner]
+        money["resource_uses"].append({
+            "id": ident, "scenario": "COOPERATION", "work": "w3",
+            "owner": owner, "source": source, "amount": cost, "bucket": "FAILURE"})
+        life = money["lifecycle_costs"]
+        life["bindings"].append({"resource_use_id": ident, "owner": owner,
+            "source": source, "stage": "PRODUCTION_COORDINATION", "nature": "DIRECT_RESOURCE"})
+        life["event_bindings"].append({
+            "resource_use_id": ident, "work": "w3", "owner": owner, "source": source,
+            "work_source_revision": "d-3", "trace_position": 0, "at": restored_at,
+            "action": "resource_status", "org_revision": "oc-1",
+            "cost_evidence_ref": proof, "cost_evidence_revision": "readiness-cost-v1"})
+        money["portfolio_scope_evidence"]["owner_scopes"][owner]["resource_use_ids"].append(ident)
+        money["market_order_economics"]["owner_scopes"][owner]["resource_use_ids"].append(ident)
+        next(row for row in money["recipient_use_value_evidence"]
+             if row["work"] == "w3")["resource_use_ids"].append(ident)
+    for row in money["lifecycle_costs"]["event_bindings"]:
+        row["trace_position"] = next(i for i, ev in enumerate(events) if ev["at"] == row["at"])
+    return d
+
+
+@pytest.mark.parametrize("cost,net", [("85.00", "980.00"), ("0.00", "1065.00"),
+                                     ("1100.00", "-35.00")])
+def test_original_started_stage_readiness_loss_and_restoration_have_own_economics(cost, net):
+    from decimal import Decimal
+    before = simulate(resource_disturbance_portfolio(disturbed=False))
+    doc = resource_disturbance_portfolio(cost=cost)
+    frozen = deepcopy(doc)
+    after = simulate(doc)
+    assert doc == frozen
+    for result in (before, after):
+        assert all(result["works"][key]["result"] == ACCEPTED
+                   for key in ("w1", "w2", "w3", OUTSIDE))
+        assert result["economics"]["original_portfolio_economics"]["status"] == (
+            "MODEL_ORIGINAL_MULTI_ORDER_PORTFOLIO_ECONOMICS")
+    blocked = [e for e in after["trace"] if e["outcome"] == "BLOCKED"]
+    assert len(blocked) == 1 and blocked[0]["reason"] == "RESOURCE_NOT_AVAILABLE", blocked
+    assert blocked[0]["action"] == "complete_operation"
+    views = [r["economics"]["original_portfolio_economics"]["local_research_only"]["activity_efficiency"]
+             for r in (before, after)]
+    a, b = views
+    assert a["consolidated"]["gross_incremental_recipient_use_value"] == (
+        b["consolidated"]["gross_incremental_recipient_use_value"]) == "2200.00"
+    assert b["consolidated"]["model_economic_contribution"] == net
+    assert Decimal(b["per_original_owner"]["b"]["model_cash_resource_balance"]) == (
+        Decimal(a["per_original_owner"]["b"]["model_cash_resource_balance"])-Decimal(cost))
+    assert a["reserved_capacity_unit_ticks_by_resource"] == b["reserved_capacity_unit_ticks_by_resource"]
+    assert a["internal_transfer_turnover_not_system_output"] == b["internal_transfer_turnover_not_system_output"]
+    work = b["per_original_work"]["w3"]
+    readiness = work["original_execution_readiness"]
+    assert readiness["any_required_resource_declared_unavailable_model_ticks"] > 0
+    assert readiness["all_observed_readiness_interruptions_closed"]
+    assert work["separately_declared_resource_restoration_cost"] == cost
+    assert work["resource_restoration_cost_record_count"] == 1
+    assert readiness["does_not_infer_scrap_rework_lost_output_or_cost"]
+    assert a["per_original_work"]["w3"]["request_to_accept_model_ticks"] == (
+        work["request_to_accept_model_ticks"])
+    for action in ("start_operation", "complete_operation"):
+        assert [e for e in before["trace"] if e["action"] == action and
+                e["work"] == "w3" and e["outcome"] == "APPLIED"] == [
+                e for e in after["trace"] if e["action"] == action and
+                e["work"] == "w3" and e["outcome"] == "APPLIED"]
+
+
+def test_original_readiness_disturbance_without_cost_document_is_not_zero_cost():
+    out = simulate(resource_disturbance_portfolio(declared=False))
+    work = out["economics"]["original_portfolio_economics"]["local_research_only"][
+        "activity_efficiency"]["per_original_work"]["w3"]
+    assert work["original_execution_readiness"]["all_observed_readiness_interruptions_closed"]
+    assert work["separately_declared_resource_restoration_cost"] is None
+
+
+@pytest.mark.parametrize("invalid", ["loss", "other_owner", "wrong_stage", "inactive_work"])
+def test_original_resource_restoration_cost_cannot_use_unrelated_event_or_owner(invalid):
+    from research.akis.qualitative_mesa.rules import InputError
+    doc = resource_disturbance_portfolio()
+    money = doc["economic_claims"]
+    row = next(r for r in money["lifecycle_costs"]["event_bindings"]
+               if r["resource_use_id"] == "w3-original-readiness-restoration-cost")
+    if invalid == "loss":
+        pos, ev = next((i, e) for i, e in enumerate(doc["events"])
+                       if e["action"] == "resource_status" and e["availability"] == "UNAVAILABLE")
+        row.update(trace_position=pos, at=ev["at"])
+    elif invalid == "other_owner":
+        row["owner"] = "a"
+    elif invalid == "wrong_stage":
+        next(r for r in money["lifecycle_costs"]["bindings"]
+             if r["resource_use_id"] == row["resource_use_id"])["stage"] = "MONITORING_AND_QUALITY"
+    else:
+        row["work"] = OUTSIDE
+    with pytest.raises(InputError):
+        simulate(doc)

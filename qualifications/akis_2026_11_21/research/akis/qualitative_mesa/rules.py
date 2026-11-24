@@ -26,6 +26,7 @@ from .org_code_policy import (
 from .capacity import (
     CapacityBlocked, CapacityInputError, CapacityLedger, ResourceNeed,
     parse_resource_calendar, parse_resource_capacity, parse_resource_needs,
+    original_execution_readiness_view,
 )
 from .technology import (
     Operation, TechnologyInputError, parse_operations, owners_summary,
@@ -705,6 +706,7 @@ class QualitativeAKIS:
             work_ref = ev["work_spec"].get("id")
         blocked_resource = None
         calendar_risks = None
+        resource_transition = None
         model_org_review = None
         linked_change_evidence = None
         membership_evidence = None
@@ -903,7 +905,7 @@ class QualitativeAKIS:
             elif action == "request":
                 linked_change_evidence = self._request_work(ev, at)
             elif action == "resource_status":
-                self._set_resource_availability(ev)
+                resource_transition = self._set_resource_availability(ev)
             elif action == "resource_calendar_update":
                 calendar_risks = self._set_resource_calendar(ev)
             elif action == "source_update":
@@ -1471,6 +1473,8 @@ class QualitativeAKIS:
             report["expected_capacity_revision"] = ev.get("expected_capacity_revision")
             report["original_owner_capability_source_only"] = True
             report["real_productivity_gain_or_IP_right_verified"] = False
+        if resource_transition is not None and report["outcome"] == "APPLIED":
+            report["original_active_execution_resource_transition"] = resource_transition
         if action == "resource_calendar_update" and calendar_risks is not None:
             report["reservation_risks"] = calendar_risks
             report["calendar_revision"] = self.resource_specs[ev["resource"]].calendar.revision
@@ -1900,7 +1904,7 @@ class QualitativeAKIS:
             ) == "PAUSED_NEW_WORK" for principal in principals):
                 raise BlockedDecision("COOPERATION_ORIGINAL_PARTY_PAUSED_NEW_WORK")
 
-    def _set_resource_availability(self, ev: dict[str, Any]) -> None:
+    def _set_resource_availability(self, ev: dict[str, Any]) -> dict[str, Any] | None:
         key = _id(ev.get("resource"), "resource")
         if key not in self.resources:
             raise BlockedDecision("UNKNOWN_RESOURCE")
@@ -1909,8 +1913,27 @@ class QualitativeAKIS:
         status = ev.get("availability")
         if not isinstance(status, str) or status not in AVAILABILITY:
             raise BlockedDecision("INVALID_RESOURCE_STATUS")
+        before = self.resource_availability[key]
         self.resource_availability[key] = status
         self.resource_availability_origin[key] = "MODEL_EVENT"
+        if before == status:
+            return None
+        affected = []
+        for work in sorted(self.works.values(), key=lambda w: w.key):
+            if work.execution != "IN_PROGRESS":
+                continue
+            if work.operations:
+                affected.extend({"work": work.key, "operation": op.key}
+                                for op in work.operations
+                                if work.operation_states[op.key] == "IN_PROGRESS"
+                                and any(need.resource == key for need in op.resource_requirements))
+            elif any(need.resource == key for need in work.resource_requirements):
+                affected.append({"work": work.key, "operation": None})
+        if not affected:
+            return None
+        return {"before": before, "after": status, "affected": affected,
+                "original_commitments_reservations_and_prior_evidence_preserved": True,
+                "resource_status_is_not_a_physical_audit": True}
 
     def _outstanding_work_ids(self) -> set[str]:
         return {key for key, work in self.works.items()
@@ -2168,6 +2191,11 @@ class QualitativeAKIS:
             else:
                 if w.execution != "IN_PROGRESS" or w.operation_states[op.key] != "IN_PROGRESS":
                     raise BlockedDecision("OPERATION_NOT_IN_PROGRESS")
+                # The same required resources must be ready at completion.
+                # A later loss of readiness cannot be ignored. The original
+                # commitment and started stage stay intact until restoration.
+                for need in op.resource_requirements:
+                    self._require_resource_available(need.resource)
                 ref = ev.get("result_ref")
                 if (not isinstance(ref, str) or not ref.startswith("model://") or
                         len(ref) > 180 or ref in w.operation_evidence.values() or
@@ -2185,6 +2213,11 @@ class QualitativeAKIS:
                 raise BlockedDecision("EXECUTION_OWNER_OR_ACTIVE_WORK_MISSING")
             if w.operations and any(status != "COMPLETED" for status in w.operation_states.values()):
                 raise BlockedDecision("TECHNOLOGY_OPERATIONS_INCOMPLETE")
+            if not w.operations:
+                for need in w.resource_requirements:
+                    self._require_resource_available(need.resource)
+            # A previously completed stage is not retroactively invalidated
+            # by a later change to its resource's current readiness.
             ref = ev.get("result_ref")
             if not isinstance(ref, str) or not ref.startswith("model://") or len(ref) > 180:
                 raise BlockedDecision("MODEL_ONLY_EVIDENCE_REQUIRED")
@@ -2381,7 +2414,13 @@ class QualitativeAKIS:
             "trace": list(self.trace),
             "counts": {"applied": sum(e["outcome"] == "APPLIED" for e in self.trace), "blocked": sum(e["outcome"] == "BLOCKED" for e in self.trace)},
         }
+        affected_works = {row["work"] for e in self.trace
+                          for row in e.get("original_active_execution_resource_transition", {}).get("affected", ())}
+        observation_cutoff = max((e["at"] for e in self.trace), default=0)
         for key, work in self.works.items():
+            if key in affected_works:
+                output["works"][key]["original_execution_readiness"] = original_execution_readiness_view(
+                    self.trace, key, observation_cutoff)
             if work.affiliation_at_commit:
                 output["works"][key]["original_affiliation_at_commit"] = dict(
                     sorted(work.affiliation_at_commit.items())
