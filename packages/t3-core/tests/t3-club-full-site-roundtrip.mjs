@@ -53,21 +53,47 @@ async function openExisting(page){
  if(await resume.isVisible())await resume.click();
  await work.waitFor({state:"visible"});
 }
-async function readProfile(page){
+async function readProfile(page,stage,expectedWorkspace){
+ phase=stage+"_NAVIGATE";
  await visit(page,"/workspace/");
+ phase=stage+"_OPEN_WORKSPACE";
  await openExisting(page);
- await poll(async()=>(await page.getByTestId("club-workspace-progress").textContent())?.trim()==="Сохранённых записей: 1","KERNEL_OBJECT_COUNT");
+ phase=stage+"_INVENTORY";
+ const progress=page.getByTestId("club-workspace-progress");
+ await poll(async()=>await progress.count()===1&&(await progress.textContent({timeout:1000}))?.trim()==="Сохранённых записей: 1","KERNEL_OBJECT_COUNT");
+ log(stage+"_INVENTORY");
+ if(expectedWorkspace){
+  const scope=page.getByTestId("club-workspace-data-actions");
+  const select=scope.getByLabel("Какие данные открыты?",{exact:true});
+  check(await select.inputValue()===expectedWorkspace,"SAME_RECEIPT_WORKSPACE");
+  log(stage+"_SAME_RECEIPT_WORKSPACE");
+ }
+ phase=stage+"_DISCLOSURE";
  const all=page.getByTestId("club-workspace-all-families");
- if(!await all.evaluate(e=>e.open))await all.locator("summary").click();
+ // A native disclosure may be closed. Assert that the summary click
+ // genuinely opened it before looking for its contained Result.
+ await all.waitFor({state:"visible"});
+ if(!await all.evaluate(e=>e.open))await all.locator(":scope > summary").click();
+ await poll(async()=>await all.evaluate(e=>e.open),"PROFILE_DISCLOSURE_OPEN");
  const family=page.getByTestId("club-family-participation-profile");
  const latest=page.getByTestId("club-family-latest-participation-profile");
+ phase=stage+"_PROFILE_PREVIEW";
  await latest.waitFor({state:"visible"});
  check((await latest.getAttribute("aria-label"))?.includes(alias),"KERNEL_ALIAS_PREVIEW");
+ log(stage+"_PROFILE_PREVIEW");
+ phase=stage+"_SELECT_RESULT";
  await family.getByRole("button",{name:"Просмотреть",exact:true}).click();
+ await page.getByTestId("club-workspace-selected-detail").waitFor({state:"visible"});
  const editor=page.getByTestId("club-profile-native-editor");
+ phase=stage+"_OPEN_EDITOR";
  await editor.getByRole("button",{name:"Редактировать профиль здесь",exact:true}).click();
  const card=page.getByTestId("club-profile-host-card");
- await poll(async()=>await card.getByLabel("Как к вам обращаться",{exact:true}).inputValue()===alias&&await card.getByLabel("Цели",{exact:true}).inputValue()===goals,"KERNEL_NATIVE_EDITOR_VALUES");
+ await card.waitFor({state:"visible"});
+ phase=stage+"_EDITOR_READBACK";
+ await poll(async()=>{
+  const a=card.getByLabel("Как к вам обращаться",{exact:true}),g=card.getByLabel("Цели",{exact:true});
+  return await a.count()===1&&await g.count()===1&&await a.inputValue()===alias&&await g.inputValue()===goals;
+ },"KERNEL_NATIVE_EDITOR_VALUES");
 }
 async function stopServer(){
  if(server&&server.exitCode===null&&server.signalCode===null){
@@ -128,10 +154,18 @@ try{
  await page.getByLabel("Подтверждаю сохранение выбранных результатов на этом устройстве.",{exact:true}).check();
  await page.getByRole("button",{name:"Сохранить выбранное",exact:true}).click();
  await page.getByText(/^Профиль участия: Сохранено/).waitFor({state:"visible"});
+ const savedWitness=page.getByTestId("club-t0-import-created-result");
+ await savedWitness.waitFor({state:"visible"});
+ const savedScope=await savedWitness.getAttribute("data-t2-workspace-id");
+ check(!!savedScope&&(await savedWitness.getAttribute("data-t2-schema-id"))==="ru.iwxa.club.participation-profile"&&Number(await savedWitness.getAttribute("data-t2-revision"))>0&&!!(await savedWitness.getAttribute("data-t2-kernel-event-id")),"ORIGINAL_KERNEL_WITNESS");
  log("ASSISTANT_TO_ORIGINAL_KERNEL_RECEIPT");
+ // Separate immediate and cold readback. Both use the original visible
+ // inventory and profile editor, not the transient form/session.
+ await readProfile(page,"SOURCE_IMMEDIATE_READBACK",savedScope);
+ log("SOURCE_IMMEDIATE_KERNEL_READBACK");
  phase="SOURCE_COLD_READBACK";
  await close();page=await launch("source");
- await readProfile(page);
+ await readProfile(page,"SOURCE_COLD_READBACK",savedScope);
  log("SOURCE_COLD_KERNEL_READBACK");
  phase="EXPORT";
  await visit(page,"/workspace/exchange/#/home");
@@ -179,7 +213,7 @@ try{
  log("ORIGINAL_IWXA_INDEPENDENT_COMMIT");
  phase="RECIPIENT_COLD_READBACK";
  await close();page=await launch("recipient");
- await readProfile(page);
+ await readProfile(page,"RECIPIENT_COLD_READBACK");
  log("RECIPIENT_COLD_KERNEL_READBACK");
  phase="OFFLINE_INSTALL";
  const toggle=page.locator("#iwxa-t3-domain-switch");
@@ -200,7 +234,7 @@ try{
  check(!reachable,"SERVER_STOPPED");
  page=await launch("recipient");
  await context.setOffline(true);
- await readProfile(page);
+ await readProfile(page,"RECIPIENT_COLD_OFFLINE_READBACK");
  check(await page.evaluate(()=>navigator.onLine===false&&document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),"OFFLINE_MODE");
  await page.getByTestId("club-workspace-profile-shortcut").click();
  await page.locator('form[data-profile-form] button[data-iwxa-assistant-form-open]').click();
@@ -215,6 +249,12 @@ try{
   firstUse:!!document.querySelector('[data-testid="club-create-personal-space"]'),
   work:!!document.querySelector('[data-testid="club-native-project-overview"]'),
   emptyTasks:!!document.querySelector('[data-testid="club-empty-tasks"]'),
+  inventory:(()=>{const t=document.querySelector('[data-testid="club-workspace-progress"]')?.textContent?.trim()||"";return /^Сохранённых записей: [0-9]+$/.test(t)?Number(t.split(":")[1]):t==="Пока нет сохранённых записей"?"empty":t.startsWith("Часть результатов")?"family-error":t.startsWith("Загружаем")?"loading":"absent";})(),
+  familyDisclosure:document.querySelector('[data-testid="club-workspace-all-families"]')?.open===true,
+  profileLatest:!!document.querySelector('[data-testid="club-family-latest-participation-profile"]'),
+  selectedDetail:!!document.querySelector('[data-testid="club-workspace-selected-detail"]'),
+  nativeEditor:!!document.querySelector('[data-testid="club-profile-native-editor"]'),
+  editorForm:!!document.querySelector('[data-testid="club-profile-host-card"]'),
   profile:!!document.querySelector('[data-profile-form]'),
   assistant:!!document.querySelector('#iwxa-t3-assistant'),
   exchange:!!document.querySelector('[data-testid="packages-view"]'),
