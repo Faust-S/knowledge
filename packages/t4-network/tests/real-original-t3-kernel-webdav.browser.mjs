@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createHash,randomUUID,generateKeyPairSync,sign,verify as verifySignature,
   randomBytes,createCipheriv,createDecipheriv} from 'node:crypto';
 import {createRequire} from 'node:module';
+import {createServer,createConnection} from 'node:net';
 import {cpSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -101,6 +102,48 @@ const write=(base,path,content)=>{
   writeFileSync(full,content);
 };
 
+// A real loopback TCP interruption fixture, not a mocked WebDAV response.
+// The relay never terminates TLS; original Apache certificate validation
+// and the immutable HTTPS storage implementation remain in use.
+async function controlledTlsRelay(originalUrl){
+  const upstream=new URL(originalUrl);
+  assert.equal(upstream.protocol,'https:');
+  assert.equal(upstream.hostname,'127.0.0.1');
+  assert.ok(upstream.port);
+  const sockets=new Set();
+  let offline=false,cutKey=null,interruptedPuts=0,blockedConnections=0;
+  const server=createServer(client=>{
+    if(offline){blockedConnections++;client.destroy();return;}
+    const remote=createConnection({host:upstream.hostname,port:Number(upstream.port)});
+    sockets.add(client);sockets.add(remote);
+    const stop=()=>{client.destroy();remote.destroy();sockets.delete(client);sockets.delete(remote);};
+    client.on('error',stop);remote.on('error',stop);
+    client.on('close',stop);remote.on('close',stop);
+    client.pipe(remote);remote.pipe(client);
+  });
+  await new Promise((resolve,reject)=>{
+    server.once('error',reject);server.listen(0,'127.0.0.1',resolve);
+  });
+  const endpoint=new URL(upstream);endpoint.port=String(server.address().port);
+  return {
+    endpoint:endpoint.href,
+    cutBeforePut:key=>{assert.equal(offline,false);cutKey=key;},
+    restore:()=>{offline=false;},
+    stats:()=>({offline,interruptedPuts,blockedConnections}),
+    fetch:async(url,options)=>{
+      if(cutKey&&options.method==='PUT'&&new URL(url).pathname.endsWith('/'+cutKey)){
+        cutKey=null;interruptedPuts++;offline=true;
+        for(const socket of sockets)socket.destroy();
+      }
+      return globalThis.fetch(url,options);
+    },
+    close:async()=>{
+      for(const socket of sockets)socket.destroy();
+      if(server.listening)await new Promise(resolve=>server.close(resolve));
+    },
+  };
+}
+
 function originalT3ConfirmedState({workspaceId,artifact,preview,receipt}){
   let state=INITIAL_EXPORT_STATE;
   const step=event=>{state=exportReducer(state,event);};
@@ -139,7 +182,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
     linkedTitle='Linked work from the complete original T2 Workspace',
     assetText='Original T2 file content preserved across T4 network transfer';
   const kernelRuntimePath=join(dist,'_iwxa/runtime/0.3.6/runtime.js');
-  let live=null,sourceContext=null,recipientContext=null,transport=null;
+  let live=null,sourceContext=null,recipientContext=null,transport=null,nativeRelay=null;
   try{
     cpSync(join(qualified,'_iwxa'),join(dist,'_iwxa'),{recursive:true});
     assertQualifiedKernelArtifact(dist,{kernel:ORIGINAL_KERNEL,contract:'1.3.0',
@@ -2803,8 +2846,9 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         authorizeOriginalTechnicalWrite:async proof=>
           receiving.operations.includes(proof.operation),
       });
+      nativeRelay=await controlledTlsRelay(process.env.T4_TEST_URL);
       const nativeNetworkTransport=createWebDavPackageTransport({
-        baseUrl:process.env.T4_TEST_URL,locationRef:'test-webdav',
+        baseUrl:nativeRelay.endpoint,fetchImpl:nativeRelay.fetch,locationRef:'test-webdav',
         placementPolicy:policy,getMode:()=> 'T4_NETWORK',
         authorize:async()=>true,
         getAuthorizationHeader:async()=>process.env.T4_TEST_AUTH,
@@ -4013,7 +4057,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         frontierRevision=revision,currentObjectRevision=4,
         lastInBatch=revision===4,
         simulatePublicationLoss=kind==='OBJECT_PUT'&&revision===2,
-        simulateSubjectLoss=false,expectedAssetBytes=null,
+        simulateSubjectLoss=false,simulateTcpOutage=false,expectedAssetBytes=null,
       }={})=>{
       const recipientKernel=kind==='OBJECT_PUT'?p2cRecipientKernel:p2gRecipientKernel;
       const tick=await p2fRunHostPrepare();
@@ -4036,7 +4080,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       const {sessionRef:p2eSession,changeId:p2eChangeId,
         familyRef:p2eFamily}=durableSession;
       let f2SignCalls=0,f2NetworkWrites=0,f2SourcePutCalls=0,
-        f2RecipientPutCalls=0;
+        f2RecipientPutCalls=0,explicitMissingRetryAuthorizations=0;
       let losePrepareReply=simulatePublicationLoss,loseSourceNetworkReply=simulatePublicationLoss,
         loseRecipientNetworkReply=simulatePublicationLoss;
       const f2SourceKernel={
@@ -4083,10 +4127,14 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
             actual.grants:receiving.operations).includes(p.operation),
           authorizeOriginalTechnicalWrite:async p=>(isSource?
             actual.grants:receiving.operations).includes(p.operation),
-          authorizeOriginalFramePublish:async p=>
-            p.operation.startsWith('t4.network.publish.')&&
-            p.sessionRef===p2eSession&&p.changeId===p2eChangeId&&
-            (isSource?actual.grants:receiving.operations).includes('t1.getObject'),
+          authorizeOriginalFramePublish:async p=>{
+            const allowed=p.operation.startsWith('t4.network.publish.')&&
+              p.sessionRef===p2eSession&&p.changeId===p2eChangeId&&
+              (isSource?actual.grants:receiving.operations).includes('t1.getObject');
+            if(allowed&&p.operation==='t4.network.publish.retry-missing')
+              explicitMissingRetryAuthorizations++;
+            return allowed;
+          },
           verifyOriginalNodeSignature:async({bytes,signature,signerRef})=>
             signerRef===(isSource?'key:original:source:p22c':
               'key:original:recipient:p22c')&&
@@ -4357,14 +4405,81 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       }else{
         await prepareContent();
       }
+      let outageSequence=null,outageWitness=null;
+      if(simulateTcpOutage){
+        const staged=await publicationPort(true).inspectOriginalPublication();
+        const target=staged.frames.filter(f=>f.messageType==='CHUNK')[1];
+        assert.ok(target,'outage must interrupt a multipart Asset after one chunk');
+        outageSequence=target.sequence;
+        const savedBytes=staged.frames.map(f=>f.wireBytes),signsBefore=f2SignCalls;
+        const frontierBefore=await p2eCursorPort().inspectOriginalHostCursor();
+        const writesBefore=p2cCommitCalls+p2gAssetCalls+p2gRelationCalls;
+        const putsBefore=f2NetworkWrites;
+        nativeRelay.cutBeforePut(target.key);
+        await assert.rejects(sourceTask().runNativePublication({slots:contentSlots}),
+          e=>e?.code==='PUBLICATION_NETWORK_OUTCOME_UNKNOWN'&&
+            e.details?.sequence===outageSequence&&e.details?.automaticRetryAllowed===false);
+        const cut=await publicationPort(true).inspectOriginalPublication();
+        assert.equal(nativeRelay.stats().offline,true);
+        assert.equal(nativeRelay.stats().interruptedPuts,1);
+        assert.ok(nativeRelay.stats().blockedConnections>=1);
+        assert.equal(cut.frames[outageSequence-1].state,'ATTEMPTED');
+        assert.equal(cut.frames[outageSequence-1].attempts,1);
+        assert.ok(cut.frames.slice(0,outageSequence-1).every(f=>f.state==='PRESENT'));
+        assert.ok(cut.frames.slice(outageSequence).every(f=>f.state==='PREPARED'));
+        assert.equal(f2NetworkWrites,putsBefore+outageSequence-2);
+        await restartSource();
+        await restartRecipient();
+        const afterCold=await publicationPort(true).inspectOriginalPublication();
+        assert.deepEqual(afterCold.frames.map(f=>f.wireBytes),savedBytes);
+        assert.deepEqual(afterCold.frames.map(f=>f.state),cut.frames.map(f=>f.state));
+        assert.equal(f2SignCalls,signsBefore);
+        assert.deepEqual((await p2eCursorPort().inspectOriginalHostCursor()).originalT3NextCursor,
+          frontierBefore.originalT3NextCursor);
+        assert.equal(p2cCommitCalls+p2gAssetCalls+p2gRelationCalls,writesBefore);
+        // Reconnect TCP without fabricating a successful response. Apache
+        // proves the interrupted content-addressed PUT did not exist.
+        nativeRelay.restore();
+        const putsAtReconnect=f2NetworkWrites,originalWrites=f2SourcePutCalls;
+        await assert.rejects(sourceTask().runNativePublication({slots:contentSlots}),
+          e=>e?.code==='PUBLICATION_PRIOR_NETWORK_OUTCOME_UNRESOLVED'&&
+            e.details?.originalCode==='REMOTE_NOT_FOUND'&&
+            e.details?.automaticRetryAllowed===false);
+        assert.equal(f2NetworkWrites,putsAtReconnect);
+        assert.equal(f2SourcePutCalls,originalWrites);
+        assert.equal(explicitMissingRetryAuthorizations,0);
+        outageWitness={sequence:outageSequence,cutKey:target.key,
+          savedBytes,signsBefore,writesBefore,putsAtReconnect,
+          tcpInterruptedBeforeRemoteWrite:true,coldOriginalHostReadback:true,
+          absentFrameNotRetriedWithoutExplicitDecision:true};
+      }
       const contentSent=await sourceTask().runNativePublication({
-        slots:contentSlots,
+        slots:contentSlots,retryMissing:simulateTcpOutage,
         createSignedFrames:async()=>{throw Error('must use saved content bytes');},
       });
+      if(simulateTcpOutage){
+        const resumed=await publicationPort(true).inspectOriginalPublication();
+        assert.deepEqual(resumed.frames.map(f=>f.wireBytes),outageWitness.savedBytes);
+        assert.equal(f2SignCalls,outageWitness.signsBefore);
+        assert.equal(explicitMissingRetryAuthorizations,1);
+        assert.equal(resumed.frames[outageSequence-1].attempts,2);
+        assert.equal(f2NetworkWrites,outageWitness.putsAtReconnect+
+          resumed.frames.length-outageSequence+1);
+        assert.equal(p2cCommitCalls+p2gAssetCalls+p2gRelationCalls,
+          outageWitness.writesBefore);
+        outageWitness={sequence:outageSequence,interruptedKey:outageWitness.cutKey,
+          tcpInterruptedBeforeRemoteWrite:true,coldOriginalHostReadback:true,
+          absentFrameNotRetriedWithoutExplicitDecision:true,
+          explicitOriginalRetryAuthorizations:explicitMissingRetryAuthorizations,
+          exactSignedFrameBytesReused:true,completedAfterReconnect:true,
+          previouslyPresentFramesNotPutAgain:true,
+          interruptedFrameAttempts:2,blockedConnections:nativeRelay.stats().blockedConnections};
+      }
       if(simulatePublicationLoss)
         assert.equal(contentSent.publications[0].state,'REMOTE_READBACK_RECOVERED');
       const fullSourcePublication=await publicationPort(true).inspectOriginalPublication();
-      assert.ok(fullSourcePublication.frames.every(f=>f.state==='PRESENT'&&f.attempts===1));
+      assert.ok(fullSourcePublication.frames.every(f=>f.state==='PRESENT'&&
+        f.attempts===(f.sequence===outageSequence?2:1)));
       p2eChange=await fromPublication(contentSent.publications[0],'SOURCE');
       const p2eChunks=[];
       for(const publication of contentSent.publications.slice(1))
@@ -4510,7 +4625,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       }
       assert.equal(f2SignCalls,contentSpecs.length+3);
       assert.equal(f2NetworkWrites,f2SignCalls);
-      assert.equal(f2SourcePutCalls,2+2*(contentSpecs.length+1));
+      assert.equal(f2SourcePutCalls,2+2*(contentSpecs.length+1)+(simulateTcpOutage?1:0));
       assert.equal(f2RecipientPutCalls,6);
       const p2eAppliedEvidence={
         evidenceRef:p2eSignedAck.publication.key,
@@ -4591,7 +4706,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       }
       const sourcePublication=await publicationPort(true).inspectOriginalPublication();
       const recipientPublication=await publicationPort(false).inspectOriginalPublication();
-      assert.ok(sourcePublication.frames.every(f=>f.state==='PRESENT'&&f.attempts===1));
+      assert.ok(sourcePublication.frames.every(f=>f.state==='PRESENT'&&
+        f.attempts===(f.sequence===outageSequence?2:1)));
       assert.ok(recipientPublication.frames.every(f=>f.state==='PRESENT'&&f.attempts===1));
       assert.equal(sourcePublication.revision,f2SourcePutCalls);
       assert.equal(recipientPublication.revision,f2RecipientPutCalls);
@@ -4600,7 +4716,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         sourceCursor:p2fTask.sourceCursorAfter,
         sourceEventId:p2fCaptured.sourceEventId,kind,subjectId,revision,
         originalDeltaSha256:p2ePrepared.sha256,
-        originalSubjectLossRecovered:simulateSubjectLoss,
+        originalSubjectLossRecovered:simulateSubjectLoss,outageWitness,
         publicationSession:durableSession.sessionRef,
         sourcePublicationCount:sourcePublication.frames.length,
         recipientPublicationCount:recipientPublication.frames.length,
@@ -4808,6 +4924,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           frontierRevision:5+index,currentObjectRevision:6,lastInBatch:index===4,
           simulatePublicationLoss:index===0,
           simulateSubjectLoss:spec.kind==='RELATION_PUT'||index===0,
+          simulateTcpOutage:index===3,
           expectedAssetBytes:spec.bytes??null,
         });
         assert.equal(completed.sourceEventId,spec.sourceEventId);
@@ -4857,7 +4974,17 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         originalRelationBothEndpointsVerified:true,noRemainingCapture:true,
         independentPhysicalDevices:false,productionHostSchedulerInstalled:false,
       }));
+      const interrupted=mixedCompleted.find(x=>x.outageWitness);
+      assert.equal(interrupted.kind,'ASSET_PUT');
+      assert.equal(interrupted.revision,2);
+      assert.equal(interrupted.outageWitness.completedAfterReconnect,true);
+      console.log('T4_REAL_ORIGINAL_T3_NATIVE_TCP_OUTAGE_RESUME_PASS',JSON.stringify({
+        originalKernel:ORIGINAL_KERNEL,...interrupted.outageWitness,
+        originalAssetFinalRevision:2,originalHostAckFrontierCASCount:9,
+        realApacheHttps:true,loopbackTcpInterruption:true,independentPhysicalDevices:false,
+      }));
       nativeNetworkTransport.close();
+      await nativeRelay.close();nativeRelay=null;
       console.log('T4_REAL_ORIGINAL_T3_NETWORK_REPLAY_COLD_CAS_PASS',
         JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,
@@ -5080,6 +5207,7 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
     if(recipientContext)await recipientContext.close().catch(()=>{});
     if(sourceContext)await sourceContext.close().catch(()=>{});
     if(transport)transport.close();
+    if(nativeRelay)await nativeRelay.close();
     if(live?.server?.listening)await new Promise(done=>live.server.close(done));
     rmSync(root,{recursive:true,force:true});
   }
