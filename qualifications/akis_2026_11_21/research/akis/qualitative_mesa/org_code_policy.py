@@ -126,11 +126,11 @@ class ModelOrgCodePolicy:
             # Existing ContextBasis still performs the source's own checks.
             basis.assert_allowed(key, action, actor, at)
         responsible = self.responsible_by_action.get(action, ())
-        revision = (original_work.source_revision if original_work is not None else
-                    spec.get("source_revision") if action == "request" and isinstance(spec, dict) else None)
         scoped = [(rev, owners) for (work, rev, act), owners in self.responsible_by_work.items()
                   if work == key and act == action]
         if scoped:
+            revision = (getattr(original_work, "source_revision", None) if original_work is not None else
+                        spec.get("source_revision") if action == "request" and isinstance(spec, dict) else None)
             exact = [owners for rev, owners in scoped if rev == revision]
             if len(exact) != 1:
                 raise OrgCodeBlocked("OC_WORK_RESPONSIBILITY_SOURCE_REVISION_MISMATCH", reviewer)
