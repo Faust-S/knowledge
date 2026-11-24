@@ -1821,3 +1821,108 @@ def test_robust_stress_comparison_rejects_changed_valuation_basis_even_if_both_a
         doc["economic_claims"]["recipient_use_value_evidence"][0]["rate"]["amount"] = "124.00"
     with pytest.raises(ValueError, match="COMPETING_STRESS_NONPARAMETER_ORIGINAL_SCOPE_CHANGED"):
         robust_competing_price(cases)
+
+
+def _private_recipient_review_at_original_event(doc):
+    from research.akis.qualitative_mesa.mesa_model import OperatorAKISModel
+    from research.akis.qualitative_mesa.owner_economic_feedback import review_completed_original_owner_finance
+
+    event = next(e for e in doc["events"] if e.get("evaluation_economic_recipient_value") is True)
+    model = OperatorAKISModel(deepcopy(doc))
+    model.run_until(float(event["at"]) + 0.5)
+    assert "w4" not in model.qualitative.works
+    assert model.qualitative.works["w3"].result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    result = review_completed_original_owner_finance(
+        state=model.qualitative, original_money=model.economic_claims,
+        work_id=event["evaluated_work"], owner=event["actor"],
+        review_source=event["participation_evidence_ref"],
+        review_revision=event["evaluation_economic_source_revision"],
+        at=event["at"], recipient_value=True)
+    return result, model
+
+
+@pytest.mark.parametrize("quantity,contribution,advice", [
+    ("14", "450.00", "CONSIDER_FUTURE_WORK"),
+    ("10.4", "0.00", "REVIEW_FUTURE_WORK"),
+    ("6", "-550.00", "REVIEW_FUTURE_WORK"),
+])
+def test_private_original_recipient_advice_uses_exact_own_contribution_at_decision(quantity, contribution, advice):
+    d = original_market_recipient_feedback_case(observed=quantity)
+    own, model = _private_recipient_review_at_original_event(d)
+    assert own["status"] == "MODEL_ORIGINAL_COMPLETED_RECIPIENT_VALUE_SCOPE_QUALIFIED", own
+    assert own["private_owner_model_contribution"] == contribution
+    assert own["private_owner_advice"] == advice
+    assert own["actual_owner_decision_or_consent_created"] is False
+    public_row = next(r for r in model.qualitative.trace
+                      if r["action"] == "participation_status"
+                      and r.get("evaluated_work") == "w3" and r["actor"] == "b")
+    assert "private_owner_model_contribution" not in public_row
+    assert "private_owner_advice" not in public_row
+
+
+def test_future_fourth_work_cost_and_recipient_value_cannot_influence_prior_private_review():
+    d = original_market_recipient_feedback_case()
+    changed = deepcopy(d)
+    for row in changed["economic_claims"]["resource_uses"]:
+        if row["work"] == "w4":
+            row["amount"] = "999.00"
+    next(row for row in changed["economic_claims"]["recipient_use_value_evidence"]
+         if row["work"] == "w4")["outcome"]["quantity"] = "999"
+    old, _ = _private_recipient_review_at_original_event(d)
+    new, _ = _private_recipient_review_at_original_event(changed)
+    assert old == new
+    assert new["private_owner_model_contribution"] == "450.00"
+
+
+def test_buyer_revokes_original_value_source_before_review_without_erasing_result():
+    d = original_market_recipient_feedback_case()
+    event = next(e for e in d["events"] if e.get("evaluation_economic_recipient_value") is True)
+    value = next(v for v in d["economic_claims"]["recipient_use_value_evidence"] if v["work"] == "w3")
+    source = next(s for s in d["economic_claims"]["sources"] if s["id"] == value["outcome"]["source"])
+    tick = event["at"] - 1
+    assert not any(e["at"] == tick for e in d["events"])
+    d["events"].append({
+        "at": tick, "action": "source_update", "actor": "b",
+        "source": source["reference"], "expected_revision": source["revision"],
+        "new_revision": "withdrawn-value-v2", "status": "DISPROVED",
+    })
+    d["events"].sort(key=lambda e: e["at"])
+    own, model = _private_recipient_review_at_original_event(d)
+    assert own["status"] == "UNKNOWN"
+    assert "private_owner_model_contribution" not in own
+    assert model.qualitative.works["w3"].result == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    assert any(r["action"] == "source_update" and r["outcome"] == "APPLIED"
+               for r in model.qualitative.trace)
+
+
+@pytest.mark.parametrize("after_accept", [False, True])
+def test_independent_supplier_revokes_commercial_quote_before_or_after_original_obligation(after_accept):
+    d = original_market_order_finance_case(competing=True, buyer_finishes=True, commercial=True)
+    d.pop("economic_claims")
+    d.pop("strict_economic_source_works")
+    proposal = next(e for e in d["events"] if e["action"] == "technology_route_propose")
+    quote = next(q for q in proposal["technology_route_commercial_terms"]["offers"] if q["payee"] == "a")
+    commit = next(e["at"] for e in d["events"] if e["action"] == "commit" and e.get("work") == "w3")
+    request = next(e["at"] for e in d["events"] if e["action"] == "request" and e["work_spec"]["id"] == "w3")
+    accept = next(e["at"] for e in d["events"] if e["action"] == "accept" and e.get("work") == "w3")
+    used = {e["at"] for e in d["events"]}
+    tick = accept+1 if after_accept else next(at for at in range(request+1, commit) if at not in used)
+    assert tick not in used
+    d["events"].append({
+        "at": tick, "action": "source_update", "actor": "a",
+        "source": quote["source_ref"], "expected_revision": quote["source_revision"],
+        "new_revision": "withdrawn-original-quote-v2", "status": "DISPROVED",
+    })
+    d["events"].sort(key=lambda e: e["at"])
+    out = simulate(d)
+    assert last_request(out)["outcome"] == "APPLIED"
+    assert any(r["action"] == "source_update" and r["outcome"] == "APPLIED" for r in out["trace"])
+    decision = next(r for r in reports(out, "commit") if r["work"] == "w3")
+    if after_accept:
+        assert decision["outcome"] == "APPLIED"
+        assert out["works"]["w3"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+    else:
+        assert decision["outcome"] == "BLOCKED"
+        assert "COMMERCIAL" in decision["reason"]
+        assert out["works"]["w3"]["obligation"] == "NOT_ACCEPTED"
+    assert out["works"]["w2"]["result"] == "ACCEPTED_BY_ORIGINAL_RECIPIENT"
