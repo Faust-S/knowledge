@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: 316d548e029d9b6af13c1ccc4e88b211573b5e9a
+          ref: 78af25c670f5fe577d5ef36847dfbfc64b5c73ec
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: owner
@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 2d779b6d422e709dcd6395b9c7fa751799866ac9
+          ref: e9f8cad3f7a12d291d83436fb3b900f290b044b5
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 316d548e029d9b6af13c1ccc4e88b211573b5e9a && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 316d548e029d9b6af13c1ccc4e88b211573b5e9a --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 78af25c670f5fe577d5ef36847dfbfc64b5c73ec && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 78af25c670f5fe577d5ef36847dfbfc64b5c73ec --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
             echo D02_OFFICIAL_SKILLS_IMPORT=FAIL
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/d02-import.private" | sort -u | head -20 || true
             exit 1
@@ -81,7 +81,7 @@ jobs:
             exit 1
           fi
           failed=0
-          for suite in test:club-personal-economy test:club-cash-calendar-route test:club-case-03-native-tools test:club-case-route-integration test:club-case-02-route-integration test:club-work-ledger-integration test:club-unified-ux test:club-author-voice test:club-assistant-skills test:club-personal-week-plan test:club-today-overview test:club-native-today test:club-native-project-restoration test:club-hub test:club-personal-cash-calendar test:club-personal-cash-calendar-ui test:club-family-options-ui; do
+          for suite in test:club-personal-economy test:club-cash-calendar-route test:club-case-03-native-tools test:club-case-route-integration test:club-case-02-route-integration test:club-work-ledger-integration test:club-unified-ux test:club-author-voice test:club-assistant-skills test:club-personal-week-plan test:club-today-overview test:club-native-today test:club-native-project-restoration test:club-native-restore-preselect test:club-hub test:club-personal-cash-calendar test:club-personal-cash-calendar-ui test:club-family-options-ui; do
             if ! npm run "$suite" > "$RUNNER_TEMP/d02-site.private" 2>&1; then
               echo "D02_TARGETED_SUITE=FAIL $suite"
               grep -E '^not ok [0-9]+ - |^# (tests|pass|fail) ' "$RUNNER_TEMP/d02-site.private" | head -15 || true
