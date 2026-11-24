@@ -22,7 +22,7 @@ const GROUPS=[
   {name:'Главная',icon:'home',pages:['Главная']},
   {name:'Источники',icon:'database',pages:['Источники','Схемы A0/A1','Рабочая область']},
   {name:'Реконструкция',icon:'layers',pages:['Реконструкция','Группировка маршрутов','Карта процессов','Аудит A2']},
-  {name:'OCEL 2.0',icon:'network',pages:['OCEL 2.0','Стандарты']},
+  {name:'OCEL 2.0',icon:'network',pages:['OCEL 2.0','Внешняя модель','Стандарты']},
   {name:'T3 D1/D2',icon:'shield',pages:['T3 D1/D2','Карта T3','Паспорт фактов','Свидетельства D05']},
   {name:'Проверка',icon:'check',pages:['Проверка','Черновик и восстановление','Выпуск и обмен','Квалификация']},
   {name:'Настройки',icon:'settings',pages:['Настройки','Справка']}
@@ -251,7 +251,7 @@ export function ActivityWorkspace({brandSrc,data,actions,legacy}:ActivityWorkspa
       <h1>Источники деятельности</h1><p className="activity-v7-muted">Действующие функции Activity: локальный A1/A2, OCEL 2.0, синтетический JSON и оригинальный подписанный T3.</p>
       <Note>Источник и права всегда проверяются действующим модулем. Подключение T3 без Host остаётся HOLD.</Note></div>:
      <div className="activity-v7-main"><header className="activity-v7-heading"><div><small>IWXA ACTIVITY · {navOwner.name}</small>
-       <h1>{page}</h1><p>{page==='Группировка маршрутов'?'Локальные модели CehoVod':data.sourceName}</p></div>{page!=='Группировка маршрутов'?<button onClick={()=>go('Источники')}>Выбрать источник</button>:null}</header>
+       <h1>{page}</h1><p>{page==='Группировка маршрутов'?'Локальные модели CehoVod':page==='Внешняя модель'?'Локальные журнал и результат анализа':data.sourceName}</p></div>{!['Группировка маршрутов','Внешняя модель'].includes(page)?<button onClick={()=>go('Источники')}>Выбрать источник</button>:null}</header>
        <ActivityInnerPage page={page} data={data} actions={actions} process={process}
          object={object} candidate={selectedCandidate} map={map} passport={passport} candidates={candidates}
          processIndex={processIndex} setProcessIndex={setProcessIndex} objectIndex={objectIndex} setObjectIndex={setObjectIndex}
