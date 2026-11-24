@@ -131,7 +131,9 @@ async function inspectBusinessExport(kernel,artifact,workspace){
       refused("T3_CORPORATE_EXCHANGE_EXPORT_INCOMPLETE");
     requireCompleteBusinessArchive(inspected,workspace);
   }finally{
-    if(id(inspected?.preview_token))await kernel.importCancel(inspected.preview_token);
+    if(id(inspected?.preview_token)&&
+       await kernel.importCancel(inspected.preview_token)!==true)
+      refused("T3_CORPORATE_EXCHANGE_INSPECTION_CANCEL_UNCONFIRMED");
   }
 }
 function previewStateFor(key){
@@ -540,6 +542,7 @@ export function createSubjectKernelBinding({
     // Validate the original T2 Exchange owner receipts without modifying the
     // archive bytes or creating a parallel packager/manifest parser.
     if (method === "importPreview") {
+      try {
       const imported = result?.preview;
       const ids = imported?.manifest?.workspaces;
       const source = Array.isArray(ids) && ids.length === 1 ? ids[0] : null;
@@ -564,11 +567,9 @@ export function createSubjectKernelBinding({
           Date.parse(result.expires_at)<=Number(clock())) {
         refused("T3_KERNEL_IMPORT_SCOPE_MISMATCH");
       }
-    }
-    if(business&&method==="importPreview"){
-      try{requireCompleteBusinessArchive(result,workspace_id);}
-      catch(error){
-        if(id(result?.preview_token)&&kernel.hasOperation("t2.importCancel"))
+      if(business)requireCompleteBusinessArchive(result,workspace_id);
+      } catch(error){
+        if(business&&id(result?.preview_token)&&kernel.hasOperation("t2.importCancel"))
           try{await kernel.importCancel(result.preview_token);}catch{}
         throw error;
       }
@@ -591,6 +592,7 @@ export function createSubjectKernelBinding({
             mapping[source]===workspace_id));
       if (result?.package_digest!==command.package_digest ||
           result?.mode!==command.plan.mode || !validMapping ||
+          (business&&result?.skipped_conflicts?.length!==0) ||
           !Array.isArray(result?.skipped_conflicts) ||
           result.skipped_conflicts.some(key =>
             typeof key!=="string" ||
