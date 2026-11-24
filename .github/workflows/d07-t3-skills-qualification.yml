@@ -1,0 +1,73 @@
+name: D07 T3 exact-field and skill-update qualification
+on:
+  push:
+    branches: [work/2026-11-02-pipeline-foundation]
+    paths: [.github/workflows/d07-t3-skills-qualification.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-t3-skill-qualification
+  cancel-in-progress: true
+jobs:
+  exact-original-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: e887b0c6864bafc686f42ee03671a5b809d8dc9e
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: domain
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 7c3efe13889706d6bf2af72a34c5a01c8f6d5a58
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: assistant
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.2'
+      - name: Exact field-policy scenarios and generated skills
+        env:
+          D07_ORIGINAL_ASSISTANT_DIR: ${{ github.workspace }}/assistant/browser-local-inference/domain-assistant
+        run: |
+          node --test domain/tests/assistant-skills.test.mjs domain/tests/assistant-skill-field-policy.test.mjs > "$RUNNER_TEMP/skill-policy.log" 2>&1 || {
+            echo D07_T3_EXACT_POLICY=FAIL
+            grep -E '^not ok|^# (tests|pass|fail)|^  (error|code|operator):|^    (T3_ASSISTANT_[A-Z_]+|AssertionError)' "$RUNNER_TEMP/skill-policy.log" | cut -c1-180 | head -30
+            exit 1
+          }
+          echo D07_T3_EXACT_POLICY=PASS
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/skill-policy.log"
+      - name: Preview and reapply identical canonical package without mutation
+        working-directory: site
+        run: |
+          bun install --frozen-lockfile > "$RUNNER_TEMP/skill-install.log" 2>&1
+          cmp ../domain/models/assistant-skills.json public/assets/d07-assistant-skills.json
+          before="$(sha256sum public/assets/d07-assistant-skills.json runtime/t3-platform/0.3.1-rc.1/domain-skills.json)"
+          for mode in --preview --apply; do
+            npm run t3:skills -- "$mode" ../domain e887b0c6864bafc686f42ee03671a5b809d8dc9e ../assistant > "$RUNNER_TEMP/skill-import.log" 2>&1 || {
+              echo D07_T3_SKILL_IMPORT=FAIL
+              grep -E '^Error: (D07_|T3_)' "$RUNNER_TEMP/skill-import.log" | cut -c1-180
+              exit 1
+            }
+            grep -q '"state":"UNCHANGED"' "$RUNNER_TEMP/skill-import.log"
+            test "$before" = "$(sha256sum public/assets/d07-assistant-skills.json runtime/t3-platform/0.3.1-rc.1/domain-skills.json)"
+          done
+          echo D07_T3_SKILL_PREVIEW_NO_WRITE=PASS
+          echo D07_T3_SKILL_REIMPORT_IDEMPOTENT=PASS
+      # Do not publish private source, logs, or build artifacts.
