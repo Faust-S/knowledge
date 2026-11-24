@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 7e369cca801b05a193ef940f65cce88d5a6668e8
+          ref: f32f6d802bc0a88258ab8e85e09599c4957b7169
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 23b5f8e24a8181fcd98f691a0cacd2303979e91d
+          ref: ba43c6c529efa01fd72d2cf84bf337436cc2b10a
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club
@@ -71,7 +71,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: 3acda5013df9d0b2dfb2984cdef3fd867abef159
+          ref: 05d81ea61623a77ea9151b7a252a5fca967a9868
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club-owner
@@ -138,12 +138,18 @@ jobs:
           set -e
           grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-explicit-challenge.log" || true
           if test "$result" != 0; then echo T3_CLUB_EXPLICIT_CHALLENGE_FAIL; exit 1; fi
+          set +e
+          node t3-explicit-facts-regression.mjs "$stage/domain-assistant" "$GITHUB_WORKSPACE/private-club" --expanded --enforce > "$RUNNER_TEMP/private-expanded.log" 2>&1
+          result=$?
+          set -e
+          grep -E '^T3_CLUB_EXPLICIT_FACTS_[A-Z_]+ ' "$RUNNER_TEMP/private-expanded.log" || true
+          if test "$result" != 0; then echo T3_CLUB_EXPANDED_FACTS_FAIL; exit 1; fi
       - name: Remove private staged data and logs
         if: always()
         shell: bash
         run: |
           rm -rf "$RUNNER_TEMP/assistant-candidate" "$RUNNER_TEMP/private-mobile-source.log" "$RUNNER_TEMP/private-mobile-dom.log" "$RUNNER_TEMP/heldout-prompts.json" "$RUNNER_TEMP/heldout-preparation.log"
-          rm -rf private-bli private-club private-club-owner "$RUNNER_TEMP/private-owner-skills.log" "$RUNNER_TEMP/private-explicit-facts.log" "$RUNNER_TEMP/private-explicit-challenge.log"
+          rm -rf private-bli private-club private-club-owner "$RUNNER_TEMP/private-owner-skills.log" "$RUNNER_TEMP/private-explicit-facts.log" "$RUNNER_TEMP/private-explicit-challenge.log" "$RUNNER_TEMP/private-expanded.log"
   shared-host:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -153,7 +159,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 7e369cca801b05a193ef940f65cce88d5a6668e8
+          ref: f32f6d802bc0a88258ab8e85e09599c4957b7169
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-bli
@@ -161,7 +167,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 23b5f8e24a8181fcd98f691a0cacd2303979e91d
+          ref: ba43c6c529efa01fd72d2cf84bf337436cc2b10a
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-club

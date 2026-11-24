@@ -9,7 +9,8 @@ const root=resolve(process.argv[2]);
 const pack=readFileSync(process.argv[3],"utf8");
 const realPage=readFileSync(resolve(dirname(process.argv[3]),"../tools/personal-economy/index.html"),"utf8");
 const formMarkup=realPage.match(/<form\b[^>]*data-cash-calendar-entry[^>]*>[\s\S]*?<\/form>/)?.[0];
-if(!formMarkup)throw Error("ACTUAL_CLUB_CASH_FORM_REQUIRED");
+const economyMarkup=realPage.match(/<form\b[^>]*data-pe-form[^>]*>[\s\S]*?<\/form>/)?.[0];
+if(!formMarkup||!economyMarkup)throw Error("ACTUAL_CLUB_MONEY_FORMS_REQUIRED");
 const origin="https://club.iwxa.ru";
 const assert=(value,code)=>{if(!value)throw Error(code);};
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -20,6 +21,7 @@ async function until(fn,code){
 function define(name,value){Object.defineProperty(globalThis,name,{configurable:true,writable:true,value});}
 const scenarios=[
  {id:"no-webgpu",gpu:false,ram:4,mobile:true,recommend:null},
+ {id:"currency-no-webgpu",gpu:false,ram:4,mobile:true,recommend:null,economy:true},
  {id:"entry-android",gpu:true,f16:false,ram:4,mobile:true,recommend:"light",vram:1061,select:"balanced",download:"900 МБ"},
  {id:"strong-android",gpu:true,f16:true,ram:8,mobile:true,recommend:"balanced",vram:945,select:"balanced",download:"900 МБ"},
  {id:"unknown-safari-memory",gpu:true,f16:true,mobile:true,recommend:"light",vram:945},
@@ -27,7 +29,7 @@ const scenarios=[
  {id:"restored-profile",gpu:true,f16:true,ram:4,mobile:true,recommend:"light",stored:"balanced",vram:1630,initialSize:"900 МБ"},
 ];
 for(const [i,c] of scenarios.entries()){
-  const dom=new JSDOM('<!doctype html><main>'+formMarkup+'<div data-iwxa-domain-assistant data-assistant-skills="/assets/club-assistant-skills.json" data-assistant-label="Помощник Club"></div></main>',{url:origin+"/tools/personal-economy/",pretendToBeVisual:true});
+  const dom=new JSDOM('<!doctype html><main>'+(c.economy?economyMarkup:formMarkup)+'<div data-iwxa-domain-assistant data-assistant-skills="/assets/club-assistant-skills.json" data-assistant-label="Помощник Club"></div></main>',{url:origin+"/tools/personal-economy/",pretendToBeVisual:true});
   const win=dom.window,nav=win.navigator;
   // JSDOM has no layout. Test the real form DOM and native validity, not
   // a claim that actual mobile browser geometry has been observed.
@@ -132,6 +134,27 @@ for(const [i,c] of scenarios.entries()){
       assert(at("stored-list").children.length===0,"EMPTY_STORAGE_INVENTORY");
       assert(probes===beforeProbe&&workers===0&&modelRequests===0,"INVENTORY_NO_GPU_NETWORK");
 
+    }
+    if(c.economy){
+      const form=win.document.querySelector("[data-pe-form]"),currency=form.elements.namedItem("currency"),income=form.elements.namedItem("regularIncome"),expenses=form.elements.namedItem("mandatoryExpenses");
+      let submits=0;form.addEventListener("submit",e=>{e.preventDefault();submits++;});
+      at("scan-forms").click();at("form-choice").value="form_1";at("form-choice").dispatchEvent(new win.Event("change"));
+      assert(at("field-group").options.length===2,"ACTUAL_LARGE_FORM_GROUPS");
+      assert(currency.value==="RUB"&&income.value===""&&expenses.value==="","INITIAL_CURRENCY_VALUES");
+      at("prompt").value="Валюта USD. Регулярный доход 1200 долларов, обязательные расходы 800 долларов.";
+      at("explicit-values").click();
+      assert(at("preview").children.length===1&&at("unresolved-fields").textContent.includes("Сначала укажите валюту"),"CURRENCY_MISMATCH_ONLY_CURRENCY_PROPOSED");
+      const choice=at("preview").querySelector("select");assert(choice.value==="USD","USD_PROPOSED");
+      choice.closest("li").querySelector("input[type=checkbox]").checked=true;at("apply").click();
+      assert(currency.value==="USD"&&income.value===""&&expenses.value==="","APPLY_CURRENCY_ONLY");
+      at("explicit-values").click();
+      assert(at("preview").children.length===3,"AMOUNTS_AFTER_CURRENCY");at("apply").click();
+      assert(currency.value==="USD"&&income.value==="1200"&&expenses.value==="800","EXACT_CURRENCY_AMOUNTS");
+      income.value="";expenses.value="";
+      at("prompt").value="Валюта USD. Регулярный доход 1800 долларов.";at("explicit-values").click();
+      const altered=at("preview").querySelector("select");altered.value="EUR";altered.closest("li").querySelector("input[type=checkbox]").checked=true;
+      at("apply").click();assert(currency.value==="EUR"&&income.value==="","CURRENCY_CHANGED_DURING_CONFIRMATION_BLOCKS_AMOUNT");
+      assert(submits===0&&workers===0&&modelRequests===0,"CURRENCY_ROUTE_NO_SAVE_OR_MODEL");
     }
     at("model-settings").open=true;
     at("model-settings").dispatchEvent(new win.Event("toggle"));
