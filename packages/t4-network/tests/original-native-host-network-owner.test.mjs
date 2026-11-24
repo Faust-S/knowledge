@@ -129,7 +129,7 @@ async function sourceFixture(loseOriginalWrite=false){
 function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=deny,requestBaseline=true,
   localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow,
   indexMigration=false,technicalRead=allow,explicitResume=false,resumeInput=null,resumeAdmission=deny,
-  nativeTopologyTransport=null}){
+  nativeTopologyTransport=null,requireSignedTopologyAccess=false}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
@@ -175,7 +175,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
   };
   const owner=createT4OriginalNativeHostNetworkOwner({...scope(tech),role,requiredCryptoSuite:SUITE,
     getMode:()=>mode,...(nativeTopologyTransport?{nativeTopologyTransport}:{wireTransport:wire.wire}),originalPorts,enableLocalSourceCapture:localCapture,enablePublicationIndexMigration:indexMigration,monotonicNow:()=>clock,
-    enableExplicitNetworkResume:explicitResume,readOriginalNetworkResumeInput:resumeInput,
+    enableExplicitNetworkResume:explicitResume,readOriginalNetworkResumeInput:resumeInput,requireSignedTopologyAccess,
     readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null,
     onStep:r=>results.push(r)});
   const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,networkOwner:{
@@ -751,10 +751,14 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
       retentionClass:'test',recoveryClass:'test',universalCloudMaster:false,subjectActionAuthority:false},
       primaryNodeRef:S,replicaNodeRefs:[server]}]});
   let current=topology,requests=0,credentials=0;const records=new Map();
+  const routeAuthority=createTemporaryOriginalPersonalAuthority({workspaceId:WS,
+    operations:caps.map(c=>'t4.'+c),purpose:'network.synchronization',clock:Date.now});
   const transport=openT4NativeTopologyTransport({topology,workspaceId:WS,objectFamily:family,serverNodeRef:server,
+    originalSignedAccess:{access:routeAuthority.access,expectedContext:routeAuthority.access.currentContext()},
     nativeWireProfile:'INDEXED',readOriginalTopology:async()=>current,getMode:()=> 'T4_NETWORK',
     verifyOriginalEndpoint:async p=>p.endpointUrl==='https://native.example.test/dav/'&&p.originalWriteOwnerRef===OWNER,
-    authorizeOriginalOperation:async p=>p.originalWriteOwnerRef===OWNER&&p.storageLocationIsNotProtocolPeer,
+    authorizeOriginalOperation:async p=>p.originalWriteOwnerRef===OWNER&&p.storageLocationIsNotProtocolPeer&&
+      p.originalSignedSubject?.principal_id==='person:local'&&p.originalSignedSubject?.workspace_id===WS,
     getAuthorizationHeader:async()=>{credentials++;return 'Bearer test';},
     fetchImpl:async(url,options)=>{
       requests++;assert.equal(url.origin,'https://native.example.test');
@@ -764,10 +768,13 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
       if(records.has(k))return new Response(null,{status:412});
       records.set(k,Buffer.from(options.body));return new Response(null,{status:201});
     }});
-  const f=recoverySource(source,null,{nativeTopologyTransport:transport,localCapture:true});
+  const f=recoverySource(source,null,{nativeTopologyTransport:transport,localCapture:true,requireSignedTopologyAccess:true});
   try{
     const s=await f.attach();await f.drive(s,'HEADS_PRESENT');
     assert.equal(f.owner.originalTopologyBinding.topologyDigest,topology.topologyDigest);
+    assert.equal(f.owner.originalSignedTopologyAccess,true);
+    assert.ok(routeAuthority.proofCount>0);
+    assert.equal(routeAuthority.proofCount,routeAuthority.registryReads);
     assert.equal(f.owner.originalTopologyBinding.serverNodeRef,server);
     assert.equal(f.owner.identity.recipientNodeRef,R);
     assert.equal([...records.keys()].filter(k=>k.endsWith('.t4n')).length,1);

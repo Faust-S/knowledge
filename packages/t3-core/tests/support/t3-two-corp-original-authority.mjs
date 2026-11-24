@@ -65,6 +65,12 @@ const ACTIONS=Object.freeze({
   "t1.getObject":"object.read",
   "t1.listEventsSince":"event.read",
   "t1.putObject":"object.write",
+  // Explicit TEST-only signed organizational network actions.
+  "t4.network.frame.read":"t4.network.frame.read",
+  "t4.network.frame.publish":"t4.network.frame.publish",
+  "t4.network.frame.discover":"t4.network.frame.discover",
+  "t4.network.frame.index.read":"t4.network.frame.index.read",
+  "t4.network.frame.index.publish":"t4.network.frame.index.publish",
 });
 export function model({operations=["t1.putObject"]}={}){
   assert.ok(Array.isArray(operations)&&operations.length>0&&
