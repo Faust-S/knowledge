@@ -40,10 +40,17 @@ function setup({wrongManager=false,lostAck=false,pretrustEmployees=true,
  auth.resources.push('authority:issuer:north','workspace:ws:north',
   'subject:org:north','recipient:org:north','field:result','field:task','operation:UPSERT');
  auth.actions.push('grant.issue','work.prepare','package.export');
+ auth.actions.push('workspace.read','workspace.create','workspace.exchange.import');
  auth.purposes.push('access-administration','work','handoff','assignment');
+ auth.purposes.push('workspace.read','workspace.work','workspace.onboarding','workspace.exchange.import');
  Object.assign(fixture.policy.actionCatalog,{
-  'grant.issue':'ADMINISTRATION','work.prepare':'ACTION','package.export':'DATA'
+  'grant.issue':'ADMINISTRATION','work.prepare':'ACTION','package.export':'DATA',
+  'workspace.read':'DATA','object.write':'ACTION',
+  'workspace.create':'ACTION','workspace.exchange.import':'ACTION'
  });
+ // The Kernel's immutable initial trust anchor must match the expanded
+ // fixture policy exactly. The test-only model keeps an independent copy.
+ fixture.state.policy=structuredClone(fixture.policy);
  const admin={...fixture.state.grants['grant:north'].payload,
   id:'grant:admin-north',lineageId:'grant:admin-north',
   roleId:'role:manager',rightClass:'ADMINISTRATION',
@@ -617,3 +624,117 @@ test('original installed Admin graph-only Kernel admits two independently signed
  assert.equal((await s.registry.readState()).statusFloor['issuer:north'],7);
 });
 
+
+
+test('independent employee Workspace rights are separately approved, original signed, atomic and cold-readable',async()=>{
+ const s=setup({graphKernel:true});await s.init();
+ const begin=await s.owner.begin(s.input(s.alice));
+ const enrollment=await s.owner.complete({enrollmentId:begin.enrollmentId,
+   employeeProof:makeProof(begin.request,begin.challenge,NOW,s.alice.signer,'TEST')});
+ const args={organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:enrollment.enrollmentId,managerPersonId:'person:operator',
+  managerGrantId:'grant:admin-north'};
+ const before=await s.registry.readState(),initialEvents=s.graphCalls.length;
+ const absent=await s.owner.readWorkspaceGrantSet(args);
+ assert.equal(absent.state,'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_NOT_FOUND');
+ await assert.rejects(s.owner.issueWorkspaceGrantSet(args),
+  {code:'T3_EMPLOYEE_WORKSPACE_EXPLICIT_APPROVAL_REQUIRED'});
+ assert.equal(s.graphCalls.length,initialEvents,
+  'No Kernel write before independent explicit manager consent');
+ const issued=await s.owner.issueWorkspaceGrantSet({...args,confirmed:true});
+ assert.equal(issued.state,'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE');
+ assert.equal(issued.originalReadback,true);
+ assert.equal(issued.safeToReissue,false);
+ assert.equal(s.graphCalls.length,initialEvents+1,
+  'Four original grants and signed status in ONE existing Kernel graph');
+ assert.equal(issued.statusSequence,before.statusFloor['issuer:north']+1);
+ const spec={
+  readAccess:['workspace.read','workspace.read','DATA'],
+  writeAccess:['object.write','workspace.work','ACTION'],
+  createAccess:['workspace.create','workspace.onboarding','ACTION'],
+  importAccess:['workspace.exchange.import','workspace.exchange.import','ACTION']
+ };
+ const state=await s.registry.readState();
+ for(const [key,[action,purpose,rightClass]] of Object.entries(spec)){
+  const binding=issued.attachments[key];
+  assert.equal(binding.grantId,binding.membership.grantId);
+  assert.equal(binding.enrollment.payload.credentialPublicKeyRef,
+   s.alice.signer.keyId);
+  assert.equal(binding.binding.holderPersonId,'person:alice');
+  assert.equal(state.grants[binding.grantId].payload.actions[0],action);
+  assert.equal(state.grants[binding.grantId].payload.purposes[0],purpose);
+  assert.equal(state.grants[binding.grantId].payload.rightClass,rightClass);
+ }
+ const original=await s.owner.readEnrollment({
+  organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:enrollment.enrollmentId});
+ assert.equal(original.state,'ORIGINAL_GRANTS_ACTIVE',
+  'Extra Workspace rights do NOT corrupt historical two-grant enrollment');
+ const coldOwner=createOriginalEmployeeEnrollmentOwner({
+  registry:s.registry,issuerSigner:s.north.issuerSigner,clock:time,
+  trustedOrganization:s.north.descriptors.organizations[0],
+  trustedWorkspaceId:'ws:north',
+  proveManager:async({request,challenge})=>
+   makeProof(request,challenge,NOW,s.north.credentialSigner,'TEST')
+ });
+ const recovered=await coldOwner.readWorkspaceGrantSet(args);
+ assert.equal(recovered.state,'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE');
+ assert.deepEqual(recovered.grantIds.slice().sort(),issued.grantIds.slice().sort());
+ await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,confirmed:true}),
+  {code:'T3_EMPLOYEE_WORKSPACE_RIGHTS_EXIST_USE_READBACK'});
+ await assert.rejects(s.owner.readWorkspaceGrantSet({...args,organizationId:'org:south'}),
+  {code:'T3_EMPLOYEE_WORKSPACE_SCOPE_CHANGED'});
+});
+
+
+test('separate signed Workspace import right is revoked without losing original employee membership',async()=>{
+ const s=setup({graphKernel:true});await s.init();
+ const started=await s.owner.begin(s.input(s.alice));
+ await s.owner.complete({enrollmentId:started.enrollmentId,
+  employeeProof:makeProof(started.request,started.challenge,NOW,s.alice.signer,'TEST')});
+ const args={organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:started.enrollmentId,managerPersonId:'person:operator',
+  managerGrantId:'grant:admin-north'};
+ const permitted=await s.owner.issueWorkspaceGrantSet({...args,confirmed:true});
+ assert.equal(permitted.state,'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE');
+ const importGrantId=permitted.attachments.importAccess.grantId;
+ const prior=await s.registry.readState(),authority='issuer:north';
+ const next=structuredClone(prior),status=prior.statuses[authority].payload;
+ next.tombstones[importGrantId]={
+  effectiveAt:iso(NOW),reason:'original-employee-exchange-revoke'};
+ next.statuses[authority]=signRecord({...status,
+  id:'status:employee-workspace-import-revoked',sequence:status.sequence+1,
+  issuedAt:iso(NOW),entries:status.entries.map(row=>
+   row.grantId===importGrantId?{...row,state:'REVOKED',effectiveAt:iso(NOW)}:row)
+ },s.north.issuerSigner);
+ next.statusFloor[authority]=status.sequence+1;
+ await s.registry.commitSignedState(next);
+ await assert.rejects(s.owner.readWorkspaceGrantSet(args),
+  {code:'T3_EMPLOYEE_WORKSPACE_RIGHT_REVOKED_OR_UNKNOWN'});
+ const enrolled=await s.owner.readEnrollment({
+  organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:started.enrollmentId});
+ assert.equal(enrolled.state,'ORIGINAL_GRANTS_ACTIVE');
+ await assert.rejects(s.owner.issueWorkspaceGrantSet({...args,confirmed:true}),
+  {code:'T3_EMPLOYEE_WORKSPACE_RIGHTS_EXIST_USE_READBACK'});
+});
+test('lost ACK after original atomic employee Workspace rights commit cannot reissue grants',async()=>{
+ const s=setup({graphKernel:true});await s.init();
+ const started=await s.owner.begin(s.input(s.alice));
+ await s.owner.complete({enrollmentId:started.enrollmentId,
+  employeeProof:makeProof(started.request,started.challenge,NOW,s.alice.signer,'TEST')});
+ const args={organizationId:'org:north',employeePersonId:'person:alice',
+  enrollmentId:started.enrollmentId,managerPersonId:'person:operator',
+  managerGrantId:'grant:admin-north',confirmed:true};
+ const count=s.graphCalls.length;s.loseNext();
+ await assert.rejects(s.owner.issueWorkspaceGrantSet(args),
+  /SIMULATED_LOST_ACK_AFTER_KERNEL_COMMIT/);
+ assert.equal(s.graphCalls.length,count+1,
+  'One original atomic Kernel write happened before the ACK was lost');
+ const recovered=await s.owner.readWorkspaceGrantSet(args);
+ assert.equal(recovered.state,'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE');
+ assert.equal(recovered.grantIds.length,4);
+ await assert.rejects(s.owner.issueWorkspaceGrantSet(args),
+  {code:'T3_EMPLOYEE_WORKSPACE_OUTCOME_UNKNOWN_READBACK'});
+ assert.equal(s.graphCalls.length,count+1);
+});
