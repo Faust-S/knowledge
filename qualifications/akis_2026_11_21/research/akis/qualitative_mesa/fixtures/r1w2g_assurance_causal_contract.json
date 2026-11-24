@@ -1,0 +1,66 @@
+{
+  "schema": "IWXA_AKIS_R1W2G_ASSURANCE_CAUSAL_PARITY/0.1",
+  "case_id": "AKIS-R1W2G-TERMINAL-001",
+  "inputs": {
+    "currency": "RUB",
+    "criterion_ids": [
+      "fit",
+      "documents"
+    ],
+    "failed_criterion": "documents",
+    "reassessment_reason": "MEASUREMENT_ERROR",
+    "additional_resources_rub": [
+      4500,
+      1700
+    ]
+  },
+  "expected_common": {
+    "reassessment": {
+      "negative_blocks_acceptance": true,
+      "unqualified_overwrite_blocked": true,
+      "prior_negative_act_preserved": true,
+      "same_execution_anchor": true,
+      "distinct_error_and_new_act": true,
+      "assessment_count": 3,
+      "physical_attempt_count": 0,
+      "additional_resource_amounts_rub": [],
+      "one_original_work": true,
+      "wrong_recipient_blocked": true,
+      "accepted_by_original_recipient": true
+    },
+    "reexecution": {
+      "negative_blocks_acceptance": true,
+      "application_without_all_votes_blocked": true,
+      "all_independent_votes_before_application": true,
+      "additional_resource_claim_absent_at_application": true,
+      "execution_before_fresh_assessment": true,
+      "all_original_criteria_reassessed": true,
+      "acceptance_before_fresh_review_blocked": true,
+      "previous_negative_acts_preserved": true,
+      "assessment_count": 6,
+      "physical_attempt_count": 2,
+      "additional_resource_amounts_rub": [
+        4500,
+        1700
+      ],
+      "distinct_resource_occurrence_per_attempt": true,
+      "original_responsibility_preserved": true,
+      "one_original_work": true,
+      "wrong_recipient_blocked": true,
+      "accepted_by_original_recipient": true
+    }
+  },
+  "comparison_boundaries": {
+    "native": "Final submitted Result, terminal original Operation, original event clock, prospective CapacityLedger reservations, declared noncash resource-use sources.",
+    "browser": "Terminal stage Assurance before the final Result, sequential stage/day progression, existing modeled external resource-expense ledger.",
+    "not_equivalent": [
+      "absolute_time",
+      "number_of_original_principals",
+      "capacity_reservation_semantics",
+      "result_identity_representation",
+      "currency_settlement_and_resource_use_accounting",
+      "intermediate_operation_and_material_dependency_reexecution"
+    ],
+    "excluded": "No actual bank payment or empirical certification inferred."
+  }
+}
