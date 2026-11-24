@@ -106,7 +106,8 @@ async function fixture(){
   const read=(captureRef)=>readT4OriginalHostCapturedSubject({...common,kind:'GRAPH_COMMIT',subjectId:target,captureRef});
   const capture=async()=>{const h=host();const r=await h.commitObjectGraph({mutationInput:input(),captureRef:'capture:k21:one'});
     h.dispose();return r;};
-  return {...f,ledger,common,cursor,host,read,capture,get entries(){return entries}};
+  return {...f,ledger,common,cursor,host,read,capture,get graphWrites(){return f.graphWrites},
+    get graphInvocations(){return f.graphInvocations},get entries(){return entries}};
 }
 async function recipientFixture(captured,{loseAck=false}={}){
   const f=await seeded('recipient'),d=captured.prepared.delta,technicalWorkspaceId='ws:k21:recipient:technical';
@@ -137,7 +138,8 @@ async function recipientFixture(captured,{loseAck=false}={}){
       held=true;entries++;try{return await action();}finally{held=false;}
     }});
   if(loseAck)f.loseAck();
-  return {...f,args,phase,received,get entries(){return entries}};
+  return {...f,args,phase,received,get graphWrites(){return f.graphWrites},
+    get graphInvocations(){return f.graphInvocations},get entries(){return entries}};
 }
 test('K21 one original graph transaction captures Object, relation creation and unrelated relation deletion; historical Outbox survives next graph',async()=>{
   const f=await fixture(),one=await f.capture();
