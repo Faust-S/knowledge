@@ -316,12 +316,13 @@ def test_second_material_generation_preserves_both_old_generations():
     assert x.w.assurance_corrections[0]==first
 
 
-def strict_world():
+def strict_world(sample=None):
     # Collect all source declarations from the actual non-strict event
     # sequence. The strict case then obtains its own new fingerprint.
-    sample=MaterialCase();sample.proposal();sample.approve();sample.complete_plan()
-    sample.resubmit("model://a/final-v2");sample.assess("model://a/final-v2")
-    sample.action("accept","c")
+    if sample is None:
+        sample=MaterialCase();sample.proposal();sample.approve();sample.complete_plan()
+        sample.resubmit("model://a/final-v2");sample.assess("model://a/final-v2")
+        sample.action("accept","c")
     d=world()
     principals=["op","a","b","c"]
     actions={e["action"] for e in sample.events if e["action"] not in {"offer","reject"}}
