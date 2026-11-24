@@ -5191,6 +5191,18 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.equal((await done.inspectResult()).state,'APPLIED_VERIFIED');
         assert.equal(done.signedFrameCount,done.actualFramePutCount);
       }
+      // All earlier put receipts remain verifiable through their actual typed
+      // Event continuation after both real subjects are deleted and cold-read.
+      for(const done of mixedCompleted.filter(x=>x.kind==='ASSET_PUT'||x.kind==='RELATION_PUT')){
+        const historic=await done.inspectResult();
+        assert.equal(historic.state,'APPLIED_HISTORICAL_EVENT_VERIFIED');
+        assert.equal(historic.currentSubjectDeleted,true);
+        assert.equal(historic.originalT3DeletionContinuationVerified,true);
+        assert.equal(historic.historicalSubjectBytesReconstructed,false);
+        assert.equal(historic.originalRecipientEventId,done.result.originalRecipientEventId);
+        assert.equal((await done.sourcePhase().inspectOriginalSession()).currentPhase,'APPLIED_CONFIRMED');
+        assert.equal((await done.recipientPhase().inspectOriginalSession()).currentPhase,'APPLIED');
+      }
       assert.equal((await p2fRunHostPrepare()).result.state,'NO_NEXT_ORIGINAL_EVENT');
       assert.deepEqual((await p2eCursorPort().inspectOriginalHostCursor()).originalT3NextCursor,mixedTail);
       console.log('T4_REAL_ORIGINAL_T3_NATIVE_MIXED_DELETE_BACKLOG_PASS',JSON.stringify({
@@ -5203,6 +5215,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         recipientOriginalLostRepliesRecoveredWithoutRepeat:true,
         originalRelationBothEndpointsAbsent:true,originalAssetAbsent:true,
         earlierPutBytesFromDurableOriginalOutbox:true,
+        earlierOriginalPutResultsRetainedAfterActualDeletion:3,
+        noHistoricalAssetBytesReconstructed:true,
         originalHostAckFrontierCASCount:11,noRemainingCapture:true,
         signedNativeDeletionFrames:deletedCompleted.reduce((n,x)=>n+x.signedFrameCount,0),
         sourceMutationBoundary:'SINGLE_EXECUTOR_TEST_FIXTURE',

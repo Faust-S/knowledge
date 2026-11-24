@@ -16,6 +16,9 @@ import {createT4OriginalNetworkSessionPhasePort}
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort}
   from '../src/network/original-network-publication.mjs';
 import {verifyT4OriginalDeleteDelta} from '../src/network/original-deletion-delta.mjs';
+import {verifyT4OriginalAssetDelta,digestT4OriginalAssetContent}
+  from '../src/network/original-asset-delta.mjs';
+import {verifyT4OriginalRelationPutDelta} from '../src/network/original-relation-delta.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,T4_SUBJECT_DELETE_EXTENSION}
   from '../src/network/standard-network-wire-candidate.mjs';
 
@@ -901,4 +904,101 @@ test('native Relation delete cannot acknowledge residual incoming edge',async()=
     error('DELETE_NATIVE_ORIGINAL_RELATION_IDENTITY_CONFLICT'));
   assert.equal((await x.d.phasePort().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
   assert.equal(x.counts().signCalls,1);
+});
+
+function historicalPutFixture(deleted,revision){
+  const d=deleted.delta,pre=d.preImage,asset=d.kind==='ASSET_DELETE';
+  const common={workspaceId:d.workspaceId,originalWriteOwnerRef:d.originalWriteOwnerRef,
+    sourceEventId:'event:historical:put:'+String(revision),
+    sourceEventDigest:H('historical-original-'+String(revision)),
+    originalEventType:'source.subject.changed',windowDigest:H('historical-window-'+String(revision))};
+  let delta,exact,digest,subjectId;
+  if(asset){
+    const content=Buffer.from(revision===pre.revision?'exact prior asset':'first prior asset');
+    delta={schema:'IWXA_T4_ORIGINAL_ASSET_DELTA_V1',...common,
+      assetId:pre.assetId,objectId:pre.objectId,mime:pre.mime,
+      baseRevision:revision-1,sourceRevision:revision,bytesBase64:content.toString('base64'),
+      assetBytesSha256:H(content).slice(7),assetSize:content.length};
+    exact=verifyT4OriginalAssetDelta(delta);
+    digest=digestT4OriginalAssetContent(delta);subjectId=pre.assetId;
+  }else{
+    const descriptor={workspaceId:d.workspaceId,relationId:pre.relationId,
+      fromObjectId:pre.fromObjectId,toObjectId:pre.toObjectId,kind:pre.relationKind};
+    delta={schema:'IWXA_T4_ORIGINAL_RELATION_PUT_DELTA_V1',...common,
+      ...descriptor,relationContentDigest:H(bytes(descriptor))};
+    exact=verifyT4OriginalRelationPutDelta(delta);
+    digest=delta.relationContentDigest;subjectId=pre.relationId;
+  }
+  const payload={originalEventId:delta.sourceEventId,
+    originalWriteOwnerRef:delta.originalWriteOwnerRef,
+    originalEventDigest:delta.sourceEventDigest,originalDeltaSha256:exact.sha256,
+    ...(asset?{originalAssetId:subjectId,originalAssetRevision:revision,
+      sourceDigest:delta.assetBytesSha256,originalContentDigest:digest}:
+      {originalRelationId:subjectId,originalRelationDigest:digest})};
+  const event={event_id:'recipient:historical:put:'+String(revision),
+    workspace_id:d.workspaceId,object_id:asset?pre.objectId:pre.fromObjectId,revision,
+    event_type:asset?'iwxa.t4.original-asset.synced':'iwxa.t4.original-relation.synced',
+    idempotency_key:(asset?'t4-asset-':'t4-relation-')+exact.sha256,payload};
+  const received={...deleted,changeKind:asset?'ASSET_PUT':'RELATION_PUT',
+    originalSubjectId:subjectId,originalSourceRevision:revision,
+    originalStateDigest:digest,originalEventDigest:delta.sourceEventDigest,
+    delta:exact.delta,sha256:exact.sha256,key:exact.key};
+  return {received,event};
+}
+for(const kind of ['ASSET_DELETE','RELATION_DELETE']){
+  test(kind+' preserves earlier exact put proof through original deletion, never a fresh ACK',async()=>{
+    const x=await ackFixture({deleteKind:kind});
+    await recipientBinding(x).runNative(x.args());
+    const puts=kind==='ASSET_DELETE'?[1,2]:[null];
+    const prior=puts.map(r=>historicalPutFixture(x.d.received,r));
+    x.d.f.events.unshift(...prior.map(p=>p.event));
+    for(const p of prior){
+      const args=x.d.f.applyArgs(p.received);
+      const historic=await inspectT4OriginalNetworkRecipientResult({...args,allowHistoricalEventProof:true});
+      assert.equal(historic.state,'APPLIED_HISTORICAL_EVENT_VERIFIED');
+      assert.equal(historic.currentSubjectDeleted,true);
+      assert.equal(historic.currentRecipientRevision,null);
+      assert.equal(historic.originalT3DeletionContinuationVerified,true);
+      assert.equal(historic.historicalSubjectBytesReconstructed,false);
+      assert.equal(historic.originalDeletionRecipientEventId,x.d.f.events.at(-1).event_id);
+      assert.equal(historic.originalRecipientEventId,p.event.event_id);
+      assert.throws(()=>createT4OriginalNetworkAppliedAckBody({received:p.received,
+        verifiedResult:historic,ackRef:'ack:historical:forbidden'}),
+        error('SUBJECT_APPLIED_ACK_REQUIRES_ORIGINAL_RESULT'));
+      await assert.rejects(inspectT4OriginalNetworkRecipientResult(args),
+        error('SUBJECT_ORIGINAL_RESULT_EVENT_MISMATCH'));
+    }
+    assert.equal(x.counts().subjectWrites,1);
+  });
+}
+test('historical deletion proof rejects missing intermediate asset revision and changed exact deletion envelope',async()=>{
+  const x=await ackFixture({deleteKind:'ASSET_DELETE'});
+  await recipientBinding(x).runNative(x.args());
+  const first=historicalPutFixture(x.d.received,1),second=historicalPutFixture(x.d.received,2);
+  const deletion=x.d.f.events[0];
+  x.d.f.events.unshift(first.event);
+  const inspect=()=>inspectT4OriginalNetworkRecipientResult({
+    ...x.d.f.applyArgs(first.received),allowHistoricalEventProof:true});
+  await assert.rejects(inspect(),error('SUBJECT_HISTORICAL_CAUSAL_EVENT_GAP'));
+  x.d.f.events.splice(1,0,second.event);
+  assert.equal((await inspect()).state,'APPLIED_HISTORICAL_EVENT_VERIFIED');
+  deletion.payload.originalDeletionDelta.preImage.revision=3;
+  await assert.rejects(inspect(),error('SUBJECT_HISTORICAL_DELETION_EVENT_INVALID'));
+});
+test('historical relation put rejects arbitrary absence, reversed Event order and later reused identity',async()=>{
+  const x=await ackFixture({deleteKind:'RELATION_DELETE'});
+  await recipientBinding(x).runNative(x.args());
+  const deletion=x.d.f.events[0],prior=historicalPutFixture(x.d.received,null);
+  const inspect=()=>inspectT4OriginalNetworkRecipientResult({
+    ...x.d.f.applyArgs(prior.received),allowHistoricalEventProof:true});
+  x.d.f.events.splice(0,1,prior.event);
+  await assert.rejects(inspect(),error('SUBJECT_HISTORICAL_DELETION_EVENT_GAP'));
+  x.d.f.events.unshift(deletion);
+  await assert.rejects(inspect(),error('SUBJECT_HISTORICAL_DELETION_EVENT_GAP'));
+  x.d.f.events.splice(0,2,prior.event,deletion);
+  assert.equal((await inspect()).state,'APPLIED_HISTORICAL_EVENT_VERIFIED');
+  const reused={...prior.event,event_id:'recipient:reused:relation',
+    payload:{...prior.event.payload,originalEventId:'source:reused:relation'}};
+  x.d.f.events.push(reused);
+  await assert.rejects(inspect(),error('SUBJECT_HISTORICAL_DELETION_EVENT_GAP'));
 });
