@@ -44,10 +44,12 @@ jobs:
               return 1
             fi
             echo "D05_READ_${destination}=PASS"
-            if ! GIT_TERMINAL_PROMPT=0 git -c "http.extraheader=$header" clone --quiet --depth 1 --single-branch --branch "$branch" --no-tags "https://github.com/Faust-S/${repo}.git" "$destination" >/dev/null 2>&1; then
-              echo "D05_CLONE_${destination}=FAIL"
+            git init --quiet "$destination"
+            if ! GIT_TERMINAL_PROMPT=0 git -C "$destination" -c "http.extraheader=$header" fetch --quiet --depth 1 --no-tags "https://github.com/Faust-S/${repo}.git" "$expected" >/dev/null 2>&1; then
+              echo "D05_FETCH_PIN_${destination}=FAIL"
               return 1
             fi
+            git -C "$destination" checkout --quiet --detach FETCH_HEAD
             local actual
             actual="$(git -C "$destination" rev-parse HEAD)"
             if [ "$actual" != "$expected" ]; then
@@ -56,8 +58,8 @@ jobs:
             fi
             echo "D05_REVISION_${destination}=PASS"
           }
-          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "a72116b2d694f756b999c13d935f364c36bc398a" "site"
-          fetch_private "cehovod" "work/2026-11-23-d05-capacity-scenarios" "dbcce1a721f27f69661aa384ad2d1d2261f13f76" "domain"
+          fetch_private "cehovod.ru" "work/2026-10-23-t2-site-only" "18a1c32d62071305a4d43f5b96b491e116810358" "site"
+          fetch_private "cehovod" "work/2026-11-23-d05-capacity-scenarios" "2f61aa73d9b8ecd94a1a577aea480c83c7f9a2d8" "domain"
           unset header DOMEN
           # Use committed Git blobs, not CRLF-converted Windows checkout bytes.
           # The workflow reports only PASS/FAIL; no private source leaves CI.
