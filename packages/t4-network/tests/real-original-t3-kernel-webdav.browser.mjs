@@ -5206,11 +5206,20 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
       assert.equal(recipientPhaseAfterCold.recipientApplyIntentRequired,true);
       if(autoSource){
         const before=f2SignCalls;
-        assert.equal((await autoStep()).state,'NO_NEXT_ORIGINAL_EVENT');
+        // The next cold source wake belongs to the next captured session,
+        // not to the publication/phase ports closed over this session.
+        // For a non-final capture, verify its predecessor and pending event
+        // through the original cursor, then exercise it in the next session.
+        // Calling autoStep here would incorrectly pass the next session to
+        // the old session's deliberately exact fixture ports.
+        if(lastInBatch)assert.equal((await autoStep()).state,'NO_NEXT_ORIGINAL_EVENT');
+        else assert.equal((await p2eCursorPort().readNextOriginalSourceEvent()).state,
+          'NEXT_ORIGINAL_EVENT_READY_FOR_EXISTING_HOST_TASK');
         assert.equal(f2SignCalls,before);
         assert.equal(autoSealReads,1);
         assert.deepEqual(autoStates,['INTENT_RECORDED','HEADS_PRESENT','WAITING_FOR_DIFF',
-          'CONTENT_PRESENT','PUBLISHED_RECORDED','WAITING_FOR_ACK','NO_NEXT_ORIGINAL_EVENT']);
+          'CONTENT_PRESENT','PUBLISHED_RECORDED','WAITING_FOR_ACK',
+          ...(lastInBatch?['NO_NEXT_ORIGINAL_EVENT']:[])]);
         assert.equal(autoDiscovered,autoRecipient?0:contentSpecs.length+3);
         console.log('T4_REAL_ORIGINAL_T3_NATIVE_DISCOVERED_SOURCE_TASK_PASS',JSON.stringify({
           originalKernel:ORIGINAL_KERNEL,states:autoStates,
@@ -5218,7 +5227,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
           discoveredExactSlots:autoRecipient?null:autoDiscovered,
           sourceDurablePreparedBytesReusedAfterLostReply:true,originalSealedContentReads:autoSealReads,
           originalSourceAckCursorRevision:frontierRevision,
-          sourceCursorCommitReplyLost:true,coldSourceTaskFoundNoNextOriginalEvent:true,
+          sourceCursorCommitReplyLost:true,coldSourceTaskFoundNoNextOriginalEvent:lastInBatch,
+          coldSourceCursorFoundNextOriginalEvent:!lastInBatch,
           signedFrames:f2SignCalls,actualHTTPSFramePuts:f2NetworkWrites,
           originalRecipientSubjectWrites:totalNativeSubjectWrites()-writesBefore,
           originalSourceFramesRemoteReceiptFabricated:false,
