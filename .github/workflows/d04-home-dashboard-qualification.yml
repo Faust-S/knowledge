@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: d3215aab6e84e6ac2869dc981cf204f516226e15
+          ref: 4bca48b06d2f6a9aa00f9f0476381b0c5940379f
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,9 +51,9 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = d3215aab6e84e6ac2869dc981cf204f516226e15
+          test "$(git -C d04-private/site rev-parse HEAD)" = 4bca48b06d2f6a9aa00f9f0476381b0c5940379f
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 6018584f97be811c0b87831cfdacfba447153e8e
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 7703996af57f2c957bb5e862bb39d97eab59f210
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
         with:
@@ -207,20 +207,24 @@ jobs:
             console.log('D04_HOME_BROWSER_STAGE=GOAL_OBSERVATION_REFS');
             try {
               const linked=await runLifeOsGoalObservationRefsBrowser({chromium,origin:server.origin,selectWitnessOption});
-              if(linked.status!=='PASS'||linked.viewports.length!==2||linked.viewports.some(v=>v.objects!==2||v.resultEvents!==4||v.stalePreserved!==true||v.reselected!==true||v.reverseNavigation!==true||v.decisions!==true||v.allRevisions!==true||v.directSourceReselection!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_HOME_GOAL_REFS_RESULT_INCOMPLETE');
+              if(linked.status!=='PASS'||linked.viewports.length!==2||linked.viewports.some(v=>v.objects!==3||v.resultEvents!==6||v.repeatObservation!==true||v.repeatExplicitLink!==true||v.stalePreserved!==true||v.reselected!==true||v.reverseNavigation!==true||v.decisions!==true||v.allRevisions!==true||v.directSourceReselection!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_HOME_GOAL_REFS_RESULT_INCOMPLETE');
               linkedPassed=true;
               console.log('D04_HOME_GOAL_REFS=PASS');
+            console.log('D04_HOME_REPEAT_OBSERVATION=PASS');
+            console.log('D04_HOME_REPEAT_OBJECTS=3');
+            console.log('D04_HOME_REPEAT_RESULT_EVENTS=6');
               console.log('D04_HOME_GOAL_REVERSE_NAVIGATION=PASS');
               console.log('D04_HOME_JOINT_REVISION_HISTORY=PASS');
             } catch {console.log('D04_HOME_GOAL_REFS_INDEPENDENT=FAIL')}
             console.log('D04_HOME_BROWSER_STAGE=DAILY_PERSONAL_STUDY');
             try {
               const study=await runLifeOsDailyStudyBrowser({chromium,origin:server.origin,selectWitnessOption});
-              if(study.status!=='PASS'||study.viewports.length!==2||study.viewports.some(v=>v.objects!==29||v.resultEvents!==31||v.followupCycle!==true||v.snapshot!==true||v.goalLink!==true||v.directSourceGoal!==true||v.calendar!==true||v.retrospective!==true||v.paired!==true||v.threshold!==true||v.missing!==true||v.revision!==true||v.lag!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_STUDY_WITNESS_RESULT_INCOMPLETE');
+              if(study.status!=='PASS'||study.viewports.length!==2||study.viewports.some(v=>v.objects!==29||v.resultEvents!==31||v.followupCycle!==true||v.sourceReview!==true||v.samePeriodRecheck!==true||v.snapshot!==true||v.goalLink!==true||v.directSourceGoal!==true||v.calendar!==true||v.retrospective!==true||v.paired!==true||v.threshold!==true||v.missing!==true||v.revision!==true||v.lag!==true||(v.width===1440&&v.exchange!=='PASS')))throw Error('D04_STUDY_WITNESS_RESULT_INCOMPLETE');
               studyPassed=true;
               console.log('D04_HOME_DAILY_STUDY=PASS');
               console.log('D04_HOME_DAILY_STUDY_COLD_EXCHANGE=PASS');
-              console.log('D04_HOME_STUDY_SNAPSHOT_OBJECTS=29');
+              console.log('D04_HOME_STUDY_SOURCE_REVIEW=PASS');
+            console.log('D04_HOME_STUDY_SNAPSHOT_OBJECTS=29');
               console.log('D04_HOME_STUDY_SNAPSHOT_RESULT_EVENTS=31');
               console.log('D04_HOME_STUDY_SNAPSHOT_GOAL_LINK=PASS');
             }catch{console.log('D04_HOME_DAILY_STUDY=FAIL')}
