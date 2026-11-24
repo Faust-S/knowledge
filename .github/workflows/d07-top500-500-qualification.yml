@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: d07-top500-500
+  group: d07-top500-500-product
   cancel-in-progress: true
 jobs:
   method-check:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 38af8aa1a0c559926086c02165d235349ae449c1
+          ref: 9ef33c4c410385d6ff66261ed3f3cd643ce5d1f4
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -38,7 +38,7 @@ jobs:
         shell: bash
         run: |
           test "$(git -C domain rev-parse HEAD)" = "f1737f65c06e818137ecaf94381ca72743946420"
-          test "$(git -C site rev-parse HEAD)" = "38af8aa1a0c559926086c02165d235349ae449c1"
+          test "$(git -C site rev-parse HEAD)" = "9ef33c4c410385d6ff66261ed3f3cd643ce5d1f4"
           for path in domain/src/domain/service-subject*.ts; do
             f="$(basename "$path")"
             cmp "$path" "site/src/domain/$f" || { echo D07_DOMAIN_PARITY=FAIL; exit 2; }
@@ -182,6 +182,17 @@ jobs:
           }
           echo D07_500_T2_PLAN_CARD_TESTS=PASS
           awk '/^# tests / {t+=$3} /^# pass / {p+=$3} /^# fail / {f+=$3} END {printf "D07_N500_TESTS_TOTAL=%d\nD07_N500_TESTS_PASSED=%d\nD07_N500_TESTS_FAILED=%d\n",t,p,f; if(t<1||p!=t||f!=0)exit 1}' "$RUNNER_TEMP/d07-500-tests.log"
+      - name: Verify exact T2 criteria and explicit add-ons across all services
+        working-directory: site
+        shell: bash
+        run: |
+          node --import tsx --test scripts/tests/d07-professional-form-release.test.mjs scripts/tests/d07-generated-service-plans.test.mjs scripts/tests/d07-startable-catalog.test.mjs scripts/tests/d07-workspace-stages.test.mjs scripts/tests/d07-host-module-tsx-parse.test.mjs > "$RUNNER_TEMP/d07-n500-workspace.log" 2>&1 || {
+            echo D07_N500_WORKSPACE=FAIL
+            grep -E '^not ok|^# (tests|pass|fail)|^  (error|code|operator|location):|^    (D07_[A-Z0-9_]+|AssertionError|at )' "$RUNNER_TEMP/d07-n500-workspace.log" | cut -c1-240 | head -90
+            exit 1
+          }
+          echo D07_N500_WORKSPACE=PASS
+          grep -E '^# (tests|pass|fail)|^# D07_SITE_T2_ALL_METHOD_FORMS=' "$RUNNER_TEMP/d07-n500-workspace.log"
       - name: Validate site TypeScript and generate TOP500
         working-directory: site
         shell: bash
@@ -199,6 +210,8 @@ jobs:
             exit 1
           }
           echo D07_500_GENERATION=PASS
+          node --import tsx --input-type=module -e 'import {SUBJECT_PROTOCOLS} from "./src/domain/service-subject-protocols.ts";import {assessManualVariantCoverage} from "./src/domain/service-manual-variant-closure.ts";let count=0;for(const p of SUBJECT_PROTOCOLS){const a=assessManualVariantCoverage(p);if(a.unresolvedBranches){count+=a.unresolvedBranches;console.log("D07_VARIANT_OPEN="+p.serviceSlug+":"+a.findings.map((x,i)=>x.status==="needs-manual-resolution"?i+1:0).filter(Boolean).join(","));}}console.log("D07_VARIANT_OPEN_TOTAL="+count);'
+
           grep -E '^D07_(INDIVIDUAL_OPERATIONS|SOURCE_PRECISION_REVIEW|MANUAL_VARIANT_(BRANCHES|ROUTED|UNROUTED)|EXTERNAL_TECHNOLOGY_FIRST|INDEPENDENTLY_APPROVED_METHODS|PROFESSIONAL_FINALIZED|EXTERNAL_FACET_RESEARCH_TASKS)=' "$RUNNER_TEMP/d07-500-generate.log"
           node --input-type=module -e 'import fs from "node:fs";const f=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/d07-500-data/service-professional-finalization.top500.generated.json","utf8"));const v=f.counts;console.log("D07_TOP500="+v.selected);console.log("D07_INDIVIDUAL_IN_TOP500="+v.editorialWithIndividualTechnology);if(v.selected!==500||v.editorialWithIndividualTechnology!==500)process.exit(1);'
   original-t2-dist:
@@ -209,7 +222,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 38af8aa1a0c559926086c02165d235349ae449c1
+          ref: 9ef33c4c410385d6ff66261ed3f3cd643ce5d1f4
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
