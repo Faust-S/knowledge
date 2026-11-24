@@ -431,7 +431,8 @@ class ModelFormationPolicy:
         return "NONE", fn
 
     def _latest_agent_preparation(self, state: Any, work: Any,
-                                  fn_id: str, at: int) -> dict[str, Any] | None:
+                                  fn_id: str, at: int, *, after_event: bool = False) -> dict[str, Any] | None:
+        trace_before = at + int(after_event)
         candidates = [
             row for row in state.trace
             if row.get("action") == "function_prepare"
@@ -439,11 +440,15 @@ class ModelFormationPolicy:
             and row.get("work") == work.key and row.get("function_id") == fn_id
             and row.get("work_source_revision") == work.source_revision
             and row.get("org_revision") == state.institution.revision
-            and type(row.get("at")) is int and row["at"] < at
+            and type(row.get("at")) is int and row["at"] < trace_before
         ]
         return candidates[-1] if candidates else None
 
-    def _phase_six_ready(self, state: Any, work: Any, at: int) -> str:
+    def _phase_six_ready(self, state: Any, work: Any, at: int,
+                         *, after_event: bool = False) -> str:
+        # Same gate, explicit post-event boundary for read-only observation.
+        # Source validity is evaluated at at, never at at+1.
+        trace_before = at + int(after_event)
         functions = [
             fn for fn in self.design.declarations["agent_functions"]
             if fn["work"] == work.key and fn["work_revision"] == work.source_revision
@@ -454,7 +459,7 @@ class ModelFormationPolicy:
         if len(functions) != 1:
             return "FORMATION_AGENT_ONE_ORIGINAL_REVIEW_FUNCTION_REQUIRED"
         fn = functions[0]
-        prep = self._latest_agent_preparation(state, work, fn["id"], at)
+        prep = self._latest_agent_preparation(state, work, fn["id"], at, after_event=after_event)
         if prep is None:
             return "FORMATION_AGENT_PREPARATION_NOT_IN_ORIGINAL_TRACE"
         if (prep.get("actor") != fn["owner"] or
@@ -469,9 +474,9 @@ class ModelFormationPolicy:
         if (original_preparation_oc_edition(state, prep["at"])
                 != getattr(state, "model_org_code_edition", "BASE")):
             return "FORMATION_AGENT_ORIGINAL_OC_EDITION_CHANGED_AFTER_PACKET"
-        if not original_preparation_pattern_current(state, prep, at):
+        if not original_preparation_pattern_current(state, prep, at, after_event=after_event):
             return "FORMATION_AGENT_ORIGINAL_PATTERN_SOURCE_CHANGED_AFTER_PACKET"
-        reason = original_delegated_packet_current(state, work, fn, prep, at)
+        reason = original_delegated_packet_current(state, work, fn, prep, at, after_event=after_event)
         if reason != "NONE":
             return reason
         # Even a subsequently restored source must not silently reactivate a
@@ -489,7 +494,7 @@ class ModelFormationPolicy:
             and row.get("outcome") == "APPLIED"
             and row.get("source") in packet_sources
             and type(row.get("at")) is int
-            and prep["at"] < row["at"] < at
+            and prep["at"] < row["at"] < trace_before
             for row in state.trace
         ):
             return "FORMATION_AGENT_ORIGINAL_KPB_CHANGED_AFTER_PACKET"
@@ -502,7 +507,7 @@ class ModelFormationPolicy:
             and row.get("actor") == work.customer
             and row.get("org_revision") == state.institution.revision
             and row.get("work_source_revision") == work.source_revision
-            and type(row.get("at")) is int and row["at"] < at
+            and type(row.get("at")) is int and row["at"] < trace_before
         ]
         if not reviews:
             return "FORMATION_AGENT_ORIGINAL_CUSTOMER_APPROVAL_REQUIRED"

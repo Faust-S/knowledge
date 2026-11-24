@@ -527,18 +527,19 @@ def _original_preparation_mandate_verdict(state: Any, work: Any, fn: Mapping[str
 
 def original_preparation_mandate(state: Any, work: Any, fn: Mapping[str, Any],
                                  delegation_at: Any, at: int, *,
-                                 fresh_use: bool = False) -> tuple[str, Any]:
+                                 fresh_use: bool = False, after_event: bool = False) -> tuple[str, Any]:
     """Resolve the latest APPLIED grant in the SAME original Work trace.
 
     A later grant supersedes, rather than revives, an old packet. A new
     preparation requires its own mandate; review and commit recheck it.
     """
-    if type(delegation_at) is not int or delegation_at >= at:
+    trace_before = at + int(after_event)
+    if type(delegation_at) is not int or delegation_at >= trace_before:
         return "FORMATION_AGENT_ORIGINAL_DELEGATION_REQUIRED", None
     grants = [row for row in state.trace
               if row.get("action") == "function_delegate"
               and row.get("outcome") == "APPLIED" and row.get("work") == work.key
-              and row.get("function_id") == fn["id"] and row["at"] < at]
+              and row.get("function_id") == fn["id"] and row["at"] < trace_before]
     if not grants or grants[-1]["at"] != delegation_at:
         return "FORMATION_AGENT_ORIGINAL_DELEGATION_NOT_CURRENT", None
     grant = grants[-1]
@@ -547,7 +548,7 @@ def original_preparation_mandate(state: Any, work: Any, fn: Mapping[str, Any],
         state, work, fn, grant, at, source_changed=any(
             row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
             and row.get("source") == mandate["source_ref"]
-            and delegation_at < row["at"] < at for row in state.trace))
+            and delegation_at < row["at"] < trace_before for row in state.trace))
     if reason != "NONE":
         return reason, None
     if fresh_use and any(
@@ -560,14 +561,15 @@ def original_preparation_mandate(state: Any, work: Any, fn: Mapping[str, Any],
 
 
 def original_delegated_packet_current(state: Any, work: Any, fn: Mapping[str, Any],
-                                      prepared: Mapping[str, Any], at: int) -> str:
+                                      prepared: Mapping[str, Any], at: int, *,
+                                      after_event: bool = False) -> str:
     execution = prepared.get("model_original_delegated_preparation")
     if not fn.get("requires_original_delegation"):
         return "NONE" if execution is None else "FORMATION_AGENT_DELEGATED_FUNCTION_CHANGED"
     if not isinstance(execution, Mapping):
         return "FORMATION_AGENT_ORIGINAL_DELEGATED_PREPARATION_REQUIRED"
     reason, _ = original_preparation_mandate(
-        state, work, fn, execution.get("delegation_at"), at)
+        state, work, fn, execution.get("delegation_at"), at, after_event=after_event)
     return reason
 
 
@@ -586,7 +588,7 @@ def original_preparation_oc_current(state: Any, prepared: Mapping[str, Any],
 
 
 def original_preparation_pattern_current(state: Any, prepared: Mapping[str, Any],
-                                         at: int) -> bool:
+                                         at: int, *, after_event: bool = False) -> bool:
     """Recheck the exact structure source used by an applied original packet.
 
     A source fingerprint is not a permission. Resolve it only against the
@@ -606,7 +608,7 @@ def original_preparation_pattern_current(state: Any, prepared: Mapping[str, Any]
     core = original_owner_economic_core(owner.kind) if owner is not None else None
     if (basis is None or not basis.strict or owner is None or not owner.active
             or core is None or type(prepared.get("at")) is not int
-            or prepared["at"] >= at):
+            or prepared["at"] >= at + int(after_event)):
         return False
     matches = [
         (ref, item) for ref, item in basis.sources.items()
@@ -1347,6 +1349,8 @@ def original_delegation_authority_observation(
                     == "OC_MODEL_PREPARATION_CANDIDATE_NOT_AUTHORIZED")
     current_unused = current_used = without_current = with_history = 0
     reasons = {}
+    readiness_reasons = {}
+    ready = awaiting = stale = 0
     for key in sorted({key for key, _ in latest}):
         work = state.works.get(key)
         if work is None or work.obligation != "NOT_ACCEPTED":
@@ -1379,6 +1383,17 @@ def original_delegation_authority_observation(
         if reason == "NONE":
             if selected[0] in used:
                 current_used += 1
+                # A consumed grant alone does not establish a reviewed packet.
+                packet_reason = state.formation_policy._phase_six_ready(
+                    state, work, at, after_event=True)
+                if packet_reason == "NONE":
+                    ready += 1
+                else:
+                    readiness_reasons[packet_reason] = readiness_reasons.get(packet_reason, 0) + 1
+                    if packet_reason == "FORMATION_AGENT_ORIGINAL_CUSTOMER_APPROVAL_REQUIRED":
+                        awaiting += 1
+                    else:
+                        stale += 1
             else:
                 current_unused += 1
         else:
@@ -1393,6 +1408,15 @@ def original_delegation_authority_observation(
         "consumed_mandate_does_not_permit_another_preparation": True,
         "current_mandate_is_not_full_packet_readiness_or_work_consent": True,
         "committed_work_excluded_from_prospective_scope": True,
+        "packet_readiness": {
+            "without_current_mandate": without_current,
+            "current_unused_mandate": current_unused,
+            "current_consumed_awaiting_customer_review": awaiting,
+            "current_consumed_packet_not_ready": stale,
+            "current_consumed_phase_six_ready": ready,
+            "current_consumed_packet_failure_reasons": dict(sorted(readiness_reasons.items())),
+            "phase_six_ready_is_not_full_commit_permission": True,
+        },
     }
 
 
@@ -1453,4 +1477,58 @@ def summarize_original_delegation_evolution(general_views: list, *, horizon: int
         "model_ticks_are_not_measured_labor_or_production_delay": True,
         "same_original_general_system_evolution": True,
         "no_original_event_or_cost_created": True,
+    }
+
+
+def summarize_original_packet_readiness(general_views: list, *, horizon: int
+                                       ) -> dict[str, Any] | None:
+    """Integrate exclusive post-event pending Work states on the same clock."""
+    fields = (
+        "without_current_mandate",
+        "current_unused_mandate",
+        "current_consumed_awaiting_customer_review",
+        "current_consumed_packet_not_ready",
+        "current_consumed_phase_six_ready",
+    )
+    points = []
+    last_at = -1
+    for row in general_views:
+        scope = row["projection"]["agent_function_formation_model_gate"].get(
+            "original_delegation_scope")
+        if scope is None:
+            continue
+        at = row["at"]
+        if not 0 <= at <= horizon or int(at) != at or at <= last_at:
+            raise ValueError("PACKET_READINESS_ORIGINAL_TICK_INVALID")
+        last_at = at
+        mandate = scope["current_mandate_scope"]
+        values = tuple(mandate["packet_readiness"][key] for key in fields)
+        if (any(type(v) is not int or v < 0 for v in values)
+                or sum(values) != mandate["uncommitted_works_with_original_mandate_history"]
+                or values[0] != mandate["uncommitted_works_without_current_mandate"]
+                or values[1] != mandate["uncommitted_works_with_current_unused_mandate"]
+                or sum(values[2:]) != mandate["uncommitted_works_with_current_consumed_mandate"]):
+            raise ValueError("PACKET_READINESS_ORIGINAL_COUNTS_INCONSISTENT")
+        if not points or points[-1][1] != values:
+            points.append((int(at), values))
+    if not points:
+        return None
+    totals = [0] * len(fields)
+    for i, (at, values) in enumerate(points):
+        end = points[i+1][0] if i+1 < len(points) else horizon
+        for j, value in enumerate(values):
+            totals[j] += value * (end-at)
+    pending = sum(totals)
+    return {
+        "scope": "ORIGINAL_PHASE_SIX_PENDING_WORK_MODEL_TIME_ONLY",
+        "model_horizon_tick": horizon,
+        "pending_work_model_ticks": pending,
+        "pending_work_model_ticks_by_state": dict(zip(fields, totals, strict=True)),
+        "phase_six_ready_share": (
+            f"{Decimal(totals[-1])/Decimal(pending):.4f}" if pending
+            else "UNKNOWN_ZERO_DENOMINATOR"),
+        "same_original_general_system_evolution": True,
+        "phase_six_ready_is_not_full_commit_permission": True,
+        "actual_labor_production_delay_or_cost_measured": False,
+        "new_original_events_or_cost_rows_created": 0,
     }

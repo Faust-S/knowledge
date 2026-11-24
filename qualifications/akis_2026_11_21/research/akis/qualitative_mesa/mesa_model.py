@@ -664,8 +664,20 @@ class OperatorAKISModel(mesa.Model):
                               if isinstance(ref, str) else None)
                     if source is not None and source.valid_until is not None:
                         instants.add(source.valid_until + 1)
+            if self._has_original_delegation_claims and self.qualitative.context_basis is not None:
+                # Observe original function/core basis windows even without an event.
+                refs = {row.get("basis_source")
+                        for category in ("context_cores", "agent_functions")
+                        for row in self.general_design.declarations[category]}
+                for ref in refs:
+                    source = self.qualitative.context_basis.sources.get(ref)
+                    if source is not None:
+                        if source.valid_from is not None:
+                            instants.add(source.valid_from)
+                        if source.valid_until is not None:
+                            instants.add(source.valid_until + 1)
             self._general_observation_ticks = {
-                t for t in instants if t <= self._model_end_at}
+                t for t in instants if 0 <= t <= self._model_end_at}
             for at in sorted(self._general_observation_ticks):
                 callback = self._capture_general_system
                 self._callbacks.append(callback)
@@ -1559,6 +1571,7 @@ class OperatorAKISModel(mesa.Model):
             if self._has_original_delegation_claims:
                 from .process_preparation import (
                     original_delegation_reproduction_view, summarize_original_delegation_evolution,
+                    summarize_original_packet_readiness,
                 )
                 if self.economic_claims is None:
                     delegation_observation, _ = original_delegation_reproduction_view(
@@ -1567,6 +1580,8 @@ class OperatorAKISModel(mesa.Model):
                     gate = output["general_akis_model"]["agent_function_formation_model_gate"]
                     gate["original_delegation_scope"] = delegation_observation
                     gate["original_delegation_model_time"] = summarize_original_delegation_evolution(
+                        self.general_views, horizon=self._model_end_at)
+                    gate["original_packet_readiness_model_time"] = summarize_original_packet_readiness(
                         self.general_views, horizon=self._model_end_at)
             if "capability_dynamics" in output:
                 cap = output["capability_dynamics"]
