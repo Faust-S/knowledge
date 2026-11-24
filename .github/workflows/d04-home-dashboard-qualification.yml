@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: 8c7f324fb38f2f67bc601aad8e2895c4ab5cbe85
+          ref: 97c8e8beaa99b9a40e62b1649fa346498987a644
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -51,9 +51,9 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = 8c7f324fb38f2f67bc601aad8e2895c4ab5cbe85
+          test "$(git -C d04-private/site rev-parse HEAD)" = 97c8e8beaa99b9a40e62b1649fa346498987a644
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 90d085931f4233818a0c26b77c6a92625d90d808
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 9f38f5ed0a61b454c4233167c82863fa39645f15
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
         with:
@@ -231,7 +231,7 @@ jobs:
             console.log('D04_HOME_BROWSER_STAGE=PUBLIC_TO_NATIVE_CREATION');
             try{
             const personal=await runLifeOsHomeDashboardBrowser({chromium,origin:server.origin,selectWitnessOption});
-            if(personal.status!=='PASS'||personal.viewports.length!==2||personal.viewports.some(v=>v.measures!==56||v.recordable!==45||v.captureTypes!==44||v.pressurePair!==true||v.methodBatch!==true||v.personalGoal!==true||v.goalResultLinks!==true||v.sleepSchedule!==true||v.mobilityMethods!==true||v.medicalRecords!==5||v.medicalCold!==true||v.medicalDay!==4||v.medicalDirectEntry!==true||v.medicalSourceReuse!==true||v.actionBoard!==true||v.unifiedChronology!==true||v.fullCalculationFields!==true||v.recordedResultsDay!==true||v.catalogFilters!==true||v.historyDates!==true||v.monthReview!==true||v.historySearch!==true||(v.width===1440&&(v.exchange?.status!=='PASS'||v.exchange?.objects!==18||v.exchange?.resultEvents!==23||v.exchange?.historyPreserved!==true||v.exchange?.coldImported!==true||v.exchange?.sourceUnchanged!==true))||v.newMetricSaved!==true||v.eventsSaved!==2||v.eventsCold!==true||v.diarySaved!==4||v.diaryCold!==true||v.wholeDayRecords!==6||v.historicalDay!==true||v.calculationTools!==13||v.calculationSaved!==true||v.calculationCold!==true))throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
+            if(personal.status!=='PASS'||personal.viewports.length!==2||personal.viewports.some(v=>v.gridViews!==true||v.periodOverview!==true||v.historicalSource!==true||v.panelNavigation!==true||v.measures!==56||v.recordable!==45||v.captureTypes!==44||v.pressurePair!==true||v.methodBatch!==true||v.personalGoal!==true||v.goalResultLinks!==true||v.sleepSchedule!==true||v.mobilityMethods!==true||v.medicalRecords!==5||v.medicalCold!==true||v.medicalDay!==4||v.medicalDirectEntry!==true||v.medicalSourceReuse!==true||v.actionBoard!==true||v.unifiedChronology!==true||v.fullCalculationFields!==true||v.recordedResultsDay!==true||v.catalogFilters!==true||v.historyDates!==true||v.monthReview!==true||v.historySearch!==true||(v.width===1440&&(v.exchange?.status!=='PASS'||v.exchange?.objects!==19||v.exchange?.resultEvents!==24||v.exchange?.historyPreserved!==true||v.exchange?.coldImported!==true||v.exchange?.sourceUnchanged!==true))||v.newMetricSaved!==true||v.eventsSaved!==2||v.eventsCold!==true||v.diarySaved!==4||v.diaryCold!==true||v.wholeDayRecords!==6||v.historicalDay!==true||v.calculationTools!==13||v.calculationSaved!==true||v.calculationCold!==true))throw Error('D04_HOME_PERSONAL_BROWSER_RESULT_INCOMPLETE');
             console.log('D04_HOME_CREATE_AND_COLD=PASS');
             console.log('D04_HOME_DIARY_EVENTS_AND_CALCULATIONS=PASS');
             for(const item of personal.viewports){
