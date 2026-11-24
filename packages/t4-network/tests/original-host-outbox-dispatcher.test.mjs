@@ -49,6 +49,12 @@ function fixture() {
     originalKernel:kernel,originalWriteOwnerRef:owner,getMode,
     authorizeOriginalRead:async()=>true,authorizeOriginalWrite:async()=>true,
     authorizeNetworkPublish:async()=>true,readOriginalEvents,
+    // This fixture stages one subject mutation at a time; it does not
+    // demonstrate installed-product cross-process serialization.
+    withOriginalSubjectMutation:async(proof,action)=>{
+      assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);
+      return action();
+    },
     persistOriginalIntent:async value=>{
       if(intents.has(value.captureRef))return false;
       intents.set(value.captureRef,structuredClone(value));return true;
