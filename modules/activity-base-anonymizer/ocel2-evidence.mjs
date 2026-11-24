@@ -10,7 +10,7 @@ const MAX_OBJECTS = 2000;
 const MAX_EVENTS = 10000;
 const MAX_TYPES = 256;
 const MAX_RELATIONS = 32;
-const TAG = (v) => typeof v === 'string' && v.trim().length > 0 && v.length <= 128;
+const TAG = (v) => typeof v === 'string' && v.trim().length > 0 && v.length <= 128 && [...v].every(c=>c.charCodeAt(0)>=32&&c.charCodeAt(0)!==127);
 const SHA = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 function need(ok, code) { if (!ok) throw new ActivityHold(code); }
@@ -126,7 +126,7 @@ function validateRestrictedJson(raw) {
   return {objects, events, byObject, eventTypes, objectTypes, sharedEventCount, o2oCount};
 }
 
-function reconstruct(validated) {
+function reconstruct(validated, reviewDetails = null) {
   const eventNames = [...validated.eventTypes.keys()].sort(cmp);
   const objectNames = [...validated.objectTypes.keys()].sort(cmp);
   const eventAlias = new Map(eventNames.map((name, i) => [name, `activity_${String(i + 1).padStart(3, '0')}`]));
@@ -143,18 +143,28 @@ function reconstruct(validated) {
     const states = new Set();
     const patterns = new Map();
     let observed = 0;
+    let tiedObjects = 0;
+    const occurrences = new Map(), starts = new Map(), ends = new Map();
+    const add = (map, key) => map.set(key, (map.get(key) ?? 0) + 1);
     for (const object of relevant) {
       const events = [...validated.byObject.get(object.id)].sort((a, b) =>
-        cmp(a.time, b.time) || cmp(a.id, b.id));
+        Date.parse(a.time) - Date.parse(b.time) || cmp(a.id, b.id));
       if (!events.length) { unobserved += 1; continue; }
       // An arbitrary lexical tie-breaker is never evidence for event order.
-      const hasTimeTie = events.some((event, j) => j > 0 && event.time === events[j - 1].time);
-      if (hasTimeTie) ties += 1;
+      const hasTimeTie = events.some((event, j) => j > 0 && Date.parse(event.time) === Date.parse(events[j - 1].time));
+      if (hasTimeTie) { ties += 1; tiedObjects += 1; }
+      if (reviewDetails) {
+        for (const event of events) add(occurrences, event.type);
+        if (!hasTimeTie) {
+          add(starts, events[0].type);
+          add(ends, events[events.length - 1].type);
+        }
+      }
       const pattern = JSON.stringify(events.map((event) => [event.type,
         event.relationships.filter((r) => r.objectId === object.id).map((r) => r.qualifier),
         event.relationships.filter((r) => r.objectId !== object.id)
           .map((r) => [validated.objects.get(r.objectId).type, r.qualifier]).sort((a, b) => cmp(JSON.stringify(a), JSON.stringify(b)))]));
-      patterns.set(pattern, (patterns.get(pattern) ?? 0) + 1);
+      if (!hasTimeTie) patterns.set(pattern, (patterns.get(pattern) ?? 0) + 1);
       observed += 1;
       for (const event of events) states.add(eventAlias.get(event.type));
       if (hasTimeTie) continue; // Do not infer a route through an ambiguous event order.
@@ -169,6 +179,23 @@ function reconstruct(validated) {
       return {from, to, object_trace_occurrences: count,
         relation: 'OBJECT_LOCAL_OBSERVED_TIME_ORDER_NOT_CAUSAL_DEPENDENCY'};
     }).sort((a, b) => cmp(a.from, b.from) || cmp(a.to, b.to));
+    if (reviewDetails) {
+      reviewDetails.push({
+        type, object_count: relevant.length, objects_with_events: observed,
+        tied_objects: tiedObjects, occurrences, starts, ends,
+        edges: new Map(transitions.map(edge => [
+          JSON.stringify([eventNames[Number(edge.from.slice(9))-1], eventNames[Number(edge.to.slice(9))-1]]),
+          edge.object_trace_occurrences,
+        ])),
+        variants: [...patterns.entries()].map(([pattern, count]) => ({
+          object_count: count,
+          steps: JSON.parse(pattern).map(([activity, qualifiers, related]) => ({
+            activity, qualifiers,
+            related: related.map(([object_type, qualifier]) => ({object_type, qualifier})),
+          })),
+        })).sort((a,b)=>b.object_count-a.object_count||cmp(JSON.stringify(a.steps),JSON.stringify(b.steps))),
+      });
+    }
     views.push({id: `object_view_${String(index + 1).padStart(3, '0')}`,
       object_type_alias: objectAlias.get(type),
       observed_object_count: observed,
@@ -211,6 +238,93 @@ function reconstruct(validated) {
     iwxa_package: null,
     source_integrity: 'SYNTHETIC_DIGEST_MATCH_NOT_HOST_AUTHORITY',
   };
+}
+
+
+/** Verify a native external OC-DFG against locally selected OCEL JSON.
+ * The existing parser/reconstruction supplies independent structural checks.
+ * This is not a miner, source authority or proof of physical execution.
+ */
+export async function reviewExternalOcDfg(ocel, model) {
+  const validated = validateRestrictedJson(ocel);
+  const relations = ocel.events.reduce((n,e)=>n+e.relationships.length,0);
+  need(relations<=20000, 'OCDFG_REVIEW_LINK_LIMIT');
+  const details = [];
+  const evidence = reconstruct(validated, details);
+  shape(model,['object_type_to_dfg'],['object_type_to_dfg'],'OCDFG_MODEL_INVALID');
+  const graphs = model.object_type_to_dfg;
+  need(graphs&&typeof graphs==='object'&&!Array.isArray(graphs),'OCDFG_MODEL_INVALID');
+  need(Object.keys(graphs).length===details.length &&
+    details.every(row=>Object.hasOwn(graphs,row.type)), 'OCDFG_OBJECT_SCOPE_MISMATCH');
+  function countMap(raw, allowed) {
+    need(raw&&typeof raw==='object'&&!Array.isArray(raw),'OCDFG_COUNTS_INVALID');
+    const entries=Object.entries(raw);
+    need(entries.length<=MAX_TYPES,'OCDFG_COUNTS_INVALID');
+    for(const [label,count] of entries)
+      need(allowed.has(label)&&Number.isSafeInteger(count)&&count>0&&count<=relations,'OCDFG_COUNTS_INVALID');
+    return new Map(entries);
+  }
+  function equalMap(left,right){
+    return left.size===right.size&&[...left].every(([key,value])=>right.get(key)===value);
+  }
+  const views=[];
+  for(const row of details){
+    const graph=graphs[row.type];
+    shape(graph,['activities','directly_follows_relations','start_activities','end_activities'],
+      ['activities','directly_follows_relations','start_activities','end_activities'],'OCDFG_TYPE_GRAPH_INVALID');
+    const activities=countMap(graph.activities,validated.eventTypes);
+    const starts=countMap(graph.start_activities,activities),ends=countMap(graph.end_activities,activities);
+    need(Array.isArray(graph.directly_follows_relations)&&graph.directly_follows_relations.length<=relations,'OCDFG_EDGE_LIMIT');
+    const edges=new Map();
+    for(const entry of graph.directly_follows_relations){
+      need(Array.isArray(entry)&&entry.length===2&&Array.isArray(entry[0])&&entry[0].length===2&&
+        entry[0].every(label=>activities.has(label))&&Number.isSafeInteger(entry[1])&&entry[1]>0&&entry[1]<=relations,
+        'OCDFG_EDGE_INVALID');
+      const key=JSON.stringify(entry[0]);
+      need(!edges.has(key),'OCDFG_EDGE_DUPLICATE');
+      edges.set(key,entry[1]);
+    }
+    const incoming=new Map(),outgoing=new Map();
+    for(const [key,count] of edges){
+      const [from,to]=JSON.parse(key);
+      outgoing.set(from,(outgoing.get(from)??0)+count);
+      incoming.set(to,(incoming.get(to)??0)+count);
+    }
+    need([...activities].every(([label,count])=>
+      (incoming.get(label)??0)+(starts.get(label)??0)===count&&
+      (outgoing.get(label)??0)+(ends.get(label)??0)===count),'OCDFG_FLOW_COUNTS_INCONSISTENT');
+    need(equalMap(activities,row.occurrences),'OCDFG_ACTIVITY_COUNT_MISMATCH');
+    const sum=map=>[...map.values()].reduce((n,v)=>n+v,0);
+    need(sum(starts)===row.objects_with_events&&sum(ends)===row.objects_with_events,'OCDFG_TRACE_COUNT_MISMATCH');
+    const confirmed=row.tied_objects===0;
+    if(confirmed){
+      need(equalMap(starts,row.starts)&&equalMap(ends,row.ends),'OCDFG_ENDPOINT_COUNT_MISMATCH');
+      need(equalMap(edges,row.edges),'OCDFG_EDGE_COUNT_MISMATCH');
+    }
+    views.push({
+      object_type:row.type,object_count:row.object_count,objects_with_events:row.objects_with_events,
+      ambiguous_objects:row.tied_objects,comparison:confirmed?'MATCHED':'AMBIGUOUS_TIME_ORDER',
+      activities:[...activities].sort(([a],[b])=>cmp(a,b)).map(([activity,count])=>({activity,count})),
+      transitions:confirmed?[...edges].sort(([a],[b])=>cmp(a,b)).map(([key,count])=>{
+        const [from,to]=JSON.parse(key);return {from,to,count};
+      }):[],
+      starts:confirmed?[...starts].sort(([a],[b])=>cmp(a,b)).map(([activity,count])=>({activity,count})):[],
+      ends:confirmed?[...ends].sort(([a],[b])=>cmp(a,b)).map(([activity,count])=>({activity,count})):[],
+      variants:row.variants,
+    });
+  }
+  const result={
+    status:views.some(row=>row.ambiguous_objects>0)?'HOLD_AMBIGUOUS_ORDER':'MATCHED_LOCAL_MODEL',
+    model_kind:'RUST4PM_OCDFG_NATIVE_JSON',
+    source_binding:'LOCAL_CONTENT_MATCH_NOT_HOST_AUTHORITY',
+    epistemic_status:'UNVERIFIED_LOCAL_EVENT_RECORDS',
+    source_digest:await sha256Canonical(ocel),model_digest:await sha256Canonical(model),
+    object_count:validated.objects.size,event_count:validated.events.size,shared_event_count:validated.sharedEventCount,
+    object_views:views,risk_reasons:evidence.reason_codes,
+    technology_equivalence:'NOT_ESTABLISHED',anonymity:'NOT_ESTABLISHED',export_allowed:false,iwxa_package:null,
+  };
+  need(new TextEncoder().encode(JSON.stringify(result)).length<=8*1024*1024,'OCDFG_REVIEW_OUTPUT_LIMIT');
+  return result;
 }
 
 export async function inspectSyntheticOcel2(envelope) {
