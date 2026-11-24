@@ -57,6 +57,13 @@ with tempfile.TemporaryDirectory(prefix='iwxa-t4-dav-') as temp:
    raise RuntimeError('Network TAP summary missing or inconsistent')
   original_run_passed=False
   if os.environ.get('IWXA_T2_QUALIFIED_KERNEL_DIST'):
+   migration=subprocess.run(['node','--experimental-strip-types','--test',
+     '../t4-network/tests/real-original-t3-graph-focus.browser.mjs'],cwd=ROOT.parent/'t3-core',env=env,
+     capture_output=True,text=True,timeout=240)
+   (OUT/'original-kernel-index-migration.log').write_text(migration.stdout+migration.stderr)
+   print(migration.stdout,end='')
+   if migration.returncode or 'T4_K32_REAL_ORIGINAL_PUBLICATION_PROFILE_MIGRATION_PASS' not in migration.stdout:
+    raise RuntimeError('Original Kernel publication profile migration qualification failed')
    original=subprocess.run(['node','--experimental-strip-types','--test',
      '../t4-network/tests/real-original-t3-kernel-webdav.browser.mjs'],cwd=ROOT.parent/'t3-core',env=env,
      capture_output=True,text=True,timeout=1140)

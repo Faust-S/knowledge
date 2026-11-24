@@ -7,7 +7,7 @@ import {createT4OriginalHostCaptureAdapter} from './original-host-capture-adapte
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort}
   from './original-network-host-cursor.mjs';
 import {createT4OriginalNetworkSessionPhasePort} from './original-network-session-phases.mjs';
-import {createT4OriginalNetworkPublicationPort,isT4RecoverablePublicationWakeError,readT4OriginalPublicationMigrationInventory} from './original-network-publication.mjs';
+import {createT4OriginalNetworkPublicationPort,isT4RecoverablePublicationWakeError,createT4OriginalPublicationIndexMigrationStepper} from './original-network-publication.mjs';
 import {createT4OriginalNetworkReplayPort} from './original-network-replay-checkpoint.mjs';
 import {createT4CandidateFrameTransport} from './standard-network-wire-transport.mjs';
 import {createT4OriginalHostOutboxDispatcher} from './original-host-outbox-dispatcher.mjs';
@@ -141,46 +141,9 @@ export function createT4OriginalNativeHostNetworkOwner({
       localNodeRef:nodeRef,frameTransport:frameDiscoveryPort,
       authorizeOriginalFramePublish:callback('authorizeOriginalFramePublish'),
       verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature')});
-    // Explicit profile transition, driven by the original native relay.
-    // The in-memory position only bounds work per idle wake. A cold attach
-    // rederives every session from original records, then checks remote
-    // addresses again. This is not a durable second migration ledger.
-    let migrationInventory=null,migrationPosition=0,migratedFrames=0,migrationDone=!enablePublicationIndexMigration;
-    const readMigrationInventory=()=>readT4OriginalPublicationMigrationInventory({...tech,localNodeRef:nodeRef});
-    async function migrateNextPublication(){
-      if(migrationDone)return null;
-      if(migrationInventory===null)migrationInventory=await readMigrationInventory();
-      const records=migrationInventory.records;
-      if(migrationPosition<records.length){
-        const record=records[migrationPosition],port=await publication({session:record.session});
-        const saved=await port.inspectOriginalPublication();
-        if(saved.checkpointRef!==record.checkpointRef||saved.revision!==record.revision||
-          saved.chainHash!==record.chainHash||saved.originalT3EventChainVerified!==true)
-          fail('NATIVE_INDEX_MIGRATION_INVENTORY_CHANGED');
-        const sequences=saved.frames.filter(f=>f.state==='PRESENT').map(f=>f.sequence);
-        if(sequences.length){
-          const observed=await port.reconcileOriginalPublishedFrameIndexes({sequences});
-          if(observed.state!=='ORIGINAL_PRESENT_FRAME_INDEXES_VERIFIED'||
-            observed.checkpointRef!==record.checkpointRef||observed.originalPublicationRevision!==record.revision||
-            observed.originalPublicationChainHash!==record.chainHash||
-            observed.originalPublicationLedgerChanged!==false||observed.originalFramePutInvoked!==false||
-            observed.originalSigningInvoked!==false||observed.originalSubjectMutationInvoked!==false||
-            observed.frames.length!==sequences.length)
-            fail('NATIVE_INDEX_MIGRATION_RESULT_INVALID');
-          migratedFrames+=sequences.length;
-        }
-        migrationPosition++;
-      }
-      if(migrationPosition===records.length){
-        const after=await readMigrationInventory();
-        if(JSON.stringify(after.records)!==JSON.stringify(records))
-          fail('NATIVE_INDEX_MIGRATION_INVENTORY_CHANGED');
-        migrationDone=true;migrationInventory=null;
-      }
-      return Object.freeze({state:migrationDone?'NETWORK_INDEX_MIGRATION_COMPLETE':'NETWORK_INDEX_MIGRATION_PROGRESS',
-        migratedPublicationCount:migrationPosition,pendingPublicationCount:records.length-migrationPosition,
-        verifiedMigratedFrameCount:migratedFrames,originalSubjectMutationInvoked:false});
-    }
+    const migrateNextPublication=enablePublicationIndexMigration?
+      createT4OriginalPublicationIndexMigrationStepper({...tech,localNodeRef:nodeRef,
+        createOriginalPublicationPort:publication}):async()=>null;
     const phase=async({session})=>createT4OriginalNetworkSessionPhasePort({...tech,
       localNodeRef:nodeRef,sessionRef:session.sessionRef,changeId:session.changeId,
       changeKind:session.changeKind,recipientApplyIntentRequired:role==='RECIPIENT',

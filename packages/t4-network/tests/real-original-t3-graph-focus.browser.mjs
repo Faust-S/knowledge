@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash,randomUUID} from 'node:crypto';
+import {createHash,randomUUID,generateKeyPairSync,sign,verify} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {cpSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -13,6 +13,16 @@ import {readT4OriginalEventWindow,digestT4OriginalEventRecord} from '../src/netw
 import {createT4OriginalNetworkBaselineAdmissionPort} from '../src/network/original-network-baseline-admission.mjs';
 import {createT4OriginalHostCaptureLedgerPort} from '../src/network/original-host-capture-ledger.mjs';
 import {createT4OriginalHostCaptureAdapter} from '../src/network/original-host-capture-adapter.mjs';
+import {readT4OriginalNativeCaptureSessionAtCursor} from '../src/network/original-host-outbox-dispatcher.mjs';
+import {createT4OriginalNetworkPublicationPort,createT4OriginalSourceSessionHead,
+  createT4OriginalPublicationIndexMigrationStepper,isT4RecoverablePublicationWakeError}
+  from '../src/network/original-network-publication.mjs';
+import {createWebDavPackageTransport} from '../src/network/webdav-package-transfer.mjs';
+import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION}
+  from '../src/network/standard-network-wire-candidate.mjs';
+import {t4NativeFrameIndexKeys} from '../src/network/original-network-frame-address.mjs';
+import {decodeT4CandidateFrame} from '../src/network/standard-network-wire-candidate.mjs';
 import {readT4OriginalHostCapturedSubject} from '../src/network/original-host-outbox-delivery.mjs';
 import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
 import {applyT4OriginalNetworkSubjectWithDurableIntent,createT4OriginalNetworkAppliedAckBody}
@@ -224,6 +234,134 @@ test('K21/K22 focused original Kernel atomic graph, source inventory and cold re
     assert.ok(!dst.relations.outgoing.some(r=>r.relation_id===first||r.relation_id===old));
     assert.ok((await recipient.kernel.getObject(ws,other)).relations.incoming.some(r=>r.relation_id===second));
     assert.equal(recipient.invocations,2);assert.equal(recipient.commits,2);assert.equal(hashFile(kernelPath),pinned);
+    // This optional focused qualification runs inside the real Apache
+    // fixture. Both publication histories are persisted in independent
+    // original Kernel profiles, including an old HEADS without announcement.
+    if(process.env.T4_TEST_URL){
+      assert.ok(process.env.T4_TEST_AUTH,'ORIGINAL_HTTPS_CREDENTIAL_FIXTURE_REQUIRED');
+      const selection=async before=>readT4OriginalNativeCaptureSessionAtCursor({...common(),
+        sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,networkTargetRef:recipientNodeRef,
+        sourceCursorBefore:before,readOriginalHostContext:async()=>({...await source.context(),workspaceId:ws}),
+        authorizeOriginalSessionSelection:async p=>p.workspaceId===ws&&p.ownerEpoch===ownerEpoch});
+      const selected=[await selection(initial),await selection(captures[0].nextCursor)];
+      assert.ok(selected.every(x=>x.state==='ORIGINAL_NATIVE_SESSION_SELECTED'&&x.originalCaptureEvidenceVerified));
+      const keys={source:generateKeyPairSync('ed25519'),recipient:generateKeyPairSync('ed25519')};
+      const suite='X25519_AES256GCM_ED25519',stats={framePut:0,indexPut:0,collectionList:0};
+      let loseIndexResponse=false,losses=0,signatureCalls=0;
+      const wire=(indexedNetworkWire)=>createWebDavPackageTransport({
+        baseUrl:process.env.T4_TEST_URL,locationRef:'test-webdav',getMode:mode,
+        placementPolicy:{objectFamily:'owner-network-frame',workspaceId:ws,authorityRoot:owner,
+          writeOwnerRef:owner,primaryPlacement:'LOCAL_PRIMARY_HOSTED_REPLICA',allowedLocations:['test-webdav'],
+          retentionClass:'test',recoveryClass:'test',universalCloudMaster:false,subjectActionAuthority:false},
+        authorize:async()=>true,getAuthorizationHeader:async()=>process.env.T4_TEST_AUTH,
+        keySuffix:'.t4n',candidateNetworkWire:true,indexedNetworkWire,
+        fetchImpl:async(url,options)=>{
+          const path=new URL(url).pathname;
+          if(options.method==='PROPFIND'){stats.collectionList++;throw Error('MIGRATION_COLLECTION_SCAN_FORBIDDEN');}
+          if(options.method==='PUT'&&path.endsWith('.t4n'))stats.framePut++;
+          if(options.method==='PUT'&&path.endsWith('.t4i')){
+            stats.indexPut++;const response=await fetch(url,options);
+            if(loseIndexResponse){
+              loseIndexResponse=false;assert.ok([200,201,204].includes(response.status));
+              await response.body?.cancel();losses++;throw Error('fixture lost committed HTTPS index response');
+            }
+            return response;
+          }
+          return fetch(url,options);
+        }
+      });
+      const legacy=wire(false),indexed=wire(true);
+      const node=e=>e.role==='source'?sourceNodeRef:recipientNodeRef;
+      const remote=e=>e.role==='source'?recipientNodeRef:sourceNodeRef;
+      const keyRef=e=>'key:graph-focus:'+e.role;
+      const frameTransport=(e,wireTransport)=>createT4CandidateFrameTransport({
+        wireTransport,getMode:mode,originalHostNodeRef:node(e),originalHostScopeRef:scopeRef,
+        readOriginalHostContext:async()=>({...await e.context(),originalOwnerRef:owner}),
+        authorizeOriginalHostWire:async p=>p.originalHostNodeRef===node(e),
+        verifyOriginalNodeSignature:async()=>false,authorizeOriginalNetwork:async()=>false,
+        persistOriginalReplayDecision:async()=> 'DENIED',
+      });
+      const publication=(e,session,wireTransport)=>createT4OriginalNetworkPublicationPort({
+        ...tech(e),session,localNodeRef:node(e),technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
+        frameTransport:frameTransport(e,wireTransport),
+        authorizeOriginalFramePublish:async p=>p.localNodeRef===node(e)&&p.sessionRef===session.sessionRef&&
+          p.ownerEpoch===ownerEpoch&&p.scopeRef===scopeRef&&p.originalWriteOwnerRef===owner,
+        verifyOriginalNodeSignature:async({bytes,signature,signerRef})=>signerRef===keyRef(e)&&
+          verify(null,Buffer.from(bytes),keys[e.role].publicKey,Buffer.from(signature)),
+      });
+      const signFrame=async(e,session,messageType,body,criticalExtensions=[])=>{
+        signatureCalls++;
+        return signT4CandidateFrame({unsignedFrame:createT4CandidateUnsignedFrame({
+          messageType,messageId:'message:'+randomUUID(),sourceNodeRef:node(e),recipientNodeRef:remote(e),
+          scopeRef,sessionRef:session.sessionRef,ownerEpoch,permissionRef:'permission:graph-focus',
+          signerRef:keyRef(e),sequence:1,cryptoSuite:suite,body,criticalExtensions,
+        }),signOriginalNodeBytes:async({bytes})=>sign(null,Buffer.from(bytes),keys[e.role].privateKey)});
+      };
+      const exactFrames=[];
+      try{
+        for(const [i,pick] of selected.entries()){
+          const {session,sourceCursorBefore,sourceCursorAfter}=pick;
+          for(const e of [source,recipient]){
+            const isSource=e===source,messageType=isSource?'HEADS':'DIFF_REQUEST';
+            const body=isSource?(i===0?createT4OriginalSourceSessionHead({session,sourceCursorBefore,sourceCursorAfter}):
+              {familyRef:session.familyRef,ownerEpoch,heads:[session.sourcePrefixDigestAfter]}):
+              {familyRef:session.familyRef,fromHeads:[session.sourcePrefixDigestBefore]};
+            const bytes=await signFrame(e,session,messageType,body,isSource&&i===0?[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]:[]);
+            const port=publication(e,session,legacy);
+            await port.prepareSignedBatch({slots:[{sequence:1,messageType}],createSignedFrames:async()=>[bytes]});
+            await port.publishPreparedFrame({sequence:1});
+            exactFrames.push({e,session,bytes,before:await port.inspectOriginalPublication(),
+              keys:t4NativeFrameIndexKeys(decodeT4CandidateFrame(bytes))});
+          }
+        }
+        assert.equal(signatureCalls,4);assert.equal(stats.framePut,4);assert.equal(stats.indexPut,0);
+        for(const f of exactFrames)for(const key of f.keys)assert.equal(await indexed.getNativeFrameIndex({key}),null);
+        const histories=await Promise.all([source,recipient].map(e=>e.kernel.listEventsSince(e.tech)));
+        const business=await Promise.all([source,recipient].map(e=>e.kernel.listEventsSince(ws)));
+        const makeStep=e=>createT4OriginalPublicationIndexMigrationStepper({...tech(e),localNodeRef:node(e),
+          technicalSchemaId:T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
+          createOriginalPublicationPort:async({session})=>publication(e,session,indexed)});
+        await source.open();await recipient.open();
+        let next=makeStep(source);loseIndexResponse=true;
+        await assert.rejects(next(),e=>e.code==='PUBLICATION_INDEX_MIGRATION_OUTCOME_UNKNOWN'&&
+          isT4RecoverablePublicationWakeError(e));
+        assert.equal(losses,1);assert.equal(stats.indexPut,1);
+        // Cold Host continuation derives the complete original inventory;
+        // the lost address reply is recovered by GET, not a second PUT.
+        await source.open();next=makeStep(source);
+        assert.equal((await next()).state,'NETWORK_INDEX_MIGRATION_PROGRESS');
+        assert.equal((await next()).state,'NETWORK_INDEX_MIGRATION_COMPLETE');
+        assert.equal(await next(),null);
+        const receiver=makeStep(recipient);
+        assert.equal((await receiver()).state,'NETWORK_INDEX_MIGRATION_PROGRESS');
+        assert.equal((await receiver()).state,'NETWORK_INDEX_MIGRATION_COMPLETE');
+        const addressCount=exactFrames.reduce((n,f)=>n+f.keys.length,0);
+        assert.equal(addressCount,5);assert.equal(stats.indexPut,addressCount);
+        for(const f of exactFrames){
+          const after=publication(f.e,f.session,indexed);
+          assert.deepEqual(await after.inspectOriginalPublication(),f.before);
+          assert.equal((await after.readOriginalPublishedFrame({sequence:1})).sha256,f.before.frames[0].sha256);
+          for(const key of f.keys)assert.equal((await indexed.getNativeFrameIndex({key})).frameSha256,f.before.frames[0].sha256);
+        }
+        // A second cold migration is read-only at both boundaries.
+        await source.open();await recipient.open();
+        for(const e of [source,recipient]){
+          const step=makeStep(e);await step();assert.equal((await step()).state,'NETWORK_INDEX_MIGRATION_COMPLETE');
+        }
+        assert.deepEqual(await Promise.all([source,recipient].map(e=>e.kernel.listEventsSince(e.tech))),histories);
+        assert.deepEqual(await Promise.all([source,recipient].map(e=>e.kernel.listEventsSince(ws))),business);
+        assert.equal(stats.framePut,4);assert.equal(signatureCalls,4);assert.equal(stats.indexPut,addressCount);
+        assert.equal(stats.collectionList,0);assert.equal(hashFile(kernelPath),pinned);
+        console.log('T4_K32_REAL_ORIGINAL_PUBLICATION_PROFILE_MIGRATION_PASS',JSON.stringify({
+          originalKernel:ORIGINAL_KERNEL,originalPublicationRecords:4,immutableFrames:4,verifiedIndexes:addressCount,
+          lostCommittedHttpsIndexResponseRecovered:true,originalHostMigrationStepperUsed:true,
+          originalSourceAndRecipientColdProfiles:true,oldUnsignedAnnouncementNotInvented:true,
+          repeatedSubjectWrites:0,repeatedFramePuts:0,repeatedSignatures:0,repeatedIndexPuts:0,
+          originalPublicationEventsUnchanged:true,remoteCollectionEnumerated:false,
+          installedNativeSchedulerQualified:false,independentPhysicalDevices:false
+        }));
+      }finally{legacy.close();indexed.close();}
+    }
     console.log('T4_REAL_ORIGINAL_T3_GRAPH_FOCUS_PASS',JSON.stringify({originalKernel:ORIGINAL_KERNEL,
       sourceTransactions:source.commits,sourceInvocations:source.invocations,recipientTransactions:recipient.commits,
       recipientInvocations:recipient.invocations,sourceColdRecovery:true,recipientColdRecovery:true,

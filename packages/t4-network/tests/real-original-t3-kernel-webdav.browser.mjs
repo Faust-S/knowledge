@@ -5506,7 +5506,8 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
         assert.ok(sourceProof.originalT3EventChainVerified);
         assert.ok(recipientProof.originalT3EventChainVerified);
         assert.ok(sourceProof.frames.every(f=>f.state==='PRESENT'&&f.attempts===1));
-        assert.ok(recipientProof.frames.every(f=>f.state==='PRESENT'&&f.attempts===1));
+        assert.ok(recipientProof.frames.every(f=>f.state==='PRESENT'&&
+          f.attempts===(completed.ackOutageWitness&&f.messageType==='APPLIED_ACK'?2:1)));
         assert.equal(completed.signedFrameCount,completed.actualFramePutCount);
       }
       console.log('T4_REAL_ORIGINAL_T3_DURABLE_NATIVE_PUBLICATION_TASK_PASS',

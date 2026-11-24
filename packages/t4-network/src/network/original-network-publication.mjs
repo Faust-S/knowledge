@@ -277,6 +277,69 @@ export async function readT4OriginalPublicationMigrationInventory({
     createsStore:false,remoteCollectionEnumerated:false});
 }
 
+// One bounded unit of the existing Host's migration. No new timer, task,
+// persisted position or authority. A cold original Host creates a fresh
+// instance and reconstructs the inventory from the SAME original Kernel.
+export function createT4OriginalPublicationIndexMigrationStepper({
+  createOriginalPublicationPort,...originalInventoryPorts
+}={}){
+  if(typeof createOriginalPublicationPort!=='function')
+    fail('PUBLICATION_MIGRATION_ORIGINAL_PORT_REQUIRED');
+  let migrationInventory=null,migrationPosition=0,migratedFrames=0,migrationDone=false;
+  const readMigrationInventory=()=>readT4OriginalPublicationMigrationInventory(originalInventoryPorts);
+  // The original native owner serializes wake and local operations. Also
+  // refuse concurrent calls at this narrower boundary; never race a PUT.
+  let running=false;
+  return async function migrateNextPublication(){
+    if(running)fail('PUBLICATION_MIGRATION_CONCURRENT_STEP');
+    if(migrationDone)return null;
+    running=true;
+    try{
+      if(migrationInventory===null)migrationInventory=await readMigrationInventory();
+      const records=migrationInventory.records;
+      if(migrationPosition<records.length){
+        const record=records[migrationPosition],port=await createOriginalPublicationPort({session:record.session});
+        const saved=await port.inspectOriginalPublication();
+        if(saved.checkpointRef!==record.checkpointRef||saved.revision!==record.revision||
+          saved.chainHash!==record.chainHash||saved.originalT3EventChainVerified!==true)
+          fail('NATIVE_INDEX_MIGRATION_INVENTORY_CHANGED');
+        const sequences=saved.frames.filter(f=>f.state==='PRESENT').map(f=>f.sequence);
+        if(sequences.length){
+          const observed=await port.reconcileOriginalPublishedFrameIndexes({sequences});
+          if(observed.state!=='ORIGINAL_PRESENT_FRAME_INDEXES_VERIFIED'||
+            observed.checkpointRef!==record.checkpointRef||observed.originalPublicationRevision!==record.revision||
+            observed.originalPublicationChainHash!==record.chainHash||
+            observed.originalPublicationLedgerChanged!==false||observed.originalFramePutInvoked!==false||
+            observed.originalSigningInvoked!==false||observed.originalSubjectMutationInvoked!==false||
+            observed.frames.length!==sequences.length)
+            fail('NATIVE_INDEX_MIGRATION_RESULT_INVALID');
+          // Verify the returned sequence and immutable byte address as well
+          // as the count. A success with the wrong frame is not progress.
+          for(const [i,frame] of observed.frames.entries()){
+            const exact=saved.frames.find(f=>f.sequence===sequences[i]);
+            if(frame.sequence!==exact.sequence||frame.sha256!==exact.sha256||
+              frame.key!==exact.key||frame.messageType!==exact.messageType||
+              frame.exactOriginalSignedFrameReadback!==true||frame.nativeSessionIndexVerified!==true||
+              frame.signedFrameRewritten!==false)
+              fail('NATIVE_INDEX_MIGRATION_RESULT_INVALID');
+          }
+          migratedFrames+=sequences.length;
+        }
+        migrationPosition++;
+      }
+      if(migrationPosition===records.length){
+        const after=await readMigrationInventory();
+        if(!same(after.records,records))
+          fail('NATIVE_INDEX_MIGRATION_INVENTORY_CHANGED');
+        migrationDone=true;migrationInventory=null;
+      }
+      return Object.freeze({state:migrationDone?'NETWORK_INDEX_MIGRATION_COMPLETE':'NETWORK_INDEX_MIGRATION_PROGRESS',
+        migratedPublicationCount:migrationPosition,pendingPublicationCount:records.length-migrationPosition,
+        verifiedMigratedFrameCount:migratedFrames,originalSubjectMutationInvoked:false});
+    }finally{running=false;}
+  };
+}
+
 export function createT4OriginalNetworkPublicationPort({
   technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   session,localNodeRef,technicalWorkspaceId,originalKernel,getMode,
