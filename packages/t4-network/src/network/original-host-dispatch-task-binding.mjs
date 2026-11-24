@@ -40,7 +40,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     typeof authorizeOriginalHostTask!=='function'||
     typeof dispatcher?.drain!=='function')
     fail('HOST_TASK_ORIGINAL_PORTS_REQUIRED');
-  let disposed=false,active=null;
+  let disposed=false,active=null,activeKind=null;
   const mode=()=>{
     if(disposed)fail('HOST_TASK_ORIGINAL_HOST_DISPOSED');
     const value=getMode();
@@ -115,6 +115,43 @@ export function createT4OriginalHostDispatchTaskBinding({
       result,
     });
   }
+  async function prepareNative(){
+    if(mode()==='LOCAL_T3')
+      return Object.freeze({
+        schema:'IWXA_T4_ORIGINAL_HOST_TASK_NATIVE_PREPARE_V1',
+        mode:'LOCAL_T3',prepared:false,networkPublished:false,
+        originalOutboxRead:false,
+      });
+    if(typeof dispatcher.prepareNextNativeObject!=='function')
+      fail('HOST_TASK_NATIVE_PREPARATION_PORT_REQUIRED');
+    const context=await verify();
+    const result=await dispatcher.prepareNextNativeObject();
+    await verify(context);
+    if(result?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1'||
+      result.workspaceId!==context.workspaceId||
+      result.originalWriteOwnerRef!==context.originalWriteOwnerRef||
+      result.networkTargetRef!==context.networkTargetRef||
+      !['ORIGINAL_NATIVE_CAPTURE_READY','NO_NEXT_ORIGINAL_EVENT']
+        .includes(result.state)||
+      result.originalRecipientApplied!==false||
+      result.sourceCursorAdvanced!==false||
+      result.recipientCursorAdvanced!==false||
+      result.networkPublished!==false||
+      result.originalSubjectMutationInvoked!==false||
+      (result.state==='ORIGINAL_NATIVE_CAPTURE_READY'&&
+        (result.capture?.originalIntentEventAndCanonicalBytesVerified!==true||
+         result.capture?.capturedWindowDigestVerified!==true))||
+      (result.state==='NO_NEXT_ORIGINAL_EVENT'&&result.capture!==null))
+      fail('HOST_TASK_NATIVE_PREPARATION_RESULT_INVALID');
+    return Object.freeze({
+      schema:'IWXA_T4_ORIGINAL_HOST_TASK_NATIVE_PREPARE_V1',
+      mode:'T4_NETWORK',prepared:result.state==='ORIGINAL_NATIVE_CAPTURE_READY',
+      originalHostTaskOwnerVerified:true,
+      originalHostSessionRef:context.hostSessionRef,
+      networkPublished:false,originalRecipientApplied:false,
+      result,
+    });
+  }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_HOST_DISPATCH_TASK_BINDING_V1',
     createsScheduler:false,createsTaskEngine:false,
@@ -122,11 +159,24 @@ export function createT4OriginalHostDispatchTaskBinding({
     async run({maxEntries=32}={}){
       if(!Number.isSafeInteger(maxEntries)||maxEntries<1||maxEntries>64)
         fail('HOST_TASK_BATCH_LIMIT_INVALID');
-      if(active!==null)return active;
+      if(active!==null){
+        if(activeKind!=='LEGACY_DELIVERY')fail('HOST_TASK_OTHER_PROTOCOL_ACTIVE');
+        return active;
+      }
       const promise=execute(maxEntries);
-      active=promise;
+      active=promise;activeKind='LEGACY_DELIVERY';
       try{return await promise;}
-      finally{if(active===promise)active=null;}
+      finally{if(active===promise){active=null;activeKind=null;}}
+    },
+    async prepareNative(){
+      if(active!==null){
+        if(activeKind!=='NATIVE_PREPARE')fail('HOST_TASK_OTHER_PROTOCOL_ACTIVE');
+        return active;
+      }
+      const promise=prepareNative();
+      active=promise;activeKind='NATIVE_PREPARE';
+      try{return await promise;}
+      finally{if(active===promise){active=null;activeKind=null;}}
     },
     dispose(){disposed=true;},
   });

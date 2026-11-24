@@ -1,6 +1,8 @@
 import {
   publishT4OriginalHostOutbox,inspectT4OriginalHostOutboxNetwork,
+  readT4OriginalHostCapturedObject,
 } from './original-host-outbox-delivery.mjs';
+import {matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
 
 export class T4OriginalHostOutboxDispatcherError extends Error {
   constructor(code,details={}) {
@@ -273,21 +275,155 @@ async function execute(params,maxEntries){
 }
 
 /**
+ * Prepare exactly the next ORIGINAL captured Object for the native .t4n
+ * session. The existing Outbox is the queue. The acknowledged original
+ * Host frontier, NOT the legacy .t4d delivery checkpoint, orders it.
+ * This operation never publishes, advances the cursor, or writes state.
+ */
+async function prepareNextNativeObject(params){
+  if(!ID(params.workspaceId)||!ID(params.originalWriteOwnerRef)||
+    !ID(params.networkTargetRef)||
+    !['getMode','authorizeOriginalRead','authorizeOriginalWrite',
+      'authorizeNetworkPublish','listOriginalOutbox'].every(
+        op=>typeof params[op]==='function')||
+    !['inspectOriginalHostCursor','readNextOriginalSourceEvent'].every(
+      op=>typeof params.originalNativeCursorPort?.[op]==='function'))
+    fail('DISPATCH_NATIVE_ORIGINAL_HOST_PORTS_REQUIRED');
+  const cursorPort=params.originalNativeCursorPort;
+  await allowed(params,'native-frontier-read');
+  const status=await cursorPort.inspectOriginalHostCursor();
+  if(status?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_STATUS_V1'||
+    status.originalT3EventChainVerified!==true||
+    status.originalT3TechnicalWorkspaceOnly!==true||
+    !ID(status.checkpointRef)||!HASH(status.chainHash)||
+    !Number.isSafeInteger(status.revision)||status.revision<1||
+    !validCursor(status.originalT3NextCursor,params.workspaceId,
+      params.originalWriteOwnerRef))
+    fail('DISPATCH_NATIVE_ORIGINAL_FRONTIER_INVALID');
+  const next=await cursorPort.readNextOriginalSourceEvent();
+  const before=status.originalT3NextCursor;
+  const resultBase={
+    schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',
+    workspaceId:params.workspaceId,
+    originalWriteOwnerRef:params.originalWriteOwnerRef,
+    networkTargetRef:params.networkTargetRef,
+    originalHostFrontierRef:status.checkpointRef,
+    originalHostFrontierRevision:status.revision,
+    sourceCursorBefore:structuredClone(before),
+    originalRecipientApplied:false,sourceCursorAdvanced:false,
+    recipientCursorAdvanced:false,networkPublished:false,
+    originalSubjectMutationInvoked:false,
+    continuousTaskSchedulingInstalled:false,
+  };
+  const guardFrontier=async()=>{
+    await allowed(params,'native-frontier-readback');
+    const actual=await cursorPort.inspectOriginalHostCursor();
+    if(!same(actual,status))
+      fail('DISPATCH_NATIVE_ORIGINAL_FRONTIER_CHANGED');
+    mode(params);
+  };
+  if(next?.schema!=='IWXA_T4_ORIGINAL_HOST_NEXT_EVENT_V1'||
+    next.networkPublished!==false||
+    next.originalSubjectMutationInvoked!==false)
+    fail('DISPATCH_NATIVE_NEXT_EVENT_INVALID');
+  if(next.state==='NO_NEXT_ORIGINAL_EVENT'){
+    if(!same(next.originalT3NextCursor,before))
+      fail('DISPATCH_NATIVE_ORIGINAL_FRONTIER_CHANGED');
+    await guardFrontier();
+    return Object.freeze({...resultBase,state:'NO_NEXT_ORIGINAL_EVENT',
+      capture:null});
+  }
+  const w=next.window,a=next.nextCursor,ev=w?.eventRefs?.[0];
+  if(next.state!=='NEXT_ORIGINAL_EVENT_READY_FOR_EXISTING_HOST_TASK'||
+    next.originalHostFrontierRef!==status.checkpointRef||
+    next.originalHostFrontierRevision!==status.revision||
+    !validCursor(a,params.workspaceId,params.originalWriteOwnerRef)||
+    w?.schema!=='IWXA_T4_ORIGINAL_EVENT_WINDOW_V1'||
+    w.workspaceId!==params.workspaceId||
+    w.originalWriteOwnerRef!==params.originalWriteOwnerRef||
+    w.count!==1||w.eventRefs?.length!==1||
+    w.afterEventId!==before.lastEventId||
+    w.sourcePrefixDigestBefore!==before.sourcePrefixDigest||
+    w.lastEventId!==ev?.eventId||w.lastEventId!==a.lastEventId||
+    a.sourcePrefixDigest!==w.sourcePrefixDigestAfter||
+    a.seenEventCount!==before.seenEventCount+1||
+    !matchesT4OriginalCapturedWindowDigest(w,w.windowDigest))
+    fail('DISPATCH_NATIVE_NEXT_EVENT_INVALID');
+  await allowed(params,'native-outbox-list');
+  const rows=await params.listOriginalOutbox(Object.freeze({
+    workspaceId:params.workspaceId,
+    originalWriteOwnerRef:params.originalWriteOwnerRef,
+    networkTargetRef:params.networkTargetRef,
+    kindFilter:Object.freeze(['OBJECT_PUT','ASSET_PUT','RELATION_PUT']),
+    sourceEventId:ev.eventId,
+  }));
+  if(!Array.isArray(rows)||rows.length>4096)
+    fail('DISPATCH_ORIGINAL_OUTBOX_LIST_INVALID');
+  const matches=rows.filter(row=>row?.sourceEventId===ev.eventId);
+  if(matches.length!==1)
+    fail('DISPATCH_NATIVE_NEXT_ORIGINAL_CAPTURE_NOT_UNIQUE',{
+      sourceEventId:ev.eventId,matchingCaptures:matches.length,
+      noLaterEventMayBeSkipped:true,networkWritesStarted:false,
+    });
+  const row=matches[0];
+  if(entryKind(row)!=='OBJECT_PUT')
+    fail('DISPATCH_NATIVE_NEXT_SUBJECT_KIND_NOT_IMPLEMENTED',{
+      sourceEventId:ev.eventId,kind:entryKind(row),
+      noLaterEventMayBeSkipped:true,networkWritesStarted:false,
+    });
+  if(row.objectId!==ev.objectId||!ID(row.captureRef)||
+    !same(row.sourceCursorBefore,before)||!same(row.sourceCursorAfter,a))
+    fail('DISPATCH_NATIVE_CAPTURE_CAUSAL_MISMATCH');
+  const captured=await readT4OriginalHostCapturedObject({
+    ...params,captureRef:row.captureRef,subjectId:row.objectId,
+  });
+  if(captured.prepared.sha256!==row.sha256||
+    captured.prepared.key!==row.key||
+    captured.sourceEventId!==ev.eventId||
+    captured.sourceRevision!==ev.revision||
+    captured.prepared.delta.sourceEventDigest!==ev.eventDigest||
+    !same(captured.sourceCursorBefore,before)||
+    !same(captured.sourceCursorAfter,a)||
+    !matchesT4OriginalCapturedWindowDigest(w,
+      captured.sourceWindow.windowDigest))
+    fail('DISPATCH_NATIVE_CAPTURE_CAUSAL_MISMATCH');
+  await guardFrontier();
+  return Object.freeze({...resultBase,
+    state:'ORIGINAL_NATIVE_CAPTURE_READY',
+    sourceCursorAfter:structuredClone(a),capture:captured,
+    originalHostMustCreateAndPersistSignedSessionBeforePublish:true,
+  });
+}
+
+/**
  * The existing T3 Host/Task scheduler invokes drain(). All durable records
  * (outbox, attempt and checkpoint) are T3 technical Workspace ports, NOT a
  * second Store, queue, Kernel, router, or business acknowledgement.
  */
 export function createT4OriginalHostOutboxDispatcher(params={}){
-  let active=null;
+  let active=null,activeKind=null;
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_HOST_OUTBOX_DISPATCHER_V1',
     usesOriginalT3HostAndStore:true,
     async drain({maxEntries=64}={}){
-      if(active)return active;
+      if(active){
+        if(activeKind!=='LEGACY_DELIVERY')fail('DISPATCH_OTHER_PROTOCOL_ACTIVE');
+        return active;
+      }
       const work=execute(params,maxEntries);
-      active=work;
+      active=work;activeKind='LEGACY_DELIVERY';
       try{return await work;}
-      finally{if(active===work)active=null;}
+      finally{if(active===work){active=null;activeKind=null;}}
+    },
+    async prepareNextNativeObject(){
+      if(active){
+        if(activeKind!=='NATIVE_PREPARE')fail('DISPATCH_OTHER_PROTOCOL_ACTIVE');
+        return active;
+      }
+      const work=prepareNextNativeObject(params);
+      active=work;activeKind='NATIVE_PREPARE';
+      try{return await work;}
+      finally{if(active===work){active=null;activeKind=null;}}
     },
   });
 }
