@@ -105,7 +105,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        shard: [native-base, native-recovery-write, native-recovery-other, native-migration, native-resume]
+        shard: [native-base, native-recovery-write, native-recovery-other, native-migration, native-resume, native-topology]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

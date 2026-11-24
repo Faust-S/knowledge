@@ -40,9 +40,10 @@ export function createT4OriginalSignedOperationAccess({
     if(!same(subject(access.currentContext(),selected.workspace_id),selected))
       fail('ORIGINAL_SIGNED_NETWORK_CONTEXT_CHANGED');
   }
-  async function authorize({operation,input}={}){
+  async function authorize({operation,input,expectedPolicyDigest=null}={}){
     current();
     if(!allowed.includes(operation))fail('ORIGINAL_SIGNED_NETWORK_ACTION_MISMATCH');
+    if(expectedPolicyDigest!==null&&!HEX(expectedPolicyDigest))fail('ORIGINAL_SIGNED_NETWORK_POLICY_MISMATCH');
     const proof=freeze(snapshot(input));
     const action=await access.actionFor(operation);
     current();
@@ -68,6 +69,8 @@ export function createT4OriginalSignedOperationAccess({
       !Number.isSafeInteger(decision.statusSequence)||decision.statusSequence<0||
       !Number.isFinite(Date.parse(decision.validUntil))||Date.parse(decision.validUntil)<=now)
       fail('ORIGINAL_SIGNED_NETWORK_ACCESS_DENIED');
+    if(expectedPolicyDigest!==null&&decision.policyDigest!==expectedPolicyDigest)
+      fail('ORIGINAL_SIGNED_NETWORK_POLICY_MISMATCH');
     if(corporate){
       if(decision.organizationId!==selected.organization_id||decision.workspaceId!==selected.workspace_id||
         decision.grantId!==selected.grant_id||!HEX(decision.operationDigest)||!HEX(decision.evidenceDigest)||

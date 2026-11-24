@@ -163,3 +163,9 @@ test('K36 original registry key must match the exact Vault key and original owne
   assert.throws(()=>createT4OriginalNativeHostNetworkOwner({requireOriginalVaultNodeSignature:true,
     originalVaultNodeSignaturePort:{...f.a.port}}),{code:'NATIVE_NETWORK_OWNER_ORIGINAL_VAULT_REQUIRED'});
 });
+
+test('K36 original key Registry and signed Access cannot be taken from different policy histories',async()=>{
+  const f=await fixture(),differentRegistry=f.a.create({registry:f.b.registry});
+  await assert.rejects(sign(differentRegistry,unsigned(A)),{code:'ORIGINAL_SIGNED_NETWORK_POLICY_MISMATCH'});
+  assert.equal(f.a.reads,0);
+});

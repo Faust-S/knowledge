@@ -89,6 +89,9 @@ export function createT4OriginalNativeHostNetworkOwner({
       b.workspaceId!==sourceWorkspaceId||b.originalWriteOwnerRef!==originalWriteOwnerRef||
       b.localNodeRef!==(role==='SOURCE'?sourceNodeRef:recipientNodeRef))
       fail('NATIVE_NETWORK_OWNER_TOPOLOGY_BINDING_MISMATCH');
+    if(originalVaultNodeSignaturePort!==null&&nativeTopologyTransport.originalSignedAccessBound===true&&
+      JSON.stringify(nativeTopologyTransport.originalSignedSubject)!==JSON.stringify(originalVaultNodeSignaturePort.originalSignedSubject))
+      fail('NATIVE_NETWORK_OWNER_SIGNED_SUBJECT_MISMATCH');
     wireTransport=nativeTopologyTransport.transport;
   }
   if(!['SOURCE','RECIPIENT'].includes(role)||typeof enableLocalSourceCapture!=='boolean'||

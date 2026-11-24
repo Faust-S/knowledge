@@ -6,6 +6,9 @@ import {T4CandidateFrameTransportError} from '../src/network/standard-network-wi
 import {T4OriginalNetworkPublicationError,isT4RecoverablePublicationWakeError} from '../src/network/original-network-publication.mjs';
 import {createOriginalKernelNativeRelay} from '../../t3-core/src/t3/original-kernel-native-relay.mjs';
 import {createTemporaryOriginalPersonalAuthority} from '../../t3-core/tests/support/t3-original-personal-authority.mjs';
+import {createOriginalKernelRegistryStatePort} from '../../t3-core/src/t3/access/original-kernel-registry-state.mjs';
+import {emptyVault,generateVaultKey,encryptVault} from '../../t3-core/src/t3/access/local-vault.mjs';
+import {createT4OriginalVaultNodeSignaturePort} from '../src/network/original-vault-node-signature.mjs';
 import {decodeOriginalNetworkRelayArgs,encodeOriginalNetworkRelayResult} from '../../t3-core/src/t3/original-kernel-native-relay-codec.mjs';
 import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-native-host-network-owner.mjs';
 import {createT4NetworkTopology,openT4NativeTopologyTransport} from '../src/network/network-topology.mjs';
@@ -129,7 +132,7 @@ async function sourceFixture(loseOriginalWrite=false){
 function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=deny,requestBaseline=true,
   localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow,
   indexMigration=false,technicalRead=allow,explicitResume=false,resumeInput=null,resumeAdmission=deny,
-  nativeTopologyTransport=null,requireSignedTopologyAccess=false}){
+  nativeTopologyTransport=null,requireSignedTopologyAccess=false,originalVaultNodeSignaturePort=null}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
@@ -173,7 +176,10 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
       assert.equal(proof.originalHostMustSerializeAllWorkspaceGraphMutations,true);return action();
     },
   };
+  if(originalVaultNodeSignaturePort)for(const k of ['verifyOriginalNodeSignature','resolveOriginalSigningContext','signOriginalNodeBytes'])
+    delete originalPorts[k];
   const owner=createT4OriginalNativeHostNetworkOwner({...scope(tech),role,requiredCryptoSuite:SUITE,
+    originalVaultNodeSignaturePort,requireOriginalVaultNodeSignature:originalVaultNodeSignaturePort!==null,
     getMode:()=>mode,...(nativeTopologyTransport?{nativeTopologyTransport}:{wireTransport:wire.wire}),originalPorts,enableLocalSourceCapture:localCapture,enablePublicationIndexMigration:indexMigration,monotonicNow:()=>clock,
     enableExplicitNetworkResume:explicitResume,readOriginalNetworkResumeInput:resumeInput,requireSignedTopologyAccess,
     readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null,
@@ -751,8 +757,32 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
       retentionClass:'test',recoveryClass:'test',universalCloudMaster:false,subjectActionAuthority:false},
       primaryNodeRef:S,replicaNodeRefs:[server]}]});
   let current=topology,requests=0,credentials=0;const records=new Map();
+  let registry=null,vaultReads=0;
   const routeAuthority=createTemporaryOriginalPersonalAuthority({workspaceId:WS,
-    operations:caps.map(c=>'t4.'+c),purpose:'network.synchronization',clock:Date.now});
+    operations:[...caps.map(c=>'t4.'+c),'t4.network.node.sign','t4.network.node.verify'],
+    purpose:'network.synchronization',clock:Date.now,readSignedState:()=>registry.readState()});
+  const vault=emptyVault(),peerVault=emptyVault(),sourceKey='key:k34:network:source',peerKey='key:k34:network:peer';
+  const ownKey=generateVaultKey(vault,{keyId:sourceKey,subjectId:'person:local'}),
+    otherKey=generateVaultKey(peerVault,{keyId:peerKey,subjectId:'person:local'});
+  const initial=routeAuthority.snapshotSignedState(),now=Date.now();
+  for(const key of [ownKey,otherKey])initial.policy.keys[key.keyId]={subjectId:key.subjectId,environment:'TEST',
+    publicKey:key.publicKeyPem,status:'ACTIVE',uses:['NETWORK_FRAME'],
+    notBefore:new Date(now-60000).toISOString(),expiresAt:new Date(now+600000).toISOString()};
+  // SAME fixture Kernel as the captured Workspace and technical publication
+  // ledger, not a second runtime or independent registry implementation.
+  registry=createOriginalKernelRegistryStatePort({kernel:{...source.kernel,sessionInfo:{contract_version:'1.3.0'}},
+    workspaceId:'ws:k34:registry',trustedPolicy:initial.policy,clock:Date.now});
+  await registry.commitSignedState(initial);
+  const passphrase='K34_TEST_ONLY_DEDICATED_VAULT_PASSPHRASE',encrypted=encryptVault(vault,passphrase);
+  const originalVaultNodeSignaturePort=createT4OriginalVaultNodeSignaturePort({
+    workspaceId:WS,originalWriteOwnerRef:OWNER,localNodeRef:S,remoteNodeRef:R,scopeRef:SCOPE,ownerEpoch:2,
+    requiredCryptoSuite:SUITE,localKeyRef:sourceKey,remoteKeyRef:peerKey,registry,access:routeAuthority.access,
+    expectedContext:routeAuthority.access.currentContext(),getMode:()=> 'T4_NETWORK',
+    readOriginalNodeKeyBinding:async p=>({bindingRef:'binding:'+p.sourceNodeRef,subjectId:'person:local',
+      permissionRef:'permission:k14',keyId:p.signerRef,nodeRef:p.sourceNodeRef,recipientNodeRef:p.recipientNodeRef,
+      workspaceId:WS,originalWriteOwnerRef:OWNER,scopeRef:SCOPE,ownerEpoch:2,active:true}),
+    readEncryptedVault:async()=>{vaultReads++;return encrypted;},
+    unlockPassphrase:async()=>passphrase});
   const transport=openT4NativeTopologyTransport({topology,workspaceId:WS,objectFamily:family,serverNodeRef:server,
     originalSignedAccess:{access:routeAuthority.access,expectedContext:routeAuthority.access.currentContext()},
     nativeWireProfile:'INDEXED',readOriginalTopology:async()=>current,getMode:()=> 'T4_NETWORK',
@@ -768,11 +798,13 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
       if(records.has(k))return new Response(null,{status:412});
       records.set(k,Buffer.from(options.body));return new Response(null,{status:201});
     }});
-  const f=recoverySource(source,null,{nativeTopologyTransport:transport,localCapture:true,requireSignedTopologyAccess:true});
+  const f=recoverySource(source,null,{nativeTopologyTransport:transport,localCapture:true,requireSignedTopologyAccess:true,
+    originalVaultNodeSignaturePort});
   try{
     const s=await f.attach();await f.drive(s,'HEADS_PRESENT');
     assert.equal(f.owner.originalTopologyBinding.topologyDigest,topology.topologyDigest);
     assert.equal(f.owner.originalSignedTopologyAccess,true);
+    assert.equal(f.owner.originalVaultNodeIdentity.localKeyRef,sourceKey);
     assert.ok(routeAuthority.proofCount>0);
     assert.equal(routeAuthority.proofCount,routeAuthority.registryReads);
     assert.equal(f.owner.originalTopologyBinding.serverNodeRef,server);
@@ -781,11 +813,11 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
     assert.equal([...records.keys()].filter(k=>k.endsWith('.t4i')).length,2);
     const frame=decodeT4CandidateFrame([...records].find(([k])=>k.endsWith('.t4n'))[1]);
     assert.equal(frame.sourceNodeRef,S);assert.equal(frame.recipientNodeRef,R);
-    assert.equal(f.signatureCalls,1);
+    assert.equal(frame.signerRef,sourceKey);assert.equal(vaultReads,1);assert.equal(f.signatureCalls,0);
     const count=requests,creds=credentials,start=f.results.length;
     current=createT4NetworkTopology({...topology,revision:2,previousTopologyDigest:topology.topologyDigest});
     await f.drive(s,'NETWORK_WAKE_SUSPENDED',start);
-    assert.equal(requests,count);assert.equal(credentials,creds);assert.equal(f.signatureCalls,1);
+    assert.equal(requests,count);assert.equal(credentials,creds);assert.equal(vaultReads,1);assert.equal(f.signatureCalls,0);
     assert.equal(f.relay.networkAttached,true);
     assert.equal(source.events.filter(e=>e.workspace_id===WS).length,2);
   }finally{f.relay.close();transport.close();}

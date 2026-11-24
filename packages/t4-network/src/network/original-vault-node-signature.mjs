@@ -71,10 +71,11 @@ export function createT4OriginalVaultNodeSignaturePort({
       key.uses[0]!=='NETWORK_FRAME'||!(Date.parse(key.notBefore)<=now&&now<Date.parse(key.expiresAt))||
       createPublicKey(key.publicKey).asymmetricKeyType!=='ed25519')
       fail('ORIGINAL_VAULT_NETWORK_KEY_NOT_ADMITTED');
-    return Object.freeze({binding,key:Object.freeze(structuredClone(key)),keyDigest:digest(key)});
+    return Object.freeze({binding,key:Object.freeze(structuredClone(key)),keyDigest:digest(key),policyDigest:digest(policy)});
   }
   const exact=(before,after)=>{
-    if(before.keyDigest!==after.keyDigest||digest(before.binding)!==digest(after.binding))
+    if(before.policyDigest!==after.policyDigest||before.keyDigest!==after.keyDigest||
+      digest(before.binding)!==digest(after.binding))
       fail('ORIGINAL_VAULT_NETWORK_KEY_CHANGED');
   };
   const frameQuery=frame=>query({...frame,direction:frameScope(frame)});
@@ -85,6 +86,7 @@ export function createT4OriginalVaultNodeSignaturePort({
       signerRef:frame.signerRef,permissionRef:frame.permissionRef,bodyDigest:frame.bodyDigest,
       frameDigest:digestBytes(raw),originalKeyBindingRef:entry.binding.bindingRef,
       originalKeySubjectId:entry.binding.subjectId,originalKeyRecordDigest:entry.keyDigest,
+      originalKeyPolicyDigest:entry.policyDigest,
       direction:q.direction,networkSignatureGrantsNoSubjectAuthority:true});
   }
   async function resolveOriginalSigningContext({session,sequence,messageType,originalNodeSigningAuthorityRequired}={}){
@@ -107,7 +109,7 @@ export function createT4OriginalVaultNodeSignaturePort({
     const raw=new Uint8Array(bytes),frame=decodeT4CandidateSigningBytes(raw),q=frameQuery(frame);
     if(q.direction!=='LOCAL'||frame.signerRef!==signerRef)fail('ORIGINAL_VAULT_NETWORK_SIGN_INPUT_REQUIRED');
     const entry=await keyEvidence(q,frame.permissionRef),proof=evidence(frame,raw,q,entry);
-    await signed.authorize({operation:'t4.network.node.sign',input:proof});
+    await signed.authorize({operation:'t4.network.node.sign',input:proof,expectedPolicyDigest:entry.policyDigest});
     current();
     let encrypted,passphrase;
     try{encrypted=structuredClone(await readEncryptedVault());current();passphrase=await unlockPassphrase(Object.freeze({
@@ -120,7 +122,7 @@ export function createT4OriginalVaultNodeSignaturePort({
       // Do not decrypt private key material across async authorization
       // boundaries. Re-read original binding/Access immediately first.
       exact(entry,await keyEvidence(q,frame.permissionRef));
-      await signed.authorize({operation:'t4.network.node.sign',input:proof});current();
+      await signed.authorize({operation:'t4.network.node.sign',input:proof,expectedPolicyDigest:entry.policyDigest});current();
       const vault=decryptVault(typeof encrypted==='string'?strictJson(encrypted):encrypted,passphrase);
       const item=Object.hasOwn(vault.keys,localKeyRef)?vault.keys[localKeyRef]:null;
       if(!item||item.subjectId!==entry.binding.subjectId||
@@ -131,7 +133,7 @@ export function createT4OriginalVaultNodeSignaturePort({
     }finally{passphrase=null;encrypted=null;}
     current();
     exact(entry,await keyEvidence(q,frame.permissionRef));
-    await signed.authorize({operation:'t4.network.node.sign',input:proof});current();
+    await signed.authorize({operation:'t4.network.node.sign',input:proof,expectedPolicyDigest:entry.policyDigest});current();
     return new Uint8Array(signature);
   }
   async function verifyOriginalNodeSignature(input={}){
@@ -145,15 +147,15 @@ export function createT4OriginalVaultNodeSignaturePort({
         !['signerRef','sourceNodeRef','recipientNodeRef','scopeRef','permissionRef','sessionRef','ownerEpoch','sequence']
           .every(k=>input[k]===frame[k]))return false;
       const entry=await keyEvidence(q,frame.permissionRef),proof=evidence(frame,raw,q,entry);
-      await signed.authorize({operation:'t4.network.node.verify',input:proof});
+      await signed.authorize({operation:'t4.network.node.verify',input:proof,expectedPolicyDigest:entry.policyDigest});
       current();
       if(!verify(null,raw,createPublicKey(entry.key.publicKey),signature))return false;
       exact(entry,await keyEvidence(q,frame.permissionRef));
-      await signed.authorize({operation:'t4.network.node.verify',input:proof});current();
+      await signed.authorize({operation:'t4.network.node.verify',input:proof,expectedPolicyDigest:entry.policyDigest});current();
       return true;
     }catch{return false;}
   }
-  const port=Object.freeze({schema:'IWXA_T4_ORIGINAL_VAULT_NODE_SIGNATURE_V1',identity,
+  const port=Object.freeze({schema:'IWXA_T4_ORIGINAL_VAULT_NODE_SIGNATURE_V1',identity,originalSignedSubject:signed.subject,
     resolveOriginalSigningContext,signOriginalNodeBytes,verifyOriginalNodeSignature,
     originalVault:true,originalRegistry:true,originalSignedAccess:true,createsStore:false,createsIAM:false,
     forOriginalHostLifetime:isHostActive=>createT4OriginalVaultNodeSignaturePort({...identity,registry,access,
