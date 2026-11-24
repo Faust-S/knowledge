@@ -1197,14 +1197,19 @@ def compare_original_preparation_pattern_reuse(
             raise TrajectoryComparisonError("PREPARATION_PATTERN_RISK_SCOPE_INCOMPLETE")
         builds = sum(row["operation"] == "BUILD" for row in patterns)
         reuses = sum(row["operation"] == "REUSE" for row in patterns)
+        revisions = [row["original_pattern_revision"] for row in patterns
+                     if "original_pattern_revision" in row]
         if (builds + reuses != len(scope)
-                or (arm == "REBUILD" and reuses != 0)
-                or (arm == "REUSE" and (builds != 1 or reuses != len(scope) - 1))):
+                or any(row["prior_work"] not in scope for row in revisions)
+                or (arm == "REBUILD" and (reuses != 0 or revisions))
+                or (arm == "REUSE" and (builds != 1 + len(revisions) or reuses == 0))):
             raise TrajectoryComparisonError("PREPARATION_PATTERN_INDEPENDENT_APPLICATIONS_NOT_WITNESSED")
         rows[arm] = {
             "accepted_original_work_count": len(scope),
             "original_pattern_build_count": builds,
             "original_pattern_reuse_count": reuses,
+            **({"original_pattern_revision_count": len(revisions),
+                "original_pattern_revision_build_cost_included": True} if revisions else {}),
             "original_pattern_distinct_reused_count": len({
                 row["pattern_id"] for row in patterns if row["operation"] == "REUSE"
             }),

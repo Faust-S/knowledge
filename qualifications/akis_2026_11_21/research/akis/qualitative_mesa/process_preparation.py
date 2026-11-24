@@ -458,15 +458,131 @@ def review_original_preparation_diagnostic(state: Any, work: Any, actor: str,
     }
 
 
+def original_preparation_pattern_current(state: Any, prepared: Mapping[str, Any],
+                                         at: int) -> bool:
+    """Recheck the exact structure source used by an applied original packet.
+
+    A source fingerprint is not a permission. Resolve it only against the
+    existing owner's current ContextBasis, and reject intervening updates
+    even if a legacy update later restores the same revision. Historic
+    accepted obligations are never requalified by this prospective check.
+    """
+    pattern = prepared.get("model_preparation_pattern")
+    if pattern is None:
+        return True
+    from .context_basis import ContextBlocked
+    from .strict_economic_source_review import original_owner_economic_core
+
+    actor = prepared.get("actor")
+    owner = state.subjects.get(actor)
+    basis = state.context_basis
+    core = original_owner_economic_core(owner.kind) if owner is not None else None
+    if (basis is None or not basis.strict or owner is None or not owner.active
+            or core is None or type(prepared.get("at")) is not int
+            or prepared["at"] >= at):
+        return False
+    matches = [
+        (ref, item) for ref, item in basis.sources.items()
+        if item.owner == actor and preparation_source_fingerprint({
+            "owner": actor, "reference": ref, "revision": item.revision,
+        }) == pattern.get("source_fingerprint")
+    ]
+    if len(matches) != 1:
+        return False
+    ref, item = matches[0]
+    try:
+        basis.assert_original_form_role_source(
+            actor, ref, item.revision, core=core, purpose="competence-reuse",
+            operation="DERIVE", recipients={actor}, at=at,
+        )
+    except ContextBlocked:
+        return False
+    return not any(
+        row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
+        and row.get("source") == ref and prepared["at"] < row["at"] < at
+        for row in state.trace
+    )
+
+
+def _accepted_pattern_predecessor(state: Any, work: Any, actor: str,
+                                  prior_work: str, prepare_at: int,
+                                  result_ref: str, accept_at: int,
+                                  pattern_id: str, at: int) -> Mapping[str, Any]:
+    """Return the effective prepared packet of an independently accepted Work.
+
+    A merely approved but superseded packet is not organizational experience
+    used in the accepted Work. Require the original applied commitment after
+    the review, the effective packet at that commitment and the recipient's
+    subsequent acceptance. Historical provenance grants no present use right.
+    """
+    prior = state.works.get(prior_work)
+    if (prior is None or prior.key == work.key
+            or prior.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
+            or prior.result_ref != result_ref
+            or type(prepare_at) is not int or type(accept_at) is not int
+            or not 0 <= prepare_at < accept_at < at):
+        raise ValueError("PREPARATION_PATTERN_PRIOR_ACCEPTED_RESULT_REQUIRED")
+    rows = [r for r in state.trace if r.get("work") == prior.key
+            and r.get("outcome") == "APPLIED" and r["at"] < at]
+    matching = [
+        r for r in rows if r.get("action") == "function_prepare"
+        and r.get("actor") == actor and r["at"] == prepare_at
+        and r.get("model_preparation_pattern", {}).get("pattern_id") == pattern_id
+    ]
+    accepts = [
+        r for r in rows if r.get("action") == "accept"
+        and r.get("actor") == prior.customer and r["at"] == accept_at
+    ]
+    commits = [r for r in rows if r.get("action") == "commit"
+               and prepare_at < r["at"] < accept_at]
+    error = "PREPARATION_PATTERN_ORIGINAL_REUSE_CHAIN_NOT_QUALIFIED"
+    if len(matching) != 1 or len(accepts) != 1 or len(commits) != 1:
+        raise ValueError(error)
+    prepared, committed = matching[0], commits[0]
+    reviews = [
+        r for r in rows if r.get("action") == "function_review"
+        and r.get("human_decision") == "APPROVE"
+        and r.get("actor") == prior.customer and r.get("prepared_at") == prepare_at
+        and r.get("function_id") == prepared.get("function_id")
+        and r.get("org_revision") == committed.get("org_revision")
+        and r.get("work_source_revision") == prepared.get("work_source_revision")
+        and prepare_at < r["at"] < committed["at"]
+    ]
+    if (len(reviews) != 1
+            or prepared.get("org_revision") != committed.get("org_revision")):
+        raise ValueError(error)
+    # Resolve the active original function at the historical commitment,
+    # just as ModelFormationPolicy._phase_six_ready does prospectively.
+    policy = state.formation_policy
+    functions = [] if policy is None else [
+        fn for fn in policy.design.declarations["agent_functions"]
+        if fn["work"] == prior.key and fn["work_revision"] == prepared.get("work_source_revision")
+        and fn["action"] == "REQUEST_APPROVAL"
+        and fn["revision"] == committed.get("org_revision")
+        and fn["available_at"] <= committed["at"] < fn["expires_at"]
+    ]
+    if len(functions) != 1 or functions[0]["id"] != prepared.get("function_id"):
+        raise ValueError(error)
+    effective = [
+        r for r in rows if r.get("action") == "function_prepare"
+        and r.get("function_id") == prepared.get("function_id")
+        and r.get("org_revision") == committed.get("org_revision")
+        and r.get("work_source_revision") == prepared.get("work_source_revision")
+        and r["at"] < committed["at"]
+    ]
+    if not effective or max(effective, key=lambda r: r["at"])["at"] != prepare_at:
+        raise ValueError(error)
+    return prepared
+
+
 def qualify_original_preparation_pattern(state: Any, work: Any, actor: str, mode: str,
                                          claim: Any, at: int) -> dict[str, Any]:
-    """The operator may reuse its own *structure*, not another owner's data.
+    """Reuse or explicitly rebuild an owner's structural pattern on original Work.
 
-    This is an explicit original operation of the existing preparation
-    event. No pattern store, derived authority, cached customer decision or
-    new business event is introduced. Reuse requires a previously prepared,
-    independently reviewed and accepted original Work and a current owned
-    source for the SAME structural pattern. All current checks remain.
+    A qualified prior preparation must actually have contributed to an
+    accepted original Work. An explicit revision is a fresh BUILD with
+    full build cost, current owner source and a lineage to the historical
+    effective packet. It inherits no old values, consent or use right.
     """
     from .context_basis import ContextBlocked
     from .strict_economic_source_review import original_owner_economic_core
@@ -475,11 +591,20 @@ def qualify_original_preparation_pattern(state: Any, work: Any, actor: str, mode
         raise ValueError("PREPARATION_PATTERN_OPERATION_INVALID")
     operation = claim["operation"]
     expected = {"operation", "pattern_id", "source_ref", "source_revision"}
+    prior_fields = {"prior_work", "prior_prepare_at", "prior_result_ref", "prior_accepted_at"}
     if operation == "REUSE":
-        expected |= {"prior_work", "prior_prepare_at", "prior_result_ref", "prior_accepted_at"}
+        expected |= prior_fields
+    revises = claim.get("revises")
+    if operation == "BUILD" and "revises" in claim:
+        expected.add("revises")
+        if (not isinstance(revises, dict)
+                or set(revises) != prior_fields | {"pattern_id", "source_revision"}
+                or not all(isinstance(revises[k], str) and 0 < len(revises[k]) <= 160
+                           for k in set(revises) - {"prior_prepare_at", "prior_accepted_at"})):
+            raise ValueError("PREPARATION_PATTERN_REVISION_FIELDS_INVALID")
     if (set(claim) != expected or mode not in ("S1", "S2")
             or not all(isinstance(claim[key], str) and 0 < len(claim[key]) <= 160
-                       for key in expected - {"prior_prepare_at", "prior_accepted_at"})):
+                       for key in expected - {"prior_prepare_at", "prior_accepted_at", "revises"})):
         raise ValueError("PREPARATION_PATTERN_FIELDS_INVALID")
     basis = getattr(state, "context_basis", None)
     owner = state.subjects.get(actor)
@@ -495,8 +620,6 @@ def qualify_original_preparation_pattern(state: Any, work: Any, actor: str, mode
     except ContextBlocked as exc:
         raise ValueError("PREPARATION_PATTERN_CURRENT_SOURCE_NOT_QUALIFIED") from exc
     activity = model_preparation_activity(state, work, mode)
-    # Only the shape and method are remembered: no customer, prices,
-    # original consents, resource availability, private source contents.
     shape = preparation_source_fingerprint({
         key: activity[key] for key in (
             "mode", "original_header_field_count", "original_current_field_count",
@@ -512,42 +635,61 @@ def qualify_original_preparation_pattern(state: Any, work: Any, actor: str, mode
         and row.get("actor") == actor
         and row.get("model_preparation_pattern", {}).get("pattern_id") == claim["pattern_id"]
     ]
+    revision_evidence = None
     if operation == "BUILD":
         if applied:
             raise ValueError("PREPARATION_PATTERN_BUILD_ID_ALREADY_USED")
+        if revises is not None:
+            if revises["pattern_id"] == claim["pattern_id"]:
+                raise ValueError("PREPARATION_PATTERN_REVISION_REQUIRES_NEW_ID")
+            predecessor = _accepted_pattern_predecessor(
+                state, work, actor, revises["prior_work"], revises["prior_prepare_at"],
+                revises["prior_result_ref"], revises["prior_accepted_at"],
+                revises["pattern_id"], at,
+            )
+            old = predecessor["model_preparation_pattern"]
+            old_source = preparation_source_fingerprint({
+                "owner": actor, "reference": claim["source_ref"],
+                "revision": revises["source_revision"],
+            })
+            if old["source_fingerprint"] != old_source:
+                raise ValueError("PREPARATION_PATTERN_REVISION_SOURCE_LINEAGE_MISMATCH")
+            changes = []
+            if old_source != source:
+                changes.append("SOURCE_REVISION")
+            if predecessor["org_revision"] != state.institution.revision:
+                changes.append("ORGANIZATIONAL_CODE")
+            if old["shape_fingerprint"] != shape:
+                changes.append("STRUCTURE")
+            if any(row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
+                   and row.get("source") == claim["source_ref"]
+                   and predecessor["at"] < row["at"] < at for row in state.trace):
+                changes.append("SOURCE_UPDATE")
+            if not changes:
+                raise ValueError("PREPARATION_PATTERN_REVISION_REQUIRES_OBSERVED_CHANGE")
+            revision_evidence = {
+                "prior_pattern_id": revises["pattern_id"],
+                "prior_work": revises["prior_work"],
+                "prior_prepared_at": revises["prior_prepare_at"],
+                "prior_accepted_at": revises["prior_accepted_at"],
+                "prior_source_fingerprint": old_source,
+                "observed_changes": changes,
+                "fresh_build_cost_required": True,
+                "historical_lineage_is_not_current_permission": True,
+            }
     else:
-        prior = state.works.get(claim["prior_work"])
-        prepare_at, accept_at = claim["prior_prepare_at"], claim["prior_accepted_at"]
-        if (prior is None or prior.key == work.key
-                or prior.result != "ACCEPTED_BY_ORIGINAL_RECIPIENT"
-                or prior.result_ref != claim["prior_result_ref"]
-                or type(prepare_at) is not int or type(accept_at) is not int
-                or not 0 <= prepare_at < accept_at < at):
-            raise ValueError("PREPARATION_PATTERN_PRIOR_ACCEPTED_RESULT_REQUIRED")
-        matching = [
-            row for row in applied
-            if row.get("work") == prior.key and row.get("at") == prepare_at
-            and row.get("org_revision") == state.institution.revision
-            and row["model_preparation_pattern"]["source_fingerprint"] == source
-            and row["model_preparation_pattern"]["shape_fingerprint"] == shape
-        ]
-        approvals = [
-            row for row in state.trace if row.get("work") == prior.key
-            and row.get("action") == "function_review" and row.get("outcome") == "APPLIED"
-            and row.get("human_decision") == "APPROVE"
-            and row.get("actor") == prior.customer and row.get("prepared_at") == prepare_at
-            and prepare_at < row["at"] < accept_at
-        ]
-        accepts = [
-            row for row in state.trace if row.get("work") == prior.key
-            and row.get("action") == "accept" and row.get("outcome") == "APPLIED"
-            and row.get("actor") == prior.customer and row.get("at") == accept_at
-        ]
-        if (len(matching) != 1 or len(approvals) != 1 or len(accepts) != 1
-                or approvals[0].get("function_id") != matching[0].get("function_id")
+        predecessor = _accepted_pattern_predecessor(
+            state, work, actor, claim["prior_work"], claim["prior_prepare_at"],
+            claim["prior_result_ref"], claim["prior_accepted_at"],
+            claim["pattern_id"], at,
+        )
+        previous = predecessor["model_preparation_pattern"]
+        if (predecessor.get("org_revision") != state.institution.revision
+                or previous["source_fingerprint"] != source
+                or previous["shape_fingerprint"] != shape
                 or any(row.get("action") == "source_update" and row.get("outcome") == "APPLIED"
-                       and row.get("source") == claim["source_ref"] and prepare_at < row["at"] < at
-                       for row in state.trace)):
+                       and row.get("source") == claim["source_ref"]
+                       and predecessor["at"] < row["at"] < at for row in state.trace)):
             raise ValueError("PREPARATION_PATTERN_ORIGINAL_REUSE_CHAIN_NOT_QUALIFIED")
     return {
         "operation": operation, "pattern_id": claim["pattern_id"],
@@ -558,4 +700,5 @@ def qualify_original_preparation_pattern(state: Any, work: Any, actor: str, mode
         "reuses_structural_pattern_not_customer_values": True,
         "all_current_source_checks_and_customer_review_remain": True,
         "new_original_consent_created": False,
+        **({"original_pattern_revision": revision_evidence} if revision_evidence else {}),
     }

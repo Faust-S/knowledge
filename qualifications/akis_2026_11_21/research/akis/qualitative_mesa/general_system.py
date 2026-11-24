@@ -16,7 +16,7 @@ from .configuration_behavior import (
     configuration_dynamics, original_configuration_commit_gate,
 )
 from .scope_policy import source_link_status, OPERATIONS as CONTEXT_OPERATIONS
-from .process_preparation import perform_bounded_process_step
+from .process_preparation import (perform_bounded_process_step, original_preparation_pattern_current)
 from .cooperation import original_membership_predecessor
 
 
@@ -459,6 +459,8 @@ class ModelFormationPolicy:
         reason, _ = self._agent_packet(state, work, fn["id"], at)
         if reason != "NONE":
             return reason
+        if not original_preparation_pattern_current(state, prep, at):
+            return "FORMATION_AGENT_ORIGINAL_PATTERN_SOURCE_CHANGED_AFTER_PACKET"
         # Even a subsequently restored source must not silently reactivate a
         # packet computed against an older context epoch. The original trace,
         # not a secondary version store, establishes the intervening change.
@@ -562,6 +564,8 @@ class ModelFormationPolicy:
                         6, fn["owner"], prep.get("function_phase_source_ref"),
                         state.institution.revision, at)):
                 return "FORMATION_AGENT_PREPARATION_SOURCE_STALE"
+            if not original_preparation_pattern_current(state, prep, at):
+                return "FORMATION_AGENT_ORIGINAL_PATTERN_SOURCE_CHANGED_AFTER_PACKET"
         # A rejection is an original independent negative decision, not
         # execution, acceptance of Work, or a grant to a program agent.
         return "NONE"

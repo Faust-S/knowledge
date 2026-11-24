@@ -34,6 +34,10 @@ jobs:
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
         run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r2_executed_route_economics_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_outside_work_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r4_original_outside_work_payment_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1p_r3_executed_route_economics_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_s0_s1_s2_original_preparation_economics_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r1t3_original_technology_route_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_r3_r4_original_multi_order_portfolio_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_active_resource_readiness_mesa.py qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_material_replenishment_mesa.py
+      - name: Original preparation renewal and re-use
+        env:
+          PYTHONPATH: qualifications/akis_2026_11_21
+        run: python -m pytest -q qualifications/akis_2026_11_21/research/akis/qualitative_mesa/tests/test_original_preparation_pattern_revision_mesa.py
       - name: Full original Mesa regression
         env:
           PYTHONPATH: qualifications/akis_2026_11_21
@@ -53,6 +57,7 @@ jobs:
           python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_unfinished_activity.py
           python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_combined_process_recovery.py
           python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_recovery_reproduction.py
+          python qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/export_preparation_pattern_revision.py
       - uses: actions/upload-artifact@v4
         with:
           name: akis-r2-executed-route-economics-${{ matrix.os }}
@@ -71,3 +76,4 @@ jobs:
             qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r2_r3_r4_unfinished_activity_evidence.json
             qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r2_r3_r4_combined_process_recovery_evidence.json
             qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r2_r3_r4_recovery_reproduction_evidence.json
+            qualifications/akis_2026_11_21/research/akis/qualitative_mesa/experiments/r2_r3_r4_preparation_pattern_revision_evidence.json
