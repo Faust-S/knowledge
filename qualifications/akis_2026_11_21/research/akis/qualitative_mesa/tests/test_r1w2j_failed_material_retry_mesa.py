@@ -8,7 +8,7 @@ from research.akis.qualitative_mesa.economic_flow import evaluate_economic_claim
 from research.akis.qualitative_mesa.work_assurance import (
     correction_resource_claims, current_material_generation,
 )
-from .test_r1w2i_material_generation_correction_mesa import MaterialCase, strict_world, revoke
+from .test_r1w2i_material_generation_correction_mesa import MaterialCase, strict_world, revoke, world
 
 
 class RetryCase(MaterialCase):
@@ -191,3 +191,30 @@ def test_short_receipt_does_not_erase_unaccounted_dispatched_material():
     x.action("quality_correction_propose","c",**x.retry_terms(),expected="BLOCKED",
              reason="QUALITY_CORRECTION_RETRY_UNRESOLVED_IN_TRANSIT_QUANTITY")
     assert [x.w.material_states,x.w.assurance_corrections,x.s.capacity_ledger.reservations]==before
+
+
+def test_running_operation_cannot_be_replaced_by_a_material_retry():
+    x=RetryCase();x.proposal();x.approve();x.start("source","a",50,12000)
+    x.action("quality_correction_propose","c",**x.retry_terms(),expected="BLOCKED",
+             reason="QUALITY_CORRECTION_RETRY_RUNNING_OPERATION")
+    assert x.w.operation_states["source"]=="CORRECTION_RUNNING"
+
+
+def test_retry_capacity_conflict_does_not_supersede_failed_attempt():
+    d=world()
+    d["works"].append(dict(id="w2",customer="c",resource="rb",source_revision="d2",
+                           slot_start=120,slot_end=124))
+    x=RetryCase(d);x.failure();x.retry()
+    for a in ("a","b","c"):
+        x.vote(a)
+    for action,actor,kw in [
+        ("offer","op",{}),("authorize","op",{}),
+        ("consent","b",dict(source_revision="d2",org_revision="oc-1")),
+        ("consent","c",dict(source_revision="d2",org_revision="oc-1")),
+        ("commit","op",{}),
+    ]:
+        x.action(action,actor,work="w2",**kw)
+    before=deepcopy([x.w.assurance_corrections,x.w.material_states,x.s.capacity_ledger.reservations])
+    x.apply_plan(expected="BLOCKED",reason="RESOURCE_CAPACITY_EXCEEDED")
+    assert [x.w.assurance_corrections,x.w.material_states,x.s.capacity_ledger.reservations]==before
+    assert x.w.assurance_corrections[0]["status"]=="IN_PROGRESS"
