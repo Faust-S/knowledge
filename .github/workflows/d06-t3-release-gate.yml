@@ -904,7 +904,9 @@ jobs:
             exit 1
           }
           grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
-          grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log"
+          for phase in ITEM_HISTORY BACKUP PD12_PORTABLE; do
+            grep -Fx "D06_T3_PHYSICAL_DOWNLOAD=$phase:PASS" "$RUNNER_TEMP/d06-t3-native-private.log"
+          done
           echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
       - name: Prepare compiled production Host
         id: production-host
@@ -1113,20 +1115,25 @@ jobs:
             .github/d06/t3-release-request.json
           sparse-checkout-cone-mode: false
           path: pipeline
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Validate explicit release request
         id: request
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          $request = Get-Content -LiteralPath pipeline/.github/d06/t3-release-request.json -Raw | ConvertFrom-Json
-          if ($request.schema -ne "IWXA_D06_T3_QUALIFICATION/1") { throw "D06_RELEASE_REQUEST_SCHEMA" }
-          foreach ($field in @("owner","site")) {
-            $value = $request.$field
-            if ($value -isnot [string] -or $value -cnotmatch '^[a-f0-9]{40}$') { throw "D06_RELEASE_REQUEST_SHA" }
-            Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value ($field + "=" + $value)
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {readFileSync, appendFileSync} from 'node:fs';
+          const request=JSON.parse(readFileSync('pipeline/.github/d06/t3-release-request.json','utf8'));
+          if(request.schema!=='IWXA_D06_T3_QUALIFICATION/1')throw Error('D06_RELEASE_REQUEST_SCHEMA');
+          for(const field of ['owner','site']){
+            if(typeof request[field]!=='string'||!/^[a-f0-9]{40}$/.test(request[field]))throw Error('D06_RELEASE_REQUEST_SHA');
+            appendFileSync(process.env.GITHUB_OUTPUT,field+'='+request[field]+'\n');
           }
-          if (($request.attempt -isnot [int] -and $request.attempt -isnot [long]) -or $request.attempt -lt 1) { throw "D06_RELEASE_REQUEST_ATTEMPT" }
-          Write-Host "D06_RELEASE_REQUEST=PASS"
+          if(!Number.isSafeInteger(request.attempt)||request.attempt<1)throw Error('D06_RELEASE_REQUEST_ATTEMPT');
+          console.log('D06_RELEASE_REQUEST=PASS');
+          NODE
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
@@ -1147,9 +1154,6 @@ jobs:
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-site
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
       - name: Verify exact site and original core revisions
         shell: bash
         env:
@@ -1296,7 +1300,9 @@ jobs:
             exit 1
           }
           grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
-          grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log"
+          for phase in ITEM_HISTORY BACKUP PD12_PORTABLE; do
+            grep -Fx "D06_T3_PHYSICAL_DOWNLOAD=$phase:PASS" "$RUNNER_TEMP/d06-t3-native-private.log"
+          done
           echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
       - name: Real Qwen on actual D06 subject and cold offline Kernel draft
         if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
