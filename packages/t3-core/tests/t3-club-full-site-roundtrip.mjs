@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import {isDeepStrictEqual} from "node:util";
 import {spawn} from "node:child_process";
-import {mkdtemp,rm,stat} from "node:fs/promises";
+import {mkdtemp,rm,stat,readFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {chromium} from "playwright";
@@ -57,9 +57,10 @@ async function poll(fn,code,ms=60000){
  }while(Date.now()<deadline);
  throw Error("CLUB_DIST_"+code);
 }
-async function launch(dir){
+const desktop={width:1280,height:900},phone={width:390,height:844};
+async function launch(dir,viewport=desktop){
  context=await chromium.launchPersistentContext(join(root,dir),{
-  headless:true,viewport:{width:1280,height:900},acceptDownloads:true,
+  headless:true,viewport,acceptDownloads:true,
   args:["--disable-gpu"]
  });
  const page=context.pages()[0]||await context.newPage();
@@ -71,6 +72,85 @@ async function close(){
 }
 async function visit(page,path){
  await page.goto(origin+path,{waitUntil:"domcontentloaded",timeout:60000});
+}
+// One responsive sweep of the actual assembled product, not a second build.
+// The separate disposable profile never enters the functional roundtrip.
+async function fitViewport(page,code){
+ const sizes=await page.evaluate(()=>({viewport:window.innerWidth,
+  width:Math.max(document.documentElement.scrollWidth,document.body?.scrollWidth||0)}));
+ if(sizes.width>sizes.viewport+2){
+  console.log("CLUB_DIST_LAYOUT_FAIL "+JSON.stringify({phase,viewport:sizes.viewport,document:sizes.width}));
+  throw Error("CLUB_DIST_"+code);
+ }
+}
+async function auditResponsive(){
+ const routes=JSON.parse(await readFile(join(site,"scripts/prerender-routes.json"),"utf8"));
+ check(routes.length===40&&new Set(routes).size===routes.length,"RESPONSIVE_ROUTE_REGISTRY");
+ const paths=[...routes,"/workspace/exchange/","/workspace/lifecycle/"];
+ const page=await launch("responsive");
+ let errors=0;
+ page.on("pageerror",()=>{errors++});
+ try{
+  for(const [mode,viewport] of [["DESKTOP",desktop],["PHONE",phone]]){
+   await page.setViewportSize(viewport);
+   for(const [index,path] of paths.entries()){
+    phase="RESPONSIVE_"+mode+"_ROUTE_"+String(index+1).padStart(2,"0");
+    const before=errors;
+    await visit(page,path);
+    await page.locator("[data-nav]").waitFor({state:"attached"});
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    check(await page.evaluate(()=>document.title.trim().length>0&&!!document.querySelector("main,#root")),"RESPONSIVE_REAL_PAGE");
+    check(errors===before,"RESPONSIVE_UNCAUGHT_PAGE_ERROR");
+    await fitViewport(page,"RESPONSIVE_HORIZONTAL_OVERFLOW");
+   }
+   log("RESPONSIVE_"+mode+"_ALL_"+paths.length+"_ROUTES");
+  }
+  // Test every catalogue anchor and all six newly discoverable helpers on
+  // the narrow viewport. The real target must have a layout box, not just
+  // exist as an element hidden inside an unopened disclosure.
+  phase="RESPONSIVE_PHONE_CATALOG";
+  await visit(page,"/tools/");
+  const cards=await page.evaluate(()=>Array.from(document.querySelectorAll("[data-tool-level]"))
+   .map(card=>({href:card.querySelector("a[href]")?.getAttribute("href")||null})));
+  check(cards.length===25&&cards.filter(x=>x.href).length===22,"RESPONSIVE_CATALOG_22_AVAILABLE");
+  const catalogLinks=cards.map(x=>x.href).filter(x=>x&&x.includes("#"));
+  const helperLinks=await page.locator(".club-support-tools a[href]").evaluateAll(links=>links.map(a=>a.getAttribute("href")));
+  check(helperLinks.length===6,"RESPONSIVE_SUPPORT_TOOLS");
+  const links=[...new Set([...catalogLinks,...helperLinks,"/tools/personal-economy/#club-cash-until-payday",
+   "/tools/personal-economy/#club-money-calendar-start","/tools/personal-economy/#club-cash-entry","/tools/action-route/#club-week-plan"])];
+  for(const [index,href] of links.entries()){
+   phase="RESPONSIVE_PHONE_ANCHOR_"+String(index+1).padStart(2,"0");
+   await visit(page,href);
+   const id=new URL(origin+href).hash.slice(1);
+   await page.locator("#"+id).waitFor({state:"visible"});
+   await poll(async()=>await page.locator("#"+id).evaluate(el=>{
+    let parent=el.closest("details");while(parent){if(!parent.open)return false;parent=parent.parentElement?.closest("details")}
+    return el.getClientRects().length>0;
+   }),"RESPONSIVE_OPEN_EXACT_DISCLOSURE",10000);
+   await fitViewport(page,"RESPONSIVE_OPEN_FORM_OVERFLOW");
+  }
+  log("RESPONSIVE_PHONE_ALL_"+links.length+"_FUNCTION_ANCHORS");
+  for(const [index,viewport] of [{width:320,height:568},{width:667,height:320}].entries()){
+   await page.setViewportSize(viewport);
+   for(const [routeIndex,path] of ["/","/tools/","/workspace/","/workspace/exchange/"].entries()){
+    phase="RESPONSIVE_MENU_"+index+"_"+routeIndex;
+    await visit(page,path);
+    const toggle=page.locator("[data-nav-toggle]"),nav=page.locator("[data-nav]");
+    await toggle.click();
+    await nav.waitFor({state:"visible"});
+    check(await nav.locator("a").count()===5,"RESPONSIVE_MENU_ALL_ACTIONS");
+    const last=nav.locator("a").last();
+    await last.scrollIntoViewIfNeeded();
+    const rect=await last.boundingBox(),size=page.viewportSize();
+    check(!!rect&&rect.x>=-1&&rect.y>=-1&&rect.x+rect.width<=size.width+1&&rect.y+rect.height<=size.height+1,"RESPONSIVE_LAST_MENU_ACTION_REACHABLE");
+    await page.keyboard.press("Escape");
+    await poll(async()=>await toggle.getAttribute("aria-expanded")==="false","RESPONSIVE_MENU_ESCAPE");
+    check(await toggle.evaluate(el=>document.activeElement===el),"RESPONSIVE_MENU_FOCUS");
+    await fitViewport(page,"RESPONSIVE_SMALL_SCREEN_OVERFLOW");
+   }
+  }
+  log("RESPONSIVE_SMALL_AND_LANDSCAPE_MENU");
+ }finally{await close()}
 }
 async function openExisting(page){
  await page.getByRole("heading",{name:"Моё в Клубе",exact:true}).waitFor({state:"visible"});
@@ -166,8 +246,9 @@ try{
    const m=await r.json();return m.domain_origin===origin&&m.complete_static_tree===true;
   }catch{return false;}
  },"ORIGINAL_PREVIEW_READY");
- phase="FIRST_USE_LAUNCH";
- let page=await launch("source");
+ await auditResponsive();
+ phase="FIRST_USE_PHONE_LAUNCH";
+ let page=await launch("source",phone);
  await visit(page,"/workspace/");
  phase="FIRST_USE_CREATE";
  await page.getByTestId("club-create-personal-space").click();
@@ -185,6 +266,7 @@ try{
  else await regularProfile.click();
  const form=page.locator("form[data-profile-form]");
  await form.waitFor({state:"visible"});
+ await fitViewport(page,"PHONE_PROFILE_FORM_OVERFLOW");
  phase="ASSISTANT_NATIVE_FORM";
  check(await form.locator('[name="alias"]').inputValue()==="","FRESH_PROFILE");
  const shortcut=form.locator('button[data-iwxa-assistant-form-open]');
@@ -220,13 +302,15 @@ try{
  await savedWitness.waitFor({state:"visible"});
  const savedScope=await savedWitness.getAttribute("data-t2-workspace-id");
  check(!!savedScope&&(await savedWitness.getAttribute("data-t2-schema-id"))==="ru.iwxa.club.participation-profile"&&Number(await savedWitness.getAttribute("data-t2-revision"))>0&&!!(await savedWitness.getAttribute("data-t2-kernel-event-id")),"ORIGINAL_KERNEL_WITNESS");
+ await fitViewport(page,"PHONE_PROFILE_RECEIPT_OVERFLOW");
+ log("PHONE_PROFILE_ASSISTANT_AND_ORIGINAL_KERNEL_RECEIPT");
  log("ASSISTANT_TO_ORIGINAL_KERNEL_RECEIPT");
  // Separate immediate and cold readback. Both use the original visible
  // inventory and profile editor, not the transient form/session.
  await readProfile(page,"SOURCE_IMMEDIATE_READBACK",savedScope);
  log("SOURCE_IMMEDIATE_KERNEL_READBACK");
  phase="SOURCE_COLD_READBACK";
- await close();page=await launch("source");
+ await close();page=await launch("source",phone);
  await readProfile(page,"SOURCE_COLD_READBACK",savedScope);
  log("SOURCE_COLD_KERNEL_READBACK");
  phase="EXPORT";
@@ -251,6 +335,8 @@ try{
  await page.getByTestId("export-confirm-saved-file").check();
  await page.getByTestId("export-confirm").click();
  await page.getByTestId("export-receipt").waitFor({state:"visible"});
+ await fitViewport(page,"PHONE_EXCHANGE_EXPORT_OVERFLOW");
+ log("PHONE_PHYSICAL_IWXA_EXPORT");
  log("ORIGINAL_IWXA_PHYSICAL_EXPORT");
  await close();
  phase="INDEPENDENT_IMPORT";
@@ -412,6 +498,7 @@ try{
 
  // Actual dated commitments in the original weekly Result. Extend the
  // already verified offline recipient profile, with no direct Store writes.
+ await page.setViewportSize(phone);
  phase="OFFLINE_GOAL_CREATE";
  const goalTitle="Купить инструменты для ремонта";
  const goalStep="Проверить документы сегодня";
@@ -422,6 +509,7 @@ try{
  await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"#club-goal-map");
  const goalForm=page.locator("[data-club-goal-form]");
  await goalForm.waitFor({state:"visible"});
+ await fitViewport(page,"PHONE_GOAL_FORM_OVERFLOW");
  for(const [key,value] of Object.entries({title:goalTitle,outcome:"Есть набор для начала практики",nextStep:goalStep,successCriteria:"Проверена комплектность и пригодность набора"}))
   await goalForm.locator('[name="'+key+'"]').fill(value);
  await goalForm.locator("[data-club-goal-save]").click();
@@ -447,6 +535,8 @@ try{
  await poll(async()=>{
   const g=await localGoal();return g?.kernelSource?.workspaceId===base.scope&&g.kernelSource.revision>0&&g.kernelSource.syncedUpdatedAt===g.updatedAt;
  },"GOAL_KERNEL_RECEIPT");
+ await fitViewport(page,"PHONE_GOAL_RECEIPT_OVERFLOW");
+ log("PHONE_OFFLINE_GOAL_CREATED_AND_SAVED");
  log("OFFLINE_GOAL_ORIGINAL_KERNEL_RECEIPT");
  phase="OFFLINE_AGENDA_CREATE";
  await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"&club_goal="+encodeURIComponent(goalId)+"#club-goal-map");
@@ -454,6 +544,7 @@ try{
  const weekForm=page.locator("form[data-club-week-form]");
  const weekSummary=page.locator("[data-club-week-summary]");
  await weekForm.waitFor({state:"visible"});
+ await fitViewport(page,"PHONE_WEEK_FORM_OVERFLOW");
  await poll(async()=>await weekForm.locator('[name="title"]').inputValue()===goalStep,"GOAL_STEP_PREFILLED");
  check(await weekForm.locator('[name="projectId"]').inputValue()===goalId,"GOAL_EXACT_WEEK_LINK");
  check(!(await page.evaluate(()=>JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")||"null")?.objects?.some(o=>o.objectId==="club-week-plan"))),"GOAL_PREFILL_NO_WRITE");
@@ -555,6 +646,8 @@ try{
  await poll(async()=>{
   const w=await localWeek();return w?.kernelSource?.workspaceId===base.scope&&w.kernelSource.revision>0&&w.kernelSource.syncedUpdatedAt===w.updatedAt;
  },"AGENDA_KERNEL_RECEIPT");
+ await fitViewport(page,"PHONE_WEEK_RECEIPT_OVERFLOW");
+ log("PHONE_OFFLINE_WEEK_CREATED_AND_SAVED");
  log("OFFLINE_AGENDA_ORIGINAL_KERNEL_RECEIPT");
  phase="OFFLINE_AGENDA_COLD_READBACK";
  await close();page=await launch("recipient");await context.setOffline(true);
@@ -714,12 +807,14 @@ try{
  },"ASSESSMENT_KERNEL_RECEIPT");
  log("OFFLINE_GOAL_ASSESSMENT_ORIGINAL_KERNEL_RECEIPT");
  await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"&club_goal="+encodeURIComponent(goalId)+"#club-goal-map");
+ await page.setViewportSize(phone);
  phase="OFFLINE_CASH_SETUP";
  await page.locator("[data-club-goal-list]").getByRole("link",{name:"Записать деньги по цели",exact:true}).click();
  const calendarGroup=page.locator("#club-money-calendar");
  if(!await calendarGroup.evaluate(el=>el.open))await calendarGroup.locator(":scope > summary").click();
  const cashSetup=page.locator("[data-cash-calendar-setup]");
  const cashEntry=page.locator("[data-cash-calendar-entry]");
+ await fitViewport(page,"PHONE_CASH_FORM_OVERFLOW");
  const cashDates=await page.evaluate(()=>{
   const today=new Date();
   const offset=n=>{const d=new Date(today);d.setDate(d.getDate()+n);return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10)};
@@ -859,7 +954,10 @@ try{
  await poll(async()=>{
   const c=await localCash();return c?.kernelSource?.workspaceId===base.scope&&c.kernelSource.revision>0&&c.kernelSource.syncedUpdatedAt===c.updatedAt;
  },"CASH_KERNEL_RECEIPT");
+ await fitViewport(page,"PHONE_CASH_RECEIPT_OVERFLOW");
+ log("PHONE_OFFLINE_CASH_CREATED_AND_SAVED");
  log("OFFLINE_CASH_ORIGINAL_KERNEL_RECEIPT");
+ await page.setViewportSize(desktop);
  phase="OFFLINE_SAVED_HORIZON_FRESH_TAB";
  // A fresh tab must calculate from original saved Results before the
  // person restores any of them. Keep the main scenario tab untouched.
@@ -1177,11 +1275,14 @@ try{
  const resumeInput=resourcePanel.locator("[data-club-goal-resource-resume]");
  await resumeInput.waitFor({state:"visible"});
  await poll(async()=>!new URL(page.url()).searchParams.has("club_review_resume")&&await resourceRun.isEnabled(),"GOAL_TASK_RESUME_ROUTE_CONSUMED");
- check(await resourceForm.locator('[name="slotId"]').inputValue()===""&&
+ check(await resourceForm.locator('[name="slotId"]').inputValue()===goalResourceTask.id&&
   await resourceForm.locator('[name="entryId"]').inputValue()===""&&
-  await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_TASK_RESUME_EXPLICIT_CHOICES");
+  await resourceForm.locator('[name="startA"]').inputValue()==="10:15"&&
+  await resourceForm.locator('[name="startB"]').inputValue()==="10:15"&&
+  await resourceForm.locator('[name="minutesA"]').inputValue()==="90"&&
+  await resourceForm.locator('[name="minutesB"]').inputValue()==="90"&&
+  await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_TASK_RESUME_EXACT_APPLIED_RECORD");
  check(isDeepStrictEqual(await localObjects(),taskResumeObjects),"GOAL_TASK_RESUME_NO_RESULT_WRITE");
- await resourceForm.locator('[name="slotId"]').selectOption(goalResourceTask.id);
  await resourceForm.locator('[name="entryId"]').selectOption("new");
  await resumeInput.click();
  check(await resourceForm.locator('[name="startA"]').inputValue()==="10:15"&&
@@ -1348,10 +1449,14 @@ try{
  await paymentReturn.waitFor({state:"visible"});await paymentReturn.click();
  await resourceForm.waitFor({state:"visible"});await resumeInput.waitFor({state:"visible"});
  await poll(async()=>!new URL(page.url()).searchParams.has("club_review_resume")&&await resourceRun.isEnabled(),"GOAL_PAYMENT_RESUME_ROUTE_CONSUMED");
- check(await resourceForm.locator('[name="slotId"]').inputValue()===""&&await resourceForm.locator('[name="entryId"]').inputValue()===""&&
-  await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_PAYMENT_RESUME_EXPLICIT_CHOICES");
+ check(await resourceForm.locator('[name="slotId"]').inputValue()===""&&await resourceForm.locator('[name="entryId"]').inputValue()===originalPayment.id&&
+  await resourceForm.locator('[name="expenseDateA"]').inputValue()===cashDates.nextEnd&&
+  await resourceForm.locator('[name="expenseDateB"]').inputValue()===cashDates.nextEnd&&
+  await resourceForm.locator('[name="expenseA"]').inputValue()==="3000"&&
+  await resourceForm.locator('[name="expenseB"]').inputValue()==="3000"&&
+  await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_PAYMENT_RESUME_EXACT_APPLIED_RECORD");
+ check(isDeepStrictEqual(await localObjects(),paymentResumeObjects),"GOAL_PAYMENT_RESUME_NO_RESULT_WRITE");
  await resourceForm.locator('[name="slotId"]').selectOption(goalResourceTask.id);
- await resourceForm.locator('[name="entryId"]').selectOption(originalPayment.id);
  await resumeInput.click();
  check(await resourceForm.locator('[name="expenseDateA"]').inputValue()===originalPayment.date&&
   await resourceForm.locator('[name="expenseDateB"]').inputValue()===cashDates.nextEnd&&
@@ -1972,17 +2077,21 @@ try{
  check(saveUrl.pathname==="/workspace/"&&saveUrl.searchParams.get("save")==="personal-economy"&&
   saveUrl.searchParams.get("workspace_id")===restoredCash.kernelSource.workspaceId&&
   saveUrl.searchParams.get("club_goal_review_return")===goalId,"GOAL_REVIEW_SAVE_EXACT_JOURNAL_SCOPE");
+ phase="INDEPENDENT_GOAL_REVIEW_SAVE_OPEN_PREVIEW";
  await saveJournal.click();
  const correctionImport=page.getByTestId("club-t0-import-card");
  await correctionImport.getByTestId("club-t0-import-preview").waitFor({state:"visible"});
+ phase="INDEPENDENT_GOAL_REVIEW_SAVE_SELECT_SCOPE";
  const correctionScope=correctionImport.getByTestId("club-t0-import-workspace-choice").filter({visible:true});
  await poll(async()=>await correctionScope.count()===1,"GOAL_REVIEW_SAVE_SCOPE_AVAILABLE");
  check(await correctionScope.getAttribute("data-workspace-id")===restoredCash.kernelSource.workspaceId,"GOAL_REVIEW_SAVE_SCOPE");
  if(await correctionScope.getAttribute("aria-pressed")!=="true")await correctionScope.click();
  await poll(async()=>await correctionScope.getAttribute("aria-pressed")==="true","GOAL_REVIEW_SAVE_SCOPE_FOCUSED");
+ phase="INDEPENDENT_GOAL_REVIEW_SAVE_CONFIRM";
  await correctionImport.getByLabel("Подтверждаю сохранение изменений. При конфликте прежняя запись останется без изменений.",{exact:true}).check();
  const correctionSave=correctionImport.getByRole("button",{name:"Сохранить изменения",exact:true});
  await poll(async()=>await correctionSave.isEnabled(),"GOAL_REVIEW_SAVE_READY");
+ phase="INDEPENDENT_GOAL_REVIEW_SAVE_KERNEL_RECEIPT";
  await correctionSave.click();
  await poll(async()=>{const row=await localCash();return row?.objectId===restoredCash.objectId&&
   row.kernelSource?.workspaceId===restoredCash.kernelSource.workspaceId&&
@@ -1990,11 +2099,14 @@ try{
  },"GOAL_REVIEW_SAVE_EXACT_NEXT_REVISION");
  check(isDeepStrictEqual((await localCash()).data,corrected.data)&&isDeepStrictEqual(await localGoal(),restoredGoal)&&
   isDeepStrictEqual(await localProof(),restoredProof)&&isDeepStrictEqual(await localWeek(),restoredWeek),"GOAL_REVIEW_SAVE_OTHER_RESULTS_UNCHANGED");
+ phase="INDEPENDENT_GOAL_REVIEW_SAVE_VISIBLE_CONTINUATION";
  const savedGoalReturn=page.locator("[data-workspace-t2-handoff-status]").getByRole("link",{name:"Вернуться к проверке цели",exact:true});
  await savedGoalReturn.waitFor({state:"visible"});
+ check(await savedGoalReturn.evaluate(el=>!el.closest("dialog:not([open])")&&el.getClientRects().length>0),"GOAL_REVIEW_SAVED_RETURN_ACCESSIBLE");
  const savedGoalUrl=new URL(await savedGoalReturn.getAttribute("href"),page.url());
  check(savedGoalUrl.pathname==="/projects/"&&savedGoalUrl.searchParams.get("club_goal")===goalId&&
   savedGoalUrl.searchParams.get("workspace_id")===restoredCash.kernelSource.workspaceId&&savedGoalUrl.hash==="#club-goal-map","GOAL_REVIEW_SAVED_RETURN_EXACT");
+ phase="INDEPENDENT_GOAL_REVIEW_SAVE_RETURN";
  await savedGoalReturn.click();
  await poll(async()=>(await page.locator("[data-club-goal-journal-saves]").textContent()).includes("Денежный календарь: текущая версия сохранена"),"GOAL_REVIEW_SAVED_CORRECTION_VISIBLE");
  check(await page.locator("[data-club-goal-journal-saves]").getByRole("link",{name:"Сохранить денежный календарь",exact:true}).count()===0,"GOAL_REVIEW_NO_REDUNDANT_SAVE");
@@ -2123,7 +2235,13 @@ try{
   profileResume:!!document.querySelector('[data-testid="club-workspace-profile-resume"]'),
   weekSavePending:document.documentElement.hasAttribute("data-club-t2-save-pending"),
   importCard:!!document.querySelector('[data-testid="club-t0-import-card"]'),
-  importPreviewVisible:!!document.querySelector('[data-testid="club-t0-import-preview"]'),
+  importPreviewVisible:!!document.querySelector('[data-testid="club-t0-import-preview"]')?.getClientRects().length,
+  importPreviewMounted:!!document.querySelector('[data-testid="club-t0-import-preview"]'),
+  saveStatusMounted:!!document.querySelector("[data-workspace-t2-handoff-status]"),
+  saveStatusVisible:!!document.querySelector("[data-workspace-t2-handoff-status]")?.getClientRects().length,
+  saveStatusInsideClosedDialog:!!document.querySelector("[data-workspace-t2-handoff-status]")?.closest("dialog:not([open])"),
+  saveContinuationLinks:document.querySelectorAll("[data-workspace-t2-handoff-status] a").length,
+  directSaveHint:new URL(location.href).searchParams.has("save"),
   importScopeChoices:document.querySelectorAll('[data-testid="club-t0-import-workspace-choice"]').length,
   importScopeFocused:document.querySelectorAll('[data-testid="club-t0-import-workspace-choice"][aria-pressed="true"]').length,
   importRowCount:document.querySelectorAll('[data-testid="club-t0-import-object-checkbox"]').length,
