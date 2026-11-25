@@ -72,7 +72,15 @@
       "actualWitnessUnrelatedScopeCheck": true,
       "modelDecisionRequired": true,
       "scopeInputExcludesActionChoicesAndResultValues": true,
-      "hardwareWitnessUnchanged": true
+      "hardwareWitnessUnchanged": true,
+      "originalEngineScopeSchemaChecks": {
+        "contextsPassed": 15,
+        "validAndEmptyResponsesPassed": 60,
+        "invalidResponsesRejected": 60,
+        "maxScopePromptCharacters": 853,
+        "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+        "actualInference": false
+      }
     },
     "routeInventory": {
       "siteCommit": "50434a76193644c552a13fe087d281ff8a2f61e8",
