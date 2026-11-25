@@ -123,7 +123,7 @@ export function createT4OriginalVaultSealedContentPort({
   readEncryptedVault=null,unlockPassphrase=null,getMode,clock=Date.now,
   readOriginalReplacementDiffAcceptance=null,readOriginalReplacementRecipientContentEvidence=null,enableOriginalReplacementBinding=false,
 }={}){
-  if(typeof enableOriginalReplacementBinding!=='boolean'||(enableOriginalReplacementBinding&&(role!=='SOURCE'||readOriginalReplacementDiffAcceptance!==null))||
+  if(typeof enableOriginalReplacementBinding!=='boolean'||(enableOriginalReplacementBinding&&(readOriginalReplacementDiffAcceptance!==null||readOriginalReplacementRecipientContentEvidence!==null))||
     !['SOURCE','RECIPIENT'].includes(role)||
     ![workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,recipientKeyRef].every(ID)||
     sourceNodeRef===recipientNodeRef||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
@@ -286,12 +286,16 @@ export function createT4OriginalVaultSealedContentPort({
     originalAccessIdentity:signed.originalAccessIdentity,originalSignedSubject:signed.subject,
     originalRegistryAgreementKey:true,originalVault:true,createsStore:false,createsIAM:false,
     ...(readOriginalReplacementDiffAcceptance!==null?{originalReplacementSourceContentAdmission:true}:{}),
-    ...(enableOriginalReplacementBinding?{originalReplacementBindingEnabled:true,
+    ...(enableOriginalReplacementBinding?{originalReplacementBindingEnabled:true,...(role==='SOURCE'?{
       bindOriginalReplacementDiffAcceptance:read=>{
         current();if(typeof read!=='function')fail('SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED');
         return createT4OriginalVaultSealedContentPort({...identity,registry,access,originalEvaluator,expectedContext:signed.subject,
           readEncryptedVault,unlockPassphrase,getMode,clock,readOriginalReplacementDiffAcceptance:read});
-      }}:{}),
+      }}:{bindOriginalReplacementRecipientContentEvidence:read=>{
+        current();if(typeof read!=='function')fail('SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED');
+        return createT4OriginalVaultSealedContentPort({...identity,registry,access,originalEvaluator,expectedContext:signed.subject,
+          readEncryptedVault,unlockPassphrase,getMode,clock,readOriginalReplacementRecipientContentEvidence:read});
+      }})}:{}),
     ...(readOriginalReplacementRecipientContentEvidence!==null?{originalReplacementRecipientContentAdmission:true}:{}),
     ...(role==='SOURCE'?{readOriginalSealedContent,authorizeOriginalSealedPublication}:{openOriginalSealedContent}),
     forOriginalHostLifetime:isHostActive=>createT4OriginalVaultSealedContentPort({...identity,registry,access,originalEvaluator,

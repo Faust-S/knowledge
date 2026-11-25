@@ -1060,9 +1060,12 @@ test('K60 K61 K62 original Vault seals, opens and decodes successor canonical su
     originalTransportIntegrityVerified:true,originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,
     originalBusinessApplied:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false};
   let current=null;
-  const recipient=q.recipient({readOriginalReplacementRecipientContentEvidence:async p=>{
+  let recipientActive=true;
+  const unboundRecipient=q.recipient({enableOriginalReplacementBinding:true});
+  assert.equal(unboundRecipient.originalReplacementBindingEnabled,true);
+  const recipient=unboundRecipient.forOriginalHostLifetime(()=>recipientActive).bindOriginalReplacementRecipientContentEvidence(async p=>{
     assert.equal(p.originalSubjectMutationAllowed,false);assert.equal(p.contentDigest,publication.contentDigest);
-    return current;}});
+    return current;});
   const openInput=q.openInput(candidate,sealed);
   await assert.rejects(recipient.openOriginalSealedContent(openInput),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_REQUIRED'});
   current={...evidence,contentDigest:d};
@@ -1138,6 +1141,7 @@ test('K60 K61 K62 original Vault seals, opens and decodes successor canonical su
       {...evidence.frames[2],presentEventId:'event:changed:chunk'}]};return true;
   }}),{code:'SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_CHANGED'});
   assert.equal(q.unlocks,3);
+  recipientActive=false;await assert.rejects(recipient.openOriginalSealedContent(openInput),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});
 });
 
 test('K74 durable original signed Access binds exact history directions and admits a native owner without exposing its Kernel', {timeout:60000},async()=>{

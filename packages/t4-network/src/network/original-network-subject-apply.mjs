@@ -1148,14 +1148,16 @@ function replacementSubject(received){
 
 /** Re-read the source's existing PUBLISHED and recipient's complete
  * ciphertext/subject evidence. Admission is not subject-write permission. */
-export async function readT4OriginalReplacementRecipientApplyAdmission({received,sourceAdmissionPhasePort,
-  readOriginalReplacementRecipientContentEvidence,authorizeOriginalReplacementRecipientApplyAdmission,getMode}={}){
+export async function readT4OriginalReplacementRecipientApplyAdmission({received,sourceAdmissionPhasePort=null,
+  readOriginalReplacementRecipientContentEvidence=null,readOriginalReplacementRecipientContentObservation=null,
+  authorizeOriginalReplacementRecipientApplyAdmission,getMode}={}){
   const {c,v,ordinary}=replacementSubject(received),phase=sourceAdmissionPhasePort,a=v.agreement;
-  if(typeof getMode!=='function'||typeof readOriginalReplacementRecipientContentEvidence!=='function'||
-    typeof authorizeOriginalReplacementRecipientApplyAdmission!=='function'||
-    phase?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||phase.role!=='SOURCE'||
-    phase.checkpointRef!==a.originalSourceAdmissionCheckpointRef||phase.originalT3TechnicalWorkspaceOnly!==true||
-    phase.createsSecondStore!==false||typeof phase.inspectOriginalSession!=='function')
+  const ownerRead=readOriginalReplacementRecipientContentObservation!==null;
+  if(typeof getMode!=='function'||typeof authorizeOriginalReplacementRecipientApplyAdmission!=='function'||
+    (ownerRead?(typeof readOriginalReplacementRecipientContentObservation!=='function'||phase!==null||readOriginalReplacementRecipientContentEvidence!==null):
+      (typeof readOriginalReplacementRecipientContentEvidence!=='function'||phase?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||phase.role!=='SOURCE'||
+        phase.checkpointRef!==a.originalSourceAdmissionCheckpointRef||phase.originalT3TechnicalWorkspaceOnly!==true||
+        phase.createsSecondStore!==false||typeof phase.inspectOriginalSession!=='function')))
     fail('SUBJECT_ORIGINAL_REPLACEMENT_APPLY_PORT_REQUIRED');
   const mode=()=>{if(getMode()!=='T4_NETWORK')fail('SUBJECT_NETWORK_MODE_OFF');};
   const proof=frozen({candidate:c,changeKey:v.frames[1].key,originalCapturedSha256:c.capturedSha256,
@@ -1163,8 +1165,21 @@ export async function readT4OriginalReplacementRecipientApplyAdmission({received
     originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false});
   async function read(){
     mode();
-    const e=validateT4OriginalReplacementContentEvidence(await readOriginalReplacementRecipientContentEvidence(proof),c);mode();
-    const s=validateT4OriginalReplacementSourceIntentStatus(await phase.inspectOriginalSession(),c);mode();
+    let e,s;
+    if(ownerRead){
+      const observation=await readOriginalReplacementRecipientContentObservation(proof);mode();
+      if(observation?.schema!=='IWXA_T4_ORIGINAL_DISCOVERED_SESSION_CONTENT_V1'||!equalStable(observation.session,c))
+        fail('SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_OBSERVATION_INVALID');
+      if(observation.state!=='CONTENT_VERIFIED')fail('SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_NOT_READY');
+      if(observation.originalTransportIntegrityVerified!==true||observation.originalDecryptionInvoked!==false||
+        observation.originalBusinessApplied!==false||observation.sourceCursorAdvanced!==false)
+        fail('SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_OBSERVATION_INVALID');
+      e=validateT4OriginalReplacementContentEvidence(observation.originalReplacementContentEvidence,c);
+      s=validateT4OriginalReplacementSourceIntentStatus(observation.originalReplacementSourcePublishedPhase,c);
+    }else{
+      e=validateT4OriginalReplacementContentEvidence(await readOriginalReplacementRecipientContentEvidence(proof),c);mode();
+      s=validateT4OriginalReplacementSourceIntentStatus(await phase.inspectOriginalSession(),c);mode();
+    }
     if(!equalStable(e,v)||!['PUBLISHED','APPLIED_CONFIRMED'].includes(s.currentPhase)||s.checkpointRef!==a.originalSourceAdmissionCheckpointRef||
       s.originalReplacementAdmissionEventId!==a.originalSourceAdmissionEventId||
       s.originalReplacementAdmissionChainHash!==a.originalSourceAdmissionChainHash||

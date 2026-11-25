@@ -8,6 +8,8 @@ import {t4NativeSourceHeadIndexKey,t4NativeReplacementHeadIndexKey,t4NativeSessi
   from '../src/network/original-network-frame-address.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {discoverT4OriginalNetworkSessionContent} from '../src/network/original-network-subject-apply.mjs';
+import {prepareT4OriginalObjectDelta} from '../src/network/original-object-delta.mjs';
+import {createT4OriginalHostRecipientDispatcher} from '../src/network/original-host-recipient-dispatcher.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {createT4OriginalReplacementOwnerHistoryRequest,readT4OriginalReplacementOwnerHistory,completeT4OriginalReplacementHostCursor,deferT4OriginalReplacementHistoryWake}
@@ -466,7 +468,7 @@ test('K46 retirement authority is explicit, recipient-only, and never inferred f
 // Real Ed25519 wire signatures and the original replay/phase contracts.
 // The transport and Kernel ports here are fixtures, not an installed Host
 // or proof of durable outgoing control publication.
-async function controlFixture({indexed=false,realSourceHistory=false}={}){
+async function controlFixture({indexed=false,realSourceHistory=false,canonicalCapture=false}={}){
   const f=retirementFixture(),sourceStore=fakeKernel(),ws='ws:k47:subject',epoch=2,
     suite='X25519_AES256GCM_ED25519',sha=x=>createHash('sha256').update(x).digest('hex');
   const sourceEventId='event:k47:original',sourceEvents=[{event_id:'event:k47:baseline',workspace_id:ws,
@@ -482,7 +484,10 @@ async function controlFixture({indexed=false,realSourceHistory=false}={}){
     originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
     sourceWindow:originalWindow?.window??{lastEventId:sourceEventId,eventRefs:[{eventDigest:H}],windowDigest:B,
       sourcePrefixDigestBefore:H,sourcePrefixDigestAfter:B},
-    prepared:{bytes:new Uint8Array(Buffer.from('original capture')),sha256:sha('original capture'),
+    prepared:canonicalCapture?await prepareT4OriginalObjectDelta({window:originalWindow.window,workspaceId:ws,objectId:'object:k47:one',
+      originalWriteOwnerRef:owner,originalKernel:{hasOperation:op=>op==='t1.getObject',getObject:async()=>({object:{object_id:'object:k47:one',
+        schema_id:'iwxa.demo.note',schema_version:'1.0.0',revision:7,data:{title:'after'},extensions:{}}})},
+      authorizeOriginalRead:async()=>true,getMode:()=> 'T4_NETWORK'}):{bytes:new Uint8Array(Buffer.from('original capture')),sha256:sha('original capture'),
       delta:{sourceEventId,sourceRevision:7,sourceEventDigest:originalWindow?.window.eventRefs[0].eventDigest??H,windowDigest:originalWindow?.window.windowDigest??B}}};
   const task={schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',
     state:'ORIGINAL_NATIVE_CAPTURE_READY',workspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,
@@ -1216,7 +1221,7 @@ async function replacementContentFixture(fixtureOptions={}){
     resolveOriginalSigningContext:x.resolveSourceContentSigner,signOriginalNodeBytes:x.signSourceContent,
     authorizeOriginalSealedContent:async()=>sealedAllowed,readOriginalSealedContent:async p=>{
       seals++;assert.equal(p.session.sessionRef,c.sessionRef);assert.equal(p.session.changeId,x.session.changeId);
-      assert.equal(p.exactCapturedCanonicalBytesRequired,true);assert.deepEqual(p.originalCapture.prepared.bytes,x.task.capture.prepared.bytes);
+      assert.equal(p.exactCapturedCanonicalBytesRequired,true);assert.deepEqual(new Uint8Array(p.originalCapture.prepared.bytes),new Uint8Array(x.task.capture.prepared.bytes));
       return {ciphertext,encryptionContextRef:'sealed:k60:successor'};}};
   return {x,c,phase,head,admit,sourcePublicationPort,recipientPublicationPort,current,contentPort,params,
     publish:patch=>publishT4OriginalReplacementSourceContent({...params,...patch}),
@@ -2186,4 +2191,62 @@ test('K85 recipient verifies PUBLISHED via independent source owner history and 
   const cold={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
   assert.deepEqual(await client(request),witness);
   assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},cold);
+});
+
+
+test('K86 original recipient dispatcher admits successor content through independent source history without a business write',async()=>{
+  const q=await replacementRecipientFixture({realSourceHistory:true,canonicalCapture:true}),{x,c}=q,root=x.session,before=x.sourceCursorBefore;
+  const {getMode,requiredCryptoSuite}=x.eligibilityOptions();
+  await q.diff();
+  const phase=x.sourcePhase({sessionRef:c.sessionRef,authorizeOriginalSourceSupersession:null,
+    replacementSourceAdmission:q.phase.originalReplacementSourceAdmission,readOriginalReplacementSourceAdmission:async()=>true,
+    readOriginalReplacementSourceContentPublication:()=>q.source.readOriginalReplacementPublishedContent()});
+  const sourceSelection=()=>({schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SELECTION_V1',state:'ORIGINAL_NATIVE_SESSION_SELECTED',
+    ...Object.fromEntries(['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch'].map(k=>[k,root[k]])),
+    networkTargetRef:root.recipientNodeRef,session:root,sourceCursorBefore:before,sourceCursorAfter:x.sourceCursorAfter,
+    originalSourceOwnerReadVerified:true,originalCaptureEvidenceVerified:true,originalSourceCursorAdvanced:false,originalNetworkPublished:false,
+    originalSubjectMutationInvoked:false,capturedPlaintextReturned:false,createsStore:false,createsScheduler:false});
+  let busy=false,allowed=true,opens=0,writes=0;
+  const opts=request=>({...x.historicalReadOptions(request.ownerNodeRef),request,requiredCryptoSuite,
+    verifyOriginalRecipientApplied:async()=>false,verifyOriginalHistoricalNodeSignature:x.historicalSignature(request.ownerNodeRef),
+    authorizeOriginalHostWire:async()=>true,authorizeOriginalOwnerHistoryRead:async()=>true});
+  const readOriginalOwnerEligibility=request=>readT4OriginalReplacementOwnerEligibility({...opts(request),
+    originalCursorPort:request.ownerNodeRef===sourceNodeRef?x.realSourceCursor():x.realRecipientCursor(),
+    ...(request.ownerNodeRef===sourceNodeRef?{readOriginalCaptureSelection:async()=>sourceSelection()}: {})});
+  const cursor=x.realRecipientCursor(),history=x.historicalReadOptions(recipientNodeRef);
+  const select=()=>readT4OriginalLocalReplacementSelection({...history,technicalSchemaId:'iwxa.demo.note',sourceWorkspaceId:root.workspaceId,
+    originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch:c.ownerEpoch,sourceCursorBefore:before,
+    readOriginalCurrentCursor:()=>cursor.readOriginalVerifiedCursor(),requiredCryptoSuite,verifyOriginalHistoricalNodeSignature:x.historicalSignature(recipientNodeRef),
+    verifyOriginalRecipientApplied:async()=>false});
+  const context=async node=>({...await x.historicalReadOptions(node).readOriginalHostContext(),workspaceId:c.workspaceId});
+  const dispatcher=()=>createT4OriginalHostRecipientDispatcher({workspaceId:c.workspaceId,originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,
+    scopeRef,ownerEpoch:c.ownerEpoch,getMode,originalKernel:x.f.kernel.kernel,originalRecipientCursorPort:cursor,
+    readOriginalHostContext:()=>context(recipientNodeRef),authorizeOriginalHostTask:async()=>true,authorizeOriginalRead:async()=>true,
+    authorizeOriginalWrite:async()=>{writes++;return false;},authorizeNetworkReceive:async()=>true,verifyOriginalSourceEvent:async()=>true});
+  const makePhase=(a,read)=>x.f.port({sessionRef:c.sessionRef,changeId:c.changeId,authorizeOriginalRecipientSupersession:null,
+    replacementRecipientAdmission:a,readOriginalReplacementRecipientApplyAdmission:read,verifyOriginalPhaseEvidence:async proof=>
+      proof.phase==='RECEIVED'?proof.evidence.evidenceRef===a.contentEvidence.frames[2].key:
+        proof.phase==='VERIFIED'&&proof.evidence.evidenceDigest===a.originalStateDigest});
+  const options={requiredCryptoSuite,frameDiscoveryPort:x.transport(recipientNodeRef),recipientPublicationPort:q.recipientPublicationPort,
+    authorizeOriginalRecipientSession:async()=>true,readOriginalSourceContentHistory:request=>busy?null:readT4OriginalReplacementOwnerHistory(opts(request)),
+    readOriginalOwnerEligibility,authorizeOriginalReplacement:async()=>true,readOriginalSourceHostContext:()=>context(sourceNodeRef),
+    authorizeOriginalSourceRead:async()=>true,readOriginalSourceEvents:x.readOriginalEvents,
+    verifyOriginalSourceSubject:async p=>p.originalSourceEventId===c.sourceEventId&&p.originalEventDigest===c.sourceEventDigest,
+    authorizeOriginalSealedOpen:async()=>true,verifyOriginalSourceBinding:async p=>p.originalSourceHeadProof.originalEventDigest===c.sourceEventDigest,
+    bindOriginalReplacementRecipientContentEvidence:read=>async proof=>{const e=await read(proof);assert.equal(e.candidate.sessionRef,c.sessionRef);opens++;
+      return {authenticated:true,plaintext:new Uint8Array(x.task.capture.prepared.bytes),originalVaultUsed:true,originalCapturedBytesVerified:true,originalBusinessApplied:false};},
+    authorizeOriginalReplacementRecipientApplyAdmission:async()=>allowed,createOriginalReplacementRecipientPhasePort:({admission},read)=>makePhase(admission,read)};
+  let task=dispatcher();const advance=async(patch={})=>task.runNativeReplacementStep({...options,selection:await select(),...patch});
+  assert.equal((await advance()).state,'WAITING_FOR_REPLACEMENT_RECIPIENT_CONTENT');assert.equal(opens,0);
+  await q.publish();await confirmT4OriginalReplacementSourcePublication({sourceAdmissionPhasePort:phase,sourcePublicationPort:q.source,getMode});
+  busy=true;assert.equal((await advance()).state,'WAITING_FOR_REPLACEMENT_RECIPIENT_CONTENT');busy=false;
+  const phaseWrites=x.phaseWrites();allowed=false;await assert.rejects(advance(),isCode('SUBJECT_ORIGINAL_REPLACEMENT_APPLY_ADMISSION_DENIED'));
+  assert.equal(x.phaseWrites(),phaseWrites);allowed=true;
+  const received=await advance();assert.equal(received.state,'ORIGINAL_REPLACEMENT_RECIPIENT_RECEIVED');
+  assert.equal(received.originalSubjectMutationInvoked,false);assert.equal((await select()).originalLocalPhase,'RECEIVED');
+  task.dispose();x.f.restart();task=dispatcher();
+  const verified=await advance();assert.equal(verified.state,'ORIGINAL_REPLACEMENT_RECIPIENT_VERIFIED');
+  assert.equal((await select()).originalLocalPhase,'VERIFIED');assert.equal(verified.originalSubjectMutationInvoked,false);
+  assert.equal(x.phaseWrites(),phaseWrites+2);assert.equal(writes,0);assert.deepEqual(await cursor.readOriginalVerifiedCursor(),before);
+  assert.ok(opens>=2);
 });
