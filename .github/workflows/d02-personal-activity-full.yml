@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: df554b5bfd9633b1e0a527ee63024f3476acbff8
+          ref: f38ab8e5a43102376702d0b78242ff21aa23ffb0
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
