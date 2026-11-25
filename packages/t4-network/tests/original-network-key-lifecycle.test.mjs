@@ -26,6 +26,8 @@ import {createT4OriginalVaultNodeSignaturePort} from '../src/network/original-va
 import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-native-host-network-owner.mjs';
 import {createT4OriginalSignedReplacementHistoryAccess,isT4OriginalSignedReplacementHistoryAccess} from '../src/network/original-signed-replacement-history-access.mjs';
 import {createT4OriginalReplacementOwnerHistoryRequest} from '../src/network/original-network-replacement-owner-history.mjs';
+import {createT4OriginalReplacementHistoryClient,createT4OriginalReplacementHistoryServer,encodeT4OriginalReplacementHistoryResponse}
+  from '../src/network/original-replacement-owner-history-carrier.mjs';
 import {createT4NetworkTopology,openT4NativeTopologyTransport} from '../src/network/network-topology.mjs';
 import {createOriginalKernelNativeRelay} from '../../t3-core/src/t3/original-kernel-native-relay.mjs';
 import {createTemporaryOriginalPersonalAuthority} from '../../t3-core/tests/support/t3-original-personal-authority.mjs';
@@ -1187,31 +1189,55 @@ test('K74 durable original signed Access binds exact history directions and admi
     'readOriginalDependencyCoverage','authorizeOriginalReplacementOwnerHistoryRead','authorizeOriginalPeerReplacementHistoryRead',
     'authorizeOriginalHistoricalCursorRecovery'].map(k=>[k,allow]));
   Object.assign(originalPorts,{resolveOriginalAccess:p=>p.args[0]===tech?technical.access:null,
-    readOriginalPeerReplacementHistory:async()=>{peerCalls++;return null;},
     authorizeOriginalReplacementHistoryCaller:async p=>{callerChecks++;return allowCaller&&p.peerContext.originalPeerSessionRef==='peer:k74:authenticated'&&
       p.originalAuthenticatedPeerRequired===true;},authorizeOriginalTechnicalWrite:deny});
+  const channelContext=node=>({nodeRef:node,originalPeerSessionRef:'peer:k74:authenticated',contextEpoch:1,scopeRef:SCOPE,ownerEpoch:2,
+    originalPeerAuthenticated:true,originalConfidentialChannelVerified:true});
+  const carrierPorts={workspaceId:WS,originalWriteOwnerRef:OWNER,scopeRef:SCOPE,ownerEpoch:2,getMode};
+  const peerClient=createT4OriginalReplacementHistoryClient({...carrierPorts,localNodeRef:A,peerNodeRef:B,
+    readOriginalPeerContext:async()=>channelContext(B),invokeOriginalPeerHistory:async()=>{peerCalls++;return encodeT4OriginalReplacementHistoryResponse(null,outbound);}});
+  let channelActive=true;const scopedClient=peerClient.forOriginalHostLifetime(()=>channelActive);channelActive=false;
+  await assert.rejects(scopedClient(outbound),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});assert.equal(peerCalls,0);
   const config={role:'SOURCE',technicalWorkspaceId:tech,sourceWorkspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,
     scopeRef:SCOPE,ownerEpoch:2,requiredCryptoSuite:SUITE,getMode,nativeTopologyTransport:transport,originalPorts,
     enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,originalVaultNodeSignaturePort:vault,
-    originalSignedReplacementHistoryAccess:h,onStep:()=>{steps++;}};
+    originalSignedReplacementHistoryAccess:h,originalReplacementHistoryClient:peerClient,onStep:()=>{steps++;}};
   try{
     assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,originalSignedReplacementHistoryAccess:null}),{code:'NATIVE_NETWORK_OWNER_SIGNED_REPLACEMENT_HISTORY_REQUIRED'});
     assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,originalSignedReplacementHistoryAccess:{...h}}),{code:'NATIVE_NETWORK_OWNER_SIGNED_REPLACEMENT_HISTORY_REQUIRED'});
     assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,originalSignedReplacementHistoryAccess:create(without.accessFor.access,without.context)}),
       {code:'NATIVE_NETWORK_OWNER_SIGNED_REPLACEMENT_HISTORY_REQUIRED'});
+    assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,originalReplacementHistoryClient:null}),{code:'NATIVE_NETWORK_OWNER_REPLACEMENT_CARRIER_REQUIRED'});
+    assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,originalReplacementHistoryClient:async()=>null}),{code:'NATIVE_NETWORK_OWNER_REPLACEMENT_CARRIER_REQUIRED'});
+    assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,originalPorts:{...originalPorts,readOriginalPeerReplacementHistory:async()=>null}}),
+      {code:'NATIVE_NETWORK_OWNER_REPLACEMENT_CARRIER_REQUIRED'});
+    const wrongClient=createT4OriginalReplacementHistoryClient({...carrierPorts,workspaceId:'ws:foreign',localNodeRef:A,peerNodeRef:B,
+      readOriginalPeerContext:async()=>channelContext(B),invokeOriginalPeerHistory:async()=>assert.fail('wrong carrier')});
+    assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,originalReplacementHistoryClient:wrongClient}),{code:'NATIVE_NETWORK_OWNER_REPLACEMENT_CARRIER_REQUIRED'});
     const owner=createT4OriginalNativeHostNetworkOwner(config);assert.equal(owner.originalSignedReplacementHistoryBound,true);
+    assert.equal(owner.originalReplacementHistoryCarrierBound,true);
     const relay=createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,networkOwner:owner});
     try{
       const input={request,peerContext:{nodeRef:B,originalPeerSessionRef:'peer:k74:authenticated',contextEpoch:1}};
-      assert.equal(await relay.readOriginalReplacementOwnerHistory(input),null);
+      let enterHistory=null;
+      const ownerServer=createT4OriginalReplacementHistoryServer({...carrierPorts,localNodeRef:A,peerNodeRef:B,
+        readOriginalPeerContext:async()=>channelContext(B),readOriginalReplacementOwnerHistory:p=>{
+          const result=relay.readOriginalReplacementOwnerHistory(p);enterHistory?.();return result;}});
+      const incoming=createT4OriginalReplacementHistoryClient({...carrierPorts,localNodeRef:B,peerNodeRef:A,
+        readOriginalPeerContext:async()=>channelContext(A),invokeOriginalPeerHistory:({requestBytes})=>ownerServer(requestBytes)});
+      assert.equal(await incoming(request),null);
       const s=await relay.exchange({verb:'attach',payload:{sessionInfo:{contract_version:'1.3.0',runtime_version:'0.3.6',service_id:'iwxa.workspace.relay',mode:'ready',
         granted_operations:[...new Set(['t1.getWorkspace','t1.commitObjectGraph',...owner.operations])]},networkRelayVersion:1}},1);
       assert.equal(s.networkRelayVersion,1);
-      await assert.rejects(relay.readOriginalReplacementOwnerHistory(input),{code:'NATIVE_REPLACEMENT_HISTORY_CALLER_DENIED'});
+      await assert.rejects(incoming(request),{code:'NATIVE_REPLACEMENT_HISTORY_CALLER_DENIED'});
       await assert.rejects(relay.readOriginalReplacementOwnerHistory({...input,peerContext:{...input.peerContext,nodeRef:A}}),{code:'NATIVE_REPLACEMENT_HISTORY_CALLER_INVALID'});
       assert.equal(callerChecks,1);assert.equal(technical.proofCount,0);
       allowCaller=true;
-      const read=relay.readOriginalReplacementOwnerHistory(input),outcome=read.then(v=>({value:v}),error=>({error}));
+      const entered=new Promise(resolve=>{enterHistory=resolve;});
+      const read=incoming(request),outcome=read.then(v=>({value:v}),error=>({error}));
+      // The byte carrier has asynchronous context checks before reserving
+      // the original relay slot. Do not launch an unrelated wake first.
+      await Promise.race([entered,outcome.then(()=>assert.fail('history must enter original relay'))]);
       const exchange=(verb,rest={})=>relay.exchange({verb,payload:{sessionId:s.sessionId,...rest}},1);
       let commands=0,done;
       while(!done){

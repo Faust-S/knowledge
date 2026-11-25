@@ -10,7 +10,7 @@ import {createT4CandidateFrameTransport} from '../src/network/standard-network-w
 import {discoverT4OriginalNetworkSessionContent} from '../src/network/original-network-subject-apply.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
-import {createT4OriginalReplacementOwnerHistoryRequest,readT4OriginalReplacementOwnerHistory,completeT4OriginalReplacementHostCursor}
+import {createT4OriginalReplacementOwnerHistoryRequest,readT4OriginalReplacementOwnerHistory,completeT4OriginalReplacementHostCursor,deferT4OriginalReplacementHistoryWake}
   from '../src/network/original-network-replacement-owner-history.mjs';
 import {encodeT4OriginalReplacementHistoryRequest,decodeT4OriginalReplacementHistoryRequest,
   encodeT4OriginalReplacementHistoryResponse,decodeT4OriginalReplacementHistoryResponse,
@@ -1581,7 +1581,7 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
     scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,originalPeerAuthenticated:true,originalConfidentialChannelVerified:true});
   const carrier=node=>{
     const peer=node===sourceNodeRef?recipientNodeRef:sourceNodeRef;
-    const common={scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,getMode};
+    const common={scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,workspaceId:c.workspaceId,originalWriteOwnerRef:c.originalWriteOwnerRef,getMode};
     const server=createT4OriginalReplacementHistoryServer({...common,localNodeRef:peer,peerNodeRef:node,
       readOriginalPeerContext:async()=>peerContext(node),readOriginalReplacementOwnerHistory:async({request,peerContext:caller})=>{
         assert.deepEqual(caller,{nodeRef:node,originalPeerSessionRef:'peer:k75:authenticated',contextEpoch:1});
@@ -1616,11 +1616,11 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
     assert.throws(()=>decodeT4OriginalReplacementHistoryRequest(new Uint8Array(32769)),isCode('REPLACEMENT_HISTORY_CARRIER_SIZE_INVALID'));
     let channelEpoch=1;
     const client=createT4OriginalReplacementHistoryClient({localNodeRef:recipientNodeRef,peerNodeRef:sourceNodeRef,
-      scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,getMode,readOriginalPeerContext:async()=>({...peerContext(sourceNodeRef),contextEpoch:channelEpoch}),
+      scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,workspaceId:c.workspaceId,originalWriteOwnerRef:c.originalWriteOwnerRef,getMode,readOriginalPeerContext:async()=>({...peerContext(sourceNodeRef),contextEpoch:channelEpoch}),
       invokeOriginalPeerHistory:async()=>{channelEpoch++;return bytes;}});
     await assert.rejects(client(request),isCode('REPLACEMENT_HISTORY_CARRIER_PEER_CHANGED'));
     const unbound=createT4OriginalReplacementHistoryClient({localNodeRef:recipientNodeRef,peerNodeRef:sourceNodeRef,
-      scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,getMode,readOriginalPeerContext:async()=>({...peerContext(sourceNodeRef),originalConfidentialChannelVerified:false}),
+      scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,workspaceId:c.workspaceId,originalWriteOwnerRef:c.originalWriteOwnerRef,getMode,readOriginalPeerContext:async()=>({...peerContext(sourceNodeRef),originalConfidentialChannelVerified:false}),
       invokeOriginalPeerHistory:async()=>{assert.fail('unbound carrier must not invoke peer');}});
     await assert.rejects(unbound(request),isCode('REPLACEMENT_HISTORY_CARRIER_PEER_UNBOUND'));
 
@@ -1689,7 +1689,9 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
     x.sourceStore.loseNextReply();await assert.rejects(sourceCommit(),isCode('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
   }else{
     const beforeHost={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
+    const ownerReadCount=ownerReads;
     peerUnavailable=true;assert.equal((await hostStep('SOURCE')).state,'WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE');peerUnavailable=false;
+    assert.equal(ownerReads,ownerReadCount+1,'busy peer must be checked before the local terminal history');
     // K76: a busy peer after initial admission but before CAS is waiting,
     // not a fatal wake suspension or a permission to write.
     let freshReads=0;
@@ -1791,4 +1793,20 @@ test('K71 local successor selection uses original frontier, retirement and signe
     const rows=await k.listObjects(input);if(++n===2)rows.find(o=>o.object_id===s.originalLocalPublicationCheckpointRef).data.title='changed';return rows;
   }}}),isCode('PHASE_ORIGINAL_REPLACEMENT_SELECTION_CHANGED'));
   assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},after);
+});
+
+
+test('K77 original wake deferral is bounded, role-distinct and resets with local progress',()=>{
+  const selection={session:{sessionRef:'session:k77'},originalLocalPhase:'APPLIED',originalLocalPublicationRevision:4};
+  const next=(role,previous=null,now=100,s=selection)=>deferT4OriginalReplacementHistoryWake({role,previous,now,selection:s});
+  const source=next('SOURCE'),recipient=next('RECIPIENT');
+  assert.equal(source.nextWakeAt,850);assert.equal(recipient.nextWakeAt,2350);
+  let prior=source;
+  for(let i=0;i<12;i++)prior=next('SOURCE',prior,prior.nextWakeAt);
+  assert.equal(prior.retryAfterMs,6000);assert.equal(prior.attempt,5);
+  const changed=next('SOURCE',prior,prior.nextWakeAt,{...selection,originalLocalPublicationRevision:5});
+  assert.equal(changed.attempt,1);assert.equal(changed.retryAfterMs,750);
+  const phase=next('RECIPIENT',recipient,recipient.nextWakeAt,{...selection,originalLocalPhase:'APPLIED_CONFIRMED'});
+  assert.equal(phase.attempt,1);assert.equal(phase.retryAfterMs,2250);
+  assert.throws(()=>next('SOURCE',prior,1),isCode('REPLACEMENT_HISTORY_WAKE_DEFERRAL_INVALID'));
 });

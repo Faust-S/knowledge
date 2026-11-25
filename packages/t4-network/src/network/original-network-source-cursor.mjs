@@ -591,16 +591,18 @@ export async function recoverT4OriginalReplacementTerminalCursorEvidence({sessio
   async function read(){
     let source,recipient,oldSource,oldRecipient,sourcePub,recipientPub,refs,retiredAck,accepted;
     if(ownerReads){
-      const owners=[];
-      for(const ownerNodeRef of [c.sourceNodeRef,c.recipientNodeRef]){
+      const owners=new Map(),peer=requesterNodeRef===c.sourceNodeRef?c.recipientNodeRef:c.sourceNodeRef;
+      // A peer may be busy with its own existing relay wake. Read it first
+      // so a temporary wait need not enumerate our local histories at all.
+      for(const ownerNodeRef of [peer,requesterNodeRef]){
         const request=createT4OriginalReplacementOwnerHistoryRequest({session:c,requesterNodeRef,ownerNodeRef});
         const raw=await historyRead(()=>readOriginalOwnerHistory(request));
         if(raw===null)fail('CURSOR_REPLACEMENT_OWNER_HISTORY_NOT_READY');
         const snapshot=validateT4OriginalReplacementOwnerHistorySnapshot(raw,request);
         if(snapshot.state!=='ORIGINAL_OWNER_TERMINAL_HISTORY_VERIFIED')fail('CURSOR_REPLACEMENT_OWNER_HISTORY_NOT_READY');
-        owners.push(snapshot);
+        owners.set(ownerNodeRef,snapshot);
       }
-      const [s,r]=owners;
+      const s=owners.get(c.sourceNodeRef),r=owners.get(c.recipientNodeRef);
       ({phase:source,retiredPhase:oldSource,publication:sourcePub,retiredAck,acceptedAck:accepted}=s);
       ({phase:recipient,retiredPhase:oldRecipient,publication:recipientPub}=r);
       refs=[s.phaseCheckpointRef,r.phaseCheckpointRef,oldSource.checkpointRef,oldRecipient.checkpointRef,sourcePub.checkpointRef,recipientPub.checkpointRef];

@@ -7,12 +7,15 @@ import {strictJson} from '../../../t3-core/src/t3/access/strict-json.mjs';
 import {createT4OriginalReplacementOwnerHistoryRequest,validateT4OriginalReplacementOwnerHistorySnapshot}
   from './original-network-replacement-owner-history.mjs';
 import {decodeT4CandidateFrame} from './standard-network-wire-candidate.mjs';
+import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const SHA=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const fail=code=>{throw Object.assign(Error(code),{code});};
 const RESPONSE='IWXA_T4_ORIGINAL_REPLACEMENT_OWNER_CALL_RESULT_V1';
+const clients=new WeakSet();
+export const isT4OriginalReplacementHistoryClient=p=>typeof p==='function'&&clients.has(p);
 const REQUEST_LIMIT=32768,RESPONSE_LIMIT=4*1024*1024,FRAME_LIMIT=32768,BATCH_LIMIT=1024*1024;
 function exactKeys(v,keys){return v&&typeof v==='object'&&!Array.isArray(v)&&
   Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));}
@@ -83,9 +86,10 @@ export function decodeT4OriginalReplacementHistoryResponse(bytes,rawRequest){
 
 // Context comes from the installed authenticated transport, NOT the request
 // bytes. It must be checked before and after the one bounded call.
-function connection({readOriginalPeerContext,getMode,localNodeRef,peerNodeRef,scopeRef,ownerEpoch}){
-  if(![readOriginalPeerContext,getMode].every(f=>typeof f==='function')||![localNodeRef,peerNodeRef,scopeRef].every(ID)||
+function connection({readOriginalPeerContext,getMode,localNodeRef,peerNodeRef,scopeRef,ownerEpoch,workspaceId,originalWriteOwnerRef}){
+  if(![readOriginalPeerContext,getMode].every(f=>typeof f==='function')||![localNodeRef,peerNodeRef,scopeRef,workspaceId,originalWriteOwnerRef].every(ID)||
     localNodeRef===peerNodeRef||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1)fail('REPLACEMENT_HISTORY_CARRIER_PORTS_REQUIRED');
+  const identity=Object.freeze({localNodeRef,peerNodeRef,scopeRef,ownerEpoch,workspaceId,originalWriteOwnerRef});
   const mode=()=>{if(getMode()!=='T4_NETWORK')fail('REPLACEMENT_HISTORY_NETWORK_MODE_OFF');};
   const read=async()=>{
     mode();const p=structuredClone(await readOriginalPeerContext());mode();
@@ -99,20 +103,26 @@ function connection({readOriginalPeerContext,getMode,localNodeRef,peerNodeRef,sc
   const route=(raw,inbound)=>{
     const r=request(raw),c=r.session;
     if(r.requesterNodeRef!==(inbound?peerNodeRef:localNodeRef)||r.ownerNodeRef!==(inbound?localNodeRef:peerNodeRef)||
-      c.scopeRef!==scopeRef||c.ownerEpoch!==ownerEpoch)fail('REPLACEMENT_HISTORY_CARRIER_ROUTE_MISMATCH');return r;
+      c.scopeRef!==scopeRef||c.ownerEpoch!==ownerEpoch||c.workspaceId!==workspaceId||c.originalWriteOwnerRef!==originalWriteOwnerRef)
+      fail('REPLACEMENT_HISTORY_CARRIER_ROUTE_MISMATCH');return r;
   };
-  return {read,unchanged,route};
+  return {identity,read,unchanged,route};
 }
 export function createT4OriginalReplacementHistoryClient({invokeOriginalPeerHistory,...ports}={}){
   if(typeof invokeOriginalPeerHistory!=='function')fail('REPLACEMENT_HISTORY_CARRIER_PORTS_REQUIRED');
   const c=connection(ports);
-  return async raw=>{
+  const client=async raw=>{
     const r=c.route(raw,false),bytes=encodeT4OriginalReplacementHistoryRequest(r),prior=await c.read();
     const rawResult=await invokeOriginalPeerHistory({requestBytes:bytes,originalPeerContext:prior});
     if(!(rawResult instanceof Uint8Array)||rawResult.length>RESPONSE_LIMIT)fail('REPLACEMENT_HISTORY_CARRIER_SIZE_INVALID');
     const result=new Uint8Array(rawResult);
     await c.unchanged(prior);return decodeT4OriginalReplacementHistoryResponse(result,r);
   };
+  Object.defineProperties(client,{schema:{value:'IWXA_T4_ORIGINAL_REPLACEMENT_HISTORY_CLIENT_V1',enumerable:true},
+    identity:{value:c.identity,enumerable:true},originalPeerAuthenticationRequired:{value:true,enumerable:true},
+    originalConfidentialChannelRequired:{value:true,enumerable:true},forOriginalHostLifetime:{value:isHostActive=>
+      createT4OriginalReplacementHistoryClient({...ports,invokeOriginalPeerHistory,getMode:originalHostLifetimeMode(ports.getMode,isHostActive)})}});
+  clients.add(client);return Object.freeze(client);
 }
 export function createT4OriginalReplacementHistoryServer({readOriginalReplacementOwnerHistory,...ports}={}){
   if(typeof readOriginalReplacementOwnerHistory!=='function')fail('REPLACEMENT_HISTORY_CARRIER_PORTS_REQUIRED');

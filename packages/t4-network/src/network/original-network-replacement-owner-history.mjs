@@ -123,6 +123,22 @@ export async function readT4OriginalReplacementOwnerHistory({request,technicalSc
   await guard();return result('ORIGINAL_OWNER_TERMINAL_HISTORY_VERIFIED',{phase,retiredPhase,publication,acceptedAck,retiredAck});
 }
 
+// Ephemeral deferral for the EXISTING relay wake, never a timer or a
+// persisted retry decision. Distinct role delays also reduce simultaneous
+// wake collisions. A changed local publication/phase resets the delay.
+export function deferT4OriginalReplacementHistoryWake({role,selection,previous=null,now}={}){
+  const sessionRef=selection?.session?.sessionRef,phase=selection?.originalLocalPhase,revision=selection?.originalLocalPublicationRevision;
+  if(!['SOURCE','RECIPIENT'].includes(role)||!ID(sessionRef)||!(phase===null||ID(phase))||
+    !Number.isSafeInteger(revision)||revision<1||!Number.isFinite(now)||now<0||
+    (previous!==null&&(!Number.isFinite(previous.observedAt)||now<previous.observedAt||!Number.isSafeInteger(previous.attempt)||previous.attempt<1)))
+    fail('REPLACEMENT_HISTORY_WAKE_DEFERRAL_INVALID');
+  const unchanged=previous!==null&&previous.sessionRef===sessionRef&&previous.phase===phase&&previous.revision===revision;
+  const attempt=unchanged?Math.min(5,previous.attempt+1):1;
+  const retryAfterMs=Math.min(role==='SOURCE'?6000:9000,(role==='SOURCE'?750:2250)*2**(attempt-1));
+  if(!Number.isFinite(now+retryAfterMs))fail('REPLACEMENT_HISTORY_WAKE_DEFERRAL_INVALID');
+  return Object.freeze({sessionRef,phase,revision,attempt,observedAt:now,nextWakeAt:now+retryAfterMs,retryAfterMs});
+}
+
 /** One terminal continuation step inside the existing native Host wake.
  * The peer reader is an independently authorized ORIGINAL owner port,
  * not a frame transport, an arbitrary Kernel interface, or a write grant.
@@ -187,11 +203,10 @@ export async function completeT4OriginalReplacementHostCursor({selection,role,or
   }
   await task();if(!same(await cursor(),before))fail('REPLACEMENT_HOST_CURSOR_FRONTIER_CHANGED');
   if(selected.originalLocalPhase!==(role==='SOURCE'?'APPLIED_CONFIRMED':'APPLIED'))return waiting();
-  const peer=await readHistory(createT4OriginalReplacementOwnerHistoryRequest({session:c,requesterNodeRef:localNodeRef,ownerNodeRef:peerNodeRef}));
-  if(peer===null||peer.state!=='ORIGINAL_OWNER_TERMINAL_HISTORY_VERIFIED')return waiting();
-  await task();if(!same(await cursor(),before))fail('REPLACEMENT_HOST_CURSOR_FRONTIER_CHANGED');
-  // No attempt to advance the peer's cursor or reopen an old task. Local
-  // CAS uncertainty is not swallowed as a waiting state or retried here.
+  // The original cursor writer performs its own complete proof before CAS.
+  // Do not fetch a second preliminary peer snapshot: a busy peer there is
+  // already an explicit pre-write wait, and the writer rechecks authority.
+  // No attempt to advance the peer's cursor or reopen an old task.
   let result;
   try{
     result=await port.commitHistoricallyConfirmedReplacementCursor({recovery:{session:c,sourceCursorBefore:before,
