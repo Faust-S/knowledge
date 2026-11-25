@@ -100,9 +100,16 @@ jobs:
           Write-Host "D06_RELEASE_EXACT_PINS=PASS"
       - name: Prove exact canonical projection
         shell: pwsh
+        env:
+          EXPECTED_OWNER: ${{ steps.request.outputs.owner }}
         run: |
           $ErrorActionPreference = "Stop"
-          foreach ($path in @("src/evaluate-offers/comparison-evidence.mjs","src/evaluate-offers/comparison-evidence.d.mts","scripts/test-pd12-comparison-evidence.mjs","src/rules/replacement-comparison.ts","src/evaluate-offers/purchase-decision-readiness.ts","src/evaluate-offers/ordinary-selection-write.ts","scripts/test-pd12-ordinary-selection.mjs","src/evaluate-offers/current-purchase-decision.ts","scripts/test-current-purchase-decision.mjs","src/schemas/komplektovod/offer-comparison.schema.json")) {
+          switch ($env:EXPECTED_OWNER) {
+            "607525f672c8631a59c27c7e0e621a7a6e0f4d1a" { $evidenceCases = 52; $selectionCases = 44 }
+            "8471dca0037328dfee8689632df9c27866e89845" { $evidenceCases = 70; $selectionCases = 63 }
+            default { throw "D06_RELEASE_UNQUALIFIED_CASE_INVENTORY" }
+          }
+          foreach ($path in @("src/evaluate-offers/comparison-evidence.mjs","src/evaluate-offers/comparison-evidence.d.mts","scripts/test-pd12-comparison-evidence.mjs","src/rules/replacement-comparison.ts","src/evaluate-offers/purchase-decision-readiness.ts","src/evaluate-offers/ordinary-selection-write.ts","scripts/test-pd12-ordinary-selection.mjs","src/evaluate-offers/current-purchase-decision.ts","scripts/test-current-purchase-decision.mjs","src/schemas/komplektovod/offer-comparison.schema.json","src/schemas/komplektovod/offer-assessment.schema.json")) {
             $a = (git -C private/domain rev-parse ("HEAD:" + $path)).Trim()
             $b = (git -C private/site rev-parse ("HEAD:" + $path)).Trim()
             if ($a -ne $b) { throw "D06_PD12_OWNER_PROJECTION_MISMATCH" }
@@ -110,11 +117,11 @@ jobs:
           Write-Host "D06_PD12_OWNER_PROJECTION=PASS"
           $log = Join-Path $env:RUNNER_TEMP "d06-pd12-canonical.private.log"
           & node private/domain/scripts/test-pd12-comparison-evidence.mjs *> $log
-          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_PD12_COMPARISON_EVIDENCE_CASES=52\r?$') { throw "D06_PD12_CANONICAL_CASES_FAILED" }
-          Write-Host "D06_PD12_CANONICAL_CASES=52"
+          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch ('(?m)^D06_PD12_COMPARISON_EVIDENCE_CASES=' + $evidenceCases + '\r?$')) { throw "D06_PD12_CANONICAL_CASES_FAILED" }
+          Write-Host ("D06_PD12_CANONICAL_CASES=" + $evidenceCases)
           & node --experimental-strip-types private/domain/scripts/test-pd12-ordinary-selection.mjs *> $log
-          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_PD12_SELECTION_CASES=44\r?$') { throw "D06_PD12_CANONICAL_SELECTION_FAILED" }
-          Write-Host "D06_PD12_CANONICAL_SELECTION_CASES=44"
+          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch ('(?m)^D06_PD12_SELECTION_CASES=' + $selectionCases + '\r?$')) { throw "D06_PD12_CANONICAL_SELECTION_FAILED" }
+          Write-Host ("D06_PD12_CANONICAL_SELECTION_CASES=" + $selectionCases)
           & node --experimental-strip-types private/domain/scripts/test-current-purchase-decision.mjs *> $log
           if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_CURRENT_PURCHASE_DECISION_CASES=51\r?$') { throw "D06_CURRENT_PURCHASE_DECISION_FAILED" }
           Write-Host "D06_CURRENT_PURCHASE_DECISION_CASES=51"
@@ -557,9 +564,16 @@ jobs:
           Write-Host "D06_RELEASE_EXACT_PINS=PASS"
       - name: Prove exact canonical projection
         shell: pwsh
+        env:
+          EXPECTED_OWNER: ${{ steps.request.outputs.owner }}
         run: |
           $ErrorActionPreference = "Stop"
-          foreach ($path in @("src/evaluate-offers/comparison-evidence.mjs","src/evaluate-offers/comparison-evidence.d.mts","scripts/test-pd12-comparison-evidence.mjs","src/rules/replacement-comparison.ts","src/evaluate-offers/purchase-decision-readiness.ts","src/evaluate-offers/ordinary-selection-write.ts","scripts/test-pd12-ordinary-selection.mjs","src/evaluate-offers/current-purchase-decision.ts","scripts/test-current-purchase-decision.mjs","src/schemas/komplektovod/offer-comparison.schema.json")) {
+          switch ($env:EXPECTED_OWNER) {
+            "607525f672c8631a59c27c7e0e621a7a6e0f4d1a" { $evidenceCases = 52; $selectionCases = 44 }
+            "8471dca0037328dfee8689632df9c27866e89845" { $evidenceCases = 70; $selectionCases = 63 }
+            default { throw "D06_RELEASE_UNQUALIFIED_CASE_INVENTORY" }
+          }
+          foreach ($path in @("src/evaluate-offers/comparison-evidence.mjs","src/evaluate-offers/comparison-evidence.d.mts","scripts/test-pd12-comparison-evidence.mjs","src/rules/replacement-comparison.ts","src/evaluate-offers/purchase-decision-readiness.ts","src/evaluate-offers/ordinary-selection-write.ts","scripts/test-pd12-ordinary-selection.mjs","src/evaluate-offers/current-purchase-decision.ts","scripts/test-current-purchase-decision.mjs","src/schemas/komplektovod/offer-comparison.schema.json","src/schemas/komplektovod/offer-assessment.schema.json")) {
             $a = (git -C private/domain rev-parse ("HEAD:" + $path)).Trim()
             $b = (git -C private/site rev-parse ("HEAD:" + $path)).Trim()
             if ($a -ne $b) { throw "D06_PD12_OWNER_PROJECTION_MISMATCH" }
@@ -567,11 +581,11 @@ jobs:
           Write-Host "D06_PD12_OWNER_PROJECTION=PASS"
           $log = Join-Path $env:RUNNER_TEMP "d06-pd12-canonical.private.log"
           & node private/domain/scripts/test-pd12-comparison-evidence.mjs *> $log
-          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_PD12_COMPARISON_EVIDENCE_CASES=52\r?$') { throw "D06_PD12_CANONICAL_CASES_FAILED" }
-          Write-Host "D06_PD12_CANONICAL_CASES=52"
+          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch ('(?m)^D06_PD12_COMPARISON_EVIDENCE_CASES=' + $evidenceCases + '\r?$')) { throw "D06_PD12_CANONICAL_CASES_FAILED" }
+          Write-Host ("D06_PD12_CANONICAL_CASES=" + $evidenceCases)
           & node --experimental-strip-types private/domain/scripts/test-pd12-ordinary-selection.mjs *> $log
-          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_PD12_SELECTION_CASES=44\r?$') { throw "D06_PD12_CANONICAL_SELECTION_FAILED" }
-          Write-Host "D06_PD12_CANONICAL_SELECTION_CASES=44"
+          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch ('(?m)^D06_PD12_SELECTION_CASES=' + $selectionCases + '\r?$')) { throw "D06_PD12_CANONICAL_SELECTION_FAILED" }
+          Write-Host ("D06_PD12_CANONICAL_SELECTION_CASES=" + $selectionCases)
           & node --experimental-strip-types private/domain/scripts/test-current-purchase-decision.mjs *> $log
           if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_CURRENT_PURCHASE_DECISION_CASES=51\r?$') { throw "D06_CURRENT_PURCHASE_DECISION_FAILED" }
           Write-Host "D06_CURRENT_PURCHASE_DECISION_CASES=51"
@@ -705,7 +719,7 @@ jobs:
         run: |
           $log = Join-Path $env:RUNNER_TEMP "d06-pd12-projection.private.log"
           $failed = 0
-          foreach ($task in @("test:pd12:evidence", "test:pd12:selection", "test:pd12:current-decision", "test:workflow:offers", "test:pd12:readiness", "test:replacement-procurement", "test:replacement-write-guard", "test:session", "test:workflow-progress", "test:native", "check:schemas", "check:type")) {
+          foreach ($task in @("test:pd11:editor-context", "test:pd12:evidence", "test:pd12:selection", "test:pd12:current-decision", "test:workflow:offers", "test:pd12:readiness", "test:replacement-procurement", "test:replacement-write-guard", "test:session", "test:workflow-progress", "test:native", "check:schemas", "check:type")) {
             & npm run $task *> $log
             $passed = $LASTEXITCODE -eq 0
             Write-Host ("D06_PD12_TASK_" + $task.Replace(":","_").Replace("-","_").ToUpperInvariant() + "=" + $(if ($passed) {"PASS"} else {"FAIL"}))
@@ -893,6 +907,8 @@ jobs:
           grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log"
           echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
       - name: Prepare compiled production Host
+        id: production-host
+        if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
         working-directory: private/site
         shell: bash
         run: |
@@ -923,6 +939,8 @@ jobs:
           console.log("D06_T3_SHARED_WORKER_COUNT="+receipt.files.filter(x=>/^assets\/model-worker-[A-Za-z0-9_-]+\.js$/.test(x.path)).length);
           NODE
       - name: Retain exact input, remove external source checkouts
+        id: retained-inputs
+        if: ${{ !cancelled() && steps.production-host.outcome == 'success' }}
         working-directory: private/site
         shell: bash
         run: |
@@ -942,6 +960,7 @@ jobs:
           echo D06_T3_EXTERNAL_SOURCE_CHECKOUTS_REMOVED=PASS
       - name: Rebuild twice solely from retained local inputs and preserve last good dist on corruption
         id: local-rebuild
+        if: ${{ !cancelled() && steps.retained-inputs.outcome == 'success' }}
         working-directory: private/site
         shell: bash
         run: |
@@ -1077,3 +1096,265 @@ jobs:
           Write-Host "D06_PRIVATE_SOURCE_UPLOADS=0"
           Write-Host "D06_PRIVATE_LOG_UPLOADS=0"
           Write-Host "D06_PRIVATE_DIST_UPLOADS=0"
+  macos:
+    needs: windows
+    if: ${{ needs.windows.result == 'success' }}
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/d06/t3-release-request.json
+          sparse-checkout-cone-mode: false
+          path: pipeline
+      - name: Validate explicit release request
+        id: request
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $request = Get-Content -LiteralPath pipeline/.github/d06/t3-release-request.json -Raw | ConvertFrom-Json
+          if ($request.schema -ne "IWXA_D06_T3_QUALIFICATION/1") { throw "D06_RELEASE_REQUEST_SCHEMA" }
+          foreach ($field in @("owner","site")) {
+            $value = $request.$field
+            if ($value -isnot [string] -or $value -cnotmatch '^[a-f0-9]{40}$') { throw "D06_RELEASE_REQUEST_SHA" }
+            Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value ($field + "=" + $value)
+          }
+          if (($request.attempt -isnot [int] -and $request.attempt -isnot [long]) -or $request.attempt -lt 1) { throw "D06_RELEASE_REQUEST_ATTEMPT" }
+          Write-Host "D06_RELEASE_REQUEST=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          persist-credentials: false
+          path: original-core
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 9f41447197251d41e69fbcb98e52ef1050754ec2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-assistant
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: ${{ steps.request.outputs.site }}
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private-site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify exact site and original core revisions
+        shell: bash
+        env:
+          EXPECTED_SITE: ${{ steps.request.outputs.site }}
+        run: |
+          set -euo pipefail
+          test "$(git -C private-site rev-parse HEAD)" = "$EXPECTED_SITE"
+          test "$(git -C original-core rev-parse HEAD)" = "326f725c44d69ac99f6b912241e9e8a6c3d716a5"
+          test "$(git -C private-assistant rev-parse HEAD)" = "9f41447197251d41e69fbcb98e52ef1050754ec2"
+          echo D06_T3_MACOS_EXACT_PINS=PASS
+      - name: Use OpenSSL 3 for original disposable HTTPS Host
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! brew list --versions openssl@3 >/dev/null 2>&1; then brew install openssl@3; fi
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+      - name: Verify original public portable input
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        working-directory: private-site
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/artifacts/14920233669/zip > "$RUNNER_TEMP/platform-outer.zip"
+          echo "96bb993383af31309b79dceb6f321ac5365ac7777362f512f9225226ee51904f  $RUNNER_TEMP/platform-outer.zip" | shasum -a 256 --check --status
+          unzip -p "$RUNNER_TEMP/platform-outer.zip" platform-inputs.zip > "$RUNNER_TEMP/platform-inputs.zip"
+          node scripts/d06-t3-platform-inputs.mjs verify "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/platform-private.log" 2>&1 || { grep -Eo 'D06_T3_PLATFORM_[A-Z0-9_]+' "$RUNNER_TEMP/platform-private.log" | sort -u | head -10; exit 1; }
+          echo D06_T3_ORIGINAL_PLATFORM_128_FILES=PASS
+      - name: Prepare compiled real D06 Host
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci > "$RUNNER_TEMP/d06-site-install-private.log" 2>&1 || { echo D06_T3_SITE_INSTALL=FAIL; exit 1; }
+          echo D06_T3_SITE_INSTALL=PASS
+          node --test tests/t3/t3-webgpu-probe.test.mjs tests/t3/static-route-timestamps.test.mjs > "$RUNNER_TEMP/d06-serializer-private.log" 2>&1 || {
+            echo D06_T3_PINNED_SERIALIZER_TEST=FAIL
+            grep -Eo 'D06_T3_STATIC_ROUTE_TIME_[A-Z_]+|ERR_[A-Z_]+' "$RUNNER_TEMP/d06-serializer-private.log" | sort -u | head -15 || true
+            exit 1
+          }
+          echo D06_T3_PINNED_SERIALIZER_TEST=PASS
+          npm run t3:prepare-host -- "$GITHUB_WORKSPACE/original-core/packages/t3-core" "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/private-assistant" https://127.0.0.1:8443 > "$RUNNER_TEMP/d06-host-private.log" 2>&1 || {
+            echo D06_T3_HOST_SOURCE_BUILD=FAIL
+            grep -Eo 'D06_T3_(HOST|PLATFORM)_[A-Z0-9_]+|D06_SITE_ONLY_[A-Z0-9_]+|D06_BUILD_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z_]+|T2_QUALIFIED_KERNEL_STAGE_[A-Z_]+|TS[0-9]{4}' "$RUNNER_TEMP/d06-host-private.log" | sort -u | head -25 || true
+            node --input-type=module - "$RUNNER_TEMP/d06-host-private.log" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const lines=readFileSync(process.argv[2],'utf8').split(/\r?\n/);
+          const matches=lines.map(line=>line.match(/^(src\/[A-Za-z0-9_./-]+\.(?:ts|tsx|mts))\((\d+),(\d+)\): error (TS\d+):/)).filter(Boolean);
+          console.log("D06_T3_COMPILE_DIAGNOSTICS="+matches.length);
+          for(const m of matches.slice(0,40))console.log("D06_T3_COMPILE_COORD="+m[4]+" "+m[1]+":"+m[2]+":"+m[3]);
+          NODE
+            exit 1
+          }
+          echo D06_T3_HOST_SOURCE_BUILD=PASS
+          node --input-type=module - "$RUNNER_TEMP/d06-t3-host" <<'NODE'
+          import {verifyPreparedD06Host} from './scripts/prepare-d06-t3-host.mjs';
+          const receipt=verifyPreparedD06Host(process.argv[2]);
+          console.log("D06_T3_HOST_READBACK=PASS");
+          console.log("D06_T3_HOST_FILES="+receipt.files.length);
+          console.log("D06_T3_SHARED_WORKER_COUNT="+receipt.files.filter(x=>/^assets\/model-worker-[A-Za-z0-9_-]+\.js$/.test(x.path)).length);
+          NODE
+      - name: Build exact HTTPS loopback candidate
+        id: preview-build
+        working-directory: private-site
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run setup:browser > "$RUNNER_TEMP/d06-offline-browser-private.log" 2>&1 || { echo D06_T3_OFFLINE_BROWSER_INSTALL=FAIL; exit 1; }
+          node --experimental-strip-types scripts/build-d06-t3-local-site.mjs "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/d06-offline-build-private.log" 2>&1 || {
+            echo D06_T3_OFFLINE_BUILD=FAIL
+            grep -E '^D06_T3_LOCAL_STAGE_[A-Z0-9_]+=(PASS|FAIL)$' "$RUNNER_TEMP/d06-offline-build-private.log" || true
+            grep -Eo 'D06_T3_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_D5_MODULE_[A-Z0-9_]+' "$RUNNER_TEMP/d06-offline-build-private.log" | sort -u | head -25 || true
+            exit 1
+          }
+          echo D06_T3_OFFLINE_BUILD=PASS
+      - name: Run full D06 native Exchange and lifecycle witness at exact T3 origin
+        if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
+        working-directory: private-site
+        shell: bash
+        env:
+          IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/original-core/packages/t3-core
+        run: |
+          set -euo pipefail
+          oom_before="$(awk '$1=="oom_kill"{print $2}' /sys/fs/cgroup/memory.events 2>/dev/null || true)"
+          DEBUG=pw:browser node --experimental-strip-types scripts/verify-native-transfer.mjs > "$RUNNER_TEMP/d06-t3-native-private.log" 2>&1 || {
+            echo D06_T3_INHERITED_NATIVE_EXCHANGE=FAIL
+            grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
+            grep -E '^D06_T3_DOWNLOAD_FAILURE=[A-Z0-9_]+:(COMPLETION|BROWSER_FILE|SAVE_AS|BYTE_READBACK):(CANCELED|NO_SPACE|ACCESS|MISSING_FILE|TARGET_CLOSED|TIMEOUT|NETWORK|OTHER)$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
+            grep -E '^D06_T3_PORTABLE_(ARCHIVE_BYTES=[0-9]+|OPEN_PAGES=[0-9]+|DOWNLOAD_PAGE_CLOSED=(YES|NO)|DOWNLOAD_LIFECYCLE=(PAGE_CLOSED|PAGE_CRASHED|CONTEXT_CLOSED|BROWSER_DISCONNECTED))$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
+            grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
+            grep -E '^D06_T3_PORTABLE_ACTIVATION=(EVENT|CLICK):(PASS|CANCELED|NO_SPACE|ACCESS|MISSING_FILE|TARGET_CLOSED|TIMEOUT|NETWORK|OTHER)$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
+            grep -Eo 'D06_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u | head -40 || true
+            grep -Eo 'D06_T3_EXCHANGE_CONSENT_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u || true
+            node --input-type=module - "$RUNNER_TEMP/d06-t3-native-private.log" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const body=readFileSync(process.argv[2],'utf8');
+          const exits=[...body.matchAll(/<process did exit: exitCode=(-?\d+|null), signal=(SIG[A-Z0-9]+|null)>/g)];
+          for(const m of exits.slice(-12)) console.log("D06_T3_BROWSER_EXIT="+m[1]+":"+m[2]);
+          const browserFatal=[...body.matchAll(/(?:Out of memory|Received signal (?:6|9|11)|FATAL:|Unable to allocate)/gi)].length;
+          console.log("D06_T3_BROWSER_FATAL_MARKERS="+browserFatal);
+          // Keep diagnostics inside the private runner. Emit only bounded
+          // categories and relative ordering, never browser messages or paths.
+          const lines=body.split(/\r?\n/);
+          const categories=[
+            ["PROFILE_LOCK",/ProcessSingleton|SingletonLock|profile.{0,32}in use/i],
+            ["MEMORY",/out of memory|unable to allocate|oom-kill/i],
+            ["CRASH_SIGNAL",/received signal (?:6|9|11)|SIG(?:ABRT|SEGV|KILL)/i],
+            ["DOWNLOAD",/download_(?:manager|item|file)|download manager/i],
+            ["GPU",/GPU process|gpu_process_host/i],
+            ["IPC",/bad message|Mojo.{0,32}(?:error|disconnect)/i],
+            ["CRASHPAD",/crashpad|crash_reporter/i],
+            ["CHECK_FAILED",/check failed:/i],
+          ];
+          const fatalLines=lines.filter(line=>/FATAL:|Out of memory|Received signal (?:6|9|11)|Unable to allocate/i.test(line));
+          for(const [label,pattern] of categories){
+            const count=fatalLines.filter(line=>pattern.test(line)).length;
+            if(count)console.log("D06_T3_BROWSER_FATAL_CLASS="+label+":"+count);
+          }
+          const timeline=[];
+          for(let i=0;i<lines.length;i++){
+            const line=lines[i];
+            let marker=null;
+            const stage=/^D06_NATIVE_STAGE=(PD12_PORTABLE_[A-Z0-9_]+)$/.exec(line);
+            const activity=/^D06_T3_PORTABLE_(?:ACTIVATION|DOWNLOAD_LIFECYCLE|DOWNLOAD_PAGE_CLOSED)=([A-Z_:]+)$/.exec(line);
+            if(stage)marker=stage[1];
+            else if(activity)marker=activity[1];
+            else if(/^D06_T3_DOWNLOAD_FAILURE=PD12_PORTABLE:/.test(line))marker="DOWNLOAD_FAILURE";
+            else if(/FATAL:|Out of memory|Received signal (?:6|9|11)|Unable to allocate/i.test(line))marker="BROWSER_FATAL";
+            else if(/<gracefully close start>/i.test(line))marker="BROWSER_CLOSE_REQUESTED";
+            else if(/<process did exit:/i.test(line))marker="BROWSER_EXIT";
+            if(marker)timeline.push([i+1,marker]);
+          }
+          for(const [index,marker] of timeline.slice(-40))console.log("D06_T3_EXCHANGE_TIMELINE="+index+":"+marker);
+          const hits=[...body.matchAll(/(?:scripts\/verify-native-transfer|tests\/t3\/exchange-consent)\.mjs:(\d+):(\d+)/g)];
+          for(const m of hits.slice(-8)) console.log("D06_T3_EXCHANGE_COORD="+(m[0].startsWith("scripts/")?"TRANSFER":"CONSENT")+":"+m[1]+":"+m[2]);
+          NODE
+            oom_after="$(awk '$1=="oom_kill"{print $2}' /sys/fs/cgroup/memory.events 2>/dev/null || true)"
+            if [[ "$oom_before" =~ ^[0-9]+$ && "$oom_after" =~ ^[0-9]+$ && "$oom_after" -ge "$oom_before" ]]; then
+              echo "D06_T3_BROWSER_OOM_DELTA=$((oom_after-oom_before))"
+            fi
+            for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toBeVisible' 'toBeDisabled' 'toBeEnabled' 'toBeChecked' 'toHaveAttribute' 'toHaveCount' 'toHaveText' 'Timed out' 'waitForFunction' 'locator.waitFor' 'net::ERR' 'TypeError' 'EADDRINUSE'; do
+              if grep -Fq "$marker" "$RUNNER_TEMP/d06-t3-native-private.log"; then echo "D06_T3_EXCHANGE_FAILURE_CLASS=$marker"; fi
+            done
+            exit 1
+          }
+          grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
+          grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log"
+          echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
+      - name: Real Qwen on actual D06 subject and cold offline Kernel draft
+        if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
+        working-directory: private-site
+        shell: bash
+        env:
+          IWXA_T3_ORIGINAL_CORE: ${{ github.workspace }}/original-core/packages/t3-core
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types tests/t3/verify-native-offline.mjs --real-model > "$RUNNER_TEMP/d06-real-model-private.log" 2>&1 || {
+            grep -E '^D06_T3_REAL_MODEL_GPU_PROBE=(unavailable|software|compute-failed|unknown|nonfallback-reported):[A-Z_]+ "$RUNNER_TEMP/d06-real-model-private.log" || true
+            if grep -q '^D06_T3_REAL_MODEL_HARDWARE_UNAVAILABLE=BLOCKED$' "$RUNNER_TEMP/d06-real-model-private.log"; then
+              echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=BLOCKED
+            else
+              echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=FAIL
+              grep -Eo 'D06_T3_REAL_MODEL_[A-Z0-9_]+' "$RUNNER_TEMP/d06-real-model-private.log" | sort -u | head -15 || true
+            fi
+            exit 1
+          }
+          grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=PASS$' "$RUNNER_TEMP/d06-real-model-private.log"
+          grep -q '^D06_T3_REAL_MODEL_GPU_COMPUTE=PASS "$RUNNER_TEMP/d06-real-model-private.log"
+ "$RUNNER_TEMP/d06-real-model-private.log"
+          grep -q '^D06_T3_REAL_MODEL_NATIVE_OFFLINE=PASS "$RUNNER_TEMP/d06-real-model-private.log"
+ "$RUNNER_TEMP/d06-real-model-private.log"
+ "$RUNNER_TEMP/d06-real-model-private.log" || true
+            grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=(PASS|BLOCKED) "$RUNNER_TEMP/d06-real-model-private.log" || true
+            if grep -q '^D06_T3_REAL_MODEL_HARDWARE_UNAVAILABLE=BLOCKED$' "$RUNNER_TEMP/d06-real-model-private.log"; then
+              echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=BLOCKED
+            else
+              echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=FAIL
+              grep -Eo 'D06_T3_REAL_MODEL_[A-Z0-9_]+' "$RUNNER_TEMP/d06-real-model-private.log" | sort -u | head -15 || true
+            fi
+            exit 1
+          }
+          grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=PASS$' "$RUNNER_TEMP/d06-real-model-private.log"
+          grep -q '^D06_T3_REAL_MODEL_GPU_COMPUTE=PASS "$RUNNER_TEMP/d06-real-model-private.log"
+ "$RUNNER_TEMP/d06-real-model-private.log"
+          grep -q '^D06_T3_REAL_MODEL_NATIVE_OFFLINE=PASS "$RUNNER_TEMP/d06-real-model-private.log"
+ "$RUNNER_TEMP/d06-real-model-private.log"
+ "$RUNNER_TEMP/d06-real-model-private.log" || true
+            if grep -q '^D06_T3_REAL_MODEL_HARDWARE_UNAVAILABLE=BLOCKED$' "$RUNNER_TEMP/d06-real-model-private.log"; then
+              echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=BLOCKED
+            else
+              echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=FAIL
+              grep -Eo 'D06_T3_REAL_MODEL_[A-Z0-9_]+' "$RUNNER_TEMP/d06-real-model-private.log" | sort -u | head -15 || true
+            fi
+            exit 1
+          }
+          grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=PASS$' "$RUNNER_TEMP/d06-real-model-private.log"
+          grep -q '^D06_T3_REAL_MODEL_GPU_COMPUTE=PASS "$RUNNER_TEMP/d06-real-model-private.log"
+ "$RUNNER_TEMP/d06-real-model-private.log"
+          grep -q '^D06_T3_REAL_MODEL_NATIVE_OFFLINE=PASS "$RUNNER_TEMP/d06-real-model-private.log"
+ "$RUNNER_TEMP/d06-real-model-private.log"
+      - name: Privacy and evidence boundary
+        if: always()
+        shell: bash
+        run: |
+          echo D06_T3_PRODUCT_ACCEPTED=false
+          echo D06_PRIVATE_SOURCE_UPLOADS=0
+          echo D06_PRIVATE_LOG_UPLOADS=0
+          echo D06_PRIVATE_DIST_UPLOADS=0
