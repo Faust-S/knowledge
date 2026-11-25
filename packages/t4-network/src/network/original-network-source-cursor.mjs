@@ -1,8 +1,12 @@
 import {createHash} from 'node:crypto';
 import {validT4NativeSubjectRevision,validT4NativeOriginalEventRevision,
   matchesT4NativeSubjectCriticalExtensions,t4NativeSubjectCriticalExtensions,
-  decodeT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
-import {validateT4OriginalNativeCaptureSession,readT4OriginalSourceSessionHead} from './original-network-publication.mjs';
+  decodeT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_REPLACEMENT_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
+import {validateT4OriginalNativeCaptureSession,readT4OriginalSourceSessionHead,
+  validateT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementSourceIntentStatus,
+  validateT4OriginalReplacementRecipientApplyAdmission,readT4OriginalReplacementSourceHead} from './original-network-publication.mjs';
+import {requireT4OriginalRetiredAttemptStatus} from './original-network-session-phases.mjs';
+import {assembleT4CandidateOpaqueChunks} from './standard-network-opaque-chunks.mjs';
 import {isT4OriginalOutboundFrameProof} from './original-network-source-head-proof.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest}
   from './original-event-window.mjs';
@@ -515,4 +519,166 @@ export async function confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement
     liveNetworkAuthorityGranted:false,recoveredCursor:recovered,
     originalPhaseWriteRetried:false,sourceCursorAdvanced:false,
     originalHostCursorCommitStillRequired:true,originalSubjectMutationInvoked:false,originalFrameRetryAllowed:false});
+}
+
+
+/** A terminal-history witness for the successor, independent of the current
+ * frontier. This is NOT accepted by either existing cursor writer yet.
+ * No live receipt, replay creation, key use for signing, or remote reads. */
+export async function recoverT4OriginalReplacementTerminalCursorEvidence({session:rawSession,sourceCursorBefore,
+  sourcePhasePort,recipientPhasePort,retiredSourcePhasePort,retiredRecipientPhasePort,
+  sourcePublicationPort,recipientPublicationPort,historicalFramePort,requiredCryptoSuite,getMode,
+  authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents}={}){
+  const c=validateT4OriginalReplacementSessionCandidate(rawSession),before=structuredClone(sourceCursorBefore);
+  const mode=()=>{if(typeof getMode!=='function'||getMode()!=='T4_NETWORK')fail('CURSOR_NETWORK_MODE_OFF');};
+  const phases=[sourcePhasePort,recipientPhasePort,retiredSourcePhasePort,retiredRecipientPhasePort],pubs=[sourcePublicationPort,recipientPublicationPort];
+  if(!ID(requiredCryptoSuite)||before?.schema!=='IWXA_T4_ORIGINAL_EVENT_CURSOR_V1'||before.workspaceId!==c.workspaceId||
+    before.originalWriteOwnerRef!==c.originalWriteOwnerRef||before.sourcePrefixDigest!==c.sourcePrefixDigestBefore||
+    before.originalPermissionProof!==false||!ID(before.lastEventId)||!Number.isSafeInteger(before.seenEventCount)||
+    before.seenEventCount<1||before.seenEventCount>=Number.MAX_SAFE_INTEGER||
+    ![getMode,authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents].every(f=>typeof f==='function')||
+    !phases.every((p,i)=>p?.schema==='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'&&p.role===(i%2===0?'SOURCE':'RECIPIENT')&&
+      p.originalT3TechnicalWorkspaceOnly===true&&p.createsSecondStore===false&&ID(p.checkpointRef)&&typeof p.inspectOriginalSession==='function')||
+    !pubs.every(p=>p?.schema==='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'&&p.originalT3OnlyStore===true&&ID(p.checkpointRef)&&
+      stable(p.session)===stable(c)&&typeof p.readOriginalHistoricalPublishedBatch==='function')||
+    new Set([...phases,...pubs].map(p=>p.checkpointRef)).size!==6||
+    historicalFramePort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||typeof historicalFramePort.readOriginalHistoricalAppliedAck!=='function')
+    fail('CURSOR_REPLACEMENT_TERMINAL_HISTORY_PORTS_REQUIRED');
+  mode();
+  const sha=x=>createHash('sha256').update(x).digest('hex'),route=['sourceNodeRef','recipientNodeRef','scopeRef','sessionRef','changeId','ownerEpoch'];
+  const historyRead=async fn=>{mode();const v=structuredClone(await fn());mode();return v;};
+  const ackRead=(sessionRef,expectedSha256=null)=>historyRead(()=>historicalFramePort.readOriginalHistoricalAppliedAck({selector:{
+    sourceNodeRef:c.recipientNodeRef,sessionRef,ownerEpoch:c.ownerEpoch},requiredCryptoSuite,
+    supportedCriticalExtensions:t4NativeSubjectCriticalExtensions(c.changeKind),expectedSha256}));
+  function publication(saved,port,types,from,to){
+    if(saved?.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_BATCH_V1'||stable(saved.session)!==stable(c)||
+      saved.checkpointRef!==port.checkpointRef||!Number.isSafeInteger(saved.originalPublicationRevision)||saved.originalPublicationRevision<1||
+      !DIG(saved.originalPublicationChainHash)||saved.originalT3PublicationEventChainVerified!==true||
+      saved.originalHistoricalEvidenceOnly!==true||saved.currentRemotePresenceProven!==false||saved.liveNetworkAuthorityGranted!==false||
+      saved.originalBusinessApplied!==false||!Array.isArray(saved.frames)||saved.frames.length!==types.length)
+      fail('CURSOR_REPLACEMENT_HISTORICAL_PUBLICATION_MISMATCH');
+    return saved.frames.map((f,i)=>{
+      if(f?.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_FRAME_V1'||f.checkpointRef!==saved.checkpointRef||
+        f.sessionRef!==c.sessionRef||f.sequence!==i+1||f.messageType!==types[i]||!SHA(f.sha256)||f.key!==f.sha256+'.t4n'||
+        !(f.wireBytes instanceof Uint8Array)||sha(f.wireBytes)!==f.sha256||!ID(f.originalPresentEventId)||
+        !Number.isSafeInteger(f.originalPresentRevision)||f.originalPresentRevision<1||!DIG(f.originalPresentChainHash)||
+        (i>0&&f.originalPresentRevision<=saved.frames[i-1].originalPresentRevision)||
+        f.originalPublicationRevision!==saved.originalPublicationRevision||f.originalPublicationChainHash!==saved.originalPublicationChainHash||
+        f.originalHistoricalPublicationProven!==true||f.originalT3PublicationEventChainVerified!==true||f.originalHistoricalEvidenceOnly!==true||
+        f.currentRemotePresenceProven!==false||f.remoteReceiptProven!==false||f.liveNetworkAuthorityGranted!==false||f.originalBusinessApplied!==false||
+        f.historicalSignature?.originalHistoricalSignatureVerified!==true||f.historicalSignature.direction!=='LOCAL'||
+        f.historicalSignature.liveNetworkAuthorityGranted!==false||f.historicalSignature.originalHistoricalAcceptanceProven!==false)
+        fail('CURSOR_REPLACEMENT_HISTORICAL_PUBLICATION_MISMATCH');
+      const frame=decodeT4CandidateFrame(f.wireBytes);
+      if(frame.sourceNodeRef!==from||frame.recipientNodeRef!==to||frame.scopeRef!==c.scopeRef||frame.sessionRef!==c.sessionRef||
+        frame.ownerEpoch!==c.ownerEpoch||frame.sequence!==i+1||frame.messageType!==types[i]||frame.cryptoSuite!==requiredCryptoSuite||
+        frame.signerRef!==f.historicalSignature.signerRef||
+        (i===types.length-1&&(f.originalPresentRevision!==saved.originalPublicationRevision||f.originalPresentChainHash!==saved.originalPublicationChainHash)))
+        fail('CURSOR_REPLACEMENT_HISTORICAL_PUBLICATION_MISMATCH');
+      return frame;
+    });
+  }
+  function anchor(f){return {sequence:f.sequence,messageType:f.messageType,key:f.key,sha256:f.sha256,
+    presentEventId:f.originalPresentEventId,presentRevision:f.originalPresentRevision,presentChainHash:f.originalPresentChainHash};}
+  async function read(){
+    const [source,recipient,oldSource,oldRecipient]=await Promise.all(phases.map(p=>historyRead(()=>p.inspectOriginalSession())));
+    const src=validateT4OriginalReplacementSourceIntentStatus(source,c),r=c.replacement;
+    if(src.currentPhase!=='APPLIED_CONFIRMED'||src.checkpointRef!==sourcePhasePort.checkpointRef)
+      fail('CURSOR_REPLACEMENT_TERMINAL_PHASE_REQUIRED');
+    const stopped=[oldSource,oldRecipient].map((s,i)=>requireT4OriginalRetiredAttemptStatus(s,c.originalCaptureSession,i===0?'SOURCE':'RECIPIENT',phases[i+2].checkpointRef));
+    if(stopped.some((s,i)=>{const key=i===0?'source':'recipient';return s.replacementSessionRef!==c.sessionRef||
+      s.originalRetiredPhaseCheckpointRef!==r[key+'PhaseRef']||s.originalSupersessionEventId!==r[key+'PhaseEventId']||
+      s.originalRetiredPhaseRevision!==r[key+'PhaseRevision']||s.originalRetiredPhaseChainHash!==r[key+'PhaseChainHash'];})||
+      oldSource.currentEvidence.retirement?.decisionDigest!==r.decisionDigest)
+      fail('CURSOR_REPLACEMENT_RETIRED_ANCHOR_MISMATCH');
+    if(await ackRead(c.originalCaptureSession.sessionRef)!==null)fail('CURSOR_REPLACEMENT_RETIRED_ACK_CONFLICT');
+    const admission=validateT4OriginalReplacementRecipientApplyAdmission(recipient?.originalReplacementRecipientAdmission),e=admission.contentEvidence,a=e.agreement;
+    const evidence=src.currentEvidence;
+    if(recipient?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||recipient.role!=='RECIPIENT'||recipient.currentPhase!=='APPLIED'||recipient.revision!==4||
+      recipient.checkpointRef!==recipientPhasePort.checkpointRef||!DIG(recipient.chainHash)||recipient.recipientApplyIntentRequired!==true||
+      !route.every(k=>recipient[k]===c[k])||(recipient.changeKind??'OBJECT_PUT')!==c.changeKind||
+      recipient.originalT3EventChainVerified!==true||recipient.originalT3OnlyStore!==true||recipient.originalBusinessApplied!==true||
+      recipient.verifiedOriginalRecipientApplication!==true||recipient.originalReplacementRecipientAdmissionRecorded!==true||
+      !ID(recipient.originalReplacementRecipientApplyIntentEventId)||!ID(recipient.originalReplacementRecipientAppliedEventId)||
+      recipient.originalReplacementRecipientAppliedEventId===recipient.originalReplacementRecipientApplyIntentEventId||
+      stable(admission.candidate)!==stable(c)||admission.originalSourcePublishedEventId!==src.originalReplacementPublishedEventId||
+      admission.originalSourcePublishedChainHash!==src.originalReplacementPublishedChainHash||
+      admission.originalStateDigest!==evidence.originalRecipientStateDigest||stable(recipient.currentEvidence)!==stable(evidence)||
+      a.originalSourceAdmissionCheckpointRef!==src.checkpointRef||a.originalSourceAdmissionEventId!==src.originalReplacementAdmissionEventId||
+      a.originalSourceAdmissionChainHash!==src.originalReplacementAdmissionChainHash||
+      stable(recipient.recipientApplyIntentEvidence)!==stable({evidenceRef:e.frames[1].key,evidenceDigest:'sha256:'+c.capturedSha256})||
+      stable(recipient.recipientVerifiedEvidence)!==stable({evidenceRef:e.frames[1].key,evidenceDigest:admission.originalStateDigest}))
+      fail('CURSOR_REPLACEMENT_TERMINAL_PHASE_MISMATCH');
+    const [sourcePub,recipientPub]=await Promise.all(pubs.map(p=>historyRead(()=>p.readOriginalHistoricalPublishedBatch())));
+    const sourceFrames=publication(sourcePub,sourcePublicationPort,e.frames.map(f=>f.messageType),c.sourceNodeRef,c.recipientNodeRef);
+    const peerFrames=publication(recipientPub,recipientPublicationPort,['DIFF_REQUEST','APPLIED_ACK'],c.recipientNodeRef,c.sourceNodeRef);
+    const [head,change,...chunks]=sourceFrames,[diff,ack]=peerFrames,savedHead=sourcePub.frames[0],savedDiff=recipientPub.frames[0],savedAck=recipientPub.frames[1];
+    if(sourcePub.checkpointRef!==e.sourcePublicationCheckpointRef||recipientPub.checkpointRef!==a.originalRecipientPublicationCheckpointRef||
+      stable(sourcePub.frames.map(anchor))!==stable(e.frames)||savedHead.key!==src.originalReplacementSourceAdmission.headKey||
+      savedHead.originalPresentRevision!==src.originalReplacementSourceAdmission.publicationRevision||
+      savedHead.originalPresentChainHash!==src.originalReplacementSourceAdmission.publicationChainHash||
+      sourcePub.checkpointRef!==src.originalReplacementSourceAdmission.publicationRef||
+      stable(src.sourcePublishedEvidence)!==stable({evidenceRef:e.frames[1].key,evidenceDigest:'sha256:'+e.frames[1].sha256})||
+      savedDiff.key!==a.diffKey||savedDiff.sha256!==a.diffSha256||savedDiff.originalPresentEventId!==a.originalRecipientDiffPresentEventId||
+      savedDiff.originalPresentRevision!==a.originalRecipientPublicationRevision||savedDiff.originalPresentChainHash!==a.originalRecipientPublicationChainHash||
+      savedAck.key!==evidence.evidenceRef||'sha256:'+savedAck.sha256!==evidence.evidenceDigest)
+      fail('CURSOR_REPLACEMENT_HISTORICAL_ANCHOR_MISMATCH');
+    if(stable(head.criticalExtensions)!==stable([T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]))fail('CURSOR_REPLACEMENT_HISTORICAL_HEAD_MISMATCH');
+    readT4OriginalReplacementSourceHead({identity:c.originalCaptureSession,body:head.body,sessionRef:c.sessionRef,sourceCursorBefore:before,expectedCandidate:c});
+    const b=change.body,body=ack.body,ackRef='ack:t4:'+sha(JSON.stringify(['IWXA-T4-ORIGINAL-APPLIED-ACK-V1',c.sessionRef,c.changeId,c.capturedSha256,
+      evidence.originalRecipientEventId,evidence.originalRecipientRevision,evidence.originalRecipientStateDigest]));
+    if(stable(diff.body)!==stable({familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore]})||diff.criticalExtensions.length!==0||
+      b.changeId!==c.changeId||b.changeKind!==c.changeKind||b.eventRef!==c.sourceEventId||b.ownerRef!==c.originalWriteOwnerRef||
+      b.sourceRevision!==c.sourceRevision||b.contentDigest!==e.contentDigest||stable(b.parents)!==stable([c.sourcePrefixDigestBefore])||
+      !matchesT4NativeSubjectCriticalExtensions(c.changeKind,change.criticalExtensions)||
+      chunks.some((f,i)=>f.body.chunkIndex!==i||f.criticalExtensions.length!==0)||
+      body.changeId!==c.changeId||body.contentDigest!==b.contentDigest||body.ackRef!==ackRef||body.recipientEventRef!==evidence.originalRecipientEventId||
+      body.recipientRevision!==evidence.originalRecipientRevision||body.recipientStateDigest!==evidence.originalRecipientStateDigest||
+      !matchesT4NativeSubjectCriticalExtensions(c.changeKind,ack.criticalExtensions))
+      fail('CURSOR_REPLACEMENT_HISTORICAL_CONTENT_MISMATCH');
+    assembleT4CandidateOpaqueChunks({bodies:chunks.map(f=>f.body),expectedChangeId:c.changeId,expectedContentDigest:e.contentDigest,
+      expectedEncryptionContextRef:e.encryptionContextRef});
+    const accepted=await ackRead(c.sessionRef,savedAck.sha256);
+    if(accepted?.schema!=='IWXA_T4_HISTORICAL_RECEIVED_FRAME_V1'||accepted.operation!=='t4.network.receive.APPLIED_ACK'||
+      accepted.messageType!=='APPLIED_ACK'||accepted.sequence!==2||accepted.messageId!==ack.messageId||accepted.signerRef!==ack.signerRef||
+      accepted.permissionRef!==ack.permissionRef||accepted.sourceNodeRef!==c.recipientNodeRef||accepted.recipientNodeRef!==c.sourceNodeRef||
+      accepted.scopeRef!==c.scopeRef||accepted.sessionRef!==c.sessionRef||accepted.ownerEpoch!==c.ownerEpoch||accepted.cryptoSuite!==requiredCryptoSuite||
+      accepted.wireSha256!==savedAck.sha256||accepted.key!==savedAck.key||stable(accepted.body)!==stable(body)||
+      stable(accepted.criticalExtensions)!==stable(ack.criticalExtensions)||!ID(accepted.originalReplayCheckpointRef)||!ID(accepted.originalReplayEventId)||
+      accepted.originalHistoricalAcceptanceProven!==true||accepted.originalReplayCheckpointCreated!==false||accepted.originalHistoricalEvidenceOnly!==true||
+      accepted.liveNetworkAuthorityGranted!==false||accepted.originalBusinessApplied!==false||accepted.historicalSignature?.originalHistoricalSignatureVerified!==true||
+      accepted.historicalSignature.direction!=='PEER'||accepted.historicalSignature.liveNetworkAuthorityGranted!==false)
+      fail('CURSOR_REPLACEMENT_HISTORICAL_ACK_MISMATCH');
+    const prefix=await readT4OriginalEventWindow({workspaceId:c.workspaceId,originalWriteOwnerRef:c.originalWriteOwnerRef,cursor:before,maxEvents:1,
+      authorizeOriginalRead:async proof=>{mode();const allowed=await authorizeOriginalRead(Object.freeze({...proof,sessionRef:c.sessionRef,changeId:c.changeId,
+        sourceNodeRef:c.sourceNodeRef,recipientNodeRef:c.recipientNodeRef,originalHistoricalRecoveryOnly:true,networkAckDoesNotGrantSubjectRead:true}));mode();return allowed===true;},
+      readOriginalEvents});mode();
+    const w=prefix.window;
+    if(w.count!==1||w.lastEventId!==c.sourceEventId||w.eventRefs[0]?.eventDigest!==c.sourceEventDigest||
+      !validT4NativeOriginalEventRevision(c.changeKind,c.sourceRevision,w.eventRefs[0]?.revision)||w.sourcePrefixDigestBefore!==c.sourcePrefixDigestBefore||
+      w.sourcePrefixDigestAfter!==c.sourcePrefixDigestAfter||!matchesT4OriginalCapturedWindowDigest(w,c.capturedWindowDigest)||
+      prefix.nextCursor?.seenEventCount!==before.seenEventCount+1||prefix.nextCursor.sourcePrefixDigest!==c.sourcePrefixDigestAfter)
+      fail('CURSOR_ORIGINAL_T3_SOURCE_EVENT_CHANGED');
+    return {source:src,recipient,retiredSource:stopped[0],retiredRecipient:stopped[1],sourcePublication:{checkpointRef:sourcePub.checkpointRef,
+      revision:sourcePub.originalPublicationRevision,chainHash:sourcePub.originalPublicationChainHash,frames:sourcePub.frames.map(anchor)},
+      recipientPublication:{checkpointRef:recipientPub.checkpointRef,revision:recipientPub.originalPublicationRevision,
+        chainHash:recipientPub.originalPublicationChainHash,frames:recipientPub.frames.map(anchor)},historicalAck:{sha256:accepted.wireSha256,
+      body:structuredClone(body),replayCheckpointRef:accepted.originalReplayCheckpointRef,replayEventId:accepted.originalReplayEventId},nextCursor:prefix.nextCursor};
+  }
+  const first=await read();
+  const consent=Object.freeze({operation:'t4.network.original.replacement.cursor.recover-history',session:c,sourceCursorBefore:structuredClone(before),
+    originalT3NextCursor:structuredClone(first.nextCursor),originalSourcePhaseRef:first.source.checkpointRef,
+    originalSourcePhaseChainHash:first.source.chainHash,originalRecipientPhaseRef:first.recipient.checkpointRef,
+    originalRecipientPhaseChainHash:first.recipient.chainHash,historicalAck:structuredClone(first.historicalAck),
+    originalRecipientApplicationIndependentlyVerified:true,originalFrameRetryAllowed:false,originalSubjectMutationAllowed:false});
+  if(await authorizeOriginalHistoricalCursorRecovery(consent)!==true)fail('CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED');
+  mode();const second=await read();
+  if(stable(first)!==stable(second))fail('CURSOR_ORIGINAL_HISTORICAL_PROOF_CHANGED');
+  mode();return Object.freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_HISTORICAL_CURSOR_EVIDENCE_V1',state:'ORIGINAL_REPLACEMENT_TERMINAL_HISTORY_VERIFIED',
+    session:c,sourceCursorBefore:before,originalT3NextCursor:second.nextCursor,originalSourcePhase:second.source,
+    originalRecipientPhase:second.recipient,originalRetiredSourcePhase:second.retiredSource,originalRetiredRecipientPhase:second.retiredRecipient,
+    originalSourcePublication:second.sourcePublication,originalRecipientPublication:second.recipientPublication,historicalAck:second.historicalAck,
+    originalHistoricalAcceptanceProven:true,originalBothRecipientResultReadbacksVerified:true,sourceOriginalEventPrefixReadback:true,
+    originalT3HostCursorWriteInvoked:false,originalT3HostCursorCommitStillRequired:true,sourceCursorAdvanced:false,recipientCursorAdvanced:false,
+    originalSubjectMutationInvoked:false,originalFrameRetryAllowed:false,liveNetworkAuthorityGranted:false,noSecondCursorStore:true});
 }

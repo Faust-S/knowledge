@@ -1364,25 +1364,54 @@ export function createT4OriginalNetworkPublicationPort({
   }
   // Read-only history proof from the original PRESENT Event and exact
   // persisted bytes. No remote read/write, no fresh signer, no live proof.
-  async function readOriginalHistoricalPublishedFrame({sequence}={}){
-    if(!Number.isSafeInteger(sequence)||sequence<1||sequence>MAX_FRAMES||
-      verifyOriginalHistoricalNodeSignature===null)fail('PUBLICATION_ORIGINAL_HISTORY_PORT_REQUIRED');
-    const ctx=await context(),current=await read(ctx),entry=current.entries[sequence-1];
+  async function historicalPublishedProof(current,entry,includePresentEventAnchor=false){
     if(entry?.state!=='PRESENT')fail('PUBLICATION_HISTORICAL_PRESENT_REQUIRED');
     const frame=frameFor(entry);
     const historicalSignature=await verifyT4CandidateHistoricalFrameSignature({
       wireBytes:Buffer.from(entry.wireText,'utf8'),direction:'OUTBOUND',localNodeRef,
       scopeRef:identity.scopeRef,requiredCryptoSuite:frame.cryptoSuite,
       supportedCriticalExtensions:frame.criticalExtensions,verifyOriginalHistoricalNodeSignature});
-    const after=await read(ctx);
-    if(after.revision!==current.revision||after.chainHash!==current.chainHash||
-      !same(after.entries[sequence-1],entry))fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    const anchor=current.presentEvents[entry.sequence-1];
+    if(!anchor)fail('PUBLICATION_ORIGINAL_PRESENT_EVENT_REQUIRED');
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_FRAME_V1',
       checkpointRef,originalPublicationRevision:current.revision,originalPublicationChainHash:current.chainHash,
-      sessionRef:identity.sessionRef,sequence,messageType:frame.messageType,sha256:entry.sha256,
+      ...(includePresentEventAnchor?{originalPresentEventId:anchor.eventId,originalPresentRevision:anchor.revision,
+        originalPresentChainHash:anchor.chainHash}:{}),
+      sessionRef:identity.sessionRef,sequence:entry.sequence,messageType:frame.messageType,sha256:entry.sha256,
       key:entry.sha256+'.t4n',historicalSignature,originalT3PublicationEventChainVerified:true,
       originalHistoricalPublicationProven:true,currentRemotePresenceProven:false,remoteReceiptProven:false,
       originalHistoricalEvidenceOnly:true,liveNetworkAuthorityGranted:false,originalBusinessApplied:false});
+  }
+  async function readOriginalHistoricalPublishedFrame({sequence}={}){
+    if(!Number.isSafeInteger(sequence)||sequence<1||sequence>MAX_FRAMES||
+      verifyOriginalHistoricalNodeSignature===null)fail('PUBLICATION_ORIGINAL_HISTORY_PORT_REQUIRED');
+    const ctx=await context(),current=await read(ctx),entry=current.entries[sequence-1];
+    const proof=await historicalPublishedProof(current,entry);
+    const after=await read(ctx);
+    if(after.revision!==current.revision||after.chainHash!==current.chainHash||
+      !same(after.entries[sequence-1],entry)||!same(after.presentEvents[sequence-1],current.presentEvents[sequence-1]))
+      fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    return proof;
+  }
+  // Complete historical read in one original checkpoint snapshot, including
+  // the exact PRESENT Event anchors. Deliberately distinct from live receipts.
+  async function readOriginalHistoricalPublishedBatch(){
+    const ctx=await context(),current=await read(ctx);
+    if(!current.entries.length||current.entries.some(e=>e.state!=='PRESENT'))
+      fail('PUBLICATION_HISTORICAL_PRESENT_REQUIRED');
+    const frames=[];
+    for(const entry of current.entries){
+      const proof=await historicalPublishedProof(current,entry,true);
+      frames.push(Object.freeze({...proof,wireBytes:new Uint8Array(Buffer.from(entry.wireText,'utf8'))}));
+    }
+    const after=await read(ctx);
+    if(after.revision!==current.revision||after.chainHash!==current.chainHash||
+      !same(after.entries,current.entries)||!same(after.presentEvents,current.presentEvents))
+      fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_BATCH_V1',session:identity,
+      checkpointRef,originalPublicationRevision:current.revision,originalPublicationChainHash:current.chainHash,
+      frames:Object.freeze(frames),originalT3PublicationEventChainVerified:true,originalHistoricalEvidenceOnly:true,
+      currentRemotePresenceProven:false,liveNetworkAuthorityGranted:false,originalBusinessApplied:false});
   }
   // Explicit original-owner migration/repair of already PRESENT frames.
   // It is not an ordinary publication attempt, cannot promote PREPARED or
@@ -1597,7 +1626,7 @@ export function createT4OriginalNetworkPublicationPort({
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1',
     session:identity,checkpointRef,inspectOriginalPublication,
     prepareSignedBatch,publishPreparedFrame,readOriginalPublishedFrame,
-    ...(verifyOriginalHistoricalNodeSignature!==null?{readOriginalHistoricalPublishedFrame}:{}),
+    ...(verifyOriginalHistoricalNodeSignature!==null?{readOriginalHistoricalPublishedFrame,readOriginalHistoricalPublishedBatch}:{}),
     reconcileOriginalPublishedFrameIndexes,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkPublicationPort({
       technicalSchemaId,

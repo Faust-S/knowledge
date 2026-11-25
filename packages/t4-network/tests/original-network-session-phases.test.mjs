@@ -9,6 +9,8 @@ import {t4NativeSourceHeadIndexKey,t4NativeReplacementHeadIndexKey,t4NativeSessi
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {discoverT4OriginalNetworkSessionContent} from '../src/network/original-network-subject-apply.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
+import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
+import {recoverT4OriginalReplacementTerminalCursorEvidence,recoverT4OriginalHistoricallyConfirmedSourceCursor} from '../src/network/original-network-source-cursor.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
   T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,decodeT4CandidateFrame} from '../src/network/standard-network-wire-candidate.mjs';
 import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
@@ -456,20 +458,28 @@ test('K46 retirement authority is explicit, recipient-only, and never inferred f
 // Real Ed25519 wire signatures and the original replay/phase contracts.
 // The transport and Kernel ports here are fixtures, not an installed Host
 // or proof of durable outgoing control publication.
-async function controlFixture({indexed=false}={}){
+async function controlFixture({indexed=false,realSourceHistory=false}={}){
   const f=retirementFixture(),sourceStore=fakeKernel(),ws='ws:k47:subject',epoch=2,
     suite='X25519_AES256GCM_ED25519',sha=x=>createHash('sha256').update(x).digest('hex');
-  const sourceEventId='event:k47:original',capture={kind:'OBJECT_PUT',captureRef:'capture:k47:one',
+  const sourceEventId='event:k47:original',sourceEvents=[{event_id:'event:k47:baseline',workspace_id:ws,
+    service_id:'service:k47:source',object_id:'object:k47:one',revision:6,event_type:'business.changed',occurred_at:'2026-11-25T09:00:00Z',payload:{title:'before'}},
+    {event_id:sourceEventId,workspace_id:ws,service_id:'service:k47:source',object_id:'object:k47:one',revision:7,
+      event_type:'business.changed',occurred_at:'2026-11-25T09:01:00Z',payload:{title:'after'}}];
+  const readOriginalEvents=async()=>structuredClone(sourceEvents),originalRead={workspaceId:ws,originalWriteOwnerRef:owner,
+    maxEvents:1,authorizeOriginalRead:async()=>true,readOriginalEvents};
+  const originalBefore=realSourceHistory?(await readT4OriginalEventWindow(originalRead)).nextCursor:null;
+  const originalWindow=realSourceHistory?await readT4OriginalEventWindow({...originalRead,cursor:originalBefore}):null;
+  const capture={kind:'OBJECT_PUT',captureRef:'capture:k47:one',
     workspaceId:ws,originalWriteOwnerRef:owner,sourceEventId,sourceRevision:7,
     originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
-    sourceWindow:{lastEventId:sourceEventId,eventRefs:[{eventDigest:H}],windowDigest:B,
+    sourceWindow:originalWindow?.window??{lastEventId:sourceEventId,eventRefs:[{eventDigest:H}],windowDigest:B,
       sourcePrefixDigestBefore:H,sourcePrefixDigestAfter:B},
     prepared:{bytes:new Uint8Array(Buffer.from('original capture')),sha256:sha('original capture'),
-      delta:{sourceEventId,sourceRevision:7,sourceEventDigest:H,windowDigest:B}}};
+      delta:{sourceEventId,sourceRevision:7,sourceEventDigest:originalWindow?.window.eventRefs[0].eventDigest??H,windowDigest:originalWindow?.window.windowDigest??B}}};
   const task={schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',
     state:'ORIGINAL_NATIVE_CAPTURE_READY',workspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,
     scopeRef,ownerEpoch:epoch,networkTargetRef:recipientNodeRef,networkPublished:false,sourceCursorAdvanced:false,
-    originalRecipientApplied:false,sourceCursorBefore:{sourcePrefixDigest:H},sourceCursorAfter:{sourcePrefixDigest:B},capture};
+    originalRecipientApplied:false,sourceCursorBefore:originalBefore??{sourcePrefixDigest:H},sourceCursorAfter:originalWindow?.nextCursor??{sourcePrefixDigest:B},capture};
   const session=deriveT4OriginalNativeCaptureSession(task);
   const phase=()=>f.port({sessionRef:session.sessionRef,changeId:session.changeId});
   let network=true,sourceAllowed=true,recipientAllowed=true,captureVerified=true,acceptanceAllowed=true,readRecipient=true,
@@ -477,6 +487,12 @@ async function controlFixture({indexed=false}={}){
     recipientFrontierChanged=false,replacementAllowed=true;
   let sourceKey={...generateKeyPairSync('ed25519'),id:'key:k47:source:1'},
     recipientKey={...generateKeyPairSync('ed25519'),id:'key:k47:recipient:1'};
+  const historicalKeys=new Map([[sourceKey.id,sourceKey.publicKey],[recipientKey.id,recipientKey.publicKey]]);let networkAvailable=true;
+  const historicalSignature=(node)=>async p=>{const key=historicalKeys.get(p.signerRef);
+    if(!key||!verify(null,Buffer.from(p.bytes),key,Buffer.from(p.signature)))return null;
+    return {schema:'IWXA_T4_ORIGINAL_HISTORICAL_SIGNATURE_V1',frameDigest:p.frameDigest,signerRef:p.signerRef,
+      direction:p.sourceNodeRef===node?'LOCAL':'PEER',originalHistoricalSignatureVerified:true,originalHistoricalAcceptanceProven:false,
+      liveNetworkAuthorityGranted:false,trustedSigningTimeProven:false,originalBusinessApplied:false};};
   const frames=new Map(),indexes=new Map();let networkPuts=0,networkGets=0,signatures=0,loseControlWrite=false,controlPublicationAllowed=true;
   const wire={wireKind:'T4_NETWORK_CANDIDATE',forOriginalHostLifetime(){return this;},
     async putSnapshot({key,bytes,expectedSha256}){assert.equal(sha(bytes),expectedSha256);
@@ -485,9 +501,9 @@ async function controlFixture({indexed=false}={}){
       frames.set(key,new Uint8Array(bytes));networkPuts++;
       if(loseControlWrite){loseControlWrite=false;throw Object.assign(Error('lost control response'),{code:'OUTCOME_UNKNOWN'});}
       return {key,sha256:expectedSha256,state:'PUBLISHED_AND_READ_BACK'};},
-    async getSnapshot({key,expectedSha256}){networkGets++;
+    async getSnapshot({key,expectedSha256}){networkGets++;if(!networkAvailable)throw Error('network offline');
       const bytes=frames.get(key);assert.ok(bytes);assert.equal(sha(bytes),expectedSha256);return {bytes:new Uint8Array(bytes)};},
-    async inspectOutcome({key,expectedSha256}){assert.equal(sha(frames.get(key)),expectedSha256);
+    async inspectOutcome({key,expectedSha256}){if(!networkAvailable)throw Error('network offline');assert.equal(sha(frames.get(key)),expectedSha256);
       return {key,sha256:expectedSha256,state:'EXPECTED_BYTES_PRESENT'};}};
   if(indexed){
     const receipt=(key,frameSha256)=>({schema:'IWXA_T4_NATIVE_FRAME_INDEX_READ_V1',key,frameSha256,
@@ -515,11 +531,7 @@ async function controlFixture({indexed=false}={}){
         return p.signerRef===k.id&&verify(null,Buffer.from(p.bytes),k.publicKey,Buffer.from(p.signature));},
       authorizeOriginalNetwork:async p=>['ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK','APPLIED_ACK','HEADS','DIFF_REQUEST','CHANGE_REF','CHUNK'].some(t=>p.operation==='t4.network.receive.'+t),
       persistOriginalReplayDecision:replay.persistOriginalReplayDecision,
-      verifyOriginalHistoricalNodeSignature:async p=>{const k=localKey(p.sourceNodeRef);
-        if(p.signerRef!==k.id||!verify(null,Buffer.from(p.bytes),k.publicKey,Buffer.from(p.signature)))return null;
-        return {schema:'IWXA_T4_ORIGINAL_HISTORICAL_SIGNATURE_V1',frameDigest:p.frameDigest,signerRef:p.signerRef,
-          direction:'PEER',originalHistoricalSignatureVerified:true,originalHistoricalAcceptanceProven:false,
-          liveNetworkAuthorityGranted:false,trustedSigningTimeProven:false,originalBusinessApplied:false};},
+      verifyOriginalHistoricalNodeSignature:historicalSignature(node),
       readOriginalHistoricalReplayEvidence:replay.readOriginalHistoricalReplayEvidence,
       readOriginalHistoricalAppliedAckSlot:replay.readOriginalHistoricalAppliedAckSlot});
   };
@@ -537,7 +549,7 @@ async function controlFixture({indexed=false}={}){
     verifyOriginalPhaseEvidence:async()=>true,verifyOriginalRecipientApplied:async()=>sourceApplied,
     authorizeOriginalSourceSupersession:async proof=>sourcePhaseAllowed&&proof.originalRecipientRetirementEvidenceRequired===true&&
       proof.originalAcceptedAppliedAckAbsentRequired===true&&proof.originalSubjectMutationAllowed===false,...patch});
-  const sourceCursorBefore={schema:'IWXA_T4_ORIGINAL_EVENT_CURSOR_V1',workspaceId:ws,originalWriteOwnerRef:owner,
+  const sourceCursorBefore=originalBefore??{schema:'IWXA_T4_ORIGINAL_EVENT_CURSOR_V1',workspaceId:ws,originalWriteOwnerRef:owner,
     lastEventId:'event:k47:baseline',seenEventCount:1,sourcePrefixDigest:H,originalPermissionProof:false};
   // The source frontier is an explicit test port; the actual phase and
   // replay Objects are exercised in the original Kernel fixture.
@@ -556,7 +568,7 @@ async function controlFixture({indexed=false}={}){
       scopeRef,ownerEpoch:epoch,revision:0,chainHash:B,originalBaselineAdmitted:true,originalT3OnlyStore:true,
       originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,originalT3EventChainVerified:false,
       originalT3VerifiedCursor:recipientFrontierChanged?{...sourceCursorBefore,sourcePrefixDigest:B}:sourceCursorBefore})});
-  const sourceCursorAfter={...sourceCursorBefore,lastEventId:sourceEventId,seenEventCount:2,sourcePrefixDigest:B};
+  const sourceCursorAfter=originalWindow?.nextCursor??{...sourceCursorBefore,lastEventId:sourceEventId,seenEventCount:2,sourcePrefixDigest:B};
   const eligibilityOptions=()=>({originalCaptureSession:session,sourceCursorBefore,sourcePhasePort:sourcePhase(),
     recipientPhasePort:phase(),sourceCursorPort:cursorPort,recipientCursorPort,sourceHistoricalFramePort:transport(sourceNodeRef),
     requiredCryptoSuite:suite,getMode,verifyOriginalSourceCapture:async proof=>
@@ -569,14 +581,16 @@ async function controlFixture({indexed=false}={}){
       authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true,
       authorizeOriginalFramePublish:async()=>true,readOriginalReplacementEligibility,
       verifyOriginalNodeSignature:async p=>p.signerRef===sourceKey.id&&
-        verify(null,Buffer.from(p.bytes),sourceKey.publicKey,Buffer.from(p.signature)),frameTransport:transport(sourceNodeRef),...extra});
+        verify(null,Buffer.from(p.bytes),sourceKey.publicKey,Buffer.from(p.signature)),verifyOriginalHistoricalNodeSignature:historicalSignature(sourceNodeRef),
+      frameTransport:transport(sourceNodeRef),...extra});
   const createReplacementRecipientPort=async({session:identity},readOriginalReplacementRecipientAdmission,extra={})=>
     createT4OriginalNetworkPublicationPort({session:identity,localNodeRef:recipientNodeRef,technicalWorkspaceId:workspace,
       originalKernel:f.kernel.kernel,getMode,readOriginalHostContext:context(recipientNodeRef,workspace),
       authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true,
       authorizeOriginalFramePublish:async()=>true,readOriginalReplacementRecipientAdmission,
       verifyOriginalNodeSignature:async p=>p.signerRef===recipientKey.id&&
-        verify(null,Buffer.from(p.bytes),recipientKey.publicKey,Buffer.from(p.signature)),frameTransport:transport(recipientNodeRef),...extra});
+        verify(null,Buffer.from(p.bytes),recipientKey.publicKey,Buffer.from(p.signature)),verifyOriginalHistoricalNodeSignature:historicalSignature(recipientNodeRef),
+      frameTransport:transport(recipientNodeRef),...extra});
   const recipientAdmissionOptions=phase=>({...eligibilityOptions(),sourceAdmissionPhasePort:phase,
     frameDiscoveryPort:transport(recipientNodeRef),authorizeOriginalReplacementRecipientAdmission:async p=>
       recipientAllowed&&p.originalSourceIntentVerified===true&&p.originalRecipientDiffOnly===true&&p.originalSubjectMutationAllowed===false});
@@ -652,7 +666,7 @@ async function controlFixture({indexed=false}={}){
     await transport(sourceNodeRef).readAndVerifySignedFrame({key:published.key,expectedSha256:published.sha256,requiredCryptoSuite:suite});
   };
   return {f,sourceStore,session,phase,plan,request,retire,publishAck,verifyAck,sourcePhase,recordBoth,acceptConflictingAck,
-    task:{...task,sourceCursorBefore,sourceCursorAfter},
+    task:{...task,sourceCursorBefore,sourceCursorAfter},readOriginalEvents,sourceEvents,offline:()=>{networkAvailable=false;},
     signSourceContent:signing(sourceNodeRef).signOriginalNodeBytes,
     signRecipientAck:signing(recipientNodeRef).signOriginalNodeBytes,
     recipientSigner:()=>({permissionRef:'permission:k47:'+recipientNodeRef,signerRef:recipientKey.id}),
@@ -679,8 +693,8 @@ async function controlFixture({indexed=false}={}){
     denyRecipient:()=>{recipientAllowed=false;},allowRecipient:()=>{recipientAllowed=true;},
     denyAcceptance:()=>{acceptanceAllowed=false;},allowAcceptance:()=>{acceptanceAllowed=true;},
     denyRecipientRead:()=>{readRecipient=false;},allowRecipientRead:()=>{readRecipient=true;},
-    rotateRecipient:()=>{recipientKey={...generateKeyPairSync('ed25519'),id:'key:k47:recipient:2'};},
-    rotateSource:()=>{sourceKey={...generateKeyPairSync('ed25519'),id:'key:k47:source:2'};},
+    rotateRecipient:()=>{recipientKey={...generateKeyPairSync('ed25519'),id:'key:k47:recipient:2'};historicalKeys.set(recipientKey.id,recipientKey.publicKey);},
+    rotateSource:()=>{sourceKey={...generateKeyPairSync('ed25519'),id:'key:k47:source:2'};historicalKeys.set(sourceKey.id,sourceKey.publicKey);},
     stop:()=>{network=false;}};
 }
 test('K47 signed original retirement request and independent recipient phase/Event readback; a control ACK is not new transfer admission',async()=>{
@@ -1140,8 +1154,8 @@ test('K58 source accepts successor DIFF only with exact independently verified P
   assert.equal(x.sourcePhaseWrites(),sourcePhase);assert.equal(x.phaseWrites(),recipientPhase);
 });
 
-async function replacementContentFixture(){
-  const x=await controlFixture({indexed:true});await closeInitialAttempt(x);
+async function replacementContentFixture(fixtureOptions={}){
+  const x=await controlFixture({indexed:true,...fixtureOptions});await closeInitialAttempt(x);
   const head=await x.publishReplacement();
   const createPhase=async({session:c,admission},readOriginalReplacementSourceAdmission)=>x.sourcePhase({
     sessionRef:c.sessionRef,authorizeOriginalSourceSupersession:null,replacementSourceAdmission:admission,
@@ -1253,8 +1267,8 @@ test('K60 admission is revalidated at the original content CAS and frame boundar
 
 // This fixture uses real signed wire frames and original publication/replay
 // chains. Opaque content and the two original Kernel ports are test fixtures.
-async function replacementRecipientFixture(){
-  const q=await replacementContentFixture(),{x,c}=q;
+async function replacementRecipientFixture(fixtureOptions={}){
+  const q=await replacementContentFixture(fixtureOptions),{x,c}=q;
   const source=await q.contentPort();let allowed=true;
   const options={session:c,frameDiscoveryPort:x.transport(recipientNodeRef),
     requiredCryptoSuite:x.eligibilityOptions().requiredCryptoSuite,requireSourceAnnouncement:true,
@@ -1361,8 +1375,8 @@ test('K63 successor source PUBLISHED binds complete original publication and pre
 });
 
 
-test('K67 source confirms only the independently received successor ACK matching original source and recipient phase/publication; cold recovery preserves anchors',async()=>{
-  const q=await replacementRecipientFixture(),{x,c}=q;await q.diff();await q.publish();
+test('K67 K68 source confirms only the independently received successor ACK; historical recovery is independent of frontiers, network and current signers',async()=>{
+  const q=await replacementRecipientFixture({realSourceHistory:true}),{x,c}=q;await q.diff();await q.publish();
   const getMode=x.eligibilityOptions().getMode,source=q.source;
   let allowed=true,recipientResult=true;
   // The two original phase/publication/replay histories are actual adapter
@@ -1433,5 +1447,39 @@ test('K67 source confirms only the independently received successor ACK matching
   assert.equal(diff.originalPublicationChainHash,e.agreement.originalRecipientPublicationChainHash);
   const recovered=await confirmT4OriginalReplacementSourcePublication({sourceAdmissionPhasePort:sourcePhase(),sourcePublicationPort:source,getMode});
   assert.equal(recovered.chainHash,published.chainHash);assert.equal(recovered.originalRecipientApplyStillRequired,false);
-  recipientResult=false;await assert.rejects(finish(),isCode('PHASE_ORIGINAL_APPLIED_NOT_PROVEN'));
+  recipientResult=false;await assert.rejects(finish(),isCode('PHASE_ORIGINAL_APPLIED_NOT_PROVEN'));recipientResult=true;
+  // Once either frontier changes, live replacement eligibility must close.
+  // Historical terminal evidence uses the old exact Event prefix and the
+  // original terminal chains, not a fabricated live receipt.
+  let historyAllowed=true;
+  const historyArgs={session:c,sourceCursorBefore:x.sourceCursorBefore,sourcePhasePort:sourcePhase(),recipientPhasePort:recipientPhase(),
+    retiredSourcePhasePort:x.sourcePhase(),retiredRecipientPhasePort:x.phase(),sourcePublicationPort:source,recipientPublicationPort:recipient,
+    historicalFramePort:x.transport(sourceNodeRef),requiredCryptoSuite:x.eligibilityOptions().requiredCryptoSuite,getMode,
+    authorizeOriginalHistoricalCursorRecovery:async p=>historyAllowed&&p.originalFrameRetryAllowed===false&&p.originalRecipientApplicationIndependentlyVerified===true,
+    authorizeOriginalRead:async()=>true,readOriginalEvents:x.readOriginalEvents};
+  const recover=patch=>recoverT4OriginalReplacementTerminalCursorEvidence({...historyArgs,...patch});
+  const historical=await recover();assert.deepEqual(historical.originalT3NextCursor,x.sourceCursorAfter);
+  assert.equal(historical.originalHistoricalAcceptanceProven,true);assert.equal(historical.originalT3HostCursorWriteInvoked,false);
+  assert.equal(historical.originalSourcePhase.originalReplacementSourceConfirmedEventId,final.sourcePhase.originalReplacementSourceConfirmedEventId);
+  assert.equal(historical.historicalAck.body.recipientEventRef,actualEvent);
+  assert.equal(historical.originalBothRecipientResultReadbacksVerified,true);
+  x.changeFrontier();x.changeRecipientFrontier();
+  await assert.rejects(x.eligibility(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
+  x.rotateSource();x.rotateRecipient();x.offline();x.f.restart();
+  const counts={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
+  assert.deepEqual(await recover(),historical);
+  // A later unrelated source Event cannot invalidate the exact captured prefix.
+  x.sourceEvents.push({...x.sourceEvents[1],event_id:'event:k68:later',revision:8,payload:{title:'later'}});
+  assert.deepEqual(await recover(),historical);
+  historyAllowed=false;await assert.rejects(recover(),isCode('CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED'));historyAllowed=true;
+  await assert.rejects(recover({sourcePublicationPort:{...source,readOriginalHistoricalPublishedBatch:async()=>{
+    const batch=structuredClone(await source.readOriginalHistoricalPublishedBatch());batch.frames[0].originalPresentEventId='event:k68:forged';return batch;}}}),
+    isCode('CURSOR_REPLACEMENT_HISTORICAL_ANCHOR_MISMATCH'));
+  await assert.rejects(recover({historicalFramePort:{...historyArgs.historicalFramePort,readOriginalHistoricalAppliedAck:async()=>null}}),
+    isCode('CURSOR_REPLACEMENT_HISTORICAL_ACK_MISMATCH'));
+  recipientResult=false;await assert.rejects(recover(),isCode('PHASE_ORIGINAL_APPLIED_NOT_PROVEN'));recipientResult=true;
+  const originalPayload=x.sourceEvents[1].payload;x.sourceEvents[1].payload={title:'forged'};
+  await assert.rejects(recover(),isCode('CURSOR_ORIGINAL_T3_SOURCE_EVENT_CHANGED'));x.sourceEvents[1].payload=originalPayload;
+  await assert.rejects(recoverT4OriginalHistoricallyConfirmedSourceCursor(historyArgs),isCode('PUBLICATION_ORIGINAL_CAPTURE_IDENTITY_INVALID'));
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},counts);
 });
