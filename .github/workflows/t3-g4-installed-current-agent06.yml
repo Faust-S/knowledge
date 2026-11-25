@@ -1,11 +1,5 @@
 name: T3 G4 installed pinned current Personal Agent 0.6 Windows
 on:
-  push:
-    branches:
-      - work/2026-11-10-t3-t2-activity-projection
-    paths:
-      - .github/workflows/t3-g4-installed-current-agent06.yml
-      - packages/t3-core/tests/g4-installed-agent-second-sid.ps1
   workflow_dispatch:
 permissions:
   contents: read

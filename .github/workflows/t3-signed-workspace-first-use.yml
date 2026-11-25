@@ -1,11 +1,5 @@
 name: Original signed Workspace first use
 on:
-  push:
-    branches: ['work/2026-11-24-signed-workspace-first-use']
-    paths:
-      - 'packages/t3-core/src/**'
-      - 'packages/t3-core/tests/**'
-      - '.github/workflows/t3-signed-workspace-first-use.yml'
   workflow_dispatch:
 permissions:
   contents: read
