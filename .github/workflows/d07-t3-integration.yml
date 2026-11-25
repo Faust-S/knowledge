@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 16542fb02ce1574e052c8e1cd497d7c742d59eb5
+          ref: b208326327a1408f4fe48c84aa98d6039447ea5b
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -42,7 +42,7 @@ jobs:
         working-directory: site
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
-        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 16542fb02ce1574e052c8e1cd497d7c742d59eb5
+        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight b208326327a1408f4fe48c84aa98d6039447ea5b
   t3-source:
     needs: private-transport
     # A blocked release must not spend runner time on product qualification.
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 16542fb02ce1574e052c8e1cd497d7c742d59eb5
+          ref: b208326327a1408f4fe48c84aa98d6039447ea5b
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -81,7 +81,7 @@ jobs:
       - name: Preserve exact T2 subject and Workspace module
         run: |
           test "$(git -C domain rev-parse HEAD)" = "f73a5f0e877c1d8c30c56d5ee82f472b55c0f1c2"
-          test "$(git -C site rev-parse HEAD)" = "16542fb02ce1574e052c8e1cd497d7c742d59eb5"
+          test "$(git -C site rev-parse HEAD)" = "b208326327a1408f4fe48c84aa98d6039447ea5b"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -213,7 +213,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 16542fb02ce1574e052c8e1cd497d7c742d59eb5
+          ref: b208326327a1408f4fe48c84aa98d6039447ea5b
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -414,7 +414,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "16542fb02ce1574e052c8e1cd497d7c742d59eb5"
+          test "$(git rev-parse HEAD)" = "b208326327a1408f4fe48c84aa98d6039447ea5b"
           test -z "$(git status --porcelain --untracked-files=no)"
           local="runtime/t3-platform/0.3.1-rc.1"
           node --import tsx --input-type=module -e 'import {verifyPreparedD07Host} from "./scripts/prepare-d07-t3-host.mjs";import {verifyPreparedKernelSupport} from "./scripts/prepare-d07-local-kernel-input.mjs";import {verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";const root=process.argv[1];verifyPreparedD07Host(root+"/d07-host");verifyPreparedKernelSupport(root+"/kernel-support");verifyPlatformArchive(root+"/platform-inputs.zip")' "$local" > "$RUNNER_TEMP/d07-retain-recheck.log" 2>&1 || {
@@ -454,7 +454,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "16542fb02ce1574e052c8e1cd497d7c742d59eb5"
+          test "$(git rev-parse HEAD)" = "b208326327a1408f4fe48c84aa98d6039447ea5b"
           test -z "$(git diff --name-only)"
           node scripts/verify-d07-retained-index.mjs
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: retain qualified local T3 platform inputs [skip ci] [skip actions]'
@@ -473,7 +473,7 @@ jobs:
           GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           candidate="$(git rev-parse HEAD)"
-          bash ../pipeline/scripts/d07-private-git-transport.sh publish 16542fb02ce1574e052c8e1cd497d7c742d59eb5 "$candidate"
+          bash ../pipeline/scripts/d07-private-git-transport.sh publish b208326327a1408f4fe48c84aa98d6039447ea5b "$candidate"
           echo "retained_commit=$candidate" >> "$GITHUB_OUTPUT"
           echo "dist_sha256=$(sha256sum "$RUNNER_TEMP/d07-local-2.sha" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - name: Preserve explicit build-only qualification without private publication
