@@ -35,13 +35,13 @@ jobs:
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d01-ux-source \
             --profile full-product-qualification \
-            --revision site=6fe3f71c2adc1cf1eef5ce3925442b9907c1fda9 \
+            --revision site=d381f45b8ba292e97596d0459a99bfc1ee891db0 \
             --revision subject=5defadc101fa0ec9bce92f6d2806f7b9976d1d6d \
             --revision t2=39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: 6fe3f71c2adc1cf1eef5ce3925442b9907c1fda9
+          ref: d381f45b8ba292e97596d0459a99bfc1ee891db0
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -59,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 6fe3f71c2adc1cf1eef5ce3925442b9907c1fda9
+          test "$(git -C private/site rev-parse HEAD)" = d381f45b8ba292e97596d0459a99bfc1ee891db0
           test "$(git -C private/domain rev-parse HEAD)" = 5defadc101fa0ec9bce92f6d2806f7b9976d1d6d
           for path in study/services t2/domain-modules/learn; do
             for file in study-write-outcome.mjs study-write-outcome.d.mts; do
@@ -174,13 +174,13 @@ jobs:
         shell: bash
         run: |
           set -eu
-          for file in study/services/study-write-outcome.mjs t2/domain-modules/learn/study-write-outcome.mjs _iwxa/learn-profile-context-r6.js _iwxa/learn-link-context.js iwxa-learn-shell-r8-r6.js study/assets-r5/main-t2-9c777f34.js study/assets-r5/src-eldniVto.js calculators/assets-r5/index-CwKME0Vd.js calculators/workspace-selection.mjs career/assets-r5/MapPage-DT3PY6CS.js t2/domain-modules/learn/profile-area.mjs study/services/study-sources.mjs study/services/goal-service.mjs study/services/route-service.mjs study/source-panel.mjs study/goals/goals-app.mjs study/my-routes/routes-app.mjs study/sessions/sessions-app.mjs practice/workspace-selection.mjs mind/app/workspace-ui.mjs mind/app/app.mjs mind/app/services/tools.mjs mind/app/services/labs.mjs practice/assets-r6-clean/practice-capability-gate-BaTK15az.js practice/assets-r6-clean/catalog-BWIn6LRW.js practice/assets-r6-clean/model._slug-DZ9y8kMs.js practice/assets-r6-clean/index-D1kuNTQO.js practice/assets-r6-clean/practice-shell-ClcATzN9.js practice/assets-r6-clean/practice-workspace-picker-Cqs4_6K1.js practice/assets-r6-clean/create-SrNR54d1.js practice/assets-r6-clean/programs-ZGbS30w9.js scripts/copy-static.mjs scripts/fingerprint-editorial-assets.mjs scripts/verify-hosting-stage.mjs scripts/audit-product-links.mjs scripts/audit-browser-navigation.mjs scripts/audit-first-user.mjs scripts/browser-product-origin.mjs scripts/test-first-use-profile.mjs qa/d01-product-witness-2026-10-26/product-witness.mjs qa/d01-product-witness-2026-10-26/repeat-scenario-witness.mjs scripts/materialize-t2-local-preview.mjs assets-r5/index-C3JXOmeg.js career/assets-r5/HypothesesPage-DX3XrAWC.js career/assets-r5/TrialDetailPage-DFY0ijPi.js lad/assets-r5/index-DGThwVZ9.js study/services/continuation.mjs t2/domain-modules/learn-results/continuation.mjs study/form-navigation.mjs study/services/career-review.mjs study/services/practice-session-link.mjs t2/domain-modules/learn-results/practice-session-link.mjs career/assets-r5/learning-review-panel.js practice/assets-r6-clean/create-SrNR54d1.js study/services/practice-handoff.mjs mind/app/services/document-ui.mjs mind/app/services/persistence.mjs mind/app/route-context.mjs mind/app/session.mjs mind/app/storage.mjs study/services/mind-sources.mjs study/services/topic-work.mjs study/topic-work-panel.mjs study/services/topic-lesson.mjs study/services/route-edit.mjs study/services/prerequisites.mjs t2/domain-modules/learn/prerequisites.mjs study/source-panel.mjs study/lesson-brief-panel.mjs study/services/study-session-service.mjs t2/domain-modules/learn/study-session-service.mjs practice/study-context.mjs practice/assets-r6-clean/study-context-panel.js qa/d01-product-witness-2026-10-26/mind-journey-witness.mjs t2/domain-modules/learn-results/daily-learning.mjs t2/domain-modules/learn-results/learning-navigation.mjs t2/domain-modules/learn-results/linked-journey-read.mjs study/services/practice-study-reference.mjs practice/quick-arithmetic/engine/practice-session.mjs practice/quick-arithmetic/quick-arithmetic-app.mjs study/services/study-recall.mjs study/services/session-flow.mjs t2/domain-modules/learn/study-recall.mjs t2/domain-modules/learn/session-flow.mjs t2/domain-modules/learn-results/study-recall.mjs t2/domain-modules/learn-results/topic-progress.mjs scripts/test-study-recall-owner.mjs study/services/practice-reviews.mjs study/services/study-evidence-service.mjs study/my-routes/practice-link.mjs study/my-routes/practice-feedback.mjs practice/quick-arithmetic/engine/practice-result.mjs scripts/test-practice-study-feedback-owner.mjs scripts/test-practice-topic-feedback.mjs study/services/practice-support.mjs study/my-routes/practice-preparation-panel.mjs study/my-routes/practice-repeat.mjs practice/repeat-preparation.js practice/assets-r6-clean/practice-error-notice-CZjnex95.js t2/domain-modules/learn-results/practice-support.mjs t2/domain-modules/learn-results/route-review.mjs study/topic-history-panel.mjs study/services/topic-learning-history.mjs t2/domain-modules/learn-results/topic-learning-history.mjs t2/domain-modules/learn-results/daily-learning.mjs study/services/study-answer-review.mjs t2/domain-modules/learn/study-answer-review.mjs t2/domain-modules/learn-results/study-answer-review.mjs t2/domain-modules/learn/route-edit.mjs t2/domain-modules/learn/topic-work.mjs; do
+          for file in study/services/study-write-outcome.mjs t2/domain-modules/learn/study-write-outcome.mjs _iwxa/learn-profile-context-r6.js _iwxa/learn-link-context.js iwxa-learn-shell-r8-r6.js study/assets-r5/main-t2-9c777f34.js study/assets-r5/src-eldniVto.js calculators/assets-r5/index-CwKME0Vd.js calculators/workspace-selection.mjs career/assets-r5/MapPage-DT3PY6CS.js t2/domain-modules/learn/profile-area.mjs study/services/study-sources.mjs study/services/goal-service.mjs study/services/route-service.mjs study/source-panel.mjs study/goals/goals-app.mjs study/my-routes/routes-app.mjs study/sessions/sessions-app.mjs practice/workspace-selection.mjs mind/app/workspace-ui.mjs mind/app/app.mjs mind/app/services/tools.mjs mind/app/services/labs.mjs practice/assets-r6-clean/practice-capability-gate-BaTK15az.js practice/assets-r6-clean/catalog-BWIn6LRW.js practice/assets-r6-clean/model._slug-DZ9y8kMs.js practice/assets-r6-clean/index-D1kuNTQO.js practice/assets-r6-clean/practice-shell-ClcATzN9.js practice/assets-r6-clean/practice-workspace-picker-Cqs4_6K1.js practice/assets-r6-clean/create-SrNR54d1.js practice/assets-r6-clean/programs-ZGbS30w9.js scripts/copy-static.mjs scripts/fingerprint-editorial-assets.mjs scripts/verify-hosting-stage.mjs scripts/audit-product-links.mjs scripts/audit-browser-navigation.mjs scripts/audit-first-user.mjs scripts/browser-product-origin.mjs scripts/normalize-learn-navigation.mjs scripts/test-learn-navigation.mjs career/assets-r5/index-B6cIU7u-.js scripts/test-first-use-profile.mjs qa/d01-product-witness-2026-10-26/product-witness.mjs qa/d01-product-witness-2026-10-26/repeat-scenario-witness.mjs scripts/materialize-t2-local-preview.mjs assets-r5/index-C3JXOmeg.js career/assets-r5/HypothesesPage-DX3XrAWC.js career/assets-r5/TrialDetailPage-DFY0ijPi.js lad/assets-r5/index-DGThwVZ9.js study/services/continuation.mjs t2/domain-modules/learn-results/continuation.mjs study/form-navigation.mjs study/services/career-review.mjs study/services/practice-session-link.mjs t2/domain-modules/learn-results/practice-session-link.mjs career/assets-r5/learning-review-panel.js practice/assets-r6-clean/create-SrNR54d1.js study/services/practice-handoff.mjs mind/app/services/document-ui.mjs mind/app/services/persistence.mjs mind/app/route-context.mjs mind/app/session.mjs mind/app/storage.mjs study/services/mind-sources.mjs study/services/topic-work.mjs study/topic-work-panel.mjs study/services/topic-lesson.mjs study/services/route-edit.mjs study/services/prerequisites.mjs t2/domain-modules/learn/prerequisites.mjs study/source-panel.mjs study/lesson-brief-panel.mjs study/services/study-session-service.mjs t2/domain-modules/learn/study-session-service.mjs practice/study-context.mjs practice/assets-r6-clean/study-context-panel.js qa/d01-product-witness-2026-10-26/mind-journey-witness.mjs t2/domain-modules/learn-results/daily-learning.mjs t2/domain-modules/learn-results/learning-navigation.mjs t2/domain-modules/learn-results/linked-journey-read.mjs study/services/practice-study-reference.mjs practice/quick-arithmetic/engine/practice-session.mjs practice/quick-arithmetic/quick-arithmetic-app.mjs study/services/study-recall.mjs study/services/session-flow.mjs t2/domain-modules/learn/study-recall.mjs t2/domain-modules/learn/session-flow.mjs t2/domain-modules/learn-results/study-recall.mjs t2/domain-modules/learn-results/topic-progress.mjs scripts/test-study-recall-owner.mjs study/services/practice-reviews.mjs study/services/study-evidence-service.mjs study/my-routes/practice-link.mjs study/my-routes/practice-feedback.mjs practice/quick-arithmetic/engine/practice-result.mjs scripts/test-practice-study-feedback-owner.mjs scripts/test-practice-topic-feedback.mjs study/services/practice-support.mjs study/my-routes/practice-preparation-panel.mjs study/my-routes/practice-repeat.mjs practice/repeat-preparation.js practice/assets-r6-clean/practice-error-notice-CZjnex95.js t2/domain-modules/learn-results/practice-support.mjs t2/domain-modules/learn-results/route-review.mjs study/topic-history-panel.mjs study/services/topic-learning-history.mjs t2/domain-modules/learn-results/topic-learning-history.mjs t2/domain-modules/learn-results/daily-learning.mjs study/services/study-answer-review.mjs t2/domain-modules/learn/study-answer-review.mjs t2/domain-modules/learn-results/study-answer-review.mjs t2/domain-modules/learn/route-edit.mjs t2/domain-modules/learn/topic-work.mjs; do
             if ! node --check "$file" >"$RUNNER_TEMP/d01-syntax.log" 2>&1; then echo "D01_SYNTAX_FAIL:$file"; exit 1; fi
           done
           echo D01_SYNTAX_PASS
           set +e
           log="$RUNNER_TEMP/d01-source.log"
-          node --test --test-reporter=tap t2/domain-modules/learn-results/learning-navigation.test.mjs study/my-routes/practice-repeat.test.mjs scripts/test-learn-link-context.mjs scripts/test-t2-host-frame-boundary.mjs scripts/test-practice-workspace-selection.mjs scripts/test-practice-study-context.mjs scripts/test-calculator-workspace-selection.mjs scripts/test-mind-workspace-ui.mjs scripts/test-product-links.mjs scripts/test-t2-local-preview.mjs scripts/test-t2-owner-passports.mjs scripts/test-study-form-navigation.mjs scripts/test-practice-handoff.mjs scripts/test-mind-route-context.mjs scripts/test-mind-editors.mjs t2/domain-modules/learn-results/linked-journey-read.test.mjs scripts/test-study-prerequisite-owner.mjs scripts/test-study-recall-owner.mjs scripts/test-quick-arithmetic-study-context.mjs scripts/test-practice-study-feedback-owner.mjs scripts/test-practice-topic-feedback.mjs scripts/test-first-use-profile.mjs >"$log" 2>&1
+          node --test --test-reporter=tap t2/domain-modules/learn-results/learning-navigation.test.mjs study/my-routes/practice-repeat.test.mjs scripts/test-learn-link-context.mjs scripts/test-t2-host-frame-boundary.mjs scripts/test-practice-workspace-selection.mjs scripts/test-practice-study-context.mjs scripts/test-calculator-workspace-selection.mjs scripts/test-mind-workspace-ui.mjs scripts/test-product-links.mjs scripts/test-t2-local-preview.mjs scripts/test-t2-owner-passports.mjs scripts/test-study-form-navigation.mjs scripts/test-practice-handoff.mjs scripts/test-mind-route-context.mjs scripts/test-mind-editors.mjs t2/domain-modules/learn-results/linked-journey-read.test.mjs scripts/test-study-prerequisite-owner.mjs scripts/test-study-recall-owner.mjs scripts/test-quick-arithmetic-study-context.mjs scripts/test-practice-study-feedback-owner.mjs scripts/test-practice-topic-feedback.mjs scripts/test-first-use-profile.mjs scripts/test-learn-navigation.mjs >"$log" 2>&1
           code=$?
           grep -E '^not ok|^# (tests|pass|fail|skipped) ' "$log" | cut -c1-200 || true
           if [ "$code" -ne 0 ]; then echo D01_NAV_TEST_FAIL; exit "$code"; fi
@@ -195,7 +195,7 @@ jobs:
           log="$RUNNER_TEMP/d01-stage.log"
           if npm run build:public-stage >"$log" 2>&1; then
             echo D01_PUBLIC_STAGE_PASS
-            grep -E 'PASS:|contract OK:|Unified Learn shell|preloaded on|Single-Kernel Learn' "$log" | cut -c1-200 || true
+            grep -E 'PASS:|contract OK:|Unified Learn shell|preloaded on|Single-Kernel Learn|D01_NAVIGATION' "$log" | cut -c1-200 || true
             npm run audit:links:stage
           else
             grep -oE 'D01_[A-Z0-9_]+|STUDY_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$log" | sort -u | tail -20 || true
@@ -216,7 +216,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = 6fe3f71c2adc1cf1eef5ce3925442b9907c1fda9
+          test "$(git -C private/site rev-parse HEAD)" = d381f45b8ba292e97596d0459a99bfc1ee891db0
           test "$(git -C private/domain rev-parse HEAD)" = 5defadc101fa0ec9bce92f6d2806f7b9976d1d6d
           test "$(git -C private/t2 rev-parse HEAD)" = 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
           test "$(git -C private/t2 rev-parse refs/remotes/origin/main)" = 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
@@ -227,22 +227,22 @@ jobs:
         env:
           D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
           D01_EXPECTED_T2_HEAD: 39a0b3205ea45a55c3db45b99f5bcf4f0283aef1
-          D01_EXPECTED_SITE_HEAD: 6fe3f71c2adc1cf1eef5ce3925442b9907c1fda9
+          D01_EXPECTED_SITE_HEAD: d381f45b8ba292e97596d0459a99bfc1ee891db0
           D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
           D01_CASE_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-001-workplace-numeracy.json
           D01_CASE_002_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-002-price-label-check.json
         run: node private/site/qa/d01-product-witness-2026-10-26/ci-real-screens.mjs
       - name: Audit links in complete original T2 product
-        # Only inspect a complete distribution. The browser sweep is gated
-        # by success of all previous mandatory steps.
+        # Inspect the complete distribution even when a product journey fails.
         if: ${{ always() && !cancelled() && (steps.product.outcome == 'success' || steps.product.outcome == 'failure') }}
         working-directory: private/site
         run: |
           if [ -d dist ]; then npm run audit:links; else echo D01_COMPLETE_DIST_NOT_AVAILABLE; exit 1; fi
       - name: Browser sweep of every built page at desktop and phone widths
-        # Whole-site sweep is the final release gate. Do not occupy a
-        # runner with it after a failed functional journey.
-        if: ${{ success() && steps.product.outcome == 'success' }}
+        # Failed user journeys must not conceal other page defects.
+        # Require an actual built distribution; never turn incomplete coverage
+        # into a successful release.
+        if: ${{ always() && !cancelled() && (steps.product.outcome == 'success' || steps.product.outcome == 'failure') }}
         timeout-minutes: 75
         working-directory: private/site
         env:
