@@ -31,14 +31,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: ed3becab65f1e7c7ec788d309059d6c122636587
+          ref: 42e41917ab3609ddcdd2c31fe74dafe986f77b45
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: 5ebdfbefc7b2271495b5cd05f470c904700f4750
+          ref: dd8afa92e5215e2e7edb58a4a288906fc0fc5a96
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           persist-credentials: false
@@ -48,18 +48,29 @@ jobs:
       - name: Check exact revisions and canonical model
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "ed3becab65f1e7c7ec788d309059d6c122636587"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "617fec65a9368311b3084332656c89238f4f4362"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "5ebdfbefc7b2271495b5cd05f470c904700f4750"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "42e41917ab3609ddcdd2c31fe74dafe986f77b45"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "b6a7836ad489a9661bdb95d6cc26a2bb48169883"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "dd8afa92e5215e2e7edb58a4a288906fc0fc5a96"
           for name in LIFE_RETROSPECTIVE_V0_1.mjs LIFE_RETROSPECTIVE_V0_1.d.mts PERSONAL_STUDY_RESULT_V0_1.mjs PERSONAL_STUDY_RESULT_V0_1.d.mts LIFE_GOAL_RESULT_REFS_V0_1.mjs LIFE_GOAL_RESULT_REFS_V0_1.d.mts PERSONAL_CUSTOM_MEASURE_V0_1.mjs PERSONAL_CUSTOM_MEASURE_V0_1.d.mts LIFE_PERIOD_COMPARISON_V0_1.mjs LIFE_PERIOD_COMPARISON_V0_1.d.mts LIFE_ACTION_BOARD_V0_1.mjs LIFE_ACTION_BOARD_V0_1.d.mts PERSONAL_MEDICAL_EVIDENCE_V0_1.mjs PERSONAL_MEDICAL_EVIDENCE_V0_1.d.mts LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.mjs LIFE_DASHBOARD_SLEEP_SCHEDULE_V0_1.d.mts PERSONAL_GOAL_PROFILE_V0_1.mjs PERSONAL_GOAL_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_PROFILE_V0_1.mjs PERSONAL_OBSERVATION_PROFILE_V0_1.d.mts PERSONAL_OBSERVATION_DYNAMICS_V0_1.mjs PERSONAL_OBSERVATION_DYNAMICS_V0_1.d.mts LIFE_DASHBOARD_MODEL_V0_1.mjs LIFE_DASHBOARD_MODEL_V0_1.d.mts LIFE_DASHBOARD_PROJECTION_V0_1.mjs LIFE_DASHBOARD_PROJECTION_V0_1.d.mts LIFE_DASHBOARD_CALCULATIONS_V0_1.mjs LIFE_DASHBOARD_CALCULATIONS_V0_1.d.mts LIFE_DIARY_BATCH_V0_1.mjs LIFE_DIARY_BATCH_V0_1.d.mts; do
             cmp "d04-private/model/docs/life-os/$name" "d04-private/site/t2-site-module/bazmed/$name"
           done
-          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "fe93c40ad43b241b40126c90dbeebb8eef41edae"
+          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "ca5e4c89887f2547a78ce47db4ce2c8e929e2100"
           cmp d04-private/model/docs/life-os/RECOVERY_PROCESS_PROFILE_V0_7.ts d04-private/site/src/lib/life-os-recovery-process.ts
           # The release preflight must pin the same subject as this qualification.
-          grep -Fqx 'const expectedSubject="5ebdfbefc7b2271495b5cd05f470c904700f4750";' d04-private/site/scripts/check-hosting-source.mjs || { echo "D04_RELEASE_SUBJECT_PIN=FAIL"; exit 1; }
+          grep -Fqx 'const expectedSubject="dd8afa92e5215e2e7edb58a4a288906fc0fc5a96";' d04-private/site/scripts/check-hosting-source.mjs || { echo "D04_RELEASE_SUBJECT_PIN=FAIL"; exit 1; }
           echo "D04_RELEASE_SUBJECT_PIN=PASS"
           echo "D04_UNIFIED_PINNED_PARITY=PASS"
+          node --input-type=module <<'NODE'
+          import {projectLifeObservationLocalMinute} from './d04-private/model/docs/life-os/LIFE_DIARY_BATCH_V0_1.mjs';
+          const formatter=new Intl.DateTimeFormat('en-GB',{calendar:'iso8601',era:'short',year:'numeric',timeZone:'UTC'});
+          const era=formatter.formatToParts(new Date('2000-01-01T12:00:00.000Z')).find(p=>p.type==='era')?.value;
+          console.log('D04_TIME_ENV_ERA='+(era==='AD'?'AD':era==='CE'?'CE':'OTHER'));
+          const fixtures=[['LONDON_FOLD','2026-10-25T01:30','Europe/London'],['LONDON_GAP','2026-03-29T01:30','Europe/London'],['UTC_UNIQUE','2026-11-25T12:00','UTC'],['LORD_HOWE_FOLD','2026-04-05T01:45','Australia/Lord_Howe']];
+          for(const [name,minute,zone] of fixtures){
+            const result=projectLifeObservationLocalMinute(minute,zone);
+            console.log('D04_TIME_FIXTURE_'+name+'='+result.status.toUpperCase()+':'+result.candidates.length);
+          }
+          NODE
           if (cd d04-private/model && node --experimental-strip-types --test docs/life-os/tests/life-retrospective.test.mjs docs/life-os/tests/recovery-process-profile.test.mjs docs/life-os/tests/personal-study-result.test.mjs docs/life-os/tests/life-dashboard-model.test.mjs docs/life-os/tests/life-dashboard-selection.test.mjs docs/life-os/tests/life-dashboard-projection.test.mjs docs/life-os/tests/personal-observation-dynamics.test.mjs docs/life-os/tests/life-dashboard-calculations.test.mjs docs/life-os/tests/life-diary-batch.test.mjs docs/life-os/tests/life-observation-methods.test.mjs docs/life-os/tests/personal-goal-profile.test.mjs docs/life-os/tests/life-dashboard-sleep-schedule.test.mjs docs/life-os/tests/personal-medical-evidence.test.mjs docs/life-os/tests/life-action-board.test.mjs docs/life-os/tests/life-period-comparison.test.mjs docs/life-os/tests/personal-custom-measure.test.mjs docs/life-os/tests/goal-observation-refs.test.mjs docs/life-os/tests/goal-result-refs.test.mjs docs/life-os/tests/life-daily-study.test.mjs) >"$RUNNER_TEMP/d04-domain.log" 2>&1; then
             echo "D04_UNIFIED_DOMAIN=PASS"
           else

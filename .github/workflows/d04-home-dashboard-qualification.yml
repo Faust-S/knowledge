@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: ed3becab65f1e7c7ec788d309059d6c122636587
+          ref: 42e41917ab3609ddcdd2c31fe74dafe986f77b45
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           persist-credentials: false
@@ -47,9 +47,9 @@ jobs:
       - name: Check exact private code identity
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = ed3becab65f1e7c7ec788d309059d6c122636587
+          test "$(git -C d04-private/site rev-parse HEAD)" = 42e41917ab3609ddcdd2c31fe74dafe986f77b45
           test "$(git -C d04-private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = 617fec65a9368311b3084332656c89238f4f4362
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = b6a7836ad489a9661bdb95d6cc26a2bb48169883
           echo "D04_HOME_PINNED_SOURCES=PASS"
       - uses: actions/setup-node@v4
         with:
