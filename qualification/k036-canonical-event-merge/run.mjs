@@ -17,7 +17,13 @@ const run=(cmd,args,cwd,env=process.env)=>{
 };
 function step(label,cmd,args,cwd,env){
   const r=run(cmd,args,cwd,env);
-  need(r.code===0,label+'_FAILED');
+  if(r.code!==0){
+    // Only bounded machine code families from the original source generator
+    // and compiler; no raw exception messages, paths or private diagnostics.
+    const codes=new Set([...r.output.matchAll(/\b(?:K036_(?:CANONICAL_EVENT_MERGE|SAME_STORE|IMPORT_TIME)_[A-Z0-9_]{3,80}|TS[0-9]{4,5}|IMPORT_EVENT_ID_COLLISION)\b/g)].map(m=>m[0]));
+    for(const code of [...codes].slice(0,12))console.log(label+'_DETAIL='+code);
+    fail(label+'_FAILED');
+  }
   console.log(label+'=PASS');
 }
 function npm(label,args,cwd){
@@ -35,6 +41,10 @@ function tests(root,files,name,filter=null){
     '--config','vitest.config.ts','--fileParallelism=false','--reporter=json','--outputFile='+output];
   if(filter)args.push('-t',filter);
   const r=run(process.execPath,args,root);
+  if(!existsSync(output)){
+    for(const code of ['IMPORT_EVENT_ID_COLLISION','ERR_MODULE_NOT_FOUND','SyntaxError','TypeError'])
+      if(r.output.includes(code))console.log('K036_TEST_RUNNER_DETAIL='+code);
+  }
   return {...r,report:report(output)};
 }
 try{
