@@ -69,6 +69,23 @@ try{
     changed.code===0&&JSON.stringify(changed.output.trim().split(/\r?\n/).sort())===JSON.stringify(packagingPaths),
     'K036_PACKAGING_ONLY_SOURCE_DRIFT');
   const stageOnly=process.env.K036_STAGE_ONLY==='1';
+  const admissionOnly=process.env.K036_ADMISSION_ONLY==='1';
+  // No original T3 runtime source changed. Only native build admission,
+  // recipes and tests were added to the exact previously qualified Core.
+  const coreBase=process.env.CORE_BASE_PIN;
+  const coreDiff=run('git',['diff','--name-only',coreBase,'HEAD'],core);
+  const coreAncestor=run('git',['merge-base','--is-ancestor',coreBase,'HEAD'],core);
+  const admissionPaths=[
+    'scripts/installed-kernel-candidate.mjs','scripts/installed-kernel-selection.mjs',
+    'scripts/materialize-original-admin-t2-product.mjs','scripts/build-original-agent-one-dist.mjs',
+    'scripts/assemble-signed-control-dist.mjs','tests/installed-kernel-candidate.test.mjs',
+    'tests/t3-company-original-runtime-roundtrip.test.mjs',
+    'docs/T3_CORPORATE_K036_INSTALLED_CANDIDATE_2026_11_25.md',
+  ].map(p=>'packages/t3-core/'+p).sort();
+  need(coreBase==='6986195c2a7073bb9eeabaef822034e37cf2f4f9'&&coreAncestor.code===0&&coreDiff.code===0&&
+    JSON.stringify(coreDiff.output.trim().split(/\r?\n/).sort())===JSON.stringify(admissionPaths),
+    'K036_CORE_ADMISSION_ONLY_SOURCE_DRIFT');
+  console.log('K036_CORE_ADMISSION_ONLY_SOURCE_PIN=PASS');
   console.log('K036_PACKAGING_ONLY_SOURCE_PIN=PASS');
   need(Boolean(process.env.RUNNER_TEMP)&&
     temp===resolve(process.env.RUNNER_TEMP,'iwxa-k036-canonical-event-merge')&&
@@ -99,7 +116,7 @@ try{
   console.log(`K036_EVENT_COMPARISONS_CHANGED=${count}`);
   const prior=Buffer.from(text.replaceAll(corrected,original),'utf8');
   need(sha(prior)===change.beforeSha256,'K036_BASELINE_SOURCE_HASH_MISMATCH');
-  if(stageOnly){
+  if(stageOnly||admissionOnly){
     console.log('K036_SOURCE_REGRESSION=REUSED_EXACT_REVISION_45596499435');
   }else{
     try{
@@ -148,31 +165,6 @@ try{
   need(sha(readFileSync(zip))===previous.archiveSha256,'K036_PREVIOUS_ARCHIVE_SHA_MISMATCH');
   step('K036_EXTRACT_IMMUTABLE_BASELINE','python',['-c',
     'import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])',zip,qualified],temp);
-  if(stageOnly){
-    console.log('K036_CROSS_PRODUCT_REGRESSION=REUSED_EXACT_REVISION_45596499435');
-  }else{
-    const idb=join(candidate,'node_modules/fake-indexeddb/build/esm/index.js');
-    need(existsSync(idb),'K036_TEST_INDEXEDDB_REQUIRED');
-    npm('K036_ONE_CORE_DEPENDENCIES',['ci','--no-audit','--no-fund'],corePackage);
-    const cross=run(node,['--test','--test-reporter=tap','--test-force-exit','tests/t3-company-original-runtime-roundtrip.test.mjs'],corePackage,
-      {...process.env,IWXA_COMPANY_TEST_QUALIFIED_T2:qualified,IWXA_COMPANY_TEST_IDB_MODULE:idb,
-        IWXA_COMPANY_TEST_CANDIDATE_T2:dist,IWXA_COMPANY_TEST_CANDIDATE_RECEIPT:receiptPath});
-    const counts=Object.fromEntries([...cross.output.matchAll(/^# (tests|pass|fail|skipped) (\d+)\s*$/gm)]
-      .map(m=>[m[1],Number(m[2])]));
-    console.log('K036_ORIGINAL_CANDIDATE_CROSS_PRODUCT_COUNTS='+JSON.stringify(counts));
-    if(cross.code!==0){
-      // Only finite error code names. Never relay raw diagnostics.
-      for(const code of ['IMPORT_EVENT_ID_COLLISION','CANDIDATE_BUILD_BYTES_MISMATCH',
-        'CANDIDATE_UNRELATED_RUNTIME_FILE_CHANGED','ERR_ASSERTION','KERNEL_UNAVAILABLE',
-        'T3_CORPORATE_EXCHANGE_BUSINESS_ARCHIVE_REQUIRED','T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY',
-        'ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND','ERR_UNKNOWN_FILE_EXTENSION','ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING',
-        'ERR_INVALID_ARG_VALUE','SyntaxError','ReferenceError','TypeError','ENOENT'])
-        if(cross.output.includes(code))console.log('K036_CROSS_PRODUCT_DIAGNOSTIC='+code);
-    }
-    need(cross.code===0&&counts.tests===2&&counts.pass===2&&counts.fail===0,
-      'K036_ORIGINAL_CANDIDATE_CROSS_PRODUCT_FAILED');
-    console.log('K036_ORIGINAL_CANDIDATE_CROSS_PRODUCT=PASS');
-  }
   // The candidate archive remains private and unaccepted. Rebuild it
   // from the already verified original source bytes and the immutable
   // previous distribution; never claim that its old release ID still fits.
@@ -190,8 +182,48 @@ try{
     identityOut.sourceCommit===sourcePin&&identityOut.archiveSha256===sha(readFileSync(candidateZip)),
     'K036_CANDIDATE_ARCHIVE_IDENTITY_INVALID');
   console.log('K036_CANDIDATE_ARCHIVE_IDENTITY='+JSON.stringify(identityOut));
+  need(identityOut.artifactId==='iwxa-kernel-k036-canonical-event-merge-20261125-candidate.1'&&
+    identityOut.archiveSha256==='5320dcb6c42d5fca410880677c8a8b595d4c9a2a6cedf51089b5f60f4ceeb52a',
+    'K036_CANDIDATE_ARCHIVE_PIN_MISMATCH');
+  if(!stageOnly){
+    const extracted=join(temp,'candidate-original');
+    step('K036_EXTRACT_EXACT_CANDIDATE','python',['-c',
+      'import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])',candidateZip,extracted],temp);
+    const idb=join(candidate,'node_modules/fake-indexeddb/build/esm/index.js');
+    need(existsSync(idb),'K036_TEST_INDEXEDDB_REQUIRED');
+    npm('K036_ONE_CORE_DEPENDENCIES',['ci','--ignore-scripts','--no-audit','--no-fund'],corePackage);
+    npm('K036_ONE_CORE_COMPILED_UI',['run','build'],corePackage);
+    const countsFor=output=>Object.fromEntries([...output.matchAll(/^# (tests|pass|fail|skipped) (\d+)\s*$/gm)]
+      .map(m=>[m[1],Number(m[2])]));
+    const reportTests=(label,r,minimum,exact=false)=>{
+      const counts=countsFor(r.output);
+      console.log(label+'_COUNTS='+JSON.stringify(counts));
+      if(r.code!==0){
+        for(const code of ['T3_INSTALLED_KERNEL_CANDIDATE_FILE_DIGEST_MISMATCH',
+          'T3_INSTALLED_KERNEL_CANDIDATE_FILE_PATH_INVALID','T3_D1_DIST_CANDIDATE_NATIVE_CORPORATE_PROFILE_REQUIRED',
+          'T3_AGENT_ONE_DIST_ORIGINAL_QUALIFIED_ASSEMBLY_REQUIRED','T3_D1_DIST_DESKTOP_AGENT_WEBGPU_WORKER_FORBIDDEN',
+          'T3_D1_DIST_DESKTOP_ADMIN_WEBGPU_WORKER_FORBIDDEN','IMPORT_EVENT_ID_COLLISION','ERR_ASSERTION',
+          'ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND','SyntaxError','ReferenceError','TypeError','ENOENT'])
+          if(r.output.includes(code))console.log(label+'_DIAGNOSTIC='+code);
+      }
+      need(r.code===0&&Number.isInteger(counts.tests)&&
+        (exact?counts.tests===minimum:counts.tests>=minimum)&&counts.pass===counts.tests&&
+        counts.fail===0&&counts.skipped===0,label+'_FAILED');
+      console.log(label+'=PASS');
+    };
+    const recipes=run(node,['--test','--test-reporter=tap','--test-force-exit',
+      'tests/installed-kernel-candidate.test.mjs','tests/t3-d1-signed-control-dist.test.mjs',
+      'tests/t3-d6-agent-one-dist-builder.test.mjs'],corePackage);
+    reportTests('K036_CANDIDATE_RECIPE_REGRESSIONS',recipes,17);
+    const cross=run(node,['--test','--test-reporter=tap','--test-force-exit','tests/t3-company-original-runtime-roundtrip.test.mjs'],
+      corePackage,{...process.env,IWXA_COMPANY_TEST_QUALIFIED_T2:qualified,IWXA_COMPANY_TEST_IDB_MODULE:idb,
+        IWXA_COMPANY_TEST_CANDIDATE_T2:extracted,
+        IWXA_COMPANY_TEST_CANDIDATE_RECEIPT:join(artifactOut,'CANDIDATE_ARTIFACT_IDENTITY.json'),
+        IWXA_COMPANY_TEST_COMPILED_T3:join(corePackage,'dist')});
+    reportTests('K036_ORIGINAL_CANDIDATE_ACTUAL_PRODUCT_RECIPES',cross,2,true);
+  }else console.log('K036_CROSS_PRODUCT_REGRESSION=REUSED_PREVIOUS_SOURCE_EVIDENCE_45596499435');
   console.log(stageOnly?'K036_CANDIDATE_ARCHIVE=STAGED_REUSED_EXACT_SOURCE_EVIDENCE_NOT_RELEASED':
-    'K036_CANDIDATE_SOURCE_AND_RUNTIME=PASS_NOT_RELEASED');
+    'K036_CANDIDATE_PRODUCT_RECIPES=PASS_NOT_RELEASED');
 }catch(error){
   const code=String(error?.message??'');
   console.log(/^K036_[A-Z0-9_]{4,120}$/.test(code)?code:'K036_QUALIFICATION_UNCLASSIFIED_FAILURE');

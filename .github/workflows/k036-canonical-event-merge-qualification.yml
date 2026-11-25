@@ -17,13 +17,15 @@ env:
   # A staging-only commit reuses the already completed exact source and
   # cross-product regressions, while still rebuilding and hashing the bytes.
   K036_STAGE_ONLY: ${{ startsWith(github.event.head_commit.message, 'ci(stage):') && '1' || '0' }}
-  CORE_PIN: '6986195c2a7073bb9eeabaef822034e37cf2f4f9'
+  CORE_PIN: '8db847058cab231d2d39c34df46024b60564d2ad'
+  CORE_BASE_PIN: '6986195c2a7073bb9eeabaef822034e37cf2f4f9'
+  K036_ADMISSION_ONLY: ${{ startsWith(github.event.head_commit.message, 'ci(admission):') && '1' || '0' }}
 jobs:
   source-runtime:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(startsWith(github.event.head_commit.message, 'ci(stage):') && '["ubuntu-24.04"]' || '["ubuntu-24.04","windows-latest"]') }}
+        os: ${{ fromJSON((startsWith(github.event.head_commit.message, 'ci(stage):') || startsWith(github.event.head_commit.message, 'ci(admission):')) && '["ubuntu-24.04"]' || '["ubuntu-24.04","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
@@ -44,6 +46,7 @@ jobs:
           repository: Faust-S/knowledge
           ref: ${{ env.CORE_PIN }}
           path: public-one-core
+          fetch-depth: 5
           persist-credentials: false
           show-progress: false
       - uses: actions/setup-node@v4
