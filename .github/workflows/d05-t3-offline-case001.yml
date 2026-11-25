@@ -1,0 +1,114 @@
+name: D05 T3 full CASE-001 after server shutdown
+on:
+  push:
+    branches: [test/2026-11-24-d05-t3-integration]
+    paths: [.github/workflows/d05-t3-offline-case001.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  protected:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod.ru
+          ref: 2e790c033ba387fa1f28f6a800cbe3d4e93853c9
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 5e3083788aa541921559de29d3457d4a52bbba00
+          token: ${{ secrets.DOMEN }}
+          path: assistant
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          path: one-core
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Install pinned site dependencies
+        working-directory: site
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+        run: |
+          npm ci --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-protected-npm.log" 2>&1 || { echo D05_T3_PROTECTED_NPM_FAIL; exit 1; }
+      - name: Verify retained platform archive
+        working-directory: site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/artifacts/14920233669/zip >"$RUNNER_TEMP/d05-t3-protected-artifact.zip"
+          unzip -p "$RUNNER_TEMP/d05-t3-protected-artifact.zip" platform-inputs.zip >"$RUNNER_TEMP/d05-t3-protected-platform.zip"
+          node scripts/t3-platform-inputs.mjs verify "$RUNNER_TEMP/d05-t3-protected-platform.zip" >"$RUNNER_TEMP/d05-t3-protected-platform.log" 2>&1 || { echo D05_T3_PROTECTED_PLATFORM_FAIL; exit 1; }
+      - name: Prepare original Host for a fixed HTTPS loopback origin
+        working-directory: site
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-protected-host.log"
+          if ! npm run prepare:t3-host -- "$GITHUB_WORKSPACE/one-core/packages/t3-core" "$RUNNER_TEMP/d05-t3-protected-host" "$RUNNER_TEMP/d05-t3-protected-platform.zip" "$GITHUB_WORKSPACE/assistant" https://127.0.0.1:34567 >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_HOST_[A-Z0-9_]+|TS[0-9]{4,6}' "$log" | sort -u | head -30 || true
+            echo D05_T3_PROTECTED_HOST_FAIL
+            exit 1
+          fi
+          echo D05_T3_PROTECTED_HOST_PASS
+      - name: Assemble the real loopback T3 product
+        working-directory: site
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-protected-build.log"
+          if ! node scripts/build-cehovod-t3-local-site.mjs "$RUNNER_TEMP/d05-t3-protected-host" "$RUNNER_TEMP/d05-t3-protected-platform.zip" >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T3_[A-Z0-9_]+' "$log" | sort -u | head -30 || true
+            echo D05_T3_PROTECTED_BUILD_FAIL
+            exit 1
+          fi
+          echo D05_T3_PROTECTED_BUILD_PASS
+      - name: Install original witness dependencies
+        working-directory: one-core/packages/t3-core
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          set -euo pipefail
+          npm ci --include=dev --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-protected-witness-npm.log" 2>&1 || { echo D05_T3_WITNESS_NPM_FAIL; exit 1; }
+          npx --no-install playwright install chromium >"$RUNNER_TEMP/d05-t3-protected-browser-install.log" 2>&1 || { echo D05_T3_WITNESS_BROWSER_INSTALL_FAIL; exit 1; }
+      - name: Check exact combined witness syntax
+        working-directory: site
+        run: node --check scripts/d05-first-use-real-kernel-witness.mjs
+      - name: Real offline costed production, physical Exchange and independent cold recovery
+        working-directory: site
+        env:
+          D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
+          D05_T3_WITNESS_MATERIALIZER: ${{ github.workspace }}/one-core/packages/t3-core/scripts/materialize-t3-domain-mode.mjs
+          D05_FIRST_USE_T3: '1'
+          D05_FIRST_USE_T3_OFFLINE_CASE001: '1'
+          D05_FIRST_USE_CASE001: '1'
+          D05_FIRST_USE_CASE001_COSTED: '1'
+          D05_FIRST_USE_CASE001_EXCHANGE: '1'
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-protected-offline-case001.log"
+          code=0
+          node scripts/d05-first-use-real-kernel-witness.mjs >"$log" 2>&1 || code=$?
+          grep -E '^D05_(T3_[A-Z0-9_]+=PASS|CASE001_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)|CASE001_FAILURE_STAGE=[a-z0-9-]+|FIRST_USE_(FAILURE_CODE|FAILURE_CATEGORY|FAILURE_CLASS)=[A-Z0-9_]+|FIRST_USE_[A-Z0-9_]+=(PASS|FAIL))$' "$log" || true
+          grep -E '^D05_FIRST_USE_FAILURE_STAGE=[a-z-]+$' "$log" || true
+          grep -E '^D05_T3_CASE001_OFFLINE_COUNTS \{"readbacks":[0-9]+,"restarts":[0-9]+\}$' "$log" || true
+          test "$code" -eq 0
+          for marker in D05_T3_ASSISTANT_EXPLICIT_ORDER_HANDOFF D05_T3_CASE001_RECEIVER_EMPTY_SNAPSHOT D05_T3_CASE001_SERVER_STOPPED D05_CASE001_ACTUALS_120_REWORK_4_SCRAP_0 D05_CASE001_TWENTY_SEVEN_RESULT_CLOSED_COLD_RECOVERY D05_T3_CASE001_OFFLINE_PRODUCTION_CLOSED D05_CASE001_PHYSICAL_IWXA_EXPORTED D05_CASE001_IWXA_CLEAN_PROFILE_27_RESULTS_AND_EVENTS D05_CASE001_IWXA_CLEAN_PROFILE_COLD_RECOVERY D05_T3_CASE001_OFFLINE_PHYSICAL_EXCHANGE D05_T3_CASE001_COLD_OFFLINE_COMPLETE D05_FIRST_USE_REAL_T2_CROSS_SERVICE; do
+            grep -Fxq "$marker=PASS" "$log"
+          done
+      - name: Destroy temporary product, reports and source-bound input bytes
+        if: always()
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$RUNNER_TEMP/d05-t3-protected-host"
+          rm -f "$RUNNER_TEMP"/d05-t3-protected-*.log "$RUNNER_TEMP/d05-t3-protected-platform.zip" "$RUNNER_TEMP/d05-t3-protected-artifact.zip"
