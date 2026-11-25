@@ -623,6 +623,32 @@ export function validateT4OriginalReplacementRecipientAdmissionEvidence(value,id
   return deepFreeze(v);
 }
 
+// A K59 selection is an independently re-read witness, not a general
+// authorization. The exact local HEADS PRESENT anchor is checked separately
+// by the publication port before any successor content write.
+export function validateT4OriginalReplacementDiffAcceptance(value,identity){
+  const v=clone(value),c=validateT4OriginalReplacementSessionCandidate(identity);
+  if(v?.schema!=='IWXA_T4_ORIGINAL_REPLACEMENT_DIFF_SELECTION_V1'||
+    v.state!=='ORIGINAL_REPLACEMENT_DIFF_VERIFIED'||!same(v.candidate,c)||
+    v.originalBothTerminalPhaseEventsVerified!==true||v.originalBothCausalFrontiersUnchanged!==true||
+    v.originalRecipientDiffPublicationVerified!==true||v.originalSourceDiffAccepted!==true||
+    v.originalContentTransferStillRequired!==true||v.originalNewAttemptAdmissionStillRequired!==true||
+    v.originalSubjectMutationInvoked!==false||v.originalBusinessApplied!==false||
+    v.sourceCursorAdvanced!==false||v.recipientCursorAdvanced!==false||v.liveNetworkAuthorityGranted!==false||
+    !SHA(v.diffSha256)||v.diffKey!==v.diffSha256+'.t4n'||
+    typeof v.originalSourceHeadKey!=='string'||!SHA(v.originalSourceHeadKey.slice(0,-4))||
+    !v.originalSourceHeadKey.endsWith('.t4n')||
+    ![v.originalSourceAdmissionEventId,v.originalSourceAdmissionCheckpointRef,
+      v.originalSourceHeadPresentEventId,v.originalRecipientDiffPresentEventId,
+      v.originalRecipientPublicationCheckpointRef].every(ID)||
+    ![v.originalSourceAdmissionChainHash,v.originalSourceHeadPresentChainHash,
+      v.originalRecipientPublicationChainHash].every(DIG)||
+    ![v.originalSourceHeadPresentRevision,v.originalRecipientPublicationRevision]
+      .every(n=>Number.isSafeInteger(n)&&n>=1))
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED');
+  return deepFreeze(v);
+}
+
 export function createT4OriginalNetworkPublicationPort({
   technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   session,localNodeRef,technicalWorkspaceId,originalKernel,getMode,
@@ -631,6 +657,7 @@ export function createT4OriginalNetworkPublicationPort({
   verifyOriginalNodeSignature,frameTransport,authorizeOriginalSealedPublication=null,
   verifyOriginalHistoricalNodeSignature=null,authorizeOriginalControlPublication=null,
   readOriginalReplacementEligibility=null,readOriginalReplacementRecipientAdmission=null,
+  readOriginalReplacementDiffAcceptance=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   const control=session?.schema===CONTROL_SESSION,replacement=session?.schema===REPLACEMENT_SESSION;
@@ -654,7 +681,11 @@ export function createT4OriginalNetworkPublicationPort({
   if(control?(frameTransport.nativeFrameIndexVersion!==1||typeof authorizeOriginalControlPublication!=='function'||
       authorizeOriginalSealedPublication!==null):authorizeOriginalControlPublication!==null)
     fail('PUBLICATION_ORIGINAL_CONTROL_AUTHORITY_REQUIRED');
-  if(replacement?(frameTransport.nativeFrameIndexVersion!==1||authorizeOriginalSealedPublication!==null||
+  const replacementContent=replacement&&source&&typeof readOriginalReplacementDiffAcceptance==='function';
+  if(readOriginalReplacementDiffAcceptance!==null&&!replacementContent)
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED');
+  if(replacement?(frameTransport.nativeFrameIndexVersion!==1||
+      (replacementContent?typeof authorizeOriginalSealedPublication!=='function':authorizeOriginalSealedPublication!==null)||
       (source?(typeof readOriginalReplacementEligibility!=='function'||readOriginalReplacementRecipientAdmission!==null):
         (readOriginalReplacementEligibility!==null||typeof readOriginalReplacementRecipientAdmission!=='function'))):
       (readOriginalReplacementEligibility!==null||readOriginalReplacementRecipientAdmission!==null))
@@ -662,9 +693,11 @@ export function createT4OriginalNetworkPublicationPort({
   if(authorizeOriginalSealedPublication!==null&&(!source||typeof authorizeOriginalSealedPublication!=='function'))
     fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_INVALID');
   const remoteNodeRef=source?identity.recipientNodeRef:identity.sourceNodeRef;
-  // The successor handshake uses the existing direction-specific ledgers.
-  // HEADS and DIFF_REQUEST are the only allowed replacement frames so far.
-  const types=replacement?new Set([source?'HEADS':'DIFF_REQUEST']):control?new Set([source?'ATTEMPT_RETIRE_REQUEST':'ATTEMPT_RETIRED_ACK']):source?SOURCE_TYPES:RECIPIENT_TYPES;
+  // Read the same original successor ledger even from a handshake-only
+  // port. Only an explicitly admitted source may reserve content slots.
+  const types=replacement?new Set(source?['HEADS','CHANGE_REF','CHUNK']:['DIFF_REQUEST']):control?new Set([source?'ATTEMPT_RETIRE_REQUEST':'ATTEMPT_RETIRED_ACK']):source?SOURCE_TYPES:RECIPIENT_TYPES;
+  const writeTypes=replacement&&source&&!replacementContent?new Set(['HEADS']):types;
+  const isContent=type=>['CHANGE_REF','CHUNK'].includes(type);
   const recordIdentity={session:identity,localNodeRef,technicalWorkspaceId};
   const checkpointRef=publicationRef(identity.sessionRef,localNodeRef,technicalWorkspaceId);
   const genesis=digest('PUBLICATION-CHAIN',{recordIdentity,checkpointRef});
@@ -698,7 +731,9 @@ export function createT4OriginalNetworkPublicationPort({
       ...(control?{originalControlPublicationRequired:true,originalCaptureSession:identity.originalCaptureSession,
         controlClaim:identity.controlClaim,controlBody:signedFrame?deepFreeze(clone(signedFrame.body)):null,
         originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationAllowed:false}:{}),
-      ...(replacement?{originalReplacementAnnouncementRequired:source,originalReplacementRecipientDiffRequired:!source,originalReplacementCandidate:identity,
+      ...(replacement?{originalReplacementAnnouncementRequired:source&&!isContent(signedFrame?.messageType),
+        originalReplacementRecipientDiffRequired:!source,originalReplacementCandidate:identity,
+        originalReplacementSourceContentRequired:source&&isContent(signedFrame?.messageType),
         originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationAllowed:false}:{}),
       originalHostAuthorityRequired:true,networkReceiptIsNotBusinessResult:true});
     const allowed=operation==='t1.putObject'?authorizeOriginalTechnicalWrite:
@@ -723,11 +758,37 @@ export function createT4OriginalNetworkPublicationPort({
         verified.sourceCursorAdvanced!==false||verified.recipientCursorAdvanced!==false||
         verified.liveNetworkAuthorityGranted!==false||!verified.sourceCursorBefore)
         fail('PUBLICATION_ORIGINAL_REPLACEMENT_ELIGIBILITY_CHANGED');
-      if(signedFrame)readT4OriginalReplacementSourceHead({identity,body:signedFrame.body,sessionRef:signedFrame.sessionRef,
+      if(signedFrame?.messageType==='HEADS')readT4OriginalReplacementSourceHead({identity,body:signedFrame.body,sessionRef:signedFrame.sessionRef,
         sourceCursorBefore:verified.sourceCursorBefore,expectedCandidate:identity});
+      if(isContent(signedFrame?.messageType)){
+        if(!replacementContent)fail('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED');
+        // Full bilateral readback belongs to the original CAS and the
+        // physical-write fence, not both halves of every signature read.
+        if(operation==='t1.putObject')await requireReplacementContent(ctx);
+      }
     }
     if(!same(await context(),ctx))
       fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED',{automaticRetryAllowed:false});
+  }
+  async function requireReplacementContent(ctx){
+    if(!replacementContent)fail('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED');
+    const witness=validateT4OriginalReplacementDiffAcceptance(await readOriginalReplacementDiffAcceptance(
+      Object.freeze({candidate:identity,checkpointRef,originalReplacementDiffReadRequired:true,
+        originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false})),identity);
+    if(!same(await context(),ctx))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED');
+    // read() verifies the original Event chain without re-entering the
+    // write gate. A later journal revision does not change this anchor.
+    const current=await read(ctx),head=current.entries[0],anchor=current.presentEvents[0];
+    if(head?.messageType!=='HEADS'||head.state!=='PRESENT'||!anchor||
+      witness.originalSourceHeadKey!==head.sha256+'.t4n'||
+      witness.originalSourceHeadPresentEventId!==anchor.eventId||
+      witness.originalSourceHeadPresentRevision!==anchor.revision||
+      witness.originalSourceHeadPresentChainHash!==anchor.chainHash||
+      witness.originalRecipientPublicationCheckpointRef===checkpointRef||
+      witness.originalSourceAdmissionCheckpointRef===checkpointRef)
+      fail('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_HEAD_MISMATCH');
+    if(!same(await context(),ctx))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED');
+    return witness;
   }
   function frameFor(entry){
     if(typeof entry?.wireText!=='string'||!SHA(entry.sha256)||
@@ -740,7 +801,7 @@ export function createT4OriginalNetworkPublicationPort({
       frame.ownerEpoch!==identity.ownerEpoch||!types.has(frame.messageType))
       fail('PUBLICATION_FRAME_SESSION_MISMATCH');
     const b=frame.body;
-    if(replacement){
+    if(replacement&&(!source||frame.messageType==='HEADS')){
       if(source){
         if(frame.sequence!==1||!same(frame.criticalExtensions,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]))
           fail('PUBLICATION_ORIGINAL_REPLACEMENT_HEAD_INVALID');
@@ -811,7 +872,7 @@ export function createT4OriginalNetworkPublicationPort({
   function contentWriteGuard(ctx,entries,entry){
     // A control frame and every index repair use current original decision
     // and signer authority immediately before the physical write.
-    if(control||replacement)return async()=>{
+    if(control||(replacement&&!isContent(entry.messageType)))return async()=>{
       await verifyFrame(ctx,entry,replacement?'before-replacement-network-write':'before-control-network-write');return true;};
     if(authorizeOriginalSealedPublication===null||
       !['CHANGE_REF','CHUNK'].includes(entry.messageType))return null;
@@ -820,6 +881,7 @@ export function createT4OriginalNetworkPublicationPort({
     const assembled=verifyBatch(entries.filter(e=>['CHANGE_REF','CHUNK'].includes(e.messageType)));
     if(!assembled)fail('PUBLICATION_COMPLETE_CHANGE_CHUNK_BATCH_REQUIRED');
     return async()=>{
+      if(replacement)await verifyFrame(ctx,entry,'before-replacement-content-write');
       if(!same(await context(),ctx))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED');
       if(await authorizeOriginalSealedPublication(Object.freeze({
         session:identity,contentDigest:assembled.contentDigest,
@@ -827,11 +889,21 @@ export function createT4OriginalNetworkPublicationPort({
         ciphertext:new Uint8Array(assembled.ciphertext),originalPreparedCiphertextRequired:true,
       }))!==true)fail('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_DENIED');
       if(!same(await context(),ctx))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED');
+      if(replacement){
+        await verifyFrame(ctx,entry,'after-replacement-sealed-authorization');
+        await requireReplacementContent(ctx);
+      }
       return true;
     };
   }
   function verifySessionEntries(entries){
-    if(control||replacement){
+    if(replacement&&source){
+      if(frameFor(entries[0]).messageType!=='HEADS'||entries.length===2||
+        entries.slice(1).some((e,i)=>frameFor(e).messageType!==(i===0?'CHANGE_REF':'CHUNK')))
+        fail('PUBLICATION_REPLACEMENT_CONTENT_LAYOUT_INVALID');
+      if(entries.length>1)verifyBatch(entries.slice(1));
+    }
+    if(control||(replacement&&!source)){
       if(entries.length!==1||frameFor(entries[0]).sequence!==1)
         fail(replacement?'PUBLICATION_REPLACEMENT_HEAD_SINGLE_SLOT_REQUIRED':'PUBLICATION_CONTROL_SINGLE_SLOT_REQUIRED');
       return;
@@ -947,7 +1019,8 @@ export function createT4OriginalNetworkPublicationPort({
         checkpointRef,identity:clone(recordIdentity),entries:clone(entries),
         chainHash:event.chainHash},extensions:{},
       event:{event_type:EVENT,payload:event}};
-    await guard(ctx,'t1.putObject',action);
+    const first=entries[slots[0].sequence-1];
+    await guard(ctx,'t1.putObject',action,replacement&&isContent(first.messageType)?first:null);
     try{
       const receipt=await originalKernel.putObject(input);
       if(receipt?.object?.object_id!==checkpointRef||
@@ -998,6 +1071,7 @@ export function createT4OriginalNetworkPublicationPort({
     const ctx=await context(),current=await read(ctx),entry=current.entries[sequence-1];
     if(entry?.state!=='PRESENT')fail('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT');
     const frame=await verifyFrame(ctx,entry,'outbound-proof');
+    if(replacement&&isContent(entry.messageType))await requireReplacementContent(ctx);
     const key=entry.sha256+'.t4n';
     await guard(ctx,'t4.network.publish.'+frame.messageType,'outbound-proof-network-readback',entry);
     const network=await frameTransport.inspectUnknownPublication({key,expectedSha256:entry.sha256});
@@ -1005,6 +1079,7 @@ export function createT4OriginalNetworkPublicationPort({
       network.sha256!==entry.sha256||network.exactBytesPresent!==true||network.originalBusinessApplied!==false)
       fail('PUBLICATION_NETWORK_READBACK_NOT_PROVEN');
     await verifyFrame(ctx,entry,'outbound-proof-after-network');
+    if(replacement&&isContent(entry.messageType))await requireReplacementContent(ctx);
     const after=await read(ctx);
     if(after.revision!==current.revision||after.chainHash!==current.chainHash||
       !same(after.entries[sequence-1],entry)||
@@ -1120,7 +1195,7 @@ export function createT4OriginalNetworkPublicationPort({
       remoteCollectionEnumerated:false});
   }
   async function prepareSignedBatch({slots,createSignedFrames}={}){
-    const requested=slotList(slots,types),ctx=await context();
+    const requested=slotList(slots,writeTypes),ctx=await context();
     const current=await read(ctx),start=requested[0].sequence;
     if(start<=current.entries.length){
       const exact=current.entries.slice(start-1,start-1+requested.length);
@@ -1128,6 +1203,7 @@ export function createT4OriginalNetworkPublicationPort({
         ({sequence,messageType})=>({sequence,messageType}))))
         fail('PUBLICATION_RESERVED_SEQUENCE_CONFLICT');
       verifyBatch(exact);
+      if(replacement&&exact.some(e=>isContent(e.messageType)))await requireReplacementContent(ctx);
       for(const e of exact)await verifyFrame(ctx,e,'recover-prepared');
       return Object.freeze({state:'ORIGINAL_SIGNED_BATCH_ALREADY_PREPARED',
         sessionRef:identity.sessionRef,checkpointRef,
@@ -1139,6 +1215,13 @@ export function createT4OriginalNetworkPublicationPort({
       typeof createSignedFrames!=='function')
       fail('PUBLICATION_NEW_BATCH_NOT_CONTIGUOUS');
     await guard(ctx,'t4.network.publish.prepare','prepare-signed-batch');
+    if(replacement&&requested.some(s=>isContent(s.messageType))){
+      if(start!==2||requested[0].messageType!=='CHANGE_REF'||requested.length<2||
+        requested.slice(1).some(s=>s.messageType!=='CHUNK')||
+        current.entries[0]?.state!=='PRESENT')
+        fail('PUBLICATION_REPLACEMENT_CONTENT_LAYOUT_INVALID');
+      await requireReplacementContent(ctx);
+    }
     const produced=await createSignedFrames(Object.freeze({
       session:identity,slots:clone(requested),checkpointRef,
       originalHostSignerAndSealerRequired:true,
@@ -1179,6 +1262,7 @@ export function createT4OriginalNetworkPublicationPort({
     if(!entry||current.entries.slice(0,sequence-1).some(e=>e.state!=='PRESENT'))
       fail('PUBLICATION_PREDECESSOR_NOT_PRESENT');
     await verifyFrame(ctx,entry,'publish-prepared');
+    if(replacement&&isContent(entry.messageType))await requireReplacementContent(ctx);
     const address={key:entry.sha256+'.t4n',expectedSha256:entry.sha256};
     const checkContent=contentWriteGuard(ctx,current.entries,entry);
     let newAttempt=entry.state==='PREPARED',recovered=false;
@@ -1256,13 +1340,14 @@ export function createT4OriginalNetworkPublicationPort({
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       authorizeOriginalFramePublish,verifyOriginalNodeSignature,authorizeOriginalSealedPublication,
       verifyOriginalHistoricalNodeSignature,authorizeOriginalControlPublication,readOriginalReplacementEligibility,
-      readOriginalReplacementRecipientAdmission,
+      readOriginalReplacementRecipientAdmission,readOriginalReplacementDiffAcceptance,
       frameTransport:scopeOriginalHostPort(frameTransport,isHostActive,
         ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
         'PUBLICATION_ORIGINAL_WIRE_LIFETIME_REQUIRED'),
     }),
     ...(control?{originalControlPublication:true,originalNewAttemptAdmissionStillRequired:true}:{}),
     ...(replacement?{...(source?{originalReplacementAnnouncementPublication:true}:
-      {originalReplacementRecipientDiffPublication:true}),originalNewAttemptAdmissionStillRequired:true}:{}),
+      {originalReplacementRecipientDiffPublication:true}),originalNewAttemptAdmissionStillRequired:true,
+      ...(replacementContent?{originalReplacementSourceContentPublication:true}:{})}:{}),
     originalT3OnlyStore:true,createsScheduler:false,createsTaskEngine:false});
 }

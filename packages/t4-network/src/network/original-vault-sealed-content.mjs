@@ -12,11 +12,13 @@ import {isOriginalPersonalAccessCheckForRegistry} from '../../../t3-core/src/t3/
 import {isOriginalOrganizationalOperationGateForRegistry} from '../../../t3-core/src/t3/access/organizational-operation.mjs';
 import {isOriginalSignedAccessHostPortForEvaluator} from '../../../t3-core/src/t3/signed-access-host-port.mjs';
 import {createT4OriginalSignedOperationAccess} from './original-signed-route-access.mjs';
-import {validateT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
+import {validateT4OriginalNativeCaptureSession,validateT4OriginalReplacementSessionCandidate,
+  validateT4OriginalReplacementDiffAcceptance} from './original-network-publication.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 
 const MAGIC=Buffer.from('T4S2'),MAX=64*8192,MAX_HEADER=4096,TAG=16;
 const SCHEMA='IWXA_T4_SEALED_CONTENT_CANDIDATE_V2',SUITE='X25519_HKDF_SHA256_AES256GCM';
+const replacementSession=value=>value?.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_SESSION_CANDIDATE_V1';
 const KDF_DOMAIN=Buffer.from('IWXA-T4-SEALED-CONTENT-V2\0','utf8');
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const SHA=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
@@ -77,7 +79,8 @@ function parseEnvelope(input,session,recipientKeyRef,publicKey){
       !Number.isSafeInteger(header.plaintextLength)||header.plaintextLength<1||
       bytes.length!==end+header.plaintextLength+TAG||!encodeHeader(header).equals(aad))
       fail('SEALED_CONTENT_ENVELOPE_BINDING_MISMATCH');
-    validateT4OriginalNativeCaptureSession(header.session);
+    if(replacementSession(header.session))validateT4OriginalReplacementSessionCandidate(header.session);
+    else validateT4OriginalNativeCaptureSession(header.session);
     const der=fixedBytes(header.ephemeralPublicKey,44),ephemeral=publicAgreementKey({key:der,format:'der',type:'spki'});
     if(!pubDer(ephemeral).equals(der))fail('SEALED_CONTENT_EPHEMERAL_KEY_INVALID');
     return {bytes,aad,headerBytes,header,ephemeral,salt:fixedBytes(header.salt,32),nonce:fixedBytes(header.nonce,12),
@@ -118,12 +121,14 @@ export function createT4OriginalVaultSealedContentPort({
   role,workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,
   requiredCryptoSuite,recipientKeyRef,registry,access,originalEvaluator,expectedContext,
   readEncryptedVault=null,unlockPassphrase=null,getMode,clock=Date.now,
+  readOriginalReplacementDiffAcceptance=null,
 }={}){
   if(!['SOURCE','RECIPIENT'].includes(role)||
     ![workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,recipientKeyRef].every(ID)||
     sourceNodeRef===recipientNodeRef||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
     requiredCryptoSuite!=='X25519_AES256GCM_ED25519'||!isOriginalKernelRegistryStatePort(registry)||
     typeof getMode!=='function'||typeof clock!=='function'||
+    (readOriginalReplacementDiffAcceptance!==null&&(role!=='SOURCE'||typeof readOriginalReplacementDiffAcceptance!=='function'))||
     (role==='RECIPIENT'?![readEncryptedVault,unlockPassphrase].every(f=>typeof f==='function'):
       readEncryptedVault!==null||unlockPassphrase!==null))
     fail('SEALED_CONTENT_ORIGINAL_PORTS_REQUIRED');
@@ -137,7 +142,10 @@ export function createT4OriginalVaultSealedContentPort({
   const signed=createT4OriginalSignedOperationAccess({access,expectedContext,workspaceId,operations:[operation],getMode,clock});
   const current=()=>signed.assertCurrent();
   function sessionFor(value){
-    const session=validateT4OriginalNativeCaptureSession(value);
+    const replacement=replacementSession(value);
+    if(replacement&&readOriginalReplacementDiffAcceptance===null)
+      fail('SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED');
+    const session=replacement?validateT4OriginalReplacementSessionCandidate(value):validateT4OriginalNativeCaptureSession(value);
     if(!['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch']
       .every(k=>session[k]===identity[k]))fail('SEALED_CONTENT_SESSION_SCOPE_MISMATCH');
     return session;
@@ -157,12 +165,24 @@ export function createT4OriginalVaultSealedContentPort({
     if(before.policyDigest!==after.policyDigest||before.keyDigest!==after.keyDigest||!equal(before.binding,after.binding))
       fail('SEALED_CONTENT_RECIPIENT_KEY_CHANGED');
   }
+  async function replacementGate(session){
+    if(!replacementSession(session))return null;
+    current();
+    const witness=validateT4OriginalReplacementDiffAcceptance(await readOriginalReplacementDiffAcceptance(
+      Object.freeze({candidate:session,originalReplacementDiffReadRequired:true,
+        originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false})),session);
+    current();return witness;
+  }
   async function permit(entry,session,extra){
     current();
+    const before=await replacementGate(session);
     await signed.authorize({operation,input:{...identity,session,...extra,
       originalRecipientKeyFingerprint:fingerprint(entry.publicKey),
       originalRecipientBindingDigest:digest(entry.binding),originalRecipientKeyRecordDigest:entry.keyDigest,
       originalContentProtectionGrantsNoSubjectWrite:true},expectedPolicyDigest:entry.policyDigest});
+    current();
+    if(before!==null&&!equal(before,await replacementGate(session)))
+      fail('SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_CHANGED');
     current();
   }
   async function readOriginalSealedContent(input={}){
@@ -255,8 +275,10 @@ export function createT4OriginalVaultSealedContentPort({
   const port=Object.freeze({schema:'IWXA_T4_ORIGINAL_VAULT_SEALED_CONTENT_V1',identity,
     originalAccessIdentity:signed.originalAccessIdentity,originalSignedSubject:signed.subject,
     originalRegistryAgreementKey:true,originalVault:true,createsStore:false,createsIAM:false,
+    ...(readOriginalReplacementDiffAcceptance!==null?{originalReplacementSourceContentAdmission:true}:{}),
     ...(role==='SOURCE'?{readOriginalSealedContent,authorizeOriginalSealedPublication}:{openOriginalSealedContent}),
     forOriginalHostLifetime:isHostActive=>createT4OriginalVaultSealedContentPort({...identity,registry,access,originalEvaluator,
-      expectedContext:signed.subject,readEncryptedVault,unlockPassphrase,getMode:originalHostLifetimeMode(getMode,isHostActive),clock})});
+      expectedContext:signed.subject,readEncryptedVault,unlockPassphrase,getMode:originalHostLifetimeMode(getMode,isHostActive),clock,
+      readOriginalReplacementDiffAcceptance})});
   assembled.add(port);return port;
 }

@@ -10,7 +10,7 @@ import {ORIGINAL_NETWORK_KEY_TRANSITION,ORIGINAL_NETWORK_KEY_MANAGE,originalNetw
   originalNetworkKeyOperationDigest,originalNetworkKeyStatusId,createOriginalNetworkAgreementChallenge,answerOriginalNetworkAgreementChallenge} from '../../t3-core/src/t3/access/original-network-key-lifecycle.mjs';
 import {createT4OriginalVaultSealedContentPort} from '../src/network/original-vault-sealed-content.mjs';
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,createT4OriginalSourceSessionHead,
-  createT4OriginalPublicationIndexMigrationStepper} from '../src/network/original-network-publication.mjs';
+  createT4OriginalPublicationIndexMigrationStepper,deriveT4OriginalReplacementSessionCandidate} from '../src/network/original-network-publication.mjs';
 import {createT4OriginalHostDispatchTaskBinding} from '../src/network/original-host-dispatch-task-binding.mjs';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
@@ -978,4 +978,48 @@ test('K44 bounded V2 HKDF context binds the entire long canonical header; indepe
   assert.equal(q.unlocks,1,'unsupported format is rejected before Vault open');
   console.log('T4_K44_BOUNDED_HKDF_CONTEXT_PASS',JSON.stringify({headerBytes:headerBytes.length,infoBytes:info.length,
     independentHmacExpansion:true,completeHeaderBound:true,originalVaultRoundtrip:true,legacyEnvelopeRejected:true}));
+});
+
+// A typed independent admission fixture is used here only to isolate the
+// original Registry/Vault cryptographic boundary; K59/K60 journal tests
+// construct the actual witness from both original phase/publication ports.
+test('K60 original Vault seals successor AAD, verifies retained ciphertext and rejects predecessor reuse and revoked admission',{timeout:30000},async()=>{
+  const q=await sealedFixture(),c=captured(Buffer.from('original successor capture'));
+  const d='sha256:'+sha('k60:original:evidence');
+  const candidate=deriveT4OriginalReplacementSessionCandidate({originalCaptureSession:c.session,replacement:{
+    previousSessionRef:c.session.sessionRef,changeId:c.session.changeId,decisionDigest:d,
+    sourcePhaseRef:'phase:k60:source',sourcePhaseEventId:'event:k60:source:retired',sourcePhaseRevision:3,sourcePhaseChainHash:d,
+    recipientPhaseRef:'phase:k60:recipient',recipientPhaseEventId:'event:k60:recipient:retired',recipientPhaseRevision:1,recipientPhaseChainHash:d}});
+  const witness={schema:'IWXA_T4_ORIGINAL_REPLACEMENT_DIFF_SELECTION_V1',state:'ORIGINAL_REPLACEMENT_DIFF_VERIFIED',candidate,
+    originalBothTerminalPhaseEventsVerified:true,originalBothCausalFrontiersUnchanged:true,
+    originalRecipientDiffPublicationVerified:true,originalSourceDiffAccepted:true,originalContentTransferStillRequired:true,
+    originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,originalBusinessApplied:false,
+    sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false,
+    diffSha256:sha('diff'),diffKey:sha('diff')+'.t4n',originalSourceHeadKey:sha('head')+'.t4n',
+    originalSourceAdmissionEventId:'event:k60:intent',originalSourceAdmissionCheckpointRef:'phase:k60:intent',
+    originalSourceHeadPresentEventId:'event:k60:head:present',originalRecipientDiffPresentEventId:'event:k60:diff:present',
+    originalRecipientPublicationCheckpointRef:'publication:k60:recipient',originalSourceAdmissionChainHash:d,
+    originalSourceHeadPresentChainHash:d,originalRecipientPublicationChainHash:d,
+    originalSourceHeadPresentRevision:3,originalRecipientPublicationRevision:3};
+  const input={...c.input,session:candidate};let admitted=true;
+  const source=createT4OriginalVaultSealedContentPort({...q.common,role:'SOURCE',
+    readOriginalReplacementDiffAcceptance:async()=>admitted?witness:null});
+  await assert.rejects(q.source.readOriginalSealedContent(input),{code:'SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'});
+  admitted=false;
+  await assert.rejects(source.readOriginalSealedContent(input),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'});
+  admitted=true;
+  const sealed=await source.readOriginalSealedContent(input);
+  assert.equal(sealed.originalCapturedBytesSealed,true);assert.equal(sealed.recipientKeyAgreementVerified,true);
+  assert.equal(sealed.originalBusinessApplied,false);
+  const raw=Buffer.from(sealed.ciphertext),end=6+raw.readUInt16BE(4),header=JSON.parse(raw.subarray(6,end).toString('utf8'));
+  assert.deepEqual(header.session,candidate);assert.equal(header.session.changeId,c.session.changeId);
+  assert.notEqual(header.session.sessionRef,c.session.sessionRef);assert.ok(!raw.includes(c.content));
+  const publication={session:candidate,ciphertext:sealed.ciphertext,contentDigest:'sha256:'+sha(raw),
+    encryptionContextRef:sealed.encryptionContextRef,originalPreparedCiphertextRequired:true};
+  assert.equal(await source.authorizeOriginalSealedPublication(publication),true);
+  await assert.rejects(source.authorizeOriginalSealedPublication({...publication,session:c.session}),{code:'SEALED_CONTENT_ENVELOPE_BINDING_MISMATCH'});
+  await assert.rejects(q.recipient().openOriginalSealedContent(q.openInput(candidate,sealed)),{code:'SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'});
+  admitted=false;
+  await assert.rejects(source.authorizeOriginalSealedPublication(publication),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'});
+  assert.equal(q.unlocks,0);
 });

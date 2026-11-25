@@ -9,13 +9,13 @@ import {t4NativeSourceHeadIndexKey,t4NativeReplacementHeadIndexKey,t4NativeSessi
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
-  T4_REPLACEMENT_SOURCE_SESSION_EXTENSION} from '../src/network/standard-network-wire-candidate.mjs';
+  T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,decodeT4CandidateFrame} from '../src/network/standard-network-wire-candidate.mjs';
 import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
   retireT4OriginalRecipientAttemptFromControl,verifyT4OriginalRecipientRetirementAck,recordT4OriginalSourceSupersession,
   publishT4OriginalRecipientRetirementAck,recoverT4OriginalReplacementEligibility,
   publishT4OriginalReplacementSourceHead,discoverT4OriginalReplacementSourceHead,admitT4OriginalReplacementSourcePhase,
   readT4OriginalReplacementRecipientAdmission,publishT4OriginalReplacementRecipientDiff,
-  discoverT4OriginalReplacementRecipientDiff}
+  discoverT4OriginalReplacementRecipientDiff,publishT4OriginalReplacementSourceContent}
   from '../src/network/original-network-session-supersession.mjs';
 import {createT4OriginalNetworkSessionPhasePort,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
@@ -462,11 +462,13 @@ async function controlFixture({indexed=false}={}){
     originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true,
     sourceWindow:{lastEventId:sourceEventId,eventRefs:[{eventDigest:H}],windowDigest:B,
       sourcePrefixDigestBefore:H,sourcePrefixDigestAfter:B},
-    prepared:{sha256:sha('original capture'),delta:{sourceEventId,sourceRevision:7,sourceEventDigest:H,windowDigest:B}}};
-  const session=deriveT4OriginalNativeCaptureSession({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',
+    prepared:{bytes:new Uint8Array(Buffer.from('original capture')),sha256:sha('original capture'),
+      delta:{sourceEventId,sourceRevision:7,sourceEventDigest:H,windowDigest:B}}};
+  const task={schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1',
     state:'ORIGINAL_NATIVE_CAPTURE_READY',workspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,
     scopeRef,ownerEpoch:epoch,networkTargetRef:recipientNodeRef,networkPublished:false,sourceCursorAdvanced:false,
-    originalRecipientApplied:false,sourceCursorBefore:{sourcePrefixDigest:H},sourceCursorAfter:{sourcePrefixDigest:B},capture});
+    originalRecipientApplied:false,sourceCursorBefore:{sourcePrefixDigest:H},sourceCursorAfter:{sourcePrefixDigest:B},capture};
+  const session=deriveT4OriginalNativeCaptureSession(task);
   const phase=()=>f.port({sessionRef:session.sessionRef,changeId:session.changeId});
   let network=true,sourceAllowed=true,recipientAllowed=true,captureVerified=true,acceptanceAllowed=true,readRecipient=true,
     sourcePhaseAllowed=true,sourceRecordAllowed=true,frontierChanged=false,sourceApplied=false,
@@ -559,13 +561,13 @@ async function controlFixture({indexed=false}={}){
       captureVerified&&proof.originalCaptureSession.sourceEventId===sourceEventId,
     authorizeOriginalReplacement:async proof=>replacementAllowed&&proof.originalBothAttemptsRetired===true});
   const eligibility=(patch={})=>recoverT4OriginalReplacementEligibility({...eligibilityOptions(),...patch});
-  const createReplacementPort=async({session:identity},readOriginalReplacementEligibility)=>
+  const createReplacementPort=async({session:identity},readOriginalReplacementEligibility,extra={})=>
     createT4OriginalNetworkPublicationPort({session:identity,localNodeRef:sourceNodeRef,technicalWorkspaceId:technical,
       originalKernel:sourceStore.kernel,getMode,readOriginalHostContext:context(sourceNodeRef,technical),
       authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true,
       authorizeOriginalFramePublish:async()=>true,readOriginalReplacementEligibility,
       verifyOriginalNodeSignature:async p=>p.signerRef===sourceKey.id&&
-        verify(null,Buffer.from(p.bytes),sourceKey.publicKey,Buffer.from(p.signature)),frameTransport:transport(sourceNodeRef)});
+        verify(null,Buffer.from(p.bytes),sourceKey.publicKey,Buffer.from(p.signature)),frameTransport:transport(sourceNodeRef),...extra});
   const createReplacementRecipientPort=async({session:identity},readOriginalReplacementRecipientAdmission)=>
     createT4OriginalNetworkPublicationPort({session:identity,localNodeRef:recipientNodeRef,technicalWorkspaceId:workspace,
       originalKernel:f.kernel.kernel,getMode,readOriginalHostContext:context(recipientNodeRef,workspace),
@@ -648,6 +650,9 @@ async function controlFixture({indexed=false}={}){
     await transport(sourceNodeRef).readAndVerifySignedFrame({key:published.key,expectedSha256:published.sha256,requiredCryptoSuite:suite});
   };
   return {f,sourceStore,session,phase,plan,request,retire,publishAck,verifyAck,sourcePhase,recordBoth,acceptConflictingAck,
+    task:{...task,sourceCursorBefore,sourceCursorAfter},
+    signSourceContent:signing(sourceNodeRef).signOriginalNodeBytes,
+    resolveSourceContentSigner:async()=>({permissionRef:'permission:k47:'+sourceNodeRef,signerRef:sourceKey.id}),
     durableRetire,signatureCount:()=>signatures,loseControlWrite:()=>{loseControlWrite=true;},
     eligibility,eligibilityOptions,sourceCursorBefore,sourceCursorAfter,transport,indexes,
     publishReplacement,discoverReplacement,createReplacementPort,createReplacementRecipientPort,
@@ -1129,4 +1134,114 @@ test('K58 source accepts successor DIFF only with exact independently verified P
     isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
   assert.equal(x.signatureCount(),signs);assert.equal(x.counts().networkPuts,puts);
   assert.equal(x.sourcePhaseWrites(),sourcePhase);assert.equal(x.phaseWrites(),recipientPhase);
+});
+
+async function replacementContentFixture(){
+  const x=await controlFixture({indexed:true});await closeInitialAttempt(x);
+  const head=await x.publishReplacement();
+  const createPhase=async({session:c,admission},readOriginalReplacementSourceAdmission)=>x.sourcePhase({
+    sessionRef:c.sessionRef,authorizeOriginalSourceSupersession:null,replacementSourceAdmission:admission,
+    readOriginalReplacementSourceAdmission});
+  const admit=()=>admitT4OriginalReplacementSourcePhase({...x.eligibilityOptions(),
+    createOriginalReplacementPublicationPort:x.createReplacementPort,createOriginalReplacementSourcePhasePort:createPhase});
+  const admitted=await admit(),c=admitted.candidate;
+  const phase=await createPhase({session:c,admission:admitted.admission},async()=>true);
+  const admission=()=>readT4OriginalReplacementRecipientAdmission(x.recipientAdmissionOptions(phase));
+  const sourcePublicationPort=await x.createReplacementPort({session:c},()=>x.eligibility());
+  const recipientPublicationPort=await x.createReplacementRecipientPort({session:c},admission);
+  let acceptAllowed=true,sealedAllowed=true,seals=0;
+  const options={...x.eligibilityOptions(),sourceAdmissionPhasePort:phase,sourcePublicationPort,recipientPublicationPort,
+    frameDiscoveryPort:x.transport(sourceNodeRef),readOriginalReplacementRecipientAdmission:admission,
+    authorizeOriginalReplacementDiffAcceptance:async p=>acceptAllowed&&p.originalRecipientDiffPublicationVerified===true};
+  const current=()=>discoverT4OriginalReplacementRecipientDiff(options);
+  // Transport fixture uses opaque bytes, not a simulated successful Vault.
+  // The real agreement/encryption ports are qualified separately.
+  const ciphertext=new Uint8Array(9000).fill(19);
+  const contentPort=(read=current,authorize=async p=>sealedAllowed&&
+    p.session.sessionRef===c.sessionRef&&Buffer.from(p.ciphertext).equals(Buffer.from(ciphertext)))=>
+    x.createReplacementPort({session:c},()=>x.eligibility(),{
+      readOriginalReplacementDiffAcceptance:read,authorizeOriginalSealedPublication:authorize});
+  const params={...options,task:x.task,createOriginalReplacementContentPublicationPort:async(_p,read)=>contentPort(read),
+    resolveOriginalSigningContext:x.resolveSourceContentSigner,signOriginalNodeBytes:x.signSourceContent,
+    authorizeOriginalSealedContent:async()=>sealedAllowed,readOriginalSealedContent:async p=>{
+      seals++;assert.equal(p.session.sessionRef,c.sessionRef);assert.equal(p.session.changeId,x.session.changeId);
+      assert.equal(p.exactCapturedCanonicalBytesRequired,true);assert.deepEqual(p.originalCapture.prepared.bytes,x.task.capture.prepared.bytes);
+      return {ciphertext,encryptionContextRef:'sealed:k60:successor'};}};
+  return {x,c,phase,head,admit,sourcePublicationPort,recipientPublicationPort,current,contentPort,params,
+    publish:patch=>publishT4OriginalReplacementSourceContent({...params,...patch}),
+    diff:()=>x.publishReplacementDiff(phase),seals:()=>seals,
+    denyAcceptance:()=>{acceptAllowed=false;},allowAcceptance:()=>{acceptAllowed=true;},
+    denySealed:()=>{sealedAllowed=false;},allowSealed:()=>{sealedAllowed=true;}};
+}
+
+test('K60 content requires complete successor agreement and exact captured bytes before invoking the sealer',async()=>{
+  const q=await replacementContentFixture(),{x}=q;
+  const before={signs:x.signatureCount(),puts:x.counts().networkPuts,writes:x.sourceStore.calls};
+  assert.equal((await q.publish()).state,'WAITING_FOR_REPLACEMENT_DIFF');
+  const bad=structuredClone(x.task);bad.capture.prepared.bytes[0]^=1;
+  await assert.rejects(q.publish({task:bad}),isCode('REPLACEMENT_CONTENT_ORIGINAL_CAPTURE_MISMATCH'));
+  assert.equal(q.seals(),0);assert.equal(x.signatureCount(),before.signs);assert.equal(x.counts().networkPuts,before.puts);
+  await q.diff();
+  q.denyAcceptance();
+  await assert.rejects(q.publish(),isCode('REPLACEMENT_SOURCE_DIFF_ACCEPTANCE_DENIED'));
+  q.allowAcceptance();q.denySealed();
+  await assert.rejects(q.publish(),isCode('CHUNK_ORIGINAL_ACCESS_DENIED'));
+  assert.equal(q.seals(),0);assert.equal(x.counts().networkPuts,before.puts+1);
+});
+
+test('K60 successor content reuses the original PREPARE after lost CAS and lost transport response; no re-sign or re-seal',async()=>{
+  const q=await replacementContentFixture(),{x,c}=q;await q.diff();
+  const before={signs:x.signatureCount(),puts:x.counts().networkPuts,sourcePhase:x.sourcePhaseWrites(),recipientPhase:x.phaseWrites()};
+  const agreement=await q.current(),head=await q.sourcePublicationPort.readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
+  x.sourceStore.loseNextReply();
+  await assert.rejects(q.publish(),isCode('PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN'));
+  assert.equal(q.seals(),1);assert.equal(x.signatureCount(),before.signs+3);assert.equal(x.counts().networkPuts,before.puts);
+  x.loseControlWrite();
+  await assert.rejects(q.publish(),isCode('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  assert.equal(q.seals(),1);assert.equal(x.signatureCount(),before.signs+3);assert.equal(x.counts().networkPuts,before.puts+1);
+  x.f.restart();
+  q.denyAcceptance();await assert.rejects(q.publish(),isCode('REPLACEMENT_SOURCE_DIFF_ACCEPTANCE_DENIED'));
+  q.allowAcceptance();
+  const sent=await q.publish();
+  assert.equal(sent.state,'ORIGINAL_REPLACEMENT_CONTENT_PRESENT');assert.equal(sent.originalSignedBatchReused,true);
+  assert.equal(sent.publications[0].state,'REMOTE_READBACK_RECOVERED');assert.equal(sent.publications.length,3);
+  assert.equal(sent.originalBusinessApplied,false);assert.equal(sent.sourceCursorAdvanced,false);assert.equal(sent.recipientCursorAdvanced,false);
+  assert.equal(q.seals(),1);assert.equal(x.signatureCount(),before.signs+3);assert.equal(x.counts().networkPuts,before.puts+3);
+  const again=await q.publish();assert.equal(again.originalSignedBatchReused,true);
+  assert.equal(q.seals(),1);assert.equal(x.signatureCount(),before.signs+3);assert.equal(x.counts().networkPuts,before.puts+3);
+  assert.deepEqual(await q.current(),agreement);
+  const recoveredHead=await x.publishReplacement();
+  assert.equal(recoveredHead.originalPublicationRevision,q.head.originalPublicationRevision);
+  assert.equal(recoveredHead.originalPublicationChainHash,q.head.originalPublicationChainHash);
+  assert.equal(recoveredHead.sha256,q.head.sha256);
+  assert.equal((await q.admit()).status,'ALREADY_CONFIRMED');
+  const later=await q.sourcePublicationPort.readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
+  assert.equal(later.originalPresentEventId,head.originalPresentEventId);assert.ok(later.originalPublicationRevision>head.originalPublicationRevision);
+  const saved=await q.sourcePublicationPort.inspectOriginalPublication();
+  assert.deepEqual(saved.frames.map(f=>f.messageType),['HEADS','CHANGE_REF','CHUNK','CHUNK']);
+  for(const f of saved.frames.slice(1)){
+    const decoded=decodeT4CandidateFrame(f.wireBytes);
+    assert.equal(decoded.sessionRef,c.sessionRef);assert.equal(decoded.body.changeId,x.session.changeId);
+  }
+  assert.equal(x.sourcePhaseWrites(),before.sourcePhase);assert.equal(x.phaseWrites(),before.recipientPhase);
+});
+
+test('K60 admission is revalidated at the original content CAS and frame boundary; forged HEADS anchor cannot reserve bytes',async()=>{
+  const q=await replacementContentFixture();await q.diff();const {x}=q;
+  const before={signs:x.signatureCount(),puts:x.counts().networkPuts};
+  const forged=await q.contentPort(async()=>({...await q.current(),originalSourceHeadPresentEventId:'event:k60:forged'}));
+  await assert.rejects(forged.prepareSignedBatch({slots:[{sequence:2,messageType:'CHANGE_REF'},{sequence:3,messageType:'CHUNK'}],
+    createSignedFrames:async()=>assert.fail('forged anchor allowed signing')}),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_HEAD_MISMATCH'));
+  assert.equal(x.signatureCount(),before.signs);assert.equal(x.counts().networkPuts,before.puts);
+  await assert.rejects(q.publish({createOriginalReplacementContentPublicationPort:async(_p,read)=>q.contentPort(read,async()=>false)}),
+    isCode('PUBLICATION_ORIGINAL_SEALED_AUTHORITY_DENIED'));
+  assert.equal(x.counts().networkPuts,before.puts);
+  assert.equal((await q.sourcePublicationPort.inspectOriginalPublication()).frames.length,1);
+  const result=await q.publish();assert.equal(result.state,'ORIGINAL_REPLACEMENT_CONTENT_PRESENT');
+  assert.equal(x.counts().networkPuts,before.puts+3);
+  const readOnly=q.sourcePublicationPort;
+  await assert.rejects(readOnly.publishPreparedFrame({sequence:2}),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'));
+  x.changeRecipientFrontier();
+  await assert.rejects(q.publish(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
+  assert.equal(x.counts().networkPuts,before.puts+3);
 });
