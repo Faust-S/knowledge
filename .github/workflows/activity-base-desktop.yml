@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/2026-11-24-activity-0-4-domain-routes
+      - work/2026-11-25-activity-recorded-experience
     paths:
       - qualification/activity/activity-0.4-candidate.json
   workflow_dispatch:
@@ -44,13 +45,13 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_activity_desktop_contract.py' -v
       - run: python -m unittest discover -s tests -p 'test_activity_base_a0.py' -v
       - name: Verify local ARX and OpenDP worker contracts
-        if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
+        if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes' || github.ref == 'refs/heads/work/2026-11-25-activity-recorded-experience'
         run: python -m unittest discover -s tests -p test_activity_observation_worker.py -v
       - name: Verify D05 model comparison contract
-        if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
+        if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes' || github.ref == 'refs/heads/work/2026-11-25-activity-recorded-experience'
         run: python -m unittest discover -s tests -p test_activity_d05_simpy.py -v
       - name: Verify existing U01 file-to-stdin bridge boundaries
-        if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
+        if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes' || github.ref == 'refs/heads/work/2026-11-25-activity-recorded-experience'
         run: python -m unittest discover -s tests -p test_activity_agent_input.py -v
       - name: Typecheck and bundle Activity UI before any native Rust build
         if: matrix.os == 'ubuntu-latest'
@@ -63,7 +64,7 @@ jobs:
           test -s dist-host-surface/iwxa-activity-host-surface.css
           test -s dist-host-surface/brand.svg
   r4pm-upstream-interop:
-    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
+    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes' || github.ref == 'refs/heads/work/2026-11-25-activity-recorded-experience'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -83,7 +84,7 @@ jobs:
         shell: bash
         run: IWXA_R4PM_UPSTREAM_RESULTS="$RUNNER_TEMP/activity-r4pm" node --test tests/test_activity_r4pm_result_review.mjs tests/test_activity_r4pm_cli.mjs
   presidio-upstream-interop:
-    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
+    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes' || github.ref == 'refs/heads/work/2026-11-25-activity-recorded-experience'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -112,7 +113,7 @@ jobs:
           done
           IWXA_PRESIDIO_UPSTREAM_RESULTS="$RUNNER_TEMP/activity-presidio" node --test tests/test_activity_presidio_text_review.mjs
   arx-upstream:
-    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
+    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes' || github.ref == 'refs/heads/work/2026-11-25-activity-recorded-experience'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -153,7 +154,7 @@ jobs:
           python tools/activity-observation-review.py --arx < "$root/request.json" > "$root/result.json"
           IWXA_OBSERVATION_UPSTREAM_DIR="$root" IWXA_OBSERVATION_UPSTREAM_KIND=arx node --test tests/test_activity_observation_review.mjs
   opendp-upstream:
-    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
+    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes' || github.ref == 'refs/heads/work/2026-11-25-activity-recorded-experience'
     strategy:
       fail-fast: false
       matrix:
@@ -184,7 +185,7 @@ jobs:
           python tools/activity-observation-review.py --opendp < "$root/request.json" > "$root/result.json"
           IWXA_OBSERVATION_UPSTREAM_DIR="$root" IWXA_OBSERVATION_UPSTREAM_KIND=opendp node --test tests/test_activity_observation_review.mjs
   simpy-upstream:
-    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes'
+    if: github.ref == 'refs/heads/work/2026-11-24-activity-0-4-domain-routes' || github.ref == 'refs/heads/work/2026-11-25-activity-recorded-experience'
     strategy:
       fail-fast: false
       matrix:

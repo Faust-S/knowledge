@@ -61,6 +61,8 @@ const QUALITY_ISSUES:Record<string,string>={QUALITY_PLAN_MISSING:'Карта к�
  QUALITY_CRITERION_UNSPECIFIED:'Не определён критерий',
  QUALITY_ROLE_OR_EVIDENCE_UNSPECIFIED:'Не заданы роль или свидетельство',
  QUALITY_CUSTOM_RULE_UNSPECIFIED:'Не описан пользовательский метод или действие'};
+const REPORTED_STATUS:Record<string,string>={not_started:'Не начато',ready:'Готово к началу',in_progress:'В работе',paused:'Приостановлено',completed:'Завершено',accepted:'Принято',rejected:'Отклонено',cancelled:'Отменено',not_checked:'Не проверено',passed:'Пройдено',passed_with_deviation:'Пройдено с отклонением',failed:'Не пройдено',recheck_required:'Требуется повторная проверка',accepted_after_rework:'Принято после переделки',open:'Открыт',resolved:'Устранён',accepted_as_is:'Принят как есть',rework:'Переделка',accept_as_is:'Принять как есть',scrap:'Списание',return_to_contractor:'Возврат подрядчику',investigate:'Расследование'};
+const reportedStatus=(value:unknown)=>typeof value==='string'?REPORTED_STATUS[value]??'Требуется уточнение':'Не указано';
 const PAGE_SIZE=8;
 export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null}){
  const input=useRef<HTMLInputElement>(null),generation=useRef(0);
@@ -194,11 +196,11 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
       {p.issues.length?<span className="activity-v7-note hold">Есть неполные или неподтверждённые связи: {p.issues.length}. Эти сведения не объединяются с другими заказами.</span>:null}
       {p.reports.map(report=><details key={report.report_number}><summary>Отчёт {report.report_number}: {report.operations.length} операций, {report.quality.length} проверок, {report.defects.length} дефектов</summary>
        {report.operations.map(op=><div key={op.operation_id}><strong>{group.operations.find(x=>x.id===op.operation_id)?.name??op.operation_id}</strong>
-        <p>Состояние: {op.status}. Фактическая длительность: {op.duration_minutes===null?'не указана':op.duration_minutes+' мин'}. Предыдущих циклов: {op.previous_cycle_count??'не указано'}.</p>
+        <p>Состояние: {reportedStatus(op.status)}. Фактическая длительность: {op.duration_minutes===null?'не указана':op.duration_minutes+' мин'}. Предыдущих циклов: {op.previous_cycle_count??'не указано'}.</p>
         {op.result_note?<p>{op.result_note}</p>:null}{op.pause_reason?<p>{op.pause_reason}</p>:null}</div>)}
        {report.actuals.map((a,i)=><p key={'actual'+i}>Отчёт {String(a.sequence)} ({a.scope==='BATCH_REPORT'?'партия':'заказ'}): выпущено {String(a.produced??'не указано')}, брак {String(a.scrap??'не указано')}, переделка {String(a.rework??'не указано')}. {typeof a.quality_deviations==='string'?a.quality_deviations:''}</p>)}
-       {report.quality.map((q,i)=><p key={'quality'+i}>{q.kind==='CONTROL_REPORT'?String(q.control??'Контроль'):'Заявленный итог количества'}: {String(q.status??(q.reported_passed===true?'принято по отчёту':'не принято по отчёту'))}. {typeof q.measured_value==='string'?q.measured_value:''} {typeof q.comment==='string'?q.comment:''}</p>)}
-       {report.defects.map((d,i)=><div key={'defect'+i}><strong>Дефект: {String(d.disposition)} · {String(d.status)}</strong><p>{typeof d.description==='string'?d.description:''}</p>{typeof d.resolution_note==='string'?<p>{d.resolution_note}</p>:null}</div>)}
+       {report.quality.map((q,i)=><p key={'quality'+i}>{q.kind==='CONTROL_REPORT'?String(q.control??'Контроль'):'Заявленный итог количества'}: {q.kind==='CONTROL_REPORT'?reportedStatus(q.status):q.reported_passed===true?'принято по отчёту':'не принято по отчёту'}. {typeof q.measured_value==='string'?q.measured_value:''} {typeof q.comment==='string'?q.comment:''}</p>)}
+       {report.defects.map((d,i)=><div key={'defect'+i}><strong>Дефект: {reportedStatus(d.disposition)} · {reportedStatus(d.status)}</strong><p>{typeof d.description==='string'?d.description:''}</p>{typeof d.resolution_note==='string'?<p>{d.resolution_note}</p>:null}</div>)}
       </details>)}
      </div>)}
     </div>:null}

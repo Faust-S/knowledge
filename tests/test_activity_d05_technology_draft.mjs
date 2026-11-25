@@ -367,3 +367,31 @@ test('recorded defects and actuals without original matching links cannot become
  assert.equal(missing.recorded_execution_review.report_count,0);
  assert.ok(missing.recorded_execution_review.profiles[0].issues.includes('EXECUTION_ROUTE_LINK_MISSING'));
 });
+
+import {reviewSelectedD05RouteModels} from '../modules/activity-base-anonymizer/d05-route-host.mjs';
+test('original signed D05 Host reads actual reports only on explicit selection and refuses a changed relation',async()=>{
+ const records=recordedCase(),workspace_id=records[0].object.workspace_id,selected={workspace_id};
+ const reads=[],details=new Map(records.map(x=>[x.object.object_id,x]));
+ let change=false,defectReads=0;
+ const signedAccess={currentContext:async()=>({workspace_id,kind:'CORP',purpose:'activity.analysis'}),
+  actionFor:async()=> 'activity.read'};
+ const scoped={getWorkspace:async()=>({workspace_id}),
+  listObjects:async query=>{reads.push(query.schema_id);return records.filter(x=>x.object.schema_id===query.schema_id).map(x=>structuredClone(x.object));},
+  getObject:async(ws,id)=>{
+   assert.equal(ws,workspace_id);const row=structuredClone(details.get(id));
+   if(id==='private-defect-001'&&change&&++defectReads===2)row.relations.outgoing.pop();
+   return row;
+  }};
+ const config={context:{kernel:{hasOperation:()=>true},currentWorkspace:{get:()=>selected,subscribe:()=>()=>{}}},
+  signedAccess,createSubjectKernelBinding:()=>scoped,subscribeOwnerInvalidation:()=>()=>{},
+  includeQualityPlans:true,includeTechnologyDraft:true};
+ const ordinary=await reviewSelectedD05RouteModels(config);
+ assert.equal(ordinary.recorded_execution_review,undefined);
+ assert.ok(!reads.some(x=>x.endsWith('.production-execution')));
+ const actual=await reviewSelectedD05RouteModels({...config,includeRecordedReports:true});
+ assert.equal(actual.source_authority,'ORIGINAL_SIGNED_SELECTED_READBACK');
+ assert.equal(actual.recorded_execution_review.report_count,1);
+ assert.equal(actual.recorded_execution_review.profiles[0].reports[0].defects.length,1);
+ change=true;defectReads=0;
+ await assert.rejects(()=>reviewSelectedD05RouteModels({...config,includeRecordedReports:true}),{code:'D05_ROUTE_HOST_SOURCE_CHANGED'});
+});

@@ -79,7 +79,7 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
  if(compatible)add('technology','compatible_declarations',compatible);
  if(recordedCount){
   add('technology','recorded_report_scope',{report_count:recordedCount,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',
-   instruction:'Use recorded results to identify possible practical lessons; never treat actual durations or measurements as changed normative limits, final acceptance, or independent repetitions.'});
+   interpretation:'Reported practical experience; actual durations and measurements are not normative limits, independent observation, final acceptance, or independent repetitions.'});
   let reportNumber=0;
   for(const p of recorded)for(const report of p.reports){
    reportNumber++;
