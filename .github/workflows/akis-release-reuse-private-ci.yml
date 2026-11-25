@@ -1,8 +1,5 @@
 name: AKIS original release and independent subsequent work
 on:
-  push:
-    branches: [work/2026-11-25-akis-release-reuse-private-ci]
-    paths: [.github/workflows/akis-release-reuse-private-ci.yml]
   workflow_dispatch:
 permissions:
   contents: read

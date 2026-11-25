@@ -1,8 +1,5 @@
 name: D07 TOP500 500 original T2 qualification
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    paths: [.github/workflows/d07-top500-500-qualification.yml]
   workflow_dispatch:
 permissions:
   contents: read

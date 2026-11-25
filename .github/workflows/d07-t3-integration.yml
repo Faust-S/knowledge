@@ -1,8 +1,5 @@
 name: D07 T3 original-platform integration
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    paths: [.github/workflows/d07-t3-integration.yml]
   workflow_dispatch:
 permissions:
   contents: read
