@@ -52,3 +52,43 @@ export async function visitT4OriginalObjectCatalog({originalKernel,workspaceId,s
     after=last;
   }
 }
+
+// Relation deletion needs the exact ORIGINAL owner of the relation, not a
+// guessed endpoint or an unverified first match. This read runs within the
+// original Host mutation boundary supplied by the caller.
+export async function resolveT4OriginalRelationOwnerFromCatalog({originalKernel,workspaceId,relationId,
+  authorizeOriginalOperation,pageSize=16}={}){
+  if(!ID(workspaceId)||!ID(relationId)||typeof authorizeOriginalOperation!=='function'||
+    originalKernel?.hasOperation?.('t1.getObject')!==true||typeof originalKernel.getObject!=='function')
+    fail('NATIVE_LOCAL_RELATION_OWNER_READ_INVALID');
+  const canonical=x=>Array.isArray(x)?x.map(canonical):x&&typeof x==='object'?
+    Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonical(x[k])])):x;
+  const same=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
+  let match=null;
+  const guard=async(operation,scope)=>{
+    if(originalKernel.hasOperation(operation)!==true||await authorizeOriginalOperation(operation,scope)!==true)
+      fail('NATIVE_LOCAL_RELATION_OWNER_READ_DENIED');
+    return true;
+  };
+  await visitT4OriginalObjectCatalog({originalKernel,workspaceId,includeDeleted:false,pageSize,
+    authorizeOriginalOperation:guard,visitOriginalObject:async row=>{
+      const scope=Object.freeze({workspace_id:workspaceId,object_id:row.object_id});
+      await guard('t1.getObject',scope);
+      const data=structuredClone(await originalKernel.getObject(workspaceId,row.object_id));
+      await guard('t1.getObject',scope);
+      if(!data||!same(data.object,row)||!Array.isArray(data.relations?.outgoing))
+        fail('NATIVE_LOCAL_RELATION_OWNER_READ_INVALID');
+      const ids=new Set();
+      for(const relation of data.relations.outgoing){
+        if(!ID(relation?.relation_id)||relation.workspace_id!==workspaceId||relation.from_object_id!==row.object_id||
+          !ID(relation.to_object_id)||ids.has(relation.relation_id))fail('NATIVE_LOCAL_RELATION_OWNER_SCOPE_MISMATCH');
+        ids.add(relation.relation_id);
+        if(relation.relation_id!==relationId)continue;
+        if(match!==null)fail('NATIVE_LOCAL_RELATION_OWNER_NOT_UNIQUE');
+        match=row.object_id;
+      }
+    }});
+  if(match===null)fail('NATIVE_LOCAL_RELATION_OWNER_NOT_UNIQUE');
+  await guard('t1.getObject',Object.freeze({workspace_id:workspaceId,object_id:match}));
+  return match;
+}

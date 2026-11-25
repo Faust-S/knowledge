@@ -1,4 +1,4 @@
-import {requireT4OriginalObjectCatalog,visitT4OriginalObjectCatalog} from './original-object-catalog-pages.mjs';
+import {requireT4OriginalObjectCatalog,resolveT4OriginalRelationOwnerFromCatalog} from './original-object-catalog-pages.mjs';
 import {createHash,randomUUID} from 'node:crypto';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {readT4OriginalCommitHistoryForCompatibility} from './original-event-window.mjs';
@@ -481,6 +481,23 @@ export function createT4OriginalNativeHostNetworkOwner({
       // ledger, admitted baseline, signed Kernel and Host mutation boundary.
       // The original source publication task still has no subject write port.
       const resolveOriginalRelationOwner=async proof=>{
+        if(enableOriginalObjectCatalogWindow){
+          const local=state.localMutation;
+          const exact=()=>local!==null&&state.localMutation===local&&!local.invoked&&
+            local.method==='deleteRelation'&&proof.operation==='t1.deleteRelation'&&proof.kind==='RELATION_DELETE'&&
+            proof.workspaceId===sourceWorkspaceId&&proof.originalWriteOwnerRef===originalWriteOwnerRef&&
+            proof.captureRef===local.captureRef&&proof.subjectId===local.subjectId;
+          if(!exact())fail('NATIVE_LOCAL_RELATION_OWNER_SCOPE_MISMATCH');
+          return resolveT4OriginalRelationOwnerFromCatalog({originalKernel,workspaceId:sourceWorkspaceId,
+            relationId:proof.subjectId,authorizeOriginalOperation:async(operation,scope)=>{
+              await requireBinding(state,'relation-owner-catalog');
+              if(!exact())return false;
+              const allowed=await common.authorizeOriginalRead({...proof,operation,subjectKind:'RELATION_DELETE',
+                ...(scope.object_id===undefined?{query:scope}:{objectId:scope.object_id})});
+              await requireBinding(state,'relation-owner-catalog-readback');
+              return exact()&&allowed===true;
+            }});
+        }
         const query={workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
           operation:'t1.listObjects',subjectKind:'RELATION_DELETE',subjectId:proof.subjectId};
         if(await common.authorizeOriginalRead(query)!==true)fail('NATIVE_LOCAL_RELATION_OWNER_READ_DENIED');
@@ -920,8 +937,17 @@ export function createT4OriginalNativeHostNetworkOwner({
         (!enableOriginalTechnicalObjectHistory||workspaceId!==technicalWorkspaceId||
           !ID(proof.args?.[1])||!proof.args[1].startsWith('t4:net:')||
           (!state.waking&&!state.localMutation&&!state.historyReading)))return null;
-      if(proof.operation==='t1.listObjectWindow'&&(!enableOriginalObjectCatalogWindow||workspaceId!==technicalWorkspaceId||
-        first?.include_deleted!==true||first.schema_id!==undefined||(!state.waking&&!state.localMutation&&!state.historyReading)))return null;
+      let relationCatalogMutation=null;
+      if(proof.operation==='t1.listObjectWindow'){
+        if(!enableOriginalObjectCatalogWindow||first.schema_id!==undefined)return null;
+        if(workspaceId===technicalWorkspaceId){
+          if(first.include_deleted!==true||(!state.waking&&!state.localMutation&&!state.historyReading))return null;
+        }else{
+          relationCatalogMutation=state.localMutation;
+          if(role!=='SOURCE'||!enableLocalSourceCapture||relationCatalogMutation?.method!=='deleteRelation'||
+            relationCatalogMutation.invoked||first.include_deleted!==false)return null;
+        }
+      }
       const write=!['t1.getObject','t1.listObjects','t1.listObjectWindow','t1.listEventsSince','t1.listEventCommitWindow',
         't1.listEventObjectCommitWindow','t1.listAssets','t1.getAsset'].includes(proof.operation);
       if(workspaceId===technicalWorkspaceId&&write&&
@@ -939,6 +965,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       await requireBinding(state,'kernel-command');
       const access=await ports.resolveOriginalAccess(proof);
       await requireBinding(state,'kernel-command-readback');
+      if(relationCatalogMutation&&(state.localMutation!==relationCatalogMutation||relationCatalogMutation.invoked))return null;
       if(local){
         if(state.localMutation!==local||local.invoked||access==null)return null;
         local.invoked=true;
