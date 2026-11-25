@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
-import {createT4OriginalNetworkPublicationPort,deriveT4OriginalNativeCaptureSession} from '../src/network/original-network-publication.mjs';
+import {createT4OriginalNetworkPublicationPort,deriveT4OriginalNativeCaptureSession,readT4OriginalPublicationMigrationInventory} from '../src/network/original-network-publication.mjs';
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort} from '../src/network/original-network-host-cursor.mjs';
 
 const technicalWorkspaceId='workspace:technical',sourceWorkspaceId='workspace:subject',
@@ -128,4 +129,53 @@ test('all indexed technical readers refuse activation without the original index
     const f=fixture(make===recipientCursor?recipientNodeRef:sourceNodeRef);f.grants.delete('t1.listEventObjectCommitWindow');
     assert.throws(()=>make(f),code('TECHNICAL_OBJECT_HISTORY_PORTS_REQUIRED'));
   }
+});
+
+function publicationInventoryFixture(){
+  const f=fixture(),port=publication(f),id=port.checkpointRef,originalKernel=f.base.originalKernel;
+  const s=session(),technicalSchemaId='iwxa.demo.note',calls=[];
+  const object={object_id:id,workspace_id:technicalWorkspaceId,schema_id:technicalSchemaId,schema_version:'1.0.0',
+    revision:2,deleted:false,data:{schema:'IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1',checkpointRef:id,chainHash:B,
+      identity:{session:s,localNodeRef:sourceNodeRef,technicalWorkspaceId}}};
+  f.rows.set(id,{object});
+  f.events.push(...[H,B].map((chainHash,i)=>({event_id:'event:publication:'+(i+1),object_id:id,workspace_id:technicalWorkspaceId,
+    event_type:'t4.network.original.frame.publication',revision:i+1,payload:{chainHash,previous:i}})));
+  originalKernel.listObjects=async()=>[...f.rows.values()].map(r=>structuredClone(r.object));
+  f.grants.add('t1.listObjects');f.grants.add('t1.listEventCommitWindow');
+  originalKernel.listEventCommitWindow=async(w,after,limit)=>{
+    assert.equal(w,technicalWorkspaceId);calls.push({after,limit});
+    const start=after===null?0:f.events.findIndex(e=>e.event_id===after)+1;
+    assert.ok(after===null||start>0);
+    const entries=f.events.slice(start,start+limit).map(event=>({event:structuredClone(event),legacy_history:false}));
+    return {entries,next_after_event_id:entries.at(-1)?.event.event_id??after,has_more:start+entries.length<f.events.length,
+      order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+  };
+  const read=extra=>readT4OriginalPublicationMigrationInventory({...f.base,technicalSchemaId,localNodeRef:sourceNodeRef,
+    enableOriginalTechnicalCommitOrder:true,originalTechnicalPageSize:1024,...extra});
+  return {...f,read,port,pageCalls:calls};
+}
+const canonical=x=>Array.isArray(x)?x.map(canonical):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonical(x[k])])):x;
+test('K128 paged publication inventory preserves original digest and crosses unrelated technical history ceiling',async()=>{
+  const f=publicationInventoryFixture(),expected='sha256:'+createHash('sha256').update('IWXA-T4-ORIGINAL-PUBLICATION-MIGRATION-EVENTS-V1\0')
+    .update(JSON.stringify(canonical(f.events))).digest('hex');
+  const first=await f.read();
+  f.base.originalKernel.listEventsSince=async()=>structuredClone(f.events);
+  assert.deepEqual(await f.read({enableOriginalTechnicalCommitOrder:false}),first);
+  f.base.originalKernel.listEventsSince=async()=>{throw Error('legacy read forbidden');};
+  assert.equal(first.records.length,1);assert.equal(first.records[0].originalEventStreamDigest,expected);
+  for(let i=0;i<100001;i++)f.events.push({workspace_id:technicalWorkspaceId,event_id:'event:unrelated:'+i,object_id:'other:'+i});
+  const large=await f.read();
+  assert.deepEqual(large,first);assert.equal(f.pageCalls.length,99);assert.equal(f.writes,0);
+});
+test('K128 paged publication inventory fails closed on orphan, revision gaps and revoked page authority',async()=>{
+  const f=publicationInventoryFixture(),id=f.port.checkpointRef;
+  f.events[1].revision=3;
+  await assert.rejects(()=>f.read(),code('PUBLICATION_MIGRATION_ORIGINAL_EVENT_NOT_PROVEN'));
+  f.events[1].revision=2;const saved=f.rows.get(id);f.rows.delete(id);
+  await assert.rejects(()=>f.read(),code('PUBLICATION_MIGRATION_ORIGINAL_EVENT_NOT_PROVEN'));
+  f.rows.set(id,saved);f.deny('t1.listEventCommitWindow');
+  await assert.rejects(()=>f.read(),code('PUBLICATION_ORIGINAL_AUTHORITY_DENIED'));
+  f.deny(null);f.grants.delete('t1.listEventCommitWindow');
+  await assert.rejects(()=>f.read(),code('PUBLICATION_MIGRATION_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED'));
+  assert.equal(f.writes,0);
 });

@@ -1,4 +1,4 @@
-import {readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory} from './original-technical-event-pages.mjs';
+import {readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory,visitT4OriginalTechnicalCommitEvents} from './original-technical-event-pages.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
   from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
@@ -258,8 +258,13 @@ export async function readT4OriginalPublicationMigrationInventory({
   technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
   recipientNodeRef,scopeRef,ownerEpoch,localNodeRef,originalKernel,getMode,
   readOriginalHostContext,authorizeOriginalTechnicalRead,inventoryPurpose='index-migration-inventory',
+  enableOriginalTechnicalCommitOrder=false,originalTechnicalPageSize=256,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
+  if(typeof enableOriginalTechnicalCommitOrder!=='boolean'||!Number.isSafeInteger(originalTechnicalPageSize)||
+    originalTechnicalPageSize<1||originalTechnicalPageSize>1024||(enableOriginalTechnicalCommitOrder&&
+      (originalKernel?.hasOperation?.('t1.listEventCommitWindow')!==true||typeof originalKernel.listEventCommitWindow!=='function')))
+    fail('PUBLICATION_MIGRATION_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
   if(!['index-migration-inventory','retired-recipient-selection','replacement-selection'].includes(inventoryPurpose))
     fail('PUBLICATION_MIGRATION_INVENTORY_PURPOSE_INVALID');
   const identity={technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
@@ -295,10 +300,7 @@ export async function readT4OriginalPublicationMigrationInventory({
   await guard('t1.listObjects');
   const catalog=await originalKernel.listObjects({workspace_id:technicalWorkspaceId,include_deleted:true});
   await guard('t1.listObjects');
-  await guard('t1.listEventsSince');
-  const all=await originalKernel.listEventsSince(technicalWorkspaceId);
-  await guard('t1.listEventsSince');
-  if(!Array.isArray(catalog)||catalog.length>100000||!Array.isArray(all)||all.length>100000)
+  if(!Array.isArray(catalog)||catalog.length>100000)
     fail('PUBLICATION_MIGRATION_ORIGINAL_INVENTORY_INVALID');
   const records=new Map(),events=new Map(),eventIds=new Set();
   for(const o of catalog){
@@ -320,19 +322,42 @@ export async function readT4OriginalPublicationMigrationInventory({
     records.set(o.object_id,{session,checkpointRef:o.object_id,revision:o.revision,chainHash:d.chainHash,
       ...(matches?{originalObjectDigest:digest('PUBLICATION-MIGRATION-OBJECT',o)}:{}),matches});
   }
-  for(const e of all){
-    if(typeof e?.object_id!=='string'||!e.object_id.startsWith(PUBLICATION_PREFIX))continue;
+  // Match the prior canonical digest byte for byte while retaining only
+  // per-publication revision state, not every original Event payload.
+  const visit=e=>{
+    if(typeof e?.object_id!=='string'||!e.object_id.startsWith(PUBLICATION_PREFIX))return;
+    const r=records.get(e.object_id);
     if(e.workspace_id!==technicalWorkspaceId||e.event_type!==EVENT||!ID(e.event_id)||
-      eventIds.has(e.event_id)||!records.has(e.object_id))
+      eventIds.has(e.event_id)||!r)
       fail('PUBLICATION_MIGRATION_ORIGINAL_EVENT_NOT_PROVEN');
     eventIds.add(e.event_id);
-    const list=events.get(e.object_id)??[];list.push(e);events.set(e.object_id,list);
+    let state=events.get(e.object_id);
+    if(!state){
+      state={count:0,last:null,hash:r.matches?createHash('sha256').update('IWXA-T4-ORIGINAL-PUBLICATION-MIGRATION-EVENTS-V1\0['):null};
+      events.set(e.object_id,state);
+    }
+    if(e.revision!==state.count+1||e.revision>r.revision)
+      fail('PUBLICATION_MIGRATION_ORIGINAL_EVENT_NOT_PROVEN');
+    if(state.hash){if(state.count)state.hash.update(',');state.hash.update(JSON.stringify(sorted(e)));}
+    state.count++;state.last=e.payload?.chainHash;
+  };
+  if(enableOriginalTechnicalCommitOrder){
+    await visitT4OriginalTechnicalCommitEvents({workspaceId:technicalWorkspaceId,pageSize:originalTechnicalPageSize,
+      authorizeOriginalPage:async()=>{await guard('t1.listEventsSince');await guard('t1.listEventCommitWindow');return true;},
+      readOriginalTechnicalCommitPage:proof=>originalKernel.listEventCommitWindow(technicalWorkspaceId,proof.afterEventId,proof.limit),
+      visitOriginalEvent:visit});
+  }else{
+    await guard('t1.listEventsSince');
+    const all=await originalKernel.listEventsSince(technicalWorkspaceId);
+    await guard('t1.listEventsSince');
+    if(!Array.isArray(all)||all.length>100000)
+      fail('PUBLICATION_MIGRATION_ORIGINAL_INVENTORY_INVALID');
+    for(const e of all)visit(e);
   }
   const selected=[],controlRecords=[],replacementRecords=[];
   for(const [key,{matches,...r}] of records){
-    const list=events.get(key)??[];
-    if(list.length!==r.revision||list.some((e,i)=>e.revision!==i+1)||
-      list.at(-1)?.payload?.chainHash!==r.chainHash)
+    const state=events.get(key);
+    if(!state||state.count!==r.revision||state.last!==r.chainHash)
       fail('PUBLICATION_MIGRATION_ORIGINAL_EVENT_NOT_PROVEN');
     // Revision and last chain hash alone cannot show that an earlier Event
     // or the catalog Object stayed unchanged during a multi-wake migration.
@@ -343,7 +368,7 @@ export async function readT4OriginalPublicationMigrationInventory({
     // Still bind their complete original Object/Event inventory to the scan.
     if(matches)(r.session.schema===CONTROL_SESSION?controlRecords:
       r.session.schema===REPLACEMENT_SESSION?replacementRecords:selected).push(Object.freeze({...r,
-      originalEventStreamDigest:digest('PUBLICATION-MIGRATION-EVENTS',list)}));
+      originalEventStreamDigest:'sha256:'+state.hash.update(']').digest('hex')}));
   }
   const byRef=(a,b)=>a.checkpointRef<b.checkpointRef?-1:a.checkpointRef>b.checkpointRef?1:0;
   selected.sort(byRef);controlRecords.sort(byRef);replacementRecords.sort(byRef);

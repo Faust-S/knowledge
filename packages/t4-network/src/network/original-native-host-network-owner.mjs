@@ -249,9 +249,10 @@ export function createT4OriginalNativeHostNetworkOwner({
     ...(enableReplacementRecipientContent?['authorizeOriginalReplacementRecipientApplyAdmission']:[])].map(k=>[k,originalPorts[k]])));
   const identity=Object.freeze({technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch});
+  const enableOriginalTechnicalCommitOrder=enableOriginalCommitOrder||enableOriginalTechnicalObjectHistory;
   const operations=Object.freeze([...new Set([...(role==='SOURCE'?[...SOURCE,
-    ...(enableLocalSourceCapture?LOCAL_METHODS.map(m=>'t1.'+m):[]),
-    ...(enableOriginalCommitOrder?['t1.listEventCommitWindow']:[])]:RECIPIENT),
+    ...(enableLocalSourceCapture?LOCAL_METHODS.map(m=>'t1.'+m):[])]:RECIPIENT),
+    ...(enableOriginalTechnicalCommitOrder?['t1.listEventCommitWindow']:[]),
     ...(enableOriginalTechnicalObjectHistory?['t1.listEventObjectCommitWindow']:[])])]);
   const nodeRef=role==='SOURCE'?sourceNodeRef:recipientNodeRef;
   let live=null;
@@ -299,7 +300,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     };
     // The mutation boundary callback must retain the exact function supplied
     // by the existing recipient task; it is not implemented or emulated here.
-    const tech={technicalSchemaId,...identity,originalKernel,getMode,enableOriginalTechnicalObjectHistory,
+    const tech={technicalSchemaId,...identity,originalKernel,getMode,enableOriginalTechnicalObjectHistory,enableOriginalTechnicalCommitOrder,
       readOriginalHostContext:context(technicalWorkspaceId),
       authorizeOriginalTechnicalRead:callback('authorizeOriginalTechnicalRead'),
       authorizeOriginalTechnicalWrite:callback('authorizeOriginalTechnicalWrite')};
@@ -905,8 +906,9 @@ export function createT4OriginalNativeHostNetworkOwner({
       // Technical writes can only be to the original T4 technical schema.
       // The source publication task cannot mutate its business Workspace.
       if(proof.operation==='t1.listEventCommitWindow'&&
-        (!enableOriginalCommitOrder||role!=='SOURCE'||
-          (workspaceId===technicalWorkspaceId&&!state.waking&&!state.localMutation&&!state.historyReading)))
+        (workspaceId===sourceWorkspaceId?
+          (!enableOriginalCommitOrder||role!=='SOURCE'):
+          (!enableOriginalTechnicalCommitOrder||(!state.waking&&!state.localMutation&&!state.historyReading))))
         return null;
       if(proof.operation==='t1.listEventObjectCommitWindow'&&
         (!enableOriginalTechnicalObjectHistory||workspaceId!==technicalWorkspaceId||
