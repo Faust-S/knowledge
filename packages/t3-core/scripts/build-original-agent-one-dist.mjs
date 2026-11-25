@@ -75,7 +75,7 @@ function originalAgentProfile(path,androidAgentAssets=false){
      // Product-neutral One Dist has NO implied Atlas or other recipient.
      // Each native recipient needs original signed D1 and explicit disclosure.
      profile.authorizedResultRecipient!==null||
-     profile.installedAgentT3Mode!==(androidAgentAssets?'ANDROID_LOCAL_ASSETS':'EXPLICIT_OPT_IN'))
+     (androidAgentAssets?!['ANDROID_LOCAL_ASSETS','ANDROID_LOCAL_ASSETS_EXCHANGE'].includes(profile.installedAgentT3Mode):profile.installedAgentT3Mode!=='EXPLICIT_OPT_IN'))
     fail('OWNING_AGENT_PRODUCT_PROFILE_INVALID');
   return profile;
 }
@@ -92,6 +92,7 @@ export async function materializeOriginalAgentT2Product({
       x=>typeof x==='string'&&x.trim()))fail('PRODUCT_STAGE_INPUTS_REQUIRED');
   const original=resolve(qualifiedKernelDist),stage=resolve(outputRoot);
   const profile=originalAgentProfile(agentProfile,androidAgentAssets);
+  const androidExchange=androidAgentAssets&&profile.installedAgentT3Mode==='ANDROID_LOCAL_ASSETS_EXCHANGE';
   const shared=resolve(dirname(fileURLToPath(import.meta.url)),'..');
   const root=resolve(shared,'..','..');
   if(existsSync(stage)||[original,resolve(agentProfile),shared,root]
@@ -160,7 +161,7 @@ export async function materializeOriginalAgentT2Product({
         restore:androidAgentAssets,purge:false},
       objects:{read:[],write:[],delete:[]},
       events:{read_scope:'workspace'},
-      packages:{export:false,import:false,
+      packages:{export:androidExchange,import:androidExchange,
         export_scope:'readable_objects',import_scope:'writable_objects'},
     },
   };
