@@ -4,6 +4,20 @@ on:
     branches: [test/2026-11-24-d05-t3-integration]
     paths: [qualification/d05/t3-requests/real-model.json]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      site_sha:
+        type: string
+        default: 'bb8f1bd09c987879a003a90a09d3dd965acabd55'
+      domain_sha:
+        type: string
+        default: '7d44995b536bc57eb0acff63d876d255c034fb77'
+      release_candidate:
+        type: boolean
+        default: false
+    secrets:
+      DOMEN:
+        required: true
 permissions:
   contents: read
   actions: read
@@ -18,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: 8789a176cb9de2aa87309afd237e6a30c212f47d
+          ref: ${{ inputs.site_sha || 'bb8f1bd09c987879a003a90a09d3dd965acabd55' }}
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -38,7 +52,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod
-          ref: 66ad987433ada0471fc393f2549835f580de715f
+          ref: ${{ inputs.domain_sha || '7d44995b536bc57eb0acff63d876d255c034fb77' }}
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
@@ -160,6 +174,30 @@ jobs:
           test "$code" -eq 0
           grep -q '^D05_T3_REAL_MODEL_PASS ' "$log"
           test "$(grep -c '^D05_T3_MODEL_QUALITY ' "$log")" -eq 3
+      - name: Require all three mechanical grounding observations before release review
+        if: inputs.release_candidate
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync} from "node:fs";
+          const prefix="D05_T3_MODEL_QUALITY ";
+          const rows=readFileSync(process.env.RUNNER_TEMP+"/d05-t3-protected-model.log","utf8")
+            .split(/\r?\n/).filter(line=>line.startsWith(prefix)).map(line=>JSON.parse(line.slice(prefix.length)));
+          const wanted=new Set(["cost:false","cost:true","missing-cost:true"]);
+          assert.equal(rows.length,wanted.size);
+          for(const row of rows){
+            assert.ok(wanted.delete(row.scenario+":"+row.offline));
+            assert.equal(row.semanticAcceptance,false);
+            const expected=row.scenario==="cost"?4:3;
+            if(row.checks!==expected||row.passed!==expected||row.unsupportedMoney!==0)
+              throw Error("D05_T3_MODEL_GROUNDING_REVIEW_REQUIRED");
+          }
+          assert.equal(wanted.size,0);
+          console.log("D05_T3_MODEL_GROUNDING_OBSERVATIONS_PASS_NOT_SEMANTIC_ACCEPTANCE");
+          JS
       - name: Destroy temporary product, reports and source-bound input bytes
         if: always()
         run: |
