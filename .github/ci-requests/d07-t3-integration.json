@@ -1,0 +1,16 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d07-t3-integration",
+  "prepared_sha": "deb94498ab6223333749c2b63d4f98a61fc49d96",
+  "profile": "release-recover-qualified-tree",
+  "revisions": {
+    "site": "482fc878b4ac365241877fc03a9eeee84ae012a0",
+    "domain": "11ec43898d025107174df0b2cde6024c340c1cc0",
+    "t2": "e70de29b72b83e2546f7ab74b17572685a728c17",
+    "assistant": "5e3083788aa541921559de29d3457d4a52bbba00",
+    "core": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+    "baseline_site": "6906829da95d2d2366f294a3f567aa760db02d59",
+    "qualification": "903f2bb3b9e7b75fe4b8bbbe60f552428c5ae831"
+  },
+  "reason": "Recover the already qualified private release after transport preflight"
+}
