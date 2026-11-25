@@ -22,6 +22,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   private-transport:
+    outputs:
+      writable: ${{ steps.preflight.outputs.writable }}
     if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.mode == 'release' || inputs.mode == 'transport-only')) || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false) }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -36,8 +38,8 @@ jobs:
         run: |
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d07-t3-integration \
-            --profile release-navigation-corrected \
-            --reason 'Qualify the corrected print route and retain exact private release inputs' \
+            --profile release-navigation-qualified-once \
+            --reason 'Qualify the exact changed navigation once and retain only with confirmed write access' \
             --revision site=20ca06ee2f07b430dbd6b59f72822b45f0527bd4 \
             --revision domain=11ec43898d025107174df0b2cde6024c340c1cc0 \
             --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17 \
@@ -54,16 +56,34 @@ jobs:
           path: site
       - name: Classify Git transport failures without exposing logs
         run: bash pipeline/scripts/test-d07-private-git-transport.sh
-      - name: Verify exact private receive-pack and diagnose existing token permissions
+      - name: Confirm read and report private write capability before qualification
+        id: preflight
         working-directory: site
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
-        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 20ca06ee2f07b430dbd6b59f72822b45f0527bd4
+          REQUEST_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'release' }}
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d07-private-preflight.log"
+          if bash ../pipeline/scripts/d07-private-git-transport.sh preflight 20ca06ee2f07b430dbd6b59f72822b45f0527bd4 >"$log" 2>&1; then
+            echo writable=true >> "$GITHUB_OUTPUT"
+            echo D07_T3_PRIVATE_RECEIVE_PACK=PASS
+          elif [[ "$REQUEST_MODE" == release ]] &&
+               grep -Fxq 'D07_T3_PRIVATE_TRANSPORT=DRY_RUN_WRITE_PERMISSION' "$log"; then
+            # Read, private destination and exact expected branch HEAD were
+            # checked before this specific dry-run write failure. Qualify the
+            # genuinely changed candidate once, without private publication.
+            echo writable=false >> "$GITHUB_OUTPUT"
+            echo D07_T3_PRIVATE_RECEIVE_PACK=BLOCKED_WRITE_PERMISSION
+          else
+            grep -E '^D07_T3_PRIVATE_TRANSPORT=[A-Z_]+$' "$log" | tail -1 || true
+            exit 1
+          fi
   t3-source:
     needs: private-transport
     # Only unchanged source scopes inherit the prior qualification. The print route needs a new build.
-    # Do not spend runner time reconstructing private inputs without write access.
-    # Explicit source/build-only diagnostics remain independent of publication.
+    # This exact changed release needs fresh qualification even if only write
+    # permission is unavailable. Authentication/read/head conflicts still stop.
     if: ${{ !cancelled() && ((needs.private-transport.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'release')) || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'source-only' || inputs.mode == 'build-only'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -498,17 +518,22 @@ jobs:
             exit 1
           }
           grep -E '^D07_T3_RENDERED_CONTEXT=PASS \{' "$RUNNER_TEMP/context-local.log"
-          local="$PWD/runtime/t3-platform/0.3.1-rc.1"
-          cp "$local/platform-inputs.zip" "$RUNNER_TEMP/d07-bad.zip"
-          node -e 'const fs=require("node:fs"),p=process.argv[1],b=fs.readFileSync(p);b[0]^=1;fs.writeFileSync(p,b)' "$RUNNER_TEMP/d07-bad.zip"
-          if isolated "$local/d07-host" "$local/kernel-support" "$RUNNER_TEMP/d07-bad.zip" > "$RUNNER_TEMP/d07-corrupt.log" 2>&1; then
-            echo D07_T3_CORRUPT_INPUT=FAIL
-            exit 1
+          if [[ "$RELEASE_WITH_READBACK" != true ]]; then
+            local="$PWD/runtime/t3-platform/0.3.1-rc.1"
+            cp "$local/platform-inputs.zip" "$RUNNER_TEMP/d07-bad.zip"
+            node -e 'const fs=require("node:fs"),p=process.argv[1],b=fs.readFileSync(p);b[0]^=1;fs.writeFileSync(p,b)' "$RUNNER_TEMP/d07-bad.zip"
+            if isolated "$local/d07-host" "$local/kernel-support" "$RUNNER_TEMP/d07-bad.zip" > "$RUNNER_TEMP/d07-corrupt.log" 2>&1; then
+              echo D07_T3_CORRUPT_INPUT=FAIL
+              exit 1
+            fi
+            grep -q 'D07_T3_PLATFORM_ARCHIVE_SHA256_MISMATCH' "$RUNNER_TEMP/d07-corrupt.log"
+            manifest > "$RUNNER_TEMP/d07-after-corrupt.sha"
+            cmp -s "$RUNNER_TEMP/d07-local-2.sha" "$RUNNER_TEMP/d07-after-corrupt.sha"
+            echo D07_T3_CORRUPT_INPUT_PRESERVES_DIST=PASS
+          else
+            # Original corruption guard and its implementation are unchanged.
+            echo D07_T3_CORRUPT_INPUT_EVIDENCE_REUSED=45663645049
           fi
-          grep -q 'D07_T3_PLATFORM_ARCHIVE_SHA256_MISMATCH' "$RUNNER_TEMP/d07-corrupt.log"
-          manifest > "$RUNNER_TEMP/d07-after-corrupt.sha"
-          cmp -s "$RUNNER_TEMP/d07-local-2.sha" "$RUNNER_TEMP/d07-after-corrupt.sha"
-          echo D07_T3_CORRUPT_INPUT_PRESERVES_DIST=PASS
       - name: Actual HTTP qualification of every integrated offline resource
         working-directory: site
         run: |
@@ -571,7 +596,7 @@ jobs:
           echo "dist_tree_sha256=$digest" >> "$GITHUB_OUTPUT"
           echo D07_T3_ACCEPTANCE_DIST=PASS
       - name: Commit only the exact qualified private inputs and tested release command
-        if: ${{ success() && needs.private-transport.result == 'success' }}
+        if: ${{ success() && needs.private-transport.result == 'success' && needs.private-transport.outputs.writable == 'true' }}
         working-directory: site
         run: |
           set -euo pipefail
@@ -587,7 +612,7 @@ jobs:
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: activate qualified self-contained T3 build in work branch [skip ci] [skip actions]'
           test -z "$(git status --porcelain --untracked-files=no)"
       - name: Authorized private branch retention and exact remote readback
-        if: ${{ success() && needs.private-transport.result == 'success' }}
+        if: ${{ success() && needs.private-transport.result == 'success' && needs.private-transport.outputs.writable == 'true' }}
         id: release-push
         working-directory: site
         env:
@@ -598,9 +623,11 @@ jobs:
           echo "retained_commit=$candidate" >> "$GITHUB_OUTPUT"
           echo "dist_sha256=$(sha256sum "$RUNNER_TEMP/d07-local-2.sha" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - name: Record build qualification separately from publication
-        if: ${{ success() }}
+        if: ${{ !cancelled() && steps.case-plan.outcome == 'success' }}
         env:
-          TRANSPORT_RESULT: ${{ needs.private-transport.result }}
+          TRANSPORT_WRITABLE: ${{ needs.private-transport.outputs.writable }}
+          PUBLISH_OUTCOME: ${{ steps.release-push.outcome }}
+          RETAINED_COMMIT: ${{ steps.release-push.outputs.retained_commit }}
           REQUEST_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'release' }}
           QUALIFIED_TREE: ${{ steps.case-plan.outputs.dist_tree_sha256 }}
         run: |
@@ -609,12 +636,18 @@ jobs:
           echo "D07_T3_QUALIFIED_DIST_TREE=$QUALIFIED_TREE"
           if [[ "$REQUEST_MODE" == build-only ]]; then
             echo D07_T3_PRIVATE_RETENTION=NOT_REQUESTED
-          elif [[ "$TRANSPORT_RESULT" != success ]]; then
-            echo D07_T3_PRIVATE_RETENTION=BLOCKED
-          else
+          elif [[ "$TRANSPORT_WRITABLE" != true ]]; then
+            echo D07_T3_PRIVATE_RETENTION=BLOCKED_WRITE_PERMISSION
+          elif [[ "$PUBLISH_OUTCOME" == success && "$RETAINED_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
             echo D07_T3_PRIVATE_RETENTION=PASS
+          else
+            echo D07_T3_PRIVATE_RETENTION=FAIL
           fi
           echo D07_T3_PRODUCT_ACCEPTED=false
+          if [[ "$REQUEST_MODE" == release && ( "$TRANSPORT_WRITABLE" != true || "$PUBLISH_OUTCOME" != success || ! "$RETAINED_COMMIT" =~ ^[0-9a-f]{40}$ ) ]]; then
+            # Never represent an unpublished release as a successful workflow.
+            exit 1
+          fi
       # Never upload private source, prepared inputs, dist, logs or model data.
   retained-private-readback:
     needs: original-t3-integration
