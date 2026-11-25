@@ -1,76 +1,94 @@
-# Retention only, after functional qualification 45658424250.
+# Deliberate retention after qualified internal navigation and exact external-only delta.
 # No private Actions; no private artifacts or logs published.
 name: d02-club-qualified-input-retention
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'ci/once/d02-club-qualified-input-retention/**'
+    paths:
+      - '.github/ci-requests/d02-club-qualified-input-retention.json'
 
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: d02-club-qualified-input-retention
+  group: d02-personal-activity-full-refs/heads/work/2026-11-24-d02-personal-activity-qualification
   cancel-in-progress: false
 jobs:
   retain:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
     steps:
-      - name: Confirm existing scoped private repository write access before preparation
+      - name: Exact public qualification harness
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          path: qualification
+      - name: Verify deliberate retention request before private access
+        working-directory: qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/ci/verify_once_request.py \
+            --repository Faust-S/knowledge --workflow d02-club-qualified-input-retention \
+            --profile external-reference-delta-and-final-retention \
+            --revision site=c1b02ba9f2b65175be91faa6476fd8d079b62e1f \
+            --revision qualified_site=8301f94aa86444bb3b70a4823dd79f0a15e4727a \
+            --revision subject=76ed326b21392836f4ff0ed376baea7b3f555ac5 \
+            --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17 \
+            --revision platform=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
+            --revision bli=9f41447197251d41e69fbcb98e52ef1050754ec2
+      - name: Verify exact previous functional and navigation evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/runs/45694601972 > "$RUNNER_TEMP/previous-run.json"
+          jq -e '.status == "completed" and .conclusion == "failure" and .head_sha == "dabb94491b8ed6ad792649a3533295783e73b7cf"' "$RUNNER_TEMP/previous-run.json" >/dev/null
+          gh api repos/Faust-S/knowledge/actions/jobs/139488593591/logs > "$RUNNER_TEMP/previous-evidence.log"
+          python3 - "$RUNNER_TEMP/previous-evidence.log" <<'PY'
+          import json, re, sys
+          from pathlib import Path
+          body = re.sub(r'\x1b\[[0-9;]*m', '', Path(sys.argv[1]).read_text(encoding='utf-8'))
+          def evidence(prefix):
+              return [line.split('Z ', 1)[1] for line in body.splitlines()
+                      if 'Z ' in line and line.split('Z ', 1)[1].startswith(prefix)]
+          def need(condition):
+              if not condition:
+                  raise SystemExit('D02_PREVIOUS_FUNCTIONAL_EVIDENCE=FAIL')
+          summaries = evidence('CLUB_NAV_SUMMARY ')
+          need(len(summaries) == 1)
+          row = json.loads(summaries[0][len('CLUB_NAV_SUMMARY '):])
+          expected = {'pageInventory':90, 'pageLoads':4636, 'internalClicked':1922, 'failures':0,
+                      'notRun':0, 'guardedExport':4, 'assistantSkills':44,
+                      'firstStepTools':36, 'firstStepPlans':36, 'externalBroken':1,
+                      'externalUnverified':3}
+          need(all(row.get(k) == v for k, v in expected.items()))
+          need(evidence('CLUB_DIST_FUNCTIONAL_ROUNDTRIP=') == ['CLUB_DIST_FUNCTIONAL_ROUNDTRIP=PASS'])
+          need(evidence('D02_T3_COMPLETE_CLUB_SUITES=') == ['D02_T3_COMPLETE_CLUB_SUITES=98; failed=0'])
+          need(evidence('D02_T3_COMPLETE_CLUB_TESTS=') == ['D02_T3_COMPLETE_CLUB_TESTS=929'])
+          need(evidence('D02_NAVIGATION_AUDIT_EXIT=') == ['D02_NAVIGATION_AUDIT_EXIT=1; D02_ROUNDTRIP_EXIT=0'])
+          need(evidence('CLUB_HOSTING_ARCHIVE_VERIFIED=PASS entries=286 '))
+          need(not evidence('CLUB_NAV_FAILURE '))
+          print('D02_PREVIOUS_FUNCTIONAL_EVIDENCE=PASS; internal_failures=0; site_tests=929')
+          PY
+      - name: Confirm exact precreated private retention destination
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
           GIT_TERMINAL_PROMPT: '0'
         shell: bash
         run: |
           set -euo pipefail
-          repository=Faust-S/club.iwxa.ru
-          ref=refs/heads/work/2026-11-25-club-t3-qualified-inputs
-          source=e2837c9c379679733009bbaeb733541d4b4b4642
-          access=$(mktemp -d "$RUNNER_TEMP/club-retention-access.XXXXXX")
-          trap 'rm -rf -- "$access"' EXIT
-          request() {
-            stage=$1; method=$2; path=$3; shift 3
-            : > "$access/headers"; : > "$access/body"
-            http=$(curl --silent --show-error --connect-timeout 10 --max-time 25 -X "$method" -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' -D "$access/headers" -o "$access/body" -w '%{http_code}' "$@" "https://api.github.com/$path" 2> "$access/network.log") || http=000
-          }
-          header() { awk -v key="$1:" 'tolower($1)==tolower(key) {sub(/\r$/, "", $2); value=$2} END {print value}' "$access/headers"; }
-          ensure_ref() {
-            request repository GET "repos/$repository"
-            [ "$http" = 200 ] || return 1
-            jq -e '.private == true' "$access/body" >/dev/null || { echo D02_RETENTION_PRIVATE_REPOSITORY_REQUIRED; exit 1; }
-            request ref-read GET "repos/$repository/git/ref/heads/work/2026-11-25-club-t3-qualified-inputs"
-            if [ "$http" = 404 ]; then
-              payload=$(jq -nc --arg ref "$ref" --arg sha "$source" '{ref:$ref,sha:$sha}')
-              request ref-create POST "repos/$repository/git/refs" -H 'Content-Type: application/json' --data-binary "$payload"
-              [ "$http" = 201 ] || return 1
-            else
-              [ "$http" = 200 ] || return 1
-            fi
-            jq -e --arg ref "$ref" --arg sha "$source" '.ref == $ref and .object.sha == $sha' "$access/body" >/dev/null || { echo D02_RETENTION_REF_UNEXPECTED; exit 1; }
-          }
-          for attempt in 1 2 3; do
-            if ensure_ref; then echo D02_RETENTION_PRIVATE_REF_AT_QUALIFIED_SOURCE=PASS; exit 0; fi
-            message=$(jq -r '.message // ""' "$access/body" 2>/dev/null || true)
-            remaining=$(header x-ratelimit-remaining); retry=$(header retry-after); reset=$(header x-ratelimit-reset)
-            category=HTTP_FAILURE; delay=0
-            if [ "$http" = 429 ] || { [ "$http" = 403 ] && { [ "$remaining" = 0 ] || [ -n "$retry" ] || grep -Eqi 'rate limit|abuse detection' <<< "$message"; }; }; then
-              category=RATE_LIMIT; delay=60
-              if [[ "$retry" =~ ^[1-9][0-9]{0,5}$ ]]; then delay=$retry
-              elif [ "$remaining" = 0 ] && [[ "$reset" =~ ^[1-9][0-9]{8,10}$ ]]; then delay=$(( reset - $(date +%s) + 1 )); [ "$delay" -gt 0 ] || delay=1; fi
-            elif [[ "$http" =~ ^(000|408|500|502|503|504)$ ]]; then
-              category=TRANSIENT; delay=$(( 5 * attempt ))
-            elif [ "$http" = 401 ]; then category=AUTHENTICATION_DENIED
-            elif [ "$http" = 403 ]; then
-              if grep -Eqi 'resource not accessible|permission|not authorized|must have .*access|forbidden' <<< "$message"; then category=ACCESS_DENIED; else category=HTTP_403_UNCLASSIFIED; fi
-            elif [ "$http" = 422 ]; then category=REF_CREATE_REJECTED
-            fi
-            echo "D02_RETENTION_API_RESULT=$category; stage=$stage; http=$http; attempt=$attempt"
-            if [ "$attempt" = 3 ] || [ "$delay" -le 0 ] || [ "$delay" -gt 90 ]; then exit 1; fi
-            sleep "$delay"
-          done
-          exit 1
+          [ "$(gh api repos/Faust-S/club.iwxa.ru --jq '.private' 2> "$RUNNER_TEMP/private-ref-check.log")" = true ]
+          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-final-qualified-inputs --jq '.object.sha' 2>> "$RUNNER_TEMP/private-ref-check.log")" = "c1b02ba9f2b65175be91faa6476fd8d079b62e1f" ]
+          echo D02_RETENTION_PRIVATE_REF_AT_QUALIFIED_SOURCE=PASS
       - name: Preserve original Git LF bytes
         run: git config --global core.autocrlf false
       - name: Checkout exact public T3 platform candidate
@@ -84,9 +102,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: e2837c9c379679733009bbaeb733541d4b4b4642
+          ref: c1b02ba9f2b65175be91faa6476fd8d079b62e1f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
+          fetch-depth: 3
           path: site
       - name: Checkout original T2 for one-time migration qualification only
         uses: actions/checkout@v4
@@ -107,6 +126,42 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - name: Prove the only deployable source changes are two reviewed reference anchors
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! node --input-type=module > "$RUNNER_TEMP/private-reference-delta.log" 2>&1 <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const base='8301f94aa86444bb3b70a4823dd79f0a15e4727a';
+          const git=(...args)=>execFileSync('git',args,{encoding:'utf8'});
+          const rows=git('diff','--no-renames','--name-status',base,'HEAD').trim().split('\n').sort();
+          const docs='handoff/D02_CLUB_FINAL_RELEASE_QUALIFICATION_2026_11_25_RU.md';
+          const changes=[
+            ['publications/warehouse-shifts/index.html','scripts/test-club-case-04-article.mjs',
+             '<a href="https://www.nalog.gov.ru/nu/">ФНС: НДФЛ и налоговые пороги</a>',
+             '<a href="https://www.consultant.ru/document/cons_doc_LAW_28165/3e4bbd6dd9fb5dd4e9394f447653506e1d6fa3a9/">НК РФ, статья 224: ставки НДФЛ</a>',
+             'warehouse tax reference cites the actual rates and thresholds'],
+            ['publications/cleaning-work-income/index.html','scripts/test-club-case-06-article.mjs',
+             '<a href="https://www.nalog.gov.ru/rn77/taxation/taxes/npd/">ФНС: применение НПД и ставки</a>',
+             '<a href="https://www.consultant.ru/document/cons_doc_LAW_311977/e08381c7bc85397c1661bdeaa62be996df822d6e/">Закон № 422-ФЗ, статья 10: ставки НПД</a>',
+             'cleaning case links directly to the underlying NPD rates']
+          ];
+          assert.deepEqual(rows,[docs,...changes.flatMap(r=>r.slice(0,2))].map(p=>'M\t'+p).sort());
+          assert.ok(readFileSync(docs,'utf8').startsWith(git('show',base+':'+docs).trimEnd()));
+          for(const [page,test,old,next,name] of changes){
+            const before=git('show',base+':'+page);
+            assert.equal(before.split(old).length,2);
+            assert.equal(readFileSync(page,'utf8'),before.replace(old,next));
+            const oldTest=git('show',base+':'+test);
+            const add='\ntest('+JSON.stringify(name)+',()=>{\n assert.ok(html.includes('+JSON.stringify(next)+'));\n assert.ok(!html.includes('+JSON.stringify(old)+'));\n});\n';
+            assert.equal(readFileSync(test,'utf8'),oldTest.trimEnd()+'\n'+add);
+          }
+          NODE
+          then echo D02_REFERENCE_ONLY_DELTA=FAIL; exit 1; fi
+          echo D02_REFERENCE_ONLY_DELTA=PASS
       - name: Download and verify exact public portable candidate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -170,6 +225,18 @@ jobs:
             exit 1
           fi
           echo D02_RETENTION_ORIGINAL_SUPPORT=PASS
+      - name: Run only the changed article regressions
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! node --test scripts/test-club-case-04-article.mjs scripts/test-club-case-06-article.mjs > "$RUNNER_TEMP/private-reference-tests.log" 2>&1; then
+            echo D02_REFERENCE_ARTICLE_REGRESSION=FAIL
+            grep -E '^# (tests|pass|fail) [0-9]+$' "$RUNNER_TEMP/private-reference-tests.log" || true
+            exit 1
+          fi
+          grep -E '^# (tests|pass|fail) [0-9]+$' "$RUNNER_TEMP/private-reference-tests.log"
+          echo D02_REFERENCE_ARTICLE_REGRESSION=PASS
       - name: Retain qualified local build inputs only in private Club candidate branch
         working-directory: site
         shell: bash
@@ -180,9 +247,9 @@ jobs:
           set -euo pipefail
           # Do not upload the domain dist or generated private files to public Actions.
           # Use the existing scoped credential only if the intended repository is private
-          # and the credential already grants push. Never modify main or an existing ref.
+          # and the credential already grants push. Only fast-forward the isolated target.
           [ "$(gh api repos/Faust-S/club.iwxa.ru --jq '.private')" = true ]
-          [ "$(git rev-parse HEAD)" = "e2837c9c379679733009bbaeb733541d4b4b4642" ]
+          [ "$(git rev-parse HEAD)" = "c1b02ba9f2b65175be91faa6476fd8d079b62e1f" ]
           case "$(git remote get-url origin)" in
             https://github.com/Faust-S/club.iwxa.ru|https://github.com/Faust-S/club.iwxa.ru.git) ;;
             *) echo D02_T3_PRIVATE_RETENTION_REMOTE=FAIL; exit 1 ;;
@@ -191,7 +258,35 @@ jobs:
           if ! node scripts/retain-club-t3-inputs.mjs "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/t3-platform.zip" > "$RUNNER_TEMP/private-retain.log" 2>&1; then
             echo D02_T3_PRIVATE_RETENTION_PREPARE=FAIL; exit 1
           fi
-          target=refs/heads/work/2026-11-25-club-t3-qualified-inputs
+          # Verify the actual no-argument hosting assembly from retained inputs
+          # before committing those inputs. No repeat browser or domain suite.
+          if ! (node scripts/build-club-t3-hosting.mjs && node scripts/check-links.mjs) > "$RUNNER_TEMP/private-final-hosting.log" 2>&1; then
+            echo D02_FINAL_HOSTING_BUILD=FAIL
+            exit 1
+          fi
+          (cd release && sha256sum --check --status CLUB_HOSTING_STATIC.zip.sha256)
+          unzip -tq release/CLUB_HOSTING_STATIC.zip > "$RUNNER_TEMP/private-final-zip.log"
+          [ "$(zipinfo -1 release/CLUB_HOSTING_STATIC.zip | wc -l)" = 286 ]
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          import assert from 'node:assert/strict';
+          const zip='release/CLUB_HOSTING_STATIC.zip';
+          const expected=[
+            ['publications/warehouse-shifts/index.html','https://www.consultant.ru/document/cons_doc_LAW_28165/3e4bbd6dd9fb5dd4e9394f447653506e1d6fa3a9/','https://www.nalog.gov.ru/nu/'],
+            ['publications/cleaning-work-income/index.html','https://www.consultant.ru/document/cons_doc_LAW_311977/e08381c7bc85397c1661bdeaa62be996df822d6e/','https://www.nalog.gov.ru/rn77/taxation/taxes/npd/']
+          ];
+          for(const [page,next,old] of expected){
+            const bytes=readFileSync('dist/'+page);
+            const packed=execFileSync('unzip',['-p',zip,page]);
+            assert.ok(bytes.equals(packed));
+            const html=bytes.toString('utf8');
+            assert.ok(html.includes('href="'+next+'"')&&!html.includes('href="'+old+'"'));
+          }
+          console.log('D02_FINAL_REFERENCE_ARCHIVE=PASS; changed_pages=2; archive_entries=286');
+          NODE
+          echo D02_FINAL_HOSTING_BUILD=PASS
+          target=refs/heads/work/2026-11-25-club-t3-final-qualified-inputs
           root=runtime/t3-platform/0.3.1-rc.1
           git add -- "$root/club-host" "$root/kernel-support" "$root/platform-inputs.zip"
           # Limit the new private commit to the original retained build inputs.
@@ -218,10 +313,10 @@ jobs:
           console.log('D02_T3_PRIVATE_RETENTION_INPUTS_READY=PASS; files='+rows.length/2);
           NODE
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Retain qualified Club T3 local inputs for run $GITHUB_RUN_ID [skip ci]" > "$RUNNER_TEMP/private-retain-commit.log" 2>&1
-          # The API preflight created this one private branch at the qualified source.
+          # The authorized connector created the isolated branch at the qualified source.
           # Verify the exact parent and use an ordinary non-force fast-forward.
-          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-qualified-inputs --jq '.object.sha')" = "e2837c9c379679733009bbaeb733541d4b4b4642" ]
-          [ "$(git rev-parse HEAD^)" = "e2837c9c379679733009bbaeb733541d4b4b4642" ]
+          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-final-qualified-inputs --jq '.object.sha')" = "c1b02ba9f2b65175be91faa6476fd8d079b62e1f" ]
+          [ "$(git rev-parse HEAD^)" = "c1b02ba9f2b65175be91faa6476fd8d079b62e1f" ]
           # Explicitly use gh's standard credential setup, local to this disposable checkout.
           gh auth setup-git --hostname github.com > "$RUNNER_TEMP/private-retain-credential.log" 2>&1
           if ! git push --porcelain origin "HEAD:$target" > "$RUNNER_TEMP/private-retain-push.log" 2>&1; then
@@ -238,11 +333,34 @@ jobs:
             fi
             exit 1
           fi
-          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-qualified-inputs --jq '.object.sha')" = "$(git rev-parse HEAD)" ]
+          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-final-qualified-inputs --jq '.object.sha')" = "$(git rev-parse HEAD)" ]
           echo "D02_T3_QUALIFIED_INPUT_COMMIT=$(git rev-parse HEAD)"
           echo D02_T3_PRIVATE_RETENTION=PASS
+      - name: Check the two corrected external references separately from retention
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const refs=[
+            ['NDFL_224','https://www.consultant.ru/document/cons_doc_LAW_28165/3e4bbd6dd9fb5dd4e9394f447653506e1d6fa3a9/',/Статья\s+224/i],
+            ['NPD_422_10','https://www.consultant.ru/document/cons_doc_LAW_311977/e08381c7bc85397c1661bdeaa62be996df822d6e/',/Статья\s+10/i]
+          ];
+          let broken=0,partial=0;
+          for(const [id,url,pattern] of refs){
+            try{
+              const r=await fetch(url,{redirect:'follow',signal:AbortSignal.timeout(20000),headers:{'user-agent':'Club-IWXA-Link-Check/1.0','accept':'text/html'}});
+              if(r.status===404||r.status===410){broken++;console.log('D02_FINAL_EXTERNAL='+id+'; BROKEN; HTTP='+r.status);await r.body?.cancel();continue}
+              if(!r.ok){partial++;console.log('D02_FINAL_EXTERNAL='+id+'; UNVERIFIED; HTTP='+r.status);await r.body?.cancel();continue}
+              const body=await r.text();
+              if(!pattern.test(body)){partial++;console.log('D02_FINAL_EXTERNAL='+id+'; UNVERIFIED_CONTENT');continue}
+              console.log('D02_FINAL_EXTERNAL='+id+'; PASS');
+            }catch{partial++;console.log('D02_FINAL_EXTERNAL='+id+'; UNVERIFIED_NETWORK')}
+          }
+          console.log('D02_FINAL_EXTERNAL_REFERENCES='+(broken?'FAIL':partial?'PARTIAL':'PASS'));
+          if(broken)process.exitCode=1;
+          NODE
       - name: Remove private generated outputs and private logs
         if: always()
         shell: bash
         run: |
-          rm -rf "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/t3-platform.zip" "$RUNNER_TEMP/t3-platform-outer.zip" "$RUNNER_TEMP/private-access.log" "$RUNNER_TEMP/private-ref.json" "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/private-retention-build.log" "$RUNNER_TEMP/private-retain.log" "$RUNNER_TEMP/private-retain-commit.log" "$RUNNER_TEMP/private-retain-push.log" "$RUNNER_TEMP/private-retain-credential.log"
+          rm -rf "$GITHUB_WORKSPACE/site/release" "$RUNNER_TEMP/previous-run.json" "$RUNNER_TEMP/previous-evidence.log" "$RUNNER_TEMP/private-ref-check.log" "$RUNNER_TEMP/private-reference-delta.log" "$RUNNER_TEMP/private-reference-tests.log" "$RUNNER_TEMP/private-final-hosting.log" "$RUNNER_TEMP/private-final-zip.log" "$RUNNER_TEMP/club-t3-host" "$RUNNER_TEMP/club-kernel-support" "$RUNNER_TEMP/t3-platform.zip" "$RUNNER_TEMP/t3-platform-outer.zip" "$RUNNER_TEMP/private-access.log" "$RUNNER_TEMP/private-ref.json" "$RUNNER_TEMP/private-build.log" "$RUNNER_TEMP/private-retention-build.log" "$RUNNER_TEMP/private-retain.log" "$RUNNER_TEMP/private-retain-commit.log" "$RUNNER_TEMP/private-retain-push.log" "$RUNNER_TEMP/private-retain-credential.log"
