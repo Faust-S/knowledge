@@ -13,6 +13,9 @@ import {materializeOriginalAdminT2Product} from '../scripts/materialize-original
 import {materializeOriginalAgentT2Product} from '../scripts/build-original-agent-one-dist.mjs';
 import {assembleSignedControlDist} from '../scripts/assemble-signed-control-dist.mjs';
 import {assertQualifiedKernelArtifact} from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
+import {CANDIDATE_KERNEL_ARTIFACT,selectQualificationKernelCandidate}
+  from '../scripts/installed-kernel-candidate.mjs';
+import {assertInstalledOriginalKernelArtifact} from '../scripts/installed-kernel-selection.mjs';
 import {companyExchangeServiceId} from '../src/t3/company-exchange-profile.mjs';
 import {createSubjectKernelBinding} from '../src/t3/subject-access-binding.mjs';
 import {createTrustedReconciliationKernelApply} from '../src/t3/reconciliation-kernel-apply.mjs';
@@ -65,33 +68,28 @@ test('event wire equality only ignores absent original optional fields',()=>{
   assert.throws(()=>assertHistoryContains([],[event]),{code:'ERR_ASSERTION'});
 });
 
-// Candidate use is confined to this disposable source qualification. The
-// product materializers must FIRST verify the immutable accepted artifact.
-// Only then can the test execute separately built original successor bytes
-// inside its own temporary test directory. No product admission is relaxed.
-function candidateRuntime(verified){
+// The actual product recipes must admit the explicit original candidate.
+// No post-assembly runtime replacement or self-declared build hashes.
+function candidateSelection(verified){
   assert.equal(Boolean(candidateDir),Boolean(candidateReceipt),'CANDIDATE_INPUT_PAIR_REQUIRED');
-  if(!candidateDir)return null;
+  if(!candidateDir)return undefined;
+  const pin=selectQualificationKernelCandidate(CANDIDATE_KERNEL_ARTIFACT);
   const receipt=JSON.parse(readFileSync(candidateReceipt,'utf8'));
-  assert.equal(receipt.schema,'IWXA_K036_CANONICAL_EVENT_MERGE_BUILD_WITNESS/1');
+  assert.equal(receipt.schema,'IWXA_T2_KERNEL_CANDIDATE_ARCHIVE/1');
   assert.equal(receipt.status,'SOURCE_AND_BUILD_PASS_CANDIDATE_UNACCEPTED');
-  assert.equal(receipt.baseQualifiedArtifactId,artifactId);
-  assert.equal(receipt.productionActivation,false);
-  assert.match(receipt.sourceCommit,/^[a-f0-9]{40}$/);
-  assert.ok(Array.isArray(receipt.files));
-  assert.deepEqual(receipt.files.map(f=>f.path).sort(),verified.files.map(f=>f.path).sort());
-  let bytes=null;
-  for(const original of verified.files){
-    const row=receipt.files.find(f=>f.path===original.path);
-    const data=readFileSync(join(candidateDir,...row.path.split('/')));
-    assert.equal(sha(data),row.sha256,'CANDIDATE_BUILD_BYTES_MISMATCH');
-    if(row.path==='_iwxa/runtime/0.3.6/runtime.js'){
-      assert.notEqual(row.sha256,original.sha256,'CANDIDATE_RUNTIME_NOT_CHANGED');
-      bytes=data;
-    }else assert.equal(row.sha256,original.sha256,'CANDIDATE_UNRELATED_RUNTIME_FILE_CHANGED');
+  for(const key of ['artifactId','baseQualifiedArtifactId','sourceCommit','archiveSha256',
+    'kernel','contract','releaseAccepted','productionActivation','files'])
+    assert.deepEqual(receipt[key],pin[key],'CANDIDATE_ARCHIVE_IDENTITY_MISMATCH:'+key);
+  for(const row of verified.files){
+    const next=pin.files.find(f=>f.path===row.path);
+    assert.ok(next);
+    if(row.path==='_iwxa/runtime/0.3.6/runtime.js')assert.notEqual(row.sha256,next.sha256);
+    else assert.equal(row.sha256,next.sha256);
   }
-  assert.ok(bytes);
-  return bytes;
+  assertInstalledOriginalKernelArtifact(candidateDir,CANDIDATE_KERNEL_ARTIFACT);
+  assert.throws(()=>assertQualifiedKernelArtifact(candidateDir,{kernel:'0.3.6',contract:'1.3.0',artifactId}),
+    /KERNEL_ARTIFACT_MISMATCH/,'candidate must not be admitted under the prior accepted ID');
+  return CANDIDATE_KERNEL_ARTIFACT;
 }
 test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product complete archive and repeated same-Workspace merge':
   'original qualified T2 cross-product complete archive and repeated same-Workspace merge',async()=>{
@@ -112,7 +110,9 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
   const originalFetch=globalThis.fetch;
   try{
     const verified=assertQualifiedKernelArtifact(qualified,{kernel:'0.3.6',contract:'1.3.0',artifactId});
-    const candidate=candidateRuntime(verified);
+    const qualificationKernelCandidate=candidateSelection(verified);
+    const input=qualificationKernelCandidate?candidateDir:qualified;
+    const selected=assertInstalledOriginalKernelArtifact(input,qualificationKernelCandidate);
     const compiled=join(tmp,'compiled');
     for(const file of ['signed-workspace.html','isolated-signed-workspace.html','trusted-kernel-realm.html'])
       put(compiled,file,'<base href="/workspace/"><script type="module" src="/workspace/assets/fixture.js"></script>');
@@ -128,18 +128,23 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
         qualifiedArtifactId:artifactId,authorizedNativeOwner:agent?'ORIGINAL_T3_SIGNED_EMPLOYEE':'ORIGINAL_T3_SIGNED_ADMIN',
         ...(agent?{authorizedResultRecipient:null,installedAgentT3Mode:'EXPLICIT_OPT_IN'}:{installedAdminT3Mode:'EXPLICIT_OPT_IN'})};
       const profilePath=put(tmp,which+'.json',profile),source=join(tmp,which+'-source'),dist=join(tmp,which+'-dist');
-      if(agent)await materializeOriginalAgentT2Product({qualifiedKernelDist:qualified,agentProfile:profilePath,outputRoot:source});
-      else await materializeOriginalAdminT2Product({qualifiedKernelDist:qualified,centerProfile:profilePath,outputRoot:source});
-      const assembled=assembleSignedControlDist({t2Dist:source,t3Build:compiled,outputDir:dist,
+      const product=agent
+        ?await materializeOriginalAgentT2Product({qualifiedKernelDist:input,agentProfile:profilePath,outputRoot:source,qualificationKernelCandidate})
+        :await materializeOriginalAdminT2Product({qualifiedKernelDist:input,centerProfile:profilePath,outputRoot:source,qualificationKernelCandidate});
+      const assembled=assembleSignedControlDist({t2Dist:source,t3Build:compiled,outputDir:dist,qualificationKernelCandidate,
         ...(agent?{installedOriginalAgentD6:true,desktopAgentControlOnly:true}:{installedOriginalAdminD3:true,desktopAdminControlOnly:true})});
       assert.equal(assembled.original_kernel,'0.3.6');
-      assert.equal(assertQualifiedKernelArtifact(dist,{kernel:'0.3.6',contract:'1.3.0',artifactId}).artifactSha256,verified.artifactSha256);
+      assert.equal(assertInstalledOriginalKernelArtifact(dist,qualificationKernelCandidate).artifactSha256,selected.artifactSha256);
+      if(qualificationKernelCandidate){
+        assert.equal(product.originalQualifiedArtifactId,null);
+        assert.equal(assembled.original_qualified_artifact,null);
+        for(const receipt of [product,assembled]){
+          assert.equal(receipt.original_kernel_candidate_artifact,selected.artifactId);
+          assert.equal(receipt.original_kernel_candidate_archive_sha256,selected.archiveSha256);
+          assert.equal(receipt.original_kernel_release_accepted,false);
+        }
+      }else assert.equal(assembled.original_qualified_artifact,artifactId);
       const runtimePath=join(dist,'_iwxa/runtime/0.3.6/runtime.js');
-      if(candidate){
-        // Dist here is an unpublishable temporary fixture, not a real build.
-        writeFileSync(runtimePath,candidate);
-        assert.equal(sha(readFileSync(runtimePath)),sha(candidate));
-      }
       const runtime=await import(pathToFileURL(runtimePath).href);
       return {runtime,serviceId,origin,dist,db:new idb.IDBFactory(),domain:json(dist,'_iwxa/domain.json'),current:json(dist,'_iwxa/current.json')};
     }
