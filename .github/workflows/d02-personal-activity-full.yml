@@ -4,15 +4,22 @@ name: d02-personal-activity-full
 # Release qualification: complete canonical tests, all site projections, desktop and phone routes, native offline and Exchange.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'ci/once/d02-personal-activity-full/**'
+    paths:
+      - '.github/ci-requests/d02-personal-activity-full.json'
 
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: d02-personal-activity-full-${{ github.ref }}
+  # All immutable request branches share the existing D02 release lane.
+  group: d02-personal-activity-full-refs/heads/work/2026-11-24-d02-personal-activity-qualification
   cancel-in-progress: false
 jobs:
   host:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
     runs-on: ubuntu-latest
     timeout-minutes: 55
     env:
@@ -23,7 +30,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 2
           path: qualification
+      - name: Verify the deliberate immutable request before private access
+        working-directory: qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/ci/verify_once_request.py \
+            --repository Faust-S/knowledge --workflow d02-personal-activity-full \
+            --profile full-release-after-404-and-navigation-audit \
+            --revision site=e6760c6069f74eb7695f6118c7613e1fa2a56dea \
+            --revision subject=76ed326b21392836f4ff0ed376baea7b3f555ac5 \
+            --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17 \
+            --revision platform=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
+            --revision bli=9f41447197251d41e69fbcb98e52ef1050754ec2
       - name: Preserve original Git LF bytes
         run: git config --global core.autocrlf false
       - name: Checkout exact public T3 platform candidate
