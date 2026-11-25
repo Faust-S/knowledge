@@ -1,3 +1,4 @@
+import {readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory} from './original-technical-event-pages.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
   from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
@@ -961,9 +962,10 @@ export function createT4OriginalNetworkPublicationPort({
   verifyOriginalHistoricalNodeSignature=null,authorizeOriginalControlPublication=null,
   readOriginalReplacementEligibility=null,readOriginalReplacementRecipientAdmission=null,
   readOriginalReplacementDiffAcceptance=null,readOriginalReplacementAppliedAckAdmission=null,
-  historicalReadOnly=false,
+  historicalReadOnly=false,enableOriginalTechnicalObjectHistory=false,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
+  requireT4OriginalTechnicalObjectHistory(enableOriginalTechnicalObjectHistory,originalKernel);
   const control=session?.schema===CONTROL_SESSION,replacement=session?.schema===REPLACEMENT_SESSION;
   const identity=control||replacement?validatePublicationSession(session):canonicalSession(session);
   if(!same(identity,session)||
@@ -1028,7 +1030,7 @@ export function createT4OriginalNetworkPublicationPort({
       nodeRef:v.nodeRef,scopeRef:v.scopeRef,hostSessionRef:v.hostSessionRef};
   }
   async function guard(ctx,operation,purpose,frame=null){
-    if(historicalReadOnly&&!['t1.getObject','t1.listEventsSince'].includes(operation))fail('PUBLICATION_ORIGINAL_HISTORY_READ_ONLY');
+    if(historicalReadOnly&&!['t1.getObject','t1.listEventsSince',...(enableOriginalTechnicalObjectHistory?['t1.listEventObjectCommitWindow']:[])].includes(operation))fail('PUBLICATION_ORIGINAL_HISTORY_READ_ONLY');
     if(!same(await context(),ctx))
       fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED',{automaticRetryAllowed:false});
     const signedFrame=frame===null?null:frameFor(frame);
@@ -1293,13 +1295,18 @@ export function createT4OriginalNetworkPublicationPort({
   async function read(ctx){
     await guard(ctx,'t1.getObject','read-publication');
     const row=await originalKernel.getObject(technicalWorkspaceId,checkpointRef);
-    await guard(ctx,'t1.listEventsSince','read-publication-events');
-    const all=await originalKernel.listEventsSince(technicalWorkspaceId);
-    mode();
-    if(!Array.isArray(all)||all.length>100000)
-      fail('PUBLICATION_ORIGINAL_EVENT_STREAM_INVALID');
-    const events=all.filter(e=>e?.workspace_id===technicalWorkspaceId&&
-      e.object_id===checkpointRef);
+    let events;
+    if(enableOriginalTechnicalObjectHistory){
+      events=await readT4OriginalTechnicalObjectEvents({originalKernel,workspaceId:technicalWorkspaceId,objectRef:checkpointRef,
+        authorizeOriginalOperation:async operation=>{await guard(ctx,operation,'read-publication-events');return true;}});
+    }else{
+      await guard(ctx,'t1.listEventsSince','read-publication-events');
+      const all=await originalKernel.listEventsSince(technicalWorkspaceId);
+      mode();
+      if(!Array.isArray(all)||all.length>100000)
+        fail('PUBLICATION_ORIGINAL_EVENT_STREAM_INVALID');
+      events=all.filter(e=>e?.workspace_id===technicalWorkspaceId&&e.object_id===checkpointRef);
+    }
     if(row===null){
       if(events.length)fail('PUBLICATION_ORIGINAL_OBJECT_MISSING');
       await guard(ctx,'t1.getObject','empty-readback');
@@ -1739,7 +1746,7 @@ export function createT4OriginalNetworkPublicationPort({
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       authorizeOriginalFramePublish,verifyOriginalNodeSignature,authorizeOriginalSealedPublication,
       verifyOriginalHistoricalNodeSignature,authorizeOriginalControlPublication,readOriginalReplacementEligibility,
-      readOriginalReplacementRecipientAdmission,readOriginalReplacementDiffAcceptance,readOriginalReplacementAppliedAckAdmission,historicalReadOnly,
+      readOriginalReplacementRecipientAdmission,readOriginalReplacementDiffAcceptance,readOriginalReplacementAppliedAckAdmission,historicalReadOnly,enableOriginalTechnicalObjectHistory,
       ...(!historicalReadOnly?{frameTransport:scopeOriginalHostPort(frameTransport,isHostActive,
         ['schema','originalT3ExchangeDependency','createsSubjectStore','createsSubjectIAM','nativeFrameIndexVersion'],
         'PUBLICATION_ORIGINAL_WIRE_LIFETIME_REQUIRED')}:{}),

@@ -1,3 +1,4 @@
+import {readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory} from './original-technical-event-pages.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
   from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
@@ -184,9 +185,10 @@ export function createT4OriginalNetworkHostCursorPort({
   scopeRef,ownerEpoch,getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize=256,
-  readOriginalAdmittedBaseline=null,verifyOriginalSourceBaseline=null,originalBaselinePort=null,
+  readOriginalAdmittedBaseline=null,verifyOriginalSourceBaseline=null,originalBaselinePort=null,enableOriginalTechnicalObjectHistory=false,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
+  requireT4OriginalTechnicalObjectHistory(enableOriginalTechnicalObjectHistory,originalKernel);
   const commitHistory=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
   if(commitHistory&&(![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
     !Number.isSafeInteger(pageSize)||pageSize<1||pageSize>1024))
@@ -292,6 +294,8 @@ export function createT4OriginalNetworkHostCursorPort({
     await guard(initial,'t1.getObject','baseline-readback');
     return b;
   }
+  const readIndexedEvents=(initial,step)=>readT4OriginalTechnicalObjectEvents({originalKernel,workspaceId:technicalWorkspaceId,objectRef:checkpointRef,
+    authorizeOriginalOperation:async operation=>{await guard(initial,operation,step);return true;}});
   async function readVerified(initial,selectedChangeIds=null){
     const selected=new Map();
     const baseline=await readBaseline(initial);
@@ -301,8 +305,12 @@ export function createT4OriginalNetworkHostCursorPort({
       technicalWorkspaceId,checkpointRef);
     mode();
     if(row===null||row===undefined){
-      await guard(initial,'t1.listEventsSince','frontier-empty-event-read');
-      const events=await originalKernel.listEventsSince(technicalWorkspaceId);
+      let events;
+      if(enableOriginalTechnicalObjectHistory)events=await readIndexedEvents(initial,'frontier-empty-event-read');
+      else{
+        await guard(initial,'t1.listEventsSince','frontier-empty-event-read');
+        events=await originalKernel.listEventsSince(technicalWorkspaceId);
+      }
       if(!Array.isArray(events)||events.some(e=>e?.workspace_id===technicalWorkspaceId&&e.object_id===checkpointRef))
         fail('HOST_CURSOR_ORIGINAL_EVENT_HISTORY_INCOMPLETE');
       await guard(initial,'t1.getObject','frontier-empty-double-read');
@@ -321,13 +329,18 @@ export function createT4OriginalNetworkHostCursorPort({
       (baseline&&!same(data.baseline,baseline))||!data.last)
       fail('HOST_CURSOR_ORIGINAL_CHECKPOINT_INVALID');
     const end=data.last;
-    await guard(initial,'t1.listEventsSince','frontier-event-read');
-    const all=await originalKernel.listEventsSince(technicalWorkspaceId);
-    mode();
-    if(!Array.isArray(all)||all.length>100000)
-      fail('HOST_CURSOR_ORIGINAL_EVENT_STREAM_INVALID');
-    const events=all.filter(e=>e?.workspace_id===technicalWorkspaceId&&
-      e.object_id===checkpointRef&&e.event_type===EVENT);
+    let events;
+    if(enableOriginalTechnicalObjectHistory){
+      events=await readIndexedEvents(initial,'frontier-event-read');
+      if(events.some(e=>e.event_type!==EVENT))fail('HOST_CURSOR_ORIGINAL_EVENT_STREAM_INVALID');
+    }else{
+      await guard(initial,'t1.listEventsSince','frontier-event-read');
+      const all=await originalKernel.listEventsSince(technicalWorkspaceId);
+      mode();
+      if(!Array.isArray(all)||all.length>100000)
+        fail('HOST_CURSOR_ORIGINAL_EVENT_STREAM_INVALID');
+      events=all.filter(e=>e?.workspace_id===technicalWorkspaceId&&e.object_id===checkpointRef&&e.event_type===EVENT);
+    }
     if(events.length!==obj.revision)
       fail('HOST_CURSOR_ORIGINAL_EVENT_HISTORY_INCOMPLETE');
     // Index this freshly authorized read, never a second persistent frontier.
@@ -646,7 +659,7 @@ export function createT4OriginalNetworkHostCursorPort({
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize,
       readOriginalAdmittedBaseline,verifyOriginalSourceBaseline,
-      originalBaselinePort:scopeBaselinePort(originalBaselinePort,isHostActive),
+      originalBaselinePort:scopeBaselinePort(originalBaselinePort,isHostActive),enableOriginalTechnicalObjectHistory,
     }),
     createsStore:false,createsKernel:false,createsIAM:false,
     createsTaskEngine:false,createsScheduler:false,
@@ -717,9 +730,10 @@ export function createT4OriginalNetworkRecipientCursorPort({
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
   authorizeOriginalRecipientRead,authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow=null,
   readOriginalAdmittedBaseline=null,verifyOriginalRecipientBaseline=null,originalBaselinePort=null,
-  readOriginalDependencyCoverage,
+  readOriginalDependencyCoverage,enableOriginalTechnicalObjectHistory=false,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
+  requireT4OriginalTechnicalObjectHistory(enableOriginalTechnicalObjectHistory,originalKernel);
   if(![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
     recipientNodeRef,scopeRef].every(ID)||sourceNodeRef===recipientNodeRef||
     technicalWorkspaceId===sourceWorkspaceId||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
@@ -783,6 +797,9 @@ export function createT4OriginalNetworkRecipientCursorPort({
     return row;
   }
   async function readEvents(ctx,recipient){
+    if(enableOriginalTechnicalObjectHistory&&!recipient)
+      return readT4OriginalTechnicalObjectEvents({originalKernel,workspaceId:technicalWorkspaceId,objectRef:checkpointRef,
+        authorizeOriginalOperation:async operation=>{await guard(ctx,operation,'frontier-events');return true;}});
     await guard(ctx,'t1.listEventsSince','frontier-events',recipient);
     const events=copy(await originalKernel.listEventsSince(recipient?sourceWorkspaceId:technicalWorkspaceId));
     await guard(ctx,'t1.listEventsSince','frontier-events-readback',recipient);
@@ -1124,7 +1141,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,authorizeOriginalRecipientRead,
       authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow,readOriginalAdmittedBaseline,
       verifyOriginalRecipientBaseline,readOriginalDependencyCoverage,
-      originalBaselinePort:scopeBaselinePort(originalBaselinePort,isHostActive),
+      originalBaselinePort:scopeBaselinePort(originalBaselinePort,isHostActive),enableOriginalTechnicalObjectHistory,
     }),
   });
 }

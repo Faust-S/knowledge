@@ -1,3 +1,4 @@
+import {readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory} from './original-technical-event-pages.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
   from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
@@ -83,9 +84,10 @@ export function createT4OriginalNetworkSessionPhasePort({
   replacementSourceAdmission=null,readOriginalReplacementSourceAdmission=null,
   readOriginalReplacementSourceContentPublication=null,readOriginalReplacementSourceAckEvidence=null,
   replacementRecipientAdmission=null,readOriginalReplacementRecipientApplyAdmission=null,readOriginalReplacementRecipientAckPublication=null,
-  historicalReadOnly=false,
+  historicalReadOnly=false,enableOriginalTechnicalObjectHistory=false,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
+  requireT4OriginalTechnicalObjectHistory(enableOriginalTechnicalObjectHistory,originalKernel);
   if(![technicalWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
     recipientNodeRef,localNodeRef,scopeRef,sessionRef,changeId]
     .every(ID)||!isT4NativeSubjectKind(changeKind)||
@@ -201,7 +203,7 @@ export function createT4OriginalNetworkSessionPhasePort({
   }
   async function guard(initial,operation,phase){
     mode();
-    if(historicalReadOnly&&!['t1.getObject','t1.listEventsSince'].includes(operation))fail('PHASE_ORIGINAL_HISTORY_READ_ONLY');
+    if(historicalReadOnly&&!['t1.getObject','t1.listEventsSince',...(enableOriginalTechnicalObjectHistory?['t1.listEventObjectCommitWindow']:[])].includes(operation))fail('PHASE_ORIGINAL_HISTORY_READ_ONLY');
     if(!eq(await context(),initial))
       fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED',{
         automaticRetryAllowed:false,
@@ -282,13 +284,18 @@ export function createT4OriginalNetworkSessionPhasePort({
       technicalWorkspaceId,checkpointRef);
     mode();
     const stages=verifyStages(before);
-    await guard(initial,'t1.listEventsSince','original-event-read');
-    const events=await originalKernel.listEventsSince(technicalWorkspaceId);
-    await guard(initial,'t1.listEventsSince','original-event-readback');
-    if(!Array.isArray(events)||events.length>100000)
-      fail('PHASE_ORIGINAL_EVENT_STREAM_INVALID');
-    const relevant=events.filter(ev=>
-      ev?.workspace_id===technicalWorkspaceId&&ev.object_id===checkpointRef);
+    let relevant;
+    if(enableOriginalTechnicalObjectHistory){
+      relevant=await readT4OriginalTechnicalObjectEvents({originalKernel,workspaceId:technicalWorkspaceId,objectRef:checkpointRef,
+        authorizeOriginalOperation:async operation=>{await guard(initial,operation,'original-event-read');return true;}});
+    }else{
+      await guard(initial,'t1.listEventsSince','original-event-read');
+      const events=await originalKernel.listEventsSince(technicalWorkspaceId);
+      await guard(initial,'t1.listEventsSince','original-event-readback');
+      if(!Array.isArray(events)||events.length>100000)
+        fail('PHASE_ORIGINAL_EVENT_STREAM_INVALID');
+      relevant=events.filter(ev=>ev?.workspace_id===technicalWorkspaceId&&ev.object_id===checkpointRef);
+    }
     if(relevant.length!==stages.length||relevant.some(ev=>ev.event_type!==EVENT))
       fail('PHASE_ORIGINAL_EVENT_CHAIN_INCOMPLETE');
     const ids=new Set(),originalEventIds=[];let lastOriginalEventId=null;
@@ -724,7 +731,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,authorizeOriginalRecipientSupersession,
       authorizeOriginalSourceSupersession,replacementSourceAdmission:replacement,readOriginalReplacementSourceAdmission,
       readOriginalReplacementSourceContentPublication,readOriginalReplacementSourceAckEvidence,replacementRecipientAdmission:recipientReplacement,
-      readOriginalReplacementRecipientApplyAdmission,readOriginalReplacementRecipientAckPublication,historicalReadOnly,
+      readOriginalReplacementRecipientApplyAdmission,readOriginalReplacementRecipientAckPublication,historicalReadOnly,enableOriginalTechnicalObjectHistory,
     }),
     role,checkpointRef,
     ...(recipientReplacement?{originalReplacementRecipientAdmission:clone(recipientReplacement),
@@ -745,10 +752,10 @@ export function createT4OriginalNetworkSessionPhasePort({
  * This port cannot authorize a phase transition or a subject mutation. */
 export function createT4OriginalReplacementHistoricalPhasePort({session,localNodeRef,
   technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,technicalWorkspaceId,originalKernel,getMode,
-  readOriginalHostContext,authorizeOriginalTechnicalRead,verifyOriginalRecipientApplied}={}){
+  readOriginalHostContext,authorizeOriginalTechnicalRead,verifyOriginalRecipientApplied,enableOriginalTechnicalObjectHistory=false}={}){
   const c=validateT4OriginalReplacementSessionCandidate(session),role=localNodeRef===c.sourceNodeRef?'SOURCE':'RECIPIENT';
   const base={technicalSchemaId,technicalWorkspaceId,originalKernel,getMode,readOriginalHostContext,
-    authorizeOriginalTechnicalRead,verifyOriginalRecipientApplied,historicalReadOnly:true,
+    authorizeOriginalTechnicalRead,verifyOriginalRecipientApplied,historicalReadOnly:true,enableOriginalTechnicalObjectHistory,
     originalWriteOwnerRef:c.originalWriteOwnerRef,sourceNodeRef:c.sourceNodeRef,recipientNodeRef:c.recipientNodeRef,
     localNodeRef,scopeRef:c.scopeRef,sessionRef:c.sessionRef,changeId:c.changeId,ownerEpoch:c.ownerEpoch,
     changeKind:c.changeKind,recipientApplyIntentRequired:role==='RECIPIENT'};
@@ -810,7 +817,7 @@ export function createT4OriginalReplacementHistoricalPhasePort({session,localNod
     originalT3ExchangeRequired:false,
     forOriginalHostLifetime:isHostActive=>createT4OriginalReplacementHistoricalPhasePort({session:c,localNodeRef,
       technicalSchemaId,technicalWorkspaceId,originalKernel,getMode:originalHostLifetimeMode(getMode,isHostActive),
-      readOriginalHostContext,authorizeOriginalTechnicalRead,verifyOriginalRecipientApplied})});
+      readOriginalHostContext,authorizeOriginalTechnicalRead,verifyOriginalRecipientApplied,enableOriginalTechnicalObjectHistory})});
 }
 
 /** Validate the terminal status of an already independently read original
@@ -846,7 +853,7 @@ export async function readT4OriginalLocalReplacementSelection({sourceCursorBefor
   verifyOriginalRecipientApplied,verifyOriginalHistoricalNodeSignature,requiredCryptoSuite,...inventoryPorts}={}){
   const before=clone(sourceCursorBefore),{sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,
     ownerEpoch,localNodeRef,technicalWorkspaceId,originalKernel,getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,
-    technicalSchemaId}=inventoryPorts;
+    technicalSchemaId,enableOriginalTechnicalObjectHistory=false}=inventoryPorts;
   if(before?.schema!=='IWXA_T4_ORIGINAL_EVENT_CURSOR_V1'||before.workspaceId!==sourceWorkspaceId||
     before.originalWriteOwnerRef!==originalWriteOwnerRef||!ID(before.lastEventId)||!HASH(before.sourcePrefixDigest)||
     !Number.isSafeInteger(before.seenEventCount)||before.seenEventCount<1||before.originalPermissionProof!==false||
@@ -866,7 +873,7 @@ export async function readT4OriginalLocalReplacementSelection({sourceCursorBefor
   if(!matches.length){await guard();return null;}
   const record=matches[0],c=validateT4OriginalReplacementSessionCandidate(record.session),root=c.originalCaptureSession;
   if(root.sourceEventId===before.lastEventId)fail('PHASE_ORIGINAL_REPLACEMENT_SELECTION_CAPTURE_CONFLICT');
-  const base={technicalSchemaId,technicalWorkspaceId,originalKernel,getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,localNodeRef};
+  const base={technicalSchemaId,technicalWorkspaceId,originalKernel,getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,localNodeRef,enableOriginalTechnicalObjectHistory};
   const old=createT4OriginalNetworkSessionPhasePort({...base,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
     scopeRef,ownerEpoch,sessionRef:root.sessionRef,changeId:root.changeId,changeKind:root.changeKind,
     recipientApplyIntentRequired:role==='RECIPIENT',historicalReadOnly:true,verifyOriginalRecipientApplied});

@@ -86,7 +86,7 @@ export function validateT4OriginalReplacementOwnerEligibilitySnapshot(raw,reques
  * verified local cursor and original Outbox capture selector are used. */
 export async function readT4OriginalReplacementOwnerEligibility({request,technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,
   getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalOwnerHistoryRead,verifyOriginalRecipientApplied,
-  verifyOriginalHistoricalNodeSignature,authorizeOriginalHostWire,requiredCryptoSuite,originalCursorPort,readOriginalCaptureSelection}={}){
+  verifyOriginalHistoricalNodeSignature,authorizeOriginalHostWire,requiredCryptoSuite,originalCursorPort,readOriginalCaptureSelection,enableOriginalTechnicalObjectHistory=false}={}){
   const r=exactRequest(request),c=r.session,role=roleOf(c,localNodeRef),source=role==='SOURCE',p=originalCursorPort;
   if(r.ownerNodeRef!==localNodeRef||!ID(technicalWorkspaceId)||technicalWorkspaceId===c.workspaceId||!ID(requiredCryptoSuite)||
     ![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalOwnerHistoryRead,verifyOriginalRecipientApplied].every(f=>typeof f==='function')||
@@ -114,7 +114,7 @@ export async function readT4OriginalReplacementOwnerEligibility({request,technic
     if(!same(initial,await context()))fail('REPLACEMENT_HISTORY_ORIGINAL_CONTEXT_CHANGED');
   }
   await guard();
-  const base={technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,readOriginalHostContext,authorizeOriginalTechnicalRead};
+  const base={technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,enableOriginalTechnicalObjectHistory};
   const old=createT4OriginalNetworkSessionPhasePort({...base,historicalReadOnly:true,verifyOriginalRecipientApplied,
     originalWriteOwnerRef:c.originalWriteOwnerRef,sourceNodeRef:c.sourceNodeRef,recipientNodeRef:c.recipientNodeRef,scopeRef:c.scopeRef,
     ownerEpoch:c.ownerEpoch,sessionRef:c.sessionRef,changeId:c.changeId,changeKind:c.changeKind,recipientApplyIntentRequired:!source});

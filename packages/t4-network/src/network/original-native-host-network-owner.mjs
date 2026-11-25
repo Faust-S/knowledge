@@ -566,7 +566,7 @@ export function createT4OriginalNativeHostNetworkOwner({
         // process closure. The handshake publication port cannot write content.
         const sourceAdmissionPhasePort=createT4OriginalReplacementHistoricalPhasePort({technicalSchemaId,technicalWorkspaceId,
           localNodeRef:nodeRef,originalKernel,getMode,readOriginalHostContext:tech.readOriginalHostContext,
-          authorizeOriginalTechnicalRead:tech.authorizeOriginalTechnicalRead,verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied'),session:c});
+          authorizeOriginalTechnicalRead:tech.authorizeOriginalTechnicalRead,verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied'),session:c,enableOriginalTechnicalObjectHistory});
         const handshake={...eligibility,sourceAdmissionPhasePort,sourcePublicationPort:makePublication({}),frameDiscoveryPort,
           readOriginalRecipientDiffHistory:request=>{
             if(request.schema!==T4_REPLACEMENT_RECIPIENT_DIFF_REQUEST)fail('NATIVE_REPLACEMENT_ELIGIBILITY_ROUTE_INVALID');

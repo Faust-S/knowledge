@@ -208,7 +208,7 @@ export function validateT4OriginalReplacementOwnerHistorySnapshot(raw,request){
 export async function readT4OriginalReplacementOwnerHistory({request,technicalSchemaId,technicalWorkspaceId,
   localNodeRef,originalKernel,getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,
   authorizeOriginalOwnerHistoryRead,verifyOriginalRecipientApplied,verifyOriginalHistoricalNodeSignature,
-  authorizeOriginalHostWire,requiredCryptoSuite}={}){
+  authorizeOriginalHostWire,requiredCryptoSuite,enableOriginalTechnicalObjectHistory=false}={}){
   const sourceAdmission=request?.schema===T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST;
   const recipientDiff=request?.schema===T4_REPLACEMENT_RECIPIENT_DIFF_REQUEST;
   const sourceContent=request?.schema===T4_REPLACEMENT_SOURCE_CONTENT_REQUEST;
@@ -235,7 +235,7 @@ export async function readT4OriginalReplacementOwnerHistory({request,technicalSc
   }
   await guard();
   const base={technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,readOriginalHostContext,
-    authorizeOriginalTechnicalRead,verifyOriginalRecipientApplied};
+    authorizeOriginalTechnicalRead,verifyOriginalRecipientApplied,enableOriginalTechnicalObjectHistory};
   const old=createT4OriginalNetworkSessionPhasePort({...base,historicalReadOnly:true,originalWriteOwnerRef:c.originalWriteOwnerRef,
     sourceNodeRef:c.sourceNodeRef,recipientNodeRef:c.recipientNodeRef,scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,
     sessionRef:root.sessionRef,changeId:root.changeId,changeKind:root.changeKind,recipientApplyIntentRequired:role==='RECIPIENT'});
@@ -255,9 +255,9 @@ export async function readT4OriginalReplacementOwnerHistory({request,technicalSc
       request:r,state,originalOwnerReadOnly:true,originalHistoricalEvidenceOnly:true,originalSubjectMutationInvoked:false,
       originalT3HostCursorWriteInvoked:false,liveNetworkAuthorityGranted:false,...fields},r);
     const publication=createT4OriginalNetworkPublicationPort({technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,
-      readOriginalHostContext,authorizeOriginalTechnicalRead,session:c,historicalReadOnly:true,verifyOriginalHistoricalNodeSignature});
+      readOriginalHostContext,authorizeOriginalTechnicalRead,session:c,historicalReadOnly:true,enableOriginalTechnicalObjectHistory,verifyOriginalHistoricalNodeSignature});
     const replay=createT4OriginalNetworkReplayPort({technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,
-      readOriginalHostContext,authorizeOriginalTechnicalRead,originalWriteOwnerRef:c.originalWriteOwnerRef,scopeRef:c.scopeRef,historicalReadOnly:true});
+      readOriginalHostContext,authorizeOriginalTechnicalRead,originalWriteOwnerRef:c.originalWriteOwnerRef,scopeRef:c.scopeRef,historicalReadOnly:true,enableOriginalTechnicalObjectHistory});
     async function readDiff(){
       const saved=await publication.inspectOriginalPublication();await guard();
       if(saved.frames[0]?.state!=='PRESENT')return result('WAITING_FOR_RECIPIENT_DIFF_PRESENT',{acceptedHead:null,diff:null});
@@ -288,9 +288,9 @@ export async function readT4OriginalReplacementOwnerHistory({request,technicalSc
     }
     if(phase.currentPhase!=='PUBLISHED')fail('REPLACEMENT_CONTENT_HISTORY_SOURCE_PHASE_INVALID');
     const publication=createT4OriginalNetworkPublicationPort({technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,
-      readOriginalHostContext,authorizeOriginalTechnicalRead,session:c,historicalReadOnly:true,verifyOriginalHistoricalNodeSignature});
+      readOriginalHostContext,authorizeOriginalTechnicalRead,session:c,historicalReadOnly:true,enableOriginalTechnicalObjectHistory,verifyOriginalHistoricalNodeSignature});
     const replay=createT4OriginalNetworkReplayPort({technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,
-      readOriginalHostContext,authorizeOriginalTechnicalRead,originalWriteOwnerRef:c.originalWriteOwnerRef,scopeRef:c.scopeRef,historicalReadOnly:true});
+      readOriginalHostContext,authorizeOriginalTechnicalRead,originalWriteOwnerRef:c.originalWriteOwnerRef,scopeRef:c.scopeRef,historicalReadOnly:true,enableOriginalTechnicalObjectHistory});
     async function readContent(){
       const acceptedDiff=await verifyT4CandidateHistoricalReceivedFrame({wireBytes:Buffer.from(r.diffWireBase64,'base64'),localNodeRef,
         scopeRef:c.scopeRef,requiredCryptoSuite,supportedCriticalExtensions:[],verifyOriginalHistoricalNodeSignature,
@@ -316,7 +316,7 @@ export async function readT4OriginalReplacementOwnerHistory({request,technicalSc
     }
     validateT4OriginalReplacementSourceIntentStatus(phase,c);
     const publication=createT4OriginalNetworkPublicationPort({technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,
-      readOriginalHostContext,authorizeOriginalTechnicalRead,session:c,historicalReadOnly:true,verifyOriginalHistoricalNodeSignature});
+      readOriginalHostContext,authorizeOriginalTechnicalRead,session:c,historicalReadOnly:true,enableOriginalTechnicalObjectHistory,verifyOriginalHistoricalNodeSignature});
     const head=await publication.readOriginalHistoricalPublishedFrame({sequence:1,includePresentEventAnchor:true});await guard();
     if(head.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_FRAME_V1'||head.sessionRef!==c.sessionRef||head.sequence!==1||head.messageType!=='HEADS'||
       head.originalT3PublicationEventChainVerified!==true||head.originalHistoricalPublicationProven!==true||head.originalHistoricalEvidenceOnly!==true||
@@ -338,12 +338,12 @@ export async function readT4OriginalReplacementOwnerHistory({request,technicalSc
   else if(!same(validateT4OriginalReplacementRecipientApplyAdmission(phase.originalReplacementRecipientAdmission).candidate,c))
     fail('REPLACEMENT_HISTORY_RECIPIENT_ADMISSION_MISMATCH');
   const publication=await createT4OriginalNetworkPublicationPort({technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,
-    readOriginalHostContext,authorizeOriginalTechnicalRead,session:c,historicalReadOnly:true,verifyOriginalHistoricalNodeSignature})
+    readOriginalHostContext,authorizeOriginalTechnicalRead,session:c,historicalReadOnly:true,enableOriginalTechnicalObjectHistory,verifyOriginalHistoricalNodeSignature})
     .readOriginalHistoricalPublishedBatch();await guard();
   let acceptedAck=null,retiredAck=null;
   if(role==='SOURCE'){
     const replay=createT4OriginalNetworkReplayPort({technicalSchemaId,technicalWorkspaceId,localNodeRef,originalKernel,getMode,
-      readOriginalHostContext,authorizeOriginalTechnicalRead,originalWriteOwnerRef:c.originalWriteOwnerRef,scopeRef:c.scopeRef,historicalReadOnly:true});
+      readOriginalHostContext,authorizeOriginalTechnicalRead,originalWriteOwnerRef:c.originalWriteOwnerRef,scopeRef:c.scopeRef,historicalReadOnly:true,enableOriginalTechnicalObjectHistory});
     const frame=createT4CandidateFrameTransport({getMode,readOriginalHostContext,authorizeOriginalHostWire,
       originalHostNodeRef:localNodeRef,originalHostScopeRef:c.scopeRef,historicalReadOnly:true,verifyOriginalHistoricalNodeSignature,
       readOriginalHistoricalReplayEvidence:replay.readOriginalHistoricalReplayEvidence,readOriginalHistoricalAppliedAckSlot:replay.readOriginalHistoricalAppliedAckSlot});
