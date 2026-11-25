@@ -195,3 +195,67 @@ test('K94 combined original inventory reuses signed catalog readback without hid
   await assert.rejects(f.port().readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_ORIGINAL_AUTHORITY_DENIED'});
   assert.equal(f.writes,2);
 });
+
+function pagedFixture(size=2){
+  const f=fixture(),calls=[];
+  f.params.enableOriginalTechnicalCommitOrder=true;
+  f.params.originalTechnicalPageSize=size;
+  f.params.originalKernel.listEventsSince=async()=>{throw Error('legacy history must not be used');};
+  f.params.originalKernel.listEventCommitWindow=async(ws,after,limit)=>{
+    assert.equal(ws,'ws:technical');calls.push({ws,after,limit});
+    const start=after===null?0:f.events.findIndex(e=>e.event_id===after)+1;
+    assert.ok(after===null||start>0);
+    const entries=f.events.slice(start,start+limit).map(event=>({event:structuredClone(event),legacy_history:false}));
+    return {entries,next_after_event_id:entries.at(-1)?.event.event_id??after,
+      has_more:start+limit<f.events.length,order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+  };
+  return {...f,calls};
+}
+test('K122 selected DB9 ledger crosses technical history ceiling and survives a cold original owner read',async()=>{
+  const f=pagedFixture(1024),p=f.port();
+  await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  // Unrelated technical Event bodies must not be collected as capture witnesses.
+  for(let i=0;i<100001;i++)f.events.push({workspace_id:'ws:technical',event_id:'event:other:'+i,object_id:'other:'+i});
+  f.restart();const cold=f.port();
+  assert.deepEqual(await cold.readOriginalIntent(query),intent);
+  const inventory=await cold.readOriginalCaptureInventory(scope);
+  assert.equal(inventory.pairs.length,1);assert.equal(inventory.pending.length,0);
+  assert.deepEqual(inventory.pairs[0].outbox,outbox);
+  assert.ok(f.calls.some(c=>c.after==='event:other:1021'));
+  assert.equal(f.events.length,100003);
+});
+test('K122 paged capture fails closed on missing exact operation or mid-page revocation for either role',async()=>{
+  const f=pagedFixture(),p=f.port();
+  await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  f.params.originalKernel.hasOperation=op=>op!=='t1.listEventCommitWindow';
+  assert.throws(()=>f.port(),{code:'CAPTURE_LEDGER_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED'});
+  f.params.originalKernel.hasOperation=()=>true;
+  const page=f.params.originalKernel.listEventCommitWindow;
+  let read=false;
+  f.params.originalKernel.listEventCommitWindow=async(...args)=>{const v=await page(...args);read=true;return v;};
+  for(const role of ['intent','outbox']){
+    read=false;
+    f.params.authorizeOriginalTechnicalRead=proof=>!(read&&proof.recordRole===role&&proof.operation==='t1.listEventCommitWindow');
+    await assert.rejects(f.port().readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_ORIGINAL_AUTHORITY_DENIED'});
+  }
+});
+test('K122 duplicate or missing original technical witnesses outside selected filter still deny inventory',async()=>{
+  const f=pagedFixture(1),p=f.port();
+  await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  const event=f.events[1];f.events.push({...event,event_id:'event:duplicate'});
+  await assert.rejects(p.listOriginalOutbox({...scope,sourceEventId:'event:unknown'}),{code:'CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN'});
+  f.events.pop();
+  f.objects.delete(event.object_id);
+  await assert.rejects(p.listOriginalOutbox({...scope,sourceEventId:'event:unknown'}),{code:'CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING'});
+});
+test('K122 exact historical absence cannot be inferred from an unavailable continuation or expired Host',async()=>{
+  const f=pagedFixture(1),p=f.port();await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  const page=f.params.originalKernel.listEventCommitWindow;
+  f.params.originalKernel.listEventCommitWindow=async(...args)=>{
+    if(args[1]!==null)throw Error('lost technical continuation');return page(...args);
+  };
+  await assert.rejects(p.readOriginalIntent({...scope,captureRef:'capture:missing'}),/lost technical continuation/);
+  f.params.originalKernel.listEventCommitWindow=page;let active=true;
+  const scoped=p.forOriginalHostLifetime(()=>active);active=false;
+  await assert.rejects(scoped.readOriginalIntent(query));
+});

@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID} from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
+import {visitT4OriginalTechnicalCommitEvents} from './original-technical-event-pages.mjs';
 
 const SCHEMA='IWXA_T4_ORIGINAL_NETWORK_CAPTURE_LEDGER_RECORD_V1';
 const EVENT='t4.network.original.capture.record';
@@ -43,7 +44,13 @@ function subjectOf(payload,kind){
 export function createT4OriginalHostCaptureLedgerPort({
   originalKernel,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
   getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
+  enableOriginalTechnicalCommitOrder=false,originalTechnicalPageSize=256,
 }={}){
+  if(typeof enableOriginalTechnicalCommitOrder!=='boolean'||
+    !Number.isSafeInteger(originalTechnicalPageSize)||originalTechnicalPageSize<1||originalTechnicalPageSize>1024||
+    (enableOriginalTechnicalCommitOrder&&(originalKernel?.hasOperation?.('t1.listEventCommitWindow')!==true||
+      typeof originalKernel.listEventCommitWindow!=='function')))
+    fail('CAPTURE_LEDGER_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
   if(![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef].every(ID)||
     technicalWorkspaceId===sourceWorkspaceId||
     ![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite]
@@ -89,12 +96,39 @@ export function createT4OriginalHostCaptureLedgerPort({
   function eventPayload(data){return {captureRef:data.captureRef,role:data.role,
     recordDigest:data.recordDigest,kind:data.kind,sourceEventId:data.payload.sourceEventId??null,
     sourceWorkspaceId,originalWriteOwnerRef};}
-  async function events(initial,role,captureRef=null){
-    await guard(initial,'t1.listEventsSince',role,captureRef);
+  // The installed native owner retains its existing exclusive relay task.
+  // Both original read operations and every requested role remain required.
+  // The selected DB9 route must never silently downgrade to a full read.
+  async function visitEvents(initial,roles,captureRef,visitOriginalEvent){
+    const authorize=async()=>{
+      for(const role of roles){
+        await guard(initial,'t1.listEventsSince',role,captureRef);
+        if(enableOriginalTechnicalCommitOrder)
+          await guard(initial,'t1.listEventCommitWindow',role,captureRef);
+      }
+      return true;
+    };
+    if(enableOriginalTechnicalCommitOrder){
+      await visitT4OriginalTechnicalCommitEvents({
+        workspaceId:technicalWorkspaceId,pageSize:originalTechnicalPageSize,
+        authorizeOriginalPage:authorize,visitOriginalEvent,
+        readOriginalTechnicalCommitPage:proof=>originalKernel.listEventCommitWindow(
+          technicalWorkspaceId,proof.afterEventId,proof.limit),
+      });
+      return;
+    }
+    await authorize();
     const value=await originalKernel.listEventsSince(technicalWorkspaceId);
-    await guard(initial,'t1.listEventsSince',role,captureRef);
+    await authorize();
     if(!Array.isArray(value)||value.length>100000)fail('CAPTURE_LEDGER_ORIGINAL_EVENTS_INVALID');
-    return value;
+    for(const e of value)visitOriginalEvent(e);
+  }
+  async function events(initial,role,captureRef){
+    const objectId=ref(role,captureRef),matches=[];
+    await visitEvents(initial,[role],captureRef,e=>{
+      if(e?.workspace_id===technicalWorkspaceId&&e.object_id===objectId)matches.push(e);
+    });
+    return matches;
   }
   async function read(role,query,initial,knownEvents,catalogObject=null){
     checkScope(query);const objectId=ref(role,query.captureRef);
@@ -186,13 +220,9 @@ export function createT4OriginalHostCaptureLedgerPort({
         fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
       rows.set(o.object_id,copy(o));
     }
-    for(const role of roles)await guard(initial,'t1.listEventsSince',role);
-    const all=await originalKernel.listEventsSince(technicalWorkspaceId);
-    for(const role of roles)await guard(initial,'t1.listEventsSince',role);
-    if(!Array.isArray(all)||all.length>100000)fail('CAPTURE_LEDGER_ORIGINAL_EVENTS_INVALID');
     const eventIds=new Set();
-    for(const e of all){
-      const role=roleOf(e?.object_id);if(role===null)continue;
+    await visitEvents(initial,roles,null,e=>{
+      const role=roleOf(e?.object_id);if(role===null)return;
       const {rows,witnesses}=partitions.get(role),p=e.payload;
       if(e.workspace_id!==technicalWorkspaceId||e.revision!==1||e.event_type!==EVENT||
         !ID(e.event_id)||eventIds.has(e.event_id)||witnesses.has(e.object_id)||
@@ -204,7 +234,7 @@ export function createT4OriginalHostCaptureLedgerPort({
       if(!rows.has(e.object_id))
         fail('CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING',{recordRole:role,captureRef:p.captureRef});
       eventIds.add(e.event_id);witnesses.set(e.object_id,e);
-    }
+    });
     const result=new Map();
     for(const [role,{rows,witnesses}] of partitions){
       if(witnesses.size!==rows.size)fail('CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN');
@@ -304,6 +334,7 @@ export function createT4OriginalHostCaptureLedgerPort({
     forOriginalHostLifetime:isHostActive=>createT4OriginalHostCaptureLedgerPort({
       originalKernel,...identity,getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
+      enableOriginalTechnicalCommitOrder,originalTechnicalPageSize,
     }),
   });
 }

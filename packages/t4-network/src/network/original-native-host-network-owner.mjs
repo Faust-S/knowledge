@@ -428,7 +428,8 @@ export function createT4OriginalNativeHostNetworkOwner({
         },readOriginalLocalOwnerHistory:readLocalOwnerHistory}):
       Promise.resolve({state:'WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE',selection});
     if(role==='SOURCE'){
-      const ledger=createT4OriginalHostCaptureLedgerPort(tech);
+      const ledger=createT4OriginalHostCaptureLedgerPort({...tech,
+        enableOriginalTechnicalCommitOrder:enableOriginalCommitOrder});
       const historyBoundary=enableOriginalCommitOrder?bindT4OriginalHistoryBoundary({
         workspaceId:sourceWorkspaceId,originalWriteOwnerRef,getMode,
         withOriginalSubjectMutation:callback('withOriginalSubjectMutation'),
@@ -898,7 +899,10 @@ export function createT4OriginalNativeHostNetworkOwner({
       if(workspaceId!==sourceWorkspaceId&&workspaceId!==technicalWorkspaceId)return null;
       // Technical writes can only be to the original T4 technical schema.
       // The source publication task cannot mutate its business Workspace.
-      if(proof.operation==='t1.listEventCommitWindow'&&workspaceId!==sourceWorkspaceId)return null;
+      if(proof.operation==='t1.listEventCommitWindow'&&
+        (!enableOriginalCommitOrder||role!=='SOURCE'||
+          (workspaceId===technicalWorkspaceId&&!state.waking&&!state.localMutation&&!state.historyReading)))
+        return null;
       const write=!['t1.getObject','t1.listObjects','t1.listEventsSince','t1.listEventCommitWindow','t1.listAssets','t1.getAsset'].includes(proof.operation);
       if(workspaceId===technicalWorkspaceId&&write&&
         (proof.operation!=='t1.putObject'||first?.schema_id!==technicalSchemaId||!first.object_id?.startsWith('t4:net:')))
