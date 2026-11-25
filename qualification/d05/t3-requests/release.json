@@ -1,10 +1,10 @@
 {
   "schema": "IWXA_D05_T3_GROUPED_QUALIFICATION_REQUEST/1",
-  "siteCommit": "64dcbe764ab05136bd6f9d4f4a3bf902897b06b7",
+  "siteCommit": "1d6f15b290458ecf44001184725eda1920f11b3b",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
-  "assistantCommit": "d27eaaecfff005bc788b6a04b5944526e4ba6f6f",
+  "assistantCommit": "46ae9e8b750df32faf3f8bcd257ccc961900f2f6",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
-  "witnessCommit": "273ddf175df30df40ba983444a4b94d4894eb0e4",
+  "witnessCommit": "55be3a6382e49f1101b283a24ad885a0ffeffb67",
   "evaluatorCommit": "d506577539a4ca530a02f548fa2b225221a6af11",
   "expectedRetainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
   "skillsVersion": "1.6.0",
@@ -31,10 +31,11 @@
     45662818819,
     45666678817,
     45682754906,
-    45685741390
+    45685741390,
+    45692010068
   ],
   "scopeExpansionAllowed": false,
-  "reason": "Qualify the frozen 1.6.0 native-language recommendation correction. Prior run completed real inference and retained exact source 7/7, but passed 4/7 choices. The same light model, subject catalog, hardware witness bytes, browser gates, retained-input gate and existing publication procedure are required. No changes to permissions, publication transport, acceptance requirements or product scope.",
+  "reason": "Qualify only the explicit user-scope clarification correction after native-language labels yielded 6/7 exact choices and 7/7 exact sources. Retain every authored option, independent model choice, original witness, original One Core, same light profile, complete functional and private publication gates. No new product scope, no changed acceptance rules, no permission change.",
   "productAccepted": false,
   "remotePublicationVerified": false,
   "formatOnlyCorrection": false,
