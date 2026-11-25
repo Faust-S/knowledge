@@ -10,7 +10,7 @@ import {tmpdir} from 'node:os';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 import {materializeOriginalAdminT2Product} from '../scripts/materialize-original-admin-t2-product.mjs';
-import {materializeOriginalAgentT2Product} from '../scripts/build-original-agent-one-dist.mjs';
+import {materializeOriginalAgentT2Product,buildOriginalAgentOneDist} from '../scripts/build-original-agent-one-dist.mjs';
 import {assembleSignedControlDist} from '../scripts/assemble-signed-control-dist.mjs';
 import {assertQualifiedKernelArtifact} from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
 import {CANDIDATE_KERNEL_ARTIFACT,selectQualificationKernelCandidate}
@@ -26,6 +26,7 @@ const qualified=process.env.IWXA_COMPANY_TEST_QUALIFIED_T2;
 const idbModule=process.env.IWXA_COMPANY_TEST_IDB_MODULE;
 const candidateDir=process.env.IWXA_COMPANY_TEST_CANDIDATE_T2;
 const candidateReceipt=process.env.IWXA_COMPANY_TEST_CANDIDATE_RECEIPT;
+const realCompiledUi=process.env.IWXA_COMPANY_TEST_COMPILED_T3;
 const artifactId='iwxa-kernel-k036-same-store-history-20261019-qualified.1';
 const ws='ws:corporate-roundtrip',org='org:corporate-roundtrip';
 const sha=s=>createHash('sha256').update(s).digest('hex');
@@ -87,6 +88,8 @@ function candidateSelection(verified){
     else assert.equal(row.sha256,next.sha256);
   }
   assertInstalledOriginalKernelArtifact(candidateDir,CANDIDATE_KERNEL_ARTIFACT);
+  assert.throws(()=>assertInstalledOriginalKernelArtifact(qualified,CANDIDATE_KERNEL_ARTIFACT),
+    /FILE_DIGEST_MISMATCH/,'old accepted bytes cannot claim the candidate identity');
   assert.throws(()=>assertQualifiedKernelArtifact(candidateDir,{kernel:'0.3.6',contract:'1.3.0',artifactId}),
     /KERNEL_ARTIFACT_MISMATCH/,'candidate must not be admitted under the prior accepted ID');
   return CANDIDATE_KERNEL_ARTIFACT;
@@ -113,11 +116,27 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
     const qualificationKernelCandidate=candidateSelection(verified);
     const input=qualificationKernelCandidate?candidateDir:qualified;
     const selected=assertInstalledOriginalKernelArtifact(input,qualificationKernelCandidate);
-    const compiled=join(tmp,'compiled');
-    for(const file of ['signed-workspace.html','isolated-signed-workspace.html','trusted-kernel-realm.html'])
-      put(compiled,file,'<base href="/workspace/"><script type="module" src="/workspace/assets/fixture.js"></script>');
-    put(compiled,'assets/fixture.js','// test-only compiled UI placeholder: not executed');
-    put(compiled,'favicon.ico','fixture');
+    const compiled=realCompiledUi?resolve(realCompiledUi):join(tmp,'compiled');
+    if(qualificationKernelCandidate)
+      assert.ok(realCompiledUi,'CANDIDATE_REAL_COMPILED_T3_REQUIRED');
+    if(!realCompiledUi){
+      for(const file of ['signed-workspace.html','isolated-signed-workspace.html','trusted-kernel-realm.html'])
+        put(compiled,file,'<base href="/workspace/"><script type="module" src="/workspace/assets/fixture.js"></script>');
+      put(compiled,'assets/fixture.js','// test-only compiled UI placeholder: not executed');
+      put(compiled,'favicon.ico','fixture');
+    }
+    // A genuine candidate is only usable in the two native corporate
+    // profiles, not as a normal site, browser domain or test fixture.
+    if(qualificationKernelCandidate){
+      assert.throws(()=>assembleSignedControlDist({t2Dist:input,t3Build:compiled,
+        outputDir:join(tmp,'forbidden-web-dist'),qualificationKernelCandidate}),
+        /CANDIDATE_NATIVE_CORPORATE_QUALIFICATION_ONLY/);
+      assert.throws(()=>assembleSignedControlDist({t2Dist:input,t3Build:compiled,
+        outputDir:join(tmp,'forbidden-fixture-dist'),qualificationKernelCandidate,
+        testOnlyUnqualifiedFixture:true}),/CANDIDATE_NATIVE_CORPORATE_QUALIFICATION_ONLY/);
+      assert.equal(existsSync(join(tmp,'forbidden-web-dist')),false);
+      assert.equal(existsSync(join(tmp,'forbidden-fixture-dist')),false);
+    }
     async function stage(which){
       const agent=which==='agent';
       const productId=agent?'iwxa.personal-agent':'iwxa.admin-center';
@@ -131,8 +150,18 @@ test(candidateDir?'original K036 source-built UNACCEPTED candidate cross-product
       const product=agent
         ?await materializeOriginalAgentT2Product({qualifiedKernelDist:input,agentProfile:profilePath,outputRoot:source,qualificationKernelCandidate})
         :await materializeOriginalAdminT2Product({qualifiedKernelDist:input,centerProfile:profilePath,outputRoot:source,qualificationKernelCandidate});
-      const assembled=assembleSignedControlDist({t2Dist:source,t3Build:compiled,outputDir:dist,qualificationKernelCandidate,
-        ...(agent?{installedOriginalAgentD6:true,desktopAgentControlOnly:true}:{installedOriginalAdminD3:true,desktopAdminControlOnly:true})});
+      let assembled;
+      if(agent){
+        const receiptPath=join(tmp,'agent-assembled-receipt.json');
+        const built=buildOriginalAgentOneDist({t2Dist:source,t3Build:compiled,outputDir:dist,
+          receiptPath,desktopAgentControlOnly:true,qualificationKernelCandidate});
+        assembled=JSON.parse(readFileSync(receiptPath,'utf8'));
+        assert.equal(built.productId,'iwxa.personal-agent');
+        assert.equal(built.original_qualified_artifact,assembled.original_qualified_artifact);
+      }else{
+        assembled=assembleSignedControlDist({t2Dist:source,t3Build:compiled,outputDir:dist,
+          qualificationKernelCandidate,installedOriginalAdminD3:true,desktopAdminControlOnly:true});
+      }
       assert.equal(assembled.original_kernel,'0.3.6');
       assert.equal(assertInstalledOriginalKernelArtifact(dist,qualificationKernelCandidate).artifactSha256,selected.artifactSha256);
       if(qualificationKernelCandidate){
