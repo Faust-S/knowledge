@@ -1,0 +1,57 @@
+{
+  "schema": "IWXA_D05_T3_RESULT_DETAIL_PREPARED_CANDIDATE/1",
+  "status": "PREPARED_NOT_DISPATCHED",
+  "siteCommit": "60e601ab42ed16059c72f722f24ac28e0242c35e",
+  "subjectCommit": "63d417cd42d05f95d4b0468928e855c70d7c8f22",
+  "assistantCommit": "4cf01934c93f19b9b2ea892df2601af4d3514750",
+  "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+  "skillBlob": "46f402f30831f992827f24832f51975f4dc5d76e",
+  "skillsVersion": "1.6.0",
+  "retainedEarlierCandidate": {
+    "siteCommit": "3588dd39b54546ba6604c668a20c2050a5da1d7d",
+    "witnessCommit": "2c9a23c532e242b39520c970b7c1ac72f2449848",
+    "qualification": "NOT_RUN"
+  },
+  "counts": {
+    "skills": 11,
+    "forms": 11,
+    "resultContexts": 15,
+    "authoredChoices": 46
+  },
+  "sourceEvidence": {
+    "authoringGroups": 11,
+    "choiceMappings": 46,
+    "abstentionMappings": 15,
+    "controlledProjectionChecks": 21,
+    "orderIdentityChecks": 12,
+    "originalCalculatorGroups": 3,
+    "originalCalculatorAssertions": 30,
+    "nativeMarkerIdentityChecks": 15,
+    "formMarkerIdentityChecks": 11
+  },
+  "plannedBrowser": {
+    "existingRunner": true,
+    "services": [
+      "material-requirement",
+      "operation-route"
+    ],
+    "viewports": [
+      1440,
+      375
+    ],
+    "expectedAdditionalRoutes": 4,
+    "selectionRequired": true,
+    "staleBeforeRescan": true,
+    "exactReplacement": true,
+    "explicitDeselection": true,
+    "modelNotLoaded": true
+  },
+  "limitations": [
+    "Original calculator bodies were evaluated after explicit TypeScript type erasure in an isolated JS environment; the official Vitest runner was not invoked.",
+    "Native JSX source identity and Git object equality were checked, but full TypeScript, React browser and production build have not run.",
+    "The earlier compact-choice seven-scenario qualification is not yet executed; no existing workflow or request was changed.",
+    "Existing private publication and independent final acceptance remain unresolved."
+  ],
+  "qualification": "NOT_RUN",
+  "productAccepted": false
+}
