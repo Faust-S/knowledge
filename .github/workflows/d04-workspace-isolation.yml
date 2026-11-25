@@ -1,10 +1,5 @@
 name: D04 two personal Workspaces isolation through real T2 Host
 on:
-  push:
-    branches:
-      - work/2026-11-18-d04-life-os-qualification
-    paths:
-      - .github/workflows/d04-workspace-isolation.yml
   workflow_dispatch:
 permissions:
   contents: read

@@ -1,10 +1,5 @@
 name: D04 Waterlow 2005 independent original T2 .iwxa Exchange roundtrip
 on:
-  push:
-    branches:
-      - work/2026-11-18-d04-life-os-qualification
-    paths:
-      - .github/workflows/d04-waterlow-exchange-qualification.yml
   workflow_dispatch:
 permissions:
   contents: read

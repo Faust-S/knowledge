@@ -1,8 +1,5 @@
 name: D04 native T2 3-family Kernel witness
 on:
-  push:
-    branches: [work/2026-11-18-d04-life-os-qualification]
-    paths: [.github/workflows/d04-t2-families-qualification.yml]
   workflow_dispatch:
 permissions:
   contents: read

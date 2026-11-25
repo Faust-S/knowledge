@@ -1,10 +1,5 @@
 name: D04 Waterlow 2005 full UI to original T2 Result revision cold readback
 on:
-  push:
-    branches:
-      - work/2026-11-18-d04-life-os-qualification
-    paths:
-      - .github/workflows/d04-waterlow-native-roundtrip.yml
   workflow_dispatch:
 permissions:
   contents: read
