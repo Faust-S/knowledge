@@ -4,6 +4,12 @@ on:
     branches: [test/2026-11-24-d05-t3-integration]
     paths: [qualification/d05/t3-requests/release.json]
   workflow_dispatch:
+    inputs:
+      publication_recovery:
+        description: Restore the already qualified 1.6.0 tree without repeating functional or hardware qualification
+        type: boolean
+        required: false
+        default: true
 permissions:
   contents: read
   actions: read
@@ -24,11 +30,13 @@ jobs:
       detail_routes: 4
       grounded_advice: true
       full_release: true
+      # This pinned release has completed its exact Linux qualification.
+      publication_recovery: ${{ github.event_name == 'push' || inputs.publication_recovery }}
     secrets:
       DOMEN: ${{ secrets.DOMEN }}
   hardware:
     needs: linux
-    if: ${{ !cancelled() && needs.linux.outputs.functional_ready == 'true' }}
+    if: ${{ !cancelled() && needs.linux.outputs.functional_ready == 'true' && needs.linux.outputs.reused_functional != 'true' }}
     uses: ./.github/workflows/d05-t3-real-model.yml
     with:
       site_sha: '823ded530e34bc5244d055f4d50a495dced931e3'
