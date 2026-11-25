@@ -39,14 +39,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Confirm exact private retention destination without changing it
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: pipeline
+          sparse-checkout: scripts/d06-private-git-transport.sh
+          sparse-checkout-cone-mode: false
+      - name: Confirm exact private retention destination and receive-pack without changing it
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
         shell: bash
+        working-directory: private-site
         run: |
           set -euo pipefail
-          test "$(gh api repos/Faust-S/komplektovod.ru --jq .private)" = "true"
-          test "$(gh api repos/Faust-S/komplektovod.ru/git/ref/heads/test/2026-11-25-d06-t3-production-inputs --jq .object.sha)" = "0be251ff034b890695f47aad47711aaafd681553"
+          bash ../pipeline/scripts/d06-private-git-transport.sh preflight 0be251ff034b890695f47aad47711aaafd681553
           echo D06_T3_RETAIN_PRIVATE_DESTINATION=PASS
       - name: Verify original public portable input
         env:
@@ -312,28 +318,9 @@ jobs:
           NODE
           ) > "$RUNNER_TEMP/d06-retained-commit-private.log" 2>&1
           echo D06_T3_RETAIN_COMMITTED_READBACK=PASS
-          # Credentials are scoped to this private destination and never
-          # written to the source checkout or emitted to a public log.
-          ask="$RUNNER_TEMP/d06-private-askpass.sh"
-          printf '%s\n' '#!/bin/sh' 'case "$1" in *Username*) printf "%s\n" x-access-token;; *) printf "%s\n" "$GH_TOKEN";; esac' > "$ask"
-          chmod 700 "$ask"
-          export GIT_ASKPASS="$ask"
-          trap 'rm -f "$ask"' EXIT
-          remote=https://github.com/Faust-S/komplektovod.ru.git
-          target=refs/heads/test/2026-11-25-d06-t3-production-inputs
-          git -c credential.helper= ls-remote "$remote" "$target" > "$RUNNER_TEMP/d06-remote-before.txt" 2>"$RUNNER_TEMP/d06-remote-private.log" || { echo D06_T3_RETAIN_REMOTE_READ=FAIL; exit 1; }
-          test "$(cut -f1 "$RUNNER_TEMP/d06-remote-before.txt")" = "0be251ff034b890695f47aad47711aaafd681553"
-          git -c credential.helper= push --dry-run "$remote" HEAD:"$target" > "$RUNNER_TEMP/d06-push-private.log" 2>&1 || { echo D06_T3_RETAIN_WRITE_PREFLIGHT=FAIL; exit 1; }
-          echo D06_T3_RETAIN_WRITE_PREFLIGHT=PASS
-          git -c credential.helper= push "$remote" HEAD:"$target" > "$RUNNER_TEMP/d06-push-private.log" 2>&1 || {
-            echo D06_T3_RETAIN_PUSH=FAIL
-            for reason in 'Authentication failed' 'Permission denied' '403' 'non-fast-forward' 'protected branch' 'large files' 'exceeds' 'Could not resolve host'; do
-              if grep -Fqi "$reason" "$RUNNER_TEMP/d06-push-private.log"; then echo "D06_T3_RETAIN_PUSH_CLASS=$reason"; fi
-            done
-            exit 1
-          }
-          test "$(gh api repos/Faust-S/komplektovod.ru/git/ref/heads/test/2026-11-25-d06-t3-production-inputs --jq .object.sha)" = "$candidate"
-          test "$(gh api repos/Faust-S/komplektovod.ru --jq .private)" = "true"
+          # Use the owner-authorized DOMEN token, not the public runner token.
+          # Do not change branch protections, scopes, or push any other ref.
+          bash ../pipeline/scripts/d06-private-git-transport.sh publish 0be251ff034b890695f47aad47711aaafd681553 "$candidate"
           echo D06_T3_RETAIN_PRIVATE_PUSH=PASS
           echo "D06_T3_RETAIN_REMOTE_COMMIT=$candidate"
       - name: Privacy and evidence boundary
