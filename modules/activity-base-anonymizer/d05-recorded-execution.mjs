@@ -47,7 +47,7 @@ function number(value,issues){
 }
 const linked=(row,...targets)=>targets.every(t=>id(t)&&row.links.has(t));
 const flag=(v,values)=>values.has(v)?v:null;
-export function projectD05RecordedExecution(entries,plans,templates,details,workspace){
+export function projectD05RecordedExecution(entries,plans,templates,details,workspace,templateRevisions){
  need(Array.isArray(details)&&details.length<=512,'D05_RECORDED_SELECTION_LIMIT');
  const rows=details.map(d=>read(d,workspace));
  need(new Set(rows.map(r=>r.id)).size===rows.length,'D05_RECORDED_DUPLICATE');
@@ -57,9 +57,13 @@ export function projectD05RecordedExecution(entries,plans,templates,details,work
   const issues=new Set(),reports=[];
   if(entry.ambiguous)return {model_number:entry.number,reports,issues:['AMBIGUOUS_OPERATION_MAPPING']};
   const orders=byType['production-order'].filter(r=>r.body.plan_snapshot?.operations_ref===entry.routeId);
+  // The existing D05 completed-production reader requires a frozen revision
+  // 1 of the calculation source and approved order. Do not attach current
+  // results to a later changed route without that historical source.
   const planList=plans.filter(p=>p.body.linked_operation_route_id===entry.routeId&&p.links.has(entry.routeId));
   const plan=planList.length===1?planList[0]:null;
   for(const order of orders){
+   if(entry.sourceRevision!==1||order.ref.revision!==1){issues.add('FROZEN_ROUTE_REVISION_REQUIRED');continue;}
    if(!linked(order,entry.routeId)){issues.add('ORDER_ROUTE_LINK_MISSING');continue;}
    const executions=byType['production-execution'].filter(r=>r.body.production_order_ref===order.id);
    if(executions.length!==1){issues.add('EXECUTION_MISSING_OR_AMBIGUOUS');continue;}
@@ -100,22 +104,29 @@ export function projectD05RecordedExecution(entries,plans,templates,details,work
      produced:number(v.produced_qty,issues),scrap:number(v.scrap_qty,issues),rework:number(v.rework_qty,issues),
      quality_deviations:localText(v.quality_deviations)});
    }
-   for(const row of byType['quality-check-result'].filter(r=>r.body.production_order_ref===order.id)){
+   const qcRows=byType['quality-check-result'].filter(r=>r.body.production_order_ref===order.id);
+   const recordedTime=r=>{const v=r.body.checked_at??r.body.updated_at??r.body.created_at;return typeof v==='string'?Date.parse(v):NaN;};
+   const times=qcRows.map(recordedTime),known=times.every(Number.isFinite)&&new Set(times).size===times.length;
+   if(known)qcRows.sort((a,b)=>recordedTime(a)-recordedTime(b));
+   for(const row of qcRows){
     const v=row.body;if(!belongs(row)){issues.add('QUALITY_EXECUTION_LINK_INVALID');continue;}
     if(v.control_point_ref){
      const template=templates.get(v.control_point_ref);
-     if(!plan||v.quality_plan_ref!==plan.row.object_id||!template||
+     if(!plan||plan.row.revision!==1||templateRevisions.get(v.control_point_ref)!==1){
+      issues.add('FROZEN_QUALITY_REVISION_REQUIRED');continue;
+     }
+     if(v.quality_plan_ref!==plan.row.object_id||!template||
       !plan.body.check_template_ids?.includes(v.control_point_ref)||!plan.links.has(v.control_point_ref)||
       !linked(row,plan.row.object_id,v.control_point_ref)||!qualityStatuses.has(v.status)){
       issues.add('QUALITY_CONTROL_LINK_INVALID');continue;
      }
      qualityIds.set(row.id,quality.length+1);related.add(row.id);
-     quality.push({kind:'CONTROL_REPORT',control:localText(template.title),status:v.status,
+     quality.push({kind:'CONTROL_REPORT',reported_sequence:known?qcRows.indexOf(row)+1:null,control:localText(template.title),status:v.status,
       scope:v.batch_ref?'BATCH_REPORT':'ORDER_REPORT',measured_value:localText(v.measured_value),
       deviation_type:localText(v.deviation_type),result_note:localText(v.text_result),comment:localText(v.comment)});
     }else if(typeof v.passed==='boolean'){
      related.add(row.id);
-     quality.push({kind:'QUANTITY_VERDICT_REPORT',reported_passed:v.passed,
+     quality.push({kind:'QUANTITY_VERDICT_REPORT',reported_sequence:known?qcRows.indexOf(row)+1:null,reported_passed:v.passed,
       produced:number(v.produced_qty,issues),accepted:number(v.accepted_qty,issues),
       rejected:number(v.rejected_qty,issues)});
     }

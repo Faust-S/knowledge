@@ -118,7 +118,8 @@ function shapeRoute(record,number){
     :field(inputs[f]));
   if(routeValues.includes(null))incomplete.push('ROUTE_PARAMETERS');
   differences.set('ROUTE_PARAMETERS',key(routeValues));
-  return {routeId,number,source,signature,operations,edgeCount,differences,incomplete,ambiguous,aliases,inputs,nodes,ordered};
+  return {routeId,number,source,sourceRevision:Number.isSafeInteger(record?.revision)?record.revision:null,
+    signature,operations,edgeCount,differences,incomplete,ambiguous,aliases,inputs,nodes,ordered};
 }
 export function reviewD05RouteModels(records,{includeTechnologyDraft=false}={}){
   require(typeof includeTechnologyDraft==='boolean','D05_ROUTE_DRAFT_OPTION_INVALID');
@@ -341,7 +342,7 @@ export function reviewD05RouteModelsWithQuality(records,planDetails,templateReco
   const resultWithDraft=includeTechnologyDraft?attachTechnologyDraft(output,records,entries,reviewed):output;
   if(recordedDetails!==null){
     require(includeTechnologyDraft,'D05_RECORDED_SELECTION_REQUIRES_TECHNOLOGY');
-    return {...resultWithDraft,recorded_execution_review:projectD05RecordedExecution(entries,plans,templates,recordedDetails,ws)};
+    return {...resultWithDraft,recorded_execution_review:projectD05RecordedExecution(entries,plans,templates,recordedDetails,ws,new Map(templateRecords.map(row=>[row.object_id,row.revision])))};
   }
   return resultWithDraft;
 }

@@ -366,6 +366,15 @@ test('recorded defects and actuals without original matching links cannot become
  const missing=review(data);
  assert.equal(missing.recorded_execution_review.report_count,0);
  assert.ok(missing.recorded_execution_review.profiles[0].issues.includes('EXECUTION_ROUTE_LINK_MISSING'));
+ const changed=recordedCase();routes(changed)[0].object.revision=2;
+ const stale=review(changed);
+ assert.equal(stale.recorded_execution_review.report_count,0);
+ assert.ok(stale.recorded_execution_review.profiles[0].issues.includes('FROZEN_ROUTE_REVISION_REQUIRED'));
+ const qcChanged=recordedCase();checks(qcChanged)[0].object.revision=2;
+ const noQuality=review(qcChanged);
+ assert.equal(noQuality.recorded_execution_review.profiles[0].reports[0].quality.length,0);
+ assert.equal(noQuality.recorded_execution_review.profiles[0].reports[0].defects.length,0);
+ assert.ok(noQuality.recorded_execution_review.profiles[0].issues.includes('FROZEN_QUALITY_REVISION_REQUIRED'));
 });
 
 import {reviewSelectedD05RouteModels} from '../modules/activity-base-anonymizer/d05-route-host.mjs';
