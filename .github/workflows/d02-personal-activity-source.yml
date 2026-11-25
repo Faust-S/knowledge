@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: 2adc31c6fd2fdb15d548fc546e0f695535af45bf
+          ref: e3b0ed5909bad673236a46b353f6faeb90f2bfe2
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: owner
@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 06d36839ff4c67d75393633dcfdce234077441fa
+          ref: e11f07be2fd2cae347110a7ece05d3f4e24d3e08
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 2adc31c6fd2fdb15d548fc546e0f695535af45bf && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 2adc31c6fd2fdb15d548fc546e0f695535af45bf --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" e3b0ed5909bad673236a46b353f6faeb90f2bfe2 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" e3b0ed5909bad673236a46b353f6faeb90f2bfe2 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
             echo D02_OFFICIAL_SKILLS_IMPORT=FAIL
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/d02-import.private" | sort -u | head -20 || true
             exit 1
@@ -94,6 +94,12 @@ jobs:
           const prompt=skillPrompt(loaded,skill,'Проверить с запасом',{resultHint:hint});
           assert.match(prompt,/не прогноз и не гарантия/);
           assert.match(prompt,/К проверке/);
+          for(const [query,id] of [['сверить обязательства цели','goal-map'],['что изменить в плане цели','goal-map'],['записать отсутствующее время','route-30-days'],['сверить ожидаемое поступление','personal-economy']]){
+            assert.equal(rankSkills(loaded,query,{limit:1})[0]?.id,id);
+          }
+          const worklistHint=loaded.resultHints.find(x=>x.marker==='data-club-goal-list');
+          assert.match(skillPrompt(loaded,skill,'Сверить обязательства цели',{resultHint:worklistHint}),/Дела и деньги для сверки/);
+          console.log('D02_ORIGINAL_T3_EXACT_REVIEW_WORKLIST_SKILL=PASS');
           console.log('D02_ORIGINAL_T3_REVIEW_SKILL_SELECTION_AND_PROMPT=PASS');
           console.log('D02_ORIGINAL_T3_IMPORTED_SKILL_RUNTIME=PASS');
           NODE

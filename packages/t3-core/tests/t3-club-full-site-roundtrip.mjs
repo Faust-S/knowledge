@@ -1758,8 +1758,59 @@ try{
  check(restoredGoal?.objectId===goalId&&restoredProof?.objectId===proofId&&restoredWeek?.objectId==="club-week-plan"&&restoredCash?.objectId==="personal-economy","GOAL_REVIEW_CONTEXT_ORIGINAL_IDS");
  check([restoredGoal,restoredProof,restoredWeek,restoredCash].every(o=>o.kernelSource?.syncedUpdatedAt===o.updatedAt&&o.kernelSource?.workspaceId===restoredGoal.kernelSource?.workspaceId),"GOAL_REVIEW_CONTEXT_KERNEL_BINDINGS");
  check(restoredWeek.data.personalWeekPlan.slots.find(s=>s.id===goalResourceTask.id)?.fact?.minutes===110&&isDeepStrictEqual(restoredCash.data.cashCalendar.closedPeriods[0].entries.find(e=>e.id===plannedTool.id),settledTool),"GOAL_REVIEW_CONTEXT_ORIGINAL_FACTS");
- check((await page.locator("[data-club-goal-list]").textContent()).includes("Остались обязательства: дел 0, денежных планов 1"),"GOAL_REVIEW_CONTEXT_REASON_PRESERVED");
+ phase="INDEPENDENT_GOAL_REVIEW_CONTEXT_PROJECTED";
+ // Recalculate from the actual restored original Results before checking
+ // rendering. This separates a projection failure from an unmounted view.
+ const projected=await page.evaluate(async id=>{
+  const {collectClubGoalPortfolio}=await import("/assets/club-goal-portfolio.mjs");
+  const now=new Date(),day=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  const g=collectClubGoalPortfolio(JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")),{day}).goals.find(x=>x.objectId===id);
+  return g?{state:g.lifecycle.status,work:g.activity.plannedCount,money:g.money.plannedCount,
+   timeStatus:g.experience.timeStatus,cashStatus:g.experience.cashStatus,issues:g.review.issues.map(x=>x.code)}:null;
+ },goalId);
+ check(projected?.state==="completed"&&projected.work===0&&projected.money===1&&projected.issues.includes("inactive-obligations"),"GOAL_REVIEW_CONTEXT_PROJECTION_PRESERVED");
+ const restoredList=page.locator("[data-club-goal-list]");
+ await poll(async()=>await restoredList.getAttribute("data-iwxa-assistant-state")==="ready"&&
+  (await restoredList.textContent()).includes("Остались обязательства: дел 0, денежных планов 1"),"GOAL_REVIEW_CONTEXT_REASON_PRESERVED");
  log("INDEPENDENT_GOAL_REVIEW_CONTEXT_RESTORED_OFFLINE");
+ phase="INDEPENDENT_GOAL_REVIEW_EXACT_CASH";
+ const reviewWorklist=restoredList.locator("[data-club-goal-review-worklist]");
+ await reviewWorklist.waitFor({state:"visible"});
+ if(!await reviewWorklist.evaluate(el=>el.open))await reviewWorklist.locator(":scope > summary").click();
+ const reviewCashLink=reviewWorklist.locator("a[data-club-goal-review-source]");
+ await poll(async()=>await reviewCashLink.count()===1,"GOAL_REVIEW_ONE_UNRESOLVED_ENTRY");
+ const cashUrl=new URL(await reviewCashLink.getAttribute("href"),page.url());
+ check(cashUrl.searchParams.get("club_cash_entry")===expectedEditedPayment.id&&cashUrl.searchParams.get("club_cash_goal")===goalId&&
+  cashUrl.searchParams.get("club_cash_rev")===restoredCash.updatedAt&&cashUrl.searchParams.get("workspace_id")===restoredCash.kernelSource.workspaceId&&
+  cashUrl.searchParams.get("club_cash_review")==="1","GOAL_REVIEW_EXACT_CASH_LINK");
+ await reviewCashLink.click();
+ const reviewCashForm=page.locator("[data-cash-calendar-entry]");
+ await reviewCashForm.waitFor({state:"visible"});
+ await poll(async()=>await reviewCashForm.getAttribute("data-edit-id")===expectedEditedPayment.id&&
+  await reviewCashForm.locator("[data-cash-calendar-save]").isEnabled(),"GOAL_REVIEW_CASH_ORIGINAL_EDITOR_READY");
+ check(await reviewCashForm.locator('[name="date"]').inputValue()===expectedEditedPayment.date&&
+  await reviewCashForm.locator('[name="amountRUB"]').inputValue()===String(expectedEditedPayment.amountRUB)&&
+  await reviewCashForm.locator('[name="status"]').inputValue()==="planned","GOAL_REVIEW_CASH_ORIGINAL_FIELDS");
+ check(isDeepStrictEqual(await localCash(),restoredCash),"GOAL_REVIEW_CASH_OPEN_NO_WRITE");
+ // In the isolated recipient, the person explicitly records settlement of
+ // the one original payment. The exported archive and source stay unchanged.
+ await reviewCashForm.locator('[name="date"]').fill(cashDates.today);
+ await reviewCashForm.locator('[name="status"]').selectOption("actual");
+ await reviewCashForm.locator("[data-cash-calendar-save]").click();
+ await poll(async()=>(await localCash())?.data?.cashCalendar?.entries?.[0]?.status==="actual","GOAL_REVIEW_CASH_ONE_EXPLICIT_FACT");
+ const corrected=await localCash(),correctedEntry=corrected.data.cashCalendar.entries[0];
+ check(corrected.data.cashCalendar.entries.length===1&&correctedEntry.id===expectedEditedPayment.id&&
+  correctedEntry.date===cashDates.today&&correctedEntry.goalId===goalId&&correctedEntry.amountRUB===expectedEditedPayment.amountRUB&&
+  isDeepStrictEqual(correctedEntry.planBasis,{date:expectedEditedPayment.date,amountRUB:expectedEditedPayment.amountRUB,goalId}),"GOAL_REVIEW_CASH_EXACT_PLAN_TO_FACT");
+ check(isDeepStrictEqual(corrected.data.cashCalendar.closedPeriods,restoredCash.data.cashCalendar.closedPeriods)&&
+  isDeepStrictEqual(await localGoal(),restoredGoal)&&isDeepStrictEqual(await localProof(),restoredProof)&&isDeepStrictEqual(await localWeek(),restoredWeek),"GOAL_REVIEW_UNRELATED_RESULTS_UNCHANGED");
+ const backToGoal=page.getByRole("button",{name:"Вернуться к проверке цели",exact:true});
+ await backToGoal.waitFor({state:"visible"});await backToGoal.click();
+ await poll(async()=>await page.locator("[data-club-goal-list]").getAttribute("data-iwxa-assistant-state")==="ready","GOAL_REVIEW_RETURN_READY");
+ check(new URL(page.url()).searchParams.get("club_goal")===goalId,"GOAL_REVIEW_RETURN_EXACT_GOAL");
+ check(!(await page.locator("[data-club-goal-list]").textContent()).includes("Остались обязательства:")&&
+  await page.locator("[data-club-goal-review-worklist] a[data-club-goal-review-source]").count()===0,"GOAL_REVIEW_RESOLVED_OBLIGATION_REMOVED");
+ log("INDEPENDENT_GOAL_REVIEW_EXACT_CASH_AND_RETURN");
  }
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
