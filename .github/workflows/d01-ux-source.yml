@@ -1,10 +1,5 @@
 name: D01 UX source, published links and original T2
 on:
-  push:
-    branches: [work/2026-11-24-d01-ux-qualification]
-    # Only an explicit candidate registration starts an expensive qualification.
-    # Ordinary workflow edits and owner commits do not trigger this workflow.
-    paths: [.github/qualification/d01-learn-candidate.txt]
   workflow_dispatch:
 concurrency:
   group: d01-learn-qualification-${{ github.ref }}

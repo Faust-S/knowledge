@@ -1,8 +1,5 @@
 name: D01 Learn original T2 product and user journey
 on:
-  push:
-    branches: [work/2026-11-20-d01-real-ui]
-    paths: [.github/workflows/d01-learn-real-ui.yml]
   workflow_dispatch:
 permissions:
   contents: read
