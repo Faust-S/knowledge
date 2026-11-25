@@ -1875,6 +1875,13 @@ try{
  const exactTime=page.locator("[data-club-week-review-fact]");
  await exactTime.waitFor({state:"visible"});
  check(isDeepStrictEqual(await localWeek(),missingTime),"WEEKLY_REVIEW_EXACT_EDITOR_NO_WRITE");
+ const exactReviewUrl=new URL(page.url());
+ check(exactReviewUrl.searchParams.get("club_week_slot")===timeSlot.id&&
+  exactReviewUrl.searchParams.get("club_week_rev")===missingTime.updatedAt&&
+  exactReviewUrl.searchParams.get("club_week_period")==="fact"&&
+  exactReviewUrl.searchParams.get("workspace_id")===timeScope&&
+  exactReviewUrl.searchParams.get("club_activity_period")==="week","WEEKLY_REVIEW_EXACT_SOURCE_REVISION");
+
  await exactTime.getByLabel("Дата, когда вы занимались делом",{exact:true}).fill(timeSlot.fact.date);
  await exactTime.getByLabel("Фактически потрачено минут",{exact:true}).fill("115");
  await exactTime.getByRole("button",{name:"Записать время",exact:true}).click();
@@ -1916,6 +1923,25 @@ try{
  await poll(async()=>(await page.locator("[data-club-period-journal-saves]").textContent()).includes("План недели: текущая версия сохранена"),"WEEKLY_REVIEW_SAVED_STATE");
  check(await page.locator("[data-club-period-journal-saves]").getByRole("link",{name:"Сохранить план недели",exact:true}).count()===0,"WEEKLY_REVIEW_NO_REDUNDANT_SAVE");
  log("INDEPENDENT_WEEKLY_REVIEW_TIME_CORRECTION_SAME_RESULT_SAVED");
+ phase="INDEPENDENT_SAVED_PERIOD_REVIEW";
+ const completeReviewLink=page.locator("[data-club-activity-review-result]").getByRole("link",{name:"Все сохранённые итоги",exact:true});
+ await completeReviewLink.waitFor({state:"visible"});
+ const completeReviewUrl=new URL(await completeReviewLink.getAttribute("href"),page.url());
+ check(completeReviewUrl.pathname==="/workspace/"&&completeReviewUrl.searchParams.get("workspace_id")===timeScope&&
+  completeReviewUrl.searchParams.get("club_activity_period")==="week"&&completeReviewUrl.hash==="#club-native-activity-review","SAVED_REVIEW_LINK_EXACT_SCOPE_PERIOD");
+ const savedReviewWeek=await localWeek();
+ await completeReviewLink.click();
+ await openExisting(page);
+ const savedReview=page.getByTestId("club-native-activity-review");
+ await savedReview.waitFor({state:"visible"});
+ await poll(async()=>await savedReview.evaluate(e=>e.open)&&await savedReview.locator("[data-club-review-period]").count()===1,"SAVED_REVIEW_OPEN");
+ check(await savedReview.locator("[data-club-review-period]").inputValue()==="week","SAVED_REVIEW_PERIOD_RETAINED");
+ await poll(async()=>(await savedReview.locator("[data-club-activity-review-result]").textContent()).includes("По сохранённым записям этой рабочей области."),"SAVED_REVIEW_WORKSPACE_SOURCE");
+ check(await savedReview.getByRole("link",{name:"Все сохранённые итоги",exact:true}).count()===0&&
+  await savedReview.locator("[data-club-period-journal-saves]").count()===0,"SAVED_REVIEW_READ_ONLY");
+ check(isDeepStrictEqual(await localWeek(),savedReviewWeek)&&isDeepStrictEqual(await localCash(),cashAfterCorrection),"SAVED_REVIEW_NO_TAB_WRITE");
+ log("INDEPENDENT_SAVED_REVIEW_SCOPE_PERIOD_AND_NO_WRITE");
+
 
  }
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");
