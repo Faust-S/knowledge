@@ -830,3 +830,127 @@ export async function publishT4OriginalReplacementRecipientDiff({
     originalBusinessApplied:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,
     originalSubjectMutationInvoked:false,liveNetworkAuthorityGranted:false});
 }
+
+/** Read-only completion of the successor handshake on the source. The
+ * independently read recipient publication must be PRESENT and match the
+ * exact inbound, authorized, replay-checked DIFF. This does not admit
+ * CHANGE_REF, CHUNK, subject application or another causal position. */
+export async function discoverT4OriginalReplacementRecipientDiff({
+  sourceAdmissionPhasePort,sourcePublicationPort,recipientPublicationPort,frameDiscoveryPort,
+  readOriginalReplacementRecipientAdmission,authorizeOriginalReplacementDiffAcceptance,...eligibilityPorts
+}={}){
+  const {getMode,requiredCryptoSuite}=eligibilityPorts;
+  mode(getMode);
+  if(sourceAdmissionPhasePort?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||
+    sourceAdmissionPhasePort.role!=='SOURCE'||sourceAdmissionPhasePort.originalT3TechnicalWorkspaceOnly!==true||
+    sourceAdmissionPhasePort.createsSecondStore!==false||!ID(sourceAdmissionPhasePort.checkpointRef)||
+    typeof sourceAdmissionPhasePort.inspectOriginalSession!=='function'||
+    frameDiscoveryPort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||
+    frameDiscoveryPort.nativeFrameIndexVersion!==1||typeof frameDiscoveryPort.discoverUniqueSignedFrame!=='function'||
+    ![readOriginalReplacementRecipientAdmission,authorizeOriginalReplacementDiffAcceptance].every(f=>typeof f==='function'))
+    fail('REPLACEMENT_SOURCE_DIFF_PORTS_REQUIRED');
+  const first=await recoverT4OriginalReplacementEligibility(eligibilityPorts),c=first.candidate;
+  for(const [port,flag] of [[sourcePublicationPort,'originalReplacementAnnouncementPublication'],
+    [recipientPublicationPort,'originalReplacementRecipientDiffPublication']]){
+    if(port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||!same(port.session,c)||
+      port.originalT3OnlyStore!==true||port.createsScheduler!==false||port.createsTaskEngine!==false||
+      port[flag]!==true||!ID(port.checkpointRef)||typeof port.readOriginalPublishedFrame!=='function')
+      fail('REPLACEMENT_SOURCE_DIFF_PUBLICATION_PORTS_REQUIRED');
+  }
+  if(sourcePublicationPort.checkpointRef===recipientPublicationPort.checkpointRef)
+    fail('REPLACEMENT_SOURCE_DIFF_PUBLICATION_PORTS_REQUIRED');
+  const common={candidate:c,originalBothTerminalPhaseEventsVerified:true,originalBothCausalFrontiersUnchanged:true,
+    originalSubjectMutationInvoked:false,originalBusinessApplied:false,sourceCursorAdvanced:false,
+    recipientCursorAdvanced:false,originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false};
+  const result=(state,extra={})=>freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_DIFF_SELECTION_V1',state,...common,...extra});
+  const eligibility=async()=>{
+    const e=await recoverT4OriginalReplacementEligibility(eligibilityPorts);
+    if(!same(e,first))fail('REPLACEMENT_ORIGINAL_EVIDENCE_CHANGED');return e;
+  };
+  function exactOutbound(o,p,type,wire){
+    if(o?.schema!=='IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1'||o.checkpointRef!==p.checkpointRef||
+      !Number.isSafeInteger(o.originalPublicationRevision)||o.originalPublicationRevision<1||!DIG(o.originalPublicationChainHash)||
+      o.signedMessageType!==type||o.verifiedSequence!==1||o.verifiedCryptoSuite!==requiredCryptoSuite||
+      o.originalT3PublicationEventChainVerified!==true||o.originalOutboundSignatureVerified!==true||
+      o.originalOutboundAuthorityVerified!==true||o.originalImmutableTransportReadbackVerified!==true||
+      o.originalReplayCheckpointRecorded!==false||o.remoteReceiptProven!==false||
+      o.networkBytesVerified!==true||o.originalBusinessApplied!==false||o.originalT3ExchangeCalled!==false||
+      !['key','sha256','signedMessageType','verifiedMessageId','verifiedSourceNodeRef','verifiedRecipientNodeRef',
+        'verifiedScopeRef','verifiedSessionRef','verifiedSequence','verifiedOwnerEpoch','verifiedCryptoSuite','verifiedSignerRef',
+        'verifiedCriticalExtensions','verifiedBody'].every(k=>same(o[k],wire[k])))
+      fail('REPLACEMENT_SOURCE_DIFF_ORIGINAL_PUBLICATION_MISMATCH');
+    return clone(o);
+  }
+  async function current(){
+    await eligibility();
+    const intent=clone(await sourceAdmissionPhasePort.inspectOriginalSession());mode(getMode);
+    if(intent?.checkpointRef!==sourceAdmissionPhasePort.checkpointRef||
+      !same(intent.originalReplacementSourceAdmission,sourceAdmissionPhasePort.originalReplacementSourceAdmission))
+      fail('REPLACEMENT_SOURCE_DIFF_SOURCE_ADMISSION_CHANGED');
+    const recipient=validateT4OriginalReplacementRecipientAdmissionEvidence(await readOriginalReplacementRecipientAdmission(freeze({
+      candidate:c,originalRecipientAdmissionReadRequired:true,originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false})),c);
+    mode(getMode);
+    if(!same(recipient.eligibility,first)||!same(recipient.sourceIntent,intent)||
+      recipient.head.verifiedCryptoSuite!==requiredCryptoSuite)
+      fail('REPLACEMENT_SOURCE_DIFF_ADMISSION_MISMATCH');
+    const head=exactOutbound(await sourcePublicationPort.readOriginalPublishedFrame({sequence:1}),
+      sourcePublicationPort,'HEADS',recipient.head);mode(getMode);
+    const a=intent.originalReplacementSourceAdmission;
+    if(a.publicationRef!==head.checkpointRef||a.publicationRevision!==head.originalPublicationRevision||
+      a.publicationChainHash!==head.originalPublicationChainHash)
+      fail('REPLACEMENT_SOURCE_DIFF_SOURCE_PUBLICATION_CHANGED');
+    const found=await frameDiscoveryPort.discoverUniqueSignedFrame({selector:{sourceNodeRef:c.recipientNodeRef,
+      sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch,messageType:'DIFF_REQUEST',sequence:1},requiredCryptoSuite,
+      supportedCriticalExtensions:[]});mode(getMode);
+    if(found?.schema!=='IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1'||!['FOUND','NOT_FOUND'].includes(found.state)||
+      found.indexedLookup!==true||found.candidatesExamined!==1||found.originalTransportScanOnly!==true||
+      found.originalBusinessApplied!==false||found.sourceCursorAdvanced!==false||
+      (found.state==='NOT_FOUND'&&found.receipt!==null))
+      fail('REPLACEMENT_SOURCE_DIFF_DISCOVERY_INVALID');
+    if(found.state==='NOT_FOUND'){await eligibility();return {state:'WAITING_FOR_REPLACEMENT_DIFF'};}
+    const diff=clone(found.receipt);
+    if(diff?.schema!=='IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1'||diff.signedMessageType!=='DIFF_REQUEST'||
+      diff.verifiedSourceNodeRef!==c.recipientNodeRef||diff.verifiedRecipientNodeRef!==c.sourceNodeRef||
+      diff.verifiedScopeRef!==c.scopeRef||diff.verifiedSessionRef!==c.sessionRef||diff.verifiedOwnerEpoch!==c.ownerEpoch||
+      diff.verifiedSequence!==1||diff.verifiedCryptoSuite!==requiredCryptoSuite||!ID(diff.verifiedSignerRef)||
+      !ID(diff.verifiedMessageId)||!SHA(diff.sha256)||diff.key!==diff.sha256+'.t4n'||
+      !same(diff.verifiedCriticalExtensions,[])||
+      !same(diff.verifiedBody,{familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore]})||
+      diff.originalSignatureVerified!==true||diff.originalAccessVerified!==true||
+      diff.originalReplayCheckpointRecorded!==true||diff.networkBytesVerified!==true||
+      diff.originalSubjectMutationInvoked!==false||diff.originalBusinessApplied!==false||diff.originalT3ExchangeCalled!==false)
+      fail('REPLACEMENT_SOURCE_DIFF_DISCOVERY_INVALID');
+    delete diff.exactPreviouslyVerifiedReplay;
+    let published;
+    try{published=await recipientPublicationPort.readOriginalPublishedFrame({sequence:1});}
+    catch(error){
+      mode(getMode);
+      if(error?.code!=='PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT')throw error;
+      await eligibility();return {state:'WAITING_FOR_REPLACEMENT_RECIPIENT_PUBLICATION'};
+    }
+    mode(getMode);
+    const outbound=exactOutbound(published,recipientPublicationPort,'DIFF_REQUEST',diff);
+    await eligibility();
+    if(!same(intent,await sourceAdmissionPhasePort.inspectOriginalSession()))
+      fail('REPLACEMENT_SOURCE_DIFF_SOURCE_ADMISSION_CHANGED');
+    mode(getMode);
+    return freeze({state:'ORIGINAL_REPLACEMENT_DIFF_VERIFIED',sourceIntent:intent,recipient,head,diff,outbound});
+  }
+  const verified=await current();
+  if(verified.state!=='ORIGINAL_REPLACEMENT_DIFF_VERIFIED')return result(verified.state);
+  await allowed(authorizeOriginalReplacementDiffAcceptance,{candidate:c,diffKey:verified.diff.key,
+    sourceAdmissionEventId:verified.sourceIntent.originalReplacementAdmissionEventId,
+    recipientPublicationCheckpointRef:verified.outbound.checkpointRef,
+    recipientPublicationRevision:verified.outbound.originalPublicationRevision,
+    recipientPublicationChainHash:verified.outbound.originalPublicationChainHash,
+    originalRecipientDiffPublicationVerified:true,originalBothCausalFrontiersUnchanged:true,
+    originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false},getMode,'REPLACEMENT_SOURCE_DIFF_ACCEPTANCE_DENIED');
+  if(!same(verified,await current()))fail('REPLACEMENT_SOURCE_DIFF_EVIDENCE_CHANGED');
+  return result(verified.state,{diffKey:verified.diff.key,diffSha256:verified.diff.sha256,
+    originalSourceAdmissionEventId:verified.sourceIntent.originalReplacementAdmissionEventId,
+    originalRecipientPublicationCheckpointRef:verified.outbound.checkpointRef,
+    originalRecipientPublicationRevision:verified.outbound.originalPublicationRevision,
+    originalRecipientPublicationChainHash:verified.outbound.originalPublicationChainHash,
+    originalRecipientDiffPublicationVerified:true,originalSourceDiffAccepted:true,
+    originalContentTransferStillRequired:true});
+}

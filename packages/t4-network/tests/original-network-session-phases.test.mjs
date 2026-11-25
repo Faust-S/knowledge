@@ -14,7 +14,8 @@ import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
   retireT4OriginalRecipientAttemptFromControl,verifyT4OriginalRecipientRetirementAck,recordT4OriginalSourceSupersession,
   publishT4OriginalRecipientRetirementAck,recoverT4OriginalReplacementEligibility,
   publishT4OriginalReplacementSourceHead,discoverT4OriginalReplacementSourceHead,admitT4OriginalReplacementSourcePhase,
-  readT4OriginalReplacementRecipientAdmission,publishT4OriginalReplacementRecipientDiff}
+  readT4OriginalReplacementRecipientAdmission,publishT4OriginalReplacementRecipientDiff,
+  discoverT4OriginalReplacementRecipientDiff}
   from '../src/network/original-network-session-supersession.mjs';
 import {createT4OriginalNetworkSessionPhasePort,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
@@ -1069,4 +1070,51 @@ test('K57 recipient DIFF requires independently committed successor source INTEN
   x.changeRecipientFrontier();
   await assert.rejects(x.publishReplacementDiff(phase),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
   assert.equal(x.counts().networkPuts,before.puts+1);
+});
+
+
+test('K58 source accepts successor DIFF only with exact independently verified PRESENT recipient publication; no subject or cursor writes',async()=>{
+  const x=await controlFixture({indexed:true});await closeInitialAttempt(x);
+  await x.publishReplacement();
+  const createPhase=async({session:c,admission},readOriginalReplacementSourceAdmission)=>x.sourcePhase({
+    sessionRef:c.sessionRef,authorizeOriginalSourceSupersession:null,replacementSourceAdmission:admission,
+    readOriginalReplacementSourceAdmission});
+  const admitted=await admitT4OriginalReplacementSourcePhase({...x.eligibilityOptions(),
+    createOriginalReplacementPublicationPort:x.createReplacementPort,createOriginalReplacementSourcePhasePort:createPhase});
+  const c=admitted.candidate,phase=await createPhase({session:c,admission:admitted.admission},async()=>true);
+  const admission=()=>readT4OriginalReplacementRecipientAdmission(x.recipientAdmissionOptions(phase));
+  await admission();
+  const sourcePublicationPort=await x.createReplacementPort({session:c},()=>x.eligibility());
+  const recipientPublicationPort=await x.createReplacementRecipientPort({session:c},admission);
+  const options={...x.eligibilityOptions(),sourceAdmissionPhasePort:phase,sourcePublicationPort,recipientPublicationPort,
+    frameDiscoveryPort:x.transport(sourceNodeRef),readOriginalReplacementRecipientAdmission:admission,
+    authorizeOriginalReplacementDiffAcceptance:async proof=>proof.originalRecipientDiffPublicationVerified===true&&
+      proof.originalSubjectMutationAllowed===false};
+  const accept=(patch={})=>discoverT4OriginalReplacementRecipientDiff({...options,...patch});
+  assert.equal((await accept()).state,'WAITING_FOR_REPLACEMENT_DIFF');
+  const published=await x.publishReplacementDiff(phase);
+  const signs=x.signatureCount(),puts=x.counts().networkPuts,sourcePhase=x.sourcePhaseWrites(),recipientPhase=x.phaseWrites();
+  const pending=await accept({recipientPublicationPort:{...recipientPublicationPort,readOriginalPublishedFrame:async()=>{
+    throw Object.assign(Error('not committed'),{code:'PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT'});
+  }}});
+  assert.equal(pending.state,'WAITING_FOR_REPLACEMENT_RECIPIENT_PUBLICATION');
+  await assert.rejects(accept({recipientPublicationPort:{...recipientPublicationPort,readOriginalPublishedFrame:async p=>({
+    ...await recipientPublicationPort.readOriginalPublishedFrame(p),verifiedMessageId:'message:substituted'})
+  }}),isCode('REPLACEMENT_SOURCE_DIFF_ORIGINAL_PUBLICATION_MISMATCH'));
+  await assert.rejects(accept({authorizeOriginalReplacementDiffAcceptance:async()=>false}),isCode('REPLACEMENT_SOURCE_DIFF_ACCEPTANCE_DENIED'));
+  const before={source:x.sourceStore.calls,recipient:x.f.kernel.calls};
+  const accepted=await accept();
+  assert.equal(accepted.state,'ORIGINAL_REPLACEMENT_DIFF_VERIFIED');assert.equal(accepted.diffSha256,published.sha256);
+  assert.equal(accepted.originalRecipientPublicationCheckpointRef,published.originalPublicationCheckpointRef);
+  assert.equal(accepted.originalSourceAdmissionEventId,admitted.originalReplacementAdmissionEventId);
+  assert.equal(accepted.originalRecipientDiffPublicationVerified,true);
+  assert.equal(accepted.originalContentTransferStillRequired,true);assert.equal(accepted.liveNetworkAuthorityGranted,false);
+  assert.equal(accepted.originalSubjectMutationInvoked,false);
+  x.f.restart();
+  assert.deepEqual(await accept(),accepted);
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls},before);
+  await assert.rejects(accept({authorizeOriginalReplacementDiffAcceptance:async()=>{x.changeFrontier();return true;}}),
+    isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
+  assert.equal(x.signatureCount(),signs);assert.equal(x.counts().networkPuts,puts);
+  assert.equal(x.sourcePhaseWrites(),sourcePhase);assert.equal(x.phaseWrites(),recipientPhase);
 });
