@@ -1,0 +1,11 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d06-t3-release-gate",
+  "prepared": "126a476739b390cab71011c28819c5d928a375b3",
+  "owner": "8471dca0037328dfee8689632df9c27866e89845",
+  "site": "8ee1f93603c95738333bc1489d68816ead870893",
+  "retention": "be7e994af3aba9837d6ee2c3ce17373e47dd1cdc",
+  "profile": "production-delivery-only",
+  "priorRun": 45685687719,
+  "reason": "Prepare and permanently retain qualified production inputs after restored write authorization"
+}
