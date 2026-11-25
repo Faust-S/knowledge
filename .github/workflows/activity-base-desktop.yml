@@ -1,69 +1,13 @@
 name: Activity base native desktop checks
+# Expensive qualification is requested only for a consolidated candidate.
 on:
   push:
     branches:
-      - work/2026-11-10-activity-base-anonymizer
       - work/2026-11-24-activity-0-4-domain-routes
-      - work/2026-11-23-activity-0-3-freeze
-      - release/0.3
-      - work/2026-11-22-activity-v7-native
-      - work/2026-11-22-activity-v7-dashboard-flow
     paths:
-      - modules/activity-base-anonymizer/**
-      - desktop/**
-      - tests/test_activity_base_a1.mjs
-      - tests/test_activity_ocel2_evidence.mjs
-      - tests/test_activity_t3_selected_host.mjs
-      - tests/test_activity_t3_review_controller.mjs
-      - tests/test_activity_t3_evidence_passport.mjs
-      - tests/test_activity_t3_transition_map.mjs
-      - tests/test_activity_t3_control_host_link.mjs
-      - tests/test_activity_t3_original_reader.mjs
-      - tests/test_activity_d05_t3_evidence.mjs
-      - modules/activity-base-anonymizer/d05-t3-evidence-binding.mjs
-      - tests/test_activity_t3_owner_local_stage.mjs
-      - tests/test_activity_t3_real_t2_host.browser.mjs
-      - tests/test_activity_host_surface.mjs
-      - tests/test_activity_desktop_contract.py
-      - tests/test_activity_dashboard_layout.mjs
-      - tests/test_activity_v7_ui.mjs
-      - tests/test_activity_d05_route_comparison.mjs
-      - tests/test_activity_d05_quality_review.mjs
-      - tests/test_activity_d05_technology_draft.mjs
-      - tests/test_activity_presidio_text_review.mjs
-      - tests/activity_presidio_upstream_fixture.mjs
-      - tools/activity-presidio-scan.py
-      - tests/test_activity_d05_route_cli.mjs
-      - tests/test_activity_r4pm_result_review.mjs
-      - tests/test_activity_r4pm_cli.mjs
-      - tools/activity-r4pm-result-review.mjs
-      - tests/activity_r4pm_upstream_fixture.py
-      - tools/activity-d05-route-review.mjs
-      - tools/ActivityArxCohort.java
-      - tools/activity-observation-review.py
-      - tests/test_activity_observation_worker.py
-      - tests/test_activity_observation_review.mjs
-      - tests/activity_observation_upstream_fixture.mjs
-      - tools/activity-observation-request.mjs
-      - tests/test_activity_observation_cli.mjs
-      - tools/activity-d05-simpy.py
-      - tools/activity-simpy-requirements.txt
-      - tests/test_activity_d05_simpy.py
-      - tests/test_activity_d05_simpy_review.mjs
-      - tests/activity_d05_simpy_fixture.mjs
-      - tools/activity-d05-simpy-review.mjs
-      - tools/activity-agent-input.py
-      - tests/test_activity_agent_input.py
-      - tools/activity-technology-product.mjs
-      - tests/test_activity_technology_product.mjs
-      - tests/test_activity_product_revision.mjs
-      - tests/test_activity_personal_extraction.mjs
-      - tests/test_activity_technology_registration.mjs
-      - tests/test_activity_technology_release.mjs
-      - tests/activity_technology_product_fixture.mjs
-      - tests/activity_technology_product_original_t2.mjs
-      - .github/workflows/activity-base-desktop.yml
+      - qualification/activity/activity-0.4-candidate.json
   workflow_dispatch:
+
 permissions:
   contents: read
 jobs:
