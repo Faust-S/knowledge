@@ -295,3 +295,20 @@ test('modified event window references cannot be published as an original T3 del
    eventRefs:[{...window.eventRefs[0],sourceEventDigest:'sha256:'+'f'.repeat(64)}]}}),
    code('OBJECT_DELTA_WINDOW_DIGEST_MISMATCH'));
 });
+
+test('K106 original receiver refuses unrepresented retained extensions before graph commit',async()=>{
+ const {prepared}=await generate(),r=recipient();
+ r.read().extensions={...r.read().extensions,localOnly:true};
+ await assert.rejects(apply(prepared,r),code('OBJECT_DELTA_EXTENSION_CONFLICT'));
+ assert.equal(r.calls.length,0);
+ assert.equal(r.read().revision,1);
+ assert.equal(r.read().extensions.localOnly,true);
+});
+test('K106 original receiver allows extension values to be updated without discarding retained keys',async()=>{
+ const {prepared}=await generate(),r=recipient();
+ r.read().extensions={future:{preserve:false}};
+ const applied=await apply(prepared,r);
+ assert.equal(applied.originalT3CommitApplied,true);
+ assert.equal(r.calls.length,1);
+ assert.deepEqual(r.read().extensions,{future:{preserve:true}});
+});

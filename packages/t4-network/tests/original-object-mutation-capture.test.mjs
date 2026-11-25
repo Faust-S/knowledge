@@ -38,7 +38,7 @@ function originalFixture(){
       if(input.base_revision!==object.revision)
         throw Object.assign(new Error('CONFLICT'),{code:'CONFLICT'});
       object={...object,revision:object.revision+1,data:structuredClone(input.data),
-        extensions:structuredClone(input.extensions??{})};
+        extensions:structuredClone({...object.extensions,...input.extensions})};
       const event={event_id:'event:'+object.revision,event_type:input.event.event_type,
         workspace_id:ws,service_id:'service:original',object_id:objectId,
         revision:object.revision,occurred_at:
@@ -828,4 +828,46 @@ test('K105 Object omitted revision cannot read after authority revocation',async
  await assert.rejects(capture(f,1,{mutationInput:input,authorizeOriginalRead:async()=>++calls===1}),
    code('OBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED'));
  assert.equal(f.intents.size,0);assert.equal(f.writes.length,0);
+});
+
+test('K106 preserves original merged extensions through immutable capture and cold recovery',async()=>{
+ const f=originalFixture(),input={...mutation(1),extensions:{added:'second'}};
+ f.loseAck();
+ await assert.rejects(capture(f,1,{mutationInput:input}),code('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+ const stored=f.intents.get('capture:1');
+ assert.deepEqual(f.read().extensions,{preserve:'yes',added:'second'});
+ assert.deepEqual(stored.originalMutation.extensions,{added:'second'});
+ assert.equal(stored.expectedObjectContentDigest,f.events[1].payload.iwxa_t4_expected_object_content_digest);
+ const recovered=await reconcile(f);
+ assert.deepEqual({...recovered.prepared.delta.extensions},{added:'second',preserve:'yes'});
+ assert.equal(f.writes.length,1);
+ const captured=await readT4OriginalHostCapturedObject({...f.ports,
+   kind:'OBJECT_PUT',captureRef:'capture:1',workspaceId:ws,subjectId:objectId,
+   originalWriteOwnerRef:owner,authorizeNetworkPublish:async()=>true});
+ assert.equal(captured.prepared.delta.objectContentDigest,stored.expectedObjectContentDigest);
+});
+test('K106 rejects an original readback with unchanged revision but changed merged content',async()=>{
+ const f=originalFixture(),get=f.ports.originalKernel.getObject;
+ f.ports.originalKernel.getObject=async()=>{
+   const read=await get();
+   if(read.object.revision===2)read.object.extensions.extra='unexpected';
+   return read;
+ };
+ await assert.rejects(capture(f,1),e=>e.code==='OBJECT_CAPTURE_POST_WRITE_UNCERTAIN'&&
+   e.details.originalCode==='OBJECT_CAPTURE_ORIGINAL_CONTENT_CHANGED_DURING_CAPTURE');
+ assert.equal(f.outbox.size,0);
+ assert.equal(f.writes.length,1);
+});
+test('K106 reserved expected content proof cannot be supplied by a business caller',async()=>{
+ const f=originalFixture(),input=mutation(1);
+ input.event.payload.iwxa_t4_expected_object_content_digest='sha256:'+'0'.repeat(64);
+ await assert.rejects(capture(f,1,{mutationInput:input}),code('OBJECT_CAPTURE_EVENT_TRACE_COLLISION'));
+ assert.equal(f.writes.length,0);assert.equal(f.intents.size,0);
+});
+test('K106 refuses recovery when expected merged content proof differs from the original Event',async()=>{
+ const f=originalFixture();f.loseAck();
+ await assert.rejects(capture(f,1),code('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+ f.events[1].payload.iwxa_t4_expected_object_content_digest='sha256:'+'0'.repeat(64);
+ await assert.rejects(reconcile(f),code('OBJECT_RECOVERY_SOURCE_EVENT_SCOPE_MISMATCH'));
+ assert.equal(f.outbox.size,0);assert.equal(f.writes.length,1);
 });

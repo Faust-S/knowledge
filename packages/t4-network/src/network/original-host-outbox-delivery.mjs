@@ -1,7 +1,8 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest,
   readT4OriginalLocalSnapshotEvent,countT4OriginalLocalSnapshotTrace} from './original-event-window.mjs';
-import {publishT4OriginalObjectDelta,decodeT4OriginalObjectDeltaBytes} from './original-object-delta.mjs';
+import {publishT4OriginalObjectDelta,decodeT4OriginalObjectDeltaBytes,
+  expectedT4OriginalObjectMutationContentDigest,T4_ORIGINAL_OBJECT_CONTENT_TRACE} from './original-object-delta.mjs';
 import {publishT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes} from './original-asset-delta.mjs';
 import {publishT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes} from './original-relation-delta.mjs';
 import {decodeT4OriginalDeleteDeltaBytes,originalT4DeletionCapturedEvent,t4OriginalDeletedSubjectRevision} from './original-deletion-delta.mjs';
@@ -115,9 +116,15 @@ function validateEnvelope(scope,outbox,intent){
       delta.schemaVersion!==intent.originalMutation?.schema_version||
       delta.sourceRevision!==intent.expectedBaseRevision+1||
       !same(delta.data,intent.originalMutation.data)||
-      !same(delta.extensions,intent.originalMutation.extensions??{})||
+      (!Object.hasOwn(intent,'expectedObjectContentDigest')&&
+        !same(delta.extensions,intent.originalMutation.extensions??{}))||
       intent.originalMutation.event?.payload?.iwxa_t4_capture_ref!==scope.captureRef)
       fail('OUTBOX_ORIGINAL_OBJECT_INTENT_MISMATCH');
+    let expected;
+    try{expected=expectedT4OriginalObjectMutationContentDigest(intent);}
+    catch{fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');}
+    if(delta.objectContentDigest!==expected)
+      fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');
   }else if(scope.kind==='GRAPH_COMMIT'){
     const exact=decodeT4OriginalGraphDeltaBytes(bytes);
     if(exact.delta.objectId!==scope.subjectId||outbox.inputDigest!==intent.inputDigest||
@@ -222,7 +229,9 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
   if(kind==='OBJECT_PUT'){
     if(event.payload?.iwxa_t4_capture_ref!==s.captureRef||
       event.payload?.iwxa_t4_original_input_digest!==
-        intent.originalInputDigest)
+        intent.originalInputDigest||
+      (Object.hasOwn(intent,'expectedObjectContentDigest')&&
+        event.payload?.[T4_ORIGINAL_OBJECT_CONTENT_TRACE]!==intent.expectedObjectContentDigest))
       fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
   }else if(isT4NativeDeleteKind(kind)){
     const expected=originalT4DeletionCapturedEvent(intent);
@@ -284,6 +293,8 @@ async function readCapturedObject(params,requireNetworkPublish){
     fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');
   delete traced.event.payload.iwxa_t4_original_input_digest;
   delete traced.event.payload.iwxa_t4_capture_ref;
+  if(Object.hasOwn(intent,'expectedObjectContentDigest'))
+    delete traced.event.payload[T4_ORIGINAL_OBJECT_CONTENT_TRACE];
   const candidates=[traced];
   // Existing V1 capture accepts both an omitted and an empty payload.
   if(Object.keys(traced.event.payload).length===0){

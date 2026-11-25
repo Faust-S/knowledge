@@ -82,6 +82,23 @@ export function digestT4OriginalObjectContent({
     schemaId,schemaVersion,data,extensions,
   }));
 }
+// Original Kernel putObject merges extensions. Bind the expected merged
+// content to the original Event without rewriting the caller's input.
+export const T4_ORIGINAL_OBJECT_CONTENT_TRACE='iwxa_t4_expected_object_content_digest';
+export function expectedT4OriginalObjectMutationContentDigest(intent){
+  const op=intent?.originalMutation;
+  if(!op)fail('OBJECT_DELTA_INTENT_CONTENT_PROOF_INVALID');
+  if(Object.hasOwn(intent,'expectedObjectContentDigest')){
+    const expected=intent.expectedObjectContentDigest;
+    if(!WINDOW_DIGEST(expected)||op.event?.payload?.[T4_ORIGINAL_OBJECT_CONTENT_TRACE]!==expected)
+      fail('OBJECT_DELTA_INTENT_CONTENT_PROOF_INVALID');
+    return expected;
+  }
+  // Existing V1 captures did not record the result of merging extensions.
+  // Preserve their original strict evidence rule, never infer a preimage.
+  return digestT4OriginalObjectContent({schemaId:op.schema_id,schemaVersion:op.schema_version,
+    data:op.data,extensions:op.extensions??{}});
+}
 // Use the exact V1 delta encoder, not the size of the mutation input.
 export function preflightT4OriginalObjectNativeCapacity({workspaceId,originalWriteOwnerRef,mutationInput,existingExtensions={}}){
   const {object_id:objectId,schema_id:schemaId,schema_version:schemaVersion,base_revision:baseRevision,data}=mutationInput;
@@ -290,6 +307,12 @@ export async function applyT4OriginalObjectDelta({
     if(original!==delta.objectContentDigest)
       fail('OBJECT_DELTA_REVISION_CONFLICT',{localRevision});
   }
+  // Original graph commit can preserve existing extension keys. If the
+  // merged result would differ, do not write and then discover a conflict.
+  if(localRevision===delta.baseRevision&&
+    digestT4OriginalObjectContent({schemaId:delta.schemaId,schemaVersion:delta.schemaVersion,
+      data:delta.data,extensions:{...local?.extensions,...delta.extensions}})!==delta.objectContentDigest)
+    fail('OBJECT_DELTA_EXTENSION_CONFLICT',{localRevision,originalMutationAttempted:false});
   const input=originalCommitInput(delta,exact.sha256);
   let receipt;
   try{

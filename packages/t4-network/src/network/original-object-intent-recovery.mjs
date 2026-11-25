@@ -1,6 +1,7 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
-import {prepareT4OriginalObjectDelta} from './original-object-delta.mjs';
+import {prepareT4OriginalObjectDelta,digestT4OriginalObjectContent,
+  expectedT4OriginalObjectMutationContentDigest,T4_ORIGINAL_OBJECT_CONTENT_TRACE} from './original-object-delta.mjs';
 
 export class T4OriginalMutationRecoveryError extends Error{
   constructor(code,details={}){super(code);
@@ -56,9 +57,14 @@ function validateIntent(intent,{captureRef,workspaceId,objectId,originalWriteOwn
   catch{fail('OBJECT_RECOVERY_ORIGINAL_INTENT_INVALID');}
   if(digest(exact)!==intent.inputDigest)
     fail('OBJECT_RECOVERY_ORIGINAL_INTENT_DIGEST_MISMATCH');
+  let expectedObjectContentDigest;
+  try{expectedObjectContentDigest=expectedT4OriginalObjectMutationContentDigest(intent);}
+  catch{fail('OBJECT_RECOVERY_ORIGINAL_INTENT_DIGEST_MISMATCH');}
   const undecorated=structuredClone(exact);
   delete undecorated.event.payload[MARK];
   delete undecorated.event.payload[ORIGINAL_DIGEST];
+  if(Object.hasOwn(intent,'expectedObjectContentDigest'))
+    delete undecorated.event.payload[T4_ORIGINAL_OBJECT_CONTENT_TRACE];
   // An explicitly empty payload and an omitted payload are distinct original
   // inputs. Accept only the exact representation bound by the saved digest.
   if(digest(undecorated)!==intent.originalInputDigest){
@@ -68,7 +74,7 @@ function validateIntent(intent,{captureRef,workspaceId,objectId,originalWriteOwn
     if(digest(undecorated)!==intent.originalInputDigest)
       fail('OBJECT_RECOVERY_ORIGINAL_INTENT_DIGEST_MISMATCH');
   }
-  return Object.freeze({intent,operation:exact});
+  return Object.freeze({intent,operation:exact,expectedObjectContentDigest});
 }
 
 function validateOutbox(observed,expected,prepared,nextCursor,sourceWindow){
@@ -120,7 +126,7 @@ export async function reconcileT4OriginalMutationIntent({
     await authorizeOriginalWrite(writeScope)!==true)
     fail('OBJECT_RECOVERY_ORIGINAL_PERMISSION_DENIED');
   const witnessed=await readOriginalIntent(scope);
-  const {intent,operation}=validateIntent(witnessed,scope);
+  const {intent,operation,expectedObjectContentDigest}=validateIntent(witnessed,scope);
   mode(getMode);
   if(await authorizeOriginalRead(readScope)!==true||
     await authorizeOriginalWrite(writeScope)!==true)
@@ -138,6 +144,8 @@ export async function reconcileT4OriginalMutationIntent({
     event.revision!==intent.expectedBaseRevision+1||
     event.event_type!==operation.event.event_type||
     event.payload?.[ORIGINAL_DIGEST]!==intent.originalInputDigest||
+    (Object.hasOwn(intent,'expectedObjectContentDigest')&&
+      event.payload?.[T4_ORIGINAL_OBJECT_CONTENT_TRACE]!==expectedObjectContentDigest)||
     !ID(event.event_id))
     fail('OBJECT_RECOVERY_SOURCE_EVENT_SCOPE_MISMATCH');
   let window,nextCursor;
@@ -168,7 +176,8 @@ export async function reconcileT4OriginalMutationIntent({
     original.schema_id!==operation.schema_id||
     original.schema_version!==operation.schema_version||
     !equals(original.data,operation.data)||
-    !equals(original.extensions??{},operation.extensions??{}))
+    digestT4OriginalObjectContent({schemaId:original.schema_id,schemaVersion:original.schema_version,
+      data:original.data,extensions:original.extensions??{}})!==expectedObjectContentDigest)
     fail('OBJECT_RECOVERY_CURRENT_ORIGINAL_REVISION_CHANGED',
       {originalWriteRetried:false,originalRevision:original?.revision??null});
   const prepared=await prepareT4OriginalObjectDelta({
@@ -176,7 +185,8 @@ export async function reconcileT4OriginalMutationIntent({
     originalKernel,authorizeOriginalRead,getMode,
   });
   if(prepared.delta.sourceEventId!==event.event_id||
-    prepared.delta.sourceRevision!==intent.expectedBaseRevision+1)
+    prepared.delta.sourceRevision!==intent.expectedBaseRevision+1||
+    prepared.delta.objectContentDigest!==expectedObjectContentDigest)
     fail('OBJECT_RECOVERY_DELTA_MISMATCH');
   const nextOutbox=Object.freeze({
     schema:outboxSchema,captureRef,workspaceId,objectId,originalWriteOwnerRef,

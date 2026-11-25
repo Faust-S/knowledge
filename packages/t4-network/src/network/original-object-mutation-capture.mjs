@@ -1,6 +1,7 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
-import {prepareT4OriginalObjectDelta,preflightT4OriginalObjectNativeCapacity} from './original-object-delta.mjs';
+import {prepareT4OriginalObjectDelta,preflightT4OriginalObjectNativeCapacity,
+  digestT4OriginalObjectContent,T4_ORIGINAL_OBJECT_CONTENT_TRACE} from './original-object-delta.mjs';
 
 export class T4OriginalObjectCaptureError extends Error{
   constructor(code,details={}){super(code);this.name='T4OriginalObjectCaptureError';
@@ -66,13 +67,14 @@ export async function captureT4OriginalObjectMutation({
   }
   const mutationBytes=validateMutation(admitted,workspaceId,objectId);
   const originalInputDigest='sha256:'+packageSha256(mutationBytes);
-  if(mutationInput.event.payload!==undefined&&
-    (mutationInput.event.payload===null||
-     typeof mutationInput.event.payload!=='object'||
-     Array.isArray(mutationInput.event.payload)))
+  if(admitted.event.payload!==undefined&&
+    (admitted.event.payload===null||
+     typeof admitted.event.payload!=='object'||
+     Array.isArray(admitted.event.payload)))
     fail('OBJECT_CAPTURE_EVENT_PAYLOAD_MUST_BE_OBJECT');
-  if(Object.hasOwn(mutationInput.event.payload??{},TRACE_REF)||
-    Object.hasOwn(mutationInput.event.payload??{},TRACE_INPUT_DIGEST))
+  if(Object.hasOwn(admitted.event.payload??{},TRACE_REF)||
+    Object.hasOwn(admitted.event.payload??{},TRACE_INPUT_DIGEST)||
+    Object.hasOwn(admitted.event.payload??{},T4_ORIGINAL_OBJECT_CONTENT_TRACE))
     fail('OBJECT_CAPTURE_EVENT_TRACE_COLLISION');
   const originalMutation=JSON.parse(mutationBytes.toString('utf8'));
   const tracedMutation={
@@ -80,10 +82,9 @@ export async function captureT4OriginalObjectMutation({
       payload:{...originalMutation.event.payload,
         [TRACE_REF]:captureRef,[TRACE_INPUT_DIGEST]:originalInputDigest}},
   };
-  const tracedMutationBytes=validateMutation(tracedMutation,workspaceId,objectId);
-  const inputDigest='sha256:'+packageSha256(tracedMutationBytes);
+  let inputDigest='sha256:'+packageSha256(validateMutation(tracedMutation,workspaceId,objectId));
   networkMode(getMode);
-  const ctx=Object.freeze({operation:'t1.putObject',workspaceId,objectId,
+  let ctx=Object.freeze({operation:'t1.putObject',workspaceId,objectId,
     originalWriteOwnerRef,captureRef,inputDigest,
     expectedBaseRevision:originalMutation.base_revision});
   if(await authorizeOriginalWrite(ctx)!==true||
@@ -101,6 +102,15 @@ export async function captureT4OriginalObjectMutation({
     fail('OBJECT_CAPTURE_BASE_REVISION_CONFLICT');
   preflightT4OriginalObjectNativeCapacity({workspaceId,originalWriteOwnerRef,
     mutationInput:originalMutation,existingExtensions:initial?.object?.extensions??{}});
+  const expectedObjectContentDigest=digestT4OriginalObjectContent({
+    schemaId:originalMutation.schema_id,schemaVersion:originalMutation.schema_version,
+    data:originalMutation.data,extensions:{...initial?.object?.extensions,...originalMutation.extensions}});
+  tracedMutation.event.payload[T4_ORIGINAL_OBJECT_CONTENT_TRACE]=expectedObjectContentDigest;
+  inputDigest='sha256:'+packageSha256(validateMutation(tracedMutation,workspaceId,objectId));
+  ctx=Object.freeze({...ctx,inputDigest,expectedObjectContentDigest});
+  networkMode(getMode);
+  if(await authorizeOriginalWrite(ctx)!==true)fail('OBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
+  networkMode(getMode);
   const priorIntent=await readOriginalIntent(Object.freeze({
     captureRef,workspaceId,objectId,originalWriteOwnerRef,
   }));
@@ -112,7 +122,7 @@ export async function captureT4OriginalObjectMutation({
   const intent=Object.freeze({
     schema:'IWXA_T4_ORIGINAL_OBJECT_MUTATION_INTENT_V1',
     workspaceId,objectId,originalWriteOwnerRef,captureRef,
-    inputDigest,originalInputDigest,
+    inputDigest,originalInputDigest,expectedObjectContentDigest,
     originalMutation:tracedMutation,
     expectedBaseRevision:originalMutation.base_revision,
     sourceCursor,
@@ -155,6 +165,8 @@ export async function captureT4OriginalObjectMutation({
     if(!matchedEvent||
       matchedEvent.payload?.[TRACE_REF]!==captureRef||
       matchedEvent.payload?.[TRACE_INPUT_DIGEST]!==originalInputDigest||
+      matchedEvent.payload?.[T4_ORIGINAL_OBJECT_CONTENT_TRACE]!==expectedObjectContentDigest||
+      matchedEvent.event_type!==originalMutation.event.event_type||
       matchedEvent.object_id!==objectId||
       matchedEvent.revision!==originalMutation.base_revision+1)
       fail('OBJECT_CAPTURE_ORIGINAL_EVENT_CORRELATION_MISSING');
@@ -164,6 +176,8 @@ export async function captureT4OriginalObjectMutation({
     });
     if(prepared.delta.sourceRevision!==receipt.object.revision)
       fail('OBJECT_CAPTURE_REVISION_CHANGED_DURING_CAPTURE');
+    if(prepared.delta.objectContentDigest!==expectedObjectContentDigest)
+      fail('OBJECT_CAPTURE_ORIGINAL_CONTENT_CHANGED_DURING_CAPTURE');
     captured={window,nextCursor,prepared};
   }catch(error){
     fail('OBJECT_CAPTURE_POST_WRITE_UNCERTAIN',{
