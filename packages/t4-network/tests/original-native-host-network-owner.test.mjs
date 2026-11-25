@@ -1,3 +1,4 @@
+import {createT4OriginalNativeHostNetworkProfile} from '../src/network/original-native-host-network-profile.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,sign,verify,randomBytes,createCipheriv,createDecipheriv} from 'node:crypto';
@@ -1002,4 +1003,14 @@ test('K113 commit-order profile requires source role, signed source window and o
     {role:'SOURCE',enableOriginalCommitOrder:true,enableSourceEventWindowRead:true},
     {role:'SOURCE',enableOriginalCommitOrder:'true'},
   ])assert.throws(()=>createT4OriginalNativeHostNetworkOwner(options),e=>e?.code==='NATIVE_NETWORK_OWNER_COMMIT_ORDER_PROFILE_INVALID');
+});
+
+test('K116 top-level native profile refuses inconsistent commit-order configuration before opening transports',()=>{
+ for(const options of [
+   {role:'RECIPIENT',enableOriginalCommitOrder:true,enableSourceEventWindowRead:true},
+   {role:'SOURCE',enableOriginalCommitOrder:true},
+   {role:'SOURCE',enableOriginalCommitOrder:true,enableSourceEventWindowRead:true},
+   {role:'SOURCE',enableOriginalCommitOrder:'true'},
+ ])assert.throws(()=>createT4OriginalNativeHostNetworkProfile(options),
+   {code:'NATIVE_NETWORK_PROFILE_COMMIT_ORDER_REQUIRED'});
 });

@@ -22,7 +22,12 @@ export function createT4OriginalNativeHostNetworkProfile({
   scopeRef,ownerEpoch,requiredCryptoSuite,getMode:originalGetMode,
   originalAccess,originalVault,originalTopology,originalPeerHistory,originalPorts,
   readOriginalBaselineAdmissionInput,readOriginalNetworkResumeInput,onStep,monotonicNow,enableSourceEventWindowRead=false,enableSourceCaptureBinding=false,enableRecipientResultRead=false,
+  enableOriginalCommitOrder=false,
 }={}){
+  if(typeof enableOriginalCommitOrder!=='boolean'||(enableOriginalCommitOrder&&
+    (role!=='SOURCE'||!enableSourceEventWindowRead||
+      typeof originalPorts?.withOriginalHistoryReadBoundary!=='function')))
+    fail('NATIVE_NETWORK_PROFILE_COMMIT_ORDER_REQUIRED');
   if(typeof enableRecipientResultRead!=='boolean'||typeof enableSourceCaptureBinding!=='boolean'||(enableSourceCaptureBinding&&!enableSourceEventWindowRead)||typeof enableSourceEventWindowRead!=='boolean'||!['SOURCE','RECIPIENT'].includes(role)||typeof originalGetMode!=='function'||
     !originalAccess||!originalVault||!originalPorts||typeof readOriginalBaselineAdmissionInput!=='function'||
     typeof readOriginalNetworkResumeInput!=='function')fail('NATIVE_NETWORK_PROFILE_ORIGINAL_PORTS_REQUIRED');
@@ -69,7 +74,7 @@ export function createT4OriginalNativeHostNetworkProfile({
       requireSignedTopologyAccess:true,requireOriginalVaultNodeSignature:true,requireDurableNetworkKeyBinding:true,
       requireOriginalVaultSealedContent:true,enablePublicationIndexMigration:true,enableExplicitNetworkResume:true,
       enableLocalSourceCapture:source,enableLocalRecipientResultVerification:!source,enableRecipientResultRead,enableHistoricalAcknowledgementRecovery:source,enableLocalRetiredRecipientRecovery:!source,
-      enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,enableSourceCaptureBinding,
+      enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,enableSourceCaptureBinding,enableOriginalCommitOrder,
       enableReplacementSourceAdmission:source,enableReplacementSourceContent:source,enableReplacementSourceAckConfirmation:source,
       enableReplacementRecipientAdmission:!source,enableReplacementRecipientContent:!source,enableReplacementRecipientApply:!source});
     const close=()=>{if(closed)return;closed=true;try{transport.close();}finally{tlsBinding?.close();}};

@@ -133,3 +133,54 @@ test('K74 original relay history read shares one command slot with D3 and native
     assert.equal(await relay.readOriginalReplacementOwnerHistory(input),null);assert.equal(technical.proofCount,1);
   }finally{relay.close();}
 });
+
+test('K116 real signed native relay negotiates optional commit history and authenticates its exact page',async()=>{
+ const op='t1.listEventCommitWindow',read='t1.listEventsSince',digestInputs=[];
+ const local=createTemporaryOriginalPersonalAuthority({workspaceId:WS,operations:[op,read],clock:Date.now});
+ let ctx;
+ const owner={operations:[op,read],onAttach:p=>{ctx=p;return true;},onDetach:()=>{},
+   resolveOriginalAccess:p=>p.args[0]===WS?{...local.access,operationDigest:input=>{
+     digestInputs.push(structuredClone(input));return local.access.operationDigest(input);}}:null};
+ const relay=createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,networkOwner:owner});
+ const exchange=(verb,payload={})=>relay.exchange({verb,payload},1);
+ try{
+   const s=await exchange('attach',{sessionInfo:{...info,granted_operations:[...info.granted_operations,op]},networkRelayVersion:1});
+   assert.ok(s.networkMethods.includes('listEventCommitWindow'));
+   assert.equal(ctx.kernel.hasOperation(op),true);
+   const readPage=ctx.kernel.listEventCommitWindow(WS,'event:old',1);
+   const cmd=await exchange('next',{sessionId:s.sessionId});
+   assert.equal(cmd.method,'listEventCommitWindow');
+   assert.deepEqual(cmd.args,[WS,'event:old',1]);
+   assert.equal(digestInputs[0].operation,op);
+   assert.deepEqual(digestInputs[0].input,{workspace_id:WS,after_event_id:'event:old',limit:1});
+   const page={entries:[{event:{workspace_id:WS,event_id:'event:new'},legacy_history:false}],
+     next_after_event_id:'event:new',has_more:false,order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+   await exchange('result',{sessionId:s.sessionId,id:cmd.id,ok:true,result:page});
+   assert.deepEqual(await readPage,page);
+   await assert.rejects(ctx.kernel.listEventCommitWindow(TECH,null,1),{code:'T3_ORIGINAL_NETWORK_RELAY_AUTHORITY_DENIED'});
+   local.revoke();
+   await assert.rejects(ctx.kernel.listEventCommitWindow(WS,null,1),{code:'T3_ACCESS_NOT_PERMITTED'});
+ }finally{relay.close();local.closeOriginalVault();}
+});
+test('K116 legacy native session retains D3 without falsely admitting commit-history network owner',async()=>{
+ const op='t1.listEventCommitWindow',read='t1.listEventsSince';
+ let attached=0;
+ const relay=createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,networkOwner:{
+   operations:[op,read],resolveOriginalAccess:()=>null,onAttach:()=>{attached++;return true;},onDetach:()=>{}}});
+ try{
+   const result=await relay.exchange({verb:'attach',payload:{sessionInfo:info,networkRelayVersion:1}},1);
+   assert.equal(result.networkRelayVersion,undefined);
+   assert.equal(result.networkMethods,undefined);
+   assert.equal(attached,0);
+   assert.equal(relay.nativeKernel.hasOperation(read),true);
+ }finally{relay.close();}
+});
+test('K116 optional commit history cannot be installed by an unsigned relay or without original history grant',()=>{
+ const op='t1.listEventCommitWindow',read='t1.listEventsSince';
+ for(const owner of [
+   {operations:[op,read],authorizeOperation:()=>true},
+   {operations:[op],resolveOriginalAccess:()=>null},
+ ])assert.throws(()=>createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,
+   networkOwner:{...owner,onAttach:()=>true,onDetach:()=>{}}}),
+   {code:'T3_ORIGINAL_NETWORK_RELAY_COMMIT_HISTORY_OWNER_REQUIRED'});
+});

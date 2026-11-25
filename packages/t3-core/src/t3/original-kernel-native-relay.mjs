@@ -48,6 +48,10 @@ export function createOriginalKernelNativeRelay({
   const networkNames=Array.isArray(networkOwner?.operations)?
     Object.keys(NETWORK_METHODS).filter(name=>
       networkOwner.operations.includes(NETWORK_METHODS[name])):[];
+  check(!networkNames.includes("listEventCommitWindow")||
+    (typeof networkOwner?.resolveOriginalAccess==="function"&&
+      networkOwner.operations.includes("t1.listEventsSince")),
+    "T3_ORIGINAL_NETWORK_RELAY_COMMIT_HISTORY_OWNER_REQUIRED");
   check(networkOwner===null||(Array.isArray(networkOwner.operations)&&
     networkOwner.operations.length>0&&networkNames.length===networkOwner.operations.length&&
     ((typeof networkOwner.authorizeOperation==="function"&&networkOwner.resolveOriginalAccess===undefined)||
@@ -237,7 +241,9 @@ export function createOriginalKernelNativeRelay({
     // original task binding; no command may execute before admission.
     hasOperation:id=>!closed&&live===state&&state.networkStarted&&
       state.grants.granted_operations.includes(id)&&
-      network.names.some(name=>NETWORK_METHODS[name]===id),
+      network.names.some(name=>NETWORK_METHODS[name]===id)&&
+      (id!=="t1.listEventCommitWindow"||
+        (typeof network.resolveAccess==="function"&&state.grants.granted_operations.includes("t1.listEventsSince"))),
     ...Object.fromEntries(network.names.map(name=>[name,(...args)=>networkDispatch(state,name,args)])),
   });
   // Driven by the existing browser next/lease, never an extra timer or queue.
