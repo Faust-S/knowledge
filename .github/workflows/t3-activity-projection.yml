@@ -1,25 +1,6 @@
 name: t3-core-source-qualification
 
 on:
-  push:
-    branches:
-      - work/2026-11-10-t3-t2-activity-projection
-      - work/2026-11-13-t3-remove-unauthorized-control-app
-      - work/2026-11-13-t3-d1-original-registry-store
-      - work/2026-11-13-t3-d1-cold-host-process
-      - work/2026-11-13-t3-d1-personal-signed-appshell
-      - work/2026-11-13-t3-d1-corporate-original-access
-      - work/2026-11-13-t3-d1-two-corp-compiled-appshell
-      - work/2026-11-13-t3-d1-corp-existing-vault
-      - work/2026-11-13-t3-pwa-integration
-      - work/2026-11-13-t3-d1-native-owner-http
-      - work/2026-11-16-t3-d3-independent-employee
-    paths:
-      - packages/t3-core/src/t3/activity/**
-      - packages/t3-core/**
-      - tools/import-qualified-t2.mjs
-      - tests/t3-inherited-contract.test.mjs
-      - .github/workflows/t3-activity-projection.yml
   workflow_dispatch:
 
 permissions:

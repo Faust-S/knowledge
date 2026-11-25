@@ -1,11 +1,5 @@
 name: t3-club-full-site-candidate
 on:
-  push:
-    branches:
-      - work/2026-11-24-t3-mobile-model-catalog
-    paths:
-      - .github/workflows/t3-club-full-site-candidate.yml
-      - packages/t3-core/tests/t3-club-full-site-roundtrip.mjs
   workflow_dispatch:
 permissions:
   contents: read

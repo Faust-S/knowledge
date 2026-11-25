@@ -1,12 +1,6 @@
 name: T3 mobile portable platform candidate
 on:
-  push:
-    branches: [work/2026-11-24-t3-mobile-model-catalog]
-    paths:
-      - packages/t3-core/scripts/package-t3-portable-platform.mjs
-      - .github/workflows/t3-mobile-portable-candidate.yml
-      - packages/t3-core/package.json
-      - packages/t3-core/package-lock.json
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
