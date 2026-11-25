@@ -910,9 +910,12 @@ async function executeNativeRecipientOwnerStep(p,options){
   if(p.getMode?.()==='LOCAL_T3')return result('LOCAL_T3');
   requireNativeRecipientPorts(p);
   const {readOriginalNativeSessionAtCursor,createOriginalRecipientPublicationPort,
-    authorizeOriginalRecipientSession,useSignedSourceAnnouncement=false,...stepOptions}=options;
+    authorizeOriginalRecipientSession,useSignedSourceAnnouncement=false,
+    readOriginalLocalRetiredRecipientSession=null,...stepOptions}=options;
   if(['session','sourceCursorBefore','recipientPublicationPort'].some(k=>Object.hasOwn(options,k))||
     typeof useSignedSourceAnnouncement!=='boolean'||
+    (readOriginalLocalRetiredRecipientSession!==null&&(!useSignedSourceAnnouncement||
+      typeof readOriginalLocalRetiredRecipientSession!=='function'))||
     (useSignedSourceAnnouncement?(readOriginalNativeSessionAtCursor!==undefined||
       stepOptions.requireSourceAnnouncement===false):typeof readOriginalNativeSessionAtCursor!=='function')||
     ![createOriginalRecipientPublicationPort,authorizeOriginalRecipientSession].every(f=>typeof f==='function'))
@@ -962,6 +965,46 @@ async function executeNativeRecipientOwnerStep(p,options){
       fail('RECIPIENT_NATIVE_OWNER_CURSOR_CHANGED',{automaticRetryAllowed:false});
   }
   await ownerGuard('before-source-selection');
+  // Local retirement never substitutes for signed active-session discovery.
+  if(readOriginalLocalRetiredRecipientSession!==null){
+    const local=structuredClone(await readOriginalLocalRetiredRecipientSession(scopedProof(
+      't4.network.original.recipient.retired.select','recipient-owner-local-retirement',{
+        sourceCursorBefore:structuredClone(before),readOnly:true,originalSubjectMutationAllowed:false})));
+    await requireCurrent('after-local-retirement-selection');
+    if(local!==null){
+      if(local?.schema!=='IWXA_T4_ORIGINAL_LOCAL_RETIRED_RECIPIENT_SELECTION_V1'||
+        !same(local.sourceCursorBefore,before)||local.originalLocalPublicationChainsVerified!==true||
+        local.originalLocalTerminalEventVerified!==true||local.remoteCollectionEnumerated!==false||
+        local.originalSourceOwnerReadVerified!==false||local.originalSourceCursorAdvanced!==false||
+        local.originalSubjectMutationInvoked!==false||local.originalNewAttemptAdmissionStillRequired!==true||
+        local.liveNetworkAuthorityGranted!==false)
+        fail('RECIPIENT_NATIVE_OWNER_LOCAL_RETIREMENT_INVALID');
+      const session=validateT4OriginalNativeCaptureSession(local.session);
+      if(!['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch']
+        .every(k=>session[k]===identity[k])||session.sourcePrefixDigestBefore!==before.sourcePrefixDigest||
+        session.sourceEventId===before.lastEventId||
+        typeof stepOptions.createOriginalRecipientPhasePort!=='function')
+        fail('RECIPIENT_NATIVE_OWNER_LOCAL_RETIREMENT_INVALID');
+      const raw=await stepOptions.createOriginalRecipientPhasePort(frozen({session,
+        received:null,verifiedContent:null,sourceHeadProof:null}));
+      await ownerGuard('local-retirement-phase-port');
+      if(raw?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||raw.role!=='RECIPIENT'||
+        raw.originalT3TechnicalWorkspaceOnly!==true||raw.recipientApplyIntentRequired!==true||
+        typeof raw.inspectOriginalRetiredAttempt!=='function'||!ID(raw.checkpointRef))
+        fail('RECIPIENT_NATIVE_OWNER_LOCAL_RETIREMENT_INVALID');
+      const phase=scopeOriginalHostPort(raw,p.isHostActive,
+        ['schema','role','checkpointRef','recipientApplyIntentRequired','originalT3TechnicalWorkspaceOnly'],
+        'RECIPIENT_NATIVE_OWNER_LOCAL_RETIREMENT_INVALID');
+      const actual=requireT4OriginalRetiredAttemptStatus(await phase.inspectOriginalRetiredAttempt(),
+        session,'RECIPIENT',phase.checkpointRef);
+      await requireCurrent('local-retirement-readback');
+      if(!same(local.retired,{...actual,sessionRef:session.sessionRef,changeId:session.changeId,role:'RECIPIENT'}))
+        fail('RECIPIENT_NATIVE_OWNER_LOCAL_RETIREMENT_CHANGED');
+      return result('WAITING_FOR_REPLACEMENT_ADMISSION',{originalHostSessionRef:initial.hostSessionRef,
+        originalHostTaskOwnerVerified:true,sourceCursorBefore:before,sourceCursorAfter:before,
+        sessionRef:session.sessionRef,changeId:session.changeId,originalLocalRetirementRecovered:true,...actual});
+    }
+  }
   const selected=structuredClone(useSignedSourceAnnouncement?await discoverT4OriginalSourceSessionAnnouncement({
     identity,sourceCursorBefore:before,requiredCryptoSuite:stepOptions.requiredCryptoSuite,
     frameDiscoveryPort:scopeOriginalHostPort(stepOptions.frameDiscoveryPort,p.isHostActive,

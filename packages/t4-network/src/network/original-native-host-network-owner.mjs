@@ -7,7 +7,7 @@ import {createT4OriginalHostCaptureAdapter} from './original-host-capture-adapte
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort}
   from './original-network-host-cursor.mjs';
 import {createT4OriginalNetworkSessionPhasePort,requireT4OriginalRetiredAttemptStatus} from './original-network-session-phases.mjs';
-import {createT4OriginalNetworkPublicationPort,isT4RecoverablePublicationWakeError,createT4OriginalPublicationIndexMigrationStepper} from './original-network-publication.mjs';
+import {createT4OriginalNetworkPublicationPort,isT4RecoverablePublicationWakeError,createT4OriginalPublicationIndexMigrationStepper,readT4OriginalLocalRetiredRecipientSession} from './original-network-publication.mjs';
 import {createT4OriginalNetworkReplayPort} from './original-network-replay-checkpoint.mjs';
 import {isT4NativeTopologyTransport} from './network-topology.mjs';
 import {isT4OriginalVaultNodeSignaturePort} from './original-vault-node-signature.mjs';
@@ -61,11 +61,13 @@ export function createT4OriginalNativeHostNetworkOwner({
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
   enableLocalSourceCapture=false,enablePublicationIndexMigration=false,
   enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,requireSignedTopologyAccess=false,
-  enableHistoricalAcknowledgementRecovery=false,
+  enableHistoricalAcknowledgementRecovery=false,enableLocalRetiredRecipientRecovery=false,
   originalVaultNodeSignaturePort=null,requireOriginalVaultNodeSignature=false,requireDurableNetworkKeyBinding=false,
   originalVaultSealedContentPort=null,requireOriginalVaultSealedContent=false,
   monotonicNow=()=>performance.now(),
 }={}){
+  if(typeof enableLocalRetiredRecipientRecovery!=='boolean'||(enableLocalRetiredRecipientRecovery&&role!=='RECIPIENT'))
+    fail('NATIVE_NETWORK_OWNER_LOCAL_RETIREMENT_PROFILE_INVALID');
   if(typeof enableHistoricalAcknowledgementRecovery!=='boolean'||(enableHistoricalAcknowledgementRecovery&&
     (role!=='SOURCE'||!isT4OriginalVaultNodeSignaturePort(originalVaultNodeSignaturePort)||
       originalVaultNodeSignaturePort.originalDurableNetworkKeyBinding!==true||
@@ -333,6 +335,13 @@ export function createT4OriginalNativeHostNetworkOwner({
       withOriginalSubjectMutation:callback('withOriginalSubjectMutation')});
     return {baseline,task,migrateNextPublication,run:retryMissing=>task.runNativeOwnerStep({...signing,retryMissing,useSignedSourceAnnouncement:true,
       createOriginalRecipientPublicationPort:publication,createOriginalRecipientPhasePort:phase,
+      ...(enableLocalRetiredRecipientRecovery?{readOriginalLocalRetiredRecipientSession:proof=>
+        readT4OriginalLocalRetiredRecipientSession({...tech,localNodeRef:nodeRef,
+          sourceCursorBefore:proof.sourceCursorBefore,inspectOriginalRetiredAttempt:inspectRetired,
+          createOriginalPublicationPort:async({session})=>session.schema==='IWXA_T4_ORIGINAL_SUPERSESSION_PUBLICATION_SESSION_V1'?
+            createT4OriginalNetworkPublicationPort({...tech,session,localNodeRef:nodeRef,frameTransport:frameDiscoveryPort,
+              authorizeOriginalFramePublish:async()=>false,authorizeOriginalControlPublication:async()=>false,
+              verifyOriginalNodeSignature:async()=>false}):publication({session})})}:{}),
       authorizeOriginalRecipientSession:callback('authorizeOriginalRecipientSession'),
       readOriginalSourceHostContext:callback('readOriginalSourceHostContext'),
       authorizeOriginalSourceRead,readOriginalSourceEvents,verifyOriginalSourceSubject:callback('verifyOriginalSourceSubject'),

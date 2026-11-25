@@ -7,7 +7,7 @@ import {readT4OriginalEventWindow} from '../src/network/original-event-window.mj
 import {prepareT4OriginalObjectDelta} from '../src/network/original-object-delta.mjs';
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,createT4OriginalSourceSessionHead}
   from '../src/network/original-network-publication.mjs';
-import {createT4OriginalNetworkSessionPhasePort} from '../src/network/original-network-session-phases.mjs';
+import {createT4OriginalNetworkSessionPhasePort,requireT4OriginalRetiredAttemptStatus} from '../src/network/original-network-session-phases.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,
@@ -640,4 +640,34 @@ test('K54 cold recipient stops a retired VERIFIED attempt before any old transpo
   assert.equal(result.originalRecipientCursorAdvanced,false);assert.deepEqual(f.cursor(),cursor);
   for(const key of ['puts','lists','gets','opens','signatures','subjectWrites','technicalWrites','replayWrites'])
     assert.equal(f.counters[key],counters[key],key);
+});
+
+test('K56 signed-announcement owner uses a verified local retirement fence without discovering obsolete HEADS',async()=>{
+  const f=await fixture();await f.add(0);await f.step();
+  const before=await f.phase().inspectOriginalSession();
+  await f.phase({authorizeOriginalRecipientSupersession:async()=>true}).retireOriginalRecipientAttempt({
+    expectedRevision:before.revision,expectedChainHash:before.chainHash,
+    decisionRef:'decision:k56:recipient',decisionDigest:H('fixture retirement')});
+  f.restart();const counts=clone(f.counters);
+  const readOriginalLocalRetiredRecipientSession=async proof=>{
+    assert.deepEqual(proof.sourceCursorBefore,f.predecessor);
+    const port=f.phase(),status=await port.inspectOriginalRetiredAttempt();
+    return {schema:'IWXA_T4_ORIGINAL_LOCAL_RETIRED_RECIPIENT_SELECTION_V1',session:f.session,sourceCursorBefore:f.predecessor,
+      retired:{...requireT4OriginalRetiredAttemptStatus(status,f.session,'RECIPIENT',port.checkpointRef),
+        sessionRef:f.session.sessionRef,changeId:f.session.changeId,role:'RECIPIENT'},
+      originalLocalPublicationChainsVerified:true,originalLocalTerminalEventVerified:true,remoteCollectionEnumerated:false,
+      originalSourceOwnerReadVerified:false,originalSourceCursorAdvanced:false,originalSubjectMutationInvoked:false,
+      originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false};
+  };
+  const options={useSignedSourceAnnouncement:true,readOriginalNativeSessionAtCursor:undefined,
+    readOriginalLocalRetiredRecipientSession,createOriginalRecipientPublicationPort:async()=>assert.fail('retired session reopened')};
+  const stop=await f.ownerStep(options);
+  assert.equal(stop.state,'WAITING_FOR_REPLACEMENT_ADMISSION');assert.equal(stop.originalLocalRetirementRecovered,true);
+  assert.equal(stop.originalRecipientCursorAdvanced,false);
+  for(const key of ['puts','lists','gets','opens','signatures','subjectWrites','technicalWrites','replayWrites'])
+    assert.equal(f.counters[key],counts[key],key);
+  await assert.rejects(f.ownerStep({...options,readOriginalLocalRetiredRecipientSession:async proof=>{
+    const v=await readOriginalLocalRetiredRecipientSession(proof);
+    return {...v,retired:{...v.retired,originalSupersessionEventId:'event:substituted'}};
+  }}),code('RECIPIENT_NATIVE_OWNER_LOCAL_RETIREMENT_CHANGED'));
 });

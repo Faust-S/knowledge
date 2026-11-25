@@ -12,7 +12,7 @@ import {createT4CandidateFrameTransport}
 import {prepareT4OriginalSupersessionControl,publishT4OriginalSupersessionRequest}
   from '../src/network/original-network-session-supersession.mjs';
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,readT4OriginalPublicationMigrationInventory,
-  deriveT4OriginalSupersessionPublicationSession,createT4OriginalPublicationIndexMigrationStepper}
+  deriveT4OriginalSupersessionPublicationSession,createT4OriginalPublicationIndexMigrationStepper,readT4OriginalLocalRetiredRecipientSession}
   from '../src/network/original-network-publication.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID} from '../src/network/original-network-technical-schema.mjs';
 import {createT4OriginalHostDispatchTaskBinding}
@@ -876,4 +876,44 @@ test('K55 migration retains retired original publication without reviving indexe
     inspectOriginalRetiredAttempt:async p=>++reads===1?inspect(p):null,createOriginalPublicationPort:async()=>f.port()});
   await assert.rejects(contradictory(),err('NATIVE_INDEX_MIGRATION_RETIREMENT_CONFLICT'));
   assert.equal(f.indexCalls(),indexCalls);
+});
+
+test('K56 local recipient publication and terminal phase recover a stop-only capture without remote verification',async()=>{
+  const f=fixture(task(),{indexed:true}),session=f.session;
+  const diff=await f.signed('DIFF_REQUEST',1,{familyRef:session.familyRef,fromHeads:[session.sourcePrefixDigestBefore]},recipient);
+  await f.port(recipient).prepareSignedBatch({slots:[{sequence:1,messageType:'DIFF_REQUEST'}],createSignedFrames:async()=>[diff]});
+  const phase=createT4OriginalNetworkSessionPhasePort({originalKernel:f.kernel,technicalWorkspaceId:technical,
+    originalWriteOwnerRef:owner,sourceNodeRef:source,recipientNodeRef:recipient,localNodeRef:recipient,scopeRef:scope,
+    sessionRef:session.sessionRef,changeId:session.changeId,ownerEpoch:session.ownerEpoch,recipientApplyIntentRequired:true,
+    getMode:f.mode,readOriginalHostContext:async()=>({workspaceId:technical,originalWriteOwnerRef:owner,
+      nodeRef:recipient,scopeRef:scope,hostSessionRef:f.host()}),
+    authorizeOriginalTechnicalRead:f.auth,authorizeOriginalTechnicalWrite:f.auth,
+    verifyOriginalPhaseEvidence:async()=>true,verifyOriginalRecipientApplied:async()=>false,
+    authorizeOriginalRecipientSupersession:async()=>true});
+  const options={technicalSchemaId:T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,technicalWorkspaceId:technical,
+    sourceWorkspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef:source,recipientNodeRef:recipient,
+    localNodeRef:recipient,scopeRef:scope,ownerEpoch:session.ownerEpoch,originalKernel:f.kernel,getMode:f.mode,
+    readOriginalHostContext:async()=>({workspaceId:technical,originalWriteOwnerRef:owner,nodeRef:recipient,scopeRef:scope,hostSessionRef:f.host()}),
+    authorizeOriginalTechnicalRead:f.auth,
+    sourceCursorBefore:{schema:'IWXA_T4_ORIGINAL_EVENT_CURSOR_V1',workspaceId:ws,originalWriteOwnerRef:owner,
+      lastEventId:'event:original:one',seenEventCount:1,sourcePrefixDigest:session.sourcePrefixDigestBefore,originalPermissionProof:false},
+    inspectOriginalRetiredAttempt:async({session:s})=>{
+      const status=await phase.inspectOriginalRetiredAttempt();
+      return status===null?null:{...requireT4OriginalRetiredAttemptStatus(status,s,'RECIPIENT',phase.checkpointRef),
+        sessionRef:s.sessionRef,changeId:s.changeId,role:'RECIPIENT'};
+    },
+    createOriginalPublicationPort:async()=>f.port(recipient)};
+  assert.equal(await readT4OriginalLocalRetiredRecipientSession(options),null);
+  const before=await phase.inspectOriginalSession();
+  await phase.retireOriginalRecipientAttempt({expectedRevision:before.revision,expectedChainHash:before.chainHash,
+    decisionRef:'decision:k56',decisionDigest:H('retire k56')});
+  f.restart();const counts=f.counts();
+  const found=await readT4OriginalLocalRetiredRecipientSession(options);
+  assert.deepEqual(found.session,session);assert.equal(found.retired.originalAttemptSuperseded,true);
+  assert.equal(found.originalLocalPublicationChainsVerified,true);assert.equal(found.liveNetworkAuthorityGranted,false);
+  assert.equal(found.remoteCollectionEnumerated,false);assert.equal(found.originalSourceCursorAdvanced,false);
+  assert.equal(f.counts().networkCalls,counts.networkCalls);assert.equal(f.counts().signCalls,counts.signCalls);
+  assert.equal(f.counts().putCalls,counts.putCalls);
+  assert.equal(await readT4OriginalLocalRetiredRecipientSession({...options,
+    sourceCursorBefore:{...options.sourceCursorBefore,sourcePrefixDigest:session.sourcePrefixDigestAfter}}),null);
 });

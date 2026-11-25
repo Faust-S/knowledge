@@ -256,9 +256,11 @@ export async function readT4OriginalPublicationMigrationInventory({
   technicalSchemaId=T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID,
   technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
   recipientNodeRef,scopeRef,ownerEpoch,localNodeRef,originalKernel,getMode,
-  readOriginalHostContext,authorizeOriginalTechnicalRead,
+  readOriginalHostContext,authorizeOriginalTechnicalRead,inventoryPurpose='index-migration-inventory',
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
+  if(!['index-migration-inventory','retired-recipient-selection'].includes(inventoryPurpose))
+    fail('PUBLICATION_MIGRATION_INVENTORY_PURPOSE_INVALID');
   const identity={technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,localNodeRef};
   if(![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
@@ -283,10 +285,10 @@ export async function readT4OriginalPublicationMigrationInventory({
   async function guard(operation){
     if(!same(await context(),initial))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED');
     if(await authorizeOriginalTechnicalRead(Object.freeze({...identity,operation,
-      purpose:'index-migration-inventory',recordRole:'publication',checkpointRef:null,
+      purpose:inventoryPurpose,recordRole:'publication',checkpointRef:null,
       technicalSchemaId,originalHostSessionRef:initial.hostSessionRef,
       originalHostAuthorityRequired:true,networkReceiptIsNotBusinessResult:true}))!==true)
-      fail('PUBLICATION_ORIGINAL_AUTHORITY_DENIED',{operation,purpose:'index-migration-inventory'});
+      fail('PUBLICATION_ORIGINAL_AUTHORITY_DENIED',{operation,purpose:inventoryPurpose});
     if(!same(await context(),initial))fail('PUBLICATION_ORIGINAL_CONTEXT_CHANGED');
   }
   await guard('t1.listObjects');
@@ -350,6 +352,81 @@ export async function readT4OriginalPublicationMigrationInventory({
     originalCatalogAndEventCorrespondenceVerified:true,
     originalPublicationChainsVerified:false,originalAuthorityGranted:false,
     createsStore:false,remoteCollectionEnumerated:false});
+}
+
+
+/** Stop-only predecessor selection from the existing recipient publications.
+ * The full original ledger is reread without current signer or transport
+ * access. No result or live admission is derived from its absence. */
+export async function readT4OriginalLocalRetiredRecipientSession({
+  sourceCursorBefore,createOriginalPublicationPort,inspectOriginalRetiredAttempt,...inventoryPorts
+}={}){
+  const before=clone(sourceCursorBefore);
+  if(before?.schema!=='IWXA_T4_ORIGINAL_EVENT_CURSOR_V1'||
+    before.workspaceId!==inventoryPorts.sourceWorkspaceId||before.originalWriteOwnerRef!==inventoryPorts.originalWriteOwnerRef||
+    !ID(before.lastEventId)||!DIG(before.sourcePrefixDigest)||!Number.isSafeInteger(before.seenEventCount)||
+    before.seenEventCount<1||before.originalPermissionProof!==false||
+    inventoryPorts.localNodeRef!==inventoryPorts.recipientNodeRef||
+    ![createOriginalPublicationPort,inspectOriginalRetiredAttempt].every(f=>typeof f==='function'))
+    fail('PUBLICATION_LOCAL_RETIREMENT_SELECTION_PORT_REQUIRED');
+  const read=()=>readT4OriginalPublicationMigrationInventory({...inventoryPorts,inventoryPurpose:'retired-recipient-selection'});
+  const inventory=await read(),matching=new Map();
+  for(const record of [...inventory.records,...(inventory.controlRecords??[])]){
+    const control=record.session.schema===CONTROL_SESSION;
+    const root=validateT4OriginalNativeCaptureSession(control?record.session.originalCaptureSession:record.session);
+    if(root.sourcePrefixDigestBefore!==before.sourcePrefixDigest||root.sourceEventId===before.lastEventId)continue;
+    const group=matching.get(root.sessionRef)??{root,records:[]};
+    if(!same(root,group.root))fail('PUBLICATION_LOCAL_RETIREMENT_CAPTURE_CONFLICT');
+    group.records.push({record,control});matching.set(root.sessionRef,group);
+  }
+  const matches=[];
+  for(const {root,records} of matching.values()){
+    const retired=clone(await inspectOriginalRetiredAttempt({session:root}));
+    if(retired===null)continue;
+    if(retired?.originalAttemptSuperseded!==true||retired.role!=='RECIPIENT'||
+      retired.sessionRef!==root.sessionRef||retired.changeId!==root.changeId||
+      retired.replacementSessionRef!==deriveT4OriginalReplacementAttempt(root).replacementSessionRef||
+      !ID(retired.originalSupersessionEventId)||!ID(retired.originalRetiredPhaseCheckpointRef)||
+      !DIG(retired.originalRetiredPhaseChainHash)||!Number.isSafeInteger(retired.originalRetiredPhaseRevision)||
+      retired.originalRetiredPhaseRevision<1||retired.originalRetiredPhaseRevision>3||
+      retired.originalNewAttemptAdmissionStillRequired!==true||retired.liveNetworkAuthorityGranted!==false||
+      retired.originalSubjectMutationInvoked!==false||retired.sourceCursorAdvanced!==false)
+      fail('PUBLICATION_LOCAL_RETIREMENT_PROOF_INVALID');
+    for(const {record,control} of records){
+      const port=await createOriginalPublicationPort({session:record.session,originalLocalRetirementReadOnly:true});
+      if(port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
+        port.originalT3OnlyStore!==true||!same(port.session,record.session)||
+        port.checkpointRef!==record.checkpointRef||typeof port.inspectOriginalPublication!=='function')
+        fail('PUBLICATION_LOCAL_RETIREMENT_PUBLICATION_REQUIRED');
+      const saved=await port.inspectOriginalPublication();
+      if(saved?.schema!==SCHEMA||!same(saved.session,record.session)||
+        saved.checkpointRef!==record.checkpointRef||saved.revision!==record.revision||
+        saved.chainHash!==record.chainHash||saved.originalT3EventChainVerified!==true||
+        saved.originalBusinessApplied!==false||saved.sourceCursorAdvanced!==false||!saved.frames?.length)
+        fail('PUBLICATION_LOCAL_RETIREMENT_PUBLICATION_CHANGED');
+      if(control){
+        const ack=decodeT4CandidateFrame(saved.frames[0].wireBytes);
+        if(ack.messageType!=='ATTEMPT_RETIRED_ACK'||ack.body.retirementCheckpointRef!==retired.originalRetiredPhaseCheckpointRef||
+          ack.body.retirementRevision!==retired.originalRetiredPhaseRevision||
+          ack.body.retirementChainHash!==retired.originalRetiredPhaseChainHash||
+          ack.body.retirementEventId!==retired.originalSupersessionEventId||
+          ack.body.replacementSessionRef!==retired.replacementSessionRef)
+          fail('PUBLICATION_LOCAL_RETIREMENT_CONTROL_CONFLICT');
+      }
+    }
+    if(!same(await inspectOriginalRetiredAttempt({session:root}),retired))
+      fail('PUBLICATION_LOCAL_RETIREMENT_PHASE_CHANGED');
+    matches.push({session:root,retired});
+  }
+  if(matches.length>1)fail('PUBLICATION_LOCAL_RETIREMENT_NOT_UNIQUE');
+  if(!same(await read(),inventory))fail('PUBLICATION_LOCAL_RETIREMENT_INVENTORY_CHANGED');
+  if(!matches.length)return null;
+  const {session,retired}=matches[0];
+  return deepFreeze({schema:'IWXA_T4_ORIGINAL_LOCAL_RETIRED_RECIPIENT_SELECTION_V1',
+    session,sourceCursorBefore:before,retired,originalLocalPublicationChainsVerified:true,
+    originalLocalTerminalEventVerified:true,remoteCollectionEnumerated:false,
+    originalSourceOwnerReadVerified:false,originalSourceCursorAdvanced:false,
+    originalSubjectMutationInvoked:false,originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false});
 }
 
 // One bounded unit of the existing Host's migration. No new timer, task,
