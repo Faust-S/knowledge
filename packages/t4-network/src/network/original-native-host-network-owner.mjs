@@ -17,7 +17,7 @@ import {createT4OriginalHostOutboxDispatcher,readT4OriginalNativeCaptureSessionA
 import {createT4OriginalHostDispatchTaskBinding} from './original-host-dispatch-task-binding.mjs';
 import {createT4OriginalHostRecipientDispatcher} from './original-host-recipient-dispatcher.mjs';
 import {verifyT4OriginalHostCapturedSubjectSource} from './original-host-outbox-delivery.mjs';
-import {readT4OriginalReplacementOwnerHistory,completeT4OriginalReplacementHostCursor,deferT4OriginalReplacementHistoryWake,T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST} from './original-network-replacement-owner-history.mjs';
+import {readT4OriginalReplacementOwnerHistory,completeT4OriginalReplacementHostCursor,deferT4OriginalReplacementHistoryWake,T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST,T4_REPLACEMENT_RECIPIENT_DIFF_REQUEST} from './original-network-replacement-owner-history.mjs';
 import {isT4OriginalSignedReplacementHistoryAccess} from './original-signed-replacement-history-access.mjs';
 import {isT4OriginalReplacementHistoryClient,normalizeT4OriginalReplacementOwnerRequest} from './original-replacement-owner-history-carrier.mjs';
 import {T4_REPLACEMENT_ELIGIBILITY_REQUEST,readT4OriginalReplacementOwnerEligibility} from './original-network-replacement-owner-eligibility.mjs';
@@ -624,7 +624,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   // cannot deadlock waiting for one another's relay command slot.
   async function readOriginalReplacementOwnerHistory({request,peerContext}={}){
     const r=normalizeT4OriginalReplacementOwnerRequest(request),peer=structuredClone(peerContext),state=live;
-    if([T4_REPLACEMENT_ELIGIBILITY_REQUEST,T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST].includes(r.schema)&&!enableReplacementEligibilityRead)fail('NATIVE_REPLACEMENT_ELIGIBILITY_READ_DISABLED');
+    if([T4_REPLACEMENT_ELIGIBILITY_REQUEST,T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST,T4_REPLACEMENT_RECIPIENT_DIFF_REQUEST].includes(r.schema)&&!enableReplacementEligibilityRead)fail('NATIVE_REPLACEMENT_ELIGIBILITY_READ_DISABLED');
     const remote=role==='SOURCE'?recipientNodeRef:sourceNodeRef;
     if(JSON.stringify(r)!==JSON.stringify(request)||r.ownerNodeRef!==nodeRef||r.requesterNodeRef!==remote||
       !['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch'].every(k=>

@@ -2010,3 +2010,64 @@ test('K82 recipient reads source INTENT through independent owner carrier, requi
   assert.deepEqual((await x.realSourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,before);
   assert.deepEqual((await x.realRecipientCursor().inspectOriginalRecipientCursor()).originalT3VerifiedCursor,before);
 });
+
+
+import {createT4OriginalReplacementOwnerRecipientDiffRequest,validateT4OriginalReplacementOwnerRecipientDiffSnapshot} from '../src/network/original-network-replacement-owner-history.mjs';
+
+test('K83 source accepts DIFF via independent local recipient history, never a reciprocal source call',async()=>{
+  const q=await replacementContentFixture({realSourceHistory:true}),{x,c}=q,root=x.session,before=x.sourceCursorBefore;
+  const {requiredCryptoSuite,getMode}=x.eligibilityOptions();
+  const capture=()=>({schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SELECTION_V1',state:'ORIGINAL_NATIVE_SESSION_SELECTED',
+    ...Object.fromEntries(['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch'].map(k=>[k,root[k]])),
+    networkTargetRef:root.recipientNodeRef,session:root,sourceCursorBefore:before,sourceCursorAfter:x.sourceCursorAfter,
+    originalSourceOwnerReadVerified:true,originalCaptureEvidenceVerified:true,originalSourceCursorAdvanced:false,originalNetworkPublished:false,
+    originalSubjectMutationInvoked:false,capturedPlaintextReturned:false,createsStore:false,createsScheduler:false});
+  let allow=true,historyReads=0,busy=false,mutate=false;
+  const opts=request=>({...x.historicalReadOptions(request.ownerNodeRef),request,requiredCryptoSuite,
+    verifyOriginalRecipientApplied:async()=>false,verifyOriginalHistoricalNodeSignature:x.historicalSignature(request.ownerNodeRef),
+    authorizeOriginalHostWire:async()=>true,authorizeOriginalOwnerHistoryRead:async()=>allow});
+  const eligibilityRead=request=>readT4OriginalReplacementOwnerEligibility({...opts(request),
+    originalCursorPort:request.ownerNodeRef===sourceNodeRef?x.realSourceCursor():x.realRecipientCursor(),
+    ...(request.ownerNodeRef===sourceNodeRef?{readOriginalCaptureSelection:async()=>capture()}: {})});
+  const carrier={scopeRef,ownerEpoch:c.ownerEpoch,workspaceId:c.workspaceId,originalWriteOwnerRef:owner,getMode};
+  const peerContext=nodeRef=>({nodeRef,originalPeerSessionRef:'peer:k83:authenticated',contextEpoch:1,scopeRef,ownerEpoch:c.ownerEpoch,
+    originalPeerAuthenticated:true,originalConfidentialChannelVerified:true});
+  const server=createT4OriginalReplacementHistoryServer({...carrier,localNodeRef:recipientNodeRef,peerNodeRef:sourceNodeRef,
+    readOriginalPeerContext:async()=>peerContext(sourceNodeRef),readOriginalReplacementOwnerHistory:async({request})=>{
+      if(request.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_OWNER_ELIGIBILITY_REQUEST_V1')return eligibilityRead(request);
+      historyReads++;
+      if(busy)return null;
+      const v=await readT4OriginalReplacementOwnerHistory(opts(request));
+      if(mutate&&v.diff)return {...v,diff:{...v.diff,sha256:'f'.repeat(64),key:'f'.repeat(64)+'.t4n'}};
+      return v;
+    }});
+  const client=createT4OriginalReplacementHistoryClient({...carrier,localNodeRef:sourceNodeRef,peerNodeRef:recipientNodeRef,
+    readOriginalPeerContext:async()=>peerContext(recipientNodeRef),invokeOriginalPeerHistory:({requestBytes})=>server(requestBytes)});
+  const params={originalCaptureSession:root,sourceCursorBefore:before,requesterNodeRef:sourceNodeRef,getMode,requiredCryptoSuite,
+    authorizeOriginalReplacement:async()=>true,readOriginalOwnerEligibility:r=>r.ownerNodeRef===sourceNodeRef?eligibilityRead(r):client(r),
+    sourceAdmissionPhasePort:q.phase,sourcePublicationPort:q.sourcePublicationPort,frameDiscoveryPort:x.transport(sourceNodeRef),
+    readOriginalRecipientDiffHistory:client,authorizeOriginalReplacementDiffAcceptance:async()=>true};
+  const discover=(patch={})=>discoverT4OriginalReplacementRecipientDiff({...params,...patch});
+  assert.equal((await discover()).state,'WAITING_FOR_REPLACEMENT_DIFF');assert.equal(historyReads,0);
+  const head=(await q.sourcePublicationPort.inspectOriginalPublication()).frames[0];
+  const request=createT4OriginalReplacementOwnerRecipientDiffRequest({session:c,requesterNodeRef:sourceNodeRef,ownerNodeRef:recipientNodeRef,
+    headWireBase64:Buffer.from(head.wireBytes).toString('base64')});
+  assert.equal((await client(request)).state,'WAITING_FOR_RECIPIENT_DIFF_PRESENT');
+  await q.diff();
+  const beforeCounts={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
+  const witness=await client(request);assert.equal(witness.state,'ORIGINAL_RECIPIENT_DIFF_HISTORY_VERIFIED');
+  assert.equal(witness.acceptedHead.wireSha256,head.sha256);assert.equal(witness.acceptedHead.originalHistoricalAcceptanceProven,true);
+  assert.equal(witness.liveNetworkAuthorityGranted,false);assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},beforeCounts);
+  const direct=await q.current(),selected=await discover();assert.deepEqual(selected,direct);
+  busy=true;assert.equal((await discover()).state,'WAITING_FOR_REPLACEMENT_RECIPIENT_PUBLICATION');busy=false;
+  mutate=true;await assert.rejects(discover(),isCode('REPLACEMENT_SOURCE_DIFF_ORIGINAL_PUBLICATION_MISMATCH'));mutate=false;
+  await assert.rejects(discover({recipientPublicationPort:q.recipientPublicationPort}),isCode('REPLACEMENT_SOURCE_DIFF_PORTS_REQUIRED'));
+  assert.throws(()=>validateT4OriginalReplacementOwnerRecipientDiffSnapshot({...witness,acceptedHead:{...witness.acceptedHead,originalReplayCheckpointCreated:true}},request),
+    isCode('REPLACEMENT_DIFF_HISTORY_PROOF_MISMATCH'));
+  allow=false;await assert.rejects(client(request),isCode('REPLACEMENT_HISTORY_OWNER_READ_DENIED'));allow=true;
+  // The local recipient endpoint does not need network transport or a live signer.
+  x.rotateSource();x.rotateRecipient();x.offline();x.f.restart();
+  const cold={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
+  assert.deepEqual(await client(request),witness);
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},cold);
+});
