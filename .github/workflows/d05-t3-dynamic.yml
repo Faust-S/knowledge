@@ -30,6 +30,10 @@ on:
       full_release:
         type: boolean
         default: false
+      rendered_link_audit:
+        description: Inspect actual hydrated internal links and representative clicks at desktop and mobile widths
+        type: boolean
+        default: false
       publication_recovery:
         description: Restore only the exact Linux-qualified frozen 1.6.0 input tree
         type: boolean
@@ -866,6 +870,342 @@ jobs:
             test "$result" = success || { echo D05_T3_BROWSER_GATE_FAIL; exit 1; }
           done
           echo D05_T3_BROWSER_GATE_PASS
+      - name: Checkout the exact public test-only navigation harness
+        if: inputs.full_release && inputs.rendered_link_audit && !inputs.publication_recovery
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: ${{ github.sha }}
+          path: release-harness
+          persist-credentials: false
+      - name: Verify actual hydrated site links and representative desktop and mobile clicks
+        if: inputs.full_release && inputs.rendered_link_audit && !inputs.publication_recovery
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          harness="$GITHUB_WORKSPACE/release-harness/qualification/d05/navigation"
+          audit="scripts/d05-release-rendered-links.ts"
+          helper="scripts/d05-release-link-target.mjs"
+          test ! -e "$audit" && test ! -e "$helper"
+          trap 'rm -f "$audit" "$helper"' EXIT
+          node --test "$harness/t3-link-target.test.mjs"
+          cp "$harness/check-t3-rendered-links.ts" "$audit"
+          cp "$harness/t3-link-target.mjs" "$helper"
+          log="$RUNNER_TEMP/d05-t3-rendered-links.log"
+          if ! node --import tsx "$audit" >"$log" 2>&1; then
+            grep -Eo 'D05_T3_RENDERED_LINK_[A-Z0-9_]+|TimeoutError|AssertionError' "$log" | sort -u | head -30 || true
+            grep -E '^\{"status":"D05_T3_RENDERED_LINK_AUDIT_FAIL","declaredPages":[0-9]+,"publicPages":[0-9]+,"linkOccurrences":[0-9]+,"uniqueLocalTargets":[0-9]+,"clicks":[0-9]+,"pageErrors":[0-9]+,"localErrors":[0-9]+,"externalRequests":[0-9]+,"failures":\{("[A-Z0-9_]+":[0-9]+,?)*\}\}        if: ${{ !inputs.publication_recovery }}
+        id: repro
+        continue-on-error: true
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-repro.log"
+          if ! node scripts/check-t3-dist-reproducibility.mjs >"$log" 2>&1; then
+            grep -E '^CEHOVOD_T3_REPRO_DIAG \{"kinds":\{("[a-z-]+":[0-9]+,?)*\},"htmlEqualAfterTimestampNormalization":[0-9]+,"htmlEqualAfterRouterTimestampNormalization":[0-9]+,"htmlWithTimestampChanges":[0-9]+\}$' "$log" || true
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T3_[A-Z0-9_]+|AssertionError' "$log" | sort -u | head -30 || true
+            echo D05_T3_REPRO_FAIL
+            exit 1
+          fi
+          grep -E '^\{"status":"CEHOVOD_T3_REPRO_PASS","files":[0-9]+,"invalidInputPreservedDist":true,"exactBytes":true,"productAccepted":false\}$' "$log"
+          echo D05_T3_REPRO_PASS
+      - name: Require exact-source qualification
+        if: ${{ !inputs.publication_recovery }}
+        shell: bash
+        env:
+          NATIVE_CONTEXT_OUTCOME: ${{ steps.native_context.outcome }}
+          DYNAMIC_OUTCOME: ${{ steps.dynamic.outcome }}
+          SSR_OUTCOME: ${{ steps.ssr.outcome }}
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+          TYPES_OUTCOME: ${{ steps.site_types.outcome }}
+          MODULE_OUTCOME: ${{ steps.module.outcome }}
+          SUBJECT_OUTCOME: ${{ steps.subject.outcome }}
+          BROWSER_OUTCOME: ${{ steps.browser.outcome }}
+          OFFLINE_OUTCOME: ${{ steps.offline.outcome }}
+          REPRO_OUTCOME: ${{ steps.repro.outcome }}
+        run: test "$NATIVE_CONTEXT_OUTCOME" = success && test "$DYNAMIC_OUTCOME" = success && test "$SSR_OUTCOME" = success && test "$LINT_OUTCOME" = success && test "$TYPES_OUTCOME" = success && test "$MODULE_OUTCOME" = success && test "$SUBJECT_OUTCOME" = success && test "$BROWSER_OUTCOME" = success && test "$OFFLINE_OUTCOME" = success && test "$REPRO_OUTCOME" = success
+      - name: Build from exact Git source snapshot with retained verified inputs
+        if: ${{ !inputs.full_release }}
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-checkout.log"
+          if ! npm run check:t3-retained-checkout >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_CHECKOUT_[A-Z0-9_]+|CEHOVOD_T3_HOST_[A-Z0-9_]+|CEHOVOD_T3_PLATFORM_[A-Z0-9_]+' "$log" | sort -u | head -30 || true
+            echo D05_T3_RETAINED_CHECKOUT_FAIL
+            exit 1
+          fi
+          grep -E '^\{"status":"CEHOVOD_T3_RETAINED_CHECKOUT_PASS","inputFiles":[0-9]+,"distFiles":[0-9]+,"sourceTree":"[0-9a-f]{40}","exactBytes":true,"remotePublication":false,"productAccepted":false\}$' "$log"
+          echo D05_T3_RETAINED_CHECKOUT_PASS
+      - name: Verify clean source snapshot and prepare exact candidate commit
+        if: inputs.full_release
+        id: snapshot
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+          SOURCE_SHA: ${{ inputs.site_sha }}
+          PUBLICATION_RECOVERY: ${{ inputs.publication_recovery }}
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-retained-checkout.log"
+          if ! npm run check:t3-retained-checkout -- --prepare-commit >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_CHECKOUT_[A-Z0-9_]+|CEHOVOD_T3_HOST_[A-Z0-9_]+|CEHOVOD_T3_PLATFORM_[A-Z0-9_]+|CEHOVOD_T3_RETAINED_COMMIT_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+            echo D05_T3_RETAINED_CHECKOUT_FAIL
+            exit 1
+          fi
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync,appendFileSync} from "node:fs";
+          import {execFileSync} from "node:child_process";
+          const log=readFileSync(process.env.RUNNER_TEMP+"/d05-retained-checkout.log","utf8");
+          const rows=log.split(/\r?\n/);
+          const receipt=name=>{
+            const matches=rows.filter(x=>x.startsWith('{"status":"'+name+'",'));
+            assert.equal(matches.length,1);
+            return JSON.parse(matches[0]);
+          };
+          const r=receipt("CEHOVOD_T3_RETAINED_CHECKOUT_PASS");
+          const c=receipt("CEHOVOD_T3_RETAINED_COMMIT_PREPARED");
+          const sha=/^[a-f0-9]{40}$/;
+          assert.equal(r.exactBytes,true);
+          assert.equal(r.remotePublication,false);
+          assert.equal(r.productAccepted,false);
+          assert.equal(c.remotePublication,false);
+          assert.equal(c.base,process.env.SOURCE_SHA);
+          assert.equal(c.tree,r.sourceTree);
+          if(process.env.PUBLICATION_RECOVERY==="true"){
+            assert.equal(r.sourceTree,"645d111be497eb5355f9f2fdb6fc6303562bec1b","D05_T3_RECOVERY_TREE_CHANGED");
+            assert.equal(r.inputFiles,92,"D05_T3_RECOVERY_INPUT_COUNT_CHANGED");
+            assert.equal(r.distFiles,224,"D05_T3_RECOVERY_DIST_COUNT_CHANGED");
+            console.log("D05_T3_RECOVERY_EXACT_TREE_PASS");
+          }
+          assert.equal(c.inputFiles,r.inputFiles);
+          assert.ok([c.commit,c.tree,c.base].every(x=>sha.test(x)));
+          const git=args=>execFileSync("git",args,{encoding:"utf8",stdio:["ignore","pipe","pipe"]}).trim();
+          assert.equal(git(["rev-parse",c.commit+"^"]),c.base);
+          assert.equal(git(["rev-parse",c.commit+"^{tree}"]),c.tree);
+          assert.equal(git(["rev-parse","HEAD"]),c.base);
+          console.log(JSON.stringify(r));
+          console.log(JSON.stringify(c));
+          appendFileSync(process.env.GITHUB_OUTPUT,"tree="+c.tree+"\ncommit="+c.commit+"\n");
+          JS
+      - name: Record exact Linux qualification independently of private publication
+        if: inputs.full_release
+        id: functional_gate
+        shell: bash
+        run: |
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+          echo 'reused=${{ inputs.publication_recovery }}' >> "$GITHUB_OUTPUT"
+          echo D05_T3_LINUX_FUNCTIONAL_READY_NOT_PRODUCT_ACCEPTED
+      - name: Publish only the verified candidate tree through private Git Data API
+        if: inputs.full_release && steps.publication_preflight.outcome == 'success'
+        id: publish
+        working-directory: site
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+          CANDIDATE: ${{ steps.snapshot.outputs.commit }}
+          SOURCE_SHA: ${{ inputs.site_sha }}
+          TARGET_BASE_SHA: ${{ inputs.retained_base_sha }}
+          SNAPSHOT_TREE: ${{ steps.snapshot.outputs.tree }}
+          TARGET_BRANCH: work/2026-11-25-d05-t3-retained-inputs
+        run: |
+          set -euo pipefail
+          umask 077
+          node --input-type=module <<'JS'
+          import {execFileSync} from "node:child_process";
+          import {appendFileSync} from "node:fs";
+          const repo="Faust-S/cehovod.ru";
+          const endpoint="repos/"+repo;
+          const branch=process.env.TARGET_BRANCH;
+          const base=process.env.SOURCE_SHA,tree=process.env.SNAPSHOT_TREE,candidate=process.env.CANDIDATE;
+          const target=process.env.TARGET_BASE_SHA;
+          const sha=/^[0-9a-f]{40}$/;
+          const fail=code=>{throw Error("D05_T3_RETAINED_REST_"+code);};
+          const require=(condition,code)=>{if(!condition)fail(code);};
+          const gitBytes=args=>execFileSync("git",args,{maxBuffer:128*1024*1024,stdio:["ignore","pipe","pipe"]});
+          const git=args=>gitBytes(args).toString("utf8").trimEnd();
+          function api(phase,method,path,body){
+            let raw;
+            try{
+              raw=execFileSync("gh",["api","--method",method,endpoint+path,...(body===undefined?[]:["--input","-"])],{
+                input:body===undefined?undefined:JSON.stringify(body),encoding:"utf8",
+                maxBuffer:4*1024*1024,stdio:["pipe","pipe","pipe"]
+              });
+            }catch(error){
+              const status=String(error?.stderr||"").match(/\bHTTP\s+([1-5][0-9]{2})\b/)?.[1];
+              fail(phase+(status?"_HTTP_"+status:"_TRANSPORT_FAIL"));
+            }
+            try{return JSON.parse(raw);}catch{fail(phase+"_RESPONSE_INVALID");}
+          }
+          try{
+            require(branch==="work/2026-11-25-d05-t3-retained-inputs","TARGET");
+            require([base,tree,candidate,target].every(x=>sha.test(x||"")),"IDENTITY");
+            require(git(["rev-parse","HEAD"])===base,"LOCAL_BASE");
+            require(git(["rev-parse",candidate+"^"])===base&&git(["rev-parse",candidate+"^{tree}"])===tree,"LOCAL_CANDIDATE");
+            const meta=api("REPO","GET","");
+            require(meta.full_name===repo&&meta.private===true&&meta.permissions?.push===true,"PRIVATE_PERMISSION");
+            const refPath="/git/ref/heads/"+branch;
+            require(api("REF","GET",refPath).object?.sha===target,"REMOTE_BASE_CHANGED");
+            if(target!==base){
+              const comparison=api("ANCESTRY","GET","/compare/"+target+"..."+base);
+              require(comparison.status==="ahead"&&comparison.merge_base_commit?.sha===target&&comparison.behind_by===0,"REMOTE_BASE_NOT_ANCESTOR");
+            }
+            const baseTree=git(["rev-parse",base+"^{tree}"]);
+            require(api("BASE","GET","/git/commits/"+base).tree?.sha===baseTree,"REMOTE_BASE_TREE");
+            const changed=gitBytes(["diff-tree","--no-commit-id","-r","--name-only","-z",base,tree]).toString("utf8").split("\0").filter(Boolean).sort();
+            const prefix="runtime/t3-platform/0.3.1-rc.1/";
+            require(changed.length>0&&new Set(changed).size===changed.length,"CHANGED_INVENTORY");
+            const entries=changed.map(path=>{
+              require(path===prefix+"platform-inputs.zip"||path.startsWith(prefix+"cehovod-host/"),"NON_INPUT_CHANGE");
+              require(!path.split("/").some(part=>part===".."||part==="."||part===""),"PATH");
+              const row=gitBytes(["ls-tree","-lz",tree,"--",path]).toString("utf8");
+              const m=row.match(/^100644 blob ([a-f0-9]{40})\s+(\d+)\t([^\0]+)\0$/);
+              require(m&&m[3]===path&&Number(m[2])>0&&Number(m[2])<100*1024*1024,"BLOB_ENTRY");
+              return {path,mode:"100644",type:"blob",sha:m[1],size:Number(m[2])};
+            });
+            const uploaded=new Set();
+            for(const row of entries){
+              if(uploaded.has(row.sha))continue;
+              const bytes=gitBytes(["cat-file","blob",row.sha]);
+              require(bytes.length===row.size,"BLOB_SIZE");
+              const result=api("BLOB","POST","/git/blobs",{content:bytes.toString("base64"),encoding:"base64"});
+              require(result.sha===row.sha,"BLOB_SHA");
+              uploaded.add(row.sha);
+            }
+            console.log("D05_T3_RETAINED_REST_BLOBS_PASS "+uploaded.size);
+            const result=api("TREE","POST","/git/trees",{base_tree:baseTree,tree:entries.map(({size,...row})=>row)});
+            require(result.sha===tree,"TREE_SHA");
+            console.log("D05_T3_RETAINED_REST_TREE_PASS "+tree);
+            const saved=api("COMMIT","POST","/git/commits",{
+              message:"D05 T3: retain verified original platform and prepared Host inputs (candidate)",
+              tree,parents:[base]
+            });
+            require(sha.test(saved.sha||"")&&saved.tree?.sha===tree&&saved.parents?.length===1&&saved.parents[0].sha===base,"COMMIT_IDENTITY");
+            require(api("REF_RECHECK","GET",refPath).object?.sha===target,"REMOTE_BASE_CHANGED");
+            const updated=api("UPDATE_REF","PATCH","/git/refs/heads/"+branch,{sha:saved.sha,force:false});
+            require(updated.object?.sha===saved.sha,"REF_UPDATE");
+            require(api("REF_READBACK","GET",refPath).object?.sha===saved.sha,"REF_READBACK");
+            const commit=api("COMMIT_READBACK","GET","/git/commits/"+saved.sha);
+            require(commit.tree?.sha===tree&&commit.parents?.length===1&&commit.parents[0].sha===base,"COMMIT_READBACK");
+            appendFileSync(process.env.GITHUB_OUTPUT,"commit="+saved.sha+"\n");
+            console.log("D05_T3_RETAINED_REST_PRIVATE_PASS "+JSON.stringify({commit:saved.sha,tree,inputFiles:entries.length,productAccepted:false}));
+          }catch(error){
+            const code=String(error?.message||"").match(/^D05_T3_RETAINED_REST_[A-Z0-9_]+$/)?.[0];
+            console.error(code||"D05_T3_RETAINED_REST_UNCLASSIFIED");
+            process.exitCode=1;
+          }
+          JS
+      - name: Independently fetch only the saved private candidate
+        if: inputs.full_release && steps.publish.outcome == 'success'
+        working-directory: site
+        shell: bash
+        env:
+          DOMEN_TOKEN: ${{ secrets.DOMEN }}
+          SAVED_COMMIT: ${{ steps.publish.outputs.commit }}
+          SNAPSHOT_TREE: ${{ steps.snapshot.outputs.tree }}
+          TARGET_BRANCH: work/2026-11-25-d05-t3-retained-inputs
+        run: |
+          set -euo pipefail
+          umask 077
+          log="$RUNNER_TEMP/d05-retained-fetch.log"
+          ask="$RUNNER_TEMP/d05-retained-askpass"
+          trap 'rm -f "$ask"' EXIT
+          cat >"$ask" <<'SH'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' x-access-token ;;
+            *Password*) printf '%s\n' "$DOMEN_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          SH
+          chmod 700 "$ask"
+          export GIT_ASKPASS="$ask" GIT_TERMINAL_PROMPT=0
+          url=https://github.com/Faust-S/cehovod.ru.git
+          ref="refs/heads/$TARGET_BRANCH"
+          test "$TARGET_BRANCH" = "work/2026-11-25-d05-t3-retained-inputs"
+          case "$SAVED_COMMIT" in (*[!0-9a-f]*|'') exit 1;; esac
+          test "${#SAVED_COMMIT}" -eq 40
+          fresh="$RUNNER_TEMP/d05-retained-remote"
+          mkdir "$fresh"
+          git -C "$fresh" init -q
+          git -C "$fresh" fetch -q --depth=1 "$url" "$ref" >"$log" 2>&1 || { echo D05_T3_RETAINED_REMOTE_FETCH_FAIL; exit 1; }
+          test "$(git -C "$fresh" rev-parse FETCH_HEAD)" = "$SAVED_COMMIT"
+          test "$(git -C "$fresh" rev-parse 'FETCH_HEAD^{tree}')" = "$SNAPSHOT_TREE"
+          git -C "$fresh" checkout -q --detach FETCH_HEAD
+          echo "D05_T3_RETAINED_REMOTE_TREE_PASS $SAVED_COMMIT"
+      - name: Build the freshly fetched private source with no original repository checkout
+        if: inputs.full_release && steps.publish.outcome == 'success'
+        id: remote_reproduction
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          fresh="$RUNNER_TEMP/d05-retained-remote"
+          test ! -e "$fresh/dist"
+          ln -s "$PWD/node_modules" "$fresh/node_modules"
+          log="$RUNNER_TEMP/d05-retained-remote-build.log"
+          if ! (cd "$fresh" && npm run build:product:t3 && npm run verify:product:t3 -- --production) >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+            echo D05_T3_RETAINED_REMOTE_BUILD_FAIL
+            exit 1
+          fi
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {join} from "node:path";
+          import {exactDistInventory} from "./scripts/check-t3-dist-reproducibility.mjs";
+          const local=exactDistInventory("dist"),remote=exactDistInventory(join(process.env.RUNNER_TEMP,"d05-retained-remote/dist"));
+          assert.deepEqual(remote,local);
+          console.log("D05_T3_RETAINED_PRIVATE_CHECKOUT_PASS "+JSON.stringify({files:remote.length,exactBytes:true,productAccepted:false}));
+          JS
+      - name: Require private publication and independent remote reproduction for grouped release
+        if: inputs.full_release
+        shell: bash
+        env:
+          PREFLIGHT: ${{ steps.publication_preflight.outcome }}
+          PUBLISHED: ${{ steps.publish.outcome }}
+          REPRODUCED: ${{ steps.remote_reproduction.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$PREFLIGHT" != success ] || [ "$PUBLISHED" != success ] || [ "$REPRODUCED" != success ]; then
+            echo D05_T3_PRIVATE_PUBLICATION_INCOMPLETE
+            exit 1
+          fi
+          echo D05_T3_PRIVATE_PUBLICATION_COMPLETE
+      - name: Clear private diagnostics
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP"/d05-t3-*.log "$RUNNER_TEMP"/d05-t3-lint.json "$RUNNER_TEMP"/d05-t3-subject.json "$RUNNER_TEMP"/d05-t3-ssr.json
+          rm -rf "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/t3-artifact.zip" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$GITHUB_WORKSPACE/site/runtime/t3-platform/0.3.1-rc.1/cehovod-host" "$GITHUB_WORKSPACE/site/runtime/t3-platform/0.3.1-rc.1/platform-inputs.zip"
+          rm -rf "$RUNNER_TEMP/d05-t3-protected-host" "$RUNNER_TEMP/d05-retained-remote" "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/assistant" "$GITHUB_WORKSPACE/one-core"
+          rm -f "$RUNNER_TEMP"/d05-retained-*.log "$RUNNER_TEMP/d05-retained-askpass"
+ "$log" || true
+            exit 1
+          fi
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync} from "node:fs";
+          const rows=readFileSync(process.env.RUNNER_TEMP+"/d05-t3-rendered-links.log","utf8").split(/\r?\n/).filter(x=>x.startsWith('{"status":"D05_T3_RENDERED_LINK_AUDIT_PASS_NOT_PRODUCT_ACCEPTED",')).map(JSON.parse);
+          assert.equal(rows.length,1);
+          const r=rows[0];
+          assert.equal(r.declaredPages,43);assert.equal(r.publicPages,40);
+          for(const k of ["menuPages","linkOccurrences","uniqueLocalTargets","clicks"])assert.ok(Number.isSafeInteger(r[k])&&r[k]>0);
+          assert.equal(r.externalLinksFetched,false);assert.equal(r.protectedNavigationAccepted,false);assert.equal(r.productAccepted,false);
+          console.log(JSON.stringify(r));
+          JS
       - name: Exact repeat build and damaged-input rollback from retained bytes
         if: ${{ !inputs.publication_recovery }}
         id: repro

@@ -32,7 +32,7 @@
   "productAccepted": false,
   "qualification": "NOT_RUN_FOR_APPLICABILITY_CORRECTION",
   "publication": "NOT_RUN_FOR_APPLICABILITY_CORRECTION",
-  "notes": "Only release blockers may change this candidate. Keep all existing source, protected production, offline, hardware and publication gates. Codex may assemble the hosting archive only after stable qualification, not perform testing or preparation.",
+  "notes": "Only release blockers may change this candidate. Keep all existing source, protected production, offline, hardware and publication gates. Codex may assemble the hosting archive only after stable qualification, not perform testing or preparation. Full release also requires a test-only rendered navigation audit after original browser gates; it does not replace protected or hardware evidence.",
   "originalFrozenSiteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
   "originalFrozenWitnessCommit": "3af00278ef77eb38084df4e9c7854528380dc615",
   "formatOnlyCorrection": false,
@@ -98,6 +98,20 @@
         "unresolved": 0
       },
       "status": "SOURCE_AUDIT_INHERITED_IDENTICAL_ROUTE_BYTES_NOT_BROWSER_QUALIFICATION"
+    },
+    "renderedLinkAudit": {
+      "state": "HARNESS_PREPARED_NOT_EXECUTED_ON_PRODUCT",
+      "helperTestsPassed": 6,
+      "helperTestsTotal": 6,
+      "browserScriptSyntax": "PASS",
+      "declaredPagesExpected": 43,
+      "publicPagesAndOrderEntryExpected": 40,
+      "desktopWidth": 1440,
+      "mobileWidth": 375,
+      "protectedJourneys": "ORIGINAL_WITNESS_UNCHANGED",
+      "externalTargets": "CLASSIFY_ONLY",
+      "deduplicatedClicksPerWidth": true,
+      "productSourceUnchanged": true
     }
   },
   "manualDispatchOnly": false,

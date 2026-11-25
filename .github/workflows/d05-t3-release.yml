@@ -67,6 +67,7 @@ jobs:
       detail_routes: 4
       grounded_advice: true
       full_release: true
+      rendered_link_audit: true
       publication_recovery: false
     secrets:
       DOMEN: ${{ secrets.DOMEN }}
