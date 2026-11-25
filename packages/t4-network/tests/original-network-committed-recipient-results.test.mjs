@@ -216,6 +216,39 @@ test('K103 exact recipient Result and ACK are read from one committed frontier r
   const absent=createT4OriginalRecipientResultRequest({session:last.session,requesterNodeRef:source,ownerNodeRef:recipient});
   assert.equal(await readT4OriginalRecipientResult({request:absent,technicalWorkspaceId:tech,getMode,readOriginalHostContext,
     originalCursorPort:g.port(),authorizeOriginalOwnerHistoryRead:allow}),null);
+  // Drive the real ordinary source phase port with the exact same bounded
+  // owner reader. The local Kernel fixture implements Object/Event CAS;
+  // a committed ACK must not become a second write after lost peer readback.
+  const {createT4OriginalNetworkSessionPhasePort}=await import('../src/network/original-network-session-phases.mjs');
+  let sourceRow=null,sourceHost='host:k103:source',losePeerAfterWrite=false;
+  const sourceEvents=[];
+  const sourceKernel={hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.putObject'].includes(op),
+    async getObject(w,id){assert.equal(w,tech);if(sourceRow)assert.equal(id,sourceRow.object_id);return sourceRow?{object:copy(sourceRow)}:null;},
+    async listEventsSince(w){assert.equal(w,tech);return copy(sourceEvents);},
+    async putObject(input){assert.equal(input.base_revision,sourceRow?.revision??0);
+      const {workspace_id,object_id,schema_id,schema_version,data,extensions}=input;
+      sourceRow={workspace_id,object_id,schema_id,schema_version,data:copy(data),extensions,revision:input.base_revision+1,deleted:false};
+      const event={workspace_id,object_id,revision:sourceRow.revision,event_id:'event:k103:phase:'+sourceRow.revision,
+        event_type:input.event.event_type,payload:copy(input.event.payload)};
+      sourceEvents.push(event);if(losePeerAfterWrite)busy=true;return {object:copy(sourceRow),event:copy(event)};}};
+  const sourcePhase=()=>createT4OriginalNetworkSessionPhasePort({...identity,originalKernel:sourceKernel,localNodeRef:source,
+    sessionRef:c.sessionRef,changeId:c.changeId,changeKind:c.changeKind,getMode,
+    readOriginalHostContext:async()=>({workspaceId:tech,originalWriteOwnerRef:owner,nodeRef:source,scopeRef:scope,hostSessionRef:sourceHost}),
+    authorizeOriginalTechnicalRead:allow,authorizeOriginalTechnicalWrite:allow,verifyOriginalPhaseEvidence:allow,
+    verifyOriginalRecipientApplied:verifier});
+  const phase=sourcePhase();
+  await phase.advanceOriginalSessionPhase({phase:'INTENT',evidence:{evidenceRef:c.sourceEventId,evidenceDigest:c.capturedWindowDigest}});
+  await phase.advanceOriginalSessionPhase({phase:'PUBLISHED',evidence:{evidenceRef:'publication:k103',evidenceDigest:H('published')}});
+  const appliedEvidence=Object.fromEntries(['evidenceRef','evidenceDigest','originalRecipientEventId','originalRecipientRevision','originalRecipientStateDigest'].map(k=>[k,proof[k]]));
+  const advance=()=>phase.advanceOriginalSessionPhase({phase:'APPLIED_CONFIRMED',evidence:appliedEvidence});
+  busy=true;await assert.rejects(advance(),err('RECIPIENT_RESULT_OWNER_NOT_READY'));
+  assert.equal(sourceEvents.length,2);assert.equal((await phase.inspectOriginalSession()).currentPhase,'PUBLISHED');
+  busy=false;losePeerAfterWrite=true;await assert.rejects(advance(),err('RECIPIENT_RESULT_OWNER_NOT_READY'));
+  assert.equal(sourceEvents.length,3);
+  busy=false;losePeerAfterWrite=false;sourceHost='host:k103:source:cold';
+  const cold=sourcePhase();assert.equal((await cold.inspectOriginalSession()).currentPhase,'APPLIED_CONFIRMED');
+  const recovered=await cold.advanceOriginalSessionPhase({phase:'APPLIED_CONFIRMED',evidence:appliedEvidence});
+  assert.equal(recovered.status,'ALREADY_CONFIRMED');assert.equal(sourceEvents.length,3);
   f.revoke();await assert.rejects(verifier(proof),err('RECIPIENT_CURSOR_ORIGINAL_ACCESS_DENIED'));
   assert.ok(reads>=13);assert.ok(guardCalls>=20);
 });
