@@ -1,8 +1,5 @@
 name: D07 N205 candidate identity preflight
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    paths: [.github/workflows/d07-top500-205-candidate-preflight.yml]
   workflow_dispatch:
 permissions:
   contents: read

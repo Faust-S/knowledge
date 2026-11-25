@@ -1,8 +1,5 @@
 name: AKIS original operational release qualification
 on:
-  push:
-    branches: [work/2026-11-25-akis-release-private-ci]
-    paths: [.github/workflows/akis-original-release-private-ci.yml]
   workflow_dispatch:
 permissions:
   contents: read

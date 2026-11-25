@@ -1,8 +1,5 @@
 name: D08 isolated original Kernel schema probe
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    paths: [.github/workflows/d08-original-kernel-schema-probe.yml]
   workflow_dispatch:
 permissions:
   contents: read
