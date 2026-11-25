@@ -13,7 +13,7 @@ import {isOriginalOrganizationalOperationGateForRegistry} from '../../../t3-core
 import {isOriginalSignedAccessHostPortForEvaluator} from '../../../t3-core/src/t3/signed-access-host-port.mjs';
 import {createT4OriginalSignedOperationAccess} from './original-signed-route-access.mjs';
 import {validateT4OriginalNativeCaptureSession,validateT4OriginalReplacementSessionCandidate,
-  validateT4OriginalReplacementDiffAcceptance} from './original-network-publication.mjs';
+  validateT4OriginalReplacementDiffAcceptance,validateT4OriginalReplacementContentEvidence} from './original-network-publication.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 
 const MAGIC=Buffer.from('T4S2'),MAX=64*8192,MAX_HEADER=4096,TAG=16;
@@ -121,7 +121,7 @@ export function createT4OriginalVaultSealedContentPort({
   role,workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,
   requiredCryptoSuite,recipientKeyRef,registry,access,originalEvaluator,expectedContext,
   readEncryptedVault=null,unlockPassphrase=null,getMode,clock=Date.now,
-  readOriginalReplacementDiffAcceptance=null,
+  readOriginalReplacementDiffAcceptance=null,readOriginalReplacementRecipientContentEvidence=null,
 }={}){
   if(!['SOURCE','RECIPIENT'].includes(role)||
     ![workspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,recipientKeyRef].every(ID)||
@@ -129,6 +129,7 @@ export function createT4OriginalVaultSealedContentPort({
     requiredCryptoSuite!=='X25519_AES256GCM_ED25519'||!isOriginalKernelRegistryStatePort(registry)||
     typeof getMode!=='function'||typeof clock!=='function'||
     (readOriginalReplacementDiffAcceptance!==null&&(role!=='SOURCE'||typeof readOriginalReplacementDiffAcceptance!=='function'))||
+    (readOriginalReplacementRecipientContentEvidence!==null&&(role!=='RECIPIENT'||typeof readOriginalReplacementRecipientContentEvidence!=='function'))||
     (role==='RECIPIENT'?![readEncryptedVault,unlockPassphrase].every(f=>typeof f==='function'):
       readEncryptedVault!==null||unlockPassphrase!==null))
     fail('SEALED_CONTENT_ORIGINAL_PORTS_REQUIRED');
@@ -143,7 +144,7 @@ export function createT4OriginalVaultSealedContentPort({
   const current=()=>signed.assertCurrent();
   function sessionFor(value){
     const replacement=replacementSession(value);
-    if(replacement&&readOriginalReplacementDiffAcceptance===null)
+    if(replacement&&(role==='SOURCE'?readOriginalReplacementDiffAcceptance===null:readOriginalReplacementRecipientContentEvidence===null))
       fail('SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED');
     const session=replacement?validateT4OriginalReplacementSessionCandidate(value):validateT4OriginalNativeCaptureSession(value);
     if(!['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch']
@@ -165,9 +166,17 @@ export function createT4OriginalVaultSealedContentPort({
     if(before.policyDigest!==after.policyDigest||before.keyDigest!==after.keyDigest||!equal(before.binding,after.binding))
       fail('SEALED_CONTENT_RECIPIENT_KEY_CHANGED');
   }
-  async function replacementGate(session){
+  async function replacementGate(session,extra){
     if(!replacementSession(session))return null;
     current();
+    if(role==='RECIPIENT'){
+      const evidence=validateT4OriginalReplacementContentEvidence(await readOriginalReplacementRecipientContentEvidence(
+        Object.freeze({candidate:session,contentDigest:extra.contentDigest,encryptionContextRef:extra.encryptionContextRef,
+          originalReplacementContentReadRequired:true,originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false})),session);
+      if(evidence.contentDigest!==extra.contentDigest||evidence.encryptionContextRef!==extra.encryptionContextRef)
+        fail('SEALED_CONTENT_REPLACEMENT_EVIDENCE_MISMATCH');
+      current();return evidence;
+    }
     const witness=validateT4OriginalReplacementDiffAcceptance(await readOriginalReplacementDiffAcceptance(
       Object.freeze({candidate:session,originalReplacementDiffReadRequired:true,
         originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false})),session);
@@ -175,13 +184,13 @@ export function createT4OriginalVaultSealedContentPort({
   }
   async function permit(entry,session,extra){
     current();
-    const before=await replacementGate(session);
+    const before=await replacementGate(session,extra);
     await signed.authorize({operation,input:{...identity,session,...extra,
       originalRecipientKeyFingerprint:fingerprint(entry.publicKey),
       originalRecipientBindingDigest:digest(entry.binding),originalRecipientKeyRecordDigest:entry.keyDigest,
       originalContentProtectionGrantsNoSubjectWrite:true},expectedPolicyDigest:entry.policyDigest});
     current();
-    if(before!==null&&!equal(before,await replacementGate(session)))
+    if(before!==null&&!equal(before,await replacementGate(session,extra)))
       fail('SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_CHANGED');
     current();
   }
@@ -276,9 +285,10 @@ export function createT4OriginalVaultSealedContentPort({
     originalAccessIdentity:signed.originalAccessIdentity,originalSignedSubject:signed.subject,
     originalRegistryAgreementKey:true,originalVault:true,createsStore:false,createsIAM:false,
     ...(readOriginalReplacementDiffAcceptance!==null?{originalReplacementSourceContentAdmission:true}:{}),
+    ...(readOriginalReplacementRecipientContentEvidence!==null?{originalReplacementRecipientContentAdmission:true}:{}),
     ...(role==='SOURCE'?{readOriginalSealedContent,authorizeOriginalSealedPublication}:{openOriginalSealedContent}),
     forOriginalHostLifetime:isHostActive=>createT4OriginalVaultSealedContentPort({...identity,registry,access,originalEvaluator,
       expectedContext:signed.subject,readEncryptedVault,unlockPassphrase,getMode:originalHostLifetimeMode(getMode,isHostActive),clock,
-      readOriginalReplacementDiffAcceptance})});
+      readOriginalReplacementDiffAcceptance,readOriginalReplacementRecipientContentEvidence})});
   assembled.add(port);return port;
 }

@@ -7,6 +7,7 @@ import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationP
 import {t4NativeSourceHeadIndexKey,t4NativeReplacementHeadIndexKey,t4NativeSessionFrameIndexKey}
   from '../src/network/original-network-frame-address.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
+import {discoverT4OriginalNetworkSessionContent} from '../src/network/original-network-subject-apply.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
   T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,decodeT4CandidateFrame} from '../src/network/standard-network-wire-candidate.mjs';
@@ -511,7 +512,7 @@ async function controlFixture({indexed=false}={}){
       originalHostNodeRef:node,originalHostScopeRef:scopeRef,authorizeOriginalHostWire:async()=>true,
       verifyOriginalNodeSignature:async p=>{const k=localKey(p.sourceNodeRef);
         return p.signerRef===k.id&&verify(null,Buffer.from(p.bytes),k.publicKey,Buffer.from(p.signature));},
-      authorizeOriginalNetwork:async p=>['ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK','APPLIED_ACK','HEADS','DIFF_REQUEST'].some(t=>p.operation==='t4.network.receive.'+t),
+      authorizeOriginalNetwork:async p=>['ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK','APPLIED_ACK','HEADS','DIFF_REQUEST','CHANGE_REF','CHUNK'].some(t=>p.operation==='t4.network.receive.'+t),
       persistOriginalReplayDecision:replay.persistOriginalReplayDecision,
       verifyOriginalHistoricalNodeSignature:async p=>{const k=localKey(p.sourceNodeRef);
         if(p.signerRef!==k.id||!verify(null,Buffer.from(p.bytes),k.publicKey,Buffer.from(p.signature)))return null;
@@ -1244,4 +1245,75 @@ test('K60 admission is revalidated at the original content CAS and frame boundar
   x.changeRecipientFrontier();
   await assert.rejects(q.publish(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
   assert.equal(x.counts().networkPuts,before.puts+3);
+});
+
+
+// This fixture uses real signed wire frames and original publication/replay
+// chains. Opaque content and the two original Kernel ports are test fixtures.
+async function replacementRecipientFixture(){
+  const q=await replacementContentFixture(),{x,c}=q;
+  const source=await q.contentPort();let allowed=true;
+  const options={session:c,frameDiscoveryPort:x.transport(recipientNodeRef),
+    requiredCryptoSuite:x.eligibilityOptions().requiredCryptoSuite,requireSourceAnnouncement:true,
+    sourceCursorBefore:x.sourceCursorBefore,authorizeOriginalRecipientSession:async p=>allowed&&
+      p.originalReplacementContentReadRequired===true&&p.originalSubjectMutationAllowed===false,
+    readOriginalReplacementDiffAcceptance:q.current,originalReplacementSourcePublicationPort:source,
+    originalReplacementRecipientPublicationPort:q.recipientPublicationPort};
+  return {...q,source,options,discover:(patch={})=>discoverT4OriginalNetworkSessionContent({...options,...patch}),
+    deny:()=>{allowed=false;},allow:()=>{allowed=true;}};
+}
+
+test('K61 recipient independently discovers exact successor content and original source PRESENT events, without subject or phase writes',async()=>{
+  const q=await replacementRecipientFixture(),{x,c}=q;
+  await assert.rejects(q.discover(),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'));
+  await q.diff();
+  assert.equal((await q.discover()).state,'WAITING_FOR_CHANGE');
+  const writes={s:x.sourcePhaseWrites(),r:x.phaseWrites()};
+  // Interrupt the existing task between the change and the first chunk.
+  await assert.rejects(q.publish({createOriginalReplacementContentPublicationPort:async(_p,read)=>{
+    const port=await q.contentPort(read);return {...port,publishPreparedFrame:async p=>{
+      if(p.sequence===3)throw Object.assign(Error('test interruption'),{code:'TEST_INTERRUPTED'});
+      return port.publishPreparedFrame(p);}};
+  }}),isCode('TEST_INTERRUPTED'));
+  const partial=await q.discover();assert.equal(partial.state,'WAITING_FOR_CHUNKS');
+  assert.equal(partial.originalReplacementContentEvidence,undefined);
+  assert.equal((await q.publish()).state,'ORIGINAL_REPLACEMENT_CONTENT_PRESENT');
+  const before={signs:x.signatureCount(),puts:x.counts().networkPuts};
+  const found=await q.discover(),e=found.originalReplacementContentEvidence;
+  assert.equal(found.state,'CONTENT_VERIFIED');assert.equal(found.session.sessionRef,c.sessionRef);
+  assert.equal(found.originalDecryptionInvoked,false);assert.equal(found.originalBusinessApplied,false);
+  assert.equal(found.verifiedDiffRequest.originalOutboundSignatureVerified,true);
+  assert.equal(found.verifiedDiffRequest.remoteReceiptProven,false);
+  assert.equal(e.originalSubjectMutationInvoked,false);assert.equal(e.contentDigest,found.verifiedChangeRef.verifiedBody.contentDigest);
+  assert.equal(e.encryptionContextRef,found.encryptionContextRef);assert.deepEqual(e.agreement,await q.current());
+  assert.deepEqual(e.frames.map(f=>f.messageType),['HEADS','CHANGE_REF','CHUNK','CHUNK']);
+  const p=await q.source.readOriginalReplacementPublishedContent();
+  assert.equal(p.frames.length,4);assert.ok(p.frames.every(f=>f.originalPublicationRevision===p.originalPublicationRevision));
+  assert.deepEqual(e.frames.map(f=>f.presentEventId),p.frames.map(f=>f.originalPresentEventId));
+  x.f.restart();assert.deepEqual((await q.discover()).originalReplacementContentEvidence,e);
+  assert.equal(x.signatureCount(),before.signs);assert.equal(x.counts().networkPuts,before.puts);
+  assert.deepEqual({s:x.sourcePhaseWrites(),r:x.phaseWrites()},writes);
+});
+
+test('K61 transport receipt alone, wrong original publication or revoked acceptance cannot authorize successor open',async()=>{
+  const q=await replacementRecipientFixture(),{x}=q;await q.diff();await q.publish();
+  const source=q.source,diff=q.recipientPublicationPort;
+  const p=await source.readOriginalReplacementPublishedContent();
+  const missing=await q.discover({originalReplacementSourcePublicationPort:{...source,
+    readOriginalReplacementPublishedContent:async()=>{throw Object.assign(Error('not present'),{code:'PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT'});}}});
+  assert.equal(missing.state,'WAITING_FOR_ORIGINAL_PUBLICATION');assert.equal(missing.originalReplacementContentEvidence,undefined);
+  const bad=structuredClone(p);bad.frames[2].verifiedBody.contentDigest=H;
+  await assert.rejects(q.discover({originalReplacementSourcePublicationPort:{...source,
+    readOriginalReplacementPublishedContent:async()=>bad}}),isCode('SUBJECT_ORIGINAL_REPLACEMENT_PUBLICATION_MISMATCH'));
+  await assert.rejects(q.discover({originalReplacementRecipientPublicationPort:{...diff,
+    readOriginalPublishedFrame:async opts=>({...await diff.readOriginalPublishedFrame(opts),originalPresentEventId:'event:fake:diff'})}}),
+    isCode('SUBJECT_ORIGINAL_REPLACEMENT_PUBLICATION_MISMATCH'));
+  const wrong=structuredClone(p);wrong.frames[0].originalPresentEventId='event:fake:head';
+  await assert.rejects(q.discover({originalReplacementSourcePublicationPort:{...source,
+    readOriginalReplacementPublishedContent:async()=>wrong}}),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_HEAD_MISMATCH'));
+  await assert.rejects(q.discover({originalReplacementSourcePublicationPort:q.sourcePublicationPort}),
+    isCode('SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_PORTS_REQUIRED'));
+  q.deny();await assert.rejects(q.discover(),isCode('SUBJECT_ORIGINAL_SESSION_DISCOVERY_DENIED'));q.allow();
+  q.denyAcceptance();await assert.rejects(q.discover(),isCode('REPLACEMENT_SOURCE_DIFF_ACCEPTANCE_DENIED'));q.allowAcceptance();
+  x.stop();await assert.rejects(q.discover());
 });

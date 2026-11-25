@@ -983,7 +983,7 @@ test('K44 bounded V2 HKDF context binds the entire long canonical header; indepe
 // A typed independent admission fixture is used here only to isolate the
 // original Registry/Vault cryptographic boundary; K59/K60 journal tests
 // construct the actual witness from both original phase/publication ports.
-test('K60 original Vault seals successor AAD, verifies retained ciphertext and rejects predecessor reuse and revoked admission',{timeout:30000},async()=>{
+test('K60 K61 original Vault seals and opens successor AAD only with original admission and complete publication evidence',{timeout:30000},async()=>{
   const q=await sealedFixture(),c=captured(Buffer.from('original successor capture'));
   const d='sha256:'+sha('k60:original:evidence');
   const candidate=deriveT4OriginalReplacementSessionCandidate({originalCaptureSession:c.session,replacement:{
@@ -1022,4 +1022,34 @@ test('K60 original Vault seals successor AAD, verifies retained ciphertext and r
   admitted=false;
   await assert.rejects(source.authorizeOriginalSealedPublication(publication),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'});
   assert.equal(q.unlocks,0);
+  // K61: isolate the live recipient Vault gate with a typed readback fixture.
+  // The independent source/recipient journals themselves are tested separately.
+  const frame=(sequence,messageType,sha256,presentEventId,presentRevision,presentChainHash)=>
+    ({sequence,messageType,key:sha256+'.t4n',sha256,presentEventId,presentRevision,presentChainHash});
+  const evidence={schema:'IWXA_T4_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_V1',state:'ORIGINAL_REPLACEMENT_CONTENT_VERIFIED',
+    candidate,agreement:witness,sourcePublicationCheckpointRef:'publication:k61:source',
+    contentDigest:publication.contentDigest,encryptionContextRef:publication.encryptionContextRef,
+    frames:[frame(1,'HEADS',sha('head'),witness.originalSourceHeadPresentEventId,3,d),
+      frame(2,'CHANGE_REF',sha('change'),'event:k61:change',6,d),frame(3,'CHUNK',sha('chunk'),'event:k61:chunk',8,d)],
+    originalSourceContentPublicationVerified:true,originalRecipientDiffPublicationVerified:true,
+    originalTransportIntegrityVerified:true,originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,
+    originalBusinessApplied:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false};
+  let current=null;
+  const recipient=q.recipient({readOriginalReplacementRecipientContentEvidence:async p=>{
+    assert.equal(p.originalSubjectMutationAllowed,false);assert.equal(p.contentDigest,publication.contentDigest);
+    return current;}});
+  const openInput=q.openInput(candidate,sealed);
+  await assert.rejects(recipient.openOriginalSealedContent(openInput),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_REQUIRED'});
+  current={...evidence,contentDigest:d};
+  await assert.rejects(recipient.openOriginalSealedContent(openInput),{code:'SEALED_CONTENT_REPLACEMENT_EVIDENCE_MISMATCH'});
+  current={...evidence,frames:evidence.frames.slice(0,2)};
+  await assert.rejects(recipient.openOriginalSealedContent(openInput),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_REQUIRED'});
+  assert.equal(q.unlocks,0);
+  current=evidence;
+  const opened=await recipient.openOriginalSealedContent(openInput);
+  assert.deepEqual(Buffer.from(opened.plaintext),c.content);assert.equal(opened.originalVaultUsed,true);
+  assert.equal(opened.originalCapturedBytesVerified,true);assert.equal(opened.originalBusinessApplied,false);assert.equal(q.unlocks,1);
+  current=null;
+  await assert.rejects(recipient.openOriginalSealedContent(openInput),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_REQUIRED'});
+  assert.equal(q.unlocks,1);
 });

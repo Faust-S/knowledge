@@ -649,6 +649,40 @@ export function validateT4OriginalReplacementDiffAcceptance(value,identity){
   return deepFreeze(v);
 }
 
+// Recipient evidence is a point-in-time readback of exact original PRESENT
+// events, not a recipient subject-write grant or another durable journal.
+export function validateT4OriginalReplacementContentEvidence(value,identity){
+  const v=clone(value),c=validateT4OriginalReplacementSessionCandidate(identity);
+  if(v?.schema!=='IWXA_T4_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_V1'||
+    v.state!=='ORIGINAL_REPLACEMENT_CONTENT_VERIFIED'||!same(v.candidate,c)||
+    v.originalSourceContentPublicationVerified!==true||v.originalRecipientDiffPublicationVerified!==true||
+    v.originalTransportIntegrityVerified!==true||v.originalNewAttemptAdmissionStillRequired!==true||
+    v.originalSubjectMutationInvoked!==false||v.originalBusinessApplied!==false||
+    v.sourceCursorAdvanced!==false||v.recipientCursorAdvanced!==false||v.liveNetworkAuthorityGranted!==false||
+    !DIG(v.contentDigest)||!ID(v.encryptionContextRef)||!ID(v.sourcePublicationCheckpointRef)||
+    !Array.isArray(v.frames)||v.frames.length<3||v.frames.length>66)
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_REQUIRED');
+  const a=validateT4OriginalReplacementDiffAcceptance(v.agreement,c),head=v.frames[0];
+  if(v.sourcePublicationCheckpointRef===a.originalRecipientPublicationCheckpointRef||
+    v.sourcePublicationCheckpointRef===a.originalSourceAdmissionCheckpointRef||
+    head?.key!==a.originalSourceHeadKey||head.presentEventId!==a.originalSourceHeadPresentEventId||
+    head.presentRevision!==a.originalSourceHeadPresentRevision||head.presentChainHash!==a.originalSourceHeadPresentChainHash)
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_HEAD_MISMATCH');
+  const ids=new Set(),keys=new Set();
+  for(let i=0;i<v.frames.length;i++){
+    const f=v.frames[i];
+    if(f?.sequence!==i+1||f.messageType!==(i===0?'HEADS':i===1?'CHANGE_REF':'CHUNK')||
+      !SHA(f.sha256)||f.key!==f.sha256+'.t4n'||!ID(f.presentEventId)||!DIG(f.presentChainHash)||
+      !Number.isSafeInteger(f.presentRevision)||f.presentRevision<1||
+      (i>0&&f.presentRevision<=v.frames[i-1].presentRevision)||ids.has(f.presentEventId)||keys.has(f.key)||
+      !same(f,{sequence:f.sequence,messageType:f.messageType,key:f.key,sha256:f.sha256,
+        presentEventId:f.presentEventId,presentRevision:f.presentRevision,presentChainHash:f.presentChainHash}))
+      fail('PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_FRAME_MISMATCH');
+    ids.add(f.presentEventId);keys.add(f.key);
+  }
+  return deepFreeze(v);
+}
+
 export function createT4OriginalNetworkPublicationPort({
   technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   session,localNodeRef,technicalWorkspaceId,originalKernel,getMode,
@@ -1070,8 +1104,17 @@ export function createT4OriginalNetworkPublicationPort({
       fail('PUBLICATION_SEQUENCE_INVALID');
     const ctx=await context(),current=await read(ctx),entry=current.entries[sequence-1];
     if(entry?.state!=='PRESENT')fail('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT');
-    const frame=await verifyFrame(ctx,entry,'outbound-proof');
     if(replacement&&isContent(entry.messageType))await requireReplacementContent(ctx);
+    const proof=await readPublishedProof(ctx,current,entry,includePresentEventAnchor);
+    if(replacement&&isContent(entry.messageType))await requireReplacementContent(ctx);
+    const after=await read(ctx);
+    if(after.revision!==current.revision||after.chainHash!==current.chainHash||
+      !same(after.entries[sequence-1],entry)||
+      !same(after.presentEvents[sequence-1],current.presentEvents[sequence-1]))fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    return proof;
+  }
+  async function readPublishedProof(ctx,current,entry,includePresentEventAnchor){
+    const frame=await verifyFrame(ctx,entry,'outbound-proof');
     const key=entry.sha256+'.t4n';
     await guard(ctx,'t4.network.publish.'+frame.messageType,'outbound-proof-network-readback',entry);
     const network=await frameTransport.inspectUnknownPublication({key,expectedSha256:entry.sha256});
@@ -1079,12 +1122,7 @@ export function createT4OriginalNetworkPublicationPort({
       network.sha256!==entry.sha256||network.exactBytesPresent!==true||network.originalBusinessApplied!==false)
       fail('PUBLICATION_NETWORK_READBACK_NOT_PROVEN');
     await verifyFrame(ctx,entry,'outbound-proof-after-network');
-    if(replacement&&isContent(entry.messageType))await requireReplacementContent(ctx);
-    const after=await read(ctx);
-    if(after.revision!==current.revision||after.chainHash!==current.chainHash||
-      !same(after.entries[sequence-1],entry)||
-      !same(after.presentEvents[sequence-1],current.presentEvents[sequence-1]))fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
-    const anchor=current.presentEvents[sequence-1];
+    const anchor=current.presentEvents[entry.sequence-1];
     if(!anchor)fail('PUBLICATION_ORIGINAL_PRESENT_EVENT_REQUIRED');
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1',
       key,sha256:entry.sha256,checkpointRef,originalPublicationRevision:current.revision,
@@ -1102,6 +1140,25 @@ export function createT4OriginalNetworkPublicationPort({
       originalOutboundAuthorityVerified:true,originalImmutableTransportReadbackVerified:true,
       originalReplayCheckpointRecorded:false,remoteReceiptProven:false,
       networkBytesVerified:true,originalBusinessApplied:false,originalT3ExchangeCalled:false});
+  }
+  // One original snapshot for the complete successor batch. Per-frame live
+  // signature, Access and immutable readback checks remain in place. The
+  // bilateral handshake is read at both boundaries, not once per chunk.
+  async function readOriginalReplacementPublishedContent(){
+    const ctx=await context(),before=await requireReplacementContent(ctx),current=await read(ctx);
+    if(current.entries.length<3||current.entries.some(e=>e.state!=='PRESENT'))
+      fail('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT');
+    const frames=[];
+    for(const entry of current.entries)frames.push(await readPublishedProof(ctx,current,entry,true));
+    if(!same(before,await requireReplacementContent(ctx)))
+      fail('PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_CHANGED');
+    const after=await read(ctx);
+    if(after.revision!==current.revision||after.chainHash!==current.chainHash||
+      !same(after.entries,current.entries)||!same(after.presentEvents,current.presentEvents))
+      fail('PUBLICATION_ORIGINAL_CHECKPOINT_CHANGED');
+    return Object.freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_PUBLISHED_CONTENT_V1',session:identity,
+      checkpointRef,originalPublicationRevision:current.revision,originalPublicationChainHash:current.chainHash,
+      frames:Object.freeze(frames),originalBusinessApplied:false,sourceCursorAdvanced:false});
   }
   // Read-only history proof from the original PRESENT Event and exact
   // persisted bytes. No remote read/write, no fresh signer, no live proof.
@@ -1348,6 +1405,6 @@ export function createT4OriginalNetworkPublicationPort({
     ...(control?{originalControlPublication:true,originalNewAttemptAdmissionStillRequired:true}:{}),
     ...(replacement?{...(source?{originalReplacementAnnouncementPublication:true}:
       {originalReplacementRecipientDiffPublication:true}),originalNewAttemptAdmissionStillRequired:true,
-      ...(replacementContent?{originalReplacementSourceContentPublication:true}:{})}:{}),
+      ...(replacementContent?{originalReplacementSourceContentPublication:true,readOriginalReplacementPublishedContent}:{})}:{}),
     originalT3OnlyStore:true,createsScheduler:false,createsTaskEngine:false});
 }
