@@ -1,4 +1,5 @@
 name: d06-t3-real-model
+# Address only the failed macOS build/Exchange/model branch, not Windows or Linux.
 on:
   push:
     branches:
@@ -12,13 +13,39 @@ permissions:
   contents: read
   actions: read
 jobs:
-  compile:
-    runs-on: ubuntu-latest
-    timeout-minutes: 65
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 90
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PUPPETEER_SKIP_DOWNLOAD: '1'
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/d06/diagnostic-requests/d06-t3-real-model.request
+          sparse-checkout-cone-mode: false
+          path: pipeline
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate exact request and prior mandatory Windows result
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('pipeline/.github/d06/diagnostic-requests/d06-t3-real-model.request','utf8'));
+          assert.deepStrictEqual(r,{schema:'IWXA_D06_T3_MACOS_REPAIR/1',site:'783487c583c18a118bd13be72352ce70de931e99',baseline:'0d7c911e2586b84d4b6b2ca429dcc5414fc75cc3',owner:'8471dca0037328dfee8689632df9c27866e89845',windowsRun:45642777150,windowsJob:139305606852,attempt:1});
+          NODE
+          test "$(gh api repos/Faust-S/knowledge/actions/runs/45642777150 --jq .head_sha)" = "ef5478bed71d26bee413e5a21754f2889e118174"
+          test "$(gh api repos/Faust-S/knowledge/actions/jobs/139305606852 --jq '[.run_id,.name,.conclusion]|@tsv')" = "$(printf '45642777150\twindows\tsuccess')"
+          echo D06_MACOS_PRIOR_WINDOWS=PASS
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
@@ -35,94 +62,140 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: ab62f1b8b30820483907a1d021d55bc2287cbbcc
+          ref: 783487c583c18a118bd13be72352ce70de931e99
+          fetch-depth: 3
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-site
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Verify original public portable input
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Prove only the domain build and witness scripts changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C private-site rev-parse HEAD)" = "783487c583c18a118bd13be72352ce70de931e99"
+          test "$(git -C private-site rev-parse HEAD^^)" = "0d7c911e2586b84d4b6b2ca429dcc5414fc75cc3"
+          test "$(git -C private-site diff --name-status HEAD^^ HEAD)" = "$(printf 'M\tscripts/prepare-d06-t3-host.mjs\nM\tscripts/verify-native-transfer.mjs')"
+          test "$(git -C original-core rev-parse HEAD)" = "326f725c44d69ac99f6b912241e9e8a6c3d716a5"
+          test "$(git -C private-assistant rev-parse HEAD)" = "9f41447197251d41e69fbcb98e52ef1050754ec2"
+          echo D06_MACOS_BUILD_WITNESS_ONLY_DELTA=PASS
+      - name: Use original disposable HTTPS Host OpenSSL
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! brew list --versions openssl@3 >/dev/null 2>&1; then brew install openssl@3; fi
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+      - name: Verify exact original public portable input
         shell: bash
         working-directory: private-site
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           gh api repos/Faust-S/knowledge/actions/artifacts/14920233669/zip > "$RUNNER_TEMP/platform-outer.zip"
-          echo "96bb993383af31309b79dceb6f321ac5365ac7777362f512f9225226ee51904f  $RUNNER_TEMP/platform-outer.zip" | sha256sum --check --status
+          echo "96bb993383af31309b79dceb6f321ac5365ac7777362f512f9225226ee51904f  $RUNNER_TEMP/platform-outer.zip" | shasum -a 256 --check --status
           unzip -p "$RUNNER_TEMP/platform-outer.zip" platform-inputs.zip > "$RUNNER_TEMP/platform-inputs.zip"
-          node scripts/d06-t3-platform-inputs.mjs verify "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/platform-private.log" 2>&1 || { grep -Eo 'D06_T3_PLATFORM_[A-Z0-9_]+' "$RUNNER_TEMP/platform-private.log" | sort -u | head -10; exit 1; }
+          node scripts/d06-t3-platform-inputs.mjs verify "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/platform-private.log" 2>&1 || { echo D06_MACOS_PLATFORM=FAIL; exit 1; }
           echo D06_T3_ORIGINAL_PLATFORM_128_FILES=PASS
       - name: Prepare compiled real D06 Host
-        working-directory: private-site
         shell: bash
+        working-directory: private-site
         run: |
           set -euo pipefail
           npm ci > "$RUNNER_TEMP/d06-site-install-private.log" 2>&1 || { echo D06_T3_SITE_INSTALL=FAIL; exit 1; }
           echo D06_T3_SITE_INSTALL=PASS
-          node --test tests/t3/static-route-timestamps.test.mjs > "$RUNNER_TEMP/d06-serializer-private.log" 2>&1 || {
-            echo D06_T3_PINNED_SERIALIZER_TEST=FAIL
-            grep -Eo 'D06_T3_STATIC_ROUTE_TIME_[A-Z_]+|ERR_[A-Z_]+' "$RUNNER_TEMP/d06-serializer-private.log" | sort -u | head -15 || true
-            exit 1
-          }
-          echo D06_T3_PINNED_SERIALIZER_TEST=PASS
-          npm run t3:prepare-host -- "$GITHUB_WORKSPACE/original-core/packages/t3-core" "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/private-assistant" https://127.0.0.1:8443 > "$RUNNER_TEMP/d06-host-private.log" 2>&1 || {
-            echo D06_T3_HOST_SOURCE_BUILD=FAIL
-            grep -Eo 'D06_T3_(HOST|PLATFORM)_[A-Z0-9_]+|D06_SITE_ONLY_[A-Z0-9_]+|D06_BUILD_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z_]+|T2_QUALIFIED_KERNEL_STAGE_[A-Z_]+|TS[0-9]{4}' "$RUNNER_TEMP/d06-host-private.log" | sort -u | head -25 || true
-            node --input-type=module - "$RUNNER_TEMP/d06-host-private.log" <<'NODE'
+          log="$RUNNER_TEMP/d06-host-private.log"
+          if ! npm run t3:prepare-host -- "$GITHUB_WORKSPACE/original-core/packages/t3-core" "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/private-assistant" https://127.0.0.1:8443 > "$log" 2>&1; then
+            node --input-type=module - "$log" <<'NODE'
           import {readFileSync} from 'node:fs';
-          const lines=readFileSync(process.argv[2],'utf8').split(/\r?\n/);
-          const matches=lines.map(line=>line.match(/^(src\/[A-Za-z0-9_./-]+\.(?:ts|tsx|mts))\((\d+),(\d+)\): error (TS\d+):/)).filter(Boolean);
-          console.log("D06_T3_COMPILE_DIAGNOSTICS="+matches.length);
-          for(const m of matches.slice(0,40))console.log("D06_T3_COMPILE_COORD="+m[4]+" "+m[1]+":"+m[2]+":"+m[3]);
+          const body=readFileSync(process.argv[2],'utf8');
+          const phaseRules=[['PREPARE',/\bt3:prepare-host\b/],['BUILD_INFO',/\bgenerate:build-info\b/],['DOMAIN_MODULE',/\bbuild:host-module\b/],['DOMAIN_STAGE',/D06_SITE_ONLY_HOST_MODULE_STAGED/],['CORE_INSTALL',/added \d+ packages/],['TYPECHECK',/\btypecheck\b/],['RUNTIME_CHECK',/\bcheck:runtime\b/],['VITE',/vite v\d+[^\r\n]*building/],['ROUTES',/materialize-static-routes/],['KERNEL',/stage-verified-kernel/]];
+          let last='UNKNOWN',lastIndex=-1;
+          for(const [label,re] of phaseRules){const m=[...body.matchAll(new RegExp(re.source,'g'))].at(-1);if(m&&m.index>lastIndex){last=label;lastIndex=m.index;}}
+          const kinds=[['ORIGINAL_ASSISTANT_IMPORT',/(?:Could not resolve|failed to resolve import|UNRESOLVED_IMPORT)[^\r\n]*\.\.\/src\/(?:catalog|engine|storage|domain-model-install)\.mjs/i],['MODULE_RESOLUTION',/Could not resolve|failed to resolve import|UNRESOLVED_IMPORT|Cannot find (?:module|package)|ERR_MODULE_NOT_FOUND/i],['NATIVE_DEPENDENCY',/ERR_DLOPEN_FAILED|wrong architecture|Cannot find module @rollup\/rollup|@tailwindcss\/oxide|@rolldown\/binding|esbuild.*(?:platform|binary)/i],['PATH_ACCESS',/\b(?:ENOENT|EACCES|EPERM|ENAMETOOLONG|EISDIR)\b/],['BUILD_PLUGIN',/PLUGIN_ERROR|RollupError|Transform failed|failed to load config/i],['PROCESS_RESOURCE',/heap out of memory|SIGKILL|SIGABRT|ENOMEM/i],['GIT_ARCHIVE',/Command failed: git archive/i],['TAR_EXTRACT',/Command failed: tar/i],['LOCKED_INSTALL',/npm error|npm ERR!/i],['TYPESCRIPT',/\berror TS\d{4}\b/]];
+          console.log('D06_MACOS_HOST_FAILURE_PHASE='+last);
+          const matched=kinds.filter(([,re])=>re.test(body)).map(([label])=>label);
+          console.log('D06_MACOS_HOST_FAILURE_CLASS='+(matched.join(',')||'UNCLASSIFIED'));
+          const markers=[...new Set(body.match(/D06_T3_(?:HOST|PLATFORM)_[A-Z0-9_]+|D06_SITE_ONLY_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z0-9_]+|T2_QUALIFIED_KERNEL_STAGE_[A-Z0-9_]+|TS[0-9]{4}/g)||[])];
+          for(const marker of markers.slice(0,25))console.log('D06_MACOS_HOST_MARKER='+marker);
           NODE
+            echo D06_T3_HOST_SOURCE_BUILD=FAIL
             exit 1
-          }
+          fi
           echo D06_T3_HOST_SOURCE_BUILD=PASS
           node --input-type=module - "$RUNNER_TEMP/d06-t3-host" <<'NODE'
           import {verifyPreparedD06Host} from './scripts/prepare-d06-t3-host.mjs';
           const receipt=verifyPreparedD06Host(process.argv[2]);
-          console.log("D06_T3_HOST_READBACK=PASS");
-          console.log("D06_T3_HOST_FILES="+receipt.files.length);
-          console.log("D06_T3_SHARED_WORKER_COUNT="+receipt.files.filter(x=>/^assets\/model-worker-[A-Za-z0-9_-]+\.js$/.test(x.path)).length);
+          console.log('D06_T3_HOST_READBACK=PASS');
+          console.log('D06_T3_HOST_FILES='+receipt.files.length);
+          console.log('D06_T3_SHARED_WORKER_COUNT='+receipt.files.filter(x=>/^assets\/model-worker-[A-Za-z0-9_-]+\.js$/.test(x.path)).length);
           NODE
       - name: Build exact HTTPS loopback candidate
         id: preview-build
-        working-directory: private-site
         shell: bash
+        working-directory: private-site
         run: |
           set -euo pipefail
-          npm run setup:browser > "$RUNNER_TEMP/d06-offline-browser-private.log" 2>&1 || { echo D06_T3_OFFLINE_BROWSER_INSTALL=FAIL; exit 1; }
-          node --experimental-strip-types scripts/build-d06-t3-local-site.mjs "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/d06-offline-build-private.log" 2>&1 || {
+          npm run setup:browser > "$RUNNER_TEMP/d06-browser-private.log" 2>&1 || { echo D06_T3_OFFLINE_BROWSER_INSTALL=FAIL; exit 1; }
+          node --experimental-strip-types scripts/build-d06-t3-local-site.mjs "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/d06-build-private.log" 2>&1 || {
             echo D06_T3_OFFLINE_BUILD=FAIL
-            grep -E '^D06_T3_LOCAL_STAGE_[A-Z0-9_]+=(PASS|FAIL)$' "$RUNNER_TEMP/d06-offline-build-private.log" || true
-            grep -Eo 'D06_T3_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_D5_MODULE_[A-Z0-9_]+' "$RUNNER_TEMP/d06-offline-build-private.log" | sort -u | head -25 || true
+            grep -E '^D06_T3_LOCAL_STAGE_[A-Z0-9_]+=(PASS|FAIL)$' "$RUNNER_TEMP/d06-build-private.log" || true
+            grep -Eo 'D06_T3_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+' "$RUNNER_TEMP/d06-build-private.log" | sort -u | head -25 || true
             exit 1
           }
           echo D06_T3_OFFLINE_BUILD=PASS
+      - name: Run original full Exchange and lifecycle witness
+        if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
+        working-directory: private-site
+        shell: bash
+        env:
+          IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/original-core/packages/t3-core
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d06-native-private.log"
+          if ! DEBUG=pw:browser node --experimental-strip-types scripts/verify-native-transfer.mjs > "$log" 2>&1; then
+            grep -E '^D06_NATIVE_PD16_(SELECTION=(SELECTED|REFUSED|TIMEOUT)|WORKFLOW_READBACK=(MATCH|MISMATCH)|WORKFLOW_ERROR_CODE=D06_[A-Z0-9_]+|WORKFLOW_ERROR_CLASS=(DRAFT_FLUSH|WRITE_OR_READBACK|OTHER_REFUSAL|NO_VISIBLE_REFUSAL)|UI_ERRORS=[0-9]+)$' "$log" || true
+            grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$log" | tail -15 || true
+            grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$|^D06_T3_PORTABLE_ACTIVATION=(EVENT|CLICK):(PASS|TARGET_CLOSED|CANCELED|TIMEOUT|OTHER)$|^D06_T3_PORTABLE_(ARCHIVE_BYTES=[0-9]+|DOWNLOAD_PAGE_CLOSED=(YES|NO))$' "$log" || true
+            node --input-type=module - "$log" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const body=readFileSync(process.argv[2],'utf8');
+          console.log('D06_MACOS_EXCHANGE_FATAL_MARKERS='+[...body.matchAll(/Received signal (?:6|9|11)|FATAL:|Out of memory/gi)].length);
+          for(const m of [...body.matchAll(/(?:scripts\/verify-native-transfer|tests\/t3\/exchange-consent)\.mjs:(\d+):(\d+)/g)].slice(-8))console.log('D06_MACOS_EXCHANGE_COORD='+m[1]+':'+m[2]);
+          NODE
+            echo D06_T3_INHERITED_NATIVE_EXCHANGE=FAIL
+            exit 1
+          fi
+          for phase in ITEM_HISTORY BACKUP PD12_PORTABLE; do
+            grep -Fx "D06_T3_PHYSICAL_DOWNLOAD=$phase:PASS" "$log"
+          done
+          echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
       - name: Real Qwen on actual D06 subject and cold offline Kernel draft
+        if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
         working-directory: private-site
         shell: bash
         env:
           IWXA_T3_ORIGINAL_CORE: ${{ github.workspace }}/original-core/packages/t3-core
         run: |
           set -euo pipefail
-          node --experimental-strip-types tests/t3/verify-native-offline.mjs --real-model > "$RUNNER_TEMP/d06-real-model-private.log" 2>&1 || {
-            grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=(PASS|BLOCKED)$' "$RUNNER_TEMP/d06-real-model-private.log" || true
-            if grep -q '^D06_T3_REAL_MODEL_HARDWARE_UNAVAILABLE=BLOCKED$' "$RUNNER_TEMP/d06-real-model-private.log"; then
+          log="$RUNNER_TEMP/d06-real-model-private.log"
+          if ! node --experimental-strip-types tests/t3/verify-native-offline.mjs --real-model > "$log" 2>&1; then
+            grep -E '^D06_T3_REAL_MODEL_GPU_PROBE=(unavailable|software|compute-failed|unknown|nonfallback-reported):[A-Z_]+$' "$log" || true
+            grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=(PASS|BLOCKED)$' "$log" || true
+            if grep -Fxq 'D06_T3_REAL_MODEL_HARDWARE_UNAVAILABLE=BLOCKED' "$log"; then
               echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=BLOCKED
             else
               echo D06_T3_REAL_MODEL_NATIVE_OFFLINE=FAIL
-              grep -Eo 'D06_T3_REAL_MODEL_[A-Z0-9_]+' "$RUNNER_TEMP/d06-real-model-private.log" | sort -u | head -15 || true
+              grep -Eo 'D06_T3_REAL_MODEL_[A-Z0-9_]+' "$log" | sort -u | head -15 || true
             fi
             exit 1
-          }
-          grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=PASS$' "$RUNNER_TEMP/d06-real-model-private.log"
-          grep -q '^D06_T3_REAL_MODEL_NATIVE_OFFLINE=PASS$' "$RUNNER_TEMP/d06-real-model-private.log"
+          fi
+          grep -E '^D06_T3_(OFFLINE|REAL_MODEL)_[A-Z0-9_]+=PASS$' "$log"
+          grep -Fxq 'D06_T3_REAL_MODEL_GPU_COMPUTE=PASS' "$log"
+          grep -Fxq 'D06_T3_REAL_MODEL_NATIVE_OFFLINE=PASS' "$log"
       - name: Privacy and evidence boundary
         if: always()
+        shell: bash
         run: |
           echo D06_T3_PRODUCT_ACCEPTED=false
-          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
-          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
+          echo D06_PRIVATE_SOURCE_UPLOADS=0
+          echo D06_PRIVATE_LOG_UPLOADS=0
+          echo D06_PRIVATE_DIST_UPLOADS=0
