@@ -1706,9 +1706,28 @@ try{
  // A cold review must keep the exact saved sources that explain the
  // reason for review. The ordinary one-record editor routes remain tested above.
  {
- phase="INDEPENDENT_GOAL_REVIEW_CONTEXT_RESTORE";
- await close();page=await launch("personal-recipient");await context.setOffline(true);
+ phase="INDEPENDENT_GOAL_REVIEW_CONTEXT_INSTALL";
+ // An imported Exchange archive contains Results, not the site's offline
+ // application. The independent recipient must explicitly install it first.
+ const switchControl=page.locator("#iwxa-t3-domain-switch");
+ const offlineDetails=page.locator("details").filter({has:page.locator("summary").filter({hasText:"T3: автономный режим"})}).first();
+ if(!await switchControl.isVisible())await offlineDetails.locator("summary").first().click();
+ check(!await switchControl.isChecked(),"GOAL_REVIEW_RECIPIENT_INITIAL_ONLINE");
+ let installConsent=false;
+ page.once("dialog",async d=>{installConsent=d.type()==="confirm";if(installConsent)await d.accept();else await d.dismiss();});
+ await switchControl.check();
+ await poll(async()=>{try{return await page.evaluate(()=>document.documentElement.hasAttribute("data-iwxa-t3-autonomous")&&Boolean(navigator.serviceWorker.controller));}catch{return false}},"GOAL_REVIEW_RECIPIENT_OFFLINE_CONTROLLER",180000);
+ check(installConsent,"GOAL_REVIEW_RECIPIENT_INSTALL_CONSENT");
+ log("INDEPENDENT_GOAL_REVIEW_RECIPIENT_OFFLINE_INSTALLED");
+ phase="INDEPENDENT_GOAL_REVIEW_CONTEXT_COLD";
+ await close();await stopServer();
+ let reachable=false;
+ try{await fetch(origin+"/workspace/",{signal:AbortSignal.timeout(2000)});reachable=true}catch{}
+ check(!reachable,"GOAL_REVIEW_RECIPIENT_SERVER_STOPPED");
+ page=await launch("personal-recipient");await context.setOffline(true);
  await visit(page,"/workspace/");await openExisting(page);
+ check(await page.evaluate(()=>navigator.onLine===false&&document.documentElement.hasAttribute("data-iwxa-t3-autonomous")),"GOAL_REVIEW_RECIPIENT_OFFLINE_MODE");
+ phase="INDEPENDENT_GOAL_REVIEW_CONTEXT_RESTORE";
  const reviewPanel=page.getByTestId("club-native-goals");
  const reviewDetail=reviewPanel.getByTestId("club-native-goal-review");
  await reviewDetail.waitFor({state:"visible"});
