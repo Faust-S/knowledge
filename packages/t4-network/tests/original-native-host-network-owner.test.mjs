@@ -132,7 +132,8 @@ async function sourceFixture(loseOriginalWrite=false){
 function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=deny,requestBaseline=true,
   localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow,
   indexMigration=false,technicalRead=allow,explicitResume=false,resumeInput=null,resumeAdmission=deny,
-  nativeTopologyTransport=null,requireSignedTopologyAccess=false,originalVaultNodeSignaturePort=null}){
+  nativeTopologyTransport=null,requireSignedTopologyAccess=false,originalVaultNodeSignaturePort=null,
+  replacementRecovery=false,terminalRecovery=false,peerHistoryRead=async()=>null}){
   const tech=store.technicalWorkspaceId;
   const localOps=['t1.getObject','t1.listObjects','t1.listEventsSince','t1.putObject',
     't1.commitObjectGraph','t1.deleteObject','t1.listAssets','t1.getAsset','t1.putAsset','t1.deleteAsset','t1.putRelation','t1.deleteRelation'];
@@ -154,6 +155,8 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     },
     authorizeOriginalHostTask:allow,authorizeOriginalRead:allow,authorizeOriginalWrite:allow,
     authorizeOriginalLocalMutation:localAdmission,
+    authorizeOriginalReplacementOwnerHistoryRead:allow,authorizeOriginalPeerReplacementHistoryRead:allow,
+    readOriginalPeerReplacementHistory:peerHistoryRead,authorizeOriginalHistoricalCursorRecovery:allow,
     authorizeOriginalHostWire:allow,authorizeOriginalNetwork:async p=>p.ownerEpoch===2&&p.scopeRef===SCOPE,
     authorizeOriginalFramePublish:frameAdmission,authorizeOriginalNetworkResume:resumeAdmission,
     verifyOriginalNodeSignature:async({signerRef,bytes,signature})=>{
@@ -182,6 +185,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
     originalVaultNodeSignaturePort,requireOriginalVaultNodeSignature:originalVaultNodeSignaturePort!==null,
     getMode:()=>mode,...(nativeTopologyTransport?{nativeTopologyTransport}:{wireTransport:wire.wire}),originalPorts,enableLocalSourceCapture:localCapture,enablePublicationIndexMigration:indexMigration,monotonicNow:()=>clock,
     enableExplicitNetworkResume:explicitResume,readOriginalNetworkResumeInput:resumeInput,requireSignedTopologyAccess,
+    enableLocalReplacementRecovery:replacementRecovery,enableReplacementTerminalRecovery:terminalRecovery,
     readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null,
     onStep:r=>results.push(r)});
   const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,networkOwner:{
@@ -756,7 +760,7 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
       primaryPlacement:'LOCAL_PRIMARY_HOSTED_REPLICA',allowedLocations:['loc:k34:local',location],
       retentionClass:'test',recoveryClass:'test',universalCloudMaster:false,subjectActionAuthority:false},
       primaryNodeRef:S,replicaNodeRefs:[server]}]});
-  let current=topology,requests=0,credentials=0;const records=new Map();
+  let current=topology,requests=0,credentials=0,peerHistoryReads=0;const records=new Map();
   let registry=null,vaultReads=0;
   const routeAuthority=createTemporaryOriginalPersonalAuthority({workspaceId:WS,
     operations:[...caps.map(c=>'t4.'+c),'t4.network.node.sign','t4.network.node.verify'],
@@ -810,10 +814,16 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
     assert.equal(requests,0);assert.equal(credentials,0);assert.equal(vaultReads,0);
   }finally{mismatchedTransport.close();}
   const transport=openTransport(bound.access);
+  assert.throws(()=>createT4OriginalNativeHostNetworkOwner({enableReplacementTerminalRecovery:true}),
+    {code:'NATIVE_NETWORK_OWNER_REPLACEMENT_TERMINAL_PROFILE_INVALID'});
+  assert.throws(()=>recoverySource(source,null,{nativeTopologyTransport:transport,localCapture:true,requireSignedTopologyAccess:true,
+    originalVaultNodeSignaturePort,replacementRecovery:true,terminalRecovery:true}),
+    {code:'NATIVE_NETWORK_OWNER_LOCAL_REPLACEMENT_PROFILE_INVALID'});
   const f=recoverySource(source,null,{nativeTopologyTransport:transport,localCapture:true,requireSignedTopologyAccess:true,
-    originalVaultNodeSignaturePort});
+    originalVaultNodeSignaturePort,peerHistoryRead:async()=>{peerHistoryReads++;return null;}});
   try{
     const s=await f.attach();await f.drive(s,'HEADS_PRESENT');
+    assert.equal(f.owner.originalReplacementTerminalRecoveryEnabled,undefined);assert.equal(peerHistoryReads,0);
     assert.equal(f.owner.originalTopologyBinding.topologyDigest,topology.topologyDigest);
     assert.equal(f.owner.originalSignedTopologyAccess,true);
     assert.equal(f.owner.originalVaultNodeIdentity.localKeyRef,sourceKey);
@@ -829,7 +839,7 @@ test('K34 existing signed native Host uses an admitted T4.1 topology transport a
     const count=requests,creds=credentials,start=f.results.length;
     current=createT4NetworkTopology({...topology,revision:2,previousTopologyDigest:topology.topologyDigest});
     await f.drive(s,'NETWORK_WAKE_SUSPENDED',start);
-    assert.equal(requests,count);assert.equal(credentials,creds);assert.equal(vaultReads,1);assert.equal(f.signatureCalls,0);
+    assert.equal(requests,count);assert.equal(credentials,creds);assert.equal(vaultReads,1);assert.equal(f.signatureCalls,0);assert.equal(peerHistoryReads,0);
     assert.equal(f.relay.networkAttached,true);
     assert.equal(source.events.filter(e=>e.workspace_id===WS).length,2);
   }finally{f.relay.close();transport.close();}

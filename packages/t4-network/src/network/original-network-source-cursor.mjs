@@ -1,12 +1,14 @@
 import {createHash} from 'node:crypto';
 import {validT4NativeSubjectRevision,validT4NativeOriginalEventRevision,
   matchesT4NativeSubjectCriticalExtensions,t4NativeSubjectCriticalExtensions,
-  decodeT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_REPLACEMENT_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
+  decodeT4CandidateFrame,verifyT4CandidateHistoricalFrameSignature,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_REPLACEMENT_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
 import {validateT4OriginalNativeCaptureSession,readT4OriginalSourceSessionHead,
   validateT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementSourceIntentStatus,
   validateT4OriginalReplacementRecipientApplyAdmission,readT4OriginalReplacementSourceHead} from './original-network-publication.mjs';
 import {requireT4OriginalRetiredAttemptStatus} from './original-network-session-phases.mjs';
 import {assembleT4CandidateOpaqueChunks} from './standard-network-opaque-chunks.mjs';
+import {createT4OriginalReplacementOwnerHistoryRequest,validateT4OriginalReplacementOwnerHistorySnapshot}
+  from './original-network-replacement-owner-history.mjs';
 import {isT4OriginalOutboundFrameProof} from './original-network-source-head-proof.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest}
   from './original-event-window.mjs';
@@ -523,26 +525,32 @@ export async function confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement
 
 
 /** A terminal-history witness for the successor, independent of the current
- * frontier. This is NOT accepted by either existing cursor writer yet.
- * No live receipt, replay creation, key use for signing, or remote reads. */
+ * frontier. The existing cursor writers re-read it at their CAS boundaries.
+ * No live receipt, replay creation or signing. Owner history is read through
+ * independent original read ports, never the shared frame transport. */
 export async function recoverT4OriginalReplacementTerminalCursorEvidence({session:rawSession,sourceCursorBefore,
   sourcePhasePort,recipientPhasePort,retiredSourcePhasePort,retiredRecipientPhasePort,
   sourcePublicationPort,recipientPublicationPort,historicalFramePort,requiredCryptoSuite,getMode,
-  authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents}={}){
+  authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents,
+  readOriginalOwnerHistory=null,requesterNodeRef=null,verifyOriginalHistoricalNodeSignature=null}={}){
   const c=validateT4OriginalReplacementSessionCandidate(rawSession),before=structuredClone(sourceCursorBefore);
   const mode=()=>{if(typeof getMode!=='function'||getMode()!=='T4_NETWORK')fail('CURSOR_NETWORK_MODE_OFF');};
   const phases=[sourcePhasePort,recipientPhasePort,retiredSourcePhasePort,retiredRecipientPhasePort],pubs=[sourcePublicationPort,recipientPublicationPort];
+  const ownerReads=readOriginalOwnerHistory!==null;
   if(!ID(requiredCryptoSuite)||before?.schema!=='IWXA_T4_ORIGINAL_EVENT_CURSOR_V1'||before.workspaceId!==c.workspaceId||
     before.originalWriteOwnerRef!==c.originalWriteOwnerRef||before.sourcePrefixDigest!==c.sourcePrefixDigestBefore||
     before.originalPermissionProof!==false||!ID(before.lastEventId)||!Number.isSafeInteger(before.seenEventCount)||
     before.seenEventCount<1||before.seenEventCount>=Number.MAX_SAFE_INTEGER||
     ![getMode,authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents].every(f=>typeof f==='function')||
-    !phases.every((p,i)=>p?.schema==='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'&&p.role===(i%2===0?'SOURCE':'RECIPIENT')&&
+    (ownerReads?(typeof readOriginalOwnerHistory!=='function'||typeof verifyOriginalHistoricalNodeSignature!=='function'||
+      ![c.sourceNodeRef,c.recipientNodeRef].includes(requesterNodeRef)||
+      [...phases,...pubs,historicalFramePort].some(p=>p!==undefined)):
+    (requesterNodeRef!==null||verifyOriginalHistoricalNodeSignature!==null||!phases.every((p,i)=>p?.schema==='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'&&p.role===(i%2===0?'SOURCE':'RECIPIENT')&&
       p.originalT3TechnicalWorkspaceOnly===true&&p.createsSecondStore===false&&ID(p.checkpointRef)&&typeof p.inspectOriginalSession==='function')||
     !pubs.every(p=>p?.schema==='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'&&p.originalT3OnlyStore===true&&ID(p.checkpointRef)&&
       stable(p.session)===stable(c)&&typeof p.readOriginalHistoricalPublishedBatch==='function')||
     new Set([...phases,...pubs].map(p=>p.checkpointRef)).size!==6||
-    historicalFramePort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||typeof historicalFramePort.readOriginalHistoricalAppliedAck!=='function')
+    historicalFramePort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||typeof historicalFramePort.readOriginalHistoricalAppliedAck!=='function')))
     fail('CURSOR_REPLACEMENT_TERMINAL_HISTORY_PORTS_REQUIRED');
   mode();
   const sha=x=>createHash('sha256').update(x).digest('hex'),route=['sourceNodeRef','recipientNodeRef','scopeRef','sessionRef','changeId','ownerEpoch'];
@@ -550,9 +558,9 @@ export async function recoverT4OriginalReplacementTerminalCursorEvidence({sessio
   const ackRead=(sessionRef,expectedSha256=null)=>historyRead(()=>historicalFramePort.readOriginalHistoricalAppliedAck({selector:{
     sourceNodeRef:c.recipientNodeRef,sessionRef,ownerEpoch:c.ownerEpoch},requiredCryptoSuite,
     supportedCriticalExtensions:t4NativeSubjectCriticalExtensions(c.changeKind),expectedSha256}));
-  function publication(saved,port,types,from,to){
+  function publication(saved,checkpointRef,types,from,to){
     if(saved?.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_BATCH_V1'||stable(saved.session)!==stable(c)||
-      saved.checkpointRef!==port.checkpointRef||!Number.isSafeInteger(saved.originalPublicationRevision)||saved.originalPublicationRevision<1||
+      saved.checkpointRef!==checkpointRef||!Number.isSafeInteger(saved.originalPublicationRevision)||saved.originalPublicationRevision<1||
       !DIG(saved.originalPublicationChainHash)||saved.originalT3PublicationEventChainVerified!==true||
       saved.originalHistoricalEvidenceOnly!==true||saved.currentRemotePresenceProven!==false||saved.liveNetworkAuthorityGranted!==false||
       saved.originalBusinessApplied!==false||!Array.isArray(saved.frames)||saved.frames.length!==types.length)
@@ -581,21 +589,44 @@ export async function recoverT4OriginalReplacementTerminalCursorEvidence({sessio
   function anchor(f){return {sequence:f.sequence,messageType:f.messageType,key:f.key,sha256:f.sha256,
     presentEventId:f.originalPresentEventId,presentRevision:f.originalPresentRevision,presentChainHash:f.originalPresentChainHash};}
   async function read(){
-    const [source,recipient,oldSource,oldRecipient]=await Promise.all(phases.map(p=>historyRead(()=>p.inspectOriginalSession())));
+    let source,recipient,oldSource,oldRecipient,sourcePub,recipientPub,refs,retiredAck,accepted;
+    if(ownerReads){
+      const owners=[];
+      for(const ownerNodeRef of [c.sourceNodeRef,c.recipientNodeRef]){
+        const request=createT4OriginalReplacementOwnerHistoryRequest({session:c,requesterNodeRef,ownerNodeRef});
+        const raw=await historyRead(()=>readOriginalOwnerHistory(request));
+        if(raw===null)fail('CURSOR_REPLACEMENT_OWNER_HISTORY_NOT_READY');
+        const snapshot=validateT4OriginalReplacementOwnerHistorySnapshot(raw,request);
+        if(snapshot.state!=='ORIGINAL_OWNER_TERMINAL_HISTORY_VERIFIED')fail('CURSOR_REPLACEMENT_OWNER_HISTORY_NOT_READY');
+        owners.push(snapshot);
+      }
+      const [s,r]=owners;
+      ({phase:source,retiredPhase:oldSource,publication:sourcePub,retiredAck,acceptedAck:accepted}=s);
+      ({phase:recipient,retiredPhase:oldRecipient,publication:recipientPub}=r);
+      refs=[s.phaseCheckpointRef,r.phaseCheckpointRef,oldSource.checkpointRef,oldRecipient.checkpointRef,sourcePub.checkpointRef,recipientPub.checkpointRef];
+      if(new Set(refs).size!==6)fail('CURSOR_REPLACEMENT_TERMINAL_HISTORY_PORTS_REQUIRED');
+    }else{
+      // One original native relay owns one command slot. Do not issue two
+      // concurrent phase reads against the same Kernel/Host lifetime.
+      const statuses=[];
+      for(const p of phases)statuses.push(await historyRead(()=>p.inspectOriginalSession()));
+      [source,recipient,oldSource,oldRecipient]=statuses;
+      refs=[...phases,...pubs].map(p=>p.checkpointRef);
+    }
     const src=validateT4OriginalReplacementSourceIntentStatus(source,c),r=c.replacement;
-    if(src.currentPhase!=='APPLIED_CONFIRMED'||src.checkpointRef!==sourcePhasePort.checkpointRef)
+    if(src.currentPhase!=='APPLIED_CONFIRMED'||src.checkpointRef!==refs[0])
       fail('CURSOR_REPLACEMENT_TERMINAL_PHASE_REQUIRED');
-    const stopped=[oldSource,oldRecipient].map((s,i)=>requireT4OriginalRetiredAttemptStatus(s,c.originalCaptureSession,i===0?'SOURCE':'RECIPIENT',phases[i+2].checkpointRef));
+    const stopped=[oldSource,oldRecipient].map((s,i)=>requireT4OriginalRetiredAttemptStatus(s,c.originalCaptureSession,i===0?'SOURCE':'RECIPIENT',refs[i+2]));
     if(stopped.some((s,i)=>{const key=i===0?'source':'recipient';return s.replacementSessionRef!==c.sessionRef||
       s.originalRetiredPhaseCheckpointRef!==r[key+'PhaseRef']||s.originalSupersessionEventId!==r[key+'PhaseEventId']||
       s.originalRetiredPhaseRevision!==r[key+'PhaseRevision']||s.originalRetiredPhaseChainHash!==r[key+'PhaseChainHash'];})||
       oldSource.currentEvidence.retirement?.decisionDigest!==r.decisionDigest)
       fail('CURSOR_REPLACEMENT_RETIRED_ANCHOR_MISMATCH');
-    if(await ackRead(c.originalCaptureSession.sessionRef)!==null)fail('CURSOR_REPLACEMENT_RETIRED_ACK_CONFLICT');
+    if((ownerReads?retiredAck:await ackRead(c.originalCaptureSession.sessionRef))!==null)fail('CURSOR_REPLACEMENT_RETIRED_ACK_CONFLICT');
     const admission=validateT4OriginalReplacementRecipientApplyAdmission(recipient?.originalReplacementRecipientAdmission),e=admission.contentEvidence,a=e.agreement;
     const evidence=src.currentEvidence;
     if(recipient?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||recipient.role!=='RECIPIENT'||recipient.currentPhase!=='APPLIED'||recipient.revision!==4||
-      recipient.checkpointRef!==recipientPhasePort.checkpointRef||!DIG(recipient.chainHash)||recipient.recipientApplyIntentRequired!==true||
+      recipient.checkpointRef!==refs[1]||!DIG(recipient.chainHash)||recipient.recipientApplyIntentRequired!==true||
       !route.every(k=>recipient[k]===c[k])||(recipient.changeKind??'OBJECT_PUT')!==c.changeKind||
       recipient.originalT3EventChainVerified!==true||recipient.originalT3OnlyStore!==true||recipient.originalBusinessApplied!==true||
       recipient.verifiedOriginalRecipientApplication!==true||recipient.originalReplacementRecipientAdmissionRecorded!==true||
@@ -609,9 +640,24 @@ export async function recoverT4OriginalReplacementTerminalCursorEvidence({sessio
       stable(recipient.recipientApplyIntentEvidence)!==stable({evidenceRef:e.frames[1].key,evidenceDigest:'sha256:'+c.capturedSha256})||
       stable(recipient.recipientVerifiedEvidence)!==stable({evidenceRef:e.frames[1].key,evidenceDigest:admission.originalStateDigest}))
       fail('CURSOR_REPLACEMENT_TERMINAL_PHASE_MISMATCH');
-    const [sourcePub,recipientPub]=await Promise.all(pubs.map(p=>historyRead(()=>p.readOriginalHistoricalPublishedBatch())));
-    const sourceFrames=publication(sourcePub,sourcePublicationPort,e.frames.map(f=>f.messageType),c.sourceNodeRef,c.recipientNodeRef);
-    const peerFrames=publication(recipientPub,recipientPublicationPort,['DIFF_REQUEST','APPLIED_ACK'],c.recipientNodeRef,c.sourceNodeRef);
+    if(!ownerReads){
+      sourcePub=await historyRead(()=>sourcePublicationPort.readOriginalHistoricalPublishedBatch());
+      recipientPub=await historyRead(()=>recipientPublicationPort.readOriginalHistoricalPublishedBatch());
+    }
+    const sourceFrames=publication(sourcePub,refs[4],e.frames.map(f=>f.messageType),c.sourceNodeRef,c.recipientNodeRef);
+    const peerFrames=publication(recipientPub,refs[5],['DIFF_REQUEST','APPLIED_ACK'],c.recipientNodeRef,c.sourceNodeRef);
+    if(ownerReads){
+      // A peer read is original-authorized, not an assertion that its
+      // transmitted bytes have a valid historical signature on this node.
+      const [batch,frames]=requesterNodeRef===c.sourceNodeRef?[recipientPub,peerFrames]:[sourcePub,sourceFrames];
+      for(let i=0;i<frames.length;i++){
+        const verified=await verifyT4CandidateHistoricalFrameSignature({wireBytes:batch.frames[i].wireBytes,
+          direction:'INBOUND',localNodeRef:requesterNodeRef,scopeRef:c.scopeRef,requiredCryptoSuite,
+          supportedCriticalExtensions:frames[i].criticalExtensions,verifyOriginalHistoricalNodeSignature});mode();
+        if(verified.frameDigest!==batch.frames[i].historicalSignature.frameDigest||verified.signerRef!==frames[i].signerRef)
+          fail('CURSOR_REPLACEMENT_HISTORICAL_SIGNATURE_MISMATCH');
+      }
+    }
     const [head,change,...chunks]=sourceFrames,[diff,ack]=peerFrames,savedHead=sourcePub.frames[0],savedDiff=recipientPub.frames[0],savedAck=recipientPub.frames[1];
     if(sourcePub.checkpointRef!==e.sourcePublicationCheckpointRef||recipientPub.checkpointRef!==a.originalRecipientPublicationCheckpointRef||
       stable(sourcePub.frames.map(anchor))!==stable(e.frames)||savedHead.key!==src.originalReplacementSourceAdmission.headKey||
@@ -638,7 +684,7 @@ export async function recoverT4OriginalReplacementTerminalCursorEvidence({sessio
       fail('CURSOR_REPLACEMENT_HISTORICAL_CONTENT_MISMATCH');
     assembleT4CandidateOpaqueChunks({bodies:chunks.map(f=>f.body),expectedChangeId:c.changeId,expectedContentDigest:e.contentDigest,
       expectedEncryptionContextRef:e.encryptionContextRef});
-    const accepted=await ackRead(c.sessionRef,savedAck.sha256);
+    if(!ownerReads)accepted=await ackRead(c.sessionRef,savedAck.sha256);
     if(accepted?.schema!=='IWXA_T4_HISTORICAL_RECEIVED_FRAME_V1'||accepted.operation!=='t4.network.receive.APPLIED_ACK'||
       accepted.messageType!=='APPLIED_ACK'||accepted.sequence!==2||accepted.messageId!==ack.messageId||accepted.signerRef!==ack.signerRef||
       accepted.permissionRef!==ack.permissionRef||accepted.sourceNodeRef!==c.recipientNodeRef||accepted.recipientNodeRef!==c.sourceNodeRef||

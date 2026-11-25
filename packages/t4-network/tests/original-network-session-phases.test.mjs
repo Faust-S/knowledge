@@ -10,6 +10,8 @@ import {createT4CandidateFrameTransport} from '../src/network/standard-network-w
 import {discoverT4OriginalNetworkSessionContent} from '../src/network/original-network-subject-apply.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
+import {createT4OriginalReplacementOwnerHistoryRequest,readT4OriginalReplacementOwnerHistory,completeT4OriginalReplacementHostCursor}
+  from '../src/network/original-network-replacement-owner-history.mjs';
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort} from '../src/network/original-network-host-cursor.mjs';
 import {recoverT4OriginalReplacementTerminalCursorEvidence,recoverT4OriginalHistoricallyConfirmedSourceCursor} from '../src/network/original-network-source-cursor.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
@@ -1550,6 +1552,40 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
     verifyOriginalHistoricalNodeSignature:x.historicalSignature(sourceNodeRef),authorizeOriginalTechnicalWrite:async()=>true}),
     isCode('PUBLICATION_ORIGINAL_HOST_PORTS_REQUIRED'));
   Object.assign(historyArgs,cold);
+  // K72: separate owner histories are obtained through bounded original
+  // read-only requests. Simulate the native relay's single command slot.
+  let ownerReadAllowed=true,peerUnavailable=false,ownerReads=0;
+  function serialKernel(k){
+    let busy=false;const run=async(fn,args)=>{assert.equal(busy,false,'one original relay command');busy=true;
+      try{return await fn(...args);}finally{busy=false;}};
+    return {...k,getObject:(...args)=>run(k.getObject,args),listEventsSince:(...args)=>run(k.listEventsSince,args)};
+  }
+  const ownerHistory=async request=>{
+    ownerReads++;
+    if(peerUnavailable&&request.ownerNodeRef===recipientNodeRef)return null;
+    const role=request.ownerNodeRef===sourceNodeRef?'SOURCE':'RECIPIENT',base=originalReadOptions[role];
+    return readT4OriginalReplacementOwnerHistory({...base,originalKernel:serialKernel(base.originalKernel),request,
+      requiredCryptoSuite:historyArgs.requiredCryptoSuite,authorizeOriginalOwnerHistoryRead:async p=>ownerReadAllowed&&
+        p.originalOwnerReadOnly===true&&p.originalSubjectMutationAllowed===false&&p.request.ownerNodeRef===base.localNodeRef,
+      verifyOriginalRecipientApplied:role==='SOURCE'?x.verifySourceApplied:peerResult,
+      verifyOriginalHistoricalNodeSignature:x.historicalSignature(base.localNodeRef),authorizeOriginalHostWire:async()=>true});
+  };
+  const ownerRecovery=node=>({session:c,sourceCursorBefore:x.sourceCursorBefore,requiredCryptoSuite:historyArgs.requiredCryptoSuite,getMode,
+    requesterNodeRef:node,readOriginalOwnerHistory:ownerHistory,verifyOriginalHistoricalNodeSignature:x.historicalSignature(node),
+    authorizeOriginalHistoricalCursorRecovery:historyArgs.authorizeOriginalHistoricalCursorRecovery,
+    authorizeOriginalRead:historyArgs.authorizeOriginalRead,readOriginalEvents:x.readOriginalEvents});
+  if(order==='SOURCE_FIRST_NORMAL'){
+    const args=ownerRecovery(sourceNodeRef),recoverOwner=patch=>recoverT4OriginalReplacementTerminalCursorEvidence({...args,...patch});
+    assert.deepEqual(await recoverOwner(),historical);assert.equal(ownerReads,4);
+    peerUnavailable=true;await assert.rejects(recoverOwner(),isCode('CURSOR_REPLACEMENT_OWNER_HISTORY_NOT_READY'));peerUnavailable=false;
+    ownerReadAllowed=false;await assert.rejects(recoverOwner(),isCode('REPLACEMENT_HISTORY_OWNER_READ_DENIED'));ownerReadAllowed=true;
+    await assert.rejects(recoverOwner({readOriginalOwnerHistory:async request=>{
+      const snapshot=structuredClone(await ownerHistory(request));if(request.ownerNodeRef===recipientNodeRef)snapshot.request.ownerNodeRef=sourceNodeRef;
+      return snapshot;}}),isCode('REPLACEMENT_HISTORY_SNAPSHOT_INVALID'));
+    await assert.rejects(recoverOwner({verifyOriginalHistoricalNodeSignature:async()=>null}),isCode('WIRE_HISTORICAL_SIGNATURE_NOT_VERIFIED'));
+    await assert.rejects(recoverOwner({sourcePhasePort:cold.sourcePhasePort}),isCode('CURSOR_REPLACEMENT_TERMINAL_HISTORY_PORTS_REQUIRED'));
+    assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},counts);
+  }
   // A later unrelated source Event cannot invalidate the exact captured prefix.
   x.sourceEvents.push({...x.sourceEvents[1],event_id:'event:k68:later',revision:8,payload:{title:'later'}});
   assert.deepEqual(await recover(),historical);
@@ -1568,8 +1604,25 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
   // The recipient Result callback above is a fixture; the actual recipient
   // cursor must independently find the original business Event as well.
   x.restoreFrontier();x.restoreRecipientFrontier();
-  const recipientCommit=()=>x.realRecipientCursor().commitHistoricallyConfirmedReplacementCursor({recovery:historyArgs});
-  const sourceCommit=()=>x.realSourceCursor().commitHistoricallyConfirmedReplacementCursor({recovery:historyArgs});
+  const cursorHistory=node=>order==='SOURCE_FIRST_NORMAL'?ownerRecovery(node):historyArgs;
+  const recipientCommit=()=>x.realRecipientCursor().commitHistoricallyConfirmedReplacementCursor({recovery:cursorHistory(recipientNodeRef)});
+  const sourceCommit=()=>x.realSourceCursor().commitHistoricallyConfirmedReplacementCursor({recovery:cursorHistory(sourceNodeRef)});
+  const hostStep=async(role,patch={})=>{
+    const node=role==='SOURCE'?sourceNodeRef:recipientNodeRef,base=originalReadOptions[role],port=role==='SOURCE'?x.realSourceCursor():x.realRecipientCursor();
+    const readOriginalCurrentCursor=role==='SOURCE'?async()=>(await port.inspectOriginalHostCursor()).originalT3NextCursor:port.readOriginalVerifiedCursor;
+    const selection=await readT4OriginalLocalReplacementSelection({...base,technicalSchemaId:'iwxa.demo.note',sourceWorkspaceId:c.workspaceId,
+      originalWriteOwnerRef:c.originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,
+      sourceCursorBefore:await readOriginalCurrentCursor(),readOriginalCurrentCursor,requiredCryptoSuite:historyArgs.requiredCryptoSuite,
+      verifyOriginalRecipientApplied:role==='SOURCE'?x.verifySourceApplied:peerResult,verifyOriginalHistoricalNodeSignature:x.historicalSignature(node)});
+    return completeT4OriginalReplacementHostCursor({selection,role,originalCursorPort:port,getMode,requiredCryptoSuite:historyArgs.requiredCryptoSuite,
+      readOriginalHostContext:async()=>({...await base.readOriginalHostContext(),workspaceId:c.workspaceId}),
+      readOriginalLocalOwnerHistory:async request=>{assert.equal(request.ownerNodeRef,node);return ownerHistory(request);},
+      readOriginalPeerReplacementHistory:async request=>{assert.notEqual(request.ownerNodeRef,node);return ownerHistory(request);},
+      authorizeOriginalPeerReplacementHistoryRead:async p=>p.request.requesterNodeRef===node&&p.originalSubjectMutationAllowed===false,
+      authorizeOriginalHostTask:async p=>p.nodeRef===node&&p.originalSubjectMutationAllowed===false,
+      authorizeOriginalHistoricalCursorRecovery:historyArgs.authorizeOriginalHistoricalCursorRecovery,
+      verifyOriginalHistoricalNodeSignature:x.historicalSignature(node),...patch});
+  };
   assert.deepEqual((await x.realSourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,x.sourceCursorBefore);
   assert.deepEqual(await x.realRecipientCursor().readOriginalVerifiedCursor(),x.sourceCursorBefore);
   await assert.rejects(recipientCommit(),isCode('RECIPIENT_CURSOR_ORIGINAL_RESULT_EVENT_MISMATCH'));
@@ -1588,12 +1641,19 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
     historyAllowed=false;await assert.rejects(sourceCommit(),isCode('CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED'));historyAllowed=true;
     x.sourceStore.loseNextReply();await assert.rejects(sourceCommit(),isCode('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
   }else{
-    assert.equal((await sourceCommit()).state,'ORIGINAL_T3_CAS_COMMITTED');
+    const beforeHost={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
+    peerUnavailable=true;assert.equal((await hostStep('SOURCE')).state,'WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE');peerUnavailable=false;
+    await assert.rejects(hostStep('SOURCE',{authorizeOriginalPeerReplacementHistoryRead:async p=>p.stage==='before'}),isCode('REPLACEMENT_HISTORY_PEER_READ_DENIED'));
+    await assert.rejects(hostStep('SOURCE',{authorizeOriginalHostTask:async()=>false}),isCode('REPLACEMENT_HOST_CURSOR_TASK_DENIED'));
+    assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},beforeHost);
+    const sourceStep=await hostStep('SOURCE');assert.equal(sourceStep.state,'ORIGINAL_REPLACEMENT_CURSOR_COMMITTED');
+    assert.equal(sourceStep.sourceCursorAdvanced,true);assert.equal(sourceStep.originalRecipientCursorAdvanced,false);
     assert.deepEqual((await x.realSourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,x.sourceCursorAfter);
     assert.deepEqual(await x.realRecipientCursor().readOriginalVerifiedCursor(),x.sourceCursorBefore);
     await assert.rejects(x.eligibility(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
     historyAllowed=false;await assert.rejects(recipientCommit(),isCode('CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED'));historyAllowed=true;
-    assert.equal((await recipientCommit()).state,'ORIGINAL_T3_CAS_COMMITTED');
+    const recipientStep=await hostStep('RECIPIENT');assert.equal(recipientStep.state,'ORIGINAL_REPLACEMENT_CURSOR_COMMITTED');
+    assert.equal(recipientStep.sourceCursorAdvanced,false);assert.equal(recipientStep.originalRecipientCursorAdvanced,true);
   }
   x.f.restart();
   assert.equal((await recipientCommit()).state,'ALREADY_COMMITTED');
@@ -1629,6 +1689,14 @@ test('K71 local successor selection uses original frontier, retirement and signe
   assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},preparedCounts);
   const head=await x.publishReplacement(),c=head.candidate;
   assert.deepEqual(prepared.session,c);assert.equal(x.signatureCount(),preparedCounts.signs);
+  const request=createT4OriginalReplacementOwnerHistoryRequest({session:c,requesterNodeRef:recipientNodeRef,ownerNodeRef:sourceNodeRef});
+  const readOptions={...x.historicalReadOptions(sourceNodeRef),request,requiredCryptoSuite:x.eligibilityOptions().requiredCryptoSuite,
+    authorizeOriginalOwnerHistoryRead:async()=>true,verifyOriginalRecipientApplied:async()=>false,
+    verifyOriginalHistoricalNodeSignature:x.historicalSignature(sourceNodeRef),authorizeOriginalHostWire:async()=>true};
+  const waiting=await readT4OriginalReplacementOwnerHistory(readOptions);
+  assert.equal(waiting.state,'WAITING_FOR_LOCAL_TERMINAL_PHASE');assert.equal(waiting.publication,null);assert.equal(waiting.retiredPhase,null);
+  await assert.rejects(readT4OriginalReplacementOwnerHistory({...readOptions,authorizeOriginalOwnerHistoryRead:async()=>false}),isCode('REPLACEMENT_HISTORY_OWNER_READ_DENIED'));
+  await assert.rejects(readT4OriginalReplacementOwnerHistory({...readOptions,request:{...request,ownerNodeRef:recipientNodeRef}}),isCode('REPLACEMENT_HISTORY_ORIGINAL_PORTS_REQUIRED'));
   const counts={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
   const first=await select(sourceNodeRef);assert.deepEqual(first.session,c);
   assert.equal(first.originalLocalPhase,null);assert.equal(first.originalLocalFrames[0].state,'PRESENT');

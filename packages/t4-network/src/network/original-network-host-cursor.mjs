@@ -534,17 +534,24 @@ export function createT4OriginalNetworkHostCursorPort({
         readOriginalObjectAndEventBeforeFurtherAction:true,
       });
     // Re-verify P2.2-D and the original T3 persisted Event chain.
+    let readback;
+    try{
     await guard(initial,'t1.getObject','postwrite-recovery');
     const recoveredAfter=await recover(args);
     if(historical&&!same(recoveredAfter,verified))fail('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{
       originalCode:'ORIGINAL_ACK_PROOF_CHANGED',originalWriteMayHaveCommitted:true,automaticRetryAllowed:false});
-    const readback=await readVerified(initial);
+    readback=await readVerified(initial);
     if(readback.revision!==revision||!same(readback.last,desired))
       fail('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{
         originalCode:'ORIGINAL_POSTWRITE_DIVERGED',
         originalWriteMayHaveCommitted:true,automaticRetryAllowed:false,
         readOriginalObjectAndEventBeforeFurtherAction:true,
       });
+    }catch(error){
+      if(!replacement||error?.code==='HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN')throw error;
+      fail('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalCode:error?.code??null,
+        originalWriteMayHaveCommitted:true,automaticRetryAllowed:false,readOriginalObjectAndEventBeforeFurtherAction:true});
+    }
     return frozen({
       schema:'IWXA_T4_ORIGINAL_HOST_ACK_CURSOR_COMMIT_V1',
       state:'ORIGINAL_T3_CAS_COMMITTED',checkpointRef,revision,
@@ -607,7 +614,7 @@ export function createT4OriginalNetworkHostCursorPort({
   }
   return frozen({
     schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_PORT_V1',
-    checkpointRef,
+    identity,checkpointRef,originalT3OnlyStore:true,
     inspectOriginalHostCursor,commitAcknowledgedCursor,commitHistoricallyConfirmedCursor,commitHistoricallyConfirmedReplacementCursor,
     inspectOriginalCommittedSourceAcknowledgements,readNextOriginalSourceEvent,
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkHostCursorPort({
@@ -1005,7 +1012,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
     await commitRecipientRecord(ctx,current,record);
     return true;
   }
-  async function commitRecipientRecord(ctx,current,record){
+  async function commitRecipientRecord(ctx,current,record,replacement=false){
     const desired={...record,chainHash:recordHash(record)},revision=current.revision+1;
     await guard(ctx,'t1.putObject','recipient-frontier-cas');
     try{
@@ -1024,7 +1031,12 @@ export function createT4OriginalNetworkRecipientCursorPort({
       fail('RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalCode:e?.code??null,
         originalWriteMayHaveCommitted:true,automaticRetryAllowed:false});
     }finally{memo=null;}
-    const confirmed=await readVerified(ctx);
+    let confirmed;
+    try{confirmed=await readVerified(ctx);}catch(error){
+      if(!replacement)throw error;
+      fail('RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalCode:error?.code??null,
+        originalWriteMayHaveCommitted:true,automaticRetryAllowed:false});
+    }
     if(confirmed.revision!==revision||!same(confirmed.last,desired))
       fail('RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalWriteMayHaveCommitted:true,
         automaticRetryAllowed:false});
@@ -1061,9 +1073,13 @@ export function createT4OriginalNetworkRecipientCursorPort({
     }
     if(!same(current.cursor,before))fail('RECIPIENT_CURSOR_ORIGINAL_CAUSAL_GAP');
     if(!same(witness,await recoverT4OriginalReplacementTerminalCursorEvidence(args)))fail('RECIPIENT_CURSOR_ORIGINAL_RESULT_CHANGED');
-    const confirmed=await commitRecipientRecord(ctx,current,record);
-    if(!same(witness,await recoverT4OriginalReplacementTerminalCursorEvidence(args)))
-      fail('RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalWriteMayHaveCommitted:true,automaticRetryAllowed:false});
+    const confirmed=await commitRecipientRecord(ctx,current,record,true);
+    try{
+      if(!same(witness,await recoverT4OriginalReplacementTerminalCursorEvidence(args)))fail('RECIPIENT_CURSOR_ORIGINAL_RESULT_CHANGED');
+    }catch(error){
+      fail('RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalCode:error?.code??null,
+        originalWriteMayHaveCommitted:true,automaticRetryAllowed:false});
+    }
     return result('ORIGINAL_T3_CAS_COMMITTED',confirmed.revision);
   }
   return frozen({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_CURSOR_PORT_V1',
