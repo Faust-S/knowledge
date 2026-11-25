@@ -18,6 +18,9 @@ on:
       grounded_advice:
         type: boolean
         default: false
+      cross_service:
+        type: boolean
+        default: false
       witness_sha:
         type: string
         default: 'a27b765e55dc5fea9fa15b2537b0f21ec1b2149a'
@@ -234,6 +237,7 @@ jobs:
         env:
           D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
           D05_T3_MODEL_PROFILE: ${{ inputs.profile_id || 'balanced' }}
+          D05_T3_MODEL_CROSS_SERVICE: ${{ inputs.cross_service && '1' || '0' }}
           D05_T3_MODEL_GROUNDED_ADVICE: ${{ inputs.grounded_advice && '1' || '0' }}
           D05_T3_MODEL_EVALUATION_SOURCE: ${{ github.workspace }}/answer-diagnostics/tests/assistant-answer-diagnostic.mjs
           D05_T3_REQUIRE_HARDWARE_GPU: '1'
@@ -249,6 +253,8 @@ jobs:
           grep -E '^D05_T3_MODEL_ROLE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_PRICE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_ADVICE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
+          grep -E '^D05_T3_MODEL_CROSS_SERVICE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
+          grep -Fx 'D05_T3_MODEL_CROSS_SERVICE_PASS_NOT_PRODUCT_ACCEPTED' "$log" || true
           grep -E '^D05_T3_MODEL_(CACHE_INSPECTION|CANCEL_DIAG|CANCEL_PASS) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -Fx 'D05_T3_MODEL_INSTALL_CONFIRMATION_PASS' "$log" || true
           grep -E '^D05_T3_MODEL_GPU_PROBE \{"adapter":"[a-z-]+","supported":(true|false),"compute":(true|false),"reason":"[A-Z_]+"\}$' "$log" || true
@@ -369,6 +375,44 @@ jobs:
           assert.equal(keys.size,0);
           for(const legacy of ["QUALITY","ROLE_EVIDENCE","PRICE_EVIDENCE"])assert.equal(receipts("D05_T3_MODEL_"+legacy+" ").length,0);
           console.log("D05_T3_GROUNDED_ADVICE_OBSERVATIONS_PASS_NOT_PRODUCT_ACCEPTED");
+          JS
+      - name: Require actual offline cross-service continuity and explicit abstention
+        if: ${{ inputs.cross_service }}
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync} from "node:fs";
+          const lines=readFileSync(process.env.RUNNER_TEMP+"/d05-t3-protected-model.log","utf8").split(/\r?\n/);
+          const receipts=prefix=>lines.filter(line=>line.startsWith(prefix)).map(line=>JSON.parse(line.slice(prefix.length)));
+          const model=receipts("D05_T3_REAL_MODEL_PASS ");
+          assert.equal(model.length,1);
+          assert.equal(model[0].groundedAdvice,true);
+          assert.equal(model[0].actualInference,true);
+          assert.equal(model[0].serverStopped,true);
+          assert.equal(model[0].browserRestarted,true);
+          assert.equal(model[0].crossServiceScenarios,3);
+          assert.equal(model[0].productAccepted,false);
+          const expected=new Map([["materials-shortage",false],["materials-unrelated",true],["route-capacity",false]]);
+          const rows=receipts("D05_T3_MODEL_CROSS_SERVICE_EVIDENCE ");
+          assert.equal(rows.length,expected.size);
+          for(const row of rows){
+            assert.ok(expected.has(row.scenario));
+            const abstain=expected.get(row.scenario);
+            expected.delete(row.scenario);
+            assert.equal(row.expectAbstention,abstain);
+            assert.equal(row.abstained,abstain);
+            assert.equal(row.validChoice,!abstain);
+            for(const k of ["exactSource","expectedChoice","busyObserved","sameWorker","sourceUnchanged","controlsUnchanged","workspaceUnchanged","offline"])
+              assert.equal(row[k],true);
+            assert.ok(Number.isSafeInteger(row.milliseconds)&&row.milliseconds>=0);
+            assert.equal(row.semanticAcceptance,false);
+          }
+          assert.equal(expected.size,0);
+          assert.equal(lines.filter(line=>line==="D05_T3_MODEL_CROSS_SERVICE_PASS_NOT_PRODUCT_ACCEPTED").length,1);
+          console.log("D05_T3_CROSS_SERVICE_GATE_PASS_NOT_PRODUCT_ACCEPTED");
           JS
       - name: Destroy temporary product, reports and source-bound input bytes
         if: always()

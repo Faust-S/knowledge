@@ -1,0 +1,41 @@
+{
+  "schema": "IWXA_D05_T3_GROUNDED_ADVICE_LINUX_RECEIPT/1",
+  "runId": 45639203256,
+  "linuxJobId": 139292825816,
+  "hardwareJobId": 139294875998,
+  "siteCommit": "91ea34a35e574dbc60c18d130140b8d0056f67e1",
+  "subjectCommit": "447df292f2bbe7cc87ac17192853b0c1751895c6",
+  "assistantCommit": "ea8ee8ced6bd649274163a3b26a5b3c476409cca",
+  "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+  "witnessCommit": "8fd3441145d549c276aca316ad7ed80a85eb8888",
+  "skillsVersion": "1.5.0",
+  "linux": "PASS",
+  "commonAssistantTests": {
+    "passed": 80,
+    "total": 80
+  },
+  "subjectTests": {
+    "passed": 1565,
+    "total": 1565
+  },
+  "noModel": {
+    "routes": 22,
+    "forms": 20
+  },
+  "coldSite": {
+    "routes": 40,
+    "services": 11,
+    "localAssetErrors": 0
+  },
+  "retained": {
+    "sourceTree": "2b588cc36dd6f4f3272c3d138cee962cf2a29773",
+    "inputFiles": 92,
+    "distFiles": 223,
+    "exactBytes": true,
+    "remotePublication": false
+  },
+  "fullRelease": false,
+  "protectedProduction": "NOT_RUN_ON_THIS_REVISION",
+  "hardware": "QUEUED_AT_OBSERVATION",
+  "productAccepted": false
+}
