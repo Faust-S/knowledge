@@ -433,7 +433,6 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
         (object) => `${object.workspace_id}/${object.object_id}`,
       );
     const localWorkspaceIds = localWorkspaces.map((workspace) => workspace.workspace_id);
-    dispatch({ type: "validate-plan", localWorkspaceIds });
     const validation = validateImportPlan(
       state.plan,
       state.handle.allowed_modes,
@@ -441,14 +440,19 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       previewObjectKeys,
       localWorkspaceIds,
     );
-    if (validation.length > 0 || validateImportScope(state.handle.preview, state.plan).length > 0) return;
-    if (!canCommitToken(state.handle.preview_token)) return;
+    if (validation.length > 0) {
+      dispatch({ type: "validate-plan", localWorkspaceIds });
+      return;
+    }
+    if (validateImportScope(state.handle.preview, state.plan).length > 0 ||
+        !canCommitToken(state.handle.preview_token)) return;
     commitGuardRef.current = true;
     // Expiry is now the original Kernel's decision. Stop the UI timer
     // before invoking commit; restart it only after an explicit lock refusal.
     if (expiryTimerRef.current!==null) clearTimeout(expiryTimerRef.current);
     expiryTimerRef.current=null;
     const generation = operationGenerationRef.current;
+    dispatch({ type: "validate-plan", localWorkspaceIds });
     dispatch({ type: "commit-started" });
     try {
       const request={preview_token:state.handle.preview_token,

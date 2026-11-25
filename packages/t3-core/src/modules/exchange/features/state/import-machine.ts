@@ -401,6 +401,7 @@ export function toKernelImportPlan(plan: ImportPlanForm): ImportPlan {
 export function importReducer(state: ImportState, event: ImportEvent): ImportState {
   switch (event.type) {
     case "preview-started":
+      if (state.status === "committing") return state;
       return { ...INITIAL_IMPORT_STATE, status: "previewing" };
     case "preview-succeeded": {
       if (state.status !== "previewing") return state;

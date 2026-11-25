@@ -34,3 +34,6 @@ test('unclassified commit outcome still cannot be cancelled or replayed',()=>{
   assert.equal(importReducer(unknown,{type:'cancel',reason:'explicit'}),unknown);
   assert.equal(importReducer(unknown,{type:'commit-started'}),unknown);
 });
+test('another file event cannot replace an admitted original commit',()=>{
+  assert.equal(importReducer(committing,{type:'preview-started'}),committing);
+});
