@@ -159,6 +159,7 @@ export function countT4OriginalLocalSnapshotTrace(token,{workspaceId,originalWri
 export async function readT4OriginalCommitEventWindow({
   workspaceId,originalWriteOwnerRef,cursor=null,maxEvents=128,pageSize=256,
   authorizeOriginalRead,readOriginalCommitPage,withOriginalHistoryReadBoundary,
+  originalTraceQuery=null,
 }={}){
   if(!id(workspaceId)||!id(originalWriteOwnerRef))fail('ORIGINAL_T3_OWNER_SCOPE_REQUIRED');
   if(!Number.isSafeInteger(maxEvents)||maxEvents<1||maxEvents>1024||
@@ -166,6 +167,14 @@ export async function readT4OriginalCommitEventWindow({
     fail('ORIGINAL_EVENT_WINDOW_LIMIT_INVALID');
   if(typeof authorizeOriginalRead!=='function'||typeof readOriginalCommitPage!=='function'||
     typeof withOriginalHistoryReadBoundary!=='function')fail('ORIGINAL_COMMIT_EVENT_PORTS_REQUIRED');
+  // For a captured mutation, verify uniqueness of its original trace across
+  // the whole original history without retaining unrelated Event payloads.
+  // Only these three original protocol trace fields may be queried.
+  const trace=originalTraceQuery===null?null:immutable(structuredClone(originalTraceQuery));
+  if(trace!==null&&(!keys(trace,['kind','value'])||
+    !['capture_ref','idempotency_key','object_delete_intent'].includes(trace.kind)||
+    typeof trace.value!=='string'||trace.value.length<1||trace.value.length>256||maxEvents!==1))
+    fail('ORIGINAL_COMMIT_EVENT_TRACE_QUERY_INVALID');
   const before=cursor===null?null:immutable(structuredClone(cursor));
   if(before!==null&&!exactCursor(before,workspaceId,originalWriteOwnerRef))
     fail('ORIGINAL_EVENT_CURSOR_INVALID');
@@ -185,6 +194,7 @@ export async function readT4OriginalCommitEventWindow({
     const seen=new Set(),available=[];
     const start=before?.seenEventCount??0,previousDigest=before?.sourcePrefixDigest??emptyPrefix;
     let after=null,count=0,eventsRead=0,anchored=before===null,hasMore=false,modern=false;
+    let traceMatches=0,nextOriginalEvent=null;
     for(;;){
       await checkRead();
       const page=structuredClone(await readOriginalCommitPage(immutable({
@@ -207,6 +217,15 @@ export async function readT4OriginalCommitEventWindow({
         const e=normalizeEvent(entry.event,workspaceId);
         if(seen.has(e.eventId))fail('ORIGINAL_T3_EVENT_DUPLICATE');
         seen.add(e.eventId);
+        if(trace!==null){
+          const value=trace.kind==='capture_ref'?entry.event.payload?.iwxa_t4_capture_ref:
+            trace.kind==='object_delete_intent'?entry.event.payload?.iwxa_t4_object_delete_intent:
+              entry.event.idempotency_key;
+          if(value===trace.value){
+            if(traceMatches>=Number.MAX_SAFE_INTEGER)fail('ORIGINAL_COMMIT_EVENT_COUNT_OVERFLOW');
+            traceMatches++;
+          }
+        }
         return e;
       });
       const last=rows.at(-1)?.eventId??after;
@@ -227,9 +246,15 @@ export async function readT4OriginalCommitEventWindow({
             if(prefix()!==previousDigest)fail('ORIGINAL_T3_EVENT_HISTORY_DIVERGED');
             anchored=true;
           }
-        }else available.push(e);
+        }else{
+          available.push(e);
+          if(trace!==null)nextOriginalEvent=structuredClone(page.entries[i].event);
+        }
       }
-      if(available.length===maxEvents){hasMore=hasMore||page.has_more;break;}
+      if(available.length===maxEvents){
+        hasMore=hasMore||page.has_more;
+        if(trace===null)break;
+      }
       if(!page.has_more)break;
       after=last;
     }
@@ -249,7 +274,9 @@ export async function readT4OriginalCommitEventWindow({
     });
     await checkRead();
     completed=immutable({window:immutable({...message,windowDigest:hash(message)}),
-      nextCursor,originalEventsRead:eventsRead});
+      nextCursor,originalEventsRead:eventsRead,
+      ...(trace===null?{}:{originalTraceEvidence:immutable({kind:trace.kind,value:trace.value,
+        matchCount:traceMatches,nextOriginalEvent,originalHistoryFullyRead:true})})});
     return completed;
   };
   try{
@@ -267,13 +294,15 @@ export async function readT4OriginalEventWindow({
   workspaceId,originalWriteOwnerRef,cursor=null,maxEvents=128,
   authorizeOriginalRead,readOriginalEvents,readOriginalWindow=null,originalLocalEventSnapshot=null,
   readOriginalCommitPage=null,withOriginalHistoryReadBoundary=null,pageSize=256,
+  originalTraceQuery=null,
 }={}) {
   if(readOriginalCommitPage!==null||withOriginalHistoryReadBoundary!==null){
     if(readOriginalEvents!==undefined||readOriginalWindow!==null||originalLocalEventSnapshot!==null)
       fail('ORIGINAL_COMMIT_EVENT_PORTS_REQUIRED');
     return readT4OriginalCommitEventWindow({workspaceId,originalWriteOwnerRef,cursor,maxEvents,pageSize,
-      authorizeOriginalRead,readOriginalCommitPage,withOriginalHistoryReadBoundary});
+      authorizeOriginalRead,readOriginalCommitPage,withOriginalHistoryReadBoundary,originalTraceQuery});
   }
+  if(originalTraceQuery!==null)fail('ORIGINAL_COMMIT_EVENT_PORTS_REQUIRED');
   if(!id(workspaceId)||!id(originalWriteOwnerRef))fail('ORIGINAL_T3_OWNER_SCOPE_REQUIRED');
   if(!Number.isSafeInteger(maxEvents)||maxEvents<1||maxEvents>1024)
     fail('ORIGINAL_EVENT_WINDOW_LIMIT_INVALID');

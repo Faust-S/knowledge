@@ -179,7 +179,10 @@ function ensureRights(params,step){
     selectedNetworkIsNotOriginalAuthority:true});
 }
 async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
-  const required=['readOriginalIntent','readOriginalOutbox','readOriginalEvents',
+  const paged=params.readOriginalCommitPage!==undefined||params.withOriginalHistoryReadBoundary!==undefined;
+  if(paged&&(typeof params.readOriginalCommitPage!=='function'||typeof params.withOriginalHistoryReadBoundary!=='function'))
+    fail('OUTBOX_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
+  const required=['readOriginalIntent','readOriginalOutbox',...(!paged?['readOriginalEvents']:[]),
     'authorizeOriginalRead',...(requireNetworkPublish?['authorizeNetworkPublish']:[])];
   if(required.some(k=>typeof params[k]!=='function'))
     fail('OUTBOX_ORIGINAL_HOST_PORTS_REQUIRED');
@@ -202,14 +205,27 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
   // Reuse a single verified source read only for local frontier recovery.
   // Publication must independently read the current original history.
   const snapshot=requireNetworkPublish?null:params.originalLocalEventSnapshot??null;
-  const originals=snapshot===null?await params.readOriginalEvents(historyRight):null;
-  if(snapshot===null&&(!Array.isArray(originals)||originals.length>100000))
+  const bounded=paged&&snapshot===null;
+  const originals=snapshot===null&&!bounded?await params.readOriginalEvents(historyRight):null;
+  if(snapshot===null&&!bounded&&(!Array.isArray(originals)||originals.length>100000))
     fail('OUTBOX_ORIGINAL_EVENT_HISTORY_INVALID');
-  const {window,nextCursor}=await readT4OriginalEventWindow({
+  const {kind}=s;
+  const expectedDelete=isT4NativeDeleteKind(kind)?originalT4DeletionCapturedEvent(intent):null;
+  const trace=kind==='OBJECT_PUT'?{kind:'capture_ref',value:s.captureRef}:
+    kind==='OBJECT_DELETE'?{kind:'object_delete_intent',value:expectedDelete.payload.iwxa_t4_object_delete_intent}:
+      {kind:'idempotency_key',value:expectedDelete?.idempotency_key??intent.idempotencyKey};
+  const {window,nextCursor,originalTraceEvidence}=await readT4OriginalEventWindow({
     workspaceId:s.workspaceId,originalWriteOwnerRef:s.originalWriteOwnerRef,
     cursor:outbox.sourceCursorBefore,maxEvents:1,
-    authorizeOriginalRead:ctx=>params.authorizeOriginalRead(ctx),
-    readOriginalEvents:async()=>originals,originalLocalEventSnapshot:snapshot,
+    authorizeOriginalRead:async ctx=>{
+      mode(params.getMode);
+      const allowed=await params.authorizeOriginalRead(ctx);
+      mode(params.getMode);return allowed;
+    },
+    ...(bounded?{readOriginalCommitPage:params.readOriginalCommitPage,
+      withOriginalHistoryReadBoundary:params.withOriginalHistoryReadBoundary,
+      pageSize:params.originalCommitPageSize??256,originalTraceQuery:trace}:
+      {readOriginalEvents:async()=>originals,originalLocalEventSnapshot:snapshot}),
   });
   // The original Event stream may have advanced while this delta was offline.
   // hasMore may now differ from the captured immutable window; compare the
@@ -221,9 +237,13 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
     window.eventRefs[0].eventDigest!==
       verified.prepared.delta.sourceEventDigest)
     fail('OUTBOX_ORIGINAL_EVENT_HISTORY_DIVERGED');
-  const event=snapshot===null?originals.find(row=>row?.event_id===outbox.sourceEventId):
-    readT4OriginalLocalSnapshotEvent(snapshot,{...s,eventId:outbox.sourceEventId});
-  const {kind}=s;
+  if(bounded&&(originalTraceEvidence?.originalHistoryFullyRead!==true||
+    originalTraceEvidence.kind!==trace.kind||originalTraceEvidence.value!==trace.value||
+    originalTraceEvidence.matchCount!==1||originalTraceEvidence.nextOriginalEvent?.event_id!==outbox.sourceEventId))
+    fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
+  const event=bounded?originalTraceEvidence.nextOriginalEvent:
+    snapshot===null?originals.find(row=>row?.event_id===outbox.sourceEventId):
+      readT4OriginalLocalSnapshotEvent(snapshot,{...s,eventId:outbox.sourceEventId});
   if(!event||event.workspace_id!==s.workspaceId||
     event.event_type!==verified.prepared.delta.originalEventType)
     fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
@@ -239,11 +259,12 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
       event.revision!==verified.prepared.delta.sourceRevision)
       fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
   }else if(isT4NativeDeleteKind(kind)){
-    const expected=originalT4DeletionCapturedEvent(intent);
+    const expected=expectedDelete;
     const traceMatch=row=>kind==='OBJECT_DELETE'?
       row?.payload?.iwxa_t4_object_delete_intent===expected.payload.iwxa_t4_object_delete_intent:
       row?.idempotency_key===expected.idempotency_key;
-    const matches=snapshot===null?originals.filter(traceMatch).length:
+    const matches=bounded?originalTraceEvidence.matchCount:
+      snapshot===null?originals.filter(traceMatch).length:
       countT4OriginalLocalSnapshotTrace(snapshot,{...s,kind:kind==='OBJECT_DELETE'?'object_delete_intent':'idempotency_key',
         value:kind==='OBJECT_DELETE'?expected.payload.iwxa_t4_object_delete_intent:expected.idempotency_key});
     if(!traceMatch(event)||matches!==1||

@@ -149,3 +149,66 @@ test('new reader has no 100000-Event lifetime cutoff',async()=>{
   assert.equal(result.nextCursor.seenEventCount,count);
   assert.equal(result.originalEventsRead,count);assert.ok(reads>97);
 });
+
+test('K112 reads the exact next Event and counts a trace across the entire original history',async()=>{
+  const rows=Array.from({length:19},(_,i)=>event(i));
+  rows[1].payload.iwxa_t4_capture_ref='capture:one';
+  rows[7].payload.iwxa_t4_capture_ref='capture:one';
+  rows[17].payload.iwxa_t4_capture_ref='capture:one';
+  const cursor=(await legacy(rows,null,7)).nextCursor;
+  const expected=await legacy(rows,cursor,1);
+  for(const pageSize of [1,2,7,32]){
+    const {options}=setup(rows);
+    const result=await readT4OriginalEventWindow({...options,cursor,maxEvents:1,pageSize,
+      originalTraceQuery:{kind:'capture_ref',value:'capture:one'}});
+    assert.deepEqual(result.window,expected.window);
+    assert.deepEqual(result.nextCursor,expected.nextCursor);
+    assert.equal(result.originalEventsRead,rows.length);
+    assert.deepEqual(result.originalTraceEvidence,{kind:'capture_ref',value:'capture:one',
+      matchCount:3,nextOriginalEvent:rows[7],originalHistoryFullyRead:true});
+    assert.notEqual(result.originalTraceEvidence.nextOriginalEvent,rows[7]);
+  }
+});
+test('K112 trace absence, last Event and empty tail preserve the exact V1 window',async()=>{
+  const rows=[event(0),event(1),event(2)];
+  rows[2].idempotency_key='key:asset';
+  for(const n of [2,3]){
+    const cursor=(await legacy(rows,null,n)).nextCursor;
+    const expected=await legacy(rows,cursor,1);
+    for(const value of ['key:asset','missing']){
+      const result=await readT4OriginalCommitEventWindow({...setup(rows).options,cursor,maxEvents:1,pageSize:1,
+        originalTraceQuery:{kind:'idempotency_key',value}});
+      assert.deepEqual(result.window,expected.window);
+      assert.deepEqual(result.nextCursor,expected.nextCursor);
+      assert.equal(result.originalTraceEvidence.matchCount,value==='key:asset'?1:0);
+      assert.deepEqual(result.originalTraceEvidence.nextOriginalEvent,n===2?rows[2]:null);
+    }
+  }
+});
+test('K112 validates subsequent pages after the next Event and cannot hide a repeated trace',async()=>{
+  const rows=[event(0),event(1),event(2),event(3)];
+  rows[1].payload.iwxa_t4_object_delete_intent='sha256:'+'a'.repeat(64);
+  rows[3].payload.iwxa_t4_object_delete_intent=rows[1].payload.iwxa_t4_object_delete_intent;
+  const cursor=(await legacy(rows,null,1)).nextCursor;
+  const query={kind:'object_delete_intent',value:rows[1].payload.iwxa_t4_object_delete_intent};
+  const actual=await readT4OriginalCommitEventWindow({...setup(rows).options,cursor,pageSize:1,maxEvents:1,originalTraceQuery:query});
+  assert.equal(actual.originalTraceEvidence.matchCount,2);
+  rows[3].workspace_id='foreign';
+  await assert.rejects(readT4OriginalCommitEventWindow({...setup(rows).options,cursor,pageSize:1,maxEvents:1,originalTraceQuery:query}),
+    {code:'ORIGINAL_T3_EVENT_INVALID'});
+});
+test('K112 rejects unbounded or arbitrary trace queries and rechecks original permission on later pages',async()=>{
+  const rows=[event(0),event(1),event(2),event(3)];
+  const options=setup(rows).options;
+  for(const query of [{kind:'payload',value:'x'},{kind:'capture_ref',value:''},{kind:'capture_ref',value:'x'.repeat(257)},
+    {kind:'capture_ref',value:'x',extra:true}]){
+    await assert.rejects(readT4OriginalCommitEventWindow({...options,maxEvents:1,originalTraceQuery:query}),
+      {code:'ORIGINAL_COMMIT_EVENT_TRACE_QUERY_INVALID'});
+  }
+  await assert.rejects(readT4OriginalCommitEventWindow({...options,maxEvents:2,originalTraceQuery:{kind:'capture_ref',value:'x'}}),
+    {code:'ORIGINAL_COMMIT_EVENT_TRACE_QUERY_INVALID'});
+  let checks=0;
+  await assert.rejects(readT4OriginalCommitEventWindow({...options,pageSize:1,maxEvents:1,
+    authorizeOriginalRead:async()=>++checks<7,originalTraceQuery:{kind:'capture_ref',value:'x'}}),
+    {code:'ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED'});
+});

@@ -966,3 +966,35 @@ test('K110 later source history cannot fabricate missing or tampered staged Obje
    assert.equal(f.writes.length,2);assert.equal(f.read().revision,3);
  }
 });
+
+test('K112 historical native capture uses bounded original history, never the legacy full-array port',async()=>{
+ const x=await offlineNativeFixture();
+ let held=false,pages=0;
+ const ports={...x.ports,captureRef:'capture:1',subjectId:objectId,originalCommitPageSize:1,
+   readOriginalEvents:async()=>{throw Error('legacy history must not be read');},
+   withOriginalHistoryReadBoundary:async(_proof,run)=>{
+     assert.equal(held,false);held=true;try{return await run();}finally{held=false;}
+   },
+   readOriginalCommitPage:async({afterEventId,limit})=>{
+     assert.equal(held,true);pages++;
+     const start=afterEventId===null?0:x.f.events.findIndex(e=>e.event_id===afterEventId)+1;
+     const entries=x.f.events.slice(start,start+limit).map(event=>({event,legacy_history:false}));
+     return {entries,next_after_event_id:entries.at(-1)?.event.event_id??afterEventId,
+       has_more:start+entries.length<x.f.events.length,order:'LOCAL_TRANSACTION_COMMIT_ORDER',
+       legacy_history_causal_proven:false};
+   }};
+ const saved=await readT4OriginalHostCapturedObject(ports);
+ assert.equal(saved.prepared.sha256,x.captured[0].prepared.sha256);
+ assert.equal(saved.laterSourceEventsExist,true);
+ assert.equal(pages,x.f.events.length);assert.equal(held,false);
+ const first=structuredClone(x.f.events[1]);
+ x.f.events.push({...first,event_id:'event:duplicate-trace',occurred_at:'2026-11-22T18:40:09Z'});
+ await assert.rejects(readT4OriginalHostCapturedObject(ports),code('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED'));
+ assert.equal(x.f.writes.length,3);
+});
+test('K112 incomplete bounded proof ports fail closed, never silently fall back',async()=>{
+ const x=await offlineNativeFixture();
+ await assert.rejects(readT4OriginalHostCapturedObject({...x.ports,captureRef:'capture:1',
+   subjectId:objectId,readOriginalCommitPage:async()=>{throw Error('not called');}}),
+   code('OUTBOX_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED'));
+});
