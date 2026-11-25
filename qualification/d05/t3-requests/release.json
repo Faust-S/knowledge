@@ -1,10 +1,10 @@
 {
   "schema": "IWXA_D05_T3_GROUPED_QUALIFICATION_REQUEST/1",
-  "siteCommit": "823ded530e34bc5244d055f4d50a495dced931e3",
+  "siteCommit": "12ec1d040b8cdf1f7630ea4faac893cf3057cc72",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
-  "assistantCommit": "1c6d077c45d0ccfa9f07f6718e475c1f2ee553fd",
+  "assistantCommit": "352cd6fd1cd40d8bf8b5340ba18a00a55bcdf648",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
-  "witnessCommit": "d469f14e164d3d4d9ac7ec8f9b7faafacd4b25b0",
+  "witnessCommit": "7563f85505e04528f0654355b26e82dad920e4b2",
   "evaluatorCommit": "d506577539a4ca530a02f548fa2b225221a6af11",
   "expectedRetainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
   "skillsVersion": "1.6.0",
@@ -28,12 +28,15 @@
     45639203256,
     45655978598,
     45656585105,
-    45662818819
+    45662818819,
+    45666678817
   ],
   "scopeExpansionAllowed": false,
-  "reason": "Complete frozen 1.6.0 release. The previous product tree passed subject regression, actual offline protected production, physical Exchange, Apache, SPA context and all public offline routes. The browser-only test revision closes the assistant disclosure before changing native selected details, hit-tests the actual target before pointer clicks and preserves every original result assertion. Product sources and acceptance gates are unchanged. Run the existing grouped qualification once; no separate diagnostic workflow.",
+  "reason": "Frozen 1.6.0 release blocker only. Previous exact Linux functional qualification succeeded. Real light-profile hardware returned exact source in all seven scenarios but selected the correct advice only once and did not confirm offline worker termination. Restore meaningful choice IDs with exact-source attachment, and make witness poll both Worker exit observations within the existing 10s bound. Same eleven services, fifteen result contexts, forty-six choices, seven hardware scenarios and all original qualification gates. Hardware runs first; only if it passes is the single full Linux candidate qualification and private publication executed. Explicit manual dispatch only. No scope expansion.",
   "productAccepted": false,
   "remotePublicationVerified": false,
   "formatOnlyCorrection": false,
-  "browserWitnessOnlyCorrection": true
+  "browserWitnessOnlyCorrection": false,
+  "hardwareFirst": true,
+  "manualDispatchOnly": true
 }

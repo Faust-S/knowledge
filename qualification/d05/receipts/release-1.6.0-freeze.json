@@ -1,12 +1,12 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FROZEN_LINUX_QUALIFIED_AWAITING_HARDWARE_AND_PRIVATE_PUBLICATION",
+  "status": "FROZEN_BLOCKER_CORRECTED_NOT_DISPATCHED",
   "scope": "1.6.0",
-  "siteCommit": "823ded530e34bc5244d055f4d50a495dced931e3",
+  "siteCommit": "12ec1d040b8cdf1f7630ea4faac893cf3057cc72",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
-  "assistantCommit": "1c6d077c45d0ccfa9f07f6718e475c1f2ee553fd",
+  "assistantCommit": "352cd6fd1cd40d8bf8b5340ba18a00a55bcdf648",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
-  "witnessCommit": "d469f14e164d3d4d9ac7ec8f9b7faafacd4b25b0",
+  "witnessCommit": "7563f85505e04528f0654355b26e82dad920e4b2",
   "evaluatorCommit": "d506577539a4ca530a02f548fa2b225221a6af11",
   "retainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
   "skillBlob": "46f402f30831f992827f24832f51975f4dc5d76e",
@@ -30,20 +30,45 @@
   },
   "scopeExpansionAllowed": false,
   "productAccepted": false,
-  "qualification": "LINUX_FUNCTIONAL_PASS",
-  "publication": "BLOCKED_HTTP_403",
+  "qualification": "NOT_RUN_FOR_CORRECTED_ASSISTANT",
+  "publication": "NOT_RUN_FOR_CORRECTED_ASSISTANT",
   "notes": "Only release blockers may change this candidate. Keep all existing source, protected production, offline, hardware and publication gates. Codex may assemble the hosting archive only after stable qualification, not perform testing or preparation.",
   "originalFrozenSiteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
   "originalFrozenWitnessCommit": "3af00278ef77eb38084df4e9c7854528380dc615",
   "formatOnlyCorrection": false,
   "priorSourceRun": 45655978598,
-  "hardware": "QUEUED",
-  "browserWitnessOnlyCorrection": true,
-  "linuxRun": 45666678817,
-  "linuxReceipt": "qualification/d05/receipts/45666678817-linux.json",
-  "retainedTree": "645d111be497eb5355f9f2fdb6fc6303562bec1b",
-  "retainedFiles": 92,
-  "distFiles": 224,
-  "publicationError": "D05_T3_RETAINED_PREFLIGHT_BLOB_WRITE_HTTP_403",
-  "remotePublicationVerified": false
+  "hardware": "NOT_RUN_FOR_CORRECTED_ASSISTANT",
+  "browserWitnessOnlyCorrection": false,
+  "remotePublicationVerified": false,
+  "previousQualification": {
+    "siteCommit": "823ded530e34bc5244d055f4d50a495dced931e3",
+    "assistantCommit": "1c6d077c45d0ccfa9f07f6718e475c1f2ee553fd",
+    "witnessCommit": "d469f14e164d3d4d9ac7ec8f9b7faafacd4b25b0",
+    "linuxRun": 45666678817,
+    "linuxReceipt": "qualification/d05/receipts/45666678817-linux.json",
+    "retainedTree": "645d111be497eb5355f9f2fdb6fc6303562bec1b",
+    "retainedFiles": 92,
+    "distFiles": 224,
+    "publicationError": "D05_T3_RETAINED_PREFLIGHT_BLOB_WRITE_HTTP_403",
+    "hardwareReceipt": "qualification/d05/receipts/45666678817-hardware.json",
+    "hardwareCorrectChoice": {
+      "passed": 1,
+      "total": 7
+    },
+    "hardwareExactSource": {
+      "passed": 7,
+      "total": 7
+    }
+  },
+  "localControlledEvidence": {
+    "commonAssistantTestsPassed": 104,
+    "commonAssistantTestsTotal": 105,
+    "environmentUnavailableTest": "URL",
+    "adviceMappings": 46,
+    "abstentions": 15,
+    "reorderedMappings": 46,
+    "workerExitCases": 9
+  },
+  "manualDispatchOnly": true,
+  "hardwareFirst": true
 }

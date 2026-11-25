@@ -1,12 +1,6 @@
 name: D05 T3 grouped release qualification
 on:
   workflow_dispatch:
-    inputs:
-      publication_recovery:
-        description: Restore the already qualified 1.6.0 tree without repeating functional or hardware qualification
-        type: boolean
-        required: false
-        default: true
 
 permissions:
   contents: read
@@ -15,12 +9,29 @@ concurrency:
   group: d05-t3-release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  hardware:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/test/2026-11-24-d05-t3-integration' }}
+    uses: ./.github/workflows/d05-t3-real-model.yml
+    with:
+      site_sha: '12ec1d040b8cdf1f7630ea4faac893cf3057cc72'
+      domain_sha: '547148d8cd74838e0dd384c9da2f196e3595bf9d'
+      witness_sha: '7563f85505e04528f0654355b26e82dad920e4b2'
+      evaluator_sha: 'd506577539a4ca530a02f548fa2b225221a6af11'
+      assistant_sha: '352cd6fd1cd40d8bf8b5340ba18a00a55bcdf648'
+      profile_id: 'light'
+      grounded_advice: true
+      cross_service: true
+      release_candidate: true
+    secrets:
+      DOMEN: ${{ secrets.DOMEN }}
   linux:
+    needs: hardware
+    if: ${{ needs.hardware.result == 'success' }}
     uses: ./.github/workflows/d05-t3-dynamic.yml
     with:
-      site_sha: '823ded530e34bc5244d055f4d50a495dced931e3'
+      site_sha: '12ec1d040b8cdf1f7630ea4faac893cf3057cc72'
       domain_sha: '547148d8cd74838e0dd384c9da2f196e3595bf9d'
-      assistant_sha: '1c6d077c45d0ccfa9f07f6718e475c1f2ee553fd'
+      assistant_sha: '352cd6fd1cd40d8bf8b5340ba18a00a55bcdf648'
       retained_base_sha: 'ba595ae901ea5af9b066a5e5f7cab88c15fdee8e'
       skills_version: '1.6.0'
       result_count: 15
@@ -28,23 +39,6 @@ jobs:
       detail_routes: 4
       grounded_advice: true
       full_release: true
-      # This pinned release has completed its exact Linux qualification.
-      publication_recovery: ${{ github.event_name == 'push' || inputs.publication_recovery }}
-    secrets:
-      DOMEN: ${{ secrets.DOMEN }}
-  hardware:
-    needs: linux
-    if: ${{ !cancelled() && needs.linux.outputs.functional_ready == 'true' && needs.linux.outputs.reused_functional != 'true' }}
-    uses: ./.github/workflows/d05-t3-real-model.yml
-    with:
-      site_sha: '823ded530e34bc5244d055f4d50a495dced931e3'
-      domain_sha: '547148d8cd74838e0dd384c9da2f196e3595bf9d'
-      witness_sha: 'd469f14e164d3d4d9ac7ec8f9b7faafacd4b25b0'
-      evaluator_sha: 'd506577539a4ca530a02f548fa2b225221a6af11'
-      assistant_sha: '1c6d077c45d0ccfa9f07f6718e475c1f2ee553fd'
-      profile_id: 'light'
-      grounded_advice: true
-      cross_service: true
-      release_candidate: true
+      publication_recovery: false
     secrets:
       DOMEN: ${{ secrets.DOMEN }}
