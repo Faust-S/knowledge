@@ -1,6 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 import {readT4OriginalCommitHistoryForCompatibility} from './original-event-window.mjs';
+import {bindT4OriginalHistoryBoundary} from './original-history-boundary.mjs';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID as technicalSchemaId} from './original-network-technical-schema.mjs';
 import {createT4OriginalNetworkBaselineAdmissionPort} from './original-network-baseline-admission.mjs';
 import {createT4OriginalHostCaptureLedgerPort} from './original-host-capture-ledger.mjs';
@@ -428,15 +429,23 @@ export function createT4OriginalNativeHostNetworkOwner({
       Promise.resolve({state:'WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE',selection});
     if(role==='SOURCE'){
       const ledger=createT4OriginalHostCaptureLedgerPort(tech);
-      const historyPorts=enableOriginalCommitOrder?{
+      const historyBoundary=enableOriginalCommitOrder?bindT4OriginalHistoryBoundary({
+        workspaceId:sourceWorkspaceId,originalWriteOwnerRef,getMode,
+        withOriginalSubjectMutation:callback('withOriginalSubjectMutation'),
         withOriginalHistoryReadBoundary:callback('withOriginalHistoryReadBoundary'),
+      }):null;
+      const historyPorts=enableOriginalCommitOrder?{
+        withOriginalHistoryReadBoundary:historyBoundary.withOriginalHistoryReadBoundary,
         readOriginalCommitPage:async proof=>{
+          historyBoundary.assertOriginalHistoryReadScope(proof);
           await requireBinding(state,'source-commit-page');
+          historyBoundary.assertOriginalHistoryReadScope(proof);
           if(proof?.workspaceId!==sourceWorkspaceId||proof.originalWriteOwnerRef!==originalWriteOwnerRef||
             proof.commitOperation!=='t1.listEventCommitWindow')
             fail('NATIVE_NETWORK_OWNER_COMMIT_PAGE_SCOPE_INVALID');
           const page=await originalKernel.listEventCommitWindow(sourceWorkspaceId,proof.afterEventId,proof.limit);
-          await requireBinding(state,'source-commit-page-readback');return page;
+          await requireBinding(state,'source-commit-page-readback');
+          historyBoundary.assertOriginalHistoryReadScope(proof);return page;
         },
       }:{};
       const readOriginalEvents=async()=>{
@@ -486,7 +495,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       };
       const captureRecovery=createT4OriginalHostCaptureAdapter({...capture,
         authorizeOriginalCaptureRecovery:callback('authorizeOriginalCaptureRecovery'),
-        withOriginalSubjectMutation:callback('withOriginalSubjectMutation'),
+        withOriginalSubjectMutation:historyBoundary?.withOriginalSubjectMutation??callback('withOriginalSubjectMutation'),
         readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage'),
         ...(enableLocalSourceCapture?{
           readOriginalAdmittedBaseline:()=>baseline.readOriginalAdmittedBaseline(),
