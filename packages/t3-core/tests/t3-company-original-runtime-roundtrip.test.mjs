@@ -136,8 +136,10 @@ test('original qualified T2 cross-product complete archive and repeated same-Wor
     await a.product.t1.putRelation({workspace_id:ws,relation_id:'relation:roundtrip',
       from_object_id:rows[0].object_id,to_object_id:rows[1].object_id,kind:'result-of',
       event:{event_type:'iwxa.company.test.relation'}});
+    // The original package maps asset IDs to archive paths. Use a portable
+    // filename-safe identifier, never a colon-delimited logical object ID.
     const attachment=Uint8Array.from([0,1,2,3,255]);
-    await a.product.t1.putAsset({workspace_id:ws,asset_id:'asset:roundtrip',
+    await a.product.t1.putAsset({workspace_id:ws,asset_id:'asset-roundtrip',
       object_id:rows[1].object_id,mime:'application/octet-stream',bytes:attachment,base_revision:0,
       event:{event_type:'iwxa.company.test.asset'}});
     const preview=await a.bound.exportPreview(full);
@@ -171,7 +173,7 @@ test('original qualified T2 cross-product complete archive and repeated same-Wor
     assert.equal(observed.signedReceiptVerified,false);
     const readEvents=await b.product.t1.listEventsSince(ws);
     for(const event of originalEvents)assert.deepEqual(readEvents.find(e=>e.event_id===event.event_id),event);
-    const asset=await b.exchange.t1.getAsset(ws,'asset:roundtrip');
+    const asset=await b.exchange.t1.getAsset(ws,'asset-roundtrip');
     assert.deepEqual(asset.bytes,attachment);
     assert.equal(asset.asset.service_id,source.serviceId);
     const relation=await b.exchange.t1.getObject(ws,rows[0].object_id);
