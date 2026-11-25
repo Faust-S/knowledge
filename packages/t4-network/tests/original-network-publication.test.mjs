@@ -940,7 +940,7 @@ test('K91 completed recipient publication skips obsolete index repair only with 
   await p.prepareSignedBatch({slots:[{sequence:1,messageType:'DIFF_REQUEST'}],createSignedFrames:async()=>[diff]});
   await p.publishPreparedFrame({sequence:1});
   const ack=await f.signed('APPLIED_ACK',2,{changeId:s.changeId,contentDigest:H('ciphertext'),
-    recipientEventRef:'event:k91:recipient',recipientRevision:s.sourceRevision,recipientStateDigest:H('result')},recipient);
+    ackRef:'ack:k91:recipient',recipientEventRef:'event:k91:recipient',recipientRevision:s.sourceRevision,recipientStateDigest:H('result')},recipient);
   await p.prepareSignedBatch({slots:[{sequence:2,messageType:'APPLIED_ACK'}],createSignedFrames:async()=>[ack]});
   await p.publishPreparedFrame({sequence:2});
   const saved=await p.inspectOriginalPublication();

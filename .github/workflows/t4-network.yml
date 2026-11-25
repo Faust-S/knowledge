@@ -19,7 +19,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  candidate:
+    # One batched, Linux-only development checkpoint. Full qualification is
+    # still the default for an explicit normal marker or workflow_dispatch.
+    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preserve exact public source for local continuation
+        run: git archive --format=zip --output="$RUNNER_TEMP/t4-source-$GITHUB_SHA.zip" "$GITHUB_SHA" packages/t4-network packages/t3-core
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked public transport dependencies once
+        run: |
+          npm ci --prefix packages/t4-network --ignore-scripts --no-audit --no-fund
+          tar -czf "$RUNNER_TEMP/t4-locked-node-modules.tar.gz" -C packages/t4-network node_modules
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t4-candidate-revision
+          path: |
+            ${{ runner.temp }}/t4-source-*.zip
+            ${{ runner.temp }}/t4-locked-node-modules.tar.gz
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
+      - name: Check cumulative changed source
+        working-directory: packages/t4-network
+        run: npm run check
+      - name: Qualify cumulative K72-K91 recovery and native profile changes
+        working-directory: packages/t4-network
+        run: |
+          node --experimental-strip-types --test --test-name-pattern='^K(7[2-9]|8[0-9]|9[01])\b' tests/original-network-key-lifecycle.test.mjs tests/original-network-session-phases.test.mjs tests/original-network-committed-recipient-results.test.mjs tests/original-network-publication.test.mjs tests/original-native-signed-kernel-relay.test.mjs
+      - name: Existing recipient frontier and publication regression
+        working-directory: packages/t4-network
+        run: node --experimental-strip-types --test --test-skip-pattern='^K91\b' tests/original-network-committed-recipient-results.test.mjs tests/original-network-publication.test.mjs tests/original-network-host-cursor.test.mjs
+
   contract:
+    if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -47,6 +86,7 @@ jobs:
         run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-subject-kernel-scope.test.mjs packages/t3-core/tests/t3-signed-access-host-port.test.mjs packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs
 
   webdav:
+    if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -73,6 +113,7 @@ jobs:
           if-no-files-found: ignore
 
   windows-contract:
+    if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:')) }}
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -93,6 +134,7 @@ jobs:
         run: node --test packages/t3-core/tests/t3-d1-original-control-http.test.mjs packages/t3-core/tests/t3-subject-kernel-scope.test.mjs packages/t3-core/tests/t3-signed-access-host-port.test.mjs packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs
 
   native-contract:
+    if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:')) }}
     name: native-contract (${{ matrix.os }}, ${{ matrix.shard }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -113,6 +155,7 @@ jobs:
         run: node scripts/run_contract_shard.mjs "${{ matrix.shard }}"
 
   original-kernel-webdav:
+    if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'T4 candidate qualification:')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
