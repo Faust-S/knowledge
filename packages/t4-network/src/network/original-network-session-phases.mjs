@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {isT4NativeSubjectKind,validT4NativeSubjectRevision,deriveT4OriginalReplacementAttempt,
   validateT4CandidateSupersessionRetirementClaim,validateT4CandidateReplacementHeadBinding}
   from './standard-network-wire-candidate.mjs';
-import {validateT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementPublishedContent,validateT4OriginalReplacementRecipientApplyAdmission} from './original-network-publication.mjs';
+import {validateT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementPublishedContent,validateT4OriginalReplacementRecipientApplyAdmission,validateT4OriginalReplacementAppliedAckAdmission,validateT4OriginalReplacementPublishedAck} from './original-network-publication.mjs';
 export {deriveT4OriginalReplacementAttempt} from './standard-network-wire-candidate.mjs';
 
 /**
@@ -82,7 +82,7 @@ export function createT4OriginalNetworkSessionPhasePort({
   authorizeOriginalRecipientSupersession=null,authorizeOriginalSourceSupersession=null,
   replacementSourceAdmission=null,readOriginalReplacementSourceAdmission=null,
   readOriginalReplacementSourceContentPublication=null,
-  replacementRecipientAdmission=null,readOriginalReplacementRecipientApplyAdmission=null,
+  replacementRecipientAdmission=null,readOriginalReplacementRecipientApplyAdmission=null,readOriginalReplacementRecipientAckPublication=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   if(![technicalWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
@@ -141,12 +141,22 @@ export function createT4OriginalNetworkSessionPhasePort({
       fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_PORT_REQUIRED');
   }else if(readOriginalReplacementRecipientApplyAdmission!==null)
     fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_PORT_REQUIRED');
+  if(readOriginalReplacementRecipientAckPublication!==null&&(!recipientReplacement||typeof readOriginalReplacementRecipientAckPublication!=='function'))
+    fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_ACK_NOT_ENABLED');
   function recipientEvidence(phase){
     const a=recipientReplacement,e=a.contentEvidence,change=e.frames[1],chunk=e.frames[2];
     if(phase==='RECEIVED')return {evidenceRef:chunk.key,evidenceDigest:'sha256:'+chunk.sha256};
     if(phase==='VERIFIED')return {evidenceRef:change.key,evidenceDigest:a.originalStateDigest};
     if(phase==='APPLY_INTENT')return {evidenceRef:change.key,evidenceDigest:'sha256:'+a.originalCapturedSha256};
     fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_ACK_NOT_ENABLED');
+  }
+  function checkRecipientReplacementEvidence(phase,evidence){
+    if(phase==='APPLIED'){
+      if(evidence.evidenceRef!==evidence.evidenceDigest.slice(7)+'.t4n'||
+        evidence.originalRecipientRevision!==recipientReplacement.candidate.sourceRevision||
+        evidence.originalRecipientStateDigest!==recipientReplacement.originalStateDigest)
+        fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_EVIDENCE_MISMATCH');
+    }else if(!eq(evidence,recipientEvidence(phase)))fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_EVIDENCE_MISMATCH');
   }
   const phases=recipientApplyIntentRequired?
     Object.freeze(['RECEIVED','VERIFIED','APPLY_INTENT','APPLIED']):ALLOWED[role];
@@ -247,8 +257,7 @@ export function createT4OriginalNetworkSessionPhasePort({
         item.previousHash!==previous)
         fail('PHASE_ORIGINAL_CHAIN_INVALID');
       const evidence=proofEvidence(phase,item.evidence,changeKind,identity);
-      if(recipientReplacement&&!eq(evidence,recipientEvidence(phase)))
-        fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_EVIDENCE_MISMATCH');
+      if(recipientReplacement)checkRecipientReplacementEvidence(phase,evidence);
       if(phase==='APPLY_INTENT'&&evidence.evidenceRef!==normalized.at(-1)?.evidence.evidenceRef)
         fail('PHASE_ORIGINAL_APPLY_INTENT_CHANGE_MISMATCH');
       const expected=entry(phase,evidence,previous,index+1);
@@ -337,6 +346,7 @@ export function createT4OriginalNetworkSessionPhasePort({
         originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false}:{}),
       ...(recipientReplacement?{originalReplacementRecipientAdmission:clone(recipientReplacement),
         originalReplacementRecipientApplyIntentEventId:current.originalEventIds[2]??null,
+        originalReplacementRecipientAppliedEventId:current.originalEventIds[3]??null,
         originalReplacementRecipientAdmissionRecorded:current.revision>=1,liveNetworkAuthorityGranted:false}:{}),
       ...(terminal?{
         ...(role==='RECIPIENT'?{originalRecipientAttemptSuperseded:true,
@@ -380,12 +390,25 @@ export function createT4OriginalNetworkSessionPhasePort({
   }
   async function replacementGate(initial,phase,evidence,current){
     if(recipientReplacement){
-      if(!eq(evidence,recipientEvidence(phase)))fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_EVIDENCE_MISMATCH');
+      checkRecipientReplacementEvidence(phase,evidence);
       await guard(initial,'t1.getObject','replacement-recipient-admission');
       const live=validateT4OriginalReplacementRecipientApplyAdmission(await readOriginalReplacementRecipientApplyAdmission(frozen({
         checkpointRef,sessionRef,changeId,phase,originalReplacementRecipientAdmissionReadRequired:true,
         originalSubjectMutationAllowed:false})));
       if(!eq(live,recipientReplacement))fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_CHANGED');
+      if(phase==='APPLIED'){
+        if(readOriginalReplacementRecipientAckPublication===null)fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_ACK_NOT_ENABLED');
+        if(current.revision<3)fail('PHASE_PREDECESSOR_NOT_PROVEN');
+        const raw=await readOriginalReplacementRecipientAckPublication(frozen({checkpointRef,sessionRef,changeId,
+          originalReplacementAckPublicationReadRequired:true,originalSubjectMutationAllowed:false}));
+        const a=validateT4OriginalReplacementAppliedAckAdmission(raw?.admission,recipientReplacement.candidate),
+          p=validateT4OriginalReplacementPublishedAck(raw?.publication,a);
+        if(!eq(a.admission,recipientReplacement)||a.recipientPhaseCheckpointRef!==checkpointRef||
+          a.originalApplyIntentEventId!==current.originalEventIds[2]||
+          !eq(evidence,{evidenceRef:p.key,evidenceDigest:'sha256:'+p.sha256,originalRecipientEventId:a.body.recipientEventRef,
+            originalRecipientRevision:a.body.recipientRevision,originalRecipientStateDigest:a.body.recipientStateDigest}))
+          fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_ACK_MISMATCH');
+      }
       if(!eq(await context(),initial))fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED');
       return;
     }
@@ -660,10 +683,11 @@ export function createT4OriginalNetworkSessionPhasePort({
       verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,authorizeOriginalRecipientSupersession,
       authorizeOriginalSourceSupersession,replacementSourceAdmission:replacement,readOriginalReplacementSourceAdmission,
       readOriginalReplacementSourceContentPublication,replacementRecipientAdmission:recipientReplacement,
-      readOriginalReplacementRecipientApplyAdmission,
+      readOriginalReplacementRecipientApplyAdmission,readOriginalReplacementRecipientAckPublication,
     }),
     role,checkpointRef,
-    ...(recipientReplacement?{originalReplacementRecipientAdmission:clone(recipientReplacement)}:{}),
+    ...(recipientReplacement?{originalReplacementRecipientAdmission:clone(recipientReplacement),
+      ...(readOriginalReplacementRecipientAckPublication!==null?{originalReplacementRecipientAckPublicationRequired:true}:{})}:{}),
     ...(replacement?{originalReplacementSourceAdmission:clone(replacement)}:{}),
     ...(readOriginalReplacementSourceContentPublication!==null?{originalReplacementSourceContentPublicationRequired:true}:{}),
     ...(recipientApplyIntentRequired?{recipientApplyIntentRequired:true}:{}),

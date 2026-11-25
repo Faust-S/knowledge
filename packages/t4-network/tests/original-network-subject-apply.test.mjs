@@ -8,19 +8,20 @@ import {openT4OriginalNetworkObjectChange,openT4OriginalNetworkSubjectChange,
   inspectT4OriginalNetworkRecipientResult,
   applyT4OriginalNetworkObjectChange,applyT4OriginalNetworkSubjectChange,applyT4OriginalNetworkSubjectWithDurableIntent,
   createT4OriginalNetworkAppliedAckBody,finalizeT4OriginalNetworkRecipientAcknowledgement,
-  readT4OriginalReplacementRecipientApplyAdmission,admitT4OriginalReplacementRecipientSubject,applyT4OriginalReplacementNetworkSubjectWithDurableIntent}
+  readT4OriginalReplacementRecipientApplyAdmission,admitT4OriginalReplacementRecipientSubject,applyT4OriginalReplacementNetworkSubjectWithDurableIntent,
+  readT4OriginalReplacementAppliedAckAdmission,readT4OriginalReplacementRecipientAckPublication,finalizeT4OriginalReplacementRecipientAcknowledgement}
   from '../src/network/original-network-subject-apply.mjs';
 
 import {createT4OriginalNetworkSessionPhasePort}
   from '../src/network/original-network-session-phases.mjs';
 
-import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,deriveT4OriginalReplacementSessionCandidate}
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,deriveT4OriginalReplacementSessionCandidate,createT4OriginalReplacementSourceHead}
   from '../src/network/original-network-publication.mjs';
 import {verifyT4OriginalDeleteDelta,t4OriginalDeletedSubjectRevision} from '../src/network/original-deletion-delta.mjs';
 import {verifyT4OriginalAssetDelta,digestT4OriginalAssetContent}
   from '../src/network/original-asset-delta.mjs';
 import {verifyT4OriginalRelationPutDelta} from '../src/network/original-relation-delta.mjs';
-import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION}
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,T4_SUBJECT_DELETE_EXTENSION,T4_OBJECT_TOMBSTONE_EXTENSION,T4_REPLACEMENT_SOURCE_SESSION_EXTENSION}
   from '../src/network/standard-network-wire-candidate.mjs';
 
 import {createT4OriginalHostRecipientDispatcher}
@@ -1259,7 +1260,7 @@ test('K26 original historical Object proof scales linearly and still rejects reo
 
 // The original source PUBLISHED read is a fixture here. K63 verifies the
 // actual source phase/publication chain and K62 verifies the real Vault.
-async function replacementApplyFixture(){
+async function replacementApplyFixture({ackEnabled=false}={}){
   const d=await durableFixture({nativeSession:true}),root=d.session;
   const c=deriveT4OriginalReplacementSessionCandidate({originalCaptureSession:root,replacement:{
     previousSessionRef:root.sessionRef,changeId:root.changeId,decisionDigest:H('replacement'),
@@ -1307,6 +1308,69 @@ async function replacementApplyFixture(){
         publicationRevision:frames[0].presentRevision,publicationChainHash:frames[0].presentChainHash}})};
   const base={...d.f.applyArgs(received),sourceAdmissionPhasePort,readOriginalReplacementRecipientContentEvidence:async()=>liveEvidence,
     authorizeOriginalReplacementRecipientApplyAdmission:async p=>allowAdmission&&p.originalSubjectMutationAllowed===false};
+  // Only the peer source and K59 admission are fixtures. The successor
+  // recipient publication, phase, signing and subject readback run through
+  // the actual original adapters, with loss injected at CAS/transport.
+  const keys=generateKeyPairSync('ed25519'),remote=new Map();
+  let signatures=0,puts=0,loseNetwork=false;
+  const signing=async({messageType='APPLIED_ACK',sequence,body,criticalExtensions=[]})=>{
+    signatures++;
+    return signT4CandidateFrame({unsignedFrame:createT4CandidateUnsignedFrame({messageType,
+      messageId:'message:k66:recipient:'+sequence,sourceNodeRef:c.recipientNodeRef,recipientNodeRef:c.sourceNodeRef,
+      sessionRef:c.sessionRef,scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,sequence,
+      permissionRef:'permission:k66:recipient',signerRef:'key:k66:recipient',cryptoSuite:'X25519_AES256GCM_ED25519',criticalExtensions,body}),
+      signOriginalNodeBytes:async({bytes})=>sign(null,Buffer.from(bytes),keys.privateKey)});
+  };
+  const sourceCursorBefore={schema:'IWXA_T4_ORIGINAL_EVENT_CURSOR_V1',workspaceId:c.workspaceId,
+    originalWriteOwnerRef:c.originalWriteOwnerRef,lastEventId:'event:k66:predecessor',seenEventCount:1,
+    sourcePrefixDigest:c.sourcePrefixDigestBefore,originalPermissionProof:false};
+  const headBody=createT4OriginalReplacementSourceHead({candidate:c,sourceCursorBefore,sourceCursorAfter:{...sourceCursorBefore,
+    lastEventId:c.sourceEventId,seenEventCount:2,sourcePrefixDigest:c.sourcePrefixDigestAfter}});
+  const readDiffAdmission=async()=>({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_EVIDENCE_V1',
+    originalRecipientAdmissionVerified:true,originalSubjectMutationInvoked:false,liveNetworkAuthorityGranted:false,
+    originalNewAttemptAdmissionStillRequired:true,sourceIntent:await sourceAdmissionPhasePort.inspectOriginalSession(),
+    eligibility:{schema:'IWXA_T4_ORIGINAL_REPLACEMENT_ELIGIBILITY_V1',state:'ORIGINAL_REPLACEMENT_ELIGIBLE',candidate:c,
+      originalBothTerminalPhaseEventsVerified:true,originalSourceCaptureVerified:true,originalBothCausalFrontiersUnchanged:true,
+      originalAcceptedAppliedAckAbsent:true,originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,
+      sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false,sourceCursorBefore},
+    head:{schema:'IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1',signedMessageType:'HEADS',verifiedSequence:1,
+      verifiedSessionRef:c.sessionRef,verifiedSourceNodeRef:c.sourceNodeRef,verifiedRecipientNodeRef:c.recipientNodeRef,
+      verifiedScopeRef:c.scopeRef,verifiedOwnerEpoch:c.ownerEpoch,verifiedSignerRef:'key:k66:source',verifiedMessageId:'message:k66:head',
+      verifiedCryptoSuite:'X25519_AES256GCM_ED25519',sha256:frames[0].sha256,key:frames[0].key,
+      verifiedCriticalExtensions:[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION],verifiedBody:headBody,
+      originalSignatureVerified:true,originalAccessVerified:true,originalReplayCheckpointRecorded:true,networkBytesVerified:true,
+      originalSubjectMutationInvoked:false,originalBusinessApplied:false,originalT3ExchangeCalled:false}});
+  const port=(full=true)=>createT4OriginalNetworkPublicationPort({session:c,localNodeRef:c.recipientNodeRef,
+    technicalWorkspaceId:d.technicalWorkspaceId,originalKernel:d.technicalKernel,getMode:base.getMode,
+    readOriginalHostContext:async()=>({workspaceId:d.technicalWorkspaceId,originalWriteOwnerRef:c.originalWriteOwnerRef,
+      nodeRef:c.recipientNodeRef,scopeRef:c.scopeRef,hostSessionRef}),authorizeOriginalTechnicalRead:async()=>true,
+    authorizeOriginalTechnicalWrite:async()=>true,authorizeOriginalFramePublish:async()=>true,
+    verifyOriginalNodeSignature:async({bytes,signature,signerRef})=>signerRef==='key:k66:recipient'&&
+      verify(null,Buffer.from(bytes),keys.publicKey,Buffer.from(signature)),
+    readOriginalReplacementRecipientAdmission:readDiffAdmission,
+    ...(full?{readOriginalReplacementAppliedAckAdmission:()=>readT4OriginalReplacementAppliedAckAdmission(args())}:{}),
+    frameTransport:{nativeFrameIndexVersion:1,
+      async publishSignedFrame({wireBytes,beforeNetworkWrite}){
+        if(beforeNetworkWrite)assert.equal(await beforeNetworkWrite(),true);
+        puts++;const sha256=H(wireBytes).slice(7),key=sha256+'.t4n';assert.equal(remote.has(key),false);
+        remote.set(key,new Uint8Array(wireBytes));
+        if(loseNetwork){loseNetwork=false;throw Object.assign(Error('lost response'),{code:'OUTCOME_UNKNOWN'});}
+        return {schema:'IWXA_T4_CANDIDATE_FRAME_PUBLISHED_V1',key,sha256,immutableTransportReadback:true,originalBusinessApplied:false};},
+      async inspectUnknownPublication({key,expectedSha256,beforeNetworkWrite}){
+        if(beforeNetworkWrite)assert.equal(await beforeNetworkWrite(),true);
+        if(!remote.has(key))throw Object.assign(Error('absent'),{code:'REMOTE_NOT_FOUND'});
+        assert.equal(H(remote.get(key)).slice(7),expectedSha256);
+        return {schema:'IWXA_T4_CANDIDATE_FRAME_PRESENT_V1',key,sha256:expectedSha256,exactBytesPresent:true,originalBusinessApplied:false};},
+    }});
+  if(ackEnabled){
+    const p=port(false);await p.prepareSignedBatch({slots:[{sequence:1,messageType:'DIFF_REQUEST'}],
+      createSignedFrames:async()=>[await signing({messageType:'DIFF_REQUEST',sequence:1,body:{familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore]}})]});
+    await p.publishPreparedFrame({sequence:1});
+    const diff=await p.readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
+    Object.assign(a,{diffKey:diff.key,diffSha256:diff.sha256,originalRecipientPublicationCheckpointRef:p.checkpointRef,
+      originalRecipientDiffPresentEventId:diff.originalPresentEventId,originalRecipientPublicationRevision:diff.originalPresentRevision,
+      originalRecipientPublicationChainHash:diff.originalPresentChainHash});
+  }
   const read=()=>readT4OriginalReplacementRecipientApplyAdmission(base),admission=await read();
   const phaseBase={originalKernel:d.technicalKernel,technicalWorkspaceId:d.technicalWorkspaceId,
     originalWriteOwnerRef:c.originalWriteOwnerRef,sourceNodeRef:c.sourceNodeRef,recipientNodeRef:c.recipientNodeRef,
@@ -1314,12 +1378,21 @@ async function replacementApplyFixture(){
     recipientApplyIntentRequired:true,getMode:base.getMode,readOriginalHostContext:async()=>({workspaceId:d.technicalWorkspaceId,
       originalWriteOwnerRef:c.originalWriteOwnerRef,nodeRef:c.recipientNodeRef,scopeRef:c.scopeRef,hostSessionRef}),
     authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true,
-    verifyOriginalPhaseEvidence:async()=>true,verifyOriginalRecipientApplied:async()=>false};
+    verifyOriginalPhaseEvidence:async()=>true,verifyOriginalRecipientApplied:async p=>{
+      if(!ackEnabled)return false;
+      const actual=await inspectT4OriginalNetworkRecipientResult(d.f.applyArgs(d.received));
+      return actual.originalBusinessApplied===true&&actual.originalRecipientEventId===p.originalRecipientEventId&&
+        actual.originalRecipientRevision===p.originalRecipientRevision&&actual.originalRecipientStateDigest===p.originalRecipientStateDigest;
+    }};
   const phase=(extra={})=>createT4OriginalNetworkSessionPhasePort({...phaseBase,replacementRecipientAdmission:admission,
-    readOriginalReplacementRecipientApplyAdmission:read,...extra});
-  const args=()=>({...base,recipientPhasePort:phase()}),admit=()=>admitT4OriginalReplacementRecipientSubject(args()),
+    readOriginalReplacementRecipientApplyAdmission:read,
+    ...(ackEnabled?{readOriginalReplacementRecipientAckPublication:()=>readT4OriginalReplacementRecipientAckPublication(args())}:{}),...extra});
+  const args=()=>({...base,recipientPhasePort:phase(),...(ackEnabled?{recipientPublicationPort:port(),createSignedAppliedAckFrame:signing}:{})}),
+    admit=()=>admitT4OriginalReplacementRecipientSubject(args()),
     apply=()=>applyT4OriginalReplacementNetworkSubjectWithDurableIntent(args());
-  return {d,c,e,received,admission,phase,phaseBase,args,admit,apply,read,
+  return {d,c,e,received,admission,phase,phaseBase,args,admit,apply,read,port,signing,
+    counts:()=>({signatures,puts,technicalWrites:d.technicalWrites,subjectWrites:d.f.writes}),
+    loseNetwork:()=>{loseNetwork=true;},
     setPublished:v=>{published=v;},setAllowed:v=>{allowAdmission=v;},setEvidence:v=>{liveEvidence=v;},
     restart:()=>{hostSessionRef='host:k64:cold';}};
 }
@@ -1375,4 +1448,47 @@ test('K65 lost successor APPLY_INTENT reply or revoked live admission cannot aut
   await assert.rejects(applyT4OriginalReplacementNetworkSubjectWithDurableIntent({...other.args(),authorizeOriginalWrite:async()=>{
     other.setAllowed(false);return true;}}),error('SUBJECT_ORIGINAL_APPLY_OUTCOME_UNKNOWN'));
   assert.equal(other.d.f.writes,0);assert.equal((await other.phase().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
+});
+
+
+test('K66 successor APPLIED_ACK requires original apply Result and original DIFF anchor; no handshake-only signing',async()=>{
+  const q=await replacementApplyFixture({ackEnabled:true});await q.admit();await q.admit();
+  const before=q.counts();
+  await assert.rejects(finalizeT4OriginalReplacementRecipientAcknowledgement(q.args()),error('SUBJECT_ORIGINAL_ACK_APPLY_INTENT_REQUIRED'));
+  await assert.rejects(q.port(false).prepareSignedBatch({slots:[{sequence:2,messageType:'APPLIED_ACK'}],createSignedFrames:async()=>{throw Error('must not sign');}}));
+  q.d.loseIntentReply();await assert.rejects(q.apply(),error('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  await assert.rejects(finalizeT4OriginalReplacementRecipientAcknowledgement(q.args()),error('SUBJECT_ORIGINAL_ACK_CURRENT_RESULT_REQUIRED'));
+  assert.equal(q.counts().signatures,before.signatures);assert.equal(q.counts().puts,before.puts);assert.equal(q.counts().subjectWrites,0);
+});
+
+test('K66 successor ACK and APPLIED phase recover lost PREPARE, network and phase responses with one signature and one subject write',async()=>{
+  const q=await replacementApplyFixture({ackEnabled:true});await q.admit();await q.admit();
+  const applied=await q.apply(),before=q.counts(),finish=()=>finalizeT4OriginalReplacementRecipientAcknowledgement(q.args());
+  const diff=await q.port(false).readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
+  const witness=await readT4OriginalReplacementAppliedAckAdmission(q.args());
+  assert.equal(witness.body.recipientEventRef,applied.originalRecipientEventId);
+  q.d.losePublicationReply('PREPARE');await assert.rejects(finish(),error('PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN'));
+  q.restart();q.loseNetwork();await assert.rejects(finish(),error('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  q.restart();q.d.loseAppliedReply();await assert.rejects(finish(),error('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  q.restart();const result=await finish();assert.equal(result.state,'ALREADY_FINALIZED');
+  assert.equal(result.recipientPhase.currentPhase,'APPLIED');assert.equal(result.originalReplacementRecipientAckVerified,true);
+  assert.equal(result.verifiedResult.originalRecipientEventId,applied.originalRecipientEventId);
+  assert.equal(q.counts().signatures,before.signatures+1);assert.equal(q.counts().puts,before.puts+1);assert.equal(q.counts().subjectWrites,1);
+  const after=await q.port(false).readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
+  for(const k of ['key','originalPresentEventId','originalPresentRevision','originalPresentChainHash'])assert.equal(after[k],diff[k]);
+  await assert.rejects(q.port(false).readOriginalPublishedFrame({sequence:2}),error('PUBLICATION_ORIGINAL_REPLACEMENT_ACK_ADMISSION_REQUIRED'));
+  const ack=await readT4OriginalReplacementRecipientAckPublication(q.args());assert.equal(ack.publication.verifiedBody.recipientEventRef,applied.originalRecipientEventId);
+  const counts=q.counts();assert.equal((await q.apply()).originalCommitInvoked,false);assert.deepEqual(q.counts(),counts);
+  q.setAllowed(false);await assert.rejects(finish(),error('SUBJECT_ORIGINAL_REPLACEMENT_APPLY_ADMISSION_DENIED'));assert.deepEqual(q.counts(),counts);
+});
+
+test('K66 signed ACK cannot claim a different original Result and APPLIED requires original ACK PRESENT',async()=>{
+  const q=await replacementApplyFixture({ackEnabled:true});await q.admit();await q.admit();await q.apply();
+  const before=q.counts(),w=await readT4OriginalReplacementAppliedAckAdmission(q.args());
+  await assert.rejects(q.phase().advanceOriginalSessionPhase({phase:'APPLIED',evidence:{evidenceRef:'f'.repeat(64)+'.t4n',evidenceDigest:'sha256:'+'f'.repeat(64),
+    originalRecipientEventId:w.body.recipientEventRef,originalRecipientRevision:w.body.recipientRevision,originalRecipientStateDigest:w.body.recipientStateDigest}}),error('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT'));
+  await assert.rejects(q.port().prepareSignedBatch({slots:[{sequence:2,messageType:'APPLIED_ACK'}],
+    createSignedFrames:async()=>[await q.signing({sequence:2,body:{...w.body,recipientEventRef:'event:forged'}})]}),error('PUBLICATION_ORIGINAL_REPLACEMENT_ACK_DIFF_MISMATCH'));
+  assert.equal(q.counts().puts,before.puts);assert.equal(q.counts().technicalWrites,before.technicalWrites);
+  assert.equal(q.counts().subjectWrites,1);assert.equal((await q.phase().inspectOriginalSession()).currentPhase,'APPLY_INTENT');
 });

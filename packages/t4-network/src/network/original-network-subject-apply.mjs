@@ -3,7 +3,7 @@ import {decodeT4OriginalGraphDeltaBytes,verifyT4OriginalGraphDelta,applyT4Origin
   inspectT4OriginalGraphResult,digestT4OriginalGraphContent} from './original-graph-delta.mjs';
 import {validateT4OriginalNativeCaptureSession,readT4OriginalSourceSessionHead,
   validateT4OriginalReplacementSessionCandidate,readT4OriginalReplacementSourceHead,
-  validateT4OriginalReplacementDiffAcceptance,validateT4OriginalReplacementContentEvidence,validateT4OriginalReplacementPublishedContent,validateT4OriginalReplacementSourceIntentStatus,validateT4OriginalReplacementRecipientApplyAdmission}
+  validateT4OriginalReplacementDiffAcceptance,validateT4OriginalReplacementContentEvidence,validateT4OriginalReplacementPublishedContent,validateT4OriginalReplacementSourceIntentStatus,validateT4OriginalReplacementRecipientApplyAdmission,validateT4OriginalReplacementAppliedAckAdmission,validateT4OriginalReplacementPublishedAck}
   from './original-network-publication.mjs';
 import {isT4OriginalOutboundFrameProof} from './original-network-source-head-proof.mjs';
 import {assembleT4CandidateOpaqueChunks}
@@ -1131,13 +1131,13 @@ export async function admitT4OriginalReplacementRecipientSubject(args={}){
     evidence:{evidenceRef:e.frames[2].key,evidenceDigest:'sha256:'+e.frames[2].sha256}});
   else if(s.currentPhase==='RECEIVED')outcome=await p.advanceOriginalSessionPhase({phase:'VERIFIED',
     evidence:{evidenceRef:e.frames[1].key,evidenceDigest:a.originalStateDigest}});
-  else if(!['VERIFIED','APPLY_INTENT'].includes(s.currentPhase))fail('SUBJECT_ORIGINAL_REPLACEMENT_RECIPIENT_PHASE_REQUIRED');
+  else if(!['VERIFIED','APPLY_INTENT','APPLIED'].includes(s.currentPhase))fail('SUBJECT_ORIGINAL_REPLACEMENT_RECIPIENT_PHASE_REQUIRED');
   const after=await p.inspectOriginalSession();
   if(!equalStable(after.originalReplacementRecipientAdmission,a)||after.checkpointRef!==p.checkpointRef||
     (outcome&&(after.currentPhase!==outcome.phase||after.revision!==outcome.revision||after.chainHash!==outcome.chainHash)))
     fail('SUBJECT_ORIGINAL_REPLACEMENT_RECIPIENT_PHASE_REQUIRED');
   return frozen({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_RESULT_V1',state:after.currentPhase,
-    checkpointRef:p.checkpointRef,revision:after.revision,chainHash:after.chainHash,originalBusinessApplied:false,
+    checkpointRef:p.checkpointRef,revision:after.revision,chainHash:after.chainHash,originalBusinessApplied:after.currentPhase==='APPLIED',
     originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false});
 }
 
@@ -1190,11 +1190,12 @@ export async function applyT4OriginalReplacementNetworkSubjectWithDurableIntent(
   const admission=await read(),p=args.recipientPhasePort;
   const normalized={...args,received:ordinary};
   const durable=originalDurableRecipientContext(normalized,admission);
-  async function fence(){
+  async function fence(recovery=false){
     if(!equalStable(admission,await read()))fail('SUBJECT_ORIGINAL_REPLACEMENT_APPLY_ADMISSION_CHANGED');
     const s=await durable.phase();
-    if(s.currentPhase!=='APPLY_INTENT'||!ID(s.originalReplacementRecipientApplyIntentEventId))
+    if((s.currentPhase!=='APPLY_INTENT'&&!(recovery&&s.currentPhase==='APPLIED'))||!ID(s.originalReplacementRecipientApplyIntentEventId))
       fail('SUBJECT_ORIGINAL_REPLACEMENT_APPLY_INTENT_REQUIRED');
+    return s;
   }
   if(typeof args.authorizeOriginalWrite!=='function'||typeof args.verifyOriginalSourceEvent!=='function')
     fail('SUBJECT_ORIGINAL_WRITE_PORTS_REQUIRED');
@@ -1205,9 +1206,9 @@ export async function applyT4OriginalReplacementNetworkSubjectWithDurableIntent(
     await fence();const ok=await args.verifyOriginalSourceEvent(proof);await fence();return ok;
   };
   const result=await applyWithOriginalDurableIntent(normalized,admission);
-  await fence();
+  const confirmed=await fence(true);
   return frozen({...result,originalReplacementRecipientAdmissionVerified:true,
-    originalReplacementAckStillRequired:true,sourceCursorAdvanced:false,recipientCursorAdvanced:false});
+    originalReplacementAckStillRequired:confirmed.currentPhase!=='APPLIED',sourceCursorAdvanced:false,recipientCursorAdvanced:false});
 }
 async function applyWithOriginalDurableIntent(args,replacementAdmission=null){
   const {recipientPhasePort}=args;
@@ -1299,9 +1300,9 @@ export function createT4OriginalNetworkAppliedAckBody({
  * owner of the immutable signed bytes and network attempt recovery.
  * This function never calls the original subject mutation.
  */
-function recipientAcknowledgementContext(args){
+function recipientAcknowledgementContext(args,replacementAdmission=null){
   const {received,recipientPublicationPort:port,retryMissing=false}=args;
-  const durable=originalDurableRecipientContext(args);
+  const durable=originalDurableRecipientContext(args,replacementAdmission);
   const {delta,kind}=durable;
   const session=port?.session;
   if(typeof retryMissing!=='boolean'||
@@ -1310,7 +1311,9 @@ function recipientAcknowledgementContext(args){
     !ID(port.checkpointRef)||
     !['inspectOriginalPublication','prepareSignedBatch','publishPreparedFrame']
       .every(k=>typeof port[k]==='function')||
-    session?.schema!=='IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SESSION_V1'||
+    (replacementAdmission===null?session?.schema!=='IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SESSION_V1':
+      (!equalStable(session,replacementAdmission.candidate)||port.originalReplacementRecipientAckPublication!==true||
+       args.recipientPhasePort.originalReplacementRecipientAckPublicationRequired!==true))||
     session.workspaceId!==delta.workspaceId||
     session.originalWriteOwnerRef!==delta.originalWriteOwnerRef||
     session.sourceNodeRef!==received.sourceNodeRef||
@@ -1386,9 +1389,57 @@ export async function runT4OriginalNetworkRecipientTask(args={}){
     originalT3ExchangeCalled:false});
 }
 
+// Read the business Result and durable intent independently of the ACK
+// publication. This permits the publication CAS to recheck the witness
+// without a circular dependency on its own pending receipt.
+export async function readT4OriginalReplacementAppliedAckAdmission(args={}){
+  const received=structuredClone(args.received),{ordinary,c}=replacementSubject(received);
+  const read=()=>readT4OriginalReplacementRecipientApplyAdmission({...args,received});
+  const admission=await read(),normalized={...args,received:ordinary,allowHistoricalEventProof:false};
+  const {phase}=originalDurableRecipientContext(normalized,admission);
+  const before=await phase();
+  if(!['APPLY_INTENT','APPLIED'].includes(before.currentPhase)||!ID(before.originalReplacementRecipientApplyIntentEventId))
+    fail('SUBJECT_ORIGINAL_ACK_APPLY_INTENT_REQUIRED');
+  const actual=await inspectT4OriginalNetworkRecipientResult(normalized);
+  if(actual.state!=='APPLIED_VERIFIED'||actual.originalBusinessApplied!==true)fail('SUBJECT_ORIGINAL_ACK_CURRENT_RESULT_REQUIRED');
+  const ackRef='ack:t4:'+HASH(JSON.stringify(['IWXA-T4-ORIGINAL-APPLIED-ACK-V1',c.sessionRef,c.changeId,
+    ordinary.sha256,actual.originalRecipientEventId,actual.originalRecipientRevision,actual.originalRecipientStateDigest])).slice(7);
+  const body=createT4OriginalNetworkAppliedAckBody({received:ordinary,verifiedResult:actual,ackRef});
+  if(!equalStable(admission,await read())||!equalStable(actual,await inspectT4OriginalNetworkRecipientResult(normalized)))
+    fail('SUBJECT_ORIGINAL_ACK_RESULT_CHANGED');
+  const after=await phase();
+  if(!equalStable(before,after)||args.getMode()!=='T4_NETWORK')fail('SUBJECT_ORIGINAL_ACK_RESULT_CHANGED');
+  return validateT4OriginalReplacementAppliedAckAdmission({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_APPLIED_ACK_ADMISSION_V1',
+    admission,body,recipientPhaseCheckpointRef:before.checkpointRef,originalApplyIntentEventId:before.originalReplacementRecipientApplyIntentEventId,
+    originalRecipientResultVerified:true,originalDurableApplyIntentVerified:true,originalBusinessApplied:true,
+    originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false},c);
+}
+
+export async function readT4OriginalReplacementRecipientAckPublication(args={}){
+  const admission=await readT4OriginalReplacementAppliedAckAdmission(args),port=args.recipientPublicationPort;
+  if(port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||port.originalReplacementRecipientAckPublication!==true||
+    !equalStable(port.session,admission.admission.candidate)||typeof port.readOriginalPublishedFrame!=='function')
+    fail('SUBJECT_ORIGINAL_ACK_PUBLICATION_PORT_MISMATCH');
+  const publication=validateT4OriginalReplacementPublishedAck(await port.readOriginalPublishedFrame({sequence:2,includePresentEventAnchor:true}),admission);
+  if(!equalStable(admission,await readT4OriginalReplacementAppliedAckAdmission(args)))fail('SUBJECT_ORIGINAL_ACK_RESULT_CHANGED');
+  return frozen({admission,publication});
+}
+
 export async function finalizeT4OriginalNetworkRecipientAcknowledgement(args={}){
+  return finalizeOriginalRecipientAcknowledgement(args);
+}
+export async function finalizeT4OriginalReplacementRecipientAcknowledgement(args={}){
+  const received=structuredClone(args.received),{ordinary}=replacementSubject(received),
+    read=()=>readT4OriginalReplacementAppliedAckAdmission({...args,received});
+  const witness=await read();
+  const current=async()=>{if(!equalStable(witness,await read()))fail('SUBJECT_ORIGINAL_ACK_RESULT_CHANGED');};
+  const result=await finalizeOriginalRecipientAcknowledgement({...args,received:ordinary},witness.admission,current);
+  await current();
+  return frozen({...result,originalReplacementRecipientAckVerified:true,recipientCursorAdvanced:false});
+}
+async function finalizeOriginalRecipientAcknowledgement(args,replacementAdmission=null,readReplacementAck=null){
   const {received,recipientPhasePort,createSignedAppliedAckFrame,retryMissing=false}=args;
-  const {delta,kind,phase,session,port,publication}=recipientAcknowledgementContext(args);
+  const {delta,kind,phase,session,port,publication}=recipientAcknowledgementContext(args,replacementAdmission);
   const before=await phase();
   if(before.currentPhase==='VERIFIED')
     fail('SUBJECT_ORIGINAL_ACK_APPLY_INTENT_REQUIRED');
@@ -1412,6 +1463,7 @@ export async function finalizeT4OriginalNetworkRecipientAcknowledgement(args={})
   });
   const extensions=t4NativeSubjectCriticalExtensions(kind);
   const confirmResult=async()=>{
+    if(readReplacementAck!==null)await readReplacementAck();
     if(!equalStable(await result(),actual))
       fail('SUBJECT_ORIGINAL_ACK_RESULT_CHANGED');
     return phase();

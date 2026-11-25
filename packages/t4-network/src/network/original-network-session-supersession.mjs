@@ -836,15 +836,27 @@ export async function publishT4OriginalReplacementRecipientDiff({
     saved?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1'||!same(saved.session,session)||
     saved.checkpointRef!==port.checkpointRef||saved.revision!==published.originalPublicationRevision||!DIG(saved.chainHash)||
     saved.originalT3EventChainVerified!==true||saved.originalBusinessApplied!==false||saved.sourceCursorAdvanced!==false||
-    saved.frames?.length!==1||frame.state!=='PRESENT'||frame.sha256!==entry.sha256||
+    (![1,2].includes(saved.frames?.length)||(saved.frames.length===2&&saved.frames[1].messageType!=='APPLIED_ACK'))||frame.state!=='PRESENT'||frame.sha256!==entry.sha256||
     !(frame.wireBytes instanceof Uint8Array)||bytesHash(frame.wireBytes)!==entry.sha256||
     !same(decodeT4CandidateFrame(frame.wireBytes).body,body))fail('REPLACEMENT_RECIPIENT_PUBLICATION_NOT_PROVEN');
+  let anchor={originalPresentRevision:saved.revision,originalPresentChainHash:saved.chainHash};
+  if(saved.frames.length>1){
+    if(typeof port.readOriginalPublishedFrame!=='function')fail('REPLACEMENT_RECIPIENT_PUBLICATION_NOT_PROVEN');
+    anchor=await port.readOriginalPublishedFrame({sequence:1,includePresentEventAnchor:true});
+    if(anchor?.schema!=='IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1'||anchor.checkpointRef!==port.checkpointRef||
+      anchor.signedMessageType!=='DIFF_REQUEST'||anchor.verifiedSequence!==1||anchor.verifiedSessionRef!==session.sessionRef||
+      anchor.key!==published.key||anchor.sha256!==entry.sha256||!same(anchor.verifiedBody,body)||
+      anchor.originalT3PublicationEventChainVerified!==true||anchor.originalOutboundSignatureVerified!==true||
+      anchor.originalOutboundAuthorityVerified!==true||anchor.originalImmutableTransportReadbackVerified!==true||
+      !ID(anchor.originalPresentEventId)||!Number.isSafeInteger(anchor.originalPresentRevision)||anchor.originalPresentRevision<1||
+      anchor.originalPresentRevision>=saved.revision||!DIG(anchor.originalPresentChainHash))fail('REPLACEMENT_RECIPIENT_PUBLICATION_NOT_PROVEN');
+  }
   await current();
   return freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_DIFF_PUBLISHED_V1',candidate:session,
     key:published.key,sha256:published.sha256,publicationState:published.state,
     originalSourceAdmissionEventId:first.sourceIntent.originalReplacementAdmissionEventId,
-    originalPublicationCheckpointRef:port.checkpointRef,originalPublicationRevision:saved.revision,
-    originalPublicationChainHash:saved.chainHash,originalT3EventChainVerified:true,
+    originalPublicationCheckpointRef:port.checkpointRef,originalPublicationRevision:anchor.originalPresentRevision,
+    originalPublicationChainHash:anchor.originalPresentChainHash,originalT3EventChainVerified:true,
     originalSignedBytesRetained:true,networkPublished:true,originalNewAttemptAdmissionStillRequired:true,
     originalBusinessApplied:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,
     originalSubjectMutationInvoked:false,liveNetworkAuthorityGranted:false});
