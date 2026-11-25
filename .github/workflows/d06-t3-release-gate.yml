@@ -148,7 +148,8 @@ jobs:
           set -euo pipefail
           gh api repos/Faust-S/knowledge/actions/runs/45669214673 > "$RUNNER_TEMP/d06-prior-run.private.json"
           gh api repos/Faust-S/knowledge/actions/jobs/139399590758 > "$RUNNER_TEMP/d06-prior-job.private.json"
-          gh api repos/Faust-S/knowledge/actions/jobs/139399590758/logs > "$RUNNER_TEMP/d06-prior-job.private.log"
+          # Logs contain ANSI escapes. Write them only to a runner-local file, never the terminal.
+          gh api --allow-escape-sequences repos/Faust-S/knowledge/actions/jobs/139399590758/logs > "$RUNNER_TEMP/d06-prior-job.private.log"
           node "$GITHUB_WORKSPACE/pipeline/.github/d06/reuse-static-evidence.mjs" "$RUNNER_TEMP/d06-prior-run.private.json" "$RUNNER_TEMP/d06-prior-job.private.json" "$RUNNER_TEMP/d06-prior-job.private.log"
       - name: Check exact original assistant files and owner pack
         shell: pwsh
