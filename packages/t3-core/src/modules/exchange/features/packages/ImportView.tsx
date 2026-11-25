@@ -170,6 +170,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   const expiryTimerRef = useRef<number | null>(null);
   const operationGenerationRef = useRef(0);
   const cancelGuardRef = useRef(false);
+  const [cancelBusy,setCancelBusy] = useState(false);
   // Only original preview identifiers and the user's plan are held in memory,
   // never the decrypted ZIP. This allows read-only lost-ACK recovery in this
   // Exchange session; cold-process discovery belongs to the installed owner.
@@ -213,8 +214,9 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   const cancelActive = useCallback(async (
     why: "explicit" | "new-file" | "unmount" | "session-change",
   ): Promise<boolean> => {
-    if (cancelGuardRef.current) return false;
+    if (cancelGuardRef.current || commitGuardRef.current) return false;
     cancelGuardRef.current = true;
+    setCancelBusy(true);
     operationGenerationRef.current += 1;
     const tok = activeTokenRef.current;
     try {
@@ -245,6 +247,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       return true;
     } finally {
       cancelGuardRef.current = false;
+      setCancelBusy(false);
     }
   }, [cancelImportToken, canCancelToken]);
 
@@ -266,38 +269,39 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   useEffect(() => {
     const onUnload = () => {
       const tok = activeTokenRef.current;
-      if (tok && canCancel) void cancelImportToken(tok).catch(()=>{});
+      if (tok && canCancel && !commitGuardRef.current) void cancelImportToken(tok).catch(()=>{});
     };
     window.addEventListener("beforeunload", onUnload);
     return () => {
       window.removeEventListener("beforeunload", onUnload);
       operationGenerationRef.current += 1;
+      const committing=commitGuardRef.current;
       commitGuardRef.current = false;
       const tok = activeTokenRef.current;
       activeTokenRef.current = null;
       if (expiryTimerRef.current !== null) clearTimeout(expiryTimerRef.current);
-      if (tok && canCancel) void cancelImportToken(tok).catch(()=>{});
+      expiryTimerRef.current=null;
+      if (tok && canCancel && !committing) void cancelImportToken(tok).catch(()=>{});
     };
   }, [cancelImportToken, canCancel]);
 
   const armExpiry = (handle: ImportPreviewHandle) => {
     if (expiryTimerRef.current !== null) clearTimeout(expiryTimerRef.current);
-    const ms = new Date(handle.expires_at).getTime() - Date.now();
-    if (ms <= 0) {
-      const token = activeTokenRef.current;
-      activeTokenRef.current = null;
+    expiryTimerRef.current=null;
+    const expire = () => {
+      // A queued timer may run after a new selection or after commit starts.
+      // It may neither cancel another token nor hide an admitted write.
+      const token=handle.preview_token;
+      if (activeTokenRef.current!==token || commitGuardRef.current) return;
+      expiryTimerRef.current=null;
+      activeTokenRef.current=null;
       dispatch({ type: "expire" });
-      if (token && canCancel) void cancelImportToken(token).catch(()=>{});
-      return;
-    }
-    expiryTimerRef.current = window.setTimeout(() => {
-      const token = activeTokenRef.current;
-      activeTokenRef.current = null;
-      dispatch({ type: "expire" });
-      if (token && canCancel) {
+      if (!cancelGuardRef.current && canCancelToken(token))
         void cancelImportToken(token).catch(()=>{});
-      }
-    }, Math.min(ms, 2 ** 31 - 1));
+    };
+    const ms=Date.parse(handle.expires_at)-Date.now();
+    if (!Number.isFinite(ms) || ms<=0) expire();
+    else expiryTimerRef.current=window.setTimeout(expire,Math.min(ms,2**31-1));
   };
 
   const onFile = async (file: File | ImportPreviewHandle, options: {
@@ -309,6 +313,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     // calling native age.open. Do not cancel it a SECOND time after the
     // credential operation: that can discard a good restored archive.
     // A changed session/unmount/OS launch invalidates the decrypted result.
+    if (commitGuardRef.current || cancelGuardRef.current) return;
     if (options.expectedGeneration !== undefined &&
         options.expectedGeneration !== operationGenerationRef.current) return;
     if (!options.alreadyCancelled) {
@@ -410,8 +415,11 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   };
 
   const runCommit = async () => {
-    if (!state.handle) return;
-    if (commitGuardRef.current) return; // §13
+    if (!state.handle || state.status!=="preview-ready" ||
+        activeTokenRef.current!==state.handle.preview_token ||
+        commitGuardRef.current || cancelGuardRef.current) return; // §13
+    const expires=Date.parse(state.handle.expires_at);
+    if (!Number.isFinite(expires) || expires<=Date.now()) { armExpiry(state.handle);return; }
     // Every signed COMPANY import is exactly one complete Workspace,
     // whether the .iwxa was opened directly or via the original native age
     // decryptor. The latter is not an exception to company completeness.
@@ -436,6 +444,10 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
     if (validation.length > 0 || validateImportScope(state.handle.preview, state.plan).length > 0) return;
     if (!canCommitToken(state.handle.preview_token)) return;
     commitGuardRef.current = true;
+    // Expiry is now the original Kernel's decision. Stop the UI timer
+    // before invoking commit; restart it only after an explicit lock refusal.
+    if (expiryTimerRef.current!==null) clearTimeout(expiryTimerRef.current);
+    expiryTimerRef.current=null;
     const generation = operationGenerationRef.current;
     dispatch({ type: "commit-started" });
     try {
@@ -562,6 +574,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       } else {
         dispatch({ type: "commit-succeeded", receipt });
       }
+      commitGuardRef.current=false;
       // §16, PROMPT 32 §1 — refresh the actual catalog even when the
       // receipt proves only a partial import: its objects may now exist.
       // Host-owned catalog refresh via commands.
@@ -595,7 +608,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
         }
         if (token && canCancel) void cancelImportToken(token).catch(()=>{});
         if (errorClass === "expired") {
-          dispatch({ type: "expire" });
+          dispatch({ type: "commit-expired" });
         } else {
           const code =
             error && typeof error === "object" && "code" in error
@@ -618,6 +631,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
           error:
             "Импорт занят другой операцией. Повторите попытку позднее.",
         });
+        armExpiry(state.handle);
         return;
       }
 
@@ -634,6 +648,8 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
         error: "Применение не подтверждено. Проверьте Workspace перед повтором: " +
           (error instanceof Error ? error.message : String(error)),
       });
+    } finally {
+      if(generation===operationGenerationRef.current)commitGuardRef.current=false;
     }
   };
 
@@ -690,7 +706,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
 
   const openAgeFile = async () => {
     if (!protectedExchange || protectedExchange.canOpen === false ||
-        !ageFile || ageGuard.current || !canPreview) return;
+        !ageFile || ageGuard.current || commitGuardRef.current || cancelGuardRef.current || !canPreview) return;
     const encryptedFile=ageFile;
     const launchGeneration=pwaLaunchGeneration.current;
     if(!encryptedFile.name.toLowerCase().endsWith(".iwxa.age") ||
@@ -754,7 +770,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   };
 
   const openPwaFile = async () => {
-    if (!pwaFileHandle || pwaReadGuard.current || pwaUsed === pwaFileHandle ||
+    if (!pwaFileHandle || pwaReadGuard.current || commitGuardRef.current || cancelGuardRef.current || pwaUsed === pwaFileHandle ||
         !canPreview || state.status === "previewing" || state.status === "committing") return;
     const protectedPackage = pwaFileHandle.name.toLowerCase().endsWith(".iwxa.age");
     if(!protectedPackage && !kernel.hasOperation("t2.importPreview")){
@@ -804,7 +820,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   const signedFullReady = !signedCompany || completeSignedWorkspacePlan(
     state.handle!,state.plan,localWorkspaces);
   return renderImport({
-    state, canPreview, signedCompany, signedFullReady,
+    state, canPreview, signedCompany, signedFullReady,cancelBusy,
     canCommit:state.handle?canCommitToken(state.handle.preview_token):canCommit,
     canCancel:state.handle?canCancelToken(state.handle.preview_token):canCancel,
     canPlainPreview:kernel.hasOperation("t2.importPreview"),localWorkspaces,
@@ -821,6 +837,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
 
 interface RenderProps {
   state: ImportState;
+  cancelBusy:boolean;
   canPreview: boolean;
   signedCompany: boolean;
   signedFullReady: boolean;
@@ -851,21 +868,22 @@ interface RenderProps {
 
 function renderImport(p: RenderProps) {
   const {
-    state, canPreview, signedCompany, signedFullReady, canCommit, canCancel, canPlainPreview, localWorkspaces,
+    state, canPreview, signedCompany, signedFullReady, canCommit, canCancel, canPlainPreview, localWorkspaces,cancelBusy,
     onFile, runCommit, cancelActive, dispatch,
     pwaFileHandle, pwaReadBusy, pwaReadError, pwaUsed, openPwaFile,
     protectedExchange, ageFile, setAgeFile, ageBusy, ageError, openAgeFile,
     nativeReadbackAvailable,nativeReadbackBusy,nativeReadbackMessage,
     verifyNativeImportReadback,
   } = p;
-  const busy = state.status === "previewing" || state.status === "committing";
+  const busy = cancelBusy || state.status === "previewing" || state.status === "validating" || state.status === "committing";
   const scopeIssues = state.handle ? validateImportScope(state.handle.preview, state.plan) : [];
   const commitDisabled = !signedFullReady || scopeIssues.length > 0 || !canCommit || busy || !state.handle
     || state.planValidation.length > 0
-    || state.status === "committed";
+    || state.status !== "preview-ready";
 
   return (
     <div className="space-y-4" data-testid="import-view" data-import-state={state.status}>
+      {cancelBusy&&<p role="status" className="text-xs text-slate-400">Отменяем предпросмотр…</p>}
       <p className="text-xs text-slate-400">
         Выберите сохранённый пакет <code>.iwxa</code>
         (не более {MAX_PACKAGE_BYTES / (1024 * 1024)} МиБ). Байты передаются ядру и
