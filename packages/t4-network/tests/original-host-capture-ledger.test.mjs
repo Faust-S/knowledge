@@ -131,7 +131,7 @@ test('K22 combined verified capture inventory reads each original record only on
   kernel.listEventsSince=async(...args)=>{events++;return oldEvents(...args);};
   const inventory=await p.readOriginalCaptureInventory(scope);
   assert.equal(inventory.pairs.length,12);assert.equal(inventory.pending.length,0);
-  assert.equal(reads,48);assert.equal(events,2);assert.equal(catalogs,2);
+  assert.equal(reads,24);assert.equal(events,2);assert.equal(catalogs,2);
   assert.equal(inventory.originalRecordsAndEventsVerified,true);
   assert.equal(inventory.originalAuthorityGranted,false);assert.equal(f.writes,24);
   inventory.pairs[0].outbox.sourceEventId='event:tampered';
@@ -170,5 +170,28 @@ test('K27 duplicate original Event identity across paired roles cannot certify a
   const f=fixture(),p=f.port();await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
   f.events[1].event_id=f.events[0].event_id;
   await assert.rejects(f.port().readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN'});
+  assert.equal(f.writes,2);
+});
+
+
+test('K94 combined original inventory reuses signed catalog readback without hiding a changed record or revoked exact read',async()=>{
+  const f=fixture(),p=f.port();await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  const kernel=f.params.originalKernel,oldCatalog=kernel.listObjects,oldGet=kernel.getObject;
+  let catalogs=0;
+  kernel.listObjects=async(...args)=>{
+    const rows=await oldCatalog(...args);
+    if(++catalogs===2)rows.find(o=>o.data.role==='outbox').data.payload.sourceEventId='event:changed';
+    return rows;
+  };
+  await assert.rejects(p.readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_ORIGINAL_RECORD_CHANGED'});
+  kernel.listObjects=oldCatalog;
+  kernel.getObject=async(...args)=>{
+    const row=await oldGet(...args);if(row?.object.data.role==='outbox')row.object.extensions={changed:true};return row;
+  };
+  await assert.rejects(p.readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_ORIGINAL_RECORD_CHANGED'});
+  kernel.getObject=oldGet;catalogs=0;
+  kernel.listObjects=async(...args)=>{catalogs++;return oldCatalog(...args);};
+  f.params.authorizeOriginalTechnicalRead=proof=>!(catalogs>=2&&proof.operation==='t1.getObject'&&proof.recordRole==='outbox');
+  await assert.rejects(f.port().readOriginalCaptureInventory(scope),{code:'CAPTURE_LEDGER_ORIGINAL_AUTHORITY_DENIED'});
   assert.equal(f.writes,2);
 });

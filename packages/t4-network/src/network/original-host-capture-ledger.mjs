@@ -96,7 +96,7 @@ export function createT4OriginalHostCaptureLedgerPort({
     if(!Array.isArray(value)||value.length>100000)fail('CAPTURE_LEDGER_ORIGINAL_EVENTS_INVALID');
     return value;
   }
-  async function read(role,query,initial,knownEvents){
+  async function read(role,query,initial,knownEvents,catalogObject=null){
     checkScope(query);const objectId=ref(role,query.captureRef);
     await guard(initial,'t1.getObject',role,query.captureRef);
     const row=await originalKernel.getObject(technicalWorkspaceId,objectId);
@@ -121,10 +121,18 @@ export function createT4OriginalHostCaptureLedgerPort({
     if(matching.length!==1||matching[0].revision!==1||!ID(matching[0].event_id)||
       matching[0].event_type!==EVENT||!same(matching[0].payload,eventPayload(d)))
       fail('CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN');
-    await guard(initial,'t1.getObject',role,query.captureRef);
-    const after=await originalKernel.getObject(technicalWorkspaceId,objectId);
-    await guard(initial,'t1.getObject',role,query.captureRef);
-    if(!same(after?.object,o))fail('CAPTURE_LEDGER_ORIGINAL_RECORD_CHANGED');
+    if(catalogObject!==null){
+      // Only the combined inventory can use its signed original catalog
+      // as the second observation. It checks the complete catalog again
+      // before returning any pair or pending result. Direct reads retain
+      // their independent exact Object readback.
+      if(!same(catalogObject,o))fail('CAPTURE_LEDGER_ORIGINAL_RECORD_CHANGED');
+    }else{
+      await guard(initial,'t1.getObject',role,query.captureRef);
+      const after=await originalKernel.getObject(technicalWorkspaceId,objectId);
+      await guard(initial,'t1.getObject',role,query.captureRef);
+      if(!same(after?.object,o))fail('CAPTURE_LEDGER_ORIGINAL_RECORD_CHANGED');
+    }
     return copy(d.payload);
   }
   async function persist(role,payload){
@@ -176,7 +184,7 @@ export function createT4OriginalHostCaptureLedgerPort({
         o.schema_version!=='1.0.0'||o.revision!==1||o.deleted===true||
         rows.size>=4096||rows.has(o.object_id))
         fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
-      rows.set(o.object_id,o);
+      rows.set(o.object_id,copy(o));
     }
     for(const role of roles)await guard(initial,'t1.listEventsSince',role);
     const all=await originalKernel.listEventsSince(technicalWorkspaceId);
@@ -201,7 +209,7 @@ export function createT4OriginalHostCaptureLedgerPort({
     for(const [role,{rows,witnesses}] of partitions){
       if(witnesses.size!==rows.size)fail('CAPTURE_LEDGER_ORIGINAL_EVENT_NOT_PROVEN');
       const byCapture=new Map([...witnesses.values()].map(e=>[e.payload.captureRef,e]));
-      result.set(role,{byCapture,fingerprint:canonical([...witnesses.values()].sort((a,b)=>a.object_id.localeCompare(b.object_id)))});
+      result.set(role,{byCapture,rows,fingerprint:canonical([...witnesses.values()].sort((a,b)=>a.object_id.localeCompare(b.object_id)))});
     }
     return result;
   }
@@ -212,9 +220,9 @@ export function createT4OriginalHostCaptureLedgerPort({
       !query.kindFilter.every(k=>KINDS.includes(k))))fail('CAPTURE_LEDGER_KIND_FILTER_INVALID');
     if(query.sourceEventId!==undefined&&!ID(query.sourceEventId))fail('CAPTURE_LEDGER_EVENT_FILTER_INVALID');
   }
-  async function readIndexed(role,e,i,initial){
+  async function readIndexed(role,e,i,initial,combined=false){
     const payload=await read(role,{workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
-      captureRef:e.payload.captureRef},initial,[e]);
+      captureRef:e.payload.captureRef},initial,[e],combined?i.rows.get(e.object_id):null);
     if(!payload)fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
     return payload;
   }
@@ -244,10 +252,10 @@ export function createT4OriginalHostCaptureLedgerPort({
         fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED',{captureRef});
     }
     for(const [captureRef,e] of intents.byCapture){
-      const input=await readIndexed('intent',e,intents,initial),kind=kindOf(input),
+      const input=await readIndexed('intent',e,intents,initial,true),kind=kindOf(input),
         subjectId=subjectOf(input,kind),paired=outboxes.byCapture.get(captureRef);
       if(paired){
-        const out=await readIndexed('outbox',paired,outboxes,initial);
+        const out=await readIndexed('outbox',paired,outboxes,initial,true);
         if(kindOf(out)!==kind||subjectOf(out,kind)!==subjectId)
           fail('CAPTURE_LEDGER_ORIGINAL_INTENT_REQUIRED',{captureRef});
         if(includePairs)pairs.push(Object.freeze({captureRef,kind,subjectId,intent:input,outbox:out}));
@@ -266,6 +274,15 @@ export function createT4OriginalHostCaptureLedgerPort({
       nextIntents=next.get('intent'),nextOutboxes=next.get('outbox');
     if(intents.fingerprint!==nextIntents.fingerprint||outboxes.fingerprint!==nextOutboxes.fingerprint)
       fail('CAPTURE_LEDGER_ORIGINAL_INDEX_CHANGED',{automaticRetryAllowed:false});
+    for(const [role,first,last] of [['intent',intents,nextIntents],['outbox',outboxes,nextOutboxes]]){
+      // A stable Event digest alone cannot prove that the immutable Object
+      // has not changed. Compare complete original ObjectRecords and recheck
+      // each exact read authority after the fresh signed catalog read.
+      for(const [objectId,o] of first.rows){
+        if(!same(last.rows.get(objectId),o))fail('CAPTURE_LEDGER_ORIGINAL_RECORD_CHANGED');
+        await guard(initial,'t1.getObject',role,o.data.captureRef);
+      }
+    }
     if(!includePairs)return Object.freeze(pending);
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_CAPTURE_INVENTORY_V1',
       workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
