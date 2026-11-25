@@ -1,11 +1,5 @@
 name: D04 unified Life OS source checks (private source, no artifacts)
 on:
-  push:
-    branches:
-      - work/2026-11-25-d04-local-time-qualification
-    paths:
-      - .github/workflows/d04-unified-life-os-source.yml
-      - scripts/d04-private-source-preflight.sh
   workflow_dispatch:
 permissions:
   contents: read

@@ -1,8 +1,5 @@
 name: D04 revised Waterlow 2005 canonical subject method tests
 on:
-  push:
-    branches: [work/2026-11-18-d04-life-os-qualification]
-    paths: [.github/workflows/d04-waterlow-2005-method.yml]
   workflow_dispatch:
 permissions:
   contents: read

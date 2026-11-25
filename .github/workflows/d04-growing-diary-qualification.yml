@@ -1,11 +1,5 @@
 name: D04 growing diary 520 original Results (private source)
 on:
-  push:
-    branches:
-      - work/2026-11-25-d04-local-time-qualification
-    paths:
-      - .github/workflows/d04-growing-diary-qualification.yml
-      - scripts/d04-private-source-preflight.sh
   workflow_dispatch:
 permissions:
   contents: read
