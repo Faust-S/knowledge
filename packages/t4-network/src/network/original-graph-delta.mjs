@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+import {readT4OriginalRecipientHistoryEvents} from './original-technical-event-pages.mjs';
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {encodeT4OriginalDeltaJson,digestT4OriginalObjectContent} from './original-object-delta.mjs';
 import {requireT4NativeCaptureCapacity} from './original-native-content-limits.mjs';
@@ -543,15 +545,38 @@ async function recipientState(p,d){
   const scope=scopeOf(d.workspaceId,d.originalWriteOwnerRef,d.objectId);
   return graphState(p,scope,graphIds(d.relationPuts,d.relationDeletes),endpoints([...d.relationPuts,...d.relationDeletes]));
 }
+// A selected recipient history still proves the whole original Event stream.
+// Retain only matching result bodies; compare the count and an ephemeral
+// ordered digest of the same canonical Event digests used by sameHistory.
+async function recipientResultHistory(p,scope,d){
+  const match=e=>e.event_type===RESULT_EVENT&&e.payload?.originalEventId===d.sourceEventId;
+  if(p.originalRecipientHistory===undefined){
+    const rows=await history(p,scope);
+    return {rows,matches:rows.filter(match)};
+  }
+  requireReadPorts(p);
+  const guard=readGuard(p,scope);
+  const hash=createHash('sha256').update('IWXA-T4-GRAPH-RECIPIENT-HISTORY-V1\n');
+  let count=0;
+  const matches=await readT4OriginalRecipientHistoryEvents({
+    originalKernel:p.originalKernel,originalRecipientHistory:p.originalRecipientHistory,
+    workspaceId:scope.workspaceId,originalWriteOwnerRef:scope.originalWriteOwnerRef,
+    authorizeOriginalOperation:async operation=>{await guard(operation);return true;},
+    selectOriginalEvent:e=>{
+      hash.update(digestT4OriginalEventRecord(e,scope.workspaceId)+'\n');count++;
+      return match(e);
+    }});
+  return {matches,historyDigest:'sha256:'+hash.digest('hex'),originalEventsRead:count};
+}
 export async function inspectT4OriginalGraphResult(p={}){
   const exact=receivedDelta(p.received),d=exact.delta,scope=scopeOf(d.workspaceId,d.originalWriteOwnerRef,d.objectId);
   const input=recipientInput(d,exact.sha256);
-  const stream=await history(p,scope),matches=stream.filter(e=>e.event_type===RESULT_EVENT&&e.payload?.originalEventId===d.sourceEventId);
+  const stream=await recipientResultHistory(p,scope,d),matches=stream.matches;
   if(matches.length>1)fail('GRAPH_RECIPIENT_DUPLICATE_EVENT');
   const state=await recipientState(p,d);
   if(!matches.length){
     checkBefore(state,d.objectBeforeDigest,d.relationPuts,d.relationDeletes);
-    if(!sameHistory(await history(p,scope),stream,scope.workspaceId))fail('GRAPH_RECIPIENT_HISTORY_CHANGED');
+    if(!sameGraphHistory(await recipientResultHistory(p,scope,d),stream,scope.workspaceId))fail('GRAPH_RECIPIENT_HISTORY_CHANGED');
     return Object.freeze({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',state:'NOT_APPLIED',
       originalBusinessApplied:false,historicalReceiptFabricated:false});
   }
@@ -562,7 +587,7 @@ export async function inspectT4OriginalGraphResult(p={}){
   // Do not claim historical graph state after another mutation. The
   // original current graph plus its exact commit Event must both agree.
   checkAfter(state,expectedFromDelta(d),d.relationPuts,d.relationDeletes);
-  if(!sameHistory(await history(p,scope),stream,scope.workspaceId))fail('GRAPH_RECIPIENT_HISTORY_CHANGED');
+  if(!sameGraphHistory(await recipientResultHistory(p,scope,d),stream,scope.workspaceId))fail('GRAPH_RECIPIENT_HISTORY_CHANGED');
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_NETWORK_RESULT_READ_V1',state:'APPLIED_VERIFIED',
     originalRecipientEventId:event.event_id,originalRecipientRevision:d.sourceRevision,
     originalRecipientStateDigest:d.graphContentDigest,sourceEventId:d.sourceEventId,

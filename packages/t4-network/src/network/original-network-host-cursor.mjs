@@ -740,6 +740,8 @@ export function createT4OriginalNetworkRecipientCursorPort({
     !Number.isSafeInteger(recipientCommitPageSize)||recipientCommitPageSize<1||recipientCommitPageSize>1024||
     originalKernel?.hasOperation?.('t1.listEventCommitWindow')!==true||typeof originalKernel.listEventCommitWindow!=='function'))
     fail('RECIPIENT_CURSOR_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
+  const originalRecipientHistory=recipientCommitHistory?Object.freeze({readOriginalCommitPage:readOriginalRecipientCommitPage,
+    withOriginalHistoryReadBoundary:withOriginalRecipientHistoryReadBoundary,pageSize:recipientCommitPageSize}):undefined;
   if(![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
     recipientNodeRef,scopeRef].every(ID)||sourceNodeRef===recipientNodeRef||
     technicalWorkspaceId===sourceWorkspaceId||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
@@ -1020,7 +1022,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
       fail('RECIPIENT_CURSOR_ORIGINAL_SOURCE_PREFIX_DIVERGED');
     async function verifiedResult(){
       const actual=await inspectT4OriginalNetworkRecipientResult({
-        received,originalKernel,getMode,allowHistoricalEventProof:false,
+        received,originalKernel,getMode,allowHistoricalEventProof:false,originalRecipientHistory,
         authorizeOriginalRead:p=>live(()=>authorizeOriginalRecipientRead(p),'original-subject-result',p.operation,true),
         readOriginalDependencyCoverage:typeof readOriginalDependencyCoverage==='function'?
           p=>live(()=>readOriginalDependencyCoverage(p),'original-dependency-coverage','t1.getObject',true):undefined,

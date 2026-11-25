@@ -1,3 +1,4 @@
+import {readT4OriginalRecipientHistoryEvents,selectT4OriginalRecipientSubjectEvents} from './original-technical-event-pages.mjs';
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {validT4OriginalAssetMime,validT4OriginalRelationKind} from './original-subject-fields.mjs';
 import {digestT4OriginalObjectContent} from './original-object-delta.mjs';
@@ -620,7 +621,7 @@ function nativeDeletionInput(d,sha256){
     payload:nativeDeletionPayload(d,sha256)}};
 }
 function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode,
-  readOriginalDependencyCoverage,requireWorkspaceMutationBoundary=false,allowHistoricalEventProof=false){
+  readOriginalDependencyCoverage,requireWorkspaceMutationBoundary=false,allowHistoricalEventProof=false,originalRecipientHistory){
   const exact=received?.delta&&validateEnvelope(received.delta);
   if(!exact||exact.key!==received.key||exact.sha256!==received.sha256)
     fail('DELETE_RECEIVED_MISMATCH');
@@ -713,6 +714,12 @@ function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode
     return sourceRecord(owner,d.kind,d.workspaceId,subjectId,pre.fromObjectId);
   }
   async function readEvents(){
+    if(originalRecipientHistory!==undefined)return readT4OriginalRecipientHistoryEvents({
+      originalKernel,originalRecipientHistory,workspaceId:d.workspaceId,originalWriteOwnerRef:d.originalWriteOwnerRef,
+      authorizeOriginalOperation:async operation=>{await guard(operation);return true;},
+      selectOriginalEvent:selectT4OriginalRecipientSubjectEvents({kind:d.kind,subjectId,
+        objectIds:d.kind==='RELATION_DELETE'?[pre.fromObjectId,pre.toObjectId]:[deletedObjectId(d)],
+        sourceEventId:d.sourceEventId,deltaSha256:exact.sha256})});
     await guard('t1.listEventsSince');
     const events=await originalKernel.listEventsSince(d.workspaceId);
     await guard('t1.listEventsSince');
@@ -762,10 +769,10 @@ function nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode
  */
 export async function inspectT4OriginalNativeDeletionResult({
   received,originalKernel,authorizeOriginalRead,getMode,readOriginalDependencyCoverage,
-  requireWorkspaceMutationBoundary=false,allowHistoricalEventProof=false,
+  requireWorkspaceMutationBoundary=false,allowHistoricalEventProof=false,originalRecipientHistory,
 }={}){
   const c=nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode,
-    readOriginalDependencyCoverage,requireWorkspaceMutationBoundary,allowHistoricalEventProof);
+    readOriginalDependencyCoverage,requireWorkspaceMutationBoundary,allowHistoricalEventProof,originalRecipientHistory);
   const {d,subjectId,readSubject,readMatches,verifyEvent}=c;
   const prior=await readSubject(),matches=await readMatches();
   if(matches.length>1)fail('DELETE_NATIVE_DUPLICATE_ORIGINAL_EVENTS');
@@ -810,7 +817,7 @@ export async function inspectT4OriginalNativeDeletionResult({
 export async function applyT4OriginalDeleteDelta({
   received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,
   getMode,nativeNetworkEvidence=false,authorizeOriginalRead,withOriginalSubjectMutation,
-  readOriginalDependencyCoverage,
+  readOriginalDependencyCoverage,originalRecipientHistory,
 }={}){
   if(nativeNetworkEvidence){
     // No T4 lock or new Store. The original Host must hold the original
@@ -819,9 +826,9 @@ export async function applyT4OriginalDeleteDelta({
     if(typeof withOriginalSubjectMutation!=='function')
       fail('DELETE_NATIVE_ORIGINAL_MUTATION_BOUNDARY_REQUIRED');
     const args={received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,
-      getMode,nativeNetworkEvidence:true,authorizeOriginalRead,readOriginalDependencyCoverage};
+      getMode,nativeNetworkEvidence:true,authorizeOriginalRead,readOriginalDependencyCoverage,originalRecipientHistory};
     const read=nativeReadContext(received,originalKernel,authorizeOriginalRead,getMode,
-      readOriginalDependencyCoverage,true);
+      readOriginalDependencyCoverage,true,false,originalRecipientHistory);
     const proof={operation:originalOperations(read.d.kind).write,
       workspaceId:read.d.workspaceId,subjectKind:read.d.kind,
       subjectId:read.subjectId,originalWriteOwnerRef:read.d.originalWriteOwnerRef,
@@ -837,7 +844,7 @@ export async function applyT4OriginalDeleteDelta({
 }
 async function applyOriginalDeleteCore({
   received,originalKernel,authorizeOriginalWrite,verifyOriginalSourceEvent,
-  getMode,nativeNetworkEvidence,authorizeOriginalRead,readOriginalDependencyCoverage,
+  getMode,nativeNetworkEvidence,authorizeOriginalRead,readOriginalDependencyCoverage,originalRecipientHistory,
 }){
   const exact=received?.delta&&validateEnvelope(received.delta);
   if(!exact||received.key!==exact.key||received.sha256!==exact.sha256)
@@ -870,7 +877,7 @@ async function applyOriginalDeleteCore({
     fail('DELETE_ORIGINAL_SOURCE_EVENT_NOT_VERIFIED');
   if(nativeNetworkEvidence){
     const prior=await inspectT4OriginalNativeDeletionResult({
-      received,originalKernel,authorizeOriginalRead,getMode,readOriginalDependencyCoverage,
+      received,originalKernel,authorizeOriginalRead,getMode,readOriginalDependencyCoverage,originalRecipientHistory,
       requireWorkspaceMutationBoundary:d.kind==='OBJECT_DELETE'});
     if(prior.state!=='NOT_APPLIED')fail('DELETE_NATIVE_ORIGINAL_RESULT_ALREADY_EXISTS');
   }
@@ -921,7 +928,7 @@ async function applyOriginalDeleteCore({
   if(!isGone(d.kind,current,subjectId,d.workspaceId,pre))fail('DELETE_ORIGINAL_READBACK_NOT_REMOVED');
   if(nativeNetworkEvidence){
     const verified=await inspectT4OriginalNativeDeletionResult({
-      received,originalKernel,authorizeOriginalRead,getMode,readOriginalDependencyCoverage,
+      received,originalKernel,authorizeOriginalRead,getMode,readOriginalDependencyCoverage,originalRecipientHistory,
       requireWorkspaceMutationBoundary:d.kind==='OBJECT_DELETE'});
     if(verified.state!=='APPLIED_VERIFIED'||verified.originalRecipientEventId!==receipt.event.event_id)
       fail('DELETE_NATIVE_ORIGINAL_RESULT_EVENT_OR_STATE_MISMATCH');

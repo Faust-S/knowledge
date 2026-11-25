@@ -333,12 +333,31 @@ export function createT4OriginalNativeHostNetworkOwner({
       verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
       ...(scopedVault?.verifyOriginalHistoricalNodeSignature?{verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature')}:{ }),
       ...(role==='SOURCE'&&scopedSealed?{authorizeOriginalSealedPublication:callback('authorizeOriginalSealedPublication')}:{})});
+    const recipientHistoryBoundary=enableOriginalRecipientFrontierCommitOrder?bindT4OriginalHistoryBoundary({
+      workspaceId:sourceWorkspaceId,originalWriteOwnerRef,getMode,requireWorkspaceMutationExclusion:true,
+      withOriginalSubjectMutation:callback('withOriginalSubjectMutation'),
+      withOriginalHistoryReadBoundary:callback('withOriginalHistoryReadBoundary'),
+    }):null;
+    const recipientHistoryPorts=recipientHistoryBoundary===null?{}:{
+      withOriginalRecipientHistoryReadBoundary:recipientHistoryBoundary.withOriginalHistoryReadBoundary,
+      readOriginalRecipientCommitPage:async proof=>{
+        recipientHistoryBoundary.assertOriginalHistoryReadScope(proof);
+        await requireBinding(state,'recipient-commit-page');
+        recipientHistoryBoundary.assertOriginalHistoryReadScope(proof);
+        const page=await originalKernel.listEventCommitWindow(sourceWorkspaceId,proof.afterEventId,proof.limit);
+        await requireBinding(state,'recipient-commit-page-readback');
+        recipientHistoryBoundary.assertOriginalHistoryReadScope(proof);return page;
+      },
+    };
+    const originalRecipientHistory=recipientHistoryBoundary===null?undefined:Object.freeze({
+      readOriginalCommitPage:recipientHistoryPorts.readOriginalRecipientCommitPage,
+      withOriginalHistoryReadBoundary:recipientHistoryPorts.withOriginalRecipientHistoryReadBoundary});
     // A witnessed recipient phase uses the existing exact Kernel readback.
     // Unwitnessed historical reads still require the original owner port.
     const verifyApplied=({session,received})=>enableRecipientResultRead&&role==='SOURCE'&&session.schema==='IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SESSION_V1'?
       createT4OriginalRemoteRecipientAppliedVerifier({session,getMode,readOriginalRecipientResult:readPeerHistory}):
       enableLocalRecipientResultVerification&&received!=null?
-      createT4OriginalRecipientAppliedVerifier({session,received,originalKernel,getMode,
+      createT4OriginalRecipientAppliedVerifier({session,received,originalKernel,getMode,originalRecipientHistory,
         authorizeOriginalRead:callback('authorizeOriginalRead'),readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage')}):
       callback('verifyOriginalRecipientApplied');
     const phase=async({session,received})=>createT4OriginalNetworkSessionPhasePort({...tech,
@@ -662,22 +681,6 @@ export function createT4OriginalNativeHostNetworkOwner({
       const {window,nextCursor}=validateT4OriginalSourceEventWindowSnapshot(raw,request);return {window,nextCursor};
     }:null;
     const authorizeOriginalSourceRead=callback('authorizeOriginalSourceRead');
-    const recipientHistoryBoundary=enableOriginalRecipientFrontierCommitOrder?bindT4OriginalHistoryBoundary({
-      workspaceId:sourceWorkspaceId,originalWriteOwnerRef,getMode,requireWorkspaceMutationExclusion:true,
-      withOriginalSubjectMutation:callback('withOriginalSubjectMutation'),
-      withOriginalHistoryReadBoundary:callback('withOriginalHistoryReadBoundary'),
-    }):null;
-    const recipientHistoryPorts=recipientHistoryBoundary===null?{}:{
-      withOriginalRecipientHistoryReadBoundary:recipientHistoryBoundary.withOriginalHistoryReadBoundary,
-      readOriginalRecipientCommitPage:async proof=>{
-        recipientHistoryBoundary.assertOriginalHistoryReadScope(proof);
-        await requireBinding(state,'recipient-commit-page');
-        recipientHistoryBoundary.assertOriginalHistoryReadScope(proof);
-        const page=await originalKernel.listEventCommitWindow(sourceWorkspaceId,proof.afterEventId,proof.limit);
-        await requireBinding(state,'recipient-commit-page-readback');
-        recipientHistoryBoundary.assertOriginalHistoryReadScope(proof);return page;
-      },
-    };
     const cursor=createT4OriginalNetworkRecipientCursorPort({...tech,...recipientHistoryPorts,originalBaselinePort:baseline,
       authorizeOriginalRecipientRead:common.authorizeOriginalRead,authorizeOriginalSourceRead,
       readOriginalSourceEvents,readOriginalSourceWindow,readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage')});
@@ -687,7 +690,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     const sourceProofPorts=enableSourceCaptureBinding?{readOriginalSourceCaptureSnapshot:readPeerHistory}:{
       readOriginalSourceHostContext:callback('readOriginalSourceHostContext'),readOriginalSourceEvents,readOriginalSourceWindow,
       verifyOriginalSourceSubject:callback('verifyOriginalSourceSubject'),verifyOriginalSourceBinding:callback('verifyOriginalSourceBinding')};
-    const task=createT4OriginalHostRecipientDispatcher({...common,originalRecipientCursorPort:cursor,
+    const task=createT4OriginalHostRecipientDispatcher({...common,originalRecipientCursorPort:cursor,originalRecipientHistory,
       authorizeNetworkReceive:callback('authorizeNetworkReceive'),...(enableSourceCaptureBinding?{}:{verifyOriginalSourceEvent:callback('verifyOriginalSourceEvent')}),
       readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage'),
       withOriginalSubjectMutation:recipientHistoryBoundary?.withOriginalSubjectMutation??callback('withOriginalSubjectMutation')});

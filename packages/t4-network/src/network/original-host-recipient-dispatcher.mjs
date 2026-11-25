@@ -578,7 +578,7 @@ async function executeNativeRecipient(p,options,sharedGuard=null){
     received,recipientPhasePort,recipientPublicationPort,retryMissing,
     createSignedAppliedAckFrame:typeof createSignedAppliedAckFrame==='function'?
       protect(createSignedAppliedAckFrame,'sign-applied-ack'):undefined,
-    originalKernel:p.originalKernel,getMode:p.getMode,
+    originalKernel:p.originalKernel,getMode:p.getMode,originalRecipientHistory:p.originalRecipientHistory,
     authorizeOriginalRead:protect(p.authorizeOriginalRead,'read-original-subject'),
     authorizeOriginalWrite:protect(p.authorizeOriginalWrite,'write-original-subject'),
     verifyOriginalSourceEvent:protect(p.verifyOriginalSourceEvent,'verify-original-source-event'),
@@ -1001,7 +1001,7 @@ async function executeNativeReplacementRecipientStep(p,options){
     const args={received,readOriginalReplacementRecipientContentObservation:observe,
       authorizeOriginalReplacementRecipientApplyAdmission:live(authorizeOriginalReplacementRecipientApplyAdmission,'replacement-apply-admission'),getMode:p.getMode};
     let phase,ackPort;
-    const subjectArgs={...args,originalKernel:p.originalKernel,
+    const subjectArgs={...args,originalKernel:p.originalKernel,originalRecipientHistory:p.originalRecipientHistory,
       authorizeOriginalRead:live(p.authorizeOriginalRead,'read-original-subject'),authorizeOriginalWrite:live(p.authorizeOriginalWrite,'write-original-subject'),
       verifyOriginalSourceEvent:live(p.verifyOriginalSourceEvent,'verify-original-source-event'),
       readOriginalDependencyCoverage:typeof p.readOriginalDependencyCoverage==='function'?live(p.readOriginalDependencyCoverage,'read-original-dependencies'):undefined,
