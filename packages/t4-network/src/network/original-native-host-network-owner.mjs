@@ -6,8 +6,8 @@ import {createT4OriginalHostCaptureLedgerPort} from './original-host-capture-led
 import {createT4OriginalHostCaptureAdapter} from './original-host-capture-adapter.mjs';
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort}
   from './original-network-host-cursor.mjs';
-import {createT4OriginalNetworkSessionPhasePort,requireT4OriginalRetiredAttemptStatus,readT4OriginalLocalReplacementSelection} from './original-network-session-phases.mjs';
-import {createT4OriginalNetworkPublicationPort,isT4RecoverablePublicationWakeError,createT4OriginalPublicationIndexMigrationStepper,readT4OriginalLocalRetiredRecipientSession} from './original-network-publication.mjs';
+import {createT4OriginalNetworkSessionPhasePort,createT4OriginalReplacementHistoricalPhasePort,requireT4OriginalRetiredAttemptStatus,readT4OriginalLocalReplacementSelection} from './original-network-session-phases.mjs';
+import {createT4OriginalNetworkPublicationPort,validateT4OriginalReplacementDiffAcceptance,isT4RecoverablePublicationWakeError,createT4OriginalPublicationIndexMigrationStepper,readT4OriginalLocalRetiredRecipientSession} from './original-network-publication.mjs';
 import {createT4OriginalNetworkReplayPort} from './original-network-replay-checkpoint.mjs';
 import {isT4NativeTopologyTransport} from './network-topology.mjs';
 import {isT4OriginalVaultNodeSignaturePort} from './original-vault-node-signature.mjs';
@@ -21,7 +21,8 @@ import {readT4OriginalReplacementOwnerHistory,completeT4OriginalReplacementHostC
 import {isT4OriginalSignedReplacementHistoryAccess} from './original-signed-replacement-history-access.mjs';
 import {isT4OriginalReplacementHistoryClient,normalizeT4OriginalReplacementOwnerRequest} from './original-replacement-owner-history-carrier.mjs';
 import {T4_REPLACEMENT_ELIGIBILITY_REQUEST,readT4OriginalReplacementOwnerEligibility} from './original-network-replacement-owner-eligibility.mjs';
-import {advanceT4OriginalReplacementSourceHandshake,advanceT4OriginalReplacementRecipientHandshake} from './original-network-session-supersession.mjs';
+import {advanceT4OriginalReplacementSourceHandshake,advanceT4OriginalReplacementRecipientHandshake,advanceT4OriginalReplacementSourceContent,
+  recoverT4OriginalReplacementEligibility,discoverT4OriginalReplacementRecipientDiff} from './original-network-session-supersession.mjs';
 
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 // The original native relay issues a 32-byte base64url token. Its first
@@ -67,7 +68,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   enableLocalSourceCapture=false,enablePublicationIndexMigration=false,
   enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,requireSignedTopologyAccess=false,
   enableHistoricalAcknowledgementRecovery=false,enableLocalRetiredRecipientRecovery=false,enableLocalReplacementRecovery=false,
-  enableReplacementTerminalRecovery=false,enableReplacementEligibilityRead=false,enableReplacementSourceAdmission=false,enableReplacementRecipientAdmission=false,
+  enableReplacementTerminalRecovery=false,enableReplacementEligibilityRead=false,enableReplacementSourceAdmission=false,enableReplacementRecipientAdmission=false,enableReplacementSourceContent=false,
   originalSignedReplacementHistoryAccess=null,originalReplacementHistoryClient=null,
   originalVaultNodeSignaturePort=null,requireOriginalVaultNodeSignature=false,requireDurableNetworkKeyBinding=false,
   originalVaultSealedContentPort=null,requireOriginalVaultSealedContent=false,
@@ -107,6 +108,10 @@ export function createT4OriginalNativeHostNetworkOwner({
     (!enableReplacementEligibilityRead||!enableLocalRetiredRecipientRecovery||role!=='RECIPIENT'||nativeTopologyTransport?.transport?.nativeFrameIndexVersion!==1||
       !['authorizeOriginalReplacement','authorizeOriginalReplacementRecipientAdmission'].every(k=>typeof originalPorts?.[k]==='function'))))
     fail('NATIVE_NETWORK_OWNER_REPLACEMENT_RECIPIENT_ADMISSION_PROFILE_INVALID');
+  if(typeof enableReplacementSourceContent!=='boolean'||(enableReplacementSourceContent&&
+    (!enableReplacementSourceAdmission||!isT4OriginalVaultSealedContentPort(originalVaultSealedContentPort)||
+      originalVaultSealedContentPort.originalReplacementBindingEnabled!==true||typeof originalPorts?.authorizeOriginalReplacementDiffAcceptance!=='function')))
+    fail('NATIVE_NETWORK_OWNER_REPLACEMENT_SOURCE_CONTENT_PROFILE_INVALID');
   if(typeof enableLocalRetiredRecipientRecovery!=='boolean'||(enableLocalRetiredRecipientRecovery&&role!=='RECIPIENT'))
     fail('NATIVE_NETWORK_OWNER_LOCAL_RETIREMENT_PROFILE_INVALID');
   if(typeof enableHistoricalAcknowledgementRecovery!=='boolean'||(enableHistoricalAcknowledgementRecovery&&
@@ -198,7 +203,8 @@ export function createT4OriginalNativeHostNetworkOwner({
       'authorizeOriginalReplacementHistoryCaller']:[]),
     ...(enableReplacementEligibilityRead&&role==='SOURCE'?['authorizeOriginalSessionSelection']:[]),
     ...(enableReplacementSourceAdmission||enableReplacementRecipientAdmission?['authorizeOriginalReplacement']:[]),
-    ...(enableReplacementRecipientAdmission?['authorizeOriginalReplacementRecipientAdmission']:[])].map(k=>[k,originalPorts[k]])));
+    ...(enableReplacementRecipientAdmission?['authorizeOriginalReplacementRecipientAdmission']:[]),
+    ...(enableReplacementSourceContent?['authorizeOriginalReplacementDiffAcceptance']:[])].map(k=>[k,originalPorts[k]])));
   const identity=Object.freeze({technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch});
   const operations=role==='SOURCE'?(enableLocalSourceCapture?
@@ -455,8 +461,52 @@ export function createT4OriginalNativeHostNetworkOwner({
               changeKind:session.changeKind,replacementSourceAdmission:admission,readOriginalReplacementSourceAdmission,
               verifyOriginalPhaseEvidence:callback('verifyOriginalPhaseEvidence'),verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied')})});
       };
+      const continueReplacementSourceContent=async({selection,retryMissing=false})=>{
+        const captured=await dispatcher.prepareNextNativeObject({isHostActive});
+        const c=selection.session,sourceCursorBefore=selection.sourceCursorBefore;
+        if(captured?.state!=='ORIGINAL_NATIVE_CAPTURE_READY'||JSON.stringify(captured.sourceCursorBefore)!==JSON.stringify(sourceCursorBefore))
+          fail('NATIVE_REPLACEMENT_SOURCE_CAPTURE_CHANGED');
+        const eligibility={originalCaptureSession:c.originalCaptureSession,sourceCursorBefore,requesterNodeRef:nodeRef,
+          getMode,requiredCryptoSuite,readOriginalOwnerEligibility,authorizeOriginalReplacement:authorizeReplacement};
+        const readEligibility=()=>recoverT4OriginalReplacementEligibility(eligibility);
+        const makePublication=extra=>createT4OriginalNetworkPublicationPort({...tech,session:c,localNodeRef:nodeRef,frameTransport:frameDiscoveryPort,
+          authorizeOriginalFramePublish:callback('authorizeOriginalFramePublish'),verifyOriginalNodeSignature:callback('verifyOriginalNodeSignature'),
+          verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),readOriginalReplacementEligibility:readEligibility,...extra});
+        // Reopen the INTENT from the original phase Object, not a former
+        // process closure. The handshake publication port cannot write content.
+        const sourceAdmissionPhasePort=createT4OriginalReplacementHistoricalPhasePort({technicalSchemaId,technicalWorkspaceId,
+          localNodeRef:nodeRef,originalKernel,getMode,readOriginalHostContext:tech.readOriginalHostContext,
+          authorizeOriginalTechnicalRead:tech.authorizeOriginalTechnicalRead,verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied'),session:c});
+        const handshake={...eligibility,sourceAdmissionPhasePort,sourcePublicationPort:makePublication({}),frameDiscoveryPort,
+          readOriginalRecipientDiffHistory:request=>{
+            if(request.schema!==T4_REPLACEMENT_RECIPIENT_DIFF_REQUEST)fail('NATIVE_REPLACEMENT_ELIGIBILITY_ROUTE_INVALID');
+            return readPeerHistory(request);
+          },authorizeOriginalReplacementDiffAcceptance:callback('authorizeOriginalReplacementDiffAcceptance')};
+        const readDiff=async proof=>{
+          if(JSON.stringify(proof.candidate)!==JSON.stringify(c))fail('NATIVE_REPLACEMENT_SOURCE_CAPTURE_CHANGED');
+          const observed=await discoverT4OriginalReplacementRecipientDiff(handshake);
+          if(['WAITING_FOR_REPLACEMENT_DIFF','WAITING_FOR_REPLACEMENT_RECIPIENT_PUBLICATION'].includes(observed.state))
+            fail('REPLACEMENT_CONTENT_AGREEMENT_NOT_READY');
+          return validateT4OriginalReplacementDiffAcceptance(observed,c);
+        };
+        const sealed=scopedSealed.bindOriginalReplacementDiffAcceptance(readDiff);
+        const sealCall=name=>async proof=>{
+          await requireBinding(state,name);const value=await sealed[name](proof);await requireBinding(state,name+'-readback');return value;
+        };
+        return advanceT4OriginalReplacementSourceContent({...handshake,selection,task:captured,retryMissing,
+          resolveOriginalSigningContext:signing.resolveOriginalSigningContext,signOriginalNodeBytes:signing.signOriginalNodeBytes,
+          authorizeOriginalSealedContent:callback('authorizeOriginalSealedContent'),readOriginalSealedContent:sealCall('readOriginalSealedContent'),
+          createOriginalReplacementContentPublicationPort:async({session},readOriginalReplacementDiffAcceptance)=>{
+            if(JSON.stringify(session)!==JSON.stringify(c))fail('NATIVE_REPLACEMENT_SOURCE_CAPTURE_CHANGED');
+            return makePublication({readOriginalReplacementDiffAcceptance,authorizeOriginalSealedPublication:sealCall('authorizeOriginalSealedPublication')});
+          },createOriginalReplacementSourceContentPhasePort:async({session,admission},readOriginalReplacementSourceContentPublication)=>
+            createT4OriginalNetworkSessionPhasePort({...tech,localNodeRef:nodeRef,sessionRef:session.sessionRef,changeId:session.changeId,
+              changeKind:session.changeKind,replacementSourceAdmission:admission,readOriginalReplacementSourceContentPublication,
+              readOriginalReplacementSourceAdmission:async()=>fail('NATIVE_REPLACEMENT_SOURCE_INTENT_ALREADY_RECORDED'),
+              verifyOriginalPhaseEvidence:callback('verifyOriginalPhaseEvidence'),verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied')})});
+      };
       return {baseline,task,capture:captureRecovery,migrateNextPublication:()=>migrateNextPublication(),
-        continueReplacementSource,
+        continueReplacementSource,continueReplacementSourceContent,
         readLocalOwnerHistory:request=>readLocalOwnerHistory(request,sourceCursorPort,readOriginalCaptureSelection),
         readLocalReplacement:()=>readLocalReplacement(async()=>(await sourceCursorPort.inspectOriginalHostCursor()).originalT3NextCursor),
         completeLocalReplacement:selection=>completeLocalReplacement(selection,sourceCursorPort),
@@ -657,6 +707,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     ...(enableReplacementEligibilityRead?{originalReplacementEligibilityReadEnabled:true}:{}),
     ...(enableReplacementSourceAdmission?{originalReplacementSourceAdmissionEnabled:true}:{}),
     ...(enableReplacementRecipientAdmission?{originalReplacementRecipientAdmissionEnabled:true}:{}),
+    ...(enableReplacementSourceContent?{originalReplacementSourceContentEnabled:true}:{}),
     ...(enableLocalSourceCapture?{localSourceMutation:Object.freeze({workspaceId:sourceWorkspaceId,
       methods:LOCAL_METHODS,invoke:invokeLocalSource})}:{}),
     createsScheduler:false,createsTaskEngine:false,createsStore:false,createsKernel:false,
@@ -744,7 +795,9 @@ export function createT4OriginalNativeHostNetworkOwner({
               await state.continueReplacementSource({selection,retryMissing:state.networkRecovery!==null}):
               enableReplacementRecipientAdmission&&selection.originalLocalPhase===null&&selection.originalLocalFrames[0].state!=='PRESENT'?
                 await state.continueReplacementRecipient({selection,retryMissing:state.networkRecovery!==null}):
-                await state.completeLocalReplacement(selection);
+                enableReplacementSourceContent&&selection.originalLocalPhase==='INTENT'?
+                  await state.continueReplacementSourceContent({selection,retryMissing:state.networkRecovery!==null}):
+                  await state.completeLocalReplacement(selection);
             if(role==='SOURCE'&&result.state==='ORIGINAL_REPLACEMENT_CURSOR_COMMITTED')state.resetSourceMigration();
           }
           // A retained accepted ACK is local original evidence. Do not
@@ -766,7 +819,7 @@ export function createT4OriginalNativeHostNetworkOwner({
         state.networkRecovery=null;
         // Use the same native wake; no timer, remote retry grant or new task.
         // The peer history read entry remains available during this delay.
-        if(enableReplacementTerminalRecovery&&['WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE','WAITING_FOR_REPLACEMENT_ELIGIBILITY'].includes(result.state)){
+        if(enableReplacementTerminalRecovery&&['WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE','WAITING_FOR_REPLACEMENT_ELIGIBILITY','WAITING_FOR_REPLACEMENT_CONTENT_AGREEMENT'].includes(result.state)){
           const observed=monotonicNow();
           if(!Number.isFinite(observed)||observed<now)fail('NATIVE_NETWORK_OWNER_CLOCK_INVALID');
           state.replacementHistoryWait=deferT4OriginalReplacementHistoryWake({role,selection:result.replacementWake??result.selection,previous:state.replacementHistoryWait,now:observed});
@@ -788,7 +841,7 @@ export function createT4OriginalNativeHostNetworkOwner({
             originalLocalReplacementSelected:true,originalPeerOwnerReadStillRequired:true,
             originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false,
             ...(state.replacementHistoryWait?{retryAfterMs:state.replacementHistoryWait.retryAfterMs}:{})}:{}),
-          ...(['WAITING_FOR_REPLACEMENT_ELIGIBILITY','ORIGINAL_REPLACEMENT_HEAD_PUBLISHED','ORIGINAL_REPLACEMENT_SOURCE_INTENT_RECORDED','ORIGINAL_REPLACEMENT_RECIPIENT_DIFF_PUBLISHED'].includes(result.state)?{
+          ...(['WAITING_FOR_REPLACEMENT_ELIGIBILITY','ORIGINAL_REPLACEMENT_HEAD_PUBLISHED','ORIGINAL_REPLACEMENT_SOURCE_INTENT_RECORDED','ORIGINAL_REPLACEMENT_RECIPIENT_DIFF_PUBLISHED','WAITING_FOR_REPLACEMENT_CONTENT_AGREEMENT','ORIGINAL_REPLACEMENT_CONTENT_PRESENT','ORIGINAL_REPLACEMENT_SOURCE_PUBLISHED'].includes(result.state)?{
             replacementSessionRef:result.replacementSessionRef,originalSupersessionEventId:result.originalSupersessionEventId,
             originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false,originalLocalReadbackRequired:true,
             ...(state.replacementHistoryWait?{retryAfterMs:state.replacementHistoryWait.retryAfterMs}:{})}:{}),

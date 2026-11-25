@@ -1020,8 +1020,14 @@ test('K60 K61 K62 original Vault seals, opens and decodes successor canonical su
     originalSourceHeadPresentChainHash:d,originalRecipientPublicationChainHash:d,
     originalSourceHeadPresentRevision:3,originalRecipientPublicationRevision:3};
   const input={...c.input,session:candidate};let admitted=true;
-  const source=createT4OriginalVaultSealedContentPort({...q.common,role:'SOURCE',
-    readOriginalReplacementDiffAcceptance:async()=>admitted?witness:null});
+  const unbound=createT4OriginalVaultSealedContentPort({...q.common,role:'SOURCE',enableOriginalReplacementBinding:true});
+  assert.equal(unbound.originalReplacementBindingEnabled,true);
+  assert.equal(q.source.bindOriginalReplacementDiffAcceptance,undefined);
+  await assert.rejects(unbound.readOriginalSealedContent(input),{code:'SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'});
+  let active=true;const source=unbound.forOriginalHostLifetime(()=>active).bindOriginalReplacementDiffAcceptance(async()=>admitted?witness:null);
+  assert.equal(source.originalReplacementSourceContentAdmission,true);assert.equal(source.bindOriginalReplacementDiffAcceptance,undefined);
+  assert.throws(()=>createT4OriginalVaultSealedContentPort({...q.common,role:'SOURCE',enableOriginalReplacementBinding:true,
+    readOriginalReplacementDiffAcceptance:async()=>witness}),{code:'SEALED_CONTENT_ORIGINAL_PORTS_REQUIRED'});
   await assert.rejects(q.source.readOriginalSealedContent(input),{code:'SEALED_CONTENT_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'});
   admitted=false;
   await assert.rejects(source.readOriginalSealedContent(input),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'});
@@ -1040,6 +1046,7 @@ test('K60 K61 K62 original Vault seals, opens and decodes successor canonical su
   admitted=false;
   await assert.rejects(source.authorizeOriginalSealedPublication(publication),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_DIFF_ACCEPTANCE_REQUIRED'});
   assert.equal(q.unlocks,0);
+  active=false;await assert.rejects(source.authorizeOriginalSealedPublication(publication),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});
   // K61: isolate the live recipient Vault gate with a typed readback fixture.
   // The independent source/recipient journals themselves are tested separately.
   const frame=(sequence,messageType,sha256,presentEventId,presentRevision,presentChainHash)=>

@@ -2014,7 +2014,7 @@ test('K82 recipient reads source INTENT through independent owner carrier, requi
 
 import {createT4OriginalReplacementOwnerRecipientDiffRequest,validateT4OriginalReplacementOwnerRecipientDiffSnapshot} from '../src/network/original-network-replacement-owner-history.mjs';
 
-test('K83 source accepts DIFF via independent local recipient history, never a reciprocal source call',async()=>{
+async function replacementOwnerDiffFixture(){
   const q=await replacementContentFixture({realSourceHistory:true}),{x,c}=q,root=x.session,before=x.sourceCursorBefore;
   const {requiredCryptoSuite,getMode}=x.eligibilityOptions();
   const capture=()=>({schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SELECTION_V1',state:'ORIGINAL_NATIVE_SESSION_SELECTED',
@@ -2048,7 +2048,12 @@ test('K83 source accepts DIFF via independent local recipient history, never a r
     sourceAdmissionPhasePort:q.phase,sourcePublicationPort:q.sourcePublicationPort,frameDiscoveryPort:x.transport(sourceNodeRef),
     readOriginalRecipientDiffHistory:client,authorizeOriginalReplacementDiffAcceptance:async()=>true};
   const discover=(patch={})=>discoverT4OriginalReplacementRecipientDiff({...params,...patch});
-  assert.equal((await discover()).state,'WAITING_FOR_REPLACEMENT_DIFF');assert.equal(historyReads,0);
+  return {q,x,c,root,before,params,client,discover,historyReads:()=>historyReads,
+    setBusy:v=>{busy=v;},setMutate:v=>{mutate=v;},setAllow:v=>{allow=v;}};
+}
+test('K83 source accepts DIFF via independent local recipient history, never a reciprocal source call',async()=>{
+  const f=await replacementOwnerDiffFixture(),{q,x,c,client,discover}=f;
+  assert.equal((await discover()).state,'WAITING_FOR_REPLACEMENT_DIFF');assert.equal(f.historyReads(),0);
   const head=(await q.sourcePublicationPort.inspectOriginalPublication()).frames[0];
   const request=createT4OriginalReplacementOwnerRecipientDiffRequest({session:c,requesterNodeRef:sourceNodeRef,ownerNodeRef:recipientNodeRef,
     headWireBase64:Buffer.from(head.wireBytes).toString('base64')});
@@ -2059,15 +2064,60 @@ test('K83 source accepts DIFF via independent local recipient history, never a r
   assert.equal(witness.acceptedHead.wireSha256,head.sha256);assert.equal(witness.acceptedHead.originalHistoricalAcceptanceProven,true);
   assert.equal(witness.liveNetworkAuthorityGranted,false);assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},beforeCounts);
   const direct=await q.current(),selected=await discover();assert.deepEqual(selected,direct);
-  busy=true;assert.equal((await discover()).state,'WAITING_FOR_REPLACEMENT_RECIPIENT_PUBLICATION');busy=false;
-  mutate=true;await assert.rejects(discover(),isCode('REPLACEMENT_SOURCE_DIFF_ORIGINAL_PUBLICATION_MISMATCH'));mutate=false;
+  f.setBusy(true);assert.equal((await discover()).state,'WAITING_FOR_REPLACEMENT_RECIPIENT_PUBLICATION');f.setBusy(false);
+  f.setMutate(true);await assert.rejects(discover(),isCode('REPLACEMENT_SOURCE_DIFF_ORIGINAL_PUBLICATION_MISMATCH'));f.setMutate(false);
   await assert.rejects(discover({recipientPublicationPort:q.recipientPublicationPort}),isCode('REPLACEMENT_SOURCE_DIFF_PORTS_REQUIRED'));
   assert.throws(()=>validateT4OriginalReplacementOwnerRecipientDiffSnapshot({...witness,acceptedHead:{...witness.acceptedHead,originalReplayCheckpointCreated:true}},request),
     isCode('REPLACEMENT_DIFF_HISTORY_PROOF_MISMATCH'));
-  allow=false;await assert.rejects(client(request),isCode('REPLACEMENT_HISTORY_OWNER_READ_DENIED'));allow=true;
+  f.setAllow(false);await assert.rejects(client(request),isCode('REPLACEMENT_HISTORY_OWNER_READ_DENIED'));f.setAllow(true);
   // The local recipient endpoint does not need network transport or a live signer.
   x.rotateSource();x.rotateRecipient();x.offline();x.f.restart();
   const cold={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
   assert.deepEqual(await client(request),witness);
   assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},cold);
+});
+
+
+import {advanceT4OriginalReplacementSourceContent} from '../src/network/original-network-session-supersession.mjs';
+
+test('K84 source wake resumes prepared successor content and separately confirms PUBLISHED from the original phase',async()=>{
+  const f=await replacementOwnerDiffFixture(),{q,x,c,root,before,params}=f;
+  const {requiredCryptoSuite,getMode}=params;
+  const select=()=>readT4OriginalLocalReplacementSelection({...x.historicalReadOptions(sourceNodeRef),technicalSchemaId:'iwxa.demo.note',
+    sourceWorkspaceId:root.workspaceId,originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch:root.ownerEpoch,
+    sourceCursorBefore:before,readOriginalCurrentCursor:async()=>(await x.realSourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,
+    requiredCryptoSuite,verifyOriginalHistoricalNodeSignature:x.historicalSignature(sourceNodeRef),verifyOriginalRecipientApplied:async()=>false});
+  const phase=()=>createT4OriginalReplacementHistoricalPhasePort({...x.historicalReadOptions(sourceNodeRef),session:c,verifyOriginalRecipientApplied:async()=>false});
+  const advance=async(selection,patch={})=>advanceT4OriginalReplacementSourceContent({...params,selection:selection??await select(),
+    sourceAdmissionPhasePort:phase(),task:x.task,resolveOriginalSigningContext:q.params.resolveOriginalSigningContext,
+    signOriginalNodeBytes:q.params.signOriginalNodeBytes,authorizeOriginalSealedContent:q.params.authorizeOriginalSealedContent,
+    readOriginalSealedContent:q.params.readOriginalSealedContent,createOriginalReplacementContentPublicationPort:q.params.createOriginalReplacementContentPublicationPort,
+    createOriginalReplacementSourceContentPhasePort:async({session,admission},readOriginalReplacementSourceContentPublication)=>x.sourcePhase({
+      sessionRef:session.sessionRef,authorizeOriginalSourceSupersession:null,replacementSourceAdmission:admission,
+      readOriginalReplacementSourceAdmission:async()=>assert.fail('INTENT must not be rewritten'),readOriginalReplacementSourceContentPublication}),...patch});
+  const initial=await select();assert.equal(initial.originalLocalPhase,'INTENT');
+  assert.equal((await advance(initial)).state,'WAITING_FOR_REPLACEMENT_CONTENT_AGREEMENT');
+  assert.equal(q.seals(),0);await q.diff();
+  const counts={sourcePhase:x.sourcePhaseWrites(),recipientPhase:x.phaseWrites(),signs:x.signatureCount(),puts:x.counts().networkPuts};
+  f.setBusy(true);assert.equal((await advance()).state,'WAITING_FOR_REPLACEMENT_CONTENT_AGREEMENT');f.setBusy(false);
+  const stale=structuredClone(initial);stale.originalLocalPublicationRevision++;
+  await assert.rejects(advance(stale),isCode('REPLACEMENT_HOST_SOURCE_CONTENT_SELECTION_CHANGED'));
+  await assert.rejects(advance(null,{task:{...x.task,sourceCursorBefore:x.sourceCursorAfter}}));
+  assert.equal(q.seals(),0);
+  x.sourceStore.loseNextReply();await assert.rejects(advance(),isCode('PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN'));
+  x.f.restart();const prepared=await select();assert.deepEqual(prepared.originalLocalFrames.map(f=>f.state),['PRESENT','PREPARED','PREPARED','PREPARED']);
+  assert.equal(q.seals(),1);assert.equal(x.signatureCount(),counts.signs+3);assert.equal(x.counts().networkPuts,counts.puts);
+  x.loseControlWrite();await assert.rejects(advance(prepared),isCode('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  x.f.restart();const attempted=await select();assert.equal(attempted.originalLocalFrames[1].state,'ATTEMPTED');
+  const content=await advance(attempted);assert.equal(content.state,'ORIGINAL_REPLACEMENT_CONTENT_PRESENT');assert.equal(content.originalSignedBatchReused,true);
+  assert.equal(q.seals(),1);assert.equal(x.signatureCount(),counts.signs+3);assert.equal(x.counts().networkPuts,counts.puts+3);
+  const present=await select();assert.ok(present.originalLocalFrames.every(f=>f.state==='PRESENT'));assert.equal(present.originalLocalPhase,'INTENT');
+  x.sourceStore.loseNextReply();await assert.rejects(advance(present),isCode('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  x.f.restart();const published=await select();assert.equal(published.originalLocalPhase,'PUBLISHED');assert.equal(published.originalLocalPhaseRevision,2);
+  assert.equal((await phase().inspectOriginalSession()).sourcePublishedEvidence.evidenceRef,present.originalLocalFrames[1].sha256+'.t4n');
+  await assert.rejects(advance(published),isCode('REPLACEMENT_HOST_SOURCE_CONTENT_SELECTION_INVALID'));
+  assert.equal(q.seals(),1);assert.equal(x.signatureCount(),counts.signs+3);assert.equal(x.counts().networkPuts,counts.puts+3);
+  assert.equal(x.sourcePhaseWrites(),counts.sourcePhase+1);assert.equal(x.phaseWrites(),counts.recipientPhase);
+  assert.deepEqual((await x.realSourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,before);
+  assert.deepEqual((await x.realRecipientCursor().inspectOriginalRecipientCursor()).originalT3VerifiedCursor,before);
 });
