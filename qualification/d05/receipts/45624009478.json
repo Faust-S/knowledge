@@ -1,0 +1,73 @@
+{
+  "schema": "IWXA_D05_T3_MODEL_QUALIFICATION_RECEIPT/1",
+  "runId": 45624009478,
+  "jobId": 139239316719,
+  "siteCommit": "a0961a1d88dcedd68809c66f327d7e417c77a744",
+  "subjectCommit": "7d44995b536bc57eb0acff63d876d255c034fb77",
+  "witnessCommit": "c8dd9fc43ab5e74aeff54e473283731126c2dfc3",
+  "evaluatorCommit": "4433a97a6450c5c561d5bd96a892b88c5886fc67",
+  "priorLinuxRun": 45612942218,
+  "profile": "balanced",
+  "adapter": "nonfallback-reported",
+  "compute": true,
+  "install": true,
+  "installationCancel": {
+    "workers": 0,
+    "externalRequests": 0,
+    "ready": false
+  },
+  "coldLoad": true,
+  "serverStopped": true,
+  "browserRestarted": true,
+  "workerRelease": {
+    "online": true,
+    "offline": true
+  },
+  "actualInference": true,
+  "answers": [
+    {
+      "scenario": "cost",
+      "offline": false,
+      "milliseconds": 42710,
+      "characters": 1261,
+      "checks": 4,
+      "passed": 4,
+      "batchMention": true,
+      "unitMention": true,
+      "asksForVerification": true,
+      "unsupportedMoney": 0,
+      "batchRole": "matched",
+      "unitRole": "matched"
+    },
+    {
+      "scenario": "cost",
+      "offline": true,
+      "milliseconds": 50682,
+      "characters": 1557,
+      "checks": 4,
+      "passed": 2,
+      "batchMention": false,
+      "unitMention": true,
+      "asksForVerification": true,
+      "unsupportedMoney": 1,
+      "batchRole": "conflicting",
+      "unitRole": "matched"
+    },
+    {
+      "scenario": "missing-cost",
+      "offline": true,
+      "milliseconds": 65580,
+      "characters": 2231,
+      "checks": 3,
+      "passed": 3,
+      "labels": 1,
+      "mentioned": 1,
+      "asksForPrice": true,
+      "unsupportedMoney": 0,
+      "contiguousItems": 1
+    }
+  ],
+  "mechanicalGrounding": "FAIL",
+  "semanticAcceptance": false,
+  "productAccepted": false
+}

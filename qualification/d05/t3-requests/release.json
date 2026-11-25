@@ -1,20 +1,22 @@
 {
   "schema": "IWXA_D05_T3_GROUPED_QUALIFICATION_REQUEST/1",
-  "siteCommit": "a0961a1d88dcedd68809c66f327d7e417c77a744",
-  "subjectCommit": "7d44995b536bc57eb0acff63d876d255c034fb77",
+  "siteCommit": "c31a6431105776dfdef8a5221f6fc04c867ad477",
+  "subjectCommit": "53d3f79b6e3c1bc36f3c507c065283181c1c0132",
   "assistantCommit": "5e3083788aa541921559de29d3457d4a52bbba00",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
   "expectedRetainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
-  "reason": "Complete the one grouped qualification after the exact Prettier-only source gate failure in 45611787851. The corrected file matches the formatter SHA-256. Check publication only after exact Linux functional qualification; keep existing DOMEN.",
+  "reason": "One grouped candidate: scoped native cost, price and missing-input results; exact canonical 1.4.1 pack; retain original T3 and protected product checks; add one price inference within the existing online model session. Prior real-model quality remains unaccepted. Keep private publication separate from semantic acceptance.",
   "priorReceipts": [
-    45611787851,
-    45604303797,
-    45601192204,
-    45593833064,
-    45594346638,
-    45597742891,
-    45599143091
+    45612942218,
+    45620770485,
+    45624009478
   ],
   "productAccepted": false,
-  "remotePublicationVerified": false
+  "remotePublicationVerified": false,
+  "witnessCommit": "a27b765e55dc5fea9fa15b2537b0f21ec1b2149a",
+  "evaluatorCommit": "2f97a32d82231a5866cac80d44646e22015fc25c",
+  "skillsVersion": "1.4.1",
+  "profile": "balanced",
+  "comparableQualityChecks": 11,
+  "additionalPriceChecks": 5
 }

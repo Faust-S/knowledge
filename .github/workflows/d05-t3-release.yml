@@ -14,8 +14,8 @@ jobs:
   linux:
     uses: ./.github/workflows/d05-t3-dynamic.yml
     with:
-      site_sha: 'a0961a1d88dcedd68809c66f327d7e417c77a744'
-      domain_sha: '7d44995b536bc57eb0acff63d876d255c034fb77'
+      site_sha: 'c31a6431105776dfdef8a5221f6fc04c867ad477'
+      domain_sha: '53d3f79b6e3c1bc36f3c507c065283181c1c0132'
       retained_base_sha: 'ba595ae901ea5af9b066a5e5f7cab88c15fdee8e'
       full_release: true
     secrets:
@@ -25,10 +25,10 @@ jobs:
     if: ${{ !cancelled() && needs.linux.outputs.functional_ready == 'true' }}
     uses: ./.github/workflows/d05-t3-real-model.yml
     with:
-      site_sha: 'a0961a1d88dcedd68809c66f327d7e417c77a744'
-      domain_sha: '7d44995b536bc57eb0acff63d876d255c034fb77'
-      witness_sha: 'c8dd9fc43ab5e74aeff54e473283731126c2dfc3'
-      evaluator_sha: '4433a97a6450c5c561d5bd96a892b88c5886fc67'
+      site_sha: 'c31a6431105776dfdef8a5221f6fc04c867ad477'
+      domain_sha: '53d3f79b6e3c1bc36f3c507c065283181c1c0132'
+      witness_sha: 'a27b765e55dc5fea9fa15b2537b0f21ec1b2149a'
+      evaluator_sha: '2f97a32d82231a5866cac80d44646e22015fc25c'
       profile_id: 'balanced'
       release_candidate: true
     secrets:

@@ -8,10 +8,10 @@ on:
     inputs:
       site_sha:
         type: string
-        default: 'a0961a1d88dcedd68809c66f327d7e417c77a744'
+        default: 'c31a6431105776dfdef8a5221f6fc04c867ad477'
       domain_sha:
         type: string
-        default: '7d44995b536bc57eb0acff63d876d255c034fb77'
+        default: '53d3f79b6e3c1bc36f3c507c065283181c1c0132'
       full_release:
         type: boolean
         default: false
@@ -41,14 +41,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod
-          ref: ${{ inputs.domain_sha || '7d44995b536bc57eb0acff63d876d255c034fb77' }}
+          ref: ${{ inputs.domain_sha || '53d3f79b6e3c1bc36f3c507c065283181c1c0132' }}
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: ${{ inputs.site_sha || 'a0961a1d88dcedd68809c66f327d7e417c77a744' }}
+          ref: ${{ inputs.site_sha || 'c31a6431105776dfdef8a5221f6fc04c867ad477' }}
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -84,7 +84,7 @@ jobs:
           import {readFileSync} from "node:fs";
           import {validateSkillPack} from "./assistant/browser-local-inference/domain-assistant/skill-runtime.mjs";
           const pack=validateSkillPack(JSON.parse(readFileSync("site/public/assets/cehovod-assistant-skills.json","utf8")));
-          if(pack.skills.length!==11||pack.formHints.length!==11||pack.resultHints.length!==12)throw Error("D05_T3_PACK_COUNTS");
+          if(pack.version!=="1.4.1"||pack.skills.length!==11||pack.formHints.length!==11||pack.resultHints.length!==13)throw Error("D05_T3_PACK_COUNTS");
           console.log("D05_T3_ORIGINAL_RUNTIME_SKILLS_PASS");
           JS
           if ! (cd domain && T3_ASSISTANT_SOURCE="$GITHUB_WORKSPACE/assistant/browser-local-inference/domain-assistant" node --test tests/assistant-field-policy.test.mjs) >"$log" 2>&1; then
@@ -185,7 +185,7 @@ jobs:
           if(errors)process.exitCode=1;
           else console.log("D05_T3_TSX_PARSE_11_PASS");
           JS
-      - name: Verify eleven native form scopes and twelve result scopes
+      - name: Verify eleven native form scopes and thirteen result scopes
         id: native_context
         continue-on-error: true
         working-directory: site
@@ -198,7 +198,7 @@ jobs:
             echo D05_T3_NATIVE_CONTEXT_FAIL
             exit 1
           fi
-          grep -Fqx '{"status":"CEHOVOD_T3_NATIVE_CONTEXT_SOURCE_PASS","forms":11,"results":12,"productAccepted":false}' "$log"
+          grep -Fqx '{"status":"CEHOVOD_T3_NATIVE_CONTEXT_SOURCE_PASS","forms":11,"results":13,"productAccepted":false}' "$log"
           echo D05_T3_NATIVE_CONTEXT_PASS
       - name: Verify real JSX bindings and source types
         working-directory: site

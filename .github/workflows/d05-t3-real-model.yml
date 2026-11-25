@@ -8,16 +8,16 @@ on:
     inputs:
       site_sha:
         type: string
-        default: 'a0961a1d88dcedd68809c66f327d7e417c77a744'
+        default: 'c31a6431105776dfdef8a5221f6fc04c867ad477'
       domain_sha:
         type: string
-        default: '7d44995b536bc57eb0acff63d876d255c034fb77'
+        default: '53d3f79b6e3c1bc36f3c507c065283181c1c0132'
       witness_sha:
         type: string
-        default: 'c8dd9fc43ab5e74aeff54e473283731126c2dfc3'
+        default: 'a27b765e55dc5fea9fa15b2537b0f21ec1b2149a'
       evaluator_sha:
         type: string
-        default: '4433a97a6450c5c561d5bd96a892b88c5886fc67'
+        default: '2f97a32d82231a5866cac80d44646e22015fc25c'
       profile_id:
         type: string
         default: 'balanced'
@@ -41,14 +41,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: ${{ inputs.site_sha || 'a0961a1d88dcedd68809c66f327d7e417c77a744' }}
+          ref: ${{ inputs.site_sha || 'c31a6431105776dfdef8a5221f6fc04c867ad477' }}
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: ${{ inputs.witness_sha || 'c8dd9fc43ab5e74aeff54e473283731126c2dfc3' }}
+          ref: ${{ inputs.witness_sha || 'a27b765e55dc5fea9fa15b2537b0f21ec1b2149a' }}
           token: ${{ secrets.DOMEN }}
           path: model-witness
           persist-credentials: false
@@ -68,14 +68,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod
-          ref: ${{ inputs.domain_sha || '7d44995b536bc57eb0acff63d876d255c034fb77' }}
+          ref: ${{ inputs.domain_sha || '53d3f79b6e3c1bc36f3c507c065283181c1c0132' }}
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod
-          ref: ${{ inputs.evaluator_sha || '4433a97a6450c5c561d5bd96a892b88c5886fc67' }}
+          ref: ${{ inputs.evaluator_sha || '2f97a32d82231a5866cac80d44646e22015fc25c' }}
           token: ${{ secrets.DOMEN }}
           path: answer-diagnostics
           persist-credentials: false
@@ -85,10 +85,10 @@ jobs:
       - name: Verify exact product tree and separate witness-only changes
         shell: bash
         env:
-          SITE_SHA: ${{ inputs.site_sha || 'a0961a1d88dcedd68809c66f327d7e417c77a744' }}
-          WITNESS_SHA: ${{ inputs.witness_sha || 'c8dd9fc43ab5e74aeff54e473283731126c2dfc3' }}
-          DOMAIN_SHA: ${{ inputs.domain_sha || '7d44995b536bc57eb0acff63d876d255c034fb77' }}
-          EVALUATOR_SHA: ${{ inputs.evaluator_sha || '4433a97a6450c5c561d5bd96a892b88c5886fc67' }}
+          SITE_SHA: ${{ inputs.site_sha || 'c31a6431105776dfdef8a5221f6fc04c867ad477' }}
+          WITNESS_SHA: ${{ inputs.witness_sha || 'a27b765e55dc5fea9fa15b2537b0f21ec1b2149a' }}
+          DOMAIN_SHA: ${{ inputs.domain_sha || '53d3f79b6e3c1bc36f3c507c065283181c1c0132' }}
+          EVALUATOR_SHA: ${{ inputs.evaluator_sha || '2f97a32d82231a5866cac80d44646e22015fc25c' }}
           PROFILE_ID: ${{ inputs.profile_id || 'balanced' }}
         run: |
           set -euo pipefail
@@ -240,6 +240,7 @@ jobs:
           grep -E '^D05_T3_MODEL_(ATTEMPT|COMPARISON|WORKER_EXIT|CACHE_RELEASE) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_QUALITY \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_ROLE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
+          grep -E '^D05_T3_MODEL_PRICE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_(CACHE_INSPECTION|CANCEL_DIAG|CANCEL_PASS) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -Fx 'D05_T3_MODEL_INSTALL_CONFIRMATION_PASS' "$log" || true
           grep -E '^D05_T3_MODEL_GPU_PROBE \{"adapter":"[a-z-]+","supported":(true|false),"compute":(true|false),"reason":"[A-Z_]+"\}$' "$log" || true
@@ -252,7 +253,8 @@ jobs:
           grep -q '^D05_T3_REAL_MODEL_PASS ' "$log"
           test "$(grep -c '^D05_T3_MODEL_QUALITY ' "$log")" -eq 3
           test "$(grep -c '^D05_T3_MODEL_ROLE_EVIDENCE ' "$log")" -eq 3
-      - name: Require all three mechanical grounding observations before release review
+          test "$(grep -c '^D05_T3_MODEL_PRICE_EVIDENCE ' "$log")" -eq 1
+      - name: Require three comparable grounding observations and separate price evidence before release review
         working-directory: site
         shell: bash
         env:
@@ -271,6 +273,7 @@ jobs:
           assert.equal(model[0].profile,process.env.PROFILE_ID);
           assert.equal(model[0].actualInference,true);
           assert.equal(model[0].semanticAcceptance,false);
+          assert.equal(model[0].onlinePrice?.ok,true);
           const wanted=new Set(["cost:false","cost:true","missing-cost:true"]);
           assert.equal(rows.length,wanted.size);
           for(const row of rows){
@@ -298,6 +301,14 @@ jobs:
             }
           }
           assert.equal(roleKeys.size,0);
+          const priceRows=receipts("D05_T3_MODEL_PRICE_EVIDENCE ");
+          assert.equal(priceRows.length,1);
+          const price=priceRows[0];
+          assert.equal(price.semanticAcceptance,false);
+          if(price.checks!==5||price.passed!==5||price.unsupportedMoney!==0||
+             price.orderPriceRole!=="matched"||price.unitPriceRole!=="matched"||
+             price.asksForVerification!==true||price.notAgreed!==true)
+            throw Error("D05_T3_MODEL_PRICE_REVIEW_REQUIRED");
           console.log("D05_T3_MODEL_GROUNDING_OBSERVATIONS_PASS_NOT_SEMANTIC_ACCEPTANCE");
           JS
       - name: Destroy temporary product, reports and source-bound input bytes
