@@ -1,4 +1,4 @@
-name: D05 T3 actual local model engineering witness
+name: D05 T3 actual model on hardware-required WebGPU
 on:
   push:
     branches: [test/2026-11-24-d05-t3-integration]
@@ -9,13 +9,13 @@ permissions:
   actions: read
 jobs:
   model:
-    runs-on: ubuntu-latest
-    timeout-minutes: 50
+    runs-on: macos-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: 90afa4c9d5c42cc5199690612804fd17d9226282
+          ref: 9b19b3e17b3ed203e5f2ffe2b28f20de0f047d05
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -35,6 +35,34 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - name: Use the original hardware-test OpenSSL
+        shell: bash
+        run: |
+          if ! brew list --versions openssl@3 >/dev/null 2>&1; then brew install openssl@3; fi
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+      - name: Install original witness dependencies
+        working-directory: one-core/packages/t3-core
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          set -euo pipefail
+          npm ci --include=dev --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-protected-witness-npm.log" 2>&1 || { echo D05_T3_WITNESS_NPM_FAIL; exit 1; }
+          npx --no-install playwright install chromium >"$RUNNER_TEMP/d05-t3-protected-browser-install.log" 2>&1 || { echo D05_T3_WITNESS_BROWSER_INSTALL_FAIL; exit 1; }
+      - name: Gate on actual nonfallback GPU compute before downloading the model
+        working-directory: site
+        env:
+          D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test scripts/lib/t3-webgpu-probe.test.mjs
+          log="$RUNNER_TEMP/d05-t3-protected-gpu.log"
+          code=0
+          node scripts/check-t3-hardware-webgpu.mjs >"$log" 2>&1 || code=$?
+          grep -E '^D05_T3_HARDWARE_PREFLIGHT \{"adapter":"[a-z-]+","supported":(true|false),"compute":(true|false),"reason":"[A-Z_]+"\}$' "$log" || true
+          grep -Eo 'CEHOVOD_T3_GPU_[A-Z0-9_]+' "$log" | sort -u | head -10 || true
+          test "$code" -eq 0
+          grep -Fxq 'D05_T3_HARDWARE_PREFLIGHT {"adapter":"nonfallback-reported","supported":true,"compute":true,"reason":"READBACK"}' "$log"
       - name: Install pinned site dependencies
         working-directory: site
         env:
@@ -64,7 +92,7 @@ jobs:
       - name: Assemble the real loopback T3 product
         working-directory: site
         env:
-          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+          PUPPETEER_EXECUTABLE_PATH: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-protected-build.log"
@@ -74,22 +102,15 @@ jobs:
             exit 1
           fi
           echo D05_T3_PROTECTED_BUILD_PASS
-      - name: Install original witness dependencies
-        working-directory: one-core/packages/t3-core
-        env:
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
-        run: |
-          set -euo pipefail
-          npm ci --include=dev --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-protected-witness-npm.log" 2>&1 || { echo D05_T3_WITNESS_NPM_FAIL; exit 1; }
-          npx --no-install playwright install chromium >"$RUNNER_TEMP/d05-t3-protected-browser-install.log" 2>&1 || { echo D05_T3_WITNESS_BROWSER_INSTALL_FAIL; exit 1; }
       - name: Verify real-model witness syntax
         working-directory: site
         run: node --check scripts/d05-t3-real-model-witness.mjs
-      - name: Genuine light-profile local generation and cold-cache restart
+      - name: Genuine light-profile generation and cold-cache restart on nonfallback GPU
         working-directory: site
         env:
           D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
           D05_T3_MODEL_PROFILE: light
+          D05_T3_REQUIRE_HARDWARE_GPU: '1'
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-protected-model.log"
@@ -98,6 +119,7 @@ jobs:
           grep -E '^D05_T3_REAL_MODEL_(PASS|FAIL) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_REAL_MODEL_(INSTALL|CACHE_RELEASE|COLD_LOAD)_PASS$' "$log" || true
           grep -E '^D05_T3_MODEL_(ATTEMPT|COMPARISON|WORKER_EXIT|CACHE_RELEASE) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
+          grep -E '^D05_T3_MODEL_GPU_PROBE \{"adapter":"[a-z-]+","supported":(true|false),"compute":(true|false),"reason":"[A-Z_]+"\}$' "$log" || true
           grep -E '^D05_T3_MODEL_GENERATION_RECEIPT \{"offline":(true|false),"elapsed":[0-9]+,"busy":(true|false),"characters":[0-9]+,"outcome":"[a-z-]+"\}$' "$log" | tail -70 || true
           grep -Eo 'CEHOVOD_T3_MODEL_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
           test "$code" -eq 0
