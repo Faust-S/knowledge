@@ -22,12 +22,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa
-          ref: 7a019d768479b76d0826e6aa560ca3557ae43eff
+          ref: dc09b1394e91973e3c7207cd1e6b62eda0c4c213
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
       - name: Verify source
         run: |
-          test "$(git rev-parse HEAD)" = "7a019d768479b76d0826e6aa560ca3557ae43eff"
+          test "$(git rev-parse HEAD)" = "dc09b1394e91973e3c7207cd1e6b62eda0c4c213"
           echo "AKIS_ORIGINAL_SOURCE_IDENTITY=PASS"
       - uses: actions/setup-python@v5
         with:
@@ -78,10 +78,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa
-          ref: 7a019d768479b76d0826e6aa560ca3557ae43eff
+          ref: dc09b1394e91973e3c7207cd1e6b62eda0c4c213
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
-      - run: test "$(git rev-parse HEAD)" = "7a019d768479b76d0826e6aa560ca3557ae43eff"
+      - run: test "$(git rev-parse HEAD)" = "dc09b1394e91973e3c7207cd1e6b62eda0c4c213"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
