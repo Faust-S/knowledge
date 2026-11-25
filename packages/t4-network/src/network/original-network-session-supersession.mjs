@@ -434,7 +434,7 @@ export async function recoverT4OriginalReplacementEligibility({
     sourceCursorPort.usesOriginalT3CAS!==true||sourceCursorPort.createsStore!==false||
     typeof sourceCursorPort.inspectOriginalHostCursor!=='function'||
     recipientCursorPort?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_CURSOR_PORT_V1'||
-    recipientCursorPort.usesOriginalT3CAS!==true||recipientCursorPort.createsStore!==false||
+    recipientCursorPort.originalT3OnlyStore!==true||recipientCursorPort.createsScheduler!==false||
     typeof recipientCursorPort.inspectOriginalRecipientCursor!=='function'||
     sourceHistoricalFramePort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||
     typeof sourceHistoricalFramePort.readOriginalHistoricalAppliedAck!=='function')

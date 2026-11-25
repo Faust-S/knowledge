@@ -1,13 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,sign,verify,createHash} from 'node:crypto';
-import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort} from '../src/network/original-network-publication.mjs';
+import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,validateT4OriginalNativeCaptureSession,
+  validateT4OriginalReplacementSessionCandidate,createT4OriginalSourceSessionHead,
+  createT4OriginalReplacementSourceHead,readT4OriginalReplacementSourceHead} from '../src/network/original-network-publication.mjs';
+import {t4NativeSourceHeadIndexKey,t4NativeReplacementHeadIndexKey,t4NativeSessionFrameIndexKey}
+  from '../src/network/original-network-frame-address.mjs';
 import {createT4CandidateFrameTransport} from '../src/network/standard-network-wire-transport.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
-import {createT4CandidateUnsignedFrame,signT4CandidateFrame} from '../src/network/standard-network-wire-candidate.mjs';
+import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
+  T4_REPLACEMENT_SOURCE_SESSION_EXTENSION} from '../src/network/standard-network-wire-candidate.mjs';
 import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
   retireT4OriginalRecipientAttemptFromControl,verifyT4OriginalRecipientRetirementAck,recordT4OriginalSourceSupersession,
-  publishT4OriginalRecipientRetirementAck}
+  publishT4OriginalRecipientRetirementAck,recoverT4OriginalReplacementEligibility}
   from '../src/network/original-network-session-supersession.mjs';
 import {createT4OriginalNetworkSessionPhasePort,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
@@ -461,7 +466,8 @@ async function controlFixture({indexed=false}={}){
     originalRecipientApplied:false,sourceCursorBefore:{sourcePrefixDigest:H},sourceCursorAfter:{sourcePrefixDigest:B},capture});
   const phase=()=>f.port({sessionRef:session.sessionRef,changeId:session.changeId});
   let network=true,sourceAllowed=true,recipientAllowed=true,captureVerified=true,acceptanceAllowed=true,readRecipient=true,
-    sourcePhaseAllowed=true,sourceRecordAllowed=true,frontierChanged=false,sourceApplied=false;
+    sourcePhaseAllowed=true,sourceRecordAllowed=true,frontierChanged=false,sourceApplied=false,
+    recipientFrontierChanged=false,replacementAllowed=true;
   let sourceKey={...generateKeyPairSync('ed25519'),id:'key:k47:source:1'},
     recipientKey={...generateKeyPairSync('ed25519'),id:'key:k47:recipient:1'};
   const frames=new Map(),indexes=new Map();let networkPuts=0,networkGets=0,signatures=0,loseControlWrite=false,controlPublicationAllowed=true;
@@ -500,7 +506,7 @@ async function controlFixture({indexed=false}={}){
       originalHostNodeRef:node,originalHostScopeRef:scopeRef,authorizeOriginalHostWire:async()=>true,
       verifyOriginalNodeSignature:async p=>{const k=localKey(p.sourceNodeRef);
         return p.signerRef===k.id&&verify(null,Buffer.from(p.bytes),k.publicKey,Buffer.from(p.signature));},
-      authorizeOriginalNetwork:async p=>['ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK','APPLIED_ACK'].some(t=>p.operation==='t4.network.receive.'+t),
+      authorizeOriginalNetwork:async p=>['ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK','APPLIED_ACK','HEADS'].some(t=>p.operation==='t4.network.receive.'+t),
       persistOriginalReplayDecision:replay.persistOriginalReplayDecision,
       verifyOriginalHistoricalNodeSignature:async p=>{const k=localKey(p.sourceNodeRef);
         if(p.signerRef!==k.id||!verify(null,Buffer.from(p.bytes),k.publicKey,Buffer.from(p.signature)))return null;
@@ -536,6 +542,20 @@ async function controlFixture({indexed=false}={}){
       originalBusinessApplyReceiptFabricated:false,otherCursorStoreCreated:false,originalT3EventChainVerified:false,
       originalT3NextCursor:frontierChanged?{...sourceCursorBefore,sourcePrefixDigest:B}:sourceCursorBefore,
       lastAcknowledgedChangeId:null,lastSourceEventId:null})});
+  const recipientCursorPort=Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_CURSOR_PORT_V1',
+    checkpointRef:'cursor:k50:recipient',originalT3OnlyStore:true,createsScheduler:false,
+    inspectOriginalRecipientCursor:async()=>({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_CURSOR_STATUS_V1',
+      checkpointRef:'cursor:k50:recipient',sourceWorkspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,
+      scopeRef,ownerEpoch:epoch,revision:0,chainHash:B,originalBaselineAdmitted:true,originalT3OnlyStore:true,
+      originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,originalT3EventChainVerified:false,
+      originalT3VerifiedCursor:recipientFrontierChanged?{...sourceCursorBefore,sourcePrefixDigest:B}:sourceCursorBefore})});
+  const sourceCursorAfter={...sourceCursorBefore,lastEventId:sourceEventId,seenEventCount:2,sourcePrefixDigest:B};
+  const eligibilityOptions=()=>({originalCaptureSession:session,sourceCursorBefore,sourcePhasePort:sourcePhase(),
+    recipientPhasePort:phase(),sourceCursorPort:cursorPort,recipientCursorPort,sourceHistoricalFramePort:transport(sourceNodeRef),
+    requiredCryptoSuite:suite,getMode,verifyOriginalSourceCapture:async proof=>
+      captureVerified&&proof.originalCaptureSession.sourceEventId===sourceEventId,
+    authorizeOriginalReplacement:async proof=>replacementAllowed&&proof.originalBothAttemptsRetired===true});
+  const eligibility=(patch={})=>recoverT4OriginalReplacementEligibility({...eligibilityOptions(),...patch});
   const before=await phase().inspectOriginalSession();
   const plan=(requestRef='request:k47:one')=>prepareT4OriginalSupersessionControl({session,
     expectedPhaseRevision:before.revision,expectedPhaseChainHash:before.chainHash,decisionRef:'decision:k47:one',requestRef});
@@ -594,6 +614,14 @@ async function controlFixture({indexed=false}={}){
   };
   return {f,sourceStore,session,phase,plan,request,retire,publishAck,verifyAck,sourcePhase,recordBoth,acceptConflictingAck,
     durableRetire,signatureCount:()=>signatures,loseControlWrite:()=>{loseControlWrite=true;},
+    eligibility,eligibilityOptions,sourceCursorBefore,sourceCursorAfter,transport,indexes,
+    changeRecipientFrontier:()=>{recipientFrontierChanged=true;},restoreRecipientFrontier:()=>{recipientFrontierChanged=false;},
+    denyReplacement:()=>{replacementAllowed=false;},allowReplacement:()=>{replacementAllowed=true;},
+    signHead:async(body,sessionRef,criticalExtensions)=>signT4CandidateFrame({
+      unsignedFrame:createT4CandidateUnsignedFrame({messageType:'HEADS',messageId:'message:k51:'+sessionRef,
+        sourceNodeRef,recipientNodeRef,scopeRef,sessionRef,ownerEpoch:epoch,sequence:1,cryptoSuite:suite,
+        permissionRef:'permission:k47:'+sourceNodeRef,signerRef:sourceKey.id,criticalExtensions,body}),
+      signOriginalNodeBytes:signing(sourceNodeRef).signOriginalNodeBytes}),
     denyControlPublication:()=>{controlPublicationAllowed=false;},allowControlPublication:()=>{controlPublicationAllowed=true;},
     sourcePhaseWrites:()=>sourceStore.events.filter(e=>e.event_type==='t4.network.original.session.phase').length,
     changeFrontier:()=>{frontierChanged=true;},restoreFrontier:()=>{frontierChanged=false;},
@@ -763,4 +791,109 @@ test('K49 recipient terminal retirement and durable outgoing ACK survive lost HT
   assert.equal((await x.verifyAck(p,result)).originalRecipientRetirementEventVerified,true);
   assert.deepEqual(x.f.kernel.events.filter(e=>e.event_type==='t4.network.original.frame.publication').map(e=>e.payload.action),
     ['PREPARE','ATTEMPT','PRESENT']);
+});
+
+
+async function closeInitialAttempt(x){
+  const p=x.plan(),request=await x.request(p),ack=await x.retire(p,request);
+  await x.publishAck(ack);
+  await x.sourcePhase().advanceOriginalSessionPhase({phase:'INTENT',evidence:{
+    evidenceRef:x.session.sourceEventId,evidenceDigest:x.session.capturedWindowDigest}});
+  await x.sourcePhase().advanceOriginalSessionPhase({phase:'PUBLISHED',evidence:evidence('frame:old:change')});
+  const before=await x.sourcePhase().inspectOriginalSession();
+  await x.recordBoth(p,ack,before);
+  return {p,ack,before};
+}
+test('K50 cold replacement eligibility requires two original terminal Events, exact capture and unchanged frontiers, without writing anything',async()=>{
+  const x=await controlFixture();
+  await assert.rejects(x.eligibility(),isCode('REPLACEMENT_ORIGINAL_PREDECESSOR_NOT_RETIRED'));
+  await closeInitialAttempt(x);
+  const before={source:x.sourceStore.calls,recipient:x.f.kernel.calls,network:x.counts()};
+  const first=await x.eligibility();
+  assert.equal(first.state,'ORIGINAL_REPLACEMENT_ELIGIBLE');
+  assert.equal(first.originalBothTerminalPhaseEventsVerified,true);
+  assert.equal(first.originalNewAttemptAdmissionStillRequired,true);
+  assert.equal(first.liveNetworkAuthorityGranted,false);
+  assert.equal(first.candidate.changeId,x.session.changeId);
+  assert.equal(first.candidate.previousSessionRef,undefined);
+  assert.equal(first.candidate.replacement.previousSessionRef,x.session.sessionRef);
+  assert.equal(first.candidate.sessionRef,deriveT4OriginalReplacementAttempt(x.session).replacementSessionRef);
+  assert.deepEqual(validateT4OriginalReplacementSessionCandidate(first.candidate),first.candidate);
+  assert.throws(()=>validateT4OriginalNativeCaptureSession(first.candidate),
+    isCode('PUBLICATION_ORIGINAL_CAPTURE_IDENTITY_INVALID'));
+  x.f.restart();x.rotateSource();x.rotateRecipient();
+  assert.deepEqual(await x.eligibility(),first);
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,network:x.counts()},before);
+  x.changeFrontier();
+  await assert.rejects(x.eligibility(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
+  x.restoreFrontier();x.changeRecipientFrontier();
+  await assert.rejects(x.eligibility(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
+  x.restoreRecipientFrontier();x.denyCapture();
+  await assert.rejects(x.eligibility(),isCode('REPLACEMENT_ORIGINAL_CAPTURE_NOT_PROVEN'));
+  x.allowCapture();x.denyReplacement();
+  await assert.rejects(x.eligibility(),isCode('REPLACEMENT_ORIGINAL_ADMISSION_DENIED'));
+  x.allowReplacement();
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,network:x.counts()},before);
+});
+test('K50 a contradictory accepted old APPLIED_ACK or modified original retirement Event blocks candidate recovery',async()=>{
+  const x=await controlFixture();await closeInitialAttempt(x);
+  const good=await x.eligibility(),sourcePort=x.sourcePhase(),originalRead=sourcePort.inspectOriginalSession;
+  await assert.rejects(x.eligibility({sourcePhasePort:{...sourcePort,inspectOriginalSession:async()=>{
+    const v=await originalRead(),stored=structuredClone(v.originalSourceSupersessionEvidence);
+    stored.retirement.retirementEventId='event:substituted';
+    return {...v,currentEvidence:stored,originalSourceSupersessionEvidence:stored};
+  }}}),isCode('REPLACEMENT_ORIGINAL_RETIREMENT_CONFLICT'));
+  const event=x.f.kernel.events.find(e=>e.event_type==='t4.network.original.session.phase');
+  const chain=event.payload.chainHash;event.payload.chainHash=H;
+  await assert.rejects(x.eligibility(),isCode('PHASE_ORIGINAL_EVENT_CHAIN_MISMATCH'));
+  event.payload.chainHash=chain;
+  assert.deepEqual(await x.eligibility(),good);
+  await x.acceptConflictingAck();
+  await assert.rejects(x.eligibility(),isCode('REPLACEMENT_ORIGINAL_APPLIED_ACK_ALREADY_ACCEPTED'));
+});
+test('K51 replacement HEADS has a separate deterministic predecessor index and cannot replace the initial immutable HEADS',async()=>{
+  const x=await controlFixture({indexed:true}),suite='X25519_AES256GCM_ED25519';
+  const originalBody=createT4OriginalSourceSessionHead({session:x.session,sourceCursorBefore:x.sourceCursorBefore,
+    sourceCursorAfter:x.sourceCursorAfter});
+  const root=await x.signHead(originalBody,x.session.sessionRef,[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]);
+  const sender=x.transport(sourceNodeRef),receiver=x.transport(recipientNodeRef);
+  const rootReceipt=await sender.publishSignedFrame({wireBytes:root});
+  const rootIndex=t4NativeSourceHeadIndexKey({...x.session,predecessorEventCount:x.sourceCursorBefore.seenEventCount});
+  assert.equal(x.indexes.get(rootIndex),rootReceipt.sha256);
+  await closeInitialAttempt(x);
+  const {candidate}=await x.eligibility();
+  const body=createT4OriginalReplacementSourceHead({candidate,sourceCursorBefore:x.sourceCursorBefore,
+    sourceCursorAfter:x.sourceCursorAfter});
+  const bytes=await x.signHead(body,candidate.sessionRef,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]);
+  const published=await sender.publishSignedFrame({wireBytes:bytes});
+  const predecessorIndex=t4NativeReplacementHeadIndexKey({...x.session,previousSessionRef:x.session.sessionRef});
+  assert.notEqual(predecessorIndex,rootIndex);assert.equal(x.indexes.get(rootIndex),rootReceipt.sha256);
+  assert.equal(x.indexes.get(predecessorIndex),published.sha256);
+  assert.equal(x.indexes.get(t4NativeSessionFrameIndexKey({...candidate,sequence:1})),published.sha256);
+  const selector={sourceNodeRef,ownerEpoch:2,previousSessionRef:x.session.sessionRef,
+    sessionRef:candidate.sessionRef,changeId:candidate.changeId};
+  const result=await receiver.discoverReplacementSourceHead({selector,requiredCryptoSuite:suite});
+  assert.equal(result.state,'FOUND');assert.equal(result.candidatesExamined,1);
+  assert.equal(result.originalNewAttemptAdmissionStillRequired,true);
+  const received=result.receipts[0];
+  assert.equal(received.originalSignatureVerified,true);assert.equal(received.originalSubjectMutationInvoked,false);
+  const read=readT4OriginalReplacementSourceHead({identity:x.session,body:received.verifiedBody,
+    sessionRef:received.verifiedSessionRef,sourceCursorBefore:x.sourceCursorBefore,expectedCandidate:candidate});
+  assert.deepEqual(read.candidate,candidate);assert.equal(read.liveNetworkAuthorityGranted,false);
+  const old=await receiver.discoverSourceSessionHeads({selector:{sourceNodeRef,ownerEpoch:2,
+    familyRef:x.session.familyRef,predecessorEventCount:x.sourceCursorBefore.seenEventCount},requiredCryptoSuite:suite});
+  assert.equal(old.receipts[0].verifiedSessionRef,x.session.sessionRef);
+  x.indexes.set(predecessorIndex,rootReceipt.sha256);
+  await assert.rejects(receiver.discoverReplacementSourceHead({selector,requiredCryptoSuite:suite}),
+    isCode('WIRE_NATIVE_INDEX_TARGET_MISMATCH'));
+  x.indexes.set(predecessorIndex,published.sha256);
+  await assert.rejects(x.signHead(body,x.session.sessionRef,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]),
+    isCode('WIRE_REPLACEMENT_HEAD_IDENTITY_MISMATCH'));
+  await assert.rejects(x.signHead(body,candidate.sessionRef,[T4_ORIGINAL_SOURCE_SESSION_EXTENSION]),
+    isCode('WIRE_FIELDS_INVALID'));
+  const conflict={...body,replacement:{...body.replacement,decisionDigest:H}};
+  const conflictBytes=await x.signHead(conflict,candidate.sessionRef,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]);
+  await assert.rejects(sender.publishSignedFrame({wireBytes:conflictBytes}),isCode('WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN'));
+  assert.equal(x.indexes.get(predecessorIndex),published.sha256);
+  assert.equal(x.indexes.get(rootIndex),rootReceipt.sha256);
 });
