@@ -1,10 +1,10 @@
 {
   "schema": "IWXA_D05_T3_GROUPED_QUALIFICATION_REQUEST/1",
-  "siteCommit": "d3ac6441d18c821cac01ec9f014b54138f416d2f",
+  "siteCommit": "64dcbe764ab05136bd6f9d4f4a3bf902897b06b7",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
-  "assistantCommit": "734591f3953e95a17e2141bb6583e45c20839da4",
+  "assistantCommit": "d27eaaecfff005bc788b6a04b5944526e4ba6f6f",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
-  "witnessCommit": "67b05310ef4150253f23c1597a3635082e2606bd",
+  "witnessCommit": "273ddf175df30df40ba983444a4b94d4894eb0e4",
   "evaluatorCommit": "d506577539a4ca530a02f548fa2b225221a6af11",
   "expectedRetainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
   "skillsVersion": "1.6.0",
@@ -30,10 +30,11 @@
     45656585105,
     45662818819,
     45666678817,
-    45682754906
+    45682754906,
+    45685741390
   ],
   "scopeExpansionAllowed": false,
-  "reason": "Frozen 1.6.0 release blocker only. One-time admission and actual WebGPU execution passed, exact result facts were preserved 7/7, worker exit and cache release passed online and offline, but semantic choices passed only 3/7. Add bounded retrieval hints from distinctive words of the human question and the existing authored recommendation descriptions. Preserve full source, all 46 choices, explicit abstention, unchanged worker lifecycle and all seven real-model quality scenarios. No product scope expansion; existing hardware witness bytes are unchanged. One intentional request only; full Linux and publication run only after the same hardware quality gate passes.",
+  "reason": "Qualify the frozen 1.6.0 native-language recommendation correction. Prior run completed real inference and retained exact source 7/7, but passed 4/7 choices. The same light model, subject catalog, hardware witness bytes, browser gates, retained-input gate and existing publication procedure are required. No changes to permissions, publication transport, acceptance requirements or product scope.",
   "productAccepted": false,
   "remotePublicationVerified": false,
   "formatOnlyCorrection": false,

@@ -1,12 +1,12 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FROZEN_ONE_TIME_QUALIFICATION_REQUESTED",
+  "status": "FROZEN_NATIVE_LABELS_READY_FOR_ONE_TIME_QUALIFICATION",
   "scope": "1.6.0",
-  "siteCommit": "d3ac6441d18c821cac01ec9f014b54138f416d2f",
+  "siteCommit": "64dcbe764ab05136bd6f9d4f4a3bf902897b06b7",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
-  "assistantCommit": "734591f3953e95a17e2141bb6583e45c20839da4",
+  "assistantCommit": "d27eaaecfff005bc788b6a04b5944526e4ba6f6f",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
-  "witnessCommit": "67b05310ef4150253f23c1597a3635082e2606bd",
+  "witnessCommit": "273ddf175df30df40ba983444a4b94d4894eb0e4",
   "evaluatorCommit": "d506577539a4ca530a02f548fa2b225221a6af11",
   "retainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
   "skillBlob": "46f402f30831f992827f24832f51975f4dc5d76e",
@@ -30,14 +30,14 @@
   },
   "scopeExpansionAllowed": false,
   "productAccepted": false,
-  "qualification": "NOT_RUN_FOR_CORRECTED_ASSISTANT",
-  "publication": "NOT_RUN_FOR_CORRECTED_ASSISTANT",
+  "qualification": "NOT_RUN_FOR_NATIVE_LABELS",
+  "publication": "NOT_RUN_FOR_NATIVE_LABELS",
   "notes": "Only release blockers may change this candidate. Keep all existing source, protected production, offline, hardware and publication gates. Codex may assemble the hosting archive only after stable qualification, not perform testing or preparation.",
   "originalFrozenSiteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
   "originalFrozenWitnessCommit": "3af00278ef77eb38084df4e9c7854528380dc615",
   "formatOnlyCorrection": false,
   "priorSourceRun": 45655978598,
-  "hardware": "NOT_RUN_FOR_CORRECTED_ASSISTANT",
+  "hardware": "NOT_RUN_FOR_NATIVE_LABELS",
   "browserWitnessOnlyCorrection": false,
   "remotePublicationVerified": false,
   "previousQualification": {
@@ -61,17 +61,17 @@
     }
   },
   "localControlledEvidence": {
-    "commonAssistantTestsPassed": 108,
-    "commonAssistantTestsTotal": 109,
+    "commonAssistantTestsPassed": 109,
+    "commonAssistantTestsTotal": 110,
     "environmentUnavailableTest": "URL",
+    "resultAdviceTestsPassed": 15,
+    "resultAdviceEventTestsPassed": 15,
+    "originalEngineSchemasPassed": 15,
     "adviceMappings": 46,
-    "abstentions": 15,
-    "reorderedMappings": 46,
-    "workerExitCases": 9,
-    "resultAdviceTestsPassed": 14,
-    "resultAdviceTestsTotal": 14,
-    "questionEvidenceCases": 7,
-    "questionEvidenceNote": "Six subject questions have a unique leading matching recommendation; the unrelated question has no matches. This is input preparation evidence, not model quality."
+    "explicitAndEmptyAbstentionMappings": 30,
+    "invalidAndStaleRejected": 90,
+    "subjectPackMatchesSite": true,
+    "hardwareWitnessUnchanged": true
   },
   "manualDispatchOnly": false,
   "hardwareFirst": true,
@@ -105,17 +105,34 @@
         "total": 7
       },
       "workerExit": "PASS"
+    },
+    {
+      "runId": 45685741390,
+      "preparedCommit": "ac8a08847bf854fe481c0efa19649f3e20d78939",
+      "requestCommit": "65603ee73a92d6726f6ecdfef4204f11a5eef71a",
+      "requestBranch": "ci/once/d05-t3-release/ac8a08847bf854fe481c0efa19649f3e20d78939",
+      "requestFile": ".github/ci-requests/d05-t3-release.json",
+      "runStatusAtRecording": "in_progress",
+      "conclusionAtRecording": null,
+      "matchingRuns": 1,
+      "immutable": true,
+      "runStatus": "completed",
+      "conclusion": "failure",
+      "hardwareExecution": "PASS",
+      "correctChoice": {
+        "passed": 4,
+        "total": 7
+      },
+      "exactSource": {
+        "passed": 7,
+        "total": 7
+      },
+      "workerExit": {
+        "passed": 2,
+        "total": 2
+      },
+      "linux": "SKIPPED_BY_QUALITY_GATE"
     }
   ],
-  "oneTimeRequest": {
-    "runId": 45685741390,
-    "preparedCommit": "ac8a08847bf854fe481c0efa19649f3e20d78939",
-    "requestCommit": "65603ee73a92d6726f6ecdfef4204f11a5eef71a",
-    "requestBranch": "ci/once/d05-t3-release/ac8a08847bf854fe481c0efa19649f3e20d78939",
-    "requestFile": ".github/ci-requests/d05-t3-release.json",
-    "runStatusAtRecording": "in_progress",
-    "conclusionAtRecording": null,
-    "matchingRuns": 1,
-    "immutable": true
-  }
+  "publicationProcedure": "UNCHANGED_EXISTING_AUTHORIZED_PROCEDURE"
 }
