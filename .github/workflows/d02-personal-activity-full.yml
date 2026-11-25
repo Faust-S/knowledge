@@ -1,4 +1,5 @@
 # Deliberate milestone qualification; editing harness files alone is not a trigger.
+# Milestone 2026-11-25: saved goal horizon, cash risks, exact fact observations.
 name: d02-personal-activity-full
 on:
   push:
