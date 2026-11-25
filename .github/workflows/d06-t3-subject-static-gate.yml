@@ -1,0 +1,92 @@
+name: d06-t3-subject-static-gate
+# Mandatory exact-source gate. No temporary formatting or artifact uploads.
+on:
+  push:
+    branches:
+      - test/2026-11-24-d06-t3-preparation
+    paths:
+      - .github/workflows/d06-t3-subject-static-gate.yml
+permissions:
+  contents: read
+jobs:
+  static-qualification:
+    runs-on: windows-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod
+          ref: 039b2a2e20ee1e47543e980b02b0ad85abe7be59
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: c9dd22e609de24dc96cd13880aad3631d5328d64
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Exact mandatory site gate
+        shell: pwsh
+        working-directory: private/site
+        env:
+          D06_CANONICAL_TASK_INTENTS_PATH: ${{ github.workspace }}/private/domain/src/registry/task-intents.json
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-replacement-static-private.txt"
+          foreach ($task in @("ci", "run setup:browser", "run build:static:check")) {
+            & cmd.exe /d /c ("npm " + $task + " > """ + $log + """ 2>&1")
+            $passed = $LASTEXITCODE -eq 0
+            Write-Host ("D06_FULL_" + $task.Replace(" ","_").Replace(":","_").ToUpperInvariant() + "=" + $(if ($passed) {"PASS"} else {"FAIL"}))
+            if (-not $passed) {
+              $body = Get-Content -LiteralPath $log -Raw
+              $stages = [regex]::Matches($body, '(?m)^>\s+\S+@\S+\s+((?:check|test|build)(?::[a-z0-9.-]+)*)\s*$')
+              $names = @($stages | ForEach-Object { $_.Groups[1].Value })
+              Write-Host ("D06_FULL_LAST_STAGES=" + (($names | Select-Object -Last 5) -join ","))
+              foreach ($kind in @("TimeoutError","AssertionError","Test timeout","not ok","prettier/prettier","error TS")) {
+                $count = ([regex]::Matches($body, [regex]::Escape($kind))).Count
+                if ($count -gt 0) {
+                  Write-Host ("D06_FULL_CLASS_" + $kind.Replace(" ","_").Replace("/","_").ToUpperInvariant() + "=" + $count)
+                }
+              }
+              # Disclose only coordinates in the exact tracked test/source inventory.
+              # TAP/tsx stack paths can use either URI or Windows separators.
+              $tracked = @(& git ls-files -- scripts tests src t2-site-module | Sort-Object)
+              $normalized = $body.Replace([char]92,[char]47)
+              $sourceCoords = @()
+              foreach ($match in [regex]::Matches($normalized,'(?<file>(?:scripts|tests|src|t2-site-module)/[A-Za-z0-9._/-]+\.(?:mjs|cjs|ts|tsx|js)):(?<line>\d+)(?::(?<col>\d+))?')) {
+                $idx = [array]::IndexOf($tracked,$match.Groups['file'].Value) + 1
+                if ($idx -gt 0) { $sourceCoords += ($idx.ToString() + ":" + $match.Groups['line'].Value + ":" + $match.Groups['col'].Value) }
+              }
+              Write-Host ("D06_FULL_SOURCE_COORDINATES=" + (($sourceCoords | Select-Object -Unique -Last 35) -join ","))
+              foreach ($m in [regex]::Matches($normalized,'(?m)^not ok (\d+)(?: -|\s*$)')) {
+                Write-Host ("D06_FULL_TAP_FAILURE_INDEX=" + $m.Groups[1].Value)
+              }
+              foreach ($m in [regex]::Matches($normalized,'(?m)^> npm run ([a-z][a-z0-9:.-]+)(?:\s|$)')) {
+                if ($m.Groups[1].Value -match '^(check|test|build)(:[a-z0-9.-]+)*$') { Write-Host ("D06_FULL_SCRIPT_STAGE=" + $m.Groups[1].Value) }
+              }
+              $known = @(& git ls-files -- "tests/e2e/*.spec.ts" | Sort-Object)
+              $coords = @()
+              foreach ($match in [regex]::Matches($body, '(tests[/\\]e2e[/\\][^:\r\n]+\.spec\.ts):(\d+):(\d+)')) {
+                $file = $match.Groups[1].Value.Replace([char]92,[char]47)
+                $index = [array]::IndexOf($known,$file) + 1
+                if ($index -gt 0) { $coords += ($index.ToString() + ":" + $match.Groups[2].Value + ":" + $match.Groups[3].Value) }
+              }
+              Write-Host ("D06_FULL_E2E_COORDINATES=" + (($coords | Select-Object -Unique -Last 20) -join ","))
+              foreach ($kind in @("strict mode violation","ECONNREFUSED","EADDRINUSE","ENOENT","ELIFECYCLE","No tests found","Immutability violated","exited with code","failed","did not match")) {
+                $count = ([regex]::Matches($body, [regex]::Escape($kind))).Count
+                if ($count) { Write-Host ("D06_FULL_EXTRA_CLASS=" + $kind + ":" + $count) }
+              }
+              exit 1
+            }
+          }
+      - name: Private-source boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_SOURCE_UPLOADS=0"
+          Write-Host "D06_PRIVATE_LOG_UPLOADS=0"
+          Write-Host "D06_PRIVATE_DIST_UPLOADS=0"

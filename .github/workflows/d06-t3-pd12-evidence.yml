@@ -1,0 +1,80 @@
+name: d06-t3-pd12-evidence
+on:
+  push:
+    branches:
+      - test/2026-11-24-d06-t3-preparation
+    paths:
+      - .github/workflows/d06-t3-pd12-evidence.yml
+permissions:
+  contents: read
+jobs:
+  exact-evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod
+          ref: 039b2a2e20ee1e47543e980b02b0ad85abe7be59
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/domain
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: c9dd22e609de24dc96cd13880aad3631d5328d64
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Prove exact canonical projection
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          foreach ($path in @("src/evaluate-offers/comparison-evidence.mjs","src/evaluate-offers/comparison-evidence.d.mts","scripts/test-pd12-comparison-evidence.mjs","src/rules/replacement-comparison.ts")) {
+            $a = (git -C private/domain rev-parse ("HEAD:" + $path)).Trim()
+            $b = (git -C private/site rev-parse ("HEAD:" + $path)).Trim()
+            if ($a -ne $b) { throw "D06_PD12_OWNER_PROJECTION_MISMATCH" }
+          }
+          Write-Host "D06_PD12_OWNER_PROJECTION=PASS"
+          $log = Join-Path $env:RUNNER_TEMP "d06-pd12-canonical.private.log"
+          & node private/domain/scripts/test-pd12-comparison-evidence.mjs *> $log
+          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_PD12_COMPARISON_EVIDENCE_CASES=44\r?$') { throw "D06_PD12_CANONICAL_CASES_FAILED" }
+          Write-Host "D06_PD12_CANONICAL_CASES=44"
+      - name: Test actual projected calculators, saved evidence and purchase safeguards
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "d06-pd12-projection.private.log"
+          & npm ci *> $log
+          if ($LASTEXITCODE -ne 0) { Write-Host "D06_PD12_INSTALL=FAIL"; exit 1 }
+          Write-Host "D06_PD12_INSTALL=PASS"
+          foreach ($task in @("test:pd12:evidence", "test:workflow:offers", "test:pd12:readiness", "test:replacement-procurement", "test:replacement-write-guard", "check:type")) {
+            & npm run $task *> $log
+            $passed = $LASTEXITCODE -eq 0
+            Write-Host ("D06_PD12_TASK_" + $task.Replace(":","_").Replace("-","_").ToUpperInvariant() + "=" + $(if ($passed) {"PASS"} else {"FAIL"}))
+            if (-not $passed) {
+              $raw = (Get-Content $log -Raw).Replace([char]92,[char]47)
+              $tracked = @(& git ls-files -- scripts src tests | Sort-Object)
+              foreach ($m in ([regex]::Matches($raw,'(?<file>(?:scripts|src|tests)/[A-Za-z0-9._/-]+\.(?:mjs|mts|ts|tsx))(?::|\()(?<line>\d+)(?::|,)(?<column>\d+)') | Select-Object -Last 20)) {
+                $index = [array]::IndexOf($tracked,$m.Groups["file"].Value)+1
+                if ($index -gt 0) { Write-Host ("D06_PD12_FAILURE_COORD=" + $index + ":" + $m.Groups["line"].Value + ":" + $m.Groups["column"].Value) }
+              }
+              $codes = [regex]::Matches($raw,'TS\d{4}') | ForEach-Object {$_.Value} | Select-Object -Unique -First 10
+              Write-Host ("D06_PD12_TYPE_CODES=" + ($codes -join ","))
+              exit 1
+            }
+          }
+      - name: Private source boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "D06_PRIVATE_SOURCE_UPLOADS=0"
+          Write-Host "D06_PRIVATE_LOG_UPLOADS=0"
+          Write-Host "D06_PRIVATE_DIST_UPLOADS=0"
