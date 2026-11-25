@@ -17,7 +17,8 @@ import {createT4OriginalHostOutboxDispatcher} from './original-host-outbox-dispa
 import {createT4OriginalHostDispatchTaskBinding} from './original-host-dispatch-task-binding.mjs';
 import {createT4OriginalHostRecipientDispatcher} from './original-host-recipient-dispatcher.mjs';
 import {verifyT4OriginalHostCapturedSubjectSource} from './original-host-outbox-delivery.mjs';
-import {readT4OriginalReplacementOwnerHistory,completeT4OriginalReplacementHostCursor} from './original-network-replacement-owner-history.mjs';
+import {createT4OriginalReplacementOwnerHistoryRequest,readT4OriginalReplacementOwnerHistory,completeT4OriginalReplacementHostCursor} from './original-network-replacement-owner-history.mjs';
+import {isT4OriginalSignedReplacementHistoryAccess} from './original-signed-replacement-history-access.mjs';
 
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 // The original native relay issues a 32-byte base64url token. Its first
@@ -63,7 +64,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   enableLocalSourceCapture=false,enablePublicationIndexMigration=false,
   enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,requireSignedTopologyAccess=false,
   enableHistoricalAcknowledgementRecovery=false,enableLocalRetiredRecipientRecovery=false,enableLocalReplacementRecovery=false,
-  enableReplacementTerminalRecovery=false,
+  enableReplacementTerminalRecovery=false,originalSignedReplacementHistoryAccess=null,
   originalVaultNodeSignaturePort=null,requireOriginalVaultNodeSignature=false,requireDurableNetworkKeyBinding=false,
   originalVaultSealedContentPort=null,requireOriginalVaultSealedContent=false,
   monotonicNow=()=>performance.now(),
@@ -73,9 +74,19 @@ export function createT4OriginalNativeHostNetworkOwner({
     fail('NATIVE_NETWORK_OWNER_LOCAL_REPLACEMENT_PROFILE_INVALID');
   if(typeof enableReplacementTerminalRecovery!=='boolean'||(enableReplacementTerminalRecovery&&
     (!enableLocalReplacementRecovery||!isT4NativeTopologyTransport(nativeTopologyTransport)||nativeTopologyTransport.originalSignedAccessBound!==true||
-      !['authorizeOriginalReplacementOwnerHistoryRead','authorizeOriginalPeerReplacementHistoryRead','readOriginalPeerReplacementHistory',
+      !['authorizeOriginalReplacementOwnerHistoryRead','authorizeOriginalPeerReplacementHistoryRead','readOriginalPeerReplacementHistory','authorizeOriginalReplacementHistoryCaller',
         'authorizeOriginalHistoricalCursorRecovery'].every(k=>typeof originalPorts?.[k]==='function'))))
     fail('NATIVE_NETWORK_OWNER_REPLACEMENT_TERMINAL_PROFILE_INVALID');
+  if(enableReplacementTerminalRecovery){
+    const h=originalSignedReplacementHistoryAccess,v=originalVaultNodeSignaturePort,n=nativeTopologyTransport;
+    const expected={workspaceId:sourceWorkspaceId,technicalWorkspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
+      localNodeRef:role==='SOURCE'?sourceNodeRef:recipientNodeRef,scopeRef,ownerEpoch};
+    if(!isT4OriginalSignedReplacementHistoryAccess(h)||!Object.keys(expected).every(k=>h.identity[k]===expected[k])||
+      h.originalAccessIdentity!==v.originalAccessIdentity||h.originalAccessIdentity!==n.originalAccessIdentity||
+      JSON.stringify(h.originalSignedSubject)!==JSON.stringify(v.originalSignedSubject)||
+      JSON.stringify(h.originalSignedSubject)!==JSON.stringify(n.originalSignedSubject))
+      fail('NATIVE_NETWORK_OWNER_SIGNED_REPLACEMENT_HISTORY_REQUIRED');
+  }else if(originalSignedReplacementHistoryAccess!==null)fail('NATIVE_NETWORK_OWNER_REPLACEMENT_TERMINAL_PROFILE_INVALID');
   if(typeof enableLocalRetiredRecipientRecovery!=='boolean'||(enableLocalRetiredRecipientRecovery&&role!=='RECIPIENT'))
     fail('NATIVE_NETWORK_OWNER_LOCAL_RETIREMENT_PROFILE_INVALID');
   if(typeof enableHistoricalAcknowledgementRecovery!=='boolean'||(enableHistoricalAcknowledgementRecovery&&
@@ -164,7 +175,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     ...(enableExplicitNetworkResume?['authorizeOriginalNetworkResume']:[]),
     ...(enableHistoricalAcknowledgementRecovery||enableReplacementTerminalRecovery?['authorizeOriginalHistoricalCursorRecovery']:[]),
     ...(enableReplacementTerminalRecovery?['authorizeOriginalReplacementOwnerHistoryRead','authorizeOriginalPeerReplacementHistoryRead',
-      'readOriginalPeerReplacementHistory']:[])].map(k=>[k,originalPorts[k]])));
+      'readOriginalPeerReplacementHistory','authorizeOriginalReplacementHistoryCaller']:[])].map(k=>[k,originalPorts[k]])));
   const identity=Object.freeze({technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch});
   const operations=role==='SOURCE'?(enableLocalSourceCapture?
@@ -202,6 +213,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     const getMode=originalHostLifetimeMode(mode,isHostActive,'NATIVE_NETWORK_OWNER_LIFETIME_ENDED');
     const scopedVault=originalVaultNodeSignaturePort?.forOriginalHostLifetime(isHostActive);
     const scopedSealed=originalVaultSealedContentPort?.forOriginalHostLifetime(isHostActive);
+    const scopedHistory=originalSignedReplacementHistoryAccess?.forOriginalHostLifetime(isHostActive);
     const context=workspaceId=>async()=>{
       await requireBinding(state,'context');
       return Object.freeze({workspaceId,originalWriteOwnerRef,originalOwnerRef:originalWriteOwnerRef,
@@ -265,18 +277,23 @@ export function createT4OriginalNativeHostNetworkOwner({
         readOriginalCurrentCursor,requiredCryptoSuite,verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),
         verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied')});
     };
+    const authorizeHistory=(name,method)=>async proof=>{
+      if(await callback(name)(structuredClone(proof))!==true)return false;
+      const granted=await scopedHistory[method](proof);
+      await requireBinding(state,name+'-signed-readback');return granted===true;
+    };
+    const readLocalOwnerHistory=request=>readT4OriginalReplacementOwnerHistory({...tech,request,localNodeRef:nodeRef,requiredCryptoSuite,
+      authorizeOriginalOwnerHistoryRead:authorizeHistory('authorizeOriginalReplacementOwnerHistoryRead','authorizeOwner'),
+      verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied'),
+      verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),
+      authorizeOriginalHostWire:callback('authorizeOriginalHostWire')});
     const completeLocalReplacement=(selection,originalCursorPort)=>enableReplacementTerminalRecovery?
       completeT4OriginalReplacementHostCursor({selection,role,originalCursorPort,getMode,requiredCryptoSuite,
         readOriginalHostContext:common.readOriginalHostContext,authorizeOriginalHostTask:common.authorizeOriginalHostTask,
         authorizeOriginalHistoricalCursorRecovery:callback('authorizeOriginalHistoricalCursorRecovery'),
         verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),
-        authorizeOriginalPeerReplacementHistoryRead:callback('authorizeOriginalPeerReplacementHistoryRead'),
-        readOriginalPeerReplacementHistory:callback('readOriginalPeerReplacementHistory'),
-        readOriginalLocalOwnerHistory:request=>readT4OriginalReplacementOwnerHistory({...tech,request,localNodeRef:nodeRef,requiredCryptoSuite,
-          authorizeOriginalOwnerHistoryRead:callback('authorizeOriginalReplacementOwnerHistoryRead'),
-          verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied'),
-          verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),
-          authorizeOriginalHostWire:callback('authorizeOriginalHostWire')})}):
+        authorizeOriginalPeerReplacementHistoryRead:authorizeHistory('authorizeOriginalPeerReplacementHistoryRead','authorizePeer'),
+        readOriginalPeerReplacementHistory:callback('readOriginalPeerReplacementHistory'),readOriginalLocalOwnerHistory:readLocalOwnerHistory}):
       Promise.resolve({state:'WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE',selection});
     if(role==='SOURCE'){
       const ledger=createT4OriginalHostCaptureLedgerPort(tech);
@@ -346,7 +363,7 @@ export function createT4OriginalNativeHostNetworkOwner({
         return verifyT4OriginalHostCapturedSubjectSource({...capture,kind:row.kind??'OBJECT_PUT',
           subjectId:row.subjectId??row.objectId,captureRef:row.captureRef},proof);
       };
-      return {baseline,task,capture:captureRecovery,migrateNextPublication:()=>migrateNextPublication(),
+      return {baseline,task,capture:captureRecovery,migrateNextPublication:()=>migrateNextPublication(),readLocalOwnerHistory,
         readLocalReplacement:()=>readLocalReplacement(async()=>(await sourceCursorPort.inspectOriginalHostCursor()).originalT3NextCursor),
         completeLocalReplacement:selection=>completeLocalReplacement(selection,sourceCursorPort),
         resetSourceMigration,run:(retryMissing,historicalOnly=false)=>task.runNativeSourceStep({...signing,retryMissing,historicalOnly,sourceCursorPort,
@@ -367,7 +384,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       authorizeNetworkReceive:callback('authorizeNetworkReceive'),verifyOriginalSourceEvent:callback('verifyOriginalSourceEvent'),
       readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage'),
       withOriginalSubjectMutation:callback('withOriginalSubjectMutation')});
-    return {baseline,task,migrateNextPublication,readLocalReplacement:()=>readLocalReplacement(cursor.readOriginalVerifiedCursor),
+    return {baseline,task,migrateNextPublication,readLocalOwnerHistory,readLocalReplacement:()=>readLocalReplacement(cursor.readOriginalVerifiedCursor),
       completeLocalReplacement:selection=>completeLocalReplacement(selection,cursor),run:retryMissing=>task.runNativeOwnerStep({...signing,retryMissing,useSignedSourceAnnouncement:true,
       createOriginalRecipientPublicationPort:publication,createOriginalRecipientPhasePort:phase,
       ...(enableLocalRetiredRecipientRecovery?{readOriginalLocalRetiredRecipientSession:proof=>
@@ -445,7 +462,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     if(!enableLocalSourceCapture||!matches(state,p)||p.kernel!==state.kernel||!active(state)||
       !LOCAL_METHODS.includes(p.method)||!Array.isArray(p.args)||p.args.length!==1)
       fail('NATIVE_LOCAL_SOURCE_MUTATION_NOT_AVAILABLE');
-    if(state.waking||state.localMutation)fail('NATIVE_LOCAL_SOURCE_MUTATION_BUSY');
+    if(state.waking||state.localMutation||state.historyReading)fail('NATIVE_LOCAL_SOURCE_MUTATION_BUSY');
     const exact=structuredClone(p.args[0]),subjectId=subjectOf(p.method,exact);
     if(exact?.workspace_id!==sourceWorkspaceId||!ID(subjectId))
       fail('NATIVE_LOCAL_SOURCE_MUTATION_SCOPE_MISMATCH');
@@ -480,6 +497,32 @@ export function createT4OriginalNativeHostNetworkOwner({
         captureRef:local.captureRef,originalT3OutboxVerified:true,networkPublished:false});
     }finally{if(state.localMutation===local)state.localMutation=null;}
   }
+  // Exposed ONLY to the installed original owner embedding, not the shared
+  // frame transport or the unsigned UI. Caller references are not credentials.
+  // A busy owner responds without a Kernel command; two simultaneous wakes
+  // cannot deadlock waiting for one another's relay command slot.
+  async function readOriginalReplacementOwnerHistory({request,peerContext}={}){
+    const r=createT4OriginalReplacementOwnerHistoryRequest(request),peer=structuredClone(peerContext),state=live;
+    const remote=role==='SOURCE'?recipientNodeRef:sourceNodeRef;
+    if(JSON.stringify(r)!==JSON.stringify(request)||r.ownerNodeRef!==nodeRef||r.requesterNodeRef!==remote||
+      !['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch'].every(k=>
+        r.session[k]===(k==='workspaceId'?sourceWorkspaceId:identity[k]))||
+      peer?.nodeRef!==remote||!ID(peer.originalPeerSessionRef)||!Number.isSafeInteger(peer.contextEpoch)||peer.contextEpoch<0||
+      Object.keys(peer).length!==3)fail('NATIVE_REPLACEMENT_HISTORY_CALLER_INVALID');
+    if(state===null||!active(state)||mode()!=='T4_NETWORK'||state.waking||state.localMutation||state.historyReading)return null;
+    state.historyReading=true;
+    try{
+      const authorize=async stage=>{
+        await requireBinding(state,'replacement-history-caller');
+        if(await ports.authorizeOriginalReplacementHistoryCaller(Object.freeze({...bindingProof(state,'replacement-history-caller'),
+          request:structuredClone(r),peerContext:structuredClone(peer),stage,originalAuthenticatedPeerRequired:true,
+          originalSubjectMutationAllowed:false,originalFrameRetryAllowed:false}))!==true)
+          fail('NATIVE_REPLACEMENT_HISTORY_CALLER_DENIED');
+        await requireBinding(state,'replacement-history-caller-readback');
+      };
+      await authorize('before');const result=await state.readLocalOwnerHistory(r);await authorize('after');return result;
+    }finally{state.historyReading=false;}
+  }
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_NATIVE_HOST_NETWORK_OWNER_V1',role,identity,operations,
     ...(originalVaultNodeSignaturePort?{originalVaultNodeIdentity:originalVaultNodeSignaturePort.identity,
@@ -487,7 +530,8 @@ export function createT4OriginalNativeHostNetworkOwner({
     ...(originalVaultSealedContentPort?{originalVaultSealedContentIdentity:originalVaultSealedContentPort.identity}:{}),
     ...(nativeTopologyTransport?{originalTopologyBinding:nativeTopologyTransport.binding,
       originalSignedTopologyAccess:nativeTopologyTransport.originalSignedAccessBound===true}:{}),
-    ...(enableReplacementTerminalRecovery?{originalReplacementTerminalRecoveryEnabled:true}:{}),
+    ...(enableReplacementTerminalRecovery?{originalReplacementTerminalRecoveryEnabled:true,originalSignedReplacementHistoryBound:true,
+      readOriginalReplacementOwnerHistory}:{}),
     ...(enableLocalSourceCapture?{localSourceMutation:Object.freeze({workspaceId:sourceWorkspaceId,
       methods:LOCAL_METHODS,invoke:invokeLocalSource})}:{}),
     createsScheduler:false,createsTaskEngine:false,createsStore:false,createsKernel:false,
@@ -499,7 +543,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       const state={kernel:p.kernel,sessionId:p.sessionId,contextEpoch:p.contextEpoch,
         hostSessionRef:hostReference(p.sessionId,p.contextEpoch),
         isHostActive:p.isHostActive,disposed:false,waking:false,task:null,capture:null,
-        localMutation:null,networkWakeSuspended:null,networkRecovery:null};
+        localMutation:null,historyReading:false,networkWakeSuspended:null,networkRecovery:null};
       live=state;
       try{
         if(await ports.authorizeOriginalBinding(bindingProof(state,'attach'))!==true||
@@ -543,6 +587,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       const state=live;
       if(!matches(state,p)||p.kernel!==state.kernel||!active(state))
         fail('NATIVE_NETWORK_OWNER_LIFETIME_ENDED');
+      if(state.historyReading)return;
       if(state.waking||state.localMutation)fail('NATIVE_NETWORK_OWNER_CONCURRENT_WAKE');
       if(mode()==='LOCAL_T3')return;
       if(state.networkWakeSuspended!==null){

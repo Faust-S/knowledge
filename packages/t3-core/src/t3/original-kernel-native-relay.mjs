@@ -55,15 +55,19 @@ export function createOriginalKernelNativeRelay({
     new Set(localSource.methods).size===localSource.methods.length&&
     localSource.methods.every(name=>LOCAL_SOURCE_METHODS.has(name)&&networkNames.includes(name))&&
     typeof localSource.invoke==="function"),"T3_ORIGINAL_LOCAL_SOURCE_MUTATION_OWNER_REQUIRED");
+  const history=networkOwner?.readOriginalReplacementOwnerHistory??null;
+  check(history===null||(networkOwner.originalSignedReplacementHistoryBound===true&&
+    typeof networkOwner.resolveOriginalAccess==='function'&&typeof history==='function'),
+    "T3_ORIGINAL_REPLACEMENT_HISTORY_OWNER_REQUIRED");
   const network=networkOwner===null?null:Object.freeze({
     names:Object.freeze([...networkNames]),authorize:networkOwner.authorizeOperation,
     resolveAccess:networkOwner.resolveOriginalAccess,
-    attach:networkOwner.onAttach,detach:networkOwner.onDetach,wake:networkOwner.onIdleWake,
+    attach:networkOwner.onAttach,detach:networkOwner.onDetach,wake:networkOwner.onIdleWake,history,
     localSource:localSource===null?null:Object.freeze({workspaceId:localSource.workspaceId,
       methods:Object.freeze([...localSource.methods]),invoke:localSource.invoke}),
   });
   let live=null,pending=null,closed=false,nextId=1,attaching=null;
-  let reservation=null,wakeTask=null,localSourceTask=null;
+  let reservation=null,wakeTask=null,localSourceTask=null,historyTask=null;
   const networkActive=state=>!closed&&live===state&&state.networkReady===true;
   const networkCleanup=state=>{
     if(!state?.networkStarted)return;
@@ -136,7 +140,7 @@ export function createOriginalKernelNativeRelay({
     check(!(method==="commitObjectGraph"&&network?.localSource&&
       args[0]?.workspace_id===network.localSource.workspaceId),
       "T3_LOCAL_SOURCE_CAPTURE_OPERATION_NOT_SUPPORTED");
-    check(pending===null&&reservation===null&&localSourceTask===null,"T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
+    check(pending===null&&reservation===null&&localSourceTask===null&&historyTask===null,"T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
     return enqueue(method,args,false);
   };
   const enqueue=(method,args,networkCommand)=>{
@@ -226,7 +230,7 @@ export function createOriginalKernelNativeRelay({
   // Driven by the existing browser next/lease, never an extra timer or queue.
   // Do not await the callback in next(): its Kernel command must wake this poll.
   const startNetworkWake=state=>{
-    if(!networkActive(state)||attaching===state||!network.wake||wakeTask||localSourceTask||pending||reservation)return;
+    if(!networkActive(state)||attaching===state||!network.wake||wakeTask||localSourceTask||historyTask||pending||reservation)return;
     const task={state};wakeTask=task;
     task.done=Promise.resolve().then(async()=>{
       if(networkActive(state))await network.wake(Object.freeze({
@@ -245,6 +249,21 @@ export function createOriginalKernelNativeRelay({
     get attached(){return !closed&&live!==null&&attaching!==live;},
     get networkAttached(){return !!live&&attaching!==live&&networkActive(live);},
     get nativeKernel(){return !closed&&live&&attaching!==live?live.kernel:null;},
+    // Installed original owner only. Never an exchange verb exposed to the
+    // browser or to a remote frame. Non-blocking reservation of the SAME
+    // command slot prevents simultaneous peer recovery from deadlocking.
+    ...(network?.history?{async readOriginalReplacementOwnerHistory(input){
+      const state=live;
+      if(!state||!networkActive(state)||attaching===state||wakeTask||localSourceTask||historyTask||pending||reservation)return null;
+      const exact=clone(input),task={state};historyTask=task;
+      try{
+        if(await currentEpoch()!==state.epoch||!networkActive(state))return null;
+        const result=await network.history(exact);
+        check(await currentEpoch()===state.epoch&&networkActive(state)&&historyTask===task,
+          "T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");
+        return clone(result);
+      }finally{if(historyTask===task)historyTask=null;}
+    }}:{}),
     invalidate(){detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");},
     close(){closed=true;detach("T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED");},
     async exchange({verb,payload}={},requestEpoch){
@@ -258,7 +277,7 @@ export function createOriginalKernelNativeRelay({
         // The old onAttach may still be completing after a detach. Do not let
         // a new session race the native owner while its previous binding is
         // being installed or torn down.
-        check(attaching===null&&wakeTask===null&&localSourceTask===null,"T3_D3_ORIGINAL_KERNEL_ATTACH_IN_PROGRESS");
+        check(attaching===null&&wakeTask===null&&localSourceTask===null&&historyTask===null,"T3_D3_ORIGINAL_KERNEL_ATTACH_IN_PROGRESS");
         check(!live&&validSession(payload?.sessionInfo),
           "T3_D3_ORIGINAL_KERNEL_SESSION_INVALID");
         const grants=clone(payload.sessionInfo);
@@ -333,7 +352,7 @@ export function createOriginalKernelNativeRelay({
         // in-flight wake. No next wake can overtake this user command.
         // Do not admit a second user command or compete with native D3.
         const currentWake=wakeTask;
-        check(localSourceTask===null&&(currentWake!==null||pending===null&&reservation===null),
+        check(localSourceTask===null&&historyTask===null&&(currentWake!==null||pending===null&&reservation===null),
           "T3_ORIGINAL_LOCAL_SOURCE_MUTATION_BUSY");
         const method=payload.method;
         const exact=clone(decodeOriginalNetworkRelayArgs(method,payload.args));

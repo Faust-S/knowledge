@@ -96,3 +96,40 @@ test('K10 original signed owner cannot be combined with a competing boolean auth
     networkOwner:{operations,authorizeOperation:()=>true,resolveOriginalAccess:()=>null,
       onAttach:()=>true,onDetach:()=>{}}}),{code:'T3_ORIGINAL_NETWORK_RELAY_OWNER_REQUIRED'});
 });
+
+test('K74 original relay history read shares one command slot with D3 and native wake and discards a revoked lifetime',async()=>{
+  const technical=createTemporaryOriginalPersonalAuthority({workspaceId:TECH,operations:['t1.getObject'],clock:Date.now});
+  let ctx,epoch=1,wakes=0,reads=0,hold,entered;
+  const gate=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
+  hold=gate();entered=gate();
+  const owner={operations:['t1.getObject'],onAttach:p=>{ctx=p;return true;},onDetach:()=>{},
+    resolveOriginalAccess:p=>p.args[0]===TECH?technical.access:null,
+    originalSignedReplacementHistoryBound:true,
+    async readOriginalReplacementOwnerHistory(input){
+      reads++;entered.resolve();await hold.promise;
+      return {exact:input,object:await ctx.kernel.getObject(TECH,'o:history')};
+    },onIdleWake:()=>{wakes++;}};
+  assert.throws(()=>createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,networkOwner:{...owner,originalSignedReplacementHistoryBound:false}}),
+    {code:'T3_ORIGINAL_REPLACEMENT_HISTORY_OWNER_REQUIRED'});
+  const relay=createOriginalKernelNativeRelay({currentEpoch:()=>epoch,onAttach:()=>true,networkOwner:owner});
+  const input={request:{sessionRef:'session:test'},peerContext:{nodeRef:'peer:test'}};
+  try{
+    assert.equal(await relay.readOriginalReplacementOwnerHistory(input),null);
+    const s=await relay.exchange({verb:'attach',payload:{sessionInfo:info,networkRelayVersion:1}},epoch);
+    const exchange=(verb,rest={})=>relay.exchange({verb,payload:{sessionId:s.sessionId,...rest}},epoch);
+    const reading=relay.readOriginalReplacementOwnerHistory(input);input.request.sessionRef='session:changed';
+    await entered.promise;
+    assert.equal(await relay.readOriginalReplacementOwnerHistory(input),null);
+    await assert.rejects(async()=>relay.nativeKernel.getObject(WS,'o:busy'),{code:'T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS'});
+    // The existing browser poll must service the history read, not start a
+    // competing wake or expose history as another exchange verb.
+    hold.resolve();const cmd=await exchange('next');assert.equal(cmd.method,'getObject');assert.equal(wakes,0);
+    const row={object:{workspace_id:TECH,object_id:'o:history'},relations:{incoming:[],outgoing:[]}};
+    await exchange('result',{id:cmd.id,ok:true,result:row});
+    const read=await reading;assert.equal(read.exact.request.sessionRef,'session:test');assert.deepEqual(read.object,row);
+    assert.equal(reads,1);assert.equal(technical.proofCount,1);
+    hold=gate();entered=gate();const pending=relay.readOriginalReplacementOwnerHistory(input);await entered.promise;
+    epoch++;relay.invalidate();hold.resolve();await assert.rejects(pending);
+    assert.equal(await relay.readOriginalReplacementOwnerHistory(input),null);assert.equal(technical.proofCount,1);
+  }finally{relay.close();}
+});

@@ -24,6 +24,11 @@ import {createT4CandidateFrameTransport} from '../src/network/standard-network-w
 import {prepareT4CandidateOpaqueChunks,assembleT4CandidateOpaqueChunks} from '../src/network/standard-network-opaque-chunks.mjs';
 import {createT4OriginalVaultNodeSignaturePort} from '../src/network/original-vault-node-signature.mjs';
 import {createT4OriginalNativeHostNetworkOwner} from '../src/network/original-native-host-network-owner.mjs';
+import {createT4OriginalSignedReplacementHistoryAccess,isT4OriginalSignedReplacementHistoryAccess} from '../src/network/original-signed-replacement-history-access.mjs';
+import {createT4OriginalReplacementOwnerHistoryRequest} from '../src/network/original-network-replacement-owner-history.mjs';
+import {createT4NetworkTopology,openT4NativeTopologyTransport} from '../src/network/network-topology.mjs';
+import {createOriginalKernelNativeRelay} from '../../t3-core/src/t3/original-kernel-native-relay.mjs';
+import {createTemporaryOriginalPersonalAuthority} from '../../t3-core/tests/support/t3-original-personal-authority.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4CandidateWireFrame,decodeT4CandidateFrame,verifyT4CandidateHistoricalFrameSignature,
   verifyT4CandidateHistoricalReceivedFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from '../src/network/standard-network-wire-candidate.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
@@ -48,10 +53,10 @@ const remoteBinding=Object.freeze({...localBinding,bindingRef:'binding:k37:peer'
 const query=b=>Object.fromEntries(['keyId','nodeRef','recipientNodeRef','workspaceId','originalWriteOwnerRef','scopeRef','ownerEpoch','keyUse'].map(k=>[k,b[k]]));
 const scope={workspaceId:WS,originalWriteOwnerRef:OWNER,localNodeRef:A,remoteNodeRef:B,scopeRef:SCOPE,
   ownerEpoch:2,requiredCryptoSuite:SUITE};
-async function fixture(){
+async function fixture(extraActions=[]){
   const issuer=signer('key:k37:issuer',PRINCIPAL,['GRANT','STATUS']),
     manager=signer('key:k37:manager',MANAGER,['PROOF']),actor=signer('key:k37:actor',PRINCIPAL,['PROOF']);
-  const actions=['t4.network.node.sign','t4.network.node.verify','t4.network.content.seal','t4.network.content.open'],admin=ORIGINAL_NETWORK_KEY_MANAGE;
+  const actions=['t4.network.node.sign','t4.network.node.verify','t4.network.content.seal','t4.network.content.open',...extraActions],admin=ORIGINAL_NETWORK_KEY_MANAGE;
   const policy={schema:PROFILE,id:'policy:k37',version:'v1',realmId:'realm:k37',environment:'TEST',
     statusMode:'OFFLINE_BOUNDED',timeAssurance:'LOCAL_BEST_EFFORT',proofMaxAgeSeconds:60,
     snapshotMaxAgeSeconds:3600,offlineMaxAgeSeconds:3600,
@@ -1122,4 +1127,103 @@ test('K60 K61 K62 original Vault seals, opens and decodes successor canonical su
       {...evidence.frames[2],presentEventId:'event:changed:chunk'}]};return true;
   }}),{code:'SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_CHANGED'});
   assert.equal(q.unlocks,3);
+});
+
+test('K74 durable original signed Access binds exact history directions and admits a native owner without exposing its Kernel', {timeout:60000},async()=>{
+  const OWNER_OP='t4.network.original.replacement.owner.read-history',PEER_OP='t4.network.original.replacement.peer.read-history';
+  const caps=['network.frame.read','network.frame.publish','network.frame.index.read','network.frame.index.publish'];
+  const f=await fixture([OWNER_OP,PEER_OP,...caps.map(x=>'t4.'+x)]),tech='ws:k74:technical';
+  const root=captured(Buffer.from('K74 exact successor')).session,d='sha256:'+sha('k74:retirement');
+  const session=deriveT4OriginalReplacementSessionCandidate({originalCaptureSession:root,replacement:{previousSessionRef:root.sessionRef,
+    changeId:root.changeId,decisionDigest:d,sourcePhaseRef:'phase:k74:source',sourcePhaseEventId:'event:k74:source',
+    sourcePhaseRevision:3,sourcePhaseChainHash:d,recipientPhaseRef:'phase:k74:recipient',recipientPhaseEventId:'event:k74:recipient',
+    recipientPhaseRevision:1,recipientPhaseChainHash:d}});
+  const getMode=()=> 'T4_NETWORK',historyArgs={workspaceId:WS,technicalWorkspaceId:tech,originalWriteOwnerRef:OWNER,
+    sourceNodeRef:A,recipientNodeRef:B,localNodeRef:A,scopeRef:SCOPE,ownerEpoch:2,getMode,clock:f.clock};
+  const create=(access=f.accessFor.access,context=f.context,patch={})=>createT4OriginalSignedReplacementHistoryAccess({...historyArgs,
+    access,expectedContext:context,...patch});
+  const h=create(),request=createT4OriginalReplacementOwnerHistoryRequest({session,requesterNodeRef:B,ownerNodeRef:A}),
+    outbound=createT4OriginalReplacementOwnerHistoryRequest({session,requesterNodeRef:A,ownerNodeRef:B});
+  const ownerProof={operation:OWNER_OP,request,role:'SOURCE',technicalWorkspaceId:tech,originalHostSessionRef:'host:k74:owner',
+    originalOwnerReadOnly:true,originalHistoricalEvidenceOnly:true,originalSubjectMutationAllowed:false,originalFrameRetryAllowed:false};
+  const peerProof={operation:PEER_OP,request:outbound,stage:'before',originalIndependentOwnerReadRequired:true,
+    originalSubjectMutationAllowed:false,originalFrameRetryAllowed:false};
+  assert.equal(isT4OriginalSignedReplacementHistoryAccess(h),true);
+  assert.equal(await h.authorizeOwner(ownerProof),true);assert.equal(await h.authorizePeer(peerProof),true);
+  assert.equal(await h.authorizePeer({...peerProof,stage:'after'}),true);
+  await assert.rejects(h.authorizeOwner({...ownerProof,technicalWorkspaceId:'ws:foreign'}),{code:'REPLACEMENT_HISTORY_SIGNED_OWNER_MISMATCH'});
+  await assert.rejects(h.authorizeOwner({...ownerProof,request:outbound}),{code:'REPLACEMENT_HISTORY_SIGNED_OWNER_MISMATCH'});
+  await assert.rejects(h.authorizePeer({...peerProof,request}),{code:'REPLACEMENT_HISTORY_SIGNED_PEER_MISMATCH'});
+  await assert.rejects(h.authorizePeer({...peerProof,originalSubjectMutationAllowed:true}),{code:'REPLACEMENT_HISTORY_SIGNED_PEER_MISMATCH'});
+  const without=await fixture(),noGrant=create(without.accessFor.access,without.context);
+  await assert.rejects(noGrant.authorizeOwner(ownerProof),{code:'ORIGINAL_SIGNED_NETWORK_ACCESS_DENIED'});
+  let active=true;const scoped=h.forOriginalHostLifetime(()=>active);active=false;
+  await assert.rejects(scoped.authorizeOwner(ownerProof),{code:'ORIGINAL_HOST_LIFETIME_ENDED'});
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',localBinding,f.generate(localBinding)));
+  await f.registry.applyNetworkKeyTransition(await f.prepare('ENROLL',remoteBinding,f.generate(remoteBinding)));
+  const vault=createT4OriginalVaultNodeSignaturePort({...scope,localKeyRef:localBinding.keyId,remoteKeyRef:remoteBinding.keyId,
+    registry:f.registry,...f.accessFor,expectedContext:f.context,getMode,clock:f.clock,requireDurableNetworkKeyBinding:true,
+    readEncryptedVault:async()=>{throw Error('history cannot open signing Vault');},unlockPassphrase:async()=>{throw Error('history cannot unlock');}});
+  const server='node:k74:storage',family='family:k74',profileRef='profile:k74:storage',locationRef='location:k74:storage',endpointUrl='https://k74.example.test/dav/';
+  const topology=createT4NetworkTopology({topologyRef:'topology:k74',revision:1,localNodeRef:A,
+    nodes:[{nodeRef:A,kind:'LOCAL_DEVICE',subjectRef:PRINCIPAL,operatorRef:PRINCIPAL,locationRef:'location:k74:local',availability:'AVAILABLE',advertisedCapabilities:[]},
+      {nodeRef:server,kind:'PERSONAL_SERVER',subjectRef:PRINCIPAL,operatorRef:PRINCIPAL,locationRef,profileRef,availability:'AVAILABLE',advertisedCapabilities:caps}],
+    profiles:[{profileRef,mode:'SELF_HOSTED',operatorRef:PRINCIPAL,locationRef,endpointUrl}],
+    connections:[{connectionRef:'connection:k74',sourceNodeRef:A,targetNodeRef:server,profileRef,state:'READY',capabilities:caps,objectFamilies:[family]}],
+    placements:[{policy:{workspaceId:WS,objectFamily:family,authorityRoot:PRINCIPAL,writeOwnerRef:OWNER,primaryPlacement:'LOCAL_PRIMARY_HOSTED_REPLICA',
+      allowedLocations:['location:k74:local',locationRef],retentionClass:'test',recoveryClass:'test',universalCloudMaster:false,subjectActionAuthority:false},
+      primaryNodeRef:A,replicaNodeRefs:[server]}]});
+  let requests=0,peerCalls=0,callerChecks=0,steps=0,allowCaller=false;
+  const transport=openT4NativeTopologyTransport({topology,workspaceId:WS,objectFamily:family,serverNodeRef:server,nativeWireProfile:'INDEXED',getMode,
+    readOriginalTopology:async()=>topology,verifyOriginalEndpoint:async()=>true,authorizeOriginalOperation:async()=>true,
+    originalSignedAccess:{access:f.accessFor.access,expectedContext:f.context,clock:f.clock},getAuthorizationHeader:async()=>{throw Error('history has no transport');},
+    fetchImpl:async()=>{requests++;throw Error('history has no transport');}});
+  const technical=createTemporaryOriginalPersonalAuthority({workspaceId:tech,operations:['t1.getObject','t1.listEventsSince'],clock:Date.now});
+  const allow=async()=>true,deny=async()=>false;
+  const originalPorts=Object.fromEntries(['authorizeOriginalBinding','authorizeOriginalTechnicalRead','authorizeOriginalTechnicalWrite',
+    'authorizeOriginalBaselineAdmission','verifyOriginalBaselineEvidence','authorizeOriginalHostTask','authorizeOriginalRead','authorizeOriginalWrite',
+    'authorizeOriginalHostWire','authorizeOriginalNetwork','authorizeOriginalFramePublish','verifyOriginalPhaseEvidence','verifyOriginalRecipientApplied',
+    'authorizeNetworkPublish','authorizeOriginalSealedContent','readOriginalSealedContent','authorizeOriginalCaptureRecovery','withOriginalSubjectMutation',
+    'readOriginalDependencyCoverage','authorizeOriginalReplacementOwnerHistoryRead','authorizeOriginalPeerReplacementHistoryRead',
+    'authorizeOriginalHistoricalCursorRecovery'].map(k=>[k,allow]));
+  Object.assign(originalPorts,{resolveOriginalAccess:p=>p.args[0]===tech?technical.access:null,
+    readOriginalPeerReplacementHistory:async()=>{peerCalls++;return null;},
+    authorizeOriginalReplacementHistoryCaller:async p=>{callerChecks++;return allowCaller&&p.peerContext.originalPeerSessionRef==='peer:k74:authenticated'&&
+      p.originalAuthenticatedPeerRequired===true;},authorizeOriginalTechnicalWrite:deny});
+  const config={role:'SOURCE',technicalWorkspaceId:tech,sourceWorkspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,
+    scopeRef:SCOPE,ownerEpoch:2,requiredCryptoSuite:SUITE,getMode,nativeTopologyTransport:transport,originalPorts,
+    enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,originalVaultNodeSignaturePort:vault,
+    originalSignedReplacementHistoryAccess:h,onStep:()=>{steps++;}};
+  try{
+    assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,originalSignedReplacementHistoryAccess:null}),{code:'NATIVE_NETWORK_OWNER_SIGNED_REPLACEMENT_HISTORY_REQUIRED'});
+    assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,originalSignedReplacementHistoryAccess:{...h}}),{code:'NATIVE_NETWORK_OWNER_SIGNED_REPLACEMENT_HISTORY_REQUIRED'});
+    assert.throws(()=>createT4OriginalNativeHostNetworkOwner({...config,originalSignedReplacementHistoryAccess:create(without.accessFor.access,without.context)}),
+      {code:'NATIVE_NETWORK_OWNER_SIGNED_REPLACEMENT_HISTORY_REQUIRED'});
+    const owner=createT4OriginalNativeHostNetworkOwner(config);assert.equal(owner.originalSignedReplacementHistoryBound,true);
+    const relay=createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,networkOwner:owner});
+    try{
+      const input={request,peerContext:{nodeRef:B,originalPeerSessionRef:'peer:k74:authenticated',contextEpoch:1}};
+      assert.equal(await relay.readOriginalReplacementOwnerHistory(input),null);
+      const s=await relay.exchange({verb:'attach',payload:{sessionInfo:{contract_version:'1.3.0',runtime_version:'0.3.6',service_id:'iwxa.workspace.relay',mode:'ready',
+        granted_operations:[...new Set(['t1.getWorkspace','t1.commitObjectGraph',...owner.operations])]},networkRelayVersion:1}},1);
+      assert.equal(s.networkRelayVersion,1);
+      await assert.rejects(relay.readOriginalReplacementOwnerHistory(input),{code:'NATIVE_REPLACEMENT_HISTORY_CALLER_DENIED'});
+      await assert.rejects(relay.readOriginalReplacementOwnerHistory({...input,peerContext:{...input.peerContext,nodeRef:A}}),{code:'NATIVE_REPLACEMENT_HISTORY_CALLER_INVALID'});
+      assert.equal(callerChecks,1);assert.equal(technical.proofCount,0);
+      allowCaller=true;
+      const read=relay.readOriginalReplacementOwnerHistory(input),outcome=read.then(v=>({value:v}),error=>({error}));
+      const exchange=(verb,rest={})=>relay.exchange({verb,payload:{sessionId:s.sessionId,...rest}},1);
+      let commands=0,done;
+      while(!done){
+        const next=await Promise.race([outcome.then(v=>({done:v})),exchange('next').then(cmd=>({cmd}))]);
+        if(next.done){done=next.done;break;}
+        assert.ok(++commands<=4);assert.ok(['getObject','listEventsSince'].includes(next.cmd.method));
+        await exchange('result',{id:next.cmd.id,ok:true,result:next.cmd.method==='getObject'?null:[]});
+      }
+      assert.ok(done.error,'absence of original retirement cannot disclose history');
+      assert.ok(commands>=1);assert.equal(callerChecks,2);assert.equal(steps,0);assert.equal(requests,0);assert.equal(peerCalls,0);
+      assert.equal(technical.proofCount,commands);
+    }finally{relay.close();}
+  }finally{transport.close();}
+  f.setClock(NOW+600000);await assert.rejects(h.authorizePeer(peerProof));
 });
