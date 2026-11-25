@@ -14,7 +14,7 @@ jobs:
   linux:
     uses: ./.github/workflows/d05-t3-dynamic.yml
     with:
-      site_sha: 'da34426f759c47c17013cdc0efdcc9c256f119e9'
+      site_sha: 'b6faaa0bfd21bfde621f77fa6e1d305044fe1c4b'
       domain_sha: '547148d8cd74838e0dd384c9da2f196e3595bf9d'
       assistant_sha: '1c6d077c45d0ccfa9f07f6718e475c1f2ee553fd'
       retained_base_sha: 'ba595ae901ea5af9b066a5e5f7cab88c15fdee8e'
@@ -31,7 +31,7 @@ jobs:
     if: ${{ !cancelled() && needs.linux.outputs.functional_ready == 'true' }}
     uses: ./.github/workflows/d05-t3-real-model.yml
     with:
-      site_sha: 'da34426f759c47c17013cdc0efdcc9c256f119e9'
+      site_sha: 'b6faaa0bfd21bfde621f77fa6e1d305044fe1c4b'
       domain_sha: '547148d8cd74838e0dd384c9da2f196e3595bf9d'
       witness_sha: 'f910f003c633822cbc96648020848555e74e9479'
       evaluator_sha: 'd506577539a4ca530a02f548fa2b225221a6af11'
