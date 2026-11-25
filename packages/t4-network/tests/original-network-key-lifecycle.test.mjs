@@ -826,7 +826,7 @@ test(pendingPhase?'K43 cold original source confirms previously accepted ACK and
   await phase().advanceOriginalSessionPhase({phase:'PUBLISHED',evidence:{evidenceRef:saved.frames[1].sha256+'.t4n',
     evidenceDigest:'sha256:'+saved.frames[1].sha256}});
   const recovery=()=>({session,sourceCursorBefore:before,sourcePhasePort:phase(),sourcePublicationPort:publication(),
-    historicalFramePort:transport(),requiredCryptoSuite:SUITE,
+    historicalFramePort:transport(),requiredCryptoSuite:SUITE,getMode:original.getMode,
     authorizeOriginalHistoricalCursorRecovery:async p=>recoveryAllowed&&p.originalFrameRetryAllowed===false&&
       p.historicalAck.body.recipientEventRef===result.event.event_id,
     authorizeOriginalRead:allow,readOriginalEvents:()=>kernel.listEventsSince(WS)});
@@ -875,6 +875,11 @@ test(pendingPhase?'K43 cold original source confirms previously accepted ACK and
   assert.equal(historic.historicalSignature.originalKeyCurrentlyActive,false);
   if(pendingPhase){
     const writesBeforePhase=f.calls;
+    const {getMode:omittedMode,...unscoped}=recovery();
+    await assert.rejects(confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement(unscoped),
+      {code:'CURSOR_ORIGINAL_HISTORICAL_PORTS_REQUIRED'});
+    await assert.rejects(confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement({...recovery(),getMode:()=> 'LOCAL_T3'}),
+      {code:'CURSOR_NETWORK_MODE_OFF'});
     recoveryAllowed=false;
     await assert.rejects(confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement(recovery()),
       {code:'CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED'});

@@ -179,9 +179,11 @@ test('real original T2 0.3.6 Kernel .iwxa traverses T4 HTTPS into independent T3
   // Full original-Kernel regression now includes 12 causal sessions,
   // two autonomous Host steps and cold recipient owner CAS recovery.
   // This is the whole-fixture budget, not a protocol/network deadline.
-  // Whole-fixture budget: the previous six-kind qualification took 651s;
-  // two additional signed atomic-graph sessions require a separate test budget.
-  timeout:1080000,
+  // The complete regression (including all cold restarts and the two
+  // atomic-graph sessions) reached the 1080s whole-fixture limit under
+  // concurrent CI. Reserve 24 minutes for this aggregate, not for any
+  // individual transport call; retain all existing assertions and deadlines.
+  timeout:1440000,
 },async()=>{
   const qualified=process.env.IWXA_T2_QUALIFIED_KERNEL_DIST;
   assert.ok(qualified&&existsSync(join(qualified,'_iwxa/runtime/0.3.6/runtime.js')),
