@@ -34,8 +34,6 @@ jobs:
             .github/d06/t3-release-request.json
             .github/d06/reuse-static-evidence.mjs
             .github/d06/reuse-native-evidence.mjs
-            scripts/d06-static-reconcile.sh
-            scripts/d06-verify-generated-routes.cjs
             scripts/d06-private-git-transport.sh
           sparse-checkout-cone-mode: false
           path: pipeline
@@ -164,6 +162,47 @@ jobs:
           gh api repos/Faust-S/knowledge/actions/jobs/139448261827 > "$RUNNER_TEMP/d06-prior-native-job.private.json"
           gh api --allow-escape-sequences repos/Faust-S/knowledge/actions/jobs/139448261827/logs > "$RUNNER_TEMP/d06-prior-native-job.private.log"
           node "$GITHUB_WORKSPACE/pipeline/.github/d06/reuse-native-evidence.mjs" "$RUNNER_TEMP/d06-prior-native-run.private.json" "$RUNNER_TEMP/d06-prior-native-job.private.json" "$RUNNER_TEMP/d06-prior-native-job.private.log"
+      - name: Reuse exact completed static route reconciliation
+        id: static-gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/runs/45685687719 > "$RUNNER_TEMP/d06-static-closure-run.private.json"
+          gh api repos/Faust-S/knowledge/actions/jobs/139457574487 > "$RUNNER_TEMP/d06-static-closure-job.private.json"
+          gh api --allow-escape-sequences repos/Faust-S/knowledge/actions/jobs/139457574487/logs > "$RUNNER_TEMP/d06-static-closure.private.log"
+          node --input-type=module - "$RUNNER_TEMP" <<'NODE'
+          import {readFileSync} from "node:fs";
+          import {join} from "node:path";
+          function verifyClosure(run,job,log) {
+           const require=(v,c)=>{if(!v)throw Error("D06_FINAL_STATIC_REUSE_"+c)};
+           require(run.id===45685687719&&run.head_sha==="0964cb80248d4706d9808841a08bf0dc6379000f"&&run.run_attempt===1&&run.event==="push"&&run.path===".github/workflows/d06-t3-release-gate.yml"&&run.status==="completed"&&run.conclusion==="failure","RUN");
+           require(job.id===139457574487&&job.run_id===run.id&&job.name==="final-release-closure"&&job.status==="completed"&&job.conclusion==="failure"&&(job.head_sha===undefined||job.head_sha===run.head_sha)&&(job.run_attempt===undefined||job.run_attempt===1),"JOB");
+           const step=(name,c)=>job.steps.filter(s=>s.name===name&&s.status==="completed"&&s.conclusion===c).length===1;
+           for(const n of ["Validate one-shot trigger before any private checkout","Validate explicit release request","Reuse exact successful hardware model witness","Verify immutable candidate revisions","Reuse exact completed product evidence","Reuse exact completed native offline and Exchange evidence","Check exact original assistant files and owner pack","Install site dependencies once","Install fixed Chromium only in the qualification environment","Reconcile generated route contract and static output"])require(step(n,"success"),"STEP");
+           require(step("Prepare compiled production Host","skipped")&&step("Commit verified inputs to isolated private branch and prove exact remote readback","skipped")&&step("Report missing authorization without production work","failure"),"BOUNDARY");
+           const lines=log.split(/\r?\n/).flatMap(raw=>{const m=raw.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z (.*)$/);return m&&!m[1].includes("\x1b")?[m[1].trim()]:[]});
+           const count=s=>lines.filter(l=>l===s).length;
+           const sequence=["D06_RELEASE_EXACT_PINS=PASS","D06_PRIOR_EXACT_STATIC_PRODUCT_EVIDENCE=PASS","D06_PRIOR_E2E_COUNTS=85:0:0:0","D06_PRIOR_EXACT_CHECK_TEST=PASS","D06_PRIOR_EXACT_NATIVE_OFFLINE=PASS","D06_PRIOR_EXACT_NATIVE_EXCHANGE=PASS","D06_T3_ORIGINAL_INPUTS=PASS","D06_T3_PRIVATE_TRANSPORT=DRY_RUN_WRITE_PERMISSION","D06_RELEASE_NPM_CI=PASS","D06_FINAL_BROWSER_VERSION=156.0.8078.4","D06_STATIC_RECONCILE_COUNTS=START:0:0:0"];
+           for(const stage of ["build_static","check_type","check_static"])sequence.push("D06_STATIC_RECONCILE_COMMAND="+stage+":PASS","D06_STATIC_RECONCILE_COUNTS="+stage+":1:0:0","D06_GENERATED_ROUTE_CONTRACT=PASS","D06_GENERATED_ROUTE_COUNT=47","D06_STATIC_RECONCILE_GENERATED_ROUTE=PASS");
+           sequence.push("D06_STATIC_RECONCILE_ORIGINAL=PASS","D06_STATIC_RECONCILE_SOURCE=PASS","D06_FINAL_STATIC_EVIDENCE_RECONCILED=PASS","D06_FINAL_PERMANENT_RETENTION=BLOCKED","D06_FINAL_STATIC_RECONCILIATION=success","D06_FINAL_PRIOR_NATIVE_EVIDENCE=success","D06_FINAL_PRODUCTION_HOST=skipped","D06_FINAL_LOCAL_REBUILD=skipped","D06_FINAL_PRIVATE_PUBLISH=skipped","D06_FINAL_RETENTION_PREFLIGHT=failure");
+           let previous=-1;
+           for(const marker of sequence){const next=lines.indexOf(marker,previous+1);require(next>previous,"ORDER");previous=next;}
+           for(const m of new Set(sequence))require(count(m)===sequence.filter(x=>x===m).length,"COUNT");
+           require(!lines.some(l=>/^D06_(?:STATIC_RECONCILE_[A-Z_]+|GENERATED_ROUTE_CONTRACT|FINAL_STATIC_EVIDENCE_RECONCILED)=(?:[^:]+:)?FAIL$/.test(l)),"STATIC_FAILURE");
+           return true;
+          }
+          try {
+            const root=process.argv[2],read=name=>readFileSync(join(root,name),"utf8");
+            verifyClosure(JSON.parse(read("d06-static-closure-run.private.json")),JSON.parse(read("d06-static-closure-job.private.json")),read("d06-static-closure.private.log"));
+            console.log("D06_PRIOR_EXACT_STATIC_RECONCILIATION=PASS");
+          } catch(error) {
+            const code=String(error?.message??"");
+            console.error(/^D06_FINAL_STATIC_REUSE_[A-Z_]+$/.test(code)?code:"D06_FINAL_STATIC_REUSE_EVIDENCE_INVALID");
+            process.exitCode=1;
+          }
+          NODE
       - name: Check exact original assistant files and owner pack
         shell: pwsh
         run: |
@@ -195,7 +234,6 @@ jobs:
           path: private/retention
       - name: Check exact private retention authorization
         id: retention-permission
-        continue-on-error: true
         working-directory: private/retention
         shell: bash
         env:
@@ -242,17 +280,6 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=normal)"
           echo D06_FINAL_BROWSER_VERSION=156.0.8078.4
           echo D06_FINAL_BROWSER_INSTALL=PASS
-      - name: Reconcile generated route contract and static output
-        id: static-gate
-        working-directory: private/site
-        shell: bash
-        env:
-          EXPECTED_SITE: ${{ steps.request.outputs.site }}
-          D06_CANONICAL_TASK_INTENTS_PATH: ${{ github.workspace }}/private/domain/src/registry/task-intents.json
-        run: |
-          set -euo pipefail
-          bash "$GITHUB_WORKSPACE/pipeline/scripts/d06-static-reconcile.sh" "$EXPECTED_SITE"
-          echo D06_FINAL_STATIC_EVIDENCE_RECONCILED=PASS
       - name: Verify original public portable input
         id: original-input
         if: ${{ success() && steps.static-gate.outcome == 'success' && steps.native-evidence.outcome == 'success' && steps.retention-permission.outcome == 'success' }}
@@ -544,12 +571,6 @@ jobs:
           echo D06_T3_RETAIN_PRIVATE_PUSH=PASS
           echo D06_FINAL_PERMANENT_RETENTION=PASS
           echo "D06_T3_RETAIN_REMOTE_COMMIT=$candidate"
-      - name: Report missing authorization without production work
-        if: ${{ !cancelled() && steps.retention-permission.outcome == 'failure' }}
-        shell: bash
-        run: |
-          echo D06_FINAL_PERMANENT_RETENTION=BLOCKED
-          exit 1
       - name: Evidence boundary
         if: always()
         shell: pwsh
@@ -561,6 +582,7 @@ jobs:
           Write-Host "D06_FINAL_LOCAL_REBUILD=${{ steps.local-rebuild.outcome }}"
           Write-Host "D06_FINAL_PRIVATE_PUBLISH=${{ steps.private-publish.outcome }}"
           Write-Host "D06_FINAL_RETENTION_PREFLIGHT=${{ steps.retention-permission.outcome }}"
+          if ("${{ steps.retention-permission.outcome }}" -eq "failure") { Write-Host "D06_FINAL_PERMANENT_RETENTION=BLOCKED" }
           Write-Host "D06_T3_PRODUCT_ACCEPTED=false"
           Write-Host "D06_PRIVATE_SOURCE_UPLOADS=0"
           Write-Host "D06_PRIVATE_LOG_UPLOADS=0"
