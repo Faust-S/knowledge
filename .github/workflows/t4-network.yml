@@ -1,12 +1,5 @@
 name: t4-network-qualification
 on:
-  push:
-    branches:
-      - work/2026-11-22-t4-t3-0.3.0-integration
-    # Full qualification is opt-in at a deliberate integration checkpoint.
-    # Ordinary development pushes are covered by local targeted tests.
-    paths:
-      - .github/qualification/t4-network.json
   workflow_dispatch:
 
 permissions:
