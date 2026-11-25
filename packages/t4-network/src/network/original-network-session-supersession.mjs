@@ -626,3 +626,90 @@ export async function discoverT4OriginalReplacementSourceHead({frameDiscoveryPor
     originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,
     sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false});
 }
+
+/** Durable source INTENT for the first successor. The admission binds the
+ * already persisted HEADS proof to the original phase genesis, not a new
+ * authorization database. Recipient admission and live transfer remain
+ * separate, and this operation never advances either causal cursor. */
+export async function admitT4OriginalReplacementSourcePhase({
+  createOriginalReplacementPublicationPort,createOriginalReplacementSourcePhasePort,...eligibilityPorts
+}={}){
+  const {getMode,requiredCryptoSuite}=eligibilityPorts;
+  if(typeof createOriginalReplacementPublicationPort!=='function'||
+    typeof createOriginalReplacementSourcePhasePort!=='function')
+    fail('REPLACEMENT_SOURCE_ADMISSION_PORT_REQUIRED');
+  const eligibility=await recoverT4OriginalReplacementEligibility(eligibilityPorts),candidate=eligibility.candidate;
+  const rereadEligibility=async()=>{
+    const next=await recoverT4OriginalReplacementEligibility(eligibilityPorts);
+    if(!same(next,eligibility))fail('REPLACEMENT_ORIGINAL_EVIDENCE_CHANGED');
+    return next;
+  };
+  const publication=await createOriginalReplacementPublicationPort(freeze({session:candidate,
+    originalReplacementAnnouncementRequired:true,originalNewAttemptAdmissionStillRequired:true}),rereadEligibility);
+  mode(getMode);
+  if(publication?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||
+    !same(publication.session,candidate)||publication.originalT3OnlyStore!==true||
+    publication.originalReplacementAnnouncementPublication!==true||
+    !ID(publication.checkpointRef)||typeof publication.readOriginalPublishedFrame!=='function')
+    fail('REPLACEMENT_SOURCE_ADMISSION_PUBLICATION_REQUIRED');
+  const current=async()=>{
+    const e=await rereadEligibility();
+    const h=clone(await publication.readOriginalPublishedFrame({sequence:1}));mode(getMode);
+    if(h?.schema!=='IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1'||h.checkpointRef!==publication.checkpointRef||
+      !Number.isSafeInteger(h.originalPublicationRevision)||h.originalPublicationRevision<1||!DIG(h.originalPublicationChainHash)||
+      !SHA(h.sha256)||h.key!==h.sha256+'.t4n'||h.signedMessageType!=='HEADS'||h.verifiedSequence!==1||
+      h.verifiedSessionRef!==candidate.sessionRef||h.verifiedSourceNodeRef!==candidate.sourceNodeRef||
+      h.verifiedRecipientNodeRef!==candidate.recipientNodeRef||h.verifiedScopeRef!==candidate.scopeRef||
+      h.verifiedOwnerEpoch!==candidate.ownerEpoch||h.verifiedCryptoSuite!==requiredCryptoSuite||
+      !same(h.verifiedCriticalExtensions,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION])||
+      h.originalT3PublicationEventChainVerified!==true||h.originalOutboundSignatureVerified!==true||
+      h.originalOutboundAuthorityVerified!==true||h.originalImmutableTransportReadbackVerified!==true||
+      h.networkBytesVerified!==true||h.originalBusinessApplied!==false||h.originalT3ExchangeCalled!==false)
+      fail('REPLACEMENT_SOURCE_ADMISSION_HEAD_NOT_PROVEN');
+    readT4OriginalReplacementSourceHead({identity:candidate.originalCaptureSession,body:h.verifiedBody,
+      sessionRef:candidate.sessionRef,sourceCursorBefore:e.sourceCursorBefore,expectedCandidate:candidate});
+    await rereadEligibility();
+    return freeze({eligibility:e,head:h});
+  };
+  const first=await current(),head=first.head;
+  const admission=freeze({binding:candidate.replacement,sourceEventId:candidate.sourceEventId,
+    captureDigest:candidate.capturedWindowDigest,headKey:head.key,headSha256:head.sha256,
+    publicationRef:head.checkpointRef,publicationRevision:head.originalPublicationRevision,
+    publicationChainHash:head.originalPublicationChainHash});
+  const witness=async()=>{
+    const next=await current();if(!same(next,first))fail('REPLACEMENT_SOURCE_ADMISSION_EVIDENCE_CHANGED');return next;
+  };
+  const phase=await createOriginalReplacementSourcePhasePort(freeze({session:candidate,admission}),witness);
+  mode(getMode);
+  if(phase?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||phase.role!=='SOURCE'||
+    phase.originalT3TechnicalWorkspaceOnly!==true||phase.createsSecondStore!==false||!ID(phase.checkpointRef)||
+    !same(phase.originalReplacementSourceAdmission,admission)||
+    typeof phase.advanceOriginalSessionPhase!=='function'||typeof phase.inspectOriginalSession!=='function')
+    fail('REPLACEMENT_SOURCE_ADMISSION_PHASE_REQUIRED');
+  await witness();
+  const evidence={evidenceRef:candidate.sourceEventId,evidenceDigest:candidate.capturedWindowDigest};
+  const outcome=await phase.advanceOriginalSessionPhase({phase:'INTENT',evidence});mode(getMode);
+  const status=await phase.inspectOriginalSession();mode(getMode);
+  if(outcome?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1'||
+    !['RECORDED','ALREADY_CONFIRMED'].includes(outcome.status)||outcome.phase!=='INTENT'||
+    outcome.checkpointRef!==phase.checkpointRef||outcome.revision!==1||!DIG(outcome.chainHash)||
+    !ID(outcome.originalPhaseEventId)||outcome.originalBusinessApplied!==false||
+    status?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||status.role!=='SOURCE'||
+    status.checkpointRef!==phase.checkpointRef||status.sessionRef!==candidate.sessionRef||
+    status.changeId!==candidate.changeId||status.revision!==1||status.chainHash!==outcome.chainHash||
+    status.currentPhase!=='INTENT'||!same(status.sourceIntentEvidence,evidence)||
+    !same(status.originalReplacementSourceAdmission,admission)||
+    status.originalReplacementSourceAdmissionRecorded!==true||
+    status.originalReplacementAdmissionEventId!==outcome.originalPhaseEventId||
+    status.originalT3EventChainVerified!==true||status.originalBusinessApplied!==false||
+    status.originalNewAttemptAdmissionStillRequired!==true||status.liveNetworkAuthorityGranted!==false)
+    fail('REPLACEMENT_SOURCE_ADMISSION_NOT_PROVEN');
+  await witness();
+  return freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_SOURCE_ADMISSION_V1',candidate,admission,
+    status:outcome.status,checkpointRef:phase.checkpointRef,revision:1,chainHash:status.chainHash,
+    originalReplacementAdmissionEventId:status.originalReplacementAdmissionEventId,
+    originalSourceIntentRecorded:true,originalBothTerminalPhaseEventsVerified:true,
+    originalRecipientAdmissionStillRequired:true,originalNewAttemptAdmissionStillRequired:true,
+    originalSubjectMutationInvoked:false,originalBusinessApplied:false,sourceCursorAdvanced:false,
+    recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false});
+}

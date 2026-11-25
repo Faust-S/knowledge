@@ -13,7 +13,7 @@ import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_ORIGINAL_SOURCE_S
 import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
   retireT4OriginalRecipientAttemptFromControl,verifyT4OriginalRecipientRetirementAck,recordT4OriginalSourceSupersession,
   publishT4OriginalRecipientRetirementAck,recoverT4OriginalReplacementEligibility,
-  publishT4OriginalReplacementSourceHead,discoverT4OriginalReplacementSourceHead}
+  publishT4OriginalReplacementSourceHead,discoverT4OriginalReplacementSourceHead,admitT4OriginalReplacementSourcePhase}
   from '../src/network/original-network-session-supersession.mjs';
 import {createT4OriginalNetworkSessionPhasePort,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
@@ -960,4 +960,43 @@ test('K52 replacement publication requires a fresh original eligibility port, no
   await assert.rejects(port.prepareSignedBatch({slots:[{sequence:1,messageType:'HEADS'}],
     createSignedFrames:async()=>{calls++;return [];}}),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_ELIGIBILITY_CHANGED'));
   assert.equal(calls,0);
+});
+
+test('K53 successor source INTENT binds published HEADS and both terminal Events to original phase genesis; cold retry never writes twice',async()=>{
+  const x=await controlFixture({indexed:true});await closeInitialAttempt(x);
+  const createPhase=async({session:c,admission},readOriginalReplacementSourceAdmission)=>x.sourcePhase({
+    sessionRef:c.sessionRef,authorizeOriginalSourceSupersession:null,replacementSourceAdmission:admission,
+    readOriginalReplacementSourceAdmission});
+  const admit=(patch={})=>admitT4OriginalReplacementSourcePhase({...x.eligibilityOptions(),
+    createOriginalReplacementPublicationPort:x.createReplacementPort,createOriginalReplacementSourcePhasePort:createPhase,...patch});
+  const oldWrites=x.sourcePhaseWrites();
+  await assert.rejects(admit(),isCode('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT'));
+  assert.equal(x.sourcePhaseWrites(),oldWrites);
+  await x.publishReplacement();
+  const before={signs:x.signatureCount(),puts:x.counts().networkPuts,writes:x.sourcePhaseWrites()};
+  x.sourceStore.loseNextReply();
+  await assert.rejects(admit(),isCode('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  assert.equal(x.sourcePhaseWrites(),before.writes+1);
+  x.f.restart();
+  const result=await admit();
+  assert.equal(result.status,'ALREADY_CONFIRMED');
+  assert.equal(result.originalSourceIntentRecorded,true);
+  assert.equal(result.originalRecipientAdmissionStillRequired,true);
+  assert.equal(result.liveNetworkAuthorityGranted,false);
+  assert.equal(result.candidate.changeId,x.session.changeId);
+  assert.equal(x.signatureCount(),before.signs);assert.equal(x.counts().networkPuts,before.puts);
+  assert.equal(x.sourcePhaseWrites(),before.writes+1);
+  const raw=x.sourcePhase({sessionRef:result.candidate.sessionRef,authorizeOriginalSourceSupersession:null});
+  assert.equal(raw.checkpointRef,result.checkpointRef);
+  await assert.rejects(raw.inspectOriginalSession(),isCode('PHASE_ORIGINAL_REPLACEMENT_POLICY_MISMATCH'));
+  const phase=await createPhase({session:result.candidate,admission:result.admission},async()=>true);
+  const status=await phase.inspectOriginalSession();
+  assert.equal(status.originalReplacementAdmissionEventId,result.originalReplacementAdmissionEventId);
+  await assert.rejects(phase.advanceOriginalSessionPhase({phase:'PUBLISHED',evidence:evidence('frame:unadmitted')}),
+    isCode('PHASE_ORIGINAL_REPLACEMENT_LIVE_TRANSFER_NOT_ENABLED'));
+  await assert.rejects(phase.advanceOriginalSessionPhase({phase:'INTENT',evidence:status.currentEvidence}),
+    isCode('PHASE_ORIGINAL_REPLACEMENT_ADMISSION_NOT_PROVEN'));
+  x.changeRecipientFrontier();
+  await assert.rejects(admit(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
+  assert.equal(x.sourcePhaseWrites(),before.writes+1);
 });
