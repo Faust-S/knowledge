@@ -166,7 +166,7 @@ export function createOriginalVaultProofSession(options={}){
       lastWall=wall;
       requireThat(isOriginalHostActive()===true&&authorizeOriginalVaultUse(Object.freeze({
         operation,keyId,organizationId,actorId:context.actor_id,context:structuredClone(context),
-      }))===true,"T3_ACCESS_VAULT_SESSION_DENIED");
+      }))===true&&isOriginalHostActive()===true,"T3_ACCESS_VAULT_SESSION_DENIED");
       // Native owner callbacks can synchronously lock the session.
       requireThat(state===expectedState,"T3_ACCESS_VAULT_SESSION_LOCKED");
       return wall;
@@ -203,15 +203,20 @@ export function createOriginalVaultProofSession(options={}){
       const record=await readVaultRecord(readEncryptedVault);
       guard("UNLOCK","UNLOCKING");
       envelopeHash=envelopeDigest(record);
-      const passphrase=await unlockPassphrase({actorId:context.actor_id,keyId,organizationId,asOf:new Date(startedWall).toISOString()});
-      guard("UNLOCK","UNLOCKING");
-      const keys=await decryptVaultAsync(record,passphrase);
-      guard("UNLOCK","UNLOCKING");
-      requireThat(keys.keys[keyId]?.subjectId===context.actor_id,"T3_ACCESS_VAULT_SUBJECT_MISMATCH");
-      const candidate=keyObjectSigner(keyId,vaultPrivateKey(keys,keyId));
+      let passphrase=await unlockPassphrase({actorId:context.actor_id,keyId,organizationId,asOf:new Date(startedWall).toISOString()});
+      try{
+        guard("UNLOCK","UNLOCKING");
+        const keys=await decryptVaultAsync(record,passphrase);
+        guard("UNLOCK","UNLOCKING");
+        requireThat(keys.keys[keyId]?.subjectId===context.actor_id,"T3_ACCESS_VAULT_SUBJECT_MISMATCH");
+        // Keep the candidate ONLY in the lifetime-owned slot. A lock while
+        // the final envelope read is awaiting I/O releases that reference;
+        // no local candidate or decrypted PEM vault crosses the readback.
+        provider=keyObjectSigner(keyId,vaultPrivateKey(keys,keyId));
+      }finally{passphrase=null;}
       await readCurrent("UNLOCKING");
       guard("UNLOCK","UNLOCKING");
-      provider=candidate;state="ACTIVE";
+      state="ACTIVE";
     }catch(error){close();throw error;}
   }
   return Object.freeze({unlock,signProof,close,get active(){return state==="ACTIVE";}});

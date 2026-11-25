@@ -267,4 +267,11 @@ test("K98 explicit Vault session fails closed on changed envelope, revoked owner
     await assert.rejects(g.proof(),{code:"T3_ACCESS_VAULT_SESSION_LOCKED"});
     assert.equal(g.session.active,false);
   }finally{g.session.close();}
+  const h=scopedProofFixture();
+  try{
+    h.hook(n=>{if(n===2)h.session.close();});
+    await assert.rejects(h.session.unlock(),{code:"T3_ACCESS_VAULT_SESSION_LOCKED"});
+    assert.equal(h.session.active,false);
+    await assert.rejects(h.proof(),{code:"T3_ACCESS_VAULT_SESSION_LOCKED"});
+  }finally{h.session.close();}
 });
