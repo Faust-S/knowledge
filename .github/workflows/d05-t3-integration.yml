@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: ad0a95623e4fa1c12f9aa9976d84a8aba9209e80
+          ref: 67a1400615a44b63c6e4269032f89e85e8b6c8ba
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -75,13 +75,42 @@ jobs:
         run: |
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-npm.log" 2>&1 || { echo D05_T3_NPM_FAIL; exit 1; }
       - name: Verify deterministic static hydration and model witness syntax
+        id: ssr
+        continue-on-error: true
         working-directory: site
         shell: bash
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-ssr-test.log"
-          if ! npm run check:t3-ssr-determinism >"$log" 2>&1; then
-            grep -Eo '^not ok [0-9]+|CEHOVOD_T3_SSR_[A-Z0-9_]+' "$log" | head -20 || true
+          code=0
+          npm run check:t3-ssr-determinism -- --reporter=json --outputFile="$RUNNER_TEMP/d05-t3-ssr.json" >"$log" 2>&1 || code=$?
+          if test -f "$RUNNER_TEMP/d05-t3-ssr.json"; then
+            node --input-type=module <<'JS'
+          import {readFileSync} from "node:fs";
+          const report=JSON.parse(readFileSync(process.env.RUNNER_TEMP+"/d05-t3-ssr.json","utf8"));
+          const categorize=m=>{
+            if(/cannot (read properties|access)|undefined is not a function|is not a function/i.test(m))return "API_TYPE";
+            if(/cannot find|failed to load|no test files|cannot resolve/i.test(m))return "MODULE_RESOLUTION";
+            if(/AssertionError|expected .* to (be|equal|throw)/i.test(m))return "ASSERTION";
+            return "OTHER";
+          };
+          console.log("D05_T3_SSR_COUNTS "+JSON.stringify({total:report.numTotalTests,passed:report.numPassedTests,failed:report.numFailedTests}));
+          for(const suite of report.testResults||[]){
+            if(suite.status==="failed"&&!(suite.assertionResults||[]).length){
+              const m=String(suite.message||"");
+              console.log("D05_T3_SSR_SUITE_FAIL "+JSON.stringify({kind:categorize(m)}));
+            }
+            for(const [index,t] of (suite.assertionResults||[]).entries()){
+              if(t.status!=="failed")continue;
+              const m=(t.failureMessages||[]).join("\n");
+              const locations=[...m.matchAll(/(?:static-router-freshness(?:\.test)?\.ts|router-core\/[a-zA-Z0-9_./-]+\.(?:js|ts)):(\d+):(\d+)/g)].slice(0,4).map(a=>[a[1],Number(a[2]),Number(a[3])]);
+              console.log("D05_T3_SSR_ASSERTION_FAIL "+JSON.stringify({index:index+1,kind:categorize(m),locations}));
+            }
+          }
+          JS
+          fi
+          if test "$code" -ne 0; then
+            grep -Eo 'CEHOVOD_T3_SSR_[A-Z0-9_]+|TypeError|AssertionError|SyntaxError|ERR_MODULE_NOT_FOUND|ERR_PACKAGE_PATH_NOT_EXPORTED' "$log" | sort -u | head -20 || true
             echo D05_T3_SSR_TEST_FAIL
             exit 1
           fi
@@ -216,7 +245,7 @@ jobs:
           // strings, identifiers, patches containing code, or formatter diagnostics.
           const layout=/^[ \t\r\n"'\x60,;(){}\[\]\\]*$/u;
           const isLayout=c=>c!==undefined&&layout.test(c);
-          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs","scripts/d05-t3-real-model-witness.mjs","scripts/prerender.ts","src/lib/static-router-freshness.ts","src/lib/static-router-freshness.test.ts","src/styles.css","scripts/check-t3-retained-checkout.mjs","src/routes/instrumenty.sebestoimost-zakaza.tsx","src/routes/instrumenty.marshrut-i-srok.tsx","src/routes/instrumenty.make-or-buy.tsx"]);
+          const allow=new Set(["public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs","scripts/d05-t3-real-model-witness.mjs","scripts/prerender.ts","src/lib/static-router-freshness.ts","src/lib/static-router-freshness.test.ts","scripts/lib/loopback-tls-pin.mjs","src/styles.css","scripts/check-t3-retained-checkout.mjs","src/routes/instrumenty.sebestoimost-zakaza.tsx","src/routes/instrumenty.marshrut-i-srok.tsx","src/routes/instrumenty.make-or-buy.tsx"]);
           for(const row of rows.filter(r=>r.errorCount)){
             const path=relative(process.cwd(),row.filePath);
             if(!allow.has(path)||row.messages.some(m=>m.severity===2&&m.ruleId!=="prettier/prettier"))continue;
@@ -406,6 +435,7 @@ jobs:
         if: always()
         shell: bash
         env:
+          SSR_OUTCOME: ${{ steps.ssr.outcome }}
           LINT_OUTCOME: ${{ steps.lint.outcome }}
           TYPES_OUTCOME: ${{ steps.site_types.outcome }}
           MODULE_OUTCOME: ${{ steps.module.outcome }}
@@ -413,7 +443,7 @@ jobs:
           BROWSER_OUTCOME: ${{ steps.browser.outcome }}
           OFFLINE_OUTCOME: ${{ steps.offline.outcome }}
           REPRO_OUTCOME: ${{ steps.repro.outcome }}
-        run: test "$LINT_OUTCOME" = success && test "$TYPES_OUTCOME" = success && test "$MODULE_OUTCOME" = success && test "$SUBJECT_OUTCOME" = success && test "$BROWSER_OUTCOME" = success && test "$OFFLINE_OUTCOME" = success && test "$REPRO_OUTCOME" = success
+        run: test "$SSR_OUTCOME" = success && test "$LINT_OUTCOME" = success && test "$TYPES_OUTCOME" = success && test "$MODULE_OUTCOME" = success && test "$SUBJECT_OUTCOME" = success && test "$BROWSER_OUTCOME" = success && test "$OFFLINE_OUTCOME" = success && test "$REPRO_OUTCOME" = success
       - name: Build from exact Git source snapshot with retained verified inputs
         working-directory: site
         shell: bash
@@ -433,5 +463,5 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -f "$RUNNER_TEMP"/d05-t3-*.log "$RUNNER_TEMP"/d05-t3-lint.json "$RUNNER_TEMP"/d05-t3-subject.json
+          rm -f "$RUNNER_TEMP"/d05-t3-*.log "$RUNNER_TEMP"/d05-t3-lint.json "$RUNNER_TEMP"/d05-t3-subject.json "$RUNNER_TEMP"/d05-t3-ssr.json
           rm -rf "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/t3-artifact.zip" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$GITHUB_WORKSPACE/site/runtime/t3-platform/0.3.1-rc.1/cehovod-host" "$GITHUB_WORKSPACE/site/runtime/t3-platform/0.3.1-rc.1/platform-inputs.zip"
