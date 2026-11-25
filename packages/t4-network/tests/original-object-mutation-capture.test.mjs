@@ -1045,3 +1045,28 @@ test('K114 ambiguous original trace and incomplete commit reader cannot authoriz
  await assert.rejects(reconcile(f,'capture:1',history.ports),code('OBJECT_RECOVERY_SOURCE_EVENT_NOT_PROVEN'));
  assert.equal(f.outbox.size,0);assert.equal(f.writes.length,1);
 });
+
+test('K115 automatic Host reconstructs capture frontier from one selective commit snapshot and refuses uncovered Events',async()=>{
+ const f=originalFixture(),history=k114PagedHistory(f);
+ for(let rev=1;rev<=3;rev++){
+   const host=await automaticObjectHost(f,history.ports);
+   const result=await host.putObject({mutationInput:mutation(rev),captureRef:'capture:k115:'+rev});
+   assert.equal(result.capture.originalT3OutboxVerified,true);
+   assert.equal(result.originalReceipt.object.revision,rev+1);host.dispose();
+ }
+ assert.equal(f.writes.length,3);assert.equal(f.outbox.size,3);
+ await f.ports.originalKernel.putObject(mutation(4));
+ const cold=await automaticObjectHost(f,history.ports);
+ await assert.rejects(cold.putObject({mutationInput:mutation(5),captureRef:'capture:k115:gap'}),
+   code('CAPTURE_FRONTIER_ORIGINAL_EVENT_UNCAPTURED'));
+ assert.equal(f.writes.length,4);assert.equal(f.intents.size,3);
+});
+test('K115 selective frontier refuses duplicated capture trace before admitting another mutation',async()=>{
+ const f=originalFixture(),history=k114PagedHistory(f);
+ const host=await automaticObjectHost(f,history.ports);
+ await host.putObject({mutationInput:mutation(1),captureRef:'capture:k115:one'});
+ f.events.push({...structuredClone(f.events[1]),event_id:'event:duplicate-capture'});
+ await assert.rejects(host.putObject({mutationInput:mutation(2),captureRef:'capture:k115:two'}),
+   code('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED'));
+ assert.equal(f.writes.length,1);assert.equal(f.intents.size,1);
+});

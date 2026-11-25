@@ -104,6 +104,15 @@ function normalizeHistory(raw,workspaceId){
   return {positions,events};
 }
 const localSnapshots=new WeakMap();
+const incrementTrace=(map,key)=>{if(typeof key==='string')map.set(key,(map.get(key)??0)+1);};
+function registerLocalSnapshot(state,retainedOriginalEvents){
+  const {workspaceId,originalWriteOwnerRef,events,prefixes}=state;
+  const token=immutable({schema:'IWXA_T4_LOCAL_EVENT_READ_SNAPSHOT_V1',
+    workspaceId,originalWriteOwnerRef,originalEventsRead:events.length,
+    prefixDigestsComputed:prefixes.length,originalAuthorityGranted:false,
+    ...(retainedOriginalEvents===undefined?{}:{retainedOriginalEvents})});
+  localSnapshots.set(token,state);return token;
+}
 // Ephemeral proof calculation for ONE original Host boundary. This does not
 // persist a second cursor or grant authority. The enclosing capture frontier
 // must independently re-read the original history before returning a result.
@@ -111,8 +120,7 @@ export function prepareT4OriginalLocalEventSnapshot({workspaceId,originalWriteOw
   if(!id(workspaceId)||!id(originalWriteOwnerRef))fail('ORIGINAL_T3_OWNER_SCOPE_REQUIRED');
   const rows=structuredClone(originalEvents),{positions,events}=normalizeHistory(rows,workspaceId);
   const prefixes=[emptyPrefix],acc=createHash('sha256').update('[');
-  const idempotencies=new Map(),deleteTraces=new Map();
-  const increment=(map,key)=>{if(typeof key==='string')map.set(key,(map.get(key)??0)+1);};
+  const idempotencies=new Map(),deleteTraces=new Map(),captureTraces=new Map();
   for(let i=0;i<events.length;i++){
     // Exact old V1 hash of the canonical JSON array, not a new chain format.
     // A copy of the running SHA state plus ']' gives the prefix in O(1)
@@ -120,15 +128,12 @@ export function prepareT4OriginalLocalEventSnapshot({workspaceId,originalWriteOw
     if(i)acc.update(',');
     acc.update(JSON.stringify(canonical(events[i])));
     prefixes.push('sha256:'+acc.copy().update(']').digest('hex'));
-    increment(idempotencies,rows[i].idempotency_key);
-    increment(deleteTraces,rows[i].payload?.iwxa_t4_object_delete_intent);
+    incrementTrace(idempotencies,rows[i].idempotency_key);
+    incrementTrace(deleteTraces,rows[i].payload?.iwxa_t4_object_delete_intent);
+    incrementTrace(captureTraces,rows[i].payload?.iwxa_t4_capture_ref);
   }
-  const token=immutable({schema:'IWXA_T4_LOCAL_EVENT_READ_SNAPSHOT_V1',
-    workspaceId,originalWriteOwnerRef,originalEventsRead:events.length,
-    prefixDigestsComputed:prefixes.length,originalAuthorityGranted:false});
-  localSnapshots.set(token,{workspaceId,originalWriteOwnerRef,rows,positions,events,prefixes,
-    idempotencies,deleteTraces});
-  return token;
+  return registerLocalSnapshot({workspaceId,originalWriteOwnerRef,rows,positions,events,prefixes,
+    idempotencies,deleteTraces,captureTraces});
 }
 function localSnapshot(token,workspaceId,owner){
   const x=localSnapshots.get(token);
@@ -141,13 +146,20 @@ function localSnapshot(token,workspaceId,owner){
 export function readT4OriginalLocalSnapshotEvent(token,{workspaceId,originalWriteOwnerRef,eventId}={}){
   const x=localSnapshot(token,workspaceId,originalWriteOwnerRef);
   const i=x.positions.get(eventId);
-  return i===undefined?null:structuredClone(x.rows[i]);
+  if(i===undefined)return null;
+  const row=x.selectedRows?x.selectedRows.get(eventId):x.rows[i];
+  return row===undefined?null:structuredClone(row);
+}
+export function readT4OriginalLocalSnapshotPosition(token,{workspaceId,originalWriteOwnerRef,eventId}={}){
+  const x=localSnapshot(token,workspaceId,originalWriteOwnerRef);
+  if(!id(eventId))fail('ORIGINAL_LOCAL_EVENT_SNAPSHOT_SCOPE_INVALID');
+  const i=x.positions.get(eventId);return i===undefined?null:i+1;
 }
 export function countT4OriginalLocalSnapshotTrace(token,{workspaceId,originalWriteOwnerRef,kind,value}={}){
   const x=localSnapshot(token,workspaceId,originalWriteOwnerRef);
-  if(typeof value!=='string'||!['idempotency_key','object_delete_intent'].includes(kind))
+  if(typeof value!=='string'||!['idempotency_key','object_delete_intent','capture_ref'].includes(kind))
     fail('ORIGINAL_LOCAL_EVENT_SNAPSHOT_TRACE_INVALID');
-  return (kind==='idempotency_key'?x.idempotencies:x.deleteTraces).get(value)??0;
+  return (kind==='idempotency_key'?x.idempotencies:kind==='capture_ref'?x.captureTraces:x.deleteTraces).get(value)??0;
 }
 
 // The original Kernel owns the commit order and the read/exclusion boundary.
@@ -160,7 +172,7 @@ async function readCommitEventWindow({
   workspaceId,originalWriteOwnerRef,cursor=null,maxEvents=128,pageSize=256,
   authorizeOriginalRead,readOriginalCommitPage,withOriginalHistoryReadBoundary,
   originalTraceQuery=null,
-}={},collectOriginalEvents=false){
+}={},collectOriginalEvents=false,snapshotSelection=null){
   if(!id(workspaceId)||!id(originalWriteOwnerRef))fail('ORIGINAL_T3_OWNER_SCOPE_REQUIRED');
   if(!Number.isSafeInteger(maxEvents)||maxEvents<1||maxEvents>1024||
     !Number.isSafeInteger(pageSize)||pageSize<1||pageSize>1024)
@@ -184,7 +196,7 @@ async function readCommitEventWindow({
     if(await authorizeOriginalRead(guard)!==true)fail('ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED');
   };
   await requireRead();
-  let calls=0,active=true,completed;
+  let calls=0,active=true,completed,snapshotState=null;
   const read=async()=>{
     if(!active||++calls!==1)fail('ORIGINAL_COMMIT_EVENT_BOUNDARY_INVALID');
     const checkActive=()=>{if(!active||calls!==1)fail('ORIGINAL_COMMIT_EVENT_BOUNDARY_INVALID');};
@@ -196,6 +208,12 @@ async function readCommitEventWindow({
     let after=null,count=0,eventsRead=0,anchored=before===null,hasMore=false,modern=false;
     let traceMatches=0,nextOriginalEvent=null;
     const compatibilityRows=collectOriginalEvents?[]:null;
+    // Preserve only original Event references, prefix digests and the exact
+    // records needed by the immutable capture inventory, not unrelated data.
+    const snap=snapshotSelection===null?null:{workspaceId,originalWriteOwnerRef,
+      selectedRows:new Map(),positions:new Map(),events:[],prefixes:[emptyPrefix],
+      idempotencies:new Map(),deleteTraces:new Map(),captureTraces:new Map()};
+    const snapHash=snap===null?null:createHash('sha256').update('[');
     for(;;){
       await checkRead();
       const page=structuredClone(await readOriginalCommitPage(immutable({
@@ -218,6 +236,17 @@ async function readCommitEventWindow({
         const e=normalizeEvent(entry.event,workspaceId);
         if(seen.has(e.eventId))fail('ORIGINAL_T3_EVENT_DUPLICATE');
         seen.add(e.eventId);
+        if(snap!==null){
+          const i=snap.events.length;
+          snap.positions.set(e.eventId,i);snap.events.push(e);
+          if(i)snapHash.update(',');
+          snapHash.update(JSON.stringify(canonical(e)));
+          snap.prefixes.push('sha256:'+snapHash.copy().update(']').digest('hex'));
+          if(snapshotSelection.has(e.eventId))snap.selectedRows.set(e.eventId,entry.event);
+          incrementTrace(snap.idempotencies,entry.event.idempotency_key);
+          incrementTrace(snap.deleteTraces,entry.event.payload?.iwxa_t4_object_delete_intent);
+          incrementTrace(snap.captureTraces,entry.event.payload?.iwxa_t4_capture_ref);
+        }
         if(trace!==null){
           const value=trace.kind==='capture_ref'?entry.event.payload?.iwxa_t4_capture_ref:
             trace.kind==='object_delete_intent'?entry.event.payload?.iwxa_t4_object_delete_intent:
@@ -260,7 +289,7 @@ async function readCommitEventWindow({
       }
       if(available.length===maxEvents){
         hasMore=hasMore||page.has_more;
-        if(trace===null&&compatibilityRows===null)break;
+        if(trace===null&&compatibilityRows===null&&snap===null)break;
       }
       if(!page.has_more)break;
       after=last;
@@ -280,6 +309,7 @@ async function readCommitEventWindow({
       recipientApplied:false,notAcceptedBusinessResult:true,
     });
     await checkRead();
+    snapshotState=snap;
     completed=immutable({window:immutable({...message,windowDigest:hash(message)}),
       nextCursor,originalEventsRead:eventsRead,
       ...(compatibilityRows===null?{}:{originalEvents:compatibilityRows}),
@@ -294,6 +324,10 @@ async function readCommitEventWindow({
       fail('ORIGINAL_COMMIT_EVENT_BOUNDARY_INVALID');
     active=false;
     await requireRead();
+    if(snapshotSelection!==null){
+      if(snapshotState===null)fail('ORIGINAL_COMMIT_EVENT_BOUNDARY_INVALID');
+      return immutable({...completed,originalLocalEventSnapshot:registerLocalSnapshot(snapshotState,snapshotState.selectedRows.size)});
+    }
     return completed;
   }finally{active=false;}
 }
@@ -307,6 +341,16 @@ export async function readT4OriginalCommitEventWindow(params={}){
 export async function readT4OriginalCommitHistoryForCompatibility(params={}){
   const result=await readCommitEventWindow({...params,cursor:null,maxEvents:1,originalTraceQuery:null},true);
   return result.originalEvents;
+}
+
+// A local capture-frontier read keeps selected raw Events only. All Event
+// references and V1 prefix digests still come from one authorized scan.
+export async function prepareT4OriginalCommitLocalEventSnapshot({retainedEventIds,...params}={}){
+  if(!Array.isArray(retainedEventIds)||retainedEventIds.length>4096||
+    !retainedEventIds.every(id)||new Set(retainedEventIds).size!==retainedEventIds.length)
+    fail('ORIGINAL_COMMIT_SNAPSHOT_SELECTION_INVALID');
+  const result=await readCommitEventWindow({...params,cursor:null,maxEvents:1,originalTraceQuery:null},false,new Set(retainedEventIds));
+  return result.originalLocalEventSnapshot;
 }
 
 export async function readT4OriginalEventWindow({

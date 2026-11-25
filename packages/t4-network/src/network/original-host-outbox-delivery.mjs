@@ -211,7 +211,7 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
     fail('OUTBOX_ORIGINAL_EVENT_HISTORY_INVALID');
   const {kind}=s;
   const expectedDelete=isT4NativeDeleteKind(kind)?originalT4DeletionCapturedEvent(intent):null;
-  const trace=kind==='OBJECT_PUT'?{kind:'capture_ref',value:s.captureRef}:
+  const trace=['OBJECT_PUT','GRAPH_COMMIT'].includes(kind)?{kind:'capture_ref',value:s.captureRef}:
     kind==='OBJECT_DELETE'?{kind:'object_delete_intent',value:expectedDelete.payload.iwxa_t4_object_delete_intent}:
       {kind:'idempotency_key',value:expectedDelete?.idempotency_key??intent.idempotencyKey};
   const {window,nextCursor,originalTraceEvidence}=await readT4OriginalEventWindow({
@@ -240,6 +240,9 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
   if(bounded&&(originalTraceEvidence?.originalHistoryFullyRead!==true||
     originalTraceEvidence.kind!==trace.kind||originalTraceEvidence.value!==trace.value||
     originalTraceEvidence.matchCount!==1||originalTraceEvidence.nextOriginalEvent?.event_id!==outbox.sourceEventId))
+    fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
+  if(snapshot!==null&&Object.hasOwn(snapshot,'retainedOriginalEvents')&&
+    countT4OriginalLocalSnapshotTrace(snapshot,{...s,...trace})!==1)
     fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
   const event=bounded?originalTraceEvidence.nextOriginalEvent:
     snapshot===null?originals.find(row=>row?.event_id===outbox.sourceEventId):

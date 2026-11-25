@@ -1,4 +1,5 @@
-import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest,prepareT4OriginalLocalEventSnapshot}
+import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest,prepareT4OriginalLocalEventSnapshot,
+  prepareT4OriginalCommitLocalEventSnapshot,readT4OriginalLocalSnapshotPosition}
   from './original-event-window.mjs';
 import {readT4OriginalHostLocalCaptureEvidence} from './original-host-outbox-delivery.mjs';
 
@@ -16,11 +17,16 @@ const fail=(code,details={})=>{throw Object.assign(Error(code),{code,details:Obj
 // persisted cursor nor the remote acknowledgement frontier.
 export async function readT4OriginalHostCaptureFrontier({
   workspaceId,originalWriteOwnerRef,getMode,authorizeOriginalRead,readOriginalEvents,
+  readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize=256,
   readOriginalAdmittedBaseline,listOriginalPendingIntents,listOriginalOutbox,
   readOriginalIntent,readOriginalOutbox,readOriginalCaptureInventory,
 }={}){
+  const paged=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
+  if(paged&&(![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
+    !Number.isSafeInteger(originalCommitPageSize)||originalCommitPageSize<1||originalCommitPageSize>1024))
+    fail('CAPTURE_FRONTIER_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
   if(![workspaceId,originalWriteOwnerRef].every(ID)||
-    ![getMode,authorizeOriginalRead,readOriginalEvents,readOriginalAdmittedBaseline,
+    ![getMode,authorizeOriginalRead,...(paged?[]:[readOriginalEvents]),readOriginalAdmittedBaseline,
       listOriginalPendingIntents,listOriginalOutbox,readOriginalIntent,readOriginalOutbox]
       .every(f=>typeof f==='function')||
     (readOriginalCaptureInventory!==undefined&&typeof readOriginalCaptureInventory!=='function'))
@@ -91,34 +97,43 @@ export async function readT4OriginalHostCaptureFrontier({
     if(!Array.isArray(rows)||rows.length>100000)fail('CAPTURE_FRONTIER_ORIGINAL_EVENTS_INVALID');
     return rows;
   };
+  const authorizeHistory=async proof=>{await guard(proof.operation);return true;};
+  const historyPorts={readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize:originalCommitPageSize};
   const readWindow=(cursor,events,snapshot=null)=>readT4OriginalEventWindow({...scope,cursor,maxEvents:1,
-    authorizeOriginalRead:async proof=>{await guard(proof.operation);return true;},
+    authorizeOriginalRead:authorizeHistory,
     readOriginalEvents:async()=>events,originalLocalEventSnapshot:snapshot});
   const b=await baseline();
   const initialInventory=readOriginalCaptureInventory===undefined?null:await inventory();
   if(initialInventory===null)await pending();
-  const events=await readEvents();
-  const snapshot=prepareT4OriginalLocalEventSnapshot({...scope,originalEvents:events});
+  const events=paged?null:await readEvents();
+  let snapshot=paged?null:prepareT4OriginalLocalEventSnapshot({...scope,originalEvents:events});
   // Check the whole admitted prefix even if no new Events exist.
-  await readWindow(b.sourceCursor,events,snapshot);
+  if(!paged)await readWindow(b.sourceCursor,events,snapshot);
   await guard('t1.listObjects');
   const rows=initialInventory===null?structuredClone(await listOriginalOutbox(scope)):
     initialInventory.value.pairs.map(p=>p.outbox);
   await guard('t1.listObjects');
   if(!Array.isArray(rows)||rows.length>4096)fail('CAPTURE_FRONTIER_ORIGINAL_OUTBOX_INVALID');
-  const eventPositions=new Map(events.map((e,i)=>[e.event_id,i+1]));
   const byEvent=new Map(),captureRefs=new Set();
   for(const row of rows){
     const kind=row?.kind??(row?.schema==='IWXA_T4_ORIGINAL_OBJECT_DELTA_OUTBOX_V1'?'OBJECT_PUT':null);
     const subjectId=kind==='OBJECT_PUT'?row?.objectId:row?.subjectId;
-    const pos=eventPositions.get(row?.sourceEventId);
     if(row?.workspaceId!==workspaceId||row.originalWriteOwnerRef!==originalWriteOwnerRef||
-      !KINDS.has(kind)||!ID(subjectId)||!ID(row.captureRef)||!pos||
-      row.sourceCursorAfter?.seenEventCount!==pos||row.sourceCursorAfter.lastEventId!==row.sourceEventId||
-      row.sourceCursorBefore?.seenEventCount!==pos-1||
+      !KINDS.has(kind)||!ID(subjectId)||!ID(row.captureRef)||!ID(row.sourceEventId)||
       captureRefs.has(row.captureRef)||byEvent.has(row.sourceEventId))
       fail('CAPTURE_FRONTIER_ORIGINAL_OUTBOX_INVALID');
     captureRefs.add(row.captureRef);byEvent.set(row.sourceEventId,{row,kind,subjectId});
+  }
+  if(paged){
+    snapshot=await prepareT4OriginalCommitLocalEventSnapshot({...scope,...historyPorts,
+      authorizeOriginalRead:authorizeHistory,retainedEventIds:[...byEvent.keys()]});
+    await readWindow(b.sourceCursor,events,snapshot);
+  }
+  for(const [eventId,{row}] of byEvent){
+    const pos=readT4OriginalLocalSnapshotPosition(snapshot,{...scope,eventId});
+    if(pos===null||row.sourceCursorAfter?.seenEventCount!==pos||
+      row.sourceCursorAfter.lastEventId!==eventId||row.sourceCursorBefore?.seenEventCount!==pos-1)
+      fail('CAPTURE_FRONTIER_ORIGINAL_OUTBOX_INVALID');
   }
   const cachedRead=(role,query)=>{
     if(query?.workspaceId!==workspaceId||query.originalWriteOwnerRef!==originalWriteOwnerRef)
@@ -133,12 +148,12 @@ export async function readT4OriginalHostCaptureFrontier({
   let cursor=b.sourceCursor,verified=0;
   // The existing ledger bounds the number of retained captures. An uncovered
   // Event must stop local capture, never be absorbed into a new baseline.
-  for(let i=cursor.seenEventCount;i<events.length;i++){
-    const selected=byEvent.get(events[i].event_id);
-    if(!selected)fail('CAPTURE_FRONTIER_ORIGINAL_EVENT_UNCAPTURED',{
-      sourceEventId:events[i].event_id,automaticMutationRetryAllowed:false});
-    const {row,kind,subjectId}=selected;
+  while(cursor.seenEventCount<snapshot.originalEventsRead){
     const {window,nextCursor}=await readWindow(cursor,events,snapshot);
+    const selected=byEvent.get(window.lastEventId);
+    if(!selected)fail('CAPTURE_FRONTIER_ORIGINAL_EVENT_UNCAPTURED',{
+      sourceEventId:window.lastEventId,automaticMutationRetryAllowed:false});
+    const {row,kind,subjectId}=selected;
     if(window.count!==1||window.lastEventId!==row.sourceEventId||
       !same(row.sourceCursorBefore,cursor)||!same(row.sourceCursorAfter,nextCursor))
       fail('CAPTURE_FRONTIER_ORIGINAL_CAUSAL_GAP');
@@ -164,7 +179,8 @@ export async function readT4OriginalHostCaptureFrontier({
       !same(latest.value.pairs,initialInventory.value.pairs))
       fail('CAPTURE_FRONTIER_ORIGINAL_INVENTORY_CHANGED');
   }
-  const final=await readWindow(cursor,await readEvents());
+  const final=paged?await readT4OriginalEventWindow({...scope,...historyPorts,cursor,maxEvents:1,
+    authorizeOriginalRead:authorizeHistory}):await readWindow(cursor,await readEvents());
   if(final.window.count!==0)fail('CAPTURE_FRONTIER_ORIGINAL_HISTORY_CHANGED');
   mode();
   return Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_CAPTURE_FRONTIER_V1',

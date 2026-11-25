@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {readT4OriginalEventWindow,readT4OriginalCommitEventWindow,readT4OriginalCommitHistoryForCompatibility} from '../src/network/original-event-window.mjs';
+import {readT4OriginalEventWindow,readT4OriginalCommitEventWindow,readT4OriginalCommitHistoryForCompatibility,
+  prepareT4OriginalCommitLocalEventSnapshot,readT4OriginalLocalSnapshotEvent,readT4OriginalLocalSnapshotPosition,
+  countT4OriginalLocalSnapshotTrace} from '../src/network/original-event-window.mjs';
 const workspaceId='ws-commit',originalWriteOwnerRef='owner-commit';
 const event=n=>({event_id:'evt-'+n,event_type:'object.changed',workspace_id:workspaceId,
   service_id:'svc',occurred_at:'2026-11-25T10:00:00.000Z',object_id:'obj-'+n,revision:1,
@@ -227,4 +229,43 @@ test('K113 compatibility reader cannot release a partially authorized original h
   const rows=[event(1),event(2),event(3)];let checks=0;
   await assert.rejects(readT4OriginalCommitHistoryForCompatibility({...setup(rows).options,pageSize:1,
     authorizeOriginalRead:async()=>++checks<5}),{code:'ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED'});
+});
+
+test('K115 selective local snapshot retains only named original records and preserves every V1 prefix',async()=>{
+  const rows=Array.from({length:13},(_,i)=>event(i+1));
+  rows[0].payload.iwxa_t4_capture_ref='capture:duplicate';
+  rows[11].payload.iwxa_t4_capture_ref='capture:duplicate';
+  rows[8].idempotency_key='operation:9';
+  const {options}=setup(rows),scope={workspaceId,originalWriteOwnerRef};
+  const snapshot=await prepareT4OriginalCommitLocalEventSnapshot({...options,pageSize:2,
+    retainedEventIds:[rows[3].event_id,rows[8].event_id]});
+  assert.equal(snapshot.originalEventsRead,rows.length);
+  assert.equal(snapshot.retainedOriginalEvents,2);
+  assert.equal(snapshot.prefixDigestsComputed,rows.length+1);
+  assert.equal(readT4OriginalLocalSnapshotEvent(snapshot,{...scope,eventId:rows[0].event_id}),null);
+  assert.deepEqual(readT4OriginalLocalSnapshotEvent(snapshot,{...scope,eventId:rows[3].event_id}),rows[3]);
+  assert.equal(readT4OriginalLocalSnapshotPosition(snapshot,{...scope,eventId:rows[8].event_id}),9);
+  assert.equal(countT4OriginalLocalSnapshotTrace(snapshot,{...scope,kind:'capture_ref',value:'capture:duplicate'}),2);
+  assert.equal(countT4OriginalLocalSnapshotTrace(snapshot,{...scope,kind:'idempotency_key',value:'operation:9'}),1);
+  let cursor=null;
+  for(let i=0;i<=rows.length;i++){
+    const expected=await readT4OriginalEventWindow({...scope,cursor,maxEvents:1,
+      authorizeOriginalRead:async()=>true,readOriginalEvents:async()=>rows});
+    const actual=await readT4OriginalEventWindow({...scope,cursor,maxEvents:1,
+      authorizeOriginalRead:async()=>true,readOriginalEvents:async()=>{throw Error('unexpected full read');},
+      originalLocalEventSnapshot:snapshot});
+    assert.deepEqual(actual.window,expected.window);assert.deepEqual(actual.nextCursor,expected.nextCursor);
+    cursor=actual.nextCursor;
+  }
+});
+test('K115 selective snapshot rejects duplicate selections, revoked read and foreign scope',async()=>{
+  const rows=[event(1),event(2)],{options}=setup(rows);
+  await assert.rejects(prepareT4OriginalCommitLocalEventSnapshot({...options,retainedEventIds:[rows[0].event_id,rows[0].event_id]}),
+    {code:'ORIGINAL_COMMIT_SNAPSHOT_SELECTION_INVALID'});
+  let checks=0;
+  await assert.rejects(prepareT4OriginalCommitLocalEventSnapshot({...options,pageSize:1,retainedEventIds:[],
+    authorizeOriginalRead:async()=>++checks<5}),{code:'ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED'});
+  const snapshot=await prepareT4OriginalCommitLocalEventSnapshot({...options,retainedEventIds:[]});
+  assert.throws(()=>readT4OriginalLocalSnapshotPosition(snapshot,{workspaceId:'foreign',originalWriteOwnerRef,eventId:rows[0].event_id}),
+    {code:'ORIGINAL_LOCAL_EVENT_SNAPSHOT_SCOPE_INVALID'});
 });
