@@ -21,6 +21,15 @@ on:
       skills_version:
         type: string
         default: '1.4.1'
+      result_count:
+        type: number
+        default: 13
+      advice_count:
+        type: number
+        default: 40
+      detail_routes:
+        type: number
+        default: 0
       full_release:
         type: boolean
         default: false
@@ -81,6 +90,8 @@ jobs:
         shell: bash
         env:
           SKILLS_VERSION: ${{ inputs.skills_version || '1.4.1' }}
+          EXPECTED_RESULTS: ${{ inputs.result_count || 13 }}
+          EXPECTED_ADVICE: ${{ inputs.advice_count || 40 }}
           GROUNDED_ADVICE: ${{ inputs.grounded_advice && '1' || '0' }}
         run: |
           set -euo pipefail
@@ -96,8 +107,10 @@ jobs:
           import {readFileSync} from "node:fs";
           import {validateSkillPack} from "./assistant/browser-local-inference/domain-assistant/skill-runtime.mjs";
           const pack=validateSkillPack(JSON.parse(readFileSync("site/public/assets/cehovod-assistant-skills.json","utf8")));
-          if(pack.version!==process.env.SKILLS_VERSION||pack.skills.length!==11||pack.formHints.length!==11||pack.resultHints.length!==13)throw Error("D05_T3_PACK_COUNTS");
-          if(process.env.GROUNDED_ADVICE==="1"&&(!pack.resultHints.every(h=>Array.isArray(h.advice)&&h.advice.length>=2&&h.advice.length<=8)||pack.resultHints.reduce((n,h)=>n+h.advice.length,0)!==40))throw Error("D05_T3_ADVICE_PACK_COUNTS");
+          const resultCount=Number(process.env.EXPECTED_RESULTS),adviceCount=Number(process.env.EXPECTED_ADVICE);
+          if(!Number.isSafeInteger(resultCount)||resultCount<11||resultCount>64||!Number.isSafeInteger(adviceCount)||adviceCount<2*resultCount||adviceCount>8*resultCount)throw Error("D05_T3_RELEASE_COUNTS");
+          if(pack.version!==process.env.SKILLS_VERSION||pack.skills.length!==11||pack.formHints.length!==11||pack.resultHints.length!==resultCount)throw Error("D05_T3_PACK_COUNTS");
+          if(process.env.GROUNDED_ADVICE==="1"&&(!pack.resultHints.every(h=>Array.isArray(h.advice)&&h.advice.length>=2&&h.advice.length<=8)||pack.resultHints.reduce((n,h)=>n+h.advice.length,0)!==adviceCount))throw Error("D05_T3_ADVICE_PACK_COUNTS");
           console.log("D05_T3_ORIGINAL_RUNTIME_SKILLS_PASS");
           JS
           if ! (cd domain && T3_ASSISTANT_SOURCE="$GITHUB_WORKSPACE/assistant/browser-local-inference/domain-assistant" node --test tests/assistant-field-policy.test.mjs) >"$log" 2>&1; then
@@ -209,11 +222,13 @@ jobs:
           if(errors)process.exitCode=1;
           else console.log("D05_T3_TSX_PARSE_11_PASS");
           JS
-      - name: Verify eleven native form scopes and thirteen result scopes
+      - name: Verify exact native form and release result scopes
         id: native_context
         continue-on-error: true
         working-directory: site
         shell: bash
+        env:
+          EXPECTED_RESULTS: ${{ inputs.result_count || 13 }}
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-native-context.log"
@@ -222,7 +237,7 @@ jobs:
             echo D05_T3_NATIVE_CONTEXT_FAIL
             exit 1
           fi
-          grep -Fqx '{"status":"CEHOVOD_T3_NATIVE_CONTEXT_SOURCE_PASS","forms":11,"results":13,"productAccepted":false}' "$log"
+          grep -Fqx '{"status":"CEHOVOD_T3_NATIVE_CONTEXT_SOURCE_PASS","forms":11,"results":'"$EXPECTED_RESULTS"',"productAccepted":false}' "$log"
           echo D05_T3_NATIVE_CONTEXT_PASS
       - name: Verify real JSX bindings and source types
         working-directory: site
@@ -331,7 +346,7 @@ jobs:
           // strings, identifiers, patches containing code, or formatter diagnostics.
           const layout=/^[ \t\r\n"'\x60,;(){}\[\]\\]*$/u;
           const isLayout=c=>c!==undefined&&layout.test(c);
-          const allow=new Set(["scripts/check-htaccess.ts","scripts/lib/cehovod-apache-assets.mjs","scripts/lib/cehovod-apache-assets.test.mjs","scripts/check-t3-preview.mjs","scripts/check-t3-preview.test.mjs","public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs","scripts/d05-t3-real-model-witness.mjs","scripts/prerender.ts","src/lib/static-router-freshness.ts","src/lib/static-router-freshness.test.ts","scripts/lib/loopback-tls-pin.mjs","scripts/lib/t3-webgpu-probe.mjs","scripts/lib/t3-webgpu-probe.test.mjs","scripts/lib/cehovod-product-invocation.mjs","scripts/lib/cehovod-product-invocation.test.mjs","scripts/serve-cehovod-t2.mjs","scripts/serve-cehovod-t2.test.mjs","scripts/verify-cehovod-t3-product.mjs","scripts/lib/t3-assistant-vite-config.mjs","scripts/lib/t3-assistant-vite-config.test.mjs","scripts/prepare-t3-retained-commit.test.mjs","scripts/prepare-t3-retained-commit.mjs","src/styles.css","scripts/check-t3-retained-checkout.mjs","scripts/check-t3-assistant-dynamic.ts","scripts/check-t3-native-context.mjs","src/components/site/T3ContextActions.tsx","src/routes/instrumenty.sebestoimost-zakaza.tsx","src/routes/instrumenty.marshrut-i-srok.tsx","src/routes/instrumenty.make-or-buy.tsx"]);
+          const allow=new Set(["scripts/check-htaccess.ts","scripts/lib/cehovod-apache-assets.mjs","scripts/lib/cehovod-apache-assets.test.mjs","scripts/check-t3-preview.mjs","scripts/check-t3-preview.test.mjs","public/assets/cehovod-t3-bootstrap.mjs","scripts/build-cehovod-t3-local-site.mjs","scripts/cehovod-assistant-skills.mjs","scripts/cehovod-assistant-skills.test.mjs","scripts/prepare-cehovod-host-build.mjs","scripts/prepare-cehovod-t3-host.mjs","scripts/t3-platform-inputs.mjs","src/routes/instrumenty.pasport-izdeliya.tsx","src/routes/instrumenty.zadanie-podryadchiku.tsx","src/routes/instrumenty.karta-kachestva.tsx","src/routes/instrumenty.plan-fakt.tsx","src/routes/zakaz-v-ceh.tsx","src/routes/instrumenty.gotovnost-k-zapusku.tsx","src/routes/povtornyy-zakaz.tsx","src/router.tsx","src/routes/__root.tsx","src/routes/situacii.$slug.tsx","src/routes/tipy-proizvodstva.$slug.tsx","t2-site-module/cehovod/site-host-port.ts","t2-site-module/cehovod/vendor/cehovod-lifecycle.d.ts","scripts/retain-cehovod-t3-inputs.mjs","scripts/check-t3-assistant-browser.ts","t2-site-module/cehovod/commands.ts","t2-site-module/cehovod/operation-command.ts","t2-site-module/cehovod/operation-baseline.ts","t2-site-module/cehovod/evidence-guard.ts","src/components/home/MainRouteMap.tsx","src/components/home/ProductionTypesMatrix.tsx","src/components/home/SituationSignals.tsx","src/components/home/StartOrderCTA.tsx","src/components/home/ToolsDesk.tsx","src/components/site/NotFoundPage.tsx","src/components/site/ProductionTypeCard.tsx","src/components/site/SituationCard.tsx","src/components/site/ToolLayout.tsx","src/components/workspace/WorkspaceOrderRow.tsx","src/routes/index.tsx","src/routes/instrumenty.index.tsx","src/routes/metodika.tsx","src/routes/o-proekte.tsx","src/routes/privacy.tsx","src/routes/workspace.tsx","src/routes/zakaz.tsx","scripts/check-t3-dist-reproducibility.mjs","scripts/check-t3-public-offline.ts","scripts/d05-first-use-real-kernel-witness.mjs","scripts/d05-t3-real-model-witness.mjs","scripts/prerender.ts","src/lib/static-router-freshness.ts","src/lib/static-router-freshness.test.ts","scripts/lib/loopback-tls-pin.mjs","scripts/lib/t3-webgpu-probe.mjs","scripts/lib/t3-webgpu-probe.test.mjs","scripts/lib/cehovod-product-invocation.mjs","scripts/lib/cehovod-product-invocation.test.mjs","scripts/serve-cehovod-t2.mjs","scripts/serve-cehovod-t2.test.mjs","scripts/verify-cehovod-t3-product.mjs","scripts/lib/t3-assistant-vite-config.mjs","scripts/lib/t3-assistant-vite-config.test.mjs","scripts/prepare-t3-retained-commit.test.mjs","scripts/prepare-t3-retained-commit.mjs","src/styles.css","scripts/check-t3-retained-checkout.mjs","scripts/check-t3-assistant-dynamic.ts","scripts/check-t3-native-context.mjs","src/components/site/T3ContextActions.tsx","src/routes/instrumenty.sebestoimost-zakaza.tsx","src/routes/instrumenty.marshrut-i-srok.tsx","src/routes/instrumenty.make-or-buy.tsx","src/routes/instrumenty.materialy-i-specifikaciya.tsx","src/lib/t3-result-detail.ts","src/lib/t3-result-detail.test.ts","src/lib/operation-route.ts","src/lib/operation-route.test.ts","src/lib/version-manifest.ts"]);
           for(const row of rows.filter(r=>r.errorCount)){
             const path=relative(process.cwd(),row.filePath);
             if(!allow.has(path)||row.messages.some(m=>m.severity===2&&m.ruleId!=="prettier/prettier"))continue;
@@ -633,6 +648,7 @@ jobs:
         shell: bash
         env:
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+          EXPECTED_DETAIL_ROUTES: ${{ inputs.detail_routes || 0 }}
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-browser.log"
@@ -642,7 +658,17 @@ jobs:
             echo D05_T3_ASSISTANT_BROWSER_FAIL
             exit 1
           fi
-          grep -E '^\{"status":"CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS","routes":22,"forms":20,"costRoutes":2,"orderRoutes":2,"repeatRoutes":2,"actualInference":false,"productAccepted":false\}$' "$log"
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync} from "node:fs";
+          const lines=readFileSync(process.env.RUNNER_TEMP+"/d05-t3-browser.log","utf8").split(/\r?\n/);
+          const rows=lines.filter(line=>line.startsWith('{"status":"CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS",')).map(line=>JSON.parse(line));
+          const count=Number(process.env.EXPECTED_DETAIL_ROUTES);
+          assert.ok(Number.isSafeInteger(count)&&count>=0&&count<=22);
+          const expected={status:"CEHOVOD_T3_ASSISTANT_NO_MODEL_PASS",routes:22,forms:20,costRoutes:2,orderRoutes:2,repeatRoutes:2,...(count>0?{detailRoutes:count}:{}),actualInference:false,productAccepted:false};
+          assert.deepEqual(rows,[expected]);
+          console.log(JSON.stringify(rows[0]));
+          JS
           for case in 0_1 1_0 1_1; do
             grep -Fx "CEHOVOD_T3_ASSISTANT_PARTIAL_MOUNT_PASS_$case" "$log"
           done

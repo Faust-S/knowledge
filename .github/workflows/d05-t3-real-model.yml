@@ -254,7 +254,7 @@ jobs:
           grep -E '^D05_T3_MODEL_PRICE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_ADVICE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_CROSS_SERVICE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
-          grep -Fx 'D05_T3_MODEL_CROSS_SERVICE_PASS_NOT_PRODUCT_ACCEPTED' "$log" || true
+          grep -E '^D05_T3_MODEL_CROSS_SERVICE_(PASS_NOT_PRODUCT_ACCEPTED|REVIEW_REQUIRED)$' "$log" || true
           grep -E '^D05_T3_MODEL_(CACHE_INSPECTION|CANCEL_DIAG|CANCEL_PASS) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -Fx 'D05_T3_MODEL_INSTALL_CONFIRMATION_PASS' "$log" || true
           grep -E '^D05_T3_MODEL_GPU_PROBE \{"adapter":"[a-z-]+","supported":(true|false),"compute":(true|false),"reason":"[A-Z_]+"\}$' "$log" || true
@@ -336,6 +336,7 @@ jobs:
         shell: bash
         env:
           PROFILE_ID: ${{ inputs.profile_id || 'balanced' }}
+          REQUIRE_CHOICE_IDENTITY: ${{ inputs.cross_service && '1' || '0' }}
         run: |
           set -euo pipefail
           node --input-type=module <<'JS'
@@ -359,11 +360,17 @@ jobs:
             assert.equal(m[k]?.busyObserved,true);
             assert.ok(Number.isSafeInteger(m[k]?.workerCount)&&m[k].workerCount>0);
           }
-          const keys=new Set(["cost:false","cost:true","price:false","missing-cost:true"]);
+          const keys=new Map([["cost:false","verify_cost_completeness"],["cost:true","verify_consumption"],["price:false","verify_margin"],["missing-cost:true","request_material_price"]]);
           const rows=receipts("D05_T3_MODEL_ADVICE_EVIDENCE ");
           assert.equal(rows.length,4);
           for(const row of rows){
-            assert.ok(keys.delete(row.scenario+":"+row.offline));
+            const key=row.scenario+":"+row.offline;
+            assert.ok(keys.has(key));
+            if(process.env.REQUIRE_CHOICE_IDENTITY==="1"){
+              assert.equal(row.expectedId,keys.get(key));
+              assert.equal(row.selectedId,keys.get(key));
+            }
+            keys.delete(key);
             assert.equal(row.exactSource,true);
             assert.equal(row.validChoice,true);
             assert.equal(row.expectedChoice,true);
@@ -395,12 +402,15 @@ jobs:
           assert.equal(model[0].browserRestarted,true);
           assert.equal(model[0].crossServiceScenarios,3);
           assert.equal(model[0].productAccepted,false);
-          const expected=new Map([["materials-shortage",false],["materials-unrelated",true],["route-capacity",false]]);
+          const expected=new Map([["materials-shortage","verify_shortage"],["materials-unrelated","abstain"],["route-capacity","verify_capacity"]]);
           const rows=receipts("D05_T3_MODEL_CROSS_SERVICE_EVIDENCE ");
           assert.equal(rows.length,expected.size);
           for(const row of rows){
             assert.ok(expected.has(row.scenario));
-            const abstain=expected.get(row.scenario);
+            const expectedId=expected.get(row.scenario);
+            const abstain=expectedId==="abstain";
+            assert.equal(row.expectedId,expectedId);
+            assert.equal(row.selectedId,abstain?null:expectedId);
             expected.delete(row.scenario);
             assert.equal(row.expectAbstention,abstain);
             assert.equal(row.abstained,abstain);
