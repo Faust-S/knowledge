@@ -867,6 +867,26 @@ try{
  const goalResourceTask=(await localWeek())?.data?.personalWeekPlan?.slots?.find(s=>s.projectId===goalId&&s.status==="planned");
  check(!!goalResourceTask&&goalResourceTask.date===dates.today&&goalResourceTask.durationMinutes===90,"GOAL_RESOURCE_ORIGINAL_TASK");
  check((await localGoal())?.objectId===goalId&&(await localCash())?.data?.cashCalendar?.openingAvailableRUB===20000,"GOAL_RESOURCE_ORIGINAL_SOURCES");
+ const horizonPanel=page.locator("[data-club-goal-horizon]");
+ const horizonResult=horizonPanel.locator("[data-club-goal-horizon-result]");
+ const horizonBefore=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
+ await horizonPanel.locator(":scope > summary").click();
+ await poll(async()=>["ready","error"].includes(await horizonResult.getAttribute("data-iwxa-assistant-state")),"GOAL_HORIZON_PROJECTION");
+ const horizonGroups=horizonResult.locator("details").filter({has:page.locator("summary").filter({hasText:/^Обязательства по целям/})});
+ check(await horizonGroups.count()===1,"GOAL_HORIZON_GROUP_LIST");
+ await horizonGroups.locator(":scope > summary").click();
+ const horizonGoal=horizonGroups.locator("article").filter({has:page.getByRole("heading",{name:goalTitle,exact:true})});
+ check(await horizonGoal.count()===1,"GOAL_HORIZON_EXACT_GOAL");
+ await horizonGoal.getByRole("button",{name:"Сравнить это дело",exact:true}).click();
+ const exactHorizonForm=page.locator("[data-club-goal-resource-form]");
+ await exactHorizonForm.waitFor({state:"visible"});
+ check(await exactHorizonForm.locator('[name="slotId"]').inputValue()===goalResourceTask.id&&await exactHorizonForm.locator('[name="entryId"]').inputValue()==="","GOAL_HORIZON_PRESELECT_ONE_SOURCE");
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===horizonBefore,"GOAL_HORIZON_NO_SOURCE_WRITE");
+ await horizonPanel.locator("[data-club-goal-horizon-period]").selectOption("30");
+ await poll(async()=> (await horizonResult.textContent()).includes("из 30 дней"),"GOAL_HORIZON_MONTH_COVERAGE");
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===horizonBefore,"GOAL_HORIZON_MONTH_READ_ONLY");
+ await horizonPanel.locator(":scope > summary").click();
+ log("OFFLINE_GOAL_HORIZON_EXACT_COMPARISON_READ_ONLY");
  const resourceOpen=page.locator("[data-club-goal-list]").getByRole("button",{name:"Проверить следующий шаг",exact:true});
  await resourceOpen.click();
  const resourcePanel=page.locator("[data-club-goal-resource-review]");
@@ -898,6 +918,22 @@ try{
  check(await resourceMetric(goalResourceB,"Известные пересечения дела")===1,"GOAL_RESOURCE_B_CONFLICT");
  check(await resourceMetric(goalResourceA,"Прогноз к концу периода")===2000&&
   await resourceMetric(goalResourceB,"Прогноз к концу периода")===6000,"GOAL_RESOURCE_INDEPENDENT_CASH");
+ for(const card of [goalResourceA,goalResourceB]){
+  const context=card.locator("[data-club-resource-decision-context]");
+  check(await context.count()===1&&(await context.textContent()).includes("Изменение нагрузки"),"GOAL_RESOURCE_INCREMENTAL_EFFECT_VISIBLE");
+ }
+ const resourceHistoryWindow=resourceForm.locator('[name="historyDays"]');
+ check(await resourceHistoryWindow.inputValue()==="30","GOAL_RESOURCE_HISTORY_DEFAULT");
+ await resourceHistoryWindow.selectOption("90");
+ await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_RESOURCE_HISTORY_INVALIDATES");
+ await resourceRun.click();
+ await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="ready","GOAL_RESOURCE_HISTORY_90_READY");
+ check((await resourceResult.textContent()).includes("Опыт этой цели за последние 90 дней"),"GOAL_RESOURCE_HISTORY_90_EVIDENCE");
+ await resourceHistoryWindow.selectOption("30");
+ await resourceRun.click();
+ await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="ready","GOAL_RESOURCE_HISTORY_30_RESTORED");
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===resourceBefore,"GOAL_RESOURCE_HISTORY_READ_ONLY");
+ log("OFFLINE_GOAL_RESOURCE_INCREMENTAL_EFFECTS_HISTORY_READ_ONLY");
  phase="OFFLINE_GOAL_RESOURCE_OBSERVED_RESERVE";
  check(await resourceMetric(resourceResult,"Наибольшее превышение расходов")===1000,"GOAL_RESOURCE_RECENT_EXACT_CASH_BASIS");
  const reserveOutput=goalResourceA.locator("[data-club-resource-reserve-output]");
