@@ -97,7 +97,7 @@ jobs:
       - name: Reuse exact successful hardware model witness
         shell: bash
         env:
-          GH_TOKEN: ${ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           test "$(gh api repos/Faust-S/knowledge/actions/runs/45656504169 --jq .head_sha)" = "16a8c446a1dc61717ce9b80e6d7f38ee620ff458"
@@ -313,7 +313,7 @@ jobs:
         working-directory: private/site
         shell: bash
         env:
-          D06_CANONICAL_TASK_INTENTS_PATH: ${ github.workspace }}/private/domain/src/registry/task-intents.json
+          D06_CANONICAL_TASK_INTENTS_PATH: ${{ github.workspace }}/private/domain/src/registry/task-intents.json
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d06-final-static-private.log"
@@ -334,7 +334,7 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=normal)"
           echo D06_FULL_RUN_BUILD_STATIC_CHECK=PASS
       - name: Diagnose formatting only if the existing mandatory gate refuses it
-        if: ${ !cancelled() && steps.static-gate.outcome == 'failure' && steps.static-gate.outputs.format-needed == 'true' }}
+        if: ${{ !cancelled() && steps.static-gate.outcome == 'failure' && steps.static-gate.outputs.format-needed == 'true' }}
         working-directory: private/site
         shell: bash
         run: |
@@ -603,7 +603,7 @@ jobs:
           repository: Faust-S/komplektovod.ru
           ref: 8bcc0cf8af351d7aac0f2be8075410684702d9e3
           fetch-depth: 2
-          token: ${ secrets.DOMEN }}
+          token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/retention
       - name: Check exact private retention authorization
@@ -612,12 +612,12 @@ jobs:
         working-directory: private/retention
         shell: bash
         env:
-          GH_TOKEN: ${ secrets.DOMEN }}
+          GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           bash "$GITHUB_WORKSPACE/pipeline/scripts/d06-private-git-transport.sh" preflight 8bcc0cf8af351d7aac0f2be8075410684702d9e3
       - name: Prepare compiled production Host
         id: production-host
-        if: ${ success() && steps.native-exchange.outcome == 'success' }}
+        if: ${{ success() && steps.native-exchange.outcome == 'success' }}
         working-directory: private/site
         shell: bash
         run: |
