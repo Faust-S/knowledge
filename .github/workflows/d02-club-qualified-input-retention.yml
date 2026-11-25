@@ -31,20 +31,50 @@ jobs:
           set -euo pipefail
           repository=Faust-S/club.iwxa.ru
           ref=refs/heads/work/2026-11-25-club-t3-qualified-inputs
-          [ "$(gh api repos/$repository --jq '.private')" = true ]
-          if gh api "repos/$repository/git/ref/heads/work/2026-11-25-club-t3-qualified-inputs" > "$RUNNER_TEMP/private-ref.json" 2> "$RUNNER_TEMP/private-access.log"; then
-            [ "$(jq -r '.object.sha' "$RUNNER_TEMP/private-ref.json")" = "e2837c9c379679733009bbaeb733541d4b4b4642" ] || { echo D02_RETENTION_REF_UNEXPECTED; exit 1; }
-          elif ! gh api --method POST "repos/$repository/git/refs" -f ref="$ref" -f sha="e2837c9c379679733009bbaeb733541d4b4b4642" > "$RUNNER_TEMP/private-ref.json" 2> "$RUNNER_TEMP/private-access.log"; then
-            if grep -Eqi 'HTTP 403|Resource not accessible|permission|not authorized' "$RUNNER_TEMP/private-access.log"; then
-              echo D02_RETENTION_WRITE_ACCESS=DENIED
-            elif grep -Eqi 'HTTP 422|rule|protected' "$RUNNER_TEMP/private-access.log"; then
-              echo D02_RETENTION_REF_CREATE=REJECTED
+          source=e2837c9c379679733009bbaeb733541d4b4b4642
+          access=$(mktemp -d "$RUNNER_TEMP/club-retention-access.XXXXXX")
+          trap 'rm -rf -- "$access"' EXIT
+          request() {
+            stage=$1; method=$2; path=$3; shift 3
+            : > "$access/headers"; : > "$access/body"
+            http=$(curl --silent --show-error --connect-timeout 10 --max-time 25 -X "$method" -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' -D "$access/headers" -o "$access/body" -w '%{http_code}' "$@" "https://api.github.com/$path" 2> "$access/network.log") || http=000
+          }
+          header() { awk -v key="$1:" 'tolower($1)==tolower(key) {sub(/\r$/, "", $2); value=$2} END {print value}' "$access/headers"; }
+          ensure_ref() {
+            request repository GET "repos/$repository"
+            [ "$http" = 200 ] || return 1
+            jq -e '.private == true' "$access/body" >/dev/null || { echo D02_RETENTION_PRIVATE_REPOSITORY_REQUIRED; exit 1; }
+            request ref-read GET "repos/$repository/git/ref/heads/work/2026-11-25-club-t3-qualified-inputs"
+            if [ "$http" = 404 ]; then
+              payload=$(jq -nc --arg ref "$ref" --arg sha "$source" '{ref:$ref,sha:$sha}')
+              request ref-create POST "repos/$repository/git/refs" -H 'Content-Type: application/json' --data-binary "$payload"
+              [ "$http" = 201 ] || return 1
             else
-              echo D02_RETENTION_REF_CREATE=FAIL
+              [ "$http" = 200 ] || return 1
             fi
-            exit 1
-          fi
-          echo D02_RETENTION_PRIVATE_REF_AT_QUALIFIED_SOURCE=PASS
+            jq -e --arg ref "$ref" --arg sha "$source" '.ref == $ref and .object.sha == $sha' "$access/body" >/dev/null || { echo D02_RETENTION_REF_UNEXPECTED; exit 1; }
+          }
+          for attempt in 1 2 3; do
+            if ensure_ref; then echo D02_RETENTION_PRIVATE_REF_AT_QUALIFIED_SOURCE=PASS; exit 0; fi
+            message=$(jq -r '.message // ""' "$access/body" 2>/dev/null || true)
+            remaining=$(header x-ratelimit-remaining); retry=$(header retry-after); reset=$(header x-ratelimit-reset)
+            category=HTTP_FAILURE; delay=0
+            if [ "$http" = 429 ] || { [ "$http" = 403 ] && { [ "$remaining" = 0 ] || [ -n "$retry" ] || grep -Eqi 'rate limit|abuse detection' <<< "$message"; }; }; then
+              category=RATE_LIMIT; delay=60
+              if [[ "$retry" =~ ^[1-9][0-9]{0,5}$ ]]; then delay=$retry
+              elif [ "$remaining" = 0 ] && [[ "$reset" =~ ^[1-9][0-9]{8,10}$ ]]; then delay=$(( reset - $(date +%s) + 1 )); [ "$delay" -gt 0 ] || delay=1; fi
+            elif [[ "$http" =~ ^(000|408|500|502|503|504)$ ]]; then
+              category=TRANSIENT; delay=$(( 5 * attempt ))
+            elif [ "$http" = 401 ]; then category=AUTHENTICATION_DENIED
+            elif [ "$http" = 403 ]; then
+              if grep -Eqi 'resource not accessible|permission|not authorized|must have .*access|forbidden' <<< "$message"; then category=ACCESS_DENIED; else category=HTTP_403_UNCLASSIFIED; fi
+            elif [ "$http" = 422 ]; then category=REF_CREATE_REJECTED
+            fi
+            echo "D02_RETENTION_API_RESULT=$category; stage=$stage; http=$http; attempt=$attempt"
+            if [ "$attempt" = 3 ] || [ "$delay" -le 0 ] || [ "$delay" -gt 90 ]; then exit 1; fi
+            sleep "$delay"
+          done
+          exit 1
       - name: Preserve original Git LF bytes
         run: git config --global core.autocrlf false
       - name: Checkout exact public T3 platform candidate
