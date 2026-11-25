@@ -2121,3 +2121,69 @@ test('K84 source wake resumes prepared successor content and separately confirms
   assert.deepEqual((await x.realSourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,before);
   assert.deepEqual((await x.realRecipientCursor().inspectOriginalRecipientCursor()).originalT3VerifiedCursor,before);
 });
+
+
+import {createT4OriginalReplacementOwnerSourceContentRequest,validateT4OriginalReplacementOwnerSourceContentSnapshot} from '../src/network/original-network-replacement-owner-history.mjs';
+
+test('K85 recipient verifies PUBLISHED via independent source owner history and still requires exact live frames',async()=>{
+  const q=await replacementRecipientFixture({realSourceHistory:true}),{x,c}=q,root=x.session,before=x.sourceCursorBefore;
+  const {requiredCryptoSuite,getMode}=x.eligibilityOptions();
+  const capture=()=>({schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURE_SELECTION_V1',state:'ORIGINAL_NATIVE_SESSION_SELECTED',
+    ...Object.fromEntries(['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch'].map(k=>[k,root[k]])),
+    networkTargetRef:root.recipientNodeRef,session:root,sourceCursorBefore:before,sourceCursorAfter:x.sourceCursorAfter,
+    originalSourceOwnerReadVerified:true,originalCaptureEvidenceVerified:true,originalSourceCursorAdvanced:false,originalNetworkPublished:false,
+    originalSubjectMutationInvoked:false,capturedPlaintextReturned:false,createsStore:false,createsScheduler:false});
+  let allowed=true,busy=false,mutate=false;
+  const opts=request=>({...x.historicalReadOptions(request.ownerNodeRef),request,requiredCryptoSuite,
+    verifyOriginalRecipientApplied:async()=>false,verifyOriginalHistoricalNodeSignature:x.historicalSignature(request.ownerNodeRef),
+    authorizeOriginalHostWire:async()=>true,authorizeOriginalOwnerHistoryRead:async()=>allowed});
+  const eligibilityRead=request=>readT4OriginalReplacementOwnerEligibility({...opts(request),
+    originalCursorPort:request.ownerNodeRef===sourceNodeRef?x.realSourceCursor():x.realRecipientCursor(),
+    ...(request.ownerNodeRef===sourceNodeRef?{readOriginalCaptureSelection:async()=>capture()}: {})});
+  const carrier={scopeRef,ownerEpoch:c.ownerEpoch,workspaceId:c.workspaceId,originalWriteOwnerRef:owner,getMode};
+  const peerContext=nodeRef=>({nodeRef,originalPeerSessionRef:'peer:k85:authenticated',contextEpoch:1,scopeRef,ownerEpoch:c.ownerEpoch,
+    originalPeerAuthenticated:true,originalConfidentialChannelVerified:true});
+  const server=createT4OriginalReplacementHistoryServer({...carrier,localNodeRef:sourceNodeRef,peerNodeRef:recipientNodeRef,
+    readOriginalPeerContext:async()=>peerContext(recipientNodeRef),readOriginalReplacementOwnerHistory:async({request})=>{
+      if(request.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_OWNER_ELIGIBILITY_REQUEST_V1')return eligibilityRead(request);
+      if(busy)return null;
+      const v=await readT4OriginalReplacementOwnerHistory(opts(request));
+      if(mutate&&v.publication){const changed=structuredClone(v);changed.publication.frames[2].sha256='f'.repeat(64);changed.publication.frames[2].key='f'.repeat(64)+'.t4n';return changed;}
+      return v;
+    }});
+  const client=createT4OriginalReplacementHistoryClient({...carrier,localNodeRef:recipientNodeRef,peerNodeRef:sourceNodeRef,
+    readOriginalPeerContext:async()=>peerContext(sourceNodeRef),invokeOriginalPeerHistory:({requestBytes})=>server(requestBytes)});
+  const discover=(patch={})=>q.discover({originalReplacementSourcePublicationPort:null,readOriginalReplacementDiffAcceptance:null,
+    readOriginalSourceContentHistory:client,readOriginalOwnerEligibility:r=>r.ownerNodeRef===recipientNodeRef?eligibilityRead(r):client(r),
+    authorizeOriginalReplacement:async()=>true,getMode,...patch});
+  assert.equal((await discover()).state,'WAITING_FOR_ORIGINAL_PUBLICATION');
+  await q.diff();
+  const slot=(await q.recipientPublicationPort.inspectOriginalPublication()).frames[0];
+  const request=createT4OriginalReplacementOwnerSourceContentRequest({session:c,requesterNodeRef:recipientNodeRef,ownerNodeRef:sourceNodeRef,
+    diffWireBase64:Buffer.from(slot.wireBytes).toString('base64')});
+  assert.equal((await client(request)).state,'WAITING_FOR_SOURCE_PUBLISHED');
+  await q.publish();
+  assert.equal((await discover()).state,'WAITING_FOR_ORIGINAL_PUBLICATION');
+  const phase=x.sourcePhase({sessionRef:c.sessionRef,authorizeOriginalSourceSupersession:null,
+    replacementSourceAdmission:q.phase.originalReplacementSourceAdmission,readOriginalReplacementSourceAdmission:async()=>true,
+    readOriginalReplacementSourceContentPublication:()=>q.source.readOriginalReplacementPublishedContent()});
+  await confirmT4OriginalReplacementSourcePublication({sourceAdmissionPhasePort:phase,sourcePublicationPort:q.source,getMode});
+  const beforeCounts={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
+  const witness=await client(request);assert.equal(witness.state,'ORIGINAL_SOURCE_CONTENT_HISTORY_VERIFIED');
+  assert.equal(witness.acceptedDiff.wireSha256,slot.sha256);assert.equal(witness.phase.currentPhase,'PUBLISHED');
+  assert.ok(witness.publication.frames.every(f=>!Object.hasOwn(f,'wireBytes')));
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},beforeCounts);
+  const found=await discover(),legacy=await q.discover();
+  assert.equal(found.state,'CONTENT_VERIFIED');assert.deepEqual(found.originalReplacementContentEvidence,legacy.originalReplacementContentEvidence);
+  assert.deepEqual(found.originalReplacementSourcePublishedPhase,await phase.inspectOriginalSession());
+  busy=true;assert.equal((await discover()).state,'WAITING_FOR_ORIGINAL_PUBLICATION');busy=false;
+  mutate=true;await assert.rejects(discover(),isCode('SUBJECT_ORIGINAL_REPLACEMENT_PUBLICATION_MISMATCH'));mutate=false;
+  assert.throws(()=>validateT4OriginalReplacementOwnerSourceContentSnapshot({...witness,acceptedDiff:{...witness.acceptedDiff,originalReplayCheckpointCreated:true}},request),
+    isCode('REPLACEMENT_CONTENT_HISTORY_DIFF_MISMATCH'));
+  await assert.rejects(discover({originalReplacementSourcePublicationPort:q.source}),isCode('SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_PORTS_REQUIRED'));
+  allowed=false;await assert.rejects(client(request),isCode('REPLACEMENT_HISTORY_OWNER_READ_DENIED'));allowed=true;
+  x.rotateSource();x.rotateRecipient();x.offline();x.f.restart();
+  const cold={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
+  assert.deepEqual(await client(request),witness);
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},cold);
+});

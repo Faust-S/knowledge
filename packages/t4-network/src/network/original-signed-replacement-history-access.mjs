@@ -1,7 +1,7 @@
 import {createT4OriginalSignedOperationAccess} from './original-signed-route-access.mjs';
 import {normalizeT4OriginalReplacementOwnerRequest} from './original-replacement-owner-history-carrier.mjs';
 import {T4_REPLACEMENT_ELIGIBILITY_REQUEST} from './original-network-replacement-owner-eligibility.mjs';
-import {T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST,T4_REPLACEMENT_RECIPIENT_DIFF_REQUEST} from './original-network-replacement-owner-history.mjs';
+import {T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST,T4_REPLACEMENT_RECIPIENT_DIFF_REQUEST,T4_REPLACEMENT_SOURCE_CONTENT_REQUEST} from './original-network-replacement-owner-history.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
@@ -25,7 +25,7 @@ export function createT4OriginalSignedReplacementHistoryAccess({access,expectedC
   const signed=createT4OriginalSignedOperationAccess({access,expectedContext,workspaceId,operations:[OWNER,PEER],getMode,clock});
   function request(raw){
     const r=normalizeT4OriginalReplacementOwnerRequest(raw);
-    if([T4_REPLACEMENT_ELIGIBILITY_REQUEST,T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST,T4_REPLACEMENT_RECIPIENT_DIFF_REQUEST].includes(r.schema)&&!enableOriginalEligibilityRead)fail('REPLACEMENT_HISTORY_SIGNED_ELIGIBILITY_NOT_ENABLED');
+    if([T4_REPLACEMENT_ELIGIBILITY_REQUEST,T4_REPLACEMENT_SOURCE_ADMISSION_REQUEST,T4_REPLACEMENT_RECIPIENT_DIFF_REQUEST,T4_REPLACEMENT_SOURCE_CONTENT_REQUEST].includes(r.schema)&&!enableOriginalEligibilityRead)fail('REPLACEMENT_HISTORY_SIGNED_ELIGIBILITY_NOT_ENABLED');
     if(!same(raw,r)||!['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch']
       .every(k=>r.session[k]===identity[k]))fail('REPLACEMENT_HISTORY_SIGNED_SCOPE_MISMATCH');
     return r;
