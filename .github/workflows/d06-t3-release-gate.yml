@@ -45,7 +45,7 @@ jobs:
             Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value ($field + "=" + $value)
           }
           if (($request.attempt -isnot [int] -and $request.attempt -isnot [long]) -or $request.attempt -lt 1) { throw "D06_RELEASE_REQUEST_ATTEMPT" }
-          if ($request.owner -cne "8471dca0037328dfee8689632df9c27866e89845" -or $request.site -cne "b386d5b4f8b8fa318c906e353fe75ed66e135641" -or $request.attempt -ne 8) { throw "D06_RELEASE_REQUEST_FROZEN" }
+          if ($request.owner -cne "8471dca0037328dfee8689632df9c27866e89845" -or $request.site -cne "750ad087f7b0626daafa1b2f7d46faa9c05e5595" -or $request.attempt -ne 9) { throw "D06_RELEASE_REQUEST_FROZEN" }
           Write-Host "D06_RELEASE_REQUEST=PASS"
       - uses: actions/checkout@v4
         with:
@@ -68,6 +68,7 @@ jobs:
         with:
           repository: Faust-S/komplektovod.ru
           ref: ${{ steps.request.outputs.site }}
+          fetch-depth: 2
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -113,6 +114,14 @@ jobs:
             assert.equal(j.steps.find(s=>s.name===name)?.conclusion,'success');
           }
           NODE
+          # The only site delta since the hardware witness is the exact
+          # formatter output in the native test; no executable product change.
+          test "$(git -C private/site rev-parse HEAD)" = "750ad087f7b0626daafa1b2f7d46faa9c05e5595"
+          test "$(git -C private/site rev-parse HEAD^)" = "b386d5b4f8b8fa318c906e353fe75ed66e135641"
+          test "$(git -C private/site diff --name-status HEAD^ HEAD)" = "$(printf 'M\tscripts/verify-native-transfer.mjs')"
+          test "$(git -C private/site rev-parse HEAD^:scripts/verify-native-transfer.mjs)" = "46699abdb2f93d70d334bc1b3a476a278501f1bd"
+          test "$(git -C private/site rev-parse HEAD:scripts/verify-native-transfer.mjs)" = "366b1a91c9c68271e23cab2b8a451e386835f10a"
+          echo D06_FINAL_PRIOR_HARDWARE_FORMAT_ONLY_DELTA=PASS
           echo D06_FINAL_EXACT_PRIOR_HARDWARE_MODEL=PASS
       - name: Verify immutable candidate revisions
         shell: pwsh
@@ -197,6 +206,23 @@ jobs:
           if ((Get-Content $log -Raw) -notmatch '(?m)^D06_T3_RESULT_CONTEXT_CASES=119\r?$') { Write-Host "D06_T3_RESULT_CONTEXT=FAIL"; exit 1 }
           Write-Host "D06_T3_RESULT_CONTEXT_CASES=119"
           Write-Host "D06_T3_SKILLS_SOURCE=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod.ru
+          ref: 1e64c59573b4378ac7ae55e272fda85d273c2376
+          fetch-depth: 2
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/retention
+      - name: Check exact private retention authorization
+        id: retention-permission
+        continue-on-error: true
+        working-directory: private/retention
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          bash "$GITHUB_WORKSPACE/pipeline/scripts/d06-private-git-transport.sh" preflight 1e64c59573b4378ac7ae55e272fda85d273c2376
       - name: Install site dependencies once
         working-directory: private/site
         shell: pwsh
@@ -598,23 +624,6 @@ jobs:
             grep -Fx "D06_T3_PHYSICAL_DOWNLOAD=$phase:PASS" "$RUNNER_TEMP/d06-t3-native-private.log"
           done
           echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/komplektovod.ru
-          ref: 8bcc0cf8af351d7aac0f2be8075410684702d9e3
-          fetch-depth: 2
-          token: ${{ secrets.DOMEN }}
-          persist-credentials: false
-          path: private/retention
-      - name: Check exact private retention authorization
-        id: retention-permission
-        continue-on-error: true
-        working-directory: private/retention
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.DOMEN }}
-        run: |
-          bash "$GITHUB_WORKSPACE/pipeline/scripts/d06-private-git-transport.sh" preflight 8bcc0cf8af351d7aac0f2be8075410684702d9e3
       - name: Prepare compiled production Host
         id: production-host
         if: ${{ success() && steps.native-exchange.outcome == 'success' }}
@@ -662,9 +671,9 @@ jobs:
             exit 1
           }
           echo D06_T3_RETAIN=PASS
-          git fetch --no-tags "$GITHUB_WORKSPACE/private/retention" "8bcc0cf8af351d7aac0f2be8075410684702d9e3" > "$RUNNER_TEMP/d06-retention-fetch-private.log" 2>&1
-          git checkout --detach "8bcc0cf8af351d7aac0f2be8075410684702d9e3" > "$RUNNER_TEMP/d06-retention-checkout-private.log" 2>&1
-          test "$(git rev-parse HEAD^)" = "b386d5b4f8b8fa318c906e353fe75ed66e135641"
+          git fetch --no-tags "$GITHUB_WORKSPACE/private/retention" "1e64c59573b4378ac7ae55e272fda85d273c2376" > "$RUNNER_TEMP/d06-retention-fetch-private.log" 2>&1
+          git checkout --detach "1e64c59573b4378ac7ae55e272fda85d273c2376" > "$RUNNER_TEMP/d06-retention-checkout-private.log" 2>&1
+          test "$(git rev-parse HEAD^)" = "750ad087f7b0626daafa1b2f7d46faa9c05e5595"
           test "$(git diff --name-status HEAD^ HEAD)" = "$(printf 'M\t.gitattributes')"
           test "$(git rev-parse HEAD:.gitattributes)" = "98e0b5fafc7b2d1193a185b51a8ff0fe7b4da5fe"
           test -z "$(git diff --name-only)"
@@ -818,8 +827,8 @@ jobs:
             exit 1
           fi
           test "$(gh api repos/Faust-S/komplektovod.ru --jq .private)" = "true"
-          test "$(git rev-parse HEAD)" = "8bcc0cf8af351d7aac0f2be8075410684702d9e3"
-          test "$(gh api repos/Faust-S/komplektovod.ru/git/ref/heads/test/2026-11-25-d06-t3-production-inputs-final --jq .object.sha)" = "8bcc0cf8af351d7aac0f2be8075410684702d9e3"
+          test "$(git rev-parse HEAD)" = "1e64c59573b4378ac7ae55e272fda85d273c2376"
+          test "$(gh api repos/Faust-S/komplektovod.ru/git/ref/heads/test/2026-11-25-d06-t3-production-inputs-closure --jq .object.sha)" = "1e64c59573b4378ac7ae55e272fda85d273c2376"
           test -z "$(git diff --name-only)"
           dir=runtime/t3-platform/0.3.1-rc.1
           node --input-type=module - <<'NODE' > "$RUNNER_TEMP/d06-retained-inventory-private.log" 2>&1
@@ -829,7 +838,7 @@ jobs:
           import {platformDir,installedArchive,verifyPlatformArchive} from "./scripts/d06-t3-platform-inputs.mjs";
           const host=join(platformDir,"d06-host");
           const receipt=verifyPreparedD06Host(host);
-          if(receipt.origin!=="https://komplektovod.ru"||receipt.siteCommit!=="b386d5b4f8b8fa318c906e353fe75ed66e135641")throw Error("D06_RETAIN_ORIGIN_OR_SHA");
+          if(receipt.origin!=="https://komplektovod.ru"||receipt.siteCommit!=="750ad087f7b0626daafa1b2f7d46faa9c05e5595")throw Error("D06_RETAIN_ORIGIN_OR_SHA");
           verifyPlatformArchive(installedArchive);
           const inputs=[installedArchive,join(host,"d06-t3-host-input.json"),...receipt.files.map(x=>join(host,x.path))];
           for(const path of inputs){
@@ -863,7 +872,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -c core.hooksPath=/dev/null commit -m "Retain verified original T3 production inputs for D06 candidate" > "$RUNNER_TEMP/d06-retain-commit-private.log" 2>&1
           candidate="$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD^)" = "8bcc0cf8af351d7aac0f2be8075410684702d9e3"
+          test "$(git rev-parse HEAD^)" = "1e64c59573b4378ac7ae55e272fda85d273c2376"
           # Re-read the committed files, not only the disposable staged copy.
           git archive --format=tar HEAD > "$RUNNER_TEMP/d06-retained-commit.tar"
           mkdir "$RUNNER_TEMP/d06-retained-commit"
@@ -876,13 +885,13 @@ jobs:
           import {platformDir,installedArchive,verifyPlatformArchive} from "./scripts/d06-t3-platform-inputs.mjs";
           const receipt=verifyPreparedD06Host(join(platformDir,"d06-host"));
           verifyPlatformArchive(installedArchive);
-          if(receipt.siteCommit!=="b386d5b4f8b8fa318c906e353fe75ed66e135641"||receipt.origin!=="https://komplektovod.ru")throw Error("D06_RETAIN_COMMITTED_RECEIPT");
+          if(receipt.siteCommit!=="750ad087f7b0626daafa1b2f7d46faa9c05e5595"||receipt.origin!=="https://komplektovod.ru")throw Error("D06_RETAIN_COMMITTED_RECEIPT");
           NODE
           ) > "$RUNNER_TEMP/d06-retained-commit-private.log" 2>&1
           echo D06_T3_RETAIN_COMMITTED_READBACK=PASS
           # Use the owner-authorized DOMEN token, not the public runner token.
           # Do not change branch protections, scopes, or push any other ref.
-          bash "$GITHUB_WORKSPACE/pipeline/scripts/d06-private-git-transport.sh" publish 8bcc0cf8af351d7aac0f2be8075410684702d9e3 "$candidate"
+          bash "$GITHUB_WORKSPACE/pipeline/scripts/d06-private-git-transport.sh" publish 1e64c59573b4378ac7ae55e272fda85d273c2376 "$candidate"
           echo D06_T3_RETAIN_PRIVATE_PUSH=PASS
           echo D06_FINAL_PERMANENT_RETENTION=PASS
           echo "D06_T3_RETAIN_REMOTE_COMMIT=$candidate"

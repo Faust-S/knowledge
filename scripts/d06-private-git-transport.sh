@@ -7,7 +7,7 @@ unset GIT_TRACE GIT_TRACE_PACKET GIT_TRACE_CURL GIT_CURL_VERBOSE GIT_TRACE2 GIT_
 export GIT_TERMINAL_PROMPT=0
 repo=Faust-S/komplektovod.ru
 url=https://github.com/Faust-S/komplektovod.ru.git
-target=refs/heads/test/2026-11-25-d06-t3-production-inputs-final
+target=refs/heads/test/2026-11-25-d06-t3-production-inputs-closure
 fail() { printf 'D06_T3_PRIVATE_TRANSPORT=%s\n' "$1" >&2; exit 1; }
 classify() {
   local file="$1"
@@ -51,7 +51,7 @@ remote_head() {
   if ! output="$(git_private ls-remote --exit-code "$url" "$target" 2> "$tmp/remote")"; then
     fail "READ_$(classify "$tmp/remote")"
   fi
-  [[ "$output" =~ ^([0-9a-f]{40})[[:space:]]refs/heads/test/2026-11-25-d06-t3-production-inputs-final$ ]] || fail READBACK_FORMAT
+  [[ "$output" =~ ^([0-9a-f]{40})[[:space:]]refs/heads/test/2026-11-25-d06-t3-production-inputs-closure$ ]] || fail READBACK_FORMAT
   printf '%s\n' "${BASH_REMATCH[1]}"
 }
 observed="$(remote_head)" || exit 1
