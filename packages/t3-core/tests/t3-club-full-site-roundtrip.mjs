@@ -1702,6 +1702,43 @@ try{
  check(isDeepStrictEqual(recipientCashRecord.data.cashCalendar.closedPeriods[0].entries.find(e=>e.id===plannedTool.id),settledTool),"CASH_PLAN_FACT_INDEPENDENT_EXACT_ENTRY");
  log("INDEPENDENT_CASH_PLAN_FACT_IWXA_READBACK");
 
+ // A cold review must keep the exact saved sources that explain the
+ // reason for review. The ordinary one-record editor routes remain tested above.
+ phase="INDEPENDENT_GOAL_REVIEW_CONTEXT_RESTORE";
+ await close();page=await launch("personal-recipient");await context.setOffline(true);
+ await visit(page,"/workspace/");await openExisting(page);
+ const reviewPanel=page.getByTestId("club-native-goals");
+ const reviewDetail=reviewPanel.getByTestId("club-native-goal-review");
+ await reviewDetail.waitFor({state:"visible"});
+ if(!await reviewDetail.evaluate(el=>el.open))await reviewDetail.locator(":scope > summary").click();
+ check(!(await localGoal())&&!(await localProof())&&!(await localWeek())&&!(await localCash()),"GOAL_REVIEW_CONTEXT_COLD");
+ const reviewBefore=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
+ await reviewDetail.getByRole("button",{name:"Открыть цель с данными для проверки: "+goalTitle,exact:true}).click();
+ const reviewRestore=page.getByTestId("club-t2-restore-card");
+ await reviewRestore.waitFor({state:"visible"});
+ const expectedReviewIds=[goalId,proofId,"club-week-plan","personal-economy"].sort();
+ const chosenReviewIds=()=>reviewRestore.locator('input[data-club-restore-object-id]:checked').evaluateAll(els=>els.map(el=>el.getAttribute("data-club-restore-object-id")).sort());
+ await poll(async()=>isDeepStrictEqual(await chosenReviewIds(),expectedReviewIds),"GOAL_REVIEW_CONTEXT_EXACT_SELECTION");
+ check((await reviewRestore.textContent()).includes("Недельный план и денежный календарь открываются целиком"),"GOAL_REVIEW_CONTEXT_FULL_JOURNAL_DISCLOSURE");
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===reviewBefore,"GOAL_REVIEW_CONTEXT_PRESELECT_NO_WRITE");
+ const reviewOpen=reviewRestore.getByRole("button",{name:"Открыть выбранные записи",exact:true});
+ await poll(async()=>await reviewOpen.isEnabled(),"GOAL_REVIEW_CONTEXT_READY");
+ let reviewConsent=false;
+ page.once("dialog",async d=>{
+  reviewConsent=d.type()==="confirm"&&d.message().includes("Загрузить 4 новых");
+  if(reviewConsent)await d.accept();else await d.dismiss();
+ });
+ await reviewOpen.click();await poll(async()=>reviewConsent,"GOAL_REVIEW_CONTEXT_EXPLICIT_CONSENT");
+ const reviewLink=page.getByTestId("club-t2-restore-completed").getByRole("link",{name:"Открыть выбранную цель",exact:true});
+ await reviewLink.waitFor({state:"visible"});await reviewLink.click();
+ await page.locator("[data-club-goal-form]").waitFor({state:"visible"});
+ check(new URL(page.url()).searchParams.get("club_goal")===goalId,"GOAL_REVIEW_CONTEXT_EXACT_EDITOR");
+ const restoredGoal=await localGoal(),restoredProof=await localProof(),restoredWeek=await localWeek(),restoredCash=await localCash();
+ check(restoredGoal?.objectId===goalId&&restoredProof?.objectId===proofId&&restoredWeek?.objectId==="club-week-plan"&&restoredCash?.objectId==="personal-economy","GOAL_REVIEW_CONTEXT_ORIGINAL_IDS");
+ check([restoredGoal,restoredProof,restoredWeek,restoredCash].every(o=>o.kernelSource?.syncedUpdatedAt===o.updatedAt&&o.kernelSource?.workspaceId===restoredGoal.kernelSource?.workspaceId),"GOAL_REVIEW_CONTEXT_KERNEL_BINDINGS");
+ check(restoredWeek.data.personalWeekPlan.slots.find(s=>s.id===goalResourceTask.id)?.fact?.minutes===110&&isDeepStrictEqual(restoredCash.data.cashCalendar.closedPeriods[0].entries.find(e=>e.id===plannedTool.id),settledTool),"GOAL_REVIEW_CONTEXT_ORIGINAL_FACTS");
+ check((await page.locator("[data-club-goal-list]").textContent()).includes("Остались обязательства: дел 0, денежных планов 1"),"GOAL_REVIEW_CONTEXT_REASON_PRESERVED");
+ log("INDEPENDENT_GOAL_REVIEW_CONTEXT_RESTORED_OFFLINE");
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
 }catch(e){
