@@ -318,3 +318,16 @@ test('K120 graph preflight at an empty tail counts all services when no original
   for(const invalid of [{...q,serviceId:null},{...q,idempotencyKey:''},{...q,arbitrary:true}])
     await assert.rejects(readT4OriginalCommitEventWindow({...args,originalTraceQuery:invalid}),{code:'ORIGINAL_COMMIT_EVENT_TRACE_QUERY_INVALID'});
 });
+
+test('K127 selective commit snapshot retains over 4096 original capture Events without changing V1 cursor bytes',async()=>{
+  const rows=Array.from({length:4098},(_,i)=>event(i+1)),retained=rows.slice(1).map(e=>e.event_id),{options,reads}=setup(rows);
+  const snapshot=await prepareT4OriginalCommitLocalEventSnapshot({...options,pageSize:256,retainedEventIds:retained});
+  assert.equal(snapshot.retainedOriginalEvents,4097);assert.equal(snapshot.originalEventsRead,4098);
+  assert.equal(reads.length,17);
+  assert.equal(readT4OriginalLocalSnapshotPosition(snapshot,{...scope,eventId:rows.at(-1).event_id}),4098);
+  assert.deepEqual(readT4OriginalLocalSnapshotEvent(snapshot,{...scope,eventId:rows.at(-1).event_id}),rows.at(-1));
+  const initial=await legacy(rows,null,1),expected=await legacy(rows,initial.nextCursor,1);
+  const actual=await readT4OriginalEventWindow({...scope,cursor:initial.nextCursor,maxEvents:1,
+    authorizeOriginalRead:readAllowed,originalLocalEventSnapshot:snapshot,readOriginalEvents:async()=>{throw Error('whole history fallback');}});
+  assert.deepEqual(actual.nextCursor,expected.nextCursor);assert.deepEqual(actual.window,expected.window);
+});

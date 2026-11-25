@@ -389,7 +389,7 @@ export async function readT4OriginalCommitHistoryForCompatibility(params={}){
 // A local capture-frontier read keeps selected raw Events only. All Event
 // references and V1 prefix digests still come from one authorized scan.
 export async function prepareT4OriginalCommitLocalEventSnapshot({retainedEventIds,...params}={}){
-  if(!Array.isArray(retainedEventIds)||retainedEventIds.length>4096||
+  if(!Array.isArray(retainedEventIds)||
     !retainedEventIds.every(id)||new Set(retainedEventIds).size!==retainedEventIds.length)
     fail('ORIGINAL_COMMIT_SNAPSHOT_SELECTION_INVALID');
   const result=await readCommitEventWindow({...params,cursor:null,maxEvents:1,originalTraceQuery:null},false,new Set(retainedEventIds));

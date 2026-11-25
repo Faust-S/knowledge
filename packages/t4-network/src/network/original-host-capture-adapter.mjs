@@ -175,7 +175,7 @@ export function createT4OriginalHostCaptureAdapter({
     const readPending=async()=>{
       mode();
       const rows=await listOriginalPendingIntents(query);mode();
-      if(!Array.isArray(rows)||rows.length>4096||new Set(rows.map(r=>r?.captureRef)).size!==rows.length||
+      if(!Array.isArray(rows)||(!paged&&rows.length>4096)||new Set(rows.map(r=>r?.captureRef)).size!==rows.length||
         rows.some(r=>r?.workspaceId!==workspaceId||r.originalWriteOwnerRef!==originalWriteOwnerRef||
           !Object.hasOwn(operations,r.kind)||!ID(r.captureRef)||!ID(r.subjectId)||!ID(r.originalIntentEventId)||
           !/^sha256:[a-f0-9]{64}$/.test(r.originalIntentRecordDigest)||

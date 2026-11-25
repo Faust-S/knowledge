@@ -223,7 +223,7 @@ export function createT4OriginalHostCaptureLedgerPort({
       const {rows}=partitions.get(role);
       if(o.workspace_id!==technicalWorkspaceId||o.schema_id!==T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID||
         o.schema_version!=='1.0.0'||o.revision!==1||o.deleted===true||
-        rows.size>=4096||rows.has(o.object_id))
+        (!enableOriginalTechnicalCommitOrder&&rows.size>=4096)||rows.has(o.object_id))
         fail('CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID');
       rows.set(o.object_id,copy(o));
     }

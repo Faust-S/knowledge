@@ -41,7 +41,7 @@ export async function readT4OriginalHostCaptureFrontier({
     mode();
   }
   function requireNoPending(rows){
-    if(!Array.isArray(rows)||rows.length>4096||rows.some(r=>r?.workspaceId!==workspaceId||
+    if(!Array.isArray(rows)||(!paged&&rows.length>4096)||rows.some(r=>r?.workspaceId!==workspaceId||
       r.originalWriteOwnerRef!==originalWriteOwnerRef||!ID(r.captureRef)||!KINDS.has(r.kind)))
       fail('CAPTURE_FRONTIER_ORIGINAL_PENDING_INVENTORY_INVALID');
     if(rows.length)fail('CAPTURE_FRONTIER_ORIGINAL_INTENT_UNRESOLVED',{
@@ -61,7 +61,7 @@ export async function readT4OriginalHostCaptureFrontier({
       value.workspaceId!==workspaceId||value.originalWriteOwnerRef!==originalWriteOwnerRef||
       value.originalRecordsAndEventsVerified!==true||value.originalAuthorityGranted!==false||
       value.createsStore!==false||!DIG(value.inventoryDigest)||
-      !Array.isArray(value.pairs)||value.pairs.length>4096)
+      !Array.isArray(value.pairs)||(!paged&&value.pairs.length>4096))
       fail('CAPTURE_FRONTIER_ORIGINAL_INVENTORY_INVALID');
     requireNoPending(value.pending);
     const pairs=new Map();
@@ -113,7 +113,7 @@ export async function readT4OriginalHostCaptureFrontier({
   const rows=initialInventory===null?structuredClone(await listOriginalOutbox(scope)):
     initialInventory.value.pairs.map(p=>p.outbox);
   await guard('t1.listObjects');
-  if(!Array.isArray(rows)||rows.length>4096)fail('CAPTURE_FRONTIER_ORIGINAL_OUTBOX_INVALID');
+  if(!Array.isArray(rows)||(!paged&&rows.length>4096))fail('CAPTURE_FRONTIER_ORIGINAL_OUTBOX_INVALID');
   const byEvent=new Map(),captureRefs=new Set();
   for(const row of rows){
     const kind=row?.kind??(row?.schema==='IWXA_T4_ORIGINAL_OBJECT_DELTA_OUTBOX_V1'?'OBJECT_PUT':null);
@@ -146,8 +146,8 @@ export async function readT4OriginalHostCaptureFrontier({
   const evidencePorts=initialInventory===null?{readOriginalIntent,readOriginalOutbox}:{
     readOriginalIntent:async q=>cachedRead('intent',q),readOriginalOutbox:async q=>cachedRead('outbox',q)};
   let cursor=b.sourceCursor,verified=0;
-  // The existing ledger bounds the number of retained captures. An uncovered
-  // Event must stop local capture, never be absorbed into a new baseline.
+  // A commit-order inventory may contain more than the legacy 4096 records.
+  // An uncovered Event must stop capture, never become a new baseline.
   while(cursor.seenEventCount<snapshot.originalEventsRead){
     const {window,nextCursor}=await readWindow(cursor,events,snapshot);
     const selected=byEvent.get(window.lastEventId);

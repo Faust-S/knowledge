@@ -288,3 +288,37 @@ test('K125 exact Capture Ledger fails closed on an unavailable indexed read',asy
   f.params.enableOriginalTechnicalCommitOrder=false;
   assert.throws(()=>f.port(),{code:'CAPTURE_LEDGER_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED'});
 });
+
+test('K127 commit-order capture inventory crosses 4096 pairs without deleting or reissuing original records',async()=>{
+  const f=pagedFixture(256),kernel=f.params.originalKernel,byObject=new Map(),put=kernel.putObject;
+  f.params.enableOriginalTechnicalObjectHistory=true;
+  // Model the existing DB9 object index instead of repeatedly filtering the whole journal.
+  kernel.putObject=async input=>{const result=await put(input);byObject.set(input.object_id,[result.event]);return result;};
+  kernel.listEventObjectCommitWindow=async(ws,id,after,limit)=>{
+    assert.equal(ws,'ws:technical');
+    const all=byObject.get(id)??[],start=after===null?0:all.findIndex(e=>e.event_id===after)+1;
+    assert.ok(after===null||start>0);
+    const entries=all.slice(start,start+limit).map(event=>({event:structuredClone(event),legacy_history:false}));
+    return {entries,next_after_event_id:entries.at(-1)?.event.event_id??after,has_more:start+entries.length<all.length,
+      order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+  };
+  const p=f.port(),count=4097;
+  for(let i=1;i<=count;i++){
+    const q={captureRef:'capture:'+i,objectId:'object:'+i};
+    assert.equal(await p.persistOriginalIntent({...intent,...q}),true);
+    assert.equal(await p.persistOriginalOutbox({...outbox,...q,sourceEventId:'event:source:'+i}),true);
+  }
+  f.restart();const cold=f.port(),inventory=await cold.readOriginalCaptureInventory(scope);
+  assert.equal(inventory.pairs.length,count);assert.equal(inventory.pending.length,0);
+  assert.equal(f.objects.size,count*2);assert.equal(f.events.length,count*2);
+  assert.deepEqual(await cold.listOriginalOutbox({...scope,sourceEventId:'event:source:'+count}),
+    [{...outbox,captureRef:'capture:'+count,objectId:'object:'+count,sourceEventId:'event:source:'+count}]);
+  assert.equal(f.events.length,count*2);
+  // The compatibility profile retains its former bounds.
+  const legacy=createT4OriginalHostCaptureLedgerPort({...f.params,enableOriginalTechnicalCommitOrder:false,enableOriginalTechnicalObjectHistory:false});
+  await assert.rejects(legacy.listOriginalOutbox(scope),{code:'CAPTURE_LEDGER_ORIGINAL_CATALOG_INVALID'});
+  // Missing historical Object outside the selected filter remains a failure.
+  f.objects.delete(f.events[1].object_id);
+  await assert.rejects(cold.listOriginalOutbox({...scope,sourceEventId:'event:source:'+count}),
+    {code:'CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING'});
+});
