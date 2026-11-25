@@ -2,8 +2,15 @@ name: D01 UX source, published links and original T2
 on:
   push:
     branches: [work/2026-11-24-d01-ux-qualification]
-    paths: [.github/workflows/d01-ux-source.yml]
+    # Only an explicit candidate registration starts an expensive qualification.
+    # Ordinary workflow edits and owner commits do not trigger this workflow.
+    paths: [.github/qualification/d01-learn-candidate.txt]
   workflow_dispatch:
+concurrency:
+  group: d01-learn-qualification-${{ github.ref }}
+  # Finish the running candidate. GitHub keeps at most one pending run in
+  # this group, replacing an older pending candidate when a new one is queued.
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
@@ -129,6 +136,9 @@ jobs:
             exit 1
           fi
   original-t2:
+    # Do not consume a second runner when canonical source tests or the
+    # public-stage build have already failed.
+    needs: source
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -149,7 +159,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T2
-          ref: main
+          ref: 9c64951cd78411283e8a416641c36d71e169fc1d
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/t2

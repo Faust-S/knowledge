@@ -1,0 +1,5 @@
+# Last fully qualified candidate; update only at a product milestone.
+site=2496ad42374ce815644686bf8ede11ea8de5f575
+domain=1e96e81f4146f3a9bd3b4c64e5acd41c1b51c841
+t2=9c64951cd78411283e8a416641c36d71e169fc1d
+qualified_run=45596745365
