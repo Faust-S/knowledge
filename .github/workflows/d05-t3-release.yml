@@ -22,6 +22,7 @@ jobs:
       DOMEN: ${{ secrets.DOMEN }}
   hardware:
     needs: linux
+    if: ${{ !cancelled() && needs.linux.outputs.functional_ready == 'true' }}
     uses: ./.github/workflows/d05-t3-real-model.yml
     with:
       site_sha: 'bb8f1bd09c987879a003a90a09d3dd965acabd55'
