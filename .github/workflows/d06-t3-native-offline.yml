@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: c00ec0705192373ad58f5562a210165c6ad7bf9f
+          ref: efb9aa32ed8a15d940291f969a4d0a6decdf9658
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private-site
@@ -144,7 +144,56 @@ jobs:
           node --experimental-strip-types scripts/verify-native-transfer.mjs > "$RUNNER_TEMP/d06-t3-native-private.log" 2>&1 || {
             echo D06_T3_INHERITED_NATIVE_EXCHANGE=FAIL
             grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
-            grep -E '^D06_T3_DOWNLOAD_FAILURE=[A-Z0-9_]+:(COMPLETION|BROWSER_FILE|SAVE_AS|BYTE_READBACK):(CANCELED|NO_SPACE|ACCESS|MISSING_FILE|TARGET_CLOSED|TIMEOUT|NETWORK|OTHER)$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
+            grep -E '^D06_T3_DOWNLOAD_FAILURE=[A-Z0-9_]+:(COMPLETION|BROWSER_FILE|SAVE_AS|BYTE_READBACK):(CANCELED|NO_SPACE|ACCESS|MISSING_FILE|TARGET_CLOSED|TIMEOUT|NETWORK|OTHER)
+            grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
+            grep -Eo 'D06_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u | head -40 || true
+            grep -Eo 'D06_T3_EXCHANGE_CONSENT_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u || true
+            node --input-type=module - "$RUNNER_TEMP/d06-t3-native-private.log" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const body=readFileSync(process.argv[2],'utf8');
+          const hits=[...body.matchAll(/(?:scripts\/verify-native-transfer|tests\/t3\/exchange-consent)\.mjs:(\d+):(\d+)/g)];
+          for(const m of hits.slice(-8)) console.log("D06_T3_EXCHANGE_COORD="+(m[0].startsWith("scripts/")?"TRANSFER":"CONSENT")+":"+m[1]+":"+m[2]);
+          NODE
+            for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toBeVisible' 'toBeDisabled' 'toBeEnabled' 'toBeChecked' 'toHaveAttribute' 'toHaveCount' 'toHaveText' 'Timed out' 'waitForFunction' 'locator.waitFor' 'net::ERR' 'TypeError' 'EADDRINUSE'; do
+              if grep -Fq "$marker" "$RUNNER_TEMP/d06-t3-native-private.log"; then echo "D06_T3_EXCHANGE_FAILURE_CLASS=$marker"; fi
+            done
+            exit 1
+          }
+          grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
+          grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log"
+          echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
+      - name: Privacy and evidence boundary
+        if: always()
+        run: |
+          echo D06_T3_PRODUCT_ACCEPTED=false
+          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
+          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
+ "$RUNNER_TEMP/d06-t3-native-private.log" || true
+            grep -E '^D06_T3_PORTABLE_(ARCHIVE_BYTES=[0-9]+|OPEN_PAGES=[0-9]+|DOWNLOAD_PAGE_CLOSED=(YES|NO)|DOWNLOAD_LIFECYCLE=(PAGE_CLOSED|PAGE_CRASHED|CONTEXT_CLOSED|BROWSER_DISCONNECTED))
+            grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
+            grep -Eo 'D06_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u | head -40 || true
+            grep -Eo 'D06_T3_EXCHANGE_CONSENT_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u || true
+            node --input-type=module - "$RUNNER_TEMP/d06-t3-native-private.log" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const body=readFileSync(process.argv[2],'utf8');
+          const hits=[...body.matchAll(/(?:scripts\/verify-native-transfer|tests\/t3\/exchange-consent)\.mjs:(\d+):(\d+)/g)];
+          for(const m of hits.slice(-8)) console.log("D06_T3_EXCHANGE_COORD="+(m[0].startsWith("scripts/")?"TRANSFER":"CONSENT")+":"+m[1]+":"+m[2]);
+          NODE
+            for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toBeVisible' 'toBeDisabled' 'toBeEnabled' 'toBeChecked' 'toHaveAttribute' 'toHaveCount' 'toHaveText' 'Timed out' 'waitForFunction' 'locator.waitFor' 'net::ERR' 'TypeError' 'EADDRINUSE'; do
+              if grep -Fq "$marker" "$RUNNER_TEMP/d06-t3-native-private.log"; then echo "D06_T3_EXCHANGE_FAILURE_CLASS=$marker"; fi
+            done
+            exit 1
+          }
+          grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
+          grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log"
+          echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
+      - name: Privacy and evidence boundary
+        if: always()
+        run: |
+          echo D06_T3_PRODUCT_ACCEPTED=false
+          echo D06_T3_PRIVATE_OUTPUT_UPLOADS=0
+          echo D06_T3_PRIVATE_LOGS_UPLOADED=0
+ "$RUNNER_TEMP/d06-t3-native-private.log" || true
             grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
             grep -Eo 'D06_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u | head -40 || true
             grep -Eo 'D06_T3_EXCHANGE_CONSENT_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u || true
