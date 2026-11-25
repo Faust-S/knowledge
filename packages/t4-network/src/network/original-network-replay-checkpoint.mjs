@@ -1,3 +1,4 @@
+import {readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory} from './original-technical-event-pages.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
   from './original-network-technical-schema.mjs';
 import {createHash} from 'node:crypto';
@@ -69,8 +70,9 @@ export function createT4OriginalNetworkReplayPort({
   technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   originalKernel,technicalWorkspaceId,originalWriteOwnerRef,
   localNodeRef,scopeRef,getMode,readOriginalHostContext,
-  authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,historicalReadOnly=false,
+  authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,historicalReadOnly=false,enableOriginalTechnicalObjectHistory=false,
 }={}){
+  requireT4OriginalTechnicalObjectHistory(enableOriginalTechnicalObjectHistory,originalKernel);
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   if(![technicalWorkspaceId,originalWriteOwnerRef,localNodeRef,scopeRef]
     .every(ID)||typeof historicalReadOnly!=='boolean'||![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead]
@@ -98,7 +100,7 @@ export function createT4OriginalNetworkReplayPort({
       nodeRef:v.nodeRef,scopeRef:v.scopeRef,hostSessionRef:v.hostSessionRef,
     };
   }
-  async function guard(phase,initial,ref){
+  async function guard(phase,initial,ref,operation=phase==='write'?'t1.putObject':'t1.getObject'){
     mode();
     if(historicalReadOnly&&phase==='write')fail('REPLAY_ORIGINAL_HISTORY_READ_ONLY');
     const now=await context();
@@ -106,7 +108,7 @@ export function createT4OriginalNetworkReplayPort({
       automaticRetryAllowed:false,
     });
     const p=Object.freeze({
-      operation:phase==='write'?'t1.putObject':'t1.getObject',
+      operation,
       purpose:'t4.original.network.replay',
       phase,checkpointRef:ref,technicalWorkspaceId,
       originalWriteOwnerRef,nodeRef:localNodeRef,scopeRef,
@@ -123,6 +125,9 @@ export function createT4OriginalNetworkReplayPort({
         automaticRetryAllowed:false,
       });
   }
+  const exactEvents=(initial,key)=>readT4OriginalTechnicalObjectEvents({originalKernel,
+    workspaceId:technicalWorkspaceId,objectRef:key.checkpointRef,
+    authorizeOriginalOperation:async op=>{await guard('read',initial,key.checkpointRef,op);return true;}});
   async function checkpointVerified(row,key,initial,historical=false){
     const data=row?.object?.data;
     if(row?.object?.workspace_id!==technicalWorkspaceId||
@@ -144,14 +149,16 @@ export function createT4OriginalNetworkReplayPort({
     if(retained&&key.wireSha256!==undefined&&retained.wireSha256!==key.wireSha256)
       fail('REPLAY_ORIGINAL_SEQUENCE_CONFLICT');
     await guard('read',initial,key.checkpointRef);
-    let events;
-    try{events=await originalKernel.listEventsSince(technicalWorkspaceId);}
-    catch(error){fail('REPLAY_ORIGINAL_EVENT_READ_FAILED',{
-      originalCode:error?.code??null,
-    });}
-    if(!Array.isArray(events)||events.length>100000)
-      fail('REPLAY_ORIGINAL_EVENT_HISTORY_UNAVAILABLE');
-    const found=events.filter(x=>x?.workspace_id===technicalWorkspaceId&&x.object_id===key.checkpointRef);
+    let found;
+    if(enableOriginalTechnicalObjectHistory)found=await exactEvents(initial,key);
+    else{
+      let events;
+      try{events=await originalKernel.listEventsSince(technicalWorkspaceId);}
+      catch(error){fail('REPLAY_ORIGINAL_EVENT_READ_FAILED',{originalCode:error?.code??null});}
+      if(!Array.isArray(events)||events.length>100000)
+        fail('REPLAY_ORIGINAL_EVENT_HISTORY_UNAVAILABLE');
+      found=events.filter(x=>x?.workspace_id===technicalWorkspaceId&&x.object_id===key.checkpointRef);
+    }
     const expectedPayload={
       checkpointRef:key.checkpointRef,frameDigest:data.frameDigest,
       sourceNodeRef:key.identity.sourceNodeRef,recipientNodeRef:key.identity.recipientNodeRef,
@@ -165,6 +172,7 @@ export function createT4OriginalNetworkReplayPort({
     await guard('read',initial,key.checkpointRef);
     const second=await originalKernel.getObject(
       technicalWorkspaceId,key.checkpointRef);
+    await guard('read',initial,key.checkpointRef);
     if(!same(second?.object,row.object))
       fail('REPLAY_ORIGINAL_CHECKPOINT_CHANGED');
     const eq=key.frameDigest===data.frameDigest&&
@@ -184,9 +192,13 @@ export function createT4OriginalNetworkReplayPort({
     // A missing Object is not an empty replay slot when the original
     // journal still records that slot. Do not recreate a lost checkpoint.
     await guard('read',initial,key.checkpointRef);
-    const events=await originalKernel.listEventsSince(technicalWorkspaceId);
-    if(!Array.isArray(events)||events.length>100000)
-      fail('REPLAY_ORIGINAL_EVENT_HISTORY_UNAVAILABLE');
+    let events;
+    if(enableOriginalTechnicalObjectHistory)events=await exactEvents(initial,key);
+    else{
+      events=await originalKernel.listEventsSince(technicalWorkspaceId);
+      if(!Array.isArray(events)||events.length>100000)
+        fail('REPLAY_ORIGINAL_EVENT_HISTORY_UNAVAILABLE');
+    }
     if(events.some(e=>e?.workspace_id===technicalWorkspaceId&&e.object_id===key.checkpointRef))
       fail('REPLAY_ORIGINAL_CHECKPOINT_MISSING_WITH_EVENT');
     await guard('read',initial,key.checkpointRef);

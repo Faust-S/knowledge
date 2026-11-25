@@ -259,3 +259,32 @@ test('K122 exact historical absence cannot be inferred from an unavailable conti
   const scoped=p.forOriginalHostLifetime(()=>active);active=false;
   await assert.rejects(scoped.readOriginalIntent(query));
 });
+
+test('K125 exact Capture Ledger reads only its indexed technical Object; inventory still proves the complete catalog',async()=>{
+  const f=pagedFixture(1),kernel=f.params.originalKernel,exact=[],broad=f.calls;
+  f.params.enableOriginalTechnicalObjectHistory=true;
+  kernel.listEventObjectCommitWindow=async(ws,id,after,limit)=>{
+    exact.push([ws,id,after,limit]);const events=f.events.filter(e=>e.object_id===id);
+    const start=after===null?0:events.findIndex(e=>e.event_id===after)+1;
+    const entries=events.slice(start,start+limit).map(event=>({event:structuredClone(event),legacy_history:false}));
+    return {entries,next_after_event_id:entries.at(-1)?.event.event_id??after,has_more:start+limit<events.length,
+      order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+  };
+  const p=f.port();await p.persistOriginalIntent(intent);await p.persistOriginalOutbox(outbox);
+  assert.equal(broad.length,0);assert.ok(exact.length>0);
+  f.restart();assert.deepEqual(await f.port().readOriginalOutbox(query),outbox);
+  assert.equal(broad.length,0);
+  assert.equal((await f.port().readOriginalCaptureInventory(scope)).pairs.length,1);
+  assert.ok(broad.length>0);
+  const id=f.events[1].object_id;f.objects.delete(id);
+  await assert.rejects(f.port().readOriginalOutbox(query),{code:'CAPTURE_LEDGER_ORIGINAL_RECORD_MISSING'});
+});
+test('K125 exact Capture Ledger fails closed on an unavailable indexed read',async()=>{
+  const f=pagedFixture();
+  f.params.enableOriginalTechnicalObjectHistory=true;
+  f.params.originalKernel.listEventObjectCommitWindow=async()=>{throw Error('lost exact read');};
+  await assert.rejects(f.port().persistOriginalIntent(intent),/lost exact read/);
+  assert.equal(f.calls.length,0);assert.equal(f.writes,0);
+  f.params.enableOriginalTechnicalCommitOrder=false;
+  assert.throws(()=>f.port(),{code:'CAPTURE_LEDGER_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED'});
+});

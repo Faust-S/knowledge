@@ -22,8 +22,11 @@ export function createT4OriginalNativeHostNetworkProfile({
   scopeRef,ownerEpoch,requiredCryptoSuite,getMode:originalGetMode,
   originalAccess,originalVault,originalTopology,originalPeerHistory,originalPorts,
   readOriginalBaselineAdmissionInput,readOriginalNetworkResumeInput,onStep,monotonicNow,enableSourceEventWindowRead=false,enableSourceCaptureBinding=false,enableRecipientResultRead=false,
-  enableOriginalCommitOrder=false,
+  enableOriginalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,
 }={}){
+  if(typeof enableOriginalTechnicalObjectHistory!=='boolean'||
+    (enableOriginalTechnicalObjectHistory&&role==='SOURCE'&&!enableOriginalCommitOrder))
+    fail('NATIVE_NETWORK_PROFILE_TECHNICAL_OBJECT_HISTORY_REQUIRED');
   if(typeof enableOriginalCommitOrder!=='boolean'||(enableOriginalCommitOrder&&
     (role!=='SOURCE'||!enableSourceEventWindowRead||
       typeof originalPorts?.withOriginalHistoryReadBoundary!=='function')))
@@ -74,7 +77,7 @@ export function createT4OriginalNativeHostNetworkProfile({
       requireSignedTopologyAccess:true,requireOriginalVaultNodeSignature:true,requireDurableNetworkKeyBinding:true,
       requireOriginalVaultSealedContent:true,enablePublicationIndexMigration:true,enableExplicitNetworkResume:true,
       enableLocalSourceCapture:source,enableLocalRecipientResultVerification:!source,enableRecipientResultRead,enableHistoricalAcknowledgementRecovery:source,enableLocalRetiredRecipientRecovery:!source,
-      enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,enableSourceCaptureBinding,enableOriginalCommitOrder,
+      enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,enableSourceCaptureBinding,enableOriginalCommitOrder,enableOriginalTechnicalObjectHistory,
       enableReplacementSourceAdmission:source,enableReplacementSourceContent:source,enableReplacementSourceAckConfirmation:source,
       enableReplacementRecipientAdmission:!source,enableReplacementRecipientContent:!source,enableReplacementRecipientApply:!source});
     const close=()=>{if(closed)return;closed=true;try{transport.close();}finally{tlsBinding?.close();}};

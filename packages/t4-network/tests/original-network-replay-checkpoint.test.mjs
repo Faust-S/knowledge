@@ -64,7 +64,7 @@ function fakeOriginal(){
 function ports(original=fakeOriginal()){
   let mode='T4_NETWORK',grant=true,
     hostSessionRef='host:original:session:1';
-  const binding=()=>createT4OriginalNetworkReplayPort({
+  const binding=(overrides={})=>createT4OriginalNetworkReplayPort({
     originalKernel:original.kernel,technicalWorkspaceId:ws,
     originalWriteOwnerRef:owner,localNodeRef:'node:recipient',
     scopeRef:'scope:opaque',
@@ -79,6 +79,7 @@ function ports(original=fakeOriginal()){
       ctx.originalT3HostOwnsTechnicalWrite===true,
     authorizeOriginalTechnicalWrite:async ctx=>grant&&
       ctx.operation==='t1.putObject',
+    ...overrides,
   });
   return{original,binding,local:()=>{mode='LOCAL_T3';},
     revoke:()=>{grant=false;},
@@ -272,4 +273,29 @@ test('K42 historical ACK lookup distinguishes a legacy accepted slot from an abs
   p.revoke();
   await assert.rejects(p.binding().readOriginalHistoricalAppliedAckSlot(query),err('REPLAY_ORIGINAL_ACCESS_DENIED'));
   assert.equal(p.original.puts,1);
+});
+
+test('K125 exact replay slot never scans unrelated technical Event history or rewrites a committed slot',async()=>{
+  const p=ports(),original=p.original,kernel=original.kernel,calls=[];
+  kernel.hasOperation=()=>true;kernel.listEventsSince=async()=>{throw Error('legacy forbidden');};
+  kernel.listEventObjectCommitWindow=async(w,id,after,limit)=>{
+    calls.push([w,id,after,limit]);const entries=original.events.filter(e=>e.object_id===id).map(event=>({event:structuredClone(event),legacy_history:false}));
+    return {entries,next_after_event_id:entries.at(-1)?.event.event_id??after,has_more:false,
+      order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+  };
+  const opts={enableOriginalTechnicalObjectHistory:true,authorizeOriginalTechnicalRead:async()=>true};
+  assert.equal(await p.binding(opts).persistOriginalReplayDecision(proof),'RECORDED');
+  p.restart();assert.equal(await p.binding(opts).persistOriginalReplayDecision(proof),'SEEN_EXACT');
+  assert.equal(original.puts,1);assert.equal(calls.every(c=>c[1]===original.events[0].object_id),true);
+  original.rows.clear();
+  await assert.rejects(p.binding(opts).persistOriginalReplayDecision(proof),err('REPLAY_ORIGINAL_CHECKPOINT_MISSING_WITH_EVENT'));
+  assert.equal(original.puts,1);
+});
+test('K125 exact replay slot checks new and original history authority before absence',async()=>{
+  const p=ports(),kernel=p.original.kernel;kernel.hasOperation=()=>true;
+  kernel.listEventObjectCommitWindow=async()=>{throw Error('must not read');};
+  for(const denied of ['t1.listEventsSince','t1.listEventObjectCommitWindow'])
+    await assert.rejects(p.binding({enableOriginalTechnicalObjectHistory:true,
+      authorizeOriginalTechnicalRead:async x=>x.operation!==denied}).persistOriginalReplayDecision(proof),err('REPLAY_ORIGINAL_ACCESS_DENIED'));
+  assert.equal(p.original.puts,0);
 });

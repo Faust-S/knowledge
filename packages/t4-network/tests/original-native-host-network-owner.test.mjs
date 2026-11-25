@@ -1014,3 +1014,11 @@ test('K116 top-level native profile refuses inconsistent commit-order configurat
  ])assert.throws(()=>createT4OriginalNativeHostNetworkProfile(options),
    {code:'NATIVE_NETWORK_PROFILE_COMMIT_ORDER_REQUIRED'});
 });
+
+test('K125 exact technical history cannot activate an unselected source commit order or invalid option',()=>{
+  for(const options of [{role:'SOURCE',enableOriginalTechnicalObjectHistory:true},
+    {role:'RECIPIENT',enableOriginalTechnicalObjectHistory:'true'}]){
+    assert.throws(()=>createT4OriginalNativeHostNetworkOwner(options),{code:'NATIVE_NETWORK_OWNER_TECHNICAL_OBJECT_HISTORY_PROFILE_INVALID'});
+    assert.throws(()=>createT4OriginalNativeHostNetworkProfile(options),{code:'NATIVE_NETWORK_PROFILE_TECHNICAL_OBJECT_HISTORY_REQUIRED'});
+  }
+});

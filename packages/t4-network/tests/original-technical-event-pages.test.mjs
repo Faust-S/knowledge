@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {visitT4OriginalTechnicalCommitEvents} from '../src/network/original-technical-event-pages.mjs';
+import {visitT4OriginalTechnicalCommitEvents,readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory} from '../src/network/original-technical-event-pages.mjs';
 const ws='ws:technical';
 const entry=(i,legacy=false)=>({legacy_history:legacy,event:{workspace_id:ws,event_id:'event:'+i,object_id:'object:'+i,payload:{i}}});
 const page=(entries,has_more=false,after=null)=>({entries,has_more,next_after_event_id:entries.at(-1)?.event.event_id??after,
@@ -55,4 +55,36 @@ test('original read error is propagated; no fallback route exists',async()=>{
   const f=fixture([]);f.args.readOriginalTechnicalCommitPage=async()=>{throw Error('original read failed');};
   await assert.rejects(visitT4OriginalTechnicalCommitEvents(f.args),/original read failed/);
   assert.deepEqual(f.visited,[]);
+});
+
+function exactFixture(rows,size=2){
+  const calls=[],rights=[],allowed=new Set(['t1.listEventsSince','t1.listEventObjectCommitWindow']);
+  const originalKernel={hasOperation:op=>allowed.has(op),listEventsSince:async()=>{throw Error('legacy read forbidden');},
+    listEventObjectCommitWindow:async(workspace,object,after,limit)=>{
+      calls.push([workspace,object,after,limit]);
+      const start=after===null?0:rows.findIndex(r=>r.event.event_id===after)+1;
+      return page(rows.slice(start,start+limit),start+limit<rows.length,after);
+    }};
+  return {calls,rights,allowed,args:{originalKernel,workspaceId:ws,objectRef:'object:exact',pageSize:size,
+    authorizeOriginalOperation:async op=>{rights.push(op);return allowed.has(op);}}};
+}
+const exactEntry=i=>({...entry(i),event:{...entry(i).event,object_id:'object:exact'}});
+test('exact original Object history sends the exact indexed scope and both grants on each page',async()=>{
+  const f=exactFixture([exactEntry(1),exactEntry(2),exactEntry(3)]);
+  assert.deepEqual((await readT4OriginalTechnicalObjectEvents(f.args)).map(e=>e.event_id),['event:1','event:2','event:3']);
+  assert.deepEqual(f.calls,[[ws,'object:exact',null,2],[ws,'object:exact','event:2',2]]);
+  assert.deepEqual(f.rights,Array.from({length:4},()=>['t1.listEventsSince','t1.listEventObjectCommitWindow']).flat());
+});
+test('exact original Object history refuses foreign Object rows and missing original grants',async()=>{
+  const f=exactFixture([exactEntry(1),entry(2)]);
+  await assert.rejects(readT4OriginalTechnicalObjectEvents(f.args),{code:'TECHNICAL_COMMIT_HISTORY_PAGE_INVALID'});
+  f.allowed.delete('t1.listEventObjectCommitWindow');
+  assert.throws(()=>requireT4OriginalTechnicalObjectHistory(true,f.args.originalKernel),{code:'TECHNICAL_OBJECT_HISTORY_PORTS_REQUIRED'});
+  await assert.rejects(readT4OriginalTechnicalObjectEvents(f.args),{code:'TECHNICAL_OBJECT_HISTORY_PORTS_REQUIRED'});
+});
+test('exact original Object history cannot infer absence or fall back after grant revocation',async()=>{
+  const f=exactFixture([exactEntry(1)],1),read=f.args.originalKernel.listEventObjectCommitWindow;
+  f.args.originalKernel.listEventObjectCommitWindow=async(...args)=>{const result=await read(...args);f.allowed.delete('t1.listEventsSince');return result;};
+  await assert.rejects(readT4OriginalTechnicalObjectEvents(f.args),{code:'TECHNICAL_COMMIT_HISTORY_READ_DENIED'});
+  const empty=exactFixture([]);assert.deepEqual(await readT4OriginalTechnicalObjectEvents(empty.args),[]);
 });

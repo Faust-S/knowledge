@@ -40,7 +40,7 @@ function fixture(){
     authorizeOriginalBaselineAdmission:async p=>{consents++;assert.equal(p.networkMetadataIsNotAdmission,true);return allowed},
     verifyOriginalBaselineEvidence:async p=>witness&&p.baseline.originalBaselineRef===input.originalBaselineRef&&
       p.baseline.originalBaselineDigest===input.originalBaselineDigest,...overrides});
-  return {objects,events,port,get puts(){return puts},get consents(){return consents},
+  return {objects,events,port,kernel,get puts(){return puts},get consents(){return consents},
     deny(){allowed=false},revokeWitness(){witness=false},revokeRead(){read=false},revokeWrite(){write=false},
     lose(){lost=true},restart(){session='host:cold'},stop(){active=false},local(){network=false},isActive:()=>active};
 }
@@ -104,4 +104,30 @@ test('K13 admitted baseline must match current Host context and original scope',
   f.restart();f.revokeRead();
   await assert.rejects(f.port().readOriginalAdmittedBaseline(),error('BASELINE_ADMISSION_ORIGINAL_ACCESS_DENIED'));
   assert.equal(f.puts,1);
+});
+
+test('K125 baseline exact technical history uses original indexed reads on cold admission and refuses an orphan Event',async()=>{
+  const f=fixture(),kernel=f.kernel,calls=[];
+  kernel.hasOperation=op=>['t1.getObject','t1.putObject','t1.listEventsSince','t1.listEventObjectCommitWindow'].includes(op);
+  kernel.listEventsSince=async()=>{throw Error('legacy forbidden');};
+  kernel.listEventObjectCommitWindow=async(ws,id,after,limit)=>{
+    calls.push([ws,id,after,limit]);const entries=f.events.filter(e=>e.object_id===id).map(event=>({event:clone(event),legacy_history:false}));
+    return {entries,next_after_event_id:entries.at(-1)?.event.event_id??after,has_more:false,
+      order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+  };
+  const opts={enableOriginalTechnicalObjectHistory:true},port=f.port('SOURCE',opts);
+  assert.equal((await port.admitOriginalBaseline(input)).state,'ADMITTED');
+  f.restart();assert.deepEqual((await f.port('SOURCE',opts).readOriginalAdmittedBaseline()).sourceCursor,input.sourceCursor);
+  assert.equal(f.puts,1);
+  assert.equal(calls.every(c=>c[1]===port.checkpointRef),true);
+  f.objects.clear();
+  await assert.rejects(f.port('SOURCE',opts).readOriginalAdmittedBaseline(),error('BASELINE_ADMISSION_ORIGINAL_RECORD_MISSING'));
+});
+test('K125 exact baseline does not use a legacy route on original authority denial',async()=>{
+  const f=fixture(),kernel=f.kernel;
+  kernel.hasOperation=()=>true;kernel.listEventObjectCommitWindow=async()=>{throw Error('must not read');};
+  await assert.rejects(f.port('RECIPIENT',{enableOriginalTechnicalObjectHistory:true,
+    authorizeOriginalTechnicalRead:async p=>p.operation!=='t1.listEventObjectCommitWindow'}).admitOriginalBaseline(input),
+    error('BASELINE_ADMISSION_ORIGINAL_ACCESS_DENIED'));
+  assert.equal(f.puts,0);
 });

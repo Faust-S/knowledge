@@ -1,3 +1,4 @@
+import {readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory} from './original-technical-event-pages.mjs';
 import {createHash} from 'node:crypto';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID} from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
@@ -23,8 +24,9 @@ export function createT4OriginalNetworkBaselineAdmissionPort({
   role,originalKernel,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
   sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-  authorizeOriginalBaselineAdmission,verifyOriginalBaselineEvidence,
+  authorizeOriginalBaselineAdmission,verifyOriginalBaselineEvidence,enableOriginalTechnicalObjectHistory=false,
 }={}){
+  requireT4OriginalTechnicalObjectHistory(enableOriginalTechnicalObjectHistory,originalKernel);
   if(!['SOURCE','RECIPIENT'].includes(role)||
     ![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef].every(ID)||
     sourceNodeRef===recipientNodeRef||technicalWorkspaceId===sourceWorkspaceId||
@@ -90,11 +92,18 @@ export function createT4OriginalNetworkBaselineAdmissionPort({
   async function read(initial){
     await guard(initial,'t1.getObject','read-record');
     const row=clone(await originalKernel.getObject(technicalWorkspaceId,checkpointRef)??null);
-    await guard(initial,'t1.listEventsSince','read-original-event');
-    const stream=await originalKernel.listEventsSince(technicalWorkspaceId);
-    await guard(initial,'t1.getObject','record-readback');
-    if(!Array.isArray(stream)||stream.length>100000)fail('BASELINE_ADMISSION_ORIGINAL_EVENT_STREAM_INVALID');
-    const events=stream.filter(e=>e?.workspace_id===technicalWorkspaceId&&e.object_id===checkpointRef);
+    let events;
+    if(enableOriginalTechnicalObjectHistory){
+      events=await readT4OriginalTechnicalObjectEvents({originalKernel,workspaceId:technicalWorkspaceId,objectRef:checkpointRef,
+        authorizeOriginalOperation:async op=>{await guard(initial,op,'read-original-event');return true;}});
+      await guard(initial,'t1.getObject','record-readback');
+    }else{
+      await guard(initial,'t1.listEventsSince','read-original-event');
+      const stream=await originalKernel.listEventsSince(technicalWorkspaceId);
+      await guard(initial,'t1.getObject','record-readback');
+      if(!Array.isArray(stream)||stream.length>100000)fail('BASELINE_ADMISSION_ORIGINAL_EVENT_STREAM_INVALID');
+      events=stream.filter(e=>e?.workspace_id===technicalWorkspaceId&&e.object_id===checkpointRef);
+    }
     if(row===null){
       if(events.length)fail('BASELINE_ADMISSION_ORIGINAL_RECORD_MISSING');
       if(await originalKernel.getObject(technicalWorkspaceId,checkpointRef)!=null)
@@ -156,6 +165,6 @@ export function createT4OriginalNetworkBaselineAdmissionPort({
     forOriginalHostLifetime:isHostActive=>createT4OriginalNetworkBaselineAdmissionPort({
       role,originalKernel,...identity,getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-      authorizeOriginalBaselineAdmission,verifyOriginalBaselineEvidence,
+      authorizeOriginalBaselineAdmission,verifyOriginalBaselineEvidence,enableOriginalTechnicalObjectHistory,
     })});
 }

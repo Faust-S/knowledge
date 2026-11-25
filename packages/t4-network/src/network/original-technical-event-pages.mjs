@@ -7,9 +7,9 @@ const fail=code=>{throw Object.assign(Error(code),{code});};
 // pages. The native owner holds its original execution slot; this function
 // supplies no lock, access grant, independent Store or snapshot claim.
 // A caller may retain selected witnesses without allocating all Event bodies.
-export async function visitT4OriginalTechnicalCommitEvents({workspaceId,
+export async function visitT4OriginalTechnicalCommitEvents({workspaceId,objectRef=null,
   readOriginalTechnicalCommitPage,authorizeOriginalPage,visitOriginalEvent,pageSize=256}={}){
-  if(!ID(workspaceId)||![readOriginalTechnicalCommitPage,authorizeOriginalPage,visitOriginalEvent]
+  if(!ID(workspaceId)||(objectRef!==null&&!ID(objectRef))||![readOriginalTechnicalCommitPage,authorizeOriginalPage,visitOriginalEvent]
     .every(f=>typeof f==='function')||!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>1024)
     fail('TECHNICAL_COMMIT_HISTORY_PORTS_REQUIRED');
   const seen=new Set();let after=null,modern=false,count=0;
@@ -19,7 +19,7 @@ export async function visitT4OriginalTechnicalCommitEvents({workspaceId,
   for(;;){
     await authorize();
     const page=structuredClone(await readOriginalTechnicalCommitPage(Object.freeze({
-      workspaceId,afterEventId:after,limit:pageSize,
+      workspaceId,afterEventId:after,limit:pageSize,...(objectRef===null?{}:{objectRef}),
     })));
     await authorize();
     if(!keys(page,['entries','next_after_event_id','has_more','order','legacy_history_causal_proven'])||
@@ -30,7 +30,7 @@ export async function visitT4OriginalTechnicalCommitEvents({workspaceId,
     for(const entry of page.entries){
       if(!keys(entry,['event','legacy_history'])||typeof entry.legacy_history!=='boolean'||
         (modern&&entry.legacy_history)||entry.event?.workspace_id!==workspaceId||!ID(entry.event?.event_id)||
-        seen.has(entry.event.event_id))fail('TECHNICAL_COMMIT_HISTORY_PAGE_INVALID');
+        (objectRef!==null&&entry.event.object_id!==objectRef)||seen.has(entry.event.event_id))fail('TECHNICAL_COMMIT_HISTORY_PAGE_INVALID');
       if(!entry.legacy_history)modern=true;
       seen.add(entry.event.event_id);
     }
@@ -42,4 +42,31 @@ export async function visitT4OriginalTechnicalCommitEvents({workspaceId,
     if(!page.has_more)return count;
     after=last;
   }
+}
+
+// Exact reads use the original indexed operation, with no Workspace-history
+// fallback. Both grants are required by the caller and checked for each page.
+export function requireT4OriginalTechnicalObjectHistory(enabled,originalKernel){
+  if(typeof enabled!=='boolean'||(enabled&&
+    !['listEventsSince','listEventObjectCommitWindow'].every(name=>
+      originalKernel?.hasOperation?.('t1.'+name)===true&&typeof originalKernel[name]==='function')))
+    fail('TECHNICAL_OBJECT_HISTORY_PORTS_REQUIRED');
+}
+export async function readT4OriginalTechnicalObjectEvents({originalKernel,workspaceId,objectRef,
+  authorizeOriginalOperation,pageSize=256}={}){
+  requireT4OriginalTechnicalObjectHistory(true,originalKernel);
+  if(!ID(objectRef)||typeof authorizeOriginalOperation!=='function')fail('TECHNICAL_OBJECT_HISTORY_PORTS_REQUIRED');
+  const selected=[];
+  await visitT4OriginalTechnicalCommitEvents({workspaceId,objectRef,pageSize,
+    authorizeOriginalPage:async()=>{
+      for(const op of ['t1.listEventsSince','t1.listEventObjectCommitWindow']){
+        if(originalKernel.hasOperation(op)!==true||await authorizeOriginalOperation(op)!==true)return false;
+      }
+      return true;
+    },
+    readOriginalTechnicalCommitPage:proof=>originalKernel.listEventObjectCommitWindow(
+      proof.workspaceId,proof.objectRef,proof.afterEventId,proof.limit),
+    visitOriginalEvent:e=>selected.push(e),
+  });
+  return selected;
 }

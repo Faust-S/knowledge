@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {T4_ORIGINAL_NETWORK_TECHNICAL_SCHEMA_ID} from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
-import {visitT4OriginalTechnicalCommitEvents} from './original-technical-event-pages.mjs';
+import {visitT4OriginalTechnicalCommitEvents,readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory} from './original-technical-event-pages.mjs';
 
 const SCHEMA='IWXA_T4_ORIGINAL_NETWORK_CAPTURE_LEDGER_RECORD_V1';
 const EVENT='t4.network.original.capture.record';
@@ -44,8 +44,11 @@ function subjectOf(payload,kind){
 export function createT4OriginalHostCaptureLedgerPort({
   originalKernel,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
   getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-  enableOriginalTechnicalCommitOrder=false,originalTechnicalPageSize=256,
+  enableOriginalTechnicalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,originalTechnicalPageSize=256,
 }={}){
+  requireT4OriginalTechnicalObjectHistory(enableOriginalTechnicalObjectHistory,originalKernel);
+  if(enableOriginalTechnicalObjectHistory&&!enableOriginalTechnicalCommitOrder)
+    fail('CAPTURE_LEDGER_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
   if(typeof enableOriginalTechnicalCommitOrder!=='boolean'||
     !Number.isSafeInteger(originalTechnicalPageSize)||originalTechnicalPageSize<1||originalTechnicalPageSize>1024||
     (enableOriginalTechnicalCommitOrder&&(originalKernel?.hasOperation?.('t1.listEventCommitWindow')!==true||
@@ -125,6 +128,10 @@ export function createT4OriginalHostCaptureLedgerPort({
   }
   async function events(initial,role,captureRef){
     const objectId=ref(role,captureRef),matches=[];
+    if(enableOriginalTechnicalObjectHistory)return readT4OriginalTechnicalObjectEvents({
+      originalKernel,workspaceId:technicalWorkspaceId,objectRef:objectId,pageSize:originalTechnicalPageSize,
+      authorizeOriginalOperation:async operation=>{await guard(initial,operation,role,captureRef);return true;},
+    });
     await visitEvents(initial,[role],captureRef,e=>{
       if(e?.workspace_id===technicalWorkspaceId&&e.object_id===objectId)matches.push(e);
     });
@@ -334,7 +341,7 @@ export function createT4OriginalHostCaptureLedgerPort({
     forOriginalHostLifetime:isHostActive=>createT4OriginalHostCaptureLedgerPort({
       originalKernel,...identity,getMode:originalHostLifetimeMode(getMode,isHostActive),
       readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-      enableOriginalTechnicalCommitOrder,originalTechnicalPageSize,
+      enableOriginalTechnicalCommitOrder,enableOriginalTechnicalObjectHistory,originalTechnicalPageSize,
     }),
   });
 }
