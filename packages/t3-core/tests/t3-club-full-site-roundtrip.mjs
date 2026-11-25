@@ -882,6 +882,96 @@ try{
  await resourceForm.locator('[name="minutesB"]').fill("75");
  await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_RESOURCE_INVALIDATED");
  log("OFFLINE_GOAL_RESOURCE_TIME_AND_CASH_ALTERNATIVES");
+ phase="OFFLINE_GOAL_PAYMENT_LINK";
+ // Keep the preceding unlinked commitment assertion. Now explicitly link
+ // that same outstanding payment to the goal, through its original editor.
+ const originalCashBeforeTarget=await localCash();
+ const originalPayment=originalCashBeforeTarget.data.cashCalendar.entries[0];
+ check(originalPayment.status==="planned"&&originalPayment.amountRUB===-3000&&!originalPayment.goalId,"GOAL_PAYMENT_ORIGINAL_UNLINKED");
+ await visit(page,"/tools/personal-economy/?workspace_id="+encodeURIComponent(base.scope)+"#club-money-calendar");
+ await cashEntry.waitFor({state:"visible"});
+ const paymentRow=page.locator("[data-cash-calendar-entries] tbody tr").filter({hasText:"Будущий платёж"});
+ await paymentRow.getByRole("button",{name:"Изменить",exact:true}).click();
+ check(await cashEntry.getAttribute("data-edit-id")===originalPayment.id,"GOAL_PAYMENT_MANUAL_ID");
+ await cashEntry.locator('[name="goalId"]').selectOption(goalId);
+ await cashEntry.locator("[data-cash-calendar-save]").click();
+ await poll(async()=> (await localCash())?.data?.cashCalendar?.entries?.find(e=>e.id===originalPayment.id)?.goalId===goalId,"GOAL_PAYMENT_LINK_WRITTEN");
+ const linkedPaymentCash=await localCash();
+ check(linkedPaymentCash.data.cashCalendar.entries.length===1&&
+  isDeepStrictEqual(linkedPaymentCash.data.cashCalendar.closedPeriods,originalCashBeforeTarget.data.cashCalendar.closedPeriods),"GOAL_PAYMENT_LINK_NO_DUPLICATE_OR_HISTORY_CHANGE");
+ phase="OFFLINE_GOAL_PAYMENT_COMPARE";
+ await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"&club_goal="+encodeURIComponent(goalId)+"#club-goal-map");
+ await resourceOpen.click();
+ await resourceForm.waitFor({state:"visible"});
+ await poll(async()=>await resourceRun.isEnabled(),"GOAL_PAYMENT_SOURCE_READY");
+ const linkedChoices=await resourceForm.locator('[name="entryId"] option').evaluateAll(nodes=>nodes.map(x=>x.value));
+ check(isDeepStrictEqual(linkedChoices,["","new",originalPayment.id]),"GOAL_PAYMENT_EXACT_LINKED_CHOICE");
+ await resourceForm.locator('[name="slotId"]').selectOption(goalResourceTask.id);
+ await resourceForm.locator('[name="entryId"]').selectOption(originalPayment.id);
+ check(await resourceForm.locator('[name="expenseDateA"]').inputValue()===originalPayment.date&&
+  await resourceForm.locator('[name="expenseA"]').inputValue()==="3000","GOAL_PAYMENT_EXACT_PREFILL");
+ await resourceForm.locator('[name="expenseDateB"]').fill(cashDates.nextEnd);
+ await resourceRun.click();
+ await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="ready","GOAL_PAYMENT_COMPARE_READY");
+ check(await resourceMetric(goalResourceA,"Прогноз к концу периода")===17000&&
+  await resourceMetric(goalResourceB,"Прогноз к концу периода")===17000,"GOAL_PAYMENT_REPLACEMENT_NOT_ADDITION");
+ const paymentLink=resourceResult.getByRole("link",{name:"Открыть исходный платёж",exact:true});
+ const exactPaymentUrl=new URL(await paymentLink.getAttribute("href"),page.url());
+ check(exactPaymentUrl.searchParams.get("club_cash_entry")===originalPayment.id&&
+  exactPaymentUrl.searchParams.get("club_cash_goal")===goalId&&
+  exactPaymentUrl.searchParams.get("club_cash_rev")===linkedPaymentCash.updatedAt&&
+  exactPaymentUrl.searchParams.get("workspace_id")===base.scope&&
+  exactPaymentUrl.hash==="#club-money-calendar","GOAL_PAYMENT_EXACT_TARGET");
+ check(isDeepStrictEqual(await localCash(),linkedPaymentCash),"GOAL_PAYMENT_COMPARE_NO_WRITE");
+ await paymentLink.click();
+ phase="OFFLINE_GOAL_PAYMENT_TARGET_EDITOR";
+ await cashEntry.waitFor({state:"visible"});
+ await poll(async()=>await cashEntry.getAttribute("data-edit-id")===originalPayment.id&&await cashEntry.locator("[data-cash-calendar-save]").isEnabled(),"GOAL_PAYMENT_EDITOR_READY");
+ check(await cashEntry.locator('[name="date"]').inputValue()===originalPayment.date&&
+  await cashEntry.locator('[name="amountRUB"]').inputValue()==="-3000"&&
+  await cashEntry.locator('[name="status"]').inputValue()==="planned"&&
+  await cashEntry.locator('[name="goalId"]').inputValue()===goalId&&
+  await cashEntry.locator('[name="note"]').inputValue()===originalPayment.note,"GOAL_PAYMENT_ORIGINAL_FIELDS");
+ check(isDeepStrictEqual(await localCash(),linkedPaymentCash),"GOAL_PAYMENT_OPEN_NO_WRITE");
+ await cashEntry.locator('[name="date"]').fill(cashDates.nextEnd);
+ await cashEntry.locator("[data-cash-calendar-save]").click();
+ await poll(async()=> (await localCash())?.data?.cashCalendar?.entries?.find(e=>e.id===originalPayment.id)?.date===cashDates.nextEnd,"GOAL_PAYMENT_EXACT_EDIT_WRITTEN");
+ const editedPaymentCash=await localCash();
+ const expectedEditedPayment={...originalPayment,goalId,date:cashDates.nextEnd};
+ check(editedPaymentCash.data.cashCalendar.entries.length===1&&
+  isDeepStrictEqual(editedPaymentCash.data.cashCalendar.entries[0],expectedEditedPayment)&&
+  isDeepStrictEqual(editedPaymentCash.data.cashCalendar.closedPeriods,originalCashBeforeTarget.data.cashCalendar.closedPeriods),"GOAL_PAYMENT_SAME_ID_AND_HISTORY");
+ log("OFFLINE_GOAL_PAYMENT_EXACT_EDITOR_ONE_CHANGE");
+ phase="OFFLINE_GOAL_PAYMENT_STALE_LINK";
+ await visit(page,exactPaymentUrl.pathname+exactPaymentUrl.search+exactPaymentUrl.hash);
+ await cashEntry.waitFor({state:"visible"});
+ await poll(async()=>await page.locator("[data-cash-calendar-target]").isVisible()&&
+  (await page.locator("[data-cash-calendar-target]").textContent()).includes("изменились"),"GOAL_PAYMENT_STALE_NOTICE");
+ check(!(await cashEntry.locator("[data-cash-calendar-save]").isEnabled())&&
+  !(await cashEntry.getAttribute("data-edit-id")),"GOAL_PAYMENT_STALE_EDIT_BLOCKED");
+ // Even a submit event must not bypass the disabled button.
+ await cashEntry.evaluate(form=>form.dispatchEvent(new Event("submit",{cancelable:true,bubbles:true})));
+ check(isDeepStrictEqual(await localCash(),editedPaymentCash),"GOAL_PAYMENT_STALE_NO_WRITE");
+ log("OFFLINE_GOAL_PAYMENT_STALE_LINK_NO_DUPLICATE");
+ phase="OFFLINE_GOAL_PAYMENT_KERNEL_SAVE";
+ await page.locator("[data-cash-calendar-persist]").getByRole("link",{name:"Сохранить календарь на устройстве",exact:true}).click();
+ const paymentImport=page.getByTestId("club-t0-import-card");
+ await paymentImport.getByTestId("club-t0-import-preview").waitFor({state:"visible"});
+ const paymentScope=paymentImport.getByTestId("club-t0-import-workspace-choice").filter({visible:true});
+ await poll(async()=>await paymentScope.count()===1,"GOAL_PAYMENT_KERNEL_SCOPE_AVAILABLE");
+ check(await paymentScope.getAttribute("data-workspace-id")===base.scope,"GOAL_PAYMENT_KERNEL_EXACT_SCOPE");
+ if(await paymentScope.getAttribute("aria-pressed")!=="true")await paymentScope.click();
+ await poll(async()=>await paymentScope.getAttribute("aria-pressed")==="true","GOAL_PAYMENT_KERNEL_SCOPE_FOCUSED");
+ await paymentImport.getByLabel("Подтверждаю сохранение изменений. При конфликте прежняя запись останется без изменений.",{exact:true}).check();
+ const paymentSave=paymentImport.getByRole("button",{name:"Сохранить изменения",exact:true});
+ await poll(async()=>await paymentSave.isEnabled(),"GOAL_PAYMENT_KERNEL_READY");
+ await paymentSave.click();
+ await poll(async()=>{
+  const c=await localCash();return c?.kernelSource?.workspaceId===base.scope&&
+   c.kernelSource.revision===originalCashBeforeTarget.kernelSource.revision+1&&c.kernelSource.syncedUpdatedAt===c.updatedAt;
+ },"GOAL_PAYMENT_KERNEL_NEXT_REVISION");
+ log("OFFLINE_GOAL_PAYMENT_ORIGINAL_KERNEL_RECEIPT");
+
  phase="OFFLINE_CASH_COLD_READBACK";
  await close();page=await launch("recipient");await context.setOffline(true);
  await visit(page,"/workspace/");await openExisting(page);
@@ -938,6 +1028,10 @@ try{
  await history.locator("[data-cash-calendar-history-detail]").getByText("Полученная зарплата",{exact:true}).waitFor({state:"visible"});
  check(await page.evaluate(()=>navigator.onLine===false),"CASH_RESTORED_OFFLINE");
  log("OFFLINE_CASH_HISTORY_RESTORED_AND_CONTINUED");
+ check(restoredCash.data.cashCalendar.entries.length===1&&isDeepStrictEqual(restoredCash.data.cashCalendar.entries[0],expectedEditedPayment),"GOAL_PAYMENT_COLD_EXACT_ENTRY");
+ check(isDeepStrictEqual(restoredCash.data.cashCalendar.closedPeriods,originalCashBeforeTarget.data.cashCalendar.closedPeriods),"GOAL_PAYMENT_COLD_EXACT_HISTORY");
+ log("OFFLINE_GOAL_PAYMENT_COLD_EXACT_ENTRY");
+
  await verifyExpenseAlternatives("OFFLINE_RESTORED_EXPENSE_ALTERNATIVES");
  phase="OFFLINE_FACT_RESTORE_WEEK";
  await visit(page,"/workspace/");await openExisting(page);
@@ -1225,6 +1319,29 @@ try{
  verifyHistory((await localGoal()).data.goalLifecycle,lifecycleBeforeExport,"LIFECYCLE_INDEPENDENT");
  check((await localGoal()).data.goalLifecycle.status==="completed","LIFECYCLE_INDEPENDENT_COMPLETED");
  log("INDEPENDENT_GOAL_LIFECYCLE_IWXA_READBACK");
+ phase="INDEPENDENT_GOAL_PAYMENT_READBACK";
+ await visit(page,"/workspace/");await openExisting(page);
+ const recipientCashToday=page.getByTestId("club-native-today");
+ await recipientCashToday.getByRole("button",{name:"Открыть денежные записи",exact:true}).click();
+ const recipientCashRestore=page.getByTestId("club-t2-restore-card");
+ await recipientCashRestore.waitFor({state:"visible"});
+ await poll(async()=>await recipientCashRestore.locator('input[type="checkbox"]:checked').count()===1,"GOAL_PAYMENT_INDEPENDENT_RESTORE_SELECTION");
+ const recipientCashOpen=recipientCashRestore.getByRole("button",{name:"Открыть выбранные записи",exact:true});
+ await poll(async()=>await recipientCashOpen.isEnabled(),"GOAL_PAYMENT_INDEPENDENT_RESTORE_READY");
+ let recipientCashConsent=false;
+ page.once("dialog",async d=>{
+  recipientCashConsent=d.type()==="confirm"&&d.message().includes("Загрузить 1 новых");
+  if(recipientCashConsent)await d.accept();else await d.dismiss();
+ });
+ await recipientCashOpen.click();await poll(async()=>recipientCashConsent,"GOAL_PAYMENT_INDEPENDENT_RESTORE_CONSENT");
+ const recipientCashLink=page.getByTestId("club-t2-restore-completed").getByRole("link",{name:"Открыть денежный календарь",exact:true});
+ await recipientCashLink.waitFor({state:"visible"});await recipientCashLink.click();
+ await page.locator("[data-cash-calendar-setup]").waitFor({state:"visible"});
+ const recipientCashRecord=await localCash();
+ check(recipientCashRecord?.data?.cashCalendar?.entries?.length===1&&isDeepStrictEqual(recipientCashRecord.data.cashCalendar.entries[0],expectedEditedPayment),"GOAL_PAYMENT_INDEPENDENT_EXACT_ENTRY");
+ check(isDeepStrictEqual(recipientCashRecord.data.cashCalendar.closedPeriods,originalCashBeforeTarget.data.cashCalendar.closedPeriods),"GOAL_PAYMENT_INDEPENDENT_EXACT_HISTORY");
+ log("INDEPENDENT_GOAL_PAYMENT_EXACT_IWXA_READBACK");
+
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
 }catch(e){
