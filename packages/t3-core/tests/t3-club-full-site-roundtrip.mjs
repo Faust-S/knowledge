@@ -988,13 +988,40 @@ try{
   isDeepStrictEqual(goalTaskPlanAfter.data.personalWeekPlan.slots.find(s=>s.id===goalResourceTask.id),expectedGoalTask)&&
   isDeepStrictEqual(goalTaskPlanAfter.data.personalWeekPlan.slots.filter(s=>s.id!==goalResourceTask.id),goalTaskPlanBefore.data.personalWeekPlan.slots.filter(s=>s.id!==goalResourceTask.id)),"GOAL_TASK_ONE_CHANGE_NO_DUPLICATE");
  log("OFFLINE_GOAL_TASK_EXACT_EDITOR_ONE_CHANGE");
- await poll(async()=>!new URL(page.url()).searchParams.has("club_review_draft")&&(await editorDrafts()).length===0,"GOAL_TASK_SELECTED_DRAFT_CONSUMED");
+ await poll(async()=>["club_review_draft","club_week_slot","club_week_goal","club_week_rev"].every(key=>!new URL(page.url()).searchParams.has(key))&&
+  (await editorDrafts()).length===0,"GOAL_TASK_SELECTED_DRAFT_CONSUMED");
+ check(new URL(page.url()).searchParams.get("workspace_id")===base.scope&&new URL(page.url()).hash===exactTaskUrl.hash,"GOAL_TASK_ROUTE_CONTEXT_RETAINED");
  log("OFFLINE_GOAL_TASK_SELECTED_DRAFT_ONE_CHANGE");
+ phase="OFFLINE_GOAL_TASK_RETURN_COMPARISON";
+ const taskResumeObjects=await localObjects();
+ const taskReturn=page.locator("[data-club-week-return-review]");
+ await taskReturn.waitFor({state:"visible"});await taskReturn.click();
+ await resourceForm.waitFor({state:"visible"});
+ const resumeInput=resourcePanel.locator("[data-club-goal-resource-resume]");
+ await resumeInput.waitFor({state:"visible"});
+ await poll(async()=>!new URL(page.url()).searchParams.has("club_review_resume")&&await resourceRun.isEnabled(),"GOAL_TASK_RESUME_ROUTE_CONSUMED");
+ check(await resourceForm.locator('[name="slotId"]').inputValue()===""&&
+  await resourceForm.locator('[name="entryId"]').inputValue()===""&&
+  await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_TASK_RESUME_EXPLICIT_CHOICES");
+ check(isDeepStrictEqual(await localObjects(),taskResumeObjects),"GOAL_TASK_RESUME_NO_RESULT_WRITE");
+ await resourceForm.locator('[name="slotId"]').selectOption(goalResourceTask.id);
+ await resourceForm.locator('[name="entryId"]').selectOption("new");
+ await resumeInput.click();
+ check(await resourceForm.locator('[name="startA"]').inputValue()==="10:15"&&
+  await resourceForm.locator('[name="minutesA"]').inputValue()==="90"&&
+  await resourceForm.locator('[name="minutesB"]').inputValue()==="75"&&
+  await resourceForm.locator('[name="expenseA"]').inputValue()==="15000"&&
+  await resourceForm.locator('[name="expenseB"]').inputValue()==="11000"&&
+  await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_TASK_RESUME_OLD_INPUTS_NOT_RESULT");
+ await resourceRun.click();
+ await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="ready","GOAL_TASK_RESUME_RECALCULATED");
+ check(isDeepStrictEqual(await localObjects(),taskResumeObjects)&&(await localDrafts()).every(x=>x.draftId!=="goal-resource-review-resume"),"GOAL_TASK_RESUME_RECALC_NO_WRITE");
+ log("OFFLINE_GOAL_TASK_RETURN_FRESH_COMPARISON");
  phase="OFFLINE_GOAL_TASK_STALE_ROUTE";
  // A consumed link is removed from the current URL; revisit from a different
  // document so the stale-link test cannot be satisfied by same-document navigation.
- await poll(async()=>["club_week_slot","club_week_goal","club_week_rev"].every(key=>!new URL(page.url()).searchParams.has(key)),"GOAL_TASK_ROUTE_CONSUMED");
- check(new URL(page.url()).searchParams.get("workspace_id")===base.scope&&new URL(page.url()).hash===exactTaskUrl.hash,"GOAL_TASK_ROUTE_CONTEXT_RETAINED");
+ // The return button has navigated to a new comparison; consumption and
+ // context were checked before return, and the original stale link is still tested.
  await visit(page,"/projects/");
  await visit(page,exactTaskUrl.pathname+exactTaskUrl.search+exactTaskUrl.hash);
  await exactTaskEditor.waitFor({state:"visible"});
@@ -1134,13 +1161,33 @@ try{
   isDeepStrictEqual(editedPaymentCash.data.cashCalendar.entries[0],expectedEditedPayment)&&
   isDeepStrictEqual(editedPaymentCash.data.cashCalendar.closedPeriods,originalCashBeforeTarget.data.cashCalendar.closedPeriods),"GOAL_PAYMENT_SAME_ID_AND_HISTORY");
  log("OFFLINE_GOAL_PAYMENT_EXACT_EDITOR_ONE_CHANGE");
- await poll(async()=>!new URL(page.url()).searchParams.has("club_review_draft")&&(await editorDrafts()).length===0,"GOAL_PAYMENT_SELECTED_DRAFT_CONSUMED");
+ await poll(async()=>["club_review_draft","club_cash_entry","club_cash_goal","club_cash_rev"].every(key=>!new URL(page.url()).searchParams.has(key))&&
+  (await editorDrafts()).length===0,"GOAL_PAYMENT_SELECTED_DRAFT_CONSUMED");
+ check(new URL(page.url()).searchParams.get("workspace_id")===base.scope&&new URL(page.url()).hash===exactPaymentUrl.hash,"GOAL_PAYMENT_ROUTE_CONTEXT_RETAINED");
  log("OFFLINE_GOAL_PAYMENT_SELECTED_DRAFT_ONE_CHANGE");
+ phase="OFFLINE_GOAL_PAYMENT_RETURN_COMPARISON";
+ const paymentResumeObjects=await localObjects();
+ const paymentReturn=page.locator("[data-cash-calendar-return-review]");
+ await paymentReturn.waitFor({state:"visible"});await paymentReturn.click();
+ await resourceForm.waitFor({state:"visible"});await resumeInput.waitFor({state:"visible"});
+ await poll(async()=>!new URL(page.url()).searchParams.has("club_review_resume")&&await resourceRun.isEnabled(),"GOAL_PAYMENT_RESUME_ROUTE_CONSUMED");
+ check(await resourceForm.locator('[name="slotId"]').inputValue()===""&&await resourceForm.locator('[name="entryId"]').inputValue()===""&&
+  await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_PAYMENT_RESUME_EXPLICIT_CHOICES");
+ await resourceForm.locator('[name="slotId"]').selectOption(goalResourceTask.id);
+ await resourceForm.locator('[name="entryId"]').selectOption(originalPayment.id);
+ await resumeInput.click();
+ check(await resourceForm.locator('[name="expenseDateA"]').inputValue()===originalPayment.date&&
+  await resourceForm.locator('[name="expenseDateB"]').inputValue()===cashDates.nextEnd&&
+  await resourceForm.locator('[name="expenseA"]').inputValue()==="3000"&&
+  await resourceForm.locator('[name="expenseB"]').inputValue()==="3000"&&
+  await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_PAYMENT_RESUME_OLD_INPUTS_NOT_RESULT");
+ await resourceRun.click();
+ await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="ready","GOAL_PAYMENT_RESUME_RECALCULATED");
+ check(isDeepStrictEqual(await localObjects(),paymentResumeObjects)&&(await localDrafts()).every(x=>x.draftId!=="goal-resource-review-resume"),"GOAL_PAYMENT_RESUME_RECALC_NO_WRITE");
+ log("OFFLINE_GOAL_PAYMENT_RETURN_FRESH_COMPARISON");
  phase="OFFLINE_GOAL_PAYMENT_STALE_LINK";
  // A consumed link is removed from the current URL; revisit from a different
  // document so the stale-link test cannot be satisfied by same-document navigation.
- await poll(async()=>["club_cash_entry","club_cash_goal","club_cash_rev"].every(key=>!new URL(page.url()).searchParams.has(key)),"GOAL_PAYMENT_ROUTE_CONSUMED");
- check(new URL(page.url()).searchParams.get("workspace_id")===base.scope&&new URL(page.url()).hash===exactPaymentUrl.hash,"GOAL_PAYMENT_ROUTE_CONTEXT_RETAINED");
  await visit(page,"/projects/");
  await visit(page,exactPaymentUrl.pathname+exactPaymentUrl.search+exactPaymentUrl.hash);
  await cashEntry.waitFor({state:"visible"});
