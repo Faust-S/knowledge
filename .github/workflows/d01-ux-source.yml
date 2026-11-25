@@ -20,19 +20,19 @@ jobs:
     # expensive original-kernel build and browser journey.
     name: Source, original T2 and browser acceptance
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
-          ref: b3542a0a635da59e34ec43a1ccb6949823f0212e
+          ref: c2bc3321d54340856ffedd1347cef4858c2c7edc
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn
-          ref: cbc5c763562ba4e21290d4be5b662f4652a0dcbe
+          ref: 59e50b6748cc2db96ceb0158a4d8b5c6109dc37c
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
@@ -43,8 +43,8 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = b3542a0a635da59e34ec43a1ccb6949823f0212e
-          test "$(git -C private/domain rev-parse HEAD)" = cbc5c763562ba4e21290d4be5b662f4652a0dcbe
+          test "$(git -C private/site rev-parse HEAD)" = c2bc3321d54340856ffedd1347cef4858c2c7edc
+          test "$(git -C private/domain rev-parse HEAD)" = 59e50b6748cc2db96ceb0158a4d8b5c6109dc37c
           cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
           for path in study/services t2/domain-modules/learn t2/domain-modules/learn-results; do
             cmp private/domain/learning-journey/study-sources.mjs "private/site/$path/study-sources.mjs"
@@ -125,6 +125,10 @@ jobs:
           cmp private/domain/learning-journey/topic-lesson.mjs private/site/t2/domain-modules/learn/topic-lesson.mjs
           cmp private/site/study/services/study-session-service.mjs private/site/t2/domain-modules/learn/study-session-service.mjs
           cmp private/domain/learning-journey/route-edit.mjs private/site/study/services/route-edit.mjs
+          cmp private/domain/learning-journey/route-edit.mjs private/site/t2/domain-modules/learn/route-edit.mjs
+          cmp private/domain/learning-journey/topic-work.mjs private/site/t2/domain-modules/learn/topic-work.mjs
+          cmp private/domain/learning-journey/study-sources.d.mts private/site/t2/domain-modules/learn/study-sources.d.mts
+          cmp private/domain/learning-journey/mind-sources.d.mts private/site/t2/domain-modules/learn/mind-sources.d.mts
           for path in study/services t2/domain-modules/learn t2/domain-modules/learn-results; do
             cmp private/domain/learning-journey/prerequisites.mjs "private/site/$path/prerequisites.mjs"
             cmp private/domain/learning-journey/continuation.mjs "private/site/$path/continuation.mjs"
@@ -149,7 +153,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          for file in _iwxa/learn-profile-context-r6.js _iwxa/learn-link-context.js iwxa-learn-shell-r8-r6.js study/assets-r5/main-t2-9c777f34.js study/assets-r5/src-eldniVto.js calculators/assets-r5/index-CwKME0Vd.js calculators/workspace-selection.mjs career/assets-r5/MapPage-DT3PY6CS.js t2/domain-modules/learn/profile-area.mjs study/services/study-sources.mjs study/services/goal-service.mjs study/services/route-service.mjs study/source-panel.mjs study/goals/goals-app.mjs study/my-routes/routes-app.mjs study/sessions/sessions-app.mjs practice/workspace-selection.mjs mind/app/workspace-ui.mjs mind/app/app.mjs mind/app/services/tools.mjs mind/app/services/labs.mjs practice/assets-r6-clean/practice-capability-gate-BaTK15az.js practice/assets-r6-clean/catalog-BWIn6LRW.js practice/assets-r6-clean/model._slug-DZ9y8kMs.js practice/assets-r6-clean/index-D1kuNTQO.js practice/assets-r6-clean/practice-shell-ClcATzN9.js practice/assets-r6-clean/practice-workspace-picker-Cqs4_6K1.js practice/assets-r6-clean/create-SrNR54d1.js practice/assets-r6-clean/programs-ZGbS30w9.js scripts/copy-static.mjs scripts/fingerprint-editorial-assets.mjs scripts/verify-hosting-stage.mjs scripts/audit-product-links.mjs scripts/audit-browser-navigation.mjs qa/d01-product-witness-2026-10-26/product-witness.mjs qa/d01-product-witness-2026-10-26/repeat-scenario-witness.mjs scripts/materialize-t2-local-preview.mjs assets-r5/index-C3JXOmeg.js career/assets-r5/HypothesesPage-DX3XrAWC.js career/assets-r5/TrialDetailPage-DFY0ijPi.js lad/assets-r5/index-DGThwVZ9.js study/services/continuation.mjs t2/domain-modules/learn-results/continuation.mjs study/form-navigation.mjs study/services/career-review.mjs study/services/practice-session-link.mjs t2/domain-modules/learn-results/practice-session-link.mjs career/assets-r5/learning-review-panel.js practice/assets-r6-clean/create-SrNR54d1.js study/services/practice-handoff.mjs mind/app/services/document-ui.mjs mind/app/services/persistence.mjs mind/app/route-context.mjs mind/app/session.mjs mind/app/storage.mjs study/services/mind-sources.mjs study/services/topic-work.mjs study/topic-work-panel.mjs study/services/topic-lesson.mjs study/services/route-edit.mjs study/services/prerequisites.mjs t2/domain-modules/learn/prerequisites.mjs study/source-panel.mjs study/lesson-brief-panel.mjs study/services/study-session-service.mjs t2/domain-modules/learn/study-session-service.mjs practice/study-context.mjs practice/assets-r6-clean/study-context-panel.js qa/d01-product-witness-2026-10-26/mind-journey-witness.mjs t2/domain-modules/learn-results/daily-learning.mjs t2/domain-modules/learn-results/learning-navigation.mjs t2/domain-modules/learn-results/linked-journey-read.mjs study/services/practice-study-reference.mjs practice/quick-arithmetic/engine/practice-session.mjs practice/quick-arithmetic/quick-arithmetic-app.mjs study/services/study-recall.mjs study/services/session-flow.mjs t2/domain-modules/learn/study-recall.mjs t2/domain-modules/learn/session-flow.mjs t2/domain-modules/learn-results/study-recall.mjs t2/domain-modules/learn-results/topic-progress.mjs scripts/test-study-recall-owner.mjs study/services/practice-reviews.mjs study/services/study-evidence-service.mjs study/my-routes/practice-link.mjs study/my-routes/practice-feedback.mjs practice/quick-arithmetic/engine/practice-result.mjs scripts/test-practice-study-feedback-owner.mjs scripts/test-practice-topic-feedback.mjs study/services/practice-support.mjs study/my-routes/practice-preparation-panel.mjs study/my-routes/practice-repeat.mjs practice/repeat-preparation.js practice/assets-r6-clean/practice-error-notice-CZjnex95.js t2/domain-modules/learn-results/practice-support.mjs t2/domain-modules/learn-results/route-review.mjs study/topic-history-panel.mjs study/services/topic-learning-history.mjs t2/domain-modules/learn-results/topic-learning-history.mjs t2/domain-modules/learn-results/daily-learning.mjs study/services/study-answer-review.mjs t2/domain-modules/learn/study-answer-review.mjs t2/domain-modules/learn-results/study-answer-review.mjs; do
+          for file in _iwxa/learn-profile-context-r6.js _iwxa/learn-link-context.js iwxa-learn-shell-r8-r6.js study/assets-r5/main-t2-9c777f34.js study/assets-r5/src-eldniVto.js calculators/assets-r5/index-CwKME0Vd.js calculators/workspace-selection.mjs career/assets-r5/MapPage-DT3PY6CS.js t2/domain-modules/learn/profile-area.mjs study/services/study-sources.mjs study/services/goal-service.mjs study/services/route-service.mjs study/source-panel.mjs study/goals/goals-app.mjs study/my-routes/routes-app.mjs study/sessions/sessions-app.mjs practice/workspace-selection.mjs mind/app/workspace-ui.mjs mind/app/app.mjs mind/app/services/tools.mjs mind/app/services/labs.mjs practice/assets-r6-clean/practice-capability-gate-BaTK15az.js practice/assets-r6-clean/catalog-BWIn6LRW.js practice/assets-r6-clean/model._slug-DZ9y8kMs.js practice/assets-r6-clean/index-D1kuNTQO.js practice/assets-r6-clean/practice-shell-ClcATzN9.js practice/assets-r6-clean/practice-workspace-picker-Cqs4_6K1.js practice/assets-r6-clean/create-SrNR54d1.js practice/assets-r6-clean/programs-ZGbS30w9.js scripts/copy-static.mjs scripts/fingerprint-editorial-assets.mjs scripts/verify-hosting-stage.mjs scripts/audit-product-links.mjs scripts/audit-browser-navigation.mjs qa/d01-product-witness-2026-10-26/product-witness.mjs qa/d01-product-witness-2026-10-26/repeat-scenario-witness.mjs scripts/materialize-t2-local-preview.mjs assets-r5/index-C3JXOmeg.js career/assets-r5/HypothesesPage-DX3XrAWC.js career/assets-r5/TrialDetailPage-DFY0ijPi.js lad/assets-r5/index-DGThwVZ9.js study/services/continuation.mjs t2/domain-modules/learn-results/continuation.mjs study/form-navigation.mjs study/services/career-review.mjs study/services/practice-session-link.mjs t2/domain-modules/learn-results/practice-session-link.mjs career/assets-r5/learning-review-panel.js practice/assets-r6-clean/create-SrNR54d1.js study/services/practice-handoff.mjs mind/app/services/document-ui.mjs mind/app/services/persistence.mjs mind/app/route-context.mjs mind/app/session.mjs mind/app/storage.mjs study/services/mind-sources.mjs study/services/topic-work.mjs study/topic-work-panel.mjs study/services/topic-lesson.mjs study/services/route-edit.mjs study/services/prerequisites.mjs t2/domain-modules/learn/prerequisites.mjs study/source-panel.mjs study/lesson-brief-panel.mjs study/services/study-session-service.mjs t2/domain-modules/learn/study-session-service.mjs practice/study-context.mjs practice/assets-r6-clean/study-context-panel.js qa/d01-product-witness-2026-10-26/mind-journey-witness.mjs t2/domain-modules/learn-results/daily-learning.mjs t2/domain-modules/learn-results/learning-navigation.mjs t2/domain-modules/learn-results/linked-journey-read.mjs study/services/practice-study-reference.mjs practice/quick-arithmetic/engine/practice-session.mjs practice/quick-arithmetic/quick-arithmetic-app.mjs study/services/study-recall.mjs study/services/session-flow.mjs t2/domain-modules/learn/study-recall.mjs t2/domain-modules/learn/session-flow.mjs t2/domain-modules/learn-results/study-recall.mjs t2/domain-modules/learn-results/topic-progress.mjs scripts/test-study-recall-owner.mjs study/services/practice-reviews.mjs study/services/study-evidence-service.mjs study/my-routes/practice-link.mjs study/my-routes/practice-feedback.mjs practice/quick-arithmetic/engine/practice-result.mjs scripts/test-practice-study-feedback-owner.mjs scripts/test-practice-topic-feedback.mjs study/services/practice-support.mjs study/my-routes/practice-preparation-panel.mjs study/my-routes/practice-repeat.mjs practice/repeat-preparation.js practice/assets-r6-clean/practice-error-notice-CZjnex95.js t2/domain-modules/learn-results/practice-support.mjs t2/domain-modules/learn-results/route-review.mjs study/topic-history-panel.mjs study/services/topic-learning-history.mjs t2/domain-modules/learn-results/topic-learning-history.mjs t2/domain-modules/learn-results/daily-learning.mjs study/services/study-answer-review.mjs t2/domain-modules/learn/study-answer-review.mjs t2/domain-modules/learn-results/study-answer-review.mjs t2/domain-modules/learn/route-edit.mjs t2/domain-modules/learn/topic-work.mjs; do
             if ! node --check "$file" >"$RUNNER_TEMP/d01-syntax.log" 2>&1; then echo "D01_SYNTAX_FAIL:$file"; exit 1; fi
           done
           echo D01_SYNTAX_PASS
@@ -189,8 +193,8 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C private/site rev-parse HEAD)" = b3542a0a635da59e34ec43a1ccb6949823f0212e
-          test "$(git -C private/domain rev-parse HEAD)" = cbc5c763562ba4e21290d4be5b662f4652a0dcbe
+          test "$(git -C private/site rev-parse HEAD)" = c2bc3321d54340856ffedd1347cef4858c2c7edc
+          test "$(git -C private/domain rev-parse HEAD)" = 59e50b6748cc2db96ceb0158a4d8b5c6109dc37c
           test "$(git -C private/t2 rev-parse HEAD)" = 9c64951cd78411283e8a416641c36d71e169fc1d
       - name: Run actual Learn/T2 build and browser user journey
         timeout-minutes: 40
@@ -198,7 +202,7 @@ jobs:
         env:
           D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
           D01_EXPECTED_T2_HEAD: 9c64951cd78411283e8a416641c36d71e169fc1d
-          D01_EXPECTED_SITE_HEAD: b3542a0a635da59e34ec43a1ccb6949823f0212e
+          D01_EXPECTED_SITE_HEAD: c2bc3321d54340856ffedd1347cef4858c2c7edc
           D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
           D01_CASE_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-001-workplace-numeracy.json
           D01_CASE_002_FILE: ${{ github.workspace }}/private/domain/learning-journey/case-002-price-label-check.json
@@ -210,12 +214,14 @@ jobs:
         working-directory: private/site
         run: |
           if [ -d dist ]; then npm run audit:links; else echo D01_COMPLETE_DIST_NOT_AVAILABLE; fi
-      - name: Browser sweep of every built page and mobile entry routes
-        # The full sweep is needed for acceptance, not after a failed user journey.
+      - name: Browser sweep of every built page at desktop and phone widths
+        # A completed dist remains useful for diagnosis even if a journey fails.
+        if: ${{ always() && !cancelled() }}
+        timeout-minutes: 30
         working-directory: private/site
         env:
           D01_T2_SOURCE: ${{ github.workspace }}/private/t2/t2/current/final-successor/canonical-source
           D01_BROWSER_AUDIT_OUTPUT: ${{ runner.temp }}/d01-browser-audit
         run: |
-          if [ -d dist ]; then node scripts/audit-browser-navigation.mjs; else echo D01_BROWSER_SWEEP_NOT_RUN; fi
+          if [ -f dist/D01_SITE_BUILD_MANIFEST.json ]; then node scripts/audit-browser-navigation.mjs; else echo D01_BROWSER_SWEEP_NOT_RUN_NO_COMPLETE_BUILD; fi
 # Private inputs, raw logs and screenshots are never uploaded.

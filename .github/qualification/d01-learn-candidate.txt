@@ -1,5 +1,6 @@
-# Last fully qualified candidate; update only at a product milestone.
-site=2496ad42374ce815644686bf8ede11ea8de5f575
-domain=1e96e81f4146f3a9bd3b4c64e5acd41c1b51c841
+# Explicit qualification request; not a release or a PASS claim.
+site=c2bc3321d54340856ffedd1347cef4858c2c7edc
+domain=59e50b6748cc2db96ceb0158a4d8b5c6109dc37c
 t2=9c64951cd78411283e8a416641c36d71e169fc1d
-qualified_run=45596745365
+status=REQUESTED
+previous_qualified_run=45596745365
