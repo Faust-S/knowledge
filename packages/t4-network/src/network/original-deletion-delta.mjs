@@ -1,4 +1,5 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
+import {validT4OriginalAssetMime,validT4OriginalRelationKind} from './original-subject-fields.mjs';
 import {digestT4OriginalObjectContent} from './original-object-delta.mjs';
 import {readT4OriginalObjectDeletionReview,readT4OriginalObjectDeletionCoverage}
   from './original-object-delete-preflight.mjs';
@@ -65,15 +66,15 @@ function validPreImage(kind,pre){
       Number.isSafeInteger(pre.revision)&&pre.revision>=1&&pre.revision<Number.MAX_SAFE_INTEGER&&
       HASH(pre.objectContentDigest)&&pre.dependencyPolicy==='ISOLATED_ONLY';
   if(kind==='RELATION_DELETE'){
-    return sameKeys(pre,RELATION_PROPS)&&RELATION_PROPS.every(k=>ID(pre[k]))&&
-      pre.fromObjectId!==pre.toObjectId;
+    return sameKeys(pre,RELATION_PROPS)&&[pre.relationId,pre.fromObjectId,pre.toObjectId].every(ID)&&
+      validT4OriginalRelationKind(pre.relationKind);
   }
   if(kind==='ASSET_DELETE'){
     return sameKeys(pre,ASSET_PROPS)&&
       [pre.assetId,pre.objectId].every(ID)&&
-      typeof pre.mime==='string'&&pre.mime.length>0&&pre.mime.length<=128&&
+      validT4OriginalAssetMime(pre.mime)&&
       Number.isSafeInteger(pre.revision)&&pre.revision>=1&&
-      Number.isSafeInteger(pre.size)&&pre.size>=1&&SHA(pre.assetBytesSha256);
+      Number.isSafeInteger(pre.size)&&pre.size>=0&&SHA(pre.assetBytesSha256);
   }
   return false;
 }
@@ -113,7 +114,7 @@ function sourceRecord(record,kind,workspaceId,subjectId,objectId){
     const link=record?.relations?.outgoing?.find(r=>r.relation_id===subjectId);
     if(!link||link.workspace_id!==workspaceId||
       link.from_object_id!==objectId||
-      !ID(link.to_object_id)||!ID(link.kind))
+      !ID(link.to_object_id)||!validT4OriginalRelationKind(link.kind))
       fail('DELETE_ORIGINAL_RELATION_NOT_FOUND');
     const pre={relationId:subjectId,fromObjectId:objectId,
       toObjectId:link.to_object_id,relationKind:link.kind};
@@ -124,8 +125,7 @@ function sourceRecord(record,kind,workspaceId,subjectId,objectId){
     const item=record?.asset;
     if(!item||item.workspace_id!==workspaceId||item.asset_id!==subjectId||
       !ID(item.object_id)||(objectId!==undefined&&objectId!==null&&item.object_id!==objectId)||
-      !(record.bytes instanceof Uint8Array)||
-      record.bytes.length<1)
+      !(record.bytes instanceof Uint8Array))
       fail('DELETE_ORIGINAL_ASSET_NOT_FOUND');
     const pre={assetId:subjectId,objectId:item.object_id,mime:item.mime,
       revision:item.revision,size:record.bytes.length,

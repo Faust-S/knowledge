@@ -27,8 +27,8 @@ const start=()=>readT4OriginalEventWindow({
   authorizeOriginalRead:async()=>true,
   readOriginalEvents:async()=>[startEvent],maxEvents:1,
 });
-function fakeOriginal(kind){
-  let relation=link,originalAsset={asset:{...asset},bytes:assetBytes};
+function fakeOriginal(kind,initial={}){
+  let relation=initial.relation??link,originalAsset=initial.asset??{asset:{...asset},bytes:assetBytes};
   let lost=false;
   const journal=[startEvent],cache=new Map(),writes=[],captures=new Map();
   const getObject=async()=>({object:{object_id:from,workspace_id:ws},
@@ -81,8 +81,8 @@ function fakeOriginal(kind){
     competeAsset:()=>{originalAsset={asset:{...asset,revision:3},bytes:assetBytes};}
   };
 }
-async function capture(kind,changes={}){
-  const source=fakeOriginal(kind);
+async function capture(kind,changes={},initial={}){
+  const source=fakeOriginal(kind,initial);
   const first=await start();
   const params={
     kind,workspaceId:ws,originalWriteOwnerRef:owner,
@@ -123,8 +123,8 @@ async function delivery(captured){
     workspaceId:ws,originalWriteOwnerRef:owner});
   return {received,net};
 }
-function recipient(kind){
-  const src=fakeOriginal(kind);
+function recipient(kind,initial={}){
+  const src=fakeOriginal(kind,initial);
   const original=src.kernel;
   return{...src,original,
     apply:async(received,changes={})=>applyT4OriginalDeleteDelta({
@@ -415,4 +415,19 @@ test('deletion canonical codec reuses original envelope and freezes preimage',as
   assert.equal(Object.isFrozen(decoded.delta.preImage),true);
   assert.throws(()=>decodeT4OriginalDeleteDeltaBytes(Buffer.concat([decoded.bytes,Buffer.from(' ')])),
     code('DELETE_NETWORK_SCOPE_OR_CANONICAL_MISMATCH'));
+});
+
+test('K104 deletion of an empty SVG proves the exact preimage on both nodes',async()=>{
+ const initial={asset:{asset:{...asset,mime:'image/svg+xml',size:0},bytes:Buffer.alloc(0)}};
+ const c=await capture('ASSET_DELETE',{},initial),{received}=await delivery(c),r=recipient('ASSET_DELETE',initial);
+ assert.equal(c.prepared.delta.preImage.size,0);
+ assert.equal(c.prepared.delta.preImage.assetBytesSha256,packageSha256(Buffer.alloc(0)));
+ const result=await r.apply(received);
+ assert.equal(result.originalDeletionReadbackPassed,true);assert.equal(r.asset(),null);
+});
+test('K104 deletion of a self Relation with a spaced kind proves the exact preimage',async()=>{
+ const initial={relation:{...link,to_object_id:from,kind:'depends on'}};
+ const c=await capture('RELATION_DELETE',{},initial),{received}=await delivery(c),r=recipient('RELATION_DELETE',initial);
+ const result=await r.apply(received);
+ assert.equal(result.originalDeletionReadbackPassed,true);assert.equal(r.relation(),null);
 });

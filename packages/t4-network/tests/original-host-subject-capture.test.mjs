@@ -46,8 +46,8 @@ function fixture(){
       bytes:Buffer.from(asset.bytes)}:null,
     getObject:async(_w,id)=>id===objectFrom||id===objectTo
       ?{object:{workspace_id:ws,object_id:id,revision:1,deleted:false},
-        relations:{outgoing:id===objectFrom&&relation?[structuredClone(relation)]:[],
-          incoming:id===objectTo&&relation?[structuredClone(relation)]:[]}}:null,
+        relations:{outgoing:relation?.from_object_id===id?[structuredClone(relation)]:[],
+          incoming:relation?.to_object_id===id?[structuredClone(relation)]:[]}}:null,
     putAsset:async input=>{
       writes.push({kind:'putAsset',input});
       const prior=receiptCache.get(input.event.idempotency_key);
@@ -990,4 +990,51 @@ test('K19 automatic Object deletion uses admitted frontier and the same single w
   const result=await host.deleteObject({mutationInput:objectDeleteInput(),captureRef:'capture:k19:delete-object'});
   assert.equal(result.originalReceipt.object.deleted,true);
   assert.equal(entries,1);assert.equal(f.writes.length,1);assert.equal(f.outbox.size,1);
+});
+
+for(const [name,mime,bytes] of [
+  ['SVG','image/svg+xml',Buffer.from('<svg/>')],
+  ['JSON-LD','application/ld+json',Buffer.from('{}')],
+  ['maximum MIME length','x'.repeat(255),Buffer.from('x')],
+  ['empty Asset','text/plain',Buffer.alloc(0)],
+]){
+  test('K104 original Host captures and deletes '+name,async()=>{
+    const f=fixture(),host=adapter(f);f.removeSourceAsset();
+    const put=await host.putAsset({mutationInput:{...assetInput(),mime,bytes,base_revision:0},
+      captureRef:'capture:compat:asset',sourceCursor:await cursor(f)});
+    assert.equal(put.originalReceipt.asset.mime,mime);
+    assert.equal(put.capture.prepared.delta.assetSize,bytes.length);
+    assert.equal(put.capture.prepared.delta.assetBytesSha256,packageSha256(bytes));
+    const removed=await host.deleteAsset({mutationInput:deletionAssetInput(),
+      captureRef:'capture:compat:asset:delete',sourceCursor:put.capture.nextCursor});
+    assert.equal(removed.capture.prepared.delta.preImage.mime,mime);
+    assert.equal(removed.capture.prepared.delta.preImage.size,bytes.length);
+    assert.equal(f.asset(),null);assert.equal(f.writes.length,2);assert.equal(f.outbox.size,2);
+  });
+}
+test('K104 original Host captures and deletes a self Relation with a human-readable kind',async()=>{
+  const f=fixture(),host=adapter(f),kind='depends on';
+  const put=await host.putRelation({mutationInput:{...relationInput(),to_object_id:objectFrom,kind},
+    captureRef:'capture:compat:relation',sourceCursor:await cursor(f)});
+  assert.equal(put.capture.prepared.delta.kind,kind);
+  assert.equal(put.capture.prepared.delta.toObjectId,objectFrom);
+  const removed=await host.deleteRelation({mutationInput:deletionRelationInput(),
+    fromObjectId:objectFrom,captureRef:'capture:compat:relation:delete',sourceCursor:put.capture.nextCursor});
+  assert.equal(removed.capture.prepared.delta.preImage.relationKind,kind);
+  assert.equal(removed.capture.prepared.delta.preImage.toObjectId,objectFrom);
+  assert.equal(f.relation(),null);assert.equal(f.writes.length,2);assert.equal(f.outbox.size,2);
+});
+test('K104 invalid original subject metadata is rejected before intent or business mutation',async()=>{
+  for(const mime of ['', 'x'.repeat(256), 42]){
+    const f=fixture(),host=adapter(f);f.removeSourceAsset();
+    await assert.rejects(host.putAsset({mutationInput:{...assetInput(),mime,base_revision:0},
+      captureRef:'capture:invalid:asset',sourceCursor:await cursor(f)}),err('SUBJECT_CAPTURE_ASSET_INPUT_INVALID'));
+    assert.equal(f.intents.size,0);assert.equal(f.writes.length,0);
+  }
+  for(const kind of ['', 'x'.repeat(129), 42]){
+    const f=fixture(),host=adapter(f);
+    await assert.rejects(host.putRelation({mutationInput:{...relationInput(),kind},
+      captureRef:'capture:invalid:relation',sourceCursor:await cursor(f)}),err('SUBJECT_CAPTURE_RELATION_INPUT_INVALID'));
+    assert.equal(f.intents.size,0);assert.equal(f.writes.length,0);
+  }
 });

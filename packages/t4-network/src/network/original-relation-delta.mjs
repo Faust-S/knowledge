@@ -1,4 +1,5 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
+import {validT4OriginalRelationKind} from './original-subject-fields.mjs';
 import {verifyT4OriginalRecipientAcknowledgement} from './original-event-window.mjs';
 
 export class T4OriginalRelationDeltaError extends Error {
@@ -36,9 +37,9 @@ function checked(raw){
     Object.keys(raw).length!==fields.length||fields.some(x=>!Object.hasOwn(raw,x))||
     raw.schema!==SCHEMA||
     ![raw.workspaceId,raw.originalWriteOwnerRef,raw.relationId,
-      raw.fromObjectId,raw.toObjectId,raw.kind,raw.sourceEventId,
+      raw.fromObjectId,raw.toObjectId,raw.sourceEventId,
       raw.originalEventType].every(ID)||
-    raw.fromObjectId===raw.toObjectId||!HASH(raw.windowDigest)||
+    !validT4OriginalRelationKind(raw.kind)||!HASH(raw.windowDigest)||
     !HASH(raw.sourceEventDigest)||!HASH(raw.relationContentDigest))
     fail('RELATION_DELTA_CONTRACT_INVALID');
   const normalized=Object.fromEntries(fields.map(x=>[x,raw[x]]));
@@ -98,7 +99,7 @@ export async function prepareT4OriginalRelationPutDelta({
   const relation=relationFrom(object,relationId);
   if(!relation||relation.workspace_id!==workspaceId||
     relation.from_object_id!==fromObjectId||!ID(relation.to_object_id)||
-    !ID(relation.kind))
+    !validT4OriginalRelationKind(relation.kind))
     fail('RELATION_DELTA_SOURCE_RELATION_NOT_FOUND');
   const d={schema:SCHEMA,workspaceId,originalWriteOwnerRef,
     relationId,fromObjectId,toObjectId:relation.to_object_id,

@@ -39,8 +39,9 @@ async function prepared(overrides={}){
   return{window,nextCursor,prepared};
 }
 const code=x=>error=>error?.code===x;
-function recipient(initial=1){
+function recipient(initial=1,mime='text/plain'){
   let saved=record(initial),idempotent=new Map(),calls=[],lostAck=false;
+  saved.asset.mime=mime;
   const kernel={
     hasOperation:op=>op==='t1.putAsset'||op==='t1.getAsset',
     getAsset:async()=>({asset:{...saved.asset},bytes:Buffer.from(saved.bytes)}),
@@ -194,3 +195,21 @@ test('transport delivery receipt can never advance an original source cursor',as
     verifyOriginalRecipient:async()=>true,
   }),code('ORIGINAL_RECIPIENT_ACK_MISMATCH'));
 });
+
+for(const mime of ['image/svg+xml','application/ld+json','x'.repeat(255),'text/plain']){
+  test('K104 exact Asset wire roundtrip with '+(mime.length===255?'255-character MIME':mime),async()=>{
+    const data=mime==='text/plain'?Buffer.alloc(0):Buffer.from('compatible bytes');
+    const {prepared:packet}=await prepared({originalKernel:{
+      hasOperation:op=>op==='t1.getAsset',
+      getAsset:async()=>({asset:{...record(2).asset,mime,size:data.length},bytes:data}),
+    }});
+    const net=transport(),r=recipient(1,mime);
+    await publishT4OriginalAssetDelta({prepared:packet,transport:net});
+    const received=await fetchT4OriginalAssetDelta({transport:net,key:packet.key,sha256:packet.sha256,
+      workspaceId:ws,originalWriteOwnerRef:owner});
+    const applied=await apply(received,r);
+    assert.equal(applied.originalAssetBytesVerified,true);
+    assert.equal(r.read().asset.mime,mime);
+    assert.deepEqual(r.read().bytes,data);
+  });
+}

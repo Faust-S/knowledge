@@ -1,4 +1,5 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
+import {validT4OriginalAssetMime,validT4OriginalRelationKind} from './original-subject-fields.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
 import {prepareT4OriginalAssetDelta} from './original-asset-delta.mjs';
 import {prepareT4OriginalRelationPutDelta} from './original-relation-delta.mjs';
@@ -55,13 +56,12 @@ function normalizeInput(kind,input,workspaceId,captureRef){
     !ID(input.event?.event_type))
     fail('SUBJECT_CAPTURE_ORIGINAL_INPUT_INVALID');
   if(kind==='ASSET_PUT'){
-    if(!ID(input.mime)||typeof input.base_revision!=='number'||
+    if(!validT4OriginalAssetMime(input.mime)||typeof input.base_revision!=='number'||
       !Number.isSafeInteger(input.base_revision)||input.base_revision<0||
       !(input.bytes instanceof Uint8Array)||
-      input.bytes.length===0||input.bytes.length>700000)
+      input.bytes.length>700000)
       fail('SUBJECT_CAPTURE_ASSET_INPUT_INVALID');
-  }else if(!ID(input.to_object_id)||!ID(input.kind)||
-    input.from_object_id===input.to_object_id)
+  }else if(!ID(input.to_object_id)||!validT4OriginalRelationKind(input.kind))
     fail('SUBJECT_CAPTURE_RELATION_INPUT_INVALID');
   if(input.event.payload!==undefined&&(input.event.payload===null||
     typeof input.event.payload!=='object'||Array.isArray(input.event.payload)))

@@ -1,4 +1,5 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
+import {validT4OriginalAssetMime} from './original-subject-fields.mjs';
 import {verifyT4OriginalRecipientAcknowledgement} from './original-event-window.mjs';
 
 export class T4OriginalAssetDeltaError extends Error {
@@ -28,8 +29,8 @@ function checked(delta){
     !HASH(delta.windowDigest)||!SHA(delta.assetBytesSha256)||
     !Number.isSafeInteger(delta.baseRevision)||delta.baseRevision<0||
     delta.sourceRevision!==delta.baseRevision+1||
-    typeof delta.mime!=='string'||delta.mime.length>128||!delta.mime||
-    !Number.isSafeInteger(delta.assetSize)||delta.assetSize<1||
+    !validT4OriginalAssetMime(delta.mime)||
+    !Number.isSafeInteger(delta.assetSize)||delta.assetSize<0||
     delta.assetSize>MAX||!base64(delta.bytesBase64))
     fail('ASSET_DELTA_CONTRACT_INVALID');
   const assetBytes=Buffer.from(delta.bytesBase64,'base64');
@@ -99,7 +100,7 @@ export async function prepareT4OriginalAssetDelta({
     record.revision<1||!ID(event.eventId)||
     (event.revision!==null&&event.revision!==record.revision))
     fail('ASSET_DELTA_SOURCE_REVISION_MISMATCH');
-  if(!(result.bytes instanceof Uint8Array)||!result.bytes.byteLength)
+  if(!(result.bytes instanceof Uint8Array))
     fail('ASSET_DELTA_SOURCE_BYTES_REQUIRED');
   const copy=Buffer.from(result.bytes);
   if(copy.length>MAX*0.7)fail('ASSET_DELTA_SOURCE_TOO_LARGE');

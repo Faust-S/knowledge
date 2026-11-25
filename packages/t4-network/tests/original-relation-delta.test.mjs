@@ -173,3 +173,15 @@ test('relation transport cannot be mistaken for original recipient acknowledgeme
    verifyOriginalRecipient:async()=>true,
  }),code('ORIGINAL_RECIPIENT_ACK_MISMATCH'));
 });
+
+test('K104 self Relation with a human-readable kind survives exact wire roundtrip',async()=>{
+ const link={...relation,to_object_id:from,kind:'depends on'};
+ const {prepared}=await packet({originalKernel:{hasOperation:op=>op==='t1.getObject',
+   getObject:async()=>({relations:{outgoing:[link]}})}});
+ const t=webdav(),r=recipient();
+ await publishT4OriginalRelationPutDelta({prepared,transport:t});
+ const received=await fetchT4OriginalRelationPutDelta({transport:t,key:prepared.key,sha256:prepared.sha256,
+   workspaceId:ws,originalWriteOwnerRef:owner});
+ const result=await apply(received,r);
+ assert.equal(result.originalRelationReadbackPassed,true);assert.deepEqual(r.read(),link);
+});
