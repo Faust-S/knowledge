@@ -27,6 +27,13 @@ const validSession=s=>s&&typeof s==="object"&&!Array.isArray(s)&&
   Array.isArray(s.granted_operations)&&s.granted_operations.length<128&&
   s.granted_operations.every(x=>typeof x==="string"&&x.length<128);
 
+// The installed T4 composition must bind its history receiver to the exact
+// existing relay that owns the same native command slot. This process-local
+// identity confers no authority and is never transmitted or persisted.
+const relayNetworkOwners=new WeakMap();
+export const isOriginalKernelNativeRelayForNetworkOwner=(relay,owner)=>
+  owner!==null&&typeof owner==='object'&&relayNetworkOwners.get(relay)===owner;
+
 export function createOriginalKernelNativeRelay({
   currentEpoch,onAttach,onDetach=()=>{},timeoutMs=20000,
   idleLeaseMs=30000,networkOwner=null,
@@ -243,7 +250,7 @@ export function createOriginalKernelNativeRelay({
       networkCleanup(state);
     }).finally(()=>{if(wakeTask===task)wakeTask=null;});
   };
-  return Object.freeze({
+  const relay=Object.freeze({
     // An uncompleted native attach must never advertise an APPLY-capable
     // Kernel to the installed owner, even before its epoch is rechecked.
     get attached(){return !closed&&live!==null&&attaching!==live;},
@@ -445,4 +452,6 @@ export function createOriginalKernelNativeRelay({
       fail("T3_D3_ORIGINAL_KERNEL_RELAY_VERB_INVALID");
     },
   });
+  if(networkOwner!==null)relayNetworkOwners.set(relay,networkOwner);
+  return relay;
 }

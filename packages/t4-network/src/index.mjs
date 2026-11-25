@@ -32,3 +32,5 @@ export * from './network/original-vault-node-signature.mjs';
 export * from './network/original-vault-sealed-content.mjs';
 
 export * from './network/original-network-session-supersession.mjs';
+
+export * from './network/original-native-host-network-profile.mjs';
