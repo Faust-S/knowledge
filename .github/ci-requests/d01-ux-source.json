@@ -1,0 +1,11 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d01-ux-source",
+  "prepared_sha": "d920e1e73455cc97e0470b0523a887659ee6d368",
+  "profile": "full-product-qualification",
+  "revisions": {
+    "site": "6fe3f71c2adc1cf1eef5ce3925442b9907c1fda9",
+    "subject": "5defadc101fa0ec9bce92f6d2806f7b9976d1d6d",
+    "t2": "39a0b3205ea45a55c3db45b99f5bcf4f0283aef1"
+  }
+}
