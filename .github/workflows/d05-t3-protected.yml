@@ -95,32 +95,7 @@ jobs:
           code=0
           node scripts/d05-first-use-real-kernel-witness.mjs >"$log" 2>&1 || code=$?
           grep -E '^D05_(T3_[A-Z0-9_]+=PASS|FIRST_USE_(FAILURE_CODE|FAILURE_CATEGORY|FAILURE_CLASS)=[A-Z0-9_]+|FIRST_USE_[A-Z0-9_]+=(PASS|FAIL))$' "$log" || true
-          grep -E '^D05_FIRST_USE_FAILURE_STAGE=[a-z-]+ "$log"
-          grep -qx 'D05_T3_PROTECTED_COLD_OFFLINE_READBACK=PASS' "$log"
-          grep -qx 'D05_T3_PROTECTED_WORKSPACE_VISIBLE=PASS' "$log"
-      - name: Original completed CASE-001 and physical Exchange on the T3-assembled Host
-        if: always() && steps.cold.outcome != 'skipped'
-        working-directory: site
-        env:
-          D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
-          D05_FIRST_USE_CASE001: '1'
-          D05_FIRST_USE_CASE001_COSTED: '1'
-          D05_FIRST_USE_CASE001_EXCHANGE: '1'
-        run: |
-          set -euo pipefail
-          log="$RUNNER_TEMP/d05-t3-protected-exchange.log"
-          code=0
-          node scripts/d05-first-use-real-kernel-witness.mjs >"$log" 2>&1 || code=$?
-          grep -E '^D05_(CASE001_[A-Z0-9_]+=(PASS|FAIL|NOT_RUN)|CASE001_FAILURE_STAGE=[a-z0-9-]+|FIRST_USE_(FAILURE_CODE|FAILURE_CATEGORY|FAILURE_CLASS)=[A-Z0-9_]+|FIRST_USE_[A-Z0-9_]+=(PASS|FAIL))$' "$log" || true
-          test "$code" -eq 0
-          grep -qx 'D05_FIRST_USE_REAL_T2_CROSS_SERVICE=PASS' "$log"
-          echo D05_T3_T2_COMPATIBLE_CASE001_EXCHANGE_PASS
-      - name: Destroy temporary product, reports and source-bound input bytes
-        if: always()
-        run: |
-          rm -rf "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$RUNNER_TEMP/d05-t3-protected-host"
-          rm -f "$RUNNER_TEMP"/d05-t3-protected-*.log "$RUNNER_TEMP/d05-t3-protected-platform.zip" "$RUNNER_TEMP/d05-t3-protected-artifact.zip"
- "$log" || true
+          grep -E '^D05_FIRST_USE_FAILURE_STAGE=[a-z-]+$' "$log" || true
           test "$code" -eq 0
           grep -qx 'D05_T3_ASSISTANT_EXPLICIT_ORDER_HANDOFF=PASS' "$log"
           grep -qx 'D05_T3_PROTECTED_COLD_OFFLINE_READBACK=PASS' "$log"
