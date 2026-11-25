@@ -282,7 +282,7 @@ async function fixture(){
   });
   const full=async()=>{await add(0);assert.equal((await step()).state,'DIFF_PRESENT');
     await add(1);await add(2);await add(3);};
-  return {session,predecessor,nextCursor,prepared,remote,counters,events,objects,add,binding,args,step,full,phase,publication,
+  return {session,predecessor,nextCursor,sourceWindow:clone(window),prepared,remote,counters,events,objects,add,binding,args,step,full,phase,publication,
     ownerStep,ownerArgs,select,cursor:()=>clone(recipientCursor),cursorWrites:()=>cursorWrites,
     cursorPort,typedStep,admittedBaseline,baselinePort,
     loseCursor(){loseCursor=true;},setCursor(v){recipientCursor=clone(v);},
@@ -670,4 +670,33 @@ test('K56 signed-announcement owner uses a verified local retirement fence witho
     const v=await readOriginalLocalRetiredRecipientSession(proof);
     return {...v,retired:{...v.retired,originalSupersessionEventId:'event:substituted'}};
   }}),code('RECIPIENT_NATIVE_OWNER_LOCAL_RETIREMENT_CHANGED'));
+});
+
+test('K97 bounded original source projection drives recipient phase and cursor recovery without a raw Event stream',async()=>{
+  const {T4OriginalSourceEventWindowUnavailable}=await import('../src/network/original-source-event-window.mjs');
+  const f=await fixture();await f.full();
+  let reads=0,busy=false,invalid=false,busyAt=null;
+  const readOriginalSourceWindow=async({session,sourceCursorBefore})=>{
+    assert.deepEqual(session,f.session);assert.deepEqual(sourceCursorBefore,f.predecessor);reads++;
+    if(busy||reads===busyAt)throw new T4OriginalSourceEventWindowUnavailable(session.sessionRef);
+    const window=clone(f.sourceWindow);if(invalid)window.eventRefs[0].eventDigest=H('substituted event');
+    return {window,nextCursor:clone(f.nextCursor)};
+  };
+  const opts={readOriginalSourceEvents:undefined,readOriginalSourceWindow};
+  const port=f.cursorPort(opts);
+  const step=()=>f.typedStep(opts,port);
+  busy=true;const count=clone(f.counters);await assert.rejects(step(),code('SOURCE_EVENT_WINDOW_OWNER_BUSY'));
+  assert.equal(f.counters.opens,0);assert.equal(f.counters.subjectWrites,0);assert.equal(f.counters.puts,count.puts);busy=false;
+  invalid=true;await assert.rejects(step(),code('ORIGINAL_PROJECTED_EVENT_WINDOW_INVALID'));assert.equal(f.counters.subjectWrites,0);invalid=false;
+  await step();await step();
+  // The next wake proves the source twice, performs the subject mutation,
+  // publishes APPLIED, then obtains a fresh bounded read before cursor CAS.
+  busyAt=reads+3;await assert.rejects(step(),code('SOURCE_EVENT_WINDOW_OWNER_BUSY'));
+  assert.equal(f.counters.subjectWrites,1);assert.equal((await port.inspectOriginalRecipientCursor()).revision,0);
+  f.restart();const before=clone(f.counters);
+  assert.equal((await step()).state,'RECIPIENT_CURSOR_ADVANCED');
+  assert.equal(f.counters.subjectWrites,1);assert.equal(f.counters.signatures,before.signatures);assert.equal(f.counters.puts,before.puts);
+  const result=await port.inspectOriginalRecipientCursor();assert.equal(result.revision,1);assert.deepEqual(result.originalT3VerifiedCursor,f.nextCursor);
+  assert.equal((await step()).state,'NO_NEXT_ORIGINAL_EVENT');
+  assert.ok(reads>5);
 });

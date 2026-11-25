@@ -42,7 +42,7 @@ export async function verifyT4OriginalSourceHeadCausality({
   workspaceId,originalWriteOwnerRef,sourceNodeRef,
   recipientNodeRef,scopeRef,sessionRef,ownerEpoch,
   sourceCursorBefore=null,capturedWindowDigest=null,getMode,readOriginalHostContext,
-  authorizeOriginalRead,readOriginalEvents,
+  authorizeOriginalRead,readOriginalEvents,readOriginalWindow=null,
   verifyOriginalSourceSubject,
 }={}){
   if(![workspaceId,originalWriteOwnerRef,sourceNodeRef,
@@ -51,8 +51,8 @@ export async function verifyT4OriginalSourceHeadCausality({
     (capturedWindowDigest!==null&&!HASH(capturedWindowDigest))||
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
     ![getMode,readOriginalHostContext,authorizeOriginalRead,
-      readOriginalEvents,verifyOriginalSourceSubject]
-      .every(f=>typeof f==='function'))
+      verifyOriginalSourceSubject].every(f=>typeof f==='function')||
+    (readOriginalWindow===null?typeof readOriginalEvents!=='function':(typeof readOriginalWindow!=='function'||readOriginalEvents!==undefined||capturedWindowDigest===null||sourceCursorBefore===null)))
     fail('HEAD_ORIGINAL_T3_PORTS_REQUIRED');
   const outbound=isT4OriginalOutboundFrameProof(verifiedHeads)&&isT4OriginalOutboundFrameProof(verifiedChangeRef);
   if(outbound&&(verifiedHeads.checkpointRef!==verifiedChangeRef.checkpointRef||
@@ -139,7 +139,7 @@ export async function verifyT4OriginalSourceHeadCausality({
     workspaceId,originalWriteOwnerRef,cursor:sourceCursorBefore,
     maxEvents:1,
     authorizeOriginalRead:async()=>{await authorized();return true;},
-    readOriginalEvents:async()=>readOriginalEvents(originalRead),
+    ...(readOriginalWindow===null?{readOriginalEvents:async()=>readOriginalEvents(originalRead)}:{readOriginalWindow:async()=>readOriginalWindow(originalRead)}),
   });
   await authorized();
   const window=source.window,ref=window.eventRefs[0];
@@ -189,7 +189,7 @@ export async function verifyT4OriginalSourceHeadCausality({
     workspaceId,originalWriteOwnerRef,cursor:sourceCursorBefore,
     maxEvents:1,
     authorizeOriginalRead:async()=>{await authorized();return true;},
-    readOriginalEvents:async()=>readOriginalEvents(originalRead),
+    ...(readOriginalWindow===null?{readOriginalEvents:async()=>readOriginalEvents(originalRead)}:{readOriginalWindow:async()=>readOriginalWindow(originalRead)}),
   });
   if(historicalCaptureRequired?
     (!matchesT4OriginalCapturedWindowDigest(second.window,acceptedDigest)||

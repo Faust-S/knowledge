@@ -308,3 +308,39 @@ test('K5 original source owner invalidation during selection prevents stale meta
   })),err('DISPATCH_NATIVE_SELECTION_HOST_DISPOSED'));
   assert.equal(reads,0);assert.equal(f.writes(),0);
 });
+
+test('K97 authenticated original owner projects exactly one captured Event without copying history or payload',async()=>{
+  const {createT4OriginalSourceEventWindowRequest,readT4OriginalSourceEventWindow,T4_SOURCE_EVENT_WINDOW_OWNER_ACTION}=await import('../src/network/original-source-event-window.mjs');
+  const {createT4OriginalReplacementHistoryClient,createT4OriginalReplacementHistoryServer}=await import('../src/network/original-replacement-owner-history-carrier.mjs');
+  const f=fixture();await f.stage();await f.stageSecond();
+  const before=f.outbox.get('capture:relation:1').sourceCursorBefore,params=selectionPorts(f,before);
+  const selected=await readT4OriginalNativeCaptureSessionAtCursor(params);
+  const {session}=selected,{sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch}=session;
+  const request=createT4OriginalSourceEventWindowRequest({session,sourceCursorBefore:before,requesterNodeRef:recipientNodeRef,ownerNodeRef:sourceNodeRef});
+  const tech='original:technical:workspace';let auth=true,confidential=true,busy=false,corrupt=false,reads=0,guards=0;
+  const read=async({request:r,peerContext})=>{
+    assert.equal(peerContext.nodeRef,recipientNodeRef);
+    if(busy)return null;
+    const v=await readT4OriginalSourceEventWindow({request:r,technicalWorkspaceId:tech,getMode:params.getMode,
+      readOriginalHostContext:async()=>({workspaceId:tech,originalWriteOwnerRef:owner,nodeRef:sourceNodeRef,scopeRef,hostSessionRef:'host:source:original'}),
+      authorizeOriginalOwnerHistoryRead:async p=>{guards++;return auth&&p.operation===T4_SOURCE_EVENT_WINDOW_OWNER_ACTION&&p.originalOwnerReadOnly===true;},
+      readOriginalCaptureSelection:async(cursor,options)=>{reads++;return readT4OriginalNativeCaptureSessionAtCursor({...selectionPorts(f,cursor),...options});}});
+    if(corrupt){const bad=structuredClone(v);bad.window.eventRefs[0].payload={secret:'no'};return bad;}return v;
+  };
+  const common={scopeRef,ownerEpoch,workspaceId:ws,originalWriteOwnerRef:owner,getMode:params.getMode};
+  const peer=nodeRef=>async()=>({nodeRef,scopeRef,ownerEpoch,originalPeerSessionRef:'peer:live',contextEpoch:1,originalPeerAuthenticated:true,originalConfidentialChannelVerified:confidential});
+  const server=createT4OriginalReplacementHistoryServer({...common,localNodeRef:sourceNodeRef,peerNodeRef:recipientNodeRef,readOriginalPeerContext:peer(recipientNodeRef),readOriginalReplacementOwnerHistory:read});
+  const client=createT4OriginalReplacementHistoryClient({...common,localNodeRef:recipientNodeRef,peerNodeRef:sourceNodeRef,readOriginalPeerContext:peer(sourceNodeRef),invokeOriginalPeerHistory:p=>server(p.requestBytes)});
+  const result=await client(request);
+  assert.equal(result.window.count,1);assert.equal(result.window.hasMore,true);
+  assert.equal(result.window.eventRefs[0].eventDigest,session.sourceEventDigest);assert.deepEqual(result.nextCursor,selected.sourceCursorAfter);
+  assert.equal(result.originalEventPayloadReturned,false);assert.equal(result.window.eventRefs[0].payload,undefined);
+  assert.equal(result.capture,undefined);assert.equal(result.originalSubjectMutationInvoked,false);assert.equal(reads,1);assert.equal(guards,2);
+  busy=true;assert.equal(await client(request),null);busy=false;
+  auth=false;await assert.rejects(client(request),err('SOURCE_EVENT_WINDOW_AUTHORITY_DENIED'));assert.equal(reads,1);auth=true;
+  confidential=false;await assert.rejects(client(request),err('REPLACEMENT_HISTORY_CARRIER_PEER_UNBOUND'));assert.equal(reads,1);confidential=true;
+  corrupt=true;await assert.rejects(client(request),err('ORIGINAL_PROJECTED_EVENT_WINDOW_INVALID'));corrupt=false;
+  const later=await readT4OriginalNativeCaptureSessionAtCursor(selectionPorts(f,selected.sourceCursorAfter));
+  assert.throws(()=>createT4OriginalSourceEventWindowRequest({session:later.session,sourceCursorBefore:before,requesterNodeRef:recipientNodeRef,ownerNodeRef:sourceNodeRef}),err('SOURCE_EVENT_WINDOW_REQUEST_INVALID'));
+  assert.equal(f.writes(),0);assert.equal(f.attempts.size,0);
+});

@@ -703,7 +703,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
   originalKernel,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
   sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-  authorizeOriginalRecipientRead,authorizeOriginalSourceRead,readOriginalSourceEvents,
+  authorizeOriginalRecipientRead,authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow=null,
   readOriginalAdmittedBaseline=null,verifyOriginalRecipientBaseline=null,originalBaselinePort=null,
   readOriginalDependencyCoverage,
 }={}){
@@ -712,7 +712,8 @@ export function createT4OriginalNetworkRecipientCursorPort({
     recipientNodeRef,scopeRef].every(ID)||sourceNodeRef===recipientNodeRef||
     technicalWorkspaceId===sourceWorkspaceId||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
     ![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-      authorizeOriginalRecipientRead,authorizeOriginalSourceRead,readOriginalSourceEvents].every(f=>typeof f==='function')||
+      authorizeOriginalRecipientRead,authorizeOriginalSourceRead].every(f=>typeof f==='function')||
+    (readOriginalSourceWindow===null?typeof readOriginalSourceEvents!=='function':typeof readOriginalSourceWindow!=='function'||readOriginalSourceEvents!==undefined)||
     (originalBaselinePort!==null?(readOriginalAdmittedBaseline!==null||verifyOriginalRecipientBaseline!==null):
       ![readOriginalAdmittedBaseline,verifyOriginalRecipientBaseline].every(f=>typeof f==='function'))||
     !['getObject','putObject','listEventsSince'].every(k=>
@@ -964,7 +965,8 @@ export function createT4OriginalNetworkRecipientCursorPort({
     const source=await readT4OriginalEventWindow({
       workspaceId:sourceWorkspaceId,originalWriteOwnerRef,cursor:cas.previousCursor,maxEvents:1,
       authorizeOriginalRead:p=>live(()=>authorizeOriginalSourceRead(p),'source-prefix-authority'),
-      readOriginalEvents:p=>live(()=>readOriginalSourceEvents(p),'source-prefix-read'),
+      ...(readOriginalSourceWindow===null?{readOriginalEvents:p=>live(()=>readOriginalSourceEvents(p),'source-prefix-read')}:
+        {readOriginalWindow:()=>live(()=>readOriginalSourceWindow({session,sourceCursorBefore:cas.previousCursor}),'source-window-read')}),
     });
     if(!same(source.nextCursor,cas.verifiedCursor)||source.window.count!==1||
       source.window.eventRefs[0].eventDigest!==session.sourceEventDigest||
@@ -1049,7 +1051,6 @@ export function createT4OriginalNetworkRecipientCursorPort({
     }finally{memo=null;}
     let confirmed;
     try{confirmed=await readVerified(ctx);}catch(error){
-      if(!replacement)throw error;
       fail('RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalCode:error?.code??null,
         originalWriteMayHaveCommitted:true,automaticRetryAllowed:false});
     }
@@ -1062,7 +1063,8 @@ export function createT4OriginalNetworkRecipientCursorPort({
     if(!recovery||typeof recovery!=='object')fail('RECIPIENT_CURSOR_ORIGINAL_APPLIED_WITNESS_REQUIRED');
     const ctx=await context();
     await guard(ctx,'t1.getObject','replacement-history-before-write');
-    const args={...recovery,getMode,authorizeOriginalRead:authorizeOriginalSourceRead,readOriginalEvents:readOriginalSourceEvents};
+    const args={...recovery,getMode,authorizeOriginalRead:authorizeOriginalSourceRead,
+      readOriginalEvents:readOriginalSourceEvents,readOriginalWindow:readOriginalSourceWindow===null?null:()=>readOriginalSourceWindow({session:recovery.session,sourceCursorBefore:recovery.sourceCursorBefore})};
     const witness=await recoverT4OriginalReplacementTerminalCursorEvidence(args),session=replacementCursorProof(witness,identity);
     const before=witness.sourceCursorBefore,after=witness.originalT3NextCursor,b=witness.historicalAck.body,
       status=witness.originalRecipientPhase,pub=witness.originalRecipientPublication;
@@ -1108,7 +1110,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
       sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,
       getMode:originalHostLifetimeMode(getMode,isHostActive),readOriginalHostContext,
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,authorizeOriginalRecipientRead,
-      authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalAdmittedBaseline,
+      authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow,readOriginalAdmittedBaseline,
       verifyOriginalRecipientBaseline,readOriginalDependencyCoverage,
       originalBaselinePort:scopeBaselinePort(originalBaselinePort,isHostActive),
     }),

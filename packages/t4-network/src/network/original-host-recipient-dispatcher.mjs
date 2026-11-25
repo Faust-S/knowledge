@@ -1,3 +1,4 @@
+import {T4OriginalSourceEventWindowUnavailable} from './original-source-event-window.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {requireT4OriginalRetiredAttemptStatus} from './original-network-session-phases.mjs';
 import {createHash} from 'node:crypto';
@@ -617,7 +618,7 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
   const {sourceCursorBefore,authorizeOriginalRecipientSession,
     frameDiscoveryPort,requiredCryptoSuite,recipientPublicationPort:rawPublication,
     createOriginalRecipientPhasePort,resolveOriginalSigningContext,signOriginalNodeBytes,
-    readOriginalSourceHostContext,authorizeOriginalSourceRead,readOriginalSourceEvents,
+    readOriginalSourceHostContext,authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow=null,
     verifyOriginalSourceSubject,authorizeOriginalSealedOpen,openOriginalSealedContent,
     verifyOriginalSourceBinding,retryMissing=false,requireSourceAnnouncement=false}=options;
   if(!['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef',
@@ -631,9 +632,9 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
   if(!ID(requiredCryptoSuite)||typeof retryMissing!=='boolean'||typeof requireSourceAnnouncement!=='boolean'||
     ![authorizeOriginalRecipientSession,createOriginalRecipientPhasePort,
       resolveOriginalSigningContext,signOriginalNodeBytes,readOriginalSourceHostContext,
-      authorizeOriginalSourceRead,readOriginalSourceEvents,verifyOriginalSourceSubject,
-      authorizeOriginalSealedOpen,openOriginalSealedContent,verifyOriginalSourceBinding]
-      .every(f=>typeof f==='function'))
+      authorizeOriginalSourceRead,verifyOriginalSourceSubject,
+      authorizeOriginalSealedOpen,openOriginalSealedContent,verifyOriginalSourceBinding].every(f=>typeof f==='function')||
+    (readOriginalSourceWindow===null?typeof readOriginalSourceEvents!=='function':typeof readOriginalSourceWindow!=='function'||readOriginalSourceEvents!==undefined))
     fail('RECIPIENT_NATIVE_STEP_ORIGINAL_PORTS_REQUIRED');
   const predecessor=frozen(structuredClone(sourceCursorBefore));
   const guard=nativeRecipientGuard(p,session,proof=>authorizeOriginalRecipientSession(frozen({
@@ -836,7 +837,8 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     sourceCursorBefore:predecessor,capturedWindowDigest:session.capturedWindowDigest,
     getMode:p.getMode,readOriginalHostContext:live(readOriginalSourceHostContext,'source-host-context'),
     authorizeOriginalRead:live(authorizeOriginalSourceRead,'authorize-original-source-read'),
-    readOriginalEvents:live(readOriginalSourceEvents,'read-original-source-events'),
+    ...(readOriginalSourceWindow===null?{readOriginalEvents:live(readOriginalSourceEvents,'read-original-source-events')}:
+      {readOriginalWindow:live(()=>readOriginalSourceWindow({session,sourceCursorBefore:predecessor}),'read-original-source-window')}),
     verifyOriginalSourceSubject:live(verifyOriginalSourceSubject,'verify-original-source-subject'),
   });
   if(sourceHeadProof.originalEventDigest!==session.sourceEventDigest||
@@ -906,7 +908,7 @@ async function executeNativeReplacementRecipientStep(p,options){
   requireNativeRecipientPorts(p);mode(p);
   const {selection,requiredCryptoSuite,frameDiscoveryPort,recipientPublicationPort:rawPublication,
     authorizeOriginalRecipientSession,readOriginalSourceContentHistory,readOriginalOwnerEligibility,authorizeOriginalReplacement,
-    readOriginalSourceHostContext,authorizeOriginalSourceRead,readOriginalSourceEvents,verifyOriginalSourceSubject,
+    readOriginalSourceHostContext,authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow=null,verifyOriginalSourceSubject,
     authorizeOriginalSealedOpen,verifyOriginalSourceBinding,bindOriginalReplacementRecipientContentEvidence,
     authorizeOriginalReplacementRecipientApplyAdmission,createOriginalReplacementRecipientPhasePort,
     enableOriginalReplacementApply=false,createOriginalReplacementRecipientAckPublicationPort,
@@ -925,9 +927,10 @@ async function executeNativeReplacementRecipientStep(p,options){
     selection.originalSubjectMutationInvoked!==false||selection.sourceCursorAdvanced!==false||selection.recipientCursorAdvanced!==false||
     !ID(requiredCryptoSuite)||typeof p.originalRecipientCursorPort?.readOriginalVerifiedCursor!=='function'||
     ![authorizeOriginalRecipientSession,readOriginalSourceContentHistory,readOriginalOwnerEligibility,authorizeOriginalReplacement,
-      readOriginalSourceHostContext,authorizeOriginalSourceRead,readOriginalSourceEvents,verifyOriginalSourceSubject,
+      readOriginalSourceHostContext,authorizeOriginalSourceRead,verifyOriginalSourceSubject,
       authorizeOriginalSealedOpen,verifyOriginalSourceBinding,bindOriginalReplacementRecipientContentEvidence,
-      authorizeOriginalReplacementRecipientApplyAdmission,createOriginalReplacementRecipientPhasePort].every(f=>typeof f==='function'))
+      authorizeOriginalReplacementRecipientApplyAdmission,createOriginalReplacementRecipientPhasePort].every(f=>typeof f==='function')||
+    (readOriginalSourceWindow===null?typeof readOriginalSourceEvents!=='function':typeof readOriginalSourceWindow!=='function'||readOriginalSourceEvents!==undefined))
     fail('RECIPIENT_NATIVE_REPLACEMENT_CONTENT_SELECTION_INVALID');
   const guard=nativeRecipientGuard(p,c,proof=>authorizeOriginalRecipientSession(frozen({
     operation:'t4.network.original.recipient.session.admit',session:c,sourceCursorBefore:before,
@@ -973,7 +976,8 @@ async function executeNativeReplacementRecipientStep(p,options){
       sourceNodeRef:c.sourceNodeRef,recipientNodeRef:c.recipientNodeRef,scopeRef:c.scopeRef,sessionRef:c.sessionRef,ownerEpoch:c.ownerEpoch,
       sourceCursorBefore:before,capturedWindowDigest:c.capturedWindowDigest,getMode:p.getMode,
       readOriginalHostContext:live(readOriginalSourceHostContext,'source-host-context'),authorizeOriginalRead:live(authorizeOriginalSourceRead,'authorize-source-read'),
-      readOriginalEvents:live(readOriginalSourceEvents,'source-events'),verifyOriginalSourceSubject:live(verifyOriginalSourceSubject,'source-subject')});
+      ...(readOriginalSourceWindow===null?{readOriginalEvents:live(readOriginalSourceEvents,'source-events')}:
+        {readOriginalWindow:live(()=>readOriginalSourceWindow({session:c,sourceCursorBefore:before}),'source-window')}),verifyOriginalSourceSubject:live(verifyOriginalSourceSubject,'source-subject')});
     const open=await bindOriginalReplacementRecipientContentEvidence(readEvidence);await guard('replacement-vault-bound');
     if(typeof open!=='function')fail('RECIPIENT_NATIVE_REPLACEMENT_VAULT_REQUIRED');
     const received=await openT4OriginalNetworkSubjectChange({verifiedChangeRef:content.verifiedChangeRef,verifiedChunks:content.verifiedChunks,
@@ -1275,6 +1279,9 @@ async function executeNativeRecipientOwnerStep(p,options){
       originalHostAtomicCompareAndSetRequired:true,networkReceiptIsNotBusinessResult:true,
     }),appliedWitness);
   }catch(e){
+    // The typed original cursor's bounded peer read occurs before CAS.
+    // A busy peer must resume the existing read path, not request a frame retry.
+    if(originalCursor&&e instanceof T4OriginalSourceEventWindowUnavailable)throw e;
     fail('RECIPIENT_NATIVE_OWNER_CURSOR_OUTCOME_UNKNOWN',{originalErrorCode:e?.code??null,
       automaticRetryAllowed:false,originalRecipientCursorMayHaveCommitted:true});
   }

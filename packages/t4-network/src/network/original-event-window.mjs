@@ -53,6 +53,46 @@ export function matchesT4OriginalCapturedWindowDigest(window,expectedDigest){
     (body.hasMore===true&&hash({...body,hasMore:false})===expectedDigest);
 }
 
+// A remote ORIGINAL owner may project a bounded canonical window instead
+// of exporting its entire Event payload history. This verifies the exact
+// returned projection and cursor, not a cryptographic proof of unseen Events.
+// The caller must independently authenticate and authorize that owner read.
+const keys=(v,names)=>v&&typeof v==='object'&&!Array.isArray(v)&&
+  Object.keys(v).length===names.length&&names.every(k=>Object.hasOwn(v,k));
+const dig=x=>typeof x==='string'&&/^sha256:[a-f0-9]{64}$/.test(x);
+const equal=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
+function exactCursor(c,workspaceId,originalWriteOwnerRef){
+  return keys(c,['schema','workspaceId','originalWriteOwnerRef','lastEventId','seenEventCount','sourcePrefixDigest','originalPermissionProof'])&&
+    c.schema===cursorSchema&&c.workspaceId===workspaceId&&c.originalWriteOwnerRef===originalWriteOwnerRef&&
+    id(c.lastEventId)&&dig(c.sourcePrefixDigest)&&Number.isSafeInteger(c.seenEventCount)&&c.seenEventCount>=1&&c.originalPermissionProof===false;
+}
+export function validateT4OriginalProjectedEventWindow({workspaceId,originalWriteOwnerRef,cursor,maxEvents=1,result}={}){
+  const before=structuredClone(cursor),r=structuredClone(result),w=r?.window,a=r?.nextCursor;
+  if(!id(workspaceId)||!id(originalWriteOwnerRef)||!exactCursor(before,workspaceId,originalWriteOwnerRef)||maxEvents!==1||
+    !keys(r,['window','nextCursor'])||!keys(w,['schema','workspaceId','originalWriteOwnerRef','afterEventId','sourcePrefixDigestBefore','sourcePrefixDigestAfter',
+      'lastEventId','eventRefs','count','hasMore','sourceT3OriginalEventObjectsNotCopied','causalOrderProven','recipientApplied','notAcceptedBusinessResult','windowDigest'])||
+    w.schema!==windowSchema||w.workspaceId!==workspaceId||w.originalWriteOwnerRef!==originalWriteOwnerRef||
+    w.afterEventId!==before.lastEventId||w.sourcePrefixDigestBefore!==before.sourcePrefixDigest||!dig(w.sourcePrefixDigestAfter)||
+    ![0,1].includes(w.count)||!Array.isArray(w.eventRefs)||w.eventRefs.length!==w.count||typeof w.hasMore!=='boolean'||
+    w.sourceT3OriginalEventObjectsNotCopied!==true||w.causalOrderProven!==false||w.recipientApplied!==false||w.notAcceptedBusinessResult!==true||
+    !matchesT4OriginalCapturedWindowDigest(w,w.windowDigest)||!exactCursor(a,workspaceId,originalWriteOwnerRef))
+    fail('ORIGINAL_PROJECTED_EVENT_WINDOW_INVALID');
+  if(w.count===0){
+    if(w.hasMore||w.lastEventId!==before.lastEventId||w.sourcePrefixDigestAfter!==before.sourcePrefixDigest||!equal(a,before))
+      fail('ORIGINAL_PROJECTED_EVENT_WINDOW_INVALID');
+  }else{
+    const e=w.eventRefs[0];
+    if(!keys(e,['eventId','eventType','workspaceId','objectId','revision','occurredAt','eventDigest'])||
+      !id(e.eventId)||e.eventId===before.lastEventId||!id(e.eventType)||e.workspaceId!==workspaceId||
+      (e.objectId!==null&&!id(e.objectId))||(e.revision!==null&&(!Number.isSafeInteger(e.revision)||e.revision<0))||
+      typeof e.occurredAt!=='string'||!Number.isFinite(Date.parse(e.occurredAt))||!dig(e.eventDigest)||
+      w.lastEventId!==e.eventId||a.lastEventId!==e.eventId||a.seenEventCount!==before.seenEventCount+1||
+      a.sourcePrefixDigest!==w.sourcePrefixDigestAfter||w.sourcePrefixDigestAfter===before.sourcePrefixDigest)
+      fail('ORIGINAL_PROJECTED_EVENT_WINDOW_INVALID');
+  }
+  return immutable({window:immutable({...w,eventRefs:immutable(w.eventRefs.map(immutable))}),nextCursor:immutable(a)});
+}
+
 function normalizeHistory(raw,workspaceId){
   if(!Array.isArray(raw)||raw.length>100000)fail('ORIGINAL_T3_EVENT_STREAM_INVALID');
   const positions=new Map(),events=[];
@@ -112,16 +152,24 @@ export function countT4OriginalLocalSnapshotTrace(token,{workspaceId,originalWri
 
 export async function readT4OriginalEventWindow({
   workspaceId,originalWriteOwnerRef,cursor=null,maxEvents=128,
-  authorizeOriginalRead,readOriginalEvents,originalLocalEventSnapshot=null,
+  authorizeOriginalRead,readOriginalEvents,readOriginalWindow=null,originalLocalEventSnapshot=null,
 }={}) {
   if(!id(workspaceId)||!id(originalWriteOwnerRef))fail('ORIGINAL_T3_OWNER_SCOPE_REQUIRED');
   if(!Number.isSafeInteger(maxEvents)||maxEvents<1||maxEvents>1024)
     fail('ORIGINAL_EVENT_WINDOW_LIMIT_INVALID');
-  if(typeof authorizeOriginalRead!=='function'||typeof readOriginalEvents!=='function')
+  if(typeof authorizeOriginalRead!=='function'||(readOriginalWindow===null?typeof readOriginalEvents!=='function':
+    (typeof readOriginalWindow!=='function'||readOriginalEvents!==undefined||originalLocalEventSnapshot!==null||
+      maxEvents!==1||!exactCursor(cursor,workspaceId,originalWriteOwnerRef))))
     fail('ORIGINAL_T3_EVENT_PORTS_REQUIRED');
   const guard=immutable({operation:'t1.listEventsSince',workspaceId,originalWriteOwnerRef,
     networkReadGrantsCreated:false});
   if(await authorizeOriginalRead(guard)!==true)fail('ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED');
+  if(readOriginalWindow!==null){
+    const before=structuredClone(cursor),projection=await readOriginalWindow(Object.freeze({...guard,cursor:before,maxEvents}));
+    if(await authorizeOriginalRead(guard)!==true)fail('ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED');
+    const verified=validateT4OriginalProjectedEventWindow({workspaceId,originalWriteOwnerRef,cursor,maxEvents,result:projection});
+    return immutable({...verified,originalEventsRead:0});
+  }
   const snapshot=originalLocalEventSnapshot===null?null:
     localSnapshot(originalLocalEventSnapshot,workspaceId,originalWriteOwnerRef);
   const raw=snapshot===null?await readOriginalEvents(guard):null;

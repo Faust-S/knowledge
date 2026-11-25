@@ -438,7 +438,8 @@ async function selectNativeCapture(params,before,w,a,guardList){
  * has already moved ahead of the recipient's verified cursor.
  */
 export async function readT4OriginalNativeCaptureSessionAtCursor(params={}){
-  if(![params.workspaceId,params.originalWriteOwnerRef,params.sourceNodeRef,
+  const includeOriginalEventWindow=params.includeOriginalEventWindow??false;
+  if(typeof includeOriginalEventWindow!=='boolean'||![params.workspaceId,params.originalWriteOwnerRef,params.sourceNodeRef,
     params.recipientNodeRef,params.scopeRef].every(ID)||
     params.sourceNodeRef===params.recipientNodeRef||
     params.networkTargetRef!==params.recipientNodeRef||
@@ -522,7 +523,7 @@ export async function readT4OriginalNativeCaptureSessionAtCursor(params={}){
     originalRecipientApplied:false,sourceCursorAdvanced:false,networkPublished:false,
   });
   return result('ORIGINAL_NATIVE_SESSION_SELECTED',{session,sourceCursorAfter:structuredClone(a),
-    originalCaptureEvidenceVerified:true});
+    originalCaptureEvidenceVerified:true,...(includeOriginalEventWindow?{sourceWindow:structuredClone(confirmed.window)}:{})});
 }
 
 /**

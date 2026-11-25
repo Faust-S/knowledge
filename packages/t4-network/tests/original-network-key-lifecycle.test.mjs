@@ -1415,7 +1415,9 @@ test('K90 complete native T4 profile binds both roles to their exact original si
     Object.assign(originalPorts,{resolveOriginalAccess:p=>p.args[0]===tech?technical.access:null,
       authorizeOriginalTechnicalWrite:async()=>assert.fail('history must not write'),
       authorizeOriginalReplacementHistoryCaller:async p=>p.peerContext.nodeRef===peer&&p.peerContext.originalPeerSessionRef==='peer:k90:authenticated'});
-    const config={role,technicalWorkspaceId:tech,sourceWorkspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,
+    // The bounded profile must assemble without a full remote Event reader.
+    delete originalPorts.readOriginalSourceEvents;
+    const config={role,enableSourceEventWindowRead:true,technicalWorkspaceId:tech,sourceWorkspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,
       scopeRef:SCOPE,ownerEpoch:2,requiredCryptoSuite:SUITE,getMode,originalPorts,
       originalAccess:{registry:f.registry,...f.accessFor,expectedContext:f.context,clock:f.clock},
       originalVault:{localKeyRef:source?localBinding.keyId:remoteBinding.keyId,remoteKeyRef:source?remoteBinding.keyId:localBinding.keyId,
@@ -1441,6 +1443,7 @@ test('K90 complete native T4 profile binds both roles to their exact original si
       const o=p.networkOwner;
       assert.equal(o.originalSignedTopologyAccess,true);assert.equal(o.originalDurableNetworkKeyBinding,true);
       assert.equal(o.originalReplacementTerminalRecoveryEnabled,true);assert.equal(o.originalReplacementEligibilityReadEnabled,true);
+      assert.equal(o.originalSourceEventWindowReadEnabled,true);
       assert.equal(o.originalSignedReplacementHistoryBound,true);assert.equal(o.originalReplacementHistoryCarrierBound,true);
       assert.equal(o.originalTopologyBinding.nativeWireProfile,'INDEXED');
       assert.equal(o.originalVaultSealedContentIdentity.role,p.role);
@@ -1495,4 +1498,30 @@ test('K90 complete native T4 profile binds both roles to their exact original si
     assert.throws(()=>source.bindOriginalPeerHistoryReceiver(sr),{code:'NATIVE_NETWORK_PROFILE_ORIGINAL_RELAY_REQUIRED'});
     mode='LOCAL_T3';assert.throws(()=>createT4OriginalNativeHostNetworkProfile(a.config),{code:'NATIVE_NETWORK_PROFILE_MODE_DISABLED'});
   }finally{sr.close();rr.close();source.close();recipient.close();}
+});
+
+test('K97 projected source Event reads require distinct signed owner and peer actions',async()=>{
+  const {createT4OriginalSourceEventWindowRequest,T4_SOURCE_EVENT_WINDOW_OWNER_ACTION:ownerOp,T4_SOURCE_EVENT_WINDOW_PEER_ACTION:peerOp}=await import('../src/network/original-source-event-window.mjs');
+  const root=captured(Buffer.from('K97 original capture')).session;
+  const before={schema:'IWXA_T4_ORIGINAL_EVENT_CURSOR_V1',workspaceId:WS,originalWriteOwnerRef:OWNER,lastEventId:'event:k97:before',
+    seenEventCount:1,sourcePrefixDigest:root.sourcePrefixDigestBefore,originalPermissionProof:false};
+  const request=createT4OriginalSourceEventWindowRequest({session:root,sourceCursorBefore:before,requesterNodeRef:B,ownerNodeRef:A});
+  const oldOwner='t4.network.original.replacement.owner.read-history',oldPeer='t4.network.original.replacement.peer.read-history';
+  const f=await fixture([ownerOp,peerOp,oldOwner,oldPeer]),legacy=await fixture([oldOwner,oldPeer]);
+  const tech='ws:k97:technical',getMode=()=> 'T4_NETWORK';
+  const port=(f,localNodeRef,enabled=true)=>createT4OriginalSignedReplacementHistoryAccess({workspaceId:WS,technicalWorkspaceId:tech,
+    originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,localNodeRef,scopeRef:SCOPE,ownerEpoch:2,
+    access:f.accessFor.access,expectedContext:f.context,getMode,clock:f.clock,enableOriginalSourceWindowRead:enabled});
+  const own={operation:ownerOp,request,role:'SOURCE',technicalWorkspaceId:tech,originalHostSessionRef:'host:k97:source',
+    originalOwnerReadOnly:true,originalHistoricalEvidenceOnly:true,originalSubjectMutationAllowed:false,originalFrameRetryAllowed:false};
+  const peer={operation:peerOp,request,stage:'before',originalIndependentOwnerReadRequired:true,originalSubjectMutationAllowed:false,originalFrameRetryAllowed:false};
+  assert.equal(await port(f,A).authorizeOwner(own),true);assert.equal(await port(f,B).authorizePeer(peer),true);
+  assert.equal(await port(f,B).authorizePeer({...peer,stage:'after'}),true);
+  await assert.rejects(port(f,A,false).authorizeOwner(own),{code:'SOURCE_EVENT_WINDOW_SIGNED_READ_NOT_ENABLED'});
+  await assert.rejects(port(legacy,A).authorizeOwner(own),{code:'ORIGINAL_SIGNED_NETWORK_ACCESS_DENIED'});
+  await assert.rejects(port(legacy,B).authorizePeer(peer),{code:'ORIGINAL_SIGNED_NETWORK_ACCESS_DENIED'});
+  await assert.rejects(port(f,A).authorizeOwner({...own,operation:oldOwner}),{code:'REPLACEMENT_HISTORY_SIGNED_OWNER_MISMATCH'});
+  await assert.rejects(port(f,B).authorizePeer({...peer,operation:oldPeer}),{code:'REPLACEMENT_HISTORY_SIGNED_PEER_MISMATCH'});
+  await assert.rejects(port(f,A).authorizePeer(peer),{code:'REPLACEMENT_HISTORY_SIGNED_PEER_MISMATCH'});
+  await assert.rejects(port(f,B).authorizePeer({...peer,originalFrameRetryAllowed:true}),{code:'REPLACEMENT_HISTORY_SIGNED_PEER_MISMATCH'});
 });

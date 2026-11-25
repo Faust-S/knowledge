@@ -531,7 +531,7 @@ export async function confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement
 export async function recoverT4OriginalReplacementTerminalCursorEvidence({session:rawSession,sourceCursorBefore,
   sourcePhasePort,recipientPhasePort,retiredSourcePhasePort,retiredRecipientPhasePort,
   sourcePublicationPort,recipientPublicationPort,historicalFramePort,requiredCryptoSuite,getMode,
-  authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents,
+  authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents,readOriginalWindow=null,
   readOriginalOwnerHistory=null,requesterNodeRef=null,verifyOriginalHistoricalNodeSignature=null}={}){
   const c=validateT4OriginalReplacementSessionCandidate(rawSession),before=structuredClone(sourceCursorBefore);
   const mode=()=>{if(typeof getMode!=='function'||getMode()!=='T4_NETWORK')fail('CURSOR_NETWORK_MODE_OFF');};
@@ -541,7 +541,8 @@ export async function recoverT4OriginalReplacementTerminalCursorEvidence({sessio
     before.originalWriteOwnerRef!==c.originalWriteOwnerRef||before.sourcePrefixDigest!==c.sourcePrefixDigestBefore||
     before.originalPermissionProof!==false||!ID(before.lastEventId)||!Number.isSafeInteger(before.seenEventCount)||
     before.seenEventCount<1||before.seenEventCount>=Number.MAX_SAFE_INTEGER||
-    ![getMode,authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents].every(f=>typeof f==='function')||
+    ![getMode,authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead].every(f=>typeof f==='function')||
+    (readOriginalWindow===null?typeof readOriginalEvents!=='function':typeof readOriginalWindow!=='function'||readOriginalEvents!==undefined||!ownerReads||requesterNodeRef!==c.recipientNodeRef)||
     (ownerReads?(typeof readOriginalOwnerHistory!=='function'||typeof verifyOriginalHistoricalNodeSignature!=='function'||
       ![c.sourceNodeRef,c.recipientNodeRef].includes(requesterNodeRef)||
       [...phases,...pubs,historicalFramePort].some(p=>p!==undefined)):
@@ -700,7 +701,7 @@ export async function recoverT4OriginalReplacementTerminalCursorEvidence({sessio
     const prefix=await readT4OriginalEventWindow({workspaceId:c.workspaceId,originalWriteOwnerRef:c.originalWriteOwnerRef,cursor:before,maxEvents:1,
       authorizeOriginalRead:async proof=>{mode();const allowed=await authorizeOriginalRead(Object.freeze({...proof,sessionRef:c.sessionRef,changeId:c.changeId,
         sourceNodeRef:c.sourceNodeRef,recipientNodeRef:c.recipientNodeRef,originalHistoricalRecoveryOnly:true,networkAckDoesNotGrantSubjectRead:true}));mode();return allowed===true;},
-      readOriginalEvents});mode();
+      readOriginalEvents,readOriginalWindow});mode();
     const w=prefix.window;
     if(w.count!==1||w.lastEventId!==c.sourceEventId||w.eventRefs[0]?.eventDigest!==c.sourceEventDigest||
       !validT4NativeOriginalEventRevision(c.changeKind,c.sourceRevision,w.eventRefs[0]?.revision)||w.sourcePrefixDigestBefore!==c.sourcePrefixDigestBefore||
