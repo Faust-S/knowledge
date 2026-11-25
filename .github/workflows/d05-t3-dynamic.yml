@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: fd349127a4135c15413399376a21711032e3d132
+          ref: ffae8873637d618858d4cd440c434b59022160af
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -103,7 +103,7 @@ jobs:
             for(const [index,t] of (suite.assertionResults||[]).entries()){
               if(t.status!=="failed")continue;
               const m=(t.failureMessages||[]).join("\n");
-              const locations=[...m.matchAll(/(?:static-router-freshness(?:\.test)?\.ts|router-core\/[a-zA-Z0-9_./-]+\.(?:js|ts)):(\d+):(\d+)/g)].slice(0,4).map(a=>[a[1],Number(a[2]),Number(a[3])]);
+              const locations=[...m.matchAll(/(static-router-freshness(?:\.test)?\.ts|router-core\/[a-zA-Z0-9_./-]+\.(?:js|ts)):(\d+):(\d+)/g)].slice(0,4).map(a=>[a[1],Number(a[2]),Number(a[3])]);
               console.log("D05_T3_SSR_ASSERTION_FAIL "+JSON.stringify({index:index+1,kind:categorize(m),locations}));
             }
           }
