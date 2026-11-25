@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FROZEN_BLOCKER_CORRECTED_READY_FOR_ONE_TIME_REQUEST",
+  "status": "FROZEN_ONE_TIME_QUALIFICATION_REQUESTED",
   "scope": "1.6.0",
   "siteCommit": "12ec1d040b8cdf1f7630ea4faac893cf3057cc72",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -77,5 +77,16 @@
   "oneTimeRequestLocalRealGitCases": {
     "passed": 15,
     "total": 15
+  },
+  "oneTimeRequest": {
+    "runId": 45682754906,
+    "preparedCommit": "65fab0c8d4d32fb1c6c45d012c0c8eb2184135f5",
+    "requestCommit": "7b6b402794a568496b127a82a0dbf3c07960e46b",
+    "requestBranch": "ci/once/d05-t3-release/65fab0c8d4d32fb1c6c45d012c0c8eb2184135f5",
+    "requestFile": ".github/ci-requests/d05-t3-release.json",
+    "runStatusAtRecording": "queued",
+    "conclusionAtRecording": null,
+    "matchingRuns": 1,
+    "immutable": true
   }
 }
