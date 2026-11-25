@@ -46,9 +46,14 @@ export async function captureT4OriginalObjectMutation({
   workspaceId,objectId,originalWriteOwnerRef,captureRef,
   sourceCursor,mutationInput,originalKernel,authorizeOriginalRead,
   authorizeOriginalWrite,readOriginalEvents,getMode,
+  readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize=256,
   persistOriginalIntent,readOriginalIntent,
   persistOriginalOutbox,readOriginalOutbox,
 }={}){
+  const paged=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
+  if(paged&&(![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
+    !Number.isSafeInteger(originalCommitPageSize)||originalCommitPageSize<1||originalCommitPageSize>1024))
+    fail('OBJECT_CAPTURE_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
   if(![workspaceId,objectId,originalWriteOwnerRef,captureRef].every(ID)||
     sourceCursor?.schema!=='IWXA_T4_ORIGINAL_EVENT_CURSOR_V1'||
     sourceCursor.workspaceId!==workspaceId||
@@ -58,7 +63,7 @@ export async function captureT4OriginalObjectMutation({
     !originalKernel?.hasOperation?.('t1.listEventsSince')||
     typeof originalKernel.getObject!=='function'||
     typeof originalKernel.putObject!=='function'||
-    [authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
+    [authorizeOriginalRead,authorizeOriginalWrite,...(paged?[]:[readOriginalEvents]),
       persistOriginalIntent,readOriginalIntent,persistOriginalOutbox,
       readOriginalOutbox].some(f=>typeof f!=='function'))
     fail('OBJECT_CAPTURE_ORIGINAL_HOST_PORTS_REQUIRED');
@@ -166,16 +171,23 @@ export async function captureT4OriginalObjectMutation({
     fail('OBJECT_CAPTURE_ORIGINAL_HISTORY_DENIED');
   let captured;
   try{
-    const {window,nextCursor}=await readT4OriginalEventWindow({
+    const {window,nextCursor,originalTraceEvidence}=await readT4OriginalEventWindow({
       workspaceId,originalWriteOwnerRef,cursor:sourceCursor,maxEvents:1,
-      authorizeOriginalRead:async()=>authorizeOriginalRead({
-        ...ctx,operation:'t1.listEventsSince'}),
-      readOriginalEvents,
+      authorizeOriginalRead:async proof=>{
+        networkMode(getMode);
+        const allowed=await authorizeOriginalRead({...ctx,...proof,operation:'t1.listEventsSince'});
+        networkMode(getMode);return allowed;
+      },
+      ...(paged?{readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize:originalCommitPageSize,
+        originalTraceQuery:{kind:'capture_ref',value:captureRef}}:{readOriginalEvents}),
     });
     if(window.count!==1||window.hasMore||
       window.lastEventId!==receipt.event.event_id)
       fail('OBJECT_CAPTURE_ORIGINAL_EVENT_ORDER_CHANGED');
-    const matchedEvent=(await readOriginalEvents()).find(e=>
+    if(paged&&(originalTraceEvidence?.originalHistoryFullyRead!==true||
+      originalTraceEvidence.matchCount!==1||originalTraceEvidence.nextOriginalEvent?.event_id!==receipt.event.event_id))
+      fail('OBJECT_CAPTURE_ORIGINAL_EVENT_CORRELATION_MISSING');
+    const matchedEvent=paged?originalTraceEvidence.nextOriginalEvent:(await readOriginalEvents()).find(e=>
       e.event_id===receipt.event.event_id);
     if(!matchedEvent||
       matchedEvent.payload?.[TRACE_REF]!==captureRef||

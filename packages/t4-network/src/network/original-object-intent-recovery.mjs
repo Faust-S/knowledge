@@ -91,13 +91,18 @@ export async function reconcileT4OriginalMutationIntent({
   captureRef,workspaceId,objectId,originalWriteOwnerRef,
   originalKernel,authorizeOriginalRead,authorizeOriginalWrite,
   readOriginalEvents,readOriginalIntent,
+  readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize=256,
   persistOriginalOutbox,readOriginalOutbox,getMode,
 }={}){
+  const paged=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
+  if(paged&&(![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
+    !Number.isSafeInteger(originalCommitPageSize)||originalCommitPageSize<1||originalCommitPageSize>1024))
+    fail('OBJECT_RECOVERY_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
   if(![captureRef,workspaceId,objectId,originalWriteOwnerRef].every(ID)||
     !originalKernel?.hasOperation?.('t1.getObject')||
     !originalKernel?.hasOperation?.('t1.listEventsSince')||
     typeof originalKernel.getObject!=='function'||
-    [authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
+    [authorizeOriginalRead,authorizeOriginalWrite,...(paged?[]:[readOriginalEvents]),
       readOriginalIntent,persistOriginalOutbox,readOriginalOutbox]
       .some(fn=>typeof fn!=='function'))
     fail('OBJECT_RECOVERY_ORIGINAL_HOST_PORTS_REQUIRED');
@@ -115,15 +120,45 @@ export async function reconcileT4OriginalMutationIntent({
   if(await authorizeOriginalRead(readScope)!==true||
     await authorizeOriginalWrite(writeScope)!==true)
     fail('OBJECT_RECOVERY_ORIGINAL_PERMISSION_DENIED');
-  const source=await readOriginalEvents(readScope);
+  const historyPorts=paged?{readOriginalCommitPage,withOriginalHistoryReadBoundary,
+    originalCommitPageSize}:{readOriginalEvents};
+  const source=paged?null:await readOriginalEvents(readScope);
   mode(getMode);
-  if(!Array.isArray(source)||source.length>100000)
+  if(!paged&&(!Array.isArray(source)||source.length>100000))
     fail('OBJECT_RECOVERY_ORIGINAL_EVENT_STREAM_INVALID');
-  const candidates=source.filter(row=>row?.payload?.[MARK]===captureRef);
-  if(candidates.length!==1)
+  let window,nextCursor,event,matchCount;
+  const readWindow=async()=>{
+    try{
+      return await readT4OriginalEventWindow({
+        workspaceId,originalWriteOwnerRef,cursor:intent.sourceCursor,maxEvents:1,
+        authorizeOriginalRead:async context=>{
+          mode(getMode);const allowed=await authorizeOriginalRead(context);mode(getMode);return allowed;
+        },
+        ...(paged?{readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize:originalCommitPageSize,
+          originalTraceQuery:{kind:'capture_ref',value:captureRef}}:{readOriginalEvents:async()=>source}),
+      });
+    }catch(error){
+      if(error?.code==='ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED')
+        fail('OBJECT_RECOVERY_ORIGINAL_PERMISSION_DENIED');
+      throw error;
+    }
+  };
+  if(paged){
+    const result=await readWindow();
+    ({window,nextCursor}=result);
+    matchCount=result.originalTraceEvidence?.matchCount;
+    if(result.originalTraceEvidence?.originalHistoryFullyRead!==true||!Number.isSafeInteger(matchCount))
+      fail('OBJECT_RECOVERY_ORIGINAL_EVENT_STREAM_INVALID');
+    event=result.originalTraceEvidence.nextOriginalEvent;
+  }else{
+    const candidates=source.filter(row=>row?.payload?.[MARK]===captureRef);
+    matchCount=candidates.length;event=candidates[0];
+  }
+  if(matchCount!==1)
     fail('OBJECT_RECOVERY_SOURCE_EVENT_NOT_PROVEN',
-      {matchingOriginalEvents:candidates.length,originalMutationRetried:false});
-  const event=candidates[0];
+      {matchingOriginalEvents:matchCount,originalMutationRetried:false});
+  if(paged&&(!event||event.payload?.[MARK]!==captureRef))
+    fail('OBJECT_RECOVERY_SOURCE_EVENT_ORDER_CHANGED');
   if(event.workspace_id!==workspaceId||event.object_id!==objectId||
     event.revision!==intent.expectedBaseRevision+1||
     event.event_type!==operation.event.event_type||
@@ -134,18 +169,7 @@ export async function reconcileT4OriginalMutationIntent({
       event.payload?.[T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE_TRACE]!==intent.inputDigestProfile)||
     !ID(event.event_id))
     fail('OBJECT_RECOVERY_SOURCE_EVENT_SCOPE_MISMATCH');
-  let window,nextCursor;
-  try{
-    ({window,nextCursor}=await readT4OriginalEventWindow({
-      workspaceId,originalWriteOwnerRef,cursor:intent.sourceCursor,maxEvents:1,
-      authorizeOriginalRead:async context=>authorizeOriginalRead(context),
-      readOriginalEvents:async()=>source,
-    }));
-  }catch(error){
-    if(error?.code==='ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED')
-      fail('OBJECT_RECOVERY_ORIGINAL_PERMISSION_DENIED');
-    throw error;
-  }
+  if(!paged)({window,nextCursor}=await readWindow());
   if(window.count!==1||window.lastEventId!==event.event_id||
     window.eventRefs[0].eventId!==event.event_id||
     window.eventRefs[0].revision!==event.revision)
@@ -165,7 +189,7 @@ export async function reconcileT4OriginalMutationIntent({
     try{
       evidence=await readT4OriginalHostLocalCaptureEvidence({
         ...scope,kind:'OBJECT_PUT',subjectId:objectId,getMode,authorizeOriginalRead,
-        readOriginalEvents,
+        ...historyPorts,
         readOriginalIntent:q=>checkedRead(readOriginalIntent,expectedIntent,q),
         readOriginalOutbox:q=>checkedRead(readOriginalOutbox,existing,q),
       });

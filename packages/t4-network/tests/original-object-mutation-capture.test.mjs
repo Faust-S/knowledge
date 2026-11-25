@@ -998,3 +998,50 @@ test('K112 incomplete bounded proof ports fail closed, never silently fall back'
    subjectId:objectId,readOriginalCommitPage:async()=>{throw Error('not called');}}),
    code('OUTBOX_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED'));
 });
+
+function k114PagedHistory(f){
+ let held=false,pages=0;
+ return {ports:{readOriginalEvents:async()=>{throw Error('legacy history must not be read');},
+   originalCommitPageSize:1,
+   withOriginalHistoryReadBoundary:async(_proof,run)=>{
+     assert.equal(held,false);held=true;try{return await run();}finally{held=false;}
+   },
+   readOriginalCommitPage:async({afterEventId,limit})=>{
+     assert.equal(held,true);pages++;
+     const start=afterEventId===null?0:f.events.findIndex(e=>e.event_id===afterEventId)+1;
+     const entries=f.events.slice(start,start+limit).map(event=>({event,legacy_history:false}));
+     return {entries,next_after_event_id:entries.at(-1)?.event.event_id??afterEventId,
+       has_more:start+entries.length<f.events.length,order:'LOCAL_TRANSACTION_COMMIT_ORDER',
+       legacy_history_causal_proven:false};
+   }},get pages(){return pages;}};
+}
+test('K114 Object capture and historical reconciliation use commit-page evidence without full history or repeated mutation',async()=>{
+ const f=originalFixture(),history=k114PagedHistory(f),sourceCursor=await firstCursor(f);
+ const first=await capture(f,1,{...history.ports,sourceCursor});
+ await capture(f,2,{...history.ports,sourceCursor:first.nextCursor});
+ const recovered=await reconcile(f,'capture:1',{...history.ports,
+   originalKernel:{...f.ports.originalKernel,getObject:async()=>{throw Error('historical read must not inspect current Object');}},
+   persistOriginalOutbox:async()=>{throw Error('must not rewrite staged Object');}});
+ assert.equal(recovered.originalHistoricalCaptureVerified,true);
+ assert.equal(recovered.prepared.sha256,first.prepared.sha256);
+ assert.equal(f.writes.length,2);assert.equal(f.outbox.size,2);assert.ok(history.pages>0);
+});
+test('K114 cold recovery of lost original receipt uses unique bounded trace and never repeats original write',async()=>{
+ const f=originalFixture(),history=k114PagedHistory(f),sourceCursor=await firstCursor(f);
+ f.loseAck();
+ await assert.rejects(capture(f,1,{...history.ports,sourceCursor}),code('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+ const recovered=await reconcile(f,'capture:1',history.ports);
+ assert.equal(recovered.originalT3OutboxVerified,true);
+ assert.equal(recovered.originalMutationRetried,false);
+ assert.equal(f.writes.length,1);assert.equal(f.outbox.size,1);
+});
+test('K114 ambiguous original trace and incomplete commit reader cannot authorize another write',async()=>{
+ const f=originalFixture(),history=k114PagedHistory(f),sourceCursor=await firstCursor(f);
+ await assert.rejects(capture(f,1,{sourceCursor,readOriginalCommitPage:history.ports.readOriginalCommitPage}),
+   code('OBJECT_CAPTURE_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED'));
+ assert.equal(f.writes.length,0);
+ f.loseAck();await assert.rejects(capture(f,1,{...history.ports,sourceCursor}),code('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+ const copy=structuredClone(f.events[1]);f.events.push({...copy,event_id:'event:duplicate-trace'});
+ await assert.rejects(reconcile(f,'capture:1',history.ports),code('OBJECT_RECOVERY_SOURCE_EVENT_NOT_PROVEN'));
+ assert.equal(f.outbox.size,0);assert.equal(f.writes.length,1);
+});

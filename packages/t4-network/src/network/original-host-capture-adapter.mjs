@@ -18,6 +18,7 @@ const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x)
 export function createT4OriginalHostCaptureAdapter({
   originalKernel,originalWriteOwnerRef,getMode,
   authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
+  readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize=256,
   persistOriginalIntent,readOriginalIntent,
   persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
   listOriginalPendingIntents,authorizeOriginalCaptureRecovery,
@@ -29,6 +30,10 @@ export function createT4OriginalHostCaptureAdapter({
     originalKernel.hasOperation('t1.putObject')!==true||
     typeof originalKernel.putObject!=='function')
     fail('ORIGINAL_HOST_T3_WRITE_PORT_REQUIRED');
+  const paged=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
+  if(paged&&(![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
+    !Number.isSafeInteger(originalCommitPageSize)||originalCommitPageSize<1||originalCommitPageSize>1024))
+    fail('ORIGINAL_HOST_CAPTURE_COMMIT_HISTORY_PORTS_REQUIRED');
   let disposed=false;
   const guardedMode=originalHostLifetimeMode(getMode,()=>!disposed&&isHostActive()===true,
     'ORIGINAL_HOST_CAPTURE_DISPOSED');
@@ -41,6 +46,7 @@ export function createT4OriginalHostCaptureAdapter({
   const hostCapturePorts=()=>({
     originalKernel,originalWriteOwnerRef,getMode:mode,
     authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
+    ...(paged?{readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize}:{}),
     persistOriginalIntent,readOriginalIntent,
     persistOriginalOutbox,readOriginalOutbox,withOriginalSubjectMutation,readOriginalDependencyCoverage,
   });
@@ -94,8 +100,13 @@ export function createT4OriginalHostCaptureAdapter({
       const cursor=await selectCaptureCursor(proof,supplied);
       const {window}=await readT4OriginalEventWindow({
         workspaceId,originalWriteOwnerRef,cursor,maxEvents:1,
-        authorizeOriginalRead:guard=>authorizeOriginalRead({...proof,...guard}),
-        readOriginalEvents,
+        authorizeOriginalRead:async guard=>{
+          if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_CAPTURE_MODE_CHANGED');
+          const allowed=await authorizeOriginalRead({...proof,...guard});
+          if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_CAPTURE_MODE_CHANGED');
+          return allowed;
+        },
+        ...(paged?{readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize:originalCommitPageSize}:{readOriginalEvents}),
       });
       if(window.count!==0)fail('ORIGINAL_HOST_CAPTURE_SOURCE_CURSOR_STALE');
       if(mode()!=='T4_NETWORK')fail('ORIGINAL_HOST_CAPTURE_MODE_CHANGED');
