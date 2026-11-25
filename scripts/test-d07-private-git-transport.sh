@@ -35,7 +35,8 @@ git init --bare --quiet "$remote"
 git init --quiet "$local"
 git -C "$local" checkout -q -b "$branch"
 printf 'source\n' > "$local/source.txt"
-git -C "$local" add source.txt
+printf '* text=auto\n' > "$local/.gitattributes"
+git -C "$local" add source.txt .gitattributes
 git -C "$local" commit --quiet -m source
 git -C "$local" push --quiet "$remote" "HEAD:$target"
 base="$(git -C "$local" rev-parse HEAD)"
@@ -43,6 +44,12 @@ git config --global "url.file://$remote.insteadOf" https://github.com/Faust-S/us
 mkdir "$temp/bin"
 cat > "$temp/bin/gh" <<'GH'
 #!/bin/sh
+if [ "${1:-}" = api ] && [ "${2:-}" = --method ] && [ "${3:-}" = POST ]; then
+  case "${D07_TEST_GH_BLOB_MODE:-denied}" in
+    allowed) printf '%s\n' "$D07_TEST_BLOB_SHA"; exit 0 ;;
+    *) printf 'HTTP 403\n' >&2; exit 1 ;;
+  esac
+fi
 case "${D07_TEST_GH_MODE:-private}" in
   private) printf 'true\ttrue\n' ;;
   public) printf 'false\ttrue\n' ;;
@@ -92,3 +99,30 @@ grep -Fx D07_T3_PRIVATE_TRANSPORT=PASS "$temp/published" > /dev/null
 expect_fail HEAD_CONFLICT bash "$transport" preflight "$base"
 [[ "$(remote_sha)" == "$candidate" ]]
 echo D07_T3_TRANSPORT_REAL_GIT=8/8
+
+# Separate diagnostic unit: simulate GitHub's smart-HTTP permission refusal,
+# then test the official API probe's two bounded outcomes. Actual Git is
+# still used for source checkout, blob identity and remote readback.
+export D07_TEST_REAL_GIT="$(command -v git)"
+export D07_TEST_BLOB_SHA="$(git rev-parse HEAD:.gitattributes)"
+cat > "$temp/bin/git" <<'GIT'
+#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = --dry-run ]; then
+    printf 'remote: Write access to repository not granted. HTTP 403\n' >&2
+    exit 1
+  fi
+done
+exec "$D07_TEST_REAL_GIT" "$@"
+GIT
+chmod +x "$temp/bin/git"
+for mode in allowed denied; do
+  expect_fail DRY_RUN_WRITE_PERMISSION env D07_TEST_GH_BLOB_MODE="$mode" bash "$transport" preflight "$candidate"
+  if [[ "$mode" == allowed ]]; then
+    grep -Fx D07_T3_PRIVATE_API_CONTENTS_WRITE=PASS "$temp/result" >/dev/null
+  else
+    grep -Fx D07_T3_PRIVATE_API_CONTENTS_WRITE=WRITE_PERMISSION "$temp/result" >/dev/null
+  fi
+  [[ "$(remote_sha)" == "$candidate" ]]
+done
+echo D07_T3_TRANSPORT_PERMISSION_DIAGNOSIS=2/2

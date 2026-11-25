@@ -33,11 +33,22 @@ fi
 [[ -n "${GH_TOKEN:-}" ]] || fail EXISTING_TOKEN_MISSING
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-# Use gh's official credential helper rather than the runner's default
-# GITHUB_TOKEN or a cached HTTP extraheader from a different checkout.
+# Use the same existing DOMEN credential explicitly through Git's standard
+# HTTPS askpass contract. No token in arguments, trace, credential file or
+# persistent Git configuration; no runner GITHUB_TOKEN fallback.
+cat > "$tmp/askpass" <<'ASKPASS'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' x-access-token ;;
+  *Password*) printf '%s\n' "$GH_TOKEN" ;;
+  *) exit 1 ;;
+esac
+ASKPASS
+chmod 700 "$tmp/askpass"
 git_private() {
-  git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
-    -c http.extraheader= -c http.https://github.com/.extraheader= "$@"
+  LC_ALL=C GIT_ASKPASS="$tmp/askpass" git -c credential.helper= \
+    -c credential.username=x-access-token -c http.extraheader= \
+    -c http.https://github.com/.extraheader= "$@"
 }
 if ! gh api "repos/$repo" --jq '[.private, (if .permissions.push == null then "unknown" else .permissions.push end)] | @tsv' > "$tmp/repo" 2> "$tmp/api"; then
   fail "API_$(classify "$tmp/api")"
@@ -55,11 +66,31 @@ remote_head() {
 }
 observed="$(remote_head)" || exit 1
 [[ "$observed" == "$expected" ]] || fail HEAD_CONFLICT
+# If receive-pack rejects write access, distinguish repository role metadata
+# from actual Contents write permission. POST exactly one already-existing
+# content-addressed blob; no ref update, no branch-policy bypass or publication.
+# This is a diagnostic only; a failed Git preflight remains a failed gate.
+probe_existing_blob(){
+  local blob_sha observed_sha
+  blob_sha="$(git rev-parse "$expected:.gitattributes" 2>/dev/null)" || { echo D07_T3_PRIVATE_API_CONTENTS_WRITE=PROBE_UNAVAILABLE; return; }
+  [[ "$blob_sha" =~ ^[0-9a-f]{40}$ ]] || { echo D07_T3_PRIVATE_API_CONTENTS_WRITE=PROBE_UNAVAILABLE; return; }
+  git cat-file blob "$blob_sha" > "$tmp/existing-blob" || { echo D07_T3_PRIVATE_API_CONTENTS_WRITE=PROBE_UNAVAILABLE; return; }
+  { printf '{"encoding":"base64","content":"'; base64 -w0 "$tmp/existing-blob"; printf '"}\n'; } > "$tmp/blob-request.json"
+  if ! observed_sha="$(gh api --method POST "repos/$repo/git/blobs" --input "$tmp/blob-request.json" --jq .sha 2> "$tmp/blob-api")"; then
+    printf 'D07_T3_PRIVATE_API_CONTENTS_WRITE=%s\n' "$(classify "$tmp/blob-api")"
+  elif [[ "$observed_sha" == "$blob_sha" ]]; then
+    echo D07_T3_PRIVATE_API_CONTENTS_WRITE=PASS
+  else
+    echo D07_T3_PRIVATE_API_CONTENTS_WRITE=UNEXPECTED_RESPONSE
+  fi
+}
 if [[ "$mode" == preflight ]]; then
   [[ "$(git rev-parse HEAD)" == "$expected" ]] || fail LOCAL_HEAD
   # No reference or file is changed by this operation.
   if ! git_private push --dry-run "$url" "HEAD:$target" > "$tmp/push" 2>&1; then
-    fail "DRY_RUN_$(classify "$tmp/push")"
+    reason="$(classify "$tmp/push")"
+    if [[ "$reason" == WRITE_PERMISSION ]]; then probe_existing_blob; fi
+    fail "DRY_RUN_$reason"
   fi
   printf 'D07_T3_PRIVATE_RECEIVE_PACK=PASS\n'
   exit 0

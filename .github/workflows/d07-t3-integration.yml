@@ -9,9 +9,8 @@ permissions:
   actions: read
 concurrency:
   group: d07-t3-integration
-  # One-time replacement of the queued read-only predecessor. Subsequent
-  # workflow changes must not cancel a qualified private publication in progress.
-  cancel-in-progress: ${{ github.event_name == 'push' && github.event.before == 'ec6788c9ea0a3d42a63e8039df03b47ef8ac6704' }}
+  # Never cancel a qualified private publication in progress.
+  cancel-in-progress: false
 jobs:
   private-transport:
     runs-on: ubuntu-latest
@@ -24,17 +23,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 873573fc5ff0f0336a468849730ab15b5dfa1b53
+          ref: 599633cf9dcb7abf2c3d1d9c999d39c75c816bbd
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
       - name: Classify Git transport failures without exposing logs
         run: bash pipeline/scripts/test-d07-private-git-transport.sh
-      - name: Verify existing token and exact private receive-pack without writes
+      - name: Verify exact private receive-pack and diagnose existing token permissions
         working-directory: site
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
-        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 873573fc5ff0f0336a468849730ab15b5dfa1b53
+        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 599633cf9dcb7abf2c3d1d9c999d39c75c816bbd
   t3-source:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -49,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 873573fc5ff0f0336a468849730ab15b5dfa1b53
+          ref: 599633cf9dcb7abf2c3d1d9c999d39c75c816bbd
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -69,7 +68,7 @@ jobs:
       - name: Preserve exact T2 subject and Workspace module
         run: |
           test "$(git -C domain rev-parse HEAD)" = "79068637e424c8348ca5ca846d8b6d84bcddd274"
-          test "$(git -C site rev-parse HEAD)" = "873573fc5ff0f0336a468849730ab15b5dfa1b53"
+          test "$(git -C site rev-parse HEAD)" = "599633cf9dcb7abf2c3d1d9c999d39c75c816bbd"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -125,6 +124,14 @@ jobs:
           trap - EXIT
           echo D07_T3_ORIGINAL_REGRESSION=PASS
           grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d07-regression.log"
+          node --import tsx --test scripts/tests/d07-brief-select-presentation.test.mjs scripts/tests/d07-brief-select-render.test.mjs scripts/tests/d07-acceptance-case-inputs.test.mjs scripts/tests/d07-acceptance-case-plan.test.mjs > "$RUNNER_TEMP/d07-acceptance-source.log" 2>&1 || {
+            echo D07_T3_ACCEPTANCE_SOURCE=FAIL
+            grep -E '^not ok [0-9]+ |^# (tests|pass|fail) ' "$RUNNER_TEMP/d07-acceptance-source.log" | cut -c1-180 | head -25
+            grep -oE 'D07_ACCEPTANCE_PLAN_[A-Z0-9_]+' "$RUNNER_TEMP/d07-acceptance-source.log" | sort -u | head -10 || true
+            exit 1
+          }
+          echo D07_T3_ACCEPTANCE_SOURCE=PASS
+          grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d07-acceptance-source.log"
           bun run check:types > "$RUNNER_TEMP/d07-types.log" 2>&1 || { echo D07_T3_TYPES=FAIL; grep -E 'error TS[0-9]+' "$RUNNER_TEMP/d07-types.log" | cut -c1-220 | head -35; exit 1; }
           echo D07_T3_TYPES=PASS
           node --check scripts/prepare-d07-t3-host.mjs
@@ -149,12 +156,15 @@ jobs:
           echo D07_T3_ASSEMBLY_SYNTAX=PASS
   original-t3-integration:
     needs: [t3-source, private-transport]
-    if: ${{ success() }}
+    # Qualification is independent of publication permission. Do not write if
+    # the explicit receive-pack gate failed. Never upload private artifacts.
+    if: ${{ !cancelled() && needs.t3-source.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:
       retained_commit: ${{ steps.release-push.outputs.retained_commit }}
       dist_sha256: ${{ steps.release-push.outputs.dist_sha256 }}
+      dist_tree_sha256: ${{ steps.case-plan.outputs.dist_tree_sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -163,7 +173,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 873573fc5ff0f0336a468849730ab15b5dfa1b53
+          ref: 599633cf9dcb7abf2c3d1d9c999d39c75c816bbd
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -346,7 +356,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "873573fc5ff0f0336a468849730ab15b5dfa1b53"
+          test "$(git rev-parse HEAD)" = "599633cf9dcb7abf2c3d1d9c999d39c75c816bbd"
           test -z "$(git status --porcelain --untracked-files=no)"
           local="runtime/t3-platform/0.3.1-rc.1"
           node --import tsx --input-type=module -e 'import {verifyPreparedD07Host} from "./scripts/prepare-d07-t3-host.mjs";import {verifyPreparedKernelSupport} from "./scripts/prepare-d07-local-kernel-input.mjs";import {verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";const root=process.argv[1];verifyPreparedD07Host(root+"/d07-host");verifyPreparedKernelSupport(root+"/kernel-support");verifyPlatformArchive(root+"/platform-inputs.zip")' "$local" > "$RUNNER_TEMP/d07-retain-recheck.log" 2>&1 || {
@@ -392,11 +402,27 @@ jobs:
           }
           echo D07_T3_ORDINARY_COMMAND_BYTE_PARITY=PASS
           echo D07_T3_RELEASE_COMMAND_VERIFIED=PASS
-      - name: Commit only the exact qualified private inputs and tested release command
+      - name: Bind the full deployment tree to the eleven-direction acceptance plan
+        id: case-plan
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "873573fc5ff0f0336a468849730ab15b5dfa1b53"
+          node --import tsx scripts/d07-t3-acceptance-case-plan.mjs --check dist > "$RUNNER_TEMP/d07-case-plan.log" 2>&1 || {
+            echo D07_T3_ACCEPTANCE_DIST=FAIL
+            grep -oE 'D07_(ACCEPTANCE_PLAN|T3_PREVIEW|PRIVATE_RELEASE)_[A-Z0-9_]+' "$RUNNER_TEMP/d07-case-plan.log" | sort -u | head -15 || true
+            exit 1
+          }
+          grep '^D07_ACCEPTANCE_PLAN=PASS ' "$RUNNER_TEMP/d07-case-plan.log"
+          digest="$(node --input-type=module -e 'import {snapshotReleaseTree,releaseTreeIdentity} from "./scripts/prepare-d07-private-release.mjs";console.log(releaseTreeIdentity(snapshotReleaseTree("dist")).sha256)')"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          echo "dist_tree_sha256=$digest" >> "$GITHUB_OUTPUT"
+          echo D07_T3_ACCEPTANCE_DIST=PASS
+      - name: Commit only the exact qualified private inputs and tested release command
+        if: ${{ success() && needs.private-transport.result == 'success' }}
+        working-directory: site
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "599633cf9dcb7abf2c3d1d9c999d39c75c816bbd"
           test -z "$(git diff --name-only)"
           node scripts/verify-d07-retained-index.mjs
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: retain qualified local T3 platform inputs [skip ci] [skip actions]'
@@ -407,18 +433,25 @@ jobs:
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: activate qualified self-contained T3 build in work branch [skip ci] [skip actions]'
           test -z "$(git status --porcelain --untracked-files=no)"
       - name: Authorized private branch retention and exact remote readback
+        if: ${{ success() && needs.private-transport.result == 'success' }}
         id: release-push
         working-directory: site
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           candidate="$(git rev-parse HEAD)"
-          bash ../pipeline/scripts/d07-private-git-transport.sh publish 873573fc5ff0f0336a468849730ab15b5dfa1b53 "$candidate"
+          bash ../pipeline/scripts/d07-private-git-transport.sh publish 599633cf9dcb7abf2c3d1d9c999d39c75c816bbd "$candidate"
           echo "retained_commit=$candidate" >> "$GITHUB_OUTPUT"
           echo "dist_sha256=$(sha256sum "$RUNNER_TEMP/d07-local-2.sha" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - name: Preserve qualification outcome without unauthorized publication
+        if: ${{ success() && needs.private-transport.result != 'success' }}
+        run: |
+          echo D07_T3_PRIVATE_RETENTION=BLOCKED_BY_TRANSPORT
+          echo D07_T3_PRODUCT_ACCEPTED=false
       # Never upload private source, prepared inputs, dist, logs or model data.
   retained-private-readback:
     needs: original-t3-integration
+    if: ${{ success() && needs.original-t3-integration.outputs.retained_commit != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -440,9 +473,10 @@ jobs:
         env:
           EXPECTED_RETAINED: ${{ needs.original-t3-integration.outputs.retained_commit }}
           EXPECTED_DIST_SHA: ${{ needs.original-t3-integration.outputs.dist_sha256 }}
+          EXPECTED_TREE_SHA: ${{ needs.original-t3-integration.outputs.dist_tree_sha256 }}
         run: |
           set -euo pipefail
-          [[ "$EXPECTED_RETAINED" =~ ^[0-9a-f]{40}$ && "$EXPECTED_DIST_SHA" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_RETAINED" =~ ^[0-9a-f]{40}$ && "$EXPECTED_DIST_SHA" =~ ^[0-9a-f]{64}$ && "$EXPECTED_TREE_SHA" =~ ^[0-9a-f]{64}$ ]]
           test "$(git rev-parse HEAD)" = "$EXPECTED_RETAINED"
           node --input-type=module -e 'import {readFileSync} from "node:fs";const p=JSON.parse(readFileSync("package.json","utf8"));if(p.scripts.build!=="node --import tsx scripts/build-d07-t3-local-site.mjs"||p.scripts.build!==p.scripts["t3:build"])process.exit(1)'
           bun install --frozen-lockfile > "$RUNNER_TEMP/readback-install.log" 2>&1 || { echo D07_T3_READBACK_INSTALL=FAIL; exit 1; }
@@ -462,6 +496,15 @@ jobs:
           (cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$RUNNER_TEMP/readback-dist.sha"
           test "$(sha256sum "$RUNNER_TEMP/readback-dist.sha" | cut -d ' ' -f 1)" = "$EXPECTED_DIST_SHA"
           echo D07_T3_RETAINED_BUILD_BYTES=PASS
+          tree="$(node --input-type=module -e 'import {snapshotReleaseTree,releaseTreeIdentity} from "./scripts/prepare-d07-private-release.mjs";console.log(releaseTreeIdentity(snapshotReleaseTree("dist")).sha256)')"
+          test "$tree" = "$EXPECTED_TREE_SHA"
+          echo D07_T3_RETAINED_TREE_IDENTITY=PASS
+          node --import tsx scripts/d07-t3-acceptance-case-plan.mjs --check dist > "$RUNNER_TEMP/readback-case-plan.log" 2>&1 || {
+            echo D07_T3_RETAINED_CASE_PLAN=FAIL
+            grep -oE 'D07_(ACCEPTANCE_PLAN|T3_PREVIEW|PRIVATE_RELEASE)_[A-Z0-9_]+' "$RUNNER_TEMP/readback-case-plan.log" | sort -u | head -10 || true
+            exit 1
+          }
+          grep '^D07_ACCEPTANCE_PLAN=PASS ' "$RUNNER_TEMP/readback-case-plan.log"
           node scripts/preview-d07-t3-local.mjs --http-audit > "$RUNNER_TEMP/readback-http.log" 2>&1 || {
             echo D07_T3_RETAINED_HTTP=FAIL
             grep -oE 'D07_T3_PREVIEW_[A-Z0-9_]+' "$RUNNER_TEMP/readback-http.log" | sort -u | head -20 || true
