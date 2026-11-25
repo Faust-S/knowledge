@@ -21,9 +21,9 @@ export function createT4OriginalNativeHostNetworkProfile({
   role,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
   scopeRef,ownerEpoch,requiredCryptoSuite,getMode:originalGetMode,
   originalAccess,originalVault,originalTopology,originalPeerHistory,originalPorts,
-  readOriginalBaselineAdmissionInput,readOriginalNetworkResumeInput,onStep,monotonicNow,enableSourceEventWindowRead=false,
+  readOriginalBaselineAdmissionInput,readOriginalNetworkResumeInput,onStep,monotonicNow,enableSourceEventWindowRead=false,enableSourceCaptureBinding=false,
 }={}){
-  if(typeof enableSourceEventWindowRead!=='boolean'||!['SOURCE','RECIPIENT'].includes(role)||typeof originalGetMode!=='function'||
+  if(typeof enableSourceCaptureBinding!=='boolean'||(enableSourceCaptureBinding&&!enableSourceEventWindowRead)||typeof enableSourceEventWindowRead!=='boolean'||!['SOURCE','RECIPIENT'].includes(role)||typeof originalGetMode!=='function'||
     !originalAccess||!originalVault||!originalPorts||typeof readOriginalBaselineAdmissionInput!=='function'||
     typeof readOriginalNetworkResumeInput!=='function')fail('NATIVE_NETWORK_PROFILE_ORIGINAL_PORTS_REQUIRED');
   requireFunctions(originalVault,['readEncryptedVault','unlockPassphrase']);
@@ -69,7 +69,7 @@ export function createT4OriginalNativeHostNetworkProfile({
       requireSignedTopologyAccess:true,requireOriginalVaultNodeSignature:true,requireDurableNetworkKeyBinding:true,
       requireOriginalVaultSealedContent:true,enablePublicationIndexMigration:true,enableExplicitNetworkResume:true,
       enableLocalSourceCapture:source,enableHistoricalAcknowledgementRecovery:source,enableLocalRetiredRecipientRecovery:!source,
-      enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,
+      enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,enableSourceCaptureBinding,
       enableReplacementSourceAdmission:source,enableReplacementSourceContent:source,enableReplacementSourceAckConfirmation:source,
       enableReplacementRecipientAdmission:!source,enableReplacementRecipientContent:!source,enableReplacementRecipientApply:!source});
     const close=()=>{if(closed)return;closed=true;try{transport.close();}finally{tlsBinding?.close();}};

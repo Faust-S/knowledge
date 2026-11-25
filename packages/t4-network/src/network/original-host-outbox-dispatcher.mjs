@@ -7,6 +7,7 @@ import {isT4NativeSubjectKind} from './standard-network-wire-candidate.mjs';
 import {matchesT4OriginalCapturedWindowDigest,readT4OriginalEventWindow}
   from './original-event-window.mjs';
 import {deriveT4OriginalNativeCaptureSession} from './original-network-publication.mjs';
+import {projectT4OriginalSourceCaptureBinding} from './original-source-event-window.mjs';
 
 export class T4OriginalHostOutboxDispatcherError extends Error {
   constructor(code,details={}) {
@@ -438,8 +439,8 @@ async function selectNativeCapture(params,before,w,a,guardList){
  * has already moved ahead of the recipient's verified cursor.
  */
 export async function readT4OriginalNativeCaptureSessionAtCursor(params={}){
-  const includeOriginalEventWindow=params.includeOriginalEventWindow??false;
-  if(typeof includeOriginalEventWindow!=='boolean'||![params.workspaceId,params.originalWriteOwnerRef,params.sourceNodeRef,
+  const includeOriginalEventWindow=params.includeOriginalEventWindow??false,includeOriginalCaptureBinding=params.includeOriginalCaptureBinding??false;
+  if(typeof includeOriginalEventWindow!=='boolean'||typeof includeOriginalCaptureBinding!=='boolean'||(includeOriginalCaptureBinding&&!includeOriginalEventWindow)||![params.workspaceId,params.originalWriteOwnerRef,params.sourceNodeRef,
     params.recipientNodeRef,params.scopeRef].every(ID)||
     params.sourceNodeRef===params.recipientNodeRef||
     params.networkTargetRef!==params.recipientNodeRef||
@@ -523,7 +524,8 @@ export async function readT4OriginalNativeCaptureSessionAtCursor(params={}){
     originalRecipientApplied:false,sourceCursorAdvanced:false,networkPublished:false,
   });
   return result('ORIGINAL_NATIVE_SESSION_SELECTED',{session,sourceCursorAfter:structuredClone(a),
-    originalCaptureEvidenceVerified:true,...(includeOriginalEventWindow?{sourceWindow:structuredClone(confirmed.window)}:{})});
+    originalCaptureEvidenceVerified:true,...(includeOriginalEventWindow?{sourceWindow:structuredClone(confirmed.window)}:{}),
+    ...(includeOriginalCaptureBinding?{originalCaptureBinding:projectT4OriginalSourceCaptureBinding({captured,session,sourceHostSessionRef:initial.hostSessionRef})}:{})});
 }
 
 /**

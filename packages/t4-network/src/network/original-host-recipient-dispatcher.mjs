@@ -1,4 +1,4 @@
-import {T4OriginalSourceEventWindowUnavailable} from './original-source-event-window.mjs';
+import {T4OriginalSourceEventWindowUnavailable,createT4OriginalSourceCaptureVerifier} from './original-source-event-window.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {requireT4OriginalRetiredAttemptStatus} from './original-network-session-phases.mjs';
 import {createHash} from 'node:crypto';
@@ -474,16 +474,26 @@ async function execute(p,entries,initialCursor,maxEntries){
     objectDeletionEnabled:false,createsScheduler:false,
   });
 }
-function requireNativeRecipientPorts(p){
+function requireNativeRecipientPorts(p,bounded=false){
   if(![p.workspaceId,p.originalWriteOwnerRef,p.sourceNodeRef,
     p.recipientNodeRef,p.scopeRef].every(ID)||
     p.sourceNodeRef===p.recipientNodeRef||
     !Number.isSafeInteger(p.ownerEpoch)||p.ownerEpoch<1||
     !['readOriginalHostContext','authorizeOriginalHostTask','authorizeOriginalRead',
-      'authorizeOriginalWrite','authorizeNetworkReceive','verifyOriginalSourceEvent']
+      'authorizeOriginalWrite','authorizeNetworkReceive',...(bounded?[]:['verifyOriginalSourceEvent'])]
       .every(k=>typeof p[k]==='function')||
     typeof p.originalKernel?.hasOperation!=='function')
     fail('RECIPIENT_NATIVE_ORIGINAL_HOST_PORTS_REQUIRED');
+}
+function bindSourceCaptureVerifier(p,options,session,sourceCursorBefore){
+  if(options.readOriginalSourceCaptureSnapshot===undefined)return {p,options};
+  if(p.verifyOriginalSourceEvent!==undefined||['readOriginalSourceHostContext','readOriginalSourceEvents','readOriginalSourceWindow',
+    'verifyOriginalSourceSubject','verifyOriginalSourceBinding'].some(k=>options[k]!==undefined&&options[k]!==null))
+    fail('RECIPIENT_NATIVE_MULTIPLE_SOURCE_VERIFIERS');
+  const v=createT4OriginalSourceCaptureVerifier({session,sourceCursorBefore,getMode:p.getMode,
+    readOriginalSourceCaptureSnapshot:options.readOriginalSourceCaptureSnapshot});
+  const {verifyOriginalSourceEvent,...readers}=v;
+  return {p:{...p,verifyOriginalSourceEvent},options:{...options,...readers}};
 }
 function nativeRecipientGuard(p,session,admission=null){
   let initial=null;
@@ -613,8 +623,9 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
     originalRecipientApplied:false,originalSubjectMutationInvoked:false,
     createsScheduler:false,createsStore:false,...extra});
   if(p.getMode?.()==='LOCAL_T3')return done('LOCAL_T3',{dispatched:false});
-  requireNativeRecipientPorts(p);
   const session=validateT4OriginalNativeCaptureSession(options.session);
+  ({p,options}=bindSourceCaptureVerifier(p,options,session,options.sourceCursorBefore));
+  requireNativeRecipientPorts(p);
   const {sourceCursorBefore,authorizeOriginalRecipientSession,
     frameDiscoveryPort,requiredCryptoSuite,recipientPublicationPort:rawPublication,
     createOriginalRecipientPhasePort,resolveOriginalSigningContext,signOriginalNodeBytes,
@@ -905,7 +916,10 @@ async function executeNativeRecipientStep(p,options,captureAppliedWitness=null){
 // most one admission phase or one result continuation; live admission
 // itself grants no mutation. The original APPLY_INTENT owns the write.
 async function executeNativeReplacementRecipientStep(p,options){
-  requireNativeRecipientPorts(p);mode(p);
+  mode(p);
+  const c=validateT4OriginalReplacementSessionCandidate(options.selection?.session),before=options.selection.sourceCursorBefore;
+  ({p,options}=bindSourceCaptureVerifier(p,options,c,before));
+  requireNativeRecipientPorts(p);
   const {selection,requiredCryptoSuite,frameDiscoveryPort,recipientPublicationPort:rawPublication,
     authorizeOriginalRecipientSession,readOriginalSourceContentHistory,readOriginalOwnerEligibility,authorizeOriginalReplacement,
     readOriginalSourceHostContext,authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow=null,verifyOriginalSourceSubject,
@@ -913,7 +927,6 @@ async function executeNativeReplacementRecipientStep(p,options){
     authorizeOriginalReplacementRecipientApplyAdmission,createOriginalReplacementRecipientPhasePort,
     enableOriginalReplacementApply=false,createOriginalReplacementRecipientAckPublicationPort,
     resolveOriginalSigningContext,signOriginalNodeBytes,retryMissing=false}=options;
-  const c=validateT4OriginalReplacementSessionCandidate(selection?.session),before=selection.sourceCursorBefore;
   if(selection.schema!=='IWXA_T4_ORIGINAL_LOCAL_REPLACEMENT_SELECTION_V1'||selection.role!=='RECIPIENT'||
     typeof enableOriginalReplacementApply!=='boolean'||typeof retryMissing!=='boolean'||
     !(enableOriginalReplacementApply?[null,'RECEIVED','VERIFIED','APPLY_INTENT']:[null,'RECEIVED']).includes(selection.originalLocalPhase)||
@@ -1067,7 +1080,7 @@ async function executeNativeRecipientOwnerStep(p,options){
     originalRecipientCursorAdvanced:false,sourceCursorAdvanced:false,
     createsStore:false,createsScheduler:false,...extra});
   if(p.getMode?.()==='LOCAL_T3')return result('LOCAL_T3');
-  requireNativeRecipientPorts(p);
+  requireNativeRecipientPorts(p,typeof options.readOriginalSourceCaptureSnapshot==='function');
   const {readOriginalNativeSessionAtCursor,createOriginalRecipientPublicationPort,
     authorizeOriginalRecipientSession,useSignedSourceAnnouncement=false,
     readOriginalLocalRetiredRecipientSession=null,...stepOptions}=options;

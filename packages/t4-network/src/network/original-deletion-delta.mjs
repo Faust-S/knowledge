@@ -844,6 +844,7 @@ async function applyOriginalDeleteCore({
   const sourceProof=Object.freeze({...ctx,operation:'t4.original-delete.source-verify',
     sourceEventDigest:d.sourceEventDigest,originalEventType:d.originalEventType,
     windowDigest:d.windowDigest,captureRef:d.captureRef,
+    ...(nativeNetworkEvidence?{originalSubjectDeltaSha256:exact.sha256}:{}),
     networkEnvelopeIsNotSignedEvidence:true});
   if(await authorizeOriginalWrite(ctx)!==true)
     fail('DELETE_ORIGINAL_RECIPIENT_AUTHORITY_DENIED');
@@ -952,7 +953,7 @@ export async function reconcileT4OriginalDeleteFromT3Event({
   const proof=Object.freeze({...ctx,
     operation:'t4.original-delete.source-verify',
     sourceEventDigest:d.sourceEventDigest,windowDigest:d.windowDigest,
-    originalEventType:d.originalEventType,captureRef:d.captureRef,
+    originalEventType:d.originalEventType,captureRef:d.captureRef,originalSubjectDeltaSha256:exact.sha256,
     networkEnvelopeIsNotSignedEvidence:true});
   if(await authorizeOriginalRead({...ctx,operation:'t1.listEventsSince'})!==true||
     await authorizeOriginalWrite(ctx)!==true||

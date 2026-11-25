@@ -344,3 +344,47 @@ test('K97 authenticated original owner projects exactly one captured Event witho
   assert.throws(()=>createT4OriginalSourceEventWindowRequest({session:later.session,sourceCursorBefore:before,requesterNodeRef:recipientNodeRef,ownerNodeRef:sourceNodeRef}),err('SOURCE_EVENT_WINDOW_REQUEST_INVALID'));
   assert.equal(f.writes(),0);assert.equal(f.attempts.size,0);
 });
+
+
+test('K101 original capture binding projects only the independently captured subject metadata',async()=>{
+  const {createT4OriginalSourceEventWindowRequest,readT4OriginalSourceEventWindow,createT4OriginalSourceCaptureVerifier}=await import('../src/network/original-source-event-window.mjs');
+  const f=fixture();await f.stage();await f.stageSecond();
+  const before=f.outbox.get('capture:relation:1').sourceCursorBefore,params=selectionPorts(f,before);
+  const selected=await readT4OriginalNativeCaptureSessionAtCursor(params),session=selected.session;
+  const {sourceNodeRef,recipientNodeRef,scopeRef}=session;
+  const tech='original:technical:workspace';let ref='host:original:source';
+  const readOriginalSourceCaptureSnapshot=async request=>readT4OriginalSourceEventWindow({request,technicalWorkspaceId:tech,getMode:params.getMode,
+    readOriginalHostContext:async()=>({workspaceId:tech,originalWriteOwnerRef:owner,nodeRef:sourceNodeRef,scopeRef,hostSessionRef:ref}),
+    authorizeOriginalOwnerHistoryRead:async()=>true,
+    readOriginalCaptureSelection:(cursor,options)=>readT4OriginalNativeCaptureSessionAtCursor({...selectionPorts(f,cursor),...options,
+      readOriginalHostContext:async()=>({workspaceId:ws,originalWriteOwnerRef:owner,nodeRef:sourceNodeRef,scopeRef,hostSessionRef:ref})})});
+  const request=createT4OriginalSourceEventWindowRequest({session,sourceCursorBefore:before,requesterNodeRef:recipientNodeRef,ownerNodeRef:sourceNodeRef,includeOriginalCaptureBinding:true});
+  const v=await readOriginalSourceCaptureSnapshot(request),b=v.originalCaptureBinding;
+  assert.deepEqual(Object.keys(b).sort(),['objectId','relationContentDigest','sourceHostSessionRef','subjectId','toObjectId']);
+  assert.equal(b.subjectId,relationId);assert.equal(b.objectId,from);assert.equal(b.toObjectId,to);
+  assert.equal(b.sourceHostSessionRef,ref);
+  const verifier=createT4OriginalSourceCaptureVerifier({session,sourceCursorBefore:before,readOriginalSourceCaptureSnapshot,getMode:params.getMode});
+  const proof={operation:'t4.original-relation-source.verify',workspaceId:ws,originalWriteOwnerRef:owner,sourceEventId:session.sourceEventId,
+    sourceEventDigest:session.sourceEventDigest,windowDigest:session.capturedWindowDigest,networkEnvelopeIsNotSignedEvidence:true,
+    relationId,fromObjectId:from,toObjectId:to,relationContentDigest:b.relationContentDigest,originalSubjectKind:session.changeKind,
+    originalSubjectId:relationId,originalSubjectDeltaSha256:session.capturedSha256};
+  const h={schema:'IWXA_T4_ORIGINAL_SOURCE_NETWORK_HEAD_PROOF_V1',signedHeadMatchesOriginalT3EventPrefix:true,signedDiffMatchesOriginalT3Frontier:true,
+    originalSourceSubjectIndependentlyRead:true,originalBusinessApplied:false,originalT3ExchangeUsed:false,
+    workspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,scopeRef,sessionRef:session.sessionRef,ownerEpoch:session.ownerEpoch,
+    changeId:session.changeId,changeKind:session.changeKind,originalSourceEventId:session.sourceEventId,originalEventDigest:session.sourceEventDigest,
+    originalSourceRevision:session.sourceRevision,sourceEventWindowDigest:session.capturedWindowDigest,sourcePrefixDigestBefore:session.sourcePrefixDigestBefore,
+    sourcePrefixDigestAfter:session.sourcePrefixDigestAfter,originalCapturedRevisionProofRequired:true,ciphertextContentDigest:'sha256:'+'0'.repeat(64)};
+  const binding={operation:'t4.network.original.sealed.open',sourceNodeRef,recipientNodeRef,scopeRef,sessionRef:session.sessionRef,
+    changeId:session.changeId,changeKind:session.changeKind,sourceEventId:session.sourceEventId,ownerRef:owner,originalEventDigest:session.sourceEventDigest,
+    sourcePrefixDigestAfter:session.sourcePrefixDigestAfter,contentDigest:h.ciphertextContentDigest,originalSourceHeadProof:h,
+    originalT3SourceSubjectEventAndContentReadbackRequired:true,originalWorkspaceId:ws,originalSourceRevision:session.sourceRevision,
+    originalSourceEventDigest:session.sourceEventDigest,originalEventWindowDigest:session.capturedWindowDigest,originalSubjectKind:session.changeKind,
+    originalSubjectId:relationId,originalSubjectDeltaSha256:session.capturedSha256};
+  assert.equal(await verifier.verifyOriginalSourceEvent(proof),false);
+  assert.equal(await verifier.verifyOriginalSourceBinding(binding),true);
+  assert.equal(await verifier.verifyOriginalSourceEvent(proof),true);
+  assert.equal(await verifier.verifyOriginalSourceEvent({...proof,toObjectId:'object:forged'}),false);
+  ref='host:original:restarted';await assert.rejects(verifier.verifyOriginalSourceBinding(binding),err('SOURCE_CAPTURE_VERIFIER_OWNER_CHANGED'));
+  assert.equal(await verifier.verifyOriginalSourceEvent(proof),false);
+  assert.equal(f.writes(),0);
+});

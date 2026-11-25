@@ -700,3 +700,28 @@ test('K97 bounded original source projection drives recipient phase and cursor r
   assert.equal((await step()).state,'NO_NEXT_ORIGINAL_EVENT');
   assert.ok(reads>5);
 });
+
+
+test('K101 bounded source capture replaces all remote subject callbacks and checks exact metadata before native writes',async()=>{
+  const {projectT4OriginalSourceCaptureBinding}=await import('../src/network/original-source-event-window.mjs');
+  const f=await fixture();await f.full();
+  const capture={kind:'OBJECT_PUT',subjectId:objectId,objectId,prepared:f.prepared,
+    originalIntentEventAndCanonicalBytesVerified:true,capturedWindowDigestVerified:true};
+  let reads=0,mode='valid';
+  const readOriginalSourceCaptureSnapshot=async request=>{
+    reads++;assert.deepEqual(request.session,f.session);assert.deepEqual(request.sourceCursorBefore,f.predecessor);assert.equal(request.includeOriginalCaptureBinding,true);
+    if(mode==='busy')return null;
+    const b=projectT4OriginalSourceCaptureBinding({captured:capture,session:f.session,sourceHostSessionRef:'host:k101:source'});
+    return {schema:'IWXA_T4_ORIGINAL_SOURCE_EVENT_WINDOW_RESULT_V1',request,window:clone(f.sourceWindow),nextCursor:clone(f.nextCursor),
+      originalCaptureBinding:{...b,...(mode==='wrong'?{objectContentDigest:H('wrong content')}:{} )},
+      originalOwnerReadOnly:true,originalCaptureEvidenceVerified:true,originalEventPayloadReturned:false,originalSubjectMutationInvoked:false,liveNetworkAuthorityGranted:false};
+  };
+  const opts={readOriginalSourceCaptureSnapshot,readOriginalSourceHostContext:undefined,readOriginalSourceEvents:undefined,
+    verifyOriginalSourceSubject:undefined,verifyOriginalSourceBinding:undefined};
+  const step=()=>f.ownerStep(opts,{verifyOriginalSourceEvent:undefined});
+  mode='busy';await assert.rejects(step(),code('SOURCE_EVENT_WINDOW_OWNER_BUSY'));assert.equal(f.counters.subjectWrites,0);
+  mode='wrong';await assert.rejects(step(),code('SUBJECT_ORIGINAL_SOURCE_CONTENT_NOT_PROVEN'));assert.equal(f.counters.subjectWrites,0);
+  mode='valid';await step();await step();const done=await step();
+  assert.equal(done.state,'RECIPIENT_CURSOR_ADVANCED');assert.equal(f.counters.subjectWrites,1);assert.equal(f.cursorWrites(),1);
+  assert.ok(reads>=12);
+});

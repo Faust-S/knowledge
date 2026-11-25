@@ -579,7 +579,7 @@ export async function openT4OriginalNetworkSubjectChange({
     ...(change.changeKind==='OBJECT_PUT'?{
       originalObjectId:delta.objectId,originalSchemaId:delta.schemaId,
       originalSchemaVersion:delta.schemaVersion,
-      originalObjectContentDigest:delta.objectContentDigest,
+      originalObjectContentDigest:delta.objectContentDigest,originalSubjectDeltaSha256:source.sha256,
       originalT3SourceObjectEventAndContentReadbackRequired:true,
       signedTransportContentIsNotSourceObjectEvidence:true,
     }:{

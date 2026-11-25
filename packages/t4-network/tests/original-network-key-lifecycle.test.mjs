@@ -1417,7 +1417,8 @@ test('K90 complete native T4 profile binds both roles to their exact original si
       authorizeOriginalReplacementHistoryCaller:async p=>p.peerContext.nodeRef===peer&&p.peerContext.originalPeerSessionRef==='peer:k90:authenticated'});
     // The bounded profile must assemble without a full remote Event reader.
     delete originalPorts.readOriginalSourceEvents;
-    const config={role,enableSourceEventWindowRead:true,technicalWorkspaceId:tech,sourceWorkspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,
+    if(!source)for(const k of ['readOriginalSourceHostContext','verifyOriginalSourceSubject','verifyOriginalSourceBinding','verifyOriginalSourceEvent'])delete originalPorts[k];
+    const config={role,enableSourceEventWindowRead:true,enableSourceCaptureBinding:true,technicalWorkspaceId:tech,sourceWorkspaceId:WS,originalWriteOwnerRef:OWNER,sourceNodeRef:A,recipientNodeRef:B,
       scopeRef:SCOPE,ownerEpoch:2,requiredCryptoSuite:SUITE,getMode,originalPorts,
       originalAccess:{registry:f.registry,...f.accessFor,expectedContext:f.context,clock:f.clock},
       originalVault:{localKeyRef:source?localBinding.keyId:remoteBinding.keyId,remoteKeyRef:source?remoteBinding.keyId:localBinding.keyId,
@@ -1444,6 +1445,7 @@ test('K90 complete native T4 profile binds both roles to their exact original si
       assert.equal(o.originalSignedTopologyAccess,true);assert.equal(o.originalDurableNetworkKeyBinding,true);
       assert.equal(o.originalReplacementTerminalRecoveryEnabled,true);assert.equal(o.originalReplacementEligibilityReadEnabled,true);
       assert.equal(o.originalSourceEventWindowReadEnabled,true);
+      assert.equal(o.originalSourceCaptureBindingEnabled,true);
       assert.equal(o.originalSignedReplacementHistoryBound,true);assert.equal(o.originalReplacementHistoryCarrierBound,true);
       assert.equal(o.originalTopologyBinding.nativeWireProfile,'INDEXED');
       assert.equal(o.originalVaultSealedContentIdentity.role,p.role);
