@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FROZEN_APPLICABILITY_AND_LINK_AUDIT_READY_AFTER_WORKFLOW_CORRECTION",
+  "status": "FROZEN_ONE_TIME_QUALIFICATION_REQUESTED",
   "scope": "1.6.0",
   "siteCommit": "50434a76193644c552a13fe087d281ff8a2f61e8",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -323,5 +323,16 @@
       "cause": "String replacement expanded shell regex dollar-apostrophe into workflow suffix; fixed by literal callback and exact reversible patch",
       "productOrWitnessChanged": false
     }
-  ]
+  ],
+  "oneTimeRequest": {
+    "runId": 45697492951,
+    "preparedCommit": "1e9cc724c9b76c43fc87b612501c43ea745d3362",
+    "requestCommit": "5119f72069eaa7d82d5c6022e8e2a73460af9555",
+    "requestBranch": "ci/once/d05-t3-release/1e9cc724c9b76c43fc87b612501c43ea745d3362",
+    "requestFile": ".github/ci-requests/d05-t3-release.json",
+    "runStatusAtRecording": "queued",
+    "conclusionAtRecording": null,
+    "matchingRuns": 1,
+    "immutable": true
+  }
 }
