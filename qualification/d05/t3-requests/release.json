@@ -1,10 +1,10 @@
 {
   "schema": "IWXA_D05_T3_GROUPED_QUALIFICATION_REQUEST/1",
-  "siteCommit": "12ec1d040b8cdf1f7630ea4faac893cf3057cc72",
+  "siteCommit": "d3ac6441d18c821cac01ec9f014b54138f416d2f",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
-  "assistantCommit": "352cd6fd1cd40d8bf8b5340ba18a00a55bcdf648",
+  "assistantCommit": "734591f3953e95a17e2141bb6583e45c20839da4",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
-  "witnessCommit": "7563f85505e04528f0654355b26e82dad920e4b2",
+  "witnessCommit": "67b05310ef4150253f23c1597a3635082e2606bd",
   "evaluatorCommit": "d506577539a4ca530a02f548fa2b225221a6af11",
   "expectedRetainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
   "skillsVersion": "1.6.0",
@@ -29,10 +29,11 @@
     45655978598,
     45656585105,
     45662818819,
-    45666678817
+    45666678817,
+    45682754906
   ],
   "scopeExpansionAllowed": false,
-  "reason": "Frozen 1.6.0 release blocker only. Previous exact Linux functional qualification succeeded. Real light-profile hardware returned exact source in all seven scenarios but selected the correct advice only once and did not confirm offline worker termination. Restore meaningful choice IDs with exact-source attachment, and make witness poll both Worker exit observations within the existing 10s bound. Same eleven services, fifteen result contexts, forty-six choices, seven hardware scenarios and all original qualification gates. Hardware runs first; only if it passes is the single full Linux candidate qualification and private publication executed. A single explicit exact-revision CI request in an isolated once branch, or a deliberate workflow_dispatch, is permitted. No scope expansion.",
+  "reason": "Frozen 1.6.0 release blocker only. One-time admission and actual WebGPU execution passed, exact result facts were preserved 7/7, worker exit and cache release passed online and offline, but semantic choices passed only 3/7. Add bounded retrieval hints from distinctive words of the human question and the existing authored recommendation descriptions. Preserve full source, all 46 choices, explicit abstention, unchanged worker lifecycle and all seven real-model quality scenarios. No product scope expansion; existing hardware witness bytes are unchanged. One intentional request only; full Linux and publication run only after the same hardware quality gate passes.",
   "productAccepted": false,
   "remotePublicationVerified": false,
   "formatOnlyCorrection": false,

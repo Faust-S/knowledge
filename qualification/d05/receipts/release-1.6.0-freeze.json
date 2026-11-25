@@ -1,12 +1,12 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FROZEN_ONE_TIME_QUALIFICATION_REQUESTED",
+  "status": "FROZEN_ADVICE_CONTEXT_CORRECTED_READY_FOR_ONE_TIME_REQUEST",
   "scope": "1.6.0",
-  "siteCommit": "12ec1d040b8cdf1f7630ea4faac893cf3057cc72",
+  "siteCommit": "d3ac6441d18c821cac01ec9f014b54138f416d2f",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
-  "assistantCommit": "352cd6fd1cd40d8bf8b5340ba18a00a55bcdf648",
+  "assistantCommit": "734591f3953e95a17e2141bb6583e45c20839da4",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
-  "witnessCommit": "7563f85505e04528f0654355b26e82dad920e4b2",
+  "witnessCommit": "67b05310ef4150253f23c1597a3635082e2606bd",
   "evaluatorCommit": "d506577539a4ca530a02f548fa2b225221a6af11",
   "retainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
   "skillBlob": "46f402f30831f992827f24832f51975f4dc5d76e",
@@ -61,13 +61,17 @@
     }
   },
   "localControlledEvidence": {
-    "commonAssistantTestsPassed": 104,
-    "commonAssistantTestsTotal": 105,
+    "commonAssistantTestsPassed": 108,
+    "commonAssistantTestsTotal": 109,
     "environmentUnavailableTest": "URL",
     "adviceMappings": 46,
     "abstentions": 15,
     "reorderedMappings": 46,
-    "workerExitCases": 9
+    "workerExitCases": 9,
+    "resultAdviceTestsPassed": 14,
+    "resultAdviceTestsTotal": 14,
+    "questionEvidenceCases": 7,
+    "questionEvidenceNote": "Six subject questions have a unique leading matching recommendation; the unrelated question has no matches. This is input preparation evidence, not model quality."
   },
   "manualDispatchOnly": false,
   "hardwareFirst": true,
@@ -78,15 +82,29 @@
     "passed": 15,
     "total": 15
   },
-  "oneTimeRequest": {
-    "runId": 45682754906,
-    "preparedCommit": "65fab0c8d4d32fb1c6c45d012c0c8eb2184135f5",
-    "requestCommit": "7b6b402794a568496b127a82a0dbf3c07960e46b",
-    "requestBranch": "ci/once/d05-t3-release/65fab0c8d4d32fb1c6c45d012c0c8eb2184135f5",
-    "requestFile": ".github/ci-requests/d05-t3-release.json",
-    "runStatusAtRecording": "queued",
-    "conclusionAtRecording": null,
-    "matchingRuns": 1,
-    "immutable": true
-  }
+  "priorOneTimeAttempts": [
+    {
+      "runId": 45682754906,
+      "preparedCommit": "65fab0c8d4d32fb1c6c45d012c0c8eb2184135f5",
+      "requestCommit": "7b6b402794a568496b127a82a0dbf3c07960e46b",
+      "requestBranch": "ci/once/d05-t3-release/65fab0c8d4d32fb1c6c45d012c0c8eb2184135f5",
+      "requestFile": ".github/ci-requests/d05-t3-release.json",
+      "runStatusAtRecording": "queued",
+      "conclusionAtRecording": null,
+      "matchingRuns": 1,
+      "immutable": true,
+      "runStatus": "completed",
+      "conclusion": "failure",
+      "hardwareReceipt": "qualification/d05/receipts/45682754906-hardware.json",
+      "correctChoice": {
+        "passed": 3,
+        "total": 7
+      },
+      "exactSource": {
+        "passed": 7,
+        "total": 7
+      },
+      "workerExit": "PASS"
+    }
+  ]
 }
