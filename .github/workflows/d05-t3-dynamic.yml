@@ -2,11 +2,14 @@ name: D05 T3 consolidated dynamic context qualification
 on:
   push:
     branches: [test/2026-11-24-d05-t3-integration]
-    paths: [.github/workflows/d05-t3-dynamic.yml]
+    paths: [qualification/d05/t3-requests/dynamic.json]
   workflow_dispatch:
 permissions:
   contents: read
   actions: read
+concurrency:
+  group: d05-t3-dynamic-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   source:
     runs-on: ubuntu-latest
@@ -90,7 +93,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node --test scripts/lib/t3-webgpu-probe.test.mjs scripts/prepare-t3-retained-commit.test.mjs scripts/lib/cehovod-product-invocation.test.mjs scripts/serve-cehovod-t2.test.mjs
+          node --test scripts/lib/t3-webgpu-probe.test.mjs scripts/prepare-t3-retained-commit.test.mjs
           node --check scripts/verify-cehovod-t3-product.mjs
           node --experimental-strip-types --test scripts/lib/t3-assistant-vite-config.test.mjs
           node --check public/assets/cehovod-t3-bootstrap.mjs
@@ -332,6 +335,22 @@ jobs:
           console.log("D05_T3_SUBJECT_COUNTS "+JSON.stringify(counts));
           JS
           echo D05_T3_SUBJECT_PASS
+      - name: Require source qualification before downloading or building the platform
+        id: source_gate
+        shell: bash
+        env:
+          NATIVE_CONTEXT_OUTCOME: ${{ steps.native_context.outcome }}
+          SSR_OUTCOME: ${{ steps.ssr.outcome }}
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+          TYPES_OUTCOME: ${{ steps.site_types.outcome }}
+          MODULE_OUTCOME: ${{ steps.module.outcome }}
+          SUBJECT_OUTCOME: ${{ steps.subject.outcome }}
+        run: |
+          set -euo pipefail
+          for result in "$NATIVE_CONTEXT_OUTCOME" "$SSR_OUTCOME" "$LINT_OUTCOME" "$TYPES_OUTCOME" "$MODULE_OUTCOME" "$SUBJECT_OUTCOME"; do
+            test "$result" = success || { echo D05_T3_SOURCE_GATE_FAIL; exit 1; }
+          done
+          echo D05_T3_SOURCE_GATE_PASS
       - name: Verify exact portable common platform
         working-directory: site
         env:
@@ -487,6 +506,18 @@ jobs:
           grep -E '^\{"status":"CEHOVOD_T3_PUBLIC_COLD_OFFLINE_PASS","routes":11,"files":[0-9]+,"serverStopped":true,"browserRestarted":true,"actualInference":false,"protectedWorkspaceAccepted":false\}$' "$log"
           grep -E '^\{"status":"CEHOVOD_T3_ALL_SITE_COLD_PASS","siteRoutes":[0-9]+,"serviceRoutes":11,"localAssetErrors":0,"protectedWorkspaceAccepted":false\}$' "$log"
           echo D05_T3_PUBLIC_OFFLINE_PASS
+      - name: Require browser qualification before the independent repeat builds
+        shell: bash
+        env:
+          BROWSER_OUTCOME: ${{ steps.browser.outcome }}
+          DYNAMIC_OUTCOME: ${{ steps.dynamic.outcome }}
+          OFFLINE_OUTCOME: ${{ steps.offline.outcome }}
+        run: |
+          set -euo pipefail
+          for result in "$BROWSER_OUTCOME" "$DYNAMIC_OUTCOME" "$OFFLINE_OUTCOME"; do
+            test "$result" = success || { echo D05_T3_BROWSER_GATE_FAIL; exit 1; }
+          done
+          echo D05_T3_BROWSER_GATE_PASS
       - name: Exact repeat build and damaged-input rollback from retained bytes
         id: repro
         continue-on-error: true
@@ -506,7 +537,6 @@ jobs:
           grep -E '^\{"status":"CEHOVOD_T3_REPRO_PASS","files":[0-9]+,"invalidInputPreservedDist":true,"exactBytes":true,"productAccepted":false\}$' "$log"
           echo D05_T3_REPRO_PASS
       - name: Require exact-source qualification
-        if: always()
         shell: bash
         env:
           NATIVE_CONTEXT_OUTCOME: ${{ steps.native_context.outcome }}

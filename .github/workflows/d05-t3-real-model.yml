@@ -2,11 +2,14 @@ name: D05 T3 actual model on hardware-required WebGPU
 on:
   push:
     branches: [test/2026-11-24-d05-t3-integration]
-    paths: [.github/workflows/d05-t3-real-model.yml]
+    paths: [qualification/d05/t3-requests/real-model.json]
   workflow_dispatch:
 permissions:
   contents: read
   actions: read
+concurrency:
+  group: d05-t3-real-model-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   model:
     runs-on: macos-latest

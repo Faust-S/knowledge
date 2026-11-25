@@ -2,11 +2,14 @@ name: D05 T3 protected production and Exchange qualification
 on:
   push:
     branches: [test/2026-11-24-d05-t3-integration]
-    paths: [.github/workflows/d05-t3-protected.yml]
+    paths: [qualification/d05/t3-requests/protected.json]
   workflow_dispatch:
 permissions:
   contents: read
   actions: read
+concurrency:
+  group: d05-t3-protected-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   protected:
     runs-on: ubuntu-latest

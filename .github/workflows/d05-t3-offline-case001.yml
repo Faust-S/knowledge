@@ -2,11 +2,14 @@ name: D05 T3 full CASE-001 after server shutdown
 on:
   push:
     branches: [test/2026-11-24-d05-t3-integration]
-    paths: [.github/workflows/d05-t3-offline-case001.yml]
+    paths: [qualification/d05/t3-requests/offline-case001.json]
   workflow_dispatch:
 permissions:
   contents: read
   actions: read
+concurrency:
+  group: d05-t3-offline-case001-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   protected:
     runs-on: ubuntu-latest

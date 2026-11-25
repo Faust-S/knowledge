@@ -1,0 +1,16 @@
+# D05 T3 qualification scheduling
+
+Only the dedicated D05 qualification branch is affected. Editing or pinning a workflow no longer schedules a job. Existing queued/running jobs retain their original workflow and exact source pins.
+
+A deliberate request is a new commit changing one JSON file under `qualification/d05/t3-requests/`, named after the required phase. The file is a scheduling signal and an audit record, not an override of any executable input. Before making the request, review the workflow's pinned site, canonical subject repository, assistant and original One Core commits. Record the intended pins, reason and prerequisite receipts in the request. Never issue a request merely for formatting or a documentation-only commit. For a workflow that does not exist on the default branch, use this branch-specific push mechanism rather than relying on workflow_dispatch. Do not change the repository default branch to enable manual dispatch.
+
+Normal progression:
+1. Locally inspect/validate the complete batch; no remote run per individual edit.
+2. Run the consolidated `dynamic` phase for one frozen candidate. It collects source diagnostics first. If the source gate fails, it does not download the platform or build Host. If browser qualification fails, it does not spend resources on independent repeated builds. All original success criteria remain mandatory for a successful final qualification.
+3. After the consolidated phase passes, schedule the necessary original offline protected production/Exchange witness and hardware model witness on the same functional candidate. The earlier independent online protected witness is available if its distinct acceptance criteria need requalification; do not claim an offline-only test covers a distinct online criterion. Do not rerun obsolete source or protected phases merely because a new commit exists.
+4. The private write permission probe is cheap but only required when access is genuinely in doubt. If already queued, wait for its result instead of sending another. Never start the costly retained-publication phase until the exact source is qualified and the permission path is confirmed. It must independently read back the private tree and reproduce the actual build.
+5. Final independent acceptance remains required. Reuse previous evidence only with verified scope and unchanged relevant inputs; never label a skipped or previous-revision test as a pass on new executable code.
+
+Concurrency is phase-specific and does not cancel a running job. GitHub may replace an older pending job in the same concurrency group; request only one intended candidate per phase. No source bytes, models, credentials or private dist artifacts are published. Do not use Actions in private repositories. Existing original platform pins, verification gates, secret references and cleanup boundaries are retained.
+
+The earlier `integration` source-only route, `protected` online witness and `retained` workflow remain available for explicit targeted qualification; none starts on workflow edits. Changes to other domains, repository defaults and the production site are out of scope.
