@@ -184,7 +184,7 @@ async function readCommitEventWindow({
   // Only these three original protocol trace fields may be queried.
   const trace=originalTraceQuery===null?null:immutable(structuredClone(originalTraceQuery));
   if(trace!==null&&(!keys(trace,['kind','value'])||
-    !['capture_ref','idempotency_key','object_delete_intent'].includes(trace.kind)||
+    !['capture_ref','idempotency_key','object_delete_intent','delete_reservation_key'].includes(trace.kind)||
     typeof trace.value!=='string'||trace.value.length<1||trace.value.length>256||maxEvents!==1))
     fail('ORIGINAL_COMMIT_EVENT_TRACE_QUERY_INVALID');
   const before=cursor===null?null:immutable(structuredClone(cursor));
@@ -248,10 +248,12 @@ async function readCommitEventWindow({
           incrementTrace(snap.captureTraces,entry.event.payload?.iwxa_t4_capture_ref);
         }
         if(trace!==null){
-          const value=trace.kind==='capture_ref'?entry.event.payload?.iwxa_t4_capture_ref:
-            trace.kind==='object_delete_intent'?entry.event.payload?.iwxa_t4_object_delete_intent:
-              entry.event.idempotency_key;
-          if(value===trace.value){
+          const matches=trace.kind==='delete_reservation_key'?
+            (entry.event.idempotency_key===trace.value||entry.event.payload?.iwxa_t4_object_delete_intent===trace.value):
+            (trace.kind==='capture_ref'?entry.event.payload?.iwxa_t4_capture_ref:
+              trace.kind==='object_delete_intent'?entry.event.payload?.iwxa_t4_object_delete_intent:
+                entry.event.idempotency_key)===trace.value;
+          if(matches){
             if(traceMatches>=Number.MAX_SAFE_INTEGER)fail('ORIGINAL_COMMIT_EVENT_COUNT_OVERFLOW');
             traceMatches++;
           }

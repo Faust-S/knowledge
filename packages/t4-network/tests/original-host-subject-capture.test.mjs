@@ -1137,3 +1137,48 @@ test('K118 historical Relation survives later deletion only with exact immutable
    err('SUBJECT_CAPTURE_POST_WRITE_UNCERTAIN'));
  assert.equal(f.writes.length,2);
 });
+
+test('K119 bounded original Asset and Relation deletion recover lost receipt without full history or second delete',async()=>{
+ for(const [method,recover,input,field,id] of [
+   ['deleteAsset','reconcileAssetDeletion',deletionAssetInput,'assetId',assetId],
+   ['deleteRelation','reconcileRelationDeletion',deletionRelationInput,'relationId',relationId],
+ ]){
+   const f=fixture();let sourceCursor=await cursor(f);
+   if(method==='deleteRelation'){
+     const prepared=await adapter(f).putRelation({mutationInput:relationInput(),captureRef:'capture:k119:relation',sourceCursor});
+     sourceCursor=prepared.capture.nextCursor;
+   }
+   const host=createT4OriginalHostCaptureAdapter({...f.ports,...k118Pages(f)});
+   const captureRef='capture:k119:'+method;f.loseAck();
+   await assert.rejects(host[method]({mutationInput:input(),captureRef,sourceCursor,fromObjectId:objectFrom}),
+     err('DELETE_ORIGINAL_SOURCE_OUTCOME_UNKNOWN'));
+   const recovered=await host[recover]({captureRef,workspaceId:ws,[field]:id});
+   assert.equal(recovered.originalT3OutboxVerified,true);
+   assert.equal(recovered.originalMutationRetried,false);
+   assert.equal(f.writes.filter(x=>x.kind===method).length,1);
+ }
+});
+test('K119 bounded native Object deletion refuses a previously used reservation before deleting original Object',async()=>{
+ const f=objectDeleteFixture(),sourceCursor=await cursor(f),key='reservation:k119';
+ // A prior Event in the same original prefix already owns this reservation.
+ f.events[0].idempotency_key=key;
+ const before=await cursor(f);
+ const host=createT4OriginalHostCaptureAdapter({...f.ports,...k118Pages(f)});
+ await assert.rejects(host.deleteObject({mutationInput:{...objectDeleteInput(),
+   event:{...objectDeleteInput().event,idempotency_key:key}},captureRef:'capture:k119:object:reused',sourceCursor:before}),
+   err('DELETE_ORIGINAL_SOURCE_EVENT_KEY_ALREADY_USED'));
+ assert.equal(f.writes.length,0);assert.equal(f.intents.size,0);
+});
+test('K119 historical Asset recovery still requires original subject read authority',async()=>{
+ const f=fixture(),sourceCursor=await cursor(f);
+ const host=createT4OriginalHostCaptureAdapter({...f.ports,...k118Pages(f)});
+ const captureRef='capture:k119:asset';
+ const first=await host.putAsset({mutationInput:assetInput(),captureRef,sourceCursor});
+ await host.putAsset({mutationInput:{...assetInput(),base_revision:2},captureRef:'capture:k119:later',
+   sourceCursor:first.capture.nextCursor});
+ const denied=createT4OriginalHostCaptureAdapter({...f.ports,...k118Pages(f),
+   authorizeOriginalRead:async proof=>proof.operation!=='t1.getAsset'});
+ await assert.rejects(denied.reconcileAssetMutation({captureRef,workspaceId:ws,assetId}),
+   err('SUBJECT_CAPTURE_POST_WRITE_UNCERTAIN'));
+ assert.equal(f.writes.length,2);assert.equal(f.outbox.size,2);
+});

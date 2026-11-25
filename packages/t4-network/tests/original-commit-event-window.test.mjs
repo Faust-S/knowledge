@@ -269,3 +269,18 @@ test('K115 selective snapshot rejects duplicate selections, revoked read and for
   assert.throws(()=>readT4OriginalLocalSnapshotPosition(snapshot,{workspaceId:'foreign',originalWriteOwnerRef,eventId:rows[0].event_id}),
     {code:'ORIGINAL_LOCAL_EVENT_SNAPSHOT_SCOPE_INVALID'});
 });
+
+test('K119 original Object deletion reservation checks both trace fields without double counting a single Event',async()=>{
+  const rows=[event(1),event(2),event(3),event(4)];
+  rows[0].idempotency_key='reservation:one';
+  rows[1].payload.iwxa_t4_object_delete_intent='reservation:one';
+  rows[2].idempotency_key='reservation:one';
+  rows[2].payload.iwxa_t4_object_delete_intent='reservation:one';
+  const {options}=setup(rows),cursor=(await legacy(rows,null,4)).nextCursor;
+  const proof=await readT4OriginalCommitEventWindow({...options,cursor,maxEvents:1,pageSize:1,
+    originalTraceQuery:{kind:'delete_reservation_key',value:'reservation:one'}});
+  assert.equal(proof.originalTraceEvidence.matchCount,3);
+  assert.equal(proof.originalTraceEvidence.nextOriginalEvent,null);
+  assert.equal(proof.window.count,0);
+  assert.deepEqual(proof.nextCursor,cursor);
+});

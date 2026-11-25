@@ -239,7 +239,12 @@ function sourceScope(params,recoveryOnly=false){
   const {kind,workspaceId,originalWriteOwnerRef,subjectId,objectId,
     sourceIdempotencyKey,captureRef=sourceIdempotencyKey,
     originalKernel,authorizeOriginalRead,authorizeOriginalDelete,
-    readOriginalPreDeleteWitness,readOriginalEvents,getMode}=params;
+    readOriginalPreDeleteWitness,readOriginalEvents,getMode,readOriginalCommitPage,
+    withOriginalHistoryReadBoundary,originalCommitPageSize=256}=params;
+  const paged=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
+  if(paged&&(![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
+    !Number.isSafeInteger(originalCommitPageSize)||originalCommitPageSize<1||originalCommitPageSize>1024))
+    fail('DELETE_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
   if(!KINDS.has(kind))fail('DELETE_KIND_NOT_SUPPORTED');
   if(kind==='OBJECT_DELETE'&&(params.nativeNetworkEvidence!==true||
     typeof params.readOriginalDependencyCoverage!=='function'))
@@ -248,7 +253,7 @@ function sourceScope(params,recoveryOnly=false){
     (kind==='RELATION_DELETE'&&!ID(objectId))||
     !originalKernel||typeof originalKernel.hasOperation!=='function'||
     [authorizeOriginalRead,authorizeOriginalDelete,readOriginalPreDeleteWitness,
-      readOriginalEvents].some(f=>typeof f!=='function'))
+      ...(paged?[]:[readOriginalEvents])].some(f=>typeof f!=='function'))
     fail('DELETE_ORIGINAL_SOURCE_PORTS_REQUIRED');
   const ops=originalOperations(kind);
   if(!originalKernel.hasOperation(ops.read)||(!recoveryOnly&&!originalKernel.hasOperation(ops.write))||
@@ -285,6 +290,25 @@ function sourceScope(params,recoveryOnly=false){
     authorizeOriginalRead:async()=>{await guard('t1.listEventsSince');return true;},
     readOriginalEvents:async()=>stream,
   });
+  async function readDeletionTrace(cursor,reservation=false){
+    const traceKind=kind==='OBJECT_DELETE'?(reservation?'delete_reservation_key':'object_delete_intent'):'idempotency_key';
+    const matches=e=>traceKind==='delete_reservation_key'?
+      (e?.idempotency_key===sourceIdempotencyKey||e?.payload?.iwxa_t4_object_delete_intent===sourceIdempotencyKey):
+      (traceKind==='object_delete_intent'?e?.payload?.iwxa_t4_object_delete_intent:e?.idempotency_key)===sourceIdempotencyKey;
+    if(paged){
+      const observed=await readT4OriginalEventWindow({workspaceId,originalWriteOwnerRef,cursor,maxEvents:1,
+        authorizeOriginalRead:async()=>{await guard('t1.listEventsSince');return true;},
+        readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize:originalCommitPageSize,
+        originalTraceQuery:{kind:traceKind,value:sourceIdempotencyKey}});
+      const evidence=observed.originalTraceEvidence;
+      if(evidence?.originalHistoryFullyRead!==true||!Number.isSafeInteger(evidence.matchCount))
+        fail('DELETE_ORIGINAL_EVENT_HISTORY_INVALID');
+      const event=evidence.nextOriginalEvent;
+      return {observed,matchCount:evidence.matchCount,event:matches(event)?event:null};
+    }
+    const stream=await readEvents(),matched=stream.filter(matches);
+    return {observed:await windowFrom(cursor,stream),matchCount:matched.length,event:matched[0]??null};
+  }
   function verifyCapture(capture){
     const pre=capture?.preImage;
     if(capture?.schema!=='IWXA_T4_ORIGINAL_PRE_DELETE_CAPTURE_V1'||
@@ -358,18 +382,16 @@ function sourceScope(params,recoveryOnly=false){
         fail('DELETE_NATIVE_ORIGINAL_RELATION_IDENTITY_CONFLICT');
     }
   }
-  return {ctx,lookup,guard,read,readEvents,windowFrom,verifyCapture,ops,verifyNativeState};
+  return {ctx,lookup,guard,read,readDeletionTrace,verifyCapture,ops,verifyNativeState};
 }
 async function finishOriginalSourceDeletion(params,scope,capture,receipt){
   const {kind,workspaceId,originalWriteOwnerRef,subjectId,sourceIdempotencyKey}=params;
-  const {guard,read,readEvents,windowFrom}=scope;
-  const stream=await readEvents();
-  const matches=stream.filter(e=>kind==='OBJECT_DELETE'?
-    e?.payload?.iwxa_t4_object_delete_intent===sourceIdempotencyKey:
-    e?.idempotency_key===sourceIdempotencyKey);
-  if(matches.length!==1)
-    fail('DELETE_ORIGINAL_SOURCE_EVENT_NOT_PROVEN',{matchingEventCount:matches.length});
-  const event=matches[0],pre=capture.preImage;
+  const {guard,read,readDeletionTrace}=scope;
+  const {observed,matchCount,event}=await readDeletionTrace(capture.sourceCursor);
+  if(matchCount!==1)
+    fail('DELETE_ORIGINAL_SOURCE_EVENT_NOT_PROVEN',{matchingEventCount:matchCount});
+  if(!event)fail('DELETE_ORIGINAL_EVENT_WINDOW_UNCERTAIN');
+  const pre=capture.preImage;
   const expected=originalT4DeletionCapturedEvent(capture);
   const originalObjectId=deleteObjectId(kind,pre);
   if(!ID(event.event_id)||event.workspace_id!==workspaceId||
@@ -380,7 +402,6 @@ async function finishOriginalSourceDeletion(params,scope,capture,receipt){
       event.revision!==pre.revision+1))||
     (receipt!==null&&receipt.event.event_id!==event.event_id))
     fail('DELETE_ORIGINAL_SOURCE_EVENT_SCOPE_MISMATCH');
-  const observed=await windowFrom(capture.sourceCursor,stream);
   if(observed.window.count!==1||
     observed.window.lastEventId!==event.event_id||observed.window.hasMore)
     fail('DELETE_ORIGINAL_EVENT_WINDOW_UNCERTAIN');
@@ -389,8 +410,9 @@ async function finishOriginalSourceDeletion(params,scope,capture,receipt){
   await scope.verifyNativeState(pre,true);
   // A concurrent Event append or scope change must not be hidden by a
   // successful delete receipt. The source frontier stays untouched.
-  const second=await windowFrom(capture.sourceCursor,await readEvents());
-  if(!snapshotEqual(second.window,observed.window))
+  const second=await readDeletionTrace(capture.sourceCursor);
+  if(second.matchCount!==1||!second.event||!snapshotEqual(second.event,event)||
+    !snapshotEqual(second.observed.window,observed.window)||!snapshotEqual(second.observed.nextCursor,observed.nextCursor))
     fail('DELETE_ORIGINAL_EVENT_WINDOW_UNCERTAIN');
   await guard(scope.ops.read);
   const ref=observed.window.eventRefs[0];
@@ -413,7 +435,7 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
     sourceEvent,expectedBaseRevision,
     persistOriginalPreDeleteWitness,readOriginalPreDeleteWitness,getMode}=params;
   const scope=sourceScope(params);
-  const {lookup,guard,read,readEvents,windowFrom,verifyCapture,ops}=scope;
+  const {lookup,guard,read,readDeletionTrace,verifyCapture,ops}=scope;
   if(typeof persistOriginalPreDeleteWitness!=='function'||
     typeof originalKernel[ops.write.slice(3)]!=='function')
     fail('DELETE_ORIGINAL_SOURCE_PORTS_REQUIRED');
@@ -422,11 +444,9 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
   if(existing!==null&&existing!==undefined)
     fail('DELETE_ORIGINAL_SOURCE_CAPTURE_ALREADY_USED',{captureRef:sourceIdempotencyKey,
       automaticRetryAllowed:false});
-  const initialEvents=await readEvents();
-  if(initialEvents.some(e=>e?.idempotency_key===sourceIdempotencyKey||
-    (kind==='OBJECT_DELETE'&&e?.payload?.iwxa_t4_object_delete_intent===sourceIdempotencyKey)))
-    fail('DELETE_ORIGINAL_SOURCE_EVENT_KEY_ALREADY_USED');
-  const priorWindow=await windowFrom(sourceCursor,initialEvents);
+  const initial=await readDeletionTrace(sourceCursor,true);
+  if(initial.matchCount!==0)fail('DELETE_ORIGINAL_SOURCE_EVENT_KEY_ALREADY_USED');
+  const priorWindow=initial.observed;
   if(priorWindow.window.count!==0)
     fail('DELETE_ORIGINAL_EVENT_WINDOW_UNCERTAIN');
   const state=await read();
@@ -454,11 +474,9 @@ export async function captureT4OriginalDeletionAtMutation(params={}){
   if(!snapshotEqual(latest,preImage))
     fail('DELETE_ORIGINAL_SOURCE_PREIMAGE_CHANGED');
   await scope.verifyNativeState(preImage,false);
-  const beforeEvents=await readEvents();
-  if(beforeEvents.some(e=>e?.idempotency_key===sourceIdempotencyKey||
-    (kind==='OBJECT_DELETE'&&e?.payload?.iwxa_t4_object_delete_intent===sourceIdempotencyKey)))
-    fail('DELETE_ORIGINAL_SOURCE_EVENT_KEY_ALREADY_USED');
-  const beforeWrite=await windowFrom(sourceCursor,beforeEvents);
+  const before=await readDeletionTrace(sourceCursor,true);
+  if(before.matchCount!==0)fail('DELETE_ORIGINAL_SOURCE_EVENT_KEY_ALREADY_USED');
+  const beforeWrite=before.observed;
   if(beforeWrite.window.count!==0)
     fail('DELETE_ORIGINAL_EVENT_WINDOW_UNCERTAIN');
   await guard(ops.read);

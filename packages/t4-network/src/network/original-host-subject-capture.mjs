@@ -272,6 +272,8 @@ async function capturePayload(params){
     // Historical Asset bytes or Relation endpoints may no longer be live.
     // Only the already persisted exact original Outbox may be reused.
     if(!allowHistorical)fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_ORDER_CHANGED');
+    const subjectRead=proofContext(intent,SUBJECTS[kind].read);
+    if(await authorizeOriginalRead(subjectRead)!==true)fail('SUBJECT_CAPTURE_ORIGINAL_READ_DENIED');
     const existing=structuredClone(await readOriginalOutbox(intent));
     if(existing==null)fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_ORDER_CHANGED');
     const checkedRead=async(fn,expected,q)=>{
@@ -298,6 +300,8 @@ async function capturePayload(params){
     checkOutbox(existing,intent,prepared,nextCursor,existing.sourceWindow);
     await checkedRead(readOriginalIntent,intent,intent);
     await checkedRead(readOriginalOutbox,existing,intent);
+    if(await authorizeOriginalRead(subjectRead)!==true)fail('SUBJECT_CAPTURE_ORIGINAL_READ_DENIED');
+    mode(getMode);
     return Object.freeze({window:existing.sourceWindow,nextCursor,prepared,originalEvent:event,
       historicalOutboxVerified:true,currentSubjectUsedAsHistoricalBytes:false,historicalOutbox:existing});
   }
@@ -516,6 +520,7 @@ function deletionScope(params,recoveryOnly=false){
     originalKernel,authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
     readOriginalIntent,persistOriginalOutbox,readOriginalOutbox,getMode,
     withOriginalSubjectMutation}=params;
+  const paged=commitHistoryPorts(params);
   if(!deleteKinds.has(kind)||![workspaceId,originalWriteOwnerRef,captureRef,subjectId].every(ID)||
     typeof withOriginalSubjectMutation!=='function'||
     !['t1.getObject','t1.listEventsSince',...(recoveryOnly?[]:[deleteOp(kind)]),
@@ -523,7 +528,7 @@ function deletionScope(params,recoveryOnly=false){
       ...(kind==='OBJECT_DELETE'?['t1.listAssets']:[])].every(op=>
         originalKernel?.hasOperation?.(op)===true&&typeof originalKernel[op.slice(3)]==='function')||
     (kind==='OBJECT_DELETE'&&typeof params.readOriginalDependencyCoverage!=='function')||
-    [authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,readOriginalIntent,
+    [authorizeOriginalRead,authorizeOriginalWrite,...(paged?[]:[readOriginalEvents]),readOriginalIntent,
       persistOriginalOutbox,readOriginalOutbox].some(f=>typeof f!=='function'))
     fail('SUBJECT_CAPTURE_ORIGINAL_DELETE_HOST_PORTS_REQUIRED');
   mode(getMode);
@@ -543,7 +548,10 @@ function deletionScope(params,recoveryOnly=false){
   return {scope,guard,boundary};
 }
 function deletionParams(p,scope,sourceIdempotencyKey,objectId){
+  const paged=commitHistoryPorts(p);
   return {...scope,objectId,sourceIdempotencyKey,originalKernel:p.originalKernel,
+    ...(paged?{readOriginalCommitPage:paged.readOriginalCommitPage,
+      withOriginalHistoryReadBoundary:paged.withOriginalHistoryReadBoundary,originalCommitPageSize:paged.pageSize}:{}),
     nativeNetworkEvidence:true,getMode:p.getMode,
     readOriginalDependencyCoverage:p.readOriginalDependencyCoverage,
     authorizeOriginalRead:p.authorizeOriginalRead,authorizeOriginalDelete:p.authorizeOriginalWrite,
