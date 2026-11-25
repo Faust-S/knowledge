@@ -1,11 +1,11 @@
 name: D01 UX source, published links and original T2
 on:
-  push:
-    branches: [work/2026-11-24-d01-ux-qualification, work/2026-11-25-d01-ux-recovery, work/2026-11-25-d01-product-repair]
-    # Only an explicit candidate registration starts an expensive qualification.
-    # Ordinary workflow edits and owner commits do not trigger this workflow.
-    paths: [.github/qualification/d01-learn-candidate.txt]
   workflow_dispatch:
+  push:
+    branches:
+      - 'ci/once/d01-ux-source/**'
+    paths:
+      - '.github/ci-requests/d01-ux-source.json'
 concurrency:
   group: d01-learn-qualification
   # Finish the running candidate. GitHub keeps at most one pending run in
@@ -15,6 +15,7 @@ permissions:
   contents: read
 jobs:
   qualify:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
     # Use one runner and a single checkout of each product owner. All steps
     # before the T2 checkout are mandatory; a failed source gate stops the
     # expensive original-kernel build and browser journey.
@@ -22,6 +23,21 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:
+      - name: Checkout public request guard only
+        uses: actions/checkout@v4
+        with:
+          path: ci-harness
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify deliberate immutable request before private checkout
+        working-directory: ci-harness
+        run: |
+          python3 tools/ci/verify_once_request.py \
+            --repository Faust-S/knowledge --workflow d01-ux-source \
+            --profile full-product-qualification \
+            --revision site=b6e098cbf20c70898fba3a0a85eb1321e5cd9a73 \
+            --revision subject=5defadc101fa0ec9bce92f6d2806f7b9976d1d6d \
+            --revision t2=9c64951cd78411283e8a416641c36d71e169fc1d
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/learn.iwxa.ru
