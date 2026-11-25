@@ -897,6 +897,21 @@ try{
  check(await resourceMetric(goalResourceB,"Известные пересечения дела")===1,"GOAL_RESOURCE_B_CONFLICT");
  check(await resourceMetric(goalResourceA,"Прогноз к концу периода")===2000&&
   await resourceMetric(goalResourceB,"Прогноз к концу периода")===6000,"GOAL_RESOURCE_INDEPENDENT_CASH");
+ phase="OFFLINE_GOAL_RESOURCE_OBSERVED_RESERVE";
+ check(await resourceMetric(resourceResult,"Наибольшее превышение расходов")===1000,"GOAL_RESOURCE_RECENT_EXACT_CASH_BASIS");
+ const reserveOutput=goalResourceA.locator("[data-club-resource-reserve-output]");
+ check((await reserveOutput.textContent()).trim()==="","GOAL_RESOURCE_RESERVE_EXPLICIT");
+ await goalResourceA.getByRole("button",{name:"Проверить с запасом (вариант А)",exact:true}).click();
+ await reserveOutput.getByRole("heading",{name:"Дополнительная проверка с запасом",exact:true}).waitFor({state:"visible"});
+ check(await resourceMetric(reserveOutput,"Добавочный расход")===1000&&
+  await resourceMetric(reserveOutput,"Расход с запасом")===16000&&
+  await resourceMetric(reserveOutput,"Прогноз с запасом к концу периода")===1000,"GOAL_RESOURCE_RESERVE_EXACT_REPEAT");
+ check(await resourceMetric(goalResourceA,"Прогноз к концу периода")===2000&&
+  await resourceMetric(goalResourceB,"Прогноз к концу периода")===6000&&
+  await resourceForm.locator('[name="expenseA"]').inputValue()==="15000"&&
+  await resourceForm.locator('[name="minutesA"]').inputValue()==="90","GOAL_RESOURCE_RESERVE_ORIGINALS_RETAINED");
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===resourceBefore,"GOAL_RESOURCE_RESERVE_NO_WRITE");
+ log("OFFLINE_GOAL_RESOURCE_OBSERVED_RESERVE_READ_ONLY");
  const originalTaskHref=await resourceResult.getByRole("link",{name:"Открыть исходное дело",exact:true}).getAttribute("href");
  check(new URL(originalTaskHref,page.url()).searchParams.get("club_week_slot")===goalResourceTask.id,"GOAL_RESOURCE_EXACT_TASK_EDITOR");
  check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===resourceBefore,"GOAL_RESOURCE_NO_WRITE");
