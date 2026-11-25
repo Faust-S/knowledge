@@ -1,10 +1,10 @@
 {
   "schema": "IWXA_D05_T3_GROUPED_QUALIFICATION_REQUEST/1",
-  "siteCommit": "b6faaa0bfd21bfde621f77fa6e1d305044fe1c4b",
+  "siteCommit": "823ded530e34bc5244d055f4d50a495dced931e3",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
   "assistantCommit": "1c6d077c45d0ccfa9f07f6718e475c1f2ee553fd",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
-  "witnessCommit": "f910f003c633822cbc96648020848555e74e9479",
+  "witnessCommit": "d469f14e164d3d4d9ac7ec8f9b7faafacd4b25b0",
   "evaluatorCommit": "d506577539a4ca530a02f548fa2b225221a6af11",
   "expectedRetainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
   "skillsVersion": "1.6.0",
@@ -26,11 +26,14 @@
     45612942218,
     45633634092,
     45639203256,
-    45655978598
+    45655978598,
+    45656585105,
+    45662818819
   ],
   "scopeExpansionAllowed": false,
-  "reason": "Complete the unchanged frozen 1.6.0 release. Product sources remain unchanged after the formatter-only correction; this candidate adds diagnostic stage reporting only to the existing browser qualification script to isolate the 375 px material-detail timeout. No product scope expansion.",
+  "reason": "Complete frozen 1.6.0 release. The previous product tree passed subject regression, actual offline protected production, physical Exchange, Apache, SPA context and all public offline routes. The browser-only test revision closes the assistant disclosure before changing native selected details, hit-tests the actual target before pointer clicks and preserves every original result assertion. Product sources and acceptance gates are unchanged. Run the existing grouped qualification once; no separate diagnostic workflow.",
   "productAccepted": false,
   "remotePublicationVerified": false,
-  "formatOnlyCorrection": true
+  "formatOnlyCorrection": false,
+  "browserWitnessOnlyCorrection": true
 }
