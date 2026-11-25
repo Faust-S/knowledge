@@ -3,7 +3,7 @@ import {decodeT4OriginalGraphDeltaBytes,verifyT4OriginalGraphDelta,applyT4Origin
   inspectT4OriginalGraphResult,digestT4OriginalGraphContent} from './original-graph-delta.mjs';
 import {validateT4OriginalNativeCaptureSession,readT4OriginalSourceSessionHead,
   validateT4OriginalReplacementSessionCandidate,readT4OriginalReplacementSourceHead,
-  validateT4OriginalReplacementDiffAcceptance,validateT4OriginalReplacementContentEvidence,validateT4OriginalReplacementPublishedContent}
+  validateT4OriginalReplacementDiffAcceptance,validateT4OriginalReplacementContentEvidence,validateT4OriginalReplacementPublishedContent,validateT4OriginalReplacementSourceIntentStatus,validateT4OriginalReplacementRecipientApplyAdmission}
   from './original-network-publication.mjs';
 import {isT4OriginalOutboundFrameProof} from './original-network-source-head-proof.mjs';
 import {assembleT4CandidateOpaqueChunks}
@@ -1052,13 +1052,103 @@ async function applyOriginalNetworkSubjectChange({
  * process that sees APPLY_INTENT may only read back the original Event and
  * subject. Absence after an uncertain write is not permission to retry.
  */
-function originalDurableRecipientContext(args){
+// This conversion is private. The public ordinary mutation and ACK routes
+// continue to reject restricted successor receipts and successor phase ports.
+function replacementSubject(received){
+  const r=structuredClone(received),e=r?.originalReplacementContentEvidence;
+  if(r?.schema!=='IWXA_T4_ORIGINAL_NETWORK_REPLACEMENT_SUBJECT_VERIFIED_V1'||
+    r.originalReplacementSubjectVerified!==true||r.originalApplyAdmissionStillRequired!==true||
+    r.originalSubjectMutationInvoked!==false||r.originalBusinessApplied!==false)
+    fail('SUBJECT_ORIGINAL_REPLACEMENT_SUBJECT_REQUIRED');
+  const c=validateT4OriginalReplacementSessionCandidate(e?.candidate),v=validateT4OriginalReplacementContentEvidence(e,c);
+  if(!['sourceNodeRef','recipientNodeRef','scopeRef','sessionRef','changeId','ownerEpoch','changeKind','sourcePrefixDigestBefore','sourcePrefixDigestAfter']
+      .every(k=>r[k]===c[k])||r.sha256!==c.capturedSha256||r.delta?.workspaceId!==c.workspaceId||
+    r.delta?.originalWriteOwnerRef!==c.originalWriteOwnerRef||r.delta?.sourceEventId!==c.sourceEventId||
+    r.delta?.windowDigest!==c.capturedWindowDigest||r.originalEventDigest!==c.sourceEventDigest||
+    r.sourceChangeFrameKey!==v.frames[1].key||r.contentDigest!==v.contentDigest||r.encryptionContextRef!==v.encryptionContextRef)
+    fail('SUBJECT_ORIGINAL_REPLACEMENT_SUBJECT_MISMATCH');
+  const {originalReplacementContentEvidence,originalReplacementSubjectVerified,originalApplyAdmissionStillRequired,originalSubjectMutationInvoked,...ordinary}=r;
+  ordinary.schema=c.changeKind==='OBJECT_PUT'?'IWXA_T4_ORIGINAL_NETWORK_OBJECT_RECEIVED_V1':'IWXA_T4_ORIGINAL_NETWORK_SUBJECT_RECEIVED_V1';
+  checkReceived(ordinary);
+  if(SUBJECTS[c.changeKind].revision(ordinary.delta)!==c.sourceRevision)
+    fail('SUBJECT_ORIGINAL_REPLACEMENT_SUBJECT_MISMATCH');
+  return {c,v,ordinary};
+}
+
+/** Re-read the source's existing PUBLISHED and recipient's complete
+ * ciphertext/subject evidence. Admission is not subject-write permission. */
+export async function readT4OriginalReplacementRecipientApplyAdmission({received,sourceAdmissionPhasePort,
+  readOriginalReplacementRecipientContentEvidence,authorizeOriginalReplacementRecipientApplyAdmission,getMode}={}){
+  const {c,v,ordinary}=replacementSubject(received),phase=sourceAdmissionPhasePort,a=v.agreement;
+  if(typeof getMode!=='function'||typeof readOriginalReplacementRecipientContentEvidence!=='function'||
+    typeof authorizeOriginalReplacementRecipientApplyAdmission!=='function'||
+    phase?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||phase.role!=='SOURCE'||
+    phase.checkpointRef!==a.originalSourceAdmissionCheckpointRef||phase.originalT3TechnicalWorkspaceOnly!==true||
+    phase.createsSecondStore!==false||typeof phase.inspectOriginalSession!=='function')
+    fail('SUBJECT_ORIGINAL_REPLACEMENT_APPLY_PORT_REQUIRED');
+  const mode=()=>{if(getMode()!=='T4_NETWORK')fail('SUBJECT_NETWORK_MODE_OFF');};
+  const proof=frozen({candidate:c,changeKey:v.frames[1].key,originalCapturedSha256:c.capturedSha256,
+    originalStateDigest:ordinary.originalStateDigest,originalReplacementContentReadRequired:true,
+    originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false});
+  async function read(){
+    mode();
+    const e=validateT4OriginalReplacementContentEvidence(await readOriginalReplacementRecipientContentEvidence(proof),c);mode();
+    const s=validateT4OriginalReplacementSourceIntentStatus(await phase.inspectOriginalSession(),c);mode();
+    if(!equalStable(e,v)||s.currentPhase!=='PUBLISHED'||s.checkpointRef!==a.originalSourceAdmissionCheckpointRef||
+      s.originalReplacementAdmissionEventId!==a.originalSourceAdmissionEventId||
+      s.originalReplacementAdmissionChainHash!==a.originalSourceAdmissionChainHash||
+      s.originalReplacementSourceAdmission.publicationRef!==e.sourcePublicationCheckpointRef||
+      s.originalReplacementSourceAdmission.headKey!==a.originalSourceHeadKey||
+      s.originalReplacementSourceAdmission.publicationRevision!==a.originalSourceHeadPresentRevision||
+      s.originalReplacementSourceAdmission.publicationChainHash!==a.originalSourceHeadPresentChainHash||
+      !equalStable(s.sourcePublishedEvidence,{evidenceRef:e.frames[1].key,evidenceDigest:'sha256:'+e.frames[1].sha256}))
+      fail('SUBJECT_ORIGINAL_REPLACEMENT_SOURCE_PUBLICATION_REQUIRED');
+    return validateT4OriginalReplacementRecipientApplyAdmission({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_RECIPIENT_APPLY_ADMISSION_V1',
+      candidate:c,contentEvidence:e,originalSourcePublishedEventId:s.originalReplacementPublishedEventId,
+      originalSourcePublishedChainHash:s.chainHash,originalStateDigest:ordinary.originalStateDigest,originalCapturedSha256:c.capturedSha256,
+      originalSourcePublishedVerified:true,originalCanonicalSubjectVerified:true,originalSubjectMutationInvoked:false,
+      originalBusinessApplied:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false});
+  }
+  const first=await read();
+  if(await authorizeOriginalReplacementRecipientApplyAdmission(frozen({...proof,admission:first}))!==true)
+    fail('SUBJECT_ORIGINAL_REPLACEMENT_APPLY_ADMISSION_DENIED');
+  if(!equalStable(first,await read()))fail('SUBJECT_ORIGINAL_REPLACEMENT_APPLY_ADMISSION_CHANGED');
+  return first;
+}
+
+/** Advance the original recipient phases one at a time. No subject write. */
+export async function admitT4OriginalReplacementRecipientSubject(args={}){
+  const a=await readT4OriginalReplacementRecipientApplyAdmission(args),p=args.recipientPhasePort,e=a.contentEvidence;
+  if(p?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||p.role!=='RECIPIENT'||p.recipientApplyIntentRequired!==true||
+    p.originalT3TechnicalWorkspaceOnly!==true||!equalStable(p.originalReplacementRecipientAdmission,a)||
+    typeof p.inspectOriginalSession!=='function'||typeof p.advanceOriginalSessionPhase!=='function')
+    fail('SUBJECT_ORIGINAL_REPLACEMENT_RECIPIENT_PHASE_REQUIRED');
+  const s=await p.inspectOriginalSession();
+  if(!equalStable(s.originalReplacementRecipientAdmission,a)||s.checkpointRef!==p.checkpointRef)
+    fail('SUBJECT_ORIGINAL_REPLACEMENT_RECIPIENT_PHASE_REQUIRED');
+  let outcome=null;
+  if(s.currentPhase===null)outcome=await p.advanceOriginalSessionPhase({phase:'RECEIVED',
+    evidence:{evidenceRef:e.frames[2].key,evidenceDigest:'sha256:'+e.frames[2].sha256}});
+  else if(s.currentPhase==='RECEIVED')outcome=await p.advanceOriginalSessionPhase({phase:'VERIFIED',
+    evidence:{evidenceRef:e.frames[1].key,evidenceDigest:a.originalStateDigest}});
+  else if(!['VERIFIED','APPLY_INTENT'].includes(s.currentPhase))fail('SUBJECT_ORIGINAL_REPLACEMENT_RECIPIENT_PHASE_REQUIRED');
+  const after=await p.inspectOriginalSession();
+  if(!equalStable(after.originalReplacementRecipientAdmission,a)||after.checkpointRef!==p.checkpointRef||
+    (outcome&&(after.currentPhase!==outcome.phase||after.revision!==outcome.revision||after.chainHash!==outcome.chainHash)))
+    fail('SUBJECT_ORIGINAL_REPLACEMENT_RECIPIENT_PHASE_REQUIRED');
+  return frozen({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_RESULT_V1',state:after.currentPhase,
+    checkpointRef:p.checkpointRef,revision:after.revision,chainHash:after.chainHash,originalBusinessApplied:false,
+    originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false});
+}
+
+function originalDurableRecipientContext(args,replacementAdmission=null){
   const {received,recipientPhasePort}=args;
   const delta=checkReceived(received),kind=receivedKind(received);
   if(!frameKey(received.sourceChangeFrameKey)||
     !Number.isSafeInteger(received.ownerEpoch)||received.ownerEpoch<1||
     recipientPhasePort?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||
     recipientPhasePort.role!=='RECIPIENT'||
+    !equalStable(recipientPhasePort.originalReplacementRecipientAdmission??null,replacementAdmission)||
     recipientPhasePort.recipientApplyIntentRequired!==true||
     recipientPhasePort.originalT3TechnicalWorkspaceOnly!==true||
     typeof recipientPhasePort.inspectOriginalSession!=='function'||
@@ -1072,6 +1162,7 @@ function originalDurableRecipientContext(args){
     const v=await recipientPhasePort.inspectOriginalSession();
     if(v?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||
       v.role!=='RECIPIENT'||v.recipientApplyIntentRequired!==true||
+      !equalStable(v.originalReplacementRecipientAdmission??null,replacementAdmission)||
       v.checkpointRef!==recipientPhasePort.checkpointRef||
       v.originalT3OnlyStore!==true||v.originalT3EventChainVerified!==true||
       v.sessionRef!==received.sessionRef||v.changeId!==received.changeId||
@@ -1088,8 +1179,39 @@ function originalDurableRecipientContext(args){
   return {delta,kind,evidence,phase};
 }
 export async function applyT4OriginalNetworkSubjectWithDurableIntent(args={}){
+  return applyWithOriginalDurableIntent(args);
+}
+
+/** Successor writes use the SAME original apply reservation and idempotency
+ * key. An uncertain outcome is read back; no automatic subject retry. */
+export async function applyT4OriginalReplacementNetworkSubjectWithDurableIntent(args={}){
+  const received=structuredClone(args.received),{ordinary}=replacementSubject(received);
+  const read=()=>readT4OriginalReplacementRecipientApplyAdmission({...args,received});
+  const admission=await read(),p=args.recipientPhasePort;
+  const normalized={...args,received:ordinary};
+  const durable=originalDurableRecipientContext(normalized,admission);
+  async function fence(){
+    if(!equalStable(admission,await read()))fail('SUBJECT_ORIGINAL_REPLACEMENT_APPLY_ADMISSION_CHANGED');
+    const s=await durable.phase();
+    if(s.currentPhase!=='APPLY_INTENT'||!ID(s.originalReplacementRecipientApplyIntentEventId))
+      fail('SUBJECT_ORIGINAL_REPLACEMENT_APPLY_INTENT_REQUIRED');
+  }
+  if(typeof args.authorizeOriginalWrite!=='function'||typeof args.verifyOriginalSourceEvent!=='function')
+    fail('SUBJECT_ORIGINAL_WRITE_PORTS_REQUIRED');
+  normalized.authorizeOriginalWrite=async proof=>{
+    await fence();const ok=await args.authorizeOriginalWrite(proof);await fence();return ok;
+  };
+  normalized.verifyOriginalSourceEvent=async proof=>{
+    await fence();const ok=await args.verifyOriginalSourceEvent(proof);await fence();return ok;
+  };
+  const result=await applyWithOriginalDurableIntent(normalized,admission);
+  await fence();
+  return frozen({...result,originalReplacementRecipientAdmissionVerified:true,
+    originalReplacementAckStillRequired:true,sourceCursorAdvanced:false,recipientCursorAdvanced:false});
+}
+async function applyWithOriginalDurableIntent(args,replacementAdmission=null){
   const {recipientPhasePort}=args;
-  const {delta,evidence,phase}=originalDurableRecipientContext(args);
+  const {delta,evidence,phase}=originalDurableRecipientContext(args,replacementAdmission);
   async function recover(v){
     const original=await inspectT4OriginalNetworkRecipientResult(args);
     if(original.state!=='APPLIED_VERIFIED'||original.originalBusinessApplied!==true)

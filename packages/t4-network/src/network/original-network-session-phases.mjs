@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {isT4NativeSubjectKind,validT4NativeSubjectRevision,deriveT4OriginalReplacementAttempt,
   validateT4CandidateSupersessionRetirementClaim,validateT4CandidateReplacementHeadBinding}
   from './standard-network-wire-candidate.mjs';
-import {validateT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementPublishedContent} from './original-network-publication.mjs';
+import {validateT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementPublishedContent,validateT4OriginalReplacementRecipientApplyAdmission} from './original-network-publication.mjs';
 export {deriveT4OriginalReplacementAttempt} from './standard-network-wire-candidate.mjs';
 
 /**
@@ -82,6 +82,7 @@ export function createT4OriginalNetworkSessionPhasePort({
   authorizeOriginalRecipientSupersession=null,authorizeOriginalSourceSupersession=null,
   replacementSourceAdmission=null,readOriginalReplacementSourceAdmission=null,
   readOriginalReplacementSourceContentPublication=null,
+  replacementRecipientAdmission=null,readOriginalReplacementRecipientApplyAdmission=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   if(![technicalWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
@@ -129,6 +130,24 @@ export function createT4OriginalNetworkSessionPhasePort({
     replacement=frozen({...a,binding});
   }else if(readOriginalReplacementSourceAdmission!==null||readOriginalReplacementSourceContentPublication!==null)
     fail('PHASE_ORIGINAL_REPLACEMENT_ADMISSION_PORT_REQUIRED');
+  const recipientReplacement=replacementRecipientAdmission===null?null:
+    validateT4OriginalReplacementRecipientApplyAdmission(replacementRecipientAdmission);
+  if(recipientReplacement){
+    const c=recipientReplacement.candidate;
+    if(role!=='RECIPIENT'||!recipientApplyIntentRequired||replacement||authorizeOriginalRecipientSupersession!==null||
+      typeof readOriginalReplacementRecipientApplyAdmission!=='function'||
+      !['sourceNodeRef','recipientNodeRef','scopeRef','sessionRef','changeId','ownerEpoch','originalWriteOwnerRef','changeKind']
+        .every(k=>c[k]===({sourceNodeRef,recipientNodeRef,scopeRef,sessionRef,changeId,ownerEpoch,originalWriteOwnerRef,changeKind})[k]))
+      fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_PORT_REQUIRED');
+  }else if(readOriginalReplacementRecipientApplyAdmission!==null)
+    fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_PORT_REQUIRED');
+  function recipientEvidence(phase){
+    const a=recipientReplacement,e=a.contentEvidence,change=e.frames[1],chunk=e.frames[2];
+    if(phase==='RECEIVED')return {evidenceRef:chunk.key,evidenceDigest:'sha256:'+chunk.sha256};
+    if(phase==='VERIFIED')return {evidenceRef:change.key,evidenceDigest:a.originalStateDigest};
+    if(phase==='APPLY_INTENT')return {evidenceRef:change.key,evidenceDigest:'sha256:'+a.originalCapturedSha256};
+    fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_ACK_NOT_ENABLED');
+  }
   const phases=recipientApplyIntentRequired?
     Object.freeze(['RECEIVED','VERIFIED','APPLY_INTENT','APPLIED']):ALLOWED[role];
   const identity=frozen({
@@ -143,7 +162,8 @@ export function createT4OriginalNetworkSessionPhasePort({
   // an older reader cannot silently bypass a persisted apply reservation.
   const genesis=digest({identity,checkpointRef,stage:'GENESIS',
     ...(recipientApplyIntentRequired?{recipientApplyIntentRequired:true}:{}),
-    ...(replacement?{replacementSourceAdmission:replacement}:{})});
+    ...(replacement?{replacementSourceAdmission:replacement}:{}),
+    ...(recipientReplacement?{replacementRecipientAdmission:recipientReplacement}:{})});
   function mode(){
     if(getMode()!=='T4_NETWORK')fail('PHASE_NETWORK_MODE_OFF');
   }
@@ -205,6 +225,8 @@ export function createT4OriginalNetworkSessionPhasePort({
       fail('PHASE_ORIGINAL_CHECKPOINT_INVALID');
     if((d.recipientApplyIntentRequired===true)!==recipientApplyIntentRequired)
       fail('PHASE_ORIGINAL_RECIPIENT_POLICY_MISMATCH');
+    if(!eq(d.replacementRecipientAdmission??null,recipientReplacement))
+      fail('PHASE_ORIGINAL_REPLACEMENT_POLICY_MISMATCH');
     if(!eq(d.replacementSourceAdmission??null,replacement))
       fail('PHASE_ORIGINAL_REPLACEMENT_POLICY_MISMATCH');
     if(replacement&&(d.stages.length>2||d.stages[0]?.phase!=='INTENT'||
@@ -225,6 +247,8 @@ export function createT4OriginalNetworkSessionPhasePort({
         item.previousHash!==previous)
         fail('PHASE_ORIGINAL_CHAIN_INVALID');
       const evidence=proofEvidence(phase,item.evidence,changeKind,identity);
+      if(recipientReplacement&&!eq(evidence,recipientEvidence(phase)))
+        fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_EVIDENCE_MISMATCH');
       if(phase==='APPLY_INTENT'&&evidence.evidenceRef!==normalized.at(-1)?.evidence.evidenceRef)
         fail('PHASE_ORIGINAL_APPLY_INTENT_CHANGE_MISMATCH');
       const expected=entry(phase,evidence,previous,index+1);
@@ -311,6 +335,9 @@ export function createT4OriginalNetworkSessionPhasePort({
         originalReplacementAdmissionChainHash:current.stages[0]?.chainHash??null,
         originalReplacementPublishedEventId:current.originalEventIds[1]??null,
         originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false}:{}),
+      ...(recipientReplacement?{originalReplacementRecipientAdmission:clone(recipientReplacement),
+        originalReplacementRecipientApplyIntentEventId:current.originalEventIds[2]??null,
+        originalReplacementRecipientAdmissionRecorded:current.revision>=1,liveNetworkAuthorityGranted:false}:{}),
       ...(terminal?{
         ...(role==='RECIPIENT'?{originalRecipientAttemptSuperseded:true,
           originalRecipientSupersessionEvidence:clone(current.stages.at(-1).evidence),
@@ -352,6 +379,16 @@ export function createT4OriginalNetworkSessionPhasePort({
     return current.stages.at(-1)?.phase===TERMINAL?statusFor(current):null;
   }
   async function replacementGate(initial,phase,evidence,current){
+    if(recipientReplacement){
+      if(!eq(evidence,recipientEvidence(phase)))fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_EVIDENCE_MISMATCH');
+      await guard(initial,'t1.getObject','replacement-recipient-admission');
+      const live=validateT4OriginalReplacementRecipientApplyAdmission(await readOriginalReplacementRecipientApplyAdmission(frozen({
+        checkpointRef,sessionRef,changeId,phase,originalReplacementRecipientAdmissionReadRequired:true,
+        originalSubjectMutationAllowed:false})));
+      if(!eq(live,recipientReplacement))fail('PHASE_ORIGINAL_REPLACEMENT_RECIPIENT_ADMISSION_CHANGED');
+      if(!eq(await context(),initial))fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED');
+      return;
+    }
     if(!replacement)return;
     if(phase==='PUBLISHED'){
       if(readOriginalReplacementSourceContentPublication===null)
@@ -436,7 +473,7 @@ export function createT4OriginalNetworkSessionPhasePort({
         schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1',
         phase,checkpointRef,status:'ALREADY_CONFIRMED',
         revision:current.revision,chainHash:current.chainHash,
-        ...(replacement?{originalPhaseEventId:current.lastOriginalEventId}:{}),
+        ...(replacement||recipientReplacement?{originalPhaseEventId:current.lastOriginalEventId}:{}),
         originalSubjectWriteRetried:false,
         historicalReceiptFabricated:false,
         originalBusinessApplied:appliedPhase(phase),
@@ -557,6 +594,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       checkpointRef,identity:clone(identity),stages,
       ...(recipientApplyIntentRequired?{recipientApplyIntentRequired:true}:{}),
       ...(replacement?{replacementSourceAdmission:clone(replacement)}:{}),
+      ...(recipientReplacement?{replacementRecipientAdmission:clone(recipientReplacement)}:{}),
     };
     const input={
       workspace_id:technicalWorkspaceId,object_id:checkpointRef,
@@ -572,7 +610,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     await guard(initial,'t1.putObject',phase);
     await replacementGate(initial,phase,expectedEvidence,current);
     // Recheck technical write authority after the asynchronous lineage read.
-    if(replacement)await guard(initial,'t1.putObject',phase);
+    if(replacement||recipientReplacement)await guard(initial,'t1.putObject',phase);
     try{
       const receipt=await originalKernel.putObject(input);
       if(receipt?.object?.revision!==pos+1||
@@ -601,7 +639,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1',
       phase,checkpointRef,status:'RECORDED',
       revision:confirmed.revision,chainHash:confirmed.chainHash,
-      ...(phase===TERMINAL||replacement?{originalPhaseEventId:confirmed.lastOriginalEventId}:{}),
+      ...(phase===TERMINAL||replacement||recipientReplacement?{originalPhaseEventId:confirmed.lastOriginalEventId}:{}),
       originalSubjectWriteRetried:false,
       historicalReceiptFabricated:false,
       originalBusinessApplied:appliedPhase(phase),
@@ -621,9 +659,11 @@ export function createT4OriginalNetworkSessionPhasePort({
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,authorizeOriginalRecipientSupersession,
       authorizeOriginalSourceSupersession,replacementSourceAdmission:replacement,readOriginalReplacementSourceAdmission,
-      readOriginalReplacementSourceContentPublication,
+      readOriginalReplacementSourceContentPublication,replacementRecipientAdmission:recipientReplacement,
+      readOriginalReplacementRecipientApplyAdmission,
     }),
     role,checkpointRef,
+    ...(recipientReplacement?{originalReplacementRecipientAdmission:clone(recipientReplacement)}:{}),
     ...(replacement?{originalReplacementSourceAdmission:clone(replacement)}:{}),
     ...(readOriginalReplacementSourceContentPublication!==null?{originalReplacementSourceContentPublicationRequired:true}:{}),
     ...(recipientApplyIntentRequired?{recipientApplyIntentRequired:true}:{}),

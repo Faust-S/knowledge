@@ -740,6 +740,24 @@ export function validateT4OriginalReplacementPublishedContent(value,identity){
   return deepFreeze(v);
 }
 
+// Recipient admission binds its existing phase Object to the complete
+// successor and exact canonical subject, before a business write.
+export function validateT4OriginalReplacementRecipientApplyAdmission(value){
+  const a=clone(value),c=validateT4OriginalReplacementSessionCandidate(a?.candidate);
+  if(a?.schema!=='IWXA_T4_ORIGINAL_REPLACEMENT_RECIPIENT_APPLY_ADMISSION_V1'||
+    a.originalSourcePublishedVerified!==true||a.originalCanonicalSubjectVerified!==true||
+    a.originalSubjectMutationInvoked!==false||a.originalBusinessApplied!==false||
+    a.sourceCursorAdvanced!==false||a.recipientCursorAdvanced!==false||a.liveNetworkAuthorityGranted!==false||
+    !ID(a.originalSourcePublishedEventId)||!DIG(a.originalSourcePublishedChainHash)||!DIG(a.originalStateDigest)||
+    a.originalCapturedSha256!==c.capturedSha256)
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_APPLY_ADMISSION_REQUIRED');
+  const e=validateT4OriginalReplacementContentEvidence(a.contentEvidence,c);
+  if(a.originalSourcePublishedEventId===e.agreement.originalSourceAdmissionEventId||
+    a.originalSourcePublishedChainHash===e.agreement.originalSourceAdmissionChainHash)
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_APPLY_ADMISSION_REQUIRED');
+  return deepFreeze(a);
+}
+
 export function createT4OriginalNetworkPublicationPort({
   technicalSchemaId=T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,
   session,localNodeRef,technicalWorkspaceId,originalKernel,getMode,
