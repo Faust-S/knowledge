@@ -1,0 +1,76 @@
+{
+  "schema": "IWXA_D05_T3_GROUNDED_ADVICE_HARDWARE_RECEIPT/1",
+  "runId": 45639203256,
+  "hardwareJobId": 139294875998,
+  "siteCommit": "91ea34a35e574dbc60c18d130140b8d0056f67e1",
+  "assistantCommit": "ea8ee8ced6bd649274163a3b26a5b3c476409cca",
+  "subjectCommit": "447df292f2bbe7cc87ac17192853b0c1751895c6",
+  "witnessCommit": "8fd3441145d549c276aca316ad7ed80a85eb8888",
+  "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+  "skillsVersion": "1.5.0",
+  "profile": "light",
+  "adapter": "nonfallback-reported",
+  "actualInference": true,
+  "serverStopped": true,
+  "browserRestarted": true,
+  "workerRelease": {
+    "online": true,
+    "offline": true
+  },
+  "installationCancellation": {
+    "cancelled": true,
+    "workers": 0,
+    "externalRequests": 0,
+    "ready": false
+  },
+  "observations": [
+    {
+      "scenario": "cost",
+      "offline": false,
+      "exactSource": true,
+      "validChoice": true,
+      "expectedChoice": false,
+      "selectedIdObserved": false,
+      "milliseconds": 8447
+    },
+    {
+      "scenario": "price",
+      "offline": false,
+      "exactSource": true,
+      "validChoice": true,
+      "expectedChoice": true,
+      "selectedIdObserved": false,
+      "milliseconds": 1529
+    },
+    {
+      "scenario": "cost",
+      "offline": true,
+      "exactSource": true,
+      "validChoice": true,
+      "expectedChoice": true,
+      "selectedIdObserved": false,
+      "milliseconds": 3648
+    },
+    {
+      "scenario": "missing-cost",
+      "offline": true,
+      "exactSource": true,
+      "validChoice": true,
+      "expectedChoice": true,
+      "selectedIdObserved": false,
+      "milliseconds": 1392
+    }
+  ],
+  "exactSource": {
+    "passed": 4,
+    "total": 4
+  },
+  "correctChoice": {
+    "passed": 3,
+    "total": 4
+  },
+  "hardwareExecution": "PASS",
+  "qualityGate": "FAIL",
+  "semanticAcceptance": false,
+  "productAccepted": false
+}

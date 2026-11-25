@@ -1,0 +1,60 @@
+{
+  "schema": "IWXA_D05_T3_PREPARED_CANDIDATE/1",
+  "status": "PREPARED_NOT_DISPATCHED",
+  "previousRunId": 45639203256,
+  "siteCommit": "3588dd39b54546ba6604c668a20c2050a5da1d7d",
+  "assistantCommit": "4cf01934c93f19b9b2ea892df2601af4d3514750",
+  "subjectCommit": "447df292f2bbe7cc87ac17192853b0c1751895c6",
+  "witnessCommit": "2c9a23c532e242b39520c970b7c1ac72f2449848",
+  "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+  "evaluatorCommit": "677f845b1920c12ff7ba1125e7ed36f115f96c22",
+  "skillsVersion": "1.5.0",
+  "profile": "light",
+  "localControlledChecks": {
+    "sourceAndHandlers": 20,
+    "choiceMappings": 40,
+    "abstentions": 13,
+    "witnessDiagnostics": 78
+  },
+  "expectedScenarios": [
+    {
+      "scenario": "cost",
+      "offline": false,
+      "expectedId": "verify_cost_completeness"
+    },
+    {
+      "scenario": "price",
+      "offline": false,
+      "expectedId": "verify_margin"
+    },
+    {
+      "scenario": "cost",
+      "offline": true,
+      "expectedId": "verify_consumption"
+    },
+    {
+      "scenario": "missing-cost",
+      "offline": true,
+      "expectedId": "request_material_price"
+    },
+    {
+      "scenario": "materials-shortage",
+      "offline": true,
+      "expectedId": "verify_shortage"
+    },
+    {
+      "scenario": "materials-unrelated",
+      "offline": true,
+      "expectedId": "abstain"
+    },
+    {
+      "scenario": "route-capacity",
+      "offline": true,
+      "expectedId": "verify_capacity"
+    }
+  ],
+  "qualification": "NOT_RUN",
+  "releaseQualification": "NOT_RUN",
+  "productAccepted": false,
+  "notes": "Prepared source candidate only. The actual CI request and workflow were not updated. The older hardware witness did not record the selected ID, so the incorrect choice must remain unknown. This record is not a CI trigger."
+}
