@@ -1,5 +1,10 @@
 name: D07 T3 original-platform integration
 on:
+  push:
+    branches:
+      - 'ci/once/d07-t3-integration/*'
+    paths:
+      - '.github/ci-requests/d07-t3-integration.json'
   workflow_dispatch:
     inputs:
       mode:
@@ -17,14 +22,29 @@ concurrency:
   cancel-in-progress: false
 jobs:
   private-transport:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.mode == 'release' || inputs.mode == 'transport-only' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.mode == 'release' || inputs.mode == 'transport-only')) || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false) }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 2
           path: pipeline
+      - name: Verify the single explicit CI request before private checkout
+        working-directory: pipeline
+        run: |
+          python3 tools/ci/verify_once_request.py \
+            --repository Faust-S/knowledge --workflow d07-t3-integration \
+            --profile release-recover-qualified-tree \
+            --reason 'Recover the already qualified private release after transport preflight' \
+            --revision site=482fc878b4ac365241877fc03a9eeee84ae012a0 \
+            --revision domain=11ec43898d025107174df0b2cde6024c340c1cc0 \
+            --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17 \
+            --revision assistant=5e3083788aa541921559de29d3457d4a52bbba00 \
+            --revision core=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
+            --revision baseline_site=6906829da95d2d2366f294a3f567aa760db02d59 \
+            --revision qualification=903f2bb3b9e7b75fe4b8bbbe60f552428c5ae831
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
