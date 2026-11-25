@@ -1,7 +1,6 @@
 name: D04 full release qualification (private source, no artifacts)
 on:
   workflow_dispatch:
-
 permissions:
   contents: read
 concurrency:
@@ -31,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: b0c79c330c550a5ddac950fabb8103993a046613
+          ref: ec19c4cfe1d520df95941fa573dc143e68d0a7ab
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -57,8 +56,8 @@ jobs:
       - name: Verify immutable site / subject / T2 revisions
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "b0c79c330c550a5ddac950fabb8103993a046613"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "ae4f9bbd8af0b9e492f73b46df6285a207024ae5"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "ec19c4cfe1d520df95941fa573dc143e68d0a7ab"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "04486f19a6456e90a3f19418538edeb6b9873315"
           test "$(git -C d04-private/model rev-parse HEAD)" = "b277a721135381813dfdc7333c7b8e8645610722"
           test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "d4f8c393a11d199f9266766af7c4569401fbeaa6"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
@@ -99,7 +98,7 @@ jobs:
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
           BAZMED_SUBJECT_SOURCE_DIR: ${{ github.workspace }}/d04-private/model
-          D04_RELEASE_SITE_SHA: b0c79c330c550a5ddac950fabb8103993a046613
+          D04_RELEASE_SITE_SHA: ec19c4cfe1d520df95941fa573dc143e68d0a7ab
         run: |
           set -euo pipefail
           if npm run release:check-source >"$RUNNER_TEMP/d04-release-source.log" 2>&1; then
@@ -188,7 +187,7 @@ jobs:
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
           BAZMED_SUBJECT_SOURCE_DIR: ${{ github.workspace }}/d04-private/model
-          D04_RELEASE_SITE_SHA: b0c79c330c550a5ddac950fabb8103993a046613
+          D04_RELEASE_SITE_SHA: ec19c4cfe1d520df95941fa573dc143e68d0a7ab
         run: |
           set -uo pipefail
           set +e
@@ -373,29 +372,24 @@ jobs:
           echo "D04_NATIVE_KERNEL_AND_HOST_FILES=PASS"
           echo "D04_CHROMIUM_SMOKE=PASS_ON_HOSTING_DIST"
           # Do not upload private dist, private logs, browser profiles or files.
-      - name: Public readability, hydration and all deployed routes at desktop and mobile widths
-        id: public_runtime
+      - name: Public readability of the production HTML
+        id: public_readability
         if: steps.integrated.outcome == 'success'
         continue-on-error: true
         working-directory: d04-private/site
         run: |
           set -uo pipefail
-          failed=0
-          for stage in check:readability check:hydration check:runtime; do
-            name="$(printf '%s' "$stage" | tr '[:lower:]' '[:upper:]' | sed 's/[^A-Z0-9]/_/g')"
-            log="$RUNNER_TEMP/d04-public-$name.log"
-            if BAZMED_RUNTIME_STATIC=1 npm run "$stage" >"$log" 2>&1; then
-              echo "D04_PUBLIC_${name}=PASS"
-            else
-              echo "D04_PUBLIC_${name}=FAIL"
-              failed=1
-              grep -Eo 'HORIZONTAL_OVERFLOW [0-9]+|D04_[A-Z0-9_]+|BAZMED_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
-              grep -E '^  - W(375|1440) /[a-zA-Z0-9/_-]*: ' "$log" | sed -E 's/^(  - W(375|1440) \/[a-zA-Z0-9/_-]*): .*/D04_RUNTIME_FAIL \1/' | head -20 || true
-            fi
-            grep -E '^D04_STATIC_(RUNTIME_W(375|1440)|HYDRATION)_(CHECKED|PASS)=[0-9]+$' "$log" || true
-          done
+          log="$RUNNER_TEMP/d04-public-CHECK_READABILITY.log"
+          status=0
+          BAZMED_RUNTIME_STATIC=1 npm run check:readability >"$log" 2>&1 || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "D04_PUBLIC_CHECK_READABILITY=PASS"
+          else
+            echo "D04_PUBLIC_CHECK_READABILITY=FAIL"
+            grep -Eo 'D04_[A-Z0-9_]+|BAZMED_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+          fi
           rm -f dist/readability-report.json dist/readability-check.txt
-          exit "$failed"
+          exit "$status"
       - name: Audit host-uploadable dist without publishing it
         id: hosting
         if: steps.integrated.outcome == 'success'
@@ -469,6 +463,24 @@ jobs:
             exit 1
           fi
           echo "D04_HOSTING_DIST_CHECKS=PASS"
+      - name: Public hydration of production static pages
+        id: public_hydration
+        if: steps.integrated.outcome == 'success'
+        continue-on-error: true
+        working-directory: d04-private/site
+        run: |
+          set -uo pipefail
+          log="$RUNNER_TEMP/d04-public-CHECK_HYDRATION.log"
+          status=0
+          BAZMED_RUNTIME_STATIC=1 npm run check:hydration >"$log" 2>&1 || status=$?
+          grep -E '^D04_STATIC_HYDRATION_(CHECKED|PASS)=[0-9]+$' "$log" || true
+          if [ "$status" -eq 0 ]; then
+            echo "D04_PUBLIC_CHECK_HYDRATION=PASS"
+          else
+            echo "D04_PUBLIC_CHECK_HYDRATION=FAIL"
+            grep -Eo 'D04_[A-Z0-9_]+|BAZMED_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+          fi
+          exit "$status"
       - name: Separate native witness build, never deployable
         id: challenge
         if: steps.integrated.outcome == 'success'
@@ -525,6 +537,71 @@ jobs:
           fi
           grep -qx 'D04_CONSOLIDATED_NATIVE_WITNESSES=PASS' "$log" || exit 1
           echo "D04_FULL_NATIVE_PRODUCT=PASS"
+      - name: Restore unchanged production dist after native qualification
+        id: restore_production
+        if: always() && steps.integrated.outcome == 'success'
+        continue-on-error: true
+        working-directory: d04-private/site
+        run: |
+          set -euo pipefail
+          if [ -d "$RUNNER_TEMP/d04-production-dist" ]; then
+            if [ -d dist ]; then
+              mv dist "$RUNNER_TEMP/d04-native-witness-dist"
+            fi
+            mv "$RUNNER_TEMP/d04-production-dist" dist
+          fi
+          test -d dist
+          npm run release:check-dist >"$RUNNER_TEMP/d04-restored-dist.log" 2>&1
+          echo "D04_PRODUCTION_DIST_RESTORED=PASS"
+      - name: All published links, local HTTP, fragments and external reachability
+        id: link_http
+        if: steps.restore_production.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 45
+        working-directory: d04-private/site
+        env:
+          BAZMED_LINK_HTTP: '1'
+        run: |
+          set -uo pipefail
+          log="$RUNNER_TEMP/d04-link-http.log"
+          set +e
+          npm run check:links 2>&1 | tee "$log" | grep --line-buffered -E '^D04_(LINK_[A-Z_]+=[0-9]+(/[0-9]+)?|HTTP_404=PASS|HTTP_DIAGNOSTICS_BLOCKED=PASS|LINK_EXTERNAL_ISSUE=(BROKEN|UNCONFIRMED);HTTP=[0-9]+;ID=[a-f0-9]+;HOST=[A-Za-z0-9.-]+)$'
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          if [ "${codes[0]}" -ne 0 ] || [ "${codes[1]}" -ne 0 ]; then
+            echo "D04_FULL_LINK_HTTP=FAIL"
+            exit 1
+          fi
+          grep -qx 'D04_LINK_ISSUES=0' "$log"
+          grep -qx 'D04_HTTP_404=PASS' "$log"
+          grep -qx 'D04_HTTP_DIAGNOSTICS_BLOCKED=PASS' "$log"
+          echo "D04_FULL_LINK_HTTP=PASS"
+      - name: All deployed public routes at desktop and mobile widths
+        id: public_runtime
+        if: steps.restore_production.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 100
+        working-directory: d04-private/site
+        run: |
+          set -uo pipefail
+          log="$RUNNER_TEMP/d04-public-CHECK_RUNTIME.log"
+          status=0
+          # Retain full private output locally; report only bounded result markers.
+          set +e
+          BAZMED_RUNTIME_STATIC=1 npm run check:runtime 2>&1 | tee "$log" | grep --line-buffered -E '^D04_(STATIC_RUNTIME_W(375|1440)_[A-Z_]+=(PASS|[0-9]+(/[0-9]+)?)|RUNTIME_DYNAMIC_[A-Z_]+=[0-9]+|OPTIONAL_TELEMETRY_ERRORS=[0-9]+|LINK_EXTERNAL_ISSUE=(BROKEN|UNCONFIRMED);HTTP=[0-9]+;ID=[a-f0-9]+;HOST=[A-Za-z0-9.-]+)$'
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          status="${codes[0]}"
+          if [ "${codes[1]}" -ne 0 ]; then status=1; fi
+          grep -E '^D04_STATIC_RUNTIME_W(375|1440)_(CHECKED|PASS)=[0-9]+$' "$log" || true
+          if [ "$status" -eq 0 ]; then
+            echo "D04_PUBLIC_CHECK_RUNTIME=PASS"
+          else
+            echo "D04_PUBLIC_CHECK_RUNTIME=FAIL"
+            grep -Eo 'HORIZONTAL_OVERFLOW [0-9]+|D04_[A-Z0-9_]+|BAZMED_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+            grep -E '^  - W(375|1440) /[a-zA-Z0-9/_-]*: ' "$log" | sed -E 's/^(  - W(375|1440) \/[a-zA-Z0-9/_-]*): .*/D04_RUNTIME_FAIL \1/' | head -20 || true
+          fi
+          exit "$status"
       - name: Enforce release qualification status without publishing private artifacts
         if: always()
         env:
@@ -536,14 +613,18 @@ jobs:
           SEMANTIC: ${{ steps.semantic.outcome }}
           INTEGRATED: ${{ steps.integrated.outcome }}
           PRODUCTION_SMOKE: ${{ steps.production_smoke.outcome }}
+          PUBLIC_READABILITY: ${{ steps.public_readability.outcome }}
+          PUBLIC_HYDRATION: ${{ steps.public_hydration.outcome }}
           PUBLIC_RUNTIME: ${{ steps.public_runtime.outcome }}
           HOSTING: ${{ steps.hosting.outcome }}
           CHALLENGE: ${{ steps.challenge.outcome }}
           BROWSER_DEPS: ${{ steps.browser_deps.outcome }}
           NATIVE: ${{ steps.native.outcome }}
+          RESTORED: ${{ steps.restore_production.outcome }}
+          LINK_HTTP: ${{ steps.link_http.outcome }}
         run: |
-          echo "D04_STAGE_OUTCOMES=domain:$DOMAIN,site:$SITE,links:$LINKS,types:$TYPES,lint:$LINT,semantic:$SEMANTIC,integrated:$INTEGRATED,smoke:$PRODUCTION_SMOKE,public:$PUBLIC_RUNTIME,hosting:$HOSTING,challenge:$CHALLENGE,browser:$BROWSER_DEPS,native:$NATIVE"
-          for outcome in "$DOMAIN" "$SITE" "$LINKS" "$TYPES" "$LINT" "$SEMANTIC" "$INTEGRATED" "$PRODUCTION_SMOKE" "$PUBLIC_RUNTIME" "$HOSTING" "$CHALLENGE" "$BROWSER_DEPS" "$NATIVE"; do
+          echo "D04_STAGE_OUTCOMES=domain:$DOMAIN,site:$SITE,links:$LINKS,types:$TYPES,lint:$LINT,semantic:$SEMANTIC,integrated:$INTEGRATED,smoke:$PRODUCTION_SMOKE,readability:$PUBLIC_READABILITY,hydration:$PUBLIC_HYDRATION,public:$PUBLIC_RUNTIME,hosting:$HOSTING,challenge:$CHALLENGE,browser:$BROWSER_DEPS,native:$NATIVE,restored:$RESTORED,link_http:$LINK_HTTP"
+          for outcome in "$DOMAIN" "$SITE" "$LINKS" "$TYPES" "$LINT" "$SEMANTIC" "$INTEGRATED" "$PRODUCTION_SMOKE" "$PUBLIC_READABILITY" "$PUBLIC_HYDRATION" "$PUBLIC_RUNTIME" "$HOSTING" "$CHALLENGE" "$BROWSER_DEPS" "$NATIVE" "$RESTORED" "$LINK_HTTP"; do
             if [ "$outcome" != "success" ]; then
               echo "D04_AUTOMATED_FULL_DOMAIN=FAIL"
               echo "D04_RELEASE_READINESS=HOLD"
