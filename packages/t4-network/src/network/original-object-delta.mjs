@@ -28,6 +28,11 @@ function normalizeJson(value,seen=new Set(),depth=0){
   const prototype=Object.getPrototypeOf(value);
   if(Array.isArray(value)){
     seen.add(value);
+    // Array holes are not JSON values. JSON.stringify otherwise silently
+    // replaces them with null, while non-index properties disappear.
+    const own=Object.keys(value);
+    if(own.length!==value.length||own.some((key,i)=>key!==String(i)))
+      fail('OBJECT_DELTA_NON_JSON');
     const items=value.map(item=>normalizeJson(item,seen,depth+1));
     seen.delete(value);return items;
   }
@@ -42,6 +47,12 @@ function normalizeJson(value,seen=new Set(),depth=0){
 }
 export const encodeT4OriginalDeltaJson=object=>Buffer.from(JSON.stringify(normalizeJson(object)),'utf8');
 const encode=encodeT4OriginalDeltaJson;
+// Validate original business fields before JSON.stringify can discard
+// unsupported values. Optional API members themselves may remain omitted.
+export function validateT4OriginalJsonField(value){
+  encode(value);
+  return true;
+}
 function parse(bytes){
   if(!(bytes instanceof Uint8Array)||!bytes.length||bytes.length>MAX_DELTA_BYTES)
     fail('OBJECT_DELTA_BYTES_INVALID');
@@ -59,7 +70,7 @@ function validateDelta(delta){
     !Number.isSafeInteger(delta.sourceRevision)||delta.sourceRevision<1||
     delta.baseRevision!==delta.sourceRevision-1||
     !WINDOW_DIGEST(delta.objectContentDigest)||
-    !ID(delta.originalEventType)||typeof delta.data!=='object'||delta.data===null||
+    !ID(delta.originalEventType)||!Object.hasOwn(delta,'data')||
     !delta.extensions||typeof delta.extensions!=='object'||Array.isArray(delta.extensions))
     fail('OBJECT_DELTA_CONTRACT_INVALID');
   const computed='sha256:'+packageSha256(encode({
@@ -155,7 +166,7 @@ export async function prepareT4OriginalObjectDelta({
     event.revision!==object.revision||
     !ID(object.schema_id)||!ID(object.schema_version))
     fail('OBJECT_DELTA_SOURCE_REVISION_MISMATCH');
-  if(object.data===null||typeof object.data!=='object')
+  if(!Object.hasOwn(object,'data'))
     fail('OBJECT_DELTA_SOURCE_DATA_UNSUPPORTED');
   const data=normalizeJson(object.data);
   const extensions=normalizeJson(object.extensions??{});

@@ -312,3 +312,14 @@ test('K106 original receiver allows extension values to be updated without disca
  assert.equal(r.calls.length,1);
  assert.deepEqual(r.read().extensions,{future:{preserve:true}});
 });
+
+test('K107 arbitrary JSON Object data is preserved by source wire and original graph apply',async()=>{
+ for(const data of [null,false,0,'text',[1,{v:null}]]){
+   const {prepared}=await generate({originalKernel:{hasOperation:()=>true,
+     getObject:async()=>({object:{...sourceRecord.object,data}})}});
+   const r=recipient(),result=await apply(prepared,r);
+   assert.equal(result.originalT3CommitApplied,true);
+   assert.deepEqual(JSON.parse(prepared.bytes.toString('utf8')).data,data);
+   assert.deepEqual(JSON.parse(JSON.stringify(r.read().data)),data);
+ }
+});

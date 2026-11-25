@@ -1,7 +1,8 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
 import {prepareT4OriginalObjectDelta,preflightT4OriginalObjectNativeCapacity,
-  digestT4OriginalObjectContent,T4_ORIGINAL_OBJECT_CONTENT_TRACE} from './original-object-delta.mjs';
+  digestT4OriginalObjectContent,T4_ORIGINAL_OBJECT_CONTENT_TRACE,
+  validateT4OriginalJsonField} from './original-object-delta.mjs';
 
 export class T4OriginalObjectCaptureError extends Error{
   constructor(code,details={}){super(code);this.name='T4OriginalObjectCaptureError';
@@ -23,8 +24,15 @@ function validateMutation(input,workspaceId,objectId){
     !Number.isSafeInteger(input.base_revision)||input.base_revision<0||
     input.base_revision>=Number.MAX_SAFE_INTEGER||
     !ID(input.event?.event_type)||
-    !input.data||typeof input.data!=='object'||Array.isArray(input.data))
+    !Object.hasOwn(input,'data')||
+    (input.extensions!==undefined&&
+      (!input.extensions||typeof input.extensions!=='object'||Array.isArray(input.extensions))))
     fail('OBJECT_CAPTURE_ORIGINAL_MUTATION_INVALID');
+  // The original Kernel accepts any schema-valid JSON value as data.
+  // Preserve it exactly; never coerce a non-JSON value during capture.
+  validateT4OriginalJsonField(input.data);
+  if(input.extensions!==undefined)validateT4OriginalJsonField(input.extensions);
+  if(input.event.payload!==undefined)validateT4OriginalJsonField(input.event.payload);
   let bytes;
   try{bytes=Buffer.from(JSON.stringify(input),'utf8');}
   catch{fail('OBJECT_CAPTURE_ORIGINAL_MUTATION_UNSERIALIZABLE');}

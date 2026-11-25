@@ -1,5 +1,6 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {encodeT4OriginalDeltaJson,digestT4OriginalObjectContent} from './original-object-delta.mjs';
+import {requireT4NativeCaptureCapacity} from './original-native-content-limits.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest,digestT4OriginalEventRecord}
   from './original-event-window.mjs';
 import {runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
@@ -436,7 +437,9 @@ export async function captureT4OriginalGraphMutation(p={}){
     originalEventType:op.event.event_type,originalTransactionId:'t'.repeat(160),originalIdempotencyKey:op.idempotency_key,
     objectBeforeDigest:before.object===null?null:digest(before.object),objectContentDigest:objectDigest(expected),
     data:expected.data,extensions:expected.extensions,relationPuts:op.relation_puts,relationDeletes:deleted};
-  reserve.graphContentDigest=digestT4OriginalGraphContent(reserve);verifyT4OriginalGraphDelta(reserve);
+  reserve.graphContentDigest=digestT4OriginalGraphContent(reserve);
+  const reserved=verifyT4OriginalGraphDelta(reserve);
+  requireT4NativeCaptureCapacity(reserved.bytes.length);
   if(bytes(intent).length>MAX)fail('GRAPH_INTENT_TOO_LARGE');
   await guard();
   if(!sameHistory(await history(p,scope),stream,scope.workspaceId))fail('GRAPH_ORIGINAL_EVENT_ORDER_CHANGED');

@@ -1066,3 +1066,17 @@ test('K105 omitted Asset CAS does not bypass an explicit stale revision',async()
     sourceCursor:await cursor(f),captureRef:'capture:asset:stale'}),err('SUBJECT_CAPTURE_ORIGINAL_ASSET_REVISION_CONFLICT'));
   assert.equal(f.intents.size,0);assert.equal(f.writes.length,0);
 });
+
+test('K107 invalid original subject Event payload values do not start Asset or Relation writes',async()=>{
+ for(const value of [NaN,undefined,new Date(0),new Map()]){
+   for(const kind of ['asset','relation']){
+     const f=fixture(),host=adapter(f);
+     const mutationInput=kind==='asset'?assetInput():relationInput();
+     mutationInput.event.payload={...mutationInput.event.payload,invalid:value};
+     const operation=kind==='asset'?host.putAsset:host.putRelation;
+     await assert.rejects(operation({mutationInput,sourceCursor:await cursor(f),
+       captureRef:'capture:invalid:json'}),err('OBJECT_DELTA_NON_JSON'));
+     assert.equal(f.intents.size,0);assert.equal(f.writes.length,0);
+   }
+ }
+});

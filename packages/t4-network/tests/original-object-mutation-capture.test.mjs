@@ -871,3 +871,32 @@ test('K106 refuses recovery when expected merged content proof differs from the 
  await assert.rejects(reconcile(f),code('OBJECT_RECOVERY_SOURCE_EVENT_SCOPE_MISMATCH'));
  assert.equal(f.outbox.size,0);assert.equal(f.writes.length,1);
 });
+
+test('K107 original schema-valid scalar, array and null Object data remain exact in capture and recovery',async()=>{
+ for(const data of [null,false,true,0,23.5,'', 'unicode \u0434\u0430\u043d\u043d\u044b\u0435',[1,null,{x:false}]]){
+   const f=originalFixture();f.loseAck();
+   await assert.rejects(capture(f,1,{mutationInput:{...mutation(1),data}}),
+     code('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+   const recovered=await reconcile(f);
+   assert.deepEqual(JSON.parse(JSON.stringify(recovered.prepared.delta.data)),data);
+   assert.deepEqual(f.read().data,data);
+   assert.equal(f.writes.length,1);
+ }
+});
+test('K107 non-JSON business values never become a different original mutation',async()=>{
+ const sparse=[];sparse.length=1;
+ const decorated=[1];decorated.extra=true;
+ for(const data of [undefined,NaN,Infinity,{x:undefined},{x:NaN},new Date(0),new Map(),sparse,decorated]){
+   const f=originalFixture();
+   await assert.rejects(capture(f,1,{mutationInput:{...mutation(1),data}}),code('OBJECT_DELTA_NON_JSON'));
+   assert.equal(f.intents.size,0);assert.equal(f.writes.length,0);assert.equal(f.outbox.size,0);
+ }
+});
+test('K107 non-JSON Object extension or original Event payload cannot be silently serialized',async()=>{
+ for(const input of [{...mutation(1),extensions:{missing:undefined}},
+   {...mutation(1),event:{event_type:'demo.saved',payload:{n:NaN}}}]){
+   const f=originalFixture();
+   await assert.rejects(capture(f,1,{mutationInput:input}),code('OBJECT_DELTA_NON_JSON'));
+   assert.equal(f.intents.size,0);assert.equal(f.writes.length,0);
+ }
+});

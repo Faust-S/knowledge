@@ -2,6 +2,7 @@ import {packageSha256} from './webdav-package-transfer.mjs';
 import {validT4OriginalAssetMime,validT4OriginalRelationKind} from './original-subject-fields.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
 import {prepareT4OriginalAssetDelta,preflightT4OriginalAssetNativeCapacity} from './original-asset-delta.mjs';
+import {validateT4OriginalJsonField} from './original-object-delta.mjs';
 import {prepareT4OriginalRelationPutDelta} from './original-relation-delta.mjs';
 import {captureT4OriginalDeletionAtMutation,reconcileT4OriginalSourceDeletion,
   runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
@@ -67,6 +68,7 @@ function normalizeInput(kind,input,workspaceId,captureRef){
   if(input.event.payload!==undefined&&(input.event.payload===null||
     typeof input.event.payload!=='object'||Array.isArray(input.event.payload)))
     fail('SUBJECT_CAPTURE_EVENT_PAYLOAD_INVALID');
+  if(input.event.payload!==undefined)validateT4OriginalJsonField(input.event.payload);
   const supplied=input.event.idempotency_key;
   if(supplied!==undefined&&!ID(supplied))
     fail('SUBJECT_CAPTURE_ORIGINAL_IDEMPOTENCY_KEY_INVALID');
