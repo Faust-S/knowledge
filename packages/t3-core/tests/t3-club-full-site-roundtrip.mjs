@@ -1817,7 +1817,8 @@ try{
  const saveJournal=journalSaves.getByRole("link",{name:"Сохранить денежный календарь",exact:true});
  const saveUrl=new URL(await saveJournal.getAttribute("href"),page.url());
  check(saveUrl.pathname==="/workspace/"&&saveUrl.searchParams.get("save")==="personal-economy"&&
-  saveUrl.searchParams.get("workspace_id")===restoredCash.kernelSource.workspaceId,"GOAL_REVIEW_SAVE_EXACT_JOURNAL_SCOPE");
+  saveUrl.searchParams.get("workspace_id")===restoredCash.kernelSource.workspaceId&&
+  saveUrl.searchParams.get("club_goal_review_return")===goalId,"GOAL_REVIEW_SAVE_EXACT_JOURNAL_SCOPE");
  await saveJournal.click();
  const correctionImport=page.getByTestId("club-t0-import-card");
  await correctionImport.getByTestId("club-t0-import-preview").waitFor({state:"visible"});
@@ -1836,10 +1837,85 @@ try{
  },"GOAL_REVIEW_SAVE_EXACT_NEXT_REVISION");
  check(isDeepStrictEqual((await localCash()).data,corrected.data)&&isDeepStrictEqual(await localGoal(),restoredGoal)&&
   isDeepStrictEqual(await localProof(),restoredProof)&&isDeepStrictEqual(await localWeek(),restoredWeek),"GOAL_REVIEW_SAVE_OTHER_RESULTS_UNCHANGED");
- await visit(page,"/projects/?club_goal="+encodeURIComponent(goalId)+"&workspace_id="+encodeURIComponent(restoredCash.kernelSource.workspaceId)+"#club-goal-map");
+ const savedGoalReturn=page.locator("[data-workspace-t2-handoff-status]").getByRole("link",{name:"Вернуться к проверке цели",exact:true});
+ await savedGoalReturn.waitFor({state:"visible"});
+ const savedGoalUrl=new URL(await savedGoalReturn.getAttribute("href"),page.url());
+ check(savedGoalUrl.pathname==="/projects/"&&savedGoalUrl.searchParams.get("club_goal")===goalId&&
+  savedGoalUrl.searchParams.get("workspace_id")===restoredCash.kernelSource.workspaceId&&savedGoalUrl.hash==="#club-goal-map","GOAL_REVIEW_SAVED_RETURN_EXACT");
+ await savedGoalReturn.click();
  await poll(async()=>(await page.locator("[data-club-goal-journal-saves]").textContent()).includes("Денежный календарь: текущая версия сохранена"),"GOAL_REVIEW_SAVED_CORRECTION_VISIBLE");
  check(await page.locator("[data-club-goal-journal-saves]").getByRole("link",{name:"Сохранить денежный календарь",exact:true}).count()===0,"GOAL_REVIEW_NO_REDUNDANT_SAVE");
  log("INDEPENDENT_GOAL_REVIEW_CORRECTION_SAME_KERNEL_REVISION_SAVED");
+
+ phase="INDEPENDENT_WEEKLY_REVIEW_TIME_CORRECTION";
+ // The already independently restored, offline recipient explicitly removes
+ // one fact, then finds and corrects the same original completed task.
+ const beforeTime=await localWeek(),cashAfterCorrection=await localCash();
+ const timeSlot=beforeTime.data.personalWeekPlan.slots.find(x=>x.id===goalResourceTask.id);
+ check(timeSlot?.status==="done"&&timeSlot.fact?.minutes===110,"WEEKLY_REVIEW_ORIGINAL_FACT");
+ const timeScope=beforeTime.kernelSource.workspaceId;
+ await visit(page,"/tools/action-route/?workspace_id="+encodeURIComponent(timeScope)+"&club_week_slot="+encodeURIComponent(timeSlot.id)+"#club-week-plan");
+ const originalTimeCard=page.locator(".club-week-entry").filter({has:page.getByText(titles[0],{exact:true})});
+ await originalTimeCard.waitFor({state:"visible"});
+ const oldFactDetail=originalTimeCard.locator("details").filter({has:page.getByText("Изменить фактическое время",{exact:true})});
+ if(!await oldFactDetail.evaluate(el=>el.open))await oldFactDetail.locator(":scope > summary").click();
+ let clearTimeConsent=false;
+ page.once("dialog",async d=>{clearTimeConsent=d.type()==="confirm"&&d.message().includes("Убрать фактическое время");if(clearTimeConsent)await d.accept();else await d.dismiss()});
+ await oldFactDetail.getByRole("button",{name:"Убрать запись времени",exact:true}).click();
+ await poll(async()=>clearTimeConsent&&!(await localWeek())?.data?.personalWeekPlan?.slots?.find(x=>x.id===timeSlot.id)?.fact,"WEEKLY_REVIEW_CLEAR_EXPLICIT");
+ const missingTime=await localWeek();
+ check(missingTime.kernelSource.revision===beforeTime.kernelSource.revision&&
+  isDeepStrictEqual(missingTime.data.personalWeekPlan.slots.filter(x=>x.id!==timeSlot.id),beforeTime.data.personalWeekPlan.slots.filter(x=>x.id!==timeSlot.id)),"WEEKLY_REVIEW_ONLY_ONE_LOCAL_FACT");
+ await visit(page,"/projects/?workspace_id="+encodeURIComponent(timeScope)+"&club_activity_period=week#club-activity-review");
+ const periodReview=page.locator("[data-club-activity-review-public]");
+ const missingTimeRow=periodReview.locator('[data-club-review-record-id="'+timeSlot.id+'"]');
+ await missingTimeRow.waitFor({state:"visible"});
+ check(isDeepStrictEqual(await localWeek(),missingTime),"WEEKLY_REVIEW_OPEN_NO_WRITE");
+ await missingTimeRow.getByRole("button",{name:"Записать время",exact:true}).click();
+ const exactTime=page.locator("[data-club-week-review-fact]");
+ await exactTime.waitFor({state:"visible"});
+ check(isDeepStrictEqual(await localWeek(),missingTime),"WEEKLY_REVIEW_EXACT_EDITOR_NO_WRITE");
+ await exactTime.getByLabel("Дата, когда вы занимались делом",{exact:true}).fill(timeSlot.fact.date);
+ await exactTime.getByLabel("Фактически потрачено минут",{exact:true}).fill("115");
+ await exactTime.getByRole("button",{name:"Записать время",exact:true}).click();
+ await poll(async()=>{const row=(await localWeek())?.data?.personalWeekPlan?.slots?.find(x=>x.id===timeSlot.id);return row?.fact?.minutes===115&&row.fact.plannedMinutes===timeSlot.durationMinutes&&row.status==="done"},"WEEKLY_REVIEW_RECORD_EXACT_TIME");
+ const correctedTime=await localWeek();
+ check(isDeepStrictEqual(correctedTime.data.personalWeekPlan.slots.filter(x=>x.id!==timeSlot.id),beforeTime.data.personalWeekPlan.slots.filter(x=>x.id!==timeSlot.id))&&
+  correctedTime.kernelSource.revision===beforeTime.kernelSource.revision,"WEEKLY_REVIEW_CORRECTED_LOCAL_ONLY");
+ await page.getByRole("button",{name:"Вернуться к итогам",exact:true}).click();
+ await poll(async()=>new URL(page.url()).searchParams.get("club_activity_period")==="week"&&new URL(page.url()).hash==="#club-activity-review","WEEKLY_REVIEW_RETURN_EXACT_PERIOD");
+ const periodSaves=page.locator("[data-club-period-journal-saves]");
+ const timeSaveLink=periodSaves.getByRole("link",{name:"Сохранить план недели",exact:true});
+ await timeSaveLink.waitFor({state:"visible"});
+ check(await page.locator('[data-club-review-record-id="'+timeSlot.id+'"]').count()===0,"WEEKLY_REVIEW_RESOLVED_REASON_REMOVED");
+ const timeSaveUrl=new URL(await timeSaveLink.getAttribute("href"),page.url());
+ check(timeSaveUrl.searchParams.get("save")==="club-week-plan"&&timeSaveUrl.searchParams.get("workspace_id")===timeScope&&
+  timeSaveUrl.searchParams.get("club_activity_period")==="week","WEEKLY_REVIEW_SAVE_SCOPE_PERIOD");
+ await timeSaveLink.click();
+ const timeImport=page.getByTestId("club-t0-import-card");
+ await timeImport.getByTestId("club-t0-import-preview").waitFor({state:"visible"});
+ const timeChoice=timeImport.getByTestId("club-t0-import-workspace-choice").filter({visible:true});
+ await poll(async()=>await timeChoice.count()===1,"WEEKLY_REVIEW_SAVE_SCOPE_AVAILABLE");
+ check(await timeChoice.getAttribute("data-workspace-id")===timeScope,"WEEKLY_REVIEW_SAVE_SCOPE");
+ if(await timeChoice.getAttribute("aria-pressed")!=="true")await timeChoice.click();
+ await poll(async()=>await timeChoice.getAttribute("aria-pressed")==="true","WEEKLY_REVIEW_SAVE_SCOPE_FOCUSED");
+ await timeImport.getByLabel("Подтверждаю сохранение изменений. При конфликте прежняя запись останется без изменений.",{exact:true}).check();
+ const timeSave=timeImport.getByRole("button",{name:"Сохранить изменения",exact:true});
+ await poll(async()=>await timeSave.isEnabled(),"WEEKLY_REVIEW_SAVE_READY");
+ await timeSave.click();
+ await poll(async()=>{const row=await localWeek();return row?.objectId===beforeTime.objectId&&row.kernelSource?.workspaceId===timeScope&&
+  row.kernelSource?.revision===beforeTime.kernelSource.revision+1&&row.kernelSource.syncedUpdatedAt===row.updatedAt},"WEEKLY_REVIEW_SAVE_NEXT_REVISION");
+ check(isDeepStrictEqual((await localWeek()).data,correctedTime.data)&&isDeepStrictEqual(await localGoal(),restoredGoal)&&
+  isDeepStrictEqual(await localProof(),restoredProof)&&isDeepStrictEqual(await localCash(),cashAfterCorrection),"WEEKLY_REVIEW_SAVE_OTHER_RESULTS_UNCHANGED");
+ const savedTimeReturn=page.locator("[data-workspace-t2-handoff-status]").getByRole("link",{name:"Вернуться к итогам",exact:true});
+ await savedTimeReturn.waitFor({state:"visible"});
+ const savedTimeUrl=new URL(await savedTimeReturn.getAttribute("href"),page.url());
+ check(savedTimeUrl.searchParams.get("club_activity_period")==="week"&&savedTimeUrl.searchParams.get("workspace_id")===timeScope&&
+  savedTimeUrl.hash==="#club-activity-review","WEEKLY_REVIEW_SAVED_RETURN_EXACT");
+ await savedTimeReturn.click();
+ await poll(async()=>(await page.locator("[data-club-period-journal-saves]").textContent()).includes("План недели: текущая версия сохранена"),"WEEKLY_REVIEW_SAVED_STATE");
+ check(await page.locator("[data-club-period-journal-saves]").getByRole("link",{name:"Сохранить план недели",exact:true}).count()===0,"WEEKLY_REVIEW_NO_REDUNDANT_SAVE");
+ log("INDEPENDENT_WEEKLY_REVIEW_TIME_CORRECTION_SAME_RESULT_SAVED");
 
  }
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");

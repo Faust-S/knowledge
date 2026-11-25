@@ -1,3 +1,4 @@
+# Optional source-only diagnostics. Do not update or trigger for each full milestone.
 name: d02-personal-activity-source
 on:
   push:
@@ -17,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: b8321a43f303201e76bdab0695f4f59e80893779
+          ref: 19266ff6664f11e6143b9e2c4b1bd2e502a63bfe
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: owner
@@ -25,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 59ca1976249813cbd174bca2fd993c0c65df4bcc
+          ref: fe31330e0e5912d5e9decc795f85a05609ff3661
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -57,7 +58,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" b8321a43f303201e76bdab0695f4f59e80893779 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" b8321a43f303201e76bdab0695f4f59e80893779 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 19266ff6664f11e6143b9e2c4b1bd2e502a63bfe && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 19266ff6664f11e6143b9e2c4b1bd2e502a63bfe --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
             echo D02_OFFICIAL_SKILLS_IMPORT=FAIL
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/d02-import.private" | sort -u | head -20 || true
             exit 1
@@ -101,6 +102,15 @@ jobs:
           assert.match(skillPrompt(loaded,skill,'Сверить обязательства цели',{resultHint:worklistHint}),/Дела и деньги для сверки/);
           console.log('D02_ORIGINAL_T3_EXACT_REVIEW_WORKLIST_SKILL=PASS');
           console.log('D02_ORIGINAL_T3_REVIEW_SKILL_SELECTION_AND_PROMPT=PASS');
+
+          for(const query of ['итоги недели','итоги прошлой недели','пересмотр недели']){
+            assert.equal(rankSkills(loaded,query,{limit:1})[0]?.id,'goal-map');
+          }
+          const periodHint=loaded.resultHints.find(x=>x.marker==='data-club-activity-review-result');
+          const periodPrompt=skillPrompt(loaded,skill,'Итоги недели',{resultHint:periodHint});
+          assert.match(periodPrompt,/Что проверить перед новым планом/);
+          assert.match(periodPrompt,/исправление в текущей вкладке ещё не сохранено/i);
+          console.log('D02_ORIGINAL_T3_WEEKLY_REVIEW_SKILL=PASS');
           console.log('D02_ORIGINAL_T3_IMPORTED_SKILL_RUNTIME=PASS');
           NODE
       - name: Verify exact economic logic projection and targeted regression

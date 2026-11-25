@@ -1,3 +1,4 @@
+# Deliberate milestone qualification; editing harness files alone is not a trigger.
 name: d02-personal-activity-full
 on:
   push:
@@ -5,11 +6,13 @@ on:
       - work/2026-11-24-d02-personal-activity-qualification
     paths:
       - .github/workflows/d02-personal-activity-full.yml
-      - packages/t3-core/tests/t3-club-full-site-roundtrip.mjs
   workflow_dispatch:
 permissions:
   contents: read
   actions: read
+concurrency:
+  group: d02-personal-activity-full-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   host:
     runs-on: ubuntu-latest
@@ -36,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 59ca1976249813cbd174bca2fd993c0c65df4bcc
+          ref: fe31330e0e5912d5e9decc795f85a05609ff3661
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -44,7 +47,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: b8321a43f303201e76bdab0695f4f59e80893779
+          ref: 19266ff6664f11e6143b9e2c4b1bd2e502a63bfe
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: owner
@@ -72,14 +75,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! (cd ../owner && node scripts/club-skill-authoring.mjs generate && git diff --exit-code && node scripts/club-skill-authoring.mjs check && node --test tests/personal-week-plan.test.mjs tests/today-overview.test.mjs tests/assistant-skills.test.mjs tests/goal-portfolio.test.mjs tests/personal-cash-calendar.test.mjs tests/personal-evidence.test.mjs tests/personal-evidence-portfolio.test.mjs tests/evidence-portfolio.test.mjs tests/activity-review.test.mjs tests/week-change-preview.test.mjs tests/family-cash-options.test.mjs tests/expense-alternatives.test.mjs tests/goal-resource-review.test.mjs tests/personal-decision-diagnostic.test.mjs) > "$RUNNER_TEMP/private-owner-fact.log" 2>&1; then
+          if ! (cd ../owner && node scripts/club-skill-authoring.mjs generate && git diff --exit-code && node scripts/club-skill-authoring.mjs check && node --test tests/personal-economy.test.mjs tests/personal-week-plan.test.mjs tests/today-overview.test.mjs tests/assistant-skills.test.mjs tests/goal-portfolio.test.mjs tests/personal-cash-calendar.test.mjs tests/personal-evidence.test.mjs tests/personal-evidence-portfolio.test.mjs tests/evidence-portfolio.test.mjs tests/activity-review.test.mjs tests/week-change-preview.test.mjs tests/family-cash-options.test.mjs tests/expense-alternatives.test.mjs tests/goal-resource-review.test.mjs tests/personal-decision-diagnostic.test.mjs) > "$RUNNER_TEMP/private-owner-fact.log" 2>&1; then
             echo D02_T3_CANONICAL_FACT_AND_SKILLS=FAIL
             grep -E '^not ok [0-9]+ - |^# (tests|pass|fail) ' "$RUNNER_TEMP/private-owner-fact.log" | head -20 || true
             exit 1
           fi
           grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/private-owner-fact.log"
           echo D02_T3_CANONICAL_FACT_AND_SKILLS=PASS
-          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" b8321a43f303201e76bdab0695f4f59e80893779 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" b8321a43f303201e76bdab0695f4f59e80893779 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/private-fact-import.log" 2>&1; then
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 19266ff6664f11e6143b9e2c4b1bd2e502a63bfe && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 19266ff6664f11e6143b9e2c4b1bd2e502a63bfe --apply && npm run t3:skills:check) > "$RUNNER_TEMP/private-fact-import.log" 2>&1; then
             echo D02_T3_OFFICIAL_FACT_SKILLS_IMPORT=FAIL
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/private-fact-import.log" | sort -u | head -20 || true
             exit 1
@@ -90,16 +93,22 @@ jobs:
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import {readFileSync} from 'node:fs';
+          const owner=readFileSync('../owner/logic/personal-economy.mjs','utf8').split('export ')[1].trim();
+          const source=readFileSync('assets/site.js','utf8');
+          const a=source.indexOf('// BEGIN CLUB_CANONICAL_PERSONAL_ECONOMY'),b=source.indexOf('// END CLUB_CANONICAL_PERSONAL_ECONOMY',a);
+          assert.ok(a>=0&&b>a);
+          assert.equal(source.slice(source.indexOf('\n',a)+1,b).trim(),owner);
           for(const name of ['personal-week-plan','today-overview','personal-cash-calendar','goal-portfolio']){
             const canonical=readFileSync('../owner/logic/'+name+'.mjs','utf8').replaceAll("from './","from './club-");
             assert.equal(readFileSync('assets/club-'+name+'.mjs','utf8'),canonical);
           }
-          for(const name of ['goal-lifecycle','activity-review','personal-evidence','week-change-preview','family-cash-options','goal-resource-review']){
+          for(const name of ['goal-lifecycle','activity-review','personal-evidence','evidence-portfolio','week-change-preview','family-cash-options','goal-resource-review']){
             const canonical=readFileSync('../owner/logic/'+name+'.mjs','utf8').replaceAll("from './","from './club-");
             assert.equal(readFileSync('assets/club-'+name+'.mjs','utf8'),canonical);
           }
           console.log('D02_T3_CANONICAL_FACT_PROJECTION=PASS');
           NODE
+          node --check assets/site.js > "$RUNNER_TEMP/private-projection-syntax.log" 2>&1
       - name: Validate imported bytes with exact original shared T3 runtime
         working-directory: site
         shell: bash
@@ -108,7 +117,7 @@ jobs:
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import {readFileSync} from 'node:fs';
-          import {loadSkillPack,validateSkillPack} from '../bli-owner/browser-local-inference/domain-assistant/skill-runtime.mjs';
+          import {loadSkillPack,validateSkillPack,rankSkills,skillPrompt} from '../bli-owner/browser-local-inference/domain-assistant/skill-runtime.mjs';
           const raw=readFileSync('assets/club-assistant-skills.json','utf8');
           const origin='https://club.iwxa.ru';
           const loaded=await loadSkillPack('/assets/club-assistant-skills.json',{
@@ -122,6 +131,29 @@ jobs:
           const bad=structuredClone(original);
           bad.skills[0].limit='a'.repeat(451);
           assert.throws(()=>validateSkillPack(bad),/T3_ASSISTANT_SKILLS_ENTRY/);
+          for(const [query,id] of [['какие цели проверить','goal-map'],['проверить с запасом','goal-map'],['план и факт расходов','personal-economy'],['пересмотреть результат цели','evidence-portfolio']]){
+            assert.equal(rankSkills(loaded,query,{limit:1})[0]?.id,id);
+          }
+          const skill=loaded.skills.find(x=>x.id==='goal-map'),hint=loaded.resultHints.find(x=>x.marker==='data-club-goal-resource-result');
+          const prompt=skillPrompt(loaded,skill,'Проверить с запасом',{resultHint:hint});
+          assert.match(prompt,/не прогноз и не гарантия/);
+          assert.match(prompt,/К проверке/);
+          for(const [query,id] of [['сверить обязательства цели','goal-map'],['что изменить в плане цели','goal-map'],['записать отсутствующее время','route-30-days'],['сверить ожидаемое поступление','personal-economy']]){
+            assert.equal(rankSkills(loaded,query,{limit:1})[0]?.id,id);
+          }
+          const worklistHint=loaded.resultHints.find(x=>x.marker==='data-club-goal-list');
+          assert.match(skillPrompt(loaded,skill,'Сверить обязательства цели',{resultHint:worklistHint}),/Дела и деньги для сверки/);
+          console.log('D02_ORIGINAL_T3_EXACT_REVIEW_WORKLIST_SKILL=PASS');
+          console.log('D02_ORIGINAL_T3_REVIEW_SKILL_SELECTION_AND_PROMPT=PASS');
+
+          for(const query of ['итоги недели','итоги прошлой недели','пересмотр недели']){
+            assert.equal(rankSkills(loaded,query,{limit:1})[0]?.id,'goal-map');
+          }
+          const periodHint=loaded.resultHints.find(x=>x.marker==='data-club-activity-review-result');
+          const periodPrompt=skillPrompt(loaded,skill,'Итоги недели',{resultHint:periodHint});
+          assert.match(periodPrompt,/Что проверить перед новым планом/);
+          assert.match(periodPrompt,/исправление в текущей вкладке ещё не сохранено/i);
+          console.log('D02_ORIGINAL_T3_WEEKLY_REVIEW_SKILL=PASS');
           console.log('D02_ORIGINAL_T3_IMPORTED_SKILL_RUNTIME=PASS');
           NODE
       - name: Verify original assistant field and source policy
@@ -157,19 +189,6 @@ jobs:
             exit 1
           fi
           echo D02_T3_PLATFORM_128_FILES_AND_SOURCE_TESTS=PASS
-      - name: Verify existing profile, route and restoration regressions
-        working-directory: site
-        shell: bash
-        run: |
-          set -euo pipefail
-          for suite in test:club-native-edit-route test:club-native-project-restoration test:club-native-restore-preselect test:club-profile-field-consistency test:club-native-profile-family test:club-personal-space-start test:club-hub test:club-native-today test:club-personal-economy test:club-assistant-skills test:club-personal-evidence test:club-goal-map test:club-evidence-portfolio test:club-activity-review test:club-personal-week-plan test:club-expense-options test:club-save-readiness test:club-goal-resource-review test:club-personal-decision test:club-tool-groups; do
-            if ! npm run "$suite" > "$RUNNER_TEMP/private-regression.log" 2>&1; then
-              echo "D02_T3_PRESERVATION_SUITE=FAIL $suite"
-              grep -E '^not ok [0-9]+ - |^# (tests|pass|fail) ' "$RUNNER_TEMP/private-regression.log" | head -15 || true
-              exit 1
-            fi
-            echo "D02_T3_PRESERVATION_SUITE=PASS $suite"
-          done
       - name: Compile existing Club module into exact original T3 Host candidate
         working-directory: site
         shell: bash
@@ -295,6 +314,16 @@ jobs:
         run: |
           set -euo pipefail
           export IWXA_T3_PLATFORM_ARCHIVE="$RUNNER_TEMP/t3-platform.zip"
+          # The consolidated suite must retain all previously separate checks.
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const test=JSON.parse(readFileSync('package.json','utf8')).scripts.test;
+          const active=new Set([...test.matchAll(/npm run (\S+)/g)].map(x=>x[1]));
+          const required=["test:club-activity-review","test:club-assistant-skills","test:club-author-voice","test:club-case-02-route-integration","test:club-case-03-native-tools","test:club-case-route-integration","test:club-cash-calendar-route","test:club-evidence-portfolio","test:club-expense-options","test:club-family-options-ui","test:club-goal-map","test:club-goal-resource-review","test:club-hub","test:club-native-edit-route","test:club-native-profile-family","test:club-native-project-restoration","test:club-native-restore-preselect","test:club-native-today","test:club-personal-cash-calendar","test:club-personal-cash-calendar-ui","test:club-personal-decision","test:club-personal-economy","test:club-personal-evidence","test:club-personal-space-start","test:club-personal-week-plan","test:club-profile-field-consistency","test:club-project-delete-integrity","test:club-save-readiness","test:club-today-overview","test:club-tool-groups","test:club-unified-ux","test:club-work-ledger-integration"];
+          for(const name of required)assert.ok(active.has(name),'Missing consolidated suite: '+name);
+          console.log('D02_CONSOLIDATED_SOURCE_COVERAGE=PASS; unique_previous_suites='+required.length);
+          NODE
           if ! npm test > "$RUNNER_TEMP/private-all-regression.log" 2>&1; then
             echo D02_T3_COMPLETE_CLUB_REGRESSION=FAIL
             grep -E '^not ok [0-9]+ - ' "$RUNNER_TEMP/private-all-regression.log" | head -15 || true
