@@ -1,4 +1,4 @@
-name: D04 BazMed Life OS qualification (private-source, no artifacts)
+name: D04 full release qualification (private source, no artifacts)
 on:
   push:
     branches:
@@ -15,7 +15,7 @@ concurrency:
 jobs:
   qualify:
     runs-on: ubuntu-latest
-    timeout-minutes: 110
+    timeout-minutes: 240
     defaults:
       run:
         shell: bash
@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: e4e863bd3cae16c9d47b3259689665c0df19f0fd
+          ref: 20eb607a3445a1ab0dae5b0f08bf79a262bdfe58
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: 4686ac2677a169379315a3ff7ef2d83ed68cb78d
+          ref: b8acf1c7de85c4408cc292dbdec6aa7a91d3d8e1
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           fetch-depth: 0
@@ -62,10 +62,10 @@ jobs:
       - name: Verify immutable site / subject / T2 revisions
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "e4e863bd3cae16c9d47b3259689665c0df19f0fd"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "35d9faf3f9f7adcd99f79dba34a8c2f477120fa7"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "4686ac2677a169379315a3ff7ef2d83ed68cb78d"
-          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "23e3312b5d2102561a243315d3c385f277a24b17"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "20eb607a3445a1ab0dae5b0f08bf79a262bdfe58"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "72b1947039a0a8cc843ab93e100dc8ad81a30843"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "b8acf1c7de85c4408cc292dbdec6aa7a91d3d8e1"
+          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "3301731e3ea6e5e7e0cbb2390c12bdc13ff739be"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           for path in d04-private/site d04-private/model d04-private/t2; do
             test -z "$(git -C "$path" status --porcelain --untracked-files=no)"
@@ -103,7 +103,7 @@ jobs:
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
           BAZMED_SUBJECT_SOURCE_DIR: ${{ github.workspace }}/d04-private/model
-          D04_RELEASE_SITE_SHA: e4e863bd3cae16c9d47b3259689665c0df19f0fd
+          D04_RELEASE_SITE_SHA: 20eb607a3445a1ab0dae5b0f08bf79a262bdfe58
         run: |
           set -euo pipefail
           if npm run release:check-source >"$RUNNER_TEMP/d04-release-source.log" 2>&1; then
@@ -113,62 +113,39 @@ jobs:
             grep -Eo 'D04_HOSTING_SOURCE_ERROR:[A-Z_]+' "$RUNNER_TEMP/d04-release-source.log" | sort -u | head -16 || true
             exit 1
           fi
-      - name: Test subject-owned independent observation dynamics without exposing source data
+      - name: Full canonical domain suite (all existing test files)
+        id: domain
+        continue-on-error: true
         working-directory: d04-private/model
         run: |
-          if node --test docs/life-os/tests/personal-observation-dynamics.test.mjs docs/life-os/tests/life-dashboard-model.test.mjs docs/life-os/tests/life-dashboard-selection.test.mjs docs/life-os/tests/life-dashboard-projection.test.mjs docs/life-os/tests/personal-medical-evidence.test.mjs >"$RUNNER_TEMP/d04-observation-domain.log" 2>&1; then
-            echo "D04_OBSERVATION_DYNAMICS_DOMAIN_MODEL=PASS"
+          set -uo pipefail
+          log="$RUNNER_TEMP/d04-domain-full.log"
+          if node --experimental-strip-types --test docs/life-os/tests/*.test.mjs >"$log" 2>&1; then
+            echo "D04_FULL_DOMAIN_TESTS=PASS"
           else
-            echo "D04_OBSERVATION_DYNAMICS_DOMAIN_MODEL=FAIL"
-            grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d04-observation-domain.log" | tail -3 || true
+            echo "D04_FULL_DOMAIN_TESTS=FAIL"
+            grep -E '^not ok [0-9]+ - ' "$log" | head -20 || true
+            grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$' "$log" | tail -7 || true
             exit 1
           fi
-      - name: Run original Life OS source and behavioral test suite
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$' "$log" | tail -7
+      - name: Full site source and behavior suite (all existing test files)
         id: research
         continue-on-error: true
         working-directory: d04-private/site
         run: |
           set -uo pipefail
-          set +e
-          npm run check:life-os:research >"$RUNNER_TEMP/d04-research.log" 2>&1
-          code=$?
-          set -e
-          grep -E '^# (tests|pass|fail|skipped|cancelled) ' "$RUNNER_TEMP/d04-research.log" | tail -7 || true
-          if [ "$code" -ne 0 ]; then
-            echo "D04_RESEARCH_TESTS=FAIL"
-            python3 "$GITHUB_WORKSPACE/tools/ci/d04_safe_diagnostics.py" research "$RUNNER_TEMP/d04-research.log" || true
-            exit "$code"
-          fi
-          echo "D04_RESEARCH_TESTS=PASS"
-      - name: Verify original and full Waterlow command admission at exact site SHA
-        working-directory: d04-private/site
-        run: |
-          set -euo pipefail
-          if node --test tests/life-waterlow-full-admission.test.mjs \
-            >"$RUNNER_TEMP/d04-waterlow-admission.log" 2>&1; then
-            echo "D04_WATERLOW_ADMISSION_AND_LEGACY=PASS"
+          log="$RUNNER_TEMP/d04-site-full.log"
+          if node --import tsx --test tests/*.test.mjs >"$log" 2>&1; then
+            echo "D04_FULL_SITE_TESTS=PASS"
           else
-            echo "D04_WATERLOW_ADMISSION_AND_LEGACY=FAIL"
-            grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/d04-waterlow-admission.log" | tail -3 || true
+            echo "D04_FULL_SITE_TESTS=FAIL"
+            grep -E '^not ok [0-9]+ - ' "$log" | head -25 || true
+            grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$' "$log" | tail -7 || true
+            python3 "$GITHUB_WORKSPACE/tools/ci/d04_safe_diagnostics.py" research "$log" || true
             exit 1
           fi
-      - name: Run original T2 entry and Host integration source tests
-        id: entry
-        continue-on-error: true
-        working-directory: d04-private/site
-        run: |
-          set -uo pipefail
-          set +e
-          npm run check:t2:entry >"$RUNNER_TEMP/d04-entry.log" 2>&1
-          code=$?
-          set -e
-          grep -E '^# (tests|pass|fail|skipped|cancelled) ' "$RUNNER_TEMP/d04-entry.log" | tail -7 || true
-          if [ "$code" -ne 0 ]; then
-            echo "D04_T2_ENTRY_TESTS=FAIL"
-            grep '^not ok ' "$RUNNER_TEMP/d04-entry.log" | head -14 | sed -E 's/^not ok ([0-9]+) - /D04_FAILED_TEST_\1=/' || true
-            exit "$code"
-          fi
-          echo "D04_T2_ENTRY_TESTS=PASS"
+          grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$' "$log" | tail -7
       - name: Check all existing tool links
         id: links
         continue-on-error: true
@@ -221,7 +198,7 @@ jobs:
           echo "D04_SEMANTIC_LINT=PASS"
       - name: Build real original T2 Host, qualified Kernel, static site and Chromium smoke
         id: integrated
-        if: steps.research.outcome == 'success' && steps.entry.outcome == 'success' && steps.links.outcome == 'success' && steps.types.outcome == 'success' && steps.semantic.outcome == 'success'
+        if: steps.domain.outcome == 'success' && steps.research.outcome == 'success' && steps.links.outcome == 'success' && steps.types.outcome == 'success' && steps.semantic.outcome == 'success'
         continue-on-error: true
         working-directory: d04-private/site
         env:
@@ -273,6 +250,29 @@ jobs:
           echo "D04_NATIVE_KERNEL_AND_HOST_FILES=PASS"
           echo "D04_CHROMIUM_SMOKE=PASS_IN_BUILD"
           # Do not upload private dist, private logs, browser profiles or files.
+      - name: Public readability, hydration and all deployed routes at desktop and mobile widths
+        id: public_runtime
+        if: steps.integrated.outcome == 'success'
+        continue-on-error: true
+        working-directory: d04-private/site
+        run: |
+          set -uo pipefail
+          failed=0
+          for stage in check:readability check:hydration check:runtime; do
+            name="$(printf '%s' "$stage" | tr '[:lower:]' '[:upper:]' | sed 's/[^A-Z0-9]/_/g')"
+            log="$RUNNER_TEMP/d04-public-$name.log"
+            if BAZMED_RUNTIME_STATIC=1 npm run "$stage" >"$log" 2>&1; then
+              echo "D04_PUBLIC_${name}=PASS"
+            else
+              echo "D04_PUBLIC_${name}=FAIL"
+              failed=1
+              grep -Eo 'HORIZONTAL_OVERFLOW [0-9]+|D04_[A-Z0-9_]+|BAZMED_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+              grep -E '^  - W(375|1440) /[a-zA-Z0-9/_-]*: ' "$log" | sed -E 's/^(  - W(375|1440) \/[a-zA-Z0-9/_-]*): .*/D04_RUNTIME_FAIL \1/' | head -20 || true
+            fi
+            grep -E '^D04_STATIC_RUNTIME_W(375|1440)_(CHECKED|PASS)=[0-9]+$' "$log" || true
+          done
+          rm -f dist/readability-report.json dist/readability-check.txt
+          exit "$failed"
       - name: Audit host-uploadable dist without publishing it
         id: hosting
         if: steps.integrated.outcome == 'success'
@@ -346,30 +346,92 @@ jobs:
             exit 1
           fi
           echo "D04_HOSTING_DIST_CHECKS=PASS"
-      - name: Enforce qualification status without uploading artifacts
+      - name: Separate native witness build, never deployable
+        id: challenge
+        if: steps.integrated.outcome == 'success'
+        continue-on-error: true
+        working-directory: d04-private/site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
+        run: |
+          set -euo pipefail
+          umask 077
+          openssl rand -hex 32 > "$RUNNER_TEMP/d04-release-challenge"
+          export IWXA_T2_PRODUCT_CHALLENGE="$(cat "$RUNNER_TEMP/d04-release-challenge")"
+          echo "::add-mask::$IWXA_T2_PRODUCT_CHALLENGE"
+          mv dist "$RUNNER_TEMP/d04-production-dist"
+          if npm run build:t2:site >"$RUNNER_TEMP/d04-witness-build.log" 2>&1; then
+            echo "D04_WITNESS_DIST=PASS"
+          else
+            echo "D04_WITNESS_DIST=FAIL"
+            grep -Eo 'BAZMED_[A-Z0-9_]+|D04_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$RUNNER_TEMP/d04-witness-build.log" | sort -u | tail -25 || true
+            exit 1
+          fi
+      - name: Install the existing normative T2 browser witness dependencies once
+        id: browser_deps
+        if: steps.challenge.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          canonical="d04-private/t2/t2/current/final-successor/canonical-source"
+          if (cd "$canonical" && npm ci --no-audit --no-fund --include=dev && npx playwright install chromium) >"$RUNNER_TEMP/d04-browser-install.log" 2>&1; then
+            echo "D04_WITNESS_BROWSER_DEPS=PASS"
+          else
+            echo "D04_WITNESS_BROWSER_DEPS=FAIL"
+            exit 1
+          fi
+      - name: All existing native product witnesses, original Kernel and physical IWXA
+        id: native
+        if: steps.browser_deps.outcome == 'success'
+        continue-on-error: true
+        working-directory: d04-private/site
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
+        run: |
+          set -uo pipefail
+          export IWXA_T2_PRODUCT_CHALLENGE="$(cat "$RUNNER_TEMP/d04-release-challenge")"
+          echo "::add-mask::$IWXA_T2_PRODUCT_CHALLENGE"
+          log="$RUNNER_TEMP/d04-release-native.log"
+          node qualification/run-d04-consolidated-browser.mjs >"$log" 2>&1
+          code=$?
+          grep -E '^D04_[A-Z0-9_]{1,180}=(PASS|FAIL|[0-9]+|[A-Z0-9_]+(,[A-Z0-9_]+)+)$' "$log" | tail -180 || true
+          grep -E '^D04_[A-Z0-9_]{1,220}$' "$log" | sort -u | head -45 || true
+          if [ "$code" -ne 0 ]; then
+            echo "D04_FULL_NATIVE_PRODUCT=FAIL"
+            exit "$code"
+          fi
+          grep -qx 'D04_CONSOLIDATED_NATIVE_WITNESSES=PASS' "$log" || exit 1
+          echo "D04_FULL_NATIVE_PRODUCT=PASS"
+      - name: Enforce release qualification status without publishing private artifacts
         if: always()
         env:
-          RESEARCH: ${{ steps.research.outcome }}
-          ENTRY: ${{ steps.entry.outcome }}
+          DOMAIN: ${{ steps.domain.outcome }}
+          SITE: ${{ steps.research.outcome }}
           LINKS: ${{ steps.links.outcome }}
           TYPES: ${{ steps.types.outcome }}
           LINT: ${{ steps.lint.outcome }}
           SEMANTIC: ${{ steps.semantic.outcome }}
           INTEGRATED: ${{ steps.integrated.outcome }}
+          PUBLIC_RUNTIME: ${{ steps.public_runtime.outcome }}
           HOSTING: ${{ steps.hosting.outcome }}
+          CHALLENGE: ${{ steps.challenge.outcome }}
+          BROWSER_DEPS: ${{ steps.browser_deps.outcome }}
+          NATIVE: ${{ steps.native.outcome }}
         run: |
-          echo "D04_STAGE_OUTCOMES=research:$RESEARCH,entry:$ENTRY,links:$LINKS,types:$TYPES,lint:$LINT,semantic:$SEMANTIC,integrated:$INTEGRATED,hosting:$HOSTING"
-          for outcome in "$RESEARCH" "$ENTRY" "$LINKS" "$TYPES" "$SEMANTIC" "$INTEGRATED" "$HOSTING"; do
+          echo "D04_STAGE_OUTCOMES=domain:$DOMAIN,site:$SITE,links:$LINKS,types:$TYPES,lint:$LINT,semantic:$SEMANTIC,integrated:$INTEGRATED,public:$PUBLIC_RUNTIME,hosting:$HOSTING,challenge:$CHALLENGE,browser:$BROWSER_DEPS,native:$NATIVE"
+          for outcome in "$DOMAIN" "$SITE" "$LINKS" "$TYPES" "$SEMANTIC" "$INTEGRATED" "$PUBLIC_RUNTIME" "$HOSTING" "$CHALLENGE" "$BROWSER_DEPS" "$NATIVE"; do
             if [ "$outcome" != "success" ]; then
-              echo "D04_PRODUCT_QUALIFICATION=INCOMPLETE"
+              echo "D04_AUTOMATED_FULL_DOMAIN=FAIL"
+              echo "D04_RELEASE_READINESS=HOLD"
               exit 1
             fi
           done
-          echo "D04_SOURCE_AND_INTEGRATED_QUALIFICATION=PASS"
-          echo "D04_HOSTING_RELEASE_CANDIDATE=SOURCE_AND_TEST_DIST_PASS"
-          echo "D04_FINAL_PRODUCTION_BUILD=DELEGATED_TO_CODEX"
+          echo "D04_AUTOMATED_FULL_DOMAIN=PASS"
+          echo "D04_INDEPENDENT_VISUAL_ACCEPTANCE=NOT_RUN"
           if [ "$LINT" != "success" ]; then
-            echo "D04_FULL_PRETTIER_LINT=FAIL_BASELINE"
+            echo "D04_FULL_FORMAT_LINT=FAIL"
             echo "D04_RELEASE_READINESS=HOLD"
+            exit 1
           fi
-          echo "D04_FULL_PRODUCT_ACCEPTANCE=NOT_YET_QUALIFIED"
+          echo "D04_RELEASE_READINESS=HOLD_VISUAL_ACCEPTANCE"
+          # No private source, logs, test or production dist are uploaded.
