@@ -1014,7 +1014,7 @@ async function executeNativeReplacementRecipientStep(p,options){
     const readAckAdmission=()=>readT4OriginalReplacementAppliedAckAdmission(ackArgs());
     const readAckPublication=()=>readT4OriginalReplacementRecipientAckPublication(ackArgs());
     const readAdmission=()=>readT4OriginalReplacementRecipientApplyAdmission(args),admission=await readAdmission();
-    phase=scoped(await createOriginalReplacementRecipientPhasePort({session:c,admission},readAdmission,enableOriginalReplacementApply?readAckPublication:undefined),
+    phase=scoped(await createOriginalReplacementRecipientPhasePort({session:c,admission,received},readAdmission,enableOriginalReplacementApply?readAckPublication:undefined),
       ['schema','role','checkpointRef','recipientApplyIntentRequired','originalT3TechnicalWorkspaceOnly','originalReplacementRecipientAdmission','originalReplacementRecipientAckPublicationRequired'],
       'RECIPIENT_NATIVE_REPLACEMENT_PHASE_REQUIRED');
     const status=await phase.inspectOriginalSession();

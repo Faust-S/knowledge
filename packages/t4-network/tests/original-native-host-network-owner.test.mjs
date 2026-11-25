@@ -133,7 +133,7 @@ async function sourceFixture(loseOriginalWrite=false){
 }
 function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=deny,requestBaseline=true,
   localCapture=false,localGraph=false,localAdmission=allow,frameAdmission=allow,
-  indexMigration=false,technicalRead=allow,explicitResume=false,resumeInput=null,resumeAdmission=deny,
+  indexMigration=false,localResultVerification=false,technicalRead=allow,explicitResume=false,resumeInput=null,resumeAdmission=deny,
   nativeTopologyTransport=null,requireSignedTopologyAccess=false,originalVaultNodeSignaturePort=null,
   replacementRecovery=false,terminalRecovery=false,peerHistoryRead=async()=>null,portOverrides={},canWake=()=>true,onResult=()=>{},testScopedVaultUnlock=false}){
   const tech=store.technicalWorkspaceId;
@@ -187,7 +187,7 @@ function nativeFixture({role,store,wire,baselineInput,source=null,phaseEvidence=
   const owner=createT4OriginalNativeHostNetworkOwner({...scope(tech),role,requiredCryptoSuite:SUITE,
     originalVaultNodeSignaturePort,requireOriginalVaultNodeSignature:originalVaultNodeSignaturePort!==null,
     getMode:()=>mode,...(nativeTopologyTransport?{nativeTopologyTransport}:{wireTransport:wire.wire}),originalPorts,enableLocalSourceCapture:localCapture,enablePublicationIndexMigration:indexMigration,monotonicNow:()=>clock,
-    enableExplicitNetworkResume:explicitResume,readOriginalNetworkResumeInput:resumeInput,requireSignedTopologyAccess,
+    enableLocalRecipientResultVerification:localResultVerification,enableExplicitNetworkResume:explicitResume,readOriginalNetworkResumeInput:resumeInput,requireSignedTopologyAccess,
     enableLocalReplacementRecovery:replacementRecovery,enableReplacementTerminalRecovery:terminalRecovery,
     readOriginalBaselineAdmissionInput:async()=>requestBaseline?baselineInput:null,
     onStep:r=>{results.push(r);onResult(r);}});
@@ -917,9 +917,9 @@ test('K92 original signed native relays drain three causal captures, including t
         const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv);cipher.setAAD(Buffer.from(p.session.sessionRef));
         return {ciphertext:Buffer.concat([iv,cipher.update(bytes),cipher.final(),cipher.getAuthTag()]),encryptionContextRef:'sealed:k92:epoch2'};
       }}});
-  const makeRecipient=(indexMigration=false)=>nativeFixture({...gate('RECIPIENT'),testScopedVaultUnlock:true,role:'RECIPIENT',store:recipient,source,wire,phaseEvidence,indexMigration,
+  const makeRecipient=(indexMigration=false)=>nativeFixture({...gate('RECIPIENT'),testScopedVaultUnlock:true,role:'RECIPIENT',store:recipient,source,wire,phaseEvidence,indexMigration,localResultVerification:true,
     baselineInput:{sourceCursor:before,originalBaselineRef:recipientBaseline.event_id,originalBaselineDigest:hash(JSON.stringify(recipientBaseline))},
-    portOverrides:{verifyOriginalRecipientApplied:verifyApplied,verifyOriginalSourceSubject:verifySource,verifyOriginalSourceBinding:verifySource,
+    portOverrides:{verifyOriginalRecipientApplied:async()=>{throw Error('unexpected external witnessed recipient verification')},verifyOriginalSourceSubject:verifySource,verifyOriginalSourceBinding:verifySource,
       verifyOriginalSourceEvent:verifyEvent,authorizeOriginalSealedOpen:allow,
       openOriginalSealedContent:async p=>{
         const bytes=Buffer.from(p.ciphertext);assert.equal(hash(bytes),p.contentDigest);opens++;

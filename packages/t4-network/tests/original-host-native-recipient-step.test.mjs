@@ -13,7 +13,7 @@ import {createT4CandidateFrameTransport} from '../src/network/standard-network-w
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,
   T4_ORIGINAL_SOURCE_SESSION_EXTENSION}
   from '../src/network/standard-network-wire-candidate.mjs';
-import {inspectT4OriginalNetworkRecipientResult} from '../src/network/original-network-subject-apply.mjs';
+import {inspectT4OriginalNetworkRecipientResult,createT4OriginalRecipientAppliedVerifier} from '../src/network/original-network-subject-apply.mjs';
 import {createT4OriginalHostRecipientDispatcher} from '../src/network/original-host-recipient-dispatcher.mjs';
 import {createT4OriginalNetworkRecipientCursorPort} from '../src/network/original-network-host-cursor.mjs';
 
@@ -282,7 +282,7 @@ async function fixture(){
   });
   const full=async()=>{await add(0);assert.equal((await step()).state,'DIFF_PRESENT');
     await add(1);await add(2);await add(3);};
-  return {session,predecessor,nextCursor,sourceWindow:clone(window),prepared,remote,counters,events,objects,add,binding,args,step,full,phase,publication,
+  return {session,predecessor,nextCursor,sourceWindow:clone(window),prepared,originalKernel,getMode,received:()=>clone(observed?.received),remote,counters,events,objects,add,binding,args,step,full,phase,publication,
     ownerStep,ownerArgs,select,cursor:()=>clone(recipientCursor),cursorWrites:()=>cursorWrites,
     cursorPort,typedStep,admittedBaseline,baselinePort,
     loseCursor(){loseCursor=true;},setCursor(v){recipientCursor=clone(v);},
@@ -724,4 +724,35 @@ test('K101 bounded source capture replaces all remote subject callbacks and chec
   mode='valid';await step();await step();const done=await step();
   assert.equal(done.state,'RECIPIENT_CURSOR_ADVANCED');assert.equal(f.counters.subjectWrites,1);assert.equal(f.cursorWrites(),1);
   assert.ok(reads>=12);
+});
+
+
+test('K102 native recipient phase verifies current Result through the exact original Kernel witness',async()=>{
+  const f=await fixture();await f.full();
+  let admitted=true,reads=0,remoteVerifierInvoked=0;
+  const createOriginalRecipientPhasePort=async p=>{
+    // Preserve the phase evidence fixture; replace only its Result verifier.
+    await f.args().createOriginalRecipientPhasePort(p);
+    return f.phase({verifyOriginalRecipientApplied:p.received===null?async()=>{remoteVerifierInvoked++;return false}:
+      createT4OriginalRecipientAppliedVerifier({session:p.session,received:p.received,originalKernel:f.originalKernel,getMode:f.getMode,
+        authorizeOriginalRead:async()=>{reads++;return admitted}})});
+  };
+  const step=()=>f.typedStep({createOriginalRecipientPhasePort});
+  await step();await step();const result=await step();
+  assert.equal(result.state,'RECIPIENT_CURSOR_ADVANCED');assert.equal(f.counters.subjectWrites,1);
+  assert.equal(remoteVerifierInvoked,0);assert.ok(reads>0);
+  const actual=await f.phase().inspectOriginalSession(),e=actual.currentEvidence;
+  const verifier=createT4OriginalRecipientAppliedVerifier({session:f.session,received:f.received(),originalKernel:f.originalKernel,
+    getMode:f.getMode,authorizeOriginalRead:async()=>admitted});
+  const proof={operation:'t4.original.network.session.applied.verify',checkpointRef:actual.checkpointRef,sessionRef:f.session.sessionRef,
+    changeId:f.session.changeId,changeKind:'OBJECT_PUT',sourceNodeRef:source,recipientNodeRef:recipient,localNodeRef:recipient,
+    scopeRef:scope,ownerEpoch:epoch,originalRecipientEventId:e.originalRecipientEventId,originalRecipientRevision:e.originalRecipientRevision,
+    originalRecipientStateDigest:e.originalRecipientStateDigest,originalRecipientEventAndStateReadbackRequired:true,
+    signedAppliedAckAloneIsInsufficient:true,phaseStep:'cold-readback'};
+  assert.equal(await verifier(proof),true);
+  assert.equal(await verifier({...proof,sessionRef:'session:forged'}),false);
+  assert.equal(await verifier({...proof,originalRecipientEventId:'event:forged'}),false);
+  assert.equal(await verifier({...proof,originalRecipientStateDigest:H('wrong state')}),false);
+  admitted=false;await assert.rejects(verifier(proof),code('SUBJECT_ORIGINAL_RESULT_READ_DENIED'));
+  assert.equal(f.counters.subjectWrites,1);
 });

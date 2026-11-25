@@ -317,7 +317,7 @@ export function createT4OriginalNetworkSessionPhasePort({
   async function appliedGate(evidence,step){
     const p=frozen({
       operation:'t4.original.network.session.applied.verify',
-      checkpointRef,changeId,changeKind,sourceNodeRef,recipientNodeRef,
+      checkpointRef,sessionRef,changeId,changeKind,sourceNodeRef,recipientNodeRef,
       localNodeRef,scopeRef,ownerEpoch,
       originalRecipientEventId:evidence.originalRecipientEventId,
       originalRecipientRevision:evidence.originalRecipientRevision,

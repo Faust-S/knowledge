@@ -68,7 +68,7 @@ export function createT4OriginalNativeHostNetworkProfile({
       readOriginalBaselineAdmissionInput,readOriginalNetworkResumeInput,onStep,monotonicNow,
       requireSignedTopologyAccess:true,requireOriginalVaultNodeSignature:true,requireDurableNetworkKeyBinding:true,
       requireOriginalVaultSealedContent:true,enablePublicationIndexMigration:true,enableExplicitNetworkResume:true,
-      enableLocalSourceCapture:source,enableHistoricalAcknowledgementRecovery:source,enableLocalRetiredRecipientRecovery:!source,
+      enableLocalSourceCapture:source,enableLocalRecipientResultVerification:!source,enableHistoricalAcknowledgementRecovery:source,enableLocalRetiredRecipientRecovery:!source,
       enableLocalReplacementRecovery:true,enableReplacementTerminalRecovery:true,enableReplacementEligibilityRead:true,enableSourceEventWindowRead,enableSourceCaptureBinding,
       enableReplacementSourceAdmission:source,enableReplacementSourceContent:source,enableReplacementSourceAckConfirmation:source,
       enableReplacementRecipientAdmission:!source,enableReplacementRecipientContent:!source,enableReplacementRecipientApply:!source});

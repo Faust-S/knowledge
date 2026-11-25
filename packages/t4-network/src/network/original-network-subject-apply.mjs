@@ -1146,6 +1146,42 @@ function replacementSubject(received){
   return {c,v,ordinary};
 }
 
+// Exact current recipient Result witness for a single original phase port.
+// No remote call, grant cache, receipt synthesis or historical fallback.
+// Successor content must pass its existing restricted-subject validation.
+export function createT4OriginalRecipientAppliedVerifier({session,received,originalKernel,getMode,
+  authorizeOriginalRead,readOriginalDependencyCoverage}={}){
+  const replacement=session?.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_SESSION_CANDIDATE_V1';
+  const c=replacement?validateT4OriginalReplacementSessionCandidate(session):validateT4OriginalNativeCaptureSession(session);
+  const r=structuredClone(received);
+  const converted=replacement?replacementSubject(r):null;
+  if(replacement&&!equalStable(converted.c,c))fail('SUBJECT_ORIGINAL_APPLIED_VERIFIER_SESSION_MISMATCH');
+  const ordinary=converted?.ordinary??r,delta=checkReceived(ordinary),kind=receivedKind(ordinary);
+  if(![getMode,authorizeOriginalRead].every(f=>typeof f==='function')||
+    !['sourceNodeRef','recipientNodeRef','scopeRef','sessionRef','changeId','ownerEpoch','sourcePrefixDigestBefore','sourcePrefixDigestAfter']
+      .every(k=>ordinary[k]===c[k])||kind!==c.changeKind||ordinary.sha256!==c.capturedSha256||
+    delta.workspaceId!==c.workspaceId||delta.originalWriteOwnerRef!==c.originalWriteOwnerRef||delta.sourceEventId!==c.sourceEventId||
+    delta.sourceEventDigest!==c.sourceEventDigest||delta.windowDigest!==c.capturedWindowDigest||
+    SUBJECTS[kind].revision(delta)!==c.sourceRevision)
+    fail('SUBJECT_ORIGINAL_APPLIED_VERIFIER_SESSION_MISMATCH');
+  return async proof=>{
+    if(getMode()!=='T4_NETWORK'||proof?.operation!=='t4.original.network.session.applied.verify'||
+      !ID(proof.checkpointRef)||!['sourceNodeRef','recipientNodeRef','scopeRef','sessionRef','changeId','ownerEpoch','changeKind'].every(k=>proof[k]===c[k])||
+      proof.localNodeRef!==c.recipientNodeRef||proof.originalRecipientEventAndStateReadbackRequired!==true||
+      proof.signedAppliedAckAloneIsInsufficient!==true||!ID(proof.originalRecipientEventId)||
+      !validT4NativeSubjectRevision(kind,proof.originalRecipientRevision)||!DIG(proof.originalRecipientStateDigest))return false;
+    const actual=await inspectT4OriginalNetworkRecipientResult({received:ordinary,originalKernel,getMode,
+      authorizeOriginalRead,readOriginalDependencyCoverage,allowHistoricalEventProof:false});
+    if(getMode()!=='T4_NETWORK'||actual.state!=='APPLIED_VERIFIED'||
+      actual.originalRecipientEventId!==proof.originalRecipientEventId||actual.originalRecipientRevision!==proof.originalRecipientRevision||
+      actual.originalRecipientStateDigest!==proof.originalRecipientStateDigest)return false;
+    // Apply the same complete per-kind evidence checks used to construct the
+    // ACK. The body is not a new receipt and is never signed or returned here.
+    createT4OriginalNetworkAppliedAckBody({received:ordinary,verifiedResult:actual,ackRef:'ack:t4:local-verification'});
+    return true;
+  };
+}
+
 /** Re-read the source's existing PUBLISHED and recipient's complete
  * ciphertext/subject evidence. Admission is not subject-write permission. */
 export async function readT4OriginalReplacementRecipientApplyAdmission({received,sourceAdmissionPhasePort=null,
