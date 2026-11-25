@@ -1,0 +1,337 @@
+name: D05 T3 retained private source candidate
+on:
+  push:
+    branches: [test/2026-11-24-d05-t3-integration]
+    paths: [.github/workflows/d05-t3-retained.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  retained:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod
+          ref: 74157ffaf21c322d0f89a53a61ec3cfad63d44e5
+          token: ${{ secrets.DOMEN }}
+          path: domain
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod.ru
+          ref: 790c7b13399cdf8a9cbfb0833e11f753897d28ec
+          token: ${{ secrets.DOMEN }}
+          path: site
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 5e3083788aa541921559de29d3457d4a52bbba00
+          token: ${{ secrets.DOMEN }}
+          path: assistant
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          path: one-core
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify owner pack and original runtime contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-owner.log"
+          if ! (cd domain && node scripts/cehovod-skill-authoring.mjs check && node --test tests/assistant-skills.test.mjs) >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+            echo D05_T3_OWNER_SKILLS_FAIL
+            exit 1
+          fi
+          cmp -s domain/models/assistant-skills.json site/public/assets/cehovod-assistant-skills.json
+          cmp -s domain/src/lib/iwps/registry-snapshot.generated.json site/src/lib/iwps/registry-snapshot.generated.json
+          node --input-type=module <<'JS'
+          import {readFileSync} from "node:fs";
+          import {validateSkillPack} from "./assistant/browser-local-inference/domain-assistant/skill-runtime.mjs";
+          const pack=validateSkillPack(JSON.parse(readFileSync("site/public/assets/cehovod-assistant-skills.json","utf8")));
+          if(pack.skills.length!==11||pack.formHints.length!==11||pack.resultHints.length!==11)throw Error("D05_T3_PACK_COUNTS");
+          console.log("D05_T3_ORIGINAL_RUNTIME_SKILLS_PASS");
+          JS
+          if ! (cd domain && T3_ASSISTANT_SOURCE="$GITHUB_WORKSPACE/assistant/browser-local-inference/domain-assistant" node --test tests/assistant-field-policy.test.mjs) >"$log" 2>&1; then
+            grep -Eo '^not ok [0-9]+' "$log" | head -40 || true
+            echo D05_T3_FIELD_POLICY_FAIL
+            exit 1
+          fi
+          echo D05_T3_FIELD_POLICY_35_PASS
+          echo D05_T3_OWNER_PROJECTION_PASS
+      - name: Install dependencies without exporting private sources
+        working-directory: site
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+        run: |
+          npm ci --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-npm.log" 2>&1 || { echo D05_T3_NPM_FAIL; exit 1; }
+      - name: Verify exact portable common platform
+        working-directory: site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/artifacts/14920233669/zip > "$RUNNER_TEMP/t3-artifact.zip"
+          unzip -p "$RUNNER_TEMP/t3-artifact.zip" platform-inputs.zip > "$RUNNER_TEMP/platform-inputs.zip"
+          if ! node scripts/t3-platform-inputs.mjs verify "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/d05-t3-platform.log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_PLATFORM_[A-Z0-9_]+' "$RUNNER_TEMP/d05-t3-platform.log" | sort -u | head -20 || true
+            echo D05_T3_PLATFORM_FAIL
+            exit 1
+          fi
+          echo D05_T3_PLATFORM_PASS
+      - name: Compile original T3 Host with current domain module and shared assistant
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-host.log"
+          if ! npm run prepare:t3-host -- "$GITHUB_WORKSPACE/one-core/packages/t3-core" "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/assistant" https://cehovod.ru >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_HOST_PHASE_[A-Z0-9_]+' "$log" | tail -5 || true
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T[23]_[A-Z0-9_]+|TS[0-9]{4,6}|ERR_[A-Z0-9_]+' "$log" | sort -u | head -50 || true
+            node --input-type=module <<'JS'
+          import {readFileSync} from "node:fs";
+          import {basename} from "node:path";
+          const rows=readFileSync(process.env.RUNNER_TEMP+"/d05-t3-host.log","utf8").split("\n");
+          const found=new Set();
+          for(const row of rows){
+            const match=row.match(/^\s*([A-Za-z0-9_./-]{1,240})\((\d{1,6}),(\d{1,6})\): error (TS\d{4,6}):/);
+            if(!match)continue;
+            const key=JSON.stringify({file:basename(match[1]),line:Number(match[2]),column:Number(match[3]),code:match[4],area:match[1].includes("cehovod/")?"domain":match[1].includes("node_modules")?"dependency":"core"});
+            if(!found.has(key)&&found.size<60){found.add(key);console.log("D05_T3_HOST_TYPE_DIAG "+key);}
+          }
+          JS
+            echo D05_T3_HOST_BUILD_FAIL
+            exit 1
+          fi
+          echo D05_T3_HOST_BUILD_PASS
+      - name: Retain verified original Host and platform in the local version directory
+        working-directory: site
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-retain.log"
+          if ! npm run retain:t3-inputs -- "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/platform-inputs.zip" >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_[A-Z0-9_]+' "$log" | sort -u | head -30 || true
+            echo D05_T3_RETAIN_FAIL
+            exit 1
+          fi
+          if ! npm run retain:t3-inputs -- "$RUNNER_TEMP/cehovod-host" "$RUNNER_TEMP/platform-inputs.zip" >"$log" 2>&1; then
+            echo D05_T3_RETAIN_REPEAT_FAIL
+            exit 1
+          fi
+          grep -Eq '"added":0' "$log"
+          echo D05_T3_RETAIN_PASS
+      - name: Remove disposable original source checkouts before ordinary assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in domain assistant one-core; do
+            test -d "$GITHUB_WORKSPACE/$name"
+            test ! -L "$GITHUB_WORKSPACE/$name"
+            rm -rf "$GITHUB_WORKSPACE/$name"
+            test ! -e "$GITHUB_WORKSPACE/$name"
+          done
+          echo D05_T3_NO_EXTERNAL_SOURCE_CHECKOUTS_PASS
+      - name: Build complete local T3 dist from retained inputs
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-t3-product.log"
+          if ! node scripts/build-cehovod-t3-local-site.mjs >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+|T3_[A-Z0-9_]+|TS[0-9]{4,6}' "$log" | sort -u | head -30 || true
+            echo D05_T3_DIST_BUILD_FAIL
+            exit 1
+          fi
+          echo D05_T3_DIST_BUILD_PASS
+      - name: Verify exact independent build and damaged-input rollback
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-retained-repro.log"
+          if ! node scripts/check-t3-dist-reproducibility.mjs >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_REPRO_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+            echo D05_T3_RETAINED_REPRO_FAIL
+            exit 1
+          fi
+          grep -E '^\{"status":"CEHOVOD_T3_REPRO_PASS","files":[0-9]+,"invalidInputPreservedDist":true,"exactBytes":true,"productAccepted":false\}$' "$log"
+      - name: Verify retained inputs in a clean Git source snapshot
+        id: snapshot
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/d05-retained-checkout.log"
+          if ! node scripts/check-t3-retained-checkout.mjs >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_CHECKOUT_[A-Z0-9_]+|CEHOVOD_T3_HOST_[A-Z0-9_]+|CEHOVOD_T3_PLATFORM_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+            echo D05_T3_RETAINED_CHECKOUT_FAIL
+            exit 1
+          fi
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync,appendFileSync} from "node:fs";
+          const log=readFileSync(process.env.RUNNER_TEMP+"/d05-retained-checkout.log","utf8");
+          const rows=log.split(/\r?\n/).filter(x=>x.startsWith('{"status":"CEHOVOD_T3_RETAINED_CHECKOUT_PASS",'));
+          assert.equal(rows.length,1);
+          const r=JSON.parse(rows[0]);
+          assert.equal(r.exactBytes,true);
+          assert.equal(r.remotePublication,false);
+          assert.equal(r.productAccepted,false);
+          assert.ok(/^[0-9a-f]{40}$/.test(r.sourceTree));
+          assert.ok(Number.isSafeInteger(r.inputFiles)&&r.inputFiles>0);
+          console.log(rows[0]);
+          appendFileSync(process.env.GITHUB_OUTPUT,"tree="+r.sourceTree+"\n");
+          JS
+      - name: Create an exact candidate commit with verified retained inputs only
+        id: candidate
+        working-directory: site
+        shell: bash
+        env:
+          SNAPSHOT_TREE: ${{ steps.snapshot.outputs.tree }}
+          SOURCE_SHA: 790c7b13399cdf8a9cbfb0833e11f753897d28ec
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {execFileSync} from "node:child_process";
+          import {join,relative,sep} from "node:path";
+          import {appendFileSync} from "node:fs";
+          import {verifyPreparedCehovodHost} from "./scripts/prepare-cehovod-t3-host.mjs";
+          import {installedArchive,platformDir,verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";
+          const tree=process.env.SNAPSHOT_TREE,base=process.env.SOURCE_SHA;
+          const git=(args,env=process.env)=>execFileSync("git",args,{encoding:"utf8",env,stdio:["ignore","pipe","pipe"]}).trimEnd();
+          const sha=/^[0-9a-f]{40}$/;
+          assert.ok(sha.test(tree)&&sha.test(base));
+          assert.equal(git(["rev-parse","HEAD"]),base);
+          assert.equal(git(["cat-file","-t",tree]),"tree");
+          const rel=p=>relative(process.cwd(),p).split(sep).join("/");
+          const host=join(platformDir,"cehovod-host"),receipt=verifyPreparedCehovodHost(host);
+          assert.equal(receipt.origin,"https://cehovod.ru");
+          verifyPlatformArchive(installedArchive);
+          const allowed=[rel(installedArchive),rel(host)+"/cehovod-t3-host-input.json",...receipt.files.map(x=>rel(host)+"/"+x.path)].sort();
+          const changed=git(["diff-tree","--no-commit-id","-r","--name-only","-z",base,tree]).split("\0").filter(Boolean).sort();
+          assert.deepEqual(changed,allowed);
+          const entries=git(["ls-tree","-rlz",tree,"--",rel(installedArchive),rel(host)]).split("\0").filter(Boolean);
+          assert.equal(entries.length,allowed.length);
+          for(const entry of entries){
+            const m=entry.match(/^100644 blob [a-f0-9]{40}\s+(\d+)\t(.+)$/);
+            assert.ok(m&&Number(m[1])>0&&Number(m[1])<100*1024*1024);
+            assert.ok(allowed.includes(m[2]));
+          }
+          const env={...process.env,GIT_AUTHOR_NAME:"IWXA qualification",GIT_AUTHOR_EMAIL:"41898282+github-actions[bot]@users.noreply.github.com",GIT_COMMITTER_NAME:"IWXA qualification",GIT_COMMITTER_EMAIL:"41898282+github-actions[bot]@users.noreply.github.com"};
+          const commit=git(["commit-tree",tree,"-p",base,"-m","D05 T3: retain verified original platform and prepared Host inputs (candidate)"],env);
+          assert.ok(sha.test(commit));
+          assert.equal(git(["rev-parse",commit+"^{tree}"]),tree);
+          assert.equal(git(["rev-parse",commit+"^"]),base);
+          appendFileSync(process.env.GITHUB_OUTPUT,"commit="+commit+"\n");
+          console.log("D05_T3_RETAINED_COMMIT_PREPARED "+JSON.stringify({commit,tree,inputFiles:allowed.length,productAccepted:false}));
+          JS
+      - name: Push only the verified candidate tree to the private staging branch
+        working-directory: site
+        shell: bash
+        env:
+          DOMEN_TOKEN: ${{ secrets.DOMEN }}
+          CANDIDATE: ${{ steps.candidate.outputs.commit }}
+          SOURCE_SHA: 790c7b13399cdf8a9cbfb0833e11f753897d28ec
+          SNAPSHOT_TREE: ${{ steps.snapshot.outputs.tree }}
+          TARGET_BRANCH: work/2026-11-25-d05-t3-retained-inputs
+        run: |
+          set -euo pipefail
+          umask 077
+          log="$RUNNER_TEMP/d05-retained-push.log"
+          ask="$RUNNER_TEMP/d05-retained-askpass"
+          trap 'rm -f "$ask"' EXIT
+          if ! GH_TOKEN="$DOMEN_TOKEN" gh api repos/Faust-S/cehovod.ru --jq '.full_name=="Faust-S/cehovod.ru" and .private==true and .permissions.push==true' >"$log" 2>&1 || ! grep -qx true "$log"; then
+            echo D05_T3_RETAINED_PRIVATE_ACCESS_FAIL
+            exit 1
+          fi
+          cat >"$ask" <<'SH'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' x-access-token ;;
+            *Password*) printf '%s\n' "$DOMEN_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          SH
+          chmod 700 "$ask"
+          export GIT_ASKPASS="$ask" GIT_TERMINAL_PROMPT=0
+          url=https://github.com/Faust-S/cehovod.ru.git
+          ref="refs/heads/$TARGET_BRANCH"
+          case "$CANDIDATE" in (*[!0-9a-f]*|'') exit 1;; esac
+          test "${#CANDIDATE}" -eq 40
+          test "$TARGET_BRANCH" = "work/2026-11-25-d05-t3-retained-inputs"
+          if ! git ls-remote "$url" "$ref" >"$log" 2>&1; then
+            echo D05_T3_RETAINED_REMOTE_READ_FAIL
+            exit 1
+          fi
+          remote="$(cut -f1 "$log")"
+          test "$remote" = "$SOURCE_SHA" || { echo D05_T3_RETAINED_REMOTE_BASE_CHANGED; exit 1; }
+          if ! git push --porcelain "$url" "$CANDIDATE:$ref" >"$log" 2>&1; then
+            if grep -Eqi 'authentication|could not read Username|403|401' "$log"; then
+              echo D05_T3_RETAINED_PUSH_AUTH_FAIL
+            elif grep -Eqi 'non-fast-forward|fetch first|stale info' "$log"; then
+              echo D05_T3_RETAINED_PUSH_CONFLICT
+            elif grep -Eqi 'protected branch|rule violation|repository rule' "$log"; then
+              echo D05_T3_RETAINED_PUSH_BRANCH_RULE
+            else
+              echo D05_T3_RETAINED_PUSH_FAIL
+            fi
+            exit 1
+          fi
+          git ls-remote "$url" "$ref" >"$log" 2>&1 || { echo D05_T3_RETAINED_READBACK_FAIL; exit 1; }
+          test "$(cut -f1 "$log")" = "$CANDIDATE" || { echo D05_T3_RETAINED_REMOTE_SHA_MISMATCH; exit 1; }
+          fresh="$RUNNER_TEMP/d05-retained-remote"
+          mkdir "$fresh"
+          git -C "$fresh" init -q
+          git -C "$fresh" fetch -q --depth=1 "$url" "$ref" >"$log" 2>&1 || { echo D05_T3_RETAINED_REMOTE_FETCH_FAIL; exit 1; }
+          test "$(git -C "$fresh" rev-parse FETCH_HEAD)" = "$CANDIDATE"
+          test "$(git -C "$fresh" rev-parse 'FETCH_HEAD^{tree}')" = "$SNAPSHOT_TREE"
+          git -C "$fresh" checkout -q --detach FETCH_HEAD
+          echo "D05_T3_RETAINED_REMOTE_TREE_PASS $CANDIDATE"
+      - name: Build the freshly fetched private source with no original repository checkout
+        working-directory: site
+        shell: bash
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          fresh="$RUNNER_TEMP/d05-retained-remote"
+          test ! -e "$fresh/dist"
+          ln -s "$PWD/node_modules" "$fresh/node_modules"
+          log="$RUNNER_TEMP/d05-retained-remote-build.log"
+          if ! (cd "$fresh" && node scripts/build-cehovod-t3-local-site.mjs) >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+            echo D05_T3_RETAINED_REMOTE_BUILD_FAIL
+            exit 1
+          fi
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {join} from "node:path";
+          import {exactDistInventory} from "./scripts/check-t3-dist-reproducibility.mjs";
+          const local=exactDistInventory("dist"),remote=exactDistInventory(join(process.env.RUNNER_TEMP,"d05-retained-remote/dist"));
+          assert.deepEqual(remote,local);
+          console.log("D05_T3_RETAINED_PRIVATE_CHECKOUT_PASS "+JSON.stringify({files:remote.length,exactBytes:true,productAccepted:false}));
+          JS
+      - name: Destroy disposable private material and logs
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP"/d05-retained-*.log "$RUNNER_TEMP"/d05-t3-*.log "$RUNNER_TEMP/t3-artifact.zip" "$RUNNER_TEMP/platform-inputs.zip" "$RUNNER_TEMP/d05-retained-askpass"
+          rm -rf "$RUNNER_TEMP/d05-retained-remote" "$RUNNER_TEMP/cehovod-host" "$GITHUB_WORKSPACE/site" "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/assistant" "$GITHUB_WORKSPACE/one-core"
