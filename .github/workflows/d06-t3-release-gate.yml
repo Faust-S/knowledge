@@ -234,6 +234,7 @@ jobs:
           path: private/retention
       - name: Check exact private retention authorization
         id: retention-permission
+        continue-on-error: true
         working-directory: private/retention
         shell: bash
         env:
@@ -282,7 +283,7 @@ jobs:
           echo D06_FINAL_BROWSER_INSTALL=PASS
       - name: Verify original public portable input
         id: original-input
-        if: ${{ success() && steps.static-gate.outcome == 'success' && steps.native-evidence.outcome == 'success' && steps.retention-permission.outcome == 'success' }}
+        if: ${{ success() && steps.static-gate.outcome == 'success' && steps.native-evidence.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -296,7 +297,7 @@ jobs:
           echo D06_T3_ORIGINAL_PLATFORM_128_FILES=PASS
       - name: Prepare compiled production Host
         id: production-host
-        if: ${{ success() && steps.original-input.outcome == 'success' && steps.static-gate.outcome == 'success' && steps.native-evidence.outcome == 'success' && steps.retention-permission.outcome == 'success' }}
+        if: ${{ success() && steps.original-input.outcome == 'success' && steps.static-gate.outcome == 'success' && steps.native-evidence.outcome == 'success' }}
         working-directory: private/site
         shell: bash
         run: |
@@ -487,24 +488,14 @@ jobs:
             exit 1
           }
           grep -E '^D06_T3_PUBLIC_(NO_MODEL_[A-Z_]+|ASSISTANT_SMOKE)=PASS$' "$RUNNER_TEMP/d06-t3-public-private.log"
-      - name: Commit verified inputs to isolated private branch and prove exact remote readback
-        id: private-publish
-        if: ${{ success() && steps.local-rebuild.outcome == 'success' && steps.public-assistant.outcome == 'success' && steps.retention-permission.outcome == 'success' }}
+      - name: Qualify final production bytes and verify runner-local committed inputs
+        id: qualified-build
+        if: ${{ success() && steps.local-rebuild.outcome == 'success' && steps.public-assistant.outcome == 'success' }}
         working-directory: private/site
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.DOMEN }}
-          GIT_TERMINAL_PROMPT: '0'
-          RETENTION_PREFLIGHT: ${{ steps.retention-permission.outcome }}
         run: |
           set -euo pipefail
-          if [ "$RETENTION_PREFLIGHT" != success ]; then
-            echo D06_FINAL_PERMANENT_RETENTION=BLOCKED
-            exit 1
-          fi
-          test "$(gh api repos/Faust-S/komplektovod.ru --jq .private)" = "true"
           test "$(git rev-parse HEAD)" = "be7e994af3aba9837d6ee2c3ce17373e47dd1cdc"
-          test "$(gh api repos/Faust-S/komplektovod.ru/git/ref/heads/test/2026-11-25-d06-t3-production-inputs-ready --jq .object.sha)" = "be7e994af3aba9837d6ee2c3ce17373e47dd1cdc"
           test -z "$(git diff --name-only)"
           dir=runtime/t3-platform/0.3.1-rc.1
           node --input-type=module - <<'NODE' > "$RUNNER_TEMP/d06-retained-inventory-private.log" 2>&1
@@ -577,15 +568,40 @@ jobs:
           receipt_digest="$(sha256sum "$RUNNER_TEMP/d06-retained-commit/$dir/d06-host/d06-t3-host-input.json" | cut -d ' ' -f 1)"
           [[ "$dist_digest" =~ ^[a-f0-9]{64}$ && "$receipt_digest" =~ ^[a-f0-9]{64}$ ]]
           echo D06_T3_FINAL_DIST_READBACK=PASS
-          # Use the owner-authorized DOMEN token, not the public runner token.
-          # Do not change branch protections, scopes, or push any other ref.
-          bash "$GITHUB_WORKSPACE/pipeline/scripts/d06-private-git-transport.sh" publish be7e994af3aba9837d6ee2c3ce17373e47dd1cdc "$candidate"
-          echo D06_T3_RETAIN_PRIVATE_PUSH=PASS
-          echo D06_FINAL_PERMANENT_RETENTION=PASS
-          echo "D06_T3_RETAIN_REMOTE_COMMIT=$candidate"
           echo "D06_T3_DIST_INVENTORY_SHA256=$dist_digest"
           echo "D06_T3_HOST_RECEIPT_SHA256=$receipt_digest"
+          printf "candidate=%s\ndist_digest=%s\nreceipt_digest=%s\n" "$candidate" "$dist_digest" "$receipt_digest" >> "$GITHUB_OUTPUT"
+          echo D06_FINAL_BUILD_QUALIFIED=PASS
+      - name: Commit verified inputs to isolated private branch and prove exact remote readback
+        id: private-publish
+        if: ${{ success() && steps.qualified-build.outcome == 'success' && steps.retention-permission.outcome == 'success' }}
+        working-directory: private/site
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+          GIT_TERMINAL_PROMPT: '0'
+          CANDIDATE: ${{ steps.qualified-build.outputs.candidate }}
+          DIST_DIGEST: ${{ steps.qualified-build.outputs.dist_digest }}
+          RECEIPT_DIGEST: ${{ steps.qualified-build.outputs.receipt_digest }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE" =~ ^[a-f0-9]{40}$ && "$DIST_DIGEST" =~ ^[a-f0-9]{64}$ && "$RECEIPT_DIGEST" =~ ^[a-f0-9]{64}$ ]]
+          test "$(gh api repos/Faust-S/komplektovod.ru --jq .private)" = "true"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE"
+          test "$(gh api repos/Faust-S/komplektovod.ru/git/ref/heads/test/2026-11-25-d06-t3-production-inputs-ready --jq .object.sha)" = "be7e994af3aba9837d6ee2c3ce17373e47dd1cdc"
+          test "$(sha256sum "$RUNNER_TEMP/d06-final-dist-private.json" | cut -d ' ' -f 1)" = "$DIST_DIGEST"
+          test "$(sha256sum runtime/t3-platform/0.3.1-rc.1/d06-host/d06-t3-host-input.json | cut -d ' ' -f 1)" = "$RECEIPT_DIGEST"
+          bash "$GITHUB_WORKSPACE/pipeline/scripts/d06-private-git-transport.sh" publish be7e994af3aba9837d6ee2c3ce17373e47dd1cdc "$CANDIDATE"
+          echo D06_T3_RETAIN_PRIVATE_PUSH=PASS
+          echo D06_FINAL_PERMANENT_RETENTION=PASS
+          echo "D06_T3_RETAIN_REMOTE_COMMIT=$CANDIDATE"
           echo D06_FINAL_DELIVERY_READY=PASS
+      - name: Report blocked permanent retention after production qualification
+        if: ${{ !cancelled() && steps.retention-permission.outcome == 'failure' }}
+        shell: bash
+        run: |
+          echo D06_FINAL_PERMANENT_RETENTION=BLOCKED
+          exit 1
       - name: Evidence boundary
         if: always()
         shell: pwsh
@@ -595,9 +611,9 @@ jobs:
           Write-Host "D06_FINAL_PRIOR_NATIVE_EVIDENCE=${{ steps.native-evidence.outcome }}"
           Write-Host "D06_FINAL_PRODUCTION_HOST=${{ steps.production-host.outcome }}"
           Write-Host "D06_FINAL_LOCAL_REBUILD=${{ steps.local-rebuild.outcome }}"
+          Write-Host "D06_FINAL_BUILD_QUALIFICATION=${{ steps.qualified-build.outcome }}"
           Write-Host "D06_FINAL_PRIVATE_PUBLISH=${{ steps.private-publish.outcome }}"
           Write-Host "D06_FINAL_RETENTION_PREFLIGHT=${{ steps.retention-permission.outcome }}"
-          if ("${{ steps.retention-permission.outcome }}" -eq "failure") { Write-Host "D06_FINAL_PERMANENT_RETENTION=BLOCKED" }
           Write-Host "D06_T3_PRODUCT_ACCEPTED=false"
           Write-Host "D06_PRIVATE_SOURCE_UPLOADS=0"
           Write-Host "D06_PRIVATE_LOG_UPLOADS=0"
