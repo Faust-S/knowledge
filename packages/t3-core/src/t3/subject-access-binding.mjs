@@ -334,6 +334,10 @@ export function createSubjectKernelBinding({
         const source = boundImport.sourceWorkspaceId;
         const foreign = source !== workspace_id;
         const map = plan?.workspace_id_map;
+        // Keep the original explicit recipient-scope refusal distinguishable
+        // from an incomplete, but correctly addressed, company merge.
+        if (plan?.target_workspace != null && plan.target_workspace !== workspace_id)
+          refused("T3_SUBJECT_IMPORT_PLAN_OUT_OF_SCOPE");
         if(business&&(foreign||boundImport.business!==true||
            plan?.mode!=="merge"||plan.target_workspace!==workspace_id||
            (plan?.conflict??"fail")!=="fail"||
