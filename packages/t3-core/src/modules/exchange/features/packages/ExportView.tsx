@@ -6,6 +6,8 @@ import { CONTRACT_VERSION, type PackageArtifact } from "@/kernel-client/contract
 import {
   INITIAL_EXPORT_STATE,
   exportReducer,
+  canStartExportPreview,
+  canStartExportPackage,
   selectionsEqual,
   toExportOptions,
   type ExportState,
@@ -15,7 +17,7 @@ import {
 function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) return false;
   const set = new Set(left);
-  return set.size === left.length && right.every((value) => set.has(value));
+  return set.size === left.length && new Set(right).size === right.length && right.every((value) => set.has(value));
 }
 
 function isValidPackageArtifact(
@@ -93,7 +95,9 @@ export function ExportView({ kernel, scopedWorkspaceId,
   const nativeSavingRef = useRef(false);
   const [nativeSaving,setNativeSaving] = useState(false);
   const [nativeSaveError,setNativeSaveError] = useState<string|null>(null);
-  const [nativeSaveMessage,setNativeSaveMessage] = useState<string|null>(null);
+  const nativeSavedArtifactRef = useRef<PackageArtifact|null>(null);
+  const [nativeSaved,setNativeSaved] = useState<{artifact:PackageArtifact;message:string}|null>(null);
+  const nativeSaveMessage = nativeSaved && nativeSaved.artifact===state.artifact ? nativeSaved.message : null;
   const [protectedDownloadedName,setProtectedDownloadedName] = useState<string|null>(null);
   const artifactRef = useRef(state.artifact);
   artifactRef.current = state.artifact;
@@ -113,7 +117,10 @@ export function ExportView({ kernel, scopedWorkspaceId,
     };
   }, []);
 
-  useEffect(()=>{setProtectedDownloadedName(null);setNativeSaveError(null);setNativeSaveMessage(null);},[state.artifact]);
+  useEffect(()=>{
+    setProtectedDownloadedName(null);setNativeSaveError(null);setDownloadedName(null);
+    setNativeSaved(null);nativeSavedArtifactRef.current=null;
+  },[state.artifact]);
 
   const canPreview = kernel.hasOperation("t2.exportPreview");
   const canPackage = kernel.hasOperation("t2.exportPackage");
@@ -175,7 +182,9 @@ export function ExportView({ kernel, scopedWorkspaceId,
   const options = useMemo(() => toExportOptions(selection), [selection]);
 
   const runPreview = async () => {
-    if (busyRef.current || !scopeReady) return;
+    if (busyRef.current || nativeSavingRef.current || protectedBusy || !scopeReady ||
+        !canPreview || !canStartExportPreview(state)) return;
+    nativeSavedArtifactRef.current=null;
     busyRef.current = true;
     dispatch({ type: "preview-started" });
     try {
@@ -187,8 +196,8 @@ export function ExportView({ kernel, scopedWorkspaceId,
   };
 
   const runPackage = async () => {
-    if (busyRef.current) return;
-    if (!state.preview || !state.ackSensitive || !scopeReady ||
+    if (busyRef.current || nativeSavingRef.current || protectedBusy || !canPackage ||
+        !canStartExportPackage(state) || !scopeReady ||
         !selectionsEqual(state.previewSnapshot ?? state.selection, selection)) return;
     if (
       !state.preview ||
@@ -258,11 +267,12 @@ export function ExportView({ kernel, scopedWorkspaceId,
 
   const runDownload = () => {
     const artifact=state.artifact;
-    if(!scopeReady||!artifact||nativeSavingRef.current)return;
+    if(!scopeReady||!artifact||nativeSavingRef.current||busyRef.current||protectedBusy||
+        !["package-ready","download-initiated","confirmed"].includes(state.status))return;
     if(!nativeDelivery){triggerDownload(artifact.bytes,artifact.filename,true);return;}
     if(!["package-ready","download-initiated"].includes(state.status))return;
     nativeSavingRef.current=true;setNativeSaving(true);setNativeSaveError(null);
-    setNativeSaveMessage(null);setDownloadedName(null);
+    nativeSavedArtifactRef.current=null;setNativeSaved(null);setDownloadedName(null);
     dispatch({type:"ack-file-saved",value:false});
     void saveAndroidPackageFile(artifact.bytes,artifact.filename,{
       isCurrent:()=>mountedRef.current&&artifactRef.current===artifact,
@@ -273,11 +283,12 @@ export function ExportView({ kernel, scopedWorkspaceId,
         return;
       }
       setDownloadedName(saved.filename);
-      setNativeSaveMessage(saved.filenameConfirmed
+      nativeSavedArtifactRef.current=artifact;
+      setNativeSaved({artifact,message:saved.filenameConfirmed
         ? (/\.iwxa$/i.test(saved.filename)
           ? "Файл записан и повторно прочитан: "+saved.filename
           : "Файл записан: "+saved.filename+". Перед импортом переименуйте его, сохранив расширение .iwxa.")
-        : "Файл записан и повторно прочитан. Проверьте выбранное имя и расширение .iwxa.");
+        : "Файл записан и повторно прочитан. Проверьте выбранное имя и расширение .iwxa."});
       // Use the original state machine; manual acknowledgement and Kernel
       // confirmExport still remain separate explicit user actions.
       dispatch({type:"download-initiated"});
@@ -316,11 +327,14 @@ export function ExportView({ kernel, scopedWorkspaceId,
     }
   };
   const runConfirm = async () => {
-    if (nativeSavingRef.current || (nativeDelivery && !nativeSaveMessage) || !scopeReady || state.status !== "download-initiated" ||
+    if (busyRef.current || nativeSavingRef.current || protectedBusy ||
+        (nativeDelivery && (!nativeSaveMessage || nativeSavedArtifactRef.current!==state.artifact)) ||
+        !scopeReady || state.status !== "download-initiated" ||
         !state.fileSavedConfirmed) return;
     if (!state.artifact) return;
     if (!canConfirm) return;
     const workspaceIds = state.packageSnapshot?.workspaces ?? [];
+    busyRef.current=true;
     dispatch({ type: "confirm-started" });
     try {
       const receipt = await kernel.confirmExport({
@@ -330,7 +344,7 @@ export function ExportView({ kernel, scopedWorkspaceId,
       dispatch({ type: "confirm-succeeded", receipt });
     } catch (e) {
       dispatch({ type: "confirm-failed", error: e instanceof Error ? e.message : String(e) });
-    }
+    } finally { busyRef.current=false; }
   };
 
   return renderExport({
@@ -376,14 +390,14 @@ function renderExport(p: RenderProps) {
     protectedExchange, protectedBusy, protectedError, downloadedName,
     protectedDownloadedName,nativeDelivery,nativeSaving,nativeSaveError,nativeSaveMessage } = p;
   const busy = nativeSaving || state.status === "previewing" || state.status === "packaging" || state.status === "confirming";
-  const previewDisabled = !canPreview || selection.workspaces.length === 0 || !scopeReady || busy;
-  const packageDisabled = !canPackage || !state.preview ||
-    !state.ackSensitive || !scopeReady || busy;
+  const previewDisabled = !canPreview || !canStartExportPreview(state) || !scopeReady || busy || protectedBusy;
+  const packageDisabled = !canPackage || !canStartExportPackage(state) ||
+    !scopeReady || busy || protectedBusy;
   const downloadDisabled = !state.artifact || !scopeReady || busy || protectedBusy ||
     (nativeDelivery && !["package-ready","download-initiated"].includes(state.status));
   const confirmDisabled =
     !state.artifact || !canConfirm || !scopeReady || !state.fileSavedConfirmed ||
-    busy || (nativeDelivery && !nativeSaveMessage) || state.status !== "download-initiated";
+    busy || protectedBusy || (nativeDelivery && !nativeSaveMessage) || state.status !== "download-initiated";
   const nativeAgeTooLarge=Boolean(protectedExchange && state.artifact &&
     state.artifact.bytes.byteLength>protectedExchange.maxArchiveBytes);
 
@@ -407,7 +421,7 @@ function renderExport(p: RenderProps) {
           return (
             <label key={w.workspace_id} className="flex items-center gap-2 text-sm py-1">
               <input type="checkbox" checked={checked}
-                disabled={nativeSaving || signedWorkspaceScope || Boolean(scopedWorkspaceId)} onChange={(e) => {
+                disabled={busy || protectedBusy || signedWorkspaceScope || Boolean(scopedWorkspaceId)} onChange={(e) => {
                 const next = new Set(state.selection.workspaces);
                 if (e.target.checked) next.add(w.workspace_id); else next.delete(w.workspace_id);
                 dispatch({ type: "set-selection", selection: { workspaces: [...next] } });
@@ -431,7 +445,7 @@ function renderExport(p: RenderProps) {
           ["include_schemas", "Схемы", state.selection.include_schemas],
         ] as const).map(([id, label, value]) => (
           <label key={id} className="flex items-center gap-2 text-xs">
-            <input type="checkbox" checked={value} disabled={nativeSaving} data-testid={`export-${id}`}
+            <input type="checkbox" checked={value} disabled={busy || protectedBusy} data-testid={`export-${id}`}
               onChange={(e) => dispatch({ type: "set-selection", selection: { [id]: e.target.checked } as never })} />
             <span className="text-slate-200">{label}</span>
           </label>
@@ -443,7 +457,7 @@ function renderExport(p: RenderProps) {
       {state.preview && state.status !== "confirmed" && (
         <label className="flex items-start gap-2 text-xs text-slate-300">
           <input type="checkbox" data-testid="export-ack-sensitive"
-            checked={state.ackSensitive} disabled={nativeSaving}
+            checked={state.ackSensitive} disabled={busy || protectedBusy}
             onChange={(e) => dispatch({ type: "ack-sensitive", value: e.target.checked })}
             className="mt-0.5" />
           <span>Я проверил состав предпросмотра и понимаю, что экспортируемый
