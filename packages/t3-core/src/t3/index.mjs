@@ -64,7 +64,7 @@ export { createSubjectKernelBinding } from './subject-access-binding.mjs';
 export { createSignedAccessHostPort } from "./signed-access-host-port.mjs";
 
 export {
-  LOCAL_INFERENCE_DRAFT_SCHEMA, LOCAL_INFERENCE_DRAFT_DECLARATION,
+  LOCAL_INFERENCE_DRAFT_SCHEMA, LOCAL_INFERENCE_DRAFT_DECLARATION, ANDROID_LOCAL_INFERENCE_DRAFT_DECLARATION,
   saveLocalInferenceDraft, saveAndroidNativeInferenceDraft, listLocalInferenceDrafts, getLocalInferenceDraft,
 } from "./local-inference-draft.mjs";
 export { createTrustedReconciliationAdmission } from './reconciliation-owner-admission.mjs';

@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   LOCAL_INFERENCE_DRAFT_SCHEMA, saveLocalInferenceDraft,
   listLocalInferenceDrafts, getLocalInferenceDraft, saveAndroidNativeInferenceDraft,
-  LOCAL_INFERENCE_DRAFT_DECLARATION,
+  LOCAL_INFERENCE_DRAFT_DECLARATION, ANDROID_LOCAL_INFERENCE_DRAFT_DECLARATION,
 } from "../src/t3/local-inference-draft.mjs";
 
 const WSA="ws:local-a",WSB="ws:foreign-b";
@@ -300,8 +300,8 @@ test("Android native D5 uses the original object/event and is never a browser or
   assert.equal(object.data.status,"DRAFT_UNTRUSTED");
   assert.equal(object.data.model_integrity,"NOT_ATTESTED");
   assert.equal(object.schema_id,LOCAL_INFERENCE_DRAFT_SCHEMA);
-  assert.equal(object.schema_version,"1.0.0");
-  assert.deepEqual(LOCAL_INFERENCE_DRAFT_DECLARATION.json_schema.properties.origin.enum,
+  assert.equal(object.schema_version,"1.1.0");
+  assert.deepEqual(ANDROID_LOCAL_INFERENCE_DRAFT_DECLARATION.json_schema.properties.origin.enum,
     ["BROWSER_LOCAL","ANDROID_NATIVE"]);
   const opened=await getLocalInferenceDraft(f.context,{
     expected_workspace_id:WSA,object_id:receipt.object_id,
@@ -315,6 +315,8 @@ test("browser D5 cannot change provenance by passing an extra field",async()=>{
   const f=fixture();
   const receipt=await saveLocalInferenceDraft(f.context,{...INPUT,origin:"ANDROID_NATIVE"});
   assert.equal(f.store.get(receipt.object_id).data.origin,"BROWSER_LOCAL");
+  assert.equal(f.store.get(receipt.object_id).schema_version,"1.0.0");
+  assert.deepEqual(LOCAL_INFERENCE_DRAFT_DECLARATION.json_schema.properties.origin,{const:"BROWSER_LOCAL"});
 });
 test("Android D5 rejects non-native model identity before touching Kernel",async()=>{
   const f=fixture();
@@ -322,4 +324,15 @@ test("Android D5 rejects non-native model identity before touching Kernel",async
     expected_workspace_id:WSA,model_id:"not-a-native-file",output:"text",
   }),{code:"T3_D5_NATIVE_MODEL_ID_REQUIRED"});
   assert.deepEqual(f.calls,[]);
+});
+
+test("D5 never reads Android provenance as the immutable browser schema",async()=>{
+  const f=fixture(),receipt=await saveAndroidNativeInferenceDraft(f.context,{
+    expected_workspace_id:WSA,model_id:"00000000-0000-0000-0000-000000000001_qa.gguf",output:"draft",
+  });
+  const record=f.store.get(receipt.object_id);
+  f.store.set(receipt.object_id,{...record,schema_version:"1.0.0"});
+  await assert.rejects(getLocalInferenceDraft(f.context,{
+    expected_workspace_id:WSA,object_id:receipt.object_id,
+  }),{code:"T3_D5_DRAFT_READBACK_INVALID"});
 });

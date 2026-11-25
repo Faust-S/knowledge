@@ -101,6 +101,11 @@ export const LOCAL_INFERENCE_DRAFT_DECLARATION: {
   readonly json_schema: Record<string, unknown>;
   readonly embedded: Record<string, never>;
 };
+/** Android provenance evolves the same D5 schema without changing 1.0.0. */
+export const ANDROID_LOCAL_INFERENCE_DRAFT_DECLARATION: Omit<
+  typeof LOCAL_INFERENCE_DRAFT_DECLARATION, "schema_version"> & {
+    readonly schema_version: "1.1.0";
+  };
 
 /** D3. Trusted owner adapter, NOT a second Reconciliation, signed issuer, UI
  * callback or Kernel writer. The original recipient owner must be injected

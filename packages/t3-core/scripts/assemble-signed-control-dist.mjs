@@ -372,7 +372,7 @@ export function assembleSignedControlDist({
     servicePassport=JSON.parse(readFileSync(passportFile,'utf8'));
     if(localInference||androidNativeInference)
       registerT3LocalInferenceService({domain,workspaceConfig:config,
-        passport:servicePassport});
+        passport:servicePassport,androidNativeInference});
     if(installedOriginalAdminD3)
       registerInstalledAdminAppliedResult({domain,config,passport:servicePassport});
     if(installedOriginalAgentD6)

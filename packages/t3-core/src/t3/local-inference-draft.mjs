@@ -11,7 +11,7 @@ export const LOCAL_INFERENCE_DRAFT_DECLARATION = Object.freeze({
       text: {type: "string", minLength: 1, maxLength: 64000},
       model_id: {type: "string", minLength: 1, maxLength: 256},
       engine: {type: "string", minLength: 1, maxLength: 256},
-      origin: {enum: ["BROWSER_LOCAL", "ANDROID_NATIVE"]},
+      origin: {const: "BROWSER_LOCAL"},
       source: {const: "USER_EXPLICIT_SAVE"},
       model_integrity: {const: "NOT_ATTESTED"},
     },
@@ -19,6 +19,20 @@ export const LOCAL_INFERENCE_DRAFT_DECLARATION = Object.freeze({
     additionalProperties: false,
   },
   embedded: {},
+});
+
+// Schema identity is (schema_id, schema_version, canonical digest) in
+// the ORIGINAL Kernel. Never alter the already issued browser 1.0.0.
+export const ANDROID_LOCAL_INFERENCE_DRAFT_DECLARATION = Object.freeze({
+  ...LOCAL_INFERENCE_DRAFT_DECLARATION,
+  schema_version: "1.1.0",
+  json_schema: {
+    ...LOCAL_INFERENCE_DRAFT_DECLARATION.json_schema,
+    properties: {
+      ...LOCAL_INFERENCE_DRAFT_DECLARATION.json_schema.properties,
+      origin: {enum: ["BROWSER_LOCAL", "ANDROID_NATIVE"]},
+    },
+  },
 });
 
 function refuse(code, details) {
@@ -78,7 +92,7 @@ function watch(context, choice) {
 
 export async function saveLocalInferenceDraft(context, input = {}) {
   // Existing browser callers cannot relabel their own output as native.
-  return saveInferenceDraft(context, input, "BROWSER_LOCAL");
+  return saveInferenceDraft(context, input, "BROWSER_LOCAL", LOCAL_INFERENCE_DRAFT_DECLARATION.schema_version);
 }
 
 /** The installed Android product explicitly binds its completed native
@@ -92,7 +106,7 @@ export async function saveAndroidNativeInferenceDraft(context, {
     refuse("T3_D5_NATIVE_MODEL_ID_REQUIRED");
   return saveInferenceDraft(context, {
     expected_workspace_id, model_id, engine: "llama.cpp", output,
-  }, "ANDROID_NATIVE");
+  }, "ANDROID_NATIVE", ANDROID_LOCAL_INFERENCE_DRAFT_DECLARATION.schema_version);
 }
 
 async function saveInferenceDraft(context, {
@@ -100,7 +114,7 @@ async function saveInferenceDraft(context, {
   model_id,
   engine,
   output,
-} = {}, origin) {
+} = {}, origin, schemaVersion) {
   // This is called by an explicit Save action AFTER local inference. Neither
   // the prompt nor source workspace objects are copied into the draft.
   const { workspaceId, choice } = selected(context, expected_workspace_id);
@@ -139,7 +153,7 @@ async function saveInferenceDraft(context, {
       workspace_id: workspaceId,
       object_id: objectId,
       schema_id: LOCAL_INFERENCE_DRAFT_SCHEMA,
-      schema_version: "1.0.0",
+      schema_version: schemaVersion,
       base_revision: 0,
       data,
       extensions: {},
@@ -161,6 +175,7 @@ async function saveInferenceDraft(context, {
         detail.object.object_id !== objectId ||
         detail.object.revision !== receipt.object.revision ||
         detail.object.schema_id !== LOCAL_INFERENCE_DRAFT_SCHEMA ||
+        detail.object.schema_version !== schemaVersion ||
         !sameDraftData(detail.object.data,data)) {
       refuse("T3_D5_DRAFT_READBACK_MISMATCH");
     }
@@ -252,10 +267,11 @@ export async function getLocalInferenceDraft(context, {
     const data=object?.data;
     if (!object || object.workspace_id!==workspaceId ||
         object.object_id!==object_id || object.schema_id!==LOCAL_INFERENCE_DRAFT_SCHEMA ||
-        object.schema_version!=="1.0.0" || object.deleted || object.deleted_at ||
+        !["1.0.0","1.1.0"].includes(object.schema_version) || object.deleted || object.deleted_at ||
         !Number.isInteger(object.revision) || object.revision<1 ||
         !data || data.status!=="DRAFT_UNTRUSTED" ||
         !["BROWSER_LOCAL","ANDROID_NATIVE"].includes(data.origin) ||
+        (object.schema_version==="1.0.0"&&data.origin!=="BROWSER_LOCAL") ||
         (data.origin==="ANDROID_NATIVE"&&(data.engine!=="llama.cpp"||
           typeof data.model_id!=="string"||
           !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}_[A-Za-z0-9._-]{1,80}\.gguf$/.test(data.model_id))) ||
