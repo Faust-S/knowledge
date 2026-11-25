@@ -17,6 +17,9 @@ does not start D06 T3 runners on this branch.
   then the two production-origin builds from retained inputs, corruption
   rejection and public assistant smoke.
 - One site dependency installation per OS. Preserve distinct HTTPS origins.
+- If the mandatory Windows gate fails on Prettier, compute the existing exact
+  non-content formatting coordinates in that same runner. The gate stays failed;
+  do not start a separate formatting job for this result.
 - All D06 T3 workflows share one concurrency group on this branch. Running
   work is not canceled; do not issue multiple pending requests.
 - Individual diagnostic workflows remain available by explicitly committing

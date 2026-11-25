@@ -241,6 +241,7 @@ jobs:
           Write-Host "D06_T3_SKILL_UPGRADE=PASS"
           Write-Host "D06_T3_SKILL_UPGRADE_COMMITTED_BYTES=PASS"
       - name: Exact mandatory site gate
+        id: static-gate
         shell: pwsh
         working-directory: private/site
         env:
@@ -253,6 +254,9 @@ jobs:
             Write-Host ("D06_FULL_" + $task.Replace(" ","_").Replace(":","_").ToUpperInvariant() + "=" + $(if ($passed) {"PASS"} else {"FAIL"}))
             if (-not $passed) {
               $body = Get-Content -LiteralPath $log -Raw
+              if ($task -eq "run build:static:check" -and $body -match 'prettier/prettier') {
+                Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "format-needed=true"
+              }
               $stages = [regex]::Matches($body, '(?m)^>\s+\S+@\S+\s+((?:check|test|build)(?::[a-z0-9.-]+)*)\s*$')
               $names = @($stages | ForEach-Object { $_.Groups[1].Value })
               Write-Host ("D06_FULL_LAST_STAGES=" + (($names | Select-Object -Last 5) -join ","))
@@ -293,6 +297,114 @@ jobs:
               exit 1
             }
           }
+      - name: Diagnose formatting only after a failed mandatory gate
+        if: ${{ !cancelled() && steps.static-gate.outcome == 'failure' && steps.static-gate.outputs.format-needed == 'true' }}
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $script = Join-Path $env:RUNNER_TEMP "d06-format-coordinates.cjs"
+          @'
+          const { execFileSync, spawnSync } = require("node:child_process");
+          const { createRequire } = require("node:module");
+          const { createHash } = require("node:crypto");
+          const path = require("node:path");
+          const req = createRequire(path.resolve("package.json"));
+          const prettier = req("prettier");
+          const git = (...args) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+          const files = git("ls-files", "-z").split("\0").filter(Boolean).sort();
+          const lint = spawnSync(process.execPath, [path.resolve("node_modules/eslint/bin/eslint.js"), ".", "--format", "json"], {
+            encoding: "utf8", maxBuffer: 64 * 1024 * 1024,
+          });
+          if (lint.status !== 0 && lint.status !== 1) throw Error("lint diagnostics unavailable");
+          const reports = JSON.parse(lint.stdout);
+          const flagged = reports.filter((report) =>
+            report.messages.some((message) => message.ruleId === "prettier/prettier"));
+          if (flagged.length > 32) throw Error("format scope limit");
+          const formatting = new Set([9, 10, 13, 32, 34, 39, 40, 41, 44, 58, 59, 91, 92, 93, 96, 123, 125]);
+          function parts(source) {
+            const content = [];
+            const gaps = [];
+            let offset = 0;
+            while (true) {
+              const start = offset;
+              while (offset < source.length && formatting.has(source.charCodeAt(offset))) offset++;
+              gaps.push({ start, value: source.slice(start, offset) });
+              if (offset === source.length) break;
+              content.push(source[offset++]);
+            }
+            return { content: content.join(""), gaps };
+          }
+          function sha(source) {
+            const bytes = Buffer.from(source, "utf8");
+            return createHash("sha1").update("blob " + bytes.length + "\0").update(bytes).digest("hex");
+          }
+          (async () => {
+            let count = 0;
+            let unsupported = 0;
+            let total = 0;
+            for (const report of flagged) {
+              const relative = path.relative(process.cwd(), report.filePath).replaceAll("\\", "/");
+              const ordinal = files.indexOf(relative) + 1;
+              if (!ordinal) throw Error("untracked format target");
+              const source = git("show", "HEAD:" + relative);
+              const sourceSha = git("rev-parse", "HEAD:" + relative).trim();
+              if (sha(source) !== sourceSha) throw Error("source blob mismatch");
+              const config = await prettier.resolveConfig(report.filePath);
+              const output = await prettier.format(source, { ...config, filepath: report.filePath });
+              const a = parts(source);
+              const b = parts(output);
+              if (a.content !== b.content || a.gaps.length !== b.gaps.length) {
+                console.log("D06_FMT_UNSUPPORTED=" + ordinal);
+                let prefix = 0;
+                while (prefix < a.content.length && prefix < b.content.length && a.content[prefix] === b.content[prefix]) prefix++;
+                let suffix = 0;
+                while (suffix < a.content.length - prefix && suffix < b.content.length - prefix && a.content[a.content.length - 1 - suffix] === b.content[b.content.length - 1 - suffix]) suffix++;
+                const pos = a.gaps[Math.min(prefix, a.gaps.length - 1)].start;
+                const line = source.slice(0, pos).split("\n").length;
+                const column = pos - source.lastIndexOf("\n", pos - 1);
+                console.log("D06_FMT_MISMATCH=" + [ordinal, line, column, a.content.length - prefix - suffix, b.content.length - prefix - suffix].join(":"));
+                unsupported++;
+                continue;
+              }
+              const edits = [];
+              for (let i = 0; i < a.gaps.length; i++) {
+                if (a.gaps[i].value === b.gaps[i].value) continue;
+                const codes = Array.from(b.gaps[i].value, (ch) => ch.charCodeAt(0));
+                if (!codes.every((code) => formatting.has(code))) throw Error("nonformat characters");
+                edits.push([a.gaps[i].start, a.gaps[i].value.length, codes]);
+              }
+              let replay = source;
+              for (const [start, length, codes] of [...edits].reverse())
+                replay = replay.slice(0, start) + String.fromCharCode(...codes) + replay.slice(start + length);
+              if (replay !== output) throw Error("coordinate replay mismatch");
+              if (!edits.length) continue;
+              if (total + edits.length > 15000) throw Error("format coordinate limit");
+              total += edits.length;
+              count++;
+              console.log("D06_FMT_BLOB=" + ordinal + ":" + sourceSha + ":" + sha(output) + ":" + edits.length);
+              for (let start = 0; start < edits.length; start += 20)
+                console.log("D06_FMT_COORD=" + ordinal + ":" + JSON.stringify(edits.slice(start, start + 20)));
+            }
+            console.log("D06_FMT_COORD_FILES=" + count);
+            console.log("D06_FMT_COORD_TOTAL=" + total);
+            console.log("D06_FMT_COORD_UNSUPPORTED=" + unsupported);
+            if (unsupported) process.exitCode = 1;
+          })().catch(() => { console.log("D06_FMT_COORD_ENGINE=FAIL"); process.exitCode = 1; });
+          '@ | Set-Content -LiteralPath $script -Encoding utf8
+          $out = Join-Path $env:RUNNER_TEMP "d06-format-coordinates.private.log"
+          & node $script *> $out
+          $code = $LASTEXITCODE
+          foreach ($line in Get-Content -LiteralPath $out) {
+            if ($line -match '^D06_FMT_BLOB=\d+:[a-f0-9]{40}:[a-f0-9]{40}:\d+$' -or
+                $line -match '^D06_FMT_COORD=\d+:[\[\],0-9]+$' -or
+                $line -match '^D06_FMT_MISMATCH=\d+:\d+:\d+:\d+:\d+$' -or
+                $line -match '^D06_FMT_(?:COORD_FILES|COORD_TOTAL|COORD_UNSUPPORTED|UNSUPPORTED)=\d+$' -or
+                $line -eq 'D06_FMT_COORD_ENGINE=FAIL') {
+              Write-Host $line
+            }
+          }
+          if ($code -ne 0) { Write-Host "D06_FMT_COORD_RESULT=FAIL"; exit 1 }
+          Write-Host "D06_FMT_COORD_RESULT=PASS"
       - name: Evidence boundary
         if: always()
         shell: pwsh
@@ -671,6 +783,39 @@ jobs:
           for(const m of exits.slice(-12)) console.log("D06_T3_BROWSER_EXIT="+m[1]+":"+m[2]);
           const browserFatal=[...body.matchAll(/(?:Out of memory|Received signal (?:6|9|11)|FATAL:|Unable to allocate)/gi)].length;
           console.log("D06_T3_BROWSER_FATAL_MARKERS="+browserFatal);
+          // Keep diagnostics inside the private runner. Emit only bounded
+          // categories and relative ordering, never browser messages or paths.
+          const lines=body.split(/\r?\n/);
+          const categories=[
+            ["PROFILE_LOCK",/ProcessSingleton|SingletonLock|profile.{0,32}in use/i],
+            ["MEMORY",/out of memory|unable to allocate|oom-kill/i],
+            ["CRASH_SIGNAL",/received signal (?:6|9|11)|SIG(?:ABRT|SEGV|KILL)/i],
+            ["DOWNLOAD",/download_(?:manager|item|file)|download manager/i],
+            ["GPU",/GPU process|gpu_process_host/i],
+            ["IPC",/bad message|Mojo.{0,32}(?:error|disconnect)/i],
+            ["CRASHPAD",/crashpad|crash_reporter/i],
+            ["CHECK_FAILED",/check failed:/i],
+          ];
+          const fatalLines=lines.filter(line=>/FATAL:|Out of memory|Received signal (?:6|9|11)|Unable to allocate/i.test(line));
+          for(const [label,pattern] of categories){
+            const count=fatalLines.filter(line=>pattern.test(line)).length;
+            if(count)console.log("D06_T3_BROWSER_FATAL_CLASS="+label+":"+count);
+          }
+          const timeline=[];
+          for(let i=0;i<lines.length;i++){
+            const line=lines[i];
+            let marker=null;
+            const stage=/^D06_NATIVE_STAGE=(PD12_PORTABLE_[A-Z0-9_]+)$/.exec(line);
+            const activity=/^D06_T3_PORTABLE_(?:ACTIVATION|DOWNLOAD_LIFECYCLE|DOWNLOAD_PAGE_CLOSED)=([A-Z_:]+)$/.exec(line);
+            if(stage)marker=stage[1];
+            else if(activity)marker=activity[1];
+            else if(/^D06_T3_DOWNLOAD_FAILURE=PD12_PORTABLE:/.test(line))marker="DOWNLOAD_FAILURE";
+            else if(/FATAL:|Out of memory|Received signal (?:6|9|11)|Unable to allocate/i.test(line))marker="BROWSER_FATAL";
+            else if(/<gracefully close start>/i.test(line))marker="BROWSER_CLOSE_REQUESTED";
+            else if(/<process did exit:/i.test(line))marker="BROWSER_EXIT";
+            if(marker)timeline.push([i+1,marker]);
+          }
+          for(const [index,marker] of timeline.slice(-40))console.log("D06_T3_EXCHANGE_TIMELINE="+index+":"+marker);
           const hits=[...body.matchAll(/(?:scripts\/verify-native-transfer|tests\/t3\/exchange-consent)\.mjs:(\d+):(\d+)/g)];
           for(const m of hits.slice(-8)) console.log("D06_T3_EXCHANGE_COORD="+(m[0].startsWith("scripts/")?"TRANSFER":"CONSENT")+":"+m[1]+":"+m[2]);
           NODE
