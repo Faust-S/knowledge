@@ -1,7 +1,10 @@
 import {createHash} from 'node:crypto';
-import {validateT4OriginalNativeCaptureSession,deriveT4OriginalSupersessionPublicationSession} from './original-network-publication.mjs';
+import {validateT4OriginalNativeCaptureSession,deriveT4OriginalSupersessionPublicationSession,
+  deriveT4OriginalReplacementSessionCandidate,createT4OriginalReplacementSourceHead,readT4OriginalReplacementSourceHead}
+  from './original-network-publication.mjs';
 import {createT4CandidateSupersessionClaim,T4_SESSION_SUPERSESSION_EXTENSION,
-  createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,t4NativeSubjectCriticalExtensions}
+  createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,t4NativeSubjectCriticalExtensions,
+  T4_REPLACEMENT_SOURCE_SESSION_EXTENSION}
   from './standard-network-wire-candidate.mjs';
 
 // A control exchange over the original wire/Vault/phase ports. This
@@ -406,4 +409,106 @@ export async function recordT4OriginalSourceSupersession({
     originalSourceAttemptSuperseded:true,originalRecipientAttemptSuperseded:true,
     originalSourceCursorAdvanced:false,originalSubjectMutationInvoked:false,liveNetworkAuthorityGranted:false,
     originalNewAttemptAdmissionStillRequired:true,status:recorded.status});
+}
+
+// Cold read of the original retirement records and the still-unadvanced
+// causal position. No new CAS, queue, IAM or grant. This first candidate
+// profile handles replacement of the initial capture attempt only.
+export async function recoverT4OriginalReplacementEligibility({
+  originalCaptureSession,sourceCursorBefore,sourcePhasePort,recipientPhasePort,sourceCursorPort,recipientCursorPort,
+  sourceHistoricalFramePort,requiredCryptoSuite,getMode,verifyOriginalSourceCapture,authorizeOriginalReplacement,
+}={}){
+  const original=validateT4OriginalNativeCaptureSession(originalCaptureSession),before=freeze(clone(sourceCursorBefore));
+  const cursorValid=before?.schema==='IWXA_T4_ORIGINAL_EVENT_CURSOR_V1'&&before.workspaceId===original.workspaceId&&
+    before.originalWriteOwnerRef===original.originalWriteOwnerRef&&ID(before.lastEventId)&&
+    before.lastEventId!==original.sourceEventId&&before.sourcePrefixDigest===original.sourcePrefixDigestBefore&&
+    before.originalPermissionProof===false&&Number.isSafeInteger(before.seenEventCount)&&before.seenEventCount>=1&&
+    before.seenEventCount<Number.MAX_SAFE_INTEGER;
+  if(!cursorValid||!ID(requiredCryptoSuite)||
+    ![getMode,verifyOriginalSourceCapture,authorizeOriginalReplacement].every(f=>typeof f==='function')||
+    ![sourcePhasePort,recipientPhasePort].every((port,i)=>port?.schema==='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'&&
+      port.role===(i===0?'SOURCE':'RECIPIENT')&&port.originalT3TechnicalWorkspaceOnly===true&&
+      port.createsSecondStore===false&&ID(port.checkpointRef)&&typeof port.inspectOriginalSession==='function')||
+    recipientPhasePort.recipientApplyIntentRequired!==true||
+    sourceCursorPort?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_PORT_V1'||
+    sourceCursorPort.usesOriginalT3CAS!==true||sourceCursorPort.createsStore!==false||
+    typeof sourceCursorPort.inspectOriginalHostCursor!=='function'||
+    recipientCursorPort?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_CURSOR_PORT_V1'||
+    recipientCursorPort.usesOriginalT3CAS!==true||recipientCursorPort.createsStore!==false||
+    typeof recipientCursorPort.inspectOriginalRecipientCursor!=='function'||
+    sourceHistoricalFramePort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||
+    typeof sourceHistoricalFramePort.readOriginalHistoricalAppliedAck!=='function')
+    fail('REPLACEMENT_ORIGINAL_PORTS_REQUIRED');
+  const routeFields=['sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch','originalWriteOwnerRef'];
+  const proof={operation:'t4.network.original.replacement.eligibility',originalCaptureSession:original,
+    sourceCursorBefore:before,originalIndependentTerminalReadRequired:true,originalCaptureAndFrontierReadRequired:true,
+    originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false};
+  async function read(){
+    mode(getMode);const source=clone(await sourcePhasePort.inspectOriginalSession());mode(getMode);
+    const recipient=clone(await recipientPhasePort.inspectOriginalSession());mode(getMode);
+    if(![source,recipient].every((v,i)=>v?.schema==='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'&&
+      v.role===(i===0?'SOURCE':'RECIPIENT')&&v.checkpointRef===(i===0?sourcePhasePort:recipientPhasePort).checkpointRef&&
+      phaseFields.every(k=>v[k]===original[k])&&(v.changeKind??'OBJECT_PUT')===original.changeKind&&
+      v.currentPhase==='SUPERSEDED'&&Number.isSafeInteger(v.revision)&&v.revision>=1&&v.revision<=3&&
+      DIG(v.chainHash)&&ID(v.originalSupersessionEventId)&&DIG(v.originalSupersessionPreviousChainHash)&&
+      v.originalT3EventChainVerified===true&&v.originalT3OnlyStore===true&&v.originalBusinessApplied===false&&
+      v.verifiedOriginalRecipientApplication===false&&v.originalNewAttemptAdmissionStillRequired===true&&
+      v.liveNetworkAuthorityGranted===false)||
+      source.originalSourceAttemptSuperseded!==true||source.originalSourceCursorAdvanced!==false)
+      fail('REPLACEMENT_ORIGINAL_PREDECESSOR_NOT_RETIRED');
+    const stored=source.originalSourceSupersessionEvidence,retirement=stored?.retirement;
+    if(!DIG(stored?.evidenceDigest)||stored.evidenceRef!==stored.evidenceDigest.slice(7)+'.t4n'||
+      !same(source.currentEvidence,stored)||!retirement)
+      fail('REPLACEMENT_ORIGINAL_SOURCE_RETIREMENT_INVALID');
+    const plan=prepareT4OriginalSupersessionControl({session:original,
+      expectedPhaseRevision:retirement.expectedPhaseRevision,expectedPhaseChainHash:retirement.expectedPhaseChainHash,
+      decisionRef:retirement.decisionRef,requestRef:retirement.requestRef});
+    const expected=retirementFromPhase(plan,recipient,recipientPhasePort.checkpointRef);
+    if(!same(retirement,expected)||stored.replacementSessionRef!==expected.replacementSessionRef||
+      (source.revision>1&&!same(source.sourceIntentEvidence,{evidenceRef:original.sourceEventId,evidenceDigest:original.capturedWindowDigest}))||
+      (source.revision===3&&(!ID(source.sourcePublishedEvidence?.evidenceRef)||!DIG(source.sourcePublishedEvidence?.evidenceDigest))))
+      fail('REPLACEMENT_ORIGINAL_RETIREMENT_CONFLICT');
+    const src=clone(await sourceCursorPort.inspectOriginalHostCursor());mode(getMode);
+    const dst=clone(await recipientCursorPort.inspectOriginalRecipientCursor());mode(getMode);
+    if(src?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_STATUS_V1'||
+      dst?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_RECIPIENT_CURSOR_STATUS_V1'||
+      ![src,dst].every((v,i)=>v.checkpointRef===(i===0?sourceCursorPort:recipientCursorPort).checkpointRef&&
+        ID(v.checkpointRef)&&routeFields.every(k=>v[k]===original[k])&&v.sourceWorkspaceId===original.workspaceId&&
+        Number.isSafeInteger(v.revision)&&v.revision>=0&&DIG(v.chainHash)&&
+        v.originalT3EventChainVerified===(v.revision>0)&&v.originalBaselineAdmitted===true)||
+      src.originalT3TechnicalWorkspaceOnly!==true||src.otherCursorStoreCreated!==false||
+      src.originalBusinessApplyReceiptFabricated!==false||dst.originalT3OnlyStore!==true||
+      dst.originalSubjectMutationInvoked!==false||dst.sourceCursorAdvanced!==false||
+      !same(src.originalT3NextCursor,before)||!same(dst.originalT3VerifiedCursor,before)||
+      src.lastAcknowledgedChangeId===original.changeId||src.lastSourceEventId===original.sourceEventId)
+      fail('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED');
+    const ack=await sourceHistoricalFramePort.readOriginalHistoricalAppliedAck({
+      selector:{sourceNodeRef:original.recipientNodeRef,sessionRef:original.sessionRef,ownerEpoch:original.ownerEpoch},
+      requiredCryptoSuite,supportedCriticalExtensions:t4NativeSubjectCriticalExtensions(original.changeKind)});
+    mode(getMode);
+    if(ack!==null)fail('REPLACEMENT_ORIGINAL_APPLIED_ACK_ALREADY_ACCEPTED');
+    const candidate=deriveT4OriginalReplacementSessionCandidate({originalCaptureSession:original,replacement:{
+      previousSessionRef:original.sessionRef,changeId:original.changeId,decisionDigest:expected.decisionDigest,
+      sourcePhaseRef:source.checkpointRef,sourcePhaseEventId:source.originalSupersessionEventId,
+      sourcePhaseRevision:source.revision,sourcePhaseChainHash:source.chainHash,
+      recipientPhaseRef:recipient.checkpointRef,recipientPhaseEventId:recipient.originalSupersessionEventId,
+      recipientPhaseRevision:recipient.revision,recipientPhaseChainHash:recipient.chainHash}});
+    return freeze({candidate,source,recipient,src,dst});
+  }
+  await allowed(verifyOriginalSourceCapture,proof,getMode,'REPLACEMENT_ORIGINAL_CAPTURE_NOT_PROVEN');
+  const first=await read();
+  const admission={...proof,candidate:first.candidate,sourceFrontierRevision:first.src.revision,
+    sourceFrontierChainHash:first.src.chainHash,recipientFrontierRevision:first.dst.revision,
+    recipientFrontierChainHash:first.dst.chainHash,originalBothAttemptsRetired:true};
+  await allowed(authorizeOriginalReplacement,admission,getMode,'REPLACEMENT_ORIGINAL_ADMISSION_DENIED');
+  await allowed(verifyOriginalSourceCapture,proof,getMode,'REPLACEMENT_ORIGINAL_CAPTURE_NOT_PROVEN');
+  if(!same(first,await read()))fail('REPLACEMENT_ORIGINAL_EVIDENCE_CHANGED');
+  return freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_ELIGIBILITY_V1',state:'ORIGINAL_REPLACEMENT_ELIGIBLE',
+    candidate:first.candidate,sourceCursorBefore:before,
+    sourceFrontierRevision:first.src.revision,sourceFrontierChainHash:first.src.chainHash,
+    recipientFrontierRevision:first.dst.revision,recipientFrontierChainHash:first.dst.chainHash,
+    originalBothTerminalPhaseEventsVerified:true,originalSourceCaptureVerified:true,
+    originalBothCausalFrontiersUnchanged:true,originalAcceptedAppliedAckAbsent:true,
+    originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,
+    sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false});
 }

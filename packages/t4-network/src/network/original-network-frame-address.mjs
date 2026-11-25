@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
-import {T4_ORIGINAL_SOURCE_SESSION_EXTENSION} from './standard-network-wire-candidate.mjs';
+import {T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,
+  deriveT4OriginalReplacementAttempt,validateT4CandidateReplacementHeadBinding} from './standard-network-wire-candidate.mjs';
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
 const SHA=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const POS=x=>Number.isSafeInteger(x)&&x>=1;
@@ -24,12 +25,26 @@ export function t4NativeSourceHeadIndexKey(input){
   // same immutable slot, not become another address.
   return key('source-head',[...peer(input),input.familyRef,input.predecessorEventCount]);
 }
+// A predecessor, not a new signer, decision or successor hash, owns the
+// one immutable replacement announcement slot. Initial source HEADS keep
+// their existing source-head index.
+export function t4NativeReplacementHeadIndexKey(input){
+  if(!ID(input?.previousSessionRef))fail('FRAME_INDEX_REPLACEMENT_HEAD_INVALID');
+  return key('replacement-head',[...peer(input),input.previousSessionRef]);
+}
 export function t4NativeFrameIndexKeys(frame){
   const keys=[t4NativeSessionFrameIndexKey(frame)];
   if(frame.messageType==='HEADS'&&frame.criticalExtensions?.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)){
     if(frame.sequence!==1||frame.body.ownerEpoch!==frame.ownerEpoch)fail('FRAME_INDEX_HEAD_INVALID');
     keys.push(t4NativeSourceHeadIndexKey({...frame,familyRef:frame.body.familyRef,
       predecessorEventCount:frame.body.sourceSession?.predecessorEventCount}));
+  }
+  if(frame.messageType==='HEADS'&&frame.criticalExtensions?.includes(T4_REPLACEMENT_SOURCE_SESSION_EXTENSION)){
+    const binding=validateT4CandidateReplacementHeadBinding(frame.body?.replacement);
+    const next=deriveT4OriginalReplacementAttempt({...frame,sessionRef:binding.previousSessionRef,changeId:binding.changeId});
+    if(frame.sequence!==1||frame.body.ownerEpoch!==frame.ownerEpoch||frame.sessionRef!==next.replacementSessionRef)
+      fail('FRAME_INDEX_REPLACEMENT_HEAD_INVALID');
+    keys.push(t4NativeReplacementHeadIndexKey({...frame,previousSessionRef:binding.previousSessionRef}));
   }
   return Object.freeze(keys);
 }

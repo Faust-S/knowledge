@@ -28,6 +28,7 @@ export const T4_OBJECT_TOMBSTONE_EXTENSION='iwxa.object-tombstone.v1';
 export const T4_ATOMIC_GRAPH_EXTENSION='iwxa.atomic-graph.v1';
 export const T4_ORIGINAL_SOURCE_SESSION_EXTENSION='iwxa.original-source-session.v1';
 export const T4_SESSION_SUPERSESSION_EXTENSION='iwxa.session-supersession.v1';
+export const T4_REPLACEMENT_SOURCE_SESSION_EXTENSION='iwxa.source-session-replacement.v1';
 export const isT4NativeDeleteKind=kind=>['ASSET_DELETE','RELATION_DELETE','OBJECT_DELETE'].includes(kind);
 export const isT4NativeEventOnlyKind=kind=>['RELATION_PUT','ASSET_DELETE','RELATION_DELETE'].includes(kind);
 export const validT4NativeSubjectRevision=(kind,revision)=>isT4NativeSubjectKind(kind)&&
@@ -196,6 +197,25 @@ function validateSupersessionEnvelope(frame){
     !SUPERSESSION_CLAIM_FIELDS.every(k=>claim.body[k]===b[k]))
     fail('WIRE_SUPERSESSION_CONTROL_IDENTITY_MISMATCH');
 }
+const REPLACEMENT_FIELDS=['previousSessionRef','changeId','decisionDigest',
+  'sourcePhaseRef','sourcePhaseEventId','sourcePhaseRevision','sourcePhaseChainHash',
+  'recipientPhaseRef','recipientPhaseEventId','recipientPhaseRevision','recipientPhaseChainHash'];
+export function validateT4CandidateReplacementHeadBinding(value){
+  sameKeys(value,REPLACEMENT_FIELDS);
+  if(!['previousSessionRef','changeId','sourcePhaseRef','sourcePhaseEventId','recipientPhaseRef','recipientPhaseEventId']
+      .every(k=>ID(value[k]))||
+    !['decisionDigest','sourcePhaseChainHash','recipientPhaseChainHash'].every(k=>DIGEST(value[k]))||
+    !['sourcePhaseRevision','recipientPhaseRevision'].every(k=>Number.isSafeInteger(value[k])&&value[k]>=1&&value[k]<=3))
+    fail('WIRE_REPLACEMENT_HEAD_BINDING_INVALID');
+  return Object.freeze(structuredClone(value));
+}
+function validateReplacementHeadEnvelope(frame){
+  const binding=validateT4CandidateReplacementHeadBinding(frame.body.replacement);
+  const replacement=deriveT4OriginalReplacementAttempt({...frame,sessionRef:binding.previousSessionRef,changeId:binding.changeId});
+  if(frame.sequence!==1||frame.ownerEpoch!==frame.body.ownerEpoch||
+    frame.sessionRef!==replacement.replacementSessionRef)
+    fail('WIRE_REPLACEMENT_HEAD_IDENTITY_MISMATCH');
+}
 function validateBody(type,body,extensions=[]){
   const relationEvent=Array.isArray(extensions)&&
     extensions.includes(T4_RELATION_EVENT_EXTENSION);
@@ -211,7 +231,8 @@ function validateBody(type,body,extensions=[]){
   const graphCommit=Array.isArray(extensions)&&extensions.includes(T4_ATOMIC_GRAPH_EXTENSION);
   if(graphCommit&&(!['CHANGE_REF','APPLIED_ACK'].includes(type)||relationEvent||deletionEvent||objectTombstone))
     fail('WIRE_ATOMIC_GRAPH_EXTENSION_INVALID');
-  const sourceSession=Array.isArray(extensions)&&extensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION);
+  const replacementHead=Array.isArray(extensions)&&extensions.includes(T4_REPLACEMENT_SOURCE_SESSION_EXTENSION);
+  const sourceSession=Array.isArray(extensions)&&(extensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)||replacementHead);
   if(sourceSession&&(type!=='HEADS'||extensions.length!==1))
     fail('WIRE_ORIGINAL_SOURCE_SESSION_EXTENSION_INVALID');
   const supersession=Array.isArray(extensions)&&extensions.includes(T4_SESSION_SUPERSESSION_EXTENSION);
@@ -227,8 +248,9 @@ function validateBody(type,body,extensions=[]){
       !body.supportedVersions.length||!body.supportedCryptoSuites.length)
       fail('WIRE_ADVERTISEMENT_INVALID');
   }else if(type==='HEADS'){
-    sameKeys(body,sourceSession?['familyRef','ownerEpoch','heads','sourceSession']:
-      ['familyRef','ownerEpoch','heads']);
+    sameKeys(body,replacementHead?['familyRef','ownerEpoch','heads','sourceSession','replacement']:
+      sourceSession?['familyRef','ownerEpoch','heads','sourceSession']:['familyRef','ownerEpoch','heads']);
+    if(replacementHead)validateT4CandidateReplacementHeadBinding(body.replacement);
     if(!ID(body.familyRef)||!Number.isSafeInteger(body.ownerEpoch)||
       body.ownerEpoch<1||!hashList(body.heads))
       fail('WIRE_HEADS_INVALID');
@@ -328,6 +350,7 @@ function validateUnsigned(frame){
     (frame.sequence!==1||frame.body.ownerEpoch!==frame.ownerEpoch))
     fail('WIRE_ORIGINAL_SOURCE_SESSION_ENVELOPE_INVALID');
   if(SUPERSESSION_TYPES.has(frame.messageType))validateSupersessionEnvelope(frame);
+  if(frame.criticalExtensions.includes(T4_REPLACEMENT_SOURCE_SESSION_EXTENSION))validateReplacementHeadEnvelope(frame);
   if(frame.bodyDigest!==digest('BODY',frame.body))
     fail('WIRE_BODY_DIGEST_INVALID');
   if(canonicalBytes(frame).length>LIMIT-128)

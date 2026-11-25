@@ -7,7 +7,8 @@ import {T4TransferError} from './webdav-package-transfer.mjs';
 import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4CandidateHistoricalFrameSignature,
   isT4NativeEventOnlyKind,validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions,
   T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_SESSION_SUPERSESSION_EXTENSION,
-  createT4CandidateSupersessionClaim,validateT4CandidateSupersessionRetirementClaim}
+  createT4CandidateSupersessionClaim,validateT4CandidateSupersessionRetirementClaim,
+  deriveT4OriginalReplacementAttempt,validateT4CandidateReplacementHeadBinding}
   from './standard-network-wire-candidate.mjs';
 import {t4OriginalDeletedSubjectRevision} from './original-deletion-delta.mjs';
 import {assembleT4CandidateOpaqueChunks}
@@ -118,6 +119,24 @@ function validatePublicationSession(session){
   if(!same(canonical,session))fail('PUBLICATION_ORIGINAL_CONTROL_SESSION_INVALID');
   return canonical;
 }
+// A structurally canonical replacement candidate is deliberately NOT an
+// original native capture session. All ordinary live paths keep rejecting
+// it until the original predecessor admission is integrated at each gate.
+const REPLACEMENT_SESSION='IWXA_T4_ORIGINAL_REPLACEMENT_SESSION_CANDIDATE_V1';
+export function deriveT4OriginalReplacementSessionCandidate({originalCaptureSession,replacement}={}){
+  const original=validateT4OriginalNativeCaptureSession(originalCaptureSession);
+  const binding=validateT4CandidateReplacementHeadBinding(replacement);
+  if(binding.previousSessionRef!==original.sessionRef||binding.changeId!==original.changeId)
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_IDENTITY_INVALID');
+  const next=deriveT4OriginalReplacementAttempt(original);
+  return deepFreeze({...original,schema:REPLACEMENT_SESSION,sessionRef:next.replacementSessionRef,
+    originalCaptureSession:original,replacement:binding});
+}
+export function validateT4OriginalReplacementSessionCandidate(candidate){
+  const exact=deriveT4OriginalReplacementSessionCandidate(candidate);
+  if(!same(exact,candidate))fail('PUBLICATION_ORIGINAL_REPLACEMENT_IDENTITY_INVALID');
+  return exact;
+}
 export function deriveT4OriginalNativeCaptureSession(task){
   const c=task?.capture,w=c?.sourceWindow,d=c?.prepared?.delta;
   if(task?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_OUTBOX_TASK_V1'||
@@ -188,6 +207,29 @@ export function readT4OriginalSourceSessionHead({identity,body,sessionRef,source
     (expectedSession!==null&&!same(s,expectedSession)))
     fail('PUBLICATION_ORIGINAL_SOURCE_ANNOUNCEMENT_MISMATCH');
   return deepFreeze({session:s,sourceCursorBefore:before,sourceCursorAfter:after});
+}
+export function createT4OriginalReplacementSourceHead({candidate,sourceCursorBefore,sourceCursorAfter}={}){
+  const c=validateT4OriginalReplacementSessionCandidate(candidate);
+  return deepFreeze({...createT4OriginalSourceSessionHead({session:c.originalCaptureSession,
+    sourceCursorBefore,sourceCursorAfter}),replacement:c.replacement});
+}
+// A signed replacement announcement reconstructs identity only. The
+// caller must independently re-read both original terminal phase records
+// and current frontier; it is never original subject authority.
+export function readT4OriginalReplacementSourceHead({identity,body,sessionRef,sourceCursorBefore=null,expectedCandidate=null}={}){
+  if(!body||typeof body!=='object'||Array.isArray(body)||!body.replacement)
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_HEAD_INVALID');
+  const {replacement,...initialHead}=body;
+  const original=readT4OriginalSourceSessionHead({identity,body:initialHead,
+    sessionRef:replacement.previousSessionRef,sourceCursorBefore});
+  const candidate=deriveT4OriginalReplacementSessionCandidate({
+    originalCaptureSession:original.session,replacement});
+  if(sessionRef!==candidate.sessionRef||(expectedCandidate!==null&&!same(expectedCandidate,candidate))||
+    !same(body,createT4OriginalReplacementSourceHead({candidate,sourceCursorBefore:original.sourceCursorBefore,
+      sourceCursorAfter:original.sourceCursorAfter})))
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_HEAD_INVALID');
+  return deepFreeze({candidate,sourceCursorBefore:original.sourceCursorBefore,sourceCursorAfter:original.sourceCursorAfter,
+    liveNetworkAuthorityGranted:false,originalNewAttemptAdmissionStillRequired:true});
 }
 function descriptor(entry){
   return {sequence:entry.sequence,messageType:entry.messageType,sha256:entry.sha256};

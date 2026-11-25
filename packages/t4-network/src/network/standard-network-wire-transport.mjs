@@ -3,8 +3,9 @@ import {isT4RecoverableWebDavError} from './webdav-package-transfer.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
 import {
   decodeT4CandidateFrame,verifyT4CandidateWireFrame,verifyT4CandidateHistoricalReceivedFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
+  T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,
 } from './standard-network-wire-candidate.mjs';
-import {t4NativeSessionFrameIndexKey,t4NativeSourceHeadIndexKey,t4NativeFrameIndexKeys}
+import {t4NativeSessionFrameIndexKey,t4NativeSourceHeadIndexKey,t4NativeReplacementHeadIndexKey,t4NativeFrameIndexKeys}
   from './original-network-frame-address.mjs';
 
 /**
@@ -509,14 +510,14 @@ export function createT4CandidateFrameTransport({
     }while(continuation!==null);
     return finish(receipts.length?'FOUND':'NOT_FOUND');
   }
-  async function indexedRead({selector,requiredCryptoSuite,supportedCriticalExtensions=[],head=false},ctx){
+  async function indexedRead({selector,requiredCryptoSuite,supportedCriticalExtensions=[],head=false,replacementHead=false},ctx){
     if(!selector||!ID(selector.sourceNodeRef)||selector.sourceNodeRef===originalHostNodeRef||
       !Number.isSafeInteger(selector.ownerEpoch)||selector.ownerEpoch<1||!ID(requiredCryptoSuite)||
       !Array.isArray(supportedCriticalExtensions)||supportedCriticalExtensions.length>16||
       !supportedCriticalExtensions.every(ID)||new Set(supportedCriticalExtensions).size!==supportedCriticalExtensions.length)
       fail('WIRE_DISCOVERY_SELECTOR_INVALID');
     const peer={...selector,recipientNodeRef:originalHostNodeRef,scopeRef:originalHostScopeRef};
-    const key=head?t4NativeSourceHeadIndexKey(peer):t4NativeSessionFrameIndexKey(peer);
+    const key=replacementHead?t4NativeReplacementHeadIndexKey(peer):head?t4NativeSourceHeadIndexKey(peer):t4NativeSessionFrameIndexKey(peer);
     await hostGuard('index-discover',ctx,null,null,selector);
     const pointer=await wireTransport.getNativeFrameIndex({key});
     await hostGuard('index-discover-readback',ctx,null,null,selector);
@@ -529,7 +530,11 @@ export function createT4CandidateFrameTransport({
     const bytes=new Uint8Array(downloaded.bytes),frame=decodeT4CandidateFrame(bytes);
     if(frame.sourceNodeRef!==selector.sourceNodeRef||frame.recipientNodeRef!==originalHostNodeRef||
       frame.scopeRef!==originalHostScopeRef||frame.ownerEpoch!==selector.ownerEpoch||
-      (head?(frame.messageType!=='HEADS'||frame.sequence!==1||
+      (replacementHead?(frame.messageType!=='HEADS'||frame.sequence!==1||
+        !frame.criticalExtensions.includes(T4_REPLACEMENT_SOURCE_SESSION_EXTENSION)||
+        frame.body.replacement?.previousSessionRef!==selector.previousSessionRef||
+        frame.sessionRef!==selector.sessionRef||frame.body.replacement?.changeId!==selector.changeId):
+        head?(frame.messageType!=='HEADS'||frame.sequence!==1||
         !frame.criticalExtensions.includes(T4_ORIGINAL_SOURCE_SESSION_EXTENSION)||
         frame.body.familyRef!==selector.familyRef||frame.body.sourceSession?.predecessorEventCount!==selector.predecessorEventCount):
         (frame.sessionRef!==selector.sessionRef||frame.sequence!==selector.sequence||frame.messageType!==selector.messageType))||
@@ -547,7 +552,7 @@ export function createT4CandidateFrameTransport({
       selector.sequence<1)fail('WIRE_DISCOVERY_EXACT_SLOT_REQUIRED');
     if(indexed){
       if(Object.keys(selector).some(k=>!['sourceNodeRef','ownerEpoch','sessionRef','messageType','sequence'].includes(k))||
-        !['HEADS','DIFF_REQUEST','CHANGE_REF','CHUNK','APPLIED_ACK','HELLO','CAPABILITIES','CHUNK_REQUEST','RECEIVED_ACK','VERIFIED_ACK','RESUME'].includes(selector.messageType))
+        !['HEADS','DIFF_REQUEST','CHANGE_REF','CHUNK','APPLIED_ACK','HELLO','CAPABILITIES','CHUNK_REQUEST','RECEIVED_ACK','VERIFIED_ACK','RESUME','ATTEMPT_RETIRE_REQUEST','ATTEMPT_RETIRED_ACK'].includes(selector.messageType))
         fail('WIRE_DISCOVERY_SELECTOR_INVALID');
       const input=Object.freeze({...selector});
       const extensions=Array.isArray(supportedCriticalExtensions)?Object.freeze([...supportedCriticalExtensions]):supportedCriticalExtensions;
@@ -604,13 +609,28 @@ export function createT4CandidateFrameTransport({
     return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_SOURCE_HEADS_V1',...r,
       createsStore:false,createsScheduler:false});
   }
+  // Exact successor discovery is available only on the indexed profile.
+  // It performs one immutable lookup and normal live signature/Access/
+  // replay verification. No scan and no permission to apply.
+  async function discoverReplacementSourceHead({selector,requiredCryptoSuite}={}){
+    if(!indexed||!selector||Object.keys(selector).sort().join(',')!==
+      'changeId,ownerEpoch,previousSessionRef,sessionRef,sourceNodeRef'||
+      ![selector.previousSessionRef,selector.sessionRef,selector.changeId].every(ID)||
+      selector.previousSessionRef===selector.sessionRef)
+      fail('WIRE_DISCOVERY_REPLACEMENT_HEAD_SELECTOR_INVALID');
+    const selected=Object.freeze({...selector,messageType:'HEADS',sequence:1});
+    const found=await indexedRead({selector:selected,requiredCryptoSuite,replacementHead:true,
+      supportedCriticalExtensions:[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION]},await hostSnapshot());
+    return frozen({schema:'IWXA_T4_FRAME_DISCOVERY_REPLACEMENT_HEAD_V1',...indexedResult(found?[found]:[],1),
+      createsStore:false,createsScheduler:false,originalNewAttemptAdmissionStillRequired:true});
+  }
   return frozen({
     schema:'IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1',nativeFrameIndexVersion:indexed?1:0,
     publishSignedFrame,inspectUnknownPublication,
     ...(historical?{readOriginalHistoricalReceivedFrame}:{}),
     ...(historicalAck?{readOriginalHistoricalAppliedAck}:{}),
     readAndVerifySignedFrame,discoverAndVerifySignedFrames,discoverUniqueSignedFrame,discoverSessionContent,
-    discoverSourceSessionHeads,
+    discoverSourceSessionHeads,discoverReplacementSourceHead,
     forOriginalHostLifetime:isHostActive=>createT4CandidateFrameTransport({
       wireTransport:scopeOriginalHostPort(wireTransport,isHostActive,['wireKind','nativeFrameIndexVersion'],
         'WIRE_ORIGINAL_TRANSPORT_LIFETIME_REQUIRED'),
