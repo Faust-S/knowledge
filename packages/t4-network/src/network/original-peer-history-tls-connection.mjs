@@ -5,7 +5,7 @@
 import {TLSSocket} from 'node:tls';
 import {createHash,X509Certificate} from 'node:crypto';
 import {decodeT4OriginalReplacementHistoryRequest,decodeT4OriginalReplacementHistoryResponse,
-  isT4OriginalReplacementHistoryServerForPeerContext} from './original-replacement-owner-history-carrier.mjs';
+  createT4OriginalReplacementHistoryServer,isT4OriginalReplacementHistoryServerForPeerContext} from './original-replacement-owner-history-carrier.mjs';
 
 export const T4_ORIGINAL_PEER_HISTORY_TLS_ALPN='iwxa-t4-owner-history/1';
 const REQUEST=1,RESPONSE=2,REQUEST_LIMIT=32768,RESPONSE_LIMIT=4*1024*1024;
@@ -143,4 +143,39 @@ export function createT4OriginalPeerHistoryTlsConnection({socket,localNodeRef,pe
   socket.on('close',()=>close('ORIGINAL_PEER_TLS_TRANSPORT_LOST'));
   socket.on('data',onData);
   return port;
+}
+
+// Stable owner-side carrier binding for an explicitly replaced TLS connection.
+// The one original relay callback survives a socket loss. No caller may use a
+// new connection to complete a request started on the old connection; a
+// replacement neither resumes a task nor grants a frame retry.
+export function createT4OriginalPeerHistoryTlsBinding({connection,getMode}={}){
+  if(!isT4OriginalPeerHistoryTlsConnection(connection)||typeof getMode!=='function'||getMode()!=='T4_NETWORK')
+    fail('ORIGINAL_PEER_TLS_BINDING_REQUIRED');
+  const identity=connection.identity;
+  let current=connection,sessionRef=connection.readOriginalPeerContext().originalPeerSessionRef,readOwner=null,closed=false;
+  const guard=()=>{if(closed||getMode()!=='T4_NETWORK')fail('ORIGINAL_PEER_TLS_BINDING_CLOSED');};
+  const receiverFor=(port,read)=>createT4OriginalReplacementHistoryServer({...identity,getMode,
+    readOriginalPeerContext:port.readOriginalPeerContext,readOriginalReplacementOwnerHistory:read});
+  const readOriginalPeerContext=()=>{guard();return current.readOriginalPeerContext();};
+  return Object.freeze({identity,readOriginalPeerContext,
+    async invokeOriginalPeerHistory(input){
+      guard();const port=current;
+      const result=await port.invokeOriginalPeerHistory(input);
+      guard();if(port!==current)fail('ORIGINAL_PEER_TLS_CONNECTION_CHANGED');return result;
+    },
+    bindReceiver(read){
+      guard();if(readOwner!==null||typeof read!=='function')fail('ORIGINAL_PEER_TLS_BINDING_RECEIVER_INVALID');
+      const server=receiverFor(current,read);current.bindReceiver(server);readOwner=read;return server;
+    },
+    replaceConnection(next){
+      guard();if(readOwner===null||!isT4OriginalPeerHistoryTlsConnection(next)||next===current||
+        Object.keys(identity).some(k=>next.identity[k]!==identity[k]))fail('ORIGINAL_PEER_TLS_REPLACEMENT_INVALID');
+      const nextRef=next.readOriginalPeerContext().originalPeerSessionRef;
+      if(nextRef===sessionRef)fail('ORIGINAL_PEER_TLS_REPLACEMENT_INVALID');
+      const server=receiverFor(next,readOwner);next.bindReceiver(server);
+      const prior=current;current=next;sessionRef=nextRef;prior.close();
+    },
+    close(){if(closed)return;closed=true;readOwner=null;current.close();}
+  });
 }
