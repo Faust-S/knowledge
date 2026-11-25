@@ -280,3 +280,27 @@ test('recipient original DIFF publication and two inbound source frames prove or
   await assert.rejects(verifyT4OriginalSourceHeadCausality({...args,
     verifiedDiffRequest:{...diff,verifiedSequence:2}}),err('HEAD_SIGNED_LOCAL_PUBLICATION_MISMATCH'));
 });
+
+
+test('K121 signed HEADS uses only the selected original commit pages and checks the captured prefix again',async()=>{
+  const s=await scenario(true);
+  let held=false,boundaries=0;
+  const history={pageSize:1,withOriginalHistoryReadBoundary:async(_proof,read)=>{
+    assert.equal(held,false);held=true;boundaries++;
+    try{return await read();}finally{held=false;}
+  },readOriginalCommitPage:async proof=>{
+    assert.equal(held,true);
+    const index=proof.afterEventId===null?0:s.events.findIndex(e=>e.event_id===proof.afterEventId)+1;
+    const rows=s.events.slice(index,index+proof.limit);
+    return {entries:rows.map(event=>({event:structuredClone(event),legacy_history:false})),
+      next_after_event_id:rows.at(-1)?.event_id??proof.afterEventId,has_more:index+rows.length<s.events.length,
+      order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+  }};
+  const args={...s.args,...history,readOriginalEvents:async()=>{throw Error('legacy history forbidden');}};
+  assert.equal((await verifyT4OriginalSourceHeadCausality(args)).sourcePrefixDigestAfter,s.win.sourcePrefixDigestAfter);
+  assert.equal(boundaries,2);
+  s.events[0].payload.version=123;
+  await assert.rejects(verifyT4OriginalSourceHeadCausality(args),err('ORIGINAL_T3_EVENT_HISTORY_DIVERGED'));
+  await assert.rejects(verifyT4OriginalSourceHeadCausality({...args,withOriginalHistoryReadBoundary:undefined}),
+    err('HEAD_ORIGINAL_T3_PORTS_REQUIRED'));
+});

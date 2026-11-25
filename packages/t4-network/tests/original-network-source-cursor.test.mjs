@@ -318,3 +318,50 @@ test('source ACK accepts exact local outbound publication proof but never an out
   f.signed.schema='IWXA_T4_ORIGINAL_OUTBOUND_FRAME_PROOF_V1';
   await assert.rejects(recoverT4OriginalNetworkSourceCursor(f.props),isCode('CURSOR_SIGNED_APPLIED_ACK_NOT_BOUND_TO_ORIGINAL_RESULT'));
 });
+
+
+function k121Pages(events){
+  let held=false,boundaries=0,reads=0;
+  return {options:{pageSize:1,
+    withOriginalHistoryReadBoundary:async(_proof,read)=>{
+      assert.equal(held,false);held=true;boundaries++;
+      try{return await read();}finally{held=false;}
+    },
+    readOriginalCommitPage:async proof=>{
+      assert.equal(held,true);assert.equal(proof.limit,1);reads++;
+      const index=proof.afterEventId===null?0:events.findIndex(e=>e.event_id===proof.afterEventId)+1;
+      const rows=events.slice(index,index+proof.limit);
+      return {entries:rows.map(event=>({event:structuredClone(event),legacy_history:false})),
+        next_after_event_id:rows.at(-1)?.event_id??proof.afterEventId,
+        has_more:index+rows.length<events.length,order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+    }},get boundaries(){return boundaries;},get reads(){return reads;}};
+}
+test('K121 ACK recovers exact prefix through original commit pages and never invokes legacy fallback',async()=>{
+  const f=await fixture(),p=k121Pages([event,{...event,event_id:'event:next',revision:2}]);
+  const result=await recoverT4OriginalNetworkSourceCursor({...f.props,...p.options,
+    readOriginalEvents:async()=>{throw Error('legacy history forbidden');}});
+  assert.deepEqual(result.originalT3NextCursor,f.source.nextCursor);
+  assert.equal(p.boundaries,2);assert.equal(f.reads,0);assert.ok(p.reads>=2);
+});
+test('K121 incomplete commit route denies ACK before phase reads instead of falling back',async()=>{
+  const f=await fixture();
+  await assert.rejects(recoverT4OriginalNetworkSourceCursor({...f.props,readOriginalCommitPage:async()=>null}),
+    isCode('CURSOR_ORIGINAL_SOURCE_HOST_PORTS_REQUIRED'));
+  assert.equal(f.phaseReads,0);assert.equal(f.reads,0);
+});
+test('K121 page failure cannot trigger legacy full history or original phase mutation',async()=>{
+  const f=await confirmationFixture(),p=k121Pages([event]);
+  await assert.rejects(confirmT4OriginalNetworkSourceAcknowledgement({...f.props,...p.options,
+    readOriginalCommitPage:async()=>{throw Error('original page unavailable');}}),/original page unavailable/);
+  assert.equal(f.phaseWrites,0);assert.equal(f.reads,0);
+});
+test('K121 original page-based ACK confirmation remains idempotent after a lost phase reply',async()=>{
+  const f=await confirmationFixture(),p=k121Pages([event]);
+  const {readOriginalEvents,...props}=f.props;
+  const input={...props,...p.options};
+  f.losePhaseReply();
+  await assert.rejects(confirmT4OriginalNetworkSourceAcknowledgement(input),isCode('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  const recovered=await confirmT4OriginalNetworkSourceAcknowledgement(input);
+  assert.equal(recovered.state,'ALREADY_CONFIRMED');assert.equal(f.phaseWrites,1);
+  assert.equal(f.reads,0);assert.equal(recovered.sourceCursorAdvanced,false);
+});

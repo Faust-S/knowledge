@@ -555,7 +555,10 @@ test('K113 source frontier uses original commit pages for baseline and next Even
   const port=f.port(options);
   assert.deepEqual((await port.inspectOriginalHostCursor()).originalT3NextCursor,f.before);
   assert.deepEqual((await port.readNextOriginalSourceEvent()).nextCursor,f.latest.nextCursor);
-  await port.commitAcknowledgedCursor({recovery:f.recovery});
+  await port.commitAcknowledgedCursor({recovery:{...f.recovery,
+    readOriginalEvents:async()=>{throw Error('legacy recovery history forbidden');},
+    readOriginalCommitPage:async()=>{throw Error('caller page forbidden');},
+    withOriginalHistoryReadBoundary:async()=>{throw Error('caller boundary forbidden');}}});
   const cold=f.port(options);
   assert.equal((await cold.readNextOriginalSourceEvent()).state,'NO_NEXT_ORIGINAL_EVENT');
   const next=originalEvent(3);next.occurred_at='2026-11-22T00:00:00.000Z';f.sourceEvents.push(next);
@@ -563,4 +566,31 @@ test('K113 source frontier uses original commit pages for baseline and next Even
   assert.ok(reads>0);assert.equal(f.puts,1);
   assert.throws(()=>f.port({...options,withOriginalHistoryReadBoundary:undefined}),
     error('HOST_CURSOR_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED'));
+});
+
+
+test('K121 native ACK task confirms original phase and sole frontier through selected pages after lost CAS reply',async()=>{
+  const x=await nativeSourceTaskFixture(),f=x.f;
+  let held=false,reads=0;
+  const history={pageSize:1,withOriginalHistoryReadBoundary:async(_proof,read)=>{
+    assert.equal(held,false);held=true;try{return await read();}finally{held=false;}
+  },readOriginalCommitPage:async proof=>{
+    assert.equal(held,true);reads++;
+    const index=proof.afterEventId===null?0:f.sourceEvents.findIndex(e=>e.event_id===proof.afterEventId)+1;
+    const rows=f.sourceEvents.slice(index,index+proof.limit);
+    return {entries:rows.map(event=>({event:structuredClone(event),legacy_history:false})),
+      next_after_event_id:rows.at(-1)?.event_id??proof.afterEventId,has_more:index+rows.length<f.sourceEvents.length,
+      order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+  }};
+  const options=()=>({sourceCursorPort:f.port({...history,readOriginalSourceEvents:undefined}),
+    recovery:{...f.recovery,...history,readOriginalEvents:async()=>{throw Error('legacy history forbidden');}}});
+  f.loseNextReply();
+  await assert.rejects(x.binding().runNativeAcknowledgement(options()),error('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  assert.equal(x.phaseWrites,1);assert.equal(f.puts,1);
+  x.restart();
+  const done=await x.binding().runNativeAcknowledgement(options());
+  assert.equal(done.confirmation.state,'ALREADY_CONFIRMED');
+  assert.equal(done.committed.state,'ALREADY_COMMITTED');
+  assert.deepEqual(done.committed.originalT3NextCursor,f.latest.nextCursor);
+  assert.equal(x.phaseWrites,1);assert.equal(f.puts,1);assert.ok(reads>0);
 });

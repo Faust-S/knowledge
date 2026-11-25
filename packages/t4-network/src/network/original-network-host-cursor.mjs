@@ -183,12 +183,13 @@ export function createT4OriginalNetworkHostCursorPort({
   originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
   scopeRef,ownerEpoch,getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-  authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,
+  authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize=256,
   readOriginalAdmittedBaseline=null,verifyOriginalSourceBaseline=null,originalBaselinePort=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   const commitHistory=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
-  if(commitHistory&&![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function'))
+  if(commitHistory&&(![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
+    !Number.isSafeInteger(pageSize)||pageSize<1||pageSize>1024))
     fail('HOST_CURSOR_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
   const baselineRequired=originalBaselinePort!==null||readOriginalAdmittedBaseline!==null||verifyOriginalSourceBaseline!==null;
   if(originalBaselinePort!==null?(readOriginalAdmittedBaseline!==null||verifyOriginalSourceBaseline!==null):
@@ -200,7 +201,7 @@ export function createT4OriginalNetworkHostCursorPort({
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
     ![getMode,readOriginalHostContext,authorizeOriginalTechnicalRead,
       authorizeOriginalTechnicalWrite,authorizeOriginalSourceRead,
-      readOriginalSourceEvents].every(f=>typeof f==='function')||
+      ...(commitHistory?[]:[readOriginalSourceEvents])].every(f=>typeof f==='function')||
     !['t1.getObject','t1.putObject','t1.listEventsSince'].every(
       op=>originalKernel?.hasOperation?.(op)===true)||
     !['getObject','putObject','listEventsSince'].every(
@@ -215,7 +216,7 @@ export function createT4OriginalNetworkHostCursorPort({
   const liveHistory=fn=>async(...args)=>{mode();const result=await fn(...args);mode();return result;};
   const sourceHistoryPorts=()=>commitHistory?{
     readOriginalCommitPage:liveHistory(readOriginalCommitPage),
-    withOriginalHistoryReadBoundary:liveHistory(withOriginalHistoryReadBoundary),
+    withOriginalHistoryReadBoundary:liveHistory(withOriginalHistoryReadBoundary),pageSize,
   }:{readOriginalEvents:liveHistory(readOriginalSourceEvents)};
   async function context(){
     mode();
@@ -463,7 +464,14 @@ export function createT4OriginalNetworkHostCursorPort({
     await guard(initial,'t1.getObject','recovery-before-write');
     const recover=replacement?recoverT4OriginalReplacementTerminalCursorEvidence:
       historical?recoverT4OriginalHistoricallyConfirmedSourceCursor:recoverT4OriginalNetworkSourceCursor;
-    const args={...recovery,getMode,...(replacement?{authorizeOriginalRead:authorizeOriginalSourceRead,readOriginalEvents:readOriginalSourceEvents}:{})};
+    // The installed original Host owns the selected history route. A
+    // recovery request cannot replace it with an unbounded or remote read.
+    const {readOriginalEvents:legacyRead,readOriginalWindow:remoteRead,readOriginalCommitPage:callerPage,
+      withOriginalHistoryReadBoundary:callerBoundary,pageSize:callerSize,...otherRecovery}=recovery;
+    if((commitHistory||replacement)&&remoteRead!=null)fail('HOST_CURSOR_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
+    const args=commitHistory||replacement?{...otherRecovery,getMode,
+      ...(replacement?{authorizeOriginalRead:authorizeOriginalSourceRead}:{}),...sourceHistoryPorts()}:
+      {...recovery,getMode};
     const verified=await recover(args);
     if(replacement)replacementCursorProof(verified,identity);else correctProof(verified,identity,historical);
     const current=await readVerified(initial,replacement?new Set([verified.session.changeId]):null);
@@ -636,7 +644,7 @@ export function createT4OriginalNetworkHostCursorPort({
       originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,
       getMode:originalHostLifetimeMode(getMode,isHostActive),readOriginalHostContext,
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-      authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,
+      authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize,
       readOriginalAdmittedBaseline,verifyOriginalSourceBaseline,
       originalBaselinePort:scopeBaselinePort(originalBaselinePort,isHostActive),
     }),

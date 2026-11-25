@@ -614,7 +614,7 @@ export function createT4OriginalNativeHostNetworkOwner({
         run:(retryMissing,historicalOnly=false)=>task.runNativeSourceStep({...signing,retryMissing,historicalOnly,sourceCursorPort,
         createOriginalSourcePhasePort:phase,announceOriginalSourceSession:true,
         recoverNextOriginalCapture:p=>captureRecovery.reconcileNextOriginalCapture(p),
-        authorizeOriginalRead:common.authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
+        authorizeOriginalRead:common.authorizeOriginalRead,readOriginalEvents,...historyPorts,verifyOriginalSourceSubject,
         authorizeOriginalSealedContent:callback('authorizeOriginalSealedContent'),
         readOriginalSealedContent:callback('readOriginalSealedContent'),
         ...(enableHistoricalAcknowledgementRecovery?{

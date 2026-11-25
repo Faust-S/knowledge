@@ -5,6 +5,7 @@ import {deriveT4OriginalNativeCaptureSession,createT4OriginalSourceSessionHead,r
 import {confirmT4OriginalNetworkSourceAcknowledgement,confirmT4OriginalHistoricallyAcceptedSourceAcknowledgement}
   from './original-network-source-cursor.mjs';
 import {verifyT4OriginalSourceHeadCausality} from './original-network-source-head-proof.mjs';
+import {selectT4OriginalLocalEventReadPorts} from './original-event-window.mjs';
 import {prepareT4CandidateOpaqueChunks} from './standard-network-opaque-chunks.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,t4NativeSubjectCriticalExtensions,
   decodeT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION}
@@ -270,11 +271,11 @@ export function createT4OriginalHostDispatchTaskBinding({
     const initial=await verify(expected,operation,purpose);
     const refresh=()=>verify(initial,operation,purpose);
     const proof=recovery?.originalSourceHeadProof,ack=recovery?.verifiedAppliedAck;
-    if(proof?.workspaceId!==initial.workspaceId||
+    const history=selectT4OriginalLocalEventReadPorts(recovery??{});
+    if(!history||proof?.workspaceId!==initial.workspaceId||
       proof?.originalWriteOwnerRef!==initial.originalWriteOwnerRef||
       proof?.recipientNodeRef!==initial.networkTargetRef||
       typeof recovery.authorizeOriginalRead!=='function'||
-      typeof recovery.readOriginalEvents!=='function'||
       rawPort?.schema!=='IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_PORT_V1'||
       rawPort.usesOriginalT3CAS!==true||rawPort.createsStore!==false||
       rawPort.createsScheduler!==false||!ID(rawPort.checkpointRef)||
@@ -316,10 +317,11 @@ export function createT4OriginalHostDispatchTaskBinding({
         await refresh();const result=await recovery.authorizeOriginalRead(ctx);
         await refresh();return result;
       },
-      readOriginalEvents:async ctx=>{
-        await refresh();const result=await recovery.readOriginalEvents(ctx);
-        await refresh();return result;
-      },
+      ...Object.fromEntries(Object.entries(history).map(([key,value])=>[key,
+        typeof value==='function'?async(...args)=>{
+          await refresh();const result=await value(...args);await refresh();return result;
+        }:value])),
+
     };
     await refresh();
     const confirmation=await confirmT4OriginalNetworkSourceAcknowledgement(guarded);
@@ -365,15 +367,17 @@ export function createT4OriginalHostDispatchTaskBinding({
     requiredCryptoSuite,resolveOriginalSigningContext,signOriginalNodeBytes,
     authorizeOriginalSealedContent,readOriginalSealedContent,
     authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
+    readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize,
     retryMissing=false,announceOriginalSourceSession=false,recoverNextOriginalCapture=null,
     authorizeOriginalHistoricalCursorRecovery=null,historicalOnly=false,
   }={}){
     const schema='IWXA_T4_ORIGINAL_HOST_NATIVE_SOURCE_STEP_V1';
     if(mode()==='LOCAL_T3')return Object.freeze({schema,state:'LOCAL_T3',
       originalOutboxRead:false,sourceCursorAdvanced:false,originalSubjectMutationInvoked:false});
-    if(![createOriginalSourcePhasePort,resolveOriginalSigningContext,signOriginalNodeBytes,
+    const history=selectT4OriginalLocalEventReadPorts({readOriginalEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize});
+    if(!history||![createOriginalSourcePhasePort,resolveOriginalSigningContext,signOriginalNodeBytes,
       authorizeOriginalSealedContent,readOriginalSealedContent,authorizeOriginalRead,
-      readOriginalEvents,verifyOriginalSourceSubject,createOriginalNativePublicationPort]
+      verifyOriginalSourceSubject,createOriginalNativePublicationPort]
       .every(f=>typeof f==='function')||!ID(requiredCryptoSuite)||typeof retryMissing!=='boolean'||
       typeof announceOriginalSourceSession!=='boolean'||typeof historicalOnly!=='boolean'||
       (historicalOnly&&(authorizeOriginalHistoricalCursorRecovery===null||retryMissing))||
@@ -446,9 +450,11 @@ export function createT4OriginalHostDispatchTaskBinding({
         fail('HOST_TASK_NATIVE_ORIGINAL_FRONTIER_CHANGED',{automaticRetryAllowed:false});
       await verify(initial);
     };
-    const live=fn=>async proof=>{
-      await verify(initial);const value=await fn(proof);await verify(initial);return value;
+    const live=fn=>async(...args)=>{
+      await verify(initial);const value=await fn(...args);await verify(initial);return value;
     };
+    const liveHistory=()=>Object.fromEntries(Object.entries(history).map(([key,value])=>[key,
+      typeof value==='function'?live(value):value]));
     const request=Object.freeze({session,task,originalHostSessionRef:initial.hostSessionRef});
     const rawPhase=await createOriginalSourcePhasePort(request);
     await refresh();
@@ -553,7 +559,7 @@ export function createT4OriginalHostDispatchTaskBinding({
         session,sourceCursorBefore:task.sourceCursorBefore,sourcePhasePort:phase,
         sourcePublicationPort:publication,historicalFramePort:discovery,requiredCryptoSuite,getMode:mode,
         authorizeOriginalHistoricalCursorRecovery:live(authorizeOriginalHistoricalCursorRecovery),
-        authorizeOriginalRead:live(authorizeOriginalRead),readOriginalEvents:live(readOriginalEvents)});
+        authorizeOriginalRead:live(authorizeOriginalRead),...liveHistory()});
       await refresh();
       await verify(initial,'t4.network.acknowledge','original-host.native-historical-ack-task');
       if(confirmation!==null){
@@ -587,7 +593,7 @@ export function createT4OriginalHostDispatchTaskBinding({
         session,sourceCursorBefore:task.sourceCursorBefore,sourcePhasePort:phase,
         sourcePublicationPort:publication,historicalFramePort:discovery,requiredCryptoSuite,
         authorizeOriginalHistoricalCursorRecovery:live(authorizeOriginalHistoricalCursorRecovery),
-        authorizeOriginalRead:live(authorizeOriginalRead),readOriginalEvents:live(readOriginalEvents)}});
+        authorizeOriginalRead:live(authorizeOriginalRead),...liveHistory()}});
       await verify(initial,'t4.network.acknowledge','original-host.native-historical-ack-task');
       const after=await cursor.inspectOriginalHostCursor();
       await verify(initial,'t4.network.acknowledge','original-host.native-historical-ack-task');
@@ -709,7 +715,7 @@ export function createT4OriginalHostDispatchTaskBinding({
         await verify(initial);
         return {...initial,nodeRef:session.sourceNodeRef,scopeRef:session.scopeRef};
       },
-      authorizeOriginalRead:live(authorizeOriginalRead),readOriginalEvents:live(readOriginalEvents),
+      authorizeOriginalRead:live(authorizeOriginalRead),...liveHistory(),
       verifyOriginalSourceSubject:live(verifyOriginalSourceSubject),
     });
     await refresh();
@@ -725,7 +731,7 @@ export function createT4OriginalHostDispatchTaskBinding({
     const confirmed=await executeNativeAcknowledgement({sourceCursorPort,recovery:{
       sourcePhasePort:rawPhase,verifiedAppliedAck:ack.receipt,verifiedChangeRef:change,
       originalSourceHeadProof:sourceProof,sourceCursorBefore:task.sourceCursorBefore,
-      authorizeOriginalRead,readOriginalEvents,
+      authorizeOriginalRead,...history,
     }},initial);
     return done('SOURCE_ACK_CONFIRMED',{sourceCursorAdvanced:confirmed.sourceCursorAdvanced,
       originalSourceCursorConfirmed:true,confirmation:confirmed.confirmation,

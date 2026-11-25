@@ -1,7 +1,7 @@
 import {validT4NativeSubjectRevision,
   validT4NativeOriginalEventRevision,matchesT4NativeSubjectCriticalExtensions}
   from './standard-network-wire-candidate.mjs';
-import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest} from './original-event-window.mjs';
+import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest,selectT4OriginalLocalEventReadPorts} from './original-event-window.mjs';
 
 /**
  * P2.2-B: the signed HEADS / DIFF / CHANGE_REF for one source event must
@@ -43,8 +43,12 @@ export async function verifyT4OriginalSourceHeadCausality({
   recipientNodeRef,scopeRef,sessionRef,ownerEpoch,
   sourceCursorBefore=null,capturedWindowDigest=null,getMode,readOriginalHostContext,
   authorizeOriginalRead,readOriginalEvents,readOriginalWindow=null,
+  readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize,
   verifyOriginalSourceSubject,
 }={}){
+  const commit=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
+  const history=readOriginalWindow===null?selectT4OriginalLocalEventReadPorts({readOriginalEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize}):
+    (!commit&&typeof readOriginalWindow==='function'&&readOriginalEvents===undefined&&capturedWindowDigest!==null&&sourceCursorBefore!==null?{readOriginalWindow}:null);
   if(![workspaceId,originalWriteOwnerRef,sourceNodeRef,
     recipientNodeRef,scopeRef,sessionRef].every(ID)||
     sourceNodeRef===recipientNodeRef||
@@ -52,7 +56,7 @@ export async function verifyT4OriginalSourceHeadCausality({
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
     ![getMode,readOriginalHostContext,authorizeOriginalRead,
       verifyOriginalSourceSubject].every(f=>typeof f==='function')||
-    (readOriginalWindow===null?typeof readOriginalEvents!=='function':(typeof readOriginalWindow!=='function'||readOriginalEvents!==undefined||capturedWindowDigest===null||sourceCursorBefore===null)))
+    !history)
     fail('HEAD_ORIGINAL_T3_PORTS_REQUIRED');
   const outbound=isT4OriginalOutboundFrameProof(verifiedHeads)&&isT4OriginalOutboundFrameProof(verifiedChangeRef);
   if(outbound&&(verifiedHeads.checkpointRef!==verifiedChangeRef.checkpointRef||
@@ -134,12 +138,14 @@ export async function verifyT4OriginalSourceHeadCausality({
     if(getMode()!=='T4_NETWORK'||!same(await stableContext(),initial))
       fail('HEAD_ORIGINAL_HOST_CONTEXT_CHANGED');
   };
+  const historyRead=commit?history:readOriginalWindow===null?{readOriginalEvents:()=>readOriginalEvents(originalRead)}:
+    {readOriginalWindow:()=>readOriginalWindow(originalRead)};
   await authorized();
   const source=await readT4OriginalEventWindow({
     workspaceId,originalWriteOwnerRef,cursor:sourceCursorBefore,
     maxEvents:1,
     authorizeOriginalRead:async()=>{await authorized();return true;},
-    ...(readOriginalWindow===null?{readOriginalEvents:async()=>readOriginalEvents(originalRead)}:{readOriginalWindow:async()=>readOriginalWindow(originalRead)}),
+    ...historyRead,
   });
   await authorized();
   const window=source.window,ref=window.eventRefs[0];
@@ -189,7 +195,7 @@ export async function verifyT4OriginalSourceHeadCausality({
     workspaceId,originalWriteOwnerRef,cursor:sourceCursorBefore,
     maxEvents:1,
     authorizeOriginalRead:async()=>{await authorized();return true;},
-    ...(readOriginalWindow===null?{readOriginalEvents:async()=>readOriginalEvents(originalRead)}:{readOriginalWindow:async()=>readOriginalWindow(originalRead)}),
+    ...historyRead,
   });
   if(historicalCaptureRequired?
     (!matchesT4OriginalCapturedWindowDigest(second.window,acceptedDigest)||

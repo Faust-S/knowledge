@@ -169,6 +169,18 @@ export function countT4OriginalLocalSnapshotTrace(token,{workspaceId,originalWri
   return (kind==='idempotency_key'?x.idempotencies:kind==='capture_ref'?x.captureTraces:x.deleteTraces).get(value)??0;
 }
 
+// Internal composition of one original local history read route. A legacy
+// compatibility callback may still be supplied by an older caller, but an
+// explicitly selected commit route never falls back to that callback.
+export function selectT4OriginalLocalEventReadPorts({readOriginalEvents,readOriginalCommitPage,
+  withOriginalHistoryReadBoundary,pageSize=256}={}){
+  const commit=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
+  if(commit)return typeof readOriginalCommitPage==='function'&&
+    typeof withOriginalHistoryReadBoundary==='function'&&Number.isSafeInteger(pageSize)&&pageSize>=1&&pageSize<=1024?
+    {readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize}:null;
+  return typeof readOriginalEvents==='function'?{readOriginalEvents}:null;
+}
+
 // The original Kernel owns the commit order and the read/exclusion boundary.
 // A sequence of independent IDB read transactions alone is not a snapshot.
 // This opt-in reader must not be selected until the original Host supplies

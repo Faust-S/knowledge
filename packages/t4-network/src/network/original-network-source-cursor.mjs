@@ -10,7 +10,7 @@ import {assembleT4CandidateOpaqueChunks} from './standard-network-opaque-chunks.
 import {createT4OriginalReplacementOwnerHistoryRequest,validateT4OriginalReplacementOwnerHistorySnapshot}
   from './original-network-replacement-owner-history.mjs';
 import {isT4OriginalOutboundFrameProof} from './original-network-source-head-proof.mjs';
-import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest}
+import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest,selectT4OriginalLocalEventReadPorts}
   from './original-event-window.mjs';
 
 /**
@@ -140,11 +140,12 @@ async function inspectOriginalSourceAcknowledgement({
   sourcePhasePort,verifiedAppliedAck,verifiedChangeRef,
   originalSourceHeadProof,
   sourceCursorBefore=null,getMode,authorizeOriginalRead,
-  readOriginalEvents,
+  readOriginalEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize,
 }={},allowPublished=false){
-  if(!sourcePhasePort||
+  const history=selectT4OriginalLocalEventReadPorts({readOriginalEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize});
+  if(!history||!sourcePhasePort||
     typeof sourcePhasePort.inspectOriginalSession!=='function'||
-    ![getMode,authorizeOriginalRead,readOriginalEvents]
+    ![getMode,authorizeOriginalRead]
       .every(f=>typeof f==='function'))
     fail('CURSOR_ORIGINAL_SOURCE_HOST_PORTS_REQUIRED');
   const proof=originalSourceHeadProof;
@@ -187,7 +188,7 @@ async function inspectOriginalSourceAcknowledgement({
         networkAckDoesNotGrantSubjectRead:true,
       }))===true;
     },
-    readOriginalEvents,
+    ...history,
   });
   const firstWindow=await read();
   const w=firstWindow.window;
@@ -314,10 +315,12 @@ export async function confirmT4OriginalNetworkSourceAcknowledgement(args={}){
 async function inspectHistoricalSourceAcknowledgement({
   session:rawSession,sourceCursorBefore,sourcePhasePort,sourcePublicationPort,historicalFramePort,
   requiredCryptoSuite,getMode,authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents,
+  readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize,
 }={},allowPending=false){
+  const history=selectT4OriginalLocalEventReadPorts({readOriginalEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize});
   const session=validateT4OriginalNativeCaptureSession(rawSession),before=structuredClone(sourceCursorBefore);
   const kind=session.changeKind,sha=x=>createHash('sha256').update(x).digest('hex');
-  if(![getMode,authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents].every(f=>typeof f==='function')||
+  if(!history||![getMode,authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead].every(f=>typeof f==='function')||
     !ID(requiredCryptoSuite)||before?.schema!=='IWXA_T4_ORIGINAL_EVENT_CURSOR_V1'||
     before.workspaceId!==session.workspaceId||before.originalWriteOwnerRef!==session.originalWriteOwnerRef||
     before.sourcePrefixDigest!==session.sourcePrefixDigestBefore||before.originalPermissionProof!==false||
@@ -391,7 +394,7 @@ async function inspectHistoricalSourceAcknowledgement({
       authorizeOriginalRead:async ctx=>{mode();const allowed=await authorizeOriginalRead(Object.freeze({
         ...ctx,sourceNodeRef:session.sourceNodeRef,recipientNodeRef:session.recipientNodeRef,
         sessionRef:session.sessionRef,changeId:session.changeId,originalHistoricalRecoveryOnly:true,
-        networkAckDoesNotGrantSubjectRead:true}));mode();return allowed===true;},readOriginalEvents});
+        networkAckDoesNotGrantSubjectRead:true}));mode();return allowed===true;},...history});
     const w=res.window;
     if(w.count!==1||w.lastEventId!==session.sourceEventId||w.eventRefs[0]?.eventDigest!==session.sourceEventDigest||
       !validT4NativeOriginalEventRevision(kind,session.sourceRevision,w.eventRefs[0]?.revision)||
@@ -532,17 +535,21 @@ export async function recoverT4OriginalReplacementTerminalCursorEvidence({sessio
   sourcePhasePort,recipientPhasePort,retiredSourcePhasePort,retiredRecipientPhasePort,
   sourcePublicationPort,recipientPublicationPort,historicalFramePort,requiredCryptoSuite,getMode,
   authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead,readOriginalEvents,readOriginalWindow=null,
+  readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize,
   readOriginalOwnerHistory=null,requesterNodeRef=null,verifyOriginalHistoricalNodeSignature=null}={}){
   const c=validateT4OriginalReplacementSessionCandidate(rawSession),before=structuredClone(sourceCursorBefore);
   const mode=()=>{if(typeof getMode!=='function'||getMode()!=='T4_NETWORK')fail('CURSOR_NETWORK_MODE_OFF');};
   const phases=[sourcePhasePort,recipientPhasePort,retiredSourcePhasePort,retiredRecipientPhasePort],pubs=[sourcePublicationPort,recipientPublicationPort];
   const ownerReads=readOriginalOwnerHistory!==null;
+  const commit=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
+  const history=readOriginalWindow===null?selectT4OriginalLocalEventReadPorts({readOriginalEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize}):
+    (!commit&&typeof readOriginalWindow==='function'&&readOriginalEvents===undefined&&ownerReads&&requesterNodeRef===c.recipientNodeRef?{readOriginalWindow}:null);
   if(!ID(requiredCryptoSuite)||before?.schema!=='IWXA_T4_ORIGINAL_EVENT_CURSOR_V1'||before.workspaceId!==c.workspaceId||
     before.originalWriteOwnerRef!==c.originalWriteOwnerRef||before.sourcePrefixDigest!==c.sourcePrefixDigestBefore||
     before.originalPermissionProof!==false||!ID(before.lastEventId)||!Number.isSafeInteger(before.seenEventCount)||
     before.seenEventCount<1||before.seenEventCount>=Number.MAX_SAFE_INTEGER||
     ![getMode,authorizeOriginalHistoricalCursorRecovery,authorizeOriginalRead].every(f=>typeof f==='function')||
-    (readOriginalWindow===null?typeof readOriginalEvents!=='function':typeof readOriginalWindow!=='function'||readOriginalEvents!==undefined||!ownerReads||requesterNodeRef!==c.recipientNodeRef)||
+    (!history||(commit&&ownerReads&&requesterNodeRef!==c.sourceNodeRef))||
     (ownerReads?(typeof readOriginalOwnerHistory!=='function'||typeof verifyOriginalHistoricalNodeSignature!=='function'||
       ![c.sourceNodeRef,c.recipientNodeRef].includes(requesterNodeRef)||
       [...phases,...pubs,historicalFramePort].some(p=>p!==undefined)):
@@ -701,7 +708,7 @@ export async function recoverT4OriginalReplacementTerminalCursorEvidence({sessio
     const prefix=await readT4OriginalEventWindow({workspaceId:c.workspaceId,originalWriteOwnerRef:c.originalWriteOwnerRef,cursor:before,maxEvents:1,
       authorizeOriginalRead:async proof=>{mode();const allowed=await authorizeOriginalRead(Object.freeze({...proof,sessionRef:c.sessionRef,changeId:c.changeId,
         sourceNodeRef:c.sourceNodeRef,recipientNodeRef:c.recipientNodeRef,originalHistoricalRecoveryOnly:true,networkAckDoesNotGrantSubjectRead:true}));mode();return allowed===true;},
-      readOriginalEvents,readOriginalWindow});mode();
+      ...history});mode();
     const w=prefix.window;
     if(w.count!==1||w.lastEventId!==c.sourceEventId||w.eventRefs[0]?.eventDigest!==c.sourceEventDigest||
       !validT4NativeOriginalEventRevision(c.changeKind,c.sourceRevision,w.eventRefs[0]?.revision)||w.sourcePrefixDigestBefore!==c.sourcePrefixDigestBefore||
