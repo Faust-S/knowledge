@@ -1,10 +1,5 @@
 name: D04 numeric verification of all 13 original Life OS calculator interfaces
 on:
-  push:
-    branches:
-      - work/2026-11-18-d04-life-os-qualification
-    paths:
-      - .github/workflows/d04-numeric-browser-qualification.yml
   workflow_dispatch:
 permissions:
   contents: read

@@ -1,10 +1,5 @@
 name: D04 personal observation native T2 acceptance
 on:
-  push:
-    branches:
-      - work/2026-11-18-d04-life-os-qualification
-    paths:
-      - .github/workflows/d04-personal-observation-native.yml
   workflow_dispatch:
 permissions:
   contents: read

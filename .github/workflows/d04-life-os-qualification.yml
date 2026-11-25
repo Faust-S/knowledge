@@ -1,10 +1,5 @@
 name: D04 BazMed Life OS qualification (private-source, no artifacts)
 on:
-  push:
-    branches:
-      - work/2026-11-25-d04-area-period-qualification
-    paths:
-      - .github/workflows/d04-life-os-qualification.yml
   workflow_dispatch:
 permissions:
   contents: read

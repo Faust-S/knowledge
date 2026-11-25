@@ -1,10 +1,5 @@
 name: D04 remaining service goal-link native qualification (private source)
 on:
-  push:
-    branches:
-      - work/2026-11-18-d04-life-os-qualification
-    paths:
-      - .github/workflows/d04-linked-life-os-qualification.yml
   workflow_dispatch:
 permissions:
   contents: read

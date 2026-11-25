@@ -1,10 +1,5 @@
 name: D04 ten protocol Results original T2 revisions and cold restore
 on:
-  push:
-    branches:
-      - work/2026-11-18-d04-life-os-qualification
-    paths:
-      - .github/workflows/d04-ten-protocol-revisions.yml
   workflow_dispatch:
 permissions:
   contents: read
