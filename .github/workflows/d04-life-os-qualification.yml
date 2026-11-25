@@ -1,13 +1,21 @@
 name: D04 full release qualification (private source, no artifacts)
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'ci/once/d04-life-os-qualification/**'
+    paths:
+      - '.github/ci-requests/d04-life-os-qualification.json'
 permissions:
   contents: read
 concurrency:
-  group: d04-life-os-${{ github.ref }}
-  cancel-in-progress: true
+  # Same release lane as the currently running legacy D04 qualification.
+  # One future request may wait without cancelling the useful active run.
+  group: d04-life-os-refs/heads/work/2026-11-25-d04-local-time-qualification
+  cancel-in-progress: false
 jobs:
   qualify:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
     runs-on: ubuntu-latest
     timeout-minutes: 240
     defaults:
@@ -18,6 +26,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 2
+      - name: Verify one deliberate immutable CI request before accessing private sources
+        id: ci_request
+        run: |
+          python3 tools/ci/verify_once_request.py \
+            --repository Faust-S/knowledge --workflow d04-life-os-qualification \
+            --profile full-release-after-navigation-fixes \
+            --revision site=ec19c4cfe1d520df95941fa573dc143e68d0a7ab \
+            --revision subject=b277a721135381813dfdc7333c7b8e8645610722 \
+            --revision t2=9c64951cd78411283e8a416641c36d71e169fc1d
       - name: Verify DOMEN access to the three requested private sources
         id: access
         env:
