@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 12fee86efdd22c6fffd6498297f92a09567af4d0
+          ref: 0c0d0fca06d6beafdf53a9ee7e0f19e176795f7e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -33,7 +33,7 @@ jobs:
         working-directory: site
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
-        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 12fee86efdd22c6fffd6498297f92a09567af4d0
+        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 0c0d0fca06d6beafdf53a9ee7e0f19e176795f7e
   t3-source:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -41,14 +41,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 4bcbe73c0df131cad9465d11db4c9d5248be803a
+          ref: 8aa256d53c440eea892b989cd19b58b6c063eed7
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: domain
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 12fee86efdd22c6fffd6498297f92a09567af4d0
+          ref: 0c0d0fca06d6beafdf53a9ee7e0f19e176795f7e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -67,8 +67,8 @@ jobs:
           bun-version: '1.3.2'
       - name: Preserve exact T2 subject and Workspace module
         run: |
-          test "$(git -C domain rev-parse HEAD)" = "4bcbe73c0df131cad9465d11db4c9d5248be803a"
-          test "$(git -C site rev-parse HEAD)" = "12fee86efdd22c6fffd6498297f92a09567af4d0"
+          test "$(git -C domain rev-parse HEAD)" = "8aa256d53c440eea892b989cd19b58b6c063eed7"
+          test "$(git -C site rev-parse HEAD)" = "0c0d0fca06d6beafdf53a9ee7e0f19e176795f7e"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -80,8 +80,12 @@ jobs:
           cmp domain/src/domain/documented-service-criteria.ts site/src/domain/documented-service-criteria.ts
           cmp domain/src/domain/documented-case-replay.ts site/src/domain/documented-case-replay.ts
           cmp domain/src/domain/order-stage-draft.ts site/src/domain/order-stage-draft.ts
+          for f in proposal-answer-state.ts service-lifecycle.ts; do
+            cmp "domain/src/domain/$f" "site/src/domain/$f"
+            cmp "domain/src/domain/$f" "site/t2-site-module/uslugovod/$f"
+          done
           cmp domain/src/data/documented-service-fields.ts site/src/data/documented-service-fields.ts
-          node --experimental-strip-types --test domain/tests/documented-service-criteria.test.mjs domain/tests/documented-case-replay.test.mjs domain/tests/order-stage-draft.test.mjs > "$RUNNER_TEMP/documented-criteria.log" 2>&1 || { echo D07_DOCUMENTED_DOMAIN_TESTS=FAIL; grep -E '^not ok|^# (tests|pass|fail)' "$RUNNER_TEMP/documented-criteria.log" | cut -c1-180; exit 1; }
+          node --experimental-strip-types --test domain/tests/documented-service-criteria.test.mjs domain/tests/documented-case-replay.test.mjs domain/tests/order-stage-draft.test.mjs domain/tests/proposal-answer-state.test.mjs domain/tests/current-lifecycle-coverage.test.mjs > "$RUNNER_TEMP/documented-criteria.log" 2>&1 || { echo D07_DOCUMENTED_DOMAIN_TESTS=FAIL; grep -E '^not ok|^# (tests|pass|fail)' "$RUNNER_TEMP/documented-criteria.log" | cut -c1-180; exit 1; }
           echo D07_DOCUMENTED_DOMAIN_TESTS=PASS
           grep -E '^# (tests|pass|fail)' "$RUNNER_TEMP/documented-criteria.log"
           cmp domain/src/data/serviceDirectory.ts site/src/data/serviceDirectory.ts
@@ -133,6 +137,7 @@ jobs:
             grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$log" || true
           }
           qualify ACCEPTANCE_SOURCE node --import tsx --test scripts/tests/d07-brief-select-presentation.test.mjs scripts/tests/d07-brief-select-render.test.mjs scripts/tests/d07-acceptance-case-inputs.test.mjs scripts/tests/d07-acceptance-case-plan.test.mjs scripts/tests/d07-documented-service-criteria-pure.test.mjs scripts/tests/d07-documented-service-criteria.test.mjs scripts/tests/d07-documented-case-replay-pure.test.mjs scripts/tests/d07-current-documented-case-replay.test.mjs scripts/tests/d07-order-stage-draft.test.mjs scripts/tests/d07-order-stage-draft-integration.test.mjs
+          qualify STAGE_CONTINUITY npm run test:t3-stage-continuity
           qualify ORIGINAL_REGRESSION npm run test:product-first
           qualify RESTORED_PROFESSIONAL_WX node --import tsx --test scripts/tests/d07-next500-five-w-professional.test.mjs scripts/tests/d07-next500-five-x-professional.test.mjs
           qualify PROFESSIONAL_TOOLS node --import tsx --test scripts/tests/d07-t3-professional-tool-criteria.test.mjs scripts/tests/d07-brief-fidelity.test.mjs scripts/tests/d07-professional-card-release.test.mjs
@@ -189,7 +194,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 12fee86efdd22c6fffd6498297f92a09567af4d0
+          ref: 0c0d0fca06d6beafdf53a9ee7e0f19e176795f7e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -372,7 +377,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "12fee86efdd22c6fffd6498297f92a09567af4d0"
+          test "$(git rev-parse HEAD)" = "0c0d0fca06d6beafdf53a9ee7e0f19e176795f7e"
           test -z "$(git status --porcelain --untracked-files=no)"
           local="runtime/t3-platform/0.3.1-rc.1"
           node --import tsx --input-type=module -e 'import {verifyPreparedD07Host} from "./scripts/prepare-d07-t3-host.mjs";import {verifyPreparedKernelSupport} from "./scripts/prepare-d07-local-kernel-input.mjs";import {verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";const root=process.argv[1];verifyPreparedD07Host(root+"/d07-host");verifyPreparedKernelSupport(root+"/kernel-support");verifyPlatformArchive(root+"/platform-inputs.zip")' "$local" > "$RUNNER_TEMP/d07-retain-recheck.log" 2>&1 || {
@@ -438,7 +443,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "12fee86efdd22c6fffd6498297f92a09567af4d0"
+          test "$(git rev-parse HEAD)" = "0c0d0fca06d6beafdf53a9ee7e0f19e176795f7e"
           test -z "$(git diff --name-only)"
           node scripts/verify-d07-retained-index.mjs
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: retain qualified local T3 platform inputs [skip ci] [skip actions]'
@@ -456,7 +461,7 @@ jobs:
           GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           candidate="$(git rev-parse HEAD)"
-          bash ../pipeline/scripts/d07-private-git-transport.sh publish 12fee86efdd22c6fffd6498297f92a09567af4d0 "$candidate"
+          bash ../pipeline/scripts/d07-private-git-transport.sh publish 0c0d0fca06d6beafdf53a9ee7e0f19e176795f7e "$candidate"
           echo "retained_commit=$candidate" >> "$GITHUB_OUTPUT"
           echo "dist_sha256=$(sha256sum "$RUNNER_TEMP/d07-local-2.sha" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - name: Preserve qualification outcome without unauthorized publication
