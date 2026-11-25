@@ -1,6 +1,7 @@
 # Explicit qualification request; not a release or a PASS claim.
-site=bd5738e227d0646fb5b7dfcc55fbec1874c22eef
+site=4af78afd78e9495e3ef19adc30f3ba6a3990bb1e
 domain=5defadc101fa0ec9bce92f6d2806f7b9976d1d6d
 t2=9c64951cd78411283e8a416641c36d71e169fc1d
 status=REQUESTED
+previous_failed_run=45650997044
 previous_qualified_run=45596745365
