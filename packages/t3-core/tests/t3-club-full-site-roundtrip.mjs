@@ -882,13 +882,69 @@ try{
  await resourceForm.locator('[name="minutesB"]').fill("75");
  await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_RESOURCE_INVALIDATED");
  log("OFFLINE_GOAL_RESOURCE_TIME_AND_CASH_ALTERNATIVES");
+ const localDrafts=()=>page.evaluate(()=>JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")||"null")?.drafts||[]);
+ const editorDrafts=async()=> (await localDrafts()).filter(x=>x.draftId==="goal-resource-editor-handoff");
+ const localObjects=()=>page.evaluate(()=>JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")||"null")?.objects||[]);
+ const openComparison=async(slot,entry,values)=>{
+  await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"&club_goal="+encodeURIComponent(goalId)+"#club-goal-map");
+  await resourceOpen.click();await resourceForm.waitFor({state:"visible"});
+  await poll(async()=>await resourceRun.isEnabled(),"PREPARED_VARIANT_SOURCE_READY");
+  await resourceForm.locator('[name="slotId"]').selectOption(slot);
+  await resourceForm.locator('[name="entryId"]').selectOption(entry);
+  for(const [key,value] of Object.entries(values))await resourceForm.locator('[name="'+key+'"]').fill(value);
+  await resourceRun.click();
+  await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="ready","PREPARED_VARIANT_COMPARE_READY");
+ };
+ const preparedTaskEditor=page.locator("form[data-club-week-form]");
+ phase="OFFLINE_GOAL_NEW_TASK_DRAFT";
+ const newTaskBefore=await localWeek(),newTaskObjects=await localObjects();
+ await openComparison("new","new",{dateA:dates.today,startA:"11:30",minutesA:"30",expenseA:"0",
+  dateB:dates.future,startB:"12:30",minutesB:"45",expenseB:"0"});
+ check(await goalResourceA.getByRole("button",{name:"Подготовить платёж (вариант А)",exact:true}).count()===0&&
+  await goalResourceB.getByRole("button",{name:"Подготовить платёж (вариант Б)",exact:true}).count()===0,"GOAL_ZERO_EXPENSE_NO_PAYMENT_ACTION");
+ check(isDeepStrictEqual(await localObjects(),newTaskObjects)&&(await editorDrafts()).length===0,"GOAL_NEW_TASK_COMPARE_READ_ONLY");
+ await goalResourceB.getByRole("button",{name:"Подготовить дело (вариант Б)",exact:true}).click();
+ await preparedTaskEditor.waitFor({state:"visible"});
+ await poll(async()=>await preparedTaskEditor.locator("[data-club-week-save]").isEnabled()&&
+  await preparedTaskEditor.locator('[name="title"]').inputValue()===goalStep,"GOAL_NEW_TASK_PREFILLED");
+ const newTaskUrl=new URL(page.url());
+ check(newTaskUrl.searchParams.get("club_week_slot")==="new"&&newTaskUrl.searchParams.get("workspace_id")===base.scope&&
+  newTaskUrl.searchParams.has("club_review_draft")&&!newTaskUrl.searchParams.has("title"),"GOAL_NEW_TASK_EXACT_DRAFT_ROUTE");
+ check(await preparedTaskEditor.locator('[name="date"]').inputValue()===dates.future&&
+  await preparedTaskEditor.locator('[name="start"]').inputValue()==="12:30"&&
+  await preparedTaskEditor.locator('[name="durationMinutes"]').inputValue()==="45"&&
+  await preparedTaskEditor.locator('[name="projectId"]').inputValue()===goalId&&
+  !(await preparedTaskEditor.locator("[data-club-week-frequency]").isEnabled()),"GOAL_NEW_TASK_PREPARED_FIELDS");
+ check(isDeepStrictEqual(await localObjects(),newTaskObjects)&&(await editorDrafts()).length===1,"GOAL_NEW_TASK_OPEN_ONLY_DRAFT");
+ // The user can adjust a prepared form. Create once, then explicitly remove
+ // this additional trial record to preserve the existing lifecycle fixture.
+ const newTrialTitle="Отдельный пробный шаг";
+ await preparedTaskEditor.locator('[name="title"]').fill(newTrialTitle);
+ await preparedTaskEditor.locator("[data-club-week-save]").click();
+ await poll(async()=> (await localWeek())?.data?.personalWeekPlan?.slots?.length===newTaskBefore.data.personalWeekPlan.slots.length+1,"GOAL_NEW_TASK_EXPLICIT_CREATE");
+ const newTrial=(await localWeek()).data.personalWeekPlan.slots.find(x=>x.title===newTrialTitle);
+ check(!!newTrial&&newTrial.status==="planned"&&newTrial.projectId===goalId&&newTrial.start==="12:30"&&newTrial.durationMinutes===45&&
+  !newTrial.fact&&isDeepStrictEqual((await localWeek()).data.personalWeekPlan.slots.filter(x=>x.id!==newTrial.id),newTaskBefore.data.personalWeekPlan.slots),"GOAL_NEW_TASK_ONE_RECORD");
+ await poll(async()=>!new URL(page.url()).searchParams.has("club_review_draft")&&(await editorDrafts()).length===0,"GOAL_NEW_TASK_DRAFT_CONSUMED");
+ const newTrialRow=page.locator(".club-week-entry").filter({has:page.getByText(newTrialTitle,{exact:true})});
+ await newTrialRow.waitFor({state:"visible"});
+ page.once("dialog",async d=>{if(d.type()==="confirm")await d.accept();else await d.dismiss()});
+ await newTrialRow.getByRole("button",{name:"Удалить",exact:true}).click();
+ await poll(async()=>isDeepStrictEqual((await localWeek())?.data?.personalWeekPlan?.slots,newTaskBefore.data.personalWeekPlan.slots),"GOAL_NEW_TASK_EXPLICIT_REMOVAL");
+ await visit(page,"/projects/");
+ await visit(page,newTaskUrl.pathname+newTaskUrl.search+newTaskUrl.hash);
+ await preparedTaskEditor.waitFor({state:"visible"});
+ await poll(async()=>!(await preparedTaskEditor.locator("[data-club-week-save]").isEnabled()),"GOAL_NEW_TASK_CONSUMED_LINK_BLOCKED");
+ await preparedTaskEditor.evaluate(form=>form.dispatchEvent(new Event("submit",{cancelable:true,bubbles:true})));
+ check(isDeepStrictEqual((await localWeek()).data.personalWeekPlan.slots,newTaskBefore.data.personalWeekPlan.slots),"GOAL_NEW_TASK_NO_REPLAY");
+ log("OFFLINE_GOAL_NEW_TASK_PREPARE_EXPLICIT_CREATE_NO_REPLAY");
  phase="OFFLINE_GOAL_TASK_EXACT_ROUTE";
  const goalTaskPlanBefore=await localWeek();
  // Keep the original capacity/conflict checks. Select a revised start time
  // without changing the original task date, title or planned minutes.
- await resourceForm.locator('[name="startA"]').fill("10:15");
- await resourceRun.click();
- await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="ready","GOAL_TASK_COMPARE_READY");
+ const taskVariantFields={dateA:dates.today,startA:"10:15",minutesA:"90",expenseDateA:cashDates.today,expenseA:"15000",
+  dateB:dates.future,startB:"10:00",minutesB:"75",expenseDateB:cashDates.future,expenseB:"11000"};
+ await openComparison(goalResourceTask.id,"new",taskVariantFields);
  const exactTaskLink=resourceResult.getByRole("link",{name:"Открыть исходное дело",exact:true});
  const exactTaskUrl=new URL(await exactTaskLink.getAttribute("href"),page.url());
  check(exactTaskUrl.searchParams.get("club_week_slot")===goalResourceTask.id&&
@@ -907,7 +963,23 @@ try{
   await exactTaskEditor.locator('[name="durationMinutes"]').inputValue()==="90"&&
   await exactTaskEditor.locator('[name="projectId"]').inputValue()===goalId,"GOAL_TASK_ORIGINAL_FIELDS");
  check(isDeepStrictEqual(await localWeek(),goalTaskPlanBefore),"GOAL_TASK_OPEN_NO_WRITE");
- await exactTaskEditor.locator('[name="start"]').fill("10:15");
+ phase="OFFLINE_GOAL_TASK_SELECTED_DRAFT";
+ const taskDraftSources=await localObjects();
+ await openComparison(goalResourceTask.id,"new",taskVariantFields);
+ await goalResourceA.getByRole("button",{name:"Подготовить дело (вариант А)",exact:true}).click();
+ await exactTaskEditor.waitFor({state:"visible"});
+ await poll(async()=>await exactTaskEditor.locator('[name="start"]').inputValue()==="10:15"&&
+  await exactTaskEditor.locator("[data-club-week-save]").isEnabled(),"GOAL_TASK_SELECTED_FIELDS");
+ const taskDraftUrl=new URL(page.url());
+ check(taskDraftUrl.searchParams.has("club_review_draft")&&taskDraftUrl.searchParams.get("club_week_slot")===goalResourceTask.id&&
+  taskDraftUrl.searchParams.get("club_week_rev")===goalTaskPlanBefore.updatedAt&&taskDraftUrl.searchParams.get("workspace_id")===base.scope,
+  "GOAL_TASK_SELECTED_ROUTE");
+ check(await exactTaskEditor.locator('[name="date"]').inputValue()===goalResourceTask.date&&
+  await exactTaskEditor.locator('[name="title"]').inputValue()===goalResourceTask.title&&
+  await exactTaskEditor.locator('[name="note"]').inputValue()===goalResourceTask.note&&
+  await exactTaskEditor.locator('[name="durationMinutes"]').inputValue()==="90"&&
+  await exactTaskEditor.locator('[name="projectId"]').inputValue()===goalId,"GOAL_TASK_SELECTED_PRESERVES_ORIGINAL_FIELDS");
+ check(isDeepStrictEqual(await localObjects(),taskDraftSources)&&(await editorDrafts()).length===1,"GOAL_TASK_SELECTED_OPEN_DRAFT_ONLY");
  await exactTaskEditor.locator("[data-club-week-save]").click();
  await poll(async()=> (await localWeek())?.data?.personalWeekPlan?.slots?.find(s=>s.id===goalResourceTask.id)?.start==="10:15","GOAL_TASK_SAME_ID_UPDATED");
  const goalTaskPlanAfter=await localWeek();
@@ -916,6 +988,8 @@ try{
   isDeepStrictEqual(goalTaskPlanAfter.data.personalWeekPlan.slots.find(s=>s.id===goalResourceTask.id),expectedGoalTask)&&
   isDeepStrictEqual(goalTaskPlanAfter.data.personalWeekPlan.slots.filter(s=>s.id!==goalResourceTask.id),goalTaskPlanBefore.data.personalWeekPlan.slots.filter(s=>s.id!==goalResourceTask.id)),"GOAL_TASK_ONE_CHANGE_NO_DUPLICATE");
  log("OFFLINE_GOAL_TASK_EXACT_EDITOR_ONE_CHANGE");
+ await poll(async()=>!new URL(page.url()).searchParams.has("club_review_draft")&&(await editorDrafts()).length===0,"GOAL_TASK_SELECTED_DRAFT_CONSUMED");
+ log("OFFLINE_GOAL_TASK_SELECTED_DRAFT_ONE_CHANGE");
  phase="OFFLINE_GOAL_TASK_STALE_ROUTE";
  // A consumed link is removed from the current URL; revisit from a different
  // document so the stale-link test cannot be satisfied by same-document navigation.
@@ -949,6 +1023,43 @@ try{
    w.kernelSource.revision===goalTaskPlanBefore.kernelSource.revision+1&&w.kernelSource.syncedUpdatedAt===w.updatedAt;
  },"GOAL_TASK_KERNEL_NEXT_REVISION");
  log("OFFLINE_GOAL_TASK_ORIGINAL_KERNEL_RECEIPT");
+ phase="OFFLINE_GOAL_NEW_PAYMENT_DRAFT";
+ const newCashBefore=await localCash(),newCashObjects=await localObjects();
+ await openComparison("new","new",{dateA:dates.today,startA:"11:30",minutesA:"30",expenseDateA:cashDates.today,expenseA:"1000",
+  dateB:dates.future,startB:"12:30",minutesB:"45",expenseDateB:cashDates.future,expenseB:"2000"});
+ check(isDeepStrictEqual(await localObjects(),newCashObjects)&&(await editorDrafts()).length===0,"GOAL_NEW_PAYMENT_COMPARE_READ_ONLY");
+ await goalResourceB.getByRole("button",{name:"Подготовить платёж (вариант Б)",exact:true}).click();
+ await cashEntry.waitFor({state:"visible"});
+ await poll(async()=>await cashEntry.locator("[data-cash-calendar-save]").isEnabled()&&
+  await cashEntry.locator('[name="amountRUB"]').inputValue()==="-2000","GOAL_NEW_PAYMENT_PREFILLED");
+ const newCashUrl=new URL(page.url());
+ check(newCashUrl.searchParams.get("club_cash_entry")==="new"&&newCashUrl.searchParams.get("workspace_id")===base.scope&&
+  newCashUrl.searchParams.has("club_review_draft")&&!newCashUrl.searchParams.has("amountRUB"),"GOAL_NEW_PAYMENT_EXACT_ROUTE");
+ check(await cashEntry.locator('[name="date"]').inputValue()===cashDates.future&&
+  await cashEntry.locator('[name="status"]').inputValue()==="planned"&&
+  await cashEntry.locator('[name="goalId"]').inputValue()===goalId&&!await cashEntry.getAttribute("data-edit-id"),"GOAL_NEW_PAYMENT_PREPARED_FIELDS");
+ check(isDeepStrictEqual(await localObjects(),newCashObjects)&&(await editorDrafts()).length===1,"GOAL_NEW_PAYMENT_OPEN_DRAFT_ONLY");
+ const newPaymentNote="Отдельный пробный расход";
+ await cashEntry.locator('[name="note"]').fill(newPaymentNote);
+ await cashEntry.locator("[data-cash-calendar-save]").click();
+ await poll(async()=> (await localCash())?.data?.cashCalendar?.entries?.length===newCashBefore.data.cashCalendar.entries.length+1,"GOAL_NEW_PAYMENT_EXPLICIT_CREATE");
+ const newPayment=(await localCash()).data.cashCalendar.entries.find(e=>e.note===newPaymentNote);
+ check(!!newPayment&&newPayment.status==="planned"&&newPayment.goalId===goalId&&newPayment.amountRUB===-2000&&
+  isDeepStrictEqual((await localCash()).data.cashCalendar.entries.filter(e=>e.id!==newPayment.id),newCashBefore.data.cashCalendar.entries),"GOAL_NEW_PAYMENT_ONE_PLAN");
+ await poll(async()=>!new URL(page.url()).searchParams.has("club_review_draft")&&(await editorDrafts()).length===0,"GOAL_NEW_PAYMENT_DRAFT_CONSUMED");
+ const newPaymentRow=page.locator("[data-cash-calendar-entries] tbody tr").filter({hasText:newPaymentNote});
+ await newPaymentRow.waitFor({state:"visible"});
+ page.once("dialog",async d=>{if(d.type()==="confirm")await d.accept();else await d.dismiss()});
+ await newPaymentRow.getByRole("button",{name:"Удалить",exact:true}).click();
+ await poll(async()=>isDeepStrictEqual((await localCash())?.data?.cashCalendar?.entries,newCashBefore.data.cashCalendar.entries),"GOAL_NEW_PAYMENT_EXPLICIT_REMOVAL");
+ check(isDeepStrictEqual((await localCash()).data.cashCalendar.closedPeriods,newCashBefore.data.cashCalendar.closedPeriods),"GOAL_NEW_PAYMENT_HISTORY_UNCHANGED");
+ await visit(page,"/projects/");
+ await visit(page,newCashUrl.pathname+newCashUrl.search+newCashUrl.hash);
+ await cashEntry.waitFor({state:"visible"});
+ await poll(async()=>!(await cashEntry.locator("[data-cash-calendar-save]").isEnabled()),"GOAL_NEW_PAYMENT_CONSUMED_LINK_BLOCKED");
+ await cashEntry.evaluate(form=>form.dispatchEvent(new Event("submit",{cancelable:true,bubbles:true})));
+ check(isDeepStrictEqual((await localCash()).data.cashCalendar.entries,newCashBefore.data.cashCalendar.entries),"GOAL_NEW_PAYMENT_NO_REPLAY");
+ log("OFFLINE_GOAL_NEW_PAYMENT_PREPARE_EXPLICIT_CREATE_NO_REPLAY");
  phase="OFFLINE_GOAL_PAYMENT_LINK";
  // Keep the preceding unlinked commitment assertion. Now explicitly link
  // that same outstanding payment to the goal, through its original editor.
@@ -1000,7 +1111,21 @@ try{
   await cashEntry.locator('[name="goalId"]').inputValue()===goalId&&
   await cashEntry.locator('[name="note"]').inputValue()===originalPayment.note,"GOAL_PAYMENT_ORIGINAL_FIELDS");
  check(isDeepStrictEqual(await localCash(),linkedPaymentCash),"GOAL_PAYMENT_OPEN_NO_WRITE");
- await cashEntry.locator('[name="date"]').fill(cashDates.nextEnd);
+ phase="OFFLINE_GOAL_PAYMENT_SELECTED_DRAFT";
+ const paymentDraftSources=await localObjects();
+ await openComparison(goalResourceTask.id,originalPayment.id,{expenseDateB:cashDates.nextEnd});
+ await goalResourceB.getByRole("button",{name:"Подготовить платёж (вариант Б)",exact:true}).click();
+ await cashEntry.waitFor({state:"visible"});
+ await poll(async()=>await cashEntry.locator('[name="date"]').inputValue()===cashDates.nextEnd&&
+  await cashEntry.locator("[data-cash-calendar-save]").isEnabled(),"GOAL_PAYMENT_SELECTED_FIELDS");
+ const paymentDraftUrl=new URL(page.url());
+ check(paymentDraftUrl.searchParams.has("club_review_draft")&&paymentDraftUrl.searchParams.get("club_cash_entry")===originalPayment.id&&
+  paymentDraftUrl.searchParams.get("club_cash_rev")===linkedPaymentCash.updatedAt&&paymentDraftUrl.searchParams.get("workspace_id")===base.scope,"GOAL_PAYMENT_SELECTED_ROUTE");
+ check(await cashEntry.getAttribute("data-edit-id")===originalPayment.id&&await cashEntry.locator('[name="amountRUB"]').inputValue()==="-3000"&&
+  await cashEntry.locator('[name="status"]').inputValue()==="planned"&&await cashEntry.locator('[name="goalId"]').inputValue()===goalId&&
+  await cashEntry.locator('[name="category"]').inputValue()===originalPayment.category&&
+  await cashEntry.locator('[name="note"]').inputValue()===originalPayment.note,"GOAL_PAYMENT_SELECTED_PRESERVES_ORIGINAL_FIELDS");
+ check(isDeepStrictEqual(await localObjects(),paymentDraftSources)&&(await editorDrafts()).length===1,"GOAL_PAYMENT_SELECTED_OPEN_DRAFT_ONLY");
  await cashEntry.locator("[data-cash-calendar-save]").click();
  await poll(async()=> (await localCash())?.data?.cashCalendar?.entries?.find(e=>e.id===originalPayment.id)?.date===cashDates.nextEnd,"GOAL_PAYMENT_EXACT_EDIT_WRITTEN");
  const editedPaymentCash=await localCash();
@@ -1009,6 +1134,8 @@ try{
   isDeepStrictEqual(editedPaymentCash.data.cashCalendar.entries[0],expectedEditedPayment)&&
   isDeepStrictEqual(editedPaymentCash.data.cashCalendar.closedPeriods,originalCashBeforeTarget.data.cashCalendar.closedPeriods),"GOAL_PAYMENT_SAME_ID_AND_HISTORY");
  log("OFFLINE_GOAL_PAYMENT_EXACT_EDITOR_ONE_CHANGE");
+ await poll(async()=>!new URL(page.url()).searchParams.has("club_review_draft")&&(await editorDrafts()).length===0,"GOAL_PAYMENT_SELECTED_DRAFT_CONSUMED");
+ log("OFFLINE_GOAL_PAYMENT_SELECTED_DRAFT_ONE_CHANGE");
  phase="OFFLINE_GOAL_PAYMENT_STALE_LINK";
  // A consumed link is removed from the current URL; revisit from a different
  // document so the stale-link test cannot be satisfied by same-document navigation.
