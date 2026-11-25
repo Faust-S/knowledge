@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: cef7988b110f824b44c7c2abda17d1f6943d2ba4
+          ref: ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -42,6 +42,50 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - name: Check effective private blob write using existing tracked bytes
+        working-directory: site
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+          SOURCE_SHA: ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
+        run: |
+          set -euo pipefail
+          node --test scripts/prepare-t3-retained-commit.test.mjs
+          node --input-type=module <<'JS'
+          import {execFileSync} from "node:child_process";
+          const repo="repos/Faust-S/cehovod.ru";
+          const fail=code=>{throw Error("D05_T3_RETAINED_PREFLIGHT_"+code);};
+          const git=args=>execFileSync("git",args,{stdio:["ignore","pipe","pipe"]});
+          const api=(method,path,body)=>{
+            try{return JSON.parse(execFileSync("gh",["api","--method",method,repo+path,...(body===undefined?[]:["--input","-"])],{
+              input:body===undefined?undefined:JSON.stringify(body),encoding:"utf8",
+              stdio:["pipe","pipe","pipe"]
+            }));}catch(error){
+              const status=String(error?.stderr||"").match(/\bHTTP\s+([1-5][0-9]{2})\b/)?.[1];
+              fail(status?"HTTP_"+status:"TRANSPORT_FAIL");
+            }
+          };
+          try{
+            const base=process.env.SOURCE_SHA;
+            if(!/^[a-f0-9]{40}$/.test(base)||git(["rev-parse","HEAD"]).toString().trim()!==base)fail("BASE");
+            const meta=api("GET","");
+            if(meta.full_name!=="Faust-S/cehovod.ru"||meta.private!==true||meta.permissions?.push!==true)fail("PRIVATE_PERMISSION");
+            const ref=api("GET","/git/ref/heads/work/2026-11-25-d05-t3-retained-inputs");
+            if(ref.object?.sha!==base)fail("REMOTE_BASE_CHANGED");
+            // Submit one small ALREADY tracked blob to the SAME private repository.
+            // No new content, tree, commit or branch is created by this probe.
+            const path="runtime/t3-platform/active.json";
+            const sha=git(["rev-parse","HEAD:"+path]).toString().trim();
+            const bytes=git(["cat-file","blob",sha]);
+            if(!/^[a-f0-9]{40}$/.test(sha)||!bytes.length||bytes.length>4096)fail("PROBE_BLOB");
+            const saved=api("POST","/git/blobs",{content:bytes.toString("base64"),encoding:"base64"});
+            if(saved.sha!==sha)fail("BLOB_SHA");
+            console.log("D05_T3_RETAINED_PREFLIGHT_WRITE_PASS");
+          }catch(error){
+            console.error(String(error?.message||"").match(/^D05_T3_RETAINED_PREFLIGHT_[A-Z0-9_]+$/)?.[0]||"D05_T3_RETAINED_PREFLIGHT_UNCLASSIFIED");
+            process.exitCode=1;
+          }
+          JS
       - name: Verify owner pack and original runtime contract
         shell: bash
         run: |
@@ -170,78 +214,50 @@ jobs:
             exit 1
           fi
           grep -E '^\{"status":"CEHOVOD_T3_REPRO_PASS","files":[0-9]+,"invalidInputPreservedDist":true,"exactBytes":true,"productAccepted":false\}$' "$log"
-      - name: Verify retained inputs in a clean Git source snapshot
+      - name: Verify clean source snapshot and prepare exact candidate commit
         id: snapshot
         working-directory: site
         shell: bash
         env:
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+          SOURCE_SHA: ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d05-retained-checkout.log"
-          if ! node scripts/check-t3-retained-checkout.mjs >"$log" 2>&1; then
-            grep -Eo 'CEHOVOD_T3_CHECKOUT_[A-Z0-9_]+|CEHOVOD_T3_HOST_[A-Z0-9_]+|CEHOVOD_T3_PLATFORM_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+          if ! npm run check:t3-retained-checkout -- --prepare-commit >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_T3_CHECKOUT_[A-Z0-9_]+|CEHOVOD_T3_HOST_[A-Z0-9_]+|CEHOVOD_T3_PLATFORM_[A-Z0-9_]+|CEHOVOD_T3_RETAINED_COMMIT_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
             echo D05_T3_RETAINED_CHECKOUT_FAIL
             exit 1
           fi
           node --input-type=module <<'JS'
           import assert from "node:assert/strict";
           import {readFileSync,appendFileSync} from "node:fs";
+          import {execFileSync} from "node:child_process";
           const log=readFileSync(process.env.RUNNER_TEMP+"/d05-retained-checkout.log","utf8");
-          const rows=log.split(/\r?\n/).filter(x=>x.startsWith('{"status":"CEHOVOD_T3_RETAINED_CHECKOUT_PASS",'));
-          assert.equal(rows.length,1);
-          const r=JSON.parse(rows[0]);
+          const rows=log.split(/\r?\n/);
+          const receipt=name=>{
+            const matches=rows.filter(x=>x.startsWith('{"status":"'+name+'",'));
+            assert.equal(matches.length,1);
+            return JSON.parse(matches[0]);
+          };
+          const r=receipt("CEHOVOD_T3_RETAINED_CHECKOUT_PASS");
+          const c=receipt("CEHOVOD_T3_RETAINED_COMMIT_PREPARED");
+          const sha=/^[a-f0-9]{40}$/;
           assert.equal(r.exactBytes,true);
           assert.equal(r.remotePublication,false);
           assert.equal(r.productAccepted,false);
-          assert.ok(/^[0-9a-f]{40}$/.test(r.sourceTree));
-          assert.ok(Number.isSafeInteger(r.inputFiles)&&r.inputFiles>0);
-          console.log(rows[0]);
-          appendFileSync(process.env.GITHUB_OUTPUT,"tree="+r.sourceTree+"\n");
-          JS
-      - name: Create an exact candidate commit with verified retained inputs only
-        id: candidate
-        working-directory: site
-        shell: bash
-        env:
-          SNAPSHOT_TREE: ${{ steps.snapshot.outputs.tree }}
-          SOURCE_SHA: cef7988b110f824b44c7c2abda17d1f6943d2ba4
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'JS'
-          import assert from "node:assert/strict";
-          import {execFileSync} from "node:child_process";
-          import {join,relative,sep} from "node:path";
-          import {appendFileSync} from "node:fs";
-          import {verifyPreparedCehovodHost} from "./scripts/prepare-cehovod-t3-host.mjs";
-          import {installedArchive,platformDir,verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";
-          const tree=process.env.SNAPSHOT_TREE,base=process.env.SOURCE_SHA;
-          const git=(args,env=process.env)=>execFileSync("git",args,{encoding:"utf8",env,stdio:["ignore","pipe","pipe"]}).trimEnd();
-          const sha=/^[0-9a-f]{40}$/;
-          assert.ok(sha.test(tree)&&sha.test(base));
-          assert.equal(git(["rev-parse","HEAD"]),base);
-          assert.equal(git(["cat-file","-t",tree]),"tree");
-          const rel=p=>relative(process.cwd(),p).split(sep).join("/");
-          const host=join(platformDir,"cehovod-host"),receipt=verifyPreparedCehovodHost(host);
-          assert.equal(receipt.origin,"https://cehovod.ru");
-          verifyPlatformArchive(installedArchive);
-          const allowed=[rel(installedArchive),rel(host)+"/cehovod-t3-host-input.json",...receipt.files.map(x=>rel(host)+"/"+x.path)].sort();
-          const changed=git(["diff-tree","--no-commit-id","-r","--name-only","-z",base,tree]).split("\0").filter(Boolean).sort();
-          assert.deepEqual(changed,allowed);
-          const entries=git(["ls-tree","-rlz",tree,"--",rel(installedArchive),rel(host)]).split("\0").filter(Boolean);
-          assert.equal(entries.length,allowed.length);
-          for(const entry of entries){
-            const m=entry.match(/^100644 blob [a-f0-9]{40}\s+(\d+)\t(.+)$/);
-            assert.ok(m&&Number(m[1])>0&&Number(m[1])<100*1024*1024);
-            assert.ok(allowed.includes(m[2]));
-          }
-          const env={...process.env,GIT_AUTHOR_NAME:"IWXA qualification",GIT_AUTHOR_EMAIL:"41898282+github-actions[bot]@users.noreply.github.com",GIT_COMMITTER_NAME:"IWXA qualification",GIT_COMMITTER_EMAIL:"41898282+github-actions[bot]@users.noreply.github.com"};
-          const commit=git(["commit-tree",tree,"-p",base,"-m","D05 T3: retain verified original platform and prepared Host inputs (candidate)"],env);
-          assert.ok(sha.test(commit));
-          assert.equal(git(["rev-parse",commit+"^{tree}"]),tree);
-          assert.equal(git(["rev-parse",commit+"^"]),base);
-          appendFileSync(process.env.GITHUB_OUTPUT,"commit="+commit+"\n");
-          console.log("D05_T3_RETAINED_COMMIT_PREPARED "+JSON.stringify({commit,tree,inputFiles:allowed.length,productAccepted:false}));
+          assert.equal(c.remotePublication,false);
+          assert.equal(c.base,process.env.SOURCE_SHA);
+          assert.equal(c.tree,r.sourceTree);
+          assert.equal(c.inputFiles,r.inputFiles);
+          assert.ok([c.commit,c.tree,c.base].every(x=>sha.test(x)));
+          const git=args=>execFileSync("git",args,{encoding:"utf8",stdio:["ignore","pipe","pipe"]}).trim();
+          assert.equal(git(["rev-parse",c.commit+"^"]),c.base);
+          assert.equal(git(["rev-parse",c.commit+"^{tree}"]),c.tree);
+          assert.equal(git(["rev-parse","HEAD"]),c.base);
+          console.log(JSON.stringify(r));
+          console.log(JSON.stringify(c));
+          appendFileSync(process.env.GITHUB_OUTPUT,"tree="+c.tree+"\ncommit="+c.commit+"\n");
           JS
       - name: Publish only the verified candidate tree through private Git Data API
         id: publish
@@ -249,8 +265,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
-          CANDIDATE: ${{ steps.candidate.outputs.commit }}
-          SOURCE_SHA: cef7988b110f824b44c7c2abda17d1f6943d2ba4
+          CANDIDATE: ${{ steps.snapshot.outputs.commit }}
+          SOURCE_SHA: ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
           SNAPSHOT_TREE: ${{ steps.snapshot.outputs.tree }}
           TARGET_BRANCH: work/2026-11-25-d05-t3-retained-inputs
         run: |
