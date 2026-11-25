@@ -1,0 +1,86 @@
+name: D05 T3 private write permission only
+on:
+  push:
+    branches: [test/2026-11-24-d05-t3-integration]
+    paths: [.github/workflows/d05-t3-private-write-probe.yml]
+  workflow_dispatch:
+permissions: {}
+jobs:
+  permission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Distinguish effective write permission from API rate limits
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {createHash} from "node:crypto";
+          const origin="https://api.github.com/repos/Faust-S/cehovod.ru";
+          const branch="work/2026-11-25-d05-t3-retained-inputs";
+          const path="runtime/t3-platform/active.json";
+          const sha=/^[a-f0-9]{40}$/;
+          const token=process.env.GH_TOKEN;
+          const fail=code=>{throw Error("D05_T3_WRITE_PROBE_"+code);};
+          if(!token)fail("TOKEN_MISSING");
+          async function api(phase,method,endpoint,body){
+            let response;
+            try{
+              response=await fetch(origin+endpoint,{
+                method,redirect:"error",signal:AbortSignal.timeout(20000),
+                headers:{
+                  Authorization:"Bearer "+token,
+                  Accept:"application/vnd.github+json",
+                  "X-GitHub-Api-Version":"2022-11-28",
+                  ...(body?{"Content-Type":"application/json"}:{})
+                },
+                ...(body?{body:JSON.stringify(body)}:{})
+              });
+            }catch{fail(phase+"_TRANSPORT");}
+            let data;
+            try{data=await response.json();}catch{fail(phase+"_RESPONSE");}
+            const remaining=response.headers.get("x-ratelimit-remaining");
+            const retryAfter=response.headers.get("retry-after");
+            const message=typeof data?.message==="string"?data.message:"";
+            const rateLimited=response.status===429 ||
+              (response.status===403 &&
+                (remaining==="0" || !!retryAfter || /rate limit|abuse detection/i.test(message)));
+            const permissionDenied=response.status===403 && !rateLimited &&
+              /resource not accessible|permission|not authorized|forbidden|not allowed/i.test(message);
+            const accepted=response.headers.get("x-accepted-github-permissions")||"";
+            console.log("D05_T3_WRITE_PROBE "+JSON.stringify({
+              phase,http:response.status,rateLimited,permissionDenied,
+              contentsWriteRequired:/\bcontents=write\b/i.test(accepted)
+            }));
+            if(!response.ok)fail(phase+"_"+(rateLimited?"RATE_LIMIT":"HTTP_"+response.status));
+            return data;
+          }
+          try{
+            const meta=await api("repo","GET","");
+            if(meta.full_name!=="Faust-S/cehovod.ru"||meta.private!==true)fail("REPOSITORY");
+            const ref=await api("ref","GET","/git/ref/heads/"+branch);
+            const base=ref.object?.sha;
+            if(!sha.test(base))fail("REF");
+            const existing=await api("read","GET","/contents/"+path+"?ref="+base);
+            if(existing.type!=="file"||existing.encoding!=="base64"||
+                !sha.test(existing.sha)||!Number.isInteger(existing.size)||
+                existing.size<=0||existing.size>4096)fail("BLOB_METADATA");
+            const bytes=Buffer.from(existing.content,"base64");
+            const actual=createHash("sha1").update("blob "+bytes.length+"\0").update(bytes).digest("hex");
+            assert.equal(bytes.length,existing.size);
+            assert.equal(actual,existing.sha);
+            // The identical, already tracked object is submitted to the same
+            // private repository. No new bytes, tree, commit or ref update.
+            const saved=await api("write","POST","/git/blobs",{
+              content:bytes.toString("base64"),encoding:"base64"
+            });
+            assert.equal(saved.sha,actual);
+            console.log("D05_T3_WRITE_PROBE_PASS");
+          }catch(error){
+            console.error(String(error?.message||"").match(/^D05_T3_WRITE_PROBE_[A-Z0-9_]+$/i)?.[0]||"D05_T3_WRITE_PROBE_VALIDATION");
+            process.exitCode=1;
+          }
+          JS
