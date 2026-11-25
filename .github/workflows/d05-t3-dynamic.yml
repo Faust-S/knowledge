@@ -33,6 +33,10 @@ on:
       full_release:
         type: boolean
         default: false
+      publication_recovery:
+        description: Restore only the exact Linux-qualified frozen 1.6.0 input tree
+        type: boolean
+        default: false
       retained_base_sha:
         type: string
         default: 'ba595ae901ea5af9b066a5e5f7cab88c15fdee8e'
@@ -43,6 +47,9 @@ on:
       functional_ready:
         description: Exact Linux functional and local retained snapshot qualification
         value: ${{ jobs.source.outputs.functional_ready }}
+      reused_functional:
+        description: Previous exact Linux qualification was reused for publication only
+        value: ${{ jobs.source.outputs.reused_functional }}
 permissions:
   contents: read
   actions: read
@@ -55,6 +62,7 @@ jobs:
     timeout-minutes: ${{ inputs.full_release && 90 || 45 }}
     outputs:
       functional_ready: ${{ steps.functional_gate.outputs.ready }}
+      reused_functional: ${{ steps.functional_gate.outputs.reused }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,7 +94,128 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - name: Bind publication recovery to completed exact Linux evidence
+        if: inputs.publication_recovery
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FULL_RELEASE: ${{ inputs.full_release }}
+          SITE_SHA: ${{ inputs.site_sha }}
+          DOMAIN_SHA: ${{ inputs.domain_sha }}
+          ASSISTANT_SHA: ${{ inputs.assistant_sha }}
+          RETAINED_BASE_SHA: ${{ inputs.retained_base_sha }}
+          SKILLS_VERSION: ${{ inputs.skills_version }}
+          RESULT_COUNT: ${{ inputs.result_count }}
+          ADVICE_COUNT: ${{ inputs.advice_count }}
+          DETAIL_ROUTES: ${{ inputs.detail_routes }}
+          GROUNDED_ADVICE: ${{ inputs.grounded_advice }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {execFileSync} from "node:child_process";
+          const expected={
+            FULL_RELEASE:"true",SITE_SHA:"823ded530e34bc5244d055f4d50a495dced931e3",
+            DOMAIN_SHA:"547148d8cd74838e0dd384c9da2f196e3595bf9d",ASSISTANT_SHA:"1c6d077c45d0ccfa9f07f6718e475c1f2ee553fd",
+            RETAINED_BASE_SHA:"ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",SKILLS_VERSION:"1.6.0",
+            RESULT_COUNT:"15",ADVICE_COUNT:"46",DETAIL_ROUTES:"4",GROUNDED_ADVICE:"true"
+          };
+          for(const [key,value] of Object.entries(expected))assert.equal(process.env[key],value,"D05_T3_RECOVERY_PIN_"+key);
+          const runId=45666678817;
+          const api=path=>JSON.parse(execFileSync("gh",["api","repos/Faust-S/knowledge"+path],{encoding:"utf8",stdio:["ignore","pipe","pipe"]}));
+          const run=api("/actions/runs/"+runId);
+          assert.equal(run.head_sha,"e58e0dc339d81bd2993035e5e09a5806e6f9707a");
+          assert.equal(run.run_attempt,1);
+          const jobs=api("/actions/runs/"+runId+"/attempts/1/jobs?per_page=100").jobs;
+          const job=jobs.find(j=>j.id===139390580273);
+          assert.ok(job);
+          assert.equal(job.name,"linux / source");
+          assert.equal(job.status,"completed");
+          assert.equal(job.conclusion,"failure");
+          const required=[7,8,9,10,11,12,13,14,15,16,17,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,44,45];
+          assert.ok(required.every(n=>job.steps.some(s=>s.number===n&&s.conclusion==="success")));
+          assert.deepEqual(job.steps.filter(s=>s.conclusion==="failure").map(s=>s.number),[50]);
+          const record=api("/contents/qualification/d05/receipts/45666678817-linux.json?ref=29351232e773dbb6a8d63a17f7137203611c99eb");
+          const proof=JSON.parse(Buffer.from(record.content,"base64").toString("utf8"));
+          assert.equal(proof.siteCommit,expected.SITE_SHA);
+          assert.equal(proof.subjectCommit,expected.DOMAIN_SHA);
+          assert.equal(proof.assistantCommit,expected.ASSISTANT_SHA);
+          assert.equal(proof.oneCoreCommit,"326f725c44d69ac99f6b912241e9e8a6c3d716a5");
+          assert.equal(proof.linux.functionalReady,true);
+          assert.deepEqual(proof.linux.successfulRequiredSteps,required);
+          assert.equal(proof.linux.snapshot.sourceTree,"645d111be497eb5355f9f2fdb6fc6303562bec1b");
+          assert.equal(proof.linux.snapshot.inputFiles,92);
+          assert.equal(proof.linux.snapshot.distFiles,224);
+          assert.equal(proof.linux.snapshot.exactBytes,true);
+          assert.equal(proof.publication.error,"D05_T3_RETAINED_PREFLIGHT_BLOB_WRITE_HTTP_403");
+          assert.equal(proof.productAccepted,false);
+          for(const [name,sha] of [["site",expected.SITE_SHA],["domain",expected.DOMAIN_SHA],["assistant",expected.ASSISTANT_SHA],["one-core",proof.oneCoreCommit]])
+            assert.equal(execFileSync("git",["-C",name,"rev-parse","HEAD"],{encoding:"utf8"}).trim(),sha);
+          console.log("D05_T3_RECOVERY_EXACT_LINUX_EVIDENCE_PASS");
+          JS
+      - name: Check effective private blob write using existing tracked bytes
+        if: inputs.full_release
+        id: publication_preflight
+        continue-on-error: true
+        working-directory: site
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+          SOURCE_SHA: ${{ inputs.site_sha }}
+          TARGET_BASE_SHA: ${{ inputs.retained_base_sha }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {execFileSync} from "node:child_process";
+          const repo="repos/Faust-S/cehovod.ru";
+          const fail=code=>{throw Error("D05_T3_RETAINED_PREFLIGHT_"+code);};
+          const git=args=>execFileSync("git",args,{stdio:["ignore","pipe","pipe"]});
+          const api=(phase,method,path,body)=>{
+            try{return JSON.parse(execFileSync("gh",["api","--method",method,repo+path,...(body===undefined?[]:["--input","-"])],{
+              input:body===undefined?undefined:JSON.stringify(body),encoding:"utf8",
+              maxBuffer:8*1024*1024,stdio:["pipe","pipe","pipe"]
+            }));}catch(error){
+              const status=String(error?.stderr||"").match(/\bHTTP\s+([1-5][0-9]{2})\b/)?.[1];
+              fail(phase+"_"+(status?"HTTP_"+status:"TRANSPORT_FAIL"));
+            }
+          };
+          try{
+            const base=process.env.SOURCE_SHA;
+            if(!/^[a-f0-9]{40}$/.test(base)||git(["rev-parse","HEAD"]).toString().trim()!==base)fail("BASE");
+            const meta=api("REPO","GET","");
+            if(meta.full_name!=="Faust-S/cehovod.ru"||meta.private!==true||meta.permissions?.push!==true)fail("PRIVATE_PERMISSION");
+            const ref=api("REF","GET","/git/ref/heads/work/2026-11-25-d05-t3-retained-inputs");
+            const target=process.env.TARGET_BASE_SHA;
+            if(!/^[a-f0-9]{40}$/.test(target||"")||ref.object?.sha!==target)fail("REMOTE_BASE_CHANGED");
+            if(target!==base){
+              const comparison=api("ANCESTRY","GET","/compare/"+target+"..."+base);
+              if(comparison.status!=="ahead"||comparison.merge_base_commit?.sha!==target||comparison.behind_by!==0)
+                fail("REMOTE_BASE_NOT_ANCESTOR");
+            }
+            // Submit one small ALREADY tracked blob to the SAME private repository.
+            // No new content, tree, commit or branch is created by this probe.
+            const path="runtime/t3-platform/active.json";
+            const sha=git(["rev-parse","HEAD:"+path]).toString().trim();
+            const bytes=git(["cat-file","blob",sha]);
+            if(!/^[a-f0-9]{40}$/.test(sha)||!bytes.length||bytes.length>4096)fail("PROBE_BLOB");
+            const saved=api("BLOB_WRITE","POST","/git/blobs",{content:bytes.toString("base64"),encoding:"base64"});
+            if(saved.sha!==sha)fail("BLOB_SHA");
+            console.log("D05_T3_RETAINED_PREFLIGHT_WRITE_PASS");
+          }catch(error){
+            console.error(String(error?.message||"").match(/^D05_T3_RETAINED_PREFLIGHT_[A-Z0-9_]+$/)?.[0]||"D05_T3_RETAINED_PREFLIGHT_UNCLASSIFIED");
+            process.exitCode=1;
+          }
+          JS
+      - name: Require write access before recovery compilation
+        if: inputs.publication_recovery
+        shell: bash
+        env:
+          PREFLIGHT: ${{ steps.publication_preflight.outcome }}
+        run: |
+          set -euo pipefail
+          test "$PREFLIGHT" = success || { echo D05_T3_RECOVERY_WRITE_ACCESS_REQUIRED; exit 1; }
       - name: Verify owner pack and original runtime contract
+        if: ${{ !inputs.publication_recovery }}
         shell: bash
         env:
           SKILLS_VERSION: ${{ inputs.skills_version || '1.4.1' }}
@@ -138,6 +267,7 @@ jobs:
         run: |
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-npm.log" 2>&1 || { echo D05_T3_NPM_FAIL; exit 1; }
       - name: Verify opaque Git input retention
+        if: ${{ !inputs.publication_recovery }}
         working-directory: site
         shell: bash
         run: |
@@ -149,6 +279,7 @@ jobs:
           fi
           echo D05_T3_RETAINED_GIT_PASS
       - name: Verify hardware classification and local retained commit tests
+        if: ${{ !inputs.publication_recovery }}
         working-directory: site
         shell: bash
         run: |
@@ -159,6 +290,7 @@ jobs:
           node --check public/assets/cehovod-t3-bootstrap.mjs
           node --check scripts/check-t3-hardware-webgpu.mjs
       - name: Verify deterministic static hydration and model witness syntax
+        if: ${{ !inputs.publication_recovery }}
         id: ssr
         continue-on-error: true
         working-directory: site
@@ -202,6 +334,7 @@ jobs:
           echo D05_T3_SSR_TEST_PASS
           echo D05_T3_MODEL_SYNTAX_PASS
       - name: Check actual TSX syntax with no source disclosure
+        if: ${{ !inputs.publication_recovery }}
         working-directory: site
         shell: bash
         run: |
@@ -223,6 +356,7 @@ jobs:
           else console.log("D05_T3_TSX_PARSE_11_PASS");
           JS
       - name: Verify exact native form and release result scopes
+        if: ${{ !inputs.publication_recovery }}
         id: native_context
         continue-on-error: true
         working-directory: site
@@ -240,6 +374,7 @@ jobs:
           grep -Fqx '{"status":"CEHOVOD_T3_NATIVE_CONTEXT_SOURCE_PASS","forms":11,"results":'"$EXPECTED_RESULTS"',"productAccepted":false}' "$log"
           echo D05_T3_NATIVE_CONTEXT_PASS
       - name: Verify real JSX bindings and source types
+        if: ${{ !inputs.publication_recovery }}
         working-directory: site
         shell: bash
         run: |
@@ -258,6 +393,7 @@ jobs:
           fi
           echo D05_T3_BINDINGS_PASS
       - name: Typecheck site and diagnose exact source locations
+        if: ${{ !inputs.publication_recovery }}
         id: site_types
         continue-on-error: true
         working-directory: site
@@ -292,6 +428,7 @@ jobs:
           fi
           echo D05_T3_TYPES_PASS
       - name: Verify the existing domain module contracts
+        if: ${{ !inputs.publication_recovery }}
         id: module
         continue-on-error: true
         working-directory: site
@@ -306,6 +443,7 @@ jobs:
           fi
           echo D05_T3_EXISTING_MODULE_PASS
       - name: Lint exact candidate and emit source-free diagnostics
+        if: ${{ !inputs.publication_recovery }}
         id: lint
         continue-on-error: true
         working-directory: site
@@ -333,7 +471,7 @@ jobs:
       - name: Produce bounded formatting-only edit coordinates
         working-directory: site
         shell: bash
-        if: steps.lint.outcome == 'failure'
+        if: steps.lint.outcome == 'failure' && !inputs.publication_recovery
         run: |
           set -euo pipefail
           node --input-type=module <<'JS'
@@ -377,6 +515,7 @@ jobs:
           }
           JS
       - name: Run existing production subject regression
+        if: ${{ !inputs.publication_recovery }}
         id: subject
         continue-on-error: true
         working-directory: site
@@ -398,6 +537,7 @@ jobs:
           JS
           echo D05_T3_SUBJECT_PASS
       - name: Require source qualification before downloading or building the platform
+        if: ${{ !inputs.publication_recovery }}
         id: source_gate
         shell: bash
         env:
@@ -429,7 +569,7 @@ jobs:
           fi
           echo D05_T3_PLATFORM_PASS
       - name: Prepare original Host for a fixed HTTPS loopback origin
-        if: inputs.full_release
+        if: inputs.full_release && !inputs.publication_recovery
         working-directory: site
         run: |
           set -euo pipefail
@@ -441,7 +581,7 @@ jobs:
           fi
           echo D05_T3_PROTECTED_HOST_PASS
       - name: Assemble the real loopback T3 product
-        if: inputs.full_release
+        if: inputs.full_release && !inputs.publication_recovery
         working-directory: site
         env:
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
@@ -455,7 +595,7 @@ jobs:
           fi
           echo D05_T3_PROTECTED_BUILD_PASS
       - name: Read the already assembled product through the actual T3 preview CLI
-        if: inputs.full_release
+        if: inputs.full_release && !inputs.publication_recovery
         working-directory: site
         shell: bash
         run: |
@@ -468,7 +608,7 @@ jobs:
           fi
           grep -Fx 'CEHOVOD_T3_PREVIEW_PASS {"files":10,"notFound":true,"exactBytes":true}' "$log"
       - name: Install original witness dependencies
-        if: inputs.full_release
+        if: inputs.full_release && !inputs.publication_recovery
         working-directory: one-core/packages/t3-core
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -477,11 +617,11 @@ jobs:
           npm ci --include=dev --no-audit --no-fund >"$RUNNER_TEMP/d05-t3-protected-witness-npm.log" 2>&1 || { echo D05_T3_WITNESS_NPM_FAIL; exit 1; }
           npx --no-install playwright install chromium >"$RUNNER_TEMP/d05-t3-protected-browser-install.log" 2>&1 || { echo D05_T3_WITNESS_BROWSER_INSTALL_FAIL; exit 1; }
       - name: Check exact combined witness syntax
-        if: inputs.full_release
+        if: inputs.full_release && !inputs.publication_recovery
         working-directory: site
         run: node --check scripts/d05-first-use-real-kernel-witness.mjs
       - name: Actual assistant handoff, independent Kernel readback and cold autonomous Workspace
-        if: inputs.full_release
+        if: inputs.full_release && !inputs.publication_recovery
         id: cold
         working-directory: site
         env:
@@ -500,7 +640,7 @@ jobs:
           grep -qx 'D05_T3_PROTECTED_COLD_OFFLINE_READBACK=PASS' "$log"
           grep -qx 'D05_T3_PROTECTED_WORKSPACE_VISIBLE=PASS' "$log"
       - name: Original completed CASE-001 and physical Exchange on the T3-assembled Host
-        if: inputs.full_release
+        if: inputs.full_release && !inputs.publication_recovery
         working-directory: site
         env:
           D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
@@ -517,7 +657,7 @@ jobs:
           grep -qx 'D05_FIRST_USE_REAL_T2_CROSS_SERVICE=PASS' "$log"
           echo D05_T3_T2_COMPATIBLE_CASE001_EXCHANGE_PASS
       - name: Real offline costed production, physical Exchange and independent cold recovery
-        if: inputs.full_release
+        if: inputs.full_release && !inputs.publication_recovery
         working-directory: site
         env:
           D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
@@ -540,7 +680,7 @@ jobs:
             grep -Fxq "$marker=PASS" "$log"
           done
       - name: Remove disposable loopback assembly before canonical production build
-        if: inputs.full_release
+        if: inputs.full_release && !inputs.publication_recovery
         shell: bash
         run: |
           rm -rf "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$RUNNER_TEMP/d05-t3-protected-host"
@@ -625,7 +765,7 @@ jobs:
           grep -Eq '^\{"files":[0-9]+,"pages":[0-9]+,"skills":11,"originalKernel":true,"sharedEngine":true,"productAccepted":false,"status":"CEHOVOD_T3_DIST_VERIFIED_NOT_PRODUCT_ACCEPTED","productionOrigin":true\}$' "$log"
           echo D05_T3_PRODUCTION_DIST_PASS
       - name: Verify actual canonical distribution with real Apache
-        if: inputs.full_release
+        if: inputs.full_release && !inputs.publication_recovery
         working-directory: site
         shell: bash
         run: |
@@ -642,6 +782,7 @@ jobs:
           grep -Eq '^  Apache integration[[:space:]]*:[[:space:]]*PASS$' "$log"
           echo D05_T3_APACHE_CANONICAL_DIST_PASS
       - name: Exercise actual no-model assistant and existing React forms
+        if: ${{ !inputs.publication_recovery }}
         id: browser
         continue-on-error: true
         working-directory: site
@@ -678,6 +819,7 @@ jobs:
           grep -Fx CEHOVOD_T3_ASSISTANT_SESSION_RESTORE_PASS_375 "$log"
           echo D05_T3_ASSISTANT_BROWSER_PASS
       - name: Exercise the same assistant on real client-side navigation and form/result context
+        if: ${{ !inputs.publication_recovery }}
         id: dynamic
         continue-on-error: true
         working-directory: site
@@ -695,6 +837,7 @@ jobs:
           grep -Fqx '{"status":"CEHOVOD_T3_DYNAMIC_CONTEXT_PASS","widths":2,"nativeControls":true,"sameAssistant":true,"contextReview":true,"actualInference":false,"productAccepted":false}' "$log"
           echo D05_T3_DYNAMIC_CONTEXT_PASS
       - name: Cold offline public site using original worker and persistent browser profile
+        if: ${{ !inputs.publication_recovery }}
         id: offline
         continue-on-error: true
         working-directory: site
@@ -713,6 +856,7 @@ jobs:
           grep -E '^\{"status":"CEHOVOD_T3_ALL_SITE_COLD_PASS","siteRoutes":[0-9]+,"serviceRoutes":11,"localAssetErrors":0,"protectedWorkspaceAccepted":false\}$' "$log"
           echo D05_T3_PUBLIC_OFFLINE_PASS
       - name: Require browser qualification before the independent repeat builds
+        if: ${{ !inputs.publication_recovery }}
         shell: bash
         env:
           BROWSER_OUTCOME: ${{ steps.browser.outcome }}
@@ -725,6 +869,7 @@ jobs:
           done
           echo D05_T3_BROWSER_GATE_PASS
       - name: Exact repeat build and damaged-input rollback from retained bytes
+        if: ${{ !inputs.publication_recovery }}
         id: repro
         continue-on-error: true
         working-directory: site
@@ -743,6 +888,7 @@ jobs:
           grep -E '^\{"status":"CEHOVOD_T3_REPRO_PASS","files":[0-9]+,"invalidInputPreservedDist":true,"exactBytes":true,"productAccepted":false\}$' "$log"
           echo D05_T3_REPRO_PASS
       - name: Require exact-source qualification
+        if: ${{ !inputs.publication_recovery }}
         shell: bash
         env:
           NATIVE_CONTEXT_OUTCOME: ${{ steps.native_context.outcome }}
@@ -780,6 +926,7 @@ jobs:
         env:
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
           SOURCE_SHA: ${{ inputs.site_sha }}
+          PUBLICATION_RECOVERY: ${{ inputs.publication_recovery }}
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d05-retained-checkout.log"
@@ -808,6 +955,12 @@ jobs:
           assert.equal(c.remotePublication,false);
           assert.equal(c.base,process.env.SOURCE_SHA);
           assert.equal(c.tree,r.sourceTree);
+          if(process.env.PUBLICATION_RECOVERY==="true"){
+            assert.equal(r.sourceTree,"645d111be497eb5355f9f2fdb6fc6303562bec1b","D05_T3_RECOVERY_TREE_CHANGED");
+            assert.equal(r.inputFiles,92,"D05_T3_RECOVERY_INPUT_COUNT_CHANGED");
+            assert.equal(r.distFiles,224,"D05_T3_RECOVERY_DIST_COUNT_CHANGED");
+            console.log("D05_T3_RECOVERY_EXACT_TREE_PASS");
+          }
           assert.equal(c.inputFiles,r.inputFiles);
           assert.ok([c.commit,c.tree,c.base].every(x=>sha.test(x)));
           const git=args=>execFileSync("git",args,{encoding:"utf8",stdio:["ignore","pipe","pipe"]}).trim();
@@ -824,60 +977,8 @@ jobs:
         shell: bash
         run: |
           echo 'ready=true' >> "$GITHUB_OUTPUT"
+          echo 'reused=${{ inputs.publication_recovery }}' >> "$GITHUB_OUTPUT"
           echo D05_T3_LINUX_FUNCTIONAL_READY_NOT_PRODUCT_ACCEPTED
-      - name: Check effective private blob write using existing tracked bytes
-        if: inputs.full_release
-        id: publication_preflight
-        continue-on-error: true
-        working-directory: site
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.DOMEN }}
-          SOURCE_SHA: ${{ inputs.site_sha }}
-          TARGET_BASE_SHA: ${{ inputs.retained_base_sha }}
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'JS'
-          import {execFileSync} from "node:child_process";
-          const repo="repos/Faust-S/cehovod.ru";
-          const fail=code=>{throw Error("D05_T3_RETAINED_PREFLIGHT_"+code);};
-          const git=args=>execFileSync("git",args,{stdio:["ignore","pipe","pipe"]});
-          const api=(phase,method,path,body)=>{
-            try{return JSON.parse(execFileSync("gh",["api","--method",method,repo+path,...(body===undefined?[]:["--input","-"])],{
-              input:body===undefined?undefined:JSON.stringify(body),encoding:"utf8",
-              maxBuffer:8*1024*1024,stdio:["pipe","pipe","pipe"]
-            }));}catch(error){
-              const status=String(error?.stderr||"").match(/\bHTTP\s+([1-5][0-9]{2})\b/)?.[1];
-              fail(phase+"_"+(status?"HTTP_"+status:"TRANSPORT_FAIL"));
-            }
-          };
-          try{
-            const base=process.env.SOURCE_SHA;
-            if(!/^[a-f0-9]{40}$/.test(base)||git(["rev-parse","HEAD"]).toString().trim()!==base)fail("BASE");
-            const meta=api("REPO","GET","");
-            if(meta.full_name!=="Faust-S/cehovod.ru"||meta.private!==true||meta.permissions?.push!==true)fail("PRIVATE_PERMISSION");
-            const ref=api("REF","GET","/git/ref/heads/work/2026-11-25-d05-t3-retained-inputs");
-            const target=process.env.TARGET_BASE_SHA;
-            if(!/^[a-f0-9]{40}$/.test(target||"")||ref.object?.sha!==target)fail("REMOTE_BASE_CHANGED");
-            if(target!==base){
-              const comparison=api("ANCESTRY","GET","/compare/"+target+"..."+base);
-              if(comparison.status!=="ahead"||comparison.merge_base_commit?.sha!==target||comparison.behind_by!==0)
-                fail("REMOTE_BASE_NOT_ANCESTOR");
-            }
-            // Submit one small ALREADY tracked blob to the SAME private repository.
-            // No new content, tree, commit or branch is created by this probe.
-            const path="runtime/t3-platform/active.json";
-            const sha=git(["rev-parse","HEAD:"+path]).toString().trim();
-            const bytes=git(["cat-file","blob",sha]);
-            if(!/^[a-f0-9]{40}$/.test(sha)||!bytes.length||bytes.length>4096)fail("PROBE_BLOB");
-            const saved=api("BLOB_WRITE","POST","/git/blobs",{content:bytes.toString("base64"),encoding:"base64"});
-            if(saved.sha!==sha)fail("BLOB_SHA");
-            console.log("D05_T3_RETAINED_PREFLIGHT_WRITE_PASS");
-          }catch(error){
-            console.error(String(error?.message||"").match(/^D05_T3_RETAINED_PREFLIGHT_[A-Z0-9_]+$/)?.[0]||"D05_T3_RETAINED_PREFLIGHT_UNCLASSIFIED");
-            process.exitCode=1;
-          }
-          JS
       - name: Publish only the verified candidate tree through private Git Data API
         if: inputs.full_release && steps.publication_preflight.outcome == 'success'
         id: publish
