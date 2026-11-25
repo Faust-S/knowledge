@@ -45,6 +45,7 @@ jobs:
             --revision platform=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
             --revision bli=9f41447197251d41e69fbcb98e52ef1050754ec2
       - name: Verify exact previous functional and navigation evidence
+        id: prior-evidence
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -81,16 +82,13 @@ jobs:
           need(not evidence('CLUB_NAV_FAILURE '))
           print('D02_PREVIOUS_FUNCTIONAL_EVIDENCE=PASS; internal_failures=0; site_tests=929')
           PY
-      - name: Confirm exact precreated private retention destination
+      - name: Prove actual private Contents and ref write access before any build
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
-          GIT_TERMINAL_PROMPT: '0'
         shell: bash
         run: |
           set -euo pipefail
-          [ "$(gh api repos/Faust-S/club.iwxa.ru --jq '.private' 2> "$RUNNER_TEMP/private-ref-check.log")" = true ]
-          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-final-qualified-inputs --jq '.object.sha' 2>> "$RUNNER_TEMP/private-ref-check.log")" = "c1b02ba9f2b65175be91faa6476fd8d079b62e1f" ]
-          echo D02_RETENTION_PRIVATE_REF_AT_QUALIFIED_SOURCE=PASS
+          node "$GITHUB_WORKSPACE/qualification/tools/ci/d02-retain-private-inputs.mjs" probe
       - name: Preserve original Git LF bytes
         run: git config --global core.autocrlf false
       - name: Checkout exact public T3 platform candidate
@@ -314,31 +312,11 @@ jobs:
           assert.equal(roots.size,3);
           console.log('D02_T3_PRIVATE_RETENTION_INPUTS_READY=PASS; files='+rows.length/2);
           NODE
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Retain qualified Club T3 local inputs for run $GITHUB_RUN_ID [skip ci]" > "$RUNNER_TEMP/private-retain-commit.log" 2>&1
-          # The authorized connector created the isolated branch at the qualified source.
-          # Verify the exact parent and use an ordinary non-force fast-forward.
-          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-final-qualified-inputs --jq '.object.sha')" = "c1b02ba9f2b65175be91faa6476fd8d079b62e1f" ]
-          [ "$(git rev-parse HEAD^)" = "c1b02ba9f2b65175be91faa6476fd8d079b62e1f" ]
-          # Explicitly use gh's standard credential setup, local to this disposable checkout.
-          gh auth setup-git --hostname github.com > "$RUNNER_TEMP/private-retain-credential.log" 2>&1
-          if ! git push --porcelain origin "HEAD:$target" > "$RUNNER_TEMP/private-retain-push.log" 2>&1; then
-            if grep -Eqi '403|permission|denied|not authorized|not accessible' "$RUNNER_TEMP/private-retain-push.log"; then
-              echo D02_RETENTION_PUSH_ACCESS=DENIED
-            elif grep -Eqi 'non-fast-forward|fetch first|stale info' "$RUNNER_TEMP/private-retain-push.log"; then
-              echo D02_RETENTION_PUSH_CONFLICT=FAIL
-            elif grep -Eqi 'protected branch|repository rule|GH013|GH006' "$RUNNER_TEMP/private-retain-push.log"; then
-              echo D02_RETENTION_PUSH_RULE=REJECTED
-            elif grep -Eqi 'could not read Username|Authentication failed|terminal prompts disabled' "$RUNNER_TEMP/private-retain-push.log"; then
-              echo D02_RETENTION_PUSH_AUTH=FAIL
-            else
-              echo D02_RETENTION_PUSH_OTHER=FAIL
-            fi
-            exit 1
-          fi
-          [ "$(gh api repos/Faust-S/club.iwxa.ru/git/ref/heads/work/2026-11-25-club-t3-final-qualified-inputs --jq '.object.sha')" = "$(git rev-parse HEAD)" ]
-          echo "D02_T3_QUALIFIED_INPUT_COMMIT=$(git rev-parse HEAD)"
-          echo D02_T3_PRIVATE_RETENTION=PASS
+          # Use the same already-probed authorized API, exact Git tree and
+          # ordinary fast-forward. No credential fallback or public upload.
+          node "$GITHUB_WORKSPACE/qualification/tools/ci/d02-retain-private-inputs.mjs" retain
       - name: Check the two corrected external references separately from retention
+        if: ${{ !cancelled() && steps.prior-evidence.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
