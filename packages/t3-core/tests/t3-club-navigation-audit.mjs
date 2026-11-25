@@ -27,7 +27,7 @@ async function main(){
  assert.ok(sameRoute(new URL(origin+"/workspace/#/domain?workspace_id=example"),new URL(origin+"/workspace/#/domain")));
  assert.ok(!sameRoute(new URL(origin+"/404.html"),new URL(origin+"/projects/")));
  assert.ok(!sameRoute(new URL(origin+"/projects/#different"),new URL(origin+"/projects/#club-goal-map")));
- const totals={pageInventory:0,pageLoads:0,links:0,internalClicked:0,casePrefilled:0,caseRepeated:0,keyboardSkip:0,workspaceResumed:0,guardedExport:0,assistantSkills:0,externalActionable:0,contactActionable:0,conditional:0,notRun:0,missingRouteChecks:0,externalOK:0,externalBroken:0,externalUnverified:0};
+ const totals={pageInventory:0,pageLoads:0,links:0,internalClicked:0,casePrefilled:0,caseRepeated:0,keyboardSkip:0,workspaceResumed:0,guardedExport:0,assistantSkills:0,firstStepTools:0,firstStepPlans:0,externalActionable:0,contactActionable:0,conditional:0,notRun:0,missingRouteChecks:0,externalOK:0,externalBroken:0,externalUnverified:0};
  const failures=[],external=new Set(),conditionalKinds={};
  const safeTarget=(href,source="/")=>{
   try{const u=new URL(href,origin+source);if(u.origin!==origin)return u.protocol==="http:"||u.protocol==="https:"?u.hostname:u.protocol;
@@ -347,6 +347,77 @@ async function main(){
   }finally{await ctx.close()}
   console.log("CLUB_NAV_ASSISTANT "+JSON.stringify({mode,skills:pack.skills.length}));
  }
+ async function auditFirstStep(browser,mode,viewport){
+  // All dynamically created first-step links, including the half-hour
+  // transfer that used to fail native HTML form validation.
+  const task={mode,viewport,path:"/start/",state:"first-step"};
+  const model=JSON.parse(await readFile(join(site,"assets/club-individual-pathways.json"),"utf8"));
+  const ctx=await browser.newContext({viewport});
+  const startComparison=async(page,obs,need,hours)=>{
+   await openSource(page,obs,task);
+   const form=page.locator("[data-club-choice-form]");
+   await page.locator('[data-club-need-link='+JSON.stringify(need.id)+']').click();
+   check(await form.locator('[name="need"]').inputValue()===need.id,"FIRST_STEP_NEED");
+   await form.locator('[name="weeklyHours"]').fill(String(hours));
+   await form.getByRole("button",{name:"Сравнить три варианта",exact:true}).click();
+   const output=page.locator("[data-club-choice-results]");
+   await output.waitFor({state:"visible",timeout:10000});
+   check(await output.locator("article.card").count()===3,"FIRST_STEP_OPTIONS");
+   await ready(page,obs,new URL(origin+task.path));
+   return output;
+  };
+  let index=0;
+  try{
+   for(const need of model.needs){
+    for(const option of need.options){
+     index++;
+     const page=await ctx.newPage(),obs=monitor(page);
+     const hours=option.trialHours+0.5;
+     let phase="source";
+     try{
+      let output=await startComparison(page,obs,need,hours);
+      let card=output.locator("article.card").filter({has:page.getByRole("heading",{name:option.title,exact:true})});
+      check(await card.count()===1,"FIRST_STEP_OPTION");
+      const link=card.getByRole("link",{name:"Открыть инструмент",exact:true});
+      const u=new URL(option.firstRoute,origin);
+      check(await link.getAttribute("href")===option.firstRoute&&u.origin===origin,"FIRST_STEP_TOOL_TARGET");
+      phase="tool";reset(obs);await link.click();
+      await page.waitForURL(value=>sameRoute(value,u),{timeout:12000});
+      await ready(page,obs,u);totals.firstStepTools++;
+      phase="comparison";output=await startComparison(page,obs,need,hours);
+      card=output.locator("article.card").filter({has:page.getByRole("heading",{name:option.title,exact:true})});
+      await card.getByRole("button",{name:"Выбрать этот подход",exact:true}).click();
+      const plan=output.getByRole("link",{name:"Перейти к плану первого действия",exact:true});
+      const planHref=await plan.getAttribute("href"),target=new URL(planHref,origin);
+      const params=new URLSearchParams(target.hash.slice(1));
+      check(target.origin===origin&&target.pathname==="/tools/action-route/"&&params.get("club_need")===need.id&&params.get("club_option")===option.id&&Number(params.get("club_hours"))===hours,"FIRST_STEP_PLAN_TARGET");
+      phase="plan";reset(obs);await plan.click();
+      await page.waitForURL(value=>sameRoute(value,target),{timeout:12000});
+      await ready(page,obs,target);
+      const apply=page.getByRole("button",{name:"Подставить в форму маршрута",exact:true});
+      const route=page.locator("[data-ar-form]");
+      await apply.waitFor({state:"visible",timeout:10000});
+      const readObjects=()=>page.evaluate(()=>JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")||'{}').objects||[]);
+      const before=JSON.stringify(await readObjects());
+      phase="apply";await apply.click();
+      check(await route.locator('[name="goal"]').inputValue()==="custom"&&await route.locator('[name="goalCustom"]').inputValue()===option.trial&&Number(await route.locator('[name="maxHoursPerWeek"]').inputValue())===hours,"FIRST_STEP_TRANSFER");
+      check(await route.evaluate(el=>el.checkValidity()),"FIRST_STEP_FORM_VALIDITY");
+      check(JSON.stringify(await readObjects())===before,"FIRST_STEP_UNREQUESTED_RESULT");
+      phase="submit";await route.getByRole("button",{name:"Собрать маршрут и сохранить",exact:true}).click();
+      await page.waitForFunction(({goal,hours})=>{
+       const rows=JSON.parse(sessionStorage.getItem("ru.iwxa.club.session.v1")||'{}').objects||[];
+       return rows.some(row=>row.objectType==="action-route-30-days"&&row.data?.input?.goalCustom===goal&&row.data?.calculatedValues?.maxHoursPerWeek===hours&&row.data?.calculatedValues?.plannedHoursPerWeek<=hours&&!row.kernelSource);
+      },{goal:option.trial,hours},{timeout:12000});
+      await ready(page,obs,target);
+      check(await page.locator("[data-ar-result]").isVisible(),"FIRST_STEP_RESULT");
+      totals.firstStepPlans++;
+     }catch(e){report(task,"option-"+index+"-"+phase,"/tools/action-route/",e)}
+     finally{await page.close()}
+    }
+   }
+  }finally{await ctx.close()}
+  console.log("CLUB_NAV_FIRST_STEP "+JSON.stringify({mode,options:index}));
+ }
  async function checkExternal(raw){
   try{
    let u=new URL(raw);
@@ -380,6 +451,7 @@ async function main(){
   }
   let next=0;await Promise.all(Array.from({length:4},async()=>{while(next<tasks.length){const task=tasks[next++];await auditTask(browser,task)}}));
   for(const [mode,viewport] of [["desktop",{width:1280,height:900}],["phone",{width:390,height:844}]])await auditAssistant(browser,mode,viewport);
+  for(const [mode,viewport] of [["desktop",{width:1280,height:900}],["phone",{width:390,height:844}]])await auditFirstStep(browser,mode,viewport);
   const urls=[...external];next=0;await Promise.all(Array.from({length:4},async()=>{while(next<urls.length)await checkExternal(urls[next++])}));
   const grouped=new Map();for(const f of failures){const key=JSON.stringify(f);grouped.set(key,(grouped.get(key)||0)+1)}
   for(const [key,count] of [...grouped].slice(0,160))console.log("CLUB_NAV_FAILURE "+JSON.stringify({...JSON.parse(key),count}));
@@ -387,6 +459,7 @@ async function main(){
   check(totals.pageInventory===tasks.length&&totals.missingRouteChecks===2,"INCOMPLETE_PAGES");
   const pack=JSON.parse(await readFile(join(site,"assets/club-assistant-skills.json"),"utf8"));
   check(totals.assistantSkills===2*pack.skills.length,"INCOMPLETE_SKILL_NAVIGATION");
+  check(totals.firstStepTools===36&&totals.firstStepPlans===36,"INCOMPLETE_FIRST_STEP_NAVIGATION");
   check(totals.keyboardSkip>=6&&totals.workspaceResumed>0,"INCOMPLETE_HOST_ACCESSIBILITY_OR_RESUME");
   check(totals.guardedExport===4,"INCOMPLETE_UNSELECTED_EXPORT_GUARD");
   check(!conditionalKinds["closed-menu"],"MENU_LINKS_UNCHECKED");
