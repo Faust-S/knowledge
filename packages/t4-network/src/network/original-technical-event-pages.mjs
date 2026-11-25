@@ -70,3 +70,47 @@ export async function readT4OriginalTechnicalObjectEvents({originalKernel,worksp
   });
   return selected;
 }
+
+// Select original subject Events during a complete commit-order traversal.
+// The supplied original Host boundary is mandatory: separate read transactions
+// are not a snapshot. Only selected Event bodies survive the traversal, but
+// every identity (including unrelated Events) is checked for duplication.
+export async function readT4OriginalSelectedCommitEvents({workspaceId,originalWriteOwnerRef,
+  readOriginalCommitPage,withOriginalHistoryReadBoundary,authorizeOriginalOperation,
+  selectOriginalEvent,pageSize=256}={}){
+  if(![workspaceId,originalWriteOwnerRef].every(ID)||
+    ![readOriginalCommitPage,withOriginalHistoryReadBoundary,authorizeOriginalOperation,selectOriginalEvent]
+      .every(f=>typeof f==='function')||!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>1024)
+    fail('ORIGINAL_SELECTED_COMMIT_HISTORY_PORTS_REQUIRED');
+  const proof=Object.freeze({operation:'t1.listEventsSince',workspaceId,originalWriteOwnerRef,
+    networkReadGrantsCreated:false,originalCommitOrderReadRequired:true,originalHistoryExclusionRequired:true});
+  const requireRead=async()=>{
+    for(const operation of ['t1.listEventsSince','t1.listEventCommitWindow']){
+      if(await authorizeOriginalOperation(operation)!==true)fail('ORIGINAL_SELECTED_COMMIT_HISTORY_READ_DENIED');
+    }
+  };
+  await requireRead();
+  let active=true,calls=0,completed;
+  const check=()=>{if(!active||calls!==1)fail('ORIGINAL_SELECTED_COMMIT_HISTORY_BOUNDARY_INVALID');};
+  const read=async()=>{
+    if(!active||++calls!==1)fail('ORIGINAL_SELECTED_COMMIT_HISTORY_BOUNDARY_INVALID');
+    const selected=[];
+    await visitT4OriginalTechnicalCommitEvents({workspaceId,pageSize,
+      authorizeOriginalPage:async()=>{check();await requireRead();check();return true;},
+      readOriginalTechnicalCommitPage:async page=>{
+        check();const value=await readOriginalCommitPage(Object.freeze({...proof,afterEventId:page.afterEventId,
+          limit:page.limit,commitOperation:'t1.listEventCommitWindow'}));check();return value;
+      },visitOriginalEvent:event=>{
+        check();const keep=selectOriginalEvent(event);
+        if(typeof keep!=='boolean')fail('ORIGINAL_SELECTED_COMMIT_HISTORY_SELECTION_INVALID');
+        if(keep)selected.push(event);
+      }});
+    check();await requireRead();check();
+    completed=Object.freeze(selected);return completed;
+  };
+  try{
+    const result=await withOriginalHistoryReadBoundary(proof,read);
+    if(calls!==1||completed===undefined||result!==completed)fail('ORIGINAL_SELECTED_COMMIT_HISTORY_BOUNDARY_INVALID');
+    active=false;await requireRead();return result;
+  }finally{active=false;}
+}
