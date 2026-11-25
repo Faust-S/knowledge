@@ -882,6 +882,68 @@ try{
  await resourceForm.locator('[name="minutesB"]').fill("75");
  await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="empty","GOAL_RESOURCE_INVALIDATED");
  log("OFFLINE_GOAL_RESOURCE_TIME_AND_CASH_ALTERNATIVES");
+ phase="OFFLINE_GOAL_TASK_EXACT_ROUTE";
+ const goalTaskPlanBefore=await localWeek();
+ // Keep the original capacity/conflict checks. Select a revised start time
+ // without changing the original task date, title or planned minutes.
+ await resourceForm.locator('[name="startA"]').fill("10:15");
+ await resourceRun.click();
+ await poll(async()=>await resourceResult.getAttribute("data-iwxa-assistant-state")==="ready","GOAL_TASK_COMPARE_READY");
+ const exactTaskLink=resourceResult.getByRole("link",{name:"Открыть исходное дело",exact:true});
+ const exactTaskUrl=new URL(await exactTaskLink.getAttribute("href"),page.url());
+ check(exactTaskUrl.searchParams.get("club_week_slot")===goalResourceTask.id&&
+  exactTaskUrl.searchParams.get("club_week_goal")===goalId&&
+  exactTaskUrl.searchParams.get("club_week_rev")===goalTaskPlanBefore.updatedAt&&
+  exactTaskUrl.searchParams.get("workspace_id")===base.scope&&
+  exactTaskUrl.hash==="#club-week-plan","GOAL_TASK_EXACT_REVISION_ROUTE");
+ check(isDeepStrictEqual(await localWeek(),goalTaskPlanBefore),"GOAL_TASK_COMPARE_NO_WRITE");
+ await exactTaskLink.click();
+ const exactTaskEditor=page.locator("form[data-club-week-form]");
+ await exactTaskEditor.waitFor({state:"visible"});
+ await poll(async()=>await exactTaskEditor.locator('[name="title"]').inputValue()===goalResourceTask.title&&
+  await exactTaskEditor.locator("[data-club-week-save]").isEnabled(),"GOAL_TASK_EDITOR_READY");
+ check(await exactTaskEditor.locator('[name="date"]').inputValue()===goalResourceTask.date&&
+  await exactTaskEditor.locator('[name="start"]').inputValue()===goalResourceTask.start&&
+  await exactTaskEditor.locator('[name="durationMinutes"]').inputValue()==="90"&&
+  await exactTaskEditor.locator('[name="projectId"]').inputValue()===goalId,"GOAL_TASK_ORIGINAL_FIELDS");
+ check(isDeepStrictEqual(await localWeek(),goalTaskPlanBefore),"GOAL_TASK_OPEN_NO_WRITE");
+ await exactTaskEditor.locator('[name="start"]').fill("10:15");
+ await exactTaskEditor.locator("[data-club-week-save]").click();
+ await poll(async()=> (await localWeek())?.data?.personalWeekPlan?.slots?.find(s=>s.id===goalResourceTask.id)?.start==="10:15","GOAL_TASK_SAME_ID_UPDATED");
+ const goalTaskPlanAfter=await localWeek();
+ const expectedGoalTask={...goalResourceTask,start:"10:15"};
+ check(goalTaskPlanAfter.data.personalWeekPlan.slots.length===goalTaskPlanBefore.data.personalWeekPlan.slots.length&&
+  isDeepStrictEqual(goalTaskPlanAfter.data.personalWeekPlan.slots.find(s=>s.id===goalResourceTask.id),expectedGoalTask)&&
+  isDeepStrictEqual(goalTaskPlanAfter.data.personalWeekPlan.slots.filter(s=>s.id!==goalResourceTask.id),goalTaskPlanBefore.data.personalWeekPlan.slots.filter(s=>s.id!==goalResourceTask.id)),"GOAL_TASK_ONE_CHANGE_NO_DUPLICATE");
+ log("OFFLINE_GOAL_TASK_EXACT_EDITOR_ONE_CHANGE");
+ phase="OFFLINE_GOAL_TASK_STALE_ROUTE";
+ await visit(page,exactTaskUrl.pathname+exactTaskUrl.search+exactTaskUrl.hash);
+ await exactTaskEditor.waitFor({state:"visible"});
+ await poll(async()=>await exactTaskEditor.locator("[data-club-week-target]").isVisible()&&
+  (await exactTaskEditor.locator("[data-club-week-target]").textContent()).includes("изменились"),"GOAL_TASK_STALE_NOTICE");
+ check(!(await exactTaskEditor.locator("[data-club-week-save]").isEnabled())&&
+  !(await exactTaskEditor.locator("[data-club-week-check-change]").isEnabled()),"GOAL_TASK_STALE_BLOCKED");
+ await exactTaskEditor.evaluate(form=>form.dispatchEvent(new Event("submit",{cancelable:true,bubbles:true})));
+ check(isDeepStrictEqual(await localWeek(),goalTaskPlanAfter),"GOAL_TASK_STALE_NO_WRITE");
+ log("OFFLINE_GOAL_TASK_STALE_LINK_NO_DUPLICATE");
+ phase="OFFLINE_GOAL_TASK_KERNEL_SAVE";
+ await page.locator("[data-club-week-summary]").getByRole("link",{name:"Сохранить план в рабочей области",exact:true}).click();
+ const taskImport=page.getByTestId("club-t0-import-card");
+ await taskImport.getByTestId("club-t0-import-preview").waitFor({state:"visible"});
+ const taskScope=taskImport.getByTestId("club-t0-import-workspace-choice").filter({visible:true});
+ await poll(async()=>await taskScope.count()===1,"GOAL_TASK_KERNEL_SCOPE_AVAILABLE");
+ check(await taskScope.getAttribute("data-workspace-id")===base.scope,"GOAL_TASK_KERNEL_EXACT_SCOPE");
+ if(await taskScope.getAttribute("aria-pressed")!=="true")await taskScope.click();
+ await poll(async()=>await taskScope.getAttribute("aria-pressed")==="true","GOAL_TASK_KERNEL_SCOPE_FOCUSED");
+ await taskImport.getByLabel("Подтверждаю сохранение изменений. При конфликте прежняя запись останется без изменений.",{exact:true}).check();
+ const taskSave=taskImport.getByRole("button",{name:"Сохранить изменения",exact:true});
+ await poll(async()=>await taskSave.isEnabled(),"GOAL_TASK_KERNEL_READY");
+ await taskSave.click();
+ await poll(async()=>{
+  const w=await localWeek();return w?.kernelSource?.workspaceId===base.scope&&
+   w.kernelSource.revision===goalTaskPlanBefore.kernelSource.revision+1&&w.kernelSource.syncedUpdatedAt===w.updatedAt;
+ },"GOAL_TASK_KERNEL_NEXT_REVISION");
+ log("OFFLINE_GOAL_TASK_ORIGINAL_KERNEL_RECEIPT");
  phase="OFFLINE_GOAL_PAYMENT_LINK";
  // Keep the preceding unlinked commitment assertion. Now explicitly link
  // that same outstanding payment to the goal, through its original editor.
@@ -1054,6 +1116,9 @@ try{
  check(factPlan?.kernelSource?.workspaceId===base.scope&&factPlan.data.personalWeekPlan.slots.length===6,"FACT_WEEK_SIX_SLOTS");
  const originalDone=factPlan.data.personalWeekPlan.slots.find(s=>s.title===titles[0]);
  check(originalDone?.status==="done"&&originalDone.fact===undefined,"FACT_UNKNOWN_ON_SIMPLE_COMPLETE");
+ check(originalDone.id===goalResourceTask.id&&originalDone.start==="10:15"&&originalDone.date===goalResourceTask.date&&
+  originalDone.durationMinutes===90&&originalDone.projectId===goalId,"GOAL_TASK_COLD_EXACT_EDIT");
+ log("OFFLINE_GOAL_TASK_COLD_EXACT_ENTRY");
  phase="OFFLINE_FACT_RECORD";
  const factCard=page.locator(".club-week-entry").filter({has:page.getByText(titles[0],{exact:true})});
  await factCard.waitFor({state:"visible"});
@@ -1319,6 +1384,29 @@ try{
  verifyHistory((await localGoal()).data.goalLifecycle,lifecycleBeforeExport,"LIFECYCLE_INDEPENDENT");
  check((await localGoal()).data.goalLifecycle.status==="completed","LIFECYCLE_INDEPENDENT_COMPLETED");
  log("INDEPENDENT_GOAL_LIFECYCLE_IWXA_READBACK");
+ phase="INDEPENDENT_GOAL_TASK_READBACK";
+ await visit(page,"/workspace/");await openExisting(page);
+ const recipientWeekToday=page.getByTestId("club-native-today");
+ await recipientWeekToday.getByRole("button",{name:"Открыть дела недели",exact:true}).click();
+ const recipientWeekRestore=page.getByTestId("club-t2-restore-card");
+ await recipientWeekRestore.waitFor({state:"visible"});
+ await poll(async()=>await recipientWeekRestore.locator('input[type="checkbox"]:checked').count()===1,"GOAL_TASK_INDEPENDENT_RESTORE_SELECTION");
+ const recipientWeekOpen=recipientWeekRestore.getByRole("button",{name:"Открыть выбранные записи",exact:true});
+ await poll(async()=>await recipientWeekOpen.isEnabled(),"GOAL_TASK_INDEPENDENT_RESTORE_READY");
+ let recipientWeekConsent=false;
+ page.once("dialog",async d=>{
+  recipientWeekConsent=d.type()==="confirm"&&d.message().includes("Загрузить 1 новых");
+  if(recipientWeekConsent)await d.accept();else await d.dismiss();
+ });
+ await recipientWeekOpen.click();await poll(async()=>recipientWeekConsent,"GOAL_TASK_INDEPENDENT_RESTORE_CONSENT");
+ const recipientWeekLink=page.getByTestId("club-t2-restore-completed").getByRole("link",{name:"Открыть мою неделю",exact:true});
+ await recipientWeekLink.waitFor({state:"visible"});await recipientWeekLink.click();
+ const recipientWeekRecord=await localWeek();
+ const recipientGoalTask=recipientWeekRecord?.data?.personalWeekPlan?.slots?.find(s=>s.id===goalResourceTask.id);
+ check(recipientWeekRecord?.data?.personalWeekPlan?.slots?.length===6&&recipientGoalTask?.start==="10:15"&&
+  recipientGoalTask.date===goalResourceTask.date&&recipientGoalTask.durationMinutes===90&&recipientGoalTask.projectId===goalId&&
+  recipientGoalTask.status==="done"&&recipientGoalTask.fact?.minutes===110&&recipientGoalTask.fact?.plannedMinutes===90,"GOAL_TASK_INDEPENDENT_EXACT_ENTRY");
+ log("INDEPENDENT_GOAL_TASK_EXACT_IWXA_READBACK");
  phase="INDEPENDENT_GOAL_PAYMENT_READBACK";
  await visit(page,"/workspace/");await openExisting(page);
  const recipientCashToday=page.getByTestId("club-native-today");
