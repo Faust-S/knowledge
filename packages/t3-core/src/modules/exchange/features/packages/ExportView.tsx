@@ -404,28 +404,29 @@ function renderExport(p: RenderProps) {
 
       {state.preview && state.status !== "confirmed" && (
         <label className="flex items-start gap-2 text-xs text-slate-300">
-          <input type="checkbox" data-testid="export-ack-sensitive"
+          <input type="checkbox" id="iwxa-exchange-ack-sensitive" data-testid="export-ack-sensitive"
+            aria-label="Состав архива проверен" aria-describedby="iwxa-exchange-sensitive-description"
             checked={state.ackSensitive}
             onChange={(e) => dispatch({ type: "ack-sensitive", value: e.target.checked })}
             className="mt-0.5" />
-          <span>Я проверил состав предпросмотра и понимаю, что экспортируемый
+          <span id="iwxa-exchange-sensitive-description">Я проверил состав предпросмотра и понимаю, что экспортируемый
             архив .iwxa не зашифрован. Защищённая копия создаётся отдельно у установленного владельца age.</span>
         </label>
       )}
 
       <div className="flex gap-2 flex-wrap">
         <button type="button" onClick={runPreview} disabled={previewDisabled}
-          data-testid="export-preview"
+          id="iwxa-exchange-export-preview" data-testid="export-preview"
           className="px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 min-h-[44px]">
           Предпросмотр
         </button>
         <button type="button" onClick={runPackage} disabled={packageDisabled}
-          data-testid="export-package"
+          id="iwxa-exchange-export-package" data-testid="export-package"
           className="px-3 py-1.5 text-xs rounded bg-amber-900/70 hover:bg-amber-900 disabled:opacity-40 min-h-[44px]">
           Собрать архив
         </button>
         <button type="button" onClick={runDownload} disabled={downloadDisabled}
-          data-testid="export-download"
+          id="iwxa-exchange-export-download" data-testid="export-download"
           className="px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 min-h-[44px]">
           Скачать .iwxa
         </button>
@@ -438,7 +439,7 @@ function renderExport(p: RenderProps) {
           {protectedBusy ? "Защита…" : "Скачать защищённую .iwxa.age"}
         </button>}
         <button type="button" onClick={runConfirm} disabled={confirmDisabled}
-          data-testid="export-confirm"
+          id="iwxa-exchange-export-confirm" data-testid="export-confirm"
           className="px-3 py-1.5 text-xs rounded bg-emerald-900/70 hover:bg-emerald-900 disabled:opacity-40 min-h-[44px]">
           Подтвердить сохранение
         </button>
@@ -455,12 +456,13 @@ function renderExport(p: RenderProps) {
         className="text-xs text-slate-400">Браузеру передан {protectedDownloadedName}. Сохранение файла проверьте самостоятельно. Это не квитанция исходного Kernel о резервной копии .iwxa.</p>}
       {state.artifact && ["download-initiated", "confirming", "confirmed"].includes(state.status) && (
         <label className="flex items-start gap-2 text-xs text-slate-300">
-          <input type="checkbox" data-testid="export-confirm-saved-file"
+          <input type="checkbox" id="iwxa-exchange-confirm-saved-file" data-testid="export-confirm-saved-file"
+            aria-label="Файл архива сохранён" aria-describedby="iwxa-exchange-saved-description"
             checked={state.fileSavedConfirmed}
             disabled={state.status !== "download-initiated"}
             onChange={(e) => dispatch({ type: "ack-file-saved", value: e.target.checked })}
             className="mt-0.5" />
-          <span>Я проверил, что файл {downloadedName ?? state.artifact.filename} действительно сохранён
+          <span id="iwxa-exchange-saved-description">Я проверил, что файл {downloadedName ?? state.artifact.filename} действительно сохранён
             на устройстве. Начало скачивания само по себе не подтверждает наличие копии.</span>
         </label>
       )}
@@ -496,9 +498,9 @@ function renderExport(p: RenderProps) {
         <section aria-labelledby="exp-artifact" data-testid="export-artifact">
           <h4 id="exp-artifact" className="text-sm font-medium text-slate-200 mb-1">Архив</h4>
           <dl className="text-xs text-slate-400 grid grid-cols-2 gap-x-3 gap-y-0.5">
-            <dt>Файл</dt><dd className="text-slate-200">{state.artifact.filename}</dd>
+            <dt>Файл</dt><dd id="iwxa-exchange-archive-filename" className="text-slate-200">{state.artifact.filename}</dd>
             <dt>Размер</dt><dd className="text-slate-200">{state.artifact.size} Б</dd>
-            <dt>Package digest</dt><dd className="text-slate-200 truncate" data-testid="export-artifact-digest">{state.artifact.package_digest}</dd>
+            <dt>Package digest</dt><dd className="text-slate-200 truncate" id="iwxa-exchange-archive-digest" data-testid="export-artifact-digest">{state.artifact.package_digest}</dd>
             <dt>Semantic digest</dt><dd className="text-slate-200 truncate">{state.artifact.semantic_digest}</dd>
           </dl>
         </section>

@@ -138,6 +138,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
   signedWorkspaceScope = false }: ImportViewProps) {
   const [state, dispatch] = useReducer(importReducer, INITIAL_IMPORT_STATE);
   const installedCompany=isInstalledCompanyExchange(kernel,signedWorkspaceScope);
+  const plainFileInputRef=useRef<HTMLInputElement>(null);
   const [pwaReadBusy, setPwaReadBusy] = useState(false);
   const [pwaReadError, setPwaReadError] = useState<string | null>(null);
   const [pwaUsed, setPwaUsed] = useState<InstalledPwaFileHandle | null>(null);
@@ -923,8 +924,16 @@ function renderImport(p: RenderProps) {
           </p>}
         </div>
       )}
+      {installedCompany && <button type="button" id="iwxa-exchange-choose-file"
+        disabled={!canPlainPreview || busy}
+        onClick={()=>plainFileInputRef.current?.click()}
+        className="px-3 py-2 text-sm min-h-11 rounded border border-slate-700 disabled:opacity-40">
+        Выбрать архив .iwxa
+      </button>}
       <input
         type="file"
+        ref={plainFileInputRef}
+        hidden={installedCompany}
         accept={ALLOWED_EXTENSION}
         disabled={!canPlainPreview || busy}
         onChange={(event) => {
@@ -1339,7 +1348,7 @@ function renderImport(p: RenderProps) {
 
           <div className="flex gap-2">
             <button type="button" onClick={runCommit} disabled={commitDisabled}
-              data-testid="import-commit"
+              id="iwxa-exchange-import-commit" data-testid="import-commit"
               className="px-3 py-1.5 text-xs rounded bg-emerald-900/70 hover:bg-emerald-900 disabled:opacity-40 min-h-[44px]">
               Импортировать ({state.plan.include_workspaces.length})
             </button>
@@ -1391,7 +1400,7 @@ function renderImport(p: RenderProps) {
             <dt>Режим</dt><dd className="text-slate-200">{state.receipt.mode}</dd>
             <dt>Конфликты</dt><dd className="text-slate-200">{state.receipt.conflict_policy}</dd>
             <dt>Завершено</dt><dd className="text-slate-200">{state.receipt.committed_at}</dd>
-            <dt>package_digest</dt><dd className="text-slate-200 truncate">{state.receipt.package_digest}</dd>
+            <dt>package_digest</dt><dd id="iwxa-exchange-import-receipt-digest" className="text-slate-200 truncate">{state.receipt.package_digest}</dd>
             <dt>Объектов создано</dt><dd className="text-slate-200">{state.receipt.applied.objects_inserted}</dd>
             <dt>Объектов обновлено</dt><dd className="text-slate-200">{state.receipt.applied.objects_updated}</dd>
             <dt>Объектов пропущено</dt><dd className="text-slate-200">{state.receipt.applied.objects_skipped}</dd>
