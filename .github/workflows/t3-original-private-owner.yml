@@ -1,16 +1,6 @@
 name: T3 original D3 and Agent bounded private source qualification
 
 on:
-  push:
-    branches:
-      - work/2026-11-10-t3-t2-activity-projection
-    paths:
-      - .github/workflows/t3-original-private-owner.yml
-      - packages/t3-core/scripts/qualify-original-private-d3-owner.mjs
-      - packages/t3-core/tests/qualify-original-private-d3-owner.test.mjs
-      - packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
-      - packages/t3-core/scripts/qualify-original-person-final-owner.mjs
-      - packages/t3-core/tests/qualify-original-agent-d3-port.test.mjs
   workflow_dispatch:
     inputs:
       qualify_agent:

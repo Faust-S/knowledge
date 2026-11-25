@@ -1,15 +1,5 @@
 name: T3 G4 current release ledger and exact owner pins
 on:
-  push:
-    branches:
-      - work/2026-11-10-t3-t2-activity-projection
-    paths:
-      - .github/workflows/t3-g4-current-ledger.yml
-      - .github/workflows/t3-g4-installed-current-agent06.yml
-      - .github/workflows/t3-installed-original-admin-center.yml
-      - packages/t3-core/scripts/qualify-original-agent-d3-port.mjs
-      - packages/t3-core/tests/g4-current-release-ledger.test.mjs
-      - packages/t3-core/handoff/G4_PRODUCT_RELEASE_EVIDENCE_CURRENT.json
   workflow_dispatch:
 permissions:
   contents: read
