@@ -6,7 +6,7 @@ import {createT4OriginalHostCaptureLedgerPort} from './original-host-capture-led
 import {createT4OriginalHostCaptureAdapter} from './original-host-capture-adapter.mjs';
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort}
   from './original-network-host-cursor.mjs';
-import {createT4OriginalNetworkSessionPhasePort,requireT4OriginalRetiredAttemptStatus} from './original-network-session-phases.mjs';
+import {createT4OriginalNetworkSessionPhasePort,requireT4OriginalRetiredAttemptStatus,readT4OriginalLocalReplacementSelection} from './original-network-session-phases.mjs';
 import {createT4OriginalNetworkPublicationPort,isT4RecoverablePublicationWakeError,createT4OriginalPublicationIndexMigrationStepper,readT4OriginalLocalRetiredRecipientSession} from './original-network-publication.mjs';
 import {createT4OriginalNetworkReplayPort} from './original-network-replay-checkpoint.mjs';
 import {isT4NativeTopologyTransport} from './network-topology.mjs';
@@ -61,11 +61,14 @@ export function createT4OriginalNativeHostNetworkOwner({
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
   enableLocalSourceCapture=false,enablePublicationIndexMigration=false,
   enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,requireSignedTopologyAccess=false,
-  enableHistoricalAcknowledgementRecovery=false,enableLocalRetiredRecipientRecovery=false,
+  enableHistoricalAcknowledgementRecovery=false,enableLocalRetiredRecipientRecovery=false,enableLocalReplacementRecovery=false,
   originalVaultNodeSignaturePort=null,requireOriginalVaultNodeSignature=false,requireDurableNetworkKeyBinding=false,
   originalVaultSealedContentPort=null,requireOriginalVaultSealedContent=false,
   monotonicNow=()=>performance.now(),
 }={}){
+  if(typeof enableLocalReplacementRecovery!=='boolean'||(enableLocalReplacementRecovery&&
+    (!isT4OriginalVaultNodeSignaturePort(originalVaultNodeSignaturePort)||originalVaultNodeSignaturePort.originalDurableNetworkKeyBinding!==true)))
+    fail('NATIVE_NETWORK_OWNER_LOCAL_REPLACEMENT_PROFILE_INVALID');
   if(typeof enableLocalRetiredRecipientRecovery!=='boolean'||(enableLocalRetiredRecipientRecovery&&role!=='RECIPIENT'))
     fail('NATIVE_NETWORK_OWNER_LOCAL_RETIREMENT_PROFILE_INVALID');
   if(typeof enableHistoricalAcknowledgementRecovery!=='boolean'||(enableHistoricalAcknowledgementRecovery&&
@@ -246,6 +249,13 @@ export function createT4OriginalNativeHostNetworkOwner({
     const signing={requiredCryptoSuite,frameDiscoveryPort,
       resolveOriginalSigningContext:callback('resolveOriginalSigningContext'),
       signOriginalNodeBytes:callback('signOriginalNodeBytes')};
+    const readLocalReplacement=async readOriginalCurrentCursor=>{
+      if(!enableLocalReplacementRecovery)return null;
+      const before=await readOriginalCurrentCursor();if(before===null)return null;
+      return readT4OriginalLocalReplacementSelection({...tech,localNodeRef:nodeRef,sourceCursorBefore:before,
+        readOriginalCurrentCursor,requiredCryptoSuite,verifyOriginalHistoricalNodeSignature:callback('verifyOriginalHistoricalNodeSignature'),
+        verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied')});
+    };
     if(role==='SOURCE'){
       const ledger=createT4OriginalHostCaptureLedgerPort(tech);
       const readOriginalEvents=async()=>{
@@ -315,6 +325,7 @@ export function createT4OriginalNativeHostNetworkOwner({
           subjectId:row.subjectId??row.objectId,captureRef:row.captureRef},proof);
       };
       return {baseline,task,capture:captureRecovery,migrateNextPublication:()=>migrateNextPublication(),
+        readLocalReplacement:()=>readLocalReplacement(async()=>(await sourceCursorPort.inspectOriginalHostCursor()).originalT3NextCursor),
         resetSourceMigration,run:(retryMissing,historicalOnly=false)=>task.runNativeSourceStep({...signing,retryMissing,historicalOnly,sourceCursorPort,
         createOriginalSourcePhasePort:phase,announceOriginalSourceSession:true,
         recoverNextOriginalCapture:p=>captureRecovery.reconcileNextOriginalCapture(p),
@@ -333,7 +344,7 @@ export function createT4OriginalNativeHostNetworkOwner({
       authorizeNetworkReceive:callback('authorizeNetworkReceive'),verifyOriginalSourceEvent:callback('verifyOriginalSourceEvent'),
       readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage'),
       withOriginalSubjectMutation:callback('withOriginalSubjectMutation')});
-    return {baseline,task,migrateNextPublication,run:retryMissing=>task.runNativeOwnerStep({...signing,retryMissing,useSignedSourceAnnouncement:true,
+    return {baseline,task,migrateNextPublication,readLocalReplacement:()=>readLocalReplacement(cursor.readOriginalVerifiedCursor),run:retryMissing=>task.runNativeOwnerStep({...signing,retryMissing,useSignedSourceAnnouncement:true,
       createOriginalRecipientPublicationPort:publication,createOriginalRecipientPhasePort:phase,
       ...(enableLocalRetiredRecipientRecovery?{readOriginalLocalRetiredRecipientSession:proof=>
         readT4OriginalLocalRetiredRecipientSession({...tech,localNodeRef:nodeRef,
@@ -529,10 +540,14 @@ export function createT4OriginalNativeHostNetworkOwner({
           await requireBinding(state,'baseline-request-readback');
           result=input===null?{state:'WAITING_FOR_ORIGINAL_BASELINE'}:await state.baseline.admitOriginalBaseline(input);
         }else{
+          // Cold local selection must precede any old-address migration or
+          // network task. No live permission follows from this selection.
+          const selection=await state.readLocalReplacement();
+          if(selection!==null)result={state:'WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE',selection};
           // A retained accepted ACK is local original evidence. Do not
           // force an old-address migration (or live signature/remote I/O)
           // before completing an already accepted source Result.
-          if(role==='SOURCE'&&enableHistoricalAcknowledgementRecovery&&enablePublicationIndexMigration){
+          if(result===undefined&&role==='SOURCE'&&enableHistoricalAcknowledgementRecovery&&enablePublicationIndexMigration){
             const recovered=await state.run(false,true);
             if(recovered.state!=='NO_ORIGINAL_HISTORICAL_RECOVERY'){
               result=recovered;state.resetSourceMigration();
@@ -548,6 +563,13 @@ export function createT4OriginalNativeHostNetworkOwner({
           sourceCursorAdvanced:result.sourceCursorAdvanced===true,
           originalRecipientCursorAdvanced:result.originalRecipientCursorAdvanced===true,
           originalSubjectMutationInvoked:result.originalSubjectMutationInvoked===true,
+          ...(result.state==='WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE'?{
+            replacementSessionRef:result.selection.session.sessionRef,
+            originalSupersessionEventId:result.selection.retired.originalSupersessionEventId,
+            originalLocalReplacementPhase:result.selection.originalLocalPhase,
+            originalLocalReplacementPublicationRevision:result.selection.originalLocalPublicationRevision,
+            originalLocalReplacementSelected:true,originalPeerOwnerReadStillRequired:true,
+            originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false}:{}),
           ...(result.state==='WAITING_FOR_REPLACEMENT_ADMISSION'?{
             originalSupersessionEventId:(result.step??result).originalSupersessionEventId,
             replacementSessionRef:(result.step??result).replacementSessionRef,

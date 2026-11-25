@@ -259,7 +259,7 @@ export async function readT4OriginalPublicationMigrationInventory({
   readOriginalHostContext,authorizeOriginalTechnicalRead,inventoryPurpose='index-migration-inventory',
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
-  if(!['index-migration-inventory','retired-recipient-selection'].includes(inventoryPurpose))
+  if(!['index-migration-inventory','retired-recipient-selection','replacement-selection'].includes(inventoryPurpose))
     fail('PUBLICATION_MIGRATION_INVENTORY_PURPOSE_INVALID');
   const identity={technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,
     sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,localNodeRef};
@@ -1387,11 +1387,11 @@ export function createT4OriginalNetworkPublicationPort({
       originalHistoricalPublicationProven:true,currentRemotePresenceProven:false,remoteReceiptProven:false,
       originalHistoricalEvidenceOnly:true,liveNetworkAuthorityGranted:false,originalBusinessApplied:false});
   }
-  async function readOriginalHistoricalPublishedFrame({sequence}={}){
-    if(!Number.isSafeInteger(sequence)||sequence<1||sequence>MAX_FRAMES||
+  async function readOriginalHistoricalPublishedFrame({sequence,includePresentEventAnchor=false}={}){
+    if(typeof includePresentEventAnchor!=='boolean'||!Number.isSafeInteger(sequence)||sequence<1||sequence>MAX_FRAMES||
       verifyOriginalHistoricalNodeSignature===null)fail('PUBLICATION_ORIGINAL_HISTORY_PORT_REQUIRED');
     const ctx=await context(),current=await read(ctx),entry=current.entries[sequence-1];
-    const proof=await historicalPublishedProof(current,entry);
+    const proof=await historicalPublishedProof(current,entry,includePresentEventAnchor);
     const after=await read(ctx);
     if(after.revision!==current.revision||after.chainHash!==current.chainHash||
       !same(after.entries[sequence-1],entry)||!same(after.presentEvents[sequence-1],current.presentEvents[sequence-1]))

@@ -22,7 +22,7 @@ import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
   discoverT4OriginalReplacementRecipientDiff,publishT4OriginalReplacementSourceContent,confirmT4OriginalReplacementSourcePublication,
   readT4OriginalReplacementSourceAckEvidence,confirmT4OriginalReplacementSourceAcknowledgement}
   from '../src/network/original-network-session-supersession.mjs';
-import {createT4OriginalNetworkSessionPhasePort,createT4OriginalReplacementHistoricalPhasePort,deriveT4OriginalReplacementAttempt} from
+import {createT4OriginalNetworkSessionPhasePort,createT4OriginalReplacementHistoricalPhasePort,readT4OriginalLocalReplacementSelection,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
 
 const workspace='t4:network:technical:session',
@@ -44,8 +44,9 @@ function fakeKernel(){
     get calls(){return calls;},get reads(){return reads;},
     loseNextReply(){loseReply=true;},setDenyRead(v){denyRead=v;},
     kernel:{
-      hasOperation:op=>['t1.getObject','t1.putObject','t1.listEventsSince']
+      hasOperation:op=>['t1.getObject','t1.putObject','t1.listEventsSince','t1.listObjects']
         .includes(op),
+      async listObjects({workspace_id}){return structuredClone([...objects.values()].map(r=>r.object).filter(o=>o.workspace_id===workspace_id));},
       async getObject(w,id){
         reads++;
         if(denyRead)throw Error('denied kernel read');
@@ -695,8 +696,8 @@ async function controlFixture({indexed=false,realSourceHistory=false}={}){
     realSourceCursor,realRecipientCursor,setFrontierWriteAllowed:v=>{frontierWriteAllowed=v;},
     historicalReadOptions:node=>{
       const technicalWorkspaceId=node===sourceNodeRef?technical:workspace,kernel=node===sourceNodeRef?sourceStore.kernel:f.kernel.kernel;
-      return {technicalWorkspaceId,localNodeRef:node,originalKernel:{hasOperation:op=>['t1.getObject','t1.listEventsSince'].includes(op),
-        getObject:kernel.getObject,listEventsSince:kernel.listEventsSince},getMode,readOriginalHostContext:context(node,technicalWorkspaceId),
+      return {technicalWorkspaceId,localNodeRef:node,originalKernel:{hasOperation:op=>['t1.getObject','t1.listEventsSince','t1.listObjects'].includes(op),
+        getObject:kernel.getObject,listEventsSince:kernel.listEventsSince,listObjects:kernel.listObjects},getMode,readOriginalHostContext:context(node,technicalWorkspaceId),
         authorizeOriginalTechnicalRead:async()=>true};
     },historicalSignature,verifySourceApplied:async()=>sourceApplied,
     publishReplacement,discoverReplacement,createReplacementPort,createReplacementRecipientPort,
@@ -1608,4 +1609,53 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
   assert.equal(next.state,'NEXT_ORIGINAL_EVENT_READY_FOR_EXISTING_HOST_TASK');assert.equal(next.nextCursor.lastEventId,'event:k68:later');
   assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},
     {...counts,source:counts.source+1,recipient:counts.recipient+1});
+});
+
+
+test('K71 local successor selection uses original frontier, retirement and signed publication; no peer or network port',async()=>{
+  const x=await controlFixture({indexed:true}),before=x.sourceCursorBefore;
+  let frontier=before;
+  const options=node=>({...x.historicalReadOptions(node),technicalSchemaId:'iwxa.demo.note',sourceWorkspaceId:x.session.workspaceId,
+    originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch:x.session.ownerEpoch,
+    sourceCursorBefore:before,readOriginalCurrentCursor:async()=>frontier,requiredCryptoSuite:x.eligibilityOptions().requiredCryptoSuite,
+    verifyOriginalHistoricalNodeSignature:x.historicalSignature(node),verifyOriginalRecipientApplied:async()=>false});
+  const select=(node,patch={})=>readT4OriginalLocalReplacementSelection({...options(node),...patch});
+  assert.equal(await select(sourceNodeRef),null);assert.equal(await select(recipientNodeRef),null);
+  await closeInitialAttempt(x);x.sourceStore.loseNextReply();
+  await assert.rejects(x.publishReplacement(),isCode('PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN'));
+  const preparedCounts={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
+  const prepared=await select(sourceNodeRef);assert.equal(prepared.originalLocalPhase,null);
+  assert.equal(prepared.originalLocalFrames[0].state,'PREPARED');assert.equal(prepared.liveNetworkAuthorityGranted,false);
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},preparedCounts);
+  const head=await x.publishReplacement(),c=head.candidate;
+  assert.deepEqual(prepared.session,c);assert.equal(x.signatureCount(),preparedCounts.signs);
+  const counts={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
+  const first=await select(sourceNodeRef);assert.deepEqual(first.session,c);
+  assert.equal(first.originalLocalPhase,null);assert.equal(first.originalLocalFrames[0].state,'PRESENT');
+  assert.equal(first.originalPeerOwnerReadStillRequired,true);assert.equal(first.liveNetworkAuthorityGranted,false);
+  assert.equal(await select(recipientNodeRef),null);
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},counts);
+  const createPhase=async({session:c,admission},readOriginalReplacementSourceAdmission)=>x.sourcePhase({
+    sessionRef:c.sessionRef,authorizeOriginalSourceSupersession:null,replacementSourceAdmission:admission,readOriginalReplacementSourceAdmission});
+  const admitted=await admitT4OriginalReplacementSourcePhase({...x.eligibilityOptions(),
+    createOriginalReplacementPublicationPort:x.createReplacementPort,createOriginalReplacementSourcePhasePort:createPhase});
+  const phase=await createPhase({session:c,admission:admitted.admission},async()=>true);
+  await x.publishReplacementDiff(phase);
+  x.rotateSource();x.rotateRecipient();x.offline();x.f.restart();
+  const after={source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()};
+  const s=await select(sourceNodeRef),r=await select(recipientNodeRef);
+  assert.deepEqual(s.session,c);assert.deepEqual(r.session,c);assert.equal(s.originalLocalPhase,'INTENT');assert.equal(r.originalLocalPhase,null);
+  assert.equal(r.originalLocalFrames[0].messageType,'DIFF_REQUEST');
+  assert.equal(s.originalLocalRetirementEventVerified,true);assert.equal(r.originalLocalHistoricalSignaturesVerified,true);
+  await assert.rejects(select(sourceNodeRef,{verifyOriginalHistoricalNodeSignature:async()=>null}),isCode('WIRE_HISTORICAL_SIGNATURE_NOT_VERIFIED'));
+  frontier=x.sourceCursorAfter;await assert.rejects(select(sourceNodeRef),isCode('PHASE_ORIGINAL_REPLACEMENT_SELECTION_FRONTIER_CHANGED'));
+  frontier=before;
+  const stale=await select(sourceNodeRef,{sourceCursorBefore:x.sourceCursorAfter,readOriginalCurrentCursor:async()=>x.sourceCursorAfter});
+  assert.equal(stale,null);
+  await assert.rejects(select(recipientNodeRef,{authorizeOriginalTechnicalRead:async()=>false}),isCode('PUBLICATION_ORIGINAL_AUTHORITY_DENIED'));
+  const p=options(sourceNodeRef),k=p.originalKernel;let n=0;
+  await assert.rejects(select(sourceNodeRef,{originalKernel:{...k,listObjects:async input=>{
+    const rows=await k.listObjects(input);if(++n===2)rows.find(o=>o.object_id===s.originalLocalPublicationCheckpointRef).data.title='changed';return rows;
+  }}}),isCode('PHASE_ORIGINAL_REPLACEMENT_SELECTION_CHANGED'));
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},after);
 });
