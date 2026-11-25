@@ -3,6 +3,6 @@
   "candidate": "d07-t3-release-482fc878b4ac",
   "siteRevision": "482fc878b4ac365241877fc03a9eeee84ae012a0",
   "domainRevision": "11ec43898d025107174df0b2cde6024c340c1cc0",
-  "pipelineRevision": "07127c7f5b28a05c1a3e325961b92ef45582f4a5",
-  "reason": "Canonical T3 static route export only; retain prior successful source regression for identical product sources and requalify the complete build."
+  "pipelineRevision": "07314ce810052d91e66fb3186f6c6e84cc91abd5",
+  "reason": "Resume already qualified release 45663645049 only. Verify write access before reconstructing retained inputs. Match exact qualified dist tree before private commit. No repeated source regression or two-build qualification."
 }
