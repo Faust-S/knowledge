@@ -6,6 +6,7 @@
 // supply content, an Access port, Kernel or a recipient.
 import {createHash} from 'node:crypto';
 import {createSubjectKernelBinding} from './subject-access-binding.mjs';
+import {companyWorkRecordKeyParts,companyWorkEventPayload} from './company-workspace-readback.mjs';
 
 export const ORIGINAL_COMPANY_RECORD_SCHEMA='iwxa.t3.company-work-record';
 const RECORD_SCHEMA='IWXA_T3_ORIGINAL_COMPANY_WORK_RECORD/1';
@@ -57,9 +58,7 @@ function freezeSource(source,task,kind,artifactId){
 function locator(task,kind,artifactId){
   requireThat(KINDS.has(kind)&&id(artifactId),
     'T3_COMPANY_ARTIFACT_ID_INVALID');
-  const token=digest(JSON.stringify([
-    task.organizationId,task.workspaceId,task.taskId,
-    task.taskRevisionId,kind,artifactId]));
+  const token=digest(JSON.stringify(companyWorkRecordKeyParts({...task,kind,artifactId})));
   return Object.freeze({
     workspace_id:task.workspaceId,
     object_id:'company:work:'+token,
@@ -68,13 +67,7 @@ function locator(task,kind,artifactId){
 }
 function eventFor(data,locator){
   return {event_type:'iwxa.company.work-record.committed',
-    payload:{schema:data.schema,kind:data.kind,artifactId:data.artifactId,
-      operationId:data.operationId,organizationId:data.organizationId,
-      workspaceId:data.workspaceId,executorId:data.executorId,
-      taskId:data.taskId,taskRevisionId:data.taskRevisionId,
-      taskPackageSha256:data.taskPackageSha256,
-      artifactSha256:data.sha256,sourceKind:data.sourceKind,
-      objectId:locator.object_id}};
+    payload:companyWorkEventPayload(data,locator.object_id)};
 }
 function prepared(task,source,where){
   const data={schema:RECORD_SCHEMA,...source};
