@@ -12,8 +12,10 @@ import {prepareT4CandidateOpaqueChunks} from './standard-network-opaque-chunks.m
 import {createT4OriginalReplacementOwnerEligibilityRequest,validateT4OriginalReplacementOwnerEligibilitySnapshot}
   from './original-network-replacement-owner-eligibility.mjs';
 import {createT4OriginalReplacementOwnerSourceAdmissionRequest,validateT4OriginalReplacementOwnerSourceAdmissionSnapshot,
-  createT4OriginalReplacementOwnerRecipientDiffRequest,validateT4OriginalReplacementOwnerRecipientDiffSnapshot}
+  createT4OriginalReplacementOwnerRecipientDiffRequest,validateT4OriginalReplacementOwnerRecipientDiffSnapshot,
+  createT4OriginalReplacementOwnerHistoryRequest,validateT4OriginalReplacementOwnerHistorySnapshot}
   from './original-network-replacement-owner-history.mjs';
+import {requireT4OriginalRetiredAttemptStatus} from './original-network-session-phases.mjs';
 
 // A control exchange over the original wire/Vault/phase ports. This
 // qualifies retirement only. It does not publish a new transfer, grant
@@ -1474,21 +1476,23 @@ export async function advanceT4OriginalReplacementSourceContent({selection,task,
 /** Reconstruct the successor source ACK from the original peer APPLIED phase,
  * original publication and independently replay-verified incoming wire. */
 export async function readT4OriginalReplacementSourceAckEvidence({sourceAdmissionPhasePort:sourcePhase,
-  sourcePublicationPort:source,recipientPhasePort:recipientPhase,recipientPublicationPort:recipient,
-  readOriginalReplacementRecipientAckPublication,frameDiscoveryPort,requiredCryptoSuite,getMode,
+  sourcePublicationPort:source,recipientPhasePort:recipientPhase=null,recipientPublicationPort:recipient=null,
+  readOriginalReplacementRecipientAckPublication=null,readOriginalRecipientTerminalHistory=null,frameDiscoveryPort,requiredCryptoSuite,getMode,
   authorizeOriginalReplacementSourceAckConfirmation}={}){
   mode(getMode);
-  const c=source?.session;
+  const c=source?.session,ownerRead=readOriginalRecipientTerminalHistory!==null;
   if(source?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||source.originalReplacementSourceContentPublication!==true||
     source.originalT3OnlyStore!==true||typeof source.readOriginalReplacementPublishedContent!=='function'||
-    recipient?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||recipient.originalReplacementRecipientAckPublication!==true||
-    recipient.originalT3OnlyStore!==true||!same(recipient.session,c)||typeof recipient.readOriginalPublishedFrame!=='function'||
-    ![sourcePhase,recipientPhase].every((p,i)=>p?.schema==='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'&&p.role===(i===0?'SOURCE':'RECIPIENT')&&
+    (ownerRead?(typeof readOriginalRecipientTerminalHistory!=='function'||recipient!==null||recipientPhase!==null||readOriginalReplacementRecipientAckPublication!==null):
+      (recipient?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||recipient.originalReplacementRecipientAckPublication!==true||
+       recipient.originalT3OnlyStore!==true||!same(recipient.session,c)||typeof recipient.readOriginalPublishedFrame!=='function'||
+       recipientPhase?.recipientApplyIntentRequired!==true||typeof readOriginalReplacementRecipientAckPublication!=='function'))||
+    !(ownerRead?[sourcePhase]:[sourcePhase,recipientPhase]).every((p,i)=>p?.schema==='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'&&p.role===(i===0?'SOURCE':'RECIPIENT')&&
       p.originalT3TechnicalWorkspaceOnly===true&&p.createsSecondStore===false&&ID(p.checkpointRef)&&typeof p.inspectOriginalSession==='function')||
-    recipientPhase.recipientApplyIntentRequired!==true||new Set([source.checkpointRef,recipient.checkpointRef,sourcePhase.checkpointRef,recipientPhase.checkpointRef]).size!==4||
+    new Set(ownerRead?[source.checkpointRef,sourcePhase.checkpointRef]:[source.checkpointRef,recipient.checkpointRef,sourcePhase.checkpointRef,recipientPhase.checkpointRef]).size!==(ownerRead?2:4)||
     frameDiscoveryPort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||frameDiscoveryPort.nativeFrameIndexVersion!==1||
     typeof frameDiscoveryPort.discoverUniqueSignedFrame!=='function'||!ID(requiredCryptoSuite)||
-    ![readOriginalReplacementRecipientAckPublication,authorizeOriginalReplacementSourceAckConfirmation].every(f=>typeof f==='function'))
+    typeof authorizeOriginalReplacementSourceAckConfirmation!=='function')
     fail('REPLACEMENT_SOURCE_ACK_PORTS_REQUIRED');
   const session=validateT4OriginalReplacementSessionCandidate(c),
     inspect=async()=>{const status=validateT4OriginalReplacementSourceIntentStatus(await sourcePhase.inspectOriginalSession(),session);mode(getMode);return status;};
@@ -1504,28 +1508,65 @@ export async function readT4OriginalReplacementSourceAckEvidence({sourceAdmissio
       found.originalBusinessApplied!==false||found.sourceCursorAdvanced!==false||(found.state==='NOT_FOUND'&&found.receipt!==null))
       fail('REPLACEMENT_SOURCE_ACK_DISCOVERY_INVALID');
     if(found.state==='NOT_FOUND')return null;
-    const peer=await recipientPhase.inspectOriginalSession();mode(getMode);
-    if(peer?.currentPhase==='APPLY_INTENT')return null;
-    const batch=await source.readOriginalReplacementPublishedContent();mode(getMode);
-    const ack=await readOriginalReplacementRecipientAckPublication(freeze({candidate:session,readOnly:true,
-      originalRecipientResultAndAckPublicationReadRequired:true,originalSubjectMutationAllowed:false}));mode(getMode);
-    const published=await recipient.readOriginalPublishedFrame({sequence:2,includePresentEventAnchor:true});mode(getMode);
-    if(!same(ack?.publication,published)||published.verifiedCryptoSuite!==requiredCryptoSuite)
-      fail('REPLACEMENT_SOURCE_ACK_ORIGINAL_PUBLICATION_MISMATCH');
+    let peer,published,diffPublication,ack,history,batch;
+    const readPeer=async()=>{
+      const request=createT4OriginalReplacementOwnerHistoryRequest({session,requesterNodeRef:session.sourceNodeRef,ownerNodeRef:session.recipientNodeRef});
+      const raw=await readOriginalRecipientTerminalHistory(request);mode(getMode);
+      return raw===null?null:validateT4OriginalReplacementOwnerHistorySnapshot(raw,request);
+    };
+    if(ownerRead){
+      history=await readPeer();
+      if(history===null||history.state==='WAITING_FOR_LOCAL_TERMINAL_PHASE')return null;
+      const p=history.publication,c=session;
+      const old=requireT4OriginalRetiredAttemptStatus(history.retiredPhase,c.originalCaptureSession,'RECIPIENT',c.replacement.recipientPhaseRef);
+      if(old.replacementSessionRef!==c.sessionRef||old.originalSupersessionEventId!==c.replacement.recipientPhaseEventId||
+        old.originalRetiredPhaseRevision!==c.replacement.recipientPhaseRevision||old.originalRetiredPhaseChainHash!==c.replacement.recipientPhaseChainHash||
+        p?.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_BATCH_V1'||!same(p.session,c)||
+        p.originalT3PublicationEventChainVerified!==true||p.originalHistoricalEvidenceOnly!==true||p.currentRemotePresenceProven!==false||
+        p.liveNetworkAuthorityGranted!==false||p.originalBusinessApplied!==false||!Array.isArray(p.frames)||p.frames.length!==2||
+        p.frames.some(f=>!(f.wireBytes instanceof Uint8Array)||f.checkpointRef!==p.checkpointRef||
+          f.originalPublicationRevision!==p.originalPublicationRevision||f.originalPublicationChainHash!==p.originalPublicationChainHash))
+        fail('REPLACEMENT_SOURCE_ACK_ORIGINAL_PUBLICATION_MISMATCH');
+      const encode=({wireBytes,...f})=>({...f,wireBase64:Buffer.from(wireBytes).toString('base64')});
+      [diffPublication,published]=p.frames.map(encode);peer=history.phase;
+      const frame=decodeT4CandidateFrame(p.frames[1].wireBytes);
+      if(frame.cryptoSuite!==requiredCryptoSuite)fail('REPLACEMENT_SOURCE_ACK_ORIGINAL_PUBLICATION_MISMATCH');
+      // APPLIED is read and Result-verified by the recipient's original
+      // historical phase port. This is an admission identity, not a new grant.
+      ack={admission:{schema:'IWXA_T4_ORIGINAL_REPLACEMENT_APPLIED_ACK_ADMISSION_V1',admission:peer.originalReplacementRecipientAdmission,
+        body:frame.body,recipientPhaseCheckpointRef:peer.checkpointRef,originalApplyIntentEventId:peer.originalReplacementRecipientApplyIntentEventId,
+        originalRecipientResultVerified:peer.verifiedOriginalRecipientApplication===true,originalDurableApplyIntentVerified:true,
+        originalBusinessApplied:peer.originalBusinessApplied===true,originalSubjectMutationInvoked:false,
+        sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false}};
+    }else{
+      peer=await recipientPhase.inspectOriginalSession();mode(getMode);
+      if(peer?.currentPhase==='APPLY_INTENT')return null;
+      batch=await source.readOriginalReplacementPublishedContent();mode(getMode);
+      ack=await readOriginalReplacementRecipientAckPublication(freeze({candidate:session,readOnly:true,
+        originalRecipientResultAndAckPublicationReadRequired:true,originalSubjectMutationAllowed:false}));mode(getMode);
+      published=await recipient.readOriginalPublishedFrame({sequence:2,includePresentEventAnchor:true});mode(getMode);
+      if(!same(ack?.publication,published)||published.verifiedCryptoSuite!==requiredCryptoSuite)
+        fail('REPLACEMENT_SOURCE_ACK_ORIGINAL_PUBLICATION_MISMATCH');
+    }
+    if(ownerRead)batch=await source.readOriginalReplacementPublishedContent();mode(getMode);
     const inbound=clone(found.receipt);delete inbound.exactPreviouslyVerifiedReplay;
     const witness=validateT4OriginalReplacementSourceAckEvidence({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_SOURCE_ACK_EVIDENCE_V1',
       candidate:session,sourcePublication:batch,recipientAckAdmission:ack.admission,recipientAckPublication:published,recipientPhase:peer,
+      ...(ownerRead?{recipientDiffPublication:diffPublication}:{}),
       verifiedAppliedAck:inbound,originalSourcePublishedEventId:src.originalReplacementPublishedEventId,
       originalSourcePublishedChainHash:src.originalReplacementPublishedChainHash,originalRecipientResultVerified:true,
       originalBothCausalFrontiersUnchanged:true,originalBusinessApplied:true,originalSubjectMutationInvoked:false,
       sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false},session);
+    const afterHistory=ownerRead?await readPeer():null;
+    if(ownerRead&&(afterHistory===null||afterHistory.state==='WAITING_FOR_LOCAL_TERMINAL_PHASE'))return null;
     const a=witness.sourcePublication.agreement,b=witness.recipientAckAdmission.body;
     if(a.originalSourceAdmissionCheckpointRef!==src.checkpointRef||a.originalSourceAdmissionEventId!==src.originalReplacementAdmissionEventId||
       a.originalSourceAdmissionChainHash!==src.originalReplacementAdmissionChainHash||
       !same(src.sourcePublishedEvidence,{evidenceRef:batch.frames[1].key,evidenceDigest:'sha256:'+batch.frames[1].sha256})||
       (src.currentPhase==='APPLIED_CONFIRMED'&&!same(src.currentEvidence,{evidenceRef:published.key,evidenceDigest:'sha256:'+published.sha256,
         originalRecipientEventId:b.recipientEventRef,originalRecipientRevision:b.recipientRevision,originalRecipientStateDigest:b.recipientStateDigest}))||
-      peer.checkpointRef!==recipientPhase.checkpointRef||!same(src,await inspect())||!same(peer,await recipientPhase.inspectOriginalSession()))
+      !same(src,await inspect())||(ownerRead?!same(history,afterHistory):
+        (peer.checkpointRef!==recipientPhase.checkpointRef||!same(peer,await recipientPhase.inspectOriginalSession()))))
       fail('REPLACEMENT_SOURCE_ACK_EVIDENCE_CHANGED');
     mode(getMode);return witness;
   }
@@ -1534,7 +1575,9 @@ export async function readT4OriginalReplacementSourceAckEvidence({sourceAdmissio
     originalSourcePublishedEventId:first.originalSourcePublishedEventId,originalRecipientAppliedEventId:first.recipientPhase.originalReplacementRecipientAppliedEventId,
     originalRecipientResultVerified:true,originalAckPublicationVerified:true,originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false},
     getMode,'REPLACEMENT_SOURCE_ACK_CONFIRMATION_DENIED');
-  if(!same(first,await current()))fail('REPLACEMENT_SOURCE_ACK_EVIDENCE_CHANGED');
+  const after=await current();
+  if(ownerRead&&after===null)return null;
+  if(!same(first,after))fail('REPLACEMENT_SOURCE_ACK_EVIDENCE_CHANGED');
   return first;
 }
 
@@ -1548,16 +1591,78 @@ export async function confirmT4OriginalReplacementSourceAcknowledgement(args={})
   const b=w.recipientAckAdmission.body,p=w.recipientAckPublication;
   const evidence={evidenceRef:p.key,evidenceDigest:'sha256:'+p.sha256,originalRecipientEventId:b.recipientEventRef,
     originalRecipientRevision:b.recipientRevision,originalRecipientStateDigest:b.recipientStateDigest};
-  const outcome=await phase.advanceOriginalSessionPhase({phase:'APPLIED_CONFIRMED',evidence});mode(getMode);
-  const after=validateT4OriginalReplacementSourceIntentStatus(await phase.inspectOriginalSession(),w.candidate);mode(getMode);
-  if(outcome?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1'||outcome.phase!=='APPLIED_CONFIRMED'||
-    !['RECORDED','ALREADY_CONFIRMED'].includes(outcome.status)||outcome.checkpointRef!==phase.checkpointRef||
-    outcome.revision!==3||after.revision!==3||after.currentPhase!=='APPLIED_CONFIRMED'||after.chainHash!==outcome.chainHash||
-    after.originalReplacementSourceConfirmedEventId!==outcome.originalPhaseEventId||outcome.originalBusinessApplied!==true||
-    !same(after.currentEvidence,evidence)||!same(w,await readT4OriginalReplacementSourceAckEvidence(args)))
-    fail('REPLACEMENT_SOURCE_ACK_PHASE_NOT_CONFIRMED');
+  const outcome=await phase.advanceOriginalSessionPhase({phase:'APPLIED_CONFIRMED',evidence});
+  let after;
+  try{
+    mode(getMode);
+    after=validateT4OriginalReplacementSourceIntentStatus(await phase.inspectOriginalSession(),w.candidate);mode(getMode);
+    if(outcome?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1'||outcome.phase!=='APPLIED_CONFIRMED'||
+      !['RECORDED','ALREADY_CONFIRMED'].includes(outcome.status)||outcome.checkpointRef!==phase.checkpointRef||
+      outcome.revision!==3||after.revision!==3||after.currentPhase!=='APPLIED_CONFIRMED'||after.chainHash!==outcome.chainHash||
+      after.originalReplacementSourceConfirmedEventId!==outcome.originalPhaseEventId||outcome.originalBusinessApplied!==true||
+      !same(after.currentEvidence,evidence)||!same(w,await readT4OriginalReplacementSourceAckEvidence(args)))
+      fail('REPLACEMENT_SOURCE_ACK_PHASE_NOT_CONFIRMED');
+  }catch(error){
+    if(typeof args.readOriginalRecipientTerminalHistory!=='function')throw error;
+    fail('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN',{originalWriteMayHaveCommitted:true,automaticRetryAllowed:false,originalCode:error?.code??null});
+  }
   return freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_SOURCE_ACK_CONFIRMATION_V1',state:'ORIGINAL_REPLACEMENT_SOURCE_ACK_CONFIRMED',
     candidate:w.candidate,status:outcome.status,sourcePhase:after,originalRecipientResultIndependentlyRead:true,
     originalRecipientAckPublicationVerified:true,originalHostCursorCommitStillRequired:true,
     originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false});
+}
+
+// One original source wake at PUBLISHED. Reopen the immutable publication
+// and phase, then confirm only the peer owner's independently read Result
+// matched with the live inbound ACK. No cursor or subject write here.
+export async function advanceT4OriginalReplacementSourceAck({selection,createOriginalReplacementSourceAckPhasePort,...ports}={}){
+  const {sourceAdmissionPhasePort:readPhase,sourcePublicationPort:publication,getMode}=ports;
+  mode(getMode);
+  const local=clone(selection),c=validateT4OriginalReplacementSessionCandidate(local?.session);
+  if(local.schema!=='IWXA_T4_ORIGINAL_LOCAL_REPLACEMENT_SELECTION_V1'||local.role!=='SOURCE'||
+    local.originalLocalPhase!=='PUBLISHED'||local.originalLocalPhaseRevision!==2||!same(publication?.session,c)||
+    local.originalLocalPublicationChainVerified!==true||local.originalLocalRetirementEventVerified!==true||
+    local.originalLocalHistoricalSignaturesVerified!==true||local.originalPeerOwnerReadStillRequired!==true||
+    local.originalNewAttemptAdmissionStillRequired!==true||local.liveNetworkAuthorityGranted!==false||local.originalSubjectMutationInvoked!==false||
+    local.sourceCursorAdvanced!==false||local.recipientCursorAdvanced!==false||
+    typeof createOriginalReplacementSourceAckPhasePort!=='function'||typeof ports.readOriginalRecipientTerminalHistory!=='function'||
+    typeof readPhase?.inspectOriginalSession!=='function'||typeof publication?.inspectOriginalPublication!=='function')
+    fail('REPLACEMENT_HOST_SOURCE_ACK_SELECTION_INVALID');
+  const status=validateT4OriginalReplacementSourceIntentStatus(await readPhase.inspectOriginalSession(),c);mode(getMode);
+  const saved=await publication.inspectOriginalPublication();mode(getMode);
+  if(status.currentPhase!=='PUBLISHED'||status.checkpointRef!==local.originalLocalPhaseCheckpointRef||
+    saved?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1'||!same(saved.session,c)||saved.checkpointRef!==local.originalLocalPublicationCheckpointRef||
+    saved.revision!==local.originalLocalPublicationRevision||saved.chainHash!==local.originalLocalPublicationChainHash||
+    saved.originalT3EventChainVerified!==true||!Array.isArray(saved.frames)||saved.frames.length<3||saved.frames.some(f=>f.state!=='PRESENT')||
+    !same(saved.frames.map(({sequence,messageType,sha256,state})=>({sequence,messageType,sha256,state})),local.originalLocalFrames))
+    fail('REPLACEMENT_HOST_SOURCE_ACK_SELECTION_CHANGED');
+  const result=(state,extra={})=>freeze({schema:'IWXA_T4_ORIGINAL_HOST_REPLACEMENT_SOURCE_ACK_V1',state,
+    replacementSessionRef:c.sessionRef,originalSupersessionEventId:c.replacement.sourcePhaseEventId,
+    originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,
+    originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false,originalLocalReadbackRequired:true,...extra});
+  const wait=()=>result('WAITING_FOR_REPLACEMENT_SOURCE_ACK',{automaticRetryAllowed:false,replacementWake:{
+    session:{sessionRef:c.sessionRef},originalLocalPhase:local.originalLocalPhase,originalLocalPublicationRevision:local.originalLocalPublicationRevision}});
+  let phase;
+  const args=()=>({...ports,sourceAdmissionPhasePort:phase});
+  const evidence=async()=>{
+    const w=await readT4OriginalReplacementSourceAckEvidence(args());
+    if(w===null)fail('REPLACEMENT_SOURCE_ACK_OWNER_NOT_READY');return w;
+  };
+  phase=await createOriginalReplacementSourceAckPhasePort(freeze({session:c,admission:status.originalReplacementSourceAdmission}),evidence);mode(getMode);
+  if(phase?.checkpointRef!==status.checkpointRef||phase.originalReplacementSourceAckEvidenceRequired!==true||
+    !same(status,await phase.inspectOriginalSession()))fail('REPLACEMENT_HOST_SOURCE_ACK_SELECTION_CHANGED');
+  try{
+    const confirmed=await confirmT4OriginalReplacementSourceAcknowledgement(args());
+    if(confirmed.state==='WAITING_FOR_RECIPIENT_APPLIED_ACK')return wait();
+    if(confirmed.state!=='ORIGINAL_REPLACEMENT_SOURCE_ACK_CONFIRMED'||!same(confirmed.candidate,c)||
+      confirmed.sourcePhase.currentPhase!=='APPLIED_CONFIRMED'||confirmed.originalHostCursorCommitStillRequired!==true)
+      fail('REPLACEMENT_HOST_SOURCE_ACK_RESULT_INVALID');
+    return result(confirmed.state,{originalSourceAckStatus:confirmed.status,originalHostCursorCommitStillRequired:true});
+  }catch(error){
+    // Read gates can wait; post-CAS uncertainty remains an original write
+    // outcome and is never silently downgraded to a pre-write wait.
+    if(!['REPLACEMENT_SOURCE_ACK_OWNER_NOT_READY','REPLACEMENT_CONTENT_AGREEMENT_NOT_READY',
+      'REPLACEMENT_ORIGINAL_OWNER_ELIGIBILITY_NOT_READY'].includes(error?.code))throw error;
+    mode(getMode);return wait();
+  }
 }

@@ -28,7 +28,7 @@ import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
   publishT4OriginalReplacementSourceHead,discoverT4OriginalReplacementSourceHead,admitT4OriginalReplacementSourcePhase,
   readT4OriginalReplacementRecipientAdmission,publishT4OriginalReplacementRecipientDiff,
   discoverT4OriginalReplacementRecipientDiff,publishT4OriginalReplacementSourceContent,confirmT4OriginalReplacementSourcePublication,
-  readT4OriginalReplacementSourceAckEvidence,confirmT4OriginalReplacementSourceAcknowledgement}
+  readT4OriginalReplacementSourceAckEvidence,confirmT4OriginalReplacementSourceAcknowledgement,advanceT4OriginalReplacementSourceAck}
   from '../src/network/original-network-session-supersession.mjs';
 import {createT4OriginalNetworkSessionPhasePort,createT4OriginalReplacementHistoricalPhasePort,readT4OriginalLocalReplacementSelection,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
@@ -2194,7 +2194,7 @@ test('K85 recipient verifies PUBLISHED via independent source owner history and 
 });
 
 
-test('K86 K87 original recipient dispatcher verifies content and recovers one original business write and ACK',async()=>{
+test('K86 K87 K88 original tasks recover one business write and independently confirm the ACK',async()=>{
   const q=await replacementRecipientFixture({realSourceHistory:true,canonicalCapture:true}),{x,c}=q,root=x.session,before=x.sourceCursorBefore;
   const {getMode,requiredCryptoSuite}=x.eligibilityOptions();
   await q.diff();
@@ -2266,6 +2266,47 @@ test('K86 K87 original recipient dispatcher verifies content and recovers one or
   assert.equal((await select()).originalLocalPhase,'VERIFIED');assert.equal(verified.originalSubjectMutationInvoked,false);
   assert.equal(x.phaseWrites(),phaseWrites+2);assert.equal(writes,0);assert.deepEqual(await cursor.readOriginalVerifiedCursor(),before);
   assert.ok(opens>=2);
+  // K88: the source's own task reads the recipient's terminal history via
+  // the actual authenticated carrier codec, without reciprocal source calls.
+  const carrier={scopeRef,ownerEpoch:c.ownerEpoch,workspaceId:c.workspaceId,originalWriteOwnerRef:owner,getMode};
+  const peerContext=nodeRef=>({nodeRef,originalPeerSessionRef:'peer:k88:authenticated',contextEpoch:1,scopeRef,ownerEpoch:c.ownerEpoch,
+    originalPeerAuthenticated:true,originalConfidentialChannelVerified:true});
+  let peerBusy=false,ackAllowed=true,forgeDiffAnchor=false,terminalReads=0;
+  const server=createT4OriginalReplacementHistoryServer({...carrier,localNodeRef:recipientNodeRef,peerNodeRef:sourceNodeRef,
+    readOriginalPeerContext:async()=>peerContext(sourceNodeRef),readOriginalReplacementOwnerHistory:async({request})=>{
+      assert.equal(request.ownerNodeRef,recipientNodeRef);
+      if(request.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_OWNER_ELIGIBILITY_REQUEST_V1')return readOriginalOwnerEligibility(request);
+      if(request.schema==='IWXA_T4_ORIGINAL_REPLACEMENT_OWNER_HISTORY_REQUEST_V1'){
+        terminalReads++;if(peerBusy)return null;
+      }
+      const result=await readT4OriginalReplacementOwnerHistory({...opts(request),verifyOriginalRecipientApplied:verifyApplied});
+      if(forgeDiffAnchor&&result.state==='ORIGINAL_OWNER_TERMINAL_HISTORY_VERIFIED'){
+        const v=structuredClone(result);v.publication.frames[0].originalPresentEventId='event:k88:wrong-diff';return v;
+      }
+      return result;
+    }});
+  const client=createT4OriginalReplacementHistoryClient({...carrier,localNodeRef:sourceNodeRef,peerNodeRef:recipientNodeRef,
+    readOriginalPeerContext:async()=>peerContext(recipientNodeRef),invokeOriginalPeerHistory:({requestBytes})=>server(requestBytes)});
+  const sourceHistory=x.historicalReadOptions(sourceNodeRef),sourceCursor=x.realSourceCursor();
+  const historicalPhase=()=>createT4OriginalReplacementHistoricalPhasePort({...sourceHistory,session:c,verifyOriginalRecipientApplied:verifyApplied});
+  const selectSource=()=>readT4OriginalLocalReplacementSelection({...sourceHistory,technicalSchemaId:'iwxa.demo.note',sourceWorkspaceId:root.workspaceId,
+    originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch:c.ownerEpoch,sourceCursorBefore:before,
+    readOriginalCurrentCursor:async()=>(await sourceCursor.inspectOriginalHostCursor()).originalT3NextCursor,
+    requiredCryptoSuite,verifyOriginalHistoricalNodeSignature:x.historicalSignature(sourceNodeRef),verifyOriginalRecipientApplied:verifyApplied});
+  const sourceEligibility={originalCaptureSession:root,sourceCursorBefore:before,requesterNodeRef:sourceNodeRef,getMode,requiredCryptoSuite,
+    authorizeOriginalReplacement:async()=>true,readOriginalOwnerEligibility:r=>r.ownerNodeRef===sourceNodeRef?readOriginalOwnerEligibility(r):client(r)};
+  const readDiff=()=>discoverT4OriginalReplacementRecipientDiff({...sourceEligibility,sourceAdmissionPhasePort:historicalPhase(),
+    sourcePublicationPort:q.sourcePublicationPort,frameDiscoveryPort:x.transport(sourceNodeRef),readOriginalRecipientDiffHistory:client,
+    authorizeOriginalReplacementDiffAcceptance:async()=>true});
+  const contentPublication=await x.createReplacementPort({session:c},()=>recoverT4OriginalReplacementEligibility(sourceEligibility),{
+    readOriginalReplacementDiffAcceptance:readDiff,authorizeOriginalSealedPublication:async()=>assert.fail('ACK cannot seal')});
+  const finishSource=async()=>advanceT4OriginalReplacementSourceAck({selection:await selectSource(),sourceAdmissionPhasePort:historicalPhase(),
+    sourcePublicationPort:contentPublication,frameDiscoveryPort:x.transport(sourceNodeRef),requiredCryptoSuite,getMode,
+    readOriginalRecipientTerminalHistory:client,authorizeOriginalReplacementSourceAckConfirmation:async()=>ackAllowed,
+    createOriginalReplacementSourceAckPhasePort:async({session,admission},readOriginalReplacementSourceAckEvidence)=>
+      x.sourcePhase({sessionRef:session.sessionRef,authorizeOriginalSourceSupersession:null,replacementSourceAdmission:admission,
+        readOriginalReplacementSourceAdmission:async()=>assert.fail('no new source admission'),readOriginalReplacementSourceAckEvidence})});
+  assert.equal((await finishSource()).state,'WAITING_FOR_REPLACEMENT_SOURCE_ACK');assert.equal(terminalReads,0);
   // K87: use the same original task and phase ledger for business apply and
   // signed ACK. Only the Kernel implementation and open callback are fixtures.
   const signs=x.signatureCount(),puts=x.counts().networkPuts;
@@ -2280,10 +2321,23 @@ test('K86 K87 original recipient dispatcher verifies content and recovers one or
   // Lose the ACK publication response, then prove the already signed bytes.
   x.loseControlWrite();await assert.rejects(advance(applyOptions),isCode('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
   assert.equal(subjectWrites,1);assert.equal(x.signatureCount(),signs+1);assert.equal(x.counts().networkPuts,puts+1);
+  assert.equal((await finishSource()).state,'WAITING_FOR_REPLACEMENT_SOURCE_ACK');assert.equal(terminalReads,0);
+  const pending=await client(createT4OriginalReplacementOwnerHistoryRequest({session:c,requesterNodeRef:sourceNodeRef,ownerNodeRef:recipientNodeRef}));
+  assert.equal(pending.state,'WAITING_FOR_LOCAL_TERMINAL_PHASE');
   task.dispose();x.f.restart();task=dispatcher();
   const applied=await advance(applyOptions);assert.equal(applied.state,'ORIGINAL_REPLACEMENT_RECIPIENT_APPLIED');
   assert.equal(applied.originalSubjectMutationInvoked,false);assert.equal(applied.originalRecipientApplied,true);
   assert.equal((await select()).originalLocalPhase,'APPLIED');assert.equal(subjectWrites,1);
   assert.equal(x.signatureCount(),signs+1);assert.equal(x.counts().networkPuts,puts+1);
+  const sourceWrites=x.sourcePhaseWrites();
+  peerBusy=true;assert.equal((await finishSource()).state,'WAITING_FOR_REPLACEMENT_SOURCE_ACK');peerBusy=false;
+  forgeDiffAnchor=true;await assert.rejects(finishSource(),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_HISTORICAL_ACK_NOT_PROVEN'));forgeDiffAnchor=false;
+  ackAllowed=false;await assert.rejects(finishSource(),isCode('REPLACEMENT_SOURCE_ACK_CONFIRMATION_DENIED'));ackAllowed=true;
+  assert.equal(x.sourcePhaseWrites(),sourceWrites);x.allowSourceApplied();
+  const confirmed=await finishSource();assert.equal(confirmed.state,'ORIGINAL_REPLACEMENT_SOURCE_ACK_CONFIRMED');
+  assert.equal(confirmed.originalHostCursorCommitStillRequired,true);assert.equal(confirmed.originalSubjectMutationInvoked,false);
+  assert.equal((await selectSource()).originalLocalPhase,'APPLIED_CONFIRMED');assert.equal(x.sourcePhaseWrites(),sourceWrites+1);
+  assert.equal(subjectWrites,1);assert.equal(x.signatureCount(),signs+1);assert.equal(x.counts().networkPuts,puts+1);
+  assert.deepEqual((await sourceCursor.inspectOriginalHostCursor()).originalT3NextCursor,before);
   assert.deepEqual(await cursor.readOriginalVerifiedCursor(),before);
 });

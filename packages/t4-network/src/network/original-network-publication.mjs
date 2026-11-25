@@ -4,7 +4,7 @@ import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-li
 import {createHash} from 'node:crypto';
 import {isT4RecoverableFrameTransportError} from './standard-network-wire-transport.mjs';
 import {T4TransferError} from './webdav-package-transfer.mjs';
-import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4CandidateHistoricalFrameSignature,
+import {decodeT4CandidateFrame,verifyT4CandidateOutboundSignature,verifyT4CandidateHistoricalFrameSignature,readT4CandidateAppliedAckRetention,
   isT4NativeEventOnlyKind,validT4NativeSubjectRevision,matchesT4NativeSubjectCriticalExtensions,
   T4_ORIGINAL_SOURCE_SESSION_EXTENSION,T4_SESSION_SUPERSESSION_EXTENSION,T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,
   createT4CandidateSupersessionClaim,validateT4CandidateSupersessionRetirementClaim,
@@ -810,6 +810,54 @@ export function validateT4OriginalReplacementPublishedAck(value,admission){
   return deepFreeze(p);
 }
 
+// The owner channel returns a historical PRESENT proof and the exact signed
+// bytes, not an outbound live receipt. Decode and bind them to the original
+// DIFF anchor and the source's independently verified inbound ACK. Keeping
+// this type distinct prevents historical evidence from granting authority.
+function historicalRecipientPublication(value,c,d,sequence){
+  const p=value,encoded=p?.wireBase64;
+  if(p?.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_FRAME_V1'||
+    p.checkpointRef!==d.originalRecipientPublicationCheckpointRef||p.sessionRef!==c.sessionRef||p.sequence!==sequence||
+    p.messageType!==(sequence===1?'DIFF_REQUEST':'APPLIED_ACK')||!SHA(p.sha256)||p.key!==p.sha256+'.t4n'||
+    !ID(p.originalPresentEventId)||!Number.isSafeInteger(p.originalPresentRevision)||p.originalPresentRevision<1||
+    !DIG(p.originalPresentChainHash)||!Number.isSafeInteger(p.originalPublicationRevision)||
+    p.originalPublicationRevision<p.originalPresentRevision||!DIG(p.originalPublicationChainHash)||
+    (p.originalPublicationRevision===p.originalPresentRevision&&p.originalPublicationChainHash!==p.originalPresentChainHash)||
+    p.originalT3PublicationEventChainVerified!==true||p.originalHistoricalPublicationProven!==true||
+    p.originalHistoricalEvidenceOnly!==true||p.currentRemotePresenceProven!==false||p.remoteReceiptProven!==false||
+    p.liveNetworkAuthorityGranted!==false||p.originalBusinessApplied!==false||
+    typeof encoded!=='string'||!encoded.length||encoded.length>16384)
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_HISTORICAL_ACK_NOT_PROVEN');
+  const bytes=Buffer.from(encoded,'base64'),f=decodeT4CandidateFrame(bytes),s=p.historicalSignature;
+  if(bytes.toString('base64')!==encoded||hex(bytes)!==p.sha256||f.messageType!==p.messageType||f.sequence!==sequence||
+    f.sourceNodeRef!==c.recipientNodeRef||f.recipientNodeRef!==c.sourceNodeRef||f.sessionRef!==c.sessionRef||
+    f.scopeRef!==c.scopeRef||f.ownerEpoch!==c.ownerEpoch||s?.schema!=='IWXA_T4_ORIGINAL_HISTORICAL_SIGNATURE_V1'||
+    s.signerRef!==f.signerRef||!DIG(s.frameDigest)||s.direction!=='LOCAL'||s.originalHistoricalSignatureVerified!==true||
+    s.originalHistoricalAcceptanceProven!==false||s.liveNetworkAuthorityGranted!==false||
+    s.trustedSigningTimeProven!==false||s.originalBusinessApplied!==false)
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_HISTORICAL_ACK_NOT_PROVEN');
+  return f;
+}
+
+function historicalReplacementAckIdentity(v,a){
+  const c=a.admission.candidate,d=a.admission.contentEvidence.agreement,p=v.recipientAckPublication,h=v.recipientDiffPublication;
+  const diff=historicalRecipientPublication(h,c,d,1),ack=historicalRecipientPublication(p,c,d,2);
+  if(h.key!==d.diffKey||h.sha256!==d.diffSha256||h.originalPresentEventId!==d.originalRecipientDiffPresentEventId||
+    h.originalPresentRevision!==d.originalRecipientPublicationRevision||h.originalPresentChainHash!==d.originalRecipientPublicationChainHash||
+    p.originalPresentEventId===h.originalPresentEventId||p.originalPresentRevision<=h.originalPresentRevision||
+    p.originalPresentRevision!==p.originalPublicationRevision||h.originalPublicationRevision!==p.originalPublicationRevision||
+    h.originalPublicationChainHash!==p.originalPublicationChainHash||
+    !same(diff.body,{familyRef:c.familyRef,fromHeads:[c.sourcePrefixDigestBefore]})||!same(diff.criticalExtensions,[])||
+    diff.cryptoSuite!==ack.cryptoSuite||!matchesT4NativeSubjectCriticalExtensions(c.changeKind,ack.criticalExtensions)||
+    !same(ack.body,a.body)||readT4CandidateAppliedAckRetention(Buffer.from(p.wireBase64,'base64')).frameDigest!==p.historicalSignature.frameDigest)
+    fail('PUBLICATION_ORIGINAL_REPLACEMENT_HISTORICAL_ACK_NOT_PROVEN');
+  // Identity fields only. This is deliberately NOT a synthetic live proof.
+  return {key:p.key,sha256:p.sha256,signedMessageType:ack.messageType,verifiedMessageId:ack.messageId,
+    verifiedSourceNodeRef:ack.sourceNodeRef,verifiedRecipientNodeRef:ack.recipientNodeRef,verifiedScopeRef:ack.scopeRef,
+    verifiedSessionRef:ack.sessionRef,verifiedSequence:ack.sequence,verifiedOwnerEpoch:ack.ownerEpoch,verifiedCryptoSuite:ack.cryptoSuite,
+    verifiedSignerRef:ack.signerRef,verifiedCriticalExtensions:ack.criticalExtensions,verifiedBody:ack.body};
+}
+
 // A source may confirm only the same original publication and the recipient's
 // actual APPLIED phase/Result, matched to its independently replayed ACK.
 export function validateT4OriginalReplacementSourceAckEvidence(value,identity){
@@ -822,9 +870,10 @@ export function validateT4OriginalReplacementSourceAckEvidence(value,identity){
     fail('PUBLICATION_ORIGINAL_REPLACEMENT_SOURCE_ACK_EVIDENCE_REQUIRED');
   const batch=validateT4OriginalReplacementPublishedContent(v.sourcePublication,c),
     a=validateT4OriginalReplacementAppliedAckAdmission(v.recipientAckAdmission,c),
-    p=validateT4OriginalReplacementPublishedAck(v.recipientAckPublication,a),r=v.recipientPhase,ack=v.verifiedAppliedAck,
+    historical=v.recipientAckPublication?.schema==='IWXA_T4_ORIGINAL_HISTORICAL_PUBLISHED_FRAME_V1',
+    p=historical?historicalReplacementAckIdentity(v,a):validateT4OriginalReplacementPublishedAck(v.recipientAckPublication,a),r=v.recipientPhase,ack=v.verifiedAppliedAck,
     e=a.admission.contentEvidence,ag=batch.agreement,b=a.body;
-  if(!same(ag,e.agreement)||batch.checkpointRef!==e.sourcePublicationCheckpointRef||
+  if((!historical&&v.recipientDiffPublication!==undefined)||!same(ag,e.agreement)||batch.checkpointRef!==e.sourcePublicationCheckpointRef||
     v.originalSourcePublishedEventId!==a.admission.originalSourcePublishedEventId||
     v.originalSourcePublishedChainHash!==a.admission.originalSourcePublishedChainHash||
     e.contentDigest!==batch.frames[1].verifiedBody.contentDigest||e.encryptionContextRef!==batch.frames[2].verifiedBody.encryptionContextRef||
