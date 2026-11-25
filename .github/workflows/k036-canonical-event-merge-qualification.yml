@@ -4,10 +4,8 @@
 # The owner-authorized delivery contains only authenticated encrypted installers.
 name: Corporate frozen release 0.6.4 0.5.0 0.4.1 installed qualification
 on:
-  push:
-    branches: ['work/2026-11-25-k036-corporate-event-qualification']
-    paths: ['.github/workflows/k036-canonical-event-merge-qualification.yml']
   workflow_dispatch:
+
 permissions:
   contents: read
 concurrency:
