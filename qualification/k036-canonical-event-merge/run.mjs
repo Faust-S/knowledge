@@ -81,8 +81,10 @@ try{
   const corrected='if (canonicalize(existing) !== canonicalize(e)) {';
   const original='if (JSON.stringify(existing) !== JSON.stringify(e)) {';
   const text=fixed.toString('utf8');
-  need(text.split(corrected).length===2,'K036_BASELINE_RECONSTRUCTION_ANCHOR');
-  const prior=Buffer.from(text.replace(corrected,()=>original),'utf8');
+  const count=identity.eventComparisonsChanged;
+  need(Number.isInteger(count)&&count>=1&&count<=8&&text.split(corrected).length===count+1,'K036_BASELINE_RECONSTRUCTION_ANCHOR');
+  console.log(`K036_EVENT_COMPARISONS_CHANGED=${count}`);
+  const prior=Buffer.from(text.replaceAll(corrected,original),'utf8');
   need(sha(prior)===change.beforeSha256,'K036_BASELINE_SOURCE_HASH_MISMATCH');
   try{
     writeFileSync(file,prior);

@@ -12,7 +12,7 @@ concurrency:
   group: k036-canonical-event-merge-${{ github.ref }}
   cancel-in-progress: true
 env:
-  T2_PIN: '2145bcfab443c7c3a7a47583b6aaf90c6ffad369'
+  T2_PIN: '4e4ad5c5e566a74f24243b9d0744a6d64652a199'
   CORE_PIN: '6986195c2a7073bb9eeabaef822034e37cf2f4f9'
 jobs:
   source-runtime:
