@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FROZEN_APPLICABILITY_CORRECTION_READY_FOR_ONE_TIME_QUALIFICATION",
+  "status": "FROZEN_APPLICABILITY_AND_LINK_AUDIT_READY_AFTER_WORKFLOW_CORRECTION",
   "scope": "1.6.0",
   "siteCommit": "50434a76193644c552a13fe087d281ff8a2f61e8",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -111,7 +111,8 @@
       "protectedJourneys": "ORIGINAL_WITNESS_UNCHANGED",
       "externalTargets": "CLASSIFY_ONLY",
       "deduplicatedClicksPerWidth": true,
-      "productSourceUnchanged": true
+      "productSourceUnchanged": true,
+      "workflowLiteralPatchReversible": true
     }
   },
   "manualDispatchOnly": false,
@@ -308,5 +309,19 @@
       },
       "status": "SOURCE_AUDIT_INHERITED_IDENTICAL_ROUTE_BYTES_NOT_BROWSER_QUALIFICATION"
     }
-  }
+  },
+  "workflowAdmissionRejections": [
+    {
+      "preparedCommit": "0a69e9ca167adfcaeb62888c653747dd57e38ddf",
+      "requestCommit": "5b214f70e82f06bd836e498289278b44aaa21343",
+      "runs": [
+        45697377895,
+        45697375665
+      ],
+      "jobsExecuted": 0,
+      "status": "WORKFLOW_PARSE_REJECTED",
+      "cause": "String replacement expanded shell regex dollar-apostrophe into workflow suffix; fixed by literal callback and exact reversible patch",
+      "productOrWitnessChanged": false
+    }
+  ]
 }
