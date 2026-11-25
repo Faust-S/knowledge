@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: e93cc90a87974b30779a6b3d42360592d40de14a
+          ref: 9974b4ff9fd43095c92d029ca2759d137485d93e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: owner
@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 044d7aede4f8ec2239d8baed673a5bec2f07e952
+          ref: 8e46bba3546c186e9ea350e2bb030da401ad09f1
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -58,7 +58,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" e93cc90a87974b30779a6b3d42360592d40de14a && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" e93cc90a87974b30779a6b3d42360592d40de14a --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 9974b4ff9fd43095c92d029ca2759d137485d93e && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 9974b4ff9fd43095c92d029ca2759d137485d93e --apply && npm run t3:skills:check) > "$RUNNER_TEMP/d02-import.private" 2>&1; then
             echo D02_OFFICIAL_SKILLS_IMPORT=FAIL
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/d02-import.private" | sort -u | head -20 || true
             exit 1
