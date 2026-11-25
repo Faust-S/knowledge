@@ -565,12 +565,27 @@ jobs:
           NODE
           ) > "$RUNNER_TEMP/d06-retained-commit-private.log" 2>&1
           echo D06_T3_RETAIN_COMMITTED_READBACK=PASS
+          # Record the exact qualified final inventory, not the runner-local dist itself.
+          # Re-read after the public assistant smoke so the handoff refers to the final bytes.
+          node --experimental-strip-types --input-type=module - "$RUNNER_TEMP/d06-final-dist-private.json" <<'NODE' > "$RUNNER_TEMP/d06-final-dist-readback.private.log" 2>&1
+          import {writeFileSync} from "node:fs";
+          import {snapshotD06Dist} from "./scripts/assemble-d06-t3-dist.mjs";
+          writeFileSync(process.argv[2],JSON.stringify(snapshotD06Dist("dist")));
+          NODE
+          cmp -s "$RUNNER_TEMP/d06-second-private.json" "$RUNNER_TEMP/d06-final-dist-private.json" || { echo D06_T3_FINAL_DIST_READBACK=FAIL; exit 1; }
+          dist_digest="$(sha256sum "$RUNNER_TEMP/d06-final-dist-private.json" | cut -d ' ' -f 1)"
+          receipt_digest="$(sha256sum "$RUNNER_TEMP/d06-retained-commit/$dir/d06-host/d06-t3-host-input.json" | cut -d ' ' -f 1)"
+          [[ "$dist_digest" =~ ^[a-f0-9]{64}$ && "$receipt_digest" =~ ^[a-f0-9]{64}$ ]]
+          echo D06_T3_FINAL_DIST_READBACK=PASS
           # Use the owner-authorized DOMEN token, not the public runner token.
           # Do not change branch protections, scopes, or push any other ref.
           bash "$GITHUB_WORKSPACE/pipeline/scripts/d06-private-git-transport.sh" publish be7e994af3aba9837d6ee2c3ce17373e47dd1cdc "$candidate"
           echo D06_T3_RETAIN_PRIVATE_PUSH=PASS
           echo D06_FINAL_PERMANENT_RETENTION=PASS
           echo "D06_T3_RETAIN_REMOTE_COMMIT=$candidate"
+          echo "D06_T3_DIST_INVENTORY_SHA256=$dist_digest"
+          echo "D06_T3_HOST_RECEIPT_SHA256=$receipt_digest"
+          echo D06_FINAL_DELIVERY_READY=PASS
       - name: Evidence boundary
         if: always()
         shell: pwsh
