@@ -663,7 +663,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     }:null;
     const authorizeOriginalSourceRead=callback('authorizeOriginalSourceRead');
     const recipientHistoryBoundary=enableOriginalRecipientFrontierCommitOrder?bindT4OriginalHistoryBoundary({
-      workspaceId:sourceWorkspaceId,originalWriteOwnerRef,getMode,
+      workspaceId:sourceWorkspaceId,originalWriteOwnerRef,getMode,requireWorkspaceMutationExclusion:true,
       withOriginalSubjectMutation:callback('withOriginalSubjectMutation'),
       withOriginalHistoryReadBoundary:callback('withOriginalHistoryReadBoundary'),
     }):null;

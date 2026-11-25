@@ -114,3 +114,37 @@ export async function readT4OriginalSelectedCommitEvents({workspaceId,originalWr
     active=false;await requireRead();return result;
   }finally{active=false;}
 }
+
+// The recipient subject readers select every Event their existing evidence
+// checks can reference, including conflicting traces and endpoint tombstones.
+// This is a projection of the original journal, not a subject-result index.
+export function selectT4OriginalRecipientSubjectEvents({kind,subjectId,objectIds,sourceEventId,deltaSha256}={}){
+  const family=kind?.startsWith('OBJECT_')?'object':kind?.startsWith('ASSET_')?'asset':kind?.startsWith('RELATION_')?'relation':null;
+  if(!['OBJECT_PUT','ASSET_PUT','RELATION_PUT','OBJECT_DELETE','ASSET_DELETE','RELATION_DELETE'].includes(kind)||
+    ![subjectId,sourceEventId].every(ID)||!Array.isArray(objectIds)||!objectIds.every(ID)||
+    typeof deltaSha256!=='string'||!/^[a-f0-9]{64}$/.test(deltaSha256))
+    fail('ORIGINAL_RECIPIENT_HISTORY_SELECTION_INVALID');
+  const endpoints=new Set(objectIds),putType='iwxa.t4.original-'+family+'.synced',deleteType='iwxa.t4.original-'+family+'.deleted',
+    putKey=family==='asset'?'originalAssetId':family==='relation'?'originalRelationId':'originalSubjectId',
+    deletion=kind.endsWith('_DELETE');
+  return e=>{
+    const p=e?.payload,t=e?.event_type;
+    if(endpoints.has(e?.object_id)||(t==='iwxa.t4.original-object.deleted'&&endpoints.has(p?.originalSubjectId)))return true;
+    if(deletion&&kind!=='OBJECT_DELETE'&&e?.idempotency_key==='t4-delete-'+deltaSha256)return true;
+    if(t===putType&&(p?.originalEventId===sourceEventId||p?.[putKey]===subjectId))return true;
+    if(t===deleteType&&(p?.originalSubjectId===subjectId||
+      (deletion&&(p?.originalEventId===sourceEventId||p?.originalDeltaSha256===deltaSha256))))return true;
+    return false;
+  };
+}
+export async function readT4OriginalRecipientHistoryEvents({originalKernel,originalRecipientHistory,
+  workspaceId,originalWriteOwnerRef,authorizeOriginalOperation,selectOriginalEvent}={}){
+  if(!originalRecipientHistory||typeof originalRecipientHistory!=='object'||
+    !['listEventsSince','listEventCommitWindow'].every(name=>originalKernel?.hasOperation?.('t1.'+name)===true&&
+      typeof originalKernel[name]==='function')||typeof authorizeOriginalOperation!=='function')
+    fail('ORIGINAL_RECIPIENT_COMMIT_HISTORY_PORTS_REQUIRED');
+  const {readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize=256}=originalRecipientHistory;
+  return readT4OriginalSelectedCommitEvents({workspaceId,originalWriteOwnerRef,readOriginalCommitPage,
+    withOriginalHistoryReadBoundary,pageSize,selectOriginalEvent,authorizeOriginalOperation:async operation=>
+      originalKernel.hasOperation(operation)===true&&await authorizeOriginalOperation(operation)===true});
+}

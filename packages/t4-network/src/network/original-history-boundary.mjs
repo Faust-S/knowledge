@@ -9,8 +9,8 @@ const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x)
 // existing owner's history boundary. A detached async continuation cannot
 // use a witness whose callback or Host lifetime has already ended.
 export function bindT4OriginalHistoryBoundary({workspaceId,originalWriteOwnerRef,getMode,
-  withOriginalSubjectMutation,withOriginalHistoryReadBoundary}={}){
-  if(![workspaceId,originalWriteOwnerRef].every(ID)||
+  withOriginalSubjectMutation,withOriginalHistoryReadBoundary,requireWorkspaceMutationExclusion=false}={}){
+  if(![workspaceId,originalWriteOwnerRef].every(ID)||typeof requireWorkspaceMutationExclusion!=='boolean'||
     ![getMode,withOriginalSubjectMutation,withOriginalHistoryReadBoundary].every(f=>typeof f==='function'))
     fail('ORIGINAL_HISTORY_BOUNDARY_PORTS_REQUIRED');
   const execution=new AsyncLocalStorage();
@@ -50,12 +50,19 @@ export function bindT4OriginalHistoryBoundary({workspaceId,originalWriteOwnerRef
   return Object.freeze({
     withOriginalSubjectMutation:async(proof,action)=>{
       scope(proof);
-      if(proof.originalHostMustSerializeAllWorkspaceGraphMutations!==true||
-        proof.originalHostMustSerializeSubjectMutations!==true)
+      if(proof.originalHostMustSerializeSubjectMutations!==true||
+        (proof.originalHostMustSerializeAllWorkspaceGraphMutations!==true&&
+          (!requireWorkspaceMutationExclusion||proof.originalHostMustSerializeAllWorkspaceGraphMutations!==undefined)))
         fail('ORIGINAL_HISTORY_BOUNDARY_MUTATION_EXCLUSION_REQUIRED');
+      // Recipient Asset/Relation deletion previously required only its
+      // subject boundary. An opted-in history reader needs the original
+      // owner to hold workspace-wide exclusion before executing it. Pass
+      // that stronger requirement to the real owner; do not emulate a lock.
+      const exact=requireWorkspaceMutationExclusion?Object.freeze({...proof,
+        originalHostMustSerializeAllWorkspaceGraphMutations:true}):proof;
       const held=execution.getStore();
       if(held){requireHeld(held);fail('ORIGINAL_HISTORY_BOUNDARY_REENTERED');}
-      return within('MUTATION',proof,action,withOriginalSubjectMutation);
+      return within('MUTATION',exact,action,withOriginalSubjectMutation);
     },
     withOriginalHistoryReadBoundary:async(proof,action)=>{
       scope(proof);
