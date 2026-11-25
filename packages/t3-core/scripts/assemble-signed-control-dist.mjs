@@ -6,8 +6,10 @@ import {cpSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync,
   readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {basename, dirname, extname, isAbsolute, join, relative, resolve, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {assertQualifiedKernelArtifact}
-  from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
+import {assertInstalledOriginalKernelArtifact,takeQualificationKernelCandidate}
+  from './installed-kernel-selection.mjs';
+import {qualificationKernelCandidateFields,selectQualificationKernelCandidate}
+  from './installed-kernel-candidate.mjs';
 import {registerT3LocalInferenceService}
   from './register-t3-local-inference.mjs';
 import {materializeDomainMode} from './materialize-t3-domain-mode.mjs';
@@ -242,7 +244,7 @@ function required(root,path){
 export function assembleSignedControlDist({
   t2Dist,t3Build,outputDir,testOnlyUnqualifiedFixture=false,
   installedOriginalAdminD3=false,installedOriginalAgentD6=false,
-  desktopAgentControlOnly=false,desktopAdminControlOnly=false,
+  desktopAgentControlOnly=false,desktopAdminControlOnly=false,qualificationKernelCandidate,
 }={}){
   // A signed desktop Agent hosts T3 D1/D6 but owns native model execution
   // independently. An inert optional BLI marker is not permission to ship
@@ -268,6 +270,9 @@ export function assembleSignedControlDist({
     fail("INSTALLED_AGENT_D6_FLAG_INVALID");
   if(installedOriginalAdminD3&&installedOriginalAgentD6)
     fail("INSTALLED_OWNER_PROFILES_MUST_BE_SEPARATE");
+  const candidate=selectQualificationKernelCandidate(qualificationKernelCandidate);
+  if(candidate&&(testOnlyUnqualifiedFixture||!(desktopAgentControlOnly||desktopAdminControlOnly)))
+    fail('CANDIDATE_NATIVE_CORPORATE_QUALIFICATION_ONLY');
   if(![t2Dist,t3Build,outputDir].every(x=>typeof x==='string'&&x.trim()))
     fail('THREE_PATHS_REQUIRED');
   const source=realpathSync(resolve(t2Dist));
@@ -282,10 +287,7 @@ export function assembleSignedControlDist({
   // preserves its bytes. Reuse the exact inherited T2 qualified verifier and
   // release pin. The test-only fixture switch is never available from CLI.
   const qualified=testOnlyUnqualifiedFixture ? null :
-    assertQualifiedKernelArtifact(source,{
-      kernel:'0.3.6',contract:'1.3.0',
-      artifactId:'iwxa-kernel-k036-same-store-history-20261019-qualified.1',
-    });
+    assertInstalledOriginalKernelArtifact(source,qualificationKernelCandidate);
   const originalLoader=required(source,'_iwxa/loader.js');
   const originalRuntime=required(source,'_iwxa/runtime/0.3.6/runtime.js');
   const domain=JSON.parse(readFileSync(required(source,'_iwxa/domain.json'),'utf8'));
@@ -307,6 +309,12 @@ export function assembleSignedControlDist({
     fail('WEB_DOMAIN_SHELL_ORIGIN_MISMATCH');
   const catalog=JSON.parse(readFileSync(required(source,'_iwxa/service-catalog.json'),'utf8'));
   const config=JSON.parse(readFileSync(required(source,'workspace/workspace.config.json'),'utf8'));
+  if(candidate){
+    const expected=desktopAgentControlOnly?'iwxa.personal-agent':'iwxa.admin-center';
+    if(!loopback||domain.domain_id!==expected||config.domain_id!==expected||
+       config.workspace_service_id!==expected+'.workspace'||domain.status==='production')
+      fail('CANDIDATE_NATIVE_CORPORATE_PROFILE_REQUIRED');
+  }
   if(typeof config.workspace_service_id!=='string'||
      !Array.isArray(catalog.entries)||
      !catalog.entries.some(x=>x.service_id===config.workspace_service_id))
@@ -472,6 +480,10 @@ export function assembleSignedControlDist({
     // original Kernel/Exchange and one explicit offline T3 switch.
     // No native Agent or Admin signer is staged into a browser domain.
     if(web)materializeDomainMode(temp);
+    if(candidate){
+      const readback=assertInstalledOriginalKernelArtifact(temp,qualificationKernelCandidate);
+      if(readback.artifactSha256!==qualified.artifactSha256)fail('ORIGINAL_KERNEL_CHANGED');
+    }
     if(existsSync(output))fail('OUTPUT_ALREADY_EXISTS');
     renameSync(temp,output);
     return {schema:'iwxa.t3.signed-control-one-dist/1',origin,
@@ -480,7 +492,8 @@ export function assembleSignedControlDist({
       local_inference_registered:localInference,
       original_admin_d3_schema_registered:installedOriginalAdminD3,
       original_agent_d6_schema_registered:installedOriginalAgentD6,
-      original_qualified_artifact:qualified?.artifactId??'TEST_ONLY_UNQUALIFIED',
+      original_qualified_artifact:candidate?null:(qualified?.artifactId??'TEST_ONLY_UNQUALIFIED'),
+      ...qualificationKernelCandidateFields(qualified),
       original_loader_sha256:hash(originalLoader),
       original_runtime_sha256:hash(originalRuntime),
       original_runtime_unchanged:true,
@@ -488,18 +501,20 @@ export function assembleSignedControlDist({
   }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  if(process.argv.length!==5&&
-      !(process.argv.length===6&&
+  const args=process.argv.slice(2);
+  const qualificationKernelCandidate=takeQualificationKernelCandidate(args);
+  if(args.length!==3&&
+      !(args.length===4&&
         ['--installed-admin-d3','--installed-agent-d6',
-         '--installed-admin-d3-control-only'].includes(process.argv[5])))
+         '--installed-admin-d3-control-only'].includes(args[3])))
     fail('USAGE_T2_DIST_T3_BUILD_OUTPUT');
   console.log(JSON.stringify(assembleSignedControlDist({
-    t2Dist:process.argv[2],t3Build:process.argv[3],outputDir:process.argv[4],
+    t2Dist:args[0],t3Build:args[1],outputDir:args[2],qualificationKernelCandidate,
     installedOriginalAdminD3:
       ['--installed-admin-d3','--installed-admin-d3-control-only']
-        .includes(process.argv[5]),
+        .includes(args[3]),
     desktopAdminControlOnly:
-      process.argv[5]==='--installed-admin-d3-control-only',
-    installedOriginalAgentD6:process.argv[5]==='--installed-agent-d6',
+      args[3]==='--installed-admin-d3-control-only',
+    installedOriginalAgentD6:args[3]==='--installed-agent-d6',
   })));
 }
