@@ -1,0 +1,14 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "d02-club-qualified-input-retention",
+  "prepared_sha": "99d1518cd80f1b6504e0e1758f1b18539944f2c3",
+  "profile": "external-reference-delta-and-final-retention",
+  "revisions": {
+    "site": "c1b02ba9f2b65175be91faa6476fd8d079b62e1f",
+    "qualified_site": "8301f94aa86444bb3b70a4823dd79f0a15e4727a",
+    "subject": "76ed326b21392836f4ff0ed376baea7b3f555ac5",
+    "t2": "e70de29b72b83e2546f7ab74b17572685a728c17",
+    "platform": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+    "bli": "9f41447197251d41e69fbcb98e52ef1050754ec2"
+  }
+}
