@@ -1,7 +1,7 @@
 # Deliberate milestone qualification; editing harness files alone is not a trigger.
 # Milestone 2026-11-25: saved goal horizon, cash risks, exact fact observations.
 name: d02-personal-activity-full
-# Qualification: canonical result-hint contract 1.22.3; safe failure-code diagnostics.
+# Qualification: focused comparison, exact horizon editor and receipt continuation; skill contract 1.23.0.
 on:
   push:
     branches:
@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 8e46bba3546c186e9ea350e2bb030da401ad09f1
+          ref: ad3f48bf57f4955cf71060fb27e7217266854e8e
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -49,7 +49,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: 9974b4ff9fd43095c92d029ca2759d137485d93e
+          ref: 00f98d7f0eb9321c64979b0231b44a288b7dfaa9
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: owner
@@ -84,7 +84,7 @@ jobs:
           fi
           grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/private-owner-fact.log"
           echo D02_T3_CANONICAL_FACT_AND_SKILLS=PASS
-          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 9974b4ff9fd43095c92d029ca2759d137485d93e && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 9974b4ff9fd43095c92d029ca2759d137485d93e --apply && npm run t3:skills:check) > "$RUNNER_TEMP/private-fact-import.log" 2>&1; then
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 00f98d7f0eb9321c64979b0231b44a288b7dfaa9 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 00f98d7f0eb9321c64979b0231b44a288b7dfaa9 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/private-fact-import.log" 2>&1; then
             echo D02_T3_OFFICIAL_FACT_SKILLS_IMPORT=FAIL
             grep -oE 'CLUB_(SKILL_IMPORT|T3_SKILLS|SKILL_AUTHORING)_[A-Z_]+' "$RUNNER_TEMP/private-fact-import.log" | sort -u || true
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/private-fact-import.log" | sort -u | head -20 || true
@@ -172,6 +172,9 @@ jobs:
           assert.match(skillPrompt(loaded,skill,'Разобрать факты цели',{resultHint:worklistHint}),/Факты, из которых получены итоги/);
           assert.match(prompt,/Отделите новые риски от существующих/);
           assert.match(prompt,/30, 90 или 365 дней/);
+          assert.match(prompt,/только время, только деньги или оба/);
+          assert.match(prompt,/Невыбранная часть не рассчитана и не меняется/);
+          assert.match(horizonPrompt,/Вернитесь к горизонту 7 или 30 дней/);
           console.log('D02_ORIGINAL_T3_HORIZON_AND_DECISION_SKILL=PASS');
           console.log('D02_ORIGINAL_T3_IMPORTED_SKILL_RUNTIME=PASS');
           NODE
