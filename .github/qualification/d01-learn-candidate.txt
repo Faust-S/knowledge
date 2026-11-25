@@ -1,5 +1,5 @@
 # Explicit qualification request; not a release or a PASS claim.
-site=ab00efbdd0655f1c6e8adef6eedf98bfd0e76e53
+site=b6e098cbf20c70898fba3a0a85eb1321e5cd9a73
 domain=5defadc101fa0ec9bce92f6d2806f7b9976d1d6d
 t2=9c64951cd78411283e8a416641c36d71e169fc1d
 status=REQUESTED
@@ -9,3 +9,5 @@ previous_cold_restart_failure=45651368976
 previous_provenance_failure=45651177485
 previous_source_gate_failure=45650997044
 previous_qualified_run=45596745365
+
+first-use and live link activation: mandatory
