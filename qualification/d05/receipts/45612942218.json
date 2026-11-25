@@ -1,0 +1,61 @@
+{
+  "schema": "IWXA_D05_T3_QUALIFICATION_RECEIPT/1",
+  "runId": 45612942218,
+  "linuxJobId": 139200890013,
+  "hardwareJobId": 139205341511,
+  "siteCommit": "a0961a1d88dcedd68809c66f327d7e417c77a744",
+  "subjectCommit": "7d44995b536bc57eb0acff63d876d255c034fb77",
+  "assistantCommit": "5e3083788aa541921559de29d3457d4a52bbba00",
+  "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+  "platformArtifactId": 14920233669,
+  "linuxFunctionalReady": true,
+  "subjectTests": {
+    "passed": 1565,
+    "total": 1565
+  },
+  "sourceGate": "PASS",
+  "preview": {
+    "files": 10,
+    "exactBytes": true,
+    "notFound": true
+  },
+  "production": {
+    "online": "PASS",
+    "offline": "PASS",
+    "produced": 120,
+    "reworked": 4,
+    "scrapped": 0,
+    "independentOfflineReadbacks": 118,
+    "coldRestarts": 7,
+    "exchangeResults": 27
+  },
+  "browser": {
+    "routes": 22,
+    "forms": 20,
+    "allSiteColdRoutes": 40,
+    "localAssetErrors": 0
+  },
+  "apacheCanonical": "PASS",
+  "reproducibility": {
+    "distFiles": 223,
+    "exactBytes": true,
+    "invalidInputPreservedDist": true
+  },
+  "retainedLocalSnapshot": {
+    "sourceTree": "ae3f6e4992209e8f4b778cbc29b1a979972398a3",
+    "inputFiles": 92,
+    "distFiles": 223,
+    "localCommit": "b4784dd0d9c2fd5b0bdd7b1d342830645701a252",
+    "remotePublication": false
+  },
+  "publicationFailure": "BLOB_WRITE_HTTP_403",
+  "hardware": {
+    "adapter": "nonfallback-reported",
+    "compute": true,
+    "failedPhase": "installation-cancel",
+    "errorClass": "TimeoutError",
+    "newGeneration": "NOT_RUN"
+  },
+  "semanticAcceptance": false,
+  "productAccepted": false
+}

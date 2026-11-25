@@ -12,6 +12,9 @@ on:
       domain_sha:
         type: string
         default: '7d44995b536bc57eb0acff63d876d255c034fb77'
+      witness_sha:
+        type: string
+        default: '72ac3e44aad18e684dda168adeb8d4172eb6836d'
       release_candidate:
         type: boolean
         default: false
@@ -38,6 +41,13 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
+          repository: Faust-S/cehovod.ru
+          ref: ${{ inputs.witness_sha || '72ac3e44aad18e684dda168adeb8d4172eb6836d' }}
+          token: ${{ secrets.DOMEN }}
+          path: model-witness
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
           repository: Faust-S/T3
           ref: 5e3083788aa541921559de29d3457d4a52bbba00
           token: ${{ secrets.DOMEN }}
@@ -59,6 +69,40 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - name: Verify exact product tree and separate witness-only changes
+        shell: bash
+        env:
+          SITE_SHA: ${{ inputs.site_sha || 'a0961a1d88dcedd68809c66f327d7e417c77a744' }}
+          WITNESS_SHA: ${{ inputs.witness_sha || '72ac3e44aad18e684dda168adeb8d4172eb6836d' }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {execFileSync} from "node:child_process";
+          const git=(dir,args)=>execFileSync("git",["-C",dir,...args],{encoding:"utf8",maxBuffer:32*1024*1024,stdio:["ignore","pipe","pipe"]});
+          const inventory=dir=>{
+            const rows=git(dir,["ls-tree","-r","-z","HEAD"]).split("\0").filter(Boolean);
+            const map=new Map(rows.map(row=>{
+              const i=row.indexOf("\t");
+              assert.ok(i>0);
+              return [row.slice(i+1),row.slice(0,i)];
+            }));
+            assert.equal(map.size,rows.length);
+            return map;
+          };
+          assert.equal(git("site",["rev-parse","HEAD"]).trim(),process.env.SITE_SHA);
+          assert.equal(git("model-witness",["rev-parse","HEAD"]).trim(),process.env.WITNESS_SHA);
+          const base=inventory("site"),test=inventory("model-witness");
+          const paths=[...new Set([...base.keys(),...test.keys()])].filter(p=>base.get(p)!==test.get(p)).sort();
+          assert.deepEqual(paths,[
+            "scripts/d05-t3-real-model-witness.mjs",
+            "scripts/lib/t3-model-install-consent.mjs",
+            "scripts/lib/t3-model-install-consent.test.mjs"
+          ]);
+          console.log("D05_T3_HARDWARE_EXACT_PRODUCT_TREE_PASS");
+          JS
+          node --test model-witness/scripts/lib/t3-model-install-consent.test.mjs
+          node --check model-witness/scripts/d05-t3-real-model-witness.mjs
       - name: Use the original hardware-test OpenSSL
         shell: bash
         run: |
@@ -151,7 +195,7 @@ jobs:
           echo D05_T3_PROTECTED_BUILD_PASS
       - name: Verify real-model witness syntax
         working-directory: site
-        run: node --check scripts/d05-t3-real-model-witness.mjs
+        run: node --check "$GITHUB_WORKSPACE/model-witness/scripts/d05-t3-real-model-witness.mjs"
       - name: Genuine light-profile generation and cold-cache restart on nonfallback GPU
         working-directory: site
         env:
@@ -163,19 +207,23 @@ jobs:
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-protected-model.log"
           code=0
-          node scripts/d05-t3-real-model-witness.mjs >"$log" 2>&1 || code=$?
+          node "$GITHUB_WORKSPACE/model-witness/scripts/d05-t3-real-model-witness.mjs" >"$log" 2>&1 || code=$?
           grep -E '^D05_T3_REAL_MODEL_(PASS|FAIL) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_REAL_MODEL_(INSTALL|CACHE_RELEASE|COLD_LOAD)_PASS$' "$log" || true
           grep -E '^D05_T3_MODEL_(ATTEMPT|COMPARISON|WORKER_EXIT|CACHE_RELEASE) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_QUALITY \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
+          grep -E '^D05_T3_MODEL_(CACHE_INSPECTION|CANCEL_DIAG|CANCEL_PASS) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
+          grep -Fx 'D05_T3_MODEL_INSTALL_CONFIRMATION_PASS' "$log" || true
           grep -E '^D05_T3_MODEL_GPU_PROBE \{"adapter":"[a-z-]+","supported":(true|false),"compute":(true|false),"reason":"[A-Z_]+"\}$' "$log" || true
           grep -E '^D05_T3_MODEL_GENERATION_RECEIPT \{"offline":(true|false),"elapsed":[0-9]+,"busy":(true|false),"characters":[0-9]+,"outcome":"[a-z-]+"\}$' "$log" | tail -70 || true
           grep -Eo 'CEHOVOD_T3_MODEL_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
           test "$code" -eq 0
+          grep -Fxq 'D05_T3_MODEL_CACHE_INSPECTION {"state":"missing"}' "$log"
+          grep -Fxq 'D05_T3_MODEL_CANCEL_PASS {"cancelled":true,"workers":0,"externalRequests":0,"ready":false}' "$log"
+          grep -Fxq 'D05_T3_MODEL_INSTALL_CONFIRMATION_PASS' "$log"
           grep -q '^D05_T3_REAL_MODEL_PASS ' "$log"
           test "$(grep -c '^D05_T3_MODEL_QUALITY ' "$log")" -eq 3
       - name: Require all three mechanical grounding observations before release review
-        if: inputs.release_candidate
         working-directory: site
         shell: bash
         run: |
@@ -201,5 +249,5 @@ jobs:
       - name: Destroy temporary product, reports and source-bound input bytes
         if: always()
         run: |
-          rm -rf "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$RUNNER_TEMP/d05-t3-protected-host" "$GITHUB_WORKSPACE/domain"
+          rm -rf "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$RUNNER_TEMP/d05-t3-protected-host" "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/model-witness"
           rm -f "$RUNNER_TEMP"/d05-t3-protected-*.log "$RUNNER_TEMP/d05-t3-protected-platform.zip" "$RUNNER_TEMP/d05-t3-protected-artifact.zip"

@@ -1,0 +1,10 @@
+{
+  "schema": "IWXA_D05_T3_TARGETED_MODEL_QUALIFICATION/1",
+  "siteCommit": "a0961a1d88dcedd68809c66f327d7e417c77a744",
+  "witnessCommit": "72ac3e44aad18e684dda168adeb8d4172eb6836d",
+  "subjectCommit": "7d44995b536bc57eb0acff63d876d255c034fb77",
+  "priorLinuxRun": 45612942218,
+  "priorLinuxTree": "ae3f6e4992209e8f4b778cbc29b1a979972398a3",
+  "reason": "Retry only the failed installation-consent and genuine model witness against the exact already qualified Linux product. Do not rerun Linux, publication or separate permission probes.",
+  "productAccepted": false
+}
