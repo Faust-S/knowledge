@@ -1,7 +1,8 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
 import {prepareT4OriginalObjectDelta,digestT4OriginalObjectContent,
-  expectedT4OriginalObjectMutationContentDigest,T4_ORIGINAL_OBJECT_CONTENT_TRACE} from './original-object-delta.mjs';
+  verifyT4OriginalObjectMutationInputProof,T4_ORIGINAL_OBJECT_CONTENT_TRACE,
+  T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE_TRACE} from './original-object-delta.mjs';
 
 export class T4OriginalMutationRecoveryError extends Error{
   constructor(code,details={}){super(code);
@@ -18,8 +19,6 @@ const sorted=o=>Array.isArray(o)?o.map(sorted):
   o&&typeof o==='object'
     ?Object.fromEntries(Object.keys(o).sort().map(k=>[k,sorted(o[k])])):o;
 const equals=(a,b)=>JSON.stringify(sorted(a))===JSON.stringify(sorted(b));
-const json=o=>Buffer.from(JSON.stringify(o),'utf8');
-const digest=o=>'sha256:'+packageSha256(json(o));
 const mode=f=>{if(typeof f!=='function'||f()!=='T4_NETWORK')
   fail('OBJECT_RECOVERY_NETWORK_MODE_OFF');};
 const intentSchema='IWXA_T4_ORIGINAL_OBJECT_MUTATION_INTENT_V1';
@@ -55,25 +54,9 @@ function validateIntent(intent,{captureRef,workspaceId,objectId,originalWriteOwn
   let exact;
   try{exact=JSON.parse(JSON.stringify(operation));}
   catch{fail('OBJECT_RECOVERY_ORIGINAL_INTENT_INVALID');}
-  if(digest(exact)!==intent.inputDigest)
-    fail('OBJECT_RECOVERY_ORIGINAL_INTENT_DIGEST_MISMATCH');
   let expectedObjectContentDigest;
-  try{expectedObjectContentDigest=expectedT4OriginalObjectMutationContentDigest(intent);}
+  try{({expectedObjectContentDigest}=verifyT4OriginalObjectMutationInputProof(intent));}
   catch{fail('OBJECT_RECOVERY_ORIGINAL_INTENT_DIGEST_MISMATCH');}
-  const undecorated=structuredClone(exact);
-  delete undecorated.event.payload[MARK];
-  delete undecorated.event.payload[ORIGINAL_DIGEST];
-  if(Object.hasOwn(intent,'expectedObjectContentDigest'))
-    delete undecorated.event.payload[T4_ORIGINAL_OBJECT_CONTENT_TRACE];
-  // An explicitly empty payload and an omitted payload are distinct original
-  // inputs. Accept only the exact representation bound by the saved digest.
-  if(digest(undecorated)!==intent.originalInputDigest){
-    if(Object.keys(undecorated.event.payload).length!==0)
-      fail('OBJECT_RECOVERY_ORIGINAL_INTENT_DIGEST_MISMATCH');
-    delete undecorated.event.payload;
-    if(digest(undecorated)!==intent.originalInputDigest)
-      fail('OBJECT_RECOVERY_ORIGINAL_INTENT_DIGEST_MISMATCH');
-  }
   return Object.freeze({intent,operation:exact,expectedObjectContentDigest});
 }
 
@@ -146,6 +129,8 @@ export async function reconcileT4OriginalMutationIntent({
     event.payload?.[ORIGINAL_DIGEST]!==intent.originalInputDigest||
     (Object.hasOwn(intent,'expectedObjectContentDigest')&&
       event.payload?.[T4_ORIGINAL_OBJECT_CONTENT_TRACE]!==expectedObjectContentDigest)||
+    (Object.hasOwn(intent,'inputDigestProfile')&&
+      event.payload?.[T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE_TRACE]!==intent.inputDigestProfile)||
     !ID(event.event_id))
     fail('OBJECT_RECOVERY_SOURCE_EVENT_SCOPE_MISMATCH');
   let window,nextCursor;

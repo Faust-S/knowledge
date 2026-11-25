@@ -900,3 +900,36 @@ test('K107 non-JSON Object extension or original Event payload cannot be silentl
    assert.equal(f.intents.size,0);assert.equal(f.writes.length,0);
  }
 });
+
+// Canonical reordering is representative of original IWXA export/import,
+// which sorts object keys. It must not alter a new capture proof.
+const reorderOriginalCaptureJson=value=>Array.isArray(value)?value.map(reorderOriginalCaptureJson):
+  value!==null&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(
+    key=>[key,reorderOriginalCaptureJson(value[key])])):value;
+test('K108 new capture proof survives canonical archive key reordering and cold recovery',async()=>{
+ const f=originalFixture();f.loseAck();
+ const input={...mutation(1),data:{z:{b:2,a:1},a:[3,2,1]}};
+ await assert.rejects(capture(f,1,{mutationInput:input}),code('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+ const saved=f.intents.get('capture:1');
+ assert.equal(saved.inputDigestProfile,'IWXA_CANONICAL_JSON_V1');
+ f.intents.set('capture:1',reorderOriginalCaptureJson(saved));
+ f.events[1]=reorderOriginalCaptureJson(f.events[1]);
+ const recovered=await reconcile(f);
+ assert.equal(recovered.originalT3OutboxVerified,true);
+ assert.equal(f.writes.length,1);
+ const published=await readT4OriginalHostCapturedObject({...f.ports,kind:'OBJECT_PUT',
+   captureRef:'capture:1',workspaceId:ws,subjectId:objectId,originalWriteOwnerRef:owner,
+   authorizeNetworkPublish:async()=>true});
+ assert.equal(published.prepared.sha256,recovered.prepared.sha256);
+});
+test('K108 input profile cannot be changed or supplied by a business caller',async()=>{
+ const f=originalFixture(),input=mutation(1);
+ input.event.payload.iwxa_t4_input_digest_profile='IWXA_CANONICAL_JSON_V1';
+ await assert.rejects(capture(f,1,{mutationInput:input}),code('OBJECT_CAPTURE_EVENT_TRACE_COLLISION'));
+ assert.equal(f.writes.length,0);
+ f.loseAck();
+ await assert.rejects(capture(f,1),code('OBJECT_CAPTURE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+ f.intents.get('capture:1').inputDigestProfile='UNKNOWN_PROFILE';
+ await assert.rejects(reconcile(f),code('OBJECT_RECOVERY_ORIGINAL_INTENT_DIGEST_MISMATCH'));
+ assert.equal(f.outbox.size,0);assert.equal(f.writes.length,1);
+});

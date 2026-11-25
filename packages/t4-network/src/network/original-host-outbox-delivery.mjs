@@ -2,7 +2,8 @@ import {packageSha256} from './webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow,matchesT4OriginalCapturedWindowDigest,
   readT4OriginalLocalSnapshotEvent,countT4OriginalLocalSnapshotTrace} from './original-event-window.mjs';
 import {publishT4OriginalObjectDelta,decodeT4OriginalObjectDeltaBytes,
-  expectedT4OriginalObjectMutationContentDigest,T4_ORIGINAL_OBJECT_CONTENT_TRACE} from './original-object-delta.mjs';
+  verifyT4OriginalObjectMutationInputProof,T4_ORIGINAL_OBJECT_CONTENT_TRACE,
+  T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE_TRACE} from './original-object-delta.mjs';
 import {publishT4OriginalAssetDelta,decodeT4OriginalAssetDeltaBytes} from './original-asset-delta.mjs';
 import {publishT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes} from './original-relation-delta.mjs';
 import {decodeT4OriginalDeleteDeltaBytes,originalT4DeletionCapturedEvent,t4OriginalDeletedSubjectRevision} from './original-deletion-delta.mjs';
@@ -121,9 +122,9 @@ function validateEnvelope(scope,outbox,intent){
       intent.originalMutation.event?.payload?.iwxa_t4_capture_ref!==scope.captureRef)
       fail('OUTBOX_ORIGINAL_OBJECT_INTENT_MISMATCH');
     let expected;
-    try{expected=expectedT4OriginalObjectMutationContentDigest(intent);}
+    try{({expectedObjectContentDigest:expected}=verifyT4OriginalObjectMutationInputProof(intent));}
     catch{fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');}
-    if(delta.objectContentDigest!==expected)
+    if(outbox.inputDigest!==intent.inputDigest||delta.objectContentDigest!==expected)
       fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');
   }else if(scope.kind==='GRAPH_COMMIT'){
     const exact=decodeT4OriginalGraphDeltaBytes(bytes);
@@ -231,7 +232,11 @@ async function loadVerifiedOutbox(params,{requireNetworkPublish=true}={}){
       event.payload?.iwxa_t4_original_input_digest!==
         intent.originalInputDigest||
       (Object.hasOwn(intent,'expectedObjectContentDigest')&&
-        event.payload?.[T4_ORIGINAL_OBJECT_CONTENT_TRACE]!==intent.expectedObjectContentDigest))
+        event.payload?.[T4_ORIGINAL_OBJECT_CONTENT_TRACE]!==intent.expectedObjectContentDigest)||
+      (Object.hasOwn(intent,'inputDigestProfile')&&
+        event.payload?.[T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE_TRACE]!==intent.inputDigestProfile)||
+      event.object_id!==verified.prepared.delta.objectId||
+      event.revision!==verified.prepared.delta.sourceRevision)
       fail('OUTBOX_ORIGINAL_EVENT_NOT_AUTHENTICATED');
   }else if(isT4NativeDeleteKind(kind)){
     const expected=originalT4DeletionCapturedEvent(intent);
@@ -282,28 +287,8 @@ async function readCapturedObject(params,requireNetworkPublish){
     event.payload?.iwxa_t4_capture_ref!==verified.captureRef||
     event.payload?.iwxa_t4_original_input_digest!==intent.originalInputDigest)
     fail('OUTBOX_NATIVE_ORIGINAL_CAPTURE_NOT_PROVEN');
-  // The original Event binds the untraced mutation bytes. The traced
-  // digest also binds the original intent to the saved Outbox.
-  const traced=structuredClone(intent.originalMutation);
-  if('sha256:'+packageSha256(wire(traced))!==intent.inputDigest)
-    fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');
-  if(traced.event?.payload?.iwxa_t4_original_input_digest!==
-      intent.originalInputDigest||
-    traced.event.payload.iwxa_t4_capture_ref!==verified.captureRef)
-    fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');
-  delete traced.event.payload.iwxa_t4_original_input_digest;
-  delete traced.event.payload.iwxa_t4_capture_ref;
-  if(Object.hasOwn(intent,'expectedObjectContentDigest'))
-    delete traced.event.payload[T4_ORIGINAL_OBJECT_CONTENT_TRACE];
-  const candidates=[traced];
-  // Existing V1 capture accepts both an omitted and an empty payload.
-  if(Object.keys(traced.event.payload).length===0){
-    const omitted=structuredClone(traced);delete omitted.event.payload;
-    candidates.push(omitted);
-  }
-  if(!candidates.some(x=>'sha256:'+packageSha256(wire(x))===
-    intent.originalInputDigest))
-    fail('OUTBOX_NATIVE_ORIGINAL_INTENT_DIGEST_MISMATCH');
+  // loadVerifiedOutbox has already checked the exact input proof against
+  // the original Event, for both legacy and native publication routes.
   mode(params.getMode);
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_NATIVE_CAPTURED_OBJECT_V1',

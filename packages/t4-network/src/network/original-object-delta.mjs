@@ -110,6 +110,46 @@ export function expectedT4OriginalObjectMutationContentDigest(intent){
   return digestT4OriginalObjectContent({schemaId:op.schema_id,schemaVersion:op.schema_version,
     data:op.data,extensions:op.extensions??{}});
 }
+// New original capture proofs use the same canonical JSON as the delta
+// codec and archive writer. Keep the old raw-JSON proof algorithm only
+// for explicitly legacy records. No old Intent or original Event is rewritten.
+export const T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE='IWXA_CANONICAL_JSON_V1';
+export const T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE_TRACE='iwxa_t4_input_digest_profile';
+export function digestT4OriginalObjectMutationInput(input,profile){
+  if(profile!==undefined&&profile!==T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE)
+    fail('OBJECT_DELTA_INTENT_INPUT_PROOF_INVALID');
+  const bytes=profile===undefined?Buffer.from(JSON.stringify(input),'utf8'):encode(input);
+  return 'sha256:'+packageSha256(bytes);
+}
+export function verifyT4OriginalObjectMutationInputProof(intent){
+  const op=intent?.originalMutation,profile=intent?.inputDigestProfile;
+  const mark='iwxa_t4_capture_ref',inputMark='iwxa_t4_original_input_digest';
+  if(!op||!ID(intent.captureRef)||!WINDOW_DIGEST(intent.inputDigest)||
+    !WINDOW_DIGEST(intent.originalInputDigest)||op.event?.payload?.[mark]!==intent.captureRef||
+    op.event.payload[inputMark]!==intent.originalInputDigest||
+    (Object.hasOwn(intent,'inputDigestProfile')&&
+      (profile!==T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE||
+       !Object.hasOwn(intent,'expectedObjectContentDigest')||
+       op.event.payload[T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE_TRACE]!==profile))||
+    digestT4OriginalObjectMutationInput(op,profile)!==intent.inputDigest)
+    fail('OBJECT_DELTA_INTENT_INPUT_PROOF_INVALID');
+  const expectedObjectContentDigest=expectedT4OriginalObjectMutationContentDigest(intent);
+  const undecorated=structuredClone(op);
+  delete undecorated.event.payload[mark];
+  delete undecorated.event.payload[inputMark];
+  if(Object.hasOwn(intent,'expectedObjectContentDigest'))
+    delete undecorated.event.payload[T4_ORIGINAL_OBJECT_CONTENT_TRACE];
+  if(profile!==undefined)delete undecorated.event.payload[T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE_TRACE];
+  // Omitted and explicitly empty original payloads remain distinct.
+  if(digestT4OriginalObjectMutationInput(undecorated,profile)!==intent.originalInputDigest){
+    if(Object.keys(undecorated.event.payload).length)
+      fail('OBJECT_DELTA_INTENT_INPUT_PROOF_INVALID');
+    delete undecorated.event.payload;
+    if(digestT4OriginalObjectMutationInput(undecorated,profile)!==intent.originalInputDigest)
+      fail('OBJECT_DELTA_INTENT_INPUT_PROOF_INVALID');
+  }
+  return Object.freeze({expectedObjectContentDigest});
+}
 // Use the exact V1 delta encoder, not the size of the mutation input.
 export function preflightT4OriginalObjectNativeCapacity({workspaceId,originalWriteOwnerRef,mutationInput,existingExtensions={}}){
   const {object_id:objectId,schema_id:schemaId,schema_version:schemaVersion,base_revision:baseRevision,data}=mutationInput;
