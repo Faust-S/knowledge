@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 9c4961cded97c77aed48ae48c84269e6fad903a3
+          ref: cfd5f7534c02ed62151d2505e0f3d8a556af420f
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -334,13 +334,40 @@ jobs:
           for(const name of required)assert.ok(active.has(name),'Missing consolidated suite: '+name);
           console.log('D02_CONSOLIDATED_SOURCE_COVERAGE=PASS; unique_previous_suites='+required.length);
           NODE
-          if ! npm test > "$RUNNER_TEMP/private-all-regression.log" 2>&1; then
-            echo D02_T3_COMPLETE_CLUB_REGRESSION=FAIL
-            awk '/^> .* test:/{suite=$0} /^not ok [0-9]+ - /{if(suite!=last){print suite;last=suite}print;count++;if(count>=15)exit}' "$RUNNER_TEMP/private-all-regression.log" || true
-            exit 1
-          fi
-          echo D02_T3_COMPLETE_CLUB_REGRESSION=PASS
-          node -e 'const fs=require("node:fs");const s=fs.readFileSync(process.argv[1],"utf8");const rows=[...s.matchAll(/^# tests (\d+)$/gm)];console.log("D02_T3_COMPLETE_CLUB_TESTS="+rows.reduce((n,x)=>n+Number(x[1]),0))' "$RUNNER_TEMP/private-all-regression.log"
+          # Run the exact npm test chain once, but collect all failing suites
+          # rather than stopping at the first failed command. No weaker gate.
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync,appendFileSync} from 'node:fs';
+          import {spawnSync} from 'node:child_process';
+          import {join} from 'node:path';
+          const scripts=JSON.parse(readFileSync('package.json','utf8')).scripts;
+          assert.ok(!scripts.pretest&&!scripts.posttest,'Unexpected npm test lifecycle hooks');
+          const commands=scripts.test.split(' && ');
+          assert.ok(commands.length>0&&commands.every(c=>/^npm run test:[a-z0-9-]+$/.test(c)));
+          const names=commands.map(c=>c.slice('npm run '.length));
+          assert.equal(new Set(names).size,names.length);
+          const log=join(process.env.RUNNER_TEMP,'private-all-regression.log');
+          writeFileSync(log,'');
+          let tests=0,failed=0;
+          for(const name of names){
+           const result=spawnSync('npm',['run',name],{encoding:'utf8',maxBuffer:32*1024*1024,env:process.env});
+           const output=(result.stdout||'')+'\n'+(result.stderr||'');
+           appendFileSync(log,'\nSUITE '+name+'\n'+output);
+           tests+=[...output.matchAll(/^# tests (\d+)$/gm)].reduce((n,x)=>n+Number(x[1]),0);
+           if(result.status!==0||result.error){
+            failed++;
+            console.log('D02_REGRESSION_SUITE_FAIL='+name);
+            // Output only existing TAP labels; detailed private logs never leave the runner.
+            for(const line of output.split('\n').filter(x=>/^not ok \d+ - /.test(x)).slice(0,15))
+             console.log(line);
+           }
+          }
+          console.log('D02_T3_COMPLETE_CLUB_SUITES='+names.length+'; failed='+failed);
+          console.log('D02_T3_COMPLETE_CLUB_TESTS='+tests);
+          console.log('D02_T3_COMPLETE_CLUB_REGRESSION='+(failed?'FAIL':'PASS'));
+          if(failed)process.exitCode=1;
+          NODE
           echo D02_T3_PWA_BRAND_ICONS=PASS
       - name: Retain verified local original Kernel support
         working-directory: site
@@ -439,7 +466,7 @@ jobs:
           # Use the existing scoped credential only if the intended repository is private
           # and the credential already grants push. Never modify main or an existing ref.
           [ "$(gh api repos/Faust-S/club.iwxa.ru --jq '.private')" = true ]
-          [ "$(git rev-parse HEAD)" = "9c4961cded97c77aed48ae48c84269e6fad903a3" ]
+          [ "$(git rev-parse HEAD)" = "cfd5f7534c02ed62151d2505e0f3d8a556af420f" ]
           case "$(git remote get-url origin)" in
             https://github.com/Faust-S/club.iwxa.ru|https://github.com/Faust-S/club.iwxa.ru.git) ;;
             *) echo D02_T3_PRIVATE_RETENTION_REMOTE=FAIL; exit 1 ;;
