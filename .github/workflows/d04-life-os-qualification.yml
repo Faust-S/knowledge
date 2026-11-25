@@ -2,7 +2,7 @@ name: D04 BazMed Life OS qualification (private-source, no artifacts)
 on:
   push:
     branches:
-      - work/2026-11-25-d04-diary-picker-qualification
+      - work/2026-11-25-d04-dashboard-selection-qualification
     paths:
       - .github/workflows/d04-life-os-qualification.yml
       - scripts/d04-private-source-preflight.sh
@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed.ru
-          ref: a611a294b70ef92d557aacb9374f4a802a859c14
+          ref: 745158965cab3556bddb5c3d9f9cb7162e0f7d27
           token: ${{ secrets.DOMEN }}
           path: d04-private/site
           fetch-depth: 0
@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/bazmed
-          ref: 7575773077cba471d49d2c4fd1f42fc3f61b97b2
+          ref: 147b91230f4dcd625a6a0c540a7d3bcbfe0aa0b6
           token: ${{ secrets.DOMEN }}
           path: d04-private/model
           fetch-depth: 0
@@ -62,10 +62,10 @@ jobs:
       - name: Verify immutable site / subject / T2 revisions
         run: |
           set -euo pipefail
-          test "$(git -C d04-private/site rev-parse HEAD)" = "a611a294b70ef92d557aacb9374f4a802a859c14"
-          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "cf5029ddbb9c3db31c6e941ab4af328f7e1de906"
-          test "$(git -C d04-private/model rev-parse HEAD)" = "7575773077cba471d49d2c4fd1f42fc3f61b97b2"
-          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "3d73d97f5e168f11fcb462f083f430d9718ce515"
+          test "$(git -C d04-private/site rev-parse HEAD)" = "745158965cab3556bddb5c3d9f9cb7162e0f7d27"
+          test "$(git -C d04-private/site rev-parse HEAD^{tree})" = "0cf3ca2da38245f4b69e89554e085ce28ae0c0df"
+          test "$(git -C d04-private/model rev-parse HEAD)" = "147b91230f4dcd625a6a0c540a7d3bcbfe0aa0b6"
+          test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "43e443e31151f6155fbb90f04b4e878d5d163437"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
           for path in d04-private/site d04-private/model d04-private/t2; do
             test -z "$(git -C "$path" status --porcelain --untracked-files=no)"
@@ -103,7 +103,7 @@ jobs:
         env:
           IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/d04-private/t2
           BAZMED_SUBJECT_SOURCE_DIR: ${{ github.workspace }}/d04-private/model
-          D04_RELEASE_SITE_SHA: a611a294b70ef92d557aacb9374f4a802a859c14
+          D04_RELEASE_SITE_SHA: 745158965cab3556bddb5c3d9f9cb7162e0f7d27
         run: |
           set -euo pipefail
           if npm run release:check-source >"$RUNNER_TEMP/d04-release-source.log" 2>&1; then
@@ -116,7 +116,7 @@ jobs:
       - name: Test subject-owned independent observation dynamics without exposing source data
         working-directory: d04-private/model
         run: |
-          if node --test docs/life-os/tests/personal-observation-dynamics.test.mjs docs/life-os/tests/life-dashboard-model.test.mjs docs/life-os/tests/life-dashboard-projection.test.mjs docs/life-os/tests/personal-medical-evidence.test.mjs >"$RUNNER_TEMP/d04-observation-domain.log" 2>&1; then
+          if node --test docs/life-os/tests/personal-observation-dynamics.test.mjs docs/life-os/tests/life-dashboard-model.test.mjs docs/life-os/tests/life-dashboard-selection.test.mjs docs/life-os/tests/life-dashboard-projection.test.mjs docs/life-os/tests/personal-medical-evidence.test.mjs >"$RUNNER_TEMP/d04-observation-domain.log" 2>&1; then
             echo "D04_OBSERVATION_DYNAMICS_DOMAIN_MODEL=PASS"
           else
             echo "D04_OBSERVATION_DYNAMICS_DOMAIN_MODEL=FAIL"
