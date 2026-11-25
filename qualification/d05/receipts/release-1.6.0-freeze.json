@@ -1,12 +1,12 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FROZEN_ONE_TIME_QUALIFICATION_REQUESTED",
+  "status": "FROZEN_APPLICABILITY_CORRECTION_READY_FOR_ONE_TIME_QUALIFICATION",
   "scope": "1.6.0",
-  "siteCommit": "1d6f15b290458ecf44001184725eda1920f11b3b",
+  "siteCommit": "50434a76193644c552a13fe087d281ff8a2f61e8",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
-  "assistantCommit": "46ae9e8b750df32faf3f8bcd257ccc961900f2f6",
+  "assistantCommit": "e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f",
   "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
-  "witnessCommit": "55be3a6382e49f1101b283a24ad885a0ffeffb67",
+  "witnessCommit": "26fc08b7d39f7e24cc5208742f7037367c32c1b0",
   "evaluatorCommit": "d506577539a4ca530a02f548fa2b225221a6af11",
   "retainedBase": "ba595ae901ea5af9b066a5e5f7cab88c15fdee8e",
   "skillBlob": "46f402f30831f992827f24832f51975f4dc5d76e",
@@ -30,14 +30,14 @@
   },
   "scopeExpansionAllowed": false,
   "productAccepted": false,
-  "qualification": "NOT_RUN_FOR_SCOPE_CLARIFICATION",
-  "publication": "NOT_RUN_FOR_SCOPE_CLARIFICATION",
+  "qualification": "NOT_RUN_FOR_APPLICABILITY_CORRECTION",
+  "publication": "NOT_RUN_FOR_APPLICABILITY_CORRECTION",
   "notes": "Only release blockers may change this candidate. Keep all existing source, protected production, offline, hardware and publication gates. Codex may assemble the hosting archive only after stable qualification, not perform testing or preparation.",
   "originalFrozenSiteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
   "originalFrozenWitnessCommit": "3af00278ef77eb38084df4e9c7854528380dc615",
   "formatOnlyCorrection": false,
   "priorSourceRun": 45655978598,
-  "hardware": "NOT_RUN_FOR_SCOPE_CLARIFICATION",
+  "hardware": "NOT_RUN_FOR_APPLICABILITY_CORRECTION",
   "browserWitnessOnlyCorrection": false,
   "remotePublicationVerified": false,
   "previousQualification": {
@@ -61,20 +61,21 @@
     }
   },
   "localControlledEvidence": {
-    "scopeCorrection": {
-      "addressedAdviceTests": 17,
-      "relatedTestsExecutedPassed": 34,
-      "relatedTestsAttempted": 35,
-      "environmentUnavailableTest": "URL",
-      "unchangedOrdinaryPrompts": 61,
-      "explicitScopeContexts": 15,
-      "adviceMappings": 46,
-      "explicitAndEmptyAbstentionMappings": 30,
-      "hardwareWitnessUnchanged": true,
-      "scopeEvidenceIsNotAnAnswer": true
+    "applicabilityCorrection": {
+      "adviceAndEventTestsPassed": 39,
+      "adviceAndEventTestsTotal": 39,
+      "execution": "CONTROLLED_V8_WITH_MODEL_TEST_DOUBLES_NOT_REAL_INFERENCE",
+      "ordinaryPromptAndFormSchemaUnchanged": 61,
+      "scopeContexts": 15,
+      "mappingExecutions": 188,
+      "actualWitnessOrdinaryRequestsUnchanged": 6,
+      "actualWitnessUnrelatedScopeCheck": true,
+      "modelDecisionRequired": true,
+      "scopeInputExcludesActionChoicesAndResultValues": true,
+      "hardwareWitnessUnchanged": true
     },
     "routeInventory": {
-      "siteCommit": "1d6f15b290458ecf44001184725eda1920f11b3b",
+      "siteCommit": "50434a76193644c552a13fe087d281ff8a2f61e8",
       "routeTreeBlob": "b5f5edb0c0631cdfca081c24359efb0170e783c3",
       "registryBlob": "d994e2eacd586962b74ae4930a9d4704c72d2237",
       "declaredSiteRoutes": 43,
@@ -186,6 +187,34 @@
         "total": 2
       },
       "linux": "SKIPPED_BY_QUALITY_GATE"
+    },
+    {
+      "runId": 45695493606,
+      "preparedCommit": "3fadc7ba5af37a0d0057c6f741357718a344b636",
+      "requestCommit": "05c788b010284d5fa980d9d09b127845c9ac605f",
+      "requestBranch": "ci/once/d05-t3-release/3fadc7ba5af37a0d0057c6f741357718a344b636",
+      "requestFile": ".github/ci-requests/d05-t3-release.json",
+      "runStatusAtRecording": "in_progress",
+      "conclusionAtRecording": null,
+      "matchingRuns": 1,
+      "immutable": true,
+      "runStatus": "completed",
+      "conclusion": "failure",
+      "hardwareExecution": "PASS",
+      "hardwareReceipt": "qualification/d05/receipts/45695493606-hardware.json",
+      "correctChoice": {
+        "passed": 6,
+        "total": 7
+      },
+      "exactSource": {
+        "passed": 7,
+        "total": 7
+      },
+      "workerExit": {
+        "passed": 2,
+        "total": 2
+      },
+      "linux": "SKIPPED_BY_QUALITY_GATE"
     }
   ],
   "publicationProcedure": "UNCHANGED_EXISTING_AUTHORIZED_PROCEDURE",
@@ -227,15 +256,43 @@
       "status": "SOURCE_AUDIT_PASS_NOT_BROWSER_QUALIFICATION"
     }
   },
-  "oneTimeRequest": {
-    "runId": 45695493606,
-    "preparedCommit": "3fadc7ba5af37a0d0057c6f741357718a344b636",
-    "requestCommit": "05c788b010284d5fa980d9d09b127845c9ac605f",
-    "requestBranch": "ci/once/d05-t3-release/3fadc7ba5af37a0d0057c6f741357718a344b636",
-    "requestFile": ".github/ci-requests/d05-t3-release.json",
-    "runStatusAtRecording": "in_progress",
-    "conclusionAtRecording": null,
-    "matchingRuns": 1,
-    "immutable": true
+  "previousScopeCorrectionEvidence": {
+    "scopeCorrection": {
+      "addressedAdviceTests": 17,
+      "relatedTestsExecutedPassed": 34,
+      "relatedTestsAttempted": 35,
+      "environmentUnavailableTest": "URL",
+      "unchangedOrdinaryPrompts": 61,
+      "explicitScopeContexts": 15,
+      "adviceMappings": 46,
+      "explicitAndEmptyAbstentionMappings": 30,
+      "hardwareWitnessUnchanged": true,
+      "scopeEvidenceIsNotAnAnswer": true
+    },
+    "routeInventory": {
+      "siteCommit": "1d6f15b290458ecf44001184725eda1920f11b3b",
+      "routeTreeBlob": "b5f5edb0c0631cdfca081c24359efb0170e783c3",
+      "registryBlob": "d994e2eacd586962b74ae4930a9d4704c72d2237",
+      "declaredSiteRoutes": 43,
+      "resolvedRoutePatterns": 43,
+      "publicPages": 39,
+      "privatePages": 4,
+      "publicAndOrderEntryOfflineInventory": 40,
+      "serviceRoutes": 11,
+      "unresolvedSkillRoutes": 0,
+      "referenceChecks": {
+        "serviceService": 25,
+        "serviceSituation": 31,
+        "serviceType": 36,
+        "situationService": 30,
+        "situationType": 36,
+        "situationFallback": 12,
+        "typeService": 19,
+        "typeSituation": 14,
+        "total": 203,
+        "unresolved": 0
+      },
+      "status": "SOURCE_AUDIT_INHERITED_IDENTICAL_ROUTE_BYTES_NOT_BROWSER_QUALIFICATION"
+    }
   }
 }

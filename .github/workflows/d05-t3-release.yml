@@ -29,11 +29,11 @@ jobs:
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d05-t3-release \
             --profile 1.6.0-light-hardware-first \
-            --revision site=1d6f15b290458ecf44001184725eda1920f11b3b \
+            --revision site=50434a76193644c552a13fe087d281ff8a2f61e8 \
             --revision subject=547148d8cd74838e0dd384c9da2f196e3595bf9d \
-            --revision assistant=46ae9e8b750df32faf3f8bcd257ccc961900f2f6 \
+            --revision assistant=e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f \
             --revision one-core=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
-            --revision witness=55be3a6382e49f1101b283a24ad885a0ffeffb67 \
+            --revision witness=26fc08b7d39f7e24cc5208742f7037367c32c1b0 \
             --revision evaluator=d506577539a4ca530a02f548fa2b225221a6af11 \
             --revision retained-base=ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
   hardware:
@@ -41,11 +41,11 @@ jobs:
     if: ${{ needs.admission.result == 'success' }}
     uses: ./.github/workflows/d05-t3-real-model.yml
     with:
-      site_sha: '1d6f15b290458ecf44001184725eda1920f11b3b'
+      site_sha: '50434a76193644c552a13fe087d281ff8a2f61e8'
       domain_sha: '547148d8cd74838e0dd384c9da2f196e3595bf9d'
-      witness_sha: '55be3a6382e49f1101b283a24ad885a0ffeffb67'
+      witness_sha: '26fc08b7d39f7e24cc5208742f7037367c32c1b0'
       evaluator_sha: 'd506577539a4ca530a02f548fa2b225221a6af11'
-      assistant_sha: '46ae9e8b750df32faf3f8bcd257ccc961900f2f6'
+      assistant_sha: 'e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f'
       profile_id: 'light'
       grounded_advice: true
       cross_service: true
@@ -57,9 +57,9 @@ jobs:
     if: ${{ needs.hardware.result == 'success' }}
     uses: ./.github/workflows/d05-t3-dynamic.yml
     with:
-      site_sha: '1d6f15b290458ecf44001184725eda1920f11b3b'
+      site_sha: '50434a76193644c552a13fe087d281ff8a2f61e8'
       domain_sha: '547148d8cd74838e0dd384c9da2f196e3595bf9d'
-      assistant_sha: '46ae9e8b750df32faf3f8bcd257ccc961900f2f6'
+      assistant_sha: 'e2e4bf9157ca1dc81abe06a99ec98ff9aaa21d5f'
       retained_base_sha: 'ba595ae901ea5af9b066a5e5f7cab88c15fdee8e'
       skills_version: '1.6.0'
       result_count: 15

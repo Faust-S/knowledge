@@ -1,0 +1,171 @@
+{
+  "schema": "IWXA_D05_T3_GROUNDED_ADVICE_HARDWARE_RECEIPT/1",
+  "runId": 45695493606,
+  "hardwareJobId": 139491757072,
+  "requestCommit": "05c788b010284d5fa980d9d09b127845c9ac605f",
+  "siteCommit": "1d6f15b290458ecf44001184725eda1920f11b3b",
+  "assistantCommit": "46ae9e8b750df32faf3f8bcd257ccc961900f2f6",
+  "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
+  "witnessCommit": "55be3a6382e49f1101b283a24ad885a0ffeffb67",
+  "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+  "evaluatorCommit": "d506577539a4ca530a02f548fa2b225221a6af11",
+  "skillsVersion": "1.6.0",
+  "profile": "light",
+  "adapter": "nonfallback-reported",
+  "actualInference": true,
+  "serverStopped": true,
+  "browserRestarted": true,
+  "observations": [
+    {
+      "offline": false,
+      "scenario": "cost",
+      "exactSource": true,
+      "validChoice": true,
+      "selectedId": "verify_cost_completeness",
+      "expectedId": "verify_cost_completeness",
+      "expectedChoice": true,
+      "abstained": false,
+      "semanticAcceptance": false,
+      "busyObserved": true,
+      "workerCount": 1
+    },
+    {
+      "offline": false,
+      "scenario": "price",
+      "exactSource": true,
+      "validChoice": true,
+      "selectedId": "verify_margin",
+      "expectedId": "verify_margin",
+      "expectedChoice": true,
+      "abstained": false,
+      "semanticAcceptance": false,
+      "busyObserved": true,
+      "workerCount": 1
+    },
+    {
+      "offline": true,
+      "scenario": "cost",
+      "exactSource": true,
+      "validChoice": true,
+      "selectedId": "verify_consumption",
+      "expectedId": "verify_consumption",
+      "expectedChoice": true,
+      "abstained": false,
+      "semanticAcceptance": false,
+      "busyObserved": true,
+      "workerCount": 1
+    },
+    {
+      "offline": true,
+      "scenario": "missing-cost",
+      "exactSource": true,
+      "validChoice": true,
+      "selectedId": "request_material_price",
+      "expectedId": "request_material_price",
+      "expectedChoice": true,
+      "abstained": false,
+      "semanticAcceptance": false,
+      "busyObserved": true,
+      "workerCount": 1
+    },
+    {
+      "scenario": "materials-shortage",
+      "exactSource": true,
+      "validChoice": true,
+      "selectedId": "verify_shortage",
+      "expectedId": "verify_shortage",
+      "expectedChoice": true,
+      "abstained": false,
+      "semanticAcceptance": false,
+      "expectAbstention": false,
+      "busyObserved": true,
+      "sameWorker": true,
+      "sourceUnchanged": true,
+      "controlsUnchanged": true,
+      "workspaceUnchanged": true,
+      "offline": true,
+      "milliseconds": 1542
+    },
+    {
+      "scenario": "materials-unrelated",
+      "exactSource": true,
+      "validChoice": true,
+      "selectedId": "verify_purchase_units",
+      "expectedId": "abstain",
+      "expectedChoice": false,
+      "abstained": false,
+      "semanticAcceptance": false,
+      "expectAbstention": true,
+      "busyObserved": true,
+      "sameWorker": true,
+      "sourceUnchanged": true,
+      "controlsUnchanged": true,
+      "workspaceUnchanged": true,
+      "offline": true,
+      "milliseconds": 1718
+    },
+    {
+      "scenario": "route-capacity",
+      "exactSource": true,
+      "validChoice": true,
+      "selectedId": "verify_capacity",
+      "expectedId": "verify_capacity",
+      "expectedChoice": true,
+      "abstained": false,
+      "semanticAcceptance": false,
+      "expectAbstention": false,
+      "busyObserved": true,
+      "sameWorker": true,
+      "sourceUnchanged": true,
+      "controlsUnchanged": true,
+      "workspaceUnchanged": true,
+      "offline": true,
+      "milliseconds": 1621
+    }
+  ],
+  "workerExit": [
+    {
+      "offline": false,
+      "scenario": "release",
+      "modelHandles": 0,
+      "otherHandles": 0,
+      "cdpModelTargets": 0,
+      "exitObserved": true
+    },
+    {
+      "offline": true,
+      "scenario": "release",
+      "modelHandles": 0,
+      "otherHandles": 0,
+      "cdpModelTargets": 0,
+      "exitObserved": true
+    }
+  ],
+  "workerRelease": [
+    {
+      "offline": false,
+      "cacheReady": true,
+      "workerExit": true,
+      "ok": true
+    },
+    {
+      "offline": true,
+      "cacheReady": true,
+      "workerExit": true,
+      "ok": true
+    }
+  ],
+  "hardwareExecution": "PASS",
+  "qualityGate": "FAIL",
+  "exactSource": {
+    "passed": 7,
+    "total": 7
+  },
+  "correctChoice": {
+    "passed": 6,
+    "total": 7
+  },
+  "linux": "SKIPPED_BY_QUALITY_GATE",
+  "semanticAcceptance": false,
+  "productAccepted": false
+}
