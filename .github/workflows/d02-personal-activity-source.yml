@@ -136,3 +136,4 @@ jobs:
         if: always()
         shell: bash
         run: rm -f "$RUNNER_TEMP"/d02-*.private
+# Goal review context regression has an isolated lexical scope.

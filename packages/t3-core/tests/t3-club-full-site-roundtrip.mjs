@@ -1704,6 +1704,7 @@ try{
 
  // A cold review must keep the exact saved sources that explain the
  // reason for review. The ordinary one-record editor routes remain tested above.
+ {
  phase="INDEPENDENT_GOAL_REVIEW_CONTEXT_RESTORE";
  await close();page=await launch("personal-recipient");await context.setOffline(true);
  await visit(page,"/workspace/");await openExisting(page);
@@ -1739,6 +1740,7 @@ try{
  check(restoredWeek.data.personalWeekPlan.slots.find(s=>s.id===goalResourceTask.id)?.fact?.minutes===110&&isDeepStrictEqual(restoredCash.data.cashCalendar.closedPeriods[0].entries.find(e=>e.id===plannedTool.id),settledTool),"GOAL_REVIEW_CONTEXT_ORIGINAL_FACTS");
  check((await page.locator("[data-club-goal-list]").textContent()).includes("Остались обязательства: дел 0, денежных планов 1"),"GOAL_REVIEW_CONTEXT_REASON_PRESERVED");
  log("INDEPENDENT_GOAL_REVIEW_CONTEXT_RESTORED_OFFLINE");
+ }
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
 }catch(e){
