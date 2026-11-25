@@ -27,7 +27,7 @@ async function main(){
  assert.ok(sameRoute(new URL(origin+"/workspace/#/domain?workspace_id=example"),new URL(origin+"/workspace/#/domain")));
  assert.ok(!sameRoute(new URL(origin+"/404.html"),new URL(origin+"/projects/")));
  assert.ok(!sameRoute(new URL(origin+"/projects/#different"),new URL(origin+"/projects/#club-goal-map")));
- const totals={pageInventory:0,pageLoads:0,links:0,internalClicked:0,casePrefilled:0,caseRepeated:0,keyboardSkip:0,workspaceResumed:0,assistantSkills:0,externalActionable:0,contactActionable:0,conditional:0,notRun:0,missingRouteChecks:0,externalOK:0,externalBroken:0,externalUnverified:0};
+ const totals={pageInventory:0,pageLoads:0,links:0,internalClicked:0,casePrefilled:0,caseRepeated:0,keyboardSkip:0,workspaceResumed:0,guardedExport:0,assistantSkills:0,externalActionable:0,contactActionable:0,conditional:0,notRun:0,missingRouteChecks:0,externalOK:0,externalBroken:0,externalUnverified:0};
  const failures=[],external=new Set(),conditionalKinds={};
  const safeTarget=(href,source="/")=>{
   try{const u=new URL(href,origin+source);if(u.origin!==origin)return u.protocol==="http:"||u.protocol==="https:"?u.hostname:u.protocol;
@@ -253,6 +253,27 @@ async function main(){
       check(await page.evaluate(()=>document.activeElement===document.getElementById("main-content")),"SKIP_FOCUS_LOST");
       totals.keyboardSkip++;totals.internalClicked++;continue;
      }
+     // This particular export link must not enter Exchange until the user
+     // explicitly selects saved records. Exercise the actual rejection and
+     // preserve the already-tested selected-workspace path.
+     if(task.path==="/workspace/"&&(task.state==="clean"||task.state==="saved-unfocused")&&
+        u.origin===origin&&u.pathname==="/workspace/exchange/"&&
+        (await link.textContent()).trim()==="Копия для другого устройства (.iwxa)"){
+      phase="export-preflight";
+      const before=page.url();
+      const focus=task.state==="clean"?page.getByTestId("club-create-personal-space"):page.getByTestId("club-workspace-resume-one");
+      check(await focus.isVisible(),"EXPORT_PRECONDITION");
+      let observed;
+      const dialog=page.waitForEvent("dialog",{timeout:8000}).then(async d=>{
+       observed={type:d.type(),message:d.message()};
+       await d.accept();
+      });
+      await Promise.all([dialog,link.click({timeout:8000})]);
+      check(observed?.type==="alert"&&observed.message==="Сначала откройте свои сохранённые данные. Копию можно подготовить только из выбранных записей.","EXPORT_GUARD_MESSAGE");
+      await ready(page,obs,new URL(before));
+      check(page.url()===before&&await focus.isVisible(),"EXPORT_GUARD_ROUTE_OR_STATE");
+      totals.guardedExport++;continue;
+     }
      if(u.protocol==="mailto:"||u.protocol==="tel:"){
       check(u.pathname.length>0,"CONTACT_TARGET");await link.click({trial:true});totals.contactActionable++;continue;
      }
@@ -367,8 +388,9 @@ async function main(){
   const pack=JSON.parse(await readFile(join(site,"assets/club-assistant-skills.json"),"utf8"));
   check(totals.assistantSkills===2*pack.skills.length,"INCOMPLETE_SKILL_NAVIGATION");
   check(totals.keyboardSkip>=6&&totals.workspaceResumed>0,"INCOMPLETE_HOST_ACCESSIBILITY_OR_RESUME");
+  check(totals.guardedExport===4,"INCOMPLETE_UNSELECTED_EXPORT_GUARD");
   check(!conditionalKinds["closed-menu"],"MENU_LINKS_UNCHECKED");
-  check(totals.links===totals.internalClicked+totals.externalActionable+totals.contactActionable+totals.conditional,"INCOMPLETE_LINK_ACCOUNTING");
+  check(totals.links===totals.internalClicked+totals.guardedExport+totals.externalActionable+totals.contactActionable+totals.conditional,"INCOMPLETE_LINK_ACCOUNTING");
   check(!failures.length&&!totals.notRun,"USER_NAVIGATION_FAILURE");
   check(!totals.externalBroken,"BROKEN_EXTERNAL_LINK");
   console.log("CLUB_NAV_INTERNAL=PASS");
