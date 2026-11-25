@@ -71,7 +71,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   role,technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
   recipientNodeRef,scopeRef,ownerEpoch,requiredCryptoSuite,getMode,wireTransport,nativeTopologyTransport=null,
   originalPorts,readOriginalBaselineAdmissionInput=async()=>null,onStep=()=>{},
-  enableOriginalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,enableOriginalObjectCatalogWindow=false,enableLocalSourceCapture=false,enablePublicationIndexMigration=false,enableLocalRecipientResultVerification=false,enableRecipientResultRead=false,
+  enableOriginalCommitOrder=false,enableOriginalTechnicalObjectHistory=false,enableOriginalObjectCatalogWindow=false,enableOriginalRecipientFrontierCommitOrder=false,enableLocalSourceCapture=false,enablePublicationIndexMigration=false,enableLocalRecipientResultVerification=false,enableRecipientResultRead=false,
   enableExplicitNetworkResume=false,readOriginalNetworkResumeInput=null,requireSignedTopologyAccess=false,
   enableHistoricalAcknowledgementRecovery=false,enableLocalRetiredRecipientRecovery=false,enableLocalReplacementRecovery=false,
   enableReplacementTerminalRecovery=false,enableReplacementEligibilityRead=false,enableSourceEventWindowRead=false,enableSourceCaptureBinding=false,enableReplacementSourceAdmission=false,enableReplacementRecipientAdmission=false,enableReplacementSourceContent=false,enableReplacementRecipientContent=false,enableReplacementRecipientApply=false,enableReplacementSourceAckConfirmation=false,
@@ -83,6 +83,9 @@ export function createT4OriginalNativeHostNetworkOwner({
   // Enable only on the source using the existing signed source-window
   // protocol, with the original Host exclusion boundary. Legacy peers must
   // not independently reinterpret the source order by wall-clock time.
+  if(typeof enableOriginalRecipientFrontierCommitOrder!=='boolean'||(enableOriginalRecipientFrontierCommitOrder&&
+    (role!=='RECIPIENT'||!enableOriginalTechnicalObjectHistory||typeof originalPorts?.withOriginalHistoryReadBoundary!=='function')))
+    fail('NATIVE_NETWORK_OWNER_RECIPIENT_COMMIT_ORDER_PROFILE_INVALID');
   if(typeof enableOriginalObjectCatalogWindow!=='boolean'||(enableOriginalObjectCatalogWindow&&!enableOriginalTechnicalObjectHistory))
     fail('NATIVE_NETWORK_OWNER_OBJECT_CATALOG_PROFILE_INVALID');
   if(typeof enableOriginalTechnicalObjectHistory!=='boolean'||
@@ -239,7 +242,7 @@ export function createT4OriginalNativeHostNetworkOwner({
   const ports=Object.freeze(Object.fromEntries([...COMMON_PORTS,
     ...(role==='SOURCE'?SOURCE_PORTS:recipientPorts),
     ...(enableLocalSourceCapture?['authorizeOriginalLocalMutation']:[]),
-    ...(enableOriginalCommitOrder?['withOriginalHistoryReadBoundary']:[]),
+    ...(enableOriginalCommitOrder||enableOriginalRecipientFrontierCommitOrder?['withOriginalHistoryReadBoundary']:[]),
     ...(enableExplicitNetworkResume?['authorizeOriginalNetworkResume']:[]),
     ...(enableHistoricalAcknowledgementRecovery||enableReplacementTerminalRecovery?['authorizeOriginalHistoricalCursorRecovery']:[]),
     ...(enableReplacementTerminalRecovery?['authorizeOriginalReplacementOwnerHistoryRead','authorizeOriginalPeerReplacementHistoryRead',
@@ -659,7 +662,23 @@ export function createT4OriginalNativeHostNetworkOwner({
       const {window,nextCursor}=validateT4OriginalSourceEventWindowSnapshot(raw,request);return {window,nextCursor};
     }:null;
     const authorizeOriginalSourceRead=callback('authorizeOriginalSourceRead');
-    const cursor=createT4OriginalNetworkRecipientCursorPort({...tech,originalBaselinePort:baseline,
+    const recipientHistoryBoundary=enableOriginalRecipientFrontierCommitOrder?bindT4OriginalHistoryBoundary({
+      workspaceId:sourceWorkspaceId,originalWriteOwnerRef,getMode,
+      withOriginalSubjectMutation:callback('withOriginalSubjectMutation'),
+      withOriginalHistoryReadBoundary:callback('withOriginalHistoryReadBoundary'),
+    }):null;
+    const recipientHistoryPorts=recipientHistoryBoundary===null?{}:{
+      withOriginalRecipientHistoryReadBoundary:recipientHistoryBoundary.withOriginalHistoryReadBoundary,
+      readOriginalRecipientCommitPage:async proof=>{
+        recipientHistoryBoundary.assertOriginalHistoryReadScope(proof);
+        await requireBinding(state,'recipient-commit-page');
+        recipientHistoryBoundary.assertOriginalHistoryReadScope(proof);
+        const page=await originalKernel.listEventCommitWindow(sourceWorkspaceId,proof.afterEventId,proof.limit);
+        await requireBinding(state,'recipient-commit-page-readback');
+        recipientHistoryBoundary.assertOriginalHistoryReadScope(proof);return page;
+      },
+    };
+    const cursor=createT4OriginalNetworkRecipientCursorPort({...tech,...recipientHistoryPorts,originalBaselinePort:baseline,
       authorizeOriginalRecipientRead:common.authorizeOriginalRead,authorizeOriginalSourceRead,
       readOriginalSourceEvents,readOriginalSourceWindow,readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage')});
     const resetRecipientMigration=()=>resetMigration({
@@ -671,7 +690,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     const task=createT4OriginalHostRecipientDispatcher({...common,originalRecipientCursorPort:cursor,
       authorizeNetworkReceive:callback('authorizeNetworkReceive'),...(enableSourceCaptureBinding?{}:{verifyOriginalSourceEvent:callback('verifyOriginalSourceEvent')}),
       readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage'),
-      withOriginalSubjectMutation:callback('withOriginalSubjectMutation')});
+      withOriginalSubjectMutation:recipientHistoryBoundary?.withOriginalSubjectMutation??callback('withOriginalSubjectMutation')});
     const continueReplacementRecipient=async({selection=null,stopped=null,retryMissing=false})=>{
       const sourceCursorBefore=await cursor.readOriginalVerifiedCursor();
       let originalCaptureSession,retired;
@@ -890,6 +909,7 @@ export function createT4OriginalNativeHostNetworkOwner({
     ...(enableOriginalCommitOrder?{originalCommitOrderEnabled:true}:{}),
     ...(enableOriginalTechnicalObjectHistory?{originalTechnicalObjectHistoryEnabled:true}:{}),
     ...(enableOriginalObjectCatalogWindow?{originalObjectCatalogWindowEnabled:true}:{}),
+    ...(enableOriginalRecipientFrontierCommitOrder?{originalRecipientFrontierCommitOrderEnabled:true}:{}),
     ...(enableSourceCaptureBinding?{originalSourceCaptureBindingEnabled:true}:{}),
     ...(enableLocalRecipientResultVerification?{originalLocalRecipientResultVerificationEnabled:true}:{}),
     ...(enableRecipientResultRead?{originalRecipientResultReadEnabled:true}:{}),
@@ -930,7 +950,8 @@ export function createT4OriginalNativeHostNetworkOwner({
       // The source publication task cannot mutate its business Workspace.
       if(proof.operation==='t1.listEventCommitWindow'&&
         (workspaceId===sourceWorkspaceId?
-          (!enableOriginalCommitOrder||role!=='SOURCE'):
+          (role==='SOURCE'?!enableOriginalCommitOrder:
+            (!enableOriginalRecipientFrontierCommitOrder||(!state.waking&&!state.historyReading))):
           (!enableOriginalTechnicalCommitOrder||(!state.waking&&!state.localMutation&&!state.historyReading))))
         return null;
       if(proof.operation==='t1.listEventObjectCommitWindow'&&

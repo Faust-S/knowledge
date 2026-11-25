@@ -1,4 +1,4 @@
-import {readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory} from './original-technical-event-pages.mjs';
+import {readT4OriginalTechnicalObjectEvents,requireT4OriginalTechnicalObjectHistory,readT4OriginalSelectedCommitEvents} from './original-technical-event-pages.mjs';
 import {T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,requireT4OriginalNetworkTechnicalSchemaId}
   from './original-network-technical-schema.mjs';
 import {originalHostLifetimeMode,scopeOriginalHostPort} from './original-host-lifetime.mjs';
@@ -731,9 +731,15 @@ export function createT4OriginalNetworkRecipientCursorPort({
   authorizeOriginalRecipientRead,authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow=null,
   readOriginalAdmittedBaseline=null,verifyOriginalRecipientBaseline=null,originalBaselinePort=null,
   readOriginalDependencyCoverage,enableOriginalTechnicalObjectHistory=false,
+  readOriginalRecipientCommitPage,withOriginalRecipientHistoryReadBoundary,recipientCommitPageSize=256,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   requireT4OriginalTechnicalObjectHistory(enableOriginalTechnicalObjectHistory,originalKernel);
+  const recipientCommitHistory=readOriginalRecipientCommitPage!==undefined||withOriginalRecipientHistoryReadBoundary!==undefined;
+  if(recipientCommitHistory&&(![readOriginalRecipientCommitPage,withOriginalRecipientHistoryReadBoundary].every(f=>typeof f==='function')||
+    !Number.isSafeInteger(recipientCommitPageSize)||recipientCommitPageSize<1||recipientCommitPageSize>1024||
+    originalKernel?.hasOperation?.('t1.listEventCommitWindow')!==true||typeof originalKernel.listEventCommitWindow!=='function'))
+    fail('RECIPIENT_CURSOR_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
   if(![technicalWorkspaceId,sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
     recipientNodeRef,scopeRef].every(ID)||sourceNodeRef===recipientNodeRef||
     technicalWorkspaceId===sourceWorkspaceId||!Number.isSafeInteger(ownerEpoch)||ownerEpoch<1||
@@ -796,7 +802,18 @@ export function createT4OriginalNetworkRecipientCursorPort({
     await guard(ctx,'t1.getObject',step+'-readback');
     return row;
   }
-  async function readEvents(ctx,recipient){
+  async function readEvents(ctx,recipient,selectedIds=null){
+    if(recipient&&recipientCommitHistory){
+      if(!(selectedIds instanceof Set)||[...selectedIds].some(id=>!ID(id)))
+        fail('RECIPIENT_CURSOR_ORIGINAL_EVENT_SELECTION_INVALID');
+      return readT4OriginalSelectedCommitEvents({workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
+        readOriginalCommitPage:readOriginalRecipientCommitPage,withOriginalHistoryReadBoundary:withOriginalRecipientHistoryReadBoundary,
+        pageSize:recipientCommitPageSize,selectOriginalEvent:e=>selectedIds.has(e.event_id),
+        authorizeOriginalOperation:async operation=>{
+          if(originalKernel.hasOperation(operation)!==true)return false;
+          await guard(ctx,operation,'frontier-selected-events',true);return true;
+        }});
+    }
     if(enableOriginalTechnicalObjectHistory&&!recipient)
       return readT4OriginalTechnicalObjectEvents({originalKernel,workspaceId:technicalWorkspaceId,objectRef:checkpointRef,
         authorizeOriginalOperation:async operation=>{await guard(ctx,operation,'frontier-events');return true;}});
@@ -839,8 +856,8 @@ export function createT4OriginalNetworkRecipientCursorPort({
           fail('RECIPIENT_CURSOR_ORIGINAL_EVENT_CHAIN_INVALID');
         byRevision.set(e.revision,e);technicalIds.add(e.event_id);
       }
-      const receipts=new Map();
-      for(const e of await readEvents(ctx,true)){
+      const receipts=new Map(),selectedIds=new Set(events.map(e=>e?.payload?.record?.originalRecipientEventId).filter(ID));
+      for(const e of await readEvents(ctx,true,selectedIds)){
         if(e?.workspace_id!==sourceWorkspaceId||!ID(e.event_id)||receipts.has(e.event_id))
           fail('RECIPIENT_CURSOR_ORIGINAL_EVENT_STREAM_INVALID');
         receipts.set(e.event_id,e);
@@ -1042,7 +1059,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
         originalRecipientRevision:actual.originalRecipientRevision,
         originalRecipientStateDigest:actual.originalRecipientStateDigest}))
       fail('RECIPIENT_CURSOR_ORIGINAL_APPLIED_WITNESS_MISMATCH');
-    const matches=(await readEvents(ctx,true)).filter(e=>e?.event_id===cas.originalReceiptRef);
+    const matches=(await readEvents(ctx,true,new Set([cas.originalReceiptRef]))).filter(e=>e?.event_id===cas.originalReceiptRef);
     if(matches.length!==1)fail('RECIPIENT_CURSOR_ORIGINAL_RESULT_EVENT_MISMATCH');
     const ev=matches[0],eventRevision=ev.revision??null;
     checkRecipientEvent(identity,session,ev,cas.originalReceiptRef,actual.originalRecipientStateDigest,eventRevision);
@@ -1100,7 +1117,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
     const current=await readVerified(ctx,true,new Set([session.sessionRef]));
     // Independently read the actual local Result Event; the historical wire
     // proof is not a recipient receipt and cannot fabricate this Event.
-    const matches=(await readEvents(ctx,true)).filter(e=>e?.event_id===b.recipientEventRef);
+    const matches=(await readEvents(ctx,true,new Set([b.recipientEventRef]))).filter(e=>e?.event_id===b.recipientEventRef);
     if(matches.length!==1)fail('RECIPIENT_CURSOR_ORIGINAL_RESULT_EVENT_MISMATCH');
     const ev=matches[0],eventRevision=ev.revision??null;
     checkRecipientEvent(identity,session,ev,b.recipientEventRef,b.recipientStateDigest,eventRevision);
@@ -1142,6 +1159,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
       authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalSourceWindow,readOriginalAdmittedBaseline,
       verifyOriginalRecipientBaseline,readOriginalDependencyCoverage,
       originalBaselinePort:scopeBaselinePort(originalBaselinePort,isHostActive),enableOriginalTechnicalObjectHistory,
+      readOriginalRecipientCommitPage,withOriginalRecipientHistoryReadBoundary,recipientCommitPageSize,
     }),
   });
 }

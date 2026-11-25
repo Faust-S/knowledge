@@ -252,3 +252,45 @@ test('K103 exact recipient Result and ACK are read from one committed frontier r
   f.revoke();await assert.rejects(verifier(proof),err('RECIPIENT_CURSOR_ORIGINAL_ACCESS_DENIED'));
   assert.ok(reads>=13);assert.ok(guardCalls>=20);
 });
+
+function pagedRecipientFixture(f,unrelated=0){
+  const pages=[],read=f.kernel.listEventsSince,has=f.kernel.hasOperation;
+  for(let i=0;i<unrelated;i++)f.business.push({workspace_id:ws,event_id:'event:unrelated:'+i,payload:{i}});
+  let held=false;
+  f.kernel.hasOperation=op=>op==='t1.listEventCommitWindow'||has(op);
+  f.kernel.listEventsSince=async w=>{assert.equal(w,tech);return read(w);};
+  f.kernel.listEventCommitWindow=async(w,after,limit)=>{
+    assert.equal(w,ws);assert.ok(held);pages.push({after,limit});
+    const index=after===null?-1:f.business.findIndex(e=>e.event_id===after);
+    assert.ok(after===null||index>=0);
+    const entries=f.business.slice(index+1,index+1+limit).map(event=>({event,legacy_history:false}));
+    return {entries,next_after_event_id:entries.at(-1)?.event.event_id??after,
+      has_more:index+1+entries.length<f.business.length,order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+  };
+  const options={
+    readOriginalRecipientCommitPage:p=>f.kernel.listEventCommitWindow(p.workspaceId,p.afterEventId,p.limit),
+    withOriginalRecipientHistoryReadBoundary:async(p,action)=>{
+      assert.equal(p.workspaceId,ws);assert.equal(p.originalWriteOwnerRef,owner);assert.equal(p.originalHistoryExclusionRequired,true);
+      assert.equal(held,false);held=true;try{return await action();}finally{held=false;}
+    },recipientCommitPageSize:1024};
+  return {pages,options,port:overrides=>f.port({...options,...overrides})};
+}
+test('K135 recipient frontier recovers exact original receipts across 100000 unrelated Events with unchanged evidence',async()=>{
+  const f=await fixture(),q={selections:f.selections},expected=await f.port().inspectOriginalCommittedRecipientResults(q),paged=pagedRecipientFixture(f,100001);
+  f.restart();assert.deepEqual(await paged.port().inspectOriginalCommittedRecipientResults(q),expected);
+  assert.equal(paged.pages.length,196);assert.equal(f.counts().eventReads,6);
+  const victim=f.business[0].event_id;f.business[0].event_id='event:lost';
+  await assert.rejects(paged.port().inspectOriginalCommittedRecipientResults(q),err('RECIPIENT_CURSOR_ORIGINAL_RESULT_EVENT_MISMATCH'));
+  f.business[0].event_id=victim;f.business.push({...f.business.at(-1)});
+  await assert.rejects(paged.port().inspectOriginalCommittedRecipientResults(q),err('TECHNICAL_COMMIT_HISTORY_PAGE_INVALID'));
+});
+test('K135 recipient commit reader denies incomplete ports, revoked commit permission and lost Host lifetime',async()=>{
+  const f=await fixture(),paged=pagedRecipientFixture(f),q={selections:f.selections};
+  assert.throws(()=>f.port({readOriginalRecipientCommitPage:paged.options.readOriginalRecipientCommitPage}),err('RECIPIENT_CURSOR_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED'));
+  await assert.rejects(paged.port({authorizeOriginalRecipientRead:async p=>p.operation!=='t1.listEventCommitWindow'}).inspectOriginalCommittedRecipientResults(q),err('RECIPIENT_CURSOR_ORIGINAL_ACCESS_DENIED'));
+  let active=true;
+  const scoped=paged.port().forOriginalHostLifetime(()=>active),page=f.kernel.listEventCommitWindow;
+  f.kernel.listEventCommitWindow=async(...args)=>{const v=await page(...args);active=false;return v;};
+  await assert.rejects(scoped.inspectOriginalCommittedRecipientResults(q),err('ORIGINAL_HOST_LIFETIME_ENDED'));
+  active=true;await assert.rejects(scoped.inspectOriginalCommittedRecipientResults(q),err('ORIGINAL_HOST_LIFETIME_ENDED'));
+});
