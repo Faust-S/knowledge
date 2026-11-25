@@ -2194,7 +2194,7 @@ test('K85 recipient verifies PUBLISHED via independent source owner history and 
 });
 
 
-test('K86 K87 K88 original tasks recover one business write and independently confirm the ACK',async()=>{
+test('K86 K87 K88 K89 original tasks recover one business write, confirm ACK and commit both original cursors',async()=>{
   const q=await replacementRecipientFixture({realSourceHistory:true,canonicalCapture:true}),{x,c}=q,root=x.session,before=x.sourceCursorBefore;
   const {getMode,requiredCryptoSuite}=x.eligibilityOptions();
   await q.diff();
@@ -2340,4 +2340,38 @@ test('K86 K87 K88 original tasks recover one business write and independently co
   assert.equal(subjectWrites,1);assert.equal(x.signatureCount(),signs+1);assert.equal(x.counts().networkPuts,puts+1);
   assert.deepEqual((await sourceCursor.inspectOriginalHostCursor()).originalT3NextCursor,before);
   assert.deepEqual(await cursor.readOriginalVerifiedCursor(),before);
+  // K89: finish through the pre-existing original cursor CAS ports. Both
+  // owners use independent terminal history; no live wire/key is needed.
+  const sourceServer=createT4OriginalReplacementHistoryServer({...carrier,localNodeRef:sourceNodeRef,peerNodeRef:recipientNodeRef,
+    readOriginalPeerContext:async()=>peerContext(recipientNodeRef),readOriginalReplacementOwnerHistory:async({request})=>{
+      assert.equal(request.ownerNodeRef,sourceNodeRef);
+      return readT4OriginalReplacementOwnerHistory({...opts(request),verifyOriginalRecipientApplied:verifyApplied});
+    }});
+  const recipientClient=createT4OriginalReplacementHistoryClient({...carrier,localNodeRef:recipientNodeRef,peerNodeRef:sourceNodeRef,
+    readOriginalPeerContext:async()=>peerContext(sourceNodeRef),invokeOriginalPeerHistory:({requestBytes})=>sourceServer(requestBytes)});
+  const terminalArgs=async role=>{
+    const source=role==='SOURCE',node=source?sourceNodeRef:recipientNodeRef;
+    return {selection:await(source?selectSource():select()),role,originalCursorPort:source?sourceCursor:cursor,
+      getMode,requiredCryptoSuite,readOriginalHostContext:()=>context(node),authorizeOriginalHostTask:async()=>true,
+      authorizeOriginalHistoricalCursorRecovery:async()=>true,verifyOriginalHistoricalNodeSignature:x.historicalSignature(node),
+      authorizeOriginalPeerReplacementHistoryRead:async()=>true,
+      readOriginalLocalOwnerHistory:request=>readT4OriginalReplacementOwnerHistory({...opts(request),verifyOriginalRecipientApplied:verifyApplied}),
+      readOriginalPeerReplacementHistory:source?client:recipientClient};
+  };
+  const beforeTerminal={signs:x.signatureCount(),puts:x.counts().networkPuts};
+  x.rotateSource();x.rotateRecipient();x.offline();x.f.restart();
+  peerBusy=true;
+  const waiting=await completeT4OriginalReplacementHostCursor(await terminalArgs('SOURCE'));
+  assert.equal(waiting.state,'WAITING_FOR_REPLACEMENT_OWNER_EVIDENCE');
+  assert.deepEqual((await sourceCursor.inspectOriginalHostCursor()).originalT3NextCursor,before);peerBusy=false;
+  const committedRecipient=await completeT4OriginalReplacementHostCursor(await terminalArgs('RECIPIENT'));
+  assert.equal(committedRecipient.state,'ORIGINAL_REPLACEMENT_CURSOR_COMMITTED');assert.equal(committedRecipient.originalRecipientCursorAdvanced,true);
+  assert.deepEqual(await cursor.readOriginalVerifiedCursor(),x.sourceCursorAfter);
+  assert.deepEqual((await sourceCursor.inspectOriginalHostCursor()).originalT3NextCursor,before);
+  x.f.restart();
+  const committedSource=await completeT4OriginalReplacementHostCursor(await terminalArgs('SOURCE'));
+  assert.equal(committedSource.state,'ORIGINAL_REPLACEMENT_CURSOR_COMMITTED');assert.equal(committedSource.sourceCursorAdvanced,true);
+  assert.deepEqual((await sourceCursor.inspectOriginalHostCursor()).originalT3NextCursor,x.sourceCursorAfter);
+  assert.deepEqual(await cursor.readOriginalVerifiedCursor(),x.sourceCursorAfter);
+  assert.equal(subjectWrites,1);assert.equal(x.signatureCount(),beforeTerminal.signs);assert.equal(x.counts().networkPuts,beforeTerminal.puts);
 });
