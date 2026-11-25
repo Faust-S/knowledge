@@ -735,7 +735,7 @@ try{
  phase="OFFLINE_CASH_ENTRIES";
  const entries=[
   {date:cashDates.salary,amountRUB:"25000",status:"actual",category:"payroll",note:"Полученная зарплата",goalId:""},
-  {date:cashDates.expense,amountRUB:"-17000",status:"actual",category:"other",note:"Оплачен набор инструментов",goalId},
+  {date:cashDates.salary,amountRUB:"-16000",status:"planned",category:"other",note:"Оплачен набор инструментов",goalId},
   {date:cashDates.future,amountRUB:"-3000",status:"planned",category:"utilities",note:"Будущий платёж",goalId:""}
  ];
  for(const [i,entry] of entries.entries()){
@@ -746,6 +746,24 @@ try{
   await cashEntry.locator("[data-cash-calendar-save]").click();
   await poll(async()=> (await localCash())?.data?.cashCalendar?.entries?.length===i+1,"CASH_ENTRY_WRITTEN");
  }
+ phase="OFFLINE_CASH_PLAN_TO_FACT";
+ const estimateBefore=await localCash(),plannedTool=estimateBefore.data.cashCalendar.entries.find(e=>e.note==="Оплачен набор инструментов");
+ check(plannedTool.status==="planned"&&plannedTool.amountRUB===-16000&&!plannedTool.planBasis,"CASH_PLAN_WITHOUT_INVENTED_FACT");
+ const toolRow=page.locator("[data-cash-calendar-entries] tbody tr").filter({hasText:"Оплачен набор инструментов"});
+ await toolRow.getByRole("button",{name:"Изменить",exact:true}).click();
+ check(await cashEntry.getAttribute("data-edit-id")===plannedTool.id,"CASH_PLAN_TO_FACT_SAME_ID");
+ await cashEntry.locator('[name="date"]').fill(cashDates.expense);
+ await cashEntry.locator('[name="amountRUB"]').fill("-17000");
+ await cashEntry.locator('[name="status"]').selectOption("actual");
+ await cashEntry.locator("[data-cash-calendar-save]").click();
+ await poll(async()=> (await localCash())?.data?.cashCalendar?.entries?.find(e=>e.id===plannedTool.id)?.status==="actual","CASH_FACT_RECORDED");
+ const settledCash=await localCash(),settledTool=settledCash.data.cashCalendar.entries.find(e=>e.id===plannedTool.id);
+ const expectedCashBasis={date:cashDates.salary,amountRUB:-16000,goalId};
+ check(settledTool.amountRUB===-17000&&settledTool.date===cashDates.expense&&settledTool.goalId===goalId&&
+  isDeepStrictEqual(settledTool.planBasis,expectedCashBasis)&&settledCash.data.cashCalendar.entries.length===3&&
+  isDeepStrictEqual(settledCash.data.cashCalendar.entries.filter(e=>e.id!==plannedTool.id),estimateBefore.data.cashCalendar.entries.filter(e=>e.id!==plannedTool.id)),"CASH_PLAN_FACT_EXACT_SINGLE_ENTRY");
+ check(/План:.*16[\s\u00a0]000.*\+1[\s\u00a0]000.*1 дн\. позже/.test(await toolRow.textContent()),"CASH_PLAN_FACT_VISIBLE");
+ log("OFFLINE_CASH_EXACT_PLAN_TO_FACT");
  const priorCash=await localCash();
  phase="OFFLINE_CASH_ROLLOVER_PREVIEW";
  const cashHistory=page.locator("#club-cash-history");
@@ -771,7 +789,10 @@ try{
  check(cal.closedPeriods[0].entries.find(e=>e.note==="Оплачен набор инструментов")?.goalId===goalId&&
   !cal.closedPeriods[0].entries.find(e=>e.note==="Полученная зарплата")?.goalId,"GOAL_CASH_EXPLICIT_LINK_CLOSED");
  log("OFFLINE_GOAL_CASH_HISTORY_LINK");
+ check(isDeepStrictEqual(cal.closedPeriods[0].entries.find(e=>e.id===plannedTool.id),settledTool),"CASH_CLOSED_EXACT_PLAN_FACT");
  await cashHistory.locator("[data-cash-calendar-history-detail]").getByText("Полученная зарплата",{exact:true}).waitFor({state:"visible"});
+ check(/План:.*16[\s\u00a0]000/.test(await cashHistory.locator("[data-cash-calendar-history-detail]").textContent()),"CASH_CLOSED_ESTIMATE_VISIBLE");
+ log("OFFLINE_CASH_PLAN_FACT_IN_CLOSED_PERIOD");
  log("OFFLINE_CASH_RECONCILED_PERIOD_HISTORY");
  async function verifyExpenseAlternatives(prefix){
   phase=prefix;
@@ -1277,6 +1298,8 @@ try{
  check(restoredCash.data.cashCalendar.entries.length===1&&isDeepStrictEqual(restoredCash.data.cashCalendar.entries[0],expectedEditedPayment),"GOAL_PAYMENT_COLD_EXACT_ENTRY");
  check(isDeepStrictEqual(restoredCash.data.cashCalendar.closedPeriods,originalCashBeforeTarget.data.cashCalendar.closedPeriods),"GOAL_PAYMENT_COLD_EXACT_HISTORY");
  log("OFFLINE_GOAL_PAYMENT_COLD_EXACT_ENTRY");
+ check(isDeepStrictEqual(restoredCash.data.cashCalendar.closedPeriods[0].entries.find(e=>e.id===plannedTool.id),settledTool),"CASH_COLD_EXACT_PLAN_FACT");
+ log("OFFLINE_CASH_PLAN_FACT_KERNEL_READBACK");
 
  await verifyExpenseAlternatives("OFFLINE_RESTORED_EXPENSE_ALTERNATIVES");
  phase="OFFLINE_FACT_RESTORE_WEEK";
@@ -1470,6 +1493,11 @@ try{
   check(await value(1,"Записанные поступления")===25000,prefix+"_INCOME_NO_CARRIED_BALANCE");
   check(await value(1,"Записанные расходы")===17000,prefix+"_CLOSED_EXPENSE");
   check(await value(1,"Плановых операций")===0,prefix+"_FUTURE_PLANS_EXCLUDED");
+  check(/Сумма абсолютных отклонений времени: 20 мин/.test(await cards.nth(0).textContent()),prefix+"_TIME_ABSOLUTE_ESTIMATE");
+  const cashReviewText=await cards.nth(1).textContent();
+  check(/Расходы с известным планом: 1\. План: 16[\s\u00a0]000 руб\.; факт: 17[\s\u00a0]000 руб\.; отклонение: \+1[\s\u00a0]000 руб/.test(cashReviewText)&&
+   /Дата раньше: 0; по плану: 0; позже: 1/.test(cashReviewText)&&
+   /Факты без сохранённого плана: 1/.test(cashReviewText),prefix+"_CASH_MATCHED_ESTIMATE_ONLY");
   check(await value(3,"Решений о завершении")===1,prefix+"_ONE_COMPLETION");
   check(await value(3,"Записано оценок")===1,prefix+"_ONE_PERSONAL_ASSESSMENT");
   check((await cards.nth(3).textContent()).includes("частично: 1"),prefix+"_PARTIAL_NOT_ACHIEVED");
@@ -1482,12 +1510,17 @@ try{
   const estimate=follow.locator('[data-club-review-followup-code="review-estimates"]');
   check((await estimate.textContent()).includes("20 мин."),prefix+"_MATCHED_DEVIATION_FOLLOWUP");
   await follow.locator('[data-club-review-followup-code="cash-coverage"]').getByRole("button",{name:"Открыть денежный календарь",exact:true}).waitFor({state:"visible"});
+  const cashEstimateFollow=follow.locator('[data-club-review-followup-code="review-cash-estimates"]');
+  await cashEstimateFollow.getByRole("button",{name:"Открыть денежный календарь",exact:true}).waitFor({state:"visible"});
+  check((await cashEstimateFollow.textContent()).includes("Сумма отличалась от плана у 1, дата у 1"),prefix+"_CASH_ESTIMATE_FOLLOWUP");
   log(prefix+"_FOLLOWUP_SOURCE_ACTIONS");
   const goalGroup=result.locator("details").filter({has:page.getByText("По личным целям (1)",{exact:true})});
   await goalGroup.locator(":scope > summary").click();
   const linked=goalGroup.locator("article").filter({has:page.getByRole("heading",{name:goalTitle,exact:true})});
   check(await linked.count()===1,prefix+"_EXACT_GOAL");
   check(/17[\s\u00a0]000/.test(await linked.textContent())&&!/25[\s\u00a0]000/.test(await linked.textContent()),prefix+"_NO_UNLINKED_SALARY");
+  check(/Расходы с известным планом: 1\. План: 16[\s\u00a0]000 руб/.test(await linked.textContent())&&
+   !/Поступления с известным планом/.test(await linked.textContent()),prefix+"_GOAL_EXACT_CASH_ESTIMATE");
   check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===tabBefore,prefix+"_NO_TAB_MUTATION");
   await panel.locator(":scope > summary").click();
   log(prefix);
@@ -1613,6 +1646,8 @@ try{
  check(recipientCashRecord?.data?.cashCalendar?.entries?.length===1&&isDeepStrictEqual(recipientCashRecord.data.cashCalendar.entries[0],expectedEditedPayment),"GOAL_PAYMENT_INDEPENDENT_EXACT_ENTRY");
  check(isDeepStrictEqual(recipientCashRecord.data.cashCalendar.closedPeriods,originalCashBeforeTarget.data.cashCalendar.closedPeriods),"GOAL_PAYMENT_INDEPENDENT_EXACT_HISTORY");
  log("INDEPENDENT_GOAL_PAYMENT_EXACT_IWXA_READBACK");
+ check(isDeepStrictEqual(recipientCashRecord.data.cashCalendar.closedPeriods[0].entries.find(e=>e.id===plannedTool.id),settledTool),"CASH_PLAN_FACT_INDEPENDENT_EXACT_ENTRY");
+ log("INDEPENDENT_CASH_PLAN_FACT_IWXA_READBACK");
 
  log("INDEPENDENT_PERSONAL_FULL_KERNEL_READBACK");
  console.log("CLUB_DIST_ROUNDTRIP=PASS original full dist; offline same Result update; no local model inference; no physical-phone claim");
