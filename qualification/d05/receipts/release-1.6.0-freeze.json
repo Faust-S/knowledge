@@ -31,7 +31,7 @@
   "scopeExpansionAllowed": false,
   "productAccepted": false,
   "qualification": "IN_PROGRESS",
-  "publication": "NOT_RUN_FOR_APPLICABILITY_CORRECTION",
+  "publication": "PREFLIGHT_PASS_FULL_PRIVATE_PUBLICATION_PENDING",
   "notes": "Only release blockers may change this candidate. Keep all existing source, protected production, offline, hardware and publication gates. Codex may assemble the hosting archive only after stable qualification, not perform testing or preparation. Full release also requires a test-only rendered navigation audit after original browser gates; it does not replace protected or hardware evidence.",
   "originalFrozenSiteCommit": "0d88c6822a224cb54d8f7908b216e41f98dfd550",
   "originalFrozenWitnessCommit": "3af00278ef77eb38084df4e9c7854528380dc615",
@@ -351,6 +351,65 @@
     "exactSource": {
       "passed": 7,
       "total": 7
+    },
+    "functionalProgress": {
+      "jobId": 139500848420,
+      "status": "in_progress",
+      "conclusion": null,
+      "passedSteps": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31
+      ],
+      "failedSteps": [],
+      "activeSteps": [
+        32
+      ],
+      "notFinal": true
     }
+  },
+  "assemblyHandoff": {
+    "status": "HOLD_UNTIL_FULL_RELEASE_PASS",
+    "sourceRepository": "Faust-S/cehovod.ru",
+    "retainedBranch": "work/2026-11-25-d05-t3-retained-inputs",
+    "expectedParent": "50434a76193644c552a13fe087d281ff8a2f61e8",
+    "qualificationRun": 45697492951,
+    "retainedCommit": null,
+    "retainedTree": null,
+    "nodeVersion": "22.16.0",
+    "npmVersion": "10.9.4",
+    "origin": "https://cehovod.ru",
+    "toolchainSetup": "npm ci --no-audit --no-fund",
+    "buildCommand": "npm run build:product:t3",
+    "defaultBuildStillT2": true,
+    "archiveContents": "dist/ contents at archive root, including .htaccess; no source, dependencies, logs, models or development output",
+    "allowedCodexWork": "assemble from qualified retained tree and package resulting dist; record archive SHA-256",
+    "forbiddenCodexWork": "source changes, rebuilding original platform inputs, independent product tests, production activation",
+    "releaseGate": "PASS all grouped release stages, exact remote source tree readback and byte-identical private reproduction"
   }
 }
