@@ -33,7 +33,9 @@ jobs:
             .github/d06/verify-d06-once.mjs
             .github/d06/t3-release-request.json
             .github/d06/reuse-static-evidence.mjs
+            .github/d06/reuse-native-evidence.mjs
             scripts/d06-static-reconcile.sh
+            scripts/d06-verify-generated-routes.cjs
             scripts/d06-private-git-transport.sh
           sparse-checkout-cone-mode: false
           path: pipeline
@@ -151,6 +153,17 @@ jobs:
           # Logs contain ANSI escapes. Write them only to a runner-local file, never the terminal.
           gh api --allow-escape-sequences repos/Faust-S/knowledge/actions/jobs/139399590758/logs > "$RUNNER_TEMP/d06-prior-job.private.log"
           node "$GITHUB_WORKSPACE/pipeline/.github/d06/reuse-static-evidence.mjs" "$RUNNER_TEMP/d06-prior-run.private.json" "$RUNNER_TEMP/d06-prior-job.private.json" "$RUNNER_TEMP/d06-prior-job.private.log"
+      - name: Reuse exact completed native offline and Exchange evidence
+        id: native-evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/runs/45683033434 > "$RUNNER_TEMP/d06-prior-native-run.private.json"
+          gh api repos/Faust-S/knowledge/actions/jobs/139448261827 > "$RUNNER_TEMP/d06-prior-native-job.private.json"
+          gh api --allow-escape-sequences repos/Faust-S/knowledge/actions/jobs/139448261827/logs > "$RUNNER_TEMP/d06-prior-native-job.private.log"
+          node "$GITHUB_WORKSPACE/pipeline/.github/d06/reuse-native-evidence.mjs" "$RUNNER_TEMP/d06-prior-native-run.private.json" "$RUNNER_TEMP/d06-prior-native-job.private.json" "$RUNNER_TEMP/d06-prior-native-job.private.log"
       - name: Check exact original assistant files and owner pack
         shell: pwsh
         run: |
@@ -229,7 +242,7 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=normal)"
           echo D06_FINAL_BROWSER_VERSION=156.0.8078.4
           echo D06_FINAL_BROWSER_INSTALL=PASS
-      - name: Reconcile static source integrity with prior 85 of 85 evidence
+      - name: Reconcile generated route contract and static output
         id: static-gate
         working-directory: private/site
         shell: bash
@@ -242,7 +255,7 @@ jobs:
           echo D06_FINAL_STATIC_EVIDENCE_RECONCILED=PASS
       - name: Verify original public portable input
         id: original-input
-        if: ${{ !cancelled() && steps.fixed-browser.outcome == 'success' }}
+        if: ${{ success() && steps.static-gate.outcome == 'success' && steps.native-evidence.outcome == 'success' && steps.retention-permission.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -254,175 +267,16 @@ jobs:
           unzip -p "$RUNNER_TEMP/platform-outer.zip" platform-inputs.zip > "$RUNNER_TEMP/platform-inputs.zip"
           node scripts/d06-t3-platform-inputs.mjs verify "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/platform-private.log" 2>&1 || { grep -Eo 'D06_T3_PLATFORM_[A-Z0-9_]+' "$RUNNER_TEMP/platform-private.log" | sort -u | head -10; exit 1; }
           echo D06_T3_ORIGINAL_PLATFORM_128_FILES=PASS
-      - name: Prepare compiled loopback Host
-        id: loopback-host
-        if: ${{ !cancelled() && steps.original-input.outcome == 'success' }}
+      - name: Prepare compiled production Host
+        id: production-host
+        if: ${{ success() && steps.original-input.outcome == 'success' && steps.static-gate.outcome == 'success' && steps.native-evidence.outcome == 'success' && steps.retention-permission.outcome == 'success' }}
         working-directory: private/site
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "8ee1f93603c95738333bc1489d68816ead870893"
           test -z "$(git status --porcelain --untracked-files=all)"
-          echo D06_LOOPBACK_PRISTINE_SOURCE=PASS
-          npm run t3:prepare-host -- "$GITHUB_WORKSPACE/original-core/packages/t3-core" "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/private/assistant" https://127.0.0.1:8443 > "$RUNNER_TEMP/d06-host-private.log" 2>&1 || {
-            echo D06_T3_HOST_SOURCE_BUILD=FAIL
-            grep -Eo 'D06_T3_(HOST|PLATFORM)_[A-Z0-9_]+|D06_SITE_ONLY_[A-Z0-9_]+|D06_BUILD_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z_]+|T2_QUALIFIED_KERNEL_STAGE_[A-Z_]+|TS[0-9]{4}' "$RUNNER_TEMP/d06-host-private.log" | sort -u | head -25 || true
-            node --input-type=module - "$RUNNER_TEMP/d06-host-private.log" <<'NODE'
-          import {readFileSync} from 'node:fs';
-          import {execFileSync} from 'node:child_process';
-          const paths=execFileSync('git',['ls-files','--','src'],{encoding:'utf8'}).split(/\r?\n/).filter(Boolean).sort();
-          const lines=readFileSync(process.argv[2],'utf8').split(/\r?\n/);
-          const matches=lines.map(line=>line.match(/^(src\/[A-Za-z0-9_./-]+\.(?:ts|tsx|mts))\((\d+),(\d+)\): error (TS\d+):/)).filter(Boolean);
-          console.log("D06_T3_COMPILE_DIAGNOSTICS="+matches.length);
-          for(const m of matches.slice(0,40)){
-            const ordinal=paths.indexOf(m[1])+1;
-            if(ordinal>0)console.log("D06_T3_COMPILE_COORD="+m[4]+":"+ordinal+":"+m[2]+":"+m[3]);
-          }
-          NODE
-            exit 1
-          }
-          echo D06_T3_HOST_SOURCE_BUILD=PASS
-          node --input-type=module - "$RUNNER_TEMP/d06-t3-host" <<'NODE'
-          import {verifyPreparedD06Host} from './scripts/prepare-d06-t3-host.mjs';
-          const receipt=verifyPreparedD06Host(process.argv[2]);
-          console.log("D06_T3_HOST_READBACK=PASS");
-          console.log("D06_T3_HOST_FILES="+receipt.files.length);
-          console.log("D06_T3_SHARED_WORKER_COUNT="+receipt.files.filter(x=>/^assets\/model-worker-[A-Za-z0-9_-]+\.js$/.test(x.path)).length);
-          NODE
-      - name: Build exact HTTPS loopback candidate
-        id: preview-build
-        if: ${{ !cancelled() && steps.loopback-host.outcome == 'success' }}
-        working-directory: private/site
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -x "$PLAYWRIGHT_CHROMIUM_EXECUTABLE"
-          node --experimental-strip-types scripts/build-d06-t3-local-site.mjs "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" > "$RUNNER_TEMP/d06-offline-build-private.log" 2>&1 || {
-            echo D06_T3_OFFLINE_BUILD=FAIL
-            grep -E '^D06_T3_LOCAL_STAGE_[A-Z0-9_]+=(PASS|FAIL)$' "$RUNNER_TEMP/d06-offline-build-private.log" || true
-            grep -Eo 'D06_T3_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_D5_MODULE_[A-Z0-9_]+' "$RUNNER_TEMP/d06-offline-build-private.log" | sort -u | head -25 || true
-            exit 1
-          }
-          echo D06_T3_OFFLINE_BUILD=PASS
-      - name: Real original T3 offline install, native save, cold restart and readback
-        if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
-        working-directory: private/site
-        shell: bash
-        env:
-          IWXA_T3_ORIGINAL_CORE: ${{ github.workspace }}/original-core/packages/t3-core
-        run: |
-          set -euo pipefail
-          node --experimental-strip-types tests/t3/verify-native-offline.mjs > "$RUNNER_TEMP/d06-offline-private.log" 2>&1 || {
-            echo D06_T3_NATIVE_OFFLINE_NO_MODEL=FAIL
-            grep -E '^D06_T3_OFFLINE_[A-Z0-9_]+=PASS$|^D06_T3_OFFLINE_CONTROL_FACTS=[0-9:]+$' "$RUNNER_TEMP/d06-offline-private.log" || true
-            grep -Eo 'D06_T3_[A-Z0-9_]+' "$RUNNER_TEMP/d06-offline-private.log" | sort -u | head -20 || true
-            for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toHaveCount' 'toBeVisible' 'toHaveValue' 'toBeEnabled' 'toBeChecked' 'net::ERR' 'TypeError'; do
-              if grep -Fq "$marker" "$RUNNER_TEMP/d06-offline-private.log"; then echo "D06_T3_OFFLINE_FAILURE_CLASS=$marker"; fi
-            done
-            exit 1
-          }
-          grep -E '^D06_T3_(OFFLINE_[A-Z0-9_]+|NATIVE_OFFLINE_NO_MODEL)=PASS$' "$RUNNER_TEMP/d06-offline-private.log"
-      - name: Independent recipient and physical .iwxa transfer with network disabled
-        if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
-        working-directory: private/site
-        shell: bash
-        env:
-          IWXA_T3_ORIGINAL_CORE: ${{ github.workspace }}/original-core/packages/t3-core
-        run: |
-          set -euo pipefail
-          node --experimental-strip-types tests/t3/verify-native-offline.mjs --offline-exchange > "$RUNNER_TEMP/d06-offline-exchange-private.log" 2>&1 || {
-            echo D06_T3_OFFLINE_INDEPENDENT_EXCHANGE=FAIL
-            grep -E '^D06_T3_OFFLINE_[A-Z0-9_]+=PASS$|^D06_T3_OFFLINE_CONTROL_FACTS=[0-9:]+$' "$RUNNER_TEMP/d06-offline-exchange-private.log" || true
-            grep -Eo 'D06_T3_[A-Z0-9_]+' "$RUNNER_TEMP/d06-offline-exchange-private.log" | sort -u | head -20 || true
-            for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toHaveCount' 'toBeVisible' 'toHaveValue' 'toBeEnabled' 'toContainText' 'net::ERR' 'TypeError'; do
-              if grep -Fq "$marker" "$RUNNER_TEMP/d06-offline-exchange-private.log"; then echo "D06_T3_OFFLINE_EXCHANGE_FAILURE_CLASS=$marker"; fi
-            done
-            exit 1
-          }
-          grep -E '^D06_T3_(OFFLINE_[A-Z0-9_]+|NATIVE_OFFLINE_NO_MODEL)=PASS$' "$RUNNER_TEMP/d06-offline-exchange-private.log"
-      - name: Run full D06 native Exchange and lifecycle witness at exact T3 origin
-        id: native-exchange
-        if: ${{ !cancelled() && steps.preview-build.outcome == 'success' }}
-        working-directory: private/site
-        shell: bash
-        env:
-          IWXA_T2_CANONICAL_ROOT: ${{ github.workspace }}/original-core/packages/t3-core
-        run: |
-          set -euo pipefail
-          oom_before="$(awk '$1=="oom_kill"{print $2}' /sys/fs/cgroup/memory.events 2>/dev/null || true)"
-          DEBUG=pw:browser node --experimental-strip-types scripts/verify-native-transfer.mjs > "$RUNNER_TEMP/d06-t3-native-private.log" 2>&1 || {
-            echo D06_T3_INHERITED_NATIVE_EXCHANGE=FAIL
-            grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
-            grep -E '^D06_T3_DOWNLOAD_FAILURE=[A-Z0-9_]+:(COMPLETION|BROWSER_FILE|SAVE_AS|BYTE_READBACK):(CANCELED|NO_SPACE|ACCESS|MISSING_FILE|TARGET_CLOSED|TIMEOUT|NETWORK|OTHER)$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
-            grep -E '^D06_T3_PORTABLE_(ARCHIVE_BYTES=[0-9]+|OPEN_PAGES=[0-9]+|DOWNLOAD_PAGE_CLOSED=(YES|NO)|DOWNLOAD_LIFECYCLE=(PAGE_CLOSED|PAGE_CRASHED|CONTEXT_CLOSED|BROWSER_DISCONNECTED))$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
-            grep -E '^D06_T3_PHYSICAL_DOWNLOAD=(ITEM_HISTORY|BACKUP|PD12_PORTABLE):PASS$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
-            grep -E '^D06_T3_PORTABLE_ACTIVATION=(EVENT|CLICK):(PASS|CANCELED|NO_SPACE|ACCESS|MISSING_FILE|TARGET_CLOSED|TIMEOUT|NETWORK|OTHER)$' "$RUNNER_TEMP/d06-t3-native-private.log" || true
-            grep -Eo 'D06_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u | head -40 || true
-            grep -Eo 'D06_T3_EXCHANGE_CONSENT_[A-Z0-9_]+' "$RUNNER_TEMP/d06-t3-native-private.log" | sort -u || true
-            node --input-type=module - "$RUNNER_TEMP/d06-t3-native-private.log" <<'NODE'
-          import {readFileSync} from 'node:fs';
-          const body=readFileSync(process.argv[2],'utf8');
-          const exits=[...body.matchAll(/<process did exit: exitCode=(-?\d+|null), signal=(SIG[A-Z0-9]+|null)>/g)];
-          for(const m of exits.slice(-12)) console.log("D06_T3_BROWSER_EXIT="+m[1]+":"+m[2]);
-          const browserFatal=[...body.matchAll(/(?:Out of memory|Received signal (?:6|9|11)|FATAL:|Unable to allocate)/gi)].length;
-          console.log("D06_T3_BROWSER_FATAL_MARKERS="+browserFatal);
-          // Keep diagnostics inside the private runner. Emit only bounded
-          // categories and relative ordering, never browser messages or paths.
-          const lines=body.split(/\r?\n/);
-          const categories=[
-            ["PROFILE_LOCK",/ProcessSingleton|SingletonLock|profile.{0,32}in use/i],
-            ["MEMORY",/out of memory|unable to allocate|oom-kill/i],
-            ["CRASH_SIGNAL",/received signal (?:6|9|11)|SIG(?:ABRT|SEGV|KILL)/i],
-            ["DOWNLOAD",/download_(?:manager|item|file)|download manager/i],
-            ["GPU",/GPU process|gpu_process_host/i],
-            ["IPC",/bad message|Mojo.{0,32}(?:error|disconnect)/i],
-            ["CRASHPAD",/crashpad|crash_reporter/i],
-            ["CHECK_FAILED",/check failed:/i],
-          ];
-          const fatalLines=lines.filter(line=>/FATAL:|Out of memory|Received signal (?:6|9|11)|Unable to allocate/i.test(line));
-          for(const [label,pattern] of categories){
-            const count=fatalLines.filter(line=>pattern.test(line)).length;
-            if(count)console.log("D06_T3_BROWSER_FATAL_CLASS="+label+":"+count);
-          }
-          const timeline=[];
-          for(let i=0;i<lines.length;i++){
-            const line=lines[i];
-            let marker=null;
-            const stage=/^D06_NATIVE_STAGE=(PD12_PORTABLE_[A-Z0-9_]+)$/.exec(line);
-            const activity=/^D06_T3_PORTABLE_(?:ACTIVATION|DOWNLOAD_LIFECYCLE|DOWNLOAD_PAGE_CLOSED)=([A-Z_:]+)$/.exec(line);
-            if(stage)marker=stage[1];
-            else if(activity)marker=activity[1];
-            else if(/^D06_T3_DOWNLOAD_FAILURE=PD12_PORTABLE:/.test(line))marker="DOWNLOAD_FAILURE";
-            else if(/FATAL:|Out of memory|Received signal (?:6|9|11)|Unable to allocate/i.test(line))marker="BROWSER_FATAL";
-            else if(/<gracefully close start>/i.test(line))marker="BROWSER_CLOSE_REQUESTED";
-            else if(/<process did exit:/i.test(line))marker="BROWSER_EXIT";
-            if(marker)timeline.push([i+1,marker]);
-          }
-          for(const [index,marker] of timeline.slice(-40))console.log("D06_T3_EXCHANGE_TIMELINE="+index+":"+marker);
-          const hits=[...body.matchAll(/(?:scripts\/verify-native-transfer|tests\/t3\/exchange-consent)\.mjs:(\d+):(\d+)/g)];
-          for(const m of hits.slice(-8)) console.log("D06_T3_EXCHANGE_COORD="+(m[0].startsWith("scripts/")?"TRANSFER":"CONSENT")+":"+m[1]+":"+m[2]);
-          NODE
-            oom_after="$(awk '$1=="oom_kill"{print $2}' /sys/fs/cgroup/memory.events 2>/dev/null || true)"
-            if [[ "$oom_before" =~ ^[0-9]+$ && "$oom_after" =~ ^[0-9]+$ && "$oom_after" -ge "$oom_before" ]]; then
-              echo "D06_T3_BROWSER_OOM_DELTA=$((oom_after-oom_before))"
-            fi
-            for marker in 'TimeoutError' 'AssertionError' 'strict mode violation' 'toBeVisible' 'toBeDisabled' 'toBeEnabled' 'toBeChecked' 'toHaveAttribute' 'toHaveCount' 'toHaveText' 'Timed out' 'waitForFunction' 'locator.waitFor' 'net::ERR' 'TypeError' 'EADDRINUSE'; do
-              if grep -Fq "$marker" "$RUNNER_TEMP/d06-t3-native-private.log"; then echo "D06_T3_EXCHANGE_FAILURE_CLASS=$marker"; fi
-            done
-            exit 1
-          }
-          grep -E '^D06_NATIVE_STAGE=[A-Z0-9_]+$' "$RUNNER_TEMP/d06-t3-native-private.log" | tail -12 || true
-          for phase in ITEM_HISTORY BACKUP PD12_PORTABLE; do
-            grep -Fx "D06_T3_PHYSICAL_DOWNLOAD=$phase:PASS" "$RUNNER_TEMP/d06-t3-native-private.log"
-          done
-          echo D06_T3_INHERITED_NATIVE_EXCHANGE=PASS
-      - name: Prepare compiled production Host
-        id: production-host
-        if: ${{ success() && steps.static-gate.outcome == 'success' && steps.native-exchange.outcome == 'success' && steps.retention-permission.outcome == 'success' }}
-        working-directory: private/site
-        shell: bash
-        run: |
-          set -euo pipefail
+          echo D06_PRODUCTION_PRISTINE_SOURCE=PASS
           npm run t3:prepare-host -- "$GITHUB_WORKSPACE/original-core/packages/t3-core" "$RUNNER_TEMP/d06-t3-host-production" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/private/assistant" https://komplektovod.ru > "$RUNNER_TEMP/d06-host-private.log" 2>&1 || {
             echo D06_T3_HOST_SOURCE_BUILD=FAIL
             grep -Eo 'D06_T3_(HOST|PLATFORM)_[A-Z0-9_]+|D06_SITE_ONLY_[A-Z0-9_]+|D06_BUILD_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z_]+|T2_QUALIFIED_KERNEL_STAGE_[A-Z_]+|TS[0-9]{4}' "$RUNNER_TEMP/d06-host-private.log" | sort -u | head -25 || true
@@ -470,7 +324,7 @@ jobs:
           test "$(git rev-parse HEAD:.gitattributes)" = "98e0b5fafc7b2d1193a185b51a8ff0fe7b4da5fe"
           test -z "$(git diff --name-only)"
           echo D06_FINAL_RETENTION_BASE=PASS
-          rm -rf -- "$RUNNER_TEMP/d06-t3-host-production" "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/original-core" "$GITHUB_WORKSPACE/private/assistant" "$GITHUB_WORKSPACE/private/domain" "$GITHUB_WORKSPACE/private/skill-owner" "$GITHUB_WORKSPACE/private/retention"
+          rm -rf -- "$RUNNER_TEMP/d06-t3-host-production" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/original-core" "$GITHUB_WORKSPACE/private/assistant" "$GITHUB_WORKSPACE/private/domain" "$GITHUB_WORKSPACE/private/skill-owner" "$GITHUB_WORKSPACE/private/retention"
           for checkout in original-core private/assistant private/domain private/skill-owner private/retention; do
             test ! -e "$GITHUB_WORKSPACE/$checkout"
           done
@@ -590,6 +444,7 @@ jobs:
           echo D06_T3_NO_GIT_OR_PACKAGE_MANAGER=PASS
           exit "$reproducible"
       - name: Real public assistant without installing a model
+        id: public-assistant
         if: ${{ !cancelled() && steps.local-rebuild.outputs.built == 'true' }}
         working-directory: private/site
         shell: bash
@@ -606,6 +461,8 @@ jobs:
           }
           grep -E '^D06_T3_PUBLIC_(NO_MODEL_[A-Z_]+|ASSISTANT_SMOKE)=PASS$' "$RUNNER_TEMP/d06-t3-public-private.log"
       - name: Commit verified inputs to isolated private branch and prove exact remote readback
+        id: private-publish
+        if: ${{ success() && steps.local-rebuild.outcome == 'success' && steps.public-assistant.outcome == 'success' && steps.retention-permission.outcome == 'success' }}
         working-directory: private/site
         shell: bash
         env:
@@ -687,13 +544,22 @@ jobs:
           echo D06_T3_RETAIN_PRIVATE_PUSH=PASS
           echo D06_FINAL_PERMANENT_RETENTION=PASS
           echo "D06_T3_RETAIN_REMOTE_COMMIT=$candidate"
+      - name: Report missing authorization without production work
+        if: ${{ !cancelled() && steps.retention-permission.outcome == 'failure' }}
+        shell: bash
+        run: |
+          echo D06_FINAL_PERMANENT_RETENTION=BLOCKED
+          exit 1
       - name: Evidence boundary
         if: always()
         shell: pwsh
         run: |
           Write-Host "D06_FINAL_PRIOR_STATIC_EVIDENCE=${{ steps.static-evidence.outcome }}"
           Write-Host "D06_FINAL_STATIC_RECONCILIATION=${{ steps.static-gate.outcome }}"
-          Write-Host "D06_FINAL_NATIVE_EXCHANGE=${{ steps.native-exchange.outcome }}"
+          Write-Host "D06_FINAL_PRIOR_NATIVE_EVIDENCE=${{ steps.native-evidence.outcome }}"
+          Write-Host "D06_FINAL_PRODUCTION_HOST=${{ steps.production-host.outcome }}"
+          Write-Host "D06_FINAL_LOCAL_REBUILD=${{ steps.local-rebuild.outcome }}"
+          Write-Host "D06_FINAL_PRIVATE_PUBLISH=${{ steps.private-publish.outcome }}"
           Write-Host "D06_FINAL_RETENTION_PREFLIGHT=${{ steps.retention-permission.outcome }}"
           Write-Host "D06_T3_PRODUCT_ACCEPTED=false"
           Write-Host "D06_PRIVATE_SOURCE_UPLOADS=0"
