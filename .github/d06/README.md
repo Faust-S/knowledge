@@ -25,6 +25,11 @@ does not start D06 T3 runners on this branch.
   targeted gate collects every independent suite result before failing.
   Publish only bounded numeric assertion ordinals and existing sanitized
   evidence, never private test names, source or logs.
+- The existing mandatory E2E suite optionally writes a JSON reporter file
+  into the private runner's temporary directory. The tested summary helper
+  emits only bounded counts, exact tracked-file ordinals (lexical sort),
+  test declaration/failure coordinates, known desktop/mobile project labels,
+  fixed failure classes and retry numbers. No raw report is published.
 - All D06 T3 workflows share one concurrency group on this branch. Running
   work is not canceled; do not issue multiple pending requests.
 - Individual diagnostic workflows remain available by explicitly committing

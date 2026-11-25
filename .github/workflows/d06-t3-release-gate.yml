@@ -27,6 +27,8 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             .github/d06/t3-release-request.json
+            .github/d06/e2e-report-summary.mjs
+            .github/d06/e2e-report-summary.test.mjs
           sparse-checkout-cone-mode: false
           path: pipeline
       - name: Validate explicit release request
@@ -240,6 +242,11 @@ jobs:
           Write-Host "D06_T3_SKILL_UPGRADE_REJECTS_MISSING_BINDINGS=PASS"
           Write-Host "D06_T3_SKILL_UPGRADE=PASS"
           Write-Host "D06_T3_SKILL_UPGRADE_COMMITTED_BYTES=PASS"
+      - name: Verify bounded structured diagnostics
+        shell: pwsh
+        run: |
+          node --test pipeline/.github/d06/e2e-report-summary.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Exact mandatory site gate
         id: static-gate
         shell: pwsh
@@ -248,10 +255,19 @@ jobs:
           D06_CANONICAL_TASK_INTENTS_PATH: ${{ github.workspace }}/private/domain/src/registry/task-intents.json
         run: |
           $log = Join-Path $env:RUNNER_TEMP "d06-replacement-static-private.txt"
+          $env:PLAYWRIGHT_JSON_OUTPUT_FILE = Join-Path $env:RUNNER_TEMP "d06-gate-e2e.private.json"
           foreach ($task in @("run setup:browser", "run build:static:check")) {
             & cmd.exe /d /c ("npm " + $task + " > """ + $log + """ 2>&1")
             $passed = $LASTEXITCODE -eq 0
             Write-Host ("D06_FULL_" + $task.Replace(" ","_").Replace(":","_").ToUpperInvariant() + "=" + $(if ($passed) {"PASS"} else {"FAIL"}))
+            if ($task -eq "run build:static:check") {
+              if (Test-Path -LiteralPath $env:PLAYWRIGHT_JSON_OUTPUT_FILE) {
+                $summary = Join-Path $env:GITHUB_WORKSPACE "pipeline/.github/d06/e2e-report-summary.mjs"
+                & node $summary $env:PLAYWRIGHT_JSON_OUTPUT_FILE
+              } else {
+                Write-Host "D06_E2E_STRUCTURED=UNAVAILABLE"
+              }
+            }
             if (-not $passed) {
               $body = Get-Content -LiteralPath $log -Raw
               if ($task -eq "run build:static:check" -and $body -match 'prettier/prettier') {
