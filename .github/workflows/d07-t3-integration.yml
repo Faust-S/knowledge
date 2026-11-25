@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Release retains the already qualified candidate; build-only repeats integration qualification"
+        description: "Release qualifies the navigation-corrected candidate and retains its inputs; build-only is diagnostic"
         type: choice
         required: true
         default: release
@@ -36,9 +36,9 @@ jobs:
         run: |
           python3 tools/ci/verify_once_request.py \
             --repository Faust-S/knowledge --workflow d07-t3-integration \
-            --profile release-recover-qualified-tree \
-            --reason 'Recover the already qualified private release after transport preflight' \
-            --revision site=482fc878b4ac365241877fc03a9eeee84ae012a0 \
+            --profile release-navigation-corrected \
+            --reason 'Qualify the corrected print route and retain exact private release inputs' \
+            --revision site=121916241d16f12ecb65c05bfe497335ab37d5dc \
             --revision domain=11ec43898d025107174df0b2cde6024c340c1cc0 \
             --revision t2=e70de29b72b83e2546f7ab74b17572685a728c17 \
             --revision assistant=5e3083788aa541921559de29d3457d4a52bbba00 \
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 482fc878b4ac365241877fc03a9eeee84ae012a0
+          ref: 121916241d16f12ecb65c05bfe497335ab37d5dc
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -58,10 +58,10 @@ jobs:
         working-directory: site
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
-        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 482fc878b4ac365241877fc03a9eeee84ae012a0
+        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 121916241d16f12ecb65c05bfe497335ab37d5dc
   t3-source:
     needs: private-transport
-    # This exact candidate is already qualified by run 45663645049.
+    # Only unchanged source scopes inherit the prior qualification. The print route needs a new build.
     # Do not spend runner time reconstructing private inputs without write access.
     # Explicit source/build-only diagnostics remain independent of publication.
     if: ${{ !cancelled() && ((needs.private-transport.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'release')) || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'source-only' || inputs.mode == 'build-only'))) }}
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 482fc878b4ac365241877fc03a9eeee84ae012a0
+          ref: 121916241d16f12ecb65c05bfe497335ab37d5dc
           fetch-depth: 2
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
@@ -96,30 +96,41 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.2'
-      - name: Reuse successful source qualification for the exact build-only correction
+      - name: Reuse only unchanged source qualification for the exact navigation correction
         id: prior-source
         env:
           GH_TOKEN: ${{ github.token }}
           REQUEST_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'release' }}
         run: |
           set -euo pipefail
-          # This is intentionally scoped to this exact one-file descendant and
-          # the already successful source job, never to arbitrary future edits.
-          if [[ "$REQUEST_MODE" == source-only || "$(git -C site rev-parse HEAD)" != "482fc878b4ac365241877fc03a9eeee84ae012a0" ]]; then exit 0; fi
-          test "$(git -C site rev-parse HEAD^)" = "fc42b94ecdf1b5febf6f000fae14363fe2ba7725"
-          test "$(git -C site diff --name-only HEAD^ HEAD)" = "vite.config.ts"
+          # The only new product change is the noindex print route and its build filter.
+          # Reuse the prior source job only for this exact three-file descendant.
+          if [[ "$REQUEST_MODE" == source-only || "$(git -C site rev-parse HEAD)" != "121916241d16f12ecb65c05bfe497335ab37d5dc" ]]; then exit 0; fi
+          test "$(git -C site rev-parse HEAD^)" = "482fc878b4ac365241877fc03a9eeee84ae012a0"
+          test "$(git -C site diff --name-only HEAD^ HEAD | LC_ALL=C sort)" = "$(printf '%s\n' scripts/tests/d07-legacy-workspace-nav.test.mjs src/site-routes.ts vite.config.ts)"
           test "$(git -C domain rev-parse HEAD)" = "11ec43898d025107174df0b2cde6024c340c1cc0"
           test "$(git -C assistant rev-parse HEAD)" = "5e3083788aa541921559de29d3457d4a52bbba00"
-          if [[ "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/45658275090 --jq .head_sha 2>/dev/null || true)" != "07127c7f5b28a05c1a3e325961b92ef45582f4a5" ]]; then exit 0; fi
-          if [[ "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/45658275090/jobs --jq 'any(.jobs[]; .id == 139360886314 and .name == "t3-source" and .conclusion == "success")' 2>/dev/null || true)" != true ]]; then exit 0; fi
+          if [[ "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/45663645049 --jq .head_sha 2>/dev/null || true)" != "903f2bb3b9e7b75fe4b8bbbe60f552428c5ae831" ]]; then exit 0; fi
+          if [[ "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/45663645049/jobs --jq 'any(.jobs[]; .id == 139379941479 and .name == "t3-source" and .conclusion == "success")' 2>/dev/null || true)" != true ]]; then exit 0; fi
           echo "reuse=true" >> "$GITHUB_OUTPUT"
           echo D07_T3_SOURCE_QUALIFICATION_REUSED=PASS
-          echo D07_T3_SOURCE_QUALIFICATION_RUN=45658275090
+          echo D07_T3_SOURCE_QUALIFICATION_RUN=45663645049
+      - name: Qualify the changed legacy print navigation
+        if: ${{ steps.prior-source.outputs.reuse == 'true' }}
+        working-directory: site
+        run: |
+          node --test scripts/tests/d07-legacy-workspace-nav.test.mjs > "$RUNNER_TEMP/d07-print-nav.log" 2>&1 || {
+            echo D07_T3_PRINT_NAV_SOURCE=FAIL
+            grep -E '^# (tests|pass|fail) [0-9]+$' "$RUNNER_TEMP/d07-print-nav.log" || true
+            exit 1
+          }
+          echo D07_T3_PRINT_NAV_SOURCE=PASS
+          grep -E '^# (tests|pass|fail) [0-9]+$' "$RUNNER_TEMP/d07-print-nav.log"
       - name: Preserve exact T2 subject and Workspace module
         if: ${{ steps.prior-source.outputs.reuse != 'true' }}
         run: |
           test "$(git -C domain rev-parse HEAD)" = "11ec43898d025107174df0b2cde6024c340c1cc0"
-          test "$(git -C site rev-parse HEAD)" = "482fc878b4ac365241877fc03a9eeee84ae012a0"
+          test "$(git -C site rev-parse HEAD)" = "121916241d16f12ecb65c05bfe497335ab37d5dc"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -244,7 +255,7 @@ jobs:
           echo D07_T3_ASSEMBLY_SYNTAX=PASS
   original-t3-integration:
     needs: [t3-source, private-transport]
-    # Release reconstructs only the qualified bytes and requires successful transport.
+    # Release builds the corrected candidate once before retention and compares its fresh checkout.
     # Build-only preserves the complete independent qualification route.
     if: ${{ !cancelled() && needs.t3-source.result == 'success' && ((needs.private-transport.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'release')) || (github.event_name == 'workflow_dispatch' && inputs.mode == 'build-only')) }}
     runs-on: ubuntu-latest
@@ -261,7 +272,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 482fc878b4ac365241877fc03a9eeee84ae012a0
+          ref: 121916241d16f12ecb65c05bfe497335ab37d5dc
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -291,20 +302,20 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.2'
-      - name: Confirm prior qualification of the exact release candidate
+      - name: Confirm unchanged original platform evidence and exact successor
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.mode == 'release' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(git -C site rev-parse HEAD)" = "482fc878b4ac365241877fc03a9eeee84ae012a0"
+          test "$(git -C site rev-parse HEAD)" = "121916241d16f12ecb65c05bfe497335ab37d5dc"
           test "$(git -C T2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           test "$(git -C assistant rev-parse HEAD)" = "5e3083788aa541921559de29d3457d4a52bbba00"
           test "$(git -C core rev-parse HEAD)" = "326f725c44d69ac99f6b912241e9e8a6c3d716a5"
           test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/45663645049 --jq .head_sha)" = "903f2bb3b9e7b75fe4b8bbbe60f552428c5ae831"
           test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/45663645049/jobs --jq 'any(.jobs[]; .id == 139380128465 and .name == "original-t3-integration" and .conclusion == "success")')" = true
           test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/45663645049/jobs --jq 'any(.jobs[]; .id == 139379941479 and .name == "t3-source" and .conclusion == "success")')" = true
-          echo D07_T3_RELEASE_BUILD_EVIDENCE=45663645049
+          echo D07_T3_PREVIOUS_PLATFORM_EVIDENCE=45663645049
       - name: Retrieve and authenticate exact published common platform
         env:
           GH_TOKEN: ${{ github.token }}
@@ -385,10 +396,10 @@ jobs:
             exit 1
           }
           echo D07_T3_LOCAL_INPUTS=PASS
-      - name: Reconstruct qualified release with ordinary command; full parity audit in build-only mode
+      - name: Qualify ordinary release command; compare direct build only in diagnostic mode
         working-directory: site
         env:
-          RECOVER_QUALIFIED: ${{ github.event_name != 'workflow_dispatch' || inputs.mode == 'release' }}
+          RELEASE_WITH_READBACK: ${{ github.event_name != 'workflow_dispatch' || inputs.mode == 'release' }}
         run: |
           set -euo pipefail
           # Both builds use the exact package manifest that would be published.
@@ -424,7 +435,7 @@ jobs:
             (cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum)
           }
           passes="1 2"
-          if [[ "$RECOVER_QUALIFIED" == true ]]; then passes="2"; fi
+          if [[ "$RELEASE_WITH_READBACK" == true ]]; then passes="2"; fi
           for pass in $passes; do
             builder=isolated
             if test "$pass" = 2; then builder=isolated_npm; fi
@@ -439,14 +450,7 @@ jobs:
             if test "$pass" = 1; then cp -a dist "$RUNNER_TEMP/d07-repro-first-dist"; fi
             echo "D07_T3_LOCAL_REBUILD_$pass=PASS"
           done
-          if [[ "$RECOVER_QUALIFIED" == true ]]; then
-            digest="$(node --input-type=module -e 'import {snapshotReleaseTree,releaseTreeIdentity} from "./scripts/prepare-d07-private-release.mjs";console.log(releaseTreeIdentity(snapshotReleaseTree("dist")).sha256)')"
-            if [[ "$digest" != "52e2f74b66883bd2598ecdf1d4eda07ff0dd6862233cd9e778dd21d36659b84d" ]]; then
-              echo D07_T3_QUALIFIED_RELEASE_TREE_MATCH=FAIL
-              exit 1
-            fi
-            echo D07_T3_QUALIFIED_RELEASE_TREE_MATCH=PASS
-          else
+          if [[ "$RELEASE_WITH_READBACK" != true ]]; then
             if ! cmp -s "$RUNNER_TEMP/d07-local-1.sha" "$RUNNER_TEMP/d07-local-2.sha"; then
               echo D07_T3_LOCAL_BYTE_REPRODUCIBILITY=FAIL
               echo D07_T3_ORDINARY_COMMAND_BYTE_PARITY=FAIL
@@ -458,9 +462,10 @@ jobs:
           fi
           cmp -s package.json "$RUNNER_TEMP/d07-qualified-package.json"
           echo D07_T3_RELEASE_COMMAND_VERIFIED=PASS
-          if [[ "$RECOVER_QUALIFIED" != true ]]; then
+          if [[ "$RELEASE_WITH_READBACK" != true ]]; then
             echo D07_T3_LOCAL_BYTE_REPRODUCIBILITY=PASS
             echo D07_T3_ORDINARY_COMMAND_BYTE_PARITY=PASS
+          fi
           # Final rendered forms are audited against the exact validator, after the isolated build.
           node --import tsx scripts/audit-d07-t3-context.mjs "$PWD/dist" "$RUNNER_TEMP/validator" > "$RUNNER_TEMP/context-local.log" 2>&1 || {
             echo D07_T3_RENDERED_CONTEXT=FAIL
@@ -479,13 +484,7 @@ jobs:
           manifest > "$RUNNER_TEMP/d07-after-corrupt.sha"
           cmp -s "$RUNNER_TEMP/d07-local-2.sha" "$RUNNER_TEMP/d07-after-corrupt.sha"
           echo D07_T3_CORRUPT_INPUT_PRESERVES_DIST=PASS
-          else
-            # The exact tree match carries the earlier parity, corrupt-input
-            # and HTTP qualification. Do not repeat those successful checks.
-            echo D07_T3_BUILD_QUALIFICATION_REUSED=45663645049
-          fi
       - name: Actual HTTP qualification of every integrated offline resource
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'build-only' }}
         working-directory: site
         run: |
           node scripts/preview-d07-t3-local.mjs --http-audit > "$RUNNER_TEMP/d07-http.log" 2>&1 || {
@@ -494,12 +493,23 @@ jobs:
             exit 1
           }
           grep -E '^D07_T3_PREVIEW_HTTP=PASS \{' "$RUNNER_TEMP/d07-http.log"
+      - name: Verify actual rendered internal links and restored print entry
+        working-directory: site
+        run: |
+          set -euo pipefail
+          test -f dist/rabochaya-oblast/pechat/index.html
+          node --import tsx scripts/check-links.ts > "$RUNNER_TEMP/d07-links.log" 2>&1 || {
+            echo D07_T3_INTERNAL_LINKS=FAIL
+            grep -E '^\[check-links\]' "$RUNNER_TEMP/d07-links.log" | cut -c1-160 || true
+            exit 1
+          }
+          echo D07_T3_INTERNAL_LINKS=PASS
       - name: Verify staged retained bytes and fresh checkout in a disposable local index
         if: ${{ success() && needs.t3-source.result == 'success' }}
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "482fc878b4ac365241877fc03a9eeee84ae012a0"
+          test "$(git rev-parse HEAD)" = "121916241d16f12ecb65c05bfe497335ab37d5dc"
           test -z "$(git status --porcelain --untracked-files=no)"
           local="runtime/t3-platform/0.3.1-rc.1"
           node --import tsx --input-type=module -e 'import {verifyPreparedD07Host} from "./scripts/prepare-d07-t3-host.mjs";import {verifyPreparedKernelSupport} from "./scripts/prepare-d07-local-kernel-input.mjs";import {verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";const root=process.argv[1];verifyPreparedD07Host(root+"/d07-host");verifyPreparedKernelSupport(root+"/kernel-support");verifyPlatformArchive(root+"/platform-inputs.zip")' "$local" > "$RUNNER_TEMP/d07-retain-recheck.log" 2>&1 || {
@@ -522,8 +532,6 @@ jobs:
       - name: Bind the full deployment tree to the eleven-direction acceptance plan
         id: case-plan
         working-directory: site
-        env:
-          RECOVER_QUALIFIED: ${{ github.event_name != 'workflow_dispatch' || inputs.mode == 'release' }}
         run: |
           set -euo pipefail
           node --import tsx scripts/d07-t3-acceptance-case-plan.mjs --check dist > "$RUNNER_TEMP/d07-case-plan.log" 2>&1 || {
@@ -534,9 +542,6 @@ jobs:
           grep '^D07_ACCEPTANCE_PLAN=PASS ' "$RUNNER_TEMP/d07-case-plan.log"
           digest="$(node --input-type=module -e 'import {snapshotReleaseTree,releaseTreeIdentity} from "./scripts/prepare-d07-private-release.mjs";console.log(releaseTreeIdentity(snapshotReleaseTree("dist")).sha256)')"
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
-          if [[ "$RECOVER_QUALIFIED" == true ]]; then
-            test "$digest" = "52e2f74b66883bd2598ecdf1d4eda07ff0dd6862233cd9e778dd21d36659b84d"
-          fi
           echo "dist_tree_sha256=$digest" >> "$GITHUB_OUTPUT"
           echo D07_T3_ACCEPTANCE_DIST=PASS
       - name: Commit only the exact qualified private inputs and tested release command
@@ -544,7 +549,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "482fc878b4ac365241877fc03a9eeee84ae012a0"
+          test "$(git rev-parse HEAD)" = "121916241d16f12ecb65c05bfe497335ab37d5dc"
           test -z "$(git diff --name-only)"
           node scripts/verify-d07-retained-index.mjs
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: retain qualified local T3 platform inputs [skip ci] [skip actions]'
@@ -563,7 +568,7 @@ jobs:
           GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           candidate="$(git rev-parse HEAD)"
-          bash ../pipeline/scripts/d07-private-git-transport.sh publish 482fc878b4ac365241877fc03a9eeee84ae012a0 "$candidate"
+          bash ../pipeline/scripts/d07-private-git-transport.sh publish 121916241d16f12ecb65c05bfe497335ab37d5dc "$candidate"
           echo "retained_commit=$candidate" >> "$GITHUB_OUTPUT"
           echo "dist_sha256=$(sha256sum "$RUNNER_TEMP/d07-local-2.sha" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - name: Record build qualification separately from publication
