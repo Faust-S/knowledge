@@ -1,12 +1,8 @@
 # Optional source-only diagnostics. Do not update or trigger for each full milestone.
 name: d02-personal-activity-source
 on:
-  push:
-    branches:
-      - work/2026-11-24-d02-personal-activity-qualification
-    paths:
-      - .github/workflows/d02-personal-activity-source.yml
   workflow_dispatch:
+
 permissions:
   contents: read
 jobs:

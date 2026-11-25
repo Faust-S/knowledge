@@ -2,12 +2,8 @@
 # No private Actions; no private artifacts or logs published.
 name: d02-club-qualified-input-retention
 on:
-  push:
-    branches:
-      - work/2026-11-24-d02-personal-activity-qualification
-    paths:
-      - .github/workflows/d02-club-qualified-input-retention.yml
   workflow_dispatch:
+
 permissions:
   contents: read
   actions: read

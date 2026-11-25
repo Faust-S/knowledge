@@ -1,7 +1,7 @@
 name: T3 three-profile mobile catalog source candidate
 on:
-  push:
-    branches: [work/2026-11-24-t3-mobile-model-catalog]
+  workflow_dispatch:
+
 permissions:
   contents: read
 jobs:

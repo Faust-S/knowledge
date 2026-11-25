@@ -3,12 +3,8 @@
 name: d02-personal-activity-full
 # Release qualification: complete canonical tests, all site projections, desktop and phone routes, native offline and Exchange.
 on:
-  push:
-    branches:
-      - work/2026-11-24-d02-personal-activity-qualification
-    paths:
-      - .github/workflows/d02-personal-activity-full.yml
   workflow_dispatch:
+
 permissions:
   contents: read
   actions: read
