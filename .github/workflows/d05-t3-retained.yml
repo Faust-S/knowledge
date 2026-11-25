@@ -24,17 +24,71 @@ jobs:
           test -n "${GH_TOKEN:-}" || { echo D05_T3_DOMEN_MISSING; exit 1; }
       - uses: actions/checkout@v4
         with:
-          repository: Faust-S/cehovod
-          ref: b0bfb8c0f21a5826a3491db36fbec9050567b9f1
-          token: ${{ secrets.DOMEN }}
-          path: domain
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
           repository: Faust-S/cehovod.ru
-          ref: ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
+          ref: a0961a1d88dcedd68809c66f327d7e417c77a744
           token: ${{ secrets.DOMEN }}
           path: site
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Check effective private blob write using existing tracked bytes
+        id: publication_preflight
+        working-directory: site
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+          SOURCE_SHA: a0961a1d88dcedd68809c66f327d7e417c77a744
+          TARGET_BASE_SHA: ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {execFileSync} from "node:child_process";
+          const repo="repos/Faust-S/cehovod.ru";
+          const fail=code=>{throw Error("D05_T3_RETAINED_PREFLIGHT_"+code);};
+          const git=args=>execFileSync("git",args,{stdio:["ignore","pipe","pipe"]});
+          const api=(phase,method,path,body)=>{
+            try{return JSON.parse(execFileSync("gh",["api","--method",method,repo+path,...(body===undefined?[]:["--input","-"])],{
+              input:body===undefined?undefined:JSON.stringify(body),encoding:"utf8",
+              maxBuffer:8*1024*1024,stdio:["pipe","pipe","pipe"]
+            }));}catch(error){
+              const status=String(error?.stderr||"").match(/\bHTTP\s+([1-5][0-9]{2})\b/)?.[1];
+              fail(phase+"_"+(status?"HTTP_"+status:"TRANSPORT_FAIL"));
+            }
+          };
+          try{
+            const base=process.env.SOURCE_SHA;
+            if(!/^[a-f0-9]{40}$/.test(base)||git(["rev-parse","HEAD"]).toString().trim()!==base)fail("BASE");
+            const meta=api("REPO","GET","");
+            if(meta.full_name!=="Faust-S/cehovod.ru"||meta.private!==true||meta.permissions?.push!==true)fail("PRIVATE_PERMISSION");
+            const ref=api("REF","GET","/git/ref/heads/work/2026-11-25-d05-t3-retained-inputs");
+            const target=process.env.TARGET_BASE_SHA;
+            if(!/^[a-f0-9]{40}$/.test(target||"")||ref.object?.sha!==target)fail("REMOTE_BASE_CHANGED");
+            if(target!==base){
+              const comparison=api("ANCESTRY","GET","/compare/"+target+"..."+base);
+              if(comparison.status!=="ahead"||comparison.merge_base_commit?.sha!==target||comparison.behind_by!==0)
+                fail("REMOTE_BASE_NOT_ANCESTOR");
+            }
+            // Submit one small ALREADY tracked blob to the SAME private repository.
+            // No new content, tree, commit or branch is created by this probe.
+            const path="runtime/t3-platform/active.json";
+            const sha=git(["rev-parse","HEAD:"+path]).toString().trim();
+            const bytes=git(["cat-file","blob",sha]);
+            if(!/^[a-f0-9]{40}$/.test(sha)||!bytes.length||bytes.length>4096)fail("PROBE_BLOB");
+            const saved=api("BLOB_WRITE","POST","/git/blobs",{content:bytes.toString("base64"),encoding:"base64"});
+            if(saved.sha!==sha)fail("BLOB_SHA");
+            console.log("D05_T3_RETAINED_PREFLIGHT_WRITE_PASS");
+          }catch(error){
+            console.error(String(error?.message||"").match(/^D05_T3_RETAINED_PREFLIGHT_[A-Z0-9_]+$/)?.[0]||"D05_T3_RETAINED_PREFLIGHT_UNCLASSIFIED");
+            process.exitCode=1;
+          }
+          JS
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod
+          ref: 7d44995b536bc57eb0acff63d876d255c034fb77
+          token: ${{ secrets.DOMEN }}
+          path: domain
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
@@ -49,53 +103,6 @@ jobs:
           ref: 326f725c44d69ac99f6b912241e9e8a6c3d716a5
           path: one-core
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
-      - name: Check effective private blob write using existing tracked bytes
-        working-directory: site
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.DOMEN }}
-          SOURCE_SHA: ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
-        run: |
-          set -euo pipefail
-          node --test scripts/prepare-t3-retained-commit.test.mjs
-          node --input-type=module <<'JS'
-          import {execFileSync} from "node:child_process";
-          const repo="repos/Faust-S/cehovod.ru";
-          const fail=code=>{throw Error("D05_T3_RETAINED_PREFLIGHT_"+code);};
-          const git=args=>execFileSync("git",args,{stdio:["ignore","pipe","pipe"]});
-          const api=(method,path,body)=>{
-            try{return JSON.parse(execFileSync("gh",["api","--method",method,repo+path,...(body===undefined?[]:["--input","-"])],{
-              input:body===undefined?undefined:JSON.stringify(body),encoding:"utf8",
-              stdio:["pipe","pipe","pipe"]
-            }));}catch(error){
-              const status=String(error?.stderr||"").match(/\bHTTP\s+([1-5][0-9]{2})\b/)?.[1];
-              fail(status?"HTTP_"+status:"TRANSPORT_FAIL");
-            }
-          };
-          try{
-            const base=process.env.SOURCE_SHA;
-            if(!/^[a-f0-9]{40}$/.test(base)||git(["rev-parse","HEAD"]).toString().trim()!==base)fail("BASE");
-            const meta=api("GET","");
-            if(meta.full_name!=="Faust-S/cehovod.ru"||meta.private!==true||meta.permissions?.push!==true)fail("PRIVATE_PERMISSION");
-            const ref=api("GET","/git/ref/heads/work/2026-11-25-d05-t3-retained-inputs");
-            if(ref.object?.sha!==base)fail("REMOTE_BASE_CHANGED");
-            // Submit one small ALREADY tracked blob to the SAME private repository.
-            // No new content, tree, commit or branch is created by this probe.
-            const path="runtime/t3-platform/active.json";
-            const sha=git(["rev-parse","HEAD:"+path]).toString().trim();
-            const bytes=git(["cat-file","blob",sha]);
-            if(!/^[a-f0-9]{40}$/.test(sha)||!bytes.length||bytes.length>4096)fail("PROBE_BLOB");
-            const saved=api("POST","/git/blobs",{content:bytes.toString("base64"),encoding:"base64"});
-            if(saved.sha!==sha)fail("BLOB_SHA");
-            console.log("D05_T3_RETAINED_PREFLIGHT_WRITE_PASS");
-          }catch(error){
-            console.error(String(error?.message||"").match(/^D05_T3_RETAINED_PREFLIGHT_[A-Z0-9_]+$/)?.[0]||"D05_T3_RETAINED_PREFLIGHT_UNCLASSIFIED");
-            process.exitCode=1;
-          }
-          JS
       - name: Verify owner pack and original runtime contract
         shell: bash
         run: |
@@ -112,7 +119,7 @@ jobs:
           import {readFileSync} from "node:fs";
           import {validateSkillPack} from "./assistant/browser-local-inference/domain-assistant/skill-runtime.mjs";
           const pack=validateSkillPack(JSON.parse(readFileSync("site/public/assets/cehovod-assistant-skills.json","utf8")));
-          if(pack.skills.length!==11||pack.formHints.length!==11||pack.resultHints.length!==11)throw Error("D05_T3_PACK_COUNTS");
+          if(pack.skills.length!==11||pack.formHints.length!==11||pack.resultHints.length!==12)throw Error("D05_T3_PACK_COUNTS");
           console.log("D05_T3_ORIGINAL_RUNTIME_SKILLS_PASS");
           JS
           if ! (cd domain && T3_ASSISTANT_SOURCE="$GITHUB_WORKSPACE/assistant/browser-local-inference/domain-assistant" node --test tests/assistant-field-policy.test.mjs) >"$log" 2>&1; then
@@ -210,27 +217,27 @@ jobs:
             exit 1
           fi
           echo D05_T3_DIST_BUILD_PASS
-      - name: Verify exact independent build and damaged-input rollback
+      - name: Verify the canonical assembled T3 distribution before private publication
         working-directory: site
         shell: bash
-        env:
-          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
         run: |
           set -euo pipefail
-          log="$RUNNER_TEMP/d05-retained-repro.log"
-          if ! node scripts/check-t3-dist-reproducibility.mjs >"$log" 2>&1; then
-            grep -Eo 'CEHOVOD_T3_REPRO_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
-            echo D05_T3_RETAINED_REPRO_FAIL
+          log="$RUNNER_TEMP/d05-t3-verify-production.log"
+          if ! npm run verify:product:t3 -- --production >"$log" 2>&1; then
+            grep -Eo 'CEHOVOD_[A-Z0-9_]+|IWXA_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
+            echo D05_T3_PRODUCTION_DIST_FAIL
             exit 1
           fi
-          grep -E '^\{"status":"CEHOVOD_T3_REPRO_PASS","files":[0-9]+,"invalidInputPreservedDist":true,"exactBytes":true,"productAccepted":false\}$' "$log"
+          grep -Eq '^\{"files":[0-9]+,"pages":[0-9]+,"skills":11,"originalKernel":true,"sharedEngine":true,"productAccepted":false,"status":"CEHOVOD_T3_DIST_VERIFIED_NOT_PRODUCT_ACCEPTED","productionOrigin":true\}$' "$log"
+          echo D05_T3_PRODUCTION_DIST_PASS
       - name: Verify clean source snapshot and prepare exact candidate commit
         id: snapshot
         working-directory: site
         shell: bash
         env:
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
-          SOURCE_SHA: ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
+          SOURCE_SHA: a0961a1d88dcedd68809c66f327d7e417c77a744
+          QUALIFIED_TREE: ae3f6e4992209e8f4b778cbc29b1a979972398a3
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d05-retained-checkout.log"
@@ -259,6 +266,10 @@ jobs:
           assert.equal(c.remotePublication,false);
           assert.equal(c.base,process.env.SOURCE_SHA);
           assert.equal(c.tree,r.sourceTree);
+          assert.equal(c.tree,process.env.QUALIFIED_TREE,"D05_T3_RETAINED_QUALIFIED_TREE_MISMATCH");
+          assert.equal(r.inputFiles,92);
+          assert.equal(r.distFiles,223);
+          console.log("D05_T3_RETAINED_PREVIOUSLY_QUALIFIED_TREE_PASS");
           assert.equal(c.inputFiles,r.inputFiles);
           assert.ok([c.commit,c.tree,c.base].every(x=>sha.test(x)));
           const git=args=>execFileSync("git",args,{encoding:"utf8",stdio:["ignore","pipe","pipe"]}).trim();
@@ -276,8 +287,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
           CANDIDATE: ${{ steps.snapshot.outputs.commit }}
-          SOURCE_SHA: ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
+          SOURCE_SHA: a0961a1d88dcedd68809c66f327d7e417c77a744
+          TARGET_BASE_SHA: ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
           SNAPSHOT_TREE: ${{ steps.snapshot.outputs.tree }}
+          QUALIFIED_TREE: ae3f6e4992209e8f4b778cbc29b1a979972398a3
           TARGET_BRANCH: work/2026-11-25-d05-t3-retained-inputs
         run: |
           set -euo pipefail
@@ -289,6 +302,7 @@ jobs:
           const endpoint="repos/"+repo;
           const branch=process.env.TARGET_BRANCH;
           const base=process.env.SOURCE_SHA,tree=process.env.SNAPSHOT_TREE,candidate=process.env.CANDIDATE;
+          const target=process.env.TARGET_BASE_SHA;
           const sha=/^[0-9a-f]{40}$/;
           const fail=code=>{throw Error("D05_T3_RETAINED_REST_"+code);};
           const require=(condition,code)=>{if(!condition)fail(code);};
@@ -309,18 +323,23 @@ jobs:
           }
           try{
             require(branch==="work/2026-11-25-d05-t3-retained-inputs","TARGET");
-            require([base,tree,candidate].every(x=>sha.test(x||"")),"IDENTITY");
+            require([base,tree,candidate,target].every(x=>sha.test(x||"")),"IDENTITY");
+            require(tree===process.env.QUALIFIED_TREE,"QUALIFIED_TREE_MISMATCH");
             require(git(["rev-parse","HEAD"])===base,"LOCAL_BASE");
             require(git(["rev-parse",candidate+"^"])===base&&git(["rev-parse",candidate+"^{tree}"])===tree,"LOCAL_CANDIDATE");
             const meta=api("REPO","GET","");
             require(meta.full_name===repo&&meta.private===true&&meta.permissions?.push===true,"PRIVATE_PERMISSION");
             const refPath="/git/ref/heads/"+branch;
-            require(api("REF","GET",refPath).object?.sha===base,"REMOTE_BASE_CHANGED");
+            require(api("REF","GET",refPath).object?.sha===target,"REMOTE_BASE_CHANGED");
+            if(target!==base){
+              const comparison=api("ANCESTRY","GET","/compare/"+target+"..."+base);
+              require(comparison.status==="ahead"&&comparison.merge_base_commit?.sha===target&&comparison.behind_by===0,"REMOTE_BASE_NOT_ANCESTOR");
+            }
             const baseTree=git(["rev-parse",base+"^{tree}"]);
             require(api("BASE","GET","/git/commits/"+base).tree?.sha===baseTree,"REMOTE_BASE_TREE");
             const changed=gitBytes(["diff-tree","--no-commit-id","-r","--name-only","-z",base,tree]).toString("utf8").split("\0").filter(Boolean).sort();
             const prefix="runtime/t3-platform/0.3.1-rc.1/";
-            require(changed.length>0&&new Set(changed).size===changed.length,"CHANGED_INVENTORY");
+            require(changed.length===92&&new Set(changed).size===changed.length,"CHANGED_INVENTORY");
             const entries=changed.map(path=>{
               require(path===prefix+"platform-inputs.zip"||path.startsWith(prefix+"cehovod-host/"),"NON_INPUT_CHANGE");
               require(!path.split("/").some(part=>part===".."||part==="."||part===""),"PATH");
@@ -347,7 +366,7 @@ jobs:
               tree,parents:[base]
             });
             require(sha.test(saved.sha||"")&&saved.tree?.sha===tree&&saved.parents?.length===1&&saved.parents[0].sha===base,"COMMIT_IDENTITY");
-            require(api("REF_RECHECK","GET",refPath).object?.sha===base,"REMOTE_BASE_CHANGED");
+            require(api("REF_RECHECK","GET",refPath).object?.sha===target,"REMOTE_BASE_CHANGED");
             const updated=api("UPDATE_REF","PATCH","/git/refs/heads/"+branch,{sha:saved.sha,force:false});
             require(updated.object?.sha===saved.sha,"REF_UPDATE");
             require(api("REF_READBACK","GET",refPath).object?.sha===saved.sha,"REF_READBACK");
@@ -399,6 +418,7 @@ jobs:
           git -C "$fresh" checkout -q --detach FETCH_HEAD
           echo "D05_T3_RETAINED_REMOTE_TREE_PASS $SAVED_COMMIT"
       - name: Build the freshly fetched private source with no original repository checkout
+        id: remote_reproduction
         working-directory: site
         shell: bash
         env:
