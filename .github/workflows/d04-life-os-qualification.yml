@@ -282,32 +282,7 @@ jobs:
           done
           if [ "$failed" -ne 0 ]; then
             grep -Eo 'BAZMED_[A-Z0-9_]+|D04_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$log" | sort -u | tail -35 || true
-            grep -E '^D04_BROWSER_PROBLEM_[A-Z_]+=[0-9]+
-          grep -E '^D04_EMPTY_WORKSPACE_(HOST_FIRST_USABLE_MS|DOM_READY_MS|HOST_ASSET_REQUESTS|HOST_ASSET_DECODED_KIB)=[0-9]+$' "$RUNNER_TEMP/d04-integrated.log" | tail -4 || true
-          responsive_count="$(grep -c '^BAZMED_NAVIGATION_PASS ' "$RUNNER_TEMP/d04-integrated.log" || true)"
-          echo "D04_WORKSPACE_RESPONSIVE_VIEWPORTS=$responsive_count"
-          if [ "$responsive_count" -ne 5 ]; then
-            echo "D04_WORKSPACE_RESPONSIVE_VIEWPORTS_INCOMPLETE"
-            exit 1
-          fi
-          for marker in D04_WORKSPACE_TOOL_RETURN_PATH D04_WORKSPACE_OVERVIEW_ENTRY; do
-            if ! grep -qx "$marker=PASS" "$RUNNER_TEMP/d04-integrated.log"; then
-              echo "$marker=FAIL"
-              exit 1
-            fi
-            echo "$marker=PASS"
-          done
-          grep -E '^D04_WORKSPACE_(PUBLIC_RETURN_MS|OVERVIEW_COLD_MS)=[0-9]+$' "$RUNNER_TEMP/d04-integrated.log" | tail -2 || true
-          home_count="$(grep -c '^D04_PUBLIC_HOME_ENTRY_PASS ' "$RUNNER_TEMP/d04-integrated.log" || true)"
-          echo "D04_PUBLIC_HOME_VIEWPORTS=$home_count"
-          if [ "$home_count" -ne 2 ]; then
-            echo "D04_PUBLIC_HOME_VIEWPORTS_INCOMPLETE"
-            exit 1
-          fi
-          echo "D04_NATIVE_KERNEL_AND_HOST_FILES=PASS"
-          echo "D04_CHROMIUM_SMOKE=PASS_ON_HOSTING_DIST"
-          # Do not upload private dist, private logs, browser profiles or files.
- "$log" | head -10 || true
+            grep -E '^D04_BROWSER_PROBLEM_[A-Z_]+=[0-9]+$' "$log" | head -10 || true
             exit 1
           fi
           # Safe numeric diagnostics only, without private assets or personal data.
@@ -333,7 +308,7 @@ jobs:
             exit 1
           fi
           echo "D04_NATIVE_KERNEL_AND_HOST_FILES=PASS"
-          echo "D04_CHROMIUM_SMOKE=PASS_IN_BUILD"
+          echo "D04_CHROMIUM_SMOKE=PASS_ON_HOSTING_DIST"
           # Do not upload private dist, private logs, browser profiles or files.
       - name: Public readability, hydration and all deployed routes at desktop and mobile widths
         id: public_runtime
