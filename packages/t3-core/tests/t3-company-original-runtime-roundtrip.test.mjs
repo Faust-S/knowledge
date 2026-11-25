@@ -15,6 +15,7 @@ import {assembleSignedControlDist} from '../scripts/assemble-signed-control-dist
 import {assertQualifiedKernelArtifact} from '../src/factory2/products/domain-completion/independent-browser-witness.mjs';
 import {companyExchangeServiceId} from '../src/t3/company-exchange-profile.mjs';
 import {createSubjectKernelBinding} from '../src/t3/subject-access-binding.mjs';
+import {createTrustedReconciliationKernelApply} from '../src/t3/reconciliation-kernel-apply.mjs';
 import {companyWorkRecordKeyParts,companyWorkEventPayload,readOriginalCompanyWorkspace,
   validateCompanyMergeReceipt} from '../src/t3/company-workspace-readback.mjs';
 
@@ -97,7 +98,7 @@ test('original qualified T2 cross-product complete archive and repeated same-Wor
       assert.ok(exchange.granted_operations.includes('t2.importCommit'));
       const kernel={sessionInfo:{contract_version:product.contract_version,service_id:s.serviceId},
         hasOperation:op=>product.granted_operations.includes(op)};
-      for(const name of ['getWorkspace','getObject','listObjects','listEventsSince'])
+      for(const name of ['getWorkspace','getObject','listObjects','listEventsSince','commitObjectGraph'])
         kernel[name]=(...args)=>product.t1[name](...args);
       for(const name of ['exportPreview','exportPackage','confirmExport','importPreview','importCommit','importCancel'])
         kernel[name]=(...args)=>exchange.t2[name](...args);
@@ -115,7 +116,7 @@ test('original qualified T2 cross-product complete archive and repeated same-Wor
           productionActivation:false,doesNotTransferData:true,doesNotAcceptCorporateCopy:true,
           validUntil:new Date(Date.now()+60000).toISOString()}),verifyDecisionBinding:()=>true};
       const bound=createSubjectKernelBinding({kernel,access,previewSession:{},corporateBusinessExchange:true});
-      return {product,exchange,kernel,bound};
+      return {product,exchange,kernel,bound,context,access};
     }
     const a=await activate(source);
     await a.product.t1.createWorkspace({workspace_id:ws,profile:'generic'});
@@ -175,9 +176,61 @@ test('original qualified T2 cross-product complete archive and repeated same-Wor
     assert.equal(asset.asset.service_id,source.serviceId);
     const relation=await b.exchange.t1.getObject(ws,rows[0].object_id);
     assert.ok(relation.relations.outgoing.some(r=>r.relation_id==='relation:roundtrip'));
+    // Apply the accepted administrative effect to the SAME original Admin
+    // Kernel, but its already provisioned private administrative Workspace.
+    // The access fixture is not a production signature; the persisted graph,
+    // independent readback, physical archive and transactions are original T2.
+    const adminStorage='workspace:registry:'+sha(org+'|'+ws);
+    await b.product.t1.createWorkspace({workspace_id:adminStorage,profile:'generic'});
+    const effect=sha('accepted administrative effect'),acceptanceId=sha('acceptance'),
+      resultRevision=sha('accepted revision'),objId='result:applied:'+effect;
+    const target={consumerId:'IWXA_ADMIN_CENTER',processId:'admin.applied-results',
+      processVersion:'1',purpose:'application',subjectId:org,workspaceId:ws,dataRootId:'root:org'};
+    const adminContext={...b.context,purpose:'application',role_id:'role:manager',
+      actor_id:'person:manager',grant_id:b.context.grant_id};
+    let approved=false;
+    const command={workspace_id:ws,idempotency_key:effect,object:{
+      object_id:objId,schema_id:'iwxa.admin.applied-results',schema_version:'1.0.0',
+      base_revision:0,data:{schema:'IWXA_T3_ADMIN_APPLIED_RESULTS/1',records:[{
+        taskId:'task:roundtrip',taskRevisionId:'b'.repeat(64),resultRevisionId:resultRevision,
+        organizationId:org,workspaceId:ws,executorId:'person:employee',
+        result:'Result text',acceptanceId}]}},
+      event:{event_type:'iwxa.admin.result.applied',payload:{
+        reconciliation_acceptance_id:acceptanceId,reconciliation_revision_ids:[resultRevision]}}};
+    const makeApply=port=>createTrustedReconciliationKernelApply({
+      kernel:port.kernel,access:{...port.access,currentContext:()=>adminContext},
+      admission:{inspectAcceptedApplication:async()=>({})},isHostActive:()=>true,
+      resolveReceiptWorkspace:async()=>adminStorage,
+      stageFromOriginalOwner:()=>({command,binding:{
+        schema:'IWXA_T3_APPLICATION_HOST_BINDING/1',effectKey:effect,
+        operation:{operationId:'effect:'+effect,payloadDigest:sha('payload'),
+          resource:ws,productId:'IWXA_ADMIN_CENTER',audience:adminContext.audience,
+          purpose:'application',action:'application.apply'},expectedRevision:0,
+        applicationAuthorized:false,writeAllowed:false,hostJitRequired:true,
+        explicitHumanDecisionRequired:true,decisionCheckAtCommit:true,
+        externalContextCoreApplied:false,commitPrecondition:()=>approved},
+        authorizationContext:{operationId:'effect:'+effect,payloadDigest:sha('payload'),
+          organizationId:org,workspaceId:ws,dataRootId:target.dataRootId,
+          storageScopeDigest:sha('storage'),expectedRevision:0,actorId:adminContext.actor_id,
+          principalId:org,roleId:adminContext.role_id,grantId:adminContext.grant_id,
+          operationDigest:sha('operation')}}),
+      confirmSeparateApply:async()=>{approved=true;return true;}});
+    const selection={acceptanceId,revisionIds:[resultRevision],target};
+    const applied=await makeApply(b).applyAccepted(selection);
+    assert.equal(applied.originalKernelReceipt.workspace_id,adminStorage);
+    assert.equal(applied.originalKernelReadback.object.data.records[0].workspaceId,ws);
+    const returnArchive=await b.bound.exportPackage(full);
+    await b.bound.confirmExport({package_digest:returnArchive.package_digest,workspace_ids:[ws]});
+    assert.equal(returnArchive.manifest.counts.objects,2);
+    assert.ok(!(await b.product.t1.listEventsSince(ws)).some(e=>e.event_type==='iwxa.admin.result.applied'));
     // Repeat on a new original Runtime connection, same recipient Store.
     await recipient.runtime.__resetKernelStoreForTests();
     const cold=await activate(recipient);
+    const recovered=await makeApply(cold).recoverApplied(selection);
+    assert.equal(recovered.status,'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED');
+    assert.equal(recovered.originalEventReadback.workspace_id,adminStorage);
+    await assert.rejects(makeApply(cold).applyAccepted(selection),
+      {code:'T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY'});
     const prior=await readOriginalCompanyWorkspace({kernel:cold.kernel,workspaceId:ws,organizationId:org});
     assert.deepEqual(prior.records,observed.records);
     const again=await cold.bound.importPreview(archive.bytes);
@@ -188,6 +241,17 @@ test('original qualified T2 cross-product complete archive and repeated same-Wor
     assert.deepEqual(validateCompanyMergeReceipt(again.preview,merge,second),[]);
     assert.deepEqual((await readOriginalCompanyWorkspace({kernel:cold.kernel,workspaceId:ws})).records,observed.records);
     await recipient.runtime.__resetKernelStoreForTests();
+    // Admin -> employee return is a second physical archive import. Its
+    // history/assets/relations are still the original business records.
+    const employeeCold=await activate(source);
+    const returned=await employeeCold.bound.importPreview(returnArchive.bytes);
+    assert.ok(returned.preview.objects.every(o=>o.schema_id!=='iwxa.admin.applied-results'));
+    const returnedReceipt=await employeeCold.bound.importCommit({preview_token:returned.preview_token,
+      package_digest:returned.package_digest,plan:merge});
+    assert.deepEqual(validateCompanyMergeReceipt(returned.preview,merge,returnedReceipt),[]);
+    const employeeRows=await readOriginalCompanyWorkspace({kernel:employeeCold.kernel,workspaceId:ws});
+    assert.deepEqual(employeeRows.records,observed.records);
+    await source.runtime.__resetKernelStoreForTests();
   }finally{
     globalThis.fetch=originalFetch;
     rmSync(tmp,{recursive:true,force:true});
