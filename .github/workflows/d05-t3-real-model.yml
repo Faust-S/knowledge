@@ -14,7 +14,13 @@ on:
         default: '7d44995b536bc57eb0acff63d876d255c034fb77'
       witness_sha:
         type: string
-        default: '72ac3e44aad18e684dda168adeb8d4172eb6836d'
+        default: 'c8dd9fc43ab5e74aeff54e473283731126c2dfc3'
+      evaluator_sha:
+        type: string
+        default: '4433a97a6450c5c561d5bd96a892b88c5886fc67'
+      profile_id:
+        type: string
+        default: 'balanced'
       release_candidate:
         type: boolean
         default: false
@@ -42,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: ${{ inputs.witness_sha || '72ac3e44aad18e684dda168adeb8d4172eb6836d' }}
+          ref: ${{ inputs.witness_sha || 'c8dd9fc43ab5e74aeff54e473283731126c2dfc3' }}
           token: ${{ secrets.DOMEN }}
           path: model-witness
           persist-credentials: false
@@ -66,6 +72,13 @@ jobs:
           token: ${{ secrets.DOMEN }}
           path: domain
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod
+          ref: ${{ inputs.evaluator_sha || '4433a97a6450c5c561d5bd96a892b88c5886fc67' }}
+          token: ${{ secrets.DOMEN }}
+          path: answer-diagnostics
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
@@ -73,7 +86,10 @@ jobs:
         shell: bash
         env:
           SITE_SHA: ${{ inputs.site_sha || 'a0961a1d88dcedd68809c66f327d7e417c77a744' }}
-          WITNESS_SHA: ${{ inputs.witness_sha || '72ac3e44aad18e684dda168adeb8d4172eb6836d' }}
+          WITNESS_SHA: ${{ inputs.witness_sha || 'c8dd9fc43ab5e74aeff54e473283731126c2dfc3' }}
+          DOMAIN_SHA: ${{ inputs.domain_sha || '7d44995b536bc57eb0acff63d876d255c034fb77' }}
+          EVALUATOR_SHA: ${{ inputs.evaluator_sha || '4433a97a6450c5c561d5bd96a892b88c5886fc67' }}
+          PROFILE_ID: ${{ inputs.profile_id || 'balanced' }}
         run: |
           set -euo pipefail
           node --input-type=module <<'JS'
@@ -99,7 +115,18 @@ jobs:
             "scripts/lib/t3-model-install-consent.mjs",
             "scripts/lib/t3-model-install-consent.test.mjs"
           ]);
+          assert.equal(git("domain",["rev-parse","HEAD"]).trim(),process.env.DOMAIN_SHA);
+          assert.equal(git("answer-diagnostics",["rev-parse","HEAD"]).trim(),process.env.EVALUATOR_SHA);
+          const owner=inventory("domain"),diagnostic=inventory("answer-diagnostics");
+          const changed=[...new Set([...owner.keys(),...diagnostic.keys()])].filter(p=>owner.get(p)!==diagnostic.get(p)).sort();
+          assert.deepEqual(changed,[
+            "tests/assistant-answer-diagnostic.mjs",
+            "tests/assistant-answer-role-evidence.test.mjs"
+          ]);
+          assert.ok(["light","balanced","extended"].includes(process.env.PROFILE_ID));
           console.log("D05_T3_HARDWARE_EXACT_PRODUCT_TREE_PASS");
+          console.log("D05_T3_MODEL_EVALUATOR_TEST_ONLY_PASS");
+          console.log("D05_T3_MODEL_REQUESTED_PROFILE "+process.env.PROFILE_ID);
           JS
           node --test model-witness/scripts/lib/t3-model-install-consent.test.mjs
           node --check model-witness/scripts/d05-t3-real-model-witness.mjs
@@ -137,7 +164,7 @@ jobs:
         run: |
           set -euo pipefail
           cmp -s domain/models/assistant-skills.json site/public/assets/cehovod-assistant-skills.json
-          node --test domain/tests/assistant-answer-diagnostic.test.mjs
+          node --test answer-diagnostics/tests/assistant-answer-diagnostic.test.mjs answer-diagnostics/tests/assistant-answer-role-evidence.test.mjs
       - name: Install pinned site dependencies
         working-directory: site
         env:
@@ -196,12 +223,12 @@ jobs:
       - name: Verify real-model witness syntax
         working-directory: site
         run: node --check "$GITHUB_WORKSPACE/model-witness/scripts/d05-t3-real-model-witness.mjs"
-      - name: Genuine light-profile generation and cold-cache restart on nonfallback GPU
+      - name: Genuine selected-profile generation and cold-cache restart on nonfallback GPU
         working-directory: site
         env:
           D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
-          D05_T3_MODEL_PROFILE: light
-          D05_T3_MODEL_EVALUATION_SOURCE: ${{ github.workspace }}/domain/tests/assistant-answer-diagnostic.mjs
+          D05_T3_MODEL_PROFILE: ${{ inputs.profile_id || 'balanced' }}
+          D05_T3_MODEL_EVALUATION_SOURCE: ${{ github.workspace }}/answer-diagnostics/tests/assistant-answer-diagnostic.mjs
           D05_T3_REQUIRE_HARDWARE_GPU: '1'
         run: |
           set -euo pipefail
@@ -212,6 +239,7 @@ jobs:
           grep -E '^D05_T3_REAL_MODEL_(INSTALL|CACHE_RELEASE|COLD_LOAD)_PASS$' "$log" || true
           grep -E '^D05_T3_MODEL_(ATTEMPT|COMPARISON|WORKER_EXIT|CACHE_RELEASE) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_QUALITY \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
+          grep -E '^D05_T3_MODEL_ROLE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_(CACHE_INSPECTION|CANCEL_DIAG|CANCEL_PASS) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -Fx 'D05_T3_MODEL_INSTALL_CONFIRMATION_PASS' "$log" || true
           grep -E '^D05_T3_MODEL_GPU_PROBE \{"adapter":"[a-z-]+","supported":(true|false),"compute":(true|false),"reason":"[A-Z_]+"\}$' "$log" || true
@@ -223,17 +251,26 @@ jobs:
           grep -Fxq 'D05_T3_MODEL_INSTALL_CONFIRMATION_PASS' "$log"
           grep -q '^D05_T3_REAL_MODEL_PASS ' "$log"
           test "$(grep -c '^D05_T3_MODEL_QUALITY ' "$log")" -eq 3
+          test "$(grep -c '^D05_T3_MODEL_ROLE_EVIDENCE ' "$log")" -eq 3
       - name: Require all three mechanical grounding observations before release review
         working-directory: site
         shell: bash
+        env:
+          PROFILE_ID: ${{ inputs.profile_id || 'balanced' }}
         run: |
           set -euo pipefail
           node --input-type=module <<'JS'
           import assert from "node:assert/strict";
           import {readFileSync} from "node:fs";
           const prefix="D05_T3_MODEL_QUALITY ";
-          const rows=readFileSync(process.env.RUNNER_TEMP+"/d05-t3-protected-model.log","utf8")
-            .split(/\r?\n/).filter(line=>line.startsWith(prefix)).map(line=>JSON.parse(line.slice(prefix.length)));
+          const lines=readFileSync(process.env.RUNNER_TEMP+"/d05-t3-protected-model.log","utf8").split(/\r?\n/);
+          const receipts=key=>lines.filter(line=>line.startsWith(key)).map(line=>JSON.parse(line.slice(key.length)));
+          const rows=receipts(prefix);
+          const model=receipts("D05_T3_REAL_MODEL_PASS ");
+          assert.equal(model.length,1);
+          assert.equal(model[0].profile,process.env.PROFILE_ID);
+          assert.equal(model[0].actualInference,true);
+          assert.equal(model[0].semanticAcceptance,false);
           const wanted=new Set(["cost:false","cost:true","missing-cost:true"]);
           assert.equal(rows.length,wanted.size);
           for(const row of rows){
@@ -244,10 +281,27 @@ jobs:
               throw Error("D05_T3_MODEL_GROUNDING_REVIEW_REQUIRED");
           }
           assert.equal(wanted.size,0);
+          const roleRows=receipts("D05_T3_MODEL_ROLE_EVIDENCE ");
+          const roleKeys=new Set(["cost:false","cost:true","missing-cost:true"]);
+          assert.equal(roleRows.length,roleKeys.size);
+          for(const row of roleRows){
+            assert.ok(roleKeys.delete(row.scenario+":"+row.offline));
+            assert.equal(row.semanticAcceptance,false);
+            if(row.scenario==="cost"){
+              assert.ok(["matched","conflicting","unresolved"].includes(row.batchRole));
+              assert.ok(["matched","conflicting","unresolved"].includes(row.unitRole));
+              if(row.conflictingRoles!==0||row.unresolvedRoles!==0||row.batchRole!=="matched"||row.unitRole!=="matched")
+                throw Error("D05_T3_MODEL_ROLE_REVIEW_REQUIRED");
+            }else{
+              if(row.labels!==1||row.contiguousItems!==row.labels)
+                throw Error("D05_T3_MODEL_ITEM_REVIEW_REQUIRED");
+            }
+          }
+          assert.equal(roleKeys.size,0);
           console.log("D05_T3_MODEL_GROUNDING_OBSERVATIONS_PASS_NOT_SEMANTIC_ACCEPTANCE");
           JS
       - name: Destroy temporary product, reports and source-bound input bytes
         if: always()
         run: |
-          rm -rf "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$RUNNER_TEMP/d05-t3-protected-host" "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/model-witness"
+          rm -rf "$GITHUB_WORKSPACE/site/dist" "$GITHUB_WORKSPACE/site/.native-build" "$RUNNER_TEMP/d05-t3-protected-host" "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/model-witness" "$GITHUB_WORKSPACE/answer-diagnostics"
           rm -f "$RUNNER_TEMP"/d05-t3-protected-*.log "$RUNNER_TEMP/d05-t3-protected-platform.zip" "$RUNNER_TEMP/d05-t3-protected-artifact.zip"

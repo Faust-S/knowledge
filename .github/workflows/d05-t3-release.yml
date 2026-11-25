@@ -27,7 +27,9 @@ jobs:
     with:
       site_sha: 'a0961a1d88dcedd68809c66f327d7e417c77a744'
       domain_sha: '7d44995b536bc57eb0acff63d876d255c034fb77'
-      witness_sha: '72ac3e44aad18e684dda168adeb8d4172eb6836d'
+      witness_sha: 'c8dd9fc43ab5e74aeff54e473283731126c2dfc3'
+      evaluator_sha: '4433a97a6450c5c561d5bd96a892b88c5886fc67'
+      profile_id: 'balanced'
       release_candidate: true
     secrets:
       DOMEN: ${{ secrets.DOMEN }}
