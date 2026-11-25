@@ -1,8 +1,5 @@
 name: D12 AKIS original scientific source parity
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    paths: [.github/workflows/d12-akis-source-parity.yml]
   workflow_dispatch:
 permissions:
   contents: read

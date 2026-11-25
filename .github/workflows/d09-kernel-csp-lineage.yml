@@ -1,8 +1,5 @@
 name: D09 Kernel CSP source lineage and codegen probe
 on:
-  push:
-    branches: [work/2026-11-02-pipeline-foundation]
-    paths: [.github/workflows/d09-kernel-csp-lineage.yml]
   workflow_dispatch:
 permissions:
   contents: read
