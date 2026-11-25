@@ -1,0 +1,108 @@
+name: AKIS original operational release qualification
+on:
+  push:
+    branches: [work/2026-11-25-akis-release-private-ci]
+    paths: [.github/workflows/akis-original-release-private-ci.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Retrieve the authorized original source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa
+          ref: 12e4fec7894287862dcee9f1c8632896d62ef118
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - name: Verify original source
+        run: |
+          test "$(git rev-parse HEAD)" = "12e4fec7894287862dcee9f1c8632896d62ef118"
+          echo "AKIS_ORIGINAL_SOURCE_IDENTITY=PASS"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install native dependencies
+        run: |
+          python -m pip install mesa==3.5.2 pytest > "$RUNNER_TEMP/akis-release-install.log" 2>&1 || { echo "AKIS_DEPENDENCY_INSTALL=FAIL"; exit 1; }
+          python -c 'import mesa; assert mesa.__version__ == "3.5.2"; print("MESA_VERSION="+mesa.__version__)'
+      - name: Full original regression and operational release
+        run: |
+          set +e
+          python -m pytest -q research/akis/qualitative_mesa/tests --junitxml "$RUNNER_TEMP/akis-release-results.xml" > "$RUNNER_TEMP/akis-release-tests.log" 2>&1
+          code=$?
+          set -e
+          python - "$RUNNER_TEMP/akis-release-results.xml" <<'PY'
+          import sys
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          p=Path(sys.argv[1])
+          if not p.is_file():
+              print("AKIS_TEST_REPORT=MISSING")
+          else:
+              root=ET.parse(p).getroot()
+              suites=[root] if root.tag=="testsuite" else list(root.iter("testsuite"))
+              for field in ("tests","failures","errors","skipped"):
+                  print("AKIS_"+field.upper()+"="+str(sum(int(x.get(field,0)) for x in suites)))
+          PY
+          test "$code" = 0 || { echo "AKIS_ORIGINAL_REGRESSION=FAIL"; exit "$code"; }
+          echo "AKIS_ORIGINAL_REGRESSION=PASS"
+  mass:
+    needs: regression
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        dimensions:
+          - {n: 100, p: 3, seed: 17}
+          - {n: 1000, p: 12, seed: 17}
+          - {n: 10000, p: 3, seed: 17}
+          - {n: 30000, p: 1, seed: 41}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa
+          ref: 12e4fec7894287862dcee9f1c8632896d62ef118
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - name: Verify original source
+        run: test "$(git rev-parse HEAD)" = "12e4fec7894287862dcee9f1c8632896d62ef118"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install native dependencies
+        run: python -m pip install mesa==3.5.2 pytest > "$RUNNER_TEMP/akis-release-install.log" 2>&1
+      - name: Matched original mass executions
+        run: |
+          python -m research.akis.qualitative_mesa.experiments.export_original_network_release ${{ matrix.dimensions.n }} ${{ matrix.dimensions.p }} ${{ matrix.dimensions.seed }} > "$RUNNER_TEMP/akis-release-export.log" 2>&1 || { echo "AKIS_MASS_RELEASE=FAIL"; exit 1; }
+          python - "$RUNNER_TEMP/akis-release-export.log" <<'PY'
+          import sys,json
+          from pathlib import Path
+          from hashlib import sha256
+          data=Path(sys.argv[1]).read_text(encoding="utf-8")
+          start=data.find("{")
+          marker=data.index("AKIS_NETWORK_RELEASE_SHA256=")
+          report=json.loads(data[start:marker])
+          for side in ("with_akis","without_akis_direct_contracts"):
+              item=report[side]["with_negotiation"]
+              print(side, json.dumps({k:item[k] for k in ("initial_open_commitments","released_original_works","remaining_open","released_original_reservation_rows","accepted_original_results","decision_event_count","declared_decision_cost","declared_denial_cost_preserved","financial_claims_after_release")},sort_keys=True))
+          print(data[marker:].strip())
+          print("AKIS_MASS_RELEASE=PASS")
+          PY
+      # Private source, test output, and raw exports stay on the ephemeral runner.
+      # No private source files or artifacts are published.
