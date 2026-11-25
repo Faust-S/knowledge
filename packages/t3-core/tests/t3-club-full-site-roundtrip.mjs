@@ -860,6 +860,73 @@ try{
   const c=await localCash();return c?.kernelSource?.workspaceId===base.scope&&c.kernelSource.revision>0&&c.kernelSource.syncedUpdatedAt===c.updatedAt;
  },"CASH_KERNEL_RECEIPT");
  log("OFFLINE_CASH_ORIGINAL_KERNEL_RECEIPT");
+ phase="OFFLINE_SAVED_HORIZON_FRESH_TAB";
+ // A fresh tab must calculate from original saved Results before the
+ // person restores any of them. Keep the main scenario tab untouched.
+ const horizonOriginalPage=page,horizonOriginalGoal=await localGoal(),horizonOriginalWeek=await localWeek(),horizonOriginalCash=await localCash();
+ const horizonOriginalSlot=horizonOriginalWeek.data.personalWeekPlan.slots.find(s=>s.projectId===goalId&&s.status==="planned");
+ const horizonOriginalSession=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
+ check(!!horizonOriginalSlot,"NATIVE_HORIZON_ORIGINAL_SLOT");
+ page=await context.newPage();page.setDefaultTimeout(45000);
+ await visit(page,"/workspace/");await openExisting(page);
+ check(!(await localGoal())&&!(await localWeek())&&!(await localCash()),"NATIVE_HORIZON_FRESH_TAB_NO_RESULTS");
+ const savedHorizon=page.getByTestId("club-native-goal-horizon");
+ await savedHorizon.waitFor({state:"visible"});
+ const savedHorizonBefore=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
+ if(!await savedHorizon.evaluate(el=>el.open))await savedHorizon.locator(":scope > summary").click();
+ const savedHorizonResult=savedHorizon.locator("[data-club-goal-horizon-result]");
+ await poll(async()=>(await savedHorizonResult.textContent()).includes("По сохранённым записям выбранной рабочей области"),"NATIVE_HORIZON_SAVED_SCOPE");
+ const savedRisk=savedHorizonResult.locator("[data-club-goal-horizon-cash-risk]");
+ const savedRiskMetric=async label=>{
+  const row=savedRisk.locator("p.club-review-line").filter({has:page.getByText(label,{exact:true})});
+  check(await row.count()===1,"NATIVE_HORIZON_CASH_METRIC");
+  return Number((await row.locator("strong").textContent()).replace(/[^0-9-]/g,""));
+ };
+ check(await savedRiskMetric("Остаток по записанным фактам на сегодня")===20000&&
+  await savedRiskMetric("Прогноз к концу охваченных дат")===17000,"NATIVE_HORIZON_EXACT_CASH");
+ await savedHorizon.locator("[data-club-goal-horizon-period]").selectOption("30");
+ await poll(async()=>(await savedHorizonResult.textContent()).includes("из 30 дней"),"NATIVE_HORIZON_MONTH");
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===savedHorizonBefore,"NATIVE_HORIZON_NO_TAB_WRITE");
+ const savedGroups=savedHorizonResult.locator("details").filter({has:page.locator("summary").filter({hasText:/^Обязательства по целям/})});
+ await savedGroups.locator(":scope > summary").click();
+ const savedGoalCard=savedGroups.locator("article").filter({has:page.getByRole("heading",{name:goalTitle,exact:true})});
+ check(await savedGoalCard.count()===1,"NATIVE_HORIZON_EXACT_GOAL");
+ await savedGoalCard.getByRole("button",{name:"Сравнить это дело",exact:true}).click();
+ const savedHorizonRestore=page.getByTestId("club-t2-restore-card");
+ await savedHorizonRestore.waitFor({state:"visible"});
+ const selectedHorizonIds=()=>savedHorizonRestore.locator('input[data-club-restore-object-id]:checked').evaluateAll(els=>els.map(el=>el.getAttribute("data-club-restore-object-id")));
+ await poll(async()=>{const ids=await selectedHorizonIds();return [goalId,"club-week-plan","personal-economy"].every(id=>ids.includes(id))&&
+  (await savedHorizonRestore.textContent()).includes("Для сравнения отмечены сохранённые цели");},"NATIVE_HORIZON_RELATED_SELECTION");
+ const horizonIds=await selectedHorizonIds();
+ check(new Set(horizonIds).size===horizonIds.length&&await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===savedHorizonBefore,"NATIVE_HORIZON_PRESELECT_READ_ONLY");
+ const savedHorizonOpen=savedHorizonRestore.getByRole("button",{name:"Открыть выбранные записи",exact:true});
+ await poll(async()=>await savedHorizonOpen.isEnabled(),"NATIVE_HORIZON_CONFIRM_READY");
+ let savedHorizonConsent=false;
+ page.once("dialog",async d=>{
+  savedHorizonConsent=d.type()==="confirm"&&d.message().includes("Загрузить "+horizonIds.length+" новых");
+  if(savedHorizonConsent)await d.accept();else await d.dismiss();
+ });
+ await savedHorizonOpen.click();await poll(async()=>savedHorizonConsent,"NATIVE_HORIZON_EXPLICIT_CONSENT");
+ const savedHorizonLink=page.getByTestId("club-t2-restore-completed").getByRole("link",{name:"Сравнить выбранное обязательство",exact:true});
+ await savedHorizonLink.waitFor({state:"visible"});
+ const savedHorizonUrl=new URL(await savedHorizonLink.getAttribute("href"),page.url());
+ check(savedHorizonUrl.searchParams.get("club_compare_slot")===horizonOriginalSlot.id&&
+  savedHorizonUrl.searchParams.get("club_compare_goal_rev")===horizonOriginalGoal.updatedAt&&
+  savedHorizonUrl.searchParams.get("club_compare_source_rev")===horizonOriginalWeek.updatedAt&&
+  savedHorizonUrl.searchParams.get("workspace_id")===base.scope,"NATIVE_HORIZON_EXACT_CONTINUATION");
+ await savedHorizonLink.click();
+ const savedHorizonForm=page.locator("[data-club-goal-resource-form]");
+ await savedHorizonForm.waitFor({state:"visible"});
+ await poll(async()=>await savedHorizonForm.locator('[name="slotId"]').inputValue()===horizonOriginalSlot.id&&
+  !new URL(page.url()).searchParams.has("club_compare_slot"),"NATIVE_HORIZON_EXACT_EDITOR");
+ check(await savedHorizonForm.locator('[name="entryId"]').inputValue()===""&&
+  await savedHorizonForm.locator('[name="minutesA"]').inputValue()===String(horizonOriginalSlot.durationMinutes),"NATIVE_HORIZON_OTHER_CHOICE_EXPLICIT");
+ check([await localGoal(),await localWeek(),await localCash()].every((row,i)=>row?.kernelSource?.workspaceId===base.scope&&
+  row.updatedAt===[horizonOriginalGoal,horizonOriginalWeek,horizonOriginalCash][i].updatedAt&&
+  row.kernelSource.syncedUpdatedAt===row.updatedAt),"NATIVE_HORIZON_ORIGINAL_REVISIONS");
+ await page.close();page=horizonOriginalPage;
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===horizonOriginalSession,"NATIVE_HORIZON_MAIN_TAB_UNCHANGED");
+ log("OFFLINE_SAVED_HORIZON_EXACT_COMPARISON");
  phase="OFFLINE_GOAL_RESOURCE_COMPARE";
  // The same browser tab has explicitly restored and saved these three
  // original Results. Comparing alternatives must not write any of them.
@@ -1809,6 +1876,19 @@ try{
  await poll(async()=>await restoredList.getAttribute("data-iwxa-assistant-state")==="ready"&&
   (await restoredList.textContent()).includes("Остались обязательства: дел 0, денежных планов 1"),"GOAL_REVIEW_CONTEXT_REASON_PRESERVED");
  log("INDEPENDENT_GOAL_REVIEW_CONTEXT_RESTORED_OFFLINE");
+ phase="INDEPENDENT_GOAL_FACT_OBSERVATIONS";
+ const factOverviewBefore=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
+ const experiencePanel=restoredList.locator("details").filter({has:page.locator("summary").filter({hasText:/^План и факт: чему учат мои записи$/})});
+ await experiencePanel.locator(":scope > summary").click();
+ const exactFacts=experiencePanel.locator("[data-club-goal-fact-observations]");
+ await exactFacts.locator(":scope > summary").click();
+ const exactFactsText=await exactFacts.textContent();
+ check(/план на момент записи: 90 мин\. · факт: 110 мин\. · отклонение: \+20 мин/.test(exactFactsText),"GOAL_FACT_FROZEN_TIME");
+ check(/План: 16[\s\u00a0]000 руб\./.test(exactFactsText)&&exactFactsText.includes("Закрытый период: факт доступен для просмотра, не для изменения"),"GOAL_FACT_CLOSED_CASH");
+ const exactTimeLink=exactFacts.locator("a[data-club-goal-fact-source]").filter({hasText:"Открыть запись времени"});
+ check(await exactTimeLink.count()===1&&new URL(await exactTimeLink.getAttribute("href"),page.url()).searchParams.get("club_week_slot")===goalResourceTask.id,"GOAL_FACT_ORIGINAL_TIME_LINK");
+ check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===factOverviewBefore,"GOAL_FACT_DETAILS_READ_ONLY");
+ log("INDEPENDENT_GOAL_FACT_ORIGINAL_OBSERVATIONS");
  phase="INDEPENDENT_GOAL_REVIEW_EXACT_CASH";
  const reviewWorklist=restoredList.locator("[data-club-goal-review-worklist]");
  await reviewWorklist.waitFor({state:"visible"});

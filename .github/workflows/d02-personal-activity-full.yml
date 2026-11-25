@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club.iwxa.ru
-          ref: 8078426f2c3c96aecf644986cf07a154109f3927
+          ref: c5ded86a0f5078efec0e2978c3e13c95be8cfcb2
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/club
-          ref: 19b0f9552e0f31e15f127f0b123a892ae25f4875
+          ref: c84546c90540b6673fb72513528da688abad11b7
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: owner
@@ -82,7 +82,7 @@ jobs:
           fi
           grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/private-owner-fact.log"
           echo D02_T3_CANONICAL_FACT_AND_SKILLS=PASS
-          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 19b0f9552e0f31e15f127f0b123a892ae25f4875 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" 19b0f9552e0f31e15f127f0b123a892ae25f4875 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/private-fact-import.log" 2>&1; then
+          if ! (npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" c84546c90540b6673fb72513528da688abad11b7 && npm run t3:skills:import -- "$GITHUB_WORKSPACE/owner" c84546c90540b6673fb72513528da688abad11b7 --apply && npm run t3:skills:check) > "$RUNNER_TEMP/private-fact-import.log" 2>&1; then
             echo D02_T3_OFFICIAL_FACT_SKILLS_IMPORT=FAIL
             grep -Eo 'CLUB_(SKILL_IMPORT|T3_SKILLS)_[A-Z0-9_]+' "$RUNNER_TEMP/private-fact-import.log" | sort -u | head -20 || true
             exit 1
@@ -164,6 +164,9 @@ jobs:
           assert.match(horizonPrompt,/Пересечения дел разных целей/);
           assert.match(horizonPrompt,/Ожидаемые поступления не считаются полученными/);
           assert.match(horizonPrompt,/Не назначайте рейтинг целей/);
+          assert.match(horizonPrompt,/сохранённую рабочую область/);
+          assert.match(horizonPrompt,/списания до поступлений/);
+          assert.match(skillPrompt(loaded,skill,'Разобрать факты цели',{resultHint:worklistHint}),/Факты, из которых получены итоги/);
           assert.match(prompt,/Отделите новые риски от существующих/);
           assert.match(prompt,/30, 90 или 365 дней/);
           console.log('D02_ORIGINAL_T3_HORIZON_AND_DECISION_SKILL=PASS');
