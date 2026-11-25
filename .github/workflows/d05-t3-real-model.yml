@@ -12,6 +12,12 @@ on:
       domain_sha:
         type: string
         default: '53d3f79b6e3c1bc36f3c507c065283181c1c0132'
+      assistant_sha:
+        type: string
+        default: '5e3083788aa541921559de29d3457d4a52bbba00'
+      grounded_advice:
+        type: boolean
+        default: false
       witness_sha:
         type: string
         default: 'a27b765e55dc5fea9fa15b2537b0f21ec1b2149a'
@@ -55,7 +61,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 5e3083788aa541921559de29d3457d4a52bbba00
+          ref: ${{ inputs.assistant_sha || '5e3083788aa541921559de29d3457d4a52bbba00' }}
           token: ${{ secrets.DOMEN }}
           path: assistant
           persist-credentials: false
@@ -228,6 +234,7 @@ jobs:
         env:
           D05_T2_WITNESS_COPY: ${{ github.workspace }}/one-core/packages/t3-core
           D05_T3_MODEL_PROFILE: ${{ inputs.profile_id || 'balanced' }}
+          D05_T3_MODEL_GROUNDED_ADVICE: ${{ inputs.grounded_advice && '1' || '0' }}
           D05_T3_MODEL_EVALUATION_SOURCE: ${{ github.workspace }}/answer-diagnostics/tests/assistant-answer-diagnostic.mjs
           D05_T3_REQUIRE_HARDWARE_GPU: '1'
         run: |
@@ -241,6 +248,7 @@ jobs:
           grep -E '^D05_T3_MODEL_QUALITY \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_ROLE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_PRICE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
+          grep -E '^D05_T3_MODEL_ADVICE_EVIDENCE \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_(CACHE_INSPECTION|CANCEL_DIAG|CANCEL_PASS) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -Fx 'D05_T3_MODEL_INSTALL_CONFIRMATION_PASS' "$log" || true
           grep -E '^D05_T3_MODEL_GPU_PROBE \{"adapter":"[a-z-]+","supported":(true|false),"compute":(true|false),"reason":"[A-Z_]+"\}$' "$log" || true
@@ -251,10 +259,15 @@ jobs:
           grep -Fxq 'D05_T3_MODEL_CANCEL_PASS {"cancelled":true,"workers":0,"externalRequests":0,"ready":false}' "$log"
           grep -Fxq 'D05_T3_MODEL_INSTALL_CONFIRMATION_PASS' "$log"
           grep -q '^D05_T3_REAL_MODEL_PASS ' "$log"
-          test "$(grep -c '^D05_T3_MODEL_QUALITY ' "$log")" -eq 3
-          test "$(grep -c '^D05_T3_MODEL_ROLE_EVIDENCE ' "$log")" -eq 3
-          test "$(grep -c '^D05_T3_MODEL_PRICE_EVIDENCE ' "$log")" -eq 1
+          if [ "$D05_T3_MODEL_GROUNDED_ADVICE" = 1 ]; then
+            test "$(grep -c '^D05_T3_MODEL_ADVICE_EVIDENCE ' "$log")" -eq 4
+          else
+            test "$(grep -c '^D05_T3_MODEL_QUALITY ' "$log")" -eq 3
+            test "$(grep -c '^D05_T3_MODEL_ROLE_EVIDENCE ' "$log")" -eq 3
+            test "$(grep -c '^D05_T3_MODEL_PRICE_EVIDENCE ' "$log")" -eq 1
+          fi
       - name: Require three comparable grounding observations and separate price evidence before release review
+        if: ${{ !inputs.grounded_advice }}
         working-directory: site
         shell: bash
         env:
@@ -310,6 +323,52 @@ jobs:
              price.asksForVerification!==true||price.notAgreed!==true)
             throw Error("D05_T3_MODEL_PRICE_REVIEW_REQUIRED");
           console.log("D05_T3_MODEL_GROUNDING_OBSERVATIONS_PASS_NOT_SEMANTIC_ACCEPTANCE");
+          JS
+      - name: Require four exact-result and correct-choice observations (not semantic acceptance)
+        if: ${{ inputs.grounded_advice }}
+        working-directory: site
+        shell: bash
+        env:
+          PROFILE_ID: ${{ inputs.profile_id || 'balanced' }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import assert from "node:assert/strict";
+          import {readFileSync} from "node:fs";
+          const lines=readFileSync(process.env.RUNNER_TEMP+"/d05-t3-protected-model.log","utf8").split(/\r?\n/);
+          const receipts=key=>lines.filter(line=>line.startsWith(key)).map(line=>JSON.parse(line.slice(key.length)));
+          const profile=process.env.PROFILE_ID;
+          const model=receipts("D05_T3_REAL_MODEL_PASS ");
+          assert.equal(model.length,1);
+          const m=model[0];
+          assert.equal(m.profile,profile);
+          assert.equal(m.groundedAdvice,true);
+          assert.equal(m.actualInference,true);
+          assert.equal(m.serverStopped,true);
+          assert.equal(m.browserRestarted,true);
+          assert.equal(m.semanticAcceptance,false);
+          assert.equal(m.productAccepted,false);
+          for(const k of ["online","onlinePrice","offline","missingCost"]){
+            assert.equal(m[k]?.ok,true);
+            assert.equal(m[k]?.busyObserved,true);
+            assert.ok(Number.isSafeInteger(m[k]?.workerCount)&&m[k].workerCount>0);
+          }
+          const keys=new Set(["cost:false","cost:true","price:false","missing-cost:true"]);
+          const rows=receipts("D05_T3_MODEL_ADVICE_EVIDENCE ");
+          assert.equal(rows.length,4);
+          for(const row of rows){
+            assert.ok(keys.delete(row.scenario+":"+row.offline));
+            assert.equal(row.exactSource,true);
+            assert.equal(row.validChoice,true);
+            assert.equal(row.expectedChoice,true);
+            assert.equal(row.abstained,false);
+            assert.equal(row.busyObserved,true);
+            assert.ok(Number.isSafeInteger(row.workerCount)&&row.workerCount>0);
+            assert.equal(row.semanticAcceptance,false);
+          }
+          assert.equal(keys.size,0);
+          for(const legacy of ["QUALITY","ROLE_EVIDENCE","PRICE_EVIDENCE"])assert.equal(receipts("D05_T3_MODEL_"+legacy+" ").length,0);
+          console.log("D05_T3_GROUNDED_ADVICE_OBSERVATIONS_PASS_NOT_PRODUCT_ACCEPTED");
           JS
       - name: Destroy temporary product, reports and source-bound input bytes
         if: always()

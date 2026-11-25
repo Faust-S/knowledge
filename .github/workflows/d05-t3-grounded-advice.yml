@@ -1,0 +1,37 @@
+name: D05 T3 grounded advice qualification
+on:
+  push:
+    branches: [test/2026-11-24-d05-t3-integration]
+    paths: [qualification/d05/t3-requests/grounded-advice.json]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: d05-t3-grounded-advice-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    uses: ./.github/workflows/d05-t3-dynamic.yml
+    with:
+      site_sha: '7b384b7274f99ad702a75ad3e21f2e3460dccdcc'
+      domain_sha: '447df292f2bbe7cc87ac17192853b0c1751895c6'
+      assistant_sha: 'ea8ee8ced6bd649274163a3b26a5b3c476409cca'
+      skills_version: '1.5.0'
+      grounded_advice: true
+      full_release: false
+    secrets:
+      DOMEN: ${{ secrets.DOMEN }}
+  hardware:
+    needs: linux
+    uses: ./.github/workflows/d05-t3-real-model.yml
+    with:
+      site_sha: '7b384b7274f99ad702a75ad3e21f2e3460dccdcc'
+      domain_sha: '447df292f2bbe7cc87ac17192853b0c1751895c6'
+      assistant_sha: 'ea8ee8ced6bd649274163a3b26a5b3c476409cca'
+      witness_sha: '577596aa0a0415a5130234571993a0a0e82b89b5'
+      evaluator_sha: '677f845b1920c12ff7ba1125e7ed36f115f96c22'
+      profile_id: 'light'
+      grounded_advice: true
+      release_candidate: false
+    secrets:
+      DOMEN: ${{ secrets.DOMEN }}

@@ -12,6 +12,15 @@ on:
       domain_sha:
         type: string
         default: '53d3f79b6e3c1bc36f3c507c065283181c1c0132'
+      assistant_sha:
+        type: string
+        default: '5e3083788aa541921559de29d3457d4a52bbba00'
+      grounded_advice:
+        type: boolean
+        default: false
+      skills_version:
+        type: string
+        default: '1.4.1'
       full_release:
         type: boolean
         default: false
@@ -55,7 +64,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 5e3083788aa541921559de29d3457d4a52bbba00
+          ref: ${{ inputs.assistant_sha || '5e3083788aa541921559de29d3457d4a52bbba00' }}
           token: ${{ secrets.DOMEN }}
           path: assistant
           persist-credentials: false
@@ -70,6 +79,9 @@ jobs:
           node-version: '22.16.0'
       - name: Verify owner pack and original runtime contract
         shell: bash
+        env:
+          SKILLS_VERSION: ${{ inputs.skills_version || '1.4.1' }}
+          GROUNDED_ADVICE: ${{ inputs.grounded_advice && '1' || '0' }}
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/d05-t3-owner.log"
@@ -84,7 +96,8 @@ jobs:
           import {readFileSync} from "node:fs";
           import {validateSkillPack} from "./assistant/browser-local-inference/domain-assistant/skill-runtime.mjs";
           const pack=validateSkillPack(JSON.parse(readFileSync("site/public/assets/cehovod-assistant-skills.json","utf8")));
-          if(pack.version!=="1.4.1"||pack.skills.length!==11||pack.formHints.length!==11||pack.resultHints.length!==13)throw Error("D05_T3_PACK_COUNTS");
+          if(pack.version!==process.env.SKILLS_VERSION||pack.skills.length!==11||pack.formHints.length!==11||pack.resultHints.length!==13)throw Error("D05_T3_PACK_COUNTS");
+          if(process.env.GROUNDED_ADVICE==="1"&&(!pack.resultHints.every(h=>Array.isArray(h.advice)&&h.advice.length>=2&&h.advice.length<=8)||pack.resultHints.reduce((n,h)=>n+h.advice.length,0)!==40))throw Error("D05_T3_ADVICE_PACK_COUNTS");
           console.log("D05_T3_ORIGINAL_RUNTIME_SKILLS_PASS");
           JS
           if ! (cd domain && T3_ASSISTANT_SOURCE="$GITHUB_WORKSPACE/assistant/browser-local-inference/domain-assistant" node --test tests/assistant-field-policy.test.mjs) >"$log" 2>&1; then
@@ -94,6 +107,17 @@ jobs:
           fi
           echo D05_T3_FIELD_POLICY_35_PASS
           echo D05_T3_OWNER_PROJECTION_PASS
+          if [ "$GROUNDED_ADVICE" = 1 ]; then
+            log="$RUNNER_TEMP/d05-t3-common-assistant.log"
+            if ! node --test assistant/browser-local-inference/tests/domain-assistant*.test.mjs >"$log" 2>&1; then
+              grep -E '^# (tests|pass|fail) [0-9]+$' "$log" || true
+              grep -Eo '^not ok [0-9]+' "$log" | head -40 || true
+              echo D05_T3_COMMON_ASSISTANT_TESTS_FAIL
+              exit 1
+            fi
+            grep -E '^# (tests|pass|fail) [0-9]+$' "$log"
+            echo D05_T3_COMMON_ASSISTANT_TESTS_PASS
+          fi
       - name: Install dependencies without exporting private sources
         working-directory: site
         env:

@@ -1,0 +1,84 @@
+{
+  "schema": "IWXA_D05_T3_QUALIFICATION_RECEIPT/1",
+  "runId": 45633634092,
+  "linuxJobId": 139273164165,
+  "hardwareJobId": 139278569063,
+  "skillsVersion": "1.4.1",
+  "siteCommit": "c31a6431105776dfdef8a5221f6fc04c867ad477",
+  "subjectCommit": "53d3f79b6e3c1bc36f3c507c065283181c1c0132",
+  "assistantCommit": "5e3083788aa541921559de29d3457d4a52bbba00",
+  "witnessCommit": "a27b765e55dc5fea9fa15b2537b0f21ec1b2149a",
+  "evaluatorCommit": "2f97a32d82231a5866cac80d44646e22015fc25c",
+  "oneCoreCommit": "326f725c44d69ac99f6b912241e9e8a6c3d716a5",
+  "linux": {
+    "functionalReady": true,
+    "subjectTests": {
+      "passed": 1565,
+      "total": 1565
+    },
+    "independentReadbacks": 118,
+    "restarts": 7,
+    "coldSitePages": 40,
+    "retainedTree": "e25c3364ed2224372a3679907b790d9d8430cf6f",
+    "inputFiles": 92,
+    "distFiles": 223,
+    "exactBytes": true,
+    "remotePublication": false,
+    "publicationError": "D05_T3_RETAINED_PREFLIGHT_BLOB_WRITE_HTTP_403"
+  },
+  "hardware": {
+    "profile": "balanced",
+    "adapter": "nonfallback-reported",
+    "actualInference": true,
+    "serverStopped": true,
+    "browserRestarted": true,
+    "workerRelease": true,
+    "cancelPassed": true,
+    "observations": [
+      {
+        "scenario": "cost",
+        "offline": false,
+        "milliseconds": 23155,
+        "checks": 4,
+        "passed": 3,
+        "unsupportedMoney": 0,
+        "batchRole": "unresolved",
+        "unitRole": "unresolved"
+      },
+      {
+        "scenario": "cost",
+        "offline": true,
+        "milliseconds": 17271,
+        "checks": 4,
+        "passed": 4,
+        "unsupportedMoney": 0,
+        "batchRole": "matched",
+        "unitRole": "matched"
+      },
+      {
+        "scenario": "missing-cost",
+        "offline": true,
+        "milliseconds": 13718,
+        "checks": 3,
+        "passed": 2,
+        "unsupportedMoney": 0,
+        "contiguousItems": 0
+      },
+      {
+        "scenario": "price",
+        "offline": false,
+        "milliseconds": 36553,
+        "checks": 5,
+        "passed": 1,
+        "unsupportedMoney": 2,
+        "orderPriceRole": "unresolved",
+        "unitPriceRole": "unresolved"
+      }
+    ],
+    "comparablePassed": 9,
+    "comparableChecks": 11,
+    "qualityGate": "D05_T3_MODEL_GROUNDING_REVIEW_REQUIRED",
+    "semanticAcceptance": false
+  },
+  "productAccepted": false
+}
