@@ -9,6 +9,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: d04-life-os-${{ github.ref }}
   cancel-in-progress: true
@@ -67,6 +68,7 @@ jobs:
           test "$(git -C d04-private/model rev-parse HEAD)" = "b277a721135381813dfdc7333c7b8e8645610722"
           test "$(git -C d04-private/model rev-parse HEAD^{tree})" = "d4f8c393a11d199f9266766af7c4569401fbeaa6"
           test "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
+          test "$(git -C d04-private/t2 rev-parse HEAD^{tree})" = "56e55a9458aeb3ce540ef87dbc2dd9549ae2fcb2"
           for path in d04-private/site d04-private/model d04-private/t2; do
             test -z "$(git -C "$path" status --porcelain --untracked-files=no)"
           done
@@ -113,8 +115,69 @@ jobs:
             grep -Eo 'D04_HOSTING_SOURCE_ERROR:[A-Z_]+' "$RUNNER_TEMP/d04-release-source.log" | sort -u | head -16 || true
             exit 1
           fi
+      - name: Reuse verified source evidence only for byte-identical candidate
+        id: source_evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          reuse=false
+          old="$RUNNER_TEMP/d04-prior-source-evidence"
+          mkdir -p "$old"
+          if [ "$(git -C d04-private/site rev-parse HEAD)" = "612ca1c869de1cd8d686f96fb74030e7581bea79" ] &&
+             [ "$(git -C d04-private/site rev-parse HEAD^{tree})" = "72b0684d3fad91bed00f12e53dc7fe9c269acbb7" ] &&
+             [ "$(git -C d04-private/model rev-parse HEAD)" = "b277a721135381813dfdc7333c7b8e8645610722" ] &&
+             [ "$(git -C d04-private/model rev-parse HEAD^{tree})" = "d4f8c393a11d199f9266766af7c4569401fbeaa6" ] &&
+             [ "$(git -C d04-private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d" ] &&
+             [ "$(git -C d04-private/t2 rev-parse HEAD^{tree})" = "56e55a9458aeb3ce540ef87dbc2dd9549ae2fcb2" ] &&
+             gh api repos/Faust-S/knowledge/actions/runs/45656441170 >"$old/run.json" 2>"$old/api.log" &&
+             gh api repos/Faust-S/knowledge/actions/jobs/139354286896 >"$old/job.json" 2>>"$old/api.log" &&
+             gh api repos/Faust-S/knowledge/actions/jobs/139354286896/logs >"$old/job.log" 2>>"$old/api.log"; then
+            if python3 - "$old" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+          p = Path(sys.argv[1])
+          run = json.loads((p/"run.json").read_text())
+          job = json.loads((p/"job.json").read_text())
+          assert run["id"] == 45656441170 and run["status"] == "completed"
+          assert run["head_sha"] == "b29f81b9a726c1c5567b7d5c0efbb158336d6138"
+          assert run["path"] == ".github/workflows/d04-life-os-qualification.yml"
+          assert job["id"] == 139354286896 and job["run_id"] == run["id"]
+          assert job["status"] == "completed" and job["head_sha"] == run["head_sha"]
+          lines = (p/"job.log").read_text(encoding="utf-8", errors="replace").splitlines()
+          actual = [re.sub(r"^\d{4}-\d\d-\d\dT\S+Z ", "", line) for line in lines]
+          required = [
+              "D04_REVISIONS_AND_TREES=PASS", "D04_HOSTING_SOURCE=PASS",
+              "D04_FULL_DOMAIN_TESTS=PASS", "D04_FULL_SITE_TESTS=PASS",
+              "# tests 570", "# pass 570", "# tests 983", "# pass 983",
+              "D04_TOOL_LINKS=PASS", "D04_TYPESCRIPT=PASS",
+              "D04_FULL_FORMAT_LINT=DEBT_ONLY", "D04_LINT_ERRORS=36819",
+              "D04_LINT_FORMAT_ERRORS=36819", "D04_LINT_FATAL_ERRORS=0",
+              "D04_SEMANTIC_LINT=PASS",
+          ]
+          assert all(item in actual for item in required)
+          assert actual.count("# fail 0") >= 2
+          outcome = next(line for line in actual if line.startswith("D04_STAGE_OUTCOMES="))
+          fields = dict(item.split(":", 1) for item in outcome.split("=", 1)[1].split(","))
+          assert all(fields.get(key) == "success" for key in ("domain","site","links","types","lint","semantic"))
+          PY
+            then
+              reuse=true
+              echo "D04_SOURCE_EVIDENCE_REUSED_FROM=45656441170"
+              echo "D04_SOURCE_EVIDENCE_SUBJECT_TESTS=570"
+              echo "D04_SOURCE_EVIDENCE_SITE_TESTS=983"
+            fi
+          fi
+          rm -rf "$old"
+          echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
+          if [ "$reuse" != true ]; then
+            echo "D04_SOURCE_EVIDENCE_REUSE_UNAVAILABLE_RUN_FULL"
+          fi
       - name: Full canonical domain suite (all existing test files)
         id: domain
+        if: steps.source_evidence.outputs.reuse != 'true'
         continue-on-error: true
         working-directory: d04-private/model
         run: |
@@ -131,6 +194,7 @@ jobs:
           grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$' "$log" | tail -7
       - name: Full site source and behavior suite (all existing test files)
         id: research
+        if: steps.source_evidence.outputs.reuse != 'true'
         continue-on-error: true
         working-directory: d04-private/site
         run: |
@@ -148,6 +212,7 @@ jobs:
           grep -E '^# (tests|pass|fail|skipped|cancelled) [0-9]+$' "$log" | tail -7
       - name: Check all existing tool links
         id: links
+        if: steps.source_evidence.outputs.reuse != 'true'
         continue-on-error: true
         working-directory: d04-private/site
         run: |
@@ -159,6 +224,7 @@ jobs:
           fi
       - name: Full TypeScript check
         id: types
+        if: steps.source_evidence.outputs.reuse != 'true'
         continue-on-error: true
         working-directory: d04-private/site
         run: |
@@ -171,6 +237,7 @@ jobs:
           fi
       - name: Full lint with explicit classification of formatting-only debt
         id: lint
+        if: steps.source_evidence.outputs.reuse != 'true'
         continue-on-error: true
         working-directory: d04-private/site
         run: |
@@ -214,6 +281,7 @@ jobs:
           PY
       - name: Check semantic ESLint rules separately from existing Prettier debt
         id: semantic
+        if: steps.source_evidence.outputs.reuse != 'true'
         continue-on-error: true
         working-directory: d04-private/site
         run: |
@@ -229,7 +297,7 @@ jobs:
           echo "D04_SEMANTIC_LINT=PASS"
       - name: Assemble exact production dist with original T2 Host and qualified Kernel
         id: integrated
-        if: steps.domain.outcome == 'success' && steps.research.outcome == 'success' && steps.links.outcome == 'success' && steps.types.outcome == 'success' && steps.semantic.outcome == 'success' && steps.lint.outcome == 'success'
+        if: steps.release-source.outcome == 'success' && (steps.source_evidence.outputs.reuse == 'true' || (steps.domain.outcome == 'success' && steps.research.outcome == 'success' && steps.links.outcome == 'success' && steps.types.outcome == 'success' && steps.semantic.outcome == 'success' && steps.lint.outcome == 'success'))
         continue-on-error: true
         working-directory: d04-private/site
         env:
@@ -244,6 +312,57 @@ jobs:
           set -e
           if [ "$code" -ne 0 ]; then
             echo "D04_INTEGRATED_T2_BUILD=FAIL"
+            # Bounded failure classification, without raw logs or private paths.
+            python3 - "$RUNNER_TEMP/d04-integrated.log" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+          data = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          command = next((line for line in reversed(data.splitlines()) if "Error: Command failed:" in line), "")
+          stage = "UNKNOWN"
+          for token, label in (
+              ("materialize-k035-atomic-graph-successor.mjs", "KERNEL_BASE_MATERIALIZE"),
+              ("materialize-k036-atomic-graph-qualified.mjs", "KERNEL_SUCCESSOR_MATERIALIZE"),
+              ("stage-t2-external-module.mjs", "HOST_MODULE_STAGE"),
+              ("stage-verified-kernel.mjs", "KERNEL_ARTIFACT_STAGE"),
+              ("release:check-source", "PINNED_SOURCE_CHECK"),
+              ("ci --no-audit", "DEPENDENCY_INSTALL"),
+              ("run build:static", "PUBLIC_STATIC_BUILD"),
+              ("run build", "KERNEL_OR_HOST_BUILD"),
+          ):
+              if token in command:
+                  stage = label
+                  break
+          if stage in ("DEPENDENCY_INSTALL", "KERNEL_OR_HOST_BUILD"):
+              if "EXACT_SUCCESSOR_MATERIALIZED" in data:
+                  stage += "_KERNEL_OR_LATER"
+              if re.search(r"stage-t2-external-module|T2_EXTERNAL_MODULE_|\"moduleId\":\s*\"iwxa.domain.bazmed\"", data):
+                  stage += "_HOST_STAGED"
+          print("D04_BUILD_FAILURE_STAGE=" + stage)
+          for token, label in (
+              ("D04_HOSTING_SOURCE_GATE=PASS", "SOURCE_CHECK_PASS"),
+              ("EXACT_SUCCESSOR_MATERIALIZED", "KERNEL_MATERIALIZED"),
+              ("vite v", "VITE_STARTED"),
+              ("[prerender:", "PRERENDER_STARTED"),
+              ("npm error", "NPM_ERROR"),
+              ("npm ERR!", "NPM_LEGACY_ERROR"),
+              ("JavaScript heap out of memory", "OUT_OF_MEMORY"),
+              ("Error: Command failed:", "CHILD_PROCESS_FAILED"),
+              ("Cannot find module", "MISSING_MODULE"),
+              ("Could not resolve", "UNRESOLVED_IMPORT"),
+              ("not found", "NOT_FOUND"),
+              ("Killed", "KILLED"),
+          ):
+              if token in data:
+                  print("D04_BUILD_SIGNAL_" + label + "=YES")
+          errors = set(re.findall(r"(?m)^\s*(?:Error|TypeError|ReferenceError|SyntaxError|RangeError): ([A-Z][A-Z0-9_]{2,100})(?=[:\s]|$)", data))
+          prefixes = ("K035_SUCCESSOR_", "EXACT_", "SOURCE_", "SUCCESSOR_", "PREDECESSOR_", "OVERLAY_", "OUTPUT_", "T2_EXTERNAL_MODULE_", "BAZMED_", "D04_", "ERR_", "ENOENT", "EACCES")
+          for code in sorted(errors):
+              if code.startswith(prefixes):
+                  print("D04_BUILD_ERROR_CODE=" + code)
+          for code in sorted(set(re.findall(r"(?m)^npm (?:error|ERR!) code ([A-Z][A-Z0-9_]{1,32})\s*$", data)))[:10]:
+              print("D04_BUILD_NPM_CODE=" + code)
+          PY
             grep -Eo 'BAZMED_[A-Z0-9_]+|D04_[A-Z0-9_]+|ERR_[A-Z0-9_]+' "$RUNNER_TEMP/d04-integrated.log" | sort -u | tail -25 || true
             grep -E '^D04_BROWSER_PROBLEM_[A-Z_]+=[0-9]+$' "$RUNNER_TEMP/d04-integrated.log" | head -10 || true
             grep -Eo 'error TS[0-9]+' "$RUNNER_TEMP/d04-integrated.log" | sort -u | head -15 || true
@@ -465,6 +584,7 @@ jobs:
       - name: Enforce release qualification status without publishing private artifacts
         if: always()
         env:
+          SOURCE_REUSE: ${{ steps.source_evidence.outputs.reuse }}
           DOMAIN: ${{ steps.domain.outcome }}
           SITE: ${{ steps.research.outcome }}
           LINKS: ${{ steps.links.outcome }}
@@ -479,6 +599,10 @@ jobs:
           BROWSER_DEPS: ${{ steps.browser_deps.outcome }}
           NATIVE: ${{ steps.native.outcome }}
         run: |
+          if [ "$SOURCE_REUSE" = true ]; then
+            DOMAIN=success; SITE=success; LINKS=success; TYPES=success; LINT=success; SEMANTIC=success
+            echo "D04_SOURCE_OUTCOMES=VERIFIED_REUSED_EXACT_REVISION"
+          fi
           echo "D04_STAGE_OUTCOMES=domain:$DOMAIN,site:$SITE,links:$LINKS,types:$TYPES,lint:$LINT,semantic:$SEMANTIC,integrated:$INTEGRATED,smoke:$PRODUCTION_SMOKE,public:$PUBLIC_RUNTIME,hosting:$HOSTING,challenge:$CHALLENGE,browser:$BROWSER_DEPS,native:$NATIVE"
           for outcome in "$DOMAIN" "$SITE" "$LINKS" "$TYPES" "$LINT" "$SEMANTIC" "$INTEGRATED" "$PRODUCTION_SMOKE" "$PUBLIC_RUNTIME" "$HOSTING" "$CHALLENGE" "$BROWSER_DEPS" "$NATIVE"; do
             if [ "$outcome" != "success" ]; then
