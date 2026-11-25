@@ -12,14 +12,18 @@ concurrency:
   group: k036-canonical-event-merge-${{ github.ref }}
   cancel-in-progress: true
 env:
-  T2_PIN: '4e4ad5c5e566a74f24243b9d0744a6d64652a199'
+  T2_PIN: 'c28e01876f3230307b7f20449f7ef54374367c93'
+  T2_SOURCE_PIN: '4e4ad5c5e566a74f24243b9d0744a6d64652a199'
+  # A staging-only commit reuses the already completed exact source and
+  # cross-product regressions, while still rebuilding and hashing the bytes.
+  K036_STAGE_ONLY: ${{ startsWith(github.event.head_commit.message, 'ci(stage):') && '1' || '0' }}
   CORE_PIN: '6986195c2a7073bb9eeabaef822034e37cf2f4f9'
 jobs:
   source-runtime:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest]
+        os: ${{ fromJSON(startsWith(github.event.head_commit.message, 'ci(stage):') && '["ubuntu-24.04"]' || '["ubuntu-24.04","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
@@ -31,6 +35,7 @@ jobs:
           repository: Faust-S/T2
           ref: ${{ env.T2_PIN }}
           path: private-t2
+          fetch-depth: 2
           persist-credentials: false
           show-progress: false
           token: ${{ secrets.DOMEN }}

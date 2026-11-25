@@ -57,6 +57,19 @@ try{
     const got=run('git',['rev-parse','HEAD'],root);
     need(got.code===0&&got.output.trim()===pin,'K036_SOURCE_PIN_MISMATCH');
   }
+  // The source and canonical generator are exactly the previously qualified
+  // commit. The direct successor adds ONLY the two candidate archive tools.
+  const sourcePin=process.env.T2_SOURCE_PIN;
+  const packagingDir='t2/current/final-successor/kernel-successors/k036-canonical-event-merge-20261125';
+  const packagingPaths=[packagingDir+'/prepare_k036_candidate_archive.py',
+    packagingDir+'/test_prepare_k036_candidate_archive.py'].sort();
+  const parent=run('git',['rev-parse','HEAD^'],t2);
+  const changed=run('git',['diff','--name-only','HEAD^','HEAD'],t2);
+  need(sourcePin==='4e4ad5c5e566a74f24243b9d0744a6d64652a199'&&parent.code===0&&parent.output.trim()===sourcePin&&
+    changed.code===0&&JSON.stringify(changed.output.trim().split(/\r?\n/).sort())===JSON.stringify(packagingPaths),
+    'K036_PACKAGING_ONLY_SOURCE_DRIFT');
+  const stageOnly=process.env.K036_STAGE_ONLY==='1';
+  console.log('K036_PACKAGING_ONLY_SOURCE_PIN=PASS');
   need(Boolean(process.env.RUNNER_TEMP)&&
     temp===resolve(process.env.RUNNER_TEMP,'iwxa-k036-canonical-event-merge')&&
     temp!==t2&&temp!==core&&!existsSync(temp),'K036_DISPOSABLE_TEMP_PATH_REQUIRED');
@@ -86,26 +99,30 @@ try{
   console.log(`K036_EVENT_COMPARISONS_CHANGED=${count}`);
   const prior=Buffer.from(text.replaceAll(corrected,original),'utf8');
   need(sha(prior)===change.beforeSha256,'K036_BASELINE_SOURCE_HASH_MISMATCH');
-  try{
-    writeFileSync(file,prior);
-    const baseline=tests(candidate,['tests/same-workspace-event-merge.test.ts'],'baseline',
-      'roundtrips the original local Event');
-    const failed=baseline.report.testResults.flatMap(r=>r.assertionResults??[])
-      .filter(r=>r.status==='failed');
-    need(baseline.code!==0&&baseline.report.numFailedTests===1&&failed.length===1&&
-      failed[0].failureMessages?.some(m=>m.includes('IMPORT_EVENT_ID_COLLISION')),
-      'K036_BASELINE_EXACT_COLLISION_NOT_REPRODUCED');
-    console.log('K036_BASELINE_EXACT_COLLISION=CONFIRMED');
-  }finally{writeFileSync(file,fixed)}
-  need(sha(readFileSync(file))===change.afterSha256,'K036_FIXED_SOURCE_RESTORE_MISMATCH');
-  const green=tests(candidate,['tests/same-workspace-event-merge.test.ts',
-    'tests/same-store-event-history.test.ts','tests/import-commit-atomicity.test.ts',
-    'tests/atomic-object-graph.test.ts'],'candidate');
-  console.log('K036_CANDIDATE_TEST_COUNTS='+JSON.stringify({
-    total:green.report.numTotalTests,passed:green.report.numPassedTests,failed:green.report.numFailedTests,
-    pending:green.report.numPendingTests}));
-  need(green.code===0&&green.report.numFailedTests===0&&green.report.numPassedTests>=43,
-    'K036_CANDIDATE_REGRESSION_FAILED');
+  if(stageOnly){
+    console.log('K036_SOURCE_REGRESSION=REUSED_EXACT_REVISION_45596499435');
+  }else{
+    try{
+      writeFileSync(file,prior);
+      const baseline=tests(candidate,['tests/same-workspace-event-merge.test.ts'],'baseline',
+        'roundtrips the original local Event');
+      const failed=baseline.report.testResults.flatMap(r=>r.assertionResults??[])
+        .filter(r=>r.status==='failed');
+      need(baseline.code!==0&&baseline.report.numFailedTests===1&&failed.length===1&&
+        failed[0].failureMessages?.some(m=>m.includes('IMPORT_EVENT_ID_COLLISION')),
+        'K036_BASELINE_EXACT_COLLISION_NOT_REPRODUCED');
+      console.log('K036_BASELINE_EXACT_COLLISION=CONFIRMED');
+    }finally{writeFileSync(file,fixed)}
+    need(sha(readFileSync(file))===change.afterSha256,'K036_FIXED_SOURCE_RESTORE_MISMATCH');
+    const green=tests(candidate,['tests/same-workspace-event-merge.test.ts',
+      'tests/same-store-event-history.test.ts','tests/import-commit-atomicity.test.ts',
+      'tests/atomic-object-graph.test.ts'],'candidate');
+    console.log('K036_CANDIDATE_TEST_COUNTS='+JSON.stringify({
+      total:green.report.numTotalTests,passed:green.report.numPassedTests,failed:green.report.numFailedTests,
+      pending:green.report.numPendingTests}));
+    need(green.code===0&&green.report.numFailedTests===0&&green.report.numPassedTests>=43,
+      'K036_CANDIDATE_REGRESSION_FAILED');
+  }
   npm('K036_CANDIDATE_TYPECHECK',['run','typecheck'],candidate);
   npm('K036_CANDIDATE_BUILD',['run','build'],candidate);
   const previous=json(join(t2,'t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019/ARTIFACT_IDENTITY.json'));
@@ -121,7 +138,7 @@ try{
   });
   const receipt={schema:'IWXA_K036_CANONICAL_EVENT_MERGE_BUILD_WITNESS/1',
     status:'SOURCE_AND_BUILD_PASS_CANDIDATE_UNACCEPTED',baseQualifiedArtifactId:identity.baseQualifiedArtifactId,
-    sourceCommit:process.env.T2_PIN,productionActivation:false,changedFiles:identity.changedFiles,files};
+    sourceCommit:sourcePin,productionActivation:false,changedFiles:identity.changedFiles,files};
   const receiptPath=join(temp,'candidate-build-receipt.json');
   writeFileSync(receiptPath,JSON.stringify(receipt,null,2)+'\n');
   console.log('K036_CANDIDATE_BUILD_RECEIPT='+JSON.stringify(receipt));
@@ -131,28 +148,50 @@ try{
   need(sha(readFileSync(zip))===previous.archiveSha256,'K036_PREVIOUS_ARCHIVE_SHA_MISMATCH');
   step('K036_EXTRACT_IMMUTABLE_BASELINE','python',['-c',
     'import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])',zip,qualified],temp);
-  const idb=join(candidate,'node_modules/fake-indexeddb/build/esm/index.js');
-  need(existsSync(idb),'K036_TEST_INDEXEDDB_REQUIRED');
-  npm('K036_ONE_CORE_DEPENDENCIES',['ci','--no-audit','--no-fund'],corePackage);
-  const cross=run(node,['--test','--test-reporter=tap','--test-force-exit','tests/t3-company-original-runtime-roundtrip.test.mjs'],corePackage,
-    {...process.env,IWXA_COMPANY_TEST_QUALIFIED_T2:qualified,IWXA_COMPANY_TEST_IDB_MODULE:idb,
-      IWXA_COMPANY_TEST_CANDIDATE_T2:dist,IWXA_COMPANY_TEST_CANDIDATE_RECEIPT:receiptPath});
-  const counts=Object.fromEntries([...cross.output.matchAll(/^# (tests|pass|fail|skipped) (\d+)\s*$/gm)]
-    .map(m=>[m[1],Number(m[2])]));
-  console.log('K036_ORIGINAL_CANDIDATE_CROSS_PRODUCT_COUNTS='+JSON.stringify(counts));
-  if(cross.code!==0){
-    // Only finite error code names. Never relay raw diagnostics.
-    for(const code of ['IMPORT_EVENT_ID_COLLISION','CANDIDATE_BUILD_BYTES_MISMATCH',
-      'CANDIDATE_UNRELATED_RUNTIME_FILE_CHANGED','ERR_ASSERTION','KERNEL_UNAVAILABLE',
-      'T3_CORPORATE_EXCHANGE_BUSINESS_ARCHIVE_REQUIRED','T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY',
-      'ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND','ERR_UNKNOWN_FILE_EXTENSION','ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING',
-      'ERR_INVALID_ARG_VALUE','SyntaxError','ReferenceError','TypeError','ENOENT'])
-      if(cross.output.includes(code))console.log('K036_CROSS_PRODUCT_DIAGNOSTIC='+code);
+  if(stageOnly){
+    console.log('K036_CROSS_PRODUCT_REGRESSION=REUSED_EXACT_REVISION_45596499435');
+  }else{
+    const idb=join(candidate,'node_modules/fake-indexeddb/build/esm/index.js');
+    need(existsSync(idb),'K036_TEST_INDEXEDDB_REQUIRED');
+    npm('K036_ONE_CORE_DEPENDENCIES',['ci','--no-audit','--no-fund'],corePackage);
+    const cross=run(node,['--test','--test-reporter=tap','--test-force-exit','tests/t3-company-original-runtime-roundtrip.test.mjs'],corePackage,
+      {...process.env,IWXA_COMPANY_TEST_QUALIFIED_T2:qualified,IWXA_COMPANY_TEST_IDB_MODULE:idb,
+        IWXA_COMPANY_TEST_CANDIDATE_T2:dist,IWXA_COMPANY_TEST_CANDIDATE_RECEIPT:receiptPath});
+    const counts=Object.fromEntries([...cross.output.matchAll(/^# (tests|pass|fail|skipped) (\d+)\s*$/gm)]
+      .map(m=>[m[1],Number(m[2])]));
+    console.log('K036_ORIGINAL_CANDIDATE_CROSS_PRODUCT_COUNTS='+JSON.stringify(counts));
+    if(cross.code!==0){
+      // Only finite error code names. Never relay raw diagnostics.
+      for(const code of ['IMPORT_EVENT_ID_COLLISION','CANDIDATE_BUILD_BYTES_MISMATCH',
+        'CANDIDATE_UNRELATED_RUNTIME_FILE_CHANGED','ERR_ASSERTION','KERNEL_UNAVAILABLE',
+        'T3_CORPORATE_EXCHANGE_BUSINESS_ARCHIVE_REQUIRED','T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY',
+        'ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND','ERR_UNKNOWN_FILE_EXTENSION','ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING',
+        'ERR_INVALID_ARG_VALUE','SyntaxError','ReferenceError','TypeError','ENOENT'])
+        if(cross.output.includes(code))console.log('K036_CROSS_PRODUCT_DIAGNOSTIC='+code);
+    }
+    need(cross.code===0&&counts.tests===2&&counts.pass===2&&counts.fail===0,
+      'K036_ORIGINAL_CANDIDATE_CROSS_PRODUCT_FAILED');
+    console.log('K036_ORIGINAL_CANDIDATE_CROSS_PRODUCT=PASS');
   }
-  need(cross.code===0&&counts.tests===2&&counts.pass===2&&counts.fail===0,
-    'K036_ORIGINAL_CANDIDATE_CROSS_PRODUCT_FAILED');
-  console.log('K036_ORIGINAL_CANDIDATE_CROSS_PRODUCT=PASS');
-  console.log('K036_CANDIDATE_SOURCE_AND_RUNTIME=PASS_NOT_RELEASED');
+  // The candidate archive remains private and unaccepted. Rebuild it
+  // from the already verified original source bytes and the immutable
+  // previous distribution; never claim that its old release ID still fits.
+  const packagingRoot=join(t2,packagingDir);
+  step('K036_CANDIDATE_ARCHIVE_SOURCE_TESTS','python',['-m','unittest','discover','-s',packagingRoot,
+    '-p','test_prepare_k036_candidate_archive.py'],temp,{...process.env,PYTHONDONTWRITEBYTECODE:'1'});
+  const artifactOut=join(temp,'candidate-archive');
+  const previousRoot=join(t2,'t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019');
+  step('K036_CANDIDATE_ARCHIVE_STAGE','python',[join(packagingRoot,'prepare_k036_candidate_archive.py'),
+    '--base-archive',zip,'--previous-identity',join(previousRoot,'ARTIFACT_IDENTITY.json'),
+    '--candidate-dist',dist,'--build-receipt',receiptPath,'--output-dir',artifactOut],temp);
+  const identityOut=json(join(artifactOut,'CANDIDATE_ARTIFACT_IDENTITY.json'));
+  const candidateZip=join(artifactOut,identityOut.artifactId+'.zip');
+  need(identityOut.releaseAccepted===false&&identityOut.productionActivation===false&&
+    identityOut.sourceCommit===sourcePin&&identityOut.archiveSha256===sha(readFileSync(candidateZip)),
+    'K036_CANDIDATE_ARCHIVE_IDENTITY_INVALID');
+  console.log('K036_CANDIDATE_ARCHIVE_IDENTITY='+JSON.stringify(identityOut));
+  console.log(stageOnly?'K036_CANDIDATE_ARCHIVE=STAGED_REUSED_EXACT_SOURCE_EVIDENCE_NOT_RELEASED':
+    'K036_CANDIDATE_SOURCE_AND_RUNTIME=PASS_NOT_RELEASED');
 }catch(error){
   const code=String(error?.message??'');
   console.log(/^K036_[A-Z0-9_]{4,120}$/.test(code)?code:'K036_QUALIFICATION_UNCLASSIFIED_FAILURE');
