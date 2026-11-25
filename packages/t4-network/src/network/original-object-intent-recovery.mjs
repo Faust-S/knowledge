@@ -2,7 +2,8 @@ import {packageSha256} from './webdav-package-transfer.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
 import {prepareT4OriginalObjectDelta,digestT4OriginalObjectContent,
   verifyT4OriginalObjectMutationInputProof,T4_ORIGINAL_OBJECT_CONTENT_TRACE,
-  T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE_TRACE} from './original-object-delta.mjs';
+  T4_ORIGINAL_OBJECT_INPUT_DIGEST_PROFILE_TRACE,decodeT4OriginalObjectDeltaBytes} from './original-object-delta.mjs';
+import {readT4OriginalHostLocalCaptureEvidence} from './original-host-outbox-delivery.mjs';
 
 export class T4OriginalMutationRecoveryError extends Error{
   constructor(code,details={}){super(code);
@@ -145,10 +146,62 @@ export async function reconcileT4OriginalMutationIntent({
       fail('OBJECT_RECOVERY_ORIGINAL_PERMISSION_DENIED');
     throw error;
   }
-  if(window.count!==1||window.hasMore||window.lastEventId!==event.event_id||
+  if(window.count!==1||window.lastEventId!==event.event_id||
     window.eventRefs[0].eventId!==event.event_id||
     window.eventRefs[0].revision!==event.revision)
     fail('OBJECT_RECOVERY_SOURCE_EVENT_ORDER_CHANGED');
+  // Already staged historical captures have their own immutable proof.
+  // Never reconstruct their bytes from a later current Object revision.
+  if(window.hasMore){
+    const observed=await readOriginalOutbox(scope);
+    if(observed===null||observed===undefined)fail('OBJECT_RECOVERY_SOURCE_EVENT_ORDER_CHANGED');
+    const existing=structuredClone(observed),expectedIntent=structuredClone(intent);
+    const checkedRead=async(fn,expected,query)=>{
+      const value=await fn(query);
+      if(!equals(value,expected))fail('OBJECT_RECOVERY_OUTBOX_NOT_VERIFIED');
+      return structuredClone(value);
+    };
+    let evidence,prepared;
+    try{
+      evidence=await readT4OriginalHostLocalCaptureEvidence({
+        ...scope,kind:'OBJECT_PUT',subjectId:objectId,getMode,authorizeOriginalRead,
+        readOriginalEvents,
+        readOriginalIntent:q=>checkedRead(readOriginalIntent,expectedIntent,q),
+        readOriginalOutbox:q=>checkedRead(readOriginalOutbox,existing,q),
+      });
+      prepared=decodeT4OriginalObjectDeltaBytes(Buffer.from(existing.bytesBase64,'base64'));
+      if(evidence.sourceEventId!==event.event_id||
+        evidence.originalEventDigest!==window.eventRefs[0].eventDigest||
+        !equals(evidence.sourceCursorBefore,intent.sourceCursor)||
+        !equals(evidence.sourceCursorAfter,nextCursor)||
+        evidence.originalWindowDigest!==existing.sourceWindow?.windowDigest||
+        evidence.sha256!==prepared.sha256||evidence.key!==prepared.key||
+        evidence.originalIntentEventAndCanonicalBytesVerified!==true||
+        evidence.networkPublicationAuthorized!==false)
+        fail('OBJECT_RECOVERY_OUTBOX_NOT_VERIFIED');
+      validateOutbox(existing,intent,prepared,nextCursor,existing.sourceWindow);
+    }catch(error){
+      fail('OBJECT_RECOVERY_OUTBOX_NOT_VERIFIED',{originalCode:error?.code??null});
+    }
+    await checkedRead(readOriginalIntent,expectedIntent,scope);
+    await checkedRead(readOriginalOutbox,existing,scope);
+    mode(getMode);
+    if(await authorizeOriginalRead(readScope)!==true||
+      await authorizeOriginalRead({...scope,operation:'t1.getObject'})!==true||
+      await authorizeOriginalWrite(writeScope)!==true)
+      fail('OBJECT_RECOVERY_ORIGINAL_PERMISSION_DENIED');
+    mode(getMode);
+    return Object.freeze({
+      schema:'IWXA_T4_ORIGINAL_MUTATION_INTENT_RECONCILED_V1',
+      captureRef,originalSourceEventId:event.event_id,originalSourceEventVerified:true,
+      originalSourceObjectReadbackPassed:false,originalHistoricalCaptureVerified:true,
+      originalT3OutboxVerified:true,originalT3IsOnlyStore:true,
+      originalMutationRetried:false,originalOperationReceiptRecreated:false,
+      alreadyCaptured:true,networkPublished:false,recipientApplied:false,
+      sourceCursorAdvanced:false,originalT3Outbox:existing,prepared,
+      window:existing.sourceWindow,nextCursor,
+    });
+  }
   const originalRecord=await originalKernel.getObject(workspaceId,objectId);
   mode(getMode);
   if(await authorizeOriginalRead({...scope,operation:'t1.getObject'})!==true||

@@ -933,3 +933,36 @@ test('K108 input profile cannot be changed or supplied by a business caller',asy
  await assert.rejects(reconcile(f),code('OBJECT_RECOVERY_ORIGINAL_INTENT_DIGEST_MISMATCH'));
  assert.equal(f.outbox.size,0);assert.equal(f.writes.length,1);
 });
+
+test('K110 historical staged Object capture is recoverable after later source mutations without reading current Object',async()=>{
+ const f=originalFixture(),first=await capture(f,1);
+ await capture(f,2,{sourceCursor:first.nextCursor});
+ const saved=structuredClone(f.outbox.get('capture:1'));
+ const recovered=await reconcile(f,'capture:1',{
+   originalKernel:{...f.ports.originalKernel,getObject:async()=>{throw Error('current Object must not be read');}},
+   persistOriginalOutbox:async()=>{throw Error('historical capture must not be rewritten');},
+ });
+ for(const key of ['originalHistoricalCaptureVerified','alreadyCaptured','originalT3OutboxVerified'])
+   assert.equal(recovered[key],true);
+ for(const key of ['originalSourceObjectReadbackPassed','originalMutationRetried','originalOperationReceiptRecreated','networkPublished','sourceCursorAdvanced'])
+   assert.equal(recovered[key],false);
+ assert.equal(recovered.prepared.delta.sourceRevision,2);
+ assert.equal(recovered.prepared.sha256,first.prepared.sha256);
+ assert.deepEqual(recovered.window,first.window);
+ assert.deepEqual(recovered.nextCursor,first.nextCursor);
+ assert.deepEqual(f.outbox.get('capture:1'),saved);
+ assert.equal(f.read().revision,3);assert.equal(f.writes.length,2);
+});
+test('K110 later source history cannot fabricate missing or tampered staged Object capture',async()=>{
+ for(const corrupt of [
+   f=>f.outbox.delete('capture:1'),
+   f=>{f.outbox.get('capture:1').bytesBase64=Buffer.from('fake').toString('base64');},
+   f=>{f.outbox.get('capture:1').sourceWindow.windowDigest='sha256:'+'0'.repeat(64);},
+ ]){
+   const f=originalFixture(),first=await capture(f,1);
+   await capture(f,2,{sourceCursor:first.nextCursor});corrupt(f);
+   await assert.rejects(reconcile(f),e=>['OBJECT_RECOVERY_SOURCE_EVENT_ORDER_CHANGED',
+     'OBJECT_RECOVERY_OUTBOX_NOT_VERIFIED'].includes(e?.code));
+   assert.equal(f.writes.length,2);assert.equal(f.read().revision,3);
+ }
+});

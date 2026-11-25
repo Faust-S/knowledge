@@ -257,6 +257,8 @@ export async function readT4OriginalCommitEventWindow({
       originalHistoryExclusionRequired:true}),read);
     if(calls!==1||completed===undefined||result!==completed)
       fail('ORIGINAL_COMMIT_EVENT_BOUNDARY_INVALID');
+    active=false;
+    await requireRead();
     return completed;
   }finally{active=false;}
 }

@@ -310,7 +310,7 @@ test('K106 original receiver allows extension values to be updated without disca
  const applied=await apply(prepared,r);
  assert.equal(applied.originalT3CommitApplied,true);
  assert.equal(r.calls.length,1);
- assert.deepEqual(r.read().extensions,{future:{preserve:true}});
+ assert.deepEqual(JSON.parse(JSON.stringify(r.read().extensions)),{future:{preserve:true}});
 });
 
 test('K107 arbitrary JSON Object data is preserved by source wire and original graph apply',async()=>{

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {readT4OriginalEventWindow,readT4OriginalCommitEventWindow} from '../src/network/original-event-window.mjs';
 const workspaceId='ws-commit',originalWriteOwnerRef='owner-commit';
 const event=n=>({event_id:'evt-'+n,event_type:'object.changed',workspace_id:workspaceId,
@@ -126,12 +127,25 @@ test('new reader has no 100000-Event lifetime cutoff',async()=>{
       return {entries,next_after_event_id:entries.at(-1)?.event.event_id??afterEventId,
         has_more:start+entries.length<count,order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
     }};
-  // An exact old-format cursor at the last position within the old limit.
-  const cursor=(await legacy(Array.from({length:100000},(_,i)=>event(i)),null,1)).nextCursor;
-  // Compute the old prefix by a single streamed invocation with an intentionally
-  // wrong digest, observing that history is scanned beyond the previous cap.
-  const wrong={...cursor,lastEventId:'evt-100002',seenEventCount:100003};
-  await assert.rejects(readT4OriginalCommitEventWindow({...options,cursor:wrong,pageSize:1024,maxEvents:2}),
-    {code:'ORIGINAL_T3_EVENT_HISTORY_DIVERGED'});
-  assert.ok(reads>97);
+  // Independently compute the exact V1 prefix beyond the old cap.
+  const canonical=value=>Array.isArray(value)?value.map(canonical):
+    value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])])):value;
+  const digest=value=>'sha256:'+createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+  const prefix=createHash('sha256').update('[');
+  const anchorCount=100003;
+  for(let n=0;n<anchorCount;n++){
+    const row=event(n);
+    const ref={eventId:row.event_id,eventType:row.event_type,workspaceId,
+      objectId:row.object_id,revision:row.revision,occurredAt:row.occurred_at,eventDigest:digest(row)};
+    if(n)prefix.update(',');
+    prefix.update(JSON.stringify(canonical(ref)));
+  }
+  const cursor={schema:'IWXA_T4_ORIGINAL_EVENT_CURSOR_V1',...scope,lastEventId:'evt-100002',
+    seenEventCount:anchorCount,sourcePrefixDigest:'sha256:'+prefix.copy().update(']').digest('hex'),
+    originalPermissionProof:false};
+  const result=await readT4OriginalCommitEventWindow({...options,cursor,pageSize:1024,maxEvents:2});
+  assert.equal(result.window.count,2);assert.equal(result.window.hasMore,false);
+  assert.equal(result.nextCursor.lastEventId,'evt-100004');
+  assert.equal(result.nextCursor.seenEventCount,count);
+  assert.equal(result.originalEventsRead,count);assert.ok(reads>97);
 });
