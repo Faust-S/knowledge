@@ -1,12 +1,21 @@
 // Original IWXA T3 local cryptographic Ed25519 key vault adopted as ONE executable implementation in knowledge.
 // No independent Kernel/Store/Access issuer, no committed real keys.
-import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, scrypt, scryptSync, timingSafeEqual } from 'node:crypto';
 import { strictJson } from './strict-json.mjs';
 
 const b64=b=>Buffer.from(b).toString('base64url');
 const unb64=(s,length=null)=>{insist(typeof s==='string'&&s.length>0&&s.length<=4*1024*1024&&/^[A-Za-z0-9_-]+$/.test(s),'VAULT_ENCODING_INVALID');const b=Buffer.from(s,'base64url');insist(b.toString('base64url')===s&&(length===null||b.length===length),'VAULT_ENCODING_INVALID');return b;};
 function insist(ok,code){if(!ok){const e=new Error(code);e.code=code;throw e;}}
-function derive(passphrase,salt){insist(typeof passphrase==='string'&&passphrase.length>=12,'VAULT_PASSPHRASE_TOO_SHORT');return scryptSync(passphrase,salt,32,{N:32768,r:8,p:1,maxmem:64*1024*1024});}
+const KDF_OPTIONS=Object.freeze({N:32768,r:8,p:1,maxmem:64*1024*1024});
+const AAD='IWXA-T3-LOCAL-KEY-VAULT-V1';
+function requirePassphrase(passphrase){insist(typeof passphrase==='string'&&passphrase.length>=12,'VAULT_PASSPHRASE_TOO_SHORT');}
+function derive(passphrase,salt){requirePassphrase(passphrase);return scryptSync(passphrase,salt,32,KDF_OPTIONS);}
+function deriveAsync(passphrase,salt){
+  requirePassphrase(passphrase);
+  // Keep the original work factor and key length, but leave the Host's
+  // event loop free to serve its original Kernel relay and session lease.
+  return new Promise((resolve,reject)=>scrypt(passphrase,salt,32,KDF_OPTIONS,(error,key)=>error?reject(error):resolve(key)));
+}
 const keyType=algorithm=>algorithm==='Ed25519'?'ed25519':algorithm==='X25519'?'x25519':null;
 function publicPem(privatePem,algorithm='Ed25519'){
   const type=keyType(algorithm);insist(type!==null,'VAULT_KEY_ALGORITHM_INVALID');
@@ -40,11 +49,27 @@ export function encryptVault(vault,passphrase){
   const plain=Buffer.from(JSON.stringify(vault),'utf8'),ciphertext=Buffer.concat([cipher.update(plain),cipher.final()]),tag=cipher.getAuthTag();key.fill(0);plain.fill(0);
   return {schema:'IWXA_T3_LOCAL_KEY_VAULT/1',kdf:{name:'scrypt',N:32768,r:8,p:1,salt:b64(salt)},cipher:{name:'AES-256-GCM',iv:b64(iv),tag:b64(tag),aad:'IWXA-T3-LOCAL-KEY-VAULT-V1'},ciphertext:b64(ciphertext)};
 }
-export function decryptVault(record,passphrase){
-  insist(record?.schema==='IWXA_T3_LOCAL_KEY_VAULT/1','VAULT_SCHEMA_INVALID');insist(record.kdf?.name==='scrypt'&&record.kdf.N===32768&&record.kdf.r===8&&record.kdf.p===1,'VAULT_KDF_INVALID');insist(record.cipher?.name==='AES-256-GCM'&&record.cipher.aad==='IWXA-T3-LOCAL-KEY-VAULT-V1','VAULT_CIPHER_INVALID');
-  const salt=unb64(record.kdf.salt,16),iv=unb64(record.cipher.iv,12),tag=unb64(record.cipher.tag,16),ciphertext=unb64(record.ciphertext),key=derive(passphrase,salt);
-  let plain;try{const dec=createDecipheriv('aes-256-gcm',key,iv);dec.setAAD(Buffer.from(record.cipher.aad));dec.setAuthTag(tag);plain=Buffer.concat([dec.update(ciphertext),dec.final()]);}catch{throw Object.assign(new Error('VAULT_UNLOCK_FAILED'),{code:'VAULT_UNLOCK_FAILED'});}finally{key.fill(0);}
+function encryptedParts(record){
+  insist(record?.schema==='IWXA_T3_LOCAL_KEY_VAULT/1','VAULT_SCHEMA_INVALID');insist(record.kdf?.name==='scrypt'&&record.kdf.N===32768&&record.kdf.r===8&&record.kdf.p===1,'VAULT_KDF_INVALID');insist(record.cipher?.name==='AES-256-GCM'&&record.cipher.aad===AAD,'VAULT_CIPHER_INVALID');
+  // Decode and own the exact encrypted envelope BEFORE any asynchronous KDF.
+  // A caller mutating its record while the worker runs cannot substitute data.
+  return {salt:unb64(record.kdf.salt,16),iv:unb64(record.cipher.iv,12),tag:unb64(record.cipher.tag,16),ciphertext:unb64(record.ciphertext)};
+}
+function decryptDerivedVault({iv,tag,ciphertext},key){
+  let plain,part,last;
+  try{const dec=createDecipheriv('aes-256-gcm',key,iv);dec.setAAD(Buffer.from(AAD));dec.setAuthTag(tag);part=dec.update(ciphertext);last=dec.final();plain=Buffer.concat([part,last]);}
+  catch{throw Object.assign(new Error('VAULT_UNLOCK_FAILED'),{code:'VAULT_UNLOCK_FAILED'});}
+  finally{key.fill(0);part?.fill(0);last?.fill(0);}
   let vault;try{vault=strictJson(plain.toString('utf8'));}catch{throw new Error('VAULT_CONTENT_INVALID');}finally{plain.fill(0);}return validateVault(vault);
+}
+export function decryptVault(record,passphrase){
+  const parts=encryptedParts(record);return decryptDerivedVault(parts,derive(passphrase,parts.salt));
+}
+// Same original envelope and validation, no key/passphrase/decision cache.
+// Only scrypt runs outside the event loop; authentication and use of the
+// resulting private material remain in the trusted native process.
+export async function decryptVaultAsync(record,passphrase){
+  const parts=encryptedParts(record);return decryptDerivedVault(parts,await deriveAsync(passphrase,parts.salt));
 }
 export function vaultPublicInventory(vault){return Object.fromEntries(Object.entries(vault.keys).map(([id,k])=>[id,{keyId:id,subjectId:k.subjectId,algorithm:k.algorithm,createdAt:k.createdAt,publicKeyPem:k.publicKeyPem}]));}
 export function vaultPrivateKey(vault,keyId){const k=vault.keys[keyId];insist(k,'VAULT_KEY_NOT_FOUND');return createPrivateKey(k.privateKeyPem);}

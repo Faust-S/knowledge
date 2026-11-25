@@ -5,7 +5,7 @@
 import {createHash,createPublicKey,generateKeyPairSync,diffieHellman,hkdfSync,
   randomBytes,createCipheriv,createDecipheriv} from 'node:crypto';
 import {canonical,copy,digest,fields} from '../../../t3-core/src/t3/access/core.mjs';
-import {decryptVault,vaultPrivateKey} from '../../../t3-core/src/t3/access/local-vault.mjs';
+import {decryptVaultAsync,vaultPrivateKey} from '../../../t3-core/src/t3/access/local-vault.mjs';
 import {strictJson} from '../../../t3-core/src/t3/access/strict-json.mjs';
 import {isOriginalKernelRegistryStatePort} from '../../../t3-core/src/t3/access/original-kernel-registry-state.mjs';
 import {isOriginalPersonalAccessCheckForRegistry} from '../../../t3-core/src/t3/access/original-personal-evaluator.mjs';
@@ -241,8 +241,9 @@ export function createT4OriginalVaultSealedContentPort({
     sameKey(entry,await recipientKey());current();
     return true;
   }
-  function openFromVault(encrypted,passphrase,entry,parsed){
-    const vault=decryptVault(typeof encrypted==='string'?strictJson(encrypted):encrypted,passphrase);
+  async function openFromVault(encrypted,passphrase,entry,parsed){
+    const vault=await decryptVaultAsync(typeof encrypted==='string'?strictJson(encrypted):encrypted,passphrase);
+    current();
     const item=Object.hasOwn(vault.keys,recipientKeyRef)?vault.keys[recipientKeyRef]:null;
     if(item?.algorithm!=='X25519'||item.subjectId!==entry.binding.subjectId||
       !pubDer(publicAgreementKey(item.publicKeyPem)).equals(pubDer(entry.publicKey)))
@@ -272,8 +273,9 @@ export function createT4OriginalVaultSealedContentPort({
       passphrase=await unlockPassphrase(Object.freeze({keyId:recipientKeyRef,workspaceId,scopeRef,ownerEpoch,
         actorId:signed.subject.actor_id,organizationId:signed.subject.organization_id,originalBindingRef:entry.binding.bindingRef}));
       current();sameKey(entry,await recipientKey());await permit(entry,session,proof);current();
-      // The decrypted Vault and KeyObject do not escape this synchronous call.
-      plaintext=openFromVault(encrypted,passphrase,entry,parsed);
+      // Nonblocking KDF; the decrypted Vault and KeyObject remain confined
+      // to the immediate authenticated open, with original lifetime rechecked.
+      plaintext=await openFromVault(encrypted,passphrase,entry,parsed);
       passphrase=null;encrypted=null;
       if(plaintext.length!==parsed.header.plaintextLength||hash(plaintext)!==session.capturedSha256)
         fail('SEALED_CONTENT_AUTHENTICATED_CAPTURE_MISMATCH');

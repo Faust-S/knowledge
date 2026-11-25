@@ -8,7 +8,7 @@
 // create a registry, IAM, Store or new signing protocol. Private keys never
 // enter the Workspace, browser Worker, .iwxa package or user-facing response.
 import {makeProof,keyObjectSigner} from "./core.mjs";
-import {decryptVault,vaultPrivateKey} from "./local-vault.mjs";
+import {decryptVaultAsync,vaultPrivateKey} from "./local-vault.mjs";
 import {strictJson} from "./strict-json.mjs";
 
 const IDENT=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
@@ -34,6 +34,7 @@ export function createOriginalVaultProofSigner({
   return async function signExistingActorProof({
     request,context,challenge,asOf,credentialKeyId,
   }={}){
+    request=structuredClone(request);context=structuredClone(context);
     requireThat(request&&context&&
       typeof request.actorId==="string"&&IDENT.test(request.actorId)&&
       request.actorId===context.actor_id,
@@ -97,14 +98,14 @@ export function createOriginalVaultProofSigner({
     // No plaintext persistence, default password, cache or remote service.
     let encrypted,passphrase;
     try{
-      encrypted=await readEncryptedVault();
+      encrypted=structuredClone(await readEncryptedVault());
       passphrase=await unlockPassphrase({
         actorId:context.actor_id,keyId,
         organizationId,asOf,
       });
     }catch{refuse("T3_ACCESS_VAULT_UNAVAILABLE");}
     const record=typeof encrypted==="string"?strictJson(encrypted):encrypted;
-    const keys=decryptVault(record,passphrase);
+    const keys=await decryptVaultAsync(record,passphrase);
     requireThat(keys.keys[keyId]?.subjectId===request.actorId,
       "T3_ACCESS_VAULT_SUBJECT_MISMATCH");
     return makeProof(request,challenge,now,

@@ -8,7 +8,7 @@ import {keyObjectSigner,signRecord,verifyRecord} from
 import {strictJson} from "../src/t3/access/strict-json.mjs";
 import {createOriginalVaultProofSigner}
   from "../src/t3/access/original-vault-proof.mjs";
-import {emptyVault,generateVaultKey,encryptVault,decryptVault,
+import {emptyVault,generateVaultKey,encryptVault,decryptVault,decryptVaultAsync,
   vaultPublicInventory,vaultPrivateKey}
   from "../src/t3/access/local-vault.mjs";
 
@@ -179,4 +179,24 @@ test("vault cannot silently overwrite an existing local signing identity",()=>{
   generateVaultKey(vault,{keyId:"key:owner",subjectId:"person:owner"});
   assert.throws(()=>generateVaultKey(vault,{keyId:"key:owner",
     subjectId:"person:owner"}),{code:"KEY_ALREADY_EXISTS"});
+});
+
+
+test("K96 original encrypted Vault unlock leaves the original Host event loop responsive and authenticates the exact envelope",async()=>{
+  const vault=emptyVault();
+  generateVaultKey(vault,{keyId:"key:personal",subjectId:"person:local"});
+  generateVaultKey(vault,{keyId:"key:agreement",subjectId:"person:local",algorithm:"X25519"});
+  const record=encryptVault(vault,passphrase),original=structuredClone(record);
+  let progressed=false;
+  const turn=new Promise(resolve=>setImmediate(()=>{progressed=true;resolve();}));
+  const opening=decryptVaultAsync(record,passphrase).then(v=>{
+    assert.equal(progressed,true);return v;
+  });
+  // The original envelope is pinned before the async scrypt dispatch.
+  record.ciphertext="invalid";record.cipher.aad="changed";
+  await turn;
+  assert.deepEqual(await opening,vault);
+  assert.deepEqual(decryptVault(original,passphrase),vault);
+  await assert.rejects(decryptVaultAsync(original,passphrase+"wrong"),{code:"VAULT_UNLOCK_FAILED"});
+  await assert.rejects(decryptVaultAsync({...original,kdf:{...original.kdf,N:16384}},passphrase),{code:"VAULT_KDF_INVALID"});
 });

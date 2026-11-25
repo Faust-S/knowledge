@@ -3,7 +3,7 @@
 // key store, key issuer, IAM, subject permission or plaintext persistence.
 import {createHash,createPublicKey,verify} from 'node:crypto';
 import {digest,keyObjectSigner} from '../../../t3-core/src/t3/access/core.mjs';
-import {decryptVault,vaultPrivateKey} from '../../../t3-core/src/t3/access/local-vault.mjs';
+import {decryptVaultAsync,vaultPrivateKey} from '../../../t3-core/src/t3/access/local-vault.mjs';
 import {strictJson} from '../../../t3-core/src/t3/access/strict-json.mjs';
 import {isOriginalKernelRegistryStatePort} from '../../../t3-core/src/t3/access/original-kernel-registry-state.mjs';
 import {isOriginalPersonalAccessCheckForRegistry} from '../../../t3-core/src/t3/access/original-personal-evaluator.mjs';
@@ -138,11 +138,12 @@ export function createT4OriginalVaultNodeSignaturePort({
     let signature;
     try{
       current();
-      // Do not decrypt private key material across async authorization
-      // boundaries. Re-read original binding/Access immediately first.
+      // Re-read original binding/Access immediately before starting the
+      // nonblocking original KDF. No plaintext key crosses a policy await.
       exact(entry,await keyEvidence(q,frame.permissionRef));
       await signed.authorize({operation:'t4.network.node.sign',input:proof,expectedPolicyDigest:entry.policyDigest});current();
-      const vault=decryptVault(typeof encrypted==='string'?strictJson(encrypted):encrypted,passphrase);
+      const vault=await decryptVaultAsync(typeof encrypted==='string'?strictJson(encrypted):encrypted,passphrase);
+      current();
       const item=Object.hasOwn(vault.keys,localKeyRef)?vault.keys[localKeyRef]:null;
       if(!item||item.subjectId!==entry.binding.subjectId||
         !publicDer(item.publicKeyPem).equals(publicDer(entry.key.publicKey)))
