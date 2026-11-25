@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: cef7988b110f824b44c7c2abda17d1f6943d2ba4
+          ref: 90afa4c9d5c42cc5199690612804fd17d9226282
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -97,7 +97,7 @@ jobs:
           node scripts/d05-t3-real-model-witness.mjs >"$log" 2>&1 || code=$?
           grep -E '^D05_T3_REAL_MODEL_(PASS|FAIL) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_REAL_MODEL_(INSTALL|CACHE_RELEASE|COLD_LOAD)_PASS$' "$log" || true
-          grep -E '^D05_T3_MODEL_(ATTEMPT|COMPARISON) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
+          grep -E '^D05_T3_MODEL_(ATTEMPT|COMPARISON|WORKER_EXIT|CACHE_RELEASE) \{[A-Za-z0-9":{}, _-]+\}$' "$log" || true
           grep -E '^D05_T3_MODEL_GENERATION_RECEIPT \{"offline":(true|false),"elapsed":[0-9]+,"busy":(true|false),"characters":[0-9]+,"outcome":"[a-z-]+"\}$' "$log" | tail -70 || true
           grep -Eo 'CEHOVOD_T3_MODEL_[A-Z0-9_]+' "$log" | sort -u | head -20 || true
           test "$code" -eq 0
