@@ -2234,7 +2234,7 @@ try{
  await completeReviewLink.waitFor({state:"visible"});
  const completeReviewUrl=new URL(await completeReviewLink.getAttribute("href"),page.url());
  check(completeReviewUrl.pathname==="/workspace/"&&completeReviewUrl.searchParams.get("workspace_id")===timeScope&&
-  completeReviewUrl.searchParams.get("club_activity_period")==="week"&&completeReviewUrl.hash==="#club-native-activity-review","SAVED_REVIEW_LINK_EXACT_SCOPE_PERIOD");
+  completeReviewUrl.searchParams.get("club_activity_period")==="week"&&completeReviewUrl.hash==="#/domain","SAVED_REVIEW_LINK_EXACT_SCOPE_PERIOD");
  const savedReviewWeek=await localWeek();
  await completeReviewLink.click();
  await openExisting(page);
@@ -2247,6 +2247,24 @@ try{
   await savedReview.locator("[data-club-period-journal-saves]").count()===0,"SAVED_REVIEW_READ_ONLY");
  check(isDeepStrictEqual(await localWeek(),savedReviewWeek)&&isDeepStrictEqual(await localCash(),cashAfterCorrection),"SAVED_REVIEW_NO_TAB_WRITE");
  log("INDEPENDENT_SAVED_REVIEW_SCOPE_PERIOD_AND_NO_WRITE");
+ phase="INDEPENDENT_SAVED_HORIZON_LINK";
+ await visit(page,"/projects/?workspace_id="+encodeURIComponent(timeScope)+"&club_goal_horizon_days=30#club-goal-horizon");
+ const fullHorizonLink=page.getByRole("link",{name:"Все сохранённые обязательства",exact:true});
+ await fullHorizonLink.waitFor({state:"visible"});
+ const fullHorizonUrl=new URL(await fullHorizonLink.getAttribute("href"),page.url());
+ check(fullHorizonUrl.pathname==="/workspace/"&&fullHorizonUrl.hash==="#/domain"&&
+  fullHorizonUrl.searchParams.get("workspace_id")===timeScope&&fullHorizonUrl.searchParams.get("club_goal_horizon_days")==="30","SAVED_HORIZON_LINK_EXACT_SCOPE_PERIOD");
+ await fullHorizonLink.click();
+ await openExisting(page);
+ const fullHorizon=page.getByTestId("club-native-goal-horizon");
+ await fullHorizon.waitFor({state:"visible"});
+ await poll(async()=>await fullHorizon.evaluate(e=>e.open)&&await fullHorizon.locator("[data-club-goal-horizon-period]").count()===1,"SAVED_HORIZON_OPEN");
+ check(await fullHorizon.locator("[data-club-goal-horizon-period]").inputValue()==="30","SAVED_HORIZON_PERIOD_RETAINED");
+ await poll(async()=>(await fullHorizon.locator("[data-club-goal-horizon-result]").textContent()).includes("По сохранённым записям выбранной рабочей области"),"SAVED_HORIZON_WORKSPACE_SOURCE");
+ check(await fullHorizon.getByRole("link",{name:"Все сохранённые обязательства",exact:true}).count()===0&&
+  await fullHorizon.locator("[data-club-horizon-journal-saves]").count()===0,"SAVED_HORIZON_READ_ONLY");
+ check(isDeepStrictEqual(await localWeek(),savedReviewWeek)&&isDeepStrictEqual(await localCash(),cashAfterCorrection),"SAVED_HORIZON_NO_TAB_WRITE");
+ log("INDEPENDENT_SAVED_HORIZON_SCOPE_PERIOD_AND_NO_WRITE");
 
 
  }
