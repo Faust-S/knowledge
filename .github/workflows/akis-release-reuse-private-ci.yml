@@ -1,0 +1,109 @@
+name: AKIS original release and independent subsequent work
+on:
+  push:
+    branches: [work/2026-11-25-akis-release-reuse-private-ci]
+    paths: [.github/workflows/akis-release-reuse-private-ci.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout authorized original source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa
+          ref: 7a019d768479b76d0826e6aa560ca3557ae43eff
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - name: Verify source
+        run: |
+          test "$(git rev-parse HEAD)" = "7a019d768479b76d0826e6aa560ca3557ae43eff"
+          echo "AKIS_ORIGINAL_SOURCE_IDENTITY=PASS"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install official Mesa
+        run: |
+          python -m pip install mesa==3.5.2 pytest > "$RUNNER_TEMP/akis-reuse-install.log" 2>&1 || { echo "AKIS_INSTALL=FAIL"; exit 1; }
+          python -c 'import mesa; assert mesa.__version__=="3.5.2"; print("MESA_VERSION="+mesa.__version__)'
+      - name: Full original regression
+        run: |
+          set +e
+          python -m pytest -q research/akis/qualitative_mesa/tests --junitxml "$RUNNER_TEMP/akis-reuse.xml" > "$RUNNER_TEMP/akis-reuse-tests.log" 2>&1
+          code=$?
+          set -e
+          python - "$RUNNER_TEMP/akis-reuse.xml" <<'PY'
+          import sys
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          p=Path(sys.argv[1])
+          if not p.is_file(): print("AKIS_TEST_REPORT=MISSING")
+          else:
+              root=ET.parse(p).getroot()
+              suites=[root] if root.tag=="testsuite" else list(root.iter("testsuite"))
+              for field in ("tests","failures","errors","skipped"):
+                  print("AKIS_"+field.upper()+"="+str(sum(int(x.get(field,0)) for x in suites)))
+          PY
+          test "$code" = 0 || { echo "AKIS_NATIVE_REGRESSION=FAIL"; exit "$code"; }
+          echo "AKIS_NATIVE_REGRESSION=PASS"
+  mass:
+    needs: regression
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        dimensions:
+          - {n: 100, p: 3, seed: 41, scope: CURRENT_WINDOW}
+          - {n: 1000, p: 12, seed: 17, scope: CURRENT_WINDOW}
+          - {n: 10000, p: 3, seed: 17, scope: CURRENT_WINDOW}
+          - {n: 30000, p: 1, seed: 41, scope: CURRENT_WINDOW}
+          - {n: 1000, p: 12, seed: 17, scope: ALL}
+          - {n: 10000, p: 3, seed: 17, scope: ALL}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa
+          ref: 7a019d768479b76d0826e6aa560ca3557ae43eff
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "7a019d768479b76d0826e6aa560ca3557ae43eff"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install mesa==3.5.2 pytest > "$RUNNER_TEMP/akis-reuse-install.log" 2>&1
+      - name: Four independent original Mesa executions
+        run: |
+          python -m research.akis.qualitative_mesa.experiments.export_original_network_release_reuse ${{ matrix.dimensions.n }} ${{ matrix.dimensions.p }} ${{ matrix.dimensions.seed }} ${{ matrix.dimensions.scope }} S2 > "$RUNNER_TEMP/akis-reuse-export.log" 2>&1 || { echo "AKIS_NATIVE_MASS_REUSE=FAIL"; exit 1; }
+          python - "$RUNNER_TEMP/akis-reuse-export.log" <<'PY'
+          import sys,json
+          from pathlib import Path
+          data=Path(sys.argv[1]).read_text(encoding="utf-8")
+          marker=data.index("AKIS_NETWORK_RELEASE_REUSE_SHA256=")
+          report=json.loads(data[data.find("{"):marker])
+          for side in ("with_akis","without_akis_direct_contracts"):
+              row=report[side]
+              v=row["with_negotiation"]
+              print(side,json.dumps({**{k:v[k] for k in ("reviewed_open","released","remaining_open","old_accepted","late_demand","late_accepted","unlocked","decision_cost","declared_network_contribution","remaining_financial_exposure")},
+                  "incremental_declared_contribution":row["incremental_declared_contribution"],
+                  "incremental_enterprise_counts":row["incremental_enterprise_counts"],
+                  "incremental_operator_contribution":row["incremental_operator_contribution"]},sort_keys=True))
+          print("AKIS_CONTRAST="+json.dumps(report["contrast_with_absence_of_akis"],sort_keys=True))
+          print(data[marker:].strip())
+          print("AKIS_NATIVE_MASS_REUSE=PASS")
+          PY
+      # No private source, raw logs, source archives, or raw financial rows uploaded.
