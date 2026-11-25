@@ -512,3 +512,117 @@ export async function recoverT4OriginalReplacementEligibility({
     originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,
     sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false});
 }
+
+// Only the original publication state machine reserves and transmits the
+// replacement HEAD. All authority and both terminal histories are read
+// again before preparing, signing, publishing and each index write.
+export async function publishT4OriginalReplacementSourceHead({
+  createOriginalReplacementPublicationPort,resolveOriginalSigningContext,signOriginalNodeBytes,
+  retryMissing=false,...eligibilityPorts
+}={}){
+  const {getMode,requiredCryptoSuite}=eligibilityPorts;
+  if(![createOriginalReplacementPublicationPort,resolveOriginalSigningContext,signOriginalNodeBytes].every(f=>typeof f==='function')||
+    typeof retryMissing!=='boolean')fail('REPLACEMENT_ORIGINAL_PUBLICATION_PORTS_REQUIRED');
+  const first=await recoverT4OriginalReplacementEligibility(eligibilityPorts),session=first.candidate;
+  const before=first.sourceCursorBefore,after=freeze({...before,lastEventId:session.sourceEventId,
+    seenEventCount:before.seenEventCount+1,sourcePrefixDigest:session.sourcePrefixDigestAfter});
+  const body=createT4OriginalReplacementSourceHead({candidate:session,sourceCursorBefore:before,sourceCursorAfter:after});
+  const current=async()=>{
+    const next=await recoverT4OriginalReplacementEligibility(eligibilityPorts);
+    if(!same(next,first))fail('REPLACEMENT_ORIGINAL_EVIDENCE_CHANGED');
+    return next;
+  };
+  const port=await createOriginalReplacementPublicationPort(freeze({session,
+    originalReplacementAnnouncementRequired:true,originalNewAttemptAdmissionStillRequired:true}),current);
+  mode(getMode);
+  if(port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||!same(port.session,session)||
+    !ID(port.checkpointRef)||port.originalT3OnlyStore!==true||port.createsScheduler!==false||
+    port.createsTaskEngine!==false||port.originalReplacementAnnouncementPublication!==true||
+    !['prepareSignedBatch','publishPreparedFrame','inspectOriginalPublication'].every(k=>typeof port[k]==='function'))
+    fail('REPLACEMENT_ORIGINAL_PUBLICATION_PORTS_REQUIRED');
+  await current();
+  const prepared=await port.prepareSignedBatch({slots:[{sequence:1,messageType:'HEADS'}],createSignedFrames:async()=>{
+    await current();
+    const signing=await resolveOriginalSigningContext(freeze({session,sequence:1,messageType:'HEADS',
+      originalNodeSigningAuthorityRequired:true,originalReplacementAnnouncementOnly:true}));
+    await current();
+    if(!ID(signing?.signerRef)||!ID(signing?.permissionRef))fail('REPLACEMENT_ORIGINAL_SIGNER_INVALID');
+    const unsigned=createT4CandidateUnsignedFrame({messageType:'HEADS',
+      messageId:'msg:t4:replacement:'+session.sessionRef.slice(-64),
+      sourceNodeRef:session.sourceNodeRef,recipientNodeRef:session.recipientNodeRef,scopeRef:session.scopeRef,
+      sessionRef:session.sessionRef,ownerEpoch:session.ownerEpoch,sequence:1,permissionRef:signing.permissionRef,
+      signerRef:signing.signerRef,cryptoSuite:requiredCryptoSuite,criticalExtensions:[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION],body});
+    const bytes=await signT4CandidateFrame({unsignedFrame:unsigned,signOriginalNodeBytes});
+    await current();return [bytes];
+  }});
+  const entry=prepared?.frames?.[0];
+  if(!['ORIGINAL_SIGNED_BATCH_ALREADY_PREPARED','ORIGINAL_SIGNED_BATCH_PREPARED'].includes(prepared?.state)||
+    prepared.sessionRef!==session.sessionRef||prepared.checkpointRef!==port.checkpointRef||
+    prepared.frames?.length!==1||entry.sequence!==1||entry.messageType!=='HEADS'||!SHA(entry.sha256)||
+    prepared.originalT3EventChainVerified!==true||prepared.networkPublished!==false||
+    prepared.originalBusinessApplied!==false)fail('REPLACEMENT_ORIGINAL_PUBLICATION_PREPARATION_INVALID');
+  await current();
+  const published=await port.publishPreparedFrame({sequence:1,retryMissing});
+  await current();
+  const saved=await port.inspectOriginalPublication();mode(getMode);const frame=saved?.frames?.[0];
+  if(published?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_RESULT_V1'||published.sessionRef!==session.sessionRef||
+    published.changeId!==session.changeId||published.sequence!==1||published.messageType!=='HEADS'||
+    published.checkpointRef!==port.checkpointRef||published.sha256!==entry.sha256||published.key!==entry.sha256+'.t4n'||
+    !['PUBLISHED_AND_READ_BACK','ALREADY_PRESENT_VERIFIED','REMOTE_READBACK_RECOVERED'].includes(published.state)||
+    published.immutableTransportReadback!==true||published.originalBusinessApplied!==false||
+    published.originalSubjectMutationInvoked!==false||published.originalT3ExchangeCalled!==false||
+    published.sourceCursorAdvanced!==false||published.recipientCursorAdvanced!==false||
+    saved?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_V1'||!same(saved.session,session)||
+    saved.checkpointRef!==port.checkpointRef||saved.revision!==published.originalPublicationRevision||!DIG(saved.chainHash)||
+    saved.originalT3EventChainVerified!==true||saved.originalBusinessApplied!==false||saved.sourceCursorAdvanced!==false||
+    saved.frames?.length!==1||frame.state!=='PRESENT'||frame.sha256!==entry.sha256||
+    !(frame.wireBytes instanceof Uint8Array)||bytesHash(frame.wireBytes)!==entry.sha256||
+    !same(decodeT4CandidateFrame(frame.wireBytes).body,body))fail('REPLACEMENT_ORIGINAL_PUBLICATION_NOT_PROVEN');
+  await current();
+  return freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_HEAD_PUBLISHED_V1',candidate:session,
+    key:published.key,sha256:published.sha256,publicationState:published.state,
+    originalPublicationCheckpointRef:port.checkpointRef,originalPublicationRevision:saved.revision,
+    originalPublicationChainHash:saved.chainHash,originalT3PublicationEventChainVerified:true,
+    originalSignedBytesRetained:true,networkPublished:true,originalNewAttemptAdmissionStillRequired:true,
+    originalBusinessApplied:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,
+    originalSubjectMutationInvoked:false,liveNetworkAuthorityGranted:false});
+}
+export async function discoverT4OriginalReplacementSourceHead({frameDiscoveryPort,...eligibilityPorts}={}){
+  if(frameDiscoveryPort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||
+    frameDiscoveryPort.nativeFrameIndexVersion!==1||typeof frameDiscoveryPort.discoverReplacementSourceHead!=='function')
+    fail('REPLACEMENT_ORIGINAL_DISCOVERY_PORT_REQUIRED');
+  const first=await recoverT4OriginalReplacementEligibility(eligibilityPorts),c=first.candidate;
+  const found=await frameDiscoveryPort.discoverReplacementSourceHead({selector:{sourceNodeRef:c.sourceNodeRef,
+    ownerEpoch:c.ownerEpoch,previousSessionRef:c.replacement.previousSessionRef,sessionRef:c.sessionRef,changeId:c.changeId},
+    requiredCryptoSuite:eligibilityPorts.requiredCryptoSuite});
+  mode(eligibilityPorts.getMode);
+  if(found?.schema!=='IWXA_T4_FRAME_DISCOVERY_REPLACEMENT_HEAD_V1'||!['FOUND','NOT_FOUND'].includes(found.state)||
+    found.originalTransportScanOnly!==true||found.originalBusinessApplied!==false||found.sourceCursorAdvanced!==false||
+    found.originalNewAttemptAdmissionStillRequired!==true||found.indexedLookup!==true||found.candidatesExamined!==1||
+    !Array.isArray(found.receipts)||found.receipts.length!==(found.state==='FOUND'?1:0))
+    fail('REPLACEMENT_ORIGINAL_DISCOVERY_INVALID');
+  const receipt=found.receipts[0]??null;
+  if(receipt!==null){
+    if(receipt.schema!=='IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1'||receipt.signedMessageType!=='HEADS'||
+      receipt.verifiedSourceNodeRef!==c.sourceNodeRef||receipt.verifiedRecipientNodeRef!==c.recipientNodeRef||
+      receipt.verifiedScopeRef!==c.scopeRef||receipt.verifiedSessionRef!==c.sessionRef||
+      receipt.verifiedOwnerEpoch!==c.ownerEpoch||receipt.verifiedSequence!==1||
+      receipt.verifiedCryptoSuite!==eligibilityPorts.requiredCryptoSuite||!ID(receipt.verifiedSignerRef)||
+      !SHA(receipt.sha256)||receipt.key!==receipt.sha256+'.t4n'||
+      !same(receipt.verifiedCriticalExtensions,[T4_REPLACEMENT_SOURCE_SESSION_EXTENSION])||
+      receipt.originalSignatureVerified!==true||receipt.originalAccessVerified!==true||
+      receipt.originalReplayCheckpointRecorded!==true||receipt.networkBytesVerified!==true||
+      receipt.originalSubjectMutationInvoked!==false||receipt.originalBusinessApplied!==false||
+      receipt.originalT3ExchangeCalled!==false)fail('REPLACEMENT_ORIGINAL_DISCOVERY_INVALID');
+    readT4OriginalReplacementSourceHead({identity:c.originalCaptureSession,body:receipt.verifiedBody,
+      sessionRef:receipt.verifiedSessionRef,sourceCursorBefore:first.sourceCursorBefore,expectedCandidate:c});
+  }
+  if(!same(first,await recoverT4OriginalReplacementEligibility(eligibilityPorts)))
+    fail('REPLACEMENT_ORIGINAL_EVIDENCE_CHANGED');
+  return freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_HEAD_SELECTION_V1',
+    state:receipt?'ORIGINAL_REPLACEMENT_HEAD_VERIFIED':'WAITING_FOR_REPLACEMENT_HEAD',
+    candidate:c,headKey:receipt?.key??null,headSha256:receipt?.sha256??null,
+    originalBothTerminalPhaseEventsVerified:true,originalBothCausalFrontiersUnchanged:true,
+    originalNewAttemptAdmissionStillRequired:true,originalSubjectMutationInvoked:false,
+    sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false});
+}

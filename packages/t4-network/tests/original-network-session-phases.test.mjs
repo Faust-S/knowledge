@@ -12,7 +12,8 @@ import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_ORIGINAL_SOURCE_S
   T4_REPLACEMENT_SOURCE_SESSION_EXTENSION} from '../src/network/standard-network-wire-candidate.mjs';
 import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
   retireT4OriginalRecipientAttemptFromControl,verifyT4OriginalRecipientRetirementAck,recordT4OriginalSourceSupersession,
-  publishT4OriginalRecipientRetirementAck,recoverT4OriginalReplacementEligibility}
+  publishT4OriginalRecipientRetirementAck,recoverT4OriginalReplacementEligibility,
+  publishT4OriginalReplacementSourceHead,discoverT4OriginalReplacementSourceHead}
   from '../src/network/original-network-session-supersession.mjs';
 import {createT4OriginalNetworkSessionPhasePort,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
@@ -556,6 +557,22 @@ async function controlFixture({indexed=false}={}){
       captureVerified&&proof.originalCaptureSession.sourceEventId===sourceEventId,
     authorizeOriginalReplacement:async proof=>replacementAllowed&&proof.originalBothAttemptsRetired===true});
   const eligibility=(patch={})=>recoverT4OriginalReplacementEligibility({...eligibilityOptions(),...patch});
+  const createReplacementPort=async({session:identity},readOriginalReplacementEligibility)=>
+    createT4OriginalNetworkPublicationPort({session:identity,localNodeRef:sourceNodeRef,technicalWorkspaceId:technical,
+      originalKernel:sourceStore.kernel,getMode,readOriginalHostContext:context(sourceNodeRef,technical),
+      authorizeOriginalTechnicalRead:async()=>true,authorizeOriginalTechnicalWrite:async()=>true,
+      authorizeOriginalFramePublish:async()=>true,readOriginalReplacementEligibility,
+      verifyOriginalNodeSignature:async p=>p.signerRef===sourceKey.id&&
+        verify(null,Buffer.from(p.bytes),sourceKey.publicKey,Buffer.from(p.signature)),frameTransport:transport(sourceNodeRef)});
+  const publishReplacement=(patch={})=>publishT4OriginalReplacementSourceHead({...eligibilityOptions(),
+    createOriginalReplacementPublicationPort:createReplacementPort,
+    resolveOriginalSigningContext:async p=>{
+      assert.equal(p.originalReplacementAnnouncementOnly,true);
+      assert.equal(p.session.originalCaptureSession.sessionRef,session.sessionRef);
+      return {permissionRef:'permission:k47:'+sourceNodeRef,signerRef:sourceKey.id};},
+    signOriginalNodeBytes:signing(sourceNodeRef).signOriginalNodeBytes,...patch});
+  const discoverReplacement=(patch={})=>discoverT4OriginalReplacementSourceHead({...eligibilityOptions(),
+    frameDiscoveryPort:transport(recipientNodeRef),...patch});
   const before=await phase().inspectOriginalSession();
   const plan=(requestRef='request:k47:one')=>prepareT4OriginalSupersessionControl({session,
     expectedPhaseRevision:before.revision,expectedPhaseChainHash:before.chainHash,decisionRef:'decision:k47:one',requestRef});
@@ -615,6 +632,7 @@ async function controlFixture({indexed=false}={}){
   return {f,sourceStore,session,phase,plan,request,retire,publishAck,verifyAck,sourcePhase,recordBoth,acceptConflictingAck,
     durableRetire,signatureCount:()=>signatures,loseControlWrite:()=>{loseControlWrite=true;},
     eligibility,eligibilityOptions,sourceCursorBefore,sourceCursorAfter,transport,indexes,
+    publishReplacement,discoverReplacement,createReplacementPort,
     changeRecipientFrontier:()=>{recipientFrontierChanged=true;},restoreRecipientFrontier:()=>{recipientFrontierChanged=false;},
     denyReplacement:()=>{replacementAllowed=false;},allowReplacement:()=>{replacementAllowed=true;},
     signHead:async(body,sessionRef,criticalExtensions)=>signT4CandidateFrame({
@@ -896,4 +914,50 @@ test('K51 replacement HEADS has a separate deterministic predecessor index and c
   await assert.rejects(sender.publishSignedFrame({wireBytes:conflictBytes}),isCode('WIRE_NETWORK_PUBLICATION_OUTCOME_UNKNOWN'));
   assert.equal(x.indexes.get(predecessorIndex),published.sha256);
   assert.equal(x.indexes.get(rootIndex),rootReceipt.sha256);
+});
+
+
+test('K52 replacement HEAD is durable in the original publication ledger and cold discovery rechecks original terminal history',async()=>{
+  const x=await controlFixture({indexed:true});await closeInitialAttempt(x);
+  const first=await x.eligibility(),before={signs:x.signatureCount(),puts:x.counts().networkPuts,
+    sourcePhase:x.sourcePhaseWrites(),recipientPhase:x.phaseWrites()};
+  assert.equal((await x.discoverReplacement()).state,'WAITING_FOR_REPLACEMENT_HEAD');
+  x.sourceStore.loseNextReply();
+  await assert.rejects(x.publishReplacement(),isCode('PUBLICATION_ORIGINAL_CAS_OUTCOME_UNKNOWN'));
+  assert.equal(x.signatureCount(),before.signs+1);
+  assert.equal(x.counts().networkPuts,before.puts);
+  x.loseControlWrite();
+  await assert.rejects(x.publishReplacement(),isCode('PUBLICATION_NETWORK_OUTCOME_UNKNOWN'));
+  assert.equal(x.signatureCount(),before.signs+1);assert.equal(x.counts().networkPuts,before.puts+1);
+  x.denyReplacement();
+  await assert.rejects(x.publishReplacement(),isCode('REPLACEMENT_ORIGINAL_ADMISSION_DENIED'));
+  x.allowReplacement();
+  const published=await x.publishReplacement();
+  assert.equal(published.publicationState,'REMOTE_READBACK_RECOVERED');
+  assert.deepEqual(published.candidate,first.candidate);
+  assert.equal(x.signatureCount(),before.signs+1);assert.equal(x.counts().networkPuts,before.puts+1);
+  const discovered=await x.discoverReplacement();
+  assert.equal(discovered.state,'ORIGINAL_REPLACEMENT_HEAD_VERIFIED');
+  assert.equal(discovered.headSha256,published.sha256);
+  assert.equal(discovered.originalNewAttemptAdmissionStillRequired,true);
+  assert.equal(discovered.liveNetworkAuthorityGranted,false);
+  assert.equal(x.sourcePhaseWrites(),before.sourcePhase);assert.equal(x.phaseWrites(),before.recipientPhase);
+  assert.deepEqual(await x.eligibility(),first);
+  const port=await x.createReplacementPort({session:first.candidate},()=>x.eligibility());
+  await assert.rejects(port.prepareSignedBatch({slots:[{sequence:2,messageType:'CHANGE_REF'}],
+    createSignedFrames:async()=>assert.fail('subject transfer must not start')}),isCode('PUBLICATION_SLOT_BATCH_INVALID'));
+  x.changeRecipientFrontier();
+  await assert.rejects(x.discoverReplacement(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
+  assert.equal(x.signatureCount(),before.signs+1);assert.equal(x.counts().networkPuts,before.puts+1);
+});
+test('K52 replacement publication requires a fresh original eligibility port, not a caller assertion',async()=>{
+  const x=await controlFixture({indexed:true});await closeInitialAttempt(x);
+  const {candidate}=await x.eligibility();
+  await assert.rejects(x.createReplacementPort({session:candidate},null),
+    isCode('PUBLICATION_ORIGINAL_REPLACEMENT_ELIGIBILITY_REQUIRED'));
+  const port=await x.createReplacementPort({session:candidate},async()=>true);
+  let calls=0;
+  await assert.rejects(port.prepareSignedBatch({slots:[{sequence:1,messageType:'HEADS'}],
+    createSignedFrames:async()=>{calls++;return [];}}),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_ELIGIBILITY_CHANGED'));
+  assert.equal(calls,0);
 });
