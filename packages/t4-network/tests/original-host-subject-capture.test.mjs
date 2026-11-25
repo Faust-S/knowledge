@@ -1080,3 +1080,60 @@ test('K107 invalid original subject Event payload values do not start Asset or R
    }
  }
 });
+
+function k118Pages(f){
+ return {readOriginalEvents:async()=>{throw Error('unexpected legacy full history');},originalCommitPageSize:1,
+   withOriginalHistoryReadBoundary:async(_proof,run)=>run(),
+   readOriginalCommitPage:async({afterEventId,limit})=>{
+     const start=afterEventId===null?0:f.events.findIndex(e=>e.event_id===afterEventId)+1;
+     const entries=f.events.slice(start,start+limit).map(event=>({event,legacy_history:false}));
+     return {entries,next_after_event_id:entries.at(-1)?.event.event_id??afterEventId,
+       has_more:start+entries.length<f.events.length,order:'LOCAL_TRANSACTION_COMMIT_ORDER',legacy_history_causal_proven:false};
+   }};
+}
+test('K118 original Asset and Relation recover lost receipts using bounded commit history without repeating writes',async()=>{
+ for(const [method,recover,input,field,value] of [
+   ['putAsset','reconcileAssetMutation',assetInput,'assetId',assetId],
+   ['putRelation','reconcileRelationMutation',relationInput,'relationId',relationId],
+ ]){
+   const f=fixture(),sourceCursor=await cursor(f),host=createT4OriginalHostCaptureAdapter({...f.ports,...k118Pages(f)});
+   const captureRef='capture:k118:'+method;f.loseAck();
+   await assert.rejects(host[method]({mutationInput:input(),captureRef,sourceCursor}),
+     err('SUBJECT_CAPTURE_SOURCE_WRITE_OUTCOME_UNKNOWN'));
+   const recovered=await host[recover]({captureRef,workspaceId:ws,[field]:value});
+   assert.equal(recovered.originalT3OutboxVerified,true);
+   assert.equal(recovered.originalMutationRetried,false);assert.equal(f.writes.length,1);
+   assert.equal(f.outbox.size,1);
+ }
+});
+test('K118 historical staged Asset is recovered without current bytes or rewriting Outbox',async()=>{
+ const f=fixture(),sourceCursor=await cursor(f),options={...f.ports,...k118Pages(f)};
+ const host=createT4OriginalHostCaptureAdapter(options),captureRef='capture:k118:asset';
+ const first=await host.putAsset({mutationInput:assetInput(),captureRef,sourceCursor});
+ await host.putAsset({mutationInput:{...assetInput(),base_revision:2,bytes:Buffer.from('revision three')},
+   captureRef:'capture:k118:later',sourceCursor:first.capture.nextCursor});
+ const saved=structuredClone(f.outbox.get(captureRef));
+ const cold=createT4OriginalHostCaptureAdapter({...options,
+   originalKernel:{...f.originalKernel,getAsset:async()=>{throw Error('current Asset must not be used');}},
+   persistOriginalOutbox:async()=>{throw Error('historical Outbox must not be rewritten');}});
+ const result=await cold.reconcileAssetMutation({captureRef,workspaceId:ws,assetId});
+ assert.equal(result.historicalOutboxVerified,true);assert.equal(result.alreadyCaptured,true);
+ assert.equal(result.prepared.sha256,first.capture.prepared.sha256);
+ assert.deepEqual(f.outbox.get(captureRef),saved);assert.equal(f.writes.length,2);
+});
+test('K118 historical Relation survives later deletion only with exact immutable captured bytes',async()=>{
+ const f=fixture(),sourceCursor=await cursor(f),options={...f.ports,...k118Pages(f)};
+ const host=createT4OriginalHostCaptureAdapter(options),captureRef='capture:k118:relation';
+ const first=await host.putRelation({mutationInput:relationInput(),captureRef,sourceCursor});
+ await f.originalKernel.deleteRelation({workspace_id:ws,relation_id:relationId,
+   event:{event_type:'business.relation.deleted',payload:{},idempotency_key:'later:delete'}});
+ const cold=createT4OriginalHostCaptureAdapter({...options,
+   originalKernel:{...f.originalKernel,getObject:async()=>{throw Error('current graph must not be used');}}});
+ const result=await cold.reconcileRelationMutation({captureRef,workspaceId:ws,relationId});
+ assert.equal(result.historicalOutboxVerified,true);
+ assert.equal(result.prepared.sha256,first.capture.prepared.sha256);
+ f.outbox.delete(captureRef);
+ await assert.rejects(cold.reconcileRelationMutation({captureRef,workspaceId:ws,relationId}),
+   err('SUBJECT_CAPTURE_POST_WRITE_UNCERTAIN'));
+ assert.equal(f.writes.length,2);
+});

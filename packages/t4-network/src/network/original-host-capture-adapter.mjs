@@ -222,19 +222,37 @@ export function createT4OriginalHostCaptureAdapter({
       const key=kind.endsWith('_DELETE')?intent.sourceEvent?.idempotency_key:intent.idempotencyKey;
       if(kind==='GRAPH_COMMIT'?(typeof key!=='string'||key.length<1||key.length>256):
         kind!=='OBJECT_PUT'&&!ID(key))fail('ORIGINAL_HOST_CAPTURE_RECOVERY_INTENT_INVALID');
-      const stream=await readOriginalEvents({...query,captureRef,operation:'t1.listEventsSince'});
-      mode();
-      if(!Array.isArray(stream)||stream.length>100000||stream.some(e=>e?.workspace_id!==workspaceId))
-        fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_STREAM_INVALID');
-      const matches=stream.filter(e=>kind==='OBJECT_PUT'||kind==='GRAPH_COMMIT'?e?.payload?.iwxa_t4_capture_ref===captureRef:
-        kind==='OBJECT_DELETE'?e?.payload?.iwxa_t4_object_delete_intent===key:e?.idempotency_key===key);
-      if(matches.length>1)fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_AMBIGUOUS');
-      if(matches.length===1&&!ID(matches[0].event_id))fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_STREAM_INVALID');
+      const matchesTrace=e=>kind==='OBJECT_PUT'||kind==='GRAPH_COMMIT'?e?.payload?.iwxa_t4_capture_ref===captureRef:
+        kind==='OBJECT_DELETE'?e?.payload?.iwxa_t4_object_delete_intent===key:e?.idempotency_key===key;
+      let matchCount,matchedEvent;
+      if(paged){
+        const trace=kind==='OBJECT_PUT'||kind==='GRAPH_COMMIT'?{kind:'capture_ref',value:captureRef}:
+          kind==='OBJECT_DELETE'?{kind:'object_delete_intent',value:key}:{kind:'idempotency_key',value:key};
+        const observed=await readT4OriginalEventWindow({...query,cursor:intent.sourceCursor,maxEvents:1,
+          readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize:originalCommitPageSize,
+          originalTraceQuery:trace,authorizeOriginalRead:async proof=>{
+            mode();const allowed=await authorizeOriginalRead({...query,captureRef,...proof});mode();return allowed;
+          }});
+        if(observed.originalTraceEvidence?.originalHistoryFullyRead!==true)
+          fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_STREAM_INVALID');
+        matchCount=observed.originalTraceEvidence.matchCount;
+        matchedEvent=observed.originalTraceEvidence.nextOriginalEvent;
+        if(matchCount===1&&(!matchedEvent||!matchesTrace(matchedEvent)))
+          fail('ORIGINAL_HOST_CAPTURE_RECOVERY_SOURCE_EVENT_MISMATCH');
+      }else{
+        const stream=await readOriginalEvents({...query,captureRef,operation:'t1.listEventsSince'});
+        mode();
+        if(!Array.isArray(stream)||stream.length>100000||stream.some(e=>e?.workspace_id!==workspaceId))
+          fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_STREAM_INVALID');
+        const matches=stream.filter(matchesTrace);matchCount=matches.length;matchedEvent=matches[0];
+      }
+      if(matchCount>1)fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_AMBIGUOUS');
+      if(matchCount===1&&!ID(matchedEvent?.event_id))fail('ORIGINAL_HOST_CAPTURE_RECOVERY_EVENT_STREAM_INVALID');
       if(await authorizeOriginalCaptureRecovery(permission)!==true||
         await authorizeOriginalRead({...query,captureRef,operation:'t1.listEventsSince'})!==true)
         fail('ORIGINAL_HOST_CAPTURE_RECOVERY_DENIED');
       mode();
-      const eventId=matches[0]?.event_id??null;
+      const eventId=matchCount===1?matchedEvent.event_id:null;
       if(expectedOriginalSourceEventId!==null&&eventId!==expectedOriginalSourceEventId)
         fail('ORIGINAL_HOST_CAPTURE_RECOVERY_SOURCE_EVENT_MISMATCH');
       return eventId;

@@ -1,12 +1,12 @@
 import {packageSha256} from './webdav-package-transfer.mjs';
 import {validT4OriginalAssetMime,validT4OriginalRelationKind} from './original-subject-fields.mjs';
 import {readT4OriginalEventWindow} from './original-event-window.mjs';
-import {prepareT4OriginalAssetDelta,preflightT4OriginalAssetNativeCapacity} from './original-asset-delta.mjs';
+import {prepareT4OriginalAssetDelta,preflightT4OriginalAssetNativeCapacity,decodeT4OriginalAssetDeltaBytes} from './original-asset-delta.mjs';
 import {validateT4OriginalJsonField} from './original-object-delta.mjs';
-import {prepareT4OriginalRelationPutDelta} from './original-relation-delta.mjs';
+import {prepareT4OriginalRelationPutDelta,decodeT4OriginalRelationPutDeltaBytes} from './original-relation-delta.mjs';
 import {captureT4OriginalDeletionAtMutation,reconcileT4OriginalSourceDeletion,
   runT4OriginalSubjectMutationBoundary} from './original-deletion-delta.mjs';
-import {readT4OriginalHostStagedDeletionForRecovery} from './original-host-outbox-delivery.mjs';
+import {readT4OriginalHostStagedDeletionForRecovery,readT4OriginalHostLocalCaptureEvidence} from './original-host-outbox-delivery.mjs';
 
 export class T4OriginalHostSubjectCaptureError extends Error {
   constructor(code,details={}) { super(code); this.name='T4OriginalHostSubjectCaptureError';
@@ -212,24 +212,46 @@ function proofContext(params,operation){
     originalWriteOwnerRef:params.originalWriteOwnerRef,
     subjectId:params.subjectId,originalT3AuthorityRequired:true});
 }
-async function capturePayload({
-  intent,originalKernel,authorizeOriginalRead,readOriginalEvents,getMode,
-}){
+function commitHistoryPorts(params){
+  const {readOriginalCommitPage,withOriginalHistoryReadBoundary,originalCommitPageSize=256}=params;
+  const paged=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
+  if(paged&&(![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function')||
+    !Number.isSafeInteger(originalCommitPageSize)||originalCommitPageSize<1||originalCommitPageSize>1024))
+    fail('SUBJECT_CAPTURE_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
+  return paged?{readOriginalCommitPage,withOriginalHistoryReadBoundary,pageSize:originalCommitPageSize}:null;
+}
+async function capturePayload(params){
+  const {intent,originalKernel,authorizeOriginalRead,readOriginalEvents,getMode,
+    readOriginalIntent,readOriginalOutbox,allowHistorical=false}=params;
+  const paged=commitHistoryPorts(params);
   const kind=intent.kind, {writeInput}=readBackInput(kind,intent);
   const ws=intent.workspaceId,owner=intent.originalWriteOwnerRef;
   const subject=intent.subjectId;
   const context=proofContext(intent,'t1.listEventsSince');
   if(await authorizeOriginalRead(context)!==true)
     fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_READ_DENIED');
-  const stream=await readOriginalEvents(context);
+  const stream=paged?null:await readOriginalEvents(context);
   mode(getMode);
-  if(!Array.isArray(stream)||stream.length>100000)
+  if(!paged&&(!Array.isArray(stream)||stream.length>100000))
     fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_STREAM_INVALID');
-  const matches=stream.filter(e=>e?.idempotency_key===intent.idempotencyKey);
-  if(matches.length!==1)
-    fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_NOT_PROVEN',
-      {matchingOriginalEvents:matches.length});
-  const event=matches[0];
+  const readWindow=()=>readT4OriginalEventWindow({
+    workspaceId:ws,originalWriteOwnerRef:owner,cursor:intent.sourceCursor,maxEvents:1,
+    authorizeOriginalRead:async proof=>{
+      mode(getMode);const allowed=await authorizeOriginalRead({...context,...proof});mode(getMode);return allowed;
+    },
+    ...(paged?{...paged,originalTraceQuery:{kind:'idempotency_key',value:intent.idempotencyKey}}:
+      {readOriginalEvents:async()=>stream}),
+  });
+  let observed=paged?await readWindow():null;
+  const matches=paged?null:stream.filter(e=>e?.idempotency_key===intent.idempotencyKey);
+  const matchCount=paged?observed.originalTraceEvidence?.matchCount:matches.length;
+  if(paged&&observed.originalTraceEvidence?.originalHistoryFullyRead!==true)
+    fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_STREAM_INVALID');
+  if(matchCount!==1)
+    fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_NOT_PROVEN',{matchingOriginalEvents:matchCount});
+  const event=paged?observed.originalTraceEvidence.nextOriginalEvent:matches[0];
+  if(!event||event.idempotency_key!==intent.idempotencyKey)
+    fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_ORDER_CHANGED');
   if(event.workspace_id!==ws||
     (intent.originalInputDigest!==undefined&&
       (event.payload?.iwxa_t4_capture_ref!==intent.captureRef||
@@ -242,13 +264,43 @@ async function capturePayload({
     (kind==='ASSET_PUT'&&event.revision!==null&&
       event.revision!==undefined&&event.revision!==intent.expectedRevision))
     fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_SCOPE_MISMATCH');
-  const {window,nextCursor}=await readT4OriginalEventWindow({
-    workspaceId:ws,originalWriteOwnerRef:owner,cursor:intent.sourceCursor,
-    maxEvents:1,authorizeOriginalRead,
-    readOriginalEvents:async()=>stream,
-  });
-  if(window.count!==1||window.hasMore||window.lastEventId!==event.event_id)
+  if(!paged)observed=await readWindow();
+  const {window,nextCursor}=observed;
+  if(window.count!==1||window.lastEventId!==event.event_id)
     fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_ORDER_CHANGED');
+  if(window.hasMore){
+    // Historical Asset bytes or Relation endpoints may no longer be live.
+    // Only the already persisted exact original Outbox may be reused.
+    if(!allowHistorical)fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_ORDER_CHANGED');
+    const existing=structuredClone(await readOriginalOutbox(intent));
+    if(existing==null)fail('SUBJECT_CAPTURE_ORIGINAL_EVENT_ORDER_CHANGED');
+    const checkedRead=async(fn,expected,q)=>{
+      const actual=await fn(q);
+      if(!equal(actual,expected))fail('SUBJECT_CAPTURE_ORIGINAL_OUTBOX_MISMATCH');
+      return structuredClone(actual);
+    };
+    const evidence=await readT4OriginalHostLocalCaptureEvidence({
+      kind,subjectId:subject,captureRef:intent.captureRef,workspaceId:ws,originalWriteOwnerRef:owner,
+      getMode,authorizeOriginalRead,readOriginalEvents,
+      ...(paged?{readOriginalCommitPage:paged.readOriginalCommitPage,
+        withOriginalHistoryReadBoundary:paged.withOriginalHistoryReadBoundary,originalCommitPageSize:paged.pageSize}:{}),
+      readOriginalIntent:q=>checkedRead(readOriginalIntent,intent,q),
+      readOriginalOutbox:q=>checkedRead(readOriginalOutbox,existing,q),
+    });
+    const prepared=(kind==='ASSET_PUT'?decodeT4OriginalAssetDeltaBytes:decodeT4OriginalRelationPutDeltaBytes)(
+      Buffer.from(existing.bytesBase64,'base64'));
+    if(evidence.sourceEventId!==event.event_id||evidence.originalEventDigest!==window.eventRefs[0].eventDigest||
+      !equal(evidence.sourceCursorBefore,intent.sourceCursor)||!equal(evidence.sourceCursorAfter,nextCursor)||
+      evidence.originalWindowDigest!==existing.sourceWindow?.windowDigest||evidence.sha256!==prepared.sha256||
+      evidence.key!==prepared.key||evidence.originalIntentEventAndCanonicalBytesVerified!==true||
+      evidence.networkPublicationAuthorized!==false)
+      fail('SUBJECT_CAPTURE_ORIGINAL_OUTBOX_MISMATCH');
+    checkOutbox(existing,intent,prepared,nextCursor,existing.sourceWindow);
+    await checkedRead(readOriginalIntent,intent,intent);
+    await checkedRead(readOriginalOutbox,existing,intent);
+    return Object.freeze({window:existing.sourceWindow,nextCursor,prepared,originalEvent:event,
+      historicalOutboxVerified:true,currentSubjectUsedAsHistoricalBytes:false,historicalOutbox:existing});
+  }
   let prepared;
   if(kind==='ASSET_PUT'){
     const current=await originalKernel.getAsset(ws,subject);
@@ -297,13 +349,14 @@ async function originalPorts(params,recoveryOnly=false){
     originalKernel,authorizeOriginalRead,authorizeOriginalWrite,
     readOriginalEvents,readOriginalIntent,persistOriginalOutbox,
     readOriginalOutbox,getMode}=params;
+  const paged=commitHistoryPorts(params);
   if(!SUBJECTS[kind]||![workspaceId,originalWriteOwnerRef,captureRef,subjectId].every(ID)||
     (!recoveryOnly&&!originalKernel?.hasOperation?.(SUBJECTS[kind].write))||
     !originalKernel?.hasOperation?.(SUBJECTS[kind].read)||
     !originalKernel?.hasOperation?.('t1.listEventsSince')||
     (!recoveryOnly&&typeof originalKernel[kind==='ASSET_PUT'?'putAsset':'putRelation']!=='function')||
     typeof originalKernel[kind==='ASSET_PUT'?'getAsset':'getObject']!=='function'||
-    [authorizeOriginalRead,authorizeOriginalWrite,readOriginalEvents,
+    [authorizeOriginalRead,authorizeOriginalWrite,...(paged?[]:[readOriginalEvents]),
       readOriginalIntent,persistOriginalOutbox,readOriginalOutbox]
       .some(f=>typeof f!=='function'))
     fail('SUBJECT_CAPTURE_ORIGINAL_HOST_PORTS_REQUIRED');
@@ -315,7 +368,7 @@ async function finishCapture(params,intent,{originalReceipt=null}={}){
   const writeContext=proofContext(intent,SUBJECTS[intent.kind].write);
   let payload;
   try{
-    payload=await capturePayload({...params,intent});
+    payload=await capturePayload({...params,intent,allowHistorical:originalReceipt===null});
   }catch(error){
     fail('SUBJECT_CAPTURE_POST_WRITE_UNCERTAIN',{
       captureRef:intent.captureRef,originalCode:error?.code??null,
@@ -326,6 +379,8 @@ async function finishCapture(params,intent,{originalReceipt=null}={}){
     fail('SUBJECT_CAPTURE_ORIGINAL_WRITE_AUTHORITY_DENIED');
   const existing=await readOriginalOutbox(intent);
   let reused=false;
+  if(payload.historicalOutboxVerified===true&&!equal(existing,payload.historicalOutbox))
+    fail('SUBJECT_CAPTURE_ORIGINAL_OUTBOX_MISMATCH');
   if(existing!==null&&existing!==undefined){
     checkOutbox(existing,intent,payload.prepared,payload.nextCursor,payload.window);
     reused=true;
@@ -341,6 +396,7 @@ async function finishCapture(params,intent,{originalReceipt=null}={}){
   if(await authorizeOriginalRead(proofContext(intent,'t1.listEventsSince'))!==true||
     await authorizeOriginalWrite(writeContext)!==true)
     fail('SUBJECT_CAPTURE_ORIGINAL_AUTHORITY_DENIED');
+  const {historicalOutbox,...resultPayload}=payload;
   return Object.freeze({
     schema:'IWXA_T4_ORIGINAL_HOST_SUBJECT_CAPTURE_RECEIPT_V1',
     kind:intent.kind,captureRef:intent.captureRef,
@@ -348,7 +404,7 @@ async function finishCapture(params,intent,{originalReceipt=null}={}){
     originalMutationRetried:false,originalT3OutboxVerified:true,
     originalT3IsOnlyStore:true,alreadyCaptured:reused,
     networkPublished:false,recipientApplied:false,sourceCursorAdvanced:false,
-    ...payload,
+    ...resultPayload,
   });
 }
 export async function captureT4OriginalHostSubjectMutation(params={}){
