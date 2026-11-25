@@ -3,35 +3,20 @@ on:
   push:
     branches:
       - work/2026-11-22-t4-t3-0.3.0-integration
+    # Full qualification is opt-in at a deliberate integration checkpoint.
+    # Ordinary development pushes are covered by local targeted tests.
     paths:
-      - packages/t4-network/**
-      - packages/t3-core/src/t3/original-kernel-native-relay*
-      - packages/t3-core/src/t3/control-loopback-owner*
-      - packages/t3-core/src/t3/original-control-http-handler.mjs
-      - packages/t3-core/src/t3/subject-access-binding.mjs
-      - packages/t3-core/src/t3/signed-access-host-port.mjs
-      - packages/t3-core/src/t3/access/**
-      - packages/t3-core/tests/t3-signed-access-host-port.test.mjs
-      - packages/t3-core/tests/t3-subject-kernel-scope.test.mjs
-      - packages/t3-core/tests/support/t3-original-personal-authority.mjs
-      - packages/t3-core/tests/support/t3-two-corp-original-authority.mjs
-      - packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs
-      - packages/t3-core/tests/t3-d1-real-ed25519-personal.test.mjs
-      - packages/t3-core/tests/t3-d1-two-corporate-original-access.test.mjs
-      - packages/t3-core/src/main-trusted-kernel-realm.ts
-      - packages/t3-core/src/t3/original-local-source-mutation-route*
-      - packages/t3-core/src/workspace-host/context/create-kernel-facade.ts
-      - packages/t3-core/tests/module-kernel-facade.test.ts
-      - packages/t3-core/tests/t3-d1-original-control-http.test.mjs
-      - .github/workflows/t4-network.yml
+      - .github/qualification/t4-network.json
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: t4-network-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: true
+  # Coalesce pending qualifications on the same branch without interrupting
+  # the full matrix that is already running.
+  group: t4-network-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   contract:
