@@ -8,7 +8,7 @@ on:
     inputs:
       site_sha:
         type: string
-        default: '6f75b3af3abecd8adc7b5678c9e3d36ebc7a3e0a'
+        default: 'a0961a1d88dcedd68809c66f327d7e417c77a744'
       domain_sha:
         type: string
         default: '7d44995b536bc57eb0acff63d876d255c034fb77'
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/cehovod.ru
-          ref: ${{ inputs.site_sha || '6f75b3af3abecd8adc7b5678c9e3d36ebc7a3e0a' }}
+          ref: ${{ inputs.site_sha || 'a0961a1d88dcedd68809c66f327d7e417c77a744' }}
           token: ${{ secrets.DOMEN }}
           path: site
           persist-credentials: false
@@ -68,59 +68,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
-      - name: Check effective private blob write using existing tracked bytes
-        if: inputs.full_release
-        id: publication_preflight
-        continue-on-error: true
-        working-directory: site
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.DOMEN }}
-          SOURCE_SHA: ${{ inputs.site_sha }}
-          TARGET_BASE_SHA: ${{ inputs.retained_base_sha }}
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'JS'
-          import {execFileSync} from "node:child_process";
-          const repo="repos/Faust-S/cehovod.ru";
-          const fail=code=>{throw Error("D05_T3_RETAINED_PREFLIGHT_"+code);};
-          const git=args=>execFileSync("git",args,{stdio:["ignore","pipe","pipe"]});
-          const api=(phase,method,path,body)=>{
-            try{return JSON.parse(execFileSync("gh",["api","--method",method,repo+path,...(body===undefined?[]:["--input","-"])],{
-              input:body===undefined?undefined:JSON.stringify(body),encoding:"utf8",
-              maxBuffer:8*1024*1024,stdio:["pipe","pipe","pipe"]
-            }));}catch(error){
-              const status=String(error?.stderr||"").match(/\bHTTP\s+([1-5][0-9]{2})\b/)?.[1];
-              fail(phase+"_"+(status?"HTTP_"+status:"TRANSPORT_FAIL"));
-            }
-          };
-          try{
-            const base=process.env.SOURCE_SHA;
-            if(!/^[a-f0-9]{40}$/.test(base)||git(["rev-parse","HEAD"]).toString().trim()!==base)fail("BASE");
-            const meta=api("REPO","GET","");
-            if(meta.full_name!=="Faust-S/cehovod.ru"||meta.private!==true||meta.permissions?.push!==true)fail("PRIVATE_PERMISSION");
-            const ref=api("REF","GET","/git/ref/heads/work/2026-11-25-d05-t3-retained-inputs");
-            const target=process.env.TARGET_BASE_SHA;
-            if(!/^[a-f0-9]{40}$/.test(target||"")||ref.object?.sha!==target)fail("REMOTE_BASE_CHANGED");
-            if(target!==base){
-              const comparison=api("ANCESTRY","GET","/compare/"+target+"..."+base);
-              if(comparison.status!=="ahead"||comparison.merge_base_commit?.sha!==target||comparison.behind_by!==0)
-                fail("REMOTE_BASE_NOT_ANCESTOR");
-            }
-            // Submit one small ALREADY tracked blob to the SAME private repository.
-            // No new content, tree, commit or branch is created by this probe.
-            const path="runtime/t3-platform/active.json";
-            const sha=git(["rev-parse","HEAD:"+path]).toString().trim();
-            const bytes=git(["cat-file","blob",sha]);
-            if(!/^[a-f0-9]{40}$/.test(sha)||!bytes.length||bytes.length>4096)fail("PROBE_BLOB");
-            const saved=api("BLOB_WRITE","POST","/git/blobs",{content:bytes.toString("base64"),encoding:"base64"});
-            if(saved.sha!==sha)fail("BLOB_SHA");
-            console.log("D05_T3_RETAINED_PREFLIGHT_WRITE_PASS");
-          }catch(error){
-            console.error(String(error?.message||"").match(/^D05_T3_RETAINED_PREFLIGHT_[A-Z0-9_]+$/)?.[0]||"D05_T3_RETAINED_PREFLIGHT_UNCLASSIFIED");
-            process.exitCode=1;
-          }
-          JS
       - name: Verify owner pack and original runtime contract
         shell: bash
         run: |
@@ -828,6 +775,59 @@ jobs:
         run: |
           echo 'ready=true' >> "$GITHUB_OUTPUT"
           echo D05_T3_LINUX_FUNCTIONAL_READY_NOT_PRODUCT_ACCEPTED
+      - name: Check effective private blob write using existing tracked bytes
+        if: inputs.full_release
+        id: publication_preflight
+        continue-on-error: true
+        working-directory: site
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOMEN }}
+          SOURCE_SHA: ${{ inputs.site_sha }}
+          TARGET_BASE_SHA: ${{ inputs.retained_base_sha }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {execFileSync} from "node:child_process";
+          const repo="repos/Faust-S/cehovod.ru";
+          const fail=code=>{throw Error("D05_T3_RETAINED_PREFLIGHT_"+code);};
+          const git=args=>execFileSync("git",args,{stdio:["ignore","pipe","pipe"]});
+          const api=(phase,method,path,body)=>{
+            try{return JSON.parse(execFileSync("gh",["api","--method",method,repo+path,...(body===undefined?[]:["--input","-"])],{
+              input:body===undefined?undefined:JSON.stringify(body),encoding:"utf8",
+              maxBuffer:8*1024*1024,stdio:["pipe","pipe","pipe"]
+            }));}catch(error){
+              const status=String(error?.stderr||"").match(/\bHTTP\s+([1-5][0-9]{2})\b/)?.[1];
+              fail(phase+"_"+(status?"HTTP_"+status:"TRANSPORT_FAIL"));
+            }
+          };
+          try{
+            const base=process.env.SOURCE_SHA;
+            if(!/^[a-f0-9]{40}$/.test(base)||git(["rev-parse","HEAD"]).toString().trim()!==base)fail("BASE");
+            const meta=api("REPO","GET","");
+            if(meta.full_name!=="Faust-S/cehovod.ru"||meta.private!==true||meta.permissions?.push!==true)fail("PRIVATE_PERMISSION");
+            const ref=api("REF","GET","/git/ref/heads/work/2026-11-25-d05-t3-retained-inputs");
+            const target=process.env.TARGET_BASE_SHA;
+            if(!/^[a-f0-9]{40}$/.test(target||"")||ref.object?.sha!==target)fail("REMOTE_BASE_CHANGED");
+            if(target!==base){
+              const comparison=api("ANCESTRY","GET","/compare/"+target+"..."+base);
+              if(comparison.status!=="ahead"||comparison.merge_base_commit?.sha!==target||comparison.behind_by!==0)
+                fail("REMOTE_BASE_NOT_ANCESTOR");
+            }
+            // Submit one small ALREADY tracked blob to the SAME private repository.
+            // No new content, tree, commit or branch is created by this probe.
+            const path="runtime/t3-platform/active.json";
+            const sha=git(["rev-parse","HEAD:"+path]).toString().trim();
+            const bytes=git(["cat-file","blob",sha]);
+            if(!/^[a-f0-9]{40}$/.test(sha)||!bytes.length||bytes.length>4096)fail("PROBE_BLOB");
+            const saved=api("BLOB_WRITE","POST","/git/blobs",{content:bytes.toString("base64"),encoding:"base64"});
+            if(saved.sha!==sha)fail("BLOB_SHA");
+            console.log("D05_T3_RETAINED_PREFLIGHT_WRITE_PASS");
+          }catch(error){
+            console.error(String(error?.message||"").match(/^D05_T3_RETAINED_PREFLIGHT_[A-Z0-9_]+$/)?.[0]||"D05_T3_RETAINED_PREFLIGHT_UNCLASSIFIED");
+            process.exitCode=1;
+          }
+          JS
       - name: Publish only the verified candidate tree through private Git Data API
         if: inputs.full_release && steps.publication_preflight.outcome == 'success'
         id: publish
