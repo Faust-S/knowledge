@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {isT4NativeSubjectKind,validT4NativeSubjectRevision,deriveT4OriginalReplacementAttempt,
   validateT4CandidateSupersessionRetirementClaim,validateT4CandidateReplacementHeadBinding}
   from './standard-network-wire-candidate.mjs';
-import {validateT4OriginalReplacementSessionCandidate} from './original-network-publication.mjs';
+import {validateT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementPublishedContent} from './original-network-publication.mjs';
 export {deriveT4OriginalReplacementAttempt} from './standard-network-wire-candidate.mjs';
 
 /**
@@ -81,6 +81,7 @@ export function createT4OriginalNetworkSessionPhasePort({
   verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,
   authorizeOriginalRecipientSupersession=null,authorizeOriginalSourceSupersession=null,
   replacementSourceAdmission=null,readOriginalReplacementSourceAdmission=null,
+  readOriginalReplacementSourceContentPublication=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
   if(![technicalWorkspaceId,originalWriteOwnerRef,sourceNodeRef,
@@ -110,7 +111,8 @@ export function createT4OriginalNetworkSessionPhasePort({
   if(replacementSourceAdmission!==null){
     if(role!=='SOURCE'||authorizeOriginalSourceSupersession!==null||
       authorizeOriginalRecipientSupersession!==null||
-      typeof readOriginalReplacementSourceAdmission!=='function')
+      typeof readOriginalReplacementSourceAdmission!=='function'||
+      (readOriginalReplacementSourceContentPublication!==null&&typeof readOriginalReplacementSourceContentPublication!=='function'))
       fail('PHASE_ORIGINAL_REPLACEMENT_ADMISSION_PORT_REQUIRED');
     const a=clone(replacementSourceAdmission);
     let binding;try{binding=validateT4CandidateReplacementHeadBinding(a.binding);}catch{
@@ -125,7 +127,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       !/^[a-f0-9]{64}$/.test(a.headSha256)||a.headKey!==a.headSha256+'.t4n')
       fail('PHASE_ORIGINAL_REPLACEMENT_ADMISSION_INVALID');
     replacement=frozen({...a,binding});
-  }else if(readOriginalReplacementSourceAdmission!==null)
+  }else if(readOriginalReplacementSourceAdmission!==null||readOriginalReplacementSourceContentPublication!==null)
     fail('PHASE_ORIGINAL_REPLACEMENT_ADMISSION_PORT_REQUIRED');
   const phases=recipientApplyIntentRequired?
     Object.freeze(['RECEIVED','VERIFIED','APPLY_INTENT','APPLIED']):ALLOWED[role];
@@ -205,8 +207,10 @@ export function createT4OriginalNetworkSessionPhasePort({
       fail('PHASE_ORIGINAL_RECIPIENT_POLICY_MISMATCH');
     if(!eq(d.replacementSourceAdmission??null,replacement))
       fail('PHASE_ORIGINAL_REPLACEMENT_POLICY_MISMATCH');
-    if(replacement&&(d.stages.length!==1||d.stages[0]?.phase!=='INTENT'||
-      !eq(d.stages[0]?.evidence,{evidenceRef:replacement.sourceEventId,evidenceDigest:replacement.captureDigest})))
+    if(replacement&&(d.stages.length>2||d.stages[0]?.phase!=='INTENT'||
+      !eq(d.stages[0]?.evidence,{evidenceRef:replacement.sourceEventId,evidenceDigest:replacement.captureDigest})||
+      (d.stages.length===2&&(d.stages[1]?.phase!=='PUBLISHED'||!HASH(d.stages[1]?.evidence?.evidenceDigest)||
+        d.stages[1].evidence.evidenceRef!==d.stages[1].evidence.evidenceDigest.slice(7)+'.t4n'))))
       fail('PHASE_ORIGINAL_REPLACEMENT_INTENT_INVALID');
     let previous=genesis;
     const normalized=[];
@@ -245,7 +249,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       ev?.workspace_id===technicalWorkspaceId&&ev.object_id===checkpointRef);
     if(relevant.length!==stages.length||relevant.some(ev=>ev.event_type!==EVENT))
       fail('PHASE_ORIGINAL_EVENT_CHAIN_INCOMPLETE');
-    const ids=new Set();let lastOriginalEventId=null;
+    const ids=new Set(),originalEventIds=[];let lastOriginalEventId=null;
     for(const item of stages){
       const found=relevant.filter(ev=>
         ev.revision===item.index&&ID(ev.event_id)&&
@@ -257,7 +261,7 @@ export function createT4OriginalNetworkSessionPhasePort({
         ev.payload?.evidenceDigest===item.evidence.evidenceDigest);
       if(found.length!==1||ids.has(found[0].event_id))
         fail('PHASE_ORIGINAL_EVENT_CHAIN_MISMATCH');
-      ids.add(found[0].event_id);lastOriginalEventId=found[0].event_id;
+      ids.add(found[0].event_id);lastOriginalEventId=found[0].event_id;originalEventIds.push(lastOriginalEventId);
     }
     await guard(initial,'t1.getObject','double-read');
     const after=await originalKernel.getObject(
@@ -266,7 +270,7 @@ export function createT4OriginalNetworkSessionPhasePort({
     if(!eq(after?.object,before?.object))
       fail('PHASE_ORIGINAL_CHECKPOINT_CHANGED');
     return frozen({stages:clone(stages),revision:stages.length,
-      chainHash:stages.at(-1)?.chainHash??genesis,checkpointRef,lastOriginalEventId});
+      chainHash:stages.at(-1)?.chainHash??genesis,checkpointRef,lastOriginalEventId,originalEventIds});
   }
   async function appliedGate(evidence,step){
     const p=frozen({
@@ -301,8 +305,11 @@ export function createT4OriginalNetworkSessionPhasePort({
         recipientApplyIntentEvidence:clone(current.stages.find(e=>e.phase==='APPLY_INTENT')?.evidence??null),
       }:{}),
       ...(replacement?{originalReplacementSourceAdmission:clone(replacement),
-        originalReplacementSourceAdmissionRecorded:current.revision===1,
-        originalReplacementAdmissionEventId:current.lastOriginalEventId,
+        originalReplacementSourceAdmissionRecorded:current.revision>=1,
+        originalReplacementAdmissionEventId:current.originalEventIds[0]??null,
+        originalReplacementAdmissionRevision:current.revision>=1?1:null,
+        originalReplacementAdmissionChainHash:current.stages[0]?.chainHash??null,
+        originalReplacementPublishedEventId:current.originalEventIds[1]??null,
         originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false}:{}),
       ...(terminal?{
         ...(role==='RECIPIENT'?{originalRecipientAttemptSuperseded:true,
@@ -344,8 +351,32 @@ export function createT4OriginalNetworkSessionPhasePort({
     if(!eq(await context(),initial))fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED');
     return current.stages.at(-1)?.phase===TERMINAL?statusFor(current):null;
   }
-  async function replacementGate(initial,evidence){
+  async function replacementGate(initial,phase,evidence,current){
     if(!replacement)return;
+    if(phase==='PUBLISHED'){
+      if(readOriginalReplacementSourceContentPublication===null)
+        fail('PHASE_ORIGINAL_REPLACEMENT_LIVE_TRANSFER_NOT_ENABLED');
+      if(current.revision<1)fail('PHASE_PREDECESSOR_NOT_PROVEN');
+      await guard(initial,'t1.getObject','replacement-content-publication');
+      const raw=await readOriginalReplacementSourceContentPublication(frozen({checkpointRef,sessionRef,changeId,
+        originalReplacementSourceContentReadRequired:true,originalSubjectMutationAllowed:false}));
+      let p;try{p=validateT4OriginalReplacementPublishedContent(raw,raw?.session);}catch{
+        fail('PHASE_ORIGINAL_REPLACEMENT_CONTENT_PUBLICATION_NOT_PROVEN');
+      }
+      const c=p.session,a=p.agreement,f=p.frames[1];
+      if(!['sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch','sessionRef','changeId'].every(k=>c[k]===identity[k])||
+        c.originalWriteOwnerRef!==originalWriteOwnerRef||c.sourceEventId!==replacement.sourceEventId||
+        c.capturedWindowDigest!==replacement.captureDigest||c.changeKind!==changeKind||!eq(c.replacement,replacement.binding)||
+        p.checkpointRef!==replacement.publicationRef||a.originalSourceAdmissionCheckpointRef!==checkpointRef||
+        a.originalSourceAdmissionEventId!==current.originalEventIds[0]||a.originalSourceAdmissionChainHash!==current.stages[0].chainHash||
+        a.originalSourceHeadKey!==replacement.headKey||a.originalSourceHeadPresentRevision!==replacement.publicationRevision||
+        a.originalSourceHeadPresentChainHash!==replacement.publicationChainHash||
+        !eq(evidence,{evidenceRef:f.key,evidenceDigest:'sha256:'+f.sha256}))
+        fail('PHASE_ORIGINAL_REPLACEMENT_CONTENT_PUBLICATION_NOT_PROVEN');
+      if(!eq(await context(),initial))fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED');
+      return;
+    }
+    if(phase!=='INTENT')fail('PHASE_ORIGINAL_REPLACEMENT_LIVE_TRANSFER_NOT_ENABLED');
     if(!eq(evidence,{evidenceRef:replacement.sourceEventId,evidenceDigest:replacement.captureDigest}))
       fail('PHASE_ORIGINAL_REPLACEMENT_INTENT_INVALID');
     await guard(initial,'t1.getObject','replacement-admission');
@@ -379,15 +410,23 @@ export function createT4OriginalNetworkSessionPhasePort({
   async function advanceOriginalSessionPhase({phase,evidence}={}){
     if(!phases.includes(phase))
       fail('PHASE_ROLE_OR_STAGE_UNSUPPORTED');
-    if(replacement&&phase!=='INTENT')fail('PHASE_ORIGINAL_REPLACEMENT_LIVE_TRANSFER_NOT_ENABLED');
+    if(replacement&&(phase!=='INTENT'&&(phase!=='PUBLISHED'||readOriginalReplacementSourceContentPublication===null)))
+      fail('PHASE_ORIGINAL_REPLACEMENT_LIVE_TRANSFER_NOT_ENABLED');
     const expectedEvidence=proofEvidence(phase,evidence,changeKind);
-    const initial=await context();
-    await replacementGate(initial,expectedEvidence);
-    const current=await verifiedRead(initial);
+    const initial=await context(),current=await verifiedRead(initial);
+    await replacementGate(initial,phase,expectedEvidence,current);
     if(current.stages.at(-1)?.phase===TERMINAL)
       fail(role==='SOURCE'?'PHASE_ORIGINAL_SOURCE_ATTEMPT_SUPERSEDED':'PHASE_ORIGINAL_RECIPIENT_ATTEMPT_SUPERSEDED',{
         automaticRetryAllowed:false,originalSubjectMutationAllowed:false});
     const pos=phases.indexOf(phase);
+    // Recover the exact original INTENT anchor even after PUBLISHED. This
+    // is not another phase write or a claim that INTENT is still current.
+    if(replacement&&phase==='INTENT'&&current.revision>1){
+      if(!eq(expectedEvidence,current.stages[0].evidence))fail('PHASE_ALREADY_ADVANCED_OR_CONFLICT');
+      return frozen({schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1',phase,checkpointRef,status:'ALREADY_CONFIRMED',
+        revision:1,chainHash:current.stages[0].chainHash,originalPhaseEventId:current.originalEventIds[0],
+        originalSubjectWriteRetried:false,historicalReceiptFabricated:false,originalBusinessApplied:false});
+    }
     if(pos<current.stages.length){
       if(pos!==current.stages.length-1||
         !eq(expectedEvidence,current.stages.at(-1).evidence))
@@ -531,7 +570,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       }},
     };
     await guard(initial,'t1.putObject',phase);
-    await replacementGate(initial,expectedEvidence);
+    await replacementGate(initial,phase,expectedEvidence,current);
     // Recheck technical write authority after the asynchronous lineage read.
     if(replacement)await guard(initial,'t1.putObject',phase);
     try{
@@ -582,9 +621,11 @@ export function createT4OriginalNetworkSessionPhasePort({
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,authorizeOriginalRecipientSupersession,
       authorizeOriginalSourceSupersession,replacementSourceAdmission:replacement,readOriginalReplacementSourceAdmission,
+      readOriginalReplacementSourceContentPublication,
     }),
     role,checkpointRef,
     ...(replacement?{originalReplacementSourceAdmission:clone(replacement)}:{}),
+    ...(readOriginalReplacementSourceContentPublication!==null?{originalReplacementSourceContentPublicationRequired:true}:{}),
     ...(recipientApplyIntentRequired?{recipientApplyIntentRequired:true}:{}),
     originalT3TechnicalWorkspaceOnly:true,
     createsSecondStore:false,createsNewIAM:false,

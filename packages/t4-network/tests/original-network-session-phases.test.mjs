@@ -16,7 +16,7 @@ import {prepareT4OriginalSupersessionControl,signT4OriginalSupersessionRequest,
   publishT4OriginalRecipientRetirementAck,recoverT4OriginalReplacementEligibility,
   publishT4OriginalReplacementSourceHead,discoverT4OriginalReplacementSourceHead,admitT4OriginalReplacementSourcePhase,
   readT4OriginalReplacementRecipientAdmission,publishT4OriginalReplacementRecipientDiff,
-  discoverT4OriginalReplacementRecipientDiff,publishT4OriginalReplacementSourceContent}
+  discoverT4OriginalReplacementRecipientDiff,publishT4OriginalReplacementSourceContent,confirmT4OriginalReplacementSourcePublication}
   from '../src/network/original-network-session-supersession.mjs';
 import {createT4OriginalNetworkSessionPhasePort,deriveT4OriginalReplacementAttempt} from
   '../src/network/original-network-session-phases.mjs';
@@ -1304,16 +1304,55 @@ test('K61 transport receipt alone, wrong original publication or revoked accepta
   assert.equal(missing.state,'WAITING_FOR_ORIGINAL_PUBLICATION');assert.equal(missing.originalReplacementContentEvidence,undefined);
   const bad=structuredClone(p);bad.frames[2].verifiedBody.contentDigest=H;
   await assert.rejects(q.discover({originalReplacementSourcePublicationPort:{...source,
-    readOriginalReplacementPublishedContent:async()=>bad}}),isCode('SUBJECT_ORIGINAL_REPLACEMENT_PUBLICATION_MISMATCH'));
+    readOriginalReplacementPublishedContent:async()=>bad}}),isCode('CHUNK_ASSEMBLY_BODY_INVALID'));
   await assert.rejects(q.discover({originalReplacementRecipientPublicationPort:{...diff,
     readOriginalPublishedFrame:async opts=>({...await diff.readOriginalPublishedFrame(opts),originalPresentEventId:'event:fake:diff'})}}),
     isCode('SUBJECT_ORIGINAL_REPLACEMENT_PUBLICATION_MISMATCH'));
   const wrong=structuredClone(p);wrong.frames[0].originalPresentEventId='event:fake:head';
   await assert.rejects(q.discover({originalReplacementSourcePublicationPort:{...source,
-    readOriginalReplacementPublishedContent:async()=>wrong}}),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_HEAD_MISMATCH'));
+    readOriginalReplacementPublishedContent:async()=>wrong}}),isCode('PUBLICATION_ORIGINAL_REPLACEMENT_BATCH_ANCHOR_MISMATCH'));
   await assert.rejects(q.discover({originalReplacementSourcePublicationPort:q.sourcePublicationPort}),
     isCode('SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_PORTS_REQUIRED'));
   q.deny();await assert.rejects(q.discover(),isCode('SUBJECT_ORIGINAL_SESSION_DISCOVERY_DENIED'));q.allow();
   q.denyAcceptance();await assert.rejects(q.discover(),isCode('REPLACEMENT_SOURCE_DIFF_ACCEPTANCE_DENIED'));q.allowAcceptance();
   x.stop();await assert.rejects(q.discover());
+});
+
+
+test('K63 successor source PUBLISHED binds complete original publication and preserves the immutable INTENT across restart',async()=>{
+  const q=await replacementRecipientFixture(),{x,c}=q;await q.diff();
+  const source=q.source,agreement=await q.current();
+  const phaseFor=(read=()=>source.readOriginalReplacementPublishedContent())=>x.sourcePhase({
+    sessionRef:c.sessionRef,authorizeOriginalSourceSupersession:null,
+    replacementSourceAdmission:q.phase.originalReplacementSourceAdmission,readOriginalReplacementSourceAdmission:async()=>true,
+    readOriginalReplacementSourceContentPublication:read});
+  const phase=phaseFor(),confirm=()=>confirmT4OriginalReplacementSourcePublication({sourceAdmissionPhasePort:phaseFor(),sourcePublicationPort:source,getMode:x.eligibilityOptions().getMode});
+  const initial=await phase.inspectOriginalSession();
+  await assert.rejects(confirm(),isCode('PUBLICATION_OUTBOUND_FRAME_NOT_PRESENT'));
+  await q.publish();
+  const batch=await source.readOriginalReplacementPublishedContent(),change=batch.frames[1];
+  const ev={evidenceRef:change.key,evidenceDigest:'sha256:'+change.sha256};
+  const forged=structuredClone(batch);forged.agreement.originalSourceAdmissionEventId='event:k63:forged';
+  await assert.rejects(phaseFor(async()=>forged).advanceOriginalSessionPhase({phase:'PUBLISHED',evidence:ev}),isCode('PHASE_ORIGINAL_REPLACEMENT_CONTENT_PUBLICATION_NOT_PROVEN'));
+  await assert.rejects(phase.advanceOriginalSessionPhase({phase:'PUBLISHED',evidence:{...ev,evidenceRef:'wrong.t4n'}}),isCode('PHASE_ORIGINAL_REPLACEMENT_CONTENT_PUBLICATION_NOT_PROVEN'));
+  assert.equal((await phase.inspectOriginalSession()).revision,1);
+  const before={s:x.sourcePhaseWrites(),r:x.phaseWrites(),signs:x.signatureCount(),puts:x.counts().networkPuts};
+  x.sourceStore.loseNextReply();
+  await assert.rejects(confirm(),isCode('PHASE_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  x.f.restart();const done=await confirm();
+  assert.equal(done.status,'ALREADY_CONFIRMED');assert.equal(done.revision,2);
+  assert.equal(done.originalSourceAdmissionEventId,initial.originalReplacementAdmissionEventId);
+  assert.equal(done.originalSourceAdmissionChainHash,initial.chainHash);
+  const status=await phaseFor().inspectOriginalSession();
+  assert.equal(status.currentPhase,'PUBLISHED');assert.equal(status.originalReplacementPublishedEventId,done.originalSourcePublishedEventId);
+  assert.equal(status.originalReplacementAdmissionEventId,initial.originalReplacementAdmissionEventId);
+  assert.equal(status.originalReplacementAdmissionChainHash,initial.chainHash);
+  assert.deepEqual(await q.current(),agreement);
+  const admitted=await q.admit();assert.equal(admitted.status,'ALREADY_CONFIRMED');assert.equal(admitted.revision,1);
+  assert.equal(admitted.chainHash,initial.chainHash);assert.equal(admitted.originalReplacementAdmissionEventId,initial.originalReplacementAdmissionEventId);
+  const sent=await q.publish();assert.equal(sent.originalSignedBatchReused,true);
+  assert.equal((await q.discover()).state,'CONTENT_VERIFIED');
+  assert.equal(x.sourcePhaseWrites(),before.s+1);assert.equal(x.phaseWrites(),before.r);
+  assert.equal(x.signatureCount(),before.signs);assert.equal(x.counts().networkPuts,before.puts);
+  x.changeRecipientFrontier();await assert.rejects(confirm(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
 });

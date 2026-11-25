@@ -9,6 +9,8 @@ import {createSignedAccessHostPort} from '../../t3-core/src/t3/signed-access-hos
 import {ORIGINAL_NETWORK_KEY_TRANSITION,ORIGINAL_NETWORK_KEY_MANAGE,originalNetworkKeyPossessionBytes,
   originalNetworkKeyOperationDigest,originalNetworkKeyStatusId,createOriginalNetworkAgreementChallenge,answerOriginalNetworkAgreementChallenge} from '../../t3-core/src/t3/access/original-network-key-lifecycle.mjs';
 import {createT4OriginalVaultSealedContentPort} from '../src/network/original-vault-sealed-content.mjs';
+import {verifyT4OriginalObjectDelta,digestT4OriginalObjectContent} from '../src/network/original-object-delta.mjs';
+import {openT4OriginalNetworkSubjectChange,applyT4OriginalNetworkSubjectChange,createT4OriginalNetworkAppliedAckBody} from '../src/network/original-network-subject-apply.mjs';
 import {deriveT4OriginalNativeCaptureSession,createT4OriginalNetworkPublicationPort,createT4OriginalSourceSessionHead,
   createT4OriginalPublicationIndexMigrationStepper,deriveT4OriginalReplacementSessionCandidate} from '../src/network/original-network-publication.mjs';
 import {createT4OriginalHostDispatchTaskBinding} from '../src/network/original-host-dispatch-task-binding.mjs';
@@ -983,8 +985,15 @@ test('K44 bounded V2 HKDF context binds the entire long canonical header; indepe
 // A typed independent admission fixture is used here only to isolate the
 // original Registry/Vault cryptographic boundary; K59/K60 journal tests
 // construct the actual witness from both original phase/publication ports.
-test('K60 K61 original Vault seals and opens successor AAD only with original admission and complete publication evidence',{timeout:30000},async()=>{
-  const q=await sealedFixture(),c=captured(Buffer.from('original successor capture'));
+test('K60 K61 K62 original Vault seals, opens and decodes successor canonical subject only with original evidence',{timeout:30000},async()=>{
+  const q=await sealedFixture(),root=captured(Buffer.from('original successor capture'));
+  const data={title:'canonical successor subject'},schemaId='iwxa.demo.note',schemaVersion='1.0.0',extensions={};
+  const delta={schema:'IWXA_T4_ORIGINAL_OBJECT_DELTA_V1',workspaceId:WS,originalWriteOwnerRef:OWNER,
+    objectId:'object:k62:one',schemaId,schemaVersion,sourceEventId:root.session.sourceEventId,
+    sourceEventDigest:root.session.sourceEventDigest,windowDigest:root.session.capturedWindowDigest,
+    originalEventType:'source.changed',baseRevision:0,sourceRevision:1,data,extensions,
+    objectContentDigest:digestT4OriginalObjectContent({schemaId,schemaVersion,data,extensions})};
+  const canonical=verifyT4OriginalObjectDelta(delta),c=captured(Buffer.from(canonical.bytes));
   const d='sha256:'+sha('k60:original:evidence');
   const candidate=deriveT4OriginalReplacementSessionCandidate({originalCaptureSession:c.session,replacement:{
     previousSessionRef:c.session.sessionRef,changeId:c.session.changeId,decisionDigest:d,
@@ -1052,4 +1061,65 @@ test('K60 K61 original Vault seals and opens successor AAD only with original ad
   current=null;
   await assert.rejects(recipient.openOriginalSealedContent(openInput),{code:'PUBLICATION_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_REQUIRED'});
   assert.equal(q.unlocks,1);
+  // K62 uses the existing canonical subject codec, not an alternate delta
+  // format. The source head/readback assertions here are fixture ports;
+  // actual original signed publication and replay are exercised in K61.
+  const plan=await prepareT4CandidateOpaqueChunks({changeId:candidate.changeId,ownerRef:OWNER,
+    sourceContentRef:c.input.sourceContentRef,getMode:()=> 'T4_NETWORK',
+    authorizeOriginalSealedContent:async()=>true,readOriginalSealedContent:async()=>sealed});
+  assert.equal(plan.chunkCount,1);
+  const common={schema:'IWXA_T4_CANDIDATE_FRAME_RECEIVED_V1',verifiedSourceNodeRef:A,verifiedRecipientNodeRef:B,
+    verifiedScopeRef:SCOPE,verifiedSessionRef:candidate.sessionRef,verifiedOwnerEpoch:2,verifiedSignerRef:'key:source:ed25519',
+    originalSignatureVerified:true,originalAccessVerified:true,originalReplayCheckpointRecorded:true,
+    networkBytesVerified:true,originalBusinessApplied:false,originalT3ExchangeCalled:false};
+  const change={...common,signedMessageType:'CHANGE_REF',verifiedSequence:2,verifiedCriticalExtensions:[],
+    key:evidence.frames[1].key,sha256:evidence.frames[1].sha256,verifiedBody:{changeId:candidate.changeId,
+      changeKind:'OBJECT_PUT',eventRef:candidate.sourceEventId,ownerRef:OWNER,sourceRevision:1,
+      contentDigest:plan.contentDigest,parents:[candidate.sourcePrefixDigestBefore]}};
+  const chunk={...common,signedMessageType:'CHUNK',verifiedSequence:3,verifiedCriticalExtensions:[],
+    key:evidence.frames[2].key,sha256:evidence.frames[2].sha256,verifiedBody:plan.bodies[0]};
+  const sourceProof={schema:'IWXA_T4_ORIGINAL_SOURCE_NETWORK_HEAD_PROOF_V1',workspaceId:WS,originalWriteOwnerRef:OWNER,
+    sourceNodeRef:A,recipientNodeRef:B,scopeRef:SCOPE,sessionRef:candidate.sessionRef,ownerEpoch:2,changeId:candidate.changeId,
+    changeKind:'OBJECT_PUT',originalSourceRevision:1,originalSourceEventId:candidate.sourceEventId,
+    originalEventDigest:candidate.sourceEventDigest,sourceEventWindowDigest:candidate.capturedWindowDigest,
+    sourcePrefixDigestBefore:candidate.sourcePrefixDigestBefore,sourcePrefixDigestAfter:candidate.sourcePrefixDigestAfter,
+    ciphertextContentDigest:plan.contentDigest,sourceChangeFrameKey:change.key,originalCapturedRevisionProofRequired:true,
+    signedHeadMatchesOriginalT3EventPrefix:true,signedDiffMatchesOriginalT3Frontier:true,originalSourceSubjectIndependentlyRead:true,
+    signedRecipientDiffLocalPublicationVerified:true,recipientDiffRemoteReceiptProven:false,
+    originalRecipientPublicationCheckpointRef:witness.originalRecipientPublicationCheckpointRef};
+  const openArgs={originalCaptureSession:candidate,verifiedChangeRef:change,verifiedChunks:[chunk],originalSourceHeadProof:sourceProof,
+    encryptionContextRef:plan.encryptionContextRef,recipientNodeRef:B,scopeRef:SCOPE,getMode:()=> 'T4_NETWORK',
+    readOriginalHostContext:async()=>({nodeRef:B,scopeRef:SCOPE,hostSessionRef:'host:k62:recipient',originalWriteOwnerRef:OWNER}),
+    authorizeOriginalSealedOpen:async p=>p.originalSubjectMutationAllowed===false,
+    openOriginalSealedContent:recipient.openOriginalSealedContent,
+    verifyOriginalSourceBinding:async p=>p.originalT3SourceEventAndSubjectReadRequired===true||
+      (p.originalT3SourceObjectEventAndContentReadbackRequired===true&&p.originalObjectContentDigest===delta.objectContentDigest),
+    readOriginalReplacementRecipientContentEvidence:async()=>current};
+  current=evidence;
+  await assert.rejects(openT4OriginalNetworkSubjectChange({...openArgs,readOriginalReplacementRecipientContentEvidence:null}),
+    {code:'SUBJECT_ORIGINAL_REPLACEMENT_OPEN_PORT_REQUIRED'});
+  await assert.rejects(openT4OriginalNetworkSubjectChange({...openArgs,originalSourceHeadProof:{...sourceProof,sourcePrefixDigestAfter:d}}),
+    {code:'SUBJECT_ORIGINAL_REPLACEMENT_SOURCE_BINDING_MISMATCH'});
+  const wrongFrame={...chunk,key:sha('wrong')+'.t4n',sha256:sha('wrong')};
+  await assert.rejects(openT4OriginalNetworkSubjectChange({...openArgs,verifiedChunks:[wrongFrame]}),
+    {code:'SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_BINDING_MISMATCH'});
+  assert.equal(q.unlocks,1);
+  const result=await openT4OriginalNetworkSubjectChange(openArgs);
+  assert.equal(result.schema,'IWXA_T4_ORIGINAL_NETWORK_REPLACEMENT_SUBJECT_VERIFIED_V1');
+  assert.equal(result.originalReplacementSubjectVerified,true);assert.equal(result.originalApplyAdmissionStillRequired,true);
+  assert.deepEqual(result.delta,canonical.delta);assert.equal(result.sha256,canonical.sha256);
+  assert.equal(result.changeId,c.session.changeId);assert.equal(result.originalBusinessApplied,false);
+  assert.equal(q.unlocks,2);
+  await assert.rejects(applyT4OriginalNetworkSubjectChange({received:result}),{code:'SUBJECT_RECEIVED_PROOF_INVALID'});
+  await assert.rejects(applyT4OriginalNetworkSubjectChange({received:{...result,schema:'IWXA_T4_ORIGINAL_NETWORK_OBJECT_RECEIVED_V1'}}),
+    {code:'SUBJECT_RECEIVED_PROOF_INVALID'});
+  assert.throws(()=>createT4OriginalNetworkAppliedAckBody({received:result}),{code:'SUBJECT_RECEIVED_PROOF_INVALID'});
+  await assert.rejects(openT4OriginalNetworkSubjectChange({...openArgs,openOriginalSealedContent:async()=>({
+    authenticated:true,originalVaultUsed:true,originalCapturedBytesVerified:true,originalBusinessApplied:false,plaintext:new Uint8Array([1])})}),
+    {code:'SUBJECT_ORIGINAL_REPLACEMENT_CAPTURE_MISMATCH'});
+  await assert.rejects(openT4OriginalNetworkSubjectChange({...openArgs,verifyOriginalSourceBinding:async p=>{
+    if(p.originalT3SourceObjectEventAndContentReadbackRequired)current={...evidence,frames:[...evidence.frames.slice(0,2),
+      {...evidence.frames[2],presentEventId:'event:changed:chunk'}]};return true;
+  }}),{code:'SUBJECT_ORIGINAL_REPLACEMENT_CONTENT_EVIDENCE_CHANGED'});
+  assert.equal(q.unlocks,3);
 });

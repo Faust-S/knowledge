@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {validateT4OriginalNativeCaptureSession,deriveT4OriginalSupersessionPublicationSession,
   deriveT4OriginalReplacementSessionCandidate,createT4OriginalReplacementSourceHead,readT4OriginalReplacementSourceHead,
   validateT4OriginalReplacementRecipientAdmissionEvidence,validateT4OriginalReplacementSourceIntentStatus,
-  validateT4OriginalReplacementDiffAcceptance,deriveT4OriginalNativeCaptureSession}
+  validateT4OriginalReplacementDiffAcceptance,deriveT4OriginalNativeCaptureSession,validateT4OriginalReplacementPublishedContent}
   from './original-network-publication.mjs';
 import {createT4CandidateSupersessionClaim,T4_SESSION_SUPERSESSION_EXTENSION,
   createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,t4NativeSubjectCriticalExtensions,
@@ -717,15 +717,15 @@ export async function admitT4OriginalReplacementSourcePhase({
   await witness();
   const evidence={evidenceRef:candidate.sourceEventId,evidenceDigest:candidate.capturedWindowDigest};
   const outcome=await phase.advanceOriginalSessionPhase({phase:'INTENT',evidence});mode(getMode);
-  const status=await phase.inspectOriginalSession();mode(getMode);
+  const status=validateT4OriginalReplacementSourceIntentStatus(await phase.inspectOriginalSession(),candidate);mode(getMode);
   if(outcome?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1'||
     !['RECORDED','ALREADY_CONFIRMED'].includes(outcome.status)||outcome.phase!=='INTENT'||
     outcome.checkpointRef!==phase.checkpointRef||outcome.revision!==1||!DIG(outcome.chainHash)||
     !ID(outcome.originalPhaseEventId)||outcome.originalBusinessApplied!==false||
     status?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_STATUS_V1'||status.role!=='SOURCE'||
     status.checkpointRef!==phase.checkpointRef||status.sessionRef!==candidate.sessionRef||
-    status.changeId!==candidate.changeId||status.revision!==1||status.chainHash!==outcome.chainHash||
-    status.currentPhase!=='INTENT'||!same(status.sourceIntentEvidence,evidence)||
+    status.changeId!==candidate.changeId||status.originalReplacementAdmissionRevision!==1||
+    status.originalReplacementAdmissionChainHash!==outcome.chainHash||!same(status.sourceIntentEvidence,evidence)||
     !same(status.originalReplacementSourceAdmission,admission)||
     status.originalReplacementSourceAdmissionRecorded!==true||
     status.originalReplacementAdmissionEventId!==outcome.originalPhaseEventId||
@@ -734,7 +734,7 @@ export async function admitT4OriginalReplacementSourcePhase({
     fail('REPLACEMENT_SOURCE_ADMISSION_NOT_PROVEN');
   await witness();
   return freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_SOURCE_ADMISSION_V1',candidate,admission,
-    status:outcome.status,checkpointRef:phase.checkpointRef,revision:1,chainHash:status.chainHash,
+    status:outcome.status,checkpointRef:phase.checkpointRef,revision:1,chainHash:status.originalReplacementAdmissionChainHash,
     originalReplacementAdmissionEventId:status.originalReplacementAdmissionEventId,
     originalSourceIntentRecorded:true,originalBothTerminalPhaseEventsVerified:true,
     originalRecipientAdmissionStillRequired:true,originalNewAttemptAdmissionStillRequired:true,
@@ -770,7 +770,7 @@ export async function readT4OriginalReplacementRecipientAdmission({
   const proof={candidate:first.eligibility.candidate,headKey:first.head.key,
     sourceAdmissionCheckpointRef:first.sourceIntent.checkpointRef,
     sourceAdmissionEventId:first.sourceIntent.originalReplacementAdmissionEventId,
-    sourceAdmissionChainHash:first.sourceIntent.chainHash,
+    sourceAdmissionChainHash:first.sourceIntent.originalReplacementAdmissionChainHash,
     originalBothTerminalPhaseEventsVerified:true,originalBothCausalFrontiersUnchanged:true,
     originalSourceIntentVerified:true,originalRecipientDiffOnly:true,originalSubjectMutationAllowed:false,
     liveNetworkAuthorityGranted:false};
@@ -978,7 +978,7 @@ export async function discoverT4OriginalReplacementRecipientDiff({
   return result(verified.state,{diffKey:verified.diff.key,diffSha256:verified.diff.sha256,
     originalSourceAdmissionEventId:verified.sourceIntent.originalReplacementAdmissionEventId,
     originalSourceAdmissionCheckpointRef:verified.sourceIntent.checkpointRef,
-    originalSourceAdmissionChainHash:verified.sourceIntent.chainHash,
+    originalSourceAdmissionChainHash:verified.sourceIntent.originalReplacementAdmissionChainHash,
     originalSourceHeadKey:verified.head.key,originalSourceHeadPresentEventId:verified.head.originalPresentEventId,
     originalSourceHeadPresentRevision:verified.head.originalPresentRevision,originalSourceHeadPresentChainHash:verified.head.originalPresentChainHash,
     originalRecipientDiffPresentEventId:verified.outbound.originalPresentEventId,
@@ -1130,4 +1130,46 @@ export async function publishT4OriginalReplacementSourceContent({
   return result('ORIGINAL_REPLACEMENT_CONTENT_PRESENT',{originalSignedBatchReused:reused,
     originalPublicationCheckpointRef:port.checkpointRef,publications,
     originalSourcePhaseAdvanceStillRequired:true,originalRecipientApplyStillRequired:true});
+}
+
+
+/** Record the complete original publication on the successor's own source
+ * phase. The immutable INTENT anchor remains the handshake identity. */
+export async function confirmT4OriginalReplacementSourcePublication({sourceAdmissionPhasePort,sourcePublicationPort,getMode}={}){
+  mode(getMode);
+  const port=sourcePublicationPort,phase=sourceAdmissionPhasePort;
+  if(port?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||port.originalReplacementSourceContentPublication!==true||
+    port.originalT3OnlyStore!==true||typeof port.readOriginalReplacementPublishedContent!=='function'||
+    phase?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'||phase.role!=='SOURCE'||
+    phase.originalT3TechnicalWorkspaceOnly!==true||phase.createsSecondStore!==false||
+    phase.originalReplacementSourceContentPublicationRequired!==true||
+    !['advanceOriginalSessionPhase','inspectOriginalSession'].every(k=>typeof phase[k]==='function'))
+    fail('REPLACEMENT_SOURCE_PUBLICATION_PHASE_PORT_REQUIRED');
+  const c=port.session;
+  const batch=validateT4OriginalReplacementPublishedContent(await port.readOriginalReplacementPublishedContent(),c);mode(getMode);
+  const a=batch.agreement,change=batch.frames[1],evidence={evidenceRef:change.key,evidenceDigest:'sha256:'+change.sha256};
+  const inspect=async()=>{
+    const status=validateT4OriginalReplacementSourceIntentStatus(await phase.inspectOriginalSession(),c);mode(getMode);
+    if(status.checkpointRef!==phase.checkpointRef||status.checkpointRef!==a.originalSourceAdmissionCheckpointRef||
+      status.originalReplacementAdmissionEventId!==a.originalSourceAdmissionEventId||
+      status.originalReplacementAdmissionChainHash!==a.originalSourceAdmissionChainHash||
+      !same(status.originalReplacementSourceAdmission,phase.originalReplacementSourceAdmission)||
+      (status.currentPhase==='PUBLISHED'&&!same(status.sourcePublishedEvidence,evidence)))
+      fail('REPLACEMENT_SOURCE_PUBLICATION_PHASE_MISMATCH');
+    return status;
+  };
+  await inspect();
+  const outcome=await phase.advanceOriginalSessionPhase({phase:'PUBLISHED',evidence});mode(getMode);
+  const status=await inspect();
+  if(outcome?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1'||outcome.phase!=='PUBLISHED'||
+    !['RECORDED','ALREADY_CONFIRMED'].includes(outcome.status)||outcome.checkpointRef!==phase.checkpointRef||
+    status.currentPhase!=='PUBLISHED'||outcome.revision!==2||outcome.chainHash!==status.chainHash||
+    outcome.originalPhaseEventId!==status.originalReplacementPublishedEventId||outcome.originalBusinessApplied!==false)
+    fail('REPLACEMENT_SOURCE_PUBLICATION_PHASE_MISMATCH');
+  return freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_SOURCE_PUBLICATION_CONFIRMATION_V1',state:'ORIGINAL_REPLACEMENT_SOURCE_PUBLISHED',
+    candidate:c,status:outcome.status,checkpointRef:phase.checkpointRef,revision:2,chainHash:status.chainHash,
+    originalSourcePublishedEventId:outcome.originalPhaseEventId,originalSourceAdmissionEventId:a.originalSourceAdmissionEventId,
+    originalSourceAdmissionChainHash:a.originalSourceAdmissionChainHash,changeKey:change.key,
+    originalRecipientApplyStillRequired:true,originalSubjectMutationInvoked:false,originalBusinessApplied:false,
+    sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false});
 }
