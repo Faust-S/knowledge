@@ -2,7 +2,8 @@ name: D07 T3 original-platform integration
 on:
   push:
     branches: [work/2026-11-02-pipeline-foundation]
-    paths: [.github/workflows/d07-t3-integration.yml]
+    # Update the qualification request only for a complete candidate.
+    paths: [.github/qualification/d07-t3-release-request.json]
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 28a2bac1c856a45b8bc7d23a18913db0c2e817f1
+          ref: d9e1efbced10cf68b2bae5f4e88d5a60e568f0bc
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -33,7 +34,7 @@ jobs:
         working-directory: site
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
-        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 28a2bac1c856a45b8bc7d23a18913db0c2e817f1
+        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight d9e1efbced10cf68b2bae5f4e88d5a60e568f0bc
   t3-source:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -41,14 +42,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: 020cc9ba8e726e45a3ef366e27e2a8d59bd664d4
+          ref: cd513453a5bad11c240b99bf0b150f0cb27a5899
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: domain
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 28a2bac1c856a45b8bc7d23a18913db0c2e817f1
+          ref: d9e1efbced10cf68b2bae5f4e88d5a60e568f0bc
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -67,8 +68,8 @@ jobs:
           bun-version: '1.3.2'
       - name: Preserve exact T2 subject and Workspace module
         run: |
-          test "$(git -C domain rev-parse HEAD)" = "020cc9ba8e726e45a3ef366e27e2a8d59bd664d4"
-          test "$(git -C site rev-parse HEAD)" = "28a2bac1c856a45b8bc7d23a18913db0c2e817f1"
+          test "$(git -C domain rev-parse HEAD)" = "cd513453a5bad11c240b99bf0b150f0cb27a5899"
+          test "$(git -C site rev-parse HEAD)" = "d9e1efbced10cf68b2bae5f4e88d5a60e568f0bc"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -80,12 +81,13 @@ jobs:
           cmp domain/src/domain/documented-service-criteria.ts site/src/domain/documented-service-criteria.ts
           cmp domain/src/domain/documented-case-replay.ts site/src/domain/documented-case-replay.ts
           cmp domain/src/domain/order-stage-draft.ts site/src/domain/order-stage-draft.ts
+          cmp domain/src/domain/order-stage-replacement.ts site/src/domain/order-stage-replacement.ts
           for f in proposal-answer-state.ts service-lifecycle.ts universal-service-criteria.ts; do
             cmp "domain/src/domain/$f" "site/src/domain/$f"
             cmp "domain/src/domain/$f" "site/t2-site-module/uslugovod/$f"
           done
           cmp domain/src/data/documented-service-fields.ts site/src/data/documented-service-fields.ts
-          node --experimental-strip-types --test domain/tests/documented-service-criteria.test.mjs domain/tests/documented-case-replay.test.mjs domain/tests/order-stage-draft.test.mjs domain/tests/proposal-answer-state.test.mjs domain/tests/current-lifecycle-coverage.test.mjs domain/tests/universal-stage-continuity.test.mjs > "$RUNNER_TEMP/documented-criteria.log" 2>&1 || { echo D07_DOCUMENTED_DOMAIN_TESTS=FAIL; grep -E '^not ok|^# (tests|pass|fail)' "$RUNNER_TEMP/documented-criteria.log" | cut -c1-180; exit 1; }
+          node --experimental-strip-types --test domain/tests/documented-service-criteria.test.mjs domain/tests/documented-case-replay.test.mjs domain/tests/order-stage-draft.test.mjs domain/tests/order-stage-replacement.test.mjs domain/tests/proposal-answer-state.test.mjs domain/tests/current-lifecycle-coverage.test.mjs domain/tests/universal-stage-continuity.test.mjs > "$RUNNER_TEMP/documented-criteria.log" 2>&1 || { echo D07_DOCUMENTED_DOMAIN_TESTS=FAIL; grep -E '^not ok|^# (tests|pass|fail)' "$RUNNER_TEMP/documented-criteria.log" | cut -c1-180; exit 1; }
           echo D07_DOCUMENTED_DOMAIN_TESTS=PASS
           grep -E '^# (tests|pass|fail)' "$RUNNER_TEMP/documented-criteria.log"
           cmp domain/src/data/serviceDirectory.ts site/src/data/serviceDirectory.ts
@@ -136,7 +138,7 @@ jobs:
             fi
             grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$log" || true
           }
-          qualify ACCEPTANCE_SOURCE node --import tsx --test scripts/tests/d07-brief-select-presentation.test.mjs scripts/tests/d07-brief-select-render.test.mjs scripts/tests/d07-acceptance-case-inputs.test.mjs scripts/tests/d07-acceptance-case-plan.test.mjs scripts/tests/d07-documented-service-criteria-pure.test.mjs scripts/tests/d07-documented-service-criteria.test.mjs scripts/tests/d07-documented-case-replay-pure.test.mjs scripts/tests/d07-current-documented-case-replay.test.mjs scripts/tests/d07-order-stage-draft.test.mjs scripts/tests/d07-order-stage-draft-integration.test.mjs
+          qualify ACCEPTANCE_SOURCE node --import tsx --test scripts/tests/d07-brief-select-presentation.test.mjs scripts/tests/d07-brief-select-render.test.mjs scripts/tests/d07-acceptance-case-inputs.test.mjs scripts/tests/d07-acceptance-case-plan.test.mjs scripts/tests/d07-documented-service-criteria-pure.test.mjs scripts/tests/d07-documented-service-criteria.test.mjs scripts/tests/d07-documented-case-replay-pure.test.mjs scripts/tests/d07-current-documented-case-replay.test.mjs
           qualify STAGE_CONTINUITY npm run test:t3-stage-continuity
           qualify ORIGINAL_REGRESSION npm run test:product-first
           qualify RESTORED_PROFESSIONAL_WX node --import tsx --test scripts/tests/d07-next500-five-w-professional.test.mjs scripts/tests/d07-next500-five-x-professional.test.mjs
@@ -159,13 +161,14 @@ jobs:
           node --check scripts/assemble-d07-t3-dist.mjs
           node --check scripts/t3-platform-inputs.mjs
           node --check scripts/build-d07-t3-local-site.mjs
+          node --check scripts/lib/d07-local-build-environment.mjs
           node --check scripts/prepare-d07-local-kernel-input.mjs
           node --check scripts/retain-d07-t3-inputs.mjs
           node --check scripts/build-d07-integrated-site.mjs
           node --check scripts/build-d07-clean.mjs
           node --check scripts/audit-d07-t3-context.mjs
           npm run t3:test-local > "$RUNNER_TEMP/local-tests.log" 2>&1 || { echo D07_T3_LOCAL_TESTS=FAIL; grep -E '^# (tests|pass|fail) ' "$RUNNER_TEMP/local-tests.log"; exit 1; }
-          node --test scripts/tests/d07-t3-preview.test.mjs scripts/tests/d07-retained-byte-attributes.test.mjs scripts/tests/d07-retained-index.test.mjs scripts/tests/d07-private-release.test.mjs > "$RUNNER_TEMP/preview-tests.log" 2>&1 || {
+          node --test scripts/tests/d07-local-build-environment.test.mjs scripts/tests/d07-t3-preview.test.mjs scripts/tests/d07-retained-byte-attributes.test.mjs scripts/tests/d07-retained-index.test.mjs scripts/tests/d07-private-release.test.mjs > "$RUNNER_TEMP/preview-tests.log" 2>&1 || {
             echo D07_T3_PREVIEW_TESTS=FAIL
             grep -E '^# (tests|pass|fail) [0-9]+$|^not ok [0-9]+ ' "$RUNNER_TEMP/preview-tests.log" | cut -c1-160 | head -20
             exit 1
@@ -194,7 +197,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 28a2bac1c856a45b8bc7d23a18913db0c2e817f1
+          ref: d9e1efbced10cf68b2bae5f4e88d5a60e568f0bc
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -301,9 +304,15 @@ jobs:
             exit 1
           }
           echo D07_T3_LOCAL_INPUTS=PASS
-      - name: Two ordinary builds with no original checkouts, no Git/npm and no external network
+      - name: Two final-configuration builds, direct and npm entrypoint, without external network or source checkouts
         working-directory: site
         run: |
+          set -euo pipefail
+          # Both builds use the exact package manifest that would be published.
+          # Only scripts.build is excluded from the retained Host input receipt.
+          trap 'git restore --worktree -- package.json' EXIT
+          node --input-type=module -e 'import {readFileSync,writeFileSync} from "node:fs";const p="package.json",m=JSON.parse(readFileSync(p,"utf8"));if(m.scripts.build!=="node scripts/build-d07-integrated-site.mjs"||m.scripts["t3:build"]!=="node --import tsx scripts/build-d07-t3-local-site.mjs")process.exit(1);m.scripts.build=m.scripts["t3:build"];writeFileSync(p,JSON.stringify(m,null,2)+"\n")'
+          cp package.json "$RUNNER_TEMP/d07-qualified-package.json"
           # Keep only the authenticated private validator for the separate post-build audit.
           validator="$RUNNER_TEMP/validator/browser-local-inference/domain-assistant"
           mkdir -p "$validator"
@@ -317,16 +326,24 @@ jobs:
             chmod +x "$guard/$name"
           done
           nodebin="$(command -v node)"
+          npmcli="$(readlink -f "$(command -v npm)")"
+          test -f "$npmcli"
           # Keep loopback for the existing local TanStack prerender server.
           # Run the product builder as the ordinary runner user, not root.
           isolated() {
             sudo unshare --net -- bash -c 'ip link set lo up && exec setpriv --reuid "$1" --regid "$2" --init-groups env PATH="$3" "$4" --import tsx scripts/build-d07-t3-local-site.mjs "${@:5}"' -- "$(id -u)" "$(id -g)" "$guard:$PATH" "$nodebin" "$@"
           }
+          isolated_npm() {
+            # npm dispatches once. The child builder normalizes npm metadata and PATH.
+            sudo unshare --net -- bash -c 'ip link set lo up && exec setpriv --reuid "$1" --regid "$2" --init-groups env PATH="$3" "$4" "$5" run build' -- "$(id -u)" "$(id -g)" "$guard:$PATH" "$nodebin" "$npmcli"
+          }
           manifest() {
             (cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum)
           }
           for pass in 1 2; do
-            isolated > "$RUNNER_TEMP/d07-local-$pass.log" 2>&1 || {
+            builder=isolated
+            if test "$pass" = 2; then builder=isolated_npm; fi
+            "$builder" > "$RUNNER_TEMP/d07-local-$pass.log" 2>&1 || {
               echo D07_T3_LOCAL_REBUILD=FAIL
               grep -E '^D07_PUBLIC_BUILD_STEP_(START|PASS|FAIL)=(generate:sitemap|generate:prerender-routes|quality:gate:pre|build:app|flatten:dist|prerender|quality:gate:post)(:[A-Z_0-9]+(:SIGNAL_[A-Z_0-9]+)?|:[0-9]+s)?$|^D07_PUBLIC_BUILD_GATE_CRITICAL=[a-z0-9-]+:[0-9]+$|^D07_PUBLIC_BUILD_GATE_REPORT=(CRITICAL|NO_CRITICAL_CODES|UNAVAILABLE)$|^D07_FORBIDDEN_ORDINARY_BUILD_TOOL$' "$RUNNER_TEMP/d07-local-$pass.log" | tail -20 || true
               grep -oE '^Error: D07_[A-Z0-9_]+' "$RUNNER_TEMP/d07-local-$pass.log" | tail -10 || true
@@ -339,12 +356,16 @@ jobs:
           done
           if ! cmp -s "$RUNNER_TEMP/d07-local-1.sha" "$RUNNER_TEMP/d07-local-2.sha"; then
             echo D07_T3_LOCAL_BYTE_REPRODUCIBILITY=FAIL
+            echo D07_T3_ORDINARY_COMMAND_BYTE_PARITY=FAIL
             node scripts/diagnose-d07-reproducibility.mjs "$RUNNER_TEMP/d07-repro-first-dist" "$PWD/dist" > "$RUNNER_TEMP/d07-repro-shape.log" 2>&1 || true
             grep '^D07_REPRO_DIAGNOSIS=' "$RUNNER_TEMP/d07-repro-shape.log" || true
             exit 1
           fi
           rm -rf "$RUNNER_TEMP/d07-repro-first-dist"
+          cmp -s package.json "$RUNNER_TEMP/d07-qualified-package.json"
           echo D07_T3_LOCAL_BYTE_REPRODUCIBILITY=PASS
+          echo D07_T3_ORDINARY_COMMAND_BYTE_PARITY=PASS
+          echo D07_T3_RELEASE_COMMAND_VERIFIED=PASS
           # Final rendered forms are audited against the exact validator, after the isolated build.
           node --import tsx scripts/audit-d07-t3-context.mjs "$PWD/dist" "$RUNNER_TEMP/validator" > "$RUNNER_TEMP/context-local.log" 2>&1 || {
             echo D07_T3_RENDERED_CONTEXT=FAIL
@@ -377,7 +398,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "28a2bac1c856a45b8bc7d23a18913db0c2e817f1"
+          test "$(git rev-parse HEAD)" = "d9e1efbced10cf68b2bae5f4e88d5a60e568f0bc"
           test -z "$(git status --porcelain --untracked-files=no)"
           local="runtime/t3-platform/0.3.1-rc.1"
           node --import tsx --input-type=module -e 'import {verifyPreparedD07Host} from "./scripts/prepare-d07-t3-host.mjs";import {verifyPreparedKernelSupport} from "./scripts/prepare-d07-local-kernel-input.mjs";import {verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";const root=process.argv[1];verifyPreparedD07Host(root+"/d07-host");verifyPreparedKernelSupport(root+"/kernel-support");verifyPlatformArchive(root+"/platform-inputs.zip")' "$local" > "$RUNNER_TEMP/d07-retain-recheck.log" 2>&1 || {
@@ -397,32 +418,6 @@ jobs:
             exit 1
           }
           grep -E '^D07_T3_RETAIN_INDEX=PASS \{' "$RUNNER_TEMP/d07-retain-index.log"
-      - name: Qualify ordinary release command switch before publication
-        working-directory: site
-        run: |
-          set -euo pipefail
-          # Only the release command is excluded from the exact Host receipt.
-          # Exercise the actual npm entrypoint in this disposable checkout.
-          # The enclosing npm CLI dispatches once; no Git/npm/npx/bun is
-          # available to the build itself and no external network is allowed.
-          trap 'git restore --worktree -- package.json' EXIT
-          node --input-type=module -e 'import {readFileSync,writeFileSync} from "node:fs";const p="package.json",m=JSON.parse(readFileSync(p,"utf8"));if(m.scripts.build!=="node scripts/build-d07-integrated-site.mjs"||m.scripts["t3:build"]!=="node --import tsx scripts/build-d07-t3-local-site.mjs")process.exit(1);m.scripts.build=m.scripts["t3:build"];writeFileSync(p,JSON.stringify(m,null,2)+"\n")'
-          nodebin="$(command -v node)"
-          npmcli="$(readlink -f "$(command -v npm)")"
-          test -f "$npmcli"
-          guard="$RUNNER_TEMP/d07-no-build-tools"
-          sudo unshare --net -- bash -c 'ip link set lo up && exec setpriv --reuid "$1" --regid "$2" --init-groups env PATH="$3" "$4" "$5" run build' -- "$(id -u)" "$(id -g)" "$guard:$PATH" "$nodebin" "$npmcli" > "$RUNNER_TEMP/d07-ordinary-command.log" 2>&1 || {
-            echo D07_T3_ORDINARY_COMMAND=FAIL
-            grep -oE 'D07_(T3|STATIC|PUBLIC|FORBIDDEN)_[A-Z0-9_]+' "$RUNNER_TEMP/d07-ordinary-command.log" | sort -u | head -20 || true
-            exit 1
-          }
-          (cd dist && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$RUNNER_TEMP/d07-ordinary-command.sha"
-          cmp -s "$RUNNER_TEMP/d07-local-2.sha" "$RUNNER_TEMP/d07-ordinary-command.sha" || {
-            echo D07_T3_ORDINARY_COMMAND_BYTE_PARITY=FAIL
-            exit 1
-          }
-          echo D07_T3_ORDINARY_COMMAND_BYTE_PARITY=PASS
-          echo D07_T3_RELEASE_COMMAND_VERIFIED=PASS
       - name: Bind the full deployment tree to the eleven-direction acceptance plan
         id: case-plan
         working-directory: site
@@ -443,12 +438,13 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "28a2bac1c856a45b8bc7d23a18913db0c2e817f1"
+          test "$(git rev-parse HEAD)" = "d9e1efbced10cf68b2bae5f4e88d5a60e568f0bc"
           test -z "$(git diff --name-only)"
           node scripts/verify-d07-retained-index.mjs
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: retain qualified local T3 platform inputs [skip ci] [skip actions]'
           echo "D07_T3_RETAINED_INPUT_PARENT=$(git rev-parse HEAD)"
-          node --input-type=module -e 'import {readFileSync,writeFileSync} from "node:fs";const p="package.json",m=JSON.parse(readFileSync(p,"utf8"));if(m.scripts.build!=="node scripts/build-d07-integrated-site.mjs"||m.scripts["t3:build"]!=="node --import tsx scripts/build-d07-t3-local-site.mjs")process.exit(1);m.scripts.build=m.scripts["t3:build"];writeFileSync(p,JSON.stringify(m,null,2)+"\n")'
+          cp "$RUNNER_TEMP/d07-qualified-package.json" package.json
+          cmp -s package.json "$RUNNER_TEMP/d07-qualified-package.json"
           git add -- package.json
           test "$(git diff --cached --name-only)" = package.json
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: activate qualified self-contained T3 build in work branch [skip ci] [skip actions]'
@@ -461,7 +457,7 @@ jobs:
           GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           candidate="$(git rev-parse HEAD)"
-          bash ../pipeline/scripts/d07-private-git-transport.sh publish 28a2bac1c856a45b8bc7d23a18913db0c2e817f1 "$candidate"
+          bash ../pipeline/scripts/d07-private-git-transport.sh publish d9e1efbced10cf68b2bae5f4e88d5a60e568f0bc "$candidate"
           echo "retained_commit=$candidate" >> "$GITHUB_OUTPUT"
           echo "dist_sha256=$(sha256sum "$RUNNER_TEMP/d07-local-2.sha" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - name: Preserve qualification outcome without unauthorized publication
