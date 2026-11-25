@@ -3,6 +3,7 @@
 import {ActivityHold} from './engine.mjs';
 import {layoutObservedGraph} from './graph-order.mjs';
 import {D05_SOURCE_PIN} from './d05-t3-evidence-binding.mjs';
+import {D05_RECORDED_TYPES,projectD05RecordedExecution} from './d05-recorded-execution.mjs';
 
 const DOMAIN=D05_SOURCE_PIN.domain;
 const ROUTE=DOMAIN+'.operation-route';
@@ -300,7 +301,7 @@ function inspectPlan(route,plans,templates,routeIds){
  * provide a consistent selected Workspace snapshot. This pure function
  * neither authenticates the source nor performs a Kernel read.
  */
-export function reviewD05RouteModelsWithQuality(records,planDetails,templateRecords,{includeTechnologyDraft=false}={}){
+export function reviewD05RouteModelsWithQuality(records,planDetails,templateRecords,{includeTechnologyDraft=false,recordedDetails=null}={}){
   require(typeof includeTechnologyDraft==='boolean','D05_ROUTE_DRAFT_OPTION_INVALID');
   const result=reviewD05RouteModels(records);
   const ws=records[0]?.workspace_id;
@@ -337,7 +338,12 @@ export function reviewD05RouteModelsWithQuality(records,planDetails,templateReco
     groups,quality_validation:'NOT_PERFORMED_BY_ACTIVITY',
     revision_alignment:'CURRENT_SNAPSHOT_NOT_APPROVED_TECHNOLOGY',
     execution_evidence:'NOT_ESTABLISHED'}};
-  return includeTechnologyDraft?attachTechnologyDraft(output,records,entries,reviewed):output;
+  const resultWithDraft=includeTechnologyDraft?attachTechnologyDraft(output,records,entries,reviewed):output;
+  if(recordedDetails!==null){
+    require(includeTechnologyDraft,'D05_RECORDED_SELECTION_REQUIRES_TECHNOLOGY');
+    return {...resultWithDraft,recorded_execution_review:projectD05RecordedExecution(entries,plans,templates,recordedDetails,ws)};
+  }
+  return resultWithDraft;
 }
 
 
@@ -347,8 +353,8 @@ export function reviewD05RouteModelsWithQuality(records,planDetails,templateReco
 export function reviewD05ResultSelection(records,options={}){
   if(!Array.isArray(records)||!records.some(r=>obj(r)&&Object.hasOwn(r,'object')))
     return reviewD05RouteModels(records,options);
-  require(records.length>0&&records.length<=24,'D05_ROUTE_SELECTION_LIMIT');
-  const routes=[],plans=[],templates=[];
+  require(records.length>0&&records.length<=256,'D05_ROUTE_SELECTION_LIMIT');
+  const routes=[],plans=[],templates=[],recorded=[];
   for(const item of records){
     require(obj(item)&&obj(item.object)&&obj(item.relations)&&
       Array.isArray(item.relations.outgoing)&&Array.isArray(item.relations.incoming),
@@ -357,10 +363,12 @@ export function reviewD05ResultSelection(records,options={}){
       case ROUTE:routes.push(item.object);break;
       case DOMAIN+'.quality-plan':plans.push(item);break;
       case DOMAIN+'.quality-check-template':templates.push(item.object);break;
-      default:throw new ActivityHold('D05_ROUTE_QUALITY_RESULT_INVALID');
+      default:if(D05_RECORDED_TYPES.some(t=>item.object.schema_id===DOMAIN+'.'+t))recorded.push(item);
+        else throw new ActivityHold('D05_ROUTE_QUALITY_RESULT_INVALID');
     }
   }
-  return reviewD05RouteModelsWithQuality(routes,plans,templates,options);
+  require(records.length<=24||recorded.length>0,'D05_ROUTE_SELECTION_LIMIT');
+  return reviewD05RouteModelsWithQuality(routes,plans,templates,{...options,...(recorded.length?{recordedDetails:recorded}:{})});
 }
 
 // Modelled example of existing Result shapes, not production evidence.

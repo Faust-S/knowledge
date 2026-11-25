@@ -5,8 +5,16 @@ export type D05RouteGroup={
  parallel:boolean;milestone:boolean;predecessors:string[]}>;
  dependency_count:number;differing_fields:string[];incomplete_fields:string[];
 };
+export type D05RecordedExecutionReview={status:'LOCAL_D05_RECORDED_EXECUTION_REVIEW';
+ profiles:Array<{model_number:number;reports:Array<{report_number:number;source_refs:Array<{object_id:string;revision:number;schema_id:string}>;
+ operations:Array<{operation_id:string;status:string;duration_minutes:number|null;labor_minutes:number|null;quantity_output:number|null;
+ quantity_accepted:number|null;quantity_rejected:number|null;accepted_with_deviation:boolean|null;previous_cycle_count:number|null;result_note:string|null;pause_reason:string|null}>;
+ actuals:Array<Record<string,unknown>>;quality:Array<Record<string,unknown>>;defects:Array<Record<string,unknown>>;
+ semantics:'RECORDED_REPORTS_NOT_VERIFIED_FINAL_ACCEPTANCE'}>;issues:string[]}>;
+ report_count:number;source_record_count:number;unused_record_count:number;
+ epistemic_status:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED';domain_completion_validation:'NOT_PERFORMED_BY_ACTIVITY';export_allowed:false;iwxa_package:null};
 export type D05RouteReview={
- technology_draft?:D05TechnologyDraft;
+ technology_draft?:D05TechnologyDraft;recorded_execution_review?:D05RecordedExecutionReview;
  status:'LOCAL_MODEL_COMPARISON';model_count:number;group_count:number;repeated_group_count:number;
  groups:D05RouteGroup[];epistemic_status:'CALCULATED_OR_DECLARED_NOT_OBSERVED';
  source_authority:'UNVERIFIED_LOCAL_COPY';technology_equivalence:'NOT_ESTABLISHED';
@@ -36,7 +44,7 @@ export function buildD05RouteQualityComparisonExample(workspaceId?:string):Array
  object:Record<string,unknown>;relations:{incoming:unknown[];outgoing:Record<string,unknown>[]};
 }>;
 
-export type D05DraftOptions={includeTechnologyDraft?:boolean};
+export type D05DraftOptions={includeTechnologyDraft?:boolean;recordedDetails?:unknown};
 export type D05DraftValue=string|boolean|number[]|null;
 export type D05DraftUse='DECLARED_SOURCE_CONDITION'|'ADAPTATION_REVIEW'|'FUNCTIONAL_MAPPING_REQUIRED';
 export type D05DraftCondition={key:string;scope:string;field:string;use:D05DraftUse;value:D05DraftValue};

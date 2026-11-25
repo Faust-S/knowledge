@@ -32,8 +32,8 @@ const canonical=v=>Array.isArray(v)?v.map(canonical):v!==null&&typeof v==='objec
  Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
 const serial=v=>JSON.stringify(canonical(v));
 const fieldId=(scope,field)=>scope+'.'+field;
-export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{includeCompatibleDeclarations=false}={}){
- need(typeof includeCompatibleDeclarations==='boolean','TECHNOLOGY_D05_EXTRACTION_SCOPE_INVALID');
+export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{includeCompatibleDeclarations=false,includeRecordedReports=true}={}){
+ need(typeof includeCompatibleDeclarations==='boolean'&&typeof includeRecordedReports==='boolean','TECHNOLOGY_D05_EXTRACTION_SCOPE_INVALID');
  const initial=prepareD05TechnologyProposal(review,groupId,modelNumber,{});
  const group=review.groups.find(g=>g.id===groupId);
  const draft=review.technology_draft.groups.find(g=>g.group_id===groupId);
@@ -44,11 +44,12 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
  // Explicit pilot limit. Larger routes need separately qualified extraction
  // by slices, not silent truncation or partial control removal.
  need(group.operations.length<=32&&profile.checks.length<=64,'TECHNOLOGY_D05_EXTRACTION_SELECTION_LIMIT');
- let compatible=null;
+ let compatible=null,experienceNumbers=[modelNumber];
  if(includeCompatibleDeclarations){
   const recurring=await reviewD05RecurringTechnologies(review,groupId);
   const family=recurring.families.find(f=>f.model_numbers.includes(modelNumber));
   if(family?.member_count>1){
+   experienceNumbers=family.model_numbers;
    // The family contains exact original declaration bundles. Only summary
    // statistics for recipient planning are projected into the model input.
    compatible={source_sha256:family.source_sha256,member_count:family.member_count,
@@ -58,10 +59,13 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
     meaning:'REPEATED_DECLARATIONS_NOT_EXECUTION_OR_TECHNICAL_RANGE'};
   }
  }
+ const recorded=includeRecordedReports&&review.recorded_execution_review?.status==='LOCAL_D05_RECORDED_EXECUTION_REVIEW'?
+  review.recorded_execution_review.profiles.filter(p=>experienceNumbers.includes(p.model_number)&&p.reports.length):[];
+ const recordedCount=recorded.reduce((n,p)=>n+p.reports.length,0);
  const source={group:{basis:group.basis,operations:group.operations,model_count:group.model_count},
   profile,shared_condition_keys:draft.shared_condition_keys,differing_condition_keys:draft.differing_condition_keys,
   unresolved_condition_keys:draft.unresolved_condition_keys,shared_check_count:draft.shared_check_count,
-  ...(compatible?{compatible_declarations:compatible}:{})};
+  ...(compatible?{compatible_declarations:compatible}:{}),...(recordedCount?{recorded_reports:recorded}:{})};
  const source_sha256=await sha256Canonical(source);
  const evidence=[],fields=[];
  const add=(scope,field,value,kind='DECLARED')=>{
@@ -73,6 +77,18 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
  const field=(scope,k)=>fields.push({id:fieldId(scope,k),scope,field:k,instruction:HINTS[k]});
  for(const k of ['title',...TERMS])field('technology',k);
  if(compatible)add('technology','compatible_declarations',compatible);
+ if(recordedCount){
+  add('technology','recorded_report_scope',{report_count:recordedCount,meaning:'SOURCE_REPORTED_NOT_INDEPENDENTLY_OBSERVED',
+   instruction:'Use recorded results to identify possible practical lessons; never treat actual durations or measurements as changed normative limits, final acceptance, or independent repetitions.'});
+  let reportNumber=0;
+  for(const p of recorded)for(const report of p.reports){
+   reportNumber++;
+   for(const op of report.operations)add(op.operation_id,'recorded_operation_report',{report_number:reportNumber,...op});
+   for(const row of report.actuals)add('technology','recorded_actuals_report',{report_number:reportNumber,...row});
+   for(const row of report.quality)add('technology','recorded_quality_report',{report_number:reportNumber,...row});
+   for(const row of report.defects)add('technology','recorded_defect_report',{report_number:reportNumber,...row});
+  }
+ }
  for(const c of profile.conditions)add(c.scope,c.field,c.value);
  for(const op of group.operations){
   for(const k of OP)field(op.id,k);
@@ -89,7 +105,7 @@ export async function prepareD05ExtractionRequest(review,groupId,modelNumber,{in
  const document={profile:REQUEST,source_sha256,source_semantics:'DECLARED_CONDITIONS_NOT_EXECUTION',
   comparison:{model_count:group.model_count,shared_condition_keys:draft.shared_condition_keys,
    differing_condition_keys:draft.differing_condition_keys,unresolved_condition_keys:draft.unresolved_condition_keys,
-   ...(compatible?{compatible_declarations:compatible}:{})},
+   ...(compatible?{compatible_declarations:compatible}:{}),...(recordedCount?{recorded_report_count:recordedCount}:{})},
   fields,evidence,quality_links:profile.checks.map(c=>({scope:c.id,operation:c.operation_id}))};
  const document_text=serial(document);
  need(new TextEncoder().encode(document_text).byteLength<=42000,'TECHNOLOGY_D05_EXTRACTION_MODEL_INPUT_LIMIT');
