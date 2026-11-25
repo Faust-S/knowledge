@@ -33,11 +33,20 @@ fi
 [[ -n "${GH_TOKEN:-}" ]] || fail EXISTING_TOKEN_MISSING
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-# Use gh's official credential helper rather than the runner's default
-# GITHUB_TOKEN or a cached HTTP extraheader from a different checkout.
+# Authenticate to the exact authorized private HTTPS repository with DOMEN.
+# Clear inherited host AND repository-specific headers; a host-only reset
+# does not necessarily discard a more specific cached authorization header.
+# The derived Basic header is passed only in the child process environment.
+# Never print credentials, enable tracing, follow redirects or retry denial.
 git_private() {
-  git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
-    -c http.extraheader= -c http.https://github.com/.extraheader= "$@"
+  local auth
+  auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\r\n')" || return 1
+  D06_GIT_AUTHORIZATION="Authorization: Basic $auth" GIT_ASKPASS=/bin/false \
+    git -c credential.helper= -c credential.interactive=false -c core.askPass=/bin/false \
+      -c http.extraheader= -c http.https://github.com/.extraheader= \
+      -c "http.$url.extraheader=" \
+      --config-env="http.$url.extraheader=D06_GIT_AUTHORIZATION" \
+      -c http.followRedirects=false -c http.sslVerify=true "$@"
 }
 if ! gh api "repos/$repo" --jq '[.private, (if .permissions.push == null then "unknown" else .permissions.push end)] | @tsv' > "$tmp/repo" 2> "$tmp/api"; then
   fail "API_$(classify "$tmp/api")"
