@@ -211,3 +211,34 @@ test('K124 native signed relay carries exact original Object history scope and r
    await assert.rejects(ctx.kernel.listEventObjectCommitWindow(WS,object,null,1),{code:'T3_ORIGINAL_NETWORK_RELAY_AUTHORITY_DENIED'});
  }finally{relay.close();local.closeOriginalVault();}
 });
+
+test('K130 original native signed relay carries one catalog query and refuses a foreign receipt',async()=>{
+ const op='t1.listObjectWindow',read='t1.listObjects',digestInputs=[];
+ const local=createTemporaryOriginalPersonalAuthority({workspaceId:TECH,operations:[op,read],clock:Date.now});
+ const query={workspace_id:TECH,include_deleted:true,after_object_id:'obj:0',limit:1};
+ let ctx;
+ const relay=createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,networkOwner:{
+   operations:[op,read],onAttach:p=>{ctx=p;return true;},onDetach:()=>{},
+   resolveOriginalAccess:p=>p.args[0]?.workspace_id===TECH?{...local.access,operationDigest:input=>{
+     digestInputs.push(structuredClone(input));return local.access.operationDigest(input);}}:null}});
+ const exchange=(verb,payload)=>relay.exchange({verb,payload},1);
+ try{
+   const s=await exchange('attach',{sessionInfo:{...info,granted_operations:[...info.granted_operations,op,read]},networkRelayVersion:1});
+   assert.ok(s.networkMethods.includes('listObjectWindow'));assert.equal(ctx.kernel.hasOperation(op),true);
+   const task=ctx.kernel.listObjectWindow(query),cmd=await exchange('next',{sessionId:s.sessionId});
+   assert.equal(cmd.method,'listObjectWindow');assert.deepEqual(cmd.args,[query]);assert.deepEqual(digestInputs[0].input,query);
+   const page={entries:[{workspace_id:WS,object_id:'obj:1',schema_id:'demo.allowed'}],
+     next_after_object_id:'obj:1',has_more:false,order:'WORKSPACE_OBJECT_ID_ASC'};
+   const denied=assert.rejects(task,{code:'T3_KERNEL_LIST_SCOPE_MISMATCH'});
+   await exchange('result',{sessionId:s.sessionId,id:cmd.id,ok:true,result:page});await denied;
+   await assert.rejects(ctx.kernel.listObjectWindow({...query,workspace_id:WS}),{code:'T3_ORIGINAL_NETWORK_RELAY_AUTHORITY_DENIED'});
+ }finally{relay.close();local.closeOriginalVault();}
+});
+test('K130 original catalog relay requires signed owner and original listObjects permission',()=>{
+ const op='t1.listObjectWindow',read='t1.listObjects';
+ for(const owner of [{operations:[op,read],authorizeOperation:()=>true},{operations:[op],resolveOriginalAccess:()=>null}]){
+   assert.throws(()=>createOriginalKernelNativeRelay({currentEpoch:()=>1,onAttach:()=>true,
+     networkOwner:{...owner,onAttach:()=>true,onDetach:()=>{}}}),
+     {code:'T3_ORIGINAL_NETWORK_RELAY_OBJECT_WINDOW_OWNER_REQUIRED'});
+ }
+});

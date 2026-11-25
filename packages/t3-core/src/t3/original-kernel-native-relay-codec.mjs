@@ -1,7 +1,7 @@
 // The existing authenticated original Kernel relay uses JSON. Only actual
 // Asset bytes require a representation change, not a new network protocol.
 export const ORIGINAL_NETWORK_RELAY_METHODS=Object.freeze({
-  getWorkspace:"t1.getWorkspace",getObject:"t1.getObject",listObjects:"t1.listObjects",
+  getWorkspace:"t1.getWorkspace",getObject:"t1.getObject",listObjects:"t1.listObjects",listObjectWindow:"t1.listObjectWindow",
   listEventsSince:"t1.listEventsSince",listEventCommitWindow:"t1.listEventCommitWindow",
   listEventObjectCommitWindow:"t1.listEventObjectCommitWindow",putObject:"t1.putObject",
   commitObjectGraph:"t1.commitObjectGraph",deleteObject:"t1.deleteObject",

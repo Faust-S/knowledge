@@ -6,6 +6,7 @@ const OPERATIONS = Object.freeze({
   getWorkspace: "t1.getWorkspace",
   getObject: "t1.getObject",
   listObjects: "t1.listObjects",
+  listObjectWindow: "t1.listObjectWindow",
   putObject: "t1.putObject",
   deleteObject: "t1.deleteObject",
   putRelation: "t1.putRelation",
@@ -157,6 +158,15 @@ export function createSubjectKernelBinding({
     // Freeze the caller's command BEFORE any asynchronous native-owner call.
     // Otherwise a pending currentContext() could permit a mutated object.
     const command = snapshotCommand(input);
+    if (method === "listObjectWindow") {
+      if (!command || typeof command !== "object" || Array.isArray(command) ||
+          Object.keys(command).some(k=>!["workspace_id","schema_id","include_deleted","after_object_id","limit"].includes(k)) ||
+          (command.schema_id !== undefined && !id(command.schema_id)) ||
+          (command.include_deleted !== undefined && typeof command.include_deleted !== "boolean") ||
+          (command.after_object_id != null && !id(command.after_object_id)) ||
+          (command.limit !== undefined && (!Number.isSafeInteger(command.limit) || command.limit < 1 || command.limit > 1024)))
+        refused("T3_SUBJECT_OBJECT_WINDOW_QUERY_INVALID");
+    }
     const context = await selected(access);
     // The caller cannot override a Host-selected PERSONAL/CORP context.
     if (context.workspace_id !== workspace_id) refused("T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE");
@@ -231,6 +241,8 @@ export function createSubjectKernelBinding({
     const operation = OPERATIONS[method];
     if (["listEventCommitWindow","listEventObjectCommitWindow"].includes(method) && !kernel.hasOperation("t1.listEventsSince"))
       refused("T3_KERNEL_OPERATION_NOT_GRANTED");
+    if (method === "listObjectWindow" && !kernel.hasOperation("t1.listObjects"))
+      refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (typeof kernel[method] !== "function") refused("T3_KERNEL_OPERATION_UNAVAILABLE");
     const action = await access.actionFor(operation);
@@ -303,6 +315,8 @@ export function createSubjectKernelBinding({
     requireActive();
     if (["listEventCommitWindow","listEventObjectCommitWindow"].includes(method) && !kernel.hasOperation("t1.listEventsSince"))
       refused("T3_KERNEL_OPERATION_NOT_GRANTED");
+    if (method === "listObjectWindow" && !kernel.hasOperation("t1.listObjects"))
+      refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (!kernel.hasOperation(operation)) refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     if (method === "commitObjectGraph" && commitObjectGraphPrecondition !== null) {
       // The original recipient's ledger and independent human APPLY are
@@ -358,6 +372,27 @@ export function createSubjectKernelBinding({
         scoped(record,method === "listEventsSince"
           ? "T3_KERNEL_EVENT_SCOPE_MISMATCH" : "T3_KERNEL_LIST_SCOPE_MISMATCH");
       }
+    }
+    if (method === "listObjectWindow") {
+      const fields=["entries","next_after_object_id","has_more","order"], limit=command.limit??128;
+      if (!result || typeof result !== "object" || Array.isArray(result) ||
+          Object.keys(result).length !== fields.length || !fields.every(k=>Object.hasOwn(result,k)) ||
+          result.order !== "WORKSPACE_OBJECT_ID_ASC" || typeof result.has_more !== "boolean" ||
+          !Array.isArray(result.entries) || result.entries.length > limit ||
+          (result.has_more && result.entries.length !== limit))
+        refused("T3_KERNEL_OBJECT_WINDOW_INVALID");
+      let last=command.after_object_id??null;
+      for (const row of result.entries) {
+        scoped(row,"T3_KERNEL_LIST_SCOPE_MISMATCH");
+        if (!id(row.object_id) || !id(row.schema_id) || (last !== null && row.object_id <= last) ||
+            (command.schema_id !== undefined && row.schema_id !== command.schema_id) ||
+            (command.include_deleted !== true && row.deleted === true))
+          refused("T3_KERNEL_OBJECT_WINDOW_INVALID");
+        last=row.object_id;
+      }
+      if (result.next_after_object_id !== last) refused("T3_KERNEL_OBJECT_WINDOW_INVALID");
+      if (!kernel.hasOperation("t1.listObjects") || !kernel.hasOperation(operation))
+        refused("T3_KERNEL_OPERATION_NOT_GRANTED");
     }
     if (["listEventCommitWindow","listEventObjectCommitWindow"].includes(method)) {
       const keys = (v,names) => v && typeof v === "object" && !Array.isArray(v) &&
@@ -612,6 +647,7 @@ export function createSubjectKernelBinding({
     getObject: (workspace_id, object_id) =>
       invoke("getObject",{workspace_id,object_id:requiredId(object_id,"OBJECT_ID")},workspace_id),
     listObjects: query => invoke("listObjects",query,query?.workspace_id),
+    listObjectWindow: query => invoke("listObjectWindow",query,query?.workspace_id),
     putObject: input => invoke("putObject",input,input?.workspace_id),
     deleteObject: input => invoke("deleteObject",input,input?.workspace_id),
     putRelation: input => invoke("putRelation",input,input?.workspace_id),

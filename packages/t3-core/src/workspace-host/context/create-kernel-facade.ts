@@ -13,7 +13,7 @@
 
 import type { KernelFacade } from "@/workspace-contract";
 import type { OperationId } from "@/kernel-client";
-import type { KernelSession } from "@/kernel-client/types";
+import type { KernelSession, OriginalObjectWindowQuery } from "@/kernel-client/types";
 import { adapter } from "@/kernel-client/adapter";
 import { createSubjectKernelBinding } from "@/t3/index.mjs";
 import type { T3SignedActivityAccess } from "@/t3/index.mjs";
@@ -46,11 +46,16 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     session.granted_operations?.includes("t1.listEventObjectCommitWindow") === true &&
     typeof session.t1?.listEventsSince === "function" &&
     typeof session.t1?.listEventObjectCommitWindow === "function";
+  const objectWindowAvailable = session.contract_version === "1.3.0" &&
+    session.granted_operations?.includes("t1.listObjects") === true &&
+    session.granted_operations?.includes("t1.listObjectWindow") === true &&
+    typeof session.t1?.listObjects === "function" && typeof session.t1?.listObjectWindow === "function";
   const grantedOperations = Object.freeze(
     [...(session.granted_operations ?? [])].filter(op =>
       (op !== "t1.commitObjectGraph" || atomicAvailable) &&
       (op !== "t1.listEventCommitWindow" || commitWindowAvailable) &&
-      (op !== "t1.listEventObjectCommitWindow" || objectCommitWindowAvailable)),
+      (op !== "t1.listEventObjectCommitWindow" || objectCommitWindowAvailable) &&
+      (op !== "t1.listObjectWindow" || objectWindowAvailable)),
   ) as readonly OperationId[];
   const grantedLevels = Object.freeze(
     [...(session.granted_levels ?? [])],
@@ -66,6 +71,9 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     ...(objectCommitWindowAvailable ? {
       listEventObjectCommitWindow: async (ws: string, objectId: string, after: string | null, limit: number) =>
         adapter.listEventObjectCommitWindow(session,ws,objectId,after,limit),
+    } : {}),
+    ...(objectWindowAvailable ? {
+      listObjectWindow: async (query: OriginalObjectWindowQuery) => adapter.listObjectWindow(session,query),
     } : {}),
     hasOperation(op) {
       return grantedOpSet.has(op);
@@ -178,6 +186,7 @@ export function createKernelFacade(input: KernelFacadeInput): KernelFacade {
     ...(atomicAvailable ? ["commitObjectGraph"] : []),
     ...(commitWindowAvailable ? ["listEventCommitWindow"] : []),
     ...(objectCommitWindowAvailable ? ["listEventObjectCommitWindow"] : []),
+    ...(objectWindowAvailable ? ["listObjectWindow"] : []),
   ];
   const routeOriginalMutation = input.routeOriginalMutation;
   const mutationMethods = new Set(["createWorkspace","putObject","deleteObject","putRelation","deleteRelation",

@@ -19,7 +19,7 @@
  */
 
 import type { OperationId } from "../kernel-client";
-import type { OriginalEventCommitReader, OriginalEventObjectCommitReader } from "../kernel-client/types";
+import type { OriginalEventCommitReader, OriginalEventObjectCommitReader, OriginalObjectWindowReader } from "../kernel-client/types";
 import type {
   WorkspaceRecord,
   ObjectRecord,
@@ -77,10 +77,11 @@ export interface KernelFacade {
   /** Present only after contract + grant + method negotiation succeeds. */
   commitObjectGraph?: (input: CommitObjectGraphInput) => Promise<CommitObjectGraphReceipt>;
   /** Returns true when the operation is granted to the current session. */
-  hasOperation(op: OperationId | "t1.listEventCommitWindow" | "t1.listEventObjectCommitWindow"): boolean;
+  hasOperation(op: OperationId | "t1.listEventCommitWindow" | "t1.listEventObjectCommitWindow" | "t1.listObjectWindow"): boolean;
   /** Optional original successor. Absent on the accepted DB8 runtime. */
   listEventCommitWindow?: OriginalEventCommitReader;
   listEventObjectCommitWindow?: OriginalEventObjectCommitReader;
+  listObjectWindow?: OriginalObjectWindowReader;
   /** Immutable snapshot of the granted operations, for capability checks. */
   readonly grantedOperations: readonly OperationId[];
   /** Immutable snapshot of the granted levels. */

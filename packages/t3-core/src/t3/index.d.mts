@@ -47,7 +47,7 @@ export function createSubjectKernelBinding(input: {
   /** Notification immediately before the ORIGINAL Graph call (no retry). */
   onCommitObjectGraphDispatch?: () => void;
 }): Pick<KernelFacade,
-  "createWorkspace" | "getWorkspace" | "getObject" | "listObjects" |
+  "createWorkspace" | "getWorkspace" | "getObject" | "listObjects" | "listObjectWindow" |
   "putObject" | "deleteObject" | "putRelation" | "deleteRelation" |
   "listAssets" | "getAsset" | "putAsset" | "deleteAsset" |
   "listEventsSince" | "listEventCommitWindow" | "listEventObjectCommitWindow" | "softDeleteWorkspace" | "restoreWorkspace" |

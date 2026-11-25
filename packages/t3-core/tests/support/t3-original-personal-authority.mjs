@@ -19,6 +19,7 @@ const PERSONAL_ACTIONS=Object.freeze({
   "t1.createWorkspace":"workspace.create",
   "t1.getObject":"object.read",
   "t1.listObjects":"object.read",
+  "t1.listObjectWindow":"object.read",
   "t1.listEventsSince":"event.read",
   "t1.listEventCommitWindow":"event.read",
   "t1.listEventObjectCommitWindow":"event.read",

@@ -49,6 +49,11 @@ export function createOriginalKernelNativeRelay({
     Object.keys(NETWORK_METHODS).filter(name=>
       networkOwner.operations.includes(NETWORK_METHODS[name])):[];
   const historyMethods=new Set(["listEventCommitWindow","listEventObjectCommitWindow"]);
+  const readPrerequisites=Object.freeze({listEventCommitWindow:"t1.listEventsSince",
+    listEventObjectCommitWindow:"t1.listEventsSince",listObjectWindow:"t1.listObjects"});
+  check(!networkNames.includes("listObjectWindow")||
+    (typeof networkOwner?.resolveOriginalAccess==="function"&&networkOwner.operations.includes("t1.listObjects")),
+    "T3_ORIGINAL_NETWORK_RELAY_OBJECT_WINDOW_OWNER_REQUIRED");
   check(!networkNames.some(name=>historyMethods.has(name))||
     (typeof networkOwner?.resolveOriginalAccess==="function"&&
       networkOwner.operations.includes("t1.listEventsSince")),
@@ -173,8 +178,8 @@ export function createOriginalKernelNativeRelay({
     check(networkActive(state)&&attaching!==state&&network.names.includes(method),
       "T3_ORIGINAL_NETWORK_RELAY_NOT_CONNECTED");
     check(pending===null&&reservation===null,"T3_D3_ORIGINAL_KERNEL_OPERATION_IN_PROGRESS");
-    if(historyMethods.has(method))check(network.resolveAccess&&
-      state.grants.granted_operations.includes("t1.listEventsSince")&&
+    if(Object.hasOwn(readPrerequisites,method))check(network.resolveAccess&&
+      state.grants.granted_operations.includes(readPrerequisites[method])&&
       state.grants.granted_operations.includes(NETWORK_METHODS[method]),
       "T3_ORIGINAL_NETWORK_RELAY_AUTHORITY_DENIED");
     const held={};reservation=held;
@@ -214,7 +219,7 @@ export function createOriginalKernelNativeRelay({
         const original=Object.freeze({
           sessionInfo:state.kernel.sessionInfo,
           hasOperation:id=>active()&&state.grants.granted_operations.includes(id)&&
-            (id===operation||(historyMethods.has(method)&&id==="t1.listEventsSince")),
+            (id===operation||(Object.hasOwn(readPrerequisites,method)&&id===readPrerequisites[method])),
           [method]:async(...checkedArgs)=>{
             check(!invoked&&isDeepStrictEqual(normalize(checkedArgs),normalize(exact)),
               "T3_ORIGINAL_NETWORK_RELAY_AUTHORIZED_COMMAND_MISMATCH");
@@ -242,9 +247,9 @@ export function createOriginalKernelNativeRelay({
     // original task binding; no command may execute before admission.
     hasOperation:id=>!closed&&live===state&&state.networkStarted&&
       state.grants.granted_operations.includes(id)&&
-      network.names.some(name=>NETWORK_METHODS[name]===id)&&
-      (!["t1.listEventCommitWindow","t1.listEventObjectCommitWindow"].includes(id)||
-        (typeof network.resolveAccess==="function"&&state.grants.granted_operations.includes("t1.listEventsSince"))),
+      network.names.some(name=>NETWORK_METHODS[name]===id&&
+        (!Object.hasOwn(readPrerequisites,name)||(typeof network.resolveAccess==="function"&&
+          state.grants.granted_operations.includes(readPrerequisites[name])))),
     ...Object.fromEntries(network.names.map(name=>[name,(...args)=>networkDispatch(state,name,args)])),
   });
   // Driven by the existing browser next/lease, never an extra timer or queue.

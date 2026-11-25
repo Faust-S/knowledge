@@ -233,3 +233,21 @@ describe("K124 separately negotiated original Object Event window",()=>{
     expect(calls).toEqual([[ws,object,null,16]]);
   });
 });
+
+describe("K130 optional original catalog window negotiation",()=>{
+  const op="t1.listObjectWindow",parent="t1.listObjects";
+  const query={workspace_id:"ws:original",after_object_id:"obj:a",include_deleted:true,limit:16};
+  const page={entries:[],next_after_object_id:"obj:a",has_more:false,order:"WORKSPACE_OBJECT_ID_ASC" as const};
+  it("requires both grants, actual surface and matching contract",async()=>{
+    const calls:unknown[]=[];
+    const reader:NonNullable<KernelSession["t1"]["listObjectWindow"]>=async q=>{calls.push(q);return page;};
+    for(const [version,grants] of [["1.2.0",[parent,op]],["1.3.0",[op]],["1.3.0",[parent]]] as const){
+      const session={...makeSession([...grants],{listObjectWindow:reader}),contract_version:version} as KernelSession;
+      expect(createKernelFacade({session}).listObjectWindow).toBeUndefined();
+    }
+    expect(createKernelFacade({session:{...makeSession([parent,op]),contract_version:"1.3.0"} as KernelSession}).hasOperation(op)).toBe(false);
+    const session={...makeSession([parent,op],{listObjectWindow:reader}),contract_version:"1.3.0"} as KernelSession;
+    const facade=createKernelFacade({session});expect(facade.hasOperation(op)).toBe(true);
+    expect(await facade.listObjectWindow!(query)).toBe(page);expect(calls).toEqual([query]);
+  });
+});

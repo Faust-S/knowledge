@@ -14,8 +14,16 @@ export type OriginalEventCommitReader = (
 export type OriginalEventObjectCommitReader = (
   workspaceId: string, objectId: string, afterEventId: string | null, limit: number,
 ) => Promise<OriginalEventCommitWindow>;
+export type OriginalObjectWindowQuery = import("./contracts/runtime-1.3.0").ListObjectsQuery & { after_object_id?: string | null };
+export type OriginalObjectWindow = {
+  entries: import("./contracts/runtime-1.3.0").ObjectRecord[];
+  next_after_object_id: string | null;
+  has_more: boolean;
+  order: "WORKSPACE_OBJECT_ID_ASC";
+};
+export type OriginalObjectWindowReader = (query: OriginalObjectWindowQuery) => Promise<OriginalObjectWindow>;
 export type KernelSession = IWXAClient & {
-  t1: IWXAClient["t1"] & { listEventCommitWindow?: OriginalEventCommitReader; listEventObjectCommitWindow?: OriginalEventObjectCommitReader };
+  t1: IWXAClient["t1"] & { listEventCommitWindow?: OriginalEventCommitReader; listEventObjectCommitWindow?: OriginalEventObjectCommitReader; listObjectWindow?: OriginalObjectWindowReader };
 };
 export type OperationId = import("./contracts/runtime-1.3.0").OperationId;
 

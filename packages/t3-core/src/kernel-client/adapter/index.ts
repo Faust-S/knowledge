@@ -12,7 +12,7 @@
  *     retransmit package bytes into commit calls.
  */
 
-import type { KernelSession, OriginalEventCommitWindow } from "../types";
+import type { KernelSession, OriginalEventCommitWindow, OriginalObjectWindowQuery, OriginalObjectWindow } from "../types";
 import type {
   ConfirmExportInput,
   ConfirmExportReceipt,
@@ -122,6 +122,13 @@ export const adapter = {
     requireOperation(session, "t1.listEventsSince", session.t1?.listEventsSince);
     requireOperation(session, "t1.listEventObjectCommitWindow", session.t1?.listEventObjectCommitWindow);
     return session.t1.listEventObjectCommitWindow!(workspaceId,objectId,afterEventId,limit);
+  },
+
+  listObjectWindow(session: KernelSession, query: OriginalObjectWindowQuery): Promise<OriginalObjectWindow> {
+    if (session.contract_version !== "1.3.0") throw new Error("ORIGINAL_OBJECT_WINDOW_CONTRACT_MISMATCH");
+    requireOperation(session,"t1.listObjects",session.t1?.listObjects);
+    requireOperation(session,"t1.listObjectWindow",session.t1?.listObjectWindow);
+    return session.t1.listObjectWindow!(query);
   },
 
   // ---- T1 writes ----------------------------------------------------------

@@ -707,3 +707,72 @@ test("K124 exact Object Event read stops at last hop when either original grant 
     assert.equal(f.calls.length,0);
   }
 });
+
+const catalogOperation="t1.listObjectWindow",catalogParent="t1.listObjects";
+const catalogQuery={workspace_id:ws,schema_id:"demo.allowed",include_deleted:true,after_object_id:"obj:0",limit:2};
+const catalogRow=(object_id,patch={})=>({workspace_id:ws,object_id,schema_id:"demo.allowed",deleted:false,...patch});
+const catalogPage=(entries=[],has_more=false,after=catalogQuery.after_object_id)=>({entries,
+  next_after_object_id:entries.at(-1)?.object_id??after,has_more,order:"WORKSPACE_OBJECT_ID_ASC"});
+function catalogFixture(){
+  const f=fixture();f.allowed.add(catalogOperation);
+  f.kernel.listObjectWindow=async query=>{f.calls.push(query);return catalogPage([catalogRow("obj:1")]);};
+  return f;
+}
+test("K130 signed original catalog binds the full query and refuses either missing grant",async()=>{
+  const f=catalogFixture(),signed=[],original=f.owner.operationDigest;
+  f.owner.operationDigest=input=>{signed.push(input);return original(input);};
+  for(const denied of [catalogOperation,catalogParent]){
+    f.allowed.delete(denied);
+    await assert.rejects(f.bound.listObjectWindow(catalogQuery),{code:"T3_KERNEL_OPERATION_NOT_GRANTED"});
+    f.allowed.add(denied);
+  }
+  assert.equal(f.calls.length,0);
+  assert.deepEqual(await f.bound.listObjectWindow(catalogQuery),catalogPage([catalogRow("obj:1")]));
+  assert.deepEqual(f.calls,[catalogQuery]);assert.equal(signed[0].operation,catalogOperation);
+  assert.deepEqual(signed[0].input,catalogQuery);
+});
+test("K130 catalog rejects malformed queries and foreign Workspace before Kernel dispatch",async()=>{
+  const f=catalogFixture();
+  for(const patch of [{limit:0},{limit:1025},{schema_id:""},{after_object_id:""},{include_deleted:1},{unrecognized:true}]){
+    await assert.rejects(f.bound.listObjectWindow({...catalogQuery,...patch}),{code:"T3_SUBJECT_OBJECT_WINDOW_QUERY_INVALID"});
+  }
+  await assert.rejects(f.bound.listObjectWindow({...catalogQuery,workspace_id:"ws:other"}),{code:"T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE"});
+  assert.equal(f.calls.length,0);
+});
+test("K130 catalog pages reject foreign rows, hidden schema substitutions, cursor loops and false lookahead",async()=>{
+  const f=catalogFixture();
+  for(const page of [
+    catalogPage([catalogRow("obj:1",{workspace_id:"ws:other"})]),
+    catalogPage([catalogRow("obj:1",{schema_id:"demo.hidden"})]),
+    catalogPage([catalogRow("obj:0")]),
+    catalogPage([catalogRow("obj:2"),catalogRow("obj:1")]),
+    catalogPage([catalogRow("obj:1"),catalogRow("obj:1")]),
+    catalogPage([catalogRow("obj:1")],true),
+    {...catalogPage([catalogRow("obj:1")]),next_after_object_id:"obj:2"},
+    {...catalogPage(),order:"OTHER"},
+  ]){
+    f.kernel.listObjectWindow=async()=>page;
+    await assert.rejects(f.bound.listObjectWindow(catalogQuery),e=>["T3_KERNEL_OBJECT_WINDOW_INVALID","T3_KERNEL_LIST_SCOPE_MISMATCH"].includes(e.code));
+  }
+  f.kernel.listObjectWindow=async()=>catalogPage([catalogRow("obj:1",{deleted:true})]);
+  await assert.rejects(f.bound.listObjectWindow({...catalogQuery,include_deleted:false}),{code:"T3_KERNEL_OBJECT_WINDOW_INVALID"});
+});
+test("K130 catalog rechecks both original grants at dispatch and receipt",async()=>{
+  for(const op of [catalogOperation,catalogParent]){
+    const f=catalogFixture(),authorize=f.owner.authorize;
+    f.owner.authorize=async req=>{const result=await authorize(req);f.allowed.delete(op);return result;};
+    await assert.rejects(f.bound.listObjectWindow(catalogQuery),{code:"T3_KERNEL_OPERATION_NOT_GRANTED"});
+    assert.equal(f.calls.length,0);
+    f.allowed.add(op);f.owner.authorize=authorize;
+    const original=f.kernel.listObjectWindow;
+    f.kernel.listObjectWindow=async query=>{const result=await original(query);f.allowed.delete(op);return result;};
+    await assert.rejects(f.bound.listObjectWindow(catalogQuery),{code:"T3_KERNEL_OPERATION_NOT_GRANTED"});
+    assert.equal(f.calls.length,1);
+  }
+});
+test("K130 catalog snapshots exact inputs and preserves empty terminal response",async()=>{
+  const f=catalogFixture(),input=structuredClone(catalogQuery);
+  f.kernel.listObjectWindow=async query=>{f.calls.push(query);return catalogPage();};
+  const work=f.bound.listObjectWindow(input);input.after_object_id="changed";input.limit=1;
+  assert.deepEqual(await work,catalogPage());assert.deepEqual(f.calls,[catalogQuery]);
+});
