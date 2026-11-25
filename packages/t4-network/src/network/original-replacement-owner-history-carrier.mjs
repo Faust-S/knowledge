@@ -6,6 +6,8 @@ import {snapshot} from '../../../t3-core/src/t3/access/core.mjs';
 import {strictJson} from '../../../t3-core/src/t3/access/strict-json.mjs';
 import {createT4OriginalReplacementOwnerHistoryRequest,validateT4OriginalReplacementOwnerHistorySnapshot}
   from './original-network-replacement-owner-history.mjs';
+import {T4_REPLACEMENT_ELIGIBILITY_REQUEST,createT4OriginalReplacementOwnerEligibilityRequest,validateT4OriginalReplacementOwnerEligibilitySnapshot}
+  from './original-network-replacement-owner-eligibility.mjs';
 import {decodeT4CandidateFrame} from './standard-network-wire-candidate.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 
@@ -19,10 +21,14 @@ export const isT4OriginalReplacementHistoryClient=p=>typeof p==='function'&&clie
 const REQUEST_LIMIT=32768,RESPONSE_LIMIT=4*1024*1024,FRAME_LIMIT=32768,BATCH_LIMIT=1024*1024;
 function exactKeys(v,keys){return v&&typeof v==='object'&&!Array.isArray(v)&&
   Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));}
-function request(raw){
-  const r=createT4OriginalReplacementOwnerHistoryRequest(raw);
+// Each profile has its own canonical request and response validator. A
+// historical terminal receipt cannot be substituted for current eligibility.
+export function normalizeT4OriginalReplacementOwnerRequest(raw){
+  const r=raw?.schema===T4_REPLACEMENT_ELIGIBILITY_REQUEST?createT4OriginalReplacementOwnerEligibilityRequest(raw):
+    createT4OriginalReplacementOwnerHistoryRequest(raw);
   if(!same(raw,r))fail('REPLACEMENT_HISTORY_CARRIER_REQUEST_INVALID');return r;
 }
+const request=normalizeT4OriginalReplacementOwnerRequest;
 function encode(value,limit){
   const out=Buffer.from(JSON.stringify(value),'utf8');
   if(!out.length||out.length>limit)fail('REPLACEMENT_HISTORY_CARRIER_SIZE_INVALID');
@@ -40,6 +46,9 @@ export function encodeT4OriginalReplacementHistoryRequest(raw){const r=request(r
 export function decodeT4OriginalReplacementHistoryRequest(bytes){const r=request(decode(bytes,REQUEST_LIMIT));snapshot(r);return r;}
 function mapSnapshot(raw,r,encoding){
   if(raw===null)return null;
+  if(r.schema===T4_REPLACEMENT_ELIGIBILITY_REQUEST){
+    const v=validateT4OriginalReplacementOwnerEligibilitySnapshot(raw,r);snapshot(v);return v;
+  }
   const v=validateT4OriginalReplacementOwnerHistorySnapshot(raw,r);
   if(!exactKeys(v,['schema','request','role','state','phaseCheckpointRef','originalHistoricalEvidenceOnly','originalOwnerReadOnly',
     'liveNetworkAuthorityGranted','originalSubjectMutationInvoked','originalT3HostCursorWriteInvoked','phase','retiredPhase','publication','acceptedAck','retiredAck']))

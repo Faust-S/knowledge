@@ -1,5 +1,6 @@
 import {createT4OriginalSignedOperationAccess} from './original-signed-route-access.mjs';
-import {createT4OriginalReplacementOwnerHistoryRequest} from './original-network-replacement-owner-history.mjs';
+import {normalizeT4OriginalReplacementOwnerRequest} from './original-replacement-owner-history-carrier.mjs';
+import {T4_REPLACEMENT_ELIGIBILITY_REQUEST} from './original-network-replacement-owner-eligibility.mjs';
 import {originalHostLifetimeMode} from './original-host-lifetime.mjs';
 
 const ID=x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(x);
@@ -14,15 +15,16 @@ export const isT4OriginalSignedReplacementHistoryAccess=p=>!!p&&ports.has(p);
 // Vault. This consumer cannot issue a grant or authenticate a remote caller.
 // The owner must ALSO verify original caller/connection evidence separately.
 export function createT4OriginalSignedReplacementHistoryAccess({access,expectedContext,workspaceId,technicalWorkspaceId,
-  originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef,ownerEpoch,getMode,clock=Date.now}={}){
-  if(![workspaceId,technicalWorkspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef].every(ID)||
+  originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef,ownerEpoch,getMode,clock=Date.now,enableOriginalEligibilityRead=false}={}){
+  if(typeof enableOriginalEligibilityRead!=='boolean'||![workspaceId,technicalWorkspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef].every(ID)||
     technicalWorkspaceId===workspaceId||sourceNodeRef===recipientNodeRef||![sourceNodeRef,recipientNodeRef].includes(localNodeRef)||
     !Number.isSafeInteger(ownerEpoch)||ownerEpoch<1)fail('REPLACEMENT_HISTORY_SIGNED_SCOPE_INVALID');
   const identity=Object.freeze({workspaceId,technicalWorkspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,localNodeRef,scopeRef,ownerEpoch});
   const role=localNodeRef===sourceNodeRef?'SOURCE':'RECIPIENT',peerNodeRef=role==='SOURCE'?recipientNodeRef:sourceNodeRef;
   const signed=createT4OriginalSignedOperationAccess({access,expectedContext,workspaceId,operations:[OWNER,PEER],getMode,clock});
   function request(raw){
-    const r=createT4OriginalReplacementOwnerHistoryRequest(raw);
+    const r=normalizeT4OriginalReplacementOwnerRequest(raw);
+    if(r.schema===T4_REPLACEMENT_ELIGIBILITY_REQUEST&&!enableOriginalEligibilityRead)fail('REPLACEMENT_HISTORY_SIGNED_ELIGIBILITY_NOT_ENABLED');
     if(!same(raw,r)||!['workspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch']
       .every(k=>r.session[k]===identity[k]))fail('REPLACEMENT_HISTORY_SIGNED_SCOPE_MISMATCH');
     return r;
@@ -48,8 +50,8 @@ export function createT4OriginalSignedReplacementHistoryAccess({access,expectedC
   }
   const port=Object.freeze({schema:'IWXA_T4_ORIGINAL_SIGNED_REPLACEMENT_HISTORY_ACCESS_V1',identity,originalSignedSubject:signed.subject,
     originalAccessIdentity:signed.originalAccessIdentity,authorizeOwner,authorizePeer,originalSignedAccessOnly:true,
-    createsStore:false,createsIAM:false,createsGrant:false,
+    createsStore:false,createsIAM:false,createsGrant:false,originalEligibilityReadEnabled:enableOriginalEligibilityRead,
     forOriginalHostLifetime:isHostActive=>createT4OriginalSignedReplacementHistoryAccess({access,expectedContext:signed.subject,
-      ...identity,getMode:originalHostLifetimeMode(getMode,isHostActive),clock})});
+      ...identity,getMode:originalHostLifetimeMode(getMode,isHostActive),clock,enableOriginalEligibilityRead})});
   ports.add(port);return port;
 }
