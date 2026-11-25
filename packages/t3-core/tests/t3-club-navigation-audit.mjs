@@ -43,7 +43,7 @@ async function main(){
   page.on("response",res=>{
    if(!res.url().startsWith(origin+"/"))return;
    if(res.request().isNavigationRequest()){
-    if(res.request().frame()===page.mainFrame())state.navStatus=res.status();
+    try{if(res.request().frame()===page.mainFrame())state.navStatus=res.status()}catch{}
    }else if(res.status()>=400)state.resources++;
   });
   page.on("requestfailed",req=>{
@@ -91,6 +91,8 @@ async function main(){
   }
  }
  async function openSource(page,obs,task){
+  // A fragment-only change may return null from goto. Use a new document for every occurrence.
+  await page.goto("about:blank",{waitUntil:"commit",timeout:8000});
   reset(obs);
   const resp=await page.goto(origin+task.path,{waitUntil:"load",timeout:20000});
   check(resp&&resp.status()<400,"SOURCE_HTTP");
@@ -153,7 +155,9 @@ async function main(){
     await page.getByTestId("club-create-personal-space").click();
     await page.getByTestId("club-native-project-overview").waitFor({state:"visible",timeout:20000});
    }else await openSource(page,obs,task);
-   rows=await snapshot(page);totals.pageInventory++;totals.links+=rows.length;
+   rows=await snapshot(page);
+   await ready(page,obs,new URL(origin+task.path),{errorPage:task.path==="/404.html"});
+   totals.pageInventory++;totals.links+=rows.length;
    check(rows.length>0,"EMPTY_LINK_INVENTORY");
    for(const [index,row] of rows.entries()){
     if(!row.visible){totals.conditional++;continue}
@@ -197,7 +201,7 @@ async function main(){
     }
    }
   }catch(e){report(task,"inventory",task.path,e);totals.notRun+=rows.length}
-  finally{await ctx.close()}
+  finally{await ctx.close();console.log("CLUB_NAV_PAGE "+JSON.stringify({mode:task.mode,state:task.state,source:task.path,links:rows.length,failures:failures.filter(f=>f.mode===task.mode&&f.state===task.state&&f.source===task.path).length}))}
  }
  async function checkExternal(raw){
   try{
