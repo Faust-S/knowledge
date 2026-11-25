@@ -541,7 +541,8 @@ export function createT4OriginalNativeHostNetworkOwner({
         readLocalOwnerHistory:request=>readLocalOwnerHistory(request,sourceCursorPort,readOriginalCaptureSelection),
         readLocalReplacement:()=>readLocalReplacement(async()=>(await sourceCursorPort.inspectOriginalHostCursor()).originalT3NextCursor),
         completeLocalReplacement:selection=>completeLocalReplacement(selection,sourceCursorPort),
-        resetMigration:resetSourceMigration,run:(retryMissing,historicalOnly=false)=>task.runNativeSourceStep({...signing,retryMissing,historicalOnly,sourceCursorPort,
+        resetMigration:resetSourceMigration,hasPendingPublicationMigration:()=>enablePublicationIndexMigration&&!migrationComplete,
+        run:(retryMissing,historicalOnly=false)=>task.runNativeSourceStep({...signing,retryMissing,historicalOnly,sourceCursorPort,
         createOriginalSourcePhasePort:phase,announceOriginalSourceSession:true,
         recoverNextOriginalCapture:p=>captureRecovery.reconcileNextOriginalCapture(p),
         authorizeOriginalRead:common.authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
@@ -881,7 +882,10 @@ export function createT4OriginalNativeHostNetworkOwner({
           // A retained accepted ACK is local original evidence. Do not
           // force an old-address migration (or live signature/remote I/O)
           // before completing an already accepted source Result.
-          if(result===undefined&&role==='SOURCE'&&enableHistoricalAcknowledgementRecovery&&enablePublicationIndexMigration){
+          // Once the startup migration is complete, the regular source
+          // task already checks accepted historical ACKs before any live
+          // discovery. Do not run the same original task twice per wake.
+          if(result===undefined&&role==='SOURCE'&&enableHistoricalAcknowledgementRecovery&&state.hasPendingPublicationMigration()){
             const recovered=await state.run(false,true);
             if(recovered.state!=='NO_ORIGINAL_HISTORICAL_RECOVERY'){
               result=recovered;state.resetMigration();
