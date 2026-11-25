@@ -1437,11 +1437,12 @@ try{
  await visit(page,"/projects/?workspace_id="+encodeURIComponent(base.scope)+"&club_goal="+encodeURIComponent(goalId)+"#club-goal-map");
  const reviewBefore=await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"));
  await page.locator("[data-club-goal-list]").getByRole("button",{name:"Оценить результат",exact:true}).click();
- await proofForm.waitFor({state:"visible"});
- const reviewNote=await proofForm.locator("[data-club-proof-source-note]").textContent();
+ const reviewProofForm=page.locator("form[data-club-proof-form]");
+ await reviewProofForm.waitFor({state:"visible"});
+ const reviewNote=await reviewProofForm.locator("[data-club-proof-source-note]").textContent();
  check(reviewNote.includes("Предыдущий записанный результат: "+proofResult)&&reviewNote.includes("Проверена комплектность"),"GOAL_REVIEW_PREVIOUS_RESULT_AND_CRITERION");
- check(await proofForm.locator('[name="result"]').inputValue()===""&&await proofForm.locator('[name="basis"]').inputValue()===""&&
-  await proofForm.locator('[name="goalAssessment"]').inputValue()==="","GOAL_REVIEW_NEW_ASSESSMENT_NOT_COPIED");
+ check(await reviewProofForm.locator('[name="result"]').inputValue()===""&&await reviewProofForm.locator('[name="basis"]').inputValue()===""&&
+  await reviewProofForm.locator('[name="goalAssessment"]').inputValue()==="","GOAL_REVIEW_NEW_ASSESSMENT_NOT_COPIED");
  check(await page.evaluate(()=>sessionStorage.getItem("ru.iwxa.club.session.v1"))===reviewBefore,"GOAL_REVIEW_NEW_ASSESSMENT_NO_WRITE");
  log("OFFLINE_GOAL_REVIEW_PREVIOUS_RESULT_CONTEXT");
  async function changeGoalState(status,reason,reviewDate=null){
