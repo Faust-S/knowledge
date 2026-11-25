@@ -23,6 +23,16 @@ jobs:
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
+      # The current domain revision and the published skill release are
+      # deliberately separate inputs. Changing an unrelated domain rule
+      # must not manufacture a new skill release or change its provenance.
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/komplektovod
+          ref: 40e0965491819722dcf57c973e7d0c19b4cbcba0
+          token: ${{ secrets.DOMEN }}
+          persist-credentials: false
+          path: private/skill-owner
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
@@ -57,9 +67,16 @@ jobs:
             $blob = (git -C private/assistant rev-parse ("HEAD:" + $pin.sourceRoot + "/" + $entry.path)).Trim()
             if ($blob -ne $entry.blob) { throw "D06_T3_ORIGINAL_BLOB" }
           }
+          $skillPin = Get-Content private/site/runtime/t3-platform/0.3.1-rc.1/domain-skills.json -Raw | ConvertFrom-Json
+          if ($skillPin.version -ne "1.4.1" -or (git -C private/skill-owner rev-parse HEAD).Trim() -ne $skillPin.sourceCommit) { throw "D06_T3_SKILL_RELEASE_COMMIT" }
           $owner = (git -C private/domain rev-parse HEAD:models/assistant-skills.json).Trim()
+          $released = (git -C private/skill-owner rev-parse HEAD:models/assistant-skills.json).Trim()
           $site = (git -C private/site rev-parse HEAD:public/assets/d06-assistant-skills.json).Trim()
-          if ($owner -ne $site) { throw "D06_T3_SKILL_BYTES_MISMATCH" }
+          if ($owner -ne $site -or $released -ne $site -or $site -ne $skillPin.sourceBlob) { throw "D06_T3_SKILL_BYTES_MISMATCH" }
+          foreach ($root in @("private/domain","private/skill-owner","private/site","private/previous")) {
+            if ((git -C $root rev-parse HEAD:src/registry/services.json).Trim() -ne $skillPin.registryBlob) { throw "D06_T3_SKILL_REGISTRY_MISMATCH" }
+          }
+          Write-Host "D06_T3_SKILL_RELEASE_PIN=PASS"
           Write-Host "D06_T3_ORIGINAL_INPUTS=PASS"
       - name: Validate canonical procedures, original runtime and extraction
         working-directory: private/domain
@@ -107,11 +124,11 @@ jobs:
             exit 1
           }
           Write-Host "D06_T3_PINNED_SERIALIZER_TEST=PASS"
-          $domain = Join-Path $env:GITHUB_WORKSPACE "private/domain"
+          $domain = Join-Path $env:GITHUB_WORKSPACE "private/skill-owner"
           $before = (git status --porcelain --untracked-files=normal)
-          & node scripts/d06-assistant-skills.mjs import $domain b759e0eca174fdd0ac602bfe21aa0c4a75ade253 *> $log
+          & node scripts/d06-assistant-skills.mjs import $domain 40e0965491819722dcf57c973e7d0c19b4cbcba0 *> $log
           if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '"changed":false') { Write-Host "D06_T3_IMPORT_DRY_RUN=FAIL"; exit 1 }
-          & node scripts/d06-assistant-skills.mjs import $domain b759e0eca174fdd0ac602bfe21aa0c4a75ade253 --apply *> $log
+          & node scripts/d06-assistant-skills.mjs import $domain 40e0965491819722dcf57c973e7d0c19b4cbcba0 --apply *> $log
           if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '"applied":false') { Write-Host "D06_T3_IMPORT_IDEMPOTENT=FAIL"; exit 1 }
           if ((git status --porcelain --untracked-files=normal) -or $before) { Write-Host "D06_T3_IMPORT_DIRTY=FAIL"; exit 1 }
           Write-Host "D06_T3_IMPORT_DRY_RUN=PASS"
@@ -130,7 +147,7 @@ jobs:
             Write-Host "D06_T3_REACT_TYPES=FAIL"; exit 1
           }
           Write-Host "D06_T3_REACT_TYPES=PASS"
-      - name: Prove 1.3 to 1.4 upgrade only with exact new result bindings
+      - name: Prove 1.3 to 1.4.1 upgrade only with exact new result bindings
         working-directory: private/site
         shell: pwsh
         run: |
@@ -141,9 +158,9 @@ jobs:
           import { resolve, join } from "node:path";
           import { pathToFileURL } from "node:url";
           const { importSkills, verifyProjection } = await import(pathToFileURL(resolve("scripts/d06-assistant-skills.mjs")).href);
-          const owner = resolve("../domain");
+          const owner = resolve("../skill-owner");
           const previous = resolve("../previous");
-          const commit = "b759e0eca174fdd0ac602bfe21aa0c4a75ade253";
+          const commit = "40e0965491819722dcf57c973e7d0c19b4cbcba0";
           const files = ["public/assets/d06-assistant-skills.json", "runtime/t3-platform/0.3.1-rc.1/domain-skills.json"];
           const original = files.map(p=>readFileSync(join(previous,p)));
           assert.equal(JSON.parse(original[0]).version,"1.3.0");
@@ -156,13 +173,13 @@ jobs:
             copyFileSync(path,join(previous,path));
           }
           const dry = importSkills(owner, commit, {dir:previous});
-          assert.equal(dry.version,"1.4.0");
+          assert.equal(dry.version,"1.4.1");
           assert.equal(dry.changed,true);
           assert.equal(dry.applied,false);
           for(let i=0;i<files.length;i++)assert.ok(original[i].equals(readFileSync(join(previous,files[i]))));
           const applied = importSkills(owner, commit, {dir:previous,apply:true});
           assert.equal(applied.applied,true);
-          assert.equal(verifyProjection(previous).version,"1.4.0");
+          assert.equal(verifyProjection(previous).version,"1.4.1");
           for(const path of files)assert.ok(readFileSync(join(previous,path)).equals(readFileSync(path)));
           assert.equal(importSkills(owner,commit,{dir:previous,apply:true}).applied,false);
           '@ | Set-Content -LiteralPath $script -Encoding utf8
