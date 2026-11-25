@@ -244,6 +244,7 @@ export function createSubjectKernelBinding({
   kernel, access, clock = Date.now, commitObjectGraphPrecondition = null,
   isHostActive = () => true, onCommitObjectGraphDispatch = null,
   previewSession = null,corporateBusinessExchange = false,
+  applicationReceiptScope = null,
 } = {}) {
   if (!kernel || typeof kernel.hasOperation !== "function" ||
       !kernel.sessionInfo || kernel.sessionInfo.contract_version !== "1.3.0" ||
@@ -269,6 +270,19 @@ export function createSubjectKernelBinding({
   // A new process must create a fresh preview; no cross-process token reuse.
   if(typeof corporateBusinessExchange!=="boolean")
     refused("T3_CORPORATE_EXCHANGE_PROFILE_INVALID");
+  // Native recipient APPLY only. Its signed operation still names the business
+  // Workspace; the exact sealed effect is physically placed in the existing
+  // administrative Workspace of the SAME original Kernel. This option is
+  // never supplied by the HTTP/UI binding, nor a general Workspace alias.
+  const receiptScope=applicationReceiptScope===null?null:
+    Object.freeze({...applicationReceiptScope});
+  if(receiptScope!==null&&(
+      corporateBusinessExchange||previewSession!==null||
+      kernel.sessionInfo.service_id!=="iwxa.admin-center.workspace"||
+      !/^workspace:registry:[a-f0-9]{64}$/.test(receiptScope.workspaceId??"")||
+      !HEX.test(receiptScope.effectKey??"")||
+      Object.keys(receiptScope).sort().join(",")!=="effectKey,workspaceId"))
+    refused("T3_D3_APPLICATION_RECEIPT_SCOPE_INVALID");
   const previews = previewStateFor(previewSession);
   function snapshotCommand(input) {
     try { return structuredClone(input); }
@@ -283,6 +297,27 @@ export function createSubjectKernelBinding({
     const context = await selected(access);
     // The caller cannot override a Host-selected PERSONAL/CORP context.
     if (context.workspace_id !== workspace_id) refused("T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE");
+    const physicalWorkspace=receiptScope?.workspaceId??workspace_id;
+    if(receiptScope!==null){
+      const effect=receiptScope.effectKey,objectId="result:applied:"+effect;
+      if(context.kind!=="CORP"||context.purpose!=="application"||
+         managementWorkspace(workspace_id)||physicalWorkspace===workspace_id||
+         !["getWorkspace","getObject","listEventsSince","commitObjectGraph"].includes(method)||
+         (method==="getObject"&&command.object_id!==objectId))
+        refused("T3_D3_APPLICATION_RECEIPT_SCOPE_INVALID");
+      if(method==="commitObjectGraph"){
+        const o=command.object,records=o?.data?.records;
+        if(command.idempotency_key!==effect||o?.object_id!==objectId||
+           o.schema_id!=="iwxa.admin.applied-results"||o.schema_version!=="1.0.0"||
+           o.base_revision!==0||o.data?.schema!=="IWXA_T3_ADMIN_APPLIED_RESULTS/1"||
+           !Array.isArray(records)||!records.length||
+           records.some(r=>r?.workspaceId!==workspace_id||
+             r.organizationId!==context.organization_id)||
+           command.event?.event_type!=="iwxa.admin.result.applied"||
+           (command.relation_puts?.length??0)!==0||(command.relation_deletes?.length??0)!==0)
+          refused("T3_D3_APPLICATION_RECEIPT_SCOPE_INVALID");
+      }
+    }
     const business=corporateBusinessExchange&&EXCHANGE_METHODS.has(method);
     if(corporateBusinessExchange&&managementWorkspace(workspace_id))
       refused("T3_CORPORATE_EXCHANGE_WORKSPACE_REQUIRED");
@@ -415,6 +450,9 @@ export function createSubjectKernelBinding({
         archive_sha256:[...rawDigest].map(x=>x.toString(16).padStart(2,"0")).join(""),
       };
     }
+    if(receiptScope!==null)signedInput={...signedInput,
+      original_application_receipt_workspace_id:physicalWorkspace,
+      original_application_effect_key:receiptScope.effectKey};
     const operationDigest = await access.operationDigest({
       operation,input:signedInput,context,
     });
@@ -467,13 +505,13 @@ export function createSubjectKernelBinding({
     // Observers may record uncertainty, but cannot issue a second operation.
     if (method === "commitObjectGraph") onCommitObjectGraphDispatch?.();
     const result = method === "getObject"
-      ? await kernel.getObject(workspace_id,command.object_id)
+      ? await kernel.getObject(physicalWorkspace,command.object_id)
       : method === "getWorkspace"
-        ? await kernel.getWorkspace(workspace_id)
+        ? await kernel.getWorkspace(physicalWorkspace)
         : method === "getAsset"
           ? await kernel.getAsset(workspace_id,command.asset_id)
           : method === "listEventsSince"
-            ? await kernel.listEventsSince(workspace_id,command.since)
+            ? await kernel.listEventsSince(physicalWorkspace,command.since)
             : method === "softDeleteWorkspace" || method === "restoreWorkspace"
               ? await kernel[method](workspace_id)
               : method === "purgeCancel"
@@ -484,10 +522,11 @@ export function createSubjectKernelBinding({
                     ? await kernel.importCancel(command.preview_token)
                     : method === "importCommit"
                       ? await kernel.importCommit(command)
-                      : await kernel[method](command);
+                      : await kernel[method](receiptScope===null?command:
+                        {...command,workspace_id:physicalWorkspace});
     const scoped = (record,code) => {
       if (!record || typeof record !== "object" ||
-          record.workspace_id !== workspace_id) refused(code);
+          record.workspace_id !== physicalWorkspace) refused(code);
     };
     const checkEvent = event => scoped(event,"T3_KERNEL_EVENT_SCOPE_MISMATCH");
     const checkRelations = rows => {
@@ -527,7 +566,7 @@ export function createSubjectKernelBinding({
       checkEvent(result.event);
     }
     if (method === "commitObjectGraph") {
-      if (result.workspace_id !== workspace_id)
+      if (result.workspace_id !== physicalWorkspace)
         refused("T3_KERNEL_SCOPE_RECEIPT_MISMATCH");
       checkRelations(result.relations_put);
     }
@@ -709,6 +748,12 @@ export function createSubjectKernelBinding({
           result.acknowledge_no_backup !== true,
       });
     }
+    // The private APPLY reader needs evidence of this effect only, not the
+    // authority registry's Event payloads. Keep the original matching Event
+    // records unchanged, including malformed same-effect evidence.
+    if(receiptScope!==null&&method==="listEventsSince")
+      return result.filter(e=>e.idempotency_key===receiptScope.effectKey||
+        e.object_id==="result:applied:"+receiptScope.effectKey);
     return result; // Original T2 Kernel receipt; no duplicate source-of-truth.
   }
   async function consumeImport(token) {
