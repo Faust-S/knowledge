@@ -1,6 +1,7 @@
 # First-use integration on a single disposable Windows runner.
 # Complete both employee and license lifecycle on the same original installed products.
-# No private checkout, raw log, evidence, keys, installer or .iwxa uploaded.
+# No private checkout, raw log, evidence, private key, plaintext installer or .iwxa uploaded.
+# The owner-authorized delivery contains only authenticated encrypted installers.
 name: Corporate frozen release 0.6.4 0.5.0 0.4.1 installed qualification
 on:
   push:
@@ -22,7 +23,7 @@ env:
   CORE_PIN: '8db847058cab231d2d39c34df46024b60564d2ad'
   CENTER_PIN: '5c6e3e8994eb94c46f29b126375928e0ed99e1bb'
   PUBLISHER_PIN: 'f51877ab77dce56af0d745f09752ce2505a521a8'
-  AGENT_PIN: '457557c51f009d21b36127d8c0db50900fdae22d'
+  AGENT_PIN: '4cecffe7786a0afbf198a847d8368e4e8549e98a'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -399,6 +400,7 @@ jobs:
           $setup=(Resolve-Path 'admin/artifacts/iwxa-setup-core-center-private-d3.exe').Path
           $payload=(Resolve-Path 'admin/artifacts/private-t3-d3-payload').Path
           $report=Join-Path $env:RUNNER_TEMP 'corporate-installed-admin-receipt-private.json'
+          $setupSha=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
           $p=Start-Process -FilePath $setup -ArgumentList ('--install-file "{0}"' -f $report) -PassThru
           if(!$p.WaitForExit(180000)){ $p.Kill();throw 'CORPORATE_INSTALLED_ADMIN_SETUP_TIMEOUT' }
           if($p.ExitCode -ne 0){throw 'CORPORATE_INSTALLED_ADMIN_SETUP_FAILED'}
@@ -428,6 +430,7 @@ jobs:
           if($reg.InstallLocation -ine $root){throw 'CORPORATE_INSTALLED_ADMIN_REGISTRATION_INVALID'}
           "CORPORATE_ADMIN_INSTALL=$root"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CORPORATE_ADMIN_DATA=$($reg.DataLocation)"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CORPORATE_ADMIN_SETUP_SHA256=$setupSha"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host 'CORPORATE_INSTALLED_ADMIN_AND_ORIGINAL_KERNEL_BYTES=PASS'
       - name: Original installed Admin first use, real Workspace, signed registry and cold seat readback
         shell: pwsh
@@ -553,12 +556,14 @@ jobs:
             throw 'CORPORATE_AGENT_ORIGINAL_SETUP_HOLD'
           }
       - name: Install exact qualified Agent in the same disposable Windows profile
+        id: agent_setup
         shell: pwsh
         timeout-minutes: 10
         run: |
           $ErrorActionPreference='Stop'
           $out=Join-Path $env:RUNNER_TEMP 'corporate-agent-installed'
           $setup=Join-Path $out 'IWXA-Private-SetupCore-Candidate.exe'
+          $setupSha=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
           $identity=Get-Content -LiteralPath (Join-Path $out 'logs/private-setup-core-build.json') -Raw|ConvertFrom-Json
           if($identity.status -cne 'BUILT_UNQUALIFIED' -or
              $identity.private_source_commit -cne $env:AGENT_PIN -or
@@ -567,7 +572,7 @@ jobs:
              $identity.t3_original_kernel_candidate_archive_sha256 -cne $env:KERNEL_CANDIDATE_ARCHIVE_SHA256 -or
              $identity.t3_original_kernel_release_accepted -isnot [bool] -or
              $identity.t3_original_kernel_release_accepted -ne $false -or
-             $identity.setup_sha256 -ine (Get-FileHash -LiteralPath $setup).Hash){
+             $identity.setup_sha256 -ine $setupSha){
             throw 'EMPLOYEE_INSTALLED_AGENT_PACKAGE_PIN_INVALID'
           }
           $key='HKCU:\Software\IWXA\SetupCore\Products\iwxa.personal-agent'
@@ -607,8 +612,10 @@ jobs:
              $candidate.original_kernel_release_accepted -ne $false){throw 'CORPORATE_INSTALLED_AGENT_CANDIDATE_RECEIPT_INVALID'}
           Write-Host 'CORPORATE_INSTALLED_AGENT_EXACT_UNACCEPTED_CANDIDATE=PASS'
           "CORPORATE_EMPLOYEE_AGENT_ROOT=$root"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CORPORATE_AGENT_SETUP_SHA256=$setupSha"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host 'EMPLOYEE_INSTALLED_AGENT_SAME_RUNNER=PASS'
       - name: Build and install current Publisher with the same original compiled Owner
+        id: publisher_setup
         shell: pwsh
         timeout-minutes: 22
         run: |
@@ -653,6 +660,7 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_BUILD_FAILED'}
           }finally{Pop-Location}
           $report=Join-Path $out 'install-private.json'
+          $setupSha=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
           $p=Start-Process -FilePath $setup -ArgumentList ('--install-file "{0}"' -f $report) -PassThru
           if(!$p.WaitForExit(180000)){$p.Kill();throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_TIMEOUT'}
           if($p.ExitCode -ne 0){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_FAILED'}
@@ -667,6 +675,7 @@ jobs:
           if($reg.InstallLocation -ine $root -or $reg.DataLocation -ieq $env:CORPORATE_ADMIN_DATA){throw 'CORPORATE_INSTALLED_PUBLISHER_REGISTRATION_INVALID'}
           "CORPORATE_PUBLISHER_INSTALL=$root"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CORPORATE_PUBLISHER_DATA=$($reg.DataLocation)"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CORPORATE_PUBLISHER_SETUP_SHA256=$setupSha"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host 'CORPORATE_INSTALLED_PUBLISHER_SAME_ORIGINAL_OWNER=PASS'
       - name: Provision disposable original Publisher owner in the already qualified Windows profile
         shell: pwsh
@@ -846,6 +855,7 @@ jobs:
           if($raw -notmatch '(?m)^CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_RESUMED=PASS\s*$'){throw 'CORPORATE_INSTALLED_LICENSE_CONTINUATION_MISSING'}
           Write-Host 'CORPORATE_INSTALLED_LICENSE_LIFECYCLE_WITH_RESERVED_SEAT=PASS'
       - name: Deliver exact license lifecycle to offline employee and reopen original accepted Result
+        id: license_chain
         shell: pwsh
         timeout-minutes: 15
         env:
@@ -872,6 +882,90 @@ jobs:
             throw 'EMPLOYEE_LICENSE_CHAIN_HOLD'
           }
           Write-Host 'EMPLOYEE_LICENSE_CHAIN_ORIGINAL_OFFLINE_LIFECYCLE=PASS'
+      - name: Seal the three exact installed owner-review installers
+        id: owner_seal
+        if: ${{ !cancelled() && steps.admin_setup.outcome == 'success' && steps.agent_setup.outcome == 'success' && steps.publisher_setup.outcome == 'success' }}
+        shell: pwsh
+        timeout-minutes: 10
+        env:
+          CORPORATE_DELIVERY_ROUTE_STATUS: ${{ steps.license_chain.outcome }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $script=Join-Path $env:RUNNER_TEMP 'corporate-owner-seal.cjs'
+          $js=@'
+          "use strict";
+          const fs=require("node:fs"), fsp=require("node:fs/promises"), path=require("node:path"), crypto=require("node:crypto");
+          const {execFileSync}=require("node:child_process"),{Transform}=require("node:stream"),{pipeline}=require("node:stream/promises");
+          const publicKeyDer="MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAshVAuHxi0zUvzdKEQPoYtt8xW/c8IkQ5X7WF+judUM5pIinbFLmlYU6h0t9klxtE90jnvAsLYaa4MKMSTdVEuPWhAL7JqnK48Ay235s07IZz8jnp+MI+wDQtvSR4Q9y8G5M1ZvXz/+AlzhHyScl8MNInDNy9jV/xJXndVHCzL5J5LNr68yTX5g5I0lmBjzQO9GMKwY9FFNAweiEP2IQRSdhTDbA/xGJqTRz0y/SSHt/b2tCIjYKBUm/T9tWx6TDVpFNVN+n2c0ebWis/Lq9u8/dr0CMxwa+xUTxsKZaHqoTU524Hi34arOsnWpR7BcU0Rx9l+IQZGRDByDgNPFI6DfhLm++xpwN5ZUiiYn6D0RpS4PaJdmB7DZGUW4ysAeAyhSJBTZSOglPcRgR3IjINi/gWD5XD5/Ygx6BTfXw6I6saRkOehj3SJ2YCQ0ZRdeDnRWVdtniCLiILhAklCc7JJf9Ktmz9eX9XNfUkmJUyzPUNtiXcbVVNH+FtNmajf72ZAgMBAAE=";
+          const recipientFingerprint="a97d584172e7e6cc67bcd589404685c1cf465df437991efe7c9483375bbd0f86";
+          const sha=b=>crypto.createHash("sha256").update(b).digest("hex");
+          const requireOk=(condition,code)=>{if(!condition)throw Error(code);};
+          const env=(name,pattern)=>{const v=process.env[name]||"";requireOk(pattern.test(v),"ENV_IDENTITY_INVALID");return v;};
+          const hex40=/^[0-9a-f]{40}$/,hex64=/^[0-9a-f]{64}$/,numeric=/^[1-9][0-9]{0,19}$/;
+          const git=(dir,ref)=>execFileSync("git",["-C",dir,"rev-parse",ref],{encoding:"utf8",stdio:["ignore","pipe","ignore"]}).trim();
+          const root=process.env.GITHUB_WORKSPACE,temp=process.env.RUNNER_TEMP;
+          function measure(hash){return new Transform({transform(chunk,_,done){hash.update(chunk);done(null,chunk);}});}
+          async function main(){
+            requireOk(path.isAbsolute(root||"")&&path.isAbsolute(temp||""),"ROOT_INVALID");
+            const out=path.join(temp,"corporate-owner-sealed");
+            const publicKey=crypto.createPublicKey({key:Buffer.from(publicKeyDer,"base64"),type:"spki",format:"der"});
+            requireOk(publicKey.asymmetricKeyDetails.modulusLength===3072&&sha(publicKey.export({type:"spki",format:"der"}))===recipientFingerprint,"RECIPIENT_KEY_INVALID");
+            const common={schema:"IWXA_CORPORATE_OWNER_INSTALLER/1",algorithm:"AES-256-GCM+RSA-3072-OAEP-SHA256",recipient_key_sha256:recipientFingerprint,run_id:env("GITHUB_RUN_ID",numeric),run_attempt:env("GITHUB_RUN_ATTEMPT",numeric),workflow_sha:env("GITHUB_SHA",hex40),t2_source_sha:env("T2_PIN",hex40),t3_source_sha:env("T3_PIN",hex40),one_core_source_sha:env("CORE_PIN",hex40),kernel_candidate_id:env("KERNEL_CANDIDATE_ID",/^iwxa-kernel-k036-canonical-event-merge-20261125-candidate\.1$/),kernel_archive_sha256:env("KERNEL_CANDIDATE_ARCHIVE_SHA256",hex64),kernel_runtime_sha256:env("KERNEL_CANDIDATE_RUNTIME_SHA256",hex64),kernel_release_accepted:false,status:"INSTALLED_CANDIDATE_FOR_OWNER_REVIEW",corporate_route:process.env.CORPORATE_DELIVERY_ROUTE_STATUS==="success"?"PASS":"INCOMPLETE",owner_acceptance:"PENDING"};
+            const products=[
+              ["admin-center","iwxa.admin-center","0.4.1","IWXA-Admin-Center-0.4.1-Setup.exe",path.join(root,"admin","artifacts","iwxa-setup-core-center-private-d3.exe"),"admin","CENTER_PIN","CORPORATE_ADMIN_SETUP_SHA256","CENTER_PIN"],
+              ["publisher","iwxa.publisher","0.5.0","IWXA-Publisher-0.5.0-Setup.exe",path.join(temp,"corporate-publisher-setup","publisher-private-setup.exe"),"publisher","PUBLISHER_PIN","CORPORATE_PUBLISHER_SETUP_SHA256","CENTER_PIN"],
+              ["personal-agent","iwxa.personal-agent","0.6.4","IWXA-Personal-Agent-0.6.4-Setup.exe",path.join(temp,"corporate-agent-installed","IWXA-Private-SetupCore-Candidate.exe"),"private-agent","AGENT_PIN","CORPORATE_AGENT_SETUP_SHA256","AGENT_SETUP_PIN"]
+            ];
+            await fsp.mkdir(out,{recursive:false});
+            try{
+              for(const [slug,product,version,filename,source,repo,pinVar,digestVar,setupPinVar] of products){
+                const expected=env(digestVar,hex64),sourceSha=env(pinVar,hex40),dir=path.join(root,repo);
+                const tree=git(dir,"HEAD^{tree}");
+                requireOk(git(dir,"HEAD")===sourceSha&&hex40.test(tree),"SOURCE_PIN_INVALID");
+                const st=await fsp.lstat(source);
+                requireOk(st.isFile()&&!st.isSymbolicLink()&&Number.isSafeInteger(st.size)&&st.size>=100000,"INSTALLER_INVALID");
+                const h=await fsp.open(source,"r");
+                try{const head=Buffer.alloc(2);const r=await h.read(head,0,2,0);requireOk(r.bytesRead===2&&head.toString("ascii")==="MZ","INSTALLER_HEADER_INVALID");}finally{await h.close();}
+                const identity={...common,product,version,filename,source_sha:sourceSha,source_tree_sha:tree,setup_core_source_sha:env(setupPinVar,hex40),plaintext_sha256:expected,plaintext_bytes:st.size};
+                const key=crypto.randomBytes(32),nonce=crypto.randomBytes(12),plainHash=crypto.createHash("sha256"),cipherHash=crypto.createHash("sha256");
+                try{
+                  const cipher=crypto.createCipheriv("aes-256-gcm",key,nonce);
+                  cipher.setAAD(Buffer.from(JSON.stringify(identity),"utf8"));
+                  const encrypted=path.join(out,slug+".enc");
+                  await pipeline(fs.createReadStream(source),measure(plainHash),cipher,measure(cipherHash),fs.createWriteStream(encrypted,{flags:"wx"}));
+                  const size=(await fsp.stat(encrypted)).size;
+                  requireOk(plainHash.digest("hex")===expected&&size===st.size,"INSTALLED_SETUP_BYTES_CHANGED");
+                  const wrapped=crypto.publicEncrypt({key:publicKey,padding:crypto.constants.RSA_PKCS1_OAEP_PADDING,oaepHash:"sha256"},key);
+                  const envelope={identity,ciphertext_sha256:cipherHash.digest("hex"),ciphertext_bytes:size,nonce:nonce.toString("base64"),tag:cipher.getAuthTag().toString("base64"),wrapped_key:wrapped.toString("base64")};
+                  await fsp.writeFile(path.join(out,slug+"-envelope.json"),JSON.stringify(envelope,null,2)+"\n",{flag:"wx"});
+                  console.log("CORPORATE_OWNER_INSTALLER_SHA256="+slug+":"+expected);
+                }finally{key.fill(0);}
+              }
+              console.log("CORPORATE_OWNER_ENCRYPTED_INSTALLERS=3");
+            }catch(error){await fsp.rm(out,{recursive:true,force:true});throw error;}
+          }
+          main().catch(error=>{const code=/^[A-Z][A-Z0-9_]{3,100}$/.test(error.message||"")?error.message:"OWNER_SEAL_FAILED";console.error(code);process.exitCode=1;});
+          '@
+          [IO.File]::WriteAllText($script,$js,[Text.UTF8Encoding]::new($false))
+          try{
+            & node $script
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_OWNER_SEAL_HOLD'}
+          }finally{Remove-Item -LiteralPath $script -Force -ErrorAction SilentlyContinue}
+      - name: Upload only the six encrypted owner-delivery files
+        if: ${{ !cancelled() && steps.owner_seal.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: IWXA-Corporate-0.4.1-0.5.0-0.6.4-encrypted-candidates
+          path: |
+            ${{ runner.temp }}/corporate-owner-sealed/admin-center.enc
+            ${{ runner.temp }}/corporate-owner-sealed/admin-center-envelope.json
+            ${{ runner.temp }}/corporate-owner-sealed/publisher.enc
+            ${{ runner.temp }}/corporate-owner-sealed/publisher-envelope.json
+            ${{ runner.temp }}/corporate-owner-sealed/personal-agent.enc
+            ${{ runner.temp }}/corporate-owner-sealed/personal-agent-envelope.json
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
       - name: Discard transient private sources packages and employee profile
         if: always()
         shell: pwsh
@@ -894,6 +988,7 @@ jobs:
              (Join-Path $env:RUNNER_TEMP 'corporate-agent-installed'),
              (Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache'),
              (Join-Path $env:RUNNER_TEMP 'corporate-publisher-setup'),
+             (Join-Path $env:RUNNER_TEMP 'corporate-owner-sealed'),
              (Join-Path $env:RUNNER_TEMP 'iwxa-licensed-employee-handoff'))){
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
           }
