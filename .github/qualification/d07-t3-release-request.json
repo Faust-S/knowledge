@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "candidate": "d07-t3-release-169f674db752",
-  "siteRevision": "169f674db7528fce7744c10de28554e9c864e83a",
+  "candidate": "d07-t3-release-fc42b94ecdf1",
+  "siteRevision": "fc42b94ecdf1b5febf6f000fae14363fe2ba7725",
   "domainRevision": "11ec43898d025107174df0b2cde6024c340c1cc0",
-  "pipelineRevision": "008b41682c9f1e99fa177baaf7c31f8504baa0ce",
-  "reason": "Frozen functional scope; existing combined release qualification. Qualify independently of transport, retain privately only if existing authorization passes. No new functional suites or separate portability workflow."
+  "pipelineRevision": "c8fc6f7950227ac16ff91a38496217befadfa7c0",
+  "reason": "Existing release regression fixes only. All twelve failed checks reconciled with unchanged order behavior; explicit ServiceOrder type verified locally. Reuse the consolidated release qualification."
 }
