@@ -10,6 +10,7 @@ import {createT4CandidateFrameTransport} from '../src/network/standard-network-w
 import {discoverT4OriginalNetworkSessionContent} from '../src/network/original-network-subject-apply.mjs';
 import {createT4OriginalNetworkReplayPort} from '../src/network/original-network-replay-checkpoint.mjs';
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
+import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort} from '../src/network/original-network-host-cursor.mjs';
 import {recoverT4OriginalReplacementTerminalCursorEvidence,recoverT4OriginalHistoricallyConfirmedSourceCursor} from '../src/network/original-network-source-cursor.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
   T4_REPLACEMENT_SOURCE_SESSION_EXTENSION,decodeT4CandidateFrame} from '../src/network/standard-network-wire-candidate.mjs';
@@ -551,8 +552,24 @@ async function controlFixture({indexed=false,realSourceHistory=false}={}){
       proof.originalAcceptedAppliedAckAbsentRequired===true&&proof.originalSubjectMutationAllowed===false,...patch});
   const sourceCursorBefore=originalBefore??{schema:'IWXA_T4_ORIGINAL_EVENT_CURSOR_V1',workspaceId:ws,originalWriteOwnerRef:owner,
     lastEventId:'event:k47:baseline',seenEventCount:1,sourcePrefixDigest:H,originalPermissionProof:false};
-  // The source frontier is an explicit test port; the actual phase and
-  // replay Objects are exercised in the original Kernel fixture.
+  // K69 runs both actual original cursor ports against the same two
+  // Kernel fixtures used by the session phases, replay and publications.
+  let frontierWriteAllowed=true;
+  const cursorArgs=role=>{
+    const source=role==='SOURCE',node=source?sourceNodeRef:recipientNodeRef;
+    const identity={technicalWorkspaceId:source?technical:workspace,sourceWorkspaceId:ws,
+      originalWriteOwnerRef:owner,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch:epoch};
+    return {...identity,originalKernel:source?sourceStore.kernel:f.kernel.kernel,getMode,
+      readOriginalHostContext:context(node,identity.technicalWorkspaceId),authorizeOriginalTechnicalRead:async()=>true,
+      authorizeOriginalTechnicalWrite:async()=>frontierWriteAllowed,authorizeOriginalSourceRead:async()=>true,
+      readOriginalSourceEvents:readOriginalEvents,
+      readOriginalAdmittedBaseline:async()=>({schema:'IWXA_T4_ORIGINAL_'+role+'_BASELINE_V1',identity,
+        sourceCursor:sourceCursorBefore,originalBaselineRef:'baseline:k69:'+role,originalBaselineDigest:H})};
+  };
+  const realSourceCursor=()=>createT4OriginalNetworkHostCursorPort({...cursorArgs('SOURCE'),verifyOriginalSourceBaseline:async()=>true});
+  const realRecipientCursor=()=>createT4OriginalNetworkRecipientCursorPort({...cursorArgs('RECIPIENT'),
+    verifyOriginalRecipientBaseline:async()=>true,authorizeOriginalRecipientRead:async()=>true});
+  // The earlier fixtures can still inject divergent frontiers explicitly.
   const cursorPort=Object.freeze({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_PORT_V1',
     checkpointRef:'cursor:k47:source',usesOriginalT3CAS:true,createsStore:false,
     inspectOriginalHostCursor:async()=>({schema:'IWXA_T4_ORIGINAL_HOST_NATIVE_ACK_CURSOR_STATUS_V1',
@@ -570,7 +587,9 @@ async function controlFixture({indexed=false,realSourceHistory=false}={}){
       originalT3VerifiedCursor:recipientFrontierChanged?{...sourceCursorBefore,sourcePrefixDigest:B}:sourceCursorBefore})});
   const sourceCursorAfter=originalWindow?.nextCursor??{...sourceCursorBefore,lastEventId:sourceEventId,seenEventCount:2,sourcePrefixDigest:B};
   const eligibilityOptions=()=>({originalCaptureSession:session,sourceCursorBefore,sourcePhasePort:sourcePhase(),
-    recipientPhasePort:phase(),sourceCursorPort:cursorPort,recipientCursorPort,sourceHistoricalFramePort:transport(sourceNodeRef),
+    recipientPhasePort:phase(),sourceCursorPort:realSourceHistory&&!frontierChanged?realSourceCursor():cursorPort,
+    recipientCursorPort:realSourceHistory&&!recipientFrontierChanged?realRecipientCursor():recipientCursorPort,
+    sourceHistoricalFramePort:transport(sourceNodeRef),
     requiredCryptoSuite:suite,getMode,verifyOriginalSourceCapture:async proof=>
       captureVerified&&proof.originalCaptureSession.sourceEventId===sourceEventId,
     authorizeOriginalReplacement:async proof=>replacementAllowed&&proof.originalBothAttemptsRetired===true});
@@ -673,6 +692,7 @@ async function controlFixture({indexed=false,realSourceHistory=false}={}){
     resolveSourceContentSigner:async()=>({permissionRef:'permission:k47:'+sourceNodeRef,signerRef:sourceKey.id}),
     durableRetire,signatureCount:()=>signatures,loseControlWrite:()=>{loseControlWrite=true;},
     eligibility,eligibilityOptions,sourceCursorBefore,sourceCursorAfter,transport,indexes,
+    realSourceCursor,realRecipientCursor,setFrontierWriteAllowed:v=>{frontierWriteAllowed=v;},
     publishReplacement,discoverReplacement,createReplacementPort,createReplacementRecipientPort,
     recipientAdmissionOptions,publishReplacementDiff,
     changeRecipientFrontier:()=>{recipientFrontierChanged=true;},restoreRecipientFrontier:()=>{recipientFrontierChanged=false;},
@@ -1375,7 +1395,8 @@ test('K63 successor source PUBLISHED binds complete original publication and pre
 });
 
 
-test('K67 K68 source confirms only the independently received successor ACK; historical recovery is independent of frontiers, network and current signers',async()=>{
+for(const order of ['RECIPIENT_FIRST_LOST_RESPONSES','SOURCE_FIRST_NORMAL'])
+test('K67 K68 K69 source confirms successor ACK and both original frontiers recover independently: '+order,async()=>{
   const q=await replacementRecipientFixture({realSourceHistory:true}),{x,c}=q;await q.diff();await q.publish();
   const getMode=x.eligibilityOptions().getMode,source=q.source;
   let allowed=true,recipientResult=true;
@@ -1482,4 +1503,49 @@ test('K67 K68 source confirms only the independently received successor ACK; his
   await assert.rejects(recover(),isCode('CURSOR_ORIGINAL_T3_SOURCE_EVENT_CHANGED'));x.sourceEvents[1].payload=originalPayload;
   await assert.rejects(recoverT4OriginalHistoricallyConfirmedSourceCursor(historyArgs),isCode('PUBLICATION_ORIGINAL_CAPTURE_IDENTITY_INVALID'));
   assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},counts);
+  // K69: both actual original frontier ports start at the admitted prefix.
+  // The recipient Result callback above is a fixture; the actual recipient
+  // cursor must independently find the original business Event as well.
+  x.restoreFrontier();x.restoreRecipientFrontier();
+  const recipientCommit=()=>x.realRecipientCursor().commitHistoricallyConfirmedReplacementCursor({recovery:historyArgs});
+  const sourceCommit=()=>x.realSourceCursor().commitHistoricallyConfirmedReplacementCursor({recovery:historyArgs});
+  assert.deepEqual((await x.realSourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,x.sourceCursorBefore);
+  assert.deepEqual(await x.realRecipientCursor().readOriginalVerifiedCursor(),x.sourceCursorBefore);
+  await assert.rejects(recipientCommit(),isCode('RECIPIENT_CURSOR_ORIGINAL_RESULT_EVENT_MISMATCH'));
+  x.f.kernel.events.push({event_id:actualEvent,workspace_id:c.workspaceId,object_id:'object:k47:one',
+    revision:c.sourceRevision,event_type:'iwxa.t4.original-object.synced',payload:{originalEventId:c.sourceEventId,
+      originalEventDigest:c.sourceEventDigest,originalWriteOwnerRef:c.originalWriteOwnerRef,originalContentDigest:B}});
+  await assert.rejects(x.realRecipientCursor().persistOriginalVerifiedCursor({}, {session:c}),isCode('PUBLICATION_ORIGINAL_CAPTURE_IDENTITY_INVALID'));
+  x.setFrontierWriteAllowed(false);await assert.rejects(recipientCommit(),isCode('RECIPIENT_CURSOR_ORIGINAL_ACCESS_DENIED'));
+  x.setFrontierWriteAllowed(true);
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},counts);
+  if(order==='RECIPIENT_FIRST_LOST_RESPONSES'){
+    x.f.kernel.loseNextReply();await assert.rejects(recipientCommit(),isCode('RECIPIENT_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+    assert.deepEqual(await x.realRecipientCursor().readOriginalVerifiedCursor(),x.sourceCursorAfter);
+    assert.deepEqual((await x.realSourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,x.sourceCursorBefore);
+    await assert.rejects(x.eligibility(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
+    historyAllowed=false;await assert.rejects(sourceCommit(),isCode('CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED'));historyAllowed=true;
+    x.sourceStore.loseNextReply();await assert.rejects(sourceCommit(),isCode('HOST_CURSOR_ORIGINAL_WRITE_OUTCOME_UNKNOWN'));
+  }else{
+    assert.equal((await sourceCommit()).state,'ORIGINAL_T3_CAS_COMMITTED');
+    assert.deepEqual((await x.realSourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,x.sourceCursorAfter);
+    assert.deepEqual(await x.realRecipientCursor().readOriginalVerifiedCursor(),x.sourceCursorBefore);
+    await assert.rejects(x.eligibility(),isCode('REPLACEMENT_ORIGINAL_CAUSAL_FRONTIER_CHANGED'));
+    historyAllowed=false;await assert.rejects(recipientCommit(),isCode('CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED'));historyAllowed=true;
+    assert.equal((await recipientCommit()).state,'ORIGINAL_T3_CAS_COMMITTED');
+  }
+  x.f.restart();
+  assert.equal((await recipientCommit()).state,'ALREADY_COMMITTED');
+  assert.equal((await sourceCommit()).state,'ALREADY_COMMITTED');
+  assert.deepEqual((await x.realSourceCursor().inspectOriginalHostCursor()).originalT3NextCursor,x.sourceCursorAfter);
+  const committed=await x.realSourceCursor().inspectOriginalCommittedSourceAcknowledgements({sessions:[c]});
+  assert.equal(committed.results.length,1);assert.deepEqual(committed.results[0].session,c);
+  assert.equal((await x.realSourceCursor().inspectOriginalCommittedSourceAcknowledgements({sessions:[x.session]})).results.length,0);
+  const selection=Object.fromEntries(['sessionRef','changeId','sourceEventId','sourceEventDigest','capturedSha256'].map(k=>[k,c[k]]));
+  const results=await x.realRecipientCursor().inspectOriginalCommittedRecipientResults({selections:[selection]});
+  assert.deepEqual(results.results[0].session,c);assert.equal(results.results[0].originalRecipientEventId,actualEvent);
+  const next=await x.realSourceCursor().readNextOriginalSourceEvent();
+  assert.equal(next.state,'NEXT_ORIGINAL_EVENT_READY_FOR_EXISTING_HOST_TASK');assert.equal(next.nextCursor.lastEventId,'event:k68:later');
+  assert.deepEqual({source:x.sourceStore.calls,recipient:x.f.kernel.calls,signs:x.signatureCount(),...x.counts()},
+    {...counts,source:counts.source+1,recipient:counts.recipient+1});
 });
