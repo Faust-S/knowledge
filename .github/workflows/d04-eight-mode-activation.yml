@@ -1,10 +1,5 @@
 name: D04 eight Life OS modes original T2 activation and cold restore
 on:
-  push:
-    branches:
-      - work/2026-11-18-d04-life-os-qualification
-    paths:
-      - .github/workflows/d04-eight-mode-activation.yml
   workflow_dispatch:
 permissions:
   contents: read
