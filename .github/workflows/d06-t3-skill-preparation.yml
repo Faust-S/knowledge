@@ -19,14 +19,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod
-          ref: 500d0eefe3dd331e709d6ba78af583951c17a9e4
+          ref: 7b325b4dcb82f27ec62def7e8a9637c3dd81aebc
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/domain
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 67886e0c7cc737fab05b86112e8f308543bc3205
+          ref: 116edfae2095a6e8aa8a2e8ab60fe7620fb1e9e0
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/site
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
-          ref: 5334998c19cc6043c1e8cff32618ffcb672868ea
+          ref: 67886e0c7cc737fab05b86112e8f308543bc3205
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/previous
@@ -81,6 +81,8 @@ jobs:
           }
           if ((Get-Content $log -Raw) -notmatch '(?m)^D06_T3_FACT_ABSTENTION_CASES=50\r?$') { Write-Host "D06_T3_FACT_ABSTENTION=FAIL"; exit 1 }
           Write-Host "D06_T3_FACT_ABSTENTION_CASES=50"
+          if ((Get-Content $log -Raw) -notmatch '(?m)^D06_T3_RESULT_CONTEXT_CASES=54\r?$') { Write-Host "D06_T3_RESULT_CONTEXT=FAIL"; exit 1 }
+          Write-Host "D06_T3_RESULT_CONTEXT_CASES=54"
           Write-Host "D06_T3_SKILLS_SOURCE=PASS"
       - name: Check original React source bindings and idempotent import
         working-directory: private/site
@@ -107,9 +109,9 @@ jobs:
           Write-Host "D06_T3_PINNED_SERIALIZER_TEST=PASS"
           $domain = Join-Path $env:GITHUB_WORKSPACE "private/domain"
           $before = (git status --porcelain --untracked-files=normal)
-          & node scripts/d06-assistant-skills.mjs import $domain 500d0eefe3dd331e709d6ba78af583951c17a9e4 *> $log
+          & node scripts/d06-assistant-skills.mjs import $domain 7b325b4dcb82f27ec62def7e8a9637c3dd81aebc *> $log
           if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '"changed":false') { Write-Host "D06_T3_IMPORT_DRY_RUN=FAIL"; exit 1 }
-          & node scripts/d06-assistant-skills.mjs import $domain 500d0eefe3dd331e709d6ba78af583951c17a9e4 --apply *> $log
+          & node scripts/d06-assistant-skills.mjs import $domain 7b325b4dcb82f27ec62def7e8a9637c3dd81aebc --apply *> $log
           if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '"applied":false') { Write-Host "D06_T3_IMPORT_IDEMPOTENT=FAIL"; exit 1 }
           if ((git status --porcelain --untracked-files=normal) -or $before) { Write-Host "D06_T3_IMPORT_DIRTY=FAIL"; exit 1 }
           Write-Host "D06_T3_IMPORT_DRY_RUN=PASS"
@@ -121,37 +123,46 @@ jobs:
             Write-Host "D06_T3_REACT_TYPES=FAIL"; exit 1
           }
           Write-Host "D06_T3_REACT_TYPES=PASS"
-      - name: Prove actual 1.1 to 1.2 import and exact committed bytes
+      - name: Prove 1.2 to 1.3 upgrade only with exact new result bindings
         working-directory: private/site
         shell: pwsh
         run: |
           $script = Join-Path $env:RUNNER_TEMP "d06-skill-upgrade-private.mjs"
           @'
           import assert from "node:assert/strict";
-          import { readFileSync } from "node:fs";
+          import { readFileSync, copyFileSync } from "node:fs";
           import { resolve, join } from "node:path";
           import { pathToFileURL } from "node:url";
           const { importSkills, verifyProjection } = await import(pathToFileURL(resolve("scripts/d06-assistant-skills.mjs")).href);
           const owner = resolve("../domain");
           const previous = resolve("../previous");
-          const commit = "500d0eefe3dd331e709d6ba78af583951c17a9e4";
+          const commit = "7b325b4dcb82f27ec62def7e8a9637c3dd81aebc";
           const files = ["public/assets/d06-assistant-skills.json", "runtime/t3-platform/0.3.1-rc.1/domain-skills.json"];
           const original = files.map(p=>readFileSync(join(previous,p)));
-          assert.equal(JSON.parse(original[0]).version,"1.1.0");
+          assert.equal(JSON.parse(original[0]).version,"1.2.0");
+          assert.throws(()=>importSkills(owner,commit,{dir:previous,apply:true}),/D06_SKILL_PROJECTION_RESULT_(?:HINT|BINDING|READINESS)/);
+          for(let i=0;i<files.length;i++)assert.ok(original[i].equals(readFileSync(join(previous,files[i]))));
+          // A skill update requiring new result scopes must be installed with
+          // the corresponding exact owner-approved site source bindings.
+          for(const service of ["solution-configuration","total-cost-of-ownership","acquire-rent-lease-service","lifecycle-decision","transfer-sale-retirement"]){
+            const path="src/routes/services."+service+".index.tsx";
+            copyFileSync(path,join(previous,path));
+          }
           const dry = importSkills(owner, commit, {dir:previous});
-          assert.equal(dry.version,"1.2.0");
+          assert.equal(dry.version,"1.3.0");
           assert.equal(dry.changed,true);
           assert.equal(dry.applied,false);
           for(let i=0;i<files.length;i++)assert.ok(original[i].equals(readFileSync(join(previous,files[i]))));
           const applied = importSkills(owner, commit, {dir:previous,apply:true});
           assert.equal(applied.applied,true);
-          assert.equal(verifyProjection(previous).version,"1.2.0");
+          assert.equal(verifyProjection(previous).version,"1.3.0");
           for(const path of files)assert.ok(readFileSync(join(previous,path)).equals(readFileSync(path)));
           assert.equal(importSkills(owner,commit,{dir:previous,apply:true}).applied,false);
           '@ | Set-Content -LiteralPath $script -Encoding utf8
           $log = Join-Path $env:RUNNER_TEMP "d06-skill-upgrade-private.log"
           & node $script *> $log
           if ($LASTEXITCODE -ne 0) { Write-Host "D06_T3_SKILL_UPGRADE=FAIL"; exit 1 }
+          Write-Host "D06_T3_SKILL_UPGRADE_REJECTS_MISSING_BINDINGS=PASS"
           Write-Host "D06_T3_SKILL_UPGRADE=PASS"
           Write-Host "D06_T3_SKILL_UPGRADE_COMMITTED_BYTES=PASS"
       - name: Evidence boundary
