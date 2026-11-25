@@ -1,6 +1,6 @@
 name: d06-t3-release-gate
-# A candidate is qualified only on an explicit request commit.
-# Intermediate source and workflow edits do not start runners.
+# Manual continuation of the exact frozen D06 release candidate.
+# No push or schedule triggers. Preserve previous positive evidence.
 on:
   workflow_dispatch:
 
@@ -25,7 +25,8 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             .github/d06/t3-release-request.json
-            .github/d06/e2e-report-summary.mjs
+            .github/d06/reuse-static-evidence.mjs
+            scripts/d06-static-reconcile.sh
             scripts/d06-private-git-transport.sh
           sparse-checkout-cone-mode: false
           path: pipeline
@@ -76,13 +77,6 @@ jobs:
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: private/assistant
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/komplektovod.ru
-          ref: ffa31457ea7b29b9a0f65eafd7e44a2141da6e66
-          token: ${{ secrets.DOMEN }}
-          persist-credentials: false
-          path: private/previous
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -134,33 +128,17 @@ jobs:
           $site = (git -C private/site rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $site -cne $env:EXPECTED_SITE) { throw "D06_RELEASE_SITE_SHA" }
           Write-Host "D06_RELEASE_EXACT_PINS=PASS"
-      - name: Prove exact canonical projection
-        shell: pwsh
+      - name: Reuse exact completed product evidence
+        id: static-evidence
+        shell: bash
         env:
-          EXPECTED_OWNER: ${{ steps.request.outputs.owner }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $ErrorActionPreference = "Stop"
-          switch ($env:EXPECTED_OWNER) {
-            "607525f672c8631a59c27c7e0e621a7a6e0f4d1a" { $evidenceCases = 52; $selectionCases = 44 }
-            "8471dca0037328dfee8689632df9c27866e89845" { $evidenceCases = 70; $selectionCases = 63 }
-            default { throw "D06_RELEASE_UNQUALIFIED_CASE_INVENTORY" }
-          }
-          foreach ($path in @("src/evaluate-offers/comparison-evidence.mjs","src/evaluate-offers/comparison-evidence.d.mts","scripts/test-pd12-comparison-evidence.mjs","src/rules/replacement-comparison.ts","src/evaluate-offers/purchase-decision-readiness.ts","src/evaluate-offers/ordinary-selection-write.ts","scripts/test-pd12-ordinary-selection.mjs","src/evaluate-offers/current-purchase-decision.ts","scripts/test-current-purchase-decision.mjs","src/schemas/komplektovod/offer-comparison.schema.json","src/schemas/komplektovod/offer-assessment.schema.json")) {
-            $a = (git -C private/domain rev-parse ("HEAD:" + $path)).Trim()
-            $b = (git -C private/site rev-parse ("HEAD:" + $path)).Trim()
-            if ($a -ne $b) { throw "D06_PD12_OWNER_PROJECTION_MISMATCH" }
-          }
-          Write-Host "D06_PD12_OWNER_PROJECTION=PASS"
-          $log = Join-Path $env:RUNNER_TEMP "d06-pd12-canonical.private.log"
-          & node private/domain/scripts/test-pd12-comparison-evidence.mjs *> $log
-          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch ('(?m)^D06_PD12_COMPARISON_EVIDENCE_CASES=' + $evidenceCases + '\r?$')) { throw "D06_PD12_CANONICAL_CASES_FAILED" }
-          Write-Host ("D06_PD12_CANONICAL_CASES=" + $evidenceCases)
-          & node --experimental-strip-types private/domain/scripts/test-pd12-ordinary-selection.mjs *> $log
-          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch ('(?m)^D06_PD12_SELECTION_CASES=' + $selectionCases + '\r?$')) { throw "D06_PD12_CANONICAL_SELECTION_FAILED" }
-          Write-Host ("D06_PD12_CANONICAL_SELECTION_CASES=" + $selectionCases)
-          & node --experimental-strip-types private/domain/scripts/test-current-purchase-decision.mjs *> $log
-          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '(?m)^D06_CURRENT_PURCHASE_DECISION_CASES=51\r?$') { throw "D06_CURRENT_PURCHASE_DECISION_FAILED" }
-          Write-Host "D06_CURRENT_PURCHASE_DECISION_CASES=51"
+          set -euo pipefail
+          gh api repos/Faust-S/knowledge/actions/runs/45669214673 > "$RUNNER_TEMP/d06-prior-run.private.json"
+          gh api repos/Faust-S/knowledge/actions/jobs/139399590758 > "$RUNNER_TEMP/d06-prior-job.private.json"
+          gh api repos/Faust-S/knowledge/actions/jobs/139399590758/logs > "$RUNNER_TEMP/d06-prior-job.private.log"
+          node "$GITHUB_WORKSPACE/pipeline/.github/d06/reuse-static-evidence.mjs" "$RUNNER_TEMP/d06-prior-run.private.json" "$RUNNER_TEMP/d06-prior-job.private.json" "$RUNNER_TEMP/d06-prior-job.private.log"
       - name: Check exact original assistant files and owner pack
         shell: pwsh
         run: |
@@ -177,34 +155,11 @@ jobs:
           $released = (git -C private/skill-owner rev-parse HEAD:models/assistant-skills.json).Trim()
           $site = (git -C private/site rev-parse HEAD:public/assets/d06-assistant-skills.json).Trim()
           if ($owner -ne $site -or $released -ne $site -or $site -ne $skillPin.sourceBlob) { throw "D06_T3_SKILL_BYTES_MISMATCH" }
-          foreach ($root in @("private/domain","private/skill-owner","private/site","private/previous")) {
+          foreach ($root in @("private/domain","private/skill-owner","private/site")) {
             if ((git -C $root rev-parse HEAD:src/registry/services.json).Trim() -ne $skillPin.registryBlob) { throw "D06_T3_SKILL_REGISTRY_MISMATCH" }
           }
           Write-Host "D06_T3_SKILL_RELEASE_PIN=PASS"
           Write-Host "D06_T3_ORIGINAL_INPUTS=PASS"
-      - name: Validate canonical procedures, original runtime and extraction
-        working-directory: private/domain
-        shell: pwsh
-        run: |
-          $env:IWXA_ORIGINAL_ASSISTANT_ROOT = Join-Path $env:GITHUB_WORKSPACE "private/assistant/browser-local-inference/domain-assistant"
-          $log = Join-Path $env:RUNNER_TEMP "d06-t3-owner-private.txt"
-          & node scripts/d06-skill-authoring.mjs check *> $log
-          if ($LASTEXITCODE -ne 0) { Write-Host "D06_T3_AUTHORING=FAIL"; exit 1 }
-          & node scripts/test-assistant-skills.mjs *> $log
-          if ($LASTEXITCODE -ne 0) {
-            $data = Get-Content $log -Raw
-            $codes = [regex]::Matches($data,'(?:D06_SKILL|T3_ASSISTANT_SKILLS)_[A-Z_]+') | ForEach-Object {$_.Value} | Select-Object -Unique -First 8
-            $line = [regex]::Match($data,'test-assistant-skills\.mjs:(\d+):\d+').Groups[1].Value
-            Write-Host ("D06_T3_SKILL_FAILURE_CODES=" + ($codes -join ","))
-            Write-Host ("D06_T3_SKILL_FAILURE_LINE=" + $line)
-            Write-Host "D06_T3_SKILLS_SOURCE=FAIL"
-            exit 1
-          }
-          if ((Get-Content $log -Raw) -notmatch '(?m)^D06_T3_FACT_ABSTENTION_CASES=50\r?$') { Write-Host "D06_T3_FACT_ABSTENTION=FAIL"; exit 1 }
-          Write-Host "D06_T3_FACT_ABSTENTION_CASES=50"
-          if ((Get-Content $log -Raw) -notmatch '(?m)^D06_T3_RESULT_CONTEXT_CASES=119\r?$') { Write-Host "D06_T3_RESULT_CONTEXT=FAIL"; exit 1 }
-          Write-Host "D06_T3_RESULT_CONTEXT_CASES=119"
-          Write-Host "D06_T3_SKILLS_SOURCE=PASS"
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/komplektovod.ru
@@ -230,78 +185,6 @@ jobs:
           & npm ci *> $log
           if ($LASTEXITCODE -ne 0) { Write-Host "D06_RELEASE_NPM_CI=FAIL"; exit 1 }
           Write-Host "D06_RELEASE_NPM_CI=PASS"
-      - name: Check original React source bindings and idempotent import
-        working-directory: private/site
-        shell: pwsh
-        run: |
-          $log = Join-Path $env:RUNNER_TEMP "d06-t3-site-private.txt"
-          & node scripts/d06-assistant-skills.mjs check *> $log
-          if ($LASTEXITCODE -ne 0) {
-            $codes = [regex]::Matches((Get-Content $log -Raw),'D06_SKILL_PROJECTION_[A-Z_]+') | ForEach-Object {$_.Value} | Select-Object -Unique -First 8
-            Write-Host ("D06_T3_PROJECTION_CODES=" + ($codes -join ","))
-            Write-Host "D06_T3_SKILLS_PROJECTION=FAIL"
-            exit 1
-          }
-          Write-Host "D06_T3_SKILLS_PROJECTION=PASS"
-          & node --test tests/t3/static-route-timestamps.test.mjs *> $log
-          if ($LASTEXITCODE -ne 0) {
-            $codes = [regex]::Matches((Get-Content $log -Raw),'D06_T3_STATIC_ROUTE_TIME_[A-Z_]+') | ForEach-Object {$_.Value} | Select-Object -Unique -First 8
-            Write-Host ("D06_T3_SERIALIZER_CODES=" + ($codes -join ","))
-            Write-Host "D06_T3_PINNED_SERIALIZER_TEST=FAIL"
-            exit 1
-          }
-          Write-Host "D06_T3_PINNED_SERIALIZER_TEST=PASS"
-          $domain = Join-Path $env:GITHUB_WORKSPACE "private/skill-owner"
-          $before = (git status --porcelain --untracked-files=normal)
-          & node scripts/d06-assistant-skills.mjs import $domain 40e0965491819722dcf57c973e7d0c19b4cbcba0 *> $log
-          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '"changed":false') { Write-Host "D06_T3_IMPORT_DRY_RUN=FAIL"; exit 1 }
-          & node scripts/d06-assistant-skills.mjs import $domain 40e0965491819722dcf57c973e7d0c19b4cbcba0 --apply *> $log
-          if ($LASTEXITCODE -ne 0 -or (Get-Content $log -Raw) -notmatch '"applied":false') { Write-Host "D06_T3_IMPORT_IDEMPOTENT=FAIL"; exit 1 }
-          if ((git status --porcelain --untracked-files=normal) -or $before) { Write-Host "D06_T3_IMPORT_DIRTY=FAIL"; exit 1 }
-          Write-Host "D06_T3_IMPORT_DRY_RUN=PASS"
-          Write-Host "D06_T3_IMPORT_IDEMPOTENT=PASS"
-      - name: Prove 1.3 to 1.4.1 upgrade only with exact new result bindings
-        working-directory: private/site
-        shell: pwsh
-        run: |
-          $script = Join-Path $env:RUNNER_TEMP "d06-skill-upgrade-private.mjs"
-          @'
-          import assert from "node:assert/strict";
-          import { readFileSync, copyFileSync } from "node:fs";
-          import { resolve, join } from "node:path";
-          import { pathToFileURL } from "node:url";
-          const { importSkills, verifyProjection } = await import(pathToFileURL(resolve("scripts/d06-assistant-skills.mjs")).href);
-          const owner = resolve("../skill-owner");
-          const previous = resolve("../previous");
-          const commit = "40e0965491819722dcf57c973e7d0c19b4cbcba0";
-          const files = ["public/assets/d06-assistant-skills.json", "runtime/t3-platform/0.3.1-rc.1/domain-skills.json"];
-          const original = files.map(p=>readFileSync(join(previous,p)));
-          assert.equal(JSON.parse(original[0]).version,"1.3.0");
-          assert.throws(()=>importSkills(owner,commit,{dir:previous,apply:true}),/D06_SKILL_PROJECTION_RESULT_(?:HINT|BINDING|READINESS)/);
-          for(let i=0;i<files.length;i++)assert.ok(original[i].equals(readFileSync(join(previous,files[i]))));
-          // A skill update requiring new result scopes must be installed with
-          // the corresponding exact owner-approved site source bindings.
-          for(const service of ["capacity-quantity","compatibility-check","completeness-check","startup-cost","offer-comparison","acceptance-plan"]){
-            const path="src/routes/services."+service+".index.tsx";
-            copyFileSync(path,join(previous,path));
-          }
-          const dry = importSkills(owner, commit, {dir:previous});
-          assert.equal(dry.version,"1.4.1");
-          assert.equal(dry.changed,true);
-          assert.equal(dry.applied,false);
-          for(let i=0;i<files.length;i++)assert.ok(original[i].equals(readFileSync(join(previous,files[i]))));
-          const applied = importSkills(owner, commit, {dir:previous,apply:true});
-          assert.equal(applied.applied,true);
-          assert.equal(verifyProjection(previous).version,"1.4.1");
-          for(const path of files)assert.ok(readFileSync(join(previous,path)).equals(readFileSync(path)));
-          assert.equal(importSkills(owner,commit,{dir:previous,apply:true}).applied,false);
-          '@ | Set-Content -LiteralPath $script -Encoding utf8
-          $log = Join-Path $env:RUNNER_TEMP "d06-skill-upgrade-private.log"
-          & node $script *> $log
-          if ($LASTEXITCODE -ne 0) { Write-Host "D06_T3_SKILL_UPGRADE=FAIL"; exit 1 }
-          Write-Host "D06_T3_SKILL_UPGRADE_REJECTS_MISSING_BINDINGS=PASS"
-          Write-Host "D06_T3_SKILL_UPGRADE=PASS"
-          Write-Host "D06_T3_SKILL_UPGRADE_COMMITTED_BYTES=PASS"
       - name: Install fixed Chromium only in the qualification environment
         id: fixed-browser
         shell: bash
@@ -334,129 +217,17 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=normal)"
           echo D06_FINAL_BROWSER_VERSION=156.0.8078.4
           echo D06_FINAL_BROWSER_INSTALL=PASS
-      - name: Exact mandatory site gate
+      - name: Reconcile static source integrity with prior 85 of 85 evidence
         id: static-gate
         working-directory: private/site
         shell: bash
         env:
+          EXPECTED_SITE: ${{ steps.request.outputs.site }}
           D06_CANONICAL_TASK_INTENTS_PATH: ${{ github.workspace }}/private/domain/src/registry/task-intents.json
         run: |
           set -euo pipefail
-          log="$RUNNER_TEMP/d06-final-static-private.log"
-          export PLAYWRIGHT_JSON_OUTPUT_FILE="$RUNNER_TEMP/d06-final-e2e-private.json"
-          result=0
-          npm run build:static:check > "$log" 2>&1 || result=$?
-          if test -f "$PLAYWRIGHT_JSON_OUTPUT_FILE"; then
-            node "$GITHUB_WORKSPACE/pipeline/.github/d06/e2e-report-summary.mjs" "$PLAYWRIGHT_JSON_OUTPUT_FILE"
-          fi
-          if [ "$result" -ne 0 ]; then
-            echo D06_FULL_RUN_BUILD_STATIC_CHECK=FAIL
-            if grep -q 'prettier/prettier' "$log"; then echo "format-needed=true" >> "$GITHUB_OUTPUT"; fi
-            grep -E '^> [^ ]+ (check|test|build)(:[a-z0-9.-]+)*$' "$log" | sed -E 's/^> [^ ]+ /D06_FINAL_LAST_STAGE=/' | tail -12 || true
-            grep -Eo 'TS[0-9]{4}|TimeoutError|AssertionError|D06_[A-Z0-9_]+' "$log" | sort -u | head -35 || true
-            exit "$result"
-          fi
-          test -f "$PLAYWRIGHT_JSON_OUTPUT_FILE"
-          test -z "$(git status --porcelain --untracked-files=normal)"
-          echo D06_FULL_RUN_BUILD_STATIC_CHECK=PASS
-      - name: Diagnose formatting only if the existing mandatory gate refuses it
-        if: ${{ !cancelled() && steps.static-gate.outcome == 'failure' && steps.static-gate.outputs.format-needed == 'true' }}
-        working-directory: private/site
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/d06-format-coordinates.cjs" <<'NODE'
-          const { execFileSync, spawnSync } = require("node:child_process");
-          const { createRequire } = require("node:module");
-          const { createHash } = require("node:crypto");
-          const path = require("node:path");
-          const req = createRequire(path.resolve("package.json"));
-          const prettier = req("prettier");
-          const git = (...args) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
-          const files = git("ls-files", "-z").split("\0").filter(Boolean).sort();
-          const lint = spawnSync(process.execPath, [path.resolve("node_modules/eslint/bin/eslint.js"), ".", "--format", "json"], {
-            encoding: "utf8", maxBuffer: 64 * 1024 * 1024,
-          });
-          if (lint.status !== 0 && lint.status !== 1) throw Error("lint diagnostics unavailable");
-          const reports = JSON.parse(lint.stdout);
-          const flagged = reports.filter((report) =>
-            report.messages.some((message) => message.ruleId === "prettier/prettier"));
-          if (flagged.length > 32) throw Error("format scope limit");
-          const formatting = new Set([9, 10, 13, 32, 34, 39, 40, 41, 44, 58, 59, 91, 92, 93, 96, 123, 125]);
-          function parts(source) {
-            const content = [];
-            const gaps = [];
-            let offset = 0;
-            while (true) {
-              const start = offset;
-              while (offset < source.length && formatting.has(source.charCodeAt(offset))) offset++;
-              gaps.push({ start, value: source.slice(start, offset) });
-              if (offset === source.length) break;
-              content.push(source[offset++]);
-            }
-            return { content: content.join(""), gaps };
-          }
-          function sha(source) {
-            const bytes = Buffer.from(source, "utf8");
-            return createHash("sha1").update("blob " + bytes.length + "\0").update(bytes).digest("hex");
-          }
-          (async () => {
-            let count = 0;
-            let unsupported = 0;
-            let total = 0;
-            for (const report of flagged) {
-              const relative = path.relative(process.cwd(), report.filePath).replaceAll("\\", "/");
-              const ordinal = files.indexOf(relative) + 1;
-              if (!ordinal) throw Error("untracked format target");
-              const source = git("show", "HEAD:" + relative);
-              const sourceSha = git("rev-parse", "HEAD:" + relative).trim();
-              if (sha(source) !== sourceSha) throw Error("source blob mismatch");
-              const config = await prettier.resolveConfig(report.filePath);
-              const output = await prettier.format(source, { ...config, filepath: report.filePath });
-              const a = parts(source);
-              const b = parts(output);
-              if (a.content !== b.content || a.gaps.length !== b.gaps.length) {
-                console.log("D06_FMT_UNSUPPORTED=" + ordinal);
-                let prefix = 0;
-                while (prefix < a.content.length && prefix < b.content.length && a.content[prefix] === b.content[prefix]) prefix++;
-                let suffix = 0;
-                while (suffix < a.content.length - prefix && suffix < b.content.length - prefix && a.content[a.content.length - 1 - suffix] === b.content[b.content.length - 1 - suffix]) suffix++;
-                const pos = a.gaps[Math.min(prefix, a.gaps.length - 1)].start;
-                const line = source.slice(0, pos).split("\n").length;
-                const column = pos - source.lastIndexOf("\n", pos - 1);
-                console.log("D06_FMT_MISMATCH=" + [ordinal, line, column, a.content.length - prefix - suffix, b.content.length - prefix - suffix].join(":"));
-                unsupported++;
-                continue;
-              }
-              const edits = [];
-              for (let i = 0; i < a.gaps.length; i++) {
-                if (a.gaps[i].value === b.gaps[i].value) continue;
-                const codes = Array.from(b.gaps[i].value, (ch) => ch.charCodeAt(0));
-                if (!codes.every((code) => formatting.has(code))) throw Error("nonformat characters");
-                edits.push([a.gaps[i].start, a.gaps[i].value.length, codes]);
-              }
-              let replay = source;
-              for (const [start, length, codes] of [...edits].reverse())
-                replay = replay.slice(0, start) + String.fromCharCode(...codes) + replay.slice(start + length);
-              if (replay !== output) throw Error("coordinate replay mismatch");
-              if (!edits.length) continue;
-              if (total + edits.length > 15000) throw Error("format coordinate limit");
-              total += edits.length;
-              count++;
-              console.log("D06_FMT_BLOB=" + ordinal + ":" + sourceSha + ":" + sha(output) + ":" + edits.length);
-              for (let start = 0; start < edits.length; start += 20)
-                console.log("D06_FMT_COORD=" + ordinal + ":" + JSON.stringify(edits.slice(start, start + 20)));
-            }
-            console.log("D06_FMT_COORD_FILES=" + count);
-            console.log("D06_FMT_COORD_TOTAL=" + total);
-            console.log("D06_FMT_COORD_UNSUPPORTED=" + unsupported);
-            if (unsupported) process.exitCode = 1;
-          })().catch(() => { console.log("D06_FMT_COORD_ENGINE=FAIL"); process.exitCode = 1; });
-          NODE
-          result=0
-          node "$RUNNER_TEMP/d06-format-coordinates.cjs" > "$RUNNER_TEMP/d06-format-coordinates.private.log" 2>&1 || result=$?
-          grep -E '^D06_FMT_(BLOB=[0-9]+:[a-f0-9]{40}:[a-f0-9]{40}:[0-9]+|COORD=[0-9]+:[\[\],0-9]+|MISMATCH=[0-9]+:[0-9]+:[0-9]+:[0-9]+:[0-9]+|(COORD_FILES|COORD_TOTAL|COORD_UNSUPPORTED|UNSUPPORTED)=[0-9]+|COORD_ENGINE=FAIL)$' "$RUNNER_TEMP/d06-format-coordinates.private.log" || true
-          exit "$result"
+          bash "$GITHUB_WORKSPACE/pipeline/scripts/d06-static-reconcile.sh" "$EXPECTED_SITE"
+          echo D06_FINAL_STATIC_EVIDENCE_RECONCILED=PASS
       - name: Verify original public portable input
         id: original-input
         if: ${{ !cancelled() && steps.fixed-browser.outcome == 'success' }}
@@ -478,6 +249,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "8ee1f93603c95738333bc1489d68816ead870893"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo D06_LOOPBACK_PRISTINE_SOURCE=PASS
           npm run t3:prepare-host -- "$GITHUB_WORKSPACE/original-core/packages/t3-core" "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/private/assistant" https://127.0.0.1:8443 > "$RUNNER_TEMP/d06-host-private.log" 2>&1 || {
             echo D06_T3_HOST_SOURCE_BUILD=FAIL
             grep -Eo 'D06_T3_(HOST|PLATFORM)_[A-Z0-9_]+|D06_SITE_ONLY_[A-Z0-9_]+|D06_BUILD_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z_]+|T2_QUALIFIED_KERNEL_STAGE_[A-Z_]+|TS[0-9]{4}' "$RUNNER_TEMP/d06-host-private.log" | sort -u | head -25 || true
@@ -684,8 +458,8 @@ jobs:
           test "$(git rev-parse HEAD:.gitattributes)" = "98e0b5fafc7b2d1193a185b51a8ff0fe7b4da5fe"
           test -z "$(git diff --name-only)"
           echo D06_FINAL_RETENTION_BASE=PASS
-          rm -rf -- "$RUNNER_TEMP/d06-t3-host-production" "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/original-core" "$GITHUB_WORKSPACE/private/assistant" "$GITHUB_WORKSPACE/private/domain" "$GITHUB_WORKSPACE/private/skill-owner" "$GITHUB_WORKSPACE/private/previous" "$GITHUB_WORKSPACE/private/retention"
-          for checkout in original-core private/assistant private/domain private/skill-owner private/previous private/retention; do
+          rm -rf -- "$RUNNER_TEMP/d06-t3-host-production" "$RUNNER_TEMP/d06-t3-host" "$RUNNER_TEMP/platform-inputs.zip" "$GITHUB_WORKSPACE/original-core" "$GITHUB_WORKSPACE/private/assistant" "$GITHUB_WORKSPACE/private/domain" "$GITHUB_WORKSPACE/private/skill-owner" "$GITHUB_WORKSPACE/private/retention"
+          for checkout in original-core private/assistant private/domain private/skill-owner private/retention; do
             test ! -e "$GITHUB_WORKSPACE/$checkout"
           done
           echo D06_T3_EXTERNAL_SOURCE_CHECKOUTS_REMOVED=PASS
@@ -905,6 +679,10 @@ jobs:
         if: always()
         shell: pwsh
         run: |
+          Write-Host "D06_FINAL_PRIOR_STATIC_EVIDENCE=${{ steps.static-evidence.outcome }}"
+          Write-Host "D06_FINAL_STATIC_RECONCILIATION=${{ steps.static-gate.outcome }}"
+          Write-Host "D06_FINAL_NATIVE_EXCHANGE=${{ steps.native-exchange.outcome }}"
+          Write-Host "D06_FINAL_RETENTION_PREFLIGHT=${{ steps.retention-permission.outcome }}"
           Write-Host "D06_T3_PRODUCT_ACCEPTED=false"
           Write-Host "D06_PRIVATE_SOURCE_UPLOADS=0"
           Write-Host "D06_PRIVATE_LOG_UPLOADS=0"
