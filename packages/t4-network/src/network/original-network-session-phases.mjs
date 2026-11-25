@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {isT4NativeSubjectKind,validT4NativeSubjectRevision,deriveT4OriginalReplacementAttempt,
   validateT4CandidateSupersessionRetirementClaim,validateT4CandidateReplacementHeadBinding}
   from './standard-network-wire-candidate.mjs';
-import {validateT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementPublishedContent,validateT4OriginalReplacementRecipientApplyAdmission,validateT4OriginalReplacementAppliedAckAdmission,validateT4OriginalReplacementPublishedAck} from './original-network-publication.mjs';
+import {validateT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementPublishedContent,validateT4OriginalReplacementRecipientApplyAdmission,validateT4OriginalReplacementAppliedAckAdmission,validateT4OriginalReplacementPublishedAck,validateT4OriginalReplacementSourceAckEvidence} from './original-network-publication.mjs';
 export {deriveT4OriginalReplacementAttempt} from './standard-network-wire-candidate.mjs';
 
 /**
@@ -81,7 +81,7 @@ export function createT4OriginalNetworkSessionPhasePort({
   verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,
   authorizeOriginalRecipientSupersession=null,authorizeOriginalSourceSupersession=null,
   replacementSourceAdmission=null,readOriginalReplacementSourceAdmission=null,
-  readOriginalReplacementSourceContentPublication=null,
+  readOriginalReplacementSourceContentPublication=null,readOriginalReplacementSourceAckEvidence=null,
   replacementRecipientAdmission=null,readOriginalReplacementRecipientApplyAdmission=null,readOriginalReplacementRecipientAckPublication=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
@@ -130,6 +130,8 @@ export function createT4OriginalNetworkSessionPhasePort({
     replacement=frozen({...a,binding});
   }else if(readOriginalReplacementSourceAdmission!==null||readOriginalReplacementSourceContentPublication!==null)
     fail('PHASE_ORIGINAL_REPLACEMENT_ADMISSION_PORT_REQUIRED');
+  if(readOriginalReplacementSourceAckEvidence!==null&&(!replacement||typeof readOriginalReplacementSourceAckEvidence!=='function'))
+    fail('PHASE_ORIGINAL_REPLACEMENT_LIVE_TRANSFER_NOT_ENABLED');
   const recipientReplacement=replacementRecipientAdmission===null?null:
     validateT4OriginalReplacementRecipientApplyAdmission(replacementRecipientAdmission);
   if(recipientReplacement){
@@ -239,10 +241,12 @@ export function createT4OriginalNetworkSessionPhasePort({
       fail('PHASE_ORIGINAL_REPLACEMENT_POLICY_MISMATCH');
     if(!eq(d.replacementSourceAdmission??null,replacement))
       fail('PHASE_ORIGINAL_REPLACEMENT_POLICY_MISMATCH');
-    if(replacement&&(d.stages.length>2||d.stages[0]?.phase!=='INTENT'||
+    if(replacement&&(d.stages.length>3||d.stages[0]?.phase!=='INTENT'||
       !eq(d.stages[0]?.evidence,{evidenceRef:replacement.sourceEventId,evidenceDigest:replacement.captureDigest})||
-      (d.stages.length===2&&(d.stages[1]?.phase!=='PUBLISHED'||!HASH(d.stages[1]?.evidence?.evidenceDigest)||
-        d.stages[1].evidence.evidenceRef!==d.stages[1].evidence.evidenceDigest.slice(7)+'.t4n'))))
+      (d.stages.length>=2&&(d.stages[1]?.phase!=='PUBLISHED'||!HASH(d.stages[1]?.evidence?.evidenceDigest)||
+        d.stages[1].evidence.evidenceRef!==d.stages[1].evidence.evidenceDigest.slice(7)+'.t4n'))||
+      (d.stages.length===3&&(d.stages[2]?.phase!=='APPLIED_CONFIRMED'||!HASH(d.stages[2]?.evidence?.evidenceDigest)||
+        d.stages[2].evidence.evidenceRef!==d.stages[2].evidence.evidenceDigest.slice(7)+'.t4n'))))
       fail('PHASE_ORIGINAL_REPLACEMENT_INTENT_INVALID');
     let previous=genesis;
     const normalized=[];
@@ -343,6 +347,8 @@ export function createT4OriginalNetworkSessionPhasePort({
         originalReplacementAdmissionRevision:current.revision>=1?1:null,
         originalReplacementAdmissionChainHash:current.stages[0]?.chainHash??null,
         originalReplacementPublishedEventId:current.originalEventIds[1]??null,
+        originalReplacementPublishedChainHash:current.stages[1]?.chainHash??null,
+        originalReplacementSourceConfirmedEventId:current.originalEventIds[2]??null,
         originalNewAttemptAdmissionStillRequired:true,liveNetworkAuthorityGranted:false}:{}),
       ...(recipientReplacement?{originalReplacementRecipientAdmission:clone(recipientReplacement),
         originalReplacementRecipientApplyIntentEventId:current.originalEventIds[2]??null,
@@ -413,6 +419,27 @@ export function createT4OriginalNetworkSessionPhasePort({
       return;
     }
     if(!replacement)return;
+    if(phase==='APPLIED_CONFIRMED'){
+      if(readOriginalReplacementSourceAckEvidence===null)fail('PHASE_ORIGINAL_REPLACEMENT_LIVE_TRANSFER_NOT_ENABLED');
+      if(current.revision<2)fail('PHASE_PREDECESSOR_NOT_PROVEN');
+      await guard(initial,'t1.getObject','replacement-source-ack');
+      const raw=await readOriginalReplacementSourceAckEvidence(frozen({checkpointRef,sessionRef,changeId,
+        originalReplacementSourceAckReadRequired:true,originalSubjectMutationAllowed:false}));
+      const w=validateT4OriginalReplacementSourceAckEvidence(raw,raw?.candidate),c=w.candidate,
+        a=w.sourcePublication.agreement,b=w.recipientAckAdmission.body,p=w.recipientAckPublication;
+      if(!['sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch','sessionRef','changeId'].every(k=>c[k]===identity[k])||
+        c.originalWriteOwnerRef!==originalWriteOwnerRef||c.sourceEventId!==replacement.sourceEventId||
+        c.capturedWindowDigest!==replacement.captureDigest||c.changeKind!==changeKind||!eq(c.replacement,replacement.binding)||
+        w.sourcePublication.checkpointRef!==replacement.publicationRef||a.originalSourceAdmissionCheckpointRef!==checkpointRef||
+        a.originalSourceAdmissionEventId!==current.originalEventIds[0]||a.originalSourceAdmissionChainHash!==current.stages[0].chainHash||
+        w.originalSourcePublishedEventId!==current.originalEventIds[1]||w.originalSourcePublishedChainHash!==current.stages[1].chainHash||
+        !eq(current.stages[1].evidence,{evidenceRef:w.sourcePublication.frames[1].key,evidenceDigest:'sha256:'+w.sourcePublication.frames[1].sha256})||
+        !eq(evidence,{evidenceRef:p.key,evidenceDigest:'sha256:'+p.sha256,originalRecipientEventId:b.recipientEventRef,
+          originalRecipientRevision:b.recipientRevision,originalRecipientStateDigest:b.recipientStateDigest}))
+        fail('PHASE_ORIGINAL_REPLACEMENT_SOURCE_ACK_MISMATCH');
+      if(!eq(await context(),initial))fail('PHASE_ORIGINAL_HOST_CONTEXT_CHANGED');
+      return;
+    }
     if(phase==='PUBLISHED'){
       if(readOriginalReplacementSourceContentPublication===null)
         fail('PHASE_ORIGINAL_REPLACEMENT_LIVE_TRANSFER_NOT_ENABLED');
@@ -470,7 +497,8 @@ export function createT4OriginalNetworkSessionPhasePort({
   async function advanceOriginalSessionPhase({phase,evidence}={}){
     if(!phases.includes(phase))
       fail('PHASE_ROLE_OR_STAGE_UNSUPPORTED');
-    if(replacement&&(phase!=='INTENT'&&(phase!=='PUBLISHED'||readOriginalReplacementSourceContentPublication===null)))
+    if(replacement&&phase!=='INTENT'&&!(phase==='PUBLISHED'&&readOriginalReplacementSourceContentPublication!==null)&&
+      !(phase==='APPLIED_CONFIRMED'&&readOriginalReplacementSourceAckEvidence!==null))
       fail('PHASE_ORIGINAL_REPLACEMENT_LIVE_TRANSFER_NOT_ENABLED');
     const expectedEvidence=proofEvidence(phase,evidence,changeKind);
     const initial=await context(),current=await verifiedRead(initial);
@@ -485,6 +513,12 @@ export function createT4OriginalNetworkSessionPhasePort({
       if(!eq(expectedEvidence,current.stages[0].evidence))fail('PHASE_ALREADY_ADVANCED_OR_CONFLICT');
       return frozen({schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1',phase,checkpointRef,status:'ALREADY_CONFIRMED',
         revision:1,chainHash:current.stages[0].chainHash,originalPhaseEventId:current.originalEventIds[0],
+        originalSubjectWriteRetried:false,historicalReceiptFabricated:false,originalBusinessApplied:false});
+    }
+    if(replacement&&phase==='PUBLISHED'&&current.revision===3){
+      if(!eq(expectedEvidence,current.stages[1].evidence))fail('PHASE_ALREADY_ADVANCED_OR_CONFLICT');
+      return frozen({schema:'IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1',phase,checkpointRef,status:'ALREADY_CONFIRMED',
+        revision:2,chainHash:current.stages[1].chainHash,originalPhaseEventId:current.originalEventIds[1],
         originalSubjectWriteRetried:false,historicalReceiptFabricated:false,originalBusinessApplied:false});
     }
     if(pos<current.stages.length){
@@ -682,7 +716,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
       verifyOriginalPhaseEvidence,verifyOriginalRecipientApplied,authorizeOriginalRecipientSupersession,
       authorizeOriginalSourceSupersession,replacementSourceAdmission:replacement,readOriginalReplacementSourceAdmission,
-      readOriginalReplacementSourceContentPublication,replacementRecipientAdmission:recipientReplacement,
+      readOriginalReplacementSourceContentPublication,readOriginalReplacementSourceAckEvidence,replacementRecipientAdmission:recipientReplacement,
       readOriginalReplacementRecipientApplyAdmission,readOriginalReplacementRecipientAckPublication,
     }),
     role,checkpointRef,
@@ -690,6 +724,7 @@ export function createT4OriginalNetworkSessionPhasePort({
       ...(readOriginalReplacementRecipientAckPublication!==null?{originalReplacementRecipientAckPublicationRequired:true}:{})}:{}),
     ...(replacement?{originalReplacementSourceAdmission:clone(replacement)}:{}),
     ...(readOriginalReplacementSourceContentPublication!==null?{originalReplacementSourceContentPublicationRequired:true}:{}),
+    ...(readOriginalReplacementSourceAckEvidence!==null?{originalReplacementSourceAckEvidenceRequired:true}:{}),
     ...(recipientApplyIntentRequired?{recipientApplyIntentRequired:true}:{}),
     originalT3TechnicalWorkspaceOnly:true,
     createsSecondStore:false,createsNewIAM:false,

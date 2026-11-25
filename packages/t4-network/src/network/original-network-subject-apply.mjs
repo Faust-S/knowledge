@@ -1094,7 +1094,7 @@ export async function readT4OriginalReplacementRecipientApplyAdmission({received
     mode();
     const e=validateT4OriginalReplacementContentEvidence(await readOriginalReplacementRecipientContentEvidence(proof),c);mode();
     const s=validateT4OriginalReplacementSourceIntentStatus(await phase.inspectOriginalSession(),c);mode();
-    if(!equalStable(e,v)||s.currentPhase!=='PUBLISHED'||s.checkpointRef!==a.originalSourceAdmissionCheckpointRef||
+    if(!equalStable(e,v)||!['PUBLISHED','APPLIED_CONFIRMED'].includes(s.currentPhase)||s.checkpointRef!==a.originalSourceAdmissionCheckpointRef||
       s.originalReplacementAdmissionEventId!==a.originalSourceAdmissionEventId||
       s.originalReplacementAdmissionChainHash!==a.originalSourceAdmissionChainHash||
       s.originalReplacementSourceAdmission.publicationRef!==e.sourcePublicationCheckpointRef||
@@ -1105,7 +1105,7 @@ export async function readT4OriginalReplacementRecipientApplyAdmission({received
       fail('SUBJECT_ORIGINAL_REPLACEMENT_SOURCE_PUBLICATION_REQUIRED');
     return validateT4OriginalReplacementRecipientApplyAdmission({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_RECIPIENT_APPLY_ADMISSION_V1',
       candidate:c,contentEvidence:e,originalSourcePublishedEventId:s.originalReplacementPublishedEventId,
-      originalSourcePublishedChainHash:s.chainHash,originalStateDigest:ordinary.originalStateDigest,originalCapturedSha256:c.capturedSha256,
+      originalSourcePublishedChainHash:s.originalReplacementPublishedChainHash,originalStateDigest:ordinary.originalStateDigest,originalCapturedSha256:c.capturedSha256,
       originalSourcePublishedVerified:true,originalCanonicalSubjectVerified:true,originalSubjectMutationInvoked:false,
       originalBusinessApplied:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false});
   }

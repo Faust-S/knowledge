@@ -1,8 +1,8 @@
 import {createHash} from 'node:crypto';
 import {validateT4OriginalNativeCaptureSession,deriveT4OriginalSupersessionPublicationSession,
-  deriveT4OriginalReplacementSessionCandidate,createT4OriginalReplacementSourceHead,readT4OriginalReplacementSourceHead,
+  deriveT4OriginalReplacementSessionCandidate,validateT4OriginalReplacementSessionCandidate,createT4OriginalReplacementSourceHead,readT4OriginalReplacementSourceHead,
   validateT4OriginalReplacementRecipientAdmissionEvidence,validateT4OriginalReplacementSourceIntentStatus,
-  validateT4OriginalReplacementDiffAcceptance,deriveT4OriginalNativeCaptureSession,validateT4OriginalReplacementPublishedContent}
+  validateT4OriginalReplacementDiffAcceptance,deriveT4OriginalNativeCaptureSession,validateT4OriginalReplacementPublishedContent,validateT4OriginalReplacementSourceAckEvidence}
   from './original-network-publication.mjs';
 import {createT4CandidateSupersessionClaim,T4_SESSION_SUPERSESSION_EXTENSION,
   createT4CandidateUnsignedFrame,signT4CandidateFrame,decodeT4CandidateFrame,t4NativeSubjectCriticalExtensions,
@@ -729,7 +729,7 @@ export async function admitT4OriginalReplacementSourcePhase({
     !same(status.originalReplacementSourceAdmission,admission)||
     status.originalReplacementSourceAdmissionRecorded!==true||
     status.originalReplacementAdmissionEventId!==outcome.originalPhaseEventId||
-    status.originalT3EventChainVerified!==true||status.originalBusinessApplied!==false||
+    status.originalT3EventChainVerified!==true||
     status.originalNewAttemptAdmissionStillRequired!==true||status.liveNetworkAuthorityGranted!==false)
     fail('REPLACEMENT_SOURCE_ADMISSION_NOT_PROVEN');
   await witness();
@@ -1166,7 +1166,7 @@ export async function confirmT4OriginalReplacementSourcePublication({sourceAdmis
       status.originalReplacementAdmissionEventId!==a.originalSourceAdmissionEventId||
       status.originalReplacementAdmissionChainHash!==a.originalSourceAdmissionChainHash||
       !same(status.originalReplacementSourceAdmission,phase.originalReplacementSourceAdmission)||
-      (status.currentPhase==='PUBLISHED'&&!same(status.sourcePublishedEvidence,evidence)))
+      (status.currentPhase!=='INTENT'&&!same(status.sourcePublishedEvidence,evidence)))
       fail('REPLACEMENT_SOURCE_PUBLICATION_PHASE_MISMATCH');
     return status;
   };
@@ -1175,13 +1175,105 @@ export async function confirmT4OriginalReplacementSourcePublication({sourceAdmis
   const status=await inspect();
   if(outcome?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1'||outcome.phase!=='PUBLISHED'||
     !['RECORDED','ALREADY_CONFIRMED'].includes(outcome.status)||outcome.checkpointRef!==phase.checkpointRef||
-    status.currentPhase!=='PUBLISHED'||outcome.revision!==2||outcome.chainHash!==status.chainHash||
+    !['PUBLISHED','APPLIED_CONFIRMED'].includes(status.currentPhase)||outcome.revision!==2||outcome.chainHash!==status.originalReplacementPublishedChainHash||
     outcome.originalPhaseEventId!==status.originalReplacementPublishedEventId||outcome.originalBusinessApplied!==false)
     fail('REPLACEMENT_SOURCE_PUBLICATION_PHASE_MISMATCH');
   return freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_SOURCE_PUBLICATION_CONFIRMATION_V1',state:'ORIGINAL_REPLACEMENT_SOURCE_PUBLISHED',
-    candidate:c,status:outcome.status,checkpointRef:phase.checkpointRef,revision:2,chainHash:status.chainHash,
+    candidate:c,status:outcome.status,checkpointRef:phase.checkpointRef,revision:2,chainHash:status.originalReplacementPublishedChainHash,
     originalSourcePublishedEventId:outcome.originalPhaseEventId,originalSourceAdmissionEventId:a.originalSourceAdmissionEventId,
     originalSourceAdmissionChainHash:a.originalSourceAdmissionChainHash,changeKey:change.key,
-    originalRecipientApplyStillRequired:true,originalSubjectMutationInvoked:false,originalBusinessApplied:false,
+    originalRecipientApplyStillRequired:status.currentPhase!=='APPLIED_CONFIRMED',originalSubjectMutationInvoked:false,originalBusinessApplied:false,
     sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false});
+}
+
+
+/** Reconstruct the successor source ACK from the original peer APPLIED phase,
+ * original publication and independently replay-verified incoming wire. */
+export async function readT4OriginalReplacementSourceAckEvidence({sourceAdmissionPhasePort:sourcePhase,
+  sourcePublicationPort:source,recipientPhasePort:recipientPhase,recipientPublicationPort:recipient,
+  readOriginalReplacementRecipientAckPublication,frameDiscoveryPort,requiredCryptoSuite,getMode,
+  authorizeOriginalReplacementSourceAckConfirmation}={}){
+  mode(getMode);
+  const c=source?.session;
+  if(source?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||source.originalReplacementSourceContentPublication!==true||
+    source.originalT3OnlyStore!==true||typeof source.readOriginalReplacementPublishedContent!=='function'||
+    recipient?.schema!=='IWXA_T4_ORIGINAL_NATIVE_PUBLICATION_PORT_V1'||recipient.originalReplacementRecipientAckPublication!==true||
+    recipient.originalT3OnlyStore!==true||!same(recipient.session,c)||typeof recipient.readOriginalPublishedFrame!=='function'||
+    ![sourcePhase,recipientPhase].every((p,i)=>p?.schema==='IWXA_T4_ORIGINAL_NETWORK_SESSION_PHASE_PORT_V1'&&p.role===(i===0?'SOURCE':'RECIPIENT')&&
+      p.originalT3TechnicalWorkspaceOnly===true&&p.createsSecondStore===false&&ID(p.checkpointRef)&&typeof p.inspectOriginalSession==='function')||
+    recipientPhase.recipientApplyIntentRequired!==true||new Set([source.checkpointRef,recipient.checkpointRef,sourcePhase.checkpointRef,recipientPhase.checkpointRef]).size!==4||
+    frameDiscoveryPort?.schema!=='IWXA_T4_CANDIDATE_NETWORK_FRAME_PORT_V1'||frameDiscoveryPort.nativeFrameIndexVersion!==1||
+    typeof frameDiscoveryPort.discoverUniqueSignedFrame!=='function'||!ID(requiredCryptoSuite)||
+    ![readOriginalReplacementRecipientAckPublication,authorizeOriginalReplacementSourceAckConfirmation].every(f=>typeof f==='function'))
+    fail('REPLACEMENT_SOURCE_ACK_PORTS_REQUIRED');
+  const session=validateT4OriginalReplacementSessionCandidate(c),
+    inspect=async()=>{const status=validateT4OriginalReplacementSourceIntentStatus(await sourcePhase.inspectOriginalSession(),session);mode(getMode);return status;};
+  async function current(){
+    const src=await inspect();
+    if(!['PUBLISHED','APPLIED_CONFIRMED'].includes(src.currentPhase)||src.checkpointRef!==sourcePhase.checkpointRef)
+      fail('REPLACEMENT_SOURCE_ACK_SOURCE_PUBLICATION_REQUIRED');
+    const found=await frameDiscoveryPort.discoverUniqueSignedFrame({selector:{sourceNodeRef:session.recipientNodeRef,
+      sessionRef:session.sessionRef,ownerEpoch:session.ownerEpoch,messageType:'APPLIED_ACK',sequence:2},requiredCryptoSuite,
+      supportedCriticalExtensions:t4NativeSubjectCriticalExtensions(session.changeKind)});mode(getMode);
+    if(found?.schema!=='IWXA_T4_FRAME_DISCOVERY_EXACT_SLOT_V1'||!['FOUND','NOT_FOUND'].includes(found.state)||
+      found.indexedLookup!==true||found.candidatesExamined!==1||found.originalTransportScanOnly!==true||
+      found.originalBusinessApplied!==false||found.sourceCursorAdvanced!==false||(found.state==='NOT_FOUND'&&found.receipt!==null))
+      fail('REPLACEMENT_SOURCE_ACK_DISCOVERY_INVALID');
+    if(found.state==='NOT_FOUND')return null;
+    const peer=await recipientPhase.inspectOriginalSession();mode(getMode);
+    if(peer?.currentPhase==='APPLY_INTENT')return null;
+    const batch=await source.readOriginalReplacementPublishedContent();mode(getMode);
+    const ack=await readOriginalReplacementRecipientAckPublication(freeze({candidate:session,readOnly:true,
+      originalRecipientResultAndAckPublicationReadRequired:true,originalSubjectMutationAllowed:false}));mode(getMode);
+    const published=await recipient.readOriginalPublishedFrame({sequence:2,includePresentEventAnchor:true});mode(getMode);
+    if(!same(ack?.publication,published)||published.verifiedCryptoSuite!==requiredCryptoSuite)
+      fail('REPLACEMENT_SOURCE_ACK_ORIGINAL_PUBLICATION_MISMATCH');
+    const inbound=clone(found.receipt);delete inbound.exactPreviouslyVerifiedReplay;
+    const witness=validateT4OriginalReplacementSourceAckEvidence({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_SOURCE_ACK_EVIDENCE_V1',
+      candidate:session,sourcePublication:batch,recipientAckAdmission:ack.admission,recipientAckPublication:published,recipientPhase:peer,
+      verifiedAppliedAck:inbound,originalSourcePublishedEventId:src.originalReplacementPublishedEventId,
+      originalSourcePublishedChainHash:src.originalReplacementPublishedChainHash,originalRecipientResultVerified:true,
+      originalBothCausalFrontiersUnchanged:true,originalBusinessApplied:true,originalSubjectMutationInvoked:false,
+      sourceCursorAdvanced:false,recipientCursorAdvanced:false,liveNetworkAuthorityGranted:false},session);
+    const a=witness.sourcePublication.agreement,b=witness.recipientAckAdmission.body;
+    if(a.originalSourceAdmissionCheckpointRef!==src.checkpointRef||a.originalSourceAdmissionEventId!==src.originalReplacementAdmissionEventId||
+      a.originalSourceAdmissionChainHash!==src.originalReplacementAdmissionChainHash||
+      !same(src.sourcePublishedEvidence,{evidenceRef:batch.frames[1].key,evidenceDigest:'sha256:'+batch.frames[1].sha256})||
+      (src.currentPhase==='APPLIED_CONFIRMED'&&!same(src.currentEvidence,{evidenceRef:published.key,evidenceDigest:'sha256:'+published.sha256,
+        originalRecipientEventId:b.recipientEventRef,originalRecipientRevision:b.recipientRevision,originalRecipientStateDigest:b.recipientStateDigest}))||
+      peer.checkpointRef!==recipientPhase.checkpointRef||!same(src,await inspect())||!same(peer,await recipientPhase.inspectOriginalSession()))
+      fail('REPLACEMENT_SOURCE_ACK_EVIDENCE_CHANGED');
+    mode(getMode);return witness;
+  }
+  const first=await current();if(first===null)return null;
+  await allowed(authorizeOriginalReplacementSourceAckConfirmation,{candidate:session,
+    originalSourcePublishedEventId:first.originalSourcePublishedEventId,originalRecipientAppliedEventId:first.recipientPhase.originalReplacementRecipientAppliedEventId,
+    originalRecipientResultVerified:true,originalAckPublicationVerified:true,originalSubjectMutationAllowed:false,liveNetworkAuthorityGranted:false},
+    getMode,'REPLACEMENT_SOURCE_ACK_CONFIRMATION_DENIED');
+  if(!same(first,await current()))fail('REPLACEMENT_SOURCE_ACK_EVIDENCE_CHANGED');
+  return first;
+}
+
+export async function confirmT4OriginalReplacementSourceAcknowledgement(args={}){
+  const phase=args.sourceAdmissionPhasePort,getMode=args.getMode;
+  if(phase?.originalReplacementSourceAckEvidenceRequired!==true||typeof phase.advanceOriginalSessionPhase!=='function')
+    fail('REPLACEMENT_SOURCE_ACK_PHASE_REQUIRED');
+  const w=await readT4OriginalReplacementSourceAckEvidence(args);mode(getMode);
+  if(w===null)return freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_SOURCE_ACK_CONFIRMATION_V1',state:'WAITING_FOR_RECIPIENT_APPLIED_ACK',
+    sourceCursorAdvanced:false,recipientCursorAdvanced:false,originalSubjectMutationInvoked:false});
+  const b=w.recipientAckAdmission.body,p=w.recipientAckPublication;
+  const evidence={evidenceRef:p.key,evidenceDigest:'sha256:'+p.sha256,originalRecipientEventId:b.recipientEventRef,
+    originalRecipientRevision:b.recipientRevision,originalRecipientStateDigest:b.recipientStateDigest};
+  const outcome=await phase.advanceOriginalSessionPhase({phase:'APPLIED_CONFIRMED',evidence});mode(getMode);
+  const after=validateT4OriginalReplacementSourceIntentStatus(await phase.inspectOriginalSession(),w.candidate);mode(getMode);
+  if(outcome?.schema!=='IWXA_T4_ORIGINAL_NETWORK_SESSION_ADVANCE_V1'||outcome.phase!=='APPLIED_CONFIRMED'||
+    !['RECORDED','ALREADY_CONFIRMED'].includes(outcome.status)||outcome.checkpointRef!==phase.checkpointRef||
+    outcome.revision!==3||after.revision!==3||after.currentPhase!=='APPLIED_CONFIRMED'||after.chainHash!==outcome.chainHash||
+    after.originalReplacementSourceConfirmedEventId!==outcome.originalPhaseEventId||outcome.originalBusinessApplied!==true||
+    !same(after.currentEvidence,evidence)||!same(w,await readT4OriginalReplacementSourceAckEvidence(args)))
+    fail('REPLACEMENT_SOURCE_ACK_PHASE_NOT_CONFIRMED');
+  return freeze({schema:'IWXA_T4_ORIGINAL_REPLACEMENT_SOURCE_ACK_CONFIRMATION_V1',state:'ORIGINAL_REPLACEMENT_SOURCE_ACK_CONFIRMED',
+    candidate:w.candidate,status:outcome.status,sourcePhase:after,originalRecipientResultIndependentlyRead:true,
+    originalRecipientAckPublicationVerified:true,originalHostCursorCommitStillRequired:true,
+    originalSubjectMutationInvoked:false,sourceCursorAdvanced:false,recipientCursorAdvanced:false});
 }
