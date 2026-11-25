@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FROZEN_SCOPE_CLARIFICATION_READY_FOR_ONE_TIME_QUALIFICATION",
+  "status": "FROZEN_ONE_TIME_QUALIFICATION_REQUESTED",
   "scope": "1.6.0",
   "siteCommit": "1d6f15b290458ecf44001184725eda1920f11b3b",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -226,5 +226,16 @@
       },
       "status": "SOURCE_AUDIT_PASS_NOT_BROWSER_QUALIFICATION"
     }
+  },
+  "oneTimeRequest": {
+    "runId": 45695493606,
+    "preparedCommit": "3fadc7ba5af37a0d0057c6f741357718a344b636",
+    "requestCommit": "05c788b010284d5fa980d9d09b127845c9ac605f",
+    "requestBranch": "ci/once/d05-t3-release/3fadc7ba5af37a0d0057c6f741357718a344b636",
+    "requestFile": ".github/ci-requests/d05-t3-release.json",
+    "runStatusAtRecording": "in_progress",
+    "conclusionAtRecording": null,
+    "matchingRuns": 1,
+    "immutable": true
   }
 }
