@@ -33,6 +33,36 @@ const full={workspaces:[ws],include_history:true,include_assets:true,include_rel
 const merge={mode:'merge',target_workspace:ws,conflict:'fail',include_workspaces:[ws],
   include_history:true,include_assets:true,include_relations:true};
 
+// The original JS facade can materialize absent optional Event fields as
+// undefined; the original JSON archive omits those keys. Compare the exact
+// defined data, including all optional fields when present. Do not normalize
+// timestamps, nulls, payloads, IDs, actor/service identity or revisions.
+const optionalEventFields=['causation_id','correlation_id','idempotency_key','object_id','revision'];
+function eventWire(event){
+  assert.ok(event&&typeof event.event_id==='string','ORIGINAL_EVENT_MISSING');
+  const copy={...event};
+  for(const key of optionalEventFields)if(copy[key]===undefined)delete copy[key];
+  return copy;
+}
+function assertHistoryContains(actual,expected){
+  assert.equal(new Set(actual.map(e=>e.event_id)).size,actual.length,
+    'ORIGINAL_EVENT_DUPLICATED');
+  for(const event of expected)
+    assert.deepEqual(eventWire(actual.find(e=>e.event_id===event.event_id)),eventWire(event));
+}
+test('event wire equality only ignores absent original optional fields',()=>{
+  const event={event_id:'event:1',event_type:'workspace.created',workspace_id:ws,
+    service_id:'iwxa.personal-agent.workspace',occurred_at:'2026-11-25T00:00:00.000Z',
+    payload:{profile:'generic'},object_id:undefined};
+  assertHistoryContains([JSON.parse(JSON.stringify(event))],[event]);
+  for(const patch of [{object_id:null},{revision:1},{causation_id:'event:prior'},
+    {occurred_at:'2026-11-25T00:00:01.000Z'},{payload:{profile:'other'}},
+    {service_id:'iwxa.admin-center.workspace'}])
+    assert.throws(()=>assertHistoryContains([{...event,...patch}],[event]),{code:'ERR_ASSERTION'});
+  assert.throws(()=>assertHistoryContains([event,event],[event]),{code:'ERR_ASSERTION'});
+  assert.throws(()=>assertHistoryContains([],[event]),{code:'ERR_ASSERTION'});
+});
+
 test('original qualified T2 cross-product complete archive and repeated same-Workspace merge',async()=>{
   assert.ok(qualified&&existsSync(join(qualified,'_iwxa/runtime/0.3.6/runtime.js')),
     'QUALIFIED_ORIGINAL_T2_REQUIRED');
@@ -172,7 +202,7 @@ test('original qualified T2 cross-product complete archive and repeated same-Wor
     assert.equal(observed.records.find(r=>r.kind==='RESULT').text,'Result text');
     assert.equal(observed.signedReceiptVerified,false);
     const readEvents=await b.product.t1.listEventsSince(ws);
-    for(const event of originalEvents)assert.deepEqual(readEvents.find(e=>e.event_id===event.event_id),event);
+    assertHistoryContains(readEvents,originalEvents);
     const asset=await b.exchange.t1.getAsset(ws,'asset-roundtrip');
     assert.deepEqual(asset.bytes,attachment);
     assert.equal(asset.asset.service_id,source.serviceId);
@@ -235,6 +265,7 @@ test('original qualified T2 cross-product complete archive and repeated same-Wor
       {code:'T3_D3_ORIGINAL_EFFECT_ALREADY_RECORDED_USE_RECOVERY'});
     const prior=await readOriginalCompanyWorkspace({kernel:cold.kernel,workspaceId:ws,organizationId:org});
     assert.deepEqual(prior.records,observed.records);
+    assertHistoryContains(await cold.product.t1.listEventsSince(ws),readEvents);
     const again=await cold.bound.importPreview(archive.bytes);
     const second=await cold.bound.importCommit({preview_token:again.preview_token,
       package_digest:again.package_digest,plan:merge});
@@ -242,6 +273,11 @@ test('original qualified T2 cross-product complete archive and repeated same-Wor
     assert.equal(second.applied.objects_skipped,2);
     assert.deepEqual(validateCompanyMergeReceipt(again.preview,merge,second),[]);
     assert.deepEqual((await readOriginalCompanyWorkspace({kernel:cold.kernel,workspaceId:ws})).records,observed.records);
+    const mergedEvents=await cold.product.t1.listEventsSince(ws);
+    assertHistoryContains(mergedEvents,readEvents);
+    const coldAsset=await cold.exchange.t1.getAsset(ws,'asset-roundtrip');
+    assert.deepEqual(coldAsset.bytes,attachment);
+    assert.equal(coldAsset.asset.service_id,source.serviceId);
     await recipient.runtime.__resetKernelStoreForTests();
     // Admin -> employee return is a second physical archive import. Its
     // history/assets/relations are still the original business records.
@@ -253,6 +289,14 @@ test('original qualified T2 cross-product complete archive and repeated same-Wor
     assert.deepEqual(validateCompanyMergeReceipt(returned.preview,merge,returnedReceipt),[]);
     const employeeRows=await readOriginalCompanyWorkspace({kernel:employeeCold.kernel,workspaceId:ws});
     assert.deepEqual(employeeRows.records,observed.records);
+    const employeeEvents=await employeeCold.product.t1.listEventsSince(ws);
+    assertHistoryContains(employeeEvents,readEvents);
+    assert.ok(!employeeEvents.some(e=>e.event_type==='iwxa.admin.result.applied'));
+    const returnedAsset=await employeeCold.exchange.t1.getAsset(ws,'asset-roundtrip');
+    assert.deepEqual(returnedAsset.bytes,attachment);
+    assert.equal(returnedAsset.asset.service_id,source.serviceId);
+    const returnedRelation=await employeeCold.exchange.t1.getObject(ws,rows[0].object_id);
+    assert.ok(returnedRelation.relations.outgoing.some(r=>r.relation_id==='relation:roundtrip'));
     await source.runtime.__resetKernelStoreForTests();
   }finally{
     globalThis.fetch=originalFetch;
