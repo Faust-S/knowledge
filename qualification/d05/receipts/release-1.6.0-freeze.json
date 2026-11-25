@@ -71,7 +71,32 @@
     "explicitAndEmptyAbstentionMappings": 30,
     "invalidAndStaleRejected": 90,
     "subjectPackMatchesSite": true,
-    "hardwareWitnessUnchanged": true
+    "hardwareWitnessUnchanged": true,
+    "routeInventory": {
+      "siteCommit": "64dcbe764ab05136bd6f9d4f4a3bf902897b06b7",
+      "routeTreeBlob": "b5f5edb0c0631cdfca081c24359efb0170e783c3",
+      "registryBlob": "d994e2eacd586962b74ae4930a9d4704c72d2237",
+      "declaredSiteRoutes": 43,
+      "resolvedRoutePatterns": 43,
+      "publicPages": 39,
+      "privatePages": 4,
+      "publicAndOrderEntryOfflineInventory": 40,
+      "serviceRoutes": 11,
+      "unresolvedSkillRoutes": 0,
+      "referenceChecks": {
+        "serviceService": 25,
+        "serviceSituation": 31,
+        "serviceType": 36,
+        "situationService": 30,
+        "situationType": 36,
+        "situationFallback": 12,
+        "typeService": 19,
+        "typeSituation": 14,
+        "total": 203,
+        "unresolved": 0
+      },
+      "status": "SOURCE_AUDIT_PASS_NOT_BROWSER_QUALIFICATION"
+    }
   },
   "manualDispatchOnly": false,
   "hardwareFirst": true,
