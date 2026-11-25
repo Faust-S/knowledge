@@ -12,6 +12,10 @@ import {createT4OriginalNetworkReplayPort} from '../src/network/original-network
 import {readT4OriginalEventWindow} from '../src/network/original-event-window.mjs';
 import {createT4OriginalReplacementOwnerHistoryRequest,readT4OriginalReplacementOwnerHistory,completeT4OriginalReplacementHostCursor}
   from '../src/network/original-network-replacement-owner-history.mjs';
+import {encodeT4OriginalReplacementHistoryRequest,decodeT4OriginalReplacementHistoryRequest,
+  encodeT4OriginalReplacementHistoryResponse,decodeT4OriginalReplacementHistoryResponse,
+  createT4OriginalReplacementHistoryClient,createT4OriginalReplacementHistoryServer}
+  from '../src/network/original-replacement-owner-history-carrier.mjs';
 import {createT4OriginalNetworkHostCursorPort,createT4OriginalNetworkRecipientCursorPort} from '../src/network/original-network-host-cursor.mjs';
 import {recoverT4OriginalReplacementTerminalCursorEvidence,recoverT4OriginalHistoricallyConfirmedSourceCursor} from '../src/network/original-network-source-cursor.mjs';
 import {createT4CandidateUnsignedFrame,signT4CandidateFrame,T4_ORIGINAL_SOURCE_SESSION_EXTENSION,
@@ -1570,6 +1574,25 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
       verifyOriginalRecipientApplied:role==='SOURCE'?x.verifySourceApplied:peerResult,
       verifyOriginalHistoricalNodeSignature:x.historicalSignature(base.localNodeRef),authorizeOriginalHostWire:async()=>true});
   };
+  // K75: the installed owner call preserves the actual original signed
+  // wire bytes across a bounded byte carrier in both directions.
+  let carrierCalls=0;
+  const peerContext=node=>({nodeRef:node,originalPeerSessionRef:'peer:k75:authenticated',contextEpoch:1,
+    scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,originalPeerAuthenticated:true,originalConfidentialChannelVerified:true});
+  const carrier=node=>{
+    const peer=node===sourceNodeRef?recipientNodeRef:sourceNodeRef;
+    const common={scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,getMode};
+    const server=createT4OriginalReplacementHistoryServer({...common,localNodeRef:peer,peerNodeRef:node,
+      readOriginalPeerContext:async()=>peerContext(node),readOriginalReplacementOwnerHistory:async({request,peerContext:caller})=>{
+        assert.deepEqual(caller,{nodeRef:node,originalPeerSessionRef:'peer:k75:authenticated',contextEpoch:1});
+        return ownerHistory(request);
+      }});
+    return createT4OriginalReplacementHistoryClient({...common,localNodeRef:node,peerNodeRef:peer,
+      readOriginalPeerContext:async()=>peerContext(peer),invokeOriginalPeerHistory:async({requestBytes,originalPeerContext})=>{
+        carrierCalls++;assert.ok(requestBytes instanceof Uint8Array);assert.deepEqual(originalPeerContext,peerContext(peer));
+        return server(requestBytes);
+      }});
+  };
   const ownerRecovery=node=>({session:c,sourceCursorBefore:x.sourceCursorBefore,requiredCryptoSuite:historyArgs.requiredCryptoSuite,getMode,
     requesterNodeRef:node,readOriginalOwnerHistory:ownerHistory,verifyOriginalHistoricalNodeSignature:x.historicalSignature(node),
     authorizeOriginalHistoricalCursorRecovery:historyArgs.authorizeOriginalHistoricalCursorRecovery,
@@ -1577,6 +1600,30 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
   if(order==='SOURCE_FIRST_NORMAL'){
     const args=ownerRecovery(sourceNodeRef),recoverOwner=patch=>recoverT4OriginalReplacementTerminalCursorEvidence({...args,...patch});
     assert.deepEqual(await recoverOwner(),historical);assert.equal(ownerReads,4);
+    const request=createT4OriginalReplacementOwnerHistoryRequest({session:c,requesterNodeRef:recipientNodeRef,ownerNodeRef:sourceNodeRef});
+    const original=await ownerHistory(request),bytes=encodeT4OriginalReplacementHistoryResponse(original,request);
+    assert.deepEqual(decodeT4OriginalReplacementHistoryRequest(encodeT4OriginalReplacementHistoryRequest(request)),request);
+    assert.deepEqual(decodeT4OriginalReplacementHistoryResponse(bytes,request),original);
+    assert.deepEqual(await carrier(recipientNodeRef)(request),original);
+    assert.equal(decodeT4OriginalReplacementHistoryResponse(encodeT4OriginalReplacementHistoryResponse(null,request),request),null);
+    const wrong=createT4OriginalReplacementOwnerHistoryRequest({session:c,requesterNodeRef:sourceNodeRef,ownerNodeRef:recipientNodeRef});
+    assert.throws(()=>decodeT4OriginalReplacementHistoryResponse(bytes,wrong),isCode('REPLACEMENT_HISTORY_CARRIER_RESPONSE_MISMATCH'));
+    const parsed=JSON.parse(Buffer.from(bytes).toString('utf8'));
+    parsed.snapshot.publication.frames[0].wireBytesBase64='AAAA';
+    assert.throws(()=>decodeT4OriginalReplacementHistoryResponse(Buffer.from(JSON.stringify(parsed)),request),isCode('REPLACEMENT_HISTORY_CARRIER_FRAME_INVALID'));
+    assert.throws(()=>decodeT4OriginalReplacementHistoryRequest(Buffer.from('{"schema":1,"schema":2}')),isCode('REPLACEMENT_HISTORY_CARRIER_ENCODING_INVALID'));
+    assert.throws(()=>decodeT4OriginalReplacementHistoryRequest(Uint8Array.of(255)),isCode('REPLACEMENT_HISTORY_CARRIER_ENCODING_INVALID'));
+    assert.throws(()=>decodeT4OriginalReplacementHistoryRequest(new Uint8Array(32769)),isCode('REPLACEMENT_HISTORY_CARRIER_SIZE_INVALID'));
+    let channelEpoch=1;
+    const client=createT4OriginalReplacementHistoryClient({localNodeRef:recipientNodeRef,peerNodeRef:sourceNodeRef,
+      scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,getMode,readOriginalPeerContext:async()=>({...peerContext(sourceNodeRef),contextEpoch:channelEpoch}),
+      invokeOriginalPeerHistory:async()=>{channelEpoch++;return bytes;}});
+    await assert.rejects(client(request),isCode('REPLACEMENT_HISTORY_CARRIER_PEER_CHANGED'));
+    const unbound=createT4OriginalReplacementHistoryClient({localNodeRef:recipientNodeRef,peerNodeRef:sourceNodeRef,
+      scopeRef:c.scopeRef,ownerEpoch:c.ownerEpoch,getMode,readOriginalPeerContext:async()=>({...peerContext(sourceNodeRef),originalConfidentialChannelVerified:false}),
+      invokeOriginalPeerHistory:async()=>{assert.fail('unbound carrier must not invoke peer');}});
+    await assert.rejects(unbound(request),isCode('REPLACEMENT_HISTORY_CARRIER_PEER_UNBOUND'));
+
     peerUnavailable=true;await assert.rejects(recoverOwner(),isCode('CURSOR_REPLACEMENT_OWNER_HISTORY_NOT_READY'));peerUnavailable=false;
     ownerReadAllowed=false;await assert.rejects(recoverOwner(),isCode('REPLACEMENT_HISTORY_OWNER_READ_DENIED'));ownerReadAllowed=true;
     await assert.rejects(recoverOwner({readOriginalOwnerHistory:async request=>{
@@ -1617,7 +1664,7 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
     return completeT4OriginalReplacementHostCursor({selection,role,originalCursorPort:port,getMode,requiredCryptoSuite:historyArgs.requiredCryptoSuite,
       readOriginalHostContext:async()=>({...await base.readOriginalHostContext(),workspaceId:c.workspaceId}),
       readOriginalLocalOwnerHistory:async request=>{assert.equal(request.ownerNodeRef,node);return ownerHistory(request);},
-      readOriginalPeerReplacementHistory:async request=>{assert.notEqual(request.ownerNodeRef,node);return ownerHistory(request);},
+      readOriginalPeerReplacementHistory:async request=>{assert.notEqual(request.ownerNodeRef,node);return carrier(node)(request);},
       authorizeOriginalPeerReplacementHistoryRead:async p=>p.request.requesterNodeRef===node&&p.originalSubjectMutationAllowed===false,
       authorizeOriginalHostTask:async p=>p.nodeRef===node&&p.originalSubjectMutationAllowed===false,
       authorizeOriginalHistoricalCursorRecovery:historyArgs.authorizeOriginalHistoricalCursorRecovery,
@@ -1654,6 +1701,7 @@ test('K67 K68 K69 K70 source confirms successor ACK and both original frontiers 
     historyAllowed=false;await assert.rejects(recipientCommit(),isCode('CURSOR_ORIGINAL_HISTORICAL_RECOVERY_DENIED'));historyAllowed=true;
     const recipientStep=await hostStep('RECIPIENT');assert.equal(recipientStep.state,'ORIGINAL_REPLACEMENT_CURSOR_COMMITTED');
     assert.equal(recipientStep.sourceCursorAdvanced,false);assert.equal(recipientStep.originalRecipientCursorAdvanced,true);
+    assert.ok(carrierCalls>2);
   }
   x.f.restart();
   assert.equal((await recipientCommit()).state,'ALREADY_COMMITTED');
