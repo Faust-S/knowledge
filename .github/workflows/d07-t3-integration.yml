@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 3d120d15ae4bedf9ef2a2189675612cd9688eb55
+          ref: 169f674db7528fce7744c10de28554e9c864e83a
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -42,26 +42,27 @@ jobs:
         working-directory: site
         env:
           GH_TOKEN: ${{ secrets.DOMEN }}
-        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 3d120d15ae4bedf9ef2a2189675612cd9688eb55
+        run: bash ../pipeline/scripts/d07-private-git-transport.sh preflight 169f674db7528fce7744c10de28554e9c864e83a
   t3-source:
     needs: private-transport
-    # A blocked release must not spend runner time on product qualification.
-    # Explicit diagnostic modes still allow source or build-only evidence.
-    if: ${{ !cancelled() && ((needs.private-transport.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'release')) || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'source-only' || inputs.mode == 'build-only'))) }}
+    # A frozen candidate must be qualified independently of private publication.
+    # The transport-only diagnostic remains cheap; write permission is required
+    # only for the existing private retention steps.
+    if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.mode == 'release' || inputs.mode == 'source-only' || inputs.mode == 'build-only') }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod
-          ref: f73a5f0e877c1d8c30c56d5ee82f472b55c0f1c2
+          ref: 11ec43898d025107174df0b2cde6024c340c1cc0
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: domain
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 3d120d15ae4bedf9ef2a2189675612cd9688eb55
+          ref: 169f674db7528fce7744c10de28554e9c864e83a
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -80,8 +81,8 @@ jobs:
           bun-version: '1.3.2'
       - name: Preserve exact T2 subject and Workspace module
         run: |
-          test "$(git -C domain rev-parse HEAD)" = "f73a5f0e877c1d8c30c56d5ee82f472b55c0f1c2"
-          test "$(git -C site rev-parse HEAD)" = "3d120d15ae4bedf9ef2a2189675612cd9688eb55"
+          test "$(git -C domain rev-parse HEAD)" = "11ec43898d025107174df0b2cde6024c340c1cc0"
+          test "$(git -C site rev-parse HEAD)" = "169f674db7528fce7744c10de28554e9c864e83a"
           cmp domain/models/assistant-skills.json site/public/assets/d07-assistant-skills.json
           for path in domain/src/domain/service-subject*.ts domain/src/domain/service-blocks.ts domain/src/domain/service-changes.ts domain/src/domain/service-execution.ts; do
             cmp "$path" "site/src/domain/$(basename "$path")"
@@ -106,7 +107,9 @@ jobs:
           echo D07_DOCUMENTED_DOMAIN_TESTS=PASS
           grep -E '^# (tests|pass|fail)' "$RUNNER_TEMP/documented-criteria.log"
           cmp domain/src/data/serviceDirectory.ts site/src/data/serviceDirectory.ts
-          for f in service-blocks.ts service-changes.ts service-execution.ts service-order-identity.ts service-money.ts service-attention.ts; do cmp "domain/src/domain/$f" "site/t2-site-module/uslugovod/$f"; done
+          for f in service-blocks.ts service-changes.ts service-execution.ts service-order-identity.ts service-money.ts service-attention.ts service-month-report.ts; do cmp "domain/src/domain/$f" "site/t2-site-module/uslugovod/$f"; done
+          cmp domain/src/domain/service-attention.ts site/src/domain/service-attention.ts
+          cmp domain/src/domain/service-month-report.ts site/src/domain/service-month-report.ts
           echo D07_T3_DOMAIN_PARITY=PASS
       - name: Original shared assistant validates canonical skill package
         run: |
@@ -196,9 +199,9 @@ jobs:
           echo D07_T3_ASSEMBLY_SYNTAX=PASS
   original-t3-integration:
     needs: [t3-source, private-transport]
-    # For an ordinary release, qualify only after the private write preflight.
-    # The explicit build-only mode never publishes any prepared private bytes.
-    if: ${{ !cancelled() && needs.t3-source.result == 'success' && (needs.private-transport.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'build-only')) }}
+    # Source success permits one complete build even if transport failed.
+    # Publication remains separately gated; no private artifacts are uploaded.
+    if: ${{ !cancelled() && needs.t3-source.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'release' || inputs.mode == 'build-only') }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:
@@ -213,7 +216,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/uslugovod.ru
-          ref: 3d120d15ae4bedf9ef2a2189675612cd9688eb55
+          ref: 169f674db7528fce7744c10de28554e9c864e83a
           token: ${{ secrets.DOMEN }}
           persist-credentials: false
           path: site
@@ -414,7 +417,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "3d120d15ae4bedf9ef2a2189675612cd9688eb55"
+          test "$(git rev-parse HEAD)" = "169f674db7528fce7744c10de28554e9c864e83a"
           test -z "$(git status --porcelain --untracked-files=no)"
           local="runtime/t3-platform/0.3.1-rc.1"
           node --import tsx --input-type=module -e 'import {verifyPreparedD07Host} from "./scripts/prepare-d07-t3-host.mjs";import {verifyPreparedKernelSupport} from "./scripts/prepare-d07-local-kernel-input.mjs";import {verifyPlatformArchive} from "./scripts/t3-platform-inputs.mjs";const root=process.argv[1];verifyPreparedD07Host(root+"/d07-host");verifyPreparedKernelSupport(root+"/kernel-support");verifyPlatformArchive(root+"/platform-inputs.zip")' "$local" > "$RUNNER_TEMP/d07-retain-recheck.log" 2>&1 || {
@@ -454,7 +457,7 @@ jobs:
         working-directory: site
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "3d120d15ae4bedf9ef2a2189675612cd9688eb55"
+          test "$(git rev-parse HEAD)" = "169f674db7528fce7744c10de28554e9c864e83a"
           test -z "$(git diff --name-only)"
           node scripts/verify-d07-retained-index.mjs
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'D07: retain qualified local T3 platform inputs [skip ci] [skip actions]'
@@ -473,13 +476,26 @@ jobs:
           GH_TOKEN: ${{ secrets.DOMEN }}
         run: |
           candidate="$(git rev-parse HEAD)"
-          bash ../pipeline/scripts/d07-private-git-transport.sh publish 3d120d15ae4bedf9ef2a2189675612cd9688eb55 "$candidate"
+          bash ../pipeline/scripts/d07-private-git-transport.sh publish 169f674db7528fce7744c10de28554e9c864e83a "$candidate"
           echo "retained_commit=$candidate" >> "$GITHUB_OUTPUT"
           echo "dist_sha256=$(sha256sum "$RUNNER_TEMP/d07-local-2.sha" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
-      - name: Preserve explicit build-only qualification without private publication
-        if: ${{ success() && github.event_name == 'workflow_dispatch' && inputs.mode == 'build-only' }}
+      - name: Record build qualification separately from publication
+        if: ${{ success() }}
+        env:
+          TRANSPORT_RESULT: ${{ needs.private-transport.result }}
+          REQUEST_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'release' }}
+          QUALIFIED_TREE: ${{ steps.case-plan.outputs.dist_tree_sha256 }}
         run: |
-          echo D07_T3_PRIVATE_RETENTION=NOT_REQUESTED
+          [[ "$QUALIFIED_TREE" =~ ^[0-9a-f]{64}$ ]]
+          echo D07_T3_BUILD_QUALIFIED=PASS
+          echo "D07_T3_QUALIFIED_DIST_TREE=$QUALIFIED_TREE"
+          if [[ "$REQUEST_MODE" == build-only ]]; then
+            echo D07_T3_PRIVATE_RETENTION=NOT_REQUESTED
+          elif [[ "$TRANSPORT_RESULT" != success ]]; then
+            echo D07_T3_PRIVATE_RETENTION=BLOCKED
+          else
+            echo D07_T3_PRIVATE_RETENTION=PASS
+          fi
           echo D07_T3_PRODUCT_ACCEPTED=false
       # Never upload private source, prepared inputs, dist, logs or model data.
   retained-private-readback:

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "candidate": "d07-t3-3d120d15ae4b",
-  "siteRevision": "3d120d15ae4bedf9ef2a2189675612cd9688eb55",
-  "domainRevision": "f73a5f0e877c1d8c30c56d5ee82f472b55c0f1c2",
-  "pipelineRevision": "fe619cbf565113f61a71bc4a74965d6ecc14e6ec",
-  "reason": "Combined qualification after editor continuity, Host focus preservation, confirmed order inventory and saved portfolio projection; local checks completed. No separate portability request."
+  "candidate": "d07-t3-release-169f674db752",
+  "siteRevision": "169f674db7528fce7744c10de28554e9c864e83a",
+  "domainRevision": "11ec43898d025107174df0b2cde6024c340c1cc0",
+  "pipelineRevision": "008b41682c9f1e99fa177baaf7c31f8504baa0ce",
+  "reason": "Frozen functional scope; existing combined release qualification. Qualify independently of transport, retain privately only if existing authorization passes. No new functional suites or separate portability workflow."
 }
