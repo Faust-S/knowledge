@@ -305,3 +305,65 @@ test('same graph and duration but changed normative tolerance forms a different 
  const r=review(data),v=await reviewD05RecurringTechnologies(r,r.groups[0].id);
  assert.equal(v.family_count,2);assert.equal(v.repeated_family_count,0);
 });
+
+function recordedCase(){
+ const a=fresh(),route=routes(a)[0],plan=plans(a)[0],check=checks(a)[0],ws=route.object.workspace_id;
+ const oid=route.object.object_id,pid=plan.object.object_id,cid=check.object.object_id;
+ const fact=(id,type,body,targets)=>({object:{workspace_id:ws,object_id:id,revision:1,
+  schema_id:'ru.5ibs.productionops.'+type,schema_version:'1.0.0',data:{object_id:id,object_type:type,
+  source_schema_version:'1.0.0',status:'active',value:{object_id:id,object_type:type,...body}}},
+  relations:{incoming:[],outgoing:targets.map((target,i)=>({workspace_id:ws,relation_id:id+'-rel-'+i,
+   from_object_id:id,to_object_id:target,kind:'based_on'}))}});
+ const order='private-order-001',exec='private-execution-001',qc='private-qc-001';
+ a.push(fact(order,'production-order',{plan_snapshot:{operations_ref:oid}},[oid]));
+ a.push(fact(exec,'production-execution',{production_order_ref:order,operation_route_ref:oid,
+  operation_executions:route.object.data.value.data.inputs.operations.map((op,i)=>({
+   operationExecutionId:'private-operation-'+i,operationRef:op.id,status:'accepted',actualDuration:60+i*10,
+   actualLaborMinutes:60+i*10,quantityOutput:120,quantityAccepted:120,quantityRejected:0,
+   acceptedWithDeviation:false,previousCycles:i===2?[{}]:[],resultComment:'Проверить оснастку после переналадки'
+  }))},[order,oid]));
+ a.push(fact('private-actuals-001','production-actuals',{production_order_ref:order,production_execution_ref:exec,
+  sequence:1,produced_qty:100,scrap_qty:1,rework_qty:2},[order,exec]));
+ a.push(fact('private-actuals-002','production-actuals',{production_order_ref:order,production_execution_ref:exec,
+  sequence:2,produced_qty:120,scrap_qty:1,rework_qty:3},[order,exec]));
+ a.push(fact(qc,'quality-check-result',{production_order_ref:order,production_execution_ref:exec,
+  quality_plan_ref:pid,control_point_ref:cid,status:'failed',measured_value:'100.4',
+  deviation_type:'measurement_out_of_range',comment:'После переналадки проверить упор'},[order,exec,pid,cid]));
+ a.push(fact('private-defect-001','defect-record',{production_order_ref:order,quality_check_result_ref:qc,
+  severity:'major',disposition:'rework',status:'resolved',quantity_affected:3,
+  description:'Упор сместился при переналадке',comment:'Повторно настроить упор и провести измерение'},[order,qc]));
+ return a;
+}
+test('recorded D05 execution contributes linked lessons, never a new tolerance or a sum of cumulative reports',async()=>{
+ const data=recordedCase(),r=review(data),g=r.groups[0],facts=r.recorded_execution_review;
+ assert.equal(facts.report_count,1);assert.equal(facts.source_record_count,6);
+ assert.equal(facts.domain_completion_validation,'NOT_PERFORMED_BY_ACTIVITY');
+ const report=facts.profiles[0].reports[0];
+ assert.equal(report.operations.length,3);assert.deepEqual(report.actuals.map(x=>x.produced),[100,120]);
+ assert.equal(report.quality[0].status,'failed');assert.equal(report.defects[0].status,'resolved');
+ const request=await prepareD05ExtractionRequest(r,g.id,1);
+ assert.equal(request.document.comparison.recorded_report_count,1);
+ assert.ok(request.document.evidence.some(x=>x.field==='recorded_defect_report'&&x.text.includes('Повторно настроить упор')));
+ assert.doesNotMatch(request.document_text,/private-order-|private-execution-|private-qc-|private-operation-/);
+ const other=await prepareD05ExtractionRequest(r,g.id,2);
+ assert.equal(other.document.comparison.recorded_report_count,undefined);
+ const declaredOnly=await prepareD05ExtractionRequest(r,g.id,1,{includeRecordedReports:false});
+ assert.notEqual(declaredOnly.request_sha256,request.request_sha256);
+ const form=formFor(r),fields=Object.fromEntries(request.document.fields.map(f=>[f.id,{value:f.id==='technology.title'?'Изготовление детали':
+  f.scope==='technology'?form[f.field]:f.field==='responsible_role'?form.quality_roles[f.scope]:form.operations[f.scope][f.field],
+  basis:'PROPOSED',refs:[],note:'Проверка специалистом'}]));
+ const out=await reviewD05ExtractionProposal(r,g.id,1,{profile:PROPOSAL,request_sha256:request.request_sha256,fields});
+ assert.ok(out.product);assert.equal(out.product.object_data.technology.quality_checks[0].declared_fields.find(f=>f.field==='upper_limit').value,'100.2');
+});
+test('recorded defects and actuals without original matching links cannot become evidence',async()=>{
+ const data=recordedCase(),defect=data.find(x=>x.object.object_id==='private-defect-001');
+ defect.relations.outgoing=defect.relations.outgoing.filter(x=>x.to_object_id!=='private-qc-001');
+ const execution=data.find(x=>x.object.object_id==='private-execution-001');
+ const r=review(data);
+ assert.equal(r.recorded_execution_review.profiles[0].reports[0].defects.length,0);
+ assert.ok(r.recorded_execution_review.profiles[0].issues.includes('DEFECT_QUALITY_LINK_INVALID'));
+ execution.relations.outgoing=execution.relations.outgoing.filter(x=>x.to_object_id!=='private-order-001');
+ const missing=review(data);
+ assert.equal(missing.recorded_execution_review.report_count,0);
+ assert.ok(missing.recorded_execution_review.profiles[0].issues.includes('EXECUTION_ROUTE_LINK_MISSING'));
+});

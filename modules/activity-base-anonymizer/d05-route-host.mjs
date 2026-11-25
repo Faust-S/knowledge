@@ -41,9 +41,10 @@ function safeFailure(error){
  * is not approved for external disclosure. Do not hand this port to an LLM.
  */
 export async function reviewSelectedD05RouteModels({
- context,signedAccess,createSubjectKernelBinding,subscribeOwnerInvalidation,includeQualityPlans=false,includeTechnologyDraft=false,
+ context,signedAccess,createSubjectKernelBinding,subscribeOwnerInvalidation,includeQualityPlans=false,includeTechnologyDraft=false,includeRecordedReports=false,
 }={}){
-  need(typeof includeQualityPlans==='boolean'&&typeof includeTechnologyDraft==='boolean'&&
+  need(typeof includeQualityPlans==='boolean'&&typeof includeTechnologyDraft==='boolean'&&typeof includeRecordedReports==='boolean'&&
+    (!includeRecordedReports||includeTechnologyDraft)&&
     (!includeTechnologyDraft||includeQualityPlans)&&record(context?.kernel)&&typeof context.kernel.hasOperation==='function'&&
     READS.every(op=>context.kernel.hasOperation(op))&&
     typeof context.currentWorkspace?.get==='function'&&
@@ -133,9 +134,15 @@ export async function reviewSelectedD05RouteModels({
       }
       const plans=await readQualityType('quality-plan',96,true);
       const templates=await readQualityType('quality-check-template',256,false);
+      const facts=[];
+      if(includeRecordedReports){
+        for(const [type,limit] of [['production-order',64],['production-execution',64],['production-actuals',128],['quality-check-result',256],['defect-record',128]])
+          facts.push(await readQualityType(type,limit,true));
+        need(facts.reduce((n,p)=>n+p.details.length,0)<=512,'D05_RECORDED_SELECTION_LIMIT');
+      }
       // Re-read all selected plan objects and their outgoing relations. A
       // matching object revision alone does not prove unchanged links.
-      for(const item of plans.details){
+      for(const item of [plans,...facts].flatMap(p=>p.details)){
         checkLive();
         const next=await scoped.getObject(workspaceId,item.object.object_id);
         need(record(next?.object)&&Array.isArray(next.relations?.outgoing)&&
@@ -143,12 +150,12 @@ export async function reviewSelectedD05RouteModels({
           await sha256Canonical({object:next.object,relations:{outgoing:next.relations.outgoing}})
             ===await sha256Canonical(item),'D05_ROUTE_HOST_SOURCE_CHANGED');
       }
-      for(const part of [plans,templates]){
+      for(const part of [plans,templates,...facts]){
         checkLive();
         const after=validateRows(await scoped.listObjects(part.q),workspaceId,part.schema,part.limit,true);
         need(await sha256Canonical(after)===part.digest,'D05_ROUTE_HOST_SOURCE_CHANGED');
       }
-      quality={plans:plans.details,templates:templates.details};
+      quality={plans:plans.details,templates:templates.details,recordedDetails:includeRecordedReports?facts.flatMap(p=>p.details):null};
     }
     checkLive();
     const afterWorkspace=await scoped.getWorkspace(workspaceId);
@@ -160,7 +167,7 @@ export async function reviewSelectedD05RouteModels({
     need(JSON.stringify(await signedAccess.currentContext())===identity,
       'D05_ROUTE_HOST_CONTEXT_CHANGED');
     checkLive();
-    const result=quality?reviewD05RouteModelsWithQuality(details,quality.plans,quality.templates,{includeTechnologyDraft}):
+    const result=quality?reviewD05RouteModelsWithQuality(details,quality.plans,quality.templates,{includeTechnologyDraft,recordedDetails:quality.recordedDetails}):
       reviewD05RouteModels(details);
     checkLive();
     return {...result,source_authority:'ORIGINAL_SIGNED_SELECTED_READBACK'};
@@ -179,7 +186,11 @@ export function createTrustedD05RouteReviewPort(config){
   need(typeof config?.context?.currentWorkspace?.subscribe==='function'&&
     typeof config?.subscribeOwnerInvalidation==='function','D05_ROUTE_HOST_REQUIRED');
   return Object.freeze({
-    readSelectedRoutes:()=>reviewSelectedD05RouteModels(config),
+    readSelectedRoutes:(options={})=>{
+      need(record(options)&&Object.keys(options).every(k=>k==='includeRecordedReports')&&
+        (options.includeRecordedReports===undefined||typeof options.includeRecordedReports==='boolean'),'D05_ROUTE_HOST_OPTION_INVALID');
+      return reviewSelectedD05RouteModels({...config,includeRecordedReports:options.includeRecordedReports??config.includeRecordedReports??false});
+    },
     subscribeInvalidation(listener){
       need(typeof listener==='function','D05_ROUTE_HOST_INVALIDATION_REQUIRED');
       const stopSelection=config.context.currentWorkspace.subscribe(listener);

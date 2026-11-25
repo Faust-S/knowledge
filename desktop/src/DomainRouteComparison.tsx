@@ -23,7 +23,11 @@ const ERRORS:Record<string,string>={
  D05_ROUTE_DEPENDENCY_INVALID:'Ссылка на отсутствующую операцию или самозависимость.',
  D05_ROUTE_DEPENDENCY_CYCLE:'В плановых зависимостях есть цикл.',
  D05_ROUTE_DUPLICATE_MODEL_ID:'Один маршрут выбран несколько раз. Выберите только одну его редакцию.',
- D05_ROUTE_FILE_LIMIT:'Выберите не более 24 JSON-файлов общим объёмом до 8 МБ.',
+ D05_ROUTE_FILE_LIMIT:'Выберите до 256 локальных Result общим объёмом до 8 МБ; нормативных маршрутов не более 24.',
+ D05_RECORDED_SELECTION_LIMIT:'Слишком много связанных отчётов. Выберите меньшую рабочую область или набор Result.',
+ D05_RECORDED_RESULT_PROFILE:'Фактический Result не соответствует исходному предметному контракту.',
+ D05_RECORDED_RESULT_RELATIONS:'Не подтверждены связи исходных отчётов.',
+ D05_ROUTE_HOST_OPTION_INVALID:'Источник не подключён для чтения фактических отчётов.',
  D05_ROUTE_FILE_INVALID:'Не удалось прочитать JSON-файл.',
  D05_ROUTE_HOST_NO_MODELS:'В выбранной рабочей области нет сохранённых маршрутов CehoVod.',
  D05_ROUTE_HOST_SELECTION_LIMIT:'В области более 24 маршрутов. Пока доступна выборка до 24 моделей.',
@@ -98,14 +102,14 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
   try{apply(buildD05RouteQualityComparisonExample(),'Встроенный пример трёх моделей с картами качества',token);}
   catch(err){fail(err,token);}
  };
- async function loadSelectedRoutes(){
+ async function loadSelectedRoutes(includeRecordedReports=false){
    if(!host||!hostConnected)return;
    reset();const token=generation.current;setBusy(true);
    try{
-     const value=await host.readSelectedRoutes();
+     const value=includeRecordedReports?await host.readSelectedRoutes({includeRecordedReports:true}):await host.readSelectedRoutes();
      if(token!==generation.current)return;
      if(value.source_authority!=='ORIGINAL_SIGNED_SELECTED_READBACK'||value.export_allowed!==false||value.anonymity!=='NOT_ESTABLISHED')throw {code:'D05_ROUTE_HOST_RECORD_MISMATCH'};
-     setResult(value);setSource('Сохранённые маршруты выбранной рабочей области');
+     setResult(value);setSource(includeRecordedReports?'Маршруты и зарегистрированные отчёты выбранной рабочей области':'Сохранённые маршруты выбранной рабочей области');
    }catch(err){fail(err,token);}
    finally{if(token===generation.current)setBusy(false);}
  }
@@ -114,7 +118,7 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
   if(!picked.length)return;
   reset();const token=generation.current;setBusy(true);
   try{
-   if(picked.length>24||picked.reduce((n,file)=>n+file.size,0)>8*1024*1024)throw {code:'D05_ROUTE_FILE_LIMIT'};
+   if(picked.length>256||picked.reduce((n,file)=>n+file.size,0)>8*1024*1024)throw {code:'D05_ROUTE_FILE_LIMIT'};
    const records:unknown[]=[];
    for(const file of picked){
     if(token!==generation.current)return;
@@ -129,14 +133,17 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
  const group=result?.groups[groupIndex];
  const draft=result?.technology_draft?.groups.find(g=>g.group_id===group?.id);
  const quality=result&&'quality_review' in result?result.quality_review?.groups.find(g=>g.group_id===group?.id):null;
+ const recorded=result?.recorded_execution_review;
+ const groupReports=recorded?.profiles.filter(p=>group?.model_numbers.includes(p.model_number))??[];
  const pageCount=Math.max(1,Math.ceil((group?.operations.length??0)/PAGE_SIZE));
  const localNumber=(opId:string)=>(group?.operations.findIndex(x=>x.id===opId)??-1)+1;
  return <div className="activity-domain-review">
   <section className="activity-v7-card">
    <h2>Сопоставление технологических маршрутов CehoVod</h2>
-   <p>Выберите модели маршрутов CehoVod. Для совместного сравнения карт качества загрузите локальные копии исходных объектов Result с отношениями (object, relations): маршруты, карты и шаблоны проверок. Один файл содержит один объект, до 24 файлов. При подключённом Host можно получать сохранённые модели непосредственно.</p>
+   <p>Выберите маршруты, карты качества и накопленные отчёты исполнения CehoVod. Локальная выборка использует исходные Result с отношениями (object, relations), до 256 файлов и до 24 маршрутов. При подключённом Host сохранённые сведения читаются непосредственно из рабочей области.</p>
    <div className="activity-v7-actions">
-    {hostConnected?<button className="activity-v7-primary" disabled={busy} onClick={loadSelectedRoutes}>Получить сохранённые маршруты</button>:null}
+    {hostConnected?<><button className="activity-v7-primary" disabled={busy} onClick={()=>void loadSelectedRoutes()}>Получить сохранённые маршруты</button>
+     <button disabled={busy} onClick={()=>void loadSelectedRoutes(true)}>Получить маршруты и фактические отчёты</button></>:null}
     <input type="file" ref={input} multiple accept=".json,application/json" className="visually-hidden" onChange={onFiles} aria-label="Выбрать JSON маршрутов CehoVod"/>
     <button className="activity-v7-primary" disabled={busy} onClick={()=>input.current?.click()}>Выбрать маршруты JSON</button>
     <button disabled={busy} aria-label="Открыть пример маршрутов CehoVod" onClick={example}>Открыть пример маршрутов</button>
@@ -148,7 +155,7 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
   {problem?<div role="alert" className="activity-v7-note hold">{problem}</div>:null}
   {result?<section className="activity-v7-card" aria-label="Результат сопоставления маршрутов">
    <h2>Группы структурных кандидатов</h2>
-   <p>{source}. Это модели и нормативные маршруты, не наблюдённое исполнение.</p>
+   <p>{source}. Нормативные маршруты и зарегистрированные факты исполнения рассматриваются отдельно.</p>
    {result.source_authority==='ORIGINAL_SIGNED_SELECTED_READBACK'?<p>Исходная Workspace прочитана через оригинальный подписанный Host.</p>:<p>Локальная модель: происхождение и право использования не подтверждены.</p>}
    <div className="activity-v7-stats">
     <div><strong>{result.model_count}</strong><span>Модели</span></div>
@@ -178,6 +185,23 @@ export function DomainRouteComparison({host=null}:{host?:D05RouteReviewPort|null
      </div>)}</div>
      <p>Сравнение заявленных условий. Activity не проверяет фактическое качество изделия и не утверждает норматив.</p>
     </div>:<p>Карты качества не прочитаны в этой выборке. Сравнение структуры не подтверждает совпадение критериев приёмки.</p>}
+    {recorded?<div className="activity-domain-group">
+     <h3>Накопленные результаты исполнения</h3>
+     <p>Связано {groupReports.reduce((n,p)=>n+p.reports.length,0)} отчётов исполнения. Всего по выборке прочитано {recorded.source_record_count} связанных Result; не использовано {recorded.unused_record_count}.</p>
+     <p>Это зарегистрированные сведения, а не независимая проверка физической работы или окончательная приёмка. Фактические величины не заменяют нормы.</p>
+     {groupReports.map(p=><div className="activity-domain-op" key={p.model_number}>
+      <strong>Модель {p.model_number}: {p.reports.length} отчётов</strong>
+      {p.issues.length?<span className="activity-v7-note hold">Есть неполные или неподтверждённые связи: {p.issues.length}. Эти сведения не объединяются с другими заказами.</span>:null}
+      {p.reports.map(report=><details key={report.report_number}><summary>Отчёт {report.report_number}: {report.operations.length} операций, {report.quality.length} проверок, {report.defects.length} дефектов</summary>
+       {report.operations.map(op=><div key={op.operation_id}><strong>{group.operations.find(x=>x.id===op.operation_id)?.name??op.operation_id}</strong>
+        <p>Состояние: {op.status}. Фактическая длительность: {op.duration_minutes===null?'не указана':op.duration_minutes+' мин'}. Предыдущих циклов: {op.previous_cycle_count??'не указано'}.</p>
+        {op.result_note?<p>{op.result_note}</p>:null}{op.pause_reason?<p>{op.pause_reason}</p>:null}</div>)}
+       {report.actuals.map((a,i)=><p key={'actual'+i}>Отчёт {String(a.sequence)} ({a.scope==='BATCH_REPORT'?'партия':'заказ'}): выпущено {String(a.produced??'не указано')}, брак {String(a.scrap??'не указано')}, переделка {String(a.rework??'не указано')}. {typeof a.quality_deviations==='string'?a.quality_deviations:''}</p>)}
+       {report.quality.map((q,i)=><p key={'quality'+i}>{q.kind==='CONTROL_REPORT'?String(q.control??'Контроль'):'Заявленный итог количества'}: {String(q.status??(q.reported_passed===true?'принято по отчёту':'не принято по отчёту'))}. {typeof q.measured_value==='string'?q.measured_value:''} {typeof q.comment==='string'?q.comment:''}</p>)}
+       {report.defects.map((d,i)=><div key={'defect'+i}><strong>Дефект: {String(d.disposition)} · {String(d.status)}</strong><p>{typeof d.description==='string'?d.description:''}</p>{typeof d.resolution_note==='string'?<p>{d.resolution_note}</p>:null}</div>)}
+      </details>)}
+     </div>)}
+    </div>:null}
     {draft&&result?<TechnologyDraftPanel key={source+':'+group.id+':'+generation.current}
      draft={draft} operations={group.operations} review={result}/>:null}
     <h3>Операции и исходные зависимости</h3>

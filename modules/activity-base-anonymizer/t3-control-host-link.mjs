@@ -389,7 +389,10 @@ export async function openOriginalT3ActivityReviewHost({
     // Explicit opt-in by the domain Host, not a grant or an inferred scope.
     // Uses the same selected context and ORIGINAL Control invalidation relay.
     const d05RouteHost=enableD05RouteReview?Object.freeze({
-      async readSelectedRoutes(){
+      async readSelectedRoutes(options={}){
+        need(options&&typeof options==='object'&&!Array.isArray(options)&&Object.keys(options).every(k=>k==='includeRecordedReports')&&
+          (options.includeRecordedReports===undefined||typeof options.includeRecordedReports==='boolean')&&
+          (!options.includeRecordedReports||includeD05TechnologyDraft),'D05_ROUTE_HOST_OPTION_INVALID');
         need(!closed,'T3_CONTROL_HOST_DETACHED');
         const selected=ownerContext.currentWorkspace.get();
         let invalidated=false;
@@ -403,6 +406,7 @@ export async function openOriginalT3ActivityReviewHost({
             context:ownerContext,signedAccess,createSubjectKernelBinding,
             subscribeOwnerInvalidation:shared.subscribeSignedAccessInvalidation,
             includeQualityPlans:includeD05QualityPlans,includeTechnologyDraft:includeD05TechnologyDraft,
+            includeRecordedReports:options.includeRecordedReports===true,
           });
           need(!closed&&!invalidated&&ownerContext.currentWorkspace.get()===selected,
             'T3_CONTROL_CONTEXT_CHANGED_DURING_READ');
