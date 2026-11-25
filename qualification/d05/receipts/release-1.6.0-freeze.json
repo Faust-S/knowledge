@@ -1,6 +1,6 @@
 {
   "schema": "IWXA_D05_T3_RELEASE_FREEZE/1",
-  "status": "FROZEN_BLOCKER_CORRECTED_NOT_DISPATCHED",
+  "status": "FROZEN_BLOCKER_CORRECTED_READY_FOR_ONE_TIME_REQUEST",
   "scope": "1.6.0",
   "siteCommit": "12ec1d040b8cdf1f7630ea4faac893cf3057cc72",
   "subjectCommit": "547148d8cd74838e0dd384c9da2f196e3595bf9d",
@@ -69,6 +69,13 @@
     "reorderedMappings": 46,
     "workerExitCases": 9
   },
-  "manualDispatchOnly": true,
-  "hardwareFirst": true
+  "manualDispatchOnly": false,
+  "hardwareFirst": true,
+  "oneTimeDispatchAllowed": true,
+  "ciProfile": "1.6.0-light-hardware-first",
+  "oneTimeRequestVerifierBlob": "85d548c38f27106675243866ca00d1ef82b41051",
+  "oneTimeRequestLocalRealGitCases": {
+    "passed": 15,
+    "total": 15
+  }
 }

@@ -1,16 +1,44 @@
 name: D05 T3 grouped release qualification
 on:
   workflow_dispatch:
+  push:
+    branches: ['ci/once/d05-t3-release/*']
+    paths: ['.github/ci-requests/d05-t3-release.json']
 
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: d05-t3-release-${{ github.ref }}
+  group: d05-t3-release
   cancel-in-progress: false
 jobs:
+  admission:
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/test/2026-11-24-d05-t3-integration') || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout only the public qualification harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit only the explicit exact one-time request
+        shell: bash
+        run: |
+          python3 tools/ci/verify_once_request.py \
+            --repository Faust-S/knowledge --workflow d05-t3-release \
+            --profile 1.6.0-light-hardware-first \
+            --revision site=12ec1d040b8cdf1f7630ea4faac893cf3057cc72 \
+            --revision subject=547148d8cd74838e0dd384c9da2f196e3595bf9d \
+            --revision assistant=352cd6fd1cd40d8bf8b5340ba18a00a55bcdf648 \
+            --revision one-core=326f725c44d69ac99f6b912241e9e8a6c3d716a5 \
+            --revision witness=7563f85505e04528f0654355b26e82dad920e4b2 \
+            --revision evaluator=d506577539a4ca530a02f548fa2b225221a6af11 \
+            --revision retained-base=ba595ae901ea5af9b066a5e5f7cab88c15fdee8e
   hardware:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/test/2026-11-24-d05-t3-integration' }}
+    needs: admission
+    if: ${{ needs.admission.result == 'success' }}
     uses: ./.github/workflows/d05-t3-real-model.yml
     with:
       site_sha: '12ec1d040b8cdf1f7630ea4faac893cf3057cc72'

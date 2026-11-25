@@ -32,11 +32,14 @@
     45666678817
   ],
   "scopeExpansionAllowed": false,
-  "reason": "Frozen 1.6.0 release blocker only. Previous exact Linux functional qualification succeeded. Real light-profile hardware returned exact source in all seven scenarios but selected the correct advice only once and did not confirm offline worker termination. Restore meaningful choice IDs with exact-source attachment, and make witness poll both Worker exit observations within the existing 10s bound. Same eleven services, fifteen result contexts, forty-six choices, seven hardware scenarios and all original qualification gates. Hardware runs first; only if it passes is the single full Linux candidate qualification and private publication executed. Explicit manual dispatch only. No scope expansion.",
+  "reason": "Frozen 1.6.0 release blocker only. Previous exact Linux functional qualification succeeded. Real light-profile hardware returned exact source in all seven scenarios but selected the correct advice only once and did not confirm offline worker termination. Restore meaningful choice IDs with exact-source attachment, and make witness poll both Worker exit observations within the existing 10s bound. Same eleven services, fifteen result contexts, forty-six choices, seven hardware scenarios and all original qualification gates. Hardware runs first; only if it passes is the single full Linux candidate qualification and private publication executed. A single explicit exact-revision CI request in an isolated once branch, or a deliberate workflow_dispatch, is permitted. No scope expansion.",
   "productAccepted": false,
   "remotePublicationVerified": false,
   "formatOnlyCorrection": false,
   "browserWitnessOnlyCorrection": false,
   "hardwareFirst": true,
-  "manualDispatchOnly": true
+  "manualDispatchOnly": false,
+  "oneTimeDispatchAllowed": true,
+  "ciRequestSchema": "IWXA_CI_ONCE/1",
+  "ciProfile": "1.6.0-light-hardware-first"
 }
