@@ -9,7 +9,8 @@ const zero=Object.fromEntries(Object.keys(counts).map(k=>[k,0]));
 const opts={workspaces:[ws],include_history:true,include_assets:true,
   include_relations:true,include_schemas:true};
 const row={workspace_id:ws,object_id:'company:work:one',
-  schema_id:'iwxa.t3.company-work-record',schema_version:'1.0.0'};
+  schema_id:'iwxa.t3.company-work-record',schema_version:'1.0.0',
+  incoming_revision:1,local_revision:null,data_equal:false,conflict:false};
 const plan={mode:'merge',target_workspace:ws,include_workspaces:[ws],conflict:'fail',
   include_history:true,include_assets:true,include_relations:true};
 const input={preview_token:'token:preview',package_digest:dg,plan};
@@ -138,4 +139,13 @@ test('export digest and original inspection cancellation must both be confirmed'
     {code:'T3_CORPORATE_EXCHANGE_INSPECTION_CANCEL_UNCONFIRMED'});
   await assert.rejects(g.bound().confirmExport(confirm),
     {code:'T3_CORPORATE_EXCHANGE_VERIFIED_EXPORT_REQUIRED'});
+});
+
+test('non-identical existing corporate record never reaches original merge',async()=>{
+  const f=fixture();Object.assign(f.preview.preview.objects[0],{
+    local_revision:1,data_equal:false,conflict:true});
+  await f.bound().importPreview(bytes());
+  await assert.rejects(f.bound().importCommit(input),
+    {code:'T3_CORPORATE_EXCHANGE_COMPLETE_WORKSPACE_REQUIRED'});
+  assert.deepEqual(f.calls,['preview']);
 });

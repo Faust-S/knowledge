@@ -337,6 +337,7 @@ export function createSubjectKernelBinding({
         if(business&&(foreign||boundImport.business!==true||
            plan?.mode!=="merge"||plan.target_workspace!==workspace_id||
            (plan?.conflict??"fail")!=="fail"||
+           boundImport.immutableMergeReady!==true||
            Object.keys(plan??{}).some(k=>!["mode","target_workspace","conflict","include_workspaces","include_objects","include_history","include_assets","include_relations"].includes(k))||
            !Array.isArray(plan.include_workspaces)||plan.include_workspaces.length!==1||
            plan.include_workspaces[0]!==workspace_id||
@@ -673,6 +674,10 @@ export function createSubjectKernelBinding({
         workspace_id,contextIdentity:identity(context),
         sourceWorkspaceId:result.preview.manifest.workspaces[0],
         business,
+        immutableMergeReady:!business||result.preview.objects.every(row=>
+          Number.isSafeInteger(row.incoming_revision)&&row.incoming_revision>=1&&
+          row.conflict===false&&(row.local_revision===null||
+            row.data_equal===true&&row.local_revision===row.incoming_revision)),
         allowedModes:Array.isArray(result.allowed_modes)
           ?Object.freeze([...result.allowed_modes]):null,
         preview_token:result.preview_token,

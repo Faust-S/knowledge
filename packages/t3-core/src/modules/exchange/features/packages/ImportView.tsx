@@ -397,6 +397,7 @@ export function ImportView({ kernel, commands, pwaFileHandle = null,
       const preferredTargetWorkspaceId = writable.length === 1
         ? writable[0].workspace_id : null;
       dispatch({ type: "preview-succeeded", handle, preferredTargetWorkspaceId,
+        preferCompanyMerge:installedCompany,
         restoringProtectedIntoEmptyCatalog:
           options.protectedRestore === true && catalogReadConfirmed &&
           available.length === 0 });
