@@ -301,9 +301,17 @@ export function createT4OriginalNativeHostNetworkOwner({
       return status===null?null:Object.freeze({...requireT4OriginalRetiredAttemptStatus(status,session,role,port.checkpointRef),
         sessionRef:session.sessionRef,changeId:session.changeId,role});
     };
-    let migrateNextPublication=enablePublicationIndexMigration?
-      createT4OriginalPublicationIndexMigrationStepper({...tech,localNodeRef:nodeRef,
-        createOriginalPublicationPort:publication,inspectOriginalRetiredAttempt:inspectRetired}):async()=>null;
+    let migrationComplete=false,migrationStepper=async()=>null;
+    const resetMigration=completionProof=>{
+      if(enablePublicationIndexMigration&&!migrationComplete)
+        migrationStepper=createT4OriginalPublicationIndexMigrationStepper({...tech,localNodeRef:nodeRef,
+          createOriginalPublicationPort:publication,inspectOriginalRetiredAttempt:inspectRetired,...completionProof});
+    };
+    const migrateNextPublication=async()=>{
+      const result=await migrationStepper();
+      if(result?.state==='NETWORK_INDEX_MIGRATION_COMPLETE')migrationComplete=true;
+      return result;
+    };
     const common={workspaceId:sourceWorkspaceId,originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
       scopeRef,ownerEpoch,originalKernel,getMode,isHostActive,
       readOriginalHostContext:context(sourceWorkspaceId),authorizeOriginalHostTask:callback('authorizeOriginalHostTask'),
@@ -384,12 +392,8 @@ export function createT4OriginalNativeHostNetworkOwner({
       // Migration is only useful for undelivered source sessions. An
       // original committed frontier proves a completed delivery without
       // reviving a retired signer or requiring its obsolete remote index.
-      const resetSourceMigration=()=>{
-        if(enablePublicationIndexMigration&&enableHistoricalAcknowledgementRecovery)
-          migrateNextPublication=createT4OriginalPublicationIndexMigrationStepper({...tech,localNodeRef:nodeRef,
-            createOriginalPublicationPort:publication,inspectOriginalRetiredAttempt:inspectRetired,
-            inspectOriginalCommittedSourceAcknowledgements:sourceCursorPort.inspectOriginalCommittedSourceAcknowledgements});
-      };
+      const resetSourceMigration=()=>resetMigration(enableHistoricalAcknowledgementRecovery?
+        {inspectOriginalCommittedSourceAcknowledgements:sourceCursorPort.inspectOriginalCommittedSourceAcknowledgements}:{});
       resetSourceMigration();
       const capture={...common,...ledger,readOriginalEvents,networkTargetRef:recipientNodeRef,
         authorizeNetworkPublish:callback('authorizeNetworkPublish')};
@@ -537,7 +541,7 @@ export function createT4OriginalNativeHostNetworkOwner({
         readLocalOwnerHistory:request=>readLocalOwnerHistory(request,sourceCursorPort,readOriginalCaptureSelection),
         readLocalReplacement:()=>readLocalReplacement(async()=>(await sourceCursorPort.inspectOriginalHostCursor()).originalT3NextCursor),
         completeLocalReplacement:selection=>completeLocalReplacement(selection,sourceCursorPort),
-        resetSourceMigration,run:(retryMissing,historicalOnly=false)=>task.runNativeSourceStep({...signing,retryMissing,historicalOnly,sourceCursorPort,
+        resetMigration:resetSourceMigration,run:(retryMissing,historicalOnly=false)=>task.runNativeSourceStep({...signing,retryMissing,historicalOnly,sourceCursorPort,
         createOriginalSourcePhasePort:phase,announceOriginalSourceSession:true,
         recoverNextOriginalCapture:p=>captureRecovery.reconcileNextOriginalCapture(p),
         authorizeOriginalRead:common.authorizeOriginalRead,readOriginalEvents,verifyOriginalSourceSubject,
@@ -551,6 +555,9 @@ export function createT4OriginalNativeHostNetworkOwner({
     const cursor=createT4OriginalNetworkRecipientCursorPort({...tech,originalBaselinePort:baseline,
       authorizeOriginalRecipientRead:common.authorizeOriginalRead,authorizeOriginalSourceRead,
       readOriginalSourceEvents,readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage')});
+    const resetRecipientMigration=()=>resetMigration({
+      inspectOriginalCommittedRecipientResults:cursor.inspectOriginalCommittedRecipientResults});
+    resetRecipientMigration();
     const task=createT4OriginalHostRecipientDispatcher({...common,originalRecipientCursorPort:cursor,
       authorizeNetworkReceive:callback('authorizeNetworkReceive'),verifyOriginalSourceEvent:callback('verifyOriginalSourceEvent'),
       readOriginalDependencyCoverage:callback('readOriginalDependencyCoverage'),
@@ -621,7 +628,7 @@ export function createT4OriginalNativeHostNetworkOwner({
             verifyOriginalPhaseEvidence:callback('verifyOriginalPhaseEvidence'),
             verifyOriginalRecipientApplied:callback('verifyOriginalRecipientApplied')})});
     };
-    return {baseline,task,migrateNextPublication,continueReplacementRecipient,continueReplacementRecipientContent,readLocalOwnerHistory:request=>readLocalOwnerHistory(request,cursor),readLocalReplacement:()=>readLocalReplacement(cursor.readOriginalVerifiedCursor),
+    return {baseline,task,migrateNextPublication,resetMigration:resetRecipientMigration,continueReplacementRecipient,continueReplacementRecipientContent,readLocalOwnerHistory:request=>readLocalOwnerHistory(request,cursor),readLocalReplacement:()=>readLocalReplacement(cursor.readOriginalVerifiedCursor),
       completeLocalReplacement:selection=>completeLocalReplacement(selection,cursor),run:retryMissing=>task.runNativeOwnerStep({...signing,retryMissing,useSignedSourceAnnouncement:true,
       createOriginalRecipientPublicationPort:publication,createOriginalRecipientPhasePort:phase,
       ...(enableLocalRetiredRecipientRecovery?{readOriginalLocalRetiredRecipientSession:proof=>
@@ -869,7 +876,7 @@ export function createT4OriginalNativeHostNetworkOwner({
                   await state.continueReplacementSourceContent({selection,retryMissing:state.networkRecovery!==null}):
                   enableReplacementRecipientContent&&[null,'RECEIVED',...(enableReplacementRecipientApply?['VERIFIED','APPLY_INTENT']:[])].includes(selection.originalLocalPhase)?
                     await state.continueReplacementRecipientContent(selection,state.networkRecovery!==null):await state.completeLocalReplacement(selection);
-            if(role==='SOURCE'&&result.state==='ORIGINAL_REPLACEMENT_CURSOR_COMMITTED')state.resetSourceMigration();
+            if(result.state==='ORIGINAL_REPLACEMENT_CURSOR_COMMITTED')state.resetMigration();
           }
           // A retained accepted ACK is local original evidence. Do not
           // force an old-address migration (or live signature/remote I/O)
@@ -877,7 +884,7 @@ export function createT4OriginalNativeHostNetworkOwner({
           if(result===undefined&&role==='SOURCE'&&enableHistoricalAcknowledgementRecovery&&enablePublicationIndexMigration){
             const recovered=await state.run(false,true);
             if(recovered.state!=='NO_ORIGINAL_HISTORICAL_RECOVERY'){
-              result=recovered;state.resetSourceMigration();
+              result=recovered;state.resetMigration();
             }
           }
           if(result===undefined)result=await state.migrateNextPublication()??await state.run(state.networkRecovery!==null);
@@ -932,7 +939,11 @@ export function createT4OriginalNativeHostNetworkOwner({
           ...(Number.isSafeInteger(result.skippedCompletedSourcePublicationCount)?{
             processedPublicationCount:result.processedPublicationCount,
             skippedCompletedSourcePublicationCount:result.skippedCompletedSourcePublicationCount,
-            skippedCompletedSourceIndexesRepaired:false}:{})}));
+            skippedCompletedSourceIndexesRepaired:false}:{}),
+          ...(Number.isSafeInteger(result.skippedCompletedRecipientPublicationCount)?{
+            processedPublicationCount:result.processedPublicationCount,
+            skippedCompletedRecipientPublicationCount:result.skippedCompletedRecipientPublicationCount,
+            skippedCompletedRecipientIndexesRepaired:false}:{})}));
       }catch(error){
         // A failed network wake must not remove the original local capture
         // route while offline. Retain ONLY a still-authorized local owner;

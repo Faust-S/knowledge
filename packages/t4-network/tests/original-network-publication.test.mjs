@@ -933,3 +933,49 @@ test('K59 original PRESENT anchor remains exact after later frame events extend 
   assert.ok(change.originalPresentRevision>again.originalPresentRevision);
   assert.notEqual(change.originalPresentEventId,again.originalPresentEventId);
 });
+
+test('K91 completed recipient publication skips obsolete index repair only with exact committed ACK evidence',async()=>{
+  const f=fixture(task(),{indexed:true,initialLegacy:true}),s=f.session,p=f.port(recipient);
+  const diff=await f.signed('DIFF_REQUEST',1,{familyRef:s.familyRef,fromHeads:[s.sourcePrefixDigestBefore]},recipient);
+  await p.prepareSignedBatch({slots:[{sequence:1,messageType:'DIFF_REQUEST'}],createSignedFrames:async()=>[diff]});
+  await p.publishPreparedFrame({sequence:1});
+  const ack=await f.signed('APPLIED_ACK',2,{changeId:s.changeId,contentDigest:H('ciphertext'),
+    recipientEventRef:'event:k91:recipient',recipientRevision:s.sourceRevision,recipientStateDigest:H('result')},recipient);
+  await p.prepareSignedBatch({slots:[{sequence:2,messageType:'APPLIED_ACK'}],createSignedFrames:async()=>[ack]});
+  await p.publishPreparedFrame({sequence:2});
+  const saved=await p.inspectOriginalPublication();
+  const inventoryPorts={technicalSchemaId:T4_LEGACY_TEST_TECHNICAL_SCHEMA_ID,technicalWorkspaceId:technical,
+    sourceWorkspaceId:ws,originalWriteOwnerRef:owner,sourceNodeRef:source,recipientNodeRef:recipient,
+    localNodeRef:recipient,scopeRef:scope,ownerEpoch:s.ownerEpoch,
+    originalKernel:f.kernel,getMode:f.mode,readOriginalHostContext:async()=>({workspaceId:technical,
+      originalWriteOwnerRef:owner,nodeRef:recipient,scopeRef:scope,hostSessionRef:f.host()}),
+    authorizeOriginalTechnicalRead:f.auth};
+  const proof={schema:'IWXA_T4_ORIGINAL_COMMITTED_RECIPIENT_RESULTS_V1',
+    ...Object.fromEntries(['technicalWorkspaceId','sourceWorkspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch'].map(k=>[k,inventoryPorts[k]])),
+    checkpointRef:'frontier:k91',frontierRevision:1,frontierChainHash:H('frontier'),originalT3EventChainVerified:true,
+    originalT3OnlyStore:true,uncommittedSelectionsOmitted:true,originalSubjectMutationInvoked:false,originalRecipientCursorAdvanced:false,
+    remoteNetworkReadRequired:false,newAppliedAckPermitted:false,historicalReceiptFabricated:false,currentSubjectStateClaimed:false,
+    results:[{session:s,frontierRecordRevision:1,frontierRecordChainHash:H('record'),originalRecipientEventId:'event:k91:recipient',
+      originalRecipientEventDigest:H('event'),originalRecipientStateDigest:H('result'),originalPhaseRef:'phase:k91',
+      originalPhaseChainHash:H('phase'),originalPublicationRef:saved.checkpointRef,originalPublicationChainHash:saved.chainHash,
+      signedAppliedAckDigest:'sha256:'+saved.frames[1].sha256,originalCommittedRecipientResultVerified:true,
+      originalT3EventReadback:true,historicalStateFromOriginalFrontier:true,historicalSubjectBytesReconstructed:false,
+      currentSubjectReadback:false,originalBusinessAppliedAtCommit:true,newAppliedAckPermitted:false}]};
+  f.enableIndexed();f.denyIndexMigration();f.restart();
+  let calls=0;
+  const step=(patch={})=>createT4OriginalPublicationIndexMigrationStepper({...inventoryPorts,
+    createOriginalPublicationPort:async()=>f.port(recipient),inspectOriginalCommittedRecipientResults:async q=>{
+      calls++;assert.equal(q.allowUncommitted,true);assert.equal(q.selections.length,1);
+      assert.equal(q.selections[0].sessionRef,s.sessionRef);return structuredClone(proof);
+    },...patch});
+  const before=f.counts(),indexCalls=f.indexCalls(),run=step(),r=await run();
+  assert.equal(r.state,'NETWORK_INDEX_MIGRATION_COMPLETE');assert.equal(r.skippedCompletedRecipientPublicationCount,1);
+  assert.equal(r.skippedCompletedRecipientIndexesRepaired,false);assert.equal(r.verifiedMigratedFrameCount,0);
+  assert.equal(await run(),null);assert.equal(calls,2);
+  assert.equal(f.indexCalls(),indexCalls);assert.equal(f.counts().networkCalls,before.networkCalls);
+  assert.equal(f.counts().signCalls,before.signCalls);assert.equal(f.counts().putCalls,before.putCalls);
+  const bad=structuredClone(proof);bad.results[0].signedAppliedAckDigest=H('wrong ack');
+  await assert.rejects(step({inspectOriginalCommittedRecipientResults:async()=>bad})(),err('NATIVE_INDEX_MIGRATION_COMPLETION_CONFLICT'));
+  const changed=structuredClone(proof);changed.results[0].originalPublicationChainHash=H('wrong publication');
+  await assert.rejects(step({inspectOriginalCommittedRecipientResults:async()=>changed})(),err('NATIVE_INDEX_MIGRATION_COMPLETION_CONFLICT'));
+});

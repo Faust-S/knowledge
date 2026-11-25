@@ -434,18 +434,60 @@ export async function readT4OriginalLocalRetiredRecipientSession({
 // instance and reconstructs the inventory from the SAME original Kernel.
 export function createT4OriginalPublicationIndexMigrationStepper({
   createOriginalPublicationPort,inspectOriginalCommittedSourceAcknowledgements=null,
-  inspectOriginalRetiredAttempt=null,...originalInventoryPorts
+  inspectOriginalCommittedRecipientResults=null,inspectOriginalRetiredAttempt=null,...originalInventoryPorts
 }={}){
   if(typeof createOriginalPublicationPort!=='function'||
     (inspectOriginalRetiredAttempt!==null&&typeof inspectOriginalRetiredAttempt!=='function')||
     (inspectOriginalCommittedSourceAcknowledgements!==null&&
       (typeof inspectOriginalCommittedSourceAcknowledgements!=='function'||
-        originalInventoryPorts.localNodeRef!==originalInventoryPorts.sourceNodeRef)))
+        originalInventoryPorts.localNodeRef!==originalInventoryPorts.sourceNodeRef))||
+    (inspectOriginalCommittedRecipientResults!==null&&
+      (typeof inspectOriginalCommittedRecipientResults!=='function'||
+        originalInventoryPorts.localNodeRef!==originalInventoryPorts.recipientNodeRef||
+        inspectOriginalCommittedSourceAcknowledgements!==null)))
     fail('PUBLICATION_MIGRATION_ORIGINAL_PORT_REQUIRED');
   let migrationInventory=null,migrationPosition=0,migratedFrames=0,migrationDone=false,
-    completedSourceRecords=null,skippedCompleted=0,retiredRecords=new Map(),skippedRetired=0;
+    completedRecords=null,skippedCompleted=0,retiredRecords=new Map(),skippedRetired=0;
   const readMigrationInventory=()=>readT4OriginalPublicationMigrationInventory(originalInventoryPorts);
+  async function readCompletedRecipient(records){
+    const out=new Map();
+    if(!records.length)return out;
+    const bySession=new Map(records.map(r=>[r.session.sessionRef,r]));
+    if(bySession.size!==records.length||new Set(records.map(r=>r.session.changeId)).size!==records.length)
+      fail('NATIVE_INDEX_MIGRATION_COMPLETION_CONFLICT');
+    const selections=records.map(({session:s})=>Object.fromEntries(
+      ['capturedSha256','changeId','sessionRef','sourceEventDigest','sourceEventId'].map(k=>[k,s[k]])));
+    const proof=await inspectOriginalCommittedRecipientResults({selections,allowUncommitted:true});
+    if(proof?.schema!=='IWXA_T4_ORIGINAL_COMMITTED_RECIPIENT_RESULTS_V1'||
+      !['technicalWorkspaceId','sourceWorkspaceId','originalWriteOwnerRef','sourceNodeRef','recipientNodeRef','scopeRef','ownerEpoch']
+        .every(k=>proof[k]===originalInventoryPorts[k])||
+      !ID(proof.checkpointRef)||!Number.isSafeInteger(proof.frontierRevision)||proof.frontierRevision<0||
+      !DIG(proof.frontierChainHash)||proof.originalT3EventChainVerified!==(proof.frontierRevision>0)||
+      proof.originalT3OnlyStore!==true||proof.uncommittedSelectionsOmitted!==true||
+      proof.originalSubjectMutationInvoked!==false||proof.originalRecipientCursorAdvanced!==false||
+      proof.remoteNetworkReadRequired!==false||proof.newAppliedAckPermitted!==false||
+      proof.historicalReceiptFabricated!==false||proof.currentSubjectStateClaimed!==false||
+      !Array.isArray(proof.results)||proof.results.length>records.length)
+      fail('NATIVE_INDEX_MIGRATION_COMPLETION_CONFLICT');
+    for(const item of proof.results){
+      const record=bySession.get(item?.session?.sessionRef);
+      if(!record||out.has(record.session.changeId)||!same(record.session,item.session)||
+        item.originalCommittedRecipientResultVerified!==true||item.originalT3EventReadback!==true||
+        item.historicalStateFromOriginalFrontier!==true||item.historicalSubjectBytesReconstructed!==false||
+        item.currentSubjectReadback!==false||item.originalBusinessAppliedAtCommit!==true||item.newAppliedAckPermitted!==false||
+        !Number.isSafeInteger(item.frontierRecordRevision)||item.frontierRecordRevision<1||
+        item.frontierRecordRevision>proof.frontierRevision||!ID(item.originalRecipientEventId)||
+        !ID(item.originalPhaseRef)||item.originalPublicationRef!==record.checkpointRef||
+        item.originalPublicationChainHash!==record.chainHash||
+        ![item.frontierRecordChainHash,item.originalRecipientEventDigest,item.originalRecipientStateDigest,
+          item.originalPhaseChainHash,item.signedAppliedAckDigest].every(DIG))
+        fail('NATIVE_INDEX_MIGRATION_COMPLETION_CONFLICT');
+      out.set(record.session.changeId,clone(item));
+    }
+    return out;
+  }
   async function readCompleted(records){
+    if(inspectOriginalCommittedRecipientResults!==null)return readCompletedRecipient(records);
     const out=new Map();
     if(inspectOriginalCommittedSourceAcknowledgements===null||!records.length)return out;
     const byChange=new Map(records.map(r=>[r.session.changeId,r.session]));
@@ -499,7 +541,7 @@ export function createT4OriginalPublicationIndexMigrationStepper({
     try{
       if(migrationInventory===null){
         const inventory=await readMigrationInventory();
-        completedSourceRecords=await readCompleted(inventory.records);
+        completedRecords=await readCompleted(inventory.records);
         migrationInventory=inventory;
       }
       const records=migrationInventory.records;
@@ -512,14 +554,20 @@ export function createT4OriginalPublicationIndexMigrationStepper({
         const sequences=saved.frames.filter(f=>f.state==='PRESENT').map(f=>f.sequence);
         const retired=await readRetired(record);
         if(retired!==null){
-          if(completedSourceRecords.has(record.session.changeId))fail('NATIVE_INDEX_MIGRATION_RETIREMENT_CONFLICT');
+          if(completedRecords.has(record.session.changeId))fail('NATIVE_INDEX_MIGRATION_RETIREMENT_CONFLICT');
           retiredRecords.set(record.checkpointRef,retired);skippedRetired++;
-        }else if(completedSourceRecords.has(record.session.changeId)){
-          // The original source already committed this exact recipient
-          // Result. Old addresses are not needed for its delivery. This
-          // deliberately does NOT claim a remote repair or live authority.
-          if(saved.frames.length<3||sequences.length!==saved.frames.length)
+        }else if(completedRecords.has(record.session.changeId)){
+          // Both roles may retain the exact completed original frontier
+          // instead of reviving old signatures or obsolete server indexes.
+          // Recipient completion is bound to its original publication and ACK.
+          if(sequences.length!==saved.frames.length)
             fail('NATIVE_INDEX_MIGRATION_COMPLETION_CONFLICT');
+          if(inspectOriginalCommittedRecipientResults!==null){
+            const proof=completedRecords.get(record.session.changeId),ack=saved.frames[1];
+            if(saved.frames.length!==2||saved.frames[0].messageType!=='DIFF_REQUEST'||
+              ack?.messageType!=='APPLIED_ACK'||'sha256:'+ack.sha256!==proof.signedAppliedAckDigest)
+              fail('NATIVE_INDEX_MIGRATION_COMPLETION_CONFLICT');
+          }else if(saved.frames.length<3)fail('NATIVE_INDEX_MIGRATION_COMPLETION_CONFLICT');
           skippedCompleted++;
         }else if(sequences.length){
           const observed=await port.reconcileOriginalPublishedFrameIndexes({sequences});
@@ -550,14 +598,14 @@ export function createT4OriginalPublicationIndexMigrationStepper({
           !same(after.replacementRecords??[],migrationInventory.replacementRecords??[]))
           fail('NATIVE_INDEX_MIGRATION_INVENTORY_CHANGED');
         const completedAfter=await readCompleted(after.records);
-        for(const [changeId,prior] of completedSourceRecords)
+        for(const [changeId,prior] of completedRecords)
           if(!same(completedAfter.get(changeId),prior))fail('NATIVE_INDEX_MIGRATION_COMPLETION_CONFLICT');
         for(const record of after.records){
           const prior=retiredRecords.get(record.checkpointRef);
           if(prior!==undefined&&(!same(await readRetired(record),prior)||completedAfter.has(record.session.changeId)))
             fail('NATIVE_INDEX_MIGRATION_RETIREMENT_CONFLICT');
         }
-        migrationDone=true;migrationInventory=null;completedSourceRecords=null;retiredRecords.clear();
+        migrationDone=true;migrationInventory=null;completedRecords=null;retiredRecords.clear();
       }
       return Object.freeze({state:migrationDone?'NETWORK_INDEX_MIGRATION_COMPLETE':'NETWORK_INDEX_MIGRATION_PROGRESS',
         migratedPublicationCount:migrationPosition-skippedCompleted-skippedRetired,pendingPublicationCount:records.length-migrationPosition,
@@ -566,6 +614,9 @@ export function createT4OriginalPublicationIndexMigrationStepper({
         ...(inspectOriginalCommittedSourceAcknowledgements!==null?{processedPublicationCount:migrationPosition,
           skippedCompletedSourcePublicationCount:skippedCompleted,
           skippedCompletedSourceIndexesRepaired:false}:{}),
+        ...(inspectOriginalCommittedRecipientResults!==null?{processedPublicationCount:migrationPosition,
+          skippedCompletedRecipientPublicationCount:skippedCompleted,
+          skippedCompletedRecipientIndexesRepaired:false}:{}),
         verifiedMigratedFrameCount:migratedFrames,originalSubjectMutationInvoked:false});
     }finally{running=false;}
   };

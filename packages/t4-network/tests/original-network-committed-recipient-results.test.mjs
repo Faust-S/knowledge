@@ -152,3 +152,22 @@ test('K24 fresh original Event authority and Host lifetime are required on every
   await assert.rejects(h.port().inspectOriginalCommittedRecipientResults({selections:h.selections}),
     err('RECIPIENT_CURSOR_NETWORK_MODE_OFF'));
 });
+
+test('K91 migration reads only committed original recipient publications, never treats an absent result as applied',async()=>{
+  const f=await fixture(),p=f.port(),missing={...f.selections[0],sessionRef:'session:not-committed'};
+  const query=[f.selections[7],missing,f.selections[0]];
+  const result=await p.inspectOriginalCommittedRecipientResults({selections:query,allowUncommitted:true});
+  assert.equal(result.uncommittedSelectionsOmitted,true);
+  assert.deepEqual(result.results.map(x=>x.session.sessionRef),[query[0].sessionRef,query[2].sessionRef]);
+  assert.equal(result.frontierRevision,8);
+  assert.equal(result.newAppliedAckPermitted,false);
+  assert.equal(result.originalRecipientCursorAdvanced,false);
+  assert.deepEqual(f.counts(),{eventReads:4,objectReads:4});
+  await assert.rejects(p.inspectOriginalCommittedRecipientResults({selections:query}),err('RECIPIENT_CURSOR_HISTORICAL_RESULT_NOT_COMMITTED'));
+  await assert.rejects(p.inspectOriginalCommittedRecipientResults({selections:[{...f.selections[0],capturedSha256:'0'.repeat(64)}],allowUncommitted:true}),
+    err('RECIPIENT_CURSOR_HISTORICAL_SESSION_MISMATCH'));
+  const empty=await p.inspectOriginalCommittedRecipientResults({selections:[missing],allowUncommitted:true});
+  assert.deepEqual(empty.results,[]);
+  f.revoke();
+  await assert.rejects(p.inspectOriginalCommittedRecipientResults({selections:query,allowUncommitted:true}),err('RECIPIENT_CURSOR_ORIGINAL_ACCESS_DENIED'));
+});

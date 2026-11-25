@@ -854,10 +854,13 @@ export function createT4OriginalNetworkRecipientCursorPort({
   // durable APPLIED phase and exact signed ACK were verified. A cold
   // historical read checks the original chain and all its Result Events.
   // It grants no new signing, publication, subject mutation or cursor CAS.
-  async function inspectOriginalCommittedRecipientResults({selections}={}){
+  async function inspectOriginalCommittedRecipientResults({selections,allowUncommitted=false}={}){
     const query=copy(selections);
     const selectionKeys=['capturedSha256','changeId','sessionRef','sourceEventDigest','sourceEventId'];
-    if(!Array.isArray(query)||query.length<1||query.length>1024||
+    // Migration may ask about an entire original publication inventory.
+    // Missing sessions are omitted, never represented as applied. The
+    // existing exact result query remains strict unless explicitly opted in.
+    if(typeof allowUncommitted!=='boolean'||!Array.isArray(query)||query.length<1||query.length>(allowUncommitted?100000:1024)||
       query.some(s=>!s||!same(Object.keys(s).sort(),selectionKeys)||
         ![s.sessionRef,s.changeId,s.sourceEventId].every(ID)||!DIG(s.sourceEventDigest)||
         typeof s.capturedSha256!=='string'||!/^[a-f0-9]{64}$/.test(s.capturedSha256))||
@@ -868,7 +871,10 @@ export function createT4OriginalNetworkRecipientCursorPort({
       const result=await readVerified(ctx,true,ids);
       const items=query.map(s=>{
         const found=result.selected.get(s.sessionRef),record=found?.record;
-        if(!record)fail('RECIPIENT_CURSOR_HISTORICAL_RESULT_NOT_COMMITTED',{sessionRef:s.sessionRef});
+        if(!record){
+          if(allowUncommitted)return null;
+          fail('RECIPIENT_CURSOR_HISTORICAL_RESULT_NOT_COMMITTED',{sessionRef:s.sessionRef});
+        }
         if(!selectionKeys.every(k=>record.session[k]===s[k]))
           fail('RECIPIENT_CURSOR_HISTORICAL_SESSION_MISMATCH',{sessionRef:s.sessionRef});
         return {session:copy(record.session),frontierRecordRevision:found.revision,
@@ -887,7 +893,7 @@ export function createT4OriginalNetworkRecipientCursorPort({
           historicalStateFromOriginalFrontier:true,historicalSubjectBytesReconstructed:false,
           currentSubjectReadback:false,originalBusinessAppliedAtCommit:true,
           newAppliedAckPermitted:false};
-      });
+      }).filter(item=>item!==null);
       return {revision:result.revision,chainHash:result.chainHash,
         originalT3VerifiedCursor:copy(result.cursor),items};
     };
@@ -897,7 +903,8 @@ export function createT4OriginalNetworkRecipientCursorPort({
       ...identity,checkpointRef,frontierRevision:first.revision,frontierChainHash:first.chainHash,
       originalT3VerifiedCursor:first.originalT3VerifiedCursor,
       results:frozen(first.items.map(x=>frozen(x))),
-      originalT3EventChainVerified:true,originalT3OnlyStore:true,
+      originalT3EventChainVerified:first.revision>0,originalT3OnlyStore:true,
+      ...(allowUncommitted?{uncommittedSelectionsOmitted:true}:{}),
       originalSubjectMutationInvoked:false,originalRecipientCursorAdvanced:false,
       remoteNetworkReadRequired:false,newAppliedAckPermitted:false,
       historicalReceiptFabricated:false,currentSubjectStateClaimed:false});
