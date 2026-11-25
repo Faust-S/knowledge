@@ -532,3 +532,35 @@ test('K95 next original Event includes the same twice-verified frontier without 
   f.deny();await assert.rejects(port.readNextOriginalSourceEventWithFrontier(),error('HOST_CURSOR_ORIGINAL_ACCESS_DENIED'));
   assert.equal(f.puts,1);
 });
+
+test('K113 source frontier uses original commit pages for baseline and next Event without legacy source scans',async()=>{
+  const f=await fixture(),a=admittedSourceBaseline(f);
+  let reads=0,inside=false;
+  const options={...a.options,
+    readOriginalSourceEvents:async()=>{throw Error('unexpected legacy source history');},
+    withOriginalHistoryReadBoundary:async(_proof,run)=>{
+      assert.equal(inside,false);inside=true;
+      try{return await run();}finally{inside=false;}
+    },
+    readOriginalCommitPage:async proof=>{
+      assert.equal(inside,true);reads++;
+      const start=proof.afterEventId===null?0:f.sourceEvents.findIndex(e=>e.event_id===proof.afterEventId)+1;
+      const rows=f.sourceEvents.slice(start,start+proof.limit);
+      return {entries:rows.map(event=>({event:structuredClone(event),legacy_history:false})),
+        next_after_event_id:rows.at(-1)?.event_id??proof.afterEventId,
+        has_more:start+rows.length<f.sourceEvents.length,order:'LOCAL_TRANSACTION_COMMIT_ORDER',
+        legacy_history_causal_proven:false};
+    },
+  };
+  const port=f.port(options);
+  assert.deepEqual((await port.inspectOriginalHostCursor()).originalT3NextCursor,f.before);
+  assert.deepEqual((await port.readNextOriginalSourceEvent()).nextCursor,f.latest.nextCursor);
+  await port.commitAcknowledgedCursor({recovery:f.recovery});
+  const cold=f.port(options);
+  assert.equal((await cold.readNextOriginalSourceEvent()).state,'NO_NEXT_ORIGINAL_EVENT');
+  const next=originalEvent(3);next.occurred_at='2026-11-22T00:00:00.000Z';f.sourceEvents.push(next);
+  assert.equal((await cold.readNextOriginalSourceEvent()).window.lastEventId,next.event_id);
+  assert.ok(reads>0);assert.equal(f.puts,1);
+  assert.throws(()=>f.port({...options,withOriginalHistoryReadBoundary:undefined}),
+    error('HOST_CURSOR_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED'));
+});

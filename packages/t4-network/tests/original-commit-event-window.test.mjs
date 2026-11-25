@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {readT4OriginalEventWindow,readT4OriginalCommitEventWindow} from '../src/network/original-event-window.mjs';
+import {readT4OriginalEventWindow,readT4OriginalCommitEventWindow,readT4OriginalCommitHistoryForCompatibility} from '../src/network/original-event-window.mjs';
 const workspaceId='ws-commit',originalWriteOwnerRef='owner-commit';
 const event=n=>({event_id:'evt-'+n,event_type:'object.changed',workspace_id:workspaceId,
   service_id:'svc',occurred_at:'2026-11-25T10:00:00.000Z',object_id:'obj-'+n,revision:1,
@@ -211,4 +211,20 @@ test('K112 rejects unbounded or arbitrary trace queries and rechecks original pe
   await assert.rejects(readT4OriginalCommitEventWindow({...options,pageSize:1,maxEvents:1,
     authorizeOriginalRead:async()=>++checks<7,originalTraceQuery:{kind:'capture_ref',value:'x'}}),
     {code:'ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED'});
+});
+
+test('K113 transitional full-array consumers receive the same original commit order without timestamp resorting',async()=>{
+  const rows=[event(5),event(2),event(9)];
+  rows[2].occurred_at='2026-11-24T00:00:00.000Z';
+  for(const pageSize of [1,2,16]){
+    const {options}=setup(rows);
+    const original=await readT4OriginalCommitHistoryForCompatibility({...options,pageSize});
+    assert.deepEqual(original,rows);
+    assert.notEqual(original[0],rows[0]);
+  }
+});
+test('K113 compatibility reader cannot release a partially authorized original history',async()=>{
+  const rows=[event(1),event(2),event(3)];let checks=0;
+  await assert.rejects(readT4OriginalCommitHistoryForCompatibility({...setup(rows).options,pageSize:1,
+    authorizeOriginalRead:async()=>++checks<5}),{code:'ORIGINAL_T3_EVENT_READ_NOT_AUTHORIZED'});
 });

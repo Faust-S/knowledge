@@ -183,10 +183,13 @@ export function createT4OriginalNetworkHostCursorPort({
   originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,
   scopeRef,ownerEpoch,getMode,readOriginalHostContext,
   authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-  authorizeOriginalSourceRead,readOriginalSourceEvents,
+  authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,
   readOriginalAdmittedBaseline=null,verifyOriginalSourceBaseline=null,originalBaselinePort=null,
 }={}){
   requireT4OriginalNetworkTechnicalSchemaId(technicalSchemaId);
+  const commitHistory=readOriginalCommitPage!==undefined||withOriginalHistoryReadBoundary!==undefined;
+  if(commitHistory&&![readOriginalCommitPage,withOriginalHistoryReadBoundary].every(f=>typeof f==='function'))
+    fail('HOST_CURSOR_ORIGINAL_COMMIT_HISTORY_PORTS_REQUIRED');
   const baselineRequired=originalBaselinePort!==null||readOriginalAdmittedBaseline!==null||verifyOriginalSourceBaseline!==null;
   if(originalBaselinePort!==null?(readOriginalAdmittedBaseline!==null||verifyOriginalSourceBaseline!==null):
     baselineRequired&&![readOriginalAdmittedBaseline,verifyOriginalSourceBaseline].every(f=>typeof f==='function'))
@@ -209,6 +212,11 @@ export function createT4OriginalNetworkHostCursorPort({
   const checkpointRef='t4:net:ackfrontier:'+HASH(identity).slice(7);
   const genesis=HASH({identity,checkpointRef,stage:'GENESIS'});
   const mode=()=>{if(getMode()!=='T4_NETWORK')fail('HOST_CURSOR_NETWORK_MODE_OFF');};
+  const liveHistory=fn=>async(...args)=>{mode();const result=await fn(...args);mode();return result;};
+  const sourceHistoryPorts=()=>commitHistory?{
+    readOriginalCommitPage:liveHistory(readOriginalCommitPage),
+    withOriginalHistoryReadBoundary:liveHistory(withOriginalHistoryReadBoundary),
+  }:{readOriginalEvents:liveHistory(readOriginalSourceEvents)};
   async function context(){
     mode();
     const c=await readOriginalHostContext();
@@ -253,9 +261,7 @@ export function createT4OriginalNetworkHostCursorPort({
         }));
         mode();return ok===true;
       },
-      readOriginalEvents:async(...args)=>{
-        mode();const value=await readOriginalSourceEvents(...args);mode();return value;
-      },
+      ...sourceHistoryPorts(),
     });
     if(!validCursor(cursor,sourceWorkspaceId,originalWriteOwnerRef)||
       !same(res.nextCursor,cursor)||res.window.count!==1||
@@ -281,7 +287,7 @@ export function createT4OriginalNetworkHostCursorPort({
       fail('HOST_CURSOR_ORIGINAL_BASELINE_DENIED');
     await readT4OriginalEventWindow({workspaceId:sourceWorkspaceId,originalWriteOwnerRef,
       cursor:b.sourceCursor,maxEvents:1,authorizeOriginalRead:authorizeOriginalSourceRead,
-      readOriginalEvents:readOriginalSourceEvents});
+      ...sourceHistoryPorts()});
     await guard(initial,'t1.getObject','baseline-readback');
     return b;
   }
@@ -586,9 +592,7 @@ export function createT4OriginalNetworkHostCursorPort({
         }));
         mode();return ok===true;
       },
-      readOriginalEvents:async(...args)=>{
-        mode();const value=await readOriginalSourceEvents(...args);mode();return value;
-      },
+      ...sourceHistoryPorts(),
     });
     await guard(initial,'t1.getObject','next-event-checkpoint');
     const after=await readVerified(initial);
@@ -632,7 +636,7 @@ export function createT4OriginalNetworkHostCursorPort({
       originalWriteOwnerRef,sourceNodeRef,recipientNodeRef,scopeRef,ownerEpoch,
       getMode:originalHostLifetimeMode(getMode,isHostActive),readOriginalHostContext,
       authorizeOriginalTechnicalRead,authorizeOriginalTechnicalWrite,
-      authorizeOriginalSourceRead,readOriginalSourceEvents,
+      authorizeOriginalSourceRead,readOriginalSourceEvents,readOriginalCommitPage,withOriginalHistoryReadBoundary,
       readOriginalAdmittedBaseline,verifyOriginalSourceBaseline,
       originalBaselinePort:scopeBaselinePort(originalBaselinePort,isHostActive),
     }),

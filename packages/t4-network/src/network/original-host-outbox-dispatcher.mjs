@@ -449,6 +449,9 @@ export async function readT4OriginalNativeCaptureSessionAtCursor(params={}){
       'authorizeOriginalRead','authorizeNetworkPublish','readOriginalEvents',
       'listOriginalOutbox','readOriginalIntent','readOriginalOutbox'].every(k=>typeof params[k]==='function'))
     fail('DISPATCH_NATIVE_SELECTION_ORIGINAL_PORTS_REQUIRED');
+  const commitHistory=params.readOriginalCommitPage!==undefined||params.withOriginalHistoryReadBoundary!==undefined;
+  if(commitHistory&&![params.readOriginalCommitPage,params.withOriginalHistoryReadBoundary].every(f=>typeof f==='function'))
+    fail('DISPATCH_NATIVE_SELECTION_COMMIT_HISTORY_PORTS_REQUIRED');
   const before=structuredClone(params.sourceCursorBefore);
   if(!validCursor(before,params.workspaceId,params.originalWriteOwnerRef))
     fail('DISPATCH_NATIVE_SELECTION_ORIGINAL_CURSOR_REQUIRED');
@@ -485,10 +488,13 @@ export async function readT4OriginalNativeCaptureSessionAtCursor(params={}){
   for(const k of ['authorizeOriginalRead','authorizeNetworkPublish','readOriginalEvents',
     'listOriginalOutbox','readOriginalIntent','readOriginalOutbox'])
     scoped[k]=live(params[k],k);
+  if(commitHistory)for(const k of ['readOriginalCommitPage','withOriginalHistoryReadBoundary'])
+    scoped[k]=live(params[k],k);
   const read=()=>readT4OriginalEventWindow({
     workspaceId:identity.workspaceId,originalWriteOwnerRef:identity.originalWriteOwnerRef,
     cursor:before,maxEvents:1,authorizeOriginalRead:scoped.authorizeOriginalRead,
-    readOriginalEvents:scoped.readOriginalEvents,
+    ...(commitHistory?{readOriginalCommitPage:scoped.readOriginalCommitPage,
+      withOriginalHistoryReadBoundary:scoped.withOriginalHistoryReadBoundary}:{readOriginalEvents:scoped.readOriginalEvents}),
   });
   await guard('select-original-event');
   const selected=await read(),w=selected.window,a=selected.nextCursor;

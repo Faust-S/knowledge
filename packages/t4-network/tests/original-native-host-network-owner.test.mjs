@@ -994,3 +994,12 @@ test('K92 original signed native relays drain three causal captures, including t
     }
   }finally{clearTimeout(deadline);await stop();sender.relay.close();receiver.relay.close();key.fill(0);}
 });
+
+test('K113 commit-order profile requires source role, signed source window and original history boundary',()=>{
+  for(const options of [
+    {role:'RECIPIENT',enableOriginalCommitOrder:true,enableSourceEventWindowRead:true},
+    {role:'SOURCE',enableOriginalCommitOrder:true},
+    {role:'SOURCE',enableOriginalCommitOrder:true,enableSourceEventWindowRead:true},
+    {role:'SOURCE',enableOriginalCommitOrder:'true'},
+  ])assert.throws(()=>createT4OriginalNativeHostNetworkOwner(options),e=>e?.code==='NATIVE_NETWORK_OWNER_COMMIT_ORDER_PROFILE_INVALID');
+});

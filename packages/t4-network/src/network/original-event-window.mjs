@@ -156,11 +156,11 @@ export function countT4OriginalLocalSnapshotTrace(token,{workspaceId,originalWri
 // that boundary and the original scoped commit-page operation.
 // Retain only Event identities, the current page and the bounded projection;
 // V1 prefixes still require a scan from the beginning, not a new chain.
-export async function readT4OriginalCommitEventWindow({
+async function readCommitEventWindow({
   workspaceId,originalWriteOwnerRef,cursor=null,maxEvents=128,pageSize=256,
   authorizeOriginalRead,readOriginalCommitPage,withOriginalHistoryReadBoundary,
   originalTraceQuery=null,
-}={}){
+}={},collectOriginalEvents=false){
   if(!id(workspaceId)||!id(originalWriteOwnerRef))fail('ORIGINAL_T3_OWNER_SCOPE_REQUIRED');
   if(!Number.isSafeInteger(maxEvents)||maxEvents<1||maxEvents>1024||
     !Number.isSafeInteger(pageSize)||pageSize<1||pageSize>1024)
@@ -195,6 +195,7 @@ export async function readT4OriginalCommitEventWindow({
     const start=before?.seenEventCount??0,previousDigest=before?.sourcePrefixDigest??emptyPrefix;
     let after=null,count=0,eventsRead=0,anchored=before===null,hasMore=false,modern=false;
     let traceMatches=0,nextOriginalEvent=null;
+    const compatibilityRows=collectOriginalEvents?[]:null;
     for(;;){
       await checkRead();
       const page=structuredClone(await readOriginalCommitPage(immutable({
@@ -231,6 +232,12 @@ export async function readT4OriginalCommitEventWindow({
       const last=rows.at(-1)?.eventId??after;
       if(page.next_after_event_id!==last)fail('ORIGINAL_COMMIT_EVENT_PAGE_INVALID');
       eventsRead+=rows.length;
+      if(compatibilityRows!==null){
+        // Unmigrated consumers still require a bounded whole-array result.
+        // Keep their former ceiling rather than quietly exhaust the relay.
+        if(eventsRead>100000)fail('ORIGINAL_COMMIT_COMPATIBILITY_HISTORY_LIMIT');
+        for(const entry of page.entries)compatibilityRows.push(entry.event);
+      }
       for(let i=0;i<rows.length;i++){
         const e=rows[i];
         if(available.length===maxEvents){hasMore=true;break;}
@@ -253,7 +260,7 @@ export async function readT4OriginalCommitEventWindow({
       }
       if(available.length===maxEvents){
         hasMore=hasMore||page.has_more;
-        if(trace===null)break;
+        if(trace===null&&compatibilityRows===null)break;
       }
       if(!page.has_more)break;
       after=last;
@@ -275,6 +282,7 @@ export async function readT4OriginalCommitEventWindow({
     await checkRead();
     completed=immutable({window:immutable({...message,windowDigest:hash(message)}),
       nextCursor,originalEventsRead:eventsRead,
+      ...(compatibilityRows===null?{}:{originalEvents:compatibilityRows}),
       ...(trace===null?{}:{originalTraceEvidence:immutable({kind:trace.kind,value:trace.value,
         matchCount:traceMatches,nextOriginalEvent,originalHistoryFullyRead:true})})});
     return completed;
@@ -288,6 +296,17 @@ export async function readT4OriginalCommitEventWindow({
     await requireRead();
     return completed;
   }finally{active=false;}
+}
+
+export async function readT4OriginalCommitEventWindow(params={}){
+  return readCommitEventWindow(params);
+}
+// Transitional adapter for original consumers not yet migrated to bounded
+// proofs. It uses precisely the same original commit order and validation;
+// no calendar-time fallback is permitted in the commit-order profile.
+export async function readT4OriginalCommitHistoryForCompatibility(params={}){
+  const result=await readCommitEventWindow({...params,cursor:null,maxEvents:1,originalTraceQuery:null},true);
+  return result.originalEvents;
 }
 
 export async function readT4OriginalEventWindow({
